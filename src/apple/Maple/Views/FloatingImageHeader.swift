@@ -3,15 +3,20 @@ import SwiftUI
 
 /// Separate native glass surfaces keep navigation, context, and actions legible.
 /// The center yields width before either 44-point action group can be clipped.
-struct FloatingImageHeader<Center: View, Trailing: View>: View {
+/// An optional accessory (the open Duo's group switcher) joins the same row
+/// as one more glass group, so every top control sits on one level (#5710).
+struct FloatingImageHeader<Center: View, Trailing: View, Accessory: View>: View {
   let identifierPrefix: String
   let onBack: () -> Void
   @ViewBuilder let center: () -> Center
   @ViewBuilder let trailing: () -> Trailing
+  @ViewBuilder let accessory: () -> Accessory
+
+  private var hasAccessory: Bool { Accessory.self != EmptyView.self }
 
   var body: some View {
     glassContainer
-      .frame(maxWidth: 600)
+      .frame(maxWidth: hasAccessory ? 820 : 600)
       .padding(.horizontal, 20)
       .layoutPriority(1)
       .accessibilityElement(children: .contain)
@@ -50,13 +55,34 @@ struct FloatingImageHeader<Center: View, Trailing: View>: View {
         .frame(height: 44)
         .modifier(PhotoHeaderGlass())
         .fixedSize()
+
+      if hasAccessory {
+        accessory()
+          .padding(.horizontal, 4)
+          .frame(height: 44)
+          .modifier(PhotoHeaderGlass())
+          .fixedSize()
+      }
     }
     .foregroundStyle(ProTokens.text)
   }
 }
 
+extension FloatingImageHeader where Accessory == EmptyView {
+  init(
+    identifierPrefix: String,
+    onBack: @escaping () -> Void,
+    @ViewBuilder center: @escaping () -> Center,
+    @ViewBuilder trailing: @escaping () -> Trailing
+  ) {
+    self.init(
+      identifierPrefix: identifierPrefix, onBack: onBack, center: center, trailing: trailing,
+      accessory: { EmptyView() })
+  }
+}
+
 /// System Liquid Glass follows accessibility settings; older OSes use material.
-private struct PhotoHeaderGlass: ViewModifier {
+struct PhotoHeaderGlass: ViewModifier {
   func body(content: Content) -> some View {
     if #available(iOS 26.0, macOS 26.0, *) {
       content.glassEffect(.regular, in: .capsule)

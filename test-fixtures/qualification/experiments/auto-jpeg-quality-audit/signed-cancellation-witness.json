@@ -1,0 +1,30 @@
+{
+  "description": "Equal positive/negative errors cancel exactly inside a reference-luma band. This visibly incorrect alternating image passes the old bias check.",
+  "signed_band_results": {
+    "0.50-0.75": {
+      "n": 65536,
+      "R": -1.3877787807814457e-17,
+      "G": -1.3877787807814457e-17,
+      "B": -1.3877787807814457e-17
+    }
+  },
+  "diagnostic_errors": {
+    "mean_absolute_rgb_error": 0.19999999999999996,
+    "p95_absolute_channel_error": 0.2,
+    "worst_8x8_tile_mean_absolute_error": 0.19999999999999996,
+    "per_channel_absolute_error": [
+      0.20000000000019258,
+      0.20000000000019258,
+      0.20000000000019258
+    ],
+    "per_channel_signed_error": [
+      -2.7755575615628914e-17,
+      -2.7755575615628914e-17,
+      -2.7755575615628914e-17
+    ],
+    "black_channel_fraction": 0.0,
+    "white_channel_fraction": 0.0
+  },
+  "original_bias_gate_passes": true,
+  "image_quality_qualification": false
+}

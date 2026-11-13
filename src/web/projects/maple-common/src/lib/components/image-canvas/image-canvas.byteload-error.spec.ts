@@ -138,12 +138,12 @@ describe('ImageCanvasComponent — recoverable byte-load error (#2407)', () => {
         filename: terminal === 'normalization failed' ? 'photo.x3f' : 'photo.dng',
       } as Asset);
       await settle();
-      expect(capabilities.for(id).autoFit).toBe(false);
+      expect(capabilities.for(id).autoFit).toBe('unfitted');
       if (terminal === 'normalization failed')
         expect(previewSpy).toHaveBeenCalledWith(source, 'x3f');
       await changeProfile('Neutral');
       await changeProfile('Auto');
-      expect(capabilities.for(id).autoFit).toBe(false);
+      expect(capabilities.for(id).autoFit).toBe('unfitted');
       expect(decodeSpy).not.toHaveBeenCalled();
       expect(source).toEqual(new Uint8Array([4, 5, 6]));
     });
@@ -165,7 +165,7 @@ describe('ImageCanvasComponent — recoverable byte-load error (#2407)', () => {
       .mockReturnValueOnce(new Promise(() => undefined));
     focused.set({ id: 'photos:retry', filename: 'photo.dng' } as Asset);
     await settle();
-    expect(capabilities.for('photos:retry').autoFit).toBe(false);
+    expect(capabilities.for('photos:retry').autoFit).toBe('unfitted');
     fixture.componentInstance.retryByteLoad();
     await settle();
     expect(capabilities.for('photos:retry').autoFit).toBeUndefined();
@@ -194,12 +194,16 @@ describe('ImageCanvasComponent — recoverable byte-load error (#2407)', () => {
         capabilities.seedProfile(
           id,
           null,
-          newer === 'completed active',
+          newer === 'completed active' ? 'applied' : 'unfitted',
           capabilities.autoFitRevisionFor(id),
         );
       await settle();
       expect(capabilities.for(id).autoFit).toBe(
-        newer === 'completed active' ? true : newer === 'completed unavailable' ? false : undefined,
+        newer === 'completed active'
+          ? 'applied'
+          : newer === 'completed unavailable'
+            ? 'unfitted'
+            : undefined,
       );
       expect(decodeSpy).not.toHaveBeenCalled();
     });
@@ -220,19 +224,21 @@ describe('ImageCanvasComponent — recoverable byte-load error (#2407)', () => {
       bytesForAssetSpy.mockResolvedValue(new Uint8Array([4, 5, 6]));
       if (failure === 'decode') decodeSpy.mockRejectedValueOnce(new Error('cold decode failed'));
       else vi.mocked(createImageBitmap).mockRejectedValueOnce(new Error('cold bitmap failed'));
-      decodeSpy.mockImplementation(() => Promise.resolve({ ...decodedAt(512), autoFit: true }));
+      decodeSpy.mockImplementation(() =>
+        Promise.resolve({ ...decodedAt(512), autoFit: 'applied' }),
+      );
       focused.set({ id: 'photos:cold-failed', filename: 'photo.dng' } as Asset);
       await settle();
-      expect(capabilities.for('photos:cold-failed').autoFit).toBe(false);
+      expect(capabilities.for('photos:cold-failed').autoFit).toBe('unfitted');
       expect(fixture.componentInstance.currentBytes).not.toBeNull();
       expect(fixture.componentInstance.coldOpenDone).toBe(false);
       await changeProfile('Neutral');
       await changeProfile('Auto');
-      expect(capabilities.for('photos:cold-failed').autoFit).toBe(false);
+      expect(capabilities.for('photos:cold-failed').autoFit).toBe('unfitted');
       expect(decodeSpy).toHaveBeenCalledOnce();
       fixture.componentInstance.retryByteLoad();
       await settle();
-      expect(capabilities.for('photos:cold-failed').autoFit).toBe(true);
+      expect(capabilities.for('photos:cold-failed').autoFit).toBe('applied');
       expect(fixture.componentInstance.coldOpenDone).toBe(true);
       expect(fixture.componentInstance.imageBitmap()).not.toBeNull();
       expect(bytesForAssetSpy).toHaveBeenCalledTimes(2);
@@ -248,7 +254,10 @@ describe('ImageCanvasComponent — recoverable byte-load error (#2407)', () => {
     decodeSpy
       .mockImplementationOnce(() => held)
       .mockImplementation((_b, _e, xmp, max) =>
-        Promise.resolve({ ...decodedAt(max), autoFit: !xmp?.includes('Neutral') }),
+        Promise.resolve({
+          ...decodedAt(max),
+          autoFit: xmp?.includes('Neutral') ? 'unfitted' : 'applied',
+        }),
       );
     vi.spyOn(fixture.componentInstance.state, 'updateAssetDimensions').mockImplementation(() =>
       focused.update((asset) => (asset ? { ...asset } : null)),
@@ -257,15 +266,15 @@ describe('ImageCanvasComponent — recoverable byte-load error (#2407)', () => {
     await settle();
     expect(decodeSpy).toHaveBeenCalledOnce();
     await changeProfile('Neutral');
-    finish({ ...decodedAt(512), autoFit: true });
+    finish({ ...decodedAt(512), autoFit: 'applied' });
     await settle(REFINE_MS + 50);
     expect(decodeSpy.mock.calls.some((call) => call[2]?.includes('Neutral'))).toBe(true);
-    expect(fixture.componentInstance.canvasSvc.currentPixels()?.autoFit).toBe(false);
-    expect(capabilities.for('photos:held').autoFit).toBe(false);
+    expect(fixture.componentInstance.canvasSvc.currentPixels()?.autoFit).toBe('unfitted');
+    expect(capabilities.for('photos:held').autoFit).toBe('unfitted');
     await changeProfile('Auto');
     await settle(REFINE_MS + 50);
-    expect(fixture.componentInstance.canvasSvc.currentPixels()?.autoFit).toBe(true);
-    expect(capabilities.for('photos:held').autoFit).toBe(true);
+    expect(fixture.componentInstance.canvasSvc.currentPixels()?.autoFit).toBe('applied');
+    expect(capabilities.for('photos:held').autoFit).toBe('applied');
     expect(source).toEqual(new Uint8Array([4, 5, 6]));
     expect(bytesForAssetSpy).toHaveBeenCalledOnce();
   });

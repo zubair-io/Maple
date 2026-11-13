@@ -180,7 +180,7 @@ function _emptyMixedMap(): MixedValueMap {
 // ---------------------------------------------------------------------------
 
 export type BatchApplyMetadata = Partial<XmpMetadata> & {
-  keywords?: string[];
+  keywords?: string[] | null;
   rating?: number | null;
   flag?: 'pick' | 'reject' | 'unflagged' | null;
   colorLabel?: ColorLabelValue | null;

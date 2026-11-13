@@ -11,6 +11,13 @@ use crate::{
 };
 use rayon::prelude::*;
 
+#[path = "encode_p3_auto.rs"]
+mod encode_p3_auto;
+#[path = "encode_retained.rs"]
+mod encode_retained;
+pub use encode_p3_auto::rec2020_to_p3_auto_encoded;
+pub(crate) use encode_retained::rec2020_to_display_encoded;
+
 /// Which display primaries the `display_encode` view-tail converts to.
 ///
 /// The OETF is identical for both variants (IEC 61966-2-1 / 2.4-gamma —

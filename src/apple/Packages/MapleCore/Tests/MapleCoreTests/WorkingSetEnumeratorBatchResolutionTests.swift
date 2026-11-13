@@ -16,6 +16,7 @@ import FileProvider
 import Foundation
 import XCTest
 @testable import MapleCore
+@testable import MapleFileProviderCore
 
 final class WorkingSetEnumeratorBatchResolutionTests: XCTestCase {
     /// Thread-safe request recorder — `stubbedSequence`'s provider runs on
@@ -85,7 +86,7 @@ final class WorkingSetEnumeratorBatchResolutionTests: XCTestCase {
         let observer = TestChangeObserver()
         makeEnumerator(session: session)
             .enumerateChanges(for: observer,
-                              from: NSFileProviderSyncAnchor(Data("0".utf8)))
+                              from: WorkingSetEnumerator.anchor(0))
         let finished = await observer.waitUntilFinished(timeoutSeconds: 5)
         XCTAssertTrue(finished, "enumerateChanges did not finish in time")
         return observer

@@ -68,7 +68,7 @@ function seedDirtyStages(db: Database, assetId: string): void {
     dead: true,
   });
   insertStageState(db, assetId, 'preview', { version: 3, processedAt });
-  insertStageState(db, assetId, 'meili', { version: 5, attempts: 1, processedAt });
+  insertStageState(db, assetId, 'embed', { version: 5, attempts: 1, processedAt });
 }
 
 /** One asset located at `relPath`/`filename` under the temp `root`, with the
@@ -127,7 +127,7 @@ function expectStageReset(row: StageRow): void {
 }
 
 describe('relocateAsset', () => {
-  test('move: repoints the location, resets thumb/preview + meili, deletes the source', async () => {
+  test('move: repoints the location, resets thumb/preview + embed, deletes the source', async () => {
     using live = await createLiveTestDatabase();
     await write('a/IMG_1.dng', 'pixels');
     const { id } = seedAsset(live.db, 'a', 'IMG_1.dng');
@@ -152,7 +152,7 @@ describe('relocateAsset', () => {
     expect(row.filename).toBe('IMG_1.dng');
     expectStageReset(stage(live.db, id, 'thumb'));
     expect(stage(live.db, id, 'preview').version).toBe(0);
-    expect(stage(live.db, id, 'meili').version).toBe(0);
+    expect(stage(live.db, id, 'embed').version).toBe(0);
   });
 
   test('copy: the row stays untouched — the source asset keeps its identity', async () => {

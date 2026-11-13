@@ -290,8 +290,8 @@ describe('/api/search?placeQuery', () => {
   it("'Musum' (typo) returns no matches — the sidecar is what fixes that", async () => {
     const { status, body } = await search('placeQuery=Musum');
     expect(status).toBe(200);
-    // The database path has no typo tolerance, by design: Meilisearch is the
-    // branch that provides it, and this is the fallback beneath it.
+    // The database path has no typo tolerance, by design: the in-process engine
+    // provides it, and this is the fallback beneath it.
     expect(body.total).toBe(0);
   });
 

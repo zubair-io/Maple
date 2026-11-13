@@ -82,6 +82,7 @@ final class NativeWorkflowHistoryTests: EditorTestCase {
     let (directory, raw, original) = try files()
     defer { try? FileManager.default.removeItem(at: directory) }
     let session = EditSession(asset: AssetRef(url: raw), model: .default, culling: CullingState())
+    await session.loadSidecar()
     session.model.exposure = 0.25
     session.model.exposure = 0.5
     session.beginEdit()
@@ -134,7 +135,8 @@ final class NativeWorkflowHistoryTests: EditorTestCase {
     let snapshot = WorkflowSnapshot(
       id: UUID().uuidString.lowercased(), name: "Original", createdAtMs: 1, adjustmentXmp: initial)
     let workflow = SidecarWorkflow(
-      schemaVersion: 1, variantId: "primary", variantName: "Original", snapshots: [snapshot],
+      schemaVersion: WorkflowContract.version, variantId: "primary", variantName: "Original",
+      snapshots: [snapshot],
       history: [])
     try Data(WorkflowSidecarCore.embed(workflow, in: initial).utf8).write(
       to: SidecarPath.sidecarURL(for: raw))
@@ -159,12 +161,14 @@ final class NativeWorkflowHistoryTests: EditorTestCase {
     defer { try? FileManager.default.removeItem(at: directory) }
     let initial = XMPSerializer.serialize(model: .default, culling: CullingState())
     let workflow = SidecarWorkflow(
-      schemaVersion: 1, variantId: "primary", variantName: "Original", snapshots: [], history: [])
+      schemaVersion: WorkflowContract.version, variantId: "primary", variantName: "Original",
+      snapshots: [], history: [])
     let future = try WorkflowSidecarCore.embed(workflow, in: initial).replacingOccurrences(
-      of: "<papp:SchemaVersion>1", with: "<papp:SchemaVersion>2")
+      of: "<papp:SchemaVersion>2", with: "<papp:SchemaVersion>3")
     let sidecar = SidecarPath.sidecarURL(for: raw)
     try Data(future.utf8).write(to: sidecar)
     let session = EditSession(asset: AssetRef(url: raw), model: .default, culling: CullingState())
+    await session.loadSidecar()
     session.beginEdit(description: "Exposure")
     session.model.exposure = 1.25
     session.endEdit()
@@ -205,7 +209,8 @@ final class NativeWorkflowHistoryTests: EditorTestCase {
     defer { try? FileManager.default.removeItem(at: directory) }
     let initial = XMPSerializer.serialize(model: .default, culling: CullingState())
     let workflow = SidecarWorkflow(
-      schemaVersion: 1, variantId: UUID().uuidString.lowercased(), variantName: "Misplaced branch",
+      schemaVersion: WorkflowContract.version, variantId: UUID().uuidString.lowercased(),
+      variantName: "Misplaced branch",
       snapshots: [], history: [])
     let misplaced = try WorkflowSidecarCore.embed(workflow, in: initial)
     let sidecar = SidecarPath.sidecarURL(for: raw)

@@ -32,7 +32,7 @@ function addresses(rows: readonly LocationRow[]): string[] {
 }
 
 describe('discover producer — dedup', () => {
-  it('revives a reaped row when its content is rediscovered, and re-arms meili (#2977)', async () => {
+  it('revives a reaped row when its content is rediscovered, and re-arms embed (#2977)', async () => {
     using library = await createDiscoverLibrary('discover-revive-');
     const file = path.join(library.root, 'BACK.dng');
     const bytes = Buffer.alloc(70 * 1024, 0xcd);
@@ -40,7 +40,7 @@ describe('discover producer — dedup', () => {
     const { maple_id, sha1_head } = await hashFileForId(file);
 
     // A reaped row for this content: soft-deleted, its location tagged missing,
-    // and the meili stage at a version it reached before the reap tombstoned
+    // and the embed stage at a version it reached before the reap tombstoned
     // its search document.
     const id = seedAsset(library.db, {
       id: newObjectIdHex(),
@@ -49,7 +49,7 @@ describe('discover producer — dedup', () => {
       size: bytes.length,
       deletedAt: '2026-08-10T00:00:00.000Z',
       deletedReason: 'reaped',
-      stages: ['meili', 'embed'],
+      stages: ['search-blob', 'embed'],
     });
     seedLocation(library.db, {
       assetId: id,
@@ -59,7 +59,7 @@ describe('discover producer — dedup', () => {
       missingReason: 'enoent',
     });
     library.db.run(
-      `UPDATE stage_state SET version = 4 WHERE asset_id = ? AND stage IN ('meili', 'embed')`,
+      `UPDATE stage_state SET version = 4 WHERE asset_id = ? AND stage IN ('search-blob', 'embed')`,
       [id],
     );
 
@@ -70,8 +70,7 @@ describe('discover producer — dedup', () => {
     expect(row.deleted_reason).toBeNull();
     expect(row.live_location_count).toBe(1);
     expect(locationsOf(library.db, id)[0]!.missing_since).toBeNull();
-    // Meili re-armed, so the tombstoned search document is rebuilt.
-    expect(stageRow(library.db, id, 'meili')!.version).toBe(0);
+    // Embed re-armed, so the revived asset's vector is rebuilt.
     expect(stageRow(library.db, id, 'embed')!.version).toBe(0);
   });
 

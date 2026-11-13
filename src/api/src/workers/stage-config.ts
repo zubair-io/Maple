@@ -8,7 +8,7 @@
  * helper, the boot-time `bootConfig` seed-or-load, the `versionBumpReset`
  * dead-doc requeue, and `resolveStageDeps` dependency normalisation.
  *
- * It has NO dependency on the poll loop, claim query, or `runStage` itself, so
+ * It has NO dependency on the slice runner, claim query, or `runStage` itself, so
  * there is no runtime import cycle back into `run-stage.ts`. Every symbol here
  * is re-exported from `run-stage.ts` so the existing import surface
  * (`import { defineStage, type ImageDoc } from './run-stage.ts'`, etc.) is
@@ -66,16 +66,15 @@ export interface WorkerConfig {
    */
   last_seen_target_version: number;
   /**
-   * Why the stage paused ITSELF — set by `pauseStageWithReason`
-   * (`stage-pause.ts`) when a stage detects it cannot make progress (the
-   * `meili` stage under Meilisearch's embedder address policy, #3315) so
-   * Settings → Workers can show the explanation next to the paused row.
-   * Absent/null for an operator pause. Cleared by every resume path — see
-   * `WorkerConfigRepo.patch`.
+   * Why the stage paused ITSELF, so Settings → Workers can show the
+   * explanation next to the paused row. Absent/null for an operator pause.
+   * Cleared by every resume path — see `WorkerConfigRepo.patch`.
    */
   pause_reason?: string | null;
   /** Operator-assigned semver version string, e.g. "v0.2.1". */
   version?: string | null;
+  /** Minutes without progress before Settings → Workers shows the stage as stalled. */
+  stallAfterMinutes?: number;
   /** Operator custom prompt instructions (text only, schema is excluded). */
   prompt_text?: string | null;
   /** Assigned AI provider, e.g. "ollama", "openai", "anthropic", "gemini". */
@@ -96,8 +95,8 @@ export type StageResult<TPatch = readonly SqlStatement[]> =
   // `invalidates` lists downstream stages the runner marks stale (version 0,
   // bookkeeping cleared) in the SAME atomic $set as the patch, so their poll
   // loops re-claim the doc and rebuild from the freshly-patched fields. The
-  // canonical caller is describe → meili: the caption/OCR usually lands after
-  // the search index was already built (meili depends on exif+thumb only), so
+  // canonical caller is describe → search-blob: the caption/OCR usually lands after
+  // the search index was already built (search-blob depends on exif+thumb only), so
   // without this the recovered text never becomes searchable (#2172). Done by
   // the runner — handlers cannot touch `stages.*` keys in the patch itself.
   | { patch: TPatch; invalidates?: readonly string[] }
@@ -200,17 +199,18 @@ export interface StageConfig<TPatch = readonly SqlStatement[]> {
   claimResidual?: StageClaimResidual;
   handler: (image: ImageDoc, ctx: StageContext) => Promise<StageResult<TPatch>>;
   /**
-   * Optional per-tick progress hook, invoked by the poll loop after each
-   * successful `runOnce` tick (NOT on a tick that threw — those go through
-   * the retry/backoff path instead). Generic + opt-in: stages that don't
-   * set it pay nothing. `face-embed` uses it to drive auto-clustering.
+   * Optional progress hook, invoked after each successful batch of a slice
+   * (NOT on a batch that threw — those go through Temporal's retry instead),
+   * and with `(0, true)` about once a second while the stage has nothing to
+   * claim. Generic + opt-in: stages that don't set it pay nothing.
+   * `face-embed` uses it to drive auto-clustering, `embed` to sweep vectors.
    *
-   * @param processedThisTick docs claimed + dispatched this tick (0 = the
+   * @param processedThisTick docs claimed + dispatched this batch (0 = the
    *   claim query matched nothing — i.e. the stage is idle/drained).
    * @param idle convenience flag, `true` iff `processedThisTick === 0`.
    *
-   * Best-effort: the loop awaits it but swallows + logs any rejection so a
-   * misbehaving hook can never stall or crash the poll loop.
+   * Best-effort: the runner awaits it but swallows + logs any rejection so a
+   * misbehaving hook can never stall or crash the stage.
    */
   onProgress?: (processedThisTick: number, idle: boolean) => void | Promise<void>;
   /** Optional callback invoked when worker_config changes for this stage. */

@@ -47,12 +47,11 @@ public enum ImageMetadataReader {
     }
   }
 
-  /// Raw (unformatted) EXIF capture-date strings as ImageIO surfaces them
-  /// — `"YYYY:MM:DD HH:MM:SS"`, untouched. Used by maple_id primary-form
-  /// derivation (`ExifCaptureDate.iso8601UTC`, #1995), which needs the RAW
-  /// tag value, not `formatExifDate`'s human-display reformatting (that
-  /// helper is a DISPLAY formatter for the Info tab and its output isn't
-  /// guaranteed to stay in a shape `ExifCaptureDate` can re-parse).
+  /// Raw (unformatted) EXIF capture-date strings — `"YYYY:MM:DD HH:MM:SS"`,
+  /// untouched, not `formatExifDate`'s human-display reformatting. The
+  /// ImageIO readers below feed filenames and rename fingerprints; maple_id
+  /// derivation reads the tag bytes itself (`RawExifDates`, #5090) because
+  /// ImageIO rewrites or drops strings the server's exifr hands over verbatim.
   public struct RawCaptureDateStrings: Sendable, Equatable {
     /// `kCGImagePropertyExifDateTimeOriginal` — exifr's `DateTimeOriginal`.
     public var dateTimeOriginal: String?
@@ -137,6 +136,13 @@ public enum ImageMetadataReader {
   /// embedded preview at IFD 0) → "100% zoom" rendered at preview size.
   /// Walking subimages or routing through CIRAWFilter fixes it.
   public static func readPixelSize(from url: URL) -> PixelSize? {
+    // iOS ImageIO can report only FFF's embedded JPEG preview. The TIFF
+    // SubIFD carries the actual RAW crop, which the renderer exports.
+    if url.pathExtension.lowercased() == "fff",
+      let size = readTiffPixelSize(from: url)
+    {
+      return size
+    }
     // RAW path — fast extent read, doesn't decode pixels.
     if let filter = CIRAWFilter(imageURL: url),
       let img = filter.outputImage
@@ -170,6 +176,11 @@ public enum ImageMetadataReader {
   /// URL to sniff. `nil` is allowed — CIRAWFilter will decline and the
   /// CGImageSource fallback handles non-RAW formats.
   public static func readPixelSize(from data: Data, identifierHint: String? = nil) -> PixelSize? {
+    if identifierHint?.lowercased() == "fff",
+      let size = readTiffPixelSize(from: data)
+    {
+      return size
+    }
     // RAW path — same metadata-only extent read as the URL variant.
     if let filter = makeRAWFilter(data: data, identifierHint: identifierHint),
       let img = filter.outputImage

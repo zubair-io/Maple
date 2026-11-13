@@ -8,17 +8,13 @@ import { renderModelForCrop } from './image-canvas.crop';
 //       without attempting another GPU session — the session-level static `presentBroken`
 //       flag prevents re-detection on every image.
 
-import { Injector, signal, type WritableSignal } from '@angular/core';
-import { TestBed } from '@angular/core/testing';
+import { signal } from '@angular/core';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
 import { ImageCanvasGpuPresent } from './image-canvas.gpu-present';
-import { wireScopeSampleEffect } from './image-canvas.gpu-effects';
+import { buildLiveParams, canUseLiveFastPath } from './image-canvas.live-params';
 import type { GpuPresentHost } from './image-canvas.gpu-present';
-import type {
-  RenderedLiveSession,
-  OpenedLiveSession,
-} from '../../raw-pipeline/raw-pipeline.service';
+import type { OpenedLiveSession } from '../../raw-pipeline/raw-pipeline.service';
 import type { DecodedImage } from '../../raw-pipeline/raw-pipeline.types';
 import { type AdjustmentModel, defaultAdjustmentModel } from '../../models/adjustment-model';
 import { GpuFallbackNoticeService } from '../gpu-fallback-notice/gpu-fallback-notice.service';
@@ -154,6 +150,8 @@ function makeHost(
 
 // ── Test suite ────────────────────────────────────────────────────────────────
 
+const NO_SAVED_REMOVALS = { manifest: '[]', bytes: new Uint8Array() };
+
 describe('ImageCanvasGpuPresent — present-failure detection (#1572)', () => {
   beforeEach(() => {
     patchDom();
@@ -170,39 +168,67 @@ describe('ImageCanvasGpuPresent — present-failure detection (#1572)', () => {
     const present = new ImageCanvasGpuPresent(host);
     const render = vi.mocked(host.pipeline.renderLiveSession).mockResolvedValue({
       colorSpace: 'srgb',
-      width: 31,
-      height: 19,
+      width: 4000,
+      height: 3000,
     });
     const params = new Float32Array(19);
     const auto = '<rdf:Description papp:Profile="Auto"/>';
     const neutral = '<rdf:Description papp:Profile="Neutral"/>';
 
     await present.render(auto, 1, params);
-    expect(render).toHaveBeenLastCalledWith(auto, undefined, {
-      manifest: '[]',
-      bytes: new Uint8Array(),
-    });
+    expect(render).toHaveBeenLastCalledWith(auto, undefined, NO_SAVED_REMOVALS);
     await present.render(auto, 1, params);
     expect(render).toHaveBeenLastCalledWith(auto, params, undefined);
-    expect(host.savedRemovals.load).toHaveBeenCalledTimes(1);
     await present.render(neutral, 1);
-    expect(render).toHaveBeenLastCalledWith(neutral, undefined, {
-      manifest: '[]',
-      bytes: new Uint8Array(),
-    });
+    expect(render).toHaveBeenLastCalledWith(neutral, undefined, NO_SAVED_REMOVALS);
     await present.render(auto, 1, params);
-    expect(render).toHaveBeenLastCalledWith(auto, undefined, {
-      manifest: '[]',
-      bytes: new Uint8Array(),
-    });
+    expect(render).toHaveBeenLastCalledWith(auto, undefined, NO_SAVED_REMOVALS);
     await present.render(auto, 1, params);
     expect(render).toHaveBeenLastCalledWith(auto, params, undefined);
     present.teardown();
     await present.render(auto, 1, params);
-    expect(render).toHaveBeenLastCalledWith(auto, undefined, {
-      manifest: '[]',
-      bytes: new Uint8Array(),
+    expect(render).toHaveBeenLastCalledWith(auto, undefined, NO_SAVED_REMOVALS);
+  });
+
+  it('tracks prefixModel across set-then-revert of a prefix field and resumes scalar renders (#4736)', async () => {
+    const baseline: AdjustmentModel = {
+      ...defaultAdjustmentModel(),
+      whiteBalancePreset: 'Custom',
+      sharpenAmount: 0,
+      nrColor: 0,
+    };
+    const modelSig = signal<AdjustmentModel>(baseline);
+    const host = makeHost(() => Promise.resolve(makeOpenedSession()), baseline);
+    vi.mocked(host.state.adjustmentFor).mockReturnValue(modelSig);
+    const present = new ImageCanvasGpuPresent(host);
+    const render = vi.mocked(host.pipeline.renderLiveSession).mockResolvedValue({
+      colorSpace: 'srgb',
+      width: 4000,
+      height: 3000,
     });
+
+    // 1. Set non-default prefix field (`highlightRecovery: 'Off'`).
+    modelSig.set({ ...baseline, highlightRecovery: 'Off' });
+    expect(canUseLiveFastPath(modelSig(), present.prefixModel)).toBe(false);
+    await present.render('<off/>', 1, undefined);
+    expect(render).toHaveBeenLastCalledWith('<off/>', undefined, NO_SAVED_REMOVALS);
+    expect(present.prefixModel?.highlightRecovery).toBe('Off');
+
+    // 2. Revert `highlightRecovery` to default: `present.prefixModel` still has `'Off'`,
+    //    so `canUseLiveFastPath` rejects the fast path and forces a full XMP render.
+    modelSig.set(baseline);
+    expect(canUseLiveFastPath(modelSig(), present.prefixModel)).toBe(false);
+    await present.render('<default/>', 1, undefined);
+    expect(render).toHaveBeenLastCalledWith('<default/>', undefined, NO_SAVED_REMOVALS);
+    expect(present.prefixModel?.highlightRecovery).toBe(baseline.highlightRecovery);
+
+    // 3. Subsequent scalar tick uses fastParams immediately now that prefixModel is back at default.
+    const nextModel: AdjustmentModel = { ...baseline, exposure: 0.5 };
+    modelSig.set(nextModel);
+    expect(canUseLiveFastPath(nextModel, present.prefixModel)).toBe(true);
+    const params = buildLiveParams(nextModel);
+    await present.render('<scalar/>', 1, params);
+    expect(render).toHaveBeenLastCalledWith('<scalar/>', params, undefined);
   });
 
   it('uses full XMP when Auto is chosen while a Neutral render is pending', async () => {
@@ -210,12 +236,12 @@ describe('ImageCanvasGpuPresent — present-failure detection (#1572)', () => {
     const present = new ImageCanvasGpuPresent(host);
     const render = vi.mocked(host.pipeline.renderLiveSession).mockResolvedValue({
       colorSpace: 'srgb',
-      width: 31,
-      height: 19,
+      width: 4000,
+      height: 3000,
     });
     const params = new Float32Array(19);
     await present.render('Auto', 1, params);
-    let resolveNeutral!: (value: RenderedLiveSession) => void;
+    let resolveNeutral!: (value: { colorSpace: string; width: number; height: number }) => void;
     render.mockImplementationOnce(
       () =>
         new Promise((resolve) => {
@@ -226,11 +252,8 @@ describe('ImageCanvasGpuPresent — present-failure detection (#1572)', () => {
     await vi.waitFor(() => expect(render).toHaveBeenCalledTimes(2));
     Object.assign(host, { renderGeneration: 2 });
     await present.render('Auto', 2, params);
-    expect(render).toHaveBeenLastCalledWith('Auto', undefined, {
-      manifest: '[]',
-      bytes: new Uint8Array(),
-    });
-    resolveNeutral({ colorSpace: 'srgb', width: 31, height: 19 });
+    expect(render).toHaveBeenLastCalledWith('Auto', undefined, NO_SAVED_REMOVALS);
+    resolveNeutral({ colorSpace: 'srgb', width: 4000, height: 3000 });
     expect(await pendingNeutral).toBe(false);
     await present.render('Auto', 2, params);
     expect(render).toHaveBeenLastCalledWith('Auto', params, undefined);
@@ -252,26 +275,43 @@ describe('ImageCanvasGpuPresent — present-failure detection (#1572)', () => {
     expect(host.savedRemovals.load).toHaveBeenCalledTimes(1);
   });
 
+  it('records the presented dims on open and after every render, even a superseded one', async () => {
+    const host = makeHost(() => Promise.resolve(makeOpenedSession()));
+    const present = new ImageCanvasGpuPresent(host);
+    await present.open('asset-1', new Uint8Array([1]), 'dng');
+    expect(host.recordPaintedDims).toHaveBeenLastCalledWith(800, 600);
+
+    const render = vi.mocked(host.pipeline.renderLiveSession);
+    render.mockResolvedValue({ colorSpace: 'srgb', width: 1200, height: 1500 });
+    await present.render('<cropped/>', 1);
+    expect(present.colorSpace()).toBe('srgb');
+    expect(host.recordPaintedDims).toHaveBeenLastCalledWith(1200, 1500);
+    render.mockResolvedValue({ colorSpace: 'srgb', width: 900, height: 600 });
+    await present.render('<stale/>', 0);
+    expect(host.recordPaintedDims).toHaveBeenLastCalledWith(900, 600);
+  });
+
   it('publishes actual Auto provenance only for current XMP replies', async () => {
     const host = makeHost(() => Promise.resolve(makeOpenedSession()));
     const present = new ImageCanvasGpuPresent(host);
-    const render = vi.mocked(host.pipeline.renderLiveSession).mockResolvedValue({
-      colorSpace: 'srgb',
-      width: 31,
-      height: 19,
-      autoFit: true,
-    });
+    const frame = { colorSpace: 'srgb', width: 4000, height: 3000 };
+    const render = vi
+      .mocked(host.pipeline.renderLiveSession)
+      .mockResolvedValue({ ...frame, autoFit: 'applied' });
     const params = new Float32Array(19);
     await present.render('Auto', 1, params);
-    expect(host.state.seedLensProfile).toHaveBeenLastCalledWith('asset-1', null, true, 0);
+    expect(host.state.seedLensProfile).toHaveBeenLastCalledWith('asset-1', null, 'applied', 0);
     const count = vi.mocked(host.state.seedLensProfile).mock.calls.length;
     await present.render('Auto', 1, params);
     expect(vi.mocked(host.state.seedLensProfile).mock.calls).toHaveLength(count);
-    render.mockResolvedValue({ colorSpace: 'srgb', width: 31, height: 19, autoFit: false });
+    render.mockResolvedValue({ ...frame, autoFit: 'unfitted' });
     await present.render('Auto', 0);
     expect(vi.mocked(host.state.seedLensProfile).mock.calls).toHaveLength(count);
     await present.render('Auto', 1);
-    expect(host.state.seedLensProfile).toHaveBeenLastCalledWith('asset-1', null, false, 0);
+    expect(host.state.seedLensProfile).toHaveBeenLastCalledWith('asset-1', null, 'unfitted', 0);
+    render.mockResolvedValue({ ...frame, autoFit: 'no-preview' });
+    await present.render('Auto', 1);
+    expect(host.state.seedLensProfile).toHaveBeenLastCalledWith('asset-1', null, 'no-preview', 0);
   });
 
   it('(a) successful GPU present test -> open() returns true and active stays set', async () => {
@@ -285,22 +325,6 @@ describe('ImageCanvasGpuPresent — present-failure detection (#1572)', () => {
     expect(gpuPresent.active()).toBe(true);
     expect(spy).toHaveBeenCalledTimes(1);
     expect((host.pipeline.openLiveSession as ReturnType<typeof vi.fn>).mock.calls).toHaveLength(1);
-  });
-
-  it('records the actual post-crop canvas dimensions after open and render', async () => {
-    const host = makeHost(() => Promise.resolve(makeOpenedSession()));
-    const present = new ImageCanvasGpuPresent(host);
-    vi.spyOn(ImageCanvasGpuPresent, 'testGpuPresent').mockResolvedValue(true);
-    await present.open('asset-1', new Uint8Array([0x44]), 'dng');
-    expect(host.recordPaintedDims).toHaveBeenLastCalledWith(800, 600);
-    vi.mocked(host.pipeline.renderLiveSession).mockResolvedValue({
-      colorSpace: 'srgb',
-      width: 19,
-      height: 31,
-    });
-    await present.render('<cropped/>', 1);
-    expect(host.recordPaintedDims).toHaveBeenLastCalledWith(19, 31);
-    expect(host.recordNativeDims).toHaveBeenLastCalledWith(4000, 3000);
   });
 
   it('(b) failed GPU present test -> open() returns false and active stays false', async () => {
@@ -516,48 +540,5 @@ describe('ImageCanvasGpuPresent — GPU fallback notice reporting (#2415)', () =
 
     expect(result).toBe(true);
     expect(host.gpuFallback.visible()).toBe(false);
-  });
-});
-
-describe('wireScopeSampleEffect (#3397)', () => {
-  it('publishes an out-of-band sample into currentPixels', () => {
-    const host = makeHost(() => Promise.resolve(makeOpenedSession()));
-    const injector = TestBed.inject(Injector);
-    const stop = wireScopeSampleEffect(host, injector);
-    TestBed.flushEffects();
-    expect(host.canvasSvc.currentPixels()).toBeNull();
-
-    (host.pipeline.scopeSample as WritableSignal<DecodedImage | null>).set({
-      width: 1,
-      height: 1,
-      rgb: new Uint8Array([99, 88, 77]),
-      asShotTemperature: 6500,
-      asShotTint: 0,
-    });
-    TestBed.flushEffects();
-
-    expect(Array.from(host.canvasSvc.currentPixels()!.rgb)).toEqual([99, 88, 77]);
-    stop();
-  });
-
-  it('a null sample leaves the previous pixels in place', () => {
-    const host = makeHost(() => Promise.resolve(makeOpenedSession()));
-    const sample = host.pipeline.scopeSample as WritableSignal<DecodedImage | null>;
-    const stop = wireScopeSampleEffect(host, TestBed.inject(Injector));
-
-    sample.set({
-      width: 1,
-      height: 1,
-      rgb: new Uint8Array([1, 2, 3]),
-      asShotTemperature: 6500,
-      asShotTint: 0,
-    });
-    TestBed.flushEffects();
-
-    // A readback miss must not blank the scopes to their pseudo fallback.
-    sample.set(null);
-    TestBed.flushEffects();
-    expect(Array.from(host.canvasSvc.currentPixels()!.rgb)).toEqual([1, 2, 3]);
-    stop();
   });
 });

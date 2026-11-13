@@ -27,17 +27,20 @@
  * the asset without relocating the file.
  *
  * Mirror replication: every filesystem op here is delegated to `restructure-fs.ts`
- * (`planAndPlace`/`finalize`/`revertCreated`), which imports the mirror-aware
+ * (`planAndPlace`/`finalize`/`revertPlaced`), which imports the mirror-aware
  * drop-in `fs/mirrored.ts`. So a relocation's copy/unlink/rmdir fan out to the
  * library's configured backup mirror(s) automatically — there is no raw
  * `node:fs` write in this module to swap.
  */
 
+import { refusesMoveUnderMarker } from '../../fs/mapleignore-guard.ts';
+import * as path from 'node:path';
 import type { FileInfo } from '../../db/schema.ts';
 import type { MigrationCandidate, MigrationMarker } from '../../db/repos/assets.migrations.ts';
 import { repointBackupLocation, stampMarkerIfUnmoved } from '../../db/repos/assets.refile.ts';
 import { child as childLogger } from '../../log.ts';
-import { finalize, planAndPlace, revertCreated } from './restructure-fs.ts';
+import { finalize, planAndPlace, revertPlaced } from './restructure-fs.ts';
+import { carryLateRefileSidecars } from './refile-sidecar.ts';
 
 /**
  * Return the primary active file info for an asset (ignoring missing_since).
@@ -95,6 +98,15 @@ export async function moveBackupAsset(
     return stamped ? 'noop' : 'skipped';
   }
 
+  // The on-disk `.mapleignore` guard (#5398): nothing moves out of or into an
+  // ignored folder; the asset stays in place and is retried later.
+  if (
+    (await refusesMoveUnderMarker(libRoot, oldDir)) ||
+    (await refusesMoveUnderMarker(libRoot, newDir))
+  ) {
+    return 'skipped';
+  }
+
   // 1. Copy + verify the file and its companions into the new dir. Sources are
   //    NOT deleted yet.
   const plan = await planAndPlace({
@@ -103,6 +115,7 @@ export async function moveBackupAsset(
     filename: primary.filename,
     newDir,
     renderedRelOld: doc.apple_rendered_path ?? null,
+    liveVideoRelOld: doc.apple_live_video_path ?? null,
   });
 
   // 2. Repoint the row to the new location (between verify and delete). The old
@@ -116,7 +129,7 @@ export async function moveBackupAsset(
     doc.id,
     primary,
     { path: newPath, filename: newFilename },
-    plan.newRenderedRel,
+    { apple_rendered_path: plan.newRenderedRel, apple_live_video_path: plan.newLiveVideoRel },
     marker,
   );
 
@@ -125,7 +138,7 @@ export async function moveBackupAsset(
     // copies we made (the source + row are still consistent) and skip; a later
     // pass re-attempts from the current state. Crucially, we never reach
     // finalize/delete on this path.
-    await revertCreated(plan.createdPaths);
+    await revertPlaced(plan);
     log.warn(
       { _id: String(doc.id) },
       'move: fileinfo entry changed concurrently — reverted copy, left original + row intact',
@@ -140,13 +153,20 @@ export async function moveBackupAsset(
     );
   }
 
-  // 3. Delete sources, drop stale cache, reclaim the empty old folder.
+  // 3. Carry any sidecar first written since the listing, then delete sources,
+  //    drop stale cache, reclaim the empty old folder.
+  const late = await carryLateRefileSidecars(
+    path.join(libRoot, oldDir, primary.filename),
+    path.join(libRoot, plan.newRelPath),
+    plan.carriedSidecars,
+  );
   await finalize({
     libRoot,
     oldDirAbs: plan.oldDirAbs,
     mapleId: doc.maple_id,
     filename: primary.filename,
     sourcesToDelete: plan.sourcesToDelete,
+    carriedSidecars: [...plan.carriedSidecars, ...late],
   });
   return 'moved';
 }

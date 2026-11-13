@@ -1,0 +1,67 @@
+{
+  "scope": "Three current-main residual controls only; not the complete color suite.",
+  "renderer_commit": "cf62d12ddc573cff68780e7754f7b5b63f7ae621",
+  "original_inputs_verified": 10,
+  "changed_inputs": [],
+  "comparisons": 3,
+  "failed": 3,
+  "cases": [
+    {
+      "fixture": "test_0003",
+      "case": "highlights_max",
+      "profile": "neutral",
+      "resolution": "down",
+      "status": "breach",
+      "breaches": [
+        "bias_R +0.0124>0.0112"
+      ],
+      "mean": 6.386162820007846,
+      "p95": 9.89216379671907,
+      "max": 21.26514397122282,
+      "bR": 0.012388155268644067,
+      "bG": 0.004890592474391492,
+      "bB": 0.003970136321077656,
+      "n_pixels": 10668000,
+      "reference_protocol": "legacy-direct-reference"
+    },
+    {
+      "fixture": "test_0011",
+      "case": "wb_daylight",
+      "profile": "neutral",
+      "resolution": "down",
+      "status": "breach",
+      "breaches": [
+        "bias_R +0.0597>0.0323",
+        "bias_G +0.0331>0.0323"
+      ],
+      "mean": 6.475123592667474,
+      "p95": 20.266808658413854,
+      "max": 39.5354122924353,
+      "bR": 0.05965050455547201,
+      "bG": 0.033143953543420555,
+      "bB": 0.028773744140604383,
+      "n_pixels": 10668000,
+      "reference_protocol": "legacy-direct-reference"
+    },
+    {
+      "fixture": "test_0014",
+      "case": "sharpen_amount_max",
+      "profile": "detail-fullres",
+      "resolution": "full",
+      "status": "breach",
+      "breaches": [
+        "bias_R +0.1773>0.1616",
+        "bias_G +0.1617>0.1616",
+        "bias_B +0.1678>0.1616"
+      ],
+      "mean": 14.779594129976093,
+      "p95": 26.725347800136962,
+      "max": 48.397337849269825,
+      "bR": 0.17733041259494245,
+      "bG": 0.16167013038482758,
+      "bB": 0.1678395230452218,
+      "n_pixels": 45441024,
+      "reference_protocol": "legacy-direct-reference"
+    }
+  ]
+}

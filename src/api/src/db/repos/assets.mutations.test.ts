@@ -5,8 +5,7 @@
  * recomposed from three tables now instead of from one document, so its exact
  * token set is asserted rather than its presence. And every mutation re-arms
  * the stage that depends on what it changed — the mechanism that makes an
- * override eventually consistent with the search index even when the inline
- * Meilisearch call fails.
+ * override eventually consistent with the search index.
  */
 
 import { describe, expect, test } from 'bun:test';
@@ -65,7 +64,7 @@ function seedAsset(db: Parameters<typeof insertAsset>[0]): string {
   });
   insertLocation(db, { assetId, libraryId, filename: 'a.dng' });
   insertDetail(db, assetId, { description: 'a boat', ocrText: 'SEA' });
-  insertStageState(db, assetId, 'meili', { version: 5, attempts: 2, dead: true });
+  insertStageState(db, assetId, 'search-blob', { version: 5, attempts: 2, dead: true });
   insertStageState(db, assetId, 'embed', { version: 5, attempts: 2, dead: true });
   return assetId;
 }
@@ -124,7 +123,7 @@ describe('setPlaceOverride', () => {
     // Place tokens, caption, OCR text and the season for an April capture,
     // deduped and sorted — the exact contract of `composeSearchBlob`.
     expect(searchBlob(db, assetId)).toBe('a boat brooklyn new sea spring york');
-    expect(stageState(db, assetId, 'meili')).toEqual({
+    expect(stageState(db, assetId, 'search-blob')).toEqual({
       version: 0,
       attempts: 0,
       dead: 0,
@@ -204,7 +203,7 @@ describe('setDescriptionOverride', () => {
       db.query(`SELECT description FROM asset_detail WHERE asset_id = ?`).get(assetId),
     ).toEqual({ description: 'a red kayak' });
     expect(searchBlob(db, assetId)).toBe('a brooklyn kayak new red sea spring york');
-    expect(stageState(db, assetId, 'meili')?.version).toBe(0);
+    expect(stageState(db, assetId, 'search-blob')?.version).toBe(0);
     expect(stageState(db, assetId, 'embed')).toMatchObject({ version: 0, attempts: 0, dead: 0 });
   });
 
@@ -237,10 +236,10 @@ describe('setDescriptionOverride', () => {
     const libraryId = insertFolder(db);
     const assetId = insertAsset(db);
     insertLocation(db, { assetId, libraryId, filename: 'a.dng' });
-    expect(stageState(db, assetId, 'meili')).toBeNull();
+    expect(stageState(db, assetId, 'search-blob')).toBeNull();
 
     await setDescriptionOverride(oid(assetId), 'x', testSqliteDb(db));
-    expect(stageState(db, assetId, 'meili')).toEqual({
+    expect(stageState(db, assetId, 'search-blob')).toEqual({
       version: 0,
       attempts: 0,
       dead: 0,

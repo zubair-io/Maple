@@ -98,7 +98,7 @@ describe('committing a tick', () => {
     const batch = new StageWritebackBatch(counting, 2);
 
     await batch.record(
-      stageResultStatements(attempt(assetId), { patch: [], invalidates: ['meili'] }),
+      stageResultStatements(attempt(assetId), { patch: [], invalidates: ['search-blob'] }),
       assetId,
     );
     await batch.flush();
@@ -107,7 +107,7 @@ describe('committing a tick', () => {
     // so the threshold decides where the NEXT result goes, never where one
     // result is cut.
     expect(sizes).toEqual([2]);
-    expect(stageRow(handle.db, assetId, 'meili')?.version).toBe(0);
+    expect(stageRow(handle.db, assetId, 'search-blob')?.version).toBe(0);
   });
 
   test('flushing an empty batch is free and does not write', async () => {

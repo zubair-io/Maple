@@ -1,0 +1,11 @@
+{
+  "status": "Native plus relative Gaussian NLM isolated target; no production adoption.",
+  "comparisons": 1,
+  "planned": 1,
+  "passed": false,
+  "native_only_max": 7.985290853421119,
+  "native_relative_max": 7.985290853421119,
+  "all_original_inputs_unchanged": true,
+  "renderer_unchanged": true,
+  "production_changed": false
+}

@@ -9,7 +9,7 @@ use std::path::PathBuf;
 
 use crate::ba::{self, BaSolution, RetentionPolicy};
 use crate::composite::CompositeReport;
-use crate::ingest::{FramePriors, PlanarImage};
+use crate::ingest::FramePriors;
 use crate::local_align::LocalCorrection;
 use crate::strategy::StrategyReport;
 
@@ -17,13 +17,17 @@ use super::focal_bootstrap::FocalSeedSource;
 
 // ─── Input options ───────────────────────────────────────────────────────────
 
+/// The default output canvas pixel cap (256 MP).
+pub const DEFAULT_MAX_CANVAS_PX: usize = 256_000_000;
+
 /// All tunable parameters for a single stitch run. Callers construct this
 /// with `StitchOptions::default()` and override what they need.
 #[derive(Clone)]
 pub struct StitchOptions {
     /// Frame-retention policy passed to the BA solver.
     pub retention: RetentionPolicy,
-    /// Enable Stage-F bilinear-mesh local alignment (#1218).
+    /// Enable Stage-F bilinear-mesh local alignment on both the rotation
+    /// (#1218) and tile (#4577) paths.
     pub local_align: bool,
     /// Content-based / forced strategy selection (#1226).
     pub strategy: crate::strategy::StrategyRequest,
@@ -48,10 +52,10 @@ pub struct StitchOptions {
     /// Canvas tile height for memory-bounded composite (M6-D, #1248, #1254).
     ///
     /// When `Some(n)`, the composite phase processes `n` canvas rows at a
-    /// time, decoding source frames on demand and discarding them after each
-    /// tile, keeping at most **one full-resolution frame** resident per tile
-    /// pass instead of all N simultaneously. The gain solve runs before the
-    /// pixel data is freed and its result is re-used across all tiles.
+    /// time, reading from each source frame only the rows that tile's warp
+    /// taps (#5554) and discarding them before the next frame, instead of
+    /// holding all N frames simultaneously. The gain solve runs once, before
+    /// the first tile, and its result is re-used across all tiles.
     ///
     /// `None` (default): **512-row tiled path** — the tiled composite always
     /// engages on the rotation-strategy path (#1254).  A `None` value no
@@ -73,6 +77,34 @@ pub struct StitchOptions {
     /// opt-in until a follow-up re-baselines those budgets with it as
     /// the default.
     pub seam_strategy: crate::seam::SeamStrategy,
+    /// User seam constraints (#4520), frames named by input index. Needs
+    /// [`crate::seam::SeamStrategy::GraphCut`] and the rotation strategy;
+    /// anything the composite cannot honour is a
+    /// [`StitchError::SeamConstraint`], never silently dropped.
+    pub seam_constraints: Vec<crate::seam::SeamConstraint>,
+    /// Declared capture grid for drone surveys / camera arrays (#4519).
+    /// `Some` replaces capture-order, gimbal and descriptor top-k
+    /// nomination with [`crate::graph::GridPriorProvider`] and gates
+    /// loop closures on grid footprint + triangle rotation consistency.
+    pub grid: Option<crate::graph::GridLayout>,
+    /// Detector/matcher for the proxy match graph (#4523). Defaults to
+    /// ALIKED + LightGlue when `ml`/`ml-static` is built in, else to the
+    /// classical Harris + gradient-histogram path.
+    pub feature_engine: super::FeatureEngine,
+    pub capture_owner: bool,
+    /// Boundary Warp strength in `[0, 1]` (#5572): how far the panorama's
+    /// ragged edge is stretched out to the output rectangle. `0` builds no
+    /// map and leaves the output byte-identical.
+    pub boundary_warp: f64,
+    /// Auto Crop (#5573, #5608): report the output's largest fully covered
+    /// rectangle, at whatever `boundary_warp` is chosen, without trimming
+    /// the output. On a 360° canvas the rectangle spans the whole wrapping
+    /// axis, so the wrap survives.
+    pub auto_crop: bool,
+    /// Refuse the run with [`StitchError::InsufficientMemory`] when the
+    /// [`raw_core::pano_memory`] model puts its peak above this many bytes
+    /// (#5835). `None` runs whatever the size.
+    pub memory_limit_bytes: Option<u64>,
 }
 
 impl Default for StitchOptions {
@@ -92,23 +124,27 @@ impl Default for StitchOptions {
             // addresses, so 1600 costs ~no memory vs 1280. Callers that
             // accept the matcher-quality tradeoff can still lower it.
             proxy_long_edge: 1600,
-            max_canvas_px: 256_000_000,
+            max_canvas_px: DEFAULT_MAX_CANVAS_PX,
             canvas_tile_rows: None,
             use_coreml: false,
             seam_strategy: crate::seam::SeamStrategy::Voronoi,
+            seam_constraints: Vec::new(),
+            grid: None,
+            feature_engine: super::FeatureEngine::default(),
+            capture_owner: false,
+            boundary_warp: 0.0,
+            auto_crop: false,
+            memory_limit_bytes: None,
         }
     }
 }
 
 // ─── Output ──────────────────────────────────────────────────────────────────
 
-/// Everything `stitch` returns on success. The composited image is the
-/// primary product; all other fields are bookkeeping the CLI uses to
-/// assemble the `StitchReport` JSON (spec §6). The FFI caller ignores
-/// those fields.
+/// Everything `stitch` returns on success besides the composited canvas,
+/// which went to the caller's sink: bookkeeping the CLI uses to assemble
+/// the `StitchReport` JSON (spec §6). The FFI caller ignores it.
 pub struct StitchOutcome {
-    /// Scene-linear Rec.2020 composite (the value the PNG/DNG writer encodes).
-    pub image: PlanarImage,
     /// The compositing stage report (projection, canvas dims, gains, …).
     pub comp_report: CompositeReport,
     /// Bundle-adjustment solution (cameras, reproj stats, drops, …).
@@ -130,10 +166,13 @@ pub struct StitchOutcome {
     pub fallback_matches: usize,
     /// Summary of the full-resolution reverification (edges/matches dropped).
     pub reverify: crate::graph::ReverifySummary,
+    /// Candidate pairs, verified edges and rejections of the match graph.
+    pub match_graph: crate::graph::GraphSummary,
     /// Whether the BA solution was roll-leveled.
     pub leveled: bool,
     /// Horizon tilt in degrees when leveling was applied.
     pub horizon_tilt_deg: Option<f64>,
+    pub horizon_tilt_rms_deg: Option<f64>,
     /// Stage wall-clock timings (seconds). Indices are stage ordinals above.
     /// Entry 5 = composite; entry 6 = not used (write is the caller's job).
     pub stage_timings_s: [f64; 6],
@@ -143,12 +182,10 @@ pub struct StitchOutcome {
 
 /// Everything [`stitch_tile`](super::stitch_tile) returns on success.
 ///
-/// The composited image is the primary product; all other fields are
-/// bookkeeping the CLI uses to assemble the tile `StitchReport` JSON
-/// (spec §8 / #1226). The FFI caller needs only `image`.
+/// The composited canvas went to the caller's sink; these are the
+/// bookkeeping fields the CLI uses to assemble the tile `StitchReport` JSON
+/// (spec §8 / #1226).
 pub struct TileStitchOutcome {
-    /// Scene-linear Rec.2020 composite (the value the PNG/DNG writer encodes).
-    pub image: PlanarImage,
     /// Tile composite report (canvas, placements, gains, residuals, …).
     pub tile_report: crate::tile::TileCompositeReport,
     /// Strategy-selection outcome (evidence + selection + optional warning).
@@ -168,6 +205,8 @@ pub struct TileStitchOutcome {
     pub fallback_matches: usize,
     /// Summary of the rotation-path reverification step (always 0/0 for tile).
     pub reverify: crate::graph::ReverifySummary,
+    /// Candidate pairs, verified edges and rejections of the tile match graph.
+    pub match_graph: crate::graph::GraphSummary,
     /// Frame indices disconnected from the anchor component.
     pub orphans: Vec<usize>,
     /// Number of frames successfully placed in the tile composite.
@@ -190,8 +229,8 @@ pub struct TileStitchOutcome {
 /// rotation continues through BA → leveling → equirect composite;
 /// tile goes through planar placement → NCC refine → planar composite.
 ///
-/// Callers that only need the pixel output can use the blanket accessor
-/// [`StitchSuccess::image`] without matching on the strategy.
+/// [`StitchSuccess::canvas_size`] reads the output size without matching
+/// on the strategy.
 pub enum StitchSuccess {
     /// The rotation strategy ran (BA → leveling → equirect composite).
     Rotation(StitchOutcome),
@@ -200,11 +239,19 @@ pub enum StitchSuccess {
 }
 
 impl StitchSuccess {
-    /// The composited pixel output regardless of which strategy ran.
-    pub fn image(&self) -> &crate::ingest::PlanarImage {
+    /// The output `(width, height)` regardless of which strategy ran.
+    pub fn canvas_size(&self) -> (u32, u32) {
         match self {
-            Self::Rotation(o) => &o.image,
-            Self::Tile(o) => &o.image,
+            Self::Rotation(o) => o.comp_report.output_size(),
+            Self::Tile(o) => o.tile_report.output_size(),
+        }
+    }
+
+    /// What Boundary Warp and Auto Crop did, regardless of strategy.
+    pub fn edges(&self) -> super::EdgesReport {
+        match self {
+            Self::Rotation(o) => (&o.comp_report).into(),
+            Self::Tile(o) => (&o.tile_report).into(),
         }
     }
 }
@@ -216,6 +263,8 @@ impl StitchSuccess {
 pub enum StitchError {
     /// Fewer than 2 input paths were provided.
     TooFewFrames(usize),
+    /// The declared capture grid does not fit the input frame count.
+    InvalidGrid(String),
     /// ML environment unavailable (models dir or ORT dylib missing).
     MlUnavailable(String),
     /// Frame decode or prior extraction failed.
@@ -247,12 +296,31 @@ pub enum StitchError {
     DegenerateGeometry(String),
     /// Cancelled by the caller.
     Cancelled,
+    /// User seam constraints (#4520) that cannot all hold.
+    SeamConstraint(crate::seam::SeamConstraintError),
+    /// The decoded-frame store (#5553) does not fit on the scratch volume;
+    /// a smaller output may.
+    InsufficientScratchSpace {
+        path: PathBuf,
+        needed: u64,
+        available: u64,
+    },
+    /// The stitch's estimated peak is over `StitchOptions::memory_limit_bytes`
+    /// (#5835). Nothing was decoded or composited past the check.
+    InsufficientMemory { needed: u64, limit: u64 },
+}
+
+impl From<crate::seam::SeamConstraintError> for StitchError {
+    fn from(e: crate::seam::SeamConstraintError) -> Self {
+        Self::SeamConstraint(e)
+    }
 }
 
 impl std::fmt::Display for StitchError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::TooFewFrames(n) => write!(f, "need at least 2 frames, got {n}"),
+            Self::InvalidGrid(e) => write!(f, "invalid capture grid: {e}"),
             Self::MlUnavailable(e) => write!(
                 f,
                 "ML environment unavailable: {e}\n\
@@ -287,6 +355,21 @@ impl std::fmt::Display for StitchError {
                 write!(f, "degenerate rotation geometry: {msg}")
             }
             Self::Cancelled => write!(f, "cancelled by caller"),
+            Self::SeamConstraint(e) => write!(f, "seam constraints: {e}"),
+            Self::InsufficientScratchSpace {
+                path,
+                needed,
+                available,
+            } => write!(
+                f,
+                "not enough free space for the decoded frames under {}: needs {needed} bytes, \
+                 {available} available",
+                path.display()
+            ),
+            Self::InsufficientMemory { needed, limit } => write!(
+                f,
+                "the stitch needs an estimated {needed} bytes of memory, over the {limit} byte limit"
+            ),
         }
     }
 }

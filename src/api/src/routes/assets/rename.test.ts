@@ -13,10 +13,13 @@ import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { renameRoutes } from './rename.ts';
-import { setLibraryRootsForTests } from '../../indexer/libraries.cache.ts';
+import {
+  setLibraryBySlugForTests,
+  setLibraryRootsForTests,
+} from '../../indexer/libraries.cache.ts';
 import { setRawFfiForTests, tryGetRawFfi } from '../../ffi/raw_ffi.ts';
 import { fakeAuth } from '../../../tests/helpers/test-auth.ts';
-import { newObjectIdHex } from '../../db/object-id.ts';
+import { newObjectIdHex, ObjectId } from '../../db/object-id.ts';
 import { locationRows } from '../../../tests/helpers/assets-route-fixtures.ts';
 import {
   createLiveTestDatabase,
@@ -163,6 +166,11 @@ describe('POST /api/assets/:id/rename — fails closed when the engine is unavai
 function seedLibrary(db: Database): string {
   const libraryId = insertFolder(db, { path: root, slug: 'rename-route-test' });
   setLibraryRootsForTests(new Map([[libraryId, root]]));
+  setLibraryBySlugForTests('rename-route-test', {
+    libraryId: new ObjectId(libraryId),
+    root,
+    label: 'Test library',
+  });
   return libraryId;
 }
 
@@ -230,6 +238,83 @@ describe('POST /api/assets/:id/rename — replace collision guard (#2843)', () =
 });
 
 describe('POST /api/assets/:id/rename — end to end', () => {
+  maybeTest(
+    'renames the requested location and its sidecar for a multi-location asset',
+    async () => {
+      const libraryId = seedLibrary(live.db);
+      const id = await seedOnDisk(live.db, libraryId, 'first.jpg');
+      await fs.writeFile(path.join(root, 'a', 'second.jpg'), 'pixels');
+      await fs.writeFile(path.join(root, 'a', 'second.xmp'), '<xmp>three stars</xmp>');
+      insertLocation(live.db, {
+        assetId: id,
+        libraryId,
+        ordinal: 1,
+        path: 'a',
+        filename: 'second.jpg',
+      });
+
+      const res = await postRename(id, {
+        new_filename: 'renamed.jpg',
+        collision: 'skip',
+        source_address: 'rename-route-test:a/second.jpg',
+      });
+
+      expect(res.status).toBe(200);
+      expect(await fs.readFile(path.join(root, 'a', 'first.jpg'), 'utf8')).toBe('pixels');
+      await expect(fs.readFile(path.join(root, 'a', 'second.jpg'))).rejects.toThrow();
+      expect(await fs.readFile(path.join(root, 'a', 'renamed.jpg'), 'utf8')).toBe('pixels');
+      await expect(fs.readFile(path.join(root, 'a', 'second.xmp'))).rejects.toThrow();
+      expect(await fs.readFile(path.join(root, 'a', 'renamed.xmp'), 'utf8')).toBe(
+        '<xmp>three stars</xmp>',
+      );
+      expect(
+        locationRows(live.db, id)
+          .map((entry) => entry.filename)
+          .sort(),
+      ).toEqual(['first.jpg', 'renamed.jpg']);
+    },
+  );
+
+  maybeTest('rejects an ambiguous ID-only rename without changing either location', async () => {
+    const libraryId = seedLibrary(live.db);
+    const id = await seedOnDisk(live.db, libraryId, 'first.jpg');
+    await fs.writeFile(path.join(root, 'a', 'second.jpg'), 'pixels');
+    insertLocation(live.db, {
+      assetId: id,
+      libraryId,
+      ordinal: 1,
+      path: 'a',
+      filename: 'second.jpg',
+    });
+
+    const res = await postRename(id, {
+      new_filename: 'renamed.jpg',
+      collision: 'skip',
+    });
+
+    expect(res.status).toBe(409);
+    expect(await fs.readFile(path.join(root, 'a', 'first.jpg'), 'utf8')).toBe('pixels');
+    expect(await fs.readFile(path.join(root, 'a', 'second.jpg'), 'utf8')).toBe('pixels');
+    await expect(fs.readFile(path.join(root, 'a', 'renamed.jpg'))).rejects.toThrow();
+  });
+
+  maybeTest('rejects a source address belonging to a different asset', async () => {
+    const libraryId = seedLibrary(live.db);
+    const firstId = await seedOnDisk(live.db, libraryId, 'first.jpg');
+    await seedOnDisk(live.db, libraryId, 'second.jpg');
+
+    const res = await postRename(firstId, {
+      new_filename: 'renamed.jpg',
+      collision: 'skip',
+      source_address: 'rename-route-test:a/second.jpg',
+    });
+
+    expect(res.status).toBe(409);
+    expect(await fs.readFile(path.join(root, 'a', 'first.jpg'), 'utf8')).toBe('pixels');
+    expect(await fs.readFile(path.join(root, 'a', 'second.jpg'), 'utf8')).toBe('pixels');
+    await expect(fs.readFile(path.join(root, 'a', 'renamed.jpg'))).rejects.toThrow();
+  });
+
   maybeTest('renames the asset in place (same folder), returns the new address', async () => {
     const id = await seedAssetOnDisk(live.db);
 

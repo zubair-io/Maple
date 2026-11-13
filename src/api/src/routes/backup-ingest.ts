@@ -12,6 +12,8 @@
  *   400 — missing/invalid headers, bad Content-Range
  *   404 — library id not found
  *   409 — resume offset mismatch. Body: { expected_offset: number }
+ *         Or a pending permanent purge owns the photo: nothing is linked or
+ *         published and the session restarts. Body: { error, code: 'purge_admitted' }
  *   423 — another device is actively uploading the same iCloud photo.
  *         Body: { retry_after_seconds: number } — client should wait at
  *         least that long before retrying. Same-key metadata mismatches
@@ -28,26 +30,165 @@ import {
   appendBackupLocation,
   findIngestDedupTarget,
   insertBackupAsset,
+  isLocationOwnedByOtherAsset,
   linkPhasset,
   type PhassetLink,
 } from '../db/repos/backup.repo.ts';
+import type { ObjectId } from '../db/object-id.ts';
 import { uploadSessions } from '../backup/upload-session.ts';
 import { formatBackupPath } from '../backup/path-formatter.ts';
 import { containedJoin } from '../backup/path-safety.ts';
+import { hasLegacyBackupEdit } from '../fs/legacy-backup-sidecar.ts';
+import { filesIdentical } from '../backup/fs-util.ts';
 import {
-  atomicMove,
-  filesIdentical,
-  firstFreeSiblingPath,
-  moveNoClobber,
-} from '../backup/fs-util.ts';
+  PublishCollisionError,
+  publishExclusive,
+  revertCreated,
+  type RelocatePublication,
+} from '../fs/relocate-publish.ts';
 import { resolveBackupLocation } from '../backup/ingest-geocode.ts';
 import { isScreenshotFilename } from '../indexer/screenshot.ts';
+import type { ProgressArgs } from '../db/repos/backup-sessions.repo.ts';
 import { backupSessionsRepo } from '../db/backup-sessions.repo.ts';
 import { child as childLogger } from '../log.ts';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
 const log = childLogger('backup-ingest');
+
+/** A stored path proves only where the bytes were put, not that they are still
+ * there (#4905): it counts only when it holds exactly the upload's bytes. */
+async function holdsUpload(libraryRoot: string, relPath: string, tmpFile: string) {
+  const fullPath = containedJoin(libraryRoot, relPath);
+  if (!fullPath) return false;
+  return filesIdentical(fullPath, tmpFile).catch((err: unknown) => {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return false;
+    throw err;
+  });
+}
+
+async function removeTmpQuietly(tmpFile: string): Promise<void> {
+  try {
+    await fs.unlink(tmpFile);
+  } catch {
+    /* already gone */
+  }
+}
+
+async function isOccupiedOnDisk(absPath: string): Promise<boolean> {
+  try {
+    await fs.stat(absPath);
+    return true;
+  } catch (e: unknown) {
+    if ((e as { code?: string })?.code === 'ENOENT') return false;
+    throw e;
+  }
+}
+
+/** A moved photo's old-name edit (#5063) left with no photo beside it: the
+ * canonical-sidecars migration would hand it to whatever lands here. An
+ * edit beside identical bytes is that photo's own, so recovery still adopts. */
+async function holdsStrandedLegacyEdit(absPath: string): Promise<boolean> {
+  return (await hasLegacyBackupEdit(absPath)) && !(await isOccupiedOnDisk(absPath));
+}
+
+/** Publish the upload at `finalPath` unless something is there, through the
+ * same exclusive publish the movers use: a hard link, or an exclusive copy when
+ * the backup tmp dir is on another volume. Its identity is that of the file it
+ * created, so a later withdrawal never removes another writer's (#4693). Null
+ * when the name is taken. */
+async function claimNoClobber(
+  tmpFile: string,
+  finalPath: string,
+): Promise<RelocatePublication | null> {
+  try {
+    const published = await publishExclusive(tmpFile, finalPath);
+    await fs.unlink(tmpFile).catch((err: unknown) => {
+      log.warn(
+        { tmpFile, err: err instanceof Error ? err.message : err },
+        'ingest: published, but the upload tmp could not be removed',
+      );
+    });
+    return published;
+  } catch (err) {
+    if (err instanceof PublishCollisionError) return null;
+    throw err;
+  }
+}
+
+/**
+ * Place the assembled `tmpFile` into `libraryRoot` starting from `baseRelPath`
+ * without ever clobbering or adopting an unrelated file (#4700):
+ *
+ *   (a) If the candidate path is already on disk with byte-identical content
+ *       and is not claimed in `asset_locations` by another asset, adopt it and
+ *       remove `tmpFile`.
+ *   (b) If the candidate path is occupied on disk by different bytes (even of
+ *       the same size) or claimed in `asset_locations` by another asset,
+ *       move on to the next sibling in a fixed order (`-1`, `-2`, …).
+ *   (c) Otherwise claim the path with `claimNoClobber`, looping when it is taken.
+ */
+async function placeUploadOnDisk(args: {
+  libraryId: ObjectId;
+  libraryRoot: string;
+  baseRelPath: string;
+  tmpFile: string;
+  phid: string;
+  mapleId: string;
+  assetId?: ObjectId;
+}): Promise<{ relPath: string; published?: RelocatePublication } | null> {
+  let resolvedRelPath = args.baseRelPath;
+  const containedBase = containedJoin(args.libraryRoot, resolvedRelPath);
+  if (!containedBase) return null;
+
+  const isClaimedByOther = async (relPath: string) =>
+    (await isLocationOwnedByOtherAsset(args.libraryId, relPath, args.assetId)) ||
+    (await holdsStrandedLegacyEdit(path.join(args.libraryRoot, ...relPath.split('/'))));
+
+  let finalPath = containedBase;
+  // Advances only on a collision, never on a lost publish race, so the order
+  // of sibling names is the same on every attempt.
+  let sibling = 0;
+  for (let attempt = 0; attempt <= 10_000; attempt++) {
+    await fs.mkdir(path.dirname(finalPath), { recursive: true });
+    const claimedByOther = await isClaimedByOther(resolvedRelPath);
+    const occupied = await isOccupiedOnDisk(finalPath);
+
+    if (!claimedByOther && !occupied) {
+      const published = await claimNoClobber(args.tmpFile, finalPath);
+      if (published) return { relPath: resolvedRelPath, published };
+      continue;
+    }
+
+    if (!claimedByOther && (await filesIdentical(finalPath, args.tmpFile))) {
+      await removeTmpQuietly(args.tmpFile);
+      log.debug(
+        {
+          phid: args.phid,
+          mapleId: args.mapleId,
+          targetRelPath: resolvedRelPath,
+        },
+        'ingest recovery (matching bytes already on disk) — adopting',
+      );
+      return { relPath: resolvedRelPath };
+    }
+
+    // Siblings in a fixed order (`-1`, `-2`, …), so a retry after a crash between
+    // publication and the catalog write meets the copy it published and adopts it.
+    sibling += 1;
+    const ext = path.posix.extname(args.baseRelPath);
+    const next = `${args.baseRelPath.slice(0, args.baseRelPath.length - ext.length)}-${sibling}${ext}`;
+    const nextPath = containedJoin(args.libraryRoot, next);
+    if (!nextPath) return null;
+    log.warn(
+      { phid: args.phid, mapleId: args.mapleId, collidedRelPath: resolvedRelPath, next },
+      'ingest path collision — disambiguating',
+    );
+    resolvedRelPath = next;
+    finalPath = nextPath;
+  }
+  throw new Error(`could not place upload for ${args.baseRelPath} after 10000 attempts`);
+}
 
 export const backupIngestRoutes = new Elysia().post(
   '/api/libraries/:libraryId/backup/ingest',
@@ -114,7 +255,12 @@ export const backupIngestRoutes = new Elysia().post(
     // Compute the destination relative path.
     let targetRelPath: string;
     try {
-      targetRelPath = formatBackupPath({ captureDate, location, filename, isScreenshot });
+      targetRelPath = formatBackupPath({
+        captureDate,
+        location,
+        filename,
+        isScreenshot,
+      });
     } catch (e: any) {
       set.status = 400;
       return { error: e?.message ?? 'invalid filename' };
@@ -130,32 +276,38 @@ export const backupIngestRoutes = new Elysia().post(
       phassetCloudId: phCloudId,
     });
     if (opened instanceof Response) return opened;
-    const { session, didReset, alreadyComplete } = opened;
+    let { didReset } = opened;
+    const { session, alreadyComplete } = opened;
 
-    // Short-circuit when the upload already finished server-side. The device
-    // is retrying because something AFTER the original ingest (sidecar /
-    // rendered / live video) failed and re-enqueued the task — re-uploading
-    // the same bytes is wasted work, and the client's downstream steps
-    // (sidecar PUT, rendered POST) only need `maple_id` + `target_rel_path`
-    // to proceed. Skip chunk processing entirely.
+    // Short-circuit when the upload already finished server-side and the
+    // stored copy is still live on disk (#4700). The device is retrying
+    // because something AFTER the original ingest (sidecar / rendered / live
+    // video) failed and re-enqueued the task — re-uploading the same bytes is
+    // wasted work, and the client's downstream steps (sidecar PUT, rendered
+    // POST) only need `maple_id` + `target_rel_path` to proceed. If the asset
+    // was marked missing or its file vanished since completion, reopen the
+    // session and accept the repair upload instead.
     if (alreadyComplete) {
-      log.debug(
-        {
-          phid,
-          mapleId: session.maple_id,
-          targetRelPath: session.target_rel_path,
-        },
-        'ingest short-circuit (already complete)',
-      );
-      set.status = 200;
-      return {
-        maple_id: session.maple_id,
-        // Hand back where the bytes actually landed: a disambiguated collision
-        // stores its real path in `resolved_rel_path` while `target_rel_path`
-        // stays the device-computed key. Companions (sidecar / rendered) must
-        // be written next to the real file, not the path that collided.
-        target_rel_path: session.resolved_rel_path ?? session.target_rel_path,
-      };
+      const completedTarget = session.maple_id
+        ? await findIngestDedupTarget({
+            mapleId: session.maple_id,
+            libraryId,
+            deviceId,
+            phassetLocalId: phid,
+          })
+        : null;
+      // The session stays complete, so each retry is refused after one chunk
+      // rather than re-sending the whole original first.
+      if (completedTarget?.purgeAdmitted) {
+        set.status = 409;
+        return { error: 'asset has a durable purge intent', code: 'purge_admitted' };
+      }
+      // A completed session proves the bytes were published once, not that its
+      // path still holds them: the retry is assembled and byte-verified (#4905).
+      await uploadSessions.resetForRestart(session._id);
+      session.state = 'open';
+      session.received_bytes = 0;
+      didReset = true;
     }
 
     // Use the stored target_rel_path as the source of truth (not the freshly
@@ -199,9 +351,19 @@ export const backupIngestRoutes = new Elysia().post(
       ...(phCloudId ? { phasset_cloud_id: phCloudId } : {}),
     };
 
+    // A purge admitted after the lookup is caught by the guarded write (#4913).
+    const refusePurged = async () => {
+      await removeTmpQuietly(tmpFile);
+      await uploadSessions.resetForRestart(session._id);
+      set.status = 409;
+      return { error: 'asset has a durable purge intent', code: 'purge_admitted' };
+    };
+
     if (existing) {
+      if (existing.purgeAdmitted) return refusePurged();
       // Same content already stored somewhere. Whether we can pure-dedup
-      // (no second copy on disk) depends on which library that copy lives in.
+      // (no second copy on disk) depends on which library that copy lives in
+      // and whether the file is actually still on disk (#4700).
       //
       // maple_id is a GLOBAL content hash — not scoped to a library. The
       // matched row may carry locations only for some OTHER library (e.g. the
@@ -213,14 +375,23 @@ export const backupIngestRoutes = new Elysia().post(
       // backing a photo up to library Y must leave a usable location
       // referencing Y.
       const liveRelPath = existing.liveRelPathInLibrary;
+      // Progress is per library and device: one already linked whose photo this
+      // library already held was counted then, so a retry or repair isn't another upload.
+      const uploadedDelta =
+        existing.alreadyLinked && (liveRelPath ?? existing.missingRelPathInLibrary) !== null
+          ? 0
+          : 1;
+      const progress: ProgressArgs = { libraryId, deviceId, uploadedDelta, failedDelta: 0 };
+      const liveOnDisk =
+        liveRelPath !== null && (await holdsUpload(folder.path, liveRelPath, tmpFile));
 
-      if (liveRelPath !== null) {
+      if (liveRelPath !== null && liveOnDisk) {
         // Content already on disk in THIS library — true dedup. Drop the tmp
         // bytes; the canonical copy already lives at this library's location.
         // Linking this device to the existing row is idempotent on retry.
-        if (!existing.alreadyLinked) {
-          await linkPhasset(existing.id, link);
-        }
+        if (existing.alreadyLinked) await backupSessionsRepo.upsertProgress(progress);
+        else if (!(await linkPhasset(existing.id, link, undefined, progress)))
+          return refusePurged();
         try {
           await fs.unlink(tmpFile);
         } catch {
@@ -233,12 +404,6 @@ export const backupIngestRoutes = new Elysia().post(
           mapleId,
           resolvedRelPath: liveRelPath,
         });
-        await backupSessionsRepo.upsertProgress({
-          libraryId,
-          deviceId,
-          uploadedDelta: 1,
-          failedDelta: 0,
-        });
         log.debug({ phid, mapleId, dedup: true }, 'ingest complete (dedup, same library)');
         set.status = 200;
         return {
@@ -247,59 +412,48 @@ export const backupIngestRoutes = new Elysia().post(
         };
       }
 
-      // Content exists, but NOT in this library — materialize a copy here so
-      // this library gets its own location (and the folder-scoped sidecar /
-      // rendered lookups succeed). We still avoid re-deriving the id or
-      // re-running enrichment: this is the same content-addressed row, we only
-      // add a location.
-      const finalPath = containedJoin(folder.path, resolvedTargetRelPath);
-      if (!finalPath) {
+      // Content exists, but either NOT in this library or its copy in this
+      // library is missing on disk (#4700) — materialize a copy here so this
+      // library has a live file and location (and the folder-scoped sidecar /
+      // rendered lookups succeed). When restoring a missing/vanished location
+      // in this library, prefer that location's path so `appendBackupLocation`
+      // re-activates the existing row in place, while `placeUploadOnDisk`
+      // verifies any on-disk occupant byte-for-byte and disambiguates to a
+      // sibling if an unrelated file now sits at that path.
+      const candidateRelPath =
+        liveRelPath ?? existing.missingRelPathInLibrary ?? resolvedTargetRelPath;
+      const placed = await placeUploadOnDisk({
+        libraryId,
+        libraryRoot: folder.path,
+        baseRelPath: candidateRelPath,
+        tmpFile,
+        phid,
+        mapleId,
+        assetId: existing.id,
+      });
+      if (!placed) {
         set.status = 400;
         return { error: 'resolved path escapes library root' };
       }
-      await fs.mkdir(path.dirname(finalPath), { recursive: true });
+      resolvedTargetRelPath = placed.relPath;
 
-      // If the file already sits at the target path (e.g. a prior attempt
-      // moved it but the database never recorded this library's location),
-      // reuse it rather than clobbering — but only when it matches the freshly
-      // assembled upload's size. A stale/partial file of a different size must
-      // not be silently adopted and referenced by a new location, so we
-      // overwrite it with the just-assembled tmp instead.
-      let needMove = true;
-      try {
-        const destStat = await fs.stat(finalPath);
-        const tmpStat = await fs.stat(tmpFile);
-        needMove = destStat.size !== tmpStat.size;
-      } catch (e: any) {
-        if (e?.code !== 'ENOENT') throw e;
-      }
-      if (needMove) {
-        await atomicMove(tmpFile, finalPath);
-      } else {
-        try {
-          await fs.unlink(tmpFile);
-        } catch {
-          /* already gone */
-        }
-      }
-
-      await appendBackupLocation(existing.id, {
+      const appended = await appendBackupLocation(existing.id, {
         relPath: resolvedTargetRelPath,
         libraryId,
         link: existing.alreadyLinked ? null : link,
         ownerId,
+        replacedRelPath: liveRelPath ?? existing.missingRelPathInLibrary,
+        progress,
       });
+      if (!appended) {
+        if (placed.published) await revertCreated([placed.published]);
+        return refusePurged();
+      }
 
       await uploadSessions.complete({
         sessionId: session._id,
         mapleId,
         resolvedRelPath: resolvedTargetRelPath,
-      });
-      await backupSessionsRepo.upsertProgress({
-        libraryId,
-        deviceId,
-        uploadedDelta: 1,
-        failedDelta: 0,
       });
       log.debug(
         {
@@ -315,84 +469,22 @@ export const backupIngestRoutes = new Elysia().post(
       return { maple_id: mapleId, target_rel_path: resolvedTargetRelPath };
     }
 
-    // 2. No existing row — place the assembled tmp file at its destination.
-    //
-    // A file may already sit at the computed path with no asset row, and two
-    // situations produce that with opposite handling:
-    //
-    //   (a) A half-finished prior attempt for THIS asset moved its bytes into
-    //       place but the process died before the asset row was inserted (or
-    //       the session marked complete). The on-disk file is byte-for-byte
-    //       what we just re-assembled — adopt it and create the missing row.
-    //       This is the spurious 500 the device hits on retry of an upload
-    //       that already (mostly) succeeded.
-    //
-    //   (b) A genuinely different asset already owns this path — two photos
-    //       that share a capture date + filename and resolve to the same (or,
-    //       on a cold geocode cache, no) location. Clobbering would lose a
-    //       photo; failing would strand this one. Move to the next free
-    //       sibling path and report the adjusted path back to the device.
-    //
-    // The loop makes this race-safe: every placement is a no-clobber move, and
-    // a concurrent upload that grabs our chosen sibling first just sends us
-    // around again to compare-or-disambiguate against whatever landed. Sibling
-    // numbering always derives from the original computed path, never the
-    // already-suffixed one.
-    const baseRelPath = resolvedTargetRelPath;
-    const containedBase = containedJoin(folder.path, resolvedTargetRelPath);
-    if (!containedBase) {
+    // 2. No existing row — place the assembled tmp file at its destination,
+    //    adopting byte-identical recovery files or disambiguating collisions.
+    const placed = await placeUploadOnDisk({
+      libraryId,
+      libraryRoot: folder.path,
+      baseRelPath: resolvedTargetRelPath,
+      tmpFile,
+      phid,
+      mapleId,
+    });
+    if (!placed) {
       set.status = 400;
       return { error: 'resolved path escapes library root' };
     }
-    let finalPath = containedBase;
-    let placed = false;
-    for (let attempt = 0; !placed; attempt++) {
-      if (attempt > 10_000) {
-        throw new Error(`could not place upload for ${baseRelPath} after ${attempt} attempts`);
-      }
-      await fs.mkdir(path.dirname(finalPath), { recursive: true });
+    resolvedTargetRelPath = placed.relPath;
 
-      let occupied = false;
-      try {
-        await fs.stat(finalPath);
-        occupied = true;
-      } catch (e: any) {
-        if (e?.code !== 'ENOENT') throw e;
-      }
-
-      if (occupied) {
-        if (await filesIdentical(finalPath, tmpFile)) {
-          // (a) Recovery — the canonical bytes are already in place. Drop tmp.
-          try {
-            await fs.unlink(tmpFile);
-          } catch {
-            /* already gone */
-          }
-          log.debug(
-            { phid, mapleId, targetRelPath: resolvedTargetRelPath },
-            'ingest recovery (matching bytes already on disk, no row) — adopting',
-          );
-          placed = true;
-          break;
-        }
-        // (b) Real collision — pick the next free sibling (numbered off the
-        // original path) and loop to claim it atomically.
-        const free = await firstFreeSiblingPath(folder.path, baseRelPath);
-        log.warn(
-          { phid, mapleId, collidedRelPath: resolvedTargetRelPath, resolvedRelPath: free.relPath },
-          'ingest path collision (different bytes) — disambiguating',
-        );
-        resolvedTargetRelPath = free.relPath;
-        finalPath = free.absPath;
-        continue;
-      }
-
-      // Path looked free — claim it without clobbering. If another upload won
-      // the race (EEXIST) we loop and re-evaluate the now-occupied path.
-      if (await moveNoClobber(tmpFile, finalPath)) {
-        placed = true;
-      }
-    }
     await uploadSessions.complete({
       sessionId: session._id,
       mapleId,
@@ -407,14 +499,7 @@ export const backupIngestRoutes = new Elysia().post(
       isScreenshot,
       link,
       ownerId,
-    });
-
-    // Update per-device backup progress summary.
-    await backupSessionsRepo.upsertProgress({
-      libraryId,
-      deviceId,
-      uploadedDelta: 1,
-      failedDelta: 0,
+      progress: { libraryId, deviceId, uploadedDelta: 1, failedDelta: 0 },
     });
 
     log.debug({ phid, targetRelPath: resolvedTargetRelPath, mapleId }, 'ingest complete');

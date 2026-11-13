@@ -4,10 +4,11 @@
 // `XMPSidecarStore` in MapleCore — just keyed by `phassetLocalId` instead of
 // by raw file URL. Atomic writes via temp + `replaceItemAt`.
 //
-// This store holds Maple edits for PhotoKit-backed photos whose bytes
-// haven't been uploaded yet. Once the BackupEngine uploads the bytes,
-// the sidecar is copied to the cloud library as a normal `<file>.xmp`
-// next to the asset, then the local row is deleted.
+// This store holds the canonical Maple edits for PhotoKit-backed photos
+// (`PhotoKitSidecarStore` reads and writes it). When the BackupEngine
+// uploads a photo's bytes, the sidecar is copied to the cloud library as a
+// normal `<file>.xmp` next to the asset; the local file is kept, because it
+// is still the editor's source of truth (#4719).
 //
 // Spec: .archived-plans/specs/2026-05-09-photokit-backup-design.md §11.
 
@@ -32,27 +33,36 @@ public enum AppSupportSidecarStoreError: Error, LocalizedError, Sendable {
 
 public final class AppSupportSidecarStore {
 
-  /// Default location at
-  /// `~/Library/Application Support/Maple/PhotoKitSidecars/`.
-  /// Creates the directory if missing.
+  /// `PhotoKitSidecars/` inside the shared backup root
+  /// (`BackupStorage.sharedRoot`), shared by the app and the backup helper
+  /// (#4717). Creates the directory if missing.
   public static func defaultRoot() throws -> URL {
-    let appSupport = try FileManager.default.url(
-      for: .applicationSupportDirectory,
-      in: .userDomainMask,
-      appropriateFor: nil,
-      create: true)
-    let dir =
-      appSupport
-      .appendingPathComponent("Maple", isDirectory: true)
-      .appendingPathComponent("PhotoKitSidecars", isDirectory: true)
+    try defaultRoot(in: try BackupStorage.sharedRoot())
+  }
+
+  public static func defaultRoot(in root: URL) throws -> URL {
+    let dir = root.appendingPathComponent("PhotoKitSidecars", isDirectory: true)
     try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
     return dir
   }
 
   private let root: URL
+  private let rootPath: String
+
+  private struct FileStamp: Equatable {
+    let seconds: Int
+    let nanoseconds: Int
+    let size: off_t
+  }
+
+  private let digestLock = NSLock()
+  private var digests: [String: (stamp: FileStamp, digest: String)] = [:]
+  /// Files `digest(phassetLocalId:)` has read and hashed; tests read it.
+  private(set) var digestReads = 0
 
   public init(root: URL) {
     self.root = root
+    self.rootPath = root.path
   }
 
   /// PHAsset `localIdentifier` strings look like
@@ -68,8 +78,40 @@ public final class AppSupportSidecarStore {
   /// Canonical file identity for coordinated editor writes (#4047). Callers
   /// share this path rather than reproduce the PhotoKit identifier encoding.
   public func sidecarURL(phassetLocalId: String) -> URL {
-    let safe = phassetLocalId.replacingOccurrences(of: "/", with: "_")
-    return root.appendingPathComponent("\(safe).xmp")
+    root.appendingPathComponent(Self.fileName(phassetLocalId))
+  }
+
+  private static func fileName(_ phassetLocalId: String) -> String {
+    phassetLocalId.replacingOccurrences(of: "/", with: "_") + ".xmp"
+  }
+
+  /// File names of every stored edit, so a caller checking many photos can
+  /// skip the ones without an edit without touching the disk per photo.
+  public func storedSidecarFileNames() throws -> Set<String> {
+    guard FileManager.default.fileExists(atPath: root.path) else { return [] }
+    return Set(try FileManager.default.contentsOfDirectory(atPath: root.path))
+  }
+
+  /// The digest of the stored edit (`BackupEngine.digest(of:)`), or nil when
+  /// the photo has none. The file is read and hashed again only when its size
+  /// or modification date differs from the last call's, so checking many
+  /// unchanged edits costs one `stat` each.
+  public func digest(phassetLocalId: String) throws -> String? {
+    var info = stat()
+    guard stat(rootPath + "/" + Self.fileName(phassetLocalId), &info) == 0 else { return nil }
+    let stamp = FileStamp(
+      seconds: info.st_mtimespec.tv_sec, nanoseconds: info.st_mtimespec.tv_nsec,
+      size: info.st_size)
+    if let hit = digestLock.withLock({ digests[phassetLocalId] }), hit.stamp == stamp {
+      return hit.digest
+    }
+    guard let xmp = try read(phassetLocalId: phassetLocalId) else { return nil }
+    let digest = BackupEngine.digest(of: xmp)
+    digestLock.withLock {
+      digests[phassetLocalId] = (stamp, digest)
+      digestReads += 1
+    }
+    return digest
   }
 
   /// Read the sidecar for `phassetLocalId`.

@@ -2,7 +2,7 @@
 import * as fs from './mirrored.ts';
 import { dirname } from 'node:path';
 import { safeWriteAllowed } from './root.ts';
-import { xmpSidecarPath } from './xmp.ts';
+import { xmpSidecarPath } from './xmp-sidecar-path';
 import { removalRelocationLease } from './removal-relocation-lease.ts';
 import {
   assertRemovalRecovered,

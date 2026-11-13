@@ -11,8 +11,8 @@ use crate::{
     error::Result,
     image::{ColorSpace, Image},
     stages::{
-        clarity, color_grade, dehaze, display_tone_curve, grain, hsl, noise_reduction, saturation,
-        scene_tone_controls, sharpen, texture, vibrance, vignette,
+        clarity, color_curves, color_grade, dehaze, display_tone_curve, grain, hsl,
+        noise_reduction, saturation, scene_tone_controls, sharpen, texture, vibrance, vignette,
     },
     view::{agx, encode},
     xmp::AdjustmentModel,
@@ -136,6 +136,10 @@ pub fn render_from_scene_linear_with_chain(
     // `hsl_soft_compress` fix).
     stage("synth_hsl", || hsl::apply_model(&mut scene, model));
     dump_after("09b_hsl", &scene);
+    stage("synth_color_curves", || {
+        color_curves::apply_model(&mut scene, model)
+    });
+    dump_after("09c_color_curves", &scene);
     stage("synth_clarity", || {
         clarity::apply(&mut scene, model.clarity)
     });

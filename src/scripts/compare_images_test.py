@@ -8,6 +8,7 @@ Synthetic-image checks:
   * population-weighted mean of zone means reconstructs the global mean
 """
 
+import json
 import sys
 import tempfile
 from pathlib import Path
@@ -16,7 +17,9 @@ import numpy as np
 from PIL import Image, PngImagePlugin
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+sys.path.insert(0, str(Path(__file__).parent / "acr-reference"))
 import compare_images as ci
+from write_xmp import explicit_reference_defaults
 
 
 def _metadata(exposure="0"):
@@ -240,6 +243,120 @@ def test_nonbaseline_down_only_retains_legacy_comparison():
                 raise AssertionError(f"{label} accepted a down-only reference")
 
 
+def _qualified_native_pair(directory):
+    authored = explicit_reference_defaults(
+        b'<x xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/" '
+        b'xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">'
+        b'<rdf:Description crs:CameraProfile="Adobe Standard" '
+        b'crs:WhiteBalance="Custom" crs:Temperature="6500" crs:Tint="150"/></x>'
+    )
+    metadata = PngImagePlugin.PngInfo()
+    metadata.add_itxt("XML:com.adobe.xmp", authored.decode())
+    full, down, sidecar = [
+        Path(directory) / name for name in ("full.png", "down.png", "reference.xmp")
+    ]
+    pixels = np.zeros((96, 128, 3), dtype=np.uint8)
+    pixels[:, 43:47] = (255, 180, 60)
+    Image.fromarray(pixels).save(full, pnginfo=metadata)
+    with Image.open(full) as image:
+        image.resize((37, 28), Image.Resampling.BICUBIC).save(down, pnginfo=metadata)
+    sidecar.write_bytes(authored)
+    outputs = [
+        {"resolution": "full", "png": str(full)},
+        {"resolution": "down", "png": str(down)},
+    ]
+    return full, down, sidecar, outputs
+
+
+def test_explicit_nonbaseline_migration_matches_reduction_and_keeps_full_pixels():
+    with tempfile.TemporaryDirectory() as directory:
+        full, _down, sidecar, outputs = _qualified_native_pair(directory)
+        for label in ("exposure_max", "tint_min", "sharpen_detail_max"):
+            for resolution, pixels in (("down", 37 * 28), ("full", 128 * 96)):
+                result = ci.diff_manifest_case(
+                    str(full),
+                    outputs,
+                    resolution,
+                    case_label=label,
+                    reference_xmp=str(sidecar),
+                    reference_protocol="native-pair-lanczos-v1",
+                )
+                assert result["reference_protocol"] == "native-pair-lanczos-v1"
+                assert result["max_deltaE"] == 0.0
+                assert result["n_pixels"] == pixels
+        legacy = ci.diff_manifest_case(
+            str(full),
+            outputs,
+            "down",
+            case_label="exposure_max",
+            reference_xmp=str(sidecar),
+        )
+        assert legacy["reference_protocol"] == "legacy-direct-reference"
+        assert legacy["max_deltaE"] > 1.0
+
+
+def test_explicit_migration_fails_closed_on_unknown_protocol_or_missing_authoring():
+    with tempfile.TemporaryDirectory() as directory:
+        full, _down, sidecar, outputs = _qualified_native_pair(directory)
+        for options, expected in (
+            (
+                {"reference_protocol": "native-pair-lanczos"},
+                "unknown reference protocol",
+            ),
+            (
+                {"reference_protocol": "native-pair-lanczos-v1"},
+                "explicit Adobe authoring",
+            ),
+        ):
+            try:
+                ci.diff_manifest_case(
+                    str(full), outputs, "down", case_label="tint_max", **options
+                )
+            except ValueError as error:
+                assert expected in str(error)
+            else:
+                raise AssertionError("invalid migration accepted")
+        try:
+            ci.diff_manifest_case(
+                str(full),
+                outputs[1:],
+                "down",
+                case_label="tint_max",
+                reference_xmp=str(sidecar),
+                reference_protocol="native-pair-lanczos-v1",
+            )
+        except FileNotFoundError:
+            pass
+        else:
+            raise AssertionError("migrated case fell back to down pixels")
+
+
+def test_explicit_migration_rejects_ignored_adobe_tint():
+    with tempfile.TemporaryDirectory() as directory:
+        full, down, sidecar, outputs = _qualified_native_pair(directory)
+        metadata = PngImagePlugin.PngInfo()
+        metadata.add_itxt(
+            "XML:com.adobe.xmp",
+            sidecar.read_text().replace('crs:Tint="150"', 'crs:Tint="10"'),
+        )
+        with Image.open(down) as image:
+            pixels = image.copy()
+        pixels.save(down, pnginfo=metadata)
+        try:
+            ci.diff_manifest_case(
+                str(full),
+                outputs,
+                "down",
+                case_label="tint_max",
+                reference_xmp=str(sidecar),
+                reference_protocol="native-pair-lanczos-v1",
+            )
+        except ValueError as error:
+            assert "Tint" in str(error)
+        else:
+            raise AssertionError("migrated case accepted Adobe's ignored tint")
+
+
 def test_chunking_preserves_all_statistics_and_roi():
     from unittest.mock import patch
 
@@ -282,7 +399,91 @@ def test_chunking_preserves_all_statistics_and_roi():
                     )
 
 
+def test_bias_is_invariant_under_pixel_repetition():
+    """The same signed error must not drift with the image/ROI population."""
+    with tempfile.TemporaryDirectory() as directory:
+        candidate, reference, roi = [
+            Path(directory) / name for name in ("a.png", "b.png", "roi.png")
+        ]
+        fields = ("bias_r", "bias_g", "bias_b")
+        errors = []
+        for edge in (1, 512):
+            pixels = np.full((edge, edge, 3), (128, 126, 129), dtype=np.uint8)
+            _write(candidate, pixels)
+            _write(reference, np.full_like(pixels, 127))
+            mask = np.full((edge, edge), 255, dtype=np.uint8)
+            mask[1::2] = 0
+            Image.fromarray(mask).save(roi)
+            for masked in (False, True):
+                result = ci.diff(
+                    str(candidate),
+                    str(reference),
+                    zones=True,
+                    roi_path=str(roi) if masked else None,
+                )
+                if edge == 1 and not masked:
+                    expected = np.array([result[key] for key in fields])
+                for label, values in (
+                    ("full/ROI", result),
+                    ("zone", result["zones"]["mid"]),
+                ):
+                    actual = np.array([values[key] for key in fields])
+                    if not np.allclose(actual, expected, atol=1e-12, rtol=0):
+                        errors.append((edge, masked, label, actual, expected))
+        assert not errors, errors
+
+
+def test_bias_preserves_signed_cancellation_and_pixel_order():
+    with tempfile.TemporaryDirectory() as directory:
+        candidate, reference = [Path(directory) / name for name in ("a.png", "b.png")]
+        # Two exact float32 residuals repeated in large spatial blocks. The
+        # oracle adds the two unique values, rather than repeating the reduction.
+        values = np.array([255, 0, 1, 253], dtype=np.float32) / 255.0
+        expected = (float(values[0] - values[2]) + float(values[1] - values[3])) / 2
+        a = np.zeros((512, 512, 3), dtype=np.uint8)
+        b = np.full_like(a, 253)
+        a[:256] = 255
+        b[:256] = 1
+        for flip in (False, True):
+            _write(candidate, a[::-1] if flip else a)
+            _write(reference, b[::-1] if flip else b)
+            result = ci.diff(str(candidate), str(reference))
+            for key in ("bias_r", "bias_g", "bias_b"):
+                assert abs(result[key] - expected) < 1e-12, (
+                    flip,
+                    key,
+                    result[key],
+                    expected,
+                )
+
+
+def test_swift_calibration_expectations_match_python():
+    calibration = (
+        Path(__file__).resolve().parents[1] / "apple/MapleUITests/Goldens/.calibration"
+    )
+    for name in (".", "bias-repetition", "bias-cancellation"):
+        directory = calibration / name
+        expected = json.loads((directory / "expected.json").read_text())
+        actual = ci.diff(str(directory / "a.png"), str(directory / "b.png"))
+        assert actual.keys() == expected.keys(), name
+        for field, value in expected.items():
+            tolerance = 1e-12 if field.startswith("bias_") else 1e-3
+            assert abs(actual[field] - value) < tolerance, (
+                name,
+                field,
+                actual,
+                expected,
+            )
+
+
 def main():
+    import unittest
+
+    import compare_images_metadata_test
+
+    suite = unittest.defaultTestLoader.loadTestsFromModule(compare_images_metadata_test)
+    if not unittest.TextTestRunner().run(suite).wasSuccessful():
+        raise AssertionError("authoring metadata tests failed")
     for name, fn in sorted(globals().items()):
         if name.startswith("test_") and callable(fn):
             fn()

@@ -5,12 +5,14 @@ import {
   PreviewShellComponent,
   ProtocolHandlerComponent,
   authGuard,
+  ownerGuard,
 } from '@maple-common';
 import { SelfHostedBrowseComponent } from './self-hosted-browse/self-hosted-browse.component';
 
 // Self-Hosted: the server already hosts the library, so the root path goes
 // straight to /browse. No landing page. All content routes are gated behind
-// `authGuard`; unauthenticated users are redirected to `/sign-in`.
+// `authGuard` (or `ownerGuard`, which adds the role check); unauthenticated
+// users are redirected to `/sign-in`.
 export const routes: Routes = [
   {
     path: 'sign-in',
@@ -113,9 +115,11 @@ export const routes: Routes = [
       import('./settings/backup/backup.component').then((m) => m.BackupComponent),
   },
   // #1231 — Panorama stitching operator config (binary path + models dir + toggle).
+  // Route-guarded, unlike the nav-gated pages around it: a member following a
+  // direct link would otherwise get a form whose every save is a 403 (#5517).
   {
     path: 'settings/pano',
-    canActivate: [authGuard],
+    canActivate: [ownerGuard],
     loadComponent: () =>
       import('./settings/pano/pano-settings.component').then((m) => m.PanoSettingsComponent),
   },

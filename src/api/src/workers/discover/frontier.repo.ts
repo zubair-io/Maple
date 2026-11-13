@@ -5,8 +5,8 @@
  * stranded.
  *
  * The bodies moved to `db/repos/discover-frontier.repo.ts` at the
- * cutover (#3787); this module is the import path `sweeper.ts` and `index.ts`
- * already use, kept so the move is one file rather than every call site.
+ * cutover (#3787); this module is the import path `sweeper.ts` and
+ * `sweep-slice.ts` use, kept so the move is one file rather than every call site.
  *
  * Each name is re-exported explicitly rather than with `export *`: a name whose
  * shape changed on the SQLite side then fails to compile here instead of being

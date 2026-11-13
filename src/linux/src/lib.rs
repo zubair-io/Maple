@@ -2,6 +2,7 @@
 //! resident GPU previews and release qualification remain.
 
 pub mod controls;
+pub mod diagnose;
 pub mod library;
 pub mod sidecar;
 

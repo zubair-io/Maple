@@ -1,18 +1,19 @@
 // Concurrent device backup workers. A live host keeps run(keepAlive: true)
 // subscribed to new queue work; finite batch callers drain and return.
-// Original bytes remain authoritative; companions retain their existing
-// independent retry policy. See BackupEngine+Companions.swift.
+// A photo is uploaded once its original and its Live Photo video and edited
+// render have all landed; only the edit sidecar keeps its own retry policy.
+// See BackupEngine+Companions.swift.
 
 import Foundation
 import os
 
 public actor BackupEngine {
 
-  /// Diagnostics for the best-effort companion path (#700). Surfaces which
-  /// companion (sidecar / rendered / live-mov) is retrying or has exhausted
-  /// its bounded budget, so a stranded artifact is visible in Console.app
-  /// without failing the (already-uploaded) photo.
-  private static let companionLog = Logger(
+  /// Diagnostics for the best-effort edit-sidecar path (#700). Surfaces a
+  /// sidecar that is retrying or has exhausted its bounded budget, so a
+  /// stranded edit is visible in Console.app without failing the
+  /// (already-uploaded) photo.
+  static let companionLog = Logger(
     subsystem: "app.justmaple.aperture", category: "backup.companion")
 
   public enum EngineError: Error, Equatable, Sendable {
@@ -21,15 +22,26 @@ public actor BackupEngine {
 
   /// `internal` for the same reason as `outstandingCompanions`.
   let queue: any BackupQueue
-  private let state: BackupStateStore
-  private let upload: UploadClient
-  private let sidecars: AppSupportSidecarStore
+  let state: BackupStateStore
+  let upload: UploadClient
+  let sidecars: AppSupportSidecarStore
   private let reader: any AssetReader
   private let reachability: Reachability?
   private let wifiOnly: Bool
 
+  /// iPhone and iPad hold each asset's mapped resources until its upload ends,
+  /// so a smaller cap keeps the backup's footprint out of the way of the editor
+  /// and panorama stitches that share the process memory limit (#5653).
+  public static let defaultMaxConcurrency: Int = {
+    #if os(iOS)
+      3
+    #else
+      8
+    #endif
+  }()
+
   /// How many `process(task:)` runs proceed in parallel inside `run()`.
-  /// Defaults to 8 (raised from the original hardcoded 4 in #700). The real
+  /// Defaults to `defaultMaxConcurrency` (8 off iOS, raised from 4 in #700). The real
   /// wall-clock parallelism comes from network I/O suspending without holding
   /// the engine's actor isolation, so the cap mostly bounds how many assets
   /// we read + buffer at once. Overridable per-host for fast LAN servers.
@@ -42,6 +54,13 @@ public actor BackupEngine {
   /// retry path deliberately stays on the static schedule.
   let companionBackoff: @Sendable (Int) -> TimeInterval
 
+  /// Sleeps a failed upload's backoff before its retry re-enqueues. Defaults
+  /// to `Task.sleep`; tests inject a gate they release, so the retry wake is
+  /// observed by event instead of by a wall-clock bound that a loaded host
+  /// breaks (#5127). The schedule itself stays `backoffSeconds(for:)`. Must
+  /// return once the calling task is cancelled: `stop()` awaits each retry.
+  let retrySleep: @Sendable (TimeInterval) async -> Void
+
   /// In-flight retry tasks, tracked so stop() can cancel them cleanly.
   /// Covers both the primary-bytes retry/backoff path and the best-effort
   /// companion retry path (#700).
@@ -49,7 +68,12 @@ public actor BackupEngine {
   /// Keyed by a token rather than held in a `Set<Task>` so a retry can
   /// retire its OWN entry from inside its closure, before it signals. That
   /// ordering is load-bearing — see `finishRetry(_:)`.
-  private var retryTasks: [UUID: Task<Void, Never>] = [:]
+  var retryTasks: [UUID: Task<Void, Never>] = [:]
+  private var stopping: Task<Void, Never>?
+  /// The sidecar send in flight per photo; the next one waits for it (#5023).
+  var sidecarSends: [BackupTaskID: Task<Void, Error>] = [:]
+  /// The queued send that is past its predecessor and actually sending.
+  var sidecarSending: [BackupTaskID: UUID] = [:]
 
   /// Wakes `run()` when a sleeping retry re-enqueues, so it can park
   /// instead of polling on a fixed interval while retries are outstanding
@@ -88,12 +112,6 @@ public actor BackupEngine {
   /// it before #700 decoupled companions from the bytes upload.
   private static let localEditCompanionRetries = 8
 
-  /// Bounded retry budget for re-derivable companions (generated sidecar,
-  /// Apple-rendered twin, Live Photo .mov). These can be regenerated from
-  /// PHAsset state on a future walk, so they retry lightly and are dropped
-  /// on exhaustion rather than stranding a concurrency slot.
-  private static let derivedCompanionRetries = 2
-
   public init(
     queue: any BackupQueue,
     state: BackupStateStore,
@@ -102,9 +120,12 @@ public actor BackupEngine {
     reader: any AssetReader,
     reachability: Reachability? = nil,
     wifiOnly: Bool = false,
-    maxConcurrency: Int = 8,
+    maxConcurrency: Int = BackupEngine.defaultMaxConcurrency,
     companionBackoff: @escaping @Sendable (Int) -> TimeInterval = {
       min(3600, pow(2.0, Double($0)))
+    },
+    retrySleep: @escaping @Sendable (TimeInterval) async -> Void = {
+      try? await Task.sleep(nanoseconds: UInt64($0 * 1_000_000_000))
     }
   ) {
     precondition(maxConcurrency > 0, "maxConcurrency must be > 0")
@@ -117,6 +138,7 @@ public actor BackupEngine {
     self.wifiOnly = wifiOnly
     self.maxConcurrency = maxConcurrency
     self.companionBackoff = companionBackoff
+    self.retrySleep = retrySleep
   }
 
   /// Drive the queue until empty or until the enclosing Task is cancelled.
@@ -142,7 +164,12 @@ public actor BackupEngine {
     let wake = retryWake
     let observer = Task {
       for await event in events {
-        if case .enqueued = event { await wake.signal() }
+        switch event {
+        case .enqueued, .enqueuedBatch:
+          await wake.signal()
+        default:
+          break
+        }
       }
     }
     defer { observer.cancel() }
@@ -194,26 +221,48 @@ public actor BackupEngine {
     }
   }
 
-  /// Cancel all pending retry tasks. Called by EngineHost.stop() before
-  /// cancelling the runner Task so retries are torn down cleanly.
-  public func stop() {
-    for task in retryTasks.values {
-      task.cancel()
+  /// Cancel every retry task and wait for each to exit, so nothing is still
+  /// uploading or writing state when the caller hands the engine lock to the
+  /// other backup host (#4988).
+  public func stop() async {
+    // One drain at a time: a concurrent caller waits for the drain already in
+    // progress, because its caller releases the engine lock next (#5022).
+    if let stopping {
+      await stopping.value
+      return
     }
-    retryTasks.removeAll()
-    // Wake a parked runner so it observes teardown promptly. Without this,
-    // `run()`'s doc claim that it parks "until a retry re-enqueues (or
-    // teardown signals us)" is not actually true: a caller that invokes
-    // `stop()` WITHOUT also cancelling the runner Task would leave it
-    // parked forever on a `retryTasks` that is now empty. The cancelled
-    // retries above do each signal on their way out, but only once their
-    // sleep unwinds — and if `retryTasks` was already empty there is
-    // nothing to unwind at all.
-    Task { await retryWake.signal() }
-    // Cancelled companion retries won't reach their decrement, so clear the
-    // outstanding-companion counters too — a fresh run starts clean and we
-    // never re-emit a stale `.companionsResolved` for a torn-down task (#702).
-    outstandingCompanions.removeAll()
+    let drain = Task { await drainRetries() }
+    stopping = drain
+    await drain.value
+    stopping = nil
+  }
+
+  private func drainRetries() async {
+    // A retry registered while the cancelled ones drain (the actor is
+    // reentrant at each await) is torn down by the next pass.
+    repeat {
+      let cancelled = Array(retryTasks.values)
+      for task in cancelled {
+        task.cancel()
+      }
+      retryTasks.removeAll()
+      // Wake a parked runner so it observes teardown promptly. Without this,
+      // `run()`'s doc claim that it parks "until a retry re-enqueues (or
+      // teardown signals us)" is not actually true: a caller that invokes
+      // `stop()` WITHOUT also cancelling the runner Task would leave it
+      // parked forever on a `retryTasks` that is now empty. The cancelled
+      // retries above do each signal on their way out, but only once their
+      // sleep unwinds — and if `retryTasks` was already empty there is
+      // nothing to unwind at all.
+      Task { await retryWake.signal() }
+      // Cancelled companion retries won't reach their decrement, so clear the
+      // outstanding-companion counters too — a fresh run starts clean and we
+      // never re-emit a stale `.companionsResolved` for a torn-down task (#702).
+      outstandingCompanions.removeAll()
+      for task in cancelled {
+        await task.value
+      }
+    } while !retryTasks.isEmpty
   }
 
   /// Process the next task in the queue, or return without throwing if
@@ -231,7 +280,10 @@ public actor BackupEngine {
       await reachability.status() != .wifi,
       task.priority < .userEdit
     {
-      try await state.transition(task.id, to: .pending)
+      guard try await state.returnToPending(task.id) else {
+        await queue.emit(.cancelled(task.id))
+        return
+      }
       await queue.emit(
         .failed(
           task.id,
@@ -249,41 +301,45 @@ public actor BackupEngine {
     let result: UploadClient.Result
     let read: AssetReadResult
     do {
-      try await state.transition(task.id, to: .uploading)
+      guard try await state.claimForUpload(task.id) else {
+        await queue.emit(.cancelled(task.id))
+        return
+      }
       let queue = self.queue
-      let readResult = try await reader.read(phassetLocalId: task.id.phassetLocalId) { message in
+      let primary = try await reader.read(phassetLocalId: task.id.phassetLocalId) { message in
         await queue.emit(.preparing(task.id, message: message))
       }
       try Task.checkCancellation()
-      read = readResult
+      if primary.hasCompanions {
+        try await state.markCompanionsOwed(task.id)
+      }
 
       // Capture local references for the progress closure (actor-isolated
       // captures aren't permitted directly inside the async closure below).
       let queueRef = queue
       let taskId = task.id
 
-      // The PRIMARY bytes upload is the only step that decides photo
-      // success. Its retry/backoff/busy-elsewhere semantics are unchanged:
-      // a failure here falls into the catch blocks below, which schedule
-      // a retry (or busy re-enqueue) and rethrow. Companions are handled
-      // AFTER this do/catch — they never reach these catch blocks, so a
-      // companion failure can't fail the photo or re-upload the bytes.
-      await queue.emit(.progress(task.id, sent: 0, total: Int64(read.originalBytes.count)))
+      // The original, the companion reads, and the Live Photo video and
+      // edited render uploads decide photo success. Their retry/backoff/
+      // busy-elsewhere semantics are the task's: a failure here falls into the
+      // catch blocks below, which schedule a retry (or busy re-enqueue) and
+      // rethrow. Only the edit sidecar is sent after this do/catch.
+      await queue.emit(.progress(task.id, sent: 0, total: Int64(primary.originalBytes.count)))
       result = try await upload.upload(
         phassetLocalId: task.id.phassetLocalId,
-        filename: read.sidecar.originalFilename,
-        captureDate: read.sidecar.captureDate,
-        lat: read.sidecar.latitude,
-        lon: read.sidecar.longitude,
-        bytes: read.originalBytes,
-        mapleId: read.mapleId,
-        phassetCloudId: read.sidecar.phassetCloudId,
+        filename: primary.sidecar.originalFilename,
+        captureDate: primary.sidecar.captureDate,
+        lat: primary.sidecar.latitude,
+        lon: primary.sidecar.longitude,
+        bytes: primary.originalBytes,
+        mapleId: primary.mapleId,
+        phassetCloudId: primary.sidecar.phassetCloudId,
         onProgress: { sent, total in
           await queueRef.emit(.progress(taskId, sent: sent, total: total))
         })
+      read = try await readingDeferredCompanions(of: primary, id: task.id)
+      try await uploadDerivedCompanions(of: read, id: task.id, original: result)
 
-      // Bytes landed — the photo counts as uploaded. Persist + emit before
-      // touching any companion so a companion hiccup can never revert this.
       try await state.transition(task.id, to: .uploaded, error: nil)
       await queue.emit(.completed(task.id, mapleId: result.mapleId))
     } catch is CancellationError {
@@ -348,11 +404,12 @@ public actor BackupEngine {
         // Re-enqueue from a detached Task that sleeps the backoff.
         let backoff = Self.backoffSeconds(for: nextRetry)
         let queueRef = queue
+        let sleep = retrySleep
         let token = UUID()
         let retryTask = Task.detached(priority: .background) { [weak self] in
           // Same cancellation discipline as the busy-elsewhere path —
           // bail after the sleep if `stop()` cancelled us.
-          try? await Task.sleep(nanoseconds: UInt64(backoff * 1_000_000_000))
+          await sleep(backoff)
           if Task.isCancelled {
             await self?.finishRetry(token)
             return
@@ -369,25 +426,21 @@ public actor BackupEngine {
       throw error
     }
 
-    // Reached only when the bytes upload above succeeded (every catch
-    // rethrows). The photo is already `.uploaded` + `.completed`. Upload
-    // the companions best-effort: an inline first attempt (so request
-    // ordering + the sidecar-delete-on-success invariant happen before
-    // this call returns, which the synchronous tests rely on), then a
-    // bounded detached retry per companion on failure. Companions never
-    // throw out of here and never emit `.failed` — a companion exhausting
-    // its budget would otherwise double-count the photo in the progress VM
-    // (already `.completed`) as failed.
-    await uploadCompanionsBestEffort(task: task, read: read, result: result)
+    // Reached only when everything above succeeded (every catch rethrows).
+    // The photo is already `.uploaded` + `.completed`. The edit sidecar goes
+    // best-effort: an inline first attempt, then a bounded detached retry.
+    // It never throws out of here and never emits `.failed`, which would
+    // double-count the photo in the progress VM (already `.completed`).
+    await sendEditSidecarBestEffort(task: task, read: read, result: result)
   }
 
-  // MARK: - Best-effort companions (#700)
+  // MARK: - Best-effort edit sidecar (#700)
 
-  /// Upload the sidecar, Apple-rendered twin, and Live Photo .mov twin for a
-  /// photo whose bytes have already landed. Each companion is attempted inline
-  /// once; on failure it schedules its own bounded detached retry. Nothing
-  /// here can fail the photo or re-upload the bytes.
-  private func uploadCompanionsBestEffort(
+  /// Upload the local-edit sidecar for a photo that has already landed. The
+  /// inline attempt is followed by a bounded detached retry on failure, and
+  /// the delivered revision is tracked separately (#4719). Nothing here can
+  /// fail the photo or re-upload the bytes.
+  private func sendEditSidecarBestEffort(
     task: BackupTask,
     read: AssetReadResult,
     result: UploadClient.Result
@@ -412,135 +465,49 @@ public actor BackupEngine {
         "local-edit sidecar read failed, phasset=\(task.id.phassetLocalId, privacy: .private): \(String(describing: error), privacy: .public)"
       )
     }
-    if let localEditXmp {
+    if localEditXmp != nil {
       await runCompanion(
         taskId: task.id,
         label: "sidecar",
         maxAttempts: Self.localEditCompanionRetries
       ) { [self] in
-        try await upload.uploadSidecar(
-          phassetLocalId: task.id.phassetLocalId,
-          targetRelPath: result.targetRelPath,
-          xmp: localEditXmp,
-          mapleId: read.mapleId)
-        // Delete the local-edit XMP only after the sidecar actually lands on
-        // the server, so a failed attempt re-derives correctly on retry and
-        // a crash before delivery leaves the user's edit on disk.
-        try? sidecars.delete(phassetLocalId: task.id.phassetLocalId)
-      }
-    }
-
-    // Apple-rendered companion, when present. Re-derivable → light retry.
-    if let renderedBytes = read.renderedBytes, !renderedBytes.isEmpty {
-      let ext = (result.targetRelPath as NSString).pathExtension
-      let renderedExt = ext.isEmpty ? "jpeg" : ext
-      await runCompanion(
-        taskId: task.id, label: "rendered",
-        maxAttempts: Self.derivedCompanionRetries
-      ) { [self] in
-        try await upload.uploadRendered(
-          phassetLocalId: task.id.phassetLocalId,
-          targetRelPath: result.targetRelPath,
-          filenameExt: renderedExt,
-          bytes: renderedBytes,
-          phassetCloudId: read.sidecar.phassetCloudId)
-      }
-    }
-
-    // Live Photo .mov twin, when present. Lands as `<base>.mov` (no
-    // .rendered. infix) via suffix-override. Re-derivable → light retry.
-    if let liveBytes = read.liveVideoBytes, !liveBytes.isEmpty {
-      await runCompanion(
-        taskId: task.id, label: "live-mov",
-        maxAttempts: Self.derivedCompanionRetries
-      ) { [self] in
-        try await upload.uploadRendered(
-          phassetLocalId: task.id.phassetLocalId,
-          targetRelPath: result.targetRelPath,
-          filenameExt: "mov",
-          bytes: liveBytes,
-          suffixOverride: "mov",
-          phassetCloudId: read.sidecar.phassetCloudId)
+        // The App Support XMP is the editor's canonical PhotoKit edit, so it
+        // is never deleted; the recorded revision is what later sends compare
+        // a newer local edit against (#4719).
+        try await sendLatestEdit(
+          id: task.id, targetRelPath: result.targetRelPath, mapleId: read.mapleId)
       }
     }
   }
 
-  /// Run one companion upload best-effort: try `op` inline once; on failure
-  /// schedule a bounded, exponentially-backed-off detached retry (tracked in
-  /// `retryTasks` so `stop()` tears it down cleanly). Never throws, never
-  /// emits queue events. `busyElsewhere` on a companion is treated like any
-  /// other transient failure here — it's coordination on a re-derivable
-  /// artifact, not a reason to fail the (already-uploaded) photo.
-  private func runCompanion(
-    taskId: BackupTaskID,
-    label: String,
-    maxAttempts: Int,
-    _ op: @escaping @Sendable () async throws -> Void
-  ) async {
-    do {
-      try await op()
-    } catch {
-      Self.companionLog.notice(
-        "companion \(label, privacy: .public) first attempt failed, scheduling retry: \(String(describing: error), privacy: .public)"
-      )
-      // This companion is now outstanding — count it once. The bounded
-      // detached retry (and its recursive reschedules) decrement exactly
-      // once at the chain's terminus (success or exhaustion). Emit the
-      // 0→1 `.companionPending` signal here so the photo flips from "done"
-      // to "uploaded, companions pending" in the progress VM (#702).
-      await companionBecamePending(taskId)
-      scheduleCompanionRetry(
-        taskId: taskId, label: label, attempt: 1,
-        maxAttempts: maxAttempts, op: op)
-    }
-  }
-
-  /// Schedule the next bounded companion retry. Detached so it doesn't hold a
-  /// `run()` concurrency slot; on exhaustion the re-derivable artifact is
-  /// simply dropped (a future safety walk can regenerate it).
-  private func scheduleCompanionRetry(
-    taskId: BackupTaskID,
-    label: String,
-    attempt: Int,
-    maxAttempts: Int,
-    op: @escaping @Sendable () async throws -> Void
-  ) {
-    guard attempt < maxAttempts else {
-      Self.companionLog.error(
-        "companion \(label, privacy: .public) exhausted \(maxAttempts) attempts — dropping (re-derivable artifacts can be regenerated on a future walk)"
-      )
-      // Terminal: budget exhausted. Decrement once so a dropped companion
-      // doesn't leak as permanently "pending" (#702).
-      Task { await self.companionResolved(taskId) }
-      return
-    }
-    let backoff = companionBackoff(attempt)
-    let token = UUID()
-    let retryTask = Task.detached(priority: .background) { [weak self] in
-      try? await Task.sleep(nanoseconds: UInt64(backoff * 1_000_000_000))
-      if Task.isCancelled {
-        await self?.finishRetry(token)
-        return
+  /// `read` with its deferred companions' bytes filled in. A companion that
+  /// exists but cannot be read yet fails the task while its row is still
+  /// unfinished, so it retries on the task's budget and survives a relaunch.
+  private func readingDeferredCompanions(
+    of read: AssetReadResult, id: BackupTaskID
+  ) async throws -> AssetReadResult {
+    guard !read.deferredCompanions.isEmpty else { return read }
+    let rendered: Data? =
+      if read.deferredCompanions.contains(.rendered) {
+        try await reader.readCompanion(.rendered, phassetLocalId: id.phassetLocalId)
+      } else {
+        read.renderedBytes
       }
-      do {
-        try await op()
-        // Terminal: the companion landed on this retry. Decrement once.
-        await self?.companionResolved(taskId)
-      } catch {
-        // Bounded recursion via the actor so retryTasks stays consistent.
-        // No re-increment: this companion is already counted outstanding.
-        await self?.scheduleCompanionRetry(
-          taskId: taskId, label: label,
-          attempt: attempt + 1,
-          maxAttempts: maxAttempts, op: op)
+    let liveVideo: Data? =
+      if read.deferredCompanions.contains(.liveVideo) {
+        try await reader.readCompanion(.liveVideo, phassetLocalId: id.phassetLocalId)
+      } else {
+        read.liveVideoBytes
       }
-      // Retire on EVERY exit. A companion retry never enqueues to the
-      // upload queue and used to never signal at all, so a `retryTasks`
-      // holding only companions parked `run()` on a wake that could not
-      // arrive — the 1 s poll used to paper over that.
-      await self?.finishRetry(token)
-    }
-    retryTasks[token] = retryTask
+    try Task.checkCancellation()
+    return AssetReadResult(
+      originalBytes: read.originalBytes,
+      renderedBytes: rendered,
+      renderedFilenameExtension: read.renderedFilenameExtension,
+      liveVideoBytes: liveVideo,
+      liveVideoFilename: read.liveVideoFilename,
+      sidecar: read.sidecar,
+      mapleId: read.mapleId)
   }
 
   /// Retire a finished retry and wake `run()` — in that order.
@@ -554,7 +521,7 @@ public actor BackupEngine {
   /// is evaluated against a `retryTasks` that already reflects this task's
   /// exit. Signalling unconditionally (not just when the queue gained work)
   /// is what covers the companion path, which never enqueues anything.
-  private func finishRetry(_ token: UUID) async {
+  func finishRetry(_ token: UUID) async {
     retryTasks[token] = nil
     await retryWake.signal()
   }

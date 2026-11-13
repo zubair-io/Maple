@@ -44,6 +44,14 @@ import type { LensProfileInventory } from '../lens-profiles/types.ts';
 import type { VerifiedRemovalAssets } from './raw_ffi-removal-assets.ts';
 import { defaultChildWorkerFactory } from './ffi-child-worker.ts';
 import { WorkerSlotPool } from './ffi-pool-slots.ts';
+import { admitDecode } from './ffi-pool-admission.ts';
+import { developRejection } from './unsupported-camera.ts';
+import {
+  decodeMemoryBudget,
+  DecodeMemoryBudget,
+  type DecodeCost,
+  type DecodeWeight,
+} from './decode-memory-budget.ts';
 import type { PendingRequest, PoolWorker, WorkerFactory } from './ffi-pool-slots.ts';
 
 /** The worker plumbing's public types are re-exported here: `ffi-pool.ts`
@@ -85,9 +93,15 @@ class FfiWorkerPool {
   private readonly bitmapPool: WorkerSlotPool;
   /** When set, availability is forced (tests bypass the real dylib probe). */
   private readonly availableOverride: boolean | null;
+  private readonly budget: DecodeMemoryBudget;
 
-  constructor(opts?: { workerFactory?: WorkerFactory; availableOverride?: boolean }) {
+  constructor(opts?: {
+    workerFactory?: WorkerFactory;
+    availableOverride?: boolean;
+    budget?: DecodeMemoryBudget;
+  }) {
     const factory = opts?.workerFactory ?? defaultChildWorkerFactory;
+    this.budget = opts?.budget ?? decodeMemoryBudget();
     this.slotPool = new WorkerSlotPool(factory);
     this.bitmapPool = new WorkerSlotPool(factory);
     this.bitmapPool.setPoolSize(BITMAP_POOL_SIZE);
@@ -152,22 +166,27 @@ class FfiWorkerPool {
    * unreachable defensive fallback for a malformed ok=false/no-error reply. */
   private renderToFile(
     type: 'renderThumb' | 'renderDevelop' | 'exportRecipe',
-    payload: Record<string, unknown>,
+    payload: { rawPath: string } & Record<string, unknown>,
   ): Promise<boolean> {
     const id = this.requestId();
+    const weight: DecodeWeight = type === 'renderThumb' ? 'extract' : 'develop';
     return new Promise<boolean>((resolve, reject) => {
-      this.enqueue({
-        id,
-        post: (w) => w.postMessage({ type, id, ...payload }),
-        onResponse: (msg) => {
-          if (msg.type !== type) return false;
-          if (msg.ok) resolve(true);
-          else if (msg.error) reject(new Error(msg.error));
-          else resolve(false);
-          return true;
+      this.enqueue(
+        {
+          id,
+          post: (w) => w.postMessage({ type, id, ...payload }),
+          onResponse: (msg) => {
+            if (msg.type !== type) return false;
+            if (msg.ok) resolve(true);
+            else if (msg.error) reject(developRejection(msg.error, payload.rawPath));
+            else resolve(false);
+            return true;
+          },
+          onError: reject,
         },
-        onError: reject,
-      });
+        'raw',
+        { weight, sourcePath: payload.rawPath },
+      );
     });
   }
 
@@ -236,6 +255,7 @@ class FfiWorkerPool {
     maxPx: number,
     quality: number,
     ext: string,
+    applyCrop = false,
   ): Promise<{ ok: boolean; error?: string }> {
     const id = this.requestId();
     return new Promise((resolve, reject) => {
@@ -251,6 +271,7 @@ class FfiWorkerPool {
               maxPx,
               quality,
               ext,
+              ...(applyCrop ? { applyCrop } : {}),
             }),
           onResponse: (msg) => {
             if (msg.type !== 'renderBitmap') return false;
@@ -288,22 +309,50 @@ class FfiWorkerPool {
     });
   }
 
+  /** True when a validated sidecar document carries render adjustments, judged
+   * by the same parse the recipe renderer applies. Rides the bitmap lane: it
+   * is a parse, never a decode. Rejects when the document does not parse or
+   * the child fails, which callers treat as fail-closed. */
+  async sidecarHasRenderAdjustments(xmp: string): Promise<boolean> {
+    const id = this.requestId();
+    return new Promise((resolve, reject) => {
+      this.enqueue(
+        {
+          id,
+          post: (w) => w.postMessage({ type: 'sidecarAdjustments', id, xmp }),
+          onResponse: (msg) => {
+            if (msg.type !== 'sidecarAdjustments') return false;
+            if (msg.ok && typeof msg.authored === 'boolean') resolve(msg.authored);
+            else reject(new Error(msg.error ?? 'Sidecar adjustment check failed'));
+            return true;
+          },
+          onError: reject,
+        },
+        'bitmap',
+      );
+    });
+  }
+
   /** Read camera as-shot white balance in the isolated child process.
    * Rejects if the native library or the RAW's baseline is unavailable. */
   async asShotWhiteBalance(rawPath: string): Promise<{ temperature: number; tint: number }> {
     const id = this.requestId();
     return new Promise((resolve, reject) => {
-      this.enqueue({
-        id,
-        post: (w) => w.postMessage({ type: 'asShot', id, rawPath }),
-        onResponse: (msg) => {
-          if (msg.type !== 'asShot') return false;
-          if (msg.ok && msg.baseline) resolve(msg.baseline);
-          else reject(new Error(msg.error ?? 'Cannot read as-shot white balance'));
-          return true;
+      this.enqueue(
+        {
+          id,
+          post: (w) => w.postMessage({ type: 'asShot', id, rawPath }),
+          onResponse: (msg) => {
+            if (msg.type !== 'asShot') return false;
+            if (msg.ok && msg.baseline) resolve(msg.baseline);
+            else reject(new Error(msg.error ?? 'Cannot read as-shot white balance'));
+            return true;
+          },
+          onError: reject,
         },
-        onError: reject,
-      });
+        'raw',
+        { weight: 'extract', sourcePath: rawPath },
+      );
     });
   }
 
@@ -312,17 +361,21 @@ class FfiWorkerPool {
   async computeHistogram(rawPath: string, xmpPath: string | null): Promise<HistogramBins> {
     const id = this.requestId();
     return new Promise<HistogramBins>((resolve, reject) => {
-      this.enqueue({
-        id,
-        post: (w) => w.postMessage({ type: 'histogram', id, rawPath, xmpPath }),
-        onResponse: (msg) => {
-          if (msg.type !== 'histogram') return false;
-          if (msg.ok && msg.bins) resolve(msg.bins);
-          else reject(new Error(msg.error ?? 'histogram failed'));
-          return true;
+      this.enqueue(
+        {
+          id,
+          post: (w) => w.postMessage({ type: 'histogram', id, rawPath, xmpPath }),
+          onResponse: (msg) => {
+            if (msg.type !== 'histogram') return false;
+            if (msg.ok && msg.bins) resolve(msg.bins);
+            else reject(new Error(msg.error ?? 'histogram failed'));
+            return true;
+          },
+          onError: reject,
         },
-        onError: reject,
-      });
+        'raw',
+        { weight: 'develop', sourcePath: rawPath },
+      );
     });
   }
 
@@ -384,6 +437,7 @@ class FfiWorkerPool {
   shutdown(): void {
     this.slotPool.shutdown();
     this.bitmapPool.shutdown();
+    this.budget.rejectWaiters(new Error('ffi-pool: shutting down'));
   }
 
   // ── internals ─────────────────────────────────────────────
@@ -395,9 +449,16 @@ class FfiWorkerPool {
   }
 
   /** Route one request onto its lane's queue. RAW is the default; only the
-   * cheap bitmap ops (`renderBitmap`, `validateAvif`) pass `'bitmap'`. */
-  private enqueue(req: PendingRequest, lane: FfiLane = 'raw'): void {
-    (lane === 'bitmap' ? this.bitmapPool : this.slotPool).enqueue(req);
+   * cheap ops (`renderBitmap`, `validateAvif`, `sidecarAdjustments`) pass
+   * `'bitmap'`. While the decode memory budget is capped (#5467), a RAW decode
+   * with a `cost` first reserves its estimated peak; uncapped, dispatch is
+   * exactly as before. The bitmap lane is one child whose decode raw-core
+   * already caps at 2 GiB. */
+  private enqueue(req: PendingRequest, lane: FfiLane = 'raw', cost?: DecodeCost): void {
+    if (lane === 'bitmap') this.bitmapPool.enqueue(req);
+    else if (cost && this.budget.capped()) {
+      void admitDecode(this.budget, cost, req, (r) => this.slotPool.enqueue(r));
+    } else this.slotPool.enqueue(req);
   }
 }
 
@@ -437,10 +498,12 @@ export function _setFfiPoolForTests(pool: FfiWorkerPool | null): FfiWorkerPool |
 export function _createFfiPoolForTests(opts: {
   workerFactory: WorkerFactory;
   availableOverride?: boolean;
+  budget?: DecodeMemoryBudget;
 }): FfiWorkerPool {
   return new FfiWorkerPool({
     workerFactory: opts.workerFactory,
     availableOverride: opts.availableOverride ?? true,
+    budget: opts.budget ?? new DecodeMemoryBudget(),
   });
 }
 

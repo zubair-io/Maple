@@ -13,9 +13,9 @@ import {
 const DOC_ID = 'derivative-audit';
 
 export interface DerivativeAuditConfig {
-  /** Master toggle for the interval loop. */
+  /** Master toggle: while off, the audit's schedule is paused. */
   enabled: boolean;
-  /** Loop cadence in ms. Default 6h — a full-library disk+R2 sweep is cheap
+  /** Schedule cadence in ms. Default 6h — a full-library disk+R2 sweep is cheap
    * per asset but there is no urgency, and a long cadence keeps R2 HEAD
    * volume modest. */
   interval_ms: number;

@@ -6,6 +6,7 @@
  */
 import * as path from 'node:path';
 import { isVideoFilename } from '../indexer/media-types';
+import { isLegacyBackupSidecarOf, legacyBackupSidecar } from './legacy-backup-sidecar.ts';
 
 /** Compute a sidecar's destination path when its RAW moves from
  * `oldAbsPath` to `newAbsPath`, applying the SAME base-swap
@@ -30,6 +31,8 @@ export function sidecarRenameTarget(
   newAbsPath: string,
   sidecarAbsPath: string,
 ): string | null {
+  // A pre-#5021 `IMG.HEIC.xmp` follows the new full name, not a stem swap (#5063).
+  if (isLegacyBackupSidecarOf(oldAbsPath, sidecarAbsPath)) return legacyBackupSidecar(newAbsPath);
   const oldBase = path.basename(
     oldAbsPath,
     isVideoFilename(oldAbsPath) ? '' : path.extname(oldAbsPath),

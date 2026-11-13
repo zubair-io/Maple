@@ -5,6 +5,7 @@
 // the real App Group container is never touched.
 import XCTest
 @testable import MapleCore
+@testable import MapleFileProviderCore
 
 final class QuickLookThumbDiskCacheTests: XCTestCase {
 

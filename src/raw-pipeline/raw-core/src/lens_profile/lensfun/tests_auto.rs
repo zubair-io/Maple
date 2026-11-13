@@ -44,7 +44,9 @@ fn sony() -> RawImage {
         crop_rect: None,
         iso: 100,
         noise_profile: None,
+        sensor_gain_maps: None,
         opcode_list3: None,
+        opcode_skips: Vec::new(),
         aperture: Some(5.6),
         focal_length: Some(35.0),
         lens_metadata: LensMetadata {
@@ -98,7 +100,7 @@ fn embedded_corrections_and_the_master_toggle_win() {
     raw.opcode_list3 = Some((
         OpcodeList3 {
             opcodes: vec![],
-            skipped_unknown: 0,
+            skipped: Vec::new(),
         },
         ActiveAreaRect::full(W, H),
     ));

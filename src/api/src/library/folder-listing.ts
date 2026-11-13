@@ -20,7 +20,15 @@ import {
   isAudioFilename,
   isStubImageFilename,
 } from '../indexer/media-types.ts';
+import { directoryHasIgnoreMarker } from '../fs/mapleignore.ts';
 import { child as childLogger } from '../log.ts';
+import { xmpSidecarPath } from '../fs/xmp-sidecar-path.ts';
+import { authorizeSidecarRead, readSidecarNoFollow } from '../fs/sidecar-io.ts';
+import { readFileWithFailover } from '../fs/mirror-read.ts';
+import { errnoCode } from '../fs/relocate-publish.ts';
+import { parseFolderCulling } from './folder-culling.ts';
+import { pairLivePhotos, type LivePhotoLink } from './live-photo-pairs.ts';
+import { pairRawJpegStacks } from './raw-jpeg-stack.ts';
 
 const log = childLogger('library/folder-listing');
 const IMAGE_EXTENSIONS = new Set([...RAW_EXTENSIONS, ...BITMAP_EXTENSIONS, ...PSD_HDR_EXTENSIONS]);
@@ -81,6 +89,17 @@ interface ImageEntry extends Entry {
   isVideo?: true;
   isAudio?: true;
   isStub?: true;
+  isMotionPhoto?: true;
+  livePhoto?: LivePhotoLink;
+  stack?: { companion: StackCompanion };
+  edited?: boolean;
+  rating?: number;
+  flag?: 'pick' | 'reject';
+  colorLabel?: string;
+}
+/** The JPEG folded into its RAW's tile: the second file the Info pane lists. */
+interface StackCompanion extends Entry {
+  id?: string;
 }
 interface SidecarEntry extends Entry {
   asset_id: string;
@@ -147,10 +166,12 @@ async function scanEntry(
     realPath: real,
   };
 }
-function imageEntry(scanned: Scanned): ImageEntry {
+function imageEntry(scanned: Scanned, livePairs: ReadonlyMap<string, LivePhotoLink>): ImageEntry {
   const { entry, catalog } = scanned;
+  const livePhoto = catalog ? livePairs.get(entry.name) : undefined;
   return {
     ...entry,
+    ...(livePhoto ? { livePhoto } : {}),
     ...mediaFlags(entry.name),
     mapleId: catalog?.maple_id ?? null,
     indexed: catalog !== undefined,
@@ -161,9 +182,14 @@ function imageEntry(scanned: Scanned): ImageEntry {
           width: catalog.width ?? undefined,
           height: catalog.height ?? undefined,
           capturedAt: catalog.captured_at ?? catalog.exif?.captured_at ?? undefined,
+          ...(catalog.motion_photo ? { isMotionPhoto: true as const } : {}),
         }
       : {}),
   };
+}
+
+function stackCompanion({ entry, catalog }: Scanned): StackCompanion {
+  return { ...entry, ...(catalog ? { id: catalog.id } : {}) };
 }
 
 /** Sidecars pair across pages using the directory-indexed rows. An escaping
@@ -199,7 +225,7 @@ function sidecarCandidates(rows: readonly DirectoryAsset[]): Map<string, Directo
   return byBase;
 }
 
-async function directoryState(resolved: ResolvedAddress, relPath: string) {
+async function directoryState(resolved: ResolvedAddress, relPath: string, stack: boolean) {
   const [rows, trashed, names, realRoot] = await Promise.all([
     listDirectoryAssets(resolved.libraryId, relPath),
     listTrashedDirectoryFilenames(resolved.libraryId, relPath),
@@ -210,11 +236,15 @@ async function directoryState(resolved: ResolvedAddress, relPath: string) {
   const hidden = new Set(trashed);
   const byName = new Map(rows.map((row) => [row.filename, row]));
   const byBase = sidecarCandidates(rows);
+  const livePairs = pairLivePhotos(rows.filter((row) => !hidden.has(row.filename)));
   const onDisk = new Set(names);
-  const allNames = [...new Set([...names, ...rows.map((row) => row.filename)])]
+  const visibleNames = [...new Set([...names, ...rows.map((row) => row.filename)])]
     .filter((name) => visibleName(name) && !hidden.has(name))
     .sort();
-  return { allNames, byName, byBase, onDisk, resolveChild };
+  const stackCompanionOf = stack ? pairRawJpegStacks(visibleNames) : new Map<string, string>();
+  const companions = new Set(stackCompanionOf.values());
+  const allNames = visibleNames.filter((name) => !companions.has(name));
+  return { allNames, byName, byBase, livePairs, onDisk, resolveChild, stackCompanionOf };
 }
 type FolderState = Awaited<ReturnType<typeof directoryState>>;
 interface FolderEntries {
@@ -224,14 +254,57 @@ interface FolderEntries {
   sidecars: SidecarEntry[];
 }
 
-async function appendEntry(child: Scanned | null, entries: FolderEntries, state: FolderState) {
-  if (!child) return;
+type ImageCulling = Partial<Pick<ImageEntry, 'edited' | 'rating' | 'flag' | 'colorLabel'>>;
+
+/** Read the canonical sidecar during the folder walk. The catalog can lag behind
+ * a newly registered directory, and filters must work before Preview hydrates
+ * each photo individually. Avoid I/O for the common sidecar-free case. */
+async function imageCulling(child: Scanned, state: FolderState): Promise<ImageCulling> {
+  const sidecar = xmpSidecarPath(child.entry.path);
+  try {
+    const name = path.basename(sidecar);
+    const checked = state.onDisk.has(name) ? await state.resolveChild(name) : null;
+    if (!checked || path.extname(checked).toLowerCase() !== '.xmp') return {};
+    const allowed = await authorizeSidecarRead(sidecar);
+    if (!allowed.ok || !allowed.data) return {};
+    const parsed = parseFolderCulling(
+      await readFileWithFailover(allowed.data, readSidecarNoFollow),
+    );
+    return {
+      edited: true,
+      ...(parsed.rating !== undefined ? { rating: parsed.rating } : {}),
+      ...(parsed.flag !== undefined ? { flag: parsed.flag } : {}),
+      ...(parsed.colorLabel !== undefined ? { colorLabel: parsed.colorLabel } : {}),
+    };
+  } catch (error) {
+    if (errnoCode(error) !== 'ENOENT' && errnoCode(error) !== 'ELOOP') {
+      log.warn(
+        { sidecar, error: String(error) },
+        'could not read sidecar culling for folder listing',
+      );
+    }
+    return {};
+  }
+}
+
+async function appendEntry(
+  child: Scanned,
+  entries: FolderEntries,
+  state: FolderState,
+  culling: ImageCulling,
+  companion: Scanned | null,
+) {
   if (child.stat?.isDirectory()) {
+    if (await directoryHasIgnoreMarker(child.realPath)) return;
     entries.folders.push({ ...child.entry, realPath: child.realPath });
     return;
   }
   if (isMedia(child.entry.name) || child.catalog) {
-    entries.images.push(imageEntry(child));
+    entries.images.push({
+      ...imageEntry(child, state.livePairs),
+      ...(companion ? { stack: { companion: stackCompanion(companion) } } : {}),
+      ...culling,
+    });
     return;
   }
   if (child.entry.ext !== 'xmp') {
@@ -247,6 +320,33 @@ async function appendEntry(child: Scanned | null, entries: FolderEntries, state:
   if (assetId) entries.sidecars.push({ ...child.entry, asset_id: assetId });
 }
 
+interface PageUnit {
+  child: Scanned;
+  companion: Scanned | null;
+}
+const isStackHalf = (scanned: Scanned | null): scanned is Scanned =>
+  scanned !== null && !scanned.stat?.isDirectory();
+
+/** A stack lists only when both halves are files. Otherwise each half that scans lists on its
+ * own: a RAW the listing cannot show, or a directory named like a JPEG, never hides its partner. */
+async function scanUnits(
+  name: string,
+  slug: string,
+  relPath: string,
+  resolved: ResolvedAddress,
+  state: FolderState,
+): Promise<PageUnit[]> {
+  const companionName = state.stackCompanionOf.get(name);
+  const [child, companion] = await Promise.all([
+    scanEntry(name, slug, relPath, resolved, state),
+    companionName ? scanEntry(companionName, slug, relPath, resolved, state) : null,
+  ]);
+  if (isStackHalf(child) && isStackHalf(companion)) return [{ child, companion }];
+  return [child, companion].flatMap((scanned) =>
+    scanned ? [{ child: scanned, companion: null }] : [],
+  );
+}
+
 async function scanPage(
   slug: string,
   relPath: string,
@@ -257,10 +357,23 @@ async function scanPage(
   const entries: FolderEntries = { folders: [], images: [], files: [], sidecars: [] };
   // Bound filesystem fanout for both a page and the legacy complete listing.
   for (let start = 0; start < page.length; start += 32) {
-    const scanned = await Promise.all(
-      page.slice(start, start + 32).map((name) => scanEntry(name, slug, relPath, resolved, state)),
+    const units = (
+      await Promise.all(
+        page
+          .slice(start, start + 32)
+          .map((name) => scanUnits(name, slug, relPath, resolved, state)),
+      )
+    ).flat();
+    const culling = await Promise.all(
+      units.map(({ child }) =>
+        isMedia(child.entry.name) || child.catalog
+          ? imageCulling(child, state)
+          : Promise.resolve({}),
+      ),
     );
-    for (const child of scanned) await appendEntry(child, entries, state);
+    for (const [index, unit] of units.entries()) {
+      await appendEntry(unit.child, entries, state, culling[index] ?? {}, unit.companion);
+    }
   }
   return entries;
 }
@@ -268,6 +381,8 @@ async function scanPage(
 export interface FolderPageOptions {
   cursor?: string;
   limit?: number;
+  /** Fold same-stem RAW+JPEG pairs (#5050); only stack-aware clients ask, with `stack=1`. */
+  stack?: boolean;
 }
 /** Stable union ordering is independent of readdir order and host locale.
  * No pagination parameters preserves the historical complete listing. */
@@ -280,7 +395,7 @@ export async function listUnifiedFolder(
   const offset = options.cursor === undefined ? 0 : decodeCursor(options.cursor);
   const paged = options.cursor !== undefined || options.limit !== undefined;
   const limit = Math.max(1, Math.min(2000, options.limit ?? 500));
-  const state = await directoryState(resolved, relPath);
+  const state = await directoryState(resolved, relPath, options.stack === true);
   const page = paged ? state.allNames.slice(offset, offset + limit) : state.allNames;
   const entries = await scanPage(slug, relPath, resolved, page, state);
   const parentRel = path.posix.dirname(relPath);

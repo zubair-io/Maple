@@ -67,9 +67,22 @@ public actor LibraryRootCache {
         }
         // Cold path: await the fetcher.
         log.notice("roots() cold, awaiting fetcher")
-        let fresh = try await runFetcher()
+        let fresh = try await fetchOutlivingInvalidation()
         log.notice("roots() cold fetch returned count=\(fresh.count, privacy: .public)")
         return fresh
+    }
+
+    /// `invalidate()` cancels the fetch in flight, and every change-feed
+    /// event invalidates, so during an upload burst a cold caller's fetch
+    /// is routinely cancelled under it (#5503). One that was cancelled by
+    /// an invalidation, not by its own task, fetches once more.
+    private func fetchOutlivingInvalidation() async throws -> [LibraryRoot] {
+        let startGeneration = generation
+        do {
+            return try await runFetcher()
+        } catch where generation != startGeneration && !Task.isCancelled {
+            return try await runFetcher()
+        }
     }
 
     public func invalidate() {
@@ -84,6 +97,12 @@ public actor LibraryRootCache {
         inflight?.cancel()
         inflight = nil
         generation &+= 1
+    }
+
+    /// Refreshes in the background while the current list keeps being
+    /// served; the drift handler fires if it changed.
+    public func revalidate() {
+        kickRevalidation()
     }
 
     // MARK: - Internals
@@ -117,6 +136,7 @@ public actor LibraryRootCache {
                 outcome = .failure(error)
             }
             await self?.finishRevalidation(outcome,
+                                            of: task,
                                             primed: primed,
                                             capturedGeneration: capturedGeneration)
         }
@@ -128,12 +148,12 @@ public actor LibraryRootCache {
     /// in which `inflight` is non-nil but the outcome has already been
     /// observed.
     private func finishRevalidation(_ outcome: Result<[LibraryRoot], Error>,
+                                    of task: Task<[LibraryRoot], Error>,
                                     primed: [LibraryRoot]?,
                                     capturedGeneration: Int) {
-        // Always clear inflight: even a stale result frees the slot for
-        // the next caller. Generation gate then decides whether the
-        // payload is applied.
-        inflight = nil
+        // Frees the slot even for a stale result, but never a newer
+        // fetch's slot after an invalidation replaced this one.
+        if inflight == task { inflight = nil }
         guard capturedGeneration == generation else {
             // Cache was invalidated between kick and completion. Drop
             // the result — applying it would silently repopulate what
@@ -167,7 +187,7 @@ public actor LibraryRootCache {
         inflight = task
         do {
             let fresh = try await task.value
-            inflight = nil
+            if inflight == task { inflight = nil }
             // If the cache was invalidated while we were awaiting, do
             // not write the result back into memory/disk — but still
             // return it to the caller so its current operation
@@ -181,7 +201,7 @@ public actor LibraryRootCache {
             // so the next caller can retry. Without this, every
             // subsequent call awaits a dead task that just re-throws
             // the same error forever.
-            inflight = nil
+            if inflight == task { inflight = nil }
             throw error
         }
     }

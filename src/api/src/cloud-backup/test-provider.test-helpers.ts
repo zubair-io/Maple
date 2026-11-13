@@ -1,5 +1,11 @@
 import { createHash } from 'node:crypto';
-import type { BackupObject, BackupProvider, PublishSource, UploadCheckpoint } from './provider.ts';
+import type {
+  BackupInspectOptions,
+  BackupObject,
+  BackupProvider,
+  PublishSource,
+  UploadCheckpoint,
+} from './provider.ts';
 
 async function sourceBytes(source: PublishSource): Promise<{ bytes: Uint8Array; hash: string }> {
   const chunks: Uint8Array[] = [];
@@ -80,9 +86,16 @@ export function createTestProvider(): ProviderFixture {
       for (const row of objects.values())
         if (!row.moved && row.object.key.startsWith(prefix)) yield row.object;
     },
-    async inspect(key: string, signal?: AbortSignal, locator?: string) {
+    async inspect(
+      key: string,
+      signal?: AbortSignal,
+      locatorOrOptions?: string | BackupInspectOptions,
+      _heartbeat?: (candidate: BackupObject) => Promise<void>,
+    ) {
       check(signal);
       const row = objects.get(key);
+      const locator =
+        typeof locatorOrOptions === 'string' ? locatorOrOptions : locatorOrOptions?.locator;
       if (row && locator && (row.moved || row.object.locator !== locator))
         throw new Error('Object outside root or identity changed');
       return row && !row.moved ? row.object : null;

@@ -1,0 +1,151 @@
+{
+  "purpose": "Root-family diagnosis, not new physical-gate results or adoption. All12default Auto JPEG failures already miss the band objective in the fitted model itself.",
+  "physical_result": {
+    "passed": 4,
+    "failed": 12,
+    "no-preview": 4,
+    "error": 0
+  },
+  "budget": 0.05,
+  "diagnosed_failures": 12,
+  "direct_model_failures": 12,
+  "cases": [
+    {
+      "fixture": "test_0000",
+      "physical_max_band_bias": 0.09702965381130295,
+      "input": 0.21258646865152162,
+      "direct_model_on_pair_mean": 0.09640481818271249,
+      "baked_lut_on_pair_mean": 0.09690703260328123,
+      "baked_lut_before_pixel_mean": 0.09542147222779397,
+      "fit_completed": true,
+      "direct_model_already_fails": true,
+      "max_band_bias_change_direct_to_baked_pair_means": 0.0013773713432700119
+    },
+    {
+      "fixture": "test_0005",
+      "physical_max_band_bias": 0.10503048033704425,
+      "input": 0.24279966047528798,
+      "direct_model_on_pair_mean": 0.11937933423194853,
+      "baked_lut_on_pair_mean": 0.10521365197514373,
+      "baked_lut_before_pixel_mean": 0.10380373585606076,
+      "fit_completed": true,
+      "direct_model_already_fails": true,
+      "max_band_bias_change_direct_to_baked_pair_means": 0.015319039006420829
+    },
+    {
+      "fixture": "test_0006",
+      "physical_max_band_bias": 0.08164384553878873,
+      "input": 0.19591283605010196,
+      "direct_model_on_pair_mean": 0.08200973795927298,
+      "baked_lut_on_pair_mean": 0.0820302605275912,
+      "baked_lut_before_pixel_mean": 0.08203770114102128,
+      "fit_completed": true,
+      "direct_model_already_fails": true,
+      "max_band_bias_change_direct_to_baked_pair_means": 0.028038435392970643
+    },
+    {
+      "fixture": "test_0007",
+      "physical_max_band_bias": 0.08296568822583411,
+      "input": 0.22171303030867626,
+      "direct_model_on_pair_mean": 0.07986223380055003,
+      "baked_lut_on_pair_mean": 0.08040918572258252,
+      "baked_lut_before_pixel_mean": 0.08046960049909674,
+      "fit_completed": true,
+      "direct_model_already_fails": true,
+      "max_band_bias_change_direct_to_baked_pair_means": 0.003881022857286049
+    },
+    {
+      "fixture": "test_0008",
+      "physical_max_band_bias": 0.09818862568822563,
+      "input": 0.24744843962594867,
+      "direct_model_on_pair_mean": 0.10087280988821079,
+      "baked_lut_on_pair_mean": 0.0970633562229664,
+      "baked_lut_before_pixel_mean": 0.0970516251566281,
+      "fit_completed": true,
+      "direct_model_already_fails": true,
+      "max_band_bias_change_direct_to_baked_pair_means": 0.004385044332877522
+    },
+    {
+      "fixture": "test_0010",
+      "physical_max_band_bias": 0.11337531565083075,
+      "input": 0.4609067337814348,
+      "direct_model_on_pair_mean": 0.0689822760046411,
+      "baked_lut_on_pair_mean": 0.11306805227102901,
+      "baked_lut_before_pixel_mean": 0.11306805227102901,
+      "fit_completed": true,
+      "direct_model_already_fails": true,
+      "max_band_bias_change_direct_to_baked_pair_means": 0.10097517565585802
+    },
+    {
+      "fixture": "test_0011",
+      "physical_max_band_bias": 0.0653235169787357,
+      "input": 0.19681510392788323,
+      "direct_model_on_pair_mean": 0.06108146205394748,
+      "baked_lut_on_pair_mean": 0.0617569721228564,
+      "baked_lut_before_pixel_mean": 0.06118821068608276,
+      "fit_completed": true,
+      "direct_model_already_fails": true,
+      "max_band_bias_change_direct_to_baked_pair_means": 0.013208473999813905
+    },
+    {
+      "fixture": "test_0012",
+      "physical_max_band_bias": 0.17289890171318678,
+      "input": 0.304461988401929,
+      "direct_model_on_pair_mean": 0.1758516024632355,
+      "baked_lut_on_pair_mean": 0.1745782255246347,
+      "baked_lut_before_pixel_mean": 0.17491061359843826,
+      "fit_completed": true,
+      "direct_model_already_fails": true,
+      "max_band_bias_change_direct_to_baked_pair_means": 0.02450654394446225
+    },
+    {
+      "fixture": "test_0013",
+      "physical_max_band_bias": 0.08804253947561264,
+      "input": 0.28449777302407353,
+      "direct_model_on_pair_mean": 0.08277519659301157,
+      "baked_lut_on_pair_mean": 0.08804280976887108,
+      "baked_lut_before_pixel_mean": 0.08804280976887108,
+      "fit_completed": true,
+      "direct_model_already_fails": true,
+      "max_band_bias_change_direct_to_baked_pair_means": 0.022388280256153803
+    },
+    {
+      "fixture": "test_0014",
+      "physical_max_band_bias": 0.06470041783335846,
+      "input": 0.3745893490522842,
+      "direct_model_on_pair_mean": 0.05908621466032263,
+      "baked_lut_on_pair_mean": 0.06483853435066829,
+      "baked_lut_before_pixel_mean": 0.06483853435066829,
+      "fit_completed": true,
+      "direct_model_already_fails": true,
+      "max_band_bias_change_direct_to_baked_pair_means": 0.014130662967854665
+    },
+    {
+      "fixture": "test_0015",
+      "physical_max_band_bias": 0.19680696563100522,
+      "input": 0.32111357224895176,
+      "direct_model_on_pair_mean": 0.22540383374398715,
+      "baked_lut_on_pair_mean": 0.20503422052403747,
+      "baked_lut_before_pixel_mean": 0.19471642780924084,
+      "fit_completed": true,
+      "direct_model_already_fails": true,
+      "max_band_bias_change_direct_to_baked_pair_means": 0.022536305841526966
+    },
+    {
+      "fixture": "test_0017",
+      "physical_max_band_bias": 0.3372963178670808,
+      "input": 0.3196931226609754,
+      "direct_model_on_pair_mean": 0.3414153504139054,
+      "baked_lut_on_pair_mean": 0.3380619462135782,
+      "baked_lut_before_pixel_mean": 0.33806119458102224,
+      "fit_completed": true,
+      "direct_model_already_fails": true,
+      "max_band_bias_change_direct_to_baked_pair_means": 0.005478075235453156
+    }
+  ],
+  "curve_only_control": "1of3passes in an unadopted counterfactual; no default production clears claimed.",
+  "next_fix": "Fit Auto against reference-luma-band RGB error explicitly; independently validate sparse support, model constraints, geometry and native pixel evaluation. Preserve Neutral AgX.",
+  "secondary_findings": {
+    "test_0010": "Direct model already fails, but B shadow-band bias changes from -0.01209 direct to -0.11307 baked on identical pair means. Baking/application mapping is a second investigation, not explained by native pixel averaging; direct-vs-baked diagnostic includes the intentional shoulder difference."
+  }
+}

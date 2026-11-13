@@ -6,13 +6,19 @@ use std::{fs, path::PathBuf};
 
 fn corpus() -> Vec<PathBuf> {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../test-fixtures");
-    ["local-adjustments", "sidecars"]
-        .iter()
-        .filter_map(|directory| fs::read_dir(root.join(directory)).ok())
-        .flatten()
-        .map(|entry| entry.unwrap().path())
-        .filter(|path| path.extension().is_some_and(|ext| ext == "xmp"))
-        .collect()
+    [
+        "local-adjustments",
+        "look-profiles",
+        "workflow",
+        "xmp-namespaces",
+        "sidecars",
+    ]
+    .iter()
+    .filter_map(|directory| fs::read_dir(root.join(directory)).ok())
+    .flatten()
+    .map(|entry| entry.unwrap().path())
+    .filter(|path| path.extension().is_some_and(|ext| ext == "xmp"))
+    .collect()
 }
 
 #[test]

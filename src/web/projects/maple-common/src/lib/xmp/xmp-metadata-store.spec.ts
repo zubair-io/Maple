@@ -13,7 +13,6 @@ import {
 import { defaultAdjustmentModel } from '../models/adjustment-model';
 import { XmpParserService } from './xmp-parser.service';
 import { XmpStoreService } from './xmp-store.service';
-import { workflowXmpTestProvider } from './testing/workflow-xmp-test-provider';
 
 it('retains source languages and authors when ordinary hydration also caches typed metadata', async () => {
   const root = await fs.mkdtemp(join(tmpdir(), 'maple-metadata-store-'));
@@ -38,11 +37,10 @@ it('retains source languages and authors when ordinary hydration also caches typ
           provide: FolderAccessService,
           useValue: {
             listEntries: fsAccessListEntries,
-            writeFile: fsAccessWriteFile,
             readFile: fsAccessReadFile,
+            writeFile: fsAccessWriteFile,
           },
         },
-        workflowXmpTestProvider,
       ],
     });
     const parser = TestBed.inject(XmpParserService);
@@ -53,14 +51,16 @@ it('retains source languages and authors when ordinary hydration also caches typ
       new Map([['photo', source.passthrough]]),
       new Map([['photo', source.metadata]]),
     );
+    const folder = {
+      name: 'photos',
+      read: true,
+      write: true,
+      native: new DiskDirectory(root) as unknown as FileSystemDirectoryHandle,
+    };
+    store.replaceLoadedDocuments(folder, new Map([['photo.xmp', await fs.readFile(path, 'utf8')]]));
     store.scheduleWrite(
       'photo',
-      {
-        name: 'photos',
-        read: true,
-        write: true,
-        native: new DiskDirectory(root) as unknown as FileSystemDirectoryHandle,
-      },
+      folder,
       'photo.dng',
       { ...defaultAdjustmentModel(), exposure: 1 },
       { rating: 0, flag: 'unflagged', colorLabel: null },

@@ -174,11 +174,6 @@ public actor CloudAddressResolver {
     guard let url = address.url(server: server, route: route) else {
       throw CloudAddressError.unrepresentableAddress(address: address.string, route: route)
     }
-    if route == "thumb" || route == "preview" {
-      return url.appending(queryItems: [
-        URLQueryItem(name: "pv", value: String(MaplePipelineVersion.value))
-      ])
-    }
     return url
   }
 

@@ -77,6 +77,7 @@ pub(in crate::pipeline) fn render_removal_camera_context(
             RenderQuality::Amaze,
             active_area,
             (rx, ry),
+            cancel,
         )?
     };
     if cancel.is_cancelled() {
@@ -99,21 +100,46 @@ pub(in crate::pipeline) fn render_saved_tile(
     rect: super::TileRect,
     quality: RenderQuality,
     ae_gain: f32,
+    haze: Option<&crate::stages::dehaze::FrameHaze>,
     patches: &[InpaintPatch],
+    cancel: CancelToken<'_>,
 ) -> Result<(u32, u32, Vec<f32>)> {
     if model.inpaint_removals.len() != patches.len() {
         return Err(Error::Pipeline(
             "native tile requires the complete verified removal stack".into(),
         ));
     }
-    super::develop_tile_oriented_f32(
+    develop_saved_tile(
+        raw, model, rect, quality, None, ae_gain, haze, patches, cancel,
+    )
+}
+
+/// Oriented scene-linear tile with verified replacements composited in camera
+/// space; the ordinary tile chain with the saved stack threaded through.
+#[allow(clippy::too_many_arguments)]
+pub(in crate::pipeline) fn develop_saved_tile(
+    raw: &RawImage,
+    model: &AdjustmentModel,
+    rect: super::TileRect,
+    quality: RenderQuality,
+    decoded_wb_anchor: Option<(f32, f32)>,
+    ae_gain: f32,
+    haze: Option<&crate::stages::dehaze::FrameHaze>,
+    patches: &[InpaintPatch],
+    cancel: CancelToken<'_>,
+) -> Result<(u32, u32, Vec<f32>)> {
+    super::develop_tile_with_patches(
         raw,
         model,
         rect,
         quality,
+        super::TileOutput::Scene {
+            decoded_wb_anchor,
+            ae_gain,
+        },
         None,
-        ae_gain,
+        haze,
         patches,
-        CancelToken::never(),
+        cancel,
     )
 }

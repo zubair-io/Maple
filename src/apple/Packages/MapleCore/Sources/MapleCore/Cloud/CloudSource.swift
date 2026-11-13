@@ -20,7 +20,14 @@ import Foundation
 import MapleCloudKit
 
 public actor CloudSource {
+  /// The URL requests actually go to — the local-network-resolved
+  /// effective URL when a LAN mapping is active.
   public let server: URL
+  /// Canonical registry-key URL the auth session and `CatalogRef.serverID`
+  /// are keyed on. Equal to `server` unless the caller resolved a LAN
+  /// mapping first; carried so refs built from a listing never leak the
+  /// effective URL into identity-keyed consumers (#4712).
+  public let identity: URL
   public let folderID: String
   public let libraryPath: String
   /// Absolute path being browsed at the moment. Defaults to the
@@ -36,11 +43,13 @@ public actor CloudSource {
 
   public init(
     server: URL,
+    identity: URL? = nil,
     folderID: String,
     libraryPath: String,
     httpClient: AuthenticatedHTTPClient
   ) {
     self.server = server
+    self.identity = identity ?? server
     self.folderID = folderID
     self.libraryPath = libraryPath
     self.currentPath = libraryPath
@@ -118,11 +127,31 @@ extension CloudSource: ImageSource {
   /// folder's `.maple/previews/` (shared with the indexer's preview stage
   /// artifact) and caches it there. nil on 404, and on the route's 202
   /// "indexing" reply for a file that has no catalog row yet, so the
-  /// Preview screen keeps showing the thumbnail in both cases.
+  /// Preview screen keeps showing the thumbnail in both cases. Callers that
+  /// retry use ``previewOutcome(for:)`` instead.
   public func preview(for ref: ImageRef) async throws -> Data? {
-    let abs = Self.absPath(from: ref.id)
-    let previewURL = try await addresses.url(route: "preview", absPath: abs)
+    let previewURL = try await addresses.url(route: "preview", absPath: Self.absPath(from: ref.id))
     return try await getOrNilWhenUnavailable(previewURL)
+  }
+
+  /// The display tier, classified (#5432): bytes, indexing with the
+  /// server's `Retry-After`, not found, or a transient failure.
+  public func previewOutcome(for ref: ImageRef) async -> PreviewFetchOutcome {
+    let started = ContinuousClock.now
+    let outcome: PreviewFetchOutcome
+    do {
+      let previewURL = try await addresses.url(
+        route: "preview", absPath: Self.absPath(from: ref.id))
+      let (data, response) = try await httpClient.data(for: URLRequest(url: previewURL))
+      outcome = PreviewFetchOutcome.classify(data: data, response: response)
+    } catch {
+      outcome = PreviewFetchOutcome.classify(error: error)
+    }
+    PreviewLoadLog.record(
+      stage: .fetch, event: outcome.data == nil ? .fail : .finish, assetID: ref.id,
+      sourceKind: "cloud", bytes: outcome.data?.count,
+      elapsedMs: PreviewLoadLog.milliseconds(since: started), reason: outcome.reason)
+    return outcome
   }
 
   /// Original bytes via `/api/image/:slug/*`, with server-side mirror
@@ -136,6 +165,78 @@ extension CloudSource: ImageSource {
     return data
   }
 
+  /// Disk-backed original delivery for file promises; every auth attempt
+  /// owns and cleans its download, including a rejected 401 response.
+  public func writeOriginal(
+    for ref: ImageRef, to destination: URL,
+    onProgress: @escaping @Sendable (_ received: Int64, _ total: Int64?) -> Void = { _, _ in }
+  ) async throws {
+    let rawURL = try await addresses.url(route: "image", absPath: Self.absPath(from: ref.id))
+    let (_, response) = try await httpClient.refreshIfNeededAndRetry(
+      request: Self.uncompressed(URLRequest(url: rawURL))
+    ) { request in
+      let download = DownloadProgressDelegate(fallbackTotal: nil, onProgress: onProgress)
+      let (temporary, response) = try await download.download(for: request)
+      defer { try? FileManager.default.removeItem(at: temporary) }
+      if let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) {
+        try Task.checkCancellation()
+        try FileManager.default.copyItem(at: temporary, to: destination)
+      }
+      return ((), response)
+    }
+    try Self.checkOK(response, data: Data())
+  }
+
+  /// From the headers of a one-byte range request (#5489); the body is
+  /// never read, so a proxy that ignores `Range` costs nothing.
+  public func originalSize(for ref: ImageRef) async throws -> Int64? {
+    var request = Self.uncompressed(
+      URLRequest(
+        url: try await addresses.url(route: "image", absPath: Self.absPath(from: ref.id))))
+    request.setValue("bytes=0-0", forHTTPHeaderField: "Range")
+    let (_, response) = try await httpClient.refreshIfNeededAndRetry(request: request) {
+      ((), try await Self.headers(for: $0))
+    }
+    try Self.checkOK(response, data: Data())
+    return Self.totalBytes(of: response)
+  }
+
+  /// A compressed transfer's length isn't the file's, and the size check
+  /// after a download compares the two.
+  static func uncompressed(_ request: URLRequest) -> URLRequest {
+    var request = request
+    request.setValue("identity", forHTTPHeaderField: "Accept-Encoding")
+    return request
+  }
+
+  /// Cancelled as soon as the headers arrive.
+  static func headers(
+    for request: URLRequest, protocolClasses: [AnyClass]? = nil
+  ) async throws -> URLResponse {
+    let configuration = URLSessionConfiguration.ephemeral
+    configuration.urlCache = nil
+    configuration.httpCookieStorage = nil
+    configuration.urlCredentialStorage = nil
+    if let protocolClasses { configuration.protocolClasses = protocolClasses }
+    let session = URLSession(configuration: configuration)
+    defer { session.invalidateAndCancel() }
+    let (body, response) = try await session.bytes(for: request)
+    body.task.cancel()
+    return response
+  }
+
+  static func totalBytes(of response: URLResponse) -> Int64? {
+    guard let http = response as? HTTPURLResponse else { return nil }
+    guard http.statusCode == 206 else {
+      return http.expectedContentLength >= 0 ? http.expectedContentLength : nil
+    }
+    return totalBytes(contentRange: http.value(forHTTPHeaderField: "Content-Range"))
+  }
+
+  static func totalBytes(contentRange: String?) -> Int64? {
+    contentRange?.split(separator: "/").last.flatMap { Int64($0) }
+  }
+
   /// Seekable streaming URL for AVPlayer. The endpoint self-authenticates via
   /// query token because AVPlayer cannot attach the bearer header.
   public func videoURL(for refID: String) async throws -> URL {
@@ -147,6 +248,20 @@ extension CloudSource: ImageSource {
         URLQueryItem(name: "path", value: abs),
         URLQueryItem(name: "token", value: token),
       ])
+  }
+
+  /// The clip an Android Motion Photo embeds in this still, as a seekable
+  /// AVPlayer URL, or nil when the server has none (#5447). The HEAD probe
+  /// lets Full image decide whether to offer playback without fetching it;
+  /// the URL carries a short-lived token, so mint it again at play time.
+  public func motionClipURL(for refID: String) async throws -> URL? {
+    let address = try await addresses.url(route: "motion", absPath: Self.absPath(from: refID))
+    let token = try await httpClient.accessTokenForURL()
+    let clipURL = address.appending(queryItems: [URLQueryItem(name: "token", value: token)])
+    var probe = URLRequest(url: clipURL)
+    probe.httpMethod = "HEAD"
+    let (_, response) = try await httpClient.data(for: probe)
+    return (response as? HTTPURLResponse)?.statusCode == 200 ? clipURL : nil
   }
 
   /// Download the full RAW bytes for `ref` while reporting byte-level

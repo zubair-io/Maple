@@ -30,6 +30,7 @@
  * them.
  */
 
+import { presentAppleCompanions } from '../apple-companions.ts';
 import { ObjectId } from '../object-id.ts';
 import {
   normaliseEnrichment,
@@ -183,6 +184,8 @@ export function toDetailDto(
     hidden: bool(row.hidden),
     hidden_reason: row.hidden_reason as AssetDetailDto['hidden_reason'],
     hidden_ack: bool(row.hidden_ack),
+    deleted_at: row.deleted_at,
+    deleted_reason: row.deleted_reason === 'reaped' ? 'reaped' : null,
     enrichment: toEnrichment(bundle.enrichment),
     owner_id: row.owner_id ?? null,
     owner,
@@ -249,7 +252,7 @@ export function toCoreInfo(
     deleted_at: row.deleted_at,
     deleted_reason: row.deleted_reason === 'reaped' ? 'reaped' : null,
     original_path: originalPath !== null && originalPath.length > 0 ? originalPath : null,
-    ...(row.apple_rendered_path ? { apple_rendered_path: row.apple_rendered_path } : {}),
+    ...presentAppleCompanions(row),
     place: json<Place>(row.place),
     description: bundle.detail?.description ?? null,
     ocr_text: bundle.detail?.ocr_text ?? null,

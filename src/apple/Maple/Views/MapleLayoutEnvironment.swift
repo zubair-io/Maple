@@ -25,3 +25,27 @@ public extension EnvironmentValues {
         set { self[MapleLayoutKey.self] = newValue }
     }
 }
+
+/// #5710: the editor and Preview draw the photo under the bars on iPad, the
+/// open Duo and the Mac. A landscape iPhone keeps its inset canvas: its
+/// sensor housing and home indicator sit on the long edges, where the
+/// photo would otherwise run beneath them. The open Duo can report a
+/// compact height in landscape, so the screen's shape tells them apart: a
+/// conventional iPhone is at least 16:9 (1.78:1), the open Duo's inner
+/// display about 1.4:1.
+enum FullBleedCanvas {
+    static let maximumInsetFreePhoneAspect: CGFloat = 1.6
+
+    static func isAllowed(idiom: MapleDeviceIdiom, screen: CGSize) -> Bool {
+        guard idiom == .phone, screen.width > screen.height, screen.height > 0 else { return true }
+        return screen.width / screen.height < maximumInsetFreePhoneAspect
+    }
+
+    /// The whole window behind `geometry`, safe areas included.
+    static func screen(of geometry: GeometryProxy) -> CGSize {
+        let insets = geometry.safeAreaInsets
+        return CGSize(
+            width: geometry.size.width + insets.leading + insets.trailing,
+            height: geometry.size.height + insets.top + insets.bottom)
+    }
+}

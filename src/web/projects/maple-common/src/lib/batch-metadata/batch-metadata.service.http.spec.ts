@@ -11,6 +11,8 @@ import { TestBed } from '@angular/core/testing';
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { BatchMetadataService } from './batch-metadata.service';
+import { LibraryStore } from '../state/library-store.service';
+import { XmpAdjustmentRestoreService } from '../xmp/xmp-adjustment-restore.service';
 import type {
   AssetMetadataSnapshot,
   BatchApplyEntry,
@@ -95,6 +97,56 @@ describe('BatchMetadataService HTTP wiring', () => {
       results: [{ address: 'photos:c.jpg', ok: false, error: 'permission denied' }],
     });
     expect(errorAddress).toBe('photos:c.jpg');
+  });
+
+  it('batchApply syncs LibraryStore and invalidates XmpAdjustmentRestoreService for succeeded entries (#5295)', () => {
+    const store = TestBed.inject(LibraryStore);
+    const restore = TestBed.inject(XmpAdjustmentRestoreService);
+    store.assets.set([
+      {
+        id: 'photos:a.dng',
+        filename: 'a.dng',
+        folderId: 'photos:',
+        rating: 0,
+        flag: 'unflagged',
+        colorLabel: null,
+        thumbnailGradient: '',
+        aspectRatio: 1.5,
+      },
+      {
+        id: 'photos:b.dng',
+        filename: 'b.dng',
+        folderId: 'photos:',
+        rating: 1,
+        flag: 'unflagged',
+        colorLabel: null,
+        thumbnailGradient: '',
+        aspectRatio: 1.5,
+      },
+    ]);
+    restore.rememberConfirmed('photos:a.dng', '<x:xmpmeta xmlns:x="adobe:ns:meta/"/>');
+
+    const entries: BatchApplyEntry[] = [
+      { address: 'photos:a.dng', metadata: { rating: 4, keywords: ['batchqa'] } },
+      { address: 'photos:b.dng', metadata: { rating: 4, keywords: ['batchqa'] } },
+    ];
+    svc.batchApply(entries).subscribe();
+
+    http.expectOne('/api/xmp/batch').flush({
+      results: [
+        { address: 'photos:a.dng', ok: true },
+        { address: 'photos:b.dng', ok: false, error: 'failed' },
+      ],
+    });
+
+    expect(store.findAsset('photos:a.dng')).toMatchObject({
+      rating: 4,
+      keywords: ['batchqa'],
+      edited: true,
+    });
+    expect(store.findAsset('photos:b.dng')).toMatchObject({
+      rating: 1,
+    });
   });
 
   // ── geocodeSearch ──────────────────────────────────────────────────────────

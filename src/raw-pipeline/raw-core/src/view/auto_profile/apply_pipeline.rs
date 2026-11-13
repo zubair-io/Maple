@@ -45,6 +45,11 @@ pub fn auto1_enabled_by_env() -> bool {
         .unwrap_or(false)
 }
 
+pub(crate) fn render_curve(curve: Option<ProfileCurve>) -> Option<ProfileCurve> {
+    // Auto 2 caches an identity marker, whose legacy highlight knee is not part of its fitted tail.
+    curve.filter(|_| auto1_enabled_by_env())
+}
+
 /// Fit (or reuse from cache) the Auto Profile artifacts from the pinned fit
 /// buffer `pixels` (interleaved RGB f32, `DisplayEncodedSrgb`, `w × h`,
 /// sensor-oriented), applying the CURVE in place along the way:
@@ -171,29 +176,53 @@ fn fit_via_acr2(
     cached_curve: Option<ProfileCurve>,
     cached_lut: Option<ColorLut>,
 ) -> (Option<ProfileCurve>, Option<ColorLut>) {
-    if let (Some(c), Some(l)) = (&cached_curve, &cached_lut) {
-        return (Some(c.clone()), Some(l.clone()));
+    if let (Some(_), Some(l)) = (&cached_curve, &cached_lut) {
+        return (None, Some(l.clone()));
     }
     let Some(p) = preview else {
         return (None, None);
     };
-    let pairs = sample_display_pairs(pixels, w, h, p.image.clone(), p.color_space, orientation);
-    let model = match acr_fit::solve_acr_model_from_display_pairs(&pairs) {
+    let pairs = crate::pipeline::stage("auto_pairs", || {
+        sample_display_pairs(pixels, w, h, p.image.clone(), p.color_space, orientation)
+    });
+    let model = match crate::pipeline::stage("auto_acr_solve", || {
+        acr_fit::solve_acr_model_from_display_pairs(&pairs)
+    }) {
         Ok(m) => m,
         Err(e) => {
             eprintln!("[auto2] structured fit failed, no Auto Profile tail: {e}");
             return (None, None);
         }
     };
-    let (curve, residual) = acr_fit::acr_model_as_profile_artifacts(
-        &model,
-        crate::view::auto_profile::bake::DEFAULT_LUT_SIZE,
-    );
+    let (curve, mut residual) = crate::pipeline::stage("auto_bake", || {
+        acr_fit::acr_model_as_profile_artifacts(
+            &model,
+            crate::view::auto_profile::bake::DEFAULT_LUT_SIZE,
+        )
+    });
+    if let Some(current) = residual.as_ref() {
+        if let Some(candidate) = crate::pipeline::stage("auto_paired_fit", || {
+            super::paired_fit::fit(
+                pixels,
+                w,
+                h,
+                orientation,
+                p,
+                current,
+                crate::view::auto_profile::bake::DEFAULT_LUT_SIZE,
+            )
+        }) {
+            residual = Some(candidate);
+        }
+    }
+    if let Some(lut) = residual.as_mut() {
+        super::toe::soften_black_toe(lut);
+    }
     if let (Some(key), Some(c), Some(l)) = (cache_key, curve.as_ref(), residual.as_ref()) {
         cache::insert(key.clone(), c.clone());
         cache::insert_lut(key.clone(), l.clone());
     }
-    (curve, residual)
+    (None, residual)
 }
 
 /// Apply the FULL Auto Profile tail in place to `pixels` — the CPU render

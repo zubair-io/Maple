@@ -15,7 +15,8 @@
 // available to it — the FFI struct it drives has no film-look field
 // (#2713) — but its OUTPUT is already the final display-encoded sRGB
 // `CIImage` (`encodeDisplayViaFFI`'s result). Since #3190 made that encode
-// P3-capable (honoring `CanvasColorSpace.current` for `Profile::Neutral`),
+// P3-capable (honoring `CanvasColorSpace.current` for `Profile::Neutral`,
+// and for Auto since #4741),
 // every call site that composites this cube afterward passes
 // `targetPrimariesOverride: .srgb` to `processSceneLinear` /
 // `processSceneLinearNonRaw` whenever a look is active, so the encode

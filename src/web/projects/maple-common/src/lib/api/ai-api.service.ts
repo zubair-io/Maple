@@ -12,15 +12,8 @@ export interface AiConnection {
   has_key?: boolean;
   api_key?: string | null;
 }
-export interface AiEmbedderSettings {
-  url: string;
-  model: string;
-  default_url: string;
-  default_model: string;
-}
 export interface AiConnectionsResponse {
   needs_save?: boolean;
-  embedder: AiEmbedderSettings;
   connections: AiConnection[];
   assignments: Record<
     string,
@@ -35,18 +28,9 @@ export interface AiConnectionsResponse {
   }>;
 }
 
-export type SearchEngineName = 'meilisearch' | 'in-process';
 export interface SearchEngineView {
-  engine: SearchEngineName;
   status: {
-    phase:
-      | 'stopped'
-      | 'starting'
-      | 'loading'
-      | 'ready'
-      | 'empty'
-      | 'incompatible-embedder'
-      | 'failed';
+    phase: 'stopped' | 'starting' | 'loading' | 'ready' | 'empty' | 'failed';
     vectors: number;
     texts: number;
     textReady: boolean;
@@ -68,17 +52,12 @@ export class AiApiService {
     return this.http.get<AiConnectionsResponse>(`${this.baseUrl}/ai/connections/`);
   }
   saveConnections(
-    config: Pick<AiConnectionsResponse, 'connections' | 'assignments'> & {
-      embedder: Pick<AiEmbedderSettings, 'url' | 'model'>;
-    },
+    config: Pick<AiConnectionsResponse, 'connections' | 'assignments'>,
   ): Observable<AiConnectionsResponse> {
     return this.http.put<AiConnectionsResponse>(`${this.baseUrl}/ai/connections/`, config);
   }
   getSearchEngine(): Observable<SearchEngineView> {
     return this.http.get<SearchEngineView>(`${this.baseUrl}/ai/search-engine/`);
-  }
-  setSearchEngine(engine: SearchEngineName): Observable<SearchEngineView> {
-    return this.http.put<SearchEngineView>(`${this.baseUrl}/ai/search-engine/`, { engine });
   }
   probeConnection(
     connection: AiConnection,

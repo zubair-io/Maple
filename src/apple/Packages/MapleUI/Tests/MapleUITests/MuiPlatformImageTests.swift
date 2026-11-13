@@ -41,7 +41,8 @@ final class MuiPlatformImageTests: XCTestCase {
     func testLoadReturnsNilWhenParentTaskIsCancelledBeforeStart() async throws {
         let url = try writeTempPNG()
         let task = Task<Image?, Never> {
-            await MuiPlatformImage.load(from: url)
+            while !Task.isCancelled { await Task.yield() }
+            return await MuiPlatformImage.load(from: url)
         }
         task.cancel()
         let result = await task.value

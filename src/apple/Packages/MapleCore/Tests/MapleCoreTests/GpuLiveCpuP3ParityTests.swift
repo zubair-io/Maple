@@ -11,11 +11,9 @@
 // layer, same skip-pass convention (no committed fixture carries the
 // scenario, so this legitimately skips on a fresh clone / CI).
 //
-// `Profile::Neutral` only: the Auto Profile cube is fit/baked in sRGB, so a
-// `Profile::Auto` render intentionally stays pinned to sRGB regardless of
-// `CanvasColorSpace` (see `ImageEditPipeline.processSceneLinear`'s
-// `targetPrimaries: profileLUT != nil ? .srgb : CanvasColorSpace.current`)
-// — testing Neutral isolates exactly the code path #3190 changed.
+// `Profile::Neutral` only — testing Neutral isolates exactly the code path
+// #3190 changed. Auto on a P3 canvas (#4741) is covered fixture-free by
+// `ProcessSceneLinearP3AutoTests`.
 
 import CoreImage
 import Foundation
@@ -129,14 +127,18 @@ final class GpuLiveCpuP3ParityTests: XCTestCase {
 
                 var model = AdjustmentModel()
                 model.profile = .neutral
+                model = decodeResult.atAsShot(model)
 
                 guard let buf = pipeline.sceneLinearFloats(from: decodeResult.image, targetSize: nil)
                 else { continue }
                 let session = try GpuLiveSession(pixels: buf.pixels, width: buf.width, height: buf.height)
-                guard let gpuOut = try await session.renderToBuffer(model: model) else { continue }
+                guard let gpuOut = try await session.renderToBuffer(
+                    model: model, wbFrame: decodeResult.wbFrame)
+                else { continue }
 
                 let ctx = CIContext()
-                let cpuImage = pipeline.processSceneLinear(decoded: decodeResult.image, model: model)
+                let cpuImage = pipeline.processSceneLinear(
+                    decoded: decodeResult.image, model: model, wbFrame: decodeResult.wbFrame)
                 let p3 = CGColorSpace(name: CGColorSpace.displayP3)!
                 let cpuRGB = rgbBytes(from: cpuImage, context: ctx, targetColorSpace: p3)
 

@@ -9,12 +9,12 @@
 // reinstalling the local SQLite state makes a restart re-upload every photo.
 //
 // Server contract: src/api/src/routes/backup-state.ts
-//   200 { assets: [ { phasset_local_id, first_seen, maple_id, rel_path }, ... ] }
+//   200 { assets: [ { phasset_local_id, first_seen, maple_id, rel_path,
+//                     has_live_video, has_rendered }, ... ] }
+// The companion fields are absent from servers that predate #5778.
 //
 // Network errors propagate so the caller can choose to skip reconciliation
 // (and fall back to local-state-only behaviour) rather than block the walk.
-//
-// Spec: .archived-plans/specs/2026-05-09-photokit-backup-design.md §20.
 
 import Foundation
 import MapleBackup
@@ -24,13 +24,25 @@ actor BackupStateClient {
   /// One asset the server reports as already backed up for this device.
   struct ServerAsset: Decodable, Sendable {
     let phassetLocalId: String
+    let firstSeen: String?
     let mapleId: String?
     let relPath: String?
+    let hasLiveVideo: Bool?
+    let hasRendered: Bool?
+
+    /// The companions the server holds beside the original, or nil when the
+    /// server does not report them.
+    var companions: BackupCompanions? {
+      BackupCompanions(serverHasLiveVideo: hasLiveVideo, serverHasRendered: hasRendered)
+    }
 
     enum CodingKeys: String, CodingKey {
       case phassetLocalId = "phasset_local_id"
+      case firstSeen = "first_seen"
       case mapleId = "maple_id"
       case relPath = "rel_path"
+      case hasLiveVideo = "has_live_video"
+      case hasRendered = "has_rendered"
     }
   }
 
@@ -56,9 +68,11 @@ actor BackupStateClient {
   }
 
   /// Fetch the assets the server already has for this device in this library.
+  /// Pass `since` (an ISO-8601 `first_seen` watermark from a previous walk)
+  /// to fetch only newly-recorded assets since that cursor.
   /// Throws on network failure or non-200 so the caller can fall back to
   /// local-state-only reconciliation.
-  func fetchKnownAssets() async throws -> [ServerAsset] {
+  func fetchKnownAssets(since: String?) async throws -> [ServerAsset] {
     let endpoint =
       baseURL
       .appendingPathComponent("api")
@@ -67,11 +81,15 @@ actor BackupStateClient {
       .appendingPathComponent("backup")
       .appendingPathComponent("state")
     var comps = URLComponents(url: endpoint, resolvingAgainstBaseURL: false)!
-    comps.queryItems = [URLQueryItem(name: "device_id", value: deviceId)]
+    var queryItems = [URLQueryItem(name: "device_id", value: deviceId)]
+    if let since, !since.isEmpty {
+      queryItems.append(URLQueryItem(name: "since", value: since))
+    }
+    comps.queryItems = queryItems
 
     var req = URLRequest(url: comps.url!)
     req.httpMethod = "GET"
-    req.timeoutInterval = 10
+    req.timeoutInterval = 30
     req.setValue(deviceId, forHTTPHeaderField: "X-Maple-Device-Id")
 
     let (data, response) = try await transport(req)

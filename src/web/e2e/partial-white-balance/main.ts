@@ -3,6 +3,7 @@ import init, {
   WebLiveSession,
   render_bytes_sized,
 } from '../../projects/maple-common/src/lib/raw-pipeline/pkg/raw_wasm';
+import { RAW_WASM_URL } from '../../projects/maple-common/src/lib/raw-pipeline/wasm-asset-url';
 import { XmpParserService } from '../../projects/maple-common/src/lib/xmp/xmp-parser.service';
 import { XmpSerializerService } from '../../projects/maple-common/src/lib/xmp/xmp-serializer.service';
 import { defaultAdjustmentModel } from '../../projects/maple-common/src/lib/models/adjustment-model';
@@ -12,7 +13,7 @@ import {
   canUseLiveFastPath,
 } from '../../projects/maple-common/src/lib/components/image-canvas/image-canvas.live-params';
 
-await init();
+await init({ module_or_path: RAW_WASM_URL });
 const api = {
   ready: true,
   async check(raw: number[], axis: string, version: number, fast = false, asShot = false) {

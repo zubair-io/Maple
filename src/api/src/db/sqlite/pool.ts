@@ -335,6 +335,13 @@ export class SqlitePool {
    * The cost is that a plain read can wait behind one bulk statement there,
    * never behind the whole fan-out, which is the same bargain a pool configured
    * with a single reader has always made.
+   *
+   * The lane bounds how many readers bulk statements hold, not how long one
+   * runs. A per-statement deadline is not available: `bun:sqlite` exposes
+   * neither `sqlite3_interrupt` nor a progress handler, and terminating the
+   * reader's thread does not preempt a running step — measured on Bun 1.4.3, a
+   * worker terminated 0.5 s into a 20 s statement closed when the statement
+   * finished. So the bound on a statement's cost lives in its shape (#4514).
    */
   // fallow-ignore-next-line unused-class-member -- reached structurally through `readBulk` in db/repos/db-handle.ts, and by pool.bulk-lane.test.ts
   readBulk<T = SqlRow>(sql: string, params?: SqlParams): Promise<T[]> {
@@ -374,7 +381,6 @@ export class SqlitePool {
   }
 
   /** Per-worker depth and liveness, for the tests and for an operator. */
-  // fallow-ignore-next-line unused-class-member -- called by pool.test.ts, pool.resilience.test.ts and pool.concurrency.test.ts, always on a pool that arrived through `await`, which the analysis does not unwrap back to this class
   stats(): SqlitePoolStats {
     const writer = this.writer.stats();
     const readers = this.readers.map((reader) => reader.stats());

@@ -25,5 +25,5 @@ export function settleFailedAutoFit(
     return;
   const capabilities = host.state.lensCorrectionsFor(assetId);
   if (capabilities.autoFit === undefined)
-    host.state.seedLensProfile(assetId, capabilities.lensProfile ?? null, false, fitRevision);
+    host.state.seedLensProfile(assetId, capabilities.lensProfile ?? null, 'unfitted', fitRevision);
 }

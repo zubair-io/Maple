@@ -49,7 +49,8 @@ struct BrowseEmptyState: View {
   private var primaryTitle: String {
     BrowseGridVM.emptyStatePrimaryTitle(
       photosAuthNeeded: vm.photosAuthNeeded,
-      photosAuthCanRequest: vm.photosAuthCanRequest
+      photosAuthCanRequest: vm.photosAuthCanRequest,
+      folderUnavailable: vm.loadError is BrowseFolderUnavailableError
     )
   }
 
@@ -95,7 +96,9 @@ struct BrowseEmptyState: View {
         .frame(maxWidth: 380)
       Button(BrowseGridVM.photosAuthButtonTitle(canRequest: canRequest), action: action)
         .buttonStyle(.borderedProminent)
+        .accessibilityIdentifier("photos-auth-action")
     }
+    .accessibilityElement(children: .contain)
     .accessibilityIdentifier("photos-auth-panel")
   }
 
@@ -123,8 +126,7 @@ struct BrowseEmptyState: View {
           .multilineTextAlignment(.center)
           .frame(maxWidth: 360)
         Button("Retry") {
-          // Clear the error — the sidebar row-tap re-runs the load.
-          vm.loadError = nil
+          Task { await vm.retryLastLoad() }
         }
         .buttonStyle(.bordered)
       }

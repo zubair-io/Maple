@@ -48,7 +48,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut client = CloudClient::new(Server::parse(&line)?)?;
     client.probe()?;
     let (pending, _) = client.begin_sign_in()?;
-    assert!(client.claim(&pending)?);
+    assert!(client.claim(&pending, "fixture-callback-code")?);
     let entry = CloudEntry {
         name: "photo.dng".into(),
         address: "library:photo.dng".into(),

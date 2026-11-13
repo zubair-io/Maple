@@ -143,7 +143,7 @@ describe('purgeSubthresholdFaces search re-arm', () => {
     raw
       .query(
         `SELECT stage, version FROM stage_state
-          WHERE asset_id = ? AND stage IN ('meili', 'embed') ORDER BY stage`,
+          WHERE asset_id = ? AND stage IN ('search-blob', 'embed') ORDER BY stage`,
       )
       .all(assetId);
 
@@ -152,7 +152,7 @@ describe('purgeSubthresholdFaces search re-arm', () => {
       (personId) => [{ w: 0.05, h: 0.05, personId }],
       async (db, raw, assetId) => {
         raw.run(
-          `INSERT INTO stage_state (asset_id, stage, version) VALUES (?, 'meili', 6), (?, 'embed', 8)
+          `INSERT INTO stage_state (asset_id, stage, version) VALUES (?, 'search-blob', 6), (?, 'embed', 8)
            ON CONFLICT (asset_id, stage) DO UPDATE SET version = excluded.version`,
           [assetId, assetId],
         );
@@ -162,17 +162,17 @@ describe('purgeSubthresholdFaces search re-arm', () => {
     );
   }
 
-  test('removing an assigned face re-queues the asset for meili and embed', async () => {
+  test('removing an assigned face re-queues the asset for search-blob and embed', async () => {
     expect(await seededPurge(true)).toEqual([
       { stage: 'embed', version: 0 },
-      { stage: 'meili', version: 0 },
+      { stage: 'search-blob', version: 0 },
     ]);
   });
 
   test('leaves the stages alone when no assigned face is removed', async () => {
     expect(await seededPurge(false)).toEqual([
       { stage: 'embed', version: 8 },
-      { stage: 'meili', version: 6 },
+      { stage: 'search-blob', version: 6 },
     ]);
   });
 });

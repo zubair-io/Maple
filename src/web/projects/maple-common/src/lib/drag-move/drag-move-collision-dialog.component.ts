@@ -35,6 +35,9 @@ import { MuiButtonComponent } from '../ui/button/mui-button.component';
 })
 export class DragMoveCollisionDialogComponent implements AfterViewInit {
   readonly filename = input.required<string>();
+  readonly replaceUnavailable = input(false);
+  /** Set on a RAW+JPEG stack's JPEG prompt: the RAW's name at the destination. */
+  readonly companionOf = input<string | null>(null);
 
   readonly resolve = output<DragMoveCollisionPolicy>();
 

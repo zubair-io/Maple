@@ -2,6 +2,7 @@
 import { cameraSupportFromJson } from '../state/camera-support';
 import { lensProfileFromJson } from '../lens/lens-profile.metadata';
 import type { DecodeSuccess } from './raw-pipeline.types';
+import { autoFitOutcomeFrom } from './auto-fit-outcome';
 import type { MapleRender } from './pkg/raw_wasm';
 
 export function takeRenderFrame(result: MapleRender): Omit<DecodeSuccess, 'id' | 'type'> {
@@ -19,7 +20,7 @@ export function takeRenderFrame(result: MapleRender): Omit<DecodeSuccess, 'id' |
       lensCorrectionCaInert: result.lens_correction_ca_inert,
       cameraSupport: cameraSupportFromJson(result.camera_support_json),
       lensProfile: lensProfileFromJson(result.lens_profile_json),
-      autoFit: result.auto_fit,
+      autoFit: autoFitOutcomeFrom(result.auto_fit),
     };
     return { ...metadata, rgb: result.take_rgb().slice().buffer as ArrayBuffer };
   } finally {

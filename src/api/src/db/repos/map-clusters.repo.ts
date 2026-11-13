@@ -32,7 +32,8 @@
 import type { FileInfo } from '../schema.ts';
 import { bucketedIds, locationsByAssetIdsSql } from './assets.sql.ts';
 import { toFileInfo, type LocationRow } from './assets.rows.ts';
-import { assetsDb, type SqliteDb } from './db-handle.ts';
+import { assetsDb, readBulk, type SqliteDb } from './db-handle.ts';
+import type { RankedAsset } from './search.ranked.ts';
 import { placeholders } from './values.ts';
 import { fromClause } from './search.sql.ts';
 import { searchWhereSql, type BoundPredicate, type SearchWhere } from './search.where.ts';
@@ -93,6 +94,30 @@ function bboxPredicate(bbox: MapBbox): BoundPredicate {
   };
 }
 
+/**
+ * What the cells aggregate. A text search is clustered over its ranked window — the rows the
+ * caller's list is served from, already filtered — so the map never groups the whole match set
+ * (#4514); without text, the translated query and the viewport as before.
+ */
+function cellScope(
+  where: SearchWhere,
+  viewport: BoundPredicate,
+  window: readonly RankedAsset[] | undefined,
+): { from: string; bound: BoundPredicate } {
+  if (window === undefined)
+    return { from: fromClause(where), bound: searchWhereSql(where, viewport) };
+  return {
+    from: 'FROM assets',
+    bound: searchWhereSql(
+      { ...where, match: { kind: 'none' } },
+      {
+        sql: `assets.rowid IN (SELECT value FROM json_each(?)) AND ${viewport.sql}`,
+        params: [JSON.stringify(window.map((row) => row.r)), ...viewport.params],
+      },
+    ),
+  };
+}
+
 interface CellRow {
   count: number;
   avg_lat: number;
@@ -120,18 +145,20 @@ export async function mapClusters(
   bbox: MapBbox,
   cellSizeDeg: number,
   dbOverride?: SqliteDb,
+  window?: readonly RankedAsset[],
 ): Promise<MapClusterCell[]> {
   const db = assetsDb(dbOverride);
-  const bound = searchWhereSql(where, bboxPredicate(bbox));
-  const cells = await db.read<CellRow>(
+  const scope = cellScope(where, bboxPredicate(bbox), window);
+  const cells = await readBulk<CellRow>(
+    db,
     `SELECT COUNT(*) AS count,
             AVG(assets.gps_lat) AS avg_lat,
             AVG(assets.gps_lng) AS avg_lng,
             MIN(assets.id) AS representative_id
-       ${fromClause(where)}
-       ${bound.sql}
+       ${scope.from}
+       ${scope.bound.sql}
       GROUP BY floor(assets.gps_lat / ?), floor(assets.gps_lng / ?)`,
-    [...bound.params, cellSizeDeg, cellSizeDeg],
+    [...scope.bound.params, cellSizeDeg, cellSizeDeg],
   );
   if (cells.length === 0) return [];
 

@@ -55,14 +55,7 @@ namespace Maple.WinUI.ViewModels
         private void CommitUndoBoundary()
         {
             AdjustmentSettled?.Invoke();
-            if (_undoBaseline == null || XmpWriter.Serialize(new XmpSidecarDocument { Adjustments = _undoBaseline }) ==
-                XmpWriter.Serialize(new XmpSidecarDocument { Adjustments = Adjustments }))
-                return;
-            _undoStack.Add(_undoBaseline);
-            if (_undoStack.Count > UndoDepth)
-                _undoStack.RemoveAt(0);
-            _redoStack.Clear();
-            _undoBaseline = Adjustments.Clone();
+            UndoHistoryLogic.CommitBoundary(_undoStack, _redoStack, ref _undoBaseline, Adjustments, UndoDepth);
         }
 
         /// <summary>Separate discrete mask operations from a pending slider/handle drag.</summary>
@@ -70,8 +63,8 @@ namespace Maple.WinUI.ViewModels
         {
             _undoTimer?.Dispose();
             _undoTimer = null;
-            if (_undoBaseline is not null && XmpWriter.Serialize(new XmpSidecarDocument { Adjustments = _undoBaseline }) !=
-                XmpWriter.Serialize(new XmpSidecarDocument { Adjustments = Adjustments })) CommitUndoBoundary();
+            if (_undoBaseline is not null && XmpWriter.Fingerprint(_undoBaseline) !=
+                XmpWriter.Fingerprint(Adjustments)) CommitUndoBoundary();
         }
 
         public void EndAdjustmentGesture()
@@ -81,14 +74,36 @@ namespace Maple.WinUI.ViewModels
             CommitPendingAdjustmentGesture();
         }
 
+        /// <summary>
+        /// Load-time normalisation of a legacy decode-frame repair list (#4473). It
+        /// preserves what the photo looks like, so it is not an edit: the current
+        /// model and every history snapshot are converted in place, otherwise an
+        /// undo would restore a legacy list the Heal tool refuses to edit.
+        /// </summary>
+        public void NormalizeRetouchFrame(Func<RetouchState, RetouchState> convert)
+        {
+            if (!AdjustmentsReady) return;
+            void Apply(AdjustmentState? snapshot)
+            {
+                if (snapshot is { Retouch.IsLegacyFrame: true }) snapshot.Retouch = convert(snapshot.Retouch);
+            }
+            Apply(Adjustments);
+            Apply(_undoBaseline);
+            Apply(_originalModel);
+            foreach (var snapshot in _undoStack) Apply(snapshot);
+            foreach (var snapshot in _redoStack) Apply(snapshot);
+            Renderer.RequestRender(Adjustments.Clone());
+            ScheduleSidecarWrite();
+        }
+
         public void Undo()
         {
             if (!AdjustmentsReady) return;
             _adjustmentGesture = null;
             _undoTimer?.Dispose();
             _undoTimer = null;
-            if (_undoBaseline != null && XmpWriter.Serialize(new XmpSidecarDocument { Adjustments = _undoBaseline }) !=
-                XmpWriter.Serialize(new XmpSidecarDocument { Adjustments = Adjustments }))
+            if (_undoBaseline != null && XmpWriter.Fingerprint(_undoBaseline) !=
+                XmpWriter.Fingerprint(Adjustments))
                 CommitUndoBoundary();
             if (_undoStack.Count == 0)
                 return;
@@ -111,42 +126,71 @@ namespace Maple.WinUI.ViewModels
             if (_redoStack.Count == 0)
                 return;
             var before = Adjustments;
-            _undoStack.Add(Adjustments.Clone());
-            Adjustments = _redoStack[^1];
-            Adjustments.InpaintRemovals = before.InpaintRemovals;
+            var next = _redoStack[^1];
             _redoStack.RemoveAt(_redoStack.Count - 1);
+            // Push clears Redo, so the remaining entries are kept aside.
+            var remainingRedo = _redoStack.ToArray();
+            UndoHistoryLogic.Push(_undoStack, _redoStack, Adjustments.Clone(), UndoDepth);
+            _redoStack.AddRange(remainingRedo);
+            Adjustments = next;
+            Adjustments.InpaintRemovals = before.InpaintRemovals;
             _undoBaseline = Adjustments.Clone();
             AfterModelReplaced(before);
         }
 
         /// <summary>RESET: back to canonical defaults with WB at the as-shot
-        /// identity. Pushes the current state so it is undoable.</summary>
+        /// identity, as one discrete undoable step on top of whatever slider
+        /// edit was still pending (#4764). A no-op on an unedited photo.</summary>
         public void ResetToDefaults()
         {
             if (!AdjustmentsReady) return;
             var before = Adjustments;
-            _undoStack.Add(Adjustments.Clone());
-            _redoStack.Clear();
-            Adjustments = DefaultAdjustments();
-            Adjustments.InpaintRemovals = before.InpaintRemovals;
-            _undoBaseline = Adjustments.Clone();
+            var defaults = DefaultAdjustments();
+            defaults.InpaintRemovals = before.InpaintRemovals;
+            if (!BeginModelReplacement(defaults))
+                return;
+            if (before.LocalAdjustments.Any(layer => layer.Mask is BrushMask) && SelectedPhoto is { } photo)
+            {
+                var source = photo.IsCloud ? _cloudDoc : SidecarStore.Load(photo.FilePath);
+                var containers = XmpBrushCorrections.PassthroughContainers(source);
+                if (containers is not null)
+                    _brushCorrectionsRemovedByReset[photo.FilePath] = containers;
+            }
+            SetBrushCorrectionDiscardPath(before.LocalAdjustments.Any(layer => layer.Mask is BrushMask)
+                ? SelectedPhoto?.FilePath
+                : null);
+            Adjustments = _undoBaseline!.Clone();
             AfterModelReplaced(before);
         }
 
-        /// <summary>Revert is not undo: pushes current onto the undo stack then
-        /// restores the model loaded at open.</summary>
+        /// <summary>Revert is not undo: restores the model loaded at open as
+        /// one discrete undoable step (#4764). A no-op when already there.</summary>
         public void RevertToOriginal()
         {
             if (!AdjustmentsReady) return;
             if (_originalModel == null)
                 return;
             var before = Adjustments;
-            _undoStack.Add(Adjustments.Clone());
-            _redoStack.Clear();
-            Adjustments = _originalModel.Clone();
-            Adjustments.InpaintRemovals = before.InpaintRemovals;
-            _undoBaseline = Adjustments.Clone();
+            var original = _originalModel.Clone();
+            original.InpaintRemovals = before.InpaintRemovals;
+            if (!BeginModelReplacement(original))
+                return;
+            Adjustments = _undoBaseline!.Clone();
             AfterModelReplaced(before);
+        }
+
+        /// <summary>Shared Reset/Revert prologue: ends any live gesture and
+        /// its quiet timer, commits the pending edit, then records the
+        /// current model under the depth cap. On success the new baseline is
+        /// <paramref name="next"/>; false means nothing changed.</summary>
+        private bool BeginModelReplacement(AdjustmentState next)
+        {
+            _adjustmentGesture = null;
+            _undoTimer?.Dispose();
+            _undoTimer = null;
+            AdjustmentSettled?.Invoke();
+            return UndoHistoryLogic.ReplaceModel(
+                _undoStack, _redoStack, ref _undoBaseline, Adjustments, next, UndoDepth);
         }
 
     }

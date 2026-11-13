@@ -2,14 +2,8 @@
  * Every statement the ported jobs repository runs, in one place.
  *
  * Separated from the functions that call it for the reason `assets.sql.ts` and
- * `imports.sql.ts` give: the shape of three of these queries *is* the
+ * `imports.sql.ts` give: the shape of these queries *is* the
  * correctness argument, and a reviewer should be able to read them together.
- *
- * **The claimable predicate is written once.** {@link CLAIMABLE_PREDICATE}
- * appears in the candidate query and again in the compare-and-swap that decides
- * the winner. If those drifted, a worker could claim a job the candidate query
- * never considered claimable — the failure Mongo's `findOneAndUpdate` made
- * impossible by construction.
  *
  * **The active-batch fence is a `NOT EXISTS`, not an index.** On Mongo, "only
  * one settings batch may be active per library" is a UNIQUE partial index over
@@ -29,11 +23,12 @@
  * with no scopes neither fences anything nor is fenced.
  */
 
+import type { OperationKind } from '../schema.ts';
 import { placeholders } from './values.ts';
 
 /** Every `jobs` column, in declaration order. */
 const JOB_COLUMNS = `
-  id, kind, status, locked_by, lease_expires_at, cancel_requested,
+  id, kind, status, locked_by, cancel_requested,
   progress_current, progress_total, error, created_at, updated_at,
   params, result, ledger, batch_scopes`;
 
@@ -51,6 +46,77 @@ const NO_ACTIVE_BATCH_OVERLAP = `
        AND os.value IN (SELECT value FROM json_each(json(?))))`;
 
 /**
+ * Any queued or running panorama stitch. A stitch holds the whole decode
+ * memory budget for minutes, so one may be active at a time, and a preview is
+ * not admitted beside it either.
+ */
+const NO_ACTIVE_PANO_STITCH = `
+  NOT EXISTS (
+    SELECT 1 FROM jobs o
+     WHERE o.kind = 'pano_stitch'
+       AND o.status IN ('queued', 'running'))`;
+
+/**
+ * The operator one-shots, which run on their own lane. A user job and an
+ * operation never wait on each other, and no row is ever relayed by both lanes.
+ */
+const OPERATION_KIND_SET = {
+  mirror_reconcile: true,
+  people_cluster: true,
+  folder_scan: true,
+} as const satisfies Record<OperationKind, true>;
+
+export const OPERATION_KINDS = Object.keys(OPERATION_KIND_SET) as readonly OperationKind[];
+
+const OPERATION_KIND_LIST = OPERATION_KINDS.map((kind) => `'${kind}'`).join(', ');
+const IS_OPERATION = `kind IN (${OPERATION_KIND_LIST})`;
+const IS_USER_JOB = `kind NOT IN (${OPERATION_KIND_LIST})`;
+
+/**
+ * An active operation of the same kind on the same folder (none, for the kinds
+ * that are not per folder). Binds the kind and the folder id, or null. One
+ * whose cancel is pending no longer counts: it stops at its handler's next
+ * check, and a new request must not wait on, or join, a run nobody wants.
+ */
+const NO_ACTIVE_OPERATION = `
+  NOT EXISTS (
+    SELECT 1 FROM jobs o
+     WHERE o.kind = ?
+       AND o.status IN ('queued', 'running')
+       AND o.cancel_requested = 0
+       AND json_extract(o.params, '$.folderId') IS ?)`;
+
+/**
+ * For an operation whose answer must come from a run that started after the
+ * request: only one that has not started yet, with the same parameters, stands
+ * in for a new row. Binds the kind and the parameters as stored. A row waiting
+ * behind a running one is held back by {@link NEXT_OPERATION_SQL}.
+ */
+const NO_WAITING_OPERATION = `
+  NOT EXISTS (
+    SELECT 1 FROM jobs o
+     WHERE o.kind = ?
+       AND o.status = 'queued'
+       AND o.cancel_requested = 0
+       AND o.params = ?)`;
+
+/** Which admission rule an insert is checked against, in the same statement. */
+export type JobInsertFence =
+  | 'none'
+  | 'batch_scopes'
+  | 'pano_stitch'
+  | 'operation'
+  | 'fresh_operation';
+
+const FENCE_PREDICATES: Record<JobInsertFence, string> = {
+  none: '1 = 1',
+  batch_scopes: NO_ACTIVE_BATCH_OVERLAP,
+  pano_stitch: NO_ACTIVE_PANO_STITCH,
+  operation: NO_ACTIVE_OPERATION,
+  fresh_operation: NO_WAITING_OPERATION,
+};
+
+/**
  * Insert one queued job.
  *
  * `INSERT … SELECT … WHERE` rather than `INSERT … VALUES`, because the fence
@@ -62,11 +128,11 @@ const NO_ACTIVE_BATCH_OVERLAP = `
  * Both a blocked fence and a re-used id report zero rows changed, which is why
  * the repository distinguishes them by reading rather than by the count.
  */
-export function insertJobSql(fenced: boolean): string {
+export function insertJobSql(fence: JobInsertFence): string {
   return `
     INSERT INTO jobs (${JOB_COLUMNS})
-    SELECT ${placeholders(15)}
-     WHERE ${fenced ? NO_ACTIVE_BATCH_OVERLAP : '1 = 1'}
+    SELECT ${placeholders(14)}
+     WHERE ${FENCE_PREDICATES[fence]}
     ON CONFLICT (id) DO NOTHING`;
 }
 
@@ -79,49 +145,108 @@ export function insertJobSql(fenced: boolean): string {
  * There are at most a handful of shapes, all well inside the worker's
  * prepared-statement cache.
  */
-export function listJobsSql(statusCount: number, byKind: boolean, excludeKind: boolean): string {
+export function listJobsSql(statusCount: number, byKind: boolean, excludeCount: number): string {
   const clauses = [
     ...(statusCount > 0 ? [`status IN (${placeholders(statusCount)})`] : []),
     ...(byKind ? ['kind = ?'] : []),
-    ...(excludeKind ? ['kind != ?'] : []),
+    ...(excludeCount > 0 ? [`kind NOT IN (${placeholders(excludeCount)})`] : []),
   ];
   const where = clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : '';
   return `SELECT ${JOB_COLUMNS} FROM jobs ${where} ORDER BY created_at DESC, id DESC LIMIT ?`;
 }
 
-/**
- * Free or lease-expired: a `queued` job nobody holds, or a `running` one whose
- * holder's lease ran out mid-run.
- *
- * `lease_expires_at < ?` never matches a NULL lease, in SQLite as in MongoDB,
- * so a running job that somehow lost its expiry is not silently stolen.
- */
-const CLAIMABLE_PREDICATE = `
-  (status = 'queued' AND locked_by IS NULL)
-  OR (status = 'running' AND lease_expires_at < ?)`;
+/** What the relay writes into `locked_by` once Temporal holds a queued job. */
+export const DISPATCHED_MARKER = 'temporal';
 
 /**
- * Oldest claimable jobs first — the order `findOneAndUpdate`'s
- * `sort: { created_at: 1, _id: 1 }` imposed.
- *
- * Several rather than one: the compare-and-swap below can lose to a sibling
- * runner, and re-reading after every loss would cost a round trip per
- * contended claim.
+ * A job Temporal holds: running, or queued with its workflow already started.
+ * At most one user job is held at a time, because {@link NEXT_JOB_SQL} waits for it.
  */
-export const CLAIM_CANDIDATES_SQL = `
-  SELECT id FROM jobs WHERE ${CLAIMABLE_PREDICATE} ORDER BY created_at, id LIMIT 8`;
+const heldRow = (alias = '') =>
+  `(${alias}status = 'running' OR (${alias}status = 'queued' AND ${alias}locked_by IS NOT NULL))`;
+
+const HELD = heldRow();
 
 /**
- * Take one candidate, repeating the claimable predicate in the `WHERE`.
+ * The oldest queued user job, but only once no other user job is held.
  *
- * That repetition is the whole mechanism: the row may have been claimed between
- * the candidate read and this write, and re-testing the predicate inside the
- * `UPDATE` is what makes exactly one caller see a row count of one.
+ * Handing Temporal one job at a time is what keeps jobs in the order they were
+ * created: several workflows waiting on one task queue are started in no
+ * particular order. `locked_by IS NULL` separates a fresh or resumed job from a
+ * held one; every statement that puts a job back into `queued` clears it.
+ * Operations are left to their own lane and never hold a user job back.
+ */
+export const NEXT_JOB_SQL = `
+  SELECT id FROM jobs
+   WHERE status = 'queued' AND locked_by IS NULL AND ${IS_USER_JOB}
+     AND NOT EXISTS (SELECT 1 FROM jobs WHERE ${IS_USER_JOB} AND ${HELD})
+   ORDER BY created_at, id LIMIT 1`;
+
+export const HELD_JOBS_SQL = `
+  SELECT id FROM jobs WHERE ${IS_USER_JOB} AND ${HELD} ORDER BY created_at, id`;
+
+/**
+ * The oldest queued operation not yet handed to Temporal whose kind (and
+ * folder, for a scan) Temporal does not already hold. Operations of different
+ * kinds and folders run side by side; a clustering request made while one runs
+ * waits here, as a row, until that one has finished. One whose cancel is
+ * pending holds nothing back, as in {@link NO_ACTIVE_OPERATION}.
+ */
+export const NEXT_OPERATION_SQL = `
+  SELECT q.id FROM jobs q
+   WHERE q.status = 'queued' AND q.locked_by IS NULL AND q.kind IN (${OPERATION_KIND_LIST})
+     AND NOT EXISTS (
+       SELECT 1 FROM jobs h
+        WHERE h.kind = q.kind
+          AND h.cancel_requested = 0
+          AND ${heldRow('h.')}
+          AND json_extract(h.params, '$.folderId') IS json_extract(q.params, '$.folderId'))
+   ORDER BY q.created_at, q.id LIMIT 1`;
+
+export const HELD_OPERATIONS_SQL = `
+  SELECT id FROM jobs WHERE ${IS_OPERATION} AND ${HELD} ORDER BY created_at, id`;
+
+/** The active operation the insert fence measured a new one against. */
+export const ACTIVE_OPERATION_SQL = `
+  SELECT id FROM jobs
+   WHERE kind = ? AND status IN ('queued', 'running') AND cancel_requested = 0
+     AND json_extract(params, '$.folderId') IS ?
+   ORDER BY created_at DESC LIMIT 1`;
+
+/** The not-yet-started operation a fresh insert was refused in favour of. */
+export const WAITING_OPERATION_SQL = `
+  SELECT id FROM jobs
+   WHERE kind = ? AND status = 'queued' AND cancel_requested = 0 AND params = ?
+   ORDER BY created_at DESC LIMIT 1`;
+
+/**
+ * A cancel. An operation not yet handed to Temporal ends here and now, so it
+ * stops holding its kind's (or folder's) slot while no worker is there to see
+ * the flag; anything else ends when its handler next looks.
+ */
+export const REQUEST_CANCEL_SQL = `
+  UPDATE jobs SET cancel_requested = 1, updated_at = ?,
+         status = CASE WHEN status = 'queued' AND locked_by IS NULL AND ${IS_OPERATION}
+                       THEN 'cancelled' ELSE status END
+   WHERE id = ?`;
+
+/** Guarded so a job its activity has already claimed keeps that claim. */
+export const MARK_DISPATCHED_SQL = `
+  UPDATE jobs SET locked_by = ? WHERE id = ? AND status = 'queued' AND locked_by IS NULL`;
+
+/**
+ * Hand one job to the activity attempt Temporal just delivered.
+ *
+ * A `running` row is taken over, not skipped: Temporal only delivers another
+ * attempt after the previous one missed its heartbeat deadline, so the holder
+ * named in `locked_by` is gone. Whatever that holder still tries to write is
+ * refused by the `locked_by` fence on the progress, ledger and finish writes.
+ * A finished job matches nothing, which is how a redelivery becomes a no-op.
  */
 export const CLAIM_JOB_SQL = `
   UPDATE jobs
-     SET status = 'running', locked_by = ?, lease_expires_at = ?, updated_at = ?
-   WHERE id = ? AND (${CLAIMABLE_PREDICATE})`;
+     SET status = 'running', locked_by = ?, updated_at = ?
+   WHERE id = ? AND status IN ('queued', 'running')`;
 
 /**
  * Re-queue a terminal batch job so a worker re-claims it.
@@ -135,8 +260,8 @@ export const CLAIM_JOB_SQL = `
  */
 export const RESUME_BATCH_JOB_SQL = `
   UPDATE jobs
-     SET status = 'queued', locked_by = NULL, lease_expires_at = NULL,
-         cancel_requested = 0, error = NULL, result = NULL, updated_at = ?
+     SET status = 'queued', locked_by = NULL, cancel_requested = 0,
+         error = NULL, result = NULL, updated_at = ?
    WHERE id = ?
      AND kind IN ('batch_adjustment_sync', 'batch_recipe_export', 'batch_jpeg_export')
      AND status IN ('failed', 'cancelled')
@@ -148,14 +273,14 @@ export const RESUME_BATCH_JOB_SQL = `
           AND os.value IN (SELECT value FROM json_each(jobs.batch_scopes)))`;
 
 /**
- * Save a whole recovery ledger and renew the lease, fenced to the lease holder.
+ * Save a whole recovery ledger, fenced to the attempt that holds the job.
  *
- * The fence is the `locked_by`/`status` pair in the `WHERE`: a job reclaimed by
- * another worker matches nothing, the row count is zero, and the repository
- * turns that into the throw the former worker needs to stop writing.
+ * The fence is the `locked_by`/`status` pair in the `WHERE`: a job taken over by
+ * a later attempt matches nothing, the row count is zero, and the repository
+ * turns that into the throw the former attempt needs to stop writing.
  */
 export const SAVE_LEDGER_SQL = `
-  UPDATE jobs SET ledger = json(?), updated_at = ?, lease_expires_at = ?
+  UPDATE jobs SET ledger = json(?), updated_at = ?
    WHERE id = ? AND locked_by = ? AND status = 'running'`;
 
 /**
@@ -182,5 +307,5 @@ export const SAVE_LEDGER_ENTRY_SQL = `
                     '$.remaining', json(?))
            ELSE json(?)
          END,
-         updated_at = ?, lease_expires_at = ?
+         updated_at = ?
    WHERE id = ? AND locked_by = ? AND status = 'running'`;

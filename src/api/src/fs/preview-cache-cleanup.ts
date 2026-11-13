@@ -17,27 +17,36 @@ import * as path from 'node:path';
 // configured backup root(s). Same `fs/promises` surface — see `mirrored.ts`.
 import * as fs from './mirrored.ts';
 import { PREVIEW_CACHE_SUFFIX } from '../indexer/previewer.ts';
-import { PIPELINE_OUTPUT_VERSION } from '../generated/adjustment-fields.generated.ts';
+import { parseVersionedDerivativeName } from './legacy-derivative.ts';
 
 /**
- * Every previews-cache suffix currently in real use, spelled out exactly.
- * The preview itself is a single, unversioned file per asset
- * (`PREVIEW_CACHE_SUFFIX`, now the bare `avif` extension — no size or version
- * token; thumbs are a separate tier in a sibling folder). `full.jpg` is
- * `cachePathFor`/`cachePathForAsset`'s own default when no suffix is passed,
- * and `histogram.json` is the histogram sidecar (`routes/assets/histogram.ts`)
- * — both live in the same `previews/` folder and must be reclaimed with the
- * preview when a location goes away.
+ * Every previews-cache suffix currently in real use, spelled out exactly and
+ * ordered longest-first so a compound suffix wins over its tail. The preview
+ * itself is a single, unversioned file per asset (`PREVIEW_CACHE_SUFFIX`, the
+ * bare `avif` extension — no size or pipeline-version token, #4793). Hosted
+ * (web) writes its fallback encodings (`jpg`/`webp`/`png`), the descriptor
+ * (`preview.json`) and the AVIF source identity (`avif.source.json`) beside
+ * it; `histogram.json` is the histogram sidecar (`routes/assets/histogram.ts`);
+ * `full.jpg` is a retired tier kept reclaimable. All live in the same
+ * `previews/` folder and must be reclaimed with the preview when a location
+ * goes away.
  *
  * Old `<filename>.1280.avif` and `<filename>.dev_<N>.jpg` files from earlier
- * schemes end in `.avif`/`.jpg` too but recover to a non-live source filename
- * (`<filename>.1280` / `<filename>.dev_<N>`), so they simply orphan out via
- * the not-live check in `cache-gc.ts` — no dedicated pattern needed.
+ * schemes recover to a non-live source filename (`<filename>.1280` /
+ * `<filename>.dev_<N>`), so they simply orphan out via the not-live check in
+ * `cache-gc.ts` — no dedicated pattern needed. The retired
+ * `<filename>.v<N>.<kind>` names recover through
+ * `parseVersionedDerivativeName` first.
  */
 const KNOWN_EXACT_SUFFIXES: readonly string[] = [
-  PREVIEW_CACHE_SUFFIX,
-  'full.jpg',
+  'avif.source.json',
   'histogram.json',
+  'preview.json',
+  'full.jpg',
+  PREVIEW_CACHE_SUFFIX,
+  'jpg',
+  'webp',
+  'png',
 ];
 
 /**
@@ -58,22 +67,12 @@ const KNOWN_EXACT_SUFFIXES: readonly string[] = [
  * ambiguity.
  */
 export function sourceFilenameForPreviewCacheName(cacheName: string): string | null {
-  const versioned =
-    /^(.*)\.v[1-9][0-9]*\.(?:avif|jpg|webp|png)(?:\.source\.json)?$/.exec(cacheName) ??
-    /^(.*)\.v[1-9][0-9]*\.preview\.json$/.exec(cacheName);
-  if (versioned) return versioned[1];
+  const name = parseVersionedDerivativeName(cacheName)?.unversioned ?? cacheName;
   for (const suffix of KNOWN_EXACT_SUFFIXES) {
     const withDot = `.${suffix}`;
-    if (cacheName.endsWith(withDot)) return cacheName.slice(0, -withDot.length);
+    if (name.endsWith(withDot)) return name.slice(0, -withDot.length);
   }
   return null;
-}
-
-export function isCurrentOrNewerPreviewCacheName(cacheName: string): boolean {
-  if (cacheName.endsWith('.histogram.json')) return true;
-  const version =
-    /\.v([1-9][0-9]*)\.(?:(?:avif|jpg|webp|png)(?:\.source\.json)?|preview\.json)$/.exec(cacheName);
-  return version !== null && Number(version[1]) >= PIPELINE_OUTPUT_VERSION;
 }
 
 /** The two `fs.Dirent` properties this file actually reads — declared

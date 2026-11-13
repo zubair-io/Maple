@@ -41,13 +41,14 @@ impl ResolvedCalibrationRemovals {
                 "saved native tile exceeds working-pixel budget".into(),
             ));
         }
-        crate::pipeline::tile::develop_tile_oriented_f32(
+        crate::pipeline::tile::develop_saved_tile(
             raw,
             model,
             rect,
             quality,
             decoded_wb_anchor,
             ae_gain,
+            None,
             patches,
             crate::CancelToken::never(),
         )

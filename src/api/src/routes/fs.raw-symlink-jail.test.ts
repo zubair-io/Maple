@@ -1,10 +1,12 @@
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
+import { afterEach, beforeAll, beforeEach, describe, expect, it, test } from 'bun:test';
 import { Elysia } from 'elysia';
 import { mkdtemp, rm, writeFile, realpath, symlink, unlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fsRoutes } from './fs.ts';
 import { fakeAuth } from '../../tests/helpers/test-auth.ts';
+
+let inheritedRoots: string | undefined;
 
 /**
  * GET /api/fs/raw must never stream bytes from outside MAPLE_ROOTS.
@@ -40,8 +42,14 @@ import { fakeAuth } from '../../tests/helpers/test-auth.ts';
 describe('GET /api/fs/raw — symlink jail', () => {
   let root: string | null = null;
   let outside: string | null = null;
+  let previousRoots: string | undefined;
+
+  beforeAll(() => {
+    inheritedRoots = process.env.MAPLE_ROOTS;
+  });
 
   beforeEach(async () => {
+    previousRoots = process.env.MAPLE_ROOTS;
     root = await realpath(await mkdtemp(join(tmpdir(), 'maple-rawjail-root-')));
     outside = await realpath(await mkdtemp(join(tmpdir(), 'maple-rawjail-out-')));
     process.env.MAPLE_ROOTS = root;
@@ -50,6 +58,8 @@ describe('GET /api/fs/raw — symlink jail', () => {
   });
 
   afterEach(async () => {
+    if (previousRoots === undefined) delete process.env.MAPLE_ROOTS;
+    else process.env.MAPLE_ROOTS = previousRoots;
     for (const d of [root, outside]) {
       if (d) await rm(d, { recursive: true, force: true }).catch(() => {});
     }
@@ -115,4 +125,8 @@ describe('GET /api/fs/raw — symlink jail', () => {
     expect(res.status).not.toBe(200);
     expect(await res.text()).not.toContain('TOP SECRET');
   });
+});
+
+test('raw symlink jail fixtures restore the inherited filesystem root boundary', () => {
+  expect(process.env.MAPLE_ROOTS).toBe(inheritedRoots);
 });

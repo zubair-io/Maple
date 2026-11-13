@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Runtime.InteropServices.WindowsRuntime;
 using System.Security.Cryptography;
@@ -31,7 +32,7 @@ public sealed partial class ThumbnailService
     public Task<string?> GetOrCreateAdjustedPreviewAsync(string rawPath, AdjustmentState adjustments, CancellationToken ct)
     {
         var model = adjustments.Clone();
-        var xml = XmpWriter.Serialize(new XmpSidecarDocument { Adjustments = model });
+        var xml = XmpWriter.Fingerprint(model);
         var hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(xml)));
         var path = LocalCachePathFor(rawPath, PreviewMaxPx, $"edited-{DevelopIdentity.Value}-{hash}.png");
         return GetOrCreateDevelopedAsync(rawPath, path, model, PreviewMaxPx, ct);
@@ -102,14 +103,45 @@ public sealed partial class ThumbnailService
             ct.ThrowIfCancellationRequested();
             var image = RenderEngine.Decode(path, model, maxPx, RefineDecodeQuality.Preview, flag);
             ct.ThrowIfCancellationRequested();
-            if (model.Temperature == 6500 && model.Tint == 0 && image.DecodedTemperature > 0)
-            { model.Temperature = image.DecodedTemperature; model.Tint = image.DecodedTint; }
-            var pixels = new byte[checked(image.Width * image.Height * 4)];
-            float[]? scratch = null;
-            RenderEngine.RenderTick(image, model, ref scratch, pixels, film);
-            ct.ThrowIfCancellationRequested();
-            return (image.Width, image.Height, pixels);
+            var rasterIds = RegisterBrushRasters(model, image.Width, image.Height);
+            try
+            {
+                if (model.Temperature == 6500 && model.Tint == 0 && image.DecodedTemperature > 0)
+                { model.Temperature = image.DecodedTemperature; model.Tint = image.DecodedTint; }
+                var pixels = new byte[checked(image.Width * image.Height * 4)];
+                float[]? scratch = null;
+                RenderEngine.RenderTick(image, model, ref scratch, pixels, film);
+                ct.ThrowIfCancellationRequested();
+                return (image.Width, image.Height, pixels);
+            }
+            finally
+            {
+                foreach (var id in rasterIds) RawFfi.maple_mask_raster_release(id);
+            }
         }
         finally { RawFfi.maple_cancel_flag_free(flag); }
+    }
+
+    private static List<uint> RegisterBrushRasters(AdjustmentState model, int width, int height)
+    {
+        var ids = new List<uint>();
+        try
+        {
+            for (var index = 0; index < model.LocalAdjustments.Count; index++)
+            {
+                var layer = model.LocalAdjustments[index];
+                if (layer.Mask is not BrushMask brush) continue;
+                var registered = BrushMaskRasterizer.Register(brush with { RasterId = 0 }, width, height)
+                    ?? throw new InvalidDataException("A brush mask could not be rasterized for its preview.");
+                model.LocalAdjustments[index] = layer with { Mask = registered };
+                ids.Add(registered.RasterId);
+            }
+            return ids;
+        }
+        catch
+        {
+            foreach (var id in ids) RawFfi.maple_mask_raster_release(id);
+            throw;
+        }
     }
 }

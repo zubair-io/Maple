@@ -3,18 +3,27 @@
 # Signed Windows artifacts and coordinated publication of stable releases.
 #
 # Stable release tags are created by version-sync.yml. Xcode Cloud consumes
-# the same tag and uploads the notarized Mac DMG from its production
-# archive; this workflow builds Windows, maintains the shared draft release,
-# and publishes only after both platforms are present.
+# the same tag and produces the production archive. This workflow signs that
+# archive into a notarized Mac DMG, builds Windows, maintains the draft release,
+# and publishes only after Apple, Windows and Android assets are present.
 #
-# workflow_dispatch remains a Windows dry run: its artifacts stay on the
-# workflow run and no GitHub Release is created.
+# workflow_dispatch defaults to a Windows dry run. A release_tag selects a Mac
+# signing dry run; cloud_build_id optionally selects a specific cloud build.
 name: release
 
 on:
   push:
     tags: ['v*']
   workflow_dispatch:
+    inputs:
+      cloud_build_id:
+        description: 'Optional Xcode Cloud build UUID to recover (skips Windows)'
+        type: string
+        default: ''
+      release_tag:
+        description: 'Existing release tag for a Mac signing dry run (skips Windows)'
+        type: string
+        default: ''
 
 permissions:
   contents: write
@@ -25,6 +34,7 @@ concurrency:
 
 jobs:
   windows-build:
+    if: inputs.cloud_build_id == '' && inputs.release_tag == ''
     name: Windows ${{ matrix.arch }} (native build)
     runs-on: ${{ matrix.runner }}
     strategy:
@@ -41,28 +51,30 @@ jobs:
             target: aarch64-pc-windows-msvc
     timeout-minutes: 90
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master; Rust 1.98.1
         with:
+          toolchain: 1.98.1
           targets: ${{ matrix.target }}
 
       - name: Rust cache
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
         with:
           workspaces: src/raw-pipeline -> target
 
       - name: Build native core (raw_ffi.dll + maple-cli.exe)
+        shell: pwsh
         run: |
           cargo build --release --target ${{ matrix.target }} --manifest-path src/raw-pipeline/Cargo.toml -p raw-ffi --features gpu
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          cargo build --release --target ${{ matrix.target }} --manifest-path src/raw-pipeline/Cargo.toml -p maple-cli --features pano
+          cargo build --release --target ${{ matrix.target }} --manifest-path src/raw-pipeline/Cargo.toml -p maple-cli --features pano,pano-classical
 
       - name: Setup .NET SDK
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
         with:
-          dotnet-version: '8.0.x'
+          dotnet-version: '8.0.426'
 
       - name: Resolve version
         id: version
@@ -84,7 +96,7 @@ jobs:
         shell: pwsh
         run: ./src/windows/scripts/verify-native-architecture.ps1 -Architecture '${{ matrix.arch }}' -Paths 'publish/Maple.WinUI.exe', 'publish/raw_ffi.dll', 'publish/maple-cli.exe'
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: windows-unsigned-${{ matrix.arch }}
           path: publish/
@@ -93,6 +105,7 @@ jobs:
   windows-app:
     name: Windows ${{ matrix.arch }} (sign, package)
     needs: [windows-build]
+    environment: release
     runs-on: windows-latest
     strategy:
       fail-fast: false
@@ -100,17 +113,17 @@ jobs:
         arch: [x64, arm64]
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: windows-unsigned-${{ matrix.arch }}
           path: publish
 
       - name: Setup .NET SDK
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
         with:
-          dotnet-version: '8.0.x'
+          dotnet-version: '8.0.426'
 
       - name: Resolve version
         id: version
@@ -136,7 +149,7 @@ jobs:
           }
 
       - name: Sign binaries (Azure Trusted Signing)
-        uses: azure/trusted-signing-action@v2
+        uses: azure/trusted-signing-action@c7ab2a863ab5f9a846ddb8265964877ef296ee82 # v2
         with:
           azure-tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           azure-client-id: ${{ secrets.AZURE_CLIENT_ID }}
@@ -160,7 +173,7 @@ jobs:
       - name: Build installer (Inno Setup)
         shell: pwsh
         run: |
-          choco install innosetup -y --no-progress
+          choco install innosetup --version=6.5.4 -y --no-progress
           & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" `
             /DAppVersion=${{ steps.version.outputs.version }} `
             /DAppArch=${{ matrix.arch }} `
@@ -170,7 +183,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "ISCC failed ($LASTEXITCODE)" }
 
       - name: Sign installer (Azure Trusted Signing)
-        uses: azure/trusted-signing-action@v2
+        uses: azure/trusted-signing-action@c7ab2a863ab5f9a846ddb8265964877ef296ee82 # v2
         with:
           azure-tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           azure-client-id: ${{ secrets.AZURE_CLIENT_ID }}
@@ -195,29 +208,70 @@ jobs:
           Copy-Item src\windows\installer\maple.cmd publish\bin\maple.cmd
           Compress-Archive -Path publish\* -DestinationPath "out\Maple-Windows-${{ matrix.arch }}-${{ steps.version.outputs.version }}.zip"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: windows-app-${{ matrix.arch }}
           path: out/*
           if-no-files-found: error
 
+  mac-recovery:
+    name: Mac archive (sign and notarize)
+    if: github.event_name == 'push' || inputs.cloud_build_id != '' || inputs.release_tag != ''
+    environment: apple-signing
+    runs-on: macos-26
+    timeout-minutes: 120
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Test archive provenance checks
+        run: ruby tools/apple/test-cloud-archive.rb
+      - name: Recover the verified production archive
+        env:
+          CLOUD_BUILD_ID: ${{ inputs.cloud_build_id }}
+          RELEASE_TAG: ${{ github.event_name == 'push' && github.ref_name || inputs.release_tag }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          MACOS_CERT_P12_BASE64: ${{ secrets.MACOS_CERT_P12_BASE64 }}
+          MACOS_CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
+          MACOS_PROVISIONING_PROFILES_BASE64: ${{ secrets.MACOS_PROVISIONING_PROFILES_BASE64 }}
+          AC_PRIVATE_KEY: ${{ secrets.APPSTORE_PRIVATE_KEY }}
+          AC_KEY_ID: ${{ secrets.APPSTORE_KEY_ID }}
+          AC_ISSUER_ID: ${{ secrets.APPSTORE_ISSUER_ID }}
+        run: bash tools/apple/recover-cloud-release.sh
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: recovered-mac-release
+          path: ${{ runner.temp }}/mac-release-output/*.dmg
+          if-no-files-found: error
+
   publish-release:
     name: Publish GitHub Release
-    if: github.ref_type == 'tag'
-    needs: [windows-app]
+    if: github.event_name == 'push' && github.ref_type == 'tag'
+    needs: [windows-app, mac-recovery]
     runs-on: ubuntu-latest
     timeout-minutes: 210
+    permissions:
+      contents: write
+      actions: read
     env:
       GH_TOKEN: ${{ github.token }}
       REPOSITORY: ${{ github.repository }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           path: dist
           pattern: windows-app-*
           merge-multiple: true
+
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: recovered-mac-release
+          path: dist
 
       - name: Create or reuse draft release
         run: |
@@ -235,27 +289,45 @@ jobs:
               || gh release view "$GITHUB_REF_NAME" --repo "$REPOSITORY" >/dev/null
           fi
 
-      - name: Upload Windows assets
+      - name: Upload signed Windows and Mac assets
         run: gh release upload "$GITHUB_REF_NAME" dist/* --repo "$REPOSITORY" --clobber
 
-      - name: Wait for Xcode Cloud Mac asset
+      - name: Wait for Xcode Cloud and Android signed assets
         run: |
           set -euo pipefail
           VERSION="${GITHUB_REF_NAME#v}"
-          EXPECTED_ASSET="Maple-macOS-$VERSION.dmg"
+          EXPECTED_ASSETS=("Maple-macOS-$VERSION.dmg")
+          # Android's canonical product version and distribution are stable-only.
+          if [[ "$VERSION" != *-* ]]; then
+            EXPECTED_ASSETS+=("Maple-Android-$VERSION.apk" "Maple-Android-$VERSION.aab" "Maple-Android-SHA256SUMS.txt" "Maple-Android-upload-certificate.pem")
+          fi
           DEADLINE=$((SECONDS + 10800))
 
           while (( SECONDS < DEADLINE )); do
-            if gh release view "$GITHUB_REF_NAME" --repo "$REPOSITORY" \
-                --json assets --jq ".assets[].name" | grep -Fxq "$EXPECTED_ASSET"; then
-              echo "Found $EXPECTED_ASSET"
+            ASSETS=$(gh release view "$GITHUB_REF_NAME" --repo "$REPOSITORY" --json assets --jq '.assets[].name')
+            MISSING=()
+            for asset in "${EXPECTED_ASSETS[@]}"; do
+              if ! grep -Fxq "$asset" <<< "$ASSETS"; then MISSING+=("$asset"); fi
+            done
+            if (( ${#MISSING[@]} == 0 )); then
+              echo 'All signed platform assets are present.'
               exit 0
             fi
-            echo "Waiting for Xcode Cloud to upload $EXPECTED_ASSET"
+            if [[ "$VERSION" != *-* ]]; then
+              CONCLUSION=$(gh run list --repo "$REPOSITORY" \
+                --workflow android-distribution.yml --commit "$GITHUB_SHA" \
+                --branch "$GITHUB_REF_NAME" --event push --limit 1 \
+                --json conclusion --jq '.[0].conclusion // ""')
+              case "$CONCLUSION" in
+                ""|success) ;;
+                *) echo "::error::Android distribution ended with $CONCLUSION. The release remains a draft."; exit 1 ;;
+              esac
+            fi
+            echo "Waiting for signed assets: ${MISSING[*]}"
             sleep 30
           done
 
-          echo "::error::Timed out waiting for $EXPECTED_ASSET. The release remains a draft."
+          echo "::error::Timed out waiting for signed platform assets. The release remains a draft."
           exit 1
 
       - name: Publish complete release

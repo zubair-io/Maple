@@ -9,7 +9,7 @@
 //! at their `AdjustmentModel::default()` zero, so they're no-ops and can be
 //! omitted from the reference without changing the numeric result).
 
-use super::gpu_live_tests::{make_params, owned_arrays, scene_linear_rgba};
+use super::gpu_live_tests::{make_params, owned_arrays, scene_linear_rgba, TEST_ISO};
 use raw_core::image::{ColorSpace, Image};
 use raw_core::stages::film_look;
 use raw_core::types::WbMethod;
@@ -101,8 +101,13 @@ fn cpu_reference(
         model.sharpen_detail,
         model.sharpen_masking,
     );
-    raw_core::stages::noise_reduction::apply_luminance(&mut img, model.nr_luminance, None, 100);
-    raw_core::stages::noise_reduction::apply_color(&mut img, model.nr_color, None, 100);
+    raw_core::stages::noise_reduction::apply_luminance(
+        &mut img,
+        model.nr_luminance,
+        None,
+        TEST_ISO,
+    );
+    raw_core::stages::noise_reduction::apply_color(&mut img, model.nr_color, None, TEST_ISO);
 
     // View tail: agx → film_look (render/mod.rs's position, `color_grade`
     // elided — a no-op at this file's models) → rec2020_to_srgb →

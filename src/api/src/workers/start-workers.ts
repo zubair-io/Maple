@@ -2,14 +2,13 @@
  * Worker-tier lifecycle — extracted from `src/api/src/index.ts`'s boot IIFE.
  *
  * `startWorkers()` brings up every subsystem that belongs in the worker tier:
- *   - stage orchestrator (10 stages)
- *   - discover sweep (in-process, no child spawn)
+ *   - stage orchestrator (boots every pipeline stage; Temporal schedules them)
+ *   - discover registration (the sweep itself runs on the Temporal host)
  *   - cache-gc sweep
  *   - FFI decode pool sizing
  *   - geocode / face / describe enrichment workers
- *   - Meilisearch stage-side config + index bootstrap
- *   - job runner
- *   - import runner
+ *   - worker-side enrichment config refresh
+ *   - Temporal host (user-triggered jobs, folder imports, pipeline stages, the discover sweep and scheduled maintenance)
  *
  * `stopWorkers()` tears them all down in the correct order, mirroring the
  * `shutdown()` function in `index.ts`.
@@ -26,16 +25,14 @@ import { listLibraryRoots } from '../db/repos/folders.repo.ts';
 import { startAllStages, stopAllStages } from './orchestrator.ts';
 import { stageRegistry } from './registry.ts';
 import { registerDiscoverWorker, unregisterDiscoverWorker } from './discover/register.ts';
-import { startDiscover, type DiscoverHandle } from './discover/index.ts';
 import { sweepOrphanedCaches } from './cache-gc.ts';
-import { bootstrapFfiPool } from '../ffi/ffi-pool-bootstrap.ts';
+import { bootstrapFfiPool, stopFfiPoolConfigRefresh } from '../ffi/ffi-pool-bootstrap.ts';
+import { decodeMemoryBudget } from '../ffi/decode-memory-budget.ts';
 import { ffiPool } from '../ffi/ffi-pool.ts';
 import { startGeocodeWorker, stopGeocodeWorker } from '../enrichment/bootstrap.ts';
 import { startFaceWorker, stopFaceWorker } from '../enrichment/face-bootstrap.ts';
 import { getFaceModelsStatus } from '../enrichment/face-models.ts';
 import { startDescribeWorker, stopDescribeWorker } from '../enrichment/describe-bootstrap.ts';
-import { startJobRunner, stopJobRunner } from '../job-runner/runner.ts';
-import { startImportRunner, stopImportRunner } from '../imports/worker.ts';
 import { writeWorkerMemory, writeWorkerStatus } from '../db/repos/worker-status.repo.ts';
 import { childMemoryReports } from '../runtime/child-process-worker.ts';
 import {
@@ -44,7 +41,7 @@ import {
   type ProcessMemoryRow,
 } from '../runtime/memory-telemetry.ts';
 import { startStatusCountsRefresher, type RefresherHandle } from './status-counts.ts';
-import { startMaintenanceJobs, stopMaintenanceJobs } from './maintenance.ts';
+import { startMaintenanceSupport, stopMaintenanceSupport } from './maintenance/support.ts';
 import { flushPendingMirrorOps } from '../fs/mirrored.ts';
 import {
   refreshWorkerEnrichmentConfig,
@@ -58,10 +55,10 @@ const log = childLogger('workers');
 // Module-level handles — kept so stopWorkers() can reach them
 // ---------------------------------------------------------------------------
 
-let _discoverHandle: DiscoverHandle | null = null;
 /** Unref'd timer that publishes stageRegistry.statuses() to the `worker_status` row. */
 let _statusInterval: ReturnType<typeof setInterval> | null = null;
 let _countsRefresher: RefresherHandle | null = null;
+let _stopTemporalHost: (() => Promise<void>) | null = null;
 
 // ---------------------------------------------------------------------------
 // startWorkers
@@ -82,33 +79,37 @@ function workerLoadSnapshot(): Record<string, unknown> {
   const stages = Object.fromEntries(
     Object.entries(stageRegistry.statuses()).map(([name, s]) => [name, s.inFlight]),
   );
-  return { stages, ffi: ffiPool().stats() };
+  return { stages, ffi: ffiPool().stats(), decodeBudget: decodeMemoryBudget().snapshot() };
 }
 
 /** The worker's own sample plus whatever its native children last relayed,
  * persisted so the API process can show them on Settings → Workers. */
 function persistWorkerMemory(row: ProcessMemoryRow): void {
-  writeWorkerMemory({ rows: [row, ...childMemoryReports()] }).catch(() => {});
+  writeWorkerMemory({
+    rows: [row, ...childMemoryReports()],
+    decodeBudget: decodeMemoryBudget().snapshot(),
+  }).catch(() => {});
 }
 
 export async function startWorkers(): Promise<void> {
+  // Before any stage runs: a decode enqueued while the budget is still
+  // unconfigured skips admission for good (#5467).
+  await bootstrapFfiPool();
+
   await startSubsystem(async () => {
     await startAllStages();
     log.info(stageRegistry.statuses(), 'Worker stages running');
   }, 'Worker stages failed to start');
 
   await startSubsystem(async () => {
+    // Registered with or without roots: the Temporal host starts a root's sweep
+    // as soon as the folder is added, and its pause switch applies from then on.
+    registerDiscoverWorker();
     const discoverRoots = (await listLibraryRoots()).map((root) => root.path).filter(Boolean);
-    if (discoverRoots.length > 0) {
-      registerDiscoverWorker();
-      _discoverHandle = await startDiscover({ roots: discoverRoots });
-      log.info({ roots: discoverRoots }, 'discover sweep started in-process');
-    }
 
-    // Fire-and-forget cache-gc sweep per library. Reaps both legacy
-    // sha256_prefix16-keyed thumbs (always orphans post-PR-3) and stale
-    // maple_id-keyed files for hard-deleted or relocated assets. See
-    // `workers/cache-gc.ts` for why no migration sentinel.
+    // Fire-and-forget cache-gc sweep per library: reaps orphans for
+    // hard-deleted or relocated assets and leaves retired hashed/versioned
+    // names untouched (#4928). See `workers/cache-gc.ts` for why no sentinel.
     for (const root of discoverRoots) {
       void (async (libRoot: string) => {
         try {
@@ -122,9 +123,7 @@ export async function startWorkers(): Promise<void> {
         }
       })(root);
     }
-  }, 'Discover failed to start');
-
-  await bootstrapFfiPool(); // size the FFI decode pool (DB > env > default 1)
+  }, 'Discover registration or cache-gc failed to start');
 
   // Slow-tier enrichment workers run in-process. Each one's failure is
   // isolated — the operator recovers via /settings/enrichment without a
@@ -158,22 +157,29 @@ export async function startWorkers(): Promise<void> {
     await refreshWorkerEnrichmentConfig(true);
     startWorkerEnrichmentConfigRefresh();
   } catch (err) {
-    log.warn({ err }, 'Meilisearch boot failed; search will fall back to the local text index');
+    log.warn(
+      { err },
+      'worker enrichment config refresh failed at boot; the periodic refresh retries',
+    );
     startWorkerEnrichmentConfigRefresh();
   }
 
-  // JobRunner — sibling subsystem to the indexer pipeline for
-  // user-triggered long-running work (export, batch reprocess).
-  await startSubsystem(startJobRunner, 'JobRunner failed to start');
+  // Before the Temporal host, so the maintenance workers' Settings → Workers
+  // entries exist by the time their first scheduled pass reports through them.
+  startMaintenanceSupport();
 
-  // ImportRunner — claims pending `imports` and copies server-local
-  // folders into a library (ticket #742).
-  await startSubsystem(startImportRunner, 'ImportRunner failed to start');
-
-  // Library-wide maintenance jobs (trash-gc + missing-reaper + migration).
-  // Moved here from index.ts so maintenance load is off the API event loop and
-  // these workers are gated by MAPLE_INDEXER_AUTOSTART like everything else.
-  await startSubsystem(startMaintenanceJobs, 'Maintenance jobs failed to start');
+  // User-triggered jobs (export, batch sync, pano, restore), folder imports,
+  // the pipeline stages booted above, the discover sweep and scheduled
+  // maintenance (trash-gc, missing-reaper, migration, session clean-up, the
+  // nightly database backup, …) run on Temporal. Imported here, not at the top:
+  // the SDK loads a native bridge on import, and a platform without one must
+  // still boot the rest of this tier (stages and the sweep then wait in the
+  // database; maintenance does not run).
+  await startSubsystem(async () => {
+    const temporal = await import('../temporal/worker-tier-host.ts');
+    temporal.startTemporalHost();
+    _stopTemporalHost = temporal.stopTemporalHost;
+  }, 'Temporal host failed to start');
 
   // Publish stageRegistry.statuses() to the `worker_status` row every 2 s
   // so the API process (which has an empty in-process registry) can serve
@@ -212,6 +218,7 @@ export async function startWorkers(): Promise<void> {
 export async function stopWorkers(): Promise<void> {
   stopMemoryTelemetry();
   stopWorkerEnrichmentConfigRefresh();
+  stopFfiPoolConfigRefresh();
 
   // Clear the status-publishing interval before tearing down subsystems so
   // we don't fire a best-effort write after the DB connection closes.
@@ -222,24 +229,16 @@ export async function stopWorkers(): Promise<void> {
   _countsRefresher?.stop();
   _countsRefresher = null;
 
-  // Stop maintenance jobs first so their timers don't fire mid-shutdown.
-  try {
-    await stopMaintenanceJobs();
-  } catch (e) {
-    log.warn({ err: e }, 'error stopping maintenance jobs');
-  }
+  stopMaintenanceSupport();
 
-  // Stop the discover sweep (in-process handle).
-  try {
-    await _discoverHandle?.stop();
-    _discoverHandle = null;
-    unregisterDiscoverWorker();
-  } catch (e) {
-    log.warn({ err: e }, 'error stopping discover');
-  }
+  // The sweep itself stops with the Temporal host below.
+  unregisterDiscoverWorker();
 
-  // Stop the in-process stage runners so any in-flight handler can drain
-  // before the process exits.
+  // Stages stop before the Temporal host below. A stage's stop() aborts its
+  // handlers and settles its running slice within its 30 s drain bound, so the
+  // Temporal worker's own drain, which waits for every running activity, never
+  // waits on a stage handler that ignores its abort signal. The other order
+  // would leave that drain unbounded.
   try {
     await stopAllStages();
   } catch (e) {
@@ -279,16 +278,10 @@ export async function stopWorkers(): Promise<void> {
     })(),
     (async () => {
       try {
-        await stopJobRunner();
+        await _stopTemporalHost?.();
+        _stopTemporalHost = null;
       } catch (e) {
-        log.warn({ err: e }, 'error stopping job runner');
-      }
-    })(),
-    (async () => {
-      try {
-        await stopImportRunner();
-      } catch (e) {
-        log.warn({ err: e }, 'error stopping import runner');
+        log.warn({ err: e }, 'error stopping the Temporal host');
       }
     })(),
   ]);

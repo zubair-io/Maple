@@ -2,7 +2,7 @@
 import type { Injector } from '@angular/core';
 import type { LibraryStateService } from '../state/library-state.service';
 import type { FolderAccessService } from '../folder-access/folder-access.service';
-import type { XmpStoreService } from '../xmp/xmp-store.service';
+import type { XmpRemovalWritesService } from '../xmp/xmp-store.writes';
 import type { Asset } from '../models/asset';
 import { LocalRemovalAssets } from './local-removal-assets';
 import { savedRemovalRecords } from './saved-removal-records';
@@ -10,7 +10,7 @@ import { savedRemovalRecords } from './saved-removal-records';
 export async function removalEditorStorage(
   library: LibraryStateService,
   files: FolderAccessService,
-  sidecars: XmpStoreService,
+  sidecars: XmpRemovalWritesService,
   injector: Injector,
   asset: Asset,
   xml: string,

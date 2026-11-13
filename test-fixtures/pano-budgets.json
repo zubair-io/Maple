@@ -4,32 +4,64 @@
   "fixtures": {
     "pano_01": {
       "stitch": {
-        "_comment": "Well-shot 21-frame DJI gimbal sweep with reference. The acceptance set. Re-encoded 2026-06-12 post-#1225 at the measured all-21 default-flags result; rmse/max_reproj re-baselined 2026-09-02 post-#3162 (#3181) now that auto strategy reliably reaches rotation on this set — see the top-level note for both owner decisions.",
+        "_comment": "Well-shot 21-frame DJI gimbal sweep with reference. The acceptance set. Re-encoded 2026-06-12 post-#1225 at the measured all-21 default-flags result; rmse/max_reproj re-baselined 2026-09-02 post-#3162 (#3181) now that auto strategy reliably reaches rotation on this set — see the top-level note for both owner decisions. 2026-10-13 (#4533): horizon gate re-encoded from worst-single-camera horizon_tilt_deg (owned by one motion-degraded pose at 0.4369 deg while the leveled plane renders level) to horizon_tilt_rms_deg, the RMS x-axis tilt over solved cameras (measured 0.2068 deg, ceiling 0.23 at observed+~11%); horizon_tilt_deg remains in the report as triage, ungated.",
         "dropped_frames": 0,
         "coverage": 0.92,
         "rmse": 0.24,
         "seam_energy": 0.00094,
+        "seam_step_hard": 0.011,
+        "seam_step_lowpass": 0.002,
         "mean_reproj_px": 1.2,
         "max_reproj_px": 6.4,
-        "horizon_tilt_deg": 0.4
+        "horizon_tilt_rms_deg": 0.23
+      },
+      "stitch_classical": {
+        "_comment": "2026-11-12 (#5896): classical matcher, first entry from one harness run on main (ba58e41de2, Mac17,6, MAPLE_PANO_MODELS unset). Measured: rotation, 21/21 placed, rmse 0.2262, coverage 0.9287, seam_energy 8.953e-4, mean/max reproj 1.2535/5.990 px, horizon RMS 0.2005 deg, seam_step_hard -0.00934, seam_step_lowpass -0.00448. Ceilings at observed +6-7%; coverage FLOOR at -0.9% as for the ML case; the seam steps are signed and near zero, so a percent margin is meaningless: ceilings at observed +0.001.",
+        "dropped_frames": 0,
+        "coverage": 0.92,
+        "rmse": 0.24,
+        "seam_energy": 0.00095,
+        "seam_step_hard": -0.0083,
+        "seam_step_lowpass": -0.0035,
+        "mean_reproj_px": 1.33,
+        "max_reproj_px": 6.4,
+        "horizon_tilt_rms_deg": 0.215
       }
     },
     "pano_00": {
       "stitch": {
         "_comment": "3-frame nadir strip (frame 0001 missing from capture) — tile strategy (auto selects tile for this translation-dominant set, spec §8 #1226). No reference (no coverage/rmse keys). No horizon gate (nadir). No rotation-model reproj keys (the tile path does not run rotation BA). dropped_frames=0 is the product bar for well-shot sets.",
         "dropped_frames": 0
+      },
+      "stitch_classical": {
+        "_comment": "2026-11-12 (#5896): classical matcher, first entry from one harness run on main (ba58e41de2, Mac17,6, MAPLE_PANO_MODELS unset). Measured: tile, 3/3 placed, mean/max planar 2.995/21.81 px. Ceilings at observed +7%. No owner map on the tile path, so no seam-step keys.",
+        "dropped_frames": 0,
+        "mean_planar_px": 3.2,
+        "max_planar_px": 23.4
       }
     },
     "pano_03": {
       "stitch": {
         "_comment": "23-frame 100MP nadir grid pass (DJI L3D-100c, single strip over Paris, ~90% forward overlap). Tile strategy (auto: 40 tile votes / 0 rotation). No reference (no coverage/rmse keys), no horizon gate (nadir), no rotation reproj keys. 2026-08-31 (#3086): first entry at the measured post-fix result — 0 orphans, mean planar 6.70px, max 12.89px, canvas capped 977MP→256MP; dropped_frames=0 is the product bar for well-shot strips.",
         "dropped_frames": 0
+      },
+      "stitch_classical": {
+        "_comment": "2026-11-12 (#5896): classical matcher, first entry from one guarded harness run on main (ba58e41de2, Mac17,6; 1373 s user + 69 s sys, 2.47 GB max RSS, free disk fell from 81 to 51 GB during the run). Measured: tile, 23/23 placed, mean/max planar 3.500/14.35 px. Ceilings at observed +7%. wrap_closure_px (415) is not gated: this is a nadir strip, not a 360 set. Blind vignette q clamped to 0, unconstrained -0.131 (sigma 0.0011), for the #4550 follow-up.",
+        "dropped_frames": 0,
+        "mean_planar_px": 3.75,
+        "max_planar_px": 15.4
       }
     },
     "pano_04": {
       "stitch": {
         "_comment": "9-frame 100MP nadir grid pass (DJI L3D-100c, single strip over Dune du Pilat; frame 0306 missing from capture — the 0305→0307 gap still verifies). Tile strategy (auto: 25 tile votes / 1 rotation). No reference, no horizon gate, no rotation reproj keys. 2026-08-31 (#3086): first entry at the measured post-fix result — 0 orphans, mean planar 10.94px, max 23.42px.",
         "dropped_frames": 0
+      },
+      "stitch_classical": {
+        "_comment": "2026-11-12 (#5896): classical matcher, first entry from one harness run on main (ba58e41de2, Mac17,6, MAPLE_PANO_MODELS unset). Measured: tile, 9/9 placed, mean/max planar 7.065/51.10 px. Ceilings at observed +7%. Blind vignette q clamped to 0, unconstrained -0.0185 (sigma 6.3e-5), for the #4550 follow-up.",
+        "dropped_frames": 0,
+        "mean_planar_px": 7.6,
+        "max_planar_px": 55
       }
     },
     "pano_02": {
@@ -39,6 +71,15 @@
         "mean_reproj_px": 0.08,
         "max_reproj_px": 0.24,
         "horizon_tilt_deg": 0.003
+      },
+      "stitch_classical": {
+        "_comment": "2026-11-12 (#5896): classical matcher, first entry from one harness run on main (ba58e41de2, Mac17,6, MAPLE_PANO_MODELS unset). Measured: rotation, 6/6 placed, mean/max reproj 0.0655/0.2600 px, horizon_tilt_deg 0.00049, seam_step_hard 2.4e-6, seam_step_lowpass -0.0064. Reproj ceilings at observed +7%; the tilt and seam steps are near zero, so their ceilings are at observed +0.001 (tilt: the ML case's 0.003 scale).",
+        "dropped_frames": 0,
+        "mean_reproj_px": 0.07,
+        "max_reproj_px": 0.28,
+        "horizon_tilt_deg": 0.0015,
+        "seam_step_hard": 0.001,
+        "seam_step_lowpass": -0.0054
       }
     }
   }

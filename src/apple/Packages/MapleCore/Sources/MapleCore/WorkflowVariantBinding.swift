@@ -24,6 +24,9 @@ extension XMPSidecarStore: WorkflowVariantSidecarStoreProtocol {
   }
   public func bindWorkflowVariant(_ variantId: String) async throws -> WorkflowVariantBinding {
     _ = try await readWorkflowXML()
+    if variantId == WorkflowContract.primaryVariantID {
+      return WorkflowVariantBinding(writer: self, sidecarURL: primarySidecarURL)
+    }
     let selected = try XMPSidecarStore(
       primarySidecarURL: primarySidecarURL, variantId: variantId, rawURL: rawURL)
     _ = try await selected.readWorkflowXML()

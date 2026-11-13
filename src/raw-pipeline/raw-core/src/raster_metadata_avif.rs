@@ -118,7 +118,13 @@ pub(super) fn fields(bytes: &impl MetadataSource) -> HeaderFields {
             images
         })
         .unwrap_or_default();
+    let iprp = child(children, b"iprp").unwrap_or_default();
+    let primary_id = primary.and_then(|id| u32::try_from(id).ok()).unwrap_or(1);
+    let cicp = crate::avif_boxes::color::read_nclx(iprp, primary_id);
     HeaderFields {
+        has_profile: crate::avif_boxes::color::read_icc(iprp, primary_id).is_some(),
+        color_primaries: cicp.map(|cicp| cicp.0),
+        transfer_characteristics: cicp.map(|cicp| cicp.1),
         pages: (!images.is_empty()).then_some(images.len()),
         page_primary: primary.and_then(|primary| images.iter().position(|&id| id == primary)),
         compression: Some("av1"),

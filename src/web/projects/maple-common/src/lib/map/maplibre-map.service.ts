@@ -18,7 +18,7 @@
 // show an inline notice without tearing anything down.
 import { Injectable, inject, signal } from '@angular/core';
 import type { StyleSpecification } from 'maplibre-gl';
-import { Observable, catchError, map, of } from 'rxjs';
+import { Observable, catchError, from, map, of, switchMap } from 'rxjs';
 import { MapConfigService } from '../api/map-config.service';
 import { MapLibreInstanceFactory, type MapLibreMapHandle } from './maplibre-instance-factory';
 
@@ -74,7 +74,11 @@ export class MapLibreService {
    * Create a map inside `container` using the configured tile source.
    * Always resolves — a config-fetch failure or a bad tile URL flips
    * `tilesUnreachable` and falls back to a blank-but-interactive style
-   * rather than erroring the caller out.
+   * rather than erroring the caller out. Emits only once the style has
+   * loaded: MapLibre throws from `addSource`/`addLayer` before that, so the
+   * pin and heatmap layers must not attach earlier. Unsubscribing mid-wait
+   * cancels the emission; the mounted instance is still torn down by
+   * `destroy()`.
    */
   create(container: HTMLElement): Observable<void> {
     this._tilesUnreachable.set(false);
@@ -84,7 +88,7 @@ export class MapLibreService {
         this._tilesUnreachable.set(true);
         return of(null);
       }),
-      map((tileUrl) => this._mount(container, tileUrl)),
+      switchMap((tileUrl) => from(this._mount(container, tileUrl).whenStyleReady(EMPTY_STYLE))),
     );
   }
 
@@ -106,7 +110,7 @@ export class MapLibreService {
     return this.instance;
   }
 
-  private _mount(container: HTMLElement, tileUrl: string | null): void {
+  private _mount(container: HTMLElement, tileUrl: string | null): MapLibreMapHandle {
     this.destroy();
     const instance = this.factory.create({
       container,
@@ -123,5 +127,6 @@ export class MapLibreService {
     // configured tile source needs operator attention.
     instance.onError(() => this._tilesUnreachable.set(true));
     this.instance = instance;
+    return instance;
   }
 }

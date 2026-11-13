@@ -10,5 +10,8 @@
   Referrer-Policy: no-referrer
   Permissions-Policy: accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()
 
-/raw_wasm_bg.wasm
+/pkg/raw_wasm_bg.wasm
+  Content-Type: application/wasm
+
+/pkg/canvas/raw_wasm_canvas_bg.wasm
   Content-Type: application/wasm

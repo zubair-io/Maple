@@ -72,7 +72,12 @@ class NativeWorkflowTests(unittest.TestCase):
         matches = [
             step
             for step in self.jobs[job]["steps"]
-            if all(step.get(key) == value for key, value in fields.items())
+            if all(
+                step.get(key, "").split("@")[0] == value.split("@")[0]
+                if key == "uses"
+                else step.get(key) == value
+                for key, value in fields.items()
+            )
         ]
         self.assertEqual(len(matches), 1, (job, fields))
         return matches[0]
@@ -101,13 +106,13 @@ class NativeWorkflowTests(unittest.TestCase):
                     },
                 )
                 cache_actions = [
-                    step["uses"]
+                    step["uses"].split("@")[0]
                     for step in self.jobs[job]["steps"]
                     if step.get("uses", "").startswith("actions/cache")
                 ]
                 self.assertEqual(
                     cache_actions,
-                    ["actions/cache/restore@v4", "actions/cache/save@v4"],
+                    ["actions/cache/restore", "actions/cache/save"],
                 )
                 verify = self.one_step(job, id="native-restore")
                 self.assertIs(verify["continue-on-error"], True)
@@ -279,7 +284,7 @@ class NativeWorkflowTests(unittest.TestCase):
                 uploads = [
                     step
                     for step in self.jobs[job]["steps"]
-                    if step.get("uses") == "actions/upload-artifact@v4"
+                    if step.get("uses", "").startswith("actions/upload-artifact@")
                 ]
                 self.assertEqual(len(uploads), 2)
                 package, target, platform = (
@@ -327,7 +332,7 @@ class NativeWorkflowTests(unittest.TestCase):
                 job, "bun src/maple/scripts/assemble-packages.ts artifacts"
             )
             node = self.one_step(job, uses="actions/setup-node@v4")
-            self.assertEqual(node["with"]["node-version"], 22)
+            self.assertRegex(node["with"]["node-version"], r"^22\.\d+\.\d+$")
         bun = self.command_step("publish", "bun test")
         self.assertEqual(bun["env"]["MAPLE_ORACLE_REQUIRED"], "1")
         self.assertEqual(bun["working-directory"], "src/maple")

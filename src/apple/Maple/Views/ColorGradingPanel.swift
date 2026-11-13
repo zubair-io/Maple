@@ -20,6 +20,12 @@ import SwiftUI
 
 struct ColorGradingPanel: View {
   @Bindable var state: EditorState
+  @State private var activeEdge: String?
+  @Environment(\.mapleLayout) private var layout
+
+  private var isPhone: Bool { layout == .phone }
+  private var wheelSize: CGFloat { isPhone ? 72 : 96 }
+  private var gridSpacing: CGFloat { isPhone ? 10 : 14 }
 
   private struct Zone {
     let title: String
@@ -54,11 +60,13 @@ struct ColorGradingPanel: View {
     ]
   }
 
-  private let columns = [GridItem(.flexible(), spacing: 14), GridItem(.flexible(), spacing: 14)]
+  private var columns: [GridItem] {
+    [GridItem(.flexible(), spacing: gridSpacing), GridItem(.flexible(), spacing: gridSpacing)]
+  }
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 14) {
-      LazyVGrid(columns: columns, spacing: 16) {
+    VStack(alignment: .leading, spacing: isPhone ? 10 : 14) {
+      LazyVGrid(columns: columns, spacing: isPhone ? 10 : 16) {
         ForEach(zones, id: \.title) { zone in
           zoneCell(zone)
         }
@@ -77,13 +85,279 @@ struct ColorGradingPanel: View {
           }
         }
       )
+      LivingSlider(
+        label: "Blending",
+        value: bind(\.colorGradeBlending),
+        range: AdjustmentModel.colorGradeBlendingRange,
+        isBipolar: false,
+        defaultValue: 100,
+        onEditingChanged: { editing in
+          if editing {
+            state.beginSliderInteraction(tool: .colorGrade, subParamID: "blending")
+          } else {
+            state.endGesture()
+          }
+        }
+      )
+      .accessibilityIdentifier("editor-color-grading-blending")
+
+      tonalZoneWeightsStrip
     }
     .padding(.vertical, 4)
+    .accessibilityElement(children: .contain)
     .accessibilityIdentifier("editor-color-grading-panel")
   }
 
+  private var tonalZoneWeightsStrip: some View {
+    VStack(alignment: .leading, spacing: 6) {
+      HStack {
+        Text("TONAL ZONE WEIGHTS")
+          .font(.system(size: 9, weight: .semibold))
+          .tracking(0.6)
+          .foregroundStyle(ProTokens.textMuted)
+        Spacer()
+        Text(
+          String(
+            format: "Sh %.2f · Hi %.2f",
+            state.session.model.colorGradeShadowEdge,
+            state.session.model.colorGradeHighlightEdge
+          )
+        )
+        .font(.system(size: 9, weight: .medium, design: .monospaced))
+        .foregroundStyle(ProTokens.textMuted)
+      }
+
+      GeometryReader { geo in
+        let w = max(geo.size.width, 1)
+        let h = max(geo.size.height, 1)
+        let shX =
+          CGFloat(
+            ColorGradeZoneEdge.plotPosition(
+              edge: state.session.model.colorGradeShadowEdge,
+              balance: state.session.model.splitToneBalance)) * w
+        let hiX =
+          CGFloat(
+            ColorGradeZoneEdge.plotPosition(
+              edge: state.session.model.colorGradeHighlightEdge,
+              balance: state.session.model.splitToneBalance)) * w
+
+        ZStack(alignment: .topLeading) {
+          RoundedRectangle(cornerRadius: 6)
+            .fill(Color.black.opacity(0.28))
+            .overlay(
+              RoundedRectangle(cornerRadius: 6)
+                .stroke(Color.white.opacity(0.08), lineWidth: 1)
+            )
+
+          Canvas { ctx, size in
+            let steps = 64
+            var shPath = Path()
+            var midPath = Path()
+            var hiPath = Path()
+            for i in 0...steps {
+              let t = Double(i) / Double(steps)
+              let x = CGFloat(t) * size.width
+              let weights = Self.zoneWeights(
+                at: t,
+                balance: state.session.model.splitToneBalance,
+                blending: state.session.model.colorGradeBlending,
+                shadowEdge: state.session.model.colorGradeShadowEdge,
+                highlightEdge: state.session.model.colorGradeHighlightEdge
+              )
+              let ySh = (1 - CGFloat(weights.sh)) * (size.height - 8) + 4
+              let yMid = (1 - CGFloat(weights.mid)) * (size.height - 8) + 4
+              let yHi = (1 - CGFloat(weights.hi)) * (size.height - 8) + 4
+              if i == 0 {
+                shPath.move(to: CGPoint(x: x, y: ySh))
+                midPath.move(to: CGPoint(x: x, y: yMid))
+                hiPath.move(to: CGPoint(x: x, y: yHi))
+              } else {
+                shPath.addLine(to: CGPoint(x: x, y: ySh))
+                midPath.addLine(to: CGPoint(x: x, y: yMid))
+                hiPath.addLine(to: CGPoint(x: x, y: yHi))
+              }
+            }
+            ctx.stroke(shPath, with: .color(Color.cyan.opacity(0.85)), lineWidth: 1.5)
+            ctx.stroke(midPath, with: .color(Color.orange.opacity(0.85)), lineWidth: 1.5)
+            ctx.stroke(hiPath, with: .color(Color.yellow.opacity(0.90)), lineWidth: 1.5)
+            ctx.fill(
+              Path(CGRect(x: shX, y: 2, width: 1.5, height: size.height - 4)),
+              with: .color(.cyan.opacity(0.65)))
+            ctx.fill(
+              Path(CGRect(x: hiX, y: 2, width: 1.5, height: size.height - 4)),
+              with: .color(.yellow.opacity(0.65)))
+          }
+
+          edgeHandle(
+            x: shX, centerY: 22, color: .cyan,
+            label: "Shadow Edge", id: "color-grade-shadow-edge-handle",
+            value: bind(\.colorGradeShadowEdge), range: ColorGradeZoneEdge.shadowRange,
+            onDrag: { locX in
+              state.session.model.colorGradeShadowEdge = ColorGradeZoneEdge.normalized(
+                x: Double(locX), width: Double(w), range: ColorGradeZoneEdge.shadowRange,
+                balance: state.session.model.splitToneBalance)
+            },
+            onReset: {
+              state.commit(description: "Reset Shadow Edge")
+              state.session.model.colorGradeShadowEdge = ColorGradeZoneEdge.anchor
+              state.session.endEdit()
+            }
+          )
+
+          edgeHandle(
+            x: hiX, centerY: h - 22, color: .yellow,
+            label: "Highlight Edge", id: "color-grade-highlight-edge-handle",
+            value: bind(\.colorGradeHighlightEdge), range: ColorGradeZoneEdge.highlightRange,
+            onDrag: { locX in
+              state.session.model.colorGradeHighlightEdge = ColorGradeZoneEdge.normalized(
+                x: Double(locX), width: Double(w), range: ColorGradeZoneEdge.highlightRange,
+                balance: state.session.model.splitToneBalance)
+            },
+            onReset: {
+              state.commit(description: "Reset Highlight Edge")
+              state.session.model.colorGradeHighlightEdge = ColorGradeZoneEdge.anchor
+              state.session.endEdit()
+            }
+          )
+        }
+        .coordinateSpace(name: Self.zoneStripSpace)
+      }
+      .frame(height: 88)
+      .accessibilityElement(children: .contain)
+      .accessibilityIdentifier("editor-color-grading-zone-weights")
+    }
+  }
+
+  private static let zoneStripSpace = "color-grade-zone-strip"
+
+  private func edgeHandle(
+    x: CGFloat,
+    centerY: CGFloat,
+    color: Color,
+    label: String,
+    id: String,
+    value: Binding<Double>,
+    range: ClosedRange<Double>,
+    onDrag: @escaping (CGFloat) -> Void,
+    onReset: @escaping () -> Void
+  ) -> some View {
+    Circle()
+      .fill(color)
+      .frame(width: 10, height: 10)
+      .overlay(Circle().stroke(Color.black.opacity(0.6), lineWidth: 1))
+      .frame(width: 44, height: 44)
+      .contentShape(Rectangle())
+      .position(x: x, y: centerY)
+      .gesture(
+        DragGesture(minimumDistance: 0, coordinateSpace: .named(Self.zoneStripSpace))
+          .onChanged { g in
+            guard activeEdge == nil || activeEdge == id else { return }
+            if activeEdge == nil {
+              activeEdge = id
+              state.commit(description: "Adjust \(label)")
+            }
+            onDrag(g.location.x)
+          }
+          .onEnded { _ in
+            if activeEdge == id {
+              activeEdge = nil
+              state.endGesture()
+            }
+          }
+      )
+      .onTapGesture(count: 2) {
+        guard activeEdge == nil else { return }
+        onReset()
+      }
+      .accessibilityElement()
+      .accessibilityLabel(label)
+      .accessibilityValue(String(format: "%.2f", value.wrappedValue))
+      .accessibilityAdjustableAction { direction in
+        switch direction {
+        case .increment: adjustEdge(value, range: range, delta: 0.01, label: label)
+        case .decrement: adjustEdge(value, range: range, delta: -0.01, label: label)
+        @unknown default: break
+        }
+      }
+      .accessibilityAction(named: "Reset") {
+        guard activeEdge == nil else { return }
+        onReset()
+      }
+      .accessibilityIdentifier(id)
+      .focusable()
+      .focusedValue(
+        \.toneCurveKeyPress,
+        { press in
+          handleEdgeKey(press, value: value, range: range, label: label)
+        }
+      )
+      .onKeyPress(keys: [.leftArrow, .rightArrow, .upArrow, .downArrow]) { press in
+        handleEdgeKey(press, value: value, range: range, label: label)
+      }
+  }
+
+  private func handleEdgeKey(
+    _ press: KeyPress, value: Binding<Double>, range: ClosedRange<Double>, label: String
+  ) -> KeyPress.Result {
+    guard [.leftArrow, .rightArrow, .upArrow, .downArrow].contains(press.key) else {
+      return .ignored
+    }
+    guard press.modifiers.intersection([.command, .control, .option]).isEmpty else {
+      return .ignored
+    }
+    guard press.phase != .up else { return .handled }
+    let step = press.modifiers.contains(.shift) ? 0.05 : 0.01
+    let delta = press.key == .leftArrow || press.key == .downArrow ? -step : step
+    adjustEdge(value, range: range, delta: delta, label: label)
+    return .handled
+  }
+
+  private func adjustEdge(
+    _ value: Binding<Double>, range: ClosedRange<Double>, delta: Double, label: String
+  ) {
+    guard activeEdge == nil else { return }
+    let next = ColorGradeZoneEdge.normalized(x: value.wrappedValue + delta, width: 1, range: range)
+    guard next != value.wrappedValue else { return }
+    state.commit(description: "Adjust \(label)")
+    value.wrappedValue = next
+    state.session.endEdit()
+  }
+
+  static func zoneWeights(
+    at l: Double,
+    balance: Double,
+    blending: Double,
+    shadowEdge: Double,
+    highlightEdge: Double
+  ) -> (sh: Double, mid: Double, hi: Double) {
+    let lClamped = min(max(l, 0), 1)
+    let balanceExp = exp2(-min(max(balance, -100), 100) / 100.0)
+    let lb = pow(lClamped, balanceExp)
+    let b = min(max(blending, 0), 100) / 100.0
+    let ls = min(
+      max(shadowEdge, ColorGradeZoneEdge.shadowRange.lowerBound),
+      ColorGradeZoneEdge.shadowRange.upperBound)
+    let lh = min(
+      max(highlightEdge, ColorGradeZoneEdge.highlightRange.lowerBound),
+      ColorGradeZoneEdge.highlightRange.upperBound)
+    let s0 = (1.0 - b) * max(ls - 0.04, 0.0)
+    let s1 = ls
+    let h0 = lh
+    let h1 = 1.0 - (1.0 - b) * max(1.0 - lh - 0.04, 0.0)
+    let wSh = 1.0 - smoothstep(s0, s1, lb)
+    let wHi = smoothstep(h0, h1, lb)
+    let wMid = max(1.0 - wSh - wHi, 0.0)
+    return (wSh, wMid, wHi)
+  }
+
+  private static func smoothstep(_ e0: Double, _ e1: Double, _ x: Double) -> Double {
+    let span = max(e1 - e0, 1e-5)
+    let t = min(max((x - e0) / span, 0), 1)
+    return t * t * (3 - 2 * t)
+  }
+
   private func zoneCell(_ zone: Zone) -> some View {
-    VStack(spacing: 8) {
+    VStack(spacing: isPhone ? 4 : 8) {
       Text(zone.title.uppercased())
         .font(.system(size: 9, weight: .semibold))
         .tracking(0.6)
@@ -96,7 +370,8 @@ struct ColorGradingPanel: View {
         onCommit: { state.commit() },
         onEnd: { state.endGesture() }
       )
-      .frame(width: 96, height: 96)
+      .frame(width: wheelSize, height: wheelSize)
+      .padding(4)
 
       LivingSlider(
         label: "Lum",

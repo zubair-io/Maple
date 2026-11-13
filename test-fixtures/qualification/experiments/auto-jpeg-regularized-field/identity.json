@@ -1,0 +1,8 @@
+{
+  "source_processing_commit": "ce7bc85f4cdb5d3476d472c7f0716976e35bfe1b",
+  "renderer_tree": "f16a9e939d63ef29e113604983d17e3fce3d5819",
+  "binary_sha256": "b3f961d0a9a493d209e27fa3011b636e17f8f65f6858d6f3c2aa3fdcbbbb58fd",
+  "pipeline_output_version": 37,
+  "auto_fit_model_version": 7,
+  "status": "unqualified regularized field candidate"
+}

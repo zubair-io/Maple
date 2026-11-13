@@ -1,6 +1,8 @@
 import { sqliteDb, type SqliteDb } from '../db/repos/db-handle.ts';
 import type { BackupManifest, BackupObject, UploadCheckpoint, PurgeRecord } from './provider.ts';
 
+const RESOLVABLE_CONNECTION_ERRORS = `destination_id=? AND error_kind='connection' AND (lease_owner IS NULL OR lease_until<=?)`;
+
 export interface BackupDestination {
   id: string;
   libraryId: string;
@@ -11,6 +13,20 @@ export interface BackupDestination {
   path: string | null;
   rootId: string | null;
   accountId: string | null;
+}
+export interface BackupMirrorState {
+  destinationId: string;
+  destinationName: string;
+  provider: BackupDestination['kind'];
+  enabled: boolean;
+  path: string;
+  state: BackupEntry['state'];
+  status: 'synced' | 'pending' | 'error' | 'paused' | 'trash' | 'purged';
+  sequence: number;
+  verifiedSequence: number;
+  attempts: number;
+  retryAt: number;
+  lastError: string | null;
 }
 export interface BackupEntry {
   id: string;
@@ -26,11 +42,31 @@ export interface BackupEntry {
   attempts: number;
   retry_at: number;
   last_error: string | null;
+  error_kind: BackupErrorKind | null;
   lease_owner: string | null;
   lease_until: number;
 }
+/** `connection`: the destination itself was unreachable or unauthorized, so a
+ * later healthy connection proves the failure resolved. Anything else stays
+ * attached to the entry until its own retry succeeds. */
+export type BackupErrorKind = 'connection';
 const DESTINATION_COLUMNS = `id,library_id AS libraryId,kind,name,enabled,generation,
   path,root_id AS rootId,account_id AS accountId`;
+function mirrorStatus(row: {
+  state: BackupEntry['state'];
+  lastError: string | null;
+  enabled: number;
+  verifiedSequence: number;
+  sequence: number;
+}): BackupMirrorState['status'] {
+  // Lifecycle state outranks connection health; a recorded failure remains
+  // visible while paused so operators can distinguish retryable work.
+  if (row.state === 'purged') return 'purged';
+  if (row.state === 'trash') return 'trash';
+  if (row.lastError) return 'error';
+  if (!row.enabled) return 'paused';
+  return row.verifiedSequence === row.sequence ? 'synced' : 'pending';
+}
 export class BackupRepository {
   constructor(private readonly override?: SqliteDb) {}
   get db(): SqliteDb {
@@ -100,6 +136,52 @@ export class BackupRepository {
       `SELECT * FROM backup_entries WHERE destination_id=?${assetId ? ' AND asset_id=?' : ''}`,
       assetId ? [destinationId, assetId] : [destinationId],
     );
+  }
+  async mirrorsForAssets(assetIds: readonly string[]): Promise<Map<string, BackupMirrorState[]>> {
+    const result = new Map<string, BackupMirrorState[]>();
+    if (assetIds.length === 0) return result;
+    const placeholders = assetIds.map(() => '?').join(',');
+    const rows = await this.db.read<{
+      assetId: string;
+      destinationId: string;
+      destinationName: string;
+      provider: BackupDestination['kind'];
+      enabled: number;
+      path: string;
+      state: BackupEntry['state'];
+      sequence: number;
+      verifiedSequence: number;
+      attempts: number;
+      retryAt: number;
+      lastError: string | null;
+    }>(
+      `SELECT e.asset_id AS assetId,d.id AS destinationId,d.name AS destinationName,
+        d.kind AS provider,d.enabled,e.source_path AS path,e.state,e.sequence,
+        e.verified_sequence AS verifiedSequence,e.attempts,e.retry_at AS retryAt,e.last_error AS lastError
+      FROM backup_entries e JOIN backup_destinations d ON d.id=e.destination_id
+      WHERE e.asset_id IN (${placeholders}) ORDER BY d.name,e.ordinal`,
+      [...assetIds],
+    );
+    for (const row of rows) {
+      const mirror: BackupMirrorState = {
+        destinationId: row.destinationId,
+        destinationName: row.destinationName,
+        provider: row.provider,
+        enabled: Boolean(row.enabled),
+        path: row.path,
+        state: row.state,
+        status: mirrorStatus(row),
+        sequence: row.sequence,
+        verifiedSequence: row.verifiedSequence,
+        attempts: row.attempts,
+        retryAt: row.retryAt,
+        lastError: row.lastError,
+      };
+      const mirrors = result.get(row.assetId) ?? [];
+      mirrors.push(mirror);
+      result.set(row.assetId, mirrors);
+    }
+    return result;
   }
   async ensureEntry(
     destinationId: string,
@@ -197,7 +279,7 @@ export class BackupRepository {
   ): Promise<boolean> {
     const result = await this.db.write(
       `UPDATE backup_entries SET manifest=?,verified_sequence=?,source_path=?,
-      state=?,attempts=0,retry_at=0,last_error=NULL,lease_owner=NULL,lease_until=0
+      state=?,attempts=0,retry_at=0,last_error=NULL,error_kind=NULL,lease_owner=NULL,lease_until=0
       WHERE id=? AND sequence=? AND lease_owner=? AND lease_until>? AND state!='purged'
       AND EXISTS (SELECT 1 FROM backup_destinations WHERE id=? AND enabled=1 AND generation=?)
       AND NOT EXISTS (SELECT 1 FROM backup_lifecycle WHERE asset_id=backup_entries.asset_id
@@ -221,17 +303,59 @@ export class BackupRepository {
     );
     return result.changes > 0;
   }
-  async fail(entry: BackupEntry, owner: string, error: string): Promise<void> {
+  async fail(
+    entry: BackupEntry,
+    owner: string,
+    error: string,
+    kind: BackupErrorKind | null = null,
+  ): Promise<void> {
     await this.db.write(
-      `UPDATE backup_entries SET attempts=attempts+1,retry_at=?,last_error=?,lease_owner=NULL,lease_until=0
+      `UPDATE backup_entries SET attempts=attempts+1,retry_at=?,last_error=?,error_kind=?,
+      lease_owner=NULL,lease_until=0
       WHERE id=? AND lease_owner=?`,
       [
         Date.now() + Math.min(3_600_000, 5000 * 2 ** Math.min(entry.attempts, 10)),
         error.slice(0, 300),
+        kind,
         entry.id,
         owner,
       ],
     );
+  }
+  /** Hand an interrupted claim back untouched: no error, no spent attempt, no backoff. */
+  async release(entry: BackupEntry, owner: string): Promise<void> {
+    await this.db.write(
+      `UPDATE backup_entries SET lease_owner=NULL,lease_until=0 WHERE id=? AND lease_owner=?`,
+      [entry.id, owner],
+    );
+  }
+  /** Whether any unleased entry is parked on a connection failure. */
+  async hasParkedConnectionErrors(destinationId: string): Promise<boolean> {
+    const [pending] = await this.db.read<{ found: number }>(
+      `SELECT EXISTS(SELECT 1 FROM backup_entries WHERE ${RESOLVABLE_CONNECTION_ERRORS}) AS found`,
+      [destinationId, Date.now()],
+    );
+    return !!pending?.found;
+  }
+  /** A proven-healthy connection rearms every entry whose last failure was the
+   * connection itself. Entries a worker currently holds are left alone; their
+   * own outcome supersedes the stale error. */
+  async clearResolvedConnectionErrors(destinationId: string): Promise<void> {
+    if (!(await this.hasParkedConnectionErrors(destinationId))) return;
+    const now = Date.now();
+    await this.db.transaction([
+      {
+        sql: `UPDATE stage_state SET version=0,attempts=0,dead=0,next_attempt_at=NULL
+        WHERE stage='cloud-backup' AND asset_id IN (
+          SELECT DISTINCT asset_id FROM backup_entries WHERE ${RESOLVABLE_CONNECTION_ERRORS})`,
+        params: [destinationId, now],
+      },
+      {
+        sql: `UPDATE backup_entries SET retry_at=0,attempts=0,last_error=NULL,error_kind=NULL,
+          lease_owner=NULL,lease_until=0 WHERE ${RESOLVABLE_CONNECTION_ERRORS}`,
+        params: [destinationId, now],
+      },
+    ]);
   }
   async object(
     destinationId: string,
@@ -338,7 +462,7 @@ export class BackupRepository {
   }
   async retry(id: string): Promise<void> {
     await this.db.write(
-      `UPDATE backup_entries SET retry_at=0,attempts=0,last_error=NULL WHERE destination_id=?`,
+      `UPDATE backup_entries SET retry_at=0,attempts=0,last_error=NULL,error_kind=NULL WHERE destination_id=?`,
       [id],
     );
     const destination = await this.destination(id);

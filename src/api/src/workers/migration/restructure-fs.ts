@@ -9,12 +9,13 @@
  *      VERIFY each (full byte comparison). Sources are NOT deleted. Returns the
  *      new rel-paths plus the list of source files to delete once the DB has
  *      been repointed.
- *   2. <caller writes the new fileinfo / apple_rendered_path to Mongo>
- *   3. `finalize()` — delete the sources, drop the stale `.maple` cache entries,
+ *   2. <caller writes the new location and Apple companion paths>
+ *   3. <caller carries any sidecar first written since step 1 (#5061)>
+ *   4. `finalize()` — delete the sources, drop the stale `.maple` cache entries,
  *      and remove the now-empty old day-folder.
  *
  * Crash between (1) and (2): the new copy is a harmless orphan, the row still
- * points at the (still-present) old file. Crash between (2) and (3): the row
+ * points at the (still-present) old file. Crash between (2) and (4): the row
  * points at the good new file; the old source + cache linger as orphans. Either
  * way no photo is lost. Deleting before the DB repoint is the one ordering that
  * could strand a row on a deleted path — so we never do it.
@@ -28,7 +29,24 @@ import * as path from 'node:path';
 import { filesIdentical } from '../../backup/fs-util.ts';
 import { pickFreePath } from '../../fs/trash.ts';
 import { sha256Prefix16 } from '../../fs/xmp.ts';
-import { listPairedSidecars } from '../../fs/xmp-conflict.ts';
+import { listPairedSidecarsStrict } from '../../fs/xmp-conflict.ts';
+import { sidecarRenameTarget } from '../../fs/sidecar-rename.ts';
+import {
+  hasLegacyBackupEdit,
+  isLegacyBackupSidecarOf,
+  oldNameSlotTaken,
+  removePhotoUnlessOldNameEditStays,
+} from '../../fs/legacy-backup-sidecar.ts';
+import { carrySidecar, settleRefiledSidecar, type CarriedSidecar } from './refile-sidecar.ts';
+import {
+  assetDestinationOccupied,
+  sidecarStemClaimedBySibling,
+} from '../../fs/sidecar-ownership.ts';
+import {
+  copyVerifiedIntoPlace,
+  revertCreated as withdrawPublications,
+  type RelocatePublication,
+} from '../../fs/relocate-publish.ts';
 import { child as childLogger } from '../../log.ts';
 
 const log = childLogger('migration:restructure-fs');
@@ -45,13 +63,16 @@ export interface PlacePlan {
   newRelPath: string;
   /** POSIX rel-path of the moved rendered companion, or unchanged/null. */
   newRenderedRel: string | null;
+  /** POSIX rel-path of the moved Live Photo `.mov` twin, or unchanged/null. */
+  newLiveVideoRel: string | null;
   /** Absolute source paths to unlink once the DB has been repointed. */
   sourcesToDelete: string[];
-  /** Absolute paths of the NEW copies this call created (primary + companions).
-   * Empty for a dedupe (no copy made). Used to revert cleanly if the DB repoint
-   * turns out to be a no-op (concurrent change) — we delete these instead of the
-   * source, leaving the row + original untouched. */
-  createdPaths: string[];
+  /** Sidecars published at the new path, settled (not plain-unlinked) in `finalize`. */
+  carriedSidecars: CarriedSidecar[];
+  /** Every copy published at the new path, withdrawn by identity on a revert,
+   * so a file another writer put there since is never removed. Empty for a
+   * dedupe (no copy made). */
+  publications: RelocatePublication[];
   /** The old day-folder (absolute), for emptiness cleanup in `finalize`. */
   oldDirAbs: string;
 }
@@ -77,22 +98,53 @@ async function exists(p: string): Promise<boolean> {
  * repoint turns out to be a no-op (a concurrent change moved the fileinfo entry
  * between our read and write), so the original + row are left untouched and we
  * don't strand an orphan at the new path. Best-effort. */
-export async function revertCreated(createdPaths: string[]): Promise<void> {
-  for (const p of createdPaths) {
-    await fs.unlink(p).catch((err) => {
-      log.warn({ p, err: err instanceof Error ? err.message : err }, 'revert unlink failed');
-    });
-  }
+/** Undo a placement: only files still proven to be its own are removed (the list is emptied). */
+export async function revertPlaced(placed: Pick<PlacePlan, 'publications'>): Promise<void> {
+  await withdrawPublications(placed.publications);
 }
 
-/** Copy `src` → `dst` and verify byte-identical. On a verify failure the bad
- * partial copy is removed and the error propagates (source is left intact). */
-async function copyVerified(src: string, dst: string): Promise<void> {
-  await fs.copyFile(src, dst);
-  if (!(await filesIdentical(src, dst))) {
-    await fs.unlink(dst).catch(() => {});
-    throw new Error(`copy verification failed: ${src} → ${dst}`);
-  }
+/** Taken: the name itself, another photo's stranded old-name edit (#5063) the
+ * migration would hand this one, or, when this photo carries its own old-name
+ * edit, a name where that edit can't land. */
+function destinationTaken(oldAbs: string, sidecars: readonly string[], carriesOldName: boolean) {
+  // An occupied canonical sidecar is a collision for the whole photo (#4692 rule 2), as in relocate.
+  return async (candidate: string): Promise<boolean> =>
+    (await assetDestinationOccupied(candidate, sidecars, oldAbs)) ||
+    (carriesOldName ? await oldNameSlotTaken(candidate) : await hasLegacyBackupEdit(candidate));
+}
+
+/** Different bytes, a duplicate that carries companions we must not drop, or a
+ * taken old-name slot: claim the next free sibling. Never overwrite the occupant. */
+async function claimTarget(
+  oldAbs: string,
+  newTargetAbs: string,
+  sidecars: readonly string[],
+  carriesOldName: boolean,
+): Promise<{ targetAbs: string; outcome: PlaceOutcome }> {
+  // A folder that exists but can't be listed would read every name as taken.
+  await fs.readdir(path.dirname(newTargetAbs)).catch((err: unknown) => {
+    if ((err as NodeJS.ErrnoException)?.code !== 'ENOENT') throw err;
+  });
+  const taken = destinationTaken(oldAbs, sidecars, carriesOldName);
+  if (!(await taken(newTargetAbs))) return { targetAbs: newTargetAbs, outcome: 'copied' };
+  const targetAbs = await pickFreePath(newTargetAbs, 'migration:primary', taken);
+  return { targetAbs, outcome: 'renamed' };
+}
+
+/** A pure-original duplicate: the occupant holds the same bytes and the source has no companions. */
+async function isBareDuplicate(
+  oldAbs: string,
+  newTargetAbs: string,
+  hasCompanions: boolean,
+): Promise<boolean> {
+  return (
+    !hasCompanions &&
+    (await exists(newTargetAbs)) &&
+    (await filesIdentical(oldAbs, newTargetAbs)) &&
+    // A sidecar beside the occupant would become the refiled photo's edit (#4692 rule 2);
+    // a folder that can't be listed is retried, never assumed sidecar-free.
+    (await listPairedSidecarsStrict(newTargetAbs)).length === 0
+  );
 }
 
 /**
@@ -110,92 +162,134 @@ export async function planAndPlace(args: {
   filename: string;
   newDir: string; // POSIX
   renderedRelOld: string | null;
+  liveVideoRelOld: string | null;
 }): Promise<PlacePlan> {
-  const { libRoot, oldDir, filename, newDir, renderedRelOld } = args;
+  const { libRoot, oldDir, filename, newDir, renderedRelOld, liveVideoRelOld } = args;
   const oldAbs = joinRel(libRoot, `${oldDir}/${filename}`);
   if (!(await exists(oldAbs))) {
     throw new SourceMissingError(`source original missing: ${oldAbs}`);
   }
   const oldDirAbs = joinRel(libRoot, oldDir);
-  const sidecars = await listPairedSidecars(oldAbs);
-  const renderedAbsOld = renderedRelOld ? joinRel(libRoot, renderedRelOld) : null;
-  const renderedPresent = renderedAbsOld !== null && (await exists(renderedAbsOld));
-  const hasCompanions = sidecars.length > 0 || renderedPresent;
+  // Strict: an unreadable sidecar fails this asset for a later retry, never left behind (#5063).
+  const sidecars = await listPairedSidecarsStrict(oldAbs);
+  const companionsPresent = await Promise.all(
+    [renderedRelOld, liveVideoRelOld].map(
+      async (rel) => rel !== null && (await exists(joinRel(libRoot, rel))),
+    ),
+  );
+  const hasCompanions = sidecars.length > 0 || companionsPresent.includes(true);
 
   const newTargetAbs = joinRel(libRoot, `${newDir}/${filename}`);
 
   // ── Collision handling ────────────────────────────────────────────────────
-  let targetAbs = newTargetAbs;
-  let outcome: PlaceOutcome = 'copied';
-  if (await exists(newTargetAbs)) {
-    const identical = await filesIdentical(oldAbs, newTargetAbs);
-    if (identical && !hasCompanions) {
-      // Pure-original duplicate → dedupe. Repoint to the occupant; the source
-      // original is redundant and gets deleted after the DB commit.
-      log.info(
-        { oldAbs, survivor: newTargetAbs },
-        'restructure: byte-identical duplicate — deduping (repoint + delete source)',
-      );
-      return {
-        outcome: 'deduped',
-        newRelPath: `${newDir}/${filename}`,
-        newRenderedRel: renderedRelOld, // no rendered move on a dedupe of a bare original
-        sourcesToDelete: [oldAbs],
-        createdPaths: [], // no copy made — nothing to revert
-        oldDirAbs,
-      };
-    }
-    // Different bytes, or a duplicate that carries companions we must not drop:
-    // claim the next free sibling. Never overwrite the occupant.
-    targetAbs = await pickFreePath(newTargetAbs, 'migration:primary');
-    outcome = 'renamed';
+  if (await isBareDuplicate(oldAbs, newTargetAbs, hasCompanions)) {
+    // Repoint to the occupant; the source original is redundant and gets
+    // deleted after the DB commit.
+    log.info(
+      { oldAbs, survivor: newTargetAbs },
+      'restructure: byte-identical duplicate — deduping (repoint + delete source)',
+    );
+    return {
+      outcome: 'deduped',
+      newRelPath: `${newDir}/${filename}`,
+      // No companion move on a dedupe of a bare original.
+      newRenderedRel: renderedRelOld,
+      newLiveVideoRel: liveVideoRelOld,
+      sourcesToDelete: [oldAbs],
+      carriedSidecars: [],
+      publications: [], // no copy made — nothing to revert
+      oldDirAbs,
+    };
   }
+  const oldNameEdit = sidecars.find((sidecar) => isLegacyBackupSidecarOf(oldAbs, sidecar));
+  const { targetAbs, outcome } = await claimTarget(
+    oldAbs,
+    newTargetAbs,
+    sidecars,
+    oldNameEdit !== undefined,
+  );
 
+  const publications: RelocatePublication[] = [];
+  // A throw past this point reverts every copy, so a retry starts clean (#5061).
+  try {
+    const placed = await copyIntoPlace(
+      { libRoot, oldAbs, targetAbs, sidecars, oldNameEdit, renderedRelOld, liveVideoRelOld },
+      publications,
+    );
+    return { outcome, ...placed, publications, oldDirAbs };
+  } catch (err) {
+    await revertPlaced({ publications });
+    throw err;
+  }
+}
+
+/** Copy the primary, its sidecars and its Apple companions next to
+ * `targetAbs`, each published exclusively and recorded in `publications` as it lands. */
+async function copyIntoPlace(
+  args: {
+    libRoot: string;
+    oldAbs: string;
+    targetAbs: string;
+    sidecars: readonly string[];
+    oldNameEdit: string | undefined;
+    renderedRelOld: string | null;
+    liveVideoRelOld: string | null;
+  },
+  publications: RelocatePublication[],
+): Promise<
+  Pick<
+    PlacePlan,
+    'newRelPath' | 'newRenderedRel' | 'newLiveVideoRel' | 'sourcesToDelete' | 'carriedSidecars'
+  >
+> {
+  const { libRoot, oldAbs, targetAbs } = args;
   // ── Copy + verify primary ───────────────────────────────────────────────
   await fs.mkdir(path.dirname(targetAbs), { recursive: true });
-  await copyVerified(oldAbs, targetAbs);
+  await copyVerifiedIntoPlace(oldAbs, targetAbs, false, publications);
 
   const oldBase = path.basename(oldAbs, path.extname(oldAbs));
   const newBase = path.basename(targetAbs, path.extname(targetAbs));
-  const sourcesToDelete: string[] = [oldAbs];
-  const createdPaths: string[] = [targetAbs];
 
   // ── Copy + verify sidecars (canonical + conflict copies) ─────────────────
-  for (const sidecar of sidecars) {
-    const name = path.basename(sidecar);
-    if (!name.startsWith(oldBase)) continue; // defensive — listPairedSidecars guarantees this
-    const renamed = newBase + name.slice(oldBase.length);
-    const dst = await pickFreePath(
-      path.join(path.dirname(targetAbs), renamed),
-      'migration:sidecar',
-    );
-    await copyVerified(sidecar, dst);
-    sourcesToDelete.push(sidecar);
-    createdPaths.push(dst);
+  const carriedSidecars: CarriedSidecar[] = [];
+  const sharedWithSibling = await sidecarStemClaimedBySibling(oldAbs, [targetAbs]);
+  for (const sidecar of args.sidecars) {
+    // The shared base swap matches case-insensitively, as the listing does.
+    const renamed = sidecarRenameTarget(oldAbs, targetAbs, sidecar);
+    if (renamed === null) continue;
+    // Published at its exact name (#4692 rule 2, #5063): `claimTarget` found it
+    // free, and one taken since fails the refile rather than being suffixed.
+    const keepSource = sharedWithSibling && sidecar !== args.oldNameEdit;
+    const carried = await carrySidecar(sidecar, renamed, targetAbs, publications, keepSource);
+    if (carried === null) continue;
+    carriedSidecars.push(carried);
   }
 
-  // ── Copy + verify the apple_rendered_path companion ──────────────────────
-  let newRenderedRel: string | null = renderedRelOld;
-  if (renderedPresent && renderedAbsOld) {
-    const rName = path.basename(renderedAbsOld);
-    const renamed = rName.startsWith(oldBase) ? newBase + rName.slice(oldBase.length) : rName;
+  // ── Copy + verify the Apple companions (rendered edit, Live Photo .mov) ──
+  const carryCompanion = async (
+    relOld: string | null,
+  ): Promise<{ rel: string | null; moved: string[] }> => {
+    if (relOld === null) return { rel: null, moved: [] };
+    const absOld = joinRel(libRoot, relOld);
+    if (!(await exists(absOld))) return { rel: relOld, moved: [] };
+    const name = path.basename(absOld);
+    const renamed = name.startsWith(oldBase) ? newBase + name.slice(oldBase.length) : name;
     const dst = await pickFreePath(
       path.join(path.dirname(targetAbs), renamed),
       'migration:rendered',
     );
-    await copyVerified(renderedAbsOld, dst);
-    newRenderedRel = toPosixRel(libRoot, dst);
-    sourcesToDelete.push(renderedAbsOld);
-    createdPaths.push(dst);
-  }
-
+    await copyVerifiedIntoPlace(absOld, dst, false, publications);
+    return { rel: toPosixRel(libRoot, dst), moved: [absOld] };
+  };
+  // Sequential: the second companion's free name is picked after the first lands.
+  const rendered = await carryCompanion(args.renderedRelOld);
+  const liveVideo = await carryCompanion(args.liveVideoRelOld);
   return {
-    outcome,
     newRelPath: toPosixRel(libRoot, targetAbs),
-    newRenderedRel,
-    sourcesToDelete,
-    createdPaths,
-    oldDirAbs,
+    newRenderedRel: rendered.rel,
+    newLiveVideoRel: liveVideo.rel,
+    sourcesToDelete: [oldAbs, ...rendered.moved, ...liveVideo.moved],
+    carriedSidecars,
   };
 }
 
@@ -204,8 +298,8 @@ export async function planAndPlace(args: {
  *
  * Covers BOTH cache-keying schemes so reclamation is robust regardless of which
  * one produced the files:
- *   - path-keyed (current): `thumbs/<sha256Prefix16(filename)>.avif`,
- *     `previews/<basename_no_ext>_<size>.jpg`
+ *   - path-keyed (current): `thumbs/<filename>.avif`; the retired hashed
+ *     `thumbs/<sha256Prefix16(filename)>.avif`, `previews/<basename_no_ext>_<size>.jpg`
  *   - retired content-addressed: `thumbs/<maple_id>.avif`,
  *     `previews/<maple_id>_<size>.jpg`
  * Thumbs also drops the `.jpg` form of each — the thumb stage's v3 format
@@ -220,8 +314,9 @@ async function dropOldCache(
   const thumbsDir = path.join(oldDirAbs, '.maple', 'thumbs');
   const previewsDir = path.join(oldDirAbs, '.maple', 'previews');
 
-  // Thumbs: maple_id-keyed + legacy basename-hash-keyed, both extensions
-  // (AVIF is current; JPEG is the pre-v3 legacy format).
+  // Thumbs: current `<filename>.avif`, plus maple_id-keyed and legacy
+  // basename-hash-keyed in both extensions (JPEG is the pre-v3 legacy format).
+  await fs.unlink(path.join(thumbsDir, `${filename}.avif`)).catch(() => {});
   for (const ext of ['avif', 'jpg']) {
     if (mapleId) await fs.unlink(path.join(thumbsDir, `${mapleId}.${ext}`)).catch(() => {});
     await fs.unlink(path.join(thumbsDir, `${sha256Prefix16(filename)}.${ext}`)).catch(() => {});
@@ -303,8 +398,23 @@ export async function finalize(args: {
   /** Original filename — used to also drop legacy basename-keyed cache files. */
   filename: string;
   sourcesToDelete: string[];
+  carriedSidecars: readonly CarriedSidecar[];
 }): Promise<void> {
+  // A save that landed on the source after its snapshot is carried, never deleted (#5061).
+  for (const carried of args.carriedSidecars) {
+    await settleRefiledSidecar(carried).catch((err: unknown) => {
+      log.warn(
+        { src: carried.source, err: err instanceof Error ? err.message : err },
+        'sidecar settle failed — source kept',
+      );
+    });
+  }
+  const primary = path.join(args.oldDirAbs, args.filename);
   for (const src of args.sourcesToDelete) {
+    if (src === primary) {
+      await removePhotoUnlessOldNameEditStays(primary, 'refile');
+      continue;
+    }
     await fs.unlink(src).catch((err) => {
       log.warn({ src, err: err instanceof Error ? err.message : err }, 'source unlink failed');
     });

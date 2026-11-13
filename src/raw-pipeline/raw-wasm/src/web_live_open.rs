@@ -57,8 +57,10 @@ impl WebLiveSession {
         .await
     }
 
-    /// Open and present only after the complete saved companion bundle validates.
-    /// Same RAW decode and GPU chain as `open`; no incomplete first frame.
+    /// [`WebLiveSession::open`] with the sidecar's saved removal companions,
+    /// verified once before the first develop (#3955). Manifest is
+    /// [{"name":"<digest>.mask|f16","length":N}], bytes concatenated in order.
+    #[allow(clippy::too_many_arguments)]
     pub async fn open_with_saved_removals(
         raw: Vec<u8>,
         ext: String,
@@ -101,7 +103,6 @@ impl WebLiveSession {
         let ((as_shot_temperature, as_shot_tint), camera_support) =
             crate::open_metadata::assess(&raw_img);
         let model = parse_model(&xmp).map_err(|e| JsError::new(&e))?;
-        let white_balance = GpuWhiteBalance::resolve(&raw_img).map_err(|e| JsError::new(&e))?;
         let original = raw_core::types::accepted_removal::ContentDigest::for_bytes(&raw);
         let saved_removals = match companions {
             Some((manifest, bytes)) => Some(
@@ -133,32 +134,36 @@ impl WebLiveSession {
         // cached for the re-develop check. Native dims ride the handle so the
         // editor's zoom math stays full-res-aware (#1101 contract).
         let (full_width, full_height) = raw_core::pipeline::native_render_dims(&raw_img);
-        let (rgba, width, height, prefix_model, whites_anchor_ev, nr_sampling_scale) =
-            develop_prefix_rgba_saved(
-                &raw_img,
-                &raw,
-                &ext,
-                &original,
-                &model,
-                target_long_edge,
-                saved_removals.as_ref(),
-            )
-            .map_err(|e| JsError::new(&e))?;
+        let CapturePrefix {
+            rgba,
+            width,
+            height,
+            prefix_model,
+            whites_anchor_ev,
+            nr_sampling_scale,
+            creative,
+        } = develop_capture_prefix_rgba_saved(
+            &raw_img,
+            &raw,
+            &ext,
+            &original,
+            &model,
+            target_long_edge,
+            saved_removals.as_ref(),
+        )
+        .map_err(|e| JsError::new(&e))?;
 
         // Fallible (#1079): an image past the device's buffer/binding limits
         // surfaces as a JsError for the same CPU fallback.
         let session = LiveSession::new(&ctx, &rgba, width, height).map_err(|e| JsError::new(&e))?;
 
-        // Size the canvas to the developed (viewport-sized) dims so the present's
-        // surface-dims == image-dims invariant holds (the FS recovers each pixel
-        // from the fragment position; a mismatch desyncs the dither cell). CSS
+        // Size the canvas to the presented frame (upright, cropped). The present
+        // maps its coordinates back into the sensor-framed resident chain. CSS
         // scales the element to the layout box on the main thread. Then build the
         // persistent present surface ONCE (surface + configure + colour-space
         // retag + present-pipeline compile) — every tick reuses it. `None` (the
         // pre-#3191 call shape) preserves the historical always-P3 request.
-        let geometry =
-            crate::gpu_render::display_geometry(raw_img.orientation, (width, height), &model);
-        let (width, height) = geometry.surface_dimensions((width, height));
+        let (width, height) = presentation(raw_img.orientation, (width, height), &model).dims;
         canvas.set_width(width);
         canvas.set_height(height);
         let requested_color_space = resolve_target_color_space(target_color_space.as_deref());
@@ -167,6 +172,7 @@ impl WebLiveSession {
                 .map_err(|e| JsError::new(&e))?;
 
         let lens_profile_json = crate::lens_profile::metadata(&raw_img, &model);
+        let auto_will_fit_cache = inferred_auto_will_fit(&model, &prefix_model);
         let mut handle = WebLiveSession {
             ctx,
             raw_img,
@@ -175,12 +181,14 @@ impl WebLiveSession {
             raw,
             ext,
             present,
+            canvas,
             session,
             prefix_model,
-            render_model: model.clone(),
+            live_profile: None,
+            auto_will_fit_cache,
             whites_anchor_ev,
-            white_balance,
             nr_sampling_scale,
+            creative,
             target_long_edge,
             width,
             height,

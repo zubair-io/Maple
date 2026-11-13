@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { DescribeServerPool } from '../../enrichment/describe-server-pool.ts';
+import { TruncatedOutputError } from '../../enrichment/describe-providers/index.ts';
 import { ObjectId } from '../../db/object-id.ts';
 import type { ImageDoc } from '../run-stage.ts';
 import {
@@ -19,6 +20,7 @@ import {
   fakeDoc,
   mockProvider,
   patchFields,
+  recordingCtx,
   singleServerPool,
   stageDocIn,
 } from './describe.fixtures.ts';
@@ -42,7 +44,39 @@ async function stageDoc(absPath: string): Promise<ImageDoc> {
   return stageDocIn(absPath, libraryId, tmpRoot);
 }
 
-const fakeCtx = {} as never;
+const fakeCtx = recordingCtx().ctx;
+
+describe('describeHandler — cost across failover', () => {
+  it('bills a truncated call on one server in addition to the answering server', async () => {
+    const doc = await stageDoc(join(tmpRoot, 'img.dng'));
+    const truncating = mockProvider(new TruncatedOutputError('cut off', 0.004));
+    const answering = mockProvider({
+      text: JSON.stringify(VALID_VISION),
+      cost_usd: 0.001,
+      provider_info: {},
+    });
+    const providers = new Map([
+      ['http://a:1', truncating],
+      ['http://b:1', answering],
+    ]);
+    setDescribeDepsForTests({
+      pool: new DescribeServerPool(
+        [
+          { url: 'http://a:1', concurrency: 1 },
+          { url: 'http://b:1', concurrency: 1 },
+        ],
+        (url) => providers.get(url)!,
+      ),
+      systemPrompt: 'structured vision prompt',
+      model: 'm',
+    });
+
+    const meta = patchFields(await describeHandler(doc, fakeCtx)).description_meta as {
+      cost_usd: number;
+    };
+    expect(meta.cost_usd).toBeCloseTo(0.005, 10);
+  });
+});
 
 describe('describeHandler — happy path', () => {
   it('returns patch with description, description_meta, vision, vision_meta', async () => {
@@ -90,9 +124,12 @@ describe('describeHandler — happy path', () => {
     // Top-level is_screenshot mirror — overwrites the exif heuristic.
     expect(patch.is_screenshot).toBe(false);
 
-    // A describe success marks meili stale so the caption/OCR gets reindexed
-    // — meili depends on exif+thumb only and usually ran long before (#2172).
-    expect((result as { invalidates?: readonly string[] }).invalidates).toEqual(['meili', 'embed']);
+    // A describe success marks search-blob stale so the caption/OCR gets reindexed
+    // — search-blob depends on exif+thumb only and usually ran long before (#2172).
+    expect((result as { invalidates?: readonly string[] }).invalidates).toEqual([
+      'search-blob',
+      'embed',
+    ]);
   });
 
   it('threads VISION_DOC_JSON_SCHEMA through to the provider as `format`', async () => {

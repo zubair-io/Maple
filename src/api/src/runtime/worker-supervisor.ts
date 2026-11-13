@@ -18,7 +18,19 @@
  * simply owns the handle it was already keeping in a module-level binding.
  */
 
+import {
+  invalidateLibraryRoots,
+  isLibrariesCacheInvalidateMessage,
+  LIBRARIES_CACHE_INVALIDATE_MESSAGE,
+  onInvalidateLibraryRoots,
+} from '../indexer/libraries.cache.ts';
 import { child as childLogger } from '../log.ts';
+import { answerSearchChildRequest } from '../search/remote-embed.ts';
+import { ondemandPreviews } from '../indexer/ondemand-preview.ts';
+import {
+  isPreviewPriorityReadyMessage,
+  isPreviewStageRenderMessage,
+} from '../indexer/preview-priority-protocol.ts';
 import {
   ChildProcessWorker,
   childScriptPath,
@@ -35,6 +47,14 @@ const HEALTHY_UPTIME_MS = 60_000;
 let child: ChildProcessWorker | null = null;
 let respawnMs = RESPAWN_MIN_MS;
 let stopped = false;
+
+onInvalidateLibraryRoots(() => {
+  try {
+    child?.postMessage(LIBRARIES_CACHE_INVALIDATE_MESSAGE);
+  } catch {
+    /* worker not running */
+  }
+});
 
 /**
  * Starts the worker tier, unless the operator has turned it off.
@@ -57,6 +77,7 @@ export function stopWorkerSupervisor(): void {
   stopped = true;
   child?.terminate();
   child = null;
+  ondemandPreviews().detachWorker();
 }
 
 function spawn(workerEntry: string): void {
@@ -67,6 +88,21 @@ function spawn(workerEntry: string): void {
       childScriptPath(workerEntry, './workers/worker-main.ts'),
       { nice: DEFAULT_NATIVE_CHILD_NICE, label: 'worker' },
     );
+    worker.addEventListener('message', (event) => {
+      if (isLibrariesCacheInvalidateMessage(event.data)) {
+        invalidateLibraryRoots({ localOnly: true });
+        return;
+      }
+      if (isPreviewPriorityReadyMessage(event.data)) {
+        ondemandPreviews().attachWorker((message) => worker.postMessage(message));
+        return;
+      }
+      if (isPreviewStageRenderMessage(event.data)) {
+        ondemandPreviews().onStageRender(event.data);
+        return;
+      }
+      answerSearchChildRequest(worker, event.data);
+    });
     worker.addEventListener('error', (event) => {
       const uptimeMs = Date.now() - spawnedAt;
       // Ran healthily then died → one-off, reset the backoff. Died fast → grow it.
@@ -78,6 +114,7 @@ function spawn(workerEntry: string): void {
         'worker process died — respawning',
       );
       child = null;
+      ondemandPreviews().detachWorker();
       if (!stopped) setTimeout(() => spawn(workerEntry), delayMs);
     });
     child = worker;

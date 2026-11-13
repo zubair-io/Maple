@@ -1,0 +1,8 @@
+/opt/homebrew/lib/python3.14/site-packages/colour/utilities/verbose.py:340: ColourUsageWarning: "Matplotlib" related API features are not available: "No module named 'matplotlib'".
+See the installation guide for more information: https://www.colour-science.org/installation-guide/
+  warn(*args, **kwargs)
+................
+----------------------------------------------------------------------
+Ran 16 tests in 1.812s
+
+OK

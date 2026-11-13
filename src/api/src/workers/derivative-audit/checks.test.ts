@@ -9,6 +9,7 @@ import * as path from 'node:path';
 import { ObjectId } from '../../db/object-id.ts';
 import { evaluateAsset, type AuditDeps } from './checks.ts';
 import { resolveThumbPath } from '../../fs/xmp.ts';
+import { legacyDerivativePath } from '../../fs/legacy-derivative.ts';
 import type { ImageDoc } from '../run-stage.ts';
 
 const statOrNull = async (p: string) => {
@@ -97,6 +98,26 @@ async function writePreview() {
 }
 
 describe('evaluateAsset', () => {
+  it('target versions are frozen at 29, independent of the pipeline version (#4793)', () => {
+    expect(THUMB_TARGET_VERSION).toBe(29);
+    expect(PREVIEW_TARGET_VERSION).toBe(29);
+  });
+
+  it('never re-arms a derivative that only exists under its legacy v25 name (#4793)', async () => {
+    await writeOriginal();
+    await rm(path.join(root, 'a/b/.maple'), { recursive: true, force: true });
+    const source = path.join(root, 'a/b/p.dng');
+    for (const target of [resolveThumbPath(source), cachePathFor(source, 'previews', 'avif')]) {
+      await mkdir(path.dirname(target), { recursive: true });
+      await writeFile(legacyDerivativePath(target)!, 'legacy');
+    }
+    const res = await evaluateAsset(makeAsset(), libs, slugs, deps());
+    expect(res.drifted).toEqual([]);
+    expect(res.resolved).toContain('thumb');
+    expect(res.resolved).toContain('preview');
+    await rm(path.join(root, 'a/b/.maple'), { recursive: true, force: true });
+  });
+
   it('re-arms nothing when the original is missing (leave to discover/reaper)', async () => {
     await rm(path.join(root, 'a/b/p.dng'), { force: true });
     expect(await evaluateAsset(makeAsset(), libs, slugs, deps())).toEqual({

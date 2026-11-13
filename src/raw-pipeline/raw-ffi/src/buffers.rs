@@ -30,15 +30,17 @@ impl MapleImageBuffer {
 /// Free a buffer populated by `maple_render_file` or `maple_render_bytes`.
 #[no_mangle]
 pub unsafe extern "C" fn maple_free_buffer(buffer: *mut MapleImageBuffer) {
-    if buffer.is_null() {
-        return;
-    }
-    let b = &mut *buffer;
-    if !b.rgb.is_null() {
-        let slice = std::slice::from_raw_parts_mut(b.rgb, b.len);
-        drop(Box::from_raw(slice as *mut [u8]));
-    }
-    *b = MapleImageBuffer::empty();
+    crate::error::catch_panic("maple_free_buffer", (), || {
+        if buffer.is_null() {
+            return;
+        }
+        let b = &mut *buffer;
+        if !b.rgb.is_null() {
+            let slice = std::slice::from_raw_parts_mut(b.rgb, b.len);
+            drop(Box::from_raw(slice as *mut [u8]));
+        }
+        *b = MapleImageBuffer::empty();
+    })
 }
 
 /// Scene-linear FFI buffer — Rec.2020 fp16 RGBA, straight alpha, row-major.
@@ -78,16 +80,18 @@ impl MapleSceneLinearBuffer {
 /// Free a buffer populated by `maple_render_*_scene_linear`.
 #[no_mangle]
 pub unsafe extern "C" fn maple_free_scene_linear_buffer(buffer: *mut MapleSceneLinearBuffer) {
-    if buffer.is_null() {
-        return;
-    }
-    let b = &mut *buffer;
-    if !b.fp16_rgba.is_null() {
-        let len_lanes = b.len_bytes / std::mem::size_of::<u16>();
-        let slice = std::slice::from_raw_parts_mut(b.fp16_rgba, len_lanes);
-        drop(Box::from_raw(slice as *mut [u16]));
-    }
-    *b = MapleSceneLinearBuffer::empty();
+    crate::error::catch_panic("maple_free_scene_linear_buffer", (), || {
+        if buffer.is_null() {
+            return;
+        }
+        let b = &mut *buffer;
+        if !b.fp16_rgba.is_null() {
+            let len_lanes = b.len_bytes / std::mem::size_of::<u16>();
+            let slice = std::slice::from_raw_parts_mut(b.fp16_rgba, len_lanes);
+            drop(Box::from_raw(slice as *mut [u16]));
+        }
+        *b = MapleSceneLinearBuffer::empty();
+    })
 }
 
 /// Scene-linear FFI buffer — Rec.2020 f32 RGBA, straight alpha, row-major.
@@ -252,23 +256,25 @@ impl MapleSceneLinearBufferF32 {
 pub unsafe extern "C" fn maple_free_scene_linear_buffer_f32(
     buffer: *mut MapleSceneLinearBufferF32,
 ) {
-    if buffer.is_null() {
-        return;
-    }
-    let b = &mut *buffer;
-    if !b.f32_rgba.is_null() {
-        let len_lanes = b.len_bytes / std::mem::size_of::<f32>();
-        let slice = std::slice::from_raw_parts_mut(b.f32_rgba, len_lanes);
-        drop(Box::from_raw(slice as *mut [f32]));
-    }
-    // Free the noise profile if it was populated.
-    if !b.noise_profile_data.is_null() {
-        let slice =
-            std::slice::from_raw_parts_mut(b.noise_profile_data, b.noise_profile_len as usize);
-        drop(Box::from_raw(slice as *mut [f32]));
-    }
-    if !b.camera_support_json.is_null() {
-        drop(std::ffi::CString::from_raw(b.camera_support_json));
-    }
-    *b = MapleSceneLinearBufferF32::empty();
+    crate::error::catch_panic("maple_free_scene_linear_buffer_f32", (), || {
+        if buffer.is_null() {
+            return;
+        }
+        let b = &mut *buffer;
+        if !b.f32_rgba.is_null() {
+            let len_lanes = b.len_bytes / std::mem::size_of::<f32>();
+            let slice = std::slice::from_raw_parts_mut(b.f32_rgba, len_lanes);
+            drop(Box::from_raw(slice as *mut [f32]));
+        }
+        // Free the noise profile if it was populated.
+        if !b.noise_profile_data.is_null() {
+            let slice =
+                std::slice::from_raw_parts_mut(b.noise_profile_data, b.noise_profile_len as usize);
+            drop(Box::from_raw(slice as *mut [f32]));
+        }
+        if !b.camera_support_json.is_null() {
+            drop(std::ffi::CString::from_raw(b.camera_support_json));
+        }
+        *b = MapleSceneLinearBufferF32::empty();
+    })
 }

@@ -19,6 +19,7 @@ import { invalidateLibraryRoots } from '../src/indexer/libraries.cache.ts';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { xmpSidecarPath } from '../src/fs/xmp.ts';
 
 const deviceId = 'test-device-sidecar';
 const phid = 'SIDE/L0/001';
@@ -46,7 +47,14 @@ beforeAll(async () => {
   seedBackupAsset(live.db, {
     mapleId,
     size: 64,
-    locations: [{ libraryId: libId, relPath: targetRelPath }],
+    // Each test writes beside its own location of this photo.
+    locations: [
+      targetRelPath,
+      '2024/Tokyo/03-15/IMG_XML_CTYPE.HEIC',
+      '2024/Tokyo/03-15/IMG_NOCLOBBER.HEIC',
+      '2024/Tokyo/03-15/IMG_DEDUP.HEIC',
+      '2024/Tokyo/03-15/IMG_FALLBACK.HEIC',
+    ].map((relPath) => ({ libraryId: libId, relPath })),
     links: [{ deviceId, phassetLocalId: phid }],
   });
 });
@@ -82,7 +90,7 @@ describe('POST /api/libraries/:id/backup/sidecar', () => {
     );
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body.target_rel_path).toBe(`${targetRelPath}.xmp`);
+    expect(body.target_rel_path).toBe(xmpSidecarPath(targetRelPath));
 
     // Verify file exists on disk with correct content.
     const onDisk = await fs.readFile(path.join(tmpLib, body.target_rel_path), 'utf8');
@@ -108,7 +116,7 @@ describe('POST /api/libraries/:id/backup/sidecar', () => {
       }),
     );
     expect(res.status).toBe(200);
-    const onDisk = await fs.readFile(path.join(tmpLib, `${xmlRelPath}.xmp`), 'utf8');
+    const onDisk = await fs.readFile(path.join(tmpLib, xmpSidecarPath(xmlRelPath)), 'utf8');
     expect(onDisk).toBe(xmp);
   });
 
@@ -140,7 +148,7 @@ describe('POST /api/libraries/:id/backup/sidecar', () => {
     expect(r2.status).toBe(200);
     expect((await r2.json()).skipped).toBe(true);
 
-    const onDisk = await fs.readFile(path.join(tmpLib, `${v1RelPath}.xmp`), 'utf8');
+    const onDisk = await fs.readFile(path.join(tmpLib, xmpSidecarPath(v1RelPath)), 'utf8');
     expect(onDisk).toBe(xmp1);
   });
 
@@ -243,14 +251,14 @@ describe('POST /api/libraries/:id/backup/sidecar', () => {
       expect(res.status).toBe(200);
       const body = await res.json();
       expect(body.skipped).toBeUndefined();
-      expect(body.target_rel_path).toBe(`${dedupRelPath}.xmp`);
+      expect(body.target_rel_path).toBe(xmpSidecarPath(dedupRelPath));
 
       const onDisk = await fs.readFile(path.join(tmpLib, body.target_rel_path), 'utf8');
       expect(onDisk).toBe(xmp);
     });
 
     test('existing .xmp → 200 skipped, file bytes unchanged', async () => {
-      const finalPath = path.join(tmpLib, `${dedupRelPath}.xmp`);
+      const finalPath = path.join(tmpLib, xmpSidecarPath(dedupRelPath));
       const before = await fs.readFile(finalPath, 'utf8');
 
       // A second device re-uploads (dedup) with different XMP bytes — must NOT
@@ -266,7 +274,7 @@ describe('POST /api/libraries/:id/backup/sidecar', () => {
       expect(res.status).toBe(200);
       const body = await res.json();
       expect(body.skipped).toBe(true);
-      expect(body.target_rel_path).toBe(`${dedupRelPath}.xmp`);
+      expect(body.target_rel_path).toBe(xmpSidecarPath(dedupRelPath));
 
       const after = await fs.readFile(finalPath, 'utf8');
       expect(after).toBe(before);
@@ -285,7 +293,7 @@ describe('POST /api/libraries/:id/backup/sidecar', () => {
         }),
       );
       expect(res.status).toBe(200);
-      const onDisk = await fs.readFile(path.join(tmpLib, `${fallbackRelPath}.xmp`), 'utf8');
+      const onDisk = await fs.readFile(path.join(tmpLib, xmpSidecarPath(fallbackRelPath)), 'utf8');
       expect(onDisk).toBe(xmp);
     });
 

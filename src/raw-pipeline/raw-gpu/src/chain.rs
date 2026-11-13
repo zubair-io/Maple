@@ -151,7 +151,8 @@ impl<'a> ChainRunner<'a> {
     /// The shared execution core. Encodes every pass into one command buffer
     /// (ping-ponging the two scratch buffers), submits once, and performs a
     /// single readback. With `token` set, returns `Ok(None)` as soon as the
-    /// token is cancelled before encoding a pass (checked before each pass);
+    /// token is cancelled before encoding a pass (checked before each pass and
+    /// once more before submission, for passes that check it per tile);
     /// `Err` if the end-of-run readback map fails (#1079).
     pub async fn run_cancellable_async(
         &self,
@@ -192,6 +193,9 @@ impl<'a> ChainRunner<'a> {
             };
             pass.encode(self.ctx, &mut encoder, src, dst, dims);
             final_idx = dst_idx;
+        }
+        if token.is_some_and(CancelToken::is_cancelled) {
+            return Ok(None);
         }
 
         // An empty chain reads the seeded copy back from buffers[0].

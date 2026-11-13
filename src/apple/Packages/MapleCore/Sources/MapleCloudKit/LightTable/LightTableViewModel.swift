@@ -1,0 +1,335 @@
+// LightTableViewModel.swift
+//
+// Drives the Light Table's ambient source pool (#2121 F2) — on Maple TV and
+// as the iPhone/iPad backup screen saver (#5457): a
+// shuffled mix of the day's Memories, `flag=pick` and `rating>=4` assets,
+// and recent photos with faces — falling back to plain recent
+// (`captured_desc`) assets when that primary pool is too thin to sustain a
+// long-running ambient cycle without repeating quickly.
+//
+// Memories are in the mix because they are the one source here that is
+// actively curated rather than filtered: the generated-search worker picks
+// a theme for the day and gathers photos around it, which is exactly the
+// kind of set an ambient display wants. They come from
+// `/api/generated-searches`, never from a locally-composed search — the
+// server applies `excludeHiddenPeople` and the screenshot exclusion when IT
+// runs the stored query, and this screen in particular runs unattended in a
+// living room.
+//
+// `SearchParams`' fields all AND together server-side (see that struct's
+// `baseItems()`) — there is no way to express "flag=pick OR rating>=4" as
+// one `/api/search` query. This issues two concurrent queries (one per
+// filter) and merges the results client-side via `mergeDeduped`
+// (`Cloud/LightTablePool.swift` — hoisted there so its
+// selection policy is directly `swift test`-able; see that file's
+// header), in priority order — picks first, then high-rated — so an
+// asset that's both a pick AND rated ≥4 counts once, sourced from picks.
+// The `captured_desc` recent query only fires when picks+high-rated
+// together don't clear `minimumPoolSize`, so a library with plenty of
+// picks/high-rated assets never pays for a third round trip it won't use.
+//
+// Generation-counter staleness guard mirrors `TVTimelineViewModel`
+// exactly (docs/best-practices.md §"Generation counters for async
+// state").
+
+import Foundation
+import Observation
+
+@MainActor
+@Observable
+public final class LightTableViewModel {
+  // MARK: - Published state
+
+  /// The ambient display pool, shuffled. Empty while loading, or if the
+  /// library genuinely has nothing to show.
+  public private(set) var pool: [SearchAsset] = []
+  public private(set) var isLoading: Bool = false
+  /// Set only when the pool ended up empty AND at least one of the
+  /// underlying queries actually failed — a library with zero picks,
+  /// zero high-rated, and zero recent assets (a real empty account) is a
+  /// normal empty state, not an error, so a query that simply returns
+  /// zero matches never sets this.
+  public private(set) var loadError: Error?
+
+  /// A finished load left nothing to show, whether it failed or the library
+  /// is simply still empty — e.g. a first backup whose uploads only become
+  /// assets once their final chunk lands. Worth loading again later.
+  public var isAwaitingContent: Bool { pool.isEmpty && !isLoading }
+
+  // MARK: - Dependencies
+
+  public let libraryID: String
+  private let searchClient: CloudSearchClient
+  private let generatedSearchClient: GeneratedSearchClient
+
+  /// Below this many candidates, `picks ∪ highRated` alone is judged too
+  /// thin to sustain a long ambient cycle without repeating quickly — a
+  /// recent-assets query layers in as a fallback (brief's suggested
+  /// threshold).
+  private static let minimumPoolSize = 8
+  /// Per-query result cap. The pool feeds a slowly-cycling ambient
+  /// display (one new print every few seconds), not a scrollable grid —
+  /// a few dozen candidates per source is ample variety without
+  /// over-fetching.
+  private static let queryLimit = 40
+
+  /// Bumped on every `load()` — in-flight completions check this and
+  /// drop results from an older generation rather than mutating
+  /// published state.
+  private var generation: Int = 0
+  /// Cursor into `pool` for `next()`'s cyclic walk — see that method.
+  private var cursor: Int = 0
+  /// Background stale-while-revalidate refresh, when the pool was served
+  /// from `cachedPools`. Cancelled by `cancelRefresh()` on screen disappear.
+  private var refreshTask: Task<Void, Never>?
+  /// The memories fetch, and the merge that waits on it (see `refresh`).
+  /// Both cancelled alongside `refreshTask` so navigating away doesn't leave
+  /// network work running for a screen nobody is looking at.
+  private var memoriesFetchTask: Task<[SearchAsset], Never>?
+  private var memoriesTask: Task<Void, Never>?
+
+  /// Session-lifetime pool cache, keyed by library. Reopening the Light
+  /// Table serves the last pool instantly from here and only revalidates in
+  /// the background, instead of re-running the source queries every time.
+  /// (Images are separately cached by `TVDecodedImageCache` / `CloudThumbCache`,
+  /// so a reopen also re-renders without re-decoding.)
+  private static var cachedPools: [String: [SearchAsset]] = [:]
+
+  /// Per-memory asset cap. The pool feeds a slowly-cycling ambient display,
+  /// so a handful from each of the day's memories gives more variety than a
+  /// deep dive into one of them.
+  private static let perMemoryLimit = 12
+
+  public init(
+    libraryID: String,
+    searchClient: CloudSearchClient,
+    generatedSearchClient: GeneratedSearchClient
+  ) {
+    self.libraryID = libraryID
+    self.searchClient = searchClient
+    self.generatedSearchClient = generatedSearchClient
+  }
+
+  // MARK: - Loading
+
+  public func load() async {
+    generation &+= 1
+    let g = generation
+    loadError = nil
+
+    // Cached-first: if we already built a pool for this library this session,
+    // show it immediately and revalidate in the background — so reopening the
+    // Light Table is instant instead of waiting on the source queries again.
+    if let cached = Self.cachedPools[libraryID], !cached.isEmpty {
+      pool = cached
+      cursor = 0
+      refreshTask?.cancel()
+      refreshTask = Task { [weak self] in await self?.refresh(generation: g) }
+      return
+    }
+
+    isLoading = true
+    defer { if g == generation { isLoading = false } }
+    await refresh(generation: g)
+  }
+
+  /// Cancels a background revalidation (call from the screen's `.onDisappear`).
+  public func cancelRefresh() {
+    refreshTask?.cancel()
+    refreshTask = nil
+    memoriesFetchTask?.cancel()
+    memoriesFetchTask = nil
+    memoriesTask?.cancel()
+    memoriesTask = nil
+  }
+
+  /// Fetches the source queries, merges them into the pool, and updates the
+  /// session cache. Runs either inline (cold open) or in the background
+  /// (stale-while-revalidate after a cache hit).
+  private func refresh(generation g: Int) async {
+    // Built as `let`s (via an immediately-invoked mutation) rather than `var`s
+    // mutated in place — the params feed concurrent `async let` fetches, and
+    // capturing a mutable `var` across concurrently-executing code is a
+    // Swift 6 mode error. Every source excludes screenshots AND any asset
+    // showing a soft-hidden person (`excludeHiddenPeople`) — the Light Table
+    // runs unattended in a living room, so someone the operator deliberately
+    // hid must not resurface here. Hidden *images* need no flag: the server
+    // filters those out by default.
+    let picksParams: SearchParams = {
+      var params = SearchParams(libraryID: libraryID)
+      params.flag = .pick
+      params.sort = .capturedDesc
+      params.isScreenshot = false
+      params.excludeHiddenPeople = true
+      return params
+    }()
+
+    let highRatedParams: SearchParams = {
+      var params = SearchParams(libraryID: libraryID)
+      params.rating = 4
+      params.sort = .rating
+      params.isScreenshot = false
+      params.excludeHiddenPeople = true
+      return params
+    }()
+
+    // Photos with people (any detected face) from the last year, so the
+    // ambient mix leans toward recent shots of people. (`scope=people` is
+    // "has a face" server-side; strictly-named-only would need a server
+    // filter — see the note in the PR.)
+    let peopleParams: SearchParams = {
+      var params = SearchParams(libraryID: libraryID)
+      params.scope = "people"
+      params.sort = .capturedDesc
+      params.isScreenshot = false
+      params.excludeHiddenPeople = true
+      params.from = Self.oneYearAgoString()
+      return params
+    }()
+
+    // A stored Task rather than `async let`, so it can outlive this call:
+    // the search-backed sources publish a pool and return, and the memories
+    // merge below finishes on its own time. It still STARTS here, so it runs
+    // concurrently with the searches rather than after them.
+    memoriesFetchTask?.cancel()
+    let memoriesFetch = Task { await fetchMemories() }
+    memoriesFetchTask = memoriesFetch
+
+    async let picksResult = fetchOrEmpty(picksParams)
+    async let highRatedResult = fetchOrEmpty(highRatedParams)
+    async let peopleResult = fetchOrEmpty(peopleParams)
+
+    let (picks, picksError) = await picksResult
+    let (highRated, highRatedError) = await highRatedResult
+    let (people, peopleError) = await peopleResult
+    guard g == generation else { return }
+
+    var merged = mergeDeduped(mergeDeduped(picks, highRated), people)
+    var recentError: Error?
+
+    if merged.count < Self.minimumPoolSize {
+      var recentParams = SearchParams(libraryID: libraryID)
+      recentParams.sort = .capturedDesc
+      recentParams.isScreenshot = false
+      recentParams.excludeHiddenPeople = true
+      let (recent, error) = await fetchOrEmpty(recentParams)
+      guard g == generation else { return }
+      merged = mergeDeduped(merged, recent)
+      recentError = error
+    }
+
+    guard g == generation else { return }
+    if merged.isEmpty, let firstError = picksError ?? highRatedError ?? peopleError ?? recentError {
+      loadError = firstError
+    }
+    guard !merged.isEmpty else {
+      // Nothing from the searches, so there is no pool to show yet and
+      // nothing to gain by returning early — wait for memories inline.
+      let memories = await memoriesFetch.value
+      guard g == generation else { return }
+      publish(memories)
+      return
+    }
+
+    // Publish the search-backed sources NOW so the prints start gliding.
+    // Memories cost two serial round trips (the day's collections, then each
+    // collection's photos), and making the first print wait on them made
+    // opening the Light Table visibly slower than it used to be. This screen
+    // is an ambient cycle, not a page load: it needs SOMETHING to show, and
+    // the memories fold in a moment later.
+    publish(merged)
+
+    memoriesTask?.cancel()
+    memoriesTask = Task { [weak self] in
+      let memories = await memoriesFetch.value
+      guard !Task.isCancelled else { return }
+      await self?.foldInMemories(memories, base: merged, generation: g)
+    }
+  }
+
+  /// Merge late-arriving memories into an already-published pool. Memories
+  /// lead the dedup order, so a photo that is both a pick and part of today's
+  /// memory is sourced once, from the memory.
+  private func foldInMemories(_ memories: [SearchAsset], base: [SearchAsset], generation g: Int) {
+    guard g == generation, !memories.isEmpty else { return }
+    publish(mergeDeduped(memories, base))
+  }
+
+  /// Shuffle `assets` into the live pool and cache it. Restarts the cyclic
+  /// walk: the pool is a bag an ambient display draws from, so re-seating the
+  /// cursor just changes which photo comes next, not what the viewer sees now.
+  private func publish(_ assets: [SearchAsset]) {
+    guard !assets.isEmpty else { return }
+    Self.cachedPools[libraryID] = assets
+    pool = assets.shuffled()
+    cursor = 0
+  }
+
+  /// Photos from today's memories — a few from each of the day's
+  /// collections, concurrently. Failures are swallowed rather than surfaced:
+  /// memories are one source among several, and the ambient display should
+  /// keep running on picks and recents if the generated-search worker is
+  /// paused, unconfigured, or simply had nothing for today. That is also why
+  /// this returns no error alongside its assets, unlike `fetchOrEmpty`.
+  private func fetchMemories() async -> [SearchAsset] {
+    guard let collections = try? await generatedSearchClient.collections(libraryID: libraryID),
+      !collections.isEmpty
+    else { return [] }
+
+    return await withTaskGroup(of: [SearchAsset].self) { group in
+      for collection in collections {
+        group.addTask { [generatedSearchClient] in
+          let page = try? await generatedSearchClient.assets(
+            collectionID: collection.id,
+            limit: Self.perMemoryLimit
+          )
+          return page?.results ?? []
+        }
+      }
+      // Interleaved rather than concatenated, so one large memory can't crowd
+      // the others out of the front of the pool before the shuffle.
+      return interleaved(await group.reduce(into: [[SearchAsset]]()) { $0.append($1) })
+    }
+  }
+
+  private func fetchOrEmpty(_ params: SearchParams) async -> (assets: [SearchAsset], error: Error?)
+  {
+    do {
+      let response = try await searchClient.search(params, page: 0, limit: Self.queryLimit)
+      return (response.results, nil)
+    } catch {
+      return ([], error)
+    }
+  }
+
+  /// `yyyy-MM-dd` one year before today (UTC) — the `from` bound for the
+  /// last-year people source. `nil` only if date math fails (never in
+  /// practice), which just omits the bound.
+  private static func oneYearAgoString() -> String? {
+    var cal = Calendar(identifier: .gregorian)
+    cal.timeZone = TimeZone(identifier: "UTC") ?? cal.timeZone
+    guard let date = cal.date(byAdding: .year, value: -1, to: Date()) else { return nil }
+    let formatter = DateFormatter()
+    formatter.calendar = cal
+    formatter.locale = Locale(identifier: "en_US_POSIX")
+    formatter.timeZone = cal.timeZone
+    formatter.dateFormat = "yyyy-MM-dd"
+    return formatter.string(from: date)
+  }
+
+  // MARK: - Cyclic walk
+
+  /// Returns the next asset in the ambient cycle, wrapping around (and
+  /// re-shuffling) once every asset in the pool has been shown, so a
+  /// long-running, uninteracted-with Light Table doesn't just replay the
+  /// exact same order forever. `nil` when the pool is empty.
+  public func next() -> SearchAsset? {
+    guard !pool.isEmpty else { return nil }
+    if cursor >= pool.count {
+      pool.shuffle()
+      cursor = 0
+    }
+    defer { cursor += 1 }
+    return pool[cursor]
+  }
+}

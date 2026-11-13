@@ -12,18 +12,22 @@
  * own database as the process-wide handle for the block.
  */
 
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it, spyOn } from 'bun:test';
 import { Elysia } from 'elysia';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as nodePath from 'node:path';
 import {
   createLiveTestDatabase,
+  insertAsset,
   insertFolder,
+  insertLocation,
   type LiveTestDatabase,
 } from '../db/sqlite/test-sqlite.test-helpers.ts';
 import { foldersRoutes } from './folders.ts';
 import { fakeAuth } from '../../tests/helpers/test-auth.ts';
+import { serializeSidecarWrite } from '../fs/sidecar-write-order.ts';
+import * as mirrored from '../fs/mirrored.ts';
 
 /** One row of the change feed, as the table stores it. */
 interface ChangeRow {
@@ -210,5 +214,194 @@ describe('POST /api/folders/:id/upload → asset_changes emit', () => {
     expect(change.folder_id).toBe(folderId);
     expect(change.abs_path).toBe(expectedAbsPath);
     expect(change.relative_path).toBe(target);
+  });
+
+  // #4694 — a same-named upload must never destroy the previous file in
+  // place, whatever its type. Indexed media already went to Trash; videos
+  // and plain files were overwritten by the rename.
+  describe('replacing an existing file (#4694)', () => {
+    const PREVIOUS = new Uint8Array([0x70, 0x72, 0x65, 0x76]);
+    const REPLACEMENT = new Uint8Array([0x6e, 0x65, 0x77, 0x21]);
+
+    async function upload(target: string, bytes: Uint8Array<ArrayBuffer>): Promise<Response> {
+      const app = new Elysia().use(fakeAuth()).use(foldersRoutes);
+      return app.handle(
+        new Request(`http://localhost/api/folders/${folderId}/upload`, {
+          method: 'POST',
+          headers: { 'X-Maple-Target-Path': target, 'Content-Type': 'application/octet-stream' },
+          body: bytes,
+        }),
+      );
+    }
+
+    async function expectPreviousInTrash(target: string) {
+      const trashed = nodePath.join(folderPath, '.maple', 'trash', target);
+      expect(new Uint8Array(await readFile(trashed))).toEqual(PREVIOUS);
+      expect(new Uint8Array(await readFile(nodePath.join(folderPath, target)))).toEqual(
+        REPLACEMENT,
+      );
+    }
+
+    it('keeps the previous video in .maple/trash', async () => {
+      await writeFile(nodePath.join(folderPath, 'clip.mov'), PREVIOUS);
+      expect((await upload('clip.mov', REPLACEMENT)).status).toBe(201);
+      await expectPreviousInTrash('clip.mov');
+    });
+
+    it('re-catalogues a replaced video the indexer had already discovered', async () => {
+      await writeFile(nodePath.join(folderPath, 'clip.mov'), PREVIOUS);
+      const previousId = insertAsset(live.db);
+      insertLocation(live.db, {
+        assetId: previousId,
+        libraryId: folderId,
+        path: '',
+        filename: 'clip.mov',
+      });
+
+      const res = await upload('clip.mov', REPLACEMENT);
+      expect(res.status).toBe(201);
+      const body = (await res.json()) as { asset_id?: string };
+      expect(body.asset_id).toMatch(/^[a-f0-9]{24}$/);
+      await expectPreviousInTrash('clip.mov');
+
+      const live_ = live.db
+        .query(
+          `SELECT a.id FROM assets a JOIN asset_locations l ON l.asset_id = a.id
+            WHERE l.library_id = ? AND l.path = '' AND l.filename = 'clip.mov'
+              AND a.deleted_at IS NULL AND l.deleted_at IS NULL`,
+        )
+        .all(folderId) as { id: string }[];
+      expect(live_.map((row) => row.id)).toEqual([body.asset_id!]);
+      expect(changes().at(-1)?.asset_id).toBe(body.asset_id!);
+    });
+
+    it('keeps the previous non-indexed file in .maple/trash', async () => {
+      await writeFile(nodePath.join(folderPath, 'notes.txt'), PREVIOUS);
+      expect((await upload('notes.txt', REPLACEMENT)).status).toBe(201);
+      await expectPreviousInTrash('notes.txt');
+    });
+
+    it('leaves a same-stem photo sidecar alone when replacing a plain file', async () => {
+      const sidecarXml = '<x:xmpmeta><edits /></x:xmpmeta>';
+      await writeFile(nodePath.join(folderPath, 'photo.dng'), PREVIOUS);
+      await writeFile(nodePath.join(folderPath, 'photo.xmp'), sidecarXml);
+      await writeFile(nodePath.join(folderPath, 'photo.txt'), PREVIOUS);
+
+      expect((await upload('photo.txt', REPLACEMENT)).status).toBe(201);
+      await expectPreviousInTrash('photo.txt');
+      expect(await readFile(nodePath.join(folderPath, 'photo.xmp'), 'utf8')).toBe(sidecarXml);
+      expect(new Uint8Array(await readFile(nodePath.join(folderPath, 'photo.dng')))).toEqual(
+        PREVIOUS,
+      );
+    });
+
+    it('carries an unindexed video sidecar into Trash with the replaced clip', async () => {
+      const sidecarXml = '<x:xmpmeta><clip-edits /></x:xmpmeta>';
+      await writeFile(nodePath.join(folderPath, 'clip.mov'), PREVIOUS);
+      await writeFile(nodePath.join(folderPath, 'clip.mov.xmp'), sidecarXml);
+
+      expect((await upload('clip.mov', REPLACEMENT)).status).toBe(201);
+      await expectPreviousInTrash('clip.mov');
+      const trashedSidecar = nodePath.join(folderPath, '.maple', 'trash', 'clip.mov.xmp');
+      expect(await readFile(trashedSidecar, 'utf8')).toBe(sidecarXml);
+      await expect(readFile(nodePath.join(folderPath, 'clip.mov.xmp'))).rejects.toMatchObject({
+        code: 'ENOENT',
+      });
+    });
+
+    it('refuses to replace an existing sidecar through the raw upload path', async () => {
+      const sidecar = nodePath.join(folderPath, 'photo.xmp');
+      await writeFile(sidecar, PREVIOUS);
+      expect((await upload('photo.xmp', REPLACEMENT)).status).toBe(409);
+      expect(new Uint8Array(await readFile(sidecar))).toEqual(PREVIOUS);
+    });
+
+    it("keeps a sidecar upload's client mtime", async () => {
+      const app = new Elysia().use(fakeAuth()).use(foldersRoutes);
+      const res = await app.handle(
+        new Request(`http://localhost/api/folders/${folderId}/upload`, {
+          method: 'POST',
+          headers: {
+            'X-Maple-Target-Path': 'stamped.xmp',
+            'X-Maple-File-Mtime': '1700000000',
+            'Content-Type': 'application/octet-stream',
+          },
+          body: REPLACEMENT,
+        }),
+      );
+      expect(res.status).toBe(201);
+      const { mtimeMs } = await stat(nodePath.join(folderPath, 'stamped.xmp'));
+      expect(Math.round(mtimeMs / 1000)).toBe(1700000000);
+    });
+
+    it('never replaces a sidecar an XMP save wrote while the upload waited (#5067)', async () => {
+      const sidecar = nodePath.join(folderPath, 'photo.xmp');
+      let release!: () => void;
+      const gate = new Promise<void>((resolve) => (release = resolve));
+      let entered!: () => void;
+      const inside = new Promise<void>((resolve) => (entered = resolve));
+      const save = serializeSidecarWrite(sidecar, async () => {
+        entered();
+        await gate;
+        await writeFile(sidecar, PREVIOUS);
+      });
+      await inside;
+
+      const uploading = upload('photo.xmp', REPLACEMENT);
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      release();
+      await save;
+
+      expect((await uploading).status).toBe(409);
+      expect(new Uint8Array(await readFile(sidecar))).toEqual(PREVIOUS);
+    });
+
+    describe('where hard links are refused (SMB)', () => {
+      const refuseLinks = () =>
+        spyOn(mirrored, 'link').mockRejectedValue(
+          Object.assign(new Error('cross-device link'), { code: 'EXDEV' }),
+        );
+
+      it('publishes the whole sidecar by a no-replace rename, never a partial copy', async () => {
+        const link = refuseLinks();
+        const copies = spyOn(mirrored, 'open');
+        try {
+          expect((await upload('fresh.xmp', REPLACEMENT)).status).toBe(201);
+          const sidecar = nodePath.join(folderPath, 'fresh.xmp');
+          expect(copies.mock.calls.some(([at]) => at === sidecar)).toBe(false);
+        } finally {
+          link.mockRestore();
+          copies.mockRestore();
+        }
+        expect(new Uint8Array(await readFile(nodePath.join(folderPath, 'fresh.xmp')))).toEqual(
+          REPLACEMENT,
+        );
+      });
+
+      it('still refuses a sidecar an XMP save wrote while the upload waited', async () => {
+        const sidecar = nodePath.join(folderPath, 'photo.xmp');
+        let release!: () => void;
+        const gate = new Promise<void>((resolve) => (release = resolve));
+        let entered!: () => void;
+        const inside = new Promise<void>((resolve) => (entered = resolve));
+        const save = serializeSidecarWrite(sidecar, async () => {
+          entered();
+          await gate;
+          await writeFile(sidecar, PREVIOUS);
+        });
+        await inside;
+        const link = refuseLinks();
+        try {
+          const uploading = upload('photo.xmp', REPLACEMENT);
+          await new Promise((resolve) => setTimeout(resolve, 100));
+          release();
+          await save;
+          expect((await uploading).status).toBe(409);
+        } finally {
+          link.mockRestore();
+        }
+        expect(new Uint8Array(await readFile(sidecar))).toEqual(PREVIOUS);
+      });
+    });
   });
 });

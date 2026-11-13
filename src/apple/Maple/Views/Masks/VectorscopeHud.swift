@@ -62,7 +62,6 @@ struct VectorscopeHud: View {
       RoundedRectangle(cornerRadius: MapleTokens.Radius.sm)
         .strokeBorder(Color.white.opacity(0.2), lineWidth: 1)
     )
-    .padding(.trailing, 12)
     .accessibilityIdentifier("editor-vectorscope-hud")
     .accessibilityLabel("Skin tone vectorscope")
     .accessibilityValue(accessibilityValueText)

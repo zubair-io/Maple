@@ -22,6 +22,8 @@ import type { Database } from 'bun:sqlite';
 import type { ObjectId } from '../../db/object-id.ts';
 import { toObjectId } from '../../db/repos/values.ts';
 import { createTempLibrary } from '../../db/sqlite/test-sqlite.test-helpers.ts';
+import { runSweepSlice, type SweepSliceSummary } from './sweep-slice.ts';
+import type { ReconcileDeps } from './sweeper.ts';
 
 /** A registered library rooted at a real temporary directory. */
 export interface DiscoverLibrary extends Disposable {
@@ -34,6 +36,31 @@ export interface DiscoverLibrary extends Disposable {
 export async function createDiscoverLibrary(prefix: string): Promise<DiscoverLibrary> {
   const library = await createTempLibrary(prefix);
   return { ...library, folderId: toObjectId(library.folderId) };
+}
+
+/**
+ * One full sweep generation of a registered root, through the production slice
+ * with no pacing. A slice keeps sweeping across generations, so this one is
+ * stopped as soon as it completes one: consecutive calls walk consecutive
+ * generations.
+ */
+export function sweepGeneration(
+  folderId: ObjectId,
+  root: string,
+  handleEvent: ReconcileDeps['handleEvent'],
+): Promise<SweepSliceSummary> {
+  const stop = new AbortController();
+  return runSweepSlice({
+    folderId,
+    root,
+    deps: { folderId, handleEvent },
+    loadConfig: async () => ({ paused: false, sweepDirIntervalMs: 0 }),
+    heartbeat: (progress) => {
+      if (progress.generationsCompleted > 0) stop.abort();
+    },
+    signal: stop.signal,
+    sleep: async () => {},
+  });
 }
 
 /**

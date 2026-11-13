@@ -11,6 +11,8 @@ import {
   run,
 } from '../db/sqlite/test-sqlite.test-helpers.ts';
 import { BackupRepository } from './repository.ts';
+import { GoogleConnectionError } from './google/config.ts';
+import { GoogleDriveError } from './google/client.ts';
 import { BackupEngine, entryPrefix } from './engine.ts';
 import { assetInventory } from './inventory.ts';
 import { createTestProvider } from './test-provider.test-helpers.ts';
@@ -31,7 +33,12 @@ afterEach(async () => {
 async function setup(live: Awaited<ReturnType<typeof createLiveTestDatabase>>) {
   const libraryId = insertFolder(live.db, { path: root });
   const assetId = insertAsset(live.db);
-  insertLocation(live.db, { assetId, libraryId, path: '', filename: 'photo.dng' });
+  insertLocation(live.db, {
+    assetId,
+    libraryId,
+    path: '',
+    filename: 'photo.dng',
+  });
   await fs.writeFile(path.join(root, 'photo.dng'), 'immutable original');
   await fs.writeFile(
     path.join(root, 'photo.xmp'),
@@ -73,6 +80,49 @@ test('original and exact XMP bytes mirror to one current remote path without the
   run(live.db, 'DELETE FROM backup_entries');
   expect((await readRemoteCatalog(provider)).entries).toHaveLength(1);
   expect(await fs.readFile(path.join(root, 'photo.dng'), 'utf8')).toBe('immutable original');
+});
+test('database-backed asset mirror state is visible and a stale failure forces another sync', async () => {
+  using live = await createLiveTestDatabase();
+  const { assetId, destination, repo, engine } = await setup(live);
+  expect(await engine.backupAsset(assetId)).toBe(true);
+  const states = await repo.mirrorsForAssets([assetId]);
+  expect(states.get(assetId)).toMatchObject([
+    {
+      destinationId: destination.id,
+      provider: 'google-drive',
+      status: 'synced',
+      state: 'active',
+    },
+  ]);
+
+  await repo.db.write('UPDATE backup_entries SET last_error=? WHERE destination_id=?', [
+    'Google object failed identity or integrity validation: backup marker is missing or malformed.',
+    destination.id,
+  ]);
+  expect((await repo.mirrorsForAssets([assetId])).get(assetId)?.[0]?.status).toBe('error');
+  expect(await engine.backupAsset(assetId)).toBe(true);
+  expect((await repo.entries(destination.id))[0]?.last_error).toBeNull();
+  expect((await repo.mirrorsForAssets([assetId])).get(assetId)?.[0]?.status).toBe('synced');
+  await repo.updateDestination(destination.id, { enabled: false });
+  expect((await repo.mirrorsForAssets([assetId])).get(assetId)?.[0]?.status).toBe('paused');
+  await repo.db.write('UPDATE backup_entries SET last_error=? WHERE destination_id=?', [
+    'Retry required',
+    destination.id,
+  ]);
+  expect((await repo.mirrorsForAssets([assetId])).get(assetId)?.[0]?.status).toBe('error');
+  await repo.db.write("UPDATE backup_entries SET state='trash' WHERE destination_id=?", [
+    destination.id,
+  ]);
+  expect((await repo.mirrorsForAssets([assetId])).get(assetId)?.[0]?.status).toBe('trash');
+  await repo.db.write(
+    "UPDATE backup_entries SET state='trash',last_error='Retry required' WHERE destination_id=?",
+    [destination.id],
+  );
+  expect((await repo.mirrorsForAssets([assetId])).get(assetId)?.[0]?.status).toBe('trash');
+  await repo.db.write("UPDATE backup_entries SET state='purged' WHERE destination_id=?", [
+    destination.id,
+  ]);
+  expect((await repo.mirrorsForAssets([assetId])).get(assetId)?.[0]?.status).toBe('purged');
 });
 test('outgoing entry cleanup preserves a mirror path that another entry has claimed', async () => {
   using live = await createLiveTestDatabase();
@@ -252,4 +302,134 @@ test('legacy mirror IDs survive restart and destination deletion cannot abandon 
   await expect(
     repo.db.write('DELETE FROM backup_destinations WHERE id=?', [destination.id]),
   ).rejects.toThrow('pending cleanup');
+});
+
+test('a recorded failure honours its backoff before the stale-error retry runs', async () => {
+  using live = await createLiveTestDatabase();
+  const { assetId, destination, repo, engine } = await setup(live);
+  expect(await engine.backupAsset(assetId)).toBe(true);
+  const entry = (await repo.entries(destination.id))[0]!;
+  expect(await repo.claim(entry, 'worker')).toBe(true);
+  await repo.fail(entry, 'worker', 'Transient Google failure');
+
+  expect(await engine.backupAsset(assetId)).toBe(false);
+  const backedOff = (await repo.entries(destination.id))[0]!;
+  expect(backedOff.last_error).toBe('Transient Google failure');
+  expect(backedOff.retry_at).toBeGreaterThan(Date.now());
+  expect((await repo.mirrorsForAssets([assetId])).get(assetId)?.[0]?.status).toBe('error');
+
+  await repo.db.write('UPDATE backup_entries SET retry_at=0 WHERE id=?', [entry.id]);
+  expect(await engine.backupAsset(assetId)).toBe(true);
+  expect((await repo.entries(destination.id))[0]?.last_error).toBeNull();
+  expect((await repo.mirrorsForAssets([assetId])).get(assetId)?.[0]?.status).toBe('synced');
+});
+
+test('a healthy connection rearms sibling connection failures but keeps other errors and leased entries', async () => {
+  using live = await createLiveTestDatabase();
+  const { assetId, destination, repo, provider, engine } = await setup(live);
+  const probe = provider.probe.bind(provider);
+  let connectionDown = true;
+  provider.probe = async (signal) => {
+    if (connectionDown) throw new GoogleConnectionError('Reconnect Google Drive to resume backup.');
+    return probe(signal);
+  };
+  expect(await engine.backupAsset(assetId)).toBe(false);
+  const failed = (await repo.entries(destination.id, assetId))[0]!;
+  expect(failed).toMatchObject({
+    last_error: 'Reconnect Google Drive to resume backup.',
+    error_kind: 'connection',
+  });
+  expect(failed.retry_at).toBeGreaterThan(Date.now());
+
+  const seedEntry = async (name: string, kind: 'connection' | null, lease?: string) => {
+    const id = insertAsset(live.db);
+    const entry = await repo.ensureEntry(destination.id, id, 0, name);
+    const until = lease ? Date.now() + 120_000 : 0;
+    await repo.db.write(
+      `UPDATE backup_entries SET last_error=?,error_kind=?,attempts=4,retry_at=?,lease_owner=?,lease_until=?
+       WHERE id=?`,
+      [`stale ${name}`, kind, Date.now() + 60_000, lease ?? null, until, entry.id],
+    );
+    run(
+      live.db,
+      `INSERT INTO stage_state (asset_id, stage, version, attempts, dead) VALUES (?, 'cloud-backup', 3, 5, 1)`,
+      id,
+    );
+    return id;
+  };
+  const sibling = await seedEntry('sibling.dng', 'connection');
+  const integrity = await seedEntry('integrity.dng', null);
+  const leased = await seedEntry('leased.dng', 'connection', 'active-worker');
+
+  connectionDown = false;
+  await repo.db.write('UPDATE backup_entries SET retry_at=0 WHERE id=?', [failed.id]);
+  expect(await engine.backupAsset(assetId)).toBe(true);
+  expect((await repo.entries(destination.id, assetId))[0]).toMatchObject({
+    last_error: null,
+    error_kind: null,
+  });
+
+  expect((await repo.entries(destination.id, sibling))[0]).toMatchObject({
+    last_error: null,
+    error_kind: null,
+    attempts: 0,
+    retry_at: 0,
+  });
+  expect(
+    live.db.query(`SELECT version, attempts, dead FROM stage_state WHERE asset_id=?`).get(sibling),
+  ).toEqual({ version: 0, attempts: 0, dead: 0 });
+  expect((await repo.entries(destination.id, integrity))[0]).toMatchObject({
+    last_error: 'stale integrity.dng',
+    error_kind: null,
+    attempts: 4,
+  });
+  expect((await repo.entries(destination.id, leased))[0]).toMatchObject({
+    last_error: 'stale leased.dng',
+    error_kind: 'connection',
+    lease_owner: 'active-worker',
+  });
+});
+
+test('Drive transport and credential failures are recorded as connection failures; object failures are not', async () => {
+  using live = await createLiveTestDatabase();
+  const { assetId, destination, repo, provider, engine } = await setup(live);
+  const cases: Array<[Error, 'connection' | null]> = [
+    [new GoogleDriveError(0, null), 'connection'],
+    [new GoogleDriveError(401, null), 'connection'],
+    [new GoogleDriveError(403, null), 'connection'],
+    [new GoogleDriveError(503, 1000), 'connection'],
+    [new GoogleDriveError(404, null), null],
+    [new Error('Backup immutable object integrity mismatch'), null],
+  ];
+  for (const [failure, kind] of cases) {
+    provider.probe = () => Promise.reject(failure);
+    const entry = (await repo.entries(destination.id, assetId))[0];
+    if (entry) await repo.db.write('UPDATE backup_entries SET retry_at=0 WHERE id=?', [entry.id]);
+    expect(await engine.backupAsset(assetId)).toBe(false);
+    expect((await repo.entries(destination.id, assetId))[0]).toMatchObject({
+      last_error: failure.message,
+      error_kind: kind,
+    });
+  }
+});
+
+test('any successful probe on the destination rearms parked connection failures', async () => {
+  using live = await createLiveTestDatabase();
+  const { assetId, destination, repo, engine } = await setup(live);
+  const parkedAsset = insertAsset(live.db);
+  const parked = await repo.ensureEntry(destination.id, parkedAsset, 0, 'parked.dng');
+  await repo.db.write(
+    `UPDATE backup_entries SET last_error='Google is unreachable; retry shortly.',error_kind='connection',
+     attempts=3,retry_at=? WHERE id=?`,
+    [Date.now() + 60_000, parked.id],
+  );
+
+  expect(await engine.backupAsset(assetId)).toBe(true);
+
+  expect((await repo.entries(destination.id, parkedAsset))[0]).toMatchObject({
+    last_error: null,
+    error_kind: null,
+    attempts: 0,
+    retry_at: 0,
+  });
 });

@@ -4,6 +4,68 @@ import XCTest
 @testable import MapleCore
 
 final class SMBWorkflowRecoveryTests: XCTestCase {
+  func testSourceBatchSavePreservesAdoptedHistoryAndSnapshots() async throws {
+    let fixture = try await OwnedSMBWorkflowFixture.open(testCase: self)
+    do {
+      let ref = try await fixture.image()
+      let store = SMBSidecarStore(source: fixture.source, ref: ref)
+      let loaded = try await store.load()
+      try await store.commitSemantic(
+        model: loaded.0, culling: loaded.1, action: "adjustment", label: "Before batch")
+      let document = try await store.readWorkflowXML()
+      let current = try XCTUnwrap(document)
+      let checkpoint = try WorkflowSidecarCore.checkpoint(xmp: current)
+      let snapshot = WorkflowSnapshot(
+        id: UUID().uuidString.lowercased(), name: "Keep snapshot", createdAtMs: 1,
+        adjustmentXmp: checkpoint)
+      let seeded = try WorkflowSidecarCore.snapshot(snapshot, in: current)
+      let sidecar = fixture.share.appendingPathComponent("photo.xmp")
+      try seeded.write(to: sidecar, atomically: true, encoding: .utf8)
+      let adopted = try XCTUnwrap(WorkflowSidecarCore.read(xmp: seeded))
+      var model = loaded.0
+      model.exposure = 1.25
+      try await fixture.source.writeXMP(Sidecar(model: model, culling: loaded.1), for: ref)
+      let saved = try String(contentsOf: sidecar, encoding: .utf8)
+      XCTAssertEqual(try XMPParser.parse(saved).0.exposure, 1.25)
+      XCTAssertEqual(try WorkflowSidecarCore.read(xmp: saved), adopted)
+      XCTAssertTrue(saved.contains("<foreign:Audit"))
+      XCTAssertEqual(try Data(contentsOf: fixture.raw), fixture.original)
+    } catch {
+      await fixture.close()
+      throw error
+    }
+    await fixture.close()
+  }
+
+  func testSourceWriteRetainsItsPublicationAfterALostRenameReply() async throws {
+    let fixture = try await OwnedSMBWorkflowFixture.open(testCase: self)
+    let proxy = try await OwnedSMBPublicationProxy.open(fixture)
+    do {
+      await fixture.source.disconnect()
+      try await fixture.source.connect(credentials: proxy.credentials)
+      let ref = try await fixture.image()
+      var model = AdjustmentModel.default
+      model.exposure = 1.75
+      try proxy.arm()
+      try await fixture.source.writeXMP(Sidecar(model: model, culling: CullingState()), for: ref)
+      XCTAssertTrue(proxy.droppedAcknowledgement)
+      let xml = try XCTUnwrap(
+        String(
+          data: Data(contentsOf: fixture.share.appendingPathComponent("photo.xmp")), encoding: .utf8
+        ))
+      XCTAssertEqual(try XMPParser.parse(xml).0.exposure, 1.75)
+      XCTAssertEqual(XMPParser.parseMetadata(xml).caption, "Caption A")
+      XCTAssertTrue(xml.contains("<foreign:Audit"))
+      XCTAssertEqual(try Data(contentsOf: fixture.raw), fixture.original)
+    } catch {
+      await proxy.close()
+      await fixture.close()
+      throw error
+    }
+    await proxy.close()
+    await fixture.close()
+  }
+
   func testAcceptedSemanticEditSurvivesLostNetworkAcknowledgementWithoutDuplicateHistory()
     async throws
   {
@@ -70,8 +132,8 @@ final class SMBWorkflowRecoveryTests: XCTestCase {
       try await store.commitSemantic(
         model: first, culling: loaded.1, action: "adjustment", label: "First")
     }
-    // Both publications can be queued before the first server reply arrives.
-    await Task.yield()
+    // Independently scheduled callers have no promised admission order.
+    // Each accepted history entry must retain its own model in either order.
     let secondEdit = Task {
       try await store.commitSemantic(
         model: second, culling: loaded.1, action: "adjustment", label: "Second")
@@ -81,8 +143,17 @@ final class SMBWorkflowRecoveryTests: XCTestCase {
     let xml = try await store.readWorkflowXML()
     let confirmed = try XCTUnwrap(xml)
     let record = try XCTUnwrap(WorkflowSidecarCore.read(xmp: confirmed))
-    XCTAssertEqual(record.history.map(\.label), ["First", "Second"])
-    XCTAssertEqual(try XMPParser.parse(confirmed).0.exposure, 2)
+    XCTAssertEqual(record.history.count, 2)
+    XCTAssertEqual(Set(record.history.map(\.label)), Set(["First", "Second"]))
+    let expected: [String: Double] = ["First": 1, "Second": 2]
+    for entry in record.history {
+      XCTAssertEqual(
+        try XMPParser.parse(entry.adjustmentXmp).0.exposure, try XCTUnwrap(expected[entry.label]))
+    }
+    let finalEntry = try XCTUnwrap(record.history.last)
+    XCTAssertEqual(
+      try XMPParser.parse(confirmed).0.exposure,
+      try XMPParser.parse(finalEntry.adjustmentXmp).0.exposure)
     let original = try await fixture.source.rawBytes(for: ref)
     XCTAssertEqual(original, fixture.original)
     await fixture.close()

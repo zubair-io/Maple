@@ -198,6 +198,41 @@ final class BatchAdjustmentTransferTests: XCTestCase {
     } catch { XCTAssertTrue(error is BatchAdjustmentError) }
   }
 
+  func testByteIdenticalSMBCopiesAreDistinctTargetsAndShareStemsStillCollide() async throws {
+    let root = try directory()
+    defer { try? FileManager.default.removeItem(at: root) }
+    let ledger = BatchAdjustmentTransfer(directory: root.appendingPathComponent("ledger"))
+    let request = BatchAdjustmentRequest(
+      source: .default, groups: [.tone], relativeWhiteBalance: false, sourceBaseline: nil)
+    func smb(_ path: String) -> AssetRef {
+      AssetRef(
+        displayName: (path as NSString).lastPathComponent, hintExtension: nil,
+        stableID: "shared-content-id", thumbnailProvenance: .smb, smbPath: path,
+        bytesProvider: { Data() })
+    }
+    let copies = [smb("/Backup/A.dng"), smb("/Photos/A.dng")]
+    let ids = copies.map(\.adjustmentTransferID)
+    XCTAssertEqual(ids, ["smb:/Backup/A.dng", "smb:/Photos/A.dng"])
+    let operation = try await ledger.create(
+      scopeID: "smb", request: request, targets: copies.compactMap(\.adjustmentTransferTarget))
+    XCTAssertEqual(operation.targets.map(\.id), ids)
+
+    let stems = [smb("/Photos/raw.dng"), smb("/Photos/raw.jpg")]
+    let stemLedger = BatchAdjustmentTransfer(directory: root.appendingPathComponent("stems"))
+    do {
+      _ = try await stemLedger.create(
+        scopeID: "smb", request: request, targets: stems.compactMap(\.adjustmentTransferTarget))
+      XCTFail("Two SMB originals must not overwrite the same sidecar")
+    } catch BatchAdjustmentError.sharedSidecar {}
+
+    // A video keeps its full-name sidecar (#5053), so it never shares the photo's.
+    let liveLedger = BatchAdjustmentTransfer(directory: root.appendingPathComponent("live"))
+    let live = [smb("/Photos/IMG.HEIC"), smb("/Photos/IMG.MOV")]
+    let liveOperation = try await liveLedger.create(
+      scopeID: "smb", request: request, targets: live.compactMap(\.adjustmentTransferTarget))
+    XCTAssertEqual(liveOperation.targets.count, 2)
+  }
+
   func testWrongLibraryAndUnknownPreparedGroupsAreRejected() async throws {
     let root = try directory()
     defer { try? FileManager.default.removeItem(at: root) }

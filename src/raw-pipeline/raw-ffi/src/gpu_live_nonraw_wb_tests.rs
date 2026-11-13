@@ -83,6 +83,8 @@ fn gpu_params_nonraw(
 fn cpu_params_nonraw() -> MapleAdjustmentParams {
     MapleAdjustmentParams {
         nr_sampling_scale: 1.0,
+        wb_method: 0,
+        creative_ptr: std::ptr::null(),
         whites_anchor_ev: f32::NAN,
         temperature: LIVE_TEMP,
         tint: LIVE_TINT,
@@ -128,6 +130,9 @@ fn cpu_params_nonraw() -> MapleAdjustmentParams {
         split_tone_highlight_hue: 0.0,
         split_tone_highlight_saturation: 0.0,
         split_tone_balance: 0.0,
+        color_grade_blending: 100.0,
+        color_grade_shadow_edge: 0.564622,
+        color_grade_highlight_edge: 0.564622,
         color_grade_shadow_luminance: 0.0,
         color_grade_midtone_hue: 0.0,
         color_grade_midtone_saturation: 0.0,
@@ -222,7 +227,7 @@ fn nonraw_wb_delta_matches_gpu_live_and_cpu_chain() {
     let model_for_arrays = AdjustmentModel::default();
     let arr = owned_arrays(&model_for_arrays, &curve, &lut);
     let gpu_params = gpu_params_nonraw(&arr, LIVE_TEMP, LIVE_TINT, D65_TEMP, D65_TINT);
-    let gpu_inputs = unsafe { inputs_from_params(&gpu_params) };
+    let gpu_inputs = unsafe { inputs_from_params(&gpu_params) }.unwrap();
     let gpu_result = Matrix3(gpu_inputs.wb_matrix).mul_vec(probe);
 
     // --- CPU chain side: the real FFI entry, on a 1x1 buffer, skip_agx so the
@@ -281,7 +286,7 @@ fn nonraw_wb_default_slider_is_identity_on_both_paths() {
     let arr = owned_arrays(&model_for_arrays, &curve, &lut);
 
     let gpu_params = gpu_params_nonraw(&arr, D65_TEMP, D65_TINT, D65_TEMP, D65_TINT);
-    let gpu_inputs = unsafe { inputs_from_params(&gpu_params) };
+    let gpu_inputs = unsafe { inputs_from_params(&gpu_params) }.unwrap();
     let gpu_result = Matrix3(gpu_inputs.wb_matrix).mul_vec(probe);
 
     let mut cpu_params = cpu_params_nonraw();

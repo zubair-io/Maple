@@ -6,6 +6,7 @@ import XCTest
 final class EditorCommandWhiteBalanceTests: EditorTestCase {
   func testHeldTemperatureNudgePreservesPresetUndoAndDecodedCacheIdentity() async {
     let session = EditSession.preview()
+    await session.loadSidecar()
     let state = EditorState(session: session)
     let router = EditorCommandRouter(state: state)
     await state.applyWhiteBalancePreset(.daylight)

@@ -7,7 +7,7 @@
  * appear everywhere (search callers opt in to dropping them via
  * `excludeHiddenPeople=true`). `excluded` is strictly stronger: search,
  * timeline buckets, facets, and map clusters drop their photos
- * UNCONDITIONALLY, and the Meili stage stops indexing their name. Both
+ * UNCONDITIONALLY, and the search stages stop indexing their name. Both
  * flags keep faces assigned and the row alive as a clustering seed, so
  * restoring brings back a fully-populated cluster.
  *

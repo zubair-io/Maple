@@ -112,7 +112,9 @@ export async function findInviteByCode(
 }
 
 /**
- * Every invite, for the owner's pending-invites list.
+ * Every invite that has not expired, for the owner's pending-invites list.
+ * Expiry is applied here rather than left to the sweep, so an expired invite
+ * never shows whether or not its row has been removed yet.
  *
  * Ordered by id, which is the order they were created in — an ObjectId's
  * leading bytes are its timestamp.
@@ -121,7 +123,8 @@ export async function listInvites(
   dbOverride?: SqliteDb,
 ): Promise<Pick<InviteDoc, 'code' | 'expires_at' | 'consumed_at'>[]> {
   const rows = await sqliteDb(dbOverride).read<InviteRow>(
-    `SELECT code, expires_at, consumed_at FROM invites ORDER BY id ASC`,
+    `SELECT code, expires_at, consumed_at FROM invites WHERE expires_at >= ? ORDER BY id ASC`,
+    [nowIso()],
   );
   return rows.map((row) => ({
     code: row.code,

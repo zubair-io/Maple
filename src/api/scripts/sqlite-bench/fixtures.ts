@@ -71,7 +71,7 @@ export const STAGE_NAMES = [
   'face-embed',
   'describe',
   'geocode',
-  'meili',
+  'search-blob',
   'sidecar-metadata-index',
   'cf-thumb-sync',
   'transcribe',

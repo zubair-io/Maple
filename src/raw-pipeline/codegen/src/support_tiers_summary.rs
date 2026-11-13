@@ -14,7 +14,7 @@
 //! would be dead weight in two app bundles but is exactly what answers
 //! "does Maple know my camera".
 
-use raw_core::capability_registry::Evidence;
+use raw_core::capability_registry::{current_schema_version, Evidence};
 use raw_core::support_tiers::{
     BodyClassification, CameraTier, LensSupport, SupportRegistry, SUPPORT_TIER_SCHEMA_VERSION,
 };
@@ -28,7 +28,6 @@ use crate::support_tiers::fallback_rows;
 // -------------------------------------------------------------------------
 
 pub(crate) fn emit_md(registry: &SupportRegistry, evidence: &Evidence) -> String {
-    let build = evidence.build.expect("evidence carries a build identity");
     let count = |tier: CameraTier| registry.at_tier(tier).len();
     let mut s = String::new();
     s.push_str("# Camera and lens support\n\n");
@@ -44,12 +43,8 @@ pub(crate) fn emit_md(registry: &SupportRegistry, evidence: &Evidence) -> String
         "- Tier schema version: {SUPPORT_TIER_SCHEMA_VERSION}\n"
     ));
     s.push_str(&format!(
-        "- Pipeline output version: {}\n",
-        build.pipeline_version
-    ));
-    s.push_str(&format!(
         "- Sidecar schema version: {}\n",
-        build.schema_version
+        current_schema_version()
     ));
     s.push_str(&format!(
         "- Bundled camera models: {}\n",
@@ -94,7 +89,7 @@ pub(crate) fn emit_md(registry: &SupportRegistry, evidence: &Evidence) -> String
     s.push('\n');
 
     s.push_str("## Fixtured bodies\n\n");
-    s.push_str("Each qualification verdict includes the actual recorded commit, corpus digest, backend and pipeline/schema versions when a record exists. Missing records have no measurement identity. Rejected records retain their recorded versions; the registry profile bundle identifies this build and is not a claim that stale evidence measured it (#4081).\n\n");
+    s.push_str("Each qualification verdict includes the actual recorded commit, corpus digest and backend when a record exists. Missing records have no measurement identity. Rejected records retain their identity; the registry profile bundle identifies this build and is not a claim that stale evidence measured it (#4081).\n\n");
     s.push_str(
         "Every camera Maple holds a physical file for. No other body can reach `qualified`, because no other body has anything to measure. Each fixture digest identifies the exact reviewed sample bytes; fixture validation rejects a different sample under the same filename before decoding it (#4080). These identities do not supply missing measurement-run evidence or the fixed C-suite requirements tracked by #2440 and #2439.\n\n",
     );
@@ -168,7 +163,6 @@ fn body_json(body: &BodyClassification, evidence: &Evidence, registry: &SupportR
 }
 
 pub(crate) fn emit_json(registry: &SupportRegistry, evidence: &Evidence) -> String {
-    let build = evidence.build.expect("evidence carries a build identity");
     let tiers = CameraTier::ALL
         .iter()
         .map(|t| {
@@ -214,11 +208,7 @@ pub(crate) fn emit_json(registry: &SupportRegistry, evidence: &Evidence) -> Stri
                     "tier_schema_version",
                     J::Num(SUPPORT_TIER_SCHEMA_VERSION.into()),
                 ),
-                (
-                    "pipeline_output_version",
-                    J::Num(build.pipeline_version.into()),
-                ),
-                ("schema_version", J::Num(build.schema_version.into())),
+                ("schema_version", J::Num(current_schema_version().into())),
                 (
                     "profile_bundle_format",
                     J::Num(registry.profile_bundle_format.into()),
@@ -259,10 +249,7 @@ pub(crate) mod test_support {
     use super::*;
 
     pub(crate) fn evidence() -> Evidence {
-        Evidence {
-            build: Some(raw_core::capability_registry::BuildIdentity::current()),
-            ..Evidence::default()
-        }
+        Evidence::default()
     }
 
     pub(crate) fn registry() -> SupportRegistry {

@@ -2,6 +2,7 @@ pub mod auto_adjustments;
 /// Auto white balance for [`auto_adjustments`] (#2247). `pub(crate)` API
 /// surface; the public entry point stays `compute_auto_adjustments`.
 pub(crate) mod auto_adjustments_awb;
+mod auto_adjustments_awb_median;
 /// Tone-slider calibration for [`auto_adjustments`] (#1376). `pub(crate)` API
 /// surface; the public entry point stays `compute_auto_adjustments`.
 pub mod auto_adjustments_tone;
@@ -12,6 +13,8 @@ pub mod bm3d;
 pub mod capture_sharpening;
 pub mod chroma_prefilter;
 pub mod clarity;
+pub mod color_curve_sample;
+pub mod color_curves;
 pub mod color_grade;
 pub mod crop;
 pub mod defringe;
@@ -54,3 +57,6 @@ pub mod white_balance_auto;
 /// Neutral white-balance sampler (#2434): AUTO's probe and judgement, at a
 /// user-picked point.
 pub mod white_balance_sample;
+
+#[cfg(test)]
+mod chroma_continuity_tests;

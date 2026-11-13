@@ -197,9 +197,9 @@ Reserve environment variables for bootstrap that must be known before the databa
 
 ### Ongoing per-asset work is a stage, not a job
 
-If the job description is "eventually, every eligible asset gets property X" — a derivative, a mirrored copy, a computed metric — it belongs in `src/api/src/workers/stages/` as a `defineStage()` stage (`src/api/src/workers/stage-config.ts`, run by `src/api/src/workers/run-stage.ts`), the same shape as `exif`, `thumb`, `preview`, `describe`, `geocode`, `meili`, `transcribe`. That machinery hands you pause/resume, concurrency, retry with backoff, dead-lettering, and a live progress row on Settings → Workers for free. A one-off job or a bespoke settings-page button reimplements a worse version and is invisible to the operator everywhere else.
+If the job description is "eventually, every eligible asset gets property X" — a derivative, a mirrored copy, a computed metric — it belongs in `src/api/src/workers/stages/` as a `defineStage()` stage (`src/api/src/workers/stage-config.ts`, run by `src/api/src/workers/run-stage.ts`), the same shape as `exif`, `thumb`, `preview`, `describe`, `geocode`, `search-blob`, `transcribe`. That machinery hands you pause/resume, concurrency, retry with backoff, dead-lettering, and a live progress row on Settings → Workers for free. A one-off job or a bespoke settings-page button reimplements a worse version and is invisible to the operator everywhere else.
 
-Registering a stage is three additions plus a label: the stage's own `startXStage()` export; entries in both `stageManifest` and `ALL_STAGE_NAMES` in `src/api/src/workers/stages/manifest.ts` (this is what makes existing assets retroactively eligible and what the generic status counters key off); an entry in `STAGE_STARTERS` in `src/api/src/workers/orchestrator.ts` (what boots the poll loop); and a `STAGE_META` entry in `src/web/projects/maple/src/app/settings/workers/workers.vm.ts` for a human-readable name.
+Registering a stage is three additions plus a label: the stage file, exporting its definition and a `start<Name>Stage()` that calls `runStage`; its name in `ALL_STAGE_NAMES` in `src/api/src/workers/stages/stage-names.ts` (this is what makes existing assets retroactively eligible and what the generic status counters key off); its `{ definition, start }` entry in `stageRegistrations` in `src/api/src/workers/stages/manifest.ts` (what the orchestrator boots; `stageManifest` is derived from it); and a `STAGE_META` entry in `src/web/projects/maple/src/app/settings/workers/workers-stage-meta.ts` for a human-readable name.
 
 Ordering between stages is declared, not scheduled: each stage lists a `dependsOn` array of `{ name, minVersion }` entries, and the claim query parks an asset until every upstream stage has reached that version. Position in the manifest means nothing. A stage that discovers its upstream produced something unusable returns `{ rearm: { stage, reason } }`, which resets that upstream stage rather than marking the asset done.
 
@@ -274,8 +274,10 @@ A change behind `#if os(...)` must be built on every platform it touches. CI's o
 - **No filesystem access in the core.** Entry points take and return bytes; the shell owns I/O.
 - **Never panic on bad input.** Library code returns `Result<T, E>`. `unwrap`/`expect` belong in tests and binaries.
 - **`rayon` for CPU parallelism.** Pixel-decomposable stages use parallel iterators; don't spawn threads by hand.
-- **Every stage gets unit tests**, and the ACR-referenced perceptual harness is the integration gate. Roughly one test per public function and per failure mode — not per line.
+- **Every stage gets unit tests**, and the embedded-JPEG colour harness (`src/scripts/test_color_pipeline.sh`) is the integration gate. Roughly one test per public function and per failure mode — not per line.
 - **A stage change must land its GPU counterpart.** `cargo test -p raw-core` cannot see WGSL divergence; `raw-pipeline.yml` runs a separate `raw-gpu` job that validates the shaders with `naga` and checks raw-core ↔ GPU parity.
+
+Day-to-day style — imports, signatures, error types, traits, naming, `unsafe` — follows the [Google Rust Style Guide](https://google.github.io/styleguide/rustguide.html) as adapted in [`.claude/skills/rust-style/SKILL.md`](../.claude/skills/rust-style/SKILL.md). The rules above override it where they are stricter.
 
 Anything that exists in two languages is single-sourced. Color matrices, the adjustment schema, UI tokens, and the film catalog are all emitted by `src/raw-pipeline/codegen` through `tools/codegen.sh`, and `cross.yml`'s `codegen-drift` job regenerates them and fails on any diff. Change the Rust constant and run the generator; never hand-edit a generated file.
 
@@ -312,7 +314,7 @@ Anything that exists in two languages is single-sourced. Color matrices, the adj
 | `process.env.X = …` at test module scope               | `withTestEnv`                                |
 | Raw SQL in a route handler                             | a `*.repo.ts` function                       |
 | A new environment variable for a feature toggle        | a DB-backed setting with a Settings control  |
-| A JobRunner job for ongoing per-asset work             | a `defineStage()` stage                      |
+| A job (`job-runner/`) for ongoing per-asset work       | a `defineStage()` stage                      |
 | `unwrap()` in Rust library code                        | `Result<T, E>`                               |
 | An unguarded `await` writing into observed Swift state | a generation-counter guard                   |
 | Hand-editing a file under a `generated/` directory     | edit the Rust source, run `tools/codegen.sh` |
@@ -328,4 +330,5 @@ Anything that exists in two languages is single-sourced. Color matrices, the adj
 - [caching](caching.md) — every cache, its key, and its invalidation rule
 - [testing](testing.md) — the full gate and harness inventory
 - [unified-component-catalog](unified-component-catalog.md) — the design-system inventory
+- [rust-style skill](../.claude/skills/rust-style/SKILL.md) — Rust style rules for people and agents
 - `CONTRIBUTING.md` — ticket, commit, and merge policy

@@ -67,9 +67,8 @@ pub fn apply_white_balance(buf: &mut [f32], matrix: [[f32; 3]; 3]) {
 
 /// A GPU-resident white-balance stage. Carries the **already-derived** 3×3
 /// linear-Rec.2020 WB matrix (CAT16 or diagonal — both collapse to a single
-/// matmul). The device, pipeline, and ping-pong buffers come from the
-/// [`GpuContext`] / [`ChainRunner`]; the matrix is uploaded as three `vec4` rows
-/// inside `encode`.
+/// matmul). The device, pipeline, and ping-pong buffers come from the [`GpuContext`] /
+/// [`ChainRunner`]; the matrix is uploaded as three `vec4` rows inside `encode`.
 pub struct WhiteBalancePass {
     /// Row-major 3×3 WB matrix (the output of raw-core's `wb_cat16_matrix`, or a
     /// diagonal built from `wb_gains`).

@@ -33,6 +33,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Include="..\Maple.UI\MuiColorGradeZoneWeightsMath.cs" Link="MapleUI\Molecules\MuiColorGradeZoneWeightsMath.cs" />
     <Content Include="Assets\Map\**\*" CopyToOutputDirectory="PreserveNewest" />
     <EmbeddedResource Include="..\..\apple\Packages\MapleCore\Sources\MapleCore\Resources\builtin-presets.json" LogicalName="Maple.BuiltinPresets.json" />
     <Content Include="Assets\maple.ico">
@@ -69,7 +70,7 @@
     </None>
   </ItemGroup>
 
-  <!-- Pano stitcher (#2583): `cargo build - -release -p maple-cli - -features pano`.
+  <!-- Pano stitcher (#2583, #4556): `cargo build - -release -p maple-cli - -features pano,pano-classical`.
        Ships beside the app; PanoProvisioner also falls back to the repo
        target dir for development. -->
   <ItemGroup Condition="Exists('$(MapleNativeDir)\maple-cli.exe')">

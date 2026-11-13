@@ -5,9 +5,8 @@
  * `app_settings` stores one JSON document per settings domain in a single
  * `doc` column, so "insert a saved config" and "assert what the save
  * persisted" are one `INSERT`/`SELECT` rather than a collection call. Both
- * halves live here because three suites — `enrichment-route`,
- * `enrichment-route-meilisearch` and `enrichment-semantic-validation` — do
- * exactly this and nothing else with the table.
+ * halves live here because the route suites do exactly this and nothing else with
+ * the table.
  *
  * The nesting is the shape `enrichment-config.repo.ts` reads: the document is
  * `{ config: … }`, and every dotted `$set` it writes is `config.<field>`.

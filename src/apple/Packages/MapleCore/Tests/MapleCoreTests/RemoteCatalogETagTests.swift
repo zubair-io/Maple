@@ -2,6 +2,7 @@
 import XCTest
 
 @testable import MapleCore
+@testable import MapleFileProviderCore
 
 /// Verifies the per-URL ETag cache inside `RemoteCatalog`:
 ///   • first call sends no `If-None-Match`, stores the returned ETag

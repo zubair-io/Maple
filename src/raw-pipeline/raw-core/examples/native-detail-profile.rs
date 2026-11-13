@@ -31,6 +31,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             ext: "dng",
         },
         DetailRenderOptions {
+            target: raw_core::view::encode::TargetPrimaries::Srgb,
             quality: RenderQuality::Preview,
             max_long_edge: 1600,
             film_lut: None,

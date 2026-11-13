@@ -18,10 +18,13 @@ import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { batchRenameRoutes } from './batch-rename.ts';
-import { setLibraryRootsForTests } from '../../indexer/libraries.cache.ts';
+import {
+  setLibraryBySlugForTests,
+  setLibraryRootsForTests,
+} from '../../indexer/libraries.cache.ts';
 import { tryGetRawFfi } from '../../ffi/raw_ffi.ts';
 import { fakeAuth } from '../../../tests/helpers/test-auth.ts';
-import { newObjectIdHex } from '../../db/object-id.ts';
+import { newObjectIdHex, ObjectId } from '../../db/object-id.ts';
 import {
   createLiveTestDatabase,
   insertAsset,
@@ -106,6 +109,15 @@ describe('POST /api/assets/batch-rename — wiring', () => {
 });
 
 describe('POST /api/assets/batch-rename/preview — wiring', () => {
+  test('rejects source addresses that do not match the ids array length', async () => {
+    const res = await post('/batch-rename/preview', {
+      ids: [newObjectIdHex(), newObjectIdHex()],
+      source_addresses: ['batch-rename-route-test:a/one.jpg'],
+      template: '{original}.{ext}',
+    });
+    expect(res.status).toBe(400);
+  });
+
   test('does not require a collision policy', async () => {
     const res = await post('/batch-rename/preview', {
       ids: [newObjectIdHex()],
@@ -141,10 +153,114 @@ async function seedAssets(db: Database, names: string[]): Promise<string[]> {
     ids.push(id);
   }
   setLibraryRootsForTests(new Map([[libraryId, root]]));
+  setLibraryBySlugForTests('batch-rename-route-test', {
+    libraryId: new ObjectId(libraryId),
+    root,
+    label: 'Test library',
+  });
   return ids;
 }
 
 describe('POST /api/assets/batch-rename — end to end', () => {
+  maybeTest(
+    'rejects an address belonging to another asset without moving either file',
+    async () => {
+      const [firstId] = await seedAssets(live.db, ['first.jpg', 'second.jpg']);
+      const res = await post('/batch-rename', {
+        ids: [firstId],
+        source_addresses: ['batch-rename-route-test:a/second.jpg'],
+        template: 'renamed.jpg',
+        collision: 'skip',
+      });
+      expect(res.status).toBe(200);
+      expect((await res.json()).summary.failed).toBe(1);
+      expect(await fs.readFile(path.join(root, 'a', 'first.jpg'), 'utf8')).toBe('pixels');
+      expect(await fs.readFile(path.join(root, 'a', 'second.jpg'), 'utf8')).toBe('pixels');
+    },
+  );
+
+  maybeTest(
+    'renames two selected locations of one asset without touching its canonical copy',
+    async () => {
+      const [id] = await seedAssets(live.db, ['canonical.jpg']);
+      const libraryId = live.db
+        .query("SELECT id FROM folders WHERE slug = 'batch-rename-route-test'")
+        .get() as { id: string };
+      for (const [index, filename] of ['first.jpg', 'second.jpg'].entries()) {
+        await fs.writeFile(path.join(root, 'a', filename), 'pixels');
+        await fs.writeFile(path.join(root, 'a', filename.replace('.jpg', '.xmp')), filename);
+        insertLocation(live.db, {
+          assetId: id!,
+          libraryId: libraryId.id,
+          ordinal: index + 1,
+          path: 'a',
+          filename,
+        });
+      }
+
+      const request = {
+        ids: [id, id],
+        source_addresses: [
+          'batch-rename-route-test:a/first.jpg',
+          'batch-rename-route-test:a/second.jpg',
+        ],
+        template: 'renamed_{n}.{ext}',
+        sequence_start: 1,
+        collision: 'skip',
+      };
+      const preview = await post('/batch-rename/preview', request);
+      expect(preview.status).toBe(200);
+      expect(
+        (await preview.json()).items.map((item: { old_filename: string; new_filename: string }) => [
+          item.old_filename,
+          item.new_filename,
+        ]),
+      ).toEqual([
+        ['first.jpg', 'renamed_1.jpg'],
+        ['second.jpg', 'renamed_2.jpg'],
+      ]);
+
+      const applied = await post('/batch-rename', request);
+      expect(applied.status).toBe(200);
+      expect((await applied.json()).summary).toEqual({
+        total: 2,
+        relocated: 2,
+        skipped: 0,
+        failed: 0,
+      });
+      expect(await fs.readFile(path.join(root, 'a', 'canonical.jpg'), 'utf8')).toBe('pixels');
+      expect(await fs.readFile(path.join(root, 'a', 'renamed_1.xmp'), 'utf8')).toBe('first.jpg');
+      expect(await fs.readFile(path.join(root, 'a', 'renamed_2.xmp'), 'utf8')).toBe('second.jpg');
+      await expect(fs.readFile(path.join(root, 'a', 'first.jpg'))).rejects.toThrow();
+      await expect(fs.readFile(path.join(root, 'a', 'second.jpg'))).rejects.toThrow();
+    },
+  );
+
+  maybeTest('rejects ambiguous ID-only batch items without moving files', async () => {
+    const [id] = await seedAssets(live.db, ['canonical.jpg']);
+    const libraryId = live.db
+      .query("SELECT id FROM folders WHERE slug = 'batch-rename-route-test'")
+      .get() as { id: string };
+    await fs.writeFile(path.join(root, 'a', 'other.jpg'), 'pixels');
+    insertLocation(live.db, {
+      assetId: id!,
+      libraryId: libraryId.id,
+      ordinal: 1,
+      path: 'a',
+      filename: 'other.jpg',
+    });
+
+    const res = await post('/batch-rename', {
+      ids: [id],
+      template: 'renamed.jpg',
+      collision: 'skip',
+    });
+    expect(res.status).toBe(200);
+    expect((await res.json()).summary.failed).toBe(1);
+    expect(await fs.readFile(path.join(root, 'a', 'canonical.jpg'), 'utf8')).toBe('pixels');
+    expect(await fs.readFile(path.join(root, 'a', 'other.jpg'), 'utf8')).toBe('pixels');
+  });
+
   maybeTest('applies the template sequentially and returns a summary', async () => {
     const ids = await seedAssets(live.db, ['IMG_1.dng', 'IMG_2.dng']);
 

@@ -37,10 +37,11 @@ struct StagedExportFile: Identifiable {
 @MainActor
 @Observable
 final class ExportPanelVM {
-  /// Bakes `session` into a CIImage graph (full-resolution or fast-fit). `@MainActor`
+  /// Bakes `session` into a CIImage graph (full-resolution or fast-fit, encoded
+  /// to the format's primaries). `@MainActor`
   /// because `EditSession` is; the work here is cheap — the graph is lazy,
   /// and `RenderActor` already owns the decode and the develop.
-  typealias Renderer = @MainActor (EditSession, ExportSizeOption) async throws -> CIImage
+  typealias Renderer = @MainActor (EditSession, ExportOptions) async throws -> CIImage
   /// Evaluates that graph and encodes it — the expensive half. Synchronous
   /// and unisolated on purpose: `encodeOffPool` below is what moves it off
   /// the main actor, so *where* it runs is decided by this file (and
@@ -61,6 +62,9 @@ final class ExportPanelVM {
   /// Non-nil once `stageForSharing` has written the file; the panel binds
   /// its share sheet to it and clears it when the sheet goes away.
   var stagedFile: StagedExportFile?
+  /// Resolved output filename cached off the main thread for the iOS/iPadOS
+  /// Output section so SwiftUI `body` never performs synchronous disk I/O.
+  private(set) var resolvedOutputFileName: String?
 
   private let render: Renderer
   private let encode: Encoder
@@ -72,7 +76,9 @@ final class ExportPanelVM {
   private var exportTask: Task<Void, Never>?
 
   init(
-    render: @escaping Renderer = { try await $0.renderForExport(sizeOption: $1) },
+    render: @escaping Renderer = {
+      try await $0.renderForExport(sizeOption: $1.sizeOption, primaries: $1.format.encodePrimaries)
+    },
     encode: @escaping Encoder = { try MapleExporter.encode($0, options: $1) },
     write: @escaping Writer = { try $0.write(to: $1, options: .atomic) }
   ) {
@@ -81,7 +87,7 @@ final class ExportPanelVM {
     self.writeFile = write
   }
 
-  /// Convenience initializer for tests or callers that do not inspect `ExportSizeOption`.
+  /// Convenience initializer for tests or callers that do not inspect `ExportOptions`.
   convenience init(
     render: @escaping @MainActor (EditSession) async throws -> CIImage,
     encode: @escaping Encoder = { try MapleExporter.encode($0, options: $1) },
@@ -106,8 +112,57 @@ final class ExportPanelVM {
     }
   }
 
-  func outputFileName(for asset: AssetRef) -> String {
-    "\(asset.displayName).\(format.fileExtension)"
+  nonisolated static func uniqueOutputFileName(
+    stem: String,
+    ext: String,
+    in directory: URL? = nil
+  ) -> String {
+    let baseName = "\(stem).\(ext)"
+    guard let directory else { return baseName }
+    var suffix = 1
+    var candidate = baseName
+    while FileManager.default.fileExists(
+      atPath: directory.appendingPathComponent(candidate).path
+    ) {
+      suffix += 1
+      candidate = "\(stem)-\(suffix).\(ext)"
+    }
+    return candidate
+  }
+
+  private func sanitizedStem(for asset: AssetRef) -> String {
+    // PhotoKit uses its slash-bearing localIdentifier as the display name
+    // until the original filename is looked up. Keep that identity in the
+    // name, but never let it create subdirectories in the staging location.
+    let safeName = asset.displayName
+      .components(separatedBy: CharacterSet(charactersIn: "/\\:"))
+      .joined(separator: "_")
+      .trimmingCharacters(in: .whitespacesAndNewlines)
+    return safeName.isEmpty ? "Untitled" : safeName
+  }
+
+  func outputFileName(for asset: AssetRef, in directory: URL? = nil) -> String {
+    Self.uniqueOutputFileName(
+      stem: sanitizedStem(for: asset),
+      ext: format.fileExtension,
+      in: directory
+    )
+  }
+
+  func refreshOutputFileName(
+    for asset: AssetRef,
+    in directory: URL = FileManager.default.temporaryDirectory
+  ) async {
+    let stem = sanitizedStem(for: asset)
+    let ext = format.fileExtension
+    guard
+      let resolved = try? await BlockingWork.run({
+        Self.uniqueOutputFileName(stem: stem, ext: ext, in: directory)
+      })
+    else { return }
+    if sanitizedStem(for: asset) == stem, format.fileExtension == ext {
+      resolvedOutputFileName = resolved
+    }
   }
 
   // MARK: - Resolution & Dimensions
@@ -143,19 +198,21 @@ final class ExportPanelVM {
   func outputDimensions(for session: EditSession) -> CGSize? {
     let native = session.nativeImageSize
     guard native.width > 0, native.height > 0 else { return nil }
+    let uncropped: CGSize
     switch sizeOption {
     case .full:
-      return native
+      uncropped = native
     case .fast:
       let edge = CGFloat(fastExportLongEdge(for: session))
       let maxNative = max(native.width, native.height)
       guard maxNative > 0 else { return nil }
       let scale = min(edge / maxNative, 1.0)
-      return CGSize(
+      uncropped = CGSize(
         width: (native.width * scale).rounded(),
         height: (native.height * scale).rounded()
       )
     }
+    return CropImageStage.exportOutputSize(session.model.crop, uncroppedSize: uncropped)
   }
 
   /// Formatted description for the Output section, e.g. "Size: 2040 × 1360 px".
@@ -233,6 +290,18 @@ final class ExportPanelVM {
     isExporting = false
   }
 
+  /// Clears `stagedFile` when the share sheet closes. If the user dismissed
+  /// the share sheet without completing an activity, removes the unshared
+  /// temporary file so it neither wastes disk space nor consumes the base
+  /// filename for the next export (#5281).
+  func finishSharing(completed: Bool) {
+    guard let file = stagedFile else { return }
+    stagedFile = nil
+    if !completed {
+      try? FileManager.default.removeItem(at: file.url)
+    }
+  }
+
   // MARK: - Internals
 
   private func startAttempt() -> Int {
@@ -252,13 +321,15 @@ final class ExportPanelVM {
   }
 
   private func runStaging(session: EditSession, directory: URL, gen: Int) async {
+    let options = self.options
     do {
-      let image = try await render(session, sizeOption)
+      let image = try await render(session, options)
       try guardLive(gen)
-      let data = try await encodeOffPool(image)
+      let data = try await encodeOffPool(image, options: options)
       try guardLive(gen)
-      let url = directory.appendingPathComponent(outputFileName(for: session.asset))
-      try await publish(data, to: url, gen: gen)
+      let stem = sanitizedStem(for: session.asset)
+      let ext = options.format.fileExtension
+      try await publish(data, stem: stem, ext: ext, in: directory, gen: gen)
       finish(gen, with: nil)
     } catch {
       finish(gen, with: error)
@@ -276,9 +347,10 @@ final class ExportPanelVM {
   /// would park a cooperative thread for the whole bake, and a few
   /// start/cancel cycles would exhaust a pool sized to the core count
   /// (PR #3455 review).
-  private func encodeOffPool(_ image: CIImage) async throws -> Data {
+  /// `options` is the snapshot the render used, so a format change mid-export
+  /// cannot encode a P3 render into an sRGB file.
+  private func encodeOffPool(_ image: CIImage, options: ExportOptions) async throws -> Data {
     let encode = self.encode
-    let options = self.options
     return try await BlockingWork.run { try encode(image, options) }
   }
 
@@ -286,9 +358,20 @@ final class ExportPanelVM {
   /// attempt goes stale in the window between the two. Without that, a
   /// Cancel landing just after the write orphans up to a gigabyte in the
   /// temp directory that nothing ever comes back for (PR #3455 review).
-  private func publish(_ data: Data, to url: URL, gen: Int) async throws {
+  private func publish(
+    _ data: Data,
+    stem: String,
+    ext: String,
+    in directory: URL,
+    gen: Int
+  ) async throws {
     let writeFile = self.writeFile
-    try await BlockingWork.run { try writeFile(data, url) }
+    let url = try await BlockingWork.run {
+      let fileName = Self.uniqueOutputFileName(stem: stem, ext: ext, in: directory)
+      let targetURL = directory.appendingPathComponent(fileName)
+      try writeFile(data, targetURL)
+      return targetURL
+    }
     do {
       try guardLive(gen)
     } catch {
@@ -299,6 +382,7 @@ final class ExportPanelVM {
       }
       throw error
     }
+    resolvedOutputFileName = url.lastPathComponent
     stagedFile = StagedExportFile(url: url)
   }
 }

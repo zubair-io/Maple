@@ -252,3 +252,69 @@ fn retouch_coexists_with_local_adjustments_and_tone_curves() {
     assert_eq!(parsed.retouch_spots, canonical_spots());
     assert_eq!(parsed.tone_curve_luma.points.len(), 2);
 }
+
+fn stamped_document(papp_attributes: &str, children: &str) -> String {
+    document(children).replace(
+        "crs:Version=\"11.0\">",
+        &format!(
+            "crs:Version=\"11.0\"\n      xmlns:papp=\"http://justmaple.app/ns/1.0/\"\n      {papp_attributes}>"
+        ),
+    )
+}
+
+#[test]
+fn an_explicit_stamp_selects_the_frame() {
+    use crate::types::retouch::RetouchFrame;
+    let parsed = parse(&stamped_document(
+        "papp:RetouchFrameVersion=\"2\"",
+        CANONICAL_BLOCK,
+    ))
+    .unwrap();
+    assert_eq!(parsed.retouch_frame, RetouchFrame::Upright);
+}
+
+#[test]
+fn an_unstamped_maple_list_is_the_legacy_sensor_frame() {
+    use crate::types::retouch::RetouchFrame;
+    let parsed = parse(&stamped_document("papp:Profile=\"Auto\"", CANONICAL_BLOCK)).unwrap();
+    assert_eq!(parsed.retouch_frame, RetouchFrame::Sensor);
+}
+
+#[test]
+fn a_lightroom_list_without_the_maple_namespace_is_upright() {
+    use crate::types::retouch::RetouchFrame;
+    let parsed = parse(&document(CANONICAL_BLOCK)).unwrap();
+    assert_eq!(parsed.retouch_frame, RetouchFrame::Upright);
+}
+
+#[test]
+fn a_maple_document_without_spots_is_upright() {
+    use crate::types::retouch::RetouchFrame;
+    let parsed = parse(&stamped_document("papp:Profile=\"Auto\"", "")).unwrap();
+    assert_eq!(parsed.retouch_frame, RetouchFrame::Upright);
+}
+
+#[test]
+fn an_unknown_stamp_is_a_parse_error() {
+    let result = parse(&stamped_document(
+        "papp:RetouchFrameVersion=\"1\"",
+        CANONICAL_BLOCK,
+    ));
+    assert!(result.is_err());
+}
+
+#[test]
+fn serialize_stamps_the_frame_only_when_there_are_spots() {
+    let empty = AdjustmentModel::default();
+    assert!(!serialize(&empty).contains("RetouchFrameVersion"));
+    let with_spots = AdjustmentModel {
+        retouch_spots: canonical_spots(),
+        ..AdjustmentModel::default()
+    };
+    assert!(serialize(&with_spots).contains(r#"papp:RetouchFrameVersion="2""#));
+    let legacy = AdjustmentModel {
+        retouch_frame: crate::types::retouch::RetouchFrame::Sensor,
+        ..with_spots
+    };
+    assert!(!serialize(&legacy).contains("RetouchFrameVersion"));
+}

@@ -37,6 +37,7 @@ mod perspective;
 // White balance: the slider pair, method, and the #2434 provenance fields.
 mod white_balance;
 // The seven profile-free lens-correction entries (#3411); same split reason.
+mod color_curves;
 mod lens_auto;
 
 // Copy/paste/sync group → field mapping (#944). Sibling submodule for the
@@ -529,6 +530,15 @@ pub const ADJUSTMENT_SCHEMA: &[FieldSpec] = &[
         range: (0.0, 0.0), default_f32: 0.0, enum_name: "",
         doc: "Versioned LCP content reference (#2435), empty for embedded-only corrections. lcp1:<BLAKE3> requires an in-range match; lcp1-ack:<BLAKE3> records explicit acceptance of reported approximations. XMP key papp:LensProfile. Part of the decoded-image cache key.",
     },
+    color_grade::COLOR_GRADE_BLENDING,
+    color_grade::COLOR_GRADE_SHADOW_EDGE,
+    color_grade::COLOR_GRADE_HIGHLIGHT_EDGE,
+    color_curves::COLOR_CURVE_HUE_VS_HUE,
+    color_curves::COLOR_CURVE_HUE_VS_SAT,
+    color_curves::COLOR_CURVE_HUE_VS_LUMA,
+    color_curves::COLOR_CURVE_LUMA_VS_SAT,
+    color_curves::COLOR_CURVE_SAT_VS_SAT,
+    color_curves::COLOR_CURVE_SAT_VS_LUMA,
 ];
 
 #[cfg(test)]

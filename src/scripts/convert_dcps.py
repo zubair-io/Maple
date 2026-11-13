@@ -49,7 +49,11 @@ Usage:
       --src "<path-to-external-profile-directory>" \
       --out src/raw-pipeline/raw-core/src/color/profiles/profiles.bin
 
-  # Include HSM (HueSatMap data) — adds ~72 MB to the bundle:
+  # Opt one body into HSM (repeatable). The committed bundle opts none in:
+  # the GFX 50S tables (#4645) were reverted in #5224.
+  python3 src/scripts/convert_dcps.py --src ... --out ... --hsm-ucm "<UCM>"
+
+  # Include HSM (HueSatMap data) for every body — adds ~72 MB:
   python3 src/scripts/convert_dcps.py --src ... --out ... --include-hsm
 
 `--src` may point to either the parent `CameraProfiles/` directory or
@@ -62,9 +66,9 @@ that ONLY ship under `Camera/`). UCM dedup keeps one record per body
 via `dcp_preference` (Adobe Standard v2 > Adobe Standard >
 Camera Default > Camera/<creative style>).
 
-HSM is OFF by default (`--include-hsm` is opt-in). Most Maple fixtures need
-matrices only to drop ΔE below 8; HSM is a follow-up refinement that costs
-~72 MB in the repo.
+HSM is OFF by default. `--hsm-ucm UCM` (repeatable) opts single bodies in;
+`--include-hsm` opts every body in at ~72 MB. Opt a body in only when its
+embedded-JPEG gate result improves (see profiles/COVERAGE.md).
 """
 
 from __future__ import annotations
@@ -318,6 +322,12 @@ def extract_profile(path: Path, include_hsm: bool) -> Optional[bytes]:
     return bytes(rec)
 
 
+def record_has_hsm(rec: bytes) -> bool:
+    """Whether a serialized record carries HSM1 or HSM2 (flags bits 4/5)."""
+    (ucm_len,) = struct.unpack_from("<H", rec, 0)
+    return rec[2 + ucm_len] & 0x30 != 0
+
+
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 
@@ -339,6 +349,14 @@ def main() -> int:
         action="store_true",
         help="Include ProfileHueSatMap data in the bundle (adds ~72 MB; "
         "default off to keep the repo small — matrices alone fix the catastrophic ΔE).",
+    )
+    ap.add_argument(
+        "--hsm-ucm",
+        action="append",
+        default=[],
+        metavar="UCM",
+        help="Include ProfileHueSatMap data for this UniqueCameraModel only; "
+        "repeatable. Opts in individually calibrated bodies without --include-hsm.",
     )
     ap.add_argument(
         "--manifest",
@@ -400,15 +418,25 @@ def main() -> int:
     skipped: list[tuple[str, str]] = [(f.name, "no UniqueCameraModel") for f in no_ucm]
     manifest_entries: list[dict] = []
 
-    for _ucm, f in selected:
+    hsm_ucms = set(args.hsm_ucm)
+    unknown = hsm_ucms - {ucm for ucm, _ in selected}
+    if unknown:
+        sys.stderr.write(f"error: --hsm-ucm names no bundled body: {sorted(unknown)}\n")
+        return 1
+    hsm_missing: list[str] = []
+    for ucm, f in selected:
         try:
-            rec = extract_profile(f, include_hsm=args.include_hsm)
+            rec = extract_profile(f, include_hsm=args.include_hsm or ucm in hsm_ucms)
         except Exception as e:  # noqa: BLE001
             skipped.append((f.name, f"parse error: {e}"))
+            if ucm in hsm_ucms:
+                hsm_missing.append(ucm)
             continue
         if rec is None:
             skipped.append((f.name, "no UniqueCameraModel"))
             continue
+        if ucm in hsm_ucms and not record_has_hsm(rec):
+            hsm_missing.append(ucm)
         records.append(rec)
         if args.manifest:
             # Re-parse to capture manifest fields cheaply.
@@ -434,6 +462,9 @@ def main() -> int:
 
     if not records:
         sys.stderr.write("error: no profiles emitted\n")
+        return 1
+    if hsm_missing:
+        sys.stderr.write(f"error: --hsm-ucm produced no HSM tables for: {sorted(hsm_missing)}\n")
         return 1
 
     header = MAGIC + struct.pack("<HHII", VERSION, 0, len(records), 0)

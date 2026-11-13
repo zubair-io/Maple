@@ -3,8 +3,57 @@
 //! contents were moved verbatim.
 
 use super::*;
+use crate::types::adjustment::AutoExposureMode;
 
-use super::*;
+#[test]
+fn auto2_cached_artifacts_omit_the_curve_used_only_as_a_cache_marker() {
+    let _guard = auto_profile::cache::test_lock();
+    let key = CacheKey::from_bytes(b"auto2-curve-presence-regression", RenderQuality::Full);
+    let model = AdjustmentModel {
+        profile: Profile::Auto,
+        ..AdjustmentModel::default()
+    };
+    let lut = ColorLut::identity(5);
+    auto_profile::cache::insert(key.clone(), ProfileCurve::identity());
+    auto_profile::cache::insert_lut(key.clone(), lut.clone());
+    let (curve, residual) = cached_auto_profile_fit(&model, Some(&key)).unwrap();
+    assert!(
+        curve.is_none(),
+        "Auto 2 applies only the residual in the default CPU render"
+    );
+    assert_eq!(residual.unwrap().sample([1.; 3]), [1.; 3]);
+    let mut white = vec![1.; 3];
+    let (curve, residual) = auto_profile::apply_pipeline::fit_auto_profile_artifacts(
+        &mut white,
+        1,
+        1,
+        crate::image::ExifOrientation::Normal,
+        None,
+        None,
+        Some(ProfileCurve::identity()),
+        Some(lut),
+    );
+    assert!(curve.is_none());
+    assert_eq!(white, [1.; 3]);
+    assert_eq!(residual.unwrap().sample([1.; 3]), [1.; 3]);
+}
+
+#[test]
+fn cached_fit_with_nothing_to_apply_is_a_miss() {
+    let _guard = auto_profile::cache::test_lock();
+    let key = CacheKey::from_bytes(b"5045-env-disabled-lut-probe", RenderQuality::Full);
+    let model = AdjustmentModel {
+        profile: Profile::Auto,
+        ..AdjustmentModel::default()
+    };
+    auto_profile::cache::insert(key.clone(), ProfileCurve::identity());
+    auto_profile::cache::insert_lut(key.clone(), ColorLut::identity(5));
+    assert!(cached_auto_profile_fit(&model, Some(&key)).is_some());
+    std::env::set_var("MAPLE_DISABLE_AUTO_LUT", "1");
+    let probe = cached_auto_profile_fit(&model, Some(&key));
+    std::env::remove_var("MAPLE_DISABLE_AUTO_LUT");
+    assert!(probe.is_none());
+}
 
 /// A caller model with every fit-relevant field deliberately non-default,
 /// so anything leaking through `fit_develop_model` is unmissable.
@@ -114,7 +163,9 @@ fn cached_fit_probe_hits_only_when_fully_cached() {
     cache::insert_lut(full.clone(), lut.clone());
     let (curve, residual) =
         cached_auto_profile_fit(&auto, Some(&full)).expect("fully-cached key must hit");
-    assert_eq!(curve, Some(ProfileCurve::identity()));
+    let expected_curve =
+        auto_profile::apply_pipeline::auto1_enabled_by_env().then(ProfileCurve::identity);
+    assert_eq!(curve, expected_curve);
     assert_eq!(residual, Some(lut));
 
     // Not Profile::Auto → no tail regardless of cache state.

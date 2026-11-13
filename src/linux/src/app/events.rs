@@ -2,7 +2,7 @@ use super::*;
 
 impl MapleApp {
     pub(super) fn poll(&mut self, context: &egui::Context) {
-        if self.zoom.scale <= 0.0 || self.comparing || self.browse {
+        if !self.zoom.is_zoomed() || self.comparing || self.browse {
             self.cancel_detail();
         }
         self.cloud.poll(context);
@@ -10,8 +10,8 @@ impl MapleApp {
             self.error = Some(format!("Cloud transfer failed: {error}"));
             self.busy = false;
         }
-        if let Some((photo, entry)) = self.cloud.ready.take() {
-            self.navigate(Navigation::CloudReady(photo, entry));
+        if let Some((photo, entry, pending_recovery)) = self.cloud.ready.take() {
+            self.navigate(Navigation::CloudReady(photo, entry, pending_recovery));
         }
         if let Some((id, photo)) = self.cloud.reloaded.take() {
             if id == self.session {
@@ -64,6 +64,7 @@ impl MapleApp {
                 )
             });
             self.thumbnail_cache.insert(path.clone(), texture);
+            self.thumbnail_order.retain(|queued| queued != &path);
             self.thumbnail_order.push_back(path);
             while self.thumbnail_order.len() > 128 {
                 if let Some(path) = self.thumbnail_order.pop_front() {
@@ -148,13 +149,25 @@ impl MapleApp {
                 },
                 Event::Folder(result) => {
                     self.busy = false;
+                    let launch_path = self.launch_photo.take();
                     match result {
                         Ok(folder) => {
                             self.status = format!("{} images", folder.photos.len());
                             self.error =
                                 (!folder.errors.is_empty()).then(|| folder.errors.join("\n"));
+                            let launch_photo = launch_path.and_then(|path| {
+                                folder
+                                    .photos
+                                    .iter()
+                                    .find(|photo| photo.path == path)
+                                    .cloned()
+                            });
                             self.folder = Some(folder);
+                            self.listing += 1;
                             self.browse = true;
+                            if let Some(photo) = launch_photo {
+                                self.select(photo);
+                            }
                         }
                         Err(error) => self.error = Some(error),
                     }
@@ -172,12 +185,13 @@ impl MapleApp {
                         self.error = Some(error);
                     }
                 },
-                Event::Rendered(id, generation, result)
+                Event::Rendered(id, generation, result, auto_fit)
                     if id == self.session && generation == self.generation =>
                 {
                     self.busy = false;
                     match result {
                         Ok(image) => {
+                            self.auto_fit = auto_fit;
                             self.gpu_texture = None;
                             self.texture = Some(context.load_texture(
                                 "Maple preview",
@@ -200,6 +214,7 @@ impl MapleApp {
                     if id == self.session && generation == self.generation =>
                 {
                     self.busy = false;
+                    self.auto_fit = frame.auto_fit;
                     if !self
                         .gpu_texture
                         .as_ref()
@@ -224,11 +239,17 @@ impl MapleApp {
                 }
                 Event::Saved(id, result) => {
                     let saved = self.save_documents.pop_front();
+                    let merged = result.as_ref().ok().cloned().flatten();
+                    if let (Some(merged), Some((saved_id, revision, _))) = (&merged, &saved) {
+                        self.adopt_merged(*saved_id, *revision, merged);
+                    }
                     match result {
-                        Ok(()) if id == self.session && self.cloud_editor.is_some() => {
+                        Ok(_) if id == self.session && self.cloud_editor.is_some() => {
                             match (&self.selected, saved) {
-                                (Some(photo), Some((saved_id, document))) if saved_id == id => {
-                                    self.cloud.synchronize(id, photo, document);
+                                (Some(photo), Some((saved_id, _, document))) if saved_id == id => {
+                                    let published =
+                                        merged.map_or(document, |merged| merged.document);
+                                    self.cloud.synchronize(id, photo, published);
                                     self.status = "Synchronizing XMP…".into();
                                 }
                                 _ => {
@@ -240,10 +261,12 @@ impl MapleApp {
                                 }
                             }
                         }
-                        Ok(()) => {
+                        Ok(_) => {
                             self.saving = self.saving.saturating_sub(1);
                             self.save_failed = false;
-                            self.status = "Saved to XMP".into();
+                            if merged.is_none() {
+                                self.status = "Saved to XMP".into();
+                            }
                             self.invalidate_thumbnails();
                         }
                         Err(error) => {
@@ -260,7 +283,10 @@ impl MapleApp {
                 _ => {}
             }
         }
-        if self.saving == 0 {
+        if self.saving == 0 && self.pending_navigation.is_some() {
+            self.flush();
+        }
+        if self.saving == 0 && self.dirty.is_none() {
             if let Some(navigation) = self.pending_navigation.take() {
                 self.apply_navigation(navigation);
             }
@@ -273,6 +299,33 @@ impl MapleApp {
         }
         if self.dirty.is_some() {
             context.request_repaint_after(Duration::from_millis(100));
+        }
+    }
+
+    /// The editor takes the merged document only when nothing newer is
+    /// waiting to be saved; a newer edit is merged on top by its own save.
+    fn adopt_merged(&mut self, session: u64, revision: u64, merged: &crate::sidecar::Merged) {
+        if session != self.session {
+            return;
+        }
+        let idle = revision == self.edit_revision
+            && self.saving <= 1
+            && self.dirty.is_none()
+            && self.before_edit.is_none();
+        if idle {
+            // Undo and redo states join the adopted document's lineage with the
+            // outside change applied (#5887). One the merge rejects keeps its
+            // own lineage, which still never reverts the outside change.
+            for snapshot in self.history.iter_mut().chain(self.redo.iter_mut()) {
+                if let Ok(rebased) = merged.rebase(snapshot) {
+                    *snapshot = rebased;
+                }
+            }
+            self.document = Some(merged.document.clone());
+            self.render();
+            self.status = "Merged changes made outside Maple".into();
+        } else {
+            self.status = "Merged changes made outside Maple; newer edits save on top".into();
         }
     }
 }

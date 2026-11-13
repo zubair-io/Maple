@@ -12,26 +12,49 @@ import Foundation
 
 public enum MapleIdDerivation {
 
-    /// Derive a maple_id for a file given its first-64KB head bytes, its raw
-    /// EXIF `DateTimeOriginal` / `CreateDate` strings (as `ImageMetadataReader
-    /// .readRawCaptureDateStrings` reads them — untouched EXIF wall-clock
-    /// format, not display-formatted), and a chunked reader over the file's
-    /// full bytes for the fallback-form path.
+    /// The capture date the server's `readExif` stamps on this file
+    /// (`captured_at`), as the ISO 8601 string the primary form hashes — or
+    /// `nil` when the server would stamp none, which selects the fallback
+    /// form. Every maple_id derivation (Filesystem, SMB, PhotoKit backup,
+    /// agent browse) takes its date from here so a file gets one id wherever
+    /// it is read.
     ///
-    /// Tries primary form first: `DateTimeOriginal` is preferred over
-    /// `CreateDate` when both parse (mirrors the server indexer's
-    /// `asIsoDate(DateTimeOriginal) ?? asIsoDate(CreateDate)`,
-    /// `src/api/src/indexer/exif.ts`). `cameraSerial`/`shutterCount` are
-    /// deliberately NOT read from EXIF and passed as the `MapleId.primary`
-    /// defaults (`nil`/`0`) — the server indexer's `AssetExif` doesn't
-    /// surface those fields either (see `MapleId.primary`'s doc comment), so
-    /// reading them here would only make Apple's id diverge from the
-    /// server's for the same file, not converge.
+    /// A file whose extension is in `SidecarPath.videoExtensions` is dated
+    /// from its QuickTime `moov` atom (`VideoCaptureDate`) and never from
+    /// EXIF, as `readExif`'s `VIDEO_EXTS` branch does (#5079). Any other file
+    /// is dated by `ExifCaptureDate.capturedAt` over the raw EXIF tag strings
+    /// `RawExifDates` reads from its bytes — not ImageIO's dictionary, which
+    /// rewrites or drops strings the server's exifr hands over verbatim (#5090).
     ///
-    /// Falls back to streaming form when no usable capture timestamp exists
-    /// (`ExifCaptureDate.iso8601UTC` returned `nil` for both keys, or both
-    /// keys were absent) OR when primary-form derivation itself fails (empty
-    /// head bytes, FFI error) — streams the WHOLE file through
+    /// Throws what `reader` throws: a transient read failure must surface so
+    /// the caller derives no id, not a fallback id that would then be cached.
+    public static func capturedAt(
+        fileExtension: String,
+        reader: ByteRangeReader
+    ) async throws -> String? {
+        if SidecarPath.videoExtensions.contains(fileExtension.lowercased()) {
+            return try await VideoCaptureDate.iso8601UTC(from: reader)
+        }
+        let dates = try await RawExifDates.read(from: reader)
+        return ExifCaptureDate.capturedAt(
+            dateTimeOriginal: dates.dateTimeOriginal, createDate: dates.createDate)
+    }
+
+    /// Derive a maple_id for a file given its first-64KB head bytes, its
+    /// capture date (`capturedAt(fileExtension:reader:)`), and a
+    /// chunked reader over the file's full bytes for the fallback-form path.
+    ///
+    /// Tries primary form first, dated by `capturedAtISO8601`.
+    /// `cameraSerial`/`shutterCount` are deliberately NOT read from EXIF and
+    /// passed as the `MapleId.primary` defaults (`nil`/`0`) — the server
+    /// indexer's `AssetExif` doesn't surface those fields either (see
+    /// `MapleId.primary`'s doc comment), so reading them here would only
+    /// make Apple's id diverge from the server's for the same file, not
+    /// converge.
+    ///
+    /// Falls back to streaming form when there is no capture timestamp
+    /// (`capturedAtISO8601` is `nil`) OR when primary-form derivation itself
+    /// fails (empty head bytes, FFI error) — streams the WHOLE file through
     /// `FallbackFormHasher` via `nextChunk`, called repeatedly **in file
     /// order** until it returns empty `Data`, signalling EOF. Callers
     /// (`FilesystemSource` via chunked `FileHandle` reads, `SMBSource` via
@@ -51,15 +74,10 @@ public enum MapleIdDerivation {
     /// id rather than `nil`).
     public static func derive(
         headBytes: Data,
-        exifDateTimeOriginal: String?,
-        exifCreateDate: String?,
+        capturedAtISO8601: String?,
         filesize: UInt64,
         nextChunk: () async throws -> Data
     ) async rethrows -> String? {
-        let capturedAtISO8601 =
-            exifDateTimeOriginal.flatMap(ExifCaptureDate.iso8601UTC(fromExifString:))
-            ?? exifCreateDate.flatMap(ExifCaptureDate.iso8601UTC(fromExifString:))
-
         if let capturedAtISO8601,
            let primary = MapleId.primary(headBytes: headBytes, capturedAtISO8601: capturedAtISO8601) {
             return primary

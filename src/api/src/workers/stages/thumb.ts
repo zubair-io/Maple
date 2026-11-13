@@ -8,7 +8,7 @@
  * maple's .rotate() inline.
  *
  * Cache-path resolution: the ONE path-keyed location every reader computes —
- * `<lib>/<fileinfo[0].path>/.maple/thumbs/<sha256_prefix16(filename)>.avif`,
+ * `<lib>/<fileinfo[0].path>/.maple/thumbs/<filename>.avif`,
  * via `resolveThumbPathForAsset`, which is just `resolveThumbPath` applied to
  * the asset's primary absolute path. Writing anywhere else is what made
  * `/api/fs/thumb` re-decode every source from scratch: it computes the
@@ -39,12 +39,20 @@
  * this stage's own success row, so either both land or neither does.
  */
 import { generateThumb } from '../../indexer/thumbnailer.ts';
+import {
+  deferWhileDecoderMissing,
+  memoryBudgetDeferral,
+  noVideoStreamOutcome,
+  unrenderedOutcome,
+  unsupportedCameraDeferral,
+} from './derivative-render-outcome.ts';
 import { THUMB_TARGET_VERSION } from '../derivative-versions.ts';
 import { resolveThumbPathForAsset } from '../../fs/xmp.ts';
 import { assetAbsPath, assetPrimaryFileInfo } from '../../indexer/images.repo.ts';
 import { isUndecodableFilename, isVideoFilename } from '../../indexer/media-types.ts';
 import { ffmpegBinary } from '../../thumbs/video-poster.ts';
-import { loadLibraryRoots } from '../../indexer/libraries.cache.ts';
+import { loadLibraryRootsForAsset } from '../../indexer/libraries.cache.ts';
+import { noResolvableLocation } from './no-resolvable-location.ts';
 import {
   defineStage,
   runStage,
@@ -80,6 +88,9 @@ const thumbStage = defineStage({
   // The old `<maple_id>.avif` files are deliberately NOT renamed — they orphan
   // out via cache-gc, same as the v3 `.jpg` files did. `resetCfThumbSyncVersion`
   // cascades as before so R2 picks up the re-render.
+  // v29 — frozen (#4793). The thumb name moved to `<filename>.avif` and lost
+  // its pipeline version; cache-gc and readers RENAME the old hashed file into
+  // place, so this must never be bumped for a naming or pipeline change.
   targetVersion: THUMB_TARGET_VERSION,
   dependsOn: ['exif'],
   // Reads the original file — an ENOENT means it vanished from disk, so the
@@ -110,9 +121,8 @@ const thumbStage = defineStage({
 
     // Video posters need a runnable host ffmpeg (#1649). When there isn't one,
     // skip BEFORE `generateThumb` rather than letting its video branch fail:
-    // a failed render still returns `{ wrote: true }` below, which would mark
-    // the stage done having published nothing, and would also cascade a
-    // pointless `cf-thumb-sync` reset for a thumb that doesn't exist.
+    // a render that publishes nothing defers below, so every video would be
+    // re-polled indefinitely for a missing tool.
     //
     // This skip does write `version = targetVersion` — i.e. "handled" — so an
     // operator who installs ffmpeg later needs the `rearm-video-posters`
@@ -140,15 +150,26 @@ const thumbStage = defineStage({
     // genuinely-orphaned one: the runner stamps `missing_since` on that skip
     // instead of marking the stage done, so the missing-reaper sees it. See
     // run-stage.ts.
-    const libs = await loadLibraryRoots();
+    const libs = await loadLibraryRootsForAsset(image as never);
     const thumbPath = resolveThumbPathForAsset(image as never, libs);
     const absPath = assetAbsPath(image as never, libs);
     if (!thumbPath || !absPath) {
-      return { skip: 'no-resolvable-location' };
+      return noResolvableLocation(image as never, libs);
     }
     // An ENOENT here (original gone) is tagged `missing_since` by the runner
     // — this stage sets `tagsMissingOnEnoent` — for the missing-reaper.
-    await generateThumb(absPath, thumbPath);
+    const decoderMissing = deferWhileDecoderMissing();
+    if (decoderMissing) return decoderMissing;
+    const rendered = await generateThumb(absPath, thumbPath).catch(
+      (err: unknown) =>
+        noVideoStreamOutcome(err) ??
+        memoryBudgetDeferral(err, absPath) ??
+        unsupportedCameraDeferral(err, absPath) ??
+        Promise.reject(err),
+    );
+    if (typeof rendered !== 'boolean') return rendered;
+    const unrendered = await unrenderedOutcome(rendered, absPath);
+    if (unrendered) return unrendered;
     // We do NOT persist the path on the asset: every reader derives it from the
     // source path alone via `resolveThumbPath`, so a stored `thumb_path` would
     // be dead, redundant data — and a DB field is exactly the dependency

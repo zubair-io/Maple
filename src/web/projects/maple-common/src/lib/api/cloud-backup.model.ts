@@ -6,8 +6,20 @@ export interface BackupDestinationStatus {
   blocked: number;
   bytes: number;
   lastError: string | null;
+  lastErrorCount: number;
   missing?: number;
   prepared?: number;
+}
+
+export interface GoogleBackupDisconnect {
+  reason: 'invalid_grant' | 'invalid_proof' | 'missing_grant';
+  at: string;
+  message: string;
+}
+
+export interface GoogleBackupConnection {
+  connected: boolean;
+  disconnect: GoogleBackupDisconnect | null;
 }
 
 export interface BackupDestination {
@@ -21,6 +33,7 @@ export interface BackupDestination {
   rootId: string | null;
   accountId: string | null;
   status: BackupDestinationStatus;
+  connection?: GoogleBackupConnection;
 }
 
 export interface GoogleBackupConfig {
@@ -31,6 +44,7 @@ export interface GoogleBackupConfig {
   connected: boolean;
   accountId: string | null;
   accountEmail: string | null;
+  disconnect: GoogleBackupDisconnect | null;
   rootId: string | null;
   callbackUrl: string | null;
   googleRedirectUri: string | null;

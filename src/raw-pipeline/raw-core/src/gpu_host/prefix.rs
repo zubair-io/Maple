@@ -5,7 +5,7 @@ use crate::types::{
 };
 
 macro_rules! prefix_policy {
-    ($ae:ident; keep [$($keep:ident),* $(,)?]; neutral {$($neutral:ident: $value:expr),* $(,)?}) => {
+    ($ae:ident; keep [$($keep:ident),* $(,)?]; presentation [$($presentation:ident),* $(,)?]; neutral {$($neutral:ident: $value:expr),* $(,)?}) => {
         /// Prepare the owned upstream model. Called when upload preparation is needed.
         pub fn stripped_prefix_model(full: &AdjustmentModel, $ae: AutoExposureMode) -> AdjustmentModel {
             AdjustmentModel { $($neutral: $value,)* ..full.clone() }
@@ -15,8 +15,14 @@ macro_rules! prefix_policy {
         // Legacy radius remains part of AdjustmentModel equality; retain it for parity.
         #[allow(deprecated)]
         pub fn prefix_matches(full: &AdjustmentModel, cached: &AdjustmentModel, $ae: AutoExposureMode) -> bool {
+            pixel_prefix_matches(full, cached, $ae) $(&& full.$presentation == cached.$presentation)*
+        }
+        /// Pixel-only boundary for hosts that update presentation geometry independently.
+        /// Existing hosts retain the conservative comparison and geometry-carrying model.
+        #[allow(deprecated)]
+        pub fn pixel_prefix_matches(full: &AdjustmentModel, cached: &AdjustmentModel, $ae: AutoExposureMode) -> bool {
             // Exhaustive pattern: a schema addition must be classified in this policy.
-            let AdjustmentModel { $($neutral: _,)* $($keep: _,)* } = full;
+            let AdjustmentModel { $($neutral: _,)* $($keep: _,)* $($presentation: _,)* } = full;
             $ae == cached.auto_exposure $(&& full.$keep == cached.$keep)*
         }
     };
@@ -40,8 +46,8 @@ macro_rules! prefix_policy {
 // PINNED in this prefix (`sharpen_amount = 0` short-circuits the sharpen stage at
 // `amount.abs() < 1e-3`; the tone-curve point sets are emptied; WB is pinned
 // neutral so its method is inert), so they have NO effect on the developed buffer
-// here. We pin them to their defaults anyway so the prefix model is a function of
-// ONLY the fields that genuinely shape the buffer. Without this, dragging e.g. the
+// here. Pixel-only comparison ignores the separately carried legacy presentation
+// fields; every GPU-stage field is pinned to its default. Without this, dragging e.g. the
 // sharpen-radius slider (with the default `sharpen_amount = 40` active on the GPU)
 // would change the prefix model and trigger a SPURIOUS re-develop + re-upload
 // every tick in the persistent session — correctness held, but the persistence
@@ -49,58 +55,28 @@ macro_rules! prefix_policy {
 prefix_policy! {
     ae_mode;
     keep [
-        parametric_shadow_split,
-        parametric_midtone_split,
-        parametric_highlight_split,
         capture_sharpening_amount,
         capture_sharpening_sigma,
         capture_sharpening_radius,
-        hue_adjustment_red,
-        hue_adjustment_orange,
-        hue_adjustment_yellow,
-        hue_adjustment_green,
-        hue_adjustment_aqua,
-        hue_adjustment_blue,
-        hue_adjustment_purple,
-        hue_adjustment_magenta,
-        saturation_adjustment_red,
-        saturation_adjustment_orange,
-        saturation_adjustment_yellow,
-        saturation_adjustment_green,
-        saturation_adjustment_aqua,
-        saturation_adjustment_blue,
-        saturation_adjustment_purple,
-        saturation_adjustment_magenta,
-        luminance_adjustment_red,
-        luminance_adjustment_orange,
-        luminance_adjustment_yellow,
-        luminance_adjustment_green,
-        luminance_adjustment_aqua,
-        luminance_adjustment_blue,
-        luminance_adjustment_purple,
-        luminance_adjustment_magenta,
-        black_white,
-        gray_mixer_red,
-        gray_mixer_orange,
-        gray_mixer_yellow,
-        gray_mixer_green,
-        gray_mixer_aqua,
-        gray_mixer_blue,
-        gray_mixer_purple,
-        gray_mixer_magenta,
         highlight_recovery,
         look,
         profile,
         inpaint_removals,
         retouch_spots,
+        retouch_frame,
         chroma_prefilter,
         hot_pixel_suppression,
         deep_denoise,
-        crop,
         lens_profile_enable,
         lens_correction_distortion,
         lens_correction_ca,
         lens_correction_vignetting,
+        demosaic,
+        auto_lateral_ca,
+        lens_profile,
+    ];
+    presentation [
+        crop,
         perspective_vertical,
         perspective_horizontal,
         perspective_rotate,
@@ -108,17 +84,53 @@ prefix_policy! {
         perspective_aspect,
         perspective_x,
         perspective_y,
-        demosaic,
-        auto_lateral_ca,
-        defringe_purple_amount,
-        defringe_purple_hue_lo,
-        defringe_purple_hue_hi,
-        defringe_green_amount,
-        defringe_green_hue_lo,
-        defringe_green_hue_hi,
-        lens_profile,
     ];
     neutral {
+        // These stages already run in the GPU chain.
+        // Keeping them upstream both redeveloped the sensor and applied HSL/
+        // defringe twice. Their complete controls belong to the resident tick.
+        parametric_shadow_split: 25.0,
+        parametric_midtone_split: 50.0,
+        parametric_highlight_split: 75.0,
+        black_white: crate::types::BlackWhiteMode::Off,
+        defringe_purple_amount: 0.0,
+        defringe_purple_hue_lo: 30.0,
+        defringe_purple_hue_hi: 70.0,
+        defringe_green_amount: 0.0,
+        defringe_green_hue_lo: 40.0,
+        defringe_green_hue_hi: 60.0,
+        hue_adjustment_red: 0.0,
+        saturation_adjustment_red: 0.0,
+        luminance_adjustment_red: 0.0,
+        gray_mixer_red: 0.0,
+        hue_adjustment_orange: 0.0,
+        saturation_adjustment_orange: 0.0,
+        luminance_adjustment_orange: 0.0,
+        gray_mixer_orange: 0.0,
+        hue_adjustment_yellow: 0.0,
+        saturation_adjustment_yellow: 0.0,
+        luminance_adjustment_yellow: 0.0,
+        gray_mixer_yellow: 0.0,
+        hue_adjustment_green: 0.0,
+        saturation_adjustment_green: 0.0,
+        luminance_adjustment_green: 0.0,
+        gray_mixer_green: 0.0,
+        hue_adjustment_aqua: 0.0,
+        saturation_adjustment_aqua: 0.0,
+        luminance_adjustment_aqua: 0.0,
+        gray_mixer_aqua: 0.0,
+        hue_adjustment_blue: 0.0,
+        saturation_adjustment_blue: 0.0,
+        luminance_adjustment_blue: 0.0,
+        gray_mixer_blue: 0.0,
+        hue_adjustment_purple: 0.0,
+        saturation_adjustment_purple: 0.0,
+        luminance_adjustment_purple: 0.0,
+        gray_mixer_purple: 0.0,
+        hue_adjustment_magenta: 0.0,
+        saturation_adjustment_magenta: 0.0,
+        luminance_adjustment_magenta: 0.0,
+        gray_mixer_magenta: 0.0,
         // Film is a display-tail resource, not part of RAW development.
         film_look: String::new(),
         film_strength: 100.0,
@@ -201,6 +213,9 @@ prefix_policy! {
         color_grade_global_hue: 0.0,
         color_grade_global_saturation: 0.0,
         color_grade_global_luminance: 0.0,
+        color_grade_blending: 100.0,
+        color_grade_shadow_edge: 0.564622,
+        color_grade_highlight_edge: 0.564622,
         // Display-referred point curves (#2232) — display-tail like grain /
         // color_grade, entirely inside the GPU chain (post-AgX); pin so
         // dragging a display-curve control can't spuriously re-develop.
@@ -208,6 +223,12 @@ prefix_policy! {
         display_tone_curve_red: Default::default(),
         display_tone_curve_green: Default::default(),
         display_tone_curve_blue: Default::default(),
+        color_curve_hue_vs_hue: Default::default(),
+        color_curve_hue_vs_sat: Default::default(),
+        color_curve_hue_vs_luma: Default::default(),
+        color_curve_luma_vs_sat: Default::default(),
+        color_curve_sat_vs_sat: Default::default(),
+        color_curve_sat_vs_luma: Default::default(),
         // Sharpen is short-circuited (`amount = 0`), so its sub-params are inert;
         // pin them to defaults so dragging radius/detail/masking (with the GPU's
         // real `sharpen_amount` active) doesn't spuriously re-develop.
@@ -221,7 +242,8 @@ prefix_policy! {
         // `retouch_spots` (#3409 — a decode-product edit with no GPU pass of
         // its own, so it must stay in the prefix; placing a spot correctly
         // re-develops and re-uploads the base), and every other
-        // decode-upstream field — they shape the post-AE buffer the GPU chain
-        // consumes (so a change to any of them legitimately re-develops).
+        // decode-upstream field — they shape the uploaded buffer (the
+        // post-AE scene-linear prefix, or the capture decode and its creative
+        // stage) the GPU chain consumes (so a change to any of them legitimately re-develops).
     }
 }

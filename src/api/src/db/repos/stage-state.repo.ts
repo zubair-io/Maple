@@ -69,6 +69,7 @@ import {
 } from './stage-backlog.sql.ts';
 import {
   REGISTER_STAGE_SQL,
+  SEED_STAGE_ROWS_BY_MAPLE_ID_SQL,
   SEED_STAGE_ROW_SQL,
   STAGE_INVALIDATE_SQL,
   STAGE_OFF_CLAIM_SUCCESS_SQL,
@@ -86,6 +87,14 @@ import {
  */
 export function seedStageRowStatements(assetId: string, stages: readonly string[]): SqlStatement[] {
   return stages.map((stage) => ({ sql: SEED_STAGE_ROW_SQL, params: [assetId, stage] }));
+}
+
+/** {@link seedStageRowStatements} for an asset known only by its content id. */
+export function seedStageRowsByMapleIdStatement(
+  mapleId: string,
+  stages: readonly string[],
+): SqlStatement {
+  return { sql: SEED_STAGE_ROWS_BY_MAPLE_ID_SQL, params: [JSON.stringify(stages), mapleId] };
 }
 
 /** Seed one asset's stage rows on their own. Idempotent. */
@@ -181,13 +190,13 @@ export interface OffClaimStageResult {
 
 /**
  * Record results from a stage handler that a request path ran directly, rather
- * than the stage's own poll loop.
+ * than the stage's own slices.
  *
  * `/api/library/relocate` is the caller and the reason this exists: it cannot
  * move an asset into its canonical location folder using a `place_text` the
  * sidecar has already superseded, so for the assets `sidecar-metadata-index` has
  * not reached it runs that handler on the spot and lands the result here. The
- * alternative — waiting for the poll loop — would have the route silently
+ * alternative — waiting for the stage's next slice — would have the route silently
  * relocate against stale metadata.
  *
  * The whole batch is one transaction, which is the property the Mongo

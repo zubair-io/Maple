@@ -110,6 +110,38 @@
           {{ showHidden() ? 'On' : 'Off' }}
         </mui-button>
       </div>
+      <div
+        class="flex items-center justify-between gap-4 p-3 bg-surface border border-border rounded"
+      >
+        <div>
+          <div class="text-[12px] font-semibold text-text-main">
+            Show one image for RAW+JPEG pairs
+          </div>
+          <div class="text-[10px] text-text-muted">
+            Show a RAW and its same-name JPEG as one image. The Info pane lists both files, and
+            moving, renaming or trashing the image acts on both. Off shows them as separate images.
+          </div>
+        </div>
+        <mui-button
+          [variant]="stackRawJpeg() ? 'primary' : 'secondary'"
+          size="sm"
+          data-testid="stack-raw-jpeg-toggle"
+          ariaLabel="Show one image for RAW+JPEG pairs"
+          [ariaPressed]="stackRawJpeg()"
+          (pressed)="toggleStackRawJpeg()"
+        >
+          {{ stackRawJpeg() ? 'On' : 'Off' }}
+        </mui-button>
+      </div>
+      @if (preferenceError(); as e) {
+        <p
+          role="alert"
+          data-testid="preference-error"
+          class="error text-[var(--s-err)] text-[12.5px] m-0"
+        >
+          {{ e }}
+        </p>
+      }
     </section>
 
     <section>

@@ -3,7 +3,7 @@
 // (radius 7), serving BOTH dehaze min-filters via a `mode` flag:
 //
 //   mode 0 (dark channel) — out = min over the window of min(r, g, b).
-//   mode 1 (transmission) — out = 1 - OMEGA * (min over the window of
+//   mode 1 (transmission) — out = 1 - DEHAZE_TRANSMISSION_OMEGA * (min over the window of
 //                           min(r/A_r, g/A_g, b/A_b)), with each A clamped to
 //                           >= 1e-6 (the transmission-only clamp).
 //
@@ -40,8 +40,6 @@ struct Airlight {
 };
 
 const DARK_RADIUS: i32 = 7;   // 15×15 neighbourhood — raw-core's DARK_RADIUS.
-const OMEGA: f32 = 0.95;      // transmission strength — raw-core's OMEGA.
-const A_FLOOR: f32 = 1e-6;    // transmission-only per-channel A guard.
 
 @group(0) @binding(0) var<uniform> params: Params;
 @group(0) @binding(1) var<storage, read> input_buf: array<vec4<f32>>;
@@ -60,12 +58,12 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgroups) 
     let y = i32(i / params.width);
 
     // Per-channel reciprocal of the (clamped) airlight for mode 1. Computed once
-    // per pixel; `max(A, A_FLOOR)` mirrors raw-core's `a[c].max(1e-6)`.
+    // per pixel; `max(A, DEHAZE_AIRLIGHT_FLOOR)` mirrors raw-core's `a[c].max(1e-6)`.
     let a = airlight.value;
     let inv_a = vec3<f32>(
-        1.0 / max(a.r, A_FLOOR),
-        1.0 / max(a.g, A_FLOOR),
-        1.0 / max(a.b, A_FLOOR),
+        1.0 / max(a.r, DEHAZE_AIRLIGHT_FLOOR),
+        1.0 / max(a.g, DEHAZE_AIRLIGHT_FLOOR),
+        1.0 / max(a.b, DEHAZE_AIRLIGHT_FLOOR),
     );
 
     var m: f32 = 3.402823e38; // f32::INFINITY proxy; first sample overwrites it.
@@ -89,6 +87,6 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgroups) 
     if (params.mode == 0u) {
         output_buf[i] = m;
     } else {
-        output_buf[i] = 1.0 - OMEGA * m;
+        output_buf[i] = 1.0 - DEHAZE_TRANSMISSION_OMEGA * m;
     }
 }

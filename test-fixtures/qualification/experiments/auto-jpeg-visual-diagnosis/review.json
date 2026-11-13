@@ -1,0 +1,898 @@
+[
+  {
+    "fixture": "test_0000",
+    "numerical_status": "failed",
+    "visual_approval": false,
+    "observation": "Roof and road contrast/detail differ; inspect at the embedded preview resolution before interpreting sensor-resolution detail.",
+    "candidate_sha256": "a12ae02a7aa96b84955993cefccffdc60f3ef48e1103a7a975107fcc18dcf674",
+    "reference_sha256": "f7100cf9e597a5e73719fb4660c89cf5143913f596c3248b4809f67025993ce6",
+    "comparison_size": [
+      960,
+      640
+    ],
+    "aligned_valid_fraction": 0.9973974609375,
+    "signed_luma_by_band": [
+      {
+        "reference_luma_band": [
+          0,
+          0.1
+        ],
+        "pixels": 5580,
+        "auto_minus_reference_luma": 0.014503905512832057
+      },
+      {
+        "reference_luma_band": [
+          0.1,
+          0.25
+        ],
+        "pixels": 83065,
+        "auto_minus_reference_luma": 0.015798366050091484
+      },
+      {
+        "reference_luma_band": [
+          0.25,
+          0.5
+        ],
+        "pixels": 228564,
+        "auto_minus_reference_luma": 0.004252104891791168
+      },
+      {
+        "reference_luma_band": [
+          0.5,
+          0.75
+        ],
+        "pixels": 233745,
+        "auto_minus_reference_luma": -0.006255832364020826
+      },
+      {
+        "reference_luma_band": [
+          0.75,
+          1.001
+        ],
+        "pixels": 61847,
+        "auto_minus_reference_luma": -0.02522719072591501
+      }
+    ],
+    "reference_color_space_audit": "no confirmed defect; independent audit ongoing"
+  },
+  {
+    "fixture": "test_0002",
+    "numerical_status": "passed",
+    "visual_approval": false,
+    "observation": "Portrait broadly close at overview scale. Inspect skin and hair texture; numerical pass is not visual approval.",
+    "candidate_sha256": "9da8de3882507f9396a273200be448feb88a05c68398ed990a4bdb6c8342c638",
+    "reference_sha256": "b6da80bcd53c5bb65605c95b3f235d8c77f93fb81afec3a533e057bc91787733",
+    "comparison_size": [
+      721,
+      541
+    ],
+    "aligned_valid_fraction": 0.9962339223864985,
+    "signed_luma_by_band": [
+      {
+        "reference_luma_band": [
+          0,
+          0.1
+        ],
+        "pixels": 20,
+        "auto_minus_reference_luma": -0.007378775541189428
+      },
+      {
+        "reference_luma_band": [
+          0.1,
+          0.25
+        ],
+        "pixels": 35009,
+        "auto_minus_reference_luma": -0.0009498626004817396
+      },
+      {
+        "reference_luma_band": [
+          0.25,
+          0.5
+        ],
+        "pixels": 78276,
+        "auto_minus_reference_luma": -0.00024736852563021685
+      },
+      {
+        "reference_luma_band": [
+          0.5,
+          0.75
+        ],
+        "pixels": 31871,
+        "auto_minus_reference_luma": -0.00026732821050451237
+      },
+      {
+        "reference_luma_band": [
+          0.75,
+          1.001
+        ],
+        "pixels": 243416,
+        "auto_minus_reference_luma": -0.00028715313081144637
+      }
+    ],
+    "reference_color_space_audit": "no confirmed defect; independent audit ongoing"
+  },
+  {
+    "fixture": "test_0003",
+    "numerical_status": "failed",
+    "visual_approval": false,
+    "observation": "Remaining differences concentrate near blue pavement/corners. Check geometry and color separately.",
+    "candidate_sha256": "fe026c0a117107431661203f85d87adb6421f04602c4db8132bf2895cfd650fa",
+    "reference_sha256": "671fa1d439a20109d47aa531c02d2b8cde904c9383f2974597f465dbaefa07c5",
+    "comparison_size": [
+      683,
+      1024
+    ],
+    "aligned_valid_fraction": 1.0,
+    "signed_luma_by_band": [
+      {
+        "reference_luma_band": [
+          0,
+          0.1
+        ],
+        "pixels": 97105,
+        "auto_minus_reference_luma": 0.01350523029363823
+      },
+      {
+        "reference_luma_band": [
+          0.1,
+          0.25
+        ],
+        "pixels": 80207,
+        "auto_minus_reference_luma": 0.008998615213780514
+      },
+      {
+        "reference_luma_band": [
+          0.25,
+          0.5
+        ],
+        "pixels": 280547,
+        "auto_minus_reference_luma": 0.0002195559777269994
+      },
+      {
+        "reference_luma_band": [
+          0.5,
+          0.75
+        ],
+        "pixels": 198135,
+        "auto_minus_reference_luma": 0.0011001926902934366
+      },
+      {
+        "reference_luma_band": [
+          0.75,
+          1.001
+        ],
+        "pixels": 43398,
+        "auto_minus_reference_luma": -0.017246057864599967
+      }
+    ],
+    "reference_color_space_audit": "no confirmed defect; independent audit ongoing"
+  },
+  {
+    "fixture": "test_0004",
+    "numerical_status": "passed",
+    "visual_approval": false,
+    "observation": "Chart broadly close; inspect individual saturated patches and curtain shading.",
+    "candidate_sha256": "ee44bb8ecb9e1ca729db2c0e3355a81b6ce13279770a58eba812c257b38f62a6",
+    "reference_sha256": "873875c52ab155d88c139eaac8e06f87647e0aecbd49d606842917542c6785f2",
+    "comparison_size": [
+      1024,
+      768
+    ],
+    "aligned_valid_fraction": 0.9954477945963541,
+    "signed_luma_by_band": [
+      {
+        "reference_luma_band": [
+          0,
+          0.1
+        ],
+        "pixels": 43891,
+        "auto_minus_reference_luma": 0.0061222419402354195
+      },
+      {
+        "reference_luma_band": [
+          0.1,
+          0.25
+        ],
+        "pixels": 159909,
+        "auto_minus_reference_luma": 0.0019275211640079472
+      },
+      {
+        "reference_luma_band": [
+          0.25,
+          0.5
+        ],
+        "pixels": 117707,
+        "auto_minus_reference_luma": -0.0005922981926560387
+      },
+      {
+        "reference_luma_band": [
+          0.5,
+          0.75
+        ],
+        "pixels": 189445,
+        "auto_minus_reference_luma": -0.0027921059269057857
+      },
+      {
+        "reference_luma_band": [
+          0.75,
+          1.001
+        ],
+        "pixels": 271900,
+        "auto_minus_reference_luma": -0.0005593750514613545
+      }
+    ],
+    "reference_color_space_audit": "no confirmed defect; independent audit ongoing"
+  },
+  {
+    "fixture": "test_0005",
+    "numerical_status": "failed",
+    "visual_approval": false,
+    "observation": "Sky/shadow mismatch. Confirmed reference defect: RAF embedded JPEG declares R03 Adobe RGB, but this checkpoint treated it as sRGB. These old scores are not valid color acceptance evidence.",
+    "candidate_sha256": "fce89de063f5e73db3ed90a73fba90b41511ce8ce895635cd43b3e8fdf0a4649",
+    "reference_sha256": "882b270ca1594a801ecc236fcb7a985c2c8aa881d9008ed155de03678ad613b2",
+    "comparison_size": [
+      1024,
+      768
+    ],
+    "aligned_valid_fraction": 0.9990234375,
+    "signed_luma_by_band": [
+      {
+        "reference_luma_band": [
+          0,
+          0.1
+        ],
+        "pixels": 6734,
+        "auto_minus_reference_luma": 0.06759510334473771
+      },
+      {
+        "reference_luma_band": [
+          0.1,
+          0.25
+        ],
+        "pixels": 95096,
+        "auto_minus_reference_luma": 0.039100698524231176
+      },
+      {
+        "reference_luma_band": [
+          0.25,
+          0.5
+        ],
+        "pixels": 321305,
+        "auto_minus_reference_luma": 0.004331271567861453
+      },
+      {
+        "reference_luma_band": [
+          0.5,
+          0.75
+        ],
+        "pixels": 361657,
+        "auto_minus_reference_luma": -0.01429575389302459
+      },
+      {
+        "reference_luma_band": [
+          0.75,
+          1.001
+        ],
+        "pixels": 872,
+        "auto_minus_reference_luma": -0.0617251797201406
+      }
+    ],
+    "reference_color_space_audit": "incorrect Adobe RGB interpretation at this checkpoint"
+  },
+  {
+    "fixture": "test_0006",
+    "numerical_status": "failed",
+    "visual_approval": false,
+    "observation": "Uneven wall/counter brightness mismatch. A uniform exposure change would affect already-close areas.",
+    "candidate_sha256": "7dc0e634294f59c243ac6e8c485e445c8466d4a43dd0dbcdbef37730fb8b296a",
+    "reference_sha256": "62564f3d7b0242b319d1c4e54c62d30d03af2d47848f61e44ec8233f0c82c15b",
+    "comparison_size": [
+      1024,
+      683
+    ],
+    "aligned_valid_fraction": 1.0,
+    "signed_luma_by_band": [
+      {
+        "reference_luma_band": [
+          0,
+          0.1
+        ],
+        "pixels": 32084,
+        "auto_minus_reference_luma": 0.005320081724651565
+      },
+      {
+        "reference_luma_band": [
+          0.1,
+          0.25
+        ],
+        "pixels": 61086,
+        "auto_minus_reference_luma": 0.019128939922514045
+      },
+      {
+        "reference_luma_band": [
+          0.25,
+          0.5
+        ],
+        "pixels": 324076,
+        "auto_minus_reference_luma": 0.0035319429031238684
+      },
+      {
+        "reference_luma_band": [
+          0.5,
+          0.75
+        ],
+        "pixels": 212493,
+        "auto_minus_reference_luma": -0.000660492058213082
+      },
+      {
+        "reference_luma_band": [
+          0.75,
+          1.001
+        ],
+        "pixels": 69653,
+        "auto_minus_reference_luma": -0.017732998519788826
+      }
+    ],
+    "reference_color_space_audit": "no confirmed defect; independent audit ongoing"
+  },
+  {
+    "fixture": "test_0007",
+    "numerical_status": "failed",
+    "visual_approval": false,
+    "observation": "Larger wall/counter brightness mismatch than 0006. Spatial illumination is a hypothesis, not an established cause.",
+    "candidate_sha256": "6456d87ddf2b1bfea0f437b7eefc5c6e14630c4fa5fd2beabe2d617379721bf4",
+    "reference_sha256": "5611d486a58214103a54654de18ca79edea619ee47ad29b502ac2819a3e3fc65",
+    "comparison_size": [
+      1024,
+      683
+    ],
+    "aligned_valid_fraction": 1.0,
+    "signed_luma_by_band": [
+      {
+        "reference_luma_band": [
+          0,
+          0.1
+        ],
+        "pixels": 32081,
+        "auto_minus_reference_luma": 0.007924281251605906
+      },
+      {
+        "reference_luma_band": [
+          0.1,
+          0.25
+        ],
+        "pixels": 61123,
+        "auto_minus_reference_luma": 0.030841722745360116
+      },
+      {
+        "reference_luma_band": [
+          0.25,
+          0.5
+        ],
+        "pixels": 324009,
+        "auto_minus_reference_luma": 0.023355481948450968
+      },
+      {
+        "reference_luma_band": [
+          0.5,
+          0.75
+        ],
+        "pixels": 212558,
+        "auto_minus_reference_luma": -0.012116557317716298
+      },
+      {
+        "reference_luma_band": [
+          0.75,
+          1.001
+        ],
+        "pixels": 69621,
+        "auto_minus_reference_luma": -0.042008978713449156
+      }
+    ],
+    "reference_color_space_audit": "no confirmed defect; independent audit ongoing"
+  },
+  {
+    "fixture": "test_0008",
+    "numerical_status": "passed",
+    "visual_approval": false,
+    "observation": "Broad color match, with detail/framing differences around the package. Inspect lettering at matched preview resolution.",
+    "candidate_sha256": "fb94eb24d8437a625ef06c4952d9c5e51264f956b2c94ac2e6ea85034c37029b",
+    "reference_sha256": "d4b3dea1d1712d9c7b35dc8e4df265358a2c19970f7d1082cbe80b7e4de8e554",
+    "comparison_size": [
+      1024,
+      683
+    ],
+    "aligned_valid_fraction": 0.9747752333455344,
+    "signed_luma_by_band": [
+      {
+        "reference_luma_band": [
+          0,
+          0.1
+        ],
+        "pixels": 124440,
+        "auto_minus_reference_luma": 0.014124762035145353
+      },
+      {
+        "reference_luma_band": [
+          0.1,
+          0.25
+        ],
+        "pixels": 91766,
+        "auto_minus_reference_luma": -0.0007584014689276878
+      },
+      {
+        "reference_luma_band": [
+          0.25,
+          0.5
+        ],
+        "pixels": 134394,
+        "auto_minus_reference_luma": 0.00029295227954861366
+      },
+      {
+        "reference_luma_band": [
+          0.5,
+          0.75
+        ],
+        "pixels": 134832,
+        "auto_minus_reference_luma": 0.0008146063662046703
+      },
+      {
+        "reference_luma_band": [
+          0.75,
+          1.001
+        ],
+        "pixels": 196318,
+        "auto_minus_reference_luma": -0.0006711551327145946
+      }
+    ],
+    "reference_color_space_audit": "no confirmed defect; independent audit ongoing"
+  },
+  {
+    "fixture": "test_0009",
+    "numerical_status": "passed",
+    "visual_approval": false,
+    "observation": "Broad match in chart and sky; inspect saturated chart patches and gradients.",
+    "candidate_sha256": "65c841590dc2c4f85a7d25567a59972a538bfc0f2d1af61bf698b5aac10dc6a2",
+    "reference_sha256": "3ed06694a6de146f5c449c74bd59b79f8a56d7d6d675db57ba7c3811d81cb164",
+    "comparison_size": [
+      1024,
+      683
+    ],
+    "aligned_valid_fraction": 0.9994423728038068,
+    "signed_luma_by_band": [
+      {
+        "reference_luma_band": [
+          0,
+          0.1
+        ],
+        "pixels": 57898,
+        "auto_minus_reference_luma": -0.001216780885313943
+      },
+      {
+        "reference_luma_band": [
+          0.1,
+          0.25
+        ],
+        "pixels": 143264,
+        "auto_minus_reference_luma": 0.0031579013756429034
+      },
+      {
+        "reference_luma_band": [
+          0.25,
+          0.5
+        ],
+        "pixels": 221281,
+        "auto_minus_reference_luma": 9.714109400319552e-05
+      },
+      {
+        "reference_luma_band": [
+          0.5,
+          0.75
+        ],
+        "pixels": 191692,
+        "auto_minus_reference_luma": 0.0003368946247084251
+      },
+      {
+        "reference_luma_band": [
+          0.75,
+          1.001
+        ],
+        "pixels": 84867,
+        "auto_minus_reference_luma": -0.00031798305517888596
+      }
+    ],
+    "reference_color_space_audit": "no confirmed defect; independent audit ongoing"
+  },
+  {
+    "fixture": "test_0010",
+    "numerical_status": "passed",
+    "visual_approval": false,
+    "observation": "Chart and foreground tonality still differ despite numerical pass; inspect the gray ramp separately.",
+    "candidate_sha256": "1052f37dd4765101e541fcb0b4885040a4c80460d0ed03f02d82876b4a61c5ce",
+    "reference_sha256": "38733b5469659a1089505d73d2878612b89ab9e063d991dcaae304ca63591664",
+    "comparison_size": [
+      1024,
+      683
+    ],
+    "aligned_valid_fraction": 0.9958020680819912,
+    "signed_luma_by_band": [
+      {
+        "reference_luma_band": [
+          0,
+          0.1
+        ],
+        "pixels": 46996,
+        "auto_minus_reference_luma": -0.0135396063452729
+      },
+      {
+        "reference_luma_band": [
+          0.1,
+          0.25
+        ],
+        "pixels": 108968,
+        "auto_minus_reference_luma": -0.024059629257881143
+      },
+      {
+        "reference_luma_band": [
+          0.25,
+          0.5
+        ],
+        "pixels": 216207,
+        "auto_minus_reference_luma": 0.01161918026634121
+      },
+      {
+        "reference_luma_band": [
+          0.5,
+          0.75
+        ],
+        "pixels": 215368,
+        "auto_minus_reference_luma": 0.0008330839370409653
+      },
+      {
+        "reference_luma_band": [
+          0.75,
+          1.001
+        ],
+        "pixels": 108917,
+        "auto_minus_reference_luma": 0.0010926346183774947
+      }
+    ],
+    "reference_color_space_audit": "no confirmed defect; independent audit ongoing"
+  },
+  {
+    "fixture": "test_0011",
+    "numerical_status": "passed",
+    "visual_approval": false,
+    "observation": "Broad match at overview scale; inspect dark foreground texture and sky gradient.",
+    "candidate_sha256": "c12fb7b7dd69099fd6c56e73a55ad653b98fc8dab4231bd5d122c3ef511b3fba",
+    "reference_sha256": "dde686e9852185784a4bc67242fabb040ce2c5befe73c525b65fe27d3c15fcd3",
+    "comparison_size": [
+      1024,
+      684
+    ],
+    "aligned_valid_fraction": 1.0,
+    "signed_luma_by_band": [
+      {
+        "reference_luma_band": [
+          0,
+          0.1
+        ],
+        "pixels": 230603,
+        "auto_minus_reference_luma": 0.0012919653990871387
+      },
+      {
+        "reference_luma_band": [
+          0.1,
+          0.25
+        ],
+        "pixels": 155864,
+        "auto_minus_reference_luma": 0.00174531993454193
+      },
+      {
+        "reference_luma_band": [
+          0.25,
+          0.5
+        ],
+        "pixels": 49822,
+        "auto_minus_reference_luma": -0.0025055528173757572
+      },
+      {
+        "reference_luma_band": [
+          0.5,
+          0.75
+        ],
+        "pixels": 17385,
+        "auto_minus_reference_luma": 0.0030175389384897214
+      },
+      {
+        "reference_luma_band": [
+          0.75,
+          1.001
+        ],
+        "pixels": 246742,
+        "auto_minus_reference_luma": -0.00017766356065697877
+      }
+    ],
+    "reference_color_space_audit": "no confirmed defect; independent audit ongoing"
+  },
+  {
+    "fixture": "test_0012",
+    "numerical_status": "passed",
+    "visual_approval": false,
+    "observation": "Broad match after alignment; inspect building shadow contrast and sky.",
+    "candidate_sha256": "dffbdd998491de57dff4d22e2094db8a93cc50deea796affe4fd349358d5102d",
+    "reference_sha256": "90fdfcd27884c33aadb06cac17fb7dc834313188b6c99433c58a061b4647b3c3",
+    "comparison_size": [
+      1024,
+      768
+    ],
+    "aligned_valid_fraction": 1.0,
+    "signed_luma_by_band": [
+      {
+        "reference_luma_band": [
+          0,
+          0.1
+        ],
+        "pixels": 112090,
+        "auto_minus_reference_luma": 0.029393821000532505
+      },
+      {
+        "reference_luma_band": [
+          0.1,
+          0.25
+        ],
+        "pixels": 69121,
+        "auto_minus_reference_luma": 0.01437940892581718
+      },
+      {
+        "reference_luma_band": [
+          0.25,
+          0.5
+        ],
+        "pixels": 340320,
+        "auto_minus_reference_luma": -0.00023251840593486255
+      },
+      {
+        "reference_luma_band": [
+          0.5,
+          0.75
+        ],
+        "pixels": 247007,
+        "auto_minus_reference_luma": -6.660884574679177e-05
+      },
+      {
+        "reference_luma_band": [
+          0.75,
+          1.001
+        ],
+        "pixels": 17894,
+        "auto_minus_reference_luma": -0.002871854984132716
+      }
+    ],
+    "reference_color_space_audit": "no confirmed defect; independent audit ongoing"
+  },
+  {
+    "fixture": "test_0013",
+    "numerical_status": "passed",
+    "visual_approval": false,
+    "observation": "Broad match; inspect water/foreground contrast. Phone processing may be spatial, but this is not yet proven.",
+    "candidate_sha256": "b62674ebfb7efafc0bd747501202246199396b4a926ca64418b3c0d4cbc127d9",
+    "reference_sha256": "3e28203da1be426f6c86fa063c0e8c262102b4947484d04470cc3f31c7dd0aca",
+    "comparison_size": [
+      768,
+      1024
+    ],
+    "aligned_valid_fraction": 0.9989013671875,
+    "signed_luma_by_band": [
+      {
+        "reference_luma_band": [
+          0,
+          0.1
+        ],
+        "pixels": 26452,
+        "auto_minus_reference_luma": 0.017463828303583926
+      },
+      {
+        "reference_luma_band": [
+          0.1,
+          0.25
+        ],
+        "pixels": 122521,
+        "auto_minus_reference_luma": 0.0013440712238714672
+      },
+      {
+        "reference_luma_band": [
+          0.25,
+          0.5
+        ],
+        "pixels": 222330,
+        "auto_minus_reference_luma": 0.0025811311925550266
+      },
+      {
+        "reference_luma_band": [
+          0.5,
+          0.75
+        ],
+        "pixels": 294259,
+        "auto_minus_reference_luma": 0.0003595525116141007
+      },
+      {
+        "reference_luma_band": [
+          0.75,
+          1.001
+        ],
+        "pixels": 120006,
+        "auto_minus_reference_luma": -0.0026387635968349045
+      }
+    ],
+    "reference_color_space_audit": "no confirmed defect; independent audit ongoing"
+  },
+  {
+    "fixture": "test_0014",
+    "numerical_status": "passed",
+    "visual_approval": false,
+    "observation": "Broad match; inspect tree and grass detail and shadow density.",
+    "candidate_sha256": "13ebd92f28afc6db2c7677c241297fb9b1e235278b53bfdb03fea5f45649e6dc",
+    "reference_sha256": "40204dea96ed3989974becef40c6a66a1dd0fb8d170554070e01870d72a20771",
+    "comparison_size": [
+      1024,
+      683
+    ],
+    "aligned_valid_fraction": 0.9985358711566618,
+    "signed_luma_by_band": [
+      {
+        "reference_luma_band": [
+          0,
+          0.1
+        ],
+        "pixels": 137702,
+        "auto_minus_reference_luma": -0.0009621454760079871
+      },
+      {
+        "reference_luma_band": [
+          0.1,
+          0.25
+        ],
+        "pixels": 366263,
+        "auto_minus_reference_luma": 0.0028242815852091265
+      },
+      {
+        "reference_luma_band": [
+          0.25,
+          0.5
+        ],
+        "pixels": 50088,
+        "auto_minus_reference_luma": -0.0017567039731707615
+      },
+      {
+        "reference_luma_band": [
+          0.5,
+          0.75
+        ],
+        "pixels": 143292,
+        "auto_minus_reference_luma": 0.00039076388128690914
+      },
+      {
+        "reference_luma_band": [
+          0.75,
+          1.001
+        ],
+        "pixels": 1023,
+        "auto_minus_reference_luma": 0.0078074400661261815
+      }
+    ],
+    "reference_color_space_audit": "no confirmed defect; independent audit ongoing"
+  },
+  {
+    "fixture": "test_0015",
+    "numerical_status": "failed",
+    "visual_approval": false,
+    "observation": "Largest visible haze/contrast mismatch: foliage shadows are lifted and clouds lack separation. Pixel 6 Pro preview; global versus spatial tone processing needs a causal stage comparison.",
+    "candidate_sha256": "2821b2b4d07f0b011ed39e9b1f56062bc9b5578a057d8850c1d03bced5a54e2d",
+    "reference_sha256": "5e3d67e6ed652580679f7ff6b0d740e218380fa9ab260fa3e6bbf13055dba8fe",
+    "comparison_size": [
+      680,
+      512
+    ],
+    "aligned_valid_fraction": 1.0,
+    "signed_luma_by_band": [
+      {
+        "reference_luma_band": [
+          0,
+          0.1
+        ],
+        "pixels": 20051,
+        "auto_minus_reference_luma": 0.08566464885421333
+      },
+      {
+        "reference_luma_band": [
+          0.1,
+          0.25
+        ],
+        "pixels": 66006,
+        "auto_minus_reference_luma": 0.05817951649796997
+      },
+      {
+        "reference_luma_band": [
+          0.25,
+          0.5
+        ],
+        "pixels": 102935,
+        "auto_minus_reference_luma": -0.026627282566710327
+      },
+      {
+        "reference_luma_band": [
+          0.5,
+          0.75
+        ],
+        "pixels": 153626,
+        "auto_minus_reference_luma": -0.016836635784060007
+      },
+      {
+        "reference_luma_band": [
+          0.75,
+          1.001
+        ],
+        "pixels": 5542,
+        "auto_minus_reference_luma": -0.07586953435774221
+      }
+    ],
+    "reference_color_space_audit": "no confirmed defect; independent audit ongoing"
+  },
+  {
+    "fixture": "test_0017",
+    "numerical_status": "failed",
+    "visual_approval": false,
+    "observation": "Brick/window/grass contrast differs; remaining errors concentrate near lower corners. Review both aligned geometry and local tone.",
+    "candidate_sha256": "fc87e685af776484163140a52602536658e2e9a052135d1a83b28c11093319a8",
+    "reference_sha256": "19f620d07c2b06b29a7e0e4dea6ded9f3b3a108a4b81600d9c677a9acda8fa7f",
+    "comparison_size": [
+      1024,
+      683
+    ],
+    "aligned_valid_fraction": 0.9651611685578331,
+    "signed_luma_by_band": [
+      {
+        "reference_luma_band": [
+          0,
+          0.1
+        ],
+        "pixels": 411,
+        "auto_minus_reference_luma": -0.01245488406217539
+      },
+      {
+        "reference_luma_band": [
+          0.1,
+          0.25
+        ],
+        "pixels": 32653,
+        "auto_minus_reference_luma": 0.013835593882695849
+      },
+      {
+        "reference_luma_band": [
+          0.25,
+          0.5
+        ],
+        "pixels": 410656,
+        "auto_minus_reference_luma": 0.0017134854420995961
+      },
+      {
+        "reference_luma_band": [
+          0.5,
+          0.75
+        ],
+        "pixels": 155818,
+        "auto_minus_reference_luma": -0.0024174776306007313
+      },
+      {
+        "reference_luma_band": [
+          0.75,
+          1.001
+        ],
+        "pixels": 75488,
+        "auto_minus_reference_luma": -0.00916089389836432
+      }
+    ],
+    "reference_color_space_audit": "no confirmed defect; independent audit ongoing"
+  }
+]

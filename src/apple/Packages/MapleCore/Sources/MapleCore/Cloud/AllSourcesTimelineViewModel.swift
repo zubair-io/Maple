@@ -29,7 +29,8 @@ public final class AllSourcesTimelineViewModel {
     public let year: Int
     public let month: Int
     public init(year: Int, month: Int) {
-      self.year = year; self.month = month
+      self.year = year
+      self.month = month
     }
   }
 
@@ -47,8 +48,10 @@ public final class AllSourcesTimelineViewModel {
     /// so a single client covers every library on this server.
     public let thumbClient: CloudThumbClient
 
-    public init(server: URL, libraryIDs: [String],
-                searchClient: CloudSearchClient, thumbClient: CloudThumbClient) {
+    public init(
+      server: URL, libraryIDs: [String],
+      searchClient: CloudSearchClient, thumbClient: CloudThumbClient
+    ) {
       self.server = server
       self.libraryIDs = libraryIDs
       self.searchClient = searchClient
@@ -71,6 +74,9 @@ public final class AllSourcesTimelineViewModel {
   public private(set) var inFlight: Set<BucketKey> = []
   public private(set) var loadError: Error?
   public private(set) var isLoadingBuckets: Bool = false
+  /// The month containing the last opened tile. The Timeline view is
+  /// recreated after Preview, so its scroll target must live with this VM.
+  public var scrollBucketID: String?
 
   /// Host (`URL.cacheHostKey`) → `CloudThumbClient`, one per connected
   /// server. The view layer builds a multi-host `ThumbnailProvider` from
@@ -119,12 +125,14 @@ public final class AllSourcesTimelineViewModel {
 
   // MARK: - Init
 
-  public init(sources: [ServerSource],
-              bucketsCache: CloudBucketsCache = CloudBucketsCache(),
-              pagesCache: CloudPagesCache = CloudPagesCache(),
-              maxConcurrentPageFetches: Int = 2,
-              photoKitMerge: PhotoKitMergeAdapter? = nil,
-              folderMerge: FolderMergeAdapter? = nil) {
+  public init(
+    sources: [ServerSource],
+    bucketsCache: CloudBucketsCache = CloudBucketsCache(),
+    pagesCache: CloudPagesCache = CloudPagesCache(),
+    maxConcurrentPageFetches: Int = 2,
+    photoKitMerge: PhotoKitMergeAdapter? = nil,
+    folderMerge: FolderMergeAdapter? = nil
+  ) {
     self.sources = sources
     self.bucketsCache = bucketsCache
     self.pagesCache = pagesCache
@@ -239,7 +247,8 @@ public final class AllSourcesTimelineViewModel {
     for local in localBuckets {
       counts[local.key] = max(counts[local.key] ?? 0, local.count)
     }
-    return counts
+    return
+      counts
       .map { TimelineBucket(year: $0.key.year, month: $0.key.month, count: $0.value) }
       .sorted { ($0.year, $0.month) > ($1.year, $1.month) }
   }
@@ -275,7 +284,9 @@ public final class AllSourcesTimelineViewModel {
     for source in sources {
       let host = source.server.cacheHostKey
       for libraryID in source.libraryIDs {
-        guard let cached = await bucketsCache.read(host: host, libraryID: libraryID) else { continue }
+        guard let cached = await bucketsCache.read(host: host, libraryID: libraryID) else {
+          continue
+        }
         guard g == generation else { return }
         bucketCountsBySource["\(host)::\(libraryID)"] = Self.countsByKey(cached.buckets)
         recomputeBuckets()
@@ -316,12 +327,15 @@ public final class AllSourcesTimelineViewModel {
     if !fetchTargets.isEmpty, !anySucceeded {
       loadError = NSError(
         domain: "AllSourcesTimelineViewModel", code: -1,
-        userInfo: [NSLocalizedDescriptionKey: "Failed to load any connected library's timeline buckets."])
+        userInfo: [
+          NSLocalizedDescriptionKey: "Failed to load any connected library's timeline buckets."
+        ])
     }
   }
 
   private static func countsByKey(_ buckets: [TimelineBucket]) -> [BucketKey: Int] {
-    Dictionary(uniqueKeysWithValues: buckets.map { (BucketKey(year: $0.year, month: $0.month), $0.count) })
+    Dictionary(
+      uniqueKeysWithValues: buckets.map { (BucketKey(year: $0.year, month: $0.month), $0.count) })
   }
 
   // MARK: - Pages
@@ -352,7 +366,7 @@ public final class AllSourcesTimelineViewModel {
     // land, since the two would reorder/dedupe differently. Passing the
     // still-separate streams through the real merge function keeps the
     // seed and the post-merge state identical in shape.
-    if (photoKitMerge != nil || folderMerge != nil), g == generation {
+    if photoKitMerge != nil || folderMerge != nil, g == generation {
       let localStreamsForKey = localStreams(forMonthOf: key)
       if localStreamsForKey.contains(where: { !$0.isEmpty }), mergedPagesByBucket[key] == nil {
         mergedPagesByBucket[key] = MergedTimelineSource.merge(
@@ -365,7 +379,8 @@ public final class AllSourcesTimelineViewModel {
       let host = source.server.cacheHostKey
       for libraryID in source.libraryIDs {
         if let cached = await pagesCache.read(
-          host: host, libraryID: libraryID, year: year, month: month, page: 0) {
+          host: host, libraryID: libraryID, year: year, month: month, page: 0)
+        {
           cachedPerSource.append((host, cached.results))
         }
       }
@@ -377,22 +392,24 @@ public final class AllSourcesTimelineViewModel {
 
     let fetchTargets = sources.flatMap { source in source.libraryIDs.map { (source, $0) } }
     let sem = semaphore
-    let freshResults: [(host: String, libraryID: String, response: SearchResponse)] = await withTaskGroup(
-      of: (host: String, libraryID: String, response: SearchResponse?).self
-    ) { group in
-      for (source, libraryID) in fetchTargets {
-        group.addTask {
-          await Self.fetchPage(source: source, libraryID: libraryID, year: year, month: month, semaphore: sem)
+    let freshResults: [(host: String, libraryID: String, response: SearchResponse)] =
+      await withTaskGroup(
+        of: (host: String, libraryID: String, response: SearchResponse?).self
+      ) { group in
+        for (source, libraryID) in fetchTargets {
+          group.addTask {
+            await Self.fetchPage(
+              source: source, libraryID: libraryID, year: year, month: month, semaphore: sem)
+          }
         }
-      }
-      var out: [(host: String, libraryID: String, response: SearchResponse)] = []
-      for await result in group {
-        if let response = result.response {
-          out.append((result.host, result.libraryID, response))
+        var out: [(host: String, libraryID: String, response: SearchResponse)] = []
+        for await result in group {
+          if let response = result.response {
+            out.append((result.host, result.libraryID, response))
+          }
         }
+        return out
       }
-      return out
-    }
 
     guard g == generation else { return }
     for (host, libraryID, response) in freshResults {
@@ -400,7 +417,8 @@ public final class AllSourcesTimelineViewModel {
         host: host, libraryID: libraryID, year: year, month: month, page: 0, response)
     }
     if !freshResults.isEmpty {
-      applyMergedPage(key: key, perSource: freshResults.map { (host: $0.host, assets: $0.response.results) })
+      applyMergedPage(
+        key: key, perSource: freshResults.map { (host: $0.host, assets: $0.response.results) })
     } else if mergedPagesByBucket[key] == nil {
       // Nothing cached, nothing fetched (every source offline/errored), and
       // no PhotoKit content either — resolve to empty rather than leaving
@@ -429,7 +447,8 @@ public final class AllSourcesTimelineViewModel {
     }
     defer { Task.detached { await semaphore.release() } }
     do {
-      let response = try await source.searchClient.page(libraryID: libraryID, year: year, month: month)
+      let response = try await source.searchClient.page(
+        libraryID: libraryID, year: year, month: month)
       return (host, libraryID, response)
     } catch {
       return (host, libraryID, nil)

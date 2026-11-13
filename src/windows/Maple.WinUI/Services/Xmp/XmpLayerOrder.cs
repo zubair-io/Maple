@@ -13,6 +13,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
+using System.Xml;
 using System.Xml.Linq;
 using Maple.WinUI.Generated;
 using Maple.WinUI.Models;
@@ -35,6 +36,40 @@ namespace Maple.WinUI.Services.Xmp
 
         internal static bool IsBrushContainer(XElement child) =>
             XmpSchema.IsPappUri(child.Name.NamespaceName) && child.Name.LocalName == "BrushCorrections";
+
+        internal static bool IsBrushContainer(string xml)
+        {
+            try
+            {
+                return IsBrushContainer(XElement.Parse(xml, LoadOptions.PreserveWhitespace));
+            }
+            catch (XmlException)
+            {
+                return false;
+            }
+        }
+
+        private static string? ContainerTag(LocalMask mask) => mask switch
+        {
+            LinearMask => XmpLocalAdjustments.LinearContainer,
+            RadialMask => XmpLocalAdjustments.RadialContainer,
+            MaskGroup => XmpLocalAdjustments.GroupContainer,
+            _ => null,
+        };
+
+        internal static string? ContainerTagFor(LocalMask mask) => ContainerTag(mask);
+
+        internal static bool FreshBlockFollowsUnkeyedBrushes(
+            IReadOnlyList<LocalAdjustment> layers, IReadOnlyList<double> verbatim, string tag)
+        {
+            if (verbatim.Count != 0) return false;
+            var brushIndexes = layers.Select((layer, index) => (layer, index))
+                .Where(entry => entry.layer.Mask is BrushMask).Select(entry => entry.index).ToArray();
+            var blockIndexes = layers.Select((layer, index) => (layer, index))
+                .Where(entry => ContainerTag(entry.layer.Mask) == tag).Select(entry => entry.index).ToArray();
+            return brushIndexes.Length > 0 && blockIndexes.Length > 0 &&
+                blockIndexes.Min() > brushIndexes.Max();
+        }
 
         internal static IEnumerable<XElement> ContainerItems(XElement container) =>
             container.Elements(Rdf + "Seq").Elements(Rdf + "li");
@@ -62,19 +97,31 @@ namespace Maple.WinUI.Services.Xmp
         /// or verbatim correction above it.
         /// </summary>
         internal static IReadOnlyList<(LocalAdjustment Layer, double? Order)> Assign(
-            IReadOnlyList<LocalAdjustment> layers, IReadOnlyList<double> verbatim)
+            IReadOnlyList<LocalAdjustment> layers, IReadOnlyList<double> verbatim,
+            bool preservePassthroughBrushPositions = false)
         {
+            // Brush corrections hydrate into the live render model, but their
+            // XMP container remains passthrough-owned. Its keys are already in
+            // `verbatim`; assigning the hydrated brush layers as well would
+            // give those keys two owners and can force every modeled layer to
+            // be respaced around a duplicate key.
+            var writableLayers = layers.Where(layer => layer.Mask is not BrushMask).ToArray();
             if (verbatim.Count == 0)
             {
-                var ranks = layers.Select(layer => ContainerRank(layer.Mask)).ToArray();
+                var orderLayers = preservePassthroughBrushPositions ? layers : writableLayers;
+                var ranks = orderLayers.Select(layer => ContainerRank(layer.Mask)).ToArray();
                 var interleaved = ranks.Zip(ranks.Skip(1)).Any(pair => pair.First > pair.Second);
-                return layers.Select((layer, index) => (layer, interleaved ? index : (double?)null)).ToArray();
+                var indexes = preservePassthroughBrushPositions
+                    ? layers.Select((layer, index) => (layer, index)).Where(entry => entry.layer.Mask is not BrushMask)
+                    : writableLayers.Select((layer, index) => (layer, index));
+                return indexes.Select(entry => (entry.layer,
+                    interleaved ? (double?)entry.index : null)).ToArray();
             }
-            var kept = KeptIndexes(layers.Select(layer => layer.XmpLayerOrder).ToArray());
-            var keys = layers.Select((layer, index) => (layer, index)).Aggregate(new List<double>(), (assigned, entry) =>
+            var kept = KeptIndexes(writableLayers.Select(layer => layer.XmpLayerOrder).ToArray());
+            var keys = writableLayers.Select((layer, index) => (layer, index)).Aggregate(new List<double>(), (assigned, entry) =>
             {
                 double? lower = assigned.Count == 0 ? null : assigned[^1];
-                var bounds = kept.Where(index => index > entry.index).Select(index => layers[index].XmpLayerOrder!.Value)
+                var bounds = kept.Where(index => index > entry.index).Select(index => writableLayers[index].XmpLayerOrder!.Value)
                     .Concat(verbatim.Where(key => lower is null || key > lower));
                 double? upper = bounds.Any() ? bounds.Min() : null;
                 assigned.Add(kept.Contains(entry.index) ? entry.layer.XmpLayerOrder!.Value : (lower, upper) switch
@@ -87,7 +134,7 @@ namespace Maple.WinUI.Services.Xmp
                 return assigned;
             });
             var written = Representable(keys, verbatim) ? keys : Respaced(keys, verbatim);
-            return layers.Zip(written, (layer, key) => (layer, (double?)key)).ToArray();
+            return writableLayers.Zip(written, (layer, key) => (layer, (double?)key)).ToArray();
         }
 
         private static double Written(double key) => double.Parse(Format(key), CultureInfo.InvariantCulture);

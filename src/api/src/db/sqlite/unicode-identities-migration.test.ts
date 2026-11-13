@@ -57,7 +57,19 @@ test('an existing file backfills Unicode keys without changing values or account
     'lan_handoff_codes',
     'apns_device_tokens',
   ];
-  const before = children.map((table) => db.query(`SELECT * FROM ${table}`).all());
+  // Compare the pre-upgrade columns exactly. Later migrations may add fields
+  // without changing any of the values or account references under test.
+  const projections = children.map((table) => ({
+    table,
+    columns: (db.query(`PRAGMA table_info(${table})`).all() as { name: string }[])
+      .map(({ name }) => name)
+      .join(', '),
+  }));
+  const readChildren = (connection: Database) =>
+    projections.map(({ table, columns }) =>
+      connection.query(`SELECT ${columns} FROM ${table}`).all(),
+    );
+  const before = readChildren(db);
   const oldUsers = db.query('SELECT * FROM users ORDER BY id').all();
   const oldPreset = db.query('SELECT * FROM presets').get();
 
@@ -92,11 +104,11 @@ test('an existing file backfills Unicode keys without changing values or account
       .query('SELECT COUNT(*) AS n FROM users WHERE email IS NULL AND email_key IS NULL')
       .get(),
   ).toEqual({ n: 2 });
-  expect(children.map((table) => reopened.query(`SELECT * FROM ${table}`).all())).toEqual(before);
+  expect(readChildren(reopened)).toEqual(before);
   expect(reopened.query('PRAGMA foreign_keys').get()).toEqual({ foreign_keys: 1 });
   expect(reopened.query('PRAGMA foreign_key_check').all()).toEqual([]);
   expect(() => reopened.run('DELETE FROM users WHERE id = ?', [owner])).toThrow(/FOREIGN KEY/);
-  expect(children.map((table) => reopened.query(`SELECT * FROM ${table}`).all())).toEqual(before);
+  expect(readChildren(reopened)).toEqual(before);
 });
 
 for (const table of ['presets', 'users'] as const) {

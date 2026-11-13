@@ -1,0 +1,20 @@
+[
+  {
+    "fixture": "test_0005",
+    "diagnostic_source": "6a14969488",
+    "render_sha256": "fce89de063f5e73db3ed90a73fba90b41511ce8ce895635cd43b3e8fdf0a4649",
+    "byte_identical_9eb": true
+  },
+  {
+    "fixture": "test_0000",
+    "diagnostic_source": "6a14969488",
+    "render_sha256": "a12ae02a7aa96b84955993cefccffdc60f3ef48e1103a7a975107fcc18dcf674",
+    "byte_identical_9eb": true
+  },
+  {
+    "fixture": "test_0017",
+    "diagnostic_source": "6a14969488",
+    "render_sha256": "fc87e685af776484163140a52602536658e2e9a052135d1a83b28c11093319a8",
+    "byte_identical_9eb": true
+  }
+]

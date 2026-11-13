@@ -5,7 +5,7 @@
  * accepts, and a few combinations of them, each paged to exhaustion and checked
  * against its own count. That is the ticket's third exit criterion, and it is
  * the property whose absence produced the bug this slice must not repeat — the
- * Meilisearch branch once post-filtered a single page and reported a count from
+ * ranked branch once post-filtered a single page and reported a count from
  * a different predicate, so the grid showed a large number above no photos.
  *
  * Paging is done twice for the sorts that support a cursor: once with
@@ -16,7 +16,8 @@
 import { describe, expect, test } from 'bun:test';
 import type { Database } from 'bun:sqlite';
 import { createTestDatabase, testSqliteDb } from '../sqlite/test-sqlite.test-helpers.ts';
-import { searchByMapleIds, searchCount, searchPage, type SeekPosition } from './search.page.ts';
+import { searchCount, searchPage, windowDocs, type SeekPosition } from './search.page.ts';
+import { mapleIdWindow } from './search.ranked.ts';
 import { buildSearchWhere, type SearchWhere } from './search.where.ts';
 import { seedSearchLibrary, type SeededLibrary } from './search.test-helpers.ts';
 import type { SqliteDb } from './db-handle.ts';
@@ -362,7 +363,16 @@ describe('searchCount — the three excluded assets', () => {
   });
 });
 
-describe('searchByMapleIds — the assets behind a page of Meilisearch hits', () => {
+/** Another engine's ranked `maple_id`s as documents: the window's rows, then their page. */
+async function searchByMapleIds(
+  where: Parameters<typeof mapleIdWindow>[0],
+  ids: readonly string[],
+  db: Parameters<typeof mapleIdWindow>[2],
+) {
+  return windowDocs(where, await mapleIdWindow(where, ids, db), db);
+}
+
+describe("an engine's ranked maple_ids — the window's rows and their documents", () => {
   /** The `maple_id`s the shared fixture mints, keyed by the names tests use. */
   const mapleId = (library: SeededLibrary, name: string): string =>
     `maple-${library.assets.get(name)!}`;
@@ -388,7 +398,7 @@ describe('searchByMapleIds — the assets behind a page of Meilisearch hits', ()
       const where = translate({ name: 'rating', query: () => ({ rating: '4' }) }, library);
       const ids = ['skyline', 'kitchen'].map((name) => mapleId(library, name));
       // `kitchen` is rated 3 and must drop out even though the sidecar
-      // returned it: a filter with no Meilisearch counterpart still narrows.
+      // returned it: a filter the engine cannot express still narrows.
       const rows = await searchByMapleIds(where, ids, db);
       expect(rows.map((row) => row.fileinfo?.[0]?.filename)).toEqual(['skyline.dng']);
     });

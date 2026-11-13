@@ -2,6 +2,7 @@
 import XCTest
 import Foundation
 @testable import MapleCore
+@testable import MapleFileProviderCore
 
 /// `FileProviderExtensionCore.resolveAbsolutePath` resolves a
 /// `folderID + relativePath` pair to the absolute path on the server's

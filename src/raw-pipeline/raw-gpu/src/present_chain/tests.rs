@@ -124,7 +124,11 @@ pub(super) fn aggressive_case() -> Case {
         saturation: 25.0,
         clarity: 40.0,
         texture: 30.0,
-        dehaze: 45.0,
+        // 45 put one 300×200 fixture pixel (x200 y23, scene
+        // [0.0247, -0.0021, 0.5597] after the chain) on a GPU-vs-CPU view-tail
+        // branch flip worth 9 LSB from 1e-7 scene differences (#3287); 50 does
+        // not, and keeps the dehaze kernels on the same paths.
+        dehaze: 50.0,
         sharpen_amount: 80.0,
         sharpen_radius: 1.5,
         sharpen_detail: 30.0,

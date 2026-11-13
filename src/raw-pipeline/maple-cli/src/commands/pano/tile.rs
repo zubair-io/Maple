@@ -11,10 +11,9 @@
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
-use maple_pano::render::PngMetadata;
 use maple_pano::stitch::TileStitchOutcome;
 
-use super::io::{tile_stitch_report, write_png16, TileReportContext};
+use super::io::{tile_stitch_report, TileReportContext};
 
 // ─── Primary entry point: outcome already computed ────────────────────────────
 
@@ -23,37 +22,33 @@ use super::io::{tile_stitch_report, write_png16, TileReportContext};
 /// Called by `stitch_set` when [`maple_pano::stitch::stitch`] returned
 /// `StitchSuccess::Tile` — the tile pipeline already ran inside `stitch`
 /// (with shared ALIKED + LightGlue from #1270). This function only owns
-/// the I/O tail (PNG write + JSON report assembly).
+/// the report tail; the PNGs streamed out during the composite (#5452).
 pub(super) struct TileOutcomeArgs<'a> {
     pub outcome: TileStitchOutcome,
-    pub outs_linear: &'a Path,
-    pub outs_display: Option<&'a Path>,
-    pub outs_report: Option<&'a Path>,
+    /// The PNG reported as written: the display PNG when one was asked for.
+    pub written: &'a Path,
     pub inputs: &'a [PathBuf],
-    /// PNG metadata (EXIF blob + sRGB tag) pre-computed BEFORE stitch() ran
-    /// so that this write phase does not re-read any source RAW at peak RSS
-    /// (#1349 fix). `None` iff `outs_display` is `None`.
-    pub display_meta: Option<PngMetadata>,
+    /// Seconds spent closing the streamed PNGs after the composite.
+    pub write_s: f64,
     pub t0: Instant,
 }
 
 /// Write outputs for a tile stitch that already ran inside `stitch()` (#1270).
 ///
 /// After the unified pipeline the tile outcome arrives pre-computed;
-/// this function only handles the PNG writes and JSON report assembly that
+/// this function only handles the logging and JSON report assembly that
 /// `stitch_set` can't do generically.
 pub(super) fn run_tile_from_outcome(
     args: TileOutcomeArgs<'_>,
 ) -> Result<serde_json::Value, String> {
     let TileOutcomeArgs {
         outcome,
-        outs_linear,
-        outs_display,
-        outs_report,
+        written,
         inputs,
-        display_meta,
+        write_s,
         t0,
     } = args;
+    let (width, height) = outcome.tile_report.output_size();
 
     let [decode_s, features_s, graph_s, refine_s, solve_s, composite_s] = outcome.stage_timings_s;
 
@@ -87,33 +82,10 @@ pub(super) fn run_tile_from_outcome(
         outcome.tile_report.canvas.height,
     );
     eprintln!(
-        "pano[tile]: composite — {}×{}, mean planar {:.3}px, max {:.3}px ({composite_s:.1}s)",
-        outcome.image.width(),
-        outcome.image.height(),
+        "pano[tile]: composite — {width}×{height}, mean planar {:.3}px, max {:.3}px ({composite_s:.1}s)",
         outcome.mean_planar_residual_px,
         outcome.max_planar_residual_px,
     );
-
-    let t_out = Instant::now();
-    write_png16(outs_linear, &outcome.image, false)?;
-    if let Some(display) = outs_display {
-        // Finished, display-referred sRGB (#1335): AgX view tail like a RAW
-        // render. develop_for_display returns the encoded 16-bit buffer
-        // directly → write it straight out (no re-quantize).
-        let data = maple_pano::stitch::develop_for_display(&outcome.image);
-        // EXIF + sRGB tag were computed BEFORE stitch() to avoid re-reading
-        // the source RAW at peak RSS (#1349 fix).
-        let meta = display_meta.expect("display_meta is Some when outs_display is Some");
-        maple_pano::render::write_frame_png(
-            display,
-            outcome.image.width(),
-            outcome.image.height(),
-            &data,
-            &meta,
-        )
-        .map_err(|e| format!("{}: {e}", display.display()))?;
-    }
-    let write_s = t_out.elapsed().as_secs_f64();
 
     let report = tile_stitch_report(&TileReportContext {
         inputs,
@@ -122,6 +94,7 @@ pub(super) fn run_tile_from_outcome(
         refined_matches: outcome.refined_matches,
         fallback_matches: outcome.fallback_matches,
         reverify: &outcome.reverify,
+        match_graph: &outcome.match_graph,
         tile_report: &outcome.tile_report,
         tile_orphans: &outcome.orphans,
         focal_seed_source: outcome.focal_seed_source.map(|s| s.as_str()),
@@ -136,15 +109,9 @@ pub(super) fn run_tile_from_outcome(
             ("total", t0.elapsed().as_secs_f64()),
         ],
     });
-    if let Some(path) = outs_report {
-        let pretty = serde_json::to_string_pretty(&report).expect("report serializes");
-        std::fs::write(path, &pretty).map_err(|e| format!("{}: {e}", path.display()))?;
-    }
     eprintln!(
-        "pano[tile]: wrote {} ({}x{}) in {:.1}s",
-        outs_linear.display(),
-        outcome.image.width(),
-        outcome.image.height(),
+        "pano[tile]: wrote {} ({width}x{height}) in {:.1}s",
+        written.display(),
         t0.elapsed().as_secs_f64()
     );
     Ok(report)

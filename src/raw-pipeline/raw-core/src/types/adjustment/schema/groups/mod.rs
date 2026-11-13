@@ -236,6 +236,15 @@ const COLOR_FIELDS: &[&str] = &[
     "color_grade_global_hue",
     "color_grade_global_saturation",
     "color_grade_global_luminance",
+    "color_grade_blending",
+    "color_grade_shadow_edge",
+    "color_grade_highlight_edge",
+    "color_curve_hue_vs_hue",
+    "color_curve_hue_vs_sat",
+    "color_curve_hue_vs_luma",
+    "color_curve_luma_vs_sat",
+    "color_curve_sat_vs_sat",
+    "color_curve_sat_vs_luma",
     "highlight_recovery",
     "look",
     "profile",
@@ -345,6 +354,8 @@ pub const NON_COPYABLE_FIELDS: &[&str] = &[
     // texture the repair was chosen for. Permanently excluded, same reason
     // as `inpaint_removals` above.
     "retouch_spots",
+    // Frame stamp for the list above (#4473); meaningless without it.
+    "retouch_frame",
     // Bitmap-mask raster registry (#3271). Each `MaskRaster` is a decoded
     // pixel buffer keyed to THIS image's Vision-generated skin mask — like
     // `inpaint_removals`, raster-derived and meaningless on another image.

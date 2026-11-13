@@ -114,13 +114,13 @@ public enum MergedTimelineSource {
                 byPHID: localByPHID)
             if let local = match.local {
                 cells.append(.synced(local: local, cloud: c))
-                matchedLocalKeys.insert(local.id)
+                matchedLocalKeys.insert(localIdentity(local))
             } else {
                 cells.append(.cloudOnly(c))
             }
         }
         // Second pass: any local not matched is .localOnly.
-        for l in local where !matchedLocalKeys.contains(l.id) {
+        for l in local where !matchedLocalKeys.contains(localIdentity(l)) {
             cells.append(.localOnly(l))
         }
 
@@ -270,12 +270,22 @@ public enum MergedTimelineSource {
     }
 
     /// The id used to render / open the cell — prefer the local-side id when
-    /// synced, otherwise the cloud-side id.
+    /// synced, otherwise the cloud-side id. A saved folder's file is named by
+    /// its path instead — the `stableID` Preview, the filmstrip and the editor
+    /// seed look its bitmap up by (`AssetRef(fileBacked:)`): its id is
+    /// content-derived, so byte-identical copies in two folders would
+    /// otherwise share one grid identity and one decoded bitmap though each
+    /// has its own sidecar (#5033).
     public static func renderID(_ cell: MergedTimelineCell) -> String {
         switch cell {
-        case .localOnly(let r), .cloudOnly(let r): return r.id
-        case .synced(let l, _): return l.id
+        case .localOnly(let r): return localIdentity(r)
+        case .cloudOnly(let r): return r.id
+        case .synced(let l, _): return localIdentity(l)
         }
+    }
+
+    private static func localIdentity(_ ref: ImageRef) -> String {
+        ref.url?.path ?? ref.id
     }
 
     /// Best-effort capture date for ordering.
@@ -291,8 +301,8 @@ public enum MergedTimelineSource {
 
 /// `Identifiable` conformance so `MergedTimelineCell` can be used directly
 /// as `PhotoGrid`'s `Element` type without a separate ForEach `id:` parameter.
-/// Identity delegates to `MergedTimelineSource.renderID` — the same stable key
-/// the original `ForEach(vm.mergedCells, id: \.self)` derived via Hashable.
+/// Identity delegates to `MergedTimelineSource.renderID` (local id, a saved
+/// folder file's path, or cloud id).
 extension MergedTimelineCell: Identifiable {
     public var id: String { MergedTimelineSource.renderID(self) }
 }

@@ -13,8 +13,14 @@ use raw_core::xmp::AdjustmentModel;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut args = std::env::args().skip(1);
-    let path = args.next().expect("usage: wb_gamut_probe <raw> [temp] [tint]");
-    let temperature: f32 = args.next().map(|s| s.parse()).transpose()?.unwrap_or(12000.0);
+    let path = args
+        .next()
+        .expect("usage: wb_gamut_probe <raw> [temp] [tint]");
+    let temperature: f32 = args
+        .next()
+        .map(|s| s.parse())
+        .transpose()?
+        .unwrap_or(12000.0);
     let tint: f32 = args.next().map(|s| s.parse()).transpose()?.unwrap_or(17.0);
 
     let raw = raw_core::decode::decode(std::path::Path::new(&path))?;

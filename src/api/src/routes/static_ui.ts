@@ -191,13 +191,15 @@ export const staticUiPlugin = new Elysia().get('/*', async ({ request, set }) =>
   // instead of surfacing a clear 404, which is exactly how the WASM
   // thread-pool worker's self-spawn silently timed out instead of erroring
   // loudly before the underlying import was fixed to reference a real served
-  // file. This check is deliberately scoped to `/pkg` rather than "any path
+  // file. #5507: `/film-luts` has the same failure mode — the film-look
+  // loader stored the fallback HTML as a look's lattice bytes. This check is
+  // deliberately scoped to asset-only prefixes rather than "any path
   // with a file extension" — Angular's own `/edit/:slug/**` and
   // `/view/:slug/**` deep-link routes embed a real RAW filename (with its
   // extension, e.g. `/edit/mylib/raws/IMG_0001.CR2`) as a path segment, so a
   // generic extension check would 404 a legitimate direct-navigation/reload
   // of the editor or preview route.
-  if (isPkgAssetPath(uiPath)) {
+  if (isAssetOnlyPath(uiPath)) {
     set.status = 404;
     return { error: 'Not found: ' + uiPath };
   }
@@ -210,14 +212,16 @@ export const staticUiPlugin = new Elysia().get('/*', async ({ request, set }) =>
   return { error: 'UI index.html not found in ' + uiDist() };
 });
 
+/** Prefixes that hold only static assets, never an Angular route. */
+const ASSET_ONLY_PREFIXES = ['/pkg', '/film-luts'] as const;
+
 /**
- * True for paths that reference the WASM `/pkg` bundle rather than an
- * Angular route (including the bare `/pkg` directory itself — no app route
- * lives under that prefix). The SPA fallback must never answer these with
- * index.html — see the #2408 comment above.
+ * True for paths under an asset-only prefix (including the bare directory
+ * itself). The SPA fallback must never answer these with index.html — see
+ * the #2408 comment above.
  */
-function isPkgAssetPath(uiPath: string): boolean {
-  return uiPath === '/pkg' || uiPath.startsWith('/pkg/');
+function isAssetOnlyPath(uiPath: string): boolean {
+  return ASSET_ONLY_PREFIXES.some((prefix) => uiPath === prefix || uiPath.startsWith(prefix + '/'));
 }
 
 // One-time dist availability check.

@@ -42,8 +42,8 @@ extension FilesystemSource {
         return derived
     }
 
-    /// Derive a maple_id from scratch: read the first 64 KB + raw EXIF
-    /// capture-date strings for the primary-form attempt, and hand a
+    /// Derive a maple_id from scratch: read the first 64 KB + the file's
+    /// capture date for the primary-form attempt, and hand a
     /// chunked `FileHandle` reader to `MapleIdDerivation.derive` for the
     /// fallback-form path so a large RAW is never held in memory as one
     /// buffer.
@@ -52,8 +52,18 @@ extension FilesystemSource {
         defer { try? handle.close() }
 
         let headBytes = (try? handle.read(upToCount: Self.mapleIdHeadByteCount)) ?? Data()
-        let dates = ImageMetadataReader.readRawCaptureDateStrings(from: asset.url)
-        // Rewind — the head read above consumed the handle's offset, and
+        let reader = ByteRangeReader(size: UInt64(filesize)) { offset, length in
+            try handle.seek(toOffset: offset)
+            return try handle.read(upToCount: length) ?? Data()
+        }
+        let capturedAt: String?
+        do {
+            capturedAt = try await MapleIdDerivation.capturedAt(
+                fileExtension: asset.url.pathExtension, reader: reader)
+        } catch {
+            return nil
+        }
+        // Rewind — the reads above moved the handle's offset, and
         // the fallback-form path (if reached) needs the WHOLE file from
         // byte 0, head bytes included. A silently-swallowed seek failure
         // here would corrupt the fallback-form hash (missing its first 64
@@ -76,13 +86,28 @@ extension FilesystemSource {
         // throw-then-`try?` shape for the same reason).
         return try? await MapleIdDerivation.derive(
             headBytes: headBytes,
-            exifDateTimeOriginal: dates.dateTimeOriginal,
-            exifCreateDate: dates.createDate,
+            capturedAtISO8601: capturedAt,
             filesize: UInt64(filesize),
             nextChunk: {
                 try handle.read(upToCount: Self.fallbackHashChunkSize) ?? Data()
             }
         )
+    }
+
+    /// The Timeline date for `asset`. A video is dated from its QuickTime
+    /// `moov` atom, never from EXIF, as the server's indexer dates it
+    /// (#5079); a still from the raw EXIF `DateTimeOriginal` the library
+    /// index already caches.
+    func captureDate(for asset: FileAsset, indexedDateTimeOriginal: String?) async -> Date? {
+        let iso8601: String?
+        if SidecarPath.isVideo(asset.url) {
+            iso8601 = try? await ByteRangeReader.withFile(at: asset.url) {
+                try await VideoCaptureDate.iso8601UTC(from: $0)
+            }
+        } else {
+            iso8601 = indexedDateTimeOriginal.flatMap { ExifCaptureDate.iso8601UTC(fromExifString: $0) }
+        }
+        return iso8601.flatMap { ISO8601FlexibleDateDecoding.date(from: $0) }
     }
 
     /// First 64 KB of a file — the bound the primary-form head hash reads.

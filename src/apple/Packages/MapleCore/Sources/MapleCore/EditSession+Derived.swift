@@ -12,6 +12,44 @@ import Foundation
 
 @MainActor
 extension EditSession {
+  /// True only when `renderedPreview` is a COMPLETED full-canvas render of
+  /// the current model. False for cold-open seeds (cached JPEG, embedded
+  /// JPEG, `.maple` sidecar preview) and for progressive composites that
+  /// stitch a fresh viewport patch over an older underlay (visible-region
+  /// refine, deep-zoom tiles). `persistCurrentPreviewToCache` gates on this:
+  /// persisting a seed or a mixed-provenance composite bakes a tone seam
+  /// into `RenderedPreviewCache` + the browse thumbnail that then reappears
+  /// on every cold open until a full render overwrites it (#1881).
+  ///
+  /// Two stored halves (#4496): `previewIsCompletedRender` is what the
+  /// render publish decided, and `previewOutlivedDecodeCache` records a
+  /// `releaseTransientMemory` eviction. Reading this folds both in, so the
+  /// persist gates stay shut after an eviction; writing it sets the
+  /// completion and clears the eviction, so every existing writer keeps
+  /// its meaning. The canvas readiness accessor below reads only the
+  /// completion half: an eviction frees buffers, it does not take the
+  /// frame off glass.
+  var previewIsFullRender: Bool {
+    get { previewIsCompletedRender && !previewOutlivedDecodeCache }
+    set {
+      previewIsCompletedRender = newValue
+      previewOutlivedDecodeCache = false
+    }
+  }
+
+  /// True while `renderedPreview` is a completed full-canvas render rather
+  /// than a cold-open seed — the canvas-ready predicate reads this to let a
+  /// CPU-published frame retire the seed thumbnail on the GPU leaf (#4496).
+  /// Both inputs are observed, so a write to either one re-evaluates the
+  /// canvas: a render publishes the image and raises the flag, and a seed
+  /// publishes with the flag already false (`applyWorkflowVariant` clears
+  /// it before the variant preview lands). Reads the completion half only:
+  /// a `releaseTransientMemory` eviction closes the persist gates but
+  /// leaves the frame on glass, so the seed must not come back over it.
+  public var renderedPreviewIsFullRender: Bool {
+    renderedPreview != nil && previewIsCompletedRender
+  }
+
   /// The crop rect the render path should apply right now: identity while
   /// the crop tool is armed (show the full frame under the overlay),
   /// otherwise the model's crop. Mirrors the web `renderModelForCrop`.
@@ -29,10 +67,9 @@ extension EditSession {
     return CropImageStage.croppedSize(effectiveCrop, nativeSize: nativeImageSize)
   }
 
-  /// The WB delta anchor: the WB actually baked into the buffer. The
-  /// calibrated strip decode bakes As-Shot WB (#1883/#1976). Frame-less
-  /// RAWs use the shared core's absolute CAT16 fallback instead (#1472),
-  /// so their metadata estimate must not become a second WB transform.
+  /// The as-shot pair: the frame's own when present, else the legacy
+  /// estimate. A RAW renders through its capture decode's creative stage
+  /// (#5377), which reads no anchor, so this only seeds and labels.
   var wbDeltaAnchor: ImageEditPipeline.AsShotWB? {
     if let frame = wbSliderFrame, frame.isPresent {
       return ImageEditPipeline.AsShotWB(
@@ -43,7 +80,8 @@ extension EditSession {
     if cameraSupport?.resolution == .rawlerFallback {
       return ImageEditPipeline.AsShotWB(temperature: 6500.0, tint: 0.0)
     }
-    return nil
+    guard let cct = asShotCCT, let t = asShotTint else { return nil }
+    return ImageEditPipeline.AsShotWB(temperature: cct, tint: t)
   }
 
   // Forwarders onto `deepZoomState` — see that property's doc in

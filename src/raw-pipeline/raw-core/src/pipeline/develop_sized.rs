@@ -14,24 +14,29 @@
 use crate::{
     cancel::CancelToken,
     color::dcp,
+    demosaic,
     error::{Error, Result},
     image::RawImage,
+    linearize,
     stages::{
-        auto_exposure, bm3d, capture_sharpening, chroma_prefilter, clarity, defringe, dehaze,
-        highlight_recovery_oklab, hsl, local_adjustments, noise_reduction, retouch, saturation,
-        scene_tone_controls, sharpen, texture, tone_curves, vibrance, vignette, wb_camera,
-        white_balance,
+        clarity, color_curves, defringe, dehaze, hot_pixel, hsl, local_adjustments, saturation,
+        scene_tone_controls, texture, tone_curves, vibrance, vignette, white_balance,
     },
     xmp::AdjustmentModel,
 };
 
 use super::{
-    capture_sharpening_helper::capture_sharpening_params_from_model,
-    downsample::downsample_image_area, dump_after, stage, RenderQuality,
+    capture_first::Chain,
+    develop::{
+        crop_to_default, develop_colour, effective_quality_divisor, lateral_ca, CameraReady,
+    },
+    downsample::downsample_image_area,
+    dump_after, stage, RenderQuality,
 };
 
 #[path = "develop_sized/camera.rs"]
 mod camera;
+pub(super) use camera::{camera_with_patches, develop_with_calibration_patches};
 
 /// Sized variant of `develop_scene_linear_from_raw_with_quality` that
 /// runs `linearize` + `demosaic` (or `linearraw_to_camera_rgb` for
@@ -126,22 +131,293 @@ pub fn develop_scene_linear_sized_from_raw_with_quality_cancellable_with_gain(
     max_long_edge: u32,
     cancel: CancelToken<'_>,
 ) -> Result<(crate::image::Image, f32)> {
-    develop_with_calibration_patches(raw, model, quality, max_long_edge, cancel, &[])
+    let (mut scene, ae_gain) = develop_sized_prefix(raw, model, quality, max_long_edge, cancel)?;
+    super::sized_detail::apply(&mut scene, raw, model, cancel)?;
+    Ok((scene, ae_gain))
 }
 
-pub(super) fn develop_with_calibration_patches(
+/// Exact sized develop up to the immutable pre-detail scene. Both consumers
+/// preserve native clipping/crop/WB/AE/density before any preview detail work.
+pub(super) fn develop_sized_prefix(
     raw: &RawImage,
     model: &AdjustmentModel,
     quality: RenderQuality,
     max_long_edge: u32,
     cancel: CancelToken<'_>,
-    patches: &[crate::types::InpaintPatch],
 ) -> Result<(crate::image::Image, f32)> {
+    if cancel.is_cancelled() {
+        return Err(Error::Cancelled);
+    }
     let (frame_w, frame_h) = crate::pipeline::native_render_dims(raw);
     let model = &*crate::types::with_brush_rasters(model, frame_w, frame_h);
-    let (camera, skip_pre_gain, crop_divisor) =
-        camera::prepare_unwarped(raw, model, quality, max_long_edge, cancel)?;
-    let mut camera_rgb = camera::finish_geometry(raw, model, camera, crop_divisor)?;
+    let (mut scene, ae_gain) = develop_sized_to_dehaze(raw, model, quality, max_long_edge, cancel)?;
+    stage("sized_dehaze", || dehaze::apply(&mut scene, model.dehaze));
+    dump_after("12_dehaze", &scene);
+    develop_sized_after_dehaze(scene, raw, model).map(|scene| (scene, ae_gain))
+}
+
+/// [`haze_map_from_raw`] when `model` engages dehaze anywhere.
+pub(crate) fn frame_haze(
+    raw: &RawImage,
+    model: &AdjustmentModel,
+    cancel: CancelToken<'_>,
+) -> Result<Option<dehaze::FrameHaze>> {
+    dehaze::any_engaged(model)
+        .then(|| haze_map_from_raw(raw, model, cancel))
+        .transpose()
+}
+
+/// The frame's haze map (#3287), measured from a Preview-density develop
+/// sized to the map's own proxy grid, so a native-resolution develop and a
+/// native tile of the same frame measure the identical map without either
+/// developing the frame at native density twice (the #5049 pattern). Its
+/// working set is one half-resolution demosaic, released before return.
+pub(crate) fn haze_map_from_raw(
+    raw: &RawImage,
+    model: &AdjustmentModel,
+    cancel: CancelToken<'_>,
+) -> Result<dehaze::FrameHaze> {
+    let (mut scene, _) = develop_sized_to_dehaze(
+        raw,
+        model,
+        RenderQuality::Preview,
+        dehaze::HAZE_PROXY_LONG_EDGE,
+        cancel,
+    )?;
+    if cancel.is_cancelled() {
+        return Err(Error::Cancelled);
+    }
+    let global = dehaze::engaged(model.dehaze)
+        .then(|| stage("sized_dehaze_map", || dehaze::HazeMap::measure(&scene)));
+    if !local_adjustments::spatial::any_dehaze_engaged(&model.local_adjustments) {
+        return Ok(dehaze::FrameHaze {
+            global,
+            layers: Vec::new(),
+        });
+    }
+    // Per-mask dehaze measures each layer's own scratch, which sits after
+    // the global dehaze and defringe: run them to reach it.
+    if let Some(map) = &global {
+        let frame = (scene.width, scene.height);
+        dehaze::apply_with_map(&mut scene, model.dehaze, map, (0, 0), frame);
+    }
+    defringe::apply_model(&mut scene, model);
+    let (layers, rasters) = crate::pipeline::mask::orient_adjustments_to_sensor(
+        &model.local_adjustments,
+        &model.mask_rasters,
+        raw.orientation,
+    );
+    let layers = stage("sized_local_dehaze_maps", || {
+        local_adjustments::apply_measuring_haze(&mut scene, &layers, &rasters)
+    });
+    if cancel.is_cancelled() {
+        return Err(Error::Cancelled);
+    }
+    Ok(dehaze::FrameHaze { global, layers })
+}
+
+/// The sized develop through texture: the scene dehaze receives.
+fn develop_sized_to_dehaze(
+    raw: &RawImage,
+    model: &AdjustmentModel,
+    quality: RenderQuality,
+    max_long_edge: u32,
+    cancel: CancelToken<'_>,
+) -> Result<(crate::image::Image, f32)> {
+    let (camera_rgb, input) = develop_sized_camera(raw, model, quality, max_long_edge, cancel)?
+        .colour(raw, model, Chain::Sized, cancel);
+    let (scene, ae_gain) = develop_colour(camera_rgb, input)?;
+    develop_sized_after_colour(scene, model, cancel).map(|scene| (scene, ae_gain))
+}
+
+/// The sized develop up to the colour segment: the RAW decoded, downsampled
+/// to `max_long_edge` and profile-ready.
+pub(crate) fn develop_sized_camera(
+    raw: &RawImage,
+    model: &AdjustmentModel,
+    quality: RenderQuality,
+    max_long_edge: u32,
+    cancel: CancelToken<'_>,
+) -> Result<CameraReady> {
+    let (camera_rgb, skip_pre_gain, crop_divisor) =
+        develop_sized_camera_unwarped(raw, model, quality, max_long_edge, cancel)?;
+    develop_sized_camera_geometry(
+        raw,
+        model,
+        camera_rgb,
+        skip_pre_gain,
+        crop_divisor,
+        max_long_edge,
+    )
+}
+
+/// Camera RGB through highlight recovery at the sized demosaic density,
+/// before optics, DefaultCrop and the downsample; with the WB pre-gain skip
+/// and the DefaultCrop divisor that density implies.
+fn develop_sized_camera_unwarped(
+    raw: &RawImage,
+    model: &AdjustmentModel,
+    quality: RenderQuality,
+    max_long_edge: u32,
+    cancel: CancelToken<'_>,
+) -> Result<(crate::image::Image, bool, u32)> {
+    if cancel.is_cancelled() {
+        return Err(Error::Cancelled);
+    }
+    // DefaultCrop coordinate divisor — tracks the demosaic output resolution so
+    // `crop_to_default` (below) maps sensor-crop coords onto the actual
+    // post-demosaic buffer. The Bayer arm overrides this to 2 when it drops to
+    // half-res demosaic for a small target (#1637).
+    let mut crop_divisor = effective_quality_divisor(quality, raw.cfa);
+    let mut camera_rgb = match raw.cfa {
+        crate::image::CfaPattern::LinearRgb => stage("sized_linearraw_decode", || {
+            linearize::linearraw_to_camera_rgb(raw)
+        })?,
+        crate::image::CfaPattern::XTrans(_) => {
+            // X-Trans dispatch — see `develop.rs` for the rationale.
+            let mut mosaic = stage("sized_linearize", || linearize::sensor_linearize(raw));
+            // Hot/dead-pixel suppression (#1106) — see the unsized variant.
+            stage("sized_hot_pixel", || {
+                hot_pixel::apply(&mut mosaic, raw.cfa, model.hot_pixel_suppression)
+            });
+            lateral_ca(&mut mosaic, raw, model, cancel)?;
+            stage("sized_demosaic_xtrans", || match quality {
+                RenderQuality::Preview => demosaic::xtrans_bilinear(&mosaic, raw.cfa),
+                RenderQuality::Full | RenderQuality::Amaze | RenderQuality::Auto => {
+                    demosaic::markesteijn(&mosaic, raw.cfa)
+                }
+            })
+        }
+        _ => {
+            let mut mosaic = stage("sized_linearize", || linearize::sensor_linearize(raw));
+            // Hot/dead-pixel suppression (#1106) — see the unsized variant.
+            stage("sized_hot_pixel", || {
+                hot_pixel::apply(&mut mosaic, raw.cfa, model.hot_pixel_suppression)
+            });
+            lateral_ca(&mut mosaic, raw, model, cancel)?;
+            // #1637: when the requested long edge is at most half the sensor's,
+            // demosaic at HALF resolution (`half_res`, sensor/2) even for
+            // Full/Amaze. The full-res RGB buffer (~1.4 GB on a 100 MP sensor)
+            // is then never allocated — that buffer (held twice on a cold Auto
+            // open: render + auto-profile fit) is what jetsam-killed iOS on
+            // large RAWs. Half-sensor still exceeds the sub-half-sensor target,
+            // but this is an approximation: reconstruction and nonlinear
+            // colour/NR stages do not commute with resizing. #3875 tracks
+            // preview/export qualification; adequate pixel dimensions alone
+            // do not prove perceptual parity. `crop_divisor` follows to 2 so the
+            // DefaultCrop coords still land on the (now half-res) buffer.
+            let sensor_le = mosaic.width.max(mosaic.height);
+            let demosaic_half =
+                quality != RenderQuality::Preview && max_long_edge.saturating_mul(2) <= sensor_le;
+            if demosaic_half {
+                crop_divisor = 2;
+            }
+            // Kernel choice via `bayer_kernel` (#3413); see the unsized
+            // variant. The `demosaic_half` short-circuit above outranks it:
+            // once the target is small enough to bin, there is no
+            // full-resolution reconstruction left for a kernel to differ on.
+            stage("sized_demosaic", || {
+                if demosaic_half {
+                    return demosaic::half_res_cancellable(&mosaic, raw.cfa, cancel);
+                }
+                let algo = crate::pipeline::bayer_kernel(quality, model, raw);
+                demosaic::camera_demosaic_cancellable(
+                    algo,
+                    &mosaic,
+                    raw.cfa,
+                    raw.as_shot_neutral,
+                    crate::sensor_gain_maps::ClipGainContext::new(raw, (0, 0), 1),
+                    cancel,
+                )
+            })
+        }
+    };
+    if cancel.is_cancelled() {
+        return Err(Error::Cancelled);
+    }
+
+    // Match full develop: reconstruct sensor clipping before lens gain,
+    // warp, or downsampling mixes the clipped channels (#3633).
+    if raw.baseline_exposure.abs() > 1e-4 {
+        stage("sized_baseline_exposure", || {
+            let be_gain = raw.baseline_exposure.exp2();
+            for p in &mut camera_rgb.pixels {
+                p[0] *= be_gain;
+                p[1] *= be_gain;
+                p[2] *= be_gain;
+            }
+        });
+    }
+    dump_after("00a_baseline_exposure", &camera_rgb);
+
+    // WB pre-gain (mirrors the unsized variant — see comment there).
+    let skip_pre_gain =
+        matches!(raw.cfa, crate::image::CfaPattern::LinearRgb) && raw.white_level <= 255;
+    if !skip_pre_gain {
+        stage("sized_white_balance::apply_pre_gain", || {
+            white_balance::apply_pre_gain(&mut camera_rgb, raw.as_shot_neutral)
+        });
+    }
+    // See unsized variant (ticket #325, skip_pre_gain identity branch).
+    stage("sized_highlight_recovery", || {
+        super::tile::recover_full_frame(&mut camera_rgb, raw, model, crop_divisor, cancel)
+    })?;
+    dump_after("00b_highlight_recovery", &camera_rgb);
+    Ok((camera_rgb, skip_pre_gain, crop_divisor))
+}
+
+/// OpcodeList3 / lens correction, DefaultCrop and the early downsample on
+/// the unwarped sized camera buffer, then the profile it develops through.
+fn develop_sized_camera_geometry(
+    raw: &RawImage,
+    model: &AdjustmentModel,
+    mut camera_rgb: crate::image::Image,
+    skip_pre_gain: bool,
+    crop_divisor: u32,
+    max_long_edge: u32,
+) -> Result<CameraReady> {
+    // Stage 2a (#1695): OpcodeList3 still precedes DefaultCrop, so its
+    // coordinates remain relative to the original ActiveArea.
+    if let Some((list, aa)) = raw.opcode_list3.as_ref() {
+        stage("sized_opcode_list3", || {
+            let scale = camera_rgb.width as f32 / raw.width as f32;
+            let scaled_aa = crate::pipeline::pano::opcode_apply::scale_active_area(
+                *aa,
+                scale,
+                camera_rgb.width,
+                camera_rgb.height,
+            );
+            crate::pipeline::pano::opcode_apply::apply_opcode_list3(
+                &mut camera_rgb,
+                list,
+                scaled_aa,
+                crate::pipeline::pano::opcode_apply::LensCorrectionScales::from_model(model),
+            );
+        });
+        dump_after("01a_opcode_list3", &camera_rgb);
+    } else if crate::lens_profile::applies(raw, model) {
+        let scale = camera_rgb.width as f32 / raw.width as f32;
+        stage("sized_lcp_correction", || {
+            crate::lens_profile::apply_for_raw(raw, model, &mut camera_rgb, scale)
+        })?;
+    }
+
+    // DefaultCrop BEFORE downsample — `crop_rect` is in raw-sensor coords
+    // (or half of them for Preview). Applying after the downsample would
+    // mean translating the crop into post-downsample coords, which the
+    // sized variant doesn't have a clean handle for. Crop first, then
+    // let `downsample_image_area` decide whether the cropped buffer is
+    // still over the long-edge cap. See ticket #375.
+    if let Some(crop) = raw.crop_rect {
+        if let Some(cropped) = stage("sized_crop_to_default", || {
+            crop_to_default(&camera_rgb, crop, crop_divisor)
+        }) {
+            camera_rgb = cropped;
+        }
+        // No-op: keep camera_rgb as-is; crop_to_default returns None
+        // instead of cloning the buffer.
+    }
+    dump_after("01b_crop_to_default", &camera_rgb);
 
     // Early downsample — the heart of this milestone. After this call
     // every later stage runs on the viewport-sized buffer instead of
@@ -155,145 +431,20 @@ pub(super) fn develop_with_calibration_patches(
         dcp::profile_for_with_source(raw)
     })?;
     let whites_anchor_ev = dcp::scene_white_anchor(&camera_rgb, &profile)?;
-    if !patches.is_empty() {
-        // Keep the original sized Whites statistic. Rebuild the same bounded
-        // prefix after dropping it, then compose before optics and downsample.
-        drop(camera_rgb);
-        let (mut unwarped, _, divisor) =
-            camera::prepare_unwarped(raw, model, quality, max_long_edge, cancel)?;
-        let window = super::removal_calibration::sensor_buffer_window(
-            raw,
-            [unwarped.width, unwarped.height],
-            divisor,
-        );
-        super::removal_calibration::composite_camera_sampled(
-            &mut unwarped,
-            patches,
-            &profile,
-            window,
-            divisor,
-        )?;
-        camera_rgb = camera::finish_geometry(raw, model, unwarped, divisor)?;
-        downsample_image_area(&mut camera_rgb, max_long_edge);
-        if cancel.is_cancelled() {
-            return Err(Error::Cancelled);
-        }
-    }
-    // Camera-space user white balance (#1726) — mirrors the full-res
-    // develop chain exactly; see `super::develop` and `stages::wb_camera`
-    // for the full design writeup and the `RawlerFallback` tier-gate
-    // rationale.
-    let camera_wb_target =
-        if !skip_pre_gain && !matches!(profile_source, dcp::ProfileSource::RawlerFallback) {
-            let frame = wb_camera::SliderFrame::resolve(raw, &profile);
-            // `resolve_target_versioned` (#1780): V1 (pre-#1756) sidecar
-            // temperature/tint convert into the slider frame here so the
-            // authored look is preserved; V2 models resolve unchanged.
-            let (target_temperature, target_tint) =
-                wb_camera::resolve_target_versioned(model, &frame, &profile, raw.as_shot_neutral);
-            stage("sized_wb_camera::apply", || {
-                wb_camera::apply(
-                    &mut camera_rgb,
-                    &frame,
-                    raw.as_shot_neutral,
-                    target_temperature,
-                    target_tint,
-                )
-            });
-            Some((frame, target_temperature, target_tint))
-        } else {
-            None
-        };
-    let camera_wb_applied = camera_wb_target.is_some();
-    dump_after("02b_wb_camera", &camera_rgb);
-    // DNG-spec `SetWhiteXY` retarget (#1727) — mirrors `super::develop`:
-    // DCP's rendering matrices track the user's target when camera-space
-    // WB moved off as-shot; as-shot targets return the profile unchanged
-    // (bit-identical). See `wb_camera::retargeted_render_profile`.
-    let dcp_profile = match &camera_wb_target {
-        Some((frame, target_temperature, target_tint)) => {
-            wb_camera::retargeted_render_profile(frame, profile, *target_temperature, *target_tint)
-        }
-        None => profile,
-    };
-    // Colorimetry-only DCP per #425 — see `pipeline::develop` for the
-    // rationale. PLT and PTC no longer run; HSM still does (metameric
-    // correction).
-    let mut scene = stage("sized_dcp_apply", || {
-        dcp::apply_colorimetry(&camera_rgb, &dcp_profile)
-    })?;
-    dump_after("03_dcp_apply", &scene);
-    // Ticket #471: post-DCP Oklab chroma-reduction highlight recovery. See
-    // `super::develop` for the rationale; no-op unless the user opts in via
-    // `papp:HighlightRecoveryMode="OklabChromaReduction"`.
-    stage("sized_highlight_recovery_oklab", || {
-        highlight_recovery_oklab::apply_post_dcp(&mut scene, model.highlight_recovery)
-    });
-    dump_after("03b_oklab_highlight_recovery", &scene);
-    // ProfileGainTableMap is not applied on any path (#2774) — see
-    // `super::develop` for the rationale.
-    // Clone / heal repair spots (#3409) — same position as the unsized
-    // variant. Spot coordinates are normalised, so they land on the same
-    // scene features at this reduced resolution; the disc is simply smaller
-    // in pixels, which is what a sized render wants.
-    stage("sized_retouch", || {
-        retouch::apply_cancellable(&mut scene, &model.retouch_spots, cancel)
-    })?;
-    dump_after("03c_retouch", &scene);
-    // Decode-time chroma pre-filter (#1104) — runs on the downsampled
-    // buffer here; same position as the unsized variant (post-DCP, pre
-    // capture-sharpening). No-op at the default 0.
-    stage("sized_chroma_prefilter", || {
-        chroma_prefilter::apply(&mut scene, model.chroma_prefilter)
-    });
-    dump_after("04a_chroma_prefilter", &scene);
-    // BM3D deep denoise (#1105) — runs on the downsampled buffer here;
-    // same position as the unsized variant. See that variant's comment.
-    stage("sized_deep_denoise", || {
-        bm3d::apply_cancellable(
-            &mut scene,
-            model.deep_denoise,
-            cancel,
-            bm3d::active_progress(),
-        )
-    });
-    if cancel.is_cancelled() {
-        return Err(Error::Cancelled);
-    }
-    dump_after("04ab_deep_denoise", &scene);
-    if let Some(params) = capture_sharpening_params_from_model(model) {
-        // Cancellable RL deconvolution (#1089) — same rationale as the
-        // unsized develop chain. Observes `cancel` between iterations / per
-        // row; the post-stage check is defense-in-depth around the `?`.
-        stage("sized_capture_sharpening", || {
-            capture_sharpening::apply_capture_sharpening_cancellable(&mut scene, &params, cancel)
-        })?;
-        if cancel.is_cancelled() {
-            return Err(Error::Cancelled);
-        }
-    }
-    dump_after("04b_capture_sharpening", &scene);
-    scene.whites_anchor_ev = Some(whites_anchor_ev);
-    let ae_gain = stage("sized_auto_exposure", || {
-        auto_exposure::apply(&mut scene, model)
-    });
-    dump_after("05_auto_exposure", &scene);
-    // Post-DCP white balance — skipped when camera-space WB already ran
-    // (#1726); see `super::develop` for the full rationale. Falls through
-    // to the ACR-anchored CAT16 path (#1729 / round-trip fix, #1725 band
-    // fix) via the shared `white_balance::resolve_wb` helper otherwise.
-    if !camera_wb_applied {
-        let (effective_temperature, effective_tint) = white_balance::resolve_wb(model);
-        stage("sized_white_balance", || {
-            white_balance::apply(
-                &mut scene,
-                effective_temperature,
-                effective_tint,
-                model.wb_method,
-            )
-        });
-    }
-    dump_after("06_white_balance", &scene);
+    Ok(CameraReady {
+        camera_rgb,
+        profile,
+        profile_source,
+        skip_pre_gain,
+        whites_anchor_ev,
+    })
+}
+
+fn develop_sized_after_colour(
+    mut scene: crate::image::Image,
+    model: &AdjustmentModel,
+    cancel: CancelToken<'_>,
+) -> Result<crate::image::Image> {
     stage("sized_scene_tone_controls", || {
         scene_tone_controls::apply(&mut scene, model)
     });
@@ -316,6 +467,10 @@ pub(super) fn develop_with_calibration_patches(
     // from the full-resolution render. Identity short-circuits on all-default.
     stage("sized_hsl", || hsl::apply_model(&mut scene, model));
     dump_after("09b_hsl", &scene);
+    stage("sized_color_curves", || {
+        color_curves::apply_model(&mut scene, model)
+    });
+    dump_after("09c_color_curves", &scene);
     stage("sized_clarity", || {
         clarity::apply(&mut scene, model.clarity)
     });
@@ -324,8 +479,17 @@ pub(super) fn develop_with_calibration_patches(
         texture::apply(&mut scene, model.texture)
     });
     dump_after("11_texture", &scene);
-    stage("sized_dehaze", || dehaze::apply(&mut scene, model.dehaze));
-    dump_after("12_dehaze", &scene);
+    if cancel.is_cancelled() {
+        return Err(Error::Cancelled);
+    }
+    Ok(scene)
+}
+
+fn develop_sized_after_dehaze(
+    mut scene: crate::image::Image,
+    raw: &RawImage,
+    model: &AdjustmentModel,
+) -> Result<crate::image::Image> {
     // Global defringe must affect viewport renders as well as exports (#3889).
     // Keep the full develop ordering: after dehaze, before local adjustments.
     stage("sized_defringe", || {
@@ -348,48 +512,5 @@ pub(super) fn develop_with_calibration_patches(
         vignette::apply(&mut scene, model.vignette_amount, model.vignette_feather)
     });
     dump_after("12c_vignette", &scene);
-    stage("sized_sharpen", || {
-        let radius = sharpen::radius_at_scale(model.sharpen_radius, scene.nr_sampling_scale);
-        sharpen::apply_cancellable(
-            &mut scene,
-            model.sharpen_amount,
-            radius,
-            model.sharpen_detail,
-            model.sharpen_masking,
-            cancel,
-        )
-    });
-    dump_after("13_sharpen", &scene);
-    if cancel.is_cancelled() {
-        return Err(Error::Cancelled);
-    }
-    stage("sized_nr_luminance", || {
-        noise_reduction::apply_luminance_cancellable(
-            &mut scene,
-            model.nr_luminance,
-            cancel,
-            raw.noise_profile.as_deref(),
-            raw.iso,
-        )
-    });
-    dump_after("14_nr_luminance", &scene);
-    if cancel.is_cancelled() {
-        return Err(Error::Cancelled);
-    }
-    let nr_sampling_scale = scene.nr_sampling_scale;
-    stage("sized_nr_color", || {
-        noise_reduction::apply_color_sampled_cancellable(
-            &mut scene,
-            model.nr_color,
-            cancel,
-            raw.noise_profile.as_deref(),
-            raw.iso,
-            nr_sampling_scale,
-        )
-    });
-    dump_after("15_nr_color", &scene);
-    if cancel.is_cancelled() {
-        return Err(Error::Cancelled);
-    }
-    Ok((scene, ae_gain))
+    Ok(scene)
 }

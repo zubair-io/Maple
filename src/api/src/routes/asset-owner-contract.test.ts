@@ -12,10 +12,8 @@ import { ObjectId } from '../db/object-id.ts';
 import { findDetailsByIds } from '../db/repos/assets.repo.ts';
 import type { SqliteDb } from '../db/repos/db-handle.ts';
 import type { SqlParams } from '../db/sqlite/protocol.ts';
-import {
-  setMeilisearchClientForTests,
-  type MeilisearchClient,
-} from '../enrichment/meilisearch-client.ts';
+import { setInProcessSearchForTests } from '../search/search-pool.ts';
+import { fakeInProcessSearch } from '../search/search.test-helpers.ts';
 import { writeFile } from '../fs/mirrored.ts';
 import { assetsRoutes } from './assets/index.ts';
 import { assetsListRoutes } from './assets-list.ts';
@@ -238,21 +236,11 @@ test('batch metadata deduplicates owners into one real user query per page', asy
   expect(rows.filter((row) => row.owner?.id === ownerId)).toHaveLength(11);
 });
 
-test('Meilisearch result pages resolve owners from the same live catalog', async () => {
+test('in-process result pages resolve owners from the same live catalog', async () => {
   using f = await fixture();
   for (const id of f.ids)
     run(f.db, 'UPDATE assets SET maple_id = ? WHERE id = ?', `maple-${id}`, id);
-  const client: MeilisearchClient = {
-    isConfigured: () => true,
-    semanticConfigured: () => false,
-    health: async () => true,
-    ensureIndex: async () => {},
-    upsert: async () => {},
-    upsertOrThrow: async () => {},
-    tombstone: async () => {},
-    search: async () => ({ ids: f.ids.map((id) => `maple-${id}`), estimatedTotal: f.ids.length }),
-  };
-  setMeilisearchClientForTests(client);
+  setInProcessSearchForTests(fakeInProcessSearch(f.ids.map((id) => `maple-${id}`)));
   try {
     const response = await f.app.handle(
       new Request('http://localhost/api/search?placeQuery=harbour'),
@@ -266,6 +254,6 @@ test('Meilisearch result pages resolve owners from the same live catalog', async
       );
     }
   } finally {
-    setMeilisearchClientForTests(null);
+    setInProcessSearchForTests(null);
   }
 });

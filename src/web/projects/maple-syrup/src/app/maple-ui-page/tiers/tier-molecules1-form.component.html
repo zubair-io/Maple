@@ -273,6 +273,72 @@
     </div>
   </div>
 
+  <!-- Slider: unsigned, helper line -->
+  <div
+    style="
+      border: 1px solid #e7e5e4;
+      border-radius: 8px;
+      padding: 20px;
+      background: #ffffff;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    "
+  >
+    <div
+      style="
+        height: 132px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        overflow: hidden;
+      "
+    >
+      <div
+        style="
+          max-width: 100%;
+          max-height: 100%;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          background: #1c1917;
+          border-radius: 8px;
+          padding: 10px 14px;
+        "
+      >
+        <mui-slider
+          label="Boundary Warp"
+          [(value)]="warpValue"
+          unit="%"
+          [helper]="
+            warpValue > 90
+              ? 'Limited to 62% so the image doesn\'t fold.'
+              : 'Stretches the edges toward a full rectangle.'
+          "
+          [helperTone]="warpValue > 90 ? 'warning' : 'muted'"
+          style="width: 220px"
+        />
+      </div>
+    </div>
+    <div>
+      <div style="font-weight: 600; font-size: 14px; color: #292524">Slider</div>
+      <div style="font-size: 12px; color: #78716c; margin-top: 2px">
+        Unsigned readout, helper line (muted or warning), commit on release
+      </div>
+      <div
+        style="
+          font-size: 10px;
+          color: #a8a29e;
+          margin-top: 8px;
+          text-transform: uppercase;
+          letter-spacing: 0.05em;
+        "
+      >
+        Text, Input
+      </div>
+    </div>
+  </div>
+
   <!-- Living Slider -->
   <div
     style="

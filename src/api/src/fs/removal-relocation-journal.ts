@@ -5,7 +5,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { ffiPool } from '../ffi/ffi-pool.ts';
 import { removalRecords } from './removal-records.ts';
 import { listPairedSidecars } from './xmp-conflict.ts';
-import { xmpSidecarPath } from './xmp.ts';
+import { xmpSidecarPath } from './xmp-sidecar-path';
 import { removalLeaseFiles, removalRelocationLease } from './removal-relocation-lease.ts';
 import { isWithinRoot } from './root.ts';
 
@@ -29,6 +29,14 @@ export interface RemovalPublication {
   bytes?: Buffer<ArrayBuffer>;
 }
 
+/** A coordination name derived from a long photo name can exceed the
+ * filesystem's component limit; such a file cannot exist. */
+export const removalPathAbsent = (error: unknown) =>
+  !!error &&
+  typeof error === 'object' &&
+  'code' in error &&
+  (error.code === 'ENOENT' || error.code === 'ENAMETOOLONG');
+
 export function removalJournalPath(target: string) {
   return join(dirname(target), `.${basename(target)}.removal-relocation.json`);
 }
@@ -44,8 +52,7 @@ export async function syncRemovalDirectory(directory: string) {
 
 export async function removalFileDigest(path: string): Promise<string | null> {
   const info = await fs.lstat(path).catch((error: unknown) => {
-    if (error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT')
-      return null;
+    if (removalPathAbsent(error)) return null;
     throw error;
   });
   if (!info) return null;
@@ -204,8 +211,7 @@ export async function removalCoordinationRequired(
   for (const lock of removalLeaseFiles(raw)) {
     const present = await fs.lstat(lock).then(
       () => true,
-      (error: unknown) =>
-        !(error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT'),
+      (error: unknown) => !removalPathAbsent(error),
     );
     if (present) return true;
   }
@@ -324,7 +330,12 @@ export async function createRemovalJournal(
       }
       await syncRemovalDirectory(dirname(target));
     }
-    record.files.push({ name: basename(publication.target), previous, incoming, backup });
+    record.files.push({
+      name: basename(publication.target),
+      previous,
+      incoming,
+      backup,
+    });
   }
   if (new Set(record.files.map((value) => value.name)).size !== record.files.length)
     throw new Error('Removal publications overlap');

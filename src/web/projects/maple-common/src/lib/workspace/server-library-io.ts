@@ -17,6 +17,14 @@ export interface ApiFolder {
   connected?: boolean;
 }
 
+/** `GET/PUT /api/display/config`; a PUT carries only the fields it changes. */
+export interface ApiDisplayConfig {
+  show_hidden_images: boolean;
+  /** The user's RAW+JPEG stacking preference (#5050): stack-aware clients send
+   * `stack=1` when it is on. Older servers omit it; treat that as on. */
+  stack_raw_jpeg?: boolean;
+}
+
 export interface ApiHistogram {
   /** Unnormalised server-computed RGB bins; each channel has 256 entries. */
   r: number[];
@@ -24,37 +32,18 @@ export interface ApiHistogram {
   b: number[];
 }
 
-export interface FolderRescanResult {
-  ok: boolean;
-  folderId: string;
-  path: string;
-  reset: number;
-  error?: string;
-}
-
-export interface FolderScanResult {
-  ok: boolean;
-  folderId?: string;
-  path?: string;
-  skipped?: 'recent';
-  last_scan?: string;
-  error?: string;
-}
-
 /** Narrow server port consumed by shared library state. It deliberately owns
  * its DTOs instead of deriving its shape from the concrete Bun HTTP client. */
 export interface ServerLibraryIo {
   listFolders(): Observable<ApiFolder[]>;
   registerFolder(folderPath: string): Observable<ApiFolder>;
-  rescanFolder(folderId: string): Observable<FolderRescanResult>;
-  scanFolder(folderId: string): Observable<FolderScanResult>;
   getThumb(assetId: string): Observable<Blob>;
   getRawBytes(
     assetId: string,
     onProgress?: (progress: DownloadProgress) => void,
   ): Observable<ArrayBuffer>;
   getHistogram(assetId: string): Observable<ApiHistogram>;
-  getDisplayConfig(): Observable<{ show_hidden_images: boolean }>;
+  getDisplayConfig(): Observable<ApiDisplayConfig>;
 }
 
 export const SERVER_LIBRARY_IO = new InjectionToken<ServerLibraryIo | null>('SERVER_LIBRARY_IO');

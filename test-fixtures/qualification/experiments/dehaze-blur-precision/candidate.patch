@@ -1,0 +1,185 @@
+diff --git a/src/raw-pipeline/raw-core/src/stages/dehaze.rs b/src/raw-pipeline/raw-core/src/stages/dehaze.rs
+index bf4bc8d299..5ca9e0a354 100644
+--- a/src/raw-pipeline/raw-core/src/stages/dehaze.rs
++++ b/src/raw-pipeline/raw-core/src/stages/dehaze.rs
+@@ -80,25 +80,28 @@ fn transmission(img: &Image, a: [f32; 3]) -> Vec<f32> {
+ /// Separable box blur (radius `r`) on a single-channel buffer of dimensions w×h.
+ /// O(w*h) via running-sum; sufficient for slice 1 CPU path.
+ fn box_blur(buf: &[f32], w: usize, h: usize, r: usize) -> Vec<f32> {
++    // Keep the sliding sum in f64: long HDR rows otherwise retain rounding
++    // residue when bright samples leave the window, corrupting dark means.
++    // Buffers and each normalized output remain canonical f32.
+     let mut tmp = vec![0.0f32; buf.len()];
+     // Horizontal pass: sliding window with truncated boundaries (no padding).
+     for y in 0..h {
+         let row = &buf[y * w..(y + 1) * w];
+         let mut out_row = vec![0.0f32; w];
+         let right0 = r.min(w - 1);
+-        let mut acc: f32 = row[0..=right0].iter().sum();
++        let mut acc: f64 = row[0..=right0].iter().map(|&v| v as f64).sum();
+         let mut count = right0 + 1;
+-        out_row[0] = acc / count as f32;
++        out_row[0] = (acc / count as f64) as f32;
+         for x in 1..w {
+             if x + r < w {
+-                acc += row[x + r];
++                acc += row[x + r] as f64;
+                 count += 1;
+             }
+             if x > r {
+-                acc -= row[x - r - 1];
++                acc -= row[x - r - 1] as f64;
+                 count -= 1;
+             }
+-            out_row[x] = acc / count as f32;
++            out_row[x] = (acc / count as f64) as f32;
+         }
+         tmp[y * w..(y + 1) * w].copy_from_slice(&out_row);
+     }
+@@ -107,19 +110,19 @@ fn box_blur(buf: &[f32], w: usize, h: usize, r: usize) -> Vec<f32> {
+     for x in 0..w {
+         let mut out_col = vec![0.0f32; h];
+         let bot0 = r.min(h - 1);
+-        let mut acc: f32 = (0..=bot0).map(|i| tmp[i * w + x]).sum();
++        let mut acc: f64 = (0..=bot0).map(|i| tmp[i * w + x] as f64).sum();
+         let mut count = bot0 + 1;
+-        out_col[0] = acc / count as f32;
++        out_col[0] = (acc / count as f64) as f32;
+         for y in 1..h {
+             if y + r < h {
+-                acc += tmp[(y + r) * w + x];
++                acc += tmp[(y + r) * w + x] as f64;
+                 count += 1;
+             }
+             if y > r {
+-                acc -= tmp[(y - r - 1) * w + x];
++                acc -= tmp[(y - r - 1) * w + x] as f64;
+                 count -= 1;
+             }
+-            out_col[y] = acc / count as f32;
++            out_col[y] = (acc / count as f64) as f32;
+         }
+         for y in 0..h {
+             out[y * w + x] = out_col[y];
+diff --git a/src/raw-pipeline/raw-core/src/stages/dehaze_tests.rs b/src/raw-pipeline/raw-core/src/stages/dehaze_tests.rs
+index 920199796e..f0e236245e 100644
+--- a/src/raw-pipeline/raw-core/src/stages/dehaze_tests.rs
++++ b/src/raw-pipeline/raw-core/src/stages/dehaze_tests.rs
+@@ -355,3 +355,57 @@ fn dehaze_positive_increases_contrast() {
+     let after = img.pixels[10 * 30 + 10][0];
+     assert!(after >= 0.0 && after <= 1.5);
+ }
++
++#[test]
++fn box_blur_preserves_nonbinary_hdr_constants_on_long_rows() {
++    let (w, h) = (4096, 17);
++    for value in [0.1234567_f32, 123.4567, 10_000.125] {
++        let input = vec![value; w * h];
++        let out = box_blur(&input, w, h, 60);
++        let worst = out
++            .iter()
++            .map(|v| v.to_bits().abs_diff(value.to_bits()))
++            .max()
++            .unwrap();
++        assert!(worst <= 1, "value={value}, worst={worst} ulps");
++    }
++}
++
++#[test]
++fn box_blur_long_hdr_rows_match_independent_f64_windows() {
++    let (w, h, radius) = (2048, 3, 60);
++    let input: Vec<f32> = (0..w * h)
++        .map(|i| {
++            let x = i % w;
++            if x < 800 {
++                8000.0 + (i % 37) as f32 * 0.013
++            } else {
++                0.13 + (i % 31) as f32 * 0.001
++            }
++        })
++        .collect();
++    let mut horizontal = vec![0.0_f32; w * h];
++    for y in 0..h {
++        for x in 0..w {
++            let lo = x.saturating_sub(radius);
++            let hi = (x + radius + 1).min(w);
++            let sum: f64 = input[y * w + lo..y * w + hi]
++                .iter()
++                .map(|&v| v as f64)
++                .sum();
++            horizontal[y * w + x] = (sum / (hi - lo) as f64) as f32;
++        }
++    }
++    let out = box_blur(&input, w, h, radius);
++    let mut worst = 0;
++    for y in 0..h {
++        for x in 0..w {
++            let lo = y.saturating_sub(radius);
++            let hi = (y + radius + 1).min(h);
++            let sum: f64 = (lo..hi).map(|row| horizontal[row * w + x] as f64).sum();
++            let expected = (sum / (hi - lo) as f64) as f32;
++            worst = worst.max(out[y * w + x].to_bits().abs_diff(expected.to_bits()));
++        }
++    }
++    assert!(worst <= 1, "separable f64 oracle differs by {worst} ulps");
++}
+diff --git a/src/raw-pipeline/raw-gpu/src/dehaze/oracle.rs b/src/raw-pipeline/raw-gpu/src/dehaze/oracle.rs
+index 262a90f0b8..b241e98a76 100644
+--- a/src/raw-pipeline/raw-gpu/src/dehaze/oracle.rs
++++ b/src/raw-pipeline/raw-gpu/src/dehaze/oracle.rs
+@@ -104,42 +104,45 @@ fn transmission(pixels: &[[f32; 3]], w: usize, h: usize, a: [f32; 3]) -> Vec<f32
+ /// `raw_core::stages::dehaze::box_blur` (the same running accumulator as
+ /// clarity's `box_blur_channel`). `r` here is always > 0 in the dehaze path.
+ fn box_blur(buf: &[f32], w: usize, h: usize, r: usize) -> Vec<f32> {
++    // Keep the sliding sum in f64: long HDR rows otherwise retain rounding
++    // residue when bright samples leave the window, corrupting dark means.
++    // Buffers and each normalized output remain canonical f32.
+     let mut tmp = vec![0.0f32; buf.len()];
+     for y in 0..h {
+         let row = &buf[y * w..(y + 1) * w];
+         let out_row = &mut tmp[y * w..(y + 1) * w];
+         let right0 = r.min(w - 1);
+-        let mut acc: f32 = row[0..=right0].iter().sum();
++        let mut acc: f64 = row[0..=right0].iter().map(|&v| v as f64).sum();
+         let mut count = right0 + 1;
+-        out_row[0] = acc / count as f32;
++        out_row[0] = (acc / count as f64) as f32;
+         for x in 1..w {
+             if x + r < w {
+-                acc += row[x + r];
++                acc += row[x + r] as f64;
+                 count += 1;
+             }
+             if x > r {
+-                acc -= row[x - r - 1];
++                acc -= row[x - r - 1] as f64;
+                 count -= 1;
+             }
+-            out_row[x] = acc / count as f32;
++            out_row[x] = (acc / count as f64) as f32;
+         }
+     }
+     let mut out = vec![0.0f32; buf.len()];
+     for x in 0..w {
+         let bot0 = r.min(h - 1);
+-        let mut acc: f32 = (0..=bot0).map(|i| tmp[i * w + x]).sum();
++        let mut acc: f64 = (0..=bot0).map(|i| tmp[i * w + x] as f64).sum();
+         let mut count = bot0 + 1;
+-        out[x] = acc / count as f32;
++        out[x] = (acc / count as f64) as f32;
+         for y in 1..h {
+             if y + r < h {
+-                acc += tmp[(y + r) * w + x];
++                acc += tmp[(y + r) * w + x] as f64;
+                 count += 1;
+             }
+             if y > r {
+-                acc -= tmp[(y - r - 1) * w + x];
++                acc -= tmp[(y - r - 1) * w + x] as f64;
+                 count -= 1;
+             }
+-            out[y * w + x] = acc / count as f32;
++            out[y * w + x] = (acc / count as f64) as f32;
+         }
+     }
+     out

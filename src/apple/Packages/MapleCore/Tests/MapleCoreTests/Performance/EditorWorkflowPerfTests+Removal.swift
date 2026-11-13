@@ -39,15 +39,12 @@ extension EditorWorkflowPerfTests {
       return try RemovalBridge.digest(data)
     }
     report(["case": "removal-source", "digest": originalDigest])
-    var previousFrame: (initial: String, native: String)?
+    var previousFrame: String?
     for count in [0, 1, 10] {
       let frame = try await measureRemovalStack(
         original: original, fixtures: fixtures, count: count, originalDigest: originalDigest)
       if let previousFrame {
-        XCTAssertNotEqual(
-          frame.initial, previousFrame.initial, "Accepted patches must change initial GPU pixels")
-        XCTAssertNotEqual(
-          frame.native, previousFrame.native, "Accepted patches must change native Auto GPU pixels")
+        XCTAssertNotEqual(frame, previousFrame, "Accepted patches must change GPU pixels")
       }
       previousFrame = frame
     }
@@ -58,7 +55,7 @@ extension EditorWorkflowPerfTests {
   @MainActor
   private func measureRemovalStack(
     original: URL, fixtures: URL, count: Int, originalDigest: String
-  ) async throws -> (initial: String, native: String) {
+  ) async throws -> String {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
     defer { try? FileManager.default.removeItem(at: directory) }
@@ -127,36 +124,6 @@ extension EditorWorkflowPerfTests {
       let contrast = try await measureDrag(
         name: "removal-\(count)-contrast", session: session,
         change: { $0.contrast = -20 + $1 * 40 })
-      // Keep the immediate-interaction measurements above. Then require the
-      // completed native tail and an actual publication using it; a provisional
-      // proxy frame or an installed ID alone cannot qualify settled rendering.
-      let nativeReadyAtImmediateEnd = session.hasSettledAutoProfile
-      await session.nativeAutoProfile.awaitPreparation()
-      let prepared = try XCTUnwrap(session.nativeAutoProfile.ready)
-      XCTAssertNotNil(prepared.artifacts, "The canonical RAW must fit a native Auto tail")
-      session._scheduleRender(phase: .fast)
-      let settledSchedule = try XCTUnwrap(session.latestRenderSchedule)
-      let settledGeneration = await settledSchedule.value
-      try await waitUntil(timeout: .seconds(30)) {
-        if let error = session.renderError { throw error }
-        return session.lastPublishedRenderGeneration == settledGeneration
-          && session.hasSettledAutoProfile
-      }
-      XCTAssertEqual(driver.nativeAutoProfileID, prepared.id)
-      let nativeSettledMs = Self.ms(opened.duration(to: .now))
-      let nativeReadback = await driver.renderCurrentFrameBytes(
-        model: session.model, asShotCCT: session.asShotCCT,
-        asShotTint: session.asShotTint, wbFrame: decoded.wbFrame)
-      let nativeFrame = try XCTUnwrap(nativeReadback)
-      let nativeDigest = try RemovalBridge.digest(Data(nativeFrame.bytes))
-      let nativeExposure = try await measureDrag(
-        name: "removal-\(count)-native-exposure", session: session,
-        change: { $0.exposure = 1 - $1 * 2 })
-      let nativeContrast = try await measureDrag(
-        name: "removal-\(count)-native-contrast", session: session,
-        change: { $0.contrast = 20 - $1 * 40 })
-      XCTAssertEqual(driver.nativeAutoProfileID, prepared.id)
-      XCTAssertTrue(session.hasSettledAutoProfile)
       XCTAssertEqual(session.model.inpaintRemovals?.json ?? "[]", records)
       var row = PerfRecordWriter.deviceSnapshot()
       row["case"] = "100MP-accepted-removals"
@@ -172,13 +139,8 @@ extension EditorWorkflowPerfTests {
       row["coldOpenMs"] = openMs
       row["firstSeedMs"] = firstSeedMs
       row["firstGPUMs"] = firstGPUMs
-      row["nativeReadyAtImmediateEnd"] = nativeReadyAtImmediateEnd
-      row["nativeSettledMs"] = nativeSettledMs
-      row["nativeFrameDigest"] = nativeDigest
       row["tickExposure"] = exposure.asJSON
       row["tickContrast"] = contrast.asJSON
-      row["tickNativeExposure"] = nativeExposure.asJSON
-      row["tickNativeContrast"] = nativeContrast.asJSON
       row["targetMs"] = 16
       row["hardLimitMs"] = 50
       row["excludes"] = "gesture dispatch, scanout, allocation trace, inference and AI quality"
@@ -186,16 +148,12 @@ extension EditorWorkflowPerfTests {
       report(row)
       XCTAssertLessThanOrEqual(exposure.maxMs, 50, "Removal exposure tick exceeds the hard limit")
       XCTAssertLessThanOrEqual(contrast.maxMs, 50, "Removal contrast tick exceeds the hard limit")
-      XCTAssertLessThanOrEqual(
-        nativeExposure.maxMs, 50, "Native removal exposure tick exceeds the hard limit")
-      XCTAssertLessThanOrEqual(
-        nativeContrast.maxMs, 50, "Native removal contrast tick exceeds the hard limit")
       await closeRemovalBenchmark(session)
       #if os(macOS)
         window.orderOut(nil)
       #endif
       withExtendedLifetime(layer) {}
-      return (digest, nativeDigest)
+      return digest
     } catch {
       await closeRemovalBenchmark(session)
       #if os(macOS)

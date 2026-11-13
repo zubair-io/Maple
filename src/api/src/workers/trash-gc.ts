@@ -1,12 +1,15 @@
 /**
  * Trash garbage collector — purges trashed assets older than the
  * retention window. Per asset where `deleted_at < now - retentionDays`:
- *   1. Resolve and unlink the recorded Apple-rendered companion, if present.
- *   2. Unlink the file at `abs_path` (already in .maple/trash/...).
- *   3. Unlink every paired sidecar.
- *   4. Delete the asset row from SQLite.
+ *   - Another copy of the photo survives outside Trash (#5403): drop only the
+ *     trashed location, unlink its file and sidecars, and return the photo to
+ *     the library with its row and backups intact (`library/trash-purge-survivor.ts`).
+ *   - Otherwise: unlink the recorded Apple companions, the trashed copy and
+ *     its sidecars, erase its backups, and delete the asset row.
+ * Every file unlink of a copy or sidecar refuses any path that does not
+ * resolve inside the library's `.maple/trash/` (`library/trashed-copy.ts`).
  * EXCEPT reaped rows (`deleted_reason: 'reaped'`, #2977): those have no
- * trashed copy — steps 1–3 are skipped entirely. Reaped rows with backup
+ * trashed copy, so no file is touched. Reaped rows with backup
  * entries remain until explicit permanent delete; elapsed absence does not
  * authorize backup erasure. Other reaped rows are DB-only cleanup, so a file
  * that quietly returned to the original location is never unlinked.
@@ -16,33 +19,50 @@
  * best-effort behavior: failures are logged before the row is deleted.
  *
  * The candidate query and the delete both live in the repositories
- * (`listTrashedBefore`, `hardDelete`) rather than here, so the one thing this
+ * (`listTrashedBefore`, `hardDeleteAdmittedPurge`) rather than here, so the one thing this
  * sweep must get right about the database — reaching the `assets_trashed`
  * index instead of scanning every asset on a daily timer — is stated beside
  * the table and not re-derived at each call site (#3787).
  *
- * NOT a stage controller — this is a library-wide, interval-fired job.
- * Started from `src/api/src/index.ts` via setInterval.
+ * NOT a stage controller — this is a library-wide job, scheduled daily as the
+ * `trash-gc` maintenance task (`workers/maintenance/`).
  */
 
-import { unlink } from 'node:fs/promises';
+import { refusesFileUnderMarker } from '../fs/mapleignore-guard.ts';
 import { listTrashedBefore, type TrashedAsset } from '../db/repos/assets.sweeps.ts';
-import { deleteReapedWithoutActiveBackup, hardDelete } from '../db/repos/assets.trash.ts';
-import { prepareTrashPurge } from '../cloud-backup/lifecycle.ts';
+import {
+  deleteReapedWithoutActiveBackup,
+  hardDeleteAdmittedPurge,
+} from '../db/repos/assets.trash.ts';
+import {
+  holdsTrashPurge,
+  prepareTrashPurge,
+  releaseTrashPurge,
+} from '../cloud-backup/lifecycle.ts';
 import { capturedTrashPurge } from '../cloud-backup/trash-purge-admission.ts';
-import { listPairedSidecars } from '../fs/xmp-conflict.ts';
-import { assetAbsPath, assetLibraryPath } from '../indexer/images.repo.ts';
-import { resolvePurgeCompanion } from '../library/purge-rendered-companion.ts';
+import { oldNameEditUnreadable } from '../fs/legacy-backup-sidecar.ts';
+import {
+  libraryReachable,
+  logPurgeFailure,
+  purgeTrashedCopyCompanions,
+  resolveTrashedCopy,
+  unlinkTrashedCopy,
+  type TrashedCopy,
+} from '../library/trashed-copy.ts';
+import { purgeKeepingSurvivor } from '../library/trash-purge-survivor.ts';
+import { drainLocalPurges } from '../library/local-purge-drain.ts';
 import { loadLibraryRoots } from '../indexer/libraries.cache.ts';
 import { child as childLogger } from '../log.ts';
 
 const log = childLogger('trash-gc');
+const unlinkFailure = logPurgeFailure(log, 'purge unlink failed');
 const DAY_MS = 86_400_000;
 const DEFAULT_RETENTION_DAYS = 30;
-const DEFAULT_INTERVAL_MS = DAY_MS;
 
 export interface TrashGcOptions {
   retentionDays?: number;
+  /** Stops the pass between assets; the rest stay trashed for the next pass. */
+  signal?: AbortSignal;
 }
 
 export interface TrashGcSummary {
@@ -62,26 +82,10 @@ export interface TrashGcSummary {
 interface PurgeOutcome {
   purged: boolean;
   errors: number;
+  noTrashCopy?: true;
 }
 
-/**
- * Unlink a path, treating "already gone" as success.
- *
- * ENOENT is the expected outcome for a sweep that re-runs over a row whose
- * files a previous pass removed before it crashed, and for a sidecar the user
- * deleted by hand. Counting it would make a retry look like a fault forever.
- */
-async function unlinkTolerantly(target: string, message: string): Promise<boolean> {
-  try {
-    await unlink(target);
-    return true;
-  } catch (err) {
-    const code = (err as { code?: string } | null)?.code;
-    if (code === 'ENOENT') return true;
-    log.warn({ target, err: err instanceof Error ? err.message : err }, message);
-    return false;
-  }
-}
+const NO_TRASH_COPY_SAMPLE_SIZE = 5;
 
 /** Missing/reaped assets have no user Trash intent, even after the local GC clock expires. */
 async function purgeReapedRow(doc: TrashedAsset): Promise<PurgeOutcome> {
@@ -107,29 +111,82 @@ async function purgeTrashedAsset(
     return purgeReapedRow(doc);
   }
 
-  const absPath = assetAbsPath(doc, libs);
-  if (absPath === null) {
-    // Leave the row alone: without a resolvable path there is nothing to
-    // reclaim on disk, and an unregistered library is a condition that can be
-    // fixed, after which the next pass purges properly.
-    log.warn({ _id: doc._id.toHexString() }, 'purge skip — asset has no resolvable location');
+  const trashed = resolveTrashedCopy(doc.fileinfo, libs);
+  if (trashed === null) {
+    // Leave the row alone: with no location inside `.maple/trash/` there is no
+    // copy this purge is allowed to erase (#5403), and an unregistered library
+    // is a condition that can be fixed, after which the next pass purges.
+    return { purged: false, errors: 1, noTrashCopy: true };
+  }
+  const absPath = trashed.absPath;
+
+  // An offline volume makes every file look gone; keep the row until it is back.
+  if (!(await libraryReachable(trashed.libraryRoot))) {
+    log.warn({ _id: doc._id.toHexString() }, 'purge skip — the library is unreachable');
     return { purged: false, errors: 1 };
   }
 
-  if (!(await prepareTrashPurge(doc._id.toHexString(), capturedTrashPurge(doc)))) {
-    log.info(
-      { assetId: doc._id.toHexString() },
-      'purge skip — Trash candidate changed or has an active move',
-    );
-    return { purged: false, errors: 0 };
+  // Never unlink a file under a `.mapleignore` folder (#5398), whatever the
+  // row says; `.maple/trash/` itself is never under the guard.
+  if (await refusesFileUnderMarker(absPath)) {
+    log.warn({ _id: doc._id.toHexString(), absPath }, 'purge skip — file is under .mapleignore');
+    return { purged: false, errors: 1 };
   }
-  try {
-    const companion = await resolvePurgeCompanion(
-      assetLibraryPath(doc, libs)!,
-      doc.apple_rendered_path,
-      absPath,
+
+  // A purge would strand an old-name edit it can't read (#5063); keep both for a retry.
+  if (await oldNameEditUnreadable(absPath)) {
+    log.warn(
+      { _id: doc._id.toHexString() },
+      "purge skip — the photo's old-name edit can't be read",
     );
-    if (companion) await unlink(companion);
+    return { purged: false, errors: 1 };
+  }
+  const kept = await purgeKeepingSurvivor(doc._id, doc, trashed, libs);
+  if (kept.kind === 'kept') return { purged: true, errors: kept.pendingCleanup };
+  if (kept.kind === 'changed') return candidateChanged(doc);
+  if (kept.kind === 'retry') {
+    log.warn(
+      { _id: doc._id.toHexString(), err: String(kept.error) },
+      'purge skip — backup cleanup of the trashed copy requires retry',
+    );
+    return { purged: false, errors: 1 };
+  }
+  return purgeWholeAsset(doc, trashed, libs);
+}
+
+function candidateChanged(doc: TrashedAsset): PurgeOutcome {
+  log.info(
+    { assetId: doc._id.toHexString() },
+    'purge skip — Trash candidate changed or has an active move',
+  );
+  return { purged: false, errors: 0 };
+}
+
+/** No other copy survives: erase the trashed copy, its companions and backups, and the row. */
+async function purgeWholeAsset(
+  doc: TrashedAsset,
+  trashed: TrashedCopy,
+  libs: ReadonlyMap<string, string>,
+): Promise<PurgeOutcome> {
+  const lease = await prepareTrashPurge(doc._id.toHexString(), capturedTrashPurge(doc));
+  if (!lease) return candidateChanged(doc);
+  try {
+    return await eraseWholeAsset(doc, trashed, libs, lease);
+  } finally {
+    await releaseTrashPurge(lease);
+  }
+}
+
+/** Every unlink and the row delete first confirm the purge lease is still held (#5419). */
+async function eraseWholeAsset(
+  doc: TrashedAsset,
+  trashed: TrashedCopy,
+  libs: ReadonlyMap<string, string>,
+  lease: NonNullable<Awaited<ReturnType<typeof prepareTrashPurge>>>,
+): Promise<PurgeOutcome> {
+  const held = () => holdsTrashPurge(lease);
+  try {
+    await purgeTrashedCopyCompanions(trashed, doc, libs, held);
   } catch (error) {
     log.warn(
       { _id: doc._id.toHexString(), err: String(error) },
@@ -137,22 +194,52 @@ async function purgeTrashedAsset(
     );
     return { purged: false, errors: 1 };
   }
-  const originalOk = await unlinkTolerantly(absPath, 'purge unlink failed');
-  const sidecarResults: boolean[] = [];
-  for (const sidecar of await listPairedSidecars(absPath)) {
-    sidecarResults.push(await unlinkTolerantly(sidecar, 'purge sidecar unlink failed'));
-  }
-  await hardDelete(doc._id);
-  return {
-    purged: true,
-    errors: (originalOk ? 0 : 1) + sidecarResults.filter((ok) => !ok).length,
-  };
+  const errors = await unlinkTrashedCopy(trashed, unlinkFailure, held).catch(() => null);
+  if (errors === null) return candidateChanged(doc);
+  const deleted = await hardDeleteAdmittedPurge(doc._id, lease);
+  if (!deleted.deletedCount) return candidateChanged(doc);
+  return { purged: true, errors };
 }
 
-/** One pass. Exported for tests + callable from setInterval. */
+/** One asset's failure is counted and logged; it never stops the pass. */
+function purgeCrashed(doc: TrashedAsset, err: unknown): PurgeOutcome {
+  log.error({ _id: doc._id.toHexString(), err: String(err) }, 'purge failed — retrying next pass');
+  return { purged: false, errors: 1 };
+}
+
+/** Every pass re-finds the same rows, and each server start runs a pass, so
+ * one line per pass carries the count; sample ids are for debugging only. */
+function logAssetsWithoutTrashCopy(assetIds: readonly string[]): void {
+  if (assetIds.length === 0) return;
+  log.info({ count: assetIds.length }, 'purge skip — assets have no copy in Trash');
+  log.debug(
+    { sampleIds: assetIds.slice(0, NO_TRASH_COPY_SAMPLE_SIZE) },
+    'purge skip — sample assets with no copy in Trash',
+  );
+}
+
+let draining: Promise<void> | null = null;
+
+/**
+ * Drain owed unlinks of kept-photo purges. Runs every minute as its own
+ * maintenance task rather than waiting for the daily pass; overlapping calls
+ * share the one in flight.
+ */
+export function drainTrashPurgeCleanup(): Promise<void> {
+  draining ??= drainLocalPurges()
+    .then(() => undefined)
+    .catch((err: unknown) => log.warn({ err: String(err) }, 'purge cleanup drain failed'))
+    .finally(() => {
+      draining = null;
+    });
+  return draining;
+}
+
+/** One pass; runs daily as the `trash-gc` maintenance task. */
 export async function runTrashGcOnce(opts: TrashGcOptions = {}): Promise<TrashGcSummary> {
   const retentionDays = opts.retentionDays ?? DEFAULT_RETENTION_DAYS;
   const cutoffIso = new Date(Date.now() - retentionDays * DAY_MS).toISOString();
+  await drainTrashPurgeCleanup();
   const candidates = await listTrashedBefore(cutoffIso);
   // A library-root lookup that fails leaves every path unresolvable, which the
   // per-asset branch above reports and skips — better than aborting the pass,
@@ -161,8 +248,14 @@ export async function runTrashGcOnce(opts: TrashGcOptions = {}): Promise<TrashGc
 
   const outcomes: PurgeOutcome[] = [];
   for (const doc of candidates) {
-    outcomes.push(await purgeTrashedAsset(doc, libs));
+    if (opts.signal?.aborted) break;
+    outcomes.push(
+      await purgeTrashedAsset(doc, libs).catch((err: unknown) => purgeCrashed(doc, err)),
+    );
   }
+  logAssetsWithoutTrashCopy(
+    candidates.filter((_, i) => outcomes[i]?.noTrashCopy).map((doc) => doc._id.toHexString()),
+  );
 
   const summary = outcomes.reduce<TrashGcSummary>(
     (acc, outcome) => ({
@@ -174,35 +267,4 @@ export async function runTrashGcOnce(opts: TrashGcOptions = {}): Promise<TrashGc
   );
   if (summary.scanned > 0) log.info(summary, 'trash-gc pass complete');
   return summary;
-}
-
-export interface TrashGcHandle {
-  stop: () => void;
-}
-
-/** Start a background loop. Returns a handle whose `stop()` cancels it. */
-export function startTrashGc(opts: TrashGcOptions & { intervalMs?: number } = {}): TrashGcHandle {
-  const intervalMs = opts.intervalMs ?? DEFAULT_INTERVAL_MS;
-  let stopped = false;
-  const tick = async () => {
-    if (stopped) return;
-    try {
-      await runTrashGcOnce(opts);
-    } catch (err) {
-      log.error({ err: err instanceof Error ? err.message : err }, 'trash-gc pass crashed');
-    }
-  };
-  const timer = setInterval(() => {
-    void tick();
-  }, intervalMs);
-  // Fire once on startup so a freshly-booted server doesn't wait 24h
-  // before its first sweep. Errors are swallowed by tick() so a stray
-  // failure doesn't crash boot.
-  void tick();
-  return {
-    stop: () => {
-      stopped = true;
-      clearInterval(timer);
-    },
-  };
 }

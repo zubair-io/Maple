@@ -11,7 +11,8 @@
 // render) sections beneath the stage table are T5b (#2772) — they live here
 // rather than on the Enrichment page because they aren't enrichment-document
 // fields, matching where the web places them (workers.component.html's
-// Maintenance/Rendering groups).
+// Maintenance/Rendering groups). The Temporal "Job server" section (#5826)
+// sits between them, as on the web.
 
 import SwiftUI
 import MapleCore
@@ -127,6 +128,7 @@ struct WorkersSettingsView: View {
                         collectionsClient: generatedSearchCollections,
                         foldersClient: foldersClient)
                 }
+                TemporalSettingsSection(client: client)
                 if let renderConfigClient {
                     RenderConfigSettingsView(client: renderConfigClient)
                 }

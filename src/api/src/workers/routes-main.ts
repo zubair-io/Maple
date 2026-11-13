@@ -9,8 +9,10 @@ import { rejectLegacyAiWrite } from '../routes/ai-legacy-write.ts';
  *
  * Pause/resume cross-process contract:
  *   - POST /:name/pause|resume write the worker's `paused` flag via
- *     WorkerConfigRepo.patch().  The worker process re-reads `worker_config` on
- *     every poll tick, so the change takes effect without any IPC.
+ *     WorkerConfigRepo.patch().  Each stage in the worker process re-reads
+ *     `worker_config` every 2 s, before its next batch, so the change takes
+ *     effect within about 2 s (or once a batch already in hand finishes)
+ *     without any IPC.
  *
  * Config change flow for PATCH /:name/config:
  *    1. Validate the patch body.
@@ -33,18 +35,10 @@ import {
   listDeadAssets,
   retryDeadStage,
 } from '../db/repos/worker-admin.repo.ts';
-import { ffiPool } from '../ffi/ffi-pool.ts';
-import {
-  MAX_FFI_WORKERS,
-  MIN_FFI_WORKERS,
-  clampFfiWorkers,
-  loadPerformanceConfig,
-  resolveFfiPoolConfig,
-  savePerformanceConfig,
-} from '../ffi/ffi-pool-config.repo.ts';
+import { patchPerformance, performanceStatus } from './performance-config.ts';
+import { temporalRoutes } from './routes-temporal.ts';
 import { WorkerConfigRepo } from '../db/repos/worker-config.repo.ts';
 import type { WorkerConfig } from './run-stage.ts';
-import { previewOndemandLimiter } from '../indexer/preview-ondemand-limiter.ts';
 import { MISSING_REAPER_NAME } from './missing-reaper.ts';
 import { MIGRATION_WORKER_NAME } from './migration.ts';
 import { DEDUPLICATE_NAME } from './dedupe.ts';
@@ -209,7 +203,7 @@ export function workerRoutes() {
         try {
           await requestStatusCounts();
           // One DB read for all per-migration state, indexed by id below. The
-          // `remaining` / `failedPermanently` counts are the worker's persisted
+          // `remaining` counts are the worker's persisted
           // values (#3491): most `countRemaining()` filters are full-collection
           // scans, so they are never run on the request path. Null until the
           // worker has counted a migration for the first time.
@@ -226,11 +220,6 @@ export function workerRoutes() {
               errors: state.errors,
               remaining: state.remaining ?? null,
               remaining_at: state.remaining_at ?? null,
-              // Only migrations that implement `countFailedPermanently` (a
-              // migration-specific dead-letter queue) surface the field at all.
-              ...(m.countFailedPermanently
-                ? { failedPermanently: state.failed_permanently ?? null }
-                : {}),
               last_error: state.last_error,
               started_at: state.started_at,
               finished_at: state.finished_at,
@@ -382,17 +371,9 @@ export function workerRoutes() {
           try {
             const repo = new WorkerConfigRepo();
             await repo.patch(params.name, body as Partial<WorkerConfig>);
-            // The worker process re-reads worker_config on its next poll tick
-            // — no IPC needed.
+            // The worker process re-reads worker_config within ~2 s, before
+            // its next batch — no IPC needed.
             const savedConfig = await repo.load(params.name);
-            // The `preview` stage's concurrency also caps ON-DEMAND (request-
-            // path) preview regeneration in THIS process — see
-            // preview-ondemand-limiter.ts's module doc for why it reuses this
-            // setting instead of adding a new one. Apply live; this route runs
-            // in the API process, same as the on-demand routes (no IPC needed).
-            if (params.name === 'preview' && savedConfig) {
-              previewOndemandLimiter().setLimit(savedConfig.concurrency);
-            }
             return { ok: true, config: savedConfig };
           } catch (err) {
             set.status = 500;
@@ -405,56 +386,32 @@ export function workerRoutes() {
         },
       )
 
-      // ── Performance: FFI decode-pool size (ticket #673) ─────────────────────
-      // GET   /api/workers/performance — effective ffi_workers + source + live
-      //                                 pool stats.
-      // PATCH /api/workers/performance — clamp 1–16, persist to the
-      //                                 `performance` app_settings doc, then
-      //                                 resize the live pool immediately (no
-      //                                 restart).
-      .get('/performance', async () => {
-        const resolved = resolveFfiPoolConfig(await loadPerformanceConfig());
-        return {
-          ffi_workers: resolved.ffi_workers,
-          source: resolved.source.ffi_workers,
-          min: MIN_FFI_WORKERS,
-          max: MAX_FFI_WORKERS,
-          pool: ffiPool().stats(),
-        };
-      })
+      // ── Performance: RAW decode-pool size (#673) + decode memory budget (#5467)
+      // GET   /api/workers/performance — effective settings, sources, bounds,
+      //                                 API pool stats and the worker's live
+      //                                 budget reservation.
+      // PATCH /api/workers/performance — clamp and persist either field; the
+      //                                 worker re-applies within seconds.
+      .get('/performance', () => performanceStatus())
 
       .patch(
         '/performance',
         async ({ body, set }) => {
-          const clamped = clampFfiWorkers(body.ffi_workers);
-          if (clamped === null) {
-            set.status = 400;
-            return {
-              error: `Invalid ffi_workers: must be a finite number (got ${body.ffi_workers})`,
-            };
+          const outcome = await patchPerformance(body);
+          if (!outcome.ok) {
+            set.status = outcome.status;
+            return { error: outcome.error };
           }
-          try {
-            await savePerformanceConfig({ ffi_workers: clamped });
-          } catch (err) {
-            set.status = 500;
-            return { error: err instanceof Error ? err.message : String(err) };
-          }
-          // Re-resolve (in case the DB was unreachable and env/default applies)
-          // and resize the live pool right away.
-          const resolved = resolveFfiPoolConfig(await loadPerformanceConfig());
-          ffiPool().setPoolSize(resolved.ffi_workers);
-          return {
-            ok: true,
-            ffi_workers: resolved.ffi_workers,
-            source: resolved.source.ffi_workers,
-            pool: ffiPool().stats(),
-          };
+          return { ok: true, ...(await performanceStatus()) };
         },
         {
           body: t.Object({
-            ffi_workers: t.Number(),
+            ffi_workers: t.Optional(t.Number()),
+            decode_memory_budget_percent: t.Optional(t.Number()),
           }),
         },
       )
+
+      .use(temporalRoutes)
   );
 }

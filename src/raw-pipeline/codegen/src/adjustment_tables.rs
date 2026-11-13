@@ -92,7 +92,6 @@ mod tests {
         // pipeline version — those stay in `emit_ts`'s output.
         assert!(!out.contains("export interface GeneratedAdjustmentModel"));
         assert!(!out.contains("defaultGeneratedAdjustmentModel"));
-        assert!(!out.contains("PIPELINE_OUTPUT_VERSION"));
     }
 
     #[test]

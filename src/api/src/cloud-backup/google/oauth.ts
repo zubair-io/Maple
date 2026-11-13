@@ -1,18 +1,22 @@
-import { GoogleConnectionError } from './config.ts';
 import { createHash, randomBytes } from 'node:crypto';
 import { sqliteDb } from '../../db/repos/db-handle.ts';
 import {
   DRIVE_SCOPE,
   FLOW_TTL,
+  GoogleConnectionError,
+  GoogleFlowUnavailable,
   RELAY_CALLBACK,
   RELAY_ORIGIN,
   callbackUrl,
+  reconnectMessage,
   validateDirectCallback,
+  withoutCredentials,
 } from './config.ts';
 import {
   loadConnection,
   savePending,
   consumePending,
+  findPending,
   commitTokens,
   claimRefresh,
   releaseRefresh,
@@ -26,8 +30,17 @@ import { relayTicket } from './oauth-routing.ts';
 
 export type GoogleFetch = (input: string | URL, init?: RequestInit) => Promise<Response>;
 const timeout = () => AbortSignal.timeout(30_000);
+// A rejected fetch (DNS, TLS, timeout) says nothing about the credentials;
+// surface it as a connection failure so a reconnect sweep can rearm it.
+function reachable(request: Promise<Response>): Promise<Response> {
+  return request.catch(() => {
+    throw new GoogleConnectionError('Google is unreachable; retry shortly.');
+  });
+}
 const hashCookie = (cookie: string) => createHash('sha256').update(cookie).digest('hex');
 const cache = new Map<string, { epoch: number; token: string; expires: number }>();
+const refreshing = new Map<string, Promise<string>>();
+const REFRESH_LEASE_WAIT_MS = 65_000;
 
 async function ownerStillAuthorized(id: string) {
   const [owner] = await sqliteDb().read<{ role: string }>('SELECT role FROM users WHERE id = ?', [
@@ -39,13 +52,15 @@ async function ownerStillAuthorized(id: string) {
 
 /** Google failures are classified without reflecting response bodies or secrets. */
 async function tokenRequest(params: URLSearchParams, transport: GoogleFetch) {
-  const response = await transport('https://oauth2.googleapis.com/token', {
-    method: 'POST',
-    redirect: 'error',
-    signal: timeout(),
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: params,
-  });
+  const response = await reachable(
+    transport('https://oauth2.googleapis.com/token', {
+      method: 'POST',
+      redirect: 'error',
+      signal: timeout(),
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: params,
+    }),
+  );
   return tokenResponse(response);
 }
 
@@ -57,15 +72,17 @@ async function verifyScopes(
   // Matches Google's official Node OAuth2Client.getTokenInfo: POST + Bearer,
   // so tokens never enter URLs. Always verify effective scopes, even if omitted
   // from the token exchange response.
-  const metadata = await transport('https://oauth2.googleapis.com/tokeninfo', {
-    method: 'POST',
-    redirect: 'error',
-    signal: timeout(),
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      'Content-Type': 'application/x-www-form-urlencoded',
-    },
-  });
+  const metadata = await reachable(
+    transport('https://oauth2.googleapis.com/tokeninfo', {
+      method: 'POST',
+      redirect: 'error',
+      signal: timeout(),
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+    }),
+  );
   if (!metadata.ok)
     throw new GoogleConnectionError('Google token verification failed; reconnect Google Drive.');
   const info = (await metadata.json()) as {
@@ -88,13 +105,12 @@ async function verifyToken(accessToken: string, clientId: string, transport: Goo
   return loadGoogleAccount(accessToken, transport);
 }
 async function loadGoogleAccount(accessToken: string, transport: GoogleFetch) {
-  const account = await transport(
-    'https://www.googleapis.com/drive/v3/about?fields=user(permissionId,emailAddress)',
-    {
+  const account = await reachable(
+    transport('https://www.googleapis.com/drive/v3/about?fields=user(permissionId,emailAddress)', {
       redirect: 'error',
       signal: timeout(),
       headers: { Authorization: `Bearer ${accessToken}` },
-    },
+    }),
   );
   if (!account.ok)
     throw new GoogleConnectionError(
@@ -203,14 +219,12 @@ async function startConnection(
     if (
       !(await saveConfig(
         id,
-        {
+        withoutCredentials({
           ...connection.config,
           clientId,
           clientSecret: '',
           callbackMode: 'relay',
-          refreshToken: null,
-          relayGrant: null,
-        },
+        }),
         connection.epoch,
         null,
       ))
@@ -234,15 +248,40 @@ export async function finishGoogleFlow(
   denied: boolean,
   currentOrigin: string | (() => Promise<string>),
   transport: GoogleFetch = fetch,
+  attach: AttachGoogleConnection = async () => {},
 ): Promise<{ destinationId: string; rootId: string | null }> {
-  if (
-    !state ||
-    state.length > 8192 ||
-    !/^[A-Za-z0-9_-]{43}$/.test(cookie) ||
-    (code !== null && (code.length < 1 || code.length > 4096))
-  )
+  if (!validCallbackState(state) || (code !== null && (code.length < 1 || code.length > 4096)))
     throw new GoogleConnectionError('Invalid Google callback.');
-  const flow = await consumePending(state, hashCookie(cookie));
+  if (!/^[A-Za-z0-9_-]{43}$/.test(cookie)) throw new GoogleFlowUnavailable();
+  const cookieHash = hashCookie(cookie);
+  const row = await findPending(state, cookieHash);
+  if (!row) throw new GoogleFlowUnavailable();
+  // Only the browser holding the flow's cookie may own its outcome, and it claims ownership
+  // synchronously after that check, so a duplicate can never find the outcome missing.
+  const owned = claimConnect(state);
+  if (!owned) throw new GoogleFlowUnavailable();
+  const connect = consumePending(row, state, cookieHash).then(async (flow) => {
+    const epoch = await exchangeFlow(flow, code, denied, currentOrigin, transport);
+    await attach(flow.destinationId, flow.rootId ?? null);
+    return { destinationId: flow.destinationId, rootId: flow.rootId ?? null, epoch };
+  });
+  owned.resolve(
+    connect.then(
+      ({ destinationId, epoch }) => ({ destinationId, epoch }),
+      () => null,
+    ),
+  );
+  const { destinationId, rootId } = await connect;
+  return { destinationId, rootId };
+}
+
+async function exchangeFlow(
+  flow: PendingFlow,
+  code: string | null,
+  denied: boolean,
+  currentOrigin: string | (() => Promise<string>),
+  transport: GoogleFetch,
+): Promise<number> {
   await ownerStillAuthorized(flow.ownerId);
   const connection = await loadConnection(flow.destinationId);
   const origin = () =>
@@ -290,6 +329,7 @@ export async function finishGoogleFlow(
       ...account,
       refreshToken: tokens.refreshToken,
       relayGrant: connection.config.clientMode === 'maple' ? tokens.relayGrant : null,
+      disconnect: null,
     },
     flow.epoch,
   );
@@ -298,23 +338,136 @@ export async function finishGoogleFlow(
     token: tokens.accessToken,
     expires: Date.now() + tokens.expiresIn * 1000 - 60_000,
   });
-  return { destinationId: flow.destinationId, rootId: flow.rootId ?? null };
+  return epoch;
+}
+
+const validCallbackState = (state: string) => state.length > 0 && state.length <= 8192;
+const hashState = (state: string) => createHash('sha256').update(`state:${state}`).digest('hex');
+const REPEAT_WAIT_MS = 30_000;
+type ConnectOutcome = { destinationId: string; epoch: number } | null;
+const connects = new Map<string, { expires: number; outcome: Promise<ConnectOutcome> }>();
+
+/** Runs after the new credentials are saved; a connect only counts as complete once it resolves. */
+export type AttachGoogleConnection = (
+  destinationId: string,
+  rootId: string | null,
+) => Promise<void>;
+
+/** Claims the outcome slot of a state for the request that is about to consume its flow (#5706).
+ * Returns null when another request already owns that state's connect. */
+function claimConnect(state: string): PromiseWithResolvers<ConnectOutcome> | null {
+  const now = Date.now();
+  for (const [key, entry] of connects) if (entry.expires <= now) connects.delete(key);
+  const key = hashState(state);
+  if (connects.has(key)) return null;
+  const outcome = Promise.withResolvers<ConnectOutcome>();
+  connects.set(key, { expires: now + FLOW_TTL, outcome: outcome.promise });
+  return outcome;
+}
+
+async function within<T>(work: Promise<T>, ms: number): Promise<T | null> {
+  const elapsed = Promise.withResolvers<null>();
+  const timer = setTimeout(() => elapsed.resolve(null), ms);
+  try {
+    return await Promise.race([work, elapsed.promise]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/** The destination a spent callback state connected, while that very connection still stands.
+ * A repeat that races the first visit waits for it, since the browser shows only the last response. */
+export async function completedGoogleFlowDestination(
+  state: string,
+  waitMs = REPEAT_WAIT_MS,
+): Promise<string | null> {
+  if (!validCallbackState(state)) return null;
+  const entry = connects.get(hashState(state));
+  if (!entry || entry.expires <= Date.now()) return null;
+  const outcome = await within(entry.outcome, waitMs);
+  if (!outcome) return null;
+  const connection = await loadConnection(outcome.destinationId);
+  return connection.epoch === outcome.epoch && connection.config.refreshToken
+    ? outcome.destinationId
+    : null;
+}
+
+/** Drops the cached token, unless a fresher one has already replaced the rejected one (#5038). */
+export function forgetGoogleAccessToken(id: string, rejected?: string): void {
+  if (rejected === undefined || cache.get(id)?.token === rejected) cache.delete(id);
 }
 
 /** Internal machine-to-machine renewal; Bun exposes no browser-accessible renewal route. */
+
 export async function googleAccessToken(
   id: string,
   transport: GoogleFetch = fetch,
+  signal?: AbortSignal,
 ): Promise<string> {
   const connection = await loadConnection(id);
   const cached = cache.get(id);
   if (cached && cached.epoch === connection.epoch && cached.expires > Date.now())
     return cached.token;
-  if (!connection.config.refreshToken)
-    throw new GoogleConnectionError('Reconnect Google Drive to resume backup.');
+  // Concurrent transfers share one refresh instead of failing as connection errors (#5038);
+  // it runs unbound to any one caller, so a caller's Stop never fails the others.
+  const key = `${id}:${connection.epoch}`;
+  return abortable(
+    refreshing.get(key) ?? sharedRefresh(key, id, connection.epoch, transport),
+    signal,
+  );
+}
+
+function sharedRefresh(
+  key: string,
+  id: string,
+  epoch: number,
+  transport: GoogleFetch,
+): Promise<string> {
+  const refresh = renewAccessToken(id, epoch, transport).finally(() => {
+    if (refreshing.get(key) === refresh) refreshing.delete(key);
+  });
+  refreshing.set(key, refresh);
+  return refresh;
+}
+
+function abortable<T>(work: Promise<T>, signal?: AbortSignal): Promise<T> {
+  if (!signal) return work;
+  if (signal.aborted) return Promise.reject(signal.reason);
+  return new Promise<T>((resolve, reject) => {
+    const stop = () => reject(signal.reason);
+    signal.addEventListener('abort', stop, { once: true });
+    void work.then(resolve, reject).then(() => signal.removeEventListener('abort', stop));
+  });
+}
+
+async function renewAccessToken(
+  id: string,
+  epoch: number,
+  transport: GoogleFetch,
+): Promise<string> {
   const lease = randomBytes(32).toString('base64url');
-  if (!(await claimRefresh(id, connection.epoch, lease)))
-    throw new GoogleConnectionError('Google token renewal is already in progress; retry shortly.');
+  await claimRefreshWhenFree(id, epoch, lease);
+  try {
+    // Read after claiming: another process may have rotated the grant while we waited.
+    const connection = await loadConnection(id);
+    if (connection.epoch !== epoch)
+      throw new GoogleConnectionError(
+        'Google Drive was reconnected; retry with the new connection.',
+      );
+    if (!connection.config.refreshToken)
+      throw new GoogleConnectionError(reconnectMessage(connection.config.disconnect));
+    return await renewWithLease(id, connection, lease, transport);
+  } finally {
+    await releaseRefresh(id, lease);
+  }
+}
+
+async function renewWithLease(
+  id: string,
+  connection: Connection,
+  lease: string,
+  transport: GoogleFetch,
+): Promise<string> {
   try {
     const tokens = await renewTokens(connection, transport);
     const account = await verifyToken(tokens.accessToken, connection.config.clientId, transport);
@@ -337,18 +490,33 @@ export async function googleAccessToken(
     });
     return tokens.accessToken;
   } catch (error) {
-    if (error instanceof GoogleReconnectRequired) {
-      await commitTokens(
-        id,
-        { ...connection.config, refreshToken: null, relayGrant: null },
-        connection.epoch,
-        lease,
+    if (!(error instanceof GoogleReconnectRequired)) throw error;
+    const disconnect = { reason: error.reason, at: Date.now() };
+    await commitTokens(
+      id,
+      withoutCredentials(connection.config, disconnect),
+      connection.epoch,
+      lease,
+    );
+    cache.delete(id);
+    // Every entry parked from here on records this same cause, not a generic reconnect.
+    throw new GoogleReconnectRequired(reconnectMessage(disconnect), error.reason);
+  }
+}
+
+/** Another process's refresh lease lasts at most a minute, so wait it out rather than fail. */
+async function claimRefreshWhenFree(id: string, epoch: number, lease: string): Promise<void> {
+  const deadline = Date.now() + REFRESH_LEASE_WAIT_MS;
+  while (!(await claimRefresh(id, epoch, lease))) {
+    if ((await loadConnection(id)).epoch !== epoch)
+      throw new GoogleConnectionError(
+        'Google Drive was reconnected; retry with the new connection.',
       );
-      cache.delete(id);
-    }
-    throw error;
-  } finally {
-    await releaseRefresh(id, lease);
+    if (Date.now() >= deadline)
+      throw new GoogleConnectionError(
+        'Google token renewal is already in progress; retry shortly.',
+      );
+    await new Promise((resolve) => setTimeout(resolve, 250));
   }
 }
 
@@ -357,6 +525,7 @@ function renewTokens(connection: Connection, transport: GoogleFetch) {
     if (!connection.config.relayGrant)
       throw new GoogleReconnectRequired(
         'Maple authorization is unavailable; reconnect Google Drive.',
+        'missing_grant',
       );
     return managedTokens(
       'refresh',

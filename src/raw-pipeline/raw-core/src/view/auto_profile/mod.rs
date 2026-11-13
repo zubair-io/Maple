@@ -26,11 +26,19 @@ pub mod bake;
 pub mod cache;
 pub mod curve;
 pub mod fit_display;
+mod fit_registration;
 pub mod lut;
 mod lut_fit;
+mod outcome;
+mod paired_fit;
+mod paired_observations;
 pub mod pairs;
 pub mod preview;
+pub mod preview_coverage;
+mod preview_raf_color;
+mod preview_sources;
 mod solve;
+mod toe;
 
 pub use apply::{apply_curve, compress_input};
 pub use apply_pipeline::apply_auto_profile;
@@ -40,7 +48,9 @@ pub use curve::{
     PROFILE_CURVE_FLAT_LEN,
 };
 pub use fit_display::{fit_curve_from_bytes_display, fit_curve_from_raw_display};
+pub use outcome::AutoFitOutcome;
 pub use preview::JpegColorSpace;
+pub use preview_sources::PreviewSource;
 
 #[cfg(test)]
 mod tests;

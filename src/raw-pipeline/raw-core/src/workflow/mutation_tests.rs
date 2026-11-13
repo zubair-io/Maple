@@ -12,6 +12,8 @@ fn entry(xml: &str, n: u64, action: &str) -> String {
         created_at_ms: n,
         action: action.into(),
         label: "Committed exposure".into(),
+        parent_id: String::new(),
+        writer: String::new(),
         adjustment_xmp: SidecarWorkflow::checkpoint_xmp(xml).unwrap(),
     })
     .unwrap()
@@ -108,7 +110,7 @@ fn stale_forged_duplicate_and_future_mutations_leave_the_prior_state_unchanged()
     );
     assert!(SidecarWorkflow::restore_xmp(&saved, &entry(&saved, 2, "adjustment")).is_err());
     assert!(SidecarWorkflow::commit_xmp(&saved, &entry(&saved, 2, "snapshot-restore")).is_err());
-    let future = saved.replace("<papp:SchemaVersion>1", "<papp:SchemaVersion>2");
+    let future = saved.replace("<papp:SchemaVersion>2", "<papp:SchemaVersion>3");
     assert!(SidecarWorkflow::restore_xmp(&future, &entry(&saved, 2, "snapshot-restore")).is_err());
     assert!(SidecarWorkflow::snapshot_xmp(&future, &snapshot(&saved)).is_err());
     assert!(SidecarWorkflow::commit_xmp(&future, &entry(&saved, 2, "adjustment")).is_err());

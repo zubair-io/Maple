@@ -147,7 +147,7 @@ extension SMBFileOperations {
       guard !entry.name.lowercased().hasSuffix(FilenameVocabulary.originalPathMarkerSuffix) else {
         continue
       }
-      let sidecarPath = (entry.path as NSString).deletingPathExtension.appending(".xmp")
+      let sidecarPath = Self.sidecarPath(for: entry.path)
       let rel =
         entry.path.hasPrefix(trashPrefix)
         ? String(entry.path.dropFirst(trashPrefix.count)) : entry.path
@@ -182,7 +182,9 @@ extension SMBFileOperations {
   ) async throws {
     try requireUnderMapleTrash(item.primaryPath, shareRoot: shareRoot)
     try await transport.removeItem(atPath: item.primaryPath)
-    if let sidecarPath = item.sidecarPath {
+    if let sidecarPath = item.sidecarPath,
+      await !SidecarOwnership.smbStemClaimedBySibling(item.primaryPath, transport: transport)
+    {
       try? await transport.removeItem(atPath: sidecarPath)
     }
     await removeTrashedMarker(forItemAt: item.primaryPath, transport: transport)
@@ -207,9 +209,10 @@ extension SMBFileOperations {
   /// reasoning. A restored item ages from its trashed date, or from its
   /// restore date when it has none. Items with no marker are left alone —
   /// see `LocalFileOperations.sweepExpiredMapleTrash`'s doc comment for why.
-  /// Also removes orphaned markers (`sweepOrphanedMarkers`) and expired
-  /// restore staging copies. Returns the total count of primaries purged
-  /// plus orphaned markers and staging copies removed.
+  /// Also removes orphaned markers (`sweepOrphanedMarkers`), orphaned sidecars
+  /// (`sweepOrphanedSidecars`, #5132) and expired restore staging copies.
+  /// Returns the total count of primaries purged plus orphaned markers,
+  /// sidecars and staging copies removed.
   @discardableResult
   public static func sweepExpiredMapleTrash(
     shareRoot: String = "/", olderThanDays: Int = 30, now: Date = Date(),
@@ -227,6 +230,8 @@ extension SMBFileOperations {
       }
     }
     purged += await sweepOrphanedMarkers(shareRoot: shareRoot, transport: transport)
+    purged += await sweepOrphanedSidecars(
+      shareRoot: shareRoot, olderThanDays: olderThanDays, now: now, transport: transport)
     purged += await sweepExpiredRestoreStaging(
       shareRoot: shareRoot, olderThanDays: olderThanDays, now: now, transport: transport)
     return purged

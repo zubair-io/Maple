@@ -1,0 +1,7 @@
+{
+  "fixture": "test_0005",
+  "demosaic": "amaze",
+  "length": 107811,
+  "max_abs_delta": 0.0,
+  "exact_render_and_ramp_artifact_match": true
+}

@@ -404,11 +404,9 @@ namespace Maple.WinUI.Services
             bool useHalf, int targetWidth, int targetHeight, bool sampleScopes)
         {
             var p = MapleGpuLiveParams.From(state, image);
-            // Point tone curves (#2576): flat knot pairs, borrowed for the call.
-            var curveLuma = RenderEngine.FlattenCurve(state.ToneCurveLuma);
-            var curveRed = RenderEngine.FlattenCurve(state.ToneCurveRed);
-            var curveGreen = RenderEngine.FlattenCurve(state.ToneCurveGreen);
-            var curveBlue = RenderEngine.FlattenCurve(state.ToneCurveBlue);
+            // Point (#2576) and display-referred (#4740, never pinned before
+            // so imported ACR curves vanished live) knot pairs, borrowed.
+            var flat = FlatToneCurves.From(state);
             // Local adjustments (#3406): same flat f32 layer stack the CPU
             // fallback chain builds in RenderEngine.RenderTick — the GPU
             // live present path needs its own copy since the two ABIs don't
@@ -429,19 +427,17 @@ namespace Maple.WinUI.Services
                     && _pending == null && ReferenceEquals(state, _lastRendered) ? 1 : 0);
                 p.scope_layer = -1;
                 int rc;
-                fixed (float* noisePtr = image.NoiseProfile)
-                fixed (float* curvePtr = image.ProfileCurve)
-                fixed (float* residualPtr = image.ResidualLut)
-                fixed (float* tcLuma = curveLuma)
-                fixed (float* tcRed = curveRed)
-                fixed (float* tcGreen = curveGreen)
-                fixed (float* tcBlue = curveBlue)
-                fixed (float* localPtr = localFlat)
-                fixed (float* filmPtr = _activeFilm?.Data)
-                fixed (MapleGpuLiveSession* fullHandle = &_gpuSession)
-                fixed (MapleGpuLiveSession* halfHandle = &_gpuSessionHalf)
+                fixed (float* noisePtr = image.NoiseProfile, curvePtr = image.ProfileCurve, residualPtr = image.ResidualLut)
+                fixed (float* tcLuma = flat.Luma, tcRed = flat.Red, tcGreen = flat.Green, tcBlue = flat.Blue)
+                fixed (float* dcLuma = flat.DisplayLuma, dcRed = flat.DisplayRed, dcGreen = flat.DisplayGreen, dcBlue = flat.DisplayBlue)
+                fixed (float* ccHH = flat.ColorCurveHueVsHue, ccHS = flat.ColorCurveHueVsSat, ccHL = flat.ColorCurveHueVsLuma)
+                fixed (float* ccLS = flat.ColorCurveLumaVsSat, ccSS = flat.ColorCurveSatVsSat, ccSL = flat.ColorCurveSatVsLuma)
+                fixed (float* localPtr = localFlat, filmPtr = _activeFilm?.Data)
+                fixed (MapleGpuLiveSession* fullHandle = &_gpuSession, halfHandle = &_gpuSessionHalf)
+                fixed (MapleCaptureCreative* creativePtr = image.Creative)
                 {
                     var handle = useHalf ? halfHandle : fullHandle;
+                    p.creative_ptr = creativePtr;
                     if (_activeFilm != null)
                     {
                         p.film_lut_ptr = filmPtr;
@@ -456,13 +452,22 @@ namespace Maple.WinUI.Services
                         p.local_adjustments_len = (nuint)localFlat.Length;
                     }
                     p.tone_curve_luma_ptr = tcLuma;
-                    p.tone_curve_luma_len = (nuint)curveLuma.Length;
+                    p.tone_curve_luma_len = (nuint)flat.Luma.Length;
                     p.tone_curve_red_ptr = tcRed;
-                    p.tone_curve_red_len = (nuint)curveRed.Length;
+                    p.tone_curve_red_len = (nuint)flat.Red.Length;
                     p.tone_curve_green_ptr = tcGreen;
-                    p.tone_curve_green_len = (nuint)curveGreen.Length;
+                    p.tone_curve_green_len = (nuint)flat.Green.Length;
                     p.tone_curve_blue_ptr = tcBlue;
-                    p.tone_curve_blue_len = (nuint)curveBlue.Length;
+                    p.tone_curve_blue_len = (nuint)flat.Blue.Length;
+                    p.display_tone_curve_luma_ptr = dcLuma;
+                    p.display_tone_curve_luma_len = (nuint)flat.DisplayLuma.Length;
+                    p.display_tone_curve_red_ptr = dcRed;
+                    p.display_tone_curve_red_len = (nuint)flat.DisplayRed.Length;
+                    p.display_tone_curve_green_ptr = dcGreen;
+                    p.display_tone_curve_green_len = (nuint)flat.DisplayGreen.Length;
+                    p.display_tone_curve_blue_ptr = dcBlue;
+                    p.display_tone_curve_blue_len = (nuint)flat.DisplayBlue.Length;
+                    flat.BindColorCurves(ref p, ccHH, ccHS, ccHL, ccLS, ccSS, ccSL);
                     if (image.NoiseProfile.Length > 0)
                     {
                         p.noise_profile_ptr = noisePtr;

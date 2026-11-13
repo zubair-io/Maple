@@ -1,6 +1,6 @@
 /**
  * missing-reaper tests — orphan (content-replaced) reaping, stage parking, and
- * the start/pause/resume control surface. Split from `missing-reaper.test.ts` to
+ * the registration/pause/resume control surface and the scheduled pass. Split from `missing-reaper.test.ts` to
  * keep that file under the size budget; the reap pass itself (recover/prune/
  * delete, guards, pagination) stays there.
  *
@@ -15,7 +15,12 @@ import type { Database } from 'bun:sqlite';
 import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { runMissingReaperOnce, startMissingReaper, MISSING_REAPER_NAME } from './missing-reaper.ts';
+import {
+  runMissingReaperOnce,
+  runMissingReaperPass,
+  registerMissingReaper,
+  MISSING_REAPER_NAME,
+} from './missing-reaper.ts';
 import { stageRegistry } from './registry.ts';
 import { claimStageBatch } from '../db/repos/stage-claim.ts';
 import { insertStageState } from '../db/repos/assets.test-helpers.ts';
@@ -174,16 +179,16 @@ describe('stage parking', () => {
   });
 });
 
-describe('startMissingReaper', () => {
+describe('registerMissingReaper', () => {
   it('registers a controllable worker whose pause/resume flip live state', async () => {
     // The binding exists for the `using` disposal: the worker reads and writes
-    // its persisted pause state on boot and on every pause/resume, and with no
-    // database installed those calls would take the swallowed-failure path
-    // instead of the one under test.
+    // its persisted pause state on registration and on every pause/resume, and
+    // with no database installed those calls would take the swallowed-failure
+    // path instead of the one under test.
     using live = await createLiveTestDatabase();
     void live;
-    const handle = startMissingReaper({ intervalMs: 3_600_000 }); // long interval — no tick fires
-    await handle.ready.catch(() => undefined);
+    const handle = registerMissingReaper();
+    await handle.ready;
     try {
       expect(stageRegistry.statuses()[MISSING_REAPER_NAME]).toBeDefined();
       await stageRegistry.pause(MISSING_REAPER_NAME);
@@ -196,32 +201,88 @@ describe('startMissingReaper', () => {
     expect(stageRegistry.statuses()[MISSING_REAPER_NAME]).toBeUndefined();
   });
 
-  it('persists pause across restarts (worker_config), running by default', async () => {
+  it('with no stored row reports paused, and a resume persists across restarts', async () => {
     using live = await createLiveTestDatabase();
     expect(storedPaused(live.db, MISSING_REAPER_NAME)).toBeUndefined();
 
-    // First lifetime: no stored config → boots running by default. Pause it.
-    const first = startMissingReaper({ intervalMs: 3_600_000 });
+    // First lifetime: no stored config → paused, the soft-delete stays gated.
+    const first = registerMissingReaper();
     await first.ready;
-    expect(stageRegistry.statuses()[MISSING_REAPER_NAME]!.status).toBe('idle');
-    await stageRegistry.pause(MISSING_REAPER_NAME);
-    await new Promise((resolve) => setTimeout(resolve, 100)); // let the persist flush
-    expect(storedPaused(live.db, MISSING_REAPER_NAME)).toBe(true);
-    first.stop();
-
-    // Second lifetime: adopts the stored paused state.
-    const second = startMissingReaper({ intervalMs: 3_600_000 });
-    await second.ready;
     expect(stageRegistry.statuses()[MISSING_REAPER_NAME]!.status).toBe('paused');
     await stageRegistry.resume(MISSING_REAPER_NAME);
-    await new Promise((resolve) => setTimeout(resolve, 100));
     expect(storedPaused(live.db, MISSING_REAPER_NAME)).toBe(false);
+    first.stop();
+
+    // Second lifetime: adopts the stored resume. Pause it.
+    const second = registerMissingReaper();
+    await second.ready;
+    expect(stageRegistry.statuses()[MISSING_REAPER_NAME]!.status).toBe('idle');
+    await stageRegistry.pause(MISSING_REAPER_NAME);
+    expect(storedPaused(live.db, MISSING_REAPER_NAME)).toBe(true);
     second.stop();
 
-    // Third lifetime: the resume persisted → boots running again.
-    const third = startMissingReaper({ intervalMs: 3_600_000 });
+    // Third lifetime: the pause persisted.
+    const third = registerMissingReaper();
     await third.ready;
-    expect(stageRegistry.statuses()[MISSING_REAPER_NAME]!.status).toBe('idle');
+    expect(stageRegistry.statuses()[MISSING_REAPER_NAME]!.status).toBe('paused');
     third.stop();
+  });
+
+  it('shows a pause written by another process the next time its status is read', async () => {
+    using live = await createLiveTestDatabase();
+    const handle = registerMissingReaper();
+    await handle.ready;
+    try {
+      run(live.db, `INSERT INTO worker_config (name, paused) VALUES (?, 1)`, MISSING_REAPER_NAME);
+      const deadline = Date.now() + 5_000;
+      while (
+        stageRegistry.statuses()[MISSING_REAPER_NAME]!.status !== 'paused' &&
+        Date.now() < deadline
+      ) {
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+      expect(stageRegistry.statuses()[MISSING_REAPER_NAME]!.status).toBe('paused');
+    } finally {
+      handle.stop();
+    }
+  });
+});
+
+describe('runMissingReaperPass', () => {
+  it('reaps an aged missing asset once an owner has resumed the reaper', async () => {
+    using live = await createLiveTestDatabase();
+    run(live.db, `INSERT INTO worker_config (name, paused) VALUES (?, 0)`, MISSING_REAPER_NAME);
+    const libraryId = seedLibrary(live.db, { 'other.jpg': 'x' });
+    const assetId = seedAsset(live.db, libraryId, [{ filename: 'gone.jpg', missing: AGED }]);
+
+    await runMissingReaperPass();
+
+    expect(assetRow(live.db, assetId).reason).toBe('reaped');
+  });
+
+  it('reaps nothing on an install that has never stored a pause state for it', async () => {
+    using live = await createLiveTestDatabase();
+    const libraryId = seedLibrary(live.db, { 'other.jpg': 'x' });
+    const assetId = seedAsset(live.db, libraryId, [{ filename: 'gone.jpg', missing: AGED }]);
+
+    await runMissingReaperPass();
+
+    expect(assetRow(live.db, assetId).deleted_at).toBeNull();
+  });
+
+  it('while paused still recovers a re-found file but reaps nothing', async () => {
+    using live = await createLiveTestDatabase();
+    run(live.db, `INSERT INTO worker_config (name, paused) VALUES (?, 1)`, MISSING_REAPER_NAME);
+    const libraryId = seedLibrary(live.db, { 'back.jpg': 'x' });
+    const gone = seedAsset(live.db, libraryId, [{ filename: 'gone.jpg', missing: AGED }]);
+    const back = seedAsset(live.db, libraryId, [{ filename: 'back.jpg', missing: AGED }]);
+
+    await runMissingReaperPass();
+
+    expect(assetRow(live.db, gone).deleted_at).toBeNull();
+    const missing = live.db
+      .query(`SELECT missing_since FROM asset_locations WHERE asset_id = ?`)
+      .get(back) as { missing_since: string | null };
+    expect(missing.missing_since).toBeNull();
   });
 });

@@ -13,13 +13,16 @@ use crate::image::GpuImage;
 use crate::local_adjustments::local_adjustments_need_spatial;
 use raw_core::types::{layers_to_flat, LocalAdjustment, Mask, PartialAdjustments, Point2};
 
-/// A 48×40 buffer with real spatial structure: a bright/dark checker at two
+/// A 192×160 buffer with real spatial structure: a bright/dark checker at two
 /// scales plus a saturated fringe column, so the guided filters, the unsharp
 /// mask, the NLM search window and the defringe edge detector all have
 /// something to bite on. The spatial kernels are neighbourhood reads, so a
-/// flat field would make every one of them vacuous.
+/// flat field would make every one of them vacuous. Large enough that the
+/// dehaze map's 2048-texel proxy grid (#3287) does not blow single pixels up
+/// into flat 40-texel blocks, where the guided filter's `cov / eps` is
+/// ill-conditioned in f32 on both sides.
 fn structured_buffer() -> (Vec<f32>, u32, u32) {
-    let (w, h) = (48u32, 40u32);
+    let (w, h) = (192u32, 160u32);
     let mut v = Vec::with_capacity((w * h * 4) as usize);
     for y in 0..h {
         for x in 0..w {

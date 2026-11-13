@@ -26,6 +26,12 @@ use rayon::prelude::*;
 /// strength.
 pub(super) const FALSE_COLOUR_SUPPRESS_STRENGTH: f32 = 5.0;
 
+/// A collapsed chroma estimate is only safe when its four contributing
+/// samples have nearly the same channel-to-green ratio. The fallback limiter
+/// uses the same tolerance to check the centre against its sampled-colour
+/// neighbourhood. A wider disagreement can mean a real colour edge.
+const MAX_COLLAPSED_RATIO_SPREAD: f32 = 0.15;
+
 /// `green` is the final reconstructed green plane; `cfa_flat` the flattened
 /// mosaic (raw sensor sample per site). Operates in place on the
 /// camera-native RGB.
@@ -39,6 +45,13 @@ pub(super) fn suppress_false_colour(
     strength: f32,
 ) {
     if strength <= 0.0 || w < 9 || h < 9 {
+        out.pixels
+            .par_iter_mut()
+            .enumerate()
+            .for_each(|(i, pixel)| {
+                let (x, y) = (i % w, i / w);
+                clamp_signed_opposite_chroma(pixel, pattern.color_at(x as u32, y as u32) as usize);
+            });
         return;
     }
     const EPS: f32 = 1e-6;
@@ -49,10 +62,11 @@ pub(super) fn suppress_false_colour(
     // colour samples are used (the immediate Bayer neighbours of that
     // colour), so a sharp 1-px colour edge is preserved rather than averaged
     // away.
-    let value_estimate = |x: usize, y: usize, t: usize| -> f32 {
+    let value_estimate = |x: usize, y: usize, t: usize| -> (f32, f32) {
         // Pass 1: distance-1 cardinal same-colour neighbours.
         let mut sum = 0.0_f32;
         let mut cnt = 0.0_f32;
+        let mut minimum = f32::INFINITY;
         for (dx, dy) in [(-1_isize, 0_isize), (1, 0), (0, -1), (0, 1)] {
             let nx = x as isize + dx;
             let ny = y as isize + dy;
@@ -61,12 +75,14 @@ pub(super) fn suppress_false_colour(
             }
             let (nxu, nyu) = (nx as usize, ny as usize);
             if color_at(nxu, nyu) == t {
-                sum += cfa_flat[nyu * w + nxu];
+                let sample = cfa_flat[nyu * w + nxu];
+                sum += sample;
+                minimum = minimum.min(sample);
                 cnt += 1.0;
             }
         }
         if cnt > 0.0 {
-            return sum / cnt;
+            return (sum / cnt, minimum);
         }
         // Pass 2: distance-√2 diagonal same-colour neighbours (used when the
         // target colour is not a cardinal neighbour of this site, e.g. the
@@ -79,14 +95,16 @@ pub(super) fn suppress_false_colour(
             }
             let (nxu, nyu) = (nx as usize, ny as usize);
             if color_at(nxu, nyu) == t {
-                sum += cfa_flat[nyu * w + nxu];
+                let sample = cfa_flat[nyu * w + nxu];
+                sum += sample;
+                minimum = minimum.min(sample);
                 cnt += 1.0;
             }
         }
         if cnt > 0.0 {
-            sum / cnt
+            (sum / cnt, minimum)
         } else {
-            0.0
+            (0.0, 0.0)
         }
     };
 
@@ -108,6 +126,120 @@ pub(super) fn suppress_false_colour(
         ((gc - mean).abs() / mag).min(1.0)
     };
 
+    // At R/B sites green itself is reconstructed. A green extrapolation
+    // outside both nearest measured-green directional means cannot certify
+    // which positive chroma estimate is wrong. Preserve positive kernel
+    // estimates within the measured target envelope; a lost feature below
+    // every nearest target sample may still use the measured-value estimate.
+    let green_supported = |x: usize, y: usize| -> bool {
+        if color_at(x, y) == 1 {
+            return true;
+        }
+        let i = y * w + x;
+        let horizontal = 0.5 * (green[i - 1] + green[i + 1]);
+        let vertical = 0.5 * (green[i - w] + green[i + w]);
+        let low = horizontal.min(vertical);
+        let high = horizontal.max(vertical);
+        let tolerance = EPS * (green[i].abs() + low.abs() + high.abs() + EPS);
+        green[i] >= low - tolerance && green[i] <= high + tolerance
+    };
+
+    // A negative opposite chroma at an R/B site means AMaZE's directional
+    // kernel extrapolated the colour difference past green at a luminance
+    // edge, so the hue path carries no estimate there. The four diagonal
+    // samples used by the estimate must agree closely in their channel-to-
+    // green ratios. A broader neighborhood average can accept distinct
+    // surfaces across a real colour edge and import one side's hue into the
+    // other (#4123).
+    let collapsed_estimate = |x: usize, y: usize, t: usize| -> Option<f32> {
+        let centre_index = y * w + x;
+        let centre = green[centre_index];
+        if centre <= 0.0 {
+            return None;
+        }
+
+        // The diagonal target samples must belong to the centre surface, not
+        // just agree with one another. An isolated R/B sample can sit inside
+        // a flat background whose four opposite-colour diagonals all report
+        // the same ratio; transporting that ratio would paint background hue
+        // into the centre even though AMaZE's zero-clamped fallback is safer.
+        // Check that the centre's sampled colour agrees with its nearest
+        // same-colour cardinal neighbours before trusting the opposite plane.
+        let sampled_colour = color_at(x, y);
+        let centre_ratio = cfa_flat[centre_index] / centre;
+        let mut min_surface_ratio = centre_ratio;
+        let mut max_surface_ratio = centre_ratio;
+        let mut surface_ratio_sum = centre_ratio;
+        let mut surface_ratio_count = 1usize;
+        // Check the full 3x3 neighborhood on the sampled channel's Bayer
+        // lattice. The diagonal sites catch a plus-shaped feature whose
+        // cardinal support alone looks uniform, while every comparison stays
+        // within this one color channel.
+        for dy in [-2_isize, 0, 2] {
+            for dx in [-2_isize, 0, 2] {
+                if dx == 0 && dy == 0 {
+                    continue;
+                }
+                let nx = (x as isize + dx) as usize;
+                let ny = (y as isize + dy) as usize;
+                if color_at(nx, ny) != sampled_colour {
+                    continue;
+                }
+                let neighbour_index = ny * w + nx;
+                let (sample, guide) = (cfa_flat[neighbour_index], green[neighbour_index]);
+                if sample < 0.0 || guide <= 0.0 {
+                    return None;
+                }
+                let ratio = sample / guide;
+                min_surface_ratio = min_surface_ratio.min(ratio);
+                max_surface_ratio = max_surface_ratio.max(ratio);
+                surface_ratio_sum += ratio;
+                surface_ratio_count += 1;
+            }
+        }
+        let mean_surface_ratio = surface_ratio_sum / surface_ratio_count as f32;
+        if mean_surface_ratio <= 0.0
+            || (max_surface_ratio - min_surface_ratio) / mean_surface_ratio
+                > MAX_COLLAPSED_RATIO_SPREAD
+        {
+            return None;
+        }
+
+        let mut min_ratio = f32::INFINITY;
+        let mut max_ratio = f32::NEG_INFINITY;
+        let mut ratio_sum = 0.0_f32;
+        let (mut colour, mut guide, mut n) = (0.0_f32, 0.0_f32, 0usize);
+        for (dx, dy) in [(-1_isize, -1_isize), (1, -1), (-1, 1), (1, 1)] {
+            let (nx, ny) = ((x as isize + dx) as usize, (y as isize + dy) as usize);
+            if color_at(nx, ny) != t {
+                continue;
+            }
+            let (sample, g) = (cfa_flat[ny * w + nx], green[ny * w + nx]);
+            if sample < 0.0 || g <= 0.0 {
+                return None;
+            }
+            let ratio = sample / g;
+            min_ratio = min_ratio.min(ratio);
+            max_ratio = max_ratio.max(ratio);
+            ratio_sum += ratio;
+            colour += sample;
+            guide += g;
+            n += 1;
+        }
+        if n == 0 {
+            return None;
+        }
+        let mean_ratio = ratio_sum / n as f32;
+        // The center and target are different CFA colors: their absolute
+        // channel-to-green ratios encode hue and can differ widely on the
+        // same physical surface. Validate each color's local support within
+        // its own plane; never compare those unlike ratios directly.
+        if mean_ratio <= 0.0 || (max_ratio - min_ratio) / mean_ratio > MAX_COLLAPSED_RATIO_SPREAD {
+            return None;
+        }
+        Some(centre * colour / guide)
+    };
+
     // Reads only touch the immutable `green`/`cfa_flat` planes, so the
     // in-place write to each output pixel is independent of every other.
     out.pixels
@@ -115,14 +247,13 @@ pub(super) fn suppress_false_colour(
         .enumerate()
         .for_each(|(y, row)| {
             for x in 0..w {
-                if x < 3 || y < 3 || x + 3 >= w || y + 3 >= h {
-                    continue;
-                }
                 let c = color_at(x, y);
-                let ghf = green_hf(x, y);
-                if ghf <= 0.0 {
+                if x < 3 || y < 3 || x + 3 >= w || y + 3 >= h {
+                    clamp_signed_opposite_chroma(&mut row[x], c);
                     continue;
                 }
+                let ghf = green_hf(x, y);
+                let guide_supported = green_supported(x, y);
                 let mut px = row[x];
                 for t in 0..3usize {
                     // Only reconstructed channels; the sampled channel and
@@ -130,8 +261,26 @@ pub(super) fn suppress_false_colour(
                     if t == c || t == 1 {
                         continue;
                     }
-                    let c_hue = px[t];
-                    let c_val = value_estimate(x, y, t);
+                    if px[t] < 0.0 {
+                        if let Some(estimate) = collapsed_estimate(x, y, t) {
+                            px[t] = estimate;
+                            continue;
+                        }
+                    }
+                    let c_hue = px[t].max(0.0);
+                    if ghf <= 0.0 {
+                        px[t] = c_hue;
+                        continue;
+                    }
+                    let (c_val, measured_floor) = value_estimate(x, y, t);
+                    // Without reliable green, preserve a positive kernel
+                    // estimate that lies within the measured-value envelope.
+                    // Below every nearest target sample, retain the value
+                    // correction that restores a lost thin chroma feature.
+                    if px[t] > 0.0 && c_hue >= measured_floor && !guide_supported {
+                        px[t] = c_hue;
+                        continue;
+                    }
                     // Disagreement between the two estimates, normalised by
                     // the local channel magnitude.
                     let mag = c_hue.abs() + c_val.abs() + EPS;
@@ -140,9 +289,73 @@ pub(super) fn suppress_false_colour(
                     // estimate-disagreement term, both in [0,1]. Zero unless
                     // BOTH fire.
                     let alpha = (strength * ghf * disagree).clamp(0.0, 1.0);
-                    px[t] = ((1.0 - alpha) * c_hue + alpha * c_val).max(0.0);
+                    let blended = ((1.0 - alpha) * c_hue + alpha * c_val).max(0.0);
+                    px[t] = if px[t] < 0.0 {
+                        supported_chroma_ceiling(x, y, w, cfa_flat, green)
+                            .map_or(blended, |ceiling| blended.min(ceiling))
+                    } else {
+                        blended
+                    };
                 }
                 row[x] = px;
             }
         });
+}
+
+/// A rejected constant-hue fit does not justify importing the bright side's
+/// absolute sensor value into a dark centre. Bound only that fallback's
+/// overshoot by the largest measured target/green ratio, without selecting
+/// one hue or raising a collapsed channel away from zero.
+///
+/// The centre's sampled ratio must agree with the same-colour diagonal
+/// neighbourhood and lie strictly inside its range. A centre at an endpoint
+/// may be a distinct colour plateau rather than an interpolated surface.
+/// This rejects colour edges, isolated pixels and plus-shaped features, while allowing local variation
+/// that prevents a constant-hue fit across the entire neighbourhood.
+fn supported_chroma_ceiling(
+    x: usize,
+    y: usize,
+    w: usize,
+    cfa: &[f32],
+    green: &[f32],
+) -> Option<f32> {
+    let i = y * w + x;
+    if green[i] <= 0.0 || cfa[i] < 0.0 {
+        return None;
+    }
+    let centre_ratio = cfa[i] / green[i];
+    let mut min_surface = f32::INFINITY;
+    let mut max_surface = f32::NEG_INFINITY;
+    let mut surface_sum = 0.0_f32;
+    let mut max_target = 0.0_f32;
+    for (dx, dy) in [(-1_isize, -1_isize), (1, -1), (-1, 1), (1, 1)] {
+        let offset = dy * w as isize + dx;
+        let surface = (i as isize + 2 * offset) as usize;
+        let target = (i as isize + offset) as usize;
+        if green[surface] <= 0.0 || green[target] <= 0.0 || cfa[surface] < 0.0 || cfa[target] < 0.0
+        {
+            return None;
+        }
+        let ratio = cfa[surface] / green[surface];
+        min_surface = min_surface.min(ratio);
+        max_surface = max_surface.max(ratio);
+        surface_sum += ratio;
+        max_target = max_target.max(cfa[target] / green[target]);
+    }
+    let mean_surface = surface_sum * 0.25;
+    let ratio_roundoff = f32::EPSILON * max_surface;
+    (min_surface + ratio_roundoff < centre_ratio
+        && centre_ratio < max_surface - ratio_roundoff
+        && mean_surface > 0.0
+        && (centre_ratio - mean_surface).abs() / mean_surface <= MAX_COLLAPSED_RATIO_SPREAD)
+        .then_some(green[i] * max_target)
+}
+
+fn clamp_signed_opposite_chroma(pixel: &mut [f32; 3], sampled_color: usize) {
+    let opposite_color = match sampled_color {
+        0 => 2,
+        2 => 0,
+        _ => return,
+    };
+    pixel[opposite_color] = pixel[opposite_color].max(0.0);
 }

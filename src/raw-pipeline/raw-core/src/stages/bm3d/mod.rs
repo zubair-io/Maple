@@ -42,7 +42,7 @@
 //!   [`pipeline`] — uniform fields become **bit-exact identity**, which
 //!   is the synthetic-grey gate.
 //! - σ maps from the single strength parameter, anchored to the image's
-//!   median luma so the response is invariant to the per-camera post-DCP
+//!   median luma so the response is invariant to the per-camera capture
 //!   scale (the stage runs before auto-exposure): `σ_Y = K · (s/100) ·
 //!   (median_Y + pedestal)`.
 //! - Patch matching uses mean-relative SSD (gradient-robust, consistent
@@ -60,8 +60,9 @@
 //! `strength < 1e-3` (the shipped default 0) skips the stage entirely.
 //! Never runs on the tile path (the reference grid is anchored at the
 //! buffer origin, so tile-relative grids would seam) — the tile FFI
-//! entries reject `deepDenoise > 0` exactly like dehaze.
+//! entries reject `deepDenoise > 0`.
 
+mod exact;
 mod matching;
 mod pipeline;
 mod transforms;
@@ -77,33 +78,9 @@ use crate::cancel::CancelToken;
 use crate::image::{ColorSpace, Image};
 use pipeline::{run_pass, PassKind};
 
-/// Patch edge length.
-pub(crate) const BLOCK: usize = 8;
-/// Reference-patch grid stride.
-pub(crate) const STRIDE: usize = 6;
-/// Half-extent of the (19×19) block-matching search window.
-pub(crate) const SEARCH_HALF: usize = 9;
-/// Maximum group size (power of two for the group-axis WHT).
-pub(crate) const GROUP_MAX: usize = 16;
-/// Hard-threshold multiplier on σ (pass 1).
-pub(crate) const LAMBDA_HT: f32 = 2.7;
-/// Match ceiling: mean-relative per-pixel SSD ≤ `T_MATCH_SQ · σ_Y²`.
-/// 2.5² — two flat patches under iid noise differ by ~2σ² per pixel, so
-/// this keeps genuinely similar content while rejecting structure.
-const T_MATCH_SQ: f32 = 6.25;
-/// Strength→σ slope: at strength 100, σ_Y = 20 % of the median-luma
-/// anchor. Initial calibration value (the stage ships default-off; the
-/// engaged response is gated by the identity/monotonicity tests and the
-/// slider-matrix harness when cases are added).
-const SIGMA_K: f32 = 0.2;
-/// Chroma σ multiplier (spec § 3.2: ≈1.8× luma).
-const CHROMA_SIGMA_RATIO: f32 = 1.8;
-/// Anchor pedestal so a near-black frame still gets a non-zero σ.
-const ANCHOR_PEDESTAL: f32 = 1e-3;
-/// High-frequency re-injection gain at strength 100.
-const HF_K: f32 = 0.15;
-/// Rec.2020 luma weights (same constants as the sibling stages).
-const LUMA_REC2020: [f32; 3] = [0.2627, 0.6780, 0.0593];
+#[path = "parameters.rs"]
+mod parameters;
+use parameters::*;
 
 /// Progress sink: `(pass_name, fraction_done)` where `fraction_done` is
 /// the fraction of THAT pass's reference rows completed. Two passes run
@@ -207,7 +184,7 @@ pub fn apply_cancellable(
     let y: Vec<f32> = img
         .pixels
         .par_iter()
-        .map(|p| LUMA_REC2020[0] * p[0] + LUMA_REC2020[1] * p[1] + LUMA_REC2020[2] * p[2])
+        .map(|p| exact::luminance(*p))
         .collect();
     let c1: Vec<f32> = img
         .pixels
@@ -225,7 +202,9 @@ pub fn apply_cancellable(
     // Median-luma anchor on a subsampled grid — deterministic, robust.
     let mut sample: Vec<f32> = y.iter().step_by(8).copied().collect();
     sample.sort_unstable_by(|a, b| a.total_cmp(b));
-    let anchor = sample[sample.len() / 2] + ANCHOR_PEDESTAL;
+    // Floored at zero: on the signed capture-first basis (#5213) a dark
+    // frame's median luma can be negative, which would flip sigma's sign.
+    let anchor = sample[sample.len() / 2].max(0.0) + ANCHOR_PEDESTAL;
 
     let sigma_y = SIGMA_K * s * anchor;
     let sigmas = [
@@ -305,7 +284,7 @@ pub fn apply_cancellable(
 /// neighbors equal the center). 5-tap σ≈1.5 kernel.
 fn highpass_luma_delta(y: &[f32], w: usize, h: usize) -> Vec<f32> {
     // exp(-d²/(2·1.5²)) for d = 0..2.
-    const KW: [f32; 3] = [1.0, 0.800_737_4, 0.411_112_3];
+    const KW: [f32; 3] = HIGH_PASS_KERNEL;
 
     // Horizontal pass.
     let mut tmp = vec![0f32; w * h];

@@ -55,11 +55,16 @@ final class MapleThumbCacheKeyTests: XCTestCase {
     XCTAssertEqual(a, b)
   }
 
-  func testSharedAndHTTPVersionsComeFromTheSamePipeline() {
-    XCTAssertEqual(MaplePipelineVersion.value, AdjustmentModel.pipelineOutputVersion)
+  func testThumbFilenameIsTheUnhashedUnversionedFilename() {
     XCTAssertEqual(
       MapleThumbCacheKey.thumbFilename(forRawBasename: "panorama-test.png"),
-      "88bab9b0d022c93c.v\(AdjustmentModel.pipelineOutputVersion).avif")
+      "panorama-test.png.avif")
+  }
+
+  func testLegacyThumbFilenameIsTheFrozenHashedV25Name() {
+    XCTAssertEqual(
+      MapleThumbCacheKey.legacyThumbFilename(forRawBasename: "panorama-test.png"),
+      "88bab9b0d022c93c.v25.avif")
   }
 
   // MARK: - On-share render contract (#2690)

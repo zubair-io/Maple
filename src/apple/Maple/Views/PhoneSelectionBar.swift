@@ -7,6 +7,7 @@
   /// the selection so it survives a size-class change and a tab re-layout.
   struct PhoneSelectionBar: View {
     let vm: BrowseViewModel
+    let displayedAssets: [AssetRef]
     let onMergePanorama: (() -> Void)?
     let onEditMetadata: (() -> Void)?
     let onBatchRename: (() -> Void)?
@@ -24,13 +25,16 @@
     @State private var showingTrashConfirmation = false
     @State private var pendingTrashIDs: [AssetRef.ID] = []
 
-    private var selectedAssets: [AssetRef] { vm.selectedAssets }
+    private var selectedAssets: [AssetRef] { vm.selectedAssets(in: displayedAssets) }
 
     private var hasSelection: Bool { !selectedAssets.isEmpty }
 
-    /// Batch metadata's current writer only writes local XMP sidecars.
+    /// Batch metadata writes file sidecars and local PhotoKit sidecars.
     private var canEditMetadata: Bool {
-      hasSelection && selectedAssets.allSatisfy { $0.primaryURL != nil }
+      hasSelection
+        && selectedAssets.allSatisfy {
+          $0.primaryURL != nil || ($0.thumbnailProvenance == .photoKit && $0.stableID != nil)
+        }
     }
 
     private var canRenameOrMove: Bool {
@@ -56,18 +60,18 @@
 
     private var hasSyncSourceAndTarget: Bool {
       guard let sourceID = vm.selectedID,
-        vm.selectedAsset?.adjustmentTransferTarget != nil
+        displayedAssets.first(where: { $0.id == sourceID })?.adjustmentTransferTarget != nil
       else { return false }
-      return vm.selectedIDs.contains { $0 != sourceID }
+      return selectedAssets.contains { $0.id != sourceID }
     }
 
     private var allSelected: Bool {
-      !vm.assets.isEmpty && vm.assets.allSatisfy { vm.selectedIDs.contains($0.id) }
+      !displayedAssets.isEmpty && displayedAssets.allSatisfy { vm.selectedIDs.contains($0.id) }
     }
 
     private var selectAllState: MuiCheckboxState {
       if allSelected { return .checked }
-      return vm.selectedIDs.isEmpty ? .unchecked : .indeterminate
+      return selectedAssets.isEmpty ? .unchecked : .indeterminate
     }
 
     private var canTrash: Bool {
@@ -80,12 +84,12 @@
           MuiCheckbox(
             state: selectAllState,
             label: allSelected ? "Deselect All" : "Select All",
-            disabled: vm.assets.isEmpty
+            disabled: displayedAssets.isEmpty
           ) {
             if allSelected {
               vm.clearSelection()
             } else {
-              vm.selectedIDs = Set(vm.assets.map(\.id))
+              vm.selectedIDs = Set(displayedAssets.map(\.id))
             }
           }
           .padding(.horizontal, 12)
@@ -93,7 +97,7 @@
           .accessibilityLabel(allSelected ? "Deselect all photos" : "Select all photos")
           .accessibilityIdentifier("phone-select-all")
 
-          Text("\(vm.selectedIDs.count) selected")
+          Text("\(selectedAssets.count) selected")
             .font(.subheadline)
             .frame(minHeight: 44)
             .padding(.horizontal, 12)
@@ -152,9 +156,9 @@
               Button("Paste Settings…", systemImage: "doc.on.clipboard", action: onPasteSettings)
                 .disabled(!canTransferSettings || !canPasteSettings)
             }
-            if FeatureFlags.isPanoramaEnabled, let onMergePanorama {
+            if let onMergePanorama {
               Button("Merge to Panorama…", systemImage: "photo.stack", action: onMergePanorama)
-                .disabled(!vm.canMergePanorama || !canExport)
+                .disabled(selectedAssets.count < 2 || !canExport)
             }
             if onTrashAssets != nil {
               Button("Move to Trash", systemImage: "trash", role: .destructive) {
@@ -180,7 +184,9 @@
         titleVisibility: .visible
       ) {
         Button("Move to Trash", role: .destructive) {
-          onTrashAssets?(pendingTrashIDs)
+          let visible = Set(selectedAssets.map(\.id))
+          let targets = pendingTrashIDs.filter { visible.contains($0) }
+          if !targets.isEmpty { onTrashAssets?(targets) }
           pendingTrashIDs = []
         }
       }

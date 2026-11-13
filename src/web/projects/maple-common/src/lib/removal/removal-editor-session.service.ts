@@ -14,6 +14,7 @@ import { LibraryStateService } from '../state/library-state.service';
 import { FolderAccessService } from '../folder-access/folder-access.service';
 import { RawPipelineService } from '../raw-pipeline/raw-pipeline.service';
 import { XmpStoreService } from '../xmp/xmp-store.service';
+import { XmpRemovalWritesService } from '../xmp/xmp-store.writes';
 import { XmpSerializerService } from '../xmp/xmp-serializer.service';
 import { ImageCanvasService } from '../components/image-canvas/image-canvas.service';
 import { isNonRawExtension } from '../state/raw-extensions';
@@ -382,7 +383,7 @@ export class RemovalEditorSession {
       const storage = await removalEditorStorage(
         this.library,
         this.files,
-        this.sidecars,
+        this.injector.get(XmpRemovalWritesService),
         this.injector,
         asset,
         xml,

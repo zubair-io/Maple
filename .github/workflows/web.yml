@@ -9,6 +9,8 @@
 name: web
 
 on:
+  merge_group:
+    types: [checks_requested]
   push:
     branches: [main]
   pull_request:
@@ -25,9 +27,9 @@ jobs:
     needs: changes
     if: needs.changes.outputs.web == 'true'
     name: build-wasm (shared pkg)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7.0.1
 
       # Pinned to match raw-wasm/rust-toolchain.toml. rustup would resolve
       # the toolchain file automatically when wasm-pack runs from raw-wasm/,
@@ -48,7 +50,7 @@ jobs:
       # `-Z build-std` rebuilds the standard library, which is slow uncached.
       # Mirror raw-pipeline.yml's cache step.
       - name: Cache cargo registry + raw-pipeline target
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/registry
@@ -62,7 +64,7 @@ jobs:
       # Upload the unpatched compiler output. Each consumer runs the canonical
       # sync script, including its guarded wasm-bindgen-rayon worker patch.
       - name: Upload raw-wasm package
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: web-raw-wasm
           path: src/raw-pipeline/raw-wasm/pkg/
@@ -73,9 +75,9 @@ jobs:
     name: web-build (ng build maple)
     needs: [changes, build-wasm]
     if: needs.changes.outputs.web == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7.0.1
 
       - uses: oven-sh/setup-bun@v2
         with:
@@ -90,7 +92,7 @@ jobs:
         run: bun run brand:check
 
       - name: Download raw-wasm package
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: web-raw-wasm
           path: src/raw-pipeline/raw-wasm/pkg/
@@ -102,6 +104,8 @@ jobs:
         run: |
           test -s src/raw-pipeline/raw-wasm/pkg/raw_wasm_bg.wasm
           test -s src/raw-pipeline/raw-wasm/pkg/raw_wasm.js
+          test -s src/raw-pipeline/raw-wasm/pkg/canvas/raw_wasm_canvas_bg.wasm
+          test -s src/raw-pipeline/raw-wasm/pkg/canvas/raw_wasm_canvas.js
           touch src/raw-pipeline/raw-wasm/pkg/.build-stamp
           bash src/web/scripts/sync-raw-wasm.sh
 
@@ -162,7 +166,7 @@ jobs:
       # errors to diagnose instead of "re-run and hope it passes".
       - name: Upload production e2e artifacts
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: production-e2e-artifacts
           path: |
@@ -175,13 +179,13 @@ jobs:
     name: web-test (ng test maple)
     needs: [changes, build-wasm]
     if: needs.changes.outputs.web == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # Single-run on CI (the @angular/build:unit-test builder is non-watch in a
     # non-interactive env). `timeout-minutes` is a backstop against any
     # accidental watch-mode hang burning the full job budget.
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7.0.1
 
       - uses: oven-sh/setup-bun@v2
         with:
@@ -192,7 +196,7 @@ jobs:
         run: bun install --frozen-lockfile
 
       - name: Download raw-wasm package
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: web-raw-wasm
           path: src/raw-pipeline/raw-wasm/pkg/
@@ -204,6 +208,8 @@ jobs:
         run: |
           test -s src/raw-pipeline/raw-wasm/pkg/raw_wasm_bg.wasm
           test -s src/raw-pipeline/raw-wasm/pkg/raw_wasm.js
+          test -s src/raw-pipeline/raw-wasm/pkg/canvas/raw_wasm_canvas_bg.wasm
+          test -s src/raw-pipeline/raw-wasm/pkg/canvas/raw_wasm_canvas.js
           touch src/raw-pipeline/raw-wasm/pkg/.build-stamp
           bash src/web/scripts/sync-raw-wasm.sh
 
@@ -217,13 +223,13 @@ jobs:
     name: web-test (ng test Maple-common)
     needs: [changes, build-wasm]
     if: needs.changes.outputs.web == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # Single-run on CI (the @angular/build:unit-test builder is non-watch in a
     # non-interactive env). `timeout-minutes` is a backstop against any
     # accidental watch-mode hang burning the full job budget.
     timeout-minutes: 25
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7.0.1
 
       - uses: oven-sh/setup-bun@v2
         with:
@@ -234,7 +240,7 @@ jobs:
         run: bun install --frozen-lockfile
 
       - name: Download raw-wasm package
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: web-raw-wasm
           path: src/raw-pipeline/raw-wasm/pkg/
@@ -246,6 +252,8 @@ jobs:
         run: |
           test -s src/raw-pipeline/raw-wasm/pkg/raw_wasm_bg.wasm
           test -s src/raw-pipeline/raw-wasm/pkg/raw_wasm.js
+          test -s src/raw-pipeline/raw-wasm/pkg/canvas/raw_wasm_canvas_bg.wasm
+          test -s src/raw-pipeline/raw-wasm/pkg/canvas/raw_wasm_canvas.js
           touch src/raw-pipeline/raw-wasm/pkg/.build-stamp
           bash src/web/scripts/sync-raw-wasm.sh
 
@@ -264,9 +272,13 @@ jobs:
         working-directory: src/web
         run: bun run e2e:batch-transfer
 
+      - name: Test eyedroppers refuse JPEG and PNG sources
+        working-directory: src/web
+        run: bun x playwright test e2e/eyedropper-non-raw.spec.ts
+
       - name: Upload batch transfer browser failure artifacts
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: batch-transfer-browser-results
           path: src/web/test-results/
@@ -303,11 +315,11 @@ jobs:
     name: web-webgpu-smoke (raw-open + slider-tick-render in headless Chrome)
     needs: [changes, build-wasm]
     if: needs.changes.outputs.web == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     continue-on-error: true
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7.0.1
 
       - name: Probe smoke RAW fixture
         id: fixture
@@ -333,7 +345,7 @@ jobs:
 
       - name: Download raw-wasm package
         if: steps.fixture.outputs.available == 'true'
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: web-raw-wasm
           path: src/raw-pipeline/raw-wasm/pkg/
@@ -346,6 +358,8 @@ jobs:
         run: |
           test -s src/raw-pipeline/raw-wasm/pkg/raw_wasm_bg.wasm
           test -s src/raw-pipeline/raw-wasm/pkg/raw_wasm.js
+          test -s src/raw-pipeline/raw-wasm/pkg/canvas/raw_wasm_canvas_bg.wasm
+          test -s src/raw-pipeline/raw-wasm/pkg/canvas/raw_wasm_canvas.js
           touch src/raw-pipeline/raw-wasm/pkg/.build-stamp
           bash src/web/scripts/sync-raw-wasm.sh
 
@@ -374,7 +388,7 @@ jobs:
       # (`trace: 'retain-on-failure'`) under test-results/, not a report dir.
       - name: Upload Playwright traces
         if: failure() && steps.fixture.outputs.available == 'true'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: web-webgpu-smoke-traces
           path: src/web/test-results/
@@ -385,10 +399,14 @@ jobs:
     name: web-workflow-acceptance (WB, Auto Tone and lens persistence)
     needs: [changes, build-wasm]
     if: needs.changes.outputs.web == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
+    env:
+      # Every fixture/worker must use the library built by this checkout,
+      # including processes launched from src/web with a copied npm package.
+      MAPLE_NATIVE_LIB: ${{ github.workspace }}/src/api/native/libraw_ffi.so
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7.0.1
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
@@ -398,8 +416,13 @@ jobs:
       - name: Install API deps
         working-directory: src/api
         run: bun install --frozen-lockfile
+      # The fixture servers start a throwaway Temporal server, whose binary is
+      # downloaded on first use; fetch it here, outside their start-up timeout.
+      - name: Fetch the Temporal test server
+        working-directory: src/api
+        run: bun scripts/prewarm-temporal.ts
       - name: Download raw-wasm package
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: web-raw-wasm
           path: src/raw-pipeline/raw-wasm/pkg/
@@ -407,11 +430,13 @@ jobs:
         run: |
           test -s src/raw-pipeline/raw-wasm/pkg/raw_wasm_bg.wasm
           test -s src/raw-pipeline/raw-wasm/pkg/raw_wasm.js
+          test -s src/raw-pipeline/raw-wasm/pkg/canvas/raw_wasm_canvas_bg.wasm
+          test -s src/raw-pipeline/raw-wasm/pkg/canvas/raw_wasm_canvas.js
           touch src/raw-pipeline/raw-wasm/pkg/.build-stamp
           bash src/web/scripts/sync-raw-wasm.sh
       - uses: dtolnay/rust-toolchain@stable
       - name: Cache native RAW build
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/registry
@@ -419,7 +444,9 @@ jobs:
             src/raw-pipeline/target
           key: web-workflow-native-${{ runner.os }}-${{ hashFiles('src/raw-pipeline/**/Cargo.lock', 'src/raw-pipeline/**/Cargo.toml') }}
       - name: Build real server workflow library
-        run: bash src/api/scripts/build-raw-ffi.sh
+        run: |
+          bash src/api/scripts/build-raw-ffi.sh
+          echo "MAPLE_NATIVE_LIB=$GITHUB_WORKSPACE/src/api/native/libraw_ffi.so" >> "$GITHUB_ENV"
       - name: Install Playwright Chrome
         working-directory: src/web
         run: bun x playwright install --with-deps chrome
@@ -504,7 +531,7 @@ jobs:
           cp "$RUNNER_TEMP/self-hosted-export-retry-results.json" test-results/export-original-retry/results.json
       - name: Upload workflow acceptance evidence
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: web-workflow-acceptance
           path: src/web/test-results/
@@ -524,9 +551,9 @@ jobs:
         web-workflow-acceptance,
       ]
     if: always()
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7.0.1
       - run: >-
           python3 tools/ci_result.py build-wasm=web web-build=web
           web-test=web web-test-common=web web-webgpu-smoke=web web-workflow-acceptance=web

@@ -51,6 +51,7 @@ fn contrasting_zones() -> ColorGradeSliders {
         highlight: [270.0, 100.0, -60.0],
         global: [0.0, 0.0, 0.0],
         balance: 0.0,
+        ..ColorGradeSliders::default()
     }
 }
 
@@ -81,6 +82,7 @@ fn zero_saturation_and_luminance_is_bit_identical() {
             highlight: [40.0, 0.0, 0.0],
             global: [310.0, 0.0, 0.0],
             balance: 60.0,
+            ..ColorGradeSliders::default()
         },
     );
     assert_eq!(img.pixels, before);
@@ -417,6 +419,9 @@ fn from_model_maps_every_slider() {
         color_grade_global_hue: 66.0,
         color_grade_global_saturation: 77.0,
         color_grade_global_luminance: -88.0,
+        color_grade_blending: 35.0,
+        color_grade_shadow_edge: 0.28,
+        color_grade_highlight_edge: 0.76,
         ..AdjustmentModel::default()
     };
     let s = ColorGradeSliders::from_model(&m);
@@ -425,4 +430,60 @@ fn from_model_maps_every_slider() {
     assert_eq!(s.highlight, [56.0, 78.0, 55.0]);
     assert_eq!(s.global, [66.0, 77.0, -88.0]);
     assert_eq!(s.balance, -25.0);
+    assert_eq!(s.blending, 35.0);
+    assert_eq!(s.shadow_edge, 0.28);
+    assert_eq!(s.highlight_edge, 0.76);
+}
+
+/// Default zone edges (and 2-decimal rounded `0.56`) reproduce pre-#5040
+/// `zone_weights` bit-for-bit across all lightness values (#5040 / #5007).
+#[test]
+fn default_zone_edges_and_rounded_wire_value_are_bit_identical_to_legacy() {
+    let edges_exact = zone_edges(100.0, MIDTONE_ANCHOR_L, MIDTONE_ANCHOR_L);
+    let edges_rounded = zone_edges(100.0, 0.56, 0.56);
+    let edges_zero_init = zone_edges(0.0, 0.0, 0.0);
+    assert_eq!(edges_exact, [0.0, MIDTONE_ANCHOR_L, MIDTONE_ANCHOR_L, 1.0]);
+    assert_eq!(edges_rounded, edges_exact);
+    assert_eq!(edges_zero_init, edges_exact);
+
+    for i in 0..=1000 {
+        let l = i as f32 / 1000.0;
+        let w_legacy = zone_weights(l, 1.0);
+        let w_new = zone_weights_with_edges(l, 1.0, edges_exact);
+        assert_eq!(
+            w_new[0].to_bits(),
+            w_legacy[0].to_bits(),
+            "ws bit mismatch at l={l}"
+        );
+        assert_eq!(
+            w_new[1].to_bits(),
+            w_legacy[1].to_bits(),
+            "wm bit mismatch at l={l}"
+        );
+        assert_eq!(
+            w_new[2].to_bits(),
+            w_legacy[2].to_bits(),
+            "wh bit mismatch at l={l}"
+        );
+    }
+}
+
+/// Zone isolation (#5040): tightening `shadow_edge` to `0.25` and `blending`
+/// to `15.0` keeps mid-grey (`L = MIDTONE_ANCHOR_L`) completely free of shadow
+/// bleed (`ws == 0.0`) while preserving `ws + wm + wh == 1.0` everywhere.
+#[test]
+fn zone_isolation_prevents_shadow_bleed_into_midtones() {
+    let edges = zone_edges(15.0, 0.25, 0.75);
+    assert_eq!(
+        zone_weights_with_edges(MIDTONE_ANCHOR_L, 1.0, edges),
+        [0.0, 1.0, 0.0]
+    );
+    assert!(zone_weights_with_edges(0.10, 1.0, edges)[0] > 0.99);
+    assert!(zone_weights_with_edges(0.90, 1.0, edges)[2] > 0.99);
+    for i in 0..=200 {
+        let l = i as f32 / 200.0;
+        let w = zone_weights_with_edges(l, 1.0, edges);
+        assert!((w[0] + w[1] + w[2] - 1.0).abs() < 1e-6);
+        assert!(w.iter().all(|&x| (0.0..=1.0).contains(&x)));
+    }
 }

@@ -49,3 +49,37 @@ it('shows the bound destination and labeled explicit return without exposing a c
   );
   expect(fixture.nativeElement.querySelector('a')).toBeNull();
 });
+
+it('returns to the Maple server once, even when the button is pressed twice', async () => {
+  captureConnectionFragment(
+    {
+      pathname: '/connect/google-drive/return',
+      hash:
+        '#' + btoa(JSON.stringify({ ticket: 'signed.ticket', code: 'one-time' })).replace(/=/g, ''),
+      search: '',
+    },
+    { replaceState: () => {} },
+  );
+  const ticket = { returnUrl: 'https://photos.lan:3443/api/cloud-backup/google/callback' };
+  await TestBed.configureTestingModule({
+    imports: [GoogleDriveReturnComponent],
+    providers: [{ provide: ConnectionService, useValue: { validate: () => of(ticket) } }],
+  }).compileComponents();
+  const fixture = TestBed.createComponent(GoogleDriveReturnComponent);
+  const replace = vi
+    .spyOn(GoogleDriveReturnComponent.prototype, 'replaceLocation')
+    .mockImplementation(() => {});
+  try {
+    fixture.detectChanges();
+    const button: HTMLButtonElement = fixture.nativeElement.querySelector('button');
+    expect(button.disabled).toBe(false);
+    button.click();
+    button.click();
+    fixture.detectChanges();
+    expect(replace).toHaveBeenCalledTimes(1);
+    expect(replace.mock.calls[0]![0]).toContain('photos.lan:3443');
+    expect(button.disabled).toBe(true);
+  } finally {
+    replace.mockRestore();
+  }
+});

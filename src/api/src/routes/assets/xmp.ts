@@ -40,6 +40,7 @@ function markDeprecated(set: { headers: Record<string, unknown> }): void {
 }
 
 import { Elysia, t } from 'elysia';
+import { SidecarWriteBindingChangedError } from '../../fs/sidecar-write-order';
 import { readXmp, writeXmpWithPrecondition, deleteXmpSidecar } from '../../fs/xmp.ts';
 import {
   readConflictSidecar,
@@ -49,8 +50,15 @@ import {
 import { recordAndPublishAssetChange } from '../../db/changes.repo.ts';
 import { setHasXmp, recordSidecarEdit } from '../../db/assets.repo.ts';
 import { resolveAssetLocationOrRespond } from './_shared.ts';
+import { resolveAndAuthorizeSidecarWrite } from '../xmp-path-auth.ts';
 
 export const xmpRoutes = new Elysia()
+  .onError(({ error, set }) => {
+    if (error instanceof SidecarWriteBindingChangedError) {
+      set.status = 409;
+      return { error: error.message };
+    }
+  })
   // Read XMP sidecar
   .get('/:id/xmp', async ({ params, query, set }) => {
     markDeprecated(set);
@@ -105,11 +113,11 @@ export const xmpRoutes = new Elysia()
     // Pre-existing PUT-handler complexity; this PR only swaps the post-write
     // `setHasXmp` for `recordSidecarEdit` (one call, no new branches).
     // fallow-ignore-next-line complexity
-    async ({ params, body, headers, query, set }) => {
+    async ({ params, body, headers, query, set, request }) => {
       markDeprecated(set);
-      const resolved = await resolveAssetLocationOrRespond(params.id, set);
+      const resolved = await resolveWritableAssetOrRespond(params.id, set);
       if ('error' in resolved) return resolved;
-      const { id, info, absPath } = resolved;
+      const { id, info, absPath, writeScope } = resolved;
 
       const xmlContent =
         typeof body === 'string'
@@ -120,7 +128,13 @@ export const xmpRoutes = new Elysia()
 
       const conflict = typeof query.conflict === 'string' ? query.conflict : null;
       if (conflict !== null) {
-        const outcome = await writeConflictSidecarAtomic(absPath, conflict, xmlContent);
+        const outcome = await writeConflictSidecarAtomic(
+          absPath,
+          conflict,
+          xmlContent,
+          request.signal,
+          writeScope,
+        );
         if (!outcome.ok) {
           set.status = 400;
           return { error: outcome.error };
@@ -154,6 +168,8 @@ export const xmpRoutes = new Elysia()
         ifMtimeMatchesEpoch,
         deviceName,
         requireAbsent,
+        writeScope,
+        request.signal,
       );
 
       if (outcome.kind === 'error') {
@@ -189,16 +205,16 @@ export const xmpRoutes = new Elysia()
   )
 
   // Delete XMP sidecar (idempotent).
-  .delete('/:id/xmp', async ({ params, query, set }) => {
+  .delete('/:id/xmp', async ({ params, query, set, request }) => {
     markDeprecated(set);
-    const resolved = await resolveAssetLocationOrRespond(params.id, set);
+    const resolved = await resolveWritableAssetOrRespond(params.id, set);
     if ('error' in resolved) return resolved;
-    const { id, info, absPath } = resolved;
+    const { id, info, absPath, writeScope } = resolved;
     const conflict = typeof query.conflict === 'string' ? query.conflict : null;
     const result =
       conflict !== null
-        ? await deleteConflictSidecar(absPath, conflict)
-        : await deleteXmpSidecar(absPath);
+        ? await deleteConflictSidecar(absPath, conflict, writeScope)
+        : await deleteXmpSidecar(absPath, writeScope, request.signal);
     if (!result.ok) {
       set.status = 400;
       return { error: result.error };
@@ -219,6 +235,18 @@ export const xmpRoutes = new Elysia()
     }).catch(() => {});
     return;
   });
+
+async function resolveWritableAssetOrRespond(idParam: string, set: { status?: number | string }) {
+  const resolved = await resolveAssetLocationOrRespond(idParam, set);
+  if ('error' in resolved) return resolved;
+
+  const authorized = await resolveAndAuthorizeSidecarWrite(resolved.absPath);
+  if (!authorized.ok) {
+    set.status = authorized.status;
+    return { error: authorized.error };
+  }
+  return { ...resolved, writeScope: authorized.writeScope };
+}
 
 /**
  * Escape a string for safe inclusion inside an XML attribute value.

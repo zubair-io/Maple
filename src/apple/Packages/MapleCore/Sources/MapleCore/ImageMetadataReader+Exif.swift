@@ -16,9 +16,19 @@ extension ImageMetadataReader {
   /// Returns an empty array when the file can't be opened or has no usable
   /// metadata — the Info tab simply shows nothing for that section.
   public static func readExifProperties(from url: URL) -> [ExifEntry] {
-    guard let src = CGImageSourceCreateWithURL(url as CFURL, nil) else { return [] }
+    let fffSize =
+      url.pathExtension.lowercased() == "fff"
+      ? readTiffPixelSize(from: url) : nil
+    guard let src = CGImageSourceCreateWithURL(url as CFURL, nil) else {
+      guard let fffSize else { return [] }
+      var entries: [ExifEntry] = []
+      replaceImageSize(in: &entries, with: fffSize)
+      entries.append(contentsOf: fileSystemEntries(for: url))
+      return entries
+    }
     let bestIndex = bestSubimageIndex(in: src)
     var entries = exifEntries(from: src, index: bestIndex)
+    if let fffSize { replaceImageSize(in: &entries, with: fffSize) }
     // Augment with file rows the dictionary doesn't carry.
     let fileEntries = fileSystemEntries(for: url)
     // File section comes last in display order — Image first, Camera,
@@ -34,11 +44,20 @@ extension ImageMetadataReader {
   public static func readExifProperties(
     from data: Data,
     byteCount: Int? = nil,
-    displayPath: String? = nil
+    displayPath: String? = nil,
+    identifierHint: String? = nil
   ) -> [ExifEntry] {
-    guard let src = CGImageSourceCreateWithData(data as CFData, nil) else { return [] }
-    let bestIndex = bestSubimageIndex(in: src)
-    var entries = exifEntries(from: src, index: bestIndex)
+    let isFFF =
+      identifierHint?.lowercased() == "fff"
+      || displayPath.map { URL(fileURLWithPath: $0).pathExtension.lowercased() == "fff" } == true
+    let fffSize = isFFF ? readTiffPixelSize(from: data) : nil
+    let src = CGImageSourceCreateWithData(data as CFData, nil)
+    if src == nil && fffSize == nil { return [] }
+    var entries: [ExifEntry] = []
+    if let src {
+      entries = exifEntries(from: src, index: bestSubimageIndex(in: src))
+    }
+    if let fffSize { replaceImageSize(in: &entries, with: fffSize) }
     if let byteCount {
       entries.append(
         ExifEntry(
@@ -49,6 +68,27 @@ extension ImageMetadataReader {
       entries.append(ExifEntry(section: "File", label: "Path", value: displayPath))
     }
     return entries
+  }
+
+  /// Keep Info's dimensions and megapixels aligned with the usable FFF RAW
+  /// crop even when ImageIO exposes only the embedded preview on iOS.
+  private static func replaceImageSize(in entries: inout [ExifEntry], with size: PixelSize) {
+    entries.removeAll {
+      $0.section == "Image" && ($0.label == "Resolution" || $0.label == "Megapixels")
+    }
+    var imageRows = [
+      ExifEntry(
+        section: "Image", label: "Resolution",
+        value: "\(Int(size.width)) × \(Int(size.height))")
+    ]
+    let megapixels = size.width * size.height / 1_000_000.0
+    if megapixels >= 0.1 {
+      imageRows.append(
+        ExifEntry(
+          section: "Image", label: "Megapixels",
+          value: String(format: "%.1f MP", megapixels)))
+    }
+    entries.insert(contentsOf: imageRows, at: 0)
   }
 
   /// Pull EXIF / TIFF / GPS sub-dictionaries out of the property dict at

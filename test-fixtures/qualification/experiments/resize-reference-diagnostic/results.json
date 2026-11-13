@@ -1,0 +1,35 @@
+{
+  "scope": "Isolated resize-protocol diagnostic only; original inputs and production comparator remain unchanged.",
+  "main_commit": "cf62d12ddc573cff68780e7754f7b5b63f7ae621",
+  "fresh_down_pixels_identical_to_original": true,
+  "reference_size": [
+    4000,
+    2667
+  ],
+  "main_against_fresh_down": {
+    "mean_deltaE": 8.333995633265664,
+    "p95_deltaE": 17.204156615237142,
+    "max_deltaE": 42.248989120652645,
+    "bias_r": 0.06920741233299434,
+    "bias_g": 0.06192647014644236,
+    "bias_b": 0.056377764863337634,
+    "n_pixels": 10668000
+  },
+  "main_against_native_pair_lanczos": {
+    "mean_deltaE": 8.315920680305425,
+    "p95_deltaE": 17.195101523221958,
+    "max_deltaE": 40.90517739459689,
+    "bias_r": 0.06919803261106067,
+    "bias_g": 0.06192872648327854,
+    "bias_b": 0.05638597559923272,
+    "n_pixels": 10668000
+  },
+  "original_inputs_verified_unchanged": 3,
+  "files": {
+    "/var/folders/qn/gpgsv1591kz40pfbjgnnvzxm0000gn/T/maple-calibrate-XXXXXX.OMuZnJH7jA/candidates/test_0007_clarity_max.png": "3194666113d627c649566a9392d8f738131023446421a899b5db6355aeda27cd",
+    "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0007/down/clarity_max.png": "f62d7433ee3ef430a15385af153f21eca8aa7f4d45cc62881be490e1c89ba3b7",
+    "/Users/riabuz/.codex/color-suite-evidence/5000/resize-reference-diagnostic/renders/clarity_max_down.png": "62674eb9ad6d6d74f81649aadb8d9530e6b74f76af0b6a35df28560757761a94",
+    "/Users/riabuz/.codex/color-suite-evidence/5000/resize-reference-diagnostic/renders/clarity_max_full.png": "a12ffe0e5445380ab7761d962a1c54bde4d418cf61654998c6d289bc17864284",
+    "/Users/riabuz/.codex/color-suite-evidence/5000/resize-reference-diagnostic/clarity_max.xmp": "7ef93e2013a07e6e2538292fab0f1268ad3e9a3a616f77267f339044cbf3bda1"
+  }
+}

@@ -415,6 +415,50 @@ describe('parseXmpMetadata — edge cases', () => {
 // xmpMetadataToOverridePatch
 // ---------------------------------------------------------------------------
 
+describe('parseXmpMetadata — attribute extraction scope (#4684)', () => {
+  test('reads single-quoted (exiftool-style) attributes', () => {
+    const xml = `<x:xmpmeta xmlns:x='adobe:ns:meta/'>
+ <rdf:RDF xmlns:rdf='http://www.w3.org/1999/02/22-rdf-syntax-ns#'>
+  <rdf:Description rdf:about='' xmlns:xmp='http://ns.adobe.com/xap/1.0/'
+   xmlns:photoshop='http://ns.adobe.com/photoshop/1.0/' xmp:Rating='3' photoshop:City='Lyon'/>
+ </rdf:RDF>
+</x:xmpmeta>`;
+    const parsed = parseXmpMetadata(xml);
+    expect(parsed.rating).toBe(3);
+    expect(parsed.city).toBe('Lyon');
+  });
+
+  test('attribute-shaped text inside a child element is not read as an attribute', () => {
+    const xml = makeXmp(
+      'photoshop:City="Paris"',
+      `  <dc:description>
+   <rdf:Alt>
+    <rdf:li xml:lang="x-default">Set papp:Hidden="true" to hide</rdf:li>
+   </rdf:Alt>
+  </dc:description>
+`,
+    );
+    const parsed = parseXmpMetadata(xml);
+    expect(parsed.hidden).toBeUndefined();
+    expect(parsed.city).toBe('Paris');
+    expect(parsed.caption).toBe('Set papp:Hidden="true" to hide');
+  });
+
+  test('attributes on a child element are not attributed to rdf:Description', () => {
+    const xml = makeXmp(
+      'photoshop:City="Paris"',
+      `  <xmpMM:History xmlns:xmpMM="http://ns.adobe.com/xap/1.0/mm/" papp:Flag="pick">
+   <rdf:Seq><rdf:li xmp:Rating="5"/></rdf:Seq>
+  </xmpMM:History>
+`,
+    );
+    const parsed = parseXmpMetadata(xml);
+    expect(parsed.flag).toBeUndefined();
+    expect(parsed.rating).toBeUndefined();
+    expect(parsed.city).toBe('Paris');
+  });
+});
+
 describe('xmpMetadataToOverridePatch', () => {
   test('maps GPS to {lat, lng, alt}', () => {
     const patch = xmpMetadataToOverridePatch({

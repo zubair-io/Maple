@@ -10,6 +10,7 @@ import {
   type WorkflowSnapshot,
 } from '../generated/workflow.generated';
 import { WorkflowXmpService } from './workflow-xmp.service';
+import { HostedSidecarFreshnessService } from './hosted-sidecar-freshness.service';
 
 export interface WorkflowVariantSidecar {
   variantId: string;
@@ -22,6 +23,7 @@ export interface WorkflowVariantSidecar {
 export class WorkflowVariantStoreService {
   private readonly access = inject(FolderAccessService);
   private readonly core = inject(WorkflowXmpService);
+  private readonly freshness = inject(HostedSidecarFreshnessService);
 
   async list(folder: MapleFolderHandle, primaryName: string): Promise<WorkflowVariantSidecar[]> {
     const primary = await this.core.variantFilename(primaryName, PRIMARY_VARIANT_ID);
@@ -78,7 +80,14 @@ export class WorkflowVariantStoreService {
       const source = await this.read(folder, primaryName, sourceId);
       if (source === null) throw Error('Commit the source adjustments before creating a variant.');
       const output = await this.core.embed(parsed, source);
+      this.freshness.assertUnchanged(
+        folder,
+        filename,
+        await this.freshness.readCurrent(folder, filename),
+        null,
+      );
       await this.access.writeFile(folder, filename, new TextEncoder().encode(output));
+      this.freshness.remember(folder, filename, output);
       return this.inspect(folder, primaryName, parsed.variantId);
     });
   }
@@ -98,7 +107,14 @@ export class WorkflowVariantStoreService {
       const output =
         nextRecord === null && oldRecord !== null ? await this.core.embed(oldRecord, xmp) : xmp;
       this.requireIdentity(nextRecord ?? oldRecord, variantId, filename);
+      this.freshness.assertUnchanged(
+        folder,
+        filename,
+        await this.freshness.readCurrent(folder, filename),
+        existing,
+      );
       await this.access.writeFile(folder, filename, new TextEncoder().encode(output));
+      this.freshness.remember(folder, filename, output);
     });
   }
 
@@ -162,7 +178,14 @@ export class WorkflowVariantStoreService {
         throw Error('Variant changed. Reopen it before saving this action.');
       const output = await convert(current);
       this.requireIdentity(await this.core.read(output), variantId, filename);
+      this.freshness.assertUnchanged(
+        folder,
+        filename,
+        await this.freshness.readCurrent(folder, filename),
+        current,
+      );
       await this.access.writeFile(folder, filename, new TextEncoder().encode(output));
+      this.freshness.remember(folder, filename, output);
       return output;
     });
   }

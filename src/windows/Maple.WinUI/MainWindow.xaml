@@ -145,6 +145,7 @@
                         <MenuFlyoutSeparator />
                         <MenuFlyoutItem Text="Zoom to Fit" Click="OnMenuZoomFit"
                                         KeyboardAcceleratorTextOverride="Ctrl+0" />
+                        <MenuFlyoutItem Text="Zoom to Fill" Click="OnMenuZoomFill" />
                         <MenuFlyoutItem Text="Zoom 1:1" Click="OnMenuZoomOneToOne"
                                         KeyboardAcceleratorTextOverride="Ctrl+1" />
                         <MenuFlyoutItem Text="Zoom In" Click="OnMenuZoomIn"
@@ -678,18 +679,22 @@
                         <muim:MuiFilmstripRail x:Name="FilmstripRail" Grid.Column="0" Visibility="Collapsed"
                                                Margin="10,14,0,16" Canvas.ZIndex="2" ThumbnailAspectRatio="1.5"
                                                AutomationProperties.Name="Filmstrip" />
-                        <!-- Zoom/pan viewer (#2572): ScrollViewer zoom over both
-                             display paths — fit at factor 1, Ctrl+wheel / pinch /
-                             double-click toggle / Ctrl+0/1/=/- ; drag pans when
-                             zoomed. Zoom resets on navigation per the spec. -->
-                        <ScrollViewer x:Name="ViewerScroll" Grid.Column="1" Margin="16,64,16,16"
-                                      SizeChanged="OnCanvasHostSizeChanged"
-                                      ZoomMode="Enabled" MinZoomFactor="0.4" MaxZoomFactor="8"
-                                      HorizontalScrollBarVisibility="Hidden"
-                                      VerticalScrollBarVisibility="Hidden"
-                                      HorizontalScrollMode="Enabled" VerticalScrollMode="Enabled"
-                                      HorizontalContentAlignment="Center" VerticalContentAlignment="Center"
-                                      DoubleTapped="OnViewerDoubleTapped">
+                        <!-- Zoom/pan viewer (#5714): the shared Rust zoom model
+                             (MainWindow.Viewport.cs) sets ZoomPanTransform over
+                             the fit layout; ZoomHost stays viewport-sized, so
+                             everything inside it keeps fit coordinates.
+                             Ctrl+wheel / pinch / double-click / Ctrl+0/1/=/- ;
+                             drag and wheel pan when the image overflows. Zoom
+                             resets on navigation and mode changes. -->
+                        <Grid x:Name="ViewerViewport" Grid.Column="1" Margin="16,64,16,16"
+                              Background="Transparent" IsTabStop="True" UseSystemFocusVisuals="False"
+                              AutomationProperties.Name="Image viewer"
+                              SizeChanged="OnCanvasHostSizeChanged"
+                              DoubleTapped="OnViewerDoubleTapped">
+                          <Grid x:Name="ZoomPanLayer" RenderTransformOrigin="0.5,0.5">
+                            <Grid.RenderTransform>
+                                <CompositeTransform x:Name="ZoomPanTransform" />
+                            </Grid.RenderTransform>
                             <Grid x:Name="ZoomHost">
                                 <!-- Crop display host (#2582): rotation applies here,
                                      the clip + fit-scale transform applies via code
@@ -734,7 +739,8 @@
                                                      HorizontalAlignment="Left" VerticalAlignment="Top"
                                                      AutomationProperties.Name="Crop overlay" />
                             </Grid>
-                        </ScrollViewer>
+                          </Grid>
+                        </Grid>
 
                         <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" HorizontalAlignment="Center"
                                     VerticalAlignment="Center"
@@ -996,6 +1002,7 @@
                                                           IsOn="{Binding AutoLateralCaOn, Mode=TwoWay}"
                                                           AutomationProperties.Name="Remove chromatic aberration toggle" />
                                         </StackPanel>
+                                        <StackPanel x:Name="PanelColorCurvesHost" Visibility="Collapsed" Spacing="6" Margin="0,0,0,8" />
                                         <ItemsControl x:Name="PanelHslBands" Visibility="Collapsed">
                                             <ItemsControl.ItemTemplate>
                                                 <DataTemplate x:DataType="vm:HslBandViewModel">

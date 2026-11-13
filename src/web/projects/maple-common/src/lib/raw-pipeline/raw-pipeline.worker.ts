@@ -1,3 +1,4 @@
+import { releaseRetainedCpuBefore, renderRetainedCpu } from './raw-pipeline.cpu-handler';
 import { takeRenderFrame } from './raw-pipeline.render-frame';
 /// <reference lib="webworker" />
 
@@ -26,7 +27,7 @@ import type {
   WorkerResponse,
   WorkerRequest,
 } from './raw-pipeline.types';
-import { ensureReady } from './raw-pipeline.worker-handlers';
+import { autoFitOutcomeFrom, ensureReady } from './raw-pipeline.worker-handlers';
 import {
   importLensProfile,
   lensProfileRestored,
@@ -37,7 +38,7 @@ import { selectLegacyDecodeRoute } from './raw-pipeline.decode-route';
 import { markStart, markEnd } from './raw-pipeline.perf';
 import { handleExport } from './raw-pipeline.export-handler';
 import { handleSampleWb } from './raw-pipeline.sample-wb-handler';
-import { handleSampleRange } from './raw-pipeline.sample-range-handler';
+import { handleSampleColorCurve, handleSampleRange } from './raw-pipeline.sample-range-handler';
 import { handleGuidedGeometry } from './raw-pipeline.guided-geometry-handler';
 import { handleRemovalAuthoring } from './raw-pipeline.removal-handler';
 import {
@@ -45,7 +46,12 @@ import {
   handleRegisterMaskRaster,
   handleReleaseMaskRaster,
 } from './raw-pipeline.mask-raster-handler';
-import { handleNativeDetail, closeNativeDetail } from './raw-pipeline.native-detail-handler';
+import {
+  handleNativeDetail,
+  closeNativeDetail,
+  nativeDetailEpoch,
+} from './raw-pipeline.native-detail-handler';
+import { createSerialMessageQueue } from './raw-pipeline.message-queue';
 import {
   handleOpenSession,
   handleRenderSession,
@@ -80,29 +86,24 @@ import {
   console.error = forward('error', console.error.bind(console));
 }
 
-// Kick off init eagerly so the status message is delivered without waiting
-// for the first decode request. `ensureReady` (and the `setDeepDenoiseProgress`
-// bridge it installs) live in raw-pipeline.worker-handlers.ts — hoisted there
-// so raw-pipeline.session-handler.ts can await the same init gate without an
-// import cycle back through this file (file-size budget, #2683).
+// Kick off init eagerly; `ensureReady` lives in worker-handlers so session-handler can share the gate without an import cycle (#2683).
 void ensureReady();
 
-// This dispatch switch's cyclomatic complexity scales with the number of
-// request kinds the worker handles — it was already at 9 branches on
-// `main` before #3039 added the 10th (`develop-non-raw`, a single case
-// following the exact same one-line-per-kind shape as every other arm).
-// Splitting the dispatch itself out of proportion to the actual branching
-// it does is not a win; flagged as complexity, not fixed here.
-// fallow-ignore-next-line complexity
-addEventListener('message', async (event: MessageEvent<WorkerRequest>) => {
+const enqueueMessage = createSerialMessageQueue();
+// Serial queue (#4676): close/set-film-lut must not overtake an in-flight open; `lens-profile-restored` bypasses it or its own restore deadlocks, and `close-native-detail` bypasses it so the epoch bump cancels a queued or in-flight render instead of landing behind it.
+addEventListener('message', (event: MessageEvent<WorkerRequest>) => {
   const req = event.data;
-  // Imported lens profiles (#3479): the import handshake, the main thread's
-  // fetch acknowledgement, and — for every request that carries a sidecar —
-  // registering the profile it names BEFORE the render that needs it.
-  if (req.type === 'lens-profile-restored') {
-    lensProfileRestored(req.id);
-    return;
-  }
+  if (req.type === 'lens-profile-restored') return lensProfileRestored(req.id);
+  if (req.type === 'close-native-detail') return closeNativeDetail();
+  if (req.type === 'native-detail')
+    return enqueueMessage(() => handleMessage(req, nativeDetailEpoch()));
+  enqueueMessage(() => handleMessage(req));
+});
+
+// One case per request kind; the dispatch's complexity is the kind count.
+// fallow-ignore-next-line complexity
+async function handleMessage(req: WorkerRequest, dispatchedEpoch?: number): Promise<void> {
+  releaseRetainedCpuBefore(req);
   if (req.type === 'import-lens-profile') {
     await importLensProfile(req);
     return;
@@ -115,10 +116,7 @@ addEventListener('message', async (event: MessageEvent<WorkerRequest>) => {
       await handleRemovalAuthoring(req);
       return;
     case 'native-detail':
-      await handleNativeDetail(req);
-      return;
-    case 'close-native-detail':
-      closeNativeDetail();
+      await handleNativeDetail(req, dispatchedEpoch);
       return;
     case 'decode':
       await handleLegacyDecode(req);
@@ -144,18 +142,18 @@ addEventListener('message', async (event: MessageEvent<WorkerRequest>) => {
     case 'auto-adjust':
       await handleAutoAdjust(req);
       return;
-    // Neutral WB sampler (#2434) — one-shot, same shape as auto-adjust; the
-    // handler owns its own error reply (a rejected sample is a normal
-    // outcome, not a worker failure).
+    // Cold one-shot samplers (#2434 WB, #362 mask range, #5041 color curves).
     case 'sample-wb':
       await ensureReady();
       handleSampleWb(req);
       return;
-    // Mask colour-range eyedropper (#362) — same one-shot shape as the WB
-    // sampler above; the handler owns its own error reply.
     case 'sample-range':
       await ensureReady();
       handleSampleRange(req);
+      return;
+    case 'sample-color-curve':
+      await ensureReady();
+      handleSampleColorCurve(req);
       return;
     case 'guided-geometry':
       await handleGuidedGeometry(req, ensureReady);
@@ -182,7 +180,7 @@ addEventListener('message', async (event: MessageEvent<WorkerRequest>) => {
       // Unknown request type — silently ignore (matches the prior early-return).
       return;
   }
-});
+}
 
 /**
  * The gpu-gated GPU live-render entry (`render_bytes_gpu`, #1029) — present only
@@ -385,7 +383,10 @@ async function handleLegacyDecode(req: DecodeRequest): Promise<void> {
     // outer `catch` and mislabel a successful decode as a `decode-error`.
     const wasmStartMark = `maple:wasm:${req.id}:start`;
     markStart(wasmStartMark);
-    const result = await decodeViaPlan(plan, bytes, req);
+    const result =
+      req.cpuSourceToken !== undefined
+        ? renderRetainedCpu(req, plan.filmLutBytes)
+        : await decodeViaPlan(plan, bytes, req);
     markEnd(wasmStartMark, `maple:wasm:${req.id}:end`, plan.markTag);
     postLegacyDecodeSuccess(req, result);
   } catch (e) {

@@ -10,6 +10,8 @@ import {
 } from '../db/sqlite/test-sqlite.test-helpers.ts';
 import { createJob, failJob, getJob } from '../db/repos/jobs.repo.ts';
 import { BackupRepository } from '../cloud-backup/repository.ts';
+import { saveConfig } from '../cloud-backup/google/repo.ts';
+import { DEFAULT_GOOGLE_CONFIG } from '../cloud-backup/google/config.ts';
 
 test('mounted owner backup routes retain folder scope and protect recovery detail/cancel/resume', async () => {
   using live = await createLiveTestDatabase();
@@ -79,11 +81,22 @@ test('mounted owner backup routes retain folder scope and protect recovery detai
       destination: {
         id: string;
         enabled: boolean;
-        status: { pending: number };
+        status: Record<string, unknown>;
       };
     };
     expect(destination.enabled).toBe(false);
-    expect(destination.status.pending).toBe(1);
+    expect(destination.status).toEqual({
+      pending: 1,
+      missing: 0,
+      prepared: 0,
+      verified: 0,
+      trash: 0,
+      blocked: 0,
+      bytes: 0,
+      lastError: null,
+      lastErrorCount: 0,
+      purgePending: 0,
+    });
     const repo = new BackupRepository(live.handle);
     const second = await repo.createDestination({
       libraryId: otherLibrary,
@@ -256,6 +269,129 @@ test('Google Drive destination coverage preserves pending and missing counts', a
     expect(
       rediscoveredBody.destinations.find((item) => item.id === emptyDestination.id)?.status.pending,
     ).toBe(1);
+  } finally {
+    process.env.MAPLE_JWT_SECRET = previous;
+  }
+});
+
+test('Google Drive status reports the error most blocked entries share, not the alphabetically last', async () => {
+  using live = await createLiveTestDatabase();
+  const previous = process.env.MAPLE_JWT_SECRET;
+  const secret = 'backup-destination-error-test-secret';
+  process.env.MAPLE_JWT_SECRET = secret;
+  try {
+    const app = buildApp({ stageNames: [] });
+    const owner = await signAccessToken(
+      {
+        sub: '111111111111111111111111',
+        email: null,
+        role: 'owner',
+        file_access: true,
+      },
+      secret,
+    );
+    const libraryId = insertFolder(live.db);
+    const repo = new BackupRepository(live.handle);
+    const destination = await repo.createDestination({
+      libraryId,
+      kind: 'google-drive',
+      name: 'Drive',
+      path: null,
+    });
+    const failed = async (filename: string, error: string) => {
+      const assetId = insertAsset(live.db);
+      insertLocation(live.db, { assetId, libraryId, filename });
+      const entry = await repo.ensureEntry(destination.id, assetId, 0, filename);
+      run(live.db, `UPDATE backup_entries SET last_error=? WHERE id=?`, error, entry.id);
+    };
+    const expired = 'Authorization expired or revoked; reconnect Google Drive.';
+    await failed('a.dng', expired);
+    await failed('b.dng', expired);
+    await failed('c.dng', expired);
+    await failed('d.dng', 'The operation was aborted.');
+
+    const response = await app.handle(
+      new Request('http://localhost/api/cloud-backup/destinations', {
+        headers: { Authorization: `Bearer ${owner}` },
+      }),
+    );
+    const body = (await response.json()) as {
+      destinations: Array<{
+        id: string;
+        status: {
+          blocked: number;
+          lastError: string | null;
+          lastErrorCount: number;
+        };
+      }>;
+    };
+    expect(body.destinations.find((item) => item.id === destination.id)?.status).toMatchObject({
+      blocked: 4,
+      lastError: expired,
+      lastErrorCount: 3,
+    });
+  } finally {
+    process.env.MAPLE_JWT_SECRET = previous;
+  }
+});
+
+test('Google Drive destinations report a recorded disconnect without opening the connection panel', async () => {
+  using live = await createLiveTestDatabase();
+  const previous = process.env.MAPLE_JWT_SECRET;
+  const secret = 'backup-destination-connection-test-secret';
+  process.env.MAPLE_JWT_SECRET = secret;
+  try {
+    const app = buildApp({ stageNames: [] });
+    const owner = await signAccessToken(
+      { sub: '111111111111111111111111', email: null, role: 'owner', file_access: true },
+      secret,
+    );
+    const repo = new BackupRepository(live.handle);
+    const destination = await repo.createDestination({
+      libraryId: insertFolder(live.db),
+      kind: 'google-drive',
+      name: 'Drive',
+      path: null,
+    });
+    const at = Date.parse('2026-11-02T12:16:00Z');
+    await saveConfig(
+      destination.id,
+      { ...DEFAULT_GOOGLE_CONFIG, disconnect: { reason: 'invalid_grant', at } },
+      0,
+    );
+    const unreadable = await repo.createDestination({
+      libraryId: insertFolder(live.db),
+      kind: 'google-drive',
+      name: 'Unreadable',
+      path: null,
+    });
+    run(
+      live.db,
+      `INSERT INTO backup_google_connections(destination_id,epoch,credentials) VALUES(?,1,'not-sealed')`,
+      unreadable.id,
+    );
+    const response = await app.handle(
+      new Request('http://localhost/api/cloud-backup/destinations', {
+        headers: { Authorization: `Bearer ${owner}` },
+      }),
+    );
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as {
+      destinations: Array<{ id: string; connection?: unknown }>;
+    };
+    expect(body.destinations.find((item) => item.id === unreadable.id)?.connection).toEqual({
+      connected: false,
+      disconnect: null,
+    });
+    expect(body.destinations.find((item) => item.id === destination.id)?.connection).toEqual({
+      connected: false,
+      disconnect: {
+        reason: 'invalid_grant',
+        at: '2026-11-02T12:16:00.000Z',
+        message:
+          "Google expired or revoked Maple's Drive authorization (invalid_grant) at 2026-11-02T12:16:00Z. Reconnect Google Drive to resume backup.",
+      },
+    });
   } finally {
     process.env.MAPLE_JWT_SECRET = previous;
   }

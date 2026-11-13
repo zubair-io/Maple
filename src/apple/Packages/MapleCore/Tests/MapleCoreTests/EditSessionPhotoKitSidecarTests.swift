@@ -1,7 +1,7 @@
 // EditSessionPhotoKitSidecarTests.swift — regression coverage for #2555:
 // edits made through EditSession on a `.photoKit`-provenance asset must
 // round-trip through AppSupportSidecarStore, the same store
-// BackupEngine.uploadCompanionsBestEffort reads via
+// BackupEngine.sendEditSidecarBestEffort reads via
 // `sidecars.read(phassetLocalId:)` to prefer a real local edit over the
 // synthetic Apple-metadata XMP.
 //
@@ -129,6 +129,7 @@ final class EditSessionPhotoKitSidecarTests: XCTestCase {
     let id = "PH-PREVIEW/L0/001"
     let store = PhotoKitSidecarStore(phassetLocalId: id, sidecars: backing)
     let session = EditSession(asset: photoKitAssetRef(stableID: id), remoteSidecarStore: store)
+    await session.loadSidecar()
     session.model.exposure = 0.5
     session.beginEdit()
     session.endEdit()
@@ -166,6 +167,7 @@ final class EditSessionPhotoKitSidecarTests: XCTestCase {
     let session = EditSession(
       asset: asset,
       remoteSidecarStore: PhotoKitSidecarStore(phassetLocalId: id, sidecars: backing))
+    await session.loadSidecar()
     session.beginEdit(description: "Exposure")
     session.model.exposure = 1.25
     session.endEdit()
@@ -188,6 +190,7 @@ final class EditSessionPhotoKitSidecarTests: XCTestCase {
     let store = PhotoKitSidecarStore(phassetLocalId: phassetLocalId, sidecars: backing)
     let asset = photoKitAssetRef(stableID: phassetLocalId)
     let session = EditSession(asset: asset, remoteSidecarStore: store)
+    await session.loadSidecar()
 
     var edited = session.model
     edited.exposure = 1.75

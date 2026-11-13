@@ -1,0 +1,10 @@
+{
+  "status": "Native dispatch control, not adopted; actual target failures/lost source37 clears remain explicit.",
+  "comparisons": 7,
+  "planned": 7,
+  "auto_and_chart_witnesses_pass": true,
+  "target_failures": [],
+  "all_original_inputs_unchanged": true,
+  "renderer_unchanged": true,
+  "production_changed": false
+}

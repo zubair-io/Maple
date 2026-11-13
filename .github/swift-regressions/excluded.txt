@@ -23,13 +23,13 @@ AutoCubeEncodeErrorPathTests fixture needs the gitignored RAW fixtures (skip-pas
 AutoProfileCanvasParityTests fixture needs the gitignored RAW fixtures (skip-passes without them; the gate rejects skips)
 BackupSettingsTests host talks to a host service (keychain, FileProvider, network, PhotoKit, server admin)
 BatchAdjustmentPerformanceTests slow render or decode workload that costs minutes on the runner
+CaptureRefineTests gpu needs a real Metal device
 ChangeFeedClientServerMigrationTests host talks to a host service (keychain, FileProvider, network, PhotoKit, server admin)
 CloudAssetDetailClientTests host talks to a host service (keychain, FileProvider, network, PhotoKit, server admin)
 CloudCacheTests host talks to a host service (keychain, FileProvider, network, PhotoKit, server admin)
 CloudDropEligibilityTests host talks to a host service (keychain, FileProvider, network, PhotoKit, server admin)
 CloudErrorMessageTests host talks to a host service (keychain, FileProvider, network, PhotoKit, server admin)
 CloudHistogramClientTests host talks to a host service (keychain, FileProvider, network, PhotoKit, server admin)
-CloudHostTests host talks to a host service (keychain, FileProvider, network, PhotoKit, server admin)
 CloudPathSidecarTests host talks to a host service (keychain, FileProvider, network, PhotoKit, server admin)
 CloudSearchClientTests host talks to a host service (keychain, FileProvider, network, PhotoKit, server admin)
 CloudSearchTypesTests host talks to a host service (keychain, FileProvider, network, PhotoKit, server admin)
@@ -44,6 +44,7 @@ CloudflareSettingsFormTests host talks to a host service (keychain, FileProvider
 DecodeStripsDefringeTests slow render or decode workload that costs minutes on the runner
 DecodeStripsLocalAdjustmentsTests slow render or decode workload that costs minutes on the runner
 DecodeTargetTests slow render or decode workload that costs minutes on the runner
+DecodedCacheReplacementTests slow render or decode workload that costs minutes on the runner
 DeepZoomTileRenderingTests fixture needs the gitignored RAW fixtures (skip-passes without them; the gate rejects skips)
 DisplayEncodeZeroDimensionTests fixture needs the gitignored RAW fixtures (skip-passes without them; the gate rejects skips)
 DisplayedHistogramTests slow render or decode workload that costs minutes on the runner
@@ -106,9 +107,9 @@ MapleThumbCacheKeyTests slow render or decode workload that costs minutes on the
 MaskRasterRehydrationTests fixture needs the gitignored RAW fixtures (skip-passes without them; the gate rejects skips)
 MaskRemapRenderParityTests gpu needs a real Metal device
 MetalKernelParityTests fixture needs the gitignored RAW fixtures (skip-passes without them; the gate rejects skips)
-NativeAutoProfilePhotographicTests fixture needs the gitignored 39MP RAW, accepted companions and a real Metal device (#1472)
 NativeDetailAEGainTests fixture needs the gitignored RAW fixtures (skip-passes without them; the gate rejects skips)
 NativeDetailExitForcesFreshRenderTests slow render or decode workload that costs minutes on the runner
+NativeDetailGpuCanvasHazeTests gpu opens a GpuLiveDriver session on a real Metal device (#5215)
 NativeDetailPerfTests slow render or decode workload that costs minutes on the runner
 NetworkConfigClientTests host talks to a host service (keychain, FileProvider, network, PhotoKit, server admin)
 NetworkConfigTypesTests host talks to a host service (keychain, FileProvider, network, PhotoKit, server admin)
@@ -123,7 +124,6 @@ PhotoKitChangeObserverTests host talks to a host service (keychain, FileProvider
 PhotoKitInputShapeTests host talks to a host service (keychain, FileProvider, network, PhotoKit, server admin)
 PhotoKitMergeAdapterTests host talks to a host service (keychain, FileProvider, network, PhotoKit, server admin)
 PhotoKitSidecarStoreTests host talks to a host service (keychain, FileProvider, network, PhotoKit, server admin)
-PhotoKitSourceXMPTests host talks to a host service (keychain, FileProvider, network, PhotoKit, server admin)
 PreviewPathContractTests slow render or decode workload that costs minutes on the runner
 ProTokensAccentTests host talks to a host service (keychain, FileProvider, network, PhotoKit, server admin)
 QuickLookThumbDiskCacheTests slow render or decode workload that costs minutes on the runner
@@ -163,7 +163,6 @@ SidecarTransactionContractSMBTests host talks to a host service (keychain, FileP
 SliderTickPerfTests slow render or decode workload that costs minutes on the runner
 SourceSelectionTests fixture needs the gitignored RAW fixtures (skip-passes without them; the gate rejects skips)
 ThumbnailDecoderTests slow render or decode workload that costs minutes on the runner
-ThumbnailDiskCacheKeyTests slow render or decode workload that costs minutes on the runner
 ThumbnailDiskCacheSourcelessScopeTests gpu needs a real Metal device
 ThumbnailEncoderTests slow render or decode workload that costs minutes on the runner
 ThumbnailFetchGateTests slow render or decode workload that costs minutes on the runner

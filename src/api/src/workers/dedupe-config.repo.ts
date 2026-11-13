@@ -4,7 +4,7 @@
  *
  * DB-backed (not env vars) per the CLAUDE.md "configure via the settings system"
  * rule — both knobs are operator-editable at runtime via
- * `PATCH /api/workers/deduplicate/config` and re-read on the next tick, so a
+ * `PATCH /api/workers/deduplicate/config` and re-read on the next pass, so a
  * change takes effect with no restart:
  *
  *   - `batch_size` — assets examined per pass. Bounds how many duplicate files
@@ -27,7 +27,7 @@ const log = childLogger('deduplicate:config');
 export const DEFAULT_BATCH_SIZE = 200;
 const MIN_BATCH_SIZE = 1;
 const MAX_BATCH_SIZE = 5000;
-export const DEFAULT_DRY_RUN = false;
+const DEFAULT_DRY_RUN = false;
 
 export interface DeDuplicateConfig {
   batch_size: number;

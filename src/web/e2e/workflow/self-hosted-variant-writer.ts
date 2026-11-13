@@ -53,7 +53,7 @@ export async function selfHostedVariantWriter(input: string, scenario: string) {
     }
     await firstValueFrom(
       api.create(source.path, {
-        schemaVersion: 1,
+        schemaVersion: 2,
         variantId,
         variantName: 'Night',
         snapshots: [],

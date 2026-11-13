@@ -1,3 +1,4 @@
+import { signal } from '@angular/core';
 import type { AssetId } from '../models/asset';
 import { QUEUE_CLEARED_MESSAGE } from './library-cache.thumb-queue';
 
@@ -22,10 +23,10 @@ import { QUEUE_CLEARED_MESSAGE } from './library-cache.thumb-queue';
  * the asset as failed — it was merely cancelled).
  */
 export class ThumbFailMemory {
-  private readonly ids = new Set<AssetId>();
+  private readonly ids = signal<ReadonlySet<AssetId>>(new Set());
 
   has(id: AssetId): boolean {
-    return this.ids.has(id);
+    return this.ids().has(id);
   }
 
   /**
@@ -34,10 +35,10 @@ export class ThumbFailMemory {
    */
   record(id: AssetId, err?: unknown): void {
     if (err instanceof Error && err.message === QUEUE_CLEARED_MESSAGE) return;
-    this.ids.add(id);
+    this.ids.update((ids) => new Set([...ids, id]));
   }
 
   clear(): void {
-    this.ids.clear();
+    this.ids.set(new Set());
   }
 }

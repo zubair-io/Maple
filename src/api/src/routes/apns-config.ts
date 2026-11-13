@@ -15,6 +15,7 @@
  */
 
 import { Elysia, t } from 'elysia';
+import { requireOwnerBeforeHandle } from '../auth/middleware.ts';
 import {
   hasApnsCredentials,
   loadApnsSettingsConfig,
@@ -51,5 +52,5 @@ export const apnsConfigRoutes = new Elysia({ prefix: '/api/apns' })
       });
       return response(resolveApnsSettingsConfig(await loadApnsSettingsConfig()));
     },
-    { body: ConfigBody },
+    { body: ConfigBody, beforeHandle: requireOwnerBeforeHandle },
   );

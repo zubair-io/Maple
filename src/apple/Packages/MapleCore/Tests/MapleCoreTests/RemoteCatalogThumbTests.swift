@@ -1,6 +1,7 @@
 // src/apple/Packages/MapleCore/Tests/MapleCoreTests/RemoteCatalogThumbTests.swift
 import XCTest
 @testable import MapleCore
+@testable import MapleFileProviderCore
 
 final class RemoteCatalogThumbTests: XCTestCase {
     func testGetThumbHappyPath() async throws {

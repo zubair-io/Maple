@@ -12,18 +12,21 @@
 //!
 //! ## The render lifecycle: open → render(xmp)* → drop
 //!
-//! - [`WebLiveSession::open`] decodes the RAW ONCE, develops the stripped prefix to
-//!   the post-`auto_exposure` scene-linear buffer, fits the Auto Profile artifacts,
-//!   uploads the buffer to a [`LiveSession`], and configures the canvas surface.
+//! - [`WebLiveSession::open`] decodes the RAW ONCE, runs the capture decode of the
+//!   stripped prefix (#5379: the capture result in the fixed as-shot basis plus
+//!   the creative stage that renders it), fits the Auto Profile artifacts,
+//!   uploads the capture result to a [`LiveSession`], and configures the canvas
+//!   surface.
 //!   The develop is VIEWPORT-SIZED (#1080): the caller passes its canvas/viewport
 //!   `max_long_edge` (real pixels) and the buffer + canvas are fit to it — never
 //!   full sensor res, which on a 100 MP frame exceeds the downlevel 2048 texture
 //!   baseline (black canvas) and burns ~2.8 GB of transient f32 in the wasm heap.
 //! - [`WebLiveSession::render`] re-applies the user's WB / tone / … on the GPU and
 //!   presents. It re-develops + re-uploads ONLY when a prefix-affecting field
-//!   changes (see below); the hot-path sliders just rebuild [`FullChainInputs`] and
-//!   re-run the resident chain — allocating zero new GPU buffers and recompiling no
-//!   pipelines (the CLAUDE.md render-loop invariant; the zero-alloc re-render is
+//!   changes (see below). The hot-path sliders just rebuild [`FullChainInputs`],
+//!   white balance included as the session-held creative stage's plan over the
+//!   interned tables, and re-run the resident chain, allocating zero new GPU
+//!   buffers and recompiling no pipelines (the CLAUDE.md render-loop invariant; the zero-alloc re-render is
 //!   proven on the shared `raw_gpu::LiveSession` substrate in
 //!   `raw-gpu/src/live_session/tests.rs`).
 //! - Drop releases the GPU context + session.
@@ -43,8 +46,8 @@
 //!
 //! ## Parity
 //!
-//! `render` rides the IDENTICAL develop + fit + chain as the one-shot
-//! `render_bytes_gpu` (shared [`crate::gpu_render::develop_prefix_rgba`] /
+//! `render` rides the IDENTICAL capture decode + fit + chain as the one-shot
+//! `render_bytes_gpu` (shared [`crate::gpu_render::develop_capture_prefix_rgba`] /
 //! [`crate::gpu_render::chain_inputs_with_status`]), then the same f32 chain
 //! ([`LiveSession::render_chain_to_f32_async`]) the headless C4 path runs; the
 //! surface present applies the same `dither_and_quantize` math `dither.wgsl` does
@@ -55,9 +58,12 @@
 //! the #1029-W3 maintainer checkpoint.
 
 use crate::gpu_render::{
-    chain_inputs_with_status, develop_prefix_rgba_saved, effective_target_long_edge,
-    prefix_model_for, require_prepared_removals, resolve_target_color_space, GpuWhiteBalance,
+    develop_capture_prefix_rgba_saved, effective_target_long_edge, inferred_auto_will_fit,
+    model_from_live_params, require_prepared_removals, resolve_target_color_space,
+    session_prefix_matches, CapturePrefix,
 };
+use crate::web_live_geometry::presentation;
+use raw_core::gpu_host::capture::LiveCreative;
 use raw_core::xmp::AdjustmentModel;
 use raw_gpu::{GpuContext, LiveSession, WebPresentSurface};
 use wasm_bindgen::prelude::*;
@@ -86,28 +92,38 @@ pub struct WebLiveSession {
     /// The persistent WebGPU present surface over the `OffscreenCanvas` (transferred
     /// from the main thread via `transferControlToOffscreen`). Owns the surface +
     /// the compiled present pipeline; created ONCE in `open`, so a per-tick present
-    /// recompiles nothing and reconfigures no swapchain (#1038).
+    /// recompiles nothing (#1038). Its swapchain is reconfigured only when the
+    /// presented frame changes size.
     present: WebPresentSurface,
+    /// The surface's canvas, resized when the presented frame changes (a user
+    /// crop appearing, changing or clearing).
+    canvas: OffscreenCanvas,
     /// The upload-once image + persistent ping-pong / dither buffers. Recreated
     /// only on a prefix-affecting edit (re-develop) — never per hot-path tick.
     session: LiveSession,
     /// The EXACT stripped-prefix model `session`'s uploaded buffer was developed
     /// from. A render re-develops iff its newly-derived prefix model differs.
     prefix_model: AdjustmentModel,
-    /// Last complete successfully presented model. Flat parameters change only
-    /// their 19 fields; they must retain sharpening, masks and other GPU stages.
-    render_model: AdjustmentModel,
+    live_profile: Option<raw_core::gpu_host::live_profile::LiveProfile>,
+    /// Session-cached `auto_will_fit` probe outcome for `Profile::Auto` (#4736),
+    /// so preview-less Auto images never re-scan `raw` on scalar slider ticks.
+    auto_will_fit_cache: Option<bool>,
     /// Pre-AE anchor measured alongside the uploaded prefix, reused on every tick.
     whites_anchor_ev: f32,
-    white_balance: GpuWhiteBalance,
     nr_sampling_scale: f32,
+    /// The uploaded capture decode's creative stage (#5379): white balance,
+    /// the camera profile, Oklab recovery and the exposure gain the pixels do
+    /// not carry. Replaced with the upload, never per tick.
+    creative: LiveCreative,
     /// The EFFECTIVE develop long-edge cap (#1080): the caller's viewport target
     /// normalized + clamped to the device texture cap in `open`. Fixed for the
     /// session's lifetime, so a prefix re-develop reproduces the same dims and
-    /// the sensor upload stays stable; an authored crop resizes only the surface.
+    /// the develop never changes size.
     target_long_edge: u32,
-    /// Actual post-orientation, post-crop canvas dimensions. The uploaded
-    /// sensor dimensions remain on `session`; crop changes only this surface.
+    /// PRESENTED frame dims — also the canvas + surface dims: the oriented
+    /// viewport image with the model's crop applied, ≤ `target_long_edge` on
+    /// the long edge (#1080). The present maps into the sensor-framed session
+    /// dims; they change only when the model's crop does (`present_for_model`).
     width: u32,
     height: u32,
     /// NATIVE oriented dims (`native_render_dims`) — what a full-res render of
@@ -125,7 +141,7 @@ pub struct WebLiveSession {
     /// Resolver facts for the imported LCP profile the model names (#3479),
     /// refreshed whenever a prefix re-develop consumes a new selection.
     lens_profile_json: Option<String>,
-    auto_fit: std::cell::Cell<Option<bool>>,
+    auto_fit: std::cell::Cell<Option<raw_core::view::auto_profile::AutoFitOutcome>>,
     /// The session-resident baked film-look grid (epic #2683, Task 9), decoded
     /// via [`raw_core::film::decode_mlut`] and folded into every tick's
     /// [`raw_gpu::FullChainInputs`] by [`WebLiveSession::present_for_model`].
@@ -157,7 +173,6 @@ fn parse_model(xmp: &Option<String>) -> Result<AdjustmentModel, String> {
 
 #[wasm_bindgen]
 impl WebLiveSession {
-
     /// Re-render the live canvas for `xmp` and present to the surface — the hot
     /// path. Rebuilds [`FullChainInputs`] from the model, re-develops + re-uploads
     /// ONLY when the prefix model changes (see the module docs), runs the resident
@@ -169,90 +184,17 @@ impl WebLiveSession {
     #[wasm_bindgen]
     pub async fn render(&mut self, xmp: Option<String>) -> Result<String, JsError> {
         let model = parse_model(&xmp).map_err(|e| JsError::new(&e))?;
-        require_prepared_removals(self.saved_removals.as_ref(), &model)
-            .map_err(|e| JsError::new(&e))?;
-
-        // Re-develop + re-upload iff the prefix model changed. The hot-path sliders
-        // are zeroed in the prefix, so a WB/tone/vibrance/… tick takes the cheap
-        // branch: same buffer, same LiveSession, zero new GPU buffers.
-        let new_prefix = prefix_model_for(&self.raw_img, &self.raw, &self.ext, &model);
-        if new_prefix != self.prefix_model {
-            let (rgba, w, h, prefix_model, whites_anchor_ev, nr_sampling_scale) =
-                develop_prefix_rgba_saved(
-                    &self.raw_img,
-                    &self.raw,
-                    &self.ext,
-                    &self.original,
-                    &model,
-                    self.target_long_edge,
-                    self.saved_removals.as_ref(),
-                )
-                .map_err(|e| JsError::new(&e))?;
-            // Dims are stable across ticks (same image, same session-pinned
-            // target), but assert so a future quality/target switch can't
-            // silently desync the canvas surface.
-            if (w, h) != self.session.dims() {
-                return Err(JsError::new(&format!(
-                    "WebLiveSession::render: re-develop dims {w}x{h} != {}x{} (canvas not resized)",
-                    self.width, self.height
-                )));
-            }
-            self.session.update_image(&self.ctx, &rgba);
-            self.prefix_model = prefix_model;
-            self.whites_anchor_ev = whites_anchor_ev;
-            self.nr_sampling_scale = nr_sampling_scale;
-            self.lens_profile_json = crate::lens_profile::metadata(&self.raw_img, &model);
-        }
-
-        let tag = self
-            .present_for_model(&model)
-            .await
-            .map_err(|e| JsError::new(&e))?;
-        self.render_model = model;
-        Ok(tag)
+        self.render_model(&model).await
     }
 
     /// Re-render the live canvas with a flat parameters array (avoiding XML parsing on hot path).
     #[wasm_bindgen]
     pub async fn render_with_params(&mut self, params: &[f32]) -> Result<String, JsError> {
-        if params.len() < 19 {
-            return Err(JsError::new(
-                "render_with_params: params slice too short (expected at least 19 elements)",
-            ));
+        let mut model = model_from_live_params(params).map_err(|e| JsError::new(&e))?;
+        if self.saved_removals.is_some() {
+            model.inpaint_removals = self.prefix_model.inpaint_removals.clone();
         }
-
-        // Preserve the complete prior frame, including GPU stages deliberately
-        // zeroed in the upload prefix. Only the flat interface's fields change.
-        let mut model = self.render_model.clone();
-
-        model.exposure = params[0];
-        model.brightness = params[1];
-        model.contrast = params[2];
-        model.highlights = params[3];
-        model.shadows = params[4];
-        model.whites = params[5];
-        model.blacks = params[6];
-        model.vibrance = params[7];
-        model.saturation = params[8];
-        model.temperature = params[9];
-        model.tint = params[10];
-        model.temperature_seen = true;
-        model.tint_seen = true;
-        model.clarity = params[11];
-        model.texture = params[12];
-        model.dehaze = params[13];
-        model.vignette_amount = params[14];
-        model.vignette_feather = params[15];
-        model.grain_amount = params[16];
-        model.grain_size = params[17];
-        model.grain_roughness = params[18];
-
-        let tag = self
-            .present_for_model(&model)
-            .await
-            .map_err(|e| JsError::new(&e))?;
-        self.render_model = model;
-        Ok(tag)
+        self.render_model(&model).await
     }
 
     /// Load (or replace) the session's film-look LUT (epic #2683, Task 9).
@@ -322,14 +264,14 @@ impl WebLiveSession {
             .map_err(|error| JsValue::from_str(&error))
     }
 
-    /// Post-geometry viewport image width (== canvas width). ≤ the
+    /// The developed (viewport-sized) image width (== canvas width). ≤ the
     /// session's effective `max_long_edge` target on the long edge (#1080).
     #[wasm_bindgen(getter)]
     pub fn width(&self) -> u32 {
         self.width
     }
 
-    /// Post-geometry viewport image height (== canvas height). ≤ the
+    /// The developed (viewport-sized) image height (== canvas height). ≤ the
     /// session's effective `max_long_edge` target on the long edge (#1080).
     #[wasm_bindgen(getter)]
     pub fn height(&self) -> u32 {
@@ -381,8 +323,10 @@ impl WebLiveSession {
     /// (#3479) — see [`crate::render::MapleRender::lens_profile_json`]. Read
     /// after `open` and after every `render` that re-developed the prefix.
     #[wasm_bindgen(getter, js_name = autoFit)]
-    pub fn auto_fit(&self) -> Option<bool> {
-        self.auto_fit.get()
+    pub fn auto_fit(&self) -> Option<String> {
+        self.auto_fit
+            .get()
+            .map(|outcome| outcome.as_str().to_owned())
     }
 
     #[wasm_bindgen(getter, js_name = lensProfileJson)]
@@ -416,30 +360,74 @@ impl WebLiveSession {
 }
 
 impl WebLiveSession {
-    /// Run the resident chain and the shared quantized geometry tail, with no readback.
-    async fn present_for_model(&mut self, model: &AdjustmentModel) -> Result<String, String> {
-        require_prepared_removals(self.saved_removals.as_ref(), model)?;
-        let geometry = crate::gpu_render::display_geometry(
-            self.raw_img.orientation,
-            self.session.dims(),
+    /// Build the chain inputs for `model`, run the resident chain to its f32
+    /// buffer, and present to the held canvas surface. The shared tail of `open` +
+    /// `render`. Returns the achieved colour-space tag (from the one-time retag).
+    async fn render_model(&mut self, model: &AdjustmentModel) -> Result<String, JsError> {
+        require_prepared_removals(self.saved_removals.as_ref(), model)
+            .map_err(|e| JsError::new(&e))?;
+        if !session_prefix_matches(
             model,
-        );
-        let (width, height) = geometry.surface_dimensions(self.session.dims());
-        self.present.resize(&self.ctx, width, height)?;
-        let (mut inputs, auto_fit) = chain_inputs_with_status(
-            &self.raw_img,
+            &self.prefix_model,
             &self.raw,
             &self.ext,
-            model,
-            self.film_lut.as_ref(),
-            self.film_lut_key,
-            self.whites_anchor_ev,
-        );
-        self.white_balance.apply(model, &mut inputs);
+            &mut self.auto_will_fit_cache,
+        ) {
+            let prefix = develop_capture_prefix_rgba_saved(
+                &self.raw_img,
+                &self.raw,
+                &self.ext,
+                &self.original,
+                model,
+                self.target_long_edge,
+                self.saved_removals.as_ref(),
+            )
+            .map_err(|e| JsError::new(&e))?;
+            let (w, h) = (prefix.width, prefix.height);
+            if (w, h) != self.session.dims() {
+                return Err(JsError::new(&format!(
+                    "WebLiveSession::render: re-develop dims {w}x{h} != {}x{} (canvas not resized)",
+                    self.session.dims().0,
+                    self.session.dims().1
+                )));
+            }
+            if let Some(fits) = inferred_auto_will_fit(model, &prefix.prefix_model) {
+                self.auto_will_fit_cache = Some(fits);
+            }
+            self.session.update_image(&self.ctx, &prefix.rgba);
+            self.prefix_model = prefix.prefix_model;
+            self.live_profile = None;
+            self.whites_anchor_ev = prefix.whites_anchor_ev;
+            self.nr_sampling_scale = prefix.nr_sampling_scale;
+            self.creative = prefix.creative;
+            self.lens_profile_json = crate::lens_profile::metadata(&self.raw_img, model);
+        }
+        self.present_for_model(model)
+            .await
+            .map_err(|e| JsError::new(&e))
+    }
+
+    async fn present_for_model(&mut self, model: &AdjustmentModel) -> Result<String, String> {
+        let profile = self.live_profile.get_or_insert_with(|| {
+            raw_core::gpu_host::live_profile::LiveProfile::new(
+                &self.raw_img,
+                &self.raw,
+                &self.ext,
+                model,
+                self.target_long_edge,
+                self.film_lut.as_ref(),
+                self.film_lut_key,
+                self.whites_anchor_ev,
+            )
+        });
+        profile.set_film(self.film_lut.as_ref(), self.film_lut_key);
+        profile.update(model);
+        let auto_fit = profile.auto_fit;
+        let inputs = &mut profile.inputs;
+        self.creative.apply(model, inputs)?;
         inputs.nr_sampling_scale = self.nr_sampling_scale;
-        // The canvas and its mask overlay both present this sensor-framed
-        // buffer as-is, so masks stay in that frame until #4474 orients it.
-        inputs.mask_orientation = 1;
+        // Masks are authored upright; the resident chain remains sensor-framed.
+        inputs.mask_orientation = self.raw_img.orientation.exif_tag();
         // #1913 (generalised by #3191): the display-encode primaries MUST match
         // the canvas colour-space tag the present surface ACHIEVED — not the
         // `target_color_space` `open` was asked for, which the browser may not
@@ -452,17 +440,29 @@ impl WebLiveSession {
             crate::gpu_render::target_primaries_for_color_space(self.present.color_space());
         let final_idx = self
             .session
-            .render_chain_to_f32_async(&self.ctx, &inputs, None)
+            .render_chain_to_f32_async(&self.ctx, inputs, None)
             .await
             .map_err(|e| format!("WebLiveSession: {e}"))?
             .ok_or_else(|| "WebLiveSession: live chain returned no buffer".to_string())?;
         // The present recompiles nothing (the pipeline + surface are session-owned);
         // it only fetches the next surface texture, encodes the dither/quantize pass,
         // and presents — zero readback.
+        let presented = presentation(self.raw_img.orientation, self.session.dims(), model);
+        if presented.dims != (self.width, self.height) {
+            self.canvas.set_width(presented.dims.0);
+            self.canvas.set_height(presented.dims.1);
+            if let Err(error) =
+                self.present
+                    .resize(&self.ctx, &self.canvas, presented.dims.0, presented.dims.1)
+            {
+                self.canvas.set_width(self.width);
+                self.canvas.set_height(self.height);
+                return Err(error);
+            }
+            (self.width, self.height) = presented.dims;
+        }
         self.present
-            .present(&self.ctx, &self.session, final_idx, geometry)?;
-        self.width = width;
-        self.height = height;
+            .present(&self.ctx, &self.session, final_idx, presented.geometry)?;
         self.auto_fit.set(auto_fit);
         Ok(self.present.color_space().to_string())
     }

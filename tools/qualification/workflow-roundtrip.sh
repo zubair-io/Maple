@@ -9,7 +9,7 @@ cargo build --manifest-path src/raw-pipeline/Cargo.toml -p raw-core --example wo
 rust_bin="$repo_root/src/raw-pipeline/target/debug/examples/workflow-contract"
 swiftc src/apple/Packages/MapleCore/Sources/MapleCore/Generated/Workflow+Generated.swift \
 	tools/qualification/workflow/roundtrip.swift -o "$work_dir/swift-roundtrip"
-"$rust_bin" <test-fixtures/workflow/contract-v1.json >"$work_dir/rust-before.json"
+"$rust_bin" <test-fixtures/workflow/contract.json >"$work_dir/rust-before.json"
 "$work_dir/swift-roundtrip" <"$work_dir/rust-before.json" >"$work_dir/swift.json"
 bun tools/qualification/workflow/roundtrip.ts <"$work_dir/swift.json" >"$work_dir/ts.json"
 "$rust_bin" <"$work_dir/ts.json" >"$work_dir/rust-after.json"

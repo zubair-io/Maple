@@ -73,10 +73,6 @@ public actor WorkersAdminClient {
   // MARK: - Runtime config (#2770)
 
   /// Update a stage's concurrency / max attempts.
-  ///
-  /// For the `preview` stage this also resizes the on-demand preview
-  /// regeneration limiter in the API process — one setting, two effects, by
-  /// design (see preview-ondemand-limiter.ts).
   @discardableResult
   public func updateRuntime(stage: String, patch: StageRuntimePatch) async throws
     -> StageWorkerConfig?
@@ -128,6 +124,22 @@ public actor WorkersAdminClient {
     request.httpBody = try JSONEncoder().encode(command)
     let (data, resp) = try await httpClient.data(for: request)
     if let error = ServerAdminError.from(data: data, response: resp) { throw error }
+  }
+
+  // MARK: - Temporal (#5826)
+
+  public func temporal() async throws -> TemporalSettings {
+    try await get(server.appending(path: "/api/workers/temporal"), as: TemporalSettings.self)
+  }
+
+  public func saveTemporal(_ target: TemporalTarget) async throws -> TemporalSettings {
+    var request = URLRequest(url: server.appending(path: "/api/workers/temporal"))
+    request.httpMethod = "PUT"
+    request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+    request.httpBody = try JSONEncoder().encode(target)
+    let (data, resp) = try await httpClient.data(for: request)
+    if let error = ServerAdminError.from(data: data, response: resp) { throw error }
+    return try JSONDecoder().decode(TemporalSettings.self, from: data)
   }
 
   // MARK: - Transport

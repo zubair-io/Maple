@@ -29,55 +29,66 @@ struct MaskOverlay: View {
 
   var body: some View {
     GeometryReader { geo in
-      if let frame = state.zoom.displayFrameInPoints,
-        let full = MaskOverlayGeometry.fullFrameRect(
-          containerSize: geo.size, displayFrame: frame,
-          panOffset: state.zoom.panOffset, crop: state.session.model.crop)
-      {
-        ZStack {
-          if let previewImage {
-            let shown = state.session.showsMaskOverlay
-            let display = MaskOverlayGeometry.displayRect(
-              containerSize: geo.size, displayFrame: frame, panOffset: state.zoom.panOffset)
-            ZStack {
-              Image(decorative: previewImage, scale: 1)
-                .resizable()
-                .renderingMode(.template)
-                .foregroundStyle(.red.opacity(0.45))
-                .frame(width: full.width, height: full.height)
-                .rotationEffect(.degrees(state.session.model.crop.angle))
-                .position(x: full.midX, y: full.midY)
-                .opacity(shown ? 1 : 0)
-                .animation(.easeInOut(duration: 0.12), value: shown)
-            }
-            .frame(width: geo.size.width, height: geo.size.height)
-            .mask {
-              Rectangle().frame(width: display.width, height: display.height)
-                .position(x: display.midX, y: display.midY)
-            }
-            .allowsHitTesting(false)
-            .accessibilityHidden(true)
-          }
-          MaskGeometryHandles(state: state, fullFrame: full)
-          if case .brush = state.session.selectedMaskGeometry, !state.session.showingOriginal {
-            Rectangle()
-              .fill(.clear)
-              .contentShape(Rectangle())
-              .frame(width: full.width, height: full.height)
-              .position(x: full.midX, y: full.midY)
-              .gesture(strokeGesture(fullFrame: full))
-              .accessibilityIdentifier("editor-mask-brush-canvas")
-              .accessibilityLabel("Brush canvas")
-          }
+      // The photo as shown — a live pinch or a settle included — so the
+      // tint and handles move with it in the same frame (#5744).
+      CanvasPresentedReader(controller: state.zoom) { presented in
+        if let presented,
+          let full = MaskOverlayGeometry.fullFrameRect(
+            containerSize: geo.size, displayFrame: presented.displayFrame,
+            panOffset: presented.panOffset, crop: state.session.model.crop)
+        {
+          overlay(in: geo.size, presented: presented, full: full)
         }
-        .frame(width: geo.size.width, height: geo.size.height)
-        .coordinateSpace(name: "maskBrushCanvas")
-        .clipped()
-        .onDisappear { finishStroke() }
-        .onChange(of: state.session.selectedMaskId) { _, _ in finishStroke() }
       }
     }
     .task(id: request) { await loadCoverage() }
+  }
+
+  private func overlay(
+    in size: CGSize, presented: CanvasPresentedGeometry, full: CGRect
+  ) -> some View {
+    ZStack {
+      if let previewImage {
+        let shown = state.session.showsMaskOverlay
+        let display = MaskOverlayGeometry.displayRect(
+          containerSize: size, displayFrame: presented.displayFrame,
+          panOffset: presented.panOffset)
+        ZStack {
+          Image(decorative: previewImage, scale: 1)
+            .resizable()
+            .renderingMode(.template)
+            .foregroundStyle(.red.opacity(0.45))
+            .frame(width: full.width, height: full.height)
+            .rotationEffect(.degrees(state.session.model.crop.angle))
+            .position(x: full.midX, y: full.midY)
+            .opacity(shown ? 1 : 0)
+            .animation(.easeInOut(duration: 0.12), value: shown)
+        }
+        .frame(width: size.width, height: size.height)
+        .mask {
+          Rectangle().frame(width: display.width, height: display.height)
+            .position(x: display.midX, y: display.midY)
+        }
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+      }
+      MaskGeometryHandles(state: state, fullFrame: full)
+      if case .brush = state.session.selectedMaskGeometry, !state.session.showingOriginal {
+        Rectangle()
+          .fill(.clear)
+          .contentShape(Rectangle())
+          .frame(width: full.width, height: full.height)
+          .position(x: full.midX, y: full.midY)
+          .gesture(strokeGesture(fullFrame: full))
+          .accessibilityIdentifier("editor-mask-brush-canvas")
+          .accessibilityLabel("Brush canvas")
+      }
+    }
+    .frame(width: size.width, height: size.height)
+    .coordinateSpace(name: "maskBrushCanvas")
+    .clipped()
+    .onDisappear { finishStroke() }
+    .onChange(of: state.session.selectedMaskId) { _, _ in finishStroke() }
   }
 
   private func normalized(_ point: CGPoint, fullFrame: CGRect) -> MaskPoint {

@@ -9,25 +9,35 @@ import Foundation
 
 public actor CloudSidecarStore: WorkflowSidecarStoreProtocol {
   let server: URL
-  private let assetID: String
+  let assetID: String
   let httpClient: AuthenticatedHTTPClient
   let renderSidecar = WorkflowRenderSidecar()
-  private let variantId: String
+  let variantId: String
 
   private var cacheGeneration: UInt64 = 0
-  private var cached: (AdjustmentModel, CullingState)?
+  var cached: (AdjustmentModel, CullingState)?
   private var pendingTask: Task<Void, Never>?
   private var writeTail: Task<Void, Error>?
-  private var pendingModel: AdjustmentModel?
-  private var pendingCulling: CullingState?
-  private var pendingSemanticEdits: [CapturedCloudEdit] = []
+  var pendingModel: AdjustmentModel?
+  var pendingCulling: CullingState?
+  var pendingSemanticEdits: [CapturedCloudEdit] = []
   private var workflowPath: String?
 
-  private struct CapturedCloudEdit: Sendable {
+  // The last complete sidecar this store read or published: the document the
+  // editor's model represents. A write whose current document differs merges
+  // onto it instead of replacing it (#4983).
+  var observedSidecarXML: String?
+  var hasObservedSidecar = false
+  var lineageHeadID = ""
+  var stagedAdoption: StagedAdoption?
+  let reconciliationHub = SidecarReconciliationHub()
+
+  struct CapturedCloudEdit: Sendable {
     let id: String
     let createdAtMs: UInt64
     let action: String
     let label: String
+    let parentId: String
     let model: AdjustmentModel
     let culling: CullingState
   }
@@ -36,8 +46,8 @@ public actor CloudSidecarStore: WorkflowSidecarStoreProtocol {
   /// The local store re-reads them off disk at write time; there is no disk
   /// here, so the bucket is captured on load and held for the lifetime of the
   /// session — the same shape `cached` already has.
-  private var cachedPassthrough: XMPPassthrough = .empty
-  private var cachedMetadata = XmpMetadata()
+  var cachedPassthrough: XMPPassthrough = .empty
+  var cachedMetadata = XmpMetadata()
 
   private var subscribers: [UInt64: AsyncStream<Error>.Continuation] = [:]
   private var nextSubscriberID: UInt64 = 0
@@ -85,14 +95,23 @@ public actor CloudSidecarStore: WorkflowSidecarStoreProtocol {
     let req = URLRequest(url: try sidecarURL)
     let (data, resp) = try await httpClient.data(for: req)
     if let http = resp as? HTTPURLResponse, http.statusCode == 404 {
-      if generation == cacheGeneration { try requireIsPrimaryVariant() }
+      if generation == cacheGeneration {
+        try requireIsPrimaryVariant()
+        observedSidecarXML = nil
+        hasObservedSidecar = true
+        lineageHeadID = ""
+      }
       return generation == cacheGeneration ? nil : cached
     }
     try Self.checkOK(resp, data: data)
-    _ = try selectedWorkflow(String(decoding: data, as: UTF8.self))
+    let loaded = String(decoding: data, as: UTF8.self)
+    let head = try WorkflowSidecarCore.headId(xmp: loaded, variantId: variantId)
     let result = try XMPParser.parse(data: data)
     guard generation == cacheGeneration else { return cached ?? result }
-    try renderSidecar.write(String(decoding: data, as: UTF8.self))
+    try renderSidecar.write(loaded)
+    observedSidecarXML = loaded
+    hasObservedSidecar = true
+    lineageHeadID = head
     cached = result
     cachedPassthrough = XMPParser.parsePassthrough(data: data)
     cachedMetadata = XMPParser.parseMetadata(String(decoding: data, as: UTF8.self))
@@ -119,6 +138,7 @@ public actor CloudSidecarStore: WorkflowSidecarStoreProtocol {
     task?.cancel()
     _ = await task?.result
     await writePending()
+    _ = await writeTail?.result
   }
 
   /// Returns an async stream of errors encountered during background writes.
@@ -143,7 +163,7 @@ public actor CloudSidecarStore: WorkflowSidecarStoreProtocol {
 
   // Folder browsing identifies assets as fs:<absolute path>, not Mongo IDs.
   // Use the path endpoint so existing edits also work before indexing (#3357).
-  private var sidecarURL: URL {
+  var sidecarURL: URL {
     get throws {
       if variantId != WorkflowContract.primaryVariantID {
         guard let workflowPath else { throw URLError(.badURL) }
@@ -179,7 +199,8 @@ public actor CloudSidecarStore: WorkflowSidecarStoreProtocol {
     let captured = CapturedCloudEdit(
       id: UUID().uuidString.lowercased(),
       createdAtMs: UInt64(Date().timeIntervalSince1970 * 1000),
-      action: action, label: label, model: model, culling: culling)
+      action: action, label: label, parentId: pendingSemanticEdits.last?.id ?? lineageHeadID,
+      model: model, culling: culling)
     let checkpoint = XMPSerializer.serialize(model: model, culling: culling)
     _ = try WorkflowSidecarCore.commit(
       historyEntry(captured, checkpoint: checkpoint), in: checkpoint)
@@ -206,43 +227,6 @@ public actor CloudSidecarStore: WorkflowSidecarStoreProtocol {
     }
     writeTail = task
     try await task.value
-  }
-
-  private func send(model: AdjustmentModel, culling: CullingState) async throws {
-    try await publishSemanticEdits()
-    // Metadata can change independently of this editor session. Preserve
-    // the current sidecar's foreign XML and IPTC fields at the write boundary.
-    let (bytes, response) = try await httpClient.data(for: URLRequest(url: try sidecarURL))
-    let absent = (response as? HTTPURLResponse)?.statusCode == 404
-    if absent { try requireIsPrimaryVariant() }
-    if !absent { try Self.checkOK(response, data: bytes) }
-    if absent {
-      cachedMetadata = XmpMetadata()
-      cachedPassthrough = .empty
-    }
-    let existing: Data? = absent ? nil : bytes
-    var savedModel = model
-    savedModel.inpaintRemovals = try RemovalXMPRecords.ordinaryWriteRecords(existing)
-    if let existing {
-      let currentXML = String(decoding: existing, as: UTF8.self)
-      _ = try XMPParser.parse(data: existing)
-      _ = try selectedWorkflow(currentXML)
-      cachedMetadata = XMPParser.parseMetadata(currentXML)
-      cachedPassthrough = XMPParser.parsePassthrough(data: existing)
-    }
-    let xml = XMPSerializer.serialize(
-      model: savedModel, culling: culling, metadata: cachedMetadata, passthrough: cachedPassthrough)
-    var req = URLRequest(url: try sidecarURL)
-    req.httpMethod =
-      variantId == WorkflowContract.primaryVariantID && assetID.hasPrefix("fs:") ? "POST" : "PUT"
-    req.setValue("application/xml", forHTTPHeaderField: "Content-Type")
-    req.httpBody = Data(xml.utf8)
-    let (data, resp) = try await httpClient.data(for: req)
-    try Self.checkOK(resp, data: data)
-    // Path writes return their preserved XMP; catalog writes acknowledge in JSON.
-    let published = String(data: data, encoding: .utf8)
-    try renderSidecar.write(published?.hasPrefix("<") == true ? published! : xml)
-    if cached?.0 == model, cached?.1 == culling { cached = (savedModel, culling) }
   }
 
   private func writePending() async {
@@ -295,7 +279,10 @@ public actor CloudSidecarStore: WorkflowSidecarStoreProtocol {
       }
       let path = try await self.resolvedWorkflowPath()
       let current = try await self.readSelected(path: path)
-      guard let command else { return current }
+      guard let command else {
+        if !self.hasObservedSidecar { try self.observe(current) }
+        return current
+      }
       let output = try command.output(current: current, variantId: self.variantId)
       let published = output == current ? output : try await self.sendWorkflow(command, path: path)
       _ = try self.selectedWorkflow(published)
@@ -309,6 +296,7 @@ public actor CloudSidecarStore: WorkflowSidecarStoreProtocol {
       self.cachedMetadata = XMPParser.parseMetadata(published)
       self.cachedPassthrough = XMPParser.parsePassthrough(published)
       try self.renderSidecar.write(published)
+      if command.replacesEditorState { try self.observe(published) }
       return published
     }
     writeTail = Task { _ = try await task.value }
@@ -374,7 +362,7 @@ public actor CloudSidecarStore: WorkflowSidecarStoreProtocol {
     return path
   }
 
-  private func workflowURL(path: String, commit: Bool) throws -> URL {
+  func workflowURL(path: String, commit: Bool) throws -> URL {
     var components = URLComponents(
       url: server.appending(path: commit ? "/api/xmp/variant/commit" : "/api/xmp/variant"),
       resolvingAgainstBaseURL: false)
@@ -386,7 +374,7 @@ public actor CloudSidecarStore: WorkflowSidecarStoreProtocol {
     return url
   }
 
-  private func readSelected(path: String) async throws -> String? {
+  func readSelected(path: String) async throws -> String? {
     let (data, response) = try await httpClient.data(
       for: URLRequest(url: workflowURL(path: path, commit: false)))
     if (response as? HTTPURLResponse)?.statusCode == 404 {
@@ -400,63 +388,18 @@ public actor CloudSidecarStore: WorkflowSidecarStoreProtocol {
     return xml
   }
 
-  private func selectedWorkflow(_ xml: String) throws -> SidecarWorkflow? {
+  func selectedWorkflow(_ xml: String) throws -> SidecarWorkflow? {
     try WorkflowSidecarCore.variantWorkflow(xmp: xml, variantId: variantId)
   }
 
-  private func requireIsPrimaryVariant() throws {
+  func requireIsPrimaryVariant() throws {
     guard variantId == WorkflowContract.primaryVariantID else {
       throw WorkflowSidecarError(
         message: "The selected variant sidecar is missing. Restore it before editing.")
     }
   }
 
-  private func historyEntry(_ edit: CapturedCloudEdit, checkpoint: String) -> WorkflowHistoryEntry {
-    WorkflowHistoryEntry(
-      id: edit.id, createdAtMs: edit.createdAtMs, action: edit.action,
-      label: edit.label, adjustmentXmp: checkpoint)
-  }
-
-  private func publishSemanticEdits() async throws {
-    guard !pendingSemanticEdits.isEmpty else { return }
-    let edits = pendingSemanticEdits
-    let path = try await resolvedWorkflowPath()
-    var current = try await readSelected(path: path)
-    for edit in edits {
-      let record = try current.flatMap { try selectedWorkflow($0) }
-      if record?.history.contains(where: { $0.id == edit.id }) != true {
-        current = try await publishSemantic(edit, path: path, current: current)
-      }
-      pendingSemanticEdits.removeAll { $0.id == edit.id }
-    }
-  }
-
-  private func publishSemantic(
-    _ edit: CapturedCloudEdit, path: String, current: String?
-  ) async throws -> String {
-    let xml = XMPSerializer.serialize(
-      model: edit.model, culling: edit.culling,
-      metadata: current.map(XMPParser.parseMetadata) ?? XmpMetadata(),
-      passthrough: current.map { XMPParser.parsePassthrough(data: Data($0.utf8)) } ?? .empty)
-    let checkpoint = try WorkflowSidecarCore.checkpoint(xmp: xml)
-    let entry = historyEntry(edit, checkpoint: checkpoint)
-    let encodedEntry = try JSONSerialization.jsonObject(with: JSONEncoder().encode(entry))
-    var request = URLRequest(url: try workflowURL(path: path, commit: true))
-    request.httpMethod = "POST"
-    request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-    request.httpBody = try JSONSerialization.data(withJSONObject: [
-      "expectedXmp": current as Any? ?? NSNull(), "xmp": checkpoint, "entry": encodedEntry,
-    ])
-    let (data, response) = try await httpClient.data(for: request)
-    try Self.checkOK(response, data: data)
-    guard let published = String(data: data, encoding: .utf8) else {
-      throw XMPStoreError.encodingError
-    }
-    _ = try selectedWorkflow(published)
-    return published
-  }
-
-  private static func checkOK(_ resp: URLResponse, data: Data) throws {
+  static func checkOK(_ resp: URLResponse, data: Data) throws {
     guard let http = resp as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
       let body = String(data: data, encoding: .utf8) ?? ""
       throw NSError(

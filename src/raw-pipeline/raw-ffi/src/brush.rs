@@ -36,7 +36,7 @@ pub const BRUSH_DAB_STRIDE: usize = 6;
 ///        `0.0`/`1.0` — the wire is validated loudly so a host marshalling
 ///        bug surfaces here rather than as a silently wrong stroke
 #[no_mangle]
-pub extern "C" fn maple_brush_rasterize(
+pub unsafe extern "C" fn maple_brush_rasterize(
     dabs_ptr: *const f32,
     dab_count: usize,
     width: u32,
@@ -44,54 +44,67 @@ pub extern "C" fn maple_brush_rasterize(
     out_ptr: *mut u8,
     out_len: usize,
 ) -> i32 {
-    if (dabs_ptr.is_null() && dab_count > 0) || (out_ptr.is_null() && out_len > 0) {
-        return -1;
-    }
-    let Some(expected_len) = (width as usize).checked_mul(height as usize) else {
-        return -2;
-    };
-    if out_len != expected_len {
-        return -2;
-    }
-    let Some(wire_len) = dab_count.checked_mul(BRUSH_DAB_STRIDE) else {
-        return -2;
-    };
-    let wire: &[f32] = if dab_count == 0 {
-        &[]
-    } else {
-        unsafe { std::slice::from_raw_parts(dabs_ptr, wire_len) }
-    };
-    let mut dabs = Vec::with_capacity(dab_count);
-    for dab in wire.chunks_exact(BRUSH_DAB_STRIDE) {
-        let erase = match dab[5] {
-            0.0 => false,
-            1.0 => true,
-            _ => return -3,
-        };
-        if ![dab[0], dab[1], dab[2], dab[3], dab[4]]
-            .iter()
-            .all(|v| v.is_finite())
-        {
-            return -3;
+    crate::error::catch_panic_rc("maple_brush_rasterize", || {
+        if (dabs_ptr.is_null() && dab_count > 0) || (out_ptr.is_null() && out_len > 0) {
+            return -1;
         }
-        dabs.push(BrushDab::new(
-            Point2::new(dab[0], dab[1]),
-            dab[2],
-            dab[3],
-            dab[4],
-            erase,
-        ));
-    }
-    let bytes = rasterize_brush(&dabs, width, height);
-    if out_len > 0 {
-        unsafe { std::slice::from_raw_parts_mut(out_ptr, out_len).copy_from_slice(&bytes) };
-    }
-    0
+        let Some(expected_len) = (width as usize).checked_mul(height as usize) else {
+            return -2;
+        };
+        if out_len != expected_len {
+            return -2;
+        }
+        let Some(wire_len) = dab_count.checked_mul(BRUSH_DAB_STRIDE) else {
+            return -2;
+        };
+        let wire: &[f32] = if dab_count == 0 {
+            &[]
+        } else {
+            std::slice::from_raw_parts(dabs_ptr, wire_len)
+        };
+        let mut dabs = Vec::with_capacity(dab_count);
+        for dab in wire.chunks_exact(BRUSH_DAB_STRIDE) {
+            let erase = match dab[5] {
+                0.0 => false,
+                1.0 => true,
+                _ => return -3,
+            };
+            if ![dab[0], dab[1], dab[2], dab[3], dab[4]]
+                .iter()
+                .all(|v| v.is_finite())
+            {
+                return -3;
+            }
+            dabs.push(BrushDab::new(
+                Point2::new(dab[0], dab[1]),
+                dab[2],
+                dab[3],
+                dab[4],
+                erase,
+            ));
+        }
+        let bytes = rasterize_brush(&dabs, width, height);
+        if out_len > 0 {
+            std::slice::from_raw_parts_mut(out_ptr, out_len).copy_from_slice(&bytes);
+        }
+        0
+    })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn rasterize(
+        dabs: *const f32,
+        dab_count: usize,
+        width: u32,
+        height: u32,
+        out: *mut u8,
+        out_len: usize,
+    ) -> i32 {
+        unsafe { maple_brush_rasterize(dabs, dab_count, width, height, out, out_len) }
+    }
 
     fn dab(x: f32, y: f32, radius: f32, feather: f32, weight: f32, erase: f32) -> [f32; 6] {
         [x, y, radius, feather, weight, erase]
@@ -109,7 +122,7 @@ mod tests {
             BrushDab::new(Point2::new(0.5, 0.5), 0.2, 0.0, 0.5, true),
         ];
         let mut out = vec![0u8; 51 * 51];
-        let rc = maple_brush_rasterize(flat.as_ptr(), 2, 51, 51, out.as_mut_ptr(), out.len());
+        let rc = rasterize(flat.as_ptr(), 2, 51, 51, out.as_mut_ptr(), out.len());
         assert_eq!(rc, 0);
         assert_eq!(out, rasterize_brush(&dabs, 51, 51));
         assert_eq!(out[25 * 51 + 25], (0.3f32 * 255.0).round() as u8);
@@ -118,7 +131,7 @@ mod tests {
     #[test]
     fn empty_series_writes_zeros() {
         let mut out = vec![9u8; 16];
-        let rc = maple_brush_rasterize(std::ptr::null(), 0, 4, 4, out.as_mut_ptr(), out.len());
+        let rc = rasterize(std::ptr::null(), 0, 4, 4, out.as_mut_ptr(), out.len());
         assert_eq!(rc, 0);
         assert!(out.iter().all(|b| *b == 0));
     }
@@ -128,23 +141,20 @@ mod tests {
         let flat = [dab(0.5, 0.5, 0.1, 0.0, 1.0, 0.0)].concat();
         let mut out = vec![0u8; 16];
         assert_eq!(
-            maple_brush_rasterize(std::ptr::null(), 1, 4, 4, out.as_mut_ptr(), out.len()),
+            rasterize(std::ptr::null(), 1, 4, 4, out.as_mut_ptr(), out.len()),
             -1
         );
         assert_eq!(
-            maple_brush_rasterize(flat.as_ptr(), 1, 4, 4, std::ptr::null_mut(), 16),
+            rasterize(flat.as_ptr(), 1, 4, 4, std::ptr::null_mut(), 16),
             -1
         );
+        assert_eq!(rasterize(flat.as_ptr(), 1, 4, 4, out.as_mut_ptr(), 15), -2);
         assert_eq!(
-            maple_brush_rasterize(flat.as_ptr(), 1, 4, 4, out.as_mut_ptr(), 15),
+            rasterize(flat.as_ptr(), usize::MAX, 4, 4, out.as_mut_ptr(), 16),
             -2
         );
         assert_eq!(
-            maple_brush_rasterize(flat.as_ptr(), usize::MAX, 4, 4, out.as_mut_ptr(), 16),
-            -2
-        );
-        assert_eq!(
-            maple_brush_rasterize(
+            rasterize(
                 flat.as_ptr(),
                 1,
                 u32::MAX,
@@ -165,10 +175,7 @@ mod tests {
             [dab(0.5, 0.5, 0.1, 0.0, 1.0, 0.7)],
         ] {
             let flat = wire.concat();
-            assert_eq!(
-                maple_brush_rasterize(flat.as_ptr(), 1, 4, 4, out.as_mut_ptr(), 16),
-                -3
-            );
+            assert_eq!(rasterize(flat.as_ptr(), 1, 4, 4, out.as_mut_ptr(), 16), -3);
         }
     }
 }

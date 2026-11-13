@@ -111,10 +111,15 @@ fn file_histogram_counts_saved_pixels_and_unlocated_bytes_histogram_refuses_the_
             maple_render_file(raw.as_ptr(), xmp.as_ptr(), 2, &mut image),
             0
         );
-        let expected = crate::render::bin_rgb888(std::slice::from_raw_parts(image.rgb, image.len));
+        let expected =
+            crate::render_histogram::bin_rgb888(std::slice::from_raw_parts(image.rgb, image.len));
         let mut bins = [42u32; 768];
         assert_eq!(
-            crate::render::maple_histogram_file(raw.as_ptr(), xmp.as_ptr(), bins.as_mut_ptr()),
+            crate::render_histogram::maple_histogram_file(
+                raw.as_ptr(),
+                xmp.as_ptr(),
+                bins.as_mut_ptr()
+            ),
             0
         );
         assert_eq!(bins, expected);
@@ -124,7 +129,7 @@ fn file_histogram_counts_saved_pixels_and_unlocated_bytes_histogram_refuses_the_
         let ext = CString::new("dng").unwrap();
         bins.fill(42);
         assert_eq!(
-            crate::render::maple_histogram_bytes(
+            crate::render_histogram::maple_histogram_bytes(
                 source.as_ptr(),
                 source.len(),
                 ext.as_ptr(),

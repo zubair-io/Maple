@@ -13,7 +13,7 @@ describe('ServiceApiKeysComponent', () => {
     name: 'SugarMaple',
     scopes: ['assets:search'],
     createdAt: '2026-07-26T12:00:00.000Z',
-    expiresAt: '2026-10-24T12:00:00.000Z',
+    expiresAt: '2099-01-01T00:00:00.000Z',
     revokedAt: null,
     lastUsedAt: null,
     ...overrides,
@@ -26,7 +26,7 @@ describe('ServiceApiKeysComponent', () => {
     name: 'SugarMaple',
     scopes: ['assets:search'],
     createdAt: '2026-07-26T12:00:00.000Z',
-    expiresAt: '2026-10-24T12:00:00.000Z',
+    expiresAt: '2099-01-01T00:00:00.000Z',
   });
 
   async function setup(authStub: Partial<AuthService>): Promise<void> {
@@ -53,7 +53,7 @@ describe('ServiceApiKeysComponent', () => {
     await setup({ listServiceApiKeys: () => of([key()]) });
     fixture.detectChanges();
 
-    expect(element().textContent).toContain('cannot access Meilisearch directly');
+    expect(element().textContent).toContain('cannot change photos or use other Maple APIs');
     expect(element().textContent).toContain('/api/search/assets');
     expect(element().textContent).toContain('maple_sk_0123456789abcdef…');
     expect(element().textContent).toContain('Active');

@@ -1,0 +1,14 @@
+{
+  "name": "gpu-original-extreme-regression",
+  "command": [
+    "cargo",
+    "test",
+    "-p",
+    "raw-gpu",
+    "--lib",
+    "normalized_extreme_gaussian_weights_keep_the_mean_on_gpu",
+    "--",
+    "--nocapture"
+  ],
+  "exit_code": 101
+}

@@ -58,6 +58,7 @@
     /// the moment it becomes the shown asset, so a later Edit tap on it
     /// doesn't fall back to `EditorDestination`'s no-remote-store session.
     let onPrimeSession: (AssetRef) async -> Void
+    let makeEditSession: (AssetRef) -> EditSession
 
     @State private var session: PhoneSearchSession?
     @State private var didLoad = false
@@ -124,9 +125,13 @@
                     Task { await onPrimeSession(sibling) }
                     path = LibraryDestination.replacingAsset(in: path, with: sibling)
                   },
+                  makeEditSession: makeEditSession,
                   sessions: $sessions
                 )
                 .id(ref.id)
+              case .folder:
+                // Search results open photos only; folders stack in Library.
+                EmptyView()
               }
             }
             .toolbar(.hidden, for: .tabBar)
@@ -170,6 +175,19 @@
       // while this tab is already alive — `.task(id:)` won't re-run since
       // `sessionKey` hasn't changed.
       .onChange(of: pendingSeed) { _, _ in applySeedIfNeeded() }
+      .onChange(of: Set(sessions.keys)) { oldKeys, newKeys in
+        guard let current = path.last?.asset, !newKeys.contains(current.id),
+          let stableID = current.stableID,
+          let addedID = newKeys.subtracting(oldKeys).first(where: {
+            sessions[$0]?.asset.stableID == stableID
+          }),
+          let renamed = sessions[addedID]?.asset
+        else { return }
+        if let idx = previewAssets.firstIndex(where: { $0.id == current.id }) {
+          previewAssets[idx] = renamed
+        }
+        path = LibraryDestination.replacingAsset(in: path, with: renamed)
+      }
     }
 
     /// Apply a pending deep-link/Map-pin seed (#3163). Two halves, split

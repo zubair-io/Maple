@@ -21,6 +21,13 @@ interface FakeMapOptions {
 class FakeMapHandle implements MapLibreMapHandle {
   readonly options: FakeMapOptions;
   removed = false;
+  /** Real MapLibre throws from `addSource` until the style has loaded. */
+  styleLoaded = false;
+  fallbackStyle: unknown = null;
+  private finishStyleLoad: () => void = () => {};
+  private readonly styleReady = new Promise<void>((resolve) => {
+    this.finishStyleLoad = resolve;
+  });
   private errorHandler: ((event: { error?: { message: string } }) => void) | null = null;
 
   constructor(options: FakeMapOptions) {
@@ -41,7 +48,17 @@ class FakeMapHandle implements MapLibreMapHandle {
   getZoom(): number {
     return 0;
   }
-  addSource(): void {}
+  addSource(): void {
+    if (!this.styleLoaded) throw new Error('Style is not done loading');
+  }
+  whenStyleReady(fallbackStyle: unknown): Promise<void> {
+    this.fallbackStyle = fallbackStyle;
+    return this.styleReady;
+  }
+  loadStyle(): void {
+    this.styleLoaded = true;
+    this.finishStyleLoad();
+  }
   setSourceData(): void {}
   addMarker(): { remove(): void } {
     return { remove: () => {} };
@@ -69,13 +86,16 @@ describe('MapLibreService', () => {
   let handles: FakeMapHandle[];
   let service: MapLibreService;
   let container: HTMLElement;
+  let delayStyleLoad = false;
 
   beforeEach(() => {
     handles = [];
+    delayStyleLoad = false;
     getConfig = vi.fn();
     create = vi.fn((options: FakeMapOptions) => {
       const handle = new FakeMapHandle(options);
       handles.push(handle);
+      if (!delayStyleLoad) handle.loadStyle();
       return handle;
     });
     TestBed.configureTestingModule({
@@ -127,6 +147,51 @@ describe('MapLibreService', () => {
     expect(handles).toHaveLength(1);
     expect(handles[0]!.options.style).toEqual({ version: 8, sources: {}, layers: [] });
     expect(service.tilesUnreachable()).toBe(true);
+  });
+
+  it('does not emit until the style has loaded, so attaching sources cannot throw', async () => {
+    delayStyleLoad = true;
+    getConfig.mockReturnValue(of(configOf('https://styles.example/style.json')));
+    const emissions: void[] = [];
+    service.create(container).subscribe((value) => emissions.push(value));
+    await Promise.resolve();
+
+    expect(handles).toHaveLength(1);
+    expect(emissions).toHaveLength(0);
+    expect(() =>
+      service.currentHandle()!.addSource('s', { type: 'FeatureCollection', features: [] }),
+    ).toThrow();
+
+    handles[0]!.loadStyle();
+    await vi.waitFor(() => expect(emissions).toHaveLength(1));
+
+    expect(() =>
+      service.currentHandle()!.addSource('s', { type: 'FeatureCollection', features: [] }),
+    ).not.toThrow();
+  });
+
+  it('hands the blank fallback style to the readiness wait so a failed style still comes up usable', async () => {
+    delayStyleLoad = true;
+    getConfig.mockReturnValue(of(configOf('https://styles.example/style.json')));
+    service.create(container).subscribe();
+    await Promise.resolve();
+
+    expect(handles[0]!.fallbackStyle).toEqual({ version: 8, sources: {}, layers: [] });
+  });
+
+  it('a create() cancelled mid style-load never emits', async () => {
+    delayStyleLoad = true;
+    getConfig.mockReturnValue(of(configOf('https://styles.example/style.json')));
+    const emissions: void[] = [];
+    const subscription = service.create(container).subscribe((value) => emissions.push(value));
+    await Promise.resolve();
+
+    subscription.unsubscribe();
+    handles[0]!.loadStyle();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(emissions).toHaveLength(0);
   });
 
   it('destroy() removes the current instance', async () => {

@@ -1,6 +1,7 @@
 import type { BackupRepository } from './repository.ts';
 
-const LEASE_MS = 120_000;
+export const LIFECYCLE_LEASE_MS = 120_000;
+const LEASE_MS = LIFECYCLE_LEASE_MS;
 const RENEW_MS = 20_000;
 const NOW = "unixepoch('subsec')*1000";
 
@@ -31,6 +32,15 @@ function beginRenewal(id: string, owner: string, repo: BackupRepository): Lifecy
   timer.unref();
   const lease: LifecycleLease = { id, owner, repo, timer, renewing: null, error: null };
   return lease;
+}
+
+/** Renew a lease whose row the caller inserted under `owner`, e.g. a Trash purge (#5419). */
+export function adoptLifecycleLease(
+  id: string,
+  owner: string,
+  repo: BackupRepository,
+): LifecycleLease {
+  return beginRenewal(id, owner, repo);
 }
 
 async function renewLifecycleLease(id: string, lease: LifecycleLease): Promise<void> {

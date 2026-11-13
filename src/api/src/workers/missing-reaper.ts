@@ -13,7 +13,7 @@
  *      modified-content guard dual-flags an orphaned entry. Tagging is the only
  *      automatic step. A tagged entry is non-live, so the asset drops out of
  *      reads + stage claims the moment its LAST live entry is tagged.
- *   2. REAP. This worker scans assets with any tagged location each tick,
+ *   2. REAP. This worker scans assets with any tagged location each pass,
  *      re-stats each tagged location, and either recovers it (clear the tag),
  *      removes it once aged past the prune window, or — when that removal would
  *      leave the asset with no location at all — soft-deletes the record
@@ -35,7 +35,7 @@
  *   - Controlled like every other worker. Its paused state lives in
  *     `worker_config.paused`; pause/resume persist it, so a pause STICKS across
  *     restarts. But "paused" suspends ONLY the record soft-delete —
- *     recovery and sibling-prune of SURVIVING rows keep running every tick, so
+ *     recovery and sibling-prune of SURVIVING rows keep running every pass, so
  *     a moved/re-copied file reconciles even while paused. On boot it stays
  *     paused only until the stored state is read, so a config-store blip can't
  *     run a sweep against an operator's prior pause.
@@ -76,9 +76,9 @@
  *
  * Registered into the in-process `stageRegistry` so the existing
  * `/api/workers/missing-reaper/{status,pause,resume}` surface controls it,
- * the same as every pipeline stage. It is NOT a version-claim stage, so it
- * runs its own interval loop (mirrors `trash-gc`) rather than `runStage()`.
- * Started from `src/index.ts`.
+ * the same as every pipeline stage. It is NOT a version-claim stage: its
+ * passes run every minute as the `missing-reaper` maintenance task
+ * (`workers/maintenance/`), not through `runStage()`.
  */
 
 import * as path from 'node:path';
@@ -86,8 +86,6 @@ import { listMissingTagged, type MissingTaggedAsset } from '../db/repos/assets.s
 import { loadLibraryRoots } from '../indexer/libraries.cache.ts';
 import type { FileInfo } from '../db/schema.ts';
 import { child as childLogger } from '../log.ts';
-import { stageRegistry } from './registry.ts';
-import { ThroughputWindow } from './run-stage.ts';
 import { loadPruneWindowHours } from './missing-reaper-config.repo.ts';
 import {
   BREAKER_FRACTION,
@@ -95,21 +93,21 @@ import {
   hasLiveEntry,
   libraryRootAvailable,
   missingFileInfos,
-  nearMatchOnDisk,
+  absenceVeto,
   sameEntry,
   statKind,
   type MissingReaperSummary,
+  type StatKind,
 } from './missing-reaper.helpers.ts';
 import { reapRow, reconcileSurvivor } from './missing-reaper.reconcile.ts';
-import { makePausedPoller } from './paused-poller.ts';
-import { registerPausableWorker } from './pause-control.ts';
+import { IgnoreVerdictMemo } from '../fs/mapleignore.ts';
+import { pausableWorker, type RegisteredWorker } from './pause-control.ts';
 
 const log = childLogger('missing-reaper');
 
 /** Registry / route key. Matches `/api/workers/missing-reaper/...`. */
 export const MISSING_REAPER_NAME = 'missing-reaper';
 
-const DEFAULT_INTERVAL_MS = 60_000;
 const DEFAULT_BATCH = 200;
 /** Upper bound on pages examined per pass (#2171): pagination lets recovery
  * reach rows behind an undrainable (paused/cooldown/offline) oldest-first
@@ -122,19 +120,55 @@ export interface RunMissingReaperOptions {
   /**
    * Soft-delete (reap) an all-gone row only if its `missing_since` is strictly
    * before this ISO timestamp — i.e. it has been missing for at least the
-   * prune window. The interval loop passes `now - pruneWindowHours`.
+   * prune window. A scheduled pass passes `now - pruneWindowHours`.
    * Recovery/prune of rows whose file is still present is NOT gated by this.
    */
   deleteBeforeIso: string;
   /**
    * When false, eligible reaps are skipped (counted `skippedPaused`) but
    * recovery/prune still runs — so a re-found file reconciles even while the
-   * reaper is "paused". The loop passes `!paused`. Defaults to true.
+   * reaper is "paused". A scheduled pass passes `!paused`. Defaults to true.
    */
   allowDelete?: boolean;
+  /** Stops the pass between rows; untouched rows stay tagged for the next pass. */
+  signal?: AbortSignal;
 }
 
-/** One reap pass. Exported for tests + driven by the interval loop. */
+/**
+ * Soft-delete the rows a pass classified as gone, after the circuit breaker.
+ * A pass that soft-deletes a large fraction of what it scanned is more likely
+ * a systemic mis-detection than that many real deletions. Since #2977 the reap
+ * is a recoverable soft delete, so the pass PROCEEDS — but the trip is logged
+ * loudly and surfaced as a worker error (see runMissingReaperPass) until a
+ * clean pass follows.
+ */
+async function reapClassified(
+  toDelete: readonly MissingTaggedAsset[],
+  summary: MissingReaperSummary,
+  signal: AbortSignal | undefined,
+): Promise<void> {
+  if (toDelete.length > BREAKER_MIN && toDelete.length > summary.scanned * BREAKER_FRACTION) {
+    summary.breakerTripped = true;
+    log.error(
+      { wouldReap: toDelete.length, scanned: summary.scanned },
+      'missing-reaper: circuit breaker tripped — unusually large reap fraction; proceeding (soft-delete is recoverable) but flagging for operator review',
+    );
+  }
+  for (const doc of toDelete) {
+    if (signal?.aborted) return;
+    try {
+      if (await reapRow(doc)) summary.reaped++;
+    } catch (err) {
+      summary.errors++;
+      log.warn(
+        { _id: String(doc._id), err: err instanceof Error ? err.message : err },
+        'missing-reaper: reap (soft-delete) failed',
+      );
+    }
+  }
+}
+
+/** One reap pass. Exported for tests + driven by `runMissingReaperPass`. */
 export async function runMissingReaperOnce(
   opts: RunMissingReaperOptions,
 ): Promise<MissingReaperSummary> {
@@ -152,18 +186,9 @@ export async function runMissingReaperOnce(
   // a present-but-empty dir under which every child stats ENOENT — and
   // `nearMatchOnDisk` reads an ENOENT parent as 'clear' — so a bare stat of
   // the root would let a whole unmounted volume age into reaps.
-  const rootStatus = new Map<string, 'present' | 'offline'>();
-  const checkRoot = async (libIdHex: string): Promise<'present' | 'offline'> => {
-    const cached = rootStatus.get(libIdHex);
-    if (cached) return cached;
-    const root = libs.get(libIdHex);
-    const status: 'present' | 'offline' =
-      root && (await libraryRootAvailable(root)) ? 'present' : 'offline';
-    rootStatus.set(libIdHex, status);
-    return status;
-  };
+  const checkRoot = rootChecker(libs);
 
-  const allowDelete = opts.allowDelete ?? true;
+  const ignoreMemo = new IgnoreVerdictMemo();
   const summary: MissingReaperSummary = {
     scanned: 0,
     reaped: 0,
@@ -175,6 +200,15 @@ export async function runMissingReaperOnce(
     skippedPaused: 0,
     breakerTripped: false,
     errors: 0,
+  };
+
+  const pass: ReaperPass = {
+    deleteBeforeIso: opts.deleteBeforeIso,
+    libs,
+    checkRoot,
+    ignoreMemo,
+    allowDelete: opts.allowDelete ?? true,
+    summary,
   };
 
   // Every asset with a tagged location is examined each pass (no boot gate) —
@@ -194,260 +228,265 @@ export async function runMissingReaperOnce(
   // reach past an undrainable backlog. (Recovered assets leave the candidate set
   // mid-pass, which can shift the offset over a few rows — those are simply
   // picked up next pass.)
-  const fetchPage = (offset: number) => listMissingTagged({ limit: batchSize, offset });
-
+  //
   // Defer record deletes: classify all candidates first, then gate on the breaker.
-  const toDelete: MissingTaggedAsset[] = [];
+  const toDelete = await settlePages(pass, batchSize, opts.signal);
 
-  let page = await fetchPage(0);
-  let offset = 0;
-  while (page.length > 0) {
-    for (const doc of page) {
-      summary.scanned++;
-      try {
-        const tagged = missingFileInfos(doc.fileinfo);
-        const recover: FileInfo[] = []; // present again → clear missing_since
-        const prune: FileInfo[] = []; // confirmed gone (or orphan) AND aged → remove
-        // Aged + absent + non-orphan entries needing a near-match veto before any
-        // record delete. (Orphan/`deleted_at` entries skip the veto: a different
-        // file may legitimately sit at the path, so a near-match isn't a bug.)
-        const absentForVeto: FileInfo[] = [];
-        let cannotVerify = false;
-
-        for (const fi of tagged) {
-          const aged = (fi.missing_since ?? '') < opts.deleteBeforeIso;
-          if (fi.deleted_at) {
-            // Orphan / content-moved: dead, never re-stat. Prune once aged.
-            if (aged) prune.push(fi);
-            continue;
-          }
-          // Vanished-file entry: re-stat with the mount guard.
-          const libIdHex = fi.library_id.toHexString();
-          if ((await checkRoot(libIdHex)) === 'offline') {
-            cannotVerify = true;
-            break;
-          }
-          const root = libs.get(libIdHex)!;
-          const segments = fi.path === '' ? [] : fi.path.split('/');
-          const abs = path.join(root, ...segments, fi.filename);
-          const kind = await statKind(abs);
-          if (kind === 'present') recover.push(fi);
-          else if (kind === 'absent') {
-            if (aged) {
-              prune.push(fi);
-              absentForVeto.push(fi);
-            }
-          } else {
-            // Couldn't confirm the file is gone (EACCES/EIO/…) — skip the row.
-            cannotVerify = true;
-            break;
-          }
-        }
-
-        if (cannotVerify) {
-          summary.skippedMountOffline++;
-          continue;
-        }
-
-        // Survivors = every entry we are NOT pruning this pass (live entries,
-        // recovered entries, and still-in-cooldown missing entries).
-        const survivors = doc.fileinfo.filter((f) => !prune.some((p) => sameEntry(p, f)));
-
-        if (survivors.length > 0) {
-          // The asset keeps at least one location → reconcile in place (runs even
-          // while paused; nothing here removes the record). Nothing to do at all
-          // when every tagged entry is still in cooldown and none recovered.
-          if (recover.length === 0 && prune.length === 0) {
-            if (!hasLiveEntry(doc.fileinfo)) summary.skippedCooldown++;
-            continue;
-          }
-          await reconcileSurvivor(doc, recover, prune, survivors, summary, libs);
-          continue;
-        }
-
-        // No survivor — the prune would leave no location → REAP (soft-delete).
-        // Near-match veto on the absent (non-orphan) entries first.
-        let veto: 'name-mismatch' | 'unreadable' | null = null;
-        for (const fi of absentForVeto) {
-          const root = libs.get(fi.library_id.toHexString())!;
-          const segments = fi.path === '' ? [] : fi.path.split('/');
-          const verdict = await nearMatchOnDisk(path.join(root, ...segments, fi.filename));
-          if (verdict === 'match') {
-            veto = 'name-mismatch';
-            break;
-          }
-          if (verdict === 'unreadable') {
-            veto = 'unreadable';
-            break;
-          }
-        }
-        if (veto === 'name-mismatch') {
-          summary.skippedNameMismatch++;
-          log.warn(
-            { _id: String(doc._id) },
-            'missing-reaper: stored path ENOENT but a near-match exists on disk — skipped, not deleted',
-          );
-          continue;
-        }
-        if (veto === 'unreadable') {
-          // Couldn't list a gone entry's directory — treat like an offline mount:
-          // skip rather than delete on unproven absence.
-          summary.skippedMountOffline++;
-          log.warn(
-            { _id: String(doc._id) },
-            'missing-reaper: gone entry parent dir unreadable — skipped, not deleted',
-          );
-          continue;
-        }
-
-        // Every entry is gone-and-aged (a not-yet-aged entry would be a survivor,
-        // so the cooldown is already satisfied here). Gate the record delete on
-        // pause; recovery/prune of surviving rows already ran above regardless.
-        if (!allowDelete) {
-          summary.skippedPaused++;
-          continue;
-        }
-        toDelete.push(doc);
-      } catch (err) {
-        summary.errors++;
-        log.warn(
-          { _id: String(doc._id), err: err instanceof Error ? err.message : err },
-          'missing-reaper: row failed',
-        );
-      }
-    }
-    offset += page.length;
-    if (page.length < batchSize || offset >= batchSize * MAX_SCAN_PAGES) break;
-    page = await fetchPage(offset);
-  }
-
-  // Circuit breaker: a pass that soft-deletes a large fraction of what it
-  // scanned is more likely a systemic mis-detection than that many real
-  // deletions. Since #2977 the reap is a recoverable soft delete, so the
-  // pass PROCEEDS — but the trip is logged loudly and surfaced as a worker
-  // error (see tick()) until a clean pass follows.
-  if (toDelete.length > BREAKER_MIN && toDelete.length > summary.scanned * BREAKER_FRACTION) {
-    summary.breakerTripped = true;
-    log.error(
-      { wouldReap: toDelete.length, scanned: summary.scanned },
-      'missing-reaper: circuit breaker tripped — unusually large reap fraction; proceeding (soft-delete is recoverable) but flagging for operator review',
-    );
-  }
-
-  for (const doc of toDelete) {
-    try {
-      if (await reapRow(doc)) summary.reaped++;
-    } catch (err) {
-      summary.errors++;
-      log.warn(
-        { _id: String(doc._id), err: err instanceof Error ? err.message : err },
-        'missing-reaper: reap (soft-delete) failed',
-      );
-    }
-  }
+  await reapClassified(toDelete, summary, opts.signal);
 
   if (summary.scanned > 0) log.info(summary, 'missing-reaper pass complete');
   return summary;
 }
 
-export interface MissingReaperHandle {
-  stop: () => void;
-  /** Resolves once the persisted pause state has been read on boot. Tests await
-   * this so they observe the adopted state; production ignores it. */
-  ready: Promise<void>;
+interface ReaperPass {
+  deleteBeforeIso: string;
+  libs: ReadonlyMap<string, string>;
+  checkRoot: (libIdHex: string) => Promise<'present' | 'offline'>;
+  ignoreMemo: IgnoreVerdictMemo;
+  allowDelete: boolean;
+  summary: MissingReaperSummary;
 }
 
-export interface StartMissingReaperOptions {
-  intervalMs?: number;
-  batchSize?: number;
+function rootChecker(libs: ReadonlyMap<string, string>): ReaperPass['checkRoot'] {
+  const rootStatus = new Map<string, 'present' | 'offline'>();
+  return async (libIdHex) => {
+    const cached = rootStatus.get(libIdHex);
+    if (cached) return cached;
+    const root = libs.get(libIdHex);
+    const status: 'present' | 'offline' =
+      root && (await libraryRootAvailable(root)) ? 'present' : 'offline';
+    rootStatus.set(libIdHex, status);
+    return status;
+  };
+}
+
+async function settlePage(
+  page: readonly MissingTaggedAsset[],
+  pass: ReaperPass,
+  signal: AbortSignal | undefined,
+): Promise<MissingTaggedAsset[]> {
+  const toReap: MissingTaggedAsset[] = [];
+  for (const doc of page) {
+    if (signal?.aborted) break;
+    pass.summary.scanned++;
+    try {
+      if ((await settleRow(doc, pass)) === 'reap') toReap.push(doc);
+    } catch (err) {
+      pass.summary.errors++;
+      log.warn(
+        { _id: String(doc._id), err: err instanceof Error ? err.message : err },
+        'missing-reaper: row failed',
+      );
+    }
+  }
+  return toReap;
+}
+
+/** Settles every tagged asset page by page and returns the ones whose record should be reaped. */
+async function settlePages(
+  pass: ReaperPass,
+  batchSize: number,
+  signal: AbortSignal | undefined,
+): Promise<MissingTaggedAsset[]> {
+  const toDelete: MissingTaggedAsset[] = [];
+  const fetchPage = (offset: number) => listMissingTagged({ limit: batchSize, offset });
+  let page = await fetchPage(0);
+  let offset = 0;
+  while (page.length > 0) {
+    toDelete.push(...(await settlePage(page, pass, signal)));
+    offset += page.length;
+    if (signal?.aborted || page.length < batchSize || offset >= batchSize * MAX_SCAN_PAGES) break;
+    page = await fetchPage(offset);
+  }
+  return toDelete;
+}
+
+/** Recovers or prunes one tagged asset in place, or answers 'reap' when its record should be soft-deleted. */
+async function settleRow(doc: MissingTaggedAsset, pass: ReaperPass): Promise<'reap' | 'settled'> {
+  const { libs, summary } = pass;
+  const { recover, prune, absentForVeto, cannotVerify } = await classifyTaggedEntries(
+    missingFileInfos(doc.fileinfo),
+    pass.deleteBeforeIso,
+    libs,
+    pass.checkRoot,
+    pass.ignoreMemo,
+  );
+
+  if (cannotVerify) {
+    summary.skippedMountOffline++;
+    return 'settled';
+  }
+
+  // Survivors = every entry we are NOT pruning this pass (live entries,
+  // recovered entries, and still-in-cooldown missing entries).
+  const survivors = doc.fileinfo.filter((f) => !prune.some((p) => sameEntry(p, f)));
+
+  if (survivors.length > 0) {
+    // The asset keeps at least one location → reconcile in place (runs even
+    // while paused; nothing here removes the record). Nothing to do at all
+    // when every tagged entry is still in cooldown and none recovered.
+    if (recover.length === 0 && prune.length === 0) {
+      if (!hasLiveEntry(doc.fileinfo)) summary.skippedCooldown++;
+      return 'settled';
+    }
+    await reconcileSurvivor(doc, recover, prune, survivors, summary, libs);
+    return 'settled';
+  }
+
+  // No survivor — the prune would leave no location → REAP (soft-delete).
+  // Near-match veto on the absent (non-orphan) entries first.
+  const veto = await absenceVeto(absentForVeto, libs);
+  if (veto === 'name-mismatch') {
+    summary.skippedNameMismatch++;
+    log.warn(
+      { _id: String(doc._id) },
+      'missing-reaper: stored path ENOENT but a near-match exists on disk — skipped, not deleted',
+    );
+    return 'settled';
+  }
+  if (veto === 'unreadable') {
+    // Couldn't list a gone entry's directory — treat like an offline mount:
+    // skip rather than delete on unproven absence.
+    summary.skippedMountOffline++;
+    log.warn(
+      { _id: String(doc._id) },
+      'missing-reaper: gone entry parent dir unreadable — skipped, not deleted',
+    );
+    return 'settled';
+  }
+
+  // Every entry is gone-and-aged (a not-yet-aged entry would be a survivor,
+  // so the cooldown is already satisfied here). Gate the record delete on
+  // pause; recovery/prune of surviving rows already ran above regardless.
+  if (!pass.allowDelete) {
+    summary.skippedPaused++;
+    return 'settled';
+  }
+  return 'reap';
+}
+
+/** Per-entry verdicts for one tagged asset (see the module doc's
+ * "Per-entry classification"). `cannotVerify` means the row is skipped. */
+interface TaggedClassification {
+  /** present again → clear missing_since */
+  recover: FileInfo[];
+  /** confirmed gone (or orphan / `.mapleignore`-excluded) AND aged → remove */
+  prune: FileInfo[];
+  /** Aged + absent + non-orphan entries needing a near-match veto before any
+   * record delete. Orphan (`deleted_at`) entries skip the veto — a different
+   * file may legitimately sit at the path — and so do `.mapleignore`-excluded
+   * ones, whose file is deliberately still on disk. */
+  absentForVeto: FileInfo[];
+  cannotVerify: boolean;
+}
+
+/** What one tagged entry contributes to its asset's classification. */
+type EntryVerdict = 'recover' | 'prune' | 'prune-after-veto' | 'keep' | 'skip-row';
+
+async function classifyTaggedEntries(
+  tagged: readonly FileInfo[],
+  deleteBeforeIso: string,
+  libs: ReadonlyMap<string, string>,
+  checkRoot: (libIdHex: string) => Promise<'present' | 'offline'>,
+  ignoreMemo: IgnoreVerdictMemo,
+): Promise<TaggedClassification> {
+  const out: TaggedClassification = {
+    recover: [],
+    prune: [],
+    absentForVeto: [],
+    cannotVerify: false,
+  };
+  for (const fi of tagged) {
+    const verdict = await entryVerdict(fi, deleteBeforeIso, libs, checkRoot, ignoreMemo);
+    if (verdict === 'skip-row') return { ...out, cannotVerify: true };
+    if (verdict === 'recover') out.recover.push(fi);
+    if (verdict === 'prune' || verdict === 'prune-after-veto') out.prune.push(fi);
+    if (verdict === 'prune-after-veto') out.absentForVeto.push(fi);
+  }
+  return out;
+}
+
+async function entryVerdict(
+  fi: FileInfo,
+  deleteBeforeIso: string,
+  libs: ReadonlyMap<string, string>,
+  checkRoot: (libIdHex: string) => Promise<'present' | 'offline'>,
+  ignoreMemo: IgnoreVerdictMemo,
+): Promise<EntryVerdict> {
+  const aged = (fi.missing_since ?? '') < deleteBeforeIso;
+  // Orphan / content-moved: dead, never re-stat. Prune once aged.
+  if (fi.deleted_at) return aged ? 'prune' : 'keep';
+  // Vanished-file entry: re-stat with the mount guard. An unverifiable entry
+  // (offline root, EACCES/EIO, a marker stat error) skips the whole row.
+  const libIdHex = fi.library_id.toHexString();
+  if ((await checkRoot(libIdHex)) === 'offline') return 'skip-row';
+  const kind = await taggedEntryKind(libs.get(libIdHex)!, fi, ignoreMemo);
+  if (kind === 'error') return 'skip-row';
+  if (kind === 'present') return 'recover';
+  if (!aged) return 'keep';
+  return kind === 'absent' ? 'prune-after-veto' : 'prune';
 }
 
 /**
- * Start the reaper's interval loop and register it with the stage registry.
- *
- * Controlled exactly like every other worker: paused state persists in
- * `worker_config.paused` via pause/resume, so it RUNS by default and a pause
- * sticks across restarts. The returned handle's `stop()` cancels the loop and
- * unregisters; `ready` resolves once the persisted state has been adopted.
+ * Re-stat one tagged location. A file that is present but sits under a
+ * `.mapleignore` folder (#5398) is `excluded` — gone from the library's point
+ * of view, so it ages out like a vanished file instead of being recovered. A
+ * marker check that errors is `error`, never `excluded`: the row is skipped
+ * this pass rather than pruned on unproven evidence.
  */
-export function startMissingReaper(opts: StartMissingReaperOptions = {}): MissingReaperHandle {
-  const intervalMs = opts.intervalMs ?? DEFAULT_INTERVAL_MS;
-  const batchSize = opts.batchSize ?? DEFAULT_BATCH;
+async function taggedEntryKind(
+  root: string,
+  fi: FileInfo,
+  ignoreMemo: IgnoreVerdictMemo,
+): Promise<StatKind | 'excluded'> {
+  const segments = fi.path === '' ? [] : fi.path.split('/');
+  const kind = await statKind(path.join(root, ...segments, fi.filename));
+  if (kind !== 'present') return kind;
+  const verdict = await ignoreMemo.verdict(root, fi.path);
+  if (verdict === 'unknown') return 'error';
+  return verdict === 'ignored' ? 'excluded' : 'present';
+}
 
-  let running = false;
-  let stopped = false;
-  const throughput = new ThroughputWindow();
+const reaper = pausableWorker({
+  name: MISSING_REAPER_NAME,
+  log,
+  unreadablePaused: true,
+  /** An install with no stored row never soft-deleted before #5820, so it stays gated until an owner resumes it. */
+  defaultPaused: true,
+  messages: {
+    loadFailed: 'missing-reaper: could not load persisted pause state — staying paused',
+    paused: 'missing-reaper paused',
+    resumed:
+      'missing-reaper RESUMED — aged-out missing rows are now eligible for soft delete (recoverable until the trash retention window expires)',
+  },
+  resumedLevel: 'warn',
+});
 
-  // Persisted pause/resume, the same surface every other worker uses. Paused
-  // only until the persisted control state is read — a config-store blip on
-  // boot must not run a destructive sweep against an operator's prior pause.
-  const control = registerPausableWorker({
-    name: MISSING_REAPER_NAME,
-    log,
-    initialPaused: true,
-    defaultPaused: false, // default running on first boot
-    getInFlight: () => (running ? 1 : 0),
-    getThroughput: () => throughput.countInWindow(),
-    messages: {
-      loadFailed: 'missing-reaper: could not load persisted pause state — staying paused',
-      paused: 'missing-reaper paused',
-      resumed:
-        'missing-reaper RESUMED — aged-out missing rows are now eligible for soft delete (recoverable until the trash retention window expires)',
-    },
-    resumedLevel: 'warn',
+/** Puts the reaper on Settings → Workers, where pause/resume persist in `worker_config`. */
+export const registerMissingReaper = (): RegisteredWorker => reaper.register();
+
+const breakerProblem = (summary: MissingReaperSummary): string | undefined =>
+  summary.breakerTripped
+    ? `circuit breaker: reaped ${summary.reaped} of ${summary.scanned} scanned rows in one pass — review the Trash view; reaped rows are recoverable until the trash retention window expires`
+    : undefined;
+
+/**
+ * One scheduled pass. It runs while paused too: recovery and sibling-prune of
+ * re-found files must keep working, and only the soft-delete is held back.
+ */
+export async function runMissingReaperPass(
+  signal?: AbortSignal,
+  batchSize = DEFAULT_BATCH,
+): Promise<void> {
+  await reaper.runPass(async () => {
+    const paused = await reaper.readPaused();
+    const pruneWindowHours = await loadPruneWindowHours();
+    const summary = await runMissingReaperOnce({
+      batchSize,
+      deleteBeforeIso: new Date(Date.now() - pruneWindowHours * 3_600_000).toISOString(),
+      allowDelete: !paused,
+      signal,
+    });
+    return { processed: summary.reaped, problem: breakerProblem(summary) };
   });
-  // Resolves once the persisted control state has been adopted after boot.
-  const { ready } = control;
-
-  // Throttled cross-process pause poller (2s interval). See paused-poller.ts.
-  const pollPaused = makePausedPoller(MISSING_REAPER_NAME, control.paused);
-
-  const tick = async (): Promise<void> => {
-    // Runs even when paused — recovery/prune (re-found files) must keep working;
-    // only the reap (soft-delete) is gated by `allowDelete: !paused` below.
-    if (stopped || running) return;
-    running = true;
-    try {
-      control.paused = await pollPaused();
-      const pruneWindowHours = await loadPruneWindowHours();
-      const deleteBeforeIso = new Date(Date.now() - pruneWindowHours * 3_600_000).toISOString();
-      const summary = await runMissingReaperOnce({
-        batchSize,
-        deleteBeforeIso,
-        allowDelete: !control.paused,
-      });
-      for (let i = 0; i < summary.reaped; i++) throughput.record(new Date());
-      if (summary.breakerTripped) {
-        stageRegistry.recordError(
-          MISSING_REAPER_NAME,
-          `circuit breaker: reaped ${summary.reaped} of ${summary.scanned} scanned rows in one pass — review the Trash view; reaped rows are recoverable until the trash retention window expires`,
-        );
-      } else {
-        stageRegistry.clearError(MISSING_REAPER_NAME);
-      }
-    } catch (err) {
-      stageRegistry.recordError(
-        MISSING_REAPER_NAME,
-        err instanceof Error ? err.message : String(err),
-      );
-      log.error({ err }, 'missing-reaper pass crashed');
-    } finally {
-      running = false;
-    }
-  };
-
-  const timer = setInterval(() => {
-    void tick();
-  }, intervalMs);
-
-  log.info({ intervalMs }, 'missing-reaper started');
-
-  return {
-    stop: () => {
-      stopped = true;
-      clearInterval(timer);
-      stageRegistry.unregister(MISSING_REAPER_NAME);
-    },
-    ready,
-  };
 }

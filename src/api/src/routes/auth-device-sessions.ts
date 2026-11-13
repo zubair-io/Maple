@@ -1,5 +1,5 @@
 /**
- * Paired-device sessions (Maple TV pairing, milestone B of the TV epic, #2075).
+ * Paired-device sessions for Maple TV (#2075) and Apple Watch (#3617).
  *
  * A device session is a labeled, platform-marked refresh-token family.
  * Mint requires the caller's OWN live refresh token in the body — proof of a
@@ -69,7 +69,7 @@ export const authDeviceSessionRoutes = new Elysia({ prefix: '/api/auth/device-se
     {
       body: t.Object({
         label: t.String({ minLength: 1, maxLength: 64 }),
-        platform: t.Union([t.Literal('tvos')]),
+        platform: t.Union([t.Literal('tvos'), t.Literal('watchos')]),
         refresh_token: t.String({ minLength: 1 }),
       }),
     },

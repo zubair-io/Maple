@@ -60,8 +60,8 @@ fn native_rejection_paints_whole_fallback_without_repeating_on_pan_or_editing_xm
     let generation = app.zoom.generation;
     // Use a narrow canvas because the floating inspector no longer reserves
     // width. The fixture must exceed the viewport at the supported 8x limit.
-    app.zoom.scale = 8.0;
-    app.zoom.pan = egui::vec2(20.0, -20.0);
+    app.zoom.zoom_to(8.0);
+    app.zoom.set_pan(egui::vec2(20.0, -20.0));
     for _ in 0..50 {
         let input = egui::RawInput {
             screen_rect: Some(egui::Rect::from_min_size(
@@ -75,7 +75,10 @@ fn native_rejection_paints_whole_fallback_without_repeating_on_pan_or_editing_xm
             app.views(context);
         });
     }
-    assert!(app.zoom.pan.x.abs() > 0.0, "exercise an actual clamped pan");
+    assert!(
+        app.zoom.pan().x.abs() > 0.0,
+        "exercise an actual clamped pan"
+    );
     assert_eq!(
         app.zoom.generation, generation,
         "panning reuses the whole fallback"

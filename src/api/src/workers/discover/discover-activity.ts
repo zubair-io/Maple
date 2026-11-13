@@ -1,0 +1,108 @@
+/**
+ * The activity behind every discover workflow: one slice of one library root's
+ * sweep, heartbeating as it goes.
+ */
+
+import { Context } from '@temporalio/activity';
+import { listLibraryRoots } from '../../db/repos/folders.repo.ts';
+import { loadDiscoverConfig } from './discover-config.repo.ts';
+import { handleEvent } from './handle-event.ts';
+import { runSweepSlice, type SliceProgress, type SweepSliceSummary } from './sweep-slice.ts';
+import type { ReconcileDeps } from './sweeper.ts';
+
+export interface DiscoverActivities {
+  sweepRoot: (rootKey: string) => Promise<SweepSliceSummary>;
+}
+
+/** What tests replace; production takes the real producer. */
+export interface DiscoverSliceOptions {
+  handleEvent?: ReconcileDeps['handleEvent'];
+}
+
+/**
+ * Well inside the workflow's one-minute heartbeat timeout. Sent on a timer,
+ * not only with progress: one directory visit can spend minutes hashing a
+ * multi-GB file or reconciling a folder's hidden state.
+ */
+const HEARTBEAT_EVERY_MS = 15_000;
+
+type Heartbeat = (progress: SliceProgress) => void;
+
+type SliceRunner = (
+  rootKey: string,
+  heartbeat: Heartbeat,
+  signal: AbortSignal,
+) => Promise<SweepSliceSummary>;
+
+const GONE: SweepSliceSummary = {
+  generation: 0,
+  generationsCompleted: 0,
+  directoriesVisited: 0,
+  registered: false,
+};
+
+/** A root's key is its library id, which is also what names its workflow. */
+function sliceRunner({ handleEvent: onEvent }: DiscoverSliceOptions): SliceRunner {
+  return async (rootKey, heartbeat, signal) => {
+    const library = (await listLibraryRoots()).find((root) => root.id.toHexString() === rootKey);
+    if (library === undefined) return GONE;
+    return runSweepSlice({
+      folderId: library.id,
+      root: library.path,
+      deps: { folderId: library.id, handleEvent: onEvent ?? handleEvent },
+      loadConfig: loadDiscoverConfig,
+      heartbeat,
+      signal,
+    });
+  };
+}
+
+/**
+ * Temporal redelivers a slice it lost contact with even when the slice is in
+ * fact still running here, as it can be after a long network outage. Two slices
+ * of one root would claim against each other, so the later delivery joins the
+ * running slice, heartbeating with it, and ends the way it does.
+ */
+export function singleFlightPerRoot(run: SliceRunner): SliceRunner {
+  const running = new Map<string, { done: Promise<SweepSliceSummary>; beats: Set<Heartbeat> }>();
+  return (rootKey, heartbeat, signal) => {
+    const current = running.get(rootKey);
+    if (current !== undefined) {
+      current.beats.add(heartbeat);
+      return current.done;
+    }
+    const beats = new Set([heartbeat]);
+    const fanOut: Heartbeat = (progress) => beats.forEach((beat) => beat(progress));
+    const done = run(rootKey, fanOut, signal).finally(() => running.delete(rootKey));
+    running.set(rootKey, { done, beats });
+    return done;
+  };
+}
+
+/**
+ * The activity's cancellation signal fires when the workflow is cancelled or
+ * terminated and when this worker shuts down; either way the slice stops before
+ * its next file event.
+ */
+export function createDiscoverActivities(options: DiscoverSliceOptions = {}): DiscoverActivities {
+  const sweep = singleFlightPerRoot(sliceRunner(options));
+  return {
+    sweepRoot: async (rootKey) => {
+      const context = Context.current();
+      const latest: { progress?: SliceProgress } = {};
+      const timer = setInterval(() => context.heartbeat(latest.progress), HEARTBEAT_EVERY_MS);
+      try {
+        return await sweep(
+          rootKey,
+          (progress) => {
+            latest.progress = progress;
+            context.heartbeat(progress);
+          },
+          context.cancellationSignal,
+        );
+      } finally {
+        clearInterval(timer);
+      }
+    },
+  };
+}

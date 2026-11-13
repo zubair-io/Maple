@@ -34,12 +34,11 @@ import { importsRoutes } from './imports.ts';
 import { enrichmentRoutes } from './enrichment.ts';
 import { observabilityRoutes } from './observability.ts';
 import { networkSettingsRoutes } from './network.ts';
-import { meilisearchBackfillRoutes } from './admin-backfill-meilisearch.ts';
-import { adminMeilisearchStatusRoutes } from './admin-meilisearch-status.ts';
 import { purgeSubthresholdFacesRoutes } from './admin-purge-subthreshold-faces.ts';
 import { peopleRoutes } from './people.ts';
 import { presetsRoutes } from './presets.ts';
 import { panoRoutes } from './pano.ts';
+import { panoPreviewRoutes } from './pano-preview.ts';
 import { mapConfigRoutes } from './map-config.ts';
 import { batchMetadataRoutes } from './batch-metadata.ts';
 import { backupIngestRoutes } from './backup-ingest.ts';
@@ -108,8 +107,6 @@ export const authedApi = new Elysia({ name: 'authedApi' })
   .use(enrichmentRoutes)
   .use(observabilityRoutes)
   .use(networkSettingsRoutes)
-  .use(meilisearchBackfillRoutes)
-  .use(adminMeilisearchStatusRoutes)
   .use(purgeSubthresholdFacesRoutes)
   .use(peopleRoutes)
   .use(presetsRoutes)
@@ -122,6 +119,7 @@ export const authedApi = new Elysia({ name: 'authedApi' })
   // wide config, no per-user scoping, same tier as renderConfigRoutes above.
   .use(apnsConfigRoutes)
   .use(panoRoutes)
+  .use(panoPreviewRoutes)
   .use(mapConfigRoutes)
   .use(changesRoutes)
   .use(mirrorRoutes)

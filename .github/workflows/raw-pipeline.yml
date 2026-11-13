@@ -1,57 +1,40 @@
-# .github/workflows/raw-pipeline.yml
-#
-# Color-parity gate for the Rust raw pipeline. Per CLAUDE.md §
-# "Objective color testing — no eyeballing": every color-pipeline
-# change must pass src/scripts/test_color_pipeline.sh against the
-# committed test-fixtures/budgets.json (which is a one-way ratchet).
-#
-# This workflow exists because the rule was previously enforced only
-# on the local laptop of whoever ran the harness before merging — see
-# test-fixtures/BUDGETS_DRIFT.md for the resulting drift on main.
-#
-# Fixtures: test-fixtures/raws/ and test-fixtures/references/ are
-# gitignored (6.5 GB). The harness skip-passes at preflight when its
-# manifest or budgets file is missing (src/scripts/test_color_pipeline.sh
-# preflight section); a missing raws/ directory is *not* checked by the
-# script directly — with manifest + budgets present but RAWs absent the
-# script now FAILS CLOSED via its compared==0 gate (#1082) rather than
-# green-no-opping. To keep the workflow robust against partial-fixture
-# states, the probe below treats raws/ AND manifest as load-bearing, and
-# the skip-pass branch points the script at a synthetic non-existent
-# manifest so it unconditionally takes its preflight exit. The job is
-# therefore a no-op on stock runners; it becomes meaningful on a
-# self-hosted runner (or any environment) where fixtures have been
-# provisioned. Fixture provisioning is tracked separately.
+# RAW pipeline correctness and Auto-to-embedded-JPEG accuracy.
+# ACR appearance comparisons are retired from CI. Stock runners without RAWs
+# report physical Auto accuracy as NOT TESTED; fixture-free invariants still run.
 
 name: raw-pipeline
 
 on:
+  merge_group:
+    types: [checks_requested]
   push:
     branches: [main]
     paths:
       - 'src/raw-pipeline/**'
-      - 'test-fixtures/budgets.json'
+      - 'tools/test_nlm_wasm_simd.py'
+      - 'tools/fixtures/nlm_simd_witness.rs'
       - 'test-fixtures/pano-budgets.json'
       - 'src/scripts/test_color_pipeline.sh'
+      - 'src/scripts/test_auto_profile_match.sh'
+      - 'src/scripts/auto_profile_*.py'
+      - 'src/scripts/test_p3_auto_gamut.sh'
+      - 'src/scripts/p3_auto_gamut_check.py'
+      - 'test-fixtures/auto-jpeg-quality/**'
       - 'src/scripts/test_lensfun_vs_lcp.sh'
       - 'src/scripts/lens_warp_diff.py'
       - 'test-fixtures/qualification/lensfun-vs-lcp.json'
       - 'src/scripts/check_wgsl.sh'
       - 'src/scripts/compare_images.py'
-      - 'src/scripts/compare_images_test.py'
+      - 'src/scripts/color_pipeline_test.py'
+      - 'src/scripts/compare_images_metadata_test.py'
+      - 'src/scripts/compare_images_chunks.py'
+      - 'src/scripts/compare_images_metadata.py'
       - 'src/scripts/test_pano_pipeline.sh'
       - 'src/scripts/pano_metrics.py'
       - 'src/scripts/test_synthetic_grey.sh'
       - 'src/scripts/test_synthetic_color_chart.sh'
       - 'src/scripts/test_grey_adjustments.sh'
-      - 'src/scripts/test_tone_exposure.sh'
-      - 'src/scripts/test_tone_whites.sh'
-      - 'tools/tone_whites_gate.py'
-      - 'tools/test_tone_whites_gate.py'
       - 'test-fixtures/tone-whites/**'
-      - 'src/scripts/acr-reference/**'
-      - 'tools/tone_exposure_gate.py'
-      - 'tools/tone_sprint_report.py'
       - 'test-fixtures/tone-exposure/**'
       - 'src/scripts/test_grey_dcp.sh'
       - 'src/scripts/test_banding.sh'
@@ -67,33 +50,38 @@ on:
       - 'src/scripts/stage_diff*.py'
       - 'test-fixtures/banding_budgets.json'
       - 'test-fixtures/qualification/**'
+      # No job here reads the sidecar contract records (tools/ci_changes.py).
+      - '!test-fixtures/qualification/sidecar_contract_api.json'
+      - '!test-fixtures/qualification/sidecar_contract_apple.json'
       - 'tools/qualification/**'
       - '.github/workflows/raw-pipeline.yml'
   pull_request:
     paths:
       - 'src/raw-pipeline/**'
-      - 'test-fixtures/budgets.json'
+      - 'tools/test_nlm_wasm_simd.py'
+      - 'tools/fixtures/nlm_simd_witness.rs'
       - 'test-fixtures/pano-budgets.json'
       - 'src/scripts/test_color_pipeline.sh'
+      - 'src/scripts/test_auto_profile_match.sh'
+      - 'src/scripts/auto_profile_*.py'
+      - 'src/scripts/test_p3_auto_gamut.sh'
+      - 'src/scripts/p3_auto_gamut_check.py'
+      - 'test-fixtures/auto-jpeg-quality/**'
       - 'src/scripts/test_lensfun_vs_lcp.sh'
       - 'src/scripts/lens_warp_diff.py'
       - 'test-fixtures/qualification/lensfun-vs-lcp.json'
       - 'src/scripts/check_wgsl.sh'
       - 'src/scripts/compare_images.py'
-      - 'src/scripts/compare_images_test.py'
+      - 'src/scripts/color_pipeline_test.py'
+      - 'src/scripts/compare_images_metadata_test.py'
+      - 'src/scripts/compare_images_chunks.py'
+      - 'src/scripts/compare_images_metadata.py'
       - 'src/scripts/test_pano_pipeline.sh'
       - 'src/scripts/pano_metrics.py'
       - 'src/scripts/test_synthetic_grey.sh'
       - 'src/scripts/test_synthetic_color_chart.sh'
       - 'src/scripts/test_grey_adjustments.sh'
-      - 'src/scripts/test_tone_exposure.sh'
-      - 'src/scripts/test_tone_whites.sh'
-      - 'tools/tone_whites_gate.py'
-      - 'tools/test_tone_whites_gate.py'
       - 'test-fixtures/tone-whites/**'
-      - 'src/scripts/acr-reference/**'
-      - 'tools/tone_exposure_gate.py'
-      - 'tools/tone_sprint_report.py'
       - 'test-fixtures/tone-exposure/**'
       - 'src/scripts/test_grey_dcp.sh'
       - 'src/scripts/test_banding.sh'
@@ -109,6 +97,9 @@ on:
       - 'src/scripts/stage_diff*.py'
       - 'test-fixtures/banding_budgets.json'
       - 'test-fixtures/qualification/**'
+      # No job here reads the sidecar contract records (tools/ci_changes.py).
+      - '!test-fixtures/qualification/sidecar_contract_api.json'
+      - '!test-fixtures/qualification/sidecar_contract_apple.json'
       - 'tools/qualification/**'
       - '.github/workflows/raw-pipeline.yml'
 
@@ -117,6 +108,22 @@ concurrency:
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
+  wasm-nlm-simd:
+    name: WASM NLM SIMD scalar bit parity
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+      - run: python3 tools/test_nlm_wasm_simd.py
+
   # Cheap, unconditional compile gate for the Apple FFI crate. This does NOT
   # need fixtures or the color harness — it exists to catch the "raw-ffi
   # doesn't compile against raw-core" failure class (e.g. an unresolved
@@ -131,12 +138,12 @@ jobs:
   # after assembling the xcframework (see src/apple/scripts/build-xcframework.sh).
   build-raw-ffi:
     name: build-raw-ffi (host compile gate)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7.0.1
       - uses: dtolnay/rust-toolchain@stable
       - name: Cache cargo registry + raw-pipeline target
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/registry
@@ -175,6 +182,14 @@ jobs:
       # (term-parser parity with search.fts.ts, exact vector scan, Tantivy
       # leg, RRF), its lint/fmt gates, and a compile of raw-ffi's API-only
       # `search` feature — no other CI job builds that symbol set.
+      # The web main thread's canvas zoom module (#5714): its slot layout and
+      # bindings, plus raw-core's canvas tests compiled into it by path.
+      - name: cargo test -p raw-wasm-canvas
+        working-directory: src/raw-pipeline
+        run: cargo test -p raw-wasm-canvas
+      - name: cargo clippy -p raw-wasm-canvas --all-targets
+        working-directory: src/raw-pipeline
+        run: cargo clippy -p raw-wasm-canvas --all-targets -- -D warnings
       - name: cargo test -p maple-search
         working-directory: src/raw-pipeline
         run: cargo test -p maple-search
@@ -196,11 +211,23 @@ jobs:
       - name: cargo build --bin maple-cli --features pano (compile gate)
         working-directory: src/raw-pipeline
         run: cargo build --bin maple-cli --features pano
-      # Synthetic film-look, P3 and export-recipe tests need this feature;
-      # a default CLI build does not compile their callers (#3905).
-      - name: cargo test -p maple-cli --features test-support
+      # Classical feature fallback (#4523): the ONNX-free detector/matcher
+      # needs no ORT, models or fixtures, so its synthetic two-view gate and
+      # the `pano-classical` CLI build run on every runner. So does the
+      # stitch's memory limit (#5835), on frames `pano-gen-fixture` writes
+      # into a temp dir.
+      - name: cargo test -p maple-pano classical-features (no ORT)
         working-directory: src/raw-pipeline
-        run: cargo test -p maple-cli --features test-support
+        run: cargo test -p maple-pano --no-default-features --features classical-features,testkit --lib --test classical_gates --test memory_limit_gates
+      - name: cargo build --bin maple-cli --features pano-classical (compile gate)
+        working-directory: src/raw-pipeline
+        run: cargo build --bin maple-cli --features pano-classical
+      # Synthetic film-look, P3 and export-recipe tests need `test-support`;
+      # a default CLI build does not compile their callers (#3905). The pano
+      # subcommand's own tests (the refusal report, #5835) need a pano feature.
+      - name: cargo test -p maple-cli --features test-support,pano-classical
+        working-directory: src/raw-pipeline
+        run: cargo test -p maple-cli --features test-support,pano-classical
       # napi-rs binding compile gate (#3509, epic #3495). Every other cargo
       # invocation in this repo's CI is scoped with `-p <crate>` — there is no
       # `--workspace` build anywhere — so without this step raw-napi would be a
@@ -333,7 +360,7 @@ jobs:
   # evidence and a source review of `present_chain.rs`, not a local repro.
   raw-gpu:
     name: raw-gpu (gpu build + WGSL validate + raw-core↔GPU parity)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     env:
       # Turns the raw-wasm gpu_render `gpu_available()` soft-pass into a hard
       # failure (#1973): on a runner we have deliberately provisioned with an
@@ -341,10 +368,10 @@ jobs:
       MAPLE_REQUIRE_GPU: '1'
       RUST_BACKTRACE: '1'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7.0.1
       - uses: dtolnay/rust-toolchain@stable
       - name: Cache cargo registry + raw-pipeline target
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/registry
@@ -382,6 +409,12 @@ jobs:
       - name: Render-sized profile ABI guards
         working-directory: src/raw-pipeline
         run: cargo test -p raw-ffi --features gpu --lib gpu_auto_profile::sized::tests
+
+      # 2b. #5158: the separate-artifact fit honours every develop quality wire
+      #     value (AMaZE/Auto must not collapse to Preview). CPU-only, cache-seeded.
+      - name: Auto Profile fit quality-wire guards
+        working-directory: src/raw-pipeline
+        run: cargo test -p raw-ffi --features gpu --lib auto_profile_quality_tests
 
       # 3. Retained composition against the isolated residual kernel (#4212).
       - name: Retained Auto composition residual-kernel parity
@@ -433,7 +466,7 @@ jobs:
             echo "::warning::no committed test-fixtures/qualification/gpu_chain_parity_lavapipe.json — download the qualification-gpu_chain_parity_lavapipe artifact from this run and commit it (docs/testing.md § Capability registry)."
           fi
       - name: Upload the lavapipe evidence record
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: qualification-gpu_chain_parity_lavapipe
           path: test-fixtures/qualification/gpu_chain_parity_lavapipe.json
@@ -478,10 +511,10 @@ jobs:
     env:
       RUST_BACKTRACE: '1'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7.0.1
       - uses: dtolnay/rust-toolchain@stable
       - name: Cache cargo registry + raw-pipeline target
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/registry
@@ -520,11 +553,11 @@ jobs:
   #     with the cargo-test step, so the duplication costs seconds.
   rust-tests:
     name: rust-tests (cargo test -p raw-core + grey gates)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7.0.1
       - uses: dtolnay/rust-toolchain@stable
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.12'
       # banding_check.py (#1627) needs numpy + an EXR reader (OpenEXR
@@ -539,11 +572,11 @@ jobs:
       # failure without it. Add it explicitly rather than assuming
       # stage_stats' narrower numpy-only need covers stage_diff too.
       - name: Install Python deps for the banding gate
-        run: pip install 'numpy>=1.26' 'OpenEXR>=3.2' 'imageio>=2.34' 'colour-science>=0.4.4'
+        run: pip install 'numpy>=1.26' 'OpenEXR>=3.2' 'imageio>=2.34' 'colour-science>=0.4.4' 'opencv-python-headless>=4.10,<6'
       - name: 'Diagnostic input integrity (real EXR/CLI, #4082)'
         run: python3 -m unittest discover -s src/scripts -p test_diagnostic_evidence.py
       - name: Cache cargo registry + raw-pipeline target
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/registry
@@ -588,12 +621,6 @@ jobs:
         run: bash tools/qualification/record.sh --check color_chart cpu-reference -- bash src/scripts/test_synthetic_color_chart.sh
       - name: Grey adjustments gate (test_grey_adjustments.sh) + evidence check
         run: bash tools/qualification/record.sh --check grey_adjustments cpu-reference -- bash src/scripts/test_grey_adjustments.sh
-      - name: ACR reference settings integrity tests
-        run: python3 -m unittest discover -s src/scripts/acr-reference -p test_reference_settings.py
-      - name: ACR one-stop Exposure response gate
-        run: bash src/scripts/test_tone_exposure.sh
-      - name: Auto and Neutral Whites response gate
-        run: bash src/scripts/test_tone_whites.sh
       - name: Grey DCP gate (test_grey_dcp.sh) + evidence check
         run: bash tools/qualification/record.sh --check grey_dcp cpu-reference -- bash src/scripts/test_grey_dcp.sh
       - name: banding_check.py unit tests
@@ -608,44 +635,51 @@ jobs:
         run: python3 src/scripts/stage_stats_test.py
       - name: stage_diff.py unit tests
         run: python3 src/scripts/stage_diff_test.py
-      - name: Test image comparator and native reference pairing
-        run: python3 src/scripts/compare_images_test.py
+      - name: Test Auto JPEG geometry correspondence
+        run: |
+          python3 src/scripts/auto_profile_alignment_test.py
+          python3 src/scripts/auto_profile_radial_test.py
+      - name: Test Auto JPEG non-cancelling quality checks
+        run: python3 src/scripts/auto_profile_quality_test.py
+      - name: Test Auto embedded-JPEG gate contracts
+        run: |
+          python3 src/scripts/auto_profile_match_test.py
+          python3 src/scripts/auto_profile_gradients_test.py
+      - name: Test canonical color gate uses embedded JPEGs
+        run: python3 src/scripts/color_pipeline_test.py
 
   color-pipeline:
-    name: color-pipeline (test_color_pipeline.sh)
-    runs-on: ubuntu-latest
+    name: color-pipeline (Auto vs embedded JPEG)
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7.0.1
 
-      # Probe for fixtures up front so the rest of the job (Rust
-      # toolchain install, cargo build) can be skipped on stock
-      # runners. The harness itself also skip-passes, but doing the
-      # check here saves ~3 minutes of toolchain setup per PR.
+      # Auto needs RAWs and their embedded previews, not external references.
       - name: Probe fixtures
         id: probe
         run: |
-          if [ -d test-fixtures/raws ] && [ -f test-fixtures/references/manifest.json ]; then
-            echo "have_fixtures=true" >> "$GITHUB_OUTPUT"
+          if [ -d test-fixtures/raws ]; then
+            echo "have_raws=true" >> "$GITHUB_OUTPUT"
           else
-            echo "have_fixtures=false" >> "$GITHUB_OUTPUT"
-            echo "::notice::test-fixtures/raws or references/manifest.json not present — color-pipeline gate is a no-op on this runner. See test-fixtures/BUDGETS_DRIFT.md."
+            echo "have_raws=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Auto embedded-JPEG gate NOT TESTED: RAW fixtures are not provisioned."
           fi
 
-      - uses: actions/setup-python@v5
-        if: steps.probe.outputs.have_fixtures == 'true'
+      - uses: actions/setup-python@v7
+        if: steps.probe.outputs.have_raws == 'true'
         with:
           python-version: '3.12'
 
       - name: Install Python diff deps
-        if: steps.probe.outputs.have_fixtures == 'true'
+        if: steps.probe.outputs.have_raws == 'true'
         run: pip install -r src/scripts/requirements.txt
 
       - uses: dtolnay/rust-toolchain@stable
-        if: steps.probe.outputs.have_fixtures == 'true'
+        if: steps.probe.outputs.have_raws == 'true'
 
       - name: Cache cargo registry + raw-pipeline target
-        if: steps.probe.outputs.have_fixtures == 'true'
-        uses: actions/cache@v4
+        if: steps.probe.outputs.have_raws == 'true'
+        uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/registry
@@ -653,31 +687,43 @@ jobs:
             src/raw-pipeline/target
           key: raw-pipeline-cargo-${{ runner.os }}-${{ hashFiles('src/raw-pipeline/**/Cargo.lock', 'src/raw-pipeline/**/Cargo.toml') }}
 
-      - name: Run color-pipeline harness
-        if: steps.probe.outputs.have_fixtures == 'true'
+      - name: Auto accuracy against embedded camera JPEG
+        if: steps.probe.outputs.have_raws == 'true'
+        env:
+          OUTPUT_DIR: ${{ runner.temp }}/auto-embedded-jpeg
         run: bash src/scripts/test_color_pipeline.sh
+
+      - name: Preserve Auto per-fixture metrics and logs
+        if: always() && steps.probe.outputs.have_raws == 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: auto-embedded-jpeg-evidence
+          path: ${{ runner.temp }}/auto-embedded-jpeg
+          if-no-files-found: error
+
+      # Display-P3 Auto (#4741): Auto on P3 agrees with its sRGB render where
+      # sRGB compressed nothing and keeps Neutral's wide-gamut share.
+      - name: P3 Auto gamut gate (test_p3_auto_gamut.sh)
+        if: ${{ !cancelled() && steps.probe.outputs.have_raws == 'true' }}
+        env:
+          OUTPUT_DIR: ${{ runner.temp }}/p3-auto-gamut
+        run: bash src/scripts/test_p3_auto_gamut.sh
+
+      - name: Preserve P3 Auto gamut metrics
+        if: always() && steps.probe.outputs.have_raws == 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: p3-auto-gamut-evidence
+          path: ${{ runner.temp }}/p3-auto-gamut
+          if-no-files-found: error
 
       # Bundled Lensfun calibration vs Adobe's LCP for the same lens (#3564).
       # Needs the Sony fixture AND Adobe's profile on the runner; the script
       # skip-passes when either is absent, so this is a real gate only on a
       # machine that has both and a visible no-op everywhere else.
       - name: Lensfun-vs-LCP warp gate (test_lensfun_vs_lcp.sh)
-        if: steps.probe.outputs.have_fixtures == 'true'
+        if: steps.probe.outputs.have_raws == 'true'
         run: bash src/scripts/test_lensfun_vs_lcp.sh
-
-      # Soft-pass branch: still invoke the script so its own skip-pass
-      # message lands in the log (helps a self-hosted-runner debugger
-      # confirm the path the gate took). We override MANIFEST to a path
-      # that cannot exist so the script unconditionally takes its
-      # manifest-missing preflight exit — guarding against the
-      # partial-fixture case where references/manifest.json is present
-      # but raws/ isn't, which would otherwise let the script proceed
-      # into cargo build with no Rust toolchain installed.
-      - name: Run color-pipeline harness (skip-pass)
-        if: steps.probe.outputs.have_fixtures == 'false'
-        env:
-          MANIFEST: /nonexistent/test-fixtures-not-provisioned.json
-        run: bash src/scripts/test_color_pipeline.sh
 
   # Pano regression harness (Maple Pano M0b, #1120). Mirrors the
   # color-pipeline job: fixture probe up front, the harness itself
@@ -697,9 +743,9 @@ jobs:
   #     until Maple Pano M1+ lands the subcommand).
   pano-pipeline:
     name: pano-pipeline (test_pano_pipeline.sh)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7.0.1
 
       - name: Probe fixtures
         id: probe
@@ -711,7 +757,7 @@ jobs:
             echo "::notice::test-fixtures/raws/pano_* not present — pano candidate gates are a no-op on this runner; the metrics self-test still runs."
           fi
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.12'
 
@@ -726,7 +772,7 @@ jobs:
 
       - name: Cache cargo registry + raw-pipeline target
         if: steps.probe.outputs.have_fixtures == 'true'
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/registry

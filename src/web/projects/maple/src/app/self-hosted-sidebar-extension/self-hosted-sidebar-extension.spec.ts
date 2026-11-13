@@ -1,6 +1,6 @@
 import { signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
-import { LibraryStateService } from '@maple-common';
+import { AuthService, LibraryStateService } from '@maple-common';
 import { describe, expect, it, vi } from 'vitest';
 import { SelfHostedSidebarBodyComponent } from './self-hosted-sidebar-body.component';
 import { SelfHostedSidebarHeaderComponent } from './self-hosted-sidebar-header.component';
@@ -10,7 +10,10 @@ describe('Self Hosted sidebar extensions', () => {
     const openLibraryPicker = vi.fn();
     TestBed.configureTestingModule({
       imports: [SelfHostedSidebarHeaderComponent],
-      providers: [{ provide: LibraryStateService, useValue: { openLibraryPicker } }],
+      providers: [
+        { provide: LibraryStateService, useValue: { openLibraryPicker } },
+        { provide: AuthService, useValue: { user: signal({ role: 'owner' }) } },
+      ],
     });
 
     const fixture = TestBed.createComponent(SelfHostedSidebarHeaderComponent);
@@ -21,6 +24,21 @@ describe('Self Hosted sidebar extensions', () => {
     native.click();
 
     expect(openLibraryPicker).toHaveBeenCalledOnce();
+  });
+
+  it('hides folder registration from members', () => {
+    TestBed.configureTestingModule({
+      imports: [SelfHostedSidebarHeaderComponent],
+      providers: [
+        { provide: LibraryStateService, useValue: { openLibraryPicker: vi.fn() } },
+        { provide: AuthService, useValue: { user: signal({ role: 'member' }) } },
+      ],
+    });
+
+    const fixture = TestBed.createComponent(SelfHostedSidebarHeaderComponent);
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.querySelector('mui-button')).toBeNull();
   });
 
   it('keeps Timeline navigation in the body action', () => {

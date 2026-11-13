@@ -1,0 +1,13 @@
+{
+  "base_commit": "5424f1357d949dc4ac3e8b0dd6f50f8cc5292aaf",
+  "processing_base": "95fc03d6819b34f46f928ba93de58188a4014022",
+  "pipeline_output_version": 37,
+  "auto_fit_model_version": 7,
+  "binary_sha256": "5cf19e2f3e1c1368cf8482247a4ab7edcda2ab4a0ee32adf95b78f510ebd336a",
+  "source_patch_sha256": "17901d542e7b0f33e8928b932ec1baa144b80ff1e9689140bee5364b433aac63",
+  "status": "Correctness-first relative Gaussian-weight prototype only; scalar relative reduction substitutes for SIMD pending optimization/qualification. No production adoption or tolerance/reference/settings/version changes.",
+  "cpu_nlm_passed": 22,
+  "gpu_noise_passed": 23,
+  "gpu_existing_ignored_benchmarks": 2,
+  "gpu_original_witness_failed": true
+}

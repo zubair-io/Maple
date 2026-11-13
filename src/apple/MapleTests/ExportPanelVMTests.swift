@@ -7,10 +7,10 @@
 
 import CoreImage
 import Foundation
-import MapleCore
 import XCTest
 
 @testable import Maple
+@testable import MapleCore
 
 /// Lets a test hold the encoder inside the panel's encode step and inspect
 /// where it ran. `enterAndWait` is called from whatever thread the VM put
@@ -127,6 +127,24 @@ final class ExportPanelVMTests: XCTestCase {
     XCTAssertEqual(received.value?.format, .heicP3)
     XCTAssertEqual(received.value?.quality, 0.8)
     XCTAssertNil(received.value?.maxSidePixels, "share exports are full resolution")
+  }
+
+  func testPhotoKitIdentifierStagesAsOneFile() async throws {
+    let bytes = Data([0xFF, 0xD8, 0xFF])
+    let image = stubImage
+    let vm = ExportPanelVM(render: { _ in image }, encode: { _, _ in bytes })
+    let session = EditSession.preview(displayName: "ED7AC36B-A150/L0/001")
+
+    await vm.stageForSharing(session: session, in: directory)
+
+    XCTAssertNil(vm.exportError)
+    let url = try XCTUnwrap(vm.stagedFile?.url)
+    XCTAssertEqual(url.lastPathComponent, "ED7AC36B-A150_L0_001.jpg")
+    XCTAssertEqual(
+      url.deletingLastPathComponent().standardizedFileURL, directory.standardizedFileURL)
+    XCTAssertEqual(try Data(contentsOf: url), bytes)
+    XCTAssertEqual(
+      try FileManager.default.contentsOfDirectory(atPath: directory.path), [url.lastPathComponent])
   }
 
   func testStageForSharingSurfacesEncoderFailureWithoutAFile() async throws {
@@ -333,12 +351,28 @@ final class ExportPanelVMTests: XCTestCase {
 
   // MARK: - Resolution Options
 
+  func testOutputDimensionsFollowCommittedCropAtFullResolution() {
+    var model = AdjustmentModel.default
+    model.crop = Crop(top: 0, left: 1.0 / 6.0, bottom: 1, right: 5.0 / 6.0)
+    let session = EditSession.preview(model: model)
+    session.nativeImageSize = CGSize(width: 6000, height: 4000)
+
+    let vm = ExportPanelVM()
+    vm.sizeOption = .full
+    XCTAssertEqual(vm.outputDimensions(for: session), CGSize(width: 4000, height: 4000))
+    XCTAssertEqual(vm.outputDimensionsDescription(for: session), "Size: 4000 × 4000 px (Full)")
+
+    vm.sizeOption = .fast
+    XCTAssertEqual(vm.outputDimensions(for: session), CGSize(width: 1281, height: 1280))
+    XCTAssertEqual(vm.outputDimensionsDescription(for: session), "Size: 1281 × 1280 px")
+  }
+
   func testSizeOptionDefaultsToFastAndPassesToRenderer() async throws {
     let image = stubImage
     var renderedSizeOption: ExportSizeOption?
     let vm = ExportPanelVM(
-      render: { _, sizeOpt in
-        renderedSizeOption = sizeOpt
+      render: { _, options in
+        renderedSizeOption = options.sizeOption
         return image
       },
       encode: { _, _ in Data([0x01]) }
@@ -358,5 +392,51 @@ final class ExportPanelVMTests: XCTestCase {
     XCTAssertEqual(vm.options.sizeOption, .full)
     await vm.stageForSharing(session: session, in: directory)
     XCTAssertEqual(renderedSizeOption, .full)
+  }
+
+  func testRepeatedExportsStageUniqueFileNamesWithoutOverwritingPriorExport() async throws {
+    let firstBytes = Data([0xFF, 0xD8, 0x01])
+    let secondBytes = Data([0xFF, 0xD8, 0x02])
+    var call = 0
+    let image = stubImage
+    let vm = ExportPanelVM(
+      render: { _ in image },
+      encode: { _, _ in
+        call += 1
+        return call == 1 ? firstBytes : secondBytes
+      }
+    )
+    let session = EditSession.preview(displayName: "ED7AC36B-A150/L0/001")
+
+    await vm.stageForSharing(session: session, in: directory)
+    let firstURL = try XCTUnwrap(vm.stagedFile?.url)
+    XCTAssertEqual(firstURL.lastPathComponent, "ED7AC36B-A150_L0_001.jpg")
+    vm.finishSharing(completed: true)
+
+    await vm.refreshOutputFileName(for: session.asset, in: directory)
+    XCTAssertEqual(vm.resolvedOutputFileName, "ED7AC36B-A150_L0_001-2.jpg")
+    XCTAssertEqual(
+      vm.outputFileName(for: session.asset, in: directory),
+      "ED7AC36B-A150_L0_001-2.jpg"
+    )
+    await vm.stageForSharing(session: session, in: directory)
+    let secondURL = try XCTUnwrap(vm.stagedFile?.url)
+    XCTAssertEqual(secondURL.lastPathComponent, "ED7AC36B-A150_L0_001-2.jpg")
+    XCTAssertEqual(try Data(contentsOf: firstURL), firstBytes)
+    XCTAssertEqual(try Data(contentsOf: secondURL), secondBytes)
+  }
+
+  func testCancelledShareSheetRemovesUnsharedStagedFileAndReusesBaseName() async throws {
+    let image = stubImage
+    let vm = ExportPanelVM(render: { _ in image }, encode: { _, _ in Data([0x01]) })
+    let session = EditSession.preview(displayName: "DSC_0200.dng")
+
+    await vm.stageForSharing(session: session, in: directory)
+    let firstURL = try XCTUnwrap(vm.stagedFile?.url)
+    XCTAssertEqual(firstURL.lastPathComponent, "DSC_0200.dng.jpg")
+    vm.finishSharing(completed: false)
+
+    XCTAssertFalse(FileManager.default.fileExists(atPath: firstURL.path))
+    XCTAssertEqual(vm.outputFileName(for: session.asset, in: directory), "DSC_0200.dng.jpg")
   }
 }

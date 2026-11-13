@@ -1,5 +1,5 @@
 // Per-session decoded-image cache and single-flight RAW decode. Target size,
-// profile, auto exposure, baked edits and decode quality form the in-flight identity.
+// profile, auto exposure and decode quality form the in-flight identity.
 // Cache state is declared on RenderActor; this extension owns its lifecycle.
 
 import CoreImage
@@ -30,12 +30,20 @@ extension RenderActor {
   /// would hand back a low-res buffer. The cache's `decodedIsFull` flag is
   /// set so `snapshot(forAsset:)` can tell the refine pass whether the
   /// cached decode is sufficient.
+  ///
+  /// `liveModel` (#4715): the session's in-memory model. When given, the
+  /// decode bakes ITS stripped fields (via a temp XMP) and the cache is
+  /// keyed on them, so a heal spot or highlight-recovery toggle lands on
+  /// this tick instead of after the debounced sidecar write — and lands
+  /// at all for remote assets, which have no sidecar on disk. `nil`
+  /// keeps the sidecar-keyed behaviour for callers without a session.
   func sharedDecode(
     asset: AssetRef,
     target: CGSize? = nil,
     profile: Profile = .auto,
     autoExposure: AutoExposureMode = .on,
     quality: PipelineRenderer.Quality = .preview,
+    liveModel: AdjustmentModel? = nil,
     normalize: @escaping @Sendable (CIImage, AssetRef) async -> CIImage
   ) async -> CIImage? {
     // Videos are selectable for metadata editing (#1638) but have no still
@@ -65,25 +73,13 @@ extension RenderActor {
     // profile) without waiting for the debounced sidecar write. Same
     // treatment as `decodeProfile` immediately above.
     let decodeAutoExposure: AutoExposureMode? = asset.isRaw ? autoExposure : nil
-    // Sized RAW requests use the requested demosaic; a nil target uses
-    // the full-resolution preference. Capture that actual quality for both
-    // task identity and the completed buffer. Non-RAW has no quality axis.
     // #2143: `quality` only steers the RAW demosaic — the non-RAW branch
     // below routes through `decodeSceneLinearNonRaw`, which takes no
     // quality at all. Pin non-RAW to `.preview` so an escalated caller
     // can't make quality a spurious identity axis there (a re-decode +
     // cancel for a bit-identical buffer). Same reasoning, and the same
     // shape, as `decodeProfile` / `decodeAutoExposure` above.
-    let decodeQuality: PipelineRenderer.Quality =
-      asset.isRaw ? (wantsFull ? (AmazeFlag.isEnabled ? .amaze : .full) : quality) : .preview
-    let requestedBaked: AdjustmentModel?
-    do {
-      requestedBaked = try Self.validatedBakedModel(for: asset)
-    } catch {
-      editSessionLogger.error(
-        "Decode sidecar validation failed: \(error.localizedDescription, privacy: .public)")
-      return nil
-    }
+    let decodeQuality: PipelineRenderer.Quality = asset.isRaw ? quality : .preview
     // Reuse an in-flight task only when it already satisfies the
     // caller's fullness requirement AND was launched for the same
     // profile + autoExposure + quality. A fast (sized) caller can join
@@ -92,27 +88,23 @@ extension RenderActor {
     // escalated to `.full`/`.amaze` must not join an in-flight
     // `.preview` fast task (or vice versa), which would silently hand
     // back the wrong-quality buffer.
-    if let existing = decodePublicationTask, decodeCancelFlag != nil, decodeTaskAssetID == asset.id,
+    // cancelAll revokes ownership before the abandoned FFI task finishes.
+    // A new render must start a fresh decode instead of joining that task.
+    let liveBaked = liveModel.map(Self.bakedModel(fromLive:))
+    if let existing = decodeTask, decodeCancelFlag != nil, decodeTaskAssetID == asset.id,
       decodeTaskSidecarURL == asset.sidecarURL,
+      liveBaked == nil || decodeTaskBakedModel == liveBaked,
       decodeTaskProfile == decodeProfile,
       decodeTaskAutoExposure == decodeAutoExposure,
       decodeTaskQuality == decodeQuality,
-      Self.bakedModelsMatch(decodeTaskBakedModel, requestedBaked),
       !wantsFull || decodeTaskIsFull
     {
       // #951: JOIN an in-flight, identity-compatible decode. Do NOT create
       // or flip a cancel flag here — same-asset slider ticks during a cold
       // open share this one decode and its flag; nobody cancels until a
       // genuinely different decode supersedes it (the replace path below).
-      guard let normalized = await existing.value else { return nil }
-      do {
-        guard
-          Self.bakedModelsMatch(
-            try Self.validatedBakedModel(for: asset), requestedBaked
-          )
-        else { return nil }
-      } catch { return nil }
-      return normalized
+      guard let result = await existing.value else { return nil }
+      return await normalize(result.0, asset)
     }
     // #951: a DIFFERENT-identity decode is superseding the in-flight one
     // (different asset / profile / fullness) — abandon it. Flip its flag so
@@ -121,9 +113,9 @@ extension RenderActor {
     decodeCancelFlag?.requestCancel()
     decodeCancelFlag = nil
     decodeTask = nil
-    decodePublicationTask = nil
     decodeTaskAssetID = nil
     decodeTaskSidecarURL = nil
+    decodeTaskBakedModel = nil
 
     let decodeSignpostID = editSessionSignposter.makeSignpostID()
     let decodeState = editSessionSignposter.beginInterval("decode", id: decodeSignpostID)
@@ -142,11 +134,21 @@ extension RenderActor {
     // cancelAll can flip it to abandon this decode.
     let cancelFlag = CancelFlag()
     decodeCancelFlag = cancelFlag
+    // #5381: a sized RAW decode may refine the cached decode's capture on
+    // the GPU instead of re-developing (see RenderActor+CaptureRefine).
+    let refineRequest = target.map {
+      CaptureRefineRequest(
+        asset: asset, profile: decodeProfile, autoExposure: decodeAutoExposure,
+        quality: decodeQuality, target: $0)
+    }
+    let refineBase =
+      extensionIsRaw && captureRefineEnabled ? refineRequest.flatMap(captureRefineBase(for:)) : nil
+    if refineBase != nil { captureRefineAttempts += 1 }
     let task:
       Task<
         (
           CIImage, [Float]?, UInt32, WbSliderFrame?, Float, Float, Float, Bool, Bool, Bool,
-          RawCameraSupport?, PipelineRenderer.Quality?
+          RawCameraSupport?, CaptureBase?
         )?,
         Never
       > =
@@ -209,9 +211,44 @@ extension RenderActor {
             )
           }
           let asset = dispatchAsset
-          let sidecar: URL?
-          do { sidecar = try Self.coldDecodeSidecar(requestedBaked) } catch { return nil }
-          defer { if let sidecar { try? FileManager.default.removeItem(at: sidecar) } }
+          // #4715: the live model's baked fields drive the decode when
+          // the session hands them in; the on-disk sidecar (debounced,
+          // absent for remote assets) only when it does not.
+          let liveXMP = liveModel.flatMap {
+            RawCoreBridge.writeStrippedModelXMP(
+              $0, profileOverride: decodeProfile, autoExposureOverride: decodeAutoExposure)
+          }
+          defer { if let liveXMP { try? FileManager.default.removeItem(at: liveXMP) } }
+          let diskSidecar: URL? = {
+            guard let url = asset.sidecarURL,
+              FileManager.default.fileExists(atPath: url.path)
+            else { return nil }
+            return url
+          }()
+          guard
+            case .use(let sidecar) = RenderActor.decodeXMPSource(
+              hasLiveModel: liveModel != nil, liveXMP: liveXMP, diskSidecar: diskSidecar)
+          else {
+            editSessionLogger.error(
+              "live-model temp XMP could not be written; failing the decode rather than caching disk-state pixels under the live key"
+            )
+            return nil
+          }
+          if let refineBase {
+            switch pipeline.refineCaptureDecode(
+              base: refineBase, xmpPath: sidecar, profileOverride: decodeProfile,
+              autoExposureOverride: decodeAutoExposure, cancel: cancelFlag)
+            {
+            case .refined(let r):
+              return (
+                r.image, r.noiseProfile, r.iso, r.wbFrame, r.aeGain, r.whitesAnchorEv,
+                r.nrSamplingScale, r.hasLensCorrections, r.lensCorrectionCaInert,
+                r.lensCorrectionDistortionInert, r.cameraSupport, r.captureBase
+              )
+            case .cancelled: return nil
+            case .redevelop: break
+            }
+          }
           // The session's staged file is also Auto Profile's source. A
           // bytes-FFI decode would use a different native cache key (Bytes
           // vs Path), demuxing the same RAW again for fitting. Only this
@@ -256,17 +293,18 @@ extension RenderActor {
               sizedResult.nrSamplingScale,
               sizedResult.hasLensCorrections,
               sizedResult.lensCorrectionCaInert, sizedResult.lensCorrectionDistortionInert,
-              sizedResult.cameraSupport, decodeQuality
+              sizedResult.cameraSupport, sizedResult.captureBase
             )
           }
           // #940 — legacy full-resolution branch: `target == nil` no
           // longer occurs from any production call site (see above), but
           // stays as the correct behaviour for a hypothetical future nil-
           // target caller (e.g. a `renderFull()`-style path) — AMaZE when
-          // AmazeFlag is enabled, otherwise Full.
+          // AmazeFlag is enabled, otherwise bilinear Full.
+          let refineQuality: PipelineRenderer.Quality = AmazeFlag.isEnabled ? .amaze : .full
           let refineResult = await mapleStageAsync("rust FFI scene-linear decode") {
             await pipeline.decodeSceneLinear(
-              asset: decodeAsset, quality: decodeQuality, xmpPath: sidecar,
+              asset: decodeAsset, quality: refineQuality, xmpPath: sidecar,
               profileOverride: decodeProfile, autoExposureOverride: decodeAutoExposure,
               cancel: cancelFlag
             )
@@ -278,30 +316,140 @@ extension RenderActor {
             refineResult.nrSamplingScale,
             refineResult.hasLensCorrections,
             refineResult.lensCorrectionCaInert, refineResult.lensCorrectionDistortionInert,
-            refineResult.cameraSupport, decodeQuality
+            refineResult.cameraSupport, refineResult.captureBase
           )
         }
     decodeTask = task
     decodeTaskAssetID = asset.id
     decodeTaskSidecarURL = asset.sidecarURL
+    decodeTaskBakedModel = liveBaked
     decodeTaskIsFull = wantsFull
     decodeTaskProfile = decodeProfile
     decodeTaskAutoExposure = decodeAutoExposure
     decodeTaskQuality = decodeQuality
-    decodeTaskBakedModel = requestedBaked
 
-    // A joined request must await normalization and cache publication too, so
-    // its returned pixels and subsequent snapshot describe the same decode.
-    let publication = Task {
-      let result = await task.value
-      editSessionSignposter.endInterval("decode", decodeState)
-      return await publishDecodedResult(
-        result, asset: asset, requestedBaked: requestedBaked, wantsFull: wantsFull,
-        decodeProfile: decodeProfile, decodeAutoExposure: decodeAutoExposure,
-        cancelFlag: cancelFlag, normalize: normalize)
+    let decodeResult = await task.value
+    editSessionSignposter.endInterval("decode", decodeState)
+    // Asset identity alone cannot distinguish two profile/quality requests
+    // for the same RAW. Only this request's flag owns task/cache publication.
+    guard decodeCancelFlag === cancelFlag else { return nil }
+
+    guard
+      let (
+        decoded, decodeNoiseProfile, decodeISO, decodeWbFrame, decodeAeGain, decodeWhitesAnchorEv,
+        decodeNrSamplingScale,
+        decodeHasLensCorrections, decodeLensCorrectionCaInert, decodeLensCorrectionDistortionInert,
+        decodeCameraSupport, decodeCaptureBase
+      ) = decodeResult
+    else {
+      decodeTask = nil
+      decodeTaskAssetID = nil
+      decodeTaskSidecarURL = nil
+      decodeTaskBakedModel = nil
+      decodeCancelFlag = nil
+      return nil
     }
-    decodePublicationTask = publication
-    return await publication.value
+
+    let normalized = await normalize(decoded, asset)
+    guard decodeCancelFlag === cancelFlag else { return nil }
+    // A sized fast decode must NOT clobber a cache that already COVERS
+    // it — a fresh cache at least as large, same asset/profile/baked
+    // model. Downgrading resolution silently is the bug (#785); the
+    // read-side coverage check in `decodeAndRender` re-evaluates against
+    // whatever the CURRENT cache holds, so an overwrite that DOES happen
+    // is never served below the size it was decoded at. But letting the
+    // write through anyway would defeat #2039's whole point: a fast tick
+    // completing after a bigger refine-covering decode would evict the
+    // buffer refine was about to reuse, forcing a redundant re-decode on
+    // every fast/refine alternation at the same zoom. So the gate keys on
+    // COVERAGE (this decode's resolution vs. what's already cached), not
+    // on `decodedIsFull` alone — `decodedIsFull` is only ever true for a
+    // literal full decode (nothing currently requests one through this
+    // path, #2039), so keying solely on it made every sized decode write
+    // unconditionally.
+    //
+    // Profile MUST gate the coverage claim too: a same-or-larger cache
+    // for a DIFFERENT profile does not already have this decode's data
+    // (#871 — Auto vs Neutral develop different buffers at any size), so
+    // a profile mismatch always allows the write. Skipping this check
+    // would wedge a profile switch to a smaller target in a permanent
+    // loop — the new-profile decode is discarded as "already covered" by
+    // the stale old-profile buffer, the read side detects the profile
+    // mismatch and re-decodes, and the write gate discards it again.
+    // AutoExposure gates the same way (#1387) — same reasoning, same
+    // hazard, since `auto_exposure` is also a live-override-owned
+    // decode-baked field.
+    //
+    // Capture the live baked model (stripped sidecar model) once and
+    // reuse it for the stored `decodedBakedModel` so the write-gate and
+    // the value written can't disagree across a concurrent sidecar edit
+    // (TOCTOU). #950 — the in-memory decode cache keys on the baked
+    // model, not sidecar mtime: a STRIPPED-field edit (re-applied live
+    // per tick) must not invalidate it, only a baked-field edit may.
+    // The mtime is captured alongside as a fast-path gate for the
+    // per-tick freshness check (see `snapshot`); read it FIRST so a
+    // write landing mid-capture can only make a future check do an extra
+    // parse, never serve stale.
+    let currentMtime = EditSession.sidecarMtime(for: asset)
+    let currentBaked = liveBaked ?? Self.bakedModel(for: asset)
+    let newRawResolution = decoded.extent.size
+    let sameAssetCached = (decodedForAssetID == asset.id) && (decodedImage != nil)
+    let cachedCoversNewDecode = Self.cacheCoversNewDecode(
+      sameAsset: sameAssetCached,
+      sameProfile: decodedProfile == decodeProfile,
+      sameAutoExposure: decodedAutoExposure == decodeAutoExposure,
+      sameBakedModel: decodedBakedModel == currentBaked,
+      cachedRawResolution: decodedRawResolution,
+      newRawResolution: newRawResolution
+    )
+    let shouldWrite = Self.shouldWriteDecodedCache(
+      wantsFull: wantsFull, cachedCoversNewDecode: cachedCoversNewDecode
+    )
+    if shouldWrite {
+      decodedImage = normalized
+      decodedRawResolution = newRawResolution
+      decodedForAssetID = asset.id
+      decodedAtModel = liveModel ?? EditSession.parseSidecarModel(for: asset)
+      decodedBakedModel = currentBaked
+      decodedSidecarMtime = currentMtime
+      decodedSidecarURL = asset.sidecarURL
+      decodedIsFull = wantsFull
+      decodedProfile = decodeProfile  // #871 — buffer is profile-keyed
+      decodedAutoExposure = decodeAutoExposure  // #1387 — buffer is autoExposure-keyed too
+      // PR #1709 review fix 4: store noise profile + ISO alongside the
+      // decoded buffer so processSceneLinear can forward them to the NR
+      // stage without a re-decode. Written only on the same shouldWrite
+      // path as the image itself — a fast decode that doesn't clobber a
+      // covering cache also doesn't update the noise profile/ISO.
+      decodedNoiseProfile = decodeNoiseProfile
+      decodedISO = decodeISO
+      // #1781: the slider-frame export rides the same write gate as
+      // the buffer it describes.
+      decodedWbFrame = decodeWbFrame
+      // #1167/#2070: the AE-gain export rides the same write gate —
+      // `NativeDetailRenderer` needs the gain of the buffer actually
+      // on screen, not a stale one from a superseded decode.
+      decodedAeGain = decodeAeGain
+      decodedWhitesAnchorEv = decodeWhitesAnchorEv
+      decodedNrSamplingScale = decodeNrSamplingScale
+      // Camera/lens support rides the same write gate (describes this decoded buffer).
+      decodedHasLensCorrections = decodeHasLensCorrections
+      decodedLensCorrectionCaInert = decodeLensCorrectionCaInert
+      decodedLensCorrectionDistortionInert = decodeLensCorrectionDistortionInert
+      decodedCameraSupport = decodeCameraSupport
+      decodedCaptureBase =
+        captureRefineEnabled
+        ? decodeCaptureBase.flatMap { base in refineRequest.map { (base, $0) } } : nil
+      // #2049: identity bump — any real write means the uploaded GPU
+      // buffer (if any) is now potentially stale even at unchanged dims.
+      decodeGeneration &+= 1
+    }
+    decodeTask = nil
+    decodeTaskAssetID = nil
+    decodeTaskSidecarURL = nil
+    decodeTaskBakedModel = nil
+    decodeCancelFlag = nil
+    return normalized
   }
 
   @discardableResult
@@ -346,18 +494,16 @@ extension RenderActor {
     decodeCancelFlag?.requestCancel()
     decodeCancelFlag = nil
     decodeTask = nil
-    decodePublicationTask = nil
     decodeTaskAssetID = nil
     decodeTaskSidecarURL = nil
+    decodeTaskBakedModel = nil
     decodeTaskIsFull = false
     decodeTaskProfile = nil
-    decodeTaskBakedModel = nil
     decodeTaskAutoExposure = nil
     refineDecodeTasks.removeAll()
     decodedAtModel = nil
     decodedProfile = nil
     decodedAutoExposure = nil
-    decodedQuality = nil
     decodedNoiseProfile = nil
     decodedISO = 0
     decodedWbFrame = nil
@@ -368,56 +514,6 @@ extension RenderActor {
     decodedLensCorrectionCaInert = true
     decodedLensCorrectionDistortionInert = true
     decodedCameraSupport = nil
+    decodedCaptureBase = nil
   }
-
-  public func snapshot(forAsset asset: AssetRef) -> DecodedSnapshot {
-    // #950: unchanged mtime skips the XMP parse. Autosaves of live-only
-    // fields keep the baked model valid; accept their observed mtime so
-    // later ticks return to this fast path instead of parsing indefinitely.
-    // Capture before parsing: a concurrent write must remain detectable on
-    // the next tick, never be accepted without comparing its baked model.
-    let assetMatches = (decodedForAssetID == asset.id)
-    let currentMtime = assetMatches ? EditSession.sidecarMtime(for: asset) : nil
-    let isFresh: Bool
-    if !assetMatches {
-      isFresh = false
-    } else if decodedSidecarURL == asset.sidecarURL,
-      let mt = decodedSidecarMtime, currentMtime == mt
-    {
-      // File untouched since decode → baked model unchanged.
-      isFresh = true
-    } else {
-      do {
-        isFresh = Self.bakedModelsMatch(
-          try Self.validatedBakedModel(for: asset), decodedBakedModel)
-      } catch {
-        isFresh = false
-      }
-      if isFresh {
-        decodedSidecarMtime = currentMtime
-        decodedSidecarURL = asset.sidecarURL
-      }
-    }
-    return DecodedSnapshot(
-      image: decodedImage,
-      decodedAtModel: decodedAtModel,
-      rawResolution: decodedRawResolution,
-      isFresh: isFresh,
-      isFull: decodedIsFull,
-      profile: decodedProfile,
-      autoExposure: decodedAutoExposure,
-      quality: decodedQuality,
-      noiseProfile: decodedNoiseProfile,
-      iso: decodedISO,
-      wbFrame: decodedWbFrame,
-      aeGain: decodedAeGain,
-      whitesAnchorEv: decodedWhitesAnchorEv, nrSamplingScale: decodedNrSamplingScale,
-      decodeGeneration: decodeGeneration,
-      hasLensCorrections: decodedHasLensCorrections,
-      lensCorrectionCaInert: decodedLensCorrectionCaInert,
-      lensCorrectionDistortionInert: decodedLensCorrectionDistortionInert,
-      cameraSupport: assetMatches ? decodedCameraSupport : nil
-    )
-  }
-
 }

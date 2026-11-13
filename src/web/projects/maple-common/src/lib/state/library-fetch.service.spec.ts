@@ -12,6 +12,8 @@ import type {
 } from '../addressing/library-source';
 import { parseAddress, formatAddress } from '../addressing/maple-address';
 import type { MapleAddress } from '../addressing/maple-address';
+import { cameraLocationRows } from '../info/info-panel.vm';
+import { selfHostedAssetFromImage } from './library-fetch.service';
 
 // ---------------------------------------------------------------------------
 // Helpers for building test fixtures
@@ -102,6 +104,105 @@ describe('M2 addressing — library-source FolderListing contract', () => {
   it('makeListing matches formatAddress', () => {
     const listing = makeListing('2026/jan', [], []);
     expect(listing.address).toBe(`${LIB_SLUG}:2026/jan`);
+  });
+});
+
+describe('Self-Hosted indexed Info metadata', () => {
+  it('hydrates saved grid filters from the folder response before Preview', () => {
+    const asset = selfHostedAssetFromImage(
+      {
+        ...makeImage('edited.jpg', 'edited.jpg'),
+        edited: true,
+        rating: 4,
+        flag: 'pick',
+        colorLabel: 'red',
+      },
+      `${LIB_SLUG}:`,
+    );
+    expect(asset).toMatchObject({ edited: true, rating: 4, flag: 'pick', colorLabel: 'red' });
+    const plain = selfHostedAssetFromImage(makeImage('plain.jpg', 'plain.jpg'), `${LIB_SLUG}:`);
+    expect(plain).toMatchObject({ edited: false, rating: 0, flag: 'unflagged', colorLabel: null });
+  });
+
+  it('resolves the listing’s Live Photo partner filename to a sibling asset id', () => {
+    const clip = selfHostedAssetFromImage(
+      {
+        ...makeImage('IMG_1.MOV', '2026/IMG_1.MOV'),
+        livePhoto: { role: 'clip', partner: 'IMG_1.HEIC' },
+      },
+      `${LIB_SLUG}:`,
+    );
+    expect(clip.livePhoto).toEqual({ role: 'clip', partnerId: 'library:2026/IMG_1.HEIC' });
+    const rootStill = selfHostedAssetFromImage(
+      {
+        ...makeImage('IMG_2.HEIC', 'IMG_2.HEIC'),
+        livePhoto: { role: 'still', partner: 'IMG_2.MOV' },
+      },
+      `${LIB_SLUG}:`,
+    );
+    expect(rootStill.livePhoto).toEqual({ role: 'still', partnerId: 'library:IMG_2.MOV' });
+    expect(
+      selfHostedAssetFromImage(makeImage('plain.jpg', 'plain.jpg'), `${LIB_SLUG}:`),
+    ).not.toHaveProperty('livePhoto');
+  });
+
+  it('maps the listing’s RAW+JPEG companion and file size onto the primary asset', () => {
+    const raw = selfHostedAssetFromImage(
+      {
+        ...makeImage('IMG_1.CR3', '2026/IMG_1.CR3'),
+        size: 25_000_000,
+        stack: {
+          companion: {
+            name: 'IMG_1.JPG',
+            address: 'library:2026/IMG_1.JPG',
+            size: 4_000_000,
+            ext: 'jpg',
+          },
+        },
+      },
+      `${LIB_SLUG}:`,
+    );
+    expect(raw.size).toBe(25_000_000);
+    expect(raw.stack).toEqual({
+      companion: { id: 'library:2026/IMG_1.JPG', name: 'IMG_1.JPG', ext: 'jpg', size: 4_000_000 },
+    });
+    expect(
+      selfHostedAssetFromImage(makeImage('plain.jpg', 'plain.jpg'), `${LIB_SLUG}:`),
+    ).not.toHaveProperty('stack');
+  });
+
+  it('projects the folder response EXIF into the Preview Info rows', () => {
+    const image: ImageEntry = {
+      ...makeImage('test_0003.CR2', 'test_0003.CR2'),
+      indexed: true,
+      exif: {
+        camera_make: 'Canon',
+        camera_model: 'Canon EOS 5DS R',
+        lens: 'EF50mm f/1.2L USM',
+        aperture: 5.6,
+        shutter: '1/250',
+        iso: 200,
+        focal_length: 50,
+        gps: { lat: 40.7128, lng: -74.006 },
+      },
+    };
+    const asset = selfHostedAssetFromImage(image, `${LIB_SLUG}:`);
+    expect(
+      Object.fromEntries(cameraLocationRows(asset).map((row) => [row.label, row.value])),
+    ).toMatchObject({
+      Body: 'Canon EOS 5DS R',
+      Lens: 'EF50mm f/1.2L USM',
+      Aperture: 'f/5.6',
+      Shutter: '1/250',
+      ISO: '200',
+      Focal: '50mm',
+      Coords: '40.7128, -74.0060',
+    });
+  });
+
+  it('keeps placeholders for genuinely absent metadata', () => {
+    const asset = selfHostedAssetFromImage(makeImage('new.jpg', 'new.jpg'), `${LIB_SLUG}:`);
+    expect(cameraLocationRows(asset).map((row) => row.value)).toEqual(Array(8).fill('—'));
   });
 });
 

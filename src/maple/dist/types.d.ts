@@ -40,6 +40,8 @@ export interface ImageMetadata {
     hasProfile?: boolean;
     /** Header colour interpretation: srgb, rgb16, b-w, or grey16. */
     space?: string;
+    colorPrimaries?: number;
+    transferCharacteristics?: number;
     /**
      * Sample depth the container declares, in sharp's own vocabulary:
      * `'uchar'` for 8 bits per channel, `'ushort'` for the 16-bit samples a

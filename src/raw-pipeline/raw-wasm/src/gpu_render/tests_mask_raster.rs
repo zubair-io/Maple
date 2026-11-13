@@ -85,11 +85,12 @@ fn chain_inputs_carry_a_registered_bitmap_raster() {
         &bytes,
         ext,
         &model,
+        16,
         None,
         0,
-        super::develop_prefix_rgba(&raw_img, &bytes, ext, &model, 16)
+        super::develop_capture_prefix_rgba(&raw_img, &bytes, ext, &model, 16)
             .expect("prefix anchor")
-            .4,
+            .whites_anchor_ev,
     );
     assert_eq!(inputs.mask_rasters.len(), 1, "one distinct raster resolved");
     assert_eq!(inputs.mask_rasters[0].id, id);
@@ -112,11 +113,12 @@ fn chain_inputs_carry_a_registered_bitmap_raster() {
         &bytes,
         ext,
         &unresolved,
+        16,
         None,
         0,
-        super::develop_prefix_rgba(&raw_img, &bytes, ext, &unresolved, 16)
+        super::develop_capture_prefix_rgba(&raw_img, &bytes, ext, &unresolved, 16)
             .expect("prefix anchor")
-            .4,
+            .whites_anchor_ev,
     );
     assert!(inputs.mask_rasters.is_empty());
     assert_eq!(

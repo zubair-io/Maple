@@ -3,7 +3,7 @@
 #
 # Sibling of test_synthetic_grey.sh / test_grey_adjustments.sh: inputs are
 # synthesised in-memory (no test-fixtures/raws/ needed), so this script
-# NEVER skip-passes — it always builds, always renders, always gates.
+# NEVER skip-passes — it always renders, always gates.
 #
 # Sweeps:
 #   * Fixtures: a neutral 0->1 luma ramp, plus constant-L/constant-hue Oklab
@@ -37,6 +37,8 @@
 # observed values.
 #
 # Env overrides:
+#   MAPLE_CLI    Pinned maple-cli built with --features stage-dump; used as-is
+#                instead of building this checkout (#5114).
 #   OUT_DIR      Working root. Default: /tmp/maple-banding-*.
 #   KEEP_TMP     Non-empty -> keep OUT_DIR after exit for inspection.
 #   WIDTH        Ramp width in pixels (default 1024).
@@ -77,12 +79,20 @@ cleanup() {
 }
 trap cleanup EXIT
 
-echo "# Building maple-cli with --features stage-dump..."
-(
-  cd "$REPO_ROOT/src/raw-pipeline"
-  cargo build -p maple-cli --features stage-dump --release >/dev/null
-)
-MAPLE_CLI="$REPO_ROOT/src/raw-pipeline/target/release/maple-cli"
+if [[ -n "${MAPLE_CLI:-}" ]]; then
+  if [[ ! -f "$MAPLE_CLI" || ! -x "$MAPLE_CLI" ]]; then
+    echo "test_banding: ERROR — MAPLE_CLI is not an executable: $MAPLE_CLI" >&2
+    exit 2
+  fi
+  echo "# Using pinned maple-cli: $MAPLE_CLI"
+else
+  echo "# Building maple-cli with --features stage-dump..."
+  (
+    cd "$REPO_ROOT/src/raw-pipeline"
+    cargo build -p maple-cli --features stage-dump --release >/dev/null
+  )
+  MAPLE_CLI="$REPO_ROOT/src/raw-pipeline/target/release/maple-cli"
+fi
 
 # ----- slider-extreme XMP fixtures -----------------------------------------
 # Minimal sidecars — only the field under test deviates from default. Every
@@ -175,6 +185,8 @@ INIT_ROWS=()
 run_case() {
   local fixture="$1" kind="$2" hue_arg="$3" case="$4"
   local dump="$WORK/dumps_${fixture}_${case}"
+  # A reused OUT_DIR must not let a binary without stage-dump pass on stale EXRs.
+  rm -rf "$dump"
   mkdir -p "$dump"
   local cli_args=(synthetic --kind "$kind" --width "$WIDTH" --height "$HEIGHT" \
     --params "$WORK/xmp/${case}.xmp" --out "$WORK/ramp_${fixture}_${case}.png")
@@ -278,6 +290,7 @@ if [[ -f "$AUTO_TAIL_RAW" ]]; then
   for mode in auto1 auto2; do
     echo "# Auto Profile tail sweep: fixture=$tail_stem mode=$mode ..."
     tail_dir="$WORK/tail_${tail_stem}_${mode}"
+    rm -rf "$tail_dir"
     tail_log="$WORK/tail_cli_${tail_stem}_${mode}.log"
     tail_args=(auto-tail-ramp --raw "$AUTO_TAIL_RAW" --out-dir "$tail_dir" \
       --width "$WIDTH" --height "$HEIGHT")

@@ -1,17 +1,10 @@
 /**
- * `/api/ai/search-engine` — the engine that ranks text searches (#4463), and how far the
- * in-process one has loaded. Settings → AI reads and writes it; so does the audit replay
- * (`scripts/search-audit.ts`), which toggles it to compare the two engines.
+ * `GET /api/ai/search-engine` — how far the in-process search engine has loaded (#4463). Settings
+ * → AI shows it as the child status line; the audit replay (`scripts/search-audit.ts`) waits on it.
  */
 
-import { Elysia, t } from 'elysia';
+import { Elysia } from 'elysia';
 import { requireAuth, requireOwnerBeforeHandle } from '../auth/middleware.ts';
-import {
-  applySearchEngine,
-  saveSearchEngine,
-  selectedSearchEngine,
-  SEARCH_ENGINES,
-} from '../search/search-engine-selection.ts';
 import { inProcessSearch, type SearchEngineStatus } from '../search/search-pool.ts';
 import { searchModelCacheDir } from '../search/search-child-config.ts';
 
@@ -23,26 +16,11 @@ const NOT_RUNNING: SearchEngineStatus = {
   restarts: 0,
 };
 
-async function searchEngineView() {
-  return {
-    engine: await selectedSearchEngine(),
+export const aiSearchEngineRoutes = new Elysia({ prefix: '/search-engine' }).use(requireAuth).get(
+  '/',
+  () => ({
     status: inProcessSearch()?.status() ?? NOT_RUNNING,
     modelCacheDir: searchModelCacheDir(),
-  };
-}
-
-export const aiSearchEngineRoutes = new Elysia({ prefix: '/search-engine' })
-  .use(requireAuth)
-  .get('/', searchEngineView, { beforeHandle: requireOwnerBeforeHandle })
-  .put(
-    '/',
-    async ({ body }) => {
-      await saveSearchEngine(body.engine);
-      applySearchEngine(body.engine);
-      return searchEngineView();
-    },
-    {
-      body: t.Object({ engine: t.Union(SEARCH_ENGINES.map((engine) => t.Literal(engine))) }),
-      beforeHandle: requireOwnerBeforeHandle,
-    },
-  );
+  }),
+  { beforeHandle: requireOwnerBeforeHandle },
+);

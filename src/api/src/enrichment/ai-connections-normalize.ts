@@ -1,10 +1,26 @@
 import type { AiAssignment, AiConnection } from './ai-connections.ts';
-import type { EmbedderSettingsInput } from './embedder-settings.ts';
-import { embedderPatch } from './embedder-settings.ts';
+
+/** Semantic search runs on the bundled bge-m3 (#5445); an older client may still send its assignment. */
+const RETIRED_ASSIGNMENTS = new Set(['semantic-search']);
 
 type IncomingConnection = Omit<AiConnection, 'api_key'> & { api_key?: string | null };
 
-/** Trims names and URLs; an omitted key keeps the saved key of the same connection. */
+const trimUrl = (url: string): string => url.trim().replace(/\/+$/, '');
+
+/** A saved key stays only with its own provider and endpoint, so it is never sent to a new host. */
+function savedKey(
+  connection: { id: string; provider: string; url?: string },
+  saved: readonly AiConnection[],
+): string | null | undefined {
+  return saved.find(
+    (old) =>
+      old.id === connection.id &&
+      old.provider === connection.provider &&
+      trimUrl(old.url) === trimUrl(connection.url ?? old.url),
+  )?.api_key;
+}
+
+/** Trims names and URLs; an omitted key keeps the saved key of the same connection and endpoint. */
 export function normalizeConnections(
   incoming: readonly IncomingConnection[],
   saved: readonly AiConnection[],
@@ -12,11 +28,8 @@ export function normalizeConnections(
   return incoming.map((c) => ({
     ...c,
     name: c.name.trim(),
-    url: c.url.trim().replace(/\/+$/, ''),
-    api_key:
-      c.api_key === undefined
-        ? saved.find((old) => old.id === c.id && old.provider === c.provider)?.api_key
-        : c.api_key?.trim() || null,
+    url: trimUrl(c.url),
+    api_key: c.api_key === undefined ? savedKey(c, saved) : c.api_key?.trim() || null,
   }));
 }
 
@@ -39,25 +52,18 @@ export function normalizeAssignments(
   incoming: Record<string, AiAssignment>,
 ): Record<string, AiAssignment> {
   return Object.fromEntries(
-    Object.entries(incoming).map(([id, a]) => [id, normalizeAssignment(a)]),
+    Object.entries(incoming)
+      .filter(([id]) => !RETIRED_ASSIGNMENTS.has(id))
+      .map(([id, a]) => [id, normalizeAssignment(a)]),
   );
 }
 
-/** The embedder fields to save (none when omitted) or the validation error that blocks the save. */
-export function embedderSaveOutcome(
-  input: EmbedderSettingsInput | undefined,
-): ReturnType<typeof embedderPatch> {
-  return input === undefined ? {} : embedderPatch(input);
-}
-
-/** The key to probe with: the one sent, else the saved key of the same connection. */
+/** The key to probe with: the one sent, else the saved key of the same connection and endpoint. */
 export function probeApiKey(
-  connection: { id: string; provider: string; api_key?: string | null },
+  connection: { id: string; provider: string; url?: string; api_key?: string | null },
   saved: readonly AiConnection[],
 ): string | null | undefined {
-  return connection.api_key === undefined
-    ? saved.find((old) => old.id === connection.id && old.provider === connection.provider)?.api_key
-    : connection.api_key;
+  return connection.api_key === undefined ? savedKey(connection, saved) : connection.api_key;
 }
 
 const OK_STATUS = 200;

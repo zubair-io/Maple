@@ -1,4 +1,3 @@
-import { PIPELINE_OUTPUT_VERSION } from '../../generated/adjustment-fields.generated.ts';
 import { describe, expect, it, beforeAll, afterAll, spyOn } from 'bun:test';
 import { mkdtemp, mkdir, rm, writeFile, stat } from 'node:fs/promises';
 import * as os from 'node:os';
@@ -6,8 +5,9 @@ import * as path from 'node:path';
 import { maple } from 'maple';
 import { ObjectId } from '../../db/object-id.ts';
 import thumbStage from './thumb.ts';
-import { resolveThumbPath, resolveThumbPathForAsset, sha256Prefix16 } from '../../fs/xmp.ts';
+import { resolveThumbPath, resolveThumbPathForAsset } from '../../fs/xmp.ts';
 import * as videoPosterModule from '../../thumbs/video-poster.ts';
+import { ffiPool } from '../../ffi/ffi-pool.ts';
 import {
   createLiveTestDatabase,
   insertAsset,
@@ -90,7 +90,7 @@ function makeDoc(
         processed_at: null,
         dead: false,
       },
-      meili: {
+      'search-blob': {
         version: 0,
         attempts: 0,
         last_error: null,
@@ -136,10 +136,9 @@ describe('thumb handler — bitmap path', () => {
 
   it("returns { skip: 'no-video-decoder' } for a .MOV when the host has no ffmpeg", async () => {
     // #1649: video is skipped on host capability, not on extension. The skip
-    // must land BEFORE `generateThumb` — a failed render there still returns
-    // `{ wrote: true }`, which would mark the stage done having published
-    // nothing AND cascade a pointless cf-thumb-sync reset for a thumb that
-    // doesn't exist. Pinned to "absent" rather than reading the real host so
+    // must land BEFORE `generateThumb` — a render that publishes nothing
+    // defers, so every video would be re-polled indefinitely for a missing
+    // tool. Pinned to "absent" rather than reading the real host so
     // this asserts the same thing on a dev Mac and on a bare CI container.
     const ffmpegSpy = spyOn(videoPosterModule, 'ffmpegBinary').mockResolvedValue(null);
     try {
@@ -247,13 +246,10 @@ describe('thumb handler — bitmap path', () => {
     expect(meta.orientation === undefined || meta.orientation === 1).toBe(true);
   });
 
-  it('marks the stage as wrote for a RAW when the FFI is unavailable (soft pass)', async () => {
-    // Without libraw_ffi built, generateThumb silently skips the RAW and
-    // returns without writing a file. The handler must still return
-    // a clean success so the runtime can mark the stage done and the image
-    // advances to face.
-    //
-    // This test verifies the handler does not throw when the FFI is absent.
+  it('renders a RAW thumb when the fixture and the FFI are available (soft pass)', async () => {
+    // Without libraw_ffi nothing is rendered, and a render that publishes
+    // nothing is never recorded done (#5474) — so this soft-passes instead.
+    if (!ffiPool().available()) return;
     const dng = path.resolve(process.cwd(), '../../test-fixtures/raws/test_0017.dng');
     let dngExists = false;
     try {
@@ -323,15 +319,7 @@ describe('thumb handler — path-keyed cache path', () => {
     // The thumb must land at the name a path-only reader computes — this is
     // the agreement that was broken while the stage was maple_id-keyed.
     const expected = resolveThumbPath(file);
-    expect(expected).toBe(
-      path.join(
-        dir,
-        'vacation',
-        '.maple',
-        'thumbs',
-        `${sha256Prefix16('IMG_001.jpg')}.v${PIPELINE_OUTPUT_VERSION}.avif`,
-      ),
-    );
+    expect(expected).toBe(path.join(dir, 'vacation', '.maple', 'thumbs', 'IMG_001.jpg.avif'));
     expect((await stat(expected)).size).toBeGreaterThan(0);
     // And explicitly NOT at the old content-addressed name.
     await expect(

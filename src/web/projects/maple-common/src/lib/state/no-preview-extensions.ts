@@ -17,7 +17,7 @@
  * that field is only populated in Self-Hosted fs-walk browse mode, not the
  * content-addressed Hosted library path, so a filename-based check is the
  * one that works uniformly across both. */
-const VIDEO_EXTENSIONS = new Set([
+export const VIDEO_EXTENSIONS = new Set([
   'mov',
   'mp4',
   'm4v',

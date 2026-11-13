@@ -9,15 +9,18 @@
 //! follow-up once both tickets merge — by design, neither side imports
 //! the other today.
 
+#[cfg(any(feature = "ml", feature = "ml-static"))]
 mod lightglue;
 
+#[cfg(any(feature = "ml", feature = "ml-static"))]
 pub use lightglue::{LightGlueMatcher, MatcherOptions};
 
-/// One LightGlue correspondence between two images, in each image's
+/// One matcher correspondence (LightGlue, or the `classical-features`
+/// ratio-test matcher — #4523) between two images, in each image's
 /// **source continuous pixel coordinates** (texel centers at
 /// half-integers — the crate-wide convention, see [`crate::camera`]).
 ///
-/// `score` is LightGlue's match confidence in `[0, 1]` (higher = more
+/// `score` is the matcher's confidence in `[0, 1]` (higher = more
 /// confident). Records are emitted in descending score order.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct MlMatch {
@@ -27,6 +30,6 @@ pub struct MlMatch {
     /// Position in the second image.
     pub x1: f32,
     pub y1: f32,
-    /// LightGlue confidence in `[0, 1]`.
+    /// Matcher confidence in `[0, 1]`.
     pub score: f32,
 }

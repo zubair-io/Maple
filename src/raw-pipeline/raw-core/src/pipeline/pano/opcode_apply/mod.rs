@@ -47,10 +47,12 @@ mod warp;
 
 pub use crate::pipeline::pano::opcodes::WarpRectilinearOpcode;
 pub(crate) use point_map::WarpPointMap;
+#[cfg(test)]
+pub(crate) use warp::warp_source;
 pub use warp::{
-    apply_warp_rectilinear, apply_warp_rectilinear_windowed, warp_rectilinear_reach_px,
+    apply_warp_rectilinear, apply_warp_rectilinear_windowed, blend_warp_toward_identity,
+    warp_rectilinear_reach_px,
 };
-pub(crate) use warp::{blend_warp_toward_identity, warp_source};
 
 use rayon::prelude::*;
 
@@ -173,22 +175,42 @@ pub fn apply_opcode_list3(
     aa: ActiveAreaRect,
     scales: LensCorrectionScales,
 ) -> Vec<String> {
+    apply_opcode_list3_windowed(image, list, aa, scales, 0)
+}
+
+/// [`apply_opcode_list3`] on a full-width row band whose top row sits at
+/// absolute row `origin_y` (#5552). A `WarpRectilinear` reads rows past the
+/// band, so the caller supplies enough halo for its reach.
+pub fn apply_opcode_list3_windowed(
+    image: &mut Image,
+    list: &OpcodeList3,
+    aa: ActiveAreaRect,
+    scales: LensCorrectionScales,
+    origin_y: u32,
+) -> Vec<String> {
     let mut applied = Vec::with_capacity(list.opcodes.len());
     for op in &list.opcodes {
         match op {
             PanoOpcode::GainMap(gm) if scales.vignetting != 0.0 => {
-                apply_gain_map(image, gm, aa, scales.vignetting);
+                apply_gain_map_windowed(image, gm, aa, scales.vignetting, origin_y);
                 applied.push(format!(
                     "GainMap({}x{}x{})",
                     gm.points_v, gm.points_h, gm.map_planes
                 ));
             }
             PanoOpcode::WarpRectilinear(w) if scales.distortion != 0.0 || scales.ca != 0.0 => {
-                apply_warp_rectilinear(image, w, aa, scales.distortion, scales.ca);
+                apply_warp_rectilinear_windowed(
+                    image,
+                    w,
+                    aa,
+                    scales.distortion,
+                    scales.ca,
+                    (0, origin_y),
+                );
                 applied.push(format!("WarpRectilinear({} planes)", w.planes.len()));
             }
             PanoOpcode::FixVignetteRadial(v) if scales.vignetting != 0.0 => {
-                apply_fix_vignette_radial(image, v, aa, scales.vignetting);
+                apply_fix_vignette_radial_windowed(image, v, aa, scales.vignetting, origin_y);
                 applied.push("FixVignetteRadial".to_string());
             }
             // Scaled to zero — the correction is exactly the identity, so
@@ -206,6 +228,16 @@ pub fn apply_opcode_list3(
 /// exactly 1.0). Bilinear lattice interpolation is affine, so blending the
 /// interpolated gain is identical to blending the lattice up front.
 pub fn apply_gain_map(image: &mut Image, gm: &GainMapOpcode, aa: ActiveAreaRect, vignetting: f32) {
+    apply_gain_map_windowed(image, gm, aa, vignetting, 0);
+}
+
+fn apply_gain_map_windowed(
+    image: &mut Image,
+    gm: &GainMapOpcode,
+    aa: ActiveAreaRect,
+    vignetting: f32,
+    origin_y: u32,
+) {
     let width = image.width as usize;
     // Area rect ∩ active area, in ActiveArea-relative coordinates.
     let row_end = gm.bottom.min(aa.height) as usize;
@@ -227,14 +259,20 @@ pub fn apply_gain_map(image: &mut Image, gm: &GainMapOpcode, aa: ActiveAreaRect,
     let row_pitch = gm.row_pitch as usize;
     let col_pitch = gm.col_pitch as usize;
 
+    let Some((first_local, rows)) =
+        band_rows(origin_y, image.height, aa_top + row_start, aa_top + row_end)
+    else {
+        return;
+    };
+    let first_row = origin_y as usize + first_local - aa_top;
     image
         .pixels
         .par_chunks_mut(width)
-        .skip(aa_top + row_start)
-        .take(row_end - row_start)
+        .skip(first_local)
+        .take(rows)
         .enumerate()
         .for_each(|(i, row_px)| {
-            let row = row_start + i; // ActiveArea-relative row index
+            let row = first_row + i; // ActiveArea-relative row index
             if (row - row_start) % row_pitch != 0 {
                 return;
             }
@@ -253,9 +291,17 @@ pub fn apply_gain_map(image: &mut Image, gm: &GainMapOpcode, aa: ActiveAreaRect,
         });
 }
 
+/// The buffer rows `(first, count)` of a band starting at absolute row
+/// `origin_y` that fall inside absolute rows `[start, end)`.
+fn band_rows(origin_y: u32, height: u32, start: usize, end: usize) -> Option<(usize, usize)> {
+    let (band_start, band_end) = (origin_y as usize, (origin_y + height) as usize);
+    let (lo, hi) = (start.max(band_start), end.min(band_end));
+    (lo < hi).then(|| (lo - band_start, hi - lo))
+}
+
 /// Bilinear lattice lookup at fractional grid coords, edge-clamped
 /// (dng_sdk `dng_gain_map_interpolator` semantics).
-fn sample_lattice(gm: &GainMapOpcode, grid_v: f64, grid_h: f64, map_plane: u32) -> f32 {
+pub(crate) fn sample_lattice(gm: &GainMapOpcode, grid_v: f64, grid_h: f64, map_plane: u32) -> f32 {
     let max_v = (gm.points_v - 1) as f64;
     let max_h = (gm.points_h - 1) as f64;
     let v = grid_v.clamp(0.0, max_v);
@@ -296,6 +342,16 @@ pub fn apply_fix_vignette_radial(
     aa: ActiveAreaRect,
     vignetting: f32,
 ) {
+    apply_fix_vignette_radial_windowed(image, op, aa, vignetting, 0);
+}
+
+fn apply_fix_vignette_radial_windowed(
+    image: &mut Image,
+    op: &FixVignetteRadialOpcode,
+    aa: ActiveAreaRect,
+    vignetting: f32,
+    origin_y: u32,
+) {
     if vignetting == 0.0 {
         return;
     }
@@ -317,13 +373,20 @@ pub fn apply_fix_vignette_radial(
     let (aa_top, aa_left) = (aa.top as usize, aa.left as usize);
     let aa_wu = aa.width as usize;
 
+    let Some((first_local, rows)) =
+        band_rows(origin_y, image.height, aa_top, aa_top + aa.height as usize)
+    else {
+        return;
+    };
+    let first_row = origin_y as usize + first_local - aa_top;
     image
         .pixels
         .par_chunks_mut(width)
-        .skip(aa_top)
-        .take(aa.height as usize)
+        .skip(first_local)
+        .take(rows)
         .enumerate()
-        .for_each(|(row, row_px)| {
+        .for_each(|(i, row_px)| {
+            let row = first_row + i;
             let dy = row as f64 - cy;
             let dy2 = dy * dy;
             for col in 0..aa_wu {
@@ -338,67 +401,6 @@ pub fn apply_fix_vignette_radial(
                 }
             }
         });
-}
-
-/// Bilinear sample at continuous ActiveArea coords, sticky-edge clamped
-/// to the active rect (dng_sdk boundary behavior).
-#[inline]
-pub(crate) fn bilinear_aa(
-    src: &[[f32; 3]],
-    width: usize,
-    aa_top: usize,
-    aa_left: usize,
-    aa_w: usize,
-    aa_h: usize,
-    x: f64,
-    y: f64,
-) -> [f32; 3] {
-    let x = x.clamp(0.0, (aa_w - 1) as f64);
-    let y = y.clamp(0.0, (aa_h - 1) as f64);
-    let x0 = x.floor() as usize;
-    let y0 = y.floor() as usize;
-    let x1 = (x0 + 1).min(aa_w - 1);
-    let y1 = (y0 + 1).min(aa_h - 1);
-    let fx = (x - x0 as f64) as f32;
-    let fy = (y - y0 as f64) as f32;
-    let at = |yy: usize, xx: usize| src[(aa_top + yy) * width + aa_left + xx];
-    let (p00, p01, p10, p11) = (at(y0, x0), at(y0, x1), at(y1, x0), at(y1, x1));
-    let mut out = [0.0f32; 3];
-    for c in 0..3 {
-        let top = p00[c] + (p01[c] - p00[c]) * fx;
-        let bot = p10[c] + (p11[c] - p10[c]) * fx;
-        out[c] = top + (bot - top) * fy;
-    }
-    out
-}
-
-/// Single-channel variant of [`bilinear_aa`] for the per-plane (lateral
-/// CA) warp path, where each channel samples a different position.
-#[inline]
-#[allow(clippy::too_many_arguments)] // mirrors bilinear_aa's geometry args + channel
-pub(crate) fn bilinear_aa_ch(
-    src: &[[f32; 3]],
-    width: usize,
-    aa_top: usize,
-    aa_left: usize,
-    aa_w: usize,
-    aa_h: usize,
-    x: f64,
-    y: f64,
-    c: usize,
-) -> f32 {
-    let x = x.clamp(0.0, (aa_w - 1) as f64);
-    let y = y.clamp(0.0, (aa_h - 1) as f64);
-    let x0 = x.floor() as usize;
-    let y0 = y.floor() as usize;
-    let x1 = (x0 + 1).min(aa_w - 1);
-    let y1 = (y0 + 1).min(aa_h - 1);
-    let fx = (x - x0 as f64) as f32;
-    let fy = (y - y0 as f64) as f32;
-    let at = |yy: usize, xx: usize| src[(aa_top + yy) * width + aa_left + xx][c];
-    let top = at(y0, x0) + (at(y0, x1) - at(y0, x0)) * fx;
-    let bot = at(y1, x0) + (at(y1, x1) - at(y1, x0)) * fx;
-    top + (bot - top) * fy
 }
 
 #[cfg(test)]

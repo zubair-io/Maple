@@ -61,6 +61,11 @@ pub mod brush;
 /// heap, plus the `DEFAULT_TARGET_LONG_EDGE` the GPU one-shot entry and its
 /// CPU fallback share.
 pub mod cpu_budget;
+mod cpu_live_session;
+pub use cpu_live_session::CpuLiveSession;
+/// Colour-range eyedropper for the mask panel (#362) — the render worker's
+/// `sample_mask_range_from_bytes`.
+pub mod color_curve_sample;
 /// Edited-image export — full-res render + in-wasm encode, drained in chunks
 /// so a 100 MP deliverable never lands on the JS heap in one piece (#943).
 pub mod export;
@@ -74,8 +79,6 @@ pub mod id;
 /// clear bindings plus the sidecar-selection accessor the worker restores
 /// against before a decode.
 pub mod lens_profile;
-/// Colour-range eyedropper for the mask panel (#362) — the render worker's
-/// `sample_mask_range_from_bytes`.
 pub mod mask_range_sample;
 /// Instance-wide bitmap-mask raster registry (#3300) — `mask_raster_register`
 /// / `mask_raster_release`, the web mirror of raw-ffi's
@@ -133,6 +136,8 @@ mod gpu_render;
 // an `OffscreenCanvas` + drives WebGPU via `wasm_bindgen_futures`); gpu-gated. The
 // native-host build (the `gpu_render` parity test) does not compile it — its core
 // helpers are shared from `gpu_render`, which the test drives directly.
+#[cfg(all(feature = "gpu", any(target_arch = "wasm32", test)))]
+mod web_live_geometry;
 #[cfg(all(feature = "gpu", target_arch = "wasm32"))]
 mod web_live_session;
 

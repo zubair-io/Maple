@@ -10,6 +10,8 @@
 // intermittent CI failure this file's history no longer needs to carry) so
 // it stays focused on `HostedMapleIdService`'s wiring between them.
 
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { TestBed } from '@angular/core/testing';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ExifReaderService } from './exif-reader.service';
@@ -102,13 +104,39 @@ describe('HostedMapleIdService', () => {
       fakeExifReader.parse.mockResolvedValue({});
       fakeFallbackHasher.hashFallback.mockResolvedValue('02aabbccddeeff001122334455667788');
       const service = TestBed.inject(HostedMapleIdService);
-      const file = new File([new Uint8Array([1, 2, 3])], 'screen-recording.mov');
+      const file = new File([new Uint8Array([1, 2, 3])], 'screen-capture.dng');
 
       const id = await service.computeMapleId(file);
 
       expect(id.kind).toBe('fallback');
       expect(id.hex).toBe('02aabbccddeeff001122334455667788');
       expect(fakeFallbackHasher.hashFallback).toHaveBeenCalledWith(file);
+    });
+
+    it('dates a video from its moov atom and never consults EXIF', async () => {
+      fakeExifReader.parse.mockResolvedValue({ DateTimeOriginal: '2000-01-01T00:00:00.000Z' });
+      const service = TestBed.inject(HostedMapleIdService);
+      const bytes = readFileSync(resolve('../../test-fixtures/ids/dated-video.mov'));
+      const file = new File([bytes], 'IMG_0100.MOV');
+
+      const id = await service.computeMapleId(file);
+
+      expect(id.hex).toBe(
+        primary(new Uint8Array(bytes), '2026-04-05T18:26:20.000Z', null, null).hex,
+      );
+      expect(fakeExifReader.parse).not.toHaveBeenCalled();
+    });
+
+    it('falls back for a video without a moov atom even when it carries EXIF bytes', async () => {
+      fakeExifReader.parse.mockResolvedValue({ DateTimeOriginal: '2026-01-01T00:00:00.000Z' });
+      fakeFallbackHasher.hashFallback.mockResolvedValue('02aabbccddeeff001122334455667788');
+      const service = TestBed.inject(HostedMapleIdService);
+      const file = new File([new Uint8Array([0xff, 0xd8, 0xff, 0xe0])], 'clip.mp4');
+
+      const id = await service.computeMapleId(file);
+
+      expect(id.kind).toBe('fallback');
+      expect(fakeExifReader.parse).not.toHaveBeenCalled();
     });
 
     it('treats an exifr parse failure (unsupported/corrupt file) as "no EXIF" and falls back', async () => {

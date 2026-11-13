@@ -47,6 +47,24 @@ import { assetVectorsMigration } from './0022-asset-vectors.ts';
 import { generatedSearchesFirstPageMigration } from './0023-generated-searches-first-page.ts';
 import { locationSearchTriggersMigration } from './0024-location-search-triggers.ts';
 import { assetVectorsPollIndexMigration } from './0025-asset-vectors-poll-index.ts';
+import { removeMeilisearchMigration } from './0026-remove-meilisearch.ts';
+import { peopleFlagIndexesMigration } from './0027-people-flag-indexes.ts';
+import { vectorTextChangedMigration } from './0028-vector-text-changed.ts';
+import { backupEntryErrorKindMigration } from './0029-backup-entry-error-kind.ts';
+import { seedMissingStageStateMigration } from './0030-seed-missing-stage-state.ts';
+import { rearmUnresolvedLocationSkipsMigration } from './0031-rearm-unresolved-location-skips.ts';
+import { sidecarDivergencesMigration } from './0032-sidecar-divergences.ts';
+import { workerStallThresholdMigration } from './0033-worker-stall-threshold.ts';
+import { backupSidecarNameChecksMigration } from './0034-backup-sidecar-name-checks.ts';
+import { appleLiveVideoPathMigration } from './0035-apple-live-video-path.ts';
+import { localPurgeObligationsMigration } from './0036-local-purge-obligations.ts';
+import { bundledEmbedderMigration } from './0037-bundled-embedder.ts';
+import { motionPhotoMigration } from './0038-motion-photo.ts';
+import { livePhotoMigration } from './0039-live-photo.ts';
+import { backupDestinationCountsMigration } from './0040-backup-destination-counts.ts';
+import { dropVectorFingerprintIndexMigration } from './0041-drop-vector-fingerprint-index.ts';
+import { removeUnusedStageHandlersMigration } from './0042-remove-unused-stage-handlers.ts';
+import { removeRowLeasesMigration } from './0043-remove-row-leases.ts';
 
 export const ALL_MIGRATIONS: readonly Migration[] = [
   initialSchemaMigration,
@@ -74,4 +92,22 @@ export const ALL_MIGRATIONS: readonly Migration[] = [
   generatedSearchesFirstPageMigration,
   locationSearchTriggersMigration,
   assetVectorsPollIndexMigration,
+  removeMeilisearchMigration,
+  peopleFlagIndexesMigration,
+  vectorTextChangedMigration,
+  backupEntryErrorKindMigration,
+  seedMissingStageStateMigration,
+  rearmUnresolvedLocationSkipsMigration,
+  sidecarDivergencesMigration,
+  workerStallThresholdMigration,
+  backupSidecarNameChecksMigration,
+  appleLiveVideoPathMigration,
+  localPurgeObligationsMigration,
+  bundledEmbedderMigration,
+  motionPhotoMigration,
+  livePhotoMigration,
+  backupDestinationCountsMigration,
+  dropVectorFingerprintIndexMigration,
+  removeUnusedStageHandlersMigration,
+  removeRowLeasesMigration,
 ];

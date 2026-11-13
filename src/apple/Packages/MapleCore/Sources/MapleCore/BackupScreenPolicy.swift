@@ -1,0 +1,124 @@
+// BackupScreenPolicy.swift
+//
+// Whether the iPhone/iPad screen stays awake, and whether the Light Table
+// screen saver shows, while a Photos backup uploads (#5457). Pure inputs in,
+// one decision out, so the app's controller only gathers state and applies
+// the result.
+//
+//   - Nothing happens unless a backup is actually uploading and the user
+//     left "Keep screen on during backup" enabled. Uploading means a photo
+//     progressed recently, or a request is still sending its bytes.
+//   - Plugged in (charging or full): the screen stays on for as long as the
+//     upload runs, and after `screenSaverDelay` without a touch the screen
+//     saver appears (when enabled; it is off by default) — unless the editor
+//     is showing, or someone is using the app in a way a touch count can't
+//     see: VoiceOver, Switch Control, or typing.
+//   - On battery: the screen stays on only until `batteryAwakeLimit` passes
+//     without a touch, then normal auto-lock resumes. No screen saver.
+
+import Foundation
+
+public struct BackupScreenPreferences: Equatable, Sendable {
+  public var keepScreenOn: Bool
+  public var screenSaverEnabled: Bool
+
+  public static let keepScreenOnKey = "backup.screen.keepScreenOn"
+  public static let screenSaverKey = "backup.screen.screenSaver"
+
+  public init(keepScreenOn: Bool, screenSaverEnabled: Bool) {
+    self.keepScreenOn = keepScreenOn
+    self.screenSaverEnabled = screenSaverEnabled
+  }
+
+  /// Read from this device's own defaults, never synced: a screen saver
+  /// suits a plugged-in iPad on a desk, not necessarily the user's phone.
+  public static func load(from defaults: UserDefaults = .standard) -> BackupScreenPreferences {
+    BackupScreenPreferences(
+      keepScreenOn: defaults.object(forKey: keepScreenOnKey) as? Bool ?? true,
+      screenSaverEnabled: defaults.object(forKey: screenSaverKey) as? Bool ?? false)
+  }
+}
+
+public enum DevicePower: Equatable, Sendable {
+  case battery
+  case pluggedIn
+}
+
+public struct BackupScreenState: Equatable, Sendable {
+  /// The backup engine is running (not stopped, not starting up).
+  public let backupRunning: Bool
+  /// Seconds since a photo was last being read or uploaded in this run, or
+  /// nil when nothing has uploaded since the engine started.
+  public let secondsSinceUpload: TimeInterval?
+  /// Seconds since an upload request still in flight last sent body bytes,
+  /// or nil when no request is sending. A slow link can spend a minute on
+  /// one chunk without any photo-level progress in between.
+  public let secondsSinceBytesSent: TimeInterval?
+  public let power: DevicePower
+  public let secondsSinceInteraction: TimeInterval
+  /// VoiceOver, Switch Control or the keyboard is in use.
+  public let assistedInputActive: Bool
+  /// The photo editor is on screen, where a pause to judge an edit is not
+  /// the device being left alone.
+  public let editorVisible: Bool
+  public let preferences: BackupScreenPreferences
+
+  public init(
+    backupRunning: Bool, secondsSinceUpload: TimeInterval?,
+    secondsSinceBytesSent: TimeInterval? = nil, power: DevicePower,
+    secondsSinceInteraction: TimeInterval, assistedInputActive: Bool = false,
+    editorVisible: Bool = false, preferences: BackupScreenPreferences
+  ) {
+    self.backupRunning = backupRunning
+    self.secondsSinceUpload = secondsSinceUpload
+    self.secondsSinceBytesSent = secondsSinceBytesSent
+    self.power = power
+    self.secondsSinceInteraction = secondsSinceInteraction
+    self.assistedInputActive = assistedInputActive
+    self.editorVisible = editorVisible
+    self.preferences = preferences
+  }
+}
+
+public struct BackupScreenDecision: Equatable, Sendable {
+  public let keepScreenAwake: Bool
+  public let showScreenSaver: Bool
+
+  public init(keepScreenAwake: Bool, showScreenSaver: Bool) {
+    self.keepScreenAwake = keepScreenAwake
+    self.showScreenSaver = showScreenSaver
+  }
+
+  public static let released = BackupScreenDecision(keepScreenAwake: false, showScreenSaver: false)
+}
+
+public enum BackupScreenPolicy {
+  /// The gap between one photo finishing and the next starting still counts
+  /// as uploading, so the screen doesn't flicker toward auto-lock between
+  /// photos. A retry backoff or a Wi-Fi wait longer than this releases it.
+  public static let uploadGrace: TimeInterval = 30
+  /// A request whose body hasn't moved for this long counts as stalled. It
+  /// matches URLSession's default idle timeout, after which the request
+  /// itself fails, and outlasts the gaps between URLSession's byte reports
+  /// (the first after ~2 MiB, then every ~1 MiB) on links down to ~35 KiB/s.
+  public static let transferStallCutoff: TimeInterval = 60
+  public static let screenSaverDelay: TimeInterval = 120
+  public static let batteryAwakeLimit: TimeInterval = 600
+
+  public static func isUploading(_ state: BackupScreenState) -> Bool {
+    guard state.backupRunning else { return false }
+    let photoProgressing = state.secondsSinceUpload.map { $0 <= uploadGrace } ?? false
+    let bytesMoving = state.secondsSinceBytesSent.map { $0 <= transferStallCutoff } ?? false
+    return photoProgressing || bytesMoving
+  }
+
+  public static func decide(_ state: BackupScreenState) -> BackupScreenDecision {
+    guard state.preferences.keepScreenOn, isUploading(state) else { return .released }
+    let pluggedIn = state.power == .pluggedIn
+    return BackupScreenDecision(
+      keepScreenAwake: pluggedIn || state.secondsSinceInteraction < batteryAwakeLimit,
+      showScreenSaver: pluggedIn && state.preferences.screenSaverEnabled
+        && !state.assistedInputActive && !state.editorVisible
+        && state.secondsSinceInteraction >= screenSaverDelay)
+  }
+}

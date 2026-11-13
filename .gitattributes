@@ -15,3 +15,10 @@ test-fixtures/local-adjustments/lightroom-group-add.xmp text eol=lf
 # Preserve upstream model notices byte-for-byte, including their line endings
 # and existing trailing spaces, so recorded provenance hashes stay portable.
 tools/removal/notices/* -text whitespace=-blank-at-eol
+
+# #5159: the removal interop corpus is digest-bound (records.txt names the
+# blake3 of mask.mimf / patch.f16 and the fixture copies must stay
+# byte-identical), so never normalise line endings in either copy.
+test-fixtures/removal/basic/** -text
+test-fixtures/removal/calibration/** -text
+src/apple/Packages/MapleCore/Tests/MapleCoreTests/Fixtures/removal/** -text

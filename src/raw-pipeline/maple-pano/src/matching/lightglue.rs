@@ -163,7 +163,8 @@ impl LightGlueMatcher {
             builder = builder
                 .with_execution_providers([CoreMLExecutionProvider::default()
                     .with_model_format(CoreMLModelFormat::MLProgram)
-                    .with_compute_units(CoreMLComputeUnits::All)
+                    // No GPU: the stitch can be backgrounded, where GPU work needs an entitlement (#5663).
+                    .with_compute_units(CoreMLComputeUnits::CPUAndNeuralEngine)
                     .build()])
                 .map_err(|e| MlError::Runtime(format!("CoreML EP registration: {e}")))?;
         }

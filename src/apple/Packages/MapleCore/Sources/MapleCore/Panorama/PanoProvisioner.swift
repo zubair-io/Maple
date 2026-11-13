@@ -202,12 +202,13 @@ public actor PanoProvisioner {
         return (try? Self.sha256Hex(ofFileAt: url)) == spec.sha256
     }
 
+    /// Installed means the extracted dylib's pinned digest matches, so a
+    /// corrupt or replaced dylib is offered for re-download rather than
+    /// refused at every merge with nothing in Settings to repair it.
     private func isOrtInstalled() -> Bool {
-        guard let url = ortDylibPath else { return false }
-        // The pinned size is the tarball's, not the dylib's, so existence is
-        // the gate here; a corrupt dylib surfaces as a hard FFI error at
-        // stitch time. Re-running the download overwrites it.
-        return FileManager.default.fileExists(atPath: url.path)
+        guard let url = ortDylibPath,
+              case let .ortTarball(_, installedSha256)? = ortSpec?.kind else { return false }
+        return Self.ortIntegrity(at: url, expectedSha256: installedSha256) == .ok
     }
 
     // MARK: - Download (byte-progress, ephemeral session)

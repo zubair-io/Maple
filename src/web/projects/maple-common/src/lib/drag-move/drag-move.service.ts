@@ -11,6 +11,15 @@
 // that already succeeded (same contract `library/relocate-asset.ts` and the
 // batch-metadata editor already use).
 //
+// A RAW+JPEG stack (#5050) is ONE queue item and one tile in the summary,
+// but two relocates. The RAW goes first; only once it has landed does its
+// JPEG follow, to the RAW's resulting stem and always with `collision:
+// 'skip'`. A RAW that is skipped or fails leaves its JPEG where it is. A
+// taken JPEG name raises its own prompt naming the JPEG (Skip / Replace), so
+// a Replace chosen for the RAW never overwrites a file the user was not
+// shown. Keep Both picks one `<stem>.N` free for the RAW, the JPEG and their
+// sidecar at the destination before either is sent (`freePairFilename`).
+//
 // Deliberately does NOT optimistically patch `LibraryStateService`'s asset
 // list mid-queue. Once the whole queue settles, `_finish` calls
 // `LibraryStateService.refreshFolderListing` for the source AND destination
@@ -25,10 +34,14 @@
 // app) is what keeps `BunApiBackendService` out of Hosted's static bundle.
 
 import { Injectable, computed, inject, signal } from '@angular/core';
+import { HttpErrorResponse } from '@angular/common/http';
 import { BunApiBackendService, type ApiCollisionPolicy } from '../api/bun-api-backend.service';
 import { FolderCrudService } from '../api/folder-crud.service';
 import { LibraryStateService } from '../state/library-state.service';
 import type { AssetId } from '../models/asset';
+import { stackTiles, type StackFile } from '../models/asset-stack';
+import { companionFilenameFor, freePairFilename } from '../stack/stack-pair-names';
+import { FolderOccupancyService } from '../stack/folder-occupancy.service';
 import type { SidebarEntry } from '../models/folder';
 import { childAddress, parseAddress } from '../addressing/maple-address';
 import { errorMessage } from '../util/errors';
@@ -44,13 +57,45 @@ import type { DragMoveItemFailure, DragMoveMode, DragMoveSummary } from './drag-
 // `POST /folders/:id/move`. Both are addressed as `slug:relPath`, both
 // report into the same partial-failure summary.
 type QueueItem =
-  | { kind: 'asset'; assetId: AssetId; filename: string }
+  | {
+      kind: 'asset';
+      assetId: AssetId;
+      filename: string;
+      companion?: StackFile;
+      /** Keep Both for a stack: the free name chosen for the RAW. */
+      targetFilename?: string;
+    }
+  | { kind: 'companion'; rawFilename: string; companion: StackFile }
   | { kind: 'folder'; folderId: string; name: string; sourceRelPath: string };
+
+type AssetItem = Extract<QueueItem, { kind: 'asset' }>;
+type CompanionItem = Extract<QueueItem, { kind: 'companion' }>;
+
+/** The server refused Replace because the destination is another indexed photo. */
+function replaceRefused(collision: ApiCollisionPolicy, err: unknown): boolean {
+  return (
+    collision === 'replace' &&
+    err instanceof HttpErrorResponse &&
+    err.status === 409 &&
+    typeof err.error?.occupied_by_asset_id === 'string'
+  );
+}
+
+/** Whether the prompt on screen offers `policy`: no Replace the server
+ * refused, no Keep Both on a stack's JPEG prompt. */
+function collisionChoiceOffered(
+  prompt: DragMoveCollisionPrompt,
+  policy: DragMoveCollisionPolicy,
+): boolean {
+  if (policy === 'replace') return !prompt.replaceUnavailable;
+  return policy !== 'keep-both' || !prompt.companionOf;
+}
 
 @Injectable({ providedIn: 'root' })
 export class DragMoveService implements DragMoveCapability {
   private readonly api = inject(BunApiBackendService);
   private readonly folderCrud = inject(FolderCrudService);
+  private readonly occupancy = inject(FolderOccupancyService);
   private readonly state = inject(LibraryStateService);
 
   readonly available = computed(() => this.state.backend === 'self-hosted');
@@ -112,11 +157,11 @@ export class DragMoveService implements DragMoveCapability {
     // Only real `slug:relPath`-addressed assets have a server-managed
     // location to relocate — legacy `fs:` ids and memory-only sessions
     // don't (same exclusion `AssetRenameService.disabledReason` applies).
-    const assets = assetIds
-      .map((id) => this.state.assets().find((a) => a.id === id))
-      .filter(
-        (a): a is NonNullable<typeof a> => !!a && a.id.includes(':') && !a.id.startsWith('fs:'),
-      );
+    const known = this.state.assets();
+    const assets = stackTiles(
+      assetIds.filter((id) => id.includes(':') && !id.startsWith('fs:')),
+      known,
+    ).filter((tile) => known.some((a) => a.id === tile.id));
 
     // Grid sub-folders (#2976). Move-mode only — the capability doc rules
     // folders out of copy (no recursive-copy server primitive), and the one
@@ -133,7 +178,12 @@ export class DragMoveService implements DragMoveCapability {
     if (assets.length === 0 && folders.length === 0) return;
 
     this.queue = [
-      ...assets.map<QueueItem>((a) => ({ kind: 'asset', assetId: a.id, filename: a.filename })),
+      ...assets.map<QueueItem>(({ id, filename, companion }) => ({
+        kind: 'asset',
+        assetId: id,
+        filename,
+        ...(companion ? { companion } : {}),
+      })),
       ...folders.map<QueueItem>((f) => ({
         kind: 'folder',
         folderId: f.id,
@@ -158,19 +208,37 @@ export class DragMoveService implements DragMoveCapability {
   }
 
   resolveCollision(policy: DragMoveCollisionPolicy): void {
-    if (!this.collisionPrompt()) return;
+    const prompt = this.collisionPrompt();
+    if (!prompt || !collisionChoiceOffered(prompt, policy)) return;
     this.collisionPrompt.set(null);
-    if (policy === 'skip') {
-      this.skipped++;
-      this.queue.shift();
-      this._processHead('skip');
+    if (policy === 'skip') this._skipHead(prompt.filename);
+    else this._processHead(policy);
+  }
+
+  /** Skip on a RAW's prompt skips the whole tile; on a JPEG's prompt the RAW
+   * has already landed, so the split pair is reported. */
+  private _skipHead(takenName: string): void {
+    const head = this.queue[0];
+    if (head?.kind === 'companion') {
+      this._companionFailed(head, `"${takenName}" already exists there; you chose Skip`);
       return;
     }
-    this._processHead(policy);
+    this.skipped++;
+    this._next();
   }
 
   dismissSummary(): void {
     this.resultSummary.set(null);
+  }
+
+  private _next(): void {
+    this.queue.shift();
+    this._processHead('skip');
+  }
+
+  private _fail(assetId: AssetId, filename: string, reason: string): void {
+    this.failed.push({ assetId, filename, reason });
+    this._next();
   }
 
   private _processHead(collision: ApiCollisionPolicy): void {
@@ -181,33 +249,101 @@ export class DragMoveService implements DragMoveCapability {
     }
     if (item.kind === 'folder') {
       this._processFolderHead(item);
-      return;
+    } else if (item.kind === 'companion') {
+      this._processCompanionHead(item, collision);
+    } else if (collision === 'keep-both' && item.companion) {
+      this._planKeepBoth(item, item.companion);
+    } else {
+      this._processAssetHead(item, collision);
     }
-    this.api.relocateAsset(item.assetId, this.mode, collision, this.destinationRelPath).subscribe({
-      next: (outcome) => {
-        if (outcome.kind === 'skipped') {
-          if (outcome.reason === 'collision') {
-            this.collisionPrompt.set({ filename: item.filename });
-            return; // paused — resolveCollision() re-enters the queue
+  }
+
+  private _processAssetHead(item: AssetItem, collision: ApiCollisionPolicy): void {
+    const filename = item.targetFilename ?? item.filename;
+    const rename: [] | [string] = item.targetFilename ? [item.targetFilename] : [];
+    this.api
+      .relocateAsset(item.assetId, this.mode, collision, this.destinationRelPath, ...rename)
+      .subscribe({
+        next: (outcome) => {
+          if (outcome.kind === 'skipped') {
+            if (outcome.reason === 'collision') {
+              this.collisionPrompt.set({ filename });
+              return; // paused — resolveCollision() re-enters the queue
+            }
+            this.skipped++;
+            this._next();
+            return;
           }
-          this.skipped++;
-          this.queue.shift();
+          if (!item.companion) {
+            this.moved++;
+            this._next();
+            return;
+          }
+          // The RAW landed: its JPEG follows to the RAW's resulting stem.
+          const rawFilename = outcome.newFilename;
+          this.queue[0] = { kind: 'companion', rawFilename, companion: item.companion };
           this._processHead('skip');
+        },
+        error: (err: unknown) => {
+          if (replaceRefused(collision, err)) {
+            this.collisionPrompt.set({ filename, replaceUnavailable: true });
+            return;
+          }
+          this._fail(item.assetId, item.filename, errorMessage(err));
+        },
+      });
+  }
+
+  /** The JPEG of a stack whose RAW already landed as `rawFilename`. */
+  private _processCompanionHead(item: CompanionItem, collision: ApiCollisionPolicy): void {
+    const target = companionFilenameFor(item.companion.filename, item.rawFilename);
+    const companionOf = item.rawFilename;
+    this.api
+      .relocateAsset(item.companion.id, this.mode, collision, this.destinationRelPath, target)
+      .subscribe({
+        next: (outcome) => {
+          if (outcome.kind === 'skipped' && outcome.reason === 'collision') {
+            this.collisionPrompt.set({ filename: target, companionOf });
+            return;
+          }
+          this.moved++;
+          this._next();
+        },
+        error: (err: unknown) => {
+          if (replaceRefused(collision, err)) {
+            this.collisionPrompt.set({ filename: target, companionOf, replaceUnavailable: true });
+            return;
+          }
+          this._companionFailed(item, errorMessage(err));
+        },
+      });
+  }
+
+  /** The RAW landed but its JPEG did not follow: the tile is reported as a
+   * failure naming both files, since the pair is now on two stems. */
+  private _companionFailed(item: CompanionItem, reason: string): void {
+    const verb = this.mode === 'move' ? 'moved' : 'copied';
+    this._fail(
+      item.companion.id,
+      item.companion.filename,
+      `${item.rawFilename} was ${verb}, but its JPEG ${item.companion.filename} was not: ${reason}`,
+    );
+  }
+
+  /** Keep Both for a stack: one name free for the RAW, the JPEG and their
+   * sidecar at the destination, then the normal skip-guarded relocate. */
+  private _planKeepBoth(item: AssetItem, companion: StackFile): void {
+    this.occupancy.occupiedNames(this.destinationFolderId).subscribe({
+      next: (occupied) => {
+        const free = freePairFilename(occupied, item.filename, companion.filename);
+        if (!free) {
+          this._fail(item.assetId, item.filename, 'No free name for the RAW and its JPEG');
           return;
         }
-        this.moved++;
-        this.queue.shift();
+        this.queue[0] = { ...item, targetFilename: free };
         this._processHead('skip');
       },
-      error: (err: unknown) => {
-        this.failed.push({
-          assetId: item.assetId,
-          filename: item.filename,
-          reason: errorMessage(err),
-        });
-        this.queue.shift();
-        this._processHead('skip');
-      },
+      error: (err: unknown) => this._fail(item.assetId, item.filename, errorMessage(err)),
     });
   }
 

@@ -4,17 +4,11 @@ use std::collections::BTreeSet;
 
 use super::compute::collapse_indistinguishable_for_test;
 use super::*;
-use crate::capability_registry::{
-    BuildIdentity, Evidence, EvidenceRecord, EvidenceSource, RecordStatus,
-};
+use crate::capability_registry::{Evidence, EvidenceRecord, EvidenceSource, RecordStatus};
 
 /// An evidence set in which `sources` are satisfied and nothing else is.
 fn evidence_satisfying(sources: &[EvidenceSource]) -> Evidence {
-    let build = BuildIdentity::current();
-    let mut evidence = Evidence {
-        build: Some(build),
-        ..Evidence::default()
-    };
+    let mut evidence = Evidence::default();
     for source in sources {
         let expected = source.expected_cases();
         let backend = source.accepted_backends()[0].to_owned();
@@ -25,8 +19,6 @@ fn evidence_satisfying(sources: &[EvidenceSource]) -> Evidence {
             EvidenceRecord {
                 source: *source,
                 backend,
-                pipeline_version: build.pipeline_version,
-                schema_version: build.schema_version,
                 corpus_hash,
                 expected_cases: expected,
                 executed_cases: expected,

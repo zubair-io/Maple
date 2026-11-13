@@ -58,7 +58,7 @@ function entriesFor(db: SqliteDb): Map<string, Entry<unknown>> {
  * else the answer depends on — or `compute()`'s, cached for the next caller.
  *
  * `keep` says whether a computed answer is the one `query` asked for. One that
- * is not — the database's ranking standing in for a Meilisearch ranking that
+ * is not — the database's ranking standing in for an engine ranking that
  * failed — still answers the callers waiting on it, and is then forgotten, so
  * the next request asks again rather than being served the stand-in for the
  * whole window.

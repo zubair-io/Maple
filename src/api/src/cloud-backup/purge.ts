@@ -4,11 +4,14 @@ import { type BackupEngine, jsonSource, entryPrefix } from './engine.ts';
 import type { PurgeRecord, BackupObject, UploadCheckpoint, BackupProvider } from './provider.ts';
 import { relativeBackupPath, fileHash, jailedFile } from './inventory.ts';
 import type { BackupDestination, BackupRepository } from './repository.ts';
+import { releasedOrdinalStatements } from '../db/repos/assets.trash-survivor-intent.ts';
+import { matchedOne } from '../db/repos/db-handle.ts';
 
 async function removeLocal(
   root: string,
   relative: string,
   expected: string | null,
+  claim: PurgeClaim,
   signal?: AbortSignal,
 ): Promise<void> {
   signal?.throwIfAborted();
@@ -18,6 +21,7 @@ async function removeLocal(
   const target = await jailedFile(canonical, relative);
   await verifyLocalPurge(canonical, relative, target, expected);
   signal?.throwIfAborted();
+  await claim();
   try {
     await unlink(path.join(canonical, ...relative.split('/')));
   } catch (error) {
@@ -73,12 +77,50 @@ export async function drainPurges(
     signal?.throwIfAborted();
     const record: PurgeRecord = JSON.parse(row.record);
     try {
-      await purgeFolder(engine, destination, row.entry_id, signal);
-      await completePurge(engine, destination.id, record.entryId, row.revision, signal);
+      const claim = purgeClaim(engine, destination.id, row.entry_id, signal);
+      await purgeFolder(engine, destination, row.entry_id, claim, signal);
+      await completePurge(engine, destination.id, record.entryId, await claim(), signal);
     } catch {
       await retryPurge(engine, destination.id, record.entryId, signal);
     }
   }
+}
+/** Resolves to the row's claimed revision; called before every destructive step. */
+type PurgeClaim = () => Promise<number>;
+
+/**
+ * Mark a row's erasure as started, once, immediately before its first
+ * destructive step, so a whole-photo purge retired because the photo kept a
+ * copy (#5419) can tell the rows nothing was erased for. Throws, stopping
+ * the row, once that retirement or a completion took the row away.
+ */
+function purgeClaim(
+  engine: BackupEngine,
+  destinationId: string,
+  entryId: string,
+  signal?: AbortSignal,
+): PurgeClaim {
+  let claimed: Promise<number> | null = null;
+  // The pool discards RETURNING rows and runs the read on another connection,
+  // so the claim is a compare-and-swap on the revision it read: a concurrent
+  // bump (another drain, a saved object) fails the swap instead of being
+  // folded into the revision this drain later completes against.
+  const claim = async (): Promise<number> => {
+    signal?.throwIfAborted();
+    const [row] = await engine.repo.db.read<{ revision: number }>(
+      `SELECT revision FROM backup_purges WHERE destination_id=? AND entry_id=? AND completed=0`,
+      [destinationId, entryId],
+    );
+    if (!row) throw new Error('Purge row was retired or completed');
+    const result = await engine.repo.db.write(
+      `UPDATE backup_purges SET revision=? WHERE destination_id=? AND entry_id=? AND completed=0
+        AND revision=?`,
+      [row.revision + 1, destinationId, entryId, row.revision],
+    );
+    if (!matchedOne(result.changes)) throw new Error('Purge row changed before its claim');
+    return row.revision + 1;
+  };
+  return () => (claimed ??= claim());
 }
 async function completePurge(
   engine: BackupEngine,
@@ -88,11 +130,14 @@ async function completePurge(
   signal?: AbortSignal,
 ) {
   signal?.throwIfAborted();
-  await engine.repo.db.write(
-    `UPDATE backup_purges SET completed=1,last_error=NULL WHERE destination_id=? AND entry_id=?
-      AND revision=? AND NOT EXISTS (SELECT 1 FROM backup_entries WHERE id=? AND lease_until>?)`,
-    [destinationId, entryId, revision, entryId, Date.now()],
-  );
+  await engine.repo.db.transaction([
+    {
+      sql: `UPDATE backup_purges SET completed=1,last_error=NULL WHERE destination_id=? AND entry_id=?
+        AND revision=? AND NOT EXISTS (SELECT 1 FROM backup_entries WHERE id=? AND lease_until>?)`,
+      params: [destinationId, entryId, revision, entryId, Date.now()],
+    },
+    ...releasedOrdinalStatements(entryId),
+  ]);
 }
 async function retryPurge(
   engine: BackupEngine,
@@ -126,7 +171,15 @@ async function drainRemoteBatch(
         const record: PurgeRecord = JSON.parse(row.record);
         if (record.libraryId !== destination.libraryId || record.entryId !== row.entry_id)
           throw new Error('Purge identity does not match its destination entry');
-        const revision = await publishPurgeMarker(engine, destination, provider, record, signal);
+        const claim = purgeClaim(engine, destination.id, row.entry_id, signal);
+        const revision = await publishPurgeMarker(
+          engine,
+          destination,
+          provider,
+          record,
+          claim,
+          signal,
+        );
         const prefix = entryPrefix(record.libraryId, record.entryId);
         await removeSavedRemoteObjects(engine, destination.id, provider, prefix, signal);
         ready.set(prefix, { entryId: record.entryId, revision });
@@ -176,6 +229,7 @@ async function purgeFolder(
   engine: BackupEngine,
   destination: BackupDestination,
   entryId: string,
+  claim: PurgeClaim,
   signal?: AbortSignal,
 ): Promise<void> {
   if (!destination.path) throw new Error('Mirror root unavailable');
@@ -191,7 +245,7 @@ async function purgeFolder(
   if (!manifest) throw new Error('Mirror purge inventory unavailable');
   for (const file of manifest.localFiles) {
     signal?.throwIfAborted();
-    await removeLocal(destination.path, file.path, file.sha256, signal);
+    await removeLocal(destination.path, file.path, file.sha256, claim, signal);
   }
 }
 
@@ -200,6 +254,7 @@ async function publishPurgeMarker(
   destination: BackupDestination,
   provider: BackupProvider,
   record: PurgeRecord,
+  claim: PurgeClaim,
   signal?: AbortSignal,
 ): Promise<number> {
   // Disabled or disconnected destinations still owe erasure. Connection
@@ -208,8 +263,12 @@ async function publishPurgeMarker(
   const source = jsonSource(record);
   const key = `purges/${record.entryId}.json`;
   const savedRecord = await engine.repo.object(destination.id, key);
-  const existing = await provider.inspect(key, signal, savedRecord.object?.locator);
+  const existing = await provider.inspect(key, signal, {
+    locator: savedRecord.object?.locator,
+    expected: savedRecord.object ?? undefined,
+  });
   signal?.throwIfAborted();
+  await claim();
   if (!existing) {
     const object = await provider.publish(key, source, {
       signal,

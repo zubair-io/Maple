@@ -15,10 +15,12 @@ import { Injectable, inject } from '@angular/core';
 import type { Asset, AssetId } from '../models/asset';
 import { MapleCacheService, type PreviewSourceIdentity } from '../maple-cache/maple-cache.service';
 import { samePreviewSource } from '../maple-cache/preview-cache-protocol';
+import { hostedSidecarFingerprint } from '../maple-cache/hosted-sidecar-fingerprint';
 import { EmbeddedPreviewService } from '../raw-pipeline/embedded-preview.service';
 import { isSupportedRaw } from './raw-extensions';
 import { HostedRawSidecarService } from './hosted-raw-sidecar.service';
 import { LibraryStore } from './library-store.service';
+import { HostedSidecarErrors } from './hosted-sidecar-errors.service';
 import type { HostedByteSnapshot } from './hosted-byte-snapshot-cache';
 import { previewLocation, type PreviewLocation } from './preview-location';
 
@@ -29,6 +31,7 @@ import { previewLocation, type PreviewLocation } from './preview-location';
  * displayed but not persisted. */
 @Injectable({ providedIn: 'root' })
 export class HostedPreviewResolver {
+  private readonly sidecarErrors = inject(HostedSidecarErrors);
   private readonly store = inject(LibraryStore);
   private readonly cache = inject(MapleCacheService);
   private readonly previewExtractor = inject(EmbeddedPreviewService);
@@ -37,11 +40,11 @@ export class HostedPreviewResolver {
   /**
    * Resolve the best available authored or embedded preview blob for `id`, or `null` on
    * unsupported assets or an embedded-preview miss (see raw_core::preview).
-   * Authored-sidecar failures reject, preventing an unedited RAW retry.
    *
    * A present XMP is developed through Rust/WASM with its film LUT. Sidecar
-   * read/validation/develop failures reject so thumbnails cannot retry without
-   * the authored edits. An absent sidecar retains the embedded JPEG fast path.
+   * read/validation failures show the original with a visible sidecar warning
+   * and no cache write. Other authored develop failures still reject rather
+   * than silently dropping edits. An absent sidecar keeps the embedded JPEG fast path.
    * The returned display blob declares the actual encoded format.
    * A cache write happens as a fire-and-forget side effect on a real miss.
    * Embedded JPEGs are stored directly; developed previews use genuine AVIF
@@ -72,20 +75,23 @@ export class HostedPreviewResolver {
     const location = previewLocation(id);
     const folder = this.store.currentFolder();
     let sourceBefore: PreviewSourceIdentity | null = null;
+    let sidecarBefore: string | null | undefined;
 
     // Cache read: only possible with both a folder handle AND an addressable
     // on-disk location to key off. Absent either (a direct deep-link before a
     // listing populated the folder, or an in-memory import) ⇒ skip straight to
     // a one-shot extraction — a performance-only miss, not a correctness one.
-    if (folder && location) {
+    if (folder && location && !this.sidecarErrors.errors().has(id)) {
       try {
         const source = await getSourceIdentity(id);
         sourceBefore = source;
+        sidecarBefore = await this.sidecars.read(folder, location);
         const cached = await this.cache.readPreview(
           folder,
           location.dir,
           location.filename,
           source,
+          await hostedSidecarFingerprint(sidecarBefore),
         );
         if (cached) return cached;
       } catch {
@@ -103,11 +109,12 @@ export class HostedPreviewResolver {
       getSourceIdentity,
       sourceBefore,
       getSourceSnapshot,
+      sidecarBefore,
     );
   }
 
   /** Snapshot authored XMP and coherent RAW bytes, develop or extract through
-   * WASM, then schedule actual-format persistence. Authored failures reject;
+   * WASM, then schedule actual-format persistence. Authored develop failures reject;
    * absent-sidecar extraction failures return null for the normal RAW retry. */
   private async _extractAndCache(
     id: AssetId,
@@ -118,8 +125,16 @@ export class HostedPreviewResolver {
     getSourceIdentity: (id: AssetId) => Promise<PreviewSourceIdentity>,
     sourceBefore: PreviewSourceIdentity | null,
     getSourceSnapshot?: (id: AssetId) => Promise<HostedByteSnapshot>,
+    sidecarBefore?: string | null,
   ): Promise<Blob | null> {
-    const xml = folder && location ? await this.sidecars.read(folder, location) : null;
+    // The selected workflow variant may be unreadable even when Primary is
+    // healthy. A known error always shows the original, never another variant.
+    const xml =
+      sidecarBefore !== undefined
+        ? sidecarBefore
+        : folder && location && !this.sidecarErrors.errors().has(id)
+          ? await this.sidecars.read(folder, location)
+          : null;
     try {
       const snapshot = await this._sourceSnapshot(id, getBytes, sourceBefore, getSourceSnapshot);
       const ext = asset.filename.split('.').pop()?.toLowerCase() ?? '';
@@ -155,7 +170,7 @@ export class HostedPreviewResolver {
     getSourceIdentity: (id: AssetId) => Promise<PreviewSourceIdentity>,
     xml: string | null,
   ): void {
-    if (!folder?.write || !location || !source) return;
+    if (!folder?.write || !location || !source || this.sidecarErrors.errors().has(id)) return;
     void this._writeWhenCurrent(folder, location, blob, source, id, getSourceIdentity, xml);
   }
 
@@ -171,7 +186,14 @@ export class HostedPreviewResolver {
     try {
       if (!samePreviewSource(source, await getSourceIdentity(id))) return;
       if (xml !== (await this.sidecars.read(folder, location))) return;
-      await this.cache.writePreview(folder, location.dir, location.filename, blob, source);
+      await this.cache.writePreview(
+        folder,
+        location.dir,
+        location.filename,
+        blob,
+        source,
+        await hostedSidecarFingerprint(xml),
+      );
     } catch {
       // Cache writes are best-effort and never block the displayed preview.
     }

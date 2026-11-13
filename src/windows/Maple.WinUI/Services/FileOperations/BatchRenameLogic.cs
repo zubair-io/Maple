@@ -20,6 +20,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Threading.Tasks;
 
 namespace Maple.WinUI.Services.FileOperations
@@ -112,13 +113,26 @@ namespace Maple.WinUI.Services.FileOperations
             RenderFilenameTemplateFunc render,
             Action<int, int>? onItemDone = null)
         {
+            var claimedThisBatch = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var pendingPaths = new HashSet<string>(items.Select(item => item.CurrentPath), StringComparer.OrdinalIgnoreCase);
             var outcomes = new List<BatchRenameItemOutcome>(items.Count);
             for (var i = 0; i < items.Count; i++)
             {
                 var item = items[i];
-                outcomes.Add(await ApplyOneAsync(
-                    item, template, sequenceStart, (ulong)i, sequencePadWidth, collision, render)
-                    .ConfigureAwait(false));
+                pendingPaths.Remove(item.CurrentPath);
+                var outcome = await ApplyOneAsync(
+                    item, template, sequenceStart, (ulong)i, sequencePadWidth, collision, render,
+                    claimedThisBatch, pendingPaths).ConfigureAwait(false);
+                if (outcome.Kind == BatchRenameOutcomeKind.Relocated)
+                {
+                    claimedThisBatch.Add(Path.Combine(item.Directory, outcome.NewFileName!));
+                    pendingPaths.Remove(Path.Combine(item.Directory, outcome.NewFileName!));
+                }
+                else
+                {
+                    claimedThisBatch.Add(item.CurrentPath);
+                }
+                outcomes.Add(outcome);
                 onItemDone?.Invoke(i + 1, items.Count);
             }
             return outcomes;
@@ -126,7 +140,8 @@ namespace Maple.WinUI.Services.FileOperations
 
         private static async Task<BatchRenameItemOutcome> ApplyOneAsync(
             BatchRenameSourceItem item, string template, ulong sequenceStart, ulong sequenceIndex,
-            int sequencePadWidth, CollisionPolicy collision, RenderFilenameTemplateFunc render)
+            int sequencePadWidth, CollisionPolicy collision, RenderFilenameTemplateFunc render,
+            HashSet<string> claimedThisBatch, HashSet<string> pendingPaths)
         {
             var rendered = render(
                 template, item.OriginalStem, item.Ext, item.CapturedAtWire,
@@ -151,10 +166,16 @@ namespace Maple.WinUI.Services.FileOperations
                     item.CurrentFileName, newName, item.CurrentPath, false, false);
             }
 
+            var targetPath = Path.Combine(item.Directory, newName);
+            var overwritesBatchMember = claimedThisBatch.Contains(targetPath) || pendingPaths.Contains(targetPath);
+            var effectiveCollision = overwritesBatchMember && collision == CollisionPolicy.Replace
+                ? CollisionPolicy.AutoSuffix
+                : collision;
+
             try
             {
                 var outcome = await LocalFileOperations
-                    .RelocateAsync(item.CurrentPath, item.Directory, newName, RelocateMode.Move, collision)
+                    .RelocateAsync(item.CurrentPath, item.Directory, newName, RelocateMode.Move, effectiveCollision)
                     .ConfigureAwait(false);
                 var appliedName = Path.GetFileName(outcome.PrimaryPath);
                 return new BatchRenameItemOutcome(item.Key, BatchRenameOutcomeKind.Relocated,

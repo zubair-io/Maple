@@ -1,11 +1,17 @@
 use super::*;
 use crate::chain::Pass;
+use crate::p3_auto::{p3_auto_passes, HeadroomPlane};
 
 pub(crate) trait LivePassSink<'a> {
     fn push<T: Pass + 'a>(&mut self, pass: T);
     /// The boxed fallback separates prefix/suffix; a single-submit encoder
     /// deliberately continues its existing ping-pong sequence across this point.
     fn start_suffix(&mut self) {}
+    /// The P3 Auto headroom holder for this chain (#4741). A session-backed sink
+    /// returns its resident holder so a tick does not allocate one.
+    fn p3_auto_headroom(&self) -> HeadroomPlane {
+        HeadroomPlane::default()
+    }
 }
 struct BoxedSink<'a> {
     prefix: BoxedPasses<'a>,
@@ -37,7 +43,11 @@ impl<'a> LivePassSink<'a> for BoxedSink<'a> {
 ///   starts. Splitting the point dispatch per layer is exactly equivalent to
 ///   fusing it — the equivalence the fused form is built on — so the only
 ///   thing that changes is where the spatial kernels get to run.
-fn push_local_adjustments<'a>(suffix: &mut impl LivePassSink<'a>, inputs: &'a FullChainInputs<'_>) {
+fn push_local_adjustments<'a>(
+    suffix: &mut impl LivePassSink<'a>,
+    inputs: &'a FullChainInputs<'_>,
+    airlight: &AirlightSource,
+) {
     let flat = &inputs.local_adjustments;
     if !local_adjustments_are_active(flat, inputs.scope.layer) {
         return;
@@ -55,7 +65,13 @@ fn push_local_adjustments<'a>(suffix: &mut impl LivePassSink<'a>, inputs: &'a Fu
         if layer_needs_spatial(layer) {
             suffix.push(
                 LocalSpatialPass::new(layer, &inputs.mask_rasters, is_scope_target)
-                    .with_orientation(inputs.mask_orientation),
+                    .with_orientation(inputs.mask_orientation)
+                    .with_airlight(match airlight {
+                        AirlightSource::Resident(residency, _) => {
+                            AirlightSource::Resident(std::sync::Arc::clone(residency), 1 + index)
+                        }
+                        _ => AirlightSource::OnGpu,
+                    }),
             );
             continue;
         }
@@ -146,10 +162,24 @@ pub(crate) fn visit_live_chain<'a>(
     // sharpening to apply. `PostDcpRec2020Fp16` is the historic default,
     // preserving the existing RAW behaviour exactly.
     let is_raw_shape = inputs.input_shape == InputShape::PostDcpRec2020Fp16;
-    if is_raw_shape {
+    let creative = active_creative(inputs);
+    if is_raw_shape && creative.is_none() {
         if let Some(params) = inputs.capture_sharpening {
             // Already `Option`-gated in `build_split`; `Some` === develop ran the stage.
             sink.push(CaptureSharpeningPass { params });
+        }
+    }
+    // A capture result already went through capture sharpening; the creative
+    // stage (#5376) takes WB's slot and applies the exposure gain last.
+    if let Some(creative) = creative {
+        sink.push(CreativeDcpPass { inputs: creative });
+        if creative.highlight_recovery {
+            sink.push(PostDcpHighlightPass);
+        }
+        if !creative.gain_is_identity() {
+            sink.push(CreativeGainPass {
+                matrix: creative.post,
+            });
         }
     }
     // WB stays engaged for ALL input shapes (#1331): for non-RAW assets the
@@ -157,7 +187,7 @@ pub(crate) fn visit_live_chain<'a>(
     // so that `apply_delta(live, decoded=6500/0)` is IDENTITY when the slider
     // is at default (6500K/0), but SHIFTS correctly as the user drags temp/tint.
     // Skipping WB for non-RAW would make the temperature/tint sliders inert.
-    if !wb_is_noop(inputs.wb_temperature, inputs.wb_tint) {
+    if creative.is_none() && !wb_is_noop(inputs.wb_temperature, inputs.wb_tint) {
         sink.push(WhiteBalancePass {
             matrix: inputs.wb_matrix,
         });
@@ -195,6 +225,11 @@ pub(crate) fn visit_live_chain<'a>(
             sink.push(hsl_pass);
         }
     }
+    if !color_curves_is_identity(&inputs.color_curves) {
+        sink.push(ColorCurvesPass {
+            inputs: &inputs.color_curves,
+        });
+    }
     if inputs.clarity.abs() >= SLIDER_EPS {
         sink.push(ClarityPass {
             clarity: inputs.clarity,
@@ -226,7 +261,7 @@ pub(crate) fn visit_live_chain<'a>(
     }
     // Local adjustments (#1698) — develop's 12b position, between dehaze and
     // vignette. See the gate-predicate note in the module docs.
-    push_local_adjustments(sink, inputs);
+    push_local_adjustments(sink, inputs, &airlight);
     // Vignette (#1109) — develop's 12c position (after local_adjustments,
     // before sharpen). Same `apply` predicate as the raw-core stage's identity
     // short-circuit (`|amount| < 1e-3`); feather alone never engages the stage.
@@ -327,9 +362,13 @@ pub(crate) fn visit_live_chain<'a>(
     }
     // target_primaries from FullChainInputs (#1337): 0 = sRGB (default/legacy),
     // 1 = Display P3.
-    sink.push(DisplayEncodePass {
-        target_primaries: inputs.target_primaries,
-    });
+    let p3_auto = p3_auto_is_active(inputs).then(|| p3_auto_passes(sink.p3_auto_headroom()));
+    match &p3_auto {
+        Some((split, _)) => sink.push(split.clone()),
+        None => sink.push(DisplayEncodePass {
+            target_primaries: inputs.target_primaries,
+        }),
+    }
     sink.push(SrgbGammaPass);
     // Auto-Profile curve + residual LUT are the per-image AUTO-profile LOOK
     // artifacts (fit in gamma space from a camera JPEG). NON-RAW input has no
@@ -352,5 +391,8 @@ pub(crate) fn visit_live_chain<'a>(
             size: inputs.residual_lut_size,
             data: inputs.residual_lut_data.as_ref().into(),
         });
+    }
+    if let Some((_, restore)) = p3_auto {
+        sink.push(restore);
     }
 }

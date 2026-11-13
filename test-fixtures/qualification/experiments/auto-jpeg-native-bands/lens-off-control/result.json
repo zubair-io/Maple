@@ -1,0 +1,33 @@
+[
+  {
+    "fixture": "test_0011",
+    "status": "controlled geometry-only comparison; Neutral is deliberately not a colour qualification",
+    "default_lens_affine": [
+      [
+        0.9862424443833624,
+        -0.0008158118118719663,
+        7.32534701923022
+      ],
+      [
+        0.0008158118118719663,
+        0.9862424443833624,
+        4.292266587745845
+      ]
+    ],
+    "lens_off_affine": [
+      [
+        0.9861885303595941,
+        -0.0006136296920241401,
+        7.34008531223159
+      ],
+      [
+        0.0006136296920241401,
+        0.9861885303595941,
+        4.2450805000733745
+      ]
+    ],
+    "lens_off_inliers": 254,
+    "lens_off_displacement_p95": 3.4456145763397217,
+    "lens_off_affine_residual_p95": 1.2301535365257104
+  }
+]

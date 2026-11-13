@@ -37,6 +37,10 @@ namespace Maple.WinUI.Services.Xmp
             }
 
             AppendEnumFields(parts, doc.Adjustments);
+            if (doc.Adjustments.Retouch is { IsLegacyFrame: false, Spots.Count: > 0 })
+            {
+                parts.Add($"{XmpRetouch.FrameVersionKey}=\"2\"");
+            }
             if (doc.Adjustments.InpaintRemovals is { } removals)
                 parts.Add($"papp:InpaintRemovals=\"{XmpSchema.EscapeAttr(removals)}\"");
             XmpWhiteBalance.AppendAttributes(parts, doc.Adjustments);
@@ -207,7 +211,8 @@ namespace Maple.WinUI.Services.Xmp
         /// </summary>
         private static string BuildChildren(XmpSidecarDocument doc)
         {
-            var layerOrders = XmpLayerOrder.Assign(doc.Adjustments.LocalAdjustments, doc.VerbatimLayerOrders);
+            var layerOrders = XmpLayerOrder.Assign(doc.Adjustments.LocalAdjustments, doc.VerbatimLayerOrders,
+                preservePassthroughBrushPositions: true);
             var modeledBlocks = XmpSchema.ToneCurveElements
                 .Select(e => (e.Tag, Block: ToneCurveBlock(e.Tag, e.Curve(doc.Adjustments))))
                 .Concat(XmpMaskGroupTemplate.Blocks(doc, layerOrders, ChildIndent))
@@ -218,6 +223,7 @@ namespace Maple.WinUI.Services.Xmp
             var recordedTags = new HashSet<string>();
             var visitedPassthroughIndexes = new HashSet<int>();
             var blocks = new List<string>();
+            var lastBrushBlockPosition = -1;
             foreach (var slot in doc.ChildOrder)
             {
                 if (slot.ModeledTag is { } tag)
@@ -243,6 +249,8 @@ namespace Maple.WinUI.Services.Xmp
                     // the canonical ladder, interior whitespace kept as
                     // authored.
                     blocks.Add($"{ChildIndent}{doc.PassthroughNodes[slot.PassthroughIndex]}");
+                    if (XmpLayerOrder.IsBrushContainer(doc.PassthroughNodes[slot.PassthroughIndex]))
+                        lastBrushBlockPosition = blocks.Count - 1;
                 }
             }
 
@@ -253,6 +261,8 @@ namespace Maple.WinUI.Services.Xmp
                 if (!visitedPassthroughIndexes.Contains(i))
                 {
                     blocks.Add($"{ChildIndent}{doc.PassthroughNodes[i]}");
+                    if (XmpLayerOrder.IsBrushContainer(doc.PassthroughNodes[i]))
+                        lastBrushBlockPosition = blocks.Count - 1;
                 }
             }
 
@@ -261,7 +271,25 @@ namespace Maple.WinUI.Services.Xmp
                 .Select(b => b.Block)
                 .Where(b => b is not null)
                 .Select(b => b!);
-            blocks.InsertRange(0, freshBlocks);
+            var (beforeBrush, afterBrush) = freshBlocks.Aggregate(
+                (Before: new List<string>(), After: new List<string>()), (result, block) =>
+                {
+                    var tag = modeledBlocks.First(entry => entry.Block == block).Tag;
+                    if (XmpLayerOrder.FreshBlockFollowsUnkeyedBrushes(
+                        doc.Adjustments.LocalAdjustments, doc.VerbatimLayerOrders, tag))
+                        result.After.Add(block);
+                    else
+                        result.Before.Add(block);
+                    return result;
+                });
+            blocks.InsertRange(0, beforeBrush);
+            var orderedAfterBrush = afterBrush
+                .OrderBy(block => layerOrders.Where(entry => XmpLayerOrder.ContainerTagFor(entry.Layer.Mask) ==
+                        modeledBlocks.First(candidate => candidate.Block == block).Tag)
+                    .Select(entry => entry.Order).OfType<double>().DefaultIfEmpty(double.MaxValue).Min())
+                .ToArray();
+            blocks.InsertRange(lastBrushBlockPosition < 0 ? 0 : lastBrushBlockPosition + 1 + beforeBrush.Count,
+                orderedAfterBrush);
 
             return string.Join("\n", blocks);
         }
@@ -299,10 +327,14 @@ namespace Maple.WinUI.Services.Xmp
         /// <summary>
         /// Canonical attribute order: namespace priority (xmp, crs, papp, dc,
         /// exif, photoshop, Iptc4xmpCore, xmpRights, then unknown) and
-        /// alphabetical by fully-qualified name within each namespace.
+        /// alphabetical by fully-qualified name within each namespace. One part
+        /// per name, the first winning: model parts precede passthrough, so a
+        /// name the consumed set misses keeps the edit and is never written
+        /// twice (#4686, #5475).
         /// </summary>
         private static List<string> SortedAttributeParts(IEnumerable<string> parts) =>
-            parts.OrderBy(p => XmpSchema.PrefixPriority(AttributeName(p)))
+            parts.DistinctBy(AttributeName)
+                 .OrderBy(p => XmpSchema.PrefixPriority(AttributeName(p)))
                  .ThenBy(AttributeName, StringComparer.Ordinal)
                  .ToList();
 
@@ -348,6 +380,20 @@ namespace Maple.WinUI.Services.Xmp
             lines.Add("</x:xmpmeta>");
             lines.Add("<?xpacket end=\"w\"?>");
             return string.Join("\n", lines);
+        }
+
+        /// <summary>
+        /// Stable identity for model comparisons and rendered derivatives.
+        /// Windows keeps Maple brush XML passthrough-owned, so its source
+        /// container is intentionally absent from a synthetic document built
+        /// from an AdjustmentState. Include the brush render model separately
+        /// without changing the bytes written back to the sidecar.
+        /// </summary>
+        public static string Fingerprint(AdjustmentState model)
+        {
+            var xml = Serialize(new XmpSidecarDocument { Adjustments = model });
+            var brushes = XmpBrushCorrections.RenderFingerprint(model);
+            return brushes.Length == 0 ? xml : xml + "\n" + brushes;
         }
     }
 }

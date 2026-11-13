@@ -10,7 +10,7 @@
  * production security policy (`security-headers.ts`) — see that ticket for
  * the concrete list of things the previous, un-source-controlled Worker got
  * wrong (decoded every response as text, corrupting binary assets; served
- * `index.html` for `/raw_wasm_bg.wasm`; forced every status to 200; stamped
+ * `index.html` for `/pkg/raw_wasm_bg.wasm`; forced every status to 200; stamped
  * a one-year immutable cache policy onto stable-named files; omitted
  * COOP/COEP).
  *

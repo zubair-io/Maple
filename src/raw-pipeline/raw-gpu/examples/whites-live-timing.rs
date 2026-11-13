@@ -52,6 +52,9 @@ fn bench_inputs(anchor: f32, sampling_scale: f32) -> FullChainInputs<'static> {
         color_grade_global_hue: 0.0,
         color_grade_global_saturation: 0.0,
         color_grade_global_luminance: 0.0,
+        color_grade_blending: 100.0,
+        color_grade_shadow_edge: 0.564622,
+        color_grade_highlight_edge: 0.564622,
         hsl_hue: [0.0; 8],
         hsl_sat: [0.0; 8],
         hsl_lum: [0.0; 8],
@@ -83,6 +86,8 @@ fn bench_inputs(anchor: f32, sampling_scale: f32) -> FullChainInputs<'static> {
         film_lut_key: 0,
         film_lut_data: Vec::new().into(),
         display_tone_curves: raw_gpu::DisplayToneCurveInputs::default(),
+        color_curves: raw_gpu::ColorCurveInputs::default(),
+        creative: None,
     }
 }
 

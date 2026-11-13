@@ -16,6 +16,8 @@ def validate(needs, rules, event):
             selected = True
         elif component == "pr":
             selected = event == "pull_request"
+        elif component == "pr-or-group":
+            selected = event in ("pull_request", "merge_group")
         else:
             value = outputs.get(component)
             if value not in ("true", "false"):

@@ -1,0 +1,17 @@
+{
+  "scope": "all16JPEG-bearing physical renders and4exact previewless fallbacks",
+  "reviewed_contact_sheets": [
+    "gallery/contact-1.jpg",
+    "gallery/contact-2.jpg",
+    "gallery/contact-3.jpg",
+    "gallery/contact-4.jpg"
+  ],
+  "findings": {
+    "0005": "Container shadows and sky still show contrast/color error; remains red.",
+    "0015": "Foreground visibly flat and muted; remains red.",
+    "0017": "Faded wall/grass contrast remains visible; stays red.",
+    "0008": "Improved prior color checkpoint is numerically passing after geometry correction.",
+    "0011": "Coordinate-corrected JPEG is visually close to unchanged Auto; passing is a measurement correction."
+  },
+  "claim": "Geometry-only harness repair; no rendered color changes or new color fixes; full color goal incomplete."
+}

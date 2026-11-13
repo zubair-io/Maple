@@ -1,0 +1,8 @@
+{
+  "base": "95fc03d6819b34f46f928ba93de58188a4014022",
+  "instrumentation_only": true,
+  "source_patch_sha256": "61efa5d375277816d530c19b3574f9b10c11c78ab92cbbc3fd791e48951669d5",
+  "purpose": "Log production airlight cutoff ties and hypothetical fractional-tie A without changing any output pixels. No new production processing choice.",
+  "binary_sha256": "23359fec520f80468410b74f192deff7e126351de2f0f2e36f478243e24b9bf2",
+  "toolchain": "rustc1.98.1"
+}

@@ -129,6 +129,8 @@ public struct MapleSceneLinearImageData: Sendable {
   /// paths (no export) — matching `hasLensCorrections == false` there.
   public let lensCorrectionDistortionInert: Bool
   public let cameraSupport: RawCameraSupport?
+  /// The sized capture decode's refine base (#5381); `nil` for every other path.
+  public let captureBase: CaptureBase?
 
   public var pixelCount: Int { width * height }
 
@@ -147,8 +149,10 @@ public struct MapleSceneLinearImageData: Sendable {
     hasLensCorrections: Bool = false,
     lensCorrectionCaInert: Bool = true,
     lensCorrectionDistortionInert: Bool = true,
-    cameraSupport: RawCameraSupport? = nil
+    cameraSupport: RawCameraSupport? = nil,
+    captureBase: CaptureBase? = nil
   ) {
+    self.captureBase = captureBase
     self.width = width
     self.height = height
     self.channels = channels
@@ -200,7 +204,7 @@ public struct PipelineRenderer: Sendable {
   /// minutes. `full` uses bilinear demosaic (legacy value, preserved for ABI
   /// compatibility). `amaze` uses the AMaZE demosaic for highest quality on
   /// Bayer images — this is the export/refine path (#940).
-  public enum Quality: Int32, Sendable {
+  public enum Quality: Int32 {
     case full = 0
     case preview = 1
     case amaze = 2
@@ -614,22 +618,22 @@ public struct PipelineRenderer: Sendable {
     quality: Quality,
     cancel: CancelFlag?
   ) throws -> MapleSceneLinearImageData {
-    // Zero-filled by the imported C struct's implicit init — includes the
-    // #1781 `wb_frame_*` tail (absent until the FFI writes a frame).
-    var buf = MapleSceneLinearBufferF32()
+    // Zero-filled by the imported C struct's implicit init: no frame and
+    // no creative stage until the FFI writes them.
+    var capture = MapleCaptureBufferF32()
     let rawPath = String(cString: rawCStr)
     let lastSlash =
       rawPath.lastIndex(of: "/").map { rawPath.index(after: $0) } ?? rawPath.startIndex
     let fileName = String(rawPath[lastSlash...])
     pipelineLog.notice(
-      "→ Rust FFI maple_render_file_scene_linear_f32 START: \(fileName, privacy: .public) quality=\(quality.rawValue)"
+      "→ Rust FFI maple_render_file_capture_f32 START: \(fileName, privacy: .public) quality=\(quality.rawValue)"
     )
     // Derive the raw cancel pointer from the live `CancelFlag` AT the call
     // site (#951). `cancel` is held strongly by the caller across this
     // synchronous FFI call, so the Rust worker that reads the pointer never
     // sees freed memory. `nil` ⇒ null ⇒ never-cancel.
-    let rc = maple_render_file_scene_linear_f32(
-      rawCStr, xmpCStr, quality.rawValue, cancel?.pointer, &buf)
+    let rc = maple_render_file_capture_f32(
+      rawCStr, xmpCStr, quality.rawValue, cancel?.pointer, &capture)
     if rc == Self.rcCancelled {
       throw PipelineError.cancelled
     }
@@ -637,7 +641,8 @@ public struct PipelineRenderer: Sendable {
       let msg = maple_last_error().map { String(cString: $0) } ?? "unknown error"
       throw PipelineError.renderFailed(code: Int(rc), message: msg)
     }
-    defer { maple_free_scene_linear_buffer_f32(&buf) }
+    defer { maple_free_capture_buffer_f32(&capture) }
+    let buf = capture.scene
     guard buf.len_bytes > 0, let ptr = buf.f32_rgba else {
       throw PipelineError.renderFailed(code: Int(rc), message: "empty scene-linear buffer")
     }
@@ -661,7 +666,7 @@ public struct PipelineRenderer: Sendable {
       }
     }
     pipelineLog.notice(
-      "← Rust FFI maple_render_file_scene_linear_f32 OK: \(buf.width)x\(buf.height) center scene-linear RGB=(\(centerR, format: .fixed(precision: 4)), \(centerG, format: .fixed(precision: 4)), \(centerB, format: .fixed(precision: 4)))"
+      "← Rust FFI maple_render_file_capture_f32 OK: \(buf.width)x\(buf.height) center capture RGB=(\(centerR, format: .fixed(precision: 4)), \(centerG, format: .fixed(precision: 4)), \(centerB, format: .fixed(precision: 4)))"
     )
     // Extract noise profile before defer frees the buffer (PR #1709 fix).
     let noiseProfile: [Float]? = {
@@ -676,7 +681,7 @@ public struct PipelineRenderer: Sendable {
       pixels: data,
       noiseProfile: noiseProfile,
       iso: buf.iso,
-      wbFrame: WbSliderFrame(buffer: buf),
+      wbFrame: WbSliderFrame(buffer: buf, creative: CaptureCreative(capture.creative)),
       aeGain: buf.ae_gain,
       whitesAnchorEv: buf.whites_anchor_ev, nrSamplingScale: buf.nr_sampling_scale,
       hasLensCorrections: buf.has_lens_corrections != 0,
@@ -694,53 +699,22 @@ public struct PipelineRenderer: Sendable {
     quality: Quality,
     cancel: CancelFlag?
   ) throws -> MapleSceneLinearImageData {
-    // Zero-filled by the imported C struct's implicit init — includes the
-    // #1781 `wb_frame_*` tail (absent until the FFI writes a frame).
-    var buf = MapleSceneLinearBufferF32()
+    // Zero-filled by the imported C struct's implicit init: no frame and
+    // no creative stage until the FFI writes them.
+    var capture = MapleCaptureBufferF32()
     let rc = hintCStr.withUnsafeBufferPointer { hintPtr -> Int32 in
-      maple_render_bytes_scene_linear_f32(
+      maple_render_bytes_capture_f32(
         ptr, UInt(len), hintPtr.baseAddress,
-        xmpCStr, quality.rawValue, cancel?.pointer, &buf)
+        xmpCStr, quality.rawValue, cancel?.pointer, &capture)
     }
-    if rc == Self.rcCancelled {
-      throw PipelineError.cancelled
-    }
-    guard rc == 0 else {
-      let msg = maple_last_error().map { String(cString: $0) } ?? "unknown error"
-      throw PipelineError.renderFailed(code: Int(rc), message: msg)
-    }
-    defer { maple_free_scene_linear_buffer_f32(&buf) }
-    guard buf.len_bytes > 0, let bufPtr = buf.f32_rgba else {
-      throw PipelineError.renderFailed(code: Int(rc), message: "empty scene-linear buffer")
-    }
-    let data = mapleStage("decode result copy") {
-      Data(bytes: bufPtr, count: Int(buf.len_bytes))
-    }
-    // Extract noise profile before defer frees the buffer (PR #1709 fix).
-    let noiseProfile: [Float]? = {
-      guard buf.noise_profile_len > 0, let npPtr = buf.noise_profile_data else { return nil }
-      return Array(UnsafeBufferPointer(start: npPtr, count: Int(buf.noise_profile_len)))
-    }()
-    return MapleSceneLinearImageData(
-      width: Int(buf.width),
-      height: Int(buf.height),
-      channels: Int(buf.channels),
-      bytesPerPixel: Int(buf.bytes_per_pixel),
-      pixels: data,
-      noiseProfile: noiseProfile,
-      iso: buf.iso,
-      wbFrame: WbSliderFrame(buffer: buf),
-      aeGain: buf.ae_gain,
-      whitesAnchorEv: buf.whites_anchor_ev, nrSamplingScale: buf.nr_sampling_scale,
-      hasLensCorrections: buf.has_lens_corrections != 0,
-      lensCorrectionCaInert: buf.lens_correction_ca_inert != 0,
-      lensCorrectionDistortionInert: buf.lens_correction_distortion_inert != 0,
-      cameraSupport: RawCameraSupport.fromFFI(buf.camera_support_json.map { UnsafePointer($0) })
-    )
+    return try captureImageData(
+      &capture, rc: rc, base: nil, emptyMessage: "empty scene-linear buffer")
   }
 
   // MARK: Private helpers — scene-linear sized
 
+  /// Within the device's refine budget the sized decode keeps its refine
+  /// base (#5381), so a later capture-stage edit refines on the GPU.
   private static func _renderSceneLinearSized(
     rawCStr: UnsafePointer<CChar>,
     xmpCStr: UnsafePointer<CChar>?,
@@ -748,47 +722,9 @@ public struct PipelineRenderer: Sendable {
     maxLongEdge: UInt32,
     cancel: CancelFlag?
   ) throws -> MapleSceneLinearImageData {
-    // Zero-filled by the imported C struct's implicit init — includes the
-    // #1781 `wb_frame_*` tail (absent until the FFI writes a frame).
-    var buf = MapleSceneLinearBufferF32()
-    let rc = maple_render_file_scene_linear_sized_f32(
-      rawCStr, xmpCStr, maxLongEdge, quality.rawValue, cancel?.pointer, &buf
-    )
-    if rc == Self.rcCancelled {
-      throw PipelineError.cancelled
-    }
-    guard rc == 0 else {
-      let msg = maple_last_error().map { String(cString: $0) } ?? "unknown error"
-      throw PipelineError.renderFailed(code: Int(rc), message: msg)
-    }
-    defer { maple_free_scene_linear_buffer_f32(&buf) }
-    guard buf.len_bytes > 0, let ptr = buf.f32_rgba else {
-      throw PipelineError.renderFailed(code: Int(rc), message: "empty sized buffer")
-    }
-    let data = mapleStage("decode result copy") {
-      Data(bytes: ptr, count: Int(buf.len_bytes))
-    }
-    // Extract noise profile before defer frees the buffer (PR #1709 fix).
-    let noiseProfile: [Float]? = {
-      guard buf.noise_profile_len > 0, let npPtr = buf.noise_profile_data else { return nil }
-      return Array(UnsafeBufferPointer(start: npPtr, count: Int(buf.noise_profile_len)))
-    }()
-    return MapleSceneLinearImageData(
-      width: Int(buf.width),
-      height: Int(buf.height),
-      channels: Int(buf.channels),
-      bytesPerPixel: Int(buf.bytes_per_pixel),
-      pixels: data,
-      noiseProfile: noiseProfile,
-      iso: buf.iso,
-      wbFrame: WbSliderFrame(buffer: buf),
-      aeGain: buf.ae_gain,
-      whitesAnchorEv: buf.whites_anchor_ev, nrSamplingScale: buf.nr_sampling_scale,
-      hasLensCorrections: buf.has_lens_corrections != 0,
-      lensCorrectionCaInert: buf.lens_correction_ca_inert != 0,
-      lensCorrectionDistortionInert: buf.lens_correction_distortion_inert != 0,
-      cameraSupport: RawCameraSupport.fromFFI(buf.camera_support_json.map { UnsafePointer($0) })
-    )
+    try renderCaptureSized(
+      rawCStr: rawCStr, xmpCStr: xmpCStr, quality: quality, maxLongEdge: maxLongEdge,
+      cancel: cancel)
   }
 
   private static func _renderSceneLinearSizedBytes(
@@ -800,50 +736,9 @@ public struct PipelineRenderer: Sendable {
     maxLongEdge: UInt32,
     cancel: CancelFlag?
   ) throws -> MapleSceneLinearImageData {
-    // Zero-filled by the imported C struct's implicit init — includes the
-    // #1781 `wb_frame_*` tail (absent until the FFI writes a frame).
-    var buf = MapleSceneLinearBufferF32()
-    let rc = hintCStr.withUnsafeBufferPointer { hintPtr -> Int32 in
-      maple_render_bytes_scene_linear_sized_f32(
-        ptr, UInt(len), hintPtr.baseAddress,
-        xmpCStr, maxLongEdge, quality.rawValue, cancel?.pointer, &buf
-      )
-    }
-    if rc == Self.rcCancelled {
-      throw PipelineError.cancelled
-    }
-    guard rc == 0 else {
-      let msg = maple_last_error().map { String(cString: $0) } ?? "unknown error"
-      throw PipelineError.renderFailed(code: Int(rc), message: msg)
-    }
-    defer { maple_free_scene_linear_buffer_f32(&buf) }
-    guard buf.len_bytes > 0, let bufPtr = buf.f32_rgba else {
-      throw PipelineError.renderFailed(code: Int(rc), message: "empty sized buffer")
-    }
-    let data = mapleStage("decode result copy") {
-      Data(bytes: bufPtr, count: Int(buf.len_bytes))
-    }
-    // Extract noise profile before defer frees the buffer (PR #1709 fix).
-    let noiseProfile: [Float]? = {
-      guard buf.noise_profile_len > 0, let npPtr = buf.noise_profile_data else { return nil }
-      return Array(UnsafeBufferPointer(start: npPtr, count: Int(buf.noise_profile_len)))
-    }()
-    return MapleSceneLinearImageData(
-      width: Int(buf.width),
-      height: Int(buf.height),
-      channels: Int(buf.channels),
-      bytesPerPixel: Int(buf.bytes_per_pixel),
-      pixels: data,
-      noiseProfile: noiseProfile,
-      iso: buf.iso,
-      wbFrame: WbSliderFrame(buffer: buf),
-      aeGain: buf.ae_gain,
-      whitesAnchorEv: buf.whites_anchor_ev, nrSamplingScale: buf.nr_sampling_scale,
-      hasLensCorrections: buf.has_lens_corrections != 0,
-      lensCorrectionCaInert: buf.lens_correction_ca_inert != 0,
-      lensCorrectionDistortionInert: buf.lens_correction_distortion_inert != 0,
-      cameraSupport: RawCameraSupport.fromFFI(buf.camera_support_json.map { UnsafePointer($0) })
-    )
+    try renderCaptureSized(
+      ptr: ptr, len: len, hintCStr: hintCStr, xmpCStr: xmpCStr, quality: quality,
+      maxLongEdge: maxLongEdge, cancel: cancel)
   }
 
   // MARK: - Tile rendering (Plan 3 — Ticket 06 M4)
@@ -1124,6 +1019,42 @@ public struct PipelineRenderer: Sendable {
     )
   }
 
+  /// A tile of the handle's capture result (#5377,
+  /// `maple_render_handle_capture_tile_f32`): f32 RGBA in the fixed as-shot
+  /// basis, with no white balance, camera profile or exposure gain applied.
+  /// The per-tick chain renders it with the whole-image capture decode's
+  /// creative stage.
+  public static func renderCaptureTileF32(
+    handle: MapleRawHandle,
+    srcX: UInt32, srcY: UInt32, srcW: UInt32, srcH: UInt32,
+    outW: UInt32, outH: UInt32,
+    quality: Quality = .full
+  ) throws -> MapleSceneLinearImageData {
+    var buf = MapleSceneLinearBufferF32()
+    let rc = maple_render_handle_capture_tile_f32(
+      handle.pointer, srcX, srcY, srcW, srcH, outW, outH, quality.rawValue, &buf)
+    guard rc == 0 else {
+      let msg = maple_last_error().map { String(cString: $0) } ?? "unknown error"
+      throw PipelineError.renderFailed(code: Int(rc), message: msg)
+    }
+    defer { maple_free_scene_linear_buffer_f32(&buf) }
+    guard buf.len_bytes > 0, let ptr = buf.f32_rgba else {
+      throw PipelineError.renderFailed(code: Int(rc), message: "empty capture tile buffer")
+    }
+    let data = mapleStage("capture tile f32 result copy") {
+      Data(bytes: ptr, count: Int(buf.len_bytes))
+    }
+    return MapleSceneLinearImageData(
+      width: Int(buf.width),
+      height: Int(buf.height),
+      channels: Int(buf.channels),
+      bytesPerPixel: Int(buf.bytes_per_pixel),
+      pixels: data,
+      noiseProfile: nil,
+      iso: 0
+    )
+  }
+
   /// One-shot tile render directly from a RAW file + optional XMP —
   /// no handle lifecycle. Useful for export / one-off tile renders
   /// where the caller doesn't want to keep the decoded mosaic alive.
@@ -1346,10 +1277,8 @@ extension PipelineRenderer {
   /// XMP was applied, else 6500/0). `skipAgX` flips off the AgX view
   /// transform tail — used by the non-RAW path so we don't double-
   /// tone-map already-display-encoded JPEG / HEIF input.
-  /// `wbFrame` (#1781): the decode-exported WB slider frame. When present
-  /// the Rust chain derives its WB delta in that frame (the same math the
-  /// full develop uses); `nil` leaves the `wb_frame_*` tail zeroed — the
-  /// legacy generic-CAT16 delta, bit-identical to pre-#1781.
+  /// `wbFrame` (#5377): the capture decode's frame; its creative stage
+  /// replaces the white-balance delta. `nil` (non-RAW) keeps the delta.
   public static func makeParams(
     from model: AdjustmentModel,
     decodedTemperature: Double = 6500.0,
@@ -1360,20 +1289,27 @@ extension PipelineRenderer {
     whitesAnchorEv: Float = .nan,
     nrSamplingScale: Float = 1
   ) -> MapleAdjustmentParams {
-    // Log the model and decode anchor for WB delta diagnostics.
+    // Diagnostic for the magenta-cast investigation: log every value the
+    // Apple shell hands to the Rust slider chain. If temperature or tint
+    // drift away from defaults (6500 / 0) we know the WB step in the
+    // chain runs non-identity, which is what shifts the post-D65 image
+    // into a colour cast.
     pipelineLog.notice(
       "makeParams MODEL: temp=\(model.temperature, format: .fixed(precision: 0)) tint=\(model.tint, format: .fixed(precision: 1)) exposure=\(model.exposure, format: .fixed(precision: 2)) contrast=\(model.contrast, format: .fixed(precision: 0)) highlights=\(model.highlights, format: .fixed(precision: 0)) shadows=\(model.shadows, format: .fixed(precision: 0)) whites=\(model.whites, format: .fixed(precision: 0)) blacks=\(model.blacks, format: .fixed(precision: 0)) vib=\(model.vibrance, format: .fixed(precision: 0)) sat=\(model.saturation, format: .fixed(precision: 0)) clarity=\(model.clarity, format: .fixed(precision: 0)) texture=\(model.texture, format: .fixed(precision: 0)) dehaze=\(model.dehaze, format: .fixed(precision: 0)) nr_lum=\(model.nrLuminance, format: .fixed(precision: 0)) | dec_temp=\(decodedTemperature, format: .fixed(precision: 0)) dec_tint=\(decodedTint, format: .fixed(precision: 1)) skip_agx=\(skipAgX)"
     )
     // Per-statement assignment (not a single ~18-arg initializer call):
     // the Swift expression-type-checker hit its complexity ceiling on
-    // the literal-init form after #515 grew the struct to 18 fields. See #565.
+    // the literal-init form during xcodebuild after #515 grew the
+    // struct to 18 fields. See #565.
     var params = MapleAdjustmentParams()
     params.whites_anchor_ev = whitesAnchorEv
-    let wb = model.resolvedWhiteBalance(
-      temperature: decodedTemperature, tint: decodedTint, frame: wbFrame)
+    let wb = model.liveWhiteBalance(in: wbFrame)
     params.temperature = Float(wb.temperature)
     params.tint = Float(wb.tint)
     params.nr_sampling_scale = nrSamplingScale
+    // #4738: the CPU chain honours the model's WB method like the live
+    // chain does (0 = CAT16, 1 = diagonal Rec.2020).
+    params.wb_method = model.wbMethod == .diagonalRec2020 ? 1 : 0
     params.exposure = Float(model.exposure)
     params.contrast = Float(model.contrast)
     params.highlights = Float(model.highlights)
@@ -1428,6 +1364,9 @@ extension PipelineRenderer {
     params.color_grade_global_hue = Float(model.colorGradeGlobalHue)
     params.color_grade_global_saturation = Float(model.colorGradeGlobalSaturation)
     params.color_grade_global_luminance = Float(model.colorGradeGlobalLuminance)
+    params.color_grade_blending = Float(model.colorGradeBlending)
+    params.color_grade_shadow_edge = Float(model.colorGradeShadowEdge)
+    params.color_grade_highlight_edge = Float(model.colorGradeHighlightEdge)
     // HSL 8-band adjustments (#1112)
     params.hsl_hue_red = Float(model.hueAdjustmentRed)
     params.hsl_hue_orange = Float(model.hueAdjustmentOrange)
@@ -1517,12 +1456,10 @@ extension PipelineRenderer {
     params.defringe_green_amount = Float(model.defringeGreenAmount)
     params.defringe_green_hue_lo = Float(model.defringeGreenHueLo)
     params.defringe_green_hue_hi = Float(model.defringeGreenHueHi)
-    // WB slider frame (#1781) — appended at the struct tail; absent
-    // (`nil`, or a frame that reads !isPresent) leaves the zero-filled
-    // legacy state.
-    if let wbFrame, wbFrame.isPresent {
-      wbFrame.fill(&params)
-    }
+    // The capture decode's creative stage (#5377): the chain renders the
+    // capture result at the absolute slider pair. The frame must outlive
+    // the FFI call these params are passed to.
+    wbFrame?.fill(&params)
     return params
   }
 
@@ -1849,6 +1786,74 @@ extension PipelineRenderer {
     return output
   }
 
+  /// P3-aware sibling of `applyChainAndEncodeDisplay` (#3190), via
+  /// `maple_apply_chain_and_encode_display_target_f32`. Identical
+  /// contract, plus `targetPrimaries` selecting the ENCODE stage's target
+  /// primaries — independent of `params.target_primaries`, which the
+  /// caller must keep at `0` (sRGB) so the chain stage never runs its own
+  /// inline conversion (see the Rust entry's module doc for why reusing
+  /// `params.target_primaries` for both would double-convert).
+  public static func applyChainAndEncodeDisplayTarget(
+    inputBytes: Data,
+    width: Int,
+    height: Int,
+    params: MapleAdjustmentParams,
+    targetPrimaries: UInt32,
+    noiseProfile: [Float]? = nil,
+    localAdjustments: [LocalAdjustment] = []
+  ) throws -> Data {
+    guard width > 0, height > 0 else {
+      throw PipelineError.renderFailed(
+        code: 2,
+        message: "applyChainAndEncodeDisplayTarget: zero dimension width=\(width) height=\(height)"
+      )
+    }
+    // Same rejection as `encodeDisplay` — do not let an invalid Swift-side
+    // caller value fall through to Rust's defensive sRGB coercion
+    // (Copilot review on #3239).
+    guard
+      targetPrimaries == CanvasColorSpace.srgb.wireValue
+        || targetPrimaries == CanvasColorSpace.displayP3.wireValue
+    else {
+      throw PipelineError.renderFailed(
+        code: 2,
+        message: "applyChainAndEncodeDisplayTarget: unsupported targetPrimaries=\(targetPrimaries)"
+      )
+    }
+    let lanes = width * height * 4
+    let expectedBytes = lanes * MemoryLayout<Float>.size
+    guard inputBytes.count == expectedBytes else {
+      throw PipelineError.renderFailed(
+        code: 9,
+        message:
+          "applyChainAndEncodeDisplayTarget: input \(inputBytes.count) bytes != expected \(expectedBytes)"
+      )
+    }
+    var output = Data(count: expectedBytes)
+    let rc: Int32 = try withChainPointers(
+      params, noiseProfile: noiseProfile, localAdjustments: localAdjustments
+    ) { bound in
+      var p = bound
+      return try output.withUnsafeMutableBytes { outBuf -> Int32 in
+        let outPtr = outBuf.bindMemory(to: Float.self).baseAddress!
+        return inputBytes.withUnsafeBytes { inBuf -> Int32 in
+          let inPtr = inBuf.bindMemory(to: Float.self).baseAddress!
+          return maple_apply_chain_and_encode_display_target_f32(
+            inPtr, UInt32(width), UInt32(height),
+            &p,
+            targetPrimaries,
+            outPtr
+          )
+        }
+      }
+    }
+    guard rc == 0 else {
+      let msg = maple_last_error().map { String(cString: $0) } ?? "unknown error"
+      throw PipelineError.renderFailed(code: Int(rc), message: msg)
+    }
+    return output
+  }
+
   // `applyChainAndEncodeDisplayScoped` lives in `PipelineRenderer+Scoped.swift`
   // (file-size budget, #3251).
 }
@@ -1877,7 +1882,7 @@ extension PipelineRenderer {
 public final class MapleRawHandle: @unchecked Sendable {
   /// Pointer to the C-side `MapleRawHandle` struct. Not introspected
   /// from Swift; use the FFI entries to operate on it.
-  let pointer: UnsafeMutablePointer<RawPipeline.MapleRawHandle>
+  fileprivate let pointer: UnsafeMutablePointer<RawPipeline.MapleRawHandle>
 
   fileprivate init(pointer: UnsafeMutablePointer<RawPipeline.MapleRawHandle>) {
     self.pointer = pointer
@@ -1927,7 +1932,7 @@ public enum PipelineError: Error, LocalizedError {
 
 extension URL {
   /// Call `body` with a temporary UTF-8 C string of `path`.
-  fileprivate func withPathCString<R>(_ body: (UnsafePointer<CChar>) throws -> R) throws -> R {
+  func withPathCString<R>(_ body: (UnsafePointer<CChar>) throws -> R) throws -> R {
     let p = self.path
     guard let cstr = p.cString(using: .utf8) else {
       throw PipelineError.pathEncodingError(self)

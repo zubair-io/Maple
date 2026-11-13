@@ -41,6 +41,18 @@ describe('DragMoveCollisionDialogComponent', () => {
     expect(resolved).toEqual(['skip', 'keep-both', 'replace']);
   });
 
+  it('explains an indexed destination and removes the unsafe Replace choice', () => {
+    const fixture = render();
+    fixture.componentRef.setInput('replaceUnavailable', true);
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.textContent).toContain("can't safely replace");
+    expect(buttons(fixture).map((button) => button.textContent?.trim())).toEqual([
+      'Skip',
+      'Keep Both',
+    ]);
+  });
+
   it('a backdrop click resolves as skip (the non-destructive default)', () => {
     const fixture = render();
     const resolved: DragMoveCollisionPolicy[] = [];

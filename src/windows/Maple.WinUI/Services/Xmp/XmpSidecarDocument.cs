@@ -40,6 +40,32 @@ namespace Maple.WinUI.Services.Xmp
         public static ChildSlot ForPassthrough(int index) => new(null, index);
     }
 
+    /// <summary>Passthrough brush XML plus the original child ordering needed
+    /// to restore an undoable Reset All without moving brush layers.</summary>
+    public sealed class BrushCorrectionRestoreSnapshot
+    {
+        internal BrushCorrectionRestoreSnapshot(
+            IReadOnlyList<string> containers,
+            IReadOnlyList<string> passthroughNodes,
+            IReadOnlyList<ChildSlot> childOrder,
+            IReadOnlyList<XmpMaskGroupTemplate> maskGroups,
+            IReadOnlyList<double> verbatimLayerOrders)
+        {
+            Containers = containers;
+            PassthroughNodes = passthroughNodes;
+            ChildOrder = childOrder;
+            MaskGroups = maskGroups;
+            VerbatimLayerOrders = verbatimLayerOrders;
+        }
+
+        public IReadOnlyList<string> Containers { get; }
+        internal IReadOnlyList<string> PassthroughNodes { get; }
+        internal IReadOnlyList<ChildSlot> ChildOrder { get; }
+        internal IReadOnlyList<XmpMaskGroupTemplate> MaskGroups { get; }
+        internal IReadOnlyList<double> VerbatimLayerOrders { get; }
+
+    }
+
     /// <summary>
     /// One parsed sidecar. Fields Maple models live in <see cref="Adjustments"/>
     /// and the culling properties; everything else the source document carried
@@ -84,6 +110,9 @@ namespace Maple.WinUI.Services.Xmp
         /// written. Fresh documents are the current version, 5.
         /// </summary>
         public int WbScaleVersion { get; set; } = 5;
+
+        /// <summary>`papp:RetouchFrameVersion="2"` was present: the repair list is upright (#4473).</summary>
+        public bool RetouchFrameStamped { get; set; }
 
         /// <summary>Unknown attributes on `rdf:Description`, re-emitted sorted canonically.</summary>
         public List<XmpAttribute> PassthroughAttributes { get; set; } = new();
@@ -293,6 +322,9 @@ namespace Maple.WinUI.Services.Xmp
             F("crs:ColorGradeGlobalHue", a => a.ColorGradeGlobalHue, (a, v) => a.ColorGradeGlobalHue = v),
             F("crs:ColorGradeGlobalSat", a => a.ColorGradeGlobalSaturation, (a, v) => a.ColorGradeGlobalSaturation = v),
             F("crs:ColorGradeGlobalLum", a => a.ColorGradeGlobalLuminance, (a, v) => a.ColorGradeGlobalLuminance = v),
+            F("papp:ColorGradeBlending", a => a.ColorGradeBlending, (a, v) => a.ColorGradeBlending = v),
+            F("papp:ColorGradeShadowEdge", a => a.ColorGradeShadowEdge, (a, v) => a.ColorGradeShadowEdge = v),
+            F("papp:ColorGradeHighlightEdge", a => a.ColorGradeHighlightEdge, (a, v) => a.ColorGradeHighlightEdge = v),
             F("crs:HueAdjustmentRed", a => a.HueAdjustmentRed, (a, v) => a.HueAdjustmentRed = v),
             F("crs:HueAdjustmentOrange", a => a.HueAdjustmentOrange, (a, v) => a.HueAdjustmentOrange = v),
             F("crs:HueAdjustmentYellow", a => a.HueAdjustmentYellow, (a, v) => a.HueAdjustmentYellow = v),
@@ -373,6 +405,12 @@ namespace Maple.WinUI.Services.Xmp
                 ("crs:ToneCurvePV2012Red", a => a.DisplayToneCurveRed),
                 ("crs:ToneCurvePV2012Green", a => a.DisplayToneCurveGreen),
                 ("crs:ToneCurvePV2012Blue", a => a.DisplayToneCurveBlue),
+                ("papp:ColorCurveHueVsHue", a => a.ColorCurveHueVsHue),
+                ("papp:ColorCurveHueVsSat", a => a.ColorCurveHueVsSat),
+                ("papp:ColorCurveHueVsLuma", a => a.ColorCurveHueVsLuma),
+                ("papp:ColorCurveLumaVsSat", a => a.ColorCurveLumaVsSat),
+                ("papp:ColorCurveSatVsSat", a => a.ColorCurveSatVsSat),
+                ("papp:ColorCurveSatVsLuma", a => a.ColorCurveSatVsLuma),
             };
 
         /// <summary>The six-color label vocabulary (#1657).</summary>

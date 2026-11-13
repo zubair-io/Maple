@@ -37,20 +37,80 @@ final class EditSessionTests: XCTestCase {
     // Seeded renderedPreview but no GPU present yet → no frame on screen.
     XCTAssertFalse(
       EditSession.canvasHasFrame(
-        gpuActive: true, gpuFramePresented: false, hasRenderedPreview: true))
+        gpuActive: true, gpuFramePresented: false, hasRenderedPreview: true,
+        renderedPreviewIsFullRender: false))
     // GPU has presented → frame on screen (even with renderedPreview nil).
     XCTAssertTrue(
       EditSession.canvasHasFrame(
-        gpuActive: true, gpuFramePresented: true, hasRenderedPreview: false))
+        gpuActive: true, gpuFramePresented: true, hasRenderedPreview: false,
+        renderedPreviewIsFullRender: false))
+  }
+
+  // #4496 — a bytes-backed PhotoKit asset renders its first frames on the
+  // CPU path (the large-sensor gate declines an unseeded `nativeImageSize`)
+  // and the GPU leaf's CPU backdrop paints that completed render. It is on
+  // glass, so the seed thumbnail and the loading bar must retire on it even
+  // though no GPU frame has presented.
+  func testCanvasHasFrame_gpuPath_countsCompletedCpuFullRender() {
+    XCTAssertTrue(
+      EditSession.canvasHasFrame(
+        gpuActive: true, gpuFramePresented: false, hasRenderedPreview: true,
+        renderedPreviewIsFullRender: true))
+    // The flag without an image is a stale bookkeeping state, never a frame.
+    XCTAssertFalse(
+      EditSession.canvasHasFrame(
+        gpuActive: true, gpuFramePresented: false, hasRenderedPreview: false,
+        renderedPreviewIsFullRender: true))
   }
 
   func testCanvasHasFrame_cpuPath_usesRenderedPreview() {
     XCTAssertTrue(
       EditSession.canvasHasFrame(
-        gpuActive: false, gpuFramePresented: false, hasRenderedPreview: true))
+        gpuActive: false, gpuFramePresented: false, hasRenderedPreview: true,
+        renderedPreviewIsFullRender: false))
     XCTAssertFalse(
       EditSession.canvasHasFrame(
-        gpuActive: false, gpuFramePresented: true, hasRenderedPreview: false))
+        gpuActive: false, gpuFramePresented: true, hasRenderedPreview: false,
+        renderedPreviewIsFullRender: true))
+  }
+
+  // #4496 — the public accessor the canvas reads: true only for a published
+  // image that a completed render (not a seed) put there.
+  func testRenderedPreviewIsFullRender_requiresImageAndCompletedRender() async throws {
+    let assetURL = FileManager.default.temporaryDirectory
+      .appendingPathComponent("full-render-\(UUID().uuidString).dng")
+    let session = await EditSession(asset: AssetRef(url: assetURL))
+    XCTAssertFalse(session.renderedPreviewIsFullRender)
+
+    session.renderedPreview = CIImage(color: .gray)
+    session.previewIsFullRender = false
+    XCTAssertFalse(session.renderedPreviewIsFullRender, "a cold-open seed is not a frame")
+
+    session.previewIsFullRender = true
+    XCTAssertTrue(session.renderedPreviewIsFullRender)
+
+    session.renderedPreview = nil
+    XCTAssertFalse(session.renderedPreviewIsFullRender)
+  }
+
+  // #4496 (Codex review) — an iOS background eviction frees buffers but
+  // leaves the completed CPU frame on glass. The persist gate must close
+  // (#1881) while the canvas readiness keeps the seed thumbnail retired,
+  // because `representOnForeground` schedules nothing without a GPU frame.
+  func testRenderedPreviewIsFullRender_survivesTransientMemoryEviction() async throws {
+    let assetURL = FileManager.default.temporaryDirectory
+      .appendingPathComponent("evicted-\(UUID().uuidString).dng")
+    let session = await EditSession(asset: AssetRef(url: assetURL))
+    session.renderedPreview = CIImage(color: .gray)
+    session.previewIsFullRender = true
+
+    await session.releaseTransientMemory()
+
+    XCTAssertFalse(session.previewIsFullRender, "persist gates stay shut after an eviction")
+    XCTAssertTrue(session.renderedPreviewIsFullRender, "the frame is still on glass")
+
+    session.previewIsFullRender = true
+    XCTAssertTrue(session.previewIsFullRender, "the next publish clears the eviction")
   }
 
   func testLoadingIndicator_visibleWhileResolvingFirstFrame() {
@@ -113,6 +173,7 @@ final class EditSessionTests: XCTestCase {
 
     let asset = AssetRef(url: assetURL)
     let session = await EditSession(asset: asset)
+    await session.loadSidecar()
 
     // Manually drive a fast-only render: previewSize set, pixelScale=0
     // (fit mode), seed `renderedPreview`, then exercise the public
@@ -308,6 +369,7 @@ final class EditSessionTests: XCTestCase {
       bytesProvider: { throw NSError(domain: "test", code: -1) }
     )
     let editSession = EditSession(asset: asset, remoteSidecarStore: cloudStore)
+    await editSession.loadSidecar()
 
     var edited = editSession.model
     edited.exposure = 1.75

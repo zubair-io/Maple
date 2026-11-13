@@ -20,9 +20,11 @@ pub struct ColorLut {
     pub data: Vec<f32>,
 }
 
-/// Sample a borrowed RGB lattice with the identical tetrahedral evaluator
-/// used by `ColorLut`. Callers must provide n >= 2 and exactly n³ * 3 lanes.
-/// Native CPU preview borrows its immutable prepared residual without copying.
+/// Tetrahedral lookup into a borrowed `n³ × 3` lattice — the one evaluator
+/// behind [`ColorLut::sample`], [`ColorLut::sample_grid`] and the in-place
+/// RGBA applier (`apply::apply_prepared_rgba`), so a host that keeps the fitted
+/// residual in its own storage samples it exactly as the core does.
+/// Requires `n >= 2` and `data.len() == n * n * n * 3`; inputs clamp to [0,1].
 pub fn sample_lut(n: usize, data: &[f32], rgb: [f32; 3]) -> [f32; 3] {
     let node = |r: usize, g: usize, b: usize| {
         let i = ((b * n + g) * n + r) * 3;
@@ -61,14 +63,12 @@ pub fn sample_lut(n: usize, data: &[f32], rgb: [f32; 3]) -> [f32; 3] {
             } else {
                 c000[c] * (1.0 - fz) + c001[c] * (fz - fx) + c101[c] * (fx - fy) + c111[c] * fy
             }
+        } else if fx >= fz {
+            c000[c] * (1.0 - fy) + c010[c] * (fy - fx) + c110[c] * (fx - fz) + c111[c] * fz
+        } else if fy >= fz {
+            c000[c] * (1.0 - fy) + c010[c] * (fy - fz) + c011[c] * (fz - fx) + c111[c] * fx
         } else {
-            if fx >= fz {
-                c000[c] * (1.0 - fy) + c010[c] * (fy - fx) + c110[c] * (fx - fz) + c111[c] * fz
-            } else if fy >= fz {
-                c000[c] * (1.0 - fy) + c010[c] * (fy - fz) + c011[c] * (fz - fx) + c111[c] * fx
-            } else {
-                c000[c] * (1.0 - fz) + c001[c] * (fz - fy) + c011[c] * (fy - fx) + c111[c] * fx
-            }
+            c000[c] * (1.0 - fz) + c001[c] * (fz - fy) + c011[c] * (fy - fx) + c111[c] * fx
         };
     }
     out
@@ -101,7 +101,7 @@ impl ColorLut {
 
     /// Tetrahedral lookup of one RGB triplet (inputs clamped to [0,1]).
     pub fn sample(&self, rgb: [f32; 3]) -> [f32; 3] {
-        Self::sample_grid(self.size, &self.data, rgb)
+        sample_lut(self.size, &self.data, rgb)
     }
 
     /// Borrowed grid lookup lets FFI callers reuse host-owned LUT storage.

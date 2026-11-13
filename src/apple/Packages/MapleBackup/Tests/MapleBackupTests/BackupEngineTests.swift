@@ -35,7 +35,9 @@ final class BackupEngineTests: XCTestCase {
         XCTAssertEqual(row?.state, .uploaded)
     }
 
-    func testProcessOneDeletesAppSupportSidecarOnSuccess() async throws {
+    /// #4719: the App Support XMP is the editor's canonical PhotoKit edit;
+    /// uploading a copy must never delete it.
+    func testProcessOneKeepsAppSupportSidecarOnSuccess() async throws {
         StubURLProtocol.stub = ingestAndSidecarStub()
         let (engine, queue, state, sidecars, _, tmpRoot) = try freshHarness()
         defer { try? FileManager.default.removeItem(at: tmpRoot) }
@@ -51,7 +53,7 @@ final class BackupEngineTests: XCTestCase {
         try await engine.processOne()
 
         let after = try sidecars.read(phassetLocalId: "P1")
-        XCTAssertNil(after)
+        XCTAssertEqual(after, "<x/>")
     }
 
     func testProcessOnePersistsUploadingThenUploaded() async throws {
@@ -276,8 +278,7 @@ final class BackupEngineTests: XCTestCase {
         let engineRef = engine
         defer { Task { await engineRef.stop() } }
 
-        // Seed a local-edit sidecar so the durability-critical path is exercised
-        // and we can assert delete-only-after-it-lands.
+        // Seed a local-edit sidecar so the durability-critical path is exercised.
         try sidecars.write(phassetLocalId: "P1", xmp: "<x:edit/>")
 
         let id = BackupTaskID(deviceId: "d", phassetLocalId: "P1")
@@ -302,10 +303,17 @@ final class BackupEngineTests: XCTestCase {
         XCTAssertEqual(requestCount(containing: "backup/ingest"), 1,
             "a companion failure must NOT re-upload the photo bytes")
 
-        // The local-edit sidecar is deleted only after the retry succeeds.
-        await wait { (try? sidecars.read(phassetLocalId: "P1")) == nil }
-        XCTAssertNil(try sidecars.read(phassetLocalId: "P1"),
-            "local sidecar should be deleted once the sidecar upload finally lands")
+        // Once the retry lands the uploaded revision is recorded, and the
+        // canonical local edit is still on disk (#4719).
+        await wait { self.requestCount(containing: "backup/sidecar") >= 2 }
+        let deadline = Date().addingTimeInterval(2)
+        while try await state.uploadedSidecarDigest(id, targetRelPath: "IMG.heic") == nil, Date() < deadline {
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        let recorded = try await state.uploadedSidecarDigest(id, targetRelPath: "IMG.heic")
+        XCTAssertNotNil(recorded)
+        XCTAssertNotNil(try sidecars.read(phassetLocalId: "P1"),
+            "the local edit must survive its upload")
     }
 
     /// Sidecar-idempotency invariant: while the sidecar upload is still failing,
@@ -392,13 +400,54 @@ final class BackupEngineTests: XCTestCase {
                        "exactly one resolved signal at the →0 terminus")
     }
 
-    /// A derived companion (rendered twin, derivedCompanionRetries=2 — the
-    /// sidecar is skipped entirely without a local edit since #2553, so this
-    /// exercises the rendered companion instead) that never succeeds must
-    /// still emit `.companionsResolved` when its budget exhausts — otherwise
-    /// the photo leaks as permanently "pending".
+    /// The local-edit sidecar is the one companion still sent after the photo
+    /// is uploaded. One that never lands must still emit `.companionsResolved`
+    /// when its budget exhausts — otherwise the photo leaks as permanently
+    /// "pending" — and leaves the photo uploaded: a later walk re-sends the
+    /// undelivered edit (#4719).
     func testCompanionResolvedFiresOnExhaustion() async throws {
-        // ingest 200+json → rendered 500 forever (sequence exhausts → 500).
+        // ingest 200+json → sidecar 500 forever (sequence exhausts → 500).
+        StubURLProtocol.stub = .sequence([
+            .ok(json: #"{"maple_id":"hash-P1","target_rel_path":"2024/03/15/IMG.heic"}"#),
+            .status(500),
+        ])
+        let (engine, queue, state, sidecars, tmpRoot) =
+            try freshHarness(companionBackoff: { _ in 0 })
+        defer { try? FileManager.default.removeItem(at: tmpRoot) }
+        let engineRef = engine
+        defer { Task { await engineRef.stop() } }
+
+        let sink = EventSink()
+        await sink.attach(to: queue)
+        defer { sink.stop() }
+
+        try sidecars.write(phassetLocalId: "P1", xmp: "<x:edit/>")
+        let id = BackupTaskID(deviceId: "d", phassetLocalId: "P1")
+        let task = BackupTask(id: id, state: .pending, priority: .background)
+        try await state.upsert(task)
+        await queue.enqueue(task, priority: .background)
+
+        try await engine.processOne()
+
+        await wait { sink.count { if case .companionPending(let e) = $0 { return e == id }; return false } == 1 }
+        await wait { sink.count { if case .companionsResolved(let e) = $0 { return e == id }; return false } == 1 }
+
+        XCTAssertEqual(sink.count { if case .companionPending(let e) = $0 { return e == id }; return false }, 1,
+                       "pending fires once on the inline failure")
+        XCTAssertEqual(sink.count { if case .companionsResolved(let e) = $0 { return e == id }; return false }, 1,
+                       "resolved must fire when the sidecar exhausts its budget, not leak")
+        XCTAssertEqual(requestCount(containing: "backup/sidecar"), 8,
+                       "the sidecar gets its own full retry budget")
+        let row = try await state.find(id)
+        XCTAssertEqual(row?.state, .uploaded)
+        let delivered = try await state.uploadedSidecarDigest(id, targetRelPath: "IMG.heic")
+        XCTAssertNil(delivered, "the edit stays undelivered, so a later walk re-sends it")
+    }
+
+    /// The edited render is part of the photo: a failed render upload fails the
+    /// attempt before the photo is marked uploaded, so no `.completed` or
+    /// best-effort companion signal fires and the task retries on its budget.
+    func testRenderedUploadFailureFailsTheAttemptBeforeTheUploadedMark() async throws {
         StubURLProtocol.stub = .sequence([
             .ok(json: #"{"maple_id":"hash-P1","target_rel_path":"2024/03/15/IMG.heic"}"#),
             .status(500),
@@ -413,22 +462,23 @@ final class BackupEngineTests: XCTestCase {
         await sink.attach(to: queue)
         defer { sink.stop() }
 
-        // No local-edit sidecar written → sidecar companion skipped entirely,
-        // 2 rendered-companion attempts then drop.
         let id = BackupTaskID(deviceId: "d", phassetLocalId: "P1")
         let task = BackupTask(id: id, state: .pending, priority: .background)
         try await state.upsert(task)
         await queue.enqueue(task, priority: .background)
 
-        try await engine.processOne()
+        do {
+            try await engine.processOne()
+            XCTFail("a failed render upload fails the attempt")
+        } catch {}
 
-        await wait { sink.count { if case .companionPending(let e) = $0 { return e == id }; return false } == 1 }
-        await wait { sink.count { if case .companionsResolved(let e) = $0 { return e == id }; return false } == 1 }
-
-        XCTAssertEqual(sink.count { if case .companionPending(let e) = $0 { return e == id }; return false }, 1,
-                       "pending fires once on the inline failure")
-        XCTAssertEqual(sink.count { if case .companionsResolved(let e) = $0 { return e == id }; return false }, 1,
-                       "resolved must fire when the derived companion exhausts its budget, not leak")
+        await wait { sink.count { if case .failed(let e, _, true) = $0 { return e == id }; return false } == 1 }
+        XCTAssertEqual(sink.count { if case .failed(let e, _, true) = $0 { return e == id }; return false }, 1)
+        XCTAssertEqual(sink.count { if case .completed = $0 { return true }; return false }, 0)
+        XCTAssertEqual(sink.count { if case .companionPending = $0 { return true }; return false }, 0)
+        let row = try await state.find(id)
+        XCTAssertEqual(row?.state, .pending)
+        XCTAssertEqual(row?.retryCount, 1)
     }
 
     /// Live Photo .mov twins must be uploaded with X-Maple-Suffix-Override: mov
@@ -436,7 +486,7 @@ final class BackupEngineTests: XCTestCase {
     func testLivePhotoTwinUsesSuffixOverride() async throws {
         // ingest 200 → sidecar 200 → rendered (live-mov) 200
         StubURLProtocol.stub = .sequence([
-            .ok(json: #"{"maple_id":"hash-P1","target_rel_path":"2024/03/15/IMG.heic"}"#),
+            .ok(json: #"{"maple_id":"\#(Self.ingestedMapleId)","target_rel_path":"2024/03/15/IMG.heic"}"#),
             .status(200),
             .status(200),
         ])
@@ -472,8 +522,42 @@ final class BackupEngineTests: XCTestCase {
         XCTAssertNotNil(renderedReq, "expected a rendered-companion upload for the .mov twin")
         XCTAssertEqual(renderedReq?.value(forHTTPHeaderField: "X-Maple-Suffix-Override"), "mov",
                        "Live Photo .mov twin must use suffix-override 'mov'")
-        XCTAssertEqual(renderedReq?.value(forHTTPHeaderField: "X-Maple-Rendered-Ext"), "mov",
+        XCTAssertEqual(renderedReq?.value(forHTTPHeaderField: "X-Maple-Filename-Ext"), "mov",
                        "Live Photo .mov twin must declare 'mov' extension")
+        XCTAssertEqual(renderedReq?.value(forHTTPHeaderField: "X-Maple-Maple-Id"), Self.ingestedMapleId,
+                       "the .mov twin's final chunk must name the original's ingested id (#5241)")
     }
+
+    /// #5241: the server files a rendered companion under the asset whose id
+    /// its final chunk names, so that id is the one ingest stored for the
+    /// original, not the device's pre-ingest hash.
+    func testRenderedCompanionFinalChunkCarriesIngestedMapleId() async throws {
+        StubURLProtocol.stub = .sequence([
+            .ok(json: #"{"maple_id":"\#(Self.ingestedMapleId)","target_rel_path":"2024/03/15/IMG.heic"}"#),
+            .ok(json: #"{"target_rel_path":"2024/03/15/IMG.rendered.heic"}"#),
+        ])
+        let (engine, queue, state, _, tmpRoot) =
+            try freshHarness(companionBackoff: { _ in 0 }, reader: RenderedAssetReader())
+        defer { try? FileManager.default.removeItem(at: tmpRoot) }
+
+        let id = BackupTaskID(deviceId: "d", phassetLocalId: "P1")
+        let task = BackupTask(id: id, state: .pending, priority: .background)
+        try await state.upsert(task)
+        await queue.enqueue(task, priority: .background)
+
+        try await engine.processOne()
+
+        let renderedReqs = StubURLProtocol.recordedRequests
+            .filter { $0.url?.path.contains("backup/rendered") == true }
+        XCTAssertEqual(renderedReqs.count, 1)
+        let sent = renderedReqs.last?.value(forHTTPHeaderField: "X-Maple-Maple-Id")
+        XCTAssertEqual(sent, Self.ingestedMapleId)
+        XCTAssertNotNil(sent?.range(of: "^[0-9a-f]{32}$", options: .regularExpression),
+                        "the server rejects a final chunk whose id is not 32 hex characters")
+        XCTAssertEqual(renderedReqs.last?.value(forHTTPHeaderField: "X-Maple-Filename-Ext"), "jpeg",
+                       "a JPEG rendering of a HEIC original must be named by its own format (#5244)")
+    }
+
+    private static let ingestedMapleId = "02371b94aade2246ba56c6770a7624e1"
 
 }

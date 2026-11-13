@@ -1,7 +1,8 @@
 import * as path from 'node:path';
 import { createHash } from 'node:crypto';
 import { mkdir, open, link, unlink, lstat, realpath, readdir, statfs } from '../fs/mirrored.ts';
-import { safeWriteAllowed, registerRoot } from '../fs/root.ts';
+import { isWithinRoot, resolveRealPathThroughAncestors } from '../fs/root.ts';
+import { parseRootList } from '../fs/root-list.ts';
 import { fileHash, relativeBackupPath } from './inventory.ts';
 import { latestManifests, readRemoteCatalog, readEntryPurge } from './catalog.ts';
 import type { BackupProvider, BackupManifest } from './provider.ts';
@@ -27,11 +28,14 @@ export interface RecoveryRequest {
 }
 async function validateRecoveryTarget(target: string): Promise<string> {
   if (!path.isAbsolute(target)) throw new Error('Recovery requires an absolute empty directory');
-  const allowed = await safeWriteAllowed(path.join(target, '.maple-recovery-check'));
-  if (!allowed.ok) throw new Error('Recovery directory is outside allowed server roots');
   const canonical = await realpath(target);
   if ((await lstat(target)).isSymbolicLink() || !(await lstat(canonical)).isDirectory())
     throw new Error('Recovery target must be a directory, not a symlink');
+  // Recovery may register a new library outside existing roots; MAPLE_ROOTS still constrains it.
+  const configured = parseRootList(process.env.MAPLE_ROOTS);
+  const roots = await Promise.all(configured.map((root) => resolveRealPathThroughAncestors(root)));
+  if (roots.length > 0 && !roots.some((root) => isWithinRoot(root, canonical)))
+    throw new Error('Recovery directory is outside allowed server roots');
   return canonical;
 }
 function selected(entries: BackupManifest[], request: RecoveryRequest): BackupManifest[] {
@@ -46,7 +50,11 @@ function selected(entries: BackupManifest[], request: RecoveryRequest): BackupMa
 }
 function recoveryFiles(entries: BackupManifest[]) {
   const files = entries.flatMap((entry) =>
-    entry.files.map((file) => ({ ...file, entryId: entry.entryId, libraryId: entry.libraryId })),
+    entry.files.map((file) => ({
+      ...file,
+      entryId: entry.entryId,
+      libraryId: entry.libraryId,
+    })),
   );
   const names = new Set<string>();
   for (const file of files) {
@@ -71,7 +79,10 @@ async function recoveryGaps(
   for (const file of files) {
     signal?.throwIfAborted();
     try {
-      const actual = await provider.inspect(file.object.key, signal, file.object.locator);
+      const actual = await provider.inspect(file.object.key, signal, {
+        locator: file.object.locator,
+        expected: file.object,
+      });
       if (!actual) gaps.push(`${file.path}: backup object is missing or outside the backup root`);
       else if (
         actual.key !== file.object.key ||
@@ -361,7 +372,6 @@ async function indexRecovery(
       label: 'Recovered photos',
       slug: `recovered-${journal.jobId}`,
     }));
-  registerRoot(journal.root);
   invalidateLibraryRoots();
   for (const entry of journal.entries) {
     await cancellation.poll();
@@ -398,11 +408,18 @@ export async function recoverBackup(
     const folderId = await indexRecovery(provider, journal, cancellation);
     return {
       kind: 'done' as const,
-      result: { files: progress.files, targetPath: root, libraryId: folderId.toHexString() },
+      result: {
+        files: progress.files,
+        targetPath: root,
+        libraryId: folderId.toHexString(),
+      },
     };
   } catch (error) {
     if (cancellation.controller.signal.reason instanceof RecoveryCancelled)
-      return { kind: 'cancelled' as const, result: { files: progress.files, targetPath: root } };
+      return {
+        kind: 'cancelled' as const,
+        result: { files: progress.files, targetPath: root },
+      };
     throw error;
   } finally {
     cancellation.stop();

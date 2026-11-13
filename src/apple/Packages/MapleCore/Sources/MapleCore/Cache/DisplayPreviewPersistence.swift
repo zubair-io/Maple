@@ -7,7 +7,7 @@ import Foundation
 final class DisplayPreviewPersistence {
   static let idleDebounce: Duration = .milliseconds(1_500)
 
-  private let sink: (any DisplayPreviewSink)?
+  let sink: (any DisplayPreviewSink)?
   private let encode: @Sendable (CIImage) -> Data?
   private var pendingImage: CIImage?
   private var idleTask: Task<Void, Never>?
@@ -54,7 +54,28 @@ final class DisplayPreviewPersistence {
     } while true
   }
 
-  func discardPendingImage() { pendingImage = nil }
+  func discardPendingImage() {
+    idleTask?.cancel()
+    idleTask = nil
+    pendingImage = nil
+  }
+
+  func stagePending(_ image: CIImage) {
+    guard sink != nil else { return }
+    pendingImage = image
+  }
+
+  func rearmIfPending() {
+    guard let image = pendingImage else { return }
+    schedule(image)
+  }
+
+  func takePendingImage() -> CIImage? {
+    idleTask?.cancel()
+    idleTask = nil
+    defer { pendingImage = nil }
+    return pendingImage
+  }
 
   /// The caller has accepted the GPU readback. Drain CPU work once more after
   /// cache/thumbnail awaits so an older encode cannot overwrite this frame.

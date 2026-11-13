@@ -21,6 +21,7 @@ namespace Maple.WinUI.ViewModels
             PublishRasterCapabilities(decoded.IsRaster);
             photo.CameraSupport = decoded.CameraSupport;
             PublishLensProfile(decoded.LensProfile);   // #3480
+            UpdateAutoProfileStatus(_autoProfileStatus.Publish(generation, decoded.AutoProfileOutcome));
             if (decoded.DecodedTemperature > 0)
             {
                 _asShotTemperature = decoded.DecodedTemperature;

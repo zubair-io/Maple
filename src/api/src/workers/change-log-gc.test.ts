@@ -23,7 +23,7 @@ import { countChanges, findRetentionCutoffCursor } from '../db/repos/changes.ret
 import type { SqliteDb } from '../db/repos/db-handle.ts';
 import { createTestDatabase, run, testSqliteDb } from '../db/sqlite/test-sqlite.test-helpers.ts';
 import { loadChangeLogGcConfig, saveChangeLogGcConfig } from './change-log-gc-config.repo.ts';
-import { runChangeLogGcOnce, startChangeLogGc } from './change-log-gc.ts';
+import { runChangeLogGcOnce } from './change-log-gc.ts';
 
 const DAY_MS = 86_400_000;
 
@@ -204,17 +204,5 @@ describe('runChangeLogGcOnce', () => {
     expect(config.last_run?.batches).toBe(1);
     expect(config.last_run?.pruned_through).toBe(pruned);
     expect(config.last_run?.remaining).toBe(0);
-  });
-});
-
-describe('startChangeLogGc', () => {
-  it('returns a handle that stops the interval', async () => {
-    using handle = await createTestDatabase();
-    const gc = startChangeLogGc({ intervalMs: 10_000, dbOverride: testSqliteDb(handle.db) });
-    expect(typeof gc.stop).toBe('function');
-    gc.stop();
-    // The boot pass fires immediately and outlives `stop()`; let it finish
-    // before the block disposes the database out from under it.
-    await new Promise((resolve) => setTimeout(resolve, 25));
   });
 });

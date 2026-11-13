@@ -35,6 +35,7 @@ import { LibrarySelection } from '../state/library-selection.service';
 import { XmpParserService } from './xmp-parser.service';
 import { XmpStoreService } from './xmp-store.service';
 import type { PassthroughBucket, XmpCulling, XmpMetadata } from './xmp.types';
+import type { BatchApplyEntry } from '../batch-metadata/batch-metadata.types';
 import { PRIMARY_VARIANT_ID } from '../generated/workflow.generated';
 import { savedRemovalRecords } from '../removal/saved-removal-records';
 import { SidecarStore } from './sidecar.store';
@@ -139,6 +140,34 @@ export class XmpAdjustmentRestoreService {
   invalidateForAsset(id: AssetId): void {
     this._attempted.delete(id);
     this._sidecars.delete(id);
+  }
+
+  /** Sync in-memory state and invalidate cached sidecars after `POST /api/xmp/batch` (#5295). */
+  applyBatchMetadata(
+    entries: readonly BatchApplyEntry[],
+    results: readonly { address: string; ok: boolean }[],
+  ): void {
+    const succeeded = new Set(results.filter((r) => r.ok).map((r) => r.address));
+    const eligible = entries.filter(
+      (entry) => succeeded.has(entry.address) && this._isPrimaryVariantActive(entry.address),
+    );
+    if (eligible.length === 0) return;
+    this.store.applyBatchMetadata(
+      eligible.map((entry) => ({ id: entry.address, metadata: entry.metadata })),
+    );
+    const focused = this.selection.focusedAssetId();
+    for (const entry of eligible) {
+      this.invalidateForAsset(entry.address);
+      if (focused === entry.address) {
+        void this.restoreForAsset(entry.address);
+      }
+    }
+  }
+
+  private _isPrimaryVariantActive(id: AssetId): boolean {
+    const absPath = this.store.absPathFor(id);
+    if (!absPath) return true;
+    return this.store.workflowVariants.variantFor(id, absPath) === PRIMARY_VARIANT_ID;
   }
 
   /** Self-Hosted `slug:relPath` assets not yet attempted this session. */

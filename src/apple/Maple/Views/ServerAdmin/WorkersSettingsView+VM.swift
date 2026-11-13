@@ -22,7 +22,7 @@ enum WorkersSettingsVM {
   static func statusTone(_ state: StageRunState) -> StatusTone {
     switch state {
     case .running: return .active
-    case .error: return .fault
+    case .error, .stalled: return .fault
     case .idle, .paused, .starting, .restarting, .stopped, .unknown: return .idle
     }
   }

@@ -28,20 +28,37 @@
  * inline here.
  */
 
+import { refusesFileUnderMarker } from '../../fs/mapleignore-guard.ts';
 import { Elysia, t } from 'elysia';
 import type { ObjectId } from '../../db/object-id.ts';
-import { unlink } from 'node:fs/promises';
-import { listPairedSidecars } from '../../fs/xmp-conflict.ts';
+import { oldNameEditUnreadable } from '../../fs/legacy-backup-sidecar.ts';
 import { recordAndPublishAssetChange } from '../../db/changes.repo.ts';
 import { trashAssetById, restoreAssetById } from '../../library/asset-trash.ts';
-import { prepareTrashPurge } from '../../cloud-backup/lifecycle.ts';
+import {
+  holdsTrashPurge,
+  prepareTrashPurge,
+  releaseTrashPurge,
+} from '../../cloud-backup/lifecycle.ts';
 import { capturedTrashPurge } from '../../cloud-backup/trash-purge-admission.ts';
-import { assetLibraryPath } from '../../indexer/images.repo.ts';
-import { resolvePurgeCompanion } from '../../library/purge-rendered-companion.ts';
+import {
+  LibraryUnreachableError,
+  libraryReachable,
+  logPurgeFailure,
+  purgeTrashedCopyCompanions,
+  resolveTrashedCopy,
+  unlinkTrashedCopy,
+  type TrashedCopy,
+} from '../../library/trashed-copy.ts';
+import {
+  purgeKeepingSurvivor,
+  type SurvivorPurgeOutcome,
+} from '../../library/trash-purge-survivor.ts';
+import { loadLibraryRoots } from '../../indexer/libraries.cache.ts';
 import type { RestoreAssetOutcome } from '../../library/asset-trash.ts';
-import { findCoreInfoById, hardDelete, parseAssetId } from '../../db/assets.repo.ts';
+import { findCoreInfoById, parseAssetId } from '../../db/assets.repo.ts';
+import { hardDeleteAdmittedPurge } from '../../db/repos/assets.trash.ts';
 import { requireFileAccessBeforeHandle } from '../../auth/middleware.ts';
-import { resolveAssetAbsPathOrRespond } from './_shared.ts';
+import { assetsLog } from './_shared.ts';
 
 /** Map a `restoreAssetById` outcome to its HTTP status + body. Split out of
  * the route handler below purely to keep that handler's own cyclomatic
@@ -71,10 +88,18 @@ function restoreOutcomeResponse(
       return { status: 404, body: { error: 'Asset not found' } };
     case 'not-trashed':
       return { status: 409, body: { error: 'Asset is not trashed' } };
-    case 'no-location':
-      return { status: 404, body: { error: 'Asset has no resolvable location' } };
-    case 'no-folder':
-      return { status: 500, body: { error: "Asset's folder is missing" } };
+    case 'not-in-trash':
+      return { status: 404, body: { error: 'Asset has no copy in Trash' } };
+    case 'unreachable':
+      return {
+        status: 503,
+        body: { error: "The photo's library is unreachable — retry once it is back" },
+      };
+    case 'ignored':
+      return {
+        status: 409,
+        body: { error: 'The restore folder is under a .mapleignore folder — nothing moves there' },
+      };
     case 'cross-library':
       return {
         status: 400,
@@ -91,25 +116,94 @@ function restoreOutcomeResponse(
   }
 }
 
+const unlinkFailure = logPurgeFailure(assetsLog, 'permanent delete unlink failed');
+const TRASH_CHANGED = { error: 'Trash state changed — refresh before deleting' };
+
+type TrashPurgeLease = NonNullable<Awaited<ReturnType<typeof prepareTrashPurge>>>;
+type CoreInfo = NonNullable<Awaited<ReturnType<typeof findCoreInfoById>>>;
+
+/** False, with a 409, when this attempt lost its purge lease (#5419). */
+async function deleteAdmittedRow(
+  id: ObjectId,
+  lease: TrashPurgeLease,
+  set: { status?: number | string },
+) {
+  const deleted = (await hardDeleteAdmittedPurge(id, lease)).deletedCount > 0;
+  if (!deleted) set.status = 409;
+  return deleted;
+}
+
+/** Runs `purge` holding the whole-photo purge lease, released afterwards. */
+async function withTrashPurge<T>(
+  id: ObjectId,
+  info: CoreInfo,
+  set: { status?: number | string },
+  purge: (lease: TrashPurgeLease) => Promise<T>,
+): Promise<T | typeof TRASH_CHANGED> {
+  const lease = await admitTrashPurge(id, info, set);
+  if (!lease) return TRASH_CHANGED;
+  try {
+    return await purge(lease);
+  } finally {
+    await releaseTrashPurge(lease);
+  }
+}
+
+/** Erase companions, the trashed copy and the row, checking the lease before
+ * each unlink and the row delete, so an attempt that lost it stops (#5419). */
+async function eraseTrashedPhoto(
+  id: ObjectId,
+  info: CoreInfo,
+  trashed: TrashedCopy,
+  libs: ReadonlyMap<string, string>,
+  lease: TrashPurgeLease,
+  set: { status?: number | string },
+): Promise<{ error: string } | null> {
+  const held = () => holdsTrashPurge(lease);
+  try {
+    await purgeTrashedCopyCompanions(trashed, info, libs, held);
+  } catch {
+    set.status = 500;
+    return { error: 'Apple-rendered companion cleanup requires retry' };
+  }
+  try {
+    await unlinkTrashedCopy(trashed, unlinkFailure, held);
+  } catch {
+    set.status = 409;
+    return TRASH_CHANGED;
+  }
+  return (await deleteAdmittedRow(id, lease, set)) ? null : TRASH_CHANGED;
+}
+
+/** Answered when the purge kept the photo through its surviving copy (#5403). */
+interface SurvivorKeptBody {
+  asset_id: string;
+  state: 'live';
+  abs_path: string | null;
+  /** `pending` while removing the trashed copy's files still awaits a retry. */
+  cleanup: 'done' | 'pending';
+}
+
 /** The permanent-purge branch of DELETE /:id — the asset is already
- * trashed; unlink the file + sidecars, hard-delete the doc, emit the
- * File Provider delete change. Extracted from the route handler purely
- * for unit-size; behavior is unchanged and it still has no folder-level
- * analogue (#2630).
+ * trashed. With another copy surviving outside Trash, only the trashed
+ * copy goes and the photo returns to the library (200). Otherwise unlink
+ * its `.maple/trash/` copy + sidecars, hard-delete the doc, emit the File
+ * Provider delete change (204). It has no folder-level analogue (#2630).
  */
 async function purgeTrashedAsset(
   id: ObjectId,
   info: NonNullable<Awaited<ReturnType<typeof findCoreInfoById>>>,
   set: { status?: number | string },
-): Promise<{ error: string } | undefined> {
+): Promise<{ error: string } | SurvivorKeptBody | undefined> {
   // A reaped row (#2977) has NO trashed copy — its fileinfo paths point at
   // ORIGINAL library locations, where a file may have quietly returned.
   // Explicit permanent delete authorizes backup erasure, but never unlink a
   // returned original at these stored local paths.
   if (info.deleted_reason === 'reaped') {
-    if (!(await admitTrashPurge(id, info, set)))
-      return { error: 'Trash state changed — refresh before deleting' };
-    await hardDelete(id);
+    const deleted = await withTrashPurge(id, info, set, (lease) =>
+      deleteAdmittedRow(id, lease, set),
+    );
+    if (deleted !== true) return TRASH_CHANGED;
     set.status = 204;
     await recordAndPublishAssetChange({
       kind: 'delete',
@@ -119,48 +213,23 @@ async function purgeTrashedAsset(
     }).catch(() => {});
     return;
   }
-  const located = await resolveAssetAbsPathOrRespond(info, set);
-  if ('error' in located) return located;
-  const { absPath, libs } = located;
-  if (!(await admitTrashPurge(id, info, set)))
-    return { error: 'Trash state changed — refresh before deleting' };
-  try {
-    const companion = await resolvePurgeCompanion(
-      assetLibraryPath(info, libs)!,
-      info.apple_rendered_path,
-      absPath,
-    );
-    if (companion) await unlink(companion);
-  } catch {
-    set.status = 500;
-    return { error: 'Apple-rendered companion cleanup requires retry' };
+  const libs = await loadLibraryRoots();
+  const trashed = resolveTrashedCopy(info.fileinfo, libs);
+  if (trashed === null) {
+    // Only the copy the trash action moved into `.maple/trash/` may be erased
+    // (#5403); without one there is nothing this purge is allowed to unlink.
+    set.status = 404;
+    return { error: 'Asset has no copy in Trash' };
   }
-  try {
-    await unlink(absPath);
-  } catch {
-    /* file may already be gone */
-  }
-  const sidecars = await listPairedSidecars(absPath);
-  for (const sidecar of sidecars) {
-    try {
-      await unlink(sidecar);
-    } catch {}
-  }
-  await hardDelete(id);
-  // The doc was already tombstoned in Meilisearch by the prior
-  // soft-delete (`tombstone` sets `deletedAt`, which the search filter
-  // excludes) — no per-asset delete-document call is made here.
-  // That tombstoned document is NOT garbage-collected by a later bulk
-  // backfill: the backfill cursor scans live database rows and only
-  // re-tombstones/re-upserts documents for rows it still finds there.
-  // `hardDelete` just removed this asset's database row, so no future
-  // backfill pass will ever see this id again to clean it up — the
-  // tombstoned Meilisearch document accumulates in the index
-  // permanently. It stays invisible to every route/service query
-  // because they all filter `deletedAt IS NULL`, so this is a storage
-  // leak in Meilisearch, not a correctness bug. An actual GC would
-  // need a dedicated sweep (diff Meilisearch document ids against live
-  // database `maple_id`s and hard-delete the stragglers) — not implemented.
+  const absPath = trashed.absPath;
+  const refusal = await purgeRefusal(trashed, set);
+  if (refusal) return refusal;
+  const kept = await purgeKeepingSurvivor(id, info, trashed, libs);
+  if (kept.kind !== 'full-purge') return survivorResponse(id, kept, set);
+  const refused = await withTrashPurge(id, info, set, (lease) =>
+    eraseTrashedPhoto(id, info, trashed, libs, lease, set),
+  );
+  if (refused) return refused;
   set.status = 204;
   // Emit a delete change so the File Provider extension drops this
   // item from its working set on the next pull.
@@ -173,14 +242,59 @@ async function purgeTrashedAsset(
   return;
 }
 
+/** Why the trashed copy cannot be purged right now, or null when it can. */
+async function purgeRefusal(
+  trashed: TrashedCopy,
+  set: { status?: number | string },
+): Promise<{ error: string } | null> {
+  if (!(await libraryReachable(trashed.libraryRoot))) {
+    set.status = 503;
+    return { error: "The photo's library is unreachable — retry once it is back" };
+  }
+  if (await refusesFileUnderMarker(trashed.absPath)) {
+    set.status = 409;
+    return { error: 'The file is under a .mapleignore folder — it is never deleted from there' };
+  }
+  // A purge would strand an old-name edit it can't read (#5063); the user retries.
+  // Not 409: clients read that as "restored elsewhere".
+  if (await oldNameEditUnreadable(trashed.absPath)) {
+    set.status = 500;
+    return { error: "The photo's old-name backup edit can't be read — retry once it can" };
+  }
+  return null;
+}
+
+function survivorResponse(
+  id: ObjectId,
+  kept: Exclude<SurvivorPurgeOutcome, { kind: 'full-purge' }>,
+  set: { status?: number | string },
+): { error: string } | SurvivorKeptBody {
+  switch (kept.kind) {
+    case 'kept':
+      set.status = 200;
+      return {
+        asset_id: id.toHexString(),
+        state: 'live',
+        abs_path: kept.survivor.absPath,
+        cleanup: kept.pendingCleanup > 0 ? 'pending' : 'done',
+      };
+    case 'changed':
+      set.status = 409;
+      return TRASH_CHANGED;
+    case 'retry':
+      set.status = kept.error instanceof LibraryUnreachableError ? 503 : 500;
+      return { error: 'Backup cleanup of the trashed copy requires retry' };
+  }
+}
+
 async function admitTrashPurge(
   id: ObjectId,
-  info: NonNullable<Awaited<ReturnType<typeof findCoreInfoById>>>,
+  info: CoreInfo,
   set: { status?: number | string },
-): Promise<boolean> {
-  const admitted = await prepareTrashPurge(id.toHexString(), capturedTrashPurge(info));
-  if (!admitted) set.status = 409;
-  return admitted;
+): Promise<TrashPurgeLease | null> {
+  const lease = await prepareTrashPurge(id.toHexString(), capturedTrashPurge(info));
+  if (!lease) set.status = 409;
+  return lease;
 }
 
 // Trash/restore move files on disk — file-access-gated (#2893).

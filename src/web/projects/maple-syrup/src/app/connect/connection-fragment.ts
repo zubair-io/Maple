@@ -70,11 +70,13 @@ export function captureConnectionFragment(
   if (!['/connect/google-drive', '/connect/google-drive/return'].includes(location.pathname))
     return;
   const fragment = location.hash.slice(1);
+  // A real `location` is live: replaceState below drops `?callback=…`, so read it first.
+  const search = location.search;
   history.replaceState(null, '', `${location.pathname}?ngsw-bypass=true`);
   captured = null;
   captured = parseConnectionFragment(fragment, location.pathname);
   if (captured?.authorizationUrl) {
-    const callbacks = new URLSearchParams(location.search).getAll('callback');
+    const callbacks = new URLSearchParams(search).getAll('callback');
     if (callbacks.length === 1 && callbacks[0]!.length <= 2048) captured.callback = callbacks[0];
   }
 }

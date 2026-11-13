@@ -1,3 +1,4 @@
+import { primarySidecarFilename } from '../xmp/sidecar-binding';
 import { Injectable, Injector, inject } from '@angular/core';
 import { FilmLutService } from '../film/film-lut.service';
 import { FolderAccessService } from '../folder-access/folder-access.service';
@@ -8,7 +9,7 @@ import {
   PREVIEW_LONG_EDGE_PX,
 } from '../raw-pipeline/image-utils';
 import { RawPipelineService } from '../raw-pipeline/raw-pipeline.service';
-import { hasXmlParseError } from '../xmp/xmp-dom-utils';
+import { readSidecar, sidecarParseFailed } from '../xmp/xmp-dom-utils';
 import { XmpParserService } from '../xmp/xmp-parser.service';
 import type { PreviewLocation } from './preview-location';
 import init, { removal_asset_names } from '../raw-pipeline/pkg/raw_wasm';
@@ -17,7 +18,8 @@ import { bundleRemovalCompanions } from '../removal/removal-companion-bundle';
 import type { DecodedImage } from '../raw-pipeline/raw-pipeline.types';
 
 /** Cold RAW derivatives use the actual authored sidecar, including its film LUT.
- * Missing sidecars permit embedded extraction; all other failures stay failures. */
+ * Missing or malformed sidecars permit original extraction; the folder listing
+ * records malformed sidecars and blocks edits. Other read failures propagate. */
 @Injectable({ providedIn: 'root' })
 export class HostedRawSidecarService {
   private readonly folders = inject(FolderAccessService);
@@ -26,7 +28,7 @@ export class HostedRawSidecarService {
   private readonly injector = inject(Injector);
 
   async read(folder: MapleFolderHandle, location: PreviewLocation): Promise<string | null> {
-    const basename = location.filename.replace(/\.[^.]+$/, '.xmp');
+    const basename = primarySidecarFilename(location.filename);
     const path = location.dir ? `${location.dir}/${basename}` : basename;
     let bytes: Uint8Array;
     try {
@@ -35,11 +37,23 @@ export class HostedRawSidecarService {
       if (error instanceof DOMException && error.name === 'NotFoundError') return null;
       throw error;
     }
-    const xml = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
-    const document = new DOMParser().parseFromString(xml, 'text/xml');
-    // Chromium may keep the input's root and append parsererror underneath it.
-    if (hasXmlParseError(document) || document.getElementsByTagName('parsererror').length > 0) {
-      throw new Error(`Malformed RAW sidecar: ${path}`);
+    let source: string;
+    try {
+      source = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+    } catch {
+      return null;
+    }
+    // raw-core rejects a repeated attribute too, so the develop gets the repaired text (#5475).
+    const { xml, document } = readSidecar(source);
+    if (sidecarParseFailed(document)) {
+      // Folder enumeration records the sidecar error and blocks edits. Decode
+      // the original RAW so a damaged XMP cannot make the photo disappear.
+      return null;
+    }
+    try {
+      this.parser.parseAdjustmentModel(xml);
+    } catch {
+      return null;
     }
     return xml;
   }

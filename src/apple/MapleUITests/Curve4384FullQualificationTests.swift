@@ -29,6 +29,8 @@ import XCTest
       app.launchEnvironment["MAPLE_UITEST_FIXTURE"] = "test_0017.dng"
       app.launchEnvironment["MAPLE_UITEST_FIXTURE_ROOT"] = root
       app.launchEnvironment["MAPLE_GPU_LIVE"] = "0"
+      // Portrait keeps the stacked inspector the plot lives in.
+      XCUIDevice.shared.orientation = .portrait
       app.launch()
       defer { app.terminate() }
       XCTAssertTrue(app.buttons["editor-back"].waitForExistence(timeout: 120))
@@ -58,6 +60,11 @@ import XCTest
       app.typeKey("z", modifierFlags: .command)
       XCTAssertTrue(waitCurve { $0.count == 3 && abs($0[1][1] - raised[1][1] + 255 / 64) < 0.02 })
       capture(app, "Command Z restores actual midpoint XMP")
+      let undone = try curve()
+      app.typeKey("z", modifierFlags: [.command, .shift])
+      XCTAssertTrue(waitCurve { $0 == raised }, "Command Shift Z must redo the curve edit")
+      app.typeKey("z", modifierFlags: .command)
+      XCTAssertTrue(waitCurve { $0 == undone }, "Command Z must undo the redone curve edit")
       knot.tap()
       let selected = try curve()
       app.typeKey(.rightArrow, modifierFlags: [])

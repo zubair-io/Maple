@@ -101,6 +101,7 @@ fn native_detail_preparation_admits_existing_limit_before_native_sampler() {
             ext: &session.ext,
         },
         DetailRenderOptions {
+            target: raw_core::view::encode::TargetPrimaries::Srgb,
             quality: RenderQuality::Preview,
             max_long_edge: 128,
             film_lut: None,

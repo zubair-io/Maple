@@ -58,6 +58,13 @@ struct BackupSettingsView: View {
     UserDefaults.standard.set(value, forKey: hasStartedKey)
   }
 
+  /// Running, parked waiting for the background helper to finish (#4988), or
+  /// paused for a panorama (#5653): in each case the user can stop it.
+  private var isStoppable: Bool {
+    EngineHost.shared.progress.phase == .running || EngineHost.shared.isWaitingForBackgroundHelper
+      || EngineHost.shared.progress.phase == .pausedForPanorama
+  }
+
   private var selectedServerURL: URL? {
     URL(string: settings.serverURL)
   }
@@ -92,8 +99,9 @@ struct BackupSettingsView: View {
       Section {
         Button {
           Task {
-            if EngineHost.shared.progress.phase == .running {
+            if isStoppable {
               BackupSettings.isStoppedByUser = true
+              BackupAgentService.sync()
               await EngineHost.shared.stop()
               return
             }
@@ -119,6 +127,7 @@ struct BackupSettingsView: View {
             photosAccessError = nil
             BackupSettings.isStoppedByUser = false
             settings.save()
+            BackupAgentService.sync()
             hasStarted = true
             Self.saveHasStarted(true)
             await EngineHost.shared.start(settings: settings, retryFailed: true)
@@ -127,10 +136,12 @@ struct BackupSettingsView: View {
             )
           }
         } label: {
-          Text(EngineHost.shared.progress.phase == .running ? "Stop Backup" : "Start Backup")
+          Text(isStoppable ? "Stop Backup" : "Start Backup")
             .frame(maxWidth: .infinity)
         }
-        .disabled(!settings.isConfigured || EngineHost.shared.progress.phase == .starting)
+        .disabled(
+          !settings.isConfigured
+            || (EngineHost.shared.progress.phase == .starting && !isStoppable))
         .buttonStyle(.borderedProminent)
         .accessibilityIdentifier("backup.startButton")
         if let photosAccessError {

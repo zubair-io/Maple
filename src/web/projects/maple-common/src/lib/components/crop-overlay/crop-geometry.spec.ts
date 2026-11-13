@@ -27,10 +27,10 @@ describe('crop-geometry', () => {
       expect(fp.top).toBeCloseTo(0, 6);
     });
 
-    it('never upscales past 1:1 CSS', () => {
+    it('scales a small image up to the viewport, like the canvas fit', () => {
       const fp = fitFootprint(4000, 4000, 600, 400);
-      expect(fp.width).toBeCloseTo(600, 6);
-      expect(fp.height).toBeCloseTo(400, 6);
+      expect(fp.width).toBeCloseTo(4000, 6);
+      expect(fp.height).toBeCloseTo(4000 / 1.5, 6);
     });
   });
 

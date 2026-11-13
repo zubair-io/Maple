@@ -1,0 +1,422 @@
+{
+  "accepted": false,
+  "native_absolute_rgb": [
+    [
+      279.07182501780625,
+      225.49310368633024,
+      201.83630161988893
+    ],
+    [
+      500.03566870969166,
+      518.5185245710319,
+      574.5528234772007
+    ]
+  ],
+  "native_p95": [
+    7.0853495597839355,
+    9.277947425842285
+  ],
+  "native_perceptual_sum": [
+    40320.99875466153,
+    69953.76348020136
+  ],
+  "native_squared_rgb": [
+    [
+      21.04393201623216,
+      13.438640991227302,
+      11.614782647605164
+    ],
+    [
+      37.40211040949155,
+      34.97195667508164,
+      39.86580774107996
+    ]
+  ],
+  "regions": [
+    {
+      "baseline_mean": 3.6971491416597546,
+      "candidate_mean": 1.2461906267549603,
+      "count": 263,
+      "region": 0
+    },
+    {
+      "baseline_mean": 3.019738126700779,
+      "candidate_mean": 1.305151452770773,
+      "count": 265,
+      "region": 1
+    },
+    {
+      "baseline_mean": 2.8562404625945623,
+      "candidate_mean": 1.1691275251132471,
+      "count": 270,
+      "region": 2
+    },
+    {
+      "baseline_mean": 4.443275874944482,
+      "candidate_mean": 1.7284476510409652,
+      "count": 261,
+      "region": 3
+    },
+    {
+      "baseline_mean": 5.2272860407829285,
+      "candidate_mean": 3.7515947626623913,
+      "count": 273,
+      "region": 4
+    },
+    {
+      "baseline_mean": 5.7606349933673355,
+      "candidate_mean": 4.732617967049865,
+      "count": 272,
+      "region": 5
+    },
+    {
+      "baseline_mean": 5.008967727310253,
+      "candidate_mean": 4.032737441557758,
+      "count": 265,
+      "region": 6
+    },
+    {
+      "baseline_mean": 5.815588954078706,
+      "candidate_mean": 4.914924813751363,
+      "count": 241,
+      "region": 7
+    },
+    {
+      "baseline_mean": 2.9579096441067954,
+      "candidate_mean": 1.087024644074312,
+      "count": 261,
+      "region": 8
+    },
+    {
+      "baseline_mean": 2.669280611926859,
+      "candidate_mean": 2.401541118350896,
+      "count": 275,
+      "region": 9
+    },
+    {
+      "baseline_mean": 3.385770648315146,
+      "candidate_mean": 3.230469979489632,
+      "count": 259,
+      "region": 10
+    },
+    {
+      "baseline_mean": 4.84770157088635,
+      "candidate_mean": 4.021528421987889,
+      "count": 247,
+      "region": 11
+    },
+    {
+      "baseline_mean": 4.492901222303856,
+      "candidate_mean": 3.9123284100562103,
+      "count": 258,
+      "region": 12
+    },
+    {
+      "baseline_mean": 4.0947537392377855,
+      "candidate_mean": 3.5296324536800383,
+      "count": 250,
+      "region": 13
+    },
+    {
+      "baseline_mean": 4.330376303255558,
+      "candidate_mean": 4.47958062851429,
+      "count": 250,
+      "region": 14
+    },
+    {
+      "baseline_mean": 6.485850510389908,
+      "candidate_mean": 5.608147431915928,
+      "count": 253,
+      "region": 15
+    },
+    {
+      "baseline_mean": 2.7808009984410407,
+      "candidate_mean": 1.0752793117264523,
+      "count": 259,
+      "region": 16
+    },
+    {
+      "baseline_mean": 2.7931437885717436,
+      "candidate_mean": 2.158491585403681,
+      "count": 272,
+      "region": 17
+    },
+    {
+      "baseline_mean": 6.97425488921685,
+      "candidate_mean": 3.317789484088014,
+      "count": 246,
+      "region": 18
+    },
+    {
+      "baseline_mean": 6.183787388747998,
+      "candidate_mean": 2.799932895416624,
+      "count": 267,
+      "region": 19
+    },
+    {
+      "baseline_mean": 5.867829269699512,
+      "candidate_mean": 3.6214439094427133,
+      "count": 248,
+      "region": 20
+    },
+    {
+      "baseline_mean": 5.381311537926657,
+      "candidate_mean": 4.076651576579663,
+      "count": 285,
+      "region": 21
+    },
+    {
+      "baseline_mean": 3.9350307231401875,
+      "candidate_mean": 3.7356803124620965,
+      "count": 274,
+      "region": 22
+    },
+    {
+      "baseline_mean": 6.513450843144636,
+      "candidate_mean": 5.502710803121817,
+      "count": 244,
+      "region": 23
+    },
+    {
+      "baseline_mean": 2.765431271926049,
+      "candidate_mean": 1.2644840808164688,
+      "count": 248,
+      "region": 24
+    },
+    {
+      "baseline_mean": 2.8636195954140717,
+      "candidate_mean": 2.22659024995143,
+      "count": 254,
+      "region": 25
+    },
+    {
+      "baseline_mean": 5.993958835916001,
+      "candidate_mean": 2.8884322308148294,
+      "count": 258,
+      "region": 26
+    },
+    {
+      "baseline_mean": 3.1086244376383143,
+      "candidate_mean": 2.857844672629754,
+      "count": 271,
+      "region": 27
+    },
+    {
+      "baseline_mean": 4.049719128000784,
+      "candidate_mean": 3.2453724018843526,
+      "count": 251,
+      "region": 28
+    },
+    {
+      "baseline_mean": 5.3442485593399915,
+      "candidate_mean": 3.469835377807887,
+      "count": 265,
+      "region": 29
+    },
+    {
+      "baseline_mean": 4.26058857583821,
+      "candidate_mean": 4.025386189700066,
+      "count": 267,
+      "region": 30
+    },
+    {
+      "baseline_mean": 6.502004857093221,
+      "candidate_mean": 5.457102880567686,
+      "count": 239,
+      "region": 31
+    },
+    {
+      "baseline_mean": 3.0765777674854777,
+      "candidate_mean": 1.5872687614965635,
+      "count": 244,
+      "region": 32
+    },
+    {
+      "baseline_mean": 2.485466964801766,
+      "candidate_mean": 2.2883857243539745,
+      "count": 259,
+      "region": 33
+    },
+    {
+      "baseline_mean": 4.057032364897612,
+      "candidate_mean": 2.5766767431201973,
+      "count": 246,
+      "region": 34
+    },
+    {
+      "baseline_mean": 3.198229409040619,
+      "candidate_mean": 2.589179011939586,
+      "count": 261,
+      "region": 35
+    },
+    {
+      "baseline_mean": 4.082353087095377,
+      "candidate_mean": 2.894700396765945,
+      "count": 279,
+      "region": 36
+    },
+    {
+      "baseline_mean": 3.227860868908465,
+      "candidate_mean": 2.749741942854598,
+      "count": 256,
+      "region": 37
+    },
+    {
+      "baseline_mean": 3.812980806971171,
+      "candidate_mean": 3.4525353981548523,
+      "count": 249,
+      "region": 38
+    },
+    {
+      "baseline_mean": 6.795798225928161,
+      "candidate_mean": 5.4906696610279,
+      "count": 236,
+      "region": 39
+    },
+    {
+      "baseline_mean": 5.785897311042337,
+      "candidate_mean": 1.079712437823707,
+      "count": 255,
+      "region": 40
+    },
+    {
+      "baseline_mean": 4.465016798240932,
+      "candidate_mean": 2.4794144929042012,
+      "count": 254,
+      "region": 41
+    },
+    {
+      "baseline_mean": 4.088946831620429,
+      "candidate_mean": 3.398966327925359,
+      "count": 242,
+      "region": 42
+    },
+    {
+      "baseline_mean": 3.0233741125731326,
+      "candidate_mean": 2.200294937827249,
+      "count": 268,
+      "region": 43
+    },
+    {
+      "baseline_mean": 3.5829659872155153,
+      "candidate_mean": 2.5387096217627287,
+      "count": 262,
+      "region": 44
+    },
+    {
+      "baseline_mean": 5.920348812704501,
+      "candidate_mean": 4.631267973380126,
+      "count": 253,
+      "region": 45
+    },
+    {
+      "baseline_mean": 4.316990174163472,
+      "candidate_mean": 2.2593657490882006,
+      "count": 275,
+      "region": 46
+    },
+    {
+      "baseline_mean": 5.068142051771869,
+      "candidate_mean": 1.2403993147799348,
+      "count": 254,
+      "region": 47
+    },
+    {
+      "baseline_mean": 5.0870019664136015,
+      "candidate_mean": 1.3501522022393322,
+      "count": 258,
+      "region": 48
+    },
+    {
+      "baseline_mean": 4.572353872690308,
+      "candidate_mean": 1.335050295857008,
+      "count": 267,
+      "region": 49
+    },
+    {
+      "baseline_mean": 4.2495108838384965,
+      "candidate_mean": 1.3632853380805545,
+      "count": 267,
+      "region": 50
+    },
+    {
+      "baseline_mean": 3.9355367688571707,
+      "candidate_mean": 1.2814142490718878,
+      "count": 255,
+      "region": 51
+    },
+    {
+      "baseline_mean": 4.18506853565385,
+      "candidate_mean": 1.5199767539772806,
+      "count": 237,
+      "region": 52
+    },
+    {
+      "baseline_mean": 4.745366104095581,
+      "candidate_mean": 1.7463236240692348,
+      "count": 251,
+      "region": 53
+    },
+    {
+      "baseline_mean": 4.471792986688688,
+      "candidate_mean": 1.394533333390258,
+      "count": 258,
+      "region": 54
+    },
+    {
+      "baseline_mean": 4.674868375894083,
+      "candidate_mean": 1.34060583928548,
+      "count": 251,
+      "region": 55
+    },
+    {
+      "baseline_mean": 3.417228216905474,
+      "candidate_mean": 1.0348805996226964,
+      "count": 239,
+      "region": 56
+    },
+    {
+      "baseline_mean": 3.7202577382734376,
+      "candidate_mean": 0.9415914354310052,
+      "count": 292,
+      "region": 57
+    },
+    {
+      "baseline_mean": 3.810572023695328,
+      "candidate_mean": 0.9417107207665729,
+      "count": 267,
+      "region": 58
+    },
+    {
+      "baseline_mean": 3.970030311928239,
+      "candidate_mean": 0.9375486208717952,
+      "count": 258,
+      "region": 59
+    },
+    {
+      "baseline_mean": 3.770065266977657,
+      "candidate_mean": 0.8973224216112585,
+      "count": 264,
+      "region": 60
+    },
+    {
+      "baseline_mean": 4.2180257536330314,
+      "candidate_mean": 0.8898080823556432,
+      "count": 265,
+      "region": 61
+    },
+    {
+      "baseline_mean": 4.130244195219959,
+      "candidate_mean": 0.9694844531385522,
+      "count": 247,
+      "region": 62
+    },
+    {
+      "baseline_mean": 4.605167258375045,
+      "candidate_mean": 1.0998407376243133,
+      "count": 263,
+      "region": 63
+    }
+  ],
+  "regions_improve": false
+}

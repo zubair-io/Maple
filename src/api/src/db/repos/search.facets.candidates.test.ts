@@ -1,7 +1,7 @@
 /**
- * A text search's facets — the first results of its list, read once and
- * counted in TypeScript (#4413, #4431) — must answer exactly what the
- * per-facet full-text join answers whenever those results are every match.
+ * A text search's facets — the rows of its ranked window, read once and
+ * counted in TypeScript (#4413, #4431, #4514) — must answer exactly what the
+ * per-facet full-text join answers whenever the window holds every match.
  *
  * The comparison runs both against the fixture library for each facet, rather
  * than restating expected buckets: the per-facet statements are what every
@@ -14,7 +14,7 @@ import type { Database } from 'bun:sqlite';
 import { createTestDatabase, testSqliteDb } from '../sqlite/test-sqlite.test-helpers.ts';
 import { facetStatements } from './search.facets.sql.ts';
 import { facetRowsOf } from './search.facets.top.ts';
-import { firstRanked } from './search.ranked.ts';
+import { ftsRanker, rankWindow } from './search.ranked.ts';
 import { countSql } from './search.sql.ts';
 import { searchFacets } from './search.facets.ts';
 import { buildSearchWhere, type SearchWhere } from './search.where.ts';
@@ -49,14 +49,14 @@ const TEXT_QUERIES: SearchQuery[] = [
   { placeQuery: 'zzzznomatch' },
 ];
 
-describe('text facets over the first results', () => {
+describe('text facets over the ranked window', () => {
   for (const q of TEXT_QUERIES) {
     test(`every facet agrees with the per-facet join for ${JSON.stringify(q)}`, async () => {
       using handle = await createTestDatabase();
       seedSearchLibrary(handle.db);
       const built = where(q);
       const db = testSqliteDb(handle.db);
-      const ranked = await firstRanked(db, built, 10_000);
+      const ranked = (await rankWindow(ftsRanker(built, db), 5_000))!.rows;
       const counted = await facetRowsOf(db, ranked);
 
       const direct = facetStatements(built);
@@ -85,7 +85,7 @@ describe('text facets over the first results', () => {
     expect(result.people).toEqual([]);
   });
 
-  test('a text query reads the inverted index twice and each table once', async () => {
+  test('a text query reads the inverted index once and each table once', async () => {
     using handle = await createTestDatabase();
     seedSearchLibrary(handle.db);
     const inner = testSqliteDb(handle.db);
@@ -100,9 +100,10 @@ describe('text facets over the first results', () => {
     };
     const result = await searchFacets(where({ placeQuery: 'new york' }), recording);
     expect(result.total).toBe(3);
-    // The exact total and the ranking of the first results read the inverted
-    // index (#4431); then one read of `assets` and one per side table.
-    expect(issued.filter((sql) => sql.includes('MATCH')).length).toBe(2);
-    expect(issued.length).toBe(7);
+    // The window reads the inverted index once and counts nothing (#4514);
+    // then one read of `assets` and one per side table.
+    expect(issued.filter((sql) => sql.includes('MATCH')).length).toBe(1);
+    expect(issued.filter((sql) => /COUNT\(\*\)\s+AS n\s+FROM assets_fts/.test(sql))).toEqual([]);
+    expect(issued.length).toBe(6);
   });
 });

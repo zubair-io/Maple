@@ -6,7 +6,8 @@
 
 import { Injectable, inject } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
-import { Observable, map } from 'rxjs';
+import { Observable, map, tap } from 'rxjs';
+import { XmpAdjustmentRestoreService } from '../xmp/xmp-adjustment-restore.service';
 import {
   computeMixedValues,
   type AssetMetadataSnapshot,
@@ -21,6 +22,7 @@ import {
 @Injectable({ providedIn: 'root' })
 export class BatchMetadataService {
   private readonly http = inject(HttpClient);
+  private readonly xmpRestore = inject(XmpAdjustmentRestoreService);
 
   // ---------------------------------------------------------------------------
   // Mixed-value computation (delegates to pure function for testability)
@@ -39,7 +41,9 @@ export class BatchMetadataService {
    * Partial failures are reported per-asset; successes are not rolled back.
    */
   batchApply(entries: BatchApplyEntry[]): Observable<BatchApplyResult> {
-    return this.http.post<BatchApplyResult>('/api/xmp/batch', { entries });
+    return this.http
+      .post<BatchApplyResult>('/api/xmp/batch', { entries })
+      .pipe(tap((result) => this.xmpRestore.applyBatchMetadata(entries, result.results)));
   }
 
   // ---------------------------------------------------------------------------

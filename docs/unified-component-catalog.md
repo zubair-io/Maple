@@ -99,7 +99,7 @@ Built only from atoms. Web: `lib/ui/<name>/`, re-exported through `molecules1-la
 | Connection Graph    |  ✓  |   ✓   |    ✓    | —                                                           |
 | Context Menu        |  ✓  |   ✓   |    ✓    | —                                                           |
 | Curve Plot          |  ✓  |   ✓   |    ✓    | —                                                           |
-| Drag Bar            |  ✓  |   ✓   |    ✓    | —                                                           |
+| Drag Bar            |  ✓  |   ✓   |    ✓    | [drag-bar.md](design/maple-ui/components/drag-bar.md)       |
 | Drag Preview        |  ✓  |   ✓   |    ✓    | —                                                           |
 | Empty State         |  ✓  |   ✓   |    ✓    | —                                                           |
 | Form Field          |  ✓  |   ✓   |    ✓    | —                                                           |
@@ -117,7 +117,7 @@ Built only from atoms. Web: `lib/ui/<name>/`, re-exported through `molecules1-la
 | Preview Image       |  ✓  |   ✓   |    ✓    | —                                                           |
 | Rating & Flags      |  ✓  |   ✓   |    ✓    | —                                                           |
 | Search Bar          |  ✓  |   ✓   |    ✓    | —                                                           |
-| Slider              |  ✓  |   ✓   |    ✓    | —                                                           |
+| Slider              |  ✓  |   ✓   |    ✓    | [slider.md](design/maple-ui/components/slider.md)           |
 | Suggestion Menu     |  ✓  |   ✓   |    ✓    | —                                                           |
 | Tabs                |  ✓  |   ✓   |    ✓    | —                                                           |
 | Toast Container     |  ✓  |   ✓   |    ✓    | —                                                           |
@@ -288,7 +288,7 @@ A template plus organisms. Apple: `Pages/MuiPage*.swift`. Windows: `MapleUI/Page
 
 New product UI composes these components rather than hand-rolling markup. On web that is enforced: `src/web/scripts/check-maple-ui-adoption.mjs` freezes already-migrated directories and files, so a raw `<button>` or a `btn-primary`-style class re-entering one fails `bun run maple-ui:adoption-check` in `.github/workflows/web.yml`. Apple and Windows have no equivalent ratchet — the discipline there is review.
 
-Apple consumers import the `MapleUI` package, which is deliberately dependency-free (no MapleCore, no third-party SPM packages) so sibling apps can consume it directly. It targets macOS 14 and iOS 17; the tvOS app does not link it.
+Apple consumers import the `MapleUI` package, which is deliberately dependency-free (no MapleCore, no third-party SPM packages) so sibling apps can consume it directly. It targets macOS 14 and iOS 17; the tvOS and watchOS apps do not link it.
 
 What to specify when adding or changing an element:
 

@@ -41,6 +41,9 @@ public struct ImageRef: Sendable, Hashable, Identifiable, Codable {
   /// remote I/O must address the specific listed file without a synthetic URL.
   public let smbPath: String?
 
+  /// The SMB connection that listed `smbPath`. A path names a file only on its own share.
+  public let smbSourceID: UUID?
+
   /// Bookmark-resolved ancestor URL that grants security-scoped access to
   /// `url`. Populated by filesystem-shaped sources (FilesystemSource) so
   /// downstream consumers (ImageEditPipeline, ThumbnailLoader) can wrap
@@ -104,6 +107,7 @@ public struct ImageRef: Sendable, Hashable, Identifiable, Codable {
     displayName: String,
     url: URL? = nil,
     smbPath: String? = nil,
+    smbSourceID: UUID? = nil,
     scopeParentURL: URL? = nil,
     captureDate: Date? = nil,
     phassetLink: String? = nil,
@@ -115,6 +119,7 @@ public struct ImageRef: Sendable, Hashable, Identifiable, Codable {
     self.displayName = displayName
     self.url = url
     self.smbPath = smbPath
+    self.smbSourceID = smbSourceID
     self.scopeParentURL = scopeParentURL
     self.captureDate = captureDate
     self.phassetLink = phassetLink
@@ -197,6 +202,12 @@ public protocol ImageSource: Actor {
   /// ~1600 px preview bytes (JPEG). Returns `nil` when not rendered yet.
   func preview(for ref: ImageRef) async throws -> Data?
 
+  /// The same tier, classified for a caller that retries (#5432). The
+  /// default maps `preview(for:)`: bytes, nil → not found, a throw →
+  /// transient. `CloudSource` overrides it to surface the server's 202
+  /// "indexing" + `Retry-After` reply.
+  func previewOutcome(for ref: ImageRef) async -> PreviewFetchOutcome
+
   /// Full RAW bytes for the Rust decode pipeline.
   func rawBytes(for ref: ImageRef) async throws -> Data
 
@@ -216,6 +227,15 @@ extension ImageSource {
   /// Default no-op — see the protocol requirement's doc comment. Only
   /// `SMBSource` overrides this today.
   public func writeThumb(_ data: Data, for ref: ImageRef) async {}
+
+  public func previewOutcome(for ref: ImageRef) async -> PreviewFetchOutcome {
+    do {
+      guard let data = try await preview(for: ref) else { return .notFound(reason: "no preview") }
+      return .data(data)
+    } catch {
+      return PreviewFetchOutcome.classify(error: error)
+    }
+  }
 }
 
 // MARK: - ImageSourceError

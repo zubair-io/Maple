@@ -139,7 +139,7 @@ Object.assign(window, {
         const embedded = await read();
         const reopened = await core.read(embedded);
         if (future) {
-          const unsupported = embedded.replace('<papp:SchemaVersion>1', '<papp:SchemaVersion>2');
+          const unsupported = embedded.replace('<papp:SchemaVersion>2', '<papp:SchemaVersion>3');
           await access.writeFile(folder, filename, new TextEncoder().encode(unsupported));
           let rejected = false;
           try {
@@ -291,7 +291,7 @@ Object.assign(window, {
         const forged = await reject(() =>
           freshStore.restore(folder, 'photo.xmp', 'primary', restored, forgedRestore),
         );
-        const future = restored.replace('<papp:SchemaVersion>1', '<papp:SchemaVersion>2');
+        const future = restored.replace('<papp:SchemaVersion>2', '<papp:SchemaVersion>3');
         const futureReject = await reject(() => freshCore.restore(restoreEntry, future));
         return {
           snapshot: record?.snapshots[0],
@@ -428,7 +428,7 @@ Object.assign(window, {
           reopened.write({ ...folder, write: false }, 'photo.xmp', record.variantId, edited),
         );
         const filename = `photo.v${record.variantId}.xmp`;
-        const future = first.replace('<papp:SchemaVersion>1', '<papp:SchemaVersion>2');
+        const future = first.replace('<papp:SchemaVersion>2', '<papp:SchemaVersion>3');
         await access.writeFile(folder, filename, new TextEncoder().encode(future));
         const futureWrite = await reject(() =>
           reopened.write(folder, 'photo.xmp', record.variantId, edited),
@@ -508,7 +508,7 @@ Object.assign(window, {
           invalidPath: await reject(() => core.variantFilename('../photo.xmp', record.variantId)),
           invalidId: await reject(() => core.variantFilename('photo.xmp', '../primary')),
           future: await reject(() =>
-            core.checkpoint(embedded.replace('<papp:SchemaVersion>1', '<papp:SchemaVersion>2')),
+            core.checkpoint(embedded.replace('<papp:SchemaVersion>2', '<papp:SchemaVersion>3')),
           ),
           sidecarUnchanged:
             new TextDecoder().decode(await access.readFile(folder, basename)) === reopened,

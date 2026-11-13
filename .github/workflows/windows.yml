@@ -1,6 +1,8 @@
 name: windows
 
 on:
+  merge_group:
+    types: [checks_requested]
   push:
     branches: [main]
   pull_request:
@@ -16,12 +18,12 @@ jobs:
   windows-wrapper-contract:
     needs: changes
     if: needs.changes.outputs.windows == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7.0.1
       - name: Test Windows build wrapper contracts
         run: python3 src/windows/scripts/test_build_windows.py
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.12'
       - name: Install perceptual comparator dependencies
@@ -49,7 +51,7 @@ jobs:
     env:
       WINDOWS_TARGET: ${{ matrix.target }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7.0.1
         with:
           fetch-depth: 0
 
@@ -84,6 +86,7 @@ jobs:
         shell: pwsh
         run: |
           cargo test --manifest-path src/raw-pipeline/Cargo.toml -p raw-core --lib
+          cargo test --manifest-path src/raw-pipeline/Cargo.toml -p raw-core --test output_file_safety
 
       - name: Verify native application architecture
         shell: pwsh
@@ -111,7 +114,7 @@ jobs:
 
       - name: Upload WinUI lifecycle evidence
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: winui-lifecycle-${{ matrix.arch }}
           path: ${{ runner.temp }}/maple-window-lifecycle
@@ -121,9 +124,9 @@ jobs:
     name: Windows result
     needs: [changes, windows-wrapper-contract, windows-build-and-test]
     if: always()
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7.0.1
       - run: python3 tools/ci_result.py windows-wrapper-contract=windows windows-build-and-test=windows
         env:
           NEEDS_JSON: ${{ toJSON(needs) }}

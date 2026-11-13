@@ -1,0 +1,32 @@
+[
+  {
+    "profile": "auto",
+    "compared": 1,
+    "breaches": 1,
+    "skipped_no_raw": 0,
+    "skipped_no_candidate": 0,
+    "skipped_no_reference": 0,
+    "errors": 0,
+    "grand_mean_deltaE": 3.3337068643945083,
+    "cases": [
+      {
+        "fixture": "test_0002",
+        "case": "baseline_auto",
+        "profile": "auto",
+        "resolution": "down",
+        "status": "breach",
+        "breaches": [
+          "max 40.70>37.00"
+        ],
+        "mean": 3.3337068643945083,
+        "p95": 5.197615180955865,
+        "max": 40.70281458190618,
+        "bR": -0.0004106805517010701,
+        "bG": 0.025295420644391872,
+        "bB": 0.03023271956508731,
+        "n_pixels": 12000000,
+        "reference_protocol": "baseline-native-pair-lanczos"
+      }
+    ]
+  }
+]

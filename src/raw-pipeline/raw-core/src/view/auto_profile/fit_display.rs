@@ -25,11 +25,11 @@
 //!    orientation AFTER this stage, and `extract-preview` now orients the
 //!    preview too) so source pixel `(x, y)` pairs with JPEG pixel `(x, y)` the
 //!    same way the gate pairs the final display render against the preview.
-//! 2. Aspect-crop, then build the EXACT eval-then-box per-channel design
+//! 2. Aspect-crop, then build the cubic eval-then-box per-channel design
 //!    matrices (`solve::build_design_matrices`) and per-band targets
 //!    (`solve::band_targets`).
 //! 3. Solve the Chebyshev (minimax) monotone curve per channel
-//!    (`solve::solve_minimax_monotone`).
+//!    (`solve::solve_cubic_minimax`).
 //!
 //! Consequences of the display-space domain:
 //! - The JPEG target is already sRGB-encoded, decoded via `byte / 255.0` —
@@ -49,7 +49,7 @@ use image::DynamicImage;
 
 use crate::image::ExifOrientation;
 
-use super::curve::{ProfileCurve, IDENTITY_MATRIX};
+use super::curve::{ChannelCurve, ProfileCurve, IDENTITY_MATRIX};
 use super::preview;
 use super::solve::{self, LUMA_BANDS};
 
@@ -222,10 +222,11 @@ pub fn fit_curve_from_preview_display(
     }
     let footprint = solve::footprint_sizes(crop_w, crop_h, target_w_px, target_h_px);
 
-    // Build the EXACT eval-then-box per-channel design matrices. The gate
-    // computes `candidate_j = (1/|F_j|) Σ_{p∈F_j} eval(curve, src_p)`, then the
-    // band mean `B_b = (1/N_b) Σ_{j∈b} candidate_j`. Since `eval` is piecewise-
-    // linear, `B_b` is LINEAR in the anchor outputs: `B_b = Σ_a M[b][a]·out[a]`.
+    // Build the eval-then-box per-channel design matrices. The gate computes
+    // `candidate_j = (1/|F_j|) Σ_{p∈F_j} eval(curve, src_p)`, then the band mean
+    // `B_b = (1/N_b) Σ_{j∈b} candidate_j`. The monotone cubic `eval` (#4636)
+    // makes `B_b` linear in the outputs once its knot tangents are frozen,
+    // which `solve_cubic_minimax` refits.
     // box-then-eval is the WRONG model — at the ~0.05 margins the Jensen gap is
     // decisive (measured ~0.015 on test_0000).
     let design = solve::build_design_matrices(
@@ -244,10 +245,15 @@ pub fn fit_curve_from_preview_display(
     let band_target = solve::band_targets(&target, &band_of, &band_counts);
 
     // Fit each channel independently to its own per-band mean targets via the
-    // Chebyshev (minimax) monotone solve.
-    let r = solve::solve_minimax_monotone(&design[0], &band_target[0], &band_counts);
-    let g = solve::solve_minimax_monotone(&design[1], &band_target[1], &band_counts);
-    let b = solve::solve_minimax_monotone(&design[2], &band_target[2], &band_counts);
+    // Chebyshev (minimax) monotone solve, refit around the cubic's tangents.
+    let [r, g, b]: [ChannelCurve; 3] = std::array::from_fn(|lane| {
+        solve::solve_cubic_minimax(
+            &design.values[lane],
+            &design.tangents[lane],
+            &band_target[lane],
+            &band_counts,
+        )
+    });
 
     Some(ProfileCurve {
         r,

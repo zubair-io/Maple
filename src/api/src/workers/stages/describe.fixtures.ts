@@ -20,7 +20,7 @@ import { dirname } from 'node:path';
 import { ObjectId } from '../../db/object-id.ts';
 import { solidAvif } from '../../test-support/synth-image.ts';
 import type { VisionDoc } from '../../db/schema.ts';
-import type { ImageDoc, StageResult } from '../run-stage.ts';
+import type { ImageDoc, StageContext, StageResult } from '../run-stage.ts';
 import type {
   DescribeProvider,
   DescribeResult,
@@ -94,6 +94,28 @@ export function fakeDoc(absPath: string, libraryId: ObjectId, libraryRoot: strin
     place: null,
     stages: {},
   } as unknown as ImageDoc;
+}
+
+/** A stage context whose logger records every call, so suites can assert
+ * both that the handler runs and what it logged at which level. */
+export function recordingCtx(): {
+  ctx: StageContext;
+  logged: Array<{ level: string; msg: string; fields: unknown }>;
+} {
+  const logged: Array<{ level: string; msg: string; fields: unknown }> = [];
+  const at = (level: string) => (fields: unknown, msg: string) => {
+    logged.push({ level, msg, fields });
+  };
+  const log = {
+    trace: at('trace'),
+    debug: at('debug'),
+    info: at('info'),
+    warn: at('warn'),
+    error: at('error'),
+    fatal: at('fatal'),
+    child: () => log,
+  };
+  return { ctx: { log: log as never, signal: new AbortController().signal }, logged };
 }
 
 /** A DescribeProvider that returns a canned result, or throws a canned

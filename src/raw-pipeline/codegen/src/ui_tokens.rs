@@ -247,7 +247,11 @@ pub fn emit_ts(
     s.push_str("export const MAPLE_UI_RADIUS = {\n");
     for tok in radius {
         s.push_str(&jsdoc(tok.doc, "  ", 96));
-        s.push_str(&format!("  {}: {},\n", camel_case(tok.name), format_px(tok.px)));
+        s.push_str(&format!(
+            "  {}: {},\n",
+            camel_case(tok.name),
+            format_px(tok.px)
+        ));
     }
     s.push_str("} as const;\n\n");
     s.push_str("export type MapleUIRadiusKey = keyof typeof MAPLE_UI_RADIUS;\n\n");
@@ -343,7 +347,11 @@ pub fn emit_scss(
     s.push_str("\n");
     s.push_str("$maple-radii: (\n");
     for tok in radius {
-        s.push_str(&format!("  '{}': {}px,\n", kebab_case(tok.name), format_px(tok.px)));
+        s.push_str(&format!(
+            "  '{}': {}px,\n",
+            kebab_case(tok.name),
+            format_px(tok.px)
+        ));
     }
     s.push_str(");\n\n");
 
@@ -352,7 +360,11 @@ pub fn emit_scss(
     s.push_str("// -------------------------------------------------------------------------\n\n");
     for tok in spacing {
         s.push_str(&doc_lines(tok.doc, "// ", 90));
-        s.push_str(&format!("$maple-spacing-{}: {}px;\n", kebab_case(tok.name), tok.px));
+        s.push_str(&format!(
+            "$maple-spacing-{}: {}px;\n",
+            kebab_case(tok.name),
+            tok.px
+        ));
     }
     s.push_str("\n");
     s.push_str("$maple-spacing: (\n");

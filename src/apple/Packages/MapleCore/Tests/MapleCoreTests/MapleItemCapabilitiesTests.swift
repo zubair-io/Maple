@@ -2,8 +2,8 @@
 //
 // Issue #2549 — evaluates whether `.allowsTrashing`/`.allowsEvicting`
 // are a better fit than `.allowsDeleting` for live/trashed assets.
-// Conclusion (see the doc comments at `MapleItem`'s `image:` and
-// `trashed:` initializers): NO — `.allowsTrashing` would surface a
+// Conclusion (see the doc comment at `MapleItem`'s `image:`
+// initializer): NO — `.allowsTrashing` would surface a
 // Finder "Move to Trash" affordance that this extension cannot honor
 // (no `NSFileProviderItemIdentifier.trashContainer` support), which is
 // worse than today's behaviour, not better. `.allowsEvicting` is
@@ -12,7 +12,9 @@
 //
 // This test pins the CURRENT (intentionally unchanged) capability sets
 // so a future "helpful" swap to `.allowsTrashing` fails loudly instead
-// of silently shipping a broken destructive-action affordance.
+// of silently shipping a broken destructive-action affordance. The
+// Finder-side Maple Trash container and its trashed items were removed
+// in #4706, so only live kinds are pinned here.
 
 import XCTest
 import FileProvider
@@ -32,22 +34,6 @@ final class MapleItemCapabilitiesTests: XCTestCase {
         XCTAssertEqual(item.capabilities, [.allowsReading, .allowsDeleting])
         XCTAssertFalse(item.capabilities.contains(.allowsTrashing),
                         "would route Finder's Move to Trash through the unimplemented OS trashContainer reparent path — see #2549")
-    }
-
-    func testTrashedItemCapabilitiesUseAllowsDeletingNotAllowsTrashing() throws {
-        let trashItem = TrashItem(
-            assetID: "650a1b2c3d4e5f6071829304",
-            filename: "IMG_1.ARW",
-            originalRelativePath: "2024/IMG_1.ARW",
-            trashRelativePath: ".maple/trash/2024/IMG_1.ARW",
-            size: 100,
-            mtime: Date(timeIntervalSince1970: 1_700_000_000),
-            deletedAt: Date(timeIntervalSince1970: 1_700_000_100)
-        )
-        let item = try XCTUnwrap(MapleItem(trashed: trashItem, parentTrashIdentifier: NSFileProviderItemIdentifier("trash/f1")))
-        XCTAssertEqual(item.capabilities, [.allowsReading, .allowsReparenting, .allowsDeleting])
-        XCTAssertFalse(item.capabilities.contains(.allowsTrashing),
-                        "there is no OS trash-of-trash concept; .allowsDeleting here means permanent purge, matching Apple's own deleteItem doc comment — see #2549")
     }
 
     /// #2535: a non-indexed `.file` item used to be read-only

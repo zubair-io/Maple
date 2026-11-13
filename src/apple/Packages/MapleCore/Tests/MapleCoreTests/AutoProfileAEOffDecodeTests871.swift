@@ -29,12 +29,12 @@ extension AutoProfileCanvasParityTests {
     /// This gate locks that in WITHOUT any external reference: it decodes the
     /// SAME RAW twice through the live `decodeSceneLinear` path — once with
     /// `profileOverride: .auto`, once with `.neutral` — and asserts the Auto
-    /// pre-cube buffer is MEANINGFULLY DARKER (AE skipped) than the Neutral
-    /// one. Before the fix both decodes were byte-identical (profile-blind
-    /// decode), so this difference is exactly the regression signal. A
-    /// re-introduction of the profile-blind decode collapses the two means
-    /// back together and fails here. Skips when the RAW fixture is absent
-    /// (CI-without-fixtures pattern).
+    /// decode carries no exposure gain while the Neutral one lifts. The
+    /// capture decode (#5377) applies the gain in its creative stage, not to
+    /// the pixels, so the gate reads the decode's creative gain. A
+    /// re-introduction of the profile-blind decode makes the two gains equal
+    /// and fails here. Skips when the RAW fixture is absent (CI-without-
+    /// fixtures pattern).
     func testAutoDecodeDevelopsAEOff871() async throws {
         let rawURL = Self.fixtureDir("test-fixtures/raws").appendingPathComponent("test_0003.CR2")
         guard FileManager.default.fileExists(atPath: rawURL.path) else {
@@ -43,51 +43,25 @@ extension AutoProfileCanvasParityTests {
         let pipeline = ImageEditPipeline()
         let asset = AssetRef(url: rawURL)
 
-        func meanLuma(profileOverride: Profile) async throws -> Double {
-            guard let ci = await pipeline.decodeSceneLinear(
+        func creativeGain(profileOverride: Profile) async throws -> Float {
+            guard let decoded = await pipeline.decodeSceneLinear(
                 asset: asset, quality: .full, xmpPath: nil, profileOverride: profileOverride
-            ).map(\.image) else { throw XCTSkip("decodeSceneLinear nil") }
-            // Materialise the scene-linear (pre-AgX, Rec.2020) decode to f32
-            // and average the green channel — AE is a scalar scene-linear
-            // gain, so its presence shows directly as a higher mean here.
-            let ctx = CIContext(options: [
-                .workingColorSpace: CGColorSpace(name: CGColorSpace.extendedLinearITUR_2020)!,
-                .workingFormat: CIFormat.RGBAf,
-            ])
-            let extent = ci.extent
-            // Downsample to a small fixed grid so the render is cheap and the
-            // mean is stable across the (large) sensor buffer.
-            let w = 64, h = 64
-            var px = [Float](repeating: 0, count: w * h * 4)
-            px.withUnsafeMutableBytes { buf in
-                ctx.render(
-                    ci.transformed(by: CGAffineTransform(
-                        scaleX: CGFloat(w) / extent.width, y: CGFloat(h) / extent.height)),
-                    toBitmap: buf.baseAddress!, rowBytes: w * 16,
-                    bounds: CGRect(x: 0, y: 0, width: w, height: h),
-                    format: .RGBAf,
-                    colorSpace: CGColorSpace(name: CGColorSpace.extendedLinearITUR_2020)!
-                )
-            }
-            var sum = 0.0
-            for i in 0..<(w * h) { sum += Double(px[i * 4 + 1]) }  // green lane
-            return sum / Double(w * h)
+            ) else { throw XCTSkip("decodeSceneLinear nil") }
+            let creative = try XCTUnwrap(decoded.wbFrame?.creative, "a RAW decode is a capture")
+            XCTAssertEqual(decoded.aeGain, creative.aeGain)
+            return creative.aeGain
         }
 
-        let autoMean = try await meanLuma(profileOverride: .auto)
-        let neutralMean = try await meanLuma(profileOverride: .neutral)
-        print(String(format: "[871-ae-off] scene-linear mean G — auto(AE-off)=%.5f neutral(AE-on)=%.5f ratio=%.3f",
-                     autoMean, neutralMean, autoMean / max(neutralMean, 1e-6)))
+        let autoGain = try await creativeGain(profileOverride: .auto)
+        let neutralGain = try await creativeGain(profileOverride: .neutral)
+        print(String(format: "[871-ae-off] creative exposure gain — auto(AE-off)=%.5f neutral(AE-on)=%.5f",
+                     autoGain, neutralGain))
         // AE on test_0003 lifts mid-gray to the 0.18 anchor — a substantial
-        // scalar gain. The Auto (AE-off) buffer must therefore be clearly
-        // darker than the Neutral (AE-on) buffer. A profile-blind decode (the
-        // bug) makes these equal. Require a ≥5% gap as the regression tripwire
-        // (observed ratio on test_0003 is well below 0.9).
-        XCTAssertLessThan(
-            autoMean, neutralMean * 0.95,
-            "Auto decode must develop auto_exposure OFF (darker pre-cube than Neutral). "
-            + "auto=\(autoMean) neutral=\(neutralMean) — equal means the profile-blind "
-            + "decode regressed and the Auto cube will blow out (#871)."
+        // scalar gain. A profile-blind decode (the bug) makes the two equal.
+        XCTAssertEqual(autoGain, 1.0, "Auto decode must develop auto_exposure OFF (#871)")
+        XCTAssertGreaterThan(
+            neutralGain, 1.05,
+            "Neutral keeps auto exposure; equal gains mean the profile-blind decode regressed (#871)"
         )
     }
 

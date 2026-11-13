@@ -96,6 +96,14 @@ extension EditSession {
   /// A binding cannot bypass confirmed persistence or mutate the snapshot
   /// while its asynchronous commit is in flight. Chrome observes the busy
   /// flag; this guard also protects late analysis and keyboard callbacks.
+  func acceptsModelChange(from previous: AdjustmentModel) -> Bool {
+    guard !permitsModelChange(from: previous) else { return true }
+    isHydratingInitialState = true
+    model = previous
+    isHydratingInitialState = false
+    return false
+  }
+
   func permitsModelChange(from previous: AdjustmentModel) -> Bool {
     if isApplyingRemovalCommit || workflow.isApplying { return true }
     guard !isSavingRemoval, !workflow.isBusy else { return false }

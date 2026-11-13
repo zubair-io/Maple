@@ -306,9 +306,9 @@ public final class PhotoKitCatalog: @unchecked Sendable {
     // MARK: Internal helpers
 
     /// Merge new asset entries into the cache under the lock.
-    /// Used by `paginatedImageIdentifiers` to opportunistically populate the
-    /// per-id lookup cache as pages are streamed.
-    internal func mergeAssetCache(_ newAssets: [String: PHAsset]) {
+    /// Used by `paginatedImageIdentifiers` and the backup discovery walk to
+    /// opportunistically populate the per-id lookup cache.
+    public func mergeAssetCache(_ newAssets: [String: PHAsset]) {
         lock.lock(); defer { lock.unlock() }
         for (k, v) in newAssets { assetByID[k] = v }
     }

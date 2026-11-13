@@ -36,6 +36,7 @@
 
 import type { SqlStatement } from '../sqlite/protocol.ts';
 import type { AssetExif, FileInfo } from '../schema.ts';
+import { inheritDerivedStatements } from './assets.merge-derived.ts';
 import { toFileInfo, type LocationRow } from './assets.rows.ts';
 import { sqliteDb, type SqliteDb } from './db-handle.ts';
 
@@ -119,9 +120,11 @@ export interface MergeCarryOver {
  * another discover or merge cannot consume those ordinals between a preliminary
  * read and the write, and MAX cannot change while individual rows are updated.
  *
- * Deleting the condemned row cascades its faces, detail payload, search row,
- * phasset links and stage bookkeeping. Its locations have already moved, so the
- * cascade takes nothing the survivor needs.
+ * Before the delete, the condemned row's Apple Photos links and derived data
+ * move to the survivor where the survivor has none (`./assets.merge-derived.ts`
+ * states the rule). The delete then cascades only what the survivor already
+ * holds or does not need: its locations have moved, so the cascade takes
+ * nothing the survivor lacks.
  */
 export async function mergeIntoSurvivor(args: {
   survivorId: string;
@@ -155,6 +158,7 @@ export async function mergeIntoSurvivor(args: {
       params: [args.survivorId, args.survivorId, args.condemnedId, args.condemnedId],
     },
     ...carryOverStatements(args.survivorId, args.carryOver ?? {}),
+    ...inheritDerivedStatements(args.survivorId, args.condemnedId),
     {
       sql: `UPDATE asset_locations SET asset_id=?,ordinal=(SELECT new_ordinal
         FROM maple_merge_ordinals WHERE old_ordinal=asset_locations.ordinal) WHERE asset_id=?`,
@@ -172,6 +176,20 @@ export async function mergeIntoSurvivor(args: {
       sql: `INSERT INTO stage_state(asset_id,stage,version) SELECT id,'cloud-backup',0 FROM assets WHERE id=?
         ON CONFLICT(asset_id,stage) DO UPDATE SET version=0,attempts=0,dead=0,next_attempt_at=NULL`,
       params: [args.survivorId],
+    },
+    {
+      // Displaced sidecar versions outlive the duplicate (#5023); the delete
+      // below would otherwise cascade them away.
+      sql: `UPDATE sidecar_divergences SET asset_id=? WHERE asset_id=?`,
+      params: [args.survivorId, args.condemnedId],
+    },
+    {
+      // Moved locations may hold pre-#5021 `IMG.HEIC.xmp`; the links that qualified them go below.
+      sql: `INSERT INTO backup_sidecar_name_checks (asset_id, checked)
+        SELECT ?, 0 WHERE EXISTS (SELECT 1 FROM asset_phasset_links WHERE asset_id IN (?, ?))
+          OR EXISTS (SELECT 1 FROM backup_sidecar_name_checks WHERE asset_id = ? AND checked = 0)
+        ON CONFLICT (asset_id) DO UPDATE SET checked = 0`,
+      params: [args.survivorId, args.survivorId, args.condemnedId, args.condemnedId],
     },
     { sql: `DELETE FROM assets WHERE id = ?`, params: [args.condemnedId] },
     // Strictly after the delete, which is what frees the unique key — but inside

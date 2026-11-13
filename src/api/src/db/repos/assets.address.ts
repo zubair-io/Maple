@@ -28,6 +28,7 @@
  * sites and hide that those are three different questions.
  */
 
+import type { RecordedMotionClip } from '../../indexer/motion-photo/types.ts';
 import type { ObjectId } from '../object-id.ts';
 import type { AssetExif, FileInfo } from '../schema.ts';
 import { newObjectIdHex } from '../object-id.ts';
@@ -46,6 +47,7 @@ const LIVE_ENTRY = `l.deleted_at IS NULL AND l.missing_since IS NULL`;
 export interface AddressedAsset {
   _id: ObjectId;
   maple_id: string | null;
+  hidden: boolean;
   fileinfo: FileInfo[];
 }
 
@@ -63,8 +65,8 @@ export async function findAssetAtAddress(
   dbOverride?: SqliteDb,
 ): Promise<AddressedAsset | null> {
   const db = sqliteDb(dbOverride);
-  const rows = await db.read<{ id: string; maple_id: string | null }>(
-    `SELECT a.id AS id, a.maple_id AS maple_id
+  const rows = await db.read<{ id: string; maple_id: string | null; hidden: number }>(
+    `SELECT a.id AS id, a.maple_id AS maple_id, a.hidden AS hidden
        FROM asset_locations l
        JOIN assets a ON a.id = l.asset_id
       WHERE ${ADDRESS_WHERE} AND ${LIVE_ENTRY} AND a.deleted_at IS NULL
@@ -77,8 +79,30 @@ export async function findAssetAtAddress(
   return {
     _id: toObjectId(row.id),
     maple_id: row.maple_id,
+    hidden: row.hidden === 1,
     fileinfo: toFileInfo(locations),
   };
+}
+
+/** The verified clip range the `motion-photo` stage recorded for a still. */
+/** The embedded clip of the live asset at an address, or `null` for a plain still. */
+export async function findMotionClipAtAddress(
+  libraryId: ObjectId,
+  relPath: string,
+  filename: string,
+  dbOverride?: SqliteDb,
+): Promise<RecordedMotionClip | null> {
+  const rows = await sqliteDb(dbOverride).read<RecordedMotionClip>(
+    `SELECT a.motion_video_start AS start, a.motion_video_length AS length,
+            a.motion_video_mime AS mime, a.motion_source_size AS sourceSize
+       FROM asset_locations l
+       JOIN assets a ON a.id = l.asset_id
+      WHERE ${ADDRESS_WHERE} AND ${LIVE_ENTRY} AND a.deleted_at IS NULL
+        AND a.motion_video_length IS NOT NULL
+      LIMIT 1`,
+    [libraryId.toHexString(), relPath, filename],
+  );
+  return rows[0] ?? null;
 }
 
 /**
@@ -105,6 +129,47 @@ export async function findLiveAssetIdAtAddress(
   );
   const id = rows[0]?.asset_id;
   return id === undefined ? null : toObjectId(id);
+}
+
+/** Unicode-aware case-insensitive live-entry check so export Replace never clobbers a sibling (`IMG_1.JPG` or `Ä.JPG` vs `ä.jpg`). */
+export async function hasLiveAssetAtAddress(
+  libraryId: ObjectId,
+  relPath: string,
+  filename: string,
+  dbOverride?: SqliteDb,
+): Promise<boolean> {
+  const db = sqliteDb(dbOverride);
+  const libId = libraryId.toHexString();
+  const exact = await db.read<{ asset_id: string }>(
+    `SELECT l.asset_id AS asset_id
+       FROM asset_locations l
+      WHERE l.library_id = ? AND l.path = ? AND l.filename = ? COLLATE NOCASE AND ${LIVE_ENTRY}
+      LIMIT 1`,
+    [libId, relPath, filename],
+  );
+  if (exact.length > 0) return true;
+  const targetName = filename.normalize('NFC').toLowerCase();
+  const inFolder = await db.read<{ filename: string }>(
+    `SELECT l.filename AS filename
+       FROM asset_locations l
+      WHERE l.library_id = ? AND l.path = ? AND ${LIVE_ENTRY}`,
+    [libId, relPath],
+  );
+  if (inFolder.some((row) => row.filename.normalize('NFC').toLowerCase() === targetName))
+    return true;
+  if (!relPath) return false;
+  const targetPath = relPath.normalize('NFC').toLowerCase();
+  const inLibrary = await db.read<{ path: string; filename: string }>(
+    `SELECT l.path AS path, l.filename AS filename
+       FROM asset_locations l
+      WHERE l.library_id = ? AND l.path != '' AND ${LIVE_ENTRY}`,
+    [libId],
+  );
+  return inLibrary.some(
+    (row) =>
+      row.path.normalize('NFC').toLowerCase() === targetPath &&
+      row.filename.normalize('NFC').toLowerCase() === targetName,
+  );
 }
 
 /** The row an upload needs before it moves the file it is about to overwrite. */
@@ -158,6 +223,8 @@ export interface DirectoryAsset {
   size: number;
   mtime: number;
   exif: AssetExif | null;
+  motion_photo: boolean;
+  live_content_id: string | null;
 }
 
 /**
@@ -176,19 +243,55 @@ export async function listDirectoryAssets(
   dbOverride?: SqliteDb,
 ): Promise<DirectoryAsset[]> {
   const rows = await sqliteDb(dbOverride).read<
-    Omit<DirectoryAsset, 'exif'> & { exif: string | null }
+    Omit<DirectoryAsset, 'exif' | 'motion_photo'> & {
+      exif: string | null;
+      motion_photo: number;
+    }
   >(
     `SELECT a.id AS id, l.filename AS filename, a.maple_id AS maple_id,
             a.captured_at AS captured_at,
             json_extract(a.exif, '$.width') AS width,
             json_extract(a.exif, '$.height') AS height,
-            a.size AS size, a.mtime AS mtime, a.exif AS exif
+            a.size AS size, a.mtime AS mtime, a.exif AS exif,
+            a.motion_video_length IS NOT NULL AS motion_photo,
+            a.live_content_id AS live_content_id
        FROM asset_locations l
        JOIN assets a ON a.id = l.asset_id
       WHERE l.library_id = ? AND l.path = ? AND ${LIVE_ENTRY} AND a.deleted_at IS NULL`,
     [libraryId.toHexString(), relPath],
   );
-  return rows.map((row) => ({ ...row, exif: parseJson<AssetExif | null>(row.exif, null) }));
+  return rows.map((row) => ({
+    ...row,
+    exif: parseJson<AssetExif | null>(row.exif, null),
+    motion_photo: row.motion_photo === 1,
+  }));
+}
+
+/** One file in a directory that may be one half of a Live Photo. */
+export interface LivePhotoDirectoryCandidate {
+  id: string;
+  filename: string;
+  live_content_id: string | null;
+}
+
+/**
+ * The files in one directory a Live Photo pairing considers, for the relocate
+ * flow. Unlike {@link listDirectoryAssets} this keeps a location tagged
+ * `missing_since`: relocation accepts a restored file that still carries the
+ * tag, so pairing has to see it too.
+ */
+export async function listDirectoryLivePhotoCandidates(
+  libraryId: ObjectId,
+  relPath: string,
+  dbOverride?: SqliteDb,
+): Promise<LivePhotoDirectoryCandidate[]> {
+  return sqliteDb(dbOverride).read<LivePhotoDirectoryCandidate>(
+    `SELECT a.id AS id, l.filename AS filename, a.live_content_id AS live_content_id
+       FROM asset_locations l
+       JOIN assets a ON a.id = l.asset_id
+      WHERE l.library_id = ? AND l.path = ? AND l.deleted_at IS NULL AND a.deleted_at IS NULL`,
+    [libraryId.toHexString(), relPath],
+  );
 }
 
 /** Soft-deleted rows reserve their old names until relocation/discover has

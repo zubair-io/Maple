@@ -86,6 +86,46 @@ pub(crate) fn emit_cs() -> String {
         out.push_str(&format!("        [\"{field}\"] = \"{element}\",\n"));
     }
     out.push_str("    };\n}\n");
+    out.push_str(&format!("\npublic static class ColorCurveEditorTuning\n{{\n    public const double AnchorSpread = {};\n    public const double MinKnotGap = {};\n    public const int MaxKnots = {};\n    public const double MaxHueSlope = {};\n}}\n",
+        raw_core::stages::color_curves::EDITOR_ANCHOR_SPREAD,
+        raw_core::stages::color_curves::EDITOR_MIN_KNOT_GAP,
+        raw_core::stages::color_curves::EDITOR_MAX_KNOTS,
+        raw_core::stages::color_curves::EDITOR_MAX_HUE_SLOPE));
+    out.push_str("\npublic static class ColorCurveCalibration\n{\n    public static readonly System.Collections.Generic.IReadOnlyList<(string Id, string Label, double HueDeg, uint Swatch)> QuickHueAnchors = System.Array.AsReadOnly(new (string, string, double, uint)[]\n    {\n");
+    for (id, label, deg, swatch) in raw_core::stages::color_curves::EDITOR_QUICK_HUE_ANCHORS {
+        out.push_str(&format!(
+            "        (\"{id}\", \"{label}\", {deg:.1}, 0x{swatch:06X}),\n"
+        ));
+    }
+    out.push_str("    });\n    public static readonly System.Collections.Generic.IReadOnlyList<double> SkinToneGuardDeg = System.Array.AsReadOnly(new double[] { ");
+    for deg in raw_core::stages::color_curves::EDITOR_SKIN_TONE_GUARD_DEG {
+        out.push_str(&format!("{deg:.1}, "));
+    }
+    out.push_str("});\n}\n");
+
+    out.push_str("\npublic static class ParametricAxisTuning\n{\n");
+    out.push_str(&format!(
+        "    public const double Midgrey = {};\n",
+        crate::adjustment::f(raw_core::stages::tone_curves::MIDGREY)
+    ));
+    out.push_str(&format!(
+        "    public const double Midtone = {};\n",
+        crate::adjustment::f(raw_core::stages::tone_curves::AXIS_MIDTONE)
+    ));
+    out.push_str(&format!(
+        "    public const double UnitsPerStop = {};\n",
+        crate::adjustment::f(raw_core::stages::tone_curves::AXIS_UNITS_PER_STOP)
+    ));
+    out.push_str(&format!(
+        "    public const double Top = {};\n",
+        crate::adjustment::f(raw_core::stages::tone_curves::AXIS_TOP)
+    ));
+    out.push_str(&format!(
+        "    public const double ReferenceMax = {};\n",
+        crate::adjustment::f(raw_core::stages::tone_curves::REF_MAX)
+    ));
+    out.push_str("}\n");
+
     out
 }
 

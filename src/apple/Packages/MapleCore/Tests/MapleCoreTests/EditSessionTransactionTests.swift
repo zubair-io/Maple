@@ -43,12 +43,13 @@ final class EditSessionTransactionTests: EditorTestCase {
 
     /// Copies the synthetic DNG into a fresh temp directory so a real
     /// `XMPSidecarStore` writes a real `.xmp` beside it.
-    private func makeFileBackedSession(announcer: RecordingAnnouncer = RecordingAnnouncer()) throws -> (EditSession, URL) {
+    private func makeFileBackedSession(announcer: RecordingAnnouncer = RecordingAnnouncer()) async throws -> (EditSession, URL) {
         let dir = try SidecarContractIO.makeTempDirectory(prefix: "edit-transaction")
         let raw = dir.appendingPathComponent("grey.dng")
         try FileManager.default.copyItem(at: Self.syntheticDNG, to: raw)
         let session = EditSession(asset: AssetRef(url: raw), model: .default, culling: CullingState())
         session.announcer = announcer
+        await session.loadSidecar()
         return (session, raw)
     }
 
@@ -57,7 +58,7 @@ final class EditSessionTransactionTests: EditorTestCase {
     /// action → undo → redo → compare, per action class. Each closure
     /// performs ONE user action through the same entry point the UI uses.
     func testEveryActionClassIsExactlyOneUndoEntryWithAValidRedoPath() async throws {
-        let (fileSession, _) = try makeFileBackedSession()
+        let (fileSession, _) = try await makeFileBackedSession()
         let preset = Preset(id: "p", name: "Punchy", fields: ["contrast": .number(25), "saturation": .number(10)])
         let actions: [(String, EditTransaction.Kind, (EditorState) async -> Void)] = [
             ("slider drag", .adjustment, { state in
@@ -207,7 +208,7 @@ final class EditSessionTransactionTests: EditorTestCase {
     // MARK: - Sidecar round-trip (real .xmp, no mocks)
 
     func testReloadedSemanticStateMatchesTheCommittedTransaction() async throws {
-        let (session, raw) = try makeFileBackedSession()
+        let (session, raw) = try await makeFileBackedSession()
         session.beginEdit(description: "Exposure")
         session.model.exposure = 1.25
         session.model.contrast = -15
@@ -239,7 +240,7 @@ final class EditSessionTransactionTests: EditorTestCase {
     /// on every model change, and `decodeAndRender` re-reads it before
     /// writing `renderedPreview`.
     func testAStaleRenderCannotReplaceNewerTransactionState() async throws {
-        let (session, _) = try makeFileBackedSession()
+        let (session, _) = try await makeFileBackedSession()
         // Warm up: one complete render adopts the decode's WB frame and
         // fills the decoded cache, so nothing below schedules a render of
         // its own (a WB re-seed would) and the generations stay ours.

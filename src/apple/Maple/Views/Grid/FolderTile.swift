@@ -96,8 +96,9 @@ private struct FolderDropTarget: ViewModifier {
       content.dropDestination(
         for: DraggedAssetPayload.self,
         action: { payloads, _ in
-          guard let payload = payloads.first, !payload.ids.isEmpty else { return false }
-          onDropAssets(url, rootBookmark, Set(payload.ids), MapleDragModifier.isCopyRequested())
+          let ids = Set(payloads.flatMap(\.ids))
+          guard !ids.isEmpty else { return false }
+          onDropAssets(url, rootBookmark, ids, MapleDragModifier.isCopyRequested())
           return true
         }, isTargeted: { targeted in isTargeted = targeted })
     } else {

@@ -16,6 +16,7 @@ import {
   togglePlace,
   togglePreset,
   parseDeepLinkFilters,
+  searchFilterQueryParams,
 } from './search-filters';
 
 const NOW = new Date('2026-08-15T12:00:00');
@@ -40,6 +41,14 @@ describe('search-filters — counting and chips', () => {
     };
     expect(activeFilterCount(f)).toBe(1);
     expect(activeFilterChips(f)).toEqual([{ kind: 'owner', label: 'alice@example.com' }]);
+  });
+
+  it('shows and clears the GPS-only scope from an unlabeled Map pin', () => {
+    const f = { ...EMPTY_FILTERS, scope: 'places' as const };
+    expect(activeFilterCount(f)).toBe(1);
+    expect(activeFilterChips(f)).toEqual([{ kind: 'scope', label: 'Photos with location' }]);
+    expect(filtersToParams(f).scope).toBe('places');
+    expect(removeChip(f, { kind: 'scope', label: 'Photos with location' }).scope).toBeNull();
   });
 
   it('labels a custom range and counts it as one dimension', () => {
@@ -213,6 +222,44 @@ describe('parseDeepLinkFilters', () => {
       sceneType: 'indoor',
       people: ['Zoe', 'Greyson'],
     });
+  });
+
+  it('round-trips interactive filters through Search URL parameters', () => {
+    const filters = {
+      ...EMPTY_FILTERS,
+      from: '2000-01-01',
+      to: '2000-12-31',
+      people: ['Zoe'],
+      places: ['Portland, OR'],
+      month: 1,
+      sceneType: 'outdoor',
+      ownerId: 'owner-1',
+    };
+    const params = searchFilterQueryParams(filters);
+    expect(parseDeepLinkFilters((key) => params[key] ?? null)).toEqual({
+      from: filters.from,
+      to: filters.to,
+      people: filters.people,
+      places: filters.places,
+      month: filters.month,
+      sceneType: filters.sceneType,
+      ownerId: filters.ownerId,
+    });
+    const preset = searchFilterQueryParams({ ...EMPTY_FILTERS, datePreset: 'last30' });
+    expect(parseDeepLinkFilters((key) => preset[key] ?? null)).toEqual({ datePreset: 'last30' });
+  });
+
+  it('accepts legacy comma-separated names beginning with a bracket', () => {
+    expect(parseDeepLinkFilters(from({ people: '[Square Bracket Band], AC/DC' }))).toEqual({
+      people: ['[Square Bracket Band]', 'AC/DC'],
+    });
+  });
+
+  it('parses only the supported Map scope and keeps it in the URL', () => {
+    const filters = parseDeepLinkFilters(from({ scope: 'places' }));
+    expect(filters).toEqual({ scope: 'places' });
+    expect(searchFilterQueryParams({ ...EMPTY_FILTERS, ...filters })['scope']).toBe('places');
+    expect(parseDeepLinkFilters(from({ scope: 'albums' }))).toBeNull();
   });
 
   it('returns null when nothing valid is present, so plain /search?q= keeps defaults', () => {

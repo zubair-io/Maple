@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
+using Maple.WinUI.Generated;
 using Maple.WinUI.Models;
 using Maple.WinUI.Native;
 using Maple.WinUI.Services.Metadata;
@@ -9,14 +10,16 @@ using Maple.WinUI.Services.Metadata;
 namespace Maple.WinUI.Services
 {
     /// <summary>
-    /// A decoded scene-linear f32 base image plus the decode-exported state the
-    /// per-tick chain needs (WB slider frame, noise profile, ISO, AE gain).
-    /// Pixels are copied into managed memory at decode time so the Rust buffer
-    /// can be freed immediately.
+    /// A decoded f32 base image plus the decode-exported state the per-tick
+    /// chain needs (creative stage, noise profile, ISO). A RAW is a capture
+    /// decode (#5377): its pixels stop before white balance and the camera
+    /// profile, and <see cref="Creative"/> renders them at the absolute slider
+    /// pair. Pixels are copied into managed memory at decode time so the Rust
+    /// buffer can be freed immediately.
     /// </summary>
     public sealed class DecodedImage
     {
-        public required float[] Pixels { get; init; }        // RGBA f32, scene-linear
+        public required float[] Pixels { get; init; }        // RGBA f32: capture basis (RAW) or scene-linear (raster)
         public required int Width { get; init; }
         public required int Height { get; init; }
         public required float[] NoiseProfile { get; init; }  // empty when absent
@@ -26,9 +29,10 @@ namespace Maple.WinUI.Services
         public float NrSamplingScale { get; init; } = 1f;
         public required float DecodedTemperature { get; init; }
         public required float DecodedTint { get; init; }
-        /// <summary>Raw copy of the wb_frame_* export block, in struct order,
-        /// applied verbatim onto MapleAdjustmentParams for each tick.</summary>
-        public required float[] WbFrame { get; init; }
+        /// <summary>The capture decode's creative stage, pointed at by every
+        /// tick's <c>creative_ptr</c>; null for a raster, which keeps the
+        /// scene-linear white-balance delta.</summary>
+        public CaptureCreative? Creative { get; init; }
         public bool IsRaster { get; init; }
         public CameraSupportMetadata? CameraSupport { get; init; }
         /// <summary>What the core resolved for the sidecar's lens selection
@@ -55,10 +59,13 @@ namespace Maple.WinUI.Services
         public int DisplayLutN { get; set; }
         internal ProfileSourceGeneration? ProfileSource { get; set; }
         internal ProfileFitContext? ProfileFit { get; set; }
+        /// <summary>What the Auto fit achieved for this decode (#5458); null
+        /// when Auto was not requested (Neutral, raster).</summary>
+        public AutoProfileOutcome? AutoProfileOutcome { get; set; }
     }
 
     /// <summary>
-    /// CPU render pipeline: decode once to a scene-linear f32 base via the
+    /// CPU render pipeline: decode once to a capture f32 base via the
     /// stripped-XMP contract, then re-run the Rust per-tick chain
     /// (maple_apply_chain_and_encode_display_f32) on every adjustment change.
     /// The eventual DX12 SwapChainPanel path (#2561) replaces the presentation,
@@ -67,7 +74,7 @@ namespace Maple.WinUI.Services
     public static unsafe partial class RenderEngine
     {
         /// <summary>
-        /// Decode a RAW into a scene-linear f32 base, honoring the sidecar's
+        /// Decode a RAW into a capture f32 base, honoring the sidecar's
         /// decode-owned fields (lens corrections, capture sharpening, AE, ...)
         /// with chain-owned fields stripped. <paramref name="quality"/> is
         /// the caller's choice — <see cref="Decode"/> does not pick it: the
@@ -104,40 +111,42 @@ namespace Maple.WinUI.Services
             File.WriteAllText(tempXmpPath, strippedXmp);
             try
             {
-                var buffer = new MapleSceneLinearBufferF32();
-                var rc = RawFfi.maple_render_file_scene_linear_sized_f32(
-                    rawPath, tempXmpPath, (uint)maxLongEdge, quality, cancelFlag, &buffer);
+                var capture = new MapleCaptureBufferF32();
+                var rc = RawFfi.maple_render_file_capture_sized_f32(
+                    rawPath, tempXmpPath, (uint)maxLongEdge, quality, cancelFlag, &capture);
                 // Ordinary TIFFs share the RAW container signature. Try RAW
                 // first; only an actual decode failure may take the raster path.
                 if (rc == 7 && IsRasterExtension(rawPath))
                     return DecodeRaster(rawPath, model, maxLongEdge, cancelFlag);
                 if (rc != 0)
                     throw new InvalidOperationException(
-                        $"scene-linear decode failed (rc={rc}): {RawFfi.LastError() ?? "unknown"}");
+                        $"capture decode failed (rc={rc}): {RawFfi.LastError() ?? "unknown"}");
                 try
                 {
-                    var count = (int)(buffer.width * buffer.height * 4);
+                    var buffer = &capture.scene;
+                    var count = (int)(buffer->width * buffer->height * 4);
                     var pixels = new float[count];
-                    new ReadOnlySpan<float>(buffer.f32_rgba, count).CopyTo(pixels);
-                    var noise = new float[buffer.noise_profile_len];
-                    if (buffer.noise_profile_len > 0)
-                        new ReadOnlySpan<float>(buffer.noise_profile_data, (int)buffer.noise_profile_len)
+                    new ReadOnlySpan<float>(buffer->f32_rgba, count).CopyTo(pixels);
+                    var noise = new float[buffer->noise_profile_len];
+                    if (buffer->noise_profile_len > 0)
+                        new ReadOnlySpan<float>(buffer->noise_profile_data, (int)buffer->noise_profile_len)
                             .CopyTo(noise);
-                    var framePresent = buffer.wb_frame_scene_cct > 0f;
+                    var framePresent = buffer->wb_frame_scene_cct > 0f;
+                    var creative = new CaptureCreative(capture.creative);
                     var decoded = new DecodedImage
                     {
                         Pixels = pixels,
-                        Width = (int)buffer.width,
-                        Height = (int)buffer.height,
+                        Width = (int)buffer->width,
+                        Height = (int)buffer->height,
                         NoiseProfile = noise,
-                        Iso = buffer.iso,
-                        AeGain = buffer.ae_gain,
-                        WhitesAnchorEv = buffer.whites_anchor_ev,
-                        NrSamplingScale = buffer.nr_sampling_scale,
-                        DecodedTemperature = framePresent ? buffer.wb_frame_scene_cct : 6500f,
-                        DecodedTint = framePresent ? buffer.wb_frame_as_shot_tint : 0f,
-                        WbFrame = CopyWbFrame(&buffer),
-                        CameraSupport = CameraSupportMetadata.ReadBuffer((IntPtr)buffer.camera_support_json),
+                        Iso = buffer->iso,
+                        AeGain = creative.AeGain,
+                        WhitesAnchorEv = buffer->whites_anchor_ev,
+                        NrSamplingScale = buffer->nr_sampling_scale,
+                        DecodedTemperature = framePresent ? buffer->wb_frame_scene_cct : 6500f,
+                        DecodedTint = framePresent ? buffer->wb_frame_as_shot_tint : 0f,
+                        Creative = creative,
+                        CameraSupport = CameraSupportMetadata.ReadBuffer((IntPtr)buffer->camera_support_json),
                         // Warm: the develop above left the RAW in the decode
                         // cache, so this is a metadata lookup, not a decode.
                         LensProfile = LensProfileStore.AssessForFile(rawPath, stripped.LensProfile),
@@ -148,10 +157,15 @@ namespace Maple.WinUI.Services
                             RefineDecodeQuality.Preview);
                         if (CanReuseAutoProfile(reuseAutoProfileFrom, source, fit))
                             ReuseAutoProfile(decoded, reuseAutoProfileFrom!);
-                        else if (FitAutoProfile(decoded, rawPath, tempXmpPath, fit))
+                        else
                         {
-                            decoded.ProfileSource = source;
-                            decoded.ProfileFit = fit;
+                            var fitRc = FitAutoProfile(decoded, rawPath, tempXmpPath, fit);
+                            decoded.AutoProfileOutcome = AutoProfileStatus.Classify(fitRc);
+                            if (fitRc is 0 or 1 or AutoFitCodes.NoPreview)
+                            {
+                                decoded.ProfileSource = source;
+                                decoded.ProfileFit = fit;
+                            }
                         }
                         if (!source.StillCurrent(rawPath))
                         {
@@ -161,13 +175,13 @@ namespace Maple.WinUI.Services
                     }
                     DiagLog.Write(
                         $"[decode] {System.IO.Path.GetFileName(rawPath)} quality={quality} ae_gain={decoded.AeGain:0.###} " +
-                        $"curve={(decoded.ProfileCurve != null ? "yes" : "no")} " +
+                        $"auto={decoded.AutoProfileOutcome?.ToString() ?? "off"} curve={(decoded.ProfileCurve != null ? "yes" : "no")} " +
                         $"residual_n={decoded.ResidualLutSize} displayLut={(decoded.DisplayLut != null ? "yes" : "no")}");
                     return decoded;
                 }
                 finally
                 {
-                    RawFfi.maple_free_scene_linear_buffer_f32(&buffer);
+                    RawFfi.maple_free_capture_buffer_f32(&capture);
                 }
             }
             finally
@@ -217,6 +231,7 @@ namespace Maple.WinUI.Services
             decoded.DisplayLutN = from.DisplayLutN;
             decoded.ProfileSource = from.ProfileSource;
             decoded.ProfileFit = from.ProfileFit;
+            decoded.AutoProfileOutcome = from.AutoProfileOutcome;
         }
 
         /// <summary>
@@ -224,9 +239,13 @@ namespace Maple.WinUI.Services
         /// bytes ready for a WriteableBitmap. Reuses caller-provided scratch
         /// buffers to keep the tick allocation-free after the first call.
         /// </summary>
+        /// <param name="hazeFrame">The whole decoded frame a windowed tick sits
+        /// in; its dehaze maps (#3287) are measured from it when dehaze is
+        /// engaged.</param>
         public static void RenderTick(
             DecodedImage image, AdjustmentState model,
-            ref float[]? chainScratch, byte[] bgraOut, FilmLut? film = null, MapleChainWindow? window = null)
+            ref float[]? chainScratch, byte[] bgraOut, FilmLut? film = null, MapleChainWindow? window = null,
+            DecodedImage? hazeFrame = null)
         {
             if (!string.IsNullOrEmpty(model.FilmLook) && (film?.Id != model.FilmLook || film.NativeHandle == null))
                 throw new InvalidOperationException($"Film look '{model.FilmLook}' has not been loaded.");
@@ -239,42 +258,25 @@ namespace Maple.WinUI.Services
 
             var p = MapleAdjustmentParams.From(
                 model, image.DecodedTemperature, image.DecodedTint, image.Iso, image.WhitesAnchorEv, image.NrSamplingScale);
-            ApplyWbFrame(ref p, image.WbFrame);
             p.skip_agx = image.IsRaster ? 1u : 0u;
 
-            // Point tone curves (#2576) ride a sibling struct — the scalar
-            // params ABI can't carry variable-length knot lists.
-            var curveLuma = FlattenCurve(model.ToneCurveLuma);
-            var curveRed = FlattenCurve(model.ToneCurveRed);
-            var curveGreen = FlattenCurve(model.ToneCurveGreen);
-            var curveBlue = FlattenCurve(model.ToneCurveBlue);
-            // Display-referred point curves (#2232) — same flat wire shape,
-            // riding the same sibling struct's appended tail fields. This
-            // fused CPU entry has no GPU live session on Windows, so it is
-            // where the per-tick chain picks up the new stage.
-            var displayCurveLuma = FlattenCurve(model.DisplayToneCurveLuma);
-            var displayCurveRed = FlattenCurve(model.DisplayToneCurveRed);
-            var displayCurveGreen = FlattenCurve(model.DisplayToneCurveGreen);
-            var displayCurveBlue = FlattenCurve(model.DisplayToneCurveBlue);
+            // Point (#2576) and display-referred (#2232) curves ride a
+            // sibling struct — the scalar params ABI can't carry knot lists.
+            var flat = FlatToneCurves.From(model);
             // Local adjustments (#3406): flat f32 layer stack, the variable-
             // length sibling of every other pointer field below. Empty when
             // the model has no layers, which both FFI chains read as "no
             // local adjustments" (raw-core's bit-identical short-circuit).
             var localFlat = LocalAdjustmentFlat.ToFlat(model.LocalAdjustments);
 
-            fixed (float* inPtr = image.Pixels)
-            fixed (float* outPtr = chainScratch)
-            fixed (float* noisePtr = image.NoiseProfile)
-            fixed (float* lumaPtr = curveLuma)
-            fixed (float* redPtr = curveRed)
-            fixed (float* greenPtr = curveGreen)
-            fixed (float* bluePtr = curveBlue)
-            fixed (float* displayLumaPtr = displayCurveLuma)
-            fixed (float* displayRedPtr = displayCurveRed)
-            fixed (float* displayGreenPtr = displayCurveGreen)
-            fixed (float* displayBluePtr = displayCurveBlue)
-            fixed (float* localPtr = localFlat)
+            fixed (float* inPtr = image.Pixels, outPtr = chainScratch, noisePtr = image.NoiseProfile, localPtr = localFlat)
+            fixed (float* lumaPtr = flat.Luma, redPtr = flat.Red, greenPtr = flat.Green, bluePtr = flat.Blue)
+            fixed (float* displayLumaPtr = flat.DisplayLuma, displayRedPtr = flat.DisplayRed, displayGreenPtr = flat.DisplayGreen, displayBluePtr = flat.DisplayBlue)
+            fixed (float* ccHH = flat.ColorCurveHueVsHue, ccHS = flat.ColorCurveHueVsSat, ccHL = flat.ColorCurveHueVsLuma)
+            fixed (float* ccLS = flat.ColorCurveLumaVsSat, ccSS = flat.ColorCurveSatVsSat, ccSL = flat.ColorCurveSatVsLuma)
+            fixed (MapleCaptureCreative* creativePtr = image.Creative)
             {
+                p.creative_ptr = creativePtr;
                 if (image.NoiseProfile.Length > 0)
                 {
                     p.noise_profile_ptr = noisePtr;
@@ -285,33 +287,27 @@ namespace Maple.WinUI.Services
                     p.local_adjustments_ptr = localPtr;
                     p.local_adjustments_len = (nuint)localFlat.Length;
                 }
-                var curves = new MapleToneCurves
-                {
-                    luma_ptr = lumaPtr,
-                    luma_len = (nuint)curveLuma.Length,
-                    red_ptr = redPtr,
-                    red_len = (nuint)curveRed.Length,
-                    green_ptr = greenPtr,
-                    green_len = (nuint)curveGreen.Length,
-                    blue_ptr = bluePtr,
-                    blue_len = (nuint)curveBlue.Length,
-                    mode = model.ToneCurveMode == ToneCurveMode.RatioPreserving ? 1u : 0u,
-                    display_luma_ptr = displayLumaPtr,
-                    display_luma_len = (nuint)displayCurveLuma.Length,
-                    display_red_ptr = displayRedPtr,
-                    display_red_len = (nuint)displayCurveRed.Length,
-                    display_green_ptr = displayGreenPtr,
-                    display_green_len = (nuint)displayCurveGreen.Length,
-                    display_blue_ptr = displayBluePtr,
-                    display_blue_len = (nuint)displayCurveBlue.Length,
-                };
+                var curves = ToneCurvesFrom(model);
+                curves.luma_ptr = lumaPtr;
+                curves.luma_len = (nuint)flat.Luma.Length;
+                curves.red_ptr = redPtr;
+                curves.red_len = (nuint)flat.Red.Length;
+                curves.green_ptr = greenPtr;
+                curves.green_len = (nuint)flat.Green.Length;
+                curves.blue_ptr = bluePtr;
+                curves.blue_len = (nuint)flat.Blue.Length;
+                curves.display_luma_ptr = displayLumaPtr;
+                curves.display_luma_len = (nuint)flat.DisplayLuma.Length;
+                curves.display_red_ptr = displayRedPtr;
+                curves.display_red_len = (nuint)flat.DisplayRed.Length;
+                curves.display_green_ptr = displayGreenPtr;
+                curves.display_green_len = (nuint)flat.DisplayGreen.Length;
+                curves.display_blue_ptr = displayBluePtr;
+                curves.display_blue_len = (nuint)flat.DisplayBlue.Length;
+                flat.BindColorCurves(ref curves, ccHH, ccHS, ccHL, ccLS, ccSS, ccSL);
                 int rc;
                 if (window is { } detailWindow)
-                    rc = string.IsNullOrEmpty(model.FilmLook)
-                        ? RawFfi.ApplyWindow(inPtr, (uint)image.Width, (uint)image.Height, &p, &curves,
-                            IntPtr.Zero, 0, &detailWindow, outPtr)
-                        : RawFfi.ApplyWindow(inPtr, (uint)image.Width, (uint)image.Height, &p, &curves,
-                            film!.NativeHandle!, (float)model.FilmStrength, &detailWindow, outPtr);
+                    rc = ApplyWindow(image, model, film, detailWindow, hazeFrame, inPtr, &p, &curves, outPtr);
                 else rc = string.IsNullOrEmpty(model.FilmLook)
                     ? RawFfi.maple_apply_chain_and_encode_display_curves_f32(
                         inPtr, (uint)image.Width, (uint)image.Height, &p, &curves, outPtr)
@@ -338,6 +334,21 @@ namespace Maple.WinUI.Services
             }
         }
 
+        /// <summary>The pointer-free part of <see cref="MapleToneCurves"/>:
+        /// curve mode plus the parametric regions and splits (#4740). The
+        /// knot pointers are pinned by the caller for the FFI call.</summary>
+        public static MapleToneCurves ToneCurvesFrom(AdjustmentState model) => new()
+        {
+            mode = model.ToneCurveMode == ToneCurveMode.RatioPreserving ? 1u : 0u,
+            parametric_highlights = (float)model.ParametricHighlights,
+            parametric_lights = (float)model.ParametricLights,
+            parametric_darks = (float)model.ParametricDarks,
+            parametric_shadows = (float)model.ParametricShadows,
+            parametric_shadow_split = (float)model.ParametricShadowSplit,
+            parametric_midtone_split = (float)model.ParametricMidtoneSplit,
+            parametric_highlight_split = (float)model.ParametricHighlightSplit,
+        };
+
         /// <summary>Flatten a knot list to the FFI wire form: [x0,y0,x1,y1,...]
         /// f32 pairs. Empty list (the identity) flattens to an empty array,
         /// which both FFI surfaces read as "no curve".</summary>
@@ -359,9 +370,10 @@ namespace Maple.WinUI.Services
         /// render cap, then source-revalidated after decode before reuse.
         /// The separate curve + residual artifacts serve
         /// the GPU live chain, and the composed display-domain LUT for the CPU
-        /// fallback. rc 1 = no tail applies (plain AgX), but still qualifies
-        /// source and fit ownership for reuse.</summary>
-        private static bool FitAutoProfile(DecodedImage decoded, string rawPath, string xmpPath, ProfileFitContext fit)
+        /// fallback. Returns the fit's return code: rc 1 (no tail) and
+        /// <see cref="AutoFitCodes.NoPreview"/> render plain AgX but
+        /// still qualify source and fit ownership for reuse.</summary>
+        private static int FitAutoProfile(DecodedImage decoded, string rawPath, string xmpPath, ProfileFitContext fit)
         {
             const int curveLen = 220;                 // MAPLE_PROFILE_CURVE_FLAT_LEN
             const int lutCapacityEdge = 33;
@@ -391,9 +403,9 @@ namespace Maple.WinUI.Services
             }
             if (rc != 0)
             {
-                if (rc != 1)
+                if (rc is not (1 or AutoFitCodes.NoPreview))
                     DiagLog.Write($"[profile] gpu fit rc={rc}: {RawFfi.LastError()}");
-                return rc == 1;
+                return rc;
             }
             if (curvePresent != 0)
                 decoded.ProfileCurve = curve;
@@ -435,7 +447,7 @@ namespace Maple.WinUI.Services
                     throw new InvalidOperationException($"Auto Profile composition failed (rc={lutRc}): {reason}");
                 }
             }
-            return true;
+            return 0;
         }
 
         /// <summary>Shared-core 3D-LUT application over display-encoded RGB —
@@ -499,7 +511,7 @@ namespace Maple.WinUI.Services
                 NrSamplingScale = src.NrSamplingScale * Math.Max(w, h) / Math.Max(src.Width, src.Height),
                 DecodedTemperature = src.DecodedTemperature,
                 DecodedTint = src.DecodedTint,
-                WbFrame = src.WbFrame,
+                Creative = src.Creative,
                 IsRaster = src.IsRaster,
                 ProfileCurve = src.ProfileCurve,
                 ResidualLut = src.ResidualLut,
@@ -508,59 +520,8 @@ namespace Maple.WinUI.Services
                 DisplayLutN = src.DisplayLutN,
                 ProfileSource = src.ProfileSource,
                 ProfileFit = src.ProfileFit,
+                AutoProfileOutcome = src.AutoProfileOutcome,
             };
-        }
-
-        /// <summary>The wb_frame block spans 82 floats in both the buffer
-        /// export and the params struct, in identical field order
-        /// (9+1+9+1+1+1+9+9+3+1+9+1+9+1+9+9).</summary>
-        public const int WbFrameFloatCount = 82;
-
-        private static float[] CopyWbFrame(MapleSceneLinearBufferF32* b)
-        {
-            var f = new float[WbFrameFloatCount];
-            var i = 0;
-            for (var k = 0; k < 9; k++) f[i++] = b->wb_frame_m_cold[k];
-            f[i++] = b->wb_frame_cct_cold;
-            for (var k = 0; k < 9; k++) f[i++] = b->wb_frame_m_warm[k];
-            f[i++] = b->wb_frame_cct_warm;
-            f[i++] = b->wb_frame_scene_cct;
-            f[i++] = b->wb_frame_as_shot_tint;
-            for (var k = 0; k < 9; k++) f[i++] = b->wb_frame_render_cm[k];
-            for (var k = 0; k < 9; k++) f[i++] = b->wb_frame_render_forward_matrix[k];
-            for (var k = 0; k < 3; k++) f[i++] = b->wb_frame_render_scene_white_xyz[k];
-            f[i++] = b->wb_frame_render_wb_already_baked;
-            for (var k = 0; k < 9; k++) f[i++] = b->wb_frame_render_cm_cold[k];
-            f[i++] = b->wb_frame_render_cct_cold;
-            for (var k = 0; k < 9; k++) f[i++] = b->wb_frame_render_cm_warm[k];
-            f[i++] = b->wb_frame_render_cct_warm;
-            for (var k = 0; k < 9; k++) f[i++] = b->wb_frame_render_fm_cold[k];
-            for (var k = 0; k < 9; k++) f[i++] = b->wb_frame_render_fm_warm[k];
-            return f;
-        }
-
-        private static void ApplyWbFrame(ref MapleAdjustmentParams p, float[] f)
-        {
-            var i = 0;
-            fixed (MapleAdjustmentParams* pp = &p)
-            {
-                for (var k = 0; k < 9; k++) pp->wb_frame_m_cold[k] = f[i++];
-                pp->wb_frame_cct_cold = f[i++];
-                for (var k = 0; k < 9; k++) pp->wb_frame_m_warm[k] = f[i++];
-                pp->wb_frame_cct_warm = f[i++];
-                pp->wb_frame_scene_cct = f[i++];
-                pp->wb_frame_as_shot_tint = f[i++];
-                for (var k = 0; k < 9; k++) pp->wb_frame_render_cm[k] = f[i++];
-                for (var k = 0; k < 9; k++) pp->wb_frame_render_forward_matrix[k] = f[i++];
-                for (var k = 0; k < 3; k++) pp->wb_frame_render_scene_white_xyz[k] = f[i++];
-                pp->wb_frame_render_wb_already_baked = f[i++];
-                for (var k = 0; k < 9; k++) pp->wb_frame_render_cm_cold[k] = f[i++];
-                pp->wb_frame_render_cct_cold = f[i++];
-                for (var k = 0; k < 9; k++) pp->wb_frame_render_cm_warm[k] = f[i++];
-                pp->wb_frame_render_cct_warm = f[i++];
-                for (var k = 0; k < 9; k++) pp->wb_frame_render_fm_cold[k] = f[i++];
-                for (var k = 0; k < 9; k++) pp->wb_frame_render_fm_warm[k] = f[i++];
-            }
         }
     }
 }

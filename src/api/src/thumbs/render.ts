@@ -28,9 +28,10 @@
 
 import { readFile, rename, writeFile } from 'node:fs/promises';
 import { randomBytes } from 'node:crypto';
-import { maple } from 'maple';
+import { maple, type MapleImageBuilder } from 'maple';
 import { decodePsdComposite } from './psd-hdr-decode.ts';
 import { decodeHdrIsolated } from './hdr-decode-isolated.ts';
+import { cropRegion, readSidecarCrop } from '../xmp/sidecar-crop.ts';
 
 // The BITMAP_EXTENSIONS allowlist lives in `indexer/media-types.ts` (a leaf
 // module with no renderer deps) so routes like `/api/fs/raw` can import the
@@ -209,6 +210,7 @@ export async function renderImageThumbToFile(
   sizePx: number,
   ext: string,
   quality = THUMB_AVIF_QUALITY,
+  applyCrop = false,
 ): Promise<boolean> {
   if (ext === 'heic' || ext === 'heif') {
     // Call the canonical HEIC chain directly. When render.ts is loaded inside
@@ -223,12 +225,22 @@ export async function renderImageThumbToFile(
     return true;
   }
 
-  const builder = maple(srcPath)
+  const oriented = maple(srcPath)
     // Bake bitmap EXIF orientation into pixels. AVIF's irot/imir is already
     // applied by the decoder; its EXIF tag is not applied again (#3586).
-    .rotate()
-    .resize(inside(sizePx));
-  const buf = await encodeToBuffer(builder, quality);
+    .rotate();
+  const cropped = applyCrop ? await withSidecarCrop(oriented, srcPath) : oriented;
+  const buf = await encodeToBuffer(cropped.resize(inside(sizePx)), quality);
   await writeAtomic(thumbPath, buf);
   return true;
+}
+
+/** `builder` cropped to the crop `srcPath`'s sidecar records, if any (#5608).
+ * Its rectangle is in the oriented image, so a quarter turn swaps the sides. */
+async function withSidecarCrop(builder: MapleImageBuilder, srcPath: string) {
+  const crop = await readSidecarCrop(srcPath);
+  if (crop === null) return builder;
+  const { width, height, orientation } = await maple(srcPath).metadata();
+  const turned = (orientation ?? 1) >= 5;
+  return builder.extract(cropRegion(crop, turned ? height : width, turned ? width : height));
 }

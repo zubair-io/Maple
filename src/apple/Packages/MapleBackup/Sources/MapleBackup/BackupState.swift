@@ -11,12 +11,20 @@
 import Foundation
 import GRDB
 
+public struct DeliveredSidecar: Sendable, Equatable {
+  public let digest: String
+  /// It reached the canonical name the server reads (#5021).
+  public let counts: Bool
+}
+
 public actor BackupStateStore {
 
-  private let dbQueue: DatabaseQueue
+  let dbQueue: DatabaseQueue
 
   public init(databaseURL: URL) throws {
-    self.dbQueue = try DatabaseQueue(path: databaseURL.path)
+    var configuration = Configuration()
+    configuration.observesSuspensionNotifications = true
+    self.dbQueue = try DatabaseQueue(path: databaseURL.path, configuration: configuration)
     try dbQueue.write { db in
       try db.create(table: "tasks", ifNotExists: true) { t in
         t.column("device_id", .text).notNull()
@@ -41,7 +49,84 @@ public actor BackupStateStore {
       if !columns.contains("captured_at") {
         try db.execute(sql: "ALTER TABLE tasks ADD COLUMN captured_at DOUBLE")
       }
+      // Set while a photo's Live Photo video or edited render is still owed to
+      // the server. Only the engine delivering them clears it, so a walk that
+      // finds the original already on the server cannot settle the row (#5777).
+      // An earlier version could have left any failed or retrying row with its
+      // original on the server and its companions undelivered, so those start
+      // owing; the next delivery or Retry clears what was never owed.
+      if !columns.contains("companions_owed") {
+        try db.execute(
+          sql: "ALTER TABLE tasks ADD COLUMN companions_owed INTEGER NOT NULL DEFAULT 0")
+        try db.execute(
+          sql: """
+            UPDATE tasks SET companions_owed = 1
+             WHERE state = ? OR (state = ? AND retry_count > 0)
+            """,
+          arguments: [BackupState.failedRetry.rawValue, BackupState.pending.rawValue])
+      }
+      try Self.addCompanionRepairColumn(in: db, columns: columns)
+      // The local-edit revision each asset's sidecar upload last delivered
+      // (#4719). The edit itself stays in AppSupportSidecarStore; this row is
+      // what tells a newer local edit apart from the one already uploaded.
+      try db.create(table: "uploaded_sidecars", ifNotExists: true) { t in
+        t.column("device_id", .text).notNull()
+        t.column("phasset_local_id", .text).notNull()
+        t.column("digest", .text).notNull()
+        t.column("uploaded_at", .double).notNull()
+        t.primaryKey(["device_id", "phasset_local_id"])
+      }
+      // Pre-#5021 revisions went to `IMG.HEIC.xmp`, unread by the server: 0 = not delivered.
+      let sidecarColumns = try db.columns(in: "uploaded_sidecars").map(\.name)
+      if !sidecarColumns.contains("canonical_name") {
+        try db.execute(
+          sql: "ALTER TABLE uploaded_sidecars ADD COLUMN canonical_name INTEGER NOT NULL DEFAULT 0")
+      }
+      try Self.createCursorsTable(in: db)
     }
+  }
+
+  public func recordUploadedSidecar(
+    _ id: BackupTaskID, digest: String, canonicalName: Bool
+  ) throws {
+    try dbQueue.write { db in
+      try db.execute(
+        literal: """
+          INSERT INTO uploaded_sidecars
+            (device_id, phasset_local_id, digest, uploaded_at, canonical_name)
+          VALUES
+            (\(id.deviceId), \(id.phassetLocalId), \(digest), \(Date().timeIntervalSince1970),
+             \(canonicalName))
+          ON CONFLICT(device_id, phasset_local_id)
+          DO UPDATE SET digest = excluded.digest, uploaded_at = excluded.uploaded_at,
+            canonical_name = excluded.canonical_name
+          """)
+    }
+  }
+
+  /// The revision last delivered, and whether it reached the name the server
+  /// reads. A video's sidecar always had its canonical name, so its older rows count.
+  public func deliveredSidecar(_ id: BackupTaskID, targetRelPath: String) throws
+    -> DeliveredSidecar?
+  {
+    let row = try dbQueue.read { db in
+      try Row.fetchOne(
+        db,
+        sql: """
+          SELECT digest, canonical_name FROM uploaded_sidecars
+           WHERE device_id = ? AND phasset_local_id = ?
+          """,
+        arguments: [id.deviceId, id.phassetLocalId])
+    }
+    return row.map {
+      DeliveredSidecar(
+        digest: $0["digest"],
+        counts: $0["canonical_name"] == 1 || BackupSidecarName.isVideo(targetRelPath))
+    }
+  }
+
+  public func uploadedSidecarDigest(_ id: BackupTaskID, targetRelPath: String) throws -> String? {
+    try deliveredSidecar(id, targetRelPath: targetRelPath).flatMap { $0.counts ? $0.digest : nil }
   }
 
   /// Insert or replace by the natural (device_id, phasset_local_id) PK.
@@ -68,14 +153,15 @@ public actor BackupStateStore {
               retry_count=excluded.retry_count,
               last_error=excluded.last_error,
               enqueued_at=excluded.enqueued_at,
-              captured_at=excluded.captured_at
+              captured_at=COALESCE(excluded.captured_at, tasks.captured_at)
             """)
       }
     }
   }
 
   /// Transition a task to `state`. Always overwrites `last_error` —
-  /// pass nil to clear it on success. When `retryCount` is supplied,
+  /// pass nil to clear it on success. Reaching `.uploaded` clears the
+  /// companions-owed mark. When `retryCount` is supplied,
   /// the `retry_count` column is updated in the same statement; when
   /// nil, the existing column value is preserved.
   public func transition(
@@ -91,7 +177,8 @@ public actor BackupStateStore {
             UPDATE tasks
                SET state=\(state.rawValue),
                    last_error=\(error),
-                   retry_count=\(retryCount)
+                   retry_count=\(retryCount),
+                   companions_owed=CASE WHEN \(state == .uploaded) THEN 0 ELSE companions_owed END
              WHERE device_id=\(id.deviceId)
                AND phasset_local_id=\(id.phassetLocalId)
             """)
@@ -100,7 +187,8 @@ public actor BackupStateStore {
           literal: """
             UPDATE tasks
                SET state=\(state.rawValue),
-                   last_error=\(error)
+                   last_error=\(error),
+                   companions_owed=CASE WHEN \(state == .uploaded) THEN 0 ELSE companions_owed END
              WHERE device_id=\(id.deviceId)
                AND phasset_local_id=\(id.phassetLocalId)
             """)
@@ -148,7 +236,7 @@ public actor BackupStateStore {
     }
   }
 
-  private static func decode(_ row: Row) -> BackupTask {
+  static func decode(_ row: Row) -> BackupTask {
     BackupTask(
       id: BackupTaskID(deviceId: row["device_id"], phassetLocalId: row["phasset_local_id"]),
       state: BackupState(rawValue: row["state"]) ?? .observed,

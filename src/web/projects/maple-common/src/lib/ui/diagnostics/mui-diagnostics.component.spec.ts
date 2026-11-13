@@ -9,7 +9,7 @@ import { MuiDiagnosticsComponent } from './mui-diagnostics.component';
 const CHECKS: readonly MuiDiagnosticCheck[] = [
   { id: 'xmp-roundtrip', label: 'XMP sidecar round-trip', status: 'pass' },
   { id: 'raw-core-ffi', label: 'raw-core FFI link', status: 'fail' },
-  { id: 'meili-index', label: 'Meilisearch index reachable', status: 'pending' },
+  { id: 'search-index', label: 'Search index loaded', status: 'pending' },
 ];
 
 @Component({

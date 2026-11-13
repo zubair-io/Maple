@@ -176,7 +176,9 @@ final class SceneLinearChainCache: @unchecked Sendable {
   ///   2. scene_tone:     `exposure`, `brightness`, `contrast`,
   ///                      `highlights`, `shadows`, `whites`, `blacks`
   ///   3. tone_curves:    `parametricHighlights`, `parametricLights`,
-  ///                      `parametricDarks`, `parametricShadows`
+  ///                      `parametricDarks`, `parametricShadows`, the three
+  ///                      parametric splits, `toneCurveMode`, and all scene
+  ///                      and display point curves (Luma, Red, Green, Blue)
   ///   4. presence:       `vibrance`, `saturation`
   ///   5. hsl (24 bands): `hueAdjustment{Red…Magenta}`,
   ///                      `saturationAdjustment{Red…Magenta}`,
@@ -199,7 +201,8 @@ final class SceneLinearChainCache: @unchecked Sendable {
   ///  11. grain:          `grainAmount`, `grainSize`, `grainRoughness`
   ///  12. FFI params:     `decodedTemperature`, `decodedTint`, `skipAgX`
   ///  13. AgX flags:      `highlightRecovery`, `look`, `profile`
-  ///  14. WB frame:       `wbFrame.sceneCCT`, `wbFrame.asShotTint`
+  ///  14. WB frame:       `wbFrame.sceneCCT`, `wbFrame.asShotTint`, the
+  ///      identity and exposure gain of `wbFrame.creative`
   ///
   /// Every scalar above is a `Double` folded in via `bitPattern`; the
   /// enums (`highlightRecovery` / `look` / `profile`) and the `Bool`
@@ -266,6 +269,18 @@ final class SceneLinearChainCache: @unchecked Sendable {
     h.combine(model.parametricLights.bitPattern)
     h.combine(model.parametricDarks.bitPattern)
     h.combine(model.parametricShadows.bitPattern)
+    h.combine(model.parametricShadowSplit.bitPattern)
+    h.combine(model.parametricMidtoneSplit.bitPattern)
+    h.combine(model.parametricHighlightSplit.bitPattern)
+    h.combine(model.toneCurveMode)
+    h.combine(model.toneCurveLuma)
+    h.combine(model.toneCurveRed)
+    h.combine(model.toneCurveGreen)
+    h.combine(model.toneCurveBlue)
+    h.combine(model.displayToneCurveLuma)
+    h.combine(model.displayToneCurveRed)
+    h.combine(model.displayToneCurveGreen)
+    h.combine(model.displayToneCurveBlue)
     // vibrance / saturation.
     h.combine(model.vibrance.bitPattern)
     h.combine(model.saturation.bitPattern)
@@ -308,6 +323,13 @@ final class SceneLinearChainCache: @unchecked Sendable {
     h.combine(model.grayMixerBlue.bitPattern)
     h.combine(model.grayMixerPurple.bitPattern)
     h.combine(model.grayMixerMagenta.bitPattern)
+    // secondary Oklab color curves (#5041) — Stage 22b, right after HSL.
+    h.combine(model.colorCurveHueVsHue)
+    h.combine(model.colorCurveHueVsSat)
+    h.combine(model.colorCurveHueVsLuma)
+    h.combine(model.colorCurveLumaVsSat)
+    h.combine(model.colorCurveSatVsSat)
+    h.combine(model.colorCurveSatVsLuma)
     // clarity / texture / dehaze.
     h.combine(model.clarity.bitPattern)
     h.combine(model.texture.bitPattern)
@@ -346,6 +368,9 @@ final class SceneLinearChainCache: @unchecked Sendable {
     h.combine(model.colorGradeGlobalHue.bitPattern)
     h.combine(model.colorGradeGlobalSaturation.bitPattern)
     h.combine(model.colorGradeGlobalLuminance.bitPattern)
+    h.combine(model.colorGradeBlending.bitPattern)
+    h.combine(model.colorGradeShadowEdge.bitPattern)
+    h.combine(model.colorGradeHighlightEdge.bitPattern)
     h.combine(model.grainAmount.bitPattern)
     h.combine(model.grainSize.bitPattern)
     h.combine(model.grainRoughness.bitPattern)
@@ -373,6 +398,10 @@ final class SceneLinearChainCache: @unchecked Sendable {
     // per-asset constant once present.
     h.combine(wbFrame?.sceneCCT.bitPattern ?? 0)
     h.combine(wbFrame?.asShotTint.bitPattern ?? 0)
+    // One creative stage per capture decode (#5377): its exposure gain and
+    // tables differ between decodes with the same as-shot pair.
+    h.combine(wbFrame?.creative.map(ObjectIdentifier.init))
+    h.combine(wbFrame?.creative?.aeGain.bitPattern)
 
     return Key(
       assetID: assetID,

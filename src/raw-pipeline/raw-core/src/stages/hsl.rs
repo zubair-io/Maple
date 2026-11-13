@@ -312,19 +312,21 @@ pub fn apply_pixel(rgb: [f32; 3], p: &HslParams) -> [f32; 3] {
     // wrong for exactly this reason, confirmed via a hue-only-rotation
     // repro on a near-hull primary).
     //
-    // Fast path: scaled target stays in gamut — most pixels are far
-    // enough from the hull that this branch wins.
+    // Fast path: scaled target stays below the compression knee.
     let (a_fast, b_fast) = hue_hat(c_target);
     let rgb_target = oklab_to_rec2020([l, a_fast, b_fast]);
-    if rgb_target[0].min(rgb_target[1]).min(rgb_target[2]) >= -HSL_GAMUT_EPS {
+    // #4664: only skip compression below its knee, not at the hull.
+    let c_probe = c_target / HSL_GAMUT_KNEE_FRACTION;
+    let (a_probe, b_probe) = hue_hat(c_probe);
+    let rgb_probe = oklab_to_rec2020([l, a_probe, b_probe]);
+    if rgb_probe[0].min(rgb_probe[1]).min(rgb_probe[2]) >= -HSL_GAMUT_EPS {
         return rgb_target;
     }
 
     // Bisect for the hull chroma along the POST-ROTATION hue ray (the ray
     // the pixel actually travels along), then Reinhard-soft-compress into
-    // it — identical shape to `saturation::soft_compress` /
-    // `vibrance::soft_compress`, single source of the curve would be a
-    // 3-way dedup better done when a fourth caller appears (YAGNI).
+    // it. HSL limits the knee width by the input and geometric edit so
+    // moving a slider away from zero cannot suddenly desaturate a color.
     //
     // No `.max(c_floor)` here: an earlier version floored `c_out` at the
     // pre-HSL input chroma `c`, meant to avoid pulling saturation below
@@ -334,8 +336,15 @@ pub fn apply_pixel(rgb: [f32; 3], p: &HslParams) -> [f32; 3] {
     // bisection just solved for. Soft-compression must be allowed to land
     // anywhere in `[0, c_hull]`.
     let (rot_a_hat, rot_b_hat) = hue_hat(1.0);
-    let c_hull = hsl_bisect_gamut_hull(l, rot_a_hat, rot_b_hat, c_target);
-    let c_out = hsl_soft_compress(c_target, c_hull);
+    let c_hull = hsl_bisect_gamut_hull(l, rot_a_hat, rot_b_hat, c_probe);
+    // Keep the input on the linear side of the knee at zero edit. Hue
+    // and luminance move the hull; their Oklab distance opens the shoulder
+    // continuously, including when the new hull is narrower than the input.
+    let (a_rot, b_rot) = hue_hat(c);
+    let geometry_distance =
+        ((l - lab[0]).powi(2) + (a_rot - a).powi(2) + (b_rot - b).powi(2)).sqrt();
+    let input_in_gamut = rgb[0].min(rgb[1]).min(rgb[2]) >= -HSL_GAMUT_EPS;
+    let c_out = hsl_soft_compress(c_target, c_hull, c, geometry_distance, input_in_gamut);
     oklab_to_rec2020([l, rot_a_hat * c_out, rot_b_hat * c_out])
 }
 
@@ -406,17 +415,33 @@ const HSL_GAMUT_EPS: f32 = 1e-5;
 
 /// Fraction of the per-pixel gamut-hull chroma at which the soft-compression
 /// knee starts — matches `saturation::GAMUT_KNEE_FRACTION`.
-const HSL_GAMUT_KNEE_FRACTION: f32 = 0.8;
+pub(crate) const HSL_GAMUT_KNEE_FRACTION: f32 = 0.8;
 
 /// Bisection iteration count — matches `saturation::GAMUT_BISECT_ITERS`
 /// (24; restored with it from the Jul-1 12-iteration lowering; #1769).
 const HSL_GAMUT_BISECT_ITERS: usize = 24;
 
-/// Reinhard-style smooth compression, identical shape to
-/// `saturation::soft_compress` / `vibrance::soft_compress`.
+/// Reinhard-style compression with a shoulder limited by the input color.
+/// The scalar curve has the same shape as saturation and vibrance; its
+/// width also preserves continuity when hue or luminance first moves.
 #[inline]
-fn hsl_soft_compress(c_target: f32, c_hull: f32) -> f32 {
-    let c_thresh = HSL_GAMUT_KNEE_FRACTION * c_hull;
+pub(crate) fn hsl_soft_compress(
+    c_target: f32,
+    c_hull: f32,
+    c_input: f32,
+    geometry_distance: f32,
+    input_in_gamut: bool,
+) -> f32 {
+    // An input already outside the gamut keeps the full shoulder: narrowing
+    // it there would clip, or with a width shrinking toward the hull, invert
+    // the order of an out-of-gamut gradient.
+    let shoulder = (1.0 - HSL_GAMUT_KNEE_FRACTION) * c_hull;
+    let span = if input_in_gamut {
+        shoulder.min((c_hull - c_input).max(0.0) + geometry_distance)
+    } else {
+        shoulder
+    };
+    let c_thresh = c_hull - span;
     if c_target <= c_thresh {
         return c_target;
     }

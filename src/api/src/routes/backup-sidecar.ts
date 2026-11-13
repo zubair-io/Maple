@@ -8,50 +8,241 @@
  *   X-Maple-Phasset-Id      — required
  *   X-Maple-Target-Rel-Path — required — the relative path the original was
  *                             written to (e.g. "2024/Tokyo/03-15/IMG.HEIC").
- *                             Server writes "<that-path>.xmp".
+ *                             Server writes the canonical sidecar
+ *                             (`xmpSidecarPath`): "IMG.xmp", or "IMG.MOV.xmp"
+ *                             for a video (#5021).
  *   X-Maple-Id              — optional — the content-hash dedup key
  *                             (`maple_id`). When present, the asset is looked
  *                             up by it first; this covers content-duplicate
  *                             photos whose `phasset_link` for this device was
  *                             never attached (dedup / re-import), which the
  *                             device+phasset lookup misses (see #698).
+ *   X-Maple-Sidecar-Base    — optional — compare-and-swap re-send (#4719): the
+ *                             SHA-256 (hex) of the sidecar this device last
+ *                             delivered, or `none` for its first. Present →
+ *                             the write never skips: a matching base
+ *                             overwrites; a stale one still lands the edit and
+ *                             keeps the displaced XMP in `sidecar_divergences`.
+ *                             Absent → the legacy rule: written
+ *                             only when no sidecar exists (create-only, on the
+ *                             same write barrier).
+ *
+ * Either way the target must be a live location of the resolved asset, since
+ * the canonical sidecar it names is the one that photo's edits are read from.
  *
  * Body: raw XMP string (utf-8). Max size: 256 KB.
  *
  * Responses:
  *   200 — { target_rel_path: "...xmp" }            — written
- *   200 — { target_rel_path: "...xmp", skipped: true } — already on disk, not overwritten
- *   400 — missing/invalid headers, body too large, unsafe path
- *   404 — library not found, or no prior upload (neither maple_id nor device+phasset matched)
+ *   200 — { target_rel_path: "...xmp", skipped: true } — already on disk, not overwritten (no base header)
+ *   200 — { target_rel_path: "...xmp", unchanged: true } — the server already holds this XMP
+ *   200 — { target_rel_path: "...xmp", diverged: true } — written over a version the base didn't name
+ *   200 — { target_rel_path: "...xmp", shared: true } — a same-stem sibling shares the sidecar and
+ *         the base didn't name it, so it is kept and the incoming XMP recorded in
+ *         `sidecar_divergences` (displaced and incoming digests equal) (#4692)
+ *   400 — missing/invalid headers (including a malformed base), empty body, unsafe path,
+ *         or a destination outside the library (e.g. through a symlinked folder)
+ *   404 — library not found, no prior upload (neither maple_id nor device+phasset matched),
+ *         or the target path is not a live location of that asset
  *   413 — body exceeds 256 KB
+ *   500 — the sidecar could not be written
  */
-import { backupId, backupLibrary, backupLibraryId } from './backup-id.ts';
-import { atomicMove } from '../backup/fs-util.ts';
+import { backupId, backupLibrary, backupLibraryId, isSafeRelPath } from './backup-id.ts';
 import { Elysia, t } from 'elysia';
+import type { ObjectId } from '../db/object-id.ts';
 import { findLiveAssetIdByMapleId, findLiveAssetIdByPhassetLink } from '../db/repos/assets.repo.ts';
 import { child as childLogger } from '../log.ts';
-// Mirror-aware drop-in: the sidecar publish (atomicMove → rename/copyFile)
-// replicates to the library's backup root(s).
-import fs from '../fs/mirrored.ts';
 import path from 'node:path';
-import { randomBytes } from 'node:crypto';
+import { xmpSidecarPath } from '../fs/xmp.ts';
+import { sidecarStemClaimedBySibling } from '../fs/sidecar-ownership.ts';
+import { retireLegacyBackupSidecar } from '../backup/legacy-sidecar.ts';
+import { hasLegacyBackupEdit } from '../fs/legacy-backup-sidecar.ts';
+import { announceSidecarLanded, recordSidecarEditAhead } from './xmp-change.ts';
+import {
+  errorOutcome,
+  parseSidecarBase,
+  publishSidecarCas,
+  publishSidecarIfAbsent,
+} from '../backup/sidecar-cas.ts';
+import {
+  forgetSidecarDivergence,
+  hasSidecarDivergence,
+  recordSidecarDivergence,
+} from '../db/repos/sidecar-divergences.repo.ts';
+import { isLiveLocationOfAsset } from '../db/repos/backup.repo.ts';
 
 const log = childLogger('backup-sidecar');
 const MAX_SIDECAR_BYTES = 256 * 1024; // 256 KB
 
-/**
- * Validate that a relative path is safe: no ".." segments, no leading slash,
- * no backslash, does not start with "." at the first segment.
- */
-function isSafeRelPath(relPath: string): boolean {
-  if (!relPath || relPath.length === 0 || relPath.length > 2048) return false;
-  if (relPath.startsWith('/') || relPath.startsWith('\\')) return false;
-  const parts = relPath.split(/[/\\]/);
-  for (const part of parts) {
-    if (part === '..' || part === '.') return false;
-    if (part.length === 0) return false;
+/** The raw XMP bytes (Buffer or ArrayBuffer), or why they can't be stored. */
+function readSidecarBody(body: unknown): { buf: Buffer } | { status: number; error: string } {
+  const buf = body instanceof Uint8Array ? Buffer.from(body) : Buffer.from(body as ArrayBuffer);
+  if (buf.byteLength === 0) return { status: 400, error: 'body must not be empty' };
+  if (buf.byteLength > MAX_SIDECAR_BYTES) {
+    return { status: 413, error: 'sidecar body exceeds 256 KB limit' };
   }
-  return true;
+  return { buf };
+}
+
+/** The no-base rule: write only when no sidecar exists. Create-only and on
+ * the shared write barrier, so it never lands over a compare-and-swap edit. */
+async function publishLegacySidecar(
+  send: BackupSidecarSend,
+): Promise<{ status: number; body: Record<string, unknown> }> {
+  const { sidecarRelPath, phid } = send;
+  const primary = path.join(send.libraryRoot, send.targetRelPath);
+  const outcome = await publishSidecarIfAbsent(send.finalPath, send.xmp, send.libraryRoot, {
+    precondition: () => stillOwned(send),
+    beforeWrite: () => recordSidecarEditAhead(primary),
+  }).catch(errorOutcome);
+  if (outcome === 'written') await announceSidecarLanded(primary);
+  if (outcome === 'written' || outcome === 'skipped') {
+    log.debug({ phid, sidecarRelPath, outcome }, 'sidecar legacy publish');
+    return {
+      status: 200,
+      body:
+        outcome === 'written'
+          ? { target_rel_path: sidecarRelPath }
+          : { target_rel_path: sidecarRelPath, skipped: true },
+    };
+  }
+  if (outcome.kind === 'abandoned') return GONE_WHILE_WAITING;
+  log.error({ phid, sidecarRelPath, outcome }, 'sidecar legacy publish failed');
+  return outcome.kind === 'refused'
+    ? { status: 400, body: { error: 'sidecar path not allowed' } }
+    : { status: 500, body: { error: 'sidecar write failed' } };
+}
+
+interface BackupSidecarSend {
+  finalPath: string;
+  targetRelPath: string;
+  sidecarRelPath: string;
+  xmp: string;
+  assetId: ObjectId;
+  libraryId: ObjectId;
+  deviceId: string;
+  libraryRoot: string;
+  phid: string;
+}
+
+interface BackupSidecarCasRequest extends BackupSidecarSend {
+  baseHeader: string;
+}
+
+/** Checked again inside the barrier: the location may have moved on while the send waited. */
+function stillOwned(send: BackupSidecarSend): Promise<boolean> {
+  return isLiveLocationOfAsset(send.assetId, send.libraryId, send.targetRelPath);
+}
+
+const GONE_WHILE_WAITING = {
+  status: 404,
+  body: { error: 'no prior upload of this asset at this path' },
+};
+
+/** The compare-and-swap branch (#4719): publish, keep a displaced version in
+ * `sidecar_divergences`, and say which of the outcomes happened. */
+async function publishBackupSidecarCas(
+  req: BackupSidecarCasRequest,
+): Promise<{ status: number; body: Record<string, unknown> }> {
+  const base = parseSidecarBase(req.baseHeader);
+  if (base === 'invalid' || base === undefined) {
+    return {
+      status: 400,
+      body: { error: 'X-Maple-Sidecar-Base must be a SHA-256 hex digest or "none"' },
+    };
+  }
+  const primary = path.join(req.libraryRoot, req.targetRelPath);
+  const outcome = await publishSidecarCas(
+    req.finalPath,
+    req.xmp,
+    base,
+    async (displaced) => {
+      // A retried shared send keeps the same edit aside; record it once.
+      const setAside = displaced.sha256 === displaced.incomingSha256;
+      const kept = {
+        assetId: req.assetId,
+        libraryId: req.libraryId,
+        sidecarRelPath: req.sidecarRelPath,
+        displacedSha256: displaced.sha256,
+        incomingSha256: displaced.incomingSha256,
+      };
+      if (setAside && (await hasSidecarDivergence(kept))) return async () => undefined;
+      const id = await recordSidecarDivergence({
+        ...kept,
+        deviceId: req.deviceId,
+        baseSha256: base,
+        displacedXmp: displaced.xmp,
+      });
+      return () => forgetSidecarDivergence(id);
+    },
+    req.libraryRoot,
+    {
+      shared: () => sidecarStemClaimedBySibling(primary),
+      precondition: () => stillOwned(req),
+      beforeWrite: () => recordSidecarEditAhead(primary),
+      afterLanded: async (landed) => {
+        if (landed.kind === 'written' || landed.kind === 'diverged') {
+          await announceSidecarLanded(primary);
+        }
+        await retireLegacyBackupSidecar({
+          primary,
+          xmp: req.xmp,
+          assetId: req.assetId,
+          libraryId: req.libraryId,
+          sidecarRelPath: req.sidecarRelPath,
+          deviceId: req.deviceId,
+        });
+      },
+    },
+  ).catch(errorOutcome);
+  log.debug(
+    { phid: req.phid, sidecarRelPath: req.sidecarRelPath, outcome: outcome.kind },
+    'sidecar compare-and-swap',
+  );
+  if (outcome.kind === 'refused') {
+    log.warn(
+      { phid: req.phid, sidecarRelPath: req.sidecarRelPath, error: outcome.error },
+      'sidecar path refused',
+    );
+    return { status: 400, body: { error: 'sidecar path not allowed' } };
+  }
+  if (outcome.kind === 'abandoned') return GONE_WHILE_WAITING;
+  if (outcome.kind === 'error') {
+    log.error(
+      { phid: req.phid, sidecarRelPath: req.sidecarRelPath, error: outcome.error },
+      'sidecar compare-and-swap failed',
+    );
+    return { status: 500, body: { error: 'sidecar write failed' } };
+  }
+  const body =
+    outcome.kind === 'written'
+      ? { target_rel_path: req.sidecarRelPath }
+      : { target_rel_path: req.sidecarRelPath, [outcome.kind]: true };
+  return { status: 200, body };
+}
+
+/** SKIP-IF-EXISTS without a base: a dedup re-upload from a second device must
+ * not clobber the first device's sidecar (#698), including one still under the
+ * pre-#5021 name. */
+async function publishWithoutBase(
+  primary: string,
+  send: BackupSidecarSend,
+): Promise<{ status: number; body: Record<string, unknown> }> {
+  if (await hasLegacyBackupEdit(primary)) {
+    return { status: 200, body: { target_rel_path: send.sidecarRelPath, skipped: true } };
+  }
+  return publishLegacySidecar(send);
+}
+
+/** Why `targetRelPath` can't take this asset's canonical sidecar, if it can't. */
+async function targetRefusal(
+  assetId: ObjectId,
+  libraryId: ObjectId,
+  targetRelPath: string,
+): Promise<{ status: number; error: string } | null> {
+  return (await isLiveLocationOfAsset(assetId, libraryId, targetRelPath))
+    ? null
+    : { status: 404, error: 'no prior upload of this asset at this path' };
 }
 
 export const backupSidecarRoutes = new Elysia().post(
@@ -112,21 +303,14 @@ export const backupSidecarRoutes = new Elysia().post(
       return { error: 'no prior upload for this device and phasset' };
     }
 
-    // Validate body (raw bytes or Buffer).
-    const buf = body instanceof Uint8Array ? Buffer.from(body) : Buffer.from(body as ArrayBuffer);
-
-    if (buf.byteLength === 0) {
-      set.status = 400;
-      return { error: 'body must not be empty' };
+    const sidecarBody = readSidecarBody(body);
+    if ('status' in sidecarBody) {
+      set.status = sidecarBody.status;
+      return { error: sidecarBody.error };
     }
+    const buf = sidecarBody.buf;
 
-    if (buf.byteLength > MAX_SIDECAR_BYTES) {
-      set.status = 413;
-      return { error: 'sidecar body exceeds 256 KB limit' };
-    }
-
-    // Compute final sidecar path: <library>/<targetRelPath>.xmp
-    const sidecarRelPath = `${targetRelPath}.xmp`;
+    const sidecarRelPath = xmpSidecarPath(targetRelPath);
     const finalPath = path.join(folder.path, sidecarRelPath);
 
     // Guard: ensure the computed absolute path is under the library root.
@@ -135,30 +319,30 @@ export const backupSidecarRoutes = new Elysia().post(
       return { error: 'path escape detected' };
     }
 
-    // SKIP-IF-EXISTS: a dedup re-upload from a second device must not clobber
-    // the first device's (possibly already-edited) sidecar. If `<path>.xmp`
-    // already exists on disk, treat the write as a no-op (#698). An explicit
-    // edit-sync overwrite/force path is out of scope here.
-    try {
-      await fs.access(finalPath);
-      log.debug({ phid, sidecarRelPath }, 'sidecar already exists — skipping write');
-      set.status = 200;
-      return { target_rel_path: sidecarRelPath, skipped: true };
-    } catch {
-      // Not present (ENOENT) — proceed to write.
+    const refusal = await targetRefusal(asset, libraryId, targetRelPath);
+    if (refusal) {
+      set.status = refusal.status;
+      return { error: refusal.error };
     }
-
-    await fs.mkdir(path.dirname(finalPath), { recursive: true });
-
-    // Atomic write: sibling temp file next to final destination, then rename.
-    // The `.tmp.` marker prevents mirroring churn (see fs/mirrored.ts).
-    const tmpFile = `${finalPath}.tmp.${process.pid}.${randomBytes(4).toString('hex')}`;
-    await fs.writeFile(tmpFile, buf);
-    await atomicMove(tmpFile, finalPath);
-
-    log.debug({ phid, sidecarRelPath }, 'sidecar written');
-    set.status = 200;
-    return { target_rel_path: sidecarRelPath };
+    const baseHeader = headers['x-maple-sidecar-base'];
+    const primary = path.join(folder.path, targetRelPath);
+    const send: BackupSidecarSend = {
+      finalPath,
+      targetRelPath,
+      sidecarRelPath,
+      xmp: buf.toString('utf8'),
+      assetId: asset,
+      libraryId,
+      deviceId,
+      libraryRoot: folder.path,
+      phid,
+    };
+    const result =
+      baseHeader === undefined
+        ? await publishWithoutBase(primary, send)
+        : await publishBackupSidecarCas({ ...send, baseHeader });
+    set.status = result.status;
+    return result.body;
   },
   {
     params: t.Object({ libraryId: t.String() }),

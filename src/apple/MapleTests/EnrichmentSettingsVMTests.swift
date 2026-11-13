@@ -29,33 +29,6 @@ final class EnrichmentSettingsVMTests: XCTestCase {
             EnrichmentSettingsVM.geocodeTestDisabledReason(form), "Enter a URL to test.")
     }
 
-    // MARK: - meilisearchTestDisabledReason
-
-    func test_meilisearchTestDisabledReason_nilWhenURLPresent() {
-        let form = MeilisearchSettingsForm(url: "http://meili.example")
-        XCTAssertNil(EnrichmentSettingsVM.meilisearchTestDisabledReason(form))
-    }
-
-    func test_meilisearchTestDisabledReason_explainsBlankURLEvenWithAKeyTyped() {
-        // The distinguishing case: a freshly-typed key alone isn't enough —
-        // the guard is on the URL, matching workers.component.ts.
-        let form = MeilisearchSettingsForm(url: "", apiKey: "s3cret")
-        XCTAssertEqual(
-            EnrichmentSettingsVM.meilisearchTestDisabledReason(form), "Enter a URL to test.")
-    }
-
-    // MARK: - meilisearchAPIKeyPlaceholder
-
-    func test_apiKeyPlaceholder_signalsStoredKeyWithoutRevealingIt() {
-        let placeholder = EnrichmentSettingsVM.meilisearchAPIKeyPlaceholder(apiKeyIsSet: true)
-        XCTAssertTrue(placeholder.contains("unchanged"))
-        XCTAssertTrue(placeholder.contains("•"))
-    }
-
-    func test_apiKeyPlaceholder_emptyWhenNoKeyStored() {
-        XCTAssertEqual(EnrichmentSettingsVM.meilisearchAPIKeyPlaceholder(apiKeyIsSet: false), "")
-    }
-
     // MARK: - faceModelStatusHeadline (T5b, #2772)
 
     func test_faceModelStatusHeadline_nilStatus() {

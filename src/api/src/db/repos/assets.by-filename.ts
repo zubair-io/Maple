@@ -27,6 +27,7 @@
  * that work once per copy and report duplicates.
  */
 
+import { presentAppleCompanions } from '../apple-companions.ts';
 import type { ObjectId, WithId } from '../object-id.ts';
 import type { AssetDoc, AssetExif, FileInfo, MetadataOverride, Place } from '../schema.ts';
 import { json, toFileInfo, type LocationRow } from './assets.rows.ts';
@@ -61,11 +62,9 @@ async function idsByFilenames(
 }
 
 /**
- * The shape the three asset-row lookups below share: resolve the basenames
- * once, run one projection over exactly the ids that came back, and hand each
- * row its own `fileinfo[]`. (The fourth, {@link findAssetLocationsByFilenames},
- * needs no projection — the basename lookup already holds everything it
- * answers with.)
+ * The shape the asset-row lookups below share: resolve the basenames once,
+ * run one projection over exactly the ids that came back, and hand each row its
+ * own `fileinfo[]`.
  *
  * That order is the semi-join rule from the module comment, made structural
  * rather than restated per function. The basename query is the only thing that
@@ -91,26 +90,36 @@ async function projectByFilenames<Row extends { id: string }, Result>(
   return rows.map((row) => build(row, toFileInfo(locations.get(row.id) ?? [])));
 }
 
-/** An asset reduced to what a path reconciliation needs: its id and its copies. */
+/** An asset reduced to what a path reconciliation needs: its id, its copies,
+ * and whether it is in the trash. */
 export interface AssetLocationsRow {
   _id: ObjectId;
   fileinfo: FileInfo[];
+  deleted_at: string | null;
 }
 
 /**
  * Every asset holding a location with one of these basenames, as id plus
- * locations.
+ * locations plus trash state.
  *
- * `routes/pano.ts` uses this to turn a list of absolute paths into asset ids
- * before it queues a stitch.
+ * `pano/pano-path-inputs.ts` uses this to turn a list of absolute paths into
+ * asset ids before it queues a stitch. A trashed asset comes back marked rather
+ * than left out: indexing its path again would revive it from the trash.
  */
-export async function findAssetLocationsByFilenames(
+export function findAssetLocationsByFilenames(
   filenames: readonly string[],
   dbOverride?: SqliteDb,
 ): Promise<AssetLocationsRow[]> {
-  const db = sqliteDb(dbOverride);
-  const { ids, locations } = await idsByFilenames(db, filenames);
-  return ids.map((id) => ({ _id: toObjectId(id), fileinfo: toFileInfo(locations.get(id) ?? []) }));
+  return projectByFilenames(
+    filenames,
+    dbOverride,
+    (db, ids) =>
+      db.read<{ id: string; deleted_at: string | null }>(
+        `SELECT id, deleted_at FROM assets WHERE id IN (${placeholders(ids.length)})`,
+        ids,
+      ),
+    (row, fileinfo) => ({ _id: toObjectId(row.id), fileinfo, deleted_at: row.deleted_at }),
+  );
 }
 
 /**
@@ -216,6 +225,7 @@ interface RelocateAssetRow {
   is_screenshot: number | null;
   maple_id: string | null;
   apple_rendered_path: string | null;
+  apple_live_video_path: string | null;
   exif: string | null;
   place: string | null;
   metadata_override: string | null;
@@ -227,6 +237,7 @@ const RELOCATE_CANDIDATE_SQL = `
          a.rating AS rating, a.flag AS flag, a.color_label AS color_label,
          a.is_screenshot AS is_screenshot, a.maple_id AS maple_id,
          a.apple_rendered_path AS apple_rendered_path,
+         a.apple_live_video_path AS apple_live_video_path,
          a.exif AS exif, a.place AS place,
          d.metadata_override AS metadata_override,
          COALESCE(s.version, 0) AS stage_version
@@ -255,7 +266,7 @@ function toRelocateCandidate(row: RelocateAssetRow, fileinfo: FileInfo[]): Reloc
       // the wrong question for an asset the describe stage has not classified.
       ...(row.is_screenshot === null ? {} : { is_screenshot: row.is_screenshot === 1 }),
       ...(row.maple_id === null ? {} : { maple_id: row.maple_id }),
-      ...(row.apple_rendered_path === null ? {} : { apple_rendered_path: row.apple_rendered_path }),
+      ...presentAppleCompanions(row),
     },
   };
 }

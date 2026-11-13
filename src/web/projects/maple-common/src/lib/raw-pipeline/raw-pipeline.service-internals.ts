@@ -1,3 +1,4 @@
+import type { AutoFitOutcome } from './auto-fit-outcome';
 import type { CameraSupport } from '../state/camera-support';
 import type { ImportedLensProfile, LensProfileResolution } from '../lens/lens-profile.types';
 import type { CompatibleLensProfile, LensProfileEvidence } from '../lens/lens-profile-choice.types';
@@ -13,7 +14,7 @@ import type {
   ExportedFile,
 } from './raw-pipeline.types';
 import type { WbSampleResult } from './raw-pipeline.sample-wb.types';
-import type { MaskRangeSeed } from './raw-pipeline.sample-range.types';
+import type { ColorCurveSampleResult, MaskRangeSeed } from './raw-pipeline.sample-range.types';
 
 /**
  * Result of opening a persistent GPU live session (epic #925, P4b-web / #1038):
@@ -50,8 +51,8 @@ export interface OpenedLiveSession {
   cameraSupport?: CameraSupport;
   /** See `DecodeSuccess.lensProfile` (#3479). */
   lensProfile?: LensProfileResolution;
-  /** Actual applied Auto artifacts; absent until evaluated or with Neutral. */
-  autoFit?: boolean;
+  /** The core's actual Auto fit outcome (#5458); absent until evaluated or with Neutral. */
+  autoFit?: AutoFitOutcome;
   colorSpace: string;
   /**
    * Downsampled RGB readback of the first presented frame, for the scopes (#1045).
@@ -69,13 +70,14 @@ export interface OpenedLiveSession {
 export interface RenderedLiveSession {
   cropInputWidth?: number;
   cropInputHeight?: number;
+  colorSpace: string;
+  /** Presented frame dims (upright, cropped) — what the canvas now shows. */
   width: number;
   height: number;
-  colorSpace: string;
   /** See `RenderSessionSuccess.lensProfile` (#3479). */
   lensProfile?: LensProfileResolution;
-  /** Actual applied Auto artifacts; absent until evaluated or with Neutral. */
-  autoFit?: boolean;
+  /** The core's actual Auto fit outcome (#5458); absent until evaluated or with Neutral. */
+  autoFit?: AutoFitOutcome;
   // No `scopePixels` (#3397): the sample is broadcast out-of-band as
   // `scope-sample` and lands on `RawPipelineService.scopeSample`.
 }
@@ -154,6 +156,12 @@ export type PendingHandler =
       kind: 'sample-range';
       /** Resolves with the four seeded `papp:Range*` coordinates (#362). */
       resolve: (seed: MaskRangeSeed) => void;
+      reject: (err: Error) => void;
+    }
+  | {
+      kind: 'sample-color-curve';
+      /** Resolves with the Stage 22b Oklab color curve sample (#5041). */
+      resolve: (sample: ColorCurveSampleResult) => void;
       reject: (err: Error) => void;
     }
   | {

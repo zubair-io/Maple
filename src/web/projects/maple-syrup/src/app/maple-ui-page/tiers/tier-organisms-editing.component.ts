@@ -419,11 +419,11 @@ export class TierOrganismsEditingComponent {
   readonly diagnosticChecks: readonly MuiDiagnosticCheck[] = [
     { id: 'xmp-roundtrip', label: 'XMP sidecar round-trip', status: 'pass' },
     { id: 'raw-core-ffi', label: 'raw-core FFI link', status: 'fail' },
-    { id: 'meili-index', label: 'Meilisearch index reachable', status: 'pass' },
+    { id: 'search-index', label: 'Search index loaded', status: 'pass' },
     { id: 'db-conn', label: 'Library database', status: 'pending' },
   ];
   readonly diagnosticOutput =
-    'xmp-roundtrip: OK (14 ms)\nraw-core-ffi: FAILED — symbol maple_pano_stitch not found\nmeili-index: OK (203 ms)\ndb-conn: …';
+    'xmp-roundtrip: OK (14 ms)\nraw-core-ffi: FAILED — symbol maple_pano_stitch not found\nsearch-index: OK (203 ms)\ndb-conn: …';
   diagnosticsRunning = false;
   diagLastEvent = '—';
 

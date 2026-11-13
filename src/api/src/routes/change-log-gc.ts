@@ -14,6 +14,7 @@
  */
 
 import { Elysia, t } from 'elysia';
+import { requireOwnerBeforeHandle } from '../auth/middleware.ts';
 import {
   loadChangeLogGcConfig,
   saveChangeLogGcConfig,
@@ -49,6 +50,7 @@ export const changeLogGcRoutes = new Elysia()
       config: await saveChangeLogGcConfig(body as Partial<ChangeLogGcConfig>),
     }),
     {
+      beforeHandle: requireOwnerBeforeHandle,
       body: t.Object({
         enabled: t.Optional(t.Boolean()),
         retention_days: t.Optional(t.Integer({ minimum: 1, maximum: 3650 })),

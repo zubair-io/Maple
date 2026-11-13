@@ -2,7 +2,12 @@
 // as `raw-pipeline.sample-wb-request.ts`.
 
 import type { RegisterPending } from './raw-pipeline.export-request';
-import type { MaskRangeSeed, SampleRangeRequest } from './raw-pipeline.sample-range.types';
+import type {
+  ColorCurveSampleResult,
+  MaskRangeSeed,
+  SampleColorCurveRequest,
+  SampleRangeRequest,
+} from './raw-pipeline.sample-range.types';
 import { dispatchWithMark } from './raw-pipeline.dispatch-with-mark';
 
 export function dispatchSampleRange(
@@ -26,6 +31,39 @@ export function dispatchSampleRange(
     [buffer],
     'maple:sample-range',
     ({ resolve, reject }) => ({ kind: 'sample-range', resolve, reject }),
+    register,
+  );
+}
+
+export function dispatchSampleColorCurve(
+  worker: Worker,
+  id: number,
+  register: RegisterPending,
+  bytes: Uint8Array,
+  ext: string,
+  xmp: string | undefined,
+  nx: number,
+  ny: number,
+): Promise<ColorCurveSampleResult> {
+  const buffer = bytes.buffer.slice(
+    bytes.byteOffset,
+    bytes.byteOffset + bytes.byteLength,
+  ) as ArrayBuffer;
+  const request: SampleColorCurveRequest = {
+    id,
+    type: 'sample-color-curve',
+    bytes: buffer,
+    ext,
+    xmp,
+    nx,
+    ny,
+  };
+  return dispatchWithMark<ColorCurveSampleResult>(
+    worker,
+    request,
+    [buffer],
+    'maple:sample-color-curve',
+    ({ resolve, reject }) => ({ kind: 'sample-color-curve', resolve, reject }),
     register,
   );
 }

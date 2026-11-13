@@ -31,6 +31,7 @@ use std::io::Write;
 use std::path::Path;
 
 use crate::develop_common::{atomic_write, load_xmp_model, run_on_large_stack};
+use crate::error::guarded_compute;
 use crate::raster_resize::RasterFileResult;
 
 // ---------------------------------------------------------------------
@@ -55,15 +56,17 @@ impl Task for ExportDevelopedToFileTask {
     type JsValue = RasterFileResult;
 
     fn compute(&mut self) -> Result<Self::Output> {
-        Ok(match self.run() {
-            Ok(()) => RasterFileResult {
-                ok: true,
-                error: None,
-            },
-            Err(e) => RasterFileResult {
-                ok: false,
-                error: Some(e),
-            },
+        guarded_compute("ExportDevelopedToFileTask", || {
+            Ok(match self.run() {
+                Ok(()) => RasterFileResult {
+                    ok: true,
+                    error: None,
+                },
+                Err(e) => RasterFileResult {
+                    ok: false,
+                    error: Some(e),
+                },
+            })
         })
     }
 
@@ -183,15 +186,17 @@ impl Task for ExportRecipeToFileTask {
     type JsValue = RasterFileResult;
 
     fn compute(&mut self) -> Result<Self::Output> {
-        Ok(match self.run() {
-            Ok(()) => RasterFileResult {
-                ok: true,
-                error: None,
-            },
-            Err(e) => RasterFileResult {
-                ok: false,
-                error: Some(e),
-            },
+        guarded_compute("ExportRecipeToFileTask", || {
+            Ok(match self.run() {
+                Ok(()) => RasterFileResult {
+                    ok: true,
+                    error: None,
+                },
+                Err(e) => RasterFileResult {
+                    ok: false,
+                    error: Some(e),
+                },
+            })
         })
     }
 

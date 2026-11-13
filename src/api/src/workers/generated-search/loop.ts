@@ -14,7 +14,7 @@
  * the collection after what it contains makes that failure unreachable
  * instead of merely unlikely.
  *
- * Ollama and the search executor are injected. That keeps the whole loop
+ * The text model and the search executor are injected. That keeps the whole loop
  * testable without a network or a database, and it is what lets the
  * dry-run path reuse this code unchanged.
  *
@@ -50,7 +50,7 @@ export interface SearchOutcome {
 }
 
 export interface LoopDeps {
-  /** Ollama call, grammar-constrained by `schema`. */
+  /** Text-model call, constrained by `schema` (Ollama `format` or OpenAI `json_schema`). */
   generateJson: (prompt: string, schema: unknown) => Promise<unknown>;
   runSearch: (query: SearchQuery) => Promise<SearchOutcome>;
   digest: PromptDigest;

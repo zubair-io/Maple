@@ -36,6 +36,9 @@ fn to_raw_core(s: &ColorGradeSliders) -> raw_core::stages::color_grade::ColorGra
         highlight: s.highlight,
         global: s.global,
         balance: s.balance,
+        blending: s.blending,
+        shadow_edge: s.shadow_edge,
+        highlight_edge: s.highlight_edge,
     }
 }
 
@@ -68,6 +71,7 @@ fn parity_cases() -> Vec<(&'static str, ColorGradeSliders)> {
                 highlight: [210.0, 40.0, -15.0],
                 global: [90.0, 20.0, 5.0],
                 balance: 0.0,
+                ..Default::default()
             },
         ),
         (
@@ -78,6 +82,7 @@ fn parity_cases() -> Vec<(&'static str, ColorGradeSliders)> {
                 highlight: [210.0, 100.0, -100.0],
                 global: [0.0, 0.0, 0.0],
                 balance: 100.0,
+                ..Default::default()
             },
         ),
         (
@@ -88,6 +93,33 @@ fn parity_cases() -> Vec<(&'static str, ColorGradeSliders)> {
                 highlight: [120.0, 80.0, 20.0],
                 global: [270.0, 35.0, -10.0],
                 balance: -100.0,
+                ..Default::default()
+            },
+        ),
+        (
+            "zone-isolated",
+            ColorGradeSliders {
+                shadow: [210.0, 85.0, 30.0],
+                midtone: [35.0, 40.0, 0.0],
+                highlight: [45.0, 90.0, -25.0],
+                global: [0.0, 0.0, 0.0],
+                balance: 10.0,
+                blending: 15.0,
+                shadow_edge: 0.25,
+                highlight_edge: 0.78,
+            },
+        ),
+        (
+            "zone-blending-zero",
+            ColorGradeSliders {
+                shadow: [180.0, 95.0, -40.0],
+                midtone: [10.0, 60.0, 15.0],
+                highlight: [55.0, 80.0, 35.0],
+                global: [280.0, 15.0, 0.0],
+                balance: -20.0,
+                blending: 0.0,
+                shadow_edge: 0.12,
+                highlight_edge: 0.88,
             },
         ),
         (
@@ -196,6 +228,7 @@ fn identity_gate_matches_raw_core() {
             highlight: [40.0, 0.0, 0.0],
             global: [310.0, 0.0, 0.0],
             balance: 60.0,
+            ..Default::default()
         },
         ColorGradeSliders {
             midtone: [90.0, 0.0, 12.0],
@@ -228,6 +261,7 @@ fn gpu_chroma_only_grade_keeps_l_invariant() {
             highlight: [250.0, 80.0, 0.0],
             global: [0.0, 0.0, 0.0],
             balance: 20.0,
+            ..Default::default()
         },
     }]);
     for (i, (before, after)) in input.chunks_exact(4).zip(gpu.chunks_exact(4)).enumerate() {

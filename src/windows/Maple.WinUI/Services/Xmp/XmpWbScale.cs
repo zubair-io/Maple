@@ -29,7 +29,7 @@ namespace Maple.WinUI.Services.Xmp
         /// per unit) tint magnitude ratio — mirrors raw-core's
         /// `TINT_SCALE_V3_TO_V4` (== 1e-4 * 3000.0 == 0.3).
         /// </summary>
-        private const double TintScaleV3ToV4 = 0.3;
+        private const float TintScaleV3ToV4 = 0.3f;
 
         /// <summary>
         /// Perpendicular-to-locus tint displacement scale (uv units per
@@ -37,7 +37,7 @@ namespace Maple.WinUI.Services.Xmp
         /// `dng_temperature.cpp` `kTintScale`, mirrors raw-core's
         /// `TINT_UV_SCALE`.
         /// </summary>
-        private const double TintUvScale = 1.0 / 3000.0;
+        private const float TintUvScale = 1.0f / 3000.0f;
 
         // ── Robertson (V5) isotherm table — dng_temperature.rs ──────────────
 
@@ -141,7 +141,10 @@ namespace Maple.WinUI.Services.Xmp
                     var uu3 = uu3Raw / len3;
                     var vv3 = vv3Raw / len3;
 
-                    var tint = (uu * uu3 + vv * vv3) * TintScale;
+                    // Match raw-core / SDK: tint starts at the interpolated locus (#4630).
+                    var locusU = TempTable[index - 1].U * f + TempTable[index].U * (1.0 - f);
+                    var locusV = TempTable[index - 1].V * f + TempTable[index].V * (1.0 - f);
+                    var tint = ((u - locusU) * uu3 + (v - locusV) * vv3) * TintScale;
                     return (temperature, tint);
                 }
 
@@ -166,28 +169,29 @@ namespace Maple.WinUI.Services.Xmp
         /// 1667K-25000K; clamped to [2000K, 25000K] — mirrors raw-core's
         /// `cct_to_xy`.
         /// </summary>
-        private static (double X, double Y) CctToXy(double cctIn)
+        // Match raw-core's f32 legacy map: finite differences amplify Double drift.
+        private static (float X, float Y) CctToXy(float cctIn)
         {
-            var t = Math.Min(Math.Max(cctIn, 2000.0), 25000.0);
-            var x = t <= 4000.0
-                ? 0.17991 + 877.6956 / t - 234358.9 / (t * t) - 266123900.0 / (t * t * t)
-                : 0.24039 + 222.6347 / t + 2107037.9 / (t * t) - 3025846900.0 / (t * t * t);
-            var y = -3.0 * x * x + 2.87 * x - 0.275;
+            var t = Math.Min(Math.Max(cctIn, 2000.0f), 25000.0f);
+            var x = t <= 4000.0f
+                ? 0.17991f + 877.6956f / t - 234358.9f / (t * t) - 266123900.0f / (t * t * t)
+                : 0.24039f + 222.6347f / t + 2107037.9f / (t * t) - 3025846900.0f / (t * t * t);
+            var y = -3.0f * x * x + 2.87f * x - 0.275f;
             return (x, y);
         }
 
         /// <summary>CIE xy → CIE 1960 UCS (u, v), the legacy map's metric.</summary>
-        private static (double U, double V) LegacyXyToUv(double x, double y)
+        private static (float U, float V) LegacyXyToUv(float x, float y)
         {
-            var denom = -2.0 * x + 12.0 * y + 3.0;
-            return (4.0 * x / denom, 6.0 * y / denom);
+            var denom = -2.0f * x + 12.0f * y + 3.0f;
+            return (4.0f * x / denom, 6.0f * y / denom);
         }
 
         /// <summary>CIE 1960 UCS (u, v) → CIE xy — exact inverse of <see cref="LegacyXyToUv"/>.</summary>
-        private static (double X, double Y) LegacyUvToXy(double u, double v)
+        private static (float X, float Y) LegacyUvToXy(float u, float v)
         {
-            var denom = 2.0 * u - 8.0 * v + 4.0;
-            return (3.0 * u / denom, 2.0 * v / denom);
+            var denom = 2.0f * u - 8.0f * v + 4.0f;
+            return (3.0f * u / denom, 2.0f * v / denom);
         }
 
         /// <summary>
@@ -195,17 +199,17 @@ namespace Maple.WinUI.Services.Xmp
         /// <paramref name="cct"/>, via central finite difference at
         /// `cct ± 50K`, center-clamped to [2000, 25000] before stepping.
         /// </summary>
-        private static (double Du, double Dv) LocusTangentUv(double cct)
+        private static (float Du, float Dv) LocusTangentUv(float cct)
         {
-            const double deltaK = 50.0;
-            var center = Math.Min(Math.Max(cct, 2000.0), 25000.0);
-            var (xp, yp) = CctToXy(Math.Min(center + deltaK, 25000.0));
-            var (xm, ym) = CctToXy(Math.Max(center - deltaK, 2000.0));
+            const float deltaK = 50.0f;
+            var center = Math.Min(Math.Max(cct, 2000.0f), 25000.0f);
+            var (xp, yp) = CctToXy(Math.Min(center + deltaK, 25000.0f));
+            var (xm, ym) = CctToXy(Math.Max(center - deltaK, 2000.0f));
             var (up, vp) = LegacyXyToUv(xp, yp);
             var (um, vm) = LegacyXyToUv(xm, ym);
             var rawDu = up - um;
             var rawDv = vp - vm;
-            var len = Math.Max(Math.Sqrt(rawDu * rawDu + rawDv * rawDv), 1e-10);
+            var len = Math.Max(MathF.Sqrt(rawDu * rawDu + rawDv * rawDv), 1e-10f);
             return (rawDu / len, rawDv / len);
         }
 
@@ -215,7 +219,7 @@ namespace Maple.WinUI.Services.Xmp
         /// selects which of the two 90°-rotated candidates to use;
         /// <see cref="AuthoredPairToV5"/> always passes true.
         /// </summary>
-        private static (double U, double V) TintPerpendicularAxis(double cct, bool tintSignPositiveV)
+        private static (float U, float V) TintPerpendicularAxis(float cct, bool tintSignPositiveV)
         {
             var (du, dv) = LocusTangentUv(cct);
             return tintSignPositiveV ? (dv, -du) : (-dv, du);
@@ -225,8 +229,8 @@ namespace Maple.WinUI.Services.Xmp
         /// Apply a tint displacement perpendicular to the Planckian locus
         /// in CIE 1960 uv space.
         /// </summary>
-        private static (double X, double Y) ApplyTintPerpendicular(
-            double x, double y, double cct, double tint, bool tintSignPositiveV)
+        private static (float X, float Y) ApplyTintPerpendicular(
+            float x, float y, float cct, float tint, bool tintSignPositiveV)
         {
             var (perpU, perpV) = TintPerpendicularAxis(cct, tintSignPositiveV);
             var (u0, v0) = LegacyXyToUv(x, y);
@@ -241,7 +245,7 @@ namespace Maple.WinUI.Services.Xmp
         /// can be re-expressed through the physical chromaticity they
         /// encoded (<see cref="AuthoredPairToV5"/>).
         /// </summary>
-        private static (double X, double Y) LegacySliderSourceXy(double temperature, double tint)
+        private static (float X, float Y) LegacySliderSourceXy(float temperature, float tint)
         {
             var (x, y) = CctToXy(temperature);
             return ApplyTintPerpendicular(x, y, temperature, tint, true);
@@ -253,7 +257,7 @@ namespace Maple.WinUI.Services.Xmp
         /// in raw-core's `authored_pair_to_v5` (V5 is handled by the
         /// caller, not here).
         /// </summary>
-        private static double LegacyTintForVersion(double tint, int version) => version switch
+        private static float LegacyTintForVersion(float tint, int version) => version switch
         {
             2 => -tint * TintScaleV3ToV4,
             4 => tint,
@@ -285,8 +289,8 @@ namespace Maple.WinUI.Services.Xmp
             double temperature, double tint, int version)
         {
             if (version == 5) return (temperature, tint);
-            var legacyTint = LegacyTintForVersion(tint, version);
-            var (x, y) = LegacySliderSourceXy(temperature, legacyTint);
+            var legacyTint = LegacyTintForVersion((float)tint, version);
+            var (x, y) = LegacySliderSourceXy((float)temperature, legacyTint);
             return XyToTempTint(x, y);
         }
     }

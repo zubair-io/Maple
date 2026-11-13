@@ -34,15 +34,31 @@ private let log = Logger(subsystem: "app.justmaple.aperture", category: "Backup.
 /// refresh throws *without* signing out, so a backup over a flaky link doesn't
 /// bounce the foreground session.
 func makeBackupTransport(server: URL) -> AuthorizingTransport {
-  let client = AuthenticatedHTTPClient(
+  let client = makeBackupHTTPClient(server: server, urlSession: backupUploadSession)
+  return { try await client.data(for: $0) }
+}
+
+/// Sees the backup's request bodies leave the device, so the screen saver can
+/// tell a slow chunk that is still sending from a stalled one (#5457).
+let backupTransfers = UploadTransferMonitor()
+private let backupUploadSession = URLSession(
+  configuration: .default, delegate: backupTransfers, delegateQueue: nil)
+
+/// The authenticated client behind `makeBackupTransport`, also used by the
+/// backup screen saver to read the library it is backing up into (#5457).
+/// The screen saver's own reads stay off `backupUploadSession`, so they never
+/// count as backup traffic.
+func makeBackupHTTPClient(
+  server: URL, urlSession: URLSession = .shared
+) -> AuthenticatedHTTPClient {
+  AuthenticatedHTTPClient(
     server: server,
-    urlSession: .shared,
+    urlSession: urlSession,
     tokensProvider: { try? TokenStore.load(server: server) },
     // Mirror rotations into the File Provider store too — see CloudTokenPersistence.
     onTokensRefreshed: { try CloudTokenPersistence.persistRotated($0, server: server) },
     onSignOut: { CloudTokenPersistence.clear(server: server) },
     refreshExecutor: BackgroundExecution())
-  return { try await client.data(for: $0) }
 }
 
 @MainActor
@@ -61,11 +77,28 @@ public final class EngineHost {
   public let progress = BackupProgressViewModel()
 
   private var generation = UUID()
-  private var activeSettings: BackupSettings?
+  /// Whether the engine may run: down while the app is leaving the foreground
+  /// (the state DB refuses work so no lock is held at suspension, #5652) and
+  /// while a panorama stitch holds a pause (#5653).
+  private var runGate = BackupRunGate()
+  private var suspensionRequested: Bool { runGate.isSuspended }
+  public var isPausedForPanorama: Bool { runGate.isPaused }
+  /// Every start and stop runs here, one at a time (#5022): a second Stop, a
+  /// BGTask expiry or a new Start never interleaves with a teardown.
+  private let lifecycle = SerialOperationQueue()
+  /// A requested retry of failed photos survives a newer start superseding it.
+  private var retryFailedRequested = false
+  public private(set) var activeSettings: BackupSettings?
   public private(set) var uploadAddress: URL?
   public private(set) var usesLocalAddress = false
 
   private var runnerTask: Task<Void, Never>?
+  /// Held while this app runs the engine on the shared state DB (#4988).
+  private var engineLock: BackupEngineLock?
+  private var engineLockWait: Task<BackupEngineLock, Error>?
+  /// Startup is parked until the background helper releases the engine lock;
+  /// the panel keeps a Stop control available meanwhile.
+  public var isWaitingForBackgroundHelper: Bool { engineLockWait != nil }
 
   /// Long-running task that triggers a safety walk every 7 days.
   /// On iOS this is supplemented by the BGProcessingTask handler;
@@ -99,35 +132,69 @@ public final class EngineHost {
       return
     }
     lastStartError = nil
+    // Supersedes any earlier start, even one still queued or waiting for the helper's lock.
+    generation = UUID()
+    let generation = self.generation
+    retryFailedRequested = retryFailedRequested || retryFailed
+    engineLockWait?.cancel()
+    await lifecycle.run {
+      await self.performStart(
+        settings: settings, serverBaseURL: serverBaseURL, generation: generation)
+    }
+  }
 
-    guard progress.phase != .starting else { return }
-    if progress.phase == .running && activeSettings == settings { return }
+  private func performStart(
+    settings: BackupSettings, serverBaseURL: URL, generation: UUID
+  ) async {
+    guard generation == self.generation else { return }
+    guard runGate.mayRun else {
+      if runGate.isPaused, !BackupSettings.isStoppedByUser {
+        progress.setPhase(.pausedForPanorama)
+      }
+      return
+    }
+    if progress.phase == .running && activeSettings == settings {
+      retryFailedRequested = false
+      return
+    }
 
     // Surface "Starting…" to the panel before the (potentially slow)
     // teardown + rehydrate so the user gets immediate feedback that their
     // tap registered. Flipped to `.running` once the runner is launched.
     progress.setPhase(.starting)
 
-    // Tear down any previous run (cancels retry tasks, then the runner).
-    await stop()
-    let generation = self.generation
+    // Tear down any previous run (cancels the runner, then its retries).
+    await tearDown()
+    guard generation == self.generation else { return }
     progress.setPhase(.starting)
 
     do {
-      let appSupport = try FileManager.default.url(
-        for: .applicationSupportDirectory, in: .userDomainMask,
-        appropriateFor: nil, create: true
-      )
-      .appendingPathComponent("Maple", isDirectory: true)
-      try FileManager.default.createDirectory(
-        at: appSupport, withIntermediateDirectories: true)
-
+      let storageRoot = try BackupStorage.sharedRoot()
+      #if os(macOS)
+        // One engine per shared state DB (#4988): the backup helper may be
+        // working through the backlog; never rehydrate rows it is uploading.
+        guard let acquired = try await acquireEngineLock(in: storageRoot, generation: generation)
+        else { return }
+        let engineLock: BackupEngineLock? = acquired
+      #else
+        // Only macOS has a second backup host; holding a file lock in the App
+        // Group container through suspension gets an iOS app killed (#5022).
+        let engineLock: BackupEngineLock? = nil
+      #endif
+      // This start owns the lock until a running engine takes it. If stop()
+      // supersedes it mid-startup, it keeps the lock while it still touches
+      // the state DB and gives it back only when it bails, so the helper can
+      // never start rehydrating alongside it.
+      var lockHandedToEngine = false
+      defer { if !lockHandedToEngine { engineLock?.release() } }
+      guard generation == self.generation, runGate.mayRun else { return }
       let deviceId = try DeviceIdentity.current(
-        storageURL: try DeviceIdentity.defaultStorageURL())
+        storageURL: DeviceIdentity.storageURL(in: storageRoot))
       let sidecars = AppSupportSidecarStore(
-        root: try AppSupportSidecarStore.defaultRoot())
+        root: try AppSupportSidecarStore.defaultRoot(in: storageRoot))
       let state = try BackupStateStore(
-        databaseURL: appSupport.appendingPathComponent(settings.stateDatabaseFilename))
+        databaseURL: BackupStorage.stateDatabaseURL(
+          in: storageRoot, filename: settings.stateDatabaseFilename))
 
       // Fresh queue per start — settings may have changed (different library).
       let queue = InProcessBackupQueue()
@@ -138,20 +205,17 @@ public final class EngineHost {
       // in totalEnqueued. Subscribing after rehydration causes the
       // progress VM to miss those events and undercount on restart.
       await progress.start(queue: queue)
+      if let snap = try? await state.startupSnapshot(deviceId: deviceId) {
+        progress.recordLibrarySnapshot(
+          photoIDs: snap.libraryPhotoIDs,
+          backedUpIDs: snap.backedUpPhotoIDs)
+      }
 
-      // Rehydrate any persisted pending tasks so the engine resumes work
-      // that was queued before a crash / settings change.
-      for task in try await state.tasks(in: .pending) {
-        await queue.enqueue(task, priority: task.priority)
-      }
-      // Any .uploading rows left by a crashed run go back to .pending.
-      for task in try await state.tasks(in: .uploading) {
-        try await state.transition(task.id, to: .pending)
-        await queue.enqueue(task, priority: task.priority)
-      }
+      guard generation == self.generation, runGate.mayRun else { return }
+      try await state.rehydrate(into: queue)
 
       await LocalNetworkResolver.shared.resolve(identity: serverBaseURL)
-      guard generation == self.generation, !Task.isCancelled else { return }
+      guard generation == self.generation else { return }
       let effectiveServerURL = LocalNetworkResolver.shared.effectiveURL(for: serverBaseURL)
       uploadAddress = effectiveServerURL
       usesLocalAddress =
@@ -164,7 +228,8 @@ public final class EngineHost {
 
       let reader: any AssetReader = PhotoKitAssetReader(
         deviceId: deviceId,
-        geocode: GeocodeClient(baseURL: effectiveServerURL))
+        geocode: GeocodeClient(baseURL: effectiveServerURL),
+        includeLivePhotos: settings.includeLivePhotos)
 
       let engine = BackupEngine(
         queue: queue,
@@ -181,20 +246,28 @@ public final class EngineHost {
       self.runnerTask = Task.detached(priority: .background) {
         await engine.run(keepAlive: true)
       }
+      self.engineLock = engineLock
+      lockHandedToEngine = true
 
       startPeriodicWalk(
         deviceId: deviceId, settings: settings,
         libraryId: settings.libraryId, serverBaseURL: serverBaseURL)
-      // Runner is live — flip the user-visible phase to Running.
+      // Runner is live — flip the user-visible phase to Running, clearing
+      // any failure an earlier, superseded start reported.
+      lastStartError = nil
       progress.setPhase(.running)
       // Own initial discovery here, after the queue and runner are ready.
-      // A second caller can return early while startup is in progress; it
-      // must not subscribe early and lose the initial walk to the phase gate.
+      let retryFailed = retryFailedRequested
+      retryFailedRequested = false
       ChangeObserverWiring.start(
         deviceId: deviceId, settings: settings,
         libraryId: settings.libraryId, serverBaseURL: serverBaseURL,
         retryFailed: retryFailed)
       log.info("start ok engine running, state initialized")
+    } catch is CancellationError {
+      // A stop() ended the wait for the background helper; nothing failed.
+      lastStartError = nil
+      return
     } catch {
       // The most likely failures are filesystem permission issues or
       // SQLite open errors. Capture into `lastStartError` so the
@@ -211,30 +284,128 @@ public final class EngineHost {
 
   /// Cancel discovery, active reads/uploads, and retries; pending work stays durable.
   public func stop() async {
+    await stop(then: {})
+  }
+
+  private func stop(then afterTeardown: @escaping @MainActor () -> Void) async {
     generation = UUID()
-    ChangeObserverWiring.stop()
+    retryFailedRequested = false
+    engineLockWait?.cancel()
+    await lifecycle.run {
+      await self.tearDown()
+      afterTeardown()
+    }
+  }
+
+  /// Stop the engine, then make the state DB refuse work, so no lock is held
+  /// when iOS suspends the process (#5652). If the teardown outlasts 3 seconds
+  /// the DB is suspended anyway: the in-flight write fails and its row is
+  /// rehydrated on the next start.
+  public func suspendStateStore() async {
+    runGate.suspend()
+    let backstop = Task { @MainActor in
+      try await Task.sleep(for: .seconds(3))
+      if self.suspensionRequested { BackupStateSuspension.suspend() }
+    }
+    await stop { if self.suspensionRequested { BackupStateSuspension.suspend() } }
+    backstop.cancel()
+  }
+
+  /// Let the state DB take writes again. The caller restarts the engine.
+  public func resumeStateStore() async {
+    runGate.resume()
+    await lifecycle.run {
+      // A suspend queued behind this resume must win.
+      if !self.suspensionRequested { BackupStateSuspension.resume() }
+    }
+  }
+
+  /// Stop the backup and keep it stopped until the returned pause is released,
+  /// so a panorama stitch has the process memory to itself (#5653). Pauses are
+  /// counted: the backup restarts only when the last one is released, and not
+  /// while the app is in the background. `stoppedRunningWork` tells the caller
+  /// whether a running engine was actually taken down.
+  public func pauseForPanorama() async -> (id: UUID, stoppedRunningWork: Bool) {
+    let id = runGate.pause()
+    let stoppedRunningWork = progress.phase == .running || progress.phase == .starting
+    let alreadyPaused = progress.phase == .pausedForPanorama
+    generation = UUID()
+    engineLockWait?.cancel()
+    await lifecycle.run {
+      await self.tearDown()
+      if self.runGate.isPaused, stoppedRunningWork || alreadyPaused {
+        self.progress.setPhase(.pausedForPanorama)
+      }
+    }
+    return (id, stoppedRunningWork)
+  }
+
+  /// Give one pause back. The last release restarts the backup unless the user
+  /// stopped it or the app is in the background (`enterForeground` restarts it).
+  public func releasePause(_ id: UUID) async {
+    guard runGate.release(id) else { return }
+    await lifecycle.run {
+      if !self.runGate.isPaused, self.progress.phase == .pausedForPanorama {
+        self.progress.setPhase(.stopped)
+      }
+    }
+    await MapleApp.startBackupIfAuthorized()
+  }
+
+  private func tearDown() async {
+    // Stop uploads first, so an explicit Stop takes effect at once even while
+    // a library scan is still winding down.
     let runner = runnerTask
     runner?.cancel()
-    // Await engine teardown so retry tasks are cancelled before the runner
-    // task exits. This prevents a race where a retry re-enqueues after
-    // the queue has been discarded by a subsequent start().
-    if let engine {
-      await engine.stop()
-    }
+    if let engine { await engine.stop() }
+    // Library walks upsert rows in the shared state DB: wait for them to
+    // exit before the lock below is released to the helper (#4988).
+    await ChangeObserverWiring.stopAndDrain()
+    let periodicWalk = periodicWalkTask
+    periodicWalkTask = nil
+    periodicWalk?.cancel()
+    await periodicWalk?.value
     await runner?.value
     // A companion operation already in flight can schedule a retry while
     // the runner drains. Sweep those late retries after it has fully exited.
     if let engine { await engine.stop() }
     runnerTask = nil
     engine = nil
-    periodicWalkTask?.cancel()
-    periodicWalkTask = nil
+    engineLock?.release()
+    engineLock = nil
     // Stop the progress VM so it detaches from the now-discarded queue.
     // `progress.start(queue:)` is idempotent — a subsequent start(settings:)
     // call will reattach to the new queue cleanly.
     progress.stop()
     progress.setPhase(.stopped)
     progress.setWalkPhase(.idle)
+  }
+
+  /// The engine lock, waiting for the background helper to finish when it holds
+  /// it; `nil` when a stop or newer start superseded this one while waiting.
+  private func acquireEngineLock(
+    in storageRoot: URL, generation: UUID
+  ) async throws -> BackupEngineLock? {
+    if let free = try BackupEngineLock.acquire(in: storageRoot) { return free }
+    // A superseded start must not wait: the newer start or stop is queued behind it.
+    guard generation == self.generation else { return nil }
+    lastStartError =
+      "The background helper is finishing a backup. Maple will take over when it's done."
+    let wait = Task {
+      try await BackupEngineLock.acquireWhenFree(in: storageRoot, pollInterval: .seconds(2))
+    }
+    engineLockWait = wait
+    // Cleared however the wait ends — a failed poll must not leave the
+    // panel offering Stop for an engine that never started.
+    defer { if engineLockWait == wait { engineLockWait = nil } }
+    let waited = try await wait.value
+    guard generation == self.generation else {
+      waited.release()
+      lastStartError = nil
+      return nil
+    }
+    lastStartError = nil
+    return waited
   }
 
   /// Start (or restart) the periodic safety walk timer.

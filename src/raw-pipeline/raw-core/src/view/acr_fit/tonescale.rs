@@ -241,10 +241,27 @@ pub fn fit_tonescale_with_range(samples: &[NeutralSample], range: KnotRange) -> 
     // Fill NaN knots by linear interpolation between known knots.
     fill_nan_linear(&mut vals);
 
+    #[cfg(feature = "stage-dump")]
+    let before_monotonicity = vals;
+
     // Enforce strict monotonicity (clamp-up pass).
     for i in 1..TONESCALE_KNOTS {
         if vals[i] < vals[i - 1] {
             vals[i] = vals[i - 1];
+        }
+    }
+
+    #[cfg(feature = "stage-dump")]
+    if let Some(dir) = crate::stage_dump::dump_dir() {
+        if let Ok(file) = std::fs::File::create(dir.join("auto_tonescale_observations.json")) {
+            let _ = serde_json::to_writer_pretty(
+                file,
+                &serde_json::json!({
+                    "knots_log2": knot_log2, "bin_counts": counts,
+                    "neutral_counts": neutral_counts, "weighted_counts": weight_sums,
+                    "before_monotonicity": before_monotonicity, "after_monotonicity": vals,
+                }),
+            );
         }
     }
 

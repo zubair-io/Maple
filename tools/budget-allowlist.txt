@@ -28,7 +28,6 @@ src/apple/Packages/MapleCore/Tests/MapleCoreTests/AppleRenderHarnessTests.swift 
 # --- Rust core (raw-pipeline) ---
 src/raw-pipeline/raw-core/src/api.rs                                              # 1381 — public C-FFI surface
 src/raw-pipeline/raw-core/src/color/dcp.rs                                        # 1097 — DCP profile evaluator
-src/raw-pipeline/raw-core/src/color/hsm.rs                                        # 683  — HSL/HSV/saturation maps
 src/raw-pipeline/raw-core/src/decode.rs                                           # 787  — RAW decode entry
 src/raw-pipeline/raw-core/src/test_support/synth_dng.rs                           # 702  — synthetic DNG generator (tests only)
 
@@ -41,7 +40,6 @@ src/web/projects/maple-common/src/lib/components/timeline-view/timeline-view.com
 src/api/src/db/schema.ts                                                          # 809  — DTO + table schema
 src/api/src/routes/folders.ts                                                     # 790  — folders REST routes
 src/api/src/fs/browse.ts                                                          # 635  — filesystem browse adapter
-src/api/src/workers/discover/index.ts                                             # 622  — discover producer; split tracked in #253
 src/api/src/db/migrations.test.ts                                                 # 765  — migrations test bank; split tracked in #250
 src/api/src/workers/discover/discover.test.ts                                     # 696  — discover producer tests; split tracked in #251
 src/api/tests/search/buckets.test.ts                                              # 842  — search bucket integration tests

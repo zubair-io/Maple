@@ -64,7 +64,7 @@ final class HashingTests: XCTestCase {
     /// reads EXIF DateTimeOriginal as a Date and the exif stage at
     /// `src/api/src/workers/stages/exif.ts:60` calls `toISOString()` on
     /// it, producing `YYYY-MM-DDTHH:mm:ss.sssZ`. The device's
-    /// `PhotoKitAssetReader.readExifCaptureDateISO8601UTC` reformats the
+    /// `MapleIdDerivation.capturedAt` (`ExifCaptureDate`) reformats the
     /// EXIF "YYYY:MM:DD HH:MM:SS" string to that exact ISO form before
     /// calling `MapleId.primary`, so this hex is what the server will
     /// look up for a backed-up frame whose EXIF says `2024:06:01 12:34:56`

@@ -48,10 +48,13 @@ while (($#)); do
   case "$1" in
     --target) target="$2"; shift ;;
     --target-dir) target_dir="$2"; shift ;;
+    -p) package="$2"; shift ;;
   esac
   shift
 done
-if [[ "$target_dir" == src/raw-pipeline/target ]]; then
+if [[ "${package:-}" == maple-cli ]]; then
+  stage=cli; output=maple-cli.exe
+elif [[ "$target_dir" == src/raw-pipeline/target ]]; then
   stage=ffi; output=raw_ffi.dll
 else
   stage=host; output=maple-windows.exe
@@ -72,7 +75,7 @@ while (($#)); do
   shift
 done
 mkdir -p "$output_dir"
-for output in Maple.WinUI.exe raw_ffi.dll; do
+for output in Maple.WinUI.exe raw_ffi.dll maple-cli.exe; do
   [[ "${OMIT_OUTPUT:-}" == "$output" ]] || printf binary > "$output_dir/$output"
 done
 exit 0""",
@@ -122,7 +125,7 @@ exit 0""",
                     CARGO_BUILD_TARGET="wasm32-unknown-unknown",
                 )
                 self.assertEqual(result.returncode, 0, result.stderr)
-                run = calls[-4:]
+                run = calls[-5:]
                 self.assertEqual(
                     run[0], f"codegen|{self.root}/src/raw-pipeline/target|unset"
                 )
@@ -130,14 +133,20 @@ exit 0""",
                     f"|--target|{target}|--target-dir|src/raw-pipeline/target|", run[1]
                 )
                 self.assertIn(
-                    f"|--target|{target}|--target-dir|src/windows/target|", run[2]
+                    f"|--target|{target}|--target-dir|src/raw-pipeline/target|", run[2]
+                )
+                self.assertIn(
+                    "|-p|maple-cli|--features|pano,pano-classical", run[2]
+                )
+                self.assertIn(
+                    f"|--target|{target}|--target-dir|src/windows/target|", run[3]
                 )
                 self.assertIn(
                     f"|-r|{rid}|-p:Platform={platform}|-p:MapleRustTarget={target}|",
-                    run[3],
+                    run[4],
                 )
                 self.assertIn(
-                    f"|-o|src/windows/Maple.WinUI/bin/Release/{target}", run[3]
+                    f"|-o|src/windows/Maple.WinUI/bin/Release/{target}", run[4]
                 )
                 self.assertIn(
                     f"src/windows/Maple.WinUI/bin/Release/{target}/Maple.WinUI.exe",
@@ -186,14 +195,21 @@ exit 0""",
         self.assertEqual(calls, [])
 
     def test_build_failures_never_report_success(self):
-        for stage in ("codegen", "ffi", "host", "dotnet"):
+        for stage in ("codegen", "ffi", "cli", "host", "dotnet"):
             with self.subTest(stage=stage):
                 result, _ = self.run_wrapper(FAIL_STAGE=stage)
                 self.assertNotEqual(result.returncode, 0)
                 self.assertNotIn("built successfully", result.stdout)
 
     def test_missing_outputs_fail(self):
-        for output in ("ffi", "host", "Maple.WinUI.exe", "raw_ffi.dll"):
+        for output in (
+            "ffi",
+            "cli",
+            "host",
+            "Maple.WinUI.exe",
+            "raw_ffi.dll",
+            "maple-cli.exe",
+        ):
             with self.subTest(output=output):
                 # Each case starts without stale outputs from a previous case.
                 shutil.rmtree(self.root / "src/raw-pipeline/target", ignore_errors=True)

@@ -11,12 +11,9 @@ import { createLiveTestDatabase, insertFolder } from '../../db/sqlite/test-sqlit
 import { ObjectId } from '../../db/object-id.ts';
 import { removalJournalPath } from '../../fs/removal-relocation-journal.ts';
 import { handleEvent } from './handle-event.ts';
-import { locationsNamed, allAssets } from './discover.test-helpers.ts';
-import { SweeperLoop, visitDirectory } from './sweeper.ts';
+import { locationsNamed, allAssets, sweepGeneration } from './discover.test-helpers.ts';
+import { visitDirectory } from './sweeper.ts';
 import * as frontier from './frontier.repo.ts';
-import { startDiscover } from './index.ts';
-import { patchDiscoverConfig } from './discover-config.repo.ts';
-import { writeCheckpoint } from '../../db/repos/indexer-checkpoints.repo.ts';
 
 const fixture = resolve(import.meta.dir, '../../../../../test-fixtures/removal/calibration');
 describe.skipIf(!nativeLibAvailable())('Discover removal relocation recovery (#1472)', () => {
@@ -30,7 +27,9 @@ describe.skipIf(!nativeLibAvailable())('Discover removal relocation recovery (#1
     source = join(root, 'source/photo.dng');
     target = join(root, 'destination/renamed.dng');
     for (const raw of [source, target])
-      await fs.mkdir(join(dirname(raw), '.maple/inpaint'), { recursive: true });
+      await fs.mkdir(join(dirname(raw), '.maple/inpaint'), {
+        recursive: true,
+      });
     await fs.copyFile(join(fixture, 'source.dng'), source);
     await fs.copyFile(join(fixture, 'saved.xmp'), source.replace('.dng', '.xmp'));
     xml = await fs.readFile(source.replace('.dng', '.xmp'), 'utf8');
@@ -117,7 +116,11 @@ describe.skipIf(!nativeLibAvailable())('Discover removal relocation recovery (#1
       await ffiPool().exportRecipeToFile(
         target,
         xml,
-        JSON.stringify({ ...DEFAULT_EXPORT_RECIPE, format: 'png', quality: null }),
+        JSON.stringify({
+          ...DEFAULT_EXPORT_RECIPE,
+          format: 'png',
+          quality: null,
+        }),
         null,
         output,
       ),
@@ -127,52 +130,15 @@ describe.skipIf(!nativeLibAvailable())('Discover removal relocation recovery (#1
     );
   }
 
-  it('a resumed sweep recovers complete production publication before adding its location', async () => {
+  it('a sweep recovers complete production publication before adding its location', async () => {
     using live = await createLiveTestDatabase();
     const folderId = new ObjectId(insertFolder(live.db, { path: root }));
     await handleEvent({ kind: 'created', absPath: source }, folderId, root);
     const sourceId = locationsNamed(live.db, 'photo.dng')[0].asset_id;
     await crash('complete');
-    await frontier.enqueueDirs(folderId, [dirname(target)], 3, false);
-    const resumed = new SweeperLoop({
-      folderId,
-      root,
-      startGen: 3,
-      deps: { folderId, handleEvent },
-      loadConfig: async () => ({ paused: false, sweepDirIntervalMs: 0 }),
-      sleep: async () => {},
-    });
-    await resumed.runUntilIdleOrPaused();
+    await sweepGeneration(folderId, root, handleEvent);
     expect(locationsNamed(live.db, 'renamed.dng')[0].asset_id).toBe(sourceId);
     expect(allAssets(live.db)).toHaveLength(1);
-    await expect(fs.stat(removalJournalPath(target))).rejects.toThrow();
-    await assertPixels();
-    await assertSource();
-  }, 30_000);
-
-  it('production discover startup resumes a persisted generation and settles recovery on stop', async () => {
-    using live = await createLiveTestDatabase();
-    const folderId = new ObjectId(insertFolder(live.db, { path: root }));
-    await crash('complete');
-    await frontier.enqueueDirs(folderId, [dirname(target)], 3, false);
-    await writeCheckpoint({
-      folderId: folderId.toHexString(),
-      path: root,
-      sweepGen: 3,
-      lastWalkedAt: 0,
-      inflightIds: [],
-      updatedAt: 0,
-    });
-    await patchDiscoverConfig({ paused: false, sweepDirIntervalMs: 1 });
-    const discover = await startDiscover({ roots: [root] });
-    try {
-      const deadline = Date.now() + 5_000;
-      while (locationsNamed(live.db, 'renamed.dng').length === 0 && Date.now() < deadline)
-        await Bun.sleep(10);
-      expect(locationsNamed(live.db, 'renamed.dng')).toHaveLength(1);
-    } finally {
-      await discover.stop();
-    }
     await expect(fs.stat(removalJournalPath(target))).rejects.toThrow();
     await assertPixels();
     await assertSource();

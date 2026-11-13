@@ -5,12 +5,14 @@ import RawPipeline
 /// original partial XMP remains authoritative for persistence; the numerical
 /// live pair comes from the same Rust resolver as full develop, including V1.
 enum ImportedWhiteBalanceResolver {
-  static func resolve(asset: AssetRef, model: AdjustmentModel) async throws -> AdjustmentModel {
+  static func resolve(
+    asset: AssetRef, model: AdjustmentModel, isRawOverride: Bool? = nil
+  ) async throws -> AdjustmentModel {
     guard let imported = model.partialWhiteBalance, imported.resolvedTarget == nil else {
       return model
     }
     let target: ResolvedWhiteBalance
-    if asset.isRaw {
+    if isRawOverride ?? asset.isRaw {
       target = try await RawProbeStaging.withStagedProbe(asset: asset, model: model) {
         raw, sidecar in
         let xml = try String(contentsOf: sidecar, encoding: .utf8)

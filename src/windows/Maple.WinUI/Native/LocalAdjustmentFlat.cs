@@ -105,6 +105,11 @@ namespace Maple.WinUI.Native
                     slot[6] = KindRadial;
                     slot[7] = r.Invert ? 1f : 0f;
                     break;
+                case BrushMask b:
+                    // Bitmap records resolve the registered R8 plane by id.
+                    slot[2] = b.RasterId;
+                    slot[6] = LocalMaskWire.KIND_BITMAP;
+                    break;
                 default:
                     throw new InvalidOperationException($"unknown mask shape {mask.GetType().Name}");
             }

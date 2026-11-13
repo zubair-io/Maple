@@ -39,7 +39,7 @@ struct RatingFlagsRow: View {
         get: { RatingFlagsRow.muiFlag(for: session?.culling.flag ?? .none) },
         set: { session?.culling.flag = RatingFlagsRow.cullFlag(for: $0) }
       ),
-      disabled: session == nil
+      disabled: session == nil || session?.sidecarLoadFailed == true
     )
     .accessibilityElement(children: .contain)
     .accessibilityIdentifier("info-panel-rating-flags")

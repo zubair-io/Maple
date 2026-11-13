@@ -12,7 +12,8 @@ import type { TranscriptDoc } from '../../db/schema.ts';
 import { loadEnrichmentConfig } from '../../enrichment/enrichment-config.repo.ts';
 import { resolveEnrichmentConfig } from '../../enrichment/enrichment-config.resolve.ts';
 import { assetAbsPath, assetPrimaryFileInfo } from '../../indexer/images.repo.ts';
-import { loadLibraryRoots } from '../../indexer/libraries.cache.ts';
+import { loadLibraryRootsForAsset } from '../../indexer/libraries.cache.ts';
+import { noResolvableLocation } from './no-resolvable-location.ts';
 import { isAudioFilename, isVideoFilename } from '../../indexer/media-types.ts';
 import {
   defineStage,
@@ -103,14 +104,14 @@ async function transcribeMedia(
     // The transcript and the search-stage re-arm go back to the runner rather
     // than being written here, which is what makes them atomic with this
     // stage's own success row. On Mongo they were one `$set` the handler issued
-    // itself — the transcript plus five `stages.meili.*` keys — and it returned
+    // itself — the transcript plus five `stages.search-blob.*` keys — and it returned
     // `{ wrote: true }` precisely because the runner refuses a patch that
     // touches stage bookkeeping. `invalidates` is that same re-arm expressed as
     // something the runner owns, so the handler no longer has to reach around
     // it.
     return {
       patch: [transcriptStatement(image._id.toHexString(), transcript)],
-      invalidates: ['meili', 'embed'],
+      invalidates: ['search-blob', 'embed'],
     };
   } finally {
     await unlink(wavPath).catch(() => {});
@@ -154,8 +155,9 @@ const transcribeStage = defineStage({
     if (!isTranscribableFilename(primary?.filename)) {
       return { skip: 'not-media' };
     }
-    const absolutePath = assetAbsPath(image, await loadLibraryRoots());
-    if (!absolutePath) return { skip: 'no-resolvable-location' };
+    const libs = await loadLibraryRootsForAsset(image);
+    const absolutePath = assetAbsPath(image, libs);
+    if (!absolutePath) return noResolvableLocation(image, libs);
 
     const deps = await dependencies();
     await deps.assertReadable(absolutePath);

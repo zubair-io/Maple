@@ -240,8 +240,8 @@ public enum UploadOutcome: Equatable, Sendable {
 }
 
 /// Explicit intent for `RemoteCatalog.deleteAsset` (#2749) — see that
-/// method's doc comment for why omitting this (legacy dual-mode) is only
-/// correct for the File Provider extension, never a UI-driven call.
+/// method's doc comment for why omitting this (legacy dual-mode) is never
+/// correct for a caller that may hold stale state, Finder included (#4706).
 public enum DeleteAssetIntent: String, Sendable {
   case trash
   case purge
@@ -253,14 +253,34 @@ public enum DeleteAssetIntent: String, Sendable {
 /// a live one) — `state` is the server's own read of that current state
 /// (`"trashed"` or `"live"`), for the caller to refresh against rather than
 /// silently retrying the original intent.
+///
+/// `.keptSurvivingCopy` answers a `.purge` of a photo that still has another
+/// copy outside Trash (#5403/#5419): only the trashed copy went, and the
+/// photo stays in the library at `absPath`. `cleanupPending` means removing
+/// the trashed copy's files is still being retried and will finish shortly.
 public enum DeleteAssetResult: Equatable, Sendable {
   case ok
+  case keptSurvivingCopy(absPath: String?, cleanupPending: Bool)
   case stateMismatch(state: String)
 }
 
 struct DeleteAssetConflictBody: Codable {
   let error: String
   let state: String
+}
+
+/// The 200 body of a purge that kept the photo; every other success is a
+/// bodyless 204.
+struct DeleteAssetKeptBody: Codable {
+  let state: String
+  let absPath: String?
+  let cleanup: String
+
+  enum CodingKeys: String, CodingKey {
+    case state
+    case absPath = "abs_path"
+    case cleanup
+  }
 }
 
 public struct MakeDirResponse: Codable, Equatable, Sendable {
@@ -609,6 +629,19 @@ public actor RemoteCatalog {
   private var etagCache: [String: ETagEntry] = [:]
   private var etagOrder: [String] = []
   private var etagGeneration = 0
+  private var etagCacheBytes = 0
+
+  /// Upper bound on the summed response-body bytes the ETag cache holds,
+  /// or nil for the entry-count cap alone. The File Provider extension
+  /// sets one (#5456): iOS kills it at 20 MB, and 256 cached listing pages
+  /// or thumbnails can exceed that on their own. An entry larger than the
+  /// whole budget is never cached.
+  private let etagCacheByteBudget: Int?
+
+  /// The budget the File Provider extension runs with. It counts JSON
+  /// bytes while the cache holds decoded values, typically two to four
+  /// times larger, so this bounds the resident cost at a few MB.
+  public static let extensionETagCacheByteBudget = 1024 * 1024
 
   /// Maximum number of entries the ETag cache holds. 256 is well above
   /// any realistic single-session enumeration (a typical Finder window
@@ -622,10 +655,12 @@ public actor RemoteCatalog {
   /// Lets `RemoteCatalogETagTests` assert the bound holds under load
   /// without poking at private state via `@testable` reflection.
   internal var _etagCacheCountForTesting: Int { etagCache.count }
+  internal var _etagCacheBytesForTesting: Int { etagCacheBytes }
 
   private struct ETagEntry {
     let etag: String
     let payload: Any
+    let bytes: Int
   }
 
   /// Look up an entry and promote it to MRU on hit. Returns the entry
@@ -640,16 +675,20 @@ public actor RemoteCatalog {
   /// have their payload replaced and are promoted to MRU. When inserting
   /// a new key past the cap, the LRU key is evicted first.
   private func etagCacheSet(_ key: String, _ entry: ETagEntry) {
-    if etagCache[key] != nil {
-      etagCache[key] = entry
-      etagOrderTouch(key)
-      return
+    if let previous = etagCache.removeValue(forKey: key) {
+      etagCacheBytes -= previous.bytes
+      etagOrder.removeAll { $0 == key }
     }
-    if etagCache.count >= Self.etagCacheCap, let lru = etagOrder.first {
+    if let budget = etagCacheByteBudget, entry.bytes > budget { return }
+    while let lru = etagOrder.first,
+      etagCache.count >= Self.etagCacheCap
+        || etagCacheBytes + entry.bytes > (etagCacheByteBudget ?? .max)
+    {
       etagOrder.removeFirst()
-      etagCache.removeValue(forKey: lru)
+      etagCacheBytes -= etagCache.removeValue(forKey: lru)?.bytes ?? 0
     }
     etagCache[key] = entry
+    etagCacheBytes += entry.bytes
     etagOrder.append(key)
   }
 
@@ -666,10 +705,12 @@ public actor RemoteCatalog {
 
   public init(
     http: AuthenticatedHTTPClient, server: URL,
-    downloadURLSession: URLSession? = nil
+    downloadURLSession: URLSession? = nil,
+    etagCacheByteBudget: Int? = nil
   ) {
     self.http = http
     self.server = server
+    self.etagCacheByteBudget = etagCacheByteBudget
     self.addresses = CloudAddressResolver(server: server, httpClient: http)
     // Default download session uses `.ephemeral` so RAW asset bodies are
     // never persisted to URLCache, cookie storage, or credential storage:
@@ -715,6 +756,7 @@ public actor RemoteCatalog {
     etagGeneration += 1
     etagCache.removeAll()
     etagOrder.removeAll()
+    etagCacheBytes = 0
   }
 
   /// Generic helper: send `If-None-Match` when we have a cached entry,
@@ -742,7 +784,7 @@ public actor RemoteCatalog {
     try Self.check2xx(resp, data: data, url: url)
     let value = try decoder.decode(T.self, from: data)
     if generation == etagGeneration, let etag = httpResp?.value(forHTTPHeaderField: "ETag") {
-      etagCacheSet(key, ETagEntry(etag: etag, payload: value))
+      etagCacheSet(key, ETagEntry(etag: etag, payload: value, bytes: data.count))
     }
     return value
   }
@@ -784,16 +826,40 @@ public actor RemoteCatalog {
   /// refresh + one retry.
   public func downloadAsset(assetID: String, to localURL: URL) async throws {
     try Self.validateAssetID(assetID)
-    let req = URLRequest(url: server.appending(path: "/api/assets/\(assetID)/raw"))
+    try await streamDownload(
+      URLRequest(url: server.appending(path: "/api/assets/\(assetID)/raw")), to: localURL)
+  }
+
+  /// Streams an asset's pre-baked thumbnail to `localURL`. The File
+  /// Provider extension uses this instead of `getThumb` so the bytes never
+  /// sit in its memory or its ETag cache (#5456).
+  public func downloadThumb(assetID: String, to localURL: URL) async throws {
+    try Self.validateAssetID(assetID)
+    try await streamDownload(
+      URLRequest(url: server.appending(path: "/api/assets/\(assetID)/thumb")), to: localURL)
+  }
+
+  /// Streams the 1280 px preview at `absPath` to `localURL`; the streaming
+  /// counterpart of `getPreview`, for the same reason as `downloadThumb`.
+  public func downloadPreview(absPath: String, to localURL: URL) async throws {
+    let url = try await addresses.url(route: "preview", absPath: absPath)
+    try await streamDownload(URLRequest(url: url), to: localURL)
+  }
+
+  /// Downloads `request` through `URLSession.download(for:)`, so peak
+  /// memory is the session's transfer buffer rather than the body, and
+  /// moves the result to `localURL`, whose parent directory must exist.
+  private func streamDownload(_ request: URLRequest, to localURL: URL) async throws {
     let session = downloadURLSession
-    let (tmpURL, resp) = try await http.refreshIfNeededAndRetry(request: req) { injected in
+    let (tmpURL, resp) = try await http.refreshIfNeededAndRetry(request: request) { injected in
       try await session.download(for: injected)
     }
-    try Self.check2xx(resp, url: req.url)
-    // download() returns a tmp URL inside NSTemporaryDirectory; move it
-    // into place. The destination's parent directory must exist — the
-    // File Provider extension hands us a tmp dir from
-    // NSFileProviderManager.temporaryDirectoryURL().
+    do {
+      try Self.check2xx(resp, url: request.url)
+    } catch {
+      try? FileManager.default.removeItem(at: tmpURL)
+      throw error
+    }
     let fm = FileManager.default
     if fm.fileExists(atPath: localURL.path) {
       try fm.removeItem(at: localURL)
@@ -954,7 +1020,7 @@ public actor RemoteCatalog {
     }
     try Self.check2xx(resp, data: data, url: req.url)
     if let etag = httpResp?.value(forHTTPHeaderField: "ETag") {
-      etagCacheSet(key, ETagEntry(etag: etag, payload: data))
+      etagCacheSet(key, ETagEntry(etag: etag, payload: data, bytes: data.count))
     }
     return data
   }
@@ -979,7 +1045,7 @@ public actor RemoteCatalog {
     }
     try Self.check2xx(resp, data: data, url: req.url)
     if generation == etagGeneration, let etag = httpResp?.value(forHTTPHeaderField: "ETag") {
-      etagCacheSet(key, ETagEntry(etag: etag, payload: data))
+      etagCacheSet(key, ETagEntry(etag: etag, payload: data, bytes: data.count))
     }
     return data
   }
@@ -1199,17 +1265,7 @@ public actor RemoteCatalog {
       url: server.appending(path: "/api/folders/\(folderID)/file"),
       resolvingAgainstBaseURL: false)!
     comps.queryItems = [.init(name: "path", value: relativePath)]
-    let req = URLRequest(url: comps.url!)
-    let session = downloadURLSession
-    let (tmpURL, resp) = try await http.refreshIfNeededAndRetry(request: req) { injected in
-      try await session.download(for: injected)
-    }
-    try Self.check2xx(resp, url: req.url)
-    let fm = FileManager.default
-    if fm.fileExists(atPath: localURL.path) {
-      try fm.removeItem(at: localURL)
-    }
-    try fm.moveItem(at: tmpURL, to: localURL)
+    try await streamDownload(URLRequest(url: comps.url!), to: localURL)
   }
 
   /// Stat a non-indexed file by its library-relative path. Lets `item(for:)`
@@ -1369,10 +1425,11 @@ public actor RemoteCatalog {
   /// stale copy of — a stale grid listing could silently purge instead of
   /// trash, or a stale Trash panel could "permanently delete" an asset
   /// someone restored, quietly re-trashing a live photo instead. `nil`
-  /// preserves the legacy dual-mode contract byte-for-byte — the File
-  /// Provider extension (`FileProviderExtensionCore.swift`) depends on it
-  /// and cannot be flag-dayed; every UI-driven call (grid trash, Trash
-  /// browser) should pass an explicit `intent`.
+  /// preserves the legacy dual-mode contract byte-for-byte for callers
+  /// that still rely on it; no in-tree caller does any more — the File
+  /// Provider extension passes `.trash` since #4706 (an OS-retried Finder
+  /// delete used to purge), and every UI-driven call (grid trash, Trash
+  /// browser) passes an explicit `intent` too.
   @discardableResult
   public func deleteAsset(assetID: String, intent: DeleteAssetIntent? = nil) async throws
     -> DeleteAssetResult
@@ -1392,7 +1449,10 @@ public actor RemoteCatalog {
       return .stateMismatch(state: body?.state ?? "unknown")
     }
     try Self.check2xx(resp, data: data, url: req.url)
-    return .ok
+    guard status == 200, let kept = try? decoder.decode(DeleteAssetKeptBody.self, from: data),
+      kept.state == "live"
+    else { return .ok }
+    return .keptSurvivingCopy(absPath: kept.absPath, cleanupPending: kept.cleanup == "pending")
   }
 
   /// POST /api/assets/<id>/rename — same-folder single-asset rename
@@ -1439,7 +1499,7 @@ public actor RemoteCatalog {
   /// on-device `CollisionPolicy` and the API's wire strings).
   public func relocateAsset(
     assetID: String, mode: RelocateMode, collision: CollisionPolicy,
-    destinationPath: String, destinationFilename: String? = nil
+    destinationPath: String, destinationFilename: String? = nil, sourceAddress: String? = nil
   ) async throws -> RelocateAssetResult {
     try Self.validateAssetID(assetID)
     var req = URLRequest(url: server.appending(path: "/api/assets/\(assetID)/relocate"))
@@ -1451,6 +1511,7 @@ public actor RemoteCatalog {
       "destination_path": destinationPath,
     ]
     if let destinationFilename { body["destination_filename"] = destinationFilename }
+    if let sourceAddress { body["source_address"] = sourceAddress }
     req.httpBody = try JSONSerialization.data(withJSONObject: body)
     let (data, resp) = try await http.data(for: req)
     let status = (resp as? HTTPURLResponse)?.statusCode ?? -1

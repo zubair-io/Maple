@@ -13,7 +13,8 @@
  * it reaches the pool rather than the installed test handle and cannot run
  * against an in-memory database at all. So the file opens one file-backed
  * database, opens the real pool on the same file, and clears the fixture tables
- * between tests.
+ * between tests. The route leaves a `people_cluster` row for the worker tier,
+ * which `withOperationsRunning` stands in for.
  *
  * The denormalised `PersonDoc.face_count` the Mongo version had to reconcile by
  * hand after every seed is gone: the count is derived from the `faces` rows, so
@@ -32,6 +33,7 @@ import {
   type LiveTestDatabase,
 } from '../src/db/sqlite/test-sqlite.test-helpers.ts';
 import { createPerson } from '../src/people/people.repo.ts';
+import { withOperationsRunning } from '../src/job-runner/operation-runner.test-helpers.ts';
 import { peopleRoutes } from '../src/routes/people.ts';
 import {
   clearPeopleFixtures,
@@ -228,6 +230,9 @@ describe('GET /api/people/:id', () => {
   });
 });
 
+/** The route waits on a `people_cluster` row; this stands in for the worker tier that runs it. */
+const cluster = () => withOperationsRunning(() => post('/api/people/cluster', {}));
+
 describe('POST /api/people/cluster', () => {
   it('assigns close faces to one cluster and creates new for far face', async () => {
     seedFaces([
@@ -235,7 +240,7 @@ describe('POST /api/people/cluster', () => {
       { bbox: { x: 1, y: 0, w: 1, h: 1 }, embedding: nearAxis(0, 0.1) },
       { bbox: { x: 2, y: 0, w: 1, h: 1 }, embedding: nearAxis(50, 0.05) },
     ]);
-    const r = await post('/api/people/cluster', {});
+    const r = await cluster();
     expect(r.status).toBe(200);
     const body = r.body as { assigned: number; new_people: number; scanned: number };
     expect(body.assigned).toBe(3);
@@ -327,8 +332,8 @@ describe('POST /api/people/hide', () => {
     detail = await get(`/api/people/${id}`);
     expect((detail.body as { faces: unknown[] }).faces).toHaveLength(0);
     // Re-running clustering does not pull the hidden face back.
-    const cluster = await post('/api/people/cluster', {});
-    expect((cluster.body as { assigned: number }).assigned).toBe(0);
+    const clustered = await cluster();
+    expect((clustered.body as { assigned: number }).assigned).toBe(0);
     expect(faceState(live.db, asset, 0)).toEqual({ personId: null, hidden: true });
   });
 
@@ -396,7 +401,7 @@ describe('cover_bbox surface', () => {
   it('list response includes cover_bbox once clustering has run', async () => {
     const bbox = { x: 0.3, y: 0.2, w: 0.4, h: 0.5 };
     seedFaces([{ bbox, embedding: nearAxis(70, 0.05) }]);
-    await post('/api/people/cluster', {});
+    await cluster();
     const list = await get('/api/people');
     const rows = list.body as Array<{
       name: string;

@@ -1,0 +1,27 @@
+[
+  {
+    "name": "amaze",
+    "command": [
+      "cargo",
+      "test",
+      "-p",
+      "raw-core",
+      "--lib",
+      "demosaic::amaze"
+    ],
+    "exit_code": 0
+  },
+  {
+    "name": "release",
+    "command": [
+      "cargo",
+      "build",
+      "--release",
+      "-p",
+      "maple-cli",
+      "--features",
+      "stage-dump"
+    ],
+    "exit_code": 0
+  }
+]

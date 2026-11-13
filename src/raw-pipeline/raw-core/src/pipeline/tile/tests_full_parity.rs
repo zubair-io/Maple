@@ -112,6 +112,36 @@ fn cases() -> Vec<Case> {
             max_abs: 0.0,
         },
         Case {
+            name: "dehaze +50 (full-frame proxy haze map)",
+            model: AdjustmentModel {
+                dehaze: 50.0,
+                ..base.clone()
+            },
+            max_abs: 0.0,
+        },
+        Case {
+            name: "dehaze -50 (full-frame proxy haze map)",
+            model: AdjustmentModel {
+                dehaze: -50.0,
+                ..base.clone()
+            },
+            max_abs: 0.0,
+        },
+        Case {
+            name: "per-mask dehaze (the frame's per-layer haze map)",
+            model: AdjustmentModel {
+                local_adjustments: vec![LocalAdjustment {
+                    adjustments: PartialAdjustments {
+                        dehaze: Some(60.0),
+                        ..PartialAdjustments::default()
+                    },
+                    ..radial_layer()
+                }],
+                ..base.clone()
+            },
+            max_abs: 0.0,
+        },
+        Case {
             name: "capture sharpening (computed overlap)",
             model: AdjustmentModel {
                 capture_sharpening_amount: 60.0,
@@ -127,6 +157,7 @@ fn cases() -> Vec<Case> {
                 shadows: 30.0,
                 clarity: 20.0,
                 texture: 20.0,
+                dehaze: 40.0,
                 capture_sharpening_amount: 60.0,
                 capture_sharpening_sigma: 1.5,
                 vignette_amount: -40.0,
@@ -281,6 +312,175 @@ fn tile_vs_full_large_blown_region_matches_full_frame() {
         diff <= 1e-4,
         "tile diverges from the full develop on large blown interiors: max abs diff {diff:.4e}"
     );
+}
+
+#[test]
+fn tile_vs_full_highlights_with_sensor_gain_maps_match_the_same_frame() {
+    use crate::{
+        pipeline::pano::opcodes::{ActiveAreaRect, GainMapOpcode},
+        sensor_gain_maps::{SensorGainMaps, SensorStep},
+    };
+    let mut raw = blown_chart_raw();
+    let maps: Vec<GainMapOpcode> = (0..4)
+        .map(|phase| {
+            let factor = 1. + phase as f32 * 0.03;
+            GainMapOpcode {
+                top: phase / 2,
+                left: phase % 2,
+                bottom: raw.height,
+                right: raw.width,
+                plane: 0,
+                planes: 1,
+                row_pitch: 2,
+                col_pitch: 2,
+                points_v: 2,
+                points_h: 2,
+                spacing_v: 1.,
+                spacing_h: 1.,
+                origin_v: 0.,
+                origin_h: 0.,
+                map_planes: 1,
+                gains: [1.3, 1.7, 2.1, 2.6].map(|g| g * factor).to_vec(),
+            }
+        })
+        .collect();
+    raw.sensor_gain_maps = Some(SensorGainMaps {
+        cfa_period: 2,
+        steps: maps.into_iter().map(SensorStep::Gain).collect(),
+        active_area: ActiveAreaRect::full(raw.width, raw.height),
+    });
+    let model = AdjustmentModel {
+        sharpen_amount: 0.,
+        nr_color: 0.,
+        nr_luminance: 0.,
+        auto_exposure: AutoExposureMode::Off,
+        ..Default::default()
+    };
+    let full = full_rect_lanes(
+        &develop_scene_linear_from_raw_with_quality(&raw, &model, RenderQuality::Full).unwrap(),
+    );
+    let tile = tile_lanes(&raw, &model);
+    let off = full_rect_lanes(
+        &develop_scene_linear_from_raw_with_quality(
+            &raw,
+            &AdjustmentModel {
+                highlight_recovery: HighlightRecoveryMode::Off,
+                ..model
+            },
+            RenderQuality::Full,
+        )
+        .unwrap(),
+    );
+    assert!(max_abs(&full, &off) > MIN_CASE_EFFECT);
+    assert!(max_abs(&full, &tile) <= 1e-4, "{}", max_abs(&full, &tile));
+}
+
+fn lensfun_chart_raw() -> crate::image::RawImage {
+    let mut raw = camera_chart_raw();
+    raw.camera_make = "Canon".into();
+    raw.camera_model = "Canon EOS 5D Mark III".into();
+    raw.focal_length = Some(70.0);
+    raw.aperture = Some(4.0);
+    raw.lens_metadata = crate::lens_profile::LensMetadata {
+        camera_make: Some("Canon".into()),
+        camera_model: Some("Canon EOS 5D Mark III".into()),
+        lens_model: Some("Canon EF 70-200mm f/2.8L IS II USM".into()),
+        focus_m: Some(6.6),
+        active_area: None,
+    };
+    raw
+}
+
+#[test]
+fn tile_vs_full_lensfun_and_lcp_lens_correction_parity() {
+    let raw = lensfun_chart_raw();
+    let base = AdjustmentModel {
+        sharpen_amount: 0.0,
+        nr_color: 0.0,
+        nr_luminance: 0.0,
+        auto_exposure: AutoExposureMode::Off,
+        ..AdjustmentModel::default()
+    };
+    assert!(
+        crate::lens_profile::applies(&raw, &base),
+        "bundled Lensfun profile must auto-match Canon 5DIII + EF 70-200mm f/2.8L IS II USM"
+    );
+    let reach = crate::lens_profile::reach_for_raw(&raw, &base, 1);
+    assert!(reach > 0, "expected positive Lensfun warp reach");
+    let off_model = AdjustmentModel {
+        lens_profile_enable: crate::types::adjustment::LensProfileEnable::Off,
+        ..base.clone()
+    };
+    assert!(
+        overlap::tile_overlap_px(Some(&raw), &base, 0, 1)
+            > overlap::tile_overlap_px(Some(&raw), &off_model, 0, 1),
+        "tile overlap must include Lensfun warp reach"
+    );
+
+    let full_on = full_rect_lanes(
+        &develop_scene_linear_from_raw_with_quality(&raw, &base, RenderQuality::Full)
+            .expect("full develop on"),
+    );
+    let full_off = full_rect_lanes(
+        &develop_scene_linear_from_raw_with_quality(&raw, &off_model, RenderQuality::Full)
+            .expect("full develop off"),
+    );
+    let moved = max_abs(&full_on, &full_off);
+    assert!(
+        moved > MIN_CASE_EFFECT,
+        "Lensfun correction moved image by only {moved:.3e}"
+    );
+    let tile_on = tile_lanes(&raw, &base);
+    let diff = max_abs(&full_on, &tile_on);
+    assert!(
+        diff <= 1e-4,
+        "Lensfun tile diverges from full develop: max abs diff {diff:.4e}"
+    );
+
+    // Spatial stages + Lensfun together, plus Preview half-res quality.
+    let spatial = AdjustmentModel {
+        clarity: 20.0,
+        capture_sharpening_amount: 50.0,
+        capture_sharpening_sigma: 1.4,
+        vignette_amount: -35.0,
+        ..base.clone()
+    };
+    let full_spatial = full_rect_lanes(
+        &develop_scene_linear_from_raw_with_quality(&raw, &spatial, RenderQuality::Full)
+            .expect("full spatial"),
+    );
+    let tile_spatial = tile_lanes(&raw, &spatial);
+    assert!(max_abs(&full_spatial, &tile_spatial) <= 1e-4);
+
+    // Imported LCP profile with distortion + CA + vignetting.
+    let lcp_xml = format!(
+        r#"<x:xmpmeta xmlns:x="adobe:ns:meta/" xmlns:r="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns:p="http://ns.adobe.com/photoshop/1.0/" xmlns:c="{}">
+        <r:RDF><r:Description><p:CameraProfiles><r:Seq><r:li c:Make="Canon" c:Model="Canon EOS 5D Mark III" c:Lens="Canon EF 70-200mm f/2.8L IS II USM"
+          c:CameraRawProfile="True" c:SensorFormatFactor="1" c:FocalLength="70" c:ApertureValue="4" c:FocusDistance="6.6">
+          <c:PerspectiveModel c:Version="2" c:RadialDistortParam1="0.06" c:RadialDistortParam2="-0.02" c:TangentialDistortParam1="0.002">
+            <c:ChromaticGreenModel c:FocalLengthX="2.0" c:FocalLengthY="2.0"/>
+            <c:ChromaticRedGreenModel c:FocalLengthX="2.0" c:FocalLengthY="2.0" c:ScaleFactor="1.0015" c:RadialDistortParam1="0.004"/>
+            <c:ChromaticBlueGreenModel c:FocalLengthX="2.0" c:FocalLengthY="2.0" c:ScaleFactor="0.9985" c:RadialDistortParam1="-0.004"/>
+            <c:VignetteModel c:FocalLengthX="2.0" c:FocalLengthY="2.0" c:VignetteModelParam1="-0.3"/>
+          </c:PerspectiveModel>
+        </r:li></r:Seq></p:CameraProfiles></r:Description></r:RDF></x:xmpmeta>"#,
+        crate::lens_profile::CAMERA_NS
+    );
+    let lcp_ref = crate::lens_profile::register(&lcp_xml).unwrap()["reference"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let lcp_model = AdjustmentModel {
+        lens_profile: lcp_ref,
+        ..base
+    };
+    let full_lcp = full_rect_lanes(
+        &develop_scene_linear_from_raw_with_quality(&raw, &lcp_model, RenderQuality::Full)
+            .expect("full lcp"),
+    );
+    let tile_lcp = tile_lanes(&raw, &lcp_model);
+    assert!(max_abs(&full_lcp, &full_off) > MIN_CASE_EFFECT);
+    assert!(max_abs(&full_lcp, &tile_lcp) <= 1e-4);
 }
 
 /// `AdjustmentModel` with every stage this file exercises turned off — the

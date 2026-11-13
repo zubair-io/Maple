@@ -32,6 +32,7 @@ struct Params {
     midtone: [f32; 4],
     highlight: [f32; 4],
     global: [f32; 4],
+    edges: [f32; 4],
     balance_exp: f32,
     count: u32,
     _pad0: u32,
@@ -43,6 +44,7 @@ const COLOR_GRADE_CHROMA_K: f32 = 0.06;
 const COLOR_GRADE_LUMA_K: f32 = 0.15;
 const SLIDER_EPS: f32 = 1e-3;
 const MIDTONE_ANCHOR_L: f32 = 0.564_622;
+const MIN_ZONE_RAMP_L: f32 = 0.04;
 
 // ── Oklab helpers (duplicated from raw_core::color::oklab, the same
 //    constants the saturation/vibrance oracles carry) ───────────────────────
@@ -124,17 +126,60 @@ fn oklab_to_rec2020(lab: [f32; 3]) -> [f32; 3] {
 /// mirrors `raw_core::stages::color_grade::Wheel`.
 pub type Wheel = [f32; 3];
 
-/// The thirteen slider values, mirroring
+/// The sixteen slider values, mirroring
 /// `raw_core::stages::color_grade::ColorGradeSliders`. Duplicated rather
 /// than imported because raw-core is only a dev-dependency here (the
 /// parity test pins the two definitions together).
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ColorGradeSliders {
     pub shadow: Wheel,
     pub midtone: Wheel,
     pub highlight: Wheel,
     pub global: Wheel,
     pub balance: f32,
+    pub blending: f32,
+    pub shadow_edge: f32,
+    pub highlight_edge: f32,
+}
+
+impl Default for ColorGradeSliders {
+    fn default() -> Self {
+        Self {
+            shadow: [0.0; 3],
+            midtone: [0.0; 3],
+            highlight: [0.0; 3],
+            global: [0.0; 3],
+            balance: 0.0,
+            blending: 100.0,
+            shadow_edge: MIDTONE_ANCHOR_L,
+            highlight_edge: MIDTONE_ANCHOR_L,
+        }
+    }
+}
+
+#[inline]
+fn zone_edges(blending: f32, shadow_edge: f32, highlight_edge: f32) -> [f32; 4] {
+    let (blending, shadow_edge, highlight_edge) = if shadow_edge == 0.0 && highlight_edge == 0.0 {
+        (100.0, MIDTONE_ANCHOR_L, MIDTONE_ANCHOR_L)
+    } else {
+        (blending, shadow_edge, highlight_edge)
+    };
+    let b = (blending / 100.0).clamp(0.0, 1.0);
+    let ls = if (shadow_edge - MIDTONE_ANCHOR_L).abs() < 0.005 {
+        MIDTONE_ANCHOR_L
+    } else {
+        shadow_edge.clamp(0.10, MIDTONE_ANCHOR_L)
+    };
+    let lh = if (highlight_edge - MIDTONE_ANCHOR_L).abs() < 0.005 {
+        MIDTONE_ANCHOR_L
+    } else {
+        highlight_edge.clamp(MIDTONE_ANCHOR_L, 0.90)
+    };
+    let s0 = (1.0 - b) * (ls - MIN_ZONE_RAMP_L).max(0.0);
+    let s1 = ls;
+    let h0 = lh;
+    let h1 = 1.0 - (1.0 - b) * (1.0 - lh - MIN_ZONE_RAMP_L).max(0.0);
+    [s0, s1, h0, h1]
 }
 
 /// `(Δa, Δb, ΔL)` for one wheel at unit weight; `None` at default.
@@ -150,14 +195,16 @@ fn wheel_offset(w: Wheel) -> Option<[f32; 3]> {
 
 /// Hoist the per-render params exactly as
 /// `raw_core::stages::color_grade::color_grade_params` does (same float
-/// sequence): the balance exponent + the four pre-scaled wheel offsets.
-/// Returns `(balance_exp, shadow, midtone, highlight, global)`.
+/// sequence): the balance exponent, the four zone smoothstep edges, + the
+/// four pre-scaled wheel offsets.
+/// Returns `(balance_exp, edges, shadow, midtone, highlight, global)`.
 #[allow(clippy::type_complexity)]
 fn color_grade_params(
     s: &ColorGradeSliders,
-) -> (f32, [f32; 3], [f32; 3], [f32; 3], [f32; 3]) {
+) -> (f32, [f32; 4], [f32; 3], [f32; 3], [f32; 3], [f32; 3]) {
     (
         (-s.balance / 100.0).exp2(),
+        zone_edges(s.blending, s.shadow_edge, s.highlight_edge),
         wheel_offset(s.shadow).unwrap_or([0.0; 3]),
         wheel_offset(s.midtone).unwrap_or([0.0; 3]),
         wheel_offset(s.highlight).unwrap_or([0.0; 3]),
@@ -186,12 +233,12 @@ fn smoothstep(e0: f32, e1: f32, x: f32) -> f32 {
 /// `raw_core::stages::color_grade::apply`. The whole-image identity
 /// short-circuit is the caller's (the chain doesn't enqueue the pass).
 pub fn apply_color_grade(buf: &mut [f32], sliders: &ColorGradeSliders) {
-    let (balance_exp, shadow, midtone, highlight, global) = color_grade_params(sliders);
+    let (balance_exp, edges, shadow, midtone, highlight, global) = color_grade_params(sliders);
     for px in buf.chunks_exact_mut(4) {
         let lab = rec2020_to_oklab([px[0], px[1], px[2]]);
         let lb = lab[0].clamp(0.0, 1.0).powf(balance_exp);
-        let ws = 1.0 - smoothstep(0.0, MIDTONE_ANCHOR_L, lb);
-        let wh = smoothstep(MIDTONE_ANCHOR_L, 1.0, lb);
+        let ws = 1.0 - smoothstep(edges[0], edges[1], lb);
+        let wh = smoothstep(edges[2], edges[3], lb);
         let wm = 1.0 - ws - wh;
         let da = global[0] + ws * shadow[0] + wm * midtone[0] + wh * highlight[0];
         let db = global[1] + ws * shadow[1] + wm * midtone[1] + wh * highlight[1];
@@ -204,7 +251,7 @@ pub fn apply_color_grade(buf: &mut [f32], sliders: &ColorGradeSliders) {
     }
 }
 
-/// A GPU-resident colour-grading stage. Carries the thirteen slider
+/// A GPU-resident colour-grading stage. Carries the sixteen slider
 /// values; a pure point op (no window data needed — tile-safe by
 /// construction).
 pub struct ColorGradePass {
@@ -222,7 +269,8 @@ impl Pass for ColorGradePass {
     ) {
         let (width, height) = dims;
         let pixel_count = width * height;
-        let (balance_exp, shadow, midtone, highlight, global) = color_grade_params(&self.sliders);
+        let (balance_exp, edges, shadow, midtone, highlight, global) =
+            color_grade_params(&self.sliders);
         let lane = |v: [f32; 3]| [v[0], v[1], v[2], 0.0];
 
         let params = Params {
@@ -230,6 +278,7 @@ impl Pass for ColorGradePass {
             midtone: lane(midtone),
             highlight: lane(highlight),
             global: lane(global),
+            edges,
             balance_exp,
             count: pixel_count,
             _pad0: 0,

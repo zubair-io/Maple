@@ -15,9 +15,11 @@ namespace Maple.WinUI
     /// <summary>
     /// Panorama stitching UI (#2583) — a one-off, user-selected action over
     /// the grid multi-selection, run through the maple-cli subprocess (the
-    /// Self-Hosted API's route). The scene-linear 16-bit master PNG lands
-    /// beside the frames for interop; the display output is converted to a
-    /// grid-native JPEG, which the library watcher (#2585) picks up live.
+    /// Self-Hosted API's route). The classical matcher needs no download;
+    /// the opt-in ML matcher provisions its models on first use (#4556).
+    /// The scene-linear 16-bit master PNG lands beside the frames for
+    /// interop; the display output is converted to a grid-native JPEG,
+    /// which the library watcher (#2585) picks up live.
     /// </summary>
     public sealed partial class MainWindow
     {
@@ -50,16 +52,21 @@ namespace Maple.WinUI
                 return;
             }
 
-            var provisioner = new PanoProvisioner(AppSettings.Load());
-            // ~180 MB of hash verification — never on the UI thread.
-            var state = await provisioner.CheckAsync();
-            var panel = new StackPanel { Spacing = 10, Width = 380 };
+            var settings = AppSettings.Load();
+            var provisioner = new PanoProvisioner(settings);
+            var engine = PanoFeatureEngines.FromSetting(settings.PanoUseMlMatcher);
+            // The ML check is ~180 MB of hash verification — never on the UI thread.
+            var state = await provisioner.CheckAsync(engine);
+            var panel = new StackPanel { Spacing = 10, Width = 460 };
             panel.Children.Add(new MuiText
             {
-                Text = $"{frames.Count} frames, stitched in filename order. This runs "
-                     + "the full ML alignment pipeline and can take several minutes.",
+                Text = $"{frames.Count} frames, stitched in filename order with the "
+                     + (engine == PanoFeatureEngine.Ml ? "ML" : "classical")
+                     + " matcher. This can take several minutes.",
                 Variant = MuiTextVariant.Body,
             });
+            var previewPane = new PanoPreviewPane(DispatcherQueue);
+            panel.Children.Add(previewPane.Root);
             var retentionCombo = new ComboBox
             {
                 HorizontalAlignment = HorizontalAlignment.Stretch,
@@ -74,7 +81,7 @@ namespace Maple.WinUI
                 HorizontalAlignment = HorizontalAlignment.Stretch,
                 Header = "Local alignment",
             };
-            alignCombo.Items.Add("Mesh — local warp refinement");
+            alignCombo.Items.Add("Mesh — absorb parallax (rotation and drone survey)");
             alignCombo.Items.Add("Off — global alignment only");
             alignCombo.SelectedIndex = 0;
             panel.Children.Add(alignCombo);
@@ -94,7 +101,7 @@ namespace Maple.WinUI
                 ColorRole = MuiTextColorRole.Muted,
             };
             panel.Children.Add(provisionText);
-            if (!state.IsProvisioned)
+            if (state.NeedsDownload)
             {
                 panel.Children.Add(new MuiText
                 {
@@ -111,29 +118,92 @@ namespace Maple.WinUI
             {
                 Title = "Stitch Panorama",
                 Content = panel,
-                PrimaryButtonText = state.IsProvisioned ? "Stitch" : "Download & Stitch",
+                PrimaryButtonText = state.NeedsDownload ? "Download & create panorama" : "Create panorama",
                 CloseButtonText = "Cancel",
                 DefaultButton = ContentDialogButton.Primary,
                 XamlRoot = (this.Content as FrameworkElement)?.XamlRoot,
             };
-            if (await dialog.ShowAsync() != ContentDialogResult.Primary)
+
+            PanoPreviewOptions SelectedOptions() => new(
+                retentionCombo.SelectedIndex == 1 ? "strict" : "keep",
+                alignCombo.SelectedIndex == 1 ? "off" : "mesh",
+                strategyCombo.SelectedIndex switch
+                {
+                    1 => "rotation",
+                    2 => "tile",
+                    _ => "auto",
+                });
+
+            using var scratch = PanoScratch.Create();
+            var preview = new PanoPreviewSession(scratch,
+                (run, ct) => PanoService.PreviewAsync(
+                    provisioner, frames, run.Files, run.AlignmentIn, run.Options, engine,
+                    line => OnUiThread(() => previewPane.Report(line)), ct),
+                PanoPreviewSession.DefaultDebounce);
+            preview.Started += _ => OnUiThread(previewPane.Started);
+            preview.Succeeded += run => OnUiThread(() => _ = previewPane.ShowAsync(run.Files.PreviewPng));
+            preview.Failed += error => OnUiThread(() => previewPane.Failed(error));
+
+            var provisioned = !state.NeedsDownload;
+            using var provisionCts = new CancellationTokenSource();
+            var provisioning = Task.CompletedTask;
+            async Task ProvisionThenPreviewAsync()
+            {
+                try
+                {
+                    await Task.Run(() => provisioner.ProvisionAsync(
+                        line => OnUiThread(() => previewPane.Report(line)), provisionCts.Token), provisionCts.Token);
+                    provisioned = true;
+                    previewPane.DownloadFinished();
+                    dialog.PrimaryButtonText = "Create panorama";
+                    preview.Request(SelectedOptions());
+                }
+                catch (OperationCanceledException) when (provisionCts.IsCancellationRequested)
+                {
+                    // The dialog closed mid-download; the stitch provisions again if chosen.
+                }
+                catch (Exception ex)
+                {
+                    previewPane.DownloadFailed(ex.Message);
+                }
+            }
+
+            foreach (var combo in new[] { retentionCombo, alignCombo, strategyCombo })
+            {
+                combo.SelectionChanged += (_, _) =>
+                {
+                    if (provisioned)
+                        preview.Request(SelectedOptions());
+                };
+            }
+            if (provisioned)
+                preview.Request(SelectedOptions());
+            else
+                previewPane.OfferDownload(
+                    "The preview needs the ML matcher's models.",
+                    () => provisioning = ProvisionThenPreviewAsync());
+
+            var choice = await dialog.ShowAsync();
+            provisionCts.Cancel();
+            await provisioning;
+            await preview.StopAsync();
+            previewPane.Stop();
+            if (choice != ContentDialogResult.Primary)
                 return;
 
-            var retention = retentionCombo.SelectedIndex == 1 ? "strict" : "keep";
-            var localAlign = alignCombo.SelectedIndex == 1 ? "off" : "mesh";
-            var strategy = strategyCombo.SelectedIndex switch
-            {
-                1 => "rotation",
-                2 => "tile",
-                _ => "auto",
-            };
-            await RunPanoAsync(provisioner, state.IsProvisioned, frames, retention, localAlign, strategy);
+            var options = SelectedOptions();
+            // A download finished inside the dialog leaves nothing to fetch.
+            var stitchState = provisioned && state.NeedsDownload
+                ? state with { Models = true, Ort = true }
+                : state;
+            await RunPanoAsync(provisioner, stitchState, frames,
+                options.Retention, options.LocalAlign, options.Strategy, preview.LatestAlignment);
         }
 
         private async Task RunPanoAsync(
-            PanoProvisioner provisioner, bool provisioned,
+            PanoProvisioner provisioner, PanoProvisionState state,
             System.Collections.Generic.List<string> frames,
-            string retention, string localAlign, string strategy)
+            string retention, string localAlign, string strategy, string? alignmentIn)
         {
             var folder = Path.GetDirectoryName(frames[0])!;
             var stem = Path.GetFileNameWithoutExtension(frames[0]);
@@ -143,36 +213,35 @@ namespace Maple.WinUI
             var jpegPath = Path.Combine(folder, $"{baseName}.jpg");
 
             var cts = new CancellationTokenSource();
-            var statusText = new MuiText
-            {
-                Text = "Preparing…",
-                Variant = MuiTextVariant.Body,
-                Width = 380,
-            };
+            var progressView = new PanoProgressView(DispatcherQueue);
+            progressView.Root.Width = 380;
+            progressView.Start("Preparing…");
             var progressDialog = new ContentDialog
             {
                 Title = "Stitching panorama…",
-                Content = new StackPanel
-                {
-                    Spacing = 10,
-                    Children = { new MuiProgress { ProgressShape = MuiProgressShape.Bar, IsIndeterminate = true }, statusText },
-                },
+                Content = progressView.Root,
                 CloseButtonText = "Cancel",
                 XamlRoot = (this.Content as FrameworkElement)?.XamlRoot,
             };
             progressDialog.CloseButtonClick += (_, _) => cts.Cancel();
             var progressShown = progressDialog.ShowAsync();
-            void Status(string text) => OnUiThread(() => statusText.Text = text);
+            void Status(string text) => OnUiThread(() => progressView.Report(text));
+            string? alignmentStatus = null;
+            void StitchLine(string line)
+            {
+                alignmentStatus = PanoProgressLine.AlignmentStatus(line) ?? alignmentStatus;
+                Status(line);
+            }
 
             try
             {
-                if (!provisioned)
+                if (state.NeedsDownload)
                     await Task.Run(() => provisioner.ProvisionAsync(Status, cts.Token), cts.Token);
 
                 Status($"Stitching {frames.Count} frames…");
                 var result = await Task.Run(() => PanoService.StitchAsync(
                     provisioner, frames, outPath, displayTemp,
-                    retention, localAlign, strategy, Status, cts.Token), cts.Token);
+                    retention, localAlign, strategy, state.Engine, alignmentIn, StitchLine, cts.Token), cts.Token);
 
                 if (result.Ok)
                 {
@@ -187,7 +256,8 @@ namespace Maple.WinUI
                     await ShowMessageAsync("Panorama",
                         $"Stitched {frames.Count} frames.\n\n"
                         + $"Result: {Path.GetFileName(jpegPath)}\n"
-                        + $"Scene-linear master: {Path.GetFileName(outPath)}");
+                        + $"Scene-linear master: {Path.GetFileName(outPath)}"
+                        + AlignmentNote(alignmentIn, alignmentStatus));
                 }
                 else if (result.Error != "cancelled")
                 {
@@ -206,9 +276,19 @@ namespace Maple.WinUI
             }
             finally
             {
+                progressView.Show(string.Empty);
                 try { File.Delete(displayTemp); } catch { /* best effort */ }
             }
         }
+
+        private static string AlignmentNote(string? alignmentIn, string? status) =>
+            (alignmentIn, status) switch
+            {
+                (null, _) => string.Empty,
+                (_, "reused") => "\n\nAlignment reused from the preview, so frames were not matched again.",
+                (_, "stale") => "\n\nThe preview's alignment no longer matched the frames or options, so they were matched again.",
+                _ => string.Empty,
+            };
 
         private static bool IsRawFrame(string path) =>
             Path.GetExtension(path).ToLowerInvariant()

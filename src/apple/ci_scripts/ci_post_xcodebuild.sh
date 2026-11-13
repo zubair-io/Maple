@@ -5,6 +5,11 @@
 
 set -euo pipefail
 
+if [ "${CI_XCODE_CLOUD:-}" = "TRUE" ]; then
+	echo "==> GitHub release signs and notarizes the original Xcode Cloud archive"
+	exit 0
+fi
+
 if [ "${CI_XCODEBUILD_ACTION:-}" != "archive" ] || [ -z "${CI_TAG:-}" ]; then
 	echo "==> Not a tag-triggered archive; skipping direct Mac distribution"
 	exit 0
@@ -48,11 +53,11 @@ esac
 
 required=(
 	CI_DEVELOPER_ID_SIGNED_APP_PATH
-	GITHUB_TOKEN
 	AC_KEY_ID
 	AC_ISSUER_ID
 	AC_PRIVATE_KEY
 )
+if [ -z "${MAC_RELEASE_OUTPUT_DIR:-}" ]; then required+=(GITHUB_TOKEN); fi
 missing=()
 for variable in "${required[@]}"; do
 	if [ -z "${!variable:-}" ]; then
@@ -173,6 +178,13 @@ hdiutil attach "$DMG_PATH" -nobrowse -readonly -mountpoint "$DMG_MOUNT_POINT" >/
 spctl -a -t exec --context context:primary-signature -vv \
 	"$DMG_MOUNT_POINT/Maple.app"
 hdiutil detach "$DMG_MOUNT_POINT" >/dev/null
+
+if [ -n "${MAC_RELEASE_OUTPUT_DIR:-}" ]; then
+	mkdir -p "$MAC_RELEASE_OUTPUT_DIR"
+	cp "$DMG_PATH" "$MAC_RELEASE_OUTPUT_DIR/"
+	echo "==> Verified direct Mac release saved to $MAC_RELEASE_OUTPUT_DIR"
+	exit 0
+fi
 
 echo "==> Uploading $(basename "$DMG_PATH") to the draft GitHub release"
 export GH_TOKEN="$GITHUB_TOKEN"

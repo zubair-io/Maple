@@ -9,7 +9,8 @@
 //!
 //! Forward reference (`view::agx::agx_pixel`):
 //!   inset = INSET·scene → n = max(inset) → sn = sigmoid_curve(n)
-//!   → sig = inset·(sn/n) → out = OUTSET·sig → oklab_gamut_compress(out)
+//!   → ratio scale below common diffuse white, blended low endpoint above it
+//!   → out = OUTSET·sig → oklab_gamut_compress(out)
 //! where `sigmoid_curve(x) = sample_lut(MID_NORM + (log_encode(x) - MID_NORM)·slope)`
 //! and `OUTSET = inv(INSET)`.
 
@@ -72,24 +73,47 @@ fn inv_lut(y: f32) -> f32 {
 /// `whites` must already be resolved with the forward image's frozen anchor;
 /// this inverse must never resolve it again.
 pub fn inverse_agx_pixel(display: [f32; 3], slope: f32, whites: f32) -> [f32; 3] {
-    // 1) Undo the outset matrix (inv(OUTSET) == INSET).
     let sig = matrix_mul(&AGX_INSET_MATRIX, display);
-    // 2) Ratio-preserving forward => max channel of `sig` equals sigmoid(norm).
-    let sn = sig[0].max(sig[1]).max(sig[2]);
-    if sn <= RATIO_FLOOR {
-        return [0.0, 0.0, 0.0];
+    let high_out = sig[0].max(sig[1]).max(sig[2]);
+    if high_out <= RATIO_FLOOR {
+        return [0.0; 3];
     }
-    // 3) Reverse the sigmoid LUT, 4) undo the contrast slope, 5) undo the
-    //    whites remap, 6) undo log encode.
-    let modulated = inv_lut(sn);
-    let remapped = (modulated - MID_NORM) / slope + MID_NORM;
-    let norm = crate::view::agx_whites::unremap_norm(remapped, whites);
-    let log_v = norm * (AGX_MAX_EV - AGX_MIN_EV) + AGX_MIN_EV;
-    let n = AGX_MID_GRAY * log_v.exp2();
-    // 7) Undo the ratio scale: inset = sig · (n / sn).
-    let scale = n / sn;
-    let inset = [sig[0] * scale, sig[1] * scale, sig[2] * scale];
-    // 8) Undo the inset matrix (inv(INSET) == OUTSET).
+    let invert_curve = |y: f32| {
+        let modulated = inv_lut(y);
+        let remapped = (modulated - MID_NORM) / slope + MID_NORM;
+        let norm = crate::view::agx_whites::unremap_norm(remapped, whites);
+        let log_v = norm * (AGX_MAX_EV - AGX_MIN_EV) + AGX_MIN_EV;
+        AGX_MID_GRAY * log_v.exp2()
+    };
+    let hi = invert_curve(high_out);
+    let low_out = sig[0].min(sig[1]).min(sig[2]);
+    let ratio_lo = low_out * hi / high_out;
+    if ratio_lo <= 1.0 {
+        let scale = hi / high_out;
+        return matrix_mul(&AGX_OUTSET_MATRIX, sig.map(|v| v * scale));
+    }
+    let span = high_out - low_out;
+    let inset = if span <= RATIO_FLOOR * high_out {
+        [hi; 3]
+    } else {
+        // Both endpoint maps increase with lo. Their increasing blend weight
+        // adds only nonnegative light, so bisection has a monotone bracket.
+        let mut left = invert_curve(low_out).min(ratio_lo);
+        let mut right = ratio_lo;
+        for _ in 0..24 {
+            let mid = 0.5 * (left + right);
+            let curve = crate::view::agx::neutral_curve(mid, slope, whites);
+            let mapped = crate::view::agx::common_highlight_minimum(mid, hi, high_out, curve);
+            if mapped < low_out {
+                left = mid;
+            } else {
+                right = mid;
+            }
+        }
+        let lo = 0.5 * (left + right);
+        let gain = (hi - lo) / span;
+        sig.map(|v| lo + (v - low_out) * gain)
+    };
     matrix_mul(&AGX_OUTSET_MATRIX, inset)
 }
 

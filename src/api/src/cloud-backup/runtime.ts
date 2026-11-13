@@ -9,6 +9,11 @@ export const backupEngine = new BackupEngine(async (destination) =>
 /** Bounded lifecycle maintenance; asset bytes are transferred only by the stage. */
 export async function maintainBackup(signal?: AbortSignal): Promise<void> {
   signal?.throwIfAborted();
+  const rearmFailure = await backupEngine.rearmParkedConnections(signal).then(
+    () => null,
+    (error: unknown) => ({ error }),
+  );
+  signal?.throwIfAborted();
   await reconcileLifecycle(backupEngine.repo);
   signal?.throwIfAborted();
   const destinations = await backupEngine.repo.destinations();
@@ -16,6 +21,7 @@ export async function maintainBackup(signal?: AbortSignal): Promise<void> {
     signal?.throwIfAborted();
     await drainPurges(backupEngine, destination, signal);
   }
+  if (rearmFailure) throw rearmFailure.error;
   // Indexed file/lifecycle changes rearm their stage transactionally; failed
   // transfers defer to their durable retry. Maintenance must not hash every
   // unchanged original or override a worker's current stage lease.

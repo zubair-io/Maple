@@ -1,0 +1,108 @@
+<mui-settings-row
+  [customSummary]="true"
+  label="Temporal"
+  [open]="expanded()"
+  (openChange)="toggleExpanded()"
+  [showDivider]="false"
+  data-testid="temporal-row"
+>
+  <div class="wrow-summary set-wrow-summary" summary>
+    <span class="wrow-id set-wrow-id">
+      <maple-settings-icon name="wifi" [size]="14" [color]="'var(--s-text-muted)'" />
+      <span class="set-mono">temporal</span>
+    </span>
+    <span class="status-pill set-wrow-status-pill">
+      <span class="status-dot" [style.background]="connection().color"></span>
+      <span class="status-label" data-testid="temporal-status">{{ connection().label }}</span>
+    </span>
+    <span class="wrow-readout set-wrow-readout" data-testid="temporal-summary">{{
+      summary()
+    }}</span>
+    <span class="wrow-spacer set-wrow-spacer"></span>
+  </div>
+
+  <div class="flex flex-col gap-3.5 px-4 pt-1 pb-3">
+    <p class="m-0 text-[12.5px] leading-[1.5] text-[var(--s-text-muted)] max-w-[60ch]">
+      Maple runs its background jobs on a Temporal server, and this is where it finds that server.
+    </p>
+
+    @if (error(); as msg) {
+      <div class="text-[12.5px] text-[var(--s-err)]" data-testid="temporal-error">{{ msg }}</div>
+    }
+
+    @if (loading()) {
+      <p class="text-[12.5px] text-[var(--s-text-muted)]">Loading…</p>
+    } @else if (settings()) {
+      <div class="grid grid-cols-[repeat(auto-fit,minmax(210px,1fr))] gap-4 gap-x-6">
+        <div class="field set-field">
+          <label class="field-label" for="temporal-address-input">Address</label>
+          <mui-input
+            inputId="temporal-address-input"
+            placeholder="127.0.0.1:7233"
+            autocapitalize="off"
+            [spellcheck]="false"
+            data-testid="temporal-address"
+            [readOnly]="!owner()"
+            [value]="address()"
+            (valueChange)="address.set($event)"
+          />
+          <div class="field-hint">Host and port of the Temporal frontend.</div>
+        </div>
+
+        <div class="field set-field">
+          <label class="field-label" for="temporal-namespace-input">Namespace</label>
+          <mui-input
+            inputId="temporal-namespace-input"
+            placeholder="default"
+            autocapitalize="off"
+            [spellcheck]="false"
+            data-testid="temporal-namespace"
+            [readOnly]="!owner()"
+            [value]="namespace()"
+            (valueChange)="namespace.set($event)"
+          />
+        </div>
+      </div>
+
+      <div
+        class="flex flex-wrap items-center gap-2 text-[12.5px]"
+        role="status"
+        data-testid="temporal-connection"
+      >
+        <span
+          class="size-2 flex-none rounded-full"
+          [style.background]="connection().color"
+          aria-hidden="true"
+        ></span>
+        <span class="font-semibold text-[var(--s-text-mid)]">{{ connection().label }}</span>
+        @if (connection().detail; as detail) {
+          <span class="text-[var(--s-text-muted)]" data-testid="temporal-connection-detail">{{
+            detail
+          }}</span>
+        }
+      </div>
+
+      @if (owner()) {
+        <div class="flex items-center justify-end gap-2.5">
+          @if (saved()) {
+            <span class="text-[11.5px] text-[var(--s-ok)]" role="status">Saved.</span>
+          }
+          <mui-button
+            variant="primary"
+            size="sm"
+            data-testid="temporal-save"
+            [disabled]="!canSave()"
+            [loading]="saving()"
+            (pressed)="save()"
+          >
+            Save changes
+          </mui-button>
+        </div>
+      } @else {
+        <p class="m-0 text-[12.5px] text-[var(--s-text-muted)]" data-testid="temporal-owner-only">
+          Only the server owner can change where Maple finds Temporal.
+        </p>
+      }
+    }
+  </div>
+</mui-settings-row>

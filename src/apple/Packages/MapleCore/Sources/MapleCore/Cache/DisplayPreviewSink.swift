@@ -32,15 +32,26 @@ public protocol DisplayPreviewSink: Sendable {
 /// local RAW — the on-disk sibling of how `XMPSidecarStore` writes the `.xmp`.
 public struct LocalDisplayPreviewSink: DisplayPreviewSink {
   let previewURL: URL
+  let assetURL: URL?
   let scopeParentURL: URL?
+  let sidecarStore: XMPSidecarStore?
 
-  public init(previewURL: URL, scopeParentURL: URL? = nil) {
+  public init(
+    previewURL: URL, assetURL: URL? = nil, scopeParentURL: URL? = nil,
+    sidecarStore: XMPSidecarStore? = nil
+  ) {
     self.previewURL = previewURL
+    self.assetURL = assetURL
     self.scopeParentURL = scopeParentURL
+    self.sidecarStore = sidecarStore
   }
 
   public func write(_ bytes: Data) async {
-    writeLocally(bytes)
+    if let sidecarStore {
+      try? await sidecarStore.writeDerivativeIfCurrent { writeLocally(bytes) }
+    } else {
+      writeLocally(bytes)
+    }
   }
 
   /// Keep scope acquisition, filesystem I/O and release in one synchronous operation.
@@ -50,7 +61,9 @@ public struct LocalDisplayPreviewSink: DisplayPreviewSink {
     try? FileManager.default.createDirectory(
       at: previewURL.deletingLastPathComponent(),
       withIntermediateDirectories: true)
-    try? bytes.write(to: previewURL, options: .atomic)
+    if (try? bytes.write(to: previewURL, options: .atomic)) != nil, let assetURL {
+      LocalDerivativeSourceStamp.record(previewURL, for: assetURL)
+    }
   }
 }
 
@@ -59,10 +72,10 @@ public struct LocalDisplayPreviewSink: DisplayPreviewSink {
 /// #2017) — the cloud sibling of `CloudSidecarStore`'s XMP `PUT`. The server
 /// overwrites its own copy of the same canonical `<filename>.avif`.
 public struct CloudDisplayPreviewSink: DisplayPreviewSink {
-  let server: URL
+  public let server: URL
   /// The asset's original absolute path ON THE SERVER (e.g. `/lib/Photos/…
   /// /IMG_1234.CR2`), the same value `CloudSource` derives from the asset id.
-  let assetPath: String
+  public let assetPath: String
   let httpClient: AuthenticatedHTTPClient
 
   public init(server: URL, assetPath: String, httpClient: AuthenticatedHTTPClient) {
@@ -95,8 +108,6 @@ public struct CloudDisplayPreviewSink: DisplayPreviewSink {
     var req = URLRequest(url: url)
     req.httpMethod = "PUT"
     req.setValue("image/avif", forHTTPHeaderField: "Content-Type")
-    req.setValue(
-      String(AdjustmentModel.pipelineOutputVersion), forHTTPHeaderField: "X-Maple-Pipeline-Version")
     req.httpBody = bytes
     return req
   }

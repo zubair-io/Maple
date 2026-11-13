@@ -1,7 +1,7 @@
 /**
  * Accessor for the `imports` table (ticket #742).
  *
- * The `imports` row IS the work queue — claim and lease live on it — so this
+ * The `imports` row IS the work queue — Temporal is only its schedule — so this
  * mirrors `job-runner/jobs.repo.ts` in shape as well as in purpose: a thin typed
  * surface with no business logic, so the routes, the worker and the tests share
  * one set of names and cannot drift on them.
@@ -25,16 +25,20 @@
 
 export {
   assetExistsForHash,
+  cancelUnfinishedImport,
   claimImport,
   completeImport,
   createImport,
   failImport,
   getImport,
   getImportFiles,
+  heldImportIds,
+  ImportTakenOver,
   isImportCancelRequested,
   listImports,
   markImportCancelled,
-  renewImportLease,
+  markImportDispatched,
+  nextImportId,
   requestImportCancel,
   setImportFiles,
   updateImportProgress,

@@ -56,7 +56,7 @@ func freshHarness(
 }
 
 /// Convenience: a sequence stub for the standard two-request happy path
-/// (ingest → 200+JSON, sidecar → 200 empty).
+/// (ingest → 200+JSON, sidecar → 200 naming the stored sidecar).
 func ingestAndSidecarStub(mapleId: String = "hash-P1",
                           relPath: String = "2024/03/15/IMG.heic") -> StubURLProtocol.Stub {
     .sequence([
@@ -101,6 +101,7 @@ actor RenderedAssetReader: AssetReader {
         return AssetReadResult(
             originalBytes: Data(count: 256),
             renderedBytes: Data(count: 64),
+            renderedFilenameExtension: "jpeg",
             sidecar: PayloadAssembler.SidecarInput(
                 phassetLocalId: phassetLocalId,
                 deviceId: "d",
@@ -133,6 +134,47 @@ actor LivePhotoAssetReader: AssetReader {
                 originalFilename: "IMG.heic",
                 mtime: 0),
             mapleId: "hash-\(phassetLocalId)")
+    }
+}
+
+/// Defers a rendered twin and a Live Photo .mov past the primary read, the way
+/// `PhotoKitAssetReader` does. The first `failingReads` companion reads, of
+/// any kind, throw, as an interrupted iCloud download would.
+actor DeferredCompanionAssetReader: AssetReader {
+    private var failuresLeft: Int
+    private(set) var reads: [CompanionKind: Int] = [:]
+
+    init(failingReads: Int) {
+        failuresLeft = failingReads
+    }
+
+    func read(phassetLocalId: String) async throws -> AssetReadResult {
+        AssetReadResult(
+            originalBytes: Data(count: 256),
+            renderedBytes: nil,
+            renderedFilenameExtension: "jpeg",
+            liveVideoFilename: "IMG.mov",
+            sidecar: PayloadAssembler.SidecarInput(
+                phassetLocalId: phassetLocalId,
+                deviceId: "d",
+                captureDate: Date(timeIntervalSince1970: 1_700_000_000),
+                latitude: nil, longitude: nil,
+                favorite: false, caption: nil,
+                keywords: [], tags: [],
+                livePhotoCompanion: "IMG.mov", burstStackId: nil,
+                originalFilename: "IMG.heic",
+                mtime: 0),
+            mapleId: "hash-\(phassetLocalId)",
+            deferredCompanions: [.rendered, .liveVideo])
+    }
+
+    func readCompanion(_ kind: CompanionKind, phassetLocalId: String) async throws -> Data? {
+        reads[kind, default: 0] += 1
+        guard failuresLeft == 0 else {
+            failuresLeft -= 1
+            throw URLError(.networkConnectionLost)
+        }
+        return Data(count: kind == .rendered ? 64 : 128)
     }
 }
 

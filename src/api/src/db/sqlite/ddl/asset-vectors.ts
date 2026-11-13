@@ -66,7 +66,7 @@ const RESET_SET = `version = 0, attempts = 0, last_error = NULL, processed_at = 
          next_attempt_at = NULL, claim_token = NULL`;
 
 function rearmAssetStages(assetIdExpr: string): string {
-  return ['meili', 'embed']
+  return ['search-blob', 'embed']
     .map(
       (
         stage,
@@ -78,7 +78,7 @@ function rearmAssetStages(assetIdExpr: string): string {
 }
 
 function rearmPersonAssetStages(personIdExpr: string): string {
-  return ['meili', 'embed']
+  return ['search-blob', 'embed']
     .map(
       (
         stage,
@@ -91,8 +91,8 @@ function rearmPersonAssetStages(personIdExpr: string): string {
 
 /**
  * The searchable text names the people on an asset, so every change to which person a face
- * belongs to, or to a person's indexable identity, re-queues `meili` and `embed` for the affected
- * assets. Triggers cover every writer (face detect, clustering, assign, hide, merge, purge,
+ * belongs to, or to a person's indexable identity, re-queues `search-blob` and `embed` for the
+ * affected assets. Triggers cover every writer (face detect, clustering, assign, hide, merge, purge,
  * rename, visibility) instead of each path remembering to. Unrelated columns (a face's bbox, a
  * person's cover) re-queue nothing.
  */
@@ -125,4 +125,48 @@ END;
 
 export const STAGE_CLAIM_TOKEN_DDL = `
 ALTER TABLE stage_state ADD COLUMN claim_token TEXT;
+`;
+
+const ISO_NOW = `strftime('%Y-%m-%dT%H:%M:%fZ', 'now')`;
+
+// Strictly later than the row's previous stamp: the child skips an (id, stamp) pair it already
+// applied, so two writes in one millisecond must not share a stamp.
+const NEXT_STAMP = `CASE WHEN text_changed_at IS NULL OR text_changed_at < ${ISO_NOW} THEN ${ISO_NOW}
+  ELSE strftime('%Y-%m-%dT%H:%M:%fZ', unixepoch(text_changed_at, 'subsec') + 0.001, 'unixepoch') END`;
+
+function stampVectorText(assetIdExpr: string): string {
+  return `UPDATE asset_vectors SET text_changed_at = ${NEXT_STAMP}
+   WHERE maple_id = (SELECT maple_id FROM assets WHERE id = ${assetIdExpr});`;
+}
+
+/**
+ * The search child indexes each vector's `search_blob` beside its template text (#4512), and a
+ * blob can change without the template changing (a new vision tag), so the `embed` stage's
+ * `embedded_at` does not cover it. Every write to `asset_search` — the `search-blob` stage, a
+ * description edit, a blob emptied into a delete — stamps `text_changed_at` on the asset's vector
+ * row, and the child polls that stamp the way it polls `embedded_at`. An asset with no vector yet
+ * has nothing to stamp; its blob is read when the vector arrives. Rewriting an identical blob
+ * stamps nothing.
+ */
+export const VECTOR_TEXT_CHANGED_DDL = `
+ALTER TABLE asset_vectors ADD COLUMN text_changed_at TEXT;
+
+CREATE INDEX asset_vectors_text_poll ON asset_vectors (model, text_changed_at, maple_id, dims)
+WHERE text_changed_at IS NOT NULL;
+
+CREATE TRIGGER asset_search_text_inserted AFTER INSERT ON asset_search
+BEGIN
+  ${stampVectorText('NEW.asset_id')}
+END;
+
+CREATE TRIGGER asset_search_text_updated AFTER UPDATE OF search_blob ON asset_search
+WHEN OLD.search_blob IS NOT NEW.search_blob
+BEGIN
+  ${stampVectorText('NEW.asset_id')}
+END;
+
+CREATE TRIGGER asset_search_text_deleted AFTER DELETE ON asset_search
+BEGIN
+  ${stampVectorText('OLD.asset_id')}
+END;
 `;

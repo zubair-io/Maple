@@ -136,7 +136,7 @@ namespace Maple.WinUI.Services.Xmp
         }
 
         /// <summary>Adobe's boolean spellings, case-insensitive; null for anything else.</summary>
-        private static bool? XmpBool(string? raw) => raw?.Trim().ToLowerInvariant() switch
+        internal static bool? XmpBool(string? raw) => raw?.Trim().ToLowerInvariant() switch
         {
             "1" or "true" or "on" => true,
             "0" or "false" or "off" => false,
@@ -209,7 +209,7 @@ namespace Maple.WinUI.Services.Xmp
             };
         }
 
-        private static ColorRangeRefinement? ParseRange(XElement description)
+        public static ColorRangeRefinement? ParseRange(XElement description)
         {
             if (Attr(description, "papp:RangeKind") != "Color") return null;
             double? Read(string key, double fallback) =>

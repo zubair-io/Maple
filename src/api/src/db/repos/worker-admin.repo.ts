@@ -200,7 +200,7 @@ async function resolvePaths(
 }
 
 /**
- * Lift a stage's dead-letter flags so its poll loop picks the assets up again.
+ * Lift a stage's dead-letter flags so its next slice picks the assets up again.
  *
  * Returns how many rows were re-queued. `next_attempt_at` is cleared too, which
  * the Mongo version could not express — there, "Retry dead" reset `dead` and

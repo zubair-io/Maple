@@ -20,6 +20,23 @@ import Foundation
 extension EditSession {
   // MARK: - Preview cache persistence
 
+  /// A render may finish after another application has replaced the XMP.
+  /// Do not stamp its pixels with that newer sidecar's cache revision.
+  func canPublishDerivedPixels() async -> Bool {
+    guard !sidecarWritesDisabled else { return false }
+    guard let localStore = sidecarStore as? XMPSidecarStore else { return true }
+    do {
+      try await localStore.requireObservedRevisionCurrent()
+      return !sidecarWritesDisabled
+    } catch {
+      recordSidecarError(error)
+      if let conflict = error as? XMPStoreError, case .externalConflict = conflict {
+        sidecarWritesDisabled = true
+      }
+      return false
+    }
+  }
+
   /// Snapshot the current `renderedPreview` into `RenderedPreviewCache`
   /// so a future cold open of this asset can paint pixels instantly.
   /// Called from both the refine path (after refine publishes) and the
@@ -45,7 +62,8 @@ extension EditSession {
   /// disk for a write that must never happen.
   @discardableResult
   func persistCurrentPreviewToCache() -> Bool {
-    guard hasSettledCPUAutoProfile, previewIsFullRender,
+    guard !sidecarWritesDisabled,
+      previewIsFullRender,
       !isFullQualityDecoding,
       let url = asset.primaryURL,
       let preview = renderedPreview
@@ -54,6 +72,7 @@ extension EditSession {
     let capturedWidth = Int(max(previewSize.width, 1))
     let capturedSidecar = asset.sidecarURL
     Task.detached(priority: .utility) {
+      guard await self.canPublishDerivedPixels() else { return }
       await RenderedPreviewCache.shared.storePreview(
         capturedImage, for: url, screenWidth: capturedWidth, sidecarURL: capturedSidecar
       )
@@ -90,14 +109,13 @@ extension EditSession {
   /// if the decoded cache was also dropped, a re-decode) on next visit,
   /// not correctness.
   public func releaseTransientMemory() async {
-    latestRenderSchedule?.cancel()
-    await renderActor.cancelAll()
-    await nativeAutoProfile.cancelAndWait()
     await renderActor.invalidate()
     // #1881 — the on-screen preview (if any) now predates this eviction,
     // so a refine-skip persist must not write these stale pixels under a
-    // fresh cache key later.
-    previewIsFullRender = false
+    // fresh cache key later. Only the persist half moves: the frame stays
+    // on glass, so the canvas readiness (#4496) must not regress to the
+    // seed thumbnail on the next foreground.
+    previewOutlivedDecodeCache = true
     await gpuLiveDriver?.closeSession()
   }
 
@@ -144,5 +162,12 @@ extension EditSession {
       let mtime = attrs[.modificationDate] as? Date
     else { return nil }
     return mtime
+  }
+
+  /// The model the decoded cache keys on (#4715, #4961): the live model once
+  /// the sidecar has loaded. Before that the live model is only constructor
+  /// defaults, so every decode reads the sidecar on disk instead of baking them.
+  func decodeKey(_ model: AdjustmentModel) -> AdjustmentModel? {
+    hasLoadedSidecar ? model : nil
   }
 }

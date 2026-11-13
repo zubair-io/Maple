@@ -385,7 +385,7 @@ describe('collection coverage', () => {
         }>
       ).map((row) => row.name),
     );
-    // The nine that had no table when this schema was first reviewed.
+    // The ones that had no table when this schema was first reviewed.
     for (const table of [
       'app_settings',
       'generated_searches',
@@ -393,9 +393,6 @@ describe('collection coverage', () => {
       'video_geo_backfill_audit',
       'indexer_checkpoints',
       'managed_certificates',
-      'meilisearch_backfill_state',
-      'meilisearch_backfill_leases',
-      'meilisearch_backfill_failures',
     ]) {
       expect(tables).toContain(table);
     }

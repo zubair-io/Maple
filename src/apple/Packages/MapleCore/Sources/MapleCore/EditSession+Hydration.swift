@@ -39,8 +39,6 @@ extension EditSession {
     guard !hasLoadedSidecar else { return }
     // Asset/profile changes own Auto-fit invalidation. Unchanged hydration
     // schedules no replacement frame, so it must retain the achieved outcome.
-    let startingModel = model
-    let startingCulling = culling
     let startingTransaction = transactions.nextID
     // (1) As-shot white balance — needed by Browse so the WB chip
     // shows the correct value without opening the editor. CIRAWFilter
@@ -86,26 +84,25 @@ extension EditSession {
     var loadedCulling: CullingState? = nil
     if let store = sidecarStore {
       do {
-        if let (m, c) = try await store.loadIfPresent() {
+        if let (m, c) = try await Self.readSidecar(from: store) {
           loadedModel = m
           loadedCulling = c
         }
       } catch {
-        // A failed Cloud read is not an absent sidecar (#3357).
+        // A failed Cloud read is not an absent sidecar (#3357). Nothing is
+        // persisted until a later load succeeds (#4708) — unless an
+        // overlapping load already did, in which case this failure is stale.
+        // A load abandoned by its own caller is not a failure either; the
+        // next load retries it.
+        guard !hasLoadedSidecar, !Task.isCancelled else { return }
         sidecarError = error
+        sidecarLoadFailed = true
         return
       }
     }
 
-    // An edit or another completed load owns the current state. In particular,
-    // a confirmed batch paste must not be overwritten by a late browse hydrate.
+    // A concurrent load (e.g. a confirmed batch paste) already owns the state.
     guard !hasLoadedSidecar else { return }
-    guard model == startingModel, culling == startingCulling,
-      transactions.nextID == startingTransaction
-    else {
-      hasLoadedSidecar = true
-      return
-    }
 
     // Seed only missing WB components; explicitly authored values win.
     let seeded = Self.initialModel(
@@ -122,9 +119,7 @@ extension EditSession {
       wbResolved = try await ImportedWhiteBalanceResolver.resolve(asset: asset, model: seeded)
       partialWhiteBalanceImportError = nil
     } catch {
-      guard !Task.isCancelled, model == startingModel,
-        transactions.nextID == startingTransaction
-      else { return }
+      guard !Task.isCancelled else { return }
       partialWhiteBalanceImportError = error
       renderError = error
       // Preserve every parsed field for unrelated edits; block unresolved live pixels.
@@ -140,34 +135,54 @@ extension EditSession {
       registeredRasterIds.forEach(MaskRasterRegistry.release)
       return
     }
-    guard model == startingModel, culling == startingCulling,
-      transactions.nextID == startingTransaction
-    else {
-      registeredRasterIds.forEach(MaskRasterRegistry.release)
-      hasLoadedSidecar = true
-      return
-    }
     // Publish completion only once the fully restored model is ready. Batch
     // transfers that arrive during raster restoration must still be able to
     // hydrate the persisted fields they are not replacing.
     hasLoadedSidecar = true
+    sidecarLoadFailed = false
+    sidecarError = nil
 
+    // The saved sidecar wins over anything edited before it loaded (#4708):
+    // develop edits made on unloaded defaults are dropped with their undo
+    // entries, while early culling changes merge field by field.
+    if transactions.nextID != startingTransaction || !transactions.undoStack.isEmpty {
+      transactions = EditTransactionRing(nextID: transactions.nextID &+ 1)
+      lastCommittedTransaction = nil
+    }
+    let earlyCulling = queuedCullingPatch
+    queuedCullingPatch = nil
+    let savedCulling = loadedCulling ?? culling
     let previousModel = model
     isHydratingInitialState = true
-    if let loadedCulling {
-      culling = loadedCulling
-    }
+    culling = earlyCulling?.applied(to: savedCulling) ?? savedCulling
     originalModel = base
     model = base
     isHydratingInitialState = false
+    if earlyCulling != nil, culling != loadedCulling {
+      scheduleSidecarUpdate(model: model, culling: culling)
+    }
 
     // Remember each unauthored component's placeholder so a late decode
     // can refine it. Authored components have no seed and remain untouched.
     wbSeedTemperature = base.usesAsShotTemperature ? base.temperature : nil
     wbSeedTint = base.usesAsShotTint ? base.tint : nil
 
-    if renderRequested, model != previousModel {
-      _scheduleRender(phase: .fast)
+    if renderRequested {
+      // The editor appeared before the sidecar loaded (#5905): rebuild Undo now.
+      restoreUndoHistory()
+      if model != previousModel { _scheduleRender(phase: .fast) }
+    }
+  }
+
+  /// A read cancelled by something other than this caller (a request
+  /// cancelled under it) is retried once before it pauses editing.
+  private static func readSidecar(from store: any SidecarStoreProtocol) async throws
+    -> (AdjustmentModel, CullingState)?
+  {
+    do {
+      return try await store.loadIfPresent()
+    } catch let error where error.isCancellation && !Task.isCancelled {
+      return try await store.loadIfPresent()
     }
   }
 
@@ -198,14 +213,25 @@ extension EditSession {
   /// cheap fast re-render is scheduled instead so the canvas converges
   /// on the frame-correct rendering.
   ///
-  /// Idempotent (guards on frame equality); no-op for frame-less decodes
-  /// and non-RAW assets — those keep today's behaviour end to end.
+  /// Idempotent on the as-shot pair; a no-op for non-RAW assets. A capture
+  /// decode with no slider frame (`RawlerFallback`, lossy LinearRaw) adopts
+  /// (6500 K, 0): its creative stage applies the slider pair as an absolute
+  /// post-DCP white balance, and that pair is the develop's identity.
   func adoptDecodedWbFrame(_ frame: WbSliderFrame?) {
-    guard let frame, frame.isPresent, asset.isRaw else { return }
-    guard wbSliderFrame != frame else { return }
+    guard let frame, asset.isRaw, frame.isPresent || frame.creative != nil else { return }
+    // Every decode carries its own creative stage; only the as-shot pair
+    // drives adoption. A frameless (uncalibrated) decode has no as-shot pair
+    // of its own, so the model and its seed stay as hydrated.
+    let previous = wbSliderFrame
     wbSliderFrame = frame
+    guard frame.isPresent else { return }
     let newCCT = Double(frame.sceneCCT)
     let newTint = Double(frame.asShotTint)
+    let unchanged =
+      previous.map {
+        $0.isPresent && Double($0.sceneCCT) == newCCT && Double($0.asShotTint) == newTint
+      } ?? false
+    guard !unchanged else { return }
     let oldCCT = wbSeedTemperature
     let oldTint = wbSeedTint
     asShotCCT = newCCT
@@ -278,6 +304,7 @@ extension EditSession {
   /// `decodedImage` — the guard above returns early on revisit.
   public func ensureRenderStarted() {
     renderRequested = true
+    restoreUndoHistory()
     // URL-backed metadata can block on RAW parsing or File Provider I/O
     // too. Start it asynchronously for every source so click handling and
     // the immediate thumbnail paint never wait for that work.
@@ -378,6 +405,8 @@ extension EditSession {
     let openProfile = self.model.profile
     // #1387: mirror the LIVE autoExposure too — same staleness story.
     let openAutoExposure = self.model.autoExposure
+    // #4961: the cold decode bakes the same key every render compares.
+    let openLiveModel = decodeKey(self.renderModel)
     // Cold open is a display decode, not export prep. Always give the
     // shared decoder a bounded target: the physical viewport when mounted,
     // or the pipeline's ~2 MP fallback before layout. Omitting this target
@@ -393,6 +422,7 @@ extension EditSession {
         target: openTarget,
         profile: openProfile,
         autoExposure: openAutoExposure,
+        liveModel: openLiveModel,
         normalize: { [weak self] image, asset in
           guard let self else { return image }
           return await MainActor.run {
@@ -473,9 +503,14 @@ extension EditSession {
   /// the thread is reused before the outer pool pops.
   nonisolated static func readMapleSidecarPreview(from url: URL) -> CIImage? {
     return autoreleasepool {
-      let preview = MapleSidecarPaths.previewURL(for: url)
-      guard FileManager.default.fileExists(atPath: preview.path),
-        let data = try? Data(contentsOf: preview)
+      guard
+        LocalDerivativeSourceStamp.isFresh(
+          MapleSidecarPaths.previewURL(for: url), for: url)
+      else { return nil }
+      guard
+        let data = MapleSidecarPaths.readDerivative(
+          at: MapleSidecarPaths.previewURL(for: url),
+          legacy: MapleSidecarPaths.legacyPreviewURL(for: url))
       else { return nil }
       return CIImage(data: data)
     }

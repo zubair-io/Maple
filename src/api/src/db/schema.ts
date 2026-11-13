@@ -611,9 +611,6 @@ export interface AssetDoc {
    * worker's `complete()` so the value stays consistent without a
    * separate write. The full-text search index (FTS5) lives on this field. */
   search_blob?: string;
-  /** Fingerprint of the semantic embedder configuration whose Meilisearch
-   * task completed for this asset. Used for exact live-vector coverage. */
-  semantic_vector_fingerprint?: string;
   /** Per-device link from Apple Photos. Multiple entries when the same
    * content has been observed on more than one device. See
    * `.archived-plans/specs/2026-05-09-photokit-backup-design.md` §16. */
@@ -624,6 +621,9 @@ export interface AssetDoc {
   /** Relative path (under the library root) of the Apple-rendered companion,
    * when Apple Photos held edits at backup time. `null` for fresh originals. */
   apple_rendered_path?: string | null;
+  /** Relative path of a Live Photo's `.mov` twin, kept apart from the
+   * rendered edit so neither replaces the other (#5243). */
+  apple_live_video_path?: string | null;
   /**
    * Backup folder-layout generation this asset has been placed into, stamped by
    * the refile-backups cleanup (`workers/migration/refile-backups.ts`) as its
@@ -672,7 +672,7 @@ export interface AssetDoc {
    * Video screenshot-flag clear generation
    * (`workers/migration/clear-video-screenshot-flags.ts`). Stamped once that
    * migration has cleared a video's `is_screenshot` / `vision.is_screenshot`
-   * and re-armed its describe + meili stages (#2325); its `{ $ne: N }`
+   * and re-armed its describe + search stages (#2325); its `{ $ne: N }`
    * selector re-sweeps videos once per bump. Without this marker the
    * candidate set would refill as soon as a re-run re-flagged a row, and the
    * migration would never reach "done."
@@ -904,33 +904,6 @@ export interface DerivativeAuditStageMark {
 export type AssetWithId = WithId<AssetDoc>;
 
 // ---------------------------------------------------------------------------
-// Stage handler registry
-// ---------------------------------------------------------------------------
-
-/**
- * Per-stage handler routing. One row per stage that is allowed to be routed
- * to an external implementation. Today only `ai` is wired into the pipeline
- * (see `pipeline.runAi`); other stages ignore any rows that target them.
- *
- * `impl` is `"builtin"` to use the in-process default, or `"http"` to dispatch
- * the contract payload to an external endpoint (see
- * `src/api/src/handler-registry/`). All fields are snake_case to match the
- * rest of the schema.
- */
-export interface StageHandlerDoc {
-  /** Stage name. Today only "ai" is honoured. */
-  stage: string;
-  /** Implementation kind. */
-  impl: 'builtin' | 'http';
-  /** Required when impl === "http". POSTed the contract input. */
-  url?: string;
-  /** Override transport timeout. Defaults to 30 000 ms when absent. */
-  timeout_ms?: number;
-  /** When false, treated as if the row did not exist. */
-  enabled: boolean;
-}
-
-// ---------------------------------------------------------------------------
 // Enrichment subdocument — `docs/indexer-enrichment.md` §2
 // ---------------------------------------------------------------------------
 
@@ -1130,7 +1103,7 @@ export interface PersonDoc {
    * An excluded person's photos are dropped from every non-file listing
    * API UNCONDITIONALLY (search results, timeline buckets, facets, map
    * clusters — no opt-in flag, unlike `excludeHiddenPeople`), their name
-   * is dropped from the Meili index, and the person appears in no people
+   * is dropped from the search text, and the person appears in no people
    * listing except the recovery list (`GET /api/people/excluded`). Direct
    * file browsing (folder contents) is deliberately unaffected. Faces stay
    * assigned and the row stays a clustering seed, same as `hidden`.
@@ -1211,21 +1184,27 @@ export function normaliseEnrichment(raw: Partial<Enrichment> | undefined | null)
 }
 
 // ---------------------------------------------------------------------------
-// JobRunner — sibling subsystem to the indexer pipeline for user-triggered
-// long-running work (export, batch reprocess, …). See
-// `docs/workers-architecture.md` §9, §11. Persisted job documents with
-// progress reporting, atomic claim-and-lease (mirrors the geocode worker),
-// and cooperative cancellation.
+// Jobs — user-triggered long-running work (export, batch reprocess, …) and
+// operator one-shots. The row is the record; Temporal runs it (see
+// `docs/temporal.md`). Progress reporting, a per-attempt claim fence and
+// cooperative cancellation.
 // ---------------------------------------------------------------------------
+
+/** Operator one-shots: run on their own lane (`maple-operations`). One reconcile
+ * and one scan per folder are active at a time; a clustering request queues
+ * behind a running pass. */
+export type OperationKind = 'mirror_reconcile' | 'people_cluster' | 'folder_scan';
 
 /** Job kinds the runner knows how to dispatch. Add new kinds by extending
  * this union and registering a handler in `job-runner/handlers/index.ts`. */
 export type JobKind =
   | 'batch_jpeg_export'
   | 'pano_stitch'
+  | 'pano_preview'
   | 'batch_adjustment_sync'
   | 'batch_recipe_export'
-  | 'cloud_backup_restore';
+  | 'cloud_backup_restore'
+  | OperationKind;
 
 /** Lifecycle: queued → running → (done | failed | cancelled).
  * `cancelled` is set when a running job observes `cancel_requested` between
@@ -1248,11 +1227,9 @@ export interface JobDoc {
   result: Record<string, unknown> | null;
   /** Last error message when status === "failed". */
   error: string | null;
-  /** Worker id holding the claim; null when available. */
+  /** The activity attempt running the job; `temporal` while it is queued in
+   * Temporal; null before it is relayed and once it has finished. */
   locked_by: string | null;
-  /** Lease expiry (ISO timestamp). A crashed worker's claim auto-releases
-   * once `now() > lease_expires_at` so a sibling instance can re-claim. */
-  lease_expires_at: string | null;
   /** Cancellation flag. Routes flip this; the handler observes it between
    * progress steps and exits cleanly. */
   cancel_requested: boolean;
@@ -1266,8 +1243,8 @@ export type JobWithId = WithId<JobDoc>;
 // Imports (ticket #742)
 //
 // Copy a server-local folder into a registered Library, laid out as
-// `<LibRoot>/<YEAR>/<MM-or-label>/<filename>`. The `imports` collection IS
-// the work queue — claim/lease fields live on the doc, mirroring `JobDoc`.
+// `<LibRoot>/<YEAR>/<MM-or-label>/<filename>`. The `imports` row is the
+// record and Temporal runs it, with the same claim fence as `JobDoc`.
 // See `docs/plans/2026-05-31-imports-feature.md`.
 // ---------------------------------------------------------------------------
 
@@ -1329,10 +1306,9 @@ export interface ImportDoc {
   progress: { current: number; total: number };
   counts: { copied: number; skipped: number; failed: number };
   error: string | null;
-  /** Worker id holding the claim; null when available. */
+  /** The activity attempt running the import; `temporal` while it is queued in
+   * Temporal; null before it is relayed and once it has finished. */
   locked_by: string | null;
-  /** Lease expiry (ISO). A crashed worker's claim auto-releases. */
-  lease_expires_at: string | null;
   /** Cancellation flag; observed between files. */
   cancel_requested: boolean;
   created_at: string;

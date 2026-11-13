@@ -1,0 +1,157 @@
+warning: `#[macro_use]` attribute cannot be used on crates
+   --> third_party/zune-jpeg/src/lib.rs:166:1
+    |
+166 | #![macro_use]
+    | ^^^^^^^^^^^^^
+    |
+    = help: `#[macro_use]` can be applied to extern crates and modules
+    = warning: this was previously accepted by the compiler but is being phased out; it will become a hard error in a future release!
+    = note: `#[warn(unused_attributes)]` (part of `#[warn(unused)]`) on by default
+
+warning: `zune-jpeg` (lib) generated 1 warning (run `cargo fix --lib -p zune-jpeg` to apply 1 suggestion)
+warning: hidden lifetime parameters in types are deprecated
+   --> raw-core/src/stages/highlight_recovery/guided.rs:202:24
+    |
+202 |         anchor: Option<FrameAnchor>,
+    |                        ^^^^^^^^^^^ expected lifetime parameter
+    |
+note: the lint level is defined here
+   --> raw-core/src/lib.rs:6:22
+    |
+  6 | #![warn(clippy::all, rust_2018_idioms)]
+    |                      ^^^^^^^^^^^^^^^^
+    = note: `#[warn(elided_lifetimes_in_paths)]` implied by `#[warn(rust_2018_idioms)]`
+help: indicate the anonymous lifetime
+    |
+202 |         anchor: Option<FrameAnchor<'_>>,
+    |                                   ++++
+
+warning: hidden lifetime parameters in types are deprecated
+   --> raw-core/src/stages/highlight_recovery/guided.rs:323:20
+    |
+323 |     anchor: Option<FrameAnchor>,
+    |                    ^^^^^^^^^^^ expected lifetime parameter
+    |
+help: indicate the anonymous lifetime
+    |
+323 |     anchor: Option<FrameAnchor<'_>>,
+    |                               ++++
+
+warning: hidden lifetime parameters in types are deprecated
+   --> raw-core/src/stages/highlight_recovery.rs:142:20
+    |
+142 |     anchor: Option<FrameAnchor>,
+    |                    ^^^^^^^^^^^ expected lifetime parameter
+    |
+help: indicate the anonymous lifetime
+    |
+142 |     anchor: Option<FrameAnchor<'_>>,
+    |                               ++++
+
+warning: hidden lifetime parameters in types are deprecated
+   --> raw-core/src/stages/highlight_recovery.rs:262:20
+    |
+262 |     anchor: Option<FrameAnchor>,
+    |                    ^^^^^^^^^^^ expected lifetime parameter
+    |
+help: indicate the anonymous lifetime
+    |
+262 |     anchor: Option<FrameAnchor<'_>>,
+    |                               ++++
+
+warning: unused attribute `allow`
+   --> raw-core/src/stages/nlm.rs:333:1
+    |
+333 | #[allow(clippy::too_many_arguments)]
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+note: the built-in attribute `allow` will be ignored, since it's applied to the macro invocation `include`
+   --> raw-core/src/stages/nlm.rs:334:1
+    |
+334 | include!("nlm_shift.rs");
+    | ^^^^^^^
+    = note: `#[warn(unused_attributes)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `crate::pipeline::pano::opcodes::WarpRectilinearOpcode`
+  --> raw-core/src/pipeline/pano/opcode_apply/mod.rs:47:9
+   |
+47 | pub use crate::pipeline::pano::opcodes::WarpRectilinearOpcode;
+   |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: function `repair_gaussian_tails` is never used
+  --> raw-core/src/stages/nlm_accumulate.rs:12:4
+   |
+12 | fn repair_gaussian_tails(arguments: [f32; 4], mut weights: [f32; 4]) -> [f32; 4] {
+   |    ^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: function `accumulate` is never used
+  --> raw-core/src/stages/nlm_accumulate.rs:21:15
+   |
+21 | pub(super) fn accumulate(
+   |               ^^^^^^^^^^
+
+warning: function `accumulate_dynamic` is never used
+  --> raw-core/src/stages/nlm_relative.rs:51:15
+   |
+51 | pub(super) fn accumulate_dynamic(
+   |               ^^^^^^^^^^^^^^^^^^
+
+warning: `raw-core` (lib) generated 9 warnings (run `cargo fix --lib -p raw-core` to apply 2 suggestions)
+   Compiling raw-gpu v0.1.0 (/Users/riabuz/.codex/worktrees/color-suite-progress/_Maple/src/raw-pipeline/raw-gpu)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.96s
+warning: the following packages contain code that will be rejected by a future version of Rust: block v0.1.6
+note: to see what the problems were, use the option `--future-incompat-report`, or run `cargo report future-incompatibilities --id 1`
+     Running unittests src/lib.rs (target/debug/deps/raw_gpu-4164e2ffa279cf0f)
+
+running 25 tests
+test noise_reduction::bench::color_nr_completion_timing ... ignored, hardware-dependent completion benchmark; run explicitly
+test noise_reduction::bench::color_nr_stage_completion_timing ... ignored, hardware-dependent completion benchmark; run explicitly
+test noise_reduction::tests::nlm_luma_zero_is_identity ... ok
+test noise_reduction::tests::nlm_color_zero_is_identity ... ok
+MODULATED PLANE PARITY (chroma, L guide): max abs diff = 1.4901161e-8 at (6,5); modulation moves the reference by 5.9767924e-3 vs the flat filter
+BORDER strip: 368 px, worst 0e0; INTERIOR: 1936 px, worst 5.9604645e-8, max move 3.233832e-2
+PLANE PARITY (chroma params): max abs diff = 5.9604645e-8 at (23,38)
+PLANE PARITY (luma params): max abs diff = 5.9604645e-8 at (18,35) [border=false]
+MODULATED PLANE PARITY (luma): max abs diff = 2test noise_reduction::tests_profile::nlm_core_matches_modulated_denoise_plane_chroma ... ok
+.3841858e-7 at (40,34); modulation moves the reference by 1.026088e-2 vs the flat filter
+test noise_reduction::tests::nlm_core_border_and_interior_coverage_non_vacuous ... ok
+test noise_reduction::tests::nlm_core_matches_denoise_plane_luma_params ... ok
+test noise_reduction::tests::nlm_core_matches_denoise_plane_chroma_params ... ok
+PLANE PARITY (amount=50): max abs diff = 5.9604645e-8
+test noise_reduction::tests_profile::nlm_core_matches_modulated_denoise_plane_luma ... ok
+FIXTURE SPREAD: scale ∈ [0.259, 1.726] (ratio 6.67×), distinct local_s = [1, 2]
+test noise_reduction::tests::tail::normalized_gaussian_tail_denoises_the_impulse_on_gpu ... ok
+test noise_reduction::tests::nlm_core_matches_denoise_plane_half_strength ... ok
+test noise_reduction::tests_profile::spread_is_wide_enough ... ok
+MODULATED LUMA STAGE PARITY amount=40: max abs diff = 1.3113022e-6 at pixel (45,40); raw-core moved input by 3.1160235e-2
+LUMA STAGE PARITY amount=40: max abs diff = 1.2516975e-6 at pixel (40,27); raw-core moved input by 4.911399e-2
+COLOR STAGE PARITY amount=40: max abs diff = 6.556511e-7 at pixel (13,46); raw-core moved input by 1.4272511e-2
+MODULATED COLOR STAGE PARITY amount=40: max abs diff = 1.013279e-6 at pixel (47,29); raw-core moved input by 1.8020213e-2
+test noise_reduction::tests_profile::empty_profile_matches_the_flat_filter ... ok
+test noise_reduction::tests::nlm_flat_field_stays_flat ... ok
+test noise_reduction::tests::nlm_composes_as_one_pass_in_a_chain ... ok
+COLOR STAGE PARITY amount=75: max abs diff = 6.556511e-7 at pixel (13,46); raw-core moved input by 1.7107785e-2
+MODULATED COLOR STAGE PARITY amount=100: max abs diff = 1.013279e-6 at pixel (47,29); raw-core moved input by 1.8324196e-2
+test noise_reduction::tests_profile::nlm_color_pass_matches_modulated_raw_core ... ok
+PROFILED vs FLAT (GPU, luma amount=100): max abs diff = 1.5747622e-3
+test noise_reduction::tests::tail::normalized_extreme_gaussian_weights_keep_the_mean_on_gpu ... ok
+COLOR STAGE PARITY amount=100: max abs diff = 6.556511e-7 at pixel (13,46); raw-core moved input by 1.7591238e-2
+test noise_reduction::tests::nlm_color_pass_matches_raw_core_within_1e_4 ... ok
+MODULATED LUMA STAGE PARITY amount=100: max abs diff = 1.3113022e-6 at pixel (40,45); raw-core moved input by 3.1977773e-2
+test noise_reduction::tests_profile::nlm_luma_pass_matches_modulated_raw_core ... ok
+LUMA STAGE PARITY amount=75: max abs diff = 1.1324883e-6 at pixel (31,42); raw-core moved input by 5.587235e-2
+PROFILED vs FLAT (GPU, color amount=100): max abs diff = 2.5304556e-3
+test noise_reduction::tests_profile::profiled_stage_differs_from_flat_stage ... ok
+LUMA STAGE PARITY amount=100: max abs diff = 1.1324883e-6 at pixel (41,33); raw-core moved input by 5.7040364e-2
+test noise_reduction::tests::nlm_luma_pass_matches_raw_core_within_1e_4 ... ok
+test noise_reduction::tests::tiled::tiled_weight_lookup_preserves_interpolation_and_gaussian_tail ... ok
+test noise_reduction::tests::tiled::tiled_partial_workgroups_and_halos_match_cpu ... ok
+test noise_reduction::tests_sampling::sampled_chroma_matches_cpu_and_keeps_native_behavior ... ok
+test noise_reduction::tests::tiled::tiled_partial_workgroups_preserve_profile_radius_gates ... ok
+
+test result: ok. 23 passed; 0 failed; 2 ignored; 0 measured; 270 filtered out; finished in 0.52s
+

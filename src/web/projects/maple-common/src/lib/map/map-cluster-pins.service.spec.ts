@@ -33,6 +33,9 @@ class FakeMapHandle implements MapLibreMapHandle {
   zoom = 10;
 
   onError(): void {}
+  whenStyleReady(): Promise<void> {
+    return Promise.resolve();
+  }
   onMoveEnd(handler: () => void): void {
     this.moveEndHandler = handler;
   }
@@ -211,13 +214,13 @@ describe('MapClusterPinsService', () => {
     expect(el.querySelector('img')).toBeNull();
   });
 
-  it('navigates to /search/advanced with placeQuery on pin click', () => {
+  it('navigates to unified Search with placeQuery on pin click', () => {
     getClusters.mockReturnValue(of([cluster({ placeLabel: 'Reykjavik' })]));
     service.attach(handle);
 
     handle.markers[0]!.element.click();
 
-    expect(navigate).toHaveBeenCalledWith(['/search/advanced'], {
+    expect(navigate).toHaveBeenCalledWith(['/search'], {
       queryParams: { placeQuery: 'Reykjavik' },
     });
   });
@@ -228,7 +231,7 @@ describe('MapClusterPinsService', () => {
 
     handle.markers[0]!.element.click();
 
-    expect(navigate).toHaveBeenCalledWith(['/search/advanced'], {
+    expect(navigate).toHaveBeenCalledWith(['/search'], {
       queryParams: { scope: 'places' },
     });
   });

@@ -1,7 +1,7 @@
 //! The mask-group discriminants/stride and the mask schema versions travel
 //! through every host and WGSL.
 use crate::Target;
-use raw_core::types::local_adjustment::brush::BRUSH_VERSION;
+use raw_core::types::local_adjustment::brush::{BRUSH_RASTER_LONG_EDGE, BRUSH_VERSION};
 use raw_core::types::local_adjustment::flat::*;
 use raw_core::types::local_adjustment::LAYER_ORDER_ATTRIBUTE;
 use raw_core::types::MaskCombine;
@@ -27,6 +27,11 @@ pub fn emit(target: Target) -> String {
         ),
         ("COMPONENT_CODE_COUNT", COMPONENT_CODE_COUNT as f32, false),
         ("MASK_GROUP_VERSION", MASK_GROUP_VERSION as f32, false),
+        (
+            "BRUSH_RASTER_LONG_EDGE",
+            BRUSH_RASTER_LONG_EDGE as f32,
+            false,
+        ),
         ("BRUSH_VERSION", BRUSH_VERSION as f32, false),
     ];
     let mut out =

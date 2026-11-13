@@ -5,6 +5,8 @@ import { managedXmpName } from './xmp-dom-utils';
 import { selfContainedXml } from './xmp-foreign-xml';
 
 const XMLNS = 'http://www.w3.org/2000/xmlns/';
+// Already bound on the canonical envelope, so a regenerated owner element never redeclares them.
+const ENVELOPE_PREFIXES = new Set(['rdf', 'xmp', 'crs', 'papp']);
 const escapeAttribute = (value: string): string =>
   value.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('"', '&quot;');
 
@@ -50,11 +52,14 @@ export function localMetadata(
     const canonical = managedXmpName(attribute);
     if (attribute.namespaceURI === XMLNS || (canonical && ownedAttributes.has(canonical)))
       return [];
+    const boundByEnvelope = canonical !== null && ENVELOPE_PREFIXES.has(canonical.split(':')[0]);
     return [
       {
         name: metadataName(attribute, canonical, index, allocatePrefix),
         value: attribute.value,
-        ...(canonical || !attribute.namespaceURI ? {} : { namespace: attribute.namespaceURI }),
+        ...(boundByEnvelope || !attribute.namespaceURI
+          ? {}
+          : { namespace: attribute.namespaceURI }),
       },
     ];
   });

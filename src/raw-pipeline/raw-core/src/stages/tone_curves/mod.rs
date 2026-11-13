@@ -39,6 +39,10 @@
 mod evaluator;
 mod parametric;
 
+/// Canonical parametric plot geometry, emitted to each platform editor.
+pub use evaluator::REF_MAX;
+pub use parametric::{AXIS_MIDTONE, AXIS_TOP, AXIS_UNITS_PER_STOP, MIDGREY};
+
 use evaluator::eval_curve_scene_linear;
 use parametric::build_parametric_curve;
 
@@ -64,6 +68,47 @@ const LUMA_REC2020: [f32; 3] = [0.2627, 0.6780, 0.0593];
 /// "round-trip a sidecar without changes" bit-identical to the pre-stage
 /// pipeline output.
 const PARAMETRIC_EPSILON: f32 = 1e-3;
+
+/// The editor plot samples the very same prepared curve used by the scene stage,
+/// in the normalized authoring domain, including the stage's high-end soft knee
+/// and identity bypass. This does not modify any image pixels.
+pub fn parametric_curve_preview(model: &AdjustmentModel) -> Vec<(f32, f32)> {
+    let active = [
+        model.parametric_shadows,
+        model.parametric_darks,
+        model.parametric_lights,
+        model.parametric_highlights,
+    ]
+    .iter()
+    .any(|value| value.abs() >= PARAMETRIC_EPSILON);
+    let prepared = active.then(|| build_parametric_curve(model));
+    (0..=128)
+        .map(|index| {
+            let x = index as f32 / 128.0;
+            (
+                x,
+                prepared.as_ref().map_or(x, |curve| {
+                    eval_curve_scene_linear(curve, x * evaluator::REF_MAX) / evaluator::REF_MAX
+                }),
+            )
+        })
+        .collect()
+}
+
+/// `samples + 1` evenly spaced points of an authored point curve, evaluated
+/// by the stages' own Fritsch–Carlson interpolant in the `[0, 1]` authoring
+/// domain, so an editor plot draws the shape the pipeline renders. The empty
+/// curve is the identity and a single knot is constant, as in the stages.
+pub fn point_curve_preview(curve: &ToneCurve, samples: usize) -> Vec<(f32, f32)> {
+    let prepared = prepare_curve(curve);
+    let steps = samples.max(1);
+    (0..=steps)
+        .map(|index| {
+            let x = index as f32 / steps as f32;
+            (x, eval_curve_unit(&prepared, x))
+        })
+        .collect()
+}
 
 // ---------------------------------------------------------------------
 // Public stage entry point

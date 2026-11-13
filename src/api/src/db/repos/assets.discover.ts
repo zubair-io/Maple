@@ -104,8 +104,8 @@ export async function tagLocationMissing(
  * thing by overwriting the array element with a freshly built entry that simply
  * had no such keys.
  *
- * `filename` is the highest-weight lexical field in the Meilisearch index, so
- * the `meili` stage is re-armed in the same transaction — a rename that skipped
+ * `filename` is the first line of the text the embedder reads, so
+ * the `embed` stage is re-armed in the same transaction — a rename that skipped
  * it leaves the search document permanently stale (#2357).
  *
  * Returns the asset, or `null` when nothing holds the old location.

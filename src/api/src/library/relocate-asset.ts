@@ -8,7 +8,7 @@
  *
  * Resolves the asset's current primary `fileinfo` entry, computes the
  * destination absolute path, and wires the DB repoint (path/filename +
- * thumb/preview stage-version reset + meili re-arm, mirroring the shape
+ * thumb/preview stage-version reset + embed re-arm, mirroring the shape
  * `workers/migration/move-backup-asset.ts` already uses) as the
  * primitive's `onVerified` hook — so the write lands strictly BETWEEN the
  * verified copy and the delete-of-original. That ordering is the
@@ -16,12 +16,13 @@
  * a failed repoint leaves the original completely untouched (at worst a
  * harmless duplicate copy sits at the destination).
  *
- * #2667: also accepts an optional `renderedCompanionAbsPath` — a PhotoKit
- * backup's Apple-rendered JPEG companion (`apple_rendered_path`), carried
- * alongside the primary + sidecars via `fs/relocate.ts`'s
- * `extraCompanionAbsPaths` and written back to `apple_rendered_path` in the
- * SAME repoint write as everything else. `routes/library-relocate.ts` (the
- * on-demand geo-relocate route) is built on this. The byte-identical dedupe
+ * #2667: also accepts optional `appleCompanionAbsPaths` — a PhotoKit
+ * backup's Apple-rendered companion (`apple_rendered_path`) and Live Photo
+ * `.mov` twin (`apple_live_video_path`, #5243), carried alongside the
+ * primary + sidecars via `fs/relocate.ts`'s `extraCompanionAbsPaths` and
+ * written back to their slots in the SAME repoint write as everything else.
+ * `routes/library-relocate.ts` (the on-demand geo-relocate route) is built on
+ * this. The byte-identical dedupe
  * short-circuit `workers/migration/move-backup-asset.ts` (`moveBackupAsset`)
  * also implements is deliberately NOT reproduced here — it is
  * content-identity semantics specific to that one caller, not a generic
@@ -31,8 +32,11 @@
  * day-dir-refile migration (`workers/migration/refile-legacy-daydir.ts`).
  */
 
+import { isExcludedLocation } from '../fs/mapleignore.ts';
+import { refusesMoveUnderMarker } from '../fs/mapleignore-guard.ts';
 import * as path from 'node:path';
 import type { ObjectId } from '../db/object-id.ts';
+import type { AppleCompanionSlot } from '../db/apple-companions.ts';
 import { loadAssetLocationView } from '../db/repos/assets.locations.repo.ts';
 import { findLiveOccupantAssetId, repointAssetLocation } from '../db/repos/assets.relocate.repo.ts';
 import { loadLibraryRoots } from '../indexer/libraries.cache.ts';
@@ -73,14 +77,13 @@ export interface RelocateAssetInput {
    * under the SOURCE library's root instead — the live misplacement bug
    * this field closes. */
   destinationLibraryId?: ObjectId;
-  /** Absolute path of the asset's Apple-rendered JPEG companion
-   * (`apple_rendered_path`), if any — carried alongside the primary +
-   * sidecars the same way a `.xmp` sidecar is (#2667). `null`/omitted for
-   * an asset with no such companion. The caller is responsible for
-   * resolving the doc's `apple_rendered_path` to an absolute path (and for
-   * confirming it exists on disk) before passing it — this function is
+  /** Absolute paths of the asset's Apple companions, by slot — carried
+   * alongside the primary + sidecars the same way a `.xmp` sidecar is
+   * (#2667, #5243). Omit a slot with no companion. The caller is responsible
+   * for resolving each recorded path to an absolute one (and for confirming
+   * it exists on disk) before passing it — this function is
    * asset-shape-agnostic beyond that. */
-  renderedCompanionAbsPath?: string | null;
+  appleCompanionAbsPaths?: Partial<Record<AppleCompanionSlot, string>>;
   /** Override for which `fileinfo` entry to treat as the asset's active
    * location, bypassing this function's own `activeFileInfo(doc)`
    * resolution (which EXCLUDES an entry tagged `missing_since`, falling
@@ -138,7 +141,7 @@ export type RelocateAssetResult =
  * of the live one. */
 export function activeFileInfo(asset: Pick<AssetDoc, 'fileinfo'>): FileInfo | null {
   const list = asset.fileinfo ?? [];
-  const live = list.filter((entry) => !entry.deleted_at);
+  const live = list.filter((entry) => !entry.deleted_at && !isExcludedLocation(entry));
   return live.find((entry) => !entry.missing_since) ?? live[0] ?? null;
 }
 
@@ -247,6 +250,10 @@ async function resolveDestinationAbsPath(
   return path.join(destDir, destFilename);
 }
 
+function posixDir(rel: string): string {
+  return rel === '' ? '' : rel.split(path.sep).join('/');
+}
+
 async function resolveDestinationPlan(
   input: RelocateAssetInput,
   primary: FileInfo,
@@ -258,6 +265,16 @@ async function resolveDestinationPlan(
   const destAbsPath = await resolveDestinationAbsPath(input, primary, destLibRoot);
   if (typeof destAbsPath !== 'string') return destAbsPath;
 
+  // The on-disk `.mapleignore` guard (#5398), whatever the location's tag says.
+  if (
+    (await refusesMoveUnderMarker(libRoot, primary.path)) ||
+    (await refusesMoveUnderMarker(
+      destLibRoot,
+      posixDir(path.relative(destLibRoot, path.dirname(destAbsPath))),
+    ))
+  ) {
+    return { kind: 'error', error: 'source or destination is under a .mapleignore folder' };
+  }
   const sourceAbsPath = path.join(libRoot, primary.path, primary.filename);
   return { destLibraryId, destLibRoot, sourceAbsPath, destAbsPath };
 }
@@ -277,29 +294,22 @@ function buildRepointHook(
   destLibraryId: ObjectId,
   destLibRoot: string,
 ): (info: RelocateVerifiedInfo) => Promise<void> {
-  return async ({ newAbsPath, companionPaths }) => {
+  return async ({ newAbsPath, companionPaths, companionSources }) => {
     const split = splitRelPath(destLibRoot, newAbsPath);
-    // #2667: only touch `apple_rendered_path` when the companion actually
-    // copied — a companion that was REQUESTED but failed to copy (best-effort,
-    // `fs/relocate.ts`'s `tryCopyCompanion`) leaves `companionPaths` empty, and
-    // omitting the field here means the stored value is left exactly as it
-    // was, matching `moveBackupAsset`'s same "unchanged on a companion that
-    // didn't move" behavior.
-    //
-    // `companionPaths[0]` (rather than matching by source path) is safe
-    // ONLY because this call site ever passes exactly ONE entry into
-    // `extraCompanionAbsPaths` (`renderedCompanionAbsPath` above, singular)
-    // — `fs/relocate.ts` preserves input order and only pushes a SUCCESSFUL
-    // copy's destination, so with a single input there is no other entry it
-    // could be (reviewed on #2667). If a second companion type is ever
-    // added to this call site, `fs/relocate.ts` would need to return
-    // source→dest pairs instead of a bare array, and this line would need
-    // to match on source path rather than position — don't reuse this
-    // pattern for a multi-companion caller without making that change.
-    const companion =
-      input.renderedCompanionAbsPath && companionPaths[0]
-        ? path.relative(destLibRoot, companionPaths[0]).split(path.sep).join('/')
-        : undefined;
+    // #2667: only touch a companion slot when that companion actually copied —
+    // one that was REQUESTED but failed to copy (best-effort, `fs/relocate.ts`'s
+    // `tryCopyCompanion`) has no entry, and leaving the slot out of the
+    // repoint keeps the stored value exactly as it was, matching
+    // `moveBackupAsset`'s same "unchanged on a companion that didn't move".
+    const movedTo = new Map(companionSources.map((source, i) => [source, companionPaths[i]]));
+    const appleCompanions = Object.fromEntries(
+      Object.entries(input.appleCompanionAbsPaths ?? {}).flatMap(([slot, source]) => {
+        const dest = movedTo.get(source);
+        return dest === undefined
+          ? []
+          : [[slot, path.relative(destLibRoot, dest).split(path.sep).join('/')]];
+      }),
+    ) as Partial<Record<AppleCompanionSlot, string>>;
 
     const repointed = await repointAssetLocation({
       id: input.id,
@@ -312,7 +322,7 @@ function buildRepointHook(
       // a cross-library move's location claiming the OLD library while the
       // bytes now live under the new one.
       to: { libraryId: destLibraryId, path: split.relPath, filename: split.filename },
-      ...(companion === undefined ? {} : { appleRenderedPath: companion }),
+      appleCompanions,
     });
     if (!repointed) {
       throw new Error('asset fileinfo entry changed concurrently — aborting relocate');
@@ -326,6 +336,10 @@ export async function relocateAsset(input: RelocateAssetInput): Promise<Relocate
 
   const primary = input.activeFileInfoOverride ?? activeFileInfo(view);
   if (!primary) return { kind: 'error', error: 'asset has no live location' };
+  // An override (geo-relocate) is held to the `.mapleignore` exclusion too (#5398).
+  if (isExcludedLocation(primary)) {
+    return { kind: 'error', error: 'location is excluded by .mapleignore' };
+  }
 
   const plan = await resolveDestinationPlan(input, primary);
   if ('kind' in plan) return plan;
@@ -365,9 +379,7 @@ export async function relocateAsset(input: RelocateAssetInput): Promise<Relocate
     mode: input.mode,
     collision: input.collision,
     callerTag: 'relocateAsset',
-    extraCompanionAbsPaths: input.renderedCompanionAbsPath
-      ? [input.renderedCompanionAbsPath]
-      : undefined,
+    extraCompanionAbsPaths: Object.values(input.appleCompanionAbsPaths ?? {}),
     ...(input.mode === 'move' ? { onVerified: repointToNewLocation } : {}),
   });
 

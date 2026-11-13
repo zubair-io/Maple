@@ -56,7 +56,9 @@ public enum AdjustmentPasteApplier {
       if let session = sessions[asset.id] {
         // A live session records the paste as ONE transaction
         // (#2432): undoable, announced, persisted through the
-        // session's own store.
+        // session's own store — over its loaded sidecar, never defaults.
+        await session.loadSidecar()
+        guard session.hasLoadedSidecar else { continue }
         session.beginEdit(kind: .paste, description: "Paste settings")
         session.model = AdjustmentGroupMerge.merged(
           session.model, applying: source, groups: groups

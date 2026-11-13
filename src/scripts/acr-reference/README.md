@@ -35,6 +35,23 @@ python3 src/scripts/acr-reference/run.py \
 Expected Photoshop runtime: ~4–5 minutes per RAW → **~75–90 minutes total** for
 all 18 RAWs. Expected disk: **~38 GB** of PNGs (`down/` ≈ 2.7 GB + `full/` ≈ 35 GB).
 
+## Standalone Adobe sidecar preparation
+
+When using the canonical matrix for another photo, pass that destination
+photo's recorded As Shot baseline PNG. Its effective temperature and tint
+complete partial Custom pairs; the source photo's settings are not reused.
+
+```bash
+python3 src/scripts/acr-reference/write_xmp.py \
+  --canonical test-fixtures/references/test_0000/xmp \
+  --target /tmp/test_0006-adobe-xmp \
+  --as-shot-baseline test-fixtures/references/test_0006/down/baseline.png
+```
+
+All inputs are prepared and validated before any destination is written.
+A partial Custom pair without valid recorded As Shot settings fails with the
+target untouched. Authored axes and canonical source files are preserved.
+
 ## Design notes
 
 ### Authored inputs and explicit Adobe render settings
@@ -46,6 +63,13 @@ neutral values while preserving explicit case overrides and unknown XML.
 This includes tone, point curves, white balance, lens/CA, geometry and detail
 settings. Missing white balance is As Shot; derived temperature/tint is not
 an override. Explicit custom curves retain their points and name.
+
+Luminance NR also explicitly authors Detail 50 and Contrast 0 when omitted,
+while preserving any authored override (#4851). Active luminance NR requires
+both controls in the authoring sidecar and saved PNG. Historical sidecars and
+captures may omit them only while the parent `LuminanceSmoothing` is zero.
+Recapturing an active case uses a newly prepared Adobe sidecar; adding metadata
+to an old capture is not evidence that Adobe rendered the authored settings.
 
 CameraProfile is preserved when authored. Otherwise the generator reuses the
 fixture's recorded `acr-xmp/baseline.xmp`, or bootstraps from effective XMP in an
@@ -62,10 +86,15 @@ For #3633, effective PNG metadata revealed inherited lens/CA settings in five
 fixtures and Whites/Blacks/Clarity in test_0015, despite their omission from the
 paired XMP. `render.sh` now verifies every saved PNG against the explicit Adobe
 sidecar and fails on missing metadata or mismatched effective settings. Explicitly
-authored Temperature and Tint are also checked, including partial pairs; As Shot
-cases do not acquire invented temperature/tint defaults (#4078). Old
+authored Temperature and Tint are also checked. Partial Custom pairs are
+completed from the same fixture's recorded As Shot baseline before rendering
+(#4784); As Shot cases do not acquire invented temperature/tint defaults (#4078). Old
 manifests must be regenerated before rendering. Reference replacements still
 require geometry and perceptual checks; existing budgets cannot increase.
+
+The orchestrator prepares every case for every selected photo before writing
+sidecars or replacing the manifest. Missing or invalid metadata leaves an
+existing batch untouched, including when only a later photo is invalid.
 
 Run the focused XML, manifest and PNG metadata tests with:
 
@@ -151,3 +180,42 @@ they're multi-file stitching fixtures, not single-image test subjects.
    `test_0004.fff` — the same file as the medium_format entry.
    Originally documented as a symlink but the filesystem has no symlink;
    both entries point at the single flat file. Pre-existing; not touched.
+
+## Read-only audit of historical captures
+
+Before using historical references for renderer attribution, compare the
+controls explicitly present in canonical sidecars with each PNG's effective
+Adobe metadata:
+
+```bash
+python3 src/scripts/acr-reference/audit_authored_settings.py \
+  test-fixtures/references/manifest.json --output /tmp/authored-settings-audit.json
+```
+
+This command changes no RAW, XMP or reference PNG. It reports every mismatch
+and missing/unreadable metadata entry, and exits nonzero if any are found.
+Omitted controls are not certified or assigned defaults. For a newly rendered
+batch, use `verify_settings.py` instead: that stricter verifier checks every
+explicit Adobe-side default as well as the authored overrides.
+
+## Qualifying native companions for unchanged legacy references
+
+For an existing down-only reference, capture full and down PNGs from the same
+Adobe document using a staged RAW copy and a complete explicit Adobe sidecar.
+Qualify that capture into a separate manifest:
+
+```bash
+python3 src/scripts/qualify_native_companions.py \
+  /path/to/original-manifest.json /path/to/capture-manifest.json \
+  --output /path/to/new-qualified-manifest.json \
+  --report /path/to/new-qualification-report.json
+```
+
+RAW and canonical XMP bytes must match the originals. The new down PNG must
+have exactly the original RGB pixels. Complete authored Adobe controls must
+match; new full/down metadata must match each other. The output selects the
+existing `native-pair-lanczos-v1` protocol with the newly captured pair; the
+original PNG and original manifest remain intact. Both output paths must be
+new. The entire batch validates before either output is written. Any pixel
+difference or unknown active setting fails qualification; no acceptance
+tolerance or color budget is added.

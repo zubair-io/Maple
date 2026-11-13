@@ -216,3 +216,59 @@ pub unsafe extern "C" fn maple_workflow_restore_xmp(
         SidecarWorkflow::restore_xmp(input(xmp, xmp_len)?, input(json, json_len)?)
     })
 }
+
+/// Reconcile a stale writer onto the current document (#4983): three-way merge
+/// of `incoming` on `current` against `base` (empty when the writer saw no
+/// sidecar), recording an unrecorded `current` as an `external` history entry
+/// stamped `now_ms`. Same return codes and unchanged-on-failure contract.
+///
+/// # Safety
+/// Same pointer, length and non-overlap requirements as maple_workflow_validate_json.
+#[no_mangle]
+#[allow(clippy::too_many_arguments)]
+pub unsafe extern "C" fn maple_workflow_reconcile_xmp(
+    base: *const u8,
+    base_len: usize,
+    current: *const u8,
+    current_len: usize,
+    incoming: *const u8,
+    incoming_len: usize,
+    now_ms: u64,
+    out: *mut u8,
+    out_cap: usize,
+    out_len: *mut usize,
+) -> i32 {
+    output(
+        "maple_workflow_reconcile_xmp",
+        out,
+        out_cap,
+        out_len,
+        || {
+            SidecarWorkflow::reconcile_xmp(
+                input(base, base_len)?,
+                input(current, current_len)?,
+                input(incoming, incoming_len)?,
+                now_ms,
+            )
+        },
+    )
+}
+
+/// Undo/redo stacks derived from a sidecar's persisted history (#4983), as JSON
+/// `{"undo":[ids],"redo":[ids],"synced":bool}`. Same return codes and
+/// unchanged-on-failure contract.
+///
+/// # Safety
+/// Same pointer, length and non-overlap requirements as maple_workflow_validate_json.
+#[no_mangle]
+pub unsafe extern "C" fn maple_workflow_cursor_xmp(
+    xmp: *const u8,
+    xmp_len: usize,
+    out: *mut u8,
+    out_cap: usize,
+    out_len: *mut usize,
+) -> i32 {
+    output("maple_workflow_cursor_xmp", out, out_cap, out_len, || {
+        SidecarWorkflow::cursor_xmp(input(xmp, xmp_len)?)
+    })
+}

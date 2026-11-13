@@ -1,0 +1,263 @@
+    Checking once_cell v1.21.4
+    Checking cfg-if v1.0.4
+    Checking pin-project-lite v0.2.17
+    Checking either v1.15.0
+    Checking simd-adler32 v0.3.9
+    Checking memchr v2.8.0
+   Compiling proc-macro2 v1.0.106
+   Compiling quote v1.0.45
+   Compiling crossbeam-utils v0.8.21
+   Compiling rayon-core v1.13.0
+   Compiling num-traits v0.2.19
+   Compiling rustversion v1.0.22
+   Compiling wasm-bindgen-shared v0.2.118
+   Compiling crc32fast v1.5.0
+   Compiling serde_core v1.0.228
+    Checking adler2 v2.0.1
+   Compiling serde v1.0.228
+    Checking unicode-ident v1.0.24
+   Compiling version_check v0.9.5
+    Checking equivalent v1.0.2
+   Compiling zerocopy v0.8.48
+   Compiling target-features v0.1.6
+   Compiling generic-array v0.14.7
+    Checking miniz_oxide v0.8.9
+   Compiling winnow v1.0.2
+    Checking tracing-core v0.1.36
+    Checking fdeflate v0.3.7
+   Compiling toml_datetime v1.1.1+spec-1.1.0
+    Checking zune-core v0.5.1
+    Checking crossbeam-epoch v0.9.18
+    Checking alloc-no-stdlib v2.0.4
+    Checking quick-error v2.0.1
+    Checking typenum v1.20.0
+    Checking tracing v0.1.44
+    Checking flate2 v1.1.9
+   Compiling wasm-bindgen v0.2.118
+    Checking no_std_io2 v0.9.3
+   Compiling find-msvc-tools v0.1.9
+    Checking alloc-stdlib v0.2.2
+   Compiling thiserror v2.0.18
+    Checking zune-jpeg v0.5.15 (/Users/riabuz/.codex/worktrees/color-suite-progress/_Maple/src/raw-pipeline/third_party/zune-jpeg)
+    Checking hashbrown v0.17.0
+    Checking bitflags v2.11.1
+    Checking jxl-bitstream v1.1.0
+    Checking jxl-grid v0.6.1
+    Checking pxfm v0.1.29
+   Compiling semver v1.0.28
+    Checking byteorder-lite v0.1.0
+    Checking crossbeam-deque v0.8.6
+    Checking weezl v0.1.12
+   Compiling libc v0.2.185
+    Checking foldhash v0.2.0
+   Compiling shlex v1.3.0
+    Checking jxl-oxide-common v1.0.0
+    Checking jxl-coding v1.0.1
+    Checking allocator-api2 v0.2.21
+   Compiling object v0.37.3
+    Checking png v0.18.1
+    Checking jxl-image v0.13.0
+    Checking image-webp v0.2.4
+   Compiling cc v1.2.60
+   Compiling rustc_version v0.4.1
+    Checking indexmap v2.14.0
+    Checking rayon v1.12.0
+    Checking brotli-decompressor v5.0.0
+warning: `#[macro_use]` attribute cannot be used on crates
+   --> third_party/zune-jpeg/src/lib.rs:166:1
+    |
+166 | #![macro_use]
+    | ^^^^^^^^^^^^^
+    |
+    = help: `#[macro_use]` can be applied to extern crates and modules
+    = warning: this was previously accepted by the compiler but is being phased out; it will become a hard error in a future release!
+    = note: `#[warn(unused_attributes)]` (part of `#[warn(unused)]`) on by default
+
+    Checking hashbrown v0.16.1
+warning: `zune-jpeg` (lib) generated 1 warning (run `cargo fix --lib -p zune-jpeg` to apply 1 suggestion)
+    Checking num-integer v0.1.46
+   Compiling zmij v1.0.21
+   Compiling glob v0.3.3
+    Checking toml_write v0.1.2
+   Compiling syn v2.0.117
+    Checking num-bigint v0.4.6
+    Checking rle-decode-fast v1.0.3
+    Checking gimli v0.32.3
+    Checking winnow v0.7.15
+    Checking num-iter v0.1.45
+   Compiling toml_parser v1.1.2+spec-1.1.0
+    Checking num-complex v0.4.6
+    Checking libflate_lz77 v2.3.0
+    Checking rustc-demangle v0.1.27
+    Checking adler32 v1.2.0
+    Checking crypto-common v0.1.7
+    Checking block-buffer v0.10.4
+    Checking dary_heap v0.3.9
+   Compiling serde_json v1.0.149
+   Compiling litrs v1.0.0
+    Checking bitstream-io v4.10.0
+    Checking itertools v0.14.0
+    Checking bitflags v1.3.2
+    Checking digest v0.10.7
+    Checking libflate v2.3.0
+    Checking arrayref v0.3.9
+   Compiling toml_edit v0.25.11+spec-1.1.0
+    Checking log v0.4.29
+    Checking arrayvec v0.7.6
+    Checking memmap2 v0.9.10
+    Checking hex v0.4.3
+    Checking num-rational v0.4.2
+    Checking lazy_static v1.5.0
+   Compiling blake3 v1.8.4
+   Compiling document-features v0.2.12
+    Checking md5 v0.8.0
+    Checking constant_time_eq v0.4.2
+    Checking itoa v1.0.18
+    Checking byteorder v1.5.0
+   Compiling getrandom v0.4.2
+    Checking sha1 v0.10.6
+    Checking png v0.17.16
+    Checking quick-xml v0.37.5
+    Checking num v0.4.3
+    Checking jpeg-encoder v0.7.1
+    Checking jxl-threadpool v1.0.0
+    Checking moxcms v0.8.1
+    Checking jxl-modular v0.11.2
+    Checking jxl-color v0.11.0
+   Compiling proc-macro-crate v3.5.0
+    Checking addr2line v0.25.1
+   Compiling toml_datetime v0.6.11
+   Compiling serde_spanned v0.6.9
+    Checking jxl-vardct v0.11.1
+   Compiling toml_edit v0.22.27
+    Checking jxl-frame v0.13.3
+    Checking backtrace v0.3.76
+    Checking jxl-jbr v0.2.1
+   Compiling wasm-bindgen-macro-support v0.2.118
+   Compiling serde_derive v1.0.228
+   Compiling bytemuck_derive v1.10.2
+   Compiling zerocopy-derive v0.8.48
+   Compiling fax_derive v0.2.0
+   Compiling thiserror-impl v2.0.18
+   Compiling num_enum_derive v0.7.6
+   Compiling multiversion-macros v0.8.0
+   Compiling enumn v0.1.14
+    Checking fax v0.2.6
+   Compiling toml v0.8.23
+    Checking num_enum v0.7.6
+    Checking bytemuck v1.25.0
+    Checking multiversion v0.8.0
+   Compiling rawler v0.7.2
+    Checking jxl-render v0.12.3
+    Checking jxl-oxide v0.12.5
+   Compiling wasm-bindgen-macro v0.2.118
+    Checking js-sys v0.3.95
+    Checking uuid v1.23.1
+    Checking console_error_panic_hook v0.1.7
+    Checking half v2.7.1
+    Checking tiff v0.11.3
+    Checking image v0.25.10
+    Checking fast_image_resize v5.5.0
+    Checking chrono v0.4.44
+    Checking raw-core v0.1.0 (/Users/riabuz/.codex/worktrees/color-suite-progress/_Maple/src/raw-pipeline/raw-core)
+warning: hidden lifetime parameters in types are deprecated
+   --> raw-core/src/stages/highlight_recovery/guided.rs:202:24
+    |
+202 |         anchor: Option<FrameAnchor>,
+    |                        ^^^^^^^^^^^ expected lifetime parameter
+    |
+note: the lint level is defined here
+   --> raw-core/src/lib.rs:6:22
+    |
+  6 | #![warn(clippy::all, rust_2018_idioms)]
+    |                      ^^^^^^^^^^^^^^^^
+    = note: `#[warn(elided_lifetimes_in_paths)]` implied by `#[warn(rust_2018_idioms)]`
+help: indicate the anonymous lifetime
+    |
+202 |         anchor: Option<FrameAnchor<'_>>,
+    |                                   ++++
+
+warning: hidden lifetime parameters in types are deprecated
+   --> raw-core/src/stages/highlight_recovery/guided.rs:323:20
+    |
+323 |     anchor: Option<FrameAnchor>,
+    |                    ^^^^^^^^^^^ expected lifetime parameter
+    |
+help: indicate the anonymous lifetime
+    |
+323 |     anchor: Option<FrameAnchor<'_>>,
+    |                               ++++
+
+warning: hidden lifetime parameters in types are deprecated
+   --> raw-core/src/stages/highlight_recovery.rs:142:20
+    |
+142 |     anchor: Option<FrameAnchor>,
+    |                    ^^^^^^^^^^^ expected lifetime parameter
+    |
+help: indicate the anonymous lifetime
+    |
+142 |     anchor: Option<FrameAnchor<'_>>,
+    |                               ++++
+
+warning: hidden lifetime parameters in types are deprecated
+   --> raw-core/src/stages/highlight_recovery.rs:262:20
+    |
+262 |     anchor: Option<FrameAnchor>,
+    |                    ^^^^^^^^^^^ expected lifetime parameter
+    |
+help: indicate the anonymous lifetime
+    |
+262 |     anchor: Option<FrameAnchor<'_>>,
+    |                               ++++
+
+warning: unused attribute `allow`
+   --> raw-core/src/stages/nlm.rs:334:1
+    |
+334 | #[allow(clippy::too_many_arguments)]
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+note: the built-in attribute `allow` will be ignored, since it's applied to the macro invocation `include`
+   --> raw-core/src/stages/nlm.rs:335:1
+    |
+335 | include!("nlm_shift.rs");
+    | ^^^^^^^
+    = note: `#[warn(unused_attributes)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `crate::pipeline::pano::opcodes::WarpRectilinearOpcode`
+  --> raw-core/src/pipeline/pano/opcode_apply/mod.rs:47:9
+   |
+47 | pub use crate::pipeline::pano::opcodes::WarpRectilinearOpcode;
+   |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: `raw-core` (lib) generated 6 warnings (run `cargo fix --lib -p raw-core` to apply 2 suggestions)
+    Checking raw-wasm v0.1.0 (/Users/riabuz/.codex/worktrees/color-suite-progress/_Maple/src/raw-pipeline/raw-wasm)
+warning: unused import: `raw_core::xmp as xmp_mod`
+  --> raw-wasm/src/export.rs:27:5
+   |
+27 | use raw_core::xmp as xmp_mod;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `raw_core::xmp as xmp_mod`
+  --> raw-wasm/src/render.rs:22:5
+   |
+22 | use raw_core::xmp as xmp_mod;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `raw_core::xmp as xmp_mod`
+  --> raw-wasm/src/render_film.rs:13:5
+   |
+13 | use raw_core::xmp as xmp_mod;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `raw_core::xmp as xmp_mod`
+  --> raw-wasm/src/scene_linear.rs:10:5
+   |
+10 | use raw_core::xmp as xmp_mod;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: `raw-wasm` (lib) generated 4 warnings (run `cargo fix --lib -p raw-wasm` to apply 4 suggestions)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 24.20s

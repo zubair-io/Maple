@@ -1,0 +1,28 @@
+[
+  {
+    "name": "noise-reduction-stage",
+    "exit": 0,
+    "passed": 10,
+    "command": [
+      "cargo",
+      "test",
+      "-p",
+      "raw-core",
+      "--lib",
+      "noise_reduction"
+    ]
+  },
+  {
+    "name": "composed-gpu-cpu",
+    "exit": 0,
+    "passed": 1,
+    "command": [
+      "cargo",
+      "test",
+      "-p",
+      "raw-gpu",
+      "--lib",
+      "full_gpu_chain_matches_composed_cpu_oracle"
+    ]
+  }
+]

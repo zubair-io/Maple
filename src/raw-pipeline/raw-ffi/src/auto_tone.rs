@@ -52,27 +52,29 @@ pub unsafe extern "C" fn maple_compute_auto_tone(
     height: u32,
     out: *mut MapleAutoTone,
 ) -> i32 {
-    if scene_post_wb_rgba.is_null() || out.is_null() {
-        return -1;
-    }
-    let pixels = match (width as usize).checked_mul(height as usize) {
-        Some(p) => p,
-        None => return -1,
-    };
-    let len = match pixels.checked_mul(4) {
-        Some(l) => l,
-        None => return -1,
-    };
-    let slice = std::slice::from_raw_parts(scene_post_wb_rgba, len);
-    let result =
-        auto_tone::compute_auto_tone_from_rgba(slice, width as usize, height as usize, 0.005);
-    *out = MapleAutoTone {
-        exposure: result.exposure,
-        contrast: result.contrast,
-        whites: result.whites,
-        blacks: result.blacks,
-        highlights: result.highlights,
-        shadows: result.shadows,
-    };
-    0
+    crate::error::catch_panic_rc("maple_compute_auto_tone", || {
+        if scene_post_wb_rgba.is_null() || out.is_null() {
+            return -1;
+        }
+        let pixels = match (width as usize).checked_mul(height as usize) {
+            Some(p) => p,
+            None => return -1,
+        };
+        let len = match pixels.checked_mul(4) {
+            Some(l) => l,
+            None => return -1,
+        };
+        let slice = std::slice::from_raw_parts(scene_post_wb_rgba, len);
+        let result =
+            auto_tone::compute_auto_tone_from_rgba(slice, width as usize, height as usize, 0.005);
+        *out = MapleAutoTone {
+            exposure: result.exposure,
+            contrast: result.contrast,
+            whites: result.whites,
+            blacks: result.blacks,
+            highlights: result.highlights,
+            shadows: result.shadows,
+        };
+        0
+    })
 }

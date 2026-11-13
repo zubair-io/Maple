@@ -23,6 +23,7 @@ import { defaultAdjustmentModel, type AdjustmentModel } from '../models/adjustme
 const DEFAULT_PROFILE = defaultAdjustmentModel().profile;
 import type { CameraSupport } from './camera-support';
 import type { LensProfileResolution } from '../lens/lens-profile.types';
+import type { AutoFitOutcome } from '../raw-pipeline/auto-fit-outcome';
 
 export interface LensCorrectionCapability {
   hasLensCorrections: boolean;
@@ -32,8 +33,8 @@ export interface LensCorrectionCapability {
    *  consumed (#3479); absent when the sidecar named none or the worker
    *  held no copy of it. */
   lensProfile?: LensProfileResolution;
-  /** Actual Auto artifacts from the latest completed render (#4096). */
-  autoFit?: boolean;
+  /** The core's actual Auto fit outcome from the latest completed render (#4096, #5458). */
+  autoFit?: AutoFitOutcome;
 }
 
 /**
@@ -66,7 +67,7 @@ export class LensCorrectionCapabilities {
     lensCorrectionCaInert: boolean,
     cameraSupport?: CameraSupport | null,
     lensProfile?: LensProfileResolution | null,
-    autoFit?: boolean,
+    autoFit?: AutoFitOutcome,
     fitRevision?: number,
   ): void {
     this.byAsset.update((map) => {
@@ -94,7 +95,7 @@ export class LensCorrectionCapabilities {
   seedProfile(
     id: AssetId,
     lensProfile: LensProfileResolution | null,
-    autoFit?: boolean,
+    autoFit?: AutoFitOutcome,
     fitRevision?: number,
   ): void {
     this.byAsset.update((map) => {

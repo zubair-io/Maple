@@ -5,13 +5,15 @@ use std::ffi::{c_char, CStr, CString};
 /// Release imported profiles between jobs in an isolated native worker.
 #[no_mangle]
 pub extern "C" fn maple_lens_profile_clear_cache() -> i32 {
-    match raw_core::lens_profile::clear_cache() {
-        Ok(()) => 0,
-        Err(error) => {
-            set_last_error(error);
-            8
+    crate::error::catch_panic_rc("maple_lens_profile_clear_cache", || {
+        match raw_core::lens_profile::clear_cache() {
+            Ok(()) => 0,
+            Err(error) => {
+                set_last_error(error);
+                8
+            }
         }
-    }
+    })
 }
 
 /// Read the selected reference through the same parser as rendering.
@@ -21,21 +23,24 @@ pub unsafe extern "C" fn maple_lens_profile_selected(
     length: usize,
     out_json: *mut *mut c_char,
 ) -> i32 {
-    if out_json.is_null() {
-        return 1;
-    }
-    *out_json = std::ptr::null_mut();
-    if xml.is_null() || length > 32 * 1024 * 1024 {
-        return 1;
-    }
-    let result = std::str::from_utf8(std::slice::from_raw_parts(xml, length))
-        .map_err(|error| error.to_string())
-        .and_then(|xml| raw_core::xmp::parse(xml).map_err(|error| error.to_string()))
-        .map(|model| {
-            let enabled = raw_core::lens_profile::corrections_enabled(&model);
-            serde_json::json!({ "reference": model.lens_profile, "enabled": enabled }).to_string()
-        });
-    output_json(out_json, result)
+    crate::error::catch_panic_rc("maple_lens_profile_selected", || {
+        if out_json.is_null() {
+            return 1;
+        }
+        *out_json = std::ptr::null_mut();
+        if xml.is_null() || length > 32 * 1024 * 1024 {
+            return 1;
+        }
+        let result = std::str::from_utf8(std::slice::from_raw_parts(xml, length))
+            .map_err(|error| error.to_string())
+            .and_then(|xml| raw_core::xmp::parse(xml).map_err(|error| error.to_string()))
+            .map(|model| {
+                let enabled = raw_core::lens_profile::corrections_enabled(&model);
+                serde_json::json!({ "reference": model.lens_profile, "enabled": enabled })
+                    .to_string()
+            });
+        output_json(out_json, result)
+    })
 }
 
 unsafe fn output_json(out: *mut *mut c_char, result: Result<String, String>) -> i32 {
@@ -59,25 +64,27 @@ pub unsafe extern "C" fn maple_lens_profile_register(
     length: usize,
     out_json: *mut *mut c_char,
 ) -> i32 {
-    if out_json.is_null() {
-        return 1;
-    }
-    *out_json = std::ptr::null_mut();
-    if xml.is_null() || length == 0 || length > 32 * 1024 * 1024 {
-        set_last_error("Invalid LCP input length".into());
-        return 1;
-    }
-    let xml = match std::str::from_utf8(std::slice::from_raw_parts(xml, length)) {
-        Ok(xml) => xml,
-        Err(error) => {
-            set_last_error(error.to_string());
-            return 2;
+    crate::error::catch_panic_rc("maple_lens_profile_register", || {
+        if out_json.is_null() {
+            return 1;
         }
-    };
-    output_json(
-        out_json,
-        raw_core::lens_profile::register(xml).map(|value| value.to_string()),
-    )
+        *out_json = std::ptr::null_mut();
+        if xml.is_null() || length == 0 || length > 32 * 1024 * 1024 {
+            set_last_error("Invalid LCP input length".into());
+            return 1;
+        }
+        let xml = match std::str::from_utf8(std::slice::from_raw_parts(xml, length)) {
+            Ok(xml) => xml,
+            Err(error) => {
+                set_last_error(error.to_string());
+                return 2;
+            }
+        };
+        output_json(
+            out_json,
+            raw_core::lens_profile::register(xml).map(|value| value.to_string()),
+        )
+    })
 }
 
 /// Resolve a registered profile against real decode metadata. A cold call
@@ -141,9 +148,11 @@ pub unsafe extern "C" fn maple_lens_profile_resolve_file(
 
 #[no_mangle]
 pub unsafe extern "C" fn maple_free_lens_profile_json(json: *mut c_char) {
-    if !json.is_null() {
-        drop(CString::from_raw(json));
-    }
+    crate::error::catch_panic("maple_free_lens_profile_json", (), || {
+        if !json.is_null() {
+            drop(CString::from_raw(json));
+        }
+    })
 }
 
 /// Every bundled Lensfun lens the RAW's body can carry, for the Lens

@@ -160,17 +160,20 @@ fn native_claim_checks_state_and_securely_persists_its_device_token() {
         verifier: "a".repeat(64),
         state: "expected-state".into(),
     };
-    assert!(!client.claim(&pending).unwrap());
-    assert!(client.claim(&pending).is_err());
+    assert!(client.claim(&pending, "").is_err());
+    assert!(!client.claim(&pending, "browser-callback-code").unwrap());
+    assert!(client.claim(&pending, "browser-callback-code").is_err());
     assert!(client.access.is_none());
     assert!(matches!(
         client.credential.get_password(),
         Err(keyring::Error::NoEntry)
     ));
-    assert!(client.claim(&pending).unwrap());
+    assert!(client.claim(&pending, "browser-callback-code").unwrap());
     assert_eq!(client.credential.get_password().unwrap(), "refresh-device");
     let requests = server.join().unwrap();
     assert!(requests
         .iter()
-        .all(|request| request.contains("expected-state") && request.contains(&pending.verifier)));
+        .all(|request| request.contains("expected-state")
+            && request.contains(&pending.verifier)
+            && request.contains("browser-callback-code")));
 }

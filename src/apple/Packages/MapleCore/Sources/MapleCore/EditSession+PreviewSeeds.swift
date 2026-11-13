@@ -221,7 +221,7 @@ extension EditSession {
   func seedFromThumbnailIfAvailable() {
     guard workflow.selectedVariantId == WorkflowContract.primaryVariantID,
       renderedPreview == nil,
-      let data = ThumbnailDiskCache.shared.syncPeekData(forKey: thumbnailCacheKey),
+      let data = thumbnailPeek,
       let ci = CIImage(data: data)
     else { return }
     // Published AS-IS, deliberately NOT through `decodedForNativeCanvas`:
@@ -241,13 +241,15 @@ extension EditSession {
     )
   }
 
-  /// The key `ThumbnailDiskCache` stores this asset's thumbnail under.
-  /// Mirrors `ThumbnailLoader.load(for:from:)`'s / `ThumbnailProvider
-  /// .cachedThumbnail(for:)`'s derivation exactly: basename for
-  /// filesystem-backed assets, `stableID` (falling back to `displayName`,
-  /// itself never empty — see `AssetRef.displayName`) for sourceless assets
-  /// (PhotoKit, Self Hosted) with no URL to hash.
-  private var thumbnailCacheKey: String {
-    asset.primaryURL?.lastPathComponent ?? asset.stableID ?? asset.displayName
+  /// This asset's hot thumbnail, peeked the way `ThumbnailLoader.load(for:from:)`
+  /// stores it and `ThumbnailProvider.cachedThumbnail(for:)` reads it: by URL
+  /// (`ThumbnailDiskCache.memoryKey(for:)`) for filesystem-backed assets,
+  /// `stableID` (falling back to `displayName`, itself never empty — see
+  /// `AssetRef.displayName`) for sourceless assets (PhotoKit, Self Hosted).
+  private var thumbnailPeek: Data? {
+    guard let url = asset.primaryURL else {
+      return ThumbnailDiskCache.shared.syncPeekData(forKey: asset.stableID ?? asset.displayName)
+    }
+    return ThumbnailDiskCache.shared.syncPeekData(for: url)
   }
 }

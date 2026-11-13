@@ -2,11 +2,13 @@
 //! invariant, seam placement, and the canvas pixel cap (#3086).
 //! Kept in a separate file for the file-size budget.
 
-use super::frame_cache::TileFrameCache;
 use super::masks::voronoi_masks_region;
 use super::photometry;
+use super::source::SourceView;
 use super::*;
 use crate::blend::blend_multiband;
+use crate::composite::CanvasCollector;
+use crate::frame_store::InMemory;
 use crate::gain::GainOptions;
 use crate::ingest::{PlanarImage, ValidityMask};
 use crate::similarity::Similarity2d;
@@ -69,9 +71,11 @@ fn all_invalid_layer_is_inert_in_masks_and_blend() {
         .zip(&poses)
         .map(|(f, p)| {
             warp::warp_to_tile_region(
-                f,
+                SourceView::whole(f),
                 p,
+                None,
                 &canvas,
+                None,
                 &photometry::FramePhotometry::neutral(),
                 0,
                 0,
@@ -86,9 +90,16 @@ fn all_invalid_layer_is_inert_in_masks_and_blend() {
     );
 
     let frame_dims = [(w, h); 3];
-    let (masks_all, _) = voronoi_masks_region(&layers, &poses, &frame_dims, &canvas, 0, 0);
-    let (masks_two, _) =
-        voronoi_masks_region(&layers[..2], &poses[..2], &frame_dims[..2], &canvas, 0, 0);
+    let (masks_all, _) = voronoi_masks_region(&layers, &poses, &frame_dims, &canvas, None, 0, 0);
+    let (masks_two, _) = voronoi_masks_region(
+        &layers[..2],
+        &poses[..2],
+        &frame_dims[..2],
+        &canvas,
+        None,
+        0,
+        0,
+    );
     assert!(
         masks_all[2].iter().all(|&m| m == 0.0),
         "all-invalid layer must own no pixels"
@@ -129,9 +140,11 @@ fn voronoi_seam_sits_mid_overlap() {
         .zip(&poses)
         .map(|(f, p)| {
             warp::warp_to_tile_region(
-                f,
+                SourceView::whole(f),
                 p,
+                None,
                 &canvas,
+                None,
                 &photometry::FramePhotometry::neutral(),
                 0,
                 0,
@@ -141,7 +154,7 @@ fn voronoi_seam_sits_mid_overlap() {
         })
         .collect();
     let frame_dims = [(w, h); 2];
-    let (masks, _) = voronoi_masks_region(&layers, &poses, &frame_dims, &canvas, 0, 0);
+    let (masks, _) = voronoi_masks_region(&layers, &poses, &frame_dims, &canvas, None, 0, 0);
 
     let cw = canvas.width as usize;
     let y = (h / 2) as usize;
@@ -175,21 +188,25 @@ fn composite_with_far_frame_places_all_content() {
         offset_x: 8.0,
         offset_y: 8.0,
     };
-    // #3197: composite_tile decodes on demand through a cache instead of
-    // taking a pre-decoded frame slice — TileFrameCache::from_frames
-    // (test-only) seeds it with these synthetic frames.
     let full_dims: Vec<(u32, u32)> = frames.iter().map(|f| (f.width(), f.height())).collect();
-    let cache = TileFrameCache::from_frames(frames);
-    let (out, _report) = composite_tile(
-        &cache,
+    let frames = InMemory(&frames);
+    let mut collector = CanvasCollector::default();
+    composite_tile(
+        &frames,
         &full_dims,
         &[],
         &poses,
+        None,
         &canvas,
+        None,
+        &crate::gain::LensGroups::ingest_corrected(full_dims.len()),
         &GainOptions::default(),
         Some(2),
+        false,
+        &mut collector,
     )
     .expect("composite");
+    let out = collector.into_image();
 
     let cw = out.width() as usize;
     // Content is the canvas-space gradient, so expected value at canvas
@@ -267,4 +284,128 @@ fn canvas_cap_scales_poses_and_canvas_uniformly() {
         apply_canvas_cap(poses, canvas, 0),
         Err(TilePlacementError::InvalidCanvasCap)
     ));
+}
+
+#[test]
+fn overlap_width_is_measured_in_canvas_pixels() {
+    let (fw, fh) = (400u32, 160u32);
+    let poses = vec![
+        translation_pose(0, 0.0, 0.0),
+        translation_pose(1, 200.0, 0.0),
+    ];
+    let frames = vec![
+        canvas_gradient_frame(fw, fh, 0.0, 0.0),
+        canvas_gradient_frame(fw, fh, 200.0, 0.0),
+    ];
+    let canvas = TileCanvasSpec {
+        width: 616,
+        height: 176,
+        offset_x: 8.0,
+        offset_y: 8.0,
+    };
+    let full_dims: Vec<(u32, u32)> = frames.iter().map(|f| (f.width(), f.height())).collect();
+    let frames = InMemory(&frames);
+    let width =
+        super::masks::estimate_min_overlap_width(&frames, &full_dims, &poses, &canvas, None)
+            .expect("overlap estimate");
+    assert!(
+        (192..=208).contains(&width),
+        "overlap width {width} px, expected ~200"
+    );
+}
+
+/// Boundary Warp through the tile composite (#5572): four rolled, drifting
+/// frames spanning two output tiles leave a ragged edge, and the full
+/// strength map fills the output rectangle.
+#[test]
+fn a_full_strength_boundary_warp_leaves_no_output_pixel_uncovered() {
+    let (fw, fh) = (400u32, 300u32);
+    let placed = [
+        (0.0, 0.0, 1.5),
+        (300.0, 14.0, -1.0),
+        (600.0, -6.0, 2.0),
+        (900.0, 10.0, -1.5),
+    ];
+    let poses: Vec<TilePose> = placed
+        .iter()
+        .enumerate()
+        .map(|(i, &(tx, ty, deg))| TilePose {
+            frame_idx: i,
+            sim: Similarity2d {
+                scale: 1.0,
+                theta: f64::to_radians(deg),
+                tx,
+                ty,
+            },
+        })
+        .collect();
+    let frames: Vec<PlanarImage> = placed
+        .iter()
+        .map(|&(tx, ty, _)| canvas_gradient_frame(fw, fh, tx, ty))
+        .collect();
+    let canvas = TileCanvasSpec {
+        width: 1320,
+        height: 330,
+        offset_x: 10.0,
+        offset_y: 14.0,
+    };
+    let full_dims = vec![(fw, fh); frames.len()];
+    let frames = InMemory(&frames);
+    let run = |map: Option<&crate::boundary_warp::BoundaryWarp>, auto_crop: bool| {
+        let mut collector = CanvasCollector::default();
+        let report = composite_tile(
+            &frames,
+            &full_dims,
+            &[],
+            &poses,
+            None,
+            &canvas,
+            map,
+            &crate::gain::LensGroups::ingest_corrected(full_dims.len()),
+            &GainOptions::default(),
+            Some(2),
+            auto_crop,
+            &mut collector,
+        )
+        .expect("composite");
+        (collector.into_image(), report)
+    };
+    assert!(
+        run(None, false).1.uncovered_px > 0,
+        "the placed frames must leave a ragged edge"
+    );
+    let coverage = TileCoverage::new(&poses, &full_dims, None, &canvas);
+    let footprint = tile_footprint(&coverage, &canvas, 1 << 20);
+    let outcome = crate::boundary_warp::solve(&footprint, 1.0);
+    assert_eq!(
+        outcome.report.status,
+        crate::boundary_warp::BoundaryWarpStatus::Applied
+    );
+    assert_eq!(run(outcome.map.as_ref(), false).1.uncovered_px, 0);
+
+    for map in [None, outcome.map.as_ref()] {
+        let (whole, _) = run(map, false);
+        let (kept, report) = run(map, true);
+        let crop = report.auto_crop.expect("Auto Crop was requested");
+        let rect = crop.rect.expect("a covered rectangle exists");
+        assert_eq!(
+            Some(rect),
+            crate::composite::largest_valid_rect(&whole, crate::composite::CropAxes::Both)
+        );
+        assert_eq!(crop.invalid_px, 0);
+        assert_eq!(
+            (kept.width(), kept.height()),
+            (whole.width(), whole.height())
+        );
+        assert_eq!(report.output_size(), (whole.width(), whole.height()));
+        assert_eq!(kept.r, whole.r);
+        assert_eq!(kept.g, whole.g);
+        assert_eq!(kept.b, whole.b);
+        assert_eq!(kept.validity, whole.validity);
+        for y in rect.y..rect.y + rect.height {
+            for x in rect.x..rect.x + rect.width {
+                assert!(whole.validity.get(x, y), "({x},{y}) uncovered");
+            }
+        }
+    }
 }

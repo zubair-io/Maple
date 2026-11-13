@@ -17,6 +17,9 @@
 // header) from `heatOverlay.points`, which itself only changes when the map
 // re-fetches. `MapHeatmapPainter.gradient` is built once and reused.
 
+// MKOverlayRenderer is unavailable on watchOS (#3617).
+#if !os(watchOS)
+
 import Foundation
 import CoreLocation
 import MapKit
@@ -66,3 +69,5 @@ public final class MapHeatmapOverlayRenderer: MKOverlayRenderer {
     return MapHeatmapBlob(center: point(for: mapPoint), radius: CGFloat(radiusMapPoints), weight: heatPoint.weight)
   }
 }
+
+#endif

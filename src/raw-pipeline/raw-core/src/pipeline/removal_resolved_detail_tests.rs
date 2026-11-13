@@ -146,6 +146,7 @@ fn saved_detail_matches_native_saved_display_in_every_orientation() {
                         ext: "dng",
                     },
                     DetailRenderOptions {
+                        target: crate::view::encode::TargetPrimaries::Srgb,
                         quality: RenderQuality::Amaze,
                         max_long_edge: 1024,
                         film_lut: None,
@@ -314,6 +315,7 @@ fn bounded_saved_tiles_match_a_larger_cropped_frame_across_patch_edges() {
                     ext: "dng",
                 },
                 DetailRenderOptions {
+                    target: crate::view::encode::TargetPrimaries::Srgb,
                     quality: RenderQuality::Amaze,
                     max_long_edge: 2048,
                     film_lut: None,

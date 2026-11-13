@@ -3,6 +3,8 @@ name: CI change selection
 on:
   workflow_call:
     outputs:
+      android:
+        value: ${{ jobs.select.outputs.android }}
       api:
         value: ${{ jobs.select.outputs.api }}
       web:
@@ -13,21 +15,31 @@ on:
         value: ${{ jobs.select.outputs.maple }}
       codegen:
         value: ${{ jobs.select.outputs.codegen }}
+      swift:
+        value: ${{ jobs.select.outputs.swift }}
+      release:
+        value: ${{ jobs.select.outputs.release }}
+      ci:
+        value: ${{ jobs.select.outputs.ci }}
 
 permissions:
   contents: read
 
 jobs:
   select:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
+      android: ${{ steps.changes.outputs.android }}
       api: ${{ steps.changes.outputs.api }}
       web: ${{ steps.changes.outputs.web }}
       windows: ${{ steps.changes.outputs.windows }}
       maple: ${{ steps.changes.outputs.maple }}
       codegen: ${{ steps.changes.outputs.codegen }}
+      swift: ${{ steps.changes.outputs.swift }}
+      release: ${{ steps.changes.outputs.release }}
+      ci: ${{ steps.changes.outputs.ci }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7.0.1
         with:
           fetch-depth: 0
           persist-credentials: false

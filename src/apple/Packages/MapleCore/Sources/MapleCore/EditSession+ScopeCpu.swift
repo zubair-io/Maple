@@ -86,6 +86,7 @@ extension EditSession {
     let noiseProfile: [Float]?
     let whitesAnchorEv: Float
     let nrSamplingScale: Float
+    let wbFrame: WbSliderFrame?
     if asset.isRaw {
       guard let result = await pipeline.decodeSceneLinearSized(asset: asset, targetSize: target)
       else {
@@ -95,6 +96,7 @@ extension EditSession {
       noiseProfile = result.noiseProfile
       whitesAnchorEv = result.whitesAnchorEv
       nrSamplingScale = result.nrSamplingScale
+      wbFrame = result.wbFrame
     } else {
       guard let result = await pipeline.decodeSceneLinearNonRaw(asset: asset, targetSize: target)
       else {
@@ -104,21 +106,26 @@ extension EditSession {
       noiseProfile = nil
       whitesAnchorEv = .nan
       nrSamplingScale = 1
+      wbFrame = nil
     }
     guard let floats = pipeline.sceneLinearFloats(from: decoded, targetSize: nil) else {
       throw PipelineError.renderFailed(code: -2, message: "scope readback failed")
     }
     let inputBytes = floats.pixels.withUnsafeBufferPointer { Data(buffer: $0) }
-    let params = PipelineRenderer.makeParams(from: model, whitesAnchorEv: whitesAnchorEv,
+    let params = PipelineRenderer.makeParams(
+      from: model, wbFrame: wbFrame, whitesAnchorEv: whitesAnchorEv,
       nrSamplingScale: nrSamplingScale)
-    return try PipelineRenderer.applyChainAndEncodeDisplayScoped(
-      inputBytes: inputBytes,
-      width: floats.width,
-      height: floats.height,
-      params: params,
-      scopeLayer: layerIndex,
-      noiseProfile: noiseProfile,
-      localAdjustments: model.localAdjustments  // #3338
-    )
+    // The params point at the decode's creative stage for the call.
+    return try withExtendedLifetime(wbFrame) {
+      try PipelineRenderer.applyChainAndEncodeDisplayScoped(
+        inputBytes: inputBytes,
+        width: floats.width,
+        height: floats.height,
+        params: params,
+        scopeLayer: layerIndex,
+        noiseProfile: noiseProfile,
+        localAdjustments: model.localAdjustments  // #3338
+      )
+    }
   }
 }

@@ -2,6 +2,7 @@
 import FileProvider
 import XCTest
 @testable import MapleCore
+@testable import MapleFileProviderCore
 
 /// Direct `deleteItem` and `enumerator(for:)` dispatch coverage for
 /// #2552. Neither entry point had ever been driven through a real
@@ -63,7 +64,7 @@ final class FileProviderExtensionCoreDeleteEnumeratorTests: XCTestCase {
         XCTAssertEqual(log.requests.first?.path, "/api/assets/\(validAssetID)/xmp")
     }
 
-    func testDeleteAssetCallsDeleteAssetAndSucceeds() {
+    func testDeleteAssetSendsExplicitTrashIntent() {
         let log = FPCoreTestSupport.RequestLog()
         let catalog = FPCoreTestSupport.makeCatalog { req in
             log.record(req)
@@ -78,6 +79,93 @@ final class FileProviderExtensionCoreDeleteEnumeratorTests: XCTestCase {
         XCTAssertEqual(log.requests.count, 1)
         XCTAssertEqual(log.requests.first?.method, "DELETE")
         XCTAssertEqual(log.requests.first?.path, "/api/assets/\(validAssetID)")
+        // #4706: the legacy no-intent DELETE means "trash" for a live asset
+        // and "PERMANENTLY purge" for an already-trashed one. A Finder
+        // delete is a trash gesture, so the extension must say so.
+        XCTAssertEqual(log.requests.first?.query, "intent=trash")
+    }
+
+    /// #4706 — a Finder delete whose response was lost is retried by the
+    /// OS. The retry reaches a server that already trashed the asset; it
+    /// must land as "already trashed, fine" and never as a purge.
+    func testRetriedDeleteOfTrashedAssetSucceedsWithoutPurge() {
+        let server = FakeTrashServer()
+        let catalog = FPCoreTestSupport.makeCatalog { server.handle($0) }
+        let core = FPCoreTestSupport.makeCore(catalog: catalog, test: self)
+        let identifier = NSFileProviderItemIdentifier(FileProviderIdentifier.asset(validAssetID).rawValue)
+
+        XCTAssertNil(runDeleteItem(core: core, identifier: identifier))
+        XCTAssertTrue(server.trashed.contains(validAssetID))
+
+        XCTAssertNil(runDeleteItem(core: core, identifier: identifier),
+                     "a retried delete of an already-trashed asset is success-shaped")
+        XCTAssertEqual(server.purged, [], "no retry may escalate a trash into a purge")
+        XCTAssertEqual(server.deleteCount, 2)
+    }
+
+    /// #4706 — any 409 other than "already trashed" is a real state
+    /// mismatch and must surface, not be swallowed as success.
+    func testDeleteAssetUnexpectedStateMismatchSurfacesError() {
+        let catalog = FPCoreTestSupport.makeCatalog { _ in
+            (409, Data(#"{"error": "nope", "state": "live"}"#.utf8),
+             ["Content-Type": "application/json"])
+        }
+        let core = FPCoreTestSupport.makeCore(catalog: catalog, test: self)
+        let identifier = NSFileProviderItemIdentifier(FileProviderIdentifier.asset(validAssetID).rawValue)
+
+        XCTAssertNotNil(runDeleteItem(core: core, identifier: identifier))
+    }
+
+    /// #4706 — the `.file` → indexed-asset self-heal retry (#2535) is the
+    /// second `deleteAsset` call site; it must carry the same intent.
+    func testIndexedFileRetryDeletesAssetWithTrashIntent() {
+        let folderID = "650a1b2c3d4e5f6071829305"
+        let log = FPCoreTestSupport.RequestLog()
+        let catalog = FPCoreTestSupport.makeCatalog { req in
+            log.record(req)
+            if req.url?.path.hasSuffix("/file") == true {
+                return (409, Data(#"{"error": "indexed", "asset_id": "\#(self.validAssetID)"}"#.utf8),
+                        ["Content-Type": "application/json"])
+            }
+            return (204, Data(), [:])
+        }
+        let core = FPCoreTestSupport.makeCore(catalog: catalog, test: self)
+        let identifier = NSFileProviderItemIdentifier(
+            FileProviderIdentifier.file(folderID: folderID, relativePath: "2024/IMG_0001.dng").rawValue
+        )
+
+        XCTAssertNil(runDeleteItem(core: core, identifier: identifier))
+        XCTAssertEqual(log.requests.count, 2)
+        XCTAssertEqual(log.requests.last?.path, "/api/assets/\(validAssetID)")
+        XCTAssertEqual(log.requests.last?.query, "intent=trash")
+    }
+
+    /// Models `DELETE /api/assets/:id` as the server implements it
+    /// (`src/api/src/routes/assets/trash.ts`): no `intent` + live → trash,
+    /// no `intent` + already trashed → PURGE, `intent=trash` + already
+    /// trashed → 409 `{state: "trashed"}`.
+    private final class FakeTrashServer {
+        private(set) var trashed: Set<String> = []
+        private(set) var purged: [String] = []
+        private(set) var deleteCount = 0
+
+        func handle(_ req: URLRequest) -> (Int, Data, [String: String]) {
+            deleteCount += 1
+            let assetID = req.url?.lastPathComponent ?? ""
+            let intent = URLComponents(url: req.url!, resolvingAgainstBaseURL: false)?
+                .queryItems?.first { $0.name == "intent" }?.value
+            if trashed.contains(assetID) {
+                if intent == "trash" {
+                    return (409, Data(#"{"error": "Asset is already trashed", "state": "trashed"}"#.utf8),
+                            ["Content-Type": "application/json"])
+                }
+                purged.append(assetID)
+                trashed.remove(assetID)
+                return (204, Data(), [:])
+            }
+            trashed.insert(assetID)
+            return (204, Data(), [:])
+        }
     }
 
     /// Synthetic/read-only kinds must reject with featureUnsupported and
@@ -183,7 +271,6 @@ final class FileProviderExtensionCoreDeleteEnumeratorTests: XCTestCase {
 
         let unsupported: [NSFileProviderItemIdentifier] = [
             NSFileProviderItemIdentifier(FileProviderIdentifier.folder(folderID: "f1", relativePath: "").rawValue),
-            NSFileProviderItemIdentifier(FileProviderIdentifier.trash(folderID: "f1").rawValue),
             NSFileProviderItemIdentifier(FileProviderIdentifier.mapleDir(folderID: "f1", parentRelativePath: "").rawValue),
             NSFileProviderItemIdentifier(FileProviderIdentifier.mapleThumbsDir(folderID: "f1", parentRelativePath: "").rawValue),
             NSFileProviderItemIdentifier(FileProviderIdentifier.thumb(assetID: validAssetID).rawValue),
@@ -200,6 +287,170 @@ final class FileProviderExtensionCoreDeleteEnumeratorTests: XCTestCase {
             XCTAssertEqual(ns?.code, NSFeatureUnsupportedError, "for \(identifier.rawValue)")
         }
         XCTAssertEqual(log.requests.count, 0, "none of these kinds should ever reach the network")
+    }
+
+    // MARK: - No Maple Trash in Finder (#4706)
+
+    /// Finder used to list a synthetic "<Library> Trash" next to every
+    /// library root. Its items shared the live asset identifier, so
+    /// `deleteItem` could not tell "trash this photo" from "purge this
+    /// trashed photo" and the only disambiguator was the server's
+    /// dual-mode DELETE — the exact mechanism that purged originals on a
+    /// retried delete. Permanent deletion lives in the app's Trash
+    /// browser; Finder gets no trash container at all.
+    func testRootEnumerationPublishesOnlyLibraryRoots() async {
+        let roots = [
+            LibraryRoot(id: "650a1b2c3d4e5f6071829305", path: "/lib/a", label: "A", fileCount: 1),
+            LibraryRoot(id: "650a1b2c3d4e5f6071829306", path: "/lib/b", label: "B", fileCount: 1),
+        ]
+        let catalog = FPCoreTestSupport.makeCatalog { _ in (500, Data(), [:]) }
+        let rootCache = LibraryRootCache(
+            domainID: "root-test",
+            defaults: UserDefaults(suiteName: "fp-root-test-\(UUID().uuidString)")!,
+            fetcher: { roots })
+        let observer = TestEnumerationObserver()
+
+        RootEnumerator(catalog: catalog, rootCache: rootCache)
+            .enumerateItems(for: observer, startingAt: NSFileProviderPage.initialPageSortedByName as NSFileProviderPage)
+        let finished = await observer.waitUntilFinished(timeoutSeconds: 5)
+
+        XCTAssertTrue(finished)
+        let published = observer.batches.flatMap { $0 }.map(\.itemIdentifier.rawValue)
+        XCTAssertNil(observer.error)
+        XCTAssertEqual(published, roots.map { FileProviderIdentifier.folder(folderID: $0.id, relativePath: "").rawValue })
+    }
+
+    func testTrashContainerIdentifierNoLongerParses() {
+        XCTAssertThrowsError(try FileProviderIdentifier(rawValue: "trash/650a1b2c3d4e5f6071829305")) { error in
+            XCTAssertEqual(error as? FileProviderIdentifier.DecodeError, .invalidPrefix)
+        }
+    }
+
+    /// A domain that existed before this change still holds the old
+    /// `trash/<id>` container in the OS's database. Answering its
+    /// validation with a decode error makes the OS retry forever (the
+    /// `WorkingSetContainerItem` note records that loop); `noSuchItem`
+    /// is what makes it drop the ghost.
+    func testStaleTrashContainerIdentifierHasNoEnumerator() {
+        let catalog = FPCoreTestSupport.makeCatalog { _ in (500, Data(), [:]) }
+        let core = FPCoreTestSupport.makeCore(catalog: catalog, test: self)
+
+        XCTAssertThrowsError(
+            try core.enumerator(for: NSFileProviderItemIdentifier("trash/650a1b2c3d4e5f6071829305"),
+                                request: NSFileProviderRequest())
+        ) { error in
+            let ns = error as NSError
+            XCTAssertEqual(ns.domain, NSFileProviderErrorDomain)
+            XCTAssertEqual(ns.code, NSFileProviderError.noSuchItem.rawValue)
+        }
+    }
+
+    func testStaleTrashContainerIdentifierResolvesToNoSuchItem() {
+        let catalog = FPCoreTestSupport.makeCatalog { _ in (500, Data(), [:]) }
+        let core = FPCoreTestSupport.makeCore(catalog: catalog, test: self)
+        let done = expectation(description: "item(for:) completed")
+        var received: (item: NSFileProviderItem?, error: Error?) = (nil, nil)
+
+        _ = core.item(for: NSFileProviderItemIdentifier("trash/650a1b2c3d4e5f6071829305"),
+                      request: NSFileProviderRequest()) { item, error in
+            received = (item, error)
+            done.fulfill()
+        }
+        wait(for: [done], timeout: 5)
+
+        XCTAssertNil(received.item)
+        let ns = received.error as NSError?
+        XCTAssertEqual(ns?.domain, NSFileProviderErrorDomain)
+        XCTAssertEqual(ns?.code, NSFileProviderError.noSuchItem.rawValue)
+    }
+
+    /// The old container's CHILDREN were cached as ordinary `asset/<id>`
+    /// items. `GET /api/assets/:id` still answers for a trashed asset
+    /// (its path repointed into `.maple/trash/`), so without this guard
+    /// the OS would re-home the cached child under a hidden `.maple/trash`
+    /// folder instead of evicting it.
+    func testTrashedAssetResolvesToNoSuchItemInsteadOfAHiddenTrashFolder() {
+        let folderID = "650a1b2c3d4e5f6071829305"
+        let body = #"{"id": "\#(validAssetID)", "folder_id": "\#(folderID)", "filename": "IMG_1.dng", "#
+            + #""abs_path": "/lib/.maple/trash/2024/IMG_1.dng", "size": 100, "mtime": 1700000000000, "rating": 0}"#
+        let catalog = FPCoreTestSupport.makeCatalog { _ in
+            (200, Data(body.utf8), ["Content-Type": "application/json"])
+        }
+        let roots = [LibraryRoot(id: folderID, path: "/lib", label: "Lib", fileCount: 1)]
+        let core = FPCoreTestSupport.makeCore(catalog: catalog, roots: roots, test: self)
+        let done = expectation(description: "item(for:) completed")
+        var received: (item: NSFileProviderItem?, error: Error?) = (nil, nil)
+
+        _ = core.item(for: NSFileProviderItemIdentifier(FileProviderIdentifier.asset(validAssetID).rawValue),
+                      request: NSFileProviderRequest()) { item, error in
+            received = (item, error)
+            done.fulfill()
+        }
+        wait(for: [done], timeout: 5)
+
+        XCTAssertNil(received.item, "a trashed asset must not surface as a Finder item")
+        let ns = received.error as NSError?
+        XCTAssertEqual(ns?.domain, NSFileProviderErrorDomain)
+        XCTAssertEqual(ns?.code, NSFileProviderError.noSuchItem.rawValue)
+    }
+
+    /// A Windows-hosted Maple server composes `abs_path` with
+    /// backslashes (`src/api/src/fs/root-match.ts`); the trash check must
+    /// not depend on the client's own separator.
+    func testTrashedAssetOnAWindowsHostedServerAlsoResolvesToNoSuchItem() {
+        let folderID = "650a1b2c3d4e5f6071829305"
+        let body = #"{"id": "\#(validAssetID)", "folder_id": "\#(folderID)", "filename": "IMG_1.dng", "#
+            + #""abs_path": "C:\\photos\\.maple\\trash\\2024\\IMG_1.dng", "size": 100, "mtime": 1700000000000, "rating": 0}"#
+        let catalog = FPCoreTestSupport.makeCatalog { _ in
+            (200, Data(body.utf8), ["Content-Type": "application/json"])
+        }
+        let roots = [LibraryRoot(id: folderID, path: "C:\\photos", label: "Lib", fileCount: 1)]
+        let core = FPCoreTestSupport.makeCore(catalog: catalog, roots: roots, test: self)
+        let done = expectation(description: "item(for:) completed")
+        var received: (item: NSFileProviderItem?, error: Error?) = (nil, nil)
+
+        _ = core.item(for: NSFileProviderItemIdentifier(FileProviderIdentifier.asset(validAssetID).rawValue),
+                      request: NSFileProviderRequest()) { item, error in
+            received = (item, error)
+            done.fulfill()
+        }
+        wait(for: [done], timeout: 5)
+
+        XCTAssertNil(received.item)
+        XCTAssertEqual((received.error as NSError?)?.code, NSFileProviderError.noSuchItem.rawValue)
+    }
+
+    /// `fetchContents` is reachable BEFORE `item(for:)` validates a cached
+    /// child (the user opens it), so it must apply the same trashed check
+    /// rather than materialising the RAW and re-homing it under
+    /// `.maple/trash`.
+    func testFetchContentsRejectsATrashedAsset() {
+        let folderID = "650a1b2c3d4e5f6071829305"
+        let meta = #"{"id": "\#(validAssetID)", "folder_id": "\#(folderID)", "filename": "IMG_1.dng", "#
+            + #""abs_path": "/lib/.maple/trash/2024/IMG_1.dng", "size": 3, "mtime": 1700000000000, "rating": 0}"#
+        let catalog = FPCoreTestSupport.makeCatalog { req in
+            if req.url?.path == "/api/assets/\(self.validAssetID)" {
+                return (200, Data(meta.utf8), ["Content-Type": "application/json"])
+            }
+            return (200, Data("RAW".utf8), ["Content-Type": "application/octet-stream"])
+        }
+        let roots = [LibraryRoot(id: folderID, path: "/lib", label: "Lib", fileCount: 1)]
+        let core = FPCoreTestSupport.makeCore(catalog: catalog, roots: roots, test: self)
+        let done = expectation(description: "fetchContents completed")
+        var received: (url: URL?, item: NSFileProviderItem?, error: Error?) = (nil, nil, nil)
+
+        _ = core.fetchContents(
+            for: NSFileProviderItemIdentifier(FileProviderIdentifier.asset(validAssetID).rawValue),
+            version: nil, request: NSFileProviderRequest()
+        ) { url, item, error in
+            received = (url, item, error)
+            done.fulfill()
+        }
+        wait(for: [done], timeout: 10)
+
+        XCTAssertNil(received.item, "a trashed asset must not be materialised as a Finder item")
+        XCTAssertNil(received.url)
+        XCTAssertEqual((received.error as NSError?)?.code, NSFileProviderError.noSuchItem.rawValue)
     }
 
     // MARK: - enumerator(for:) dispatch

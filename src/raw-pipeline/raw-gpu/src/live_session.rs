@@ -52,6 +52,14 @@ use std::sync::atomic::{AtomicU64, Ordering};
 /// about session identity.
 static NEXT_LIVE_SESSION_ID: AtomicU64 = AtomicU64::new(1);
 
+/// An identity for another present source (the canvas placeholder, #5758),
+/// from the same counter, so a present dispatch cached for one can never be
+/// reused for a session's buffers.
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) fn mint_present_source_identity() -> u64 {
+    NEXT_LIVE_SESSION_ID.fetch_add(1, Ordering::Relaxed)
+}
+
 /// A persistent live-render session bound to one uploaded image at one set of
 /// dims. Owns the GPU-resident image, the ping-pong scratch pair, the readback
 /// buffer, and the packed-u8 dither-output buffer — all created once, reused
@@ -99,6 +107,12 @@ pub struct LiveSession {
     /// [`NEXT_LIVE_SESSION_ID`] at construction; stable for the session's whole
     /// lifetime.
     session_id: u64,
+    pool_owner: std::sync::Arc<()>,
+    /// The dehaze map kept across renders (#3287), so a dehaze-slider tick
+    /// runs only the recovery. Cleared when the source image changes.
+    haze: std::sync::Arc<crate::dehaze::HazeResidency>,
+    /// The P3 Auto headroom holder (#4741), reused by every tick's split/restore.
+    pub(crate) p3_auto_headroom: crate::p3_auto::HeadroomPlane,
     /// The vectorscope scope-pass histogram, the RGB8 snapshot (#3251) and
     /// their double-buffered `MAP_READ` staging (#3272) — see
     /// `live_session/scope.rs`. Session-owned
@@ -154,6 +168,9 @@ impl LiveSession {
                 pixels.len()
             ));
         }
+        // Keep other live views warm; reclaim retired source resources before
+        // allocating this view. Session-salted signatures isolate their bindings.
+        ctx.frame_pool.borrow_mut().retire_sessions();
         let image = GpuImage::upload(ctx, pixels, width, height);
         let f32_byte_len = image.byte_len();
         let make_ping = |label: &str| {
@@ -184,14 +201,6 @@ impl LiveSession {
             usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
             mapped_at_creation: false,
         });
-        // Drop any cache from a prior session on this ctx — its bind groups
-        // reference the OLD session's (now-dropped) ping-pong buffers (stale-
-        // reference safety; see `FramePool::reset`). This guards a CLOSED
-        // session's leftovers; it does NOT protect against a second session
-        // opening and rendering while this one is still alive (#1929) — that's
-        // what `session_id` (salted into every `chain_signature` this session
-        // computes) closes instead.
-        ctx.frame_pool.borrow_mut().reset();
         let session_id = NEXT_LIVE_SESSION_ID.fetch_add(1, Ordering::Relaxed);
         let ping_pong = [make_ping("live-ping-a"), make_ping("live-ping-b")];
         Ok(Self {
@@ -206,6 +215,9 @@ impl LiveSession {
             airlight_staging,
             airlight_readback_fallback,
             session_id,
+            pool_owner: std::sync::Arc::new(()),
+            haze: Default::default(),
+            p3_auto_headroom: Default::default(),
             scope: scope::ScopeBuffers::new(ctx, (width, height)),
         })
     }
@@ -231,6 +243,7 @@ impl LiveSession {
         );
         ctx.queue
             .write_buffer(&self.image.buffer, 0, bytemuck::cast_slice(pixels));
+        self.haze.clear();
     }
 
     /// Cumulative pool allocation count (the honest zero-alloc hook): the number
@@ -284,7 +297,9 @@ impl LiveSession {
         // so a same-signature re-render allocates ZERO new GPU resources.
         crate::live_chain::validate_curve_capacity(inputs)?;
         let sig = chain_signature(inputs, dims, self.session_id);
-        ctx.frame_pool.borrow_mut().begin_frame(sig);
+        ctx.frame_pool
+            .borrow_mut()
+            .begin_session_frame(sig, &self.pool_owner);
 
         let result = if self.airlight_readback_fallback && dehaze_is_active(inputs) {
             self.render_dehaze_split(ctx, inputs, cancel).await
@@ -389,7 +404,9 @@ impl LiveSession {
         crate::live_chain::validate_curve_capacity(inputs)?;
         let dims = self.image.dims();
         let sig = chain_signature(inputs, dims, self.session_id);
-        ctx.frame_pool.borrow_mut().begin_frame(sig);
+        ctx.frame_pool
+            .borrow_mut()
+            .begin_session_frame(sig, &self.pool_owner);
 
         let result = if self.airlight_readback_fallback && dehaze_is_active(inputs) {
             self.encode_chain_f32_dehaze_split(ctx, inputs, cancel)
@@ -434,6 +451,7 @@ impl LiveSession {
             );
         }
         let submission = ctx.queue.submit(Some(encoder.finish()));
+        self.haze.submitted();
         if inputs.scope.enabled {
             self.scope_after_submit(submission);
         }
@@ -463,7 +481,7 @@ mod preparation;
 // `encode_chain_f32_dehaze_split`) — split out purely for the file-size
 // budget; see that file's own header.
 mod dehaze_split;
-mod limits;
+pub(crate) mod limits;
 // The vectorscope scope-pass buffers + `take_scope_stats` (#3272) — split
 // out purely for the file-size budget; see that file's own header.
 mod inspection;
@@ -476,11 +494,21 @@ mod tests;
 #[cfg(all(test, not(target_arch = "wasm32")))]
 #[path = "live_session/tests_pool.rs"]
 mod tests_pool;
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+#[path = "live_session/tests_creative.rs"]
+mod tests_creative;
 #[cfg(all(test, not(target_arch = "wasm32")))]
 #[path = "live_session/tests_preparation.rs"]
 mod tests_preparation;
 // The double-buffered scope readback gate (#3272) — own file (600-LOC
 // budget), reuses `limits` (`pub(super)` there).
+#[cfg(all(test, not(target_arch = "wasm32")))]
+#[path = "live_session/tests_haze.rs"]
+mod tests_haze;
+#[cfg(all(test, not(target_arch = "wasm32")))]
+#[path = "live_session/tests_p3_timing.rs"]
+mod tests_p3_timing;
 #[cfg(all(test, not(target_arch = "wasm32")))]
 #[path = "live_session/tests_scope.rs"]
 mod tests_scope;

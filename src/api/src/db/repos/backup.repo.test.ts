@@ -25,9 +25,9 @@ import {
   linkPhasset,
   listBackupState,
   markDeletedFromPhotos,
-  setAppleRenderedPath,
   type PhassetLink,
 } from './backup.repo.ts';
+import { setAppleCompanionPath } from './backup-companions.repo.ts';
 import type { SqliteDb } from './db-handle.ts';
 
 const DEVICE = 'device-A';
@@ -54,6 +54,7 @@ function assetRow(db: Database, mapleId: string) {
     is_screenshot: number | null;
     size: number;
     apple_rendered_path: string | null;
+    apple_live_video_path: string | null;
     deleted_from_photos: number;
   };
 }
@@ -188,6 +189,23 @@ describe('the dedup lookup the ingest route branches on', () => {
     expect(found?.liveRelPathInLibrary).toBeNull();
   });
 
+  test('a missing location does not count as a live copy and exposes its path for repair', async () => {
+    using handle = await createTestDatabase();
+    const db = testSqliteDb(handle.db);
+    const lib = library(handle.db);
+    const id = await seedUpload(db, lib);
+    handle.db.run(`UPDATE asset_locations SET missing_since = ? WHERE asset_id = ?`, [
+      '2026-05-12T00:00:00.000Z',
+      id.toHexString(),
+    ]);
+    const found = await findIngestDedupTarget(
+      { mapleId: 'content-1', libraryId: lib, deviceId: DEVICE, phassetLocalId: 'P1' },
+      db,
+    );
+    expect(found?.liveRelPathInLibrary).toBeNull();
+    expect(found?.missingRelPathInLibrary).toBe('2024/Tokyo/IMG_0001.HEIC');
+  });
+
   test('a link for a different local id on the same device does not count as linked', async () => {
     using handle = await createTestDatabase();
     const db = testSqliteDb(handle.db);
@@ -280,6 +298,60 @@ describe('materialising a second copy in another library', () => {
     );
     expect(assetRow(handle.db, 'content-1').media_kind).toBe('video');
   });
+
+  test('re-materialising an existing missing location clears missing_since in place', async () => {
+    using handle = await createTestDatabase();
+    const db = testSqliteDb(handle.db);
+    const lib = library(handle.db);
+    const id = await seedUpload(db, lib);
+    handle.db.run(
+      `UPDATE asset_locations SET missing_since = ?, missing_reason = 'watcher' WHERE asset_id = ?`,
+      ['2026-05-12T00:00:00.000Z', id.toHexString()],
+    );
+    expect(assetRow(handle.db, 'content-1').live_location_count).toBe(0);
+
+    await appendBackupLocation(
+      id,
+      { relPath: '2024/Tokyo/IMG_0001.HEIC', libraryId: lib, link: null },
+      db,
+    );
+
+    const loc = handle.db
+      .query(
+        `SELECT ordinal, path, filename, missing_since, missing_reason
+           FROM asset_locations WHERE asset_id = ?`,
+      )
+      .all(id.toHexString());
+    expect(loc).toEqual([
+      {
+        ordinal: 0,
+        path: '2024/Tokyo',
+        filename: 'IMG_0001.HEIC',
+        missing_since: null,
+        missing_reason: null,
+      },
+    ]);
+    expect(assetRow(handle.db, 'content-1').live_location_count).toBe(1);
+  });
+
+  test('rejects when the target location is already owned by a different asset', async () => {
+    using handle = await createTestDatabase();
+    const db = testSqliteDb(handle.db);
+    const lib = library(handle.db);
+    await seedUpload(db, lib);
+    const otherId = await seedUpload(db, lib, {
+      mapleId: 'content-other',
+      relPath: '2024/Tokyo/IMG_0002.HEIC',
+    });
+
+    await expect(
+      appendBackupLocation(
+        otherId,
+        { relPath: '2024/Tokyo/IMG_0001.HEIC', libraryId: lib, link: null },
+        db,
+      ),
+    ).rejects.toThrow(/UNIQUE constraint failed/);
+  });
 });
 
 describe('the batch dedup probe', () => {
@@ -295,9 +367,14 @@ describe('the batch dedup probe', () => {
       '2026-05-12T00:00:00.000Z',
       trashed.toHexString(),
     ]);
+    const missing = await seedUpload(db, lib, { mapleId: 'missing', relPath: 'd.heic' });
+    handle.db.run(`UPDATE asset_locations SET missing_since = ? WHERE asset_id = ?`, [
+      '2026-05-12T00:00:00.000Z',
+      missing.toHexString(),
+    ]);
 
     const present = await findMapleIdsPresentInLibrary(
-      ['here', 'there', 'trashed', 'never-seen'],
+      ['here', 'there', 'trashed', 'missing', 'never-seen'],
       lib,
       db,
     );
@@ -349,6 +426,46 @@ describe('the device reconciliation feed', () => {
     ]);
     expect(await listBackupState(lib, DEVICE, new Date(0), db)).toEqual([]);
   });
+
+  test('an asset whose location here is marked missing_since is left out, or reports its live ordinal when another location is live', async () => {
+    using handle = await createTestDatabase();
+    const db = testSqliteDb(handle.db);
+    const lib = library(handle.db);
+    const id = await seedUpload(db, lib);
+    handle.db.run(`UPDATE asset_locations SET missing_since = ? WHERE asset_id = ?`, [
+      '2026-05-12T00:00:00.000Z',
+      id.toHexString(),
+    ]);
+    expect(await listBackupState(lib, DEVICE, new Date(0), db)).toEqual([]);
+
+    // When a repair lands at a disambiguated sibling (ordinal 1) while ordinal 0
+    // remains missing_since, the feed reports the live ordinal-1 path.
+    await appendBackupLocation(
+      id,
+      { relPath: '2024/Tokyo/IMG_0001-1.HEIC', libraryId: lib, link: null },
+      db,
+    );
+    const rows = await listBackupState(lib, DEVICE, new Date(0), db);
+    expect(rows.map((r) => r.rel_path)).toEqual(['2024/Tokyo/IMG_0001-1.HEIC']);
+  });
+
+  test('reports which companions each asset has recorded', async () => {
+    using handle = await createTestDatabase();
+    const db = testSqliteDb(handle.db);
+    const lib = library(handle.db);
+    await seedUpload(db, lib, { mapleId: 'bare', relPath: 'a.heic', phassetLocalId: 'P1' });
+    await seedUpload(db, lib, { mapleId: 'live', relPath: 'b.heic', phassetLocalId: 'P2' });
+    await seedUpload(db, lib, { mapleId: 'both', relPath: 'c.heic', phassetLocalId: 'P3' });
+    await setAppleCompanionPath(lib, 'live', 'apple_live_video_path', 'b.mov', db);
+    await setAppleCompanionPath(lib, 'both', 'apple_live_video_path', 'c.mov', db);
+    await setAppleCompanionPath(lib, 'both', 'apple_rendered_path', 'c.rendered.JPEG', db);
+
+    const rows = await listBackupState(lib, DEVICE, new Date(0), db);
+    const companions = Object.fromEntries(
+      rows.map((row) => [row.phasset_local_id, [row.has_live_video, row.has_rendered]]),
+    );
+    expect(companions).toEqual({ P1: [false, false], P2: [true, false], P3: [true, true] });
+  });
 });
 
 describe('a device reporting photos deleted from Apple Photos', () => {
@@ -376,35 +493,5 @@ describe('a device reporting photos deleted from Apple Photos', () => {
     expect(await markDeletedFromPhotos(lib, 'device-B', ['P1'], db)).toBe(0);
     expect(await markDeletedFromPhotos(lib, DEVICE, [], db)).toBe(0);
     expect(assetRow(handle.db, 'content-1').deleted_from_photos).toBe(0);
-  });
-});
-
-describe('the Apple-rendered companion pointer', () => {
-  test('lands on the asset in the library the companion was uploaded to', async () => {
-    using handle = await createTestDatabase();
-    const db = testSqliteDb(handle.db);
-    const lib = library(handle.db);
-    await seedUpload(db, lib);
-
-    const outcome = await setAppleRenderedPath(
-      lib,
-      'content-1',
-      '2024/Tokyo/IMG_0001.rendered.HEIC',
-      db,
-    );
-    expect(outcome.matchedCount).toBe(1);
-    expect(assetRow(handle.db, 'content-1').apple_rendered_path).toBe(
-      '2024/Tokyo/IMG_0001.rendered.HEIC',
-    );
-  });
-
-  test('matches nothing when the content is not in that library', async () => {
-    using handle = await createTestDatabase();
-    const db = testSqliteDb(handle.db);
-    const lib = library(handle.db);
-    const elsewhere = library(handle.db, '/libraries/elsewhere');
-    await seedUpload(db, lib);
-    expect((await setAppleRenderedPath(elsewhere, 'content-1', 'x.HEIC', db)).matchedCount).toBe(0);
-    expect(assetRow(handle.db, 'content-1').apple_rendered_path).toBeNull();
   });
 });

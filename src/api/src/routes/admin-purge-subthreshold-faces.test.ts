@@ -32,6 +32,7 @@ import {
   run,
   type LiveTestDatabase,
 } from '../db/sqlite/test-sqlite.test-helpers.ts';
+import { fakeAuth } from '../../tests/helpers/test-auth.ts';
 
 let live: LiveTestDatabase;
 let libraryId: string;
@@ -104,7 +105,7 @@ async function callRoute(
   params: { apply?: boolean; includeAssigned?: boolean } = {},
 ): Promise<{ status: number; body: Record<string, unknown> }> {
   const { purgeSubthresholdFacesRoutes } = await import('./admin-purge-subthreshold-faces.ts');
-  const app = new Elysia().use(purgeSubthresholdFacesRoutes);
+  const app = new Elysia().use(fakeAuth()).use(purgeSubthresholdFacesRoutes);
   const search = new URLSearchParams();
   if (params.apply) search.set('apply', 'true');
   if (params.includeAssigned) search.set('includeAssigned', 'true');

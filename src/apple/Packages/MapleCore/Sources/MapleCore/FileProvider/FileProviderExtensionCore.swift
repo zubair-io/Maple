@@ -1,3 +1,4 @@
+// swift-format-ignore-file
 // src/apple/Packages/MapleCore/Sources/MapleCore/FileProvider/FileProviderExtensionCore.swift
 import FileProvider
 import OSLog
@@ -5,9 +6,14 @@ import UniformTypeIdentifiers
 
 open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtension {
     private let domain: NSFileProviderDomain
-    private let log = Logger(subsystem: "app.justmaple.aperture.fileprovider", category: "extension")
-    private let dormant: Bool
-    private let catalog: RemoteCatalog?
+    let log = Logger(subsystem: "app.justmaple.aperture.fileprovider", category: "extension")
+    /// Bounds file uploads and content downloads, so a burst
+    /// of OS calls cannot outgrow iOS's 20 MB extension limit (#5456). See
+    /// `FileProviderExtensionCore+Transfers.swift`.
+    let writePermits = BoundedAsyncSemaphore(value: FileProviderExtensionCore.writeConcurrency)
+    let fetchPermits = BoundedAsyncSemaphore(value: FileProviderExtensionCore.fetchConcurrency)
+    let dormant: Bool
+    let catalog: RemoteCatalog?
     private let rootCache: LibraryRootCache?
     private let deviceName: String
     /// Shared SQLite mirror used by the Quick Look extension to resolve a
@@ -20,6 +26,8 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
     private let workingSet: WorkingSet
     private let cursorStore: ChangeCursorStore
     private let workingSetListCache: WorkingSetListCache?
+    private let forYouDeletionsDirectory: URL?
+    private let serverHostKey: String?
     /// Long-lived SSE consumer. Started in init when not dormant; stopped
     /// on `invalidate()`, OR earlier once APNs push-to-signal is confirmed
     /// active for this device (#1025) — see the APNs-confirmation `Task`
@@ -140,7 +148,9 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
          metaStore: FileProviderMetaStore?,
          workingSet: WorkingSet,
          cursorStore: ChangeCursorStore,
-         workingSetListCache: WorkingSetListCache?) {
+         workingSetListCache: WorkingSetListCache?,
+         forYouDeletionsDirectory: URL? = nil,
+         serverHostKey: String? = nil) {
         self.domain = domain
         self.dormant = dormant
         self.catalog = catalog
@@ -150,6 +160,8 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
         self.workingSet = workingSet
         self.cursorStore = cursorStore
         self.workingSetListCache = workingSetListCache
+        self.forYouDeletionsDirectory = forYouDeletionsDirectory
+        self.serverHostKey = serverHostKey
         super.init()
     }
 
@@ -176,7 +188,7 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
             log.notice("init dormant — no config for domain \(domain.identifier.rawValue, privacy: .public)")
             return
         }
-        let session = URLSession(configuration: .default)
+        let session = Self.makeURLSession()
         let domainID = domain.identifier.rawValue
         let http = AuthenticatedHTTPClient(
             server: cfg.serverURL,
@@ -190,7 +202,9 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
             // extension-process counterpart to the app's `BackgroundExecution`.
             refreshExecutor: ExpiringActivityRefreshExecutor()
         )
-        let catalog = RemoteCatalog(http: http, server: cfg.serverURL)
+        let catalog = RemoteCatalog(
+            http: http, server: cfg.serverURL, downloadURLSession: session,
+            etagCacheByteBudget: RemoteCatalog.extensionETagCacheByteBudget)
         let resolvedWorkingSet = WorkingSet(capacity: WorkingSet.defaultCapacity)
         let resolvedCursorStore = ChangeCursorStore()
         // LibraryRootCache primes from App Group `UserDefaults` so the
@@ -219,7 +233,8 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
                   metaStore: resolvedMetaStore,
                   workingSet: resolvedWorkingSet,
                   cursorStore: resolvedCursorStore,
-                  workingSetListCache: WorkingSetListCache(catalog: catalog))
+                  workingSetListCache: WorkingSetListCache(catalog: catalog),
+                  serverHostKey: cfg.serverURL.cacheHostKey)
         // Wire up the SSE client after self.init (which itself calls
         // super.init()) so we can capture self.
         // Tokens are read on every reconnect — they're refreshed by the
@@ -499,9 +514,9 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
             ) {
                 try? await mgr.signalEnumerator(for: derived)
             }
-            // Folder counts may have shifted — drop the library-root cache
-            // so the next root enumeration re-reads.
-            await rootCache?.invalidate()
+            // Folder counts may have shifted. Refreshing instead of dropping
+            // the list keeps it servable through an upload burst (#5503).
+            await rootCache?.revalidate()
         }
     }
 
@@ -564,8 +579,17 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
                                                code: NSFileProviderError.noSuchItem.rawValue))
                 return
             }
+            // An identifier this build no longer recognises (a `trash/<id>`
+            // container persisted by a pre-#4706 domain, or anything else
+            // stale) is gone, not malformed: `noSuchItem` makes the OS drop
+            // it, whereas a decode error makes it retry validation forever
+            // (see `WorkingSetContainerItem`).
+            guard let parsed = try? FileProviderIdentifier(rawValue: identifier.rawValue) else {
+                completionHandler(nil, NSError(domain: NSFileProviderErrorDomain,
+                                               code: NSFileProviderError.noSuchItem.rawValue))
+                return
+            }
             do {
-                let parsed = try FileProviderIdentifier(rawValue: identifier.rawValue)
                 switch parsed {
                 case .folder(let folderID, let relativePath):
                     if relativePath.isEmpty {
@@ -624,12 +648,16 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
                     // a placeholder filename and never get the real
                     // bytes. Returns nil on 404; we map to noSuchItem.
                     do {
-                        guard let meta = try await catalog.getAsset(assetID: assetID) else {
+                        // A trashed asset is gone as far as Finder is concerned
+                        // (#4706): without this the OS would re-home a cached
+                        // child of the removed Trash container under a hidden
+                        // `.maple/trash` folder instead of evicting it.
+                        guard let meta = try await catalog.getAsset(assetID: assetID), !meta.isTrashed else {
                             completionHandler(nil, NSError(domain: NSFileProviderErrorDomain,
                                                            code: NSFileProviderError.noSuchItem.rawValue))
                             return
                         }
-                        let parent = await Self.resolveAssetParent(meta: meta, rootCache: rootCache)
+                        let parent = try await Self.resolveAssetParent(meta: meta, rootCache: rootCache)
                         completionHandler(MapleItem(assetMetadata: meta, parent: parent), nil)
                     } catch {
                         log.error("getAsset failed: \(error.localizedDescription, privacy: .public)")
@@ -704,7 +732,7 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
                     // filename and the folder; the parent is the folder's
                     // synthesised `.maple/previews/`.
                     do {
-                        guard let meta = try await catalog.getAsset(assetID: assetID) else {
+                        guard let meta = try await catalog.getAsset(assetID: assetID), !meta.isTrashed else {
                             completionHandler(nil, NSError(domain: NSFileProviderErrorDomain,
                                                            code: NSFileProviderError.noSuchItem.rawValue))
                             return
@@ -721,8 +749,7 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
                     }
                 case .thumb(let assetID):
                     // Resolve via the asset metadata so we can compute
-                    // the on-disk thumb filename (`sha256_prefix16` of
-                    // the RAW basename) and reattach the item under
+                    // the on-disk thumb filename (`<RAW filename>.avif`) and reattach the item under
                     // its correct `.maple/thumbs/` parent.
                     //
                     // `resolveThumbParent` throws on every failure mode
@@ -735,7 +762,7 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
                     // container at the library root, displacing it from
                     // its real folder.
                     do {
-                        guard let meta = try await catalog.getAsset(assetID: assetID) else {
+                        guard let meta = try await catalog.getAsset(assetID: assetID), !meta.isTrashed else {
                             completionHandler(nil, NSError(domain: NSFileProviderErrorDomain,
                                                            code: NSFileProviderError.noSuchItem.rawValue))
                             return
@@ -752,14 +779,6 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
                         log.error("thumb item(for:) failed: \(error.localizedDescription, privacy: .public)")
                         completionHandler(nil, error)
                     }
-                case .trash(let folderID):
-                    let roots = try await rootCache.roots()
-                    guard let root = roots.first(where: { $0.id == folderID }) else {
-                        completionHandler(nil, NSError(domain: NSFileProviderErrorDomain,
-                                                       code: NSFileProviderError.noSuchItem.rawValue))
-                        return
-                    }
-                    completionHandler(MapleItem(trashContainer: folderID, displayName: "\(root.label) Trash"), nil)
                 }
             } catch {
                 log.error("item(for:) failed id=\(identifier.rawValue, privacy: .public) err=\(String(describing: error), privacy: .public)")
@@ -786,7 +805,8 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
             progress.completedUnitCount = 1
             return progress
         }
-        Task {
+        startBounded(by: fetchPermits, progress: progress,
+                     cancelled: { completionHandler(nil, nil, Self.userCancelledError()) }) { [self] in
             defer { progress.completedUnitCount = 1 }
             do {
                 let parsed = try FileProviderIdentifier(rawValue: itemIdentifier.rawValue)
@@ -809,14 +829,44 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
                     // FPXExtensionContext aborts the extension with an
                     // NSAssertionHandler failure.
                     async let metaTask = catalog.getAsset(assetID: id)
-                    async let downloadTask: Void = catalog.downloadAsset(assetID: id, to: localURL)
-                    _ = try await downloadTask
-                    let resolved = try await metaTask
-                    guard let resolved else {
-                        log.error("fetchContents asset \(id, privacy: .public) — getAsset returned nil")
+                    let downloadTask = Task { try await catalog.downloadAsset(assetID: id, to: localURL) }
+                    defer { downloadTask.cancel() }
+                    let resolved: AssetMetadata?
+                    do {
+                        resolved = try await metaTask
+                    } catch {
+                        downloadTask.cancel()
+                        _ = try? await downloadTask.value
+                        try? FileManager.default.removeItem(at: localURL)
+                        throw error
+                    }
+                    // Same trashed check as `item(for:)` (#4706, #4805): check
+                    // metadata BEFORE awaiting the download so a reaped asset
+                    // whose on-disk file is gone surfaces `noSuchItem` instead
+                    // of the raw endpoint's 403 error, and cancel any in-flight
+                    // download for a soft-deleted file in `.maple/trash/`.
+                    guard let resolved, !resolved.isTrashed else {
+                        log.error("fetchContents asset \(id, privacy: .public) — missing or trashed")
+                        downloadTask.cancel()
+                        _ = try? await downloadTask.value
+                        try? FileManager.default.removeItem(at: localURL)
                         completionHandler(nil, nil, NSError(domain: NSFileProviderErrorDomain,
                                                             code: NSFileProviderError.noSuchItem.rawValue))
                         return
+                    }
+                    let parent: NSFileProviderItemIdentifier
+                    do {
+                        parent = try await Self.resolveAssetParent(meta: resolved, rootCache: self.rootCache)
+                    } catch {
+                        downloadTask.cancel()
+                        _ = try? await downloadTask.value
+                        try? FileManager.default.removeItem(at: localURL)
+                        throw error
+                    }
+                    try await withTaskCancellationHandler {
+                        try await downloadTask.value
+                    } onCancel: {
+                        downloadTask.cancel()
                     }
                     self.recordMeta(domain: self.domain.identifier.rawValue,
                                     localBasename: localURL.lastPathComponent,
@@ -846,7 +896,6 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
                         log.notice("setAttributes(modificationDate:) failed for \(localURL.lastPathComponent, privacy: .public): \(String(describing: error), privacy: .public)")
                     }
                     log.notice("fetchContents asset \(id, privacy: .public) ok bytes-at=\(localURL.path, privacy: .public)")
-                    let parent = await Self.resolveAssetParent(meta: resolved, rootCache: self.rootCache)
                     completionHandler(localURL, MapleItem(assetMetadata: resolved, parent: parent), nil)
                     return
                 case .sidecar(let assetID, let conflictBasename):
@@ -855,15 +904,28 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
                     // sidecars apart from RAWs by basename alone.
                     let localURL = tmpDir.appendingPathComponent(UUID().uuidString + ".xmp")
                     async let metaTask = catalog.getAsset(assetID: assetID)
-                    async let bytesTask = catalog.getXMP(assetID: assetID, conflictBasename: conflictBasename)
-                    let bytes = try await bytesTask
-                    try bytes.write(to: localURL, options: .atomic)
-                    let resolved = try await metaTask
-                    guard let resolved else {
+                    let bytesTask = Task {
+                        try await catalog.getXMP(assetID: assetID, conflictBasename: conflictBasename)
+                    }
+                    defer { bytesTask.cancel() }
+                    let resolved: AssetMetadata?
+                    do {
+                        resolved = try await metaTask
+                    } catch {
+                        bytesTask.cancel()
+                        _ = try? await bytesTask.value
+                        throw error
+                    }
+                    guard let resolved, !resolved.isTrashed else {
+                        bytesTask.cancel()
+                        _ = try? await bytesTask.value
                         completionHandler(nil, nil, NSError(domain: NSFileProviderErrorDomain,
                                                             code: NSFileProviderError.noSuchItem.rawValue))
                         return
                     }
+                    let parentSidecar = try await Self.resolveAssetParent(meta: resolved, rootCache: self.rootCache)
+                    let bytes = try await bytesTask.value
+                    try bytes.write(to: localURL, options: .atomic)
                     self.recordMeta(domain: self.domain.identifier.rawValue,
                                     localBasename: localURL.lastPathComponent,
                                     assetID: assetID,
@@ -898,7 +960,6 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
                     // `.asset(id)` and the OS would associate the downloaded
                     // `.xmp` bytes with the RAW asset, breaking subsequent
                     // sidecar lookups and Quick Look discrimination.
-                    let parentSidecar = await Self.resolveAssetParent(meta: resolved, rootCache: self.rootCache)
                     let imageBase: String = {
                         let f = resolved.filename
                         let dot = f.lastIndex(of: ".")
@@ -950,23 +1011,34 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
                     // reader) can identify it by basename.
                     let localURL = tmpDir.appendingPathComponent(UUID().uuidString + ".avif")
                     async let metaTask = catalog.getAsset(assetID: assetID)
-                    async let bytesTask = catalog.getThumb(assetID: assetID)
-                    let bytes = try await bytesTask
-                    try bytes.write(to: localURL, options: .atomic)
-                    let resolved = try await metaTask
+                    let bytesTask = Task { try await catalog.downloadThumb(assetID: assetID, to: localURL) }
+                    defer { bytesTask.cancel() }
+                    let resolved: AssetMetadata?
+                    do {
+                        resolved = try await metaTask
+                    } catch {
+                        bytesTask.cancel()
+                        _ = try? await bytesTask.value
+                        try? FileManager.default.removeItem(at: localURL)
+                        throw error
+                    }
                     // If the underlying asset is gone (server deleted,
-                    // never indexed) there's nothing meaningful to hand
-                    // back: the earlier shape fabricated an item parented
-                    // at `.workingSet`, but the OS no longer treats
-                    // `.workingSet` as a real container (see
-                    // `resolveAssetParent`'s NEVER `.workingSet` clause
-                    // from PR #79's review fixes). Surface noSuchItem so
-                    // the OS evicts the stranded thumb from its cache.
-                    guard let resolved else {
-                        log.notice("fetchContents thumb \(assetID, privacy: .public) — getAsset returned nil; underlying asset gone")
+                    // never indexed, or trashed/reaped) there's nothing
+                    // meaningful to hand back: surface noSuchItem so the OS
+                    // evicts the stranded thumb from its cache.
+                    guard let resolved, !resolved.isTrashed else {
+                        log.notice("fetchContents thumb \(assetID, privacy: .public) — missing or trashed")
+                        bytesTask.cancel()
+                        _ = try? await bytesTask.value
+                        try? FileManager.default.removeItem(at: localURL)
                         completionHandler(nil, nil, NSError(domain: NSFileProviderErrorDomain,
                                                             code: NSFileProviderError.noSuchItem.rawValue))
                         return
+                    }
+                    try await withTaskCancellationHandler {
+                        try await bytesTask.value
+                    } onCancel: {
+                        bytesTask.cancel()
                     }
                     let thumbName = MapleThumbCacheKey.thumbFilename(forRawBasename: resolved.filename)
                     let parentIdent = try await Self.resolveThumbParent(meta: resolved,
@@ -977,29 +1049,28 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
                         modified: resolved.xmpMtime ?? resolved.contentModificationDate,
                         parentIdentifier: parentIdent
                     )
-                    log.notice("fetchContents thumb \(assetID, privacy: .public) ok bytes=\(bytes.count, privacy: .public)")
+                    log.notice("fetchContents thumb \(assetID, privacy: .public) ok")
                     completionHandler(localURL, item, nil)
                     return
                 case .preview(let assetID):
                     // The preview route is path-addressed, so metadata comes
                     // first (#3571). The server generates a missing/stale
                     // preview on demand inside the request.
-                    guard let resolved = try await catalog.getAsset(assetID: assetID) else {
-                        log.notice("fetchContents preview \(assetID, privacy: .public) — getAsset returned nil; underlying asset gone")
+                    guard let resolved = try await catalog.getAsset(assetID: assetID), !resolved.isTrashed else {
+                        log.notice("fetchContents preview \(assetID, privacy: .public) — missing or trashed")
                         completionHandler(nil, nil, NSError(domain: NSFileProviderErrorDomain,
                                                             code: NSFileProviderError.noSuchItem.rawValue))
                         return
                     }
                     let localURL = tmpDir.appendingPathComponent(UUID().uuidString + ".avif")
-                    let bytes = try await catalog.getPreview(absPath: resolved.absPath)
-                    try bytes.write(to: localURL, options: .atomic)
+                    try await catalog.downloadPreview(absPath: resolved.absPath, to: localURL)
                     let parentIdent = try await Self.resolveDerivedParent(
                         meta: resolved, rootCache: self.rootCache, kind: .previews)
                     let item = MapleDerivedKind.previews.item(
                         assetID: assetID, rawBasename: resolved.filename,
                         modified: resolved.xmpMtime ?? resolved.contentModificationDate,
                         parentIdentifier: parentIdent)
-                    log.notice("fetchContents preview \(assetID, privacy: .public) ok bytes=\(bytes.count, privacy: .public)")
+                    log.notice("fetchContents preview \(assetID, privacy: .public) ok")
                     completionHandler(localURL, item, nil)
                     return
                 case .file(let folderID, let relativePath):
@@ -1036,7 +1107,7 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
                                                           relativePath: relativePath,
                                                           parentIdentifier: parentID), nil)
                     return
-                case .folder, .trash, .mapleDir, .mapleThumbsDir, .maplePreviewsDir:
+                case .folder, .mapleDir, .mapleThumbsDir, .maplePreviewsDir:
                     completionHandler(nil, nil, NSError(domain: NSFileProviderErrorDomain,
                                                         code: NSFileProviderError.noSuchItem.rawValue))
                     return
@@ -1079,7 +1150,10 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
         if containerItemIdentifier == .trashContainer {
             return EmptyEnumerator()
         }
-        let parsed = try FileProviderIdentifier(rawValue: containerItemIdentifier.rawValue)
+        guard let parsed = try? FileProviderIdentifier(rawValue: containerItemIdentifier.rawValue) else {
+            throw NSError(domain: NSFileProviderErrorDomain,
+                          code: NSFileProviderError.noSuchItem.rawValue)
+        }
         switch parsed {
         case .folder(let folderID, let relativePath):
             return DeferredFolderEnumerator(catalog: catalog,
@@ -1100,10 +1174,6 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
             // Sidecars are leaf items, not containers — cannot be enumerated.
             throw NSError(domain: NSFileProviderErrorDomain,
                           code: NSFileProviderError.noSuchItem.rawValue)
-        case .trash(let folderID):
-            return TrashEnumerator(catalog: catalog,
-                                   folderID: folderID,
-                                   containerIdentifier: containerItemIdentifier)
         case .mapleDir(let folderID, let parentRelativePath):
             return MapleDirEnumerator(folderID: folderID,
                                       parentRelativePath: parentRelativePath,
@@ -1405,38 +1475,25 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
         }
         let filename = itemTemplate.filename
         let targetRel = parentRelative.isEmpty ? filename : "\(parentRelative)/\(filename)"
+        let templateMtime = itemTemplate.contentModificationDate ?? nil
         let progress = Progress(totalUnitCount: 1)
-        Task {
+        startBounded(by: writePermits, progress: progress,
+                     cancelled: { completionHandler(nil, [], false, Self.userCancelledError()) }) { [self] in
             defer { progress.completedUnitCount = 1 }
             do {
                 // #2538: `uploadFile` trashes-and-recreates on a name
-                // collision (see its doc comment), which is exactly
-                // wrong for a `.mayAlreadyExist` redelivery — the OS is
-                // telling us this item may already be synced, not asking
-                // us to duplicate it. Precheck the parent listing and
-                // skip straight to reporting the existing item when name
-                // + size both match; a size mismatch is a genuine
-                // collision and falls through to the normal upload.
-                // Size is REQUIRED for the precheck, never defaulted. A
-                // failed `stat` (or a missing `.size`) used to fall back to
-                // 0, which can match an unrelated empty entry on the server
-                // and skip an upload the user actually made — silently
-                // losing the file. When we can't read the local size we
-                // simply don't take the shortcut and fall through to the
-                // normal upload, whose own collision handling is correct.
-                if options.contains(.mayAlreadyExist),
-                   let localSize = (try? FileManager.default
-                       .attributesOfItem(atPath: contentsURL.path))?[.size]
-                       .flatMap({ ($0 as? NSNumber)?.int64Value }) {
-                    if let parentAbs = await Self.resolveAbsolutePath(
-                        folderID: folderID, relativePath: parentRelative, rootCache: self.rootCache),
-                       let existing = try await Self.matchExistingUpload(
-                           catalog: catalog, parentAbsolutePath: parentAbs, filename: filename,
-                           localSize: localSize, folderID: folderID, targetRelativePath: targetRel,
-                           parentIdentifier: parentID, log: self.log) {
-                        completionHandler(existing, [], false, nil)
-                        return
-                    }
+                // collision, which is wrong when the OS flags the create
+                // `.mayAlreadyExist`. `existingUpload` reports the stored
+                // file instead; every other create uploads (see its doc
+                // comment).
+                if let existing = try await Self.existingUpload(
+                    catalog: catalog, rootCache: self.rootCache, options: options,
+                    localURL: contentsURL,
+                    folderID: folderID, parentRelativePath: parentRelative,
+                    targetRelativePath: targetRel, filename: filename,
+                    parentIdentifier: parentID, log: self.log) {
+                    completionHandler(existing, [], false, nil)
+                    return
                 }
                 // folderID is a server-side opaque ObjectId so it's
                 // safe to surface; targetRel + bytes-from are user-
@@ -1446,7 +1503,7 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
                     folderID: folderID,
                     targetRelativePath: targetRel,
                     fileURL: contentsURL,
-                    mtime: itemTemplate.contentModificationDate ?? nil,
+                    mtime: templateMtime,
                 )
                 self.log.notice("upload outcome=\(String(describing: outcome), privacy: .public)")
                 switch outcome {
@@ -1523,6 +1580,19 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
                 NSError(domain: NSCocoaErrorDomain, code: NSFeatureUnsupportedError))
             return Progress()
         }
+        log.notice("modifyItem id=\(item.itemIdentifier.rawValue, privacy: .private) fields=\(changedFields.rawValue, privacy: .public) contents=\(newContents != nil, privacy: .public)")
+
+        // The server tracks only bytes, name and location. Any other
+        // change (last-used date, Finder tags, extended attributes,
+        // creation or modification dates, favourite rank) is echoed back
+        // so the OS records it locally; returning featureUnsupported for
+        // it badged freshly opened RAWs, dropped-in folders and videos
+        // with a permanent "upload error" (#5456).
+        let tracked = changedFields.intersection(Self.serverTrackedFields)
+        if tracked.isEmpty {
+            completionHandler(item, [], false, nil)
+            return Progress()
+        }
 
         // Folder rename / move. The folder identifier encodes its path
         // (`folder/<libraryID>:<b64(relativePath)>`), so a rename or move
@@ -1536,8 +1606,7 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
         // (and cross-library moves) falls through to featureUnsupported.
         if case .folder(let folderID, let sourceRelative) = parsed {
             let renameOrMove: NSFileProviderItemFields = [.filename, .parentItemIdentifier]
-            guard !changedFields.intersection(renameOrMove).isEmpty,
-                  changedFields.isSubset(of: renameOrMove) else {
+            guard tracked.isSubset(of: renameOrMove) else {
                 completionHandler(nil, [], false,
                     NSError(domain: NSCocoaErrorDomain, code: NSFeatureUnsupportedError))
                 return Progress()
@@ -1618,9 +1687,13 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
         // (cross-library move, or any changed field beyond
         // filename/parent) falls through to featureUnsupported.
         if case .file(let folderID, let sourceRelative) = parsed {
+            if tracked == .contents, let newContents {
+                return replaceFileContents(of: item, folderID: folderID, relativePath: sourceRelative,
+                                           contents: newContents, catalog: catalog,
+                                           completionHandler: completionHandler)
+            }
             let renameOrMove: NSFileProviderItemFields = [.filename, .parentItemIdentifier]
-            guard !changedFields.intersection(renameOrMove).isEmpty,
-                  changedFields.isSubset(of: renameOrMove) else {
+            guard tracked.isSubset(of: renameOrMove) else {
                 completionHandler(nil, [], false,
                     NSError(domain: NSCocoaErrorDomain, code: NSFeatureUnsupportedError))
                 return Progress()
@@ -1734,99 +1807,8 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
             return progress
         }
 
-        // Restore: the only `modifyItem` shape Phase 3 understands for assets
-        // is reparent FROM a trash container TO a folder, with no other
-        // changes. Anything else (rename + reparent in one shot, in-place
-        // modify) falls through to featureUnsupported.
-        //
-        // Tighten: require .parentItemIdentifier to be the ONLY changed
-        // field. A bare `.contains(.parentItemIdentifier)` check would
-        // let Finder smuggle a rename-during-restore through (out of
-        // Phase 3 scope) — `item.filename` would then be sent to the
-        // server as the target basename.
-        if case .asset(let assetID) = parsed,
-           changedFields == [.parentItemIdentifier] {
-            let newParentID = item.parentItemIdentifier
-            let newParentParsed: FileProviderIdentifier
-            do { newParentParsed = try FileProviderIdentifier(rawValue: newParentID.rawValue) }
-            catch {
-                completionHandler(nil, [], false,
-                    NSError(domain: NSCocoaErrorDomain, code: NSFeatureUnsupportedError))
-                return Progress()
-            }
-            // Phase 3 only restores into a normal folder under the SAME library.
-            // The folderID is forwarded to the server so it can reject
-            // cross-library restores (the file is moved using the asset's
-            // original library root; restoring into a different library
-            // would silently land in the wrong place).
-            guard case .folder(let newFolderID, let newRelative) = newParentParsed else {
-                completionHandler(nil, [], false,
-                    NSError(domain: NSCocoaErrorDomain, code: NSFeatureUnsupportedError))
-                return Progress()
-            }
-            let progress = Progress(totalUnitCount: 1)
-            Task {
-                defer { progress.completedUnitCount = 1 }
-                do {
-                    let filename = item.filename
-                    let targetRel = newRelative.isEmpty ? filename : "\(newRelative)/\(filename)"
-                    let resp = try await catalog.restoreAsset(
-                        assetID: assetID,
-                        targetRelativePath: targetRel,
-                        targetFolderID: newFolderID,
-                    )
-                    // `resp.absPath` is the SERVER's filesystem path, not
-                    // a path on this Mac — statting it returns nil/throws,
-                    // which is why size + mtime + filename are now returned
-                    // authoritatively in the response.
-                    let ext = (resp.filename as NSString).pathExtension.lowercased()
-                    let image = ImageChild(
-                        name: resp.filename,
-                        path: resp.absPath,
-                        mtime: resp.mtime,
-                        size: resp.size,
-                        ext: ext,
-                        assetID: resp.assetID
-                    )
-                    if let restored = MapleItem(image: image, parentIdentifier: newParentID) {
-                        completionHandler(restored, [], false, nil)
-                    } else {
-                        completionHandler(nil, [], false,
-                            NSError(domain: NSFileProviderErrorDomain,
-                                    code: NSFileProviderError.noSuchItem.rawValue))
-                    }
-                    await self.signalEnumeratorReload(parent: newParentID)
-                } catch {
-                    self.log.error("restore failed: \(error.localizedDescription, privacy: .public)")
-                    completionHandler(nil, [], false, error)
-                }
-            }
-            return progress
-        }
-
-        // Asset, but not a restore: accept benign metadata-only edits
-        // silently. After fetchContents materialises a RAW, the OS often
-        // surfaces a modifyItem call carrying `.lastUsedDate`,
-        // `.extendedAttributes` (quarantine, Spotlight metadata), Finder
-        // `.tagData`, or `.favoriteRank` — none of which the Maple server
-        // tracks. Returning featureUnsupported here makes Finder badge
-        // every freshly-opened RAW with a persistent "upload error". Echo
-        // the input item back instead so the OS records the local
-        // metadata change without re-trying.
-        //
-        // Genuine in-place edits (changedFields ⊇ `.contents`), renames
-        // (`.filename`), and moves (`.parentItemIdentifier`) still fall
-        // through to featureUnsupported — those operations would silently
-        // drop user work if accepted, so a clear error is correct.
-        if case .asset = parsed {
-            let unsupportedAssetFields: NSFileProviderItemFields =
-                [.contents, .filename, .parentItemIdentifier]
-            if changedFields.intersection(unsupportedAssetFields).isEmpty {
-                completionHandler(item, [], false, nil)
-                return Progress()
-            }
-        }
-
+        // Assets: in-place RAW edits, renames and moves stay unsupported —
+        // accepting them would silently drop the user's work.
         guard case .sidecar(let assetID, let conflictBasename) = parsed,
               let contentsURL = newContents else {
             completionHandler(nil, [], false,
@@ -1955,10 +1937,7 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
                     try await catalog.deleteXMP(assetID: assetID, conflictBasename: conflictBasename)
                     completionHandler(nil)
                 case .asset(let assetID):
-                    // Server distinguishes trash-vs-purge based on the current
-                    // doc state; we just call DELETE. Idempotent.
-                    try await catalog.deleteAsset(assetID: assetID)
-                    completionHandler(nil)
+                    completionHandler(try await self.trashAsset(assetID))
                 case .file(let folderID, let relativePath):
                     // #2535: path-addressed trash for a non-indexed file.
                     let result = try await catalog.deleteFile(folderID: folderID, relativePath: relativePath)
@@ -1976,8 +1955,12 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
                                                       code: NSFileProviderError.filenameCollision.rawValue))
                             return
                         }
-                        try await catalog.deleteAsset(assetID: assetID)
-                        completionHandler(nil)
+                        let absPath = await Self.resolveAbsolutePath(
+                            folderID: folderID,
+                            relativePath: relativePath,
+                            rootCache: self.rootCache
+                        ) ?? ""
+                        completionHandler(try await self.trashAsset(assetID, absPath: absPath))
                     }
                 case .folder(let folderID, let relativePath):
                     // #3010: real subfolders route through the server's
@@ -1994,12 +1977,25 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
                     }
                     let summary = try await catalog.trashFolder(folderID: folderID,
                                                                 relativePath: relativePath)
+                    let hostKey: String
+                    if let configuredHostKey = self.serverHostKey {
+                        hostKey = configuredHostKey
+                    } else {
+                        hostKey = await catalog.server.cacheHostKey
+                    }
                     guard summary.failed == 0 else {
                         // Partial failure: some assets could not be
                         // trashed, so the directory was not fully
                         // cleared. Surfacing an error makes the OS keep
                         // the item and retry rather than believing the
                         // folder is gone while server files remain.
+                        for item in summary.items where item.ok {
+                            ForYouCache.recordDeletedAsset(
+                                host: hostKey,
+                                assetID: item.assetId,
+                                directory: self.forYouDeletionsDirectory
+                            )
+                        }
                         self.log.error("trash-folder partial failure: \(summary.failed, privacy: .public)/\(summary.total, privacy: .public) items")
                         completionHandler(NSError(
                             domain: NSFileProviderErrorDomain,
@@ -2008,8 +2004,19 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
                                 "Could not move \(summary.failed) of \(summary.total) items to the Maple trash"]))
                         return
                     }
+                    let folderPath = await Self.resolveAbsolutePath(
+                        folderID: folderID,
+                        relativePath: relativePath,
+                        rootCache: self.rootCache
+                    ) ?? relativePath
+                    ForYouCache.recordDeletedFolder(
+                        host: hostKey,
+                        libraryFolderID: folderID,
+                        folderPath: folderPath,
+                        directory: self.forYouDeletionsDirectory
+                    )
                     completionHandler(nil)
-                case .trash, .mapleDir, .mapleThumbsDir, .thumb, .maplePreviewsDir, .preview:
+                case .mapleDir, .mapleThumbsDir, .thumb, .maplePreviewsDir, .preview:
                     // Synthetic `.maple/` items + thumbs are read-only —
                     // deletes are unsupported.
                     completionHandler(NSError(domain: NSCocoaErrorDomain, code: NSFeatureUnsupportedError))
@@ -2020,6 +2027,46 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
             }
         }
         return progress
+    }
+
+    /// A Finder delete is a TRASH gesture, so say so (#4706). The legacy
+    /// no-intent DELETE means "trash" for a live asset and "permanently
+    /// purge" for an already-trashed one, decided by server state — so an
+    /// OS-retried delete whose first response was lost, or a stale listing
+    /// of an asset trashed elsewhere, would purge the original. With
+    /// `intent: .trash` the server answers 409 `trashed` instead, which is
+    /// success-shaped for Finder: the item is in the trash either way.
+    private func trashAsset(_ assetID: String, absPath: String = "") async throws -> Error? {
+        guard let catalog else { return notAuthenticatedError() }
+        switch try await catalog.deleteAsset(assetID: assetID, intent: .trash) {
+        case .ok, .stateMismatch(state: "trashed"):
+            let hostKey: String
+            if let configuredHostKey = self.serverHostKey {
+                hostKey = configuredHostKey
+            } else {
+                hostKey = await catalog.server.cacheHostKey
+            }
+            ForYouCache.recordDeletedAsset(
+                host: hostKey,
+                assetID: assetID,
+                absPath: absPath,
+                directory: self.forYouDeletionsDirectory
+            )
+            return nil
+        case .keptSurvivingCopy:
+            // Only a purge answers this; a trash intent never does.
+            return trashRefused(state: "live")
+        case .stateMismatch(let state):
+            return trashRefused(state: state)
+        }
+    }
+
+    private func trashRefused(state: String) -> Error {
+        self.log.error("trash asset state mismatch: \(state, privacy: .public)")
+        return NSError(domain: NSFileProviderErrorDomain,
+                       code: NSFileProviderError.serverUnreachable.rawValue,
+                       userInfo: [NSLocalizedDescriptionKey:
+                           "Could not move the item to the Maple trash (server reports it is \(state))"])
     }
 
     // MARK: - Sidecar helpers
@@ -2216,25 +2263,34 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
     /// metadata. Strips the matching library-root prefix off `absPath`
     /// and returns `.folder(folderID, parentRelativePath)`.
     ///
-    /// Fallbacks — NEVER `.workingSet`. Routing to the working-set
-    /// container forces the OS to `item(for: .workingSet)`, which now
-    /// returns `noSuchItem` (the container is hidden), and that breaks
-    /// materialization. Instead:
-    ///   - folderID is in roots but absPath prefix mismatch (server bug
-    ///     or out-of-tree asset): fall back to the library root —
-    ///     `.folder(folderID, "")` — which the rest of the codebase
-    ///     guarantees exists.
-    ///   - folderID itself isn't in roots (domain unregistered, race
-    ///     against root cache invalidation): fall back to
-    ///     `.rootContainer`. Uglier — the asset surfaces alongside the
-    ///     library roots instead of inside one — but the identifier is
-    ///     always valid and materialization completes.
+    /// Never `.workingSet` (hidden, `item(for:)` answers `noSuchItem`) and
+    /// never `.rootContainer`: the OS keeps whatever parent it is given
+    /// and would show the asset at the top level of Maple until it next
+    /// changed (#5503). So:
+    ///   - absPath outside the library's path (server bug or out-of-tree
+    ///     asset): the library root, `.folder(folderID, "")`.
+    ///   - the library list fails to load: the error propagates and the
+    ///     OS retries.
+    ///   - the library isn't in a freshly fetched list either: `noSuchItem`,
+    ///     the asset has no place in the tree. The served list may predate
+    ///     a new library, so a miss refetches before deciding.
     static func resolveAssetParent(meta: AssetMetadata,
-                                    rootCache: LibraryRootCache?) async -> NSFileProviderItemIdentifier {
-        guard let rootCache,
-              let roots = try? await rootCache.roots(),
-              let root = roots.first(where: { $0.id == meta.folderID }) else {
-            return .rootContainer
+                                    rootCache: LibraryRootCache?) async throws -> NSFileProviderItemIdentifier {
+        guard let rootCache else {
+            throw NSError(domain: NSFileProviderErrorDomain,
+                          code: NSFileProviderError.noSuchItem.rawValue)
+        }
+        let listed = { (roots: [LibraryRoot]) in roots.first(where: { $0.id == meta.folderID }) }
+        let found: LibraryRoot?
+        if let cached = listed(try await rootCache.roots()) {
+            found = cached
+        } else {
+            await rootCache.invalidate()
+            found = listed(try await rootCache.roots())
+        }
+        guard let root = found else {
+            throw NSError(domain: NSFileProviderErrorDomain,
+                          code: NSFileProviderError.noSuchItem.rawValue)
         }
         // absPath e.g. "/srv/photos/Library/2026/Adam/04-02/IMG.jpg"
         // root.path e.g. "/srv/photos/Library"
@@ -2353,7 +2409,7 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
         return s
     }
 
-    private func signalEnumeratorReload(parent: NSFileProviderItemIdentifier) async {
+    func signalEnumeratorReload(parent: NSFileProviderItemIdentifier) async {
         guard let mgr = NSFileProviderManager(for: domain) else { return }
         try? await mgr.signalEnumerator(for: parent)
     }
@@ -2393,7 +2449,7 @@ public final class DeferredFolderEnumerator: NSObject, NSFileProviderEnumerator 
     /// Per-call cap on rows pulled from `/api/changes`. Mirrors
     /// `WorkingSetEnumerator.changesPageLimit`: on a full page we report
     /// `moreComing: true` and the OS loops back from the new anchor.
-    private static let changesPageLimit = 500
+    private static let changesPageLimit = FileProviderChangeEnumeration.pageLimit
 
     public init(catalog: RemoteCatalog,
                 rootCache: LibraryRootCache,
@@ -2449,6 +2505,8 @@ public final class DeferredFolderEnumerator: NSObject, NSFileProviderEnumerator 
         let since = FolderChangeMatching.parseAnchor(anchor)
         Task { [weak self] in
             guard let self else { return }
+            guard await FileProviderChangeEnumeration.acquire(for: observer) else { return }
+            defer { FileProviderChangeEnumeration.release() }
             do {
                 let page = try await self.catalog.listChanges(since: since,
                                                                limit: Self.changesPageLimit)

@@ -1,0 +1,215 @@
+diff --git a/src/raw-pipeline/raw-core/src/demosaic/amaze/fcs.rs b/src/raw-pipeline/raw-core/src/demosaic/amaze/fcs.rs
+index c99ec69776..222f08ced5 100644
+--- a/src/raw-pipeline/raw-core/src/demosaic/amaze/fcs.rs
++++ b/src/raw-pipeline/raw-core/src/demosaic/amaze/fcs.rs
+@@ -5,8 +5,9 @@
+ //! almost everywhere, but it collapses at isolated high-frequency colour
+ //! edges: a 1-px bright-blue line crossing a near-neutral region has a
+ //! *flat* (B−G) field, so the reconstruction sets B≈G and the line's colour
+-//! is lost. A value-domain (bilinear) interpolation — averaging the actual
+-//! blue samples — preserves it. ACR's renderer keeps such edges, so AMaZE's
++//! is lost. A value-domain interpolation of the actual blue samples preserves it.
++//! Green-guided weights prevent that interpolation from importing the bright
++//! side of a luminance edge into its dark side (#5000). ACR's renderer keeps such edges, so AMaZE's
+ //! constant-hue result drifts far from the reference precisely there
+ //! (test_0007 baseline_auto, the cluster of ΔE≈50 yellow-vs-magenta pixels).
+ //!
+@@ -57,50 +58,91 @@ pub(super) fn suppress_false_colour(
+     const EPS: f32 = 1e-6;
+     let color_at = |x: usize, y: usize| pattern.color_at(x as u32, y as u32) as usize;
+ 
+-    // Value-domain estimate of channel `t` at (x, y): the bilinear value
+-    // interpolation the constant-hue path replaces. Only the *nearest* same-
+-    // colour samples are used (the immediate Bayer neighbours of that
+-    // colour), so a sharp 1-px colour edge is preserved rather than averaged
+-    // away.
++    // Interpolate sensor values with green as a guide. An unweighted mean
++    // imports the bright side of a luminance edge into its dark side, even
++    // when AMaZE already reconstructed a plausible chroma there. Inverse-
++    // square range weights retain the same nearest CFA stencil and preserve
++    // a pure chroma edge (equal green -> equal weights). A shared local scale
++    // makes the weighting independent of exposure and of the WB green gain.
+     let value_estimate = |x: usize, y: usize, t: usize| -> f32 {
+-        // Pass 1: distance-1 cardinal same-colour neighbours.
+-        let mut sum = 0.0_f32;
+-        let mut cnt = 0.0_f32;
+-        for (dx, dy) in [(-1_isize, 0_isize), (1, 0), (0, -1), (0, 1)] {
+-            let nx = x as isize + dx;
+-            let ny = y as isize + dy;
+-            if nx < 0 || ny < 0 || nx >= w as isize || ny >= h as isize {
+-                continue;
++        let centre = green[y * w + x];
++        let mut samples = [(0.0_f32, 0.0_f32); 4];
++        let mut count = 0;
++        for stencil in [
++            [(-1_isize, 0_isize), (1, 0), (0, -1), (0, 1)],
++            [(-1_isize, -1_isize), (1, -1), (-1, 1), (1, 1)],
++        ] {
++            for (dx, dy) in stencil {
++                let (nx, ny) = (x as isize + dx, y as isize + dy);
++                if nx < 0 || ny < 0 || nx >= w as isize || ny >= h as isize {
++                    continue;
++                }
++                let (nx, ny) = (nx as usize, ny as usize);
++                if color_at(nx, ny) == t {
++                    let i = ny * w + nx;
++                    samples[count] = (cfa_flat[i], green[i]);
++                    count += 1;
++                }
+             }
+-            let (nxu, nyu) = (nx as usize, ny as usize);
+-            if color_at(nxu, nyu) == t {
+-                sum += cfa_flat[nyu * w + nxu];
+-                cnt += 1.0;
++            if count > 0 {
++                break;
+             }
+         }
+-        if cnt > 0.0 {
+-            return sum / cnt;
++        if count == 0 {
++            return 0.0;
+         }
+-        // Pass 2: distance-√2 diagonal same-colour neighbours (used when the
+-        // target colour is not a cardinal neighbour of this site, e.g. the
+-        // opposite-chroma channel at an R/B site).
+-        for (dx, dy) in [(-1_isize, -1_isize), (1, -1), (-1, 1), (1, 1)] {
+-            let nx = x as isize + dx;
+-            let ny = y as isize + dy;
+-            if nx < 0 || ny < 0 || nx >= w as isize || ny >= h as isize {
+-                continue;
++        let samples = &samples[..count];
++        let unweighted = || samples.iter().map(|(v, _)| v).sum::<f32>() / count as f32;
++        // Green is a valid range guide only across a supported color surface.
++        // A real chroma edge can change green too; guiding there discards
++        // precisely the color samples the value-domain fallback must retain.
++        let consistent = |ratios: &[f32]| {
++            let mean = ratios.iter().sum::<f32>() / ratios.len() as f32;
++            let lo = ratios.iter().copied().fold(f32::INFINITY, f32::min);
++            let hi = ratios.iter().copied().fold(f32::NEG_INFINITY, f32::max);
++            mean > 0.0 && (hi - lo) / mean <= MAX_COLLAPSED_RATIO_SPREAD
++        };
++        let mut donor_ratios = [0.0; 4];
++        for (i, &(value, guide)) in samples.iter().enumerate() {
++            if guide <= 0.0 {
++                return unweighted();
+             }
+-            let (nxu, nyu) = (nx as usize, ny as usize);
+-            if color_at(nxu, nyu) == t {
+-                sum += cfa_flat[nyu * w + nxu];
+-                cnt += 1.0;
++            donor_ratios[i] = value / guide;
++        }
++        if !consistent(&donor_ratios[..count]) {
++            return unweighted();
++        }
++        let sampled = color_at(x, y);
++        if sampled != 1 {
++            let mut surface_ratios = [0.0; 9];
++            let mut n = 0;
++            for dy in [-2_isize, 0, 2] {
++                for dx in [-2_isize, 0, 2] {
++                    let i = (y as isize + dy) as usize * w + (x as isize + dx) as usize;
++                    if green[i] <= 0.0 {
++                        return unweighted();
++                    }
++                    surface_ratios[n] = cfa_flat[i] / green[i];
++                    n += 1;
++                }
++            }
++            if !consistent(&surface_ratios) {
++                return unweighted();
+             }
+         }
+-        if cnt > 0.0 {
+-            sum / cnt
+-        } else {
+-            0.0
++        let scale = samples
++            .iter()
++            .fold(centre.abs(), |m, (_, g)| m.max(g.abs()))
++            .max(EPS);
++        let mut sum = 0.0_f32;
++        let mut weights = 0.0_f32;
++        for &(value, guide) in samples {
++            let distance = (guide - centre) / scale;
++            let weight = 1.0 / (distance * distance + EPS);
++            sum += value * weight;
++            weights += weight;
+         }
++        sum / weights
+     };
+ 
+     // Local green high-frequency content: how much the centre green departs
+diff --git a/src/raw-pipeline/raw-core/src/demosaic/amaze/tests_fcs_luminance_edge.rs b/src/raw-pipeline/raw-core/src/demosaic/amaze/tests_fcs_luminance_edge.rs
+index f60f85a5b0..759cb1225f 100644
+--- a/src/raw-pipeline/raw-core/src/demosaic/amaze/tests_fcs_luminance_edge.rs
++++ b/src/raw-pipeline/raw-core/src/demosaic/amaze/tests_fcs_luminance_edge.rs
+@@ -372,3 +372,67 @@ fn amaze_step_between_equal_chromaticity_surfaces_keeps_opposite_chroma_hue() {
+ 
+ #[path = "tests_fcs_ceiling.rs"]
+ mod ceiling;
++
++#[test]
++fn positive_chroma_does_not_import_bright_side_values_across_luminance_edges() {
++    for pattern in PATTERNS {
++        for direction in 0..3 {
++            for exposure in [0.01_f32, 1.0, 16.0] {
++                let truth: Vec<[f32; 3]> = (0..SIDE * SIDE)
++                    .map(|i| {
++                        let level = if edge_side(direction, i % SIDE, i / SIDE) {
++                            0.75
++                        } else {
++                            0.045
++                        };
++                        CHROMA.map(|c| c * level * exposure)
++                    })
++                    .collect();
++                let out = suppress(pattern, &truth, |_| false, 0.0);
++                for y in 4..SIDE - 4 {
++                    for x in 4..SIDE - 4 {
++                        let i = y * SIDE + x;
++                        for (actual, expected) in out.pixels[i].iter().zip(truth[i]) {
++                            assert!((actual - expected).abs() <= 1e-4 * expected,
++                                "{pattern:?} direction={direction} exposure={exposure} ({x},{y}): {:?} != {:?}", out.pixels[i], truth[i]);
++                        }
++                    }
++                }
++            }
++        }
++    }
++}
++
++#[test]
++fn unsupported_hue_edges_keep_the_nearest_sensor_value_average() {
++    for pattern in PATTERNS {
++        for exposure in [0.01_f32, 1.0, 16.0] {
++            let centre = (10..14)
++                .flat_map(|y| (10..14).map(move |x| y * SIDE + x))
++                .find(|&i| sampled(pattern, i) != 1)
++                .unwrap();
++            let target = 2 - sampled(pattern, centre);
++            let mut truth = vec![[0.1 * exposure, 0.2 * exposure, 0.3 * exposure]; SIDE * SIDE];
++            for offset in [-1_isize, 1, -(SIDE as isize), SIDE as isize] {
++                truth[(centre as isize + offset) as usize][1] = 0.8 * exposure;
++            }
++            let mut expected = 0.0;
++            for ((dx, dy), (guide, ratio)) in [(-1_isize, -1_isize), (1, -1), (-1, 1), (1, 1)]
++                .into_iter()
++                .zip([(0.2, 0.1), (0.8, 0.3), (0.2, 0.6), (0.8, 1.0)])
++            {
++                let i = (centre as isize + dy * SIDE as isize + dx) as usize;
++                truth[i][1] = guide * exposure;
++                truth[i][target] = guide * ratio * exposure;
++                expected += truth[i][target];
++            }
++            expected *= 0.25;
++            let out = suppress(pattern, &truth, |i| i == centre, 0.0);
++            assert!(
++                (out.pixels[centre][target] - expected).abs() <= 1e-7 * exposure,
++                "{pattern:?} exposure={exposure}: {:?}, expected value fallback {expected}",
++                out.pixels[centre]
++            );
++        }
++    }
++}

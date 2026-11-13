@@ -39,16 +39,17 @@ import type {
 import type { LibraryStateService } from '../../state/library-state.service';
 import type { ImageCanvasService } from './image-canvas.service';
 import type { XmpSerializerService } from '../../xmp/xmp-serializer.service';
-import { publishGpuDimensions } from './image-canvas.gpu-dimensions';
+import { publishCropInputDimensions } from './image-canvas.gpu-dimensions';
 import { loadGpuSessionRemovals } from './image-canvas.gpu-removals';
 import type { SavedRemovalRenderService } from '../../removal/saved-removal-render.service';
 import type { AssetId } from '../../models/asset';
-import { type AdjustmentModel, isDefaultAdjustment } from '../../models/adjustment-model';
+import type { AdjustmentModel } from '../../models/adjustment-model';
 import type {
   GpuFallbackNoticeService,
   GpuFallbackReason,
 } from '../gpu-fallback-notice/gpu-fallback-notice.service';
 import { decodeSupportFrom, type Render2dHost } from './image-canvas.render2d';
+import { canUseLiveFastPath } from './image-canvas.live-params';
 
 /**
  * The slice of `ImageCanvasComponent` the GPU present path reaches back into. Defined
@@ -105,6 +106,7 @@ export interface GpuPresentHost {
    * `width`/`height` are no longer the native dims.
    */
   recordNativeDims(w: number, h: number): void;
+  /** Record the presented frame's dims — the cropped aspect drives layout. */
   recordPaintedDims(w: number, h: number): void;
 }
 
@@ -130,6 +132,7 @@ export class ImageCanvasGpuPresent {
   // Establish a compatible prefix through full XMP before using the fast path.
   private scalarPrefixRevision: number | undefined;
   private scalarPrefixAsset: AssetId | null = null;
+  prefixModel: AdjustmentModel | null = null;
 
   /**
    * Set to `true` once a black-present is detected for this session (#1572). When
@@ -199,6 +202,7 @@ export class ImageCanvasGpuPresent {
    */
   async open(assetId: AssetId, bytes: Uint8Array, ext: string): Promise<boolean> {
     this.scalarPrefixRevision = undefined;
+    this.prefixModel = null;
     if (!this.canOpen()) return false;
 
     // Run the one-time GPU presentation check before opening the session.
@@ -308,6 +312,7 @@ export class ImageCanvasGpuPresent {
   ): void {
     this.colorSpace.set(info.colorSpace);
     this.active.set(true);
+    this.prefixModel = openModel;
     // A GPU session is up — drop any fallback notice from an earlier failed
     // asset/session so the UI doesn't keep reporting a degraded path that's
     // no longer true.
@@ -325,12 +330,8 @@ export class ImageCanvasGpuPresent {
     const nativeH = info.nativeHeight ?? info.height;
     this.host.state.updateAssetDimensions(assetId, nativeW, nativeH);
     this.host.recordNativeDims(nativeW, nativeH);
-    publishGpuDimensions(
-      this.host.canvasSvc,
-      info,
-      (width, height) => this.host.recordPaintedDims(width, height),
-      () => this.applyView(),
-    );
+    publishCropInputDimensions(this.host.canvasSvc, info);
+    this.host.recordPaintedDims(info.width, info.height);
     this.host.state.seedAsShotWhiteBalance(
       assetId,
       info.asShotTemperature,
@@ -377,9 +378,12 @@ export class ImageCanvasGpuPresent {
       fitRevision === this.scalarPrefixRevision
         ? params
         : undefined;
-    // Clear before dispatch: a rapid Neutral -> Auto flip must send full XMP
-    // even while the Neutral request is still queued in the worker (#2441).
-    if (!fastParams) this.scalarPrefixRevision = undefined;
+    // Clear before dispatch: a rapid Neutral -> Auto flip (or prefix revert, #4736)
+    // must send full XMP even while the earlier request is still queued (#2441).
+    if (!fastParams) {
+      this.scalarPrefixRevision = undefined;
+      this.prefixModel = null;
+    }
     try {
       // Only a cold prefix change reads companions. Scalar ticks keep their
       // existing flat-params path with no file I/O or additional WASM call.
@@ -390,19 +394,17 @@ export class ImageCanvasGpuPresent {
               bytes: new Uint8Array(),
             })
           : undefined;
-      if (generation !== this.host.renderGeneration) return false;
       const rendered = await this.host.pipeline.renderLiveSession(xmp, fastParams, saved);
+      publishCropInputDimensions(this.host.canvasSvc, rendered);
+      // The surface already has these dims, stale or not: a crop change resizes it.
+      this.host.recordPaintedDims(rendered.width, rendered.height);
+      // A crop-driven resize re-tags the canvas, so the tag can change.
+      this.colorSpace.set(rendered.colorSpace);
       // Stale guard (same intent as the 2D path's generation check): a newer edit
       // bumped the generation while this render was in flight — drop its result so
       // a stale scope readback can't overwrite a fresher frame's.
       if (generation !== this.host.renderGeneration) return false;
       this.publishRenderedStatus(rendered, fastParams, params, fitAsset, fitRevision);
-      publishGpuDimensions(
-        this.host.canvasSvc,
-        rendered,
-        (width, height) => this.host.recordPaintedDims(width, height),
-        () => this.applyView(),
-      );
       // Scopes are no longer fed from this reply (#3397): the readback now
       // arrives as a `scope-sample` broadcast, mirrored into `currentPixels`
       // by the component's scope effect.
@@ -421,22 +423,21 @@ export class ImageCanvasGpuPresent {
     fitAsset: AssetId | null,
     fitRevision: number | undefined,
   ): void {
-    const state: LibraryStateService = this.host.state;
-    // Scalar ticks retain per-image provenance; only an XMP reply refreshes it.
-    if (!fastParams && this.host.currentAssetId)
-      this.host.state.seedLensProfile(
-        this.host.currentAssetId,
-        rendered.lensProfile ?? null,
-        rendered.autoFit,
-        fitRevision,
-      );
     this.scalarPrefixAsset = fitAsset;
+    if (!fitAsset) {
+      this.scalarPrefixRevision = undefined;
+      return;
+    }
+    const state: LibraryStateService = this.host.state;
+    const currentModel = state.adjustmentFor(fitAsset)();
+    if (!fastParams) {
+      this.prefixModel = currentModel;
+      // Scalar ticks retain per-image provenance; only an XMP reply refreshes it.
+      state.seedLensProfile(fitAsset, rendered.lensProfile ?? null, rendered.autoFit, fitRevision);
+    }
+    const fastPathReady = Boolean(params) || canUseLiveFastPath(currentModel);
     this.scalarPrefixRevision =
-      params !== undefined &&
-      fitAsset !== null &&
-      fitRevision === state.autoFitRevisionFor(fitAsset)
-        ? fitRevision
-        : undefined;
+      fastPathReady && fitRevision === state.autoFitRevisionFor(fitAsset) ? fitRevision : undefined;
   }
 
   /**
@@ -456,6 +457,7 @@ export class ImageCanvasGpuPresent {
   /** Tear down the GPU live session + remove its canvas element. Idempotent. */
   teardown(): void {
     this.scalarPrefixRevision = undefined;
+    this.prefixModel = null;
     if (this.active() || this.canvasEl) {
       this.host.pipeline.closeLiveSession();
     }

@@ -8,11 +8,8 @@ import {
 } from '../sqlite/test-sqlite.test-helpers.ts';
 import { BackupRepository } from '../../cloud-backup/repository.ts';
 import { mergeIntoSurvivor } from './assets.merge.ts';
-import {
-  markSoftDeleted,
-  restoreFromTrash,
-  restoreBackupDestinationOccupied,
-} from './assets.trash.ts';
+import { markSoftDeleted, restoreFromTrash } from './assets.trash.ts';
+import { restoreDestinationClaimed } from './assets.restore-destination.ts';
 
 async function fixture() {
   const live = await createLiveTestDatabase();
@@ -196,6 +193,10 @@ function restoreFixture(f: Awaited<ReturnType<typeof fixture>>) {
     path: '',
     filename: 'photo.dng',
   });
+  // The watcher indexed the restored bytes themselves (#5425).
+  f.live.db
+    .query(`UPDATE assets SET sha1_head = 'photo-head', size = 4096 WHERE id IN (?, ?)`)
+    .run(canonical, transient);
   return {
     canonical,
     transient,
@@ -250,7 +251,7 @@ test('restore blocks a watcher duplicate with backup history before changing eit
       ...restore.args,
       source: { ...restore.args.source, filename: 'no-longer-there.dng' },
     }),
-  ).rejects.toThrow('unfinished backup obligations');
+  ).rejects.toThrow('claimed by another photo');
   expect(f.live.db.query('SELECT * FROM assets').all()).toEqual(assets);
   expect(f.live.db.query('SELECT * FROM asset_locations').all()).toEqual(locations);
   expect(f.live.db.query('SELECT * FROM backup_entries').all()).toEqual(histories);
@@ -268,13 +269,17 @@ test('restore sees watcher backup admission immediately before its transaction a
     },
   };
   await expect(restoreFromTrash({ ...restore.args, dbOverride: racedDb })).rejects.toThrow(
-    'unfinished backup obligations',
+    'claimed by another photo',
   );
   expect(
     f.live.db.query('SELECT deleted_at FROM assets WHERE id=?').get(restore.canonical),
   ).toEqual({ deleted_at: '2026-10-01T00:00:00Z' });
-  // A separately unbacked duplicate can be reconciled normally; no physical bytes are purged.
+  // A separately unbacked duplicate of the same content can be reconciled
+  // normally; no physical bytes are purged.
   const other = insertAsset(f.live.db);
+  f.live.db
+    .query(`UPDATE assets SET sha1_head = 'photo-head', size = 4096 WHERE id = ?`)
+    .run(other);
   insertLocation(f.live.db, {
     assetId: other,
     libraryId: f.libraryId,
@@ -294,23 +299,25 @@ test('restore can select a free alternate path while retaining a DB-only watcher
   const history = await entry(f, restore.transient, 0);
   const watcher = f.live.db.query('SELECT * FROM assets WHERE id=?').get(restore.transient);
   expect(
-    await restoreBackupDestinationOccupied(restore.args.id, restore.args.libraryId, 'photo.dng'),
+    await restoreDestinationClaimed(restore.args.id, restore.args.libraryId, 'photo.dng', 4096),
   ).toBe(true);
   expect(
-    await restoreBackupDestinationOccupied(
+    await restoreDestinationClaimed(
       new ObjectId(restore.transient),
       restore.args.libraryId,
       'photo.dng',
+      4096,
     ),
   ).toBe(false);
   expect(
-    await restoreBackupDestinationOccupied(restore.args.id, restore.args.libraryId, 'photo_1.dng'),
+    await restoreDestinationClaimed(restore.args.id, restore.args.libraryId, 'photo_1.dng', 4096),
   ).toBe(false);
   expect(
-    await restoreBackupDestinationOccupied(
+    await restoreDestinationClaimed(
       restore.args.id,
       restore.args.libraryId,
       'subfolder/photo.dng',
+      4096,
     ),
   ).toBe(false);
   await restoreFromTrash({ ...restore.args, newAbsPath: '/photos/photo_1.dng' });
@@ -386,4 +393,56 @@ test('a takeover or deleted journal fences both trash and restore commits before
   ).rejects.toThrow('CHECK constraint');
   expect(f.live.db.query('SELECT * FROM assets').all()).toEqual(assets);
   expect(f.live.db.query('SELECT * FROM asset_locations').all()).toEqual(locations);
+});
+
+test('a merge with a backed-up duplicate queues the survivor for the canonical-sidecar check (#5021)', async () => {
+  const f = await fixture();
+  using _database = f.live;
+  const survivor = insertAsset(f.live.db);
+  const condemned = insertAsset(f.live.db);
+  insertLocation(f.live.db, { assetId: survivor, libraryId: f.libraryId });
+  insertLocation(f.live.db, { assetId: condemned, libraryId: f.libraryId });
+  f.live.db
+    .query(
+      `INSERT INTO asset_phasset_links (asset_id, device_id, phasset_local_id, first_seen)
+       VALUES (?, 'phone', 'P1', '2024-01-01')`,
+    )
+    .run(condemned);
+  f.live.db
+    .query('INSERT INTO backup_sidecar_name_checks (asset_id, checked) VALUES (?, 1)')
+    .run(survivor);
+
+  await mergeIntoSurvivor({
+    survivorId: survivor,
+    condemnedId: condemned,
+    mapleId: 'merged-photo',
+    dbOverride: f.live.handle,
+  });
+
+  expect(f.live.db.query('SELECT asset_id, checked FROM backup_sidecar_name_checks').all()).toEqual(
+    [{ asset_id: survivor, checked: 0 }],
+  );
+});
+
+test('a due canonical-sidecar check survives a second merge before the migration runs (#5021)', async () => {
+  const f = await fixture();
+  using _database = f.live;
+  const third = insertAsset(f.live.db);
+  const survivor = insertAsset(f.live.db);
+  insertLocation(f.live.db, { assetId: third, libraryId: f.libraryId });
+  insertLocation(f.live.db, { assetId: survivor, libraryId: f.libraryId });
+  f.live.db
+    .query('INSERT INTO backup_sidecar_name_checks (asset_id, checked) VALUES (?, 0)')
+    .run(survivor);
+
+  await mergeIntoSurvivor({
+    survivorId: third,
+    condemnedId: survivor,
+    mapleId: 'merged-twice',
+    dbOverride: f.live.handle,
+  });
+
+  expect(f.live.db.query('SELECT asset_id, checked FROM backup_sidecar_name_checks').all()).toEqual(
+    [{ asset_id: third, checked: 0 }],
+  );
 });

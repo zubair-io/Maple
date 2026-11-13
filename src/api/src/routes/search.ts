@@ -5,11 +5,4 @@
  * path so the refactor stays internal.
  */
 
-export {
-  searchRoutes,
-  _resetBucketsCacheForTests,
-  _resetCacheForTests,
-  type SearchQuery,
-  type SearchResult,
-  type SearchResultPHLink,
-} from './search/index.ts';
+export { searchRoutes, _resetBucketsCacheForTests, _resetCacheForTests } from './search/index.ts';

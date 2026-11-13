@@ -133,10 +133,13 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgroups) 
     } else {
         let lab_target = vec3<f32>(l, a_hat * c_target, b_hat * c_target);
         let rgb_target = oklab_to_rec2020(lab_target);
-        if (min(rgb_target.r, min(rgb_target.g, rgb_target.b)) >= -1e-5) {
+        // #4664: only skip compression below its knee, not at the hull.
+        let c_probe = c_target / GAMUT_KNEE_FRACTION;
+        let rgb_probe = oklab_to_rec2020(vec3<f32>(l, a_hat * c_probe, b_hat * c_probe));
+        if (min(rgb_probe.r, min(rgb_probe.g, rgb_probe.b)) >= -1e-5) {
             out_rgb = rgb_target;
         } else {
-            let c_hull = bisect_gamut_hull(l, a_hat, b_hat, c_target);
+            let c_hull = bisect_gamut_hull(l, a_hat, b_hat, c_probe);
             let c_floor = chroma;
             let c_out = max(soft_compress(c_target, c_hull), c_floor);
             out_rgb = oklab_to_rec2020(vec3<f32>(l, a_hat * c_out, b_hat * c_out));

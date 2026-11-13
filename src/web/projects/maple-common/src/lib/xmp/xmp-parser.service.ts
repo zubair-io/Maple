@@ -15,12 +15,14 @@ import { resolveWbScaleVersion, normalizeParsedWb, inferForeignWbSource } from '
 import { parseMetadataBlock } from './xmp-metadata';
 import { authoredCullingOf, parseCullingBlock } from './xmp-culling';
 import { collectXmpPassthrough } from './xmp-passthrough';
+import { markLegacyRetouchFrame } from './xmp-retouch';
 import { finalizeCrop } from './xmp-crop';
 import { walkAdjustmentAttributes, applyLegacyAliases } from './xmp-adjustment-walk';
 import {
   attrOf,
   hasXmlParseError,
   mergedXmpDescription,
+  parseSidecarDocument,
   primaryXmpDescription,
   sawMapleAuthorshipMarker,
 } from './xmp-dom-utils';
@@ -40,7 +42,7 @@ export class XmpParserService {
     const defaults: XmpCulling = { rating: 0, flag: 'unflagged', colorLabel: null, keywords: [] };
     let desc: Element | null = null;
     try {
-      const doc = new DOMParser().parseFromString(xml, 'text/xml');
+      const doc = parseSidecarDocument(xml);
       if (hasXmlParseError(doc)) {
         console.warn('XmpParserService: malformed XML');
         return defaults;
@@ -64,7 +66,7 @@ export class XmpParserService {
   parseMetadata(xml: string): XmpMetadata {
     let desc: Element | null = null;
     try {
-      const doc = new DOMParser().parseFromString(xml, 'text/xml');
+      const doc = parseSidecarDocument(xml);
       if (hasXmlParseError(doc)) return {};
       desc = mergedXmpDescription(doc);
     } catch {
@@ -134,19 +136,19 @@ export class XmpParserService {
       model.crop = crop;
     }
 
-    const passthrough = collectXmpPassthrough(sourceDescription ?? desc, model, document);
-    const records = passthrough.unknownAttributes.find(
-      (a) => a.name === 'papp:InpaintRemovals',
-    )?.value;
+    const bucket = collectXmpPassthrough(sourceDescription ?? desc, model, document);
+    markLegacyRetouchFrame(model, desc, sawPappAnywhere);
+    const records = bucket.unknownAttributes.find((a) => a.name === 'papp:InpaintRemovals')?.value;
     if (records !== undefined) {
       const list: unknown = JSON.parse(records);
       if (!Array.isArray(list)) throw new Error('Invalid saved removal record list.');
       model.inpaintRemovals = list.length ? records : undefined;
     }
+
     return {
       model,
       passthrough: {
-        ...passthrough,
+        ...bucket,
         authoredCulling: authoredCullingOf(desc),
       },
       metadata: parseMetadataBlock(desc),
@@ -166,7 +168,7 @@ export class XmpParserService {
     sawPappAnywhere: boolean;
   } | null {
     try {
-      const doc = new DOMParser().parseFromString(xml, 'text/xml');
+      const doc = parseSidecarDocument(xml);
       if (hasXmlParseError(doc)) {
         console.warn('XmpParserService.parseAdjustmentModel: malformed XML');
         return null;

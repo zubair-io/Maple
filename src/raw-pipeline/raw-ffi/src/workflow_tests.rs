@@ -6,7 +6,7 @@ const XMP: &str = include_str!(concat!(
 ));
 const CORPUS: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
-    "/../../../test-fixtures/workflow/contract-v1.json"
+    "/../../../test-fixtures/workflow/contract.json"
 ));
 
 #[test]
@@ -55,7 +55,7 @@ fn sibling_paths_and_checkpoint_capture_match_core_and_keep_failure_buffers_unch
             .unwrap()
             .as_bytes()
     );
-    let future = embedded.replace("<papp:SchemaVersion>1", "<papp:SchemaVersion>2");
+    let future = embedded.replace("<papp:SchemaVersion>2", "<papp:SchemaVersion>3");
     for xml in [&future, &embedded, "bad XML"] {
         let mut out = [73; 1];
         let mut len = 42;
@@ -213,6 +213,8 @@ fn authoring_mutation_abi_matches_core_and_preserves_output_on_all_failures() {
         created_at_ms: 1,
         action: "adjustment".into(),
         label: "Exposure".into(),
+        parent_id: String::new(),
+        writer: String::new(),
         adjustment_xmp: XMP.into(),
     };
     let json = serde_json::to_string(&entry).unwrap();
@@ -301,4 +303,61 @@ fn authoring_mutation_abi_matches_core_and_preserves_output_on_all_failures() {
             -1
         );
     }
+}
+
+#[test]
+fn reconcile_and_cursor_abi_match_core_and_preserve_output_on_failure() {
+    let rows: Vec<SidecarWorkflow> = serde_json::from_str(CORPUS).unwrap();
+    let base = rows[0].embed_in_xmp(XMP).unwrap();
+    let current = base.replace(
+        "crs:ProcessVersion=\"15.4\"",
+        "crs:ProcessVersion=\"15.4\" crs:Tint=\"10\"",
+    );
+    let incoming = base.replace(
+        "crs:ProcessVersion=\"15.4\"",
+        "crs:ProcessVersion=\"15.4\" crs:Exposure2012=\"2\"",
+    );
+    let expected = SidecarWorkflow::reconcile_xmp(&base, &current, &incoming, 1).unwrap();
+    let mut out = vec![0; WORKFLOW_MAX_BYTES];
+    let mut len = 0;
+    let call = |base: &str, out: &mut [u8], len: &mut usize| unsafe {
+        maple_workflow_reconcile_xmp(
+            base.as_ptr(),
+            base.len(),
+            current.as_ptr(),
+            current.len(),
+            incoming.as_ptr(),
+            incoming.len(),
+            1,
+            out.as_mut_ptr(),
+            out.len(),
+            len,
+        )
+    };
+    assert_eq!(call(&base, &mut out, &mut len), 0);
+    assert_eq!(&out[..len], expected.as_bytes());
+    for invalid in ["bad XML"] {
+        let mut out = [73; 1];
+        let mut len = 42;
+        assert_ne!(call(invalid, &mut out, &mut len), 0);
+        assert_eq!(out, [73]);
+        assert_eq!(len, 42);
+    }
+    let mut out = vec![0; WORKFLOW_MAX_BYTES];
+    assert_eq!(
+        unsafe {
+            maple_workflow_cursor_xmp(
+                expected.as_ptr(),
+                expected.len(),
+                out.as_mut_ptr(),
+                out.len(),
+                &mut len,
+            )
+        },
+        0
+    );
+    assert_eq!(
+        &out[..len],
+        SidecarWorkflow::cursor_xmp(&expected).unwrap().as_bytes()
+    );
 }

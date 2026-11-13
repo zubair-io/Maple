@@ -49,9 +49,9 @@ import { Subscription } from 'rxjs';
 import {
   AppliedDateFilter,
   SearchFacets,
-  SearchParams,
   SearchResult,
   SearchService,
+  isRankEngineChanged,
   seekExhausted,
 } from '../api/search.service';
 import { FilesystemBrowseService } from '../api/filesystem-browse.service';
@@ -65,6 +65,7 @@ import { SearchTagPickerComponent, TagPick } from './search-tag-picker.component
 import { PhotoResultsSectionComponent } from './photo-results-section.component';
 import { RecentQueriesComponent } from './recent-queries.component';
 import { pushRecent, readRecents, writeRecents } from './search-types';
+import { appendPage } from './search-paging';
 import {
   ActiveFilterChip,
   EMPTY_FILTERS,
@@ -72,12 +73,12 @@ import {
   activeFilterChips,
   inferredDateChip,
   activeFilterCount,
-  filtersToParams,
   hasActiveFilters,
   removeChip,
   togglePerson,
   togglePlace,
 } from './search-filters';
+import { buildSearchParams, filterHostClass } from './search-view-helpers';
 
 /** Inline-chip cap inside the pill — the rest collapse into "+N". */
 const MAX_INLINE_CHIPS = 2;
@@ -88,6 +89,11 @@ const MAX_INLINE_CHIPS = 2;
 const TAG_TOKEN = /(^|\s)@([^\s@]*)$/;
 
 export type SearchSortOrder = 'captured_desc' | 'captured_asc';
+export interface SearchNavigationState {
+  readonly query: string;
+  readonly filters: SearchFilters;
+  readonly sort: SearchSortOrder;
+}
 
 @Component({
   selector: 'app-search',
@@ -104,16 +110,7 @@ export type SearchSortOrder = 'captured_desc' | 'captured_asc';
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class SearchComponent implements OnInit, AfterViewInit {
-  /** Mutually-exclusive display pair for the filter host's mobile bottom-
-   * sheet vs desktop docked-column presentation (Tailwind port #3071) —
-   * `display` used to be `none` by default and flipped by `.open` below
-   * 1024px (always visible at ≥1024px); folded into one computed string
-   * rather than a base class plus a conditional add-on. */
-  protected filterHostClass(open: boolean): string {
-    const base =
-      'fixed inset-x-0 bottom-0 z-[41] h-[78%] w-auto overflow-hidden rounded-t-2xl shadow-[0_-8px_32px_rgba(0,0,0,0.4)] lg:static lg:z-auto lg:h-auto lg:w-[320px] lg:shrink-0 lg:min-h-0 lg:overflow-visible lg:rounded-none lg:border-l lg:border-border lg:shadow-none';
-    return open ? `${base} flex` : `${base} hidden lg:flex`;
-  }
+  protected readonly filterHostClass = filterHostClass;
   /** When true, focus the search bar on init (phone tab activation, the
    * drawer search pill's `autoFocus=1` deep link). */
   readonly autoFocus = input<boolean>(false);
@@ -126,12 +123,15 @@ export class SearchComponent implements OnInit, AfterViewInit {
    * init into the ordinary `filters` state, so every seeded value renders
    * as a removable chip rather than as invisible query narrowing. */
   readonly initialFilters = input<Partial<SearchFilters> | null>(null);
+  readonly initialSort = input<SearchSortOrder>('captured_desc');
 
   /** Emitted when the user taps a photo result — hosts route to the
    * preview/editor surface. */
   readonly photoTap = output<SearchResult>();
   /** Emitted when the query input changes or is cleared (hosts sync `?q=`). */
   readonly queryChange = output<string>();
+  /** A single snapshot prevents query/filter URL updates racing each other. */
+  readonly navigationChange = output<SearchNavigationState>();
 
   private readonly searchService = inject(SearchService);
   private readonly fs = inject(FilesystemBrowseService);
@@ -142,6 +142,10 @@ export class SearchComponent implements OnInit, AfterViewInit {
   protected readonly sort = signal<SearchSortOrder>('captured_desc');
   protected readonly results = signal<readonly SearchResult[]>([]);
   protected readonly total = signal<number>(0);
+  /** The server ranked a window of the text and had hits left past `total` (#4514). */
+  protected readonly more = signal<boolean>(false);
+  /** The window stopped at the server's 5,000-hit cap with matches left (#4514). */
+  protected readonly capped = signal<boolean>(false);
   protected readonly isStale = signal<boolean>(false);
   protected readonly recent = signal<readonly string[]>(readRecents());
   protected readonly page = signal<number>(0);
@@ -207,13 +211,18 @@ export class SearchComponent implements OnInit, AfterViewInit {
   protected readonly facetScope = computed(() => this.facets()?.scope ?? null);
 
   /** True when there are server-side results not yet loaded locally. */
-  protected readonly canLoadMore = computed(() => this.results().length < this.total());
+  protected readonly canLoadMore = computed(
+    () => this.results().length < this.total() || this.more(),
+  );
 
   /** Empty state — recents render only when nothing is being searched. */
   protected readonly showRecents = computed(() => !this.hasText() && !this.filtersActive());
 
+  private readonly openEnded = computed(() => this.more() || this.capped());
+
   protected readonly totalLabel = computed(
-    () => `${this.total().toLocaleString()} ${this.total() === 1 ? 'result' : 'results'}`,
+    () =>
+      `${this.total().toLocaleString()}${this.openEnded() ? '+' : ''} ${this.total() === 1 && !this.openEnded() ? 'result' : 'results'}`,
   );
 
   @ViewChild(SearchBarComponent) private searchBar?: SearchBarComponent;
@@ -224,6 +233,8 @@ export class SearchComponent implements OnInit, AfterViewInit {
   private inFlight: Subscription | null = null;
   private facetsInFlight: Subscription | null = null;
   private loadMoreSub: Subscription | null = null;
+  /** The ranking the rows held came from (#4542); sent with each further page. */
+  private rankPin: string | null = null;
   /** Lifetime blob-URL cache (id → URL) behind the `thumbUrls` signal, so
    * back-and-forth queries restore instantly. */
   private readonly thumbCache = new Map<string, string>();
@@ -250,6 +261,8 @@ export class SearchComponent implements OnInit, AfterViewInit {
       if (text.length === 0 && !hasActiveFilters(f)) {
         this.results.set([]);
         this.total.set(0);
+        this.more.set(false);
+        this.capped.set(false);
         this.page.set(0);
         this.nextCursor.set(null);
         this.appliedDates.set(undefined);
@@ -259,27 +272,7 @@ export class SearchComponent implements OnInit, AfterViewInit {
       this.isStale.set(true);
       this.debounceTimer = setTimeout(() => {
         this.debounceTimer = null;
-        this.page.set(0);
-        this.nextCursor.set(null);
-        this.inFlight = this.searchService.search(this.buildParams({ page: 0 })).subscribe({
-          next: (res) => {
-            this.results.set(res.results);
-            this.nextCursor.set(res.nextCursor ?? null);
-            this.appliedDates.set(res.dateFilter);
-            this.total.set(seekExhausted(res) ? res.results.length : res.total);
-            this.isStale.set(false);
-            this.queueThumbs(res.results);
-            const scrollEl = this.mainScrollRef?.nativeElement;
-            if (scrollEl) {
-              scrollEl.scrollTo?.({ top: 0 });
-            }
-          },
-          error: () => {
-            // Non-fatal — stop dimming but leave existing results so a
-            // transient backend hiccup doesn't clobber the user's view.
-            this.isStale.set(false);
-          },
-        });
+        this.loadFirstPage();
       }, 250);
     });
 
@@ -297,20 +290,7 @@ export class SearchComponent implements OnInit, AfterViewInit {
       this.facetsInFlight?.unsubscribe();
       this.facetsTimer = setTimeout(() => {
         this.facetsTimer = null;
-        const {
-          page: _page,
-          limit: _limit,
-          cursor: _cursor,
-          sort: _sort,
-          ...facetParams
-        } = this.buildParams({ page: 0 });
-        this.facetsInFlight = this.searchService.facets(facetParams).subscribe({
-          next: (f2) => this.facets.set(f2),
-          error: () => {
-            // Keep the last good facets — an aggregation hiccup shouldn't
-            // blank the pickers.
-          },
-        });
+        this.loadFacets(0);
       }, 400);
     });
 
@@ -330,6 +310,15 @@ export class SearchComponent implements OnInit, AfterViewInit {
     if (seededFilters !== null) {
       this.filters.set({ ...EMPTY_FILTERS, ...seededFilters });
     }
+    this.sort.set(this.initialSort());
+  }
+
+  navigationState(): SearchNavigationState {
+    return { query: this.query().trim(), filters: this.filters(), sort: this.sort() };
+  }
+
+  private emitNavigationChange(): void {
+    this.navigationChange.emit(this.navigationState());
   }
 
   ngAfterViewInit(): void {
@@ -347,22 +336,50 @@ export class SearchComponent implements OnInit, AfterViewInit {
     this.searchBar?.focus();
   }
 
-  private buildParams(paging: { page?: number; cursor?: string }): SearchParams {
-    const text = this.effectiveText();
-    return {
-      // The box is the *content* search: the term routes to `placeQuery`
-      // (unified search_blob + NL dates + semantic ranking), never `q`
-      // (filename substring) — see #502/#518.
-      ...(text.length > 0 ? { placeQuery: text } : {}),
-      ...filtersToParams(this.filters()),
-      // With residual text the server ranks by relevance and ignores
-      // `sort`; the meta row shows "Best match" then instead of the
-      // Newest/Oldest control, so the UI never promises an order the
-      // server won't deliver.
-      ...(text.length === 0 ? { sort: this.sort() } : {}),
-      ...(paging.cursor !== undefined ? { cursor: paging.cursor } : { page: paging.page ?? 0 }),
-      limit: 30,
-    };
+  /** Fetch page 0 of the current search, replacing the rows held. */
+  private loadFirstPage(): void {
+    this.inFlight?.unsubscribe();
+    // Holds `onLoadMore` off until page 0 lands, so no page of the old ranking is appended.
+    this.isStale.set(true);
+    this.page.set(0);
+    this.nextCursor.set(null);
+    this.rankPin = null;
+    this.inFlight = this.searchService.search(this.buildParams({ page: 0 })).subscribe({
+      next: (res) => {
+        this.results.set(res.results);
+        this.nextCursor.set(res.nextCursor ?? null);
+        this.rankPin = res.rankPin ?? null;
+        this.appliedDates.set(res.dateFilter);
+        this.total.set(seekExhausted(res) ? res.results.length : res.total);
+        this.more.set(res.more ?? false);
+        this.capped.set(res.capped ?? false);
+        this.isStale.set(false);
+        this.queueThumbs(res.results);
+        this.mainScrollRef?.nativeElement.scrollTo?.({ top: 0 });
+      },
+      error: () => {
+        // Non-fatal — stop dimming but leave existing results so a
+        // transient backend hiccup doesn't clobber the user's view.
+        this.isStale.set(false);
+      },
+    });
+  }
+
+  /** Facets for the list's window as of `page` (#4514) — the same window its `total` counts. */
+  private loadFacets(page: number): void {
+    this.facetsInFlight?.unsubscribe();
+    const { cursor: _cursor, sort: _sort, ...facetParams } = this.buildParams({ page });
+    this.facetsInFlight = this.searchService.facets(facetParams).subscribe({
+      next: (f2) => this.facets.set(f2),
+      error: () => {
+        // Keep the last good facets — an aggregation hiccup shouldn't
+        // blank the pickers.
+      },
+    });
+  }
+
+  private buildParams(paging: { page?: number; cursor?: string; rankPin?: string }) {
+    return buildSearchParams(this.effectiveText(), this.filters(), this.sort(), paging);
   }
 
   // ── Thumbnails ───────────────────────────────────────────────────────────
@@ -409,12 +426,14 @@ export class SearchComponent implements OnInit, AfterViewInit {
     // reopens the picker for the new fragment.
     if (this.tagFragment() !== this.dismissedTag()) this.dismissedTag.set(null);
     this.queryChange.emit(q);
+    this.emitNavigationChange();
   }
 
   protected onClear(): void {
     this.query.set('');
     this.dismissedTag.set(null);
     this.queryChange.emit('');
+    this.emitNavigationChange();
   }
 
   protected onSubmit(): void {
@@ -427,6 +446,7 @@ export class SearchComponent implements OnInit, AfterViewInit {
 
   protected onChipRemove(chip: ActiveFilterChip): void {
     this.filters.set(removeChip(this.filters(), chip));
+    this.emitNavigationChange();
   }
 
   protected onFiltersTap(): void {
@@ -437,10 +457,12 @@ export class SearchComponent implements OnInit, AfterViewInit {
 
   protected onFiltersChange(f: SearchFilters): void {
     this.filters.set(f);
+    this.emitNavigationChange();
   }
 
   protected onClearAll(): void {
     this.filters.set(EMPTY_FILTERS);
+    this.emitNavigationChange();
   }
 
   protected onPanelDismiss(): void {
@@ -459,6 +481,7 @@ export class SearchComponent implements OnInit, AfterViewInit {
     this.query.set(stripped);
     this.dismissedTag.set(null);
     this.queryChange.emit(stripped);
+    this.emitNavigationChange();
     this.searchBar?.focus();
   }
 
@@ -478,6 +501,7 @@ export class SearchComponent implements OnInit, AfterViewInit {
   protected onSortChange(e: Event): void {
     const v = (e.target as HTMLSelectElement).value;
     this.sort.set(v === 'captured_asc' ? 'captured_asc' : 'captured_desc');
+    this.emitNavigationChange();
   }
 
   protected onLoadMore(): void {
@@ -488,23 +512,35 @@ export class SearchComponent implements OnInit, AfterViewInit {
     this.isLoadingMore.set(true);
     const cursor = this.nextCursor();
     const nextPage = this.page() + 1;
+    const rankPin = this.rankPin ?? undefined;
     const params =
-      cursor !== null ? this.buildParams({ cursor }) : this.buildParams({ page: nextPage });
+      cursor !== null
+        ? this.buildParams({ cursor })
+        : this.buildParams({ page: nextPage, rankPin });
     this.loadMoreSub?.unsubscribe();
     this.loadMoreSub = this.searchService.search(params).subscribe({
       next: (res) => {
-        const merged = [...this.results(), ...res.results];
-        this.results.set(merged);
-        this.nextCursor.set(res.nextCursor ?? null);
-        this.total.set(seekExhausted(res) || res.results.length === 0 ? merged.length : res.total);
+        const next = appendPage(this.results(), this.total(), res, this.hasText());
+        this.results.set(next.results);
+        this.nextCursor.set(next.nextCursor);
+        this.rankPin = res.rankPin ?? null;
+        this.total.set(next.total);
+        this.more.set(next.more);
+        this.capped.set(next.capped);
         // `page` is the skip-mode fallback counter — a seek request leaves
         // it alone rather than adopting the server's echoed `page: 0`.
         if (cursor === null) this.page.set(nextPage);
+        if (next.widened) this.loadFacets(nextPage);
         this.isLoadingMore.set(false);
         this.queueThumbs(res.results);
       },
-      error: () => {
+      error: (err: unknown) => {
         this.isLoadingMore.set(false);
+        // The engine that ranked the rows held is gone; another engine's next
+        // page would repeat and skip rows, so the search starts over (#4542).
+        if (!isRankEngineChanged(err)) return;
+        this.loadFirstPage();
+        this.loadFacets(0);
       },
     });
   }
@@ -512,6 +548,7 @@ export class SearchComponent implements OnInit, AfterViewInit {
   protected onRecentTap(q: string): void {
     this.query.set(q);
     this.queryChange.emit(q);
+    this.emitNavigationChange();
     // Promote the tapped recent back to the head so the list reflects
     // most-recent-first ordering even when re-tapping older items.
     const next = pushRecent(this.recent(), q);

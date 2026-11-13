@@ -1,0 +1,22 @@
+# Banding gate — stage 18_auto_tail axis=luma (1024x8)
+
+Second-difference spike (the #1627 gate metric):
+  max_abs_d2:       0.000849
+  mean_abs_d2:      0.000009
+  max_spike_ratio:  0.383656  (spike / row's own peak step)
+  mean_spike_ratio: 0.383656
+
+Flat run (plateau / posterization metric, |d1| <= 1e-06):
+  max_flat_run_frac: 0.000000  (longest flat run / ramp steps)
+
+R/G/B equality (max abs diff over all pixels):
+  |R - G|:  max=0.011854  mean=0.011854
+  |R - B|:  max=0.022362  mean=0.022362
+  |G - B|:  max=0.015423  mean=0.015423
+
+Shadow histogram gaps (luma < 0.1, bin width = 0.001):
+  r: 85 empty bins out of 95 (89.5%, n=80)
+  g: 83 empty bins out of 93 (89.2%, n=80)
+  b: 82 empty bins out of 92 (89.1%, n=80)
+
+# PASS — test_0000_auto2_neutral/18_auto_tail/luma within budget {'max_abs_d2': 0.004007, 'max_spike_ratio': 1.2, 'max_flat_run_frac': 0.02}

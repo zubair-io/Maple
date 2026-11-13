@@ -41,11 +41,20 @@ impl CloudClient {
             .to_string();
         Ok((pending, url))
     }
-    pub fn claim(&mut self, pending: &PendingSignIn) -> Result<bool, CloudError> {
+    pub fn claim(&mut self, pending: &PendingSignIn, code: &str) -> Result<bool, CloudError> {
+        if !(16..=128).contains(&code.len())
+            || !code
+                .bytes()
+                .all(|c| c.is_ascii_alphanumeric() || c == b'-' || c == b'_')
+        {
+            return Err(CloudError::Protocol(
+                "Copy the sign-in code from your browser".into(),
+            ));
+        }
         let response = self
             .http
             .post(self.server.endpoint("api/auth/native-code/claim")?)
-            .json(&serde_json::json!({"state": pending.state, "code_verifier": pending.verifier}))
+            .json(&serde_json::json!({"state": pending.state, "code_verifier": pending.verifier, "code": code}))
             .send()?;
         let status = response.status();
         if status == StatusCode::NOT_FOUND

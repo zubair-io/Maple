@@ -56,6 +56,11 @@ ml = ["dep:ort", "ort/load-dynamic", "dep:maple-ort", "maple-ort/ml", "dep:sha2"
 # in ort). `load-dynamic` implies `std`, so the `ml` path gets it transitively;
 # `ml-static` must add it explicitly since we omit `load-dynamic`.
 ml-static = ["dep:ort", "ort/std", "dep:maple-ort", "maple-ort/ml-static", "dep:sha2", "dep:toml"]
+# Clean-room classical detector/matcher (#4523): Harris scale-space
+# keypoints + gradient-histogram descriptors + ratio-test matching, pure
+# CPU, no ONNX Runtime. Builds the full stitch pipeline without `ort`;
+# alongside `ml` it is selectable per run via `StitchOptions::feature_engine`.
+classical-features = []
 
 [[bin]]
 name = "pano-gt-render"
@@ -96,6 +101,11 @@ name = "graph_gates"
 path = "tests/graph_gates.rs"
 required-features = ["testkit"]
 
+[[test]]
+name = "grid_prior_gates"
+path = "tests/grid_prior_gates.rs"
+required-features = ["testkit"]
+
 [dependencies]
 clap.workspace = true
 # `image` reads the optional equirect source PNG (8/16-bit, gray/RGB(A)).
@@ -107,8 +117,8 @@ image.workspace = true
 png.workspace = true
 # RAW decode + scene-linear normalization for the ingest stage (#1156):
 # `raw_core::decode_for_pano` is the single pixel source for real frames.
-# `avif` on: `stitch/io.rs::write_display_sidecars` writes the pano's own
-# `.maple/thumbs/` sidecar directly via `raw_core::avif::encode`.
+# `avif` on: `stitch/sidecars.rs::SidecarDownscaler` writes the pano's own
+# `.maple/` thumb and preview sidecars directly via `raw_core::avif::encode`.
 raw-core = { path = "../raw-core", features = ["avif"] }
 # Namespace-aware XMP parsing for the DJI gimbal prior (the two known DJI
 # `drone-dji` namespace URI variants force prefix resolution, not string
@@ -171,7 +181,34 @@ name = "ml_smoke"
 path = "tests/ml_smoke.rs"
 required-features = ["ml"]
 
+# #4523: classical detector/matcher on a rendered synthetic pair — no ORT,
+# no models, no fixtures, so it runs on every CI runner.
+[[test]]
+name = "classical_gates"
+path = "tests/classical_gates.rs"
+required-features = ["classical-features", "testkit"]
+
+# #5835: the stitch's memory limit on frames `pano-gen-fixture` writes into
+# a temp dir, classical matcher, so it runs on every CI runner too.
+[[test]]
+name = "memory_limit_gates"
+path = "tests/memory_limit_gates.rs"
+required-features = ["classical-features"]
+
+# Frame store (#5553): `statvfs` for the free-space preflight and
+# `kill(pid, 0)` for the orphan sweep. Already in the tree via raw-core's
+# `avif` feature.
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+# Frame store on Windows: `GetDiskFreeSpaceExW` for the preflight and
+# `OpenProcess`/`GetExitCodeProcess` for the orphan sweep. Same version
+# raw-core already uses.
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_Storage_FileSystem", "Win32_System_Threading"] }
+
 [dev-dependencies]
+tempfile = "3"
 # `SyntheticGreyDng` for the #3230 rejected-DNG ingest gate — a file rawler
 # panics on (caught at the raw-core boundary) must surface as a typed
 # `PanoError::RawDecode`, never unwind through `ingest_bytes`.

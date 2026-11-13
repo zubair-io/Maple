@@ -16,7 +16,7 @@ final class EditSessionSeedTests: XCTestCase {
 
     /// Helper: write a throwaway asset file + a matching AVIF-encoded
     /// thumbnail into `ThumbnailDiskCache`'s sync-peek NSCache under the
-    /// same key `seedFromThumbnailIfAvailable` derives (asset basename).
+    /// same key `seedFromThumbnailIfAvailable` derives (`ThumbnailDiskCache.memoryKey(for:)`).
     /// Mirrors what a real browse-grid cell load leaves behind before the
     /// user taps into the editor.
     private func makeSessionWithHotThumbnail(
@@ -49,6 +49,8 @@ final class EditSessionSeedTests: XCTestCase {
         XCTAssertNotNil(session.renderedPreview, "hot thumbnail must publish as the initial canvas preview")
         XCTAssertFalse(session.previewIsFullRender, "a thumbnail seed must never look like a full render to the persist gates")
         XCTAssertTrue(session.previewIsThumbnailSeed, "must be flagged as a thumbnail-only seed")
+        // #4496 — and it must not count as an on-screen frame on the GPU leaf.
+        XCTAssertFalse(session.renderedPreviewIsFullRender, "a thumbnail seed must not retire the editor seed thumbnail")
     }
 
     /// Must never clobber a richer seed or a real render — the ordering

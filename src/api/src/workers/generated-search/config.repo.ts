@@ -14,12 +14,13 @@
  *                             (see `loop.ts`).
  *   - `max_rounds`          — proposal rounds before the run gives up and
  *                             saves whatever cleared the floor.
- *   - `model`               — which Ollama model proposes and titles.
+ *   - `model`               — which Ollama model proposes and titles, until a
+ *                             Settings → AI assignment replaces it.
  *   - `dry_run`             — run the whole loop and log what it WOULD save
  *                             without writing. Lets an operator evaluate a
  *                             prompt change against the real library.
  *
- * Starts PAUSED. The worker depends on Ollama being configured and reachable,
+ * Starts PAUSED. The worker depends on a text model being configured and reachable,
  * and a paused start means a fresh install does not quietly produce garbage
  * collections before an operator has looked at it — the same reasoning behind
  * `geocode`'s `pausedOnFirstBoot` and the missing-reaper's paused default.

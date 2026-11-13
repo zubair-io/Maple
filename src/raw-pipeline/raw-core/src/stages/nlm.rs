@@ -50,49 +50,29 @@
 //!
 //! # Parallelism
 //!
-//! Constant-h five-tap patches on larger planes run in cache-local tiles;
+//! Profile-free five-tap patches on larger planes run in cache-local tiles;
 //! shifts keep the reference addition order and ARM64 vectorizes accumulation.
-//! Other parameters run shifts sequentially in the outer loop. Within a shift,
-//! the squared differences, box-sum and accumulation are fused and parallelise
-//! across horizontal STRIPS of output rows — each strip computes its own halo'd
-//! horizontal sums into a thread-local buffer (recycled across strips, so no
-//! full-frame box-sum plane round-trips through DRAM) and slides the vertical
-//! window down out of it. Strip boundaries are FIXED at `VSTRIP_ROWS` so the
-//! f32 reduction order, and therefore the output bits, never depend on the
-//! Rayon pool size. The persistent acc/wsum/max_w buffers are allocated once
-//! per `denoise_plane` call and reused across all shifts. Squared differences
-//! use the existing thread-local row scratch (#1472).
-//! Above 256 MiB of full-plane weight/radius metadata, persistent workers
-//! process 512-column row tiles instead. They replay the original global box
-//! seeds, preserve per-pixel shift order, and briefly lock only to copy finished
-//! tiles into the required output plane. Worker scratch targets 256 MiB; input
-//! and output are excluded. Small viewport planes keep the existing strip path.
+//! Other parameters retain the full-plane squared differences and parallel
+//! horizontal strips with periodically re-seeded running sums.
 
 use crate::cancel::CancelToken;
 use rayon::prelude::*;
 
 #[path = "nlm_accumulate.rs"]
 mod accumulate;
-#[path = "nlm_bounded.rs"]
-mod bounded;
-#[path = "nlm_radius.rs"]
-mod radius;
-#[path = "nlm_shift.rs"]
-mod shift;
+#[path = "nlm_chroma.rs"]
+mod chroma;
 #[path = "nlm_tiled.rs"]
 mod tiled;
-use radius::LocalRadiusPlane;
-use shift::process_shift;
+pub(crate) use chroma::denoise_chroma_pair_cancellable;
 
-/// Fast exp(-x) lookup. The NLM weight is `exp(-d²/(h²·area))` where the
-/// argument is always ≥ 0. For x ≥ `FAST_EXP_RANGE` the weight is ≤ ~3.4e-4
-/// — well below the noise floor of f32 accumulation across O(1000) pixels,
-/// so we clamp to 0. The bound is `≥` (not `>`) so that the `i+1` table
-/// lookup stays in range — at exactly `x = FAST_EXP_RANGE`, `i = TABLE_SIZE`
-/// and `table[i+1]` would be out of bounds. Inside the range we linearly
-/// interpolate a 512-entry table. Measured at ~0.6 ns per call on Apple
-/// Silicon (vs ~5 ns for hardware `expf`) — at 81 shifts × 2 MP, the
-/// saving is ~36 ms.
+/// Fast exp(-x) weights for NLM's `exp(-d²/(h²·area))` kernel.
+/// Interpolate the existing 512-entry table below x=8 and retain the
+/// hardware-exp tail above it: small absolute weights can dominate after
+/// normalization when every neighboring match is weak. The >= guard also
+/// keeps the i+1 lookup within the table. Natural f32 underflow is zero at
+/// x>=104. The common-range lookup was measured at ~0.6 ns per call on
+/// Apple Silicon versus ~5 ns for hardware expf.
 const FAST_EXP_RANGE: f32 = 8.0;
 const FAST_EXP_TABLE_SIZE: usize = 512;
 
@@ -109,17 +89,8 @@ const FAST_EXP_TABLE_SIZE: usize = 512;
 /// (≈ (2p+1)/256 extra adds/pixel) and the drift comfortably bounded.
 const RESEED_STRIDE: usize = 256;
 
-/// Output-row strip height for the parallel vertical box-sum (#1195). The
-/// vertical running window is sequential down a column, so the accumulate pass
-/// parallelises over STRIPS of consecutive output rows; each strip seeds its
-/// own column-window directly at its first row, which re-anchors vertical
-/// drift at every strip boundary. The height is a FIXED constant, never
-/// derived from the Rayon pool size: strip boundaries decide the f32 reduction
-/// order, so a pool-dependent height would make the output bits depend on the
-/// host's core count (locked in by `output_bits_do_not_depend_on_pool_size`).
-/// 256 keeps vertical drift inside a strip ≤ RESEED_STRIDE steps, keeps the
-/// strip scratch small on the 100MP refine, and keeps an 8700-row refine at
-/// ~34 strips while bounding drift to ~256·eps·|colsum| ≈ 4e-6.
+/// Bound vertical running-sum drift and scratch size in the general kernel.
+/// Profile-free five-tap patches use cache-local tiles instead.
 const VSTRIP_ROWS: usize = 256;
 
 #[inline(always)]
@@ -139,7 +110,9 @@ fn fast_neg_exp(x: f32) -> f32 {
     }
     // exp(-x) ranges from 1.0 at x=0 down to ~3.4e-4 at x=8.
     if x >= FAST_EXP_RANGE {
-        return 0.0;
+        // exp(-104) rounds to zero in f32. Keep every representable tail
+        // below that point; an absolute cutoff at 8 breaks normalization.
+        return if x >= 104.0 { 0.0 } else { (-x).exp() };
     }
     let t = x * (FAST_EXP_TABLE_SIZE as f32 / FAST_EXP_RANGE);
     let i = t as usize;
@@ -153,9 +126,6 @@ fn fast_neg_exp(x: f32) -> f32 {
     a + (b - a) * frac
 }
 
-// The committed table is shared with raw-gpu (`noise_reduction.rs` includes
-// the same file), so CPU, Metal/WebGPU, native and WASM read identical bits —
-// a runtime `exp()` differs per libm target in 56 of the 513 entries.
 #[path = "nlm_exp_table.rs"]
 mod exp_table;
 fn fast_exp_table() -> &'static [f32; FAST_EXP_TABLE_SIZE + 1] {
@@ -209,8 +179,6 @@ pub fn denoise_plane(plane: &[f32], w: usize, h: usize, params: NlmParams) -> Ve
 /// work inside `process_shift` runs through rayon and is *not* instrumented
 /// — a rayon parallel iterator can't `break`, and a per-pixel atomic load
 /// would add contention for no latency win.
-/// Large planes check between regional shifts in each bounded worker; any
-/// cancellation discards all completed/partial tiles and returns the whole input.
 ///
 /// On cancel the develop chain bails immediately after this stage (it checks
 /// the same token and returns `Err(Cancelled)`), so the returned passthrough
@@ -237,69 +205,55 @@ pub fn denoise_plane_cancellable(
     if params.h <= 0.0 || params.search_radius == 0 {
         return plane.to_vec();
     }
-    if params.patch_radius == 2 && noise_profile.is_none() && n >= 16384 {
-        return tiled::denoise(plane, w, h, params, cancel);
+    let p = params.patch_radius;
+    if p == 2 && noise_profile.is_none() && (n >= 16384 || iso > 0) {
+        let model = (iso > 0).then(|| {
+            let (slope, offset) = get_noise_params(None, iso, is_chroma);
+            tiled::NoiseModel {
+                guide: l_plane,
+                slope,
+                offset,
+            }
+        });
+        return tiled::denoise(plane, w, h, params, cancel, model);
     }
 
-    let use_dynamic = noise_profile.is_some();
-    let (s_coeff, o_coeff) = if use_dynamic {
-        get_noise_params(noise_profile, iso, is_chroma)
-    } else {
-        (0.0, 0.0)
-    };
-
-    if bounded::use_bounded(n, use_dynamic, params) {
-        return bounded::denoise(
-            plane,
-            w,
-            h,
-            params,
-            cancel,
-            l_plane,
-            use_dynamic,
-            (s_coeff, o_coeff),
-        );
-    }
-    denoise_plane_strips(
+    let (local_s_plane, local_inv_norm_plane) =
+        chroma::prepare_scaling(n, params, l_plane, noise_profile, iso, is_chroma);
+    denoise_prepared(
         plane,
         w,
         h,
         params,
         cancel,
-        l_plane,
-        use_dynamic,
-        (s_coeff, o_coeff),
+        &local_s_plane,
+        &local_inv_norm_plane,
+        noise_profile.is_some() || iso > 0,
     )
 }
 
-/// General strip kernel: every parameter set the tiled and bounded paths do
-/// not take. The bounded path replays this kernel's reduction order tile by
-/// tile, so it is gated bit-for-bit against this entry rather than against
-/// the public dispatcher.
-#[allow(clippy::too_many_arguments)]
-pub(super) fn denoise_plane_strips(
+fn denoise_prepared(
     plane: &[f32],
     w: usize,
     h: usize,
     params: NlmParams,
     cancel: CancelToken<'_>,
-    l_plane: &[f32],
+    local_s_plane: &[isize],
+    local_inv_norm_plane: &[f32],
     use_dynamic: bool,
-    (s_coeff, o_coeff): (f32, f32),
 ) -> Vec<f32> {
     let n = w * h;
     let p = params.patch_radius;
     let s = params.search_radius as isize;
-
-    let (local_s_plane, local_inv_norm_plane) = if use_dynamic {
-        LocalRadiusPlane::variance_scaled(n, l_plane, params, s_coeff, o_coeff)
-    } else {
-        (LocalRadiusPlane::empty(), Vec::new())
-    };
-
-    // Persistent accumulators are allocated once and reused across shifts.
-    // Squared differences use the existing thread-local row scratch (#1472),
-    // so neither a difference plane nor a full-frame box-sum is allocated.
+    // Persistent scratch — allocated once, reused across all shifts. (#1195
+    // replaced the per-shift (w+1)×(h+1) f32 integral image with a FUSED
+    // separable sliding box-sum: the horizontal sums are computed per strip into
+    // thread-local scratch inside `process_shift`, so no full-frame prefix or
+    // box-sum plane is allocated here — only the sqdiff plane and the three
+    // accumulators. The box-sum forms the patch SSD from a LOCAL window, so the
+    // #1086 global-prefix f32 cancellation cannot arise and the `ssd.max(0.0)`
+    // in `process_shift` is now belt-and-braces.)
+    let mut sqdiff = vec![0.0f32; n];
     let mut acc = vec![0.0f32; n];
     let mut wsum = vec![0.0f32; n];
     let mut max_w = vec![0.0f32; n];
@@ -325,9 +279,10 @@ pub(super) fn denoise_plane_strips(
                 dx,
                 dy,
                 params,
-                &local_s_plane,
-                &local_inv_norm_plane,
+                local_s_plane,
+                local_inv_norm_plane,
                 use_dynamic,
+                &mut sqdiff,
                 &mut acc,
                 &mut wsum,
                 &mut max_w,
@@ -336,15 +291,15 @@ pub(super) fn denoise_plane_strips(
     }
 
     // Add central pixel with weight = running max weight (Buades'
-    // self-similarity correction), then divide. No later shift needs acc,
-    // so normalize it in place instead of allocating another full plane.
-    acc.par_iter_mut().enumerate().for_each(|(i, dst)| {
+    // self-similarity correction), then divide.
+    let mut out = vec![0.0f32; n];
+    out.par_iter_mut().enumerate().for_each(|(i, dst)| {
         let mw_i = max_w[i].max(1e-12);
         let total_w = wsum[i] + mw_i;
-        let total_acc = *dst + mw_i * plane[i];
+        let total_acc = acc[i] + mw_i * plane[i];
         *dst = total_acc / total_w;
     });
-    acc
+    out
 }
 
 #[inline(always)]
@@ -384,6 +339,9 @@ fn fallback_noise_params(iso: u32) -> (f32, f32) {
     (0.00002 * ratio, 0.000002 * ratio * ratio)
 }
 
+#[allow(clippy::too_many_arguments)]
+include!("nlm_shift.rs");
+
 // Tests live in the sibling `nlm_tests.rs` so this file stays under the
 // 600-LOC budget (#951 — the in-kernel cancellation proof pushed the inline
 // module over). Same `#[path]` split pattern the FFI + render modules use.
@@ -399,3 +357,7 @@ mod tests_box;
 #[cfg(test)]
 #[path = "nlm_tests_determinism.rs"]
 mod tests_determinism;
+
+#[cfg(test)]
+#[path = "nlm_tests_tail.rs"]
+mod tests_tail;

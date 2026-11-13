@@ -11,7 +11,6 @@
  */
 
 import { recordAndPublishAssetChange } from '../db/repos/changes.repo.ts';
-import { meilisearchClient } from '../enrichment/meilisearch-client.ts';
 import {
   reapAsset,
   reconcileLocations,
@@ -101,8 +100,8 @@ async function cleanRemovedLocationsCache(
 
 /**
  * Soft-delete an asset whose every location is gone (#2977): set `deleted_at` +
- * `deleted_reason: 'reaped'` instead of removing the record, tombstone its
- * search document, and publish a delete event.
+ * `deleted_reason: 'reaped'` instead of removing the record, and publish a delete
+ * event.
  *
  * The soft delete is GUARDED — it applies only while the asset still has no live
  * location and is not already soft-deleted, so a discover revive (or a user
@@ -118,17 +117,6 @@ async function cleanRemovedLocationsCache(
 export async function reapRow(doc: MissingTaggedAsset): Promise<boolean> {
   if (!(await reapAsset(doc._id.toHexString()))) return false;
 
-  // Tombstone the Meilisearch document — the asset must leave search
-  // immediately, same as the old hard delete. Best-effort; discover's
-  // revive path re-arms the meili stage so the doc comes back if the
-  // content reappears.
-  if (doc.maple_id) {
-    try {
-      await meilisearchClient().tombstone(doc.maple_id);
-    } catch {
-      /* best-effort — the database is canonical, search self-heals on rebuild */
-    }
-  }
   await recordAndPublishAssetChange({
     kind: 'delete',
     asset_id: doc._id,

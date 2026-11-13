@@ -1,0 +1,391 @@
+//! Boundary Warp through the rotation composite (#5572): a jittered ring of
+//! synthetic frames whose footprint is ragged top and bottom.
+
+use super::*;
+use crate::canvas::{auto_canvas, CanvasOptions};
+use crate::composite::{
+    composite_tiled, composite_tiled_frames, largest_valid_rect, CancellableSink, CanvasCollector,
+    CompositePhase, CompositeReport, CropAxes, CropRect,
+};
+use crate::error::PanoError;
+use crate::frame_store::InMemory;
+use crate::gain::FramePhotometry;
+use crate::ingest::{PlanarImage, ValidityMask};
+use crate::prng::SplitMix64;
+use crate::render::{build_camera_set, CameraSetOptions, Pattern};
+use crate::seam::SeamStrategy;
+use crate::warp::frame_output_bbox;
+
+fn ring() -> Vec<Camera> {
+    cameras(4, false)
+}
+
+fn cameras(count: u32, full: bool) -> Vec<Camera> {
+    let opts = CameraSetOptions {
+        count,
+        pattern: Pattern::Ring { full },
+        fov_deg: 50.0,
+        overlap: 0.35,
+        pitch_deg: 0.0,
+        jitter_deg: 4.0,
+        k1: 0.0,
+        k2: 0.0,
+        width: 96,
+        height: 72,
+    };
+    build_camera_set(&opts, &mut SplitMix64::new(3))
+        .expect("valid ring")
+        .iter()
+        .map(|c| c.to_camera())
+        .collect()
+}
+
+fn frame(cam: &Camera) -> PlanarImage {
+    let (w, h) = (cam.width, cam.height);
+    let samples: Vec<f32> = (0..h)
+        .flat_map(|y| (0..w).map(move |x| (x, y)))
+        .map(|(x, y)| {
+            let d = cam
+                .pixel_to_world_dir(x as f64 + 0.5, y as f64 + 0.5)
+                .expect("invertible");
+            (0.4 + 0.2 * (5.0 * d.x).sin() + 0.1 * (3.0 * d.y).cos()) as f32
+        })
+        .collect();
+    PlanarImage::from_planes(
+        w,
+        h,
+        samples.clone(),
+        samples.iter().map(|v| v * 0.9).collect(),
+        samples.iter().map(|v| v * 0.7).collect(),
+        ValidityMask::new_filled(w, h, true),
+    )
+}
+
+struct Scene {
+    cameras: Vec<Camera>,
+    frames: Vec<PlanarImage>,
+    canvas: CanvasSpec,
+    no_lc: Vec<Option<LocalCorrection>>,
+}
+
+fn scene() -> Scene {
+    scene_of(ring())
+}
+
+fn scene_of(cameras: Vec<Camera>) -> Scene {
+    let frames = cameras.iter().map(frame).collect();
+    let canvas = auto_canvas(&cameras, &CanvasOptions::default()).expect("canvas");
+    let no_lc = vec![None; cameras.len()];
+    Scene {
+        cameras,
+        frames,
+        canvas,
+        no_lc,
+    }
+}
+
+fn composite(s: &Scene, canvas: &CanvasSpec, tile_rows: u32, seam: SeamStrategy) -> PlanarImage {
+    let photometry = vec![FramePhotometry::IDENTITY; s.cameras.len()];
+    composite_tiled_frames(
+        &s.frames,
+        &s.cameras,
+        &photometry,
+        &s.no_lc,
+        None,
+        canvas,
+        tile_rows,
+        seam,
+        &[],
+    )
+    .expect("composite")
+    .0
+}
+
+/// The composite of `canvas` with Auto Crop, through the streaming entry
+/// point the stitch uses.
+fn cropped(s: &Scene, canvas: &CanvasSpec, seam: SeamStrategy) -> (PlanarImage, CompositeReport) {
+    let photometry = vec![FramePhotometry::IDENTITY; s.cameras.len()];
+    let mut collector = CanvasCollector::default();
+    let report = composite_tiled(
+        &InMemory(&s.frames),
+        &s.cameras,
+        &photometry,
+        &s.no_lc,
+        None,
+        canvas,
+        16,
+        seam,
+        &[],
+        true,
+        &mut collector,
+    )
+    .expect("composite");
+    (collector.into_image(), report)
+}
+
+/// Auto Crop's output and report, checked against the output without it:
+/// the pixels are identical, and the rectangle is the largest covered one.
+fn assert_crop_reports_covered_rectangle(
+    s: &Scene,
+    canvas: &CanvasSpec,
+    seam: SeamStrategy,
+) -> CropRect {
+    let whole = composite(s, canvas, 16, seam);
+    let (kept, report) = cropped(s, canvas, seam);
+    let crop = report.auto_crop.expect("Auto Crop was requested");
+    let rect = crop.rect.expect("a covered rectangle exists");
+    assert_eq!(
+        Some(rect),
+        largest_valid_rect(&whole, CropAxes::for_canvas(canvas)),
+        "{seam:?}: the crop must be the output's largest covered rectangle"
+    );
+    assert_eq!(crop.invalid_px, 0, "{seam:?}");
+    assert_eq!(report.uncovered_px as usize, uncovered(&whole), "{seam:?}");
+    assert_eq!(
+        report.output_size(),
+        (whole.width(), whole.height()),
+        "{seam:?}"
+    );
+    assert_eq!(
+        (kept.width(), kept.height()),
+        (whole.width(), whole.height())
+    );
+    assert_eq!(kept.r, whole.r, "{seam:?}");
+    assert_eq!(kept.g, whole.g, "{seam:?}");
+    assert_eq!(kept.b, whole.b, "{seam:?}");
+    assert_eq!(kept.validity, whole.validity, "{seam:?}");
+    for y in rect.y..rect.y + rect.height {
+        for x in rect.x..rect.x + rect.width {
+            assert!(whole.validity.get(x, y), "{seam:?} ({x},{y})");
+        }
+    }
+    rect
+}
+
+fn warped(s: &Scene, strength: f64) -> (CanvasSpec, BoundaryWarpReport) {
+    let (canvas, report) = warped_canvas(&s.canvas, strength, || {
+        rotation_footprint(&s.cameras, &s.no_lc, &s.canvas)
+    });
+    (canvas, report.expect("a positive strength reports"))
+}
+
+fn uncovered(image: &PlanarImage) -> usize {
+    image.width() as usize * image.height() as usize - image.validity.count_valid()
+}
+
+#[test]
+fn strength_zero_composites_the_unwarped_canvas_without_a_footprint() {
+    let s = scene();
+    let (canvas, report) = warped_canvas(&s.canvas, 0.0, || unreachable!("no footprint at 0"));
+    assert!(report.is_none() && canvas.boundary_warp().is_none());
+}
+
+#[test]
+fn a_full_strength_warp_leaves_no_output_pixel_uncovered() {
+    let s = scene();
+    let unwarped = composite(&s, &s.canvas, 16, SeamStrategy::Voronoi);
+    assert!(uncovered(&unwarped) > 0, "the ring's edge must be ragged");
+    let (canvas, report) = warped(&s, 1.0);
+    assert_eq!(
+        report.status,
+        crate::boundary_warp::BoundaryWarpStatus::Applied
+    );
+    for seam in [SeamStrategy::Voronoi, SeamStrategy::GraphCut] {
+        let image = composite(&s, &canvas, 16, seam);
+        assert_eq!(uncovered(&image), 0, "{seam:?}");
+    }
+}
+
+#[test]
+fn a_warped_composite_is_independent_of_strip_height() {
+    let s = scene();
+    let (canvas, _) = warped(&s, 0.7);
+    let reference = composite(&s, &canvas, canvas.height, SeamStrategy::Voronoi);
+    for tile_rows in [5, 23] {
+        let strips = composite(&s, &canvas, tile_rows, SeamStrategy::Voronoi);
+        assert_eq!(strips.r, reference.r, "tile_rows {tile_rows}");
+        assert_eq!(strips.validity, reference.validity, "tile_rows {tile_rows}");
+    }
+}
+
+#[test]
+fn the_output_bbox_holds_every_output_pixel_a_frame_covers() {
+    let s = scene();
+    let (canvas, _) = warped(&s, 1.0);
+    for cam in &s.cameras {
+        let bbox = frame_output_bbox(cam, &canvas, 4.0).expect("on canvas");
+        let (x0, x1) = bbox.x_spans[0];
+        for y in 0..canvas.height {
+            for x in 0..canvas.width {
+                let lands = canvas
+                    .output_pixel_to_dir(x as f64 + 0.5, y as f64 + 0.5)
+                    .and_then(|dir| cam.world_dir_to_pixel(dir))
+                    .is_some_and(|(fx, fy)| cam.pixel_in_bounds(fx, fy, 0.0));
+                assert!(
+                    !lands || ((x0..x1).contains(&x) && (bbox.y0..bbox.y1).contains(&y)),
+                    "({x}, {y}) outside {bbox:?}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn auto_crop_reports_a_covered_rectangle_without_trimming_the_output() {
+    let s = scene();
+    let (warped_canvas, _) = warped(&s, 0.6);
+    for seam in [SeamStrategy::Voronoi, SeamStrategy::GraphCut] {
+        let unwarped = assert_crop_reports_covered_rectangle(&s, &s.canvas, seam);
+        assert!(
+            unwarped.width < s.canvas.width || unwarped.height < s.canvas.height,
+            "{seam:?}: the ragged ring must be trimmed"
+        );
+        let warped = assert_crop_reports_covered_rectangle(&s, &warped_canvas, seam);
+        assert!(
+            warped.width as u64 * warped.height as u64
+                >= unwarped.width as u64 * unwarped.height as u64,
+            "{seam:?}: the warp should only grow the covered rectangle"
+        );
+    }
+}
+
+#[test]
+fn auto_crop_spans_the_whole_wrapping_axis_of_a_360_degree_ring() {
+    let s = scene_of(cameras(12, true));
+    assert!(s.canvas.is_full_wrap(), "the closed ring must wrap");
+    let (canvas, report) = warped(&s, 1.0);
+    assert_eq!(
+        report.status,
+        crate::boundary_warp::BoundaryWarpStatus::RefusedFullWrap
+    );
+    for seam in [SeamStrategy::Voronoi, SeamStrategy::GraphCut] {
+        let rect = assert_crop_reports_covered_rectangle(&s, &canvas, seam);
+        assert_eq!((rect.x, rect.width), (0, s.canvas.width), "{seam:?}");
+        assert!(
+            rect.height < s.canvas.height,
+            "{seam:?}: the ragged rows go"
+        );
+    }
+}
+
+fn tiled_through(
+    s: &Scene,
+    seam: SeamStrategy,
+    sink: &mut dyn crate::composite::CanvasSink,
+) -> Result<CompositeReport, PanoError> {
+    composite_tiled(
+        &InMemory(&s.frames),
+        &s.cameras,
+        &vec![FramePhotometry::IDENTITY; s.cameras.len()],
+        &s.no_lc,
+        None,
+        &s.canvas,
+        16,
+        seam,
+        &[],
+        true,
+        sink,
+    )
+}
+
+#[test]
+fn stage_five_progress_climbs_through_survey_and_strips_and_leaves_pixels_alone() {
+    use crate::stitch::composite_progress::CompositeProgress;
+    use std::cell::RefCell;
+
+    for seam in [SeamStrategy::Voronoi, SeamStrategy::GraphCut] {
+        let s = scene();
+        let reports = RefCell::new(Vec::<(u32, f32)>::new());
+        let mut emit = |stage, fraction| reports.borrow_mut().push((stage, fraction));
+        let never = || false;
+        let stage = CompositeProgress::new(&mut emit, &never);
+        let on_advance = |phase, fraction| stage.report_phase(phase, fraction);
+        let mut observed = CanvasCollector::default();
+        tiled_through(
+            &s,
+            seam,
+            &mut CancellableSink::with_progress(&mut observed, &never, &on_advance),
+        )
+        .expect("observed composite");
+        drop(on_advance);
+        drop(stage);
+
+        let (plain, _) = cropped(&s, &s.canvas, seam);
+        let observed = observed.into_image();
+        assert_eq!(
+            observed.r, plain.r,
+            "{seam:?}: progress must not move pixels"
+        );
+        assert_eq!(observed.g, plain.g, "{seam:?}");
+        assert_eq!(observed.b, plain.b, "{seam:?}");
+
+        let fractions: Vec<f32> = reports.into_inner().iter().map(|&(_, f)| f).collect();
+        assert!(fractions.len() >= 2, "{seam:?}: {fractions:?}");
+        assert!(
+            fractions.windows(2).all(|w| w[1] > w[0]),
+            "{seam:?}: {fractions:?}"
+        );
+        assert!(
+            fractions.iter().all(|&f| (0.0..1.0).contains(&f)),
+            "{seam:?}"
+        );
+        assert!(
+            fractions.iter().any(|&f| f < 0.6),
+            "{seam:?}: survey reports"
+        );
+        assert!(
+            fractions.last().is_some_and(|&f| f >= 0.9),
+            "{seam:?}: {fractions:?}"
+        );
+    }
+}
+
+struct SpySink {
+    began: bool,
+    advances: Vec<(CompositePhase, f32)>,
+}
+
+impl crate::composite::CanvasSink for SpySink {
+    fn begin(&mut self, _: u32, _: u32) -> Result<(), PanoError> {
+        self.began = true;
+        Ok(())
+    }
+
+    fn rows(&mut self, _: &PlanarImage) -> Result<(), PanoError> {
+        Ok(())
+    }
+
+    fn advance(&mut self, phase: CompositePhase, fraction: f32) -> Result<(), PanoError> {
+        self.advances.push((phase, fraction));
+        Ok(())
+    }
+}
+
+#[test]
+fn cancelling_during_the_survey_stops_before_any_strip_is_blended() {
+    use std::cell::Cell;
+
+    for seam in [SeamStrategy::Voronoi, SeamStrategy::GraphCut] {
+        let s = scene();
+        let cancelled = Cell::new(false);
+        let is_cancelled = || cancelled.get();
+        let on_advance = |_, _| cancelled.set(true);
+        let mut spy = SpySink {
+            began: false,
+            advances: Vec::new(),
+        };
+        let result = tiled_through(
+            &s,
+            seam,
+            &mut CancellableSink::with_progress(&mut spy, &is_cancelled, &on_advance),
+        );
+        assert!(matches!(result, Err(PanoError::Cancelled)), "{seam:?}");
+        assert!(!spy.began, "{seam:?}: no strip may start after cancel");
+        assert_eq!(
+            spy.advances.len(),
+            1,
+            "{seam:?}: stops at the next checkpoint"
+        );
+        assert_eq!(spy.advances[0].0, CompositePhase::Survey);
+    }
+}

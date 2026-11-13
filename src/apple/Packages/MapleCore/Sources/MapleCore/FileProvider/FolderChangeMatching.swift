@@ -7,15 +7,13 @@
 // working set already answers, scoped to its own directory.
 //
 // The anchor is the global monotonic server change cursor — the same
-// value `WorkingSetEnumerator` uses, encoded identically, so the two can
-// never disagree about what a cursor means.
+// value `WorkingSetEnumerator` uses. The working set prefixes its anchors
+// (#5503); folder anchors stay bare cursors.
 
 import Foundation
 import FileProvider
 
 public enum FolderChangeMatching {
-    /// Encode a server cursor as a sync anchor. Matches
-    /// `WorkingSetEnumerator.anchor(_:)` byte for byte.
     public static func anchor(_ cursor: Int64) -> NSFileProviderSyncAnchor {
         NSFileProviderSyncAnchor(Data(String(cursor).utf8))
     }
@@ -40,8 +38,8 @@ public enum FolderChangeMatching {
     ///
     /// A row with no `relativePath` (legacy payload, or a path the server
     /// could not reconcile against the folder root) cannot be placed, so no
-    /// folder claims it. Those rows still reach the OS through the working
-    /// set, which parents them at `.workingSet`.
+    /// folder claims it. The working set places those rows from the
+    /// asset's metadata, or skips them.
     public static func belongs(change: AssetChange,
                                toFolderID folderID: String,
                                relativePath: String) -> Bool {
@@ -78,12 +76,12 @@ public enum FolderChangeMatching {
             FileProviderIdentifier.folder(folderID: folderID, relativePath: relativePath).rawValue)
         var updates: [MapleItem] = []
         for change in pending {
-            guard let assetID = change.assetID else { continue }
+            guard let assetID = change.assetID, let changePath = change.relativePath else { continue }
             guard let metas else {
                 updates.append(MapleItem(stubAssetID: assetID,
                                          cursor: change.cursor,
-                                         folderID: change.folderID,
-                                         relativePath: change.relativePath))
+                                         folderID: folderID,
+                                         relativePath: changePath))
                 continue
             }
             // The batch answered and this id is absent: the asset is gone
@@ -116,11 +114,12 @@ public enum FolderChangeMatching {
             belongs(change: $0, toFolderID: folderID, relativePath: relativePath)
         }
         let updates = mine.compactMap { change -> MapleItem? in
-            guard let assetID = change.assetID, change.kind != .delete else { return nil }
+            guard let assetID = change.assetID, let changePath = change.relativePath,
+                  change.kind != .delete else { return nil }
             return MapleItem(stubAssetID: assetID,
                              cursor: change.cursor,
-                             folderID: change.folderID,
-                             relativePath: change.relativePath)
+                             folderID: folderID,
+                             relativePath: changePath)
         }
         let deletes = mine.compactMap { change -> NSFileProviderItemIdentifier? in
             guard let assetID = change.assetID, change.kind == .delete else { return nil }

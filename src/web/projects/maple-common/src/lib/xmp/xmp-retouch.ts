@@ -12,7 +12,8 @@
 // Lightroom brush stroke), is DROPPED and the rest of the document still
 // loads. The legacy `crs:RetouchInfo` string form older Lightroom versions
 // wrote is read and never written; when a document carries both, the struct
-// form wins.
+// form wins. A legacy list that decodes to no spot is not the model's to
+// replace, so it rides the passthrough verbatim (#5658).
 
 import type { AdjustmentModel } from '../models/adjustment-model';
 import type { RetouchKind, RetouchPoint, RetouchSpot } from '../models/retouch-spot';
@@ -183,6 +184,36 @@ function correctionBlock(spot: RetouchSpot, indent: string): string {
     `${i1}</rdf:Description>`,
     `${indent}</rdf:li>`,
   ].join('\n');
+}
+
+/**
+ * `papp:RetouchFrameVersion` (#4473): every written spot list is expressed
+ * over the upright image. raw-core reads an unstamped Maple list as the legacy
+ * sensor frame, so an upright list that is written is always stamped. A list
+ * read without the stamp from a Maple sidecar stays unstamped until a spot is
+ * edited here (`retouchFrameLegacy`), because another host may have written it.
+ */
+export const RETOUCH_FRAME_VERSION_KEY = 'papp:RetouchFrameVersion';
+
+/**
+ * Flags a spot list read from a Maple sidecar without the frame stamp. A read
+ * list always carries an explicit flag so merging it over an in-memory model
+ * clears a legacy flag that another host's stamped save has since retired.
+ */
+export function markLegacyRetouchFrame(
+  model: Partial<AdjustmentModel>,
+  description: Element,
+  sawMapleNamespace: boolean,
+): void {
+  if ((model.retouchSpots?.length ?? 0) === 0) return;
+  model.retouchFrameLegacy =
+    sawMapleNamespace && attrOf(description, [RETOUCH_FRAME_VERSION_KEY]) !== '2';
+}
+
+export function retouchFrameParts(model: Partial<AdjustmentModel>): string[] {
+  return (model.retouchSpots ?? []).length === 0 || model.retouchFrameLegacy
+    ? []
+    : [`${RETOUCH_FRAME_VERSION_KEY}="2"`];
 }
 
 /**

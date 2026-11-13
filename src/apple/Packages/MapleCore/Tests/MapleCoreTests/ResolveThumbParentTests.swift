@@ -17,6 +17,7 @@
 import XCTest
 import FileProvider
 @testable import MapleCore
+@testable import MapleFileProviderCore
 
 final class ResolveThumbParentTests: XCTestCase {
     private func freshDefaults() -> UserDefaults {

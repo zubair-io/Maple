@@ -71,3 +71,31 @@ pub(crate) fn wb_frame_from_flat(
         render_fm_warm: mat(f.render_fm_warm),
     }
 }
+
+/// The process-lifetime copy of a profile's capture-first creative tables
+/// (#5377), shared by every decode of a body with the same profile tables. The decode
+/// buffer hands hosts this pointer and never frees it, so a host stores it
+/// with its decode and passes it back per tick without copying or pinning,
+/// and no render can outlive it. Shares raw-core's set
+/// ([`raw_core::pipeline::intern_creative_tables`]) with the Web host.
+pub(crate) fn intern_table_wire(wire: &[f32]) -> &'static [f32] {
+    raw_core::pipeline::intern_creative_tables(wire)
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn interning_shares_one_copy_per_distinct_wire() {
+        let a = super::intern_table_wire(&[1.0, 2.0, 3.0]);
+        let b = super::intern_table_wire(&[1.0, 2.0, 3.0]);
+        let c = super::intern_table_wire(&[1.0, 2.0, 4.0]);
+        assert_eq!(a.as_ptr(), b.as_ptr());
+        assert_ne!(a.as_ptr(), c.as_ptr());
+        assert_eq!(c, &[1.0, 2.0, 4.0]);
+        let nan = super::intern_table_wire(&[f32::NAN, 9.0]);
+        assert_eq!(
+            nan.as_ptr(),
+            super::intern_table_wire(&[f32::NAN, 9.0]).as_ptr()
+        );
+    }
+}

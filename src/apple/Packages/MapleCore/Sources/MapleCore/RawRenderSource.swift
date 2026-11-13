@@ -13,13 +13,24 @@ actor RawRenderSource {
   init(asset: AssetRef? = nil) { originalAsset = asset }
 
   func url(for asset: AssetRef) async throws -> URL {
+    do {
+      return try await stage(asset)
+    } catch let error where error.isCancellation && !Task.isCancelled {
+      // The staging task is detached, so a cancellation here came from the
+      // download itself, not from this caller. One retry recovers the
+      // editor instead of leaving a blank canvas (#5735).
+      return try await stage(asset)
+    }
+  }
+
+  private func stage(_ asset: AssetRef) async throws -> URL {
     // The bound asset carries the source's original provider. The editor's
     // public asset wraps that provider through this staging actor; using the
     // wrapper here would recursively wait for our own pending task.
     let asset = originalAsset ?? asset
     if let url = asset.primaryURL { return url }
     try Task.checkCancellation()
-    if let pending { return try await pending.value.url }
+    if let pending { return try await awaitStaging(pending).url }
     guard let provider = asset.bytesProvider else { throw RenderError.pipelineFailed }
     let task = Task.detached(priority: .userInitiated) {
       let bytes = try await provider()
@@ -29,12 +40,18 @@ actor RawRenderSource {
       return file
     }
     pending = task
+    let file = try await awaitStaging(task)
+    stagedFile = file
+    return file.url
+  }
+
+  /// A failed staging is forgotten by whichever waiter sees it first, so a
+  /// retry starts a fresh download instead of rejoining the failed one.
+  private func awaitStaging(_ task: Task<StagedFile, Error>) async throws -> StagedFile {
     do {
-      let file = try await task.value
-      stagedFile = file
-      return file.url
+      return try await task.value
     } catch {
-      pending = nil
+      if pending == task { pending = nil }
       throw error
     }
   }

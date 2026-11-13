@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { rearmEmbedForEmbedderChange, upsertAssetVectorStatement } from './asset-vectors.repo.ts';
+import { rearmEmbedForForeignVectors, upsertAssetVectorStatement } from './asset-vectors.repo.ts';
 import { seedClaimableAsset, stageRow } from './stage-runtime.test-helpers.ts';
 import { createTestDatabase, testSqliteDb } from '../sqlite/test-sqlite.test-helpers.ts';
 
@@ -30,99 +30,54 @@ describe('upsertAssetVectorStatement', () => {
   });
 });
 
-describe('rearmEmbedForEmbedderChange', () => {
-  test('re-queues only assets embedded by a different model', async () => {
+describe('rearmEmbedForForeignVectors', () => {
+  test('re-queues only assets another model embedded, whatever the endpoint', async () => {
     using handle = await createTestDatabase();
     const db = testSqliteDb(handle.db);
-    const stale = seedClaimableAsset(handle.db, { stages: { embed: { version: 8 } } });
-    const current = seedClaimableAsset(handle.db, { stages: { embed: { version: 8 } } });
-    for (const [assetId, mapleId, model] of [
-      [stale, 'm-stale', 'old-model'],
-      [current, 'm-current', 'bge-m3'],
-    ] as const) {
-      handle.db.run(`UPDATE assets SET maple_id = ? WHERE id = ?`, [mapleId, assetId]);
-      await db.transaction([
-        upsertAssetVectorStatement({
-          mapleId,
-          version: 8,
-          model,
-          endpoint: ENDPOINT,
-          vector: Float32Array.of(1),
-          embeddedAt,
-        }),
-      ]);
-    }
-
-    const changed = await rearmEmbedForEmbedderChange(
-      { model: 'bge-m3', url: ENDPOINT },
-      { includeDead: false },
-      db,
-    );
-
-    expect(changed).toBe(1);
-    expect(stageRow(handle.db, stale, 'embed')?.version).toBe(0);
-    expect(stageRow(handle.db, current, 'embed')?.version).toBe(8);
-  });
-});
-
-describe('rearmEmbedForEmbedderChange across endpoints', () => {
-  test('re-queues completed rows when the same model is served from a new URL', async () => {
-    using handle = await createTestDatabase();
-    const db = testSqliteDb(handle.db);
-    const assetIds = [] as string[];
-    for (const mapleId of ['m1', 'm2']) {
+    const rows = [
+      ['m-foreign', 'nomic-embed-text', ENDPOINT],
+      ['m-ollama', 'bge-m3:latest', 'http://192.168.0.201:11434'],
+      ['m-openai', 'bge-m3', 'http://strata:8080/v1'],
+      ['m-bundled', 'bge-m3', 'bundled'],
+    ] as const;
+    const assets = new Map<string, string>();
+    for (const [mapleId, model, endpoint] of rows) {
       const assetId = seedClaimableAsset(handle.db, { stages: { embed: { version: 8 } } });
       handle.db.run(`UPDATE assets SET maple_id = ? WHERE id = ?`, [mapleId, assetId]);
       await db.transaction([
         upsertAssetVectorStatement({
           mapleId,
           version: 8,
-          model: 'bge-m3',
-          endpoint: ENDPOINT,
+          model,
+          endpoint,
           vector: Float32Array.of(1),
           embeddedAt,
         }),
       ]);
-      assetIds.push(assetId);
+      assets.set(mapleId, assetId);
     }
 
-    const sameTarget = { model: 'bge-m3', url: ENDPOINT };
-    expect(await rearmEmbedForEmbedderChange(sameTarget, { includeDead: false }, db)).toBe(0);
+    expect(await rearmEmbedForForeignVectors({ includeDead: false }, db)).toBe(1);
 
-    const moved = { model: 'bge-m3', url: 'http://other-gpu:11434' };
-    expect(await rearmEmbedForEmbedderChange(moved, { includeDead: false }, db)).toBe(2);
-    assetIds.forEach((id) => expect(stageRow(handle.db, id, 'embed')?.version).toBe(0));
+    expect(stageRow(handle.db, assets.get('m-foreign')!, 'embed')?.version).toBe(0);
+    for (const kept of ['m-ollama', 'm-openai', 'm-bundled']) {
+      expect(stageRow(handle.db, assets.get(kept)!, 'embed')?.version).toBe(8);
+    }
   });
 });
 
-describe('rearmEmbedForEmbedderChange with dead rows', () => {
-  async function deadAsset(handle: Awaited<ReturnType<typeof createTestDatabase>>) {
-    return seedClaimableAsset(handle.db, {
-      stages: { embed: { version: 0, attempts: 3, dead: true } },
-    });
-  }
-
+describe('rearmEmbedForForeignVectors with dead rows', () => {
   test('revives rows that dead-lettered without a vector only when asked', async () => {
     using handle = await createTestDatabase();
     const db = testSqliteDb(handle.db);
-    const dead = await deadAsset(handle);
+    const dead = seedClaimableAsset(handle.db, {
+      stages: { embed: { version: 0, attempts: 3, dead: true } },
+    });
 
-    expect(
-      await rearmEmbedForEmbedderChange(
-        { model: 'bge-m3', url: ENDPOINT },
-        { includeDead: false },
-        db,
-      ),
-    ).toBe(0);
+    expect(await rearmEmbedForForeignVectors({ includeDead: false }, db)).toBe(0);
     expect(stageRow(handle.db, dead, 'embed')?.dead).toBe(1);
 
-    expect(
-      await rearmEmbedForEmbedderChange(
-        { model: 'bge-m3', url: ENDPOINT },
-        { includeDead: true },
-        db,
-      ),
-    ).toBe(1);
+    expect(await rearmEmbedForForeignVectors({ includeDead: true }, db)).toBe(1);
     expect(stageRow(handle.db, dead, 'embed')).toMatchObject({ version: 0, attempts: 0, dead: 0 });
   });
 });

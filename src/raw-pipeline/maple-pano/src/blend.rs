@@ -23,6 +23,8 @@
 //! order; identical inputs produce identical bytes on a given platform
 //! + toolchain.
 
+use std::ops::Range;
+
 use crate::ingest::{PlanarImage, ValidityMask};
 
 /// Spec cap on pyramid depth.
@@ -148,6 +150,157 @@ impl WeightedPlane {
     }
 }
 
+/// Streaming form of the per-level `Σ wᵢ·Lᵢ / Σ wᵢ` accumulation: each
+/// layer's pyramid is built, folded in and dropped, so peak memory is the
+/// accumulator plus one layer's pyramid rather than every layer's at once.
+pub(crate) struct BandAccumulator {
+    dims: Vec<(usize, usize)>,
+    num: Vec<[Vec<f32>; 3]>,
+    den: Vec<Vec<f32>>,
+}
+
+impl BandAccumulator {
+    pub(crate) fn new(w: usize, h: usize, levels: usize) -> Self {
+        let dims: Vec<(usize, usize)> = (0..levels.clamp(1, MAX_LEVELS))
+            .scan((w, h), |d, _| {
+                let level = *d;
+                *d = (d.0.div_ceil(2), d.1.div_ceil(2));
+                Some(level)
+            })
+            .collect();
+        let num = dims
+            .iter()
+            .map(|&(lw, lh)| std::array::from_fn(|_| vec![0.0_f32; lw * lh]))
+            .collect();
+        let den = dims
+            .iter()
+            .map(|&(lw, lh)| vec![0.0_f32; lw * lh])
+            .collect();
+        BandAccumulator { dims, num, den }
+    }
+
+    pub(crate) fn levels(&self) -> usize {
+        self.dims.len()
+    }
+
+    /// Fold `layer` (accumulator-shaped) in over the column band `cols`.
+    ///
+    /// Exact against a full-width add only when `cols.start` sits on the
+    /// coarsest level's sample grid and the layer's weight is zero within a
+    /// pyramid support of either band edge — callers widen the band to
+    /// guarantee both.
+    pub(crate) fn add(&mut self, layer: &PlanarImage, weight: &[f32], cols: Range<usize>) {
+        let (w, h) = (self.dims[0].0, self.dims[0].1);
+        assert_eq!((layer.width() as usize, layer.height() as usize), (w, h));
+        assert_eq!(weight.len(), w * h, "weight plane length");
+        let levels = self.levels();
+        let x0 = cols.start;
+        assert_eq!(
+            x0 % (1 << (levels - 1)),
+            0,
+            "band start off the coarse grid"
+        );
+        let bw = cols.len();
+        let n = bw * h;
+        let src = |i: usize| (i / bw) * w + x0 + i % bw;
+        let valid01: Vec<f32> = (0..n)
+            .map(|i| {
+                let j = src(i);
+                if layer.validity.get((j % w) as u32, (j / w) as u32) {
+                    1.0
+                } else {
+                    0.0
+                }
+            })
+            .collect();
+        let weight0: Vec<f32> = (0..n)
+            .map(|i| (weight[src(i)] * valid01[i]).max(0.0))
+            .collect();
+        let wg = pyramid(
+            WeightedPlane {
+                w: bw,
+                h,
+                v: weight0,
+                a: vec![1.0; n],
+            },
+            levels,
+        );
+
+        for (c, plane) in [&layer.r, &layer.g, &layer.b].into_iter().enumerate() {
+            let gauss = pyramid(
+                WeightedPlane {
+                    w: bw,
+                    h,
+                    v: (0..n).map(|i| plane[src(i)]).collect(),
+                    a: valid01.clone(),
+                },
+                levels,
+            );
+            for k in 0..levels {
+                let g = &gauss[k];
+                let coarse = (k + 1 < levels).then(|| gauss[k + 1].up(g.w, g.h));
+                let (aw, xk) = (self.dims[k].0, x0 >> k);
+                for y in 0..g.h {
+                    for x in 0..g.w {
+                        let i = y * g.w + x;
+                        // Detail is defined only where the level itself is
+                        // defined; the upsampled coarse is weight-renormalized.
+                        let lap = coarse.as_ref().map_or(g.v[i], |up| g.v[i] - up.v[i]);
+                        let wv = wg[k].v[i] * g.a[i];
+                        let o = y * aw + xk + x;
+                        self.num[k][c][o] += wv * lap;
+                        if c == 0 {
+                            self.den[k][o] += wv;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// Normalize every level and collapse base → fine into r, g, b planes.
+    pub(crate) fn collapse(self) -> [Vec<f32>; 3] {
+        let BandAccumulator { dims, num, den } = self;
+        let mut num = num;
+        std::array::from_fn(|c| {
+            let mut acc: Option<WeightedPlane> = None;
+            for k in (0..dims.len()).rev() {
+                let (lw, lh) = dims[k];
+                let num_k = std::mem::take(&mut num[k][c]);
+                let (v, a): (Vec<f32>, Vec<f32>) = num_k
+                    .iter()
+                    .zip(&den[k])
+                    .map(|(&nv, &d)| if d > 0.0 { (nv / d, 1.0) } else { (0.0, 0.0) })
+                    .unzip();
+                let level = WeightedPlane { w: lw, h: lh, v, a };
+                acc = Some(match acc {
+                    None => level,
+                    Some(coarse) => {
+                        let up = coarse.up(lw, lh);
+                        let mut out = level;
+                        for i in 0..out.v.len() {
+                            if out.a[i] > 0.0 {
+                                out.v[i] += up.v[i];
+                            }
+                        }
+                        out
+                    }
+                });
+            }
+            acc.expect("levels >= 1").v
+        })
+    }
+}
+
+fn pyramid(base: WeightedPlane, levels: usize) -> Vec<WeightedPlane> {
+    let mut out = vec![base];
+    for _ in 1..levels {
+        let next = out.last().expect("non-empty").down();
+        out.push(next);
+    }
+    out
+}
+
 /// Multi-band blend of `layers` (full-canvas frames from
 /// [`crate::warp::warp_to_canvas`]) under per-frame seam weights
 /// (`weights[i]`, length = canvas pixels, ≥ 0; typically the hard
@@ -164,118 +317,12 @@ pub fn blend_multiband(layers: &[PlanarImage], weights: &[Vec<f32>], levels: usi
         assert_eq!((l.width(), l.height()), (w, h), "layer shape");
         assert_eq!(wt.len(), n, "weight plane length");
     }
-    let levels = levels.clamp(1, MAX_LEVELS);
 
-    // Per-layer: build Gaussian pyramids of the (validity-gated) weight
-    // plane and Laplacian pyramids of each color plane.
-    struct LayerPyramids {
-        // weight gaussian, per level (finest → coarsest)
-        wg: Vec<WeightedPlane>,
-        // per color plane: laplacian levels (finest → coarsest-1) + base
-        lap: [Vec<WeightedPlane>; 3],
-    }
-
-    let mut pyramids = Vec::with_capacity(layers.len());
+    let mut acc = BandAccumulator::new(w as usize, h as usize, levels);
     for (layer, wt) in layers.iter().zip(weights) {
-        let valid01: Vec<f32> = (0..n)
-            .map(|i| {
-                let (x, y) = ((i % w as usize) as u32, (i / w as usize) as u32);
-                if layer.validity.get(x, y) {
-                    1.0
-                } else {
-                    0.0
-                }
-            })
-            .collect();
-        let weight0: Vec<f32> = wt
-            .iter()
-            .zip(&valid01)
-            .map(|(&s, &v)| (s * v).max(0.0))
-            .collect();
-        let mut wg = vec![WeightedPlane {
-            w: w as usize,
-            h: h as usize,
-            v: weight0,
-            a: vec![1.0; n],
-        }];
-        for _ in 1..levels {
-            let next = wg.last().unwrap().down();
-            wg.push(next);
-        }
-
-        let lap = [&layer.r, &layer.g, &layer.b].map(|plane| {
-            let mut gauss = vec![WeightedPlane {
-                w: w as usize,
-                h: h as usize,
-                v: plane.clone(),
-                a: valid01.clone(),
-            }];
-            for _ in 1..levels {
-                let next = gauss.last().unwrap().down();
-                gauss.push(next);
-            }
-            let mut lap: Vec<WeightedPlane> = Vec::with_capacity(levels);
-            for k in 0..levels - 1 {
-                let up = gauss[k + 1].up(gauss[k].w, gauss[k].h);
-                let mut diff = gauss[k].clone();
-                for i in 0..diff.v.len() {
-                    // Detail is defined only where the level itself is
-                    // defined; the upsampled coarse is weight-renormalized.
-                    diff.v[i] -= up.v[i];
-                }
-                lap.push(diff);
-            }
-            lap.push(gauss[levels - 1].clone());
-            lap
-        });
-        pyramids.push(LayerPyramids { wg, lap });
+        acc.add(layer, wt, 0..w as usize);
     }
-
-    // Accumulate Σw·L / Σw per level, then collapse base→fine.
-    let mut planes_out: Vec<Vec<f32>> = Vec::with_capacity(3);
-    for c in 0..3 {
-        let mut acc: Option<WeightedPlane> = None;
-        for k in (0..levels).rev() {
-            let (lw, lh) = (pyramids[0].lap[c][k].w, pyramids[0].lap[c][k].h);
-            let mut num = vec![0.0_f32; lw * lh];
-            let mut den = vec![0.0_f32; lw * lh];
-            for p in &pyramids {
-                let wgt = &p.wg[k];
-                let lap = &p.lap[c][k];
-                for i in 0..num.len() {
-                    let wv = wgt.v[i] * lap.a[i];
-                    num[i] += wv * lap.v[i];
-                    den[i] += wv;
-                }
-            }
-            let mut level = WeightedPlane {
-                w: lw,
-                h: lh,
-                v: vec![0.0; lw * lh],
-                a: vec![0.0; lw * lh],
-            };
-            for i in 0..num.len() {
-                if den[i] > 0.0 {
-                    level.v[i] = num[i] / den[i];
-                    level.a[i] = 1.0;
-                }
-            }
-            acc = Some(match acc {
-                None => level,
-                Some(coarse) => {
-                    let up = coarse.up(lw, lh);
-                    let mut out = level;
-                    for i in 0..out.v.len() {
-                        if out.a[i] > 0.0 {
-                            out.v[i] += up.v[i];
-                        }
-                    }
-                    out
-                }
-            });
-        }
-        planes_out.push(acc.expect("levels >= 1").v);
-    }
+    let mut planes_out = acc.collapse();
 
     // Output validity: any layer valid with positive weight at the pixel.
     let mut validity = ValidityMask::new_filled(w, h, false);
@@ -291,16 +338,14 @@ pub fn blend_multiband(layers: &[PlanarImage], weights: &[Vec<f32>], levels: usi
     }
     // Invalid pixels carry zeroed values for determinism.
     for plane in &mut planes_out {
-        for i in 0..n {
+        for (i, v) in plane.iter_mut().enumerate() {
             let (x, y) = ((i % w as usize) as u32, (i / w as usize) as u32);
             if !validity.get(x, y) {
-                plane[i] = 0.0;
+                *v = 0.0;
             }
         }
     }
-    let b = planes_out.pop().expect("3 planes");
-    let g = planes_out.pop().expect("3 planes");
-    let r = planes_out.pop().expect("3 planes");
+    let [r, g, b] = planes_out;
     PlanarImage::from_planes(w, h, r, g, b, validity)
 }
 

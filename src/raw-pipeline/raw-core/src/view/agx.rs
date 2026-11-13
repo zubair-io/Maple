@@ -5,8 +5,8 @@
 //! compression**. The chain is:
 //!
 //!   inset matrix
-//!     → ratio-preserving sigmoid (sigmoid applied to max(R,G,B), RGB
-//!       scaled by sigmoid_norm / norm — hue invariant by construction)
+//!     → ratio-preserving sigmoid with common-highlight chroma roll-off
+//!       above diffuse white (#4635)
 //!     → outset matrix
 //!     → Oklab hue-preserving gamut compression to [0, 1]^3
 //!
@@ -43,7 +43,8 @@ pub use coeffs::{
     AGX_MIN_EV, AGX_OUTSET_MATRIX, AGX_SHOULDER_POWER, AGX_TOE_POWER, AGX_VERSION, AGX_X_PIVOT,
     AGX_Y_PIVOT,
 };
-use hue_restoration::{norm_sigmoid_ratio, oklab_gamut_compress};
+pub(crate) use hue_restoration::common_highlight_minimum;
+use hue_restoration::{oklab_gamut_compress, sigmoid_hue_range};
 
 /// Embedded LUT bytes — 512 × f32 little-endian.
 const AGX_LUT_BYTES: &[u8] = include_bytes!("agx_lut.bin");
@@ -120,9 +121,11 @@ fn log_encode(channel: f32) -> f32 {
 /// `sample_lut` already clamps its input to `[0, 1]`, and the inner
 /// clamp was posterising the toe/shoulder when `|contrast| > 0`.
 ///
-/// The sigmoid is **applied in a ratio-preserving way** (norm = max of
-/// inset RGB; sigmoid the norm once, scale RGB by sigmoid_norm / norm),
-/// so hue survives the curve. The post-outset clamp is replaced with
+/// The sigmoid preserves RGB ratios until all inset channels exceed diffuse
+/// white. Above it, the minimum rolls toward its own sigmoid endpoint while
+/// preserving the middle channel's fraction between the extrema (#4635).
+/// Bright finite colours can therefore converge to the neutral shoulder.
+/// The post-outset clamp is replaced with
 /// Oklab hue-preserving gamut compression to keep saturated-primary
 /// pixels in `[0, 1]^3` without producing magenta.
 ///
@@ -135,16 +138,14 @@ fn agx_pixel(scene: [f32; 3], slope: f32, whites: f32) -> [f32; 3] {
     //    `luma_coupled_toe` is retired in #435).
     let inset = matrix_mul(&AGX_INSET_MATRIX, scene);
 
-    // 2) Ratio-preserving sigmoid: sigmoid applied to max(R,G,B), the
-    //    other channels ride the same scale. Hue invariant; replaces
-    //    the per-channel form that produced magenta on saturated
-    //    primaries.
+    // 2) Ratio response below common diffuse white, hue-preserving endpoint
+    //    compression above it. No per-channel sigmoid hue bending.
     let sigmoid_curve = |x: f32| -> f32 {
         let norm = crate::view::agx_whites::remap_norm(log_encode(x), whites);
         let modulated = MID_NORM + (norm - MID_NORM) * slope;
         sample_lut(modulated)
     };
-    let sig = norm_sigmoid_ratio(inset, sigmoid_curve);
+    let sig = sigmoid_hue_range(inset, sigmoid_curve);
 
     // 3) Outset matrix: AgX-Base-Rec.2020 → Rec.2020 (restores chroma).
     let out = matrix_mul(&AGX_OUTSET_MATRIX, sig);
@@ -542,3 +543,7 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+#[path = "agx_tests_chroma_path.rs"]
+mod chroma_path_tests;

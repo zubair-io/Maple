@@ -183,6 +183,12 @@ pub fn run_pass(
     progress: Progress<'_>,
     cancelled: &(dyn Fn() -> bool + Sync),
 ) -> Option<[Vec<f32>; 3]> {
+    // A non-positive hard threshold retains every coefficient and mean.
+    // Its exact transform/inverse is identity; avoid numerical residue in
+    // the basic guide changing the second pass's near-equal patch ordering.
+    if matches!(pass, PassKind::Hard) && sigmas.iter().all(|sigma| *sigma <= 0.0) {
+        return (!cancelled()).then(|| noisy.clone());
+    }
     let xs = ref_coords(w);
     let ys = ref_coords(h);
 

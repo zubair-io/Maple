@@ -16,11 +16,11 @@
 //! its bind-group layout, and the chosen format — all created/configured/retagged
 //! ONCE in [`WebPresentSurface::create`]. [`WebPresentSurface::present`] then does
 //! only `get_current_texture` → [`encode_present_pass`] → `present` per frame: it
-//! recompiles NO pipeline; a changed crop extent alone reconfigures the swapchain. (The naive
+//! recompiles NO pipeline and reconfigures NO swapchain. (The naive
 //! "create-surface-and-pipeline-per-frame" shape would recompile `present_chain.wgsl`
 //! and reconfigure the canvas context every slider tick — see the persistence
-//! invariant in [`crate::live_session`].) The resident image and the presented
-//! extent have independent dimensions.
+//! invariant in [`crate::live_session`].) The held surface is bound to ONE set of
+//! image dims; the caller asserts dims are stable across the session.
 //!
 //! ## The device is the session's, not a fresh one
 //!
@@ -33,13 +33,12 @@
 //! variant stores no borrowed handle (`handle_source = None`), so the `Surface` is
 //! `'static`-storable.
 //!
-//! ## Source and output geometry (#3982)
-//!
-//! The chain stays in sensor framing. The shared quantized display tail maps
-//! the surface through crop, display-framed perspective, and EXIF to that
-//! buffer, preserving source-coordinate grain and dither. Output dimensions
-//! come from the shared crop rounding. An authored crop may resize the surface;
-//! sliders with unchanged output dimensions reuse its configuration and pipeline.
+//! Surface dimensions are the PRESENTED frame: upright, and cropped when the
+//! model carries a user crop, so they can differ arbitrarily from the
+//! sensor-framed session. The present receives both dimensions and maps
+//! destination coordinates through the display → sensor homography.
+//! [`WebPresentSurface::resize`] reconfigures the surface when the presented
+//! frame changes; the f32 chain buffer and every pipeline are untouched.
 //!
 //! ## Colour-space (requested per session, #3191)
 //!
@@ -80,15 +79,16 @@ pub struct WebPresentSurface {
     /// The WebGPU surface over the canvas. `'static` — the `OffscreenCanvas`
     /// variant stores no borrowed handle (wgpu copies the canvas internally).
     surface: wgpu::Surface<'static>,
-    canvas: OffscreenCanvas,
-    configuration: wgpu::SurfaceConfiguration,
     /// The chain-present pipeline (`present_chain.wgsl`) compiled for `format`.
     /// Built once; reused every present (the `GpuContext` compute pipelines persist
     /// in their `OnceCell`s, and so does this one here).
     pipeline: wgpu::RenderPipeline,
     /// The pipeline's bind-group layout (params uniform @0 + f32 chain buffer @1).
     bind_group_layout: wgpu::BindGroupLayout,
-    /// Post-geometry surface dimensions; the sensor upload stays on the session.
+    format: wgpu::TextureFormat,
+    alpha_mode: wgpu::CompositeAlphaMode,
+    requested_color_space: String,
+    /// Presented-frame surface dims; change only through [`Self::resize`].
     width: u32,
     height: u32,
     /// The colour-space tag the browser reported after the one-time retag to
@@ -99,14 +99,14 @@ pub struct WebPresentSurface {
     /// and final ping-pong direction — see [`PresentDispatchCache`] for why identity
     /// (not "build once forever") is the right cache shape: `chain_buf`
     /// alternates between the session's two persistent ping-pong buffers
-    /// depending on the chain's pass-count parity. This surface has no
-    /// `reconfigure` (a dims change is a whole new `WebPresentSurface`), so
-    /// there's no format/layout-change path that needs to invalidate it.
+    /// depending on the chain's pass-count parity. The cache keys on the
+    /// surface dims, and a resize keeps the format and layout, so it needs no
+    /// invalidation.
     present_cache: PresentDispatchCache,
 }
 
 impl WebPresentSurface {
-    /// Create the persistent present surface for `canvas` at the `LiveSession`'s
+    /// Create the persistent present surface for `canvas` at its upright
     /// dims, on `ctx`'s EXISTING device (the f32 buffer lives there). Configures the
     /// surface, re-tags it to `target_color_space` (e.g. `"display-p3"` or
     /// `"srgb"` — the #3191 request parameter; the achieved tag, read back from
@@ -124,28 +124,9 @@ impl WebPresentSurface {
         height: u32,
         target_color_space: &str,
     ) -> Result<Self, String> {
-        if width == 0 || height == 0 {
-            return Err(format!(
-                "WebPresentSurface: invalid image size {width}x{height}"
-            ));
-        }
-        // Validate against the DEVICE's actual texture limit BEFORE configuring
-        // (#1079): a >limit configure is a fatal wgpu validation error; a clean
-        // Err lets the worker fall back to the CPU render path.
-        let max_dim = ctx.device.limits().max_texture_dimension_2d;
-        if width > max_dim || height > max_dim {
-            return Err(format!(
-                "WebPresentSurface: canvas {width}x{height} exceeds the device's max \
-                 texture dimension {max_dim}"
-            ));
-        }
-        let (cw, ch) = (canvas.width(), canvas.height());
-        if (cw, ch) != (width, height) {
-            return Err(format!(
-                "WebPresentSurface: canvas {cw}x{ch} != image {width}x{height} (caller must size \
-                 the OffscreenCanvas to the uploaded image — the present never rescales)"
-            ));
-        }
+        check_nonzero(width, height)?;
+        check_device_limit(ctx, width, height)?;
+        check_canvas_dims(canvas, width, height)?;
 
         let instance = wgpu::Instance::default();
         // `SurfaceTarget::OffscreenCanvas` is the safe web variant — wgpu reads the
@@ -163,40 +144,26 @@ impl WebPresentSurface {
 
         // The f32 chain buffer is bound in the present pass, so the surface MUST be
         // configured with the context's DEVICE (same device the buffer lives on).
-        let configuration = wgpu::SurfaceConfiguration {
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+        let alpha_mode = caps.alpha_modes[0];
+        let color_space = configure_and_retag(
+            ctx,
+            &surface,
+            canvas,
             format,
-            width,
-            height,
-            present_mode: wgpu::PresentMode::Fifo,
-            desired_maximum_frame_latency: 2,
-            alpha_mode: caps.alpha_modes[0],
-            view_formats: vec![],
-        };
-        surface.configure(&ctx.device, &configuration);
-
-        // One-time retag to `target_color_space` (gated; see module docs).
-        // `get_context("webgpu")` hands back the SAME singleton context wgpu
-        // configured; we re-tag it through untyped `js_sys`. Survives every
-        // subsequent present (`get_current_texture` never re-configures). A
-        // failure or an unsupported target degrades to whatever the browser
-        // reports (typically `srgb`).
-        let color_space = match canvas.get_context("webgpu") {
-            Ok(Some(obj)) => crate::present_web_colorspace::retag_color_space_context(
-                &JsValue::from(obj),
-                target_color_space,
-            ),
-            _ => "unknown".to_string(),
-        };
+            alpha_mode,
+            (width, height),
+            target_color_space,
+        );
 
         let (pipeline, bind_group_layout) = build_present_pipeline(ctx, format);
 
         Ok(Self {
             surface,
-            canvas: canvas.clone(),
-            configuration,
             pipeline,
             bind_group_layout,
+            format,
+            alpha_mode,
+            requested_color_space: target_color_space.to_string(),
             width,
             height,
             color_space,
@@ -204,43 +171,47 @@ impl WebPresentSurface {
         })
     }
 
-    /// Reconfigure only when an authored crop changes output dimensions. The
-    /// pipeline and RAW chain stay resident; hot sliders take the no-op branch.
-    pub fn resize(&mut self, ctx: &GpuContext, width: u32, height: u32) -> Result<(), String> {
+    /// The achieved canvas colour-space tag from the latest configure + retag.
+    pub fn color_space(&self) -> &str {
+        &self.color_space
+    }
+
+    /// Rebind the surface to a new presented-frame size (a user crop appearing,
+    /// changing or clearing). `canvas` must already be sized to
+    /// `(width, height)`. Re-configuring resets the canvas colour space, so the
+    /// retag runs again and [`Self::color_space`] reports the new achieved tag.
+    pub fn resize(
+        &mut self,
+        ctx: &GpuContext,
+        canvas: &OffscreenCanvas,
+        width: u32,
+        height: u32,
+    ) -> Result<(), String> {
         if (width, height) == (self.width, self.height) {
             return Ok(());
         }
-        let max = ctx.device.limits().max_texture_dimension_2d;
-        if width == 0 || height == 0 || width > max || height > max {
-            return Err("WebPresentSurface: invalid cropped output dimensions".into());
-        }
-        self.canvas.set_width(width);
-        self.canvas.set_height(height);
-        self.configuration.width = width;
-        self.configuration.height = height;
-        self.surface.configure(&ctx.device, &self.configuration);
-        self.color_space = match self.canvas.get_context("webgpu") {
-            Ok(Some(obj)) => crate::present_web_colorspace::retag_color_space_context(
-                &JsValue::from(obj),
-                &self.color_space,
-            ),
-            _ => "unknown".to_string(),
-        };
+        check_nonzero(width, height)?;
+        check_device_limit(ctx, width, height)?;
+        check_canvas_dims(canvas, width, height)?;
+        self.color_space = configure_and_retag(
+            ctx,
+            &self.surface,
+            canvas,
+            self.format,
+            self.alpha_mode,
+            (width, height),
+            &self.requested_color_space,
+        );
         self.width = width;
         self.height = height;
-        self.present_cache.invalidate();
         Ok(())
-    }
-
-    /// The achieved canvas colour-space tag from the one-time retag.
-    pub fn color_space(&self) -> &str {
-        &self.color_space
     }
 
     /// Present the live chain's resident f32 buffer (`session`'s ping-pong index
     /// `final_idx`, left by [`LiveSession::render_chain_to_f32_async`]) to the held
     /// surface — the dithered/quantized 8-bit display surface, NO CPU readback,
-    /// recompiling NOTHING. Validates the geometry output against the surface.
+    /// recompiling NOTHING. The session may differ from the surface in size
+    /// (orientation, crop); the active geometry carries the mapping.
     pub fn present(
         &self,
         ctx: &GpuContext,
@@ -248,14 +219,17 @@ impl WebPresentSurface {
         final_idx: usize,
         geometry: crate::PresentGeometry,
     ) -> Result<(), String> {
-        let dims = session.dims();
-        let expected = geometry.surface_dimensions(dims);
-        if expected != (self.width, self.height) {
-            return Err(format!(
-                "WebPresentSurface::present: output {expected:?} != surface {}x{}",
-                self.width, self.height
-            ));
-        }
+        let src_dims = if session.dims() == (self.width, self.height) {
+            (0, 0)
+        } else if geometry.is_active() {
+            session.dims()
+        } else {
+            return Err(
+                "WebPresentSurface: a surface that differs from the session needs active \
+                 geometry"
+                    .into(),
+            );
+        };
         let chain_buf = session.ping_pong_buffer(final_idx);
         // Get-or-build the present dispatch for THIS chain buffer identity
         // (#1930) — a same-identity re-present (the steady state while
@@ -266,7 +240,7 @@ impl WebPresentSurface {
             &self.bind_group_layout,
             chain_buf,
             (session.identity(), final_idx),
-            ((self.width, self.height), dims),
+            ((self.width, self.height), src_dims),
             geometry,
         );
         let frame = self
@@ -285,5 +259,74 @@ impl WebPresentSurface {
         ctx.queue.submit(Some(encoder.finish()));
         frame.present();
         Ok(())
+    }
+}
+
+fn check_nonzero(width: u32, height: u32) -> Result<(), String> {
+    if width == 0 || height == 0 {
+        return Err(format!(
+            "WebPresentSurface: invalid image size {width}x{height}"
+        ));
+    }
+    Ok(())
+}
+
+/// Validate against the DEVICE's actual texture limit BEFORE configuring
+/// (#1079): a >limit configure is a fatal wgpu validation error; a clean Err
+/// lets the worker fall back to the CPU render path.
+fn check_device_limit(ctx: &GpuContext, width: u32, height: u32) -> Result<(), String> {
+    let max_dim = ctx.device.limits().max_texture_dimension_2d;
+    if width > max_dim || height > max_dim {
+        return Err(format!(
+            "WebPresentSurface: canvas {width}x{height} exceeds the device's max \
+             texture dimension {max_dim}"
+        ));
+    }
+    Ok(())
+}
+
+fn check_canvas_dims(canvas: &OffscreenCanvas, width: u32, height: u32) -> Result<(), String> {
+    let (cw, ch) = (canvas.width(), canvas.height());
+    if (cw, ch) != (width, height) {
+        return Err(format!(
+            "WebPresentSurface: canvas {cw}x{ch} != presented frame {width}x{height} (caller \
+             must size the OffscreenCanvas first — the present never rescales)"
+        ));
+    }
+    Ok(())
+}
+
+/// Configure the surface, then retag the canvas to the requested colour space
+/// (see module docs). wgpu's `configure()` leaves `colorSpace` absent (browser
+/// default `srgb`), so every configure needs the retag; the returned tag is
+/// whatever the browser actually reports.
+fn configure_and_retag(
+    ctx: &GpuContext,
+    surface: &wgpu::Surface<'static>,
+    canvas: &OffscreenCanvas,
+    format: wgpu::TextureFormat,
+    alpha_mode: wgpu::CompositeAlphaMode,
+    (width, height): (u32, u32),
+    target_color_space: &str,
+) -> String {
+    surface.configure(
+        &ctx.device,
+        &wgpu::SurfaceConfiguration {
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            format,
+            width,
+            height,
+            present_mode: wgpu::PresentMode::Fifo,
+            desired_maximum_frame_latency: 2,
+            alpha_mode,
+            view_formats: vec![],
+        },
+    );
+    match canvas.get_context("webgpu") {
+        Ok(Some(obj)) => crate::present_web_colorspace::retag_color_space_context(
+            &JsValue::from(obj),
+            target_color_space,
+        ),
+        _ => "unknown".to_string(),
     }
 }

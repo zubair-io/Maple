@@ -6,19 +6,19 @@ Maple is a non-destructive RAW photo editor that ships as several apps sharing o
 
 Each row is something you build and ship separately.
 
-| Unit                                             | Where                            | Built from                                          | Talks to                                                                                    |
-| ------------------------------------------------ | -------------------------------- | --------------------------------------------------- | ------------------------------------------------------------------------------------------- |
-| **Maple** (macOS / iOS / iPadOS)                 | `src/apple/Maple/` + `Packages/` | Xcode target, bundle id `app.justmaple.aperture`    | Local files, SMB, PhotoKit, a Maple server                                                  |
-| **Maple TV** (tvOS)                              | `src/apple/Maple TV/`            | Xcode target, `…aperture.tv`                        | A Maple server only (links `MapleCloudKit`, never the RAW pipeline)                         |
-| **MapleFileProvider** / **MapleFileProviderIOS** | `src/apple/MapleFileProvider*/`  | Xcode app extensions, `…aperture.FileProvider(IOS)` | Surfaces a server library in Finder / Files                                                 |
-| **MapleQuickLook** (macOS)                       | `src/apple/MapleQuickLook/`      | Xcode extension, `…aperture.QuickLook`              | Renders previews for Finder                                                                 |
-| **MapleWidget**                                  | `src/apple/MapleWidget/`         | Xcode extension, `…aperture.Widget`                 | Generated-search shelf on the home screen                                                   |
-| **MapleBackupAgent** (macOS)                     | `src/apple/MapleBackupAgent/`    | LaunchAgent target                                  | Runs the PhotoKit backup engine outside the app                                             |
-| **`maple`** — Self Hosted web UI                 | `src/web/projects/maple/`        | `ng build maple`                                    | The Bun API; served _by_ it                                                                 |
-| **`maple-syrup`** — Hosted web UI                | `src/web/projects/maple-syrup/`  | `ng build maple-syrup`                              | Nothing. Browser-only, no account, no database                                              |
-| **Maple API** (Self Hosted server)               | `src/api/`                       | `bun src/index.ts`, Docker or systemd               | Nothing external; optionally Meilisearch, Cloudflare R2, Nominatim, a describe model server |
-| **Maple.WinUI** (Windows)                        | `src/windows/Maple.WinUI/`       | `dotnet build`, .NET 8 + WinUI 3                    | Local files via `raw_ffi.dll`                                                               |
-| **maple-thumb-cache** (Cloudflare Worker)        | `src/cloudflare/`                | `wrangler deploy`                                   | Fronts the API's `GET /api/thumb/*` with an R2 edge cache                                   |
+| Unit                                             | Where                            | Built from                                          | Talks to                                                                       |
+| ------------------------------------------------ | -------------------------------- | --------------------------------------------------- | ------------------------------------------------------------------------------ |
+| **Maple** (macOS / iOS / iPadOS)                 | `src/apple/Maple/` + `Packages/` | Xcode target, bundle id `app.justmaple.aperture`    | Local files, SMB, PhotoKit, a Maple server                                     |
+| **Maple TV** (tvOS)                              | `src/apple/Maple TV/`            | Xcode target, shares `app.justmaple.aperture`       | A Maple server only (links `MapleCloudKit`, never the RAW pipeline)            |
+| **MapleFileProvider** / **MapleFileProviderIOS** | `src/apple/MapleFileProvider*/`  | Xcode app extensions, `…aperture.FileProvider(IOS)` | Surfaces a server library in Finder / Files                                    |
+| **MapleQuickLook** (macOS)                       | `src/apple/MapleQuickLook/`      | Xcode extension, `…aperture.QuickLook`              | Renders previews for Finder                                                    |
+| **MapleWidget**                                  | `src/apple/MapleWidget/`         | Xcode extension, `…aperture.Widget`                 | Generated-search shelf on the home screen                                      |
+| **MapleBackupAgent** (macOS)                     | `src/apple/MapleBackupAgent/`    | LaunchAgent target                                  | Runs the PhotoKit backup engine outside the app                                |
+| **`maple`** — Self Hosted web UI                 | `src/web/projects/maple/`        | `ng build maple`                                    | The Bun API; served _by_ it                                                    |
+| **`maple-syrup`** — Hosted web UI                | `src/web/projects/maple-syrup/`  | `ng build maple-syrup`                              | Nothing. Browser-only, no account, no database                                 |
+| **Maple API** (Self Hosted server)               | `src/api/`                       | `bun src/index.ts`, Docker or systemd               | Nothing external; optionally Cloudflare R2, Nominatim, a describe model server |
+| **Maple.WinUI** (Windows)                        | `src/windows/Maple.WinUI/`       | `dotnet build`, .NET 8 + WinUI 3                    | Local files via `raw_ffi.dll`                                                  |
+| **maple-thumb-cache** (Cloudflare Worker)        | `src/cloudflare/`                | `wrangler deploy`                                   | Fronts the API's `GET /api/thumb/*` with an R2 edge cache                      |
 
 The two web apps are one codebase. Every component, shell, service, and the whole XMP pipeline live in the `maple-common` Angular library; the apps differ only in which workspace provider they install — `provideSelfHostedWorkspace()` in `projects/maple/src/app/app.config.ts` versus `provideHostedWorkspace()` in `projects/maple-syrup/src/app/app.config.ts` — and in a handful of capability tokens (folder CRUD, batch rename) that only the server-backed app turns on. Self Hosted redirects `/` to `/browse`; Hosted's `/` is a landing page with "open a photo" / "open a folder" buttons backed by the File System Access API.
 
@@ -40,20 +40,21 @@ See [features](features.md) for what each surface actually does, and [apple](app
 
 All colour and geometry math lives in `src/raw-pipeline/`, a cargo workspace of seven crates:
 
-| Crate        | Role                                                                                                                                                           |
-| ------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `raw-core`   | Decode, demosaic, camera calibration, every develop stage, the AgX view transform, XMP parse/serialize, stable image ids                                       |
-| `raw-gpu`    | wgpu/WGSL implementations of the same stages, plus the live-session runner and the present path. Optional (`gpu` feature); wgpu is absent from a default build |
-| `raw-ffi`    | C ABI over `raw-core` + `raw-gpu`. `crate-type = ["staticlib", "cdylib", "rlib"]`                                                                              |
-| `raw-wasm`   | `wasm-bindgen` surface for the browser                                                                                                                         |
-| `maple-pano` | Panorama stitching (geometry solve, ALIKED + LightGlue via ONNX Runtime, compositing)                                                                          |
-| `maple-cli`  | Deterministic headless harness — `render`, `batch`, `diff`, `tile`, `pano`, `synthetic`, and more                                                              |
-| `codegen`    | Emits the cross-language constant files (see below)                                                                                                            |
+| Crate             | Role                                                                                                                                                           |
+| ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `raw-core`        | Decode, demosaic, camera calibration, every develop stage, the AgX view transform, XMP parse/serialize, stable image ids                                       |
+| `raw-gpu`         | wgpu/WGSL implementations of the same stages, plus the live-session runner and the present path. Optional (`gpu` feature); wgpu is absent from a default build |
+| `raw-ffi`         | C ABI over `raw-core` + `raw-gpu`. `crate-type = ["staticlib", "cdylib", "rlib"]`                                                                              |
+| `raw-wasm`        | `wasm-bindgen` surface for the browser                                                                                                                         |
+| `raw-wasm-canvas` | The canvas zoom model (raw-core's `canvas` source) as a small unthreaded WebAssembly module for the browser's main thread                                      |
+| `maple-pano`      | Panorama stitching (geometry solve, ALIKED + LightGlue via ONNX Runtime, compositing)                                                                          |
+| `maple-cli`       | Deterministic headless harness — `render`, `batch`, `diff`, `tile`, `pano`, `synthetic`, and more                                                              |
+| `codegen`         | Emits the cross-language constant files (see below)                                                                                                            |
 
 How each app gets it:
 
 - **Apple** — `src/apple/scripts/build-xcframework.sh` compiles `raw-ffi` for `aarch64-apple-ios`, `aarch64-apple-ios-sim`, `aarch64-apple-darwin`, and `x86_64-apple-darwin` with `--features gpu` plus a pano feature (`pano` for macOS, `pano-ios` for the iOS slices, which link ONNX Runtime statically because the iOS sandbox blocks `dlopen`). It runs cbindgen, lipos the two macOS arches, and produces `src/apple/Frameworks/RawPipeline.xcframework`. `MapleCore`'s `Package.swift` consumes that as a `.binaryTarget`; `RawCoreBridge.swift` is the Swift side of the contract. The `.a` files and generated headers are gitignored (the static libs are too large for GitHub), so a fresh clone must run the script once before Xcode will link or SwiftPM can compile.
-- **Web** — `src/raw-pipeline/raw-wasm/build.sh` runs `wasm-pack build --target web --release --features gpu,parallel -Z build-std=panic_abort,std`. The `-Z build-std` is not optional: the crate needs the atomics / bulk-memory target features from `raw-wasm/.cargo/config.toml` for `wasm-bindgen-rayon` to link. `src/web/scripts/sync-raw-wasm.sh` copies the generated `pkg/` into `maple-common`, where the render worker imports it. `pkg/` is gitignored.
+- **Web** — `src/raw-pipeline/raw-wasm/build.sh` runs `wasm-pack build --target web --release --features gpu,parallel -Z build-std=panic_abort,std`. The `-Z build-std` is not optional: the crate needs the atomics / bulk-memory target features from `raw-wasm/.cargo/config.toml` for `wasm-bindgen-rayon` to link. The same script then builds `raw-wasm-canvas` into `pkg/canvas/` with no threading features, for the main thread's zoom model ([zoom](zoom.md#web)). `src/web/scripts/sync-raw-wasm.sh` copies the generated `pkg/` into `maple-common`, where the render worker imports it. `pkg/` is gitignored.
 - **API** — `src/api/scripts/build-raw-ffi.sh` builds the same crate as a dylib into `src/api/native/`, loaded through `bun:ffi` by `src/api/src/ffi/raw_ffi.ts`. It is never `dlopen`'d in the HTTP process: decode runs in a pool of child processes (`src/api/src/ffi/ffi-pool.ts`, `ffi-child-worker.ts`) so a libraw segfault on a malformed RAW kills one child, which the pool respawns, instead of the server.
 - **Windows** — `src/windows/scripts/build-windows.sh` builds `raw-ffi --features gpu` for `x86_64-pc-windows-msvc`; the C# app declares `[DllImport("raw_ffi.dll")]` against it and mirrors the FFI structs field-for-field, with a startup `RawFfi.VerifyAbi()` size assertion.
 
@@ -83,13 +84,15 @@ Every editing surface implements the same two phases.
 - **Fast phase** — runs immediately on every slider tick, at viewport resolution (element size × device pixel ratio) using the preview-quality demosaic. Only the most recent tick survives: older work is cancelled or its result dropped.
 - **Refine phase** — a 150 ms trailing debounce that re-renders at full resolution. During a continuous drag the refine task is cancelled on every tick, so it fires once, when the user lets go.
 
-On Apple this lives in `RenderActor` and `EditSession+RenderScheduling.swift` (`RenderActor.refineDebounceMilliseconds = 150`); the actor owns the task handles, the generation counter, and the cancel/coalesce decisions, while the render work itself stays on the main actor. On the web it is `TwoPhaseRenderScheduler` in `src/web/projects/maple-common/src/lib/components/image-canvas/image-canvas.two-phase.ts` (`REFINE_DEBOUNCE_MS = 150`). Because a WASM render cannot be interrupted mid-flight, the web's "cancel" is really "drop the stale result via the generation counter."
+The scheduling rules themselves (which generation is current, whether a refine may be scheduled, whether the refine tries the native-detail patch or the whole image, and when the refine can be skipped) are pure functions in `raw_core::canvas::render_schedule` (#5714). On Apple `RenderActor` and `EditSession+RenderScheduling.swift` read them through `raw-ffi` (`RenderActor.refineDebounceMilliseconds` is `maple_canvas_refine_debounce_ms()`, 150); the actor owns the task handles, the timers, and the generation value it passes through each rule, while the render work itself stays on the main actor. On the web it is `TwoPhaseRenderScheduler` in `src/web/projects/maple-common/src/lib/components/image-canvas/image-canvas.two-phase.ts` (`REFINE_DEBOUNCE_MS = 150`). Because a WASM render cannot be interrupted mid-flight, the web's "cancel" is really "drop the stale result via the generation counter."
 
 Underneath, two things happen per tick. The expensive part — decode, demosaic, camera profile, auto-exposure — runs once and its result is cached as an fp16 RGBA buffer in scene-linear Rec.2020. Each subsequent tick re-runs only the cheap, model-dependent stages on that buffer: `raw_core::pipeline::scene_linear_chain` on the CPU, or the equivalent WGSL chain in `raw-gpu` on the GPU.
 
 When a GPU is available, the app opens a **live session** instead: the decoded image is uploaded to the GPU once, and each tick is a uniform update plus a dispatch, presenting straight to the platform surface with no readback. On Apple that is `maple_gpu_live_*` in `src/raw-pipeline/raw-ffi/src/gpu_live.rs` presenting to a `CAMetalLayer`, driven by `GpuLiveSession.swift` / `GpuLiveDriver.swift`. On the web it is a `WebLiveSession` in the render worker presenting to a transferred `OffscreenCanvas` (`image-canvas.gpu-present.ts`). Because the live session is already frame-rate-ready, the refine pass is skipped while it is active. If WebGPU is missing or the first present comes back black, the web canvas tears the session down and falls back to the 2D path for the rest of the page session.
 
 The GPU is never the reference. `raw-core`'s CPU chain is the oracle, and CI diffs the WGSL chain against it (the `raw-gpu` job in `.github/workflows/raw-pipeline.yml`).
+
+The canvas zoom model and viewport ↔ image mapping (fit / fill / 100% stops, pinch detents, anchored zoom, pan clamping, render targets), deep-zoom tile selection, the two-phase scheduling rules and the interactive crop geometry are pure value math in `raw_core::canvas`, exposed by value through `raw-ffi`; Apple reads it there today, and the other shells adopt it under #5714. See [zoom](zoom.md).
 
 Deep zoom is a third path — a tile renderer (`raw_core::pipeline::tile`, `NativeDetailRenderer.swift` on Apple, the canvas zoom host on web) that renders only the visible region at native resolution. See [zoom](zoom.md).
 
@@ -126,7 +129,7 @@ The `codegen-drift` job in `.github/workflows/cross.yml` regenerates everything 
 ```
 src/
   raw-pipeline/                 cargo workspace (see "One Rust core" above)
-    raw-core/  raw-gpu/  raw-ffi/  raw-wasm/  maple-pano/  maple-cli/  codegen/
+    raw-core/  raw-gpu/  raw-ffi/  raw-wasm/  raw-wasm-canvas/  maple-pano/  maple-cli/  codegen/
     vendor/                     vendored crates (offline Apple/Windows builds)
   apple/
     Maple.xcodeproj             all Apple targets
@@ -211,11 +214,11 @@ CI mirrors these in `.github/workflows/`: `raw-pipeline.yml` (`build-raw-ffi`, `
 The Self Hosted server is deliberately more than one process. The HTTP process (`src/api/src/index.ts`) builds the Elysia app — request-context and error envelope, security headers, per-route body limits, the public routes, the bearer-gated `authedApi` sub-tree, an OpenAPI spec at `/openapi.json` with a Scalar UI at `/docs`, and a catch-all that serves the built Angular bundle from `src/web/dist/maple/browser/`. Its startup then spawns two kinds of children:
 
 - the **FFI decode pool** — one niced child process per concurrent RAW decode, so a native crash can't take the server down;
-- the **worker tier** — a single niced child running `startWorkers()`, which owns the discover walk, the per-asset stage runners, enrichment, the job runner, and imports. It auto-respawns with exponential backoff on crash.
+- the **worker tier** — a single niced child running `startWorkers()`, which owns the discover walk, the per-asset stage runners, enrichment, user jobs, the operator's one-shots and imports, and scheduled library maintenance, all of which run on a Temporal server only this tier talks to ([temporal](temporal.md)). It auto-respawns with exponential backoff on crash.
 
-Per-asset background work is modelled as _stages_, not jobs: `exif`, `thumb`, `preview`, `face-detect`, `face-embed`, `describe`, `geocode`, `meili`, `sidecar-metadata-index`, `cf-thumb-sync`, `transcribe` (`src/api/src/workers/stages/manifest.ts`). Each gets claiming, retry/backoff, dead-lettering, pause/resume, and a live progress row on Settings → Workers from the generic machinery in `run-stage.ts`. The **job runner** (`src/api/src/job-runner/`) is reserved for one-off, user-triggered actions — `batch_jpeg_export` and `pano_stitch`, the latter shelling out to `maple-cli pano stitch`. See [indexer-enrichment](indexer-enrichment.md) and [server-api](server-api.md).
+Per-asset background work is modelled as _stages_, not jobs: `exif`, `thumb`, `preview`, `face-detect`, `face-embed`, `describe`, `geocode`, `search-blob`, `sidecar-metadata-index`, `cf-thumb-sync`, `transcribe`, `motion-photo`, `live-photo`, and more (`src/api/src/workers/stages/manifest.ts`). Each gets claiming, retry/backoff, dead-lettering, pause/resume, and a live progress row on Settings → Workers from the generic machinery in `run-stage.ts`. The **job runner** (`src/api/src/job-runner/`) is reserved for one-off, user-triggered actions — `batch_jpeg_export` and `pano_stitch`, the latter shelling out to `maple-cli pano stitch` — and, on a second task queue so they never wait behind those, the operator's one-shots: `mirror_reconcile`, `people_cluster` and `folder_scan`. See [indexer-enrichment](indexer-enrichment.md) and [server-api](server-api.md).
 
-The server has no external dependencies at all: its database is a local file it creates for itself on first boot, and if that file cannot be opened or brought up to the current schema the process exits rather than serve. Everything else is optional and off unless configured. Meilisearch adds typo-tolerant and semantic search; a Nominatim instance drives reverse geocoding; Cloudflare R2 plus the thumbnail Worker put thumbnails on the edge; an OTLP/HTTP endpoint receives traces and logs from the server, the Angular apps, and `MapleCore`.
+The server has one external dependency, a [Temporal](https://temporal.io) server that decides when all of that background work runs; without one the server still starts and serves the library while the work waits in the database ([temporal](temporal.md#when-temporal-is-unreachable)). Its database is a local file it creates for itself on first boot, and if that file cannot be opened or brought up to the current schema the process exits rather than serve. Everything else is optional and off unless configured. A Nominatim instance drives reverse geocoding; Cloudflare R2 plus the thumbnail Worker put thumbnails on the edge; an OTLP/HTTP endpoint receives traces and logs from the server, the Angular apps, and `MapleCore`.
 
 Read next: [caching](caching.md) for what is cached where and what invalidates it, [best-practices](best-practices.md) for the coding standards each layer follows.
 
@@ -230,7 +233,15 @@ backup bucket. Never expose that bucket through a public domain, R2.dev, or the
 thumbnail Worker: it contains accounts, settings, and secrets. Do not share the
 backup prefix with another Maple server or apply a shorter R2 lifecycle policy.
 
-The API process owns the scheduler and permits one backup at a time. A dedicated
+The backup runs in the worker child as the `db-backup` maintenance task, a
+Temporal schedule that checks every 15 minutes whether a backup is due, so a
+backup starts within 15 minutes of the configured hour; one backup runs at a
+time. "Back up now" in Settings is a run-now request the worker tier hands to
+Temporal, so the API process never takes a snapshot itself; it waits for a
+backup already running and then runs. A request the worker tier has not picked
+up within two minutes (no worker process, or Temporal unreachable) stops
+counting as running, and the status reports it in `request_error`. A server
+without the worker tier takes no backups. A dedicated
 Bun worker opens a read-only SQLite connection and runs parameterized `VACUUM
 INTO`, capturing committed WAL contents without copying a live database file or
 occupying the pool's writer queue. Hashing, integrity checks, and streaming gzip
@@ -245,10 +256,14 @@ live in a private OS temp directory and are removed on success or failure; allow
 space for two uncompressed snapshots plus the gzip. A forcibly killed process
 can leave its `maple-db-backup-*` temporary directory for manual removal.
 
-Settings and last-run status persist in `app_settings` under `db-backups`.
-Failures retry hourly when automatic backups are enabled. Startup catches up
-once the configured local hour has passed; missed days are not replayed. An
-interrupted run is shown as interrupted in Settings. Retention chooses the newest
+Settings and last-run status persist in `app_settings` under `db-backups`. A
+running backup refreshes a heartbeat in that status every 30 seconds; a `running`
+status whose heartbeat is more than five minutes old belongs to a process that
+died and no longer blocks a new backup or a policy change.
+Failures retry hourly when automatic backups are enabled. A missed backup is
+caught up once the configured local hour has passed and Temporal is reachable;
+missed days are not replayed. An interrupted run is shown as interrupted in
+Settings. Retention chooses the newest
 snapshot per UTC calendar day, Monday-based week, month, and year within the
 configured windows, unions those selections, and always retains the newest
 snapshot. Unknown keys and future-dated keys are never pruned. Retention failures

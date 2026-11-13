@@ -147,6 +147,12 @@ export interface StageClaimRequest {
   leaseMs?: number;
 }
 
+/** The part of a claim request that decides which rows are candidates. */
+export type StageScan = Pick<
+  StageClaimRequest,
+  'stage' | 'targetVersion' | 'dependsOn' | 'inFlight' | 'residual' | 'now'
+>;
+
 /** What one tick of claiming produced. */
 export interface StageClaimOutcome {
   /** Rows this caller won, with their state as the claim left it. */
@@ -179,7 +185,11 @@ const log = childLogger('sqlite:stage-claim');
  * clause the builder emits contributes its parameters at the same position
  * here.
  */
-function candidateParams(request: StageClaimRequest, nowIso: string): Array<string | number> {
+function candidateParams(
+  request: StageScan,
+  nowIso: string,
+  limit: number,
+): Array<string | number> {
   const inFlight = request.inFlight ?? new Set<string>();
   return [
     request.stage,
@@ -188,8 +198,23 @@ function candidateParams(request: StageClaimRequest, nowIso: string): Array<stri
     ...request.dependsOn.flatMap((dep) => [dep.name, dep.minVersion]),
     ...inFlight,
     ...(request.residual?.params ?? []),
-    request.limit,
+    limit,
   ];
+}
+
+/** The candidate scan the claim and {@link stageHasWork} share: a read, never a write. */
+function scanCandidates(
+  request: StageScan,
+  nowIso: string,
+  limit: number,
+  db: SqliteDb,
+): Promise<StageStateRow[]> {
+  const sql = stageClaimCandidatesSql(
+    request.dependsOn.length,
+    request.inFlight?.size ?? 0,
+    request.residual?.sql,
+  );
+  return db.read<StageStateRow>(sql, candidateParams(request, nowIso, limit));
 }
 
 /**
@@ -234,7 +259,7 @@ function crashReason(attempts: number): string {
  * rather than a shortcut. `attempts` is not in `stage_claim` — the index
  * carries `stage, version, dead, next_attempt_at, asset_id` — so a separate
  * `WHERE attempts >= ?` sweep cannot be answered from the index and walks the
- * stage's whole backlog, reading a row body per candidate, on every poll tick
+ * stage's whole backlog, reading a row body per candidate, on every batch
  * of every stage. Measured on 20,000 assets it made a claim 10.4 ms against
  * Mongo's 2.8 ms, which is the opposite of this port's entire argument. The
  * Mongo runner filters the batch it already fetched, and doing the same here
@@ -334,10 +359,10 @@ export async function renewStageLease(
  * The candidate scan being a separate, un-locked read is deliberate. It is the
  * expensive half (a range scan) and it does not need to be exclusive: a stale
  * candidate simply loses at step 2. Taking the write lock for the scan as well
- * would serialise every stage's poll tick against every other stage's, on a
+ * would serialise every stage's claim against every other stage's, on a
  * single-writer database, for no correctness gain.
  *
- * A batch that is all crash-exhausted rows therefore claims nothing this tick
+ * A batch that is all crash-exhausted rows therefore claims nothing this time
  * and drains a batch at a time, which is exactly what the Mongo runner does —
  * and the point of not re-dispatching them, since one poison asset re-claiming
  * on every respawn is how a whole tier stops draining (#897).
@@ -350,12 +375,7 @@ export async function claimStageBatch(
   const now = request.now ?? new Date();
   const nowIso = now.toISOString();
 
-  const sql = stageClaimCandidatesSql(
-    request.dependsOn.length,
-    request.inFlight?.size ?? 0,
-    request.residual?.sql,
-  );
-  const candidates = await db.read<StageStateRow>(sql, candidateParams(request, nowIso));
+  const candidates = await scanCandidates(request, nowIso, request.limit, db);
   if (candidates.length === 0) return { claimed: [], crashExhausted: [], contended: 0 };
 
   const { claimable, exhausted } = partitionCandidates(candidates, request.maxAttempts);
@@ -400,4 +420,14 @@ export async function claimStageBatch(
     );
   }
   return { claimed, crashExhausted: exhausted, contended };
+}
+
+/**
+ * Whether a claim would find anything right now, without taking it. A
+ * crash-exhausted candidate counts: the claim still has to park it.
+ */
+export async function stageHasWork(request: StageScan, dbOverride?: SqliteDb): Promise<boolean> {
+  const nowIso = (request.now ?? new Date()).toISOString();
+  const candidates = await scanCandidates(request, nowIso, 1, assetsDb(dbOverride));
+  return candidates.length > 0;
 }

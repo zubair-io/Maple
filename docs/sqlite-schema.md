@@ -64,32 +64,37 @@ for the internal tables whose ids never reach a client:
 
 ## Tables
 
-| Table                                                                                                                                                 | Notes                                                                                                                                  |
-| ----------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
-| `assets`                                                                                                                                              | Narrow. Scalars plus `exif` / `place` JSON and 14 generated columns.                                                                   |
-| `asset_locations`                                                                                                                                     | One row per on-disk copy. `ordinal` keeps the order; `ordinal = 0` is the canonical entry.                                             |
-| `asset_detail`                                                                                                                                        | 1:1 side table for the bulky describe-stage payloads — vision, caption, OCR, transcript. A rowid table, deliberately — see the facets. |
-| `asset_search` + `assets_fts`                                                                                                                         | The synthesised search text and the FTS5 index over it, in external-content mode.                                                      |
-| `asset_phasset_links`                                                                                                                                 | Apple Photos links, indexed on `(device_id, phasset_local_id)`.                                                                        |
-| `faces`                                                                                                                                               | One row per detection. `face_index` keeps the position, which is on the wire.                                                          |
-| `stage_state`                                                                                                                                         | `(asset_id, stage)`, `WITHOUT ROWID`, one row per asset per stage.                                                                     |
-| `enrichment_state`                                                                                                                                    | The older lease-based claim for `geocode` / `face` / `describe`.                                                                       |
-| `people`, `person_merge_dismissals`                                                                                                                   | `cover_bbox` and the merge-suggestion head flattened to columns.                                                                       |
-| `folders`, `asset_changes`, `server_state`, `mirror_queue`, `geocode_cache`, `presets`                                                                |                                                                                                                                        |
-| `jobs`, `imports`, `import_files`, `discover_frontier`, `worker_config`, `stage_handlers`, `backup_sessions`, `upload_sessions`, `apns_device_tokens` | Queues and configuration.                                                                                                              |
-| `app_settings`                                                                                                                                        | One JSON document per settings domain, keyed by name.                                                                                  |
-| `worker_status`, `managed_certificates`, `meilisearch_backfill_state`, `meilisearch_backfill_leases`                                                  | Single-row singletons; the id is pinned by a CHECK.                                                                                    |
-| `indexer_checkpoints`, `generated_searches`, `video_geo_backfill_audit`, `meilisearch_backfill_failures`                                              | Worker bookkeeping. See `ddl/settings.ts`.                                                                                             |
-| `users`, `credentials`, `invites`, `refresh_tokens`, `service_api_keys`, `challenges`, `native_auth_codes`, `lan_handoff_codes`                       |                                                                                                                                        |
-| `schema_migrations`                                                                                                                                   | The migration runner's sentinel.                                                                                                       |
+| Table                                                                                                                               | Notes                                                                                                                                  |
+| ----------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| `assets`                                                                                                                            | Narrow. Scalars plus `exif` / `place` JSON and 14 generated columns.                                                                   |
+| `asset_locations`                                                                                                                   | One row per on-disk copy. `ordinal` keeps the order; `ordinal = 0` is the canonical entry.                                             |
+| `asset_detail`                                                                                                                      | 1:1 side table for the bulky describe-stage payloads — vision, caption, OCR, transcript. A rowid table, deliberately — see the facets. |
+| `asset_search` + `assets_fts`                                                                                                       | The synthesised search text and the FTS5 index over it, in external-content mode.                                                      |
+| `asset_phasset_links`                                                                                                               | Apple Photos links, indexed on `(device_id, phasset_local_id)`.                                                                        |
+| `faces`                                                                                                                             | One row per detection. `face_index` keeps the position, which is on the wire.                                                          |
+| `stage_state`                                                                                                                       | `(asset_id, stage)`, `WITHOUT ROWID`, one row per asset per stage.                                                                     |
+| `enrichment_state`                                                                                                                  | The older lease-based claim for `geocode` / `face` / `describe`.                                                                       |
+| `people`, `person_merge_dismissals`                                                                                                 | `cover_bbox` and the merge-suggestion head flattened to columns.                                                                       |
+| `folders`, `asset_changes`, `server_state`, `mirror_queue`, `geocode_cache`, `presets`                                              |                                                                                                                                        |
+| `jobs`, `imports`, `import_files`, `discover_frontier`, `worker_config`, `backup_sessions`, `upload_sessions`, `apns_device_tokens` | Queues and configuration.                                                                                                              |
+| `app_settings`                                                                                                                      | One JSON document per settings domain, keyed by name.                                                                                  |
+| `worker_status`, `managed_certificates`                                                                                             | Single-row singletons; the id is pinned by a CHECK.                                                                                    |
+| `indexer_checkpoints`, `generated_searches`, `video_geo_backfill_audit`                                                             | Worker bookkeeping. See `ddl/settings.ts`.                                                                                             |
+| `users`, `credentials`, `invites`, `refresh_tokens`, `service_api_keys`, `challenges`, `native_auth_codes`, `lan_handoff_codes`     |                                                                                                                                        |
+| `schema_migrations`                                                                                                                 | The migration runner's sentinel.                                                                                                       |
 
 Every table the API opens is declared here, and
 `src/api/src/db/sqlite/schema.indexes.test.ts` fails if that stops being true.
 
 ### Jobs and the unused indexer queue (#3762)
 
-The JobRunner uses `jobs` for creation, claims, leases, progress, cancellation,
-terminal transitions and resumable batch ledgers. Batch library exclusivity is
+Jobs use `jobs` for creation, claims, progress, cancellation, terminal
+transitions and resumable batch ledgers. Temporal schedules them; `locked_by`
+names the activity attempt that holds a running job (or `temporal` for a queued
+job Temporal already has). Temporal's heartbeat decides when an attempt is gone,
+so the lease columns `jobs` and `imports` carried (and the `jobs_claim` and
+`imports_claim` indexes over them) are dropped by `0043-remove-row-leases`
+(#5825); `jobs_status` takes over the relay's status lookup. Batch library exclusivity is
 intentionally enforced by the atomic `INSERT … SELECT … WHERE NOT EXISTS` and
 resume `UPDATE` in `db/repos/jobs.sql.ts`. Overlapping queued/running settings
 batches conflict on any shared root. These statements are the only creation and
@@ -103,6 +108,11 @@ uses `stage_state`, and directory discovery uses `discover_frontier`. Migration
 existing and fresh installs. Its definitions remain only in the frozen initial
 DDL, so the shipped `0001` migration keeps its original meaning. Jobs and their
 recovery ledgers are retained.
+
+`stage_handlers` held per-stage HTTP overrides for a handler registry that no
+stage ever called, and nothing wrote it. Migration
+`0042-remove-unused-stage-handlers` drops it (#5825); its definition, like
+`indexer_queue`'s, remains only in the frozen initial DDL.
 
 ### `app_settings` is the one table that is a document, and why
 
@@ -340,20 +350,19 @@ the index entirely.
 Every row below carries `live AND hidden = 0` as its `WHERE`; only the part
 that differs is written out.
 
-| Call site                                                              | SQLite                                                                                                     | Index                                               |
-| ---------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- | --------------------------------------------------- |
-| facet total, Meili live count, generated-search preview, buckets total | `COUNT(*)`                                                                                                 | `assets_live`                                       |
-| camera facet                                                           | `GROUP BY camera_make, camera_model`                                                                       | `assets_facet_camera`                               |
-| lens facet                                                             | `GROUP BY lens`                                                                                            | `assets_facet_lens`                                 |
-| places facet                                                           | `GROUP BY place_locality, place_region`                                                                    | `assets_facet_place_label`                          |
-| country drill-down                                                     | `GROUP BY place_country_code`                                                                              | `assets_facet_place`                                |
-| timeline buckets                                                       | `GROUP BY captured_year, captured_month`                                                                   | `assets_live_captured_ym`                           |
-| screenshot tri-state                                                   | `GROUP BY is_screenshot`                                                                                   | `assets_facet_screenshot`                           |
-| scene / activity facets                                                | mirrored live/hidden state + `WHERE` nonempty group key + `GROUP BY` it; join for additional asset filters | `asset_detail_scene_type`, `asset_detail_activity`  |
-| capture range, ISO range                                               | `MIN` / `MAX`                                                                                              | `assets_live_captured`, `assets_facet_iso`          |
-| extension facet                                                        | mirrored live/hidden state + `GROUP BY extension` on ordinal 0                                             | `asset_locations_facet_extension`                   |
-| people facet                                                           | mirrored live/hidden state + `SELECT person_id, COUNT(DISTINCT asset_id) FROM faces`                       | `faces_facet_person`                                |
-| Meili vector coverage                                                  | `WHERE semantic_vector_fingerprint = ?`                                                                    | `assets_vector_fingerprint` (new — unindexed today) |
+| Call site                                            | SQLite                                                                                                     | Index                                              |
+| ---------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- | -------------------------------------------------- |
+| facet total, generated-search preview, buckets total | `COUNT(*)`                                                                                                 | `assets_live`                                      |
+| camera facet                                         | `GROUP BY camera_make, camera_model`                                                                       | `assets_facet_camera`                              |
+| lens facet                                           | `GROUP BY lens`                                                                                            | `assets_facet_lens`                                |
+| places facet                                         | `GROUP BY place_locality, place_region`                                                                    | `assets_facet_place_label`                         |
+| country drill-down                                   | `GROUP BY place_country_code`                                                                              | `assets_facet_place`                               |
+| timeline buckets                                     | `GROUP BY captured_year, captured_month`                                                                   | `assets_live_captured_ym`                          |
+| screenshot tri-state                                 | `GROUP BY is_screenshot`                                                                                   | `assets_facet_screenshot`                          |
+| scene / activity facets                              | mirrored live/hidden state + `WHERE` nonempty group key + `GROUP BY` it; join for additional asset filters | `asset_detail_scene_type`, `asset_detail_activity` |
+| capture range, ISO range                             | `MIN` / `MAX`                                                                                              | `assets_live_captured`, `assets_facet_iso`         |
+| extension facet                                      | mirrored live/hidden state + `GROUP BY extension` on ordinal 0                                             | `asset_locations_facet_extension`                  |
+| people facet                                         | mirrored live/hidden state + `SELECT person_id, COUNT(DISTINCT asset_id) FROM faces`                       | `faces_facet_person`                               |
 
 The vision facets are the one row where the exclusion is load-bearing rather
 than decorative. A bare `GROUP BY vision_scene_type` implies nothing about
@@ -832,7 +841,7 @@ to insert a full row:
 | Indexer checkpoints, worker status, asset skeletons, backup progress                                 | Omitted sweep generation, face-model snapshot, EXIF and total count preserve existing values. Explicit EXIF null clears it. Backup counters increment and the start time stays insert-only. |
 | Asset detail/search/stage patches, derivative audit, people search reindex, stage invalidation/rearm | Update only the named output, JSON path or stage row. Stage reset assignments implement the requested reset; unrelated stages and other detail columns survive.                             |
 | Mirror queue and APNs registration                                                                   | Preserve queue attempts/lease/enqueue time, or token identity/creation time; update the mutable fields.                                                                                     |
-| Geocode cache, video-geocode verdict, new Meilisearch backfill generation                            | Deliberate replacement of that record's payload; a new generation deliberately clears previous progress. Meilisearch failure attempts increment, and its lease updates only owner/expiry.   |
+| Geocode cache, video-geocode verdict                                                                 | Deliberate replacement of that record's payload                                                                                                                                             |
 | Discover frontier, lens profile, location/merge-dismissal/stage seeds                                | `DO NOTHING` preserves the existing identity and payload.                                                                                                                                   |
 | Server-state values and the change cursor                                                            | Value writes leave the allocator alone; cursor allocation updates only `seq` and is atomic with its journal insert.                                                                         |
 

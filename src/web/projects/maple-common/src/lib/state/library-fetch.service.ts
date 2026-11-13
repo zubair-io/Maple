@@ -1,3 +1,4 @@
+import { primarySidecarFilename } from '../xmp/sidecar-binding';
 // Library fetch — folder/asset enumeration, XMP I/O, index writes.
 //
 // Coordinates the store (data + id-maps), selection (cursor placement), and
@@ -11,6 +12,7 @@ import { HttpErrorResponse } from '@angular/common/http';
 import { DestroyRef, Injectable, effect, inject } from '@angular/core';
 import { FOLDER_LISTING_CACHE } from '../api/folder-listing-cache';
 import { Asset, AssetId, ColorLabel, Flag } from '../models/asset';
+import { sameStack, stackFromWire } from '../models/asset-stack';
 import { GridFolderItem, SidebarEntry } from '../models/folder';
 import { AdjustmentModel, defaultAdjustmentModel } from '../models/adjustment-model';
 import type { ApiFolder } from '../api/bun-api-backend.service';
@@ -20,16 +22,27 @@ import {
   LIBRARY_SOURCE,
   type LibrarySource,
   type FolderListing,
+  type ImageEntry,
 } from '../addressing/library-source';
-import { parseAddress, formatAddress, type MapleAddress } from '../addressing/maple-address';
+import {
+  parseAddress,
+  formatAddress,
+  siblingAddress,
+  type MapleAddress,
+} from '../addressing/maple-address';
 import { MapleCacheService } from '../maple-cache/maple-cache.service';
 import { AuthService } from '../auth/auth.service';
 import { XmpParserService } from '../xmp/xmp-parser.service';
+import { readSidecar, sidecarParseFailed } from '../xmp/xmp-dom-utils';
+import { HostedSidecarErrors } from './hosted-sidecar-errors.service';
 import { XmpStoreService } from '../xmp/xmp-store.service';
+import { WorkflowVariantStoreService } from '../xmp/workflow-variant-store.service';
+import { PRIMARY_VARIANT_ID } from '../generated/workflow.generated';
 import { XmpSerializerService } from '../xmp/xmp-serializer.service';
 import { SidecarStore } from '../xmp/sidecar.store';
 import { SelfHostedWorkflowWriterService } from '../xmp/self-hosted-workflow-writer.service';
 import { PassthroughBucket, XmpCulling, XmpMetadata } from '../xmp/xmp.types';
+import { SidecarMergeAdoptionService } from './sidecar-merge-adoption.service';
 import { MapleFolderHandle } from '../folder-access/folder-access.types';
 import { IndexedAsset } from '../maple-cache/maple-cache.types';
 import { sha256Prefix16 } from '../maple-cache/sha';
@@ -69,10 +82,73 @@ const ASSET_RENDER_KEYS: readonly (keyof Asset)[] = [
   'mtime',
   'width',
   'height',
+  'camera',
+  'lens',
+  'aperture',
+  'shutter',
+  'iso',
+  'focalLength',
+  'gps',
+  'capturedAt',
 ];
 
+const sameLivePhoto = (a: Asset['livePhoto'], b: Asset['livePhoto']): boolean =>
+  a?.role === b?.role && a?.partnerId === b?.partnerId;
+
 const assetsEqualForRender = (a: Asset, b: Asset): boolean =>
-  shallowEqualByKeys(a, b, ASSET_RENDER_KEYS);
+  shallowEqualByKeys(a, b, ASSET_RENDER_KEYS) &&
+  sameLivePhoto(a.livePhoto, b.livePhoto) &&
+  sameStack(a.stack, b.stack);
+
+/** Preserve the indexed fields already present in the Self-Hosted folder response. */
+export function selfHostedAssetFromImage(img: ImageEntry, sourceId: string): Asset {
+  return {
+    id: img.address,
+    filename: img.name,
+    folderId: sourceId,
+    rating: img.rating ?? 0,
+    flag: img.flag ?? 'unflagged',
+    colorLabel: img.colorLabel ?? null,
+    edited: img.edited ?? false,
+    thumbnailGradient: '',
+    aspectRatio: img.width != null && img.height != null ? img.width / img.height : 3 / 2,
+    ...(img.width != null ? { width: img.width } : {}),
+    ...(img.height != null ? { height: img.height } : {}),
+    ...(img.isVideo ? { isVideo: true as const } : {}),
+    ...(img.livePhoto
+      ? {
+          livePhoto: {
+            role: img.livePhoto.role,
+            partnerId: siblingAddress(img.address, img.livePhoto.partner),
+          },
+        }
+      : {}),
+    ...(img.size != null ? { size: img.size } : {}),
+    ...stackFromWire(img.stack),
+    ...selfHostedCameraFields(img.exif),
+    ...selfHostedExposureFields(img.exif),
+    ...(img.exif?.gps ? { gps: { lat: img.exif.gps.lat, lon: img.exif.gps.lng } } : {}),
+    ...(img.capturedAt ? { capturedAt: img.capturedAt } : {}),
+  };
+}
+
+function selfHostedCameraFields(exif: ImageEntry['exif']): Partial<Asset> {
+  return {
+    ...(exif?.camera_model || exif?.camera_make
+      ? { camera: exif.camera_model ?? exif.camera_make! }
+      : {}),
+    ...(exif?.lens ? { lens: exif.lens } : {}),
+  };
+}
+
+function selfHostedExposureFields(exif: ImageEntry['exif']): Partial<Asset> {
+  return {
+    ...(exif?.aperture != null ? { aperture: `f/${exif.aperture}` } : {}),
+    ...(exif?.shutter ? { shutter: exif.shutter } : {}),
+    ...(exif?.iso != null ? { iso: exif.iso } : {}),
+    ...(exif?.focal_length != null ? { focalLength: `${exif.focal_length}mm` } : {}),
+  };
+}
 
 // RAW-extension detection moved to the dependency-free `raw-extensions`
 // module (so the raw-pipeline service can import it without an import cycle).
@@ -101,6 +177,7 @@ interface PendingApiSidecar {
 
 @Injectable({ providedIn: 'root' })
 export class LibraryFetch {
+  private readonly sidecarErrors = inject(HostedSidecarErrors);
   private readonly store = inject(LibraryStore);
   private readonly status = inject(LibraryStatusService);
   private readonly selection = inject(LibrarySelection);
@@ -109,6 +186,7 @@ export class LibraryFetch {
   private readonly mapleCache = inject(MapleCacheService);
   private readonly xmpParser = inject(XmpParserService);
   private readonly xmpStore = inject(XmpStoreService);
+  private readonly hostedVariants = inject(WorkflowVariantStoreService);
   private readonly xmpSerializer = inject(XmpSerializerService);
   private readonly sidecarStore = inject(SidecarStore);
   private readonly workflowWriter = inject(SelfHostedWorkflowWriterService);
@@ -119,21 +197,15 @@ export class LibraryFetch {
   private readonly folderCache = inject(FOLDER_LISTING_CACHE);
   private readonly sidecarSave = inject(SidecarSaveStateService);
   private readonly xmpRestore = inject(XmpAdjustmentRestoreService);
+  private readonly mergeAdoption = inject(SidecarMergeAdoptionService);
   private readonly slugRegistry = inject(LibrarySlugRegistry);
   private readonly singleFileXmp = inject(SingleFileXmpService);
+  private readonly hostedFolderHandles = new Map<string, MapleFolderHandle>();
+  private hostedFolderActivation: Promise<void> = Promise.resolve();
 
   // ── Index write debounce ──────────────────────────────────────────────────
   private _indexWriteTimer: ReturnType<typeof setTimeout> | null = null;
   private readonly _indexWrites = new Set<Promise<void>>();
-
-  // ── Auto-scan-on-open fire-once guard (#804) ───────────────────────────────
-  // Registered-library ids we've already triggered a content-aware `/scan`
-  // for this session. `scanFolderAndDiscover` walks the WHOLE library, so one
-  // scan per library covers every sub-folder — keying on the library id (not
-  // the per-sub-folder source id) avoids re-scanning on every sidebar click.
-  // The server's `last_scan` gate is the cross-session backstop; this guard
-  // just stops same-session request spam on rapid navigation.
-  private readonly _autoScannedLibraryIds = new Set<string>();
 
   // ── Self-Hosted XMP write debounce ────────────────────────────────────────
   private readonly API_XMP_DEBOUNCE_MS = 200;
@@ -155,6 +227,7 @@ export class LibraryFetch {
       }
       this._apiXmpTimers.clear();
     });
+    this.mergeAdoption.follow((id, xml, model) => this.rememberWorkflowRestore(id, xml, model));
     // Debounced index write: re-fires 500ms after the last culling change.
     effect(() => {
       const assets = this.store.assets();
@@ -167,6 +240,26 @@ export class LibraryFetch {
   }
 
   // ── Folder open ────────────────────────────────────────────────────────────
+
+  activateHostedFolder(folderId: string): boolean {
+    const folder = this.hostedFolderHandles.get(folderId);
+    if (!folder) return false;
+
+    const activation = this.hostedFolderActivation.then(async () => {
+      if (this.store.currentFolder() === folder) {
+        this.selection.selectedSourceId.set(folderId);
+      } else {
+        await this.openFolder(folder);
+      }
+      this.status.backendError.set(null);
+    });
+    this.hostedFolderActivation = activation.catch((error: unknown) => {
+      const detail = error instanceof Error ? error.message : String(error);
+      this.status.backendError.set(`Failed to open folder: ${detail}`);
+      console.error('LibraryFetch: hosted folder activation failed', error);
+    });
+    return true;
+  }
 
   /**
    * Open a folder, load its assets, and integrate the .maple/ cache.
@@ -185,6 +278,9 @@ export class LibraryFetch {
    */
   // fallow-ignore-next-line complexity
   async openFolder(folder: MapleFolderHandle): Promise<void> {
+    // A re-open must observe the latest authored sidecars, including a debounce
+    // that has not fired yet. Leave the old workspace active if publication fails.
+    if (this.store.currentFolder()) await this.xmpStore.flushAll();
     // Detach the previous workspace before doing any asynchronous I/O. If the
     // new handle has lost permission (or enumeration otherwise fails), keeping
     // it current would let edits from the still-rendered previous view write a
@@ -212,6 +308,8 @@ export class LibraryFetch {
     const newAdjustments = new Map<AssetId, AdjustmentModel>();
     const newPassthroughs = new Map<AssetId, PassthroughBucket>();
     const newMetadata = new Map<AssetId, XmpMetadata>();
+    const newDocuments = new Map<string, string | null>();
+    const sidecarLoadErrors = new Map<AssetId, string>();
     const previousAssetIds = this.store
       .assets()
       .filter((asset) => asset.folderId === folderId)
@@ -243,10 +341,23 @@ export class LibraryFetch {
       let keywords: string[] = [];
 
       // XMP sidecar is authoritative — parse both culling + full AdjustmentModel.
-      const xmpName = filename.replace(/\.[^.]+$/, '.xmp');
+      const xmpName = primarySidecarFilename(filename);
+      const binding = this.xmpStore.bindingFor(id, folder, filename);
+      newDocuments.set(binding.filename, null);
       try {
-        const xmpBytes = await this.fs.readFile(folder, xmpName);
-        const xmpText = new TextDecoder().decode(xmpBytes);
+        // The selected workflow variant can outlive a folder switch. Read its
+        // document instead of placing the primary model under its write binding.
+        const xmpText =
+          binding.variantId === PRIMARY_VARIANT_ID
+            ? new TextDecoder('utf-8', { fatal: true }).decode(
+                await this.fs.readFile(folder, xmpName),
+              )
+            : await this.hostedVariants.read(folder, xmpName, binding.variantId);
+        if (xmpText === null) throw Error('Selected variant sidecar is missing.');
+        newDocuments.set(binding.filename, xmpText);
+        if (sidecarParseFailed(readSidecar(xmpText).document)) {
+          throw new Error(`Malformed XMP sidecar: ${xmpName}`);
+        }
 
         // Culling fields (P5) + IPTC keywords (#632).
         const culling = this.xmpParser.parseCulling(xmpText);
@@ -263,8 +374,21 @@ export class LibraryFetch {
         newMetadata.set(id, metadata);
 
         edited = true;
-      } catch {
-        // No sidecar or unreadable — keep cache values, no adjustment override.
+      } catch (error) {
+        if (!(error instanceof DOMException && error.name === 'NotFoundError')) {
+          // The index is a cache. A failed save can leave optimistic culling
+          // there even though the authored sidecar was never changed.
+          rating = 0;
+          flag = 'unflagged';
+          colorLabel = null;
+          keywords = [];
+          sidecarLoadErrors.set(
+            id,
+            `The XMP sidecar for ${filename} is unreadable. Maple is showing the original without edits. Repair the sidecar before editing.`,
+          );
+        }
+        // A missing sidecar is normal. An unreadable one stays untouched and
+        // is guarded from edits; neither can supply adjustment overrides.
       }
 
       const asset: Asset = {
@@ -307,15 +431,20 @@ export class LibraryFetch {
       newPassthroughs,
       newMetadata,
     );
+    this.xmpStore.replaceLoadedDocuments(folder, newDocuments);
+    this.sidecarErrors.errors.set(sidecarLoadErrors);
 
     // The handle becomes the active persistence target only after its assets
     // and sidecars have finished loading. Until this point the previous view
     // can still be rendered, so attaching the new folder sooner could route a
     // last-second edit to the wrong directory.
     this.store.currentFolder.set(folder);
+    this.hostedFolderHandles.set(folderId, folder);
 
     // 3. Ensure the folder appears in the sidebar tree.
     this.store.ensureFolder(folderId, folder.name);
+    // A different folder drops the stale focus a rating key would otherwise hit (#4683).
+    if (this.selection.selectedSourceId() !== folderId) this.selection.resetForSourceChange();
     this.selection.selectedSourceId.set(folderId);
   }
 
@@ -549,44 +678,6 @@ export class LibraryFetch {
   }
 
   /**
-   * Force a re-walk of the registered library that owns the current
-   * selection. The server pushes every supported file under the library
-   * root back into the indexer's discover channel; the upsert is
-   * idempotent so unchanged files no-op and new files get indexed.
-   */
-  rescanCurrentFolder(): void {
-    if (this.status.rescanStatus() === 'running') return;
-    const folder = this.store.currentRegisteredFolder(this.selection.selectedSourceId());
-    if (!folder) {
-      this.status.rescanError.set('Pick a library folder first.');
-      this.status.rescanStatus.set('error');
-      return;
-    }
-    this.status.rescanError.set(null);
-    this.status.rescanStatus.set('running');
-    if (!this.api) return;
-    this.api.rescanFolder(folder.id).subscribe({
-      next: (res) => {
-        if (res.ok) {
-          this.status.rescanStatus.set('done');
-          // Brief success indicator, then return to idle.
-          setTimeout(() => {
-            if (this.status.rescanStatus() === 'done') this.status.rescanStatus.set('idle');
-          }, 2_500);
-        } else {
-          this.status.rescanError.set(res.error ?? 'Rescan failed');
-          this.status.rescanStatus.set('error');
-        }
-      },
-      error: (err: HttpErrorResponse) => {
-        const detail = err?.error?.error ?? err?.message ?? 'Unknown error';
-        this.status.rescanError.set(`Rescan failed: ${detail}`);
-        this.status.rescanStatus.set('error');
-      },
-    });
-  }
-
-  /**
    * Self-Hosted: open a registered library by walking its filesystem.
    *
    * Builds a MapleAddress from the folder's slug (M1 field) and calls
@@ -667,13 +758,6 @@ export class LibraryFetch {
         );
       },
     );
-
-    // Auto-scan-on-open (#804): kick a content-aware re-discover of the owning
-    // registered library so a moved/new file is relinked (stages resume). This
-    // is non-blocking — the grid paints from the `_swrListFolder` listing above;
-    // the scan resolves later and we re-pull the listing only if it actually
-    // re-walked (new/relinked rows may now have apiId + enrichment).
-    this._autoScanLibraryForSourceId(id);
   }
 
   /**
@@ -687,12 +771,14 @@ export class LibraryFetch {
    * actually did (partial-failure batches, auto-suffixed collisions, etc.
    * — see the design doc's "refresh, don't mutate" note on drag-and-drop).
    *
+   * `childrenOnly` is for the Move picker: it refreshes only sidebar children,
+   * preserving unsaved asset ratings, flags, and labels in the grid.
    * Safe to call for a folder that isn't currently selected: `_applyFolderListing`
    * only replaces `store.assets`/`store.gridFolders` entries keyed to THIS
    * `sourceId`, and `_attachFolderChildren` only patches that node's sidebar
    * subtree — neither touches the currently-displayed selection.
    */
-  refreshFolderListing(sourceId: string): void {
+  refreshFolderListing(sourceId: string, childrenOnly = false): void {
     if (this.store.backend !== 'self-hosted') return;
     if (!sourceId.includes(':')) return;
     try {
@@ -701,7 +787,8 @@ export class LibraryFetch {
         addr,
         (listing, fresh) => {
           if (!fresh) return; // only the network-authoritative pass matters here
-          this._applyFolderListing(sourceId, listing);
+          if (childrenOnly) this._attachFolderChildren(sourceId, listing.folders);
+          else this._applyFolderListing(sourceId, listing);
         },
         () => {
           // Best-effort — a failed background refresh leaves the grid/tree
@@ -711,55 +798,6 @@ export class LibraryFetch {
     } catch {
       // Unparseable id (e.g. a legacy `fs:` node) — nothing to refresh.
     }
-  }
-
-  /**
-   * Fire the content-aware `/scan` for the registered library that owns
-   * `absPath`, then refresh the open folder's listing when it completes.
-   *
-   * Non-blocking by contract — the caller has already painted the grid from
-   * the filesystem listing. The self-hosted grid is a `/api/fs/dir` walk, so
-   * a moved/new file is *already* visible; what the scan fixes is server-side
-   * (relink → stages resume → thumbnails/previews/apiId enrich). We therefore
-   * re-pull the fs listing for the still-selected path on completion so the
-   * freshly-relinked rows pick up their server-side ids/state.
-   *
-   * Fire-once per library per session (`_autoScannedLibraryIds`) so navigating
-   * across a library's sub-folders doesn't re-request; the server's `last_scan`
-   * gate is the cross-session backstop and returns `skipped: 'recent'` cheaply.
-   */
-  private _autoScanLibraryForSourceId(sourceId: string): void {
-    if (this.store.backend !== 'self-hosted') return;
-    const library = this.store.currentRegisteredFolder(sourceId);
-    if (!library) return;
-    if (this._autoScannedLibraryIds.has(library.id)) return;
-    this._autoScannedLibraryIds.add(library.id);
-
-    if (!this.api) return;
-    this.api.scanFolder(library.id).subscribe({
-      next: (res) => {
-        // A skipped (recent) scan did no re-walk — nothing new to surface, so
-        // don't churn the listing. Only refresh when the walk actually ran.
-        if (!res.ok || res.skipped === 'recent') return;
-        // Re-pull the still-selected address listing so relinked/new rows
-        // appear with their server-side ids. Guard against the user having
-        // navigated away while the scan was in flight.
-        if (this.selection.selectedSourceId() !== sourceId) return;
-        const addr = parseAddress(sourceId);
-        this._swrListFolder(
-          addr,
-          (listing) => this._applyFolderListing(sourceId, listing),
-          () => {
-            // Refresh failure is non-fatal — the grid already shows the
-            // filesystem listing; the next manual navigation will re-pull.
-          },
-        );
-      },
-      error: () => {
-        // Auto-scan is best-effort — drop the guard so a later open can retry.
-        this._autoScannedLibraryIds.delete(library.id);
-      },
-    });
   }
 
   /**
@@ -844,28 +882,23 @@ export class LibraryFetch {
       this.store.apiAssetIds.delete(id);
     }
 
-    const newAssets: Asset[] = listing.images.map((img) => {
-      const id: AssetId = img.address;
-      return {
-        id,
-        filename: img.name,
-        folderId: sourceId,
-        rating: 0,
-        flag: 'unflagged' as const,
-        colorLabel: null,
-        thumbnailGradient: '',
-        aspectRatio: 3 / 2,
-        // width/height from the listing when the server provides them.
-        ...(img.width != null ? { width: img.width } : {}),
-        ...(img.height != null ? { height: img.height, aspectRatio: img.width! / img.height } : {}),
-        ...(img.isVideo ? { isVideo: true as const } : {}),
-      };
-    });
+    const newAssets: Asset[] = listing.images.map((img) => selfHostedAssetFromImage(img, sourceId));
 
     this.store.assets.update((list) => {
       const others = list.filter((a) => a.folderId !== sourceId);
       const previous = list.filter((a) => a.folderId === sourceId);
-      const merged = mergePreservingRefs(previous, newAssets, assetsEqualForRender);
+      const previousById = new Map(previous.map((a) => [a.id, a]));
+      const hydratedAssets = newAssets.map((asset) => {
+        const prev = previousById.get(asset.id);
+        const cullingPatch = this.store.cullingPatchFor(asset.id);
+        return {
+          ...asset,
+          ...(prev?.keywords !== undefined ? { keywords: prev.keywords } : {}),
+          ...cullingPatch,
+          ...(prev?.edited ? { edited: true } : {}),
+        };
+      });
+      const merged = mergePreservingRefs(previous, hydratedAssets, assetsEqualForRender);
       return [...others, ...merged];
     });
 
@@ -883,18 +916,6 @@ export class LibraryFetch {
     this._attachFolderChildren(sourceId, listing.folders);
   }
 
-  /**
-   * Replace the children of the sidebar node identified by `sourceId` (a
-   * registered library root or a previously-loaded subfolder) with folder
-   * entries derived from `dirs`. Marks the node as `loaded` so the chevron
-   * doesn't trigger another fetch.
-   *
-   * For children whose id already exists under this node, we preserve the
-   * existing entry (carrying over `childrenStatus`, `children`, etc.) so
-   * a refetch of a parent doesn't wipe a deeper expanded subtree — the
-   * listing describes which directories exist, not their per-child
-   * expanded state.
-   */
   /**
    * Replace the children of the sidebar node identified by `sourceId` with
    * folder entries derived from a `FolderListing`. Marks the node as `loaded`.
@@ -1177,14 +1198,7 @@ export class LibraryFetch {
     this.store.markSessionEdited(id);
 
     const fullModel = this.store.adjustmentModels().get(id) ?? defaultAdjustmentModel();
-    const culling: XmpCulling = {
-      rating: asset.rating,
-      flag: asset.flag,
-      colorLabel: asset.colorLabel,
-      // IPTC keywords (#632) — round-tripped through dc:subject. Empty
-      // / undefined writes the same default-no-element sidecar.
-      keywords: asset.keywords ?? [],
-    };
+    const culling = this._cullingFor(asset);
 
     if (this.store.backend === 'self-hosted') {
       if (adjustmentPatch) {
@@ -1202,7 +1216,37 @@ export class LibraryFetch {
       this.singleFileXmp.markEdited(id);
       return;
     }
+    if (this._refuseForeignFolderWrite(id, asset, folder)) return;
     this.xmpStore.scheduleWrite(id, folder, asset.filename, fullModel, culling);
+  }
+
+  private _cullingFor(asset: Asset): XmpCulling {
+    return {
+      rating: asset.rating,
+      flag: asset.flag,
+      colorLabel: asset.colorLabel,
+      // IPTC keywords (#632) — round-tripped through dc:subject. Empty
+      // / undefined writes the same default-no-element sidecar.
+      keywords: asset.keywords ?? [],
+    };
+  }
+
+  /**
+   * The sidecar name comes from the asset but the directory from the open
+   * folder, so an asset another folder owns would overwrite that folder's
+   * same-basename sidecar with a foreign model (#4683). Reports the refusal
+   * through the save state and returns true when the write must not happen.
+   */
+  private _refuseForeignFolderWrite(id: AssetId, asset: Asset, folder: MapleFolderHandle): boolean {
+    const folderSlug = this.slugRegistry.slugFor(folder);
+    if (folderSlug && `f-${folderSlug}` === asset.folderId) return false;
+    const revision = this.sidecarSave.queued(id);
+    this.sidecarSave.failed(
+      id,
+      revision,
+      new Error(`Sidecar for ${asset.filename} belongs to ${asset.folderId}, not the open folder`),
+    );
+    return true;
   }
 
   private _scheduleApiXmpWrite(id: AssetId, culling: XmpCulling, model: AdjustmentModel): void {
@@ -1500,7 +1544,7 @@ export class LibraryFetch {
    * Update the in-memory index entry with the sha + thumb path for an asset.
    * Called after writing a thumbnail.
    */
-  async updateIndexThumb(assetId: AssetId, sha: string): Promise<void> {
+  async updateIndexThumb(assetId: AssetId): Promise<void> {
     if (!this.store.folderIndex) return;
     const asset = this.store.findAsset(assetId);
     if (!asset) return;
@@ -1508,8 +1552,8 @@ export class LibraryFetch {
       filename: asset.filename,
       size: 0,
       mtime: 0,
-      sha256Prefix: sha,
-      thumbPath: `./thumbs/${sha}.avif`,
+      sha256Prefix: await sha256Prefix16(asset.filename),
+      thumbPath: `./thumbs/${asset.filename}.avif`,
     };
     this.store.folderIndex = this.mapleCache.patchAssetInIndex(this.store.folderIndex, patch);
   }

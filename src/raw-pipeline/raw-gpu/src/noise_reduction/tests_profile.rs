@@ -424,55 +424,107 @@ fn nlm_color_pass_matches_modulated_raw_core() {
 
 // ── The two paths stay distinct ───────────────────────────────────────────────
 
-/// An EMPTY profile is raw-core's `None`: the GPU must reproduce the flat filter
-/// exactly, not "modulation with `scale = 1`-ish". Pins the no-profile path
-/// against the pre-#1714 behaviour so the new plane can't perturb files that
-/// carry no NoiseProfile.
+/// An EMPTY profile at a known ISO is raw-core's `None`: the GPU must run the
+/// ISO-only fallback exactly as the profile that encodes its coefficients (#4638).
 #[test]
-fn empty_profile_matches_the_flat_filter() {
+fn empty_profile_matches_explicit_iso_fallback() {
     let ctx = GpuContext::new_blocking().expect("gpu context");
     let (w, h) = (32usize, 32usize);
     let input = modest_image(w, h);
     let img = GpuImage::upload(&ctx, &input, w as u32, h as u32);
     let runner = ChainRunner::new(&ctx, &img);
-    let flat = runner.run_blocking(&[&luma_pass(80.0)]);
+    let ratio = TEST_ISO as f32 / 100.0;
+    let encoded = runner.run_blocking(&[&NlmLumaPass {
+        nr_luminance: 80.0,
+        noise_profile: vec![0.00002 * ratio, 0.000002 * ratio * ratio].into(),
+        iso: TEST_ISO,
+    }]);
     let empty_profiled = runner.run_blocking(&[&NlmLumaPass {
         nr_luminance: 80.0,
         noise_profile: Default::default(),
         iso: TEST_ISO,
     }]);
     assert_eq!(
-        flat, empty_profiled,
-        "an empty noise profile must be bit-identical to the flat filter"
+        encoded, empty_profiled,
+        "an empty profile must be bit-identical to the explicitly encoded ISO fallback"
     );
 }
 
-/// A profiled pass must NOT produce the flat pass's output — the fix has to be
-/// observable at the stage level, not only against a reference that also changed.
+/// A profiled pass must NOT produce the ISO-fallback pass's output — the fix has to
+/// be observable at the stage level, not only against a reference that also changed.
 #[test]
-fn profiled_stage_differs_from_flat_stage() {
+fn profiled_stage_differs_from_iso_fallback_stage() {
     let ctx = GpuContext::new_blocking().expect("gpu context");
     let (w, h) = (48usize, 48usize);
     let input = profile_image(w, h);
     let img = GpuImage::upload(&ctx, &input, w as u32, h as u32);
     let runner = ChainRunner::new(&ctx, &img);
-    let flat = runner.run_blocking(&[&luma_pass(100.0)]);
+    let fallback = runner.run_blocking(&[&luma_pass(100.0)]);
     let profiled = runner.run_blocking(&[&luma_pass_profiled(100.0)]);
-    let (diff, _) = max_diff_at(&flat, &profiled);
-    eprintln!("PROFILED vs FLAT (GPU, luma amount=100): max abs diff = {diff:e}");
+    let (diff, _) = max_diff_at(&fallback, &profiled);
+    eprintln!("PROFILED vs ISO FALLBACK (GPU, luma amount=100): max abs diff = {diff:e}");
     assert!(
         diff > 1e-3,
-        "the profiled GPU pass matches the flat one to {diff:e} — the per-pixel modulation is \
+        "the profiled GPU pass matches the ISO-fallback one to {diff:e} — the per-pixel modulation is \
          not reaching the kernel"
     );
     // The color stage carries the profile too (its own coefficient combination).
-    let flat_c = runner.run_blocking(&[&color_pass(100.0)]);
+    let fallback_c = runner.run_blocking(&[&color_pass(100.0)]);
     let profiled_c = runner.run_blocking(&[&color_pass_profiled(100.0)]);
-    let (diff_c, _) = max_diff_at(&flat_c, &profiled_c);
-    eprintln!("PROFILED vs FLAT (GPU, color amount=100): max abs diff = {diff_c:e}");
+    let (diff_c, _) = max_diff_at(&fallback_c, &profiled_c);
+    eprintln!("PROFILED vs ISO FALLBACK (GPU, color amount=100): max abs diff = {diff_c:e}");
     assert!(
         diff_c > 1e-5,
-        "the profiled GPU color pass matches the flat one to {diff_c:e} — the chroma planes are \
+        "the profiled GPU color pass matches the ISO-fallback one to {diff_c:e} — the chroma planes are \
          not modulated"
     );
+}
+
+#[test]
+fn iso_fallback_without_profile_matches_cpu_on_metal() {
+    let ctx = GpuContext::new_blocking().expect("GPU required");
+    let (w, h) = (257_usize, 65_usize);
+    let guide = profile_plane(w, h);
+    let plane: Vec<f32> = (0..w * h)
+        .map(|i| 0.04 * ((i * 17 + i / w * 11) % 13) as f32 / 12.0)
+        .collect();
+    for iso in [0_u32, 50, 100, 1600] {
+        for is_chroma in [false, true] {
+            let params = if is_chroma {
+                chroma_params(25.0)
+            } else {
+                luma_params(25.0)
+            };
+            let rc = raw_core::stages::nlm::NlmParams {
+                patch_radius: params.patch_radius,
+                search_radius: params.search_radius,
+                h: params.h,
+            };
+            let cpu = raw_core::stages::nlm::denoise_plane_cancellable(
+                &plane,
+                w,
+                h,
+                rc,
+                raw_core::CancelToken::never(),
+                &guide,
+                None,
+                iso,
+                is_chroma,
+            );
+            let gpu = denoise_plane_gpu(
+                &ctx,
+                &plane,
+                &guide,
+                w as u32,
+                h as u32,
+                params,
+                NoiseModulation::from_profile(None, iso, is_chroma),
+            );
+            let (error, index) = max_diff_at(&cpu, &gpu);
+            assert!(
+                error < 1e-4,
+                "ISO{iso} chroma={is_chroma}: error={error} index={index}"
+            );
+        }
+    }
 }

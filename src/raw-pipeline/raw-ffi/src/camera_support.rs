@@ -81,9 +81,11 @@ pub unsafe extern "C" fn maple_camera_support_file(
 /// Free exactly once a non-null pointer returned by `maple_camera_support_file`.
 #[no_mangle]
 pub unsafe extern "C" fn maple_free_camera_support(json: *mut c_char) {
-    if !json.is_null() {
-        drop(CString::from_raw(json));
-    }
+    crate::error::catch_panic("maple_free_camera_support", (), || {
+        if !json.is_null() {
+            drop(CString::from_raw(json));
+        }
+    })
 }
 
 #[cfg(test)]

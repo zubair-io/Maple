@@ -57,6 +57,25 @@ final class RenderedPreviewCacheWriteTests: XCTestCase {
     XCTAssertNotNil(persisted)
   }
 
+  /// #5033: the Timeline opens a saved folder's file while another folder is
+  /// configured; its preview must not land in that unrelated folder.
+  func testPreviewOfAFileFromAnotherFolderIsNotWrittenIntoTheOpenFolder() async throws {
+    let (cache, _, root) = try await makeCache()
+    let elsewhere = root.appendingPathComponent("elsewhere")
+    try FileManager.default.createDirectory(at: elsewhere, withIntermediateDirectories: true)
+    let foreign = elsewhere.appendingPathComponent("foreign.png")
+    try SidecarContractIO.makeSyntheticOriginal(at: foreign)
+
+    await cache.storePreview(image(), for: foreign, screenWidth: 64)
+
+    let inMemory = await cache.preview(for: foreign, screenWidth: 64)
+    XCTAssertNotNil(inMemory, "the preview stays usable in memory")
+    XCTAssertEqual(
+      try FileManager.default.contentsOfDirectory(
+        atPath: root.appendingPathComponent(".maple/previews").path
+      ).count, 0)
+  }
+
   private func makeCache() async throws -> (RenderedPreviewCache, URL, URL) {
     let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)

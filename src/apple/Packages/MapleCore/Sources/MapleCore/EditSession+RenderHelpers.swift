@@ -73,11 +73,14 @@ extension EditSession {
   }
 
   /// Bake the current model against a fresh full-quality decode for export.
+  /// `primaries` is the export format's encode (`ExportFileFormat.encodePrimaries`);
+  /// `nil` follows the canvas setting.
   public func renderForExport(
-    sizeOption: ExportSizeOption = .full,
-    targetPrimariesOverride: CanvasColorSpace? = nil
+    sizeOption: ExportSizeOption = .full, primaries: CanvasColorSpace? = nil
   ) async throws -> CIImage {
-    let exportModel = try await ImportedWhiteBalanceResolver.resolve(asset: asset, model: model)
+    let exportIsRaw = try await renderActor.isRawForExport(asset)
+    let exportModel = try await ImportedWhiteBalanceResolver.resolve(
+      asset: asset, model: model, isRawOverride: exportIsRaw)
     let isFast = sizeOption == .fast
     let qualityOverride: PipelineRenderer.Quality? = isFast ? .preview : nil
     let targetSize: CGSize? = {
@@ -94,6 +97,14 @@ extension EditSession {
       return CGSize(width: resolvedEdge, height: resolvedEdge)
     }()
 
+    // Film look (epic #2683, Task 10): a RAW asset with a resolved look
+    // routes through `maple_render_file_with_film` instead of the plain
+    // CIImage graph below — see `EditSession+FilmExport.swift` for why.
+    // Returns `nil` (falls through) for every other case: no look,
+    // non-RAW, sourceless, or an FFI render failure.
+    if !isFast, exportIsRaw, let filmExport = try await renderExportWithFilmLook() {
+      return filmExport
+    }
     // Resolve the look BEFORE the render (#3190 review follow-up): a
     // non-RAW export with an active look must pin `renderForExport`'s
     // encode to sRGB, matching the interactive CPU fallback's rule
@@ -104,28 +115,25 @@ extension EditSession {
     // the actual `apply` below.
     let filmLattice = filmLutStore.lattice(for: exportModel.filmLook)
     let filmActive = filmLattice != nil && exportModel.filmStrength > 0
-    // #1781: decode-bake anchor with a present frame; the export
-    // decode's own frame export rides processSceneLinear(wbFrame:).
+    // The export decode's own creative stage rides processSceneLinear(wbFrame:).
     let image = try await renderActor.renderForExport(
       asset: asset, model: exportModel, asShot: wbDeltaAnchor,
       targetSize: targetSize,
       qualityOverride: qualityOverride,
-      targetPrimariesOverride:
-        filmActive && (!asset.isRaw || isFast) ? .srgb : targetPrimariesOverride,
-      filmLut: asset.isRaw && !isFast ? filmLattice : nil
+      targetPrimariesOverride: filmActive ? .srgb : primaries
     )
     // Non-RAW (and fast RAW) film-look export (#2713): the CIImage-graph
     // path above has no FFI film-look stage (`maple_render_file_with_film`
     // is full-RAW only), so apply `FilmLookCube` directly on the
     // display-encoded CIImage result.
     let developed =
-      (!isFast && asset.isRaw)
+      (!isFast && exportIsRaw)
       ? image
       : FilmLookCube.apply(
         to: image, lattice: filmLattice, strengthPct: exportModel.filmStrength)
-    // The shared full RAW float export already applies geometry and crop.
-    // Non-RAW and fast exports still use the uncropped preview graph.
-    if asset.isRaw && !isFast { return developed }
+    // Scene-linear renders return the full oriented frame. The live canvas
+    // crops separately; export must do the same, even while the crop tool
+    // is armed. The full RAW film path above already crops in Rust (#3357).
     return CropImageStage.apply(
       exportModel.crop, to: developed, nativeSize: developed.extent.size)
   }

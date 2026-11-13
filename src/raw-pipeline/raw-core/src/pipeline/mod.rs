@@ -22,7 +22,8 @@
 //! `raw_core::pipeline::RenderQuality`, etc. continue to compile unchanged.
 
 mod accepted_removal;
-mod capture_sharpening_helper;
+pub(crate) mod capture_first;
+pub(crate) mod capture_sharpening_helper;
 mod develop;
 mod develop_sized;
 mod downsample;
@@ -74,6 +75,7 @@ pub use accepted_removal::{
     removal_context_dependencies, removal_needs_review, removal_record_digest,
     resolve_accepted_removal,
 };
+mod sized_detail;
 mod tile;
 
 pub use inpaint_store::{patch_from_bytes, patch_to_bytes, patches_from_blob, patches_to_blob};
@@ -86,6 +88,11 @@ pub use removal_mask_store::{removal_mask_from_bytes, removal_mask_to_bytes};
 #[path = "inpaint_seam_tests.rs"]
 mod inpaint_seam_tests;
 
+pub use capture_first::{
+    intern_creative_tables, AsShotTable, CaptureBase, CaptureRefineStages, CreativeAnchors,
+    CreativeHeader, CreativePlan, CreativeStage, CreativeTick, CreativeWire, PlanTable,
+    ProfileCore, TableLayout, TableSpan,
+};
 pub use develop::{
     develop_scene_linear_from_raw_with_quality,
     develop_scene_linear_from_raw_with_quality_cancellable,
@@ -99,15 +106,20 @@ pub use develop_sized::{
     develop_scene_linear_sized_from_raw_with_quality_with_gain,
 };
 pub use downsample::downsample_image_area;
-pub use pano::{decode_for_pano, read_pano_metadata, PanoIngest, PanoSourceMetadata};
+pub use pano::banded::{develop_banded_for_pano, PanoBandScratch, PanoBandedIngest, PanoBlockSink};
+pub use pano::{
+    decode_for_pano, read_pano_metadata, FalloffCorrection, PanoIngest, PanoSourceMetadata,
+};
 pub use render::{
-    fit_native_auto_profile_cancellable, cached_auto_profile_fit, decode_raster_base, fit_auto_profile_from_raw,
+    cached_auto_profile_fit, decode_raster_base, finish_capture_refine, fit_auto_profile_from_raw,
     fit_auto_profile_from_raw_at_cap, fit_profile_curve_from_raw, native_render_dims,
+    render_capture_from_raw_f32, render_capture_sized_from_raw_f32,
+    render_capture_sized_sensor_framed_f32, render_capture_with_base_from_raw_f32,
     render_detail_base, render_detail_base_cancellable, render_detail_base_retained,
-    render_detail_tile, render_detail_tile_cancellable, render_export_f32,
-    render_export_from_raw, render_export_from_raw_with_film, render_export_raster,
-    render_export_raster_cancellable, render_from_raw, render_from_raw_with_auto_fit,
-    render_from_raw_with_quality, render_display_with_geometry,
+    render_detail_base_retained_cancellable, render_detail_tile, render_detail_tile_cancellable,
+    render_display_with_geometry, render_export_f32, render_export_from_raw,
+    render_export_from_raw_with_film, render_export_raster, render_export_raster_cancellable,
+    render_from_raw, render_from_raw_with_auto_fit, render_from_raw_with_quality,
     render_from_raw_with_quality_and_source, render_from_raw_with_quality_source_and_film,
     render_from_scene_linear, render_from_scene_linear_with_chain,
     render_scene_linear_from_raw_with_quality, render_scene_linear_from_raw_with_quality_f32,
@@ -120,9 +132,9 @@ pub use render::{
     render_scene_linear_sized_from_raw_with_quality_f32_cancellable_with_anchors,
     render_scene_linear_sized_from_raw_with_quality_f32_cancellable_with_gain,
     render_sized_from_raw_with_quality_and_source,
-    render_sized_from_raw_with_quality_source_and_film, validate_raster_adjustments, DetailContext,
-    DisplayRender, DetailRenderOptions, ExportDepth, ExportPixels, FitCap, RasterDetailImage,
-    RawInput,
+    render_sized_from_raw_with_quality_source_and_film, validate_raster_adjustments, CaptureRender,
+    CpuPreview, DetailContext, DetailRenderOptions, DisplayRender, ExportDepth, ExportPixels,
+    FitArtifacts, FitCap, RasterDetailImage, RawInput,
 };
 pub use scene_linear_chain::{
     apply_scene_linear_chain, apply_scene_linear_chain_f32, apply_scene_linear_chain_f32_scoped,
@@ -130,10 +142,13 @@ pub use scene_linear_chain::{
     apply_scene_linear_chain_f32_with_film, apply_scene_linear_chain_f32_with_film_cancellable,
     apply_scene_linear_chain_f32_with_patches, apply_scene_linear_chain_with_patches,
     composite_window_into_f32, composite_window_into_fp16, encode_display_f32,
-    encode_display_srgb_f32, encode_display_u10_f32, ChainOptions, ChainWindow,
+    encode_display_p3_auto_f32, encode_display_srgb_f32, encode_display_u10_f32,
+    scene_linear_chain_haze_map, scene_linear_chain_haze_map_cancellable,
+    scene_linear_chain_window_reach_px, ChainOptions, ChainWindow,
 };
 pub use tile::{
-    reject_untileable_tile, render_scene_linear_tile_cancellable_f32,
+    reject_untileable_tile, render_capture_tile_cancellable_f32,
+    render_capture_tile_from_frame_context_f32, render_scene_linear_tile_cancellable_f32,
     render_scene_linear_tile_from_frame_context, render_scene_linear_tile_from_frame_context_f32,
     render_scene_linear_tile_from_raw_with_quality,
     render_scene_linear_tile_from_raw_with_quality_and_wb_anchor,
@@ -149,7 +164,8 @@ pub use tile::{
 /// negligible relative to per-pixel work, so we leave it on in release
 /// builds and let the env var gate the actual output.
 ///
-/// Format: `[raw-core] <stage_name>            <elapsed>`. The width is
+/// Format: `[raw-core] <stage_name>            <elapsed>  cpu <cpu>` (the CPU
+/// column, all threads, is omitted where the platform has no `getrusage`). The width is
 /// chosen so a 30-char name and a 10-char duration line up in a
 /// monospace terminal — easy to eyeball "demosaic dominates" vs.
 /// "every stage is 200 ms."
@@ -165,12 +181,45 @@ pub use tile::{
 #[cfg(not(target_arch = "wasm32"))]
 #[inline]
 pub fn stage<T>(name: &'static str, f: impl FnOnce() -> T) -> T {
+    let profiling = std::env::var_os("MAPLE_PROFILE").is_some();
+    let cpu = if profiling { process_cpu() } else { None };
     let t = std::time::Instant::now();
     let r = f();
-    if std::env::var_os("MAPLE_PROFILE").is_some() {
-        eprintln!("[raw-core] {:<30} {:>10.2?}", name, t.elapsed());
+    if profiling {
+        match (cpu, process_cpu()) {
+            (Some(before), Some(after)) => eprintln!(
+                "[raw-core] {:<30} {:>10.2?}  cpu {:>10.2?}",
+                name,
+                t.elapsed(),
+                after.saturating_sub(before)
+            ),
+            _ => eprintln!("[raw-core] {:<30} {:>10.2?}", name, t.elapsed()),
+        }
     }
     r
+}
+
+/// User + system CPU time this process has consumed across all threads. Wall
+/// time is meaningless on a loaded machine; the CPU a stage burns is not.
+#[cfg(unix)]
+fn process_cpu() -> Option<std::time::Duration> {
+    let mut usage = std::mem::MaybeUninit::<libc::rusage>::uninit();
+    // SAFETY: `getrusage` fully initialises `usage` when it returns 0.
+    let usage = unsafe {
+        if libc::getrusage(libc::RUSAGE_SELF, usage.as_mut_ptr()) != 0 {
+            return None;
+        }
+        usage.assume_init()
+    };
+    let micros = |t: libc::timeval| t.tv_sec as u64 * 1_000_000 + t.tv_usec as u64;
+    Some(std::time::Duration::from_micros(
+        micros(usage.ru_utime) + micros(usage.ru_stime),
+    ))
+}
+
+#[cfg(all(not(unix), not(target_arch = "wasm32")))]
+fn process_cpu() -> Option<std::time::Duration> {
+    None
 }
 
 #[cfg(target_arch = "wasm32")]

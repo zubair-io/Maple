@@ -36,7 +36,13 @@ pub unsafe extern "C" fn maple_gpu_live_scope_snapshot(
     }
     catch_panic_rc("scope GPU", || {
         let inner = &*((*handle).inner as *const LiveHandleInner);
-        let mut inputs = params::inputs_from_params(&*params);
+        let mut inputs = match params::inputs_from_params(&*params) {
+            Ok(inputs) => inputs,
+            Err(e) => {
+                set_last_error(format!("scope GPU: {e}"));
+                return -1;
+            }
+        };
         // Keep the layer target (the local pass records canonical alpha), but
         // do not schedule a previous-tick HUD map during explicit inspection.
         // That readback has a separately owned bounded staging buffer.

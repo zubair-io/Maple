@@ -191,4 +191,16 @@ public enum CropImageStage {
         guard w > 0, h > 0 else { return nativeSize }
         return CGSize(width: w.rounded(), height: h.rounded())
     }
+
+    /// Pixel dimensions produced when export crops an already-sized full frame.
+    /// Use the same integral crop rect as `apply`, including its edge rounding;
+    /// multiplying the normalized width alone can be off by one pixel.
+    public static func exportOutputSize(_ crop: Crop, uncroppedSize: CGSize) -> CGSize {
+        guard shouldApply(crop),
+              let rect = cropRect(
+                crop, bufferSize: uncroppedSize, nativeSize: uncroppedSize
+              )
+        else { return uncroppedSize }
+        return rect.size
+    }
 }

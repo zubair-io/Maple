@@ -12,6 +12,14 @@ export interface WorkflowBinding {
   workflowEmbedXmp(json: string, xmp: string): WorkflowResult;
   workflowCheckpointXmp(xmp: string): WorkflowResult;
   workflowVariantFilename(primaryName: string, variantId: string): WorkflowResult;
+  /** `nowMs` is a decimal millisecond timestamp (every native argument is text). */
+  workflowReconcileXmp(
+    base: string,
+    current: string,
+    incoming: string,
+    nowMs: string,
+  ): WorkflowResult;
+  workflowCursorXmp(xmp: string): WorkflowResult;
 }
 
 type WorkflowLibrary = { symbols: Record<string, (...args: unknown[]) => unknown> };
@@ -91,6 +99,25 @@ export function getWorkflowFfiSymbols(FFIType: Record<string, string | number>) 
       ],
       returns: FFIType.i32,
     },
+    maple_workflow_reconcile_xmp: {
+      args: [
+        FFIType.ptr,
+        FFIType.u64,
+        FFIType.ptr,
+        FFIType.u64,
+        FFIType.ptr,
+        FFIType.u64,
+        FFIType.u64,
+        FFIType.ptr,
+        FFIType.u64,
+        FFIType.ptr,
+      ],
+      returns: FFIType.i32,
+    },
+    maple_workflow_cursor_xmp: {
+      args: [FFIType.ptr, FFIType.u64, FFIType.ptr, FFIType.u64, FFIType.ptr],
+      returns: FFIType.i32,
+    },
   };
 }
 
@@ -100,7 +127,11 @@ export function createWorkflowBinding(
   getLastError: () => string | null,
 ): WorkflowBinding {
   const libraries = new Map<string, WorkflowLibrary>();
-  const convert = (symbol: string, inputs: readonly string[]): WorkflowResult => {
+  const convert = (
+    symbol: string,
+    inputs: readonly string[],
+    scalars: readonly bigint[] = [],
+  ): WorkflowResult => {
     let library = libraries.get(symbol);
     try {
       library ??= loadLibrary(symbol);
@@ -123,7 +154,13 @@ export function createWorkflowBinding(
       ptr(buffer.length ? buffer : empty),
       BigInt(buffer.byteLength),
     ]);
-    const rc = library.symbols[symbol](...args, ptr(out), BigInt(out.byteLength), ptr(outLen));
+    const rc = library.symbols[symbol](
+      ...args,
+      ...scalars,
+      ptr(out),
+      BigInt(out.byteLength),
+      ptr(outLen),
+    );
     if (rc !== 0)
       return { ok: false, error: getLastError() ?? `Workflow conversion failed: ${rc}` };
     const length = Number(outLen.readBigUInt64LE());
@@ -140,5 +177,10 @@ export function createWorkflowBinding(
     workflowCheckpointXmp: (xmp) => convert('maple_workflow_checkpoint_xmp', [xmp]),
     workflowVariantFilename: (primaryName, variantId) =>
       convert('maple_workflow_variant_filename', [primaryName, variantId]),
+    workflowReconcileXmp: (base, current, incoming, nowMs) =>
+      /^\d{1,16}$/.test(nowMs)
+        ? convert('maple_workflow_reconcile_xmp', [base, current, incoming], [BigInt(nowMs)])
+        : { ok: false, error: 'Workflow timestamp must be whole milliseconds' },
+    workflowCursorXmp: (xmp) => convert('maple_workflow_cursor_xmp', [xmp]),
   };
 }

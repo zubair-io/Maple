@@ -78,6 +78,9 @@
     /// only hamburger + Info items inside the NavigationStack's `.toolbar`.
     let toolbarContent: () -> ToolbarContentT
     var showsBrowseToolbar = true
+    /// False on a pushed folder level, where the system back button takes
+    /// the leading slot and the side menu opens only from the root (#5674).
+    var showsDrawerButton = true
 
     // Center-column callbacks — all forward into AppShell action methods.
     let onSelectCloudAsset: (SearchAsset, URL) -> Void
@@ -86,6 +89,7 @@
     /// on iPhone this seeds the Search tab rather than the mac/iPad overlay
     /// (#3163) — see `AppShell+Map.swift.selectMapPlace`.
     let onSelectMapPlace: (MapPlaceSearchTarget) -> Void
+    let onSignInForMap: (URL) -> Void
     let onSelectLocalAsset: (ImageRef) -> Void
     let onGrantPhotosAccess: () -> Void
     let onNavigateFolder: (URL) -> Void
@@ -93,6 +97,7 @@
     /// A Library tile tap with the tile's window-space frame (Preview hero).
     var onOpenTile: (AssetRef, CGRect) -> Void = { _, _ in }
     let onPrimeSession: (AssetRef) async -> Void
+    let onReadGridFilterMetadata: @MainActor @Sendable (AssetRef) async throws -> GridFilterMetadata
     let onFullImageFallback: () -> Void
     /// Live window-space frame of the grid's selected tile (Preview hero).
     var onSelectedTileFrameChange: ((CGRect) -> Void)? = nil
@@ -152,6 +157,7 @@
         sessions: $sessions,
         onSelectCloudAsset: onSelectCloudAsset,
         onSelectMapPlace: onSelectMapPlace,
+        onSignInForMap: onSignInForMap,
         // `isSearchActive` is always false above, so `CloudSearchView`
         // never mounts here and never calls this — required by
         // `AppShellCenterColumn`'s init but otherwise dead on iPhone.
@@ -164,6 +170,7 @@
         onOpenEditor: onOpenEditor,
         onOpenTile: onOpenTile,
         onPrimeSession: onPrimeSession,
+        onReadGridFilterMetadata: onReadGridFilterMetadata,
         onFullImageFallback: onFullImageFallback,
         onMergePanorama: onMergePanorama,
         onEditMetadata: onEditMetadata,
@@ -178,7 +185,7 @@
       .toolbar {
         if showsBrowseToolbar {
           AppShellIPhoneToolbar(
-            isBrowse: mode == .browse,
+            isBrowse: mode == .browse && showsDrawerButton,
             isDrawerOpen: $isDrawerOpen
           )
           toolbarContent()

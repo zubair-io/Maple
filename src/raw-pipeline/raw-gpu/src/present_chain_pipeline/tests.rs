@@ -16,6 +16,8 @@
 use super::*;
 use crate::context::GpuContext;
 use std::sync::Arc;
+#[path = "tests/android_color.rs"]
+mod android_color;
 
 #[test]
 fn invalidation_releases_all_retired_session_bindings() {
@@ -234,34 +236,26 @@ fn source_geometry_and_layout_changes_never_reuse_stale_dispatches() {
     assert!(!Arc::ptr_eq(&resized, &different_layout));
 }
 
-/// A changed tail matrix rewrites the existing uniform, never the RAW upload
-/// or dispatch resources. Output-size changes retain the separate resize gate.
+#[path = "tests/retirement.rs"]
+mod retirement;
+
 #[test]
-fn quantized_tail_updates_reuse_warmed_present_resources() {
-    use raw_core::image::ExifOrientation;
-    let ctx = GpuContext::new_blocking().unwrap();
-    let (_, bgl) = build_present_pipeline(&ctx, wgpu::TextureFormat::Rgba8Unorm);
-    let cache = PresentDispatchCache::new();
-    let buffer = make_chain_buf(&ctx, "tail-source");
-    let identity = (1, 0);
-    let dimensions = ((8, 8), (0, 0));
-    let geometry = PresentGeometry::IDENTITY.with_quantized_tail(QuantizedDisplayTail {
-        orientation_rows: ExifOrientation::Normal.display_pixel_rows(8, 8),
-        crop_rows: [[1., 0., 0., 0.], [0., 1., 0., 0.]],
-        crop_rotation: [0., 0., 1., 0.],
-        dimensions: [8, 8, 1, 0],
-        output_size: [8, 8],
-    });
-    let (_, group) = cache.get_or_build_scaled(&ctx, &bgl, &buffer, identity, dimensions, geometry);
-    let count = cache.alloc_count();
-    for orientation in 1..=8 {
-        let changed = PresentGeometry::IDENTITY.with_quantized_tail(QuantizedDisplayTail {
-            orientation_rows: ExifOrientation::from_u16(orientation).display_pixel_rows(8, 8),
-            ..geometry.tail
-        });
-        let (_, next) =
-            cache.get_or_build_scaled(&ctx, &bgl, &buffer, identity, dimensions, changed);
-        assert!(Arc::ptr_eq(&group, &next));
-    }
-    assert_eq!(cache.alloc_count(), count);
+fn uniform_layout_matches_the_shader_and_other_hosts_leave_the_crop_stage_zero() {
+    assert_eq!(std::mem::size_of::<PresentParams>(), 128);
+
+    let single = present_params((8, 6), (0, 0), PresentGeometry::from_inverse([1.0; 9]));
+    assert_eq!(single.geometry[0][3], 1.0);
+    assert_eq!(single.crop, [[0.0; 4]; 3]);
+    assert_eq!(single.display, [0; 4]);
+
+    let staged = present_params(
+        (8, 6),
+        (0, 0),
+        PresentGeometry::from_stages([1.0; 9], [2.0; 9], (12, 9)),
+    );
+    assert_eq!(staged.geometry[0][3], 1.0);
+    assert_eq!(staged.crop[0], [2.0, 2.0, 2.0, 1.0]);
+    assert_eq!(staged.crop[1], [2.0, 2.0, 2.0, 0.0]);
+    assert_eq!(staged.crop[2], [0.0; 4]);
+    assert_eq!(staged.display, [12, 9, 0, 0]);
 }

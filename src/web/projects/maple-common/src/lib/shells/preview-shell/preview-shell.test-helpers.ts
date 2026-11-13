@@ -47,6 +47,7 @@ export function setupFixture(
   } = {},
 ) {
   const navigate = opts.navigate ?? vi.fn();
+  const failedThumbnailId = signal<string | undefined>(undefined);
   const state = {
     backend: 'self-hosted',
     assets: () => [{ id: STUB_ASSET.id, filename: STUB_ASSET.filename }],
@@ -59,6 +60,7 @@ export function setupFixture(
     subscribeThumbUrl: vi.fn(() => () => {}),
     subscribePreviewUrl: vi.fn(() => () => {}),
     ensureThumbnailUrl: vi.fn(),
+    thumbnailFailed: (id: string) => failedThumbnailId() === id,
     cancelQueuedThumbnail: vi.fn(),
     flushPendingXmpWrites: vi.fn(),
     setFlag: vi.fn(),
@@ -110,5 +112,5 @@ export function setupFixture(
   });
   const fixture = TestBed.createComponent(PreviewShellComponent);
   fixture.detectChanges();
-  return { fixture, navigate, state, layout };
+  return { fixture, navigate, state, layout, failedThumbnailId };
 }

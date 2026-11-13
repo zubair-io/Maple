@@ -174,12 +174,14 @@ pub unsafe extern "C" fn maple_removal_generation_open(
 /// owner is null or a live owner with no concurrent call; close exactly once.
 #[no_mangle]
 pub unsafe extern "C" fn maple_removal_generation_close(owner: *mut MapleRemovalGeneration) {
-    if !owner.is_null() {
-        let owner = Box::from_raw(owner);
-        drop(Box::from_raw(
-            owner.inner.cast::<PreparedRemovalGeneration>(),
-        ));
-    }
+    crate::error::catch_panic("maple_removal_generation_close", (), || {
+        if !owner.is_null() {
+            let owner = Box::from_raw(owner);
+            drop(Box::from_raw(
+                owner.inner.cast::<PreparedRemovalGeneration>(),
+            ));
+        }
+    })
 }
 
 /// kind=0 is 3×512² CHW sRGB model guide; kind=1 is 512² binary hole.

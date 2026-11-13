@@ -1,17 +1,33 @@
 // Confirmed accepted-pixel history (#3984). Models and the editor ring move
 // only after verified companions and a source-bound XMP CAS have succeeded.
-import { Injector, inject } from '@angular/core';
+import { Injector, inject, signal } from '@angular/core';
 import type { AdjustmentModel } from '../models/adjustment-model';
-import { XmpStoreService } from '../xmp/xmp-store.service';
+import { XmpRemovalWritesService } from '../xmp/xmp-store.writes';
 import type { EditorStateService } from './editor-state.service';
 import { stableStringify, type EditTransactionKind } from './edit-transaction';
 
 export class EditorRemovalHistory {
-  private readonly sidecars = inject(XmpStoreService);
   private readonly injector = inject(Injector);
   private pending?: Promise<string>;
+  private bindingRevision = 0;
+  readonly saveError = signal<string | null>(null);
 
   constructor(private readonly editor: EditorStateService) {}
+
+  rebind(): void {
+    this.bindingRevision += 1;
+    this.saveError.set(null);
+  }
+
+  acceptRecords(
+    records: string,
+    expected: AdjustmentModel,
+    description: string,
+    sidecarRevision: string,
+  ): Promise<string> {
+    const inpaintRemovals = records === '[]' ? undefined : records;
+    return this.accept({ ...expected, inpaintRemovals }, expected, description, sidecarRevision);
+  }
 
   accept(
     target: AdjustmentModel,
@@ -20,20 +36,46 @@ export class EditorRemovalHistory {
     sidecarRevision?: string,
     kind: EditTransactionKind = 'repair',
   ): Promise<string> {
-    return this.save(
-      target,
-      expected,
-      () => this.editor.recordConfirmedRemoval(expected, target, description, kind),
-      sidecarRevision,
-    );
+    const record = () => {
+      const { ring, serializer, announcer } = this.editor;
+      const tx = ring.recordConfirmed(serializer, expected, target, description, kind);
+      if (tx) void announcer.announce(description);
+    };
+    return this.save(target, expected, record, sidecarRevision);
   }
 
-  restore(target: AdjustmentModel, expected: AdjustmentModel, confirmed: () => void): void {
+  resetAll(patch: Partial<AdjustmentModel>): boolean {
+    const current = this.editor.currentAdjustment();
+    if (!current) return false;
+    const target = { ...current, ...patch };
+    void this.accept(target, current, 'Reset all adjustments', undefined, 'reset').catch(
+      () => undefined,
+    );
+    return true;
+  }
+
+  /** Routes an undo/redo step that changes accepted removals through a confirmed save. */
+  takes(direction: 'undo' | 'redo'): boolean {
+    const ring = this.editor.ring;
+    const tx = ring.peek(direction);
+    if (!tx || tx.before.inpaintRemovals === tx.after.inpaintRemovals) return false;
+    const undo = direction === 'undo';
+    const confirmed = () => {
+      if (undo) ring.popUndo();
+      else ring.popRedo();
+      void this.editor.announcer.announce(`${undo ? 'Undo' : 'Redo'} ${tx.description}`);
+    };
+    const [target, expected] = undo ? [tx.before, tx.after] : [tx.after, tx.before];
     void this.save(target, expected, confirmed).catch(() => undefined);
+    return true;
   }
 
   async settled(): Promise<void> {
     await this.pending;
+  }
+
+  private sidecars(): XmpRemovalWritesService {
+    return this.injector.get(XmpRemovalWritesService);
   }
 
   private save(
@@ -43,7 +85,7 @@ export class EditorRemovalHistory {
     sidecarRevision?: string,
   ): Promise<string> {
     const editor = this.editor;
-    if (editor.removalSaving() || editor.workflowBusy())
+    if (editor.workflowBusy())
       return Promise.reject(new Error('An editor save is already running.'));
     const id = editor.imageId();
     const asset = editor.library.focusedAsset();
@@ -54,9 +96,9 @@ export class EditorRemovalHistory {
     if (stableStringify(editor.currentAdjustment()) !== stableStringify(expected))
       return this.reject('The photo changed before this removal could be saved.');
     editor.endEdit();
-    const binding = editor.bindingRevision;
-    editor.removalSaving.set(true);
-    editor.removalSaveError.set(null);
+    const binding = this.bindingRevision;
+    editor.workflowBusy.set(true);
+    this.saveError.set(null);
     editor.library.removalSavingAsset.set(id);
     const task = (async () => {
       try {
@@ -72,7 +114,7 @@ export class EditorRemovalHistory {
                 sidecarRevision,
               ),
             )
-          : await this.sidecars.writeRemovalConfirmed(
+          : await this.sidecars().writeRemovalConfirmed(
               id,
               folder!,
               asset.filename,
@@ -81,19 +123,19 @@ export class EditorRemovalHistory {
               expected.inpaintRemovals ?? '[]',
               target.inpaintRemovals ?? '[]',
               sidecarRevision ??
-                (await this.sidecars.captureRemovalRevision(id, folder!, asset.filename)),
+                (await this.sidecars().captureRemovalRevision(id, folder!, asset.filename)),
             );
         // Persistence is authoritative even if navigation retired this ring.
         editor.library.adoptConfirmedRemoval(id, target);
-        if (editor.bindingRevision === binding) confirmed();
+        if (this.bindingRevision === binding) confirmed();
         return revision;
       } catch (error) {
-        if (editor.bindingRevision === binding)
-          editor.removalSaveError.set(error instanceof Error ? error.message : String(error));
+        if (this.bindingRevision === binding)
+          this.saveError.set(error instanceof Error ? error.message : String(error));
         throw error;
       } finally {
         editor.library.removalSavingAsset.set(null);
-        editor.removalSaving.set(false);
+        editor.workflowBusy.set(false);
       }
     })();
     this.pending = task;
@@ -101,47 +143,9 @@ export class EditorRemovalHistory {
   }
 
   private reject(message: string): Promise<string> {
-    this.editor.removalSaveError.set(message);
+    this.saveError.set(message);
     const task = Promise.reject<string>(new Error(message));
     this.pending = task;
     return task;
   }
-}
-
-export function undoEditor(editor: EditorStateService): void {
-  if (editor.removalSaving() || editor.workflowBusy()) return;
-  const id = editor.imageId();
-  if (id == null) return;
-  editor.endEdit();
-  const tx = editor.ring.peekUndo();
-  if (!tx) return;
-  if (tx.before.inpaintRemovals !== tx.after.inpaintRemovals) {
-    editor.acceptedHistory().restore(tx.before, tx.after, () => {
-      editor.ring.popUndo();
-      void editor.announcer.announce(`Undo ${tx.description}`);
-    });
-    return;
-  }
-  editor.ring.popUndo();
-  editor.library.updateAdjustment(id, structuredClone(tx.before));
-  void editor.announcer.announce(`Undo ${tx.description}`);
-}
-
-export function redoEditor(editor: EditorStateService): void {
-  if (editor.removalSaving() || editor.workflowBusy()) return;
-  const id = editor.imageId();
-  if (id == null) return;
-  editor.endEdit();
-  const tx = editor.ring.peekRedo();
-  if (!tx) return;
-  if (tx.before.inpaintRemovals !== tx.after.inpaintRemovals) {
-    editor.acceptedHistory().restore(tx.after, tx.before, () => {
-      editor.ring.popRedo();
-      void editor.announcer.announce(`Redo ${tx.description}`);
-    });
-    return;
-  }
-  editor.ring.popRedo();
-  editor.library.updateAdjustment(id, structuredClone(tx.after));
-  void editor.announcer.announce(`Redo ${tx.description}`);
 }

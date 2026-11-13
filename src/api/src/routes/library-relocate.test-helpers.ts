@@ -31,11 +31,12 @@ import {
   SIDECAR_METADATA_INDEX_VERSION,
 } from '../workers/stages/sidecar-metadata-index.ts';
 import { libraryRelocateRoutes } from './library-relocate.ts';
+import { fakeAuth } from '../../tests/helpers/test-auth.ts';
 
 export const SLUG = 'photos';
 
 /** The routes mounted on their own, with no auth middleware in front. */
-export const app = new Elysia().use(libraryRelocateRoutes);
+export const app = new Elysia().use(fakeAuth()).use(libraryRelocateRoutes);
 
 export async function postCount(addresses: string[]): Promise<Response> {
   return app.handle(
@@ -83,6 +84,8 @@ export interface SeedAssetOptions {
   metadataOverride?: Record<string, unknown> | null;
   /** Relative path of the Apple-rendered JPEG companion, if there is one. */
   appleRenderedPath?: string | null;
+  /** Relative path of the Live Photo `.mov` twin, if there is one. */
+  appleLiveVideoPath?: string | null;
   capturedYear?: number;
   missingSince?: string | null;
   /**
@@ -91,6 +94,10 @@ export interface SeedAssetOptions {
    * on-the-fly reconcile.
    */
   sidecarStageVersion?: number;
+  /** An already-seeded library to put this asset in, so a second asset shares the folder row. */
+  libraryId?: string;
+  /** The Apple content identifier the `live-photo` stage recorded, if it has run. */
+  liveContentId?: string | null;
 }
 
 export interface SeededAsset {
@@ -106,12 +113,12 @@ export interface SeededAsset {
  * and the stage bookkeeping — with the library-roots cache wired to resolve it
  * by id and by slug.
  *
- * `thumb`, `preview` and `meili` are seeded at version 1 rather than left
+ * `thumb`, `preview` and `embed` are seeded at version 1 rather than left
  * absent, because a relocate re-arms all three and a test that cannot see them
  * move would not notice if it stopped.
  */
 export function seedRelocatableAsset(db: Database, options: SeedAssetOptions): SeededAsset {
-  const libraryId = insertFolder(db, { path: options.root, slug: SLUG });
+  const libraryId = options.libraryId ?? insertFolder(db, { path: options.root, slug: SLUG });
   const assetId = insertAsset(db, {
     exif: JSON.stringify({ captured_year: options.capturedYear ?? 2024 }),
   });
@@ -124,9 +131,13 @@ export function seedRelocatableAsset(db: Database, options: SeedAssetOptions): S
   });
   run(
     db,
-    `UPDATE assets SET maple_id = ?, apple_rendered_path = ? WHERE id = ?`,
+    `UPDATE assets SET maple_id = ?, apple_rendered_path = ?, apple_live_video_path = ?,
+            live_content_id = ?
+      WHERE id = ?`,
     options.mapleId,
     options.appleRenderedPath ?? null,
+    options.appleLiveVideoPath ?? null,
+    options.liveContentId ?? null,
     assetId,
   );
   if (options.metadataOverride != null) {
@@ -140,7 +151,7 @@ export function seedRelocatableAsset(db: Database, options: SeedAssetOptions): S
   insertStageState(db, assetId, SIDECAR_METADATA_INDEX_STAGE_NAME, {
     version: options.sidecarStageVersion ?? SIDECAR_METADATA_INDEX_VERSION,
   });
-  for (const stage of ['thumb', 'preview', 'meili']) {
+  for (const stage of ['thumb', 'preview', 'embed']) {
     insertStageState(db, assetId, stage, { version: 1 });
   }
 
@@ -174,6 +185,14 @@ export function appleRenderedPathOf(db: Database, assetId: string): string | nul
   const row = db.query(`SELECT apple_rendered_path AS p FROM assets WHERE id = ?`).get(assetId) as {
     p: string | null;
   } | null;
+  return row?.p ?? null;
+}
+
+/** The stored Live Photo `.mov` twin path, which a move repoints. */
+export function appleLiveVideoPathOf(db: Database, assetId: string): string | null {
+  const row = db
+    .query(`SELECT apple_live_video_path AS p FROM assets WHERE id = ?`)
+    .get(assetId) as { p: string | null } | null;
   return row?.p ?? null;
 }
 

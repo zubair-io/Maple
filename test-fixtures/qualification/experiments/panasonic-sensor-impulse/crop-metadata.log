@@ -1,0 +1,95 @@
+warning: `#[macro_use]` attribute cannot be used on crates
+   --> third_party/zune-jpeg/src/lib.rs:166:1
+    |
+166 | #![macro_use]
+    | ^^^^^^^^^^^^^
+    |
+    = help: `#[macro_use]` can be applied to extern crates and modules
+    = warning: this was previously accepted by the compiler but is being phased out; it will become a hard error in a future release!
+    = note: `#[warn(unused_attributes)]` (part of `#[warn(unused)]`) on by default
+
+warning: `zune-jpeg` (lib) generated 1 warning (run `cargo fix --lib -p zune-jpeg` to apply 1 suggestion)
+warning: hidden lifetime parameters in types are deprecated
+   --> raw-core/src/stages/highlight_recovery/guided.rs:202:24
+    |
+202 |         anchor: Option<FrameAnchor>,
+    |                        ^^^^^^^^^^^ expected lifetime parameter
+    |
+note: the lint level is defined here
+   --> raw-core/src/lib.rs:6:22
+    |
+  6 | #![warn(clippy::all, rust_2018_idioms)]
+    |                      ^^^^^^^^^^^^^^^^
+    = note: `#[warn(elided_lifetimes_in_paths)]` implied by `#[warn(rust_2018_idioms)]`
+help: indicate the anonymous lifetime
+    |
+202 |         anchor: Option<FrameAnchor<'_>>,
+    |                                   ++++
+
+warning: hidden lifetime parameters in types are deprecated
+   --> raw-core/src/stages/highlight_recovery/guided.rs:323:20
+    |
+323 |     anchor: Option<FrameAnchor>,
+    |                    ^^^^^^^^^^^ expected lifetime parameter
+    |
+help: indicate the anonymous lifetime
+    |
+323 |     anchor: Option<FrameAnchor<'_>>,
+    |                               ++++
+
+warning: hidden lifetime parameters in types are deprecated
+   --> raw-core/src/stages/highlight_recovery.rs:142:20
+    |
+142 |     anchor: Option<FrameAnchor>,
+    |                    ^^^^^^^^^^^ expected lifetime parameter
+    |
+help: indicate the anonymous lifetime
+    |
+142 |     anchor: Option<FrameAnchor<'_>>,
+    |                               ++++
+
+warning: hidden lifetime parameters in types are deprecated
+   --> raw-core/src/stages/highlight_recovery.rs:262:20
+    |
+262 |     anchor: Option<FrameAnchor>,
+    |                    ^^^^^^^^^^^ expected lifetime parameter
+    |
+help: indicate the anonymous lifetime
+    |
+262 |     anchor: Option<FrameAnchor<'_>>,
+    |                               ++++
+
+warning: unused attribute `allow`
+   --> raw-core/src/stages/nlm.rs:334:1
+    |
+334 | #[allow(clippy::too_many_arguments)]
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+note: the built-in attribute `allow` will be ignored, since it's applied to the macro invocation `include`
+   --> raw-core/src/stages/nlm.rs:335:1
+    |
+335 | include!("nlm_shift.rs");
+    | ^^^^^^^
+    = note: `#[warn(unused_attributes)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `crate::pipeline::pano::opcodes::WarpRectilinearOpcode`
+  --> raw-core/src/pipeline/pano/opcode_apply/mod.rs:47:9
+   |
+47 | pub use crate::pipeline::pano::opcodes::WarpRectilinearOpcode;
+   |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: `raw-core` (lib) generated 6 warnings (run `cargo fix --lib -p raw-core` to apply 2 suggestions)
+   Compiling raw-core v0.1.0 (/Users/riabuz/.codex/worktrees/color-suite-progress/_Maple/src/raw-pipeline/raw-core)
+    Finished `release` profile [optimized] target(s) in 1.38s
+     Running `target/release/examples/probe-crop /Users/riabuz/.codex/color-suite-evidence/5000/input-snapshot/c4/c4aebea165cf2e782ac976ebafb986f356fdb7fa05834392ad7a8169cbeaf184.RAW`
+=== /Users/riabuz/.codex/color-suite-evidence/5000/input-snapshot/c4/c4aebea165cf2e782ac976ebafb986f356fdb7fa05834392ad7a8169cbeaf184.RAW ===
+  rawler width×height : 4330 × 2439
+  rawler active_area  : Some(Rect{34:31, 4224x2376, LTRB=[34, 31, 4258, 2407]})
+  rawler crop_area    : Some(Rect{34:31, 4224x2376, LTRB=[34, 31, 4258, 2407]})
+  rawler orientation  : Normal
+  exif orientation    : Some(1)  ifd tag=None
+  DNG ActiveArea       : None
+  DNG DefaultCropOrigin: None
+  DNG DefaultCropSize  : None

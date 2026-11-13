@@ -1,4 +1,4 @@
-import { assignedAi, type AiConnectionsConfig } from './ai-connections.ts';
+import type { AiConnectionsConfig } from './ai-connections.ts';
 /**
  * Pure resolver for the enrichment runtime config. Split out of
  * `enrichment-config.repo.ts` (which owns load/save + the shared types and
@@ -16,7 +16,6 @@ import { assignedAi, type AiConnectionsConfig } from './ai-connections.ts';
 
 import type { DescribeProviderName } from './describe-providers/index.ts';
 import { parseWhisperTier, type WhisperTier } from '../audio/whisper-model.ts';
-import { validMeilisearchSemanticRatio } from './meilisearch-config.ts';
 import {
   DEFAULT_DESCRIBE_SERVER_CONCURRENCY,
   normalizeDescribeServers,
@@ -29,15 +28,9 @@ import {
   DEFAULT_DESCRIBE_PROVIDER,
   DEFAULT_DESCRIBE_SYSTEM_PROMPT,
   DEFAULT_FACE_MIN_DETECTION_SIZE,
-  DEFAULT_MEILISEARCH_EMBEDDER_MODEL,
-  DEFAULT_MEILISEARCH_SEMANTIC_ENABLED,
-  DEFAULT_MEILISEARCH_SEMANTIC_RATIO,
-  DEFAULT_MEILISEARCH_TASK_TIMEOUT_SECONDS,
   DEFAULT_NOMINATIM_RATE_LIMIT_PER_SEC,
   DEFAULT_SERVICE_SEARCH_RATE_LIMIT_PER_MINUTE,
-  MAX_MEILISEARCH_TASK_TIMEOUT_SECONDS,
   MAX_SERVICE_SEARCH_RATE_LIMIT_PER_MINUTE,
-  MIN_MEILISEARCH_TASK_TIMEOUT_SECONDS,
   MIN_SERVICE_SEARCH_RATE_LIMIT_PER_MINUTE,
   MAX_FACE_MIN_DETECTION_SIZE,
   MIN_FACE_MIN_DETECTION_SIZE,
@@ -59,8 +52,8 @@ export interface ResolvedEnrichmentConfig {
   // ── Describe worker (Phase 6) ────────────────────────────────────────
   describe_worker_enabled: boolean;
   describe_provider: DescribeProviderName;
-  /** Shared Ollama URL used by Describe and semantic search. The selected
-   * Describe provider does not discard it. */
+  /** Shared Ollama URL used by Describe. The selected Describe provider does
+   * not discard it. */
   describe_provider_url: string;
   /** Describe servers in operator order, always non-empty. When the
    * operator hasn't saved a list, this is the single server implied by
@@ -93,21 +86,6 @@ export interface ResolvedEnrichmentConfig {
    * The face-detect stage drops any bbox whose shorter side is below this
    * value (normalised [0, 1) on the 640-px detection frame). */
   face_min_detection_size: number;
-  /** Resolved Meilisearch sidecar URL (DB → env → null). `null` leaves the
-   * sidecar disabled and search falls back to the built-in full-text path. */
-  meilisearch_url: string | null;
-  /** Resolved Meilisearch API key (DB → env → null). Secret: the config
-   * route strips this before responding — never send it to a client. */
-  meilisearch_api_key: string | null;
-  meilisearch_task_timeout_seconds: number;
-  meilisearch_semantic_enabled: boolean;
-  meilisearch_embedder_url: string;
-  meilisearch_embedder_model: string;
-  meilisearch_semantic_ratio: number;
-  /** Endpoint and model the `embed` stage computes vectors with: the saved override, else the
-   * semantic-search values. */
-  embedder_url: string;
-  embedder_model: string;
   service_search_rate_limit_per_minute: number;
   /** Where each field came from. The UI renders this so the operator knows
    * whether they're seeing a saved value or an env-var fallback. */
@@ -133,32 +111,8 @@ export interface ResolvedEnrichmentConfig {
     face_recognizer_url: 'db' | 'env' | 'unset';
     face_recognizer_sha256: 'db' | 'env' | 'unset';
     face_min_detection_size: 'db' | 'default';
-    meilisearch_url: 'db' | 'env' | 'unset';
-    meilisearch_api_key: 'db' | 'env' | 'unset';
-    meilisearch_task_timeout_seconds: 'db' | 'default';
-    meilisearch_semantic_enabled: 'db' | 'default';
-    meilisearch_embedder_url: 'db' | 'env' | 'default';
-    meilisearch_embedder_model: 'db' | 'default';
-    meilisearch_semantic_ratio: 'db' | 'default';
-    embedder_url: 'db' | 'semantic-search';
-    embedder_model: 'db' | 'semantic-search';
     service_search_rate_limit_per_minute: 'db' | 'default';
   };
-}
-
-function resolveMeilisearchTaskTimeout(db: EnrichmentConfig | null): {
-  value: number;
-  source: 'db' | 'default';
-} {
-  const saved = db?.meilisearch_task_timeout_seconds;
-  const valid =
-    typeof saved === 'number' &&
-    Number.isInteger(saved) &&
-    saved >= MIN_MEILISEARCH_TASK_TIMEOUT_SECONDS &&
-    saved <= MAX_MEILISEARCH_TASK_TIMEOUT_SECONDS;
-  return valid
-    ? { value: saved, source: 'db' }
-    : { value: DEFAULT_MEILISEARCH_TASK_TIMEOUT_SECONDS, source: 'default' };
 }
 
 function resolveServiceSearchRateLimit(db: EnrichmentConfig | null): {
@@ -269,7 +223,7 @@ export function resolveEnrichmentConfig(
   // The saved server list is authoritative when present: its first entry
   // IS the default server, so `describe_provider_url` is mirrored from it
   // rather than resolved independently. That keeps the one endpoint every
-  // other service reads (semantic-search embedder, generated-search) in
+  // other service reads (the legacy generated-search fallback) in
   // lockstep with what the operator marked default in Settings → Workers.
   const savedServers = normalizeDescribeServers(db?.describe_servers);
   const describeServers: DescribeServerConfig[] = savedServers ?? [
@@ -398,33 +352,6 @@ export function resolveEnrichmentConfig(
     env.MAPLE_FACE_RECOGNIZER_SHA256 ?? env.MAPLE_FACE_MOBILEFACENET_SHA256,
   );
 
-  // Meilisearch sidecar — URL + API key, each DB → env → null.
-  const meilisearchUrl = resolveStr(db?.meilisearch_url, env.MAPLE_MEILISEARCH_URL);
-  const meilisearchApiKey = resolveStr(db?.meilisearch_api_key, env.MAPLE_MEILISEARCH_API_KEY);
-  const meilisearchSemanticEnabled =
-    typeof db?.meilisearch_semantic_enabled === 'boolean'
-      ? { value: db.meilisearch_semantic_enabled, source: 'db' as const }
-      : { value: DEFAULT_MEILISEARCH_SEMANTIC_ENABLED, source: 'default' as const };
-  // Meilisearch calls Ollama directly, but Maple owns both configurations.
-  // Reuse Describe's resolved Ollama endpoint so a container/remote hostname
-  // cannot silently drift between captioning and semantic search.
-  const meilisearchEmbedderUrl = {
-    value: describeUrl,
-    source:
-      describeUrlSource === 'db' || describeUrlSource === 'env'
-        ? describeUrlSource
-        : ('default' as const),
-  };
-  const savedEmbedderModel = db?.meilisearch_embedder_model?.trim();
-  const meilisearchEmbedderModel =
-    savedEmbedderModel && savedEmbedderModel.length > 0
-      ? { value: savedEmbedderModel, source: 'db' as const }
-      : { value: DEFAULT_MEILISEARCH_EMBEDDER_MODEL, source: 'default' as const };
-  const savedSemanticRatio = db?.meilisearch_semantic_ratio;
-  const meilisearchSemanticRatio = validMeilisearchSemanticRatio(savedSemanticRatio)
-    ? { value: savedSemanticRatio, source: 'db' as const }
-    : { value: DEFAULT_MEILISEARCH_SEMANTIC_RATIO, source: 'default' as const };
-
   // Minimum face size — DB-only (no env var); falls back to built-in default.
   let faceMinDetectionSize = DEFAULT_FACE_MIN_DETECTION_SIZE;
   let faceMinDetectionSizeSource: ResolvedEnrichmentConfig['source']['face_min_detection_size'] =
@@ -440,13 +367,7 @@ export function resolveEnrichmentConfig(
     faceMinDetectionSizeSource = 'db';
   }
 
-  const semantic = assignedAi(db?.ai_connections, 'semantic-search');
-  const semanticEmbedderUrl = semantic?.primary.url ?? meilisearchEmbedderUrl.value;
-  const semanticEmbedderModel = semantic?.model ?? meilisearchEmbedderModel.value;
-  const savedEmbedderOverrideUrl = db?.embedder_url?.trim();
-  const savedEmbedderOverrideModel = db?.embedder_model?.trim();
   const serviceSearchRateLimit = resolveServiceSearchRateLimit(db);
-  const meilisearchTaskTimeout = resolveMeilisearchTaskTimeout(db);
 
   return {
     ai_connections: db?.ai_connections,
@@ -471,15 +392,6 @@ export function resolveEnrichmentConfig(
     face_recognizer_url: faceRecognizerUrl.value,
     face_recognizer_sha256: faceRecognizerSha.value,
     face_min_detection_size: faceMinDetectionSize,
-    meilisearch_url: meilisearchUrl.value,
-    meilisearch_api_key: meilisearchApiKey.value,
-    meilisearch_task_timeout_seconds: meilisearchTaskTimeout.value,
-    meilisearch_semantic_enabled: meilisearchSemanticEnabled.value,
-    meilisearch_embedder_url: semanticEmbedderUrl,
-    meilisearch_embedder_model: semanticEmbedderModel,
-    meilisearch_semantic_ratio: meilisearchSemanticRatio.value,
-    embedder_url: savedEmbedderOverrideUrl || semanticEmbedderUrl,
-    embedder_model: savedEmbedderOverrideModel || semanticEmbedderModel,
     service_search_rate_limit_per_minute: serviceSearchRateLimit.value,
     source: {
       nominatim_url: urlSource,
@@ -503,15 +415,6 @@ export function resolveEnrichmentConfig(
       face_recognizer_url: faceRecognizerUrl.source,
       face_recognizer_sha256: faceRecognizerSha.source,
       face_min_detection_size: faceMinDetectionSizeSource,
-      meilisearch_url: meilisearchUrl.source,
-      meilisearch_api_key: meilisearchApiKey.source,
-      meilisearch_task_timeout_seconds: meilisearchTaskTimeout.source,
-      meilisearch_semantic_enabled: meilisearchSemanticEnabled.source,
-      meilisearch_embedder_url: meilisearchEmbedderUrl.source,
-      meilisearch_embedder_model: meilisearchEmbedderModel.source,
-      meilisearch_semantic_ratio: meilisearchSemanticRatio.source,
-      embedder_url: savedEmbedderOverrideUrl ? 'db' : 'semantic-search',
-      embedder_model: savedEmbedderOverrideModel ? 'db' : 'semantic-search',
       service_search_rate_limit_per_minute: serviceSearchRateLimit.source,
     },
   };

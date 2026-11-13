@@ -1,8 +1,13 @@
 @if (collision()) {
   <div class="flex flex-col gap-1.5" role="alert">
     <p class="m-0 break-words text-[11px] text-text-main">
-      "{{ draft() }}" already exists in this folder.
+      "{{ collisionFilename() ?? draft() }}" already exists in this folder.
     </p>
+    @if (!keepBothAvailable()) {
+      <p class="m-0 break-words text-[11px] text-text-muted" data-testid="companion-collision">
+        Skip keeps the JPEG under its current name, apart from the RAW.
+      </p>
+    }
     <div class="flex flex-wrap gap-1">
       <button
         type="button"
@@ -10,16 +15,18 @@
         [disabled]="busy()"
         (click)="cancel()"
       >
-        Cancel
+        {{ keepBothAvailable() ? 'Cancel' : 'Skip' }}
       </button>
-      <button
-        type="button"
-        class="rounded-sm border-[0.5px] border-border bg-surface-alt px-2 py-0.5 text-[11px] text-text-main hover:bg-surface-hover disabled:opacity-60"
-        [disabled]="busy()"
-        (click)="resolveKeepBoth()"
-      >
-        Keep Both
-      </button>
+      @if (keepBothAvailable()) {
+        <button
+          type="button"
+          class="rounded-sm border-[0.5px] border-border bg-surface-alt px-2 py-0.5 text-[11px] text-text-main hover:bg-surface-hover disabled:opacity-60"
+          [disabled]="busy()"
+          (click)="resolveKeepBoth()"
+        >
+          Keep Both
+        </button>
+      }
       <button
         type="button"
         class="rounded-sm border-[0.5px] border-primary bg-primary px-2 py-0.5 text-[11px] text-text-main hover:opacity-90 disabled:opacity-60"

@@ -8,9 +8,9 @@ version: '3.9'
 #                                                 # …and expose it via a Cloudflare Tunnel
 #
 # Maple keeps its whole library index in one SQLite file, so there is no
-# database service here and nothing to start before the server: a plain
-# `docker compose up -d` has no work to do. The `app` profile is the whole
-# story.
+# database service here. The `app` profile starts two containers: the Maple
+# server, and the Temporal server Maple runs its background work on. A plain
+# `docker compose up -d` has no work to do.
 #
 # For development, skip Compose entirely and run the Bun server natively from
 # src/api with `bun src/index.ts`.
@@ -34,12 +34,12 @@ services:
       - '3443:3443/udp'
     environment:
       PORT: '3000'
+      # Where Maple finds the `temporal` service below. Only a starting point:
+      # an address saved under Settings → Workers takes precedence.
+      MAPLE_TEMPORAL_ADDRESS: temporal:7233
       # The library database, on the maple_data volume below. Nothing else in
       # this file matters as much as keeping those two in agreement.
       MAPLE_SQLITE_PATH: /app/data/maple.sqlite
-      # Configure semantic search at runtime under Settings → Workers → meili.
-      MAPLE_MEILISEARCH_URL: ${MAPLE_MEILISEARCH_URL:-}
-      MAPLE_MEILISEARCH_API_KEY: ${MAPLE_MEILISEARCH_API_KEY:-}
       # Mount your photo library here (also set MAPLE_ROOTS):
       # MAPLE_ROOTS: /photos
     volumes:
@@ -59,6 +59,32 @@ services:
       # database on maple_data; persisting this one keeps even the degraded
       # path from rotating it.
       - maple_config:/app/config
+    depends_on:
+      temporal:
+        condition: service_started
+
+  # ---------------------------------------------------------------------------
+  # Temporal — the server Maple runs all its background work on: pipeline
+  # stages, the discover sweep, maintenance, jobs and imports (docs/temporal.md).
+  # This is Temporal's single-binary server with its state in one SQLite file,
+  # which suits one Maple server; to use a Temporal cluster you already run,
+  # delete this service and point Settings → Workers at it, with a namespace no
+  # other Maple server uses.
+  #
+  # Nothing is published to the host: only the `maple` container needs to reach
+  # port 7233. Temporal's own web UI is on 8233 — add `ports: ['8233:8233']` if
+  # you want to browse workflow history, and keep it LAN-only, it has no login.
+  # ---------------------------------------------------------------------------
+  temporal:
+    profiles: ['app']
+    image: temporalio/temporal:1.10.0
+    restart: unless-stopped
+    # The image runs as an unprivileged user, which cannot write to a freshly
+    # created named volume.
+    user: root
+    command: server start-dev --ip 0.0.0.0 --db-filename /data/temporal.db
+    volumes:
+      - temporal_data:/data
 
   # ---------------------------------------------------------------------------
   # Cloudflare Tunnel (optional — exposes Maple via a Cloudflare-proxied domain
@@ -91,4 +117,8 @@ volumes:
   maple_data:
     driver: local
   maple_config:
+    driver: local
+  # Job history. Losing it loses no photos, edits or queued jobs: the queue is
+  # in Maple's own database, and a job that was running is submitted again.
+  temporal_data:
     driver: local

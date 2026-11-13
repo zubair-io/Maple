@@ -162,6 +162,19 @@ namespace Maple.WinUI.Tests.Native
         }
 
         [Fact]
+        public void BrushLayerEncodesRegisteredRasterAsBitmapMask()
+        {
+            var layer = new LocalAdjustment(
+                new BrushMask(new List<BrushDab>(), "0123456789abcdef", 71), new PartialAdjustments());
+
+            var flat = LocalAdjustmentFlat.ToFlat(new[] { layer });
+
+            Assert.Equal(71f, flat[2]);
+            Assert.Equal(2f, flat[6]); // KIND_BITMAP
+            Assert.Equal(new[] { 0f, 0f, 0f }, new[] { flat[3], flat[4], flat[5] });
+        }
+
+        [Fact]
         public void MultipleLayersKeepTheirOrder()
         {
             var layers = new List<LocalAdjustment>

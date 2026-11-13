@@ -1,0 +1,10 @@
+{
+  "status": "rejected before physical qualification",
+  "reason": "Freezing the entire coarse gray axis prevents learning a legitimate nonlinear tonal change from equal-mean but differently textured footprints. Existing regression equal_mean_footprints_need_different_eval_then_box_predictions fails. Do not weaken that test.",
+  "tests": {
+    "passed": 101,
+    "failed": 1,
+    "ignored": 6
+  },
+  "finding": "0015 coarse gray fit has a near plateau around encoded inputs0.375..0.5; fine refinement preserves the coarse curve. Need preserve legitimate tone adaptation while correcting loss of local contrast."
+}

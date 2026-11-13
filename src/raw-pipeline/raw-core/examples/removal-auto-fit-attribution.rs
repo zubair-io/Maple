@@ -36,7 +36,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             RawInput::Path(&source),
             cap,
         )
-        .ok_or("No Auto fit available for this photographic RAW")?;
+        .map_err(|outcome| {
+            format!(
+                "No Auto fit available for this photographic RAW ({})",
+                outcome.as_str()
+            )
+        })?;
         let curve = curve.ok_or("Photographic control requires an actual fitted curve")?;
         for (kind, lanes, edge) in [
             ("curve", curve.to_flat(), 0),

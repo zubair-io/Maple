@@ -14,6 +14,8 @@ describe('Hosted routes', () => {
     const paths = routes.map((route) => route.path);
 
     expect(paths).toEqual([
+      'connect/google-drive',
+      'connect/google-drive/return',
       '',
       'browse/:slug',
       'browse',

@@ -251,8 +251,9 @@ CREATE INDEX assets_live_captured_ym
   ON assets (captured_year DESC, captured_month DESC, hidden)
   WHERE ${LIVE_ASSET_PREDICATE};
 
--- Meilisearch live-vector coverage: countDocuments(LIVE_ASSET_FILTER +
--- semantic_vector_fingerprint). Unindexed on Mongo today, so this is new.
+-- Retired Meilisearch vector-coverage index on semantic_vector_fingerprint.
+-- Migration 0041 drops it; the column stays as unread storage (see 0041 for
+-- what dropping it would cost).
 CREATE INDEX assets_vector_fingerprint
   ON assets (semantic_vector_fingerprint)
   WHERE ${LIVE_ASSET_PREDICATE} AND semantic_vector_fingerprint IS NOT NULL;

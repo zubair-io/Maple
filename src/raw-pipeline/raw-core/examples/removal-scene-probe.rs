@@ -359,7 +359,8 @@ fn bake(path: &Path, directory: &Path, model_result: &Path, output: &Path) -> Pr
         &AdjustmentModel::default(),
         RenderQuality::Amaze,
         RawInput::Path(path),
-    );
+    )
+    .ok();
     let mut grades = Vec::new();
     for profile in [Profile::Neutral, Profile::Auto] {
         for ev in [-3.0, 0.0, 3.0] {

@@ -1,0 +1,11 @@
+{
+  "scope": "Diagnostic only: original FCS, fused upstream traversal, original native demosaic domain, original HR. Attribute source35 test0001 exposure-min regression.",
+  "binary_identity": {
+    "phase": "58 focused comparisons starting",
+    "commit": "a45a2d90a93dbab5d6e1495b9026b31a7c6e2a59",
+    "pipeline_output_version": 33,
+    "binary_sha256": "245cf18057fd1b719c9394540019fb836a840c7243aedd9ae982d4868b553a0d",
+    "scope": "Fused AMaZE traversal; original sensor-value FCS. No WB/HR experiment. Focused check, not final full qualification.",
+    "driver_sha256": "e9a3f1344ee6ff9624833f072df038fcdb77b04f00238faaafc8ff2dcc389aa4"
+  }
+}

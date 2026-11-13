@@ -36,6 +36,8 @@ public final class BackupProgressViewModel {
     case running
     /// Startup is in flight (teardown + durable queue recovery).
     case starting
+    /// Stopped on purpose while a panorama stitch has the memory (#5653).
+    case pausedForPanorama
 
     /// Short label for the status row.
     public var label: String {
@@ -43,6 +45,7 @@ public final class BackupProgressViewModel {
       case .stopped: return "Stopped"
       case .running: return "Running"
       case .starting: return "Starting…"
+      case .pausedForPanorama: return "Paused for panorama"
       }
     }
   }
@@ -141,17 +144,18 @@ public final class BackupProgressViewModel {
   /// How many distinct assets we've observed enqueued in this session.
   /// Resets if `.start(queue:)` is called against a different queue.
   public private(set) var totalEnqueued: Int = 0
-  /// How many have had their bytes land (`.completed`). Per #701 this is the
-  /// photo-success signal — companions land best-effort afterward. It is NOT
-  /// the "fully done" count; subtract the companions-pending set for that.
+  /// How many have landed (`.completed`): the original plus its rendered twin
+  /// and Live Photo video. Per #701 this is the photo-success signal — only
+  /// the edit sidecar lands best-effort afterward. It is NOT the "fully done"
+  /// count; subtract the companions-pending set for that.
   public private(set) var totalCompleted: Int = 0
   /// How many have hit the max-retry ceiling and stopped retrying.
   public private(set) var totalFailed: Int = 0
 
-  /// Tasks whose bytes landed but which still have ≥1 best-effort companion
-  /// (sidecar / rendered / live-mov) outstanding in its bounded retry path
-  /// (#702). Driven by `.companionPending` / `.companionsResolved`. Used to
-  /// split `totalCompleted` into "done" vs "uploaded — companions pending".
+  /// Tasks that landed but whose best-effort edit sidecar is still in its
+  /// bounded retry path (#702). Driven by `.companionPending` /
+  /// `.companionsResolved`. Used to split `totalCompleted` into "done" vs
+  /// "uploaded — companions pending".
   private var pendingCompanions: Set<BackupTaskID> = []
 
   /// Photos fully landed — bytes AND all companions. Disjoint from
@@ -168,6 +172,10 @@ public final class BackupProgressViewModel {
   /// The set of tasks currently uploading. Usually 1-4 at a time depending
   /// on engine concurrency.
   public private(set) var inFlight: [InFlight] = []
+
+  /// When a photo was last read, sent or finished this run — the backup
+  /// screen saver's "still uploading" signal (#5457).
+  public private(set) var lastUploadActivity: Date?
 
   /// Last 10 successfully uploaded tasks, newest first.
   public private(set) var recentCompleted: [Completed] = []
@@ -386,12 +394,18 @@ public final class BackupProgressViewModel {
   func apply(_ event: BackupQueueEvent) {
     issues.apply(event)
     switch event {
+    case .started, .preparing, .progress, .completed:
+      lastUploadActivity = Date()
+    default:
+      break
+    }
+    switch event {
     case .drained: break
     case .enqueued(let task):
-      libraryPhotoIDs?.insert(task.id.phassetLocalId)
-      pendingPhotoIDs.insert(task.id.phassetLocalId)
-      if seenEnqueued.insert(task.id).inserted {
-        totalEnqueued += 1
+      recordEnqueued(task)
+    case .enqueuedBatch(let tasks):
+      for task in tasks {
+        recordEnqueued(task)
       }
     case .started(let id):
       // Add to inFlight if not already there.
@@ -416,8 +430,8 @@ public final class BackupProgressViewModel {
       if libraryPhotoIDs?.contains(id.phassetLocalId) == true {
         backedUpPhotoIDs.insert(id.phassetLocalId)
       }
-      guard completedPhotoIDs.insert(id.phassetLocalId).inserted else { return }
       inFlight.removeAll { $0.id == id }
+      guard completedPhotoIDs.insert(id.phassetLocalId).inserted else { return }
       totalCompleted += 1
       recentCompleted.insert(Completed(id: id, mapleId: mapleId), at: 0)
       if recentCompleted.count > 10 {
@@ -438,9 +452,11 @@ public final class BackupProgressViewModel {
       if !willRetry { totalFailed += 1 }
       lastError = error
     case .cancelled(let id):
-      pendingPhotoIDs.remove(id.phassetLocalId)
-      inFlight.removeAll { $0.id == id }
-      if seenEnqueued.remove(id) != nil { totalEnqueued -= 1 }
+      recordCancelled(id)
+    case .cancelledBatch(let ids):
+      for id in ids {
+        recordCancelled(id)
+      }
     case .companionPending(let id):
       // Bytes already landed (`.completed` arrived first; the engine emits
       // it before any companion work and the queue is a single actor, so
@@ -451,6 +467,20 @@ public final class BackupProgressViewModel {
       // Last companion reached a terminal state — back to fully done.
       pendingCompanions.remove(id)
     }
+  }
+
+  private func recordEnqueued(_ task: BackupTask) {
+    libraryPhotoIDs?.insert(task.id.phassetLocalId)
+    pendingPhotoIDs.insert(task.id.phassetLocalId)
+    if seenEnqueued.insert(task.id).inserted {
+      totalEnqueued += 1
+    }
+  }
+
+  private func recordCancelled(_ id: BackupTaskID) {
+    pendingPhotoIDs.remove(id.phassetLocalId)
+    inFlight.removeAll { $0.id == id }
+    if seenEnqueued.remove(id) != nil { totalEnqueued -= 1 }
   }
 
   /// Recompute the published rates from the meter at "now". Called after every

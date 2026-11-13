@@ -5,15 +5,39 @@
 // `RustPanoStitcher` (M4, #1234) via AppShell; the real stitch runs and
 // the output PNG is imported into the library (M5) when the user taps Done.
 //
-// Mac/iPad and iPhone: presented as a modal sheet via `.sheet(isPresented:)`
-// in AppShell. Cancel/Done dismisses the sheet and returns to browse.
+// iPhone and iPad: a full-screen cover, so no swipe closes it by accident;
+// Mac: a sheet whose Escape and click-away are held off while closing would
+// lose work (#5662). Cancel/Done return to browse; closing with a running or
+// finished stitch asks first (PanoMergeSession.closingDiscardsWork).
 //
-// Not-provisioned UX (#1241): when the error state is `modelsNotInstalled`
-// the error section shows a "Configure in Settings → Pano" button that calls
-// the `onOpenPanoSettings` callback (supplied by AppShell). AppShell then
-// dismisses this sheet, opens the Settings sheet, and navigates to the Pano tab.
+// Merge never downloads anything (#4554): the stitcher uses the classical
+// matcher unless Settings → Pano opted into the ML matcher and it is
+// installed. An opted-in ML matcher that is missing or fails to load runs
+// classical instead (#5487); PanoMatcherNote says so under the preview and
+// the result and offers Settings → Pano via `onOpenPanoSettings` (AppShell
+// dismisses this view and opens that tab).
 //
-// Ticket: #1236 / Part of #1234 / #1241
+// Quick preview (#4579): opening the sheet with two or more frames starts a
+// low-resolution preview (PanoPreviewSection), pinned above the scrolling
+// options with Edges last (#5609); option changes re-run it. The
+// preview's solved alignment stays in the session, and "Create Panorama"
+// hands it to the full stitch so matching is not repeated.
+//
+// Output size (#5454): on iPhone and iPad, PanoOutputSizeSection offers a
+// smaller output when the preview says full resolution would not fit.
+//
+// Run on server (#5488): frames that all live on one Maple server can stitch
+// there instead (ServerPanoStitcher). Frames with no file on this device can
+// only stitch there, so the sheet starts on the server and says so; frames
+// that could go either way get a "Run On" picker. The job runs on the server
+// whatever the app does, so a lost connection is a Try Again away.
+//
+// Download frames (#5489): cloud-only frames can also stitch here, after
+// PanoDownloadSection fetches them into a temporary cache; the panorama then
+// goes back to the server beside them. Frames from Photos can't do either
+// yet, and the sheet says so rather than failing mid-stitch.
+//
+// Ticket: #1236 / Part of #1234 / #1241 / #4554 / #4579 / #5454 / #5486 / #5488 / #5489 / #5662
 
 import MapleCore
 import MapleUI
@@ -21,47 +45,62 @@ import SwiftUI
 
 #if os(macOS)
   import AppKit
-#else
-  import UIKit
 #endif
 
 // MARK: - PanoMergeView
 
 struct PanoMergeView: View {
   let assets: [AssetRef]
+  /// URL-less frames (Maple Cloud, PhotoKit) load their thumbnails through it.
+  let source: (any ImageSource)?
   let session: PanoMergeSession
+  /// Where a merge runs: on this device, or on the frames' Maple server
+  /// (`nil` when they are not all on one).
+  let deviceStitcher: any PanoStitching
+  let serverStitcher: ServerPanoStitcher?
   let onDismiss: () -> Void
   /// Called when the user taps Done after a successful stitch. The library
   /// caller (AppShell) uses this to inject the result into BrowseViewModel
   /// (M5 of #1234) before dismissing the sheet.
   var onComplete: ((PanoResult) -> Void)? = nil
-  /// Called when the user taps "Configure in Settings → Pano" after a
-  /// `modelsNotInstalled` error. AppShell dismisses this sheet and opens
-  /// Settings navigated to the Pano tab. (#1241)
+  /// Called from PanoMatcherNote's "Set Up in Settings → Pano". AppShell
+  /// dismisses this view and opens Settings on the Pano tab. (#1241, #5487)
   var onOpenPanoSettings: (() -> Void)? = nil
 
-  /// Shared thumbnail loader for the input-frame previews. `@State` keeps the
-  /// actor (and its in-memory cache) stable across body re-evaluations.
-  @State private var thumbLoader = ThumbnailLoader()
-
-  /// Drives the auto-download-on-Merge flow (#1234 M6): if the ML runtime
-  /// isn't provisioned when the user taps Merge, fetch it inline (with
-  /// progress) and then start the stitch — no detour through Settings.
-  @State private var provisionModel = PanoProvisionModel()
+  @State private var thumbnails = ThumbnailProvider.local()
+  /// The sheet's height, which caps the pinned preview.
+  @State private var sheetHeight: CGFloat = 0
+  /// Why the frames' server can't stitch; `nil` when it can or is unchecked.
+  @State private var serverUnavailable: String?
+  /// The server check has answered. Until then Run On and Create are held,
+  /// so the check can't switch stitchers under a run the user just started.
+  @State private var serverChecked = false
+  /// For cloud-only frames: stitch on the server rather than downloading.
+  @State private var prefersServer = true
+  @State private var confirmsDiscard = false
+  @State private var closeAfterDiscard: (() -> Void)?
 
   var body: some View {
     NavigationStack {
       Form {
         inputFramesSection
+        runOnSection
+        photosFramesSection
+        if awaitingDownload, let route = session.downloadRoute {
+          PanoDownloadSection(
+            download: route.download, onRetry: { route.download.estimate(assets) })
+        }
         optionsSection
-
-        provisionStatusSection
+        PanoOutputSizeSection(session: session)
+        if session.stitcher.supportsEdges {
+          PanoEdgesSection(session: session)
+        }
 
         switch session.state {
         case .idle:
           EmptyView()
-        case .running(let stage, _, let overall):
-          progressSection(stage: stage, overall: overall)
+        case .finishingAlignment, .running:
+          EmptyView()
         case .done(let result):
           resultSection(result: result)
         case .error(let stitchError):
@@ -69,24 +108,57 @@ struct PanoMergeView: View {
         }
       }
       .formStyle(.grouped)
+      .safeAreaInset(edge: .top, spacing: 0) {
+        if !awaitingDownload || session.downloadRoute == nil {
+          PanoPreviewSection(
+            session: session,
+            stitchProgress: session.stitchProgress(runsOnServer: runsOnServer),
+            maxImageHeight: PanoPreviewLayout.maxImageHeight(sheetHeight: sheetHeight),
+            onRetry: { session.preview(assets: assets) },
+            onOpenPanoSettings: guardedOpenPanoSettings
+          )
+        }
+      }
+      .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { sheetHeight = $0 }
+      .task {
+        if let serverStitcher {
+          serverUnavailable = await serverStitcher.unavailableReason()
+        }
+        serverChecked = true
+        if serverUnavailable != nil, canRunOnDevice { session.use(deviceStitcher) }
+        if downloadsFrames { followRoute() } else { session.preview(assets: assets) }
+      }
+      .onChange(of: session.downloadRoute?.download.state) { _, state in
+        if state == .downloaded { followRoute() }
+      }
+      .interactiveDismissDisabled(session.closingDiscardsWork)
+      .confirmationDialog(
+        session.isRunning ? "Stop and discard this panorama?" : "Discard this panorama?",
+        isPresented: $confirmsDiscard,
+        titleVisibility: .visible
+      ) {
+        Button(session.isRunning ? "Stop and Discard" : "Discard", role: .destructive) {
+          closeAfterDiscard?()
+        }
+        Button("Keep Working", role: .cancel) {}
+      } message: {
+        Text(
+          session.isRunning
+            ? "The stitch in progress will be stopped."
+            : "This panorama has not been added to your library yet. Tap Done to keep it.")
+      }
       .navigationTitle("Merge Panorama")
       #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
       #endif
       .toolbar {
         ToolbarItem(placement: .cancellationAction) {
-          Button("Cancel") {
-            session.cancel()
-            onDismiss()
-          }
-          .accessibilityLabel("Cancel panorama merge and return to browse")
+          Button("Cancel") { close(then: onDismiss) }
+            .keyboardShortcut(.cancelAction)
+            .accessibilityLabel("Cancel panorama merge and return to browse")
         }
         ToolbarItem(placement: .confirmationAction) {
-          if provisionModel.isBusy {
-            Button("Installing…") {}
-              .disabled(true)
-              .accessibilityLabel("Downloading panorama components")
-          } else if session.isRunning {
+          if session.isRunning {
             Button("Stop") {
               session.cancel()
             }
@@ -99,82 +171,165 @@ struct PanoMergeView: View {
             }
             .accessibilityLabel("Add panorama to library and return to browse")
           } else {
-            Button("Merge") {
-              startMerge()
+            Button("Create Panorama") {
+              session.start(assets: assets)
             }
-            .disabled(assets.count < 2)
-            .accessibilityLabel("Start panorama merge with \(assets.count) selected frames")
+            .disabled(assets.count < 2 || !serverChecked || awaitingDownload || blockedByPhotosFrames)
+            .accessibilityLabel(
+              session.alignment == nil
+                ? "Create the full panorama from \(assets.count) selected frames"
+                : "Create the full panorama from \(assets.count) selected frames, reusing the preview's alignment"
+            )
           }
         }
       }
     }
   }
 
-  // MARK: - Merge flow (auto-provision, then stitch)
+  // MARK: - Closing (#5662)
 
-  private func startMerge() {
-    let status = PanoProvisioning().status()
-    // Ready, or a manual Settings/env override is in force (auto-download
-    // into the app-support default wouldn't change resolution) → start
-    // directly. An unprovisioned override surfaces the existing
-    // modelsNotInstalled error with the "Configure in Settings" path.
-    if PanoProvisioner.isReady(status) || !PanoProvisioner.canAutoProvision(status) {
-      session.start(assets: assets)
+  private var guardedOpenPanoSettings: (() -> Void)? {
+    onOpenPanoSettings.map { open in { close(then: open) } }
+  }
+
+  private func close(then action: @escaping () -> Void) {
+    if session.closingDiscardsWork {
+      closeAfterDiscard = action
+      confirmsDiscard = true
+    } else {
+      action()
+    }
+  }
+
+  // MARK: - Run on (#5488)
+
+  private var runsOnServer: Bool {
+    guard let serverStitcher else { return false }
+    return session.stitcher === serverStitcher
+  }
+
+  /// Every frame has a file this device can read.
+  private var canRunOnDevice: Bool { assets.allSatisfy { $0.primaryURL != nil } }
+
+  /// Cloud-only frames stitch here from downloaded copies (#5489): chosen,
+  /// or the only way when no server can stitch them.
+  private var downloadsFrames: Bool {
+    guard session.downloadRoute != nil, !canRunOnDevice else { return false }
+    return serverStitcher == nil || serverUnavailable != nil || !prefersServer
+  }
+
+  /// The frames still have to download before a preview or stitch can run.
+  private var awaitingDownload: Bool {
+    guard downloadsFrames, let route = session.downloadRoute else { return false }
+    if case .done = session.state { return false }
+    if session.isRunning { return false }
+    return route.download.state != .downloaded
+  }
+
+  /// A frame from Photos: no file here and no server copy.
+  private var blockedByPhotosFrames: Bool {
+    !canRunOnDevice && assets.contains { $0.primaryURL == nil && $0.catalog == nil }
+  }
+
+  /// Points the session at the stitcher the current choice needs.
+  private func followRoute() {
+    guard let route = session.downloadRoute else { return }
+    guard downloadsFrames else {
+      route.download.stop()
+      if let serverStitcher { session.use(serverStitcher) }
+      session.preview(assets: assets)
       return
     }
-    // Not provisioned and we can auto-provision: download inline, then stitch.
-    Task {
-      await provisionModel.download {
-        session.start(assets: assets)
+    guard let localFrames = route.download.localAssets else {
+      session.cancel()
+      switch route.download.state {
+      case .idle, .removed: route.download.estimate(assets)
+      default: break
+      }
+      return
+    }
+    session.use(route.makeStitcher(assets, localFrames))
+    session.preview(assets: assets)
+  }
+
+  private var runOnLocked: Bool {
+    session.isRunning || !serverChecked || serverUnavailable != nil
+  }
+
+  @ViewBuilder
+  private var runOnSection: some View {
+    if let serverStitcher {
+      Section {
+        if !canRunOnDevice, session.downloadRoute != nil {
+          Picker(
+            "Run On",
+            selection: Binding(
+              get: { !downloadsFrames },
+              set: { useServer in
+                prefersServer = useServer
+                followRoute()
+              }
+            )
+          ) {
+            Text("This Device").tag(false)
+            Text("Server").tag(true)
+          }
+          .disabled(runOnLocked)
+          .accessibilityLabel("Where the panorama is stitched")
+        } else if canRunOnDevice {
+          Picker(
+            "Run On",
+            selection: Binding(
+              get: { runsOnServer },
+              set: { session.use($0 ? serverStitcher : deviceStitcher) }
+            )
+          ) {
+            Text("This Device").tag(false)
+            Text("Server").tag(true)
+          }
+          .disabled(runOnLocked)
+          .accessibilityLabel("Where the panorama is stitched")
+        } else {
+          HStack(spacing: 8) {
+            MuiIcon(name: "dns", size: .sm)
+              .accessibilityHidden(true)
+            Text("Runs on your Maple server")
+          }
+          .accessibilityElement(children: .combine)
+          .accessibilityIdentifier("pano-runs-on-server")
+        }
+        if let serverUnavailable {
+          Text(serverUnavailable)
+            .font(.caption)
+            .foregroundStyle(.secondary)
+        } else if downloadsFrames {
+          Text(
+            "The frames download to this device first. The panorama is stitched here, then added to a Panoramas folder beside them on the server."
+          )
+          .font(.caption)
+          .foregroundStyle(.secondary)
+        } else if runsOnServer {
+          Text(
+            "The server stitches the frames where they are stored and adds the panorama to a Panoramas folder beside them. It keeps going if you leave the app."
+          )
+          .font(.caption)
+          .foregroundStyle(.secondary)
+        }
+      } header: {
+        Text("Stitching")
       }
     }
   }
 
   @ViewBuilder
-  private var provisionStatusSection: some View {
-    switch provisionModel.state {
-    case .idle:
-      EmptyView()
-    case .running(let fraction, let label):
+  private var photosFramesSection: some View {
+    if blockedByPhotosFrames {
       Section {
-        VStack(alignment: .leading, spacing: 8) {
-          HStack {
-            Text(label).font(.subheadline)
-            Spacer()
-            Text("\(Int((fraction * 100).rounded()))%")
-              .font(.caption)
-              .foregroundStyle(.secondary)
-              .monospacedDigit()
-          }
-          ProgressView(value: fraction).progressViewStyle(.linear)
-        }
-        .padding(.vertical, 4)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(
-          "Downloading panorama components, \(Int((fraction * 100).rounded())) percent")
-      } header: {
-        Text("Setting Up")
-      }
-    case .failed(let message):
-      Section {
-        HStack(alignment: .top, spacing: 10) {
-          MuiIcon(name: "warning", size: .sm, filled: true)
-            .foregroundStyle(.red)
-            .imageScale(.large)
-            .accessibilityHidden(true)
-          VStack(alignment: .leading, spacing: 4) {
-            Text("Download failed")
-              .font(.subheadline.weight(.medium))
-            Text(message)
-              .font(.caption)
-              .foregroundStyle(.secondary)
-          }
-        }
-        .padding(.vertical, 4)
-        Button("Retry Download") { startMerge() }
-          .accessibilityLabel("Retry downloading panorama components")
-      } header: {
-        Text("Setting Up")
+        Text(
+          "Frames from your Photos library can’t be merged here yet. Export them to Files, then merge them from there."
+        )
+        .font(.caption)
+        .accessibilityIdentifier("pano-photos-frames-unsupported")
       }
     }
   }
@@ -187,7 +342,12 @@ struct PanoMergeView: View {
         HStack(spacing: 8) {
           ForEach(assets) { asset in
             VStack(spacing: 4) {
-              PanoFrameThumbnail(asset: asset, loader: thumbLoader)
+              PhotoThumbnailCell(
+                item: PhotoGridItem(local: asset, source: source, overlays: GridCellOverlays()),
+                provider: thumbnails,
+                displayMode: .fill
+              )
+              .frame(width: 64, height: 64)
               Text(asset.displayName)
                 .font(.caption2)
                 .lineLimit(1)
@@ -195,6 +355,7 @@ struct PanoMergeView: View {
                 .foregroundStyle(.secondary)
             }
             .accessibilityElement(children: .combine)
+            .accessibilityIdentifier("pano-frame-\(asset.displayName)")
             .accessibilityLabel("Input frame: \(asset.displayName)")
           }
         }
@@ -270,29 +431,6 @@ struct PanoMergeView: View {
   }
 
   @ViewBuilder
-  private func progressSection(stage: PanoStage, overall: Double) -> some View {
-    Section {
-      VStack(alignment: .leading, spacing: 8) {
-        HStack {
-          Text(stage.displayName)
-            .font(.subheadline)
-          Spacer()
-          Text(Int(overall * 100).description + "%")
-            .font(.caption)
-            .foregroundStyle(.secondary)
-            .monospacedDigit()
-        }
-        ProgressView(value: overall)
-          .progressViewStyle(.linear)
-          .accessibilityLabel("Overall panorama merge progress: \(Int(overall * 100)) percent")
-      }
-      .padding(.vertical, 4)
-    } header: {
-      Text("Progress")
-    }
-  }
-
-  @ViewBuilder
   private func resultSection(result: PanoResult) -> some View {
     Section {
       HStack {
@@ -314,15 +452,29 @@ struct PanoMergeView: View {
         .font(.caption)
         .foregroundStyle(.secondary)
 
+      PanoMatcherNote(matcher: result.matcher, onOpenPanoSettings: guardedOpenPanoSettings)
+
+      if let reason = result.edges?.boundaryWarpReason {
+        HStack(alignment: .firstTextBaseline, spacing: MuiTokens.spacingXs) {
+          MuiIcon(name: "info", size: .sm, color: MuiTokens.warn)
+            .accessibilityHidden(true)
+          MuiText(reason, variant: .body, color: .warning)
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("pano-boundary-warp-result-reason")
+      }
+
       // M5 (complete): tapping Done (toolbar) calls onComplete which
       // hands outputURL to BrowseViewModel.injectPanoResult — the
       // panorama appears in the library grid and is auto-selected.
       // "Show in Finder" is macOS-only: there is no Finder on iOS.
       #if os(macOS)
-        Button("Show in Finder") {
-          NSWorkspace.shared.activateFileViewerSelecting([result.outputURL])
+        if !result.storedOnServer {
+          Button("Show in Finder") {
+            NSWorkspace.shared.activateFileViewerSelecting([result.outputURL])
+          }
+          .accessibilityLabel("Reveal panorama output in Finder")
         }
-        .accessibilityLabel("Reveal panorama output in Finder")
       #endif
     } header: {
       Text("Result")
@@ -338,12 +490,9 @@ struct PanoMergeView: View {
           .imageScale(.large)
           .accessibilityHidden(true)
         VStack(alignment: .leading, spacing: 4) {
-          Text(stitchError.isModelsNotInstalled ? "Models not installed" : "Merge failed")
+          Text("Merge failed")
             .font(.subheadline.weight(.medium))
-            .accessibilityLabel(
-              stitchError.isModelsNotInstalled
-                ? "Panorama models not installed"
-                : "Panorama merge failed")
+            .accessibilityLabel("Panorama merge failed")
           Text(stitchError.message)
             .font(.caption)
             .foregroundStyle(.secondary)
@@ -351,142 +500,13 @@ struct PanoMergeView: View {
       }
       .padding(.vertical, 4)
 
-      if stitchError.isModelsNotInstalled {
-        // Not-provisioned path: direct the user to Settings → Pano
-        // so they can configure the models directory and ORT dylib path.
-        // The "Configure" button calls onOpenPanoSettings (supplied by
-        // AppShell) which dismisses this sheet and opens the Pano settings
-        // tab. If the callback isn't wired (e.g. previews), we fall back
-        // to the plain retry button so the view is never broken.
-        if let openSettings = onOpenPanoSettings {
-          Button("Configure in Settings → Pano") {
-            openSettings()
-          }
-          .accessibilityLabel("Open Settings → Pano to configure panorama model and runtime paths")
-        } else {
-          Text("Open Settings → Pano to configure the models directory and ONNX Runtime path.")
-            .font(.caption)
-            .foregroundStyle(.secondary)
-            .accessibilityLabel("Navigate to Settings then Pano to configure panorama models")
-        }
-      } else {
-        Button("Try Again") {
-          session.reset()
-          session.start(assets: assets)
-        }
-        .accessibilityLabel("Retry the panorama merge with the same settings")
+      Button("Try Again") {
+        session.reset()
+        session.start(assets: assets)
       }
+      .accessibilityLabel("Retry the panorama merge with the same settings")
     } header: {
       Text("Error")
-    }
-  }
-}
-
-// MARK: - Input-frame thumbnail
-
-/// One 64×48 input-frame preview. Loads through the app's `ThumbnailLoader`
-/// (disk-cached, security-scoped): a neutral glyph while loading, the real
-/// thumbnail when decoded, and a clean "can't preview" glyph if the frame
-/// can't be decoded — never raw bytes.
-private struct PanoFrameThumbnail: View {
-  let asset: AssetRef
-  let loader: ThumbnailLoader
-
-  @State private var image: Image?
-  @State private var failed = false
-
-  var body: some View {
-    RoundedRectangle(cornerRadius: MapleTokens.Radius.sm)
-      .fill(Color.secondary.opacity(0.2))
-      .frame(width: 64, height: 48)
-      .overlay {
-        if let image {
-          image
-            .resizable()
-            .aspectRatio(contentMode: .fill)
-        } else {
-          MuiIcon(name: failed ? "exclamationmark.triangle" : "photo", size: .sm)
-            .foregroundStyle(.secondary)
-        }
-      }
-      .clipShape(RoundedRectangle(cornerRadius: MapleTokens.Radius.sm))
-      .task(id: asset.id) { await load() }
-  }
-
-  private func load() async {
-    // Reset up front so a reused cell (asset.id changed) doesn't show the
-    // previous frame's thumbnail or failure state during the new load.
-    image = nil
-    failed = false
-    guard let url = asset.primaryURL else {
-      failed = true
-      return
-    }
-    let data = await loader.load(for: url, scopeParentURL: asset.scopeParentURL)
-    if Task.isCancelled { return }
-    if let data, let img = Self.image(from: data) {
-      image = img
-    } else {
-      failed = true
-    }
-  }
-
-  private static func image(from data: Data) -> Image? {
-    #if os(macOS)
-      return NSImage(data: data).map(Image.init(nsImage:))
-    #else
-      return UIImage(data: data).map(Image.init(uiImage:))
-    #endif
-  }
-}
-
-// MARK: - Option display name + help text extensions
-
-extension PanoOptions.Retention {
-  var displayName: String {
-    switch self {
-    case .keep: return "Keep (recommended)"
-    case .strict: return "Strict"
-    }
-  }
-  var helpText: String {
-    switch self {
-    case .keep:
-      return "Include frames even when overlap quality is marginal. Best for wide sequences."
-    case .strict:
-      return "Exclude frames below the overlap quality threshold. Cleaner seams on dense sequences."
-    }
-  }
-}
-
-extension PanoOptions.LocalAlign {
-  var displayName: String {
-    switch self {
-    case .mesh: return "Mesh warp (recommended)"
-    case .off: return "Off"
-    }
-  }
-  var helpText: String {
-    switch self {
-    case .mesh: return "Corrects residual lens-roll and perspective drift after global solving."
-    case .off: return "Skip the mesh pass. Faster; suitable when lens distortion is negligible."
-    }
-  }
-}
-
-extension PanoOptions.Strategy {
-  var displayName: String {
-    switch self {
-    case .auto: return "Auto (recommended)"
-    case .rotation: return "Rotation"
-    case .tile: return "Flat tile"
-    }
-  }
-  var helpText: String {
-    switch self {
-    case .auto: return "Solver picks the best geometry model based on the feature graph topology."
-    case .rotation: return "Pure rotation from a fixed pivot. Best for handheld panoramic pans."
-    case .tile: return "Flat-plane tiling. Best for copy-stand or flat-art sequences."
     }
   }
 }
@@ -497,7 +517,10 @@ extension PanoOptions.Strategy {
   #Preview("Idle") {
     PanoMergeView(
       assets: (0..<6).map { AssetRef.preview(displayName: "IMG_\($0).dng") },
+      source: nil,
       session: PanoMergeSession(stitcher: MockPanoStitcher()),
+      deviceStitcher: MockPanoStitcher(),
+      serverStitcher: nil,
       onDismiss: {}
     )
   }

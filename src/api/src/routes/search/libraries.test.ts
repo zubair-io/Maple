@@ -9,7 +9,7 @@
  *
  * That second one is the projection's contract, not a nicety: `abs_path`
  * resolves to `''` and `address` to `null`, and both callers (`list.ts`,
- * `list-meili.ts`) render rows regardless. A search that comes back with
+ * `list-in-process.ts`) render rows regardless. A search that comes back with
  * unresolved paths beats a 500.
  *
  * The cache lives at module scope and outlives any one case, so each starts

@@ -6,7 +6,7 @@ import { parseSidecarWorkflow } from './workflow.generated';
 
 const corpus = JSON.parse(
   readFileSync(
-    new URL('../../../../test-fixtures/workflow/contract-v1.json', import.meta.url),
+    new URL('../../../../test-fixtures/workflow/contract.json', import.meta.url),
     'utf8',
   ),
 );
@@ -33,15 +33,27 @@ describe('API workflow wire contract (#4035)', () => {
     const value = corpus[0];
     const before = JSON.stringify(value);
     for (const invalid of [
-      { ...value, schemaVersion: 2 },
+      { ...value, schemaVersion: 3 },
       { ...value, future: true },
       { ...value, variantId: 'other.xmp' },
       { ...value, history: [value.history[0], value.history[0]] },
       { ...value, snapshots: [{ ...value.snapshots[0], future: true }] },
       { ...value, history: [{ ...value.history[0], action: 'cache' }] },
       { ...value, history: [{ ...value.history[0], createdAtMs: 9007199254740992 }] },
+      { ...value, history: [{ ...value.history[0], parentId: 'not-a-uuid' }] },
+      { ...value, history: [{ ...value.history[0], parentId: value.history[0].id }] },
+      { ...value, history: [{ ...value.history[0], writer: 'x'.repeat(65) }] },
+      { ...value, history: [{ ...value.history[0], writer: '\n' }] },
     ])
       expect(() => parseSidecarWorkflow(invalid)).toThrow();
     expect(JSON.stringify(value)).toBe(before);
+  });
+  test('lineage fields are optional when a host builds an entry and kept when present', () => {
+    const value = corpus[0];
+    const { parentId: _parent, writer: _writer, ...bare } = value.history[0];
+    expect(() => parseSidecarWorkflow({ ...value, history: [bare] })).not.toThrow();
+    const forked = value.history.find((entry: { action: string }) => entry.action === 'external');
+    expect(forked).toBeDefined();
+    expect(parseSidecarWorkflow(value).history).toEqual(value.history);
   });
 });

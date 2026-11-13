@@ -11,6 +11,7 @@ extension AssetRef {
     bytesProvider = asset.bytesProvider.map { _ in
       { try await source.bytes(for: asset) }
     }
+    originalFileWriter = asset.originalFileWriter
     displayPreviewProvider = asset.displayPreviewProvider
     stableID = asset.stableID
     captureDate = asset.captureDate
@@ -18,6 +19,9 @@ extension AssetRef {
     explicitIsRaw = asset.explicitIsRaw
     thumbnailProvenance = asset.thumbnailProvenance
     catalog = asset.catalog
+    livePhoto = asset.livePhoto
+    smbPath = asset.smbPath
+    smbSourceID = asset.smbSourceID
     selectedSidecarURL = asset.selectedSidecarURL
   }
 }

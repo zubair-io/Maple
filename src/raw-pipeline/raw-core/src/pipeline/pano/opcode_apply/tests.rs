@@ -459,7 +459,7 @@ fn apply_opcode_list3_does_not_panic_when_aa_is_prescaled_for_a_half_res_buffer(
     let mut img = flat_image(buf_w, buf_h, [0.25; 3]);
     let list = OpcodeList3 {
         opcodes: vec![PanoOpcode::WarpRectilinear(identity_warp())],
-        skipped_unknown: 0,
+        skipped: Vec::new(),
     };
     // Must not panic; a still-unscaled `aa_raw` against this half-res
     // buffer is exactly the crash this test guards against.
@@ -517,7 +517,7 @@ fn apply_list3_runs_in_list_order_and_reports_labels() {
             PanoOpcode::GainMap(gm(2, 2, 1, vec![2.0; 4], (w, h))),
             PanoOpcode::WarpRectilinear(identity_warp()),
         ],
-        skipped_unknown: 0,
+        skipped: Vec::new(),
     };
     let mut img = flat_image(w, h, [0.25; 3]);
     let applied = apply_opcode_list3(&mut img, &list, aa, LensCorrectionScales::FULL);

@@ -47,9 +47,10 @@ extension AppShell {
         }
         return try PhotoKitSidecarStore(phassetLocalId: id)
       case .smbShare:
-        guard asset.thumbnailProvenance == .smb, let smb = source as? SMBSource
+        guard asset.thumbnailProvenance == .smb, let smb = source as? SMBSource,
+          let ref = asset.smbMutationRef
         else { throw BatchAdjustmentError.wrongLibrary }
-        return SMBSidecarStore(source: smb, ref: ImageRef(id: id, displayName: asset.displayName))
+        return SMBSidecarStore(source: smb, ref: ref)
       case .cloudLibrary(let server, _):
         guard
           asset.thumbnailProvenance == nil || asset.thumbnailProvenance == .cloud(server: server),

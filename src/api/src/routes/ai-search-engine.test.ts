@@ -7,13 +7,8 @@ import {
 } from '../db/sqlite/test-sqlite.test-helpers.ts';
 import { withTestEnv } from '../test-support/env.test-helpers.ts';
 import { signAccessToken } from '../auth/tokens.ts';
-import { loadEnrichmentConfig } from '../enrichment/enrichment-config.repo.ts';
-import {
-  resetSearchEngineSelectionForTests,
-  selectedSearchEngine,
-} from '../search/search-engine-selection.ts';
 import { setSearchChildPoolForTests } from '../search/search-pool.ts';
-import { fakeChildPool, type FakeChild } from '../search/search.test-helpers.ts';
+import { fakeChildPool } from '../search/search.test-helpers.ts';
 import { searchChildConfig } from '../search/search-child-config.ts';
 
 withTestEnv('MAPLE_JWT_SECRET', 'x'.repeat(32));
@@ -21,7 +16,6 @@ withTestEnv('MAPLE_JWT_SECRET', 'x'.repeat(32));
 let live: LiveTestDatabase;
 let owner: string;
 let member: string;
-let children: FakeChild[];
 
 beforeAll(async () => {
   owner = await signAccessToken(
@@ -36,61 +30,33 @@ beforeAll(async () => {
 
 beforeEach(async () => {
   live = await createLiveTestDatabase();
-  resetSearchEngineSelectionForTests();
-  const fake = fakeChildPool(searchChildConfig);
-  children = fake.children;
-  setSearchChildPoolForTests(fake.pool);
+  setSearchChildPoolForTests(fakeChildPool(searchChildConfig).pool);
 });
 
 afterEach(() => {
   setSearchChildPoolForTests(null);
-  resetSearchEngineSelectionForTests();
   live.close();
 });
 
 const app = new Elysia().use(aiRoutes);
 
-function request(method: 'GET' | 'PUT', body?: unknown, token = owner) {
+function request(token = owner) {
   return app.handle(
     new Request('http://localhost/api/ai/search-engine/', {
-      method,
-      headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
-      ...(body ? { body: JSON.stringify(body) } : {}),
+      headers: { authorization: `Bearer ${token}` },
     }),
   );
 }
 
 describe('/api/ai/search-engine', () => {
-  it('defaults to Meilisearch with the child stopped', async () => {
-    const response = await request('GET');
+  it('reports the search child status to the owner', async () => {
+    const response = await request();
 
     expect(response.status).toBe(200);
-    expect(await response.json()).toMatchObject({
-      engine: 'meilisearch',
-      status: { phase: 'stopped', vectors: 0 },
-    });
-    expect(children).toEqual([]);
+    expect(await response.json()).toMatchObject({ status: { phase: 'stopped', vectors: 0 } });
   });
 
-  it('saves the choice in the enrichment settings, starts the child and stops it again', async () => {
-    const selected = await (await request('PUT', { engine: 'in-process' })).json();
-
-    expect(selected).toMatchObject({ engine: 'in-process', status: { phase: 'starting' } });
-    expect((await loadEnrichmentConfig())?.search_engine).toBe('in-process');
-    expect(children[0]!.sent[0]?.type).toBe('start');
-    resetSearchEngineSelectionForTests();
-    expect(await selectedSearchEngine()).toBe('in-process');
-
-    const back = await (await request('PUT', { engine: 'meilisearch' })).json();
-
-    expect(back).toMatchObject({ engine: 'meilisearch', status: { phase: 'stopped' } });
-    expect(children[0]!.terminated).toBe(true);
-  });
-
-  it('rejects an unknown engine and a non-owner', async () => {
-    expect((await request('PUT', { engine: 'elasticsearch' })).status).toBe(422);
-    expect((await request('PUT', { engine: 'in-process' }, member)).status).toBe(403);
-    expect((await request('GET', undefined, member)).status).toBe(403);
-    expect(children).toEqual([]);
+  it('refuses a non-owner', async () => {
+    expect((await request(member)).status).toBe(403);
   });
 });

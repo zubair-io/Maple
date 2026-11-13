@@ -71,11 +71,13 @@ import XCTest
       let app = try launchWithFilmArmed()
 
       XCTAssertTrue(
-        app.otherElements["editor-film-section"].waitForExistence(timeout: 10),
+        app.descendants(matching: .any).matching(identifier: "editor-film-section")
+          .firstMatch.waitForExistence(timeout: 10),
         "Film section did not appear after arming the Film tool."
       )
       XCTAssertTrue(
-        app.otherElements["film-category-row"].waitForExistence(timeout: 10),
+        app.descendants(matching: .any).matching(identifier: "film-category-row")
+          .firstMatch.waitForExistence(timeout: 10),
         "Category chip row did not appear."
       )
 
@@ -114,7 +116,8 @@ import XCTest
       let app = try launchWithFilmArmed()
 
       XCTAssertTrue(
-        app.otherElements["film-category-row"].waitForExistence(timeout: 10),
+        app.descendants(matching: .any).matching(identifier: "film-category-row")
+          .firstMatch.waitForExistence(timeout: 10),
         "Category chip row did not appear."
       )
 

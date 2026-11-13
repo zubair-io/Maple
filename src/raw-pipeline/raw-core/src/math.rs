@@ -107,14 +107,13 @@ mod tests {
         // dominated by f32 rounding error relative to the O(1) matrix scale.
         // The Frobenius-relative threshold (#1941) must reject it.
         let delta = 5e-7_f32;
-        let m = Matrix3([
-            [1.0, 0.5, 0.25],
-            [2.0, 1.0 + delta, 0.5],
-            [0.0, 0.0, 1.0],
-        ]);
+        let m = Matrix3([[1.0, 0.5, 0.25], [2.0, 1.0 + delta, 0.5], [0.0, 0.0, 1.0]]);
         // Sanity: the determinant IS above the retired absolute floor, so this
         // is precisely the case the old `det.abs() < 1e-12` check waved through.
-        assert!(delta > 1e-12, "test premise: δ must clear the old 1e-12 floor");
+        assert!(
+            delta > 1e-12,
+            "test premise: δ must clear the old 1e-12 floor"
+        );
         assert!(
             m.inverse().is_none(),
             "near-singular f32 matrix (det ≈ {delta}) must fall back to None"

@@ -46,10 +46,11 @@
 use super::AdjustmentModel;
 use crate::types::adjustment::ToneCurve;
 
-/// The eight curve parent elements, in canonical emit order: the four
-/// scene-linear `papp:` curves (#365) followed by the four display-referred
-/// `crs:` curves (#2232).
-pub(super) const CURVE_ELEMENTS: [&str; 8] = [
+/// The 14 curve parent elements, in canonical emit order: the four
+/// scene-linear `papp:` curves (#365), the four display-referred
+/// `crs:` curves (#2232), and the six Oklab secondary `papp:ColorCurve*`
+/// curves (#5041).
+pub(super) const CURVE_ELEMENTS: [&str; 14] = [
     "papp:SceneLinearToneCurve",
     "papp:SceneLinearToneCurveRed",
     "papp:SceneLinearToneCurveGreen",
@@ -58,6 +59,12 @@ pub(super) const CURVE_ELEMENTS: [&str; 8] = [
     "crs:ToneCurvePV2012Red",
     "crs:ToneCurvePV2012Green",
     "crs:ToneCurvePV2012Blue",
+    "papp:ColorCurveHueVsHue",
+    "papp:ColorCurveHueVsSat",
+    "papp:ColorCurveHueVsLuma",
+    "papp:ColorCurveLumaVsSat",
+    "papp:ColorCurveSatVsSat",
+    "papp:ColorCurveSatVsLuma",
 ];
 
 /// Wire domain of a control-point coordinate. PV2012 convention, kept for
@@ -73,7 +80,13 @@ fn curve_slot(m: &mut AdjustmentModel, index: usize) -> &mut ToneCurve {
         4 => &mut m.display_tone_curve_luma,
         5 => &mut m.display_tone_curve_red,
         6 => &mut m.display_tone_curve_green,
-        _ => &mut m.display_tone_curve_blue,
+        7 => &mut m.display_tone_curve_blue,
+        8 => &mut m.color_curve_hue_vs_hue,
+        9 => &mut m.color_curve_hue_vs_sat,
+        10 => &mut m.color_curve_hue_vs_luma,
+        11 => &mut m.color_curve_luma_vs_sat,
+        12 => &mut m.color_curve_sat_vs_sat,
+        _ => &mut m.color_curve_sat_vs_luma,
     }
 }
 
@@ -86,7 +99,13 @@ fn curve_ref(m: &AdjustmentModel, index: usize) -> &ToneCurve {
         4 => &m.display_tone_curve_luma,
         5 => &m.display_tone_curve_red,
         6 => &m.display_tone_curve_green,
-        _ => &m.display_tone_curve_blue,
+        7 => &m.display_tone_curve_blue,
+        8 => &m.color_curve_hue_vs_hue,
+        9 => &m.color_curve_hue_vs_sat,
+        10 => &m.color_curve_hue_vs_luma,
+        11 => &m.color_curve_luma_vs_sat,
+        12 => &m.color_curve_sat_vs_sat,
+        _ => &m.color_curve_sat_vs_luma,
     }
 }
 

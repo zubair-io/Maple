@@ -71,6 +71,15 @@ public enum ExportFileFormat: String, Sendable, CaseIterable {
     }
   }
 
+  /// The display encode an export of this format renders through: the P3
+  /// formats keep the wide gamut, every other format is delivered in sRGB.
+  public var encodePrimaries: CanvasColorSpace {
+    switch self {
+    case .jpegP3, .heicP3: return .displayP3
+    case .jpegSRGB, .tiff16, .png: return .srgb
+    }
+  }
+
   public var uti: CFString {
     switch self {
     case .jpegSRGB, .jpegP3: return "public.jpeg" as CFString
@@ -104,16 +113,6 @@ public enum ExportFileFormat: String, Sendable, CaseIterable {
     case .tiff16: return CGColorSpace(name: CGColorSpace.linearSRGB)!
     }
   }
-
-  /// Develop into the delivery gamut before quantizing, independently of
-  /// the live canvas. Converting an 8-bit P3 preview to sRGB afterwards
-  /// disagrees with a fresh shared-core sRGB export (#1472).
-  var renderPrimaries: CanvasColorSpace {
-    switch self {
-    case .jpegP3, .heicP3: return .displayP3
-    case .jpegSRGB, .tiff16, .png: return .srgb
-    }
-  }
 }
 
 // MARK: - MapleExporter
@@ -143,7 +142,7 @@ public struct MapleExporter: Sendable {
   public static func exportData(session: EditSession, options: ExportOptions) async throws -> Data {
     // Full-quality or fast-fit bake based on options.sizeOption.
     let ci = try await session.renderForExport(
-      sizeOption: options.sizeOption, targetPrimariesOverride: options.format.renderPrimaries)
+      sizeOption: options.sizeOption, primaries: options.format.encodePrimaries)
     return try await encodeOffMainActor(ci, options: options)
   }
 

@@ -6,6 +6,10 @@
 // (`XmpRetouchTests.cs`), and every writer that models the block must
 // produce it byte for byte from `canonicalSpots()`.
 
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
 import { TestBed } from '@angular/core/testing';
 import { describe, it, expect, beforeEach } from 'vitest';
 
@@ -147,6 +151,51 @@ describe('crs:RetouchAreas (#3409)', () => {
     expect(resaved).toContain(CANONICAL_BLOCK);
   });
 
+  it('stamps the upright frame once, and only when there are spots (#4473)', () => {
+    const { model, passthrough } = parser.parseAdjustmentModel(document(CANONICAL_BLOCK));
+    const resaved = serializer.serialize({ ...defaultAdjustmentModel(), ...model }, passthrough);
+    expect(resaved.split('papp:RetouchFrameVersion="2"').length - 1).toBe(1);
+
+    const reparsed = parser.parseAdjustmentModel(resaved);
+    const again = serializer.serialize(
+      { ...defaultAdjustmentModel(), ...reparsed.model },
+      reparsed.passthrough,
+    );
+    expect(again.split('RetouchFrameVersion').length - 1).toBe(1);
+    expect(serializer.serialize(defaultAdjustmentModel())).not.toContain('RetouchFrameVersion');
+  });
+
+  it('keeps an unstamped Maple list legacy and unstamped until a spot is edited (#4473)', () => {
+    const maple = document(CANONICAL_BLOCK).replace(
+      '<rdf:Description',
+      '<rdf:Description xmlns:papp="http://ns.justmaple.app/photo/1.0/" papp:Profile="Auto"',
+    );
+    const { model, passthrough } = parser.parseAdjustmentModel(maple);
+    expect(model.retouchFrameLegacy).toBe(true);
+    const resaved = serializer.serialize({ ...defaultAdjustmentModel(), ...model }, passthrough);
+    expect(resaved).not.toContain('RetouchFrameVersion');
+    expect(parser.parseAdjustmentModel(resaved).model.retouchFrameLegacy).toBe(true);
+
+    const adopted = serializer.serialize(
+      { ...defaultAdjustmentModel(), ...model, retouchFrameLegacy: false },
+      passthrough,
+    );
+    expect(adopted.split('papp:RetouchFrameVersion="2"').length - 1).toBe(1);
+    expect(parser.parseAdjustmentModel(adopted).model.retouchFrameLegacy).not.toBe(true);
+  });
+
+  it('a stamped reread clears a stale legacy flag when merged over the in-memory model (#4473)', () => {
+    const stamped = document(CANONICAL_BLOCK).replace(
+      '<rdf:Description',
+      '<rdf:Description xmlns:papp="http://ns.justmaple.app/photo/1.0/" papp:RetouchFrameVersion="2"',
+    );
+    const stale = { ...defaultAdjustmentModel(), retouchFrameLegacy: true };
+    const { model, passthrough } = parser.parseAdjustmentModel(stamped);
+    const merged = { ...stale, ...model };
+    expect(merged.retouchFrameLegacy).toBe(false);
+    expect(serializer.serialize(merged, passthrough)).toContain('papp:RetouchFrameVersion="2"');
+  });
+
   it('imports a spot whose source is encoded as an offset', () => {
     const block = `      <crs:RetouchAreas>
         <rdf:Seq>
@@ -208,5 +257,87 @@ describe('crs:RetouchAreas (#3409)', () => {
       </crs:RetouchInfo>`;
     const { model } = parser.parseAdjustmentModel(document(`${legacy}\n${CANONICAL_BLOCK}`));
     expect(model.retouchSpots).toEqual(canonicalSpots());
+  });
+
+  describe('legacy crs:RetouchInfo that decodes to no spot (#5658)', () => {
+    const WELL_FORMED = `      <crs:RetouchInfo>
+        <rdf:Seq>
+          <rdf:li>centerX = 0.5, centerY = 0.5, radius = 0.02, sourceState = sourceSetExplicitly, sourceX = 0.6, sourceY = 0.5, spotType = heal</rdf:li>
+        </rdf:Seq>
+      </crs:RetouchInfo>`;
+    const UNDECODABLE_SEQ = `        <rdf:Seq>
+          <rdf:li>centerX = 0.5, centerY = 0.5, radius = 0.02, spotType = heal</rdf:li>
+          <rdf:li>not a key value list at all</rdf:li>
+        </rdf:Seq>`;
+    const UNDECODABLE = `      <crs:RetouchInfo>\n${UNDECODABLE_SEQ}\n      </crs:RetouchInfo>`;
+    const retouchInfoCount = (xml: string): number => xml.split('<crs:RetouchInfo').length - 1;
+    const MIXED = WELL_FORMED.replace(
+      '</rdf:Seq>',
+      '  <rdf:li>garbage</rdf:li>\n        </rdf:Seq>',
+    );
+    const asMaple = (xml: string): string =>
+      xml.replace(
+        '<rdf:Description',
+        '<rdf:Description xmlns:papp="http://ns.justmaple.app/photo/1.0/" papp:Profile="Auto"',
+      );
+
+    const save = (xml: string): string => {
+      const dir = mkdtempSync(join(tmpdir(), 'maple-xmp-5658-'));
+      try {
+        const path = join(dir, 'IMG_0001.xmp');
+        writeFileSync(path, xml, 'utf8');
+        const { model, passthrough } = parser.parseAdjustmentModel(readFileSync(path, 'utf8'));
+        writeFileSync(
+          path,
+          serializer.serialize(
+            { ...defaultAdjustmentModel(), ...model, exposure: 0.25 },
+            passthrough,
+          ),
+          'utf8',
+        );
+        return readFileSync(path, 'utf8');
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    };
+
+    it('survives a save verbatim and unstamped, for foreign and Maple-authored sidecars', () => {
+      for (const xml of [document(UNDECODABLE), asMaple(document(UNDECODABLE))]) {
+        const written = save(xml);
+        expect(retouchInfoCount(written)).toBe(1);
+        expect(written).toContain(UNDECODABLE_SEQ);
+        expect(written).not.toContain('RetouchFrameVersion');
+        expect(written).not.toContain('<crs:RetouchAreas>');
+      }
+    });
+
+    it('stays a single verbatim copy across repeated saves', () => {
+      const once = save(document(UNDECODABLE));
+      const thrice = save(save(once));
+      expect(retouchInfoCount(thrice)).toBe(1);
+      expect(thrice).toContain(UNDECODABLE_SEQ);
+      expect(thrice).not.toContain('RetouchFrameVersion');
+    });
+
+    it('still converts a decodable list to the stamped struct form', () => {
+      const written = save(document(WELL_FORMED));
+      expect(written).not.toContain('crs:RetouchInfo');
+      expect(written.split('<crs:RetouchAreas>').length - 1).toBe(1);
+      expect(written.split('papp:RetouchFrameVersion="2"').length - 1).toBe(1);
+    });
+
+    it('keeps an undecodable list beside a struct container and reads the struct spots', () => {
+      const written = save(document(`${UNDECODABLE}\n${CANONICAL_BLOCK}`));
+      expect(retouchInfoCount(written)).toBe(1);
+      expect(written.split('<crs:RetouchAreas>').length - 1).toBe(1);
+      expect(parser.parseAdjustmentModel(written).model.retouchSpots).toEqual(canonicalSpots());
+    });
+
+    it('converts a mixed list and drops its undecodable entry', () => {
+      const written = save(document(MIXED));
+      expect(written).not.toContain('crs:RetouchInfo');
+      expect(written).not.toContain('garbage');
+      expect(parser.parseAdjustmentModel(written).model.retouchSpots?.length).toBe(1);
+    });
   });
 });

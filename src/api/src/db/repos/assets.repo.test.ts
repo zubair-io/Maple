@@ -203,6 +203,47 @@ describe('findDetailById', () => {
     expect(dto!.folder_id).toBe(libraryId);
     expect(dto!.filename).toBe('root.dng');
   });
+
+  test('exposes deleted_at and deleted_reason for live, user-trashed, and reaped assets (#4805)', async () => {
+    using handle = await createTestDatabase();
+    const { db } = handle;
+    const sql = testSqliteDb(db);
+    const libraryId = insertFolder(db, { path: '/libraries/main' });
+
+    const liveId = insertAsset(db);
+    insertLocation(db, { assetId: liveId, libraryId, path: '2024', filename: 'live.dng' });
+
+    const trashedId = insertAsset(db, { deletedAt: '2026-04-05T01:00:00Z' });
+    insertLocation(db, {
+      assetId: trashedId,
+      libraryId,
+      path: '.maple/trash/2024',
+      filename: 'trashed.dng',
+    });
+
+    const reapedId = insertAsset(db, { deletedAt: '2026-04-05T02:00:00Z' });
+    insertLocation(db, {
+      assetId: reapedId,
+      libraryId,
+      path: '2024',
+      filename: 'reaped.dng',
+      missingSince: '2026-04-04T00:00:00Z',
+    });
+    run(db, `UPDATE assets SET deleted_reason = 'reaped' WHERE id = ?`, reapedId);
+
+    const liveDto = await findDetailById(oid(liveId), sql);
+    expect(liveDto!.deleted_at).toBeNull();
+    expect(liveDto!.deleted_reason).toBeNull();
+
+    const trashedDto = await findDetailById(oid(trashedId), sql);
+    expect(trashedDto!.deleted_at).toBe('2026-04-05T01:00:00Z');
+    expect(trashedDto!.deleted_reason).toBeNull();
+
+    const reapedDto = await findDetailById(oid(reapedId), sql);
+    expect(reapedDto!.deleted_at).toBe('2026-04-05T02:00:00Z');
+    expect(reapedDto!.deleted_reason).toBe('reaped');
+    expect(reapedDto!.abs_path).toBe('/libraries/main/2024/reaped.dng');
+  });
 });
 
 describe('findDetailsByIds', () => {

@@ -19,16 +19,87 @@ use std::cell::{Cell, RefCell};
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
-#[path = "present_geometry.rs"]
-mod geometry;
-pub use geometry::{PresentGeometry, QuantizedDisplayTail};
+/// The manual-geometry homography the present shader warps by (#3410).
+///
+/// Three `vec4` rows of the DESTINATION → SOURCE matrix in the centred,
+/// half-extent-normalized `[-1, 1]` space `raw-core`'s
+/// `stages::perspective::matrix` defines; `rows[0][3]` is the active flag.
+/// [`Self::from_stages`] adds a second, separately resampled crop stage, in
+/// which case `rows` maps the display frame to the chain buffer.
+/// `raw-gpu` does not depend on `raw-core` (the dependency runs the other way,
+/// through raw-core's optional `gpu` feature), so the matrix is *built* by the
+/// core and *carried* here as plain numbers — one implementation of the math,
+/// no second copy to keep in step.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct PresentGeometry {
+    rows: [[f32; 4]; 3],
+    /// Second, separately resampled stage: cropped frame → display frame, plus
+    /// the display frame's dims. `crop[0][3]` is its active flag.
+    crop: [[f32; 4]; 3],
+    display: [u32; 2],
+}
+
+impl PresentGeometry {
+    /// No manual geometry: the present takes its untouched pre-#3410 load
+    /// paths, byte for byte.
+    pub const IDENTITY: Self = Self {
+        rows: [[0.0; 4]; 3],
+        crop: [[0.0; 4]; 3],
+        display: [0; 2],
+    };
+
+    /// Wrap a row-major destination → source homography. Callers pass
+    /// `raw_core::stages::perspective::Perspective::inverse_matrix`'s output.
+    pub fn from_inverse(m: [f32; 9]) -> Self {
+        Self {
+            rows: [
+                [m[0], m[1], m[2], 1.0],
+                [m[3], m[4], m[5], 0.0],
+                [m[6], m[7], m[8], 0.0],
+            ],
+            ..Self::IDENTITY
+        }
+    }
+
+    /// An off-axis crop over an already warped display frame is two bilinear
+    /// resamples on the CPU, and one composed resample cannot reproduce that.
+    /// `display_to_source` is the first stage (display frame → chain buffer),
+    /// `crop_to_display` the second (affine, cropped frame → display frame of
+    /// `display_dims`). The shader evaluates the first stage at the four display
+    /// pixels the second stage's bilinear footprint touches.
+    pub fn from_stages(
+        display_to_source: [f32; 9],
+        crop_to_display: [f32; 9],
+        display_dims: (u32, u32),
+    ) -> Self {
+        let m = crop_to_display;
+        Self {
+            crop: [[m[0], m[1], m[2], 1.0], [m[3], m[4], m[5], 0.0], [0.0; 4]],
+            display: [display_dims.0, display_dims.1],
+            ..Self::from_inverse(display_to_source)
+        }
+    }
+
+    /// True when this actually warps — i.e. the shader will take a resample
+    /// arm (single or two-stage) rather than the direct load.
+    pub fn is_active(&self) -> bool {
+        self.rows[0][3] != 0.0
+    }
+}
+
+impl Default for PresentGeometry {
+    fn default() -> Self {
+        Self::IDENTITY
+    }
+}
 
 /// `repr(C)` uniform for `present_chain.wgsl`: the surface width/height, the
 /// chain-buffer dims when they differ from the surface (#2587's half-res
 /// fast pass — the shader bilinearly upscales), and the manual-geometry
-/// homography (#3410). `src_* = 0` selects the exact 1:1 load path and a
-/// zeroed `geometry` selects no warp, so a present that wants neither writes
-/// the same bytes the pre-#2587 uniform did in its first two fields.
+/// homography (#3410), and the optional second crop stage (#3982). `src_* = 0`
+/// selects the exact 1:1 load path and a zeroed `geometry` selects no warp, so
+/// a present that wants neither writes the same bytes the pre-#2587 uniform did
+/// in its first two fields.
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 pub(crate) struct PresentParams {
@@ -39,10 +110,10 @@ pub(crate) struct PresentParams {
     /// `PresentGeometry::rows`. A `vec4` per row: the only 16-byte-aligned row
     /// shape a uniform block accepts without an implicit-stride surprise.
     pub geometry: [[f32; 4]; 3],
-    pub orientation: [[f32; 4]; 2],
-    pub crop: [[f32; 4]; 2],
-    pub crop_rotation: [f32; 4],
-    pub tail_dimensions: [u32; 4],
+    /// `PresentGeometry::crop`, then the display-frame dims it samples (padded
+    /// to a 16-byte row).
+    pub crop: [[f32; 4]; 3],
+    pub display: [u32; 4],
 }
 
 /// Pick the surface format: the first *non-sRGB* BGRA/RGBA 8-bit the surface
@@ -59,6 +130,22 @@ pub(crate) fn pick_surface_format(caps: &wgpu::SurfaceCapabilities) -> wgpu::Tex
         .unwrap_or_else(|| caps.formats[0])
 }
 
+#[cfg(any(target_os = "android", test))]
+pub(crate) fn pick_android_surface_format(
+    caps: &wgpu::SurfaceCapabilities,
+    wide: bool,
+) -> Result<wgpu::TextureFormat, String> {
+    use wgpu::TextureFormat::*;
+    if wide && caps.formats.contains(&Rgba16Float) {
+        return Ok(Rgba16Float);
+    }
+    caps.formats
+        .iter()
+        .copied()
+        .find(|format| matches!(format, Bgra8Unorm | Rgba8Unorm))
+        .ok_or_else(|| "Android surface has no matching display format".into())
+}
+
 /// Build the chain-present render pipeline on `ctx.device` for `format`. Lays out
 /// a 3-binding group (params @0, f32 chain @1, blue-noise ranks @3) and a fullscreen
 /// vertex+fragment from `present_chain.wgsl`. Each persistent surface retains
@@ -67,18 +154,22 @@ pub(crate) fn build_present_pipeline(
     ctx: &GpuContext,
     format: wgpu::TextureFormat,
 ) -> (wgpu::RenderPipeline, wgpu::BindGroupLayout) {
+    let scrgb = format == wgpu::TextureFormat::Rgba16Float;
+    let source = if scrgb {
+        format!(
+            "{}\n{}\n{}",
+            include_str!("generated/color_matrices.wgsl"),
+            include_str!("present_chain.wgsl"),
+            include_str!("present_scrgb.wgsl")
+        )
+    } else {
+        include_str!("present_chain.wgsl").to_owned()
+    };
     let shader = ctx
         .device
         .create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("present-chain"),
-            source: wgpu::ShaderSource::Wgsl(
-                concat!(
-                    include_str!("present_chain.wgsl"),
-                    "\n",
-                    include_str!("present_geometry.wgsl")
-                )
-                .into(),
-            ),
+            source: wgpu::ShaderSource::Wgsl(source.into()),
         });
     let bind_group_layout = ctx
         .device
@@ -137,7 +228,7 @@ pub(crate) fn build_present_pipeline(
             },
             fragment: Some(wgpu::FragmentState {
                 module: &shader,
-                entry_point: Some("fs_main"),
+                entry_point: Some(if scrgb { "fs_scrgb" } else { "fs_main" }),
                 targets: &[Some(wgpu::ColorTargetState {
                     format,
                     blend: None,
@@ -169,8 +260,22 @@ pub(crate) struct PresentDispatch {
 /// this is the ONLY place in the present path that does. A caller driving this
 /// every render-loop tick (the live present path) MUST cache the result via
 /// [`PresentDispatchCache`] instead of calling this per tick; only the true
-/// one-shot host oracle ([`crate::present_chain::present_chain_to_offscreen`])
-/// calls it directly.
+/// one-shot test oracles call it directly (the offscreen present uses the
+/// scaled sibling).
+#[cfg(test)]
+pub(crate) fn build_present_dispatch(
+    ctx: &GpuContext,
+    bind_group_layout: &wgpu::BindGroupLayout,
+    chain_buf: &wgpu::Buffer,
+    dims: (u32, u32),
+    geometry: PresentGeometry,
+) -> PresentDispatch {
+    build_present_dispatch_scaled(ctx, bind_group_layout, chain_buf, dims, (0, 0), geometry)
+}
+
+/// Build a present dispatch, with an explicit chain-buffer size differing
+/// from the surface (#2587 half-res fast pass). `src_dims = (0, 0)` is the
+/// 1:1 path — identical uniform bytes to the pre-#2587 build.
 pub(crate) fn build_present_dispatch_scaled(
     ctx: &GpuContext,
     bind_group_layout: &wgpu::BindGroupLayout,
@@ -213,7 +318,7 @@ pub(crate) fn build_present_dispatch_scaled(
 }
 
 /// The uniform bytes for one present.
-pub(crate) fn present_params(
+fn present_params(
     dims: (u32, u32),
     src_dims: (u32, u32),
     geometry: PresentGeometry,
@@ -224,10 +329,8 @@ pub(crate) fn present_params(
         src_width: src_dims.0,
         src_height: src_dims.1,
         geometry: geometry.rows,
-        orientation: geometry.tail.orientation_rows,
-        crop: geometry.tail.crop_rows,
-        crop_rotation: geometry.tail.crop_rotation,
-        tail_dimensions: geometry.tail.dimensions,
+        crop: geometry.crop,
+        display: [geometry.display[0], geometry.display[1], 0, 0],
     }
 }
 

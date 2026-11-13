@@ -8,7 +8,7 @@
  *   PUT    /api/people/:id            — body { name } → rename; merge on collision
  *   POST   /api/people/:id/hide       — soft-hide a person (keeps faces + row)
  *   POST   /api/people/:id/unhide     — restore a hidden person
- *   POST   /api/people/cluster        — kicks off online clustering
+ *   POST   /api/people/cluster        — runs online clustering on the worker tier, answers its counts (`people-cluster.ts`)
  *   POST   /api/people/assign         — manual face → person override
  *   POST   /api/people/hide           — hide a face (excluded from clustering)
  *   POST   /api/people/merge          — merge source people into a target (target survives)
@@ -20,7 +20,7 @@
 import { Elysia, t } from 'elysia';
 import type { ObjectId } from '../db/object-id.ts';
 import { backfillCoverAssets } from '../people/clustering-job.ts';
-import { clusterCoordinator } from '../people/cluster-coordinator.ts';
+import { peopleClusterRoutes } from './people-cluster.ts';
 import {
   assignFaceToPerson,
   createPerson,
@@ -49,12 +49,6 @@ const log = childLogger('people:routes');
 const NameBody = t.Object({
   name: t.String({ minLength: 1, maxLength: 200 }),
 });
-
-const ClusterBody = t.Optional(
-  t.Object({
-    similarity_threshold: t.Optional(t.Number()),
-  }),
-);
 
 const AssignBody = t.Object({
   asset_id: t.String({ minLength: 1 }),
@@ -107,7 +101,7 @@ function toPersonListRow(r: PersonWithCount) {
   };
 }
 
-export const peopleRoutes = new Elysia({ prefix: '/api/people' })
+const peopleRoutesCore = new Elysia({ prefix: '/api/people' })
   // ── List ────────────────────────────────────────────────────────────
   .get('/', async () => {
     // Opportunistic cover heal: installs clustered before cover_asset_id
@@ -408,27 +402,6 @@ export const peopleRoutes = new Elysia({ prefix: '/api/people' })
     { body: CoverBody },
   )
 
-  // ── Online clustering ───────────────────────────────────────────────
-  .post(
-    '/cluster',
-    async ({ body }) => {
-      const opts: { similarityThreshold?: number } = {};
-      if (body && typeof body.similarity_threshold === 'number') {
-        opts.similarityThreshold = body.similarity_threshold;
-      }
-      // Route the manual click through the shared single-flight coordinator so
-      // an operator "Run clustering" and a face-embed auto-trigger can never
-      // run two passes concurrently (both walk the whole faces space).
-      const result = await clusterCoordinator().runClusterNow(opts);
-      return {
-        assigned: result.assigned,
-        new_people: result.newPeople,
-        scanned: result.scanned,
-      };
-    },
-    { body: ClusterBody },
-  )
-
   // ── Manual assign / unassign ────────────────────────────────────────
   .post(
     '/assign',
@@ -475,3 +448,5 @@ export const peopleRoutes = new Elysia({ prefix: '/api/people' })
     },
     { body: HideBody },
   );
+
+export const peopleRoutes = new Elysia().use(peopleClusterRoutes()).use(peopleRoutesCore);

@@ -36,25 +36,30 @@ enum XMPMaskGroupSources {
   }
 
   static func collect(_ xml: String) -> Collection {
-    let namespaces = SourceNamespaces.atFirstDescription(xml)
+    let fallbackNamespaces = SourceNamespaces.atFirstDescription(xml)
     let candidates = XMPChildElementScanner.descriptionChildren(in: xml)
       .filter { local($0.qName, "MaskGroupBasedCorrections") }
     let groups =
       candidates
       .filter {
-        XMPMaskGroupNamespaces.matches(
+        let base = $0.inheritedNamespaces.isEmpty ? fallbackNamespaces : $0.inheritedNamespaces
+        return XMPMaskGroupNamespaces.matches(
           $0.qName, LocalAdjustmentXMP.groupContainer,
-          namespaces: scope(namespaces, attributes: rootAttributes($0.source)))
+          namespaces: scope(base, attributes: rootAttributes($0.source)))
       }
     var collection = Collection()
     collection.groupSources = Set(groups.map(\.source))
     for candidate in candidates where !collection.groupSources.contains(candidate.source) {
+      let base =
+        candidate.inheritedNamespaces.isEmpty ? fallbackNamespaces : candidate.inheritedNamespaces
       collection.unownedGroupSources[candidate.source] = explicitNamespaces(
         candidate.source,
-        namespaces: scope(namespaces, attributes: rootAttributes(candidate.source)))
+        namespaces: scope(base, attributes: rootAttributes(candidate.source)))
     }
     var opaque = false
     for group in groups {
+      let namespaces =
+        group.inheritedNamespaces.isEmpty ? fallbackNamespaces : group.inheritedNamespaces
       let rootChildren = children(group.source, "MaskGroupBasedCorrections")
       let groupNamespaces = scope(namespaces, attributes: rootAttributes(group.source))
       guard rootChildren.count == 1,
@@ -246,7 +251,7 @@ enum XMPMaskGroupSources {
       child.qName, name, namespaces: scope(inherited, attributes: rootAttributes(child.source)))
   }
 
-  private static func explicitNamespaces(_ source: String, namespaces: [String: String]) -> String {
+  static func explicitNamespaces(_ source: String, namespaces: [String: String]) -> String {
     guard
       let nameEnd = source.firstIndex(where: { $0.isWhitespace || $0 == ">" || $0 == "/" })
     else { return source }
@@ -270,7 +275,7 @@ enum XMPMaskGroupSources {
     attributes.keys.allSatisfy { $0 == "xmlns" || $0.hasPrefix("xmlns:") }
   }
 
-  private static func scope(_ inherited: [String: String], attributes: [String: String]) -> [String:
+  static func scope(_ inherited: [String: String], attributes: [String: String]) -> [String:
     String]
   {
     inherited.merging(
@@ -283,7 +288,7 @@ enum XMPMaskGroupSources {
       }, uniquingKeysWith: { _, local in local })
   }
 
-  private static func rootAttributes(_ xml: String) -> [String: String] {
+  static func rootAttributes(_ xml: String) -> [String: String] {
     let delegate = SourceRootAttributes()
     let parser = XMLParser(data: Data(xml.utf8))
     parser.delegate = delegate

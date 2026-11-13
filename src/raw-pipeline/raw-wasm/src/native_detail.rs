@@ -234,6 +234,7 @@ impl NativeDetailSession {
                 ext: &self.ext,
             };
             let options = DetailRenderOptions {
+                target: raw_core::view::encode::TargetPrimaries::Srgb,
                 quality: if preview {
                     RenderQuality::Preview
                 } else {

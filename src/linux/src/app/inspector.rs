@@ -4,6 +4,11 @@ use crate::{
     library::MediaKind,
 };
 
+/// Shown when Auto is selected but the core found no embedded camera preview
+/// to fit against (#5458); the same copy every Maple client uses.
+pub(super) const AUTO_NO_PREVIEW_STATUS: &str =
+    "Auto unavailable: no camera preview — showing Neutral.";
+
 impl MapleApp {
     pub(super) fn inspector(&mut self, context: &egui::Context) {
         let mut changed = false;
@@ -71,6 +76,16 @@ impl MapleApp {
                         )
                         .changed();
                 });
+                if document.model.profile == raw_core::types::adjustment::Profile::Auto
+                    && self.auto_fit
+                        == Some(raw_core::view::auto_profile::AutoFitOutcome::NoPreview)
+                {
+                    ui.label(
+                        egui::RichText::new(AUTO_NO_PREVIEW_STATUS)
+                            .small()
+                            .color(super::style::color("text_muted")),
+                    );
+                }
                 changed |= ui
                     .add(egui::Slider::new(&mut document.culling.rating, 0..=5).text("Rating"))
                     .changed();

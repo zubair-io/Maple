@@ -1,0 +1,2795 @@
+{
+  "scope": "Evidence triage of all105 source37 ACR failures. No budgets, source images, pass statuses or renderer changes.",
+  "renderer_commit": "95fc03d6819b34f46f928ba93de58188a4014022",
+  "binary_sha256": "bd23444c334ca520cb634fa92622bd7c41452c70569f095d7f1e995683f6e96c",
+  "ledger_sha256": "4e438fa385edc1776062a8e90f9c9af4a8be9ec0b1a43edc46d989f70b58d5ab",
+  "budgets_sha256": "8a0427c569486b27c9c6cd3bfa5797bb031fa8c0a71d62fa29a9289bfcf17e58",
+  "classification_is_not_a_waiver": true,
+  "confirmed_expected_agx_case_count": 0,
+  "expected_agx_note": "Neutral AgX appearance is intentional. The evidence does not yet isolate AgX as the sole cause of a whole failing case; never call unexplained baseline bias expected.",
+  "counts": {
+    "unresolved-processing-or-appearance": 18,
+    "introduced-regression-needs-root-cause": 13,
+    "confirmed-reference-settings-defect": 18,
+    "baseline-appearance-or-calibration-candidate": 56
+  },
+  "native_baseline_measurements": {
+    "test_0005": {
+      "bias": [
+        0.11492775321605564,
+        0.09545385156621589,
+        0.08630705402434946
+      ],
+      "size": [
+        8256,
+        6192
+      ],
+      "candidate_sha256": "ce3c845b255174ba48e50258cf4c325bd2440dc9d101448e6e9c52c377ab7cd1",
+      "reference_sha256": "2ceb03f0c421d15f996adec8c6fabb195fc8318b5abebe0ef33e8022b42c4e17"
+    },
+    "test_0011": {
+      "bias": [
+        0.04037464785599859,
+        0.03387949986700206,
+        0.031474812306567346
+      ],
+      "size": [
+        9504,
+        6336
+      ],
+      "candidate_sha256": "85cd1ad15f3188f1804e9193ffee03c09c41073f2b1ac8c7bffaa2519eff958f",
+      "reference_sha256": "5d3b509bc0423ae4fdf1e78df9907ced1ef813121838d16d2e73aeb396e5a69c"
+    },
+    "test_0012": {
+      "bias": [
+        0.14336504020419388,
+        0.06849575521548279,
+        0.03352237192519125
+      ],
+      "size": [
+        8256,
+        6192
+      ],
+      "candidate_sha256": "1af6852918b380375205089a88397a52f79c7d89057b11699e4b715a36b9b677",
+      "reference_sha256": "8028795b6a2dba1d174c4482710c312ca78ad67ede8a437d550eea2b64f09a72"
+    },
+    "test_0014": {
+      "bias": [
+        0.18907400053481258,
+        0.1741637530517125,
+        0.17633140882547355
+      ],
+      "size": [
+        8256,
+        5504
+      ],
+      "candidate_sha256": "5081a6d98d1d9562dda02b751fe6040831277563646cb07ff9de088ac7343259",
+      "reference_sha256": "5e5284b1f1bde08d4c61aaa6eccf475fbac2688806bf873bff1fb1c0013dc5f9"
+    }
+  },
+  "cases": [
+    {
+      "fixture": "test_0000",
+      "case": "contrast_min",
+      "profile": "neutral",
+      "resolution": "down",
+      "status": "breach",
+      "breaches": [
+        "max 40.03>39.00"
+      ],
+      "mean": 6.0432270978617915,
+      "p95": 10.519386870941158,
+      "max": 40.03285127913828,
+      "bR": 0.0014332183034656508,
+      "bG": 0.004417565478403072,
+      "bB": 0.006221840103843745,
+      "n_pixels": 10668000,
+      "reference_protocol": "legacy-direct-reference",
+      "classification": "unresolved-processing-or-appearance",
+      "waived": false,
+      "next_check": "Independent stage oracle or baseline-relative edit response; ACR difference alone is insufficient."
+    },
+    {
+      "fixture": "test_0000",
+      "case": "dehaze_max",
+      "profile": "neutral",
+      "resolution": "down",
+      "status": "breach",
+      "breaches": [
+        "max 49.23>48.70"
+      ],
+      "mean": 8.00341111430042,
+      "p95": 16.80832455187879,
+      "max": 49.23224243686738,
+      "bR": -0.05329783327950077,
+      "bG": -0.05238630392592966,
+      "bB": -0.06464662662139728,
+      "n_pixels": 10668000,
+      "reference_protocol": "legacy-direct-reference",
+      "classification": "introduced-regression-needs-root-cause",
+      "waived": false,
+      "next_check": "Isolate processing changes against captured main; do not dismiss as intended AgX.",
+      "evidence": "color-suite-5000-branch37-full.json:matched_captured_main"
+    },
+    {
+      "fixture": "test_0000",
+      "case": "temperature_max",
+      "profile": "neutral",
+      "resolution": "down",
+      "status": "breach",
+      "breaches": [
+        "max 37.89>35.60"
+      ],
+      "mean": 7.43124244118124,
+      "p95": 13.896529367512384,
+      "max": 37.89350325467051,
+      "bR": -0.09855889643605578,
+      "bG": -0.06219492964098634,
+      "bB": -0.0915442323701829,
+      "n_pixels": 10668000,
+      "reference_protocol": "legacy-direct-reference",
+      "classification": "unresolved-processing-or-appearance",
+      "waived": false,
+      "next_check": "Independent stage oracle or baseline-relative edit response; ACR difference alone is insufficient."
+    },
+    {
+      "fixture": "test_0000",
+      "case": "whites_min",
+      "profile": "neutral",
+      "resolution": "down",
+      "status": "breach",
+      "breaches": [
+        "max 38.84>38.10"
+      ],
+      "mean": 5.151839275522205,
+      "p95": 9.320287424748496,
+      "max": 38.84094646372805,
+      "bR": 0.02609680342989969,
+      "bG": 0.026029179121434504,
+      "bB": 0.027588026289798787,
+      "n_pixels": 10668000,
+      "reference_protocol": "legacy-direct-reference",
+      "classification": "unresolved-processing-or-appearance",
+      "waived": false,
+      "next_check": "Independent stage oracle or baseline-relative edit response; ACR difference alone is insufficient."
+    },
+    {
+      "fixture": "test_0001",
+      "case": "dehaze_min",
+      "profile": "neutral",
+      "resolution": "down",
+      "status": "breach",
+      "breaches": [
+        "max 56.67>56.00"
+      ],
+      "mean": 13.84796791081434,
+      "p95": 26.39188045800075,
+      "max": 56.66579339005195,
+      "bR": -0.1033395628619463,
+      "bG": -0.034293364477910926,
+      "bB": -0.062445519309903184,
+      "n_pixels": 9000000,
+      "reference_protocol": "legacy-direct-reference",
+      "classification": "introduced-regression-needs-root-cause",
+      "waived": false,
+      "next_check": "Isolate processing changes against captured main; do not dismiss as intended AgX.",
+      "evidence": "color-suite-5000-branch37-full.json:matched_captured_main"
+    },
+    {
+      "fixture": "test_0001",
+      "case": "tint_max",
+      "profile": "neutral",
+      "resolution": "down",
+      "status": "breach",
+      "breaches": [
+        "mean 43.90>31.80",
+        "p95 57.92>47.90",
+        "max 85.22>74.70",
+        "bias_B +0.4737>0.3145"
+      ],
+      "mean": 43.89973719310892,
+      "p95": 57.91924694263059,
+      "max": 85.2175208132702,
+      "bR": 0.14605345245686893,
+      "bG": -0.08481104369266108,
+      "bB": 0.4736682234704274,
+      "n_pixels": 9000000,
+      "reference_protocol": "legacy-direct-reference",
+      "classification": "confirmed-reference-settings-defect",
+      "waived": false,
+      "next_check": "Independently recaptured references are preserved; adoption still pending. No renderer diagnosis from this mismatched pair.",
+      "evidence": "color-suite-5000-tint-recapture-proposal.json"
+    },
+    {
+      "fixture": "test_0002",
+      "case": "shadows_max",
+      "profile": "neutral",
+      "resolution": "down",
+      "status": "breach",
+      "breaches": [
+        "max 45.00>44.30"
+      ],
+      "mean": 15.530303790785652,
+      "p95": 23.757645795007814,
+      "max": 44.99664088765417,
+      "bR": -0.2413547056532932,
+      "bG": -0.20752318334342076,
+      "bB": -0.19054641818282644,
+      "n_pixels": 12000000,
+      "reference_protocol": "legacy-direct-reference",
+      "classification": "introduced-regression-needs-root-cause",
+      "waived": false,
+      "next_check": "Isolate processing changes against captured main; do not dismiss as intended AgX.",
+      "evidence": "color-suite-5000-branch37-full.json:matched_captured_main"
+    },
+    {
+      "fixture": "test_0002",
+      "case": "tint_max",
+      "profile": "neutral",
+      "resolution": "down",
+      "status": "breach",
+      "breaches": [
+        "mean 35.03>25.80",
+        "p95 39.80>31.10",
+        "max 50.81>42.60",
+        "bias_G -0.3833>0.3710"
+      ],
+      "mean": 35.025222452210166,
+      "p95": 39.80031474731118,
+      "max": 50.81456972019669,
+      "bR": -0.22230740449357173,
+      "bG": -0.3833234352739198,
+      "bB": 0.06267816833078008,
+      "n_pixels": 12000000,
+      "reference_protocol": "legacy-direct-reference",
+      "classification": "confirmed-reference-settings-defect",
+      "waived": false,
+      "next_check": "Independently recaptured references are preserved; adoption still pending. No renderer diagnosis from this mismatched pair.",
+      "evidence": "color-suite-5000-tint-recapture-proposal.json"
+    },
+    {
+      "fixture": "test_0002",
+      "case": "vibrance_min",
+      "profile": "neutral",
+      "resolution": "down",
+      "status": "breach",
+      "breaches": [
+        "max 31.65>31.00"
+      ],
+      "mean": 9.592730239772916,
+      "p95": 12.829900668975005,
+      "max": 31.650413637029114,
+      "bR": -0.14945861859136875,
+      "bG": -0.14139866157252373,
+      "bB": -0.13672696184975933,
+      "n_pixels": 12000000,
+      "reference_protocol": "legacy-direct-reference",
+      "classification": "introduced-regression-needs-root-cause",
+      "waived": false,
+      "next_check": "Isolate processing changes against captured main; do not dismiss as intended AgX.",
+      "evidence": "color-suite-5000-branch37-full.json:matched_captured_main"
+    },
+    {
+      "fixture": "test_0002",
+      "case": "wb_tungsten",
+      "profile": "neutral",
+      "resolution": "down",
+      "status": "breach",
+      "breaches": [
+        "bias_R -0.3947>0.3882"
+      ],
+      "mean": 19.973754052534,
+      "p95": 27.813705215199445,
+      "max": 39.843715283685825,
+      "bR": -0.39466974587017034,
+      "bG": -0.21859778591406404,
+      "bB": -0.1059540897174521,
+      "n_pixels": 12000000,
+      "reference_protocol": "legacy-direct-reference",
+      "classification": "unresolved-processing-or-appearance",
+      "waived": false,
+      "next_check": "Independent stage oracle or baseline-relative edit response; ACR difference alone is insufficient."
+    },
+    {
+      "fixture": "test_0002",
+      "case": "whites_min",
+      "profile": "neutral",
+      "resolution": "down",
+      "status": "breach",
+      "breaches": [
+        "mean 11.29>9.40",
+        "p95 12.16>11.30",
+        "bias_R -0.1622>0.1458"
+      ],
+      "mean": 11.288561398917023,
+      "p95": 12.155871124233453,
+      "max": 33.24054176618945,
+      "bR": -0.16220765006298268,
+      "bG": -0.1326290340354076,
+      "bB": -0.11375607278394075,
+      "n_pixels": 12000000,
+      "reference_protocol": "legacy-direct-reference",
+      "classification": "unresolved-processing-or-appearance",
+      "waived": false,
+      "next_check": "Independent stage oracle or baseline-relative edit response; ACR difference alone is insufficient."
+    },
+    {
+      "fixture": "test_0003",
+      "case": "dehaze_max",
+      "profile": "neutral",
+      "resolution": "down",
+      "status": "breach",
+      "breaches": [
+        "p95 19.10>18.90"
+      ],
+      "mean": 7.4652913361490025,
+      "p95": 19.103110095463283,
+      "max": 33.560515067965135,
+      "bR": -0.03579801791969733,
+      "bG": -0.01260568318931056,
+      "bB": 0.008215331912749242,
+      "n_pixels": 10668000,
+      "reference_protocol": "legacy-direct-reference",
+      "classification": "introduced-regression-needs-root-cause",
+      "waived": false,
+      "next_check": "Isolate processing changes against captured main; do not dismiss as intended AgX.",
+      "evidence": "color-suite-5000-branch37-full.json:matched_captured_main"
+    },
+    {
+      "fixture": "test_0003",
+      "case": "highlights_max",
+      "profile": "neutral",
+      "resolution": "down",
+      "status": "breach",
+      "breaches": [
+        "bias_R +0.0126>0.0112"
+      ],
+      "mean": 6.4071893962356725,
+      "p95": 9.909460084612515,
+      "max": 19.114866982604575,
+      "bR": 0.012642553614259328,
+      "bG": 0.004892863146116888,
+      "bB": 0.00402095754227343,
+      "n_pixels": 10668000,
+      "reference_protocol": "legacy-direct-reference",
+      "classification": "unresolved-processing-or-appearance",
+      "waived": false,
+      "next_check": "Independent stage oracle or baseline-relative edit response; ACR difference alone is insufficient."
+    },
+    {
+      "fixture": "test_0003",
+      "case": "tint_max",
+      "profile": "neutral",
+      "resolution": "down",
+      "status": "breach",
+      "breaches": [
+        "mean 18.51>16.40",
+        "p95 29.13>24.80",
+        "bias_B +0.1300>0.1084"
+      ],
+      "mean": 18.512488866055648,
+      "p95": 29.130273402965518,
+      "max": 35.80721284632948,
+      "bR": 0.0595718928532673,
+      "bG": -0.02020199784624642,
+      "bB": 0.1300255231515304,
+      "n_pixels": 10668000,
+      "reference_protocol": "legacy-direct-reference",
+      "classification": "confirmed-reference-settings-defect",
+      "waived": false,
+      "next_check": "Independently recaptured references are preserved; adoption still pending. No renderer diagnosis from this mismatched pair.",
+      "evidence": "color-suite-5000-tint-recapture-proposal.json"
+    },
+    {
+      "fixture": "test_0003",
+      "case": "whites_max",
+      "profile": "neutral",
+      "resolution": "down",
+      "status": "breach",
+      "breaches": [
+        "p95 20.52>19.10",
+        "max 31.02>30.70"
+      ],
+      "mean": 10.88557353751315,
+      "p95": 20.52119938721393,
+      "max": 31.01760023643806,
+      "bR": 0.09984373027320394,
+      "bG": 0.08392588444226956,
+      "bB": 0.0874089731262859,
+      "n_pixels": 10668000,
+      "reference_protocol": "legacy-direct-reference",
+      "classification": "unresolved-processing-or-appearance",
+      "waived": false,
+      "next_check": "Independent stage oracle or baseline-relative edit response; ACR difference alone is insufficient."
+    },
+    {
+      "fixture": "test_0004",
+      "case": "dehaze_max",
+      "profile": "neutral",
+      "resolution": "down",
+      "status": "breach",
+      "breaches": [
+        "p95 17.27>16.80",
+        "max 51.63>49.00",
+        "bias_R -0.0465>0.0451"
+      ],
+      "mean": 7.467298390507174,
+      "p95": 17.274275731160508,
+      "max": 51.627881859458284,
+      "bR": -0.04648345564365255,
+      "bG": -0.03724565254952343,
+      "bB": -0.01584058454605452,
+      "n_pixels": 12000000,
+      "reference_protocol": "legacy-direct-reference",
+      "classification": "introduced-regression-needs-root-cause",
+      "waived": false,
+      "next_check": "Isolate processing changes against captured main; do not dismiss as intended AgX.",
+      "evidence": "color-suite-5000-branch37-full.json:matched_captured_main"
+    },
+    {
+      "fixture": "test_0004",
+      "case": "highlights_min",
+      "profile": "neutral",
+      "resolution": "down",
+      "status": "breach",
+      "breaches": [
+        "bias_G -0.0029>0.0029"
+      ],
+      "mean": 4.554593844365854,
+      "p95": 9.149958317895575,
+      "max": 31.96802590370864,
+      "bR": -0.0021643041767301814,
+      "bG": -0.002900183232031258,
+      "bB": 0.0003708335305065848,
+      "n_pixels": 12000000,
+      "reference_protocol": "legacy-direct-reference",
+      "classification": "introduced-regression-needs-root-cause",
+      "waived": false,
+      "next_check": "Isolate processing changes against captured main; do not dismiss as intended AgX.",
+      "evidence": "color-suite-5000-branch37-full.json:matched_captured_main"
+    },
+    {
+      "fixture": "test_0005",
+      "case": "tint_max",
+      "profile": "neutral",
+      "resolution": "down",
+      "status": "breach",
+      "breaches": [
+        "p95 36.02>34.40"
+      ],
+      "mean": 23.314236800248196,
+      "p95": 36.017021324909,
+      "max": 91.86421560799447,
+      "bR": 0.13269692886252085,
+      "bG": 0.007807369790977139,
+      "bB": 0.20830457065600055,
+      "n_pixels": 12000000,
+      "reference_protocol": "legacy-direct-reference",
+      "classification": "confirmed-reference-settings-defect",
+      "waived": false,
+      "next_check": "Independently recaptured references are preserved; adoption still pending. No renderer diagnosis from this mismatched pair.",
+      "evidence": "color-suite-5000-tint-recapture-proposal.json"
+    },
+    {
+      "fixture": "test_0007",
+      "case": "dehaze_max",
+      "profile": "neutral",
+      "resolution": "down",
+      "status": "breach",
+      "breaches": [
+        "mean 7.81>7.80",
+        "p95 18.55>17.40",
+        "bias_R -0.0275>0.0274",
+        "bias_G -0.0316>0.0274",
+        "bias_B -0.0393>0.0274"
+      ],
+      "mean": 7.806541162199018,
+      "p95": 18.55307075289008,
+      "max": 48.805454401265656,
+      "bR": -0.027484567796055657,
+      "bG": -0.03160913850021979,
+      "bB": -0.03931303299204588,
+      "n_pixels": 10668000,
+      "reference_protocol": "legacy-direct-reference",
+      "classification": "introduced-regression-needs-root-cause",
+      "waived": false,
+      "next_check": "Isolate processing changes against captured main; do not dismiss as intended AgX.",
+      "evidence": "color-suite-5000-branch37-full.json:matched_captured_main"
+    },
+    {
+      "fixture": "test_0007",
+      "case": "tint_max",
+      "profile": "neutral",
+      "resolution": "down",
+      "status": "breach",
+      "breaches": [
+        "mean 50.07>19.70",
+        "p95 60.68>28.30",
+        "max 74.06>51.10",
+        "bias_G -0.1706>0.1079",
+        "bias_B +0.5561>0.1079"
+      ],
+      "mean": 50.07313229514087,
+      "p95": 60.67536045054179,
+      "max": 74.05858653110327,
+      "bR": -0.10417137884795397,
+      "bG": -0.17062763948909404,
+      "bB": 0.556147590987617,
+      "n_pixels": 10668000,
+      "reference_protocol": "legacy-direct-reference",
+      "classification": "confirmed-reference-settings-defect",
+      "waived": false,
+      "next_check": "Independently recaptured references are preserved; adoption still pending. No renderer diagnosis from this mismatched pair.",
+      "evidence": "color-suite-5000-tint-recapture-proposal.json"
+    },
+    {
+      "fixture": "test_0007",
+      "case": "tint_min",
+      "profile": "neutral",
+      "resolution": "down",
+      "status": "breach",
+      "breaches": [
+        "mean 18.35>16.20",
+        "p95 21.95>19.50",
+        "max 46.51>43.20",
+        "bias_R -0.1482>0.1424"
+      ],
+      "mean": 18.35493803676678,
+      "p95": 21.953071045532436,
+      "max": 46.512487172835584,
+      "bR": -0.1481854371500734,
+      "bG": 0.05211668344847854,
+      "bB": -0.06396588690435032,
+      "n_pixels": 10668000,
+      "reference_protocol": "legacy-direct-reference",
+      "classification": "confirmed-reference-settings-defect",
+      "waived": false,
+      "next_check": "Independently recaptured references are preserved; adoption still pending. No renderer diagnosis from this mismatched pair.",
+      "evidence": "color-suite-5000-tint-recapture-proposal.json"
+    },
+    {
+      "fixture": "test_0008",
+      "case": "tint_max",
+      "profile": "neutral",
+      "resolution": "down",
+      "status": "breach",
+      "breaches": [
+        "mean 25.48>25.40",
+        "p95 37.49>35.50"
+      ],
+      "mean": 25.48341990842271,
+      "p95": 37.4863060752127,
+      "max": 90.08168558083959,
+      "bR": -0.014074363756740139,
+      "bG": -0.15012521018220643,
+      "bB": 0.06075990711120964,
+      "n_pixels": 10668000,
+      "reference_protocol": "legacy-direct-reference",
+      "classification": "confirmed-reference-settings-defect",
+      "waived": false,
+      "next_check": "Independently recaptured references are preserved; adoption still pending. No renderer diagnosis from this mismatched pair.",
+      "evidence": "color-suite-5000-tint-recapture-proposal.json"
+    },
+    {
+      "fixture": "test_0008",
+      "case": "whites_min",
+      "profile": "neutral",
+      "resolution": "down",
+      "status": "breach",
+      "breaches": [
+        "mean 10.27>9.20",
+        "p95 18.89>18.70",
+        "bias_R -0.0618>0.0606",
+        "bias_G -0.0778>0.0606",
+        "bias_B -0.0616>0.0606"
+      ],
+      "mean": 10.265951701334682,
+      "p95": 18.886228038698505,
+      "max": 73.3683271708185,
+      "bR": -0.06181102167827,
+      "bG": -0.07776162065537026,
+      "bB": -0.061601953139028484,
+      "n_pixels": 10668000,
+      "reference_protocol": "legacy-direct-reference",
+      "classification": "unresolved-processing-or-appearance",
+      "waived": false,
+      "next_check": "Independent stage oracle or baseline-relative edit response; ACR difference alone is insufficient."
+    },
+    {
+      "fixture": "test_0009",
+      "case": "tint_max",
+      "profile": "neutral",
+      "resolution": "down",
+      "status": "breach",
+      "breaches": [
+        "mean 19.21>17.40",
+        "p95 26.18>23.30",
+        "bias_B +0.1627>0.1598"
+      ],
+      "mean": 19.210172000589882,
+      "p95": 26.175236263065468,
+      "max": 38.725463954537695,
+      "bR": 0.11268129303446611,
+      "bG": 0.02769885330276495,
+      "bB": 0.1627163994855409,
+      "n_pixels": 10668000,
+      "reference_protocol": "legacy-direct-reference",
+      "classification": "confirmed-reference-settings-defect",
+      "waived": false,
+      "next_check": "Independently recaptured references are preserved; adoption still pending. No renderer diagnosis from this mismatched pair.",
+      "evidence": "color-suite-5000-tint-recapture-proposal.json"
+    },
+    {
+      "fixture": "test_0010",
+      "case": "exposure_min",
+      "profile": "neutral",
+      "resolution": "down",
+      "status": "breach",
+      "breaches": [
+        "max 18.97>18.20"
+      ],
+      "mean": 0.8663547590551153,
+      "p95": 2.1935292675130422,
+      "max": 18.968045436099136,
+      "bR": -0.003471643350226787,
+      "bG": -0.0021830051294820406,
+      "bB": -0.005408131117800893,
+      "n_pixels": 10668000,
+      "reference_protocol": "legacy-direct-reference",
+      "classification": "unresolved-processing-or-appearance",
+      "waived": false,
+      "next_check": "Independent stage oracle or baseline-relative edit response; ACR difference alone is insufficient."
+    },
+    {
+      "fixture": "test_0010",
+      "case": "tint_max",
+      "profile": "neutral",
+      "resolution": "down",
+      "status": "breach",
+      "breaches": [
+        "mean 14.53>12.80",
+        "p95 24.89>20.90",
+        "max 36.51>31.70",
+        "bias_B +0.0686>0.0392"
+      ],
+      "mean": 14.53257858591786,
+      "p95": 24.89056932357751,
+      "max": 36.51169900499731,
+      "bR": 0.0060945883021939805,
+      "bG": -0.03435190080158312,
+      "bB": 0.0685635511727285,
+      "n_pixels": 10668000,
+      "reference_protocol": "legacy-direct-reference",
+      "classification": "confirmed-reference-settings-defect",
+      "waived": false,
+      "next_check": "Independently recaptured references are preserved; adoption still pending. No renderer diagnosis from this mismatched pair.",
+      "evidence": "color-suite-5000-tint-recapture-proposal.json"
+    },
+    {
+      "fixture": "test_0011",
+      "case": "baseline",
+      "profile": "neutral",
+      "resolution": "down",
+      "status": "breach",
+      "breaches": [
+        "bias_R +0.0404>0.0113",
+        "bias_G +0.0339>0.0113",
+        "bias_B +0.0315>0.0113"
+      ],
+      "mean": 5.5379601195160655,
+      "p95": 19.566262344364127,
+      "max": 34.453491152898074,
+      "bR": 0.04037488973376166,
+      "bG": 0.03388075756167984,
+      "bB": 0.03146998376277206,
+      "n_pixels": 10668000,
+      "reference_protocol": "baseline-native-pair-lanczos",
+      "classification": "baseline-appearance-or-calibration-candidate",
+      "waived": false,
+      "next_check": "Independent sensor-linear decode/calibration control, then baseline-relative edit response; preserve AgX.",
+      "evidence": "Sony baseline itself fails; this does not establish that AgX causes every edit failure."
+    },
+    {
+      "fixture": "test_0011",
+      "case": "blacks_max",
+      "profile": "neutral",
+      "resolution": "down",
+      "status": "breach",
+      "breaches": [
+        "bias_R +0.1430>0.1304",
+        "bias_G +0.1423>0.1304",
+        "bias_B +0.1318>0.1304"
+      ],
+      "mean": 15.367129408351337,
+      "p95": 28.380114048254164,
+      "max": 36.55482757732504,
+      "bR": 0.14296006690307664,
+      "bG": 0.14233368934489812,
+      "bB": 0.1317821943748688,
+      "n_pixels": 10668000,
+      "reference_protocol": "legacy-direct-reference",
+      "classification": "baseline-appearance-or-calibration-candidate",
+      "waived": false,
+      "next_check": "Independent sensor-linear decode/calibration control, then baseline-relative edit response; preserve AgX.",
+      "evidence": "Sony baseline itself fails; this does not establish that AgX causes every edit failure."
+    },
+    {
+      "fixture": "test_0011",
+      "case": "blacks_min",
+      "profile": "neutral",
+      "resolution": "down",
+      "status": "breach",
+      "breaches": [
+        "bias_R +0.0695>0.0476",
+        "bias_G +0.0617>0.0476"
+      ],
+      "mean": 6.298746756753665,
+      "p95": 33.25757721876806,
+      "max": 48.89776576654523,
+      "bR": 0.06954844285871972,
+      "bG": 0.06172978431677218,
+      "bB": 0.04616290522785334,
+      "n_pixels": 10668000,
+      "reference_protocol": "legacy-direct-reference",
+      "classification": "baseline-appearance-or-calibration-candidate",
+      "waived": false,
+      "next_check": "Independent sensor-linear decode/calibration control, then baseline-relative edit response; preserve AgX.",
+      "evidence": "Sony baseline itself fails; this does not establish that AgX causes every edit failure."
+    },
+    {
+      "fixture": "test_0011",
+      "case": "clarity_min",
+      "profile": "neutral",
+      "resolution": "down",
+      "status": "breach",
+      "breaches": [
+        "bias_R +0.0413>0.0158",
+        "bias_G +0.0348>0.0158",
+        "bias_B +0.0317>0.0158"
+      ],
+      "mean": 5.49628760321547,
+      "p95": 18.48936893256302,
+      "max": 53.55002827232287,
+      "bR": 0.04131287386405898,
+      "bG": 0.03479320592568434,
+      "bB": 0.031729494513491135,
+      "n_pixels": 10668000,
+      "reference_protocol": "legacy-direct-reference",
+      "classification": "baseline-appearance-or-calibration-candidate",
+      "waived": false,
+      "next_check": "Independent sensor-linear decode/calibration control, then baseline-relative edit response; preserve AgX.",
+      "evidence": "Sony baseline itself fails; this does not establish that AgX causes every edit failure."
+    },
+    {
+      "fixture": "test_0011",
+      "case": "contrast_max",
+      "profile": "neutral",
+      "resolution": "down",
+      "status": "breach",
+      "breaches": [
+        "bias_B +0.0641>0.0620"
+      ],
+      "mean": 6.4404121003739565,
+      "p95": 28.327223422601758,
+      "max": 53.82263632878133,
+      "bR": 0.059715689685527165,
+      "bG": 0.05671776733229317,
+      "bB": 0.06414811693613526,
+      "n_pixels": 10668000,
+      "reference_protocol": "legacy-direct-reference",
+      "classification": "baseline-appearance-or-calibration-candidate",
+      "waived": false,
+      "next_check": "Independent sensor-linear decode/calibration control, then baseline-relative edit response; preserve AgX.",
+      "evidence": "Sony baseline itself fails; this does not establish that AgX causes every edit failure."
+    },
+    {
+      "fixture": "test_0011",
+      "case": "dehaze_max",
+      "profile": "neutral",
+      "resolution": "down",
+      "status": "breach",
+      "breaches": [
+        "p95 39.53>36.50",
+        "bias_R +0.1507>0.1490"
+      ],
+      "mean": 9.975120258790723,
+      "p95": 39.52524249748132,
+      "max": 62.307586088252684,
+      "bR": 0.15071522907444004,
+      "bG": 0.09310137898828486,
+      "bB": 0.020495128176983506,
+      "n_pixels": 10668000,
+      "reference_protocol": "legacy-direct-reference",
+      "classification": "baseline-appearance-or-calibration-candidate",
+      "waived": false,
+      "next_check": "Independent sensor-linear decode/calibration control, then baseline-relative edit response; preserve AgX.",
+      "evidence": "Sony baseline itself fails; this does not establish that AgX causes every edit failure."
+    },
+    {
+      "fixture": "test_0011",
+      "case": "exposure_min",
+      "profile": "neutral",
+      "resolution": "down",
+      "status": "breach",
+      "breaches": [
+        "mean 2.28>2.20"
+      ],
+      "mean": 2.28133779528552,
+      "p95": 7.198189242037434,
+      "max": 26.10905993072363,
+      "bR": 0.028838091324750046,
+      "bG": 0.026697838027294096,
+      "bB": 0.024456264845617547,
+      "n_pixels": 10668000,
+      "reference_protocol": "legacy-direct-reference",
+      "classification": "baseline-appearance-or-calibration-candidate",
+      "waived": false,
+      "next_check": "Independent sensor-linear decode/calibration control, then baseline-relative edit response; preserve AgX.",
+      "evidence": "Sony baseline itself fails; this does not establish that AgX causes every edit failure."
+    },
+    {
+      "fixture": "test_0011",
+      "case": "highlights_max",
+      "profile": "neutral",
+      "resolution": "down",
+      "status": "breach",
+      "breaches": [
+        "bias_B +0.0289>0.0234"
+      ],
+      "mean": 5.701862225107748,
+      "p95": 18.002689760662232,
+      "max": 37.05366567855197,
+      "bR": 0.019736094648841504,
+      "bG": 0.018343697577079984,
+      "bB": 0.028930317222540785,
+      "n_pixels": 10668000,
+      "reference_protocol": "legacy-direct-reference",
+      "classification": "baseline-appearance-or-calibration-candidate",
+      "waived": false,
+      "next_check": "Independent sensor-linear decode/calibration control, then baseline-relative edit response; preserve AgX.",
+      "evidence": "Sony baseline itself fails; this does not establish that AgX causes every edit failure."
+    },
+    {
+      "fixture": "test_0011",
+      "case": "highlights_min",
+      "profile": "neutral",
+      "resolution": "down",
+      "status": "breach",
+      "breaches": [
+        "mean 7.67>7.30",
+        "bias_R +0.0926>0.0507",
+        "bias_G +0.0830>0.0507",
+        "bias_B +0.0702>0.0507"
+      ],
+      "mean": 7.671709577471376,
+      "p95": 20.94608131749011,
+      "max": 46.148181063272666,
+      "bR": 0.0926159346461972,
+      "bG": 0.08301332066136359,
+      "bB": 0.07019653138906153,
+      "n_pixels": 10668000,
+      "reference_protocol": "legacy-direct-reference",
+      "classification": "baseline-appearance-or-calibration-candidate",
+      "waived": false,
+      "next_check": "Independent sensor-linear decode/calibration control, then baseline-relative edit response; preserve AgX.",
+      "evidence": "Sony baseline itself fails; this does not establish that AgX causes every edit failure."
+    },
+    {
+      "fixture": "test_0011",
+      "case": "saturation_max",
+      "profile": "neutral",
+      "resolution": "down",
+      "status": "breach",
+      "breaches": [
+        "bias_R +0.0304>0.0216",
+        "bias_B +0.0261>0.0216"
+      ],
+      "mean": 6.757389477226446,
+      "p95": 19.181700925577665,
+      "max": 48.298319624830356,
+      "bR": 0.030356750871183117,
+      "bG": 0.017041295002878227,
+      "bB": 0.026096360868389578,
+      "n_pixels": 10668000,
+      "reference_protocol": "legacy-direct-reference",
+      "classification": "baseline-appearance-or-calibration-candidate",
+      "waived": false,
+      "next_check": "Independent sensor-linear decode/calibration control, then baseline-relative edit response; preserve AgX.",
+      "evidence": "Sony baseline itself fails; this does not establish that AgX causes every edit failure."
+    },
+    {
+      "fixture": "test_0011",
+      "case": "saturation_min",
+      "profile": "neutral",
+      "resolution": "down",
+      "status": "breach",
+      "breaches": [
+        "bias_R +0.0525>0.0324",
+        "bias_G +0.0525>0.0324",
+        "bias_B +0.0525>0.0324"
+      ],
+      "mean": 4.686106217015362,
+      "p95": 19.313487701133504,
+      "max": 40.46400467500449,
+      "bR": 0.05253608276680639,
+      "bG": 0.05253606548958277,
+      "bB": 0.05253349669314566,
+      "n_pixels": 10668000,
+      "reference_protocol": "legacy-direct-reference",
+      "classification": "baseline-appearance-or-calibration-candidate",
+      "waived": false,
+      "next_check": "Independent sensor-linear decode/calibration control, then baseline-relative edit response; preserve AgX.",
+      "evidence": "Sony baseline itself fails; this does not establish that AgX causes every edit failure."
+    },
+    {
+      "fixture": "test_0011",
+      "case": "shadows_min",
+      "profile": "neutral",
+      "resolution": "down",
+      "status": "breach",
+      "breaches": [
+        "bias_R +0.0556>0.0358",
+        "bias_G +0.0507>0.0358",
+        "bias_B +0.0441>0.0358"
+      ],
+      "mean": 6.292928167397034,
+      "p95": 27.471406115408538,
+      "max": 46.557989979079245,
+      "bR": 0.05564483632943886,
+      "bG": 0.05068849513341925,
+      "bB": 0.04411331048737716,
+      "n_pixels": 10668000,
+      "reference_protocol": "legacy-direct-reference",
+      "classification": "baseline-appearance-or-calibration-candidate",
+      "waived": false,
+      "next_check": "Independent sensor-linear decode/calibration control, then baseline-relative edit response; preserve AgX.",
+      "evidence": "Sony baseline itself fails; this does not establish that AgX causes every edit failure."
+    },
+    {
+      "fixture": "test_0011",
+      "case": "temperature_max",
+      "profile": "neutral",
+      "resolution": "down",
+      "status": "breach",
+      "breaches": [
+        "bias_R +0.0307>0.0193",
+        "bias_G +0.0276>0.0193",
+        "bias_B +0.0389>0.0193"
+      ],
+      "mean": 4.938271792201173,
+      "p95": 17.656973364327392,
+      "max": 36.02437730945132,
+      "bR": 0.030655414031854303,
+      "bG": 0.027576129502959217,
+      "bB": 0.03889726363617082,
+      "n_pixels": 10668000,
+      "reference_protocol": "legacy-direct-reference",
+      "classification": "baseline-appearance-or-calibration-candidate",
+      "waived": false,
+      "next_check": "Independent sensor-linear decode/calibration control, then baseline-relative edit response; preserve AgX.",
+      "evidence": "Sony baseline itself fails; this does not establish that AgX causes every edit failure."
+    },
+    {
+      "fixture": "test_0011",
+      "case": "texture_max",
+      "profile": "neutral",
+      "resolution": "down",
+      "status": "breach",
+      "breaches": [
+        "bias_R +0.0396>0.0153",
+        "bias_G +0.0329>0.0153",
+        "bias_B +0.0307>0.0153"
+      ],
+      "mean": 5.61021701139625,
+      "p95": 19.173852507726377,
+      "max": 40.73410868591531,
+      "bR": 0.039603113731385704,
+      "bG": 0.03286046190863304,
+      "bB": 0.03069085691363003,
+      "n_pixels": 10668000,
+      "reference_protocol": "legacy-direct-reference",
+      "classification": "baseline-appearance-or-calibration-candidate",
+      "waived": false,
+      "next_check": "Independent sensor-linear decode/calibration control, then baseline-relative edit response; preserve AgX.",
+      "evidence": "Sony baseline itself fails; this does not establish that AgX causes every edit failure."
+    },
+    {
+      "fixture": "test_0011",
+      "case": "texture_min",
+      "profile": "neutral",
+      "resolution": "down",
+      "status": "breach",
+      "breaches": [
+        "bias_R +0.0408>0.0168",
+        "bias_G +0.0344>0.0168",
+        "bias_B +0.0319>0.0168"
+      ],
+      "mean": 5.603623306686209,
+      "p95": 19.8665413937911,
+      "max": 38.59134337873019,
+      "bR": 0.04079328265811191,
+      "bG": 0.034416060143142836,
+      "bB": 0.03189191079870162,
+      "n_pixels": 10668000,
+      "reference_protocol": "legacy-direct-reference",
+      "classification": "baseline-appearance-or-calibration-candidate",
+      "waived": false,
+      "next_check": "Independent sensor-linear decode/calibration control, then baseline-relative edit response; preserve AgX.",
+      "evidence": "Sony baseline itself fails; this does not establish that AgX causes every edit failure."
+    },
+    {
+      "fixture": "test_0011",
+      "case": "tint_max",
+      "profile": "neutral",
+      "resolution": "down",
+      "status": "breach",
+      "breaches": [
+        "bias_R +0.1413>0.1150"
+      ],
+      "mean": 16.42805595375801,
+      "p95": 29.71429492885447,
+      "max": 42.89904045526271,
+      "bR": 0.14131082214269525,
+      "bG": -0.002638483900216846,
+      "bB": 0.0482621278462042,
+      "n_pixels": 10668000,
+      "reference_protocol": "legacy-direct-reference",
+      "classification": "confirmed-reference-settings-defect",
+      "waived": false,
+      "next_check": "Independently recaptured references are preserved; adoption still pending. No renderer diagnosis from this mismatched pair.",
+      "evidence": "color-suite-5000-tint-recapture-proposal.json"
+    },
+    {
+      "fixture": "test_0011",
+      "case": "tint_min",
+      "profile": "neutral",
+      "resolution": "down",
+      "status": "breach",
+      "breaches": [
+        "bias_G +0.0716>0.0659"
+      ],
+      "mean": 14.761847768172807,
+      "p95": 25.949125656207546,
+      "max": 48.12434788915026,
+      "bR": 0.02171944281374509,
+      "bG": 0.0716391208557552,
+      "bB": -0.036828575351186325,
+      "n_pixels": 10668000,
+      "reference_protocol": "legacy-direct-reference",
+      "classification": "confirmed-reference-settings-defect",
+      "waived": false,
+      "next_check": "Independently recaptured references are preserved; adoption still pending. No renderer diagnosis from this mismatched pair.",
+      "evidence": "color-suite-5000-tint-recapture-proposal.json"
+    },
+    {
+      "fixture": "test_0011",
+      "case": "vibrance_max",
+      "profile": "neutral",
+      "resolution": "down",
+      "status": "breach",
+      "breaches": [
+        "bias_R +0.0720>0.0349",
+        "bias_G +0.0535>0.0349"
+      ],
+      "mean": 7.002390367052091,
+      "p95": 21.276991127976522,
+      "max": 48.35814955030597,
+      "bR": 0.07200784450736783,
+      "bG": 0.053532220346157657,
+      "bB": 0.033457081512026456,
+      "n_pixels": 10668000,
+      "reference_protocol": "legacy-direct-reference",
+      "classification": "baseline-appearance-or-calibration-candidate",
+      "waived": false,
+      "next_check": "Independent sensor-linear decode/calibration control, then baseline-relative edit response; preserve AgX.",
+      "evidence": "Sony baseline itself fails; this does not establish that AgX causes every edit failure."
+    },
+    {
+      "fixture": "test_0011",
+      "case": "vibrance_min",
+      "profile": "neutral",
+      "resolution": "down",
+      "status": "breach",
+      "breaches": [
+        "bias_R +0.0441>0.0225",
+        "bias_G +0.0435>0.0225",
+        "bias_B +0.0439>0.0225"
+      ],
+      "mean": 5.1742666226014755,
+      "p95": 21.62604291687486,
+      "max": 41.59339299536235,
+      "bR": 0.04405714496301603,
+      "bG": 0.04348843188973115,
+      "bB": 0.0439322168456967,
+      "n_pixels": 10668000,
+      "reference_protocol": "legacy-direct-reference",
+      "classification": "baseline-appearance-or-calibration-candidate",
+      "waived": false,
+      "next_check": "Independent sensor-linear decode/calibration control, then baseline-relative edit response; preserve AgX.",
+      "evidence": "Sony baseline itself fails; this does not establish that AgX causes every edit failure."
+    },
+    {
+      "fixture": "test_0011",
+      "case": "wb_auto",
+      "profile": "neutral",
+      "resolution": "down",
+      "status": "breach",
+      "breaches": [
+        "bias_R +0.0483>0.0317",
+        "bias_B +0.0461>0.0317"
+      ],
+      "mean": 6.858020003639022,
+      "p95": 19.914750770095036,
+      "max": 38.82528646739146,
+      "bR": 0.04828804001465091,
+      "bG": 0.02894520184065449,
+      "bB": 0.04611850699879472,
+      "n_pixels": 10668000,
+      "reference_protocol": "legacy-direct-reference",
+      "classification": "baseline-appearance-or-calibration-candidate",
+      "waived": false,
+      "next_check": "Independent sensor-linear decode/calibration control, then baseline-relative edit response; preserve AgX.",
+      "evidence": "Sony baseline itself fails; this does not establish that AgX causes every edit failure."
+    },
+    {
+      "fixture": "test_0011",
+      "case": "wb_cloudy",
+      "profile": "neutral",
+      "resolution": "down",
+      "status": "breach",
+      "breaches": [
+        "bias_R +0.0543>0.0299",
+        "bias_G +0.0368>0.0299",
+        "bias_B +0.0328>0.0299"
+      ],
+      "mean": 5.801836017736716,
+      "p95": 19.812200710658214,
+      "max": 39.112392538718545,
+      "bR": 0.05428239185222649,
+      "bG": 0.03678442273607259,
+      "bB": 0.03279667738852875,
+      "n_pixels": 10668000,
+      "reference_protocol": "legacy-direct-reference",
+      "classification": "baseline-appearance-or-calibration-candidate",
+      "waived": false,
+      "next_check": "Independent sensor-linear decode/calibration control, then baseline-relative edit response; preserve AgX.",
+      "evidence": "Sony baseline itself fails; this does not establish that AgX causes every edit failure."
+    },
+    {
+      "fixture": "test_0011",
+      "case": "wb_daylight",
+      "profile": "neutral",
+      "resolution": "down",
+      "status": "breach",
+      "breaches": [
+        "bias_R +0.0597>0.0323",
+        "bias_G +0.0331>0.0323"
+      ],
+      "mean": 6.4771099048509475,
+      "p95": 20.271573486665886,
+      "max": 40.08615817533899,
+      "bR": 0.05972633551564319,
+      "bG": 0.033104952167483104,
+      "bB": 0.02881505037437439,
+      "n_pixels": 10668000,
+      "reference_protocol": "legacy-direct-reference",
+      "classification": "baseline-appearance-or-calibration-candidate",
+      "waived": false,
+      "next_check": "Independent sensor-linear decode/calibration control, then baseline-relative edit response; preserve AgX.",
+      "evidence": "Sony baseline itself fails; this does not establish that AgX causes every edit failure."
+    },
+    {
+      "fixture": "test_0011",
+      "case": "wb_flash",
+      "profile": "neutral",
+      "resolution": "down",
+      "status": "breach",
+      "breaches": [
+        "bias_R +0.0635>0.0366"
+      ],
+      "mean": 6.389063191263032,
+      "p95": 20.30057151721329,
+      "max": 41.38701333930979,
+      "bR": 0.06352933864964057,
+      "bG": 0.03499473530923567,
+      "bB": 0.0313630663271084,
+      "n_pixels": 10668000,
+      "reference_protocol": "legacy-direct-reference",
+      "classification": "baseline-appearance-or-calibration-candidate",
+      "waived": false,
+      "next_check": "Independent sensor-linear decode/calibration control, then baseline-relative edit response; preserve AgX.",
+      "evidence": "Sony baseline itself fails; this does not establish that AgX causes every edit failure."
+    },
+    {
+      "fixture": "test_0011",
+      "case": "wb_shade",
+      "profile": "neutral",
+      "resolution": "down",
+      "status": "breach",
+      "breaches": [
+        "bias_R +0.0511>0.0281",
+        "bias_G +0.0385>0.0281",
+        "bias_B +0.0362>0.0281"
+      ],
+      "mean": 5.425072351849927,
+      "p95": 19.430184800038194,
+      "max": 38.76085698545362,
+      "bR": 0.05111635936397069,
+      "bG": 0.03846692948906186,
+      "bB": 0.03615276059549355,
+      "n_pixels": 10668000,
+      "reference_protocol": "legacy-direct-reference",
+      "classification": "baseline-appearance-or-calibration-candidate",
+      "waived": false,
+      "next_check": "Independent sensor-linear decode/calibration control, then baseline-relative edit response; preserve AgX.",
+      "evidence": "Sony baseline itself fails; this does not establish that AgX causes every edit failure."
+    },
+    {
+      "fixture": "test_0011",
+      "case": "wb_tungsten",
+      "profile": "neutral",
+      "resolution": "down",
+      "status": "breach",
+      "breaches": [
+        "bias_R +0.0450>0.0450"
+      ],
+      "mean": 10.188131588434517,
+      "p95": 18.035042388762804,
+      "max": 43.9174422498782,
+      "bR": 0.04500839389825352,
+      "bG": -0.007510233053224265,
+      "bB": 0.034934312010333604,
+      "n_pixels": 10668000,
+      "reference_protocol": "legacy-direct-reference",
+      "classification": "introduced-regression-needs-root-cause",
+      "waived": false,
+      "next_check": "Isolate processing changes against captured main; do not dismiss as intended AgX.",
+      "evidence": "color-suite-5000-branch37-full.json:matched_captured_main"
+    },
+    {
+      "fixture": "test_0011",
+      "case": "whites_max",
+      "profile": "neutral",
+      "resolution": "down",
+      "status": "breach",
+      "breaches": [
+        "mean 10.81>10.40",
+        "p95 28.96>18.80"
+      ],
+      "mean": 10.80826864321057,
+      "p95": 28.964171795856767,
+      "max": 52.2694478316664,
+      "bR": 0.025176230250742098,
+      "bG": 0.025943204361291508,
+      "bB": 0.06290074038413461,
+      "n_pixels": 10668000,
+      "reference_protocol": "legacy-direct-reference",
+      "classification": "baseline-appearance-or-calibration-candidate",
+      "waived": false,
+      "next_check": "Independent sensor-linear decode/calibration control, then baseline-relative edit response; preserve AgX.",
+      "evidence": "Sony baseline itself fails; this does not establish that AgX causes every edit failure."
+    },
+    {
+      "fixture": "test_0012",
+      "case": "tint_max",
+      "profile": "neutral",
+      "resolution": "down",
+      "status": "breach",
+      "breaches": [
+        "p95 33.51>33.40"
+      ],
+      "mean": 18.852084907673657,
+      "p95": 33.51103661492323,
+      "max": 99.10329670003392,
+      "bR": 0.12314634985149174,
+      "bG": -0.019377202211551602,
+      "bB": 0.17508849215415315,
+      "n_pixels": 12000000,
+      "reference_protocol": "legacy-direct-reference",
+      "classification": "confirmed-reference-settings-defect",
+      "waived": false,
+      "next_check": "Independently recaptured references are preserved; adoption still pending. No renderer diagnosis from this mismatched pair.",
+      "evidence": "color-suite-5000-tint-recapture-proposal.json"
+    },
+    {
+      "fixture": "test_0012",
+      "case": "whites_max",
+      "profile": "neutral",
+      "resolution": "down",
+      "status": "breach",
+      "breaches": [
+        "p95 31.54>29.60"
+      ],
+      "mean": 12.932006154808427,
+      "p95": 31.543647290078024,
+      "max": 100.23781357530552,
+      "bR": 0.08843654410499353,
+      "bG": 0.01777861491979123,
+      "bB": 0.02775692312433264,
+      "n_pixels": 12000000,
+      "reference_protocol": "legacy-direct-reference",
+      "classification": "unresolved-processing-or-appearance",
+      "waived": false,
+      "next_check": "Independent stage oracle or baseline-relative edit response; ACR difference alone is insufficient."
+    },
+    {
+      "fixture": "test_0013",
+      "case": "tint_max",
+      "profile": "neutral",
+      "resolution": "down",
+      "status": "breach",
+      "breaches": [
+        "max 38.81>37.80",
+        "bias_G -0.1046>0.0968"
+      ],
+      "mean": 18.087258056895948,
+      "p95": 25.13611707088293,
+      "max": 38.8129337552544,
+      "bR": 0.024506224613520707,
+      "bG": -0.10459489195951241,
+      "bB": 0.040321511172976186,
+      "n_pixels": 12000000,
+      "reference_protocol": "legacy-direct-reference",
+      "classification": "confirmed-reference-settings-defect",
+      "waived": false,
+      "next_check": "Independently recaptured references are preserved; adoption still pending. No renderer diagnosis from this mismatched pair.",
+      "evidence": "color-suite-5000-tint-recapture-proposal.json"
+    },
+    {
+      "fixture": "test_0013",
+      "case": "whites_min",
+      "profile": "neutral",
+      "resolution": "down",
+      "status": "breach",
+      "breaches": [
+        "mean 5.74>5.00",
+        "p95 8.39>8.30",
+        "bias_R -0.0173>0.0153",
+        "bias_G -0.0351>0.0153",
+        "bias_B -0.0440>0.0153"
+      ],
+      "mean": 5.744304960027962,
+      "p95": 8.392175411045853,
+      "max": 22.954914877585725,
+      "bR": -0.017343077294496353,
+      "bG": -0.035070698767612186,
+      "bB": -0.04401478139421173,
+      "n_pixels": 12000000,
+      "reference_protocol": "legacy-direct-reference",
+      "classification": "unresolved-processing-or-appearance",
+      "waived": false,
+      "next_check": "Independent stage oracle or baseline-relative edit response; ACR difference alone is insufficient."
+    },
+    {
+      "fixture": "test_0014",
+      "case": "tint_max",
+      "profile": "neutral",
+      "resolution": "down",
+      "status": "breach",
+      "breaches": [
+        "p95 39.96>39.50"
+      ],
+      "mean": 26.656632723002716,
+      "p95": 39.962390798208766,
+      "max": 50.46009040773536,
+      "bR": 0.254571992426962,
+      "bG": 0.13472737881710642,
+      "bB": 0.2845245394605745,
+      "n_pixels": 10668000,
+      "reference_protocol": "legacy-direct-reference",
+      "classification": "confirmed-reference-settings-defect",
+      "waived": false,
+      "next_check": "Independently recaptured references are preserved; adoption still pending. No renderer diagnosis from this mismatched pair.",
+      "evidence": "color-suite-5000-tint-recapture-proposal.json"
+    },
+    {
+      "fixture": "test_0014",
+      "case": "whites_max",
+      "profile": "neutral",
+      "resolution": "down",
+      "status": "breach",
+      "breaches": [
+        "mean 18.17>14.30",
+        "p95 28.92>22.20",
+        "max 50.34>46.60",
+        "bias_R +0.1337>0.1010",
+        "bias_G +0.1270>0.1010",
+        "bias_B +0.2471>0.1010"
+      ],
+      "mean": 18.17043184233401,
+      "p95": 28.917549959653282,
+      "max": 50.34073507111433,
+      "bR": 0.13368274172942182,
+      "bG": 0.12697779646307158,
+      "bB": 0.24712191209200304,
+      "n_pixels": 10668000,
+      "reference_protocol": "legacy-direct-reference",
+      "classification": "unresolved-processing-or-appearance",
+      "waived": false,
+      "next_check": "Independent stage oracle or baseline-relative edit response; ACR difference alone is insufficient."
+    },
+    {
+      "fixture": "test_0015",
+      "case": "dehaze_max",
+      "profile": "neutral",
+      "resolution": "down",
+      "status": "breach",
+      "breaches": [
+        "bias_B -0.0740>0.0734"
+      ],
+      "mean": 12.525208069404318,
+      "p95": 24.738585087219423,
+      "max": 51.23532547327914,
+      "bR": 0.0008165490602873724,
+      "bG": -0.05760439103146878,
+      "bB": -0.07401148872039424,
+      "n_pixels": 12032000,
+      "reference_protocol": "legacy-direct-reference",
+      "classification": "introduced-regression-needs-root-cause",
+      "waived": false,
+      "next_check": "Isolate processing changes against captured main; do not dismiss as intended AgX.",
+      "evidence": "color-suite-5000-branch37-full.json:matched_captured_main"
+    },
+    {
+      "fixture": "test_0015",
+      "case": "exposure_max",
+      "profile": "neutral",
+      "resolution": "down",
+      "status": "breach",
+      "breaches": [
+        "max 36.95>34.00"
+      ],
+      "mean": 6.678592349473491,
+      "p95": 14.567991326634832,
+      "max": 36.95477047331095,
+      "bR": -0.10308541378164862,
+      "bG": -0.07984552709055578,
+      "bB": -0.08860821332514504,
+      "n_pixels": 12032000,
+      "reference_protocol": "legacy-direct-reference",
+      "classification": "unresolved-processing-or-appearance",
+      "waived": false,
+      "next_check": "Independent stage oracle or baseline-relative edit response; ACR difference alone is insufficient."
+    },
+    {
+      "fixture": "test_0015",
+      "case": "whites_min",
+      "profile": "neutral",
+      "resolution": "down",
+      "status": "breach",
+      "breaches": [
+        "mean 10.69>9.20",
+        "p95 17.98>17.40",
+        "bias_G -0.1121>0.0936",
+        "bias_B -0.1066>0.0936"
+      ],
+      "mean": 10.686275330703234,
+      "p95": 17.977831944329026,
+      "max": 36.928444591272275,
+      "bR": -0.08855542191103535,
+      "bG": -0.1121364112977244,
+      "bB": -0.10658982405749455,
+      "n_pixels": 12032000,
+      "reference_protocol": "legacy-direct-reference",
+      "classification": "unresolved-processing-or-appearance",
+      "waived": false,
+      "next_check": "Independent stage oracle or baseline-relative edit response; ACR difference alone is insufficient."
+    },
+    {
+      "fixture": "test_0017",
+      "case": "tint_max",
+      "profile": "neutral",
+      "resolution": "down",
+      "status": "breach",
+      "breaches": [
+        "bias_B +0.1323>0.1176"
+      ],
+      "mean": 22.348618824709128,
+      "p95": 34.721891282334326,
+      "max": 56.632235142766724,
+      "bR": 0.04355666974834301,
+      "bG": -0.060651043262031405,
+      "bB": 0.1322944680595284,
+      "n_pixels": 10668000,
+      "reference_protocol": "legacy-direct-reference",
+      "classification": "confirmed-reference-settings-defect",
+      "waived": false,
+      "next_check": "Independently recaptured references are preserved; adoption still pending. No renderer diagnosis from this mismatched pair.",
+      "evidence": "color-suite-5000-tint-recapture-proposal.json"
+    },
+    {
+      "fixture": "test_0017",
+      "case": "tint_min",
+      "profile": "neutral",
+      "resolution": "down",
+      "status": "breach",
+      "breaches": [
+        "bias_R -0.1381>0.1360"
+      ],
+      "mean": 20.322481067785024,
+      "p95": 25.403755526508096,
+      "max": 39.866849569935894,
+      "bR": -0.1380807642855827,
+      "bG": 0.022588209124311073,
+      "bB": -0.08040044190469821,
+      "n_pixels": 10668000,
+      "reference_protocol": "legacy-direct-reference",
+      "classification": "confirmed-reference-settings-defect",
+      "waived": false,
+      "next_check": "Independently recaptured references are preserved; adoption still pending. No renderer diagnosis from this mismatched pair.",
+      "evidence": "color-suite-5000-tint-recapture-proposal.json"
+    },
+    {
+      "fixture": "test_0017",
+      "case": "whites_max",
+      "profile": "neutral",
+      "resolution": "down",
+      "status": "breach",
+      "breaches": [
+        "bias_B +0.1199>0.1173"
+      ],
+      "mean": 10.696821717645678,
+      "p95": 16.02882232786072,
+      "max": 29.153000305237963,
+      "bR": 0.05587344569145297,
+      "bG": 0.08376674835007657,
+      "bB": 0.11985675227982955,
+      "n_pixels": 10668000,
+      "reference_protocol": "legacy-direct-reference",
+      "classification": "unresolved-processing-or-appearance",
+      "waived": false,
+      "next_check": "Independent stage oracle or baseline-relative edit response; ACR difference alone is insufficient."
+    },
+    {
+      "fixture": "test_0018",
+      "case": "temperature_max",
+      "profile": "neutral",
+      "resolution": "down",
+      "status": "breach",
+      "breaches": [
+        "max 55.08>54.15"
+      ],
+      "mean": 23.06225184412873,
+      "p95": 30.902353522760908,
+      "max": 55.075041823711054,
+      "bR": -0.2726335096074616,
+      "bG": -0.2977761241730373,
+      "bB": -0.28886714024614224,
+      "n_pixels": 474880,
+      "reference_protocol": "legacy-direct-reference",
+      "classification": "introduced-regression-needs-root-cause",
+      "waived": false,
+      "next_check": "Isolate processing changes against captured main; do not dismiss as intended AgX.",
+      "evidence": "color-suite-5000-branch37-full.json:matched_captured_main"
+    },
+    {
+      "fixture": "test_0018",
+      "case": "tint_max",
+      "profile": "neutral",
+      "resolution": "down",
+      "status": "breach",
+      "breaches": [
+        "mean 22.65>17.27",
+        "p95 31.18>21.30",
+        "max 48.49>39.76",
+        "bias_G -0.2660>0.2210"
+      ],
+      "mean": 22.65018081721855,
+      "p95": 31.178757570064008,
+      "max": 48.48758837096562,
+      "bR": -0.04363119682397366,
+      "bG": -0.26596833522959656,
+      "bB": -0.1234093206821981,
+      "n_pixels": 474880,
+      "reference_protocol": "legacy-direct-reference",
+      "classification": "confirmed-reference-settings-defect",
+      "waived": false,
+      "next_check": "Independently recaptured references are preserved; adoption still pending. No renderer diagnosis from this mismatched pair.",
+      "evidence": "color-suite-5000-tint-recapture-proposal.json"
+    },
+    {
+      "fixture": "test_0018",
+      "case": "tint_min",
+      "profile": "neutral",
+      "resolution": "down",
+      "status": "breach",
+      "breaches": [
+        "mean 23.92>17.26",
+        "p95 32.67>21.78",
+        "max 42.44>39.25",
+        "bias_R -0.3131>0.2734",
+        "bias_B -0.3243>0.2734"
+      ],
+      "mean": 23.92269682409231,
+      "p95": 32.67400241948173,
+      "max": 42.43995305105517,
+      "bR": -0.3131210837230662,
+      "bG": -0.11881813984088138,
+      "bB": -0.32429757769430756,
+      "n_pixels": 474880,
+      "reference_protocol": "legacy-direct-reference",
+      "classification": "confirmed-reference-settings-defect",
+      "waived": false,
+      "next_check": "Independently recaptured references are preserved; adoption still pending. No renderer diagnosis from this mismatched pair.",
+      "evidence": "color-suite-5000-tint-recapture-proposal.json"
+    },
+    {
+      "fixture": "test_0018",
+      "case": "whites_min",
+      "profile": "neutral",
+      "resolution": "down",
+      "status": "breach",
+      "breaches": [
+        "mean 13.45>10.30",
+        "p95 17.67>14.50",
+        "bias_R -0.1428>0.1142",
+        "bias_G -0.1373>0.1142",
+        "bias_B -0.1150>0.1142"
+      ],
+      "mean": 13.453272296617323,
+      "p95": 17.671619044258946,
+      "max": 35.02555413089644,
+      "bR": -0.14282186211207148,
+      "bG": -0.1372819971479601,
+      "bB": -0.115037093856237,
+      "n_pixels": 474880,
+      "reference_protocol": "legacy-direct-reference",
+      "classification": "unresolved-processing-or-appearance",
+      "waived": false,
+      "next_check": "Independent stage oracle or baseline-relative edit response; ACR difference alone is insufficient."
+    },
+    {
+      "fixture": "test_0005",
+      "case": "nr_color_max",
+      "profile": "detail-fullres",
+      "resolution": "full",
+      "status": "breach",
+      "breaches": [
+        "bias_R +0.1149>0.1031"
+      ],
+      "mean": 10.610979857501771,
+      "p95": 19.96460781075311,
+      "max": 92.57901827591228,
+      "bR": 0.11494045619883728,
+      "bG": 0.09544910564614154,
+      "bB": 0.08626118963143042,
+      "n_pixels": 51121152,
+      "reference_protocol": "legacy-direct-reference",
+      "classification": "baseline-appearance-or-calibration-candidate",
+      "waived": false,
+      "next_check": "Baseline already breaches every failing bias limit. Test decode/calibration and AgX independently before attributing to the detail operator.",
+      "native_baseline_bias": [
+        0.11492775321605564,
+        0.09545385156621589,
+        0.08630705402434946
+      ],
+      "edit_excess_bias": [
+        1.2702982781637173e-05,
+        -4.745920074350485e-06,
+        -4.586439291903721e-05
+      ]
+    },
+    {
+      "fixture": "test_0005",
+      "case": "nr_color_min",
+      "profile": "detail-fullres",
+      "resolution": "full",
+      "status": "breach",
+      "breaches": [
+        "bias_R +0.1157>0.1033"
+      ],
+      "mean": 10.816010069498985,
+      "p95": 20.403065414601375,
+      "max": 92.07009732633546,
+      "bR": 0.11567004095465071,
+      "bG": 0.09531974244779402,
+      "bB": 0.08665452445453564,
+      "n_pixels": 51121152,
+      "reference_protocol": "legacy-direct-reference",
+      "classification": "baseline-appearance-or-calibration-candidate",
+      "waived": false,
+      "next_check": "Baseline already breaches every failing bias limit. Test decode/calibration and AgX independently before attributing to the detail operator.",
+      "native_baseline_bias": [
+        0.11492775321605564,
+        0.09545385156621589,
+        0.08630705402434946
+      ],
+      "edit_excess_bias": [
+        0.0007422877385950682,
+        -0.0001341091184218629,
+        0.00034747043018618085
+      ]
+    },
+    {
+      "fixture": "test_0005",
+      "case": "nr_luminance_max",
+      "profile": "detail-fullres",
+      "resolution": "full",
+      "status": "breach",
+      "breaches": [
+        "bias_R +0.1151>0.1026"
+      ],
+      "mean": 10.582509587384983,
+      "p95": 19.348450399388224,
+      "max": 90.36642161503492,
+      "bR": 0.11514969904344158,
+      "bG": 0.09567338325526745,
+      "bB": 0.08651589720518618,
+      "n_pixels": 51121152,
+      "reference_protocol": "legacy-direct-reference",
+      "classification": "baseline-appearance-or-calibration-candidate",
+      "waived": false,
+      "next_check": "Baseline already breaches every failing bias limit. Test decode/calibration and AgX independently before attributing to the detail operator.",
+      "native_baseline_bias": [
+        0.11492775321605564,
+        0.09545385156621589,
+        0.08630705402434946
+      ],
+      "edit_excess_bias": [
+        0.0002219458273859387,
+        0.00021953168905156084,
+        0.00020884318083672082
+      ]
+    },
+    {
+      "fixture": "test_0005",
+      "case": "sharpen_amount_max",
+      "profile": "detail-fullres",
+      "resolution": "full",
+      "status": "breach",
+      "breaches": [
+        "bias_R +0.1086>0.1043"
+      ],
+      "mean": 11.137350627654774,
+      "p95": 23.22431096703401,
+      "max": 92.54790702693069,
+      "bR": 0.10864935581290111,
+      "bG": 0.08836013499550685,
+      "bB": 0.07879173013403759,
+      "n_pixels": 51121152,
+      "reference_protocol": "legacy-direct-reference",
+      "classification": "baseline-appearance-or-calibration-candidate",
+      "waived": false,
+      "next_check": "Baseline already breaches every failing bias limit. Test decode/calibration and AgX independently before attributing to the detail operator.",
+      "native_baseline_bias": [
+        0.11492775321605564,
+        0.09545385156621589,
+        0.08630705402434946
+      ],
+      "edit_excess_bias": [
+        -0.006278397403154529,
+        -0.0070937165707090355,
+        -0.00751532389031187
+      ]
+    },
+    {
+      "fixture": "test_0005",
+      "case": "sharpen_amount_min",
+      "profile": "detail-fullres",
+      "resolution": "full",
+      "status": "breach",
+      "breaches": [
+        "bias_R +0.1158>0.1029"
+      ],
+      "mean": 10.522127773186625,
+      "p95": 19.246424310078243,
+      "max": 78.3864951707674,
+      "bR": 0.11582939250867787,
+      "bG": 0.09634941207019593,
+      "bB": 0.08715553955953473,
+      "n_pixels": 51121152,
+      "reference_protocol": "legacy-direct-reference",
+      "classification": "baseline-appearance-or-calibration-candidate",
+      "waived": false,
+      "next_check": "Baseline already breaches every failing bias limit. Test decode/calibration and AgX independently before attributing to the detail operator.",
+      "native_baseline_bias": [
+        0.11492775321605564,
+        0.09545385156621589,
+        0.08630705402434946
+      ],
+      "edit_excess_bias": [
+        0.0009016392926222278,
+        0.0008955605039800418,
+        0.0008484855351852671
+      ]
+    },
+    {
+      "fixture": "test_0005",
+      "case": "sharpen_detail_max",
+      "profile": "detail-fullres",
+      "resolution": "full",
+      "status": "breach",
+      "breaches": [
+        "bias_R +0.1144>0.1034"
+      ],
+      "mean": 10.730093916022655,
+      "p95": 20.88681021249166,
+      "max": 92.34419159386856,
+      "bR": 0.11437636947818336,
+      "bG": 0.09490832877731582,
+      "bB": 0.08586365048223991,
+      "n_pixels": 51121152,
+      "reference_protocol": "legacy-direct-reference",
+      "classification": "baseline-appearance-or-calibration-candidate",
+      "waived": false,
+      "next_check": "Baseline already breaches every failing bias limit. Test decode/calibration and AgX independently before attributing to the detail operator.",
+      "native_baseline_bias": [
+        0.11492775321605564,
+        0.09545385156621589,
+        0.08630705402434946
+      ],
+      "edit_excess_bias": [
+        -0.0005513837378722797,
+        -0.000545522788900063,
+        -0.0004434035421095467
+      ]
+    },
+    {
+      "fixture": "test_0005",
+      "case": "sharpen_detail_min",
+      "profile": "detail-fullres",
+      "resolution": "full",
+      "status": "breach",
+      "breaches": [
+        "bias_R +0.1152>0.1029"
+      ],
+      "mean": 10.58710623896319,
+      "p95": 19.658976276820855,
+      "max": 82.24464172547405,
+      "bR": 0.11517018696165945,
+      "bG": 0.09569941676195895,
+      "bB": 0.08652732428429345,
+      "n_pixels": 51121152,
+      "reference_protocol": "legacy-direct-reference",
+      "classification": "baseline-appearance-or-calibration-candidate",
+      "waived": false,
+      "next_check": "Baseline already breaches every failing bias limit. Test decode/calibration and AgX independently before attributing to the detail operator.",
+      "native_baseline_bias": [
+        0.11492775321605564,
+        0.09545385156621589,
+        0.08630705402434946
+      ],
+      "edit_excess_bias": [
+        0.00024243374560381503,
+        0.0002455651957430638,
+        0.00022027025994399152
+      ]
+    },
+    {
+      "fixture": "test_0005",
+      "case": "sharpen_masking_max",
+      "profile": "detail-fullres",
+      "resolution": "full",
+      "status": "breach",
+      "breaches": [
+        "bias_R +0.1155>0.1028"
+      ],
+      "mean": 10.553141737977368,
+      "p95": 19.364476232069446,
+      "max": 87.84078517598881,
+      "bR": 0.11554126542188696,
+      "bG": 0.09606531478033019,
+      "bB": 0.08687095346458155,
+      "n_pixels": 51121152,
+      "reference_protocol": "legacy-direct-reference",
+      "classification": "baseline-appearance-or-calibration-candidate",
+      "waived": false,
+      "next_check": "Baseline already breaches every failing bias limit. Test decode/calibration and AgX independently before attributing to the detail operator.",
+      "native_baseline_bias": [
+        0.11492775321605564,
+        0.09545385156621589,
+        0.08630705402434946
+      ],
+      "edit_excess_bias": [
+        0.0006135122058313208,
+        0.0006114632141143023,
+        0.0005638994402320935
+      ]
+    },
+    {
+      "fixture": "test_0005",
+      "case": "sharpen_radius_max",
+      "profile": "detail-fullres",
+      "resolution": "full",
+      "status": "breach",
+      "breaches": [
+        "bias_R +0.1131>0.1024"
+      ],
+      "mean": 10.739832786704934,
+      "p95": 20.606668176435534,
+      "max": 91.08743797995481,
+      "bR": 0.11305451580583405,
+      "bG": 0.09359316936640588,
+      "bB": 0.08453881543134903,
+      "n_pixels": 51121152,
+      "reference_protocol": "legacy-direct-reference",
+      "classification": "baseline-appearance-or-calibration-candidate",
+      "waived": false,
+      "next_check": "Baseline already breaches every failing bias limit. Test decode/calibration and AgX independently before attributing to the detail operator.",
+      "native_baseline_bias": [
+        0.11492775321605564,
+        0.09545385156621589,
+        0.08630705402434946
+      ],
+      "edit_excess_bias": [
+        -0.0018732374102215926,
+        -0.0018606821998100043,
+        -0.0017682385930004318
+      ]
+    },
+    {
+      "fixture": "test_0005",
+      "case": "sharpen_radius_min",
+      "profile": "detail-fullres",
+      "resolution": "full",
+      "status": "breach",
+      "breaches": [
+        "bias_R +0.1156>0.1032"
+      ],
+      "mean": 10.584264095276355,
+      "p95": 19.687891941767006,
+      "max": 92.34419159386856,
+      "bR": 0.11557285247335859,
+      "bG": 0.09609058934808094,
+      "bB": 0.08690078088990537,
+      "n_pixels": 51121152,
+      "reference_protocol": "legacy-direct-reference",
+      "classification": "baseline-appearance-or-calibration-candidate",
+      "waived": false,
+      "next_check": "Baseline already breaches every failing bias limit. Test decode/calibration and AgX independently before attributing to the detail operator.",
+      "native_baseline_bias": [
+        0.11492775321605564,
+        0.09545385156621589,
+        0.08630705402434946
+      ],
+      "edit_excess_bias": [
+        0.0006450992573029529,
+        0.0006367377818650571,
+        0.0005937268655559075
+      ]
+    },
+    {
+      "fixture": "test_0011",
+      "case": "nr_color_max",
+      "profile": "detail-fullres",
+      "resolution": "full",
+      "status": "breach",
+      "breaches": [
+        "bias_R +0.0404>0.0116",
+        "bias_G +0.0339>0.0116",
+        "bias_B +0.0315>0.0116"
+      ],
+      "mean": 5.534339894490156,
+      "p95": 19.59490954881604,
+      "max": 35.72568768644186,
+      "bR": 0.04036122318496716,
+      "bG": 0.03389985940731104,
+      "bB": 0.031458425612580915,
+      "n_pixels": 60217344,
+      "reference_protocol": "legacy-direct-reference",
+      "classification": "baseline-appearance-or-calibration-candidate",
+      "waived": false,
+      "next_check": "Baseline already breaches every failing bias limit. Test decode/calibration and AgX independently before attributing to the detail operator.",
+      "native_baseline_bias": [
+        0.04037464785599859,
+        0.03387949986700206,
+        0.031474812306567346
+      ],
+      "edit_excess_bias": [
+        -1.3424671031429802e-05,
+        2.0359540308982627e-05,
+        -1.6386693986431e-05
+      ]
+    },
+    {
+      "fixture": "test_0011",
+      "case": "nr_color_min",
+      "profile": "detail-fullres",
+      "resolution": "full",
+      "status": "breach",
+      "breaches": [
+        "bias_R +0.0402>0.0115",
+        "bias_G +0.0336>0.0115",
+        "bias_B +0.0317>0.0115"
+      ],
+      "mean": 5.651159194497837,
+      "p95": 19.610493462348437,
+      "max": 38.017577031434826,
+      "bR": 0.04018663470278641,
+      "bG": 0.03355124699956191,
+      "bB": 0.03173036628926036,
+      "n_pixels": 60217344,
+      "reference_protocol": "legacy-direct-reference",
+      "classification": "baseline-appearance-or-calibration-candidate",
+      "waived": false,
+      "next_check": "Baseline already breaches every failing bias limit. Test decode/calibration and AgX independently before attributing to the detail operator.",
+      "native_baseline_bias": [
+        0.04037464785599859,
+        0.03387949986700206,
+        0.031474812306567346
+      ],
+      "edit_excess_bias": [
+        -0.00018801315321217982,
+        -0.0003282528674401486,
+        0.0002555539826930159
+      ]
+    },
+    {
+      "fixture": "test_0011",
+      "case": "nr_luminance_max",
+      "profile": "detail-fullres",
+      "resolution": "full",
+      "status": "breach",
+      "breaches": [
+        "bias_R +0.0403>0.0114",
+        "bias_G +0.0338>0.0114",
+        "bias_B +0.0313>0.0114"
+      ],
+      "mean": 5.522182708102345,
+      "p95": 19.555616145114655,
+      "max": 36.314264887194305,
+      "bR": 0.04025039824203469,
+      "bG": 0.0337516613337065,
+      "bB": 0.031349283906099014,
+      "n_pixels": 60217344,
+      "reference_protocol": "legacy-direct-reference",
+      "classification": "baseline-appearance-or-calibration-candidate",
+      "waived": false,
+      "next_check": "Baseline already breaches every failing bias limit. Test decode/calibration and AgX independently before attributing to the detail operator.",
+      "native_baseline_bias": [
+        0.04037464785599859,
+        0.03387949986700206,
+        0.031474812306567346
+      ],
+      "edit_excess_bias": [
+        -0.00012424961396390044,
+        -0.00012783853329555867,
+        -0.00012552840046833186
+      ]
+    },
+    {
+      "fixture": "test_0011",
+      "case": "sharpen_amount_max",
+      "profile": "detail-fullres",
+      "resolution": "full",
+      "status": "breach",
+      "breaches": [
+        "bias_R +0.0390>0.0108",
+        "bias_G +0.0325>0.0108",
+        "bias_B +0.0302>0.0108"
+      ],
+      "mean": 5.480602674319797,
+      "p95": 19.048783565378347,
+      "max": 40.22407459570707,
+      "bR": 0.0390095082517729,
+      "bG": 0.03247188077521247,
+      "bB": 0.030213241335013363,
+      "n_pixels": 60217344,
+      "reference_protocol": "legacy-direct-reference",
+      "classification": "baseline-appearance-or-calibration-candidate",
+      "waived": false,
+      "next_check": "Baseline already breaches every failing bias limit. Test decode/calibration and AgX independently before attributing to the detail operator.",
+      "native_baseline_bias": [
+        0.04037464785599859,
+        0.03387949986700206,
+        0.031474812306567346
+      ],
+      "edit_excess_bias": [
+        -0.0013651396042256916,
+        -0.0014076190917895887,
+        -0.0012615709715539832
+      ]
+    },
+    {
+      "fixture": "test_0011",
+      "case": "sharpen_amount_min",
+      "profile": "detail-fullres",
+      "resolution": "full",
+      "status": "breach",
+      "breaches": [
+        "bias_R +0.0405>0.0117",
+        "bias_G +0.0340>0.0117",
+        "bias_B +0.0316>0.0117"
+      ],
+      "mean": 5.538092317321684,
+      "p95": 19.62347798855436,
+      "max": 35.88741218835001,
+      "bR": 0.040479554811635905,
+      "bG": 0.03399526941980315,
+      "bB": 0.031569540562113044,
+      "n_pixels": 60217344,
+      "reference_protocol": "legacy-direct-reference",
+      "classification": "baseline-appearance-or-calibration-candidate",
+      "waived": false,
+      "next_check": "Baseline already breaches every failing bias limit. Test decode/calibration and AgX independently before attributing to the detail operator.",
+      "native_baseline_bias": [
+        0.04037464785599859,
+        0.03387949986700206,
+        0.031474812306567346
+      ],
+      "edit_excess_bias": [
+        0.00010490695563731417,
+        0.0001157695528010913,
+        9.472825554569797e-05
+      ]
+    },
+    {
+      "fixture": "test_0011",
+      "case": "sharpen_detail_max",
+      "profile": "detail-fullres",
+      "resolution": "full",
+      "status": "breach",
+      "breaches": [
+        "bias_R +0.0403>0.0115",
+        "bias_G +0.0338>0.0115",
+        "bias_B +0.0314>0.0115"
+      ],
+      "mean": 5.534120457167304,
+      "p95": 19.545676019672147,
+      "max": 36.79629366158452,
+      "bR": 0.04032414487706548,
+      "bG": 0.03382511330222427,
+      "bB": 0.031427081507508295,
+      "n_pixels": 60217344,
+      "reference_protocol": "legacy-direct-reference",
+      "classification": "baseline-appearance-or-calibration-candidate",
+      "waived": false,
+      "next_check": "Baseline already breaches every failing bias limit. Test decode/calibration and AgX independently before attributing to the detail operator.",
+      "native_baseline_bias": [
+        0.04037464785599859,
+        0.03387949986700206,
+        0.031474812306567346
+      ],
+      "edit_excess_bias": [
+        -5.0502978933109066e-05,
+        -5.4386564777790525e-05,
+        -4.7730799059050866e-05
+      ]
+    },
+    {
+      "fixture": "test_0011",
+      "case": "sharpen_detail_min",
+      "profile": "detail-fullres",
+      "resolution": "full",
+      "status": "breach",
+      "breaches": [
+        "bias_R +0.0404>0.0116",
+        "bias_G +0.0339>0.0116",
+        "bias_B +0.0315>0.0116"
+      ],
+      "mean": 5.538240027047243,
+      "p95": 19.623628382006213,
+      "max": 36.1202312673024,
+      "bR": 0.04040237458167457,
+      "bG": 0.03391000702928406,
+      "bB": 0.03150028242238233,
+      "n_pixels": 60217344,
+      "reference_protocol": "legacy-direct-reference",
+      "classification": "baseline-appearance-or-calibration-candidate",
+      "waived": false,
+      "next_check": "Baseline already breaches every failing bias limit. Test decode/calibration and AgX independently before attributing to the detail operator.",
+      "native_baseline_bias": [
+        0.04037464785599859,
+        0.03387949986700206,
+        0.031474812306567346
+      ],
+      "edit_excess_bias": [
+        2.7726725675976394e-05,
+        3.05071622819994e-05,
+        2.5470115814982264e-05
+      ]
+    },
+    {
+      "fixture": "test_0011",
+      "case": "sharpen_masking_max",
+      "profile": "detail-fullres",
+      "resolution": "full",
+      "status": "breach",
+      "breaches": [
+        "bias_R +0.0405>0.0117",
+        "bias_G +0.0340>0.0117",
+        "bias_B +0.0316>0.0117"
+      ],
+      "mean": 5.5390672244243575,
+      "p95": 19.633595222794693,
+      "max": 35.48598452671746,
+      "bR": 0.04046784416043605,
+      "bG": 0.03398013671983215,
+      "bB": 0.03155878579513602,
+      "n_pixels": 60217344,
+      "reference_protocol": "legacy-direct-reference",
+      "classification": "baseline-appearance-or-calibration-candidate",
+      "waived": false,
+      "next_check": "Baseline already breaches every failing bias limit. Test decode/calibration and AgX independently before attributing to the detail operator.",
+      "native_baseline_bias": [
+        0.04037464785599859,
+        0.03387949986700206,
+        0.031474812306567346
+      ],
+      "edit_excess_bias": [
+        9.319630443745813e-05,
+        0.00010063685283009244,
+        8.39734885686727e-05
+      ]
+    },
+    {
+      "fixture": "test_0011",
+      "case": "sharpen_radius_max",
+      "profile": "detail-fullres",
+      "resolution": "full",
+      "status": "breach",
+      "breaches": [
+        "bias_R +0.0401>0.0112",
+        "bias_G +0.0336>0.0112",
+        "bias_B +0.0312>0.0112"
+      ],
+      "mean": 5.52666587035368,
+      "p95": 19.60419841372835,
+      "max": 35.23568339065642,
+      "bR": 0.04005193198519637,
+      "bG": 0.03356449097085049,
+      "bB": 0.0311793761099656,
+      "n_pixels": 60217344,
+      "reference_protocol": "legacy-direct-reference",
+      "classification": "baseline-appearance-or-calibration-candidate",
+      "waived": false,
+      "next_check": "Baseline already breaches every failing bias limit. Test decode/calibration and AgX independently before attributing to the detail operator.",
+      "native_baseline_bias": [
+        0.04037464785599859,
+        0.03387949986700206,
+        0.031474812306567346
+      ],
+      "edit_excess_bias": [
+        -0.0003227158708022232,
+        -0.0003150088961515682,
+        -0.0002954361966017449
+      ]
+    },
+    {
+      "fixture": "test_0011",
+      "case": "sharpen_radius_min",
+      "profile": "detail-fullres",
+      "resolution": "full",
+      "status": "breach",
+      "breaches": [
+        "bias_R +0.0404>0.0116",
+        "bias_G +0.0340>0.0116",
+        "bias_B +0.0315>0.0116"
+      ],
+      "mean": 5.537471211217493,
+      "p95": 19.60176260206212,
+      "max": 35.768586358663086,
+      "bR": 0.040442935497569325,
+      "bG": 0.033952092032597324,
+      "bB": 0.03153738853348609,
+      "n_pixels": 60217344,
+      "reference_protocol": "legacy-direct-reference",
+      "classification": "baseline-appearance-or-calibration-candidate",
+      "waived": false,
+      "next_check": "Baseline already breaches every failing bias limit. Test decode/calibration and AgX independently before attributing to the detail operator.",
+      "native_baseline_bias": [
+        0.04037464785599859,
+        0.03387949986700206,
+        0.031474812306567346
+      ],
+      "edit_excess_bias": [
+        6.828764157073425e-05,
+        7.259216559526299e-05,
+        6.257622691874243e-05
+      ]
+    },
+    {
+      "fixture": "test_0012",
+      "case": "nr_color_max",
+      "profile": "detail-fullres",
+      "resolution": "full",
+      "status": "breach",
+      "breaches": [
+        "bias_R +0.1434>0.1221"
+      ],
+      "mean": 11.330420952091318,
+      "p95": 25.490606442800907,
+      "max": 94.05240047375621,
+      "bR": 0.1433648720659135,
+      "bG": 0.06851685352408428,
+      "bB": 0.033454716822522206,
+      "n_pixels": 51121152,
+      "reference_protocol": "legacy-direct-reference",
+      "classification": "baseline-appearance-or-calibration-candidate",
+      "waived": false,
+      "next_check": "Baseline already breaches every failing bias limit. Test decode/calibration and AgX independently before attributing to the detail operator.",
+      "native_baseline_bias": [
+        0.14336504020419388,
+        0.06849575521548279,
+        0.03352237192519125
+      ],
+      "edit_excess_bias": [
+        -1.6813828038197975e-07,
+        2.1098308601488758e-05,
+        -6.765510266904667e-05
+      ]
+    },
+    {
+      "fixture": "test_0012",
+      "case": "nr_color_min",
+      "profile": "detail-fullres",
+      "resolution": "full",
+      "status": "breach",
+      "breaches": [
+        "bias_R +0.1429>0.1222"
+      ],
+      "mean": 11.500494046523018,
+      "p95": 25.814036693320247,
+      "max": 94.09054808333732,
+      "bR": 0.14289814677116974,
+      "bG": 0.06857284984296662,
+      "bB": 0.03363515740115325,
+      "n_pixels": 51121152,
+      "reference_protocol": "legacy-direct-reference",
+      "classification": "baseline-appearance-or-calibration-candidate",
+      "waived": false,
+      "next_check": "Baseline already breaches every failing bias limit. Test decode/calibration and AgX independently before attributing to the detail operator.",
+      "native_baseline_bias": [
+        0.14336504020419388,
+        0.06849575521548279,
+        0.03352237192519125
+      ],
+      "edit_excess_bias": [
+        -0.0004668934330241403,
+        7.709462748382856e-05,
+        0.00011278547596199617
+      ]
+    },
+    {
+      "fixture": "test_0012",
+      "case": "nr_luminance_max",
+      "profile": "detail-fullres",
+      "resolution": "full",
+      "status": "breach",
+      "breaches": [
+        "bias_R +0.1436>0.1173"
+      ],
+      "mean": 11.28419220432108,
+      "p95": 24.834730355738074,
+      "max": 94.7886875159476,
+      "bR": 0.1435923387188333,
+      "bG": 0.06869296143615938,
+      "bB": 0.03368725446371449,
+      "n_pixels": 51121152,
+      "reference_protocol": "legacy-direct-reference",
+      "classification": "baseline-appearance-or-calibration-candidate",
+      "waived": false,
+      "next_check": "Baseline already breaches every failing bias limit. Test decode/calibration and AgX independently before attributing to the detail operator.",
+      "native_baseline_bias": [
+        0.14336504020419388,
+        0.06849575521548279,
+        0.03352237192519125
+      ],
+      "edit_excess_bias": [
+        0.00022729851463942907,
+        0.00019720622067659344,
+        0.00016488253852323803
+      ]
+    },
+    {
+      "fixture": "test_0012",
+      "case": "sharpen_amount_max",
+      "profile": "detail-fullres",
+      "resolution": "full",
+      "status": "breach",
+      "breaches": [
+        "bias_R +0.1357>0.1334"
+      ],
+      "mean": 12.017495270924014,
+      "p95": 28.808002500855338,
+      "max": 97.71630126860084,
+      "bR": 0.1357099182286072,
+      "bG": 0.06000842265837523,
+      "bB": 0.024133182183923463,
+      "n_pixels": 51121152,
+      "reference_protocol": "legacy-direct-reference",
+      "classification": "baseline-appearance-or-calibration-candidate",
+      "waived": false,
+      "next_check": "Baseline already breaches every failing bias limit. Test decode/calibration and AgX independently before attributing to the detail operator.",
+      "native_baseline_bias": [
+        0.14336504020419388,
+        0.06849575521548279,
+        0.03352237192519125
+      ],
+      "edit_excess_bias": [
+        -0.007655121975586682,
+        -0.008487332557107562,
+        -0.00938918974126779
+      ]
+    },
+    {
+      "fixture": "test_0012",
+      "case": "sharpen_amount_min",
+      "profile": "detail-fullres",
+      "resolution": "full",
+      "status": "breach",
+      "breaches": [
+        "bias_R +0.1450>0.1181"
+      ],
+      "mean": 11.174597621549616,
+      "p95": 24.06350789411874,
+      "max": 93.91747101221371,
+      "bR": 0.14497602008799015,
+      "bG": 0.07006906987257044,
+      "bB": 0.03512383021636668,
+      "n_pixels": 51121152,
+      "reference_protocol": "legacy-direct-reference",
+      "classification": "baseline-appearance-or-calibration-candidate",
+      "waived": false,
+      "next_check": "Baseline already breaches every failing bias limit. Test decode/calibration and AgX independently before attributing to the detail operator.",
+      "native_baseline_bias": [
+        0.14336504020419388,
+        0.06849575521548279,
+        0.03352237192519125
+      ],
+      "edit_excess_bias": [
+        0.0016109798837962708,
+        0.0015733146570876544,
+        0.001601458291175431
+      ]
+    },
+    {
+      "fixture": "test_0012",
+      "case": "sharpen_detail_max",
+      "profile": "detail-fullres",
+      "resolution": "full",
+      "status": "breach",
+      "breaches": [
+        "bias_R +0.1425>0.1253"
+      ],
+      "mean": 11.49519662670789,
+      "p95": 26.658887239611982,
+      "max": 94.21928756671714,
+      "bR": 0.14251662858867375,
+      "bG": 0.06765989674921025,
+      "bB": 0.032697381860598965,
+      "n_pixels": 51121152,
+      "reference_protocol": "legacy-direct-reference",
+      "classification": "baseline-appearance-or-calibration-candidate",
+      "waived": false,
+      "next_check": "Baseline already breaches every failing bias limit. Test decode/calibration and AgX independently before attributing to the detail operator.",
+      "native_baseline_bias": [
+        0.14336504020419388,
+        0.06849575521548279,
+        0.03352237192519125
+      ],
+      "edit_excess_bias": [
+        -0.0008484116155201282,
+        -0.0008358584662725432,
+        -0.0008249900645922875
+      ]
+    },
+    {
+      "fixture": "test_0012",
+      "case": "sharpen_detail_min",
+      "profile": "detail-fullres",
+      "resolution": "full",
+      "status": "breach",
+      "breaches": [
+        "bias_R +0.1438>0.1196"
+      ],
+      "mean": 11.279296595501831,
+      "p95": 24.866942966132783,
+      "max": 94.05240047375621,
+      "bR": 0.14384767914977908,
+      "bG": 0.0689549485494838,
+      "bB": 0.03396631909643949,
+      "n_pixels": 51121152,
+      "reference_protocol": "legacy-direct-reference",
+      "classification": "baseline-appearance-or-calibration-candidate",
+      "waived": false,
+      "next_check": "Baseline already breaches every failing bias limit. Test decode/calibration and AgX independently before attributing to the detail operator.",
+      "native_baseline_bias": [
+        0.14336504020419388,
+        0.06849575521548279,
+        0.03352237192519125
+      ],
+      "edit_excess_bias": [
+        0.00048263894558520093,
+        0.00045919333400100404,
+        0.0004439471712482379
+      ]
+    },
+    {
+      "fixture": "test_0012",
+      "case": "sharpen_masking_max",
+      "profile": "detail-fullres",
+      "resolution": "full",
+      "status": "breach",
+      "breaches": [
+        "bias_R +0.1443>0.1178"
+      ],
+      "mean": 11.235330562540952,
+      "p95": 24.417378458976472,
+      "max": 93.91747101221371,
+      "bR": 0.14434269605308916,
+      "bG": 0.06943890479826528,
+      "bB": 0.03446635164380941,
+      "n_pixels": 51121152,
+      "reference_protocol": "legacy-direct-reference",
+      "classification": "baseline-appearance-or-calibration-candidate",
+      "waived": false,
+      "next_check": "Baseline already breaches every failing bias limit. Test decode/calibration and AgX independently before attributing to the detail operator.",
+      "native_baseline_bias": [
+        0.14336504020419388,
+        0.06849575521548279,
+        0.03352237192519125
+      ],
+      "edit_excess_bias": [
+        0.0009776558488952813,
+        0.0009431495827824932,
+        0.0009439797186181556
+      ]
+    },
+    {
+      "fixture": "test_0012",
+      "case": "sharpen_radius_max",
+      "profile": "detail-fullres",
+      "resolution": "full",
+      "status": "breach",
+      "breaches": [
+        "bias_R +0.1411>0.1207"
+      ],
+      "mean": 11.478528342120722,
+      "p95": 26.413078068653807,
+      "max": 97.40493650712025,
+      "bR": 0.14112844100376862,
+      "bG": 0.06618452135225583,
+      "bB": 0.031081184514721784,
+      "n_pixels": 51121152,
+      "reference_protocol": "legacy-direct-reference",
+      "classification": "baseline-appearance-or-calibration-candidate",
+      "waived": false,
+      "next_check": "Baseline already breaches every failing bias limit. Test decode/calibration and AgX independently before attributing to the detail operator.",
+      "native_baseline_bias": [
+        0.14336504020419388,
+        0.06849575521548279,
+        0.03352237192519125
+      ],
+      "edit_excess_bias": [
+        -0.0022365992004252655,
+        -0.002311233863226958,
+        -0.0024411874104694684
+      ]
+    },
+    {
+      "fixture": "test_0012",
+      "case": "sharpen_radius_min",
+      "profile": "detail-fullres",
+      "resolution": "full",
+      "status": "breach",
+      "breaches": [
+        "bias_R +0.1444>0.1205"
+      ],
+      "mean": 11.282126460642854,
+      "p95": 24.89805605660404,
+      "max": 93.80310267652719,
+      "bR": 0.14444292525407804,
+      "bG": 0.06957895819410945,
+      "bB": 0.03464405031177388,
+      "n_pixels": 51121152,
+      "reference_protocol": "legacy-direct-reference",
+      "classification": "baseline-appearance-or-calibration-candidate",
+      "waived": false,
+      "next_check": "Baseline already breaches every failing bias limit. Test decode/calibration and AgX independently before attributing to the detail operator.",
+      "native_baseline_bias": [
+        0.14336504020419388,
+        0.06849575521548279,
+        0.03352237192519125
+      ],
+      "edit_excess_bias": [
+        0.001077885049884153,
+        0.0010832029786266573,
+        0.001121678386582628
+      ]
+    },
+    {
+      "fixture": "test_0014",
+      "case": "nr_color_max",
+      "profile": "detail-fullres",
+      "resolution": "full",
+      "status": "breach",
+      "breaches": [
+        "max 42.96>41.80",
+        "bias_R +0.1890>0.1886"
+      ],
+      "mean": 15.732620736229123,
+      "p95": 26.713802380074945,
+      "max": 42.962144350124966,
+      "bR": 0.18902403146606325,
+      "bG": 0.17415076249853154,
+      "bB": 0.17625118774002224,
+      "n_pixels": 45441024,
+      "reference_protocol": "legacy-direct-reference",
+      "classification": "unresolved-processing-or-appearance",
+      "waived": false,
+      "next_check": "Independent stage oracle or baseline-relative edit response; ACR difference alone is insufficient.",
+      "native_baseline_bias": [
+        0.18907400053481258,
+        0.1741637530517125,
+        0.17633140882547355
+      ],
+      "edit_excess_bias": [
+        -4.996906874932261e-05,
+        -1.299055318096376e-05,
+        -8.022108545130413e-05
+      ]
+    },
+    {
+      "fixture": "test_0014",
+      "case": "nr_color_min",
+      "profile": "detail-fullres",
+      "resolution": "full",
+      "status": "breach",
+      "breaches": [
+        "bias_R +0.1889>0.1880"
+      ],
+      "mean": 15.72678067967324,
+      "p95": 26.650716477136786,
+      "max": 48.77015935708753,
+      "bR": 0.18894685158267882,
+      "bG": 0.17446222189501018,
+      "bB": 0.17656129132017975,
+      "n_pixels": 45441024,
+      "reference_protocol": "legacy-direct-reference",
+      "classification": "baseline-appearance-or-calibration-candidate",
+      "waived": false,
+      "next_check": "Baseline already breaches every failing bias limit. Test decode/calibration and AgX independently before attributing to the detail operator.",
+      "native_baseline_bias": [
+        0.18907400053481258,
+        0.1741637530517125,
+        0.17633140882547355
+      ],
+      "edit_excess_bias": [
+        -0.00012714895213375432,
+        0.00029846884329767787,
+        0.00022988249470620725
+      ]
+    },
+    {
+      "fixture": "test_0014",
+      "case": "nr_luminance_max",
+      "profile": "detail-fullres",
+      "resolution": "full",
+      "status": "breach",
+      "breaches": [
+        "bias_R +0.1901>0.1888"
+      ],
+      "mean": 15.775614354005395,
+      "p95": 26.76054504377889,
+      "max": 41.476337128634135,
+      "bR": 0.1900654198349649,
+      "bG": 0.17521576969501565,
+      "bB": 0.177182919072188,
+      "n_pixels": 45441024,
+      "reference_protocol": "legacy-direct-reference",
+      "classification": "baseline-appearance-or-calibration-candidate",
+      "waived": false,
+      "next_check": "Baseline already breaches every failing bias limit. Test decode/calibration and AgX independently before attributing to the detail operator.",
+      "native_baseline_bias": [
+        0.18907400053481258,
+        0.1741637530517125,
+        0.17633140882547355
+      ],
+      "edit_excess_bias": [
+        0.000991419300152313,
+        0.0010520166433031497,
+        0.0008515102467144542
+      ]
+    },
+    {
+      "fixture": "test_0014",
+      "case": "sharpen_amount_max",
+      "profile": "detail-fullres",
+      "resolution": "full",
+      "status": "breach",
+      "breaches": [
+        "max 51.53>50.90",
+        "bias_R +0.1776>0.1616",
+        "bias_G +0.1622>0.1616",
+        "bias_B +0.1682>0.1616"
+      ],
+      "mean": 14.804644353010184,
+      "p95": 26.81677339689866,
+      "max": 51.526271540665014,
+      "bR": 0.17757548788032262,
+      "bG": 0.16223756366317654,
+      "bB": 0.16821938053377902,
+      "n_pixels": 45441024,
+      "reference_protocol": "legacy-direct-reference",
+      "classification": "unresolved-processing-or-appearance",
+      "waived": false,
+      "next_check": "Independent stage oracle or baseline-relative edit response; ACR difference alone is insufficient.",
+      "native_baseline_bias": [
+        0.18907400053481258,
+        0.1741637530517125,
+        0.17633140882547355
+      ],
+      "edit_excess_bias": [
+        -0.01149851265448995,
+        -0.011926189388535957,
+        -0.008112028291694523
+      ]
+    },
+    {
+      "fixture": "test_0014",
+      "case": "sharpen_detail_max",
+      "profile": "detail-fullres",
+      "resolution": "full",
+      "status": "breach",
+      "breaches": [
+        "bias_R +0.1884>0.1872"
+      ],
+      "mean": 15.639168850744525,
+      "p95": 26.613879812579054,
+      "max": 43.620735237150036,
+      "bR": 0.18839592544920003,
+      "bG": 0.17346838003789158,
+      "bB": 0.17585274910397447,
+      "n_pixels": 45441024,
+      "reference_protocol": "legacy-direct-reference",
+      "classification": "baseline-appearance-or-calibration-candidate",
+      "waived": false,
+      "next_check": "Baseline already breaches every failing bias limit. Test decode/calibration and AgX independently before attributing to the detail operator.",
+      "native_baseline_bias": [
+        0.18907400053481258,
+        0.1741637530517125,
+        0.17633140882547355
+      ],
+      "edit_excess_bias": [
+        -0.000678075085612545,
+        -0.0006953730138209158,
+        -0.0004786597214990751
+      ]
+    },
+    {
+      "fixture": "test_0014",
+      "case": "sharpen_detail_min",
+      "profile": "detail-fullres",
+      "resolution": "full",
+      "status": "breach",
+      "breaches": [
+        "max 43.33>43.10"
+      ],
+      "mean": 15.73746373872928,
+      "p95": 26.860365829779145,
+      "max": 43.33407871996412,
+      "bR": 0.18949795180110876,
+      "bG": 0.17459834098674407,
+      "bB": 0.17666573792970464,
+      "n_pixels": 45441024,
+      "reference_protocol": "legacy-direct-reference",
+      "classification": "introduced-regression-needs-root-cause",
+      "waived": false,
+      "next_check": "Isolate processing changes against captured main; do not dismiss as intended AgX.",
+      "evidence": "color-suite-5000-branch37-full.json:matched_captured_main"
+    },
+    {
+      "fixture": "test_0014",
+      "case": "sharpen_radius_max",
+      "profile": "detail-fullres",
+      "resolution": "full",
+      "status": "breach",
+      "breaches": [
+        "max 43.92>43.40"
+      ],
+      "mean": 15.43356031093628,
+      "p95": 26.862670091208155,
+      "max": 43.9176222687422,
+      "bR": 0.18563190062927468,
+      "bG": 0.1706300834516774,
+      "bB": 0.17362574250840937,
+      "n_pixels": 45441024,
+      "reference_protocol": "legacy-direct-reference",
+      "classification": "introduced-regression-needs-root-cause",
+      "waived": false,
+      "next_check": "Isolate processing changes against captured main; do not dismiss as intended AgX.",
+      "evidence": "color-suite-5000-branch37-full.json:matched_captured_main"
+    }
+  ]
+}

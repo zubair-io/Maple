@@ -22,6 +22,13 @@ pub enum Error {
     #[error("panicked while decoding {path}: {reason}")]
     DecodePanicked { path: PathBuf, reason: String },
 
+    /// The decoder has no definition for this camera body, so its sensor data
+    /// cannot be developed (#5499). The file itself is intact — the same bytes
+    /// develop once the body is supported — so hosts must not treat this as
+    /// a damaged original.
+    #[error("unsupported camera: {make} {model}")]
+    UnsupportedCamera { make: String, model: String },
+
     #[error("unsupported CFA pattern: {0:?}")]
     UnsupportedCfa(String),
 
@@ -82,6 +89,13 @@ pub enum Error {
 }
 
 impl Error {
+    /// raw-ffi's develop return code for [`Self::UnsupportedCamera`] (#5499),
+    /// emitted to the API by codegen (`--schema ffi-status`).
+    pub const UNSUPPORTED_CAMERA_FFI_CODE: i32 = 15;
+    /// How [`Self::UnsupportedCamera`]'s message begins; the API recognises
+    /// the error by it after the message crosses its FFI child's IPC.
+    pub const UNSUPPORTED_CAMERA_MESSAGE_PREFIX: &'static str = "unsupported camera: ";
+
     pub(crate) fn encode(format: &'static str, reason: String) -> Self {
         Self::Encode { format, reason }
     }

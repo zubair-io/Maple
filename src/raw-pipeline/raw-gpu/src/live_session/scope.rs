@@ -157,7 +157,15 @@ impl LiveSession {
             use_alpha,
         );
         let (dw, dh) = encode_snapshot(ctx, encoder, chain_buf, &s.snap, dims);
-        let staging = &s.staging[s.slot.get()];
+        let slot = s.slot.get();
+        // Drop any unread map from two ticks ago BEFORE recording the copy into
+        // this slot (#4732) — waiting until `scope_after_submit` leaves the
+        // buffer mapped or pending-map during `queue.submit`, which triggers a
+        // wgpu "buffer still mapped" validation error after 3+ unpolled renders.
+        if s.pending.borrow_mut()[slot].take().is_some() {
+            s.staging[slot].unmap();
+        }
+        let staging = &s.staging[slot];
         encoder.copy_buffer_to_buffer(&s.hist, 0, staging, 0, SCOPE_HIST_BYTE_LEN);
         let snap_len = (dw as u64) * (dh as u64) * 4;
         if snap_len > 0 {
@@ -166,8 +174,8 @@ impl LiveSession {
     }
 
     /// Request the async map of this tick's staging slot and advance the slot.
-    /// A slot whose previous map was never taken is dropped first (a stale
-    /// sample nobody read is worthless; the host only ever wants the newest).
+    /// A slot whose previous map was never taken is dropped in [`Self::encode_scope`]
+    /// before the copy is recorded (#4732) and guarded again here.
     pub(super) fn scope_after_submit(&self, submission: wgpu::SubmissionIndex) {
         let s = &self.scope;
         let slot = s.slot.get();

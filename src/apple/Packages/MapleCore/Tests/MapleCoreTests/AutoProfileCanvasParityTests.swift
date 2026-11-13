@@ -192,23 +192,13 @@ final class AutoProfileCanvasParityTests: XCTestCase {
         ) else { throw XCTSkip("decodeSceneLinear nil for \(rawURL.lastPathComponent)") }
         let decoded = decodeResult.image
 
-        let asShot: ImageEditPipeline.AsShotWB? = {
-            guard let raw = ImageMetadataReader.readAsShotWB(from: rawURL) else { return nil }
-            return ImageEditPipeline.AsShotWB(temperature: raw.temperature, tint: raw.tint)
-        }()
         var model = AdjustmentModel.default
         model.profile = profile
-        // Render at "As Shot": set the WB sliders to the as-shot values so the
-        // asShot-relative WB chain (`wb_gains(live)/wb_gains(asShot)`) applies a
-        // ZERO shift — the app's default view, and the only WB that matches a CPU
-        // `maple_render_file` render (whose default temperature=6500 on the
-        // post-DCP D65 buffer is itself a zero shift). Without this the default
-        // 6500 drives a spurious `wb_gains(6500)/wb_gains(asShot)` shift that
-        // diverges from the CPU reference and dominates any per-band parity bias.
-        if let asShot {
-            model.temperature = asShot.temperature
-            model.tint = asShot.tint
-        }
+        // Render at "As Shot", the app's default view and what a CPU
+        // `maple_render_file` render of an unauthored sidecar develops: the
+        // creative stage (#5377) reads the slider pair as absolute, so seed
+        // it with the decode frame's own as-shot pair, as the editor does.
+        model = decodeResult.atAsShot(model)
         let profileLUT = await AutoProfileLUT.shared.filter(
             forRawAt: rawURL, profile: profile, quality: .full
         )
@@ -217,7 +207,9 @@ final class AutoProfileCanvasParityTests: XCTestCase {
         }
         let processed = pipeline.processSceneLinear(
             decoded: decoded, model: model, targetSize: nil,
-            asShot: asShot, decodedAtModel: .default, profileLUT: profileLUT
+            decodedAtModel: .default, profileLUT: profileLUT,
+            wbFrame: decodeResult.wbFrame, whitesAnchorEv: decodeResult.whitesAnchorEv,
+            nrSamplingScale: decodeResult.nrSamplingScale
         )
         let workingSpace = CGColorSpace(name: CGColorSpace.extendedLinearSRGB)!
         let outputSpace = CGColorSpace(name: CGColorSpace.sRGB)!

@@ -1,0 +1,280 @@
+warning: `#[macro_use]` attribute cannot be used on crates
+   --> third_party/zune-jpeg/src/lib.rs:166:1
+    |
+166 | #![macro_use]
+    | ^^^^^^^^^^^^^
+    |
+    = help: `#[macro_use]` can be applied to extern crates and modules
+    = warning: this was previously accepted by the compiler but is being phased out; it will become a hard error in a future release!
+    = note: `#[warn(unused_attributes)]` (part of `#[warn(unused)]`) on by default
+
+warning: `zune-jpeg` (lib) generated 1 warning (run `cargo fix --lib -p zune-jpeg` to apply 1 suggestion)
+   Compiling raw-core v0.1.0 (/Users/riabuz/.codex/worktrees/color-suite-progress/_Maple/src/raw-pipeline/raw-core)
+warning: duplicated attribute
+   --> raw-core/src/black_level.rs:167:5
+    |
+167 |     #[test]
+    |     ^^^^^^^
+    |
+    = note: `#[warn(duplicate_macro_attributes)]` on by default
+
+warning: hidden lifetime parameters in types are deprecated
+   --> raw-core/src/stages/highlight_recovery/guided.rs:202:24
+    |
+202 |         anchor: Option<FrameAnchor>,
+    |                        ^^^^^^^^^^^ expected lifetime parameter
+    |
+note: the lint level is defined here
+   --> raw-core/src/lib.rs:6:22
+    |
+  6 | #![warn(clippy::all, rust_2018_idioms)]
+    |                      ^^^^^^^^^^^^^^^^
+    = note: `#[warn(elided_lifetimes_in_paths)]` implied by `#[warn(rust_2018_idioms)]`
+help: indicate the anonymous lifetime
+    |
+202 |         anchor: Option<FrameAnchor<'_>>,
+    |                                   ++++
+
+warning: hidden lifetime parameters in types are deprecated
+   --> raw-core/src/stages/highlight_recovery/guided.rs:323:20
+    |
+323 |     anchor: Option<FrameAnchor>,
+    |                    ^^^^^^^^^^^ expected lifetime parameter
+    |
+help: indicate the anonymous lifetime
+    |
+323 |     anchor: Option<FrameAnchor<'_>>,
+    |                               ++++
+
+warning: hidden lifetime parameters in types are deprecated
+   --> raw-core/src/stages/highlight_recovery.rs:150:20
+    |
+150 |     anchor: Option<FrameAnchor>,
+    |                    ^^^^^^^^^^^ expected lifetime parameter
+    |
+help: indicate the anonymous lifetime
+    |
+150 |     anchor: Option<FrameAnchor<'_>>,
+    |                               ++++
+
+warning: hidden lifetime parameters in types are deprecated
+   --> raw-core/src/stages/highlight_recovery.rs:169:20
+    |
+169 |     anchor: Option<FrameAnchor>,
+    |                    ^^^^^^^^^^^ expected lifetime parameter
+    |
+help: indicate the anonymous lifetime
+    |
+169 |     anchor: Option<FrameAnchor<'_>>,
+    |                               ++++
+
+warning: hidden lifetime parameters in types are deprecated
+   --> raw-core/src/stages/highlight_recovery.rs:335:20
+    |
+335 |     anchor: Option<FrameAnchor>,
+    |                    ^^^^^^^^^^^ expected lifetime parameter
+    |
+help: indicate the anonymous lifetime
+    |
+335 |     anchor: Option<FrameAnchor<'_>>,
+    |                               ++++
+
+warning: unused attribute `allow`
+   --> raw-core/src/stages/nlm.rs:334:1
+    |
+334 | #[allow(clippy::too_many_arguments)]
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+note: the built-in attribute `allow` will be ignored, since it's applied to the macro invocation `include`
+   --> raw-core/src/stages/nlm.rs:335:1
+    |
+335 | include!("nlm_shift.rs");
+    | ^^^^^^^
+    = note: `#[warn(unused_attributes)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `camera`
+  --> raw-core/src/lens_profile/lensfun/tests_parity.rs:84:14
+   |
+84 |         let (camera, lens) = find_case(&case);
+   |              ^^^^^^ help: if this is intentional, prefix it with an underscore: `_camera`
+   |
+   = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `camera`
+   --> raw-core/src/lens_profile/lensfun/tests_parity.rs:111:14
+    |
+111 |         let (camera, lens) = find_case(&case);
+    |              ^^^^^^ help: if this is intentional, prefix it with an underscore: `_camera`
+
+warning: unused variable: `camera`
+   --> raw-core/src/lens_profile/lensfun/tests_parity.rs:149:14
+    |
+149 |         let (camera, lens) = find_case(&case);
+    |              ^^^^^^ help: if this is intentional, prefix it with an underscore: `_camera`
+
+warning: unused variable: `coarse`
+   --> raw-core/src/view/auto_profile/paired_fit.rs:296:18
+    |
+296 |     let (result, coarse) =
+    |                  ^^^^^^ help: if this is intentional, prefix it with an underscore: `_coarse`
+
+warning: unused variable: `auto_lateral_ca`
+   --> raw-core/src/types/adjustment/schema/tests.rs:152:9
+    |
+152 |         auto_lateral_ca,
+    |         ^^^^^^^^^^^^^^^ help: try ignoring the field: `auto_lateral_ca: _`
+
+warning: unused variable: `defringe_purple_amount`
+   --> raw-core/src/types/adjustment/schema/tests.rs:153:9
+    |
+153 |         defringe_purple_amount,
+    |         ^^^^^^^^^^^^^^^^^^^^^^ help: try ignoring the field: `defringe_purple_amount: _`
+
+warning: unused variable: `defringe_purple_hue_lo`
+   --> raw-core/src/types/adjustment/schema/tests.rs:154:9
+    |
+154 |         defringe_purple_hue_lo,
+    |         ^^^^^^^^^^^^^^^^^^^^^^ help: try ignoring the field: `defringe_purple_hue_lo: _`
+
+warning: unused variable: `defringe_purple_hue_hi`
+   --> raw-core/src/types/adjustment/schema/tests.rs:155:9
+    |
+155 |         defringe_purple_hue_hi,
+    |         ^^^^^^^^^^^^^^^^^^^^^^ help: try ignoring the field: `defringe_purple_hue_hi: _`
+
+warning: unused variable: `defringe_green_amount`
+   --> raw-core/src/types/adjustment/schema/tests.rs:156:9
+    |
+156 |         defringe_green_amount,
+    |         ^^^^^^^^^^^^^^^^^^^^^ help: try ignoring the field: `defringe_green_amount: _`
+
+warning: unused variable: `defringe_green_hue_lo`
+   --> raw-core/src/types/adjustment/schema/tests.rs:157:9
+    |
+157 |         defringe_green_hue_lo,
+    |         ^^^^^^^^^^^^^^^^^^^^^ help: try ignoring the field: `defringe_green_hue_lo: _`
+
+warning: unused variable: `defringe_green_hue_hi`
+   --> raw-core/src/types/adjustment/schema/tests.rs:158:9
+    |
+158 |         defringe_green_hue_hi,
+    |         ^^^^^^^^^^^^^^^^^^^^^ help: try ignoring the field: `defringe_green_hue_hi: _`
+
+warning: function `clip_mask_with_ripple` is never used
+   --> raw-core/src/stages/highlight_recovery.rs:241:4
+    |
+241 | fn clip_mask_with_ripple(
+    |    ^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: function `accumulate_dynamic` is never used
+   --> raw-core/src/stages/nlm_accumulate.rs:185:15
+    |
+185 | pub(super) fn accumulate_dynamic(
+    |               ^^^^^^^^^^^^^^^^^^
+
+warning: function `scalar_dynamic` is never used
+   --> raw-core/src/stages/nlm_accumulate.rs:335:15
+    |
+335 | pub(super) fn scalar_dynamic(
+    |               ^^^^^^^^^^^^^^
+
+warning: function `run_err` is never used
+  --> raw-core/src/raster_recipe_exec_tests.rs:16:4
+   |
+16 | fn run_err(json: &str, input: &[u8], aux: &[u8]) -> crate::error::Error {
+   |    ^^^^^^^
+
+warning: comparison is useless due to type limits
+   --> raw-core/src/raster_colour_lab_tests.rs:464:29
+    |
+464 |         p3.data[0] > 200 && p3.data[0] <= 255,
+    |                             ^^^^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(unused_comparisons)]` on by default
+
+warning: `raw-core` (lib test) generated 23 warnings (run `cargo fix --lib -p raw-core --tests` to apply 12 suggestions)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 13.47s
+     Running unittests src/lib.rs (src/raw-pipeline/target/debug/deps/raw_core-7975e06b08697f92)
+
+running 76 tests
+test view::auto_profile::apply::parallel_tests::curve_worker_counts_preserve_pixel_bits_and_incomplete_rgb_tail ... ok
+test view::auto_profile::bake::tests::bake_n_bounds ... ok
+test view::auto_profile::bake::tests::bake_rejects_degenerate_n - should panic ... ok
+test view::auto_profile::bake::tests::bake_rejects_oversized_n - should panic ... ok
+test view::auto_profile::bake::tests::compose_with_identity_residual_matches_curve_only_within_epsilon ... ok
+test view::auto_profile::bake::tests::composed_lut_applies_residual_after_curve ... ok
+test view::auto_profile::bake::tests::flat_round_trip_is_exact ... ok
+test view::auto_profile::bake::tests::from_flat_rejects_wrong_length ... ok
+test view::auto_profile::bake::tests::lut_has_expected_length_and_layout ... ok
+test view::auto_profile::bake::tests::trilinear_sample_reproduces_apply_curve_within_band_bias ... ok
+test view::auto_profile::cache::tests::bytes_key_discriminates ... ok
+test view::auto_profile::cache::tests::bytes_key_includes_tail_for_medium_length_inputs ... ok
+test view::auto_profile::cache::tests::bytes_key_path_and_bytes_variants_never_collide ... ok
+test view::auto_profile::cache::tests::cross_origin_lookup_misses ... ok
+test view::auto_profile::cache::tests::cross_quality_lookup_misses ... ok
+test view::auto_profile::cache::tests::fit_model_version_invalidates_both_artifact_caches ... ok
+test view::auto_profile::cache::tests::get_promotes_to_mru ... ok
+test view::auto_profile::cache::tests::insert_lut_then_get_lut_returns_same_lut ... ok
+test view::auto_profile::cache::tests::insert_then_get_returns_same_curve ... ok
+test view::auto_profile::cache::tests::lru_evicts_oldest_at_capacity ... ok
+test view::auto_profile::cache::tests::lut_cache_miss_returns_none ... ok
+test view::auto_profile::cache::tests::miss_returns_none ... ok
+test view::auto_profile::cache::tests::origin_discriminates_keys ... ok
+test view::auto_profile::cache::tests::path_key_includes_mtime ... ok
+test view::auto_profile::cache::tests::quality_discriminates_keys ... ok
+test view::auto_profile::lut::tests::apply_with_strength_matches_contract ... ok
+test view::auto_profile::lut::tests::gamut_feathering::far_out_of_gamut_corner_has_zero_correction ... ok
+test view::auto_profile::lut::tests::gamut_feathering::no_second_difference_spike_across_sparse_boundary ... ok
+test view::auto_profile::lut::tests::identity_lut_is_noop ... ok
+test view::auto_profile::lut::tests::recovers_uniform_shift ... ok
+test view::auto_profile::lut::tests::sparse_pairs_stay_identity ... ok
+test view::auto_profile::lut::tests::trilinear_recovers_node_values ... ok
+test view::auto_profile::lut::tests::with_strength_scales_nodes_toward_identity ... ok
+test view::auto_profile::paired_fit::projection::tests::projection_finishes_all_axis_and_gray_constraints_with_unequal_confidence ... ok
+test view::auto_profile::paired_fit::projection::tests::supported_nodes_move_only_as_far_as_the_unchanged_constraint_requires ... ok
+test view::auto_profile::paired_fit::quality_tests::local_rgb_failure_is_rejected_even_when_perceptual_and_native_errors_improve ... ok
+test view::auto_profile::paired_fit::quality_tests::rgb_tail_failure_is_rejected_even_when_perceptual_and_native_errors_improve ... ok
+test view::auto_profile::paired_fit::tests::backtracking_keeps_a_useful_partial_correction_without_relaxing_local_safety ... ok
+test view::auto_profile::paired_fit::tests::basis_matches_the_artifact_sampler ... ok
+test view::auto_profile::paired_fit::tests::equal_mean_footprints_need_different_eval_then_box_predictions ... ok
+test view::auto_profile::paired_fit::tests::identity_observations_preserve_identity ... ok
+test view::auto_profile::paired_fit::tests::perceptual_tails_use_display_footprints_while_native_rgb_remains_held_out ... ok
+test view::auto_profile::paired_fit::tests::regional_perception_uses_display_averages_and_keeps_native_rgb_checks ... ok
+test view::auto_profile::paired_fit::tests::rejects_invalid_pixels_and_geometry ... ok
+test view::auto_profile::paired_fit::tests::rejects_local_color_damage_even_when_global_errors_improve ... ok
+test view::auto_profile::paired_fit::tests::residual_fit_preserves_already_correct_nonlinear_channels ... ok
+test view::auto_profile::paired_fit::tests::rotated_pixel_footprints_stay_aligned_with_the_preview ... ok
+test view::auto_profile::paired_fit::tests::zero_residual_preserves_a_detailed_existing_calibration_exactly ... ok
+test view::auto_profile::paired_observations::tests::aspect_crop_rounds_half_to_even_like_the_comparator ... ok
+test view::auto_profile::paired_observations::tests::box_spans_follow_pixel_centers_for_resize_in_both_directions ... ok
+test view::auto_profile::paired_observations::tests::display_target_matches_pillow_box_after_srgb_quantization ... ok
+test view::auto_profile::paired_observations::tests::sample_coordinates_do_not_depend_on_pointer_width ... ok
+test view::auto_profile::pairs::tests::footprint_mean_pairs ... ok
+test view::auto_profile::pairs::tests::larger_preview_pairs_all_source_quadrants ... ok
+test view::auto_profile::solve::solver_tests::band_index_edges_match_gate ... ok
+test view::auto_profile::solve::solver_tests::footprint_handles_up_and_downscale ... ok
+test view::auto_profile::solve::solver_tests::hits_feasible_isolated_anchor_targets ... ok
+test view::auto_profile::solve::solver_tests::splits_error_on_shared_anchor_conflict ... ok
+test view::auto_profile::tests::apply_tests::chroma_boost_operates_in_linear_srgb_space ... ok
+test view::auto_profile::tests::apply_tests::chroma_boost_preserves_neutral_gray ... ok
+test view::auto_profile::tests::apply_tests::double_brightness_curve_doubles_each_channel ... ok
+test view::auto_profile::tests::apply_tests::identity_curve_leaves_buffer_unchanged ... ok
+test view::auto_profile::tests::apply_tests::out_of_range_inputs_are_clamped ... ok
+test view::auto_profile::tests::curve_tests::cdf_of_uniform_is_linear ... ok
+test view::auto_profile::tests::curve_tests::fit_identity_when_source_equals_target ... ok
+test view::auto_profile::tests::curve_tests::fit_recovers_known_gamma_curve ... ok
+test view::auto_profile::tests::curve_tests::identity_curve_evaluates_to_input ... ok
+test view::auto_profile::tests::curve_tests::monotonicity_preserved ... ok
+test view::auto_profile::tests::fit_tests::fit_bytes_matches_fit_path ... ignored
+test view::auto_profile::tests::fit_tests::fit_curve_accepts_orientation_arg_and_returns_non_identity ... ignored
+test view::auto_profile::tests::fit_tests::fit_curve_against_test_0017_jpeg_is_not_identity ... ignored
+test view::auto_profile::tests::fit_tests::missing_raw_returns_none ... ok
+test view::auto_profile::tests::preview_tests::cr2_preview_extracts_in_process_without_subprocess ... ignored
+test view::auto_profile::tests::preview_tests::gap_formats_extract_preview_in_process_without_subprocess ... ignored
+test view::auto_profile::tests::preview_tests::missing_file_returns_none_not_panic ... ok
+test view::auto_profile::tests::preview_tests::test_0017_extracts_jpeg_preview ... ignored
+
+test result: ok. 70 passed; 0 failed; 6 ignored; 0 measured; 2882 filtered out; finished in 4.21s
+

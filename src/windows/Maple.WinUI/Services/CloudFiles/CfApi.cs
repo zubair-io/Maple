@@ -44,6 +44,20 @@ namespace Maple.WinUI.Services.CloudFiles
         internal const uint CF_PLACEHOLDER_CREATE_FLAG_DISABLE_ON_DEMAND_POPULATION = 1;
         internal const uint CF_PLACEHOLDER_CREATE_FLAG_MARK_IN_SYNC = 2;
 
+        // --- CF_PLACEHOLDER_STATE (cfapi.h) ---
+        internal const uint CF_PLACEHOLDER_STATE_PLACEHOLDER = 1;
+        internal const uint CF_PLACEHOLDER_STATE_IN_SYNC = 8;
+        internal const uint CF_PLACEHOLDER_STATE_PARTIAL = 0x10;
+        internal const uint CF_PLACEHOLDER_STATE_INVALID = 0xFFFFFFFF;
+
+        // --- CF_SYNC_ROOT_INFO_CLASS / CF_SYNC_ROOT_PROVIDER_INFO ---
+        // { CF_SYNC_PROVIDER_STATUS ProviderStatus; WCHAR ProviderName[256];
+        //   WCHAR ProviderVersion[256]; }
+        internal const int CF_SYNC_ROOT_INFO_PROVIDER = 2;
+        internal const int CF_SYNC_ROOT_PROVIDER_INFO_NAME_OFFSET = 4;
+        internal const int CF_SYNC_ROOT_PROVIDER_INFO_NAME_BYTES = 256 * 2;
+        internal const int CF_SYNC_ROOT_PROVIDER_INFO_SIZE = 4 + 256 * 2 + 256 * 2;
+
         internal const int STATUS_SUCCESS = 0;
         internal const int STATUS_UNSUCCESSFUL = unchecked((int)0xC0000001);
 
@@ -206,6 +220,19 @@ namespace Maple.WinUI.Services.CloudFiles
 
         [DllImport(Dll, CharSet = CharSet.Unicode, ExactSpelling = true)]
         internal static extern int CfUnregisterSyncRoot(string syncRootPath);
+
+        /// <summary>Returns S_OK only when the path lies inside a registered
+        /// sync root; the buffer layout follows <paramref name="infoClass"/>.</summary>
+        [DllImport(Dll, CharSet = CharSet.Unicode, ExactSpelling = true)]
+        internal static extern int CfGetSyncRootInfoByPath(
+            string filePath,
+            int infoClass,
+            [Out] byte[] infoBuffer,
+            uint infoBufferLength,
+            out uint returnedLength);
+
+        [DllImport(Dll, ExactSpelling = true)]
+        internal static extern uint CfGetPlaceholderStateFromAttributeTag(uint fileAttributes, uint reparseTag);
 
         [DllImport(Dll, CharSet = CharSet.Unicode, ExactSpelling = true)]
         internal static extern int CfConnectSyncRoot(

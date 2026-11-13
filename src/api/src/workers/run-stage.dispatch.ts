@@ -1,5 +1,5 @@
 /**
- * One poll tick: claim a batch, run its handlers, record what they did.
+ * One batch: claim it, run its handlers, record what they did.
  *
  * Split out of `run-stage.ts` at the SQLite cutover (#3787), which is when the
  * tick stopped being "a `find`, then an `updateOne` per asset per event" and
@@ -44,7 +44,8 @@ import {
   type ResolvedStageDep,
 } from '../db/repos/stage-claim.ts';
 import { loadStageDocuments } from '../db/repos/stage-documents.repo.ts';
-import { StageWritebackBatch } from '../db/repos/stage-writeback.batch.ts';
+import { StageWritebackBatch, type FailedWriteback } from '../db/repos/stage-writeback.batch.ts';
+import type { SqlStatement } from '../db/sqlite/protocol.ts';
 import {
   claimRollbackStatement,
   stageFailureStatements,
@@ -59,6 +60,7 @@ import { dispatchPool } from './dispatch-pool.ts';
 import { resolveStageDeps } from './stage-config.ts';
 import type { ImageDoc, StageConfig, StageContext, WorkerConfig } from './stage-config.ts';
 import type { ThroughputWindow } from './throughput-window.ts';
+import type { StallWatch } from './stall-watch.ts';
 
 /** Cap a stored error so a verbose decoder dump cannot bloat the row or the log. */
 const MAX_REASON_LEN = 500;
@@ -76,7 +78,19 @@ interface TickContext {
   docs: ReadonlyMap<string, ImageDoc>;
   libraries: ReadonlyMap<string, string>;
   batch: StageWritebackBatch;
+  updates: ImageDoc[];
+  dropped: FailedWriteback[];
   throughput?: ThroughputWindow;
+  stallWatch?: StallWatch;
+}
+
+/** Retain failures from automatic flushes as well as the tick's final flush. */
+async function recordWriteback(
+  tick: TickContext,
+  statements: readonly SqlStatement[],
+  assetId: string,
+): Promise<void> {
+  tick.dropped.push(...(await tick.batch.record(statements, assetId)));
 }
 
 /**
@@ -133,7 +147,8 @@ async function recordMissingOriginal(
   const primary = assetPrimaryFileInfo(doc);
   const confirmed = primary !== null && (await confirmMissing(primary, tick.libraries));
   const reason = `stage-enoent:${tick.stage.name}`;
-  await tick.batch.record(
+  await recordWriteback(
+    tick,
     confirmed && primary !== null
       ? [
           claimRollbackStatement(target),
@@ -184,7 +199,7 @@ async function recordFailure(
     outcome.dead && tick.stage.tagsDamagedOnDeadLetter === true
       ? [tagDamagedStatement(target.assetId, tick.stage.name, reason)]
       : [];
-  await tick.batch.record([...outcome.statements, ...tag], target.assetId);
+  await recordWriteback(tick, [...outcome.statements, ...tag], target.assetId);
 
   const fields = {
     _id: target.assetId,
@@ -223,7 +238,8 @@ async function runClaimedAsset(tick: TickContext, row: ClaimedStageRow): Promise
   };
   try {
     const result = await tick.stage.handler(doc, { ...tick.ctx, lease: row.claim_token });
-    await tick.batch.record(
+    await recordWriteback(
+      tick,
       stageResultStatements(
         {
           target,
@@ -236,7 +252,8 @@ async function runClaimedAsset(tick: TickContext, row: ClaimedStageRow): Promise
       ),
       row.asset_id,
     );
-    if ('patch' in result || 'wrote' in result) await publishUpdate(doc, tick.libraries);
+    if ('patch' in result || 'wrote' in result) tick.updates.push(doc);
+    if (!('defer' in result)) tick.stallWatch?.progressed();
     tick.throughput?.record(new Date());
   } catch (err) {
     if (tick.stage.tagsMissingOnEnoent === true && isEnoentError(err)) {
@@ -248,13 +265,13 @@ async function runClaimedAsset(tick: TickContext, row: ClaimedStageRow): Promise
 }
 
 /**
- * One poll tick. Returns how many rows the claim touched — the dispatched ones
- * plus the crash-exhausted ones it parked — which is what the poll loop
- * compares against the batch size to decide whether to re-poll immediately.
+ * One batch. Returns how many rows the claim touched — the dispatched ones
+ * plus the crash-exhausted ones it parked — and a slice keeps claiming until
+ * this comes back zero.
  *
  * Counting the parked rows matters: a batch that is entirely poison drains a
- * batch at a time, and reporting zero would put the loop back to its idle
- * cadence and stretch that drain out over minutes.
+ * batch at a time, and reporting zero would end the slice and leave the rest
+ * of that drain to later slices.
  */
 export async function runOnce(
   stage: StageConfig,
@@ -264,6 +281,7 @@ export async function runOnce(
   inFlightSet?: Set<string>,
   throughput?: ThroughputWindow,
   dbOverride?: SqliteDb,
+  stallWatch?: StallWatch,
 ): Promise<number> {
   if (config.paused) return 0;
 
@@ -298,8 +316,12 @@ export async function runOnce(
     docs,
     libraries,
     batch: new StageWritebackBatch(db),
+    updates: [],
+    dropped: [],
     throughput,
+    stallWatch,
   };
+  stallWatch?.claimed(outcome.claimed.length, inFlightSet?.size ?? 0);
 
   await dispatchPool([...outcome.claimed], config.concurrency, async (row) => {
     inFlightSet?.add(row.asset_id);
@@ -310,7 +332,13 @@ export async function runOnce(
     }
   });
 
-  const dropped = await tick.batch.flush();
+  const dropped = [...tick.dropped, ...(await tick.batch.flush())];
+  const droppedIds = new Set(dropped.map((entry) => entry.label));
+  // Publish only after every writeback has settled: clients may immediately
+  // re-read the asset on either SSE delivery or a journal poll.
+  for (const doc of tick.updates) {
+    if (!droppedIds.has(doc._id.toHexString())) await publishUpdate(doc, tick.libraries);
+  }
   if (dropped.length > 0) {
     log.error(
       { stage: stage.name, dropped: dropped.length },

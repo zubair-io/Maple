@@ -7,9 +7,12 @@
     "e2e/removal-experimental/saved-export-oracle.mjs",
     "playwright.partial-white-balance.config.ts",
     "playwright.workflow.config.ts",
+    "playwright.highlights.config.ts",
     "playwright.export-original-retry.config.ts",
     "playwright.recipe-quality.config.ts",
     "playwright.recipe-interchange.config.ts",
+    "playwright.orientation.config.ts",
+    "playwright.crop-live.config.ts",
     "e2e/recipe-interchange/main.ts",
     "e2e/workflow/main.ts",
     "e2e/workflow/ui-main.ts"
@@ -60,6 +63,7 @@
   // clean maple-syrup production build. False positive, not a real gap.
   "ignoreUnresolvedImports": [
     "**/pkg/raw_wasm",
+    "**/pkg/canvas/raw_wasm_canvas",
     "tailwindcss",
     "**/tailwindcss",
     "**/generated/ui-tokens"

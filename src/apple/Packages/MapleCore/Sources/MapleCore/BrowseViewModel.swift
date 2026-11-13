@@ -21,7 +21,18 @@ public final class BrowseViewModel {
   /// SelfHosted).
   public var subfolders: [URL] = []
   public var selectedID: AssetRef.ID? = nil
+  /// Bumps whenever a load publishes a different listing (never on a page
+  /// append), so grids know to return to the top.
+  public internal(set) var listingGeneration: UInt64 = 0
   public var sortOrder: SortOrder = .nameAscending
+  public var gridFilter: GridFilter =
+    GridFilter(
+      rawValue: UserDefaults.standard.string(forKey: "cm.filter") ?? "all") ?? .all
+  public var gridFilterMetadata: [AssetRef.ID: GridFilterMetadata] = [:]
+  public var gridFilterLoading = false
+  public var gridFilterError: Error?
+  @ObservationIgnored var gridFilterLoadGeneration: UInt64 = 0
+  public var gridFilterAssetIdentityGeneration: UInt64 = 0
 
   // MARK: - Multi-select (M1 — #1236 / #1234)
 
@@ -52,7 +63,7 @@ public final class BrowseViewModel {
   /// The source feeding the grid. Nil until the user picks one.
   /// `@ObservationIgnored` — callers interested in changes should observe
   /// `assets` / `selectedID` which change together with the source.
-  @ObservationIgnored public private(set) var currentSource: (any ImageSource)?
+  @ObservationIgnored public internal(set) var currentSource: (any ImageSource)?
 
   /// Bookmark-resolved ancestor URL that covers the currently-open folder
   /// tree. AppShell sets this before calling `loadFolder(url:)` so each
@@ -62,6 +73,16 @@ public final class BrowseViewModel {
   /// bracket on this URL. Without it the claim is a no-op and sandboxed
   /// reads fail with EPERM.
   @ObservationIgnored public var currentScopeRoot: URL?
+
+  /// Replays the most recent source request when Browse offers Retry.
+  /// Kept outside observation and captured weakly by each loader so the
+  /// request cannot retain this view model after its screen is dismissed.
+  @ObservationIgnored var retryLoader: (@MainActor () async -> Void)?
+
+  public func retryLastLoad() async {
+    guard !isLoading, let retryLoader else { return }
+    await retryLoader()
+  }
 
   public enum SortOrder: Sendable { case nameAscending, nameDescending, dateDescending }
 
@@ -77,12 +98,14 @@ public final class BrowseViewModel {
       folderEnumerationTask = nil
     }
   }
-  @ObservationIgnored private var pagedPhotoKitSource: PhotoKitSource?
-  @ObservationIgnored private var photoKitNextOffset = 0
-  @ObservationIgnored private var photoKitTotalCount = 0
-  @ObservationIgnored private var isLoadingPhotoKitPage = false
-  private static let photoKitPageSize = 42
-  private static let photoKitPrefetchDistance = 15
+  @ObservationIgnored var pagedPhotoKitSource: PhotoKitSource?
+  @ObservationIgnored var photoKitNextOffset = 0
+  @ObservationIgnored var photoKitTotalCount = 0
+  @ObservationIgnored var isLoadingPhotoKitPage = false
+  @ObservationIgnored var photoKitPageWaiters: [UUID: AsyncStream<Void>.Continuation] = [:]
+  static let photoKitPageSize = 42
+  static let photoKitFilterDrainPageSize = 1_000
+  static let photoKitPrefetchDistance = 15
 
   public var selectedAsset: AssetRef? {
     assets.first { $0.id == selectedID }
@@ -96,6 +119,10 @@ public final class BrowseViewModel {
   /// actor. Each `await` is followed by a generation check so that a folder
   /// switch mid-load cannot overwrite the newer selection.
   public func loadFolder(_ folderURL: URL, via source: FilesystemSource) async {
+    retryLoader = { [weak self] in
+      guard let self else { return }
+      await self.loadFolder(folderURL, via: source)
+    }
     loadGeneration &+= 1
     let gen = loadGeneration
     isLoading = true
@@ -122,8 +149,9 @@ public final class BrowseViewModel {
       currentSource = source
       loadError = nil
       photosAuthNeeded = false
+      listingGeneration &+= 1
     } catch {
-      guard gen == loadGeneration else { return }
+      guard gen == loadGeneration, !error.isCancellation else { return }
       loadError = error
     }
   }
@@ -134,6 +162,10 @@ public final class BrowseViewModel {
   /// (PhotoKit, SelfHosted) build a bytes-provider-backed AssetRef that
   /// calls `source.rawBytes(for:)` on demand — no synthetic URL kludge.
   public func loadSource(_ source: any ImageSource) async {
+    retryLoader = { [weak self] in
+      guard let self else { return }
+      await self.loadSource(source)
+    }
     loadGeneration &+= 1
     let gen = loadGeneration
     isLoading = true
@@ -143,6 +175,8 @@ public final class BrowseViewModel {
 
     do {
       let refs = try await source.images()
+      guard gen == loadGeneration else { return }
+      let livePhotoLinks = await (source as? SMBSource)?.livePhotoLinks() ?? [:]
       guard gen == loadGeneration else { return }
 
       let assetRefs = refs.map { ref -> AssetRef in
@@ -175,6 +209,14 @@ public final class BrowseViewModel {
           stableID: capturedRef.id,
           captureDate: capturedRef.captureDate,
           thumbnailProvenance: provenance,
+          livePhoto: capturedRef.smbPath.flatMap { livePhotoLinks[$0] },
+          smbPath: capturedRef.smbPath,
+          smbSourceID: capturedRef.smbSourceID,
+          originalFileWriter: (capturedSource as? SMBSource).map { smb in
+            { @Sendable destination in
+              try await smb.writeOriginal(for: capturedRef, to: destination)
+            }
+          },
           bytesProvider: { [capturedSource, capturedRef] in
             try await capturedSource.rawBytes(for: capturedRef)
           }
@@ -188,63 +230,9 @@ public final class BrowseViewModel {
       currentSource = source
       loadError = nil
       photosAuthNeeded = false
+      listingGeneration &+= 1
     } catch {
-      guard gen == loadGeneration else { return }
-      loadError = error
-    }
-  }
-
-  /// Publish two phone screens immediately, then retain PhotoKit's lazy
-  /// fetch result as the backing store for scroll-driven paging.
-  public func loadPhotoKitSource(_ source: PhotoKitSource) async {
-    loadGeneration &+= 1
-    let gen = loadGeneration
-    isLoading = true
-    pagedPhotoKitSource = source
-    photoKitNextOffset = 0
-    photoKitTotalCount = 0
-    isLoadingPhotoKitPage = false
-    defer { if gen == loadGeneration { isLoading = false } }
-
-    do {
-      async let total = source.imageCount()
-      async let firstPage = source.images(offset: 0, limit: Self.photoKitPageSize)
-      let (count, refs) = try await (total, firstPage)
-      guard gen == loadGeneration else { return }
-      assets = refs.map { makeAssetRef($0, source: source) }
-      photoKitNextOffset = refs.count
-      photoKitTotalCount = count
-      subfolders = []
-      selectedID = nil
-      currentSource = source
-      loadError = nil
-      photosAuthNeeded = false
-    } catch {
-      guard gen == loadGeneration else { return }
-      loadError = error
-    }
-  }
-
-  public func loadMorePhotoKitIfNeeded(appearing id: AssetRef.ID) async {
-    guard currentSource is PhotoKitSource,
-      let source = pagedPhotoKitSource,
-      !isLoadingPhotoKitPage,
-      photoKitNextOffset < photoKitTotalCount,
-      let index = assets.firstIndex(where: { $0.id == id }),
-      index >= max(0, assets.count - Self.photoKitPrefetchDistance)
-    else { return }
-
-    isLoadingPhotoKitPage = true
-    let gen = loadGeneration
-    let offset = photoKitNextOffset
-    defer { if gen == loadGeneration { isLoadingPhotoKitPage = false } }
-    do {
-      let refs = try await source.images(offset: offset, limit: Self.photoKitPageSize)
-      guard gen == loadGeneration else { return }
-      assets.append(contentsOf: refs.map { makeAssetRef($0, source: source) })
-      photoKitNextOffset += refs.count
-    } catch {
-      guard gen == loadGeneration else { return }
+      guard gen == loadGeneration, !error.isCancellation else { return }
       loadError = error
     }
   }
@@ -280,6 +268,7 @@ public final class BrowseViewModel {
     subfolders = []
     loadError = nil
     photosAuthNeeded = false
+    listingGeneration &+= 1
   }
 
   /// Drop merged state and return to plain-source mode.
@@ -294,6 +283,7 @@ public final class BrowseViewModel {
   /// wires up the native timeline view).
   public func clear() {
     loadGeneration &+= 1
+    retryLoader = nil
     assets = []
     subfolders = []
     selectedID = nil
@@ -421,6 +411,10 @@ public final class BrowseViewModel {
   /// `.path` is the absolute server path). The grid renders folders
   /// first, then images, just like the local Filesystem flow.
   public func loadCloudDir(_ source: CloudSource, absPath: String) async {
+    retryLoader = { [weak self] in
+      guard let self else { return }
+      await self.loadCloudDir(source, absPath: absPath)
+    }
     loadGeneration &+= 1
     let gen = loadGeneration
     isLoading = true
@@ -448,11 +442,15 @@ public final class BrowseViewModel {
           // front) and reveal the containing folder (#2518). Address
           // is nil here; it arrives on the `by-fspath` response.
           catalog: CatalogRef(
-            serverID: capturedSource.server,
+            serverID: capturedSource.identity,
             folderID: capturedSource.folderID,
             absPath: img.path,
             address: nil
           ),
+          livePhoto: img.livePhoto,
+          originalFileWriter: { destination in
+            try await capturedSource.writeOriginal(for: capturedRef, to: destination)
+          },
           bytesProvider: { [capturedSource, capturedRef] in
             try await capturedSource.rawBytes(for: capturedRef)
           }
@@ -466,8 +464,10 @@ public final class BrowseViewModel {
       currentSource = source
       loadError = nil
       photosAuthNeeded = false
+      listingGeneration &+= 1
     } catch {
-      guard gen == loadGeneration else { return }
+      // A cancelled listing was abandoned, not refused by the server.
+      guard gen == loadGeneration, !error.isCancellation else { return }
       loadError = error
     }
   }

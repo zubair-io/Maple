@@ -14,9 +14,8 @@ export interface WorkerConfig {
   maxAttempts: number;
   paused: boolean;
   last_seen_target_version: number;
-  /** Why the stage paused ITSELF — e.g. `meili` when Meilisearch's address
-   * policy rejects the embedding server (#3315). Absent/null for an operator
-   * pause; the server clears it on every resume. Read-only from the UI. */
+  /** Why the stage paused ITSELF. Absent/null for an operator pause; the
+   * server clears it on every resume. Read-only from the UI. */
   pause_reason?: string | null;
   /** Operator-assigned semver version string, e.g. "v0.2.1". */
   version?: string | null;
@@ -26,12 +25,22 @@ export interface WorkerConfig {
   ai_provider?: string | null;
   /** Assigned AI model, e.g. "gemma4:12b", "gpt-4o-mini". */
   ai_model?: string | null;
+  /** Minutes without progress before the stage shows as Stalled; unset = 60. */
+  stallAfterMinutes?: number;
 }
 
 /** API status payload — one entry per stage from GET /api/workers/status. */
 export interface StageStatus {
   name: string;
-  status: 'running' | 'idle' | 'paused' | 'error' | 'starting' | 'restarting' | 'stopped';
+  status:
+    | 'running'
+    | 'idle'
+    | 'paused'
+    | 'error'
+    | 'starting'
+    | 'restarting'
+    | 'stopped'
+    | 'stalled';
   /** Dispatched but not yet completed docs. */
   inFlight: number;
   /** Configured concurrency (= config.concurrency). */
@@ -165,6 +174,22 @@ export interface GeneratedSearchConfig {
   dry_run: boolean;
 }
 
+/** The most recent generated-search attempt across libraries
+ * (GET /api/workers/generated-search/last-run). Mirrors `LibraryRunRecord` in
+ * src/api/src/workers/generated-search/run-state.repo.ts. */
+export interface GeneratedSearchLastRun {
+  library_id: string;
+  claim_id: string;
+  day: string;
+  attempts: number;
+  started_at: string;
+  finished_at: string | null;
+  outcome: 'running' | 'saved' | 'empty' | 'failed' | 'dry-run';
+  saved: number;
+  error: string | null;
+  trigger: 'schedule' | 'run-now';
+}
+
 /** One collection card from GET /api/generated-searches. `query` rides along
  * so the settings page can deep-link into /search with the same filters. */
 export interface GeneratedSearchCard {
@@ -178,6 +203,29 @@ export interface GeneratedSearchCard {
   generated_for: string;
 }
 
+/** The decode memory budget (#5467): the saved share of the container
+ * memory limit, what that comes to, and the worker's live reservation as of
+ * its last per-minute sample (null until the worker has sampled). */
+export interface DecodeMemoryBudgetStatus {
+  /** 0 = no cap. */
+  percent: number;
+  source: 'db' | 'default';
+  min: number;
+  max: number;
+  /** Null when the cap is off. */
+  budget_bytes: number | null;
+  container_limit_bytes: number;
+  container_current_bytes: number | null;
+  container_source: 'cgroup-v2' | 'cgroup-v1' | 'host';
+  live: {
+    limit_bytes: number | null;
+    reserved_bytes: number;
+    running: number;
+    waiting: number;
+    at: number | null;
+  } | null;
+}
+
 /** Effective performance config + clamp bounds + live pool state. */
 export interface PerformanceConfig {
   /** Effective RAW decode-worker count, clamped to [min, max]. */
@@ -189,6 +237,14 @@ export interface PerformanceConfig {
   /** Hard clamp upper bound (16). */
   max: number;
   pool: FfiPoolStats;
+  /** Absent from servers that predate #5467. */
+  decode_memory_budget?: DecodeMemoryBudgetStatus;
+}
+
+/** Body of PATCH /api/workers/performance: send either field or both. */
+export interface PerformancePatch {
+  ffi_workers?: number;
+  decode_memory_budget_percent?: number;
 }
 
 /** Response to PATCH /api/workers/performance. */
@@ -197,6 +253,7 @@ export interface PatchPerformanceResponse {
   ffi_workers: number;
   source: 'db' | 'env' | 'default';
   pool: FfiPoolStats;
+  decode_memory_budget?: DecodeMemoryBudgetStatus;
 }
 
 /** One registered migration (GET /api/workers/migration/migrations). */
@@ -215,11 +272,6 @@ export interface MigrationInfo {
   remaining: number | null;
   /** ISO timestamp of that count, null until counted. */
   remaining_at: string | null;
-  /** Last counted size of this migration's own dead-letter queue (distinct
-   * from the cumulative `errors` counter, which never decreases). Only present
-   * for migrations that track one — e.g. the Meilisearch backfill's redrivable
-   * `meilisearch_backfill_failures` collection; null until counted. */
-  failedPermanently?: number | null;
   last_error: string | null;
   started_at: string | null;
   finished_at: string | null;
@@ -239,6 +291,22 @@ export interface MigrationState {
   started_at: string | null;
   finished_at: string | null;
 }
+
+export type TemporalConnectionState = 'connected' | 'unreachable' | 'unknown';
+
+/** GET/PUT /api/workers/temporal. `unknown` = the worker has not reported on
+ * the saved address yet; `checkedAt` is the epoch ms of its last report. */
+export interface TemporalSettings {
+  address: string;
+  namespace: string;
+  connection: {
+    state: TemporalConnectionState;
+    error: string | null;
+    checkedAt: number | null;
+  };
+}
+
+export type TemporalSettingsUpdate = Pick<TemporalSettings, 'address' | 'namespace'>;
 
 @Injectable({ providedIn: 'root' })
 export class WorkersApiService {
@@ -315,12 +383,10 @@ export class WorkersApiService {
     return this.http.get<PerformanceConfig>(`${this.base}/workers/performance`);
   }
 
-  /** Set the RAW decode-worker count. The server clamps to [1, 16], persists
-   * to the `performance` settings doc, and resizes the live pool immediately. */
-  patchPerformanceConfig(ffiWorkers: number): Observable<PatchPerformanceResponse> {
-    return this.http.patch<PatchPerformanceResponse>(`${this.base}/workers/performance`, {
-      ffi_workers: ffiWorkers,
-    });
+  /** Set the RAW decode-worker count and/or the decode memory budget. The
+   * server clamps and persists both; the worker applies them within seconds. */
+  patchPerformanceConfig(patch: PerformancePatch): Observable<PatchPerformanceResponse> {
+    return this.http.patch<PatchPerformanceResponse>(`${this.base}/workers/performance`, patch);
   }
 
   /** List the registered one-shot migrations with their state + remaining work. */
@@ -364,6 +430,13 @@ export class WorkersApiService {
     );
   }
 
+  /** The latest attempt, or null when the job has never run. */
+  getGeneratedSearchLastRun(): Observable<{ last_run: GeneratedSearchLastRun | null }> {
+    return this.http.get<{ last_run: GeneratedSearchLastRun | null }>(
+      `${this.base}/workers/generated-search/last-run`,
+    );
+  }
+
   /** Kick one generated-search pass now. Returns immediately; refuses with
    * `started: false` while a pass is already in flight. */
   runGeneratedSearchNow(): Observable<{ started: boolean; reason?: string }> {
@@ -380,5 +453,13 @@ export class WorkersApiService {
     return this.http.get<{ results: GeneratedSearchCard[] }>(
       `${this.base}/generated-searches?libraryId=${encodeURIComponent(libraryId)}`,
     );
+  }
+
+  getTemporalSettings(): Observable<TemporalSettings> {
+    return this.http.get<TemporalSettings>(`${this.base}/workers/temporal`);
+  }
+
+  saveTemporalSettings(update: TemporalSettingsUpdate): Observable<TemporalSettings> {
+    return this.http.put<TemporalSettings>(`${this.base}/workers/temporal`, update);
   }
 }

@@ -20,6 +20,7 @@ export interface AiConnectionsConfig {
   connections: AiConnection[];
   assignments: Record<string, AiAssignment>;
 }
+const GENERATED_SEARCH = 'generated-search';
 const AI_WORKERS = [
   {
     id: 'describe',
@@ -36,19 +37,11 @@ const AI_WORKERS = [
     providers: ['ollama', 'openai', 'anthropic', 'gemini'],
   },
   {
-    id: 'generated-search',
+    id: GENERATED_SEARCH,
     name: 'Generated search',
-    detail: 'Curated search collections · Ollama text generation',
+    detail: 'Curated search collections · Ollama or OpenAI-compatible text generation',
     multiple: false,
-    providers: ['ollama'],
-  },
-  {
-    id: 'semantic-search',
-    name: 'Semantic search',
-    detail:
-      'Document and query embeddings · Ollama embedding model · a changed connection or model reaches the search index only via Apply to index on Settings → Workers, which re-embeds every document',
-    multiple: false,
-    providers: ['ollama'],
+    providers: ['ollama', 'openai'],
   },
 ];
 
@@ -103,10 +96,6 @@ export function importAiConnections(
         connection_ids: [connections[0]!.id],
         model: generatedModel || cfg.describe_model,
       },
-      'semantic-search': {
-        connection_ids: [connections[0]!.id],
-        model: cfg.meilisearch_embedder_model,
-      },
     },
   };
 }
@@ -131,20 +120,45 @@ function endpointError(raw: string): string | null {
       url.password ||
       url.search ||
       url.hash
-      ? 'Use an HTTP(S) Ollama endpoint without credentials, query or fragment.'
+      ? 'Use an HTTP(S) endpoint without credentials, query or fragment.'
       : null;
   } catch {
-    return 'Enter a valid Ollama endpoint URL.';
+    return 'Enter a valid endpoint URL.';
   }
+}
+
+/** Ollama needs an endpoint; an OpenAI connection's base URL is optional; others have none. */
+function connectionUrlError(c: AiConnection): string | null {
+  if (c.provider === 'ollama') return endpointError(c.url);
+  return c.provider === 'openai' && c.url.trim() ? endpointError(c.url) : null;
+}
+
+function validConcurrency(n: number): boolean {
+  return Number.isInteger(n) && n >= 1 && n <= 100;
 }
 
 function connectionError(c: AiConnection): string | null {
   if (!/^[\w-]+$/.test(c.id) || !c.name.trim()) return 'Connections need IDs and a name.';
   if (!['ollama', 'openai', 'anthropic', 'gemini'].includes(c.provider)) return 'Unknown provider.';
-  if (!Number.isInteger(c.concurrency) || c.concurrency < 1 || c.concurrency > 100)
-    return 'Connection concurrency must be between 1 and 100.';
-  if (c.provider === 'ollama') return endpointError(c.url);
+  if (!validConcurrency(c.concurrency)) return 'Connection concurrency must be between 1 and 100.';
+  const urlError = connectionUrlError(c);
+  if (urlError || c.provider === 'ollama' || keyOptional(c)) return urlError;
   return c.api_key?.trim() ? null : `${c.name} needs an API key.`;
+}
+
+/** A self-hosted OpenAI-compatible server (Strata, vLLM, llama.cpp) often runs without auth. */
+function keyOptional(c: AiConnection): boolean {
+  return c.provider === 'openai' && c.url.trim().length > 0;
+}
+
+/** Only generated search sends a keyless OpenAI-compatible request; the vision clients need one. */
+function missingKeyError(
+  connections: AiConnection[],
+  worker: (typeof AI_WORKERS)[number],
+): string | null {
+  if (worker.id === GENERATED_SEARCH) return null;
+  const keyless = connections.find((c) => keyOptional(c) && !c.api_key?.trim());
+  return keyless ? `${worker.name} needs an API key on ${keyless.name}.` : null;
 }
 
 function poolError(
@@ -152,7 +166,7 @@ function poolError(
   worker: (typeof AI_WORKERS)[number],
 ): string | null {
   if (connections.some((c) => !worker.providers.includes(c.provider)))
-    return `${worker.name} requires Ollama.`;
+    return `${worker.name} supports only ${worker.providers.join(' or ')} connections.`;
   if (connections.length > 1 && !worker.multiple)
     return `${worker.name} supports only one connection.`;
   if (
@@ -163,7 +177,7 @@ function poolError(
     return `${worker.name} has duplicate endpoints.`;
   if (connections.reduce((n, c) => n + c.concurrency, 0) > 100)
     return `${worker.name} total concurrency must not exceed 100.`;
-  return null;
+  return missingKeyError(connections, worker);
 }
 
 function assignmentError(

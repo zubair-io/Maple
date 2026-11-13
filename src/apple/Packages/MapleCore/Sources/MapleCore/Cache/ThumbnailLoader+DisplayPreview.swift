@@ -64,20 +64,20 @@ extension ThumbnailLoader {
   /// resolves).
   ///
   /// Order of attempts:
-  ///   1. Fresh `.maple/previews/<filename>.avif` on disk — written by a
+  ///   1. Source-stamped `.maple/previews/<filename>.avif` on disk — written by a
   ///      previous call, the pano stitcher (#1365), or the editor's
   ///      idle/exit preview persist (`EditSession`, #2009).
-  ///   2. RAW sidecar develop: regenerate the authored adjustments and film
-  ///      look from a validated XMP snapshot (#3973). Failed sidecar reads or
-  ///      renders return nil. Edited non-RAW sources retain their safe gate,
-  ///      since extracting their original pixels would revert their edits.
+  ///   2. Sidecar develop: regenerate authored adjustments and film from a
+  ///      validated XMP snapshot (#3973/#5346). Non-RAW sources use the same
+  ///      bounded bitmap chain as the editor, including crop. Failed sidecar
+  ///      reads or renders return nil instead of camera-original pixels.
   ///   3. Generate from the camera's embedded JPEG preview (never an
   ///      Apple-RAW full decode — its rendering diverges from the Maple
   ///      pipeline), AVIF-encode + persist to `.maple/previews/`, and return
   ///      the bytes. Non-RAW bitmaps with no useful embedded thumb decode
   ///      exactly, so they synthesize at target instead.
   ///
-  /// Returns nil when no tier is available (failed RAW develop, edited non-RAW, RAW without
+  /// Returns nil when no tier is available (failed sidecar develop, RAW without
   /// an embedded preview, video/stub/audio) — the caller keeps showing the
   /// thumbnail, which is never wrong, just lower-res.
   public func loadDisplayPreview(for asset: AssetRef) async -> Data? {
@@ -95,27 +95,17 @@ extension ThumbnailLoader {
     // happens INSIDE the task instead of before the insert (which would
     // suspend the actor mid-registration and reopen the race — Jules
     // review, PR #1907).
-    let coalescingKey = "display-preview:" + ThumbnailDiskCache.cacheKey(for: url)
+    let coalescingKey = "display-preview:" + ThumbnailDiskCache.memoryKey(for: url)
     if let existing = inFlight[coalescingKey], !existing.isCancelled {
       return await awaitThumbnail(existing)
     }
 
     let scope = asset.scopeParentURL ?? url.deletingLastPathComponent()
     let isRaw = asset.isRaw
-    let task = Task.detached(priority: .utility) { () -> Data? in
-      do { try await self.acquireDecodeSlot() } catch { return nil }
-      let result = Self.produceDisplayPreview(url: url, scope: scope, isRaw: isRaw)
-      await self.releaseDecodeSlot()
-      return result
+    let task = startLocalProducer(key: coalescingKey) {
+      await Self.produceDisplayPreview(url: url, scope: scope, isRaw: isRaw)
     }
-    inFlight[coalescingKey] = task
-    let result = await awaitThumbnail(task)
-    // Conditional removal — same `cancelAll()` re-registration edge as
-    // the two `load` paths in ThumbnailLoader.swift (Jules, PR #1911).
-    if inFlight[coalescingKey] == task {
-      inFlight.removeValue(forKey: coalescingKey)
-    }
-    return result
+    return await awaitThumbnail(task)
   }
 
   /// The synchronous produce path: serve the fresh cached tier, develop a RAW
@@ -123,7 +113,7 @@ extension ThumbnailLoader {
   /// Runs on a detached task under the decode-slot gate.
   private nonisolated static func produceDisplayPreview(
     url: URL, scope: URL, isRaw: Bool
-  ) -> Data? {
+  ) async -> Data? {
     let accessing = scope.startAccessingSecurityScopedResource()
     defer { if accessing { scope.stopAccessingSecurityScopedResource() } }
 
@@ -131,29 +121,46 @@ extension ThumbnailLoader {
     if let cached = freshDisplayPreviewData(previewURL: previewURL, assetURL: url) {
       return cached
     }
+    let sourceSignature = LocalDerivativeSourceStamp.signature(for: url)
     let developed: Data?
     do {
-      developed =
-        isRaw
-        ? try renderRawSidecarDerivative(
+      if isRaw {
+        developed = try renderRawSidecarDerivative(
           at: url, targetLongEdge: displayPreviewLongEdge,
           quality: displayPreviewAvifQuality
-        ) : nil
+        )
+      } else {
+        developed = try await renderNonRawSidecarDerivative(
+          at: url, targetLongEdge: displayPreviewLongEdge,
+          quality: displayPreviewAvifQuality)
+      }
     } catch {
       displayPreviewLogger.error(
-        "RAW sidecar preview failed for \(url.lastPathComponent, privacy: .public): \(error.localizedDescription, privacy: .public)"
+        "sidecar preview failed for \(url.lastPathComponent, privacy: .public): \(error.localizedDescription, privacy: .public)"
       )
       return nil
     }
-    if !isRaw && sidecarHasVisualEdits(assetURL: url) {
+    if !isRaw && developed == nil && sidecarHasVisualEdits(assetURL: url) {
       return nil
     }
+    guard LocalDerivativeSourceStamp.matches(sourceSignature, for: url) else { return nil }
     guard let data = developed ?? displayPreviewAVIF(at: url, isRaw: isRaw) else { return nil }
     try? FileManager.default.createDirectory(
       at: previewURL.deletingLastPathComponent(),
       withIntermediateDirectories: true
     )
-    try? data.write(to: previewURL, options: .atomic)
+    LocalDerivativeSourceStamp.remove(previewURL)
+    let persisted =
+      (try? data.write(to: previewURL, options: .atomic)) != nil
+      && LocalDerivativeSourceStamp.matches(sourceSignature, for: url)
+      && (try? LocalDerivativeSourceStamp.record(
+        previewURL, sourceSignature: sourceSignature)) != nil
+    if !persisted {
+      LocalDerivativeSourceStamp.remove(previewURL)
+      try? FileManager.default.removeItem(at: previewURL)
+    }
+    // Only changed-source pixels are rejected; disk-cache writes are best-effort.
+    guard LocalDerivativeSourceStamp.matches(sourceSignature, for: url) else { return nil }
     return data
   }
 
@@ -185,11 +192,14 @@ extension ThumbnailLoader {
     // `<key>_1600.jpg` scheme lives at a different path this reader never
     // consults, so there is nothing stale to gate out here.
     let fm = FileManager.default
+    let legacyURL = MapleSidecarPaths.legacyPreviewURL(for: assetURL)
     guard
-      let previewMtime = (try? fm.attributesOfItem(atPath: previewURL.path))?[
-        .modificationDate
-      ] as? Date
+      let previewMtime = modificationDate(of: previewURL, fm)
+        ?? (MapleSidecarPaths.adoptLegacyDerivative(
+          at: previewURL, legacy: legacyURL, fileManager: fm)
+          ? modificationDate(of: previewURL, fm) : nil)
     else { return nil }
+    guard LocalDerivativeSourceStamp.isFresh(previewURL, for: assetURL) else { return nil }
     let assetMtime =
       (try? fm.attributesOfItem(atPath: assetURL.path))?[
         .modificationDate
@@ -214,6 +224,10 @@ extension ThumbnailLoader {
       return nil
     }
     return data
+  }
+
+  private nonisolated static func modificationDate(of url: URL, _ fm: FileManager) -> Date? {
+    (try? fm.attributesOfItem(atPath: url.path))?[.modificationDate] as? Date
   }
 
   /// True when a sidecar exists next to `assetURL` and parses to a model

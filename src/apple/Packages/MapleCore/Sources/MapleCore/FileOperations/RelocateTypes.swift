@@ -10,34 +10,6 @@
 
 import Foundation
 
-// MARK: - RelocateMode
-
-public enum RelocateMode: Sendable, Equatable {
-  /// Delete the source (primary + sidecar) once the copy is verified.
-  case move
-  /// Leave the source in place — the destination is a duplicate.
-  case copy
-}
-
-// MARK: - CollisionPolicy
-
-/// How to resolve a destination that's already occupied. Mirrors the design
-/// doc: auto-suffix for unattended/background operations (migrations,
-/// external-reconciliation), the other two for user-initiated operations
-/// that have already resolved a Skip/Replace/Keep-Both prompt.
-public enum CollisionPolicy: Sendable, Equatable {
-  /// Append `.N` before the extension until free — never overwrites.
-  /// Matches the API's `pickFreePath` (`src/api/src/fs/trash.ts`).
-  case autoSuffix
-  /// Fail with `FileOperationError.destinationExists` rather than touch
-  /// an existing file. The right default for a user-facing operation that
-  /// hasn't asked the user yet.
-  case fail
-  /// Overwrite the existing destination (primary + its sidecar, if any) —
-  /// the user explicitly chose Replace.
-  case replace
-}
-
 // MARK: - RelocatePlan
 
 /// The result of the copy+verify phase. Carries everything `finalize` (or
@@ -50,8 +22,12 @@ public struct RelocatePlan: Sendable, Equatable {
   public let mode: RelocateMode
   public let sourcePrimaryPath: String
   public let sourceSidecarPath: String?
+  /// UUID workflow branches copied with the photo. These source paths are
+  /// removed only after their verified destination copies are published.
+  public let sourceVariantPaths: [String]
   public let finalPrimaryPath: String
   public let finalSidecarPath: String?
+  public let finalVariantPaths: [String]
   public let renamedDueToCollision: Bool
   /// Paths this planning step created (the staged copies). `revert` (and
   /// a `finalize` that decides not to proceed) removes exactly these,
@@ -68,6 +44,10 @@ public struct RelocatePlan: Sendable, Equatable {
   /// `sourcePrimaryPath` when this is true: on such a filesystem that
   /// path now resolves to the very file that was just renamed.
   public let sourceAlreadyRelocated: Bool
+  /// True when finalize must leave `sourceSidecarPath` in place: another
+  /// same-stem photo still uses it, or it maps onto itself (an
+  /// extension-only rename) — #4707.
+  public let retainsSourceSidecar: Bool
   /// Local snapshot and replacement backups, retained until finalize/revert (#3944).
   public let localSnapshot: LocalRelocationSnapshot?
 
@@ -75,17 +55,21 @@ public struct RelocatePlan: Sendable, Equatable {
     mode: RelocateMode, sourcePrimaryPath: String, sourceSidecarPath: String?,
     finalPrimaryPath: String, finalSidecarPath: String?,
     renamedDueToCollision: Bool, createdPaths: [String],
-    sourceAlreadyRelocated: Bool = false,
+    sourceAlreadyRelocated: Bool = false, retainsSourceSidecar: Bool = false,
+    sourceVariantPaths: [String] = [], finalVariantPaths: [String] = [],
     localSnapshot: LocalRelocationSnapshot? = nil
   ) {
     self.mode = mode
     self.sourcePrimaryPath = sourcePrimaryPath
     self.sourceSidecarPath = sourceSidecarPath
+    self.sourceVariantPaths = sourceVariantPaths
     self.finalPrimaryPath = finalPrimaryPath
     self.finalSidecarPath = finalSidecarPath
+    self.finalVariantPaths = finalVariantPaths
     self.renamedDueToCollision = renamedDueToCollision
     self.createdPaths = createdPaths
     self.sourceAlreadyRelocated = sourceAlreadyRelocated
+    self.retainsSourceSidecar = retainsSourceSidecar
     self.localSnapshot = localSnapshot
   }
 

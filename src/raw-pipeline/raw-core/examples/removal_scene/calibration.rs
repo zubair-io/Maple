@@ -120,7 +120,8 @@ pub(super) fn bake(input: Bake<'_>) -> ProbeResult<()> {
         &AdjustmentModel::default(),
         RenderQuality::Amaze,
         RawInput::Path(input.path),
-    );
+    )
+    .ok();
     std::fs::create_dir_all(input.output)?;
     std::fs::write(input.output.join("replacement.f16"), input.replacement)?;
     image::GrayImage::from_raw(

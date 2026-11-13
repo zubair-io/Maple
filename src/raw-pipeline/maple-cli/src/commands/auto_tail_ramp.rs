@@ -5,10 +5,12 @@
 //! Profile tail: the tail is fitted per-image against the RAW's own embedded
 //! JPEG, and a synthetic ramp has no embedded JPEG, so the Auto stage no-ops
 //! there. This command closes that gap: it fits the SHIPPING Auto Profile
-//! tail from a real RAW (through the production entry point
+//! tail at native AMaZE quality, matching the default photographic CLI render.
+//! This does not qualify proxy-sized host fits. The tail comes from a real RAW
+//! through the production entry point
 //! `auto_profile::apply_pipeline::fit_auto_profile_artifacts`, so
 //! `MAPLE_AUTO1` selects Auto 1.0 vs the default Auto 2.0 exactly as it
-//! does in the app), applies that fitted tail to smooth display-space
+//! does in the app. It applies that fitted tail to smooth display-space
 //! ramps, and dumps
 //! the results as `18_auto_tail.exr` stage dumps that
 //! `src/scripts/banding_check.py` gates with the standard second-difference
@@ -182,8 +184,9 @@ mod imp {
             auto_exposure: AutoExposureMode::Off,
             ..AdjustmentModel::default()
         };
+        // Match the default `render` quality: different demosaics fit different tails.
         let mut scene =
-            develop_scene_linear_from_raw_with_quality(&raw, &fit_model, RenderQuality::Full)
+            develop_scene_linear_from_raw_with_quality(&raw, &fit_model, RenderQuality::Amaze)
                 .map_err(|e| format!("develop error: {e}"))?;
         raw_core::view::agx::apply(&mut scene, fit_model.contrast, fit_model.whites);
         color_grade::apply_model(&mut scene, &fit_model);
@@ -231,6 +234,18 @@ mod imp {
             );
             return Ok(4);
         }
+
+        std::fs::create_dir_all(out_dir)?;
+        std::fs::write(
+            out_dir.join("fit-provenance.json"),
+            serde_json::to_vec_pretty(&serde_json::json!({
+                "demosaic": "amaze",
+                "fit_dimensions": [w, h],
+                "curve_present": curve.is_some(),
+                "residual_size": residual.as_ref().map(|lut| lut.size),
+                "residual": residual.as_ref().map(|lut| &lut.data),
+            }))?,
+        )?;
 
         // Apply the fitted tail to each ramp the way the CPU render path
         // does: curve in place, then residual at the production strength.

@@ -9,40 +9,78 @@
 // with a HUD readout while dragging and chrome pinned to the 'scrubbing'
 // dim level for the duration.
 import type { EditorShellComponent } from './editor-shell.component';
+import type { AdjustmentModel } from '../../models/adjustment-model';
+import { CANVAS_POINTER_OWNERS } from '../../components/image-canvas/image-canvas.zoom-gestures';
 
 /** Mutable scrub-gesture bookkeeping, owned by the shell and passed by
  *  reference so this module can read/write it without the fields living
  *  directly on the component class (they aren't template-visible). */
 export interface ScrubGestureState {
+  /** The pointer driving the scrub; null when no scrub is in flight. */
+  pointerId: number | null;
   startX: number;
   startInternal: number;
+  /** The whole model as the scrub found it: a tick can change more than the
+   *  armed value (a Temperature tick also makes the white balance Custom). */
+  startModel: AdjustmentModel | null;
   moveBound: ((e: PointerEvent) => void) | null;
   upBound: ((e: PointerEvent) => void) | null;
   cancelBound: ((e: PointerEvent) => void) | null;
 }
 
 export function newScrubGestureState(): ScrubGestureState {
-  return { startX: 0, startInternal: 0, moveBound: null, upBound: null, cancelBound: null };
+  return {
+    pointerId: null,
+    startX: 0,
+    startInternal: 0,
+    startModel: null,
+    moveBound: null,
+    upBound: null,
+    cancelBound: null,
+  };
 }
 
 /** pointerdown on the canvas layer — starts the scrub gesture. Only scrubs
- *  at fit zoom (pixelScale === 0), primary button only, and only when the
- *  armed tool accepts value edits (e.g. not while Crop is armed). */
+ *  while nothing overflows the viewport (fit or below), primary button and
+ *  primary pointer only, and only when the armed tool accepts value edits
+ *  (e.g. not while Crop is armed).
+ *
+ *  The scrub never captures the pointer: the image canvas inside this layer
+ *  already holds it (its pinch needs every pointer's moves and releases), and
+ *  the scrub follows its own pointer through window listeners. A second
+ *  pointer landing mid-scrub makes the gesture a pinch, so the scrub puts
+ *  the model back and stops; a new primary press means the old scrub's
+ *  release never arrived, so that scrub is abandoned and a new one starts. */
 export function onCanvasPointerDown(
   shell: EditorShellComponent,
   scrub: ScrubGestureState,
   e: PointerEvent,
 ): void {
-  if (e.button !== 0) return;
-  if (shell.canvasSvc.pixelScale() !== 0) return;
+  if (scrub.pointerId !== null) {
+    if (e.isPrimary === false) {
+      yieldScrubToPinch(shell, scrub);
+      return;
+    }
+    onScrubCancel(shell, scrub);
+  }
+  if (e.button !== 0 || e.isPrimary === false) return;
+  // A canvas layer that took the press (a crop or mask handle) owns it.
+  if (e.defaultPrevented) return;
+  // A control or a descendant that owns its pointer stream (the eyedropper
+  // pick overlay) must not start a scrub: that would commit an edit and
+  // retarget the click it is waiting for.
+  if (e.target instanceof Element && e.target.closest(CANVAS_POINTER_OWNERS)) return;
+  if (!shell.canvasSvc.pointerEditsAtZoom()) return;
   if (!shell.editorState.armedToolAcceptsValueEdits()) return;
 
   const wrap = shell.canvasWrapRef?.nativeElement;
   if (!wrap) return;
 
   e.preventDefault();
+  scrub.pointerId = e.pointerId;
   scrub.startX = e.clientX;
   scrub.startInternal = shell.editorState.armedInternalValue();
+  scrub.startModel = shell.editorState.currentAdjustment();
 
   shell.editorState.commit();
   // Commit-on-release sub-params (Noise → Deep / Prefilter, #1153) park their
@@ -52,13 +90,34 @@ export function onCanvasPointerDown(
   shell.chromeState.set('scrubbing');
   shell.showHud();
 
-  scrub.moveBound = (ev: PointerEvent) => onScrubMove(shell, scrub, ev);
-  scrub.upBound = (ev: PointerEvent) => onScrubUp(shell, scrub, ev);
-  scrub.cancelBound = (_ev: PointerEvent) => onScrubCancel(shell, scrub);
+  const ownPointer = (ev: PointerEvent): boolean => ev.pointerId === scrub.pointerId;
+  scrub.moveBound = (ev: PointerEvent) => {
+    if (ownPointer(ev)) onScrubMove(shell, scrub, ev);
+  };
+  scrub.upBound = (ev: PointerEvent) => {
+    if (ownPointer(ev)) onScrubUp(shell, scrub, ev);
+  };
+  scrub.cancelBound = (ev: PointerEvent) => {
+    if (ownPointer(ev)) onScrubCancel(shell, scrub);
+  };
   window.addEventListener('pointermove', scrub.moveBound);
   window.addEventListener('pointerup', scrub.upBound);
   window.addEventListener('pointercancel', scrub.cancelBound);
-  wrap.setPointerCapture(e.pointerId);
+}
+
+/** A second pointer joined: the scrub's first few pixels of travel were the
+ *  start of a pinch, not an edit. Put the model back as the scrub found it,
+ *  drop any parked value and abandon the edit, so no undo entry is left. */
+function yieldScrubToPinch(shell: EditorShellComponent, scrub: ScrubGestureState): void {
+  const id = shell.editorState.imageId();
+  if (id != null && scrub.startModel)
+    shell.editorState.library.updateAdjustment(id, scrub.startModel);
+  shell.editorState.cancelGesture();
+  shell.editorState.cancelEdit();
+  cleanupScrub(shell, scrub);
+  shell.hudVisible.set(false);
+  shell.chromeState.set('full');
+  shell.restartRecedeTimer();
 }
 
 function onScrubMove(shell: EditorShellComponent, scrub: ScrubGestureState, e: PointerEvent): void {
@@ -98,6 +157,8 @@ function onScrubCancel(shell: EditorShellComponent, scrub: ScrubGestureState): v
 
 export function cleanupScrub(shell: EditorShellComponent, scrub: ScrubGestureState): void {
   shell.scrubbing.set(false);
+  scrub.pointerId = null;
+  scrub.startModel = null;
   if (scrub.moveBound) {
     window.removeEventListener('pointermove', scrub.moveBound);
     scrub.moveBound = null;

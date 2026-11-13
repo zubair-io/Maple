@@ -22,8 +22,9 @@
 //!     `*mut c_void` field, identical in shape to a forward-declared
 //!     opaque struct. cbindgen emits a typedef for callers.
 //!
-//!   - Same error code semantics as the file/bytes tile entries: 10 for
-//!     dehaze-active, 11 for upscale-attempt, 9 for bad geometry.
+//!   - Same error code semantics as the file/bytes tile entries: 10 for a
+//!     model the tile chain cannot reproduce, 11 for upscale-attempt, 9 for
+//!     bad geometry.
 //!
 //! Strip contract (see scene_linear.rs module doc): handles store
 //! whatever model the XMP they were opened with contains; the Apple
@@ -33,7 +34,6 @@
 
 use crate::buffers::MapleSceneLinearBuffer;
 use crate::error::{set_last_error, with_large_stack};
-use crate::model::dehaze_active;
 use crate::scene_linear::write_scene_linear_buf;
 use raw_core::xmp;
 
@@ -89,9 +89,9 @@ pub use open::{maple_open_raw_handle, maple_open_raw_handle_bytes};
 /// Error codes:
 ///   - 1: null pointer argument
 ///   - 9: bad tile geometry (src_w/src_h/out_w/out_h == 0)
-///   - 10: model not tile-compatible (dehaze, BM3D deep denoise, or an
-///         OpcodeList3 DNG — #1105 / #1932; vignette, local adjustments and
-///         capture sharpening tile since #1157) — caller should fall back
+///   - 10: model not tile-compatible (BM3D deep denoise or an OpcodeList3
+///         DNG — #1105 / #1932; vignette, local adjustments and capture
+///         sharpening tile since #1157, dehaze since #3287) — caller should fall back
 ///         to fit-zoom rendering
 ///   - 11: upscale attempt (out > src) — tile path is downscale-only
 ///   - 12: mismatched aspect — tile path requires `out_w/out_h` aspect
@@ -147,10 +147,6 @@ pub unsafe extern "C" fn maple_render_handle_scene_linear_tile(
         // to the matching `maple_close_raw_handle` call.
         let inner = unsafe { &*(inner_addr as *const MapleRawHandleInner) };
         let model = &inner.model;
-        if dehaze_active(model) {
-            set_last_error("dehaze unsupported on tile path".into());
-            return 10;
-        }
         let (w, h, fp16) = match inner.render_tile_fp16(
             raw_core::pipeline::TileRect {
                 src_x,
@@ -169,8 +165,7 @@ pub unsafe extern "C" fn maple_render_handle_scene_linear_tile(
                 set_last_error(msg.clone());
                 // rc=10 — model not tile-compatible; caller should fall
                 // back to the full-image render. Covers the core entry's
-                // dehaze / vignette / deep-denoise / local-adjustments /
-                // capture-sharpening rejections (#1084, #1105, #1109).
+                // model rejections (`is_untileable_model_error`).
                 if crate::model::is_untileable_model_error(&msg) {
                     return 10;
                 }
@@ -345,33 +340,9 @@ unsafe fn render_handle_scene_linear_tile_f32_impl(
         // caller (actor-isolated RawImageCache) keeps the handle alive for the
         // call; the references live in the heap-boxed `MapleRawHandleInner`.
         let inner = unsafe { &*(inner_addr as *const MapleRawHandleInner) };
-        let model = &inner.model;
-        if dehaze_active(model) {
-            set_last_error("dehaze unsupported on tile path".into());
-            return 10;
-        }
         let (w, h, f32_rgba) = match inner.render_tile_f32(rect, quality, wb_anchor, ae_gain) {
             Ok(t) => t,
-            Err(e) => {
-                let msg = format!("{}", e);
-                set_last_error(msg.clone());
-                if crate::model::is_untileable_model_error(&msg) {
-                    return 10;
-                }
-                if msg.contains("tile source rectangle") {
-                    return 9;
-                }
-                if msg.contains("tile source rectangle") {
-                    return 9;
-                }
-                if msg.contains("upscale") || msg.contains("downscale-only") {
-                    return 11;
-                }
-                if msg.contains("matching aspect") {
-                    return 12;
-                }
-                return 8;
-            }
+            Err(e) => return tile_error_rc(e),
         };
         let raw_img = &inner.raw;
         crate::scene_linear_f32::write_scene_linear_buf_f32(
@@ -394,17 +365,36 @@ unsafe fn render_handle_scene_linear_tile_f32_impl(
     })
 }
 
+/// Record a tile render failure and map it to the tile entries' return code.
+pub(crate) fn tile_error_rc(error: raw_core::error::Error) -> i32 {
+    let msg = format!("{}", error);
+    set_last_error(msg.clone());
+    if crate::model::is_untileable_model_error(&msg) {
+        10
+    } else if msg.contains("tile source rectangle") {
+        9
+    } else if msg.contains("upscale") || msg.contains("downscale-only") {
+        11
+    } else if msg.contains("matching aspect") {
+        12
+    } else {
+        8
+    }
+}
+
 /// Free a `MapleRawHandle` and its inner `RawImage` + `AdjustmentModel`.
 /// No-op when `handle` is null. Apple's `MapleRawHandleBox.deinit` calls
 /// this on cache eviction or asset switch.
 #[no_mangle]
 pub unsafe extern "C" fn maple_close_raw_handle(handle: *mut MapleRawHandle) {
-    if handle.is_null() {
-        return;
-    }
-    let h = Box::from_raw(handle);
-    if !h.inner.is_null() {
-        let inner = h.inner as *mut MapleRawHandleInner;
-        drop(Box::from_raw(inner));
-    }
+    crate::error::catch_panic("maple_close_raw_handle", (), || {
+        if handle.is_null() {
+            return;
+        }
+        let h = Box::from_raw(handle);
+        if !h.inner.is_null() {
+            let inner = h.inner as *mut MapleRawHandleInner;
+            drop(Box::from_raw(inner));
+        }
+    })
 }

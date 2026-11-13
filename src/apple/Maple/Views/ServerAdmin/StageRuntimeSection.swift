@@ -101,8 +101,8 @@ struct StageRuntimeSection: View {
     if stage.name == "preview" {
       Text(
         """
-        Also caps on-demand preview regeneration, so raising it affects \
-        cache-miss requests as well as the queue.
+        A preview someone is waiting on is rendered first; this only \
+        sets how fast the background queue drains.
         """
       )
       .font(.caption2)

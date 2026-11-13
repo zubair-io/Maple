@@ -43,6 +43,10 @@ class ResultTests(unittest.TestCase):
         validate(self.needs(), {"test": "always"}, "push")
         validate(self.needs(), {"test": "pr"}, "pull_request")
         validate(self.needs(result="skipped"), {"test": "pr"}, "push")
+        validate(self.needs(result="skipped"), {"test": "pr"}, "merge_group")
+        validate(self.needs(), {"test": "pr-or-group"}, "pull_request")
+        validate(self.needs(), {"test": "pr-or-group"}, "merge_group")
+        validate(self.needs(result="skipped"), {"test": "pr-or-group"}, "push")
 
 
 if __name__ == "__main__":

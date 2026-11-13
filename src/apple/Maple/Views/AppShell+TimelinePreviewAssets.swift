@@ -37,12 +37,49 @@ extension AppShell {
   /// the pushed ref).
   func timelinePreviewAssets() -> [AssetRef] {
     if let vm = allSourcesTimelineVM {
-      return timelinePreviewAssets(fromAllSources: vm)
+      return timelinePreviewSiblingCache.assets(for: Self.siblingKey(vm)) {
+        timelinePreviewAssets(fromAllSources: vm)
+      }
     }
     if let vm = cloudTimelineVM {
-      return timelinePreviewAssets(fromCloudTimeline: vm)
+      return timelinePreviewSiblingCache.assets(for: Self.siblingKey(vm)) {
+        timelinePreviewAssets(fromCloudTimeline: vm)
+      }
     }
     return []
+  }
+
+  /// Fingerprint of exactly the Timeline content the sibling list is built
+  /// from (the VM instance, its bucket order, and each bucket's cells), so
+  /// the memo survives redraws and refreshes only when a load lands.
+  private static func siblingKey(_ vm: AllSourcesTimelineViewModel)
+    -> TimelinePreviewSiblingCache.Key
+  {
+    var hasher = Hasher()
+    hasher.combine(ObjectIdentifier(vm))
+    for bucket in vm.buckets {
+      let key = AllSourcesTimelineViewModel.BucketKey(year: bucket.year, month: bucket.month)
+      hasher.combine(bucket.year)
+      hasher.combine(bucket.month)
+      hasher.combine(vm.mergedPagesByBucket[key])
+      hasher.combine(vm.pagesByBucket[key]?.map(\.id))
+    }
+    return .init(fingerprint: hasher.finalize())
+  }
+
+  private static func siblingKey(_ vm: CloudTimelineViewModel)
+    -> TimelinePreviewSiblingCache.Key
+  {
+    var hasher = Hasher()
+    hasher.combine(ObjectIdentifier(vm))
+    for bucket in vm.buckets {
+      let key = CloudTimelineViewModel.BucketKey(year: bucket.year, month: bucket.month)
+      hasher.combine(bucket.year)
+      hasher.combine(bucket.month)
+      hasher.combine(vm.mergedPagesByBucket[key])
+      hasher.combine(vm.pagesByBucket[key]?.map(\.id))
+    }
+    return .init(fingerprint: hasher.finalize())
   }
 
   /// Splice the asset the user actually TAPPED into its own sibling list.
@@ -139,7 +176,7 @@ extension AppShell {
       guard let asset = absPathMap[abs], let owningServer = server(asset) else { return nil }
       return cloudAssetRef(asset, server: owningServer, cloudSourcesByServer: &cloudSourcesByServer)
     case .localOnly(let local):
-      return photoKitAssetRef(local, photoKitSource: &photoKitSource)
+      return AssetRef(fileBacked: local) ?? photoKitAssetRef(local, photoKitSource: &photoKitSource)
     }
   }
 
@@ -161,6 +198,7 @@ extension AppShell {
     } else {
       source = CloudSource(
         server: LocalNetworkResolver.shared.effectiveURL(for: server),
+        identity: server,
         folderID: asset.folder_id,
         libraryPath: "",
         httpClient: makeAuthenticatedHTTPClient(server: server))
@@ -180,7 +218,14 @@ extension AppShell {
       // `CloudSource` for whichever asset the user TAPPED — and a
       // sibling on a different server 404'd, never upgrading past its
       // grid thumbnail.
-      displayPreviewProvider: { try await source.preview(for: imageRef) },
+      displayPreviewProvider: { await source.previewOutcome(for: imageRef) },
+      catalog: CatalogRef(
+        serverID: server,
+        folderID: asset.folder_id,
+        absPath: asset.abs_path,
+        address: asset.address
+      ),
+      originalFileWriter: { try await source.writeOriginal(for: imageRef, to: $0) },
       bytesProvider: { try await source.rawBytes(for: imageRef) }
     )
   }

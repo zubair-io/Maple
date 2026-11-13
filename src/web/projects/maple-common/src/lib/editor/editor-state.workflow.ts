@@ -1,6 +1,54 @@
+import { type WritableSignal, computed, effect, signal, untracked } from '@angular/core';
+import type { AssetId } from '../models/asset';
+import { defaultAdjustmentModel } from '../models/adjustment-model';
 import type { EditorStateService } from './editor-state.service';
 import type { RestoreCommand } from './editor-workflow-commands.service';
 import { errorMessage } from '../util/errors';
+
+/** One `bind()`: the asset and the generation that guards its async work. */
+export interface EditorBinding {
+  readonly id: AssetId;
+  readonly generation: number;
+}
+
+/** The editor's current `bind()`. Each binding rebuilds its Undo/Redo ring once
+ * the asset's sidecar resolves: a reload or deep link binds before the library
+ * knows the asset's folder or path (#5388). */
+export function workflowRingBinding(
+  host: EditorStateService,
+): WritableSignal<EditorBinding | null> {
+  const binding = signal<EditorBinding | null>(null);
+  const resolved = computed(() => {
+    const bound = binding();
+    return bound && host.workflowCommands.history.canCapture(bound.id) ? bound : null;
+  });
+  effect(() => {
+    const bound = resolved();
+    if (bound) untracked(() => void reopenWorkflowRing(host, bound));
+  });
+  return binding;
+}
+
+/** A reopened sidecar's retained history becomes the Undo/Redo ring again (#4983). */
+export async function reopenWorkflowRing(
+  host: EditorStateService,
+  { id, generation }: EditorBinding,
+): Promise<void> {
+  if (host.bindingGeneration !== generation || !host.ring.untouched()) return;
+  try {
+    const source = host.workflowCommands.capture(
+      id,
+      host.currentAdjustment() ?? defaultAdjustmentModel(),
+    );
+    if (!source) return;
+    const { undo, redo } = await host.workflowCommands.ringSteps(source);
+    if (host.bindingGeneration !== generation || !host.workflowCommands.history.isCurrent(source))
+      return;
+    host.ring.seed(host.serializer, undo, redo);
+  } catch (error) {
+    if (host.bindingGeneration === generation) host.workflowError.set(errorMessage(error));
+  }
+}
 
 /** Failed publication keeps both the Undo action and its immutable retry identity. */
 export async function replayWorkflow(

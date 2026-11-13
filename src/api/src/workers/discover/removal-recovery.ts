@@ -5,6 +5,7 @@ import { listLibraryRoots } from '../../db/repos/folders.repo.ts';
 import { isWithinRoot } from '../../fs/root.ts';
 import {
   removalJournalPath,
+  removalPathAbsent,
   recoverRemovalRelocation,
 } from '../../fs/removal-relocation-journal.ts';
 import { child } from '../../log.ts';
@@ -17,8 +18,7 @@ const suffix = '.removal-relocation.json';
 export async function recoverRemovalForDiscover(target: string, root: string): Promise<boolean> {
   try {
     const journal = await fs.lstat(removalJournalPath(target)).catch((error: unknown) => {
-      if (error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT')
-        return null;
+      if (removalPathAbsent(error)) return null;
       throw error;
     });
     if (!journal) return true;

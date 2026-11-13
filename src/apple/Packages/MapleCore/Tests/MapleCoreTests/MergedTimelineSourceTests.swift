@@ -81,6 +81,29 @@ final class MergedTimelineSourceTests: XCTestCase {
         XCTAssertEqual(merged.count, 2)  // both local-only cells
     }
 
+    /// Byte-identical copies in two saved folders share a content-derived id;
+    /// a cloud row matching one must not hide the other (#5091).
+    func testIdenticalFolderCopiesStayTwoCellsWhenOneIsSynced() {
+        let first = ImageRef(
+            id: "maple-id", displayName: "x.dng", url: URL(fileURLWithPath: "/folder-a/x.dng"))
+        let second = ImageRef(
+            id: "maple-id", displayName: "x.dng", url: URL(fileURLWithPath: "/folder-b/x.dng"))
+        let cloud = ImageRef(id: "maple-id", displayName: "x.dng")
+
+        let merged = MergedTimelineSource.merge(
+            localStreams: [[], [first, second]], cloudStreams: [[cloud]])
+
+        let kinds = merged.map { cell -> String in
+            switch cell {
+            case .synced(let local, _): return "synced \(local.url!.path)"
+            case .localOnly(let local): return "localOnly \(local.url!.path)"
+            case .cloudOnly(let ref): return "cloudOnly \(ref.id)"
+            }
+        }
+        XCTAssertEqual(Set(kinds), ["synced /folder-a/x.dng", "localOnly /folder-b/x.dng"])
+        XCTAssertEqual(merged.count, 2)
+    }
+
     // MARK: - Cross-device cloudIdentifier matching
 
     /// The whole point of this change: a photo uploaded from device A

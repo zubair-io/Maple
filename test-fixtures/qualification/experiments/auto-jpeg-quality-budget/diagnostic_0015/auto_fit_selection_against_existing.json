@@ -1,0 +1,496 @@
+{
+  "accepted": false,
+  "display_p95": [
+    22.531957626342773,
+    21.282934188842773
+  ],
+  "display_perceptual_sum": [
+    2229171.6693867594,
+    2232689.3774256147
+  ],
+  "display_samples": 65536,
+  "native_absolute_rgb": [
+    [
+      5748.263017454938,
+      5785.842928415598,
+      5506.126455214222
+    ],
+    [
+      5799.922269651815,
+      5813.823009063132,
+      5477.714603832096
+    ]
+  ],
+  "native_bands_preserved": true,
+  "native_squared_rgb": [
+    [
+      1092.8276658723967,
+      1090.5846204454479,
+      935.9917237534596
+    ],
+    [
+      1013.1163529735347,
+      1006.1499334447743,
+      860.8937008056986
+    ]
+  ],
+  "native_validation_samples": 16543,
+  "reduces_worst_failure": true,
+  "regions": [
+    {
+      "baseline_mean": 0.7019052276880864,
+      "candidate_mean": 0.651516148815041,
+      "count": 1024,
+      "region": 0,
+      "represented_pixels": 5440
+    },
+    {
+      "baseline_mean": 0.3367473694242482,
+      "candidate_mean": 0.31251330309211933,
+      "count": 1024,
+      "region": 1,
+      "represented_pixels": 5440
+    },
+    {
+      "baseline_mean": 0.5073042275432004,
+      "candidate_mean": 0.6152357241453822,
+      "count": 1024,
+      "region": 2,
+      "represented_pixels": 5440
+    },
+    {
+      "baseline_mean": 0.6047124173026532,
+      "candidate_mean": 0.6200967329746002,
+      "count": 1024,
+      "region": 3,
+      "represented_pixels": 5440
+    },
+    {
+      "baseline_mean": 0.599687613668742,
+      "candidate_mean": 0.6091175158152028,
+      "count": 1024,
+      "region": 4,
+      "represented_pixels": 5440
+    },
+    {
+      "baseline_mean": 0.5397613540195915,
+      "candidate_mean": 0.6402289099114783,
+      "count": 1024,
+      "region": 5,
+      "represented_pixels": 5440
+    },
+    {
+      "baseline_mean": 0.5016424606766497,
+      "candidate_mean": 0.4460599350592341,
+      "count": 1024,
+      "region": 6,
+      "represented_pixels": 5440
+    },
+    {
+      "baseline_mean": 1.1570479932076791,
+      "candidate_mean": 1.000088375412366,
+      "count": 1024,
+      "region": 7,
+      "represented_pixels": 5440
+    },
+    {
+      "baseline_mean": 0.5251399048193194,
+      "candidate_mean": 0.3544643603641923,
+      "count": 1024,
+      "region": 8,
+      "represented_pixels": 5440
+    },
+    {
+      "baseline_mean": 0.31830307698794913,
+      "candidate_mean": 0.33124631034682833,
+      "count": 1024,
+      "region": 9,
+      "represented_pixels": 5440
+    },
+    {
+      "baseline_mean": 0.3675369080724469,
+      "candidate_mean": 0.48321209774380003,
+      "count": 1024,
+      "region": 10,
+      "represented_pixels": 5440
+    },
+    {
+      "baseline_mean": 0.3122488186338588,
+      "candidate_mean": 0.3482506223844693,
+      "count": 1024,
+      "region": 11,
+      "represented_pixels": 5440
+    },
+    {
+      "baseline_mean": 0.3429142157848486,
+      "candidate_mean": 0.3217292055258226,
+      "count": 1024,
+      "region": 12,
+      "represented_pixels": 5440
+    },
+    {
+      "baseline_mean": 0.2534119616721428,
+      "candidate_mean": 0.33235313687405055,
+      "count": 1024,
+      "region": 13,
+      "represented_pixels": 5440
+    },
+    {
+      "baseline_mean": 0.3811549855327672,
+      "candidate_mean": 0.26579960512360284,
+      "count": 1024,
+      "region": 14,
+      "represented_pixels": 5440
+    },
+    {
+      "baseline_mean": 0.8076332293396049,
+      "candidate_mean": 0.5787211471565944,
+      "count": 1024,
+      "region": 15,
+      "represented_pixels": 5440
+    },
+    {
+      "baseline_mean": 2.7290877647588356,
+      "candidate_mean": 2.8290542395059566,
+      "count": 1024,
+      "region": 16,
+      "represented_pixels": 5440
+    },
+    {
+      "baseline_mean": 0.6266570664462907,
+      "candidate_mean": 0.5712608713389593,
+      "count": 1024,
+      "region": 17,
+      "represented_pixels": 5440
+    },
+    {
+      "baseline_mean": 0.3368245588389554,
+      "candidate_mean": 0.44858710916767663,
+      "count": 1024,
+      "region": 18,
+      "represented_pixels": 5440
+    },
+    {
+      "baseline_mean": 0.6937969968215946,
+      "candidate_mean": 0.8595179864369771,
+      "count": 1024,
+      "region": 19,
+      "represented_pixels": 5440
+    },
+    {
+      "baseline_mean": 2.4456996351097,
+      "candidate_mean": 2.4120323285624825,
+      "count": 1024,
+      "region": 20,
+      "represented_pixels": 5440
+    },
+    {
+      "baseline_mean": 2.080228833991158,
+      "candidate_mean": 2.1555543553823715,
+      "count": 1024,
+      "region": 21,
+      "represented_pixels": 5440
+    },
+    {
+      "baseline_mean": 0.7042802620268263,
+      "candidate_mean": 0.6459849626688725,
+      "count": 1024,
+      "region": 22,
+      "represented_pixels": 5440
+    },
+    {
+      "baseline_mean": 1.5920145246556356,
+      "candidate_mean": 1.535110639078159,
+      "count": 1024,
+      "region": 23,
+      "represented_pixels": 5440
+    },
+    {
+      "baseline_mean": 8.65396365447737,
+      "candidate_mean": 8.534114430548952,
+      "count": 1024,
+      "region": 24,
+      "represented_pixels": 5440
+    },
+    {
+      "baseline_mean": 7.783737773864585,
+      "candidate_mean": 7.867234926648877,
+      "count": 1024,
+      "region": 25,
+      "represented_pixels": 5440
+    },
+    {
+      "baseline_mean": 5.123405466732733,
+      "candidate_mean": 5.167480685348239,
+      "count": 1024,
+      "region": 26,
+      "represented_pixels": 5440
+    },
+    {
+      "baseline_mean": 4.03723403052153,
+      "candidate_mean": 3.9324491475489647,
+      "count": 1024,
+      "region": 27,
+      "represented_pixels": 5440
+    },
+    {
+      "baseline_mean": 4.132816478593604,
+      "candidate_mean": 4.111929174298968,
+      "count": 1024,
+      "region": 28,
+      "represented_pixels": 5440
+    },
+    {
+      "baseline_mean": 3.6210492950864137,
+      "candidate_mean": 3.6776195525520428,
+      "count": 1024,
+      "region": 29,
+      "represented_pixels": 5440
+    },
+    {
+      "baseline_mean": 6.204745681693448,
+      "candidate_mean": 6.28425732758444,
+      "count": 1024,
+      "region": 30,
+      "represented_pixels": 5440
+    },
+    {
+      "baseline_mean": 6.836838331303614,
+      "candidate_mean": 6.455684611639556,
+      "count": 1024,
+      "region": 31,
+      "represented_pixels": 5440
+    },
+    {
+      "baseline_mean": 10.514774501783883,
+      "candidate_mean": 10.72502144575119,
+      "count": 1024,
+      "region": 32,
+      "represented_pixels": 5440
+    },
+    {
+      "baseline_mean": 11.721455467777217,
+      "candidate_mean": 11.930662521522711,
+      "count": 1024,
+      "region": 33,
+      "represented_pixels": 5440
+    },
+    {
+      "baseline_mean": 11.469092684195322,
+      "candidate_mean": 11.83407053778715,
+      "count": 1024,
+      "region": 34,
+      "represented_pixels": 5440
+    },
+    {
+      "baseline_mean": 7.642651398425155,
+      "candidate_mean": 7.914108174743459,
+      "count": 1024,
+      "region": 35,
+      "represented_pixels": 5440
+    },
+    {
+      "baseline_mean": 7.309993004486622,
+      "candidate_mean": 7.4775706172592065,
+      "count": 1024,
+      "region": 36,
+      "represented_pixels": 5440
+    },
+    {
+      "baseline_mean": 8.491834603534901,
+      "candidate_mean": 8.680602140308302,
+      "count": 1024,
+      "region": 37,
+      "represented_pixels": 5440
+    },
+    {
+      "baseline_mean": 10.68797292996417,
+      "candidate_mean": 11.055557845160365,
+      "count": 1024,
+      "region": 38,
+      "represented_pixels": 5440
+    },
+    {
+      "baseline_mean": 8.633442011760438,
+      "candidate_mean": 8.321963985461522,
+      "count": 1024,
+      "region": 39,
+      "represented_pixels": 5440
+    },
+    {
+      "baseline_mean": 10.282772866001023,
+      "candidate_mean": 10.286229669236961,
+      "count": 1024,
+      "region": 40,
+      "represented_pixels": 5440
+    },
+    {
+      "baseline_mean": 10.909466050992556,
+      "candidate_mean": 10.881891839513008,
+      "count": 1024,
+      "region": 41,
+      "represented_pixels": 5440
+    },
+    {
+      "baseline_mean": 12.454867663859007,
+      "candidate_mean": 12.329337946106406,
+      "count": 1024,
+      "region": 42,
+      "represented_pixels": 5440
+    },
+    {
+      "baseline_mean": 12.617515555506243,
+      "candidate_mean": 13.043109609186649,
+      "count": 1024,
+      "region": 43,
+      "represented_pixels": 5440
+    },
+    {
+      "baseline_mean": 11.969375643134118,
+      "candidate_mean": 12.391516024969956,
+      "count": 1024,
+      "region": 44,
+      "represented_pixels": 5440
+    },
+    {
+      "baseline_mean": 13.756160235350185,
+      "candidate_mean": 14.509797195213682,
+      "count": 1024,
+      "region": 45,
+      "represented_pixels": 5440
+    },
+    {
+      "baseline_mean": 14.508059710198465,
+      "candidate_mean": 14.69206093017231,
+      "count": 1024,
+      "region": 46,
+      "represented_pixels": 5440
+    },
+    {
+      "baseline_mean": 11.351205551931086,
+      "candidate_mean": 11.701321866472854,
+      "count": 1024,
+      "region": 47,
+      "represented_pixels": 5440
+    },
+    {
+      "baseline_mean": 10.250263529643416,
+      "candidate_mean": 9.767370428670855,
+      "count": 1024,
+      "region": 48,
+      "represented_pixels": 5440
+    },
+    {
+      "baseline_mean": 11.59470531118705,
+      "candidate_mean": 11.141904316031757,
+      "count": 1024,
+      "region": 49,
+      "represented_pixels": 5440
+    },
+    {
+      "baseline_mean": 11.676203263507169,
+      "candidate_mean": 11.69052507376627,
+      "count": 1024,
+      "region": 50,
+      "represented_pixels": 5440
+    },
+    {
+      "baseline_mean": 11.407941919521374,
+      "candidate_mean": 11.441018482111394,
+      "count": 1024,
+      "region": 51,
+      "represented_pixels": 5440
+    },
+    {
+      "baseline_mean": 12.537508688275429,
+      "candidate_mean": 13.035804499620024,
+      "count": 1024,
+      "region": 52,
+      "represented_pixels": 5440
+    },
+    {
+      "baseline_mean": 12.562315692533465,
+      "candidate_mean": 12.815260060350685,
+      "count": 1024,
+      "region": 53,
+      "represented_pixels": 5440
+    },
+    {
+      "baseline_mean": 10.61038297612001,
+      "candidate_mean": 10.911694018323631,
+      "count": 1024,
+      "region": 54,
+      "represented_pixels": 5440
+    },
+    {
+      "baseline_mean": 11.642143622533801,
+      "candidate_mean": 11.892825419455766,
+      "count": 1024,
+      "region": 55,
+      "represented_pixels": 5440
+    },
+    {
+      "baseline_mean": 11.998500818759203,
+      "candidate_mean": 10.127371244439308,
+      "count": 1024,
+      "region": 56,
+      "represented_pixels": 5440
+    },
+    {
+      "baseline_mean": 10.55164596565506,
+      "candidate_mean": 10.43259928309742,
+      "count": 1024,
+      "region": 57,
+      "represented_pixels": 5440
+    },
+    {
+      "baseline_mean": 11.439672078301802,
+      "candidate_mean": 11.780497855715016,
+      "count": 1024,
+      "region": 58,
+      "represented_pixels": 5440
+    },
+    {
+      "baseline_mean": 10.042450177691439,
+      "candidate_mean": 9.677133045433198,
+      "count": 1024,
+      "region": 59,
+      "represented_pixels": 5440
+    },
+    {
+      "baseline_mean": 9.86870811748154,
+      "candidate_mean": 9.275049274151817,
+      "count": 1024,
+      "region": 60,
+      "represented_pixels": 5440
+    },
+    {
+      "baseline_mean": 7.5207055783666235,
+      "candidate_mean": 6.694527879609343,
+      "count": 1024,
+      "region": 61,
+      "represented_pixels": 5440
+    },
+    {
+      "baseline_mean": 8.080695303222713,
+      "candidate_mean": 7.6895751517101685,
+      "count": 1024,
+      "region": 62,
+      "represented_pixels": 5440
+    },
+    {
+      "baseline_mean": 8.456826397535556,
+      "candidate_mean": 8.227720070980928,
+      "count": 1024,
+      "region": 63,
+      "represented_pixels": 5440
+    }
+  ],
+  "regions_improve": false,
+  "rgb_regions_preserved": true,
+  "rgb_tails_preserved": true,
+  "worst_normalized_errors": [
+    3.288285432889909,
+    3.6494832368599885
+  ]
+}

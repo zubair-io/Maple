@@ -226,6 +226,17 @@ public final class AgentEditService {
         code: "no_active_photo",
         message: "No photo is open in Maple's editor. Ask the photographer to open one.")
     }
+    // Until its sidecar loads, a session holds defaults, not the photo's edits (#4710).
+    guard activeSession.hasLoadedSidecar else {
+      throw activeSession.sidecarLoadFailed
+        ? AgentError(
+          code: "sidecar_unavailable",
+          message:
+            "Maple couldn't read this photo's saved edits (\(activeSession.sidecarError?.localizedDescription ?? "read failed")). Nothing can be changed until it reloads."
+        )
+        : AgentError(
+          code: "not_ready", message: "The photo's saved edits are still loading. Retry shortly.")
+    }
     return activeSession
   }
 
@@ -279,7 +290,7 @@ public final class AgentEditService {
             "is_selected": .bool(session.selectedMaskId == layer.id),
             "enabled": .bool(session.isMaskEnabled(id: layer.id)),
           ]
-          if layer.range == .skinTone {
+          if layer.range == .skinTone || layer.kindName == "person_skin" {
             m["is_skin_tone"] = .bool(true)
           }
           return .object(m)

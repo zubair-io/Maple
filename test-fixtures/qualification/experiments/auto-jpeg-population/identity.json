@@ -1,0 +1,8 @@
+{
+  "source_commit": "7cfe2b6e0d955ed147557a3c8ec9b660367d7f0c",
+  "renderer_tree": "e1d9508e776e5dc9fbb05cfaed98ec0f075feca5",
+  "binary_sha256": "2530cc662939ca9c078c5281f8350e607d2dca847c63cd97625a66188dd6bb5e",
+  "pipeline_output_version": 37,
+  "auto_fit_model_version": 7,
+  "status": "full20 measured: 5 JPEG passes,11 failures,4 exact fallbacks,0 errors; one newly failing tile vs27f; unfinished"
+}

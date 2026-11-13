@@ -201,12 +201,12 @@ describe('an ENOENT the runner refuses to believe', () => {
   });
 
   it('does not tag for a stage that never reads the original', async () => {
-    const assetId = seedAsset('meili');
+    const assetId = seedAsset('search-blob');
 
-    await runOnce(originalFileStage('meili', false), CONFIG);
+    await runOnce(originalFileStage('search-blob', false), CONFIG);
 
     expect(locationRow(live.db, assetId).missing_since).toBeNull();
-    expect(stageRow(live.db, assetId, 'meili')?.attempts).toBe(1);
+    expect(stageRow(live.db, assetId, 'search-blob')?.attempts).toBe(1);
   });
 });
 

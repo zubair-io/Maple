@@ -53,7 +53,7 @@ fn command_history_shortcuts_preserve_zoom_and_leave_text_undo_to_the_editor() {
         egui::Modifiers::CTRL | egui::Modifiers::COMMAND,
     );
     assert_eq!(app.document.as_ref().unwrap().model.exposure, 0.0);
-    assert_eq!(app.zoom.scale, 0.0, "Undo must not trigger 100% zoom");
+    assert_eq!(app.zoom.scale(), 0.0, "Undo must not trigger 100% zoom");
     assert_eq!(app.redo.len(), 1);
     key(
         &mut app,
@@ -61,9 +61,9 @@ fn command_history_shortcuts_preserve_zoom_and_leave_text_undo_to_the_editor() {
         egui::Modifiers::CTRL | egui::Modifiers::COMMAND | egui::Modifiers::SHIFT,
     );
     assert_eq!(app.document.as_ref().unwrap().model.exposure, 0.75);
-    assert_eq!(app.zoom.scale, 0.0);
+    assert_eq!(app.zoom.scale(), 0.0);
     key(&mut app, &context, egui::Modifiers::ALT);
-    assert_eq!(app.zoom.scale, 0.0, "Modified Z must not change zoom");
+    assert_eq!(app.zoom.scale(), 0.0, "Modified Z must not change zoom");
     app.cloud.active = true;
     key(
         &mut app,
@@ -92,7 +92,7 @@ fn command_history_shortcuts_preserve_zoom_and_leave_text_undo_to_the_editor() {
     assert_eq!(app.history.len(), 1);
     context.memory_mut(|memory| memory.surrender_focus(text));
     key(&mut app, &context, egui::Modifiers::NONE);
-    assert_eq!(app.zoom.scale, 1.0, "Plain Z keeps native zoom");
+    assert_eq!(app.zoom.scale(), 1.0, "Plain Z keeps native zoom");
     app.flush();
     while app.saving != 0 {
         frame(&mut app, &context, Vec::new());

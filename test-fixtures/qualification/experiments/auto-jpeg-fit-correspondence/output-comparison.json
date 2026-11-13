@@ -1,0 +1,17 @@
+{
+  "baseline_source": "87b1dc14cedcd1fc697cdb73489de3292984c639",
+  "candidate_source": "27f00506a23bf76d6a5f1e9e6562758d951feb74",
+  "identical_jpeg_outputs": 15,
+  "changed_jpeg_outputs": [
+    "test_0007"
+  ],
+  "new_quality_native_absolute_legacy_signed_breaches": 0,
+  "test_0007": {
+    "blue_p95_before": 0.10196078431372546,
+    "blue_p95_after": 0.09803921568627452,
+    "limit": 0.1,
+    "mean_de_before": 3.5712341024642584,
+    "mean_de_after": 3.5593873721560634,
+    "overall_status": "failed"
+  }
+}

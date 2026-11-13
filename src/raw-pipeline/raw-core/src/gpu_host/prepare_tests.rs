@@ -1,5 +1,6 @@
 //! Shared RAW preparation regression on a committed real DNG (#4317).
-use super::prepare::{develop_prefix_rgba, prefix_model_for};
+use super::capture::develop_capture_prefix_rgba;
+use super::prepare::prefix_model_for;
 use crate::types::adjustment::AdjustmentModel;
 
 #[test]
@@ -9,30 +10,44 @@ fn hot_controls_reuse_the_exact_prefix_and_source_bytes() {
     let bytes = std::fs::read(&path).unwrap();
     let raw = crate::decode::decode(&path).unwrap();
     let model = AdjustmentModel::default();
-    let first = develop_prefix_rgba(&raw, &bytes, "dng", &model, 32).unwrap();
-    assert_eq!(first.3, prefix_model_for(&raw, &bytes, "dng", &model));
-    assert!(first.1.max(first.2) <= 32);
-    assert_eq!(first.0.len(), (first.1 * first.2 * 4) as usize);
-    assert!(first.0.iter().all(|v| v.is_finite()));
+    let first = develop_capture_prefix_rgba(&raw, &bytes, "dng", &model, 32).unwrap();
+    assert_eq!(
+        first.prefix_model,
+        prefix_model_for(&raw, &bytes, "dng", &model)
+    );
+    assert!(first.width.max(first.height) <= 32);
+    assert_eq!(first.rgba.len(), (first.width * first.height * 4) as usize);
+    assert!(first.rgba.iter().all(|v| v.is_finite()));
     let edited = AdjustmentModel {
         exposure: 2.0,
         temperature: 8500.0,
         temperature_seen: true,
         vibrance: 35.0,
+        hue_adjustment_red: 20.0,
+        saturation_adjustment_blue: -15.0,
+        luminance_adjustment_green: 10.0,
+        black_white: crate::types::BlackWhiteMode::On,
+        gray_mixer_red: 25.0,
+        defringe_purple_amount: 10.0,
+        parametric_shadow_split: 10.0,
         film_look: "black_white_agfa_apx_100".into(),
         film_strength: 35.0,
         ..model.clone()
     };
-    let second = develop_prefix_rgba(&raw, &bytes, "dng", &edited, 32).unwrap();
+    let second = develop_capture_prefix_rgba(&raw, &bytes, "dng", &edited, 32).unwrap();
     assert_eq!(
-        first, second,
+        (first.rgba.as_slice(), &first.prefix_model),
+        (second.rgba.as_slice(), &second.prefix_model),
         "GPU-owned controls must not change the uploaded prefix"
     );
     let upstream = AdjustmentModel {
         capture_sharpening_amount: 65.0,
         ..model
     };
-    assert_ne!(first.3, prefix_model_for(&raw, &bytes, "dng", &upstream));
+    assert_ne!(
+        first.prefix_model,
+        prefix_model_for(&raw, &bytes, "dng", &upstream)
+    );
     assert_eq!(std::fs::read(&path).unwrap(), bytes);
 }
 
@@ -296,7 +311,7 @@ fn borrowed_prefix_match_agrees_with_owned_policy_for_hot_and_upstream_edits() {
 
 #[test]
 fn cancellable_prefix_matches_wrapper_and_observes_host_flag() {
-    use super::prepare::develop_prefix_rgba_cancellable;
+    use super::capture::develop_capture_prefix_rgba_cancellable;
     use std::sync::atomic::{AtomicBool, Ordering};
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../../test-fixtures/batch-transfer/source.dng");
@@ -304,8 +319,8 @@ fn cancellable_prefix_matches_wrapper_and_observes_host_flag() {
     let raw = crate::decode::decode(&path).unwrap();
     let model = AdjustmentModel::default();
     let flag = AtomicBool::new(false);
-    let expected = develop_prefix_rgba(&raw, &bytes, "dng", &model, 32).unwrap();
-    let actual = develop_prefix_rgba_cancellable(
+    let expected = develop_capture_prefix_rgba(&raw, &bytes, "dng", &model, 32).unwrap();
+    let actual = develop_capture_prefix_rgba_cancellable(
         &raw,
         &bytes,
         "dng",
@@ -314,10 +329,11 @@ fn cancellable_prefix_matches_wrapper_and_observes_host_flag() {
         crate::CancelToken::new(&flag),
     )
     .unwrap();
-    assert_eq!(actual, expected);
+    assert_eq!(actual.rgba, expected.rgba);
+    assert_eq!(actual.prefix_model, expected.prefix_model);
     flag.store(true, Ordering::Relaxed);
     assert_eq!(
-        develop_prefix_rgba_cancellable(
+        develop_capture_prefix_rgba_cancellable(
             &raw,
             &bytes,
             "dng",
@@ -325,8 +341,8 @@ fn cancellable_prefix_matches_wrapper_and_observes_host_flag() {
             32,
             crate::CancelToken::new(&flag)
         )
-        .unwrap_err(),
-        crate::Error::Cancelled.to_string()
+        .err(),
+        Some(crate::Error::Cancelled.to_string())
     );
     assert_eq!(std::fs::read(path).unwrap(), bytes);
 }
@@ -334,9 +350,13 @@ fn cancellable_prefix_matches_wrapper_and_observes_host_flag() {
 #[test]
 fn neutral_and_unavailable_auto_emit_absent_artifacts_with_truthful_status() {
     use super::prepare::flatten_profile_artifacts;
-    use crate::types::adjustment::Profile;
-    for (profile, status) in [(Profile::Neutral, None), (Profile::Auto, Some(false))] {
-        let (curve, size, lut, achieved) = flatten_profile_artifacts(None, None, profile);
+    use crate::view::auto_profile::AutoFitOutcome;
+    for status in [
+        None,
+        Some(AutoFitOutcome::NoPreview),
+        Some(AutoFitOutcome::Unfitted),
+    ] {
+        let (curve, size, lut, achieved) = flatten_profile_artifacts(status.map(Err));
         assert!(curve.is_empty());
         assert_eq!(achieved, status);
         assert_eq!(size, 0);
@@ -347,26 +367,48 @@ fn neutral_and_unavailable_auto_emit_absent_artifacts_with_truthful_status() {
 #[test]
 fn residual_only_is_active_without_inventing_a_curve() {
     use super::prepare::flatten_profile_artifacts;
-    use crate::types::adjustment::Profile;
     use crate::view::auto_profile;
     let residual = auto_profile::lut::ColorLut::identity(9);
     let expected = residual.data.clone();
-    let (curve, size, lut, achieved) =
-        flatten_profile_artifacts(None, Some(residual), Profile::Auto);
+    let (curve, size, lut, achieved) = flatten_profile_artifacts(Some(Ok((None, Some(residual)))));
     assert!(curve.is_empty());
     assert_eq!(size, 9);
     assert_eq!(lut, expected);
-    assert_eq!(achieved, Some(true));
+    assert_eq!(achieved, Some(auto_profile::AutoFitOutcome::Applied));
 }
 
 #[test]
 fn fitted_identity_curve_remains_present() {
     use super::prepare::flatten_profile_artifacts;
-    use crate::types::adjustment::Profile;
     use crate::view::auto_profile;
     let identity = auto_profile::curve::ProfileCurve::identity();
     let expected = identity.to_flat();
-    let (curve, _, _, achieved) = flatten_profile_artifacts(Some(identity), None, Profile::Auto);
+    let (curve, _, _, achieved) = flatten_profile_artifacts(Some(Ok((Some(identity), None))));
     assert_eq!(curve, expected);
-    assert_eq!(achieved, Some(true));
+    assert_eq!(achieved, Some(auto_profile::AutoFitOutcome::Applied));
+}
+
+#[test]
+fn geometry_metadata_stays_available_without_invalidating_pixel_preparation() {
+    use super::prefix::{pixel_prefix_matches, prefix_matches, stripped_prefix_model};
+    let base = AdjustmentModel::default();
+    let cached = stripped_prefix_model(&base, base.auto_exposure);
+    let changed = AdjustmentModel {
+        crop: crate::types::Crop {
+            left: 0.25,
+            right: 0.75,
+            ..base.crop
+        },
+        perspective_rotate: 2.0,
+        ..base
+    };
+    assert!(!prefix_matches(&changed, &cached, changed.auto_exposure));
+    assert!(pixel_prefix_matches(
+        &changed,
+        &cached,
+        changed.auto_exposure
+    ));
+    let carried = stripped_prefix_model(&changed, changed.auto_exposure);
+    assert_eq!(carried.crop, changed.crop);
+    assert_eq!(carried.perspective_rotate, changed.perspective_rotate);
 }

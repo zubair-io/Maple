@@ -11,6 +11,9 @@ use raw_core::view::auto_profile::curve::{ChannelCurve, ProfileCurve};
 use raw_core::view::auto_profile::lut::ColorLut;
 use raw_core::xmp::AdjustmentModel;
 
+// No DNG NoiseProfile: CPU and GPU must use the same ISO fallback (#4638).
+pub(super) const TEST_ISO: u32 = 100;
+
 /// A structured scene-linear Rec.2020 RGBA fixture (the kind post-DCP develop
 /// produces). Mirrors the raw-gpu oracle's fixture so the two crates' parity
 /// gates exercise the same content.
@@ -77,6 +80,12 @@ pub(super) struct OwnedArrays {
     display_red: Vec<f32>,
     display_green: Vec<f32>,
     display_blue: Vec<f32>,
+    cc_hvh: Vec<f32>,
+    cc_hvs: Vec<f32>,
+    cc_hvl: Vec<f32>,
+    cc_lvs: Vec<f32>,
+    cc_svs: Vec<f32>,
+    cc_svl: Vec<f32>,
     profile: Vec<f32>,
     residual: Vec<f32>,
     local: Vec<f32>,
@@ -105,6 +114,12 @@ pub(super) fn owned_arrays(
         display_red: flat_points(&model.display_tone_curve_red),
         display_green: flat_points(&model.display_tone_curve_green),
         display_blue: flat_points(&model.display_tone_curve_blue),
+        cc_hvh: flat_points(&model.color_curve_hue_vs_hue),
+        cc_hvs: flat_points(&model.color_curve_hue_vs_sat),
+        cc_hvl: flat_points(&model.color_curve_hue_vs_luma),
+        cc_lvs: flat_points(&model.color_curve_luma_vs_sat),
+        cc_svs: flat_points(&model.color_curve_sat_vs_sat),
+        cc_svl: flat_points(&model.color_curve_sat_vs_luma),
         profile: curve.to_flat(),
         residual: lut.data.clone(),
         local: raw_core::types::layers_to_flat(&model.local_adjustments),
@@ -137,6 +152,7 @@ pub(super) fn make_params(
     };
     MapleGpuLiveParams {
         nr_sampling_scale: 1.0,
+        creative_ptr: std::ptr::null(),
         whites_anchor_ev: input_whites_anchor(input),
         temperature: model.temperature,
         tint: model.tint,
@@ -179,11 +195,13 @@ pub(super) fn make_params(
         color_grade_global_hue: model.color_grade_global_hue,
         color_grade_global_saturation: model.color_grade_global_saturation,
         color_grade_global_luminance: model.color_grade_global_luminance,
-        // No DNG NoiseProfile in the marshalling fixtures (#1714): a null
-        // pointer is the "no profile" encoding, i.e. the flat NLM filter.
+        color_grade_blending: model.color_grade_blending,
+        color_grade_shadow_edge: model.color_grade_shadow_edge,
+        color_grade_highlight_edge: model.color_grade_highlight_edge,
+        // No DNG NoiseProfile: use the same ISO fallback as the CPU oracle.
         noise_profile_ptr: std::ptr::null(),
         noise_profile_len: 0,
-        iso: 0,
+        iso: TEST_ISO,
         // HSL 8-band adjustments (#1112) — pass through from the model.
         hsl_hue_red: model.hue_adjustment_red,
         hsl_hue_orange: model.hue_adjustment_orange,
@@ -315,5 +333,17 @@ pub(super) fn make_params(
         defringe_green_amount: 0.0,
         defringe_green_hue_lo: 0.0,
         defringe_green_hue_hi: 0.0,
+        color_curve_hue_vs_hue_ptr: arr.cc_hvh.as_ptr(),
+        color_curve_hue_vs_hue_len: arr.cc_hvh.len(),
+        color_curve_hue_vs_sat_ptr: arr.cc_hvs.as_ptr(),
+        color_curve_hue_vs_sat_len: arr.cc_hvs.len(),
+        color_curve_hue_vs_luma_ptr: arr.cc_hvl.as_ptr(),
+        color_curve_hue_vs_luma_len: arr.cc_hvl.len(),
+        color_curve_luma_vs_sat_ptr: arr.cc_lvs.as_ptr(),
+        color_curve_luma_vs_sat_len: arr.cc_lvs.len(),
+        color_curve_sat_vs_sat_ptr: arr.cc_svs.as_ptr(),
+        color_curve_sat_vs_sat_len: arr.cc_svs.len(),
+        color_curve_sat_vs_luma_ptr: arr.cc_svl.as_ptr(),
+        color_curve_sat_vs_luma_len: arr.cc_svl.len(),
     }
 }

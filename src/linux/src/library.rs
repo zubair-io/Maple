@@ -84,12 +84,67 @@ impl Folder {
     }
 }
 
+pub struct FileFormat {
+    pub extension: &'static str,
+    pub mime_type: &'static str,
+    pub kind: MediaKind,
+    /// Set when shared-mime-info 2.4 (Ubuntu 24.04) lacks the type, so Maple's
+    /// own MIME package must declare it for file-manager associations.
+    pub declared_comment: Option<&'static str>,
+}
+
+const fn format(extension: &'static str, mime_type: &'static str, kind: MediaKind) -> FileFormat {
+    FileFormat {
+        extension,
+        mime_type,
+        kind,
+        declared_comment: None,
+    }
+}
+
+const fn declared(
+    extension: &'static str,
+    mime_type: &'static str,
+    comment: &'static str,
+) -> FileFormat {
+    FileFormat {
+        extension,
+        mime_type,
+        kind: MediaKind::Raw,
+        declared_comment: Some(comment),
+    }
+}
+
+pub const FILE_FORMATS: &[FileFormat] = &[
+    format("cr2", "image/x-canon-cr2", MediaKind::Raw),
+    format("cr3", "image/x-canon-cr3", MediaKind::Raw),
+    format("nef", "image/x-nikon-nef", MediaKind::Raw),
+    format("arw", "image/x-sony-arw", MediaKind::Raw),
+    format("dng", "image/x-adobe-dng", MediaKind::Raw),
+    format("raf", "image/x-fuji-raf", MediaKind::Raw),
+    format("orf", "image/x-olympus-orf", MediaKind::Raw),
+    format("rw2", "image/x-panasonic-rw2", MediaKind::Raw),
+    format("pef", "image/x-pentax-pef", MediaKind::Raw),
+    declared("srw", "image/x-samsung-srw", "Samsung SRW raw image"),
+    format("x3f", "image/x-sigma-x3f", MediaKind::Raw),
+    declared("3fr", "image/x-hasselblad-3fr", "Hasselblad 3FR raw image"),
+    declared("mef", "image/x-mamiya-mef", "Mamiya MEF raw image"),
+    declared("erf", "image/x-epson-erf", "Epson ERF raw image"),
+    format("mrw", "image/x-minolta-mrw", MediaKind::Raw),
+    format("raw", "image/x-panasonic-rw", MediaKind::Raw),
+    declared("fff", "image/x-hasselblad-fff", "Hasselblad FFF raw image"),
+    format("jpg", "image/jpeg", MediaKind::Raster),
+    format("jpeg", "image/jpeg", MediaKind::Raster),
+    format("png", "image/png", MediaKind::Raster),
+    format("webp", "image/webp", MediaKind::Raster),
+    format("tif", "image/tiff", MediaKind::Raster),
+    format("tiff", "image/tiff", MediaKind::Raster),
+];
+
 pub fn media_kind(path: &Path) -> Option<MediaKind> {
     let extension = path.extension()?.to_str()?.to_ascii_lowercase();
-    match extension.as_str() {
-        "cr2" | "cr3" | "nef" | "arw" | "dng" | "raf" | "orf" | "rw2" | "pef" | "srw" | "x3f"
-        | "3fr" | "mef" | "erf" | "mrw" | "raw" | "fff" => Some(MediaKind::Raw),
-        "jpg" | "jpeg" | "png" | "webp" | "tif" | "tiff" => Some(MediaKind::Raster),
-        _ => None,
-    }
+    FILE_FORMATS
+        .iter()
+        .find(|format| format.extension == extension)
+        .map(|format| format.kind)
 }

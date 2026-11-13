@@ -4,8 +4,8 @@
 //
 // Release state is COMPUTED from harness evidence, never asserted: a
 // capability reads `released` only when every declared evidence source
-// has a record on the current pipeline + schema version, over the
-// current corpus, on an accepted backend, with executed == expected
+// has a record over the current corpus, on an accepted backend,
+// with executed == expected
 // cases, zero failures, and zero skips. See docs/capability-registry.md.
 
 export type CapabilitySurface = 'apple' | 'web' | 'windows';
@@ -57,7 +57,6 @@ export interface CapabilityRecord {
 
 /** The build the release states were computed for. */
 export const CAPABILITY_REGISTRY_BUILD = {
-  pipelineOutputVersion: 18,
   schemaVersion: 5,
 } as const;
 
@@ -224,6 +223,15 @@ export const CAPABILITY_REGISTRY: readonly CapabilityRecord[] = [
       'color_grade_global_hue',
       'color_grade_global_saturation',
       'color_grade_global_luminance',
+      'color_grade_blending',
+      'color_grade_shadow_edge',
+      'color_grade_highlight_edge',
+      'color_curve_hue_vs_hue',
+      'color_curve_hue_vs_sat',
+      'color_curve_hue_vs_luma',
+      'color_curve_luma_vs_sat',
+      'color_curve_sat_vs_sat',
+      'color_curve_sat_vs_luma',
       'highlight_recovery',
       'look',
       'profile',
@@ -449,7 +457,7 @@ export const CAPABILITY_REGISTRY: readonly CapabilityRecord[] = [
     assetClasses: ['raw'],
     previewPaths: ['cpu_reference', 'gpu_live'],
     exportPaths: ['maple_cli', 'apple_ffi', 'wasm', 'api_ffi', 'windows_dll'],
-    fields: ['retouch_spots'],
+    fields: ['retouch_spots', 'retouch_frame'],
     integration: ['sidecar_contract_apple', 'sidecar_contract_api', 'gpu_chain_parity_lavapipe'],
     qualification: [],
     releaseState: 'core',

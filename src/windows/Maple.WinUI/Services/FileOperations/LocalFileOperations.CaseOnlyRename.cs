@@ -29,6 +29,8 @@ namespace Maple.WinUI.Services.FileOperations
         {
             var sourceSidecarPath = SidecarStore.SidecarPathFor(source);
             var hadSidecar = File.Exists(sourceSidecarPath);
+            var targetSidecarPath = SidecarStore.SidecarPathFor(target);
+            var sidecarSharedWithSibling = hadSidecar && SidecarStemClaimedBySibling(source, target);
 
             File.Move(source, target);
 
@@ -36,11 +38,10 @@ namespace Maple.WinUI.Services.FileOperations
             string? usedSourceSidecarPath = null;
             if (hadSidecar)
             {
-                var targetSidecarPath = SidecarStore.SidecarPathFor(target);
                 usedSourceSidecarPath = sourceSidecarPath;
                 try
                 {
-                    File.Move(sourceSidecarPath, targetSidecarPath);
+                    if (!sidecarSharedWithSibling) File.Move(sourceSidecarPath, targetSidecarPath);
                 }
                 catch (System.Exception ex) when (ex is IOException or UnauthorizedAccessException)
                 {

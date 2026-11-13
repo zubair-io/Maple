@@ -5,11 +5,12 @@ import { FolderAccessService } from '../folder-access/folder-access.service';
 import { LocalRemovalAssets } from '../removal/local-removal-assets';
 import { withRemovalWriteLock } from '../removal/removal-write-lock';
 import type { AdjustmentModel } from '../models/adjustment-model';
-import type { HostedSidecarBinding } from './xmp-store.service';
+import type { HostedSidecarBinding } from './sidecar-binding';
 import type { PassthroughBucket, XmpCulling } from './xmp.types';
 import { SidecarFileIoService } from './sidecar-file-io.service';
 import { WorkflowXmpService } from './workflow-xmp.service';
 import { XmpSerializerService } from './xmp-serializer.service';
+import { HostedSidecarFreshnessService } from './hosted-sidecar-freshness.service';
 
 @Injectable({ providedIn: 'root' })
 export class HostedRemovalWriterService {
@@ -17,6 +18,7 @@ export class HostedRemovalWriterService {
   private readonly files = inject(SidecarFileIoService);
   private readonly core = inject(WorkflowXmpService);
   private readonly serializer = inject(XmpSerializerService);
+  private readonly freshness = inject(HostedSidecarFreshnessService);
 
   async write(
     binding: HostedSidecarBinding,
@@ -25,7 +27,7 @@ export class HostedRemovalWriterService {
     expectedRecords: string,
     records: string,
     expectedRevision?: string,
-  ): Promise<{ revision: string; passthrough: PassthroughBucket }> {
+  ): Promise<{ revision: string; passthrough: PassthroughBucket; xml: string }> {
     const { folder, rawFilename, filename, variantId } = binding;
     const assets = new LocalRemovalAssets(this.access, folder, rawFilename);
     return withRemovalWriteLock(folder, rawFilename, async () => {
@@ -71,6 +73,7 @@ export class HostedRemovalWriterService {
           culling,
         );
         await this.access.writeFile(folder, filename, new TextEncoder().encode(xml));
+        if (folder.native) this.freshness.remember(folder, filename, xml);
         const revision = await this.files.digest(new TextEncoder().encode(xml));
         if ((await this.files.revision(folder, filename)) !== revision)
           throw Error('Removal sidecar verification failed.');
@@ -80,7 +83,7 @@ export class HostedRemovalWriterService {
           records
         )
           throw Error('Removal sidecar verification failed.');
-        return { revision, passthrough };
+        return { revision, passthrough, xml };
       };
       return folder.native && navigator.locks
         ? navigator.locks.request('maple-workflow-variant:' + variantId, publish)

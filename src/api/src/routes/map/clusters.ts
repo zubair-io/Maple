@@ -18,11 +18,14 @@
 
 import { Elysia, t } from 'elysia';
 import { mapClusters } from '../../db/repos/map-clusters.repo.ts';
-import { buildSearchWhere } from '../../db/repos/search.where.ts';
+import { buildSearchWhere, type SearchWhere } from '../../db/repos/search.where.ts';
 import { assetAbsPath, assetPrimaryFileInfo } from '../../indexer/images.repo.ts';
 import { loadLibraryRoots } from '../../indexer/libraries.cache.ts';
 import { personIdsToDrop } from '../../db/repos/people.visibility.ts';
 import { clampInt, SearchQueryT, type SearchQuery } from '../search/query.ts';
+import { RANKED_WINDOW_MAX, type RankedAsset } from '../../db/repos/search.ranked.ts';
+import { requestWindow } from '../search/ranked-window.ts';
+import { resolveRankedScope } from '../search/scope.ts';
 
 /** The `/api/map/clusters` query-string contract: every `/api/search`
  * filter param (so the map respects the caller's active search filters)
@@ -209,6 +212,28 @@ interface MapCluster {
   thumbKey?: string;
 }
 
+/**
+ * What the map clusters. A text search clusters its ranked window — the best matches the list is
+ * served from, as deep as a window goes — never the whole match set (#4514); a query whose text is
+ * only a date ("2023") clusters the date window; a request that does not translate is a 400. No
+ * path groups the whole match set.
+ */
+async function clusterScope(
+  q: MapClustersQuery,
+  where: SearchWhere,
+): Promise<{ where: SearchWhere; window?: readonly RankedAsset[] } | { error: string }> {
+  if (where.match.kind === 'none') return { where };
+  const scope = await resolveRankedScope(q);
+  if ('error' in scope) return scope;
+  if (scope.childQuery === null) return { where: scope.where };
+  const window = await requestWindow({
+    where: scope.where,
+    text: scope.childQuery,
+    need: RANKED_WINDOW_MAX,
+  });
+  return { where, window: window.rows };
+}
+
 export const mapClustersRoute = new Elysia().get(
   '/clusters',
   async ({ query, set }) => {
@@ -244,7 +269,12 @@ export const mapClustersRoute = new Elysia().get(
     // density/cluster view (not a silent bug): the antimeridian is mid-ocean
     // for every inhabited landmass, so a cell split there costs nothing in
     // practice.
-    const rows = await mapClusters(where, bbox, cellSizeDeg);
+    const clustered = await clusterScope(q, where);
+    if ('error' in clustered) {
+      set.status = 400;
+      return { error: clustered.error };
+    }
+    const rows = await mapClusters(clustered.where, bbox, cellSizeDeg, undefined, clustered.window);
 
     const libraries = await loadLibraryRoots().catch(() => new Map<string, string>());
 

@@ -1,4 +1,6 @@
 import { createHash } from 'node:crypto';
+import { GoogleConnectionError } from './google/config.ts';
+import { GoogleDriveError, isDriveConnectionFailure } from './google/client.ts';
 import * as path from 'node:path';
 import { BackupRepository, type BackupDestination, type BackupEntry } from './repository.ts';
 import {
@@ -103,14 +105,27 @@ async function removeStaleEntryObject(
   if (!mirrorKey && !legacyKey) return;
   const owner = await repo.objectOwner(destination.id, expected.key);
   if (owner?.entryId !== entry.id || !sameObjectIdentity(owner.object, expected)) return;
-  const current = await provider.inspect(expected.key, signal, expected.locator);
+  const current = await provider.inspect(expected.key, signal, {
+    locator: expected.locator,
+    expected,
+  });
   if (!sameObjectIdentity(current, expected)) return;
   const stillOwned = await repo.objectOwner(destination.id, expected.key);
   if (stillOwned?.entryId !== entry.id || !sameObjectIdentity(stillOwned.object, expected)) return;
   await provider.remove(current!, signal);
   await repo.forgetObject(destination.id, current!.key, current!.locator);
 }
+function connectionFailure(error: unknown): boolean {
+  return error instanceof GoogleConnectionError || isDriveConnectionFailure(error);
+}
+function destinationOutage(error: unknown): boolean {
+  return (
+    error instanceof GoogleConnectionError ||
+    (error instanceof GoogleDriveError && (error.status === 0 || error.status >= 500))
+  );
+}
 export class BackupEngine {
+  private readonly probeHealthy = new Map<string, boolean>();
   constructor(
     readonly provider: ProviderFactory,
     readonly repo: BackupRepository = new BackupRepository(),
@@ -123,6 +138,7 @@ export class BackupEngine {
     const rows = await this.repo.db.read<{ id: string }>(
       `SELECT e.id FROM backup_entries e JOIN backup_destinations d ON d.id=e.destination_id
       WHERE e.id=? AND e.sequence=? AND e.verified_sequence=e.sequence AND e.state!='purged'
+      AND e.last_error IS NULL
       AND d.id=? AND d.enabled=1 AND d.generation=? AND d.root_id IS ? AND d.account_id IS ?
       AND NOT EXISTS (SELECT 1 FROM backup_lifecycle l WHERE l.asset_id=e.asset_id
         AND ((l.phase='prepared' AND l.library_id=d.library_id) OR l.kind='purge'))`,
@@ -146,7 +162,10 @@ export class BackupEngine {
     signal?: AbortSignal,
   ): Promise<BackupObject> {
     const saved = await this.repo.object(destination.id, key);
-    const existing = await provider.inspect(key, signal, saved.object?.locator);
+    const existing = await provider.inspect(key, signal, {
+      locator: saved.object?.locator,
+      expected: saved.object ?? undefined,
+    });
     if (existing) {
       if (existing.size !== source.size || existing.sha256 !== source.sha256)
         throw new Error('Backup immutable object integrity mismatch');
@@ -159,7 +178,7 @@ export class BackupEngine {
       key,
       source,
       saved.checkpoint,
-      (options) => provider.publish(key, source, options),
+      (options) => provider.publish(key, source, { ...options, expected: saved.object }),
       'Backup transfer',
       signal,
     );
@@ -180,7 +199,11 @@ export class BackupEngine {
       key,
       source,
       saved.checkpoint,
-      (options) => provider.mirrorFile(key, relativePath, source, options),
+      (options) =>
+        provider.mirrorFile(key, relativePath, source, {
+          ...options,
+          expected: saved.object ?? undefined,
+        }),
       'Backup mirror',
       signal,
     );
@@ -326,7 +349,7 @@ export class BackupEngine {
       location.relative_path,
     );
     if (signal?.aborted) return false;
-    if (initial.verified_sequence === initial.sequence)
+    if (initial.verified_sequence === initial.sequence && initial.last_error === null)
       return this.verifiedCurrent(initial, destination);
     const owner = crypto.randomUUID();
     if (initial.state === 'purged' || !(await repo.claim(initial, owner))) return false;
@@ -334,26 +357,79 @@ export class BackupEngine {
     let files: CapturedFiles | undefined;
     try {
       files = await captureInventory(location, lease.signal);
-      const entry = await repo.reserveSnapshot(initial, owner, snapshotHash(location, files));
-      lease.update(entry);
-      if (!(await repo.fence(entry, destination, owner)))
-        throw new Error('Backup configuration or lifecycle changed');
-      const provider = await this.provider(destination);
-      await provider.probe(lease.signal);
-      const ctx = { destination, entry, owner, provider, signal: lease.signal };
-      const objects = await this.publishFiles(ctx, files);
-      await this.validateCurrentInventory(ctx, location, files);
-      return await this.publishCatalog(ctx, location, objects);
+      return await this.publishCaptured(destination, location, initial, owner, lease, files);
     } catch (error) {
-      await repo.fail(
-        initial,
-        owner,
-        error instanceof Error ? error.message : 'Backup transfer failed',
-      );
+      await this.recordTransferFailure(destination, initial, owner, error, signal);
       return false;
     } finally {
       lease.stop();
       if (files) await releaseCapture(files);
+    }
+  }
+  private async publishCaptured(
+    destination: BackupDestination,
+    location: InventoryLocation,
+    initial: BackupEntry,
+    owner: string,
+    lease: ReturnType<typeof startEntryLease>,
+    files: CapturedFiles,
+  ): Promise<boolean> {
+    const repo: BackupRepository = this.repo;
+    const entry = await repo.reserveSnapshot(initial, owner, snapshotHash(location, files));
+    lease.update(entry);
+    if (!(await repo.fence(entry, destination, owner)))
+      throw new Error('Backup configuration or lifecycle changed');
+    const provider = await this.provider(destination);
+    await provider.probe(lease.signal);
+    await this.rearmConnectionFailures(destination);
+    const ctx = { destination, entry, owner, provider, signal: lease.signal };
+    const objects = await this.publishFiles(ctx, files);
+    await this.validateCurrentInventory(ctx, location, files);
+    return this.publishCatalog(ctx, location, objects);
+  }
+  private async recordTransferFailure(
+    destination: BackupDestination,
+    initial: BackupEntry,
+    owner: string,
+    error: unknown,
+    callerSignal?: AbortSignal,
+  ): Promise<void> {
+    // The caller stopped (worker shutdown), so the failure says nothing about
+    // this entry; persisted checkpoints let the next claim resume it.
+    const repo: BackupRepository = this.repo;
+    if (callerSignal?.aborted) return repo.release(initial, owner);
+    if (destinationOutage(error)) this.probeHealthy.delete(destination.id);
+    await repo.fail(
+      initial,
+      owner,
+      error instanceof Error ? error.message : 'Backup transfer failed',
+      connectionFailure(error) ? 'connection' : null,
+    );
+  }
+  // A probe that just succeeded proves the destination healthy for every entry
+  // still parked on a connection failure. The repository call is one partial-
+  // index lookup when nothing is parked, and best effort: a failure here must
+  // not turn a healthy transfer into a recorded error.
+  private async rearmConnectionFailures(destination: BackupDestination): Promise<void> {
+    try {
+      await this.repo.clearResolvedConnectionErrors(destination.id);
+    } catch {
+      return;
+    }
+  }
+  /** Re-arms parked entries on a probe's recovery edge only; failing ones keep backoff (#5038). */
+  async rearmParkedConnections(signal?: AbortSignal): Promise<void> {
+    for (const destination of await this.repo.destinations()) {
+      if (destination.kind !== 'google-drive' || !destination.enabled) continue;
+      if (!(await this.repo.hasParkedConnectionErrors(destination.id))) continue;
+      const healthy = await this.provider(destination)
+        .then((provider) => provider.probe(signal))
+        .then(() => true)
+        .catch(() => false);
+      const wasHealthy = this.probeHealthy.get(destination.id);
+      this.probeHealthy.set(destination.id, healthy);
+      if (healthy && wasHealthy !== true)
+        await this.repo.clearResolvedConnectionErrors(destination.id);
     }
   }
   async backupAsset(assetId: string, signal?: AbortSignal): Promise<boolean> {

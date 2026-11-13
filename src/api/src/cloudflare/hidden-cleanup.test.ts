@@ -1,4 +1,4 @@
-import { PIPELINE_OUTPUT_VERSION } from '../generated/adjustment-fields.generated.ts';
+import { FROZEN_R2_KEY_VERSION } from './thumb-key.ts';
 /**
  * hidden-cleanup integration tests. Real SQLite (one in-memory database per
  * test, installed as the process-wide handle so the module's own
@@ -101,7 +101,7 @@ describe('cleanupR2ThumbForHiddenAsset / cleanupR2ThumbsForHiddenAssets', () => 
 
     await cleanupR2ThumbForHiddenAsset(asset);
 
-    expect(calls).toHaveLength(PIPELINE_OUTPUT_VERSION + 1);
+    expect(calls).toHaveLength(FROZEN_R2_KEY_VERSION + 1);
     expect(calls[0]!.method).toBe('DELETE');
     expect(calls[0]!.url).toContain(`thumbs/${LIBRARY_SLUG}/vacation/a.jpg`);
     expect(storedSyncedAt(asset._id)).toBeNull();
@@ -119,7 +119,7 @@ describe('cleanupR2ThumbForHiddenAsset / cleanupR2ThumbsForHiddenAssets', () => 
 
     await cleanupR2ThumbForHiddenAsset(asset);
 
-    expect(calls).toHaveLength(PIPELINE_OUTPUT_VERSION + 1);
+    expect(calls).toHaveLength(FROZEN_R2_KEY_VERSION + 1);
     expect(calls[0]!.method).toBe('DELETE');
     expect(storedSyncedAt(asset._id)).toBeNull();
   });
@@ -142,7 +142,7 @@ describe('cleanupR2ThumbForHiddenAsset / cleanupR2ThumbsForHiddenAssets', () => 
 
     await cleanupR2ThumbForHiddenAsset(asset);
 
-    expect(calls).toHaveLength(PIPELINE_OUTPUT_VERSION + 1);
+    expect(calls).toHaveLength(FROZEN_R2_KEY_VERSION + 1);
   });
 
   it('never throws when the R2 delete fails, and leaves cf_thumb_synced_at untouched', async () => {
@@ -173,7 +173,7 @@ describe('cleanupR2ThumbForHiddenAsset / cleanupR2ThumbsForHiddenAssets', () => 
 
     await cleanupR2ThumbsForHiddenAssets([a, b, notSynced]);
 
-    expect(calls).toHaveLength(3 * (PIPELINE_OUTPUT_VERSION + 1));
+    expect(calls).toHaveLength(3 * (FROZEN_R2_KEY_VERSION + 1));
     expect(storedSyncedAt(a._id)).toBeNull();
     expect(storedSyncedAt(b._id)).toBeNull();
     expect(storedSyncedAt(notSynced._id)).toBeNull();

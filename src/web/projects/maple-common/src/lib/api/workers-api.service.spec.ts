@@ -9,6 +9,7 @@ import {
   type DeadListResponse,
   type PerformanceConfig,
   type PatchPerformanceResponse,
+  type TemporalSettings,
 } from './workers-api.service';
 import { API_BASE_URL } from './api-base-url.token';
 
@@ -127,7 +128,7 @@ describe('WorkersApiService', () => {
 
   it('patchPerformanceConfig() PATCH /api/workers/performance sends { ffi_workers }', () => {
     let result: PatchPerformanceResponse | undefined;
-    svc.patchPerformanceConfig(8).subscribe((r) => (result = r));
+    svc.patchPerformanceConfig({ ffi_workers: 8 }).subscribe((r) => (result = r));
     const req = http.expectOne('/api/workers/performance');
     expect(req.request.method).toBe('PATCH');
     expect(req.request.body).toEqual({ ffi_workers: 8 });
@@ -156,6 +157,37 @@ describe('WorkersApiService', () => {
           processed_at: '2026-05-11T12:00:00Z',
         },
       ],
+    };
+    req.flush(payload);
+    expect(result).toEqual(payload);
+  });
+
+  it('getTemporalSettings() GET /api/workers/temporal', () => {
+    let result: TemporalSettings | undefined;
+    svc.getTemporalSettings().subscribe((r) => (result = r));
+    const req = http.expectOne('/api/workers/temporal');
+    expect(req.request.method).toBe('GET');
+    const payload: TemporalSettings = {
+      address: '127.0.0.1:7233',
+      namespace: 'default',
+      connection: { state: 'connected', error: null, checkedAt: 1_780_000_000_000 },
+    };
+    req.flush(payload);
+    expect(result).toEqual(payload);
+  });
+
+  it('saveTemporalSettings() PUT /api/workers/temporal sends { address, namespace }', () => {
+    let result: TemporalSettings | undefined;
+    svc
+      .saveTemporalSettings({ address: 'temporal:7233', namespace: 'maple' })
+      .subscribe((r) => (result = r));
+    const req = http.expectOne('/api/workers/temporal');
+    expect(req.request.method).toBe('PUT');
+    expect(req.request.body).toEqual({ address: 'temporal:7233', namespace: 'maple' });
+    const payload: TemporalSettings = {
+      address: 'temporal:7233',
+      namespace: 'maple',
+      connection: { state: 'unknown', error: null, checkedAt: null },
     };
     req.flush(payload);
     expect(result).toEqual(payload);

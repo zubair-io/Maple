@@ -5,7 +5,7 @@
  * where it sits), resolves each one's mirror target(s), and enqueues a
  * `mirror_queue` row for any that are missing or stale on the mirror. It never
  * copies — the mirror copy worker drains the queue. Decoupled from the discover
- * sweep so it can't slow indexing, and independently throttled.
+ * sweep so it can't slow indexing, and scheduled hourly on its own.
  *
  * Mount guard: a mirror root whose directory isn't present this pass is treated
  * as offline and SKIPPED — an unmounted backup disk must not enqueue every file
@@ -24,7 +24,6 @@ import { child as childLogger } from '../../log.ts';
 
 const log = childLogger('mirror-scan');
 
-const DEFAULT_INTERVAL_MS = 3_600_000; // hourly
 const DEFAULT_MAX_ENQUEUE = 10_000; // safety cap per pass
 
 /** Live locations fetched per round trip. Large enough that a library of a
@@ -63,6 +62,8 @@ async function* liveLocations(): AsyncGenerator<LiveLocationRow> {
 export interface MirrorScanOptions {
   /** Stop enqueueing after this many rows in one pass (runaway guard). */
   maxEnqueue?: number;
+  /** Stops the walk between library files; the next pass walks again from the start. */
+  signal?: AbortSignal;
   /** Optional live-progress hook, fired once per primary file checked. Powers the
    * operator "Scan now" readout so you can see the walk is actually touching the
    * filesystem. Must be cheap + synchronous (an in-memory snapshot) — no I/O. */
@@ -82,7 +83,37 @@ export interface MirrorScanSummary {
   errors: number;
 }
 
-/** One detection pass. Exported for tests + driven by the interval loop. */
+/** Checks everything one asset owns on disk; answers 'cap' once the per-pass enqueue ceiling is hit. */
+async function checkAssetFiles(
+  primaryAbs: string,
+  checkOne: (file: string) => Promise<'cap' | 'ok'>,
+  summary: MirrorScanSummary,
+): Promise<'cap' | 'ok'> {
+  // In priority order; `checkOne` no-ops on any of these the primary doesn't have.
+  const replicable = [
+    primaryAbs,
+    // The canonical XMP sidecar carries the user's edits (the non-destructive
+    // contract), so it must back up too.
+    xmpSidecarPath(primaryAbs),
+    // The derived `.maple/` cache. Fresh renders reach the mirror inline via
+    // `fs/mirrored.ts:replicatePath`; this is what carries the pre-existing
+    // backlog — and anything a dropped inline copy missed — across, so a
+    // mirror-served read hits the cache instead of regenerating (#926).
+    resolveThumbPath(primaryAbs),
+    cachePathFor(primaryAbs, 'previews', PREVIEW_CACHE_SUFFIX),
+  ];
+  try {
+    for (const candidate of replicable) {
+      if ((await checkOne(candidate)) === 'cap') return 'cap';
+    }
+  } catch (err) {
+    summary.errors++;
+    log.warn({ primaryAbs, err: err instanceof Error ? err.message : err }, 'scan row failed');
+  }
+  return 'ok';
+}
+
+/** One detection pass; scheduled hourly as the `mirror-scan` maintenance task. */
 export async function runMirrorScanOnce(opts: MirrorScanOptions = {}): Promise<MirrorScanSummary> {
   const maxEnqueue = opts.maxEnqueue ?? DEFAULT_MAX_ENQUEUE;
   const summary: MirrorScanSummary = {
@@ -135,36 +166,15 @@ export async function runMirrorScanOnce(opts: MirrorScanOptions = {}): Promise<M
   // Liveness is now the query's job — every row that arrives here is a file the
   // library believes is present at that path.
   for await (const row of liveLocations()) {
+    if (opts.signal?.aborted) break;
     const root = libs.get(row.library_id);
     if (!root) continue;
     const segments = row.path === '' ? [] : row.path.split('/');
     const primaryAbs = path.join(root, ...segments, row.filename);
 
-    // Everything this asset owns on disk, in priority order. `checkOne`
-    // no-ops on any of these that the primary doesn't have.
-    const replicable = [
-      primaryAbs,
-      // The canonical XMP sidecar carries the user's edits (the
-      // non-destructive contract), so it must back up too.
-      xmpSidecarPath(primaryAbs),
-      // The derived `.maple/` cache. Fresh renders reach the mirror inline via
-      // `fs/mirrored.ts:replicatePath`; this is what carries the pre-existing
-      // backlog — and anything a dropped inline copy missed — across, so a
-      // mirror-served read hits the cache instead of regenerating (#926).
-      resolveThumbPath(primaryAbs),
-      cachePathFor(primaryAbs, 'previews', PREVIEW_CACHE_SUFFIX),
-    ];
-
-    try {
-      for (const candidate of replicable) {
-        if ((await checkOne(candidate)) === 'cap') {
-          log.warn({ maxEnqueue }, 'mirror-scan hit per-pass enqueue cap — deferring rest');
-          return summary;
-        }
-      }
-    } catch (err) {
-      summary.errors++;
-      log.warn({ primaryAbs, err: err instanceof Error ? err.message : err }, 'scan row failed');
+    if ((await checkAssetFiles(primaryAbs, checkOne, summary)) === 'cap') {
+      log.warn({ maxEnqueue }, 'mirror-scan hit per-pass enqueue cap — deferring rest');
+      return summary;
     }
 
     // Surface live progress (the file just checked + running counts) so the
@@ -179,36 +189,4 @@ export async function runMirrorScanOnce(opts: MirrorScanOptions = {}): Promise<M
 
   if (summary.scanned > 0) log.info(summary, 'mirror-scan pass complete');
   return summary;
-}
-
-export interface MirrorScanHandle {
-  stop: () => void;
-}
-
-/** Start the detection loop. Fires once on boot, then on the interval. */
-export function startMirrorScan(
-  opts: MirrorScanOptions & { intervalMs?: number } = {},
-): MirrorScanHandle {
-  const intervalMs = opts.intervalMs ?? DEFAULT_INTERVAL_MS;
-  let stopped = false;
-  let inFlight = false;
-  const tick = async () => {
-    if (stopped || inFlight || !isMirroringActive()) return;
-    inFlight = true;
-    try {
-      await runMirrorScanOnce(opts);
-    } catch (err) {
-      log.error({ err: err instanceof Error ? err.message : err }, 'mirror-scan pass crashed');
-    } finally {
-      inFlight = false;
-    }
-  };
-  const timer = setInterval(() => void tick(), intervalMs);
-  void tick();
-  return {
-    stop: () => {
-      stopped = true;
-      clearInterval(timer);
-    },
-  };
 }

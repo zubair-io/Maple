@@ -4,6 +4,8 @@
 // a single shared home avoids the copy-paste fallow's duplicate-code
 // detector flags when each file declares it locally.
 
+import { removeDuplicateAttributes } from './xmp-duplicate-attributes';
+
 export const RDF_NAMESPACE = 'http://www.w3.org/1999/02/22-rdf-syntax-ns#';
 export const XMP_NAMESPACE = 'http://ns.adobe.com/xap/1.0/';
 export const CRS_NAMESPACE = 'http://ns.adobe.com/camera-raw-settings/1.0/';
@@ -49,6 +51,59 @@ export function hasXmlParseError(document: Document): boolean {
   return name === 'parsererror' || name === 'parseerror';
 }
 
+/** Parse failure in any engine: Chromium and WebKit keep the partial root
+ * and append `parsererror` beneath it. */
+export function sidecarParseFailed(document: Document): boolean {
+  return hasXmlParseError(document) || document.getElementsByTagName('parsererror').length > 0;
+}
+
+/**
+ * Parse a sidecar. A document whose only defect is a repeated attribute
+ * (Apple before #4686 wrote `papp:FilmLook` twice) is read from its first
+ * copies, so its edits load and the next save writes a clean file (#5475).
+ * `xml` is the text that was parsed, for callers that hand it on (the WASM
+ * develop). Any other malformation returns the original text and document.
+ */
+export function readSidecar(source: string): { xml: string; document: Document } {
+  const document = new DOMParser().parseFromString(source, 'text/xml');
+  const repair = sidecarParseFailed(document) ? removeDuplicateAttributes(source) : undefined;
+  if (!repair) return { xml: source, document };
+  const repaired = new DOMParser().parseFromString(repair.xml, 'text/xml');
+  return sidecarParseFailed(repaired)
+    ? { xml: source, document }
+    : { xml: repair.xml, document: repaired };
+}
+
+export function parseSidecarDocument(xml: string): Document {
+  return readSidecar(xml).document;
+}
+
+const rdfSubjectAttr = (element: Element, name: 'about' | 'nodeID'): string | null =>
+  element.getAttributeNS(RDF_NAMESPACE, name) ?? element.getAttributeNS(null, name);
+
+const subjectTier = (element: Element): number => {
+  if (rdfSubjectAttr(element, 'nodeID') !== null) return 0;
+  const about = rdfSubjectAttr(element, 'about');
+  return about === '' ? 2 : about === null ? 1 : 0;
+};
+
+/** Moving or merging a description must retain its RDF subject and inherited XML context. */
+export function sharesMaskGroupContext(description: Element, primary: Element): boolean {
+  if (description === primary) return true;
+  const about = rdfSubjectAttr(primary, 'about');
+  const nodeId = rdfSubjectAttr(primary, 'nodeID');
+  return (
+    (about !== null || nodeId !== null) &&
+    rdfSubjectAttr(description, 'about') === about &&
+    rdfSubjectAttr(description, 'nodeID') === nodeId &&
+    ['lang', 'base'].every(
+      (name) =>
+        (description.getAttributeNS('http://www.w3.org/XML/1998/namespace', name) ?? '') ===
+        (primary.getAttributeNS('http://www.w3.org/XML/1998/namespace', name) ?? ''),
+    )
+  );
+}
+
 /** Prefer the description carrying modeled XMP data, regardless of RDF sibling order. */
 export function primaryXmpDescription(document: Document): Element | null {
   const descriptions = rdfDescriptions(document);
@@ -57,15 +112,20 @@ export function primaryXmpDescription(document: Document): Element | null {
       const name = managedXmpName(node);
       return name !== null && name !== 'rdf:about';
     }).length;
-  return descriptions.reduce<Element | null>(
-    (best, candidate) => (!best || score(candidate) > score(best) ? candidate : best),
-    null,
-  );
+  return descriptions.reduce<Element | null>((best, candidate) => {
+    if (!best) return candidate;
+    const tierDiff = subjectTier(candidate) - subjectTier(best);
+    if (tierDiff !== 0) return tierDiff > 0 ? candidate : best;
+    return score(candidate) > score(best) ? candidate : best;
+  }, null);
 }
 
 const directDescriptionSiblings = (description: Element): Element[] =>
   Array.from(description.parentElement?.children ?? []).filter(
-    (element) => element.namespaceURI === RDF_NAMESPACE && element.localName === 'Description',
+    (element) =>
+      element.namespaceURI === RDF_NAMESPACE &&
+      element.localName === 'Description' &&
+      sharesMaskGroupContext(element, description),
   );
 
 /**

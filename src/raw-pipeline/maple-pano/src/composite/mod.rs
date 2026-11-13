@@ -17,42 +17,52 @@
 //!   (`crate::seam::masks`) and sampled back at full resolution.
 //!
 //! [`CompositeReport::seam_strategy`] records which one a given run
-//! actually used, and both `maple-cli pano stitch`'s report JSON and the
+//! actually used — Voronoi when a graph-cut pair solve hit its iteration
+//! bound without seam constraints (with constraints that is an error), and both `maple-cli pano stitch`'s report JSON and the
 //! `StitchReport` surface it (spec §6).
 //!
 //! # Memory-bounded tiled path (`composite_tiled`, M6-D #1248)
 //!
-//! [`composite_tiled`] accepts already-solved gains and a `tile_rows` height
+//! [`composite_tiled`] accepts already-solved photometry and a `tile_rows` height
 //! for the strip decomposition. It decodes source frames on demand (one at a
-//! time) using the supplied file paths, warping each frame into a
-//! `canvas_width × tile_rows` strip buffer and immediately freeing the
-//! decoded pixels before moving to the next frame.  The Voronoi ownership
-//! mask is computed per tile from camera geometry (no pixels needed), and the
-//! blend is linear-under-ownership-mask (identical to blend_multiband at
-//! levels=1, which is exact for Voronoi-exclusive ownership).  The output
-//! canvas is assembled strip-by-strip into a final [`PlanarImage`].
+//! time) using the supplied file paths, warping each frame into one strip's
+//! blend window and freeing the decoded pixels before moving to the next
+//! frame. Each strip is multi-band blended inside a window widened by the
+//! pyramid's reach (#4524), so the assembled canvas equals [`composite`]'s
+//! whole-canvas [`blend_multiband`] at the same band count for any
+//! `tile_rows`, while blend memory stays bounded by the window.
 //!
-//! Measured peak RSS on pano_01 (21 DJI DNGs, proxy_long_edge=1600,
-//! canvas_tile_rows=512): **17.83 GB** — dominated by the full-resolution
-//! refinement phase holding all decoded frames simultaneously before gains are
-//! solved (the `kept_frames_for_gain` clone in `stitch.rs` and the depths
-//! `Vec<Vec<f32>>` per frame are the primary drivers). The per-tile composite
-//! strip allocation itself is small, but it doesn't help while all frames are
-//! still resident. The real memory work — restructuring `depths: Vec<Vec<f32>>`,
-//! eliminating `kept_frames_for_gain` full-res clones, and streaming the
-//! refinement phase — is tracked in #1254.
+//! The finished canvas is handed to a [`CanvasSink`] one strip at a time, as
+//! soon as no later strip can change those rows (#5452), so a caller that
+//! develops and encodes as it goes never holds the whole canvas; Voronoi
+//! ownership is kept run-length encoded ([`OwnerRuns`]) for the same reason.
+//! Measured peaks per stage are in `docs/pano.md` § Memory.
 
+mod crop;
+mod owner;
+mod sink;
 mod tiled;
 
+#[cfg(test)]
+pub(crate) use crop::largest_valid_rect;
+pub use crop::{AutoCropReport, CropRect};
+pub(crate) use crop::{CropAxes, LargestRect};
+pub use owner::OwnerRuns;
+pub(crate) use sink::CancellableSink;
+pub(crate) use sink::UncoveredCount;
+pub use sink::{CanvasCollector, CanvasSink, CompositePhase};
 pub use tiled::{composite_tiled, composite_tiled_frames};
 
 use rayon::prelude::*;
 
 use crate::blend::{blend_multiband, levels_for_overlap_width};
+use crate::boundary_warp::BoundaryWarpReport;
 use crate::camera::Camera;
 use crate::canvas::{auto_canvas, CanvasOptions, CanvasSpec};
 use crate::error::PanoError;
-use crate::gain::{solve_gains, GainOptions};
+use crate::gain::{
+    solve_photometry, ExposureFieldSummary, FramePhotometry, GainOptions, LensFalloff, LensGroups,
+};
 use crate::ingest::PlanarImage;
 use crate::local_align::LocalCorrection;
 use crate::project::Projection;
@@ -70,6 +80,9 @@ pub struct CompositeOptions {
     /// Voronoi (default) or graph-cut seam placement (#1179). See the
     /// module doc.
     pub seam_strategy: SeamStrategy,
+    /// Lens identity per frame for the blind vignette estimate (#4522);
+    /// `None` treats every frame as falloff-corrected at ingest.
+    pub lenses: Option<LensGroups>,
 }
 
 /// What [`composite`] did — the numbers the CLI report surfaces.
@@ -77,13 +90,33 @@ pub struct CompositeOptions {
 pub struct CompositeReport {
     pub canvas: CanvasSpec,
     pub projection: Projection,
-    pub gains: Vec<[f32; 3]>,
+    pub photometry: Vec<FramePhotometry>,
+    /// Blind falloff per lens group (#4522); empty when no frame was left
+    /// uncorrected at ingest.
+    pub falloff: Vec<LensFalloff>,
     pub blend_levels: usize,
     /// Average overlap width (px) of the narrowest overlapping pair —
     /// the input to the band-count rule.
     pub min_overlap_width_px: usize,
     /// Which seam placement this run actually used (#1179).
     pub seam_strategy: SeamStrategy,
+    /// The residual exposure field the tiled path applied, if any (#4521).
+    pub exposure_field: Option<ExposureFieldSummary>,
+    pub owner: Option<OwnerRuns>,
+    /// The boundary warp the output canvas was composited through (#5572);
+    /// `None` when none was requested.
+    pub boundary_warp: Option<BoundaryWarpReport>,
+    /// Output pixels no frame covered.
+    pub uncovered_px: u64,
+    /// The rectangle Auto Crop found (#5573); `None` when none was requested.
+    pub auto_crop: Option<AutoCropReport>,
+}
+
+impl CompositeReport {
+    /// The output's size: the whole canvas, whatever Auto Crop found.
+    pub fn output_size(&self) -> (u32, u32) {
+        (self.canvas.width, self.canvas.height)
+    }
 }
 
 /// Composite posed frames onto an automatically constructed canvas.
@@ -123,12 +156,17 @@ pub fn composite(
     }
 
     let canvas = auto_canvas(cameras, &opts.canvas)?;
-    let gains = solve_gains(frames, cameras, &opts.gain)?;
+    let lenses = opts
+        .lenses
+        .clone()
+        .unwrap_or_else(|| LensGroups::ingest_corrected(frames.len()));
+    let solved = solve_photometry(frames, cameras, &lenses, &opts.gain)?;
+    let photometry = solved.frames;
 
     let layers: Vec<PlanarImage> = frames
         .iter()
         .zip(cameras)
-        .zip(&gains)
+        .zip(&photometry)
         .enumerate()
         .map(|(i, ((f, c), &g))| {
             let la = local_corrections.get(i).and_then(|opt| opt.as_ref());
@@ -137,14 +175,15 @@ pub fn composite(
         .collect();
 
     let (voronoi, min_overlap) = voronoi_masks(&layers, cameras, &canvas);
-    let masks = match opts.seam_strategy {
-        SeamStrategy::Voronoi => voronoi,
+    let graph_cut_labels = match opts.seam_strategy {
+        SeamStrategy::Voronoi => None,
         SeamStrategy::GraphCut => {
-            // All layers are already resident at full canvas resolution
-            // here (unlike the memory-bounded tiled path), so the label
-            // solve runs directly on them — no downsampled seam canvas
-            // needed for this entry point.
-            let labels = seam::labels::compute_labels(&layers);
+            seam::labels::compute_labels(&layers, &seam::constraints::SeamPins::none())
+        }
+    };
+    let (masks, seam_strategy) = match graph_cut_labels {
+        None => (voronoi, SeamStrategy::Voronoi),
+        Some(labels) => {
             let mut masks = seam::labels::labels_to_masks(&labels, layers.len());
             seam::labels::feather_masks(
                 &mut masks,
@@ -152,7 +191,7 @@ pub fn composite(
                 canvas.height,
                 seam::masks::FEATHER_RADIUS_PX,
             );
-            masks
+            (masks, SeamStrategy::GraphCut)
         }
     };
     let levels = opts
@@ -161,15 +200,23 @@ pub fn composite(
     let blended = blend_multiband(&layers, &masks, levels);
 
     let projection = canvas.projection;
+    let uncovered_px =
+        (blended.width() as u64 * blended.height() as u64) - blended.validity.count_valid() as u64;
     Ok((
         blended,
         CompositeReport {
             canvas,
             projection,
-            gains,
+            photometry,
+            falloff: solved.falloff,
             blend_levels: levels,
             min_overlap_width_px: min_overlap,
-            seam_strategy: opts.seam_strategy,
+            seam_strategy,
+            exposure_field: None,
+            owner: None,
+            boundary_warp: None,
+            uncovered_px,
+            auto_crop: None,
         },
     ))
 }
@@ -202,7 +249,7 @@ fn voronoi_masks(
                 if !layer.validity.get(x, y) {
                     continue;
                 }
-                let Some(dir) = canvas.pixel_to_dir(x as f64 + 0.5, y as f64 + 0.5) else {
+                let Some(dir) = canvas.output_pixel_to_dir(x as f64 + 0.5, y as f64 + 0.5) else {
                     continue;
                 };
                 let Some((sx, sy)) = cam.world_dir_to_pixel(dir) else {
@@ -325,17 +372,10 @@ mod tests {
             .collect()
     }
 
-    /// `composite_tiled_frames` must produce pixel-for-pixel identical output
-    /// to `composite` (with `levels_override: Some(1)` to match the Voronoi
-    /// linear blend that `composite_tiled_frames` always uses).
-    ///
-    /// The same gain vector produced by `composite`'s internal `solve_gains`
-    /// is fed to `composite_tiled_frames`, so both paths see identical gains.
-    ///
-    /// Tested with two different `tile_rows` values to confirm strip size
-    /// does not affect the result.
+    /// `composite_tiled_frames` must reproduce `composite` (same photometry, same
+    /// automatic band count) at more than one strip height.
     #[test]
-    fn composite_tiled_frames_equals_composite_at_level1() {
+    fn composite_tiled_frames_equals_composite() {
         let cams = ring_cameras(3);
         let frames: Vec<PlanarImage> = cams.iter().map(frame_from_scene).collect();
         let no_lc: Vec<Option<crate::local_align::LocalCorrection>> = vec![None; cams.len()];
@@ -343,34 +383,33 @@ mod tests {
         let canvas_opts = CanvasOptions::default();
         let canvas = auto_canvas(&cams, &canvas_opts).expect("canvas");
 
-        // Reference: composite with Voronoi mask and levels=1 (single-band
-        // blend — identical contract to composite_tiled_frames).
         let ref_opts = CompositeOptions {
             canvas: canvas_opts.clone(),
-            gain: GainOptions::default(),
-            levels_override: Some(1),
-            seam_strategy: SeamStrategy::Voronoi,
+            ..Default::default()
         };
         let (ref_img, ref_report) =
             composite(&frames, &cams, &ref_opts, &no_lc).expect("composite");
 
-        // Use the exact gain vector that composite computed so both paths
-        // see identical inputs (guards against future changes to GainOptions
-        // defaults affecting only one path).
-        let gains = ref_report.gains.clone();
+        let photometry = ref_report.photometry.clone();
+        assert!(
+            ref_report.blend_levels > 1,
+            "test must exercise a real pyramid"
+        );
 
-        // Run composite_tiled_frames at two strip heights.
-        for strip_rows in [1_u32, 8] {
-            let (tiled_img, _) = composite_tiled_frames(
+        for strip_rows in [5_u32, 16] {
+            let (tiled_img, tiled_report) = composite_tiled_frames(
                 &frames,
                 &cams,
-                &gains,
+                &photometry,
                 &no_lc,
+                None,
                 &canvas,
                 strip_rows,
                 SeamStrategy::Voronoi,
+                &[],
             )
             .expect("composite_tiled_frames");
+            assert_eq!(tiled_report.blend_levels, ref_report.blend_levels);
 
             assert_eq!(
                 tiled_img.width(),

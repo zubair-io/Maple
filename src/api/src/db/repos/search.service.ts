@@ -2,8 +2,8 @@
  * The second of the two `$text` call sites: the ranked lexical fallback behind
  * `POST /api/service/assets/search`.
  *
- * That route prefers Meilisearch and falls back to the database when the
- * sidecar is absent, unconfigured or failing. The fallback runs two queries —
+ * That route prefers the in-process engine and falls back to the database when
+ * the engine is loading, failed or absent. The fallback runs two queries —
  * an exact filename match first, then a ranked full-text pass to fill the rest
  * of the page — and it is the second one that uses `$text` with a
  * `{ $meta: 'textScore' }` sort. Both are ported here, because splitting them
@@ -28,9 +28,10 @@
 import { placeholders } from './values.ts';
 import { toTextFilter } from './search.fts.ts';
 import { serviceTextSearchSql } from './search.sql.ts';
+import { RANKED_WINDOW_MAX } from './search.ranked.ts';
 import { likeLiteral } from './search.terms.ts';
-import { QUALIFIED_LIVE_PREDICATE } from './search.where.ts';
-import { assetsDb, type SqliteDb } from './db-handle.ts';
+import { QUALIFIED_LIVE_PREDICATE, type SearchWhere } from './search.where.ts';
+import { assetsDb, readBulk, type SqliteDb } from './db-handle.ts';
 import type { SqlValue } from '../sqlite/protocol.ts';
 
 /** The media kinds a caller can ask to be limited to. */
@@ -59,10 +60,9 @@ interface Bound {
  * search — which is what a caller asking for a date range wants, and what
  * Mongo's type bracketing gave for free.
  */
-function scopeClauses(scope: ServiceSearchScope): Bound {
+function scopeTerms(scope: ServiceSearchScope): Bound[] {
   const kinds = scope.mediaTypes;
-  const parts: Bound[] = [
-    ...(scope.includeHidden ? [] : [{ sql: 'assets.hidden = 0', params: [] }]),
+  return [
     ...(kinds === undefined || kinds.length === 0
       ? []
       : [
@@ -78,9 +78,29 @@ function scopeClauses(scope: ServiceSearchScope): Bound {
       ? []
       : [{ sql: 'assets.captured_at < ?', params: [scope.capturedBefore] as SqlValue[] }]),
   ];
+}
+
+function scopeClauses(scope: ServiceSearchScope): Bound {
+  const parts: Bound[] = [
+    ...(scope.includeHidden ? [] : [{ sql: 'assets.hidden = 0', params: [] }]),
+    ...scopeTerms(scope),
+  ];
   return {
     sql: parts.length === 0 ? '' : ` AND ${parts.map((part) => part.sql).join(' AND ')}`,
     params: parts.flatMap((part) => part.params),
+  };
+}
+
+/** The scope as the filters of a ranked window, so the service route widens like the list does. */
+export function serviceSearchWhere(scope: ServiceSearchScope): SearchWhere {
+  const terms = scopeTerms(scope);
+  return {
+    clauses: terms.map((term) => term.sql),
+    params: terms.flatMap((term) => term.params),
+    match: { kind: 'none' },
+    ownerId: null,
+    hidden: scope.includeHidden ? null : 0,
+    month: null,
   };
 }
 
@@ -108,28 +128,6 @@ function exactFilenameSql(scope: Bound): string {
      LIMIT ?`;
 }
 
-/**
- * Which of `mapleIds` are live and inside `scope`, in the order given — the in-process engine's
- * candidates (#4463) under the same scope clauses as the lexical passes.
- */
-export async function serviceScopedMapleIds(
-  scope: ServiceSearchScope,
-  mapleIds: readonly string[],
-  dbOverride?: SqliteDb,
-): Promise<string[]> {
-  if (mapleIds.length === 0) return [];
-  const bound = scopeClauses(scope);
-  const rows = await assetsDb(dbOverride).read<{ maple_id: string }>(
-    `SELECT assets.maple_id AS maple_id
-       FROM assets
-      WHERE ${QUALIFIED_LIVE_PREDICATE}
-        AND assets.maple_id IN (${placeholders(mapleIds.length)})${bound.sql}`,
-    [...mapleIds, ...bound.params],
-  );
-  const surviving = new Set(rows.map((row) => row.maple_id));
-  return mapleIds.filter((id) => surviving.has(id));
-}
-
 /** What the route needs back: content ids, and which of them matched exactly. */
 export interface ServiceSearchHits {
   ids: string[];
@@ -154,7 +152,7 @@ export async function serviceLexicalSearch(
 ): Promise<ServiceSearchHits> {
   const db = assetsDb(dbOverride);
   const bound = scopeClauses(scope);
-  const exactRows = await db.read<{ maple_id: string }>(exactFilenameSql(bound), [
+  const exactRows = await readBulk<{ maple_id: string }>(db, exactFilenameSql(bound), [
     likeLiteral(query),
     ...bound.params,
     limit,
@@ -173,8 +171,9 @@ export async function serviceLexicalSearch(
 
   // The same scope clauses go into both statements, so the ranked pass and the
   // exact pass see the same universe of assets.
-  const ranked = await db.read<{ maple_id: string }>(serviceTextSearchSql(bound.sql), [
+  const ranked = await readBulk<{ maple_id: string }>(db, serviceTextSearchSql(bound.sql), [
     match.expression,
+    RANKED_WINDOW_MAX,
     ...bound.params,
     limit,
   ]);

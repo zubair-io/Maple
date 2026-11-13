@@ -3,7 +3,7 @@
  *
  * Split out of `imports/repo.ts` to keep that file under the repo's file-size
  * budget (see `CONTRIBUTING.md`) — this is a single self-contained query, not
- * part of the `imports` claim/lease/progress accessor surface.
+ * part of the `imports` claim/progress accessor surface.
  *
  * The query itself moved to `db/repos/assets.locations.repo.ts` at the
  * cutover (#3787); what stays here is the one thing that is not a database

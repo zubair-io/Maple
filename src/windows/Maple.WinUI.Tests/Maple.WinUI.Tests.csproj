@@ -26,8 +26,16 @@
 
   <ItemGroup>
     <Compile Include="..\Maple.WinUI\Services\Pano\PanoRuntimePin.cs" Link="Services\PanoRuntimePin.cs" />
+    <Compile Include="..\Maple.WinUI\Services\Pano\PanoFeatureEngine.cs" Link="Services\PanoFeatureEngine.cs" />
+    <Compile Include="..\Maple.WinUI\Services\Pano\PanoProvisionState.cs" Link="Services\PanoProvisionState.cs" />
+    <Compile Include="..\Maple.WinUI\Services\Pano\PanoStitchCommand.cs" Link="Services\PanoStitchCommand.cs" />
+    <Compile Include="..\Maple.WinUI\Services\Pano\PanoProgressLine.cs" Link="Services\PanoProgressLine.cs" />
+    <Compile Include="..\Maple.WinUI\Services\Pano\PanoPreviewCommand.cs" Link="Services\PanoPreviewCommand.cs" />
+    <Compile Include="..\Maple.WinUI\Services\Pano\PanoScratch.cs" Link="Services\PanoScratch.cs" />
+    <Compile Include="..\Maple.WinUI\Services\Pano\PanoPreviewSession.cs" Link="Services\PanoPreviewSession.cs" />
     <Content Include="Fixtures\defringe.dng" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="..\..\..\test-fixtures\batch-transfer\source.dng" Link="Fixtures\source.dng" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\..\apple\MapleUITests\Fixtures\synthetic\grey-l018-rggb.dng" Link="Fixtures\grey-l018-rggb.dng" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="..\..\..\test-fixtures\removal\calibration\*" Link="Fixtures\removal\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.3.2" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />
@@ -244,12 +252,19 @@
          DECLARATIONS — nothing in this suite invokes them, so no native
          library is needed at test time. -->
     <Compile Include="..\Maple.WinUI\Services\RenderEngine.cs" LinkBase="Services" />
+    <Compile Include="..\Maple.WinUI\Services\FlatToneCurves.cs" LinkBase="Services" />
     <Compile Include="..\Maple.WinUI\Services\ScopeReadback.cs" LinkBase="Services" />
     <Compile Include="..\Maple.WinUI\Services\ScopeSampleTracker.cs" LinkBase="Services" />
     <Compile Include="..\Maple.WinUI\Services\RenderEngine.DecodeOwned.cs" LinkBase="Services" />
+    <Compile Include="..\Maple.WinUI\Services\RenderEngine.Haze.cs" LinkBase="Services" />
+    <Compile Include="..\Maple.WinUI\Services\NativeDetailHazeCache.cs" LinkBase="Services" />
     <Compile Include="..\Maple.WinUI\Services\RenderEngine.ProfileReuse.cs" LinkBase="Services" />
+    <Compile Include="..\Maple.WinUI\Services\AutoProfileStatus.cs" LinkBase="Services" />
+    <Compile Include="..\Maple.WinUI\Generated\AutoFitCodes.g.cs" LinkBase="Generated" />
     <Compile Include="..\Maple.WinUI\Services\RenderEngine.Raster.cs" LinkBase="Services" />
+    <Compile Include="..\Maple.WinUI\Services\CaptureCreative.cs" LinkBase="Services" />
     <Compile Include="..\Maple.WinUI\Services\NativeDetailDecoder.cs" LinkBase="Services" />
+    <Compile Include="..\Maple.WinUI\Services\NativeDetailPatch.cs" LinkBase="Services" />
     <!-- LensProfileStore.cs (#3480) — the %LOCALAPPDATA% LCP store
          RenderEngine.Decode restores from and the export executor consults:
          System.IO / System.Text.Json plus the RawFfi.LensProfile.cs externs
@@ -271,6 +286,12 @@
          its set/free are injected so it is testable without RawFfi. -->
     <Compile Include="..\Maple.WinUI\Services\CancelFlagSlot.cs" LinkBase="Services" />
     <Compile Include="..\Maple.WinUI\Native\*.cs" LinkBase="Native" />
+    <!-- The viewer's zoom state over the shared Rust model (#5714) and its
+         touch-contact tracker: plain System + the RawFfi.Canvas.cs externs,
+         no WinUI. The controller's native calls run when MAPLE_RAW_FFI_DLL
+         arms them (CanvasZoomControllerNativeTests). -->
+    <Compile Include="..\Maple.WinUI\Services\CanvasZoomController.cs" LinkBase="Services" />
+    <Compile Include="..\Maple.WinUI\Services\CanvasTouchTracker.cs" LinkBase="Services" />
     <Compile Include="..\Maple.WinUI\Services\Export\*.cs" LinkBase="Services\Export" />
     <Compile Include="..\Maple.WinUI\Generated\FilenameVocabulary.g.cs" LinkBase="Generated" />
     <Compile Include="..\Maple.WinUI\Generated\ExportRecipe.g.cs" LinkBase="Generated" />
@@ -310,12 +331,14 @@
     <Compile Include="..\Maple.WinUI\Generated\CapabilityRegistry.g.cs" LinkBase="Generated" />
     <Compile Include="..\Maple.WinUI\Generated\CameraSupportRegistry.g.cs" LinkBase="Generated" />
     <Compile Include="..\Maple.WinUI\Services\CameraSupportMetadata.cs" LinkBase="Services" />
+    <Compile Include="..\Maple.WinUI\Services\ColorCurveMath.cs" LinkBase="Services" />
     <Compile Include="..\Maple.WinUI\Services\SaveTimeLabel.cs" LinkBase="Services" />
     <Compile Include="..\Maple.WinUI\ViewModels\SelectionLogic.cs" LinkBase="ViewModels" />
     <!-- The commit-on-release gesture state machine (#3414). WinUI-free by
          design — it takes its scheduler as a delegate, so the wheel-burst idle
          flush is testable on a fake clock here. -->
     <Compile Include="..\Maple.WinUI\ViewModels\DeferredCommit.cs" LinkBase="ViewModels" />
+    <Compile Include="..\Maple.WinUI\ViewModels\UndoHistoryLogic.cs" LinkBase="ViewModels" />
     <!-- ShellMode.cs + ViewerFilmstripLogic.cs (#3402): the shell's
          Browse/Preview/Edit enum and the viewer filmstrip rail's
          visibility/activation rules — plain C# (System.Globalization only),
@@ -357,6 +380,8 @@
     <Compile Include="..\Maple.WinUI\MapleUI\Molecules\MuiVectorscopeMath.cs" LinkBase="MapleUI\Molecules" />
     <Compile Include="..\Maple.WinUI\MapleUI\Molecules\MuiCurvePlotMath.cs" LinkBase="MapleUI\Molecules" />
     <Compile Include="..\Maple.WinUI\MapleUI\Molecules\MuiToneCurveMath.cs" LinkBase="MapleUI\Molecules" />
+    <Compile Include="..\Maple.WinUI\MapleUI\Molecules\MuiToneCurveSplitsMath.cs" LinkBase="MapleUI\Molecules" />
+    <Compile Include="..\Maple.UI\MuiColorGradeZoneWeightsMath.cs" LinkBase="MapleUI" />
     <Compile Include="..\Maple.WinUI\MapleUI\Molecules\MuiConnectionGraphMath.cs" LinkBase="MapleUI\Molecules" />
     <Compile Include="..\Maple.WinUI\MapleUI\Molecules\MuiHeatmapMath.cs" LinkBase="MapleUI\Molecules" />
     <Compile Include="..\Maple.WinUI\MapleUI\Molecules\MediaTransportState.cs" LinkBase="MapleUI\Molecules" />
@@ -413,5 +438,8 @@
          unlinked: it is P/Invoke into cldapi.dll end to end). -->
     <Compile Include="..\Maple.WinUI\Services\Cloud\*.cs" LinkBase="Services\Cloud" />
     <Compile Include="..\Maple.WinUI\Services\CloudFiles\CloudFilesHydration.cs" LinkBase="Services\CloudFiles" />
+    <Compile Include="..\Maple.WinUI\Services\CloudFiles\CloudFilesSyncRootCleanup.cs" LinkBase="Services\CloudFiles" />
+    <Compile Include="..\Maple.WinUI\Services\CloudFiles\CloudFilesListing.cs" LinkBase="Services\CloudFiles" />
+    <Compile Include="..\Maple.WinUI\Services\CloudFiles\CfApi.cs" LinkBase="Services\CloudFiles" />
   </ItemGroup>
 </Project>

@@ -18,7 +18,7 @@ import {
 } from '@maple-common';
 import type { AiConnection, AiConnectionsResponse } from '@maple-common';
 import { SettingsShellComponent } from '../settings-shell.component';
-import { SearchEngineSettingComponent } from './search-engine-setting.component';
+import { SearchEngineStatusComponent } from './search-engine-status.component';
 
 @Component({
   selector: 'maple-ai-settings',
@@ -30,7 +30,7 @@ import { SearchEngineSettingComponent } from './search-engine-setting.component'
     MuiCheckboxComponent,
     MuiSettingsRowComponent,
     MuiSelectComponent,
-    SearchEngineSettingComponent,
+    SearchEngineStatusComponent,
   ],
   templateUrl: './ai-settings.component.html',
   styleUrl: './ai-settings.component.scss',
@@ -292,21 +292,13 @@ export class AiSettingsComponent implements OnInit {
         },
       });
   }
-  setEmbedder(field: 'url' | 'model', value: string): void {
-    this.config.update((c) => c && { ...c, embedder: { ...c.embedder, [field]: value } });
-    this.changed();
-  }
   save(): void {
     const c = this.config();
     if (!c || this.saving()) return;
     this.saving.set(true);
     this.error.set('');
     this.api
-      .saveConnections({
-        connections: c.connections,
-        assignments: c.assignments,
-        embedder: { url: c.embedder.url, model: c.embedder.model },
-      })
+      .saveConnections({ connections: c.connections, assignments: c.assignments })
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (config) => {

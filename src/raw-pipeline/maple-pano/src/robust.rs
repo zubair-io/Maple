@@ -141,6 +141,29 @@ pub enum VerifyFailure {
     NoModel { iterations: usize },
     #[error("only {inliers} inliers (pair acceptance requires >= {required})")]
     BelowMinInliers { inliers: usize, required: usize },
+    /// Structured-grid gate (#4519): a non-neighbour edge whose frames
+    /// sit further apart on the declared grid than any real overlap.
+    #[error("loop closure spans {cells} grid cells (footprint allows <= {max})", max = crate::graph::LOOP_CLOSURE_MAX_CELLS)]
+    LoopClosureOutsideFootprint { cells: usize },
+    /// Structured-grid gate (#4519): no triangle through two verified
+    /// neighbour edges reproduces the loop closure's relative rotation.
+    #[error("loop closure not confirmed by a neighbour triangle (best error {best_triangle_error_deg:?} deg)")]
+    LoopClosureUnconfirmed {
+        best_triangle_error_deg: Option<f64>,
+    },
+    /// Structured-grid gate, tile path (#4519): no triangle through two
+    /// verified neighbour edges reproduces the loop closure's planar
+    /// placement.
+    #[error("loop closure placement not confirmed by a neighbour triangle (median placement error {best_placement_error_px:?} px)")]
+    LoopClosurePlacementUnconfirmed {
+        best_placement_error_px: Option<f64>,
+    },
+    /// Structured-grid gate with GPS (#4519): the frames' ground
+    /// footprints are too far apart to overlap.
+    #[error(
+        "loop closure frames are {distance_m:.1} m apart (footprint allows <= {limit_m:.1} m)"
+    )]
+    LoopClosureBeyondGroundFootprint { distance_m: f64, limit_m: f64 },
 }
 
 /// Robustly estimate the relative rotation from bearing pairs.

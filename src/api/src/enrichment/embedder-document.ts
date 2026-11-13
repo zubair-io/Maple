@@ -1,4 +1,3 @@
-import { EMBEDDER_TEMPLATE_MAX_BYTES } from './meilisearch-embedder-template.ts';
 import {
   placeTextForIndex,
   transcriptForIndex,
@@ -6,6 +5,21 @@ import {
   type IndexableTranscript,
 } from './asset-doc-fields.ts';
 import { classifyMediaType } from '../indexer/media-types.ts';
+
+/**
+ * Bump ONLY when the rendered document starts or stops reading a field, or a field's meaning
+ * changes enough that a stored vector would be actively wrong. Raises the `embed` stage's target
+ * version, which re-queues every asset (hours of GPU time), and versions the search child's
+ * keyword index.
+ */
+export const EMBEDDER_TEMPLATE_SHAPE_VERSION = 8;
+
+/**
+ * Byte ceiling on the rendered document before it is embedded. 5000 bytes is about 1200 tokens:
+ * well inside bge-m3's 8192-token window, enough for the short fields plus a substantial
+ * transcript excerpt, small enough that re-embedding a large library stays tractable.
+ */
+export const EMBEDDER_TEMPLATE_MAX_BYTES = 5000;
 
 /** The asset fields the embedder template reads, as both the stage and the search child hold them. */
 export interface EmbeddableAssetFields {
@@ -67,7 +81,7 @@ function truncateToByteLimit(text: string, maxBytes: number): string {
   return textDecoder.decode(bytes.subarray(0, characterBoundaryAtOrBefore(bytes, maxBytes)));
 }
 
-/** The text Meilisearch's Liquid template produces for a document, capped at the embedder byte limit. */
+/** The text the embedder reads for a document, capped at the embedder byte limit. */
 export function renderEmbedderDocument(doc: EmbedderDocument): string {
   const rendered = [
     labelLine('Filename', doc.filename),

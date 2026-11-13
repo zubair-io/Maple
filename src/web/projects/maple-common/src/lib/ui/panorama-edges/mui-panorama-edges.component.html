@@ -1,0 +1,28 @@
+<section class="mui-panorama-edges flex flex-col gap-3" aria-label="Edges">
+  <mui-text variant="eyebrow" color="muted" [block]="true">Edges</mui-text>
+  <mui-slider
+    data-testid="pano-boundary-warp"
+    label="Boundary Warp"
+    unit="%"
+    [value]="boundaryWarp()"
+    [disabled]="disabled()"
+    [helper]="warpHelper()"
+    [helperTone]="reason() ? 'warning' : 'muted'"
+    [helperTestId]="reason() ? 'pano-boundary-warp-reason' : null"
+    (valueChange)="boundaryWarp.set($event)"
+    (commit)="warpCommit.emit($event)"
+  />
+  <div class="flex flex-col gap-1">
+    <mui-toggle
+      data-testid="pano-auto-crop"
+      label="Auto Crop"
+      [ariaDescribedBy]="cropHelpId"
+      [checked]="autoCrop()"
+      [disabled]="disabled()"
+      (checkedChange)="autoCrop.set($event)"
+    />
+    <mui-text variant="body" color="muted" [block]="true" [id]="cropHelpId">{{
+      cropHelp
+    }}</mui-text>
+  </div>
+</section>

@@ -294,11 +294,10 @@ fn render_tile_default_model_via_bytes_ffi() {
     assert!(buf.fp16_rgba.is_null());
 }
 
-/// Tile FFI rejects active dehaze with rc=10. Fixture-gated because
-/// the rejection happens after rawler decodes the RAW (the dehaze
-/// gate lives in `render_scene_linear_tile_from_raw_with_quality`).
+/// Tile FFI renders active dehaze from the frame's proxy haze map, which
+/// the core measures on the call (#3287). Fixture-gated.
 #[test]
-fn render_tile_dehaze_active_returns_error_code_10() {
+fn render_tile_dehaze_active_renders_from_the_frame_map() {
     let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../../../test-fixtures/raws/test_0002.dng");
     if !path.exists() {
@@ -329,7 +328,8 @@ fn render_tile_dehaze_active_returns_error_code_10() {
             &mut buf,
         )
     };
-    assert_eq!(rc, 10, "expected dehaze-unsupported rc=10, got {}", rc);
+    assert_eq!(rc, 0, "dehaze tile rc = {rc}");
+    assert_eq!((buf.width, buf.height), (256, 256));
     unsafe { maple_free_scene_linear_buffer(&mut buf) };
     let _ = std::fs::remove_file(&xmp_path);
 }

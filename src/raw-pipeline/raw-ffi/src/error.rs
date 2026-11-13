@@ -52,9 +52,12 @@ where
                 }
                 rc
             }
-            Err(_) => {
-                set_last_error("render worker panicked".into());
-                99
+            Err(payload) => {
+                set_last_error(format!(
+                    "render worker panicked: {}",
+                    panic_message(payload.as_ref())
+                ));
+                RC_PANICKED
             }
         },
         Err(e) => {
@@ -88,26 +91,39 @@ pub(crate) const RC_PANICKED: i32 = 99;
 /// can panic on an invariant violation in a hostile input — an unwind out of
 /// an `extern "C"` frame aborts the host process.
 pub(crate) fn catch_panic_rc<F: FnOnce() -> i32>(entry: &str, body: F) -> i32 {
-    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(body)) {
-        Ok(rc) => rc,
-        Err(payload) => {
-            let msg = payload
-                .downcast_ref::<&str>()
-                .map(|s| (*s).to_string())
-                .or_else(|| payload.downcast_ref::<String>().cloned())
-                .unwrap_or_else(|| "unknown panic payload".to_string());
-            set_last_error(format!("{entry}: panicked: {msg}"));
-            RC_PANICKED
-        }
-    }
+    catch_panic(entry, RC_PANICKED, body)
+}
+
+/// [`catch_panic_rc`] for an entry whose C return type is not an `i32` rc —
+/// a pointer, a struct, or nothing. `on_panic` is what the host receives
+/// instead (null, an error struct, `()`); the message still lands in
+/// `LAST_ERROR`.
+pub(crate) fn catch_panic<T, F: FnOnce() -> T>(entry: &str, on_panic: T, body: F) -> T {
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(body)).unwrap_or_else(|payload| {
+        set_last_error(format!(
+            "{entry}: panicked: {}",
+            panic_message(payload.as_ref())
+        ));
+        on_panic
+    })
+}
+
+fn panic_message(payload: &(dyn std::any::Any + Send)) -> String {
+    payload
+        .downcast_ref::<&str>()
+        .map(|s| (*s).to_string())
+        .or_else(|| payload.downcast_ref::<String>().cloned())
+        .unwrap_or_else(|| "unknown panic payload".to_string())
 }
 
 /// Returns the most recent error message for the current thread, or null.
 /// The returned pointer remains valid until the next FFI call on this thread.
 #[no_mangle]
 pub unsafe extern "C" fn maple_last_error() -> *const c_char {
-    LAST_ERROR.with(|e| match &*e.borrow() {
-        Some(cstr) => cstr.as_ptr(),
-        None => std::ptr::null(),
+    crate::error::catch_panic("maple_last_error", std::ptr::null(), || {
+        LAST_ERROR.with(|e| match &*e.borrow() {
+            Some(cstr) => cstr.as_ptr(),
+            None => std::ptr::null(),
+        })
     })
 }

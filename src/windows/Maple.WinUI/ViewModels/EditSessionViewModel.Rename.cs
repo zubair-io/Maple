@@ -132,7 +132,7 @@ namespace Maple.WinUI.ViewModels
         /// place would keep pointing at cache entries keyed to a name that
         /// no longer names this file. (The OLD name's shared entry was
         /// already reclaimed by LocalFileOperations.FinalizeRelocate —
-        /// #2710/#3083.) The decoded scene-linear buffer (if this photo is
+        /// #2710/#3083.) The decoded base buffer (if this photo is
         /// open in Edit) does NOT need to change: the rename didn't touch
         /// the pixels, only the name. Takes the bare new path (not a
         /// RelocateOutcome) so the batch-rename apply path

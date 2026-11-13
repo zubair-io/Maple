@@ -1,0 +1,5 @@
+{
+  "candidate_sha256": "9bad2c08c462fd2081c429d25cb380df0518b97fed810eed187a38445b0daedc",
+  "reference_sha256": "3ed06694a6de146f5c449c74bd59b79f8a56d7d6d675db57ba7c3811d81cb164",
+  "status": "physical focused comparator passed; not a full-corpus result"
+}

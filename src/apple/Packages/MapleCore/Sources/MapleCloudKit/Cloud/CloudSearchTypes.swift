@@ -102,6 +102,8 @@ public struct SearchAsset: Codable, Equatable, Sendable, Identifiable {
 
   public let id: String
   // swift-format-ignore: AlwaysUseLowerCamelCase
+  public let _id: String?
+  // swift-format-ignore: AlwaysUseLowerCamelCase
   public let folder_id: String
   // swift-format-ignore: AlwaysUseLowerCamelCase
   public let abs_path: String
@@ -167,6 +169,7 @@ public struct SearchAsset: Codable, Equatable, Sendable, Identifiable {
   /// to `nil` here lets pre-PhotoKit-merge test fixtures keep working.
   public init(
     id: String,
+    _id: String? = nil,
     folder_id: String,
     abs_path: String,
     address: String? = nil,
@@ -191,6 +194,7 @@ public struct SearchAsset: Codable, Equatable, Sendable, Identifiable {
     owner: CloudAssetOwner? = nil
   ) {
     self.id = id
+    self._id = _id
     self.folder_id = folder_id
     self.abs_path = abs_path
     self.address = address
@@ -277,6 +281,16 @@ public struct SearchResponse: Codable, Sendable {
   /// The capture-date window in effect, when there is one. Optional so
   /// responses from a server predating the field still decode.
   public let dateFilter: AppliedDateFilter?
+  /// True when `total` is a ranked window of a free-text query and the server
+  /// had hits left past it (#4514): a deeper page widens the window. Optional
+  /// so responses from a server predating the field still decode.
+  public let more: Bool?
+  /// True when the ranked window stopped at the server's 5,000-hit cap with
+  /// matches left (#4514); `more` is false then, so paging ends at `total`.
+  public let capped: Bool?
+  /// Opaque pin of the ranking a free-text page came from (#4542). Sent back
+  /// with the next page so every page of one search comes from one ranking.
+  public let rankPin: String?
 
   /// True when a seek-paginated result set has been walked to its end.
   ///
@@ -294,7 +308,10 @@ public struct SearchResponse: Codable, Sendable {
     results: [SearchAsset],
     cursorPaging: Bool? = nil,
     nextCursor: String? = nil,
-    dateFilter: AppliedDateFilter? = nil
+    dateFilter: AppliedDateFilter? = nil,
+    more: Bool? = nil,
+    capped: Bool? = nil,
+    rankPin: String? = nil
   ) {
     self.total = total
     self.page = page
@@ -303,6 +320,9 @@ public struct SearchResponse: Codable, Sendable {
     self.cursorPaging = cursorPaging
     self.nextCursor = nextCursor
     self.dateFilter = dateFilter
+    self.more = more
+    self.capped = capped
+    self.rankPin = rankPin
   }
 }
 

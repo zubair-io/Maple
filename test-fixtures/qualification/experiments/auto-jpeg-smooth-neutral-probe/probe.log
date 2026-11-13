@@ -1,0 +1,5 @@
+/opt/homebrew/lib/python3.14/site-packages/colour/utilities/verbose.py:340: ColourUsageWarning: "Matplotlib" related API features are not available: "No module named 'matplotlib'".
+See the installation guide for more information: https://www.colour-science.org/installation-guide/
+  warn(*args, **kwargs)
+{"diagnostic_only": true, "source_fixture": "test_0010", "success": true, "message": "Optimization terminated successfully", "iterations": 13, "seconds": 1.6347114169911947, "minimum_constraint": -2.6103251504761005e-15, "objective": 0.035116120954640256}
+{"second_difference": {"max_abs_d2": 0.003800007368789743, "mean_abs_d2": 3.666088968849344e-05, "max_spike_ratio": 0.19037510641130298, "mean_spike_ratio": 0.19037510641130298}, "flat_run": {"max_flat_run_frac": 0.0, "flat_eps": 1e-06}, "rgb_drift": {"max_abs_rg": 0.040893495082855225, "max_abs_rb": 0.01474761962890625, "max_abs_gb": 0.026145875453948975, "mean_abs_rg": 0.040893495082855225, "mean_abs_rb": 0.01474761962890625, "mean_abs_gb": 0.026145875453948975}}

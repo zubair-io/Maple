@@ -23,6 +23,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
+using Maple.WinUI.Services.Xmp;
 
 namespace Maple.WinUI.Services.FileOperations
 {
@@ -87,24 +88,41 @@ namespace Maple.WinUI.Services.FileOperations
         /// the destination are excluded: <see cref="IsAlreadyInDestination"/>
         /// handles those as a separate "Skipped, not a collision" case, and
         /// counting them here would show a spurious collision dialog for a
-        /// plain self-drop. <paramref name="pathExists"/> is injected (real
-        /// callers pass <c>File.Exists(p) || Directory.Exists(p)</c>) so this
+        /// plain self-drop. An occupied sidecar name (another same-stem
+        /// photo's, or an orphan) collides the whole asset too (#4758),
+        /// unless it holds exactly the item's own sidecar bytes — the copy an
+        /// earlier half of the same RAW+JPEG pair carried there.
+        /// <paramref name="pathExists"/> and <paramref name="sidecarAlreadyCarried"/>
+        /// are injected (real callers pass <c>File.Exists(p) || Directory.Exists(p)</c>
+        /// and <see cref="LocalFileOperations.SidecarAlreadyCarried"/>) so this
         /// stays testable without touching a real filesystem.</summary>
         public static IReadOnlyList<string> DetectCollisions(
             IReadOnlyList<DragMoveSourceItem> items,
             string destinationDir,
-            Func<string, bool> pathExists)
+            Func<string, bool> pathExists,
+            Func<string, string, bool> sidecarAlreadyCarried)
         {
             var colliding = new List<string>();
             foreach (var item in items)
             {
                 if (IsAlreadyInDestination(item, destinationDir))
                     continue;
-                var candidate = Path.Combine(destinationDir, item.CurrentFileName);
-                if (pathExists(candidate))
+                if (AssetOccupies(item, Path.Combine(destinationDir, item.CurrentFileName), pathExists, sidecarAlreadyCarried))
                     colliding.Add(item.Key);
             }
             return colliding;
+        }
+
+        private static bool AssetOccupies(
+            DragMoveSourceItem item,
+            string candidate,
+            Func<string, bool> pathExists,
+            Func<string, string, bool> sidecarAlreadyCarried)
+        {
+            if (pathExists(candidate)) return true;
+            var sidecar = SidecarStore.SidecarPathFor(candidate);
+            return pathExists(sidecar)
+                && !sidecarAlreadyCarried(SidecarStore.SidecarPathFor(item.CurrentPath), sidecar);
         }
 
         /// <summary>Maps a user's collision choice onto the existing
@@ -217,7 +235,8 @@ namespace Maple.WinUI.Services.FileOperations
             var candidatePath = Path.Combine(destinationDir, item.CurrentFileName);
             var claimedBySibling = claimedThisBatch.Contains(candidatePath);
             var collidesNow = !claimedBySibling
-                && (File.Exists(candidatePath) || Directory.Exists(candidatePath));
+                && AssetOccupies(item, candidatePath, p => File.Exists(p) || Directory.Exists(p),
+                    LocalFileOperations.SidecarAlreadyCarried);
             // OrdinalIgnoreCase: Key is a FilePath (Windows paths are
             // case-insensitive-but-case-preserving), matching how callers
             // treat the same keys elsewhere (e.g. EditSessionViewModel.

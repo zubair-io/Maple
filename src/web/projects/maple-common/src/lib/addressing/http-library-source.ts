@@ -1,8 +1,7 @@
-import { PIPELINE_OUTPUT_VERSION } from '../generated/adjustment-model.generated';
 // HttpLibrarySource — LibrarySource impl for Self-Hosted.
 //
 // Routes all calls through the M1 API:
-//   GET /api/folder/:slug/*  → FolderListing JSON
+//   GET /api/folder/:slug/*  → FolderListing JSON (`stack=1` when the user stacks RAW+JPEG)
 //   GET /api/image/:slug/*   → original bytes
 //   GET /api/thumb/:slug/*   → thumbnail AVIF (immutable-cached)
 //   GET /api/preview/:slug/* → preview JPEG (immutable-cached)
@@ -22,14 +21,19 @@ import type { DownloadProgress } from '../api/filesystem-browse.service';
 import { toApiPath, formatAddress } from './maple-address';
 import type { MapleAddress } from './maple-address';
 import type { LibrarySource, FolderListing } from './library-source';
+import { StackPreferenceService } from '../stack/stack-preference.service';
 
 @Injectable({ providedIn: 'root' })
 export class HttpLibrarySource implements LibrarySource {
   private readonly http = inject(HttpClient);
   private readonly base = inject(API_BASE_URL);
+  private readonly stackPreference = inject(StackPreferenceService);
 
-  listFolder(a: MapleAddress): Promise<FolderListing> {
-    return firstValueFrom(this.http.get<FolderListing>(`${this.base}/folder/${toApiPath(a)}`));
+  async listFolder(a: MapleAddress): Promise<FolderListing> {
+    const params = await this.stackPreference.params();
+    return firstValueFrom(
+      this.http.get<FolderListing>(`${this.base}/folder/${toApiPath(a)}`, { params }),
+    );
   }
 
   imageBlob(a: MapleAddress, onProgress?: (p: DownloadProgress) => void): Promise<Blob> {
@@ -69,7 +73,7 @@ export class HttpLibrarySource implements LibrarySource {
 
   async thumbBlob(a: MapleAddress): Promise<Blob | null> {
     const res = await firstValueFrom(
-      this.http.get(`${this.base}/thumb/${toApiPath(a)}?pv=${PIPELINE_OUTPUT_VERSION}`, {
+      this.http.get(`${this.base}/thumb/${toApiPath(a)}`, {
         responseType: 'blob',
         observe: 'response',
       }),
@@ -82,7 +86,7 @@ export class HttpLibrarySource implements LibrarySource {
 
   async previewBlob(a: MapleAddress): Promise<Blob | null> {
     const res = await firstValueFrom(
-      this.http.get(`${this.base}/preview/${toApiPath(a)}?pv=${PIPELINE_OUTPUT_VERSION}`, {
+      this.http.get(`${this.base}/preview/${toApiPath(a)}`, {
         responseType: 'blob',
         observe: 'response',
       }),

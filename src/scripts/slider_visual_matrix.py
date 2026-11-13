@@ -3,7 +3,7 @@
 
 For one fixture, renders every committed slider XMP through maple-cli
 and composites the results into a single PNG grid alongside the
-matching reference-rendered references. Designed to surface broken sliders
+matching reference-rendered references. Manual historical diagnostic, no longer a color requirement. Designed to surface broken sliders
 *visually* — averaging metrics over a 10-megapixel frame can hide
 exactly the localized artifacts (skin-tone magenta, edge halos, banded
 gradients) that draw the eye when the slider misbehaves.
@@ -26,8 +26,8 @@ Usage:
 
 Cross-links:
   - calibrate_color_pipeline.sh — the per-channel bias gate
-  - test_color_pipeline.sh      — the embedded-preview parity gate
-  - SliderMatrixUITests.swift   — the live-app variant (XCUITest)
+  - test_color_pipeline.sh      — independent Auto-to-embedded-JPEG gate
+  - retired-acr/SliderMatrixUITests.swift.txt — archived live-app variant
 This script complements those: numbers + visual side-by-side.
 """
 
@@ -59,40 +59,52 @@ MAPLE_CLI = REPO_ROOT / "src" / "raw-pipeline" / "target" / "release" / "maple-c
 # — your eye reads top-to-bottom in the panel order. Continuous sliders
 # show {min, max}; single-extreme show what's available.
 SLIDER_GROUPS: list[tuple[str, list[tuple[str, list[str]]]]] = [
-    ("Baseline & WB", [
-        ("baseline", []),  # special: rendered alone in the top row
-        ("temperature", ["min", "max"]),
-        ("tint", ["min", "max"]),
-        ("wb_auto", []),
-        ("wb_daylight", []),
-        ("wb_cloudy", []),
-        ("wb_shade", []),
-        ("wb_tungsten", []),
-        ("wb_flash", []),
-    ]),
-    ("Basic", [
-        ("exposure", ["min", "max"]),
-        ("contrast", ["min", "max"]),
-        ("highlights", ["min", "max"]),
-        ("shadows", ["min", "max"]),
-        ("whites", ["min", "max"]),
-        ("blacks", ["min", "max"]),
-    ]),
-    ("Presence", [
-        ("vibrance", ["min", "max"]),
-        ("saturation", ["min", "max"]),
-        ("clarity", ["min", "max"]),
-        ("texture", ["min", "max"]),
-        ("dehaze", ["min", "max"]),
-    ]),
-    ("Detail", [
-        ("sharpen_amount", ["min", "max"]),
-        ("sharpen_radius", ["min", "max"]),
-        ("sharpen_detail", ["min", "max"]),
-        ("sharpen_masking", ["max"]),
-        ("nr_luminance", ["max"]),
-        ("nr_color", ["min", "max"]),
-    ]),
+    (
+        "Baseline & WB",
+        [
+            ("baseline", []),  # special: rendered alone in the top row
+            ("temperature", ["min", "max"]),
+            ("tint", ["min", "max"]),
+            ("wb_auto", []),
+            ("wb_daylight", []),
+            ("wb_cloudy", []),
+            ("wb_shade", []),
+            ("wb_tungsten", []),
+            ("wb_flash", []),
+        ],
+    ),
+    (
+        "Basic",
+        [
+            ("exposure", ["min", "max"]),
+            ("contrast", ["min", "max"]),
+            ("highlights", ["min", "max"]),
+            ("shadows", ["min", "max"]),
+            ("whites", ["min", "max"]),
+            ("blacks", ["min", "max"]),
+        ],
+    ),
+    (
+        "Presence",
+        [
+            ("vibrance", ["min", "max"]),
+            ("saturation", ["min", "max"]),
+            ("clarity", ["min", "max"]),
+            ("texture", ["min", "max"]),
+            ("dehaze", ["min", "max"]),
+        ],
+    ),
+    (
+        "Detail",
+        [
+            ("sharpen_amount", ["min", "max"]),
+            ("sharpen_radius", ["min", "max"]),
+            ("sharpen_detail", ["min", "max"]),
+            ("sharpen_masking", ["max"]),
+            ("nr_luminance", ["max"]),
+            ("nr_color", ["min", "max"]),
+        ],
+    ),
 ]
 
 
@@ -117,11 +129,11 @@ def render_candidate(raw: Path, xmp: Path, out: Path) -> bool:
     """Run maple-cli render. Returns True on success."""
     res = subprocess.run(
         [str(MAPLE_CLI), "render", str(raw), "--params", str(xmp), "--out", str(out)],
-        capture_output=True, text=True,
+        capture_output=True,
+        text=True,
     )
     if res.returncode != 0:
-        print(f"  render failed for {xmp.name}: {res.stderr.strip()}",
-              file=sys.stderr)
+        print(f"  render failed for {xmp.name}: {res.stderr.strip()}", file=sys.stderr)
         return False
     return True
 
@@ -198,12 +210,24 @@ def get_label_font() -> ImageFont.ImageFont:
 
 def main() -> int:
     p = argparse.ArgumentParser()
-    p.add_argument("fixture", nargs="?", default="test_0002",
-                   help="fixture stem (default: test_0002)")
-    p.add_argument("--thumb-width", type=int, default=240,
-                   help="per-cell thumbnail width in px (default 240)")
-    p.add_argument("--out", type=Path, default=None,
-                   help="output PNG path (default: diagnostics/<fixture>_<timestamp>.png)")
+    p.add_argument(
+        "fixture",
+        nargs="?",
+        default="test_0002",
+        help="fixture stem (default: test_0002)",
+    )
+    p.add_argument(
+        "--thumb-width",
+        type=int,
+        default=240,
+        help="per-cell thumbnail width in px (default 240)",
+    )
+    p.add_argument(
+        "--out",
+        type=Path,
+        default=None,
+        help="output PNG path (default: diagnostics/<fixture>_<timestamp>.png)",
+    )
     args = p.parse_args()
 
     if not MAPLE_CLI.exists():
@@ -228,8 +252,9 @@ def main() -> int:
             raw_path = candidate
             break
     if raw_path is None:
-        print(f"No RAW for {args.fixture} on disk (checked {RAWS_DIR})",
-              file=sys.stderr)
+        print(
+            f"No RAW for {args.fixture} on disk (checked {RAWS_DIR})", file=sys.stderr
+        )
         return 1
 
     print(f"slider_visual_matrix: fixture={args.fixture}", file=sys.stderr)
@@ -253,11 +278,15 @@ def main() -> int:
     label_col_w = 130
     gap_w = 24
 
-    rows: list[list[Image.Image | None]] = []  # 4 cols (or 3): [maple_min, maple_max, ref_min, ref_max]
+    rows: list[
+        list[Image.Image | None]
+    ] = []  # 4 cols (or 3): [maple_min, maple_max, ref_min, ref_max]
     row_titles: list[str] = []
     section_breaks: list[int] = []  # indices in `rows` where we want section dividers
 
-    def thumb_cell(path: Path | None, label: str, de: float | None = None) -> Image.Image | None:
+    def thumb_cell(
+        path: Path | None, label: str, de: float | None = None
+    ) -> Image.Image | None:
         if path is None or not path.exists():
             return None
         try:
@@ -279,9 +308,12 @@ def main() -> int:
                 cname = case_name(slider, "")
                 ref_outputs = cases.get(cname, {}).get("outputs", [])
                 ref_path = next(
-                    (Path(o["png"]) for o in ref_outputs
-                     if o["resolution"] == "down" and Path(o["png"]).exists()),
-                    None
+                    (
+                        Path(o["png"])
+                        for o in ref_outputs
+                        if o["resolution"] == "down" and Path(o["png"]).exists()
+                    ),
+                    None,
                 )
                 cand = rendered.get(cname)
                 de = diff_de_inline(cand, ref_path) if (cand and ref_path) else None
@@ -303,9 +335,12 @@ def main() -> int:
                 cname = case_name(slider, extreme)
                 ref_outputs = cases.get(cname, {}).get("outputs", [])
                 ref_path = next(
-                    (Path(o["png"]) for o in ref_outputs
-                     if o["resolution"] == "down" and Path(o["png"]).exists()),
-                    None
+                    (
+                        Path(o["png"])
+                        for o in ref_outputs
+                        if o["resolution"] == "down" and Path(o["png"]).exists()
+                    ),
+                    None,
                 )
                 cand = rendered.get(cname)
                 de = diff_de_inline(cand, ref_path) if (cand and ref_path) else None
@@ -338,12 +373,14 @@ def main() -> int:
     draw.text(
         (12, 8),
         f"{args.fixture}  ·  Maple slider matrix vs reference  ·  {datetime.now():%Y-%m-%d %H:%M}",
-        fill=(240, 240, 240), font=label_font
+        fill=(240, 240, 240),
+        font=label_font,
     )
     draw.text(
         (12, 22),
         f"raw={raw_path.name}  ·  thumb {cell_w}px  ·  ΔE per cell vs matching reference",
-        fill=(180, 180, 180), font=cell_font
+        fill=(180, 180, 180),
+        font=cell_font,
     )
 
     y = header_h
@@ -365,14 +402,16 @@ def main() -> int:
             draw.text(
                 (12, y + 6),
                 section_names[section_ptr].upper(),
-                fill=(200, 200, 230), font=label_font
+                fill=(200, 200, 230),
+                font=label_font,
             )
             section_ptr += 1
             y += section_h
 
         # Row label.
-        draw.text((12, y + cell_h // 2 - 8), title,
-                  fill=(220, 220, 220), font=cell_font)
+        draw.text(
+            (12, y + cell_h // 2 - 8), title, fill=(220, 220, 220), font=cell_font
+        )
 
         x = label_col_w
         # Maple cells.
@@ -402,8 +441,10 @@ def main() -> int:
 
     out_img.save(out_path, optimize=True)
     print(f"slider_visual_matrix: wrote {out_path}", file=sys.stderr)
-    print(f"slider_visual_matrix: dims {out_img.size[0]}x{out_img.size[1]}",
-          file=sys.stderr)
+    print(
+        f"slider_visual_matrix: dims {out_img.size[0]}x{out_img.size[1]}",
+        file=sys.stderr,
+    )
     print(str(out_path))
     return 0
 

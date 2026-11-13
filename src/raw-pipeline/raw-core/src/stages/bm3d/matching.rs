@@ -47,7 +47,7 @@ fn distance(a: &[f32; PATCH], a_mean: f32, b: &[f32; PATCH], b_mean: f32) -> f32
     let mut acc = 0f32;
     for i in 0..PATCH {
         let d = (a[i] - a_mean) - (b[i] - b_mean);
-        acc += d * d;
+        acc = super::exact::square_add(d, acc);
     }
     acc / PATCH as f32
 }

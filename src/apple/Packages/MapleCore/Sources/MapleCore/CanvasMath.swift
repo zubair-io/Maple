@@ -1,221 +1,129 @@
-// CanvasMath.swift — DRY value type for canvas fit/zoom/framing math.
+// CanvasMath.swift — one canvas snapshot's fit/zoom/framing math.
 //
-// Pre-Ticket 10 item I, fit-pixel-scale, display-frame, refine-target, and
-// visible-source-rect math was duplicated across `FullImageView` (lines
-// 60–148, 226–247) and `EditSession` (lines 344–367, 441–467). Each
-// consumer recomputed the same arithmetic with subtly different guards
-// (e.g. native-size sentinel handling, displayScale defaults), and the
-// `View @State pixelScale` (`0` = fit) vs. `EditSession.pixelScale`
-// (resolved value) duplication meant the two never agreed in fit mode.
-//
-// Centralising the math here makes the resolved fit-pixel-scale, the
-// display frame in points, the fast / refine target sizes, and the
-// visible-source rect single-source-of-truth. Both consumers build a
-// `CanvasMath` snapshot from the same inputs and read derived values
-// off the same instance — no per-call-site recomputation.
-//
-// Pure value type: `Sendable`, `Equatable`, no actor isolation. Safe to
-// pass across actor boundaries (Rust FFI prep, tile manager, MainActor
-// view body) without copying state piecemeal.
+// A thin wrapper over the shared Rust implementation (`raw_core::canvas`,
+// #5714): every derived value is resolved by `maple_canvas_math_resolve`, so
+// Apple, and the other shells as they adopt it, read the same fit scale,
+// display frame, render targets and visible source rect.
 //
 // Conventions:
-//   • `viewportPx` is in REAL screen pixels (not points). Callers convert
-//     points → pixels by multiplying by `displayScale`.
-//   • `nativeImageSize` is in oriented full-image source pixels. `.zero`
-//     means the metadata seed hasn't fired yet — see `imageExtent` for
-//     how derived properties handle that case.
-//   • `pixelScale` follows the same convention as today's
-//     `EditSession.pixelScale` / `CanvasZoomModel.pixelScale`:
-//       – 0   = fit-to-viewport (resolved by `effectivePixelScale`)
-//       – 1.0 = pixel-perfect (one image px = one real screen px)
-//       – >1  = zoomed in beyond native
-//   • `panOffset` is in POINTS, positive = image dragged right/down,
-//     mirroring SwiftUI's `DragGesture.translation` convention.
+//   • `viewportPx` is in REAL screen pixels (points × displayScale).
+//   • `nativeImageSize` is in oriented full-image source pixels; `.zero`
+//     until the metadata seed lands (`imageExtent` is then nil).
+//   • `pixelScale`: 0 = fit, 1 = pixel-perfect, >1 = zoomed in.
+//   • `panOffset` is in POINTS, positive = image dragged right/down.
 
-import Foundation
 import CoreGraphics
+import Foundation
+import RawPipeline
 
 public struct CanvasMath: Sendable, Equatable {
-    // MARK: - Constants
+  /// Largest render-target edge (Metal's texture-edge ceiling, #2061).
+  public static let metalMaxTextureEdge = CGFloat(maple_canvas_constants().max_texture_edge)
 
-    /// Metal's per-platform texture-edge ceiling (`MTLDevice` reports
-    /// 16384 on every Apple GPU this app ships on). Single source of
-    /// truth for every render-target dimension this type computes —
-    /// `refinedTargetSize` here and `NativeDetailLOD.decodeRect` (which
-    /// references this constant directly) both clamp against it so a
-    /// pathological viewport can't request a texture Metal will refuse
-    /// to allocate (#2061).
-    public static let metalMaxTextureEdge: CGFloat = 16384
+  public let viewportPx: CGSize
+  public let nativeImageSize: CGSize
+  /// User-intent pixel scale; `effectivePixelScale` resolves fit.
+  public let pixelScale: CGFloat
+  public let panOffset: CGSize
+  /// Points → real-pixels factor.
+  public let displayScale: CGFloat
 
-    // MARK: - Inputs
+  public init(
+    viewportPx: CGSize,
+    nativeImageSize: CGSize,
+    pixelScale: CGFloat,
+    panOffset: CGSize = .zero,
+    displayScale: CGFloat = 1
+  ) {
+    self.viewportPx = viewportPx
+    self.nativeImageSize = nativeImageSize
+    self.pixelScale = pixelScale
+    self.panOffset = panOffset
+    self.displayScale = displayScale
+  }
 
-    /// Viewport size in real screen pixels (points × displayScale).
-    public let viewportPx: CGSize
-    /// Image native pixel size in oriented source pixels. `.zero` until
-    /// the metadata-seed completes — `imageExtent` returns nil in that
-    /// case so consumers can fall back to a placeholder branch instead
-    /// of anchoring zoom math against a preview-resolution baseline.
-    public let nativeImageSize: CGSize
-    /// User-intent pixel scale: 0 = fit, 1 = pixel-perfect, >1 = zoomed.
-    /// Use `effectivePixelScale` for the resolved value.
-    public let pixelScale: CGFloat
-    /// Pan offset in points. Positive = image dragged right/down.
-    public let panOffset: CGSize
-    /// Points → real-pixels factor (UIScreen.scale, NSScreen.backingScaleFactor).
-    /// Defaults to 1 when callers don't have a meaningful display scale to pass.
-    public let displayScale: CGFloat
+  private var resolved: MapleCanvasMathResult {
+    maple_canvas_math_resolve(
+      MapleCanvasMathInput(
+        viewport_px: MapleCanvasSize(viewportPx),
+        native_image_size: MapleCanvasSize(nativeImageSize),
+        pixel_scale: Double(pixelScale),
+        pan_offset: MapleCanvasSize(panOffset),
+        display_scale: Double(displayScale)
+      ))
+  }
 
-    public init(
-        viewportPx: CGSize,
-        nativeImageSize: CGSize,
-        pixelScale: CGFloat,
-        panOffset: CGSize = .zero,
-        displayScale: CGFloat = 1
-    ) {
-        self.viewportPx = viewportPx
-        self.nativeImageSize = nativeImageSize
-        self.pixelScale = pixelScale
-        self.panOffset = panOffset
-        self.displayScale = displayScale
-    }
+  /// `nativeImageSize` once known, otherwise nil — fit math must not anchor
+  /// to a preview-resolution buffer.
+  public var imageExtent: CGSize? {
+    let result = resolved
+    return result.has_image_extent ? CGSize(result.image_extent) : nil
+  }
 
-    // MARK: - Derived: image extent
+  /// Fit-to-viewport scale; 1 when the image or viewport is unknown.
+  public var fitPixelScale: CGFloat { CGFloat(resolved.fit_pixel_scale) }
 
-    /// `nativeImageSize` if known, otherwise `nil`. Used by
-    /// `EditorView`'s canvas composer to gate the canvas branch — without a
-    /// trustworthy native size, fit math anchors to a smaller buffer
-    /// (embedded JPEG, sized-FFI output) and "100%" mis-renders.
-    public var imageExtent: CGSize? {
-        guard nativeImageSize != .zero,
-              nativeImageSize.width > 0,
-              nativeImageSize.height > 0
-        else { return nil }
-        return nativeImageSize
-    }
+  /// Scale at which the image covers the viewport; 1 when degenerate.
+  public var fillPixelScale: CGFloat { CGFloat(resolved.fill_pixel_scale) }
 
-    // MARK: - Derived: fit / effective scale
+  /// `pixelScale` with the `0 == fit` sentinel resolved.
+  public var effectivePixelScale: CGFloat { CGFloat(resolved.effective_pixel_scale) }
 
-    /// Real-screen-pixels-per-image-pixel for fit-to-viewport.
-    /// Returns 1 when the math is degenerate (no image, no viewport).
-    public var fitPixelScale: CGFloat {
-        guard let imageExtent,
-              viewportPx.width > 0, viewportPx.height > 0
-        else { return 1 }
-        return min(
-            viewportPx.width / imageExtent.width,
-            viewportPx.height / imageExtent.height
-        )
-    }
+  /// On-screen frame in points; nil until the image extent is known.
+  public var displayFrameInPoints: CGSize? {
+    let result = resolved
+    return result.has_display_frame ? CGSize(result.display_frame_in_points) : nil
+  }
 
-    /// Resolves `pixelScale == 0` (fit) into a concrete value. All
-    /// scale-driven math (display frame, refine target, visible rect)
-    /// runs through this.
-    public var effectivePixelScale: CGFloat {
-        pixelScale == 0 ? fitPixelScale : pixelScale
-    }
+  /// Fast-phase target (the viewport); nil while the viewport is unset.
+  public var fastTargetSize: CGSize? {
+    let result = resolved
+    return result.has_fast_target ? CGSize(result.fast_target_size) : nil
+  }
 
-    // MARK: - Derived: SwiftUI display frame in points
+  /// Refined-phase target: `native × min(pixelScale, 1)`, floored at the fast
+  /// target, capped at 2× the viewport long edge and `metalMaxTextureEdge`
+  /// (#1637, #2061).
+  public var refinedTargetSize: CGSize? {
+    let result = resolved
+    return result.has_refined_target ? CGSize(result.refined_target_size) : nil
+  }
 
-    /// Frame size in POINTS for the on-screen canvas. SwiftUI frames
-    /// are point-based; we divide by `displayScale` after multiplying
-    /// the native size by the resolved scale (real px). Returns nil
-    /// when the image extent is unknown.
-    public var displayFrameInPoints: CGSize? {
-        guard let imageExtent, displayScale > 0 else { return nil }
-        let scale = effectivePixelScale
-        return CGSize(
-            width: imageExtent.width * scale / displayScale,
-            height: imageExtent.height * scale / displayScale
-        )
-    }
+  /// Visible region in oriented source pixels, clamped to the image; `.zero`
+  /// when degenerate.
+  public var visibleSourceRect: CGRect {
+    CGRect(resolved.visible_source_rect)
+  }
+}
 
-    // MARK: - Derived: render targets
+extension MapleCanvasSize {
+  init(_ size: CGSize) {
+    self.init(width: Double(size.width), height: Double(size.height))
+  }
+}
 
-    /// Fast-phase target — render at viewport resolution so every filter
-    /// intermediate stays small. `nil` when viewport is unset; callers
-    /// fall through to the pipeline's built-in 2 MP cap.
-    public var fastTargetSize: CGSize? {
-        viewportPx == .zero ? nil : viewportPx
-    }
+extension MapleCanvasPoint {
+  init(_ point: CGPoint) {
+    self.init(x: Double(point.x), y: Double(point.y))
+  }
+}
 
-    /// Refined-phase target — `nativeImageSize × min(pixelScale, 1.0)`,
-    /// floored at `fastTargetSize` so refine is never lower-quality than
-    /// the fast pass. Upscaling past native adds no real detail; cap at
-    /// 1.0 and let the viewport upscale the native-sized buffer.
-    /// Fit mode (pixelScale == 0) resolves to `fast == refine` so the
-    /// refine scheduler short-circuits.
-    ///
-    /// Falls back to an 8× fast-phase estimate when `nativeImageSize`
-    /// hasn't been seeded yet (first decode in flight). Once native is
-    /// known, the normal branch takes over.
-    public var refinedTargetSize: CGSize? {
-        guard let fast = fastTargetSize else { return nil }
-        // Cap the refine to `headroom×` the viewport long edge. The fit-to-window
-        // display never needs more than the viewport (zoom to 100% routes through
-        // the fp16 tile path), but an uncapped `native × pixelScale` let the
-        // refine approach the full sensor at high zoom (or via the pre-decode
-        // fallback below) — a ~1.4 GB f32 buffer that, with the concurrent
-        // auto-profile develop, jetsam-killed iOS on a 100 MP RAW (#1637).
-        //
-        // The `headroom×` cap alone tracks the viewport size, and an
-        // ultra-wide 2×-Retina viewport can push `headroom× viewport`
-        // past Metal's 16384 texture-edge limit even while staying well
-        // inside the #1637 jetsam budget the headroom cap targets — so
-        // both branches below additionally clamp to `metalMaxTextureEdge`
-        // (#2061).
-        let headroom: CGFloat = 2.0
-        let cap = min(max(fast.width, fast.height) * headroom, Self.metalMaxTextureEdge)
-        if nativeImageSize == .zero {
-            // Pre-decode fallback. Constrain to `headroom×` fast (was 8×) so the
-            // first render can't request near-full res before native lands.
-            let mult = min(max(1.0, pixelScale), headroom)
-            let w = min(fast.width * mult, Self.metalMaxTextureEdge)
-            let h = min(fast.height * mult, Self.metalMaxTextureEdge)
-            return CGSize(width: w, height: h)
-        }
-        let scale = min(max(pixelScale, 0), 1.0)
-        let w = min(max(nativeImageSize.width * scale, fast.width), cap)
-        let h = min(max(nativeImageSize.height * scale, fast.height), cap)
-        return CGSize(width: w, height: h)
-    }
+extension CGSize {
+  init(_ size: MapleCanvasSize) {
+    self.init(width: size.width, height: size.height)
+  }
+}
 
-    // MARK: - Derived: visible source rect (deep zoom)
+extension MapleCanvasRect {
+  init(_ rect: CGRect) {
+    self.init(
+      x: Double(rect.origin.x), y: Double(rect.origin.y),
+      width: Double(rect.size.width), height: Double(rect.size.height))
+  }
+}
 
-    /// Visible region in oriented full-image source-pixel coords.
-    /// Returns `.zero` when zoom or extent is degenerate.
-    ///
-    /// Math: at `effectivePixelScale` real-px-per-image-px, a viewport
-    /// of `viewportPx.width` real px shows
-    /// `viewportPx.width / effectivePixelScale` source pixels
-    /// horizontally. The viewport center maps to the image center
-    /// adjusted by the current pan; clamp to the image extent so a
-    /// viewport that overhangs the image doesn't ask for off-grid tiles.
-    public var visibleSourceRect: CGRect {
-        let zoom = effectivePixelScale
-        guard let imageSize = imageExtent, zoom > 0,
-              viewportPx.width > 0, viewportPx.height > 0,
-              displayScale > 0
-        else { return .zero }
-        let visibleSrcW = viewportPx.width / zoom
-        let visibleSrcH = viewportPx.height / zoom
-        // Pan: panOffset is in points (positive = image dragged right).
-        // Convert to source pixels and shift the visible rect's origin
-        // opposite the pan (a right drag exposes the image's left side).
-        let panSrcX = panOffset.width * displayScale / zoom
-        let panSrcY = panOffset.height * displayScale / zoom
-        let centerX = imageSize.width / 2 - panSrcX
-        let centerY = imageSize.height / 2 - panSrcY
-        let unclampedMinX = centerX - visibleSrcW / 2
-        let unclampedMinY = centerY - visibleSrcH / 2
-        // Clamp: origin >= 0 and origin + size <= imageSize (allowing
-        // the visible rect to be smaller than the image when zoomed in,
-        // and clamped to the image when the visible region is larger).
-        let maxOriginX = max(0, imageSize.width - visibleSrcW)
-        let maxOriginY = max(0, imageSize.height - visibleSrcH)
-        let minX = max(0, min(unclampedMinX, maxOriginX))
-        let minY = max(0, min(unclampedMinY, maxOriginY))
-        let w = min(visibleSrcW, imageSize.width)
-        let h = min(visibleSrcH, imageSize.height)
-        return CGRect(x: minX, y: minY, width: w, height: h)
-    }
+extension CGRect {
+  init(_ rect: MapleCanvasRect) {
+    self.init(x: rect.x, y: rect.y, width: rect.width, height: rect.height)
+  }
 }

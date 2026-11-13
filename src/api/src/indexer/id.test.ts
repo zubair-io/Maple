@@ -42,18 +42,18 @@ describe('hashFileForId', () => {
     expect(mtime).toBeGreaterThan(0);
   });
 
-  test('maple_id matches deriveId(head, null, null, null) byte-for-byte', async () => {
-    // The discover watcher calls hashFileForId at insert time. The exif
-    // stage later upgrades fallback → primary using the same head bytes.
-    // Pin the equivalence so a discover-time id never diverges from what
-    // the legacy hash stage would have written.
+  test('maple_id is the full-file fallback id, not a head-only one', async () => {
+    // Spec §04: fallback = SHA1(full bytes) || filesize, matching raw-core,
+    // Swift and the browser. A head-only hash would silently diverge for >64 KB.
     const file = path.join(tmpDir, 'parity.bin');
     const content = Buffer.alloc(70 * 1024, 0xbe);
     await fs.writeFile(file, content);
-    const headOnly = content.subarray(0, SHA1_HEAD_BYTES);
-    const expected = deriveId(new Uint8Array(headOnly), null, null, null);
+    const expected = deriveId(new Uint8Array(content), null, null, null);
     const { maple_id } = await hashFileForId(file);
     expect(maple_id).toBe(expected.hex);
+    expect(maple_id).not.toBe(
+      deriveId(new Uint8Array(content.subarray(0, SHA1_HEAD_BYTES)), null, null, null).hex,
+    );
   });
 
   test('sha1_head matches sha1(first 64KB) for files larger than the head window', async () => {

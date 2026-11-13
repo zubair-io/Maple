@@ -9,11 +9,53 @@ import {
   copyFile,
   unlink,
   writeFile,
+  mkdtemp,
+  realpath,
 } from '../fs/mirrored.ts';
 import * as path from 'node:path';
+import { tmpdir } from 'node:os';
 import { recoverBackup, recoveryPreview } from './restore.ts';
 import { recoveryFixture as fixture, libraryId, entryId, source } from './restore.test-helpers.ts';
 import type { BackupManifest } from './provider.ts';
+import { getRegisteredRoots, registerRoot, unregisterRoot } from '../fs/root.ts';
+import { insertFolder } from '../db/sqlite/test-sqlite.test-helpers.ts';
+import { invalidateLibraryRoots } from '../indexer/libraries.cache.ts';
+
+test('recovery admits a new empty target after another library is registered', async () => {
+  const f = await fixture();
+  const existing = await mkdtemp(path.join(tmpdir(), 'maple-existing-library-'));
+  const previousRoots = process.env.MAPLE_ROOTS;
+  try {
+    delete process.env.MAPLE_ROOTS;
+    unregisterRoot(f.root);
+    insertFolder(f.live.db, { path: existing });
+    registerRoot(existing);
+    invalidateLibraryRoots();
+    f.provider.manifest();
+
+    process.env.MAPLE_ROOTS = existing;
+    await expect(recoveryPreview(f.provider, f.request)).rejects.toThrow(
+      'outside allowed server roots',
+    );
+    process.env.MAPLE_ROOTS = f.root;
+    expect((await recoveryPreview(f.provider, f.request)).files).toBe(1);
+    expect(getRegisteredRoots()).not.toContain(f.root);
+    delete process.env.MAPLE_ROOTS;
+    expect((await recoveryPreview(f.provider, f.request)).files).toBe(1);
+    expect(getRegisteredRoots()).not.toContain(f.root);
+    expect((await recoverBackup(f.provider, f.request, f.ctx, source)).kind).toBe('done');
+    expect(await readFile(path.join(f.root, 'photo.jpg'), 'utf8')).toBe(`${entryId}-version-1`);
+  } finally {
+    if (previousRoots === undefined) delete process.env.MAPLE_ROOTS;
+    else process.env.MAPLE_ROOTS = previousRoots;
+    try {
+      await f.close();
+    } finally {
+      unregisterRoot(existing);
+      await rm(existing, { recursive: true, force: true });
+    }
+  }
+});
 
 test('recovery continues to read manifests created before the mirror layout', async () => {
   const f = await fixture();
@@ -157,6 +199,25 @@ test('resumed already verified files are checked against purge records', async (
   }
 });
 
+test("a pre-#5243 snapshot's .mov companion is recovered as the Live Photo video", async () => {
+  const f = await fixture();
+  try {
+    const manifest = f.provider.manifest();
+    manifest.files.push({
+      path: 'photo.mov',
+      role: 'companion',
+      object: f.provider.put(`mirror/${libraryId}/photo.mov`, 'live-video'),
+    });
+    f.provider.saveManifest(manifest);
+    expect((await recoverBackup(f.provider, f.request, f.ctx, source)).kind).toBe('done');
+    expect(
+      f.live.db.query('SELECT apple_rendered_path, apple_live_video_path FROM assets').get(),
+    ).toEqual({ apple_rendered_path: null, apple_live_video_path: 'photo.mov' });
+  } finally {
+    await f.close();
+  }
+});
+
 test('indexes actual Trash path alongside same original name, restores hidden and Apple companion, preserves XMP bytes', async () => {
   const f = await fixture();
   try {
@@ -178,13 +239,19 @@ test('indexes actual Trash path alongside same original name, restores hidden an
           'rendered-companion',
         ),
       },
+      {
+        path: '.maple/trash/photo.mov',
+        role: 'live-video',
+        object: f.provider.put(`mirror/${libraryId}/.maple/trash/photo.mov`, 'live-video'),
+      },
     );
     f.provider.saveManifest(trash);
     expect((await recoverBackup(f.provider, f.request, f.ctx, source)).kind).toBe('done');
     expect(await readFile(path.join(f.root, '.maple/trash/photo.xmp'), 'utf8')).toBe(xmp);
     const row = f.live.db
       .query(
-        `SELECT a.hidden,a.deleted_at,a.original_path,a.apple_rendered_path,l.path
+        `SELECT a.hidden,a.deleted_at,a.original_path,a.apple_rendered_path,
+        a.apple_live_video_path,l.path
       FROM assets a JOIN asset_locations l ON a.id=l.asset_id WHERE l.path='.maple/trash'`,
       )
       .get();
@@ -193,8 +260,10 @@ test('indexes actual Trash path alongside same original name, restores hidden an
       deleted_at: trash.deletedAt,
       original_path: path.join(f.root, 'photo.jpg'),
       apple_rendered_path: '.maple/trash/photo-rendered.jpg',
+      apple_live_video_path: '.maple/trash/photo.mov',
       path: '.maple/trash',
     });
+    expect(await readFile(path.join(f.root, '.maple/trash/photo.mov'), 'utf8')).toBe('live-video');
     expect(await readFile(path.join(f.root, 'photo.jpg'), 'utf8')).toBe(`${entryId}-version-1`);
   } finally {
     await f.close();
@@ -346,5 +415,114 @@ test('preview verifies exact object locator, key, size and checksum and names un
     ]);
   } finally {
     await f.close();
+  }
+});
+
+test('export and batch sync on an existing library still work after a cloud-backup restore with MAPLE_ROOTS unset (#4747)', async () => {
+  const f = await fixture();
+  const originalMapleRoots = process.env.MAPLE_ROOTS;
+  const { createHash, randomUUID } = await import('node:crypto');
+  const { batchAdjustmentSyncHandler } =
+    await import('../job-runner/handlers/batch-adjustment-sync.ts');
+  const { publishExport } = await import('../export/export-files.ts');
+  const { exportOriginals } = await import('../export/export-originals.ts');
+  const { DEFAULT_EXPORT_RECIPE } = await import('../generated/export-recipe.generated.ts');
+
+  const existingRoot = await realpath(await mkdtemp(path.join(tmpdir(), 'maple-existing-lib-')));
+  try {
+    delete process.env.MAPLE_ROOTS;
+    insertFolder(f.live.db, { path: existingRoot, slug: 'existing' });
+    invalidateLibraryRoots();
+
+    const existingPhoto = path.join(existingRoot, 'existing.jpg');
+    const existingSidecar = path.join(existingRoot, 'existing.xmp');
+    await writeFile(existingPhoto, 'existing-original-bytes');
+    await writeFile(
+      existingSidecar,
+      '<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description rdf:about=""/></rdf:RDF>',
+    );
+
+    // Run cloud-backup restore into f.root. Previously this called registerRoot(f.root)
+    // in the worker and locked out every other library root in SQLite.
+    f.provider.manifest(1);
+    expect((await recoverBackup(f.provider, f.request, f.ctx, source)).kind).toBe('done');
+    // Clear the test-fixture's in-memory root registration so authorization relies
+    // exclusively on the shared SQLite `folders` rows for both existingRoot and f.root.
+    unregisterRoot(f.root);
+
+    // 1. Batch adjustment sync on the pre-existing library still succeeds.
+    let syncCheckpoint: Record<string, unknown> | undefined;
+    const syncOutcome = await batchAdjustmentSyncHandler.run(
+      {
+        targets: [{ id: 'existing:existing.jpg', path: existingPhoto }],
+        patch: { attributes: { 'crs:Exposure2012': '0.75' }, elements: {} },
+      },
+      {
+        jobId: f.ctx.jobId,
+        checkpoint: syncCheckpoint,
+        saveCheckpoint: async (value) => {
+          syncCheckpoint = value;
+        },
+        reportProgress: async () => {},
+        shouldCancel: async () => false,
+      },
+    );
+    expect(syncOutcome.kind).toBe('done');
+    expect(syncOutcome.result['applied']).toEqual(['existing:existing.jpg']);
+    expect(await readFile(existingSidecar, 'utf8')).toContain('crs:Exposure2012="0.75"');
+
+    // 2. Export publication into the pre-existing library still succeeds.
+    const exportDir = path.join(existingRoot, 'exports');
+    await mkdir(exportDir, { recursive: true });
+    const jobIdHex = f.ctx.jobId.toHexString();
+    const stagedBytes = 'exported-jpeg-bytes';
+    const tempPath = path.join(exportDir, `.maple-export-${jobIdHex}-${randomUUID()}.tmp`);
+    const outputPath = path.join(exportDir, 'existing.jpg');
+    await writeFile(tempPath, stagedBytes);
+    const afterHash = createHash('sha256').update(stagedBytes).digest('hex');
+
+    const recipe = {
+      ...DEFAULT_EXPORT_RECIPE,
+      destination: 'directory' as const,
+      directory: exportDir,
+      overwritePolicy: 'error' as const,
+    };
+    const originals = await exportOriginals(
+      {
+        targets: [
+          {
+            id: 'existing:existing.jpg',
+            path: existingPhoto,
+            xmp: '',
+            index: 0,
+            capturedAt: null,
+          },
+        ],
+        recipe,
+      },
+      { originalPaths: [existingPhoto] },
+    );
+
+    const published = await publishExport(
+      {
+        id: 'existing:existing.jpg',
+        status: 'prepared',
+        tempPath,
+        outputPath,
+        beforeHash: null,
+        afterHash,
+      },
+      recipe,
+      jobIdHex,
+      originals,
+    );
+    expect(published.status).toBe('applied');
+    expect(await readFile(outputPath, 'utf8')).toBe(stagedBytes);
+  } finally {
+    if (originalMapleRoots === undefined) delete process.env.MAPLE_ROOTS;
+    else process.env.MAPLE_ROOTS = originalMapleRoots;
+    await f.close();
+    await rm(existingRoot, { recursive: true, force: true });
+    invalidateLibraryRoots();
   }
 });

@@ -25,12 +25,15 @@ import SwiftUI
 
 struct PanoSelectionBar: View {
   let vm: BrowseViewModel
+  let displayedAssets: [AssetRef]
   /// Fired when the user taps "Merge to panorama…" with ≥2 selected.
   let onMerge: () -> Void
   /// Fired when the user taps "Edit Metadata…". nil hides the button.
   let onEditMetadata: (() -> Void)?
   /// Fired when the user taps "Batch Rename…" (#2641). nil hides the button.
   var onBatchRename: (() -> Void)? = nil
+  /// macOS: opens the Export recipes sheet for the selection (#5435). nil hides the button.
+  var onExportRecipes: (() -> Void)? = nil
   /// #944: pastes every adjustment group from the clipboard onto the
   /// checked selection. nil hides the button (clipboard not wired).
   var onPasteAdjustments: (() -> Void)? = nil
@@ -45,6 +48,11 @@ struct PanoSelectionBar: View {
   /// at least one other checked asset are both present.
   var canSync: Bool = false
 
+  private var selectedAssets: [AssetRef] { vm.selectedAssets(in: displayedAssets) }
+  private var focusedAsset: AssetRef? {
+    displayedAssets.first { $0.id == vm.selectedID }
+  }
+
   var body: some View {
     VStack(spacing: 0) {
       Divider()
@@ -54,17 +62,19 @@ struct PanoSelectionBar: View {
           // Guard on !assets.isEmpty: when both selectedIDs.count and
           // assets.count are 0 the condition is vacuously true and
           // "Deselect All" would appear with nothing to deselect.
-          let allSelected = !vm.assets.isEmpty && vm.selectedIDs.count == vm.assets.count
+          let allSelected =
+            !displayedAssets.isEmpty
+            && displayedAssets.allSatisfy { vm.selectedIDs.contains($0.id) }
           MuiButton(
             label: allSelected ? "Deselect All" : "Select All",
             variant: .ghost,
             size: .sm,
-            disabled: vm.assets.isEmpty
+            disabled: displayedAssets.isEmpty
           ) {
             if allSelected {
               vm.clearSelection()
             } else {
-              for asset in vm.assets { vm.select(asset.id) }
+              for asset in displayedAssets { vm.select(asset.id) }
             }
           }
           .accessibilityLabel(
@@ -78,7 +88,7 @@ struct PanoSelectionBar: View {
           Text(countLabel)
             .font(.subheadline)
             .foregroundStyle(.secondary)
-            .accessibilityLabel("\(vm.selectedIDs.count) images selected")
+            .accessibilityLabel("\(selectedAssets.count) images selected")
 
           Spacer()
 
@@ -89,10 +99,10 @@ struct PanoSelectionBar: View {
               variant: .secondary,
               size: .sm,
               leadingIcon: "pencil.and.list.clipboard",
-              disabled: vm.selectedIDs.isEmpty,
+              disabled: selectedAssets.isEmpty,
               action: onEditMetadata
             )
-            .accessibilityLabel("Edit metadata for \(vm.selectedIDs.count) selected images")
+            .accessibilityLabel("Edit metadata for \(selectedAssets.count) selected images")
           }
 
           // Right: Batch Rename CTA (#2641, optional — nil suppresses the button)
@@ -102,11 +112,24 @@ struct PanoSelectionBar: View {
               variant: .secondary,
               size: .sm,
               leadingIcon: "textformat",
-              disabled: vm.selectedIDs.isEmpty,
+              disabled: selectedAssets.isEmpty,
               action: onBatchRename
             )
             .accessibilityIdentifier("pano-selection-bar-batch-rename")
-            .accessibilityLabel("Batch rename \(vm.selectedIDs.count) selected images")
+            .accessibilityLabel("Batch rename \(selectedAssets.count) selected images")
+          }
+
+          if let onExportRecipes {
+            MuiButton(
+              label: "Export with Recipe\u{2026}",
+              variant: .secondary,
+              size: .sm,
+              leadingIcon: "square.and.arrow.up",
+              disabled: selectedAssets.isEmpty,
+              action: onExportRecipes
+            )
+            .accessibilityIdentifier("pano-selection-bar-export-recipes")
+            .accessibilityLabel("Export \(selectedAssets.count) selected images with a recipe")
           }
 
           // Right: sync settings CTA (#944) — applies the focused image's
@@ -135,11 +158,11 @@ struct PanoSelectionBar: View {
               variant: .secondary,
               size: .sm,
               leadingIcon: "doc.on.doc",
-              disabled: vm.selectedAsset == nil,
+              disabled: focusedAsset == nil,
               action: onCopyAdjustments
             )
             .accessibilityLabel(
-              "Copy settings from \(vm.selectedAsset?.displayName ?? "the focused photo")"
+              "Copy settings from \(focusedAsset?.displayName ?? "the focused photo")"
             )
             .accessibilityIdentifier("batch-copy-settings")
           }
@@ -156,7 +179,7 @@ struct PanoSelectionBar: View {
               action: onPasteAdjustments
             )
             .accessibilityLabel(
-              "Paste all copied adjustments onto \(vm.selectedIDs.count) selected images"
+              "Paste all copied adjustments onto \(selectedAssets.count) selected images"
             )
             .accessibilityHint(
               canPaste
@@ -165,21 +188,19 @@ struct PanoSelectionBar: View {
           }
 
           // Right: merge CTA
-          if FeatureFlags.isPanoramaEnabled {
-            MuiButton(
-              label: "Merge to Panorama\u{2026}",
-              variant: .primary,
-              size: .sm,
-              leadingIcon: "photo.stack",
-              disabled: !vm.canMergePanorama,
-              action: onMerge
-            )
-            .accessibilityLabel("Merge \(vm.selectedIDs.count) selected images into a panorama")
-            .accessibilityHint(
-              vm.canMergePanorama
-                ? "Double tap to open panorama merge view"
-                : "Select at least 2 images to enable")
-          }
+          MuiButton(
+            label: "Merge to Panorama\u{2026}",
+            variant: .primary,
+            size: .sm,
+            leadingIcon: "photo.stack",
+            disabled: selectedAssets.count < 2,
+            action: onMerge
+          )
+          .accessibilityLabel("Merge \(selectedAssets.count) selected images into a panorama")
+          .accessibilityHint(
+            selectedAssets.count >= 2
+              ? "Double tap to open panorama merge view"
+              : "Select at least 2 images to enable")
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
@@ -189,10 +210,10 @@ struct PanoSelectionBar: View {
   }
 
   private var countLabel: String {
-    switch vm.selectedIDs.count {
+    switch selectedAssets.count {
     case 0: return "Nothing selected"
     case 1: return "1 selected"
-    default: return "\(vm.selectedIDs.count) selected"
+    default: return "\(selectedAssets.count) selected"
     }
   }
 }

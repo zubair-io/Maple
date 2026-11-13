@@ -1,0 +1,157 @@
+{
+  "scope": "Three residual controls only. Unpublished C2 math probe; full physical qualification is pending.",
+  "base_commit": "cf62d12ddc573cff68780e7754f7b5b63f7ae621",
+  "source_patch_sha256": "452780c17b9f72b6530c0c7f893aa70dd94cd0161ed245a21efad142d65da616",
+  "binary_sha256": "18fe425d349d2ad75afa2c93012791aa63879fcc50cde79de3a1e935b4caa412",
+  "original_inputs_verified": 10,
+  "comparisons": 3,
+  "baseline_failed": 3,
+  "candidate_failed": 3,
+  "changes": [
+    {
+      "case": "test_0003/highlights_max",
+      "before": {
+        "fixture": "test_0003",
+        "case": "highlights_max",
+        "profile": "neutral",
+        "resolution": "down",
+        "status": "breach",
+        "breaches": [
+          "bias_R +0.0124>0.0112"
+        ],
+        "mean": 6.386162820007846,
+        "p95": 9.89216379671907,
+        "max": 21.26514397122282,
+        "bR": 0.012388155268644067,
+        "bG": 0.004890592474391492,
+        "bB": 0.003970136321077656,
+        "n_pixels": 10668000,
+        "reference_protocol": "legacy-direct-reference"
+      },
+      "candidate": {
+        "fixture": "test_0003",
+        "case": "highlights_max",
+        "profile": "neutral",
+        "resolution": "down",
+        "status": "breach",
+        "breaches": [
+          "bias_R +0.0123>0.0112"
+        ],
+        "mean": 6.387875803089528,
+        "p95": 9.913432529863792,
+        "max": 21.26514397122282,
+        "bR": 0.01233482076216617,
+        "bG": 0.004864109021695932,
+        "bB": 0.003977840872255357,
+        "n_pixels": 10668000,
+        "reference_protocol": "legacy-direct-reference"
+      },
+      "metric_deltas": {
+        "mean": 0.0017129830816822178,
+        "p95": 0.021268733144722773,
+        "max": 0.0,
+        "bR": -5.333450647789645e-05,
+        "bG": -2.6483452695560614e-05,
+        "bB": 7.70455117770144e-06
+      }
+    },
+    {
+      "case": "test_0011/wb_daylight",
+      "before": {
+        "fixture": "test_0011",
+        "case": "wb_daylight",
+        "profile": "neutral",
+        "resolution": "down",
+        "status": "breach",
+        "breaches": [
+          "bias_R +0.0597>0.0323",
+          "bias_G +0.0331>0.0323"
+        ],
+        "mean": 6.475123592667474,
+        "p95": 20.266808658413854,
+        "max": 39.5354122924353,
+        "bR": 0.05965050455547201,
+        "bG": 0.033143953543420555,
+        "bB": 0.028773744140604383,
+        "n_pixels": 10668000,
+        "reference_protocol": "legacy-direct-reference"
+      },
+      "candidate": {
+        "fixture": "test_0011",
+        "case": "wb_daylight",
+        "profile": "neutral",
+        "resolution": "down",
+        "status": "breach",
+        "breaches": [
+          "bias_R +0.0579>0.0323"
+        ],
+        "mean": 6.479609286239848,
+        "p95": 20.266860362549806,
+        "max": 39.5354122924353,
+        "bR": 0.057947999822994624,
+        "bG": 0.03224978669110967,
+        "bB": 0.029013524080288726,
+        "n_pixels": 10668000,
+        "reference_protocol": "legacy-direct-reference"
+      },
+      "metric_deltas": {
+        "mean": 0.004485693572373606,
+        "p95": 5.170413595223522e-05,
+        "max": 0.0,
+        "bR": -0.0017025047324773848,
+        "bG": -0.0008941668523108834,
+        "bB": 0.00023977993968434322
+      }
+    },
+    {
+      "case": "test_0014/sharpen_amount_max",
+      "before": {
+        "fixture": "test_0014",
+        "case": "sharpen_amount_max",
+        "profile": "detail-fullres",
+        "resolution": "full",
+        "status": "breach",
+        "breaches": [
+          "bias_R +0.1773>0.1616",
+          "bias_G +0.1617>0.1616",
+          "bias_B +0.1678>0.1616"
+        ],
+        "mean": 14.779594129976093,
+        "p95": 26.725347800136962,
+        "max": 48.397337849269825,
+        "bR": 0.17733041259494245,
+        "bG": 0.16167013038482758,
+        "bB": 0.1678395230452218,
+        "n_pixels": 45441024,
+        "reference_protocol": "legacy-direct-reference"
+      },
+      "candidate": {
+        "fixture": "test_0014",
+        "case": "sharpen_amount_max",
+        "profile": "detail-fullres",
+        "resolution": "full",
+        "status": "breach",
+        "breaches": [
+          "bias_R +0.1771>0.1616",
+          "bias_B +0.1679>0.1616"
+        ],
+        "mean": 14.771037029209463,
+        "p95": 26.725347800136962,
+        "max": 48.397337849269825,
+        "bR": 0.1771420107658214,
+        "bG": 0.16159238462698,
+        "bB": 0.1678615058576929,
+        "n_pixels": 45441024,
+        "reference_protocol": "legacy-direct-reference"
+      },
+      "metric_deltas": {
+        "mean": -0.008557100766630299,
+        "p95": 0.0,
+        "max": 0.0,
+        "bR": -0.0001884018291210543,
+        "bG": -7.774575784758042e-05,
+        "bB": 2.1982812471121882e-05
+      }
+    }
+  ]
+}

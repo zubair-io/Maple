@@ -87,6 +87,7 @@ struct AppShellCenterColumn: View {
   /// Defaults to a no-op — unused wherever `mapVM` is never set (e.g.
   /// Preview's fast-static call site).
   var onSelectMapPlace: (MapPlaceSearchTarget) -> Void = { _ in }
+  var onSignInForMap: (URL) -> Void = { _ in }
   /// Dismiss the cloud search UI.
   let onCloseSearch: () -> Void
   let onSelectLocalAsset: (ImageRef) -> Void
@@ -112,6 +113,7 @@ struct AppShellCenterColumn: View {
   /// `onOpenEditor`.
   var onOpenTile: (AssetRef, CGRect) -> Void = { _, _ in }
   let onPrimeSession: (AssetRef) async -> Void
+  let onReadGridFilterMetadata: @MainActor @Sendable (AssetRef) async throws -> GridFilterMetadata
   /// Recover from a vanished selection by flipping back to Browse.
   let onFullImageFallback: () -> Void
   /// S5 EditorView dismiss (back to browse). Only used when `isFullImage`
@@ -147,6 +149,12 @@ struct AppShellCenterColumn: View {
   /// Called when the user taps "Batch Rename…" from the BrowseGrid
   /// multi-select action bar (#2641). nil hides the button.
   var onBatchRename: (() -> Void)? = nil
+  /// macOS Export recipes from the BrowseGrid multi-select action bar
+  /// (#5435). nil hides the button.
+  var onExportRecipes: (() -> Void)? = nil
+  /// iPad Browse's floating header over the folder grid, timelines and map
+  /// (#5435); nil keeps the navigation bar.
+  var browseHeader: BrowseHeaderModel? = nil
   /// Delete key / "Move to Trash" context-menu item on BrowseGrid (#2653).
   /// nil disables both.
   var onTrashAssets: (([AssetRef.ID]) -> Void)? = nil
@@ -177,7 +185,13 @@ struct AppShellCenterColumn: View {
             sessions: $sessions,
             onDismiss: onPreviewDismiss,
             onEdit: onPreviewEdit,
-            onSelectAsset: { asset in browseVM.selectedID = asset.id }
+            // Prime the sibling's session as iPhone's Preview does, so
+            // Edit (and the Info pane) land on a source-aware session
+            // instead of a session-local fallback (#4713).
+            onSelectAsset: { asset in
+              browseVM.selectedID = asset.id
+              Task { await onPrimeSession(asset) }
+            }
           )
         } else {
           Color.clear.onAppear { onFullImageFallback() }
@@ -200,9 +214,14 @@ struct AppShellCenterColumn: View {
           onSelectAsset: onEditorSelectAsset
         )
       } else {
-        // Fallback — if the session vanished while editing,
-        // drop back to browse.
-        Color.clear.onAppear { onFullImageFallback() }
+        // The session is missing while editing: prime it through the
+        // shell's source-aware factory and let `selectedSession` mount
+        // the editor on the next pass (#4713). Only a selection with no
+        // asset at all drops back to browse.
+        Color.clear.task {
+          guard let asset = browseVM.selectedAsset else { return onFullImageFallback() }
+          await onPrimeSession(asset)
+        }
       }
     } else if isSearchActive,
       let svm = searchVM,
@@ -229,12 +248,14 @@ struct AppShellCenterColumn: View {
           host: mvm.server.cacheHostKey,
           onSelectPlace: onSelectMapPlace
         )
+        .modifier(FloatingBrowseHeader(model: browseHeader))
       } else if let reason = mapUnavailableReason {
         // `.map` is selected but not ready — a real empty state
         // (#2848) instead of falling through to the Timeline/grid
         // branches below, which would otherwise render silently
         // under a "Map" title with nothing explaining why.
-        MapEmptyState(reason: reason)
+        MapEmptyState(reason: reason, onSignIn: onSignInForMap)
+          .modifier(FloatingBrowseHeader(model: browseHeader))
       } else if let allVM = allSourcesTimelineVM,
         let thumbCache = allSourcesTimelineThumbCache
       {
@@ -245,6 +266,7 @@ struct AppShellCenterColumn: View {
           onSelectAsset: onSelectCloudAsset,
           onSelectLocalAsset: onSelectLocalAsset
         )
+        .modifier(FloatingBrowseHeader(model: browseHeader))
       } else if let vm = cloudTimelineVM,
         let thumbClient = cloudTimelineThumbClient,
         let thumbCache = cloudTimelineThumbCache
@@ -257,6 +279,7 @@ struct AppShellCenterColumn: View {
           onSelectAsset: { asset in onSelectCloudAsset(asset, vm.server) },
           onSelectLocalAsset: onSelectLocalAsset
         )
+        .modifier(FloatingBrowseHeader(model: browseHeader))
       } else {
         // Responsive-program S2 (#623): on phone, the Library tab
         // renders the new responsive 3-col edge-bleed grid with
@@ -275,6 +298,7 @@ struct AppShellCenterColumn: View {
               displayMode: $browseDisplayMode,
               onOpenEditor: onOpenTile,
               onPrimeSession: onPrimeSession,
+              onReadGridFilterMetadata: onReadGridFilterMetadata,
               onNavigateFolder: onNavigateFolder,
               // #2924: the phone branch used to drop this on the
               // floor, leaving the Photos permission panel with a
@@ -302,9 +326,12 @@ struct AppShellCenterColumn: View {
               onDropAssetsOnFolder: onDropAssetsOnFolder,
               onOpenEditor: onOpenEditor,
               onPrimeSession: onPrimeSession,
+              onReadGridFilterMetadata: onReadGridFilterMetadata,
               onMergePanorama: onMergePanorama,
               onEditMetadata: onEditMetadata,
               onBatchRename: onBatchRename,
+              onExportRecipes: onExportRecipes,
+              header: browseHeader,
               onTrashAssets: onTrashAssets,
               clipboard: clipboard
             )
@@ -320,9 +347,11 @@ struct AppShellCenterColumn: View {
             onDropAssetsOnFolder: onDropAssetsOnFolder,
             onOpenEditor: onOpenEditor,
             onPrimeSession: onPrimeSession,
+            onReadGridFilterMetadata: onReadGridFilterMetadata,
             onMergePanorama: onMergePanorama,
             onEditMetadata: onEditMetadata,
             onBatchRename: onBatchRename,
+            onExportRecipes: onExportRecipes,
             onTrashAssets: onTrashAssets,
             clipboard: clipboard
           )

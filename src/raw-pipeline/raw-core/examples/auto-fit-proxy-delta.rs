@@ -124,7 +124,7 @@ fn main() {
                 cap,
             );
             times.push(t.elapsed().as_millis());
-            let Some((curve, residual)) = fit else {
+            let Ok((curve, residual)) = fit else {
                 eprintln!("{name}: no fit ({label})");
                 pngs.push(String::from("-"));
                 continue;

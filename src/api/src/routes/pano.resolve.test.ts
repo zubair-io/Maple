@@ -22,6 +22,7 @@ import path from 'node:path';
 import { createHash } from 'node:crypto';
 
 import { panoRoutes } from './pano.ts';
+import { fakeAuth } from '../../tests/helpers/test-auth.ts';
 import {
   createLiveTestDatabase,
   insertAsset,
@@ -32,7 +33,7 @@ import {
 } from '../db/sqlite/test-sqlite.test-helpers.ts';
 import { invalidateLibraryRoots } from '../indexer/libraries.cache.ts';
 
-const app = new Elysia().use(panoRoutes);
+const app = new Elysia().use(fakeAuth()).use(panoRoutes);
 
 let live: LiveTestDatabase;
 
@@ -54,10 +55,11 @@ beforeAll(async () => {
     fakeCli,
     `#!/bin/sh
 # Fake maple-cli for pano resolve route tests.
-# Parses --out <path> and writes a tiny PNG there; prints progress to stderr.
+# Parses --display <path> and writes a tiny PNG there; prints progress to stderr.
+case " $* " in *" --help "*) echo "      --features-engine <FEATURES_ENGINE>"; exit 0;; esac
 OUT=""
 while [ $# -gt 0 ]; do
-  if [ "$1" = "--out" ]; then
+  if [ "$1" = "--display" ]; then
     shift; OUT="$1"
   fi
   shift
@@ -192,6 +194,120 @@ describe('POST /api/pano/stitch — path-based resolution (#1311)', () => {
         .get(filename);
       expect(row).not.toBeNull();
     }
+  });
+
+  it('indexes a file in a nested library under that library, not the outer one', async () => {
+    const innerPath = path.join(tmpDir, 'lib', 'inner');
+    await fs.mkdir(innerPath, { recursive: true });
+    const innerId = insertFolder(live.db, { path: innerPath, slug: 'pano-inner-lib' });
+    invalidateLibraryRoots();
+    const png = Buffer.from(TINY_PNG_B64, 'base64');
+    const assetPaths = await Promise.all(
+      ['nested-a.png', 'nested-b.png'].map(async (name) => {
+        const filePath = path.join(innerPath, name);
+        await fs.writeFile(filePath, Buffer.concat([png, Buffer.from(name)]));
+        return filePath;
+      }),
+    );
+
+    const res = await postJson('/api/pano/stitch', {
+      assetPaths,
+      libraryId: innerId,
+      options: { retention: 'keep', localAlign: 'mesh' },
+    });
+
+    expect(res.status).toBe(201);
+    const rows = live.db
+      .query(`SELECT library_id, path FROM asset_locations WHERE filename LIKE 'nested-%'`)
+      .all();
+    expect(rows).toEqual([
+      { library_id: innerId, path: '' },
+      { library_id: innerId, path: '' },
+    ]);
+  });
+
+  it('keeps an offline library in the jail without letting it break resolution', async () => {
+    const alias = path.join(tmpDir, 'lib-alias');
+    await fs.rm(alias, { force: true });
+    await fs.symlink(path.join(tmpDir, 'lib'), alias);
+    insertFolder(live.db, { path: path.join(alias, 'offline', 'inner'), slug: 'pano-offline' });
+    invalidateLibraryRoots();
+    const png = Buffer.from(TINY_PNG_B64, 'base64');
+    const assetPaths = await Promise.all(
+      ['online-a.png', 'online-b.png'].map(async (name) => {
+        const filePath = path.join(tmpDir, 'lib', name);
+        await fs.writeFile(filePath, Buffer.concat([png, Buffer.from(name)]));
+        return filePath;
+      }),
+    );
+    try {
+      const res = await postJson('/api/pano/stitch', {
+        assetPaths,
+        libraryId: folderId,
+        options: { retention: 'keep', localAlign: 'mesh' },
+      });
+      expect(res.status).toBe(201);
+      const rows = live.db
+        .query(`SELECT library_id FROM asset_locations WHERE filename LIKE 'online-%'`)
+        .all();
+      expect(rows).toEqual([{ library_id: folderId }, { library_id: folderId }]);
+    } finally {
+      await fs.unlink(alias);
+    }
+  });
+
+  it('refuses a file the library excludes with a 400, not a 500', async () => {
+    const ignored = path.join(tmpDir, 'lib', 'ignored');
+    await fs.mkdir(ignored, { recursive: true });
+    await fs.writeFile(path.join(ignored, '.mapleignore'), '');
+    const png = Buffer.from(TINY_PNG_B64, 'base64');
+    const assetPaths = await Promise.all(
+      ['skip-a.png', 'skip-b.png'].map(async (name) => {
+        const filePath = path.join(ignored, name);
+        await fs.writeFile(filePath, Buffer.concat([png, Buffer.from(name)]));
+        return filePath;
+      }),
+    );
+
+    const res = await postJson('/api/pano/stitch', {
+      assetPaths,
+      libraryId: folderId,
+      options: { retention: 'keep', localAlign: 'mesh' },
+    });
+
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { error: string }).error).toBe('path_excluded');
+  });
+
+  it('refuses a file held only by a trashed photo instead of reviving it', async () => {
+    const png = Buffer.from(TINY_PNG_B64, 'base64');
+    const assetPaths = await Promise.all(
+      ['trashed-a.png', 'trashed-b.png'].map(async (name) => {
+        const filePath = path.join(tmpDir, 'lib', name);
+        await fs.writeFile(filePath, Buffer.concat([png, Buffer.from(name)]));
+        return filePath;
+      }),
+    );
+    const trashed = seedIndexed('trashed-a.png', 'seed-trashed-a');
+    run(
+      live.db,
+      `UPDATE assets SET deleted_at = ? WHERE id = ?`,
+      new Date().toISOString(),
+      trashed,
+    );
+
+    const res = await postJson('/api/pano/stitch', {
+      assetPaths,
+      libraryId: folderId,
+      options: { retention: 'keep', localAlign: 'mesh' },
+    });
+
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { error: string }).error).toBe('path_trashed');
+    const row = live.db.query(`SELECT deleted_at FROM assets WHERE id = ?`).get(trashed) as {
+      deleted_at: string | null;
+    };
+    expect(row.deleted_at).not.toBeNull();
   });
 
   it('rejects a path that is outside every registered library root (security)', async () => {

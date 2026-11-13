@@ -1,13 +1,16 @@
 //! Non-destructive Linux sidecar documents and persistence (#4317).
 //! Imported XML is retained; only this shell's owned scalar attributes change.
+//! Outside changes are merged by the shared `reconcile_xmp` (#4983).
 
 mod xml;
 
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use raw_core::types::adjustment::AdjustmentModel;
+use raw_core::workflow::SidecarWorkflow;
 use tempfile::NamedTempFile;
 use thiserror::Error;
 
@@ -15,8 +18,14 @@ use thiserror::Error;
 pub enum SidecarError {
     #[error("{0}")]
     Invalid(String),
-    #[error("The sidecar changed outside Maple. Reload it before saving.")]
+    #[error("The sidecar changed outside Maple while saving. Save again to merge the change.")]
     Conflict,
+    #[error("The sidecar was removed outside Maple. Reload XMP before saving.")]
+    Removed,
+    #[error(
+        "The sidecar changed outside Maple and could not be merged: {0}. Reload XMP before saving."
+    )]
+    Merge(String),
     #[error(transparent)]
     Io(#[from] std::io::Error),
 }
@@ -40,6 +49,8 @@ pub struct SidecarDocument {
     pub model: AdjustmentModel,
     pub culling: Culling,
     source: Option<String>,
+    /// The sidecar revision this document's edits are relative to.
+    base: Option<String>,
 }
 
 impl SidecarDocument {
@@ -49,6 +60,7 @@ impl SidecarDocument {
             model,
             culling,
             source: Some(source.to_owned()),
+            base: Some(source.to_owned()),
         })
     }
 
@@ -67,40 +79,85 @@ impl SidecarDocument {
     }
 }
 
-/// A loaded document's immutable baseline is the optimistic save token.
+/// Saves are compare-and-swap against the revision a document was based on.
 /// Callers serialize saves on their I/O worker, outside the UI/render thread.
 pub struct SidecarStore {
     path: PathBuf,
-    baseline: Option<String>,
+    /// Document base → the revision its next edit is merged against. Maple's
+    /// own publications advance it, so queued documents are not outside changes.
+    lineages: Vec<(Option<String>, Option<String>)>,
 }
 
 impl SidecarStore {
     pub fn open(original: &Path) -> Result<(Self, SidecarDocument), SidecarError> {
         let path = sidecar_path(original)?;
         reject_symlink(&path)?;
-        let baseline = read_optional(&path)?;
-        let document = match &baseline {
-            Some(source) => SidecarDocument::parse(source)?,
+        let document = match read_optional(&path)? {
+            Some(source) => SidecarDocument::parse(&source)?,
             None => SidecarDocument::default(),
         };
-        Ok((Self { path, baseline }, document))
+        Ok((
+            Self {
+                path,
+                lineages: Vec::new(),
+            },
+            document,
+        ))
     }
 
     pub fn path(&self) -> &Path {
         &self.path
     }
 
-    pub fn save(&mut self, document: &SidecarDocument) -> Result<(), SidecarError> {
-        let bytes = document.serialize()?;
+    /// `Ok(Some)` carries the published document when an outside change was
+    /// merged into it, for the editor to adopt.
+    pub fn save(&mut self, document: &SidecarDocument) -> Result<Option<Merged>, SidecarError> {
+        let incoming = document.serialize()?;
         reject_symlink(&self.path)?;
-        if read_optional(&self.path)? != self.baseline {
-            return Err(SidecarError::Conflict);
+        let base = self
+            .lineages
+            .iter()
+            .find(|(from, _)| *from == document.base)
+            .map_or_else(|| document.base.clone(), |(_, to)| to.clone());
+        let current = read_optional(&self.path)?;
+        let merged = if current == base {
+            None
+        } else {
+            let current = current.as_deref().ok_or(SidecarError::Removed)?;
+            Some(Merged::reconcile(base.as_deref(), current, &incoming)?)
+        };
+        let bytes = merged
+            .as_ref()
+            .and_then(|merged| merged.document.base.clone())
+            .unwrap_or_else(|| incoming.clone());
+        // This lineage's later documents (queued saves, undo states) hold values
+        // relative to what Maple meant to publish, so that is their next base:
+        // after a merge, only their own changes apply on top of the outside one.
+        self.publish(&bytes, current.as_deref(), |store| {
+            store.advance(document.base.clone(), Some(incoming))
+        })?;
+        Ok(merged)
+    }
+
+    fn advance(&mut self, from: Option<String>, to: Option<String>) {
+        match self.lineages.iter_mut().find(|(base, _)| *base == from) {
+            Some(lineage) => lineage.1 = to,
+            None => self.lineages.push((from, to)),
         }
+    }
+
+    fn publish(
+        &mut self,
+        bytes: &str,
+        expected: Option<&str>,
+        published: impl FnOnce(&mut Self),
+    ) -> Result<(), SidecarError> {
         let parent = self
             .path
             .parent()
-            .ok_or_else(|| SidecarError::Invalid("Sidecar has no parent".into()))?;
-        let mut temporary = shared_temp_file(parent)?;
+            .ok_or_else(|| SidecarError::Invalid("Sidecar has no parent".into()))?
+            .to_path_buf();
+        let mut temporary = shared_temp_file(&parent)?;
         if let Ok(metadata) = fs::metadata(&self.path) {
             temporary
                 .as_file()
@@ -108,18 +165,91 @@ impl SidecarStore {
         }
         temporary.write_all(bytes.as_bytes())?;
         temporary.as_file().sync_all()?;
-        // Re-check after serialization/write, immediately before atomic rename.
+        // Re-check after merge/write, immediately before atomic rename.
         reject_symlink(&self.path)?;
-        if read_optional(&self.path)? != self.baseline {
+        if read_optional(&self.path)?.as_deref() != expected {
             return Err(SidecarError::Conflict);
         }
         temporary.persist(&self.path).map_err(|error| error.error)?;
-        // Publish the new token after rename even if directory durability fails:
-        // the next retry must compare against the bytes actually on disk.
-        self.baseline = Some(bytes);
+        // Record the publication even if directory durability fails: the
+        // next retry must compare against the bytes actually on disk.
+        published(self);
         fs::File::open(parent)?.sync_all()?;
         Ok(())
     }
+}
+
+/// A save that merged an outside change: `document` is what was published.
+#[derive(Clone, Debug)]
+pub struct Merged {
+    pub document: SidecarDocument,
+    /// The revision the merged edit was based on, and what the file held.
+    base: Option<String>,
+    outside: String,
+    now_ms: u64,
+}
+
+impl Merged {
+    fn reconcile(base: Option<&str>, current: &str, incoming: &str) -> Result<Self, SidecarError> {
+        let now_ms = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_or(0, |elapsed| elapsed.as_millis() as u64);
+        Ok(Self {
+            document: reconcile(base, current, incoming, now_ms)?,
+            base: base.map(str::to_owned),
+            outside: current.to_owned(),
+            now_ms,
+        })
+    }
+
+    /// Another state of the same edit (an undo or redo snapshot) with the
+    /// outside change applied, in the published document's lineage: restoring
+    /// it neither reverts that change nor, as an adopted snapshot would be,
+    /// is mistaken for an unchanged outside document that cancels Maple's own
+    /// later change (#5887).
+    pub fn rebase(&self, snapshot: &SidecarDocument) -> Result<SidecarDocument, SidecarError> {
+        let incoming = snapshot.serialize()?;
+        let mut rebased = reconcile(self.base.as_deref(), &self.outside, &incoming, self.now_ms)?;
+        rebased.base = self.document.base.clone();
+        Ok(rebased)
+    }
+}
+
+/// The shared #4983 three-way merge. The result is re-saved through this
+/// writer so the adopted document re-serializes to the published bytes.
+fn reconcile(
+    base: Option<&str>,
+    current: &str,
+    incoming: &str,
+    now_ms: u64,
+) -> Result<SidecarDocument, SidecarError> {
+    let merge_error = |error: SidecarError| SidecarError::Merge(error.to_string());
+    for document in [current, incoming] {
+        // The shared merge edits only the primary Description.
+        if xml::description_count(document).map_err(merge_error)? != 1 {
+            return Err(SidecarError::Merge(
+                "it does not hold exactly one rdf:Description".into(),
+            ));
+        }
+    }
+    // Compare Maple's edit with what this writer makes of the unedited base,
+    // so its own normalization (dropped defaults, number format) is not
+    // mistaken for an edit that overrides the outside change.
+    let base = base
+        .map(|base| SidecarDocument::parse(base).and_then(|document| document.serialize()))
+        .transpose()
+        .map_err(merge_error)?;
+    let merged = SidecarWorkflow::reconcile_xmp(
+        base.as_deref().unwrap_or_default(),
+        current,
+        incoming,
+        now_ms,
+    )
+    .map_err(SidecarError::Merge)?;
+    let normalized = SidecarDocument::parse(&merged)
+        .and_then(|document| document.serialize())
+        .map_err(merge_error)?;
+    SidecarDocument::parse(&normalized)
 }
 
 pub fn sidecar_path(original: &Path) -> Result<PathBuf, SidecarError> {

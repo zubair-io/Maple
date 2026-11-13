@@ -1,0 +1,8 @@
+{
+  "source_commit": "ed6424ae59a32f671a279e8704444b887ca9558d",
+  "renderer_tree": "04c573f24f0c6d1a1f0fe62eafe0b6085b071979",
+  "binary_sha256": "dfcf70f3ad3b71e3766e68b28f4c8ec9d179905e82eb4eb95577b4d7ef54e558",
+  "pipeline_output_version": 37,
+  "auto_fit_model_version": 7,
+  "status": "unqualified residual-field full physical experiment"
+}

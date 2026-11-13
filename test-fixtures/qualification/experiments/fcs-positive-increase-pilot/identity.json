@@ -1,0 +1,10 @@
+{
+  "status": "Experimental processing, not adopted; expanded91-case cohort next",
+  "base_commit": "8ed5c37f016ed33fcb81eb4a2f2d69d005892af0",
+  "pipeline_output_version": "35 plus selective positive-chroma green guard",
+  "source_patch_sha256": "72d9a236c3488f993e80476b48046a4b496ca4199f327829d3c0559b5df89753",
+  "binary_sha256": "87fcb89b3d359388888bf55bc9913e3a525ba0c4e6cc920b5ecf7deff7f490d6",
+  "amaze_tests_passed": 28,
+  "new_regression_fails_original": true,
+  "hypothesis": "Retain measured-value increases that restore chroma lines. Use green-support guard only for positive-chroma reductions. Original negative-collapse behavior, all thresholds, budgets, inputs and old assertions unchanged."
+}

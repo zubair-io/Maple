@@ -1,0 +1,9 @@
+/opt/homebrew/lib/python3.14/site-packages/colour/utilities/verbose.py:340: ColourUsageWarning: "Matplotlib" related API features are not available: "No module named 'matplotlib'".
+See the installation guide for more information: https://www.colour-science.org/installation-guide/
+  warn(*args, **kwargs)
+{"label": "fine absolute objective iteration1", "diagnostic_only": true, "training_objective": 7.530441655261949, "accepted": true, "cg_status": [0, 0, 0], "seconds": 6.13713795899821}
+{"label": "fine absolute objective iteration2", "diagnostic_only": true, "training_objective": 7.357224633756614, "accepted": true, "cg_status": [0, 0, 0], "seconds": 6.356022874999326}
+{"label": "fine absolute objective iteration3", "diagnostic_only": true, "training_objective": 7.341804920870425, "accepted": true, "cg_status": [0, 0, 0], "seconds": 6.859233832990867}
+{"label": "fine absolute objective iteration4", "diagnostic_only": true, "training_objective": 7.33395106095914, "accepted": true, "cg_status": [0, 0, 0], "seconds": 7.033409333002055}
+{"label": "fine absolute objective iteration5", "diagnostic_only": true, "training_objective": 7.32736279728371, "accepted": true, "cg_status": [0, 0, 0], "seconds": 6.764371416007634}
+{"label": "fine absolute objective iteration6", "diagnostic_only": true, "training_objective": 7.320382041979005, "accepted": true, "cg_status": [0, 0, 0], "seconds": 11.994863874992006}

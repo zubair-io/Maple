@@ -68,10 +68,12 @@ public actor AutoProfileLUT {
     }
 
     /// Immutable baked cube for one image, ready to mint a fresh `CIFilter`.
-    /// `data` is the RGBA-float cube body; `dimension` is the cube edge.
+    /// `data` is the RGBA-float cube body; `dimension` is the cube edge;
+    /// `lattice` is the same tail as RGB, cached for the P3 Auto encode (#4741).
     struct CubeData {
         let data: Data
         let dimension: Int
+        let lattice: Lattice
     }
 
     /// A cached entry. `.absent` is an EXPLICIT negative cache — the fit failed
@@ -84,9 +86,18 @@ public actor AutoProfileLUT {
     /// never a `CIFilter`. A `CIFilter` is mutable and not thread-safe, so a
     /// fresh one is minted per `filter()` call from the cached bytes; concurrent
     /// renders therefore never share (and race on) one filter instance (#844).
+    ///
+    /// `.absent` keeps the fit's failure outcome so a cache hit reports
+    /// `.noPreview` vs `.unavailable` exactly as the cold fit did (#5458).
     enum Cached {
         case cube(CubeData)
-        case absent
+        case absent(AutoFitStatus)
+    }
+
+    /// The per-render Auto tail plus the fit outcome that produced it.
+    public struct Resolution {
+        public let filter: CIFilter?
+        public let status: AutoFitStatus
     }
 
     private var cache: [Key: Cached] = [:]
@@ -115,7 +126,16 @@ public actor AutoProfileLUT {
         profile: Profile,
         quality: PipelineRenderer.Quality = .full
     ) -> CIFilter? {
-        guard profile == .auto else { return nil }
+        resolve(forRawAt: url, profile: profile, quality: quality).filter
+    }
+
+    /// `filter(forRawAt:…)` plus the actual fit outcome for the Auto status UI (#5458).
+    public func resolve(
+        forRawAt url: URL,
+        profile: Profile,
+        quality: PipelineRenderer.Quality = .full
+    ) -> Resolution {
+        guard profile == .auto else { return Resolution(filter: nil, status: .unavailable) }
 
         let mtime = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?
             .contentModificationDate?.timeIntervalSince1970 ?? 0
@@ -131,14 +151,15 @@ public actor AutoProfileLUT {
         }
 
         switch entry {
-        case .absent:
-            return nil
+        case .absent(let status):
+            return Resolution(filter: nil, status: status)
         case .cube(let cube):
             // Mint a FRESH filter per call from the cached immutable bytes —
             // never hand back a shared mutable CIFilter (#844). The bake (the
             // expensive part) stays cached; `CIFilter(name:)` + `setValue` is
             // cheap and the returned instance is owned by exactly one render.
-            return Self.makeFilter(from: cube)
+            let filter = Self.makeFilter(from: cube)
+            return Resolution(filter: filter, status: filter == nil ? .unavailable : .active)
         }
     }
 
@@ -146,8 +167,8 @@ public actor AutoProfileLUT {
     /// LUT, #924) for this RAW via a SINGLE FFI call, then expand the composed
     /// display-space LUT to the immutable RGBA-float cube bytes. Returns
     /// `.cube(...)` on success or `.absent` on the no-tail fallback (`rc == 1`:
-    /// not Auto / no embedded JPEG) or any error — both of which mean "render
-    /// plain AgX". This one call replaces the former two-step
+    /// not Auto / degenerate fit; `MAPLE_AUTO_FIT_NO_PREVIEW`: no embedded
+    /// JPEG) or any error — all of which mean "render plain AgX". This one call replaces the former two-step
     /// fit-curve + bake-curve-LUT path so the cross-channel residual the
     /// separable curve can't carry reaches the canvas in the same cube.
     nonisolated static func buildCube(
@@ -165,16 +186,19 @@ public actor AutoProfileLUT {
             }
         }
         guard rc == 0 else {
-            if rc != 1 {
+            switch rc {
+            case 1:
+                autoProfileLog.notice("Auto Profile: no tail for \(rawPath, privacy: .public) (not Auto / degenerate fit) — plain AgX")
+            case MAPLE_AUTO_FIT_NO_PREVIEW:
+                autoProfileLog.notice("Auto Profile: no embedded camera preview in \(rawPath, privacy: .public) — plain AgX")
+            default:
                 let msg = maple_last_error().map { String(cString: $0) } ?? "unknown"
                 autoProfileLog.error("maple_compute_auto_profile_lut rc=\(rc) for \(rawPath, privacy: .public): \(msg, privacy: .public)")
-            } else {
-                autoProfileLog.notice("Auto Profile: no tail for \(rawPath, privacy: .public) (not Auto / no JPEG) — plain AgX")
             }
-            return .absent
+            return .absent(AutoFitStatus(failedFitReturnCode: rc))
         }
 
-        guard let cube = buildCubeFromLUT(lut, dimension: n) else { return .absent }
+        guard let cube = buildCubeFromLUT(lut, dimension: n) else { return .absent(.unavailable) }
         autoProfileLog.notice("Auto Profile: baked \(n)³ composed (curve∘residual) cube for \(rawPath, privacy: .public)")
         return .cube(cube)
     }
@@ -200,7 +224,9 @@ public actor AutoProfileLUT {
             cube[i * 4 + 2] = lut[i * 3 + 2]
             cube[i * 4 + 3] = 1.0
         }
-        return CubeData(data: cube.withUnsafeBytes { Data($0) }, dimension: n)
+        return CubeData(
+            data: cube.withUnsafeBytes { Data($0) }, dimension: n,
+            lattice: Lattice(rgb: lut, dimension: n))
     }
 
     /// Bake a serialized `ProfileCurve` (`PROFILE_CURVE_FLAT_LEN` f32) into a
@@ -240,6 +266,7 @@ public actor AutoProfileLUT {
         filter.setValue(cube.dimension, forKey: "inputCubeDimension")
         filter.setValue(cube.data, forKey: "inputCubeData")
         filter.setValue(cubeColorSpace, forKey: "inputColorSpace")
+        MintedLattices.register(cube.lattice, for: filter)
         return filter
     }
 

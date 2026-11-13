@@ -2,6 +2,7 @@ import Foundation
 import XCTest
 
 @testable import MapleCore
+@testable import MapleFileProviderCore
 
 #if os(macOS)
 
@@ -37,6 +38,27 @@ import XCTest
       XCTAssertEqual(
         records.filter { $0.path.contains("/api/folder/photos/My%20Album%20%23%3F") }.count, 3)
       XCTAssertTrue(records.allSatisfy { $0.authorization == "Bearer folder-token" })
+    }
+
+    /// `CatalogRef.serverID` is documented as the canonical registry URL,
+    /// but `loadCloudDir` stored `CloudSource.server` — the LAN-resolved
+    /// effective URL — so every consumer that keys an auth session on it
+    /// (rename, reveal, the editor's sidecar store in #4712) built an
+    /// unauthenticated client whenever a local-network mapping was active.
+    @MainActor
+    func testBrowseCatalogCarriesTheCanonicalServerNotTheEffectiveURL() async throws {
+      let fixture = try await UnifiedFolderHTTPFixture.start()
+      defer { fixture.stop() }
+      let canonical = URL(string: "https://maple.example")!
+      let source = CloudSource(
+        server: fixture.url, identity: canonical, folderID: "", libraryPath: fixture.album,
+        httpClient: client(fixture.url))
+      let browse = BrowseViewModel()
+
+      await browse.loadCloudDir(source, absPath: fixture.album)
+
+      XCTAssertEqual(browse.assets.count, 1)
+      XCTAssertEqual(browse.assets.first?.catalog?.serverID, canonical)
     }
 
     func testFileProviderConsumesAllPagesAndRevalidatesRealETags() async throws {
@@ -125,7 +147,7 @@ import XCTest
       XCTAssertTrue(
         previews.allSatisfy {
           $0.path
-            == "/maple/api/preview/photos/My%20Album%20%23%3F/photo.dng?pv=\(MaplePipelineVersion.value)"
+            == "/maple/api/preview/photos/My%20Album%20%23%3F/photo.dng"
         })
       XCTAssertNotNil(previews.last?.etag)
       XCTAssertTrue(records.allSatisfy { $0.authorization == "Bearer folder-token" })

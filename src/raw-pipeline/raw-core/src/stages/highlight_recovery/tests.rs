@@ -21,8 +21,13 @@ fn deeply_negative_baseline_preserves_black_and_unclipped_pixels() {
 fn clip_margin_tracks_baseline_gain_in_both_directions() {
     for baseline in [-8.0_f32, -0.78, 0.0, 0.25, 4.0] {
         let gain = baseline.exp2();
-        let mut img = Image::new(2, 1, ColorSpace::CameraNativeLinearRgb);
-        img.pixels = vec![[0.99 * gain; 3], [0.996 * gain; 3]];
+        let mut img = Image::new(4, 1, ColorSpace::CameraNativeLinearRgb);
+        img.pixels = vec![
+            [0.99 * gain; 3],
+            [0.5 * gain; 3],
+            [0.5 * gain; 3],
+            [0.996 * gain; 3],
+        ];
         let unclipped = img.pixels[0];
         apply(
             &mut img,
@@ -31,7 +36,7 @@ fn clip_margin_tracks_baseline_gain_in_both_directions() {
             baseline,
         );
         assert_eq!(img.pixels[0], unclipped, "baseline={baseline}");
-        assert_eq!(img.pixels[1], [gain; 3], "baseline={baseline}");
+        assert_eq!(img.pixels[3], [gain; 3], "baseline={baseline}");
     }
 }
 

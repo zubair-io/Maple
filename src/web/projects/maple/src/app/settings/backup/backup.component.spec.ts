@@ -38,6 +38,7 @@ const destination: BackupDestination = {
     blocked: 0,
     bytes: 500,
     lastError: null,
+    lastErrorCount: 0,
   },
 };
 describe('BackupComponent', () => {
@@ -136,6 +137,67 @@ describe('BackupComponent', () => {
     await settle();
     expect(button('Remove destination').disabled).toBe(true);
     expect(api.removeDestination).not.toHaveBeenCalled();
+  });
+  it('names how many entries share the reported backup error', async () => {
+    api.destinations.mockReturnValue(
+      of([
+        {
+          ...destination,
+          status: {
+            ...destination.status,
+            blocked: 3,
+            lastError: 'Authorization expired or revoked; reconnect Google Drive.',
+            lastErrorCount: 3,
+          },
+        },
+      ]),
+    );
+    await settle();
+    expect(el().querySelector('[role="alert"]')?.textContent?.replace(/\s+/g, ' ').trim()).toBe(
+      '3 entries: Authorization expired or revoked; reconnect Google Drive.',
+    );
+  });
+  it('alerts that a Google destination lost its authorization and opens reconnect', async () => {
+    const message =
+      "Google expired or revoked Maple's Drive authorization (invalid_grant) at 2026-11-02T12:16:00Z. Reconnect Google Drive to resume backup.";
+    api.destinations.mockReturnValue(
+      of([
+        {
+          ...destination,
+          kind: 'google-drive',
+          path: null,
+          rootId: 'root',
+          connection: {
+            connected: false,
+            disconnect: { reason: 'invalid_grant', at: '2026-11-02T12:16:00.000Z', message },
+          },
+        },
+      ]),
+    );
+    await settle();
+    expect(el().querySelector('mui-banner [role="alert"]')?.textContent).toContain(
+      `Backup paused. ${message}`,
+    );
+    const component = fixture.componentInstance as unknown as { expanded(): string | null };
+    expect(component.expanded()).toBeNull();
+    button('Show reconnect options').click();
+    expect(component.expanded()).toBe('destination');
+  });
+  it('alerts for an attached Google folder without credentials but not for a new destination', async () => {
+    const google: BackupDestination = {
+      ...destination,
+      kind: 'google-drive',
+      path: null,
+      connection: { connected: false, disconnect: null },
+    };
+    api.destinations.mockReturnValue(of([{ ...google, rootId: 'root' }]));
+    await settle();
+    expect(el().querySelector('mui-banner')?.textContent).toContain('Google Drive is disconnected');
+    fixture.destroy();
+    fixture = null!;
+    api.destinations.mockReturnValue(of([google]));
+    await settle();
+    expect(el().querySelector('mui-banner')).toBeNull();
   });
   it('shows indexed gaps and interrupted moves and explains untracked erasure on removal', async () => {
     api.destinations.mockReturnValue(

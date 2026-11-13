@@ -232,7 +232,14 @@ class WebWorkflowTests(unittest.TestCase):
                 crate = root / "src/raw-pipeline/raw-wasm"
                 pkg = crate / "pkg"
                 pkg.mkdir(parents=True)
-                for name in ("raw_wasm_bg.wasm", "raw_wasm.js", ".build-stamp"):
+                (pkg / "canvas").mkdir()
+                for name in (
+                    "raw_wasm_bg.wasm",
+                    "raw_wasm.js",
+                    "canvas/raw_wasm_canvas_bg.wasm",
+                    "canvas/raw_wasm_canvas.js",
+                    ".build-stamp",
+                ):
                     artifact = pkg / name
                     artifact.write_text("test artifact")
                     os.utime(artifact, (1, 1))

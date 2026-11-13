@@ -1,20 +1,26 @@
-"""#3941: Apple bundled calibration fixtures must equal the shared Rust originals."""
+"""#5159: Apple bundled removal fixtures must equal the shared Rust originals."""
 
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-CANONICAL = ROOT / "test-fixtures/removal/calibration"
-APPLE = (
-    ROOT
-    / "src/apple/Packages/MapleCore/Tests/MapleCoreTests/Fixtures/removal/calibration"
+CANONICAL = ROOT / "test-fixtures/removal"
+APPLE = ROOT / "src/apple/Packages/MapleCore/Tests/MapleCoreTests/Fixtures/removal"
+# SwiftPM resources cannot reach outside the package, so `basic/` is mirrored at
+# the Apple fixture root and `calibration/` keeps its own directory.
+PAIRS = (
+    (CANONICAL / "basic", APPLE, False),
+    (CANONICAL / "calibration", APPLE / "calibration", True),
 )
 
 
-def verify(canonical, bundled):
-    expected = {
-        p.relative_to(canonical): p for p in canonical.rglob("*") if p.is_file()
-    }
-    actual = {p.relative_to(bundled): p for p in bundled.rglob("*") if p.is_file()}
+def _files(directory, recursive):
+    paths = directory.rglob("*") if recursive else directory.glob("*")
+    return {p.relative_to(directory): p for p in paths if p.is_file()}
+
+
+def verify(canonical, bundled, recursive=True):
+    expected = _files(canonical, recursive)
+    actual = _files(bundled, recursive)
     if not expected or expected.keys() != actual.keys():
         missing, extra = (
             expected.keys() - actual.keys(),
@@ -36,5 +42,5 @@ def verify(canonical, bundled):
 
 
 if __name__ == "__main__":
-    count = verify(CANONICAL, APPLE)
-    print(f"All {count} Apple calibration fixture copies match shared Rust bytes.")
+    count = sum(verify(*pair) for pair in PAIRS)
+    print(f"All {count} Apple removal fixture copies match shared Rust bytes.")

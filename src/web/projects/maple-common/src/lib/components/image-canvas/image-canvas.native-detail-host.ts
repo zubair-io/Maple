@@ -1,15 +1,30 @@
+import { computed, type Signal } from '@angular/core';
 import type { ImageCanvasComponent } from './image-canvas.component';
 import { ImageCanvasNativeDetail } from './image-canvas.native-detail';
 import { isNonRawExtension } from '../../state/raw-extensions';
 import { isIdentityCrop } from '../../models/adjustment-model';
-import { displayDims } from './image-canvas.crop';
+import { resolveCanvasImageExtent } from './image-canvas.crop';
 
-/** A sized bitmap preserves aspect, but 100% zoom needs the source extent. */
-export function canvasDisplayDims(host: ImageCanvasComponent) {
+type Extent = { w: number; h: number };
+
+/** The extent the zoom model and the draw share (`resolveCanvasImageExtent`). */
+export function canvasImageExtent(host: ImageCanvasComponent): Extent | null {
   const asset = host.state.focusedAsset();
-  const native = host.canvasSvc.nativeDimensions();
-  if (native && asset && isIdentityCrop(host.state.adjustmentFor(asset.id)().crop)) return native;
-  return displayDims(host.canvasSvc.paintedAspect(), asset?.width, asset?.height);
+  return resolveCanvasImageExtent({
+    painted: host.canvasSvc.paintedAspect(),
+    native: host.canvasSvc.nativeDimensions(),
+    assetW: asset?.width,
+    assetH: asset?.height,
+    crop: asset ? host.state.adjustmentFor(asset.id)().crop : undefined,
+    cropToolActive: host.cropSession.active(),
+  });
+}
+
+/** The extent as a signal that only fires when the size really changes. */
+export function createImageExtent(host: ImageCanvasComponent): Signal<Extent | null> {
+  return computed(() => canvasImageExtent(host), {
+    equal: (a, b) => a?.w === b?.w && a?.h === b?.h,
+  });
 }
 
 /** The component owns signals; the patch controller owns retained resources. */

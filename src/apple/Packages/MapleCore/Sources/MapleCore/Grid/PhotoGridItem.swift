@@ -14,6 +14,7 @@
 // different-overlays hash collision is permitted by the Hashable contract).
 
 import Foundation
+import MapleCloudKit
 
 // MARK: - ImageSourceBox
 
@@ -92,6 +93,8 @@ public struct GridCellOverlays: Sendable, Hashable {
     /// True when `CullingState.hidden == true` — dims the thumbnail and shows
     /// the "HIDDEN" badge (see `PhotoThumbnailCell`).
     public var hidden: Bool = false
+    /// Which half of a Live Photo pair this tile is, or `nil` for any other asset.
+    public var livePhoto: LivePhotoLink.Role? = nil
 
     public init(
         rating: Int = 0,
@@ -99,7 +102,8 @@ public struct GridCellOverlays: Sendable, Hashable {
         sync: SyncBadge? = nil,
         isVideo: Bool = false,
         style: OverlayStyle = .phone,
-        hidden: Bool = false
+        hidden: Bool = false,
+        livePhoto: LivePhotoLink.Role? = nil
     ) {
         self.rating = rating
         self.flag = flag
@@ -107,6 +111,7 @@ public struct GridCellOverlays: Sendable, Hashable {
         self.isVideo = isVideo
         self.style = style
         self.hidden = hidden
+        self.livePhoto = livePhoto
     }
 }
 
@@ -119,7 +124,7 @@ public struct GridCellOverlays: Sendable, Hashable {
 /// the selection key, and the zoom-transition tag (`matchedTransitionSource`).
 /// `displayName` is the human-readable asset name used for the per-cell
 /// accessibility identifier (`"thumb-<displayName>"`) that the UITest harness
-/// resolves — e.g. `app.otherElements["thumb-test_0017"]`. LibraryCell carried
+/// resolves — e.g. `app.buttons["thumb-test_0017"]`. LibraryCell carried
 /// this as `asset.displayName`; the shared cell restores it via this field.
 public struct PhotoGridItem: Identifiable, Sendable {
     public let id: String
@@ -270,7 +275,9 @@ extension ThumbnailSource {
 
     /// Resolve a `ThumbnailSource` to the concrete backend that will serve it.
     /// For `.merged` cells:
-    ///   - `.synced` / `.localOnly` → `photoKit` using the local `ImageRef.id`
+    ///   - `.synced` / `.localOnly` from a saved Folder (the local ref has a
+    ///     file `url`) → `thumbnailLoader` reading that file (#5033)
+    ///   - `.synced` / `.localOnly` otherwise → `photoKit` using the local `ImageRef.id`
     ///   - `.cloudOnly`            → `cloudThumb` using the cloud ref's `abs_path`
     ///
     /// This is the pure routing logic extracted from `ThumbnailProvider` so it
@@ -286,7 +293,10 @@ extension ThumbnailSource {
         case .merged(let cell, let host):
             switch cell {
             case .synced(let local, _), .localOnly(let local):
-                return .photoKit(localID: local.id)
+                guard let file = AssetRef(fileBacked: local) else {
+                    return .photoKit(localID: local.id)
+                }
+                return .thumbnailLoader(file, source: nil)
             case .cloudOnly(let cloudRef):
                 // The cloud ref id is "fs:<abs_path>" — extract via the VM helper
                 // convention. We replicate the extraction logic here to keep this

@@ -16,6 +16,14 @@ private struct EditorRouterFocusKey: FocusedValueKey {
   typealias Value = EditorCommandRouter
 }
 
+private struct EditorCanUndoFocusKey: FocusedValueKey {
+  typealias Value = Bool
+}
+
+private struct EditorCanRedoFocusKey: FocusedValueKey {
+  typealias Value = Bool
+}
+
 private struct ToneCurveKeyPressFocusKey: FocusedValueKey {
   typealias Value = (KeyPress) -> KeyPress.Result
 }
@@ -46,6 +54,16 @@ extension FocusedValues {
     get { self[EditorRouterFocusKey.self] }
     set { self[EditorRouterFocusKey.self] = newValue }
   }
+
+  var editorCanUndo: Bool? {
+    get { self[EditorCanUndoFocusKey.self] }
+    set { self[EditorCanUndoFocusKey.self] = newValue }
+  }
+
+  var editorCanRedo: Bool? {
+    get { self[EditorCanRedoFocusKey.self] }
+    set { self[EditorCanRedoFocusKey.self] = newValue }
+  }
 }
 
 /// Routes focused knot input before shell navigation. Ordinary slider and
@@ -64,6 +82,8 @@ struct EditorCommandScope: ViewModifier {
       .environment(\.editorCommandRouter, router)
       .environment(\.toneCurveKeyboardBridge, toneCurveKeyboardBridge)
       .focusedSceneValue(\.editorCommandRouter, router?.isActive == true ? router : nil)
+      .focusedSceneValue(\.editorCanUndo, router?.isActive == true ? state.canUndo : false)
+      .focusedSceneValue(\.editorCanRedo, router?.isActive == true ? state.canRedo : false)
       .focusable().focused($canvasFocused).focusEffectDisabled()
       .onAppear {
         if router?.isActive != true { router = EditorCommandRouter(state: state) }
@@ -86,6 +106,12 @@ struct EditorCommandScope: ViewModifier {
           router?.finishNudge()
         }
       }
+      .onChange(of: state.canUndo) { _, _ in
+        NotificationCenter.default.post(name: .mapleEditorHistoryDidChange, object: nil)
+      }
+      .onChange(of: state.canRedo) { _, _ in
+        NotificationCenter.default.post(name: .mapleEditorHistoryDidChange, object: nil)
+      }
       .onDisappear { router?.deactivate() }
   }
 
@@ -107,6 +133,18 @@ struct EditorCommandScope: ViewModifier {
         return .ignored
       }
     #endif
+    if press.characters.lowercased() == "z", press.modifiers.contains(.command),
+      press.modifiers.intersection([.control, .option]).isEmpty
+    {
+      let redo = press.modifiers.contains(.shift)
+      if state.armedTool == .remove,
+        redo ? state.removal.canRedoSelection : state.removal.canUndoSelection
+      {
+        return .ignored
+      }
+      guard press.phase == .down else { return .handled }
+      return perform(redo ? .redo : .undo)
+    }
     // A focused knot owns its arrow event before the ancestor scope (#4384).
     // Modifier-based pan and commands still fall through to the normal routes.
     let knotKey = [.leftArrow, .rightArrow, .upArrow, .downArrow].contains(press.key)
@@ -117,8 +155,15 @@ struct EditorCommandScope: ViewModifier {
     #endif
     if knotInput {
       #if os(iOS)
-        if let toneCurveKeyPress, case .handled = toneCurveKeyPress(press) {
-          return .handled
+        if let toneCurveKeyPress {
+          let result = toneCurveKeyPress(press)
+          if case .handled = result { return .handled }
+          // Boundary Tab resigns the native knot and returns .ignored so
+          // UIKit can traverse focus. Redispatching it through the bridge
+          // would focus the first/last knot again in the same key event.
+          if press.key == .tab || press.key == KeyEquivalent("\u{19}") {
+            return result
+          }
         }
         if let handler = toneCurveKeyboardBridge.handle, case .handled = handler(press) {
           return .handled

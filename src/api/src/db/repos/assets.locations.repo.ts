@@ -65,14 +65,12 @@ export interface NearbyAssetCandidate {
 }
 
 /**
- * LIKE-safe form of a stored path, so a directory containing `%` or `_` cannot
- * match its siblings.
- *
- * The backslash is escaped first; escaping it after the wildcards would escape
- * the escapes this function just introduced.
+ * Directory-boundary prefix for a stored path, so a descendant test matches
+ * `value/...` under BINARY collation without matching a sibling whose name
+ * merely starts with `value` or differs only by ASCII case (#4699).
  */
-function likePrefix(value: string): string {
-  return `${value.replace(/[\\%_]/g, (character) => `\\${character}`)}/%`;
+function subtreePrefix(value: string): string {
+  return value.endsWith('/') ? value : `${value}/`;
 }
 
 /**
@@ -146,6 +144,7 @@ export async function listLiveAssetLocationsUnderFolder(
   relPath: string,
   dbOverride?: SqliteDb,
 ): Promise<FolderLocationMatch[]> {
+  const subtree = subtreePrefix(relPath);
   const rows = await sqliteDb(dbOverride).read<{
     asset_id: string;
     path: string;
@@ -156,10 +155,10 @@ export async function listLiveAssetLocationsUnderFolder(
        JOIN assets a ON a.id = l.asset_id
       WHERE l.library_id = ?
         AND l.deleted_at IS NULL
-        AND (l.path = ? OR l.path LIKE ? ESCAPE '\\')
+        AND (l.path = ? OR substr(l.path, 1, length(?)) = ?)
         AND a.deleted_at IS NULL
       ORDER BY l.asset_id, l.ordinal`,
-    [toHex(folderId), relPath, likePrefix(relPath)],
+    [toHex(folderId), relPath, subtree, subtree],
   );
   return firstPerAsset(rows);
 }
@@ -168,11 +167,11 @@ export async function listLiveAssetLocationsUnderFolder(
  * Every trashed asset whose recorded `original_path` was under
  * `folderRoot/relPath`, with the location in `folderId` that trash repointed.
  *
- * The entry is matched on its library alone, with no liveness test, because a
- * trashed entry stays live by the per-entry definition — trash stamps the
- * asset's own `deleted_at` and rewrites the entry's address to the
- * `.maple/trash/` copy. Testing the entry would exclude exactly the rows this
- * query exists to find.
+ * The entry is matched on its library and its address inside `.maple/trash/`,
+ * because a trashed entry stays live by the per-entry definition — trash
+ * stamps the asset's own `deleted_at` and rewrites only the moved entry's
+ * address. A second copy of the photo in the same library is never the one
+ * a folder restore moves (#5405).
  */
 export async function listTrashedAssetLocationsUnderFolder(
   folderId: ObjectId,
@@ -181,6 +180,7 @@ export async function listTrashedAssetLocationsUnderFolder(
   dbOverride?: SqliteDb,
 ): Promise<FolderLocationMatch[]> {
   const absFolderPath = relPath === '' ? folderRoot : path.join(folderRoot, relPath);
+  const subtree = subtreePrefix(absFolderPath);
   const rows = await sqliteDb(dbOverride).read<{
     asset_id: string;
     path: string;
@@ -190,10 +190,12 @@ export async function listTrashedAssetLocationsUnderFolder(
        FROM asset_locations l
        JOIN assets a ON a.id = l.asset_id
       WHERE l.library_id = ?
+        AND l.deleted_at IS NULL
+        AND (l.path = '.maple/trash' OR substr(l.path, 1, 13) = '.maple/trash/')
         AND a.deleted_at IS NOT NULL
-        AND (a.original_path = ? OR a.original_path LIKE ? ESCAPE '\\')
+        AND (a.original_path = ? OR substr(a.original_path, 1, length(?)) = ?)
       ORDER BY l.asset_id, l.ordinal`,
-    [toHex(folderId), absFolderPath, likePrefix(absFolderPath)],
+    [toHex(folderId), absFolderPath, subtree, subtree],
   );
   return firstPerAsset(rows);
 }

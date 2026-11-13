@@ -177,10 +177,7 @@ public sealed partial class MainWindow
         _infoPaneOpen = false;
         SetMode(ShellMode.Edit);
         ResetZoom();
-        var fitDeadline = Environment.TickCount64 + 5000;
-        while (Math.Abs(ViewerScroll.ZoomFactor - 1) > .001 && Environment.TickCount64 < fitDeadline)
-            await Task.Delay(50);
-        if (Math.Abs(ViewerScroll.ZoomFactor - 1) > .001)
+        if (!_canvasZoom.IsFit || ZoomPanTransform.ScaleX != 1)
             throw new InvalidOperationException("Editor visual checkpoint did not reach Fit zoom.");
         var group = name switch
         {

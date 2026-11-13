@@ -23,14 +23,16 @@
       a.filename
     }}</span>
   </mui-button>
-  @defer (on interaction(renameTrigger)) {
+  @defer (on interaction(renameTrigger); when isEditing()) {
     @if (isEditing()) {
       <div class="mb-1 py-0.5">
         <app-inline-rename-field
           [filename]="a.filename"
           [error]="renameSvc.error()"
           [busy]="renameSvc.busy()"
-          [collision]="isCollision()"
+          [collision]="pendingCollision() !== null"
+          [collisionFilename]="pendingCollision()?.filename ?? null"
+          [keepBothAvailable]="!pendingCollision()?.companion"
           (committed)="onCommit($event)"
           (cancelled)="renameSvc.cancel()"
           (collisionResolved)="onCollisionResolved($event)"

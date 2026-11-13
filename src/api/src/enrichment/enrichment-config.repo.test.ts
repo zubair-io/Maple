@@ -11,10 +11,6 @@
 import { describe, it, expect, afterEach, beforeEach } from 'bun:test';
 import {
   DEFAULT_DESCRIBE_MODELS,
-  DEFAULT_MEILISEARCH_EMBEDDER_MODEL,
-  DEFAULT_MEILISEARCH_EMBEDDER_URL,
-  DEFAULT_MEILISEARCH_SEMANTIC_RATIO,
-  DEFAULT_MEILISEARCH_TASK_TIMEOUT_SECONDS,
   DESCRIBE_VISION_OLLAMA_TAG,
   loadEnrichmentConfig,
   saveEnrichmentConfig,
@@ -148,83 +144,6 @@ describe('resolveEnrichmentConfig — pure logic', () => {
     expect(r.source.nominatim_rate_limit_per_sec).toBe('env');
   });
 
-  it('meilisearch_url falls back to env when no DB row', () => {
-    const r = resolveEnrichmentConfig(null, {
-      MAPLE_MEILISEARCH_URL: 'http://meili.lan:7700',
-    });
-    expect(r.meilisearch_url).toBe('http://meili.lan:7700');
-    expect(r.source.meilisearch_url).toBe('env');
-  });
-
-  it('meilisearch_url DB wins over env', () => {
-    const r = resolveEnrichmentConfig(
-      { nominatim_url: null, geocode_worker_enabled: true, meilisearch_url: 'http://db.lan:7700' },
-      { MAPLE_MEILISEARCH_URL: 'http://env.lan:7700' },
-    );
-    expect(r.meilisearch_url).toBe('http://db.lan:7700');
-    expect(r.source.meilisearch_url).toBe('db');
-  });
-
-  it('meilisearch_url is null/unset when neither DB nor env set it', () => {
-    const r = resolveEnrichmentConfig(null, {});
-    expect(r.meilisearch_url).toBeNull();
-    expect(r.source.meilisearch_url).toBe('unset');
-  });
-
-  it('meilisearch_url DB null/empty falls through to env', () => {
-    const r = resolveEnrichmentConfig(
-      { nominatim_url: null, geocode_worker_enabled: true, meilisearch_url: '   ' },
-      { MAPLE_MEILISEARCH_URL: 'http://env.lan:7700' },
-    );
-    expect(r.meilisearch_url).toBe('http://env.lan:7700');
-    expect(r.source.meilisearch_url).toBe('env');
-  });
-
-  it('meilisearch_api_key resolves DB > env > unset', () => {
-    expect(resolveEnrichmentConfig(null, {}).meilisearch_api_key).toBeNull();
-    expect(resolveEnrichmentConfig(null, {}).source.meilisearch_api_key).toBe('unset');
-
-    const envOnly = resolveEnrichmentConfig(null, { MAPLE_MEILISEARCH_API_KEY: 'env-key' });
-    expect(envOnly.meilisearch_api_key).toBe('env-key');
-    expect(envOnly.source.meilisearch_api_key).toBe('env');
-
-    const dbWins = resolveEnrichmentConfig(
-      { nominatim_url: null, geocode_worker_enabled: true, meilisearch_api_key: 'db-key' },
-      { MAPLE_MEILISEARCH_API_KEY: 'env-key' },
-    );
-    expect(dbWins.meilisearch_api_key).toBe('db-key');
-    expect(dbWins.source.meilisearch_api_key).toBe('db');
-  });
-
-  it('meilisearch task timeout resolves DB value or safe default', () => {
-    const defaultConfig = resolveEnrichmentConfig(null, {});
-    expect(defaultConfig.meilisearch_task_timeout_seconds).toBe(
-      DEFAULT_MEILISEARCH_TASK_TIMEOUT_SECONDS,
-    );
-    expect(defaultConfig.source.meilisearch_task_timeout_seconds).toBe('default');
-
-    const dbConfig = resolveEnrichmentConfig(
-      {
-        nominatim_url: null,
-        geocode_worker_enabled: true,
-        meilisearch_task_timeout_seconds: 900,
-      },
-      {},
-    );
-    expect(dbConfig.meilisearch_task_timeout_seconds).toBe(900);
-    expect(dbConfig.source.meilisearch_task_timeout_seconds).toBe('db');
-  });
-
-  it('semantic search defaults off with built-in runtime values', () => {
-    const r = resolveEnrichmentConfig(null, {});
-    expect(r.meilisearch_semantic_enabled).toBe(false);
-    expect(r.meilisearch_embedder_url).toBe(DEFAULT_MEILISEARCH_EMBEDDER_URL);
-    expect(r.meilisearch_embedder_model).toBe(DEFAULT_MEILISEARCH_EMBEDDER_MODEL);
-    expect(r.meilisearch_semantic_ratio).toBe(DEFAULT_MEILISEARCH_SEMANTIC_RATIO);
-    expect(r.source.meilisearch_semantic_enabled).toBe('default');
-    expect(r.source.meilisearch_embedder_model).toBe('default');
-  });
-
   it('derives a single describe server from describe_provider_url when no list is saved', () => {
     const r = resolveEnrichmentConfig(
       {
@@ -244,8 +163,8 @@ describe('resolveEnrichmentConfig — pure logic', () => {
         nominatim_url: null,
         geocode_worker_enabled: true,
         // Deliberately stale: the list is authoritative, so this value must
-        // not win — otherwise captioning and semantic search would talk to
-        // different boxes.
+        // not win — otherwise captioning and the legacy generated-search
+        // fallback would talk to different boxes.
         describe_provider_url: 'http://stale:11434',
         describe_servers: [
           { url: 'http://gpu-a:11434', concurrency: 4 },
@@ -259,7 +178,6 @@ describe('resolveEnrichmentConfig — pure logic', () => {
       { url: 'http://gpu-b:11434', concurrency: 1 },
     ]);
     expect(r.describe_provider_url).toBe('http://gpu-a:11434');
-    expect(r.meilisearch_embedder_url).toBe('http://gpu-a:11434');
     expect(r.source.describe_servers).toBe('db');
     expect(r.source.describe_provider_url).toBe('db');
   });
@@ -278,29 +196,7 @@ describe('resolveEnrichmentConfig — pure logic', () => {
     expect(r.describe_provider_url).toBe('http://ollama.lan:11434');
   });
 
-  it('reuses the Describe Ollama URL for semantic settings and rejects an invalid ratio', () => {
-    const configured = resolveEnrichmentConfig(
-      {
-        nominatim_url: null,
-        geocode_worker_enabled: true,
-        describe_provider: 'ollama',
-        describe_provider_url: 'http://ollama.lan:11434',
-        meilisearch_semantic_enabled: true,
-        meilisearch_embedder_url: 'http://stale-legacy-url:11434',
-        meilisearch_embedder_model: 'custom-embedder',
-        meilisearch_semantic_ratio: 0.7,
-      },
-      {},
-    );
-    expect(configured.meilisearch_semantic_enabled).toBe(true);
-    expect(configured.meilisearch_embedder_url).toBe('http://ollama.lan:11434');
-    expect(configured.meilisearch_embedder_model).toBe('custom-embedder');
-    expect(configured.meilisearch_semantic_ratio).toBe(0.7);
-    expect(configured.source.meilisearch_semantic_enabled).toBe('db');
-    expect(configured.source.meilisearch_embedder_url).toBe('db');
-    expect(configured.source.meilisearch_embedder_model).toBe('db');
-    expect(configured.source.meilisearch_semantic_ratio).toBe('db');
-
+  it('keeps the Describe Ollama URL, whichever provider describes', () => {
     const paidDescribeProvider = resolveEnrichmentConfig(
       {
         nominatim_url: null,
@@ -311,15 +207,6 @@ describe('resolveEnrichmentConfig — pure logic', () => {
       {},
     );
     expect(paidDescribeProvider.describe_provider_url).toBe('http://remote-ollama.lan:11434');
-    expect(paidDescribeProvider.meilisearch_embedder_url).toBe('http://remote-ollama.lan:11434');
-    expect(paidDescribeProvider.source.meilisearch_embedder_url).toBe('db');
-
-    const invalid = resolveEnrichmentConfig(
-      { nominatim_url: null, geocode_worker_enabled: true, meilisearch_semantic_ratio: 2 },
-      {},
-    );
-    expect(invalid.meilisearch_semantic_ratio).toBe(DEFAULT_MEILISEARCH_SEMANTIC_RATIO);
-    expect(invalid.source.meilisearch_semantic_ratio).toBe('default');
   });
 
   it('face_min_detection_size defaults to 0.06 when no DB row', () => {
@@ -441,24 +328,6 @@ describe('saveEnrichmentConfig + loadEnrichmentConfig — SQLite round-trip', ()
     await saveEnrichmentConfig({ nominatim_rate_limit_per_sec: null });
     const c = await loadEnrichmentConfig();
     expect(c!.nominatim_rate_limit_per_sec).toBeNull();
-  });
-
-  it('meilisearch task timeout round-trips through save/load', async () => {
-    await saveEnrichmentConfig({ meilisearch_task_timeout_seconds: 900 });
-    expect((await loadEnrichmentConfig())!.meilisearch_task_timeout_seconds).toBe(900);
-  });
-
-  it('semantic search settings round-trip through save/load', async () => {
-    await saveEnrichmentConfig({
-      meilisearch_semantic_enabled: true,
-      meilisearch_embedder_model: 'custom-embedder',
-      meilisearch_semantic_ratio: 0.65,
-    });
-    expect(await loadEnrichmentConfig()).toMatchObject({
-      meilisearch_semantic_enabled: true,
-      meilisearch_embedder_model: 'custom-embedder',
-      meilisearch_semantic_ratio: 0.65,
-    });
   });
 
   it('maps legacy face_retinaface_* / face_mobilefacenet_* onto new keys at write time', async () => {

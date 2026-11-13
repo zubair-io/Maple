@@ -71,6 +71,17 @@ export function descriptions(roots: readonly XmlSpan[]): XmlSpan[] {
   );
 }
 
+/** The `rdf:about=""` description, else the first — the same choice `applyTransferPatch` makes. */
+export function primaryDescription(xml: string): XmlSpan {
+  const all = descriptions(xmlSpans(xml));
+  const about = (span: XmlSpan): string =>
+    Object.values(span.tag.attributes).find((a) => canonicalXmpName(a.uri, a.local) === 'rdf:about')
+      ?.value ?? '';
+  const primary = all.find((span) => about(span) === '') ?? all[0];
+  if (!primary) throw new Error('XMP has no rdf:Description to merge metadata into');
+  return primary;
+}
+
 const escape = (value: string): string =>
   value
     .replaceAll('&', '&amp;')

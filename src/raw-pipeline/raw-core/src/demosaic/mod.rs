@@ -97,6 +97,46 @@ pub fn demosaic_cancellable(
     }
 }
 
+/// Per-channel CFA scales that balance `neutral` to its smallest channel, so
+/// every scale is at most one. Invalid metadata yields unit scales.
+pub(crate) fn balance_scales(neutral: [f32; 3]) -> [f32; 3] {
+    let minimum = neutral.into_iter().fold(f32::INFINITY, f32::min);
+    Some(neutral)
+        .filter(|n| n.iter().all(|v| v.is_finite() && *v > 0.0))
+        .map(|n| n.map(|n| minimum / n))
+        .filter(|s| s.iter().all(|v| *v > 0.0))
+        .unwrap_or([1.0; 3])
+}
+
+/// Camera-aware AMaZE input conditioning. All other kernels keep their
+/// existing native-domain contract. Invalid metadata reconstructs at unit
+/// scales, which is the plain kernel.
+pub(crate) fn camera_demosaic_cancellable(
+    algo: DemosaicAlgorithm,
+    mosaic: &Image,
+    cfa: CfaPattern,
+    neutral: [f32; 3],
+    gains: Option<crate::sensor_gain_maps::ClipGainContext<'_>>,
+    cancel: crate::cancel::CancelToken<'_>,
+) -> Image {
+    let site_gains = || gains.map(|g| g.site_gains(mosaic.width, mosaic.height));
+    match algo {
+        DemosaicAlgorithm::Amaze => amaze::amaze_with_sensor_gains(
+            mosaic,
+            cfa,
+            balance_scales(neutral),
+            site_gains().as_deref(),
+        ),
+        DemosaicAlgorithm::DualAmazeVng4 => dual::dual_amaze_vng4_with_gains(
+            mosaic,
+            cfa,
+            balance_scales(neutral),
+            site_gains().as_deref(),
+        ),
+        _ => demosaic_cancellable(algo, mosaic, cfa, cancel),
+    }
+}
+
 /// Flatten the sparse 3-channel mosaic to a single float per CFA position.
 ///
 /// `sensor_linearize` populates exactly one of `[r, g, b]` per pixel — the
@@ -116,3 +156,7 @@ pub(crate) fn flatten_mosaic(mosaic: &Image, cfa: CfaPattern) -> Vec<f32> {
         })
         .collect()
 }
+
+#[cfg(test)]
+#[path = "sensor_gain_tests.rs"]
+mod sensor_gain_tests;

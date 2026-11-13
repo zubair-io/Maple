@@ -187,61 +187,6 @@ public final class MapleItem: NSObject, NSFileProviderItem {
     self.filename = file.name
   }
 
-  /// Synthetic Trash container shown at the root of each library.
-  /// The identifier is `trash/<folderID>` so the extension can route
-  /// `enumerator(for:)` to a `TrashEnumerator` and decide capabilities.
-  public init(trashContainer folderID: String, displayName: String) {
-    self.identifier = .trash(folderID: folderID)
-    self.displayName = displayName
-    self.isDirectory = true
-    self.size = nil
-    self.modified = nil
-    self.utType = .folder
-    // Trash itself is read-only as a container — items inside it
-    // can be moved out (restore) or deleted (permanent purge).
-    // `.allowsContentEnumerating` is required for Finder to call
-    // `enumerator(for:)` on it (which routes to TrashEnumerator).
-    // We deliberately do NOT include `.allowsAddingSubItems` —
-    // uploads into Trash are not supported.
-    self.writeCapabilities = [.allowsReading, .allowsContentEnumerating]
-    self.itemIdentifier = NSFileProviderItemIdentifier(self.identifier.rawValue)
-    self.parentItemIdentifier = .rootContainer
-    self.filename = displayName
-  }
-
-  /// Trashed asset surfaced inside the Trash container. Keeps the same
-  /// `asset/<id>` identifier as the live item so identity is stable
-  /// across delete/restore (per spec — server-side identifiers).
-  ///
-  /// Capabilities allow reading (lazy materialization still works on
-  /// trashed files), reparenting (drag back out of Trash to restore),
-  /// and deleting. `.allowsDeleting` — not `.allowsTrashing` — is
-  /// correct here (#2549): Apple's own doc comment for `deleteItem`
-  /// (the `NSFileProviderReplicatedExtension` method this capability
-  /// gates) reads "This is called when the user deletes an item that
-  /// was already in the Trash" — i.e. permanent purge, which is
-  /// exactly what `RemoteCatalog.deleteAsset`'s dual-mode DELETE does
-  /// for an already-trashed asset (see its doc comment). There is no
-  /// "trash the trash" concept to reach for `.allowsTrashing` here.
-  ///
-  /// Returns nil when `item.assetID` is nil — a trashed row that isn't
-  /// an indexed image (#2546: `TrashItem.assetID` is now optional, to
-  /// stop one such row from failing the whole Trash listing's decode).
-  /// `TrashEnumerator` filters these out via `compactMap` and logs the
-  /// count, rather than surfacing a non-addressable item to Finder.
-  public init?(trashed item: TrashItem, parentTrashIdentifier: NSFileProviderItemIdentifier) {
-    guard let assetID = item.assetID, !assetID.isEmpty else { return nil }
-    self.identifier = .asset(assetID)
-    self.displayName = item.filename
-    self.isDirectory = false
-    self.size = NSNumber(value: item.size)
-    self.modified = item.deletedAt
-    self.utType = UTType(filenameExtension: (item.filename as NSString).pathExtension) ?? .data
-    self.writeCapabilities = [.allowsReading, .allowsReparenting, .allowsDeleting]
-    self.itemIdentifier = NSFileProviderItemIdentifier(self.identifier.rawValue)
-    self.parentItemIdentifier = parentTrashIdentifier
-    self.filename = item.filename
-  }
 
   /// Writable XMP sidecar. `parentImageBase` is the paired image's
   /// filename without its extension (e.g. "IMG_1" for "IMG_1.ARW");
@@ -306,34 +251,21 @@ public final class MapleItem: NSObject, NSFileProviderItem {
   /// must never be shown to a user for longer than one failed sync
   /// round-trip (#2537).
   ///
-  /// `parentItemIdentifier` is derived from `folderID + relativePath`
-  /// when both are present (Phase 6 item 2): the change-feed payload
-  /// now carries the asset's path relative to its folder root, so we
-  /// can attach the stub under `folder(folderID, dirname(relPath))`.
-  /// Falls back to `.rootContainer` when either is nil — legacy
-  /// server payloads, or rows where the server couldn't reconcile
-  /// absPath against folder.path. `.rootContainer` is always-valid
-  /// (unlike `.workingSet`, which `item(for:)` now unconditionally
-  /// rejects with `noSuchItem` — see `FileProviderExtensionCore
-  /// .resolveAssetParent`'s "NEVER .workingSet" clause); the OS
-  /// reattaches under the real folder on the next folder enumeration
-  /// regardless.
+  /// The stub sits under `folder(folderID, dirname(relativePath))`. A row
+  /// without both has no place in the tree and gets no stub: a top-level
+  /// parent would stay put in Files until the asset next changed (#5503).
   ///
-  /// `filename` falls back to `lastPathComponent(relativePath)` when
-  /// available — saves Finder from briefly painting "(stub)" before
-  /// `item(for:)` resolves the full metadata.
+  /// `filename` is `lastPathComponent(relativePath)`, or "(stub)" when
+  /// that is empty, until `item(for:)` resolves the full metadata.
   public init(
     stubAssetID assetID: String,
     cursor: Int64,
-    folderID: String? = nil,
-    relativePath: String? = nil
+    folderID: String,
+    relativePath: String
   ) {
     self.identifier = .asset(assetID)
-    let resolvedFilename: String = {
-      guard let rel = relativePath, !rel.isEmpty else { return "(stub)" }
-      let last = (rel as NSString).lastPathComponent
-      return last.isEmpty ? "(stub)" : last
-    }()
+    let last = (relativePath as NSString).lastPathComponent
+    let resolvedFilename = last.isEmpty ? "(stub)" : last
     self.displayName = resolvedFilename
     self.isDirectory = false
     self.size = nil
@@ -352,19 +284,10 @@ public final class MapleItem: NSObject, NSFileProviderItem {
     self.utType = ext.isEmpty ? .data : (UTType(filenameExtension: ext) ?? .data)
     self.writeCapabilities = [.allowsReading]
     self.itemIdentifier = NSFileProviderItemIdentifier(self.identifier.rawValue)
-    if let folderID, let rel = relativePath {
-      // Parent dir relative to the folder root. `lastPathComponent`
-      // of `relativePath` is the filename; `deletingLastPathComponent`
-      // gives the dir. Both for a root-level asset reduce to `""`,
-      // which is the folder-root identifier (`folder(folderID, "")`).
-      let parentRel = (rel as NSString).deletingLastPathComponent
-      let parent = FileProviderIdentifier.folder(
-        folderID: folderID,
-        relativePath: parentRel)
-      self.parentItemIdentifier = NSFileProviderItemIdentifier(parent.rawValue)
-    } else {
-      self.parentItemIdentifier = .rootContainer
-    }
+    let parent = FileProviderIdentifier.folder(
+      folderID: folderID,
+      relativePath: (relativePath as NSString).deletingLastPathComponent)
+    self.parentItemIdentifier = NSFileProviderItemIdentifier(parent.rawValue)
     self.filename = resolvedFilename
   }
 
@@ -399,7 +322,7 @@ public final class MapleItem: NSObject, NSFileProviderItem {
   /// Synthetic `.maple/thumbs/` directory — the only child of a
   /// `.mapleDir`. Children are one `.thumb(assetID:)` per indexed
   /// image in `parentRelativePath`, named with the server's
-  /// `sha256_prefix16(basename).avif` convention.
+  /// `<filename>.avif` convention.
   public init(
     mapleThumbsDir folderID: String,
     parentRelativePath: String,
@@ -418,7 +341,7 @@ public final class MapleItem: NSObject, NSFileProviderItem {
   }
 
   /// Pre-rendered thumbnail AVIF. `displayFilename` is the server's
-  /// on-disk name (`<sha256_prefix16(basename)>.avif`), derived by the
+  /// on-disk name (`<filename>.avif`), derived by the
   /// enumerator from the paired RAW's filename. Identifier carries
   /// only the assetID — the OS reaches `fetchContents` with the
   /// `.thumb(assetID:)` shape and the extension hits
@@ -446,7 +369,7 @@ public final class MapleItem: NSObject, NSFileProviderItem {
     self.isDirectory = false
     self.size = nil
     self.modified = modified
-    self.utType = UTType(filenameExtension: "avif") ?? ThumbnailEncoder.utType
+    self.utType = UTType(filenameExtension: "avif") ?? UTType(importedAs: "public.avif")
     // Read-only — `.maple/thumbs/` is a derived cache. Deletes
     // here would leak through to the server-side cache and the
     // next enumeration would just regenerate the entry.
@@ -492,7 +415,7 @@ public final class MapleItem: NSObject, NSFileProviderItem {
     self.isDirectory = false
     self.size = nil
     self.modified = modified
-    self.utType = UTType(filenameExtension: "avif") ?? ThumbnailEncoder.utType
+    self.utType = UTType(filenameExtension: "avif") ?? UTType(importedAs: "public.avif")
     self.writeCapabilities = [.allowsReading]
     self.itemIdentifier = NSFileProviderItemIdentifier(self.identifier.rawValue)
     self.parentItemIdentifier = parentIdentifier

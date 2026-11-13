@@ -1,11 +1,12 @@
 /**
- * Per-stage orchestrator — boots and drains the in-process stage runners.
+ * Per-stage orchestrator — boots and drains the stage handles the stage lane schedules.
  *
  * Replaces the deleted multi-process supervisor (`supervisor.ts`) — see issue
  * #135. Each `startXxxStage()` function in `stages/*.ts` calls `runStage()`
  * which publishes itself into the in-process `stageRegistry` and returns a
- * `RunStageHandle` whose `stop()` drains in-flight work. This file tracks
- * those handles for graceful shutdown.
+ * `RunStageHandle`. This file keeps those handles: the stage lane
+ * (`stage-lane.ts`) reads them through {@link bootedStages} to schedule work,
+ * and {@link stopAllStages} drains them at shutdown.
  *
  * Boot is best-effort: a failing stage logs and is skipped so a misconfigured
  * dependency (e.g. ONNX model missing) doesn't take the whole API down. For
@@ -27,10 +28,12 @@ const log = childLogger('workers:orchestrator');
 const handles = new Map<string, RunStageHandle>();
 const retryTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
-// Bounded retry schedule for failed starters. Matches the per-tick poll-loop
-// backoff in run-stage.ts so transient Mongo / dependency failures recover on
-// the same order-of-magnitude as in-loop errors. Saturates at the final value.
+// Bounded retry schedule for failed starters, on the same order of magnitude as
+// the Temporal retry a failing slice gets. Saturates at the final value.
 const RETRY_BACKOFF_MS = [1_000, 2_000, 4_000, 8_000, 16_000, 30_000];
+
+/** Stages that have booted and not been stopped, by name. */
+export const bootedStages = (): ReadonlyMap<string, RunStageHandle> => handles;
 
 async function attemptStart(
   name: string,

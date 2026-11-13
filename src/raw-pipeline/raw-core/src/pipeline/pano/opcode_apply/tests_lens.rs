@@ -112,7 +112,7 @@ fn zero_scales_skip_every_opcode_bit_identically() {
                 center_y: 0.5,
             }),
         ],
-        skipped_unknown: 0,
+        skipped: Vec::new(),
     };
     let mut img = Image::new(w, h, ColorSpace::SceneLinearRec2020);
     for (i, px) in img.pixels.iter_mut().enumerate() {

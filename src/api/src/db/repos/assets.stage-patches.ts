@@ -20,6 +20,7 @@
  * rejects a handler that tries (`assertNoStageState`).
  */
 
+import type { RecordedMotionClip } from '../../indexer/motion-photo/types.ts';
 import type { SqlStatement } from '../sqlite/protocol.ts';
 import type {
   AssetDoc,
@@ -68,31 +69,18 @@ const SEARCH_BLOB_UPSERT_SQL = `
 const SEARCH_BLOB_DELETE_SQL = `DELETE FROM asset_search WHERE asset_id = ?`;
 
 /**
- * The search stage's output: the recomposed blob, and the fingerprint recording
- * which embedder produced the vectors now in Meilisearch.
+ * The search-blob stage's output: the recomposed blob.
  *
  * An empty blob is a delete rather than an update to `''`. `asset_search` holds
  * a row only for an asset with something to match — the `CHECK (search_blob <>
- * '')` in the DDL is the partial filter the Mongo text index spelled out — and
- * the FTS5 index is external-content over this table, so a blank row would be a
- * posting list entry for nothing.
+ * '')` in the DDL is the partial filter — and the FTS5 index is external-content
+ * over this table, so a blank row would be a posting list entry for nothing.
  */
-export function searchBlobStatements(
-  assetId: string,
-  blob: string,
-  semanticFingerprint: string | null,
-): SqlStatement[] {
-  const blobStatement: SqlStatement =
+export function searchBlobStatements(assetId: string, blob: string): SqlStatement[] {
+  return [
     blob === ''
       ? { sql: SEARCH_BLOB_DELETE_SQL, params: [assetId] }
-      : { sql: SEARCH_BLOB_UPSERT_SQL, params: [assetId, blob] };
-  if (semanticFingerprint === null) return [blobStatement];
-  return [
-    blobStatement,
-    {
-      sql: `UPDATE assets SET semantic_vector_fingerprint = ? WHERE id = ?`,
-      params: [semanticFingerprint, assetId],
-    },
+      : { sql: SEARCH_BLOB_UPSERT_SQL, params: [assetId, blob] },
   ];
 }
 
@@ -276,7 +264,9 @@ const DESCRIBE_UPSERT_SQL = `
   SELECT id, ?, json(?), ?, json(?), json(?), json(?) FROM assets WHERE id = ?
   ON CONFLICT (asset_id) DO UPDATE SET
     description      = excluded.description,
-    description_meta = excluded.description_meta,
+    description_meta = json_set(excluded.description_meta, '$.cost_usd',
+      COALESCE(json_extract(asset_detail.description_meta, '$.cost_usd'), 0)
+        + COALESCE(json_extract(excluded.description_meta, '$.cost_usd'), 0)),
     ocr_text         = excluded.ocr_text,
     ocr_meta         = excluded.ocr_meta,
     vision           = excluded.vision,
@@ -308,7 +298,9 @@ const VIDEO_DESCRIPTION_UPSERT_SQL = `
   SELECT id, json(?), json(?) FROM assets WHERE id = ?
   ON CONFLICT (asset_id) DO UPDATE SET
     video_description      = excluded.video_description,
-    video_description_meta = excluded.video_description_meta`;
+    video_description_meta = json_set(excluded.video_description_meta, '$.cost_usd',
+      COALESCE(json_extract(asset_detail.video_description_meta, '$.cost_usd'), 0)
+        + COALESCE(json_extract(excluded.video_description_meta, '$.cost_usd'), 0))`;
 
 /**
  * The video-describe stage's output: the whole multi-frame description and its
@@ -325,6 +317,41 @@ export function videoDescriptionStatements(
     {
       sql: VIDEO_DESCRIPTION_UPSERT_SQL,
       params: [JSON.stringify(description), JSON.stringify(meta), assetId],
+    },
+  ];
+}
+
+/**
+ * The `live-photo` stage's output: the Apple content identifier read from the
+ * file. `null` clears it, so a re-run over an edited original retires an
+ * identifier the file no longer carries.
+ */
+export function liveContentIdStatements(assetId: string, contentId: string | null): SqlStatement[] {
+  return [
+    { sql: 'UPDATE assets SET live_content_id = ? WHERE id = ?', params: [contentId, assetId] },
+  ];
+}
+
+/** What the `motion-photo` stage verified: the clip's byte range inside the original. */
+/**
+ * The `motion-photo` stage's output. `null` clears all four columns, which is
+ * how a re-run over an edited original retires a clip it no longer carries.
+ */
+export function motionPhotoStatements(
+  assetId: string,
+  clip: RecordedMotionClip | null,
+): SqlStatement[] {
+  return [
+    {
+      sql: `UPDATE assets SET motion_video_start = ?, motion_video_length = ?,
+              motion_video_mime = ?, motion_source_size = ? WHERE id = ?`,
+      params: [
+        clip?.start ?? null,
+        clip?.length ?? null,
+        clip?.mime ?? null,
+        clip?.sourceSize ?? null,
+        assetId,
+      ],
     },
   ];
 }

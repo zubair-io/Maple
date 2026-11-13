@@ -5,35 +5,36 @@
 
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
-import { EMBEDDER_TEMPLATE_SHAPE_VERSION } from '../enrichment/meilisearch-embedder-template.ts';
+import { EMBEDDER_TEMPLATE_SHAPE_VERSION } from '../enrichment/embedder-document.ts';
+import { CHANGE_OVERLAP_MS, isoBefore } from './search-change-feed.ts';
 import {
-  CHANGE_OVERLAP_MS,
-  isoBefore,
   loadAllVectors,
   rebuildText,
   VectorFollower,
+  type FollowerWatermarks,
   type SearchEngineOps,
 } from './search-index-sync.ts';
 import type { SearchChildState } from './search-protocol.ts';
-import {
-  countSkippedVectors,
-  modelSpellings,
-  normalisedModel,
-} from '../db/repos/asset-vectors.search.ts';
+import { countSkippedVectors, modelSpellings } from '../db/repos/asset-vectors.search.ts';
 
-/** The template shape the text is rendered with, then this layout's own revision. */
-export const SEARCH_INDEX_VERSION = `${EMBEDDER_TEMPLATE_SHAPE_VERSION}.1`;
+/**
+ * The template shape the text is rendered with, then this layout's own revision: `.2` added the
+ * `search_blob` field (#4512).
+ */
+export const SEARCH_INDEX_VERSION = `${EMBEDDER_TEMPLATE_SHAPE_VERSION}.2`;
 
-export interface SearchIndexState {
+export interface SearchIndexState extends FollowerWatermarks {
   version: string;
-  textWatermark: string;
 }
 
 export function readIndexState(stateFile: string): SearchIndexState | null {
   try {
     const parsed = JSON.parse(readFileSync(stateFile, 'utf-8')) as Partial<SearchIndexState>;
-    return typeof parsed.version === 'string' && typeof parsed.textWatermark === 'string'
-      ? { version: parsed.version, textWatermark: parsed.textWatermark }
+    const { version, textWatermark, blobWatermark } = parsed;
+    return typeof version === 'string' &&
+      typeof textWatermark === 'string' &&
+      typeof blobWatermark === 'string'
+      ? { version, textWatermark, blobWatermark }
       : null;
   } catch {
     return null;
@@ -54,29 +55,6 @@ export function reusableIndexState(stateFile: string, indexDir: string): SearchI
   if (saved?.version === SEARCH_INDEX_VERSION) return saved;
   rmSync(indexDir, { recursive: true, force: true });
   return null;
-}
-
-/** The model the engine embeds queries with; document vectors must come from the same one. */
-const QUERY_EMBEDDER_MODEL = 'bge-m3';
-
-/** Whether an Ollama model name (`bge-m3`, `bge-m3:latest`, `library/bge-m3:567m`) is bge-m3. */
-export function matchesQueryEmbedder(model: string): boolean {
-  const name = normalisedModel(model).toLowerCase().split('/').pop()!.split(':')[0];
-  return name === QUERY_EMBEDDER_MODEL;
-}
-
-/** Why the configured model cannot be searched in-process, or null when it can. */
-export function incompatibleEmbedderState(model: string): SearchChildState | null {
-  if (matchesQueryEmbedder(model)) return null;
-  return {
-    phase: 'incompatible-embedder',
-    vectors: 0,
-    texts: 0,
-    textReady: false,
-    model,
-    matchedModels: modelSpellings(model),
-    error: `the embed stage uses "${model}", but in-process search embeds queries with ${QUERY_EMBEDDER_MODEL}; choose ${QUERY_EMBEDDER_MODEL} as the embedding model on Settings → AI`,
-  };
 }
 
 /**
@@ -126,17 +104,17 @@ export async function bootSearchIndex(
   const follower = new VectorFollower(
     engine,
     held,
-    saved ? earlier(saved.textWatermark, since) : since,
+    {
+      textWatermark: saved ? earlier(saved.textWatermark, since) : since,
+      blobWatermark: saved ? earlier(saved.blobWatermark, since) : since,
+    },
     model,
   );
   if (!saved) await rebuildText(engine, [...held]);
   await follower.poll();
   if (counts().texts !== follower.heldCount) await rebuildText(engine, [...held]);
 
-  writeIndexState(stateFile, {
-    version: SEARCH_INDEX_VERSION,
-    textWatermark: follower.textWatermark,
-  });
+  writeIndexState(stateFile, { version: SEARCH_INDEX_VERSION, ...follower.watermarks });
   report(await readyState(engine, model, true));
   return follower;
 }

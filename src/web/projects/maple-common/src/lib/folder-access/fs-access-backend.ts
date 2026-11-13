@@ -398,6 +398,19 @@ export async function fsAccessWriteFile(
   }
 }
 
+// ── Remove file ───────────────────────────────────────────────────────────────
+
+export async function fsAccessRemoveFile(folder: MapleFolderHandle, path: string): Promise<void> {
+  if (!folder.native) throw new Error('fs-access: no native handle');
+  if (!folder.write) throw new Error('fs-access: no write permission');
+  const parts = path.split('/').filter((part) => part.length > 0 && part !== '.');
+  let directory = folder.native;
+  for (const part of parts.slice(0, -1)) {
+    directory = await directory.getDirectoryHandle(part);
+  }
+  await directory.removeEntry(parts.at(-1) ?? '');
+}
+
 // ── Ensure subdirectory ───────────────────────────────────────────────────────
 
 export async function fsAccessEnsureSubdirectory(

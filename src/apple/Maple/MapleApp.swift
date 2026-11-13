@@ -31,11 +31,17 @@ struct MapleApp: App {
   @Environment(\.scenePhase) private var scenePhase
 
   init() {
-    // Preserve the published early-feature default for Panorama (#3773).
-    FeatureFlags.publishResolvedFlags()
     Self.registerBundledFonts()
     Self.installMemoryPressureObserver()
+    // #5489, #5555: panorama frames and scratch a killed run left behind.
+    Task.detached(priority: .utility) {
+      PanoFrameCache.sweep()
+      RustPanoStitcher.sweepLeftoverScratch()
+    }
     BGTaskRegistration.register()
+    #if os(iOS)
+      WatchPhonePairing.shared.start()
+    #endif
     // #1338 — MUST run on the main thread, before any GpuLiveSession
     // actor could read CanvasColorSpace.current: this is the one-time
     // UIScreen/NSScreen probe that seeds the P3-vs-sRGB default for an
@@ -140,7 +146,7 @@ struct MapleApp: App {
       if ProcessInfo.processInfo.environment["MAPLE_GPU_DEBUG"] == "1" {
         GpuDebugView()
       } else {
-        appShell
+        appShell.providesStatusRegions()
       }
     }
     .commands { CanvasZoomCommands() }
@@ -222,9 +228,17 @@ struct MapleApp: App {
         // it now instead of waiting for the next launch (#2851).
         Task { await Self.startBackupIfAuthorized() }
       }
+      #if os(iOS)
+        .onChange(of: scenePhase, initial: true) { _, phase in
+          BackupScreenSaverController.shared.setActive(phase == .active)
+        }
+      #endif
       .onChange(of: scenePhase) { _, newPhase in
         if newPhase == .background {
           BGTaskRegistration.schedule()
+          #if os(iOS)
+            Task { await BackupSuspension.enterBackground() }
+          #endif
         }
         if newPhase == .active {
           // Deterministic widget refresh: WidgetKit's own
@@ -239,6 +253,7 @@ struct MapleApp: App {
         }
         #if os(iOS)
           if newPhase == .active {
+            Task { await BackupSuspension.enterForeground() }
             // Re-foreground: signal every active File Provider
             // domain so the next Files-app refresh sees fresh
             // server state. Best-effort; failures surface in the
@@ -272,6 +287,7 @@ struct MapleApp: App {
     // in hand — latch that evidence so users whose grant was revoked
     // before PhotosAccessMemory existed still get the sidebar warning.
     PhotosAccessMemory.latchGrantEvidence()
+    BackupAgentService.sync()
     let status = PhotoKitLibrary.authorizationStatus()
     guard status == .authorized || status == .limited else { return }
     await EngineHost.shared.start(settings: settings)

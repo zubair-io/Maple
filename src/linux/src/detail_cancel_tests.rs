@@ -191,6 +191,7 @@ fn cancelled_base_is_not_retained_and_resumption_matches_reference() {
             ext: "dng",
         },
         DetailRenderOptions {
+            target: raw_core::view::encode::TargetPrimaries::Srgb,
             quality: RenderQuality::Preview,
             max_long_edge: 1600,
             film_lut: None,

@@ -7,8 +7,8 @@
 //     PhotoKit-library filter flow (deferred-permission style: clicking a
 //     filter never ambushes the user with a system dialog; the request
 //     fires from the empty-state "Grant Access" button)
-//   • openLocalPhotoKitAsset — open a single PhotoKit asset in the editor
-//     (used by the merged cloud-timeline's local-only cells)
+//   • openLocalTimelineAsset — open a merged timeline's local-only cell (a
+//     PhotoKit asset or a saved Folder's file) in the editor
 //   • connectSMB / connectSavedSMB — SMB share connect flow (lives here
 //     alongside PhotoKit as a sibling "local-but-not-folder" source path)
 //
@@ -117,9 +117,10 @@ extension AppShell {
     /// Synchronous + throwing: the failable calls are `PhotoKitSource()` and
     /// `PhotoKitSidecarStore.init(phassetLocalId:)` — both fail only on the
     /// same rare condition (Application Support unavailable).
-    /// Shared by the Mac / iPad `openLocalPhotoKitAsset` (flips
-    /// `mode = imageOpenMode`, i.e. `.preview`) and the iPhone tap that pushes
-    /// the S5 editor onto the Library tab's `NavigationStack` (#809).
+    /// Reached through `prepareLocalTimelineSession`, shared by the Mac / iPad
+    /// `openLocalTimelineAsset` (flips `mode = imageOpenMode`, i.e.
+    /// `.preview`) and the iPhone tap that pushes the S5 editor onto the
+    /// Library tab's `NavigationStack` (#809).
     @MainActor
     func prepareLocalPhotoKitSession(_ ref: ImageRef) throws -> AssetRef {
         let source = try PhotoKitSource()
@@ -143,15 +144,27 @@ extension AppShell {
         return assetRef
     }
 
-    /// Open a `.localOnly` PhotoKit cell. Mac / iPad pane-shell entry point —
+    /// A `.localOnly` Timeline cell's asset and edit session: a saved Folder's
+    /// file gets the same XMP-sidecar session as the folder grid (#5033), a
+    /// PhotoKit asset its PhotoKit one.
+    @MainActor
+    func prepareLocalTimelineSession(_ ref: ImageRef) throws -> AssetRef {
+        guard let file = AssetRef(fileBacked: ref) else {
+            return try prepareLocalPhotoKitSession(ref)
+        }
+        _ = browseSession(for: file)
+        return file
+    }
+
+    /// Open a `.localOnly` Timeline cell. Mac / iPad pane-shell entry point —
     /// flips `mode` to `imageOpenMode` (the Fast Preview `.preview` surface,
     /// #815). iPhone routes the same tap to the S5 `EditorView` via the
     /// Library tab's `NavigationStack` push instead (#809) and never calls
     /// this.
     @MainActor
-    func openLocalPhotoKitAsset(_ ref: ImageRef) {
+    func openLocalTimelineAsset(_ ref: ImageRef) {
         do {
-            let assetRef = try prepareLocalPhotoKitSession(ref)
+            let assetRef = try prepareLocalTimelineSession(ref)
             browseVM.loadSingleCloudAsset(assetRef)
             mode = imageOpenMode
         } catch {

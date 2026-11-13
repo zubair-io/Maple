@@ -119,12 +119,14 @@ class GoogleStore {
     const hash = /properties has \{ key='mapleKeyHash' and value='([a-f0-9]{64})' \}/.exec(
       query,
     )?.[1];
+    const name = /name = '((?:[^'\\]|\\.)*)'/.exec(query)?.[1]?.replace(/\\(.)/g, '$1');
     return Response.json({
       files: [...this.files.values()]
         .filter(
           (file) =>
             (!parent || file.parents.includes(parent)) &&
-            (!hash || file.properties?.['mapleKeyHash'] === hash),
+            (!hash || file.properties?.['mapleKeyHash'] === hash) &&
+            (name === undefined || file.name === name),
         )
         .map(metadata),
     });

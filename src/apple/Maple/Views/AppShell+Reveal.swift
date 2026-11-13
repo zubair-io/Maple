@@ -49,7 +49,7 @@ extension AppShell {
     mode = .browse
     #if os(iOS)
       if MapleShellKind.current == .phoneTab {
-        libraryPath = []
+        libraryPath = LibraryDestination.folderEntries(in: libraryPath)
       }
     #endif
   }

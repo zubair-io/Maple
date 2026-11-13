@@ -9,7 +9,7 @@
 import { describe, expect, test } from 'bun:test';
 import { createTestDatabase } from '../sqlite/test-sqlite.test-helpers.ts';
 import type { SqliteDb } from './db-handle.ts';
-import { EMBED_STAGE, MEILI_STAGE } from './assets.stage-rearm.ts';
+import { EMBED_STAGE, SEARCH_BLOB_STAGE } from './assets.stage-rearm.ts';
 import { insertStageState } from './assets.test-helpers.ts';
 import { backfillCoverAssets, runOnlineClustering } from './people.clustering-job.ts';
 import { faceCountByPerson } from './people.face-count.ts';
@@ -260,20 +260,20 @@ describe('runOnlineClustering', () => {
     const untouched = insertLiveAsset(db, library);
     insertFace(db, { assetId: assigned, embedding: nearAxis(0, 0.05) });
     // Both look already-indexed, so only a genuine re-arm shows as a change.
-    insertStageState(db, assigned, MEILI_STAGE, { version: 6 });
-    insertStageState(db, untouched, MEILI_STAGE, { version: 6 });
+    insertStageState(db, assigned, SEARCH_BLOB_STAGE, { version: 6 });
+    insertStageState(db, untouched, SEARCH_BLOB_STAGE, { version: 6 });
     insertStageState(db, assigned, EMBED_STAGE, { version: 6 });
     insertStageState(db, untouched, EMBED_STAGE, { version: 6 });
 
     await runOnlineClustering({}, testDb(db));
 
     // The local search work commits with the assignment.
-    expect(stageRow(db, assigned, MEILI_STAGE)?.version).toBe(0);
+    expect(stageRow(db, assigned, SEARCH_BLOB_STAGE)?.version).toBe(0);
     expect(stageRow(db, assigned, EMBED_STAGE)?.version).toBe(0);
     expect(stageRow(db, untouched, EMBED_STAGE)?.version).toBe(6);
     // An asset the pass did not touch keeps its place in the queue — re-arming
     // every asset of every touched person would re-queue an entire library.
-    expect(stageRow(db, untouched, MEILI_STAGE)?.version).toBe(6);
+    expect(stageRow(db, untouched, SEARCH_BLOB_STAGE)?.version).toBe(6);
   });
 
   test('a failed later chunk leaves earlier assignments queued and retries the uncommitted face', async () => {
@@ -288,10 +288,10 @@ describe('runOnlineClustering', () => {
     for (let index = 0; index < 1001; index += 1) {
       const assetId = insertLiveAsset(db, library);
       insertFace(db, { assetId, embedding: nearAxis(0, 0.05) });
-      insertStageState(db, assetId, MEILI_STAGE, { version: 6 });
+      insertStageState(db, assetId, SEARCH_BLOB_STAGE, { version: 6 });
     }
     const untouched = insertLiveAsset(db, library);
-    insertStageState(db, untouched, MEILI_STAGE, { version: 6 });
+    insertStageState(db, untouched, SEARCH_BLOB_STAGE, { version: 6 });
     const inner = testDb(db);
     let assignmentChunks = 0;
     const failing: SqliteDb = {
@@ -301,7 +301,7 @@ describe('runOnlineClustering', () => {
           assignmentChunks += 1;
           if (assignmentChunks === 2) {
             db.exec(`CREATE TRIGGER reject_later_search BEFORE UPDATE ON stage_state
-              WHEN NEW.stage = 'meili' BEGIN SELECT RAISE(ABORT, 'search work unavailable'); END`);
+              WHEN NEW.stage = 'search-blob' BEGIN SELECT RAISE(ABORT, 'search work unavailable'); END`);
           }
         }
         return inner.transaction(statements);
@@ -313,13 +313,15 @@ describe('runOnlineClustering', () => {
       n: 1000,
     });
     expect(
-      db.query("SELECT COUNT(*) AS n FROM stage_state WHERE stage = 'meili' AND version = 0").get(),
+      db
+        .query("SELECT COUNT(*) AS n FROM stage_state WHERE stage = 'search-blob' AND version = 0")
+        .get(),
     ).toEqual({ n: 1000 });
     expect(
       db
         .query(
           `SELECT s.version FROM faces f JOIN stage_state s ON s.asset_id = f.asset_id
-        WHERE f.person_id IS NULL AND s.stage = 'meili'`,
+        WHERE f.person_id IS NULL AND s.stage = 'search-blob'`,
         )
         .all(),
     ).toEqual([{ version: 6 }]);
@@ -330,9 +332,11 @@ describe('runOnlineClustering', () => {
       n: 0,
     });
     expect(
-      db.query("SELECT COUNT(*) AS n FROM stage_state WHERE stage = 'meili' AND version = 0").get(),
+      db
+        .query("SELECT COUNT(*) AS n FROM stage_state WHERE stage = 'search-blob' AND version = 0")
+        .get(),
     ).toEqual({ n: 1001 });
-    expect(stageRow(db, untouched, MEILI_STAGE)?.version).toBe(6);
+    expect(stageRow(db, untouched, SEARCH_BLOB_STAGE)?.version).toBe(6);
   });
 });
 

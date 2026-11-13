@@ -516,12 +516,31 @@ function getWorkflowFfiSymbols(FFIType) {
         FFIType.ptr
       ],
       returns: FFIType.i32
+    },
+    maple_workflow_reconcile_xmp: {
+      args: [
+        FFIType.ptr,
+        FFIType.u64,
+        FFIType.ptr,
+        FFIType.u64,
+        FFIType.ptr,
+        FFIType.u64,
+        FFIType.u64,
+        FFIType.ptr,
+        FFIType.u64,
+        FFIType.ptr
+      ],
+      returns: FFIType.i32
+    },
+    maple_workflow_cursor_xmp: {
+      args: [FFIType.ptr, FFIType.u64, FFIType.ptr, FFIType.u64, FFIType.ptr],
+      returns: FFIType.i32
     }
   };
 }
 function createWorkflowBinding(loadLibrary, ptr, getLastError) {
   const libraries = new Map;
-  const convert = (symbol, inputs) => {
+  const convert = (symbol, inputs, scalars = []) => {
     let library = libraries.get(symbol);
     try {
       library ??= loadLibrary(symbol);
@@ -542,7 +561,7 @@ function createWorkflowBinding(loadLibrary, ptr, getLastError) {
       ptr(buffer.length ? buffer : empty),
       BigInt(buffer.byteLength)
     ]);
-    const rc = library.symbols[symbol](...args, ptr(out), BigInt(out.byteLength), ptr(outLen));
+    const rc = library.symbols[symbol](...args, ...scalars, ptr(out), BigInt(out.byteLength), ptr(outLen));
     if (rc !== 0)
       return { ok: false, error: getLastError() ?? `Workflow conversion failed: ${rc}` };
     const length = Number(outLen.readBigUInt64LE());
@@ -558,7 +577,9 @@ function createWorkflowBinding(loadLibrary, ptr, getLastError) {
     workflowReadXmp: (xmp) => convert("maple_workflow_read_xmp", [xmp]),
     workflowEmbedXmp: (json, xmp) => convert("maple_workflow_embed_xmp", [json, xmp]),
     workflowCheckpointXmp: (xmp) => convert("maple_workflow_checkpoint_xmp", [xmp]),
-    workflowVariantFilename: (primaryName, variantId) => convert("maple_workflow_variant_filename", [primaryName, variantId])
+    workflowVariantFilename: (primaryName, variantId) => convert("maple_workflow_variant_filename", [primaryName, variantId]),
+    workflowReconcileXmp: (base, current, incoming, nowMs) => /^\d{1,16}$/.test(nowMs) ? convert("maple_workflow_reconcile_xmp", [base, current, incoming], [BigInt(nowMs)]) : { ok: false, error: "Workflow timestamp must be whole milliseconds" },
+    workflowCursorXmp: (xmp) => convert("maple_workflow_cursor_xmp", [xmp])
   };
 }
 
@@ -821,6 +842,8 @@ function tryLoadNapiBinding() {
       workflowEmbedXmp: wrap((json, xmp) => workflow("workflowEmbedXmp", [json, xmp])),
       workflowCheckpointXmp: wrap((xmp) => workflow("workflowCheckpointXmp", [xmp])),
       workflowVariantFilename: wrap((primaryName, variantId) => workflow("workflowVariantFilename", [primaryName, variantId])),
+      workflowReconcileXmp: wrap((base, current, incoming, nowMs) => workflow("workflowReconcileXmp", [base, current, incoming, Number(nowMs)])),
+      workflowCursorXmp: wrap((xmp) => workflow("workflowCursorXmp", [xmp])),
       renderFilenameTemplate: wrap((args) => addon.renderFilenameTemplate({ ...args, capturedAt: args.capturedAt ?? undefined })),
       validateFilename: wrap((name) => addon.validateFilename(name)),
       rasterProbeMetadata: wrap((inputPath) => addon.rasterProbeMetadata(inputPath)),

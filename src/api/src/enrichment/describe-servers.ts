@@ -6,8 +6,8 @@
  * the pool can't disagree):
  *
  *   - The list is ordered. Entry 0 is the DEFAULT server: every other
- *     consumer of a shared Ollama endpoint (semantic-search embedder,
- *     generated-search) reads `describe_provider_url`, which the resolver
+ *     consumer of a shared Ollama endpoint (the legacy
+ *     generated-search fallback) reads `describe_provider_url`, which the resolver
  *     mirrors from entry 0. Reordering in the UI is what "make this the
  *     default" means.
  *   - `concurrency` is per server — the describe stage never has more than

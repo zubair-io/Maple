@@ -105,11 +105,16 @@
 //     CPU alike, #1043); forced to literal 0 (NOT the 25/40 defaults) to
 //     kill the double-apply described above
 //
+//   * `sharpenRadius`, `sharpenDetail`, `sharpenMasking`, and the
+//     post-AgX / display-side fields (parametric splits, `toneCurveMode`,
+//     `displayToneCurve*`, `splitTone*`, `colorGrade*`, `grain*`,
+//     `filmLook`/`filmStrength`, `wbMethod`) — never applied by the
+//     decode, but stripped since #4737 so that the stripped model (the
+//     decoded-image cache key) does not change when they do. The live
+//     chain reads them from the LIVE model, not from this copy.
+//
 // **Kept** (Apple-irreplaceable, baked at decode only):
 //   * `highlightRecovery`          — pre-DCP, no chain equivalent.
-//   * `sharpenRadius`, `sharpenDetail`, `sharpenMasking` — read by the
-//     chain's sharpen stage; inert during decode, whose `sharpenAmount`
-//     is zeroed above, so there is nothing to strip.
 //   * `captureSharpeningAmount`, `captureSharpeningSigma` — runs inside
 //     the Rust `develop_scene_linear_*` decode, post-DCP/PGTM, and has
 //     no Apple Metal equivalent. Default amount = 0 short-circuits the
@@ -250,8 +255,7 @@ public enum RawCoreBridge {
     m.luminanceAdjustmentBlue = d.luminanceAdjustmentBlue
     m.luminanceAdjustmentPurple = d.luminanceAdjustmentPurple
     m.luminanceAdjustmentMagenta = d.luminanceAdjustmentMagenta
-    // Black & white mix (#276) — same `hsl` stage as the 24 bands
-    // above; zeroed/defaulted here for the same double-apply reason.
+    // Black & white mix (#276) — same `hsl` stage as the 24 bands above.
     m.blackWhite = d.blackWhite
     m.grayMixerRed = d.grayMixerRed
     m.grayMixerOrange = d.grayMixerOrange
@@ -261,25 +265,67 @@ public enum RawCoreBridge {
     m.grayMixerBlue = d.grayMixerBlue
     m.grayMixerPurple = d.grayMixerPurple
     m.grayMixerMagenta = d.grayMixerMagenta
+    // Secondary Oklab color curves (#5041) — applied right after HSL in
+    // both decode and chain; stripped to prevent double-apply.
+    m.colorCurveHueVsHue = d.colorCurveHueVsHue
+    m.colorCurveHueVsSat = d.colorCurveHueVsSat
+    m.colorCurveHueVsLuma = d.colorCurveHueVsLuma
+    m.colorCurveLumaVsSat = d.colorCurveLumaVsSat
+    m.colorCurveSatVsSat = d.colorCurveSatVsSat
+    m.colorCurveSatVsLuma = d.colorCurveSatVsLuma
     // Vignette (#1109) — scene-linear radial gain, run in both the decode
-    // and the chain (after local adjustments, before the omitted sharpen).
-    // Zeroing amount short-circuits the stage; feather rides back to its
-    // default for a clean neutral reference.
+    // and the chain; zeroing amount short-circuits the stage.
     m.vignetteAmount = d.vignetteAmount
     m.vignetteFeather = d.vignetteFeather
     // Noise reduction (chain handles luminance; Metal handles color).
-    // nrLuminance default is 0 → decode early-exits, so default is fine.
     m.nrLuminance = d.nrLuminance
-    // nrColor / sharpenAmount: literal 0, NOT the 25/40 model defaults
-    // (#973). Their defaults are non-zero and the Rust decode only
-    // early-exits below 1e-3, so defaulting would run the stage in the
-    // decode AND have the live chain re-apply it — a double-apply.
-    // Zero makes the decode skip both; the chain owns the single live
-    // pass on BOTH the GPU (`SharpenPass` / `NlmColorPass`) and the CPU
-    // (`apply_scene_linear_chain_f32`) paths since #1043.
+    // nrColor / sharpenAmount: literal 0, NOT the 25/40 model defaults (#973)
+    // so the decode skips both and the chain owns the single live pass.
     m.nrColor = 0
-    // Sharpen (the chain handles it — see the nrColor note above).
     m.sharpenAmount = 0
+    // Everything below is neutralised by Rust's `prefix_policy!`
+    // (`raw-core/src/gpu_host/prefix.rs`) and was missing here (#4737).
+    // None of it is applied by the scene-linear decode — these are
+    // post-AgX, display-side or Metal-only — so there is no pixel
+    // double-apply; but the stripped model IS the decoded-image cache key
+    // (`RenderActor.bakedModel`, `RenderActor+Export`), and any of these
+    // left in it turned a grain / split-tone / colour-grade / film /
+    // sharpen-radius / display-curve edit into a full RAW re-decode on the
+    // next refine or sized export. Keep this block in step with the Rust
+    // `neutral { … }` list.
+    m.parametricShadowSplit = d.parametricShadowSplit
+    m.parametricMidtoneSplit = d.parametricMidtoneSplit
+    m.parametricHighlightSplit = d.parametricHighlightSplit
+    m.toneCurveMode = d.toneCurveMode
+    m.displayToneCurveLuma = d.displayToneCurveLuma
+    m.displayToneCurveRed = d.displayToneCurveRed
+    m.displayToneCurveGreen = d.displayToneCurveGreen
+    m.displayToneCurveBlue = d.displayToneCurveBlue
+    m.splitToneShadowHue = d.splitToneShadowHue
+    m.splitToneShadowSaturation = d.splitToneShadowSaturation
+    m.splitToneHighlightHue = d.splitToneHighlightHue
+    m.splitToneHighlightSaturation = d.splitToneHighlightSaturation
+    m.splitToneBalance = d.splitToneBalance
+    m.colorGradeShadowLuminance = d.colorGradeShadowLuminance
+    m.colorGradeMidtoneHue = d.colorGradeMidtoneHue
+    m.colorGradeMidtoneSaturation = d.colorGradeMidtoneSaturation
+    m.colorGradeMidtoneLuminance = d.colorGradeMidtoneLuminance
+    m.colorGradeHighlightLuminance = d.colorGradeHighlightLuminance
+    m.colorGradeGlobalHue = d.colorGradeGlobalHue
+    m.colorGradeGlobalSaturation = d.colorGradeGlobalSaturation
+    m.colorGradeGlobalLuminance = d.colorGradeGlobalLuminance
+    m.colorGradeBlending = d.colorGradeBlending
+    m.colorGradeShadowEdge = d.colorGradeShadowEdge
+    m.colorGradeHighlightEdge = d.colorGradeHighlightEdge
+    m.grainAmount = d.grainAmount
+    m.grainSize = d.grainSize
+    m.grainRoughness = d.grainRoughness
+    m.filmLook = d.filmLook
+    m.filmStrength = d.filmStrength
+    m.sharpenRadius = d.sharpenRadius
+    m.sharpenDetail = d.sharpenDetail
+    m.sharpenMasking = d.sharpenMasking
+    m.wbMethod = d.wbMethod
     // Local adjustments (#3369) — the chain owns the mask stack on both
     // paths (GPU `LocalAdjustmentsPass`, CPU `apply_scene_linear_chain_f32`
     // via `local_adjustments_ptr`). Left in the temp XMP, raw-core's own
@@ -393,8 +439,7 @@ public enum RawCoreBridge {
     }
     applyOverrides(
       profileOverride: profileOverride, autoExposureOverride: autoExposureOverride, to: &stripped)
-    return try withTemporaryXMP(
-      model: stripped, culling: culling, body: body)
+    return try withTemporaryXMP(model: stripped, culling: culling, body: body)
   }
 
   /// Variant of `withStrippedXMP` for renderers that must use the live
@@ -454,11 +499,36 @@ public enum RawCoreBridge {
     }
   }
 
+  /// Temp XMP of the live model's decode-baked fields that the CALLER
+  /// deletes (#4715) — `withStrippedModelXMP` scopes its file to a
+  /// synchronous body, which cannot span an `await`ed decode.
+  public static func writeStrippedModelXMP(
+    _ model: AdjustmentModel,
+    profileOverride: Profile? = nil,
+    autoExposureOverride: AutoExposureMode? = nil
+  ) -> URL? {
+    var stripped = stripAppleGPUStages(model)
+    applyOverrides(
+      profileOverride: profileOverride, autoExposureOverride: autoExposureOverride, to: &stripped)
+    return writeTemporaryXMP(model: stripped, culling: CullingState())
+  }
+
   private static func withTemporaryXMP<T>(
     model: AdjustmentModel,
     culling: CullingState,
     body: (URL?) throws -> T
   ) throws -> T {
+    guard let tmp = writeTemporaryXMP(model: model, culling: culling) else {
+      if model.inpaintRemovals != nil { throw CocoaError(.fileWriteUnknown) }
+      // Fall back to nil — FFI uses AdjustmentModel::default,
+      // which is the same defaults the strip would produce.
+      return try body(nil)
+    }
+    defer { try? FileManager.default.removeItem(at: tmp) }
+    return try body(tmp)
+  }
+
+  private static func writeTemporaryXMP(model: AdjustmentModel, culling: CullingState) -> URL? {
     // `omitWhiteBalance` (#1883): the decode contract is "WB no-ops at
     // decode; the Apple chain re-applies it live as a delta". Since
     // #1726's camera-space WB, writing an EXPLICIT crs:Temperature=6500
@@ -472,8 +542,7 @@ public enum RawCoreBridge {
     // `withStrippedXMP` and the live-model `withStrippedModelXMP` (the
     // native-detail tile path re-applies WB live through the decoded
     // temperature/tint anchors, exactly like the whole-image chain).
-    let xml = XMPSerializer.serialize(
-      model: model, culling: culling, omitWhiteBalance: true)
+    let xml = XMPSerializer.serialize(model: model, culling: culling, omitWhiteBalance: true)
     // Unique temp file name — UUID avoids collision across concurrent
     // renders, and the .xmp suffix keeps the extension intact so any
     // downstream extension-based dispatching still sees an XMP.
@@ -485,12 +554,8 @@ public enum RawCoreBridge {
       bridgeLog.error(
         "withStrippedXMP: failed to write temp XMP \(tmp.path, privacy: .public): \(error.localizedDescription, privacy: .public)"
       )
-      if model.inpaintRemovals != nil { throw error }
-      // Fall back to nil — FFI uses AdjustmentModel::default,
-      // which is the same defaults the strip would produce.
-      return try body(nil)
+      return nil
     }
-    defer { try? FileManager.default.removeItem(at: tmp) }
-    return try body(tmp)
+    return tmp
   }
 }

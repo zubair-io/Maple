@@ -1,6 +1,6 @@
 /**
  * The `maple_search_*` C ABI (#4462) loads from the API's native library and
- * answers a round trip: open an engine, load vectors, index text, search with a
+ * answers a round trip: open an engine, load vectors, index text and a search blob, search with a
  * caller-supplied query vector, read the fused JSON back, and close.
  *
  * Only `scripts/build-raw-ffi.sh` builds the library with `--features search`,
@@ -14,6 +14,7 @@ import { findNativeLib } from 'maple';
 import type * as BunFfi from 'bun:ffi';
 
 const DIM = 1024;
+const RC_INVALID_ARGUMENT = 1;
 const RC_ENGINE_ERROR = 2;
 const RC_NEED_LARGER_BUFFER = 100;
 
@@ -54,6 +55,10 @@ function openSearchLibrary() {
         returns: FFIType.i32,
       },
       maple_search_upsert: {
+        args: [FFIType.ptr, FFIType.ptr, FFIType.ptr, FFIType.u64, FFIType.ptr, FFIType.ptr],
+        returns: FFIType.i32,
+      },
+      maple_search_embed: {
         args: [FFIType.ptr, FFIType.ptr, FFIType.ptr, FFIType.u64, FFIType.ptr],
         returns: FFIType.i32,
       },
@@ -147,18 +152,27 @@ describe.skipIf(!lib)('maple_search C ABI', () => {
       );
       expect(loaded, lastError()).toBe(0);
 
-      const texts: Array<[string, string]> = [
-        ['harbour', 'a quiet harbour at dawn'],
-        ['kitchen', 'bread cooling on a kitchen counter'],
-        ['lantern', 'paper lanterns over a narrow street'],
+      const texts: Array<[string, string, string | null]> = [
+        ['harbour', 'a quiet harbour at dawn', null],
+        ['kitchen', 'bread cooling on a kitchen counter', 'baker bread counter kitchen'],
+        ['lantern', 'paper lanterns over a narrow street', ''],
       ];
-      for (const [id, text] of texts) {
-        expect(symbols.maple_search_upsert(handle, ptr(cstr(id)), null, 0, ptr(cstr(text)))).toBe(
+      for (const [id, text, blob] of texts) {
+        const rc = symbols.maple_search_upsert(
+          handle,
+          ptr(cstr(id)),
+          null,
           0,
+          ptr(cstr(text)),
+          blob === null ? null : ptr(cstr(blob)),
         );
+        expect(rc, lastError()).toBe(0);
       }
       expect(symbols.maple_search_commit(handle)).toBe(0);
       expect(counts(handle)).toEqual({ vectors: 3n, texts: 3n });
+
+      const blobOnly = queryVector(handle, 'baker', basis(0), 10);
+      expect(blobOnly.find((hit) => hit.id === 'kitchen')).toMatchObject({ text_rank: 1 });
 
       const hits = queryVector(handle, 'lanterns', basis(2), 10);
       expect(hits[0]).toMatchObject({ id: 'lantern', vector_rank: 1, text_rank: 1 });
@@ -183,6 +197,33 @@ describe.skipIf(!lib)('maple_search C ABI', () => {
       );
       expect(noEmbedder).toBe(RC_ENGINE_ERROR);
       expect(lastError()).toContain('no query embedder');
+    } finally {
+      symbols.maple_search_close(handle);
+    }
+  });
+
+  test('sizes a document batch, then refuses it without an embedder', () => {
+    const config = JSON.stringify({ index_dir: path.join(dir, 'embed') });
+    const handle = symbols.maple_search_open(ptr(cstr(config)));
+    if (handle === null) throw new Error(`maple_search_open failed: ${lastError()}`);
+    try {
+      const texts = cstr(JSON.stringify(['a quiet harbour', 'bread on a counter']));
+      const outLen = new BigUint64Array(1);
+      expect(symbols.maple_search_embed(handle, ptr(texts), null, 0, ptr(outLen))).toBe(
+        RC_NEED_LARGER_BUFFER,
+      );
+      expect(outLen[0]).toBe(BigInt(2 * DIM));
+
+      const out = new Float32Array(2 * DIM);
+      expect(
+        symbols.maple_search_embed(handle, ptr(texts), ptr(out), out.length, ptr(outLen)),
+      ).toBe(RC_ENGINE_ERROR);
+      expect(lastError()).toContain('no query embedder');
+
+      const notJson = cstr('harbour');
+      expect(
+        symbols.maple_search_embed(handle, ptr(notJson), ptr(out), out.length, ptr(outLen)),
+      ).toBe(RC_INVALID_ARGUMENT);
     } finally {
       symbols.maple_search_close(handle);
     }

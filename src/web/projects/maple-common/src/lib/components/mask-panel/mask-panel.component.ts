@@ -238,7 +238,8 @@ export class MaskPanelComponent {
       this.pick.cancel();
       return;
     }
-    if (this.session.rangeSampleInFlight()) return;
+    if (this.session.rangeSampleInFlight() || this.session.rangeSampleUnavailable() !== null)
+      return;
     const point = await this.pick.arm(RANGE_PICK_PROMPT);
     if (!point) return;
     await this.session.sampleRangeAt(point.nx, point.ny);

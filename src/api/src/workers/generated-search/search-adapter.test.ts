@@ -31,12 +31,17 @@ import {
 import { insertFace, insertPerson } from '../../db/repos/people.test-helpers.ts';
 import { runGeneratedSearch } from './search-adapter.ts';
 import { toSearchQuery } from './execute.ts';
+import { setSqliteHandleForTests } from '../../db/sqlite/index.ts';
+import { recordReadWaves } from '../../db/sqlite/read-waves.test-helpers.ts';
+import { setInProcessSearchForTests } from '../../search/search-pool.ts';
+import { fakeInProcessSearch } from '../../search/search.test-helpers.ts';
 
 interface SeedOptions {
   year?: number;
   month?: number;
   description?: string | null;
   personId?: string;
+  searchBlob?: string;
 }
 
 /**
@@ -90,6 +95,14 @@ function seedAsset(db: Database, libraryId: string, id: string, opts: SeedOption
     );
   }
   if (opts.personId) insertFace(db, { assetId, personId: opts.personId });
+  if (opts.searchBlob) {
+    run(
+      db,
+      `INSERT INTO asset_search (asset_id, search_blob) VALUES (?, ?)`,
+      assetId,
+      opts.searchBlob,
+    );
+  }
   return assetId;
 }
 
@@ -211,5 +224,49 @@ describe('runGeneratedSearch — hidden people, end to end', () => {
 
     const outcome = await runGeneratedSearch(toSearchQuery({ month: '8' }, libraryId));
     expect(outcome.count).toBe(1);
+  });
+});
+
+describe('runGeneratedSearch — a theme with free text (#4514)', () => {
+  const THEME = 'busy city streets, tall buildings, and urban cityscapes';
+
+  it('measures the ranked window and counts nothing', async () => {
+    using live = await createLiveTestDatabase();
+    const libraryId = seedLibrary(live.db);
+    seedAsset(live.db, libraryId, 'a', { searchBlob: 'busy city at night', description: 'Night' });
+    seedAsset(live.db, libraryId, 'b', { searchBlob: 'tall buildings', description: 'Towers' });
+    seedAsset(live.db, libraryId, 'c', { searchBlob: 'quiet lake' });
+    const recorded = recordReadWaves(live.handle);
+    setSqliteHandleForTests(recorded.handle);
+
+    const outcome = await runGeneratedSearch(toSearchQuery({ placeQuery: THEME }, libraryId));
+    setSqliteHandleForTests(live.handle);
+
+    expect(outcome.count).toBe(2);
+    expect([...outcome.captions].sort()).toEqual(['Night', 'Towers']);
+    expect(outcome.firstPageIds[0]).toBe(outcome.coverAssetId!);
+    const statements = recorded.waves.flat();
+    expect(statements.some((sql) => /COUNT\(\*\)\s+AS n\s+FROM assets_fts/.test(sql))).toBe(false);
+    expect(
+      statements
+        .filter((sql) => /\bFROM assets\b/.test(sql))
+        .every((sql) => sql.startsWith('bulk: ')),
+    ).toBe(true);
+  });
+
+  it("ranks with the in-process engine, the API's child answering", async () => {
+    using live = await createLiveTestDatabase();
+    const libraryId = seedLibrary(live.db);
+    seedAsset(live.db, libraryId, 'a');
+    seedAsset(live.db, libraryId, 'b');
+    const engine = fakeInProcessSearch(['b'.padEnd(32, '0'), 'gone'.padEnd(32, '0')]);
+    setInProcessSearchForTests(engine);
+    try {
+      const outcome = await runGeneratedSearch(toSearchQuery({ placeQuery: THEME }, libraryId));
+      expect(outcome).toMatchObject({ count: 1, coverAssetId: oidFor('b') });
+      expect(engine.queries).toEqual([{ query: THEME, k: 100 }]);
+    } finally {
+      setInProcessSearchForTests(null);
+    }
   });
 });

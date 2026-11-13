@@ -94,34 +94,37 @@ namespace Maple.WinUI
         {
             var vw = ZoomHost.ActualWidth;
             var vh = ZoomHost.ActualHeight;
-            if (vw <= 0 || vh <= 0)
+            var (bw, bh) = DisplayedFrameDims();
+            if (vw <= 0 || vh <= 0 || bw <= 0 || bh <= 0)
                 return null;
-            double cw, ch;
-            if (_gpuFrameDims is { } dims && ViewportSwapChainPanel.Visibility == Visibility.Visible)
-            {
-                var scale = Math.Min(vw / dims.Width, vh / dims.Height);
-                cw = dims.Width * scale;
-                ch = dims.Height * scale;
-            }
-            else
-            {
-                double bw = _viewportBitmap?.PixelWidth
-                    ?? (ViewportImage.Source as Microsoft.UI.Xaml.Media.Imaging.BitmapImage)?.PixelWidth ?? 0;
-                double bh = _viewportBitmap?.PixelHeight
-                    ?? (ViewportImage.Source as Microsoft.UI.Xaml.Media.Imaging.BitmapImage)?.PixelHeight ?? 0;
-                if (bw <= 0 || bh <= 0)
-                    return null;
-                var scale = Math.Min(vw / bw, vh / bh);
-                cw = bw * scale;
-                ch = bh * scale;
-            }
+            var scale = Math.Min(vw / bw, vh / bh);
+            var cw = bw * scale;
+            var ch = bh * scale;
             return ((vw - cw) / 2, (vh - ch) / 2, cw, ch);
+        }
+
+        /// <summary>Pixel dims of the frame on screen (GPU surface or CPU
+        /// bitmap); zero before the first frame.</summary>
+        private (double Width, double Height) DisplayedFrameDims()
+        {
+            if (_gpuFrameDims is { } dims && ViewportSwapChainPanel.Visibility == Visibility.Visible)
+                return (dims.Width, dims.Height);
+            var bitmap = ViewportImage.Source as Microsoft.UI.Xaml.Media.Imaging.BitmapImage;
+            return (_viewportBitmap?.PixelWidth ?? bitmap?.PixelWidth ?? 0,
+                _viewportBitmap?.PixelHeight ?? bitmap?.PixelHeight ?? 0);
         }
 
         /// <summary>Apply the crop presentation for the current state: armed =
         /// full frame + live rotate + overlay; disarmed + non-identity =
-        /// rotate, clip, and fit-scale (rotate-then-crop, renderer order).</summary>
+        /// rotate, clip, and fit-scale (rotate-then-crop, renderer order).
+        /// The displayed extent changes with it, so the zoom re-resolves.</summary>
         private void UpdateCropDisplay()
+        {
+            ApplyCropDisplay();
+            SyncCanvasZoom();
+        }
+
+        private void ApplyCropDisplay()
         {
             var crop = ViewModel.Adjustments.Crop;
             var footprint = ContentFitRect();

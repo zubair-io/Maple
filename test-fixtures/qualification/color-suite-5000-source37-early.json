@@ -1,0 +1,421 @@
+{
+  "status": "Partial source37 qualification only; complete806 comparison gate still running. No remaining full-suite count inferred.",
+  "source_commit": "95fc03d6819b34f46f928ba93de58188a4014022",
+  "binary_sha256": "bd23444c334ca520cb634fa92622bd7c41452c70569f095d7f1e995683f6e96c",
+  "pipeline_output_version": 37,
+  "auto_fit_model_version": 7,
+  "compared": 35,
+  "failed": 8,
+  "auto_baselines_compared": 20,
+  "cleared_vs_source36": [
+    "test_0001/exposure_min/neutral",
+    "test_0001/temperature_max/neutral",
+    "test_0001/blacks_min/neutral",
+    "test_0001/clarity_min/neutral",
+    "test_0001/shadows_max/neutral",
+    "test_0003/wb_auto/neutral"
+  ],
+  "new_vs_source36": [],
+  "original_inputs_reverified": 89,
+  "budgets_sha256": "8a0427c569486b27c9c6cd3bfa5797bb031fa8c0a71d62fa29a9289bfcf17e58",
+  "ledger_sha256": "ba9d594932ca9a80d90039632b7f3639e910ebf44c284d525b7b517bd6c5668c",
+  "proof": [
+    {
+      "key": [
+        "test_0001",
+        "exposure_min",
+        "neutral"
+      ],
+      "method": "Reused original canonical result for byte-identical PNG; original inputs, comparator and budgets unchanged.",
+      "parent_png": "/Users/riabuz/.codex/color-suite-evidence/5000/branch37-full-suite/workspace/candidates/test_0001_exposure_min.png",
+      "pilot_png": "/Users/riabuz/.codex/color-suite-evidence/5000/nlm-gaussian-tail-pilot/candidates/test_0001_exposure_min.png",
+      "sha256": "208321008f7dec5bccc05689c7fa805b337fb5068028b09fe40f52e62bcdae79",
+      "original_result": "color-suite-5000-nlm-tail-focused-cases.jsonl"
+    },
+    {
+      "key": [
+        "test_0002",
+        "baseline_auto",
+        "auto"
+      ],
+      "method": "Reused original canonical result for byte-identical PNG; original inputs, comparator and budgets unchanged.",
+      "parent_png": "/Users/riabuz/.codex/color-suite-evidence/5000/branch37-full-suite/workspace/auto_candidates/test_0002_baseline.png",
+      "pilot_png": "/Users/riabuz/.codex/color-suite-evidence/5000/nlm-gaussian-tail-pilot/auto_candidates/test_0002_baseline.png",
+      "sha256": "f2a6c4e0318a4c514e2b118fbc65dacdad843f4251e8e4043f1e26a794c04185",
+      "original_result": "color-suite-5000-nlm-tail-focused-cases.jsonl"
+    },
+    {
+      "key": [
+        "test_0003",
+        "baseline_auto",
+        "auto"
+      ],
+      "method": "Reused original canonical result for byte-identical PNG; original inputs, comparator and budgets unchanged.",
+      "parent_png": "/Users/riabuz/.codex/color-suite-evidence/5000/branch37-full-suite/workspace/auto_candidates/test_0003_baseline.png",
+      "pilot_png": "/Users/riabuz/.codex/color-suite-evidence/5000/nlm-gaussian-tail-pilot/auto_candidates/test_0003_baseline.png",
+      "sha256": "ee98354e61176fbd5cc92e4586f554065f460a5afe7d01e41b42b18fe5e7b08c",
+      "original_result": "color-suite-5000-nlm-tail-focused-cases.jsonl"
+    },
+    {
+      "key": [
+        "test_0000",
+        "nr_luminance_max",
+        "detail-fullres"
+      ],
+      "method": "Reused original canonical result for byte-identical PNG; original inputs, comparator and budgets unchanged.",
+      "parent_png": "/Users/riabuz/.codex/color-suite-evidence/5000/branch37-full-suite/workspace/candidates/test_0000_nr_luminance_max.png",
+      "pilot_png": "/Users/riabuz/.codex/color-suite-evidence/5000/nlm-gaussian-tail-pilot/candidates/test_0000_nr_luminance_max.png",
+      "sha256": "e95b5b24a62d9d511ee6c661019d4db2bf0b3c200aa56a9c62cb99e70f7618aa",
+      "original_result": "color-suite-5000-nlm-tail-focused-cases.jsonl"
+    },
+    {
+      "key": [
+        "test_0001",
+        "baseline_auto",
+        "auto"
+      ],
+      "method": "Reused original canonical result for byte-identical PNG; original inputs, comparator and budgets unchanged.",
+      "parent_png": "/Users/riabuz/.codex/color-suite-evidence/5000/branch37-full-suite/workspace/auto_candidates/test_0001_baseline.png",
+      "pilot_png": "/Users/riabuz/.codex/color-suite-evidence/5000/nlm-gaussian-tail-pilot/auto_candidates/test_0001_baseline.png",
+      "sha256": "6d516a4bb80a341a5d14fdd062f38c02491b96804f26294f870ce5556fe815d9",
+      "original_result": "color-suite-5000-nlm-tail-focused-cases.jsonl"
+    },
+    {
+      "key": [
+        "test_0007",
+        "baseline_auto",
+        "auto"
+      ],
+      "method": "Reused original canonical result for byte-identical PNG; original inputs, comparator and budgets unchanged.",
+      "parent_png": "/Users/riabuz/.codex/color-suite-evidence/5000/branch37-full-suite/workspace/auto_candidates/test_0007_baseline.png",
+      "pilot_png": "/Users/riabuz/.codex/color-suite-evidence/5000/nlm-gaussian-tail-pilot/auto_candidates/test_0007_baseline.png",
+      "sha256": "f221a1294bfa755808d3adea70c8db549d31214bc8a34aedd429ae18315f5b43",
+      "original_result": "color-suite-5000-nlm-tail-focused-cases.jsonl"
+    },
+    {
+      "key": [
+        "test_0009",
+        "baseline_auto",
+        "auto"
+      ],
+      "method": "Reused original canonical result for byte-identical PNG; original inputs, comparator and budgets unchanged.",
+      "parent_png": "/Users/riabuz/.codex/color-suite-evidence/5000/branch37-full-suite/workspace/auto_candidates/test_0009_baseline.png",
+      "pilot_png": "/Users/riabuz/.codex/color-suite-evidence/5000/nlm-gaussian-tail-pilot/auto_candidates/test_0009_baseline.png",
+      "sha256": "e8a0841b7de9fd31c394edd4074c27b49584ea497e49e51de71e55b7db5fc19b",
+      "original_result": "color-suite-5000-nlm-tail-focused-cases.jsonl"
+    },
+    {
+      "key": [
+        "test_0004",
+        "baseline_auto",
+        "auto"
+      ],
+      "method": "Reused original canonical result for byte-identical PNG; original inputs, comparator and budgets unchanged.",
+      "parent_png": "/Users/riabuz/.codex/color-suite-evidence/5000/branch37-full-suite/workspace/auto_candidates/test_0004_baseline.png",
+      "pilot_png": "/Users/riabuz/.codex/color-suite-evidence/5000/nlm-gaussian-tail-pilot/auto_candidates/test_0004_baseline.png",
+      "sha256": "92ba028791cce706f9815af465cab3793f3113c61cde9bf2748c6cc6f79ac67d",
+      "original_result": "color-suite-5000-nlm-tail-focused-cases.jsonl"
+    },
+    {
+      "key": [
+        "test_0006",
+        "baseline_auto",
+        "auto"
+      ],
+      "method": "Reused original canonical result for byte-identical PNG; original inputs, comparator and budgets unchanged.",
+      "parent_png": "/Users/riabuz/.codex/color-suite-evidence/5000/branch37-full-suite/workspace/auto_candidates/test_0006_baseline.png",
+      "pilot_png": "/Users/riabuz/.codex/color-suite-evidence/5000/nlm-gaussian-tail-pilot/auto_candidates/test_0006_baseline.png",
+      "sha256": "c96c3670be18901b9275e11493a65e60efeb5b2b3c7dd9d9b99e1f837fb3f968",
+      "original_result": "color-suite-5000-nlm-tail-focused-cases.jsonl"
+    },
+    {
+      "key": [
+        "test_0005",
+        "baseline_auto",
+        "auto"
+      ],
+      "method": "Reused original canonical result for byte-identical PNG; original inputs, comparator and budgets unchanged.",
+      "parent_png": "/Users/riabuz/.codex/color-suite-evidence/5000/branch37-full-suite/workspace/auto_candidates/test_0005_baseline.png",
+      "pilot_png": "/Users/riabuz/.codex/color-suite-evidence/5000/nlm-gaussian-tail-pilot/auto_candidates/test_0005_baseline.png",
+      "sha256": "49ce74fc82ddda2d03e49e15e92c27d049d61e0b36c34e913bb6847508eca6c9",
+      "original_result": "color-suite-5000-nlm-tail-focused-cases.jsonl"
+    },
+    {
+      "key": [
+        "test_0008",
+        "baseline_auto",
+        "auto"
+      ],
+      "method": "Reused original canonical result for byte-identical PNG; original inputs, comparator and budgets unchanged.",
+      "parent_png": "/Users/riabuz/.codex/color-suite-evidence/5000/branch37-full-suite/workspace/auto_candidates/test_0008_baseline.png",
+      "pilot_png": "/Users/riabuz/.codex/color-suite-evidence/5000/nlm-gaussian-tail-pilot/auto_candidates/test_0008_baseline.png",
+      "sha256": "25bc63bc8b84bc9f4b50fbce5565d28675e8637214e308613766b893a8f13025",
+      "original_result": "color-suite-5000-nlm-tail-focused-cases.jsonl"
+    },
+    {
+      "key": [
+        "test_0010",
+        "baseline_auto",
+        "auto"
+      ],
+      "method": "Reused original canonical result for byte-identical PNG; original inputs, comparator and budgets unchanged.",
+      "parent_png": "/Users/riabuz/.codex/color-suite-evidence/5000/branch37-full-suite/workspace/auto_candidates/test_0010_baseline.png",
+      "pilot_png": "/Users/riabuz/.codex/color-suite-evidence/5000/nlm-gaussian-tail-pilot/auto_candidates/test_0010_baseline.png",
+      "sha256": "f821b5828f701aff331345624d9ecde52e79cdeb65eb34d9cad49d90559d4ce0",
+      "original_result": "color-suite-5000-nlm-tail-focused-cases.jsonl"
+    },
+    {
+      "key": [
+        "test_0000",
+        "baseline_auto",
+        "auto"
+      ],
+      "method": "Reused original canonical result for byte-identical PNG; original inputs, comparator and budgets unchanged.",
+      "parent_png": "/Users/riabuz/.codex/color-suite-evidence/5000/branch37-full-suite/workspace/auto_candidates/test_0000_baseline.png",
+      "pilot_png": "/Users/riabuz/.codex/color-suite-evidence/5000/nlm-gaussian-tail-pilot/auto_candidates/test_0000_baseline.png",
+      "sha256": "56d2bce5ca8e5187e75b16e96211b51a2c4f40eb33d7ebea6ee52ccaf09b9ca0",
+      "original_result": "color-suite-5000-nlm-tail-focused-cases.jsonl"
+    },
+    {
+      "key": [
+        "test_0011",
+        "baseline_auto",
+        "auto"
+      ],
+      "method": "Reused original canonical result for byte-identical PNG; original inputs, comparator and budgets unchanged.",
+      "parent_png": "/Users/riabuz/.codex/color-suite-evidence/5000/branch37-full-suite/workspace/auto_candidates/test_0011_baseline.png",
+      "pilot_png": "/Users/riabuz/.codex/color-suite-evidence/5000/nlm-gaussian-tail-pilot/auto_candidates/test_0011_baseline.png",
+      "sha256": "35fdd27c2c45ae612928b4df9bf2c4d3dfa4b5ca9cb0470ea111b389fe21d27a",
+      "original_result": "color-suite-5000-nlm-tail-focused-cases.jsonl"
+    },
+    {
+      "key": [
+        "test_0013",
+        "baseline_auto",
+        "auto"
+      ],
+      "method": "Reused original canonical result for byte-identical PNG; original inputs, comparator and budgets unchanged.",
+      "parent_png": "/Users/riabuz/.codex/color-suite-evidence/5000/branch37-full-suite/workspace/auto_candidates/test_0013_baseline.png",
+      "pilot_png": "/Users/riabuz/.codex/color-suite-evidence/5000/nlm-gaussian-tail-pilot/auto_candidates/test_0013_baseline.png",
+      "sha256": "14d3651ba7dd230c470c108dc5fa83ac994b0396710111cbab373a4b3b7a6cee",
+      "original_result": "color-suite-5000-nlm-tail-focused-cases.jsonl"
+    },
+    {
+      "key": [
+        "test_0012",
+        "baseline_auto",
+        "auto"
+      ],
+      "method": "Reused original canonical result for byte-identical PNG; original inputs, comparator and budgets unchanged.",
+      "parent_png": "/Users/riabuz/.codex/color-suite-evidence/5000/branch37-full-suite/workspace/auto_candidates/test_0012_baseline.png",
+      "pilot_png": "/Users/riabuz/.codex/color-suite-evidence/5000/nlm-gaussian-tail-pilot/auto_candidates/test_0012_baseline.png",
+      "sha256": "6a47590af1f399674656e7a570a4b158e52c1996d7ca6955a4d49595ba05a0e0",
+      "original_result": "color-suite-5000-nlm-tail-focused-cases.jsonl"
+    },
+    {
+      "key": [
+        "test_0018",
+        "baseline_auto",
+        "auto"
+      ],
+      "method": "Reused original canonical result for byte-identical PNG; original inputs, comparator and budgets unchanged.",
+      "parent_png": "/Users/riabuz/.codex/color-suite-evidence/5000/branch37-full-suite/workspace/auto_candidates/test_0018_baseline.png",
+      "pilot_png": "/Users/riabuz/.codex/color-suite-evidence/5000/nlm-gaussian-tail-pilot/auto_candidates/test_0018_baseline.png",
+      "sha256": "8366138b85548cd9f37432e233b16bc52575ee58f9feddc4edb8dbb1209018c2",
+      "original_result": "color-suite-5000-nlm-tail-focused-cases.jsonl"
+    },
+    {
+      "key": [
+        "test_0019",
+        "baseline_auto",
+        "auto"
+      ],
+      "method": "Reused original canonical result for byte-identical PNG; original inputs, comparator and budgets unchanged.",
+      "parent_png": "/Users/riabuz/.codex/color-suite-evidence/5000/branch37-full-suite/workspace/auto_candidates/test_0019_baseline.png",
+      "pilot_png": "/Users/riabuz/.codex/color-suite-evidence/5000/nlm-gaussian-tail-pilot/auto_candidates/test_0019_baseline.png",
+      "sha256": "955c2e0411993c466ac52acfa55f56760b32ea15f2d80a8fb75415ee9b3774ae",
+      "original_result": "color-suite-5000-nlm-tail-focused-cases.jsonl"
+    },
+    {
+      "key": [
+        "test_0015",
+        "baseline_auto",
+        "auto"
+      ],
+      "method": "Reused original canonical result for byte-identical PNG; original inputs, comparator and budgets unchanged.",
+      "parent_png": "/Users/riabuz/.codex/color-suite-evidence/5000/branch37-full-suite/workspace/auto_candidates/test_0015_baseline.png",
+      "pilot_png": "/Users/riabuz/.codex/color-suite-evidence/5000/nlm-gaussian-tail-pilot/auto_candidates/test_0015_baseline.png",
+      "sha256": "a93282f066e54e3602fa865342d22063b43cab1317fe11939950c3ddfb188833",
+      "original_result": "color-suite-5000-nlm-tail-focused-cases.jsonl"
+    },
+    {
+      "key": [
+        "test_0020",
+        "baseline_auto",
+        "auto"
+      ],
+      "method": "Reused original canonical result for byte-identical PNG; original inputs, comparator and budgets unchanged.",
+      "parent_png": "/Users/riabuz/.codex/color-suite-evidence/5000/branch37-full-suite/workspace/auto_candidates/test_0020_baseline.png",
+      "pilot_png": "/Users/riabuz/.codex/color-suite-evidence/5000/nlm-gaussian-tail-pilot/auto_candidates/test_0020_baseline.png",
+      "sha256": "cc4d5df0427f5e61cfa2f26ac5c9e0e210a8cb649d98af98122f4add45242f09",
+      "original_result": "color-suite-5000-nlm-tail-focused-cases.jsonl"
+    },
+    {
+      "key": [
+        "test_0014",
+        "baseline_auto",
+        "auto"
+      ],
+      "method": "Reused original canonical result for byte-identical PNG; original inputs, comparator and budgets unchanged.",
+      "parent_png": "/Users/riabuz/.codex/color-suite-evidence/5000/branch37-full-suite/workspace/auto_candidates/test_0014_baseline.png",
+      "pilot_png": "/Users/riabuz/.codex/color-suite-evidence/5000/nlm-gaussian-tail-pilot/auto_candidates/test_0014_baseline.png",
+      "sha256": "8fba1f366dba555e7d759559e4a92f40fd4d5848e1fde4cbacb04040c57a8240",
+      "original_result": "color-suite-5000-nlm-tail-focused-cases.jsonl"
+    },
+    {
+      "key": [
+        "test_0017",
+        "baseline_auto",
+        "auto"
+      ],
+      "method": "Reused original canonical result for byte-identical PNG; original inputs, comparator and budgets unchanged.",
+      "parent_png": "/Users/riabuz/.codex/color-suite-evidence/5000/branch37-full-suite/workspace/auto_candidates/test_0017_baseline.png",
+      "pilot_png": "/Users/riabuz/.codex/color-suite-evidence/5000/nlm-gaussian-tail-pilot/auto_candidates/test_0017_baseline.png",
+      "sha256": "3dee902412368ab537205174c0a057e00bb9253535bc70d29ade0b1f051dc29a",
+      "original_result": "color-suite-5000-nlm-tail-focused-cases.jsonl"
+    },
+    {
+      "key": [
+        "test_0001",
+        "temperature_max",
+        "neutral"
+      ],
+      "method": "Reused original canonical result for byte-identical PNG; original inputs, comparator and budgets unchanged.",
+      "parent_png": "/Users/riabuz/.codex/color-suite-evidence/5000/branch37-full-suite/workspace/candidates/test_0001_temperature_max.png",
+      "pilot_png": "/Users/riabuz/.codex/color-suite-evidence/5000/nlm-gaussian-tail-pilot/candidates/test_0001_temperature_max.png",
+      "sha256": "ff1e3abbfda56a1f5643adce7f48b7546095502011b661077c549cf446508172",
+      "original_result": "color-suite-5000-nlm-tail-focused-cases.jsonl"
+    },
+    {
+      "key": [
+        "test_0001",
+        "blacks_min",
+        "neutral"
+      ],
+      "method": "Canonical recompare of completed parent37 render; no parent rerender.",
+      "parent_png": "/Users/riabuz/.codex/color-suite-evidence/5000/branch37-full-suite/workspace/candidates/test_0001_blacks_min.png",
+      "sha256": "45ef74e89fb235b551b38c1b5f79ca35578ae4e4fa9aede0829bf60dd3c88778"
+    },
+    {
+      "key": [
+        "test_0001",
+        "clarity_min",
+        "neutral"
+      ],
+      "method": "Canonical recompare of completed parent37 render; no parent rerender.",
+      "parent_png": "/Users/riabuz/.codex/color-suite-evidence/5000/branch37-full-suite/workspace/candidates/test_0001_clarity_min.png",
+      "sha256": "94271382177da58d28209fee2f71e39e2335c41163faf7d4d58c73b7efe6d03c"
+    },
+    {
+      "key": [
+        "test_0001",
+        "dehaze_min",
+        "neutral"
+      ],
+      "method": "Canonical recompare of completed parent37 render; no parent rerender.",
+      "parent_png": "/Users/riabuz/.codex/color-suite-evidence/5000/branch37-full-suite/workspace/candidates/test_0001_dehaze_min.png",
+      "sha256": "e9bdcb8ae61c58e2c7a0180185fc4f693aee0b9e9c4004b4f253714a655ad82d"
+    },
+    {
+      "key": [
+        "test_0001",
+        "shadows_max",
+        "neutral"
+      ],
+      "method": "Canonical recompare of completed parent37 render; no parent rerender.",
+      "parent_png": "/Users/riabuz/.codex/color-suite-evidence/5000/branch37-full-suite/workspace/candidates/test_0001_shadows_max.png",
+      "sha256": "413ee3f0540ed4b498126401d61affe135288f1bb9b36d39e694bb0b217cd905"
+    },
+    {
+      "key": [
+        "test_0002",
+        "shadows_max",
+        "neutral"
+      ],
+      "method": "Canonical recompare of completed parent37 render; no parent rerender.",
+      "parent_png": "/Users/riabuz/.codex/color-suite-evidence/5000/branch37-full-suite/workspace/candidates/test_0002_shadows_max.png",
+      "sha256": "72be5f82107cc14bb8199b6436d3c8b8cf1541c09ecd428c64b6382311f7638a"
+    },
+    {
+      "key": [
+        "test_0002",
+        "vibrance_min",
+        "neutral"
+      ],
+      "method": "Canonical recompare of completed parent37 render; no parent rerender.",
+      "parent_png": "/Users/riabuz/.codex/color-suite-evidence/5000/branch37-full-suite/workspace/candidates/test_0002_vibrance_min.png",
+      "sha256": "b792f76bfabcb34204d2755a1c948b924e07218fdd2d8b8d772635b179eaf82a"
+    },
+    {
+      "key": [
+        "test_0000",
+        "dehaze_max",
+        "neutral"
+      ],
+      "method": "Canonical recompare of completed parent37 render; no parent rerender.",
+      "parent_png": "/Users/riabuz/.codex/color-suite-evidence/5000/branch37-full-suite/workspace/candidates/test_0000_dehaze_max.png",
+      "sha256": "5ffc8620243bc8e587aa41280ea0f9e045fc9fcc4ab712a8478c99297a108733"
+    },
+    {
+      "key": [
+        "test_0003",
+        "wb_auto",
+        "neutral"
+      ],
+      "method": "Canonical recompare of completed parent37 render; no parent rerender.",
+      "parent_png": "/Users/riabuz/.codex/color-suite-evidence/5000/branch37-full-suite/workspace/candidates/test_0003_wb_auto.png",
+      "sha256": "7e352887695741f559476178392885a617429d74706fbd0797c7a27bf24233e2"
+    },
+    {
+      "key": [
+        "test_0003",
+        "dehaze_max",
+        "neutral"
+      ],
+      "method": "Canonical recompare of completed parent37 render; no parent rerender.",
+      "parent_png": "/Users/riabuz/.codex/color-suite-evidence/5000/branch37-full-suite/workspace/candidates/test_0003_dehaze_max.png",
+      "sha256": "b27485f01096b14842b658bb41a642ad2d743f353453ffe6b89e0d9644bb3b5f"
+    },
+    {
+      "key": [
+        "test_0004",
+        "highlights_min",
+        "neutral"
+      ],
+      "method": "Canonical recompare of completed parent37 render; no parent rerender.",
+      "parent_png": "/Users/riabuz/.codex/color-suite-evidence/5000/branch37-full-suite/workspace/candidates/test_0004_highlights_min.png",
+      "sha256": "beb27bd6d33dd46120637acc64b90877bf352137a008d818e126b4f792958b71"
+    },
+    {
+      "key": [
+        "test_0004",
+        "dehaze_max",
+        "neutral"
+      ],
+      "method": "Canonical recompare of completed parent37 render; no parent rerender.",
+      "parent_png": "/Users/riabuz/.codex/color-suite-evidence/5000/branch37-full-suite/workspace/candidates/test_0004_dehaze_max.png",
+      "sha256": "bcc921f63f850b4a6366942043bda59247e83a5b7f0bdcf0017f8b2e009c07bb"
+    },
+    {
+      "key": [
+        "test_0007",
+        "dehaze_max",
+        "neutral"
+      ],
+      "method": "Canonical recompare of completed parent37 render; no parent rerender.",
+      "parent_png": "/Users/riabuz/.codex/color-suite-evidence/5000/branch37-full-suite/workspace/candidates/test_0007_dehaze_max.png",
+      "sha256": "0c2beeb20b92efdc5a052e6fc165567a1d7fb902b3f6cc0b8afcab0b65d71eb3"
+    }
+  ],
+  "captured_at": "2026-10-19T14:21:17.845119+00:00"
+}

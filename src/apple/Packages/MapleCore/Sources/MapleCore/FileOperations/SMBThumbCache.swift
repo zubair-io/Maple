@@ -5,7 +5,7 @@
 // sourceless branch falls straight to `bytesProvider` — pulling the ENTIRE
 // RAW over the network and running a full Rust develop per thumbnail, per
 // cold session. The share very likely already carries
-// `.maple/thumbs/<sha256Prefix16(basename)>.avif` entries written by the
+// `.maple/thumbs/<filename.ext>.avif` entries written by the
 // Self Hosted indexer, Web Hosted, or a Mac browsing the same share via a
 // Finder mount — the cross-layer contract in `MapleThumbCacheKey`/
 // `MapleSidecarPaths`. `SMBThumbCache` does ONE transport read at that path
@@ -33,7 +33,7 @@ struct SMBThumbCache: Sendable {
         self.transport = transport
     }
 
-    /// `<assetDir>/.maple/thumbs/<sha256Prefix16(basename)>.avif` — computed
+    /// `<assetDir>/.maple/thumbs/<filename.ext>.avif` — computed
     /// via `MapleSidecarPaths.thumbURL`, the single source of truth for this
     /// naming (never re-derived here). The share-relative asset path is
     /// wrapped in `URL(fileURLWithPath:)` purely for its lexical
@@ -49,8 +49,17 @@ struct SMBThumbCache: Sendable {
     /// dropped connection) — `SMBSource.thumb(for:)`'s existing
     /// render-from-bytes fallback runs in every one of those cases, so a
     /// read failure must never surface as a thrown error.
+    ///
+    /// On a miss, a frozen legacy `<sha16>.v25.avif` (#4793) is renamed into
+    /// place and read: one extra round trip on a miss only, never on a hit.
     func read(forAssetPath assetPath: String) async -> Data? {
-        try? await transport.readFile(atPath: Self.onShareThumbPath(forAssetPath: assetPath))
+        let path = Self.onShareThumbPath(forAssetPath: assetPath)
+        if let data = try? await transport.readFile(atPath: path) { return data }
+        let legacy = MapleSidecarPaths.legacyThumbURL(for: URL(fileURLWithPath: assetPath)).path
+        guard (try? await transport.moveItem(atPath: legacy, toPath: path)) != nil else {
+            return nil
+        }
+        return try? await transport.readFile(atPath: path)
     }
 
     /// Best-effort write-back of a freshly rendered thumbnail, temp-then-

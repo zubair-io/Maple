@@ -1,0 +1,67 @@
+[
+  {
+    "name": "amaze",
+    "command": [
+      "cargo",
+      "test",
+      "-p",
+      "raw-core",
+      "--lib",
+      "demosaic::amaze"
+    ],
+    "exit_code": 0,
+    "passed": 29
+  },
+  {
+    "name": "auto-fit-cache",
+    "command": [
+      "cargo",
+      "test",
+      "-p",
+      "raw-core",
+      "--lib",
+      "view::auto_profile::cache::tests::"
+    ],
+    "exit_code": 0,
+    "passed": 15
+  },
+  {
+    "name": "dual",
+    "command": [
+      "cargo",
+      "test",
+      "-p",
+      "raw-core",
+      "--lib",
+      "demosaic::dual"
+    ],
+    "exit_code": 0,
+    "passed": 18
+  },
+  {
+    "name": "tile",
+    "command": [
+      "cargo",
+      "test",
+      "-p",
+      "raw-core",
+      "--lib",
+      "pipeline::tile::tests::"
+    ],
+    "exit_code": 0,
+    "passed": 11
+  },
+  {
+    "name": "composed-gpu-cpu",
+    "command": [
+      "cargo",
+      "test",
+      "-p",
+      "raw-gpu",
+      "--lib",
+      "full_gpu_chain_matches_composed_cpu_oracle"
+    ],
+    "exit_code": 0,
+    "passed": 1
+  }
+]

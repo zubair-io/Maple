@@ -13,7 +13,7 @@ import XCTest
 
 final class SMBFileOperationsCacheInvalidationTests: XCTestCase {
 
-  /// `<dir>/.maple/thumbs/<sha256Prefix16(basename)>.avif` — the same
+  /// `<dir>/.maple/thumbs/<basename>.avif` — the same
   /// derivation production uses (`MapleSidecarPaths.thumbURL`), spelled
   /// out here against share-relative string paths.
   private func thumbPath(dir: String, basename: String) -> String {
@@ -22,7 +22,7 @@ final class SMBFileOperationsCacheInvalidationTests: XCTestCase {
 
   /// `<dir>/.maple/previews/<basename>.avif` (`MapleSidecarPaths.previewURL`).
   private func previewPath(dir: String, basename: String) -> String {
-    "\(dir)/.maple/previews/\(basename).v\(AdjustmentModel.pipelineOutputVersion).avif"
+    "\(dir)/.maple/previews/\(basename).avif"
   }
 
   func testMoveClearsTheStaleThumbAndPreviewAtTheOldLocation() async throws {

@@ -25,7 +25,22 @@ for (const variant of ['plain', 'film', 'fallback'] as const) {
       expect(result).toMatchObject({ warmMatches: true, coldMatches: true });
   });
 }
-for (const failure of ['malformed', 'directory', 'develop'] as const) {
+test('Hosted malformed XMP permits original fallback without caching or changing source files', async ({
+  page,
+}) => {
+  await page.goto('/');
+  const result = await page.evaluate(async (raw) => {
+    const host = await import('./hosted-raw-cache-test.ts');
+    return host.run({ raw, failure: 'malformed' });
+  }, raw);
+  expect(result).toMatchObject({
+    cacheExists: false,
+    originalUnchanged: true,
+    xmpUnchanged: true,
+  });
+});
+
+for (const failure of ['directory', 'develop'] as const) {
   test(`Hosted ${failure} failure never publishes camera-original pixels`, async ({ page }) => {
     await page.goto('/');
     const result = await page.evaluate(

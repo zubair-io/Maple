@@ -1,3 +1,4 @@
+import { withDescribeCosts, type DescribeCosts } from './describe-cost.ts';
 import { assignedAiPool } from '../../enrichment/ai-assigned-pool.ts';
 /**
  * Video-describe (multi-frame visual description) stage — #2158.
@@ -71,7 +72,8 @@ import type { VideoDescriptionMeta } from '../../db/schema.ts';
 import { STAGE_STATE_VIDEO_NARROWING } from '../../db/sqlite/ddl/stage-state.ts';
 import { videoDescriptionStatements } from '../../db/repos/assets.stage-patches.ts';
 import { assetAbsPath, assetPrimaryFileInfo } from '../../indexer/images.repo.ts';
-import { loadLibraryRoots } from '../../indexer/libraries.cache.ts';
+import { loadLibraryRootsForAsset } from '../../indexer/libraries.cache.ts';
+import { noResolvableLocation } from './no-resolvable-location.ts';
 import { isVideoFilename } from '../../indexer/media-types.ts';
 import type { ImageDoc, StageContext, StageResult } from '../run-stage.ts';
 import { defineStage, runStage, type RunStageHandle } from '../run-stage.ts';
@@ -84,7 +86,8 @@ interface DescribeCallResult {
 
 interface VideoDescribeDeps {
   sampleFrames: typeof sampleVideoFrames;
-  describe: (frames: readonly Buffer[]) => Promise<DescribeCallResult>;
+  pool: DescribeServerPool;
+  systemPrompt: string;
   model: string;
   provider?: DescribeProviderName;
 }
@@ -150,15 +153,8 @@ async function getDeps(): Promise<VideoDescribeDeps> {
 
   _deps = {
     sampleFrames: sampleVideoFrames,
-    describe: (frames) =>
-      pool.run(async (p, server) => ({
-        result: await p.describe(frames, {
-          systemPrompt,
-          model: server.model ?? model,
-          format: p.name === 'ollama' ? VIDEO_DESCRIPTION_JSON_SCHEMA : undefined,
-        }),
-        server,
-      })),
+    pool,
+    systemPrompt,
     model,
     provider,
   };
@@ -209,10 +205,18 @@ function isTerminalProviderError(err: unknown): boolean {
   return err instanceof RemoteError && !err.retryable;
 }
 
-// fallow-ignore-next-line complexity
 export async function videoDescribeHandler(
   image: ImageDoc,
+  ctx: StageContext,
+): Promise<StageResult> {
+  return withDescribeCosts(image, ctx, videoDescribeAttempt);
+}
+
+// fallow-ignore-next-line complexity
+async function videoDescribeAttempt(
+  image: ImageDoc,
   _ctx: StageContext,
+  costs: DescribeCosts,
 ): Promise<StageResult> {
   const primary = assetPrimaryFileInfo(image);
   if (!primary || !isVideoFilename(primary.filename)) {
@@ -220,8 +224,9 @@ export async function videoDescribeHandler(
     return { skip: 'not-video' };
   }
 
-  const absolutePath = assetAbsPath(image, await loadLibraryRoots());
-  if (!absolutePath) return { skip: 'no-resolvable-location' };
+  const libs = await loadLibraryRootsForAsset(image);
+  const absolutePath = assetAbsPath(image, libs);
+  if (!absolutePath) return noResolvableLocation(image, libs);
 
   const deps = await getDeps();
 
@@ -240,7 +245,19 @@ export async function videoDescribeHandler(
     const rung = ladder[i]!;
     const startedAt = Date.now();
     try {
-      call = await deps.describe(rung.frames.map((f) => f.jpeg));
+      call = await deps.pool.run(async (provider, server) => ({
+        result: await costs.record(
+          provider.describe(
+            rung.frames.map((f) => f.jpeg),
+            {
+              systemPrompt: deps.systemPrompt,
+              model: server.model ?? deps.model,
+              format: provider.name === 'ollama' ? VIDEO_DESCRIPTION_JSON_SCHEMA : undefined,
+            },
+          ),
+        ),
+        server,
+      }));
       inferenceMs += Date.now() - startedAt;
       fallbackLevel = rung.level;
       usedFrames = rung.frames;
@@ -274,15 +291,15 @@ export async function videoDescribeHandler(
     sampling_ms: sampled.samplingMs,
     inference_ms: inferenceMs,
     fallback_level: fallbackLevel,
-    cost_usd: call.result.cost_usd,
+    cost_usd: costs.total,
   };
 
   return {
     patch: videoDescriptionStatements(image._id.toHexString(), description, meta),
     // search_blob folds in the summary + scene text (enrichment/search-blob.ts) —
-    // re-arm meili in the same atomic write so a fresh video description is
-    // searchable without waiting for an unrelated meili re-run.
-    invalidates: ['meili'],
+    // re-arm search-blob in the same atomic write so a fresh video description is
+    // searchable without waiting for an unrelated search-blob re-run.
+    invalidates: ['search-blob'],
   };
 }
 

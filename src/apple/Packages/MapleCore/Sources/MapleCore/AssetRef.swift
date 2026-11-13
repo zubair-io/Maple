@@ -11,6 +11,7 @@
 //     on demand for PhotoKit / Self-Hosted assets.
 
 import Foundation
+import MapleCloudKit
 
 // MARK: - CatalogRef
 
@@ -63,11 +64,15 @@ public struct AssetRef: Identifiable, Sendable, Equatable, Hashable {
   /// `@Sendable` closure so EditSession can call it from an actor hop.
   public typealias BytesProvider = @Sendable () async throws -> Data
 
+  /// Stream an original to an owned temporary destination for drag-out,
+  /// without loading the entire RAW or video into memory.
+  public typealias OriginalFileWriter = @Sendable (URL) async throws -> Void
+
   /// On-demand DISPLAY-PREVIEW fetch for sourceless assets — the 1280 px
-  /// tier, not the full RAW `BytesProvider` returns. Optional result
-  /// because a backend may legitimately have no preview for an asset
-  /// (`ImageSource.preview(for:)` is `Data?` for exactly that reason).
-  public typealias DisplayPreviewProvider = @Sendable () async throws -> Data?
+  /// tier, not the full RAW `BytesProvider` returns. Classified rather than
+  /// `Data?` (#5432) so a Preview page can retry an "indexing" or transient
+  /// answer and stop on "not found" (`ImageSource.previewOutcome(for:)`).
+  public typealias DisplayPreviewProvider = @Sendable () async -> PreviewFetchOutcome
 
   public let id: UUID
   /// Filesystem URL of the RAW file. `nil` for PhotoKit / self-hosted
@@ -82,6 +87,7 @@ public struct AssetRef: Identifiable, Sendable, Equatable, Hashable {
   /// Closure used to fetch bytes on demand. `nil` means the asset lives on
   /// disk at `primaryURL`.
   public let bytesProvider: BytesProvider?
+  public let originalFileWriter: OriginalFileWriter?
   /// Closure used to fetch this asset's display-sized preview on demand
   /// (#2385). Set by adapters that build refs for a MIXED list, where the
   /// caller's one ambient `ImageSource` is only ever correct for a single
@@ -166,6 +172,16 @@ public struct AssetRef: Identifiable, Sendable, Equatable, Hashable {
   /// PhotoKit assets. Powers the info pane's rich-detail fetch, the "Path"
   /// row, and the reveal-containing-folder action. See `CatalogRef`.
   public let catalog: CatalogRef?
+
+  /// The Live Photo half this listing entry is, with its partner's filename: reported by the
+  /// Self Hosted listing (#5448), derived by `LivePhotoPairing` for local folders and SMB (#5544).
+  public let livePhoto: LivePhotoLink?
+
+  /// The listed share-relative SMB location. Content ids are shared by
+  /// byte-identical copies, so SMB mutations must name the file (#4705).
+  public let smbPath: String?
+  /// The SMB connection that listed `smbPath`; any other connection refuses its mutations (#4987).
+  public let smbSourceID: UUID?
 
   /// The editor's selected sibling; RAW identity and byte providers stay shared (#4063).
   public internal(set) var selectedSidecarURL: URL? = nil
@@ -334,12 +350,25 @@ public struct AssetRef: Identifiable, Sendable, Equatable, Hashable {
     return nil
   }
 
-  public init(url: URL, scopeParentURL: URL? = nil, captureDate: Date? = nil) {
+  /// The file behind a local Timeline ref from a saved Folder (#5033), or
+  /// nil for a PhotoKit ref, which has no file URL. Folder refs reach the
+  /// Timeline as `MergedTimelineCell.localOnly` / `.synced` exactly like
+  /// PhotoKit ones, so this is what tells the two apart.
+  public init?(fileBacked ref: ImageRef) {
+    guard let url = ref.url else { return nil }
+    self.init(url: url, scopeParentURL: ref.scopeParentURL, captureDate: ref.captureDate)
+  }
+
+  public init(
+    url: URL, scopeParentURL: URL? = nil, captureDate: Date? = nil,
+    livePhoto: LivePhotoLink? = nil
+  ) {
     self.id = UUID()
     self.primaryURL = url
     self.displayNameOverride = nil
     self.hintExtension = url.pathExtension.isEmpty ? nil : url.pathExtension
     self.bytesProvider = nil
+    self.originalFileWriter = nil
     self.displayPreviewProvider = nil
     self.stableID = url.path
     self.captureDate = captureDate
@@ -347,6 +376,9 @@ public struct AssetRef: Identifiable, Sendable, Equatable, Hashable {
     self.explicitIsRaw = nil
     self.thumbnailProvenance = nil
     self.catalog = nil
+    self.livePhoto = livePhoto
+    self.smbPath = nil
+    self.smbSourceID = nil
   }
 
   /// Construct an `AssetRef` for a source without a filesystem URL
@@ -375,6 +407,10 @@ public struct AssetRef: Identifiable, Sendable, Equatable, Hashable {
     thumbnailProvenance: ThumbnailProvenance? = nil,
     displayPreviewProvider: DisplayPreviewProvider? = nil,
     catalog: CatalogRef? = nil,
+    livePhoto: LivePhotoLink? = nil,
+    smbPath: String? = nil,
+    smbSourceID: UUID? = nil,
+    originalFileWriter: OriginalFileWriter? = nil,
     bytesProvider: @escaping BytesProvider
   ) {
     self.id = UUID()
@@ -382,6 +418,7 @@ public struct AssetRef: Identifiable, Sendable, Equatable, Hashable {
     self.displayNameOverride = displayName
     self.hintExtension = hintExtension
     self.bytesProvider = bytesProvider
+    self.originalFileWriter = originalFileWriter
     self.displayPreviewProvider = displayPreviewProvider
     self.stableID = stableID
     self.captureDate = captureDate
@@ -389,6 +426,9 @@ public struct AssetRef: Identifiable, Sendable, Equatable, Hashable {
     self.explicitIsRaw = explicitIsRaw
     self.thumbnailProvenance = thumbnailProvenance
     self.catalog = catalog
+    self.livePhoto = livePhoto
+    self.smbPath = smbPath
+    self.smbSourceID = smbSourceID
   }
 
   public static func == (lhs: AssetRef, rhs: AssetRef) -> Bool {

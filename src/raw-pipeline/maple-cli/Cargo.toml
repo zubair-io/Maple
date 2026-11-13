@@ -19,6 +19,10 @@ fixtures = []
 # detector/matcher stack. Off by default — the pano subcommand is the
 # operator surface for `test_pano_pipeline.sh`'s candidate gates.
 pano = ["dep:maple-pano", "maple-pano/ml"]
+# The same subcommand on the ONNX-free classical detector/matcher (#4523):
+# no ONNX Runtime or model files needed. With `pano` also on, choose per
+# run via `--features-engine`.
+pano-classical = ["dep:maple-pano", "maple-pano/classical-features"]
 # Enables the `fit-acr` subcommand (requires raw-core's `test-support` feature).
 test-support = ["raw-core/test-support", "dep:png"]
 

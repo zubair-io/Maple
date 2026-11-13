@@ -11,9 +11,8 @@
  * Database access lives in `src/db/assets.repo.ts`.
  */
 
-import { incompatiblePipelineVersion } from '../../runtime/http-pipeline-version.ts';
 import { Elysia } from 'elysia';
-import { PIPELINE_OUTPUT_VERSION } from '../../generated/adjustment-fields.generated.ts';
+import { adoptLegacyDerivative } from '../../fs/legacy-derivative.ts';
 import { ObjectId } from '../../db/object-id.ts';
 import { stat } from 'node:fs/promises';
 import * as path from 'node:path';
@@ -32,6 +31,7 @@ import {
 import { loadLibraryIdToSlug, loadLibraryRoots } from '../../indexer/libraries.cache.ts';
 import { mapWithConcurrency } from '../../imports/capture-time.ts';
 import { resolveAssetInfoOrRespond, resolveAssetLocationOrRespond } from './_shared.ts';
+import { backupEngine } from '../../cloud-backup/runtime.ts';
 
 /**
  * Resolve an absolute server path to the registered library that contains it.
@@ -91,6 +91,11 @@ async function withSidecarStat<T extends { abs_path: string }>(
   }
 }
 
+async function withBackupMirrors<T extends { id: string }>(dto: T) {
+  const mirrors = await backupEngine.repo.mirrorsForAssets([dto.id]);
+  return { ...dto, mirrors: mirrors.get(dto.id) ?? [] };
+}
+
 export const metadataRoutes = new Elysia()
   // Single asset metadata by `slug:relPath` address.
   //
@@ -131,7 +136,7 @@ export const metadataRoutes = new Elysia()
       set.status = 404;
       return { error: 'Asset not indexed' };
     }
-    return withSidecarStat(dto);
+    return withSidecarStat(await withBackupMirrors(dto));
   })
 
   // Single asset detail by absolute server path.
@@ -163,7 +168,9 @@ export const metadataRoutes = new Elysia()
       set.status = 404;
       return { error: 'Asset not indexed' };
     }
-    return withSidecarStat(hit.address ? { ...dto, address: hit.address } : dto);
+    return withSidecarStat(
+      await withBackupMirrors(hit.address ? { ...dto, address: hit.address } : dto),
+    );
   })
 
   // Bulk asset metadata (#2995). The File Provider's change-feed
@@ -189,9 +196,12 @@ export const metadataRoutes = new Elysia()
       return { error: 'Invalid asset id in ids' };
     }
     const dtos = await findDetailsByIds(parsed as ObjectId[]);
+    const mirrors = await backupEngine.repo.mirrorsForAssets(dtos.map((dto) => dto.id));
     // Bounded: a 500-id page is 500 stats; keep the fd pressure flat.
     return {
-      assets: await mapWithConcurrency(dtos, SIDECAR_STAT_CONCURRENCY, withSidecarStat),
+      assets: await mapWithConcurrency(dtos, SIDECAR_STAT_CONCURRENCY, (dto) =>
+        withSidecarStat({ ...dto, mirrors: mirrors.get(dto.id) ?? [] }),
+      ),
     };
   })
 
@@ -208,7 +218,7 @@ export const metadataRoutes = new Elysia()
       set.status = 404;
       return { error: 'Asset not found' };
     }
-    return withSidecarStat(dto);
+    return withSidecarStat(await withBackupMirrors(dto));
   })
 
   // Stream raw bytes
@@ -233,9 +243,7 @@ export const metadataRoutes = new Elysia()
   })
 
   // Serve thumbnail from .maple/ cache
-  .get('/:id/thumb', async ({ params, headers, query, set }) => {
-    const versionError = incompatiblePipelineVersion(query.pv, set);
-    if (versionError) return versionError;
+  .get('/:id/thumb', async ({ params, headers, set }) => {
     const resolved = await resolveAssetInfoOrRespond(params.id, set);
     if ('error' in resolved) return resolved;
     const { info } = resolved;
@@ -258,8 +266,11 @@ export const metadataRoutes = new Elysia()
     // a cache-hit revalidation is one stat() call.
     let etag: string;
     try {
-      const st = await stat(thumbPath);
-      etag = `"${Math.floor(st.mtimeMs)}-${st.size}-v${PIPELINE_OUTPUT_VERSION}"`;
+      const st = await stat(thumbPath).catch(async (error: unknown) => {
+        if (await adoptLegacyDerivative(thumbPath)) return stat(thumbPath);
+        throw error;
+      });
+      etag = `"${Math.floor(st.mtimeMs)}-${st.size}"`;
     } catch {
       set.status = 404;
       return { error: 'Thumbnail not yet generated' };
@@ -288,6 +299,5 @@ export const metadataRoutes = new Elysia()
     set.headers['ETag'] = etag;
     set.headers['Content-Type'] = 'image/avif';
     set.headers['Cache-Control'] = cacheControl;
-    set.headers['X-Maple-Pipeline-Version'] = String(PIPELINE_OUTPUT_VERSION);
     return result.data;
   });

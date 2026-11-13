@@ -19,6 +19,7 @@ import {
   type GeoJSONSource,
   type MapOptions,
   type SourceSpecification,
+  type StyleSpecification,
 } from 'maplibre-gl';
 import type { MapBoundingBox } from '../api/map-clusters.service';
 import type { ClusterFeatureCollection } from './map-cluster-source';
@@ -37,6 +38,11 @@ export interface MapLibreMarkerHandle {
  * has to implement these members, never the real SDK. */
 export interface MapLibreMapHandle {
   onError(handler: (event: { error?: { message: string } }) => void): void;
+  /** Resolves once the style is loaded and `addSource` / `addLayer` are safe
+   * (MapLibre throws from both until then). If the style fails to load —
+   * e.g. its JSON URL is unreachable — switches to `fallbackStyle` and
+   * resolves once that has loaded, so callers always get a usable map. */
+  whenStyleReady(fallbackStyle: StyleSpecification): Promise<void>;
   /** Fires once MapLibre's pan/zoom inertia settles — the trigger for a
    * debounced `/api/map/clusters` re-fetch. */
   onMoveEnd(handler: () => void): void;
@@ -68,8 +74,26 @@ export interface MapLibreMapHandle {
 export class MapLibreInstanceFactory {
   create(options: MapOptions): MapLibreMapHandle {
     const map = new MapLibreMap(options);
+    const styleLoaded = map.once('style.load').then(() => 'loaded' as const);
+    // `getStyle()` is undefined until the style document has been parsed, so an
+    // error while it is still undefined means the style itself failed to load,
+    // not a tile, sprite or glyph request.
+    const styleFailed = new Promise<'failed'>((resolve) => {
+      const onError = (): void => {
+        if (map.getStyle()) return;
+        map.off('error', onError);
+        resolve('failed');
+      };
+      map.on('error', onError);
+      void styleLoaded.then(() => map.off('error', onError));
+    });
     return {
       onError: (handler) => map.on('error', handler),
+      whenStyleReady: async (fallbackStyle) => {
+        if ((await Promise.race([styleLoaded, styleFailed])) === 'loaded') return;
+        map.setStyle(fallbackStyle);
+        await map.once('style.load');
+      },
       onMoveEnd: (handler) => map.on('moveend', handler),
       remove: () => map.remove(),
       getBounds: () => {

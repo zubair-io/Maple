@@ -116,6 +116,7 @@ fn all_struct_field_names() -> Vec<&'static str> {
         mask_rasters: _,
         inpaint_removals: _,
         retouch_spots: _,
+        retouch_frame: _,
         tone_curve_mode: _,
         tone_curve_luma: _,
         tone_curve_red: _,
@@ -149,6 +150,15 @@ fn all_struct_field_names() -> Vec<&'static str> {
         defringe_green_hue_lo: _,
         defringe_green_hue_hi: _,
         lens_profile: _,
+        color_grade_blending: _,
+        color_grade_shadow_edge: _,
+        color_grade_highlight_edge: _,
+        color_curve_hue_vs_hue: _,
+        color_curve_hue_vs_sat: _,
+        color_curve_hue_vs_luma: _,
+        color_curve_luma_vs_sat: _,
+        color_curve_sat_vs_sat: _,
+        color_curve_sat_vs_luma: _,
     } = AdjustmentModel::default();
 
     vec![
@@ -251,6 +261,7 @@ fn all_struct_field_names() -> Vec<&'static str> {
         "mask_rasters",
         "inpaint_removals",
         "retouch_spots",
+        "retouch_frame",
         "tone_curve_mode",
         "tone_curve_luma",
         "tone_curve_red",
@@ -284,6 +295,15 @@ fn all_struct_field_names() -> Vec<&'static str> {
         "defringe_green_hue_lo",
         "defringe_green_hue_hi",
         "lens_profile",
+        "color_grade_blending",
+        "color_grade_shadow_edge",
+        "color_grade_highlight_edge",
+        "color_curve_hue_vs_hue",
+        "color_curve_hue_vs_sat",
+        "color_curve_hue_vs_luma",
+        "color_curve_luma_vs_sat",
+        "color_curve_sat_vs_sat",
+        "color_curve_sat_vs_luma",
     ]
 }
 

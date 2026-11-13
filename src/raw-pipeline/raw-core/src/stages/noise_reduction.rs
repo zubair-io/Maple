@@ -57,7 +57,7 @@ use crate::{
     cancel::CancelToken,
     color::oklab::{oklab_to_rec2020, rec2020_to_oklab},
     image::{ColorSpace, Image},
-    stages::nlm::{denoise_plane_cancellable, NlmParams},
+    stages::nlm::{denoise_chroma_pair_cancellable, denoise_plane_cancellable, NlmParams},
 };
 use rayon::prelude::*;
 
@@ -113,12 +113,35 @@ fn chroma_params(amount: f32) -> NlmParams {
     }
 }
 
+/// Convert scene-linear Rec.2020 pixels into separate Oklab L, a and b
+/// planes in one pass, storing the same bits an interleaved `Vec<[f32; 3]>`
+/// conversion would. Skipping that interleaved intermediate removes a
+/// 12 bytes-per-pixel transient (1.2 GB at 100 MP) and lowers each adapter's
+/// peak by one 4 bytes-per-pixel plane (#5157).
+fn oklab_planes(pixels: &[[f32; 3]]) -> (Vec<f32>, Vec<f32>, Vec<f32>) {
+    let mut l_plane = vec![0.0f32; pixels.len()];
+    let mut a_plane = vec![0.0f32; pixels.len()];
+    let mut b_plane = vec![0.0f32; pixels.len()];
+    l_plane
+        .par_iter_mut()
+        .zip(a_plane.par_iter_mut())
+        .zip(b_plane.par_iter_mut())
+        .zip(pixels.par_iter())
+        .for_each(|(((l, a), b), src)| {
+            let lab = rec2020_to_oklab(*src);
+            *l = lab[0];
+            *a = lab[1];
+            *b = lab[2];
+        });
+    (l_plane, a_plane, b_plane)
+}
+
 /// Apply luminance NR: NLM-denoise the L channel of Oklab, leave a/b
 /// untouched.
 ///
 /// The Rec.2020 ↔ Oklab pixel-local maps run through rayon's
 /// `par_iter`; the NLM kernel itself is internally parallel across
-/// its fused row strips (see [`crate::stages::nlm`]).
+/// its row-update / sqdiff sweeps (see [`crate::stages::nlm`]).
 #[inline]
 pub fn apply_luminance(img: &mut Image, amount: f32, noise_profile: Option<&[f32]>, iso: u32) {
     apply_luminance_cancellable(img, amount, CancelToken::never(), noise_profile, iso);
@@ -143,17 +166,8 @@ pub fn apply_luminance_cancellable(
     let w = img.width as usize;
     let h = img.height as usize;
 
-    // Convert to Oklab.
-    let mut oklab: Vec<[f32; 3]> = vec![[0.0; 3]; img.pixels.len()];
-    oklab
-        .par_iter_mut()
-        .zip(img.pixels.par_iter())
-        .for_each(|(dst, src)| *dst = rec2020_to_oklab(*src));
+    let (l_plane, a_plane, b_plane) = oklab_planes(&img.pixels);
 
-    // Extract L plane.
-    let l_plane: Vec<f32> = oklab.par_iter().map(|p| p[0]).collect();
-
-    // Denoise.
     let denoised_l = denoise_plane_cancellable(
         &l_plane,
         w,
@@ -166,13 +180,13 @@ pub fn apply_luminance_cancellable(
         false,
     );
 
-    // Writeback L, convert back to Rec.2020.
     img.pixels
         .par_iter_mut()
-        .zip(oklab.par_iter())
         .zip(denoised_l.par_iter())
-        .for_each(|((dst, lab), &new_l)| {
-            *dst = oklab_to_rec2020([new_l, lab[1], lab[2]]);
+        .zip(a_plane.par_iter())
+        .zip(b_plane.par_iter())
+        .for_each(|(((dst, &new_l), &a), &b)| {
+            *dst = oklab_to_rec2020([new_l, a, b]);
         });
 }
 
@@ -221,54 +235,23 @@ pub fn apply_color_sampled_cancellable(
     let w = img.width as usize;
     let h = img.height as usize;
 
-    // Keep only the channel planes needed by NLM. A second interleaved
-    // Oklab image would duplicate all three planes (1.2 GB at 100 MP).
-    let mut l_plane = vec![0.0f32; img.pixels.len()];
-    let mut a_plane = vec![0.0f32; img.pixels.len()];
-    let mut b_plane = vec![0.0f32; img.pixels.len()];
-    l_plane
-        .par_iter_mut()
-        .zip(a_plane.par_iter_mut())
-        .zip(b_plane.par_iter_mut())
-        .zip(img.pixels.par_iter())
-        .for_each(|(((l, a), b), src)| {
-            let lab = rec2020_to_oklab(*src);
-            *l = lab[0];
-            *a = lab[1];
-            *b = lab[2];
-        });
+    let (l_plane, a_plane, b_plane) = oklab_planes(&img.pixels);
 
     // Run both NLM passes in parallel — each is already internally
     // parallel via the row-update sweeps, but at viewport sizes the
-    // outer split still helps on 8+-core machines. Both share the same
+    // outer split still helps on 8+-core machines. Dynamic normalization is
+    // prepared once from their shared L input (#4352). Both share the same
     // cancel token (a `Copy` borrow), so a host cancel unwinds both.
-    let (denoised_a, denoised_b) = rayon::join(
-        || {
-            denoise_plane_cancellable(
-                &a_plane,
-                w,
-                h,
-                params,
-                cancel,
-                &l_plane,
-                noise_profile,
-                iso,
-                true,
-            )
-        },
-        || {
-            denoise_plane_cancellable(
-                &b_plane,
-                w,
-                h,
-                params,
-                cancel,
-                &l_plane,
-                noise_profile,
-                iso,
-                true,
-            )
-        },
+    let (denoised_a, denoised_b) = denoise_chroma_pair_cancellable(
+        &a_plane,
+        &b_plane,
+        w,
+        h,
+        params,
+        cancel,
+        &l_plane,
+        noise_profile,
+        iso,
     );
 
     img.pixels
@@ -290,10 +273,6 @@ pub fn chroma_search_radius(scale: f32) -> usize {
         .round()
         .max(1.0) as usize
 }
-
-#[cfg(test)]
-#[path = "noise_reduction_storage_tests.rs"]
-mod storage_tests;
 
 #[cfg(test)]
 mod tests {
@@ -511,3 +490,7 @@ mod tests {
 #[cfg(test)]
 #[path = "noise_reduction_retention_tests.rs"]
 mod retention_tests;
+
+#[cfg(test)]
+#[path = "noise_reduction_storage_tests.rs"]
+mod storage_tests;

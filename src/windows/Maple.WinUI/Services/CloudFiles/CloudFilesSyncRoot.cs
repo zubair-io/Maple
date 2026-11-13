@@ -35,7 +35,11 @@
 // registered, so the platform applies them locally like any normal
 // folder — they simply don't sync). Write-back is a deliberate follow-up,
 // not an oversight: the delete plumbing exists (#2741) but wiring
-// Explorer's semantics onto it deserves its own ticket.
+// Explorer's semantics onto it deserves its own ticket. The corollary
+// (#4756) is that the folder can hold the only copy of a user's file, so
+// disabling the integration removes nothing but in-sync placeholders
+// (CloudFilesSyncRootCleanup.cs) and enabling it never adopts a non-empty
+// folder that is not already a registered sync root.
 //
 // Registration uses the Win32 CfRegisterSyncRoot path (not WinRT
 // StorageProviderSyncRootManager, which requires package identity this
@@ -59,6 +63,7 @@ namespace Maple.WinUI.Services.CloudFiles
     public sealed class CloudFilesSyncRoot : IDisposable
     {
         private static readonly Guid ProviderId = new("8f1e1a5e-70b1-4bda-9d47-1f3b8a2ce589");
+        internal const string ProviderName = "Maple";
 
         private readonly Func<CloudClient?> _client;
         private readonly object _gate = new();
@@ -100,9 +105,13 @@ namespace Maple.WinUI.Services.CloudFiles
                     return null;
                 try
                 {
+                    var refusal = CloudFilesSyncRootCleanup.AdoptionRefusal(
+                        SyncRootPath, CloudFilesPlaceholderProbe.IsMapleSyncRoot(SyncRootPath));
+                    if (refusal != null)
+                        return refusal;
                     Directory.CreateDirectory(SyncRootPath);
 
-                    var name = Marshal.StringToHGlobalUni("Maple");
+                    var name = Marshal.StringToHGlobalUni(ProviderName);
                     var version = Marshal.StringToHGlobalUni("1.0");
                     try
                     {
@@ -175,9 +184,16 @@ namespace Maple.WinUI.Services.CloudFiles
         }
 
         /// <summary>Disconnects and, when <paramref name="unregister"/>,
-        /// removes the sync-root registration (placeholders left behind
-        /// become dead files, so the folder is deleted too — everything in
-        /// it is re-creatable from the server).</summary>
+        /// removes the sync-root registration. Placeholders left behind
+        /// would become dead files, so the in-sync ones are deleted; every
+        /// other item — Explorer-side writes, edited hydrated copies,
+        /// anything whose state can't be read — stays, and the folder is
+        /// removed only once it is empty (#4756). The sweep runs first,
+        /// while still connected and registered: a never-opened directory
+        /// can only be enumerated while FETCH_PLACEHOLDERS is served, and
+        /// unregistering turns hydrated placeholders into plain files the
+        /// probe would then keep. Unregistration runs whatever the sweep
+        /// did, so a disable never strands a registered root.</summary>
         public void Stop(bool unregister)
         {
             lock (_gate)
@@ -185,6 +201,8 @@ namespace Maple.WinUI.Services.CloudFiles
                 foreach (var cts in _fetches.Values)
                     cts.Cancel();
                 _fetches.Clear();
+                if (unregister)
+                    SweepSafely();
                 if (_connected)
                 {
                     CfApi.CfDisconnectSyncRoot(_connectionKey);
@@ -195,15 +213,28 @@ namespace Maple.WinUI.Services.CloudFiles
                 {
                     try
                     {
-                        CfApi.CfUnregisterSyncRoot(SyncRootPath);
-                        if (Directory.Exists(SyncRootPath))
-                            Directory.Delete(SyncRootPath, recursive: true);
+                        var hr = CfApi.CfUnregisterSyncRoot(SyncRootPath);
+                        DiagLog.Write($"[cloudfiles] unregistered sync root (0x{hr:X8})");
                     }
                     catch (Exception ex)
                     {
-                        DiagLog.Write($"[cloudfiles] unregister cleanup: {ex.Message}");
+                        DiagLog.Write($"[cloudfiles] unregister failed: {ex.Message}");
                     }
                 }
+            }
+        }
+
+        private static void SweepSafely()
+        {
+            try
+            {
+                var swept = CloudFilesSyncRootCleanup.Sweep(SyncRootPath, CloudFilesPlaceholderProbe.Probes);
+                DiagLog.Write(
+                    $"[cloudfiles] swept sync root: removed {swept.Removed} placeholders, kept {swept.Preserved} local items");
+            }
+            catch (Exception ex)
+            {
+                DiagLog.Write($"[cloudfiles] sweep aborted, folder left in place: {ex.Message}");
             }
         }
 
@@ -214,16 +245,9 @@ namespace Maple.WinUI.Services.CloudFiles
         private void OnFetchPlaceholders(IntPtr infoPtr, IntPtr paramsPtr)
         {
             var info = Marshal.PtrToStructure<CfApi.CF_CALLBACK_INFO>(infoPtr);
-            List<Entry> entries;
-            try
-            {
-                entries = ListEntriesAsync(ReadIdentity(info)).GetAwaiter().GetResult();
-            }
-            catch (Exception ex)
-            {
-                DiagLog.Write($"[cloudfiles] fetch-placeholders failed: {ex.Message}");
-                entries = new List<Entry>();
-            }
+            var listing = ListEntriesAsync(ReadIdentity(info)).GetAwaiter().GetResult();
+            var entries = listing.Entries;
+            var completion = CloudFilesListing.Completion(listing);
 
             var pins = new List<GCHandle>();
             var infos = new CfApi.CF_PLACEHOLDER_CREATE_INFO[Math.Max(1, entries.Count)];
@@ -268,8 +292,8 @@ namespace Maple.WinUI.Services.CloudFiles
                 var opParams = new CfApi.CF_OPERATION_PARAMETERS_TRANSFER_PLACEHOLDERS
                 {
                     ParamSize = (uint)Marshal.SizeOf<CfApi.CF_OPERATION_PARAMETERS_TRANSFER_PLACEHOLDERS>(),
-                    Flags = CfApi.CF_OPERATION_TRANSFER_PLACEHOLDERS_FLAG_DISABLE_ON_DEMAND_POPULATION,
-                    CompletionStatus = CfApi.STATUS_SUCCESS,
+                    Flags = completion.Flags,
+                    CompletionStatus = completion.Status,
                     PlaceholderTotalCount = entries.Count,
                     PlaceholderArray = entries.Count == 0 ? IntPtr.Zero : arrayHandle.AddrOfPinnedObject(),
                     PlaceholderCount = (uint)entries.Count,
@@ -285,52 +309,46 @@ namespace Maple.WinUI.Services.CloudFiles
             }
         }
 
-        private sealed record Entry(string Name, string ServerPath, bool IsDirectory, long Size, DateTime MtimeUtc);
-
         /// <summary>Directory listing behind a placeholder identity: the sync
         /// root itself (empty identity) lists the registered libraries; any
         /// other identity is an absolute server directory path listed via
         /// /api/fs/dir, cursor-paged to completion (the only listing that
         /// reports the size and mtime a placeholder is stamped with).</summary>
-        private async Task<List<Entry>> ListEntriesAsync(string identity)
+        private async Task<PlaceholderListing> ListEntriesAsync(string identity)
         {
-            var entries = new List<Entry>();
             var client = _client();
             if (client is not { IsAuthenticated: true })
-                return entries;
+                return CloudFilesListing.Failed;
 
             if (identity.Length == 0)
-            {
-                var folders = await client.GetFoldersAsync(CancellationToken.None).ConfigureAwait(false);
-                foreach (var folder in folders ?? Array.Empty<CloudFolder>())
-                    entries.Add(new Entry(
-                        SanitizeName(folder.DisplayName), folder.Path, true, 0, DateTime.UtcNow));
-                return entries;
-            }
+                return await CloudFilesListing.PageAllAsync(async _ =>
+                {
+                    var folders = await client.GetFoldersAsync(CancellationToken.None).ConfigureAwait(false);
+                    return folders == null
+                        ? null
+                        : new PlaceholderPage(
+                            folders.Select(folder => new PlaceholderEntry(
+                                SanitizeName(folder.DisplayName), folder.Path, true, 0, DateTime.UtcNow)).ToList(),
+                            null);
+                }).ConfigureAwait(false);
 
-            string? cursor = null;
-            do
+            return await CloudFilesListing.PageAllAsync(async cursor =>
             {
                 var page = await client.ListDirAsync(identity, cursor, 500, CancellationToken.None)
                     .ConfigureAwait(false);
                 if (page == null)
-                    break;
-                foreach (var dir in page.Dirs)
-                {
-                    // The server hides its own bookkeeping dirs, but be
-                    // defensive: a `.maple` placeholder would invite Explorer
-                    // into the trash/previews store.
-                    if (dir.Name.StartsWith('.'))
-                        continue;
-                    entries.Add(new Entry(
+                    return null;
+                // The server hides its own bookkeeping dirs, but be
+                // defensive: a `.maple` placeholder would invite Explorer
+                // into the trash/previews store.
+                var dirs = page.Dirs
+                    .Where(dir => !dir.Name.StartsWith('.'))
+                    .Select(dir => new PlaceholderEntry(
                         SanitizeName(dir.Name), dir.Path, true, 0, ParseMtime(dir.Mtime)));
-                }
-                foreach (var img in page.Images)
-                    entries.Add(new Entry(
-                        SanitizeName(img.Name), img.Path, false, img.Size, ParseMtime(img.Mtime)));
-                cursor = page.NextCursor;
-            } while (!string.IsNullOrEmpty(cursor));
-            return entries;
+                var images = page.Images.Select(img => new PlaceholderEntry(
+                    SanitizeName(img.Name), img.Path, false, img.Size, ParseMtime(img.Mtime)));
+                return new PlaceholderPage(dirs.Concat(images).ToList(), page.NextCursor);
+            }).ConfigureAwait(false);
         }
 
         // --- FETCH_DATA ---

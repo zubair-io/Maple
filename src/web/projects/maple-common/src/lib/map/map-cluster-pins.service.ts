@@ -51,7 +51,7 @@ const REFETCH_DEBOUNCE_MS = 300;
 
 /** Fallback search-page query when a cell has no `placeLabel` (design doc §
  * "Error / empty states") — lands the click on the has-GPS scope instead of
- * a no-op. */
+ * a no-op. The unified Search page renders this as a removable GPS chip. */
 const NO_PLACE_LABEL_QUERY_PARAMS = { scope: 'places' } as const;
 
 /** Stable identity for a cell across fetches, used to decide whether a
@@ -199,6 +199,6 @@ export class MapClusterPinsService {
     const queryParams = cell.placeLabel
       ? { placeQuery: cell.placeLabel }
       : NO_PLACE_LABEL_QUERY_PARAMS;
-    void this.router.navigate(['/search/advanced'], { queryParams });
+    void this.router.navigate(['/search'], { queryParams });
   }
 }

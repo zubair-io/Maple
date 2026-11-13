@@ -5,10 +5,12 @@
     [value]="profile()"
     [disabled]="!adjustment()"
     ariaLabel="Render profile"
+    [attr.aria-describedby]="statusId"
     (valueChange)="select($event)"
   />
 </div>
 <p
+  [id]="statusId"
   role="status"
   aria-live="polite"
   data-testid="profile-auto-status"

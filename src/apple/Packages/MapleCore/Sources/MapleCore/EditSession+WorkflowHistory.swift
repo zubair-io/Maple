@@ -4,38 +4,51 @@ import Foundation
 
 @MainActor
 extension EditSession {
+  var hasUnconfirmedSidecarUpdate: Bool {
+    sidecarUpdateGeneration > confirmedSidecarGeneration || sidecarError != nil
+  }
   var sidecarStore: (any SidecarStoreProtocol)? {
-    workflow.selectedStore ?? primarySidecarStore
+    guard !sidecarWritesDisabled else { return nil }
+    return workflow.selectedStore ?? primarySidecarStore
   }
   func observeSidecarErrors() {
+    observeSidecarReconciliations()
     sidecarErrorTask?.cancel()
     guard let store = sidecarStore else { return }
     sidecarErrorTask = Task { [weak self, store] in
       let stream = await store.errors()
       for await error in stream {
         guard let self, !Task.isCancelled, self.sidecarStore === store else { return }
-        self.sidecarError = error
+        self.recordSidecarError(error)
       }
     }
   }
   func scheduleSemanticSidecarCommit(
     model: AdjustmentModel, culling: CullingState, action: String, label: String
   ) {
+    guard hasLoadedSidecar else { return }
     // Filesystem, PhotoKit and API expose the real semantic-commit capability.
     // SMB retains ordinary saves until its real share qualification lands (#2437).
     guard let semantic = sidecarStore as? any SemanticSidecarStoreProtocol else {
       scheduleSidecarUpdate(model: model, culling: culling)
       return
     }
+    sidecarUpdateGeneration &+= 1
+    let generation = sidecarUpdateGeneration
     let previous = sidecarUpdateTask
     sidecarUpdateTask = Task {
       await previous?.value
+      guard !self.sidecarWritesDisabled, !Task.isCancelled else { return }
       do {
         try await semantic.commitSemantic(
           model: model, culling: culling, action: action, label: label)
-        self.sidecarError = nil
+        if self.sidecarUpdateGeneration == generation {
+          self.confirmedSidecarGeneration = generation
+          self.sidecarError = nil
+        }
       } catch {
-        self.sidecarError = error
+        self.sidecarDirtyWhileDisabled = true
+        self.recordSidecarError(error)
       }
     }
   }

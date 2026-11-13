@@ -1,0 +1,200 @@
+[
+  {
+    "fixture": "test_0017",
+    "raw_sha256": "26be5e06dfb53a2938dab3ca8f06024533a9c0dd0c652938f39eb48bc325f95e",
+    "metadata": {
+      "SourceFile": "/Users/riabuz/.codex/color-suite-evidence/5000/input-snapshot/26/26be5e06dfb53a2938dab3ca8f06024533a9c0dd0c652938f39eb48bc325f95e.dng",
+      "Make": "Leica Camera AG",
+      "Model": "LEICA M10",
+      "ColorSpace": 1,
+      "Orientation": 1,
+      "PreviewImage": "(Binary data 487729 bytes, use -b option to extract)",
+      "JpgFromRaw": "(Binary data 15168 bytes, use -b option to extract)"
+    }
+  },
+  {
+    "fixture": "test_0015",
+    "raw_sha256": "3a859e917a91698a3e15ce3b3721a48a1fb1296873e0697d3bf7c2793297200d",
+    "metadata": {
+      "SourceFile": "/Users/riabuz/.codex/color-suite-evidence/5000/input-snapshot/3a/3a859e917a91698a3e15ce3b3721a48a1fb1296873e0697d3bf7c2793297200d.dng",
+      "Make": "Google",
+      "Model": "Pixel 6 Pro",
+      "Orientation": 1,
+      "PreviewImage": "(Binary data 119277 bytes, use -b option to extract)"
+    }
+  },
+  {
+    "fixture": "test_0011",
+    "raw_sha256": "3421b919ee81224d59f78872ee099a021bff0e2a47ae5fbbac385b182ac7241e",
+    "metadata": {
+      "SourceFile": "/Users/riabuz/.codex/color-suite-evidence/5000/input-snapshot/34/3421b919ee81224d59f78872ee099a021bff0e2a47ae5fbbac385b182ac7241e.ARW",
+      "Make": "SONY",
+      "Model": "ILCE-7RM4",
+      "ColorSpace": 1,
+      "InteropIndex": "R98",
+      "Orientation": 1,
+      "PreviewImage": "(Binary data 474739 bytes, use -b option to extract)"
+    }
+  },
+  {
+    "fixture": "test_0013",
+    "raw_sha256": "e91e77a4533ed7cce551d83330676ea5c47dd5e55fb38adda7819366afdbdfc2",
+    "metadata": {
+      "SourceFile": "/Users/riabuz/.codex/color-suite-evidence/5000/input-snapshot/e9/e91e77a4533ed7cce551d83330676ea5c47dd5e55fb38adda7819366afdbdfc2.DNG",
+      "Make": "Apple",
+      "Model": "iPhone 12 Pro",
+      "Orientation": 6,
+      "PreviewImage": "(Binary data 5364435 bytes, use -b option to extract)"
+    }
+  },
+  {
+    "fixture": "test_0004",
+    "raw_sha256": "209d464e13702de5f4fdb830ac26ac140c98a8d0dc3e81c5ba61d93677330832",
+    "metadata": {
+      "SourceFile": "/Users/riabuz/.codex/color-suite-evidence/5000/input-snapshot/20/209d464e13702de5f4fdb830ac26ac140c98a8d0dc3e81c5ba61d93677330832.fff",
+      "Make": "Hasselblad",
+      "Model": "Hasselblad H5D-40",
+      "Orientation": 1
+    }
+  },
+  {
+    "fixture": "test_0009",
+    "raw_sha256": "85bfec149261ffbae90797e45caae5e204e1e61ac62b92783925b5ee0f267d76",
+    "metadata": {
+      "SourceFile": "/Users/riabuz/.codex/color-suite-evidence/5000/input-snapshot/85/85bfec149261ffbae90797e45caae5e204e1e61ac62b92783925b5ee0f267d76.CR2",
+      "Make": "Canon",
+      "Model": "Canon EOS 5D Mark IV",
+      "ColorSpace": 1,
+      "InteropIndex": "R98",
+      "Orientation": 1,
+      "PreviewImage": "(Binary data 2096284 bytes, use -b option to extract)"
+    }
+  },
+  {
+    "fixture": "test_0014",
+    "raw_sha256": "0c9438258ddae5260b9f5a1aace6658a723f1cb1acace3a6cb507116dc6da4f2",
+    "metadata": {
+      "SourceFile": "/Users/riabuz/.codex/color-suite-evidence/5000/input-snapshot/0c/0c9438258ddae5260b9f5a1aace6658a723f1cb1acace3a6cb507116dc6da4f2.NEF",
+      "Make": "NIKON CORPORATION",
+      "Model": "NIKON D850",
+      "ColorSpace": 1,
+      "Orientation": 1,
+      "PreviewImage": "(Binary data 148475 bytes, use -b option to extract)",
+      "JpgFromRaw": "(Binary data 5315559 bytes, use -b option to extract)"
+    }
+  },
+  {
+    "fixture": "test_0002",
+    "raw_sha256": "4a4154b2595dc76a7d5e10cdcb65a386319e31647a585c23e262fe62b969c0fe",
+    "metadata": {
+      "SourceFile": "/Users/riabuz/.codex/color-suite-evidence/5000/input-snapshot/4a/4a4154b2595dc76a7d5e10cdcb65a386319e31647a585c23e262fe62b969c0fe.dng",
+      "Make": "Hasselblad",
+      "Model": "Hasselblad H2D-39",
+      "Orientation": 1
+    }
+  },
+  {
+    "fixture": "test_0005",
+    "raw_sha256": "a7124d13910e0241a6b035154bc1fcdb7be4439371d043b1e1950a0251feb51e",
+    "metadata": {
+      "SourceFile": "/Users/riabuz/.codex/color-suite-evidence/5000/input-snapshot/a7/a7124d13910e0241a6b035154bc1fcdb7be4439371d043b1e1950a0251feb51e.RAF",
+      "Make": "FUJIFILM",
+      "Model": "GFX 50S",
+      "ColorSpace": 65535,
+      "InteropIndex": "R03",
+      "Orientation": 1,
+      "PreviewImage": "(Binary data 1953624 bytes, use -b option to extract)"
+    }
+  },
+  {
+    "fixture": "test_0000",
+    "raw_sha256": "f4b60b3672bdf7ff7f4376fba9da1b1d22c925ebc3e16baa5fd4a64fa1045aa5",
+    "metadata": {
+      "SourceFile": "/Users/riabuz/.codex/color-suite-evidence/5000/input-snapshot/f4/f4b60b3672bdf7ff7f4376fba9da1b1d22c925ebc3e16baa5fd4a64fa1045aa5.DNG",
+      "Make": "Hasselblad",
+      "Model": "L3D-100c",
+      "Orientation": 1,
+      "PreviewImage": "(Binary data 565248 bytes, use -b option to extract)"
+    }
+  },
+  {
+    "fixture": "test_0003",
+    "raw_sha256": "195e1caf17a622c08323a76e8b0cfff9a9c5f76dbc5fa058af15273aa0eacf50",
+    "metadata": {
+      "SourceFile": "/Users/riabuz/.codex/color-suite-evidence/5000/input-snapshot/19/195e1caf17a622c08323a76e8b0cfff9a9c5f76dbc5fa058af15273aa0eacf50.CR2",
+      "Make": "Canon",
+      "Model": "Canon EOS 5DS R",
+      "ColorSpace": 65535,
+      "InteropIndex": "R98",
+      "Orientation": 8,
+      "PreviewImage": "(Binary data 3336699 bytes, use -b option to extract)"
+    }
+  },
+  {
+    "fixture": "test_0006",
+    "raw_sha256": "159326856c29073e845c3c5a9ecf98c6474f43ca15798a88ad5e2baecd0664b7",
+    "metadata": {
+      "SourceFile": "/Users/riabuz/.codex/color-suite-evidence/5000/input-snapshot/15/159326856c29073e845c3c5a9ecf98c6474f43ca15798a88ad5e2baecd0664b7.DNG",
+      "Make": "Canon",
+      "Model": "Canon EOS 5D Mark III",
+      "ColorSpace": 1,
+      "Orientation": 1,
+      "PreviewColorSpace": 2,
+      "PreviewImage": "(Binary data 49574 bytes, use -b option to extract)",
+      "JpgFromRaw": "(Binary data 1235564 bytes, use -b option to extract)"
+    }
+  },
+  {
+    "fixture": "test_0007",
+    "raw_sha256": "95dc76a2f255e623acaa5149b320389f7da7c995da890c3e0d511c0ff681b2e1",
+    "metadata": {
+      "SourceFile": "/Users/riabuz/.codex/color-suite-evidence/5000/input-snapshot/95/95dc76a2f255e623acaa5149b320389f7da7c995da890c3e0d511c0ff681b2e1.DNG",
+      "Make": "Canon",
+      "Model": "Canon EOS 5D Mark III",
+      "ColorSpace": 1,
+      "Orientation": 1,
+      "PreviewColorSpace": 2,
+      "PreviewImage": "(Binary data 49578 bytes, use -b option to extract)",
+      "JpgFromRaw": "(Binary data 1235402 bytes, use -b option to extract)"
+    }
+  },
+  {
+    "fixture": "test_0008",
+    "raw_sha256": "95b33021160b239ceb1a09d46a1b29cb60cb7dd47581feb126b337c219091754",
+    "metadata": {
+      "SourceFile": "/Users/riabuz/.codex/color-suite-evidence/5000/input-snapshot/95/95b33021160b239ceb1a09d46a1b29cb60cb7dd47581feb126b337c219091754.RAF",
+      "Make": "FUJIFILM",
+      "Model": "X-T3",
+      "ColorSpace": 1,
+      "InteropIndex": "R98",
+      "Orientation": 1,
+      "PreviewImage": "(Binary data 2776772 bytes, use -b option to extract)"
+    }
+  },
+  {
+    "fixture": "test_0010",
+    "raw_sha256": "3ea2d03556747afcafa24f13fee69106f383dfaf3a2f436f8331f14518f20037",
+    "metadata": {
+      "SourceFile": "/Users/riabuz/.codex/color-suite-evidence/5000/input-snapshot/3e/3ea2d03556747afcafa24f13fee69106f383dfaf3a2f436f8331f14518f20037.CR2",
+      "Make": "Canon",
+      "Model": "Canon EOS 5D Mark IV",
+      "ColorSpace": 1,
+      "InteropIndex": "R98",
+      "Orientation": 1,
+      "PreviewImage": "(Binary data 2172596 bytes, use -b option to extract)"
+    }
+  },
+  {
+    "fixture": "test_0012",
+    "raw_sha256": "35109fc20a849026c43c47674902431ef5a2d54b09b616995263dc75df17912f",
+    "metadata": {
+      "SourceFile": "/Users/riabuz/.codex/color-suite-evidence/5000/input-snapshot/35/35109fc20a849026c43c47674902431ef5a2d54b09b616995263dc75df17912f.raf",
+      "Make": "FUJIFILM",
+      "Model": "GFX 50R",
+      "ColorSpace": 1,
+      "InteropIndex": "R98",
+      "Orientation": 1,
+      "PreviewImage": "(Binary data 2604941 bytes, use -b option to extract)"
+    }
+  }
+]

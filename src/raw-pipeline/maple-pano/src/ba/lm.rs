@@ -11,7 +11,9 @@
 //! [`crate::ba::residual`] guarantees the same stationary points as the
 //! true robust objective).
 
-use crate::ba::residual::{assemble, total_cost, Block, FrameMeta, ParamLayout, State};
+use crate::ba::residual::{
+    assemble, lens_reaches_corners, total_cost, Block, FrameMeta, ParamLayout, State,
+};
 use crate::math::axis_angle_to_matrix;
 
 /// A focal this small (pixels) means the step left the physically
@@ -93,6 +95,8 @@ pub(crate) fn minimize(
         let neg_g: Vec<f64> = eqs.g.iter().map(|v| -v).collect();
         let diag = eqs.h.diagonal();
         let diag_floor = diag.iter().fold(0.0_f64, |m, &d| m.max(d)).max(1.0) * 1e-12;
+        // A seed that already folds inside a frame must not freeze the solve.
+        let lens_reaches = lens_reaches_corners(state, frames);
 
         // Inner λ escalation: reuse H and g, only the damping changes.
         let mut accepted: Option<(State, f64, f64)> = None;
@@ -103,7 +107,9 @@ pub(crate) fn minimize(
                 continue;
             };
             let mut trial = state.clone();
-            if !apply_step(&mut trial, layout, &step) {
+            if !apply_step(&mut trial, layout, &step)
+                || (lens_reaches && !lens_reaches_corners(&trial, frames))
+            {
                 lambda *= 4.0;
                 continue;
             }
@@ -292,6 +298,31 @@ mod tests {
         );
         assert!((state.k1 + 0.06).abs() < 1e-5, "k1 {}", state.k1);
         assert!((state.k2 - 0.02).abs() < 1e-5, "k2 {}", state.k2);
+    }
+
+    #[test]
+    fn a_seed_lens_folding_inside_the_frame_still_solves_rotations() {
+        let (blocks, frames, gt_state, _) = two_camera_problem(-0.05, 0.01);
+        let mut state = State {
+            k1: -0.8,
+            k2: 0.0,
+            ..gt_state
+        };
+        assert!(!lens_reaches_corners(&state, &frames));
+        state.rotations[1] = state.rotations[1].mul_mat(&axis_angle_to_matrix([0.1, -0.05, 0.06]));
+        let layout = ParamLayout::rotations_only(2, 0);
+        let summary = minimize(
+            &blocks,
+            &frames,
+            &mut state,
+            &layout,
+            2.0,
+            &LmOptions::default(),
+        );
+        assert!(
+            summary.final_cost < summary.initial_cost,
+            "every step was rejected: {summary:?}"
+        );
     }
 
     #[test]

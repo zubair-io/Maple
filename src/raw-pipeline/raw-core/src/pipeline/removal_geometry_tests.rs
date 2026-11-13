@@ -196,7 +196,7 @@ fn embedded_green_lookup_matches_rendered_coordinates_in_the_sensor_active_area(
     });
     raw.opcode_list3 = Some((
         OpcodeList3 {
-            skipped_unknown: 0,
+            skipped: Vec::new(),
             opcodes: vec![PanoOpcode::WarpRectilinear(warp.clone())],
         },
         area,
@@ -249,7 +249,7 @@ fn multiple_embedded_gathers_follow_reverse_list_order_and_off_skips_them() {
     let (a, b) = (warp(-0.15, 0.0), warp(0.08, 0.02));
     raw.opcode_list3 = Some((
         OpcodeList3 {
-            skipped_unknown: 0,
+            skipped: Vec::new(),
             opcodes: vec![
                 PanoOpcode::WarpRectilinear(a.clone()),
                 PanoOpcode::WarpRectilinear(b.clone()),

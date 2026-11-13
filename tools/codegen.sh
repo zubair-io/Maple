@@ -60,6 +60,7 @@
 #   - src/raw-pipeline/raw-gpu/src/generated/color_matrices.wgsl
 #   - src/web/projects/maple-common/src/lib/generated/color-matrices.generated.ts
 #   - src/raw-pipeline/raw-gpu/src/generated/agx_coeffs.wgsl
+#   - src/raw-pipeline/raw-gpu/src/generated/canvas_overlay.{rs,wgsl}
 #   - src/apple/Packages/MapleCore/Sources/MapleCore/Generated/FilmCatalog+Generated.swift
 #   - src/web/projects/maple-common/src/lib/generated/film-catalog.generated.ts
 #   - src/apple/Packages/MapleCore/Sources/MapleCore/Generated/CapabilityRegistry+Generated.swift
@@ -88,12 +89,19 @@ cargo build --release \
 	-p codegen
 
 BIN="src/raw-pipeline/target/release/codegen"
+
+cargo run --release --manifest-path src/raw-pipeline/Cargo.toml -p codegen --bin android-codegen
+rustfmt --edition 2021 src/android/native/src/fields.rs
 if [ -f "${BIN}.exe" ]; then
 	BIN="${BIN}.exe"
 fi
 
 # --- Windows scope graticule (#3885) --------------------------------------
 "$BIN" --schema scope-targets --target cs --out "src/windows/Maple.WinUI/Generated/ScopeTargets.g.cs"
+
+# --- Auto Profile fit return codes (#5458) --------------------------------
+"$BIN" --schema auto-fit-codes --target cs --out "src/windows/Maple.WinUI/Generated/AutoFitCodes.g.cs"
+"$BIN" --schema auto-fit-codes --target ts --out "src/web/projects/maple-common/src/lib/generated/auto-fit-outcome.generated.ts"
 
 # --- Culling metadata vocabulary (#3662) ----------------------------------
 for color_label_out in \
@@ -111,13 +119,22 @@ TS_OUT="src/web/projects/maple-common/src/lib/generated/adjustment-model.generat
 TS_TABLES_OUT="src/web/projects/maple-common/src/lib/generated/adjustment-tables.generated.ts"
 
 "$BIN" --schema adjustment --target swift --out "$SWIFT_OUT"
+"$BIN" --schema editor-tuning --target swift --out "src/apple/Packages/MapleCore/Sources/MapleCore/Generated/EditorTuning+Generated.swift"
 "$BIN" --schema adjustment --target ts --out "$TS_OUT"
 "$BIN" --schema adjustment --target ts-tables --out "$TS_TABLES_OUT"
 "$BIN" --schema adjustment --target cs --out "src/windows/Maple.WinUI/Generated/AdjustmentFields.g.cs"
 "$BIN" --schema adjustment-api --target ts --out "src/api/src/generated/adjustment-fields.generated.ts"
-"$BIN" --schema pipeline-output-version --target swift --out "src/apple/Packages/MapleCore/Sources/MapleCloudKit/Generated/PipelineOutputVersion+Generated.swift"
-"$BIN" --schema pipeline-output-version --target ts --out "src/cloudflare/src/generated/pipeline-output-version.ts"
 "$BIN" --schema raster-recipe --target ts --out "src/maple/src/recipe.generated.ts"
+# Ranked search window ladder (#4545): the API widens up it, the Apple client keys facets on it.
+"$BIN" --schema ranked-window --target ts --out "src/api/src/generated/ranked-window.generated.ts"
+"$BIN" --schema ranked-window --target swift --out "src/apple/Packages/MapleCore/Sources/MapleCloudKit/Generated/RankedWindow+Generated.swift"
+# Panorama stitch memory model (#5835): maple-pano refuses on it, the Apple merge sheet sizes the output with it.
+"$BIN" --schema pano-memory --target swift --out "src/apple/Packages/MapleCore/Sources/MapleCore/Generated/PanoMemory+Generated.swift"
+# raw-ffi develop statuses the API defers on (#5499).
+"$BIN" --schema ffi-status --target ts --out "src/api/src/generated/ffi-status.generated.ts"
+"$BIN" --schema maple-id --target swift --out "src/apple/Packages/MapleCore/Sources/MapleCore/Generated/MapleIdDerivationVersion+Generated.swift"
+"$BIN" --schema maple-id --target ts --out "src/web/projects/maple-common/src/lib/generated/maple-id-derivation-version.generated.ts"
+"$BIN" --schema maple-id --target ts --out "src/api/src/generated/maple-id-derivation-version.generated.ts"
 "$BIN" --schema filename --target swift --out "src/apple/Packages/MapleCore/Sources/MapleCore/Generated/FilenameVocabulary+Generated.swift"
 "$BIN" --schema filename --target ts --out "src/api/src/generated/filename-vocabulary.generated.ts"
 "$BIN" --schema filename --target cs --out "src/windows/Maple.WinUI/Generated/FilenameVocabulary.g.cs"
@@ -146,6 +163,10 @@ for local_mask_out in \
 	"cs:src/windows/Maple.WinUI/Generated/LocalMaskWire.g.cs"; do
 	"$BIN" --schema local-mask-wire --target "${local_mask_out%%:*}" --out "${local_mask_out#*:}"
 done
+
+# --- Canvas overlay primitive tags + capacity (#5715) ----------------------
+"$BIN" --schema canvas-overlay --target rust --out "src/raw-pipeline/raw-gpu/src/generated/canvas_overlay.rs"
+"$BIN" --schema canvas-overlay --target wgsl --out "src/raw-pipeline/raw-gpu/src/generated/canvas_overlay.wgsl"
 
 "$BIN" --schema white-balance-presets --target swift --out "src/apple/Packages/MapleCore/Sources/MapleCore/Generated/WhiteBalancePresets+Generated.swift"
 "$BIN" --schema white-balance-presets --target ts --out "src/web/projects/maple-common/src/lib/generated/white-balance-presets.generated.ts"
@@ -229,8 +250,8 @@ FILM_CS_OUT="src/windows/Maple.WinUI/Generated/FilmCatalog.g.cs"
 # evidence records in test-fixtures/qualification/ (written by
 # tools/qualification/record.sh). Regenerating on every codegen run is what
 # makes "evidence loss demotes a capability in the next build" true: a
-# record that no longer matches the current pipeline / schema version, its
-# corpus, or its declared case count stops counting, and this drift gate
+# record whose corpus no longer matches, or whose declared case count
+# changed, stops counting, and this drift gate
 # then requires the demoted outputs to be committed.
 
 CAP_EVIDENCE_DIR="test-fixtures/qualification"

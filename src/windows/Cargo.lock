@@ -3196,6 +3196,7 @@ dependencies = [
  "jpeg-encoder",
  "libc",
  "miniz_oxide",
+ "moxcms",
  "png 0.17.16",
  "quick-xml 0.37.5",
  "rav1d",
@@ -3207,8 +3208,10 @@ dependencies = [
  "serde",
  "serde_json",
  "sha1",
+ "tempfile",
  "thiserror 2.0.19",
  "tiff",
+ "windows-sys 0.61.2",
  "zune-jpeg",
 ]
 
@@ -3241,6 +3244,7 @@ dependencies = [
  "futures-channel",
  "js-sys",
  "pollster",
+ "raw-window-handle",
  "wasm-bindgen",
  "web-sys",
  "wgpu",
@@ -3255,8 +3259,6 @@ checksum = "20675572f6f24e9e76ef639bc5552774ed45f1c30e2951e1e99c59888861c539"
 [[package]]
 name = "rawler"
 version = "0.7.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "04f4cc35c23969a4a834e0b117c7da41ace812eb9053b5effc3fc5c77d114677"
 dependencies = [
  "backtrace",
  "bitstream-io",

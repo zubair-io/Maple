@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'bun:test';
+import { describe, expect, it, spyOn } from 'bun:test';
 import {
   resolveEnvKey,
   listProviderModels,
@@ -69,6 +69,27 @@ describe('ai-providers.service', () => {
         expect(res.models).toContain('gemini-1.5-flash');
       } finally {
         if (prev !== undefined) process.env.MAPLE_GEMINI_API_KEY = prev;
+      }
+    });
+
+    it('lists a keyless OpenAI-compatible server unfiltered and without a bearer', async () => {
+      const calls: Array<{ url: string; headers: unknown }> = [];
+      const fetchSpy = spyOn(globalThis, 'fetch').mockImplementation((async (
+        url: string,
+        init: RequestInit,
+      ) => {
+        calls.push({ url, headers: init.headers });
+        return Response.json({ data: [{ id: 'qwen3-32b' }, { id: 'gemma-3-27b' }] });
+      }) as unknown as typeof fetch);
+      try {
+        const res = await listProviderModels('openai', {
+          url: 'http://strata.lan:8080/v1',
+          apiKey: null,
+        });
+        expect(res).toEqual({ models: ['gemma-3-27b', 'qwen3-32b'], source: 'live' });
+        expect(calls).toEqual([{ url: 'http://strata.lan:8080/v1/models', headers: {} }]);
+      } finally {
+        fetchSpy.mockRestore();
       }
     });
 

@@ -24,6 +24,9 @@ const COLOR_GRADE_FIELDS = [
   ['crs:ColorGradeGlobalHue', 'colorGradeGlobalHue', 300],
   ['crs:ColorGradeGlobalSat', 'colorGradeGlobalSaturation', 18],
   ['crs:ColorGradeGlobalLum', 'colorGradeGlobalLuminance', 12],
+  ['papp:ColorGradeBlending', 'colorGradeBlending', 40],
+  ['papp:ColorGradeShadowEdge', 'colorGradeShadowEdge', 0.25],
+  ['papp:ColorGradeHighlightEdge', 'colorGradeHighlightEdge', 0.8],
 ] as const;
 
 function makeSidecar(attrs: string): string {

@@ -13,110 +13,25 @@
  * than attaching one photo's history to another.
  */
 import { describe, expect, it, spyOn } from 'bun:test';
-import { writeFile, rm, readFile, stat } from 'node:fs/promises';
+import { writeFile, rm, readFile, stat, symlink, mkdtemp } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { ObjectId } from '../../db/object-id.ts';
 import * as path from 'node:path';
 import { newObjectIdHex } from '../../db/object-id.ts';
 import { readExif } from '../../indexer/exif.ts';
 import * as exifModule from '../../indexer/exif.ts';
 import { reconcileRenamesInDirectory, type MissingFileCandidate } from './rename-reconcile.ts';
+import { serializeSidecarWrite } from '../../fs/sidecar-write-order.ts';
 import {
   allAssets,
   assetIdAt,
   assetRow,
   createDiscoverLibrary,
-  locationsOf,
   seedAsset,
   seedLocation,
   stageRow,
-  type DiscoverLibrary,
 } from './discover.test-helpers.ts';
-
-// ---------------------------------------------------------------------------
-// A minimal hand-built big-endian TIFF, EXIF SubIFD included, so `readExif`
-// (`exifr` under the hood) can pull DateTimeOriginal + SerialNumber out of a
-// plain `.dng` without a real RAW decoder. Used as the whole file body — DNG
-// is TIFF-based, and exifr sniffs content, not the extension.
-// ---------------------------------------------------------------------------
-
-function writeEntry(
-  buf: Buffer,
-  entryOff: number,
-  id: number,
-  type: number,
-  count: number,
-  value: number,
-): void {
-  buf.writeUInt16BE(id, entryOff);
-  buf.writeUInt16BE(type, entryOff + 2);
-  buf.writeUInt32BE(count, entryOff + 4);
-  buf.writeUInt32BE(value, entryOff + 8);
-}
-
-/** Builds a TIFF with `Make` in IFD0 and `DateTimeOriginal`/`SerialNumber` in
- * the EXIF SubIFD (reached via the `0x8769` pointer tag) — exifr only reads
- * capture-time/serial tags from the SubIFD, not from IFD0 directly. */
-function makeExifTiff(opts: { captureDate: string; serial?: string }): Buffer {
-  const header = Buffer.alloc(8);
-  header.write('MM', 0, 'latin1');
-  header.writeUInt16BE(0x002a, 2);
-  header.writeUInt32BE(8, 4);
-
-  const makeVal = Buffer.from('TestCam\0', 'latin1');
-  const ifd0N = 2;
-  const ifd0Size = 2 + 12 * ifd0N + 4;
-  const ifd0Start = 8;
-  const makeDataOffset = ifd0Start + ifd0Size;
-  const exifIfdStart = makeDataOffset + makeVal.length;
-
-  const exifFields: Array<{ id: number; value: string }> = [
-    { id: 0x9003, value: opts.captureDate },
-  ];
-  if (opts.serial !== undefined) exifFields.push({ id: 0xa431, value: opts.serial });
-
-  const exifN = exifFields.length;
-  const exifIfdSize = 2 + 12 * exifN + 4;
-  let exifDataOffset = exifIfdStart + exifIfdSize;
-  const exifValBufs = exifFields.map((f) => Buffer.from(f.value + '\0', 'latin1'));
-  const exifValOffsets = exifValBufs.map((v) => {
-    const off = exifDataOffset;
-    exifDataOffset += v.length;
-    return off;
-  });
-
-  const ifd0 = Buffer.alloc(ifd0Size);
-  ifd0.writeUInt16BE(ifd0N, 0);
-  writeEntry(ifd0, 2, 0x010f, 2, makeVal.length, makeDataOffset);
-  writeEntry(ifd0, 14, 0x8769, 4, 1, exifIfdStart);
-  ifd0.writeUInt32BE(0, 2 + ifd0N * 12);
-
-  const exifIfd = Buffer.alloc(exifIfdSize);
-  exifIfd.writeUInt16BE(exifN, 0);
-  exifFields.forEach((f, i) => {
-    writeEntry(exifIfd, 2 + i * 12, f.id, 2, exifValBufs[i]!.length, exifValOffsets[i]!);
-  });
-  exifIfd.writeUInt32BE(0, 2 + exifN * 12);
-
-  return Buffer.concat([header, ifd0, makeVal, exifIfd, ...exifValBufs]);
-}
-
-/** One sweep generation over the library root. */
-async function sweepOnce(library: DiscoverLibrary, gen: number): Promise<void> {
-  const frontier = await import('./frontier.repo.ts');
-  const { handleEvent } = await import('./handle-event.ts');
-  const { visitDirectory } = await import('./sweeper.ts');
-  await frontier.seedRoot(library.folderId, library.root, gen);
-  const dir = await frontier.claimNextDir(library.folderId, gen, 60_000);
-  expect(dir).not.toBeNull();
-  await visitDirectory(dir!, library.root, { handleEvent, folderId: library.folderId });
-}
-
-/** The one location of an asset, which every assertion below reads. */
-function onlyLocation(library: DiscoverLibrary, id: string) {
-  const rows = locationsOf(library.db, id);
-  expect(rows).toHaveLength(1);
-  return rows[0]!;
-}
+import { makeExifTiff, onlyLocation, sweepOnce } from './rename-reconcile.test-helpers.ts';
 
 describe('rename reconciliation (#2655)', () => {
   it('reconciles a same-folder rename: sidecar follows, row repoints, edits survive', async () => {
@@ -369,5 +284,197 @@ describe('rename reconciliation (#2655)', () => {
 
     expect(readCalls).toContain(matchingAbsPath);
     expect(readCalls).not.toContain(wrongSizeAbsPath);
+  });
+
+  it('preserves an occupied destination XMP and writes a (conflict from rename).xmp copy (#4702)', async () => {
+    using library = await createDiscoverLibrary('maple-rename-dest-xmp-');
+    const oldName = 'IMG_0001.dng';
+    const newName = 'vacation-final.dng';
+    const oldAbs = path.join(library.root, oldName);
+    const bytes = makeExifTiff({ captureDate: '2024:08:10 14:20:00', serial: 'CAM-DEST-1' });
+    await writeFile(oldAbs, bytes);
+
+    await sweepOnce(library, 1);
+    const id = assetIdAt(library.db, '', oldName);
+    expect(id).not.toBeNull();
+    library.db.run(`UPDATE assets SET exif = json(?), has_xmp = 1 WHERE id = ?`, [
+      JSON.stringify(await readExif(oldAbs)),
+      id!,
+    ]);
+
+    const oldSidecar = path.join(library.root, 'IMG_0001.xmp');
+    const newSidecar = path.join(library.root, 'vacation-final.xmp');
+    await writeFile(oldSidecar, '<xmp>source-edits</xmp>');
+    await writeFile(newSidecar, '<xmp>existing-dest-edits</xmp>');
+
+    await rm(oldAbs);
+    await writeFile(path.join(library.root, newName), bytes);
+    await sweepOnce(library, 2);
+
+    expect(onlyLocation(library, id!).filename).toBe(newName);
+    expect(await readFile(newSidecar, 'utf8')).toBe('<xmp>existing-dest-edits</xmp>');
+    const conflictSidecar = path.join(library.root, 'vacation-final (conflict from rename).xmp');
+    expect(await readFile(conflictSidecar, 'utf8')).toBe('<xmp>source-edits</xmp>');
+    await expect(stat(oldSidecar)).rejects.toThrow();
+  });
+
+  it('keeps the source sidecar when a RAW+JPEG sibling still shares its stem (#4702)', async () => {
+    using library = await createDiscoverLibrary('maple-rename-sibling-');
+    const rawOldName = 'IMG_0001.dng';
+    const jpgName = 'IMG_0001.jpg';
+    const rawNewName = 'vacation-final.dng';
+    const rawOldAbs = path.join(library.root, rawOldName);
+    const jpgAbs = path.join(library.root, jpgName);
+    const rawBytes = makeExifTiff({ captureDate: '2024:09:01 16:00:00', serial: 'CAM-PAIR-1' });
+    const jpgBytes = Buffer.concat([
+      makeExifTiff({ captureDate: '2024:09:01 16:00:00', serial: 'CAM-PAIR-1' }),
+      Buffer.from('jpeg-companion-payload'),
+    ]);
+    await writeFile(rawOldAbs, rawBytes);
+    await writeFile(jpgAbs, jpgBytes);
+
+    await sweepOnce(library, 1);
+    const rawId = assetIdAt(library.db, '', rawOldName);
+    const jpgId = assetIdAt(library.db, '', jpgName);
+    expect(rawId).not.toBeNull();
+    expect(jpgId).not.toBeNull();
+    library.db.run(`UPDATE assets SET exif = json(?), has_xmp = 1 WHERE id = ?`, [
+      JSON.stringify(await readExif(rawOldAbs)),
+      rawId!,
+    ]);
+
+    const sharedSidecar = path.join(library.root, 'IMG_0001.xmp');
+    await writeFile(sharedSidecar, '<xmp>shared-pair-edits</xmp>');
+
+    await rm(rawOldAbs);
+    await writeFile(path.join(library.root, rawNewName), rawBytes);
+    await sweepOnce(library, 2);
+
+    expect(onlyLocation(library, rawId!).filename).toBe(rawNewName);
+    expect(onlyLocation(library, jpgId!).filename).toBe(jpgName);
+    expect(onlyLocation(library, jpgId!).missing_since).toBeNull();
+
+    const movedSidecar = path.join(library.root, 'vacation-final.xmp');
+    expect(await readFile(sharedSidecar, 'utf8')).toBe('<xmp>shared-pair-edits</xmp>');
+    expect(await readFile(movedSidecar, 'utf8')).toBe('<xmp>shared-pair-edits</xmp>');
+
+    // Independent files, not a lingering hard link.
+    await writeFile(sharedSidecar, '<xmp>jpg-only-later-edit</xmp>');
+    expect(await readFile(movedSidecar, 'utf8')).toBe('<xmp>shared-pair-edits</xmp>');
+  });
+
+  it('serializes sidecar move against in-flight writes on both source and destination paths (#4702)', async () => {
+    using library = await createDiscoverLibrary('maple-rename-barrier-');
+    const bytes = makeExifTiff({ captureDate: '2024:10:10 10:10:10', serial: 'CAM-LOCK-1' });
+    const exif = { captured_at: '2024-10-10T10:10:10.000Z', camera_serial: 'CAM-LOCK-1' };
+    const docId = seedAsset(library.db, {
+      id: newObjectIdHex(),
+      mapleId: 'lock-1',
+      size: bytes.length,
+      exif,
+    });
+    seedLocation(library.db, {
+      assetId: docId,
+      libraryId: library.folderId.toHexString(),
+      filename: 'old-lock.dng',
+    });
+
+    const oldAbsPath = path.join(library.root, 'old-lock.dng');
+    const newAbsPath = path.join(library.root, 'new-lock.dng');
+    const oldSidecar = path.join(library.root, 'old-lock.xmp');
+    const newSidecar = path.join(library.root, 'new-lock.xmp');
+    await writeFile(newAbsPath, bytes);
+    await writeFile(oldSidecar, '<xmp>initial</xmp>');
+
+    const events: string[] = [];
+    const sourceGate = Promise.withResolvers<void>();
+    const destGate = Promise.withResolvers<void>();
+    const inFlightSource = serializeSidecarWrite(oldSidecar, async () => {
+      await sourceGate.promise;
+      await writeFile(oldSidecar, '<xmp>saved-before-move</xmp>');
+      events.push('source-saved');
+    });
+    const inFlightDest = serializeSidecarWrite(newSidecar, async () => {
+      await destGate.promise;
+      await expect(stat(newSidecar)).rejects.toThrow();
+      events.push('dest-released');
+    });
+
+    const missing: MissingFileCandidate = {
+      docId: new ObjectId(docId),
+      fileinfo: { library_id: library.folderId, path: '', filename: 'old-lock.dng' },
+      filename: 'old-lock.dng',
+      absPath: oldAbsPath,
+      size: bytes.length,
+      exif: exif as never,
+    };
+    const reconcilePromise = reconcileRenamesInDirectory(
+      [{ filename: 'new-lock.dng', absPath: newAbsPath }],
+      [missing],
+      library.root,
+      library.folderId,
+    );
+
+    for (let i = 0; i < 200 && onlyLocation(library, docId).filename !== 'new-lock.dng'; i++) {
+      await new Promise((r) => setTimeout(r, 5));
+    }
+    await new Promise((r) => setTimeout(r, 10));
+
+    sourceGate.resolve();
+    await inFlightSource;
+    destGate.resolve();
+    await inFlightDest;
+    await reconcilePromise;
+
+    expect(events).toEqual(['source-saved', 'dest-released']);
+    expect(await readFile(newSidecar, 'utf8')).toBe('<xmp>saved-before-move</xmp>');
+  });
+
+  it('rejects a symlink sidecar escaping the library root and rolls back repoint (#4702)', async () => {
+    using library = await createDiscoverLibrary('maple-rename-jail-');
+    const outsideRoot = await mkdtemp(path.join(tmpdir(), 'maple-rename-outside-'));
+    try {
+      const bytes = makeExifTiff({ captureDate: '2024:11:11 11:11:11', serial: 'CAM-JAIL-1' });
+      const exif = { captured_at: '2024-11-11T11:11:11.000Z', camera_serial: 'CAM-JAIL-1' };
+      const docId = seedAsset(library.db, {
+        id: newObjectIdHex(),
+        mapleId: 'jail-1',
+        size: bytes.length,
+        exif,
+      });
+      seedLocation(library.db, {
+        assetId: docId,
+        libraryId: library.folderId.toHexString(),
+        filename: 'old-jail.dng',
+      });
+
+      const outsideSecret = path.join(outsideRoot, 'secret.xmp');
+      await writeFile(outsideSecret, '<xmp>outside-secret</xmp>');
+      await symlink(outsideSecret, path.join(library.root, 'old-jail.xmp'));
+      const newAbsPath = path.join(library.root, 'new-jail.dng');
+      await writeFile(newAbsPath, bytes);
+
+      const res = await reconcileRenamesInDirectory(
+        [{ filename: 'new-jail.dng', absPath: newAbsPath }],
+        [
+          {
+            docId: new ObjectId(docId),
+            fileinfo: { library_id: library.folderId, path: '', filename: 'old-jail.dng' },
+            filename: 'old-jail.dng',
+            absPath: path.join(library.root, 'old-jail.dng'),
+            size: bytes.length,
+            exif: exif as never,
+          },
+        ],
+        library.root,
+        library.folderId,
+      );
+
+      expect(res.reconciledMissingFilenames.size).toBe(0);
+      expect(onlyLocation(library, docId).filename).toBe('old-jail.dng');
+      expect(await readFile(outsideSecret, 'utf8')).toBe('<xmp>outside-secret</xmp>');
+    } finally {
+      await rm(outsideRoot, { recursive: true, force: true });
+    }
   });
 });

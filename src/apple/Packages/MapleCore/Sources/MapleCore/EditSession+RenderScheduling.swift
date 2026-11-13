@@ -13,6 +13,7 @@
 
 import CoreImage
 import Foundation
+import RawPipeline
 
 @MainActor
 extension EditSession {
@@ -38,10 +39,8 @@ extension EditSession {
     editSessionLogger.debug(
       "scheduleRender request phase=\(String(describing: phase), privacy: .public)"
     )
-    let admission = editSessionSignposter.beginInterval(
-      "RenderAdmission", id: editSessionSignposter.makeSignpostID())
     latestRenderSchedule = Task {
-      let gen = await actor.scheduleRender(phase: phase) { [weak self] gen in
+      await actor.scheduleRender(phase: phase) { [weak self] gen in
         guard let self else { return }
         await self.fastPhaseBody(gen: gen)
         let live = await actor.currentGeneration()
@@ -53,9 +52,6 @@ extension EditSession {
         // refineTask it owns.
         await self._scheduleRefine(gen: gen)
       }
-      editSessionSignposter.endInterval(
-        "RenderAdmission", admission, "generation \(gen, privacy: .public)")
-      return gen
     }
   }
 
@@ -64,10 +60,6 @@ extension EditSession {
   /// `renderActor.scheduleRender` can be a single inline `await` —
   /// preserves cancellation propagation from the actor's task handle.
   private func fastPhaseBody(gen: UInt64) async {
-    let callback = editSessionSignposter.beginInterval(
-      "FastCallback", id: editSessionSignposter.makeSignpostID(),
-      "generation \(gen, privacy: .public)")
-    defer { editSessionSignposter.endInterval("FastCallback", callback) }
     await decodeAndRender(targetSize: fastTargetSize, phase: .fast, gen: gen)
   }
 
@@ -111,27 +103,18 @@ extension EditSession {
     // stripped-model RAW handle and sends the resulting small scene-linear
     // patch through the same Apple display chain as the CPU canvas. (The
     // legacy full-canvas `TileManager` compositor was retired in #3288.)
-    if !cropApplied,
-      asset.isRaw,
-      asset.primaryURL != nil,
-      // #1167/#2070: the tile develop now accepts the full-image
-      // (or sized) decode's exported AE gain as an explicit scalar
-      // (`NativeDetailRenderer.render(aeGain:)` →
-      // `maple_render_handle_scene_linear_tile_ae_f32`) instead of
-      // omitting the auto-exposure stage, so every profile is
-      // parity-safe at 1:1 now — not just Auto. (Auto's decode
-      // contract still disables AE outright, so its exported gain is
-      // always 1.0 and this is a no-op for it; Neutral/ACR-Match
-      // previously fell back to the bounded whole-image refine below
-      // because a tile that omitted AE entirely would render at the
-      // wrong brightness — that gap is what this closes.)
-      NativeDetailLOD.shouldRender(
-        pixelScale: pixelScale,
-        visibleRect: viewportSourceRect,
-        imageSize: nativeImageSize
-      ),
-      await refineNativeDetail(gen: gen)
-    {
+    // The capture tile renders through the whole-image decode's creative
+    // stage (#5377), exposure gain included, so every profile is
+    // parity-safe at 1:1. The route rule is shared (#5714).
+    let triesNativeDetail = maple_canvas_refine_tries_native_detail(
+      MapleCanvasRefineContext(
+        crop_applied: cropApplied ? 1 : 0,
+        is_raw: asset.isRaw ? 1 : 0,
+        has_source_file: asset.primaryURL == nil ? 0 : 1,
+        pixel_scale: Double(pixelScale),
+        visible_rect: MapleCanvasRect(viewportSourceRect),
+        image_size: MapleCanvasSize(nativeImageSize)))
+    if triesNativeDetail != 0, await refineNativeDetail(gen: gen) {
       return
     }
     // A failed native-detail await may resume after a newer slider tick.
@@ -140,10 +123,15 @@ extension EditSession {
     guard gen == current, !Task.isCancelled else { return }
     // Short-circuit when refine would render at the same (or smaller)
     // target as the most recent fast pass.
-    if let fast = fastTargetSize, let refine = refinedTargetSize,
-      refine.width <= fast.width + 1 && refine.height <= fast.height + 1
-    {
-      persistCurrentPreviewToCache()
+    let fast = fastTargetSize
+    let refine = refinedTargetSize
+    let refineMatchesFast = maple_canvas_refine_matches_fast_target(
+      fast == nil ? 0 : 1, MapleCanvasSize(fast ?? .zero),
+      refine == nil ? 0 : 1, MapleCanvasSize(refine ?? .zero))
+    if refineMatchesFast != 0 {
+      if await canPublishDerivedPixels() {
+        persistCurrentPreviewToCache()
+      }
       return
     }
     // The former visible-region refine branch (crop the cached decode to

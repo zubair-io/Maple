@@ -89,7 +89,7 @@ export function namesForPersonIds(
  *
  * {@link namesForPersonIds} with one predicate more: an excluded person is left
  * out (#2894). The search-index stage folds these names into `search_blob` and
- * into the Meilisearch document's `people` attribute, so including an excluded
+ * into the search text's people names, so including an excluded
  * person there would make their name a search term — the one thing exclusion
  * means. The facet picker keeps the looser rule because exclusion is applied to
  * its results afterwards.

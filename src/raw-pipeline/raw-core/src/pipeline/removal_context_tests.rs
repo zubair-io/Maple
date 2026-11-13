@@ -113,7 +113,7 @@ fn dormant_non_identity_lens_opcodes_do_not_change_fixed_source_context() {
                 center_x: 0.45,
                 center_y: 0.55,
             })],
-            skipped_unknown: 0,
+            skipped: Vec::new(),
         },
         ActiveAreaRect::full(raw.width, raw.height),
     ));

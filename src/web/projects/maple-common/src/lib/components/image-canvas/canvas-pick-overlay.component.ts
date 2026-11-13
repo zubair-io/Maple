@@ -20,7 +20,8 @@ import { ImageCanvasService } from './image-canvas.service';
 import { CanvasPickService } from './canvas-pick.service';
 import { normalisedImagePoint } from './image-canvas.wb-pick';
 import { computeEffectivePx } from './image-canvas.draw2d';
-import { displayDims } from './image-canvas.crop';
+import { resolveCanvasImageExtent } from './image-canvas.crop';
+import { CropSessionService } from '../crop-overlay/crop-session.service';
 import { LibraryStateService } from '../../state/library-state.service';
 
 @Component({
@@ -36,6 +37,7 @@ export class CanvasPickOverlayComponent {
   private readonly host = inject(ElementRef<HTMLElement>);
   private readonly canvasSvc = inject(ImageCanvasService);
   private readonly state = inject(LibraryStateService);
+  private readonly cropSession = inject(CropSessionService);
   protected readonly pick = inject(CanvasPickService);
 
   /** Sample the clicked point, or cancel when the click misses the image. */
@@ -65,20 +67,7 @@ export class CanvasPickOverlayComponent {
    */
   private pointFor(e: MouseEvent) {
     const rect = (this.host.nativeElement as HTMLElement).getBoundingClientRect();
-    const asset = this.state.focusedAsset();
-    // Same inputs as `ImageCanvasComponent`'s own `effectivePx`: the PAINTED
-    // aspect first (a cropped render is a different aspect than the source),
-    // the asset's stored dims before the first paint.
-    const { w, h } = displayDims(this.canvasSvc.paintedAspect(), asset?.width, asset?.height);
-    const scale = this.canvasSvc.pixelScale();
-    const dpr = (typeof window !== 'undefined' && window.devicePixelRatio) || 1;
-    const { canvasW, canvasH } = computeEffectivePx(
-      scale === 0 ? 'fit' : scale / dpr,
-      w,
-      h,
-      rect.width,
-      rect.height,
-    );
+    const { canvasW, canvasH } = this.canvasSvc.effectivePx() ?? this.unpublishedLayout(rect);
     return normalisedImagePoint(e.clientX - rect.left, e.clientY - rect.top, {
       wrapW: rect.width,
       wrapH: rect.height,
@@ -86,5 +75,22 @@ export class CanvasPickOverlayComponent {
       canvasH,
       pan: this.canvasSvc.pan(),
     });
+  }
+
+  /** The canvas's size before it has published one, from the same inputs. */
+  private unpublishedLayout(rect: DOMRect): { canvasW: number; canvasH: number } {
+    const asset = this.state.focusedAsset();
+    const extent = resolveCanvasImageExtent({
+      painted: this.canvasSvc.paintedAspect(),
+      native: this.canvasSvc.nativeDimensions(),
+      assetW: asset?.width,
+      assetH: asset?.height,
+      crop: asset ? this.state.adjustmentFor(asset.id)().crop : undefined,
+      cropToolActive: this.cropSession.active(),
+    });
+    const scale = this.canvasSvc.pixelScale();
+    const dpr = (typeof window !== 'undefined' && window.devicePixelRatio) || 1;
+    const zoom = scale === 0 ? 'fit' : scale / dpr;
+    return computeEffectivePx(zoom, extent?.w, extent?.h, rect.width, rect.height);
   }
 }

@@ -99,7 +99,38 @@ struct InfoPanelView: View {
           InfoSheetHeader(onClose: onClose)
         }
         AssetFilenameRow(session: session)
+        if let session, let error = session.sidecarError {
+          MuiBanner(
+            variant: .error,
+            message: session.sidecarLoadFailed
+              ? "Can't read this photo's XMP sidecar. Ratings, flags, and keywords are unavailable. Check the sidecar or connection, then reopen the photo."
+              : "Changes to this photo could not be saved. \(error.localizedDescription)"
+          )
+          .accessibilityIdentifier("info-panel-sidecar-error")
+        }
         RatingFlagsRow(session: session)
+        if let session, let error = session.sidecarError {
+          VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 6) {
+              MuiIcon(name: "warning", size: .sm, filled: true)
+              Text(
+                session.hasLoadedSidecar
+                  ? "Changes could not be saved" : "Photo settings could not be loaded")
+            }
+            .font(.subheadline.weight(.semibold))
+            .accessibilityIdentifier("sidecar-save-error")
+            Text(error.localizedDescription)
+              .font(.caption)
+            if session.hasLoadedSidecar {
+              Button("Retry Save") {
+                Task { try? await session.flushPendingSidecarWriteConfirmed() }
+              }
+              .buttonStyle(.bordered)
+              .accessibilityIdentifier("sidecar-save-retry")
+            }
+          }
+          .foregroundStyle(.red)
+        }
         if showsHistogram {
           HistogramBlock(session: session)
         }

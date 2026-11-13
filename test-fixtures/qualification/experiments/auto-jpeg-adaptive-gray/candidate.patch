@@ -1,0 +1,118 @@
+diff --git a/src/raw-pipeline/raw-core/src/view/auto_profile/paired_refinement.rs b/src/raw-pipeline/raw-core/src/view/auto_profile/paired_refinement.rs
+index 7a9213ad69..f941ccee4f 100644
+--- a/src/raw-pipeline/raw-core/src/view/auto_profile/paired_refinement.rs
++++ b/src/raw-pipeline/raw-core/src/view/auto_profile/paired_refinement.rs
+@@ -181,8 +181,11 @@ pub(super) fn refine(
+             regions::constrain(&mut tested, origin, display, &confidence);
+             let score = objective(&group_errors(&rows, &errors(&tested, &rows), &mass), &mass);
+             if score < before {
+-                accepted = Some((tested, score));
+-                break;
++                let assessment = assess_against(&tested, native, display, Some(origin));
++                if assessment.compatible && assessment.native_bands_preserved {
++                    accepted = Some((tested, score));
++                    break;
++                }
+             }
+         }
+         let Some((tested, score)) = accepted else {
+diff --git a/src/raw-pipeline/raw-core/src/view/auto_profile/paired_refinement_projection.rs b/src/raw-pipeline/raw-core/src/view/auto_profile/paired_refinement_projection.rs
+index 7c097e1cd2..359840fd81 100644
+--- a/src/raw-pipeline/raw-core/src/view/auto_profile/paired_refinement_projection.rs
++++ b/src/raw-pipeline/raw-core/src/view/auto_profile/paired_refinement_projection.rs
+@@ -6,61 +6,7 @@ pub(super) fn is_neutral_node(node: usize, size: usize) -> bool {
+ 
+ pub(super) fn constrain_to_prior(data: &mut [f32], prior: &ColorLut, confidence: &[f64]) {
+     super::super::projection::constrain_to_prior(data, prior, confidence);
+-    let n = prior.size;
+-    let count = n.pow(3);
+-    let epsilon = f64::from(0.002 / (n - 1) as f32);
+-    let strides = [1, n, n * n];
+-    let diagonal = 1 + n + n * n;
+-    let minimum =
+-        |i: usize, j: usize| (f64::from(prior.data[j]) - f64::from(prior.data[i])).min(epsilon);
+-    let mut upper = vec![1.; data.len()];
+-    for node in 0..count {
+-        if is_neutral_node(node, n) {
+-            for c in 0..3 {
+-                upper[node * 3 + c] = f64::from(prior.data[node * 3 + c]);
+-            }
+-        }
+-    }
+-    for node in (0..count).rev() {
+-        let xyz = [node % n, node / n % n, node / (n * n)];
+-        for c in 0..3 {
+-            let i = node * 3 + c;
+-            if xyz[c] + 1 < n {
+-                let j = (node + strides[c]) * 3 + c;
+-                upper[i] = upper[i].min(upper[j] - minimum(i, j));
+-            }
+-            if is_neutral_node(node, n) && xyz[0] + 1 < n {
+-                let j = (node + diagonal) * 3 + c;
+-                upper[i] = upper[i].min(upper[j] - minimum(i, j));
+-            }
+-        }
+-    }
+-    let mut result: Vec<_> = data
+-        .iter()
+-        .zip(&upper)
+-        .map(|(&value, &limit)| f64::from(value).clamp(0., limit.max(0.)))
+-        .collect();
+-    for node in 0..count {
+-        let xyz = [node % n, node / n % n, node / (n * n)];
+-        for c in 0..3 {
+-            let i = node * 3 + c;
+-            if is_neutral_node(node, n) {
+-                result[i] = f64::from(prior.data[i]);
+-            }
+-            if xyz[c] > 0 {
+-                let j = (node - strides[c]) * 3 + c;
+-                result[i] = result[i].max(result[j] + minimum(j, i));
+-            }
+-            if is_neutral_node(node, n) && xyz[0] > 0 {
+-                let j = (node - diagonal) * 3 + c;
+-                result[i] = result[i].max(result[j] + minimum(j, i));
+-            }
+-            result[i] = result[i].min(upper[i]).clamp(0., 1.);
+-        }
+-    }
+-    for (value, result) in data.iter_mut().zip(result) {
+-        *value = result as f32;
+-    }
++
+ }
+ 
+ #[cfg(test)]
+diff --git a/src/raw-pipeline/raw-core/src/view/auto_profile/paired_refinement_regions.rs b/src/raw-pipeline/raw-core/src/view/auto_profile/paired_refinement_regions.rs
+index b7ea7361b5..65d550e4ee 100644
+--- a/src/raw-pipeline/raw-core/src/view/auto_profile/paired_refinement_regions.rs
++++ b/src/raw-pipeline/raw-core/src/view/auto_profile/paired_refinement_regions.rs
+@@ -48,9 +48,6 @@ pub(super) fn constrain(
+                 });
+                 let mass = row.population as f64 / populations[region] as f64;
+                 for &(i, w) in &row.artifact_weights {
+-                    if super::projection::is_neutral_node(i, origin.size) {
+-                        continue;
+-                    }
+                     for c in 0..3 {
+                         gradient[i][c] += mass * w * derivative[c];
+                     }
+diff --git a/src/raw-pipeline/raw-core/src/view/auto_profile/paired_refinement_system.rs b/src/raw-pipeline/raw-core/src/view/auto_profile/paired_refinement_system.rs
+index f5ced65acb..bee7470e9c 100644
+--- a/src/raw-pipeline/raw-core/src/view/auto_profile/paired_refinement_system.rs
++++ b/src/raw-pipeline/raw-core/src/view/auto_profile/paired_refinement_system.rs
+@@ -1,4 +1,4 @@
+-use super::{projection::is_neutral_node, Observation, TrainingRow};
++use super::{Observation, TrainingRow};
+ 
+ pub(super) struct System<'a> {
+     rows: &'a [TrainingRow<'a>],
+@@ -30,7 +30,7 @@ impl<'a> System<'a> {
+             diagonal[i] += lambda;
+             diagonal[j] += lambda;
+         }
+-        let fixed: Vec<_> = (0..count).map(|i| is_neutral_node(i, size)).collect();
++        let fixed = vec![false; count];
+         for i in 0..count {
+             if fixed[i] {
+                 diagonal[i] = 1.;

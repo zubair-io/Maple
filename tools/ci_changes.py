@@ -4,15 +4,132 @@ import json
 import os
 import re
 import subprocess
+from functools import cache
 from pathlib import Path
 
-CONSUMERS = ("windows", "web", "api", "maple", "codegen")
+BUILD_CONSUMERS = ("android", "windows", "web", "api", "maple", "codegen", "swift")
+CONSUMERS = (*BUILD_CONSUMERS, "release", "ci")
+BUILDS = frozenset(BUILD_CONSUMERS)
 ALL = frozenset(CONSUMERS)
 CODEGEN_DOCS = frozenset(
     f"docs/{name}.{extension}"
     for name in ("capability-registry", "camera-support")
     for extension in ("md", "json")
 )
+ROOT = Path(__file__).resolve().parent.parent
+# Swift (macOS-runner) jobs boot these API fixture servers and read the files
+# below outside src/apple. An API change reaches Swift only through the
+# fixtures' transitive imports, which swift_api_closure() walks.
+SWIFT_API_ENTRY_POINTS = (
+    "src/api/tests/fixtures/file-provider-restart.ts",
+    "src/api/tests/fixtures/unified-folder-server.ts",
+    "src/api/tests/browser/workflow-server.ts",
+)
+SWIFT_API_INPUTS = frozenset(("src/api/package.json", "src/api/bun.lock"))
+IMPORT_SPECIFIER = re.compile(
+    r"""(?:\bfrom\s*|\bimport\s*\(?\s*|\brequire\s*\(\s*)['"](\.{1,2}/[^'"]*)['"]"""
+)
+# Whole-line comments only: stripping /* */ spans could swallow real imports
+# after a glob string such as "**/*.ts".
+COMMENT_LINE = ("//", "*", "/*")
+SOURCE_SUFFIXES = (".ts", ".tsx", ".js", ".mjs", ".json")
+
+
+def resolve_import(root, importer, specifier):
+    base = (root / importer).parent / specifier
+    stem = base.with_suffix("") if base.suffix in (".js", ".mjs") else base
+    for candidate in (
+        base,
+        *(Path(f"{stem}{suffix}") for suffix in SOURCE_SUFFIXES),
+        *(stem / f"index{suffix}" for suffix in SOURCE_SUFFIXES),
+    ):
+        if candidate.is_file():
+            return candidate.resolve().relative_to(root.resolve()).as_posix()
+    return None
+
+
+@cache
+def swift_api_closure(root=ROOT):
+    """Files the Swift-booted API fixtures import, and whether the walk was complete."""
+    root = Path(root)
+    pending = list(SWIFT_API_ENTRY_POINTS)
+    seen = set()
+    complete = True
+    while pending:
+        path = pending.pop()
+        if path in seen:
+            continue
+        seen.add(path)
+        file = root / path
+        if not file.is_file():
+            complete = False
+            continue
+        if file.suffix not in (".ts", ".tsx", ".js", ".mjs"):
+            continue
+        try:
+            source = file.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            complete = False
+            continue
+        code = "\n".join(
+            line
+            for line in source.splitlines()
+            if not line.lstrip().startswith(COMMENT_LINE)
+        )
+        for specifier in IMPORT_SPECIFIER.findall(code):
+            try:
+                resolved = resolve_import(root, path, specifier)
+            except ValueError:
+                resolved = None
+            if resolved is None:
+                complete = False
+            else:
+                pending.append(resolved)
+    return frozenset(seen), complete
+
+
+def is_maple_runtime(path):
+    # src/api installs `maple` from file:../maple and the workflow fixture imports it.
+    return (
+        path.startswith("src/maple/")
+        and not path.endswith(".md")
+        and "/test/" not in path
+    )
+
+
+def affects_swift_api(path, root=ROOT):
+    closure, complete = swift_api_closure(root)
+    return not complete or path in closure
+
+
+SWIFT_WEB_INPUTS = frozenset(
+    (
+        "src/web/package.json",
+        "src/web/bun.lock",
+        "src/web/playwright.recipe-interchange.config.ts",
+        "src/web/projects/maple-common/src/lib/export/export-recipe-store.ts",
+        "src/web/projects/maple-common/src/lib/generated/export-recipe.generated.ts",
+    )
+)
+SWIFT_DOCS = frozenset(("docs/design/maple-ui/apple-icon-inventory.json",))
+SWIFT_REGRESSION_LISTS = frozenset(
+    (
+        ".github/swift-regressions/run.txt",
+        ".github/swift-regressions/excluded.txt",
+    )
+)
+# A sidecar contract record selects only its owning suite (api-tests re-checks
+# the API one with record.sh --check) and codegen, which derives the capability
+# registry from it; registry changes land in generated files that select their
+# own platforms.
+SIDECAR_CONTRACT_RECORDS = {
+    "test-fixtures/qualification/sidecar_contract_api.json": frozenset(
+        ("api", "codegen")
+    ),
+    "test-fixtures/qualification/sidecar_contract_apple.json": frozenset(
+        ("swift", "codegen")
+    ),
+}
 METADATA = frozenset(
     name + extension
     for name in ("README", "AGENTS", "CLAUDE", "LICENSE")
@@ -28,41 +145,112 @@ def dependencies(path):
     parts = path.split("/")
     if not path or any(part in ("", ".", "..") for part in parts):
         return ALL
-    if path.startswith(("tools/release_", "tools/test_release_")):
-        return frozenset()
-    if path.startswith((".github/workflows/", ".github/actions/")) or any(
-        part in ("scripts", "ci_scripts") for part in parts[:-1]
+    if path.startswith(("tools/release_", "tools/test_release_")) or path in (
+        "tools/sync-release-version.sh",
+        ".github/workflows/version-sync.yml",
+        ".github/workflows/release-handoff.yml",
+    ):
+        return {"release"}
+    if path in ("tools/generate_nlm_exp_table.py", "tools/test_nlm_exp_table.py"):
+        return {"codegen"}
+    if path.startswith((".github/workflows/", ".github/actions/")) or (
+        not path.startswith("src/android/")
+        and any(part in ("scripts", "ci_scripts") for part in parts[:-1])
     ):
         return ALL
+    if path in SIDECAR_CONTRACT_RECORDS:
+        return SIDECAR_CONTRACT_RECORDS[path]
     if path.startswith(("src/raw-pipeline/", "test-fixtures/", "tools/qualification/")):
-        return ALL
+        return BUILDS
     if path.startswith("src/apple/MapleUITests/Goldens/.calibration/"):
-        return ALL
+        return BUILDS
+    # Android stages the shared layout raster and exports MapleUI's bundled
+    # fonts/glyphs. Ordinary Swift changes are still codegen-only.
+    if path.startswith(
+        (
+            "src/apple/MapleUITests/Fixtures/",
+            "src/apple/Packages/MapleUI/Sources/MapleUI/Resources/",
+        )
+    ):
+        return {"android", "codegen", "swift"}
     if path == (
         "src/apple/Packages/MapleCore/Sources/MapleCore/Resources/builtin-presets.json"
     ):
-        return {"api", "maple", "web", "codegen"}
+        return {"api", "maple", "web", "codegen", "swift", "android"}
     if path.startswith(
         (
             "src/apple/Maple/Assets.xcassets/AppIcon.appiconset/",
             "src/apple/Maple/Assets.xcassets/LaunchLogo.imageset/",
         )
     ):
-        return {"web", "codegen"}
+        return {"android", "web", "codegen", "swift"}
     if path.startswith("docs/design/maple-ui/components/"):
         return {"web"}
+    if path in SWIFT_DOCS or path in SWIFT_REGRESSION_LISTS:
+        return {"swift"}
     generated = "generated" in path.lower().split("/") or path.endswith(
         (".generated.ts", ".g.cs")
     )
     codegen = (
         {"codegen"}
-        if generated or path == "src/api/src/routes/xmp.sidecar-contract.test.ts"
+        if generated
+        or path.startswith("src/api/src/xmp/")
+        or path
+        in (
+            "src/api/src/routes/xmp.sidecar-contract.test.ts",
+            "src/api/src/routes/xmp.ts",
+            "src/api/src/routes/xmp-change.ts",
+            "src/api/src/routes/xmp-path-auth.ts",
+            "src/api/src/routes/folders.upload.ts",
+            "src/api/src/routes/folders.upload-sidecar-admission.ts",
+            "src/api/src/fs/primary-replacement-admission.ts",
+            "src/api/src/fs/relocate-replace-fence.ts",
+            "src/api/src/fs/xmp-sidecar-path.ts",
+            "src/api/src/fs/errno-code.ts",
+            "src/api/src/fs/root.ts",
+            "src/api/src/xmp",
+            "src/api/src/fs/sidecar-io.ts",
+            "src/api/src/fs/sidecar-write-order.ts",
+            "src/api/src/fs/xmp-conditional.ts",
+            "src/api/src/fs/xmp.ts",
+            "src/android/native/src/fields.rs",
+            "src/android/native/src/canvas_zoom_abi.rs",
+            "src/android/app/src/main/res/values/maple-tokens.xml",
+        )
         else set()
     )
+    swift = (
+        {"swift"}
+        if path in SWIFT_API_INPUTS
+        or affects_swift_api(path)
+        or is_maple_runtime(path)
+        or path in SWIFT_WEB_INPUTS
+        or path.startswith("src/web/e2e/recipe-interchange/")
+        else set()
+    )
+    if path == "src/android/app/src/main/java/app/justmaple/aperture/ui/Presets.kt":
+        return {"api", "android"}
+    if path.startswith("src/android/"):
+        return {"android"} | codegen
+    if path == "src/maple/package.json":
+        return {"android", "api", "maple", "web"} | swift
+    # Android's shared folder writer pins these API-owned cache tier parameters.
+    if path in ("src/api/src/thumbs/render.ts", "src/api/src/indexer/previewer.ts"):
+        return {"android", "api", "maple", "web"} | codegen | swift
     if path.startswith(("src/api/", "src/maple/")):
-        return {"api", "maple", "web"} | codegen
+        return {"api", "maple", "web"} | codegen | swift
     if path.startswith("src/web/"):
-        return {"api", "web"} | codegen
+        android = (
+            {"android"}
+            if path.startswith(
+                (
+                    "src/web/projects/maple-common/src/lib/icons/",
+                    "src/web/projects/maple-common/src/lib/maple-cache/",
+                )
+            )
+            else set()
+        )
+        return {"api", "web"} | codegen | android | swift
     if path.startswith("src/windows/"):
         return (
             {"windows"}
@@ -73,7 +261,9 @@ def dependencies(path):
                 else set()
             )
         )
-    if path.startswith("src/apple/") or path in CODEGEN_DOCS:
+    if path.startswith("src/apple/"):
+        return {"codegen", "swift"}
+    if path in CODEGEN_DOCS:
         return {"codegen"}
     if path.startswith("docs/") or path in METADATA:
         return frozenset()
@@ -108,7 +298,7 @@ def git(repo, *args):
 
 
 def select(event_name, event, repo="."):
-    if event_name not in ("pull_request", "push"):
+    if event_name not in ("pull_request", "push", "merge_group"):
         return selection(
             ALL, "Manual, reusable, or unknown event; running all consumers."
         )
@@ -121,11 +311,19 @@ def select(event_name, event, repo="."):
             if head_ref.startswith("release/next-v"):
                 return selection(ALL, "Release PR override; running all consumers.")
             base, head = valid_sha(pr["base"]["sha"]), valid_sha(pr["head"]["sha"])
+        elif event_name == "merge_group":
+            group = event["merge_group"]
+            base, head = valid_sha(group["base_sha"]), valid_sha(group["head_sha"])
         else:
             base, head = valid_sha(event["before"]), valid_sha(event["after"])
         for sha in (base, head):
             if git(repo, "cat-file", "-t", sha).strip() != b"commit":
                 raise ValueError("Event SHA is not a commit")
+        if event_name == "merge_group":
+            git(repo, "merge-base", "--is-ancestor", base, head)
+            # base_sha can be an earlier synthetic queue commit. A later group
+            # must still run consumers changed by every PR ahead of it.
+            return selection(ALL, "Merge group; running all consumers on combined head.")
         start = (
             valid_sha(git(repo, "merge-base", "--all", base, head).decode().strip())
             if event_name == "pull_request"

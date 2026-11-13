@@ -16,25 +16,27 @@ mod tests;
 /// `xmp` must address a NUL-terminated UTF-8 string (null is rejected).
 #[no_mangle]
 pub unsafe extern "C" fn maple_validate_raster_adjustments(xmp: *const c_char) -> i32 {
-    let result = (|| {
-        if xmp.is_null() {
-            return Err("missing XMP".to_string());
+    crate::error::catch_panic_rc("maple_validate_raster_adjustments", || {
+        let result = (|| {
+            if xmp.is_null() {
+                return Err("missing XMP".to_string());
+            }
+            let xml = CStr::from_ptr(xmp).to_str().map_err(|e| e.to_string())?;
+            let model = if xml.is_empty() {
+                raw_core::AdjustmentModel::default()
+            } else {
+                raw_core::xmp::parse(xml).map_err(|e| e.to_string())?
+            };
+            raw_core::pipeline::validate_raster_adjustments(&model).map_err(|e| e.to_string())
+        })();
+        match result {
+            Ok(()) => 0,
+            Err(error) => {
+                set_last_error(error);
+                1
+            }
         }
-        let xml = CStr::from_ptr(xmp).to_str().map_err(|e| e.to_string())?;
-        let model = if xml.is_empty() {
-            raw_core::AdjustmentModel::default()
-        } else {
-            raw_core::xmp::parse(xml).map_err(|e| e.to_string())?
-        };
-        raw_core::pipeline::validate_raster_adjustments(&model).map_err(|e| e.to_string())
-    })();
-    match result {
-        Ok(()) => 0,
-        Err(error) => {
-            set_last_error(error);
-            1
-        }
-    }
+    })
 }
 
 /// Decode JPEG/TIFF to oriented f32 RGBA linear Rec.2020, no authored edits.

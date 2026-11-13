@@ -1,0 +1,7 @@
+# Direct binned LUT experiment — #5000
+
+The full 20-fixture run is complete with the fixed stronger harness: 16 JPEG comparisons, one pass (0002), 15 failures, four no-preview fixtures and zero errors. No case clears and no new case-level failures relative to the stronger original-image baseline. Individual error changes are not claimed fixes. All four no-preview cases also passed actual decoded Auto-versus-Neutral equality; they are not JPEG passes. Input/reference hashes remain unchanged.
+
+This experiment removes the old band-curve preprocessing and directly fits the existing confidence-damped, smoothed 33-node LUT on three quarters of pixel pairs. The held-out per-channel squared-error selector is insufficient: candidate0015/0017 can worsen perceptual error despite improving that objective. The complete evidence is preserved; do not accept it as a color fix. 54 Auto unit checks pass (six existing ignored).
+
+The next source experiment uses a coarse 9-node tetrahedral field with a smoothness penalty on neighboring correction values, a weak identity prior, and conjugate-gradient fitting. Its 33-node artifact exactly subdivides the coarse tetrahedra. Selection additionally requires held-out per-channel absolute error and perceptual mean error to improve, not only squared error. Physical/visual, host/GPU and banding qualification of this next experiment is pending. Pipeline output37 and Auto fit7 remain unchanged. No merge.

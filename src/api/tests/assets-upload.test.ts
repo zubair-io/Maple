@@ -119,7 +119,7 @@ describe('POST /api/folders/:id/upload', () => {
       'face-embed',
       'describe',
       'geocode',
-      'meili',
+      'search-blob',
     ]) {
       const row = stageStateRow(live.db, assetId, stage);
       expect(row).not.toBeNull();

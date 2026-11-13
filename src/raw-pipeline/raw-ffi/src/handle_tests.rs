@@ -130,11 +130,11 @@ fn raw_handle_renders_multiple_tiles() {
     unsafe { maple_close_raw_handle(handle) };
 }
 
-/// Handle opened with an XMP that sets dehaze != 0 propagates the
-/// dehaze rejection (rc=10) on tile render — the model is locked
-/// at handle-open time. Fixture-gated.
+/// Handle opened with an XMP that sets dehaze != 0 tiles it from the
+/// frame's proxy haze map (#3287) — the model is locked at handle-open
+/// time. Fixture-gated.
 #[test]
-fn raw_handle_with_dehaze_xmp_returns_rc10() {
+fn raw_handle_with_dehaze_xmp_tiles() {
     let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../../../test-fixtures/raws/test_0002.dng");
     if !path.exists() {
@@ -156,7 +156,8 @@ fn raw_handle_with_dehaze_xmp_returns_rc10() {
             handle, 1024, 1024, 512, 512, 256, 256, 0, 0.0, 0.0, &mut buf,
         )
     };
-    assert_eq!(rc, 10, "expected dehaze rc=10, got {}", rc);
+    assert_eq!(rc, 0, "dehaze tile rc = {rc}");
+    assert_eq!((buf.width, buf.height), (256, 256));
     unsafe {
         maple_free_scene_linear_buffer(&mut buf);
         maple_close_raw_handle(handle);

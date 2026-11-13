@@ -1,0 +1,11 @@
+{
+  "source": "7cfe2b6e0d955ed147557a3c8ec9b660367d7f0c",
+  "reviewed": "all16original/candidate/reference triplets in4contact sheets",
+  "notes": [
+    "0015 remains flat;0017 remains faded.",
+    "No new image passes;0017 meanDE9.3927\u21929.5405 and tile0,7G regresses to0.051214 against0.05.",
+    "Five passing controls retain pass status.",
+    "Sampling correction is mathematically verified, not a complete color improvement."
+  ],
+  "complete_goal": false
+}

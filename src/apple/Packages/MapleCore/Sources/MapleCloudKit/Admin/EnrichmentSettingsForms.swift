@@ -1,5 +1,5 @@
 // EnrichmentSettingsForms.swift — editable state for the four T5a rows
-// (Describe, Transcribe, Geocode, Meilisearch).
+// (Describe, Transcribe, Geocode, service search).
 //
 // Free of SwiftUI so the merge-hazard and reset-vs-clamp rules below are
 // unit-testable; XCUITest is unavailable on the primary dev machine
@@ -36,7 +36,7 @@ public struct DescribeSettingsForm: Equatable, Sendable {
       describeProviderURL: nilIfBlank(providerURL))
   }
 
-  /// URL for the Test button. Unlike Geocode/Meilisearch, there is no
+  /// URL for the Test button. Unlike Geocode, there is no
   /// blank-URL guard on this row (mirrors `workers.component.ts`'s
   /// `testConnection`, which never disables Describe's Test button) — a
   /// blank field is valid input that lets the server fall back to its own
@@ -89,7 +89,7 @@ public struct GeocodeSettingsForm: Equatable, Sendable {
   /// Builds the PUT body for this row. See `GeocodeConfigPatch
   /// .nominatimRateLimitPerSec`'s doc comment for why an out-of-range rate
   /// is sent through as typed rather than reset to `null` here — that rule
-  /// is specific to the three Meilisearch numerics.
+  /// is specific to the service search budget.
   public func patch(echoing config: EnrichmentConfig) -> GeocodeConfigPatch {
     GeocodeConfigPatch(
       nominatimURL: nilIfBlank(nominatimURL),
@@ -202,83 +202,34 @@ public struct FaceEmbedSettingsForm: Equatable, Sendable {
   }
 }
 
-// MARK: - Meilisearch
+// MARK: - Service search
 
-public struct MeilisearchSettingsForm: Equatable, Sendable {
-  public var url: String
-  /// Always starts blank — write-only, never echoed back by the server. A
-  /// blank value at save time OMITS the field so the stored key survives
-  /// (see `MeilisearchConfigPatch.meilisearchAPIKey`).
-  public var apiKey: String
-  public var semanticEnabled: Bool
-  public var embedderModel: String
-  public var taskTimeoutSeconds: String
-  public var semanticRatio: String
+public struct ServiceSearchSettingsForm: Equatable, Sendable {
   public var serviceRateLimitPerMinute: String
 
-  public init(
-    url: String = "", apiKey: String = "", semanticEnabled: Bool = false, embedderModel: String = "",
-    taskTimeoutSeconds: String = "", semanticRatio: String = "", serviceRateLimitPerMinute: String = ""
-  ) {
-    self.url = url
-    self.apiKey = apiKey
-    self.semanticEnabled = semanticEnabled
-    self.embedderModel = embedderModel
-    self.taskTimeoutSeconds = taskTimeoutSeconds
-    self.semanticRatio = semanticRatio
+  public init(serviceRateLimitPerMinute: String = "") {
     self.serviceRateLimitPerMinute = serviceRateLimitPerMinute
   }
 
-  public static func seeded(from config: EnrichmentConfig) -> MeilisearchSettingsForm {
-    MeilisearchSettingsForm(
-      url: config.meilisearchURL ?? "",
-      apiKey: "",
-      semanticEnabled: config.meilisearchSemanticEnabled,
-      embedderModel: config.meilisearchEmbedderModel,
-      taskTimeoutSeconds: String(config.meilisearchTaskTimeoutSeconds),
-      semanticRatio: String(config.meilisearchSemanticRatio),
+  public static func seeded(from config: EnrichmentConfig) -> ServiceSearchSettingsForm {
+    ServiceSearchSettingsForm(
       serviceRateLimitPerMinute: String(config.serviceSearchRateLimitPerMinute))
   }
 
-  /// Builds the PUT body. The three numerics each resolve to `nil` (sent as
-  /// explicit `null`, resetting to the server's default) when unparsable or
-  /// outside `EnrichmentLimits` — never clamped to the nearest edge, so a
-  /// fat-fingered 999999 doesn't silently become 3600.
-  public func patch(echoing config: EnrichmentConfig) -> MeilisearchConfigPatch {
-    let trimmedKey = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
-    return MeilisearchConfigPatch(
+  /// Builds the PUT body. The budget resolves to `nil` (sent as explicit
+  /// `null`, resetting to the server's default) when unparsable or outside
+  /// `EnrichmentLimits` — never clamped to the nearest edge, so a
+  /// fat-fingered 999999 doesn't silently become 10000.
+  public func patch(echoing config: EnrichmentConfig) -> ServiceSearchConfigPatch {
+    ServiceSearchConfigPatch(
       nominatimURL: config.nominatimURL,
       geocodeWorkerEnabled: config.geocodeWorkerEnabled,
-      meilisearchURL: nilIfBlank(url),
-      meilisearchAPIKey: trimmedKey.isEmpty ? nil : trimmedKey,
-      meilisearchSemanticEnabled: semanticEnabled,
-      meilisearchEmbedderModel: nilIfBlank(embedderModel),
-      meilisearchTaskTimeoutSeconds: Self.rangedInt(
-        taskTimeoutSeconds, in: EnrichmentLimits.meilisearchTaskTimeoutSeconds),
-      meilisearchSemanticRatio: Self.rangedDouble(
-        semanticRatio, in: EnrichmentLimits.meilisearchSemanticRatio),
       serviceSearchRateLimitPerMinute: Self.rangedInt(
         serviceRateLimitPerMinute, in: EnrichmentLimits.serviceSearchRateLimitPerMinute))
   }
 
-  /// URL + key for the Test button, or nil when there's no URL to probe —
-  /// mirrors `workers.component.ts`'s "Enter a URL to test." guard for the
-  /// meili row. The key is optional even when present: a blank field lets
-  /// the server fall back to the saved key.
-  public func testCredentials() -> (url: String, apiKey: String?)? {
-    guard let trimmedURL = nilIfBlank(url) else { return nil }
-    return (trimmedURL, nilIfBlank(apiKey))
-  }
-
   private static func rangedInt(_ text: String, in range: ClosedRange<Int>) -> Int? {
     guard let value = Int(text.trimmingCharacters(in: .whitespacesAndNewlines)), range.contains(value)
-    else { return nil }
-    return value
-  }
-
-  private static func rangedDouble(_ text: String, in range: ClosedRange<Double>) -> Double? {
-    guard let value = Double(text.trimmingCharacters(in: .whitespacesAndNewlines)), value.isFinite,
-      range.contains(value)
     else { return nil }
     return value
   }

@@ -18,6 +18,13 @@
     let filmstripAssets: [AssetRef]
     let filmstripSource: (any ImageSource)?
     let onSelectAsset: (AssetRef) -> Void
+    /// The shell's source-aware session factory (`AppShell.browseSession`).
+    /// The fallback below used to build a bare `EditSession(asset:)` with
+    /// no remote store, so a Cloud / PhotoKit / SMB photo that reached the
+    /// editor unprimed lost every edit (#4712). Synchronous on purpose:
+    /// the editor mounts immediately and the session hydrates its sidecar
+    /// lazily on first render, exactly as the primed path does.
+    let makeEditSession: (AssetRef) -> EditSession
     @Binding var sessions: [AssetRef.ID: EditSession]
     @Environment(\.dismiss) private var dismiss
 
@@ -50,7 +57,7 @@
         if let state {
           EditorView(
             state: state,
-            onDismiss: { dismiss() },
+            onDismiss: { closeToPreview() },
             onInfo: { showInfo.toggle() },
             filmstripAssets: filmstripAssets,
             onSelectAsset: onSelectAsset,
@@ -78,32 +85,11 @@
           Color.clear
         }
       }
-      .stackBackSwipe(onBack: { dismiss() })
-      .task(id: asset.id) {
-        // Build (or reuse) the EditSession + EditorState. `EditSession.init`
-        // is synchronous — sidecar / as-shot WB load lazily on first render
-        // via `loadSidecar()` / `ensureRenderStarted()`, NOT during init —
-        // so this closure has no real await. (The stale comment + spurious
-        // `await` here triggered Swift's "no async operations occur within
-        // await" warning.)
-        // Keep ONLY the active asset's session resident. Each EditSession
-        // holds its GPU live buffers + decoded/developed cache — roughly one
-        // large RAW's worth — and the `sessions` dict (AppShell @State) is
-        // otherwise never pruned, so switching between two 100 MP images kept
-        // both resident and jetsam-killed iOS at the ~6 GB limit (#1660).
-        // Dropping the others here frees that memory BEFORE the new decode
-        // runs. The RAW handle (RawImageCache, single-entry) is already
-        // evicted on switch, so switching back re-decodes regardless.
-        if let existing = sessions[asset.id] {
-          if sessions.count > 1 { sessions = [asset.id: existing] }
-          self.state = EditorState(session: existing)
-          return
-        }
-        sessions = [:]
-        let session = EditSession(asset: asset)
-        sessions[asset.id] = session
-        self.state = EditorState(session: session)
-      }
+      .stackBackSwipe(onBack: { closeToPreview() })
+      // Built on appear too, so an open from Preview has its first frame
+      // (#5764) rather than an empty one before the task runs.
+      .onAppear(perform: buildState)
+      .task(id: asset.id) { buildState() }
       .onDisappear {
         // Per S5 spec risk #4b — flush pending XMP write before tear-down
         // so an undo-then-leave persists the right value, not the stale
@@ -116,6 +102,36 @@
           Task { await session.persistDisplayPreviewOnExit() }
         }
       }
+    }
+
+    /// Build (or reuse) the EditSession + EditorState, once per session: a
+    /// second build would take Preview's handoff from the first (#5764).
+    /// `EditSession.init` is synchronous; the sidecar and as-shot WB load
+    /// lazily on first render. Keep ONLY the active asset's session
+    /// resident: each holds roughly one large RAW's worth of GPU buffers and
+    /// caches, and keeping two 100 MP images jetsam-killed iOS at the ~6 GB
+    /// limit (#1660). Dropping the others frees that before the new decode.
+    private func buildState() {
+      let resident = sessions[asset.id]
+      if let state, state.session.asset.id == asset.id,
+        resident.map({ $0 === state.session }) ?? true
+      {
+        return
+      }
+      guard let resident else {
+        sessions = [:]
+        state = EditorState(session: makeEditSession(asset))
+        return
+      }
+      if sessions.count > 1 { sessions = [asset.id: resident] }
+      state = EditorState(session: resident)
+    }
+
+    /// The editor is only reached from Preview, which picks up the canvas
+    /// where the editor left it (#5764).
+    private func closeToPreview() {
+      state?.handOffCanvas()
+      dismiss()
     }
   }
 

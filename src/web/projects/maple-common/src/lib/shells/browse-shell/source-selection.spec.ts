@@ -7,12 +7,15 @@ import { selectSidebarEntry } from './source-selection';
 function makeState(overrides: {
   viewMode?: 'folder' | 'timeline' | 'map';
   sidebarTree?: SidebarEntry[];
+  backend?: 'hosted' | 'self-hosted';
 }) {
   const viewMode = signal<'folder' | 'timeline' | 'map'>(overrides.viewMode ?? 'folder');
   return {
     viewMode,
     setViewMode: vi.fn((mode: 'folder' | 'timeline' | 'map') => viewMode.set(mode)),
     sidebarTree: signal(overrides.sidebarTree ?? []),
+    backend: overrides.backend ?? 'self-hosted',
+    activateHostedFolder: vi.fn(() => false),
     openSelfHostedSubfolder: vi.fn(),
     setFolderOpen: vi.fn(),
     selectedSourceId: signal(''),
@@ -67,5 +70,15 @@ describe('selectSidebarEntry', () => {
 
     expect(state.selectedSourceId()).toBe('smart-picks');
     expect(state.openSelfHostedSubfolder).not.toHaveBeenCalled();
+  });
+
+  it('activates a known Hosted folder instead of only changing its selected id', () => {
+    const state = makeState({ backend: 'hosted' });
+    vi.mocked(state.activateHostedFolder).mockReturnValue(true);
+
+    selectSidebarEntry(state, 'f-summer-photos');
+
+    expect(state.activateHostedFolder).toHaveBeenCalledWith('f-summer-photos');
+    expect(state.selectedSourceId()).toBe('');
   });
 });

@@ -10,8 +10,8 @@ import { Elysia, t } from 'elysia';
 import { ObjectId } from '../db/object-id.ts';
 // Mirror-aware drop-in: uploads, folder moves, and mkdir replicate to the
 // library's backup root(s). `rename` is directory-aware for folder moves.
-import { readdir, rename, stat, mkdir } from '../fs/mirrored.ts';
-import type { Dirent, Stats } from 'node:fs';
+import { rename, stat, mkdir } from '../fs/mirrored.ts';
+import type { Stats } from 'node:fs';
 import * as nodePath from 'node:path';
 import { randomUUID } from 'node:crypto';
 import {
@@ -21,38 +21,43 @@ import {
   listFolderSlugs,
   listFolders,
   registerFolder,
-  setFolderLastScan,
 } from '../db/repos/folders.repo.ts';
-import {
-  listFolderAssets,
-  listFolderTrash,
-  resetFolderStages,
-} from '../db/repos/folder-assets.repo.ts';
-import { isIndexedUpload, streamUploadedBody, finalizeUploadedFile } from './folders.upload.ts';
+import { listFolderAssets, listFolderTrash } from '../db/repos/folder-assets.repo.ts';
+import { UploadConflictError, streamUploadedBody, finalizeUploadedFile } from './folders.upload.ts';
 import { parseFolderTrashPage, folderTrashItem } from './folders.trash-page.ts';
 import { validateRoot } from '../fs/root.ts';
 import { rootsConnected } from '../fs/root-connectivity.ts';
-import { DUPLICATES_DIR_NAME } from '../fs/duplicates.ts';
 import { child as childLogger } from '../log.ts';
 import { computeBodyETag, ifNoneMatchEqual } from '../runtime/http-etag.ts';
-import { requireFileAccessBeforeHandle } from '../auth/middleware.ts';
-import { handleEvent } from '../workers/discover/index.ts';
+import { requireFileAccessBeforeHandle, requireOwnerBeforeHandle } from '../auth/middleware.ts';
+import { startOperation } from '../job-runner/operations.ts';
+import { folderScanRoutes } from './folders-scan.ts';
 import { invalidateLibraryRoots, loadLibraryRoots } from '../indexer/libraries.cache.ts';
+import { isCataloguedFilename } from '../indexer/media-types.ts';
 import { slugify, dedupeSlug } from '../library/slug.ts';
 import { realpathJailCheck } from '../library/address.ts';
 import { safeObjectId } from '../db/object-id.ts';
 import type { FolderWithId } from '../db/schema.ts';
 
-const log = childLogger('folders');
+function folderContainsMoveTarget(source: string, target: string): boolean {
+  const relative = nodePath.relative(source, target);
+  return relative === '' || (!relative.startsWith('..') && !nodePath.isAbsolute(relative));
+}
 
-// Auto-scan-on-open de-bounce window. `POST /:id/scan` (the content-aware
-// re-discover the web fires when a folder is opened) short-circuits when the
-// folder was scanned within this window, so rapid navigation across a
-// library's sub-folders doesn't re-walk the tree on every click. The manual
-// `POST /:id/rescan` button is NOT gated — an explicit user action always
-// re-walks. A few minutes is long enough to absorb a burst of navigation and
-// short enough that re-opening a folder after stepping away picks up moves.
-const SCAN_RECENT_WINDOW_MS = 3 * 60 * 1000;
+async function validateFolderMoveSource(source: string) {
+  try {
+    return (await stat(source)).isDirectory()
+      ? null
+      : { status: 400, error: 'Source is not a directory' };
+  } catch {
+    return { status: 404, error: 'Source folder not found' };
+  }
+}
+
+import { captureUploadedSidecarAdmission } from './folders.upload-sidecar-admission';
+import { SidecarWriteBindingChangedError } from '../fs/sidecar-write-order';
+
+const log = childLogger('folders');
 
 // In-process serialization for the upload route's post-write critical
 // section (stat → trash → rename → upsert), keyed by destination abs
@@ -226,37 +231,7 @@ async function folderFileOrError(
   return { real: resolved.real, stat: st };
 }
 
-/**
- * As {@link folderOrError}, for the two scan routes, whose refusals carry
- * `ok: false` and spell the field `folderId`.
- *
- * A second function rather than a flag on the first: both envelopes are on the
- * wire, and a boolean argument that silently decides which one a client parses
- * is the kind of thing that gets passed wrong once and is never noticed.
- */
-async function scanTargetOrError(rawId: string): Promise<FolderWithId | Response> {
-  const id = safeObjectId(rawId);
-  if (id === null) {
-    return Response.json({ ok: false, error: 'Invalid folderId' }, { status: 400 });
-  }
-  const folder = await findFolderById(id);
-  return folder ?? Response.json({ ok: false, error: 'Folder not found' }, { status: 404 });
-}
-
-/**
- * Re-walks a library and stamps the time it finished, which is what both scan
- * routes mean by scanning: the walk pushes every supported file through the
- * discover producer, and `last_scan` is what the de-bounce on `/:id/scan`
- * reads afterwards. Returns the stamp so the caller can hand it back.
- */
-async function rewalkFolder(folder: FolderWithId): Promise<string> {
-  await scanFolderAndDiscover(folder.path, folder._id, folder.path);
-  const scannedAt = new Date().toISOString();
-  await setFolderLastScan(folder._id, scannedAt);
-  return scannedAt;
-}
-
-export const foldersRoutes = new Elysia({ prefix: '/api/folders' })
+const folderRoutesCore = new Elysia({ prefix: '/api/folders' })
   // List all folders. Body-hash ETag + If-None-Match short-circuit so the
   // File Provider extension can revalidate cheaply on cold Finder open.
   .get('/', async ({ headers, query }) => {
@@ -379,17 +354,7 @@ export const foldersRoutes = new Elysia({ prefix: '/api/folders' })
       // re-read after this insert so the new library is visible.
       invalidateLibraryRoots();
 
-      // Fire-and-forget: walk the new folder and push each supported image
-      // file through the discover producer so the pipeline starts indexing
-      // immediately without waiting for the next watcher tick. The library
-      // root is `path` itself (we just inserted the row with that path),
-      // passed through so handleEvent doesn't re-fetch the folder doc.
-      void scanFolderAndDiscover(path, folderId, path).catch((err) =>
-        log.warn(
-          { path, err: err instanceof Error ? err.message : err },
-          'initial folder scan failed — files will be indexed on next watcher tick',
-        ),
-      );
+      await startOperation('folder_scan', { folderId: id });
 
       set.status = 201;
       return {
@@ -403,7 +368,7 @@ export const foldersRoutes = new Elysia({ prefix: '/api/folders' })
       };
     },
     {
-      beforeHandle: requireFileAccessBeforeHandle,
+      beforeHandle: requireOwnerBeforeHandle,
       body: t.Object({
         path: t.String({ minLength: 1 }),
         label: t.Optional(t.String()),
@@ -465,101 +430,6 @@ export const foldersRoutes = new Elysia({ prefix: '/api/folders' })
     },
   )
 
-  // Rescan a folder — resets stages.*.version to 0 (and clears dead/attempts/
-  // last_error) for every asset doc whose primary fileinfo entry is in the
-  // library. The stage controllers pick them up on their next poll cycle.
-  .post(
-    '/:id/rescan',
-    async ({ params }) => {
-      const folderIdStr = params.id;
-      const folder = await scanTargetOrError(folderIdStr);
-      if (folder instanceof Response) return folder;
-      const id = folder._id;
-      const scanRoot = folder.path;
-
-      // Zero every stage's version and clear dead/attempts/last_error so the
-      // claim query picks the assets back up. Reported as assets rather than
-      // stage rows — one library-wide `updateMany` over documents became one
-      // over the `stage_state` rows those documents' `stages.*` became.
-      const resetCount = await resetFolderStages(id);
-
-      // Re-walk the filesystem so a moved/new file is re-discovered and relinked
-      // (handleEvent dedups by maple_id/sha1_head, appends a live fileinfo, and
-      // clears deleted_at). Without this the button only zeroed stage versions —
-      // it could not recover a file whose only fileinfo was a soft-deleted old
-      // path. The walk runs to completion within the request: libraries are
-      // bounded and the dedup path is idempotent + concurrency-safe.
-      const scannedAt = await rewalkFolder(folder);
-
-      log.info(
-        {
-          folderId: folderIdStr,
-          path: scanRoot,
-          modified: resetCount,
-        },
-        'rescan: stage versions zeroed + folder re-walked',
-      );
-
-      return {
-        ok: true,
-        folderId: folderIdStr,
-        path: scanRoot,
-        reset: resetCount,
-        last_scan: scannedAt,
-      };
-    },
-    { beforeHandle: requireFileAccessBeforeHandle },
-  )
-
-  // Content-aware re-discover for auto-scan-on-open (#804). Walks the folder
-  // tree and pushes every supported file through the discover producer, which
-  // dedups by maple_id/sha1_head and RELINKS moved/new files (appends a live
-  // fileinfo, clears deleted_at) onto their existing asset row. Unlike
-  // `/:id/rescan` this does NOT zero stage versions — zeroing on every folder
-  // open would reprocess the whole library. Gated by `last_scan`: a folder
-  // scanned within SCAN_RECENT_WINDOW_MS short-circuits so rapid navigation
-  // doesn't re-walk. The walk runs to completion within the request (bounded
-  // libraries; the dedup path is idempotent + concurrency-safe), so callers
-  // get an authoritative "scan done" before refreshing their listing.
-  .post(
-    '/:id/scan',
-    async ({ params }) => {
-      const folderIdStr = params.id;
-      const folder = await scanTargetOrError(folderIdStr);
-      if (folder instanceof Response) return folder;
-
-      // last_scan de-bounce: skip the re-walk when the folder was scanned
-      // within the recent window. Repeated/concurrent calls are safe either
-      // way (the discover path is idempotent), but skipping avoids redundant
-      // filesystem walks on rapid navigation.
-      const lastScan = folder.last_scan ? Date.parse(folder.last_scan) : NaN;
-      if (Number.isFinite(lastScan) && Date.now() - lastScan < SCAN_RECENT_WINDOW_MS) {
-        return {
-          ok: true,
-          folderId: folderIdStr,
-          path: folder.path,
-          skipped: 'recent' as const,
-          last_scan: folder.last_scan,
-        };
-      }
-
-      const scannedAt = await rewalkFolder(folder);
-
-      log.info(
-        { folderId: folderIdStr, path: folder.path },
-        'scan: folder re-walked (discover-only)',
-      );
-
-      return {
-        ok: true,
-        folderId: folderIdStr,
-        path: folder.path,
-        last_scan: scannedAt,
-      };
-    },
-    { beforeHandle: requireFileAccessBeforeHandle },
-  )
-
   // Streaming upload: body is raw file bytes, target path in X-Maple-Target-Path.
   //
   // The route reads `request.body` directly as a Web ReadableStream and
@@ -577,7 +447,7 @@ export const foldersRoutes = new Elysia({ prefix: '/api/folders' })
       if (destination instanceof Response) return destination;
       const { folder, target, parts } = destination;
       const filename = parts[parts.length - 1]!;
-      const isMedia = isIndexedUpload(filename);
+      const isMedia = isCataloguedFilename(filename);
 
       const absPath = nodePath.join(folder.path, target);
 
@@ -591,6 +461,7 @@ export const foldersRoutes = new Elysia({ prefix: '/api/folders' })
       // to trash, so a duplicate upload never destroys the prior copy.
       const tmp = nodePath.join(dir, `.upload-${randomUUID()}`);
       try {
+        const sidecarAdmission = await captureUploadedSidecarAdmission(absPath);
         await streamUploadedBody(tmp, request.body as ReadableStream<Uint8Array> | null);
         // Serialize only the publication/Trash/catalog section. Body writes
         // remain streamed in parallel to independent temporary paths.
@@ -604,12 +475,16 @@ export const foldersRoutes = new Elysia({ prefix: '/api/folders' })
             isMedia,
             mtimeHeader: headers['x-maple-file-mtime'],
             ownerId,
+            sidecarAdmission,
           }),
         );
         set.status = 201;
         return result;
       } catch (error) {
-        set.status = 500;
+        set.status =
+          error instanceof UploadConflictError || error instanceof SidecarWriteBindingChangedError
+            ? 409
+            : 500;
         return { error: error instanceof Error ? error.message : String(error) };
       }
     },
@@ -626,37 +501,47 @@ export const foldersRoutes = new Elysia({ prefix: '/api/folders' })
   // Stream the raw bytes of a file addressed by its library-relative path.
   // Used by the File Provider to materialize non-indexed files (which have
   // no AssetDoc, so the `/api/assets/:id/raw` route can't reach them).
-  .get('/:id/file', async ({ params, query }) => {
-    const file = await folderFileOrError(params.id, query.path);
-    if (file instanceof Response) return file;
-    const { real, stat: st } = file;
-    return new Response(Bun.file(real).stream(), {
-      status: 200,
-      headers: {
-        'Content-Type': 'application/octet-stream',
-        'Content-Length': String(st.size),
-        'Last-Modified': new Date(st.mtimeMs).toUTCString(),
-      },
-    });
-  })
+  // File-access gated (#4746): streams any library file by path.
+  .get(
+    '/:id/file',
+    async ({ params, query }) => {
+      const file = await folderFileOrError(params.id, query.path);
+      if (file instanceof Response) return file;
+      const { real, stat: st } = file;
+      return new Response(Bun.file(real).stream(), {
+        status: 200,
+        headers: {
+          'Content-Type': 'application/octet-stream',
+          'Content-Length': String(st.size),
+          'Last-Modified': new Date(st.mtimeMs).toUTCString(),
+        },
+      });
+    },
+    { beforeHandle: requireFileAccessBeforeHandle },
+  )
 
   // Stat a file addressed by its library-relative path. Lets the File
   // Provider resolve a bare `.file(folderID, relativePath)` identifier to an
   // item (size + mtime) without downloading the bytes.
-  .get('/:id/file-meta', async ({ params, query }) => {
-    const file = await folderFileOrError(params.id, query.path);
-    if (file instanceof Response) return file;
-    const { real, stat: st } = file;
-    const name = nodePath.basename(real);
-    const dot = name.lastIndexOf('.');
-    return {
-      name,
-      path: real,
-      size: st.size,
-      mtime: new Date(st.mtimeMs).toISOString(),
-      ext: dot >= 0 ? name.slice(dot + 1).toLowerCase() : '',
-    };
-  })
+  // File-access gated (#4746): returns the absolute server path.
+  .get(
+    '/:id/file-meta',
+    async ({ params, query }) => {
+      const file = await folderFileOrError(params.id, query.path);
+      if (file instanceof Response) return file;
+      const { real, stat: st } = file;
+      const name = nodePath.basename(real);
+      const dot = name.lastIndexOf('.');
+      return {
+        name,
+        path: real,
+        size: st.size,
+        mtime: new Date(st.mtimeMs).toISOString(),
+        ext: dot >= 0 ? name.slice(dot + 1).toLowerCase() : '',
+      };
+    },
+    { beforeHandle: requireFileAccessBeforeHandle },
+  )
 
   // Create a subdirectory under a library root. Target path in the
   // `X-Maple-Target-Path` header (URL-encoded), same validation rules
@@ -726,22 +611,15 @@ export const foldersRoutes = new Elysia({ prefix: '/api/folders' })
       // Reject moving a folder onto itself or into its own subtree — that
       // would either be a no-op or an `fs.rename` error, and silently
       // mangles the tree if it ever succeeded.
-      const rel = nodePath.relative(absSource, absTarget);
-      if (rel === '' || (!rel.startsWith('..') && !nodePath.isAbsolute(rel))) {
+      if (folderContainsMoveTarget(absSource, absTarget)) {
         set.status = 400;
         return { error: 'Cannot move a folder into itself or its own subtree' };
       }
 
-      let srcStat;
-      try {
-        srcStat = await stat(absSource);
-      } catch {
-        set.status = 404;
-        return { error: 'Source folder not found' };
-      }
-      if (!srcStat.isDirectory()) {
-        set.status = 400;
-        return { error: 'Source is not a directory' };
+      const sourceError = await validateFolderMoveSource(absSource);
+      if (sourceError) {
+        set.status = sourceError.status;
+        return { error: sourceError.error };
       }
 
       // Refuse to clobber an existing destination. `fs.rename` would
@@ -824,129 +702,4 @@ export const foldersRoutes = new Elysia({ prefix: '/api/folders' })
     },
   );
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-/** Supported image extensions (lowercase with leading dot). Pre-filter for
- * `scanFolderAndDiscover` below — cheap to skip an unsupported file here
- * rather than calling `handleEvent` (which is itself gated by the canonical
- * `SUPPORTED_EXTS` in `workers/discover/types.ts`) and having it no-op.
- * Note: this list has drifted narrower than the canonical one (missing
- * video/psd/psb/hdr) — out of scope to reconcile here; adding the #1835
- * metadata-only stub/audio formats so a newly-registered folder containing
- * them gets those files indexed on the initial scan, not just via the live
- * file watcher. */
-const SUPPORTED_EXTS = new Set([
-  '.dng',
-  '.cr2',
-  '.cr3',
-  '.nef',
-  '.arw',
-  '.raf',
-  '.orf',
-  '.rw2',
-  '.pef',
-  '.srw',
-  '.x3f',
-  '.3fr',
-  '.mef',
-  '.erf',
-  '.mrw',
-  '.raw',
-  '.fff',
-  '.jpg',
-  '.jpeg',
-  '.tif',
-  '.tiff',
-  '.heic',
-  '.heif',
-  // Metadata-only stub images + audio (#1835) — see media-types.ts.
-  '.eip',
-  '.braw',
-  '.afphoto',
-  '.ai',
-  '.mp3',
-  '.wav',
-  '.m4a',
-  '.aac',
-]);
-
-/**
- * Bounded async dispatcher — runs at most `limit` concurrent invocations of
- * `run` across all `items`. Errors from individual items are swallowed (callers
- * log before throwing or after the pool drains).
- */
-async function dispatchPool<T>(
-  items: T[],
-  limit: number,
-  run: (i: T) => Promise<void>,
-): Promise<void> {
-  let idx = 0;
-  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
-    while (idx < items.length) {
-      const item = items[idx++]!;
-      await run(item).catch(() => {});
-    }
-  });
-  await Promise.all(workers);
-}
-
-/**
- * Recursively walk `rootPath` and call `handleEvent({ kind: "created" })` for
- * every supported image file found. Uses a bounded directory queue (CONCURRENCY=8)
- * to avoid file-descriptor exhaustion and a dispatchPool to limit concurrent
- * handleEvent calls (also 8) so DB write pressure stays bounded on large trees.
- * Silently skips permission-denied subtrees.
- */
-async function scanFolderAndDiscover(
-  rootPath: string,
-  folderId: ObjectId,
-  libraryRoot: string,
-): Promise<void> {
-  const CONCURRENCY = 8;
-  const queue: string[] = [rootPath];
-
-  while (queue.length > 0) {
-    const batch = queue.splice(0, CONCURRENCY);
-    const fileBatch: string[] = [];
-
-    await Promise.all(
-      batch.map(async (dir) => {
-        let entries: Dirent[];
-        try {
-          entries = (await readdir(dir, {
-            withFileTypes: true,
-          })) as unknown as Dirent[];
-        } catch {
-          return; // permission denied or not a directory
-        }
-        for (const entry of entries) {
-          const entryName = entry.name as unknown as string;
-          // Skip dotdirs (`.maple`, `.thumbnails`, …) and the DeDuplicate
-          // quarantine — `_duplicates` holds relocated copies that must not be
-          // re-indexed (they are byte-identical to the kept originals).
-          if (entryName.startsWith('.') || entryName === DUPLICATES_DIR_NAME) continue;
-          const absPath = nodePath.join(dir, entryName);
-          if (entry.isDirectory()) {
-            queue.push(absPath);
-          } else if (entry.isFile()) {
-            const ext = nodePath.extname(entryName).toLowerCase();
-            if (!SUPPORTED_EXTS.has(ext)) continue;
-            fileBatch.push(absPath);
-          }
-        }
-      }),
-    );
-
-    // Dispatch the files found in this directory batch with bounded concurrency.
-    await dispatchPool(fileBatch, CONCURRENCY, async (absPath) => {
-      await handleEvent({ kind: 'created', absPath }, folderId, libraryRoot).catch((err) =>
-        log.warn(
-          { absPath, err: err instanceof Error ? err.message : err },
-          'discover upsert failed during initial folder scan',
-        ),
-      );
-    });
-  }
-}
+export const foldersRoutes = new Elysia().use(folderScanRoutes()).use(folderRoutesCore);

@@ -130,4 +130,15 @@ describe('mirror-scan detector', () => {
     expect(summary.enqueued).toBe(0);
     expect(summary.upToDate).toBeGreaterThan(0);
   });
+
+  it('a stopped walk checks nothing and enqueues nothing', async () => {
+    writeFileSync(join(primaryRoot, 'IMG.dng'), 'raw');
+    seedAsset(live.db, 'IMG.dng');
+    setMirrorRoots({ [primaryRoot]: [mirrorRoot] });
+
+    const summary = await runMirrorScanOnce({ signal: AbortSignal.abort() });
+
+    expect(summary.scanned).toBe(0);
+    expect(queuedMirrorPaths(live.db)).toEqual([]);
+  });
 });

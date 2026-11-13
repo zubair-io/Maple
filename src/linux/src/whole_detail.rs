@@ -4,12 +4,10 @@ use eframe::egui;
 use raw_core::{pipeline, AdjustmentModel, CancelToken};
 use std::sync::Arc;
 
+/// Dehaze tiles from the frame's proxy haze maps (#3287); only perspective
+/// still needs the whole image.
 pub(crate) fn required(model: &AdjustmentModel) -> bool {
     !raw_core::stages::perspective::Perspective::from_model(model).is_identity()
-        || model.dehaze.abs() > 1e-3
-        || raw_core::stages::local_adjustments::spatial::any_dehaze_engaged(
-            &model.local_adjustments,
-        )
 }
 
 /// Limit the pre-geometry develop resolution, including a narrow crop's hidden pixels.
@@ -90,6 +88,7 @@ pub(crate) fn render(
                 ext: &source.ext,
             },
             pipeline::DetailRenderOptions {
+                target: raw_core::view::encode::TargetPrimaries::Srgb,
                 quality: pipeline::RenderQuality::Auto,
                 max_long_edge: edge,
                 film_lut: film.as_ref().map(|f| f.lut),

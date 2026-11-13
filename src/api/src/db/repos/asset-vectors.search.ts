@@ -1,13 +1,14 @@
 /**
  * The reads the search child (#4463) keeps its engine current with: every vector once at boot,
- * then whatever the `embed` stage wrote since, then the full id list when the counts disagree.
+ * then whatever the `embed` stage wrote or the `search_blob` changed since, then the full id list
+ * when the counts disagree.
  *
- * Only vectors of the engine's dimension written by the configured embedding model are read. The
- * query vector comes from bge-m3, so a row from any other model would rank by a meaningless
- * cosine; those rows are left out and counted instead (Settings → AI shows how many). The model is
- * compared without Ollama's implicit `:latest` (the stage records `bge-m3:latest` where the setting
- * may say `bge-m3`); the endpoint is not compared, since the 2026-10-09 audit found Ollama's and
- * fastembed's bge-m3 vectors identical.
+ * Only vectors of the engine's dimension written by bge-m3 are read. The query vector comes from
+ * bge-m3, so a row from any other model would rank by a meaningless cosine; those rows are left
+ * out and counted instead (Settings → AI shows how many). The model is compared without Ollama's
+ * implicit `:latest` (rows Ollama wrote say `bge-m3:latest`, the bundled model writes `bge-m3`);
+ * the endpoint is never compared, since the 2026-10-09 audit found Ollama's and fastembed's
+ * bge-m3 vectors identical.
  */
 
 import { sqliteDb, type SqliteDb } from './db-handle.ts';
@@ -15,21 +16,25 @@ import { placeholders } from './values.ts';
 
 export const SEARCH_VECTOR_DIMS = 1024;
 
+/** The bundled model that embeds both queries and documents (#5445). */
+export const SEARCH_EMBEDDING_MODEL = 'bge-m3';
+
 export interface StoredVectorRow {
   maple_id: string;
   vector: Uint8Array;
   embedded_at: string;
 }
 
+/** One changed row: `changed_at` is `embedded_at` or `text_changed_at`, by the feed it came from. */
 export interface VectorChangeRow {
   maple_id: string;
-  embedded_at: string;
+  changed_at: string;
 }
 
 const LATEST_TAG = ':latest';
 
 /** A model name without Ollama's implicit `:latest` tag, so `bge-m3` and `bge-m3:latest` are one model. */
-export function normalisedModel(model: string): string {
+function normalisedModel(model: string): string {
   const trimmed = model.trim();
   return trimmed.endsWith(LATEST_TAG) ? trimmed.slice(0, -LATEST_TAG.length) : trimmed;
 }
@@ -84,23 +89,34 @@ export async function searchVectorsAfter(
   ]);
 }
 
-/** Ids and stamps of vectors written after `since`, oldest first, resuming after `after`. */
-export async function searchVectorChangesSince(
+type ChangeStamp = 'embedded_at' | 'text_changed_at';
+
+export type ChangeReader = (
   model: string,
   since: string,
   after: VectorChangeRow | null,
   limit: number,
   dbOverride?: SqliteDb,
-): Promise<VectorChangeRow[]> {
-  const resume = after ?? { embedded_at: since, maple_id: '' };
-  return sqliteDb(dbOverride).read<VectorChangeRow>(
-    `SELECT maple_id, embedded_at FROM asset_vectors
-      WHERE embedded_at > ? AND ${SEARCHABLE} AND (embedded_at, maple_id) > (?, ?)
-      ORDER BY embedded_at, maple_id
-      LIMIT ?`,
-    [since, ...modelSpellings(model), resume.embedded_at, resume.maple_id, limit],
-  );
+) => Promise<VectorChangeRow[]>;
+
+function changesSince(stamp: ChangeStamp): ChangeReader {
+  return async (model, since, after, limit, dbOverride) => {
+    const resume = after ?? { changed_at: since, maple_id: '' };
+    return sqliteDb(dbOverride).read<VectorChangeRow>(
+      `SELECT maple_id, ${stamp} AS changed_at FROM asset_vectors
+        WHERE ${stamp} > ? AND ${SEARCHABLE} AND (${stamp}, maple_id) > (?, ?)
+        ORDER BY ${stamp}, maple_id
+        LIMIT ?`,
+      [since, ...modelSpellings(model), resume.changed_at, resume.maple_id, limit],
+    );
+  };
 }
+
+/** Ids and stamps of vectors written after `since`, oldest first, resuming after `after`. */
+export const searchVectorChangesSince = changesSince('embedded_at');
+
+/** The same for vectors whose asset's `search_blob` changed after `since` (#4512). */
+export const searchTextChangesSince = changesSince('text_changed_at');
 
 export async function searchVectorsFor(
   model: string,

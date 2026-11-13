@@ -6,18 +6,21 @@ Compares Maple's `Profile = Auto` render against the RAW's embedded JPEG.
 Emits per-luma-band (5 bands) per-channel signed bias. Fails if any
 band exceeds the budget.
 
-NO aggregate ΔE/RMSE/MAE. Those metrics mask the structural per-channel
-errors we care about. See the L2.7 failure lesson:
-median-LUT introduced a global green cast that an aggregate ΔE happily
-averaged away — but per-luma-band per-channel bias would have flagged it
-immediately as a "+0.04 in G across all bands" structural error.
-
+The signed-bias metric alone is not an image-quality acceptance test. Positive
+and negative errors can cancel within each band. It does not establish
+spatial color accuracy, clipping safety, detail preservation or absence of
+posterization. The #5000 LUT calibration passed it despite visible damage.
+The CLI also enforces auto_profile_quality.py non-cancelling checks.
+Full-fixture visual review is still required.
 Companion: src/scripts/test_auto_profile_match.sh drives this script
 fixture-by-fixture and aggregates pass/fail counts.
 """
-import sys
-import json
+
 import argparse
+import json
+import math
+import sys
+
 import numpy as np
 from PIL import Image
 
@@ -80,12 +83,12 @@ def match_shape(src, tgt):
     if abs(src_aspect - tgt_aspect) > 0.001:
         if src_aspect > tgt_aspect:
             # Source is wider: crop width
-            new_w = int(round(src_h * tgt_aspect))
+            new_w = round(src_h * tgt_aspect)
             crop_x = (src_w - new_w) // 2
             src = src[:, crop_x : crop_x + new_w]
         else:
             # Source is taller: crop height
-            new_h = int(round(src_w / tgt_aspect))
+            new_h = round(src_w / tgt_aspect)
             crop_y = (src_h - new_h) // 2
             src = src[crop_y : crop_y + new_h, :]
 
@@ -96,7 +99,7 @@ def match_shape(src, tgt):
     return np.asarray(pil).astype(np.float64) / 255.0
 
 
-def per_band_bias(cand, ref):
+def per_band_bias(cand, ref, valid=None):
     """Signed mean per-channel bias inside each luma band of `ref`.
 
     Both inputs are display-encoded sRGB (the Auto Profile render and the
@@ -117,6 +120,10 @@ def per_band_bias(cand, ref):
             m = (luma >= lo) & (luma <= hi)
         else:
             m = (luma >= lo) & (luma < hi)
+        if valid is not None:
+            if valid.shape != luma.shape:
+                raise ValueError("invalid band comparison support")
+            m &= valid
         if m.sum() < 100:
             continue
         out[f"{lo:.2f}-{hi:.2f}"] = {
@@ -139,34 +146,17 @@ def main():
         help="Per-band per-channel absolute bias budget (default 0.05).",
     )
     args = ap.parse_args()
+    if not math.isfinite(args.budget) or args.budget < 0:
+        ap.error("budget must be finite and nonnegative")
 
-    ref = load(args.reference)
-    cand = match_shape(load(args.candidate), ref)
+    from auto_profile_match import compare
 
-    # Discard outer 10% border to ignore lens vignetting and cropping mismatch
-    h, w = ref.shape[:2]
-    border_y = int(round(h * 0.1))
-    border_x = int(round(w * 0.1))
-    cand_inner = cand[border_y : h - border_y, border_x : w - border_x]
-    ref_inner = ref[border_y : h - border_y, border_x : w - border_x]
-
-    bias = per_band_bias(cand_inner, ref_inner)
-    print(json.dumps(bias, indent=2))
-
-    failed = []
-    for band, vals in bias.items():
-        for ch in "RGB":
-            if abs(vals[ch]) > args.budget:
-                failed.append(
-                    f"band {band} channel {ch} bias={vals[ch]:+.4f} "
-                    f"(budget ±{args.budget})"
-                )
-    if failed:
-        print("FAIL:", file=sys.stderr)
-        for f in failed:
-            print("  " + f, file=sys.stderr)
+    result = compare(args.candidate, args.reference, args.budget)
+    print(json.dumps(result, indent=2))
+    if result["status"] != "passed":
+        print("FAIL: bias or full-frame image-quality checks", file=sys.stderr)
         sys.exit(1)
-    print("PASS")
+    print("PASS: numeric checks; visual review still required")
 
 
 if __name__ == "__main__":

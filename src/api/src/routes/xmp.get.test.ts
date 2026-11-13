@@ -73,6 +73,34 @@ describe('GET /api/xmp', () => {
     expect(await res.text()).toBe(SIDECAR_XML);
   });
 
+  // #4749 — the sidecar path itself must resolve to an .xmp inside the roots.
+  test('403s when the sidecar is a symlink to the original', async () => {
+    const assetPath = path.join(tmpDir, 'linked.dng');
+    await fs.writeFile(assetPath, Buffer.from([0x49, 0x49, 0x2a, 0x00]));
+    await fs.symlink(assetPath, path.join(tmpDir, 'linked.xmp'));
+
+    const res = await get(assetPath);
+
+    expect(res.status).toBe(403);
+    expect(((await res.json()) as { error: string }).error).toContain('not an .xmp file');
+  });
+
+  test('403s when the sidecar is a symlink outside the registered roots', async () => {
+    const outside = await fs.mkdtemp(path.join(os.tmpdir(), 'xmp-get-outside-'));
+    try {
+      const secret = path.join(outside, 'secret.xmp');
+      await fs.writeFile(secret, '<x:xmpmeta><secret /></x:xmpmeta>');
+      await fs.symlink(secret, path.join(tmpDir, 'escape.xmp'));
+
+      const res = await get(path.join(tmpDir, 'escape.dng'));
+
+      expect(res.status).toBe(403);
+      expect(await res.text()).not.toContain('<secret />');
+    } finally {
+      await fs.rm(outside, { recursive: true, force: true });
+    }
+  });
+
   test('404s cleanly when no sidecar exists next to the path', async () => {
     const res = await get(path.join(tmpDir, 'IMG_0002.dng'));
 

@@ -8,13 +8,16 @@
 //!    [`super::RenderQuality`]),
 //! 3. DNG `BaselineExposure` gain,
 //! 4. DNG WB pre-gain (skipped for 8-bit lossy LinearRaw),
-//! 5. highlight recovery,
-//! 6. DCP `profile_for` + `apply_colorimetry` (CM/FM + HSM in
+//! 5. highlight recovery, OpcodeList3 / lens correction, DefaultCrop,
+//! 6. the capture stage (#5213): retouch, chroma pre-filter, BM3D and
+//!    capture sharpening in a fixed as-shot Rec.2020 basis, then camera-space
+//!    user white balance and DCP `profile_for` + `apply_colorimetry` (CM/FM + HSM in
 //!    linear-ProPhoto-D50, then gamut conversion to Rec.2020 — #425
 //!    dropped the Adobe aesthetic layers PLT/PTC, and #2774 the DNG 1.6
 //!    ProfileGainTableMap that is the spatial half of the PTC pair),
-//! 7. damped per-image auto-exposure,
-//! 8. white-balance, scene-tone-controls, vibrance, saturation, hsl,
+//! 7. post-DCP Oklab highlight recovery and per-image auto-exposure
+//!    measured on the as-shot render,
+//! 8. fallback CAT16 white balance, scene-tone-controls, vibrance, saturation, hsl,
 //!    clarity, texture, dehaze, local-adjustments, vignette, sharpen,
 //!    nr_luminance, nr_color.
 //!
@@ -32,25 +35,26 @@ use crate::{
     image::RawImage,
     linearize,
     stages::{
-        auto_exposure, bm3d, capture_sharpening, chroma_prefilter, clarity, defringe, dehaze,
-        highlight_recovery, highlight_recovery_oklab, hot_pixel, hsl, local_adjustments,
-        noise_reduction, retouch, saturation, scene_tone_controls, sharpen, texture, tone_curves,
-        vibrance, vignette, wb_camera, white_balance,
+        clarity, color_curves, defringe, dehaze, hot_pixel, hsl, local_adjustments,
+        noise_reduction, saturation, scene_tone_controls, sharpen, texture, tone_curves, vibrance,
+        vignette, white_balance,
     },
     xmp::AdjustmentModel,
 };
 
-use super::{
-    capture_sharpening_helper::capture_sharpening_params_from_model, dump_after, stage,
-    RenderQuality,
-};
+use super::{dump_after, stage, RenderQuality};
 
 pub(super) mod camera;
+mod colour;
 mod geometry;
 mod removal;
 
+use super::capture_first::Chain;
+pub(crate) use colour::{capture_base, capture_colour, develop_colour, CameraReady};
+
 pub(super) use geometry::{
-    crop_to_default, effective_quality_divisor, highlight_active_area, lateral_ca,
+    crop_to_default, default_crop_window, effective_quality_divisor, highlight_active_area,
+    lateral_ca, recover_sensor_highlights,
 };
 
 // The three forwarding entries live in a sibling for the file-size budget
@@ -60,17 +64,25 @@ mod entries;
 pub use entries::{
     develop_scene_linear_from_raw_with_quality,
     develop_scene_linear_from_raw_with_quality_cancellable,
-    develop_scene_linear_from_raw_with_quality_cancellable_with_gain,
     develop_scene_linear_from_raw_with_quality_with_gain,
 };
+pub(super) use removal::develop_with_calibration_patches;
 
-/// Shared develop chain that composites accepted removals before optical geometry.
-pub(super) fn develop_with_calibration_patches(
+/// Same develop chain as [`develop_scene_linear_from_raw_with_quality_cancellable`],
+/// additionally returning the scalar gain the `auto_exposure` stage applied
+/// (1.0 when `model.auto_exposure` is `Off`, or when the anchor computation
+/// degenerates to a no-op — see `stages::auto_exposure::apply`). Ticket #1167:
+/// this is the export the tile-develop path threads back in as its `ae_gain`
+/// input, so a deep-zoom tile can reproduce the exact per-scene AE gain the
+/// full-image develop picked instead of omitting the stage. Kept as a
+/// separate entry (rather than changing the widely-called plain function's
+/// return type) to avoid touching the ~30 existing callers across raw-core,
+/// maple-cli, and the test suite that only want the `Image`.
+pub fn develop_scene_linear_from_raw_with_quality_cancellable_with_gain(
     raw: &RawImage,
     model: &AdjustmentModel,
     quality: RenderQuality,
     cancel: CancelToken<'_>,
-    calibration_patches: &[crate::types::InpaintPatch],
 ) -> Result<(crate::image::Image, f32)> {
     // Bail before any work if the host already cancelled (e.g. the decode
     // task was superseded before the worker thread even started).
@@ -79,6 +91,37 @@ pub(super) fn develop_with_calibration_patches(
     }
     let (frame_w, frame_h) = crate::pipeline::native_render_dims(raw);
     let model = &*crate::types::with_brush_rasters(model, frame_w, frame_h);
+    // Before any full-density buffer exists, so the two develops never coexist.
+    let haze = super::develop_sized::frame_haze(raw, model, cancel)?;
+    let (camera_rgb, input) =
+        develop_camera(raw, model, quality, cancel)?.colour(raw, model, Chain::Full, cancel);
+    let (scene, ae_gain) = develop_colour(camera_rgb, input)?;
+    develop_after_colour(scene, raw, model, haze.as_ref(), cancel).map(|scene| (scene, ae_gain))
+}
+
+/// Everything before the colour segment: the RAW decoded to the
+/// profile-ready camera buffer.
+pub(crate) fn develop_camera(
+    raw: &RawImage,
+    model: &AdjustmentModel,
+    quality: RenderQuality,
+    cancel: CancelToken<'_>,
+) -> Result<CameraReady> {
+    let (camera_rgb, skip_pre_gain) = develop_camera_unwarped(raw, model, quality, cancel)?;
+    develop_camera_geometry(raw, model, quality, camera_rgb, skip_pre_gain)
+}
+
+/// Sensor-sized camera RGB through highlight recovery, before any optical
+/// correction or DefaultCrop, and whether the WB pre-gain was skipped.
+pub(super) fn develop_camera_unwarped(
+    raw: &RawImage,
+    model: &AdjustmentModel,
+    quality: RenderQuality,
+    cancel: CancelToken<'_>,
+) -> Result<(crate::image::Image, bool)> {
+    if cancel.is_cancelled() {
+        return Err(Error::Cancelled);
+    }
     let mut camera_rgb = match raw.cfa {
         crate::image::CfaPattern::LinearRgb => {
             // LinearRaw DNG: data is already 3-channel RGB. Skip the
@@ -101,6 +144,7 @@ pub(super) fn develop_with_calibration_patches(
             // later via `develop_sized`. A true half-res X-Trans
             // preview is a follow-up.
             let mut mosaic = stage("linearize", || linearize::sensor_linearize(raw));
+            dump_after("00_sensor_linearized", &mosaic);
             // Hot/dead-pixel suppression (#1106) — pre-demosaic, raw-domain.
             // No-op (bit-identical) at the default Off.
             stage("hot_pixel", || {
@@ -116,6 +160,7 @@ pub(super) fn develop_with_calibration_patches(
         }
         _ => {
             let mut mosaic = stage("linearize", || linearize::sensor_linearize(raw));
+            dump_after("00_sensor_linearized", &mosaic);
             // Hot/dead-pixel suppression (#1106) — pre-demosaic, raw-domain.
             // No-op (bit-identical) at the default Off.
             stage("hot_pixel", || {
@@ -131,7 +176,14 @@ pub(super) fn develop_with_calibration_patches(
             // below bails before any downstream stage runs either way.
             stage("demosaic", || {
                 let algo = crate::pipeline::bayer_kernel(quality, model, raw);
-                demosaic::demosaic_cancellable(algo, &mosaic, raw.cfa, cancel)
+                demosaic::camera_demosaic_cancellable(
+                    algo,
+                    &mosaic,
+                    raw.cfa,
+                    raw.as_shot_neutral,
+                    crate::sensor_gain_maps::ClipGainContext::new(raw, (0, 0), 1),
+                    cancel,
+                )
             })
         }
     };
@@ -184,25 +236,28 @@ pub(super) fn develop_with_calibration_patches(
     // After WB pre-gain, highlight ceilings are 2^BE / AsShotNeutral.
     // Use identity neutral (1,1,1) when pre-gain was skipped (8-bit lossy
     // LinearRaw); otherwise the detector misses R/B clips and trips on G.
-    let hr_neutral = if skip_pre_gain {
-        [1.0; 3]
-    } else {
-        raw.as_shot_neutral
-    };
     stage("highlight_recovery", || {
-        highlight_recovery::apply_in_region(
+        super::tile::recover_full_frame(
             &mut camera_rgb,
-            model.highlight_recovery,
-            hr_neutral,
-            raw.baseline_exposure,
-            crate::pipeline::develop::highlight_active_area(
-                raw,
-                effective_quality_divisor(quality, raw.cfa),
-            ),
+            raw,
+            model,
+            effective_quality_divisor(quality, raw.cfa),
+            cancel,
         )
-    });
+    })?;
     dump_after("00b_highlight_recovery", &camera_rgb);
+    Ok((camera_rgb, skip_pre_gain))
+}
 
+/// OpcodeList3 / lens correction and DefaultCrop on the unwarped camera
+/// buffer, then the profile it develops through.
+pub(super) fn develop_camera_geometry(
+    raw: &RawImage,
+    model: &AdjustmentModel,
+    quality: RenderQuality,
+    mut camera_rgb: crate::image::Image,
+    skip_pre_gain: bool,
+) -> Result<CameraReady> {
     // Stage 2a (#1695): DNG OpcodeList3 on the demosaiced linear data, in
     // ActiveArea coordinates — i.e. BEFORE DefaultCrop moves the origin.
     // `aa` is in raw-sensor coordinates; Preview quality's half-res Bayer
@@ -263,195 +318,22 @@ pub(super) fn develop_with_calibration_patches(
     let (profile, profile_source) =
         stage("dcp::profile_for", || dcp::profile_for_with_source(raw))?;
     let whites_anchor_ev = dcp::scene_white_anchor(&camera_rgb, &profile)?;
-    if !calibration_patches.is_empty() {
-        drop(camera_rgb);
-        camera_rgb = removal::apply_calibration_patches(
-            raw,
-            model,
-            quality,
-            cancel,
-            calibration_patches,
-            &profile,
-        )?;
-    }
-    // Camera-space user white balance (#1726): moves the temperature/tint
-    // sliders upstream of DCP, in camera-native linear RGB, matching ACR —
-    // bounded to what the sensor can physically report per channel (the
-    // 12000K/+17 yellow-filter/banding repro this ticket fixes). Gated to
-    // the three calibrated `ProfileSource` tiers (`RawlerFallback`'s matrix
-    // is a synthetic stand-in, not a real calibration); the LinearRaw
-    // (`skip_pre_gain`) and `RawlerFallback` cases fall through to the
-    // pre-existing post-DCP CAT16 path below unchanged. Full design
-    // writeup in `stages::wb_camera`'s module doc.
-    let camera_wb_target =
-        if !skip_pre_gain && !matches!(profile_source, dcp::ProfileSource::RawlerFallback) {
-            let frame = wb_camera::SliderFrame::resolve(raw, &profile);
-            // `resolve_target_versioned` (#1780): V1 (pre-#1756) sidecar
-            // temperature/tint convert into the slider frame here so the
-            // authored look is preserved; V2 models resolve unchanged.
-            let (target_temperature, target_tint) =
-                wb_camera::resolve_target_versioned(model, &frame, &profile, raw.as_shot_neutral);
-            stage("wb_camera::apply", || {
-                wb_camera::apply(
-                    &mut camera_rgb,
-                    &frame,
-                    raw.as_shot_neutral,
-                    target_temperature,
-                    target_tint,
-                )
-            });
-            Some((frame, target_temperature, target_tint))
-        } else {
-            None
-        };
-    let camera_wb_applied = camera_wb_target.is_some();
-    dump_after("02b_wb_camera", &camera_rgb);
-    // DNG-spec `SetWhiteXY` ForwardMatrix retarget (#1727): when
-    // camera-space WB moved off as-shot, the FM the DCP stage applies
-    // below re-interpolates at the render profile's own CCT reading of the
-    // target camera-neutral — the SDK's camera→PCS weight tracks the user
-    // white point. The non-FM Bradford fallback stays at as-shot (the gain
-    // is the sole carrier of the cast — see `stages::wb_camera`'s module
-    // doc, and `retargeted_render_profile`'s doc for the measured evidence
-    // against retargeting CM/white on that path). As-shot targets (the
-    // `resolve_target` seed) return the profile unchanged, so unedited
-    // renders stay bit-identical.
-    let dcp_profile = match &camera_wb_target {
-        Some((frame, target_temperature, target_tint)) => {
-            wb_camera::retargeted_render_profile(frame, profile, *target_temperature, *target_tint)
-        }
-        None => profile,
-    };
-    // dcp::apply_colorimetry runs CM/FM (chromatic adaptation) and HSM
-    // (metameric correction) only. Under ticket #425 (part of #416),
-    // the Adobe aesthetic layers — ProfileToneCurve (PTC) and
-    // ProfileLookTable (PLT) — no longer run inside DCP regardless of
-    // profile source. They were calibrated to sit under Adobe's tone
-    // mapping; AgX has a different rendering intent, and stacking the
-    // Adobe layers on AgX produced compound hue errors and per-format
-    // inconsistency (PTC was suppressed for bundled profiles but PLT
-    // still ran for bundle-miss bodies). HSM stays because the bundled
-    // profile set uses it for metameric correction the linear CM cannot
-    // express. `raw.plt` and `raw.profile_tone_curve` remain on RawImage
-    // for now but are dead data in the develop chain; cleanup is a
-    // separate follow-up.
-    let mut scene = stage("dcp::apply", || {
-        dcp::apply_colorimetry(&camera_rgb, &dcp_profile)
-    })?;
-    // DCP owns the scene buffer; release the now-unused camera pixels.
-    drop(camera_rgb);
-    dump_after("03_dcp_apply", &scene);
-    // Ticket #471: opt-in `OklabChromaReduction` highlight recovery runs in
-    // scene-linear Rec.2020 D65 where Oklab is well-defined. No-op for the
-    // default `ChromaticAdaptation` and every other variant — see
-    // `stages::highlight_recovery_oklab::apply_post_dcp`.
-    stage("highlight_recovery_oklab", || {
-        highlight_recovery_oklab::apply_post_dcp(&mut scene, model.highlight_recovery)
-    });
-    dump_after("03b_oklab_highlight_recovery", &scene);
-    // Clone / heal repair spots (#3409) — a decode-product edit, applied on
-    // the calibrated sensor signal right after DCP colorimetry so the
-    // repaired pixels are denoised, sharpened, exposed and graded exactly
-    // like their neighbours, and so no slider tick re-runs the patch work.
-    // Empty list (the default) is a bit-identical skip.
-    stage("retouch", || {
-        retouch::apply_cancellable(&mut scene, &model.retouch_spots, cancel)
-    })?;
-    dump_after("03c_retouch", &scene);
-    // `raw.profile_gain_table_map` (DNG 1.6 ProfileGainTableMap) is
-    // deliberately NOT applied here (#2774). The spec pairs it with the
-    // profile's ProfileToneCurve — "if used together, the gain table map
-    // should be applied first" — and on a real Apple ProRAW the pair is a
-    // ×2.7 mean shadow lift that the PTC then re-compresses. #425 dropped
-    // the PTC (colorimetry-only DCP under AgX), so applying the gain map
-    // alone lifts the whole scene about a stop against ACR: test_0013
-    // baseline mean ΔE 11.7 / bias +0.075 with it, 5.9 / −0.03 without.
-    // It is a vendor look layer like PLT/PTC, not colorimetry, and gets
-    // the same treatment. See `color::profile_gain_table_map`'s module
-    // doc for the measurements.
-    // Decode-time chroma pre-filter (#1104, tone/zoom design § 3.1) — the
-    // last denoising step of the decode product: after DCP colorimetry +
-    // post-DCP highlight recovery, before capture sharpening (denoise
-    // before deconvolution) and before auto-exposure / WB-delta / all user
-    // adjustments. No-op (bit-identical skip) at the default 0.
-    stage("chroma_prefilter", || {
-        chroma_prefilter::apply(&mut scene, model.chroma_prefilter)
-    });
-    dump_after("04a_chroma_prefilter", &scene);
-    // BM3D deep denoise (#1105, tone/zoom design § 3.2) — input-referred,
-    // immediately after the chroma pre-filter, composing into the cached
-    // decode product. No-op (bit-identical skip) at the default 0; the
-    // heaviest stage in the chain when engaged, so it takes the cancel
-    // token and reports per-reference-row progress through the shared
-    // dispatch — the MAPLE_PROFILE log plus whichever host sink is
-    // registered (the editor's determinate indicator, #1153).
-    stage("deep_denoise", || {
-        bm3d::apply_cancellable(
-            &mut scene,
-            model.deep_denoise,
-            cancel,
-            bm3d::active_progress(),
-        )
-    });
-    if cancel.is_cancelled() {
-        return Err(Error::Cancelled);
-    }
-    dump_after("04ab_deep_denoise", &scene);
-    // Capture sharpening — Richardson-Lucy deconvolution against a Gaussian
-    // PSF, run first thing in scene-linear Rec.2020 so it sees the
-    // calibrated sensor signal before any user-facing tone/WB transforms.
-    // No-op when `capture_sharpening_amount` is 0 (the default), which keeps
-    // the parity-harness baseline bit-identical to pre-#271 behaviour.
-    // Commutative with the downstream scalar gains (auto_exposure,
-    // white_balance) so placement here vs. post-AE has no algebraic effect.
-    if let Some(params) = capture_sharpening_params_from_model(model) {
-        // Cancellable: the Richardson–Lucy iterations are seconds of compute
-        // at 100 MP and sit inside this otherwise-cancellable cold-open chain
-        // (#1089). The stage observes `cancel` between iterations and per row;
-        // this post-stage check turns a partial-then-cancelled pass into a
-        // clean Err so the half-sharpened buffer is never packed into a result.
-        stage("capture_sharpening", || {
-            capture_sharpening::apply_capture_sharpening_cancellable(&mut scene, &params, cancel)
-        })?;
-        if cancel.is_cancelled() {
-            return Err(Error::Cancelled);
-        }
-    }
-    dump_after("04b_capture_sharpening", &scene);
-    // Per-image scene-anchor (ticket #429). Operates on the post-DCP /
-    // PGTM scene-linear Rec.2020 image; deterministic; pure math.
-    // Default is `AutoExposureMode::On` — measures the scene's mid-tone
-    // (geometric mean of luma in the middle 50% percentile range, robust
-    // to specular highlights and crushed shadows) and multiplies pixels
-    // by `clamp(0.18 / midgrey, max=8.0)` so every camera lands at the
-    // same point on the AgX sigmoid by default. User exposure
-    // (`model.exposure`) stacks additively in EV in
-    // `scene_tone_controls` downstream — the two scene-linear multiplies
-    // commute, total per pixel is `anchor_gain * 2^user_ev`. Users can
-    // opt out per-image via `papp:AutoExposure="Off"` for strict
-    // scene-referred output, in which case the stage is a bit-identical
-    // no-op.
-    scene.whites_anchor_ev = Some(whites_anchor_ev);
-    let ae_gain = stage("auto_exposure", || auto_exposure::apply(&mut scene, model));
-    dump_after("05_auto_exposure", &scene);
-    // Post-DCP white balance: skipped when the camera-space stage above
-    // already normalised `camera_rgb` (#1726) — applying the CAT16 matrix
-    // on top would double-count the shift. Falls through to the unchanged
-    // ACR-anchored CAT16 path (`white_balance::resolve_wb`'s doc-comment
-    // has the full anchoring table; #1729/#1725) for `RawlerFallback` and
-    // LinearRaw (`skip_pre_gain`), where `camera_wb_applied` is false.
-    if !camera_wb_applied {
-        let (effective_temperature, effective_tint) = white_balance::resolve_wb(model);
-        stage("white_balance", || {
-            white_balance::apply(
-                &mut scene,
-                effective_temperature,
-                effective_tint,
-                model.wb_method,
-            )
-        });
-    }
-    dump_after("06_white_balance", &scene);
+    Ok(CameraReady {
+        camera_rgb,
+        profile,
+        profile_source,
+        skip_pre_gain,
+        whites_anchor_ev,
+    })
+}
+
+fn develop_after_colour(
+    mut scene: crate::image::Image,
+    raw: &RawImage,
+    model: &AdjustmentModel,
+    haze: Option<&dehaze::FrameHaze>,
+    cancel: CancelToken<'_>,
+) -> Result<crate::image::Image> {
     stage("scene_tone_controls", || {
         scene_tone_controls::apply(&mut scene, model)
     });
@@ -470,11 +352,17 @@ pub(super) fn develop_with_calibration_patches(
     // after saturation, before clarity. Identity short-circuit on all-default.
     stage("hsl", || hsl::apply_model(&mut scene, model));
     dump_after("09b_hsl", &scene);
+    stage("color_curves", || {
+        color_curves::apply_model(&mut scene, model)
+    });
+    dump_after("09c_color_curves", &scene);
     stage("clarity", || clarity::apply(&mut scene, model.clarity));
     dump_after("10_clarity", &scene);
     stage("texture", || texture::apply(&mut scene, model.texture));
     dump_after("11_texture", &scene);
-    stage("dehaze", || dehaze::apply(&mut scene, model.dehaze));
+    stage("dehaze", || {
+        dehaze::apply_whole_frame(&mut scene, model.dehaze, haze)
+    });
     dump_after("12_dehaze", &scene);
     // Defringe (#3411) — Oklab, between dehaze and local adjustments so a
     // mask can still paint over a defringed edge. No-op at both defaults.
@@ -488,7 +376,7 @@ pub(super) fn develop_with_calibration_patches(
             &model.mask_rasters,
             raw.orientation,
         );
-        local_adjustments::apply(&mut scene, &layers, &rasters)
+        local_adjustments::apply_with_frame_haze(&mut scene, &layers, &rasters, haze)
     });
     dump_after("12b_local_adjustments", &scene);
     // Vignette (#1109, tone/zoom design § 10.1) — scene-linear radial gain,
@@ -546,7 +434,7 @@ pub(super) fn develop_with_calibration_patches(
     if cancel.is_cancelled() {
         return Err(Error::Cancelled);
     }
-    Ok((scene, ae_gain))
+    Ok(scene)
 }
 
 #[cfg(test)]

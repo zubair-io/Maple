@@ -275,8 +275,10 @@ fn compute_airlight_is_byte_exact_vs_independent_selection() {
         "A must be finite, got {a:?}"
     );
 
-    let pixels: Vec<[f32; 3]> = input.chunks_exact(4).map(|c| [c[0], c[1], c[2]]).collect();
-    let dc = independent_dark_channel(&pixels, w, h);
+    // A is measured on the haze map's proxy grid (#3287).
+    let (proxy, pw, ph) = crate::dehaze::proxy_rgba(&input, w, h);
+    let pixels: Vec<[f32; 3]> = proxy.chunks_exact(4).map(|c| [c[0], c[1], c[2]]).collect();
+    let dc = independent_dark_channel(&pixels, pw, ph);
     let n = dc.len();
     let top_n = (n / 1000).max(1);
     let mut idx: Vec<usize> = (0..n).collect();
@@ -385,4 +387,78 @@ fn wgsl_dehaze_handles_pure_black() {
         gpu.iter().all(|v| v.is_finite()),
         "dehaze produced non-finite output"
     );
+}
+
+/// Guided refinement must retain the transmission bound in both CPU-airlight
+/// and resident GPU-airlight paths. Also retain signed and HDR scene samples.
+#[test]
+fn wgsl_dehaze_retains_positive_observations_and_signed_hdr_range() {
+    assert_eq!(OMEGA, raw_core::stages::dehaze::TRANSMISSION_OMEGA);
+    assert_eq!(A_FLOOR, raw_core::stages::dehaze::AIRLIGHT_FLOOR);
+    let ctx = GpuContext::new_blocking().expect("gpu context");
+    let (w, h) = (129usize, 129usize);
+    let witness = (64 * w + 64) * 4;
+    for sample in [[0.2; 3], [-0.25, 0.3, 2.0], [-1e-10, 0.3, 2.0]] {
+        let mut input: Vec<_> = (0..w * h).flat_map(|_| [0.8, 0.8, 0.8, 0.75]).collect();
+        input[witness..witness + 3].copy_from_slice(&sample);
+        for amount in [-100.0, 50.0, 100.0] {
+            let reference = raw_core_dehaze(&input, w as u32, h as u32, amount);
+            let image = GpuImage::upload(&ctx, &input, w as u32, h as u32);
+            let runner = ChainRunner::new(&ctx, &image);
+            for stage in [pass(&input, w, h, amount), DehazePass::new_on_gpu(amount)] {
+                let actual = runner.run_blocking(&[&stage]);
+                let (error, index) = max_diff_at(&reference, &actual);
+                assert!(
+                    error < 1e-4,
+                    "sample={sample:?} amount={amount} error={error} index={index}"
+                );
+                assert!(actual.chunks_exact(4).all(|p| p[3] == 0.75));
+                if sample[0] >= 0.0 {
+                    assert!(actual
+                        .chunks_exact(4)
+                        .all(|p| p[..3].iter().all(|v| *v >= -1e-6)));
+                } else if amount > 0.0 {
+                    for c in 0..3 {
+                        assert_eq!(actual[witness + c].to_bits(), sample[c].to_bits());
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// The proxy grid is single-sourced in spirit: raw-gpu carries its own copy
+/// (it does not depend on raw-core outside tests), pinned here (#3287).
+#[test]
+fn the_proxy_grid_matches_raw_core() {
+    assert_eq!(
+        HAZE_PROXY_LONG_EDGE,
+        raw_core::stages::dehaze::HAZE_PROXY_LONG_EDGE
+    );
+    for (w, h) in [
+        (1, 1),
+        (48, 40),
+        (300, 200),
+        (4000, 6000),
+        (12288, 8192),
+        (9000, 1),
+    ] {
+        assert_eq!(
+            proxy_dims(w, h),
+            raw_core::stages::dehaze::proxy_dims(w, h),
+            "{w}x{h}"
+        );
+    }
+}
+
+/// An empty frame (#3287) is a no-op on the oracle and the GPU pass alike.
+#[test]
+fn an_empty_frame_dehazes_to_itself() {
+    for (w, h) in [(0usize, 7usize), (7, 0), (0, 0)] {
+        let mut buf: Vec<f32> = Vec::new();
+        apply_dehaze(&mut buf, w, h, 40.0);
+        assert_eq!(compute_airlight(&buf, w, h), [1.0; 3]);
+        let pass = DehazePass::new(&buf, w, h, 40.0);
+        assert_eq!(pass.dehaze, 40.0);
+    }
 }

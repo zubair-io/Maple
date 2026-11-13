@@ -50,6 +50,7 @@ import { previewKeyAction } from './preview-shell-keyboard';
 import { FilmstripComponent } from '../../components/filmstrip/filmstrip.component';
 import { STORAGE_KEYS, TypedStorage } from '../../util/typed-storage';
 import { PREVIEW_VIDEO_ACCESS } from './preview-video-access';
+import { PreviewMotionClip } from './preview-motion-clip';
 import { addressForAbsPath } from '../../api/filesystem-browse.service';
 
 /** Horizontal swipe distance (px) past which a pointerdown→pointerup drag on
@@ -78,9 +79,18 @@ export class PreviewShellComponent implements OnDestroy {
   private router = inject(Router);
   private layoutService = inject(LayoutService);
   private videoAccess = inject(PREVIEW_VIDEO_ACCESS);
+  readonly motion = new PreviewMotionClip(this.state.focusedAsset, this.videoAccess);
 
   readonly thumbUrl = signal<string | undefined>(undefined);
   readonly previewUrl = signal<string | undefined>(undefined);
+  readonly sidecarLoadError = computed(() => {
+    const id = this.state.focusedAssetId();
+    return id ? (this.state.sidecarLoadError?.(id) ?? null) : null;
+  });
+  readonly imageUnavailable = computed(() => {
+    const id = this.state.focusedAssetId();
+    return !!id && !this.thumbUrl() && !this.previewUrl() && this.state.thumbnailFailed(id);
+  });
   private unsubThumb?: () => void;
   private unsubPreview?: () => void;
 
@@ -175,7 +185,10 @@ export class PreviewShellComponent implements OnDestroy {
       const address = addressForAbsPath(absPath, folders);
       if (address) {
         const canonicalId = formatAddress(address);
-        void this.router.navigate(viewRouteCommands(canonicalId), { replaceUrl: true });
+        void this.router.navigate(viewRouteCommands(canonicalId), {
+          replaceUrl: true,
+          queryParamsHandling: 'preserve',
+        });
       }
     });
     this.applyRouteAddress();
@@ -188,12 +201,18 @@ export class PreviewShellComponent implements OnDestroy {
   }
 
   goBack(): void {
+    const returnTo = this.route.snapshot.queryParamMap.get('returnTo');
+    if (returnTo === '/search' || returnTo?.startsWith('/search?')) {
+      void this.router.navigateByUrl(returnTo);
+      return;
+    }
     // BrowseShell is the single library surface at every width (web
     // responsive foundation, #2279 — `/library` now just redirects here).
     void this.router.navigate(['/browse']);
   }
   edit(): void {
     const id = this.state.focusedAssetId();
+    if (this.sidecarLoadError()) return;
     // The canvas-first editor reached feature parity and the S5 editor was
     // retired (epic #1807) — Edit now goes straight to it.
     if (id) void this.router.navigate(editRouteCommands(id));
@@ -234,13 +253,13 @@ export class PreviewShellComponent implements OnDestroy {
   goNext(): void {
     this.state.focusNext();
     const id = this.state.focusedAssetId();
-    if (id) void this.router.navigate(viewRouteCommands(id));
+    if (id) void this.router.navigate(viewRouteCommands(id), { queryParamsHandling: 'preserve' });
   }
 
   goPrev(): void {
     this.state.focusPrev();
     const id = this.state.focusedAssetId();
-    if (id) void this.router.navigate(viewRouteCommands(id));
+    if (id) void this.router.navigate(viewRouteCommands(id), { queryParamsHandling: 'preserve' });
   }
 
   // ── Keyboard shortcuts (nav + rating + flag) ─────────────────────────────

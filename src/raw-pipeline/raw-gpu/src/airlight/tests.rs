@@ -117,6 +117,18 @@ fn cpu_topn_average(pixels: &[[f32; 3]], dc: &[f32]) -> [f32; 3] {
 /// `dc` to the GPU, encodes `encode_airlight`, and reads back the airlight vec4.
 /// (`encode_airlight` runs OUTSIDE a pool frame here, so its scratch is plain
 /// allocations — exactly the dormant-pool stage-unit-test path.)
+/// [`cpu_topn_average`] summed in f64, as `compute_airlight` sums the ~4000
+/// proxy texels of its top 0.1%.
+fn cpu_topn_average_f64(pixels: &[[f32; 3]], dc: &[f32]) -> [f32; 3] {
+    let top_n = (dc.len() / 1000).max(1);
+    let mut idx: Vec<usize> = (0..dc.len()).collect();
+    idx.sort_by(|&a, &b| dc[b].total_cmp(&dc[a]).then(a.cmp(&b)));
+    let sum = idx[..top_n].iter().fold([0.0f64; 3], |s, &i| {
+        [0, 1, 2].map(|c| s[c] + f64::from(pixels[i][c]))
+    });
+    sum.map(|s| (s / top_n as f64) as f32)
+}
+
 fn gpu_airlight(ctx: &GpuContext, orig: &[f32], dc: &[f32], w: u32, h: u32) -> [f32; 3] {
     let count = w * h;
     let orig_img = GpuImage::upload(ctx, orig, w, h);
@@ -183,16 +195,20 @@ fn gpu_airlight_matches_compute_airlight_at_128px() {
     let input = hazy_image(w, h);
     let pixels = to_rgb(&input);
     let dc = dark_channel(&pixels, w, h);
-
-    // Pin 1: the local dark channel's CPU sort+avg == raw-core's `compute_airlight`.
     let cpu_a = cpu_topn_average(&pixels, &dc);
+
+    // Pin 1: the local dark channel's CPU sort+avg over the haze map's proxy
+    // grid (#3287) == raw-core's `compute_airlight`.
+    let (proxy, pw, ph) = crate::dehaze::proxy_rgba(&input, w, h);
+    let proxy_pixels = to_rgb(&proxy);
+    let proxy_a = cpu_topn_average_f64(&proxy_pixels, &dark_channel(&proxy_pixels, pw, ph));
     let rc_a = compute_airlight(&input, w, h);
     for c in 0..3 {
         assert!(
-            (cpu_a[c] - rc_a[c]).abs() < 1e-5,
+            (proxy_a[c] - rc_a[c]).abs() < 1e-5,
             "ch{c}: local dc sort+avg {} vs compute_airlight {} diverge — the test's dark \
              channel is not raw-core's (the reduction comparison would be confounded)",
-            cpu_a[c],
+            proxy_a[c],
             rc_a[c]
         );
     }

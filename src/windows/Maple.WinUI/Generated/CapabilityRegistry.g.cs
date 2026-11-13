@@ -4,8 +4,8 @@
 //
 // Release state is COMPUTED from harness evidence, never asserted: a
 // capability reads `released` only when every declared evidence source
-// has a record on the current pipeline + schema version, over the
-// current corpus, on an accepted backend, with executed == expected
+// has a record over the current corpus, on an accepted backend,
+// with executed == expected
 // cases, zero failures, and zero skips. See docs/capability-registry.md.
 
 using System.Collections.Generic;
@@ -38,7 +38,6 @@ namespace Maple.WinUI.Generated
     /// <summary>The registry plus the build the states were computed for.</summary>
     public static class CapabilityRegistry
     {
-        public const uint PipelineOutputVersion = 18;
         public const uint SchemaVersion = 5;
 
         public static readonly IReadOnlyList<CapabilityRecord> All = new CapabilityRecord[]
@@ -78,7 +77,7 @@ namespace Maple.WinUI.Generated
                 new CapabilityAssetClass[] { CapabilityAssetClass.Raw, CapabilityAssetClass.NonRaw },
                 new CapabilityPreviewPath[] { CapabilityPreviewPath.CpuReference, CapabilityPreviewPath.GpuLive, CapabilityPreviewPath.WasmCpu, CapabilityPreviewPath.WasmGpu },
                 new CapabilityExportPath[] { CapabilityExportPath.MapleCli, CapabilityExportPath.AppleFfi, CapabilityExportPath.Wasm, CapabilityExportPath.ApiFfi, CapabilityExportPath.WindowsDll },
-                new string[] { "vibrance", "saturation", "hue_adjustment_red", "hue_adjustment_orange", "hue_adjustment_yellow", "hue_adjustment_green", "hue_adjustment_aqua", "hue_adjustment_blue", "hue_adjustment_purple", "hue_adjustment_magenta", "saturation_adjustment_red", "saturation_adjustment_orange", "saturation_adjustment_yellow", "saturation_adjustment_green", "saturation_adjustment_aqua", "saturation_adjustment_blue", "saturation_adjustment_purple", "saturation_adjustment_magenta", "luminance_adjustment_red", "luminance_adjustment_orange", "luminance_adjustment_yellow", "luminance_adjustment_green", "luminance_adjustment_aqua", "luminance_adjustment_blue", "luminance_adjustment_purple", "luminance_adjustment_magenta", "black_white", "gray_mixer_red", "gray_mixer_orange", "gray_mixer_yellow", "gray_mixer_green", "gray_mixer_aqua", "gray_mixer_blue", "gray_mixer_purple", "gray_mixer_magenta", "split_tone_shadow_hue", "split_tone_shadow_saturation", "split_tone_highlight_hue", "split_tone_highlight_saturation", "split_tone_balance", "color_grade_shadow_luminance", "color_grade_midtone_hue", "color_grade_midtone_saturation", "color_grade_midtone_luminance", "color_grade_highlight_luminance", "color_grade_global_hue", "color_grade_global_saturation", "color_grade_global_luminance", "highlight_recovery", "look", "profile" },
+                new string[] { "vibrance", "saturation", "hue_adjustment_red", "hue_adjustment_orange", "hue_adjustment_yellow", "hue_adjustment_green", "hue_adjustment_aqua", "hue_adjustment_blue", "hue_adjustment_purple", "hue_adjustment_magenta", "saturation_adjustment_red", "saturation_adjustment_orange", "saturation_adjustment_yellow", "saturation_adjustment_green", "saturation_adjustment_aqua", "saturation_adjustment_blue", "saturation_adjustment_purple", "saturation_adjustment_magenta", "luminance_adjustment_red", "luminance_adjustment_orange", "luminance_adjustment_yellow", "luminance_adjustment_green", "luminance_adjustment_aqua", "luminance_adjustment_blue", "luminance_adjustment_purple", "luminance_adjustment_magenta", "black_white", "gray_mixer_red", "gray_mixer_orange", "gray_mixer_yellow", "gray_mixer_green", "gray_mixer_aqua", "gray_mixer_blue", "gray_mixer_purple", "gray_mixer_magenta", "split_tone_shadow_hue", "split_tone_shadow_saturation", "split_tone_highlight_hue", "split_tone_highlight_saturation", "split_tone_balance", "color_grade_shadow_luminance", "color_grade_midtone_hue", "color_grade_midtone_saturation", "color_grade_midtone_luminance", "color_grade_highlight_luminance", "color_grade_global_hue", "color_grade_global_saturation", "color_grade_global_luminance", "color_grade_blending", "color_grade_shadow_edge", "color_grade_highlight_edge", "color_curve_hue_vs_hue", "color_curve_hue_vs_sat", "color_curve_hue_vs_luma", "color_curve_luma_vs_sat", "color_curve_sat_vs_sat", "color_curve_sat_vs_luma", "highlight_recovery", "look", "profile" },
                 new CapabilityEvidenceSource[] { CapabilityEvidenceSource.SidecarContractApple, CapabilityEvidenceSource.SidecarContractApi, CapabilityEvidenceSource.GpuChainParityLavapipe },
                 new CapabilityEvidenceSource[] { CapabilityEvidenceSource.GreyAdjustments, CapabilityEvidenceSource.SyntheticGrey, CapabilityEvidenceSource.GreyDcp, CapabilityEvidenceSource.ColorChart, CapabilityEvidenceSource.ColorHarness, CapabilityEvidenceSource.GpuChainParityMetal, CapabilityEvidenceSource.AppleCanvasGolden },
                 CapabilityReleaseState.Core),
@@ -182,7 +181,7 @@ namespace Maple.WinUI.Generated
                 new CapabilityAssetClass[] { CapabilityAssetClass.Raw },
                 new CapabilityPreviewPath[] { CapabilityPreviewPath.CpuReference, CapabilityPreviewPath.GpuLive },
                 new CapabilityExportPath[] { CapabilityExportPath.MapleCli, CapabilityExportPath.AppleFfi, CapabilityExportPath.Wasm, CapabilityExportPath.ApiFfi, CapabilityExportPath.WindowsDll },
-                new string[] { "retouch_spots" },
+                new string[] { "retouch_spots", "retouch_frame" },
                 new CapabilityEvidenceSource[] { CapabilityEvidenceSource.SidecarContractApple, CapabilityEvidenceSource.SidecarContractApi, CapabilityEvidenceSource.GpuChainParityLavapipe },
                 new CapabilityEvidenceSource[] {  },
                 CapabilityReleaseState.Core),

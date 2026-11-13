@@ -25,6 +25,7 @@
 // store instead.
 
 import { Injectable } from '@angular/core';
+import { MAPLE_ID_DERIVATION_VERSION } from '../generated/maple-id-derivation-version.generated';
 import { openDb, reqToPromise, txDone } from '../util/idb';
 
 const DB_NAME = 'maple-id-cache';
@@ -38,6 +39,7 @@ export interface CachedMapleId {
   /** `File.lastModified` (unix ms). */
   mtime: number;
   mapleId: string;
+  derivationVersion: number;
   computedAt: number;
 }
 
@@ -66,6 +68,7 @@ export async function getCachedMapleId(
     | undefined;
   if (!record) return null;
   if (record.size !== size || record.mtime !== mtime) return null;
+  if (record.derivationVersion !== MAPLE_ID_DERIVATION_VERSION) return null;
   return record.mapleId;
 }
 
@@ -79,7 +82,14 @@ export async function putCachedMapleId(
 ): Promise<void> {
   const db = await openIdDb();
   const tx = db.transaction(STORE, 'readwrite');
-  const record: CachedMapleId = { key, size, mtime, mapleId, computedAt: Date.now() };
+  const record: CachedMapleId = {
+    key,
+    size,
+    mtime,
+    mapleId,
+    derivationVersion: MAPLE_ID_DERIVATION_VERSION,
+    computedAt: Date.now(),
+  };
   tx.objectStore(STORE).put(record);
   await txDone(tx).finally(() => db.close());
 }

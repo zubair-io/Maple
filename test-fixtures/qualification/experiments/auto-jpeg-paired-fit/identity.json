@@ -1,0 +1,8 @@
+{
+  "source_processing_commit": "dad33939f0",
+  "renderer_tree": "69ce0b86720f88a1de0632c5a37803a62131769f",
+  "binary_sha256": "229fdcf88ffe07e78f9b47b88e19020056b3259200ec021087cb842ba1c73a77",
+  "pipeline_output_version": 37,
+  "auto_fit_model_version": 7,
+  "status": "unqualified paired-pixel candidate"
+}

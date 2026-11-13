@@ -6,12 +6,10 @@
  * `resolveThumbPathForAsset`'s doc in `fs/xmp.ts` for why thumbs went back to
  * that from content-addressing), so both orphan checks are library-scoped:
  *
- *   - `thumbs` is `sha256_prefix16(basename)`-keyed (`<key>.avif`, `.jpg` for
- *     pre-v3 orphans): a file is live iff SOME live filename in THIS exact
- *     directory hashes to its stem. This is also the scheme the pano stitcher
- *     pre-seeds (`maple-pano/src/stitch/io.rs::write_display_sidecars`, #1365)
- *     and that Apple's `MapleSidecarPaths` mirrors on the read side, so it is
- *     cross-platform frozen.
+ *   - `thumbs` is `<filename>.avif` (#4793): a file is live iff its stem is
+ *     a live filename in THIS exact directory. This is also the name the pano
+ *     stitcher pre-seeds (`maple-pano/src/stitch/sidecars.rs::SidecarDownscaler`,
+ *     #1365) and every client reads.
  *   - `previews` is path-keyed (`<filename>.<suffix>`, any of `.avif`/`.jpg`/
  *     `.json`): a file is orphaned when its filename isn't a live location
  *     in THIS library at THIS exact directory. Since previews no longer
@@ -28,6 +26,12 @@
  * every one of them forever — one stale file per asset. The thumb stage's
  * `targetVersion` bump re-renders each asset at the path-keyed name, and this
  * sweep reclaims what the old name left behind.
+ *
+ * The names retired by #4793 — hashed thumbs `<sha256_prefix16(filename)>
+ * [.v<N>].<avif|jpg>` and versioned `<filename>.v<N>.<kind>` — are skipped
+ * entirely: never renamed, never deleted. Readers adopt the frozen `.v25` name
+ * by rename on a miss (`fs/legacy-derivative.ts`); the sweep itself no longer
+ * migrates anything (#4928).
  *
  * No migration sentinel:
  *   The set of orphans changes continuously (a re-render at a new size, a
@@ -46,12 +50,8 @@ import * as fs from '../fs/mirrored.ts';
 import * as path from 'node:path';
 import { liveLocationsByDirectory } from '../db/repos/assets.sweeps.ts';
 import { loadLibraryRoots } from '../indexer/libraries.cache.ts';
-import {
-  sourceFilenameForPreviewCacheName,
-  isCurrentOrNewerPreviewCacheName,
-} from '../fs/preview-cache-cleanup.ts';
-import { PIPELINE_OUTPUT_VERSION } from '../generated/adjustment-fields.generated.ts';
-import { sha256Prefix16 } from '../fs/xmp.ts';
+import { sourceFilenameForPreviewCacheName } from '../fs/preview-cache-cleanup.ts';
+import { parseVersionedDerivativeName } from '../fs/legacy-derivative.ts';
 import { child as childLogger } from '../log.ts';
 
 const log = childLogger('cache-gc');
@@ -79,10 +79,11 @@ const RECENT_THRESHOLD_MS = 60 * 1000;
  */
 const FAIL_THRESHOLD = 3;
 
-/** Matches a live `sha256_prefix16(basename)` thumb stem (16 lowercase hex) —
- * the current scheme for stage-written, on-demand, and pano pre-seed thumbs
- * alike (module doc). */
-const THUMB_KEY_RE = /^([0-9a-f]{16})\.v([1-9][0-9]*)$/;
+/** A retired hashed thumb: `<sha256_prefix16(filename)>[.v<N>].<avif|jpg>`. */
+const RETIRED_HASHED_THUMB_RE = /^[0-9a-f]{16}(?:\.v[1-9][0-9]*)?\.(?:avif|jpg)$/;
+
+/** A retired content-addressed `<maple_id>` thumb (module doc). */
+const MAPLE_ID_THUMB_RE = /^[0-9a-f]{32}\.(?:avif|jpg)$/;
 
 /** Resolve `libraryRoot`'s registered library id (hex), or `null` if it isn't a
  * registered library root (or the lookup fails). `null` makes the previews
@@ -149,62 +150,32 @@ const SIDECAR_SUFFIX = '.meta';
 const THUMB_EXTS = new Set(['.jpg', '.avif']);
 const PREVIEW_EXTS = new Set(['.jpg', '.avif', '.webp', '.png', '.json']);
 
-/** Lazily builds (and memoizes) the set of `sha256Prefix16(liveName)`
- * hashes for one directory's live filenames — the live set for the thumbs
- * sweep and the pano pre-seed preview check. Hashing is deferred until the
- * first candidate in a directory needs it, then reused (O(1) `.has`) for every
- * subsequent candidate there, so each live filename is hashed at most once per
- * sweep pass rather than once per candidate file (jules + Copilot review,
- * PR #2008: the prior version rehashed every live filename per candidate,
- * O(candidates × liveFiles)). */
-function lazyHashedNames(liveNames: ReadonlySet<string>): () => ReadonlySet<string> {
-  let hashed: ReadonlySet<string> | null = null;
-  return () => {
-    if (hashed === null) {
-      hashed = new Set([...liveNames].map((name) => sha256Prefix16(name)));
-    }
-    return hashed;
-  };
-}
-
-/** A thumb is live only under the current `sha256_prefix16(liveFilename)`
- * scheme — legitimate iff SOME live filename in this exact directory hashes to
- * the file's stem. That live set is library-scoped (`hashedLiveNames`, built
- * from `knownPreviewFilenames`), so it needs the same `libraryId === null`
- * guard as `isOrphanPreview`: no resolvable library id → no known-live set was
- * (or safely could be) built for this pass, so never delete on that branch
- * (jules review, PR #2008 round 2).
+/** A thumb is live only as `<liveFilename>.avif` in this exact directory. That
+ * live set is library-scoped (built from `knownPreviewFilenames`), so it needs
+ * the same `libraryId === null` guard as `isOrphanPreview`: no resolvable
+ * library id → no known-live set was (or safely could be) built for this pass,
+ * so never delete on that branch (jules review, PR #2008 round 2).
  *
- * A 32-hex `<maple_id>` stem is the retired content-addressed naming and is
+ * A 32-hex `<maple_id>` name is the retired content-addressed naming and is
  * unconditionally orphaned — deliberately WITHOUT the `libraryId` guard, since
  * that scheme is dead regardless of what the DB says, so a transient lookup
  * failure is not a reason to keep the file. See the module doc for why a
  * liveness check would leak one file per asset instead. */
 function isOrphanThumb(
   libraryId: string | null,
-  hashedLiveNames: () => ReadonlySet<string>,
+  liveNames: ReadonlySet<string>,
   name: string,
 ): boolean {
-  const ext = path.extname(name);
-  const stem = name.slice(0, -ext.length);
-  const match = THUMB_KEY_RE.exec(stem);
-  if (match) {
-    if (Number(match[2]) < PIPELINE_OUTPUT_VERSION) return true;
-    if (libraryId === null) return false;
-    return !hashedLiveNames().has(match[1]);
-  }
-  // Retired `<maple_id>` naming, or an unrecognized shape.
-  return true;
+  if (MAPLE_ID_THUMB_RE.test(name)) return true;
+  if (libraryId === null) return false;
+  return !(name.endsWith('.avif') && liveNames.has(name.slice(0, -'.avif'.length)));
 }
 
-/** A preview is orphaned unless it matches ONE of two live schemes: the
- * modern, path-keyed `<filename>.<suffix>` (via
- * `sourceFilenameForPreviewCacheName`), or the pano-injection pre-seed
- * `<sha256_prefix16(liveFilename)>_1600.jpg` (module doc) — legitimate iff
- * SOME live filename in this exact directory hashes to the captured key. No
- * resolvable library id → no known-live set was (or safely could be) built
- * for this pass, so never delete — a transient failure to resolve the
- * library must not mass-delete live previews (see `resolveLibraryId`). */
+/** A preview is orphaned unless its path-keyed `<filename>.<suffix>` (via
+ * `sourceFilenameForPreviewCacheName`) names a live file in this exact
+ * directory. No resolvable library id → no known-live set was (or safely could
+ * be) built for this pass, so never delete — a transient failure to resolve
+ * the library must not mass-delete live previews (see `resolveLibraryId`). */
 function isOrphanPreview(
   libraryId: string | null,
   liveNames: ReadonlySet<string>,
@@ -212,7 +183,7 @@ function isOrphanPreview(
 ): boolean {
   if (libraryId === null) return false;
   const source = sourceFilenameForPreviewCacheName(name);
-  if (source !== null) return !isCurrentOrNewerPreviewCacheName(name) || !liveNames.has(source);
+  if (source !== null) return !liveNames.has(source);
   return true;
 }
 
@@ -255,10 +226,6 @@ async function unlinkSafe(ctx: SweepContext, p: string): Promise<boolean> {
   }
 }
 
-/** Shared readdir → filter-by-extension → TOCTOU-recency-guard → per-entry
- * orphan decision. Thumbs and previews differ only in which extensions they
- * accept and how they judge one entry orphaned — everything else about
- * walking a cache directory is identical between them. */
 /**
  * LEGACY state cleanup: reap `.meta` sidecars whose artefact is gone.
  *
@@ -299,6 +266,33 @@ async function reapStrandedSidecars(
   }
 }
 
+/** Delete a cache file judged dead, plus its legacy attachments, unless it was
+ * written inside the recency window. */
+async function deleteUnlessRecent(ctx: SweepContext, fullPath: string): Promise<void> {
+  // TOCTOU defense: the live set was snapshotted before this walk began, so a
+  // file written inside the recency window waits for the next sweep.
+  const stat = await fs.stat(fullPath).catch(() => null);
+  if (stat && ctx.now - stat.mtimeMs < RECENT_THRESHOLD_MS) {
+    ctx.counters.skippedRecent += 1;
+    return;
+  }
+  if (!(await unlinkSafe(ctx, fullPath))) return;
+  ctx.counters.deleted += 1;
+  // LEGACY attachments (`SIDECAR_SUFFIX` doc, PR #2252): never scanned as
+  // entries, so never counted in `deleted`; ENOENT is an uncounted no-op.
+  await unlinkSafe(ctx, `${fullPath}.meta`);
+  await unlinkSafe(ctx, `${fullPath}.v`);
+}
+
+/** A #4793-retired derivative name the sweep leaves untouched (module doc). */
+function isRetiredDerivativeName(name: string): boolean {
+  return RETIRED_HASHED_THUMB_RE.test(name) || parseVersionedDerivativeName(name) !== null;
+}
+
+/** Shared readdir → filter-by-extension → TOCTOU-recency-guard → per-entry
+ * orphan decision. Thumbs and previews differ only in which extensions they
+ * accept and how they judge one entry orphaned — everything else about
+ * walking a cache directory is identical between them. */
 async function sweepCacheDir(
   ctx: SweepContext,
   cacheDir: string,
@@ -311,43 +305,18 @@ async function sweepCacheDir(
   } catch {
     return; // ENOENT — fine, no cache here.
   }
-  for (const entry of entries) {
-    if (!entry.isFile() || !allowedExts.has(path.extname(entry.name))) continue;
+  const cacheFiles = entries
+    .filter((entry) => entry.isFile() && allowedExts.has(path.extname(entry.name)))
+    .map((entry) => entry.name)
+    .filter((name) => !isRetiredDerivativeName(name));
+  for (const name of cacheFiles) {
     ctx.counters.scanned += 1;
     // Check the in-memory orphan verdict BEFORE touching the filesystem
     // again — a known/live file (the common case) never needs a stat call
     // at all, saving a syscall per file in every directory this sweeps
     // (jules review, PR #2006).
-    if (!isOrphan(entry.name)) continue;
-    const fullPath = path.join(cacheDir, entry.name);
-
-    // TOCTOU defense: the known/live set was snapshotted before this walk
-    // began. A stage may have written this file in the meantime. If the
-    // file's mtime is within the recency window, defer to the next boot's
-    // sweep.
-    const stat = await fs.stat(fullPath).catch(() => null);
-    if (stat && ctx.now - stat.mtimeMs < RECENT_THRESHOLD_MS) {
-      ctx.counters.skippedRecent += 1;
-      continue;
-    }
-
-    if (await unlinkSafe(ctx, fullPath)) {
-      ctx.counters.deleted += 1;
-      // LEGACY state cleanup: reap the `.meta` freshness sidecar alongside
-      // the artefact it describes, if one exists (see `SIDECAR_SUFFIX`'s
-      // doc comment — nothing writes these any more, but #2252 shipped and
-      // every install running since has one per thumbnail). It CANNOT be
-      // swept as an entry in its own right: `path.extname('<key>.avif.meta')`
-      // is `.meta`, leaving the stem `<key>.avif`, which matches no
-      // live-key shape — so a `.meta` in `allowedExts` would make
-      // `isOrphanThumb` condemn sidecars of perfectly live thumbs (jules
-      // review, PR #2252). Deliberately NOT counted in `deleted`: it was
-      // never `scanned`, and an attachment is not an independent orphan.
-      // `unlinkSafe` treats the ENOENT this hits for every preview (which
-      // never had a sidecar) as an uncounted no-op.
-      await unlinkSafe(ctx, `${fullPath}.meta`);
-      await unlinkSafe(ctx, `${fullPath}.v`);
-    }
+    if (!isOrphan(name)) continue;
+    await deleteUnlessRecent(ctx, path.join(cacheDir, name));
   }
 
   await reapStrandedSidecars(ctx, cacheDir, entries);
@@ -357,9 +326,8 @@ async function sweepThumbsDir(ctx: SweepContext, cacheDir: string, relDir: strin
   // `knownPreviewFilenames` is really just "live filenames per directory" —
   // the live set for thumbs too, not previews specifically.
   const liveNames = ctx.knownPreviewFilenames.get(relDir) ?? new Set<string>();
-  const hashedLiveNames = lazyHashedNames(liveNames);
   await sweepCacheDir(ctx, cacheDir, THUMB_EXTS, (name) =>
-    isOrphanThumb(ctx.libraryId, hashedLiveNames, name),
+    isOrphanThumb(ctx.libraryId, liveNames, name),
   );
 }
 

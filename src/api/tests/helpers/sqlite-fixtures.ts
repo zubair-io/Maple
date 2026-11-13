@@ -155,6 +155,7 @@ export interface BackupAssetLocation {
   /** Library-relative path, e.g. `2024/Tokyo/IMG.HEIC` or just `a.heic`. */
   relPath: string;
   deletedAt?: string | null;
+  missingSince?: string | null;
 }
 
 /**
@@ -173,6 +174,7 @@ export function seedBackupAsset(
     size?: number;
     deletedFromPhotos?: boolean;
     appleRenderedPath?: string | null;
+    appleLiveVideoPath?: string | null;
     isScreenshot?: boolean | null;
   },
 ): ObjectId {
@@ -181,14 +183,15 @@ export function seedBackupAsset(
     db,
     `INSERT INTO assets
        (id, size, mtime, indexed_at, maple_id, deleted_from_photos, apple_rendered_path,
-        is_screenshot)
-     VALUES (?, ?, 0, ?, ?, ?, ?, ?)`,
+        apple_live_video_path, is_screenshot)
+     VALUES (?, ?, 0, ?, ?, ?, ?, ?, ?)`,
     id,
     opts.size ?? 1,
     new Date().toISOString(),
     opts.mapleId ?? null,
     opts.deletedFromPhotos ? 1 : 0,
     opts.appleRenderedPath ?? null,
+    opts.appleLiveVideoPath ?? null,
     opts.isScreenshot === undefined || opts.isScreenshot === null
       ? null
       : opts.isScreenshot
@@ -200,14 +203,16 @@ export function seedBackupAsset(
     const slash = location.relPath.lastIndexOf('/');
     run(
       db,
-      `INSERT INTO asset_locations (asset_id, ordinal, library_id, path, filename, deleted_at)
-       VALUES (?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO asset_locations
+         (asset_id, ordinal, library_id, path, filename, deleted_at, missing_since)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
       id,
       ordinal,
       location.libraryId.toHexString(),
       slash === -1 ? '' : location.relPath.slice(0, slash),
       slash === -1 ? location.relPath : location.relPath.slice(slash + 1),
       location.deletedAt ?? null,
+      location.missingSince ?? null,
     );
   });
   for (const link of opts.links ?? []) {

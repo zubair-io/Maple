@@ -1,0 +1,496 @@
+{
+  "accepted": true,
+  "display_p95": [
+    21.282934188842773,
+    21.070653915405273
+  ],
+  "display_perceptual_sum": [
+    2232689.3774256147,
+    3031158.512100555
+  ],
+  "display_samples": 65536,
+  "native_absolute_rgb": [
+    [
+      5799.922269651815,
+      5813.823009063132,
+      5477.714603832096
+    ],
+    [
+      9814.251019914198,
+      7557.724840790401,
+      8024.6889652626805
+    ]
+  ],
+  "native_bands_preserved": true,
+  "native_squared_rgb": [
+    [
+      1013.1163529735347,
+      1006.1499334447743,
+      860.8937008056986
+    ],
+    [
+      1491.8015581729603,
+      1195.3984243148325,
+      1193.74740877181
+    ]
+  ],
+  "native_validation_samples": 16543,
+  "reduces_worst_failure": true,
+  "regions": [
+    {
+      "baseline_mean": 5.188785154153319,
+      "candidate_mean": 0.7019052276880864,
+      "count": 1024,
+      "region": 0,
+      "represented_pixels": 5440
+    },
+    {
+      "baseline_mean": 4.544526584095815,
+      "candidate_mean": 0.3367473694242482,
+      "count": 1024,
+      "region": 1,
+      "represented_pixels": 5440
+    },
+    {
+      "baseline_mean": 4.081110669409528,
+      "candidate_mean": 0.5073042275432004,
+      "count": 1024,
+      "region": 2,
+      "represented_pixels": 5440
+    },
+    {
+      "baseline_mean": 3.5972824077395833,
+      "candidate_mean": 0.6047124173026532,
+      "count": 1024,
+      "region": 3,
+      "represented_pixels": 5440
+    },
+    {
+      "baseline_mean": 3.5468033968525776,
+      "candidate_mean": 0.599687613668742,
+      "count": 1024,
+      "region": 4,
+      "represented_pixels": 5440
+    },
+    {
+      "baseline_mean": 4.083079922812827,
+      "candidate_mean": 0.5397613540195915,
+      "count": 1024,
+      "region": 5,
+      "represented_pixels": 5440
+    },
+    {
+      "baseline_mean": 4.467416698792402,
+      "candidate_mean": 0.5016424606766497,
+      "count": 1024,
+      "region": 6,
+      "represented_pixels": 5440
+    },
+    {
+      "baseline_mean": 4.9816910337875875,
+      "candidate_mean": 1.1570479932076791,
+      "count": 1024,
+      "region": 7,
+      "represented_pixels": 5440
+    },
+    {
+      "baseline_mean": 3.829134064737488,
+      "candidate_mean": 0.5251399048193194,
+      "count": 1024,
+      "region": 8,
+      "represented_pixels": 5440
+    },
+    {
+      "baseline_mean": 3.6461588362560553,
+      "candidate_mean": 0.31830307698794913,
+      "count": 1024,
+      "region": 9,
+      "represented_pixels": 5440
+    },
+    {
+      "baseline_mean": 3.683576917122392,
+      "candidate_mean": 0.3675369080724469,
+      "count": 1024,
+      "region": 10,
+      "represented_pixels": 5440
+    },
+    {
+      "baseline_mean": 3.6537325302467627,
+      "candidate_mean": 0.3122488186338588,
+      "count": 1024,
+      "region": 11,
+      "represented_pixels": 5440
+    },
+    {
+      "baseline_mean": 3.599957743550048,
+      "candidate_mean": 0.3429142157848486,
+      "count": 1024,
+      "region": 12,
+      "represented_pixels": 5440
+    },
+    {
+      "baseline_mean": 3.647852178093265,
+      "candidate_mean": 0.2534119616721428,
+      "count": 1024,
+      "region": 13,
+      "represented_pixels": 5440
+    },
+    {
+      "baseline_mean": 3.5848465516286736,
+      "candidate_mean": 0.3811549855327672,
+      "count": 1024,
+      "region": 14,
+      "represented_pixels": 5440
+    },
+    {
+      "baseline_mean": 3.7361432595288053,
+      "candidate_mean": 0.8076332293396049,
+      "count": 1024,
+      "region": 15,
+      "represented_pixels": 5440
+    },
+    {
+      "baseline_mean": 5.386297586954692,
+      "candidate_mean": 2.7290877647588356,
+      "count": 1024,
+      "region": 16,
+      "represented_pixels": 5440
+    },
+    {
+      "baseline_mean": 3.611496720112422,
+      "candidate_mean": 0.6266570664462907,
+      "count": 1024,
+      "region": 17,
+      "represented_pixels": 5440
+    },
+    {
+      "baseline_mean": 3.3248034478986965,
+      "candidate_mean": 0.3368245588389554,
+      "count": 1024,
+      "region": 18,
+      "represented_pixels": 5440
+    },
+    {
+      "baseline_mean": 3.468237067583729,
+      "candidate_mean": 0.6937969968215946,
+      "count": 1024,
+      "region": 19,
+      "represented_pixels": 5440
+    },
+    {
+      "baseline_mean": 4.881906162552974,
+      "candidate_mean": 2.4456996351097,
+      "count": 1024,
+      "region": 20,
+      "represented_pixels": 5440
+    },
+    {
+      "baseline_mean": 4.432690630239599,
+      "candidate_mean": 2.080228833991158,
+      "count": 1024,
+      "region": 21,
+      "represented_pixels": 5440
+    },
+    {
+      "baseline_mean": 3.5562141217729626,
+      "candidate_mean": 0.7042802620268263,
+      "count": 1024,
+      "region": 22,
+      "represented_pixels": 5440
+    },
+    {
+      "baseline_mean": 4.350433624711107,
+      "candidate_mean": 1.5920145246556356,
+      "count": 1024,
+      "region": 23,
+      "represented_pixels": 5440
+    },
+    {
+      "baseline_mean": 9.743721348047256,
+      "candidate_mean": 8.65396365447737,
+      "count": 1024,
+      "region": 24,
+      "represented_pixels": 5440
+    },
+    {
+      "baseline_mean": 8.920742148719729,
+      "candidate_mean": 7.783737773864585,
+      "count": 1024,
+      "region": 25,
+      "represented_pixels": 5440
+    },
+    {
+      "baseline_mean": 7.274411426922854,
+      "candidate_mean": 5.123405466732733,
+      "count": 1024,
+      "region": 26,
+      "represented_pixels": 5440
+    },
+    {
+      "baseline_mean": 6.803385497016065,
+      "candidate_mean": 4.03723403052153,
+      "count": 1024,
+      "region": 27,
+      "represented_pixels": 5440
+    },
+    {
+      "baseline_mean": 8.120009737220757,
+      "candidate_mean": 4.132816478593604,
+      "count": 1024,
+      "region": 28,
+      "represented_pixels": 5440
+    },
+    {
+      "baseline_mean": 7.602943735284841,
+      "candidate_mean": 3.6210492950864137,
+      "count": 1024,
+      "region": 29,
+      "represented_pixels": 5440
+    },
+    {
+      "baseline_mean": 8.66023851981496,
+      "candidate_mean": 6.204745681693448,
+      "count": 1024,
+      "region": 30,
+      "represented_pixels": 5440
+    },
+    {
+      "baseline_mean": 10.251564891417237,
+      "candidate_mean": 6.836838331303614,
+      "count": 1024,
+      "region": 31,
+      "represented_pixels": 5440
+    },
+    {
+      "baseline_mean": 11.522843744693434,
+      "candidate_mean": 10.514774501783883,
+      "count": 1024,
+      "region": 32,
+      "represented_pixels": 5440
+    },
+    {
+      "baseline_mean": 12.44004901713308,
+      "candidate_mean": 11.721455467777217,
+      "count": 1024,
+      "region": 33,
+      "represented_pixels": 5440
+    },
+    {
+      "baseline_mean": 12.162272025820087,
+      "candidate_mean": 11.469092684195322,
+      "count": 1024,
+      "region": 34,
+      "represented_pixels": 5440
+    },
+    {
+      "baseline_mean": 9.40607626363635,
+      "candidate_mean": 7.642651398425155,
+      "count": 1024,
+      "region": 35,
+      "represented_pixels": 5440
+    },
+    {
+      "baseline_mean": 8.671137593182571,
+      "candidate_mean": 7.309993004486622,
+      "count": 1024,
+      "region": 36,
+      "represented_pixels": 5440
+    },
+    {
+      "baseline_mean": 9.309508220194017,
+      "candidate_mean": 8.491834603534901,
+      "count": 1024,
+      "region": 37,
+      "represented_pixels": 5440
+    },
+    {
+      "baseline_mean": 13.061103658246644,
+      "candidate_mean": 10.68797292996417,
+      "count": 1024,
+      "region": 38,
+      "represented_pixels": 5440
+    },
+    {
+      "baseline_mean": 9.871637758174364,
+      "candidate_mean": 8.633442011760438,
+      "count": 1024,
+      "region": 39,
+      "represented_pixels": 5440
+    },
+    {
+      "baseline_mean": 11.683814748288954,
+      "candidate_mean": 10.282772866001023,
+      "count": 1024,
+      "region": 40,
+      "represented_pixels": 5440
+    },
+    {
+      "baseline_mean": 12.095234534122488,
+      "candidate_mean": 10.909466050992556,
+      "count": 1024,
+      "region": 41,
+      "represented_pixels": 5440
+    },
+    {
+      "baseline_mean": 13.544927297313423,
+      "candidate_mean": 12.454867663859007,
+      "count": 1024,
+      "region": 42,
+      "represented_pixels": 5440
+    },
+    {
+      "baseline_mean": 13.714356977733619,
+      "candidate_mean": 12.617515555506243,
+      "count": 1024,
+      "region": 43,
+      "represented_pixels": 5440
+    },
+    {
+      "baseline_mean": 12.974712638031034,
+      "candidate_mean": 11.969375643134118,
+      "count": 1024,
+      "region": 44,
+      "represented_pixels": 5440
+    },
+    {
+      "baseline_mean": 15.024873915621463,
+      "candidate_mean": 13.756160235350185,
+      "count": 1024,
+      "region": 45,
+      "represented_pixels": 5440
+    },
+    {
+      "baseline_mean": 15.596188566965216,
+      "candidate_mean": 14.508059710198465,
+      "count": 1024,
+      "region": 46,
+      "represented_pixels": 5440
+    },
+    {
+      "baseline_mean": 12.558983778712504,
+      "candidate_mean": 11.351205551931086,
+      "count": 1024,
+      "region": 47,
+      "represented_pixels": 5440
+    },
+    {
+      "baseline_mean": 10.949682114755406,
+      "candidate_mean": 10.250263529643416,
+      "count": 1024,
+      "region": 48,
+      "represented_pixels": 5440
+    },
+    {
+      "baseline_mean": 12.788006716747494,
+      "candidate_mean": 11.59470531118705,
+      "count": 1024,
+      "region": 49,
+      "represented_pixels": 5440
+    },
+    {
+      "baseline_mean": 13.0615240206175,
+      "candidate_mean": 11.676203263507169,
+      "count": 1024,
+      "region": 50,
+      "represented_pixels": 5440
+    },
+    {
+      "baseline_mean": 12.826231504144037,
+      "candidate_mean": 11.407941919521374,
+      "count": 1024,
+      "region": 51,
+      "represented_pixels": 5440
+    },
+    {
+      "baseline_mean": 13.896209179675754,
+      "candidate_mean": 12.537508688275429,
+      "count": 1024,
+      "region": 52,
+      "represented_pixels": 5440
+    },
+    {
+      "baseline_mean": 14.74323598812608,
+      "candidate_mean": 12.562315692533465,
+      "count": 1024,
+      "region": 53,
+      "represented_pixels": 5440
+    },
+    {
+      "baseline_mean": 12.96982370693894,
+      "candidate_mean": 10.61038297612001,
+      "count": 1024,
+      "region": 54,
+      "represented_pixels": 5440
+    },
+    {
+      "baseline_mean": 13.233394317000228,
+      "candidate_mean": 11.642143622533801,
+      "count": 1024,
+      "region": 55,
+      "represented_pixels": 5440
+    },
+    {
+      "baseline_mean": 12.315977440029382,
+      "candidate_mean": 11.998500818759203,
+      "count": 1024,
+      "region": 56,
+      "represented_pixels": 5440
+    },
+    {
+      "baseline_mean": 11.30121043883264,
+      "candidate_mean": 10.55164596565506,
+      "count": 1024,
+      "region": 57,
+      "represented_pixels": 5440
+    },
+    {
+      "baseline_mean": 12.770700072409475,
+      "candidate_mean": 11.439672078301802,
+      "count": 1024,
+      "region": 58,
+      "represented_pixels": 5440
+    },
+    {
+      "baseline_mean": 12.520201348344905,
+      "candidate_mean": 10.042450177691439,
+      "count": 1024,
+      "region": 59,
+      "represented_pixels": 5440
+    },
+    {
+      "baseline_mean": 12.50102985304068,
+      "candidate_mean": 9.86870811748154,
+      "count": 1024,
+      "region": 60,
+      "represented_pixels": 5440
+    },
+    {
+      "baseline_mean": 11.219197246388477,
+      "candidate_mean": 7.5207055783666235,
+      "count": 1024,
+      "region": 61,
+      "represented_pixels": 5440
+    },
+    {
+      "baseline_mean": 11.240957015117301,
+      "candidate_mean": 8.080695303222713,
+      "count": 1024,
+      "region": 62,
+      "represented_pixels": 5440
+    },
+    {
+      "baseline_mean": 10.961959585722756,
+      "candidate_mean": 8.456826397535556,
+      "count": 1024,
+      "region": 63,
+      "represented_pixels": 5440
+    }
+  ],
+  "regions_improve": true,
+  "rgb_regions_preserved": true,
+  "rgb_tails_preserved": true,
+  "worst_normalized_errors": [
+    3.6494832368599885,
+    4.100300384266506
+  ]
+}

@@ -34,12 +34,15 @@
 //! Returns `None` only when no tier yields a preview. The bytes/WASM entry
 //! ([`extract_preview_from_bytes`]) has no exiftool tier at all (#870).
 
+use std::panic::AssertUnwindSafe;
 use std::path::Path;
 use std::process::Command;
 
 use image::DynamicImage;
-use rawler::decoders::{FormatHint, RawDecodeParams};
+use rawler::decoders::RawDecodeParams;
 use rawler::rawsource::RawSource;
+
+use super::preview_sources::{extract_in_process, PreviewSource};
 
 use crate::color::matrices::{M_REC2020_TO_SRGB, M_XYZ_D65_TO_REC2020};
 use crate::image::{apply_orientation, ExifOrientation};
@@ -68,12 +71,19 @@ pub enum JpegColorSpace {
 /// `exiftool -b -JpgFromRaw`. Returns `None` for any failure or when
 /// exiftool is unavailable.
 pub fn extract_preview<P: AsRef<Path>>(path: P) -> Option<DynamicImage> {
-    if let Ok(src) = RawSource::new(path.as_ref()) {
-        if let Some(img) = extract_preview_from_rawsource(&src) {
-            return Some(img);
-        }
+    extract_preview_checked(path.as_ref()).ok().flatten()
+}
+
+/// [`extract_preview`], telling "no tier yielded a preview" (`Ok(None)`) apart
+/// from "the file could not be opened" (`Err`), which says nothing about it.
+fn extract_preview_checked(path: &Path) -> std::io::Result<Option<DynamicImage>> {
+    match RawSource::new(path).map(|src| extract_preview_from_rawsource(&src)) {
+        Ok(Some(img)) => Ok(Some(img)),
+        in_process => match exiftool_preview(path)? {
+            Some(img) => Ok(Some(img)),
+            None => in_process,
+        },
     }
-    extract_preview_via_exiftool(path.as_ref())
 }
 
 /// A decoded embedded preview plus its detected color space — the unit the
@@ -93,13 +103,23 @@ pub struct ExtractedPreview {
 /// bundle every Auto Profile fit shares (#1085). Path variant (exiftool
 /// fallback included via [`extract_preview`]).
 pub fn extract_for_fit<P: AsRef<Path>>(path: P) -> Option<ExtractedPreview> {
-    let image = extract_preview(path.as_ref())?;
-    let color_space = detect_jpeg_color_space(path.as_ref());
-    Some(ExtractedPreview { image, color_space })
+    probe_for_fit(path.as_ref()).ok().flatten()
+}
+
+/// [`extract_for_fit`] that keeps the definitive `Ok(None)` (the file was read
+/// and carries no preview) apart from `Err` (it could not be opened, #5485).
+pub fn probe_for_fit(path: &Path) -> std::io::Result<Option<ExtractedPreview>> {
+    Ok(
+        extract_preview_checked(path)?.map(|image| ExtractedPreview {
+            image,
+            color_space: detect_jpeg_color_space(path),
+        }),
+    )
 }
 
 /// Bytes/WASM mirror of [`extract_for_fit`] (no exiftool tier — see
-/// [`extract_preview_from_bytes`]).
+/// [`extract_preview_from_bytes`]). The bytes are already in memory, so
+/// `None` is always definitive.
 pub fn extract_for_fit_from_bytes(bytes: &[u8], ext: &str) -> Option<ExtractedPreview> {
     let image = extract_preview_from_bytes(bytes, ext)?;
     let color_space = detect_jpeg_color_space_from_bytes(bytes, ext);
@@ -127,7 +147,7 @@ pub fn preview_orientation<P: AsRef<Path>>(path: P) -> ExifOrientation {
     }
 }
 
-fn orientation_from_rawsource(src: &RawSource) -> ExifOrientation {
+fn orientation_from_rawsource(src: &RawSource<'_>) -> ExifOrientation {
     rawler::get_decoder(src)
         .ok()
         .and_then(|dec| dec.raw_metadata(src, &RawDecodeParams::default()).ok())
@@ -247,7 +267,7 @@ pub fn extract_preview_from_bytes(bytes: &[u8], ext: &str) -> Option<DynamicImag
     extract_preview_from_rawsource(&src)
 }
 
-fn rawsource_from_bytes(bytes: &[u8], ext: &str) -> RawSource {
+fn rawsource_from_bytes(bytes: &[u8], ext: &str) -> RawSource<'static> {
     let src = RawSource::new_from_slice(bytes);
     if ext.is_empty() {
         src
@@ -256,59 +276,27 @@ fn rawsource_from_bytes(bytes: &[u8], ext: &str) -> RawSource {
     }
 }
 
-fn extract_preview_from_rawsource(src: &RawSource) -> Option<DynamicImage> {
-    let params = RawDecodeParams::default();
-    let decoder = rawler::get_decoder(src).ok()?;
-    if let Ok(Some(img)) = decoder.preview_image(src, &params) {
-        return Some(img);
-    }
-    // `preview_image()` is unimplemented for EVERY decoder in rawler 0.7.2 (the
-    // trait default just returns `None`), so the call above never succeeds today
-    // — it is kept only to pick up native preview support if a future rawler
-    // adds it. The working in-process source is `full_image()`, implemented for
-    // the common camera formats (CR2/CR3, DNG, NEF, ARW, RAF, RW2, MRW, PEF,
-    // FFF). It returns the camera's embedded preview *image* — usually a decoded
-    // JPEG (cr2 = IFD0, dng = the `NewSubFileType==1` preview sub-IFD, nef/arw =
-    // the largest `JpegInterchangeFormat` IFD), occasionally uncompressed RGB
-    // (e.g. some CR2), but never a sensor decode — so fitting against it matches
-    // the camera's rendered look, not a self-referential decode of our own
-    // pixels. This is the in-process path the sandboxed Apple app, iOS, and
-    // Web/WASM rely on (none can reach the `exiftool` subprocess below), so
-    // without it Auto Profile silently degrades to Neutral on those surfaces
-    // (#927). Decoders that don't implement `full_image` (e.g. ORF, IIQ, X3F),
-    // or a file with no embedded preview, return `None`/`Err` here and fall
-    // through to the caller's `None` (→ exiftool on the path variant; the
-    // bytes/WASM no-preview case stays #870).
-    if let Ok(Some(img)) = decoder.full_image(src, &params) {
-        return Some(img);
-    }
-    // `full_image` only checks SUB-IFDs for the `NewSubFileType==1` reduced-res
-    // preview; some DNGs (e.g. Apple/iPhone) store it in the ROOT IFD instead,
-    // which rawler's `thumbnail_image` checks. It targets `NewSubFileType==1`, so
-    // it never returns the full-res RAW-as-JPEG (`NewSubFileType==0`) beside it in
-    // a lossy/linear DNG — non-circular (#930). Gate on DNG: the root-IFD preview
-    // is a DNG quirk, and `thumbnail_image`'s trait default logs a warning + does
-    // nothing for every other decoder, so calling it unconditionally would be
-    // log-noise on the X3F / no-preview paths that reach here.
-    if decoder.format_hint() == FormatHint::DNG {
-        if let Ok(Some(img)) = decoder.thumbnail_image(src, &params) {
-            return Some(img);
-        }
-    }
-    // Last in-process resort for a NON-TIFF container (e.g. Sigma X3F — Foveon,
-    // with no full/preview/thumbnail). Such formats embed a JPEG preview but
-    // never RAW-as-JPEG, so the largest color JPEG is safely the preview. GATE on
-    // the file NOT being a TIFF container: every format that can carry a
-    // RAW-as-JPEG (DNG and the other TIFF-based raws) starts with TIFF magic, so
-    // this can never run there and go circular. (`ifd(Root)` is NOT a usable
-    // "non-TIFF" proxy — only the DNG decoder implements `ifd()`, so every other
-    // TIFF raw also reports no Root IFD.)
-    if !is_tiff_container(src.buf()) {
-        if let Some(img) = largest_embedded_jpeg(src.buf()) {
-            return Some(img);
-        }
-    }
-    None
+/// The first in-process source (in [`PreviewSource::IN_PROCESS`] order) that
+/// yields an image. See the module docs for why each tier exists and why the
+/// order is safe; the coverage audit evaluates the same sources (#5458).
+///
+/// Runs under `catch_unwind` like [`crate::preview::extract_embedded_preview`]:
+/// rawler panics on some malformed preview IFDs, and in the develop path that
+/// unwind would otherwise surface as rc 99. A panic means "no preview" (#5588).
+fn extract_preview_from_rawsource(src: &RawSource<'_>) -> Option<DynamicImage> {
+    std::panic::catch_unwind(AssertUnwindSafe(|| {
+        let decoder = rawler::get_decoder(src).ok()?;
+        PreviewSource::IN_PROCESS
+            .into_iter()
+            .find_map(|source| extract_in_process(source, decoder.as_ref(), src))
+    }))
+    .unwrap_or_else(|_| {
+        eprintln!(
+            "rawler panicked during preview extraction, treating as no preview: {}",
+            src.path().display()
+        );
+        None
+    })
 }
 
 /// TIFF container magic: little-endian `II 2A 00` or big-endian `MM 00 2A`. DNG
@@ -380,6 +368,7 @@ pub(crate) fn largest_embedded_jpeg(bytes: &[u8]) -> Option<DynamicImage> {
 ///   - Standard EXIF `ColorSpace = Uncalibrated (0xFFFF)` AND make
 ///     is "Canon" → Adobe RGB (Canon's non-standard convention — they
 ///     write Uncalibrated and stuff the truth in the Canon makernote)
+///   - RAF Uncalibrated/missing EXIF: embedded JPEG R03 → Adobe RGB, R98 → sRGB
 ///   - Anything else → sRGB (the DCF default)
 ///
 /// Why Canon needs special-casing: when set to Adobe RGB the body writes
@@ -404,7 +393,7 @@ pub fn detect_jpeg_color_space_from_bytes(bytes: &[u8], ext: &str) -> JpegColorS
     detect_jpeg_color_space_from_rawsource(&src)
 }
 
-fn detect_jpeg_color_space_from_rawsource(raw_src: &RawSource) -> JpegColorSpace {
+pub(super) fn detect_jpeg_color_space_from_rawsource(raw_src: &RawSource<'_>) -> JpegColorSpace {
     let decoder = match rawler::get_decoder(raw_src) {
         Ok(d) => d,
         Err(_) => return JpegColorSpace::SRgb,
@@ -413,6 +402,12 @@ fn detect_jpeg_color_space_from_rawsource(raw_src: &RawSource) -> JpegColorSpace
         Ok(m) => m,
         Err(_) => return JpegColorSpace::SRgb,
     };
+    if matches!(meta.exif.color_space, Some(0xFFFF) | None) {
+        if let Some(color_space) = super::preview_raf_color::raf_preview_color_space(raw_src.buf())
+        {
+            return color_space;
+        }
+    }
     let make_is_canon = meta.make.eq_ignore_ascii_case("Canon");
     match meta.exif.color_space {
         Some(1) => JpegColorSpace::SRgb,
@@ -422,18 +417,41 @@ fn detect_jpeg_color_space_from_rawsource(raw_src: &RawSource) -> JpegColorSpace
     }
 }
 
-fn extract_preview_via_exiftool(path: &Path) -> Option<DynamicImage> {
+pub(super) fn extract_preview_via_exiftool(path: &Path) -> Option<DynamicImage> {
+    exiftool_preview(path).ok().flatten()
+}
+
+/// `Err` only for a failure that may pass (a spawn refused for resources, a
+/// killed process); a host without a usable exiftool answers `Ok(None)`.
+fn exiftool_preview(path: &Path) -> std::io::Result<Option<DynamicImage>> {
     for tag in ["-PreviewImage", "-JpgFromRaw"] {
-        let out = Command::new("exiftool")
+        let out = match Command::new("exiftool")
             .args(["-b", tag, "--"])
             .arg(path)
             .output()
-            .ok()?;
+        {
+            Ok(out) => out,
+            Err(e) if exiftool_unavailable(&e) => return Ok(None),
+            Err(e) => return Err(e),
+        };
+        if out.status.code().is_none() {
+            return Err(std::io::Error::other("exiftool terminated by a signal"));
+        }
         if out.status.success() && !out.stdout.is_empty() {
             if let Ok(img) = image::load_from_memory(&out.stdout) {
-                return Some(img);
+                return Ok(Some(img));
             }
         }
     }
-    None
+    Ok(None)
+}
+
+/// Not installed, denied by the sandboxed Apple apps, or no processes at all
+/// (WASM): permanent properties of the host, not transient failures.
+fn exiftool_unavailable(error: &std::io::Error) -> bool {
+    use std::io::ErrorKind;
+    matches!(
+        error.kind(),
+        ErrorKind::NotFound | ErrorKind::PermissionDenied | ErrorKind::Unsupported
+    )
 }

@@ -1,7 +1,7 @@
 // ThumbnailLoaderDisplayPreviewTests.swift — the `.maple/previews` 1280 px
 // display tier behind the Preview screen's thumbnail → hi-res swap
 // (ThumbnailLoader+DisplayPreview.swift). Post-#2009: AVIF at the canonical
-// `<filename>.v<current pipeline version>.avif` path, no `_1600` size token, no `.v` version marker.
+// `<filename>.avif` path, no `_1600` size token, no version marker (#4793).
 //
 // Real files in a temp directory throughout — including real `.xmp`
 // sidecars via `XMPSerializer` — per the "no mocks for the sidecar layer"
@@ -68,6 +68,12 @@ final class ThumbnailLoaderDisplayPreviewTests: XCTestCase {
     return max(image.width, image.height)
   }
 
+  private func dimensions(of data: Data) throws -> CGSize {
+    let src = try XCTUnwrap(CGImageSourceCreateWithData(data as CFData, nil))
+    let image = try XCTUnwrap(CGImageSourceCreateImageAtIndex(src, 0, nil))
+    return CGSize(width: image.width, height: image.height)
+  }
+
   // MARK: - Generation
 
   func testGeneratesPersistsAndServesDisplayPreviewForJPEG() async throws {
@@ -82,11 +88,11 @@ final class ThumbnailLoaderDisplayPreviewTests: XCTestCase {
     XCTAssertLessThanOrEqual(edge, Int(ThumbnailLoader.displayPreviewLongEdge))
     XCTAssertGreaterThanOrEqual(edge, 1_024)
 
-    // Persisted at the canonical `<filename>.v<current pipeline version>.avif` location so the editor
+    // Persisted at the canonical `<filename>.avif` location so the editor
     // cold-open seed + a later Preview open reuse it — no `.v` marker.
     let previewURL = MapleSidecarPaths.previewURL(for: assetURL)
     XCTAssertEqual(
-      previewURL.lastPathComponent, "a.jpg.v\(AdjustmentModel.pipelineOutputVersion).avif")
+      previewURL.lastPathComponent, "a.jpg.avif")
     XCTAssertTrue(FileManager.default.fileExists(atPath: previewURL.path))
   }
 
@@ -100,16 +106,38 @@ final class ThumbnailLoaderDisplayPreviewTests: XCTestCase {
     let staged = try XCTUnwrap(ThumbnailLoader.encodeDisplayPreview(from: stagedImage))
     XCTAssertEqual(try longEdge(of: staged), 160)
     try staged.write(to: previewURL)
+    LocalDerivativeSourceStamp.record(previewURL, for: assetURL)
 
     let data = await ThumbnailLoader.shared.loadDisplayPreview(
       for: AssetRef(url: assetURL))
     XCTAssertEqual(data, staged)
   }
 
+  func testUnstampedLegacyV25TierIsRegenerated() async throws {
+    let assetURL = try writeJPEG(named: "l.jpg", width: 2400, height: 1600)
+    let previewURL = MapleSidecarPaths.previewURL(for: assetURL)
+    try FileManager.default.createDirectory(
+      at: previewURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+    let stagedJPEG = try writeJPEG(named: "legacy-staged.jpg", width: 160, height: 96)
+    let staged = try XCTUnwrap(
+      ThumbnailLoader.encodeDisplayPreview(from: try XCTUnwrap(CIImage(contentsOf: stagedJPEG))))
+    let legacyURL = MapleSidecarPaths.legacyPreviewURL(for: assetURL)
+    XCTAssertEqual(legacyURL.lastPathComponent, "l.jpg.v25.avif")
+    try staged.write(to: legacyURL)
+
+    let data = await ThumbnailLoader.shared.loadDisplayPreview(for: AssetRef(url: assetURL))
+
+    XCTAssertNotNil(data)
+    XCTAssertNotEqual(data, staged, "legacy bytes cannot prove which sidecar produced them")
+    XCTAssertFalse(FileManager.default.fileExists(atPath: legacyURL.path))
+    XCTAssertEqual(try Data(contentsOf: previewURL), data)
+  }
+
   // MARK: - Edited-photo gate
 
   func testRatingOnlySidecarStillGenerates() async throws {
     let assetURL = try writeJPEG(named: "c.jpg", width: 2400, height: 1600)
+    let original = await ThumbnailLoader.shared.loadDisplayPreview(for: AssetRef(url: assetURL))
     // A culling save records the as-shot WB seed (non-default numbers)
     // but no visual edit — the common rate-in-Preview case.
     let seeded = AdjustmentModel(temperature: 5_230, tint: -12)
@@ -120,19 +148,44 @@ final class ThumbnailLoaderDisplayPreviewTests: XCTestCase {
     let data = await ThumbnailLoader.shared.loadDisplayPreview(
       for: AssetRef(url: assetURL))
     XCTAssertNotNil(data, "a rated-but-unedited photo must still get the hi-res tier")
+    XCTAssertEqual(data, original, "as-shot WB in a rating save must not alter the pixels")
   }
 
-  func testVisuallyEditedSidecarBlocksColdGeneration() async throws {
+  func testVisuallyEditedSidecarColdGeneratesDevelopedPreview() async throws {
     let assetURL = try writeJPEG(named: "d.jpg", width: 2400, height: 1600)
     try writeSidecar(for: assetURL, model: AdjustmentModel(exposure: 1.2))
 
     let data = await ThumbnailLoader.shared.loadDisplayPreview(
       for: AssetRef(url: assetURL))
-    XCTAssertNil(
-      data,
-      "camera-original pixels must not be served over an edited thumbnail")
+    XCTAssertNotNil(data, "the authored sidecar must render without opening the editor")
     let previewURL = MapleSidecarPaths.previewURL(for: assetURL)
-    XCTAssertFalse(FileManager.default.fileExists(atPath: previewURL.path))
+    XCTAssertTrue(FileManager.default.fileExists(atPath: previewURL.path))
+    XCTAssertTrue(LocalDerivativeSourceStamp.isFresh(previewURL, for: assetURL))
+  }
+
+  func testEditedPixelsRemainVisibleWhenDisposableCacheCannotBeWritten() async throws {
+    let asset = try writeJPEG(named: "blocked-cache.jpg", width: 2400, height: 1600)
+    try writeSidecar(
+      for: asset,
+      model: AdjustmentModel(
+        exposure: 0.5,
+        crop: Crop(top: 0.125, left: 0, bottom: 0.875, right: 1, angle: 0)))
+    // A regular file prevents creation of .maple/previews and .maple/thumbs.
+    try Data("blocked".utf8).write(to: tmpDir.appendingPathComponent(".maple"))
+
+    let previewData = await ThumbnailLoader.shared.loadDisplayPreview(for: AssetRef(url: asset))
+    let thumbnailData = await ThumbnailLoader.shared.load(for: asset)
+    let preview = try XCTUnwrap(previewData)
+    let thumbnail = try XCTUnwrap(thumbnailData)
+    let previewSize = try dimensions(of: preview)
+    let thumbnailSize = try dimensions(of: thumbnail)
+    XCTAssertEqual(previewSize.width / previewSize.height, 2, accuracy: 0.03)
+    XCTAssertEqual(
+      thumbnailSize.width / thumbnailSize.height, 2, accuracy: 0.03)
+    XCTAssertFalse(
+      FileManager.default.fileExists(atPath: MapleSidecarPaths.previewURL(for: asset).path))
+    XCTAssertFalse(
+      FileManager.default.fileExists(atPath: MapleSidecarPaths.thumbURL(for: asset).path))
   }
 
   func testPreviewSupersededByNewerEditedSidecarIsNotServed() async throws {
@@ -155,7 +208,9 @@ final class ThumbnailLoaderDisplayPreviewTests: XCTestCase {
 
     let data = await ThumbnailLoader.shared.loadDisplayPreview(
       for: AssetRef(url: assetURL))
-    XCTAssertNil(data)
+    XCTAssertNotNil(data)
+    XCTAssertNotEqual(data, Data([0xFF, 0xD8, 0x01, 0x02, 0xFF, 0xD9]))
+    XCTAssertTrue(LocalDerivativeSourceStamp.isFresh(previewURL, for: assetURL))
   }
 
   func testEditedSidecarWithFreshRenderedTierServesIt() async throws {
@@ -170,10 +225,67 @@ final class ThumbnailLoaderDisplayPreviewTests: XCTestCase {
     let rendered = CIImage(color: .red).cropped(to: CGRect(x: 0, y: 0, width: 400, height: 250))
     let developed = try XCTUnwrap(ThumbnailLoader.encodeDisplayPreview(from: rendered))
     try developed.write(to: previewURL)
+    LocalDerivativeSourceStamp.record(previewURL, for: assetURL)
 
     let data = await ThumbnailLoader.shared.loadDisplayPreview(
       for: AssetRef(url: assetURL))
     XCTAssertEqual(data, developed)
+  }
+
+  func testRemovingEditedSidecarRejectsItsPreviewAfterColdOpen() async throws {
+    let assetURL = try writeJPEG(named: "removed.jpg", width: 2400, height: 1600)
+    try writeSidecar(for: assetURL, model: AdjustmentModel(exposure: 1.2))
+    let previewURL = MapleSidecarPaths.previewURL(for: assetURL)
+    try FileManager.default.createDirectory(
+      at: previewURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+    let edited = CIImage(color: .red).cropped(to: CGRect(x: 0, y: 0, width: 400, height: 250))
+    let editedBytes = try XCTUnwrap(ThumbnailLoader.encodeDisplayPreview(from: edited))
+    try editedBytes.write(to: previewURL)
+    LocalDerivativeSourceStamp.record(previewURL, for: assetURL)
+    let beforeRemoval = await ThumbnailLoader.shared.loadDisplayPreview(
+      for: AssetRef(url: assetURL))
+    XCTAssertEqual(beforeRemoval, editedBytes)
+
+    try FileManager.default.removeItem(at: SidecarPath.sidecarURL(for: assetURL))
+    let refreshed = await ThumbnailLoader.shared.loadDisplayPreview(for: AssetRef(url: assetURL))
+    XCTAssertNotNil(refreshed)
+    XCTAssertNotEqual(refreshed, editedBytes, "removed edits must not survive in the preview")
+    XCTAssertEqual(try Data(contentsOf: previewURL), refreshed)
+  }
+
+  func testExternalNonRawCropChangeRebuildsDevelopedPreview() async throws {
+    let asset = try writeJPEG(named: "external-edit.jpg", width: 2400, height: 1600)
+    try writeSidecar(
+      for: asset,
+      model: AdjustmentModel(
+        exposure: 0.5,
+        crop: Crop(top: 0, left: 1.0 / 6.0, bottom: 1, right: 5.0 / 6.0, angle: 0)))
+    let firstData = await ThumbnailLoader.shared.loadDisplayPreview(for: AssetRef(url: asset))
+    let first = try XCTUnwrap(firstData)
+    let firstSize = try dimensions(of: first)
+    XCTAssertEqual(firstSize.width, firstSize.height, accuracy: 2)
+    let firstThumbData = await ThumbnailLoader.shared.load(for: asset)
+    let firstThumb = try XCTUnwrap(firstThumbData)
+    let firstThumbSize = try dimensions(of: firstThumb)
+    XCTAssertEqual(firstThumbSize.width, firstThumbSize.height, accuracy: 2)
+
+    try writeSidecar(
+      for: asset,
+      model: AdjustmentModel(
+        exposure: 2,
+        crop: Crop(top: 0.125, left: 0, bottom: 0.875, right: 1, angle: 0)))
+    let changedData = await ThumbnailLoader.shared.loadDisplayPreview(for: AssetRef(url: asset))
+    let changed = try XCTUnwrap(changedData)
+    let changedSize = try dimensions(of: changed)
+    XCTAssertNotEqual(changed, first)
+    XCTAssertEqual(changedSize.width / changedSize.height, 2, accuracy: 0.03)
+    let changedThumbData = await ThumbnailLoader.shared.load(for: asset)
+    let changedThumb = try XCTUnwrap(changedThumbData)
+    let changedThumbSize = try dimensions(of: changedThumb)
+    XCTAssertNotEqual(changedThumb, firstThumb)
+    XCTAssertEqual(changedThumbSize.width / changedThumbSize.height, 2, accuracy: 0.03)
+    XCTAssertTrue(
+      LocalDerivativeSourceStamp.isFresh(MapleSidecarPaths.previewURL(for: asset), for: asset))
   }
 
   func testEditedSidecarRejectsCorruptRenderedTier() async throws {
@@ -184,7 +296,8 @@ final class ThumbnailLoaderDisplayPreviewTests: XCTestCase {
       at: previewURL.deletingLastPathComponent(), withIntermediateDirectories: true)
     try Data([0xFF, 0xD8, 0xAA, 0xBB, 0xFF, 0xD9]).write(to: previewURL)
     let data = await ThumbnailLoader.shared.loadDisplayPreview(for: AssetRef(url: assetURL))
-    XCTAssertNil(data)
+    XCTAssertNotNil(data, "a corrupt tier should be replaced by a developed render")
+    XCTAssertTrue(LocalDerivativeSourceStamp.isFresh(previewURL, for: assetURL))
   }
 
   // MARK: - Encode

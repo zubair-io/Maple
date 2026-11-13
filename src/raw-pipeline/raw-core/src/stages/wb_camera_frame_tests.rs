@@ -55,7 +55,11 @@ fn dual_illuminant_gain_uses_target_cct_interpolated_cm() {
         ),
         scene_cct,
         scene_tint: 0.0,
-        render_cm: Matrix3([[0.6722,-0.0635,-0.0963],[-0.4287,1.2460,0.2028],[-0.0908,0.2162,0.5668]]),
+        render_cm: Matrix3([
+            [0.6722, -0.0635, -0.0963],
+            [-0.4287, 1.2460, 0.2028],
+            [-0.0908, 0.2162, 0.5668],
+        ]),
     };
 
     // Frame pinned to the cold endpoint CM with no endpoints: at a 2000 K
@@ -66,7 +70,11 @@ fn dual_illuminant_gain_uses_target_cct_interpolated_cm() {
         cm_as_shot: m_cold,
         scene_cct,
         scene_tint: 0.0,
-        render_cm: Matrix3([[0.6722,-0.0635,-0.0963],[-0.4287,1.2460,0.2028],[-0.0908,0.2162,0.5668]]),
+        render_cm: Matrix3([
+            [0.6722, -0.0635, -0.0963],
+            [-0.4287, 1.2460, 0.2028],
+            [-0.0908, 0.2162, 0.5668],
+        ]),
     };
     let g_dual = camera_wb_gain(&dual, as_shot_neutral, 2000.0, 0.0);
     let g_cold = camera_wb_gain(&cold_pinned, as_shot_neutral, 2000.0, 0.0);
@@ -82,7 +90,11 @@ fn dual_illuminant_gain_uses_target_cct_interpolated_cm() {
         cm_as_shot: dual.cm_as_shot,
         scene_cct,
         scene_tint: 0.0,
-        render_cm: Matrix3([[0.6722,-0.0635,-0.0963],[-0.4287,1.2460,0.2028],[-0.0908,0.2162,0.5668]]),
+        render_cm: Matrix3([
+            [0.6722, -0.0635, -0.0963],
+            [-0.4287, 1.2460, 0.2028],
+            [-0.0908, 0.2162, 0.5668],
+        ]),
     };
     let g_fixed = camera_wb_gain(&fixed, as_shot_neutral, 2000.0, 0.0);
     assert!(
@@ -173,4 +185,161 @@ fn retargeted_render_profile_is_identity_at_frame_as_shot() {
         retargeted_warm.scene_white_xyz, profile.scene_white_xyz,
         "the Bradford source must stay at as-shot (gain is the sole cast carrier)"
     );
+}
+
+/// #4633: a retarget resolves the dual-illuminant HueSatMap at the same
+/// render-frame CCT as the ForwardMatrix, with the reciprocal-CCT weight;
+/// as-shot and single-table profiles keep their table.
+#[test]
+fn retargeted_render_profile_resolves_the_hue_sat_map_at_the_target() {
+    use crate::color::dcp::{compute_as_shot_cct, interpolated_profile};
+    use crate::color::hsm::{HsmEncoding, HsmTable};
+
+    let table = |hue: f32, sat: f32, val: f32| {
+        HsmTable::new([2, 2, 1], [hue, sat, val].repeat(4), HsmEncoding::Linear).unwrap()
+    };
+    let (cold, warm) = (table(0., 1., 1.), table(10., 1.2, 0.9));
+    let m_cold = Matrix3([
+        [0.7234, 0.0231, -0.0542],
+        [-0.3956, 1.1998, 0.2239],
+        [-0.0512, 0.1892, 0.5231],
+    ]);
+    let m_warm = Matrix3(CANON_5D3_D65_CM);
+    let fm = Matrix3::IDENTITY;
+    let dual = |hsm_warm: Option<&HsmTable>| {
+        interpolated_profile(
+            m_cold,
+            Illuminant::StdA,
+            m_warm,
+            Illuminant::D65,
+            [0.55, 1.0, 0.62],
+            false,
+            Some(&cold),
+            hsm_warm,
+            Some(fm),
+            Some(fm),
+            None,
+            None,
+        )
+    };
+    let profile = dual(Some(&warm));
+    let frame = SliderFrame {
+        endpoints: Some((
+            m_cold,
+            Illuminant::StdA.cct(),
+            m_warm,
+            Illuminant::D65.cct(),
+        )),
+        cm_as_shot: profile.color_matrix,
+        scene_cct: profile.scene_cct,
+        scene_tint: 0.0,
+        render_cm: profile.color_matrix,
+    };
+    let hsm_at = |p: &DcpProfile, temperature: f32| {
+        retargeted_render_profile(&frame, p.clone(), temperature, 0.)
+            .hsm
+            .unwrap()
+            .data
+    };
+
+    assert_eq!(
+        hsm_at(&profile, frame.scene_cct),
+        profile.hsm.clone().unwrap().data
+    );
+    assert_eq!(
+        hsm_at(&profile, 2000.),
+        cold.data,
+        "below StdA clamps to cold"
+    );
+    assert_eq!(
+        hsm_at(&profile, 12000.),
+        warm.data,
+        "above D65 clamps to warm"
+    );
+
+    let temperature = 4000.;
+    let neutral = camera_neutral_for(frame.cm_for_cct(temperature), temperature, 0.);
+    let (cct_cold, cct_warm) = (Illuminant::StdA.cct(), Illuminant::D65.cct());
+    let render_cct = compute_as_shot_cct(neutral, m_cold, cct_cold, m_warm, cct_warm);
+    let t = (1. / render_cct - 1. / cct_cold) / (1. / cct_warm - 1. / cct_cold);
+    assert!(t > 0.05 && t < 0.95, "{t}");
+    let interior = hsm_at(&profile, temperature);
+    let expected = [10. * t, 1. + 0.2 * t, 1. - 0.1 * t];
+    for (got, want) in interior.iter().zip(expected.iter().cycle()) {
+        assert!((got - want).abs() < 1e-4, "{got} vs {want}");
+    }
+    assert_ne!(interior, profile.hsm.clone().unwrap().data);
+
+    let single = dual(None);
+    assert!(single.hsm_endpoints.is_none());
+    assert_eq!(hsm_at(&single, 2000.), cold.data);
+
+    let bradford = DcpProfile {
+        forward_matrix: None,
+        cm_endpoints: profile
+            .cm_endpoints
+            .map(|e| crate::color::dcp::CmEndpoints {
+                fm_cold: None,
+                fm_warm: None,
+                ..e
+            }),
+        ..profile.clone()
+    };
+    assert_eq!(
+        hsm_at(&bradford, 2000.),
+        profile.hsm.clone().unwrap().data,
+        "the non-FM Bradford path keeps its as-shot HueSatMap"
+    );
+}
+
+/// #4633: the re-lerp works cell by cell, including a hue delta that wraps
+/// across 360°, so a mis-ordered or table-wide shortcut would fail.
+#[test]
+fn retargeted_hue_sat_map_lerps_each_cell_on_the_shorter_arc() {
+    use crate::color::dcp::interpolated_profile;
+    use crate::color::hsm::{HsmEncoding, HsmTable};
+
+    let cold = HsmTable::new(
+        [2, 1, 1],
+        vec![350., 1.0, 1.0, 20., 0.8, 1.0],
+        HsmEncoding::Linear,
+    )
+    .unwrap();
+    let warm = HsmTable::new(
+        [2, 1, 1],
+        vec![10., 1.0, 1.0, 40., 1.2, 1.0],
+        HsmEncoding::Linear,
+    )
+    .unwrap();
+    let m_warm = Matrix3(CANON_5D3_D65_CM);
+    let profile = interpolated_profile(
+        m_warm,
+        Illuminant::StdA,
+        m_warm,
+        Illuminant::D65,
+        [0.55, 1.0, 0.62],
+        false,
+        Some(&cold),
+        Some(&warm),
+        Some(Matrix3::IDENTITY),
+        Some(Matrix3::IDENTITY),
+        None,
+        None,
+    );
+    let e = profile.cm_endpoints.unwrap();
+    let t = 0.25f32;
+    let target_cct = 1. / (1. / e.cct_cold + t * (1. / e.cct_warm - 1. / e.cct_cold));
+    let lerped = crate::color::dcp::lerp_hsm_for_cct(
+        profile.hsm_endpoints.as_ref().map(|h| &h.cold),
+        profile.hsm_endpoints.as_ref().map(|h| &h.warm),
+        e.cct_cold,
+        e.cct_warm,
+        target_cct,
+    )
+    .unwrap()
+    .data;
+    let expected = [355., 1.0, 1.0, 25., 0.9, 1.0];
+    for (got, want) in lerped.iter().zip(expected) {
+        assert!((got - want).abs() < 1e-3, "{lerped:?}");
+    }
 }

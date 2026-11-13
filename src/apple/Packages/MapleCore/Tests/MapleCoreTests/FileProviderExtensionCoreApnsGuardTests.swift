@@ -16,6 +16,7 @@
 import XCTest
 import FileProvider
 @testable import MapleCore
+@testable import MapleFileProviderCore
 
 final class FileProviderExtensionCoreApnsGuardTests: XCTestCase {
     private func makeDormantCore() -> FileProviderExtensionCore {

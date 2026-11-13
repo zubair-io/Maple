@@ -48,6 +48,18 @@ public struct GpuLiveError: Error, Sendable {
   public let message: String
 }
 
+/// The fitted Auto Profile artifacts for one image (the A2 un-composed
+/// curve + residual LUT), held on the session so the chain's curve/LUT passes
+/// reapply them every tick without re-fitting. `nil` curve ⇒ identity (the
+/// residual alone); `nil` residual ⇒ no LUT pass.
+private struct AutoProfileArtifacts {
+  /// `PROFILE_CURVE_FLAT_LEN` floats, or `nil` if the fit produced no curve.
+  let curveFlat: [Float]?
+  /// The residual LUT edge + `size³·3` flat grid, or `nil` if no residual.
+  let lutSize: Int
+  let lutData: [Float]?
+}
+
 /// A serialized wgpu live-render session bound to one uploaded image at one set of
 /// dims. An `actor` so every FFI call (which touches the `!Send`/`!Sync` Rust
 /// context) is serialized onto one executor — the single-render-in-flight invariant.
@@ -55,6 +67,7 @@ public actor GpuLiveSession {
   /// The opaque Rust handle (`maple_gpu_live_open` → `…_close`). `nil` once closed
   /// or if the open failed.
   var handle: MapleGpuLiveSession?
+  var colorCurveBuffers = GpuColorCurveBuffers()
   public let width: Int
   public let height: Int
 
@@ -68,12 +81,12 @@ public actor GpuLiveSession {
   /// profile" (non-RAW assets, or a RAW whose DNG carries no NoiseProfile
   /// tag) — the WGSL NLM kernel falls back to the flat, non-modulated
   /// filter, bit-identical to before this ticket.
-  private let noiseProfile: [Float]
+  let noiseProfile: [Float]
   /// `RawImage::iso` for the uploaded pixels (#2342). `0` is raw-core's
   /// "unknown ISO" sentinel — the WGSL kernel's per-pixel modulation reads
   /// this alongside `noiseProfile` to compute the local sigma; both are
   /// meaningless without the other, so they travel together.
-  private let iso: UInt32
+  let iso: UInt32
   let whitesAnchorEv: Float
   let nrSamplingScale: Float
 
@@ -182,22 +195,17 @@ public actor GpuLiveSession {
     }
   }
 
-  /// Rebind an immutable native tail prepared outside the GPU submission actor.
-  func setNativeAutoProfile(_ prepared: NativeAutoProfile) {
-    autoProfile = prepared.artifacts
-  }
-
   /// Fit (and cache on this session) the Auto Profile curve + residual LUT for
   /// `rawPath` under `Profile::Auto` — the A2 artifacts the chain's curve/LUT
   /// passes reapply every tick. A no-op (clears to `nil` → plain AgX) when the
-  /// model is not Auto or the RAW has no usable embedded JPEG. Cold per image
+  /// model is not Auto or the RAW has no usable embedded JPEG, returning
+  /// `.noPreview` only for the latter (#5458). Cold per image
   /// (JPEG extract + develop); call once per asset open, never per tick.
   ///
   /// `quality` MUST match the decode quality (the editor decodes at `.preview`),
   /// or the fitted curve won't match the displayed pixels.
   @discardableResult
-  public func fitAutoProfile(rawPath: String, quality: PipelineRenderer.Quality) -> Bool {
-    guard !Task.isCancelled else { return false }
+  public func fitAutoProfile(rawPath: String, quality: PipelineRenderer.Quality) -> AutoFitStatus {
     let curveLen = Int(MAPLE_PROFILE_CURVE_FLAT_LEN)
     var curve = [Float](repeating: 0, count: curveLen)
     var present: Int32 = 0
@@ -238,14 +246,18 @@ public actor GpuLiveSession {
     }
 
     guard rc == 0 else {
-      if rc == 1 {
+      switch rc {
+      case 1:
         gpuLiveLog.notice("Auto Profile: no tail for \(rawPath, privacy: .public) — plain AgX")
-      } else {
+      case MAPLE_AUTO_FIT_NO_PREVIEW:
+        gpuLiveLog.notice(
+          "Auto Profile: no embedded camera preview in \(rawPath, privacy: .public) — plain AgX")
+      default:
         gpuLiveLog.error(
           "maple_gpu_fit_auto_profile rc=\(rc): \(Self.lastError() ?? "?", privacy: .public)")
       }
       autoProfile = nil
-      return false
+      return AutoFitStatus(failedFitReturnCode: rc)
     }
 
     let n = Int(lutSize)
@@ -257,7 +269,7 @@ public actor GpuLiveSession {
     gpuLiveLog.notice(
       "Auto Profile: fitted curve(present=\(present == 1)) + residual(edge=\(n)) for \(rawPath, privacy: .public)"
     )
-    return true
+    return present == 1 || n > 0 ? .active : .unavailable
   }
 
   /// Render the gated chain for `model` (decode-boundary contract via
@@ -458,10 +470,12 @@ public actor GpuLiveSession {
                 p.noise_profile_len = UInt32(np.count)
               }
               p.iso = iso
-              return withFilmLutBound(p) { pp in
-                withScopeBound(pp) { ppp in
-                  withLocalAdjustmentsBound(ppp, model) { pppp in
-                    withAutoProfileBound(pppp, body)
+              return Self.withDisplayCurvesBound(p, model, buffers: &colorCurveBuffers) { p in
+                withFilmLutBound(p) { pp in
+                  withScopeBound(pp) { ppp in
+                    withLocalAdjustmentsBound(ppp, model) { pppp in
+                      withAutoProfileBound(pppp, body)
+                    }
                   }
                 }
               }

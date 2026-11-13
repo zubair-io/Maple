@@ -76,13 +76,19 @@ export class StageWritebackBatch {
    * Queue one result's statements, flushing first if they would not fit.
    *
    * `label` identifies the result in a failure report — the asset id at every
-   * real call site.
+   * real call site. Failures from a threshold-triggered flush are returned
+   * so the caller can account for every dropped result in the tick.
    */
-  async record(statements: readonly SqlStatement[], label = 'writeback'): Promise<void> {
-    if (statements.length === 0) return;
-    if (this.statementCount + statements.length > this.maxStatements) await this.flush();
+  async record(
+    statements: readonly SqlStatement[],
+    label = 'writeback',
+  ): Promise<FailedWriteback[]> {
+    if (statements.length === 0) return [];
+    const failed =
+      this.statementCount + statements.length > this.maxStatements ? await this.flush() : [];
     this.pending.push({ label, statements });
     this.statementCount += statements.length;
+    return failed;
   }
 
   /** How many statements are waiting. Exposed for the runner's own logging. */

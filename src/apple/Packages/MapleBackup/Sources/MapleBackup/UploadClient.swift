@@ -51,6 +51,9 @@ public actor UploadClient {
     case badResponse(reason: String)
     case resumeMismatchNoOffset
     case emptyAsset
+    /// The server answered 2xx but kept its existing sidecar (`skipped`):
+    /// a server older than compare-and-swap. The edit was not stored.
+    case sidecarNotStored
     /// Another device on the same iCloud library is actively uploading
     /// this asset. `retryAfterSeconds` is the server's hint for how long
     /// before the peer goes stale — the engine sleeps the task for at
@@ -71,6 +74,8 @@ public actor UploadClient {
         return "resumeMismatchNoOffset"
       case .emptyAsset:
         return "emptyAsset"
+      case .sidecarNotStored:
+        return "sidecarNotStored"
       case .busyElsewhere(let s):
         return "busyElsewhere(retryAfter=\(s)s)"
       }
@@ -136,12 +141,19 @@ public actor UploadClient {
   ///   re-imported photos (whose `phasset_link` for this device was never
   ///   attached) resolve instead of 404'ing (#698). Optional for callers
   ///   that don't have it; the server falls back to device+phasset.
+  /// - Parameter basedOn: Digest of the sidecar this device last delivered for
+  ///   the photo, or `nil` for its first (#4719). Sent as
+  ///   `X-Maple-Sidecar-Base`, which opts into the server's compare-and-swap:
+  ///   a newer edit always lands, and a version it replaces without having
+  ///   been based on is kept server-side rather than lost.
+  /// - Returns: whether the server stored it under the canonical name it reads (#5021).
   public func uploadSidecar(
     phassetLocalId: String,
     targetRelPath: String,
     xmp: String,
-    mapleId: String? = nil
-  ) async throws {
+    mapleId: String? = nil,
+    basedOn: String?
+  ) async throws -> Bool {
     let url =
       baseURL
       .appendingPathComponent("api")
@@ -157,6 +169,7 @@ public actor UploadClient {
     req.setValue(phassetLocalId, forHTTPHeaderField: "X-Maple-Phasset-Id")
     req.setValue(targetRelPath, forHTTPHeaderField: "X-Maple-Target-Rel-Path")
     if let mapleId { req.setValue(mapleId, forHTTPHeaderField: "X-Maple-Id") }
+    req.setValue(basedOn ?? "none", forHTTPHeaderField: "X-Maple-Sidecar-Base")
     req.httpBody = Data(xmp.utf8)
 
     let (data, response) = try await transport(req)
@@ -172,6 +185,25 @@ public actor UploadClient {
         "sidecar http=\(http.statusCode) url=\(url, privacy: .public) phasset=\(phassetLocalId, privacy: .private) targetRelPath=\(targetRelPath, privacy: .private) body=\(snippet ?? "<none>", privacy: .private)"
       )
       throw UploadError.httpError(statusCode: http.statusCode, body: snippet)
+    }
+    let reply = try? JSONDecoder().decode(SidecarReply.self, from: data)
+    if reply?.skipped == true {
+      throw UploadError.sidecarNotStored
+    }
+    guard let stored = reply?.targetRelPath else {
+      throw UploadError.badResponse(reason: "sidecar reply did not say where it was stored")
+    }
+    // A server from before #5021 reports the old `IMG.HEIC.xmp`, which it never reads.
+    return stored == BackupSidecarName.canonical(for: targetRelPath)
+  }
+
+  private struct SidecarReply: Decodable {
+    let skipped: Bool?
+    let targetRelPath: String?
+
+    enum CodingKeys: String, CodingKey {
+      case skipped
+      case targetRelPath = "target_rel_path"
     }
   }
 
@@ -351,11 +383,16 @@ public actor UploadClient {
   ///   two devices on the same iCloud library both try to upload the
   ///   rendered companion for the same photo and return 423 to the
   ///   second one.
+  /// - Parameter mapleId: The parent original's id as the ingest reply
+  ///   stored it, sent as `X-Maple-Maple-Id` on the final chunk. The server
+  ///   records the companion on the asset with that id, so it is never the
+  ///   companion's own content hash.
   public func uploadRendered(
     phassetLocalId: String,
     targetRelPath: String,
     filenameExt: String,
     bytes: Data,
+    mapleId: String,
     onProgress: (@Sendable (_ sent: Int64, _ total: Int64) async -> Void)? = nil,
     suffixOverride: String? = nil,
     phassetCloudId: String? = nil
@@ -385,7 +422,7 @@ public actor UploadClient {
       req.setValue(deviceId, forHTTPHeaderField: "X-Maple-Device-Id")
       req.setValue(phassetLocalId, forHTTPHeaderField: "X-Maple-Phasset-Id")
       req.setValue(targetRelPath, forHTTPHeaderField: "X-Maple-Target-Rel-Path")
-      req.setValue(filenameExt, forHTTPHeaderField: "X-Maple-Rendered-Ext")
+      req.setValue(filenameExt, forHTTPHeaderField: "X-Maple-Filename-Ext")
       req.setValue(String(total), forHTTPHeaderField: "X-Maple-Total-Bytes")
       if let suffixOverride {
         req.setValue(suffixOverride, forHTTPHeaderField: "X-Maple-Suffix-Override")
@@ -393,6 +430,7 @@ public actor UploadClient {
       if let phassetCloudId {
         req.setValue(phassetCloudId, forHTTPHeaderField: "X-Maple-PHAsset-Cloud-Id")
       }
+      if isFinal { req.setValue(mapleId, forHTTPHeaderField: "X-Maple-Maple-Id") }
       req.httpBody = chunk
 
       let (data, response) = try await transport(req)

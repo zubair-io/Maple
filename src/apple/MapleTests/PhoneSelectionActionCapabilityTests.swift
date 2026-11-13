@@ -17,28 +17,29 @@
       vm.selectedID = assets[0].id
 
       vm.toggleSelected(assets[0].id)
-      XCTAssertTrue(vm.selectedAssets.isEmpty, "Checking is inert outside Select mode")
+      XCTAssertTrue(
+        vm.selectedAssets(sessions: [:]).isEmpty, "Checking is inert outside Select mode")
 
       vm.enterSelectMode()
-      XCTAssertTrue(vm.selectedAssets.isEmpty)
+      XCTAssertTrue(vm.selectedAssets(sessions: [:]).isEmpty)
       XCTAssertFalse(vm.canMergePanorama)
       XCTAssertEqual(vm.selectedID, assets[0].id)
 
       vm.toggleSelected(assets[1].id)
-      XCTAssertEqual(vm.selectedAssets.map(\.id), [assets[1].id])
+      XCTAssertEqual(vm.selectedAssets(sessions: [:]).map(\.id), [assets[1].id])
       XCTAssertFalse(vm.canMergePanorama)
 
       vm.toggleSelected(assets[2].id)
-      XCTAssertEqual(vm.selectedAssets.map(\.id), [assets[1].id, assets[2].id])
+      XCTAssertEqual(vm.selectedAssets(sessions: [:]).map(\.id), [assets[1].id, assets[2].id])
       XCTAssertTrue(vm.canMergePanorama)
 
       vm.selectedIDs = Set(vm.assets.map(\.id))
-      XCTAssertEqual(vm.selectedAssets.map(\.id), assets.map(\.id))
+      XCTAssertEqual(vm.selectedAssets(sessions: [:]).map(\.id), assets.map(\.id))
       XCTAssertEqual(vm.selectedIDs.count, vm.assets.count)
 
       vm.clearSelection()
       XCTAssertTrue(vm.isSelecting)
-      XCTAssertTrue(vm.selectedAssets.isEmpty)
+      XCTAssertTrue(vm.selectedAssets(sessions: [:]).isEmpty)
       vm.select(assets[0].id)
       vm.exitSelectMode()
       XCTAssertFalse(vm.isSelecting)
@@ -53,13 +54,17 @@
       let outside = AssetRef(url: URL(fileURLWithPath: "/Photos-Other/c.dng"))
       let vm = selection([first, second, outside])
 
-      XCTAssertFalse(PhoneAssetMoveEligibility.canMove(vm.selectedAssets, from: source))
+      XCTAssertFalse(
+        PhoneAssetMoveEligibility.canMove(vm.selectedAssets(sessions: [:]), from: source))
       vm.select(first.id)
-      XCTAssertTrue(PhoneAssetMoveEligibility.canMove(vm.selectedAssets, from: source))
+      XCTAssertTrue(
+        PhoneAssetMoveEligibility.canMove(vm.selectedAssets(sessions: [:]), from: source))
       vm.select(second.id)
-      XCTAssertTrue(PhoneAssetMoveEligibility.canMove(vm.selectedAssets, from: source))
+      XCTAssertTrue(
+        PhoneAssetMoveEligibility.canMove(vm.selectedAssets(sessions: [:]), from: source))
       vm.select(outside.id)
-      XCTAssertFalse(PhoneAssetMoveEligibility.canMove(vm.selectedAssets, from: source))
+      XCTAssertFalse(
+        PhoneAssetMoveEligibility.canMove(vm.selectedAssets(sessions: [:]), from: source))
       XCTAssertFalse(
         PhoneAssetMoveEligibility.canMove(
           [first], from: .local(rootURL: localRoot, rootBookmark: Data())))
@@ -91,12 +96,15 @@
       let vm = selection([first, second, otherServer, otherLibrary])
 
       vm.selectedIDs = [first.id, second.id]
-      XCTAssertTrue(PhoneAssetMoveEligibility.canMove(vm.selectedAssets, from: source))
+      XCTAssertTrue(
+        PhoneAssetMoveEligibility.canMove(vm.selectedAssets(sessions: [:]), from: source))
       vm.select(otherServer.id)
-      XCTAssertFalse(PhoneAssetMoveEligibility.canMove(vm.selectedAssets, from: source))
+      XCTAssertFalse(
+        PhoneAssetMoveEligibility.canMove(vm.selectedAssets(sessions: [:]), from: source))
       vm.deselect(otherServer.id)
       vm.select(otherLibrary.id)
-      XCTAssertFalse(PhoneAssetMoveEligibility.canMove(vm.selectedAssets, from: source))
+      XCTAssertFalse(
+        PhoneAssetMoveEligibility.canMove(vm.selectedAssets(sessions: [:]), from: source))
     }
 
     func testSettingsTransferRequiresStableTargetsAndExcludesUnsupportedFormats() {
@@ -119,12 +127,14 @@
 
       vm.selectedID = source.id
       vm.selectedIDs = [source.id]
-      XCTAssertFalse(vm.selectedAssets.contains { $0.id != vm.selectedID })
+      XCTAssertFalse(vm.selectedAssets(sessions: [:]).contains { $0.id != vm.selectedID })
       vm.select(target.id)
-      XCTAssertTrue(vm.selectedAssets.allSatisfy { $0.adjustmentTransferTarget != nil })
-      XCTAssertTrue(vm.selectedAssets.contains { $0.id != vm.selectedID })
+      XCTAssertTrue(
+        vm.selectedAssets(sessions: [:]).allSatisfy { $0.adjustmentTransferTarget != nil })
+      XCTAssertTrue(vm.selectedAssets(sessions: [:]).contains { $0.id != vm.selectedID })
       vm.select(video.id)
-      XCTAssertFalse(vm.selectedAssets.allSatisfy { $0.adjustmentTransferTarget != nil })
+      XCTAssertFalse(
+        vm.selectedAssets(sessions: [:]).allSatisfy { $0.adjustmentTransferTarget != nil })
       vm.deselect(video.id)
       vm.selectedID = missingID.id
       XCTAssertNil(vm.selectedAsset?.adjustmentTransferTarget)
@@ -139,7 +149,7 @@
       XCTAssertNil(clipboard.contents)
       clipboard.copy(model: .default, sourceName: "source", scopeID: "library-a")
       XCTAssertEqual(clipboard.contents?.scopeID, "library-a")
-      XCTAssertNotNil(vm.selectedAssets.first?.adjustmentTransferTarget)
+      XCTAssertNotNil(vm.selectedAssets(sessions: [:]).first?.adjustmentTransferTarget)
       XCTAssertNotEqual(clipboard.contents?.scopeID, "library-b")
       clipboard.clear()
       XCTAssertNil(clipboard.contents)

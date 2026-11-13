@@ -77,12 +77,8 @@ extension PipelineRenderer {
   /// responsibility (`asShotCCT`/`asShotTint`, #1734) — this function does not
   /// infer an anchor from `inputShape`, keeping a single source of truth for
   /// the non-RAW contract at the `EditSession+GpuLive.swift` call site.
-  /// `wbFrame` (#1781): the decode-exported WB slider frame. When present
-  /// (and a decoded anchor is engaged) the FFI derives the WB matrix in
-  /// that frame — the same `wb_camera` math the CPU develop uses — via
-  /// `SliderFrameExport::rec2020_delta_matrix`, closing the
-  /// live-vs-refine seam. `nil` leaves the `wb_frame_*` tail zeroed:
-  /// the legacy generic-CAT16 delta, bit-identical to pre-#1781.
+  /// `wbFrame` (#5377): the capture decode's frame; its creative stage
+  /// replaces the white-balance delta. `nil` (non-RAW) keeps the delta.
   public static func makeGpuLiveParams(
     from model: AdjustmentModel,
     asShotCCT: Double? = nil,
@@ -128,8 +124,7 @@ extension PipelineRenderer {
         (0.0, 0.0)
       }
 
-    let wb = model.resolvedWhiteBalance(
-      temperature: asShotCCT ?? 6500, tint: asShotTint ?? 0, frame: wbFrame)
+    let wb = model.liveWhiteBalance(in: wbFrame)
     p.temperature = Float(wb.temperature)
     p.tint = Float(wb.tint)
     p.decoded_temperature = Float(decodedAnchor.temperature)
@@ -220,6 +215,9 @@ extension PipelineRenderer {
     p.color_grade_global_hue = Float(model.colorGradeGlobalHue)
     p.color_grade_global_saturation = Float(model.colorGradeGlobalSaturation)
     p.color_grade_global_luminance = Float(model.colorGradeGlobalLuminance)
+    p.color_grade_blending = Float(model.colorGradeBlending)
+    p.color_grade_shadow_edge = Float(model.colorGradeShadowEdge)
+    p.color_grade_highlight_edge = Float(model.colorGradeHighlightEdge)
 
     // HSL 8-band adjustments (#1112) — scene-linear Oklab; the chain
     // runs after saturation / before clarity.
@@ -340,11 +338,10 @@ extension PipelineRenderer {
     // pre-#1331 RAW behaviour for any caller that doesn't pass it.
     p.input_shape = inputShape
 
-    // WB slider frame (#1781) — appended at the struct tail; absent
-    // (`nil`, or !isPresent) leaves the zero-filled legacy state.
-    if let wbFrame, wbFrame.isPresent {
-      wbFrame.fill(&p)
-    }
+    // The capture decode's creative stage (#5377), which replaces the
+    // white-balance pass. The frame must outlive the FFI call these params
+    // are passed to.
+    wbFrame?.fill(&p)
 
     // Vectorscope scope pass (#3272/#3277) — appended at the struct
     // tail. `scope_out` is NOT set here: it's an out-param pointing at

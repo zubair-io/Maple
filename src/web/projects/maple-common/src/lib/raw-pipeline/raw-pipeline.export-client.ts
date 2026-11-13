@@ -13,7 +13,7 @@ export class RawPipelineExportClient {
     private readonly nextId: () => number,
     private readonly pending: Map<number, PendingHandler>,
     private readonly enqueue: <T>(run: () => Promise<T>) => Promise<T>,
-    private readonly closeNativeDetail: () => void,
+    private readonly releaseRetainedSources: () => void,
   ) {}
 
   exportImage(
@@ -25,7 +25,7 @@ export class RawPipelineExportClient {
     saved?: RemovalCompanionBundle,
   ): Promise<ExportedFile> {
     const run = () => {
-      this.closeNativeDetail();
+      this.releaseRetainedSources();
       return this.exportOnce(bytes, ext, options, xmp, filmLut, saved);
     };
     return this.enqueue(run).finally(() => this.revision.update((value) => value + 1));

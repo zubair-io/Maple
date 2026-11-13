@@ -35,4 +35,127 @@
     (valueChange)="onBalanceChange($event)"
     (resetRequest)="onBalanceReset()"
   />
+
+  <mui-living-slider
+    label="Blending"
+    ariaLabel="Colour grading blending"
+    data-testid="color-grading-blending"
+    [value]="blending()"
+    [min]="blendingMin"
+    [max]="blendingMax"
+    [bipolar]="false"
+    gradient="linear-gradient(90deg, #2b2927 0%, #a8a097 100%)"
+    (dragStart)="beginBlending()"
+    (dragEnd)="endBlending()"
+    (valueChange)="onBlendingChange($event)"
+    (resetRequest)="onBlendingReset()"
+  />
+
+  <div class="flex flex-col gap-1" data-testid="color-grading-zone-weights">
+    <div class="flex items-center justify-between text-[10px] tracking-wider text-neutral-400">
+      <span class="font-semibold uppercase">Tonal Zone Weights</span>
+      <span class="font-mono">
+        Sh {{ shadowEdge().toFixed(2) }} · Hi {{ highlightEdge().toFixed(2) }}
+      </span>
+    </div>
+    <svg
+      viewBox="0 0 200 88"
+      preserveAspectRatio="none"
+      class="h-[88px] w-full rounded border border-white/10 bg-black/30 select-none"
+      (pointermove)="onEdgePointerMove($event)"
+      (pointerup)="onEdgePointerUp($event)"
+      (pointercancel)="onEdgePointerUp($event)"
+      (lostpointercapture)="onEdgePointerUp($event)"
+    >
+      <polyline
+        [attr.points]="zoneCurves().sh"
+        fill="none"
+        stroke="#22d3ee"
+        stroke-width="1.5"
+        stroke-opacity="0.85"
+      />
+      <polyline
+        [attr.points]="zoneCurves().mid"
+        fill="none"
+        stroke="#fb923c"
+        stroke-width="1.5"
+        stroke-opacity="0.85"
+      />
+      <polyline
+        [attr.points]="zoneCurves().hi"
+        fill="none"
+        stroke="#facc15"
+        stroke-width="1.5"
+        stroke-opacity="0.9"
+      />
+      <g
+        class="cursor-ew-resize"
+        data-testid="color-grade-shadow-edge-handle"
+        role="slider"
+        aria-label="Shadow Edge"
+        tabindex="0"
+        [attr.aria-valuemin]="shadowMin"
+        [attr.aria-valuemax]="shadowMax"
+        (keydown)="onEdgeKeyDown('shadow', $event)"
+        [attr.aria-valuenow]="shadowEdge()"
+        (pointerdown)="onEdgePointerDown('shadow', $event)"
+        (dblclick)="onEdgeReset('shadow')"
+      >
+        <rect
+          [attr.x]="shadowPlotPosition() * 200 - 16"
+          y="0"
+          width="32"
+          height="44"
+          fill="transparent"
+        />
+        <line
+          [attr.x1]="shadowPlotPosition() * 200"
+          y1="2"
+          [attr.x2]="shadowPlotPosition() * 200"
+          y2="86"
+          stroke="#22d3ee"
+          stroke-width="1.5"
+          pointer-events="none"
+        />
+        <circle [attr.cx]="shadowPlotPosition() * 200" cy="22" r="4" fill="#22d3ee" stroke="#000" />
+      </g>
+      <g
+        class="cursor-ew-resize"
+        data-testid="color-grade-highlight-edge-handle"
+        role="slider"
+        aria-label="Highlight Edge"
+        tabindex="0"
+        [attr.aria-valuemin]="highlightMin"
+        [attr.aria-valuemax]="highlightMax"
+        (keydown)="onEdgeKeyDown('highlight', $event)"
+        [attr.aria-valuenow]="highlightEdge()"
+        (pointerdown)="onEdgePointerDown('highlight', $event)"
+        (dblclick)="onEdgeReset('highlight')"
+      >
+        <rect
+          [attr.x]="highlightPlotPosition() * 200 - 16"
+          y="44"
+          width="32"
+          height="44"
+          fill="transparent"
+        />
+        <line
+          [attr.x1]="highlightPlotPosition() * 200"
+          y1="2"
+          [attr.x2]="highlightPlotPosition() * 200"
+          y2="86"
+          stroke="#facc15"
+          stroke-width="1.5"
+          pointer-events="none"
+        />
+        <circle
+          [attr.cx]="highlightPlotPosition() * 200"
+          cy="66"
+          r="4"
+          fill="#facc15"
+          stroke="#000"
+        />
+      </g>
+    </svg>
+  </div>
 </div>

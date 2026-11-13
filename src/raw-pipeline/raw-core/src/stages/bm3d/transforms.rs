@@ -4,36 +4,10 @@
 //! the textbook definitions; constants are computed at runtime, no tables
 //! copied from any reference implementation.
 
-use std::sync::OnceLock;
-
-use super::BLOCK;
+use super::{parameters::dct_basis, BLOCK};
 
 /// Number of pixels in one patch.
 pub const PATCH: usize = BLOCK * BLOCK;
-
-/// Orthonormal DCT-II basis, `basis[k][n] = c(k)·cos(π(2n+1)k / 16)` with
-/// `c(0) = 1/√8`, `c(k>0) = 1/2`. Rows are the basis vectors; the matrix
-/// is orthogonal, so the inverse transform is multiplication by the
-/// transpose.
-fn dct_basis() -> &'static [[f32; BLOCK]; BLOCK] {
-    static BASIS: OnceLock<[[f32; BLOCK]; BLOCK]> = OnceLock::new();
-    BASIS.get_or_init(|| {
-        let mut b = [[0f32; BLOCK]; BLOCK];
-        let n = BLOCK as f64;
-        for (k, row) in b.iter_mut().enumerate() {
-            let scale = if k == 0 {
-                (1.0 / n).sqrt()
-            } else {
-                (2.0 / n).sqrt()
-            };
-            for (i, v) in row.iter_mut().enumerate() {
-                let angle = std::f64::consts::PI * (2.0 * i as f64 + 1.0) * k as f64 / (2.0 * n);
-                *v = (scale * angle.cos()) as f32;
-            }
-        }
-        b
-    })
-}
 
 /// Forward 2-D DCT-II of an 8×8 patch (row-major `[f32; 64]`), in place.
 /// Separable: rows first (`B · X`), then columns (`· Bᵀ`).

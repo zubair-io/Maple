@@ -1,0 +1,611 @@
+{
+  "decision": "Rejected as a production change: two cases clear, two previously passing cases regress. No adoption, no ledger change.",
+  "scope": "14 canonical focused comparisons plus separate passing test_0000 Neutral baseline control; not full-suite qualification. Original input snapshots and numerical budgets unchanged.",
+  "cleared": [
+    "test_0000/nr_color_max",
+    "test_0000/sharpen_radius_max"
+  ],
+  "new_failures": [
+    "test_0000/sharpen_amount_min",
+    "test_0007/baseline_auto"
+  ],
+  "remaining_working_failures": 103,
+  "unit_tests": "23 AMaZE tests passed, including three metadata preconditioning invariants",
+  "first_pixel": {
+    "position": [
+      182,
+      6336
+    ],
+    "old_rgb": [
+      241,
+      37,
+      115
+    ],
+    "new_rgb": [
+      250,
+      113,
+      116
+    ],
+    "reference_rgb": [
+      249,
+      242,
+      198
+    ],
+    "old_deltaE": 54.4992692031132,
+    "new_deltaE": 41.3298913661251
+  },
+  "new_nr_luminance_peak": {
+    "peak": {
+      "x": 8736,
+      "y": 1070,
+      "candidate_rgb": [
+        169,
+        32,
+        143
+      ],
+      "reference_rgb": [
+        78,
+        67,
+        17
+      ],
+      "deltaE": 52.58365422403805
+    },
+    "pixels_above_unchanged_max_budget": 1,
+    "pixels_compared": 100663296
+  },
+  "binary_identity": {
+    "phase": "rendered",
+    "binary_sha256": "c1dd1ffcbd783d704423534f9d05049796eb60b9299774babc0882a290007c4e",
+    "source_patch_sha256": "2fe0aef9660adc579fbdc9662892d1ae9fe922f9551362642573e29468a24390",
+    "scope": "Experimental full baseline only; no passing gate or case clear claimed",
+    "started": "2026-10-19T08:19:53.545452+00:00",
+    "exit_code": 0
+  },
+  "patch_sha256": "203d0de06a8c672e848fcf664fd24ed1ceff487a31dd307b2442ff9fa09cfa94",
+  "upstream_source": "https://raw.githubusercontent.com/Beep6581/RawTherapee/dev/rtengine/amaze_demosaic_RT.cc",
+  "next_evidence": "Second peak sensor crop shows blue reconstruction before FCS about0.0698 vs0.2298 after FCS in WB-neutralized units. Filter imports bright-side blue values into dark edge. Investigate green-guided value interpolation independently of preconditioning.",
+  "cases": [
+    {
+      "fixture": "test_0000",
+      "case": "nr_color_min",
+      "profile": "detail-fullres",
+      "original": {
+        "fixture": "test_0000",
+        "case": "nr_color_min",
+        "profile": "detail-fullres",
+        "resolution": "full",
+        "status": "passed",
+        "breaches": [],
+        "mean": 6.529142268716192,
+        "p95": 11.073358711135416,
+        "max": 59.188424573549504,
+        "bR": 0.013256086276407342,
+        "bG": 0.013849918244416023,
+        "bB": 0.016855741200602847,
+        "n_pixels": 100663296,
+        "reference_protocol": "legacy-direct-reference"
+      },
+      "experimental": {
+        "fixture": "test_0000",
+        "case": "nr_color_min",
+        "profile": "detail-fullres",
+        "resolution": "full",
+        "status": "passed",
+        "breaches": [],
+        "mean": 5.849396481977405,
+        "p95": 9.548811190416904,
+        "max": 58.78773458651567,
+        "bR": 0.014305011444231991,
+        "bG": 0.013843425355827277,
+        "bB": 0.017057980627202717,
+        "n_pixels": 100663296,
+        "reference_protocol": "legacy-direct-reference"
+      }
+    },
+    {
+      "fixture": "test_0000",
+      "case": "nr_color_max",
+      "profile": "detail-fullres",
+      "original": {
+        "fixture": "test_0000",
+        "case": "nr_color_max",
+        "profile": "detail-fullres",
+        "resolution": "full",
+        "status": "breach",
+        "breaches": [
+          "max 46.95>42.90"
+        ],
+        "mean": 6.112860443888361,
+        "p95": 9.992622754572482,
+        "max": 46.94677480444817,
+        "bR": 0.012422089264482286,
+        "bG": 0.014528409574744772,
+        "bB": 0.016648996277496515,
+        "n_pixels": 100663296,
+        "reference_protocol": "legacy-direct-reference"
+      },
+      "experimental": {
+        "fixture": "test_0000",
+        "case": "nr_color_max",
+        "profile": "detail-fullres",
+        "resolution": "full",
+        "status": "passed",
+        "breaches": [],
+        "mean": 6.051387293148646,
+        "p95": 9.84323245208106,
+        "max": 40.1448888887709,
+        "bR": 0.013038115128075919,
+        "bG": 0.014319374064079682,
+        "bB": 0.016779074884918217,
+        "n_pixels": 100663296,
+        "reference_protocol": "legacy-direct-reference"
+      }
+    },
+    {
+      "fixture": "test_0000",
+      "case": "nr_luminance_max",
+      "profile": "detail-fullres",
+      "original": {
+        "fixture": "test_0000",
+        "case": "nr_luminance_max",
+        "profile": "detail-fullres",
+        "resolution": "full",
+        "status": "breach",
+        "breaches": [
+          "max 53.99>50.90"
+        ],
+        "mean": 5.826444600078439,
+        "p95": 9.778212144081582,
+        "max": 53.99387847200087,
+        "bR": 0.013180784242298035,
+        "bG": 0.015184660303460587,
+        "bB": 0.01736540732911825,
+        "n_pixels": 100663296,
+        "reference_protocol": "legacy-direct-reference"
+      },
+      "experimental": {
+        "fixture": "test_0000",
+        "case": "nr_luminance_max",
+        "profile": "detail-fullres",
+        "resolution": "full",
+        "status": "breach",
+        "breaches": [
+          "max 52.58>50.90"
+        ],
+        "mean": 5.76053400866795,
+        "p95": 9.654142021258753,
+        "max": 52.58365422403805,
+        "bR": 0.013716771974330993,
+        "bG": 0.014945272705827461,
+        "bB": 0.017438692643156523,
+        "n_pixels": 100663296,
+        "reference_protocol": "legacy-direct-reference"
+      }
+    },
+    {
+      "fixture": "test_0000",
+      "case": "sharpen_amount_max",
+      "profile": "detail-fullres",
+      "original": {
+        "fixture": "test_0000",
+        "case": "sharpen_amount_max",
+        "profile": "detail-fullres",
+        "resolution": "full",
+        "status": "passed",
+        "breaches": [],
+        "mean": 6.006903379418105,
+        "p95": 11.37858340267677,
+        "max": 57.89196465537094,
+        "bR": 0.009710687464464166,
+        "bG": 0.011461442501605523,
+        "bB": 0.013618389061358668,
+        "n_pixels": 100663296,
+        "reference_protocol": "legacy-direct-reference"
+      },
+      "experimental": {
+        "fixture": "test_0000",
+        "case": "sharpen_amount_max",
+        "profile": "detail-fullres",
+        "resolution": "full",
+        "status": "passed",
+        "breaches": [],
+        "mean": 5.979625868423782,
+        "p95": 11.508896048405482,
+        "max": 56.93127803861574,
+        "bR": 0.010218965349174708,
+        "bG": 0.011418498571852898,
+        "bB": 0.01380757459481396,
+        "n_pixels": 100663296,
+        "reference_protocol": "legacy-direct-reference"
+      }
+    },
+    {
+      "fixture": "test_0000",
+      "case": "sharpen_amount_min",
+      "profile": "detail-fullres",
+      "original": {
+        "fixture": "test_0000",
+        "case": "sharpen_amount_min",
+        "profile": "detail-fullres",
+        "resolution": "full",
+        "status": "passed",
+        "breaches": [],
+        "mean": 5.733462051388025,
+        "p95": 9.423370097008998,
+        "max": 54.5613383744604,
+        "bR": 0.013086726763505798,
+        "bG": 0.015121233631474884,
+        "bB": 0.017261180384438246,
+        "n_pixels": 100663296,
+        "reference_protocol": "legacy-direct-reference"
+      },
+      "experimental": {
+        "fixture": "test_0000",
+        "case": "sharpen_amount_min",
+        "profile": "detail-fullres",
+        "resolution": "full",
+        "status": "breach",
+        "breaches": [
+          "max 59.49>58.20"
+        ],
+        "mean": 5.66649024012072,
+        "p95": 9.230284657290303,
+        "max": 59.49401187281485,
+        "bR": 0.013719485210095536,
+        "bG": 0.014885218410380338,
+        "bB": 0.01736758383174954,
+        "n_pixels": 100663296,
+        "reference_protocol": "legacy-direct-reference"
+      }
+    },
+    {
+      "fixture": "test_0000",
+      "case": "sharpen_detail_max",
+      "profile": "detail-fullres",
+      "original": {
+        "fixture": "test_0000",
+        "case": "sharpen_detail_max",
+        "profile": "detail-fullres",
+        "resolution": "full",
+        "status": "breach",
+        "breaches": [
+          "max 54.71>52.20"
+        ],
+        "mean": 5.812432970962043,
+        "p95": 9.630290182976983,
+        "max": 54.7104310947567,
+        "bR": 0.012615197015537141,
+        "bG": 0.014608292045766266,
+        "bB": 0.01677593663623317,
+        "n_pixels": 100663296,
+        "reference_protocol": "legacy-direct-reference"
+      },
+      "experimental": {
+        "fixture": "test_0000",
+        "case": "sharpen_detail_max",
+        "profile": "detail-fullres",
+        "resolution": "full",
+        "status": "breach",
+        "breaches": [
+          "max 53.18>52.20"
+        ],
+        "mean": 5.754142449785037,
+        "p95": 9.571284969739407,
+        "max": 53.17739349550643,
+        "bR": 0.013208403455457337,
+        "bG": 0.014414951608850294,
+        "bB": 0.01689639610593202,
+        "n_pixels": 100663296,
+        "reference_protocol": "legacy-direct-reference"
+      }
+    },
+    {
+      "fixture": "test_0000",
+      "case": "sharpen_detail_min",
+      "profile": "detail-fullres",
+      "original": {
+        "fixture": "test_0000",
+        "case": "sharpen_detail_min",
+        "profile": "detail-fullres",
+        "resolution": "full",
+        "status": "breach",
+        "breaches": [
+          "max 54.13>52.30"
+        ],
+        "mean": 5.752187585287291,
+        "p95": 9.472635831027327,
+        "max": 54.1323794913219,
+        "bR": 0.012579152799167442,
+        "bG": 0.014560416189928094,
+        "bB": 0.016712047880764896,
+        "n_pixels": 100663296,
+        "reference_protocol": "legacy-direct-reference"
+      },
+      "experimental": {
+        "fixture": "test_0000",
+        "case": "sharpen_detail_min",
+        "profile": "detail-fullres",
+        "resolution": "full",
+        "status": "breach",
+        "breaches": [
+          "max 53.59>52.30"
+        ],
+        "mean": 5.687131533263517,
+        "p95": 9.27726964620487,
+        "max": 53.58949374024984,
+        "bR": 0.013172359239083173,
+        "bG": 0.014367075753012049,
+        "bB": 0.016832507350468873,
+        "n_pixels": 100663296,
+        "reference_protocol": "legacy-direct-reference"
+      }
+    },
+    {
+      "fixture": "test_0000",
+      "case": "sharpen_masking_max",
+      "profile": "detail-fullres",
+      "original": {
+        "fixture": "test_0000",
+        "case": "sharpen_masking_max",
+        "profile": "detail-fullres",
+        "resolution": "full",
+        "status": "breach",
+        "breaches": [
+          "max 54.39>52.50"
+        ],
+        "mean": 5.754946272418948,
+        "p95": 9.478623564003723,
+        "max": 54.393688312132205,
+        "bR": 0.012965318235427825,
+        "bG": 0.014985873833882649,
+        "bB": 0.01713276854242522,
+        "n_pixels": 100663296,
+        "reference_protocol": "legacy-direct-reference"
+      },
+      "experimental": {
+        "fixture": "test_0000",
+        "case": "sharpen_masking_max",
+        "profile": "detail-fullres",
+        "resolution": "full",
+        "status": "breach",
+        "breaches": [
+          "max 53.83>52.50"
+        ],
+        "mean": 5.689330004674441,
+        "p95": 9.294840084869358,
+        "max": 53.82839269891996,
+        "bR": 0.013586301882210794,
+        "bG": 0.014763059873319754,
+        "bB": 0.017243464849199808,
+        "n_pixels": 100663296,
+        "reference_protocol": "legacy-direct-reference"
+      }
+    },
+    {
+      "fixture": "test_0000",
+      "case": "sharpen_radius_max",
+      "profile": "detail-fullres",
+      "original": {
+        "fixture": "test_0000",
+        "case": "sharpen_radius_max",
+        "profile": "detail-fullres",
+        "resolution": "full",
+        "status": "breach",
+        "breaches": [
+          "max 54.84>53.40"
+        ],
+        "mean": 5.634783105916952,
+        "p95": 9.326371087841988,
+        "max": 54.835411822869446,
+        "bR": 0.009827936015202677,
+        "bG": 0.011799412274313007,
+        "bB": 0.013835506013816196,
+        "n_pixels": 100663296,
+        "reference_protocol": "legacy-direct-reference"
+      },
+      "experimental": {
+        "fixture": "test_0000",
+        "case": "sharpen_radius_max",
+        "profile": "detail-fullres",
+        "resolution": "full",
+        "status": "passed",
+        "breaches": [],
+        "mean": 5.565394425156042,
+        "p95": 9.1434762310265,
+        "max": 53.339947317499025,
+        "bR": 0.010373688859536717,
+        "bG": 0.011599892119866359,
+        "bB": 0.013933642763987683,
+        "n_pixels": 100663296,
+        "reference_protocol": "legacy-direct-reference"
+      }
+    },
+    {
+      "fixture": "test_0007",
+      "case": "baseline",
+      "profile": "neutral",
+      "original": {
+        "fixture": "test_0007",
+        "case": "baseline",
+        "profile": "neutral",
+        "resolution": "down",
+        "status": "passed",
+        "breaches": [],
+        "mean": 4.84048907410006,
+        "p95": 8.082569243959018,
+        "max": 40.632324104187774,
+        "bR": 0.011257329547831854,
+        "bG": 0.015896585316142027,
+        "bB": 0.024343029480382673,
+        "n_pixels": 10668000,
+        "reference_protocol": "baseline-native-pair-lanczos"
+      },
+      "experimental": {
+        "fixture": "test_0007",
+        "case": "baseline",
+        "profile": "neutral",
+        "resolution": "down",
+        "status": "passed",
+        "breaches": [],
+        "mean": 4.835085687190897,
+        "p95": 8.0627968759827,
+        "max": 41.00124933312396,
+        "bR": 0.011136853424170442,
+        "bG": 0.015782736311957205,
+        "bB": 0.024649469487676927,
+        "n_pixels": 10668000,
+        "reference_protocol": "baseline-native-pair-lanczos"
+      }
+    },
+    {
+      "fixture": "test_0009",
+      "case": "baseline",
+      "profile": "neutral",
+      "original": {
+        "fixture": "test_0009",
+        "case": "baseline",
+        "profile": "neutral",
+        "resolution": "down",
+        "status": "passed",
+        "breaches": [],
+        "mean": 7.831668451615404,
+        "p95": 15.323978248059882,
+        "max": 23.588459470855184,
+        "bR": 0.08594709357331233,
+        "bG": 0.06842197941888581,
+        "bB": 0.05654296366268544,
+        "n_pixels": 10668000,
+        "reference_protocol": "baseline-native-pair-lanczos"
+      },
+      "experimental": {
+        "fixture": "test_0009",
+        "case": "baseline",
+        "profile": "neutral",
+        "resolution": "down",
+        "status": "passed",
+        "breaches": [],
+        "mean": 7.836123388526619,
+        "p95": 15.331402016749768,
+        "max": 24.409634890398426,
+        "bR": 0.08594735861278845,
+        "bG": 0.06844652965706982,
+        "bB": 0.0565438907508619,
+        "n_pixels": 10668000,
+        "reference_protocol": "baseline-native-pair-lanczos"
+      }
+    },
+    {
+      "fixture": "test_0007",
+      "case": "baseline_auto",
+      "profile": "auto",
+      "original": {
+        "fixture": "test_0007",
+        "case": "baseline_auto",
+        "profile": "auto",
+        "resolution": "down",
+        "status": "passed",
+        "breaches": [],
+        "mean": 1.6056191278546217,
+        "p95": 3.4048231380677416,
+        "max": 38.39966745563883,
+        "bR": -0.01054563118826792,
+        "bG": -0.008975236960984656,
+        "bB": -0.005052475026768434,
+        "n_pixels": 10668000,
+        "reference_protocol": "baseline-native-pair-lanczos"
+      },
+      "experimental": {
+        "fixture": "test_0007",
+        "case": "baseline_auto",
+        "profile": "auto",
+        "resolution": "down",
+        "status": "breach",
+        "breaches": [
+          "max 39.33>39.00"
+        ],
+        "mean": 1.6048037021863797,
+        "p95": 3.4237735403655094,
+        "max": 39.33273813503363,
+        "bR": -0.01036470563689958,
+        "bG": -0.009228294339279526,
+        "bB": -0.004951818868536208,
+        "n_pixels": 10668000,
+        "reference_protocol": "baseline-native-pair-lanczos"
+      }
+    },
+    {
+      "fixture": "test_0009",
+      "case": "baseline_auto",
+      "profile": "auto",
+      "original": {
+        "fixture": "test_0009",
+        "case": "baseline_auto",
+        "profile": "auto",
+        "resolution": "down",
+        "status": "passed",
+        "breaches": [],
+        "mean": 6.959948152714242,
+        "p95": 15.589959169626804,
+        "max": 24.584270804801047,
+        "bR": 0.07253318048963132,
+        "bG": 0.07793374807274396,
+        "bB": 0.08471083078812039,
+        "n_pixels": 10668000,
+        "reference_protocol": "baseline-native-pair-lanczos"
+      },
+      "experimental": {
+        "fixture": "test_0009",
+        "case": "baseline_auto",
+        "profile": "auto",
+        "resolution": "down",
+        "status": "passed",
+        "breaches": [],
+        "mean": 6.947348055878549,
+        "p95": 15.621526386292144,
+        "max": 24.29311160743322,
+        "bR": 0.0721708452579381,
+        "bG": 0.07781536139619477,
+        "bB": 0.08536638225166858,
+        "n_pixels": 10668000,
+        "reference_protocol": "baseline-native-pair-lanczos"
+      }
+    },
+    {
+      "fixture": "test_0000",
+      "case": "sharpen_radius_min",
+      "profile": "detail-fullres",
+      "original": {
+        "fixture": "test_0000",
+        "case": "sharpen_radius_min",
+        "profile": "detail-fullres",
+        "resolution": "full",
+        "status": "passed",
+        "breaches": [],
+        "mean": 5.768570789470824,
+        "p95": 9.450471159893903,
+        "max": 54.12585026196555,
+        "bR": 0.013010072647368425,
+        "bG": 0.015034587512984476,
+        "bB": 0.017191870112185648,
+        "n_pixels": 100663296,
+        "reference_protocol": "legacy-direct-reference"
+      },
+      "experimental": {
+        "fixture": "test_0000",
+        "case": "sharpen_radius_min",
+        "profile": "detail-fullres",
+        "resolution": "full",
+        "status": "passed",
+        "breaches": [],
+        "mean": 5.7050640092292015,
+        "p95": 9.306784607440115,
+        "max": 53.552919737410825,
+        "bR": 0.013629706189974675,
+        "bG": 0.014812961009378086,
+        "bB": 0.01730299498763682,
+        "n_pixels": 100663296,
+        "reference_protocol": "legacy-direct-reference"
+      }
+    }
+  ]
+}

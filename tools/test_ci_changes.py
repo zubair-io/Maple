@@ -18,11 +18,11 @@ SCRIPT = Path(ci.__file__).resolve()
 class ClassificationTests(unittest.TestCase):
     def test_dependencies(self):
         cases = {
-            "src/raw-pipeline/raw-core/src/lib.rs": ci.ALL,
-            "src/raw-pipeline/Cargo.lock": ci.ALL,
+            "src/raw-pipeline/raw-core/src/lib.rs": ci.BUILDS,
+            "src/raw-pipeline/Cargo.lock": ci.BUILDS,
             "src/api/src/routes/assets.ts": {"api", "maple", "web"},
-            "src/maple/package.json": {"api", "maple", "web"},
-            "src/web/package.json": {"api", "web"},
+            "src/maple/package.json": {"android", "api", "maple", "web", "swift"},
+            "src/web/package.json": {"api", "web", "swift"},
             "src/web/projects/maple/src/main.ts": {"api", "web"},
             "src/windows/Maple.WinUI/App.xaml.cs": {"windows"},
             "src/windows/Maple.WinUI/Themes/Tokens.xaml": {"windows", "codegen"},
@@ -40,29 +40,47 @@ class ClassificationTests(unittest.TestCase):
                 "maple",
                 "web",
                 "codegen",
+                "swift",
             },
-            "src/apple/Maple/App.swift": {"codegen"},
-            "src/apple/Packages/MapleCore/Package.swift": {"codegen"},
+            "src/android/native/src/canvas_zoom_abi.rs": {"android", "codegen"},
+            "src/android/app/src/main/cpp/generated/canvas_zoom_abi.h": {
+                "android",
+                "codegen",
+            },
+            "src/apple/Maple/App.swift": {"codegen", "swift"},
+            "src/apple/Packages/MapleCore/Package.swift": {"codegen", "swift"},
             "docs/features.md": set(),
             "docs/design/maple-ui/components/slider.md": {"web"},
             "README.md": set(),
             "AGENTS.md": set(),
             "CLAUDE.md": set(),
             "LICENSE": set(),
-            "tools/release_handoff.py": set(),
-            "tools/test_release_control.py": set(),
-            "tools/sync-release-version.sh": ci.ALL,
+            "tools/release_handoff.py": {"release"},
+            "tools/test_release_control.py": {"release"},
+            "tools/sync-release-version.sh": {"release"},
             "tools/codegen.sh": ci.ALL,
             "tools/codegen/helper.py": ci.ALL,
             "tools/ci_changes.py": ci.ALL,
-            "tools/qualification/record.sh": ci.ALL,
-            "test-fixtures/qualification/record.json": ci.ALL,
+            "tools/qualification/record.sh": ci.BUILDS,
+            "test-fixtures/qualification/record.json": ci.BUILDS,
+            "test-fixtures/qualification/sidecar_contract_api.json": {
+                "api",
+                "codegen",
+            },
+            "test-fixtures/qualification/sidecar_contract_apple.json": {
+                "swift",
+                "codegen",
+            },
             "src/scripts/derive_agx_lut.py": ci.ALL,
             "src/apple/scripts/build-xcframework.sh": ci.ALL,
             "src/apple/ci_scripts/ci_post_clone.sh": ci.ALL,
             "src/windows/scripts/build-windows.sh": ci.ALL,
             "src/api/scripts/build-raw-ffi.sh": ci.ALL,
             ".github/workflows/web.yml": ci.ALL,
+            ".github/workflows/version-sync.yml": {"release"},
+            ".github/workflows/release-handoff.yml": {"release"},
+            "tools/generate_nlm_exp_table.py": {"codegen"},
+            "tools/test_nlm_exp_table.py": {"codegen"},
             ".github/actions/setup/action.yml": ci.ALL,
             "some/new/domain.txt": ci.ALL,
             "README.md/unexpected": ci.ALL,
@@ -73,6 +91,22 @@ class ClassificationTests(unittest.TestCase):
         for path, expected in cases.items():
             with self.subTest(path=path):
                 self.assertEqual(set(ci.dependencies(path)), set(expected))
+
+    def test_regression_suites_skip_unrelated_application_changes(self):
+        for path in (
+            "src/api/src/routes/assets.ts",
+            "src/apple/Maple/App.swift",
+            "src/raw-pipeline/raw-core/src/lib.rs",
+            "docs/testing.md",
+        ):
+            with self.subTest(path=path):
+                outputs, _ = ci.classify_paths([path])
+                self.assertFalse(outputs["release"])
+                self.assertFalse(outputs["ci"])
+        for path in ("tools/ci_changes.py", ".github/workflows/cross.yml"):
+            outputs, _ = ci.classify_paths([path])
+            self.assertTrue(outputs["ci"])
+            self.assertTrue(outputs["release"])
 
     def test_union_and_empty(self):
         result, _ = ci.classify_paths(["docs/testing.md", "src/web/a", "src/windows/b"])
@@ -85,18 +119,29 @@ class ClassificationTests(unittest.TestCase):
         apple = "src/apple/"
         assets = apple + "Maple/Assets.xcassets/"
         cases = {
+            "src/android/app/src/main/java/app/justmaple/aperture/ui/Presets.kt": {
+                "api",
+                "android",
+            },
             apple
             + "Packages/MapleCore/Sources/MapleCore/Resources/builtin-presets.json": {
                 "api",
+                "android",
                 "web",
                 "maple",
                 "codegen",
+                "swift",
             },
-            apple + "MapleUITests/Goldens/.calibration/a.png": ci.ALL,
-            apple + "MapleUITests/Goldens/.calibration/expected.json": ci.ALL,
-            apple + "MapleUITests/Goldens/other.png": {"codegen"},
-            assets + "LaunchLogo.imageset/launchlogo_2x.png": {"web", "codegen"},
-            assets + "Other.imageset/maple512.png": {"codegen"},
+            apple + "MapleUITests/Goldens/.calibration/a.png": ci.BUILDS,
+            apple + "MapleUITests/Goldens/.calibration/expected.json": ci.BUILDS,
+            apple + "MapleUITests/Goldens/other.png": {"codegen", "swift"},
+            assets + "LaunchLogo.imageset/launchlogo_2x.png": {
+                "android",
+                "web",
+                "codegen",
+                "swift",
+            },
+            assets + "Other.imageset/maple512.png": {"codegen", "swift"},
             "docs/design/maple-ui/components/nested/README.md": {"web"},
             "docs/design/maple-ui/components-other/slider.md": set(),
             "src/api/src/routes/xmp.sidecar-contract.test.ts": {
@@ -108,7 +153,12 @@ class ClassificationTests(unittest.TestCase):
         }
         cases.update(
             {
-                assets + f"AppIcon.appiconset/maple{size}.png": {"web", "codegen"}
+                assets + f"AppIcon.appiconset/maple{size}.png": {
+                    "android",
+                    "web",
+                    "codegen",
+                    "swift",
+                }
                 for size in (16, 32, 64, 128, 256, 512, 1024)
             }
         )
@@ -122,7 +172,7 @@ class ClassificationTests(unittest.TestCase):
                 self.assertFalse(ci.dependencies(path))
                 self.assertEqual(ci.dependencies("src/web/" + path), {"api", "web"})
                 self.assertEqual(
-                    ci.dependencies("src/raw-pipeline/vendor/pkg/" + path), ci.ALL
+                    ci.dependencies("src/raw-pipeline/vendor/pkg/" + path), ci.BUILDS
                 )
                 self.assertEqual(ci.dependencies("unknown/" + path), ci.ALL)
 
@@ -135,14 +185,17 @@ class ClassificationTests(unittest.TestCase):
             for imported in imports:
                 path = (source.parent / imported).resolve().relative_to(root).as_posix()
                 with self.subTest(consumer=consumer, path=path):
-                    self.assertEqual(ci.dependencies(path), {"api", "web"})
+                    expected = {"api", "web"} | (
+                        {"swift"} if path in ci.swift_api_closure()[0] else set()
+                    )
+                    self.assertEqual(ci.dependencies(path), expected)
 
     def test_codegen_evidence_corpora_remain_covered(self):
         registry = (
             SCRIPT.parent.parent
-            / "src/raw-pipeline/raw-core/src/capability_registry/mod.rs"
+            / "src/raw-pipeline/raw-core/src/capability_registry/corpora.rs"
         )
-        source = registry.read_text().split("fn corpus(", 1)[1]
+        source = registry.read_text().split("fn corpus_paths(", 1)[1]
         paths = set(re.findall(r'"((?:src|test-fixtures)/[^"\n]+)"', source))
         self.assertIn("src/api/src/routes/xmp.sidecar-contract.test.ts", paths)
         for path in paths:
@@ -227,6 +280,9 @@ class GitTests(unittest.TestCase):
         self.git("config", "user.email", "selector@example.invalid")
         self.git("config", "commit.gpgsign", "false")
         self.git("config", "core.hooksPath", str(self.repo / "no-hooks"))
+        # A detached post-commit gc/maintenance process can still be writing under .git during cleanup (#4536).
+        self.git("config", "gc.auto", "0")
+        self.git("config", "maintenance.auto", "false")
         self.base = self.commit("README.md")
 
     def git(self, *args):
@@ -264,6 +320,42 @@ class GitTests(unittest.TestCase):
         self.commit("src/windows/app.cs")
         head = self.commit("src/web/app.ts")
         self.assert_selected(self.push(self.base, head), {"api", "windows", "web"})
+
+    def test_merge_group_cumulative_range_and_invalid_refs(self):
+        self.git("checkout", "-q", "-b", "first-pr")
+        first = self.commit("src/windows/first.cs")
+        self.git("checkout", "-q", "--detach", self.base)
+        self.git("checkout", "-q", "-b", "second-pr")
+        self.commit("src/web/second.ts")
+        self.git("checkout", "-q", "--detach", self.base)
+        self.git("merge", "-q", "--no-ff", "first-pr", "-m", "merge first PR")
+        prior_group_head = self.git("rev-parse", "HEAD")
+        self.git("merge", "-q", "--no-ff", "second-pr", "-m", "merge second PR")
+        group_head = self.git("rev-parse", "HEAD")
+        event = {"merge_group": {"base_sha": self.base, "head_sha": group_head}}
+        selected = ci.select("merge_group", event, self.repo)
+        self.assert_selected(selected, ci.ALL)
+        # A later queue event can name the earlier synthetic head as base_sha.
+        later = {"merge_group": {"base_sha": prior_group_head, "head_sha": group_head}}
+        self.assert_selected(ci.select("merge_group", later, self.repo), ci.ALL)
+        self.assert_selected(
+            ci.select("merge_group", {"merge_group": {"base_sha": first}}, self.repo),
+            ci.ALL,
+        )
+        for invalid in ("", "0" * 40, "--help", "a" * 39, first + "\n"):
+            with self.subTest(invalid=invalid):
+                event = {"merge_group": {"base_sha": invalid, "head_sha": group_head}}
+                self.assert_selected(ci.select("merge_group", event, self.repo), ci.ALL)
+        self.git("checkout", "-q", "--detach", self.base)
+        unrelated = self.commit("docs/unrelated.md")
+        self.assert_selected(
+            ci.select(
+                "merge_group",
+                {"merge_group": {"base_sha": unrelated, "head_sha": group_head}},
+                self.repo,
+            ),
+            ci.ALL,
+        )
 
     def test_deletion_and_cross_domain_rename(self):
         before = self.commit("src/api/source.ts")

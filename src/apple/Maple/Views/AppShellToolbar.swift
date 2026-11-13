@@ -112,9 +112,7 @@ struct AppShellToolbar: ToolbarContent {
         .accessibilityLabel(
           isSelecting
             ? "Exit selection mode"
-            : (FeatureFlags.isPanoramaEnabled
-              ? "Enter multi-select mode to choose images for panorama merge"
-              : "Enter multi-select mode")
+            : "Enter multi-select mode to choose images for panorama merge"
         )
         .accessibilityIdentifier("multi-select-toggle")
       }

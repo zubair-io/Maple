@@ -1,30 +1,32 @@
 /**
- * In-process stage runner: boot, poll loop, and the control surface the
- * Workers page drives.
+ * In-process stage runner: boot, the slice Temporal schedules, and the control
+ * surface the Workers page drives.
  *
- * Replaces the deleted multi-process supervisor (`supervisor.ts`,
- * `runtime/main.ts`, `runtime/run-stage.ts`, `runtime/define-stage.ts`) — see
- * issue #135. Each stage file (`stages/<name>.ts`) exports a thin
- * `start<Name>Stage()` that calls `runStage(config)`; this module owns the
- * loop, the version-bump reset, the throughput counter and the
- * pause-via-config path, while one tick's claim / dispatch / writeback lives
- * in `./run-stage.dispatch.ts`.
+ * Each stage file (`stages/<name>.ts`) exports a thin `start<Name>Stage()` that
+ * calls `runStage(config)`. This module owns the version-bump reset, the
+ * throughput counter, the stall watch and the pause-via-config path; one
+ * batch's claim / dispatch / writeback lives in `./run-stage.dispatch.ts`.
  *
- * No child processes, no IPC. Pause/resume is "write `paused: true` to the
- * `worker_config` row; the running loop notices on its next tick", which after
- * the SQLite cutover (#3787) is a keyed read of one row rather than a document
- * fetch — the cross-process contract is unchanged.
+ * The runner owns no timer. The stage lane (`./stage-lane.ts`) asks each
+ * booted stage, about once a second, whether it has work: if it does, a
+ * `stage-<name>` workflow runs {@link RunStageHandle.runSlice} until the stage
+ * drains; if it does not, the lane calls {@link RunStageHandle.idle} instead.
  *
- * Status / control is published into the in-process `stageRegistry`
- * (`./registry.ts`) so `routes.ts` and `events.ts` can read live state.
+ * Pause/resume is "write `paused: true` to the `worker_config` row"; the runner
+ * re-reads that row at most every two seconds, from a slice or an idle call.
+ * Status is published into the in-process `stageRegistry` (`./registry.ts`).
  */
 
+import { setTimeout as sleep } from 'node:timers/promises';
 import { child as childLogger } from '../log.ts';
 import { ThroughputWindow } from './throughput-window.ts';
+import { DEFAULT_STALL_AFTER_MINUTES, StallWatch } from './stall-watch.ts';
 import { stageRegistry } from './registry.ts';
-import { POLL_INTERVAL_MS, nextPollDelay } from './loop-policy.ts';
 import { WorkerConfigRepo } from '../db/repos/worker-config.repo.ts';
+import { stageHasWork } from '../db/repos/stage-claim.ts';
 import { runOnce } from './run-stage.dispatch.ts';
+import { deriveBatchSize } from './loop-policy.ts';
+import type { StageSlice } from './stage-workflow.ts';
 import {
   bootConfig,
   defineStage,
@@ -36,7 +38,6 @@ import type {
   ImageDoc,
   StageConfig,
   StageContext,
-  StageDep,
   StageResult,
   StageState,
   WorkerConfig,
@@ -48,62 +49,79 @@ export type {
   ImageDoc,
   StageConfig,
   StageContext,
-  StageDep,
   StageResult,
+  StageSlice,
   StageState,
   WorkerConfig,
 };
 
 export { deriveBatchSize } from './loop-policy.ts';
 
-// ---------------------------------------------------------------------------
-// ThroughputWindow — rolling completion counter for the status API.
-// Lives in ./throughput-window.ts; re-exported so the existing import surface
-// (`import { ThroughputWindow } from './run-stage.ts'`) is unchanged.
-// ---------------------------------------------------------------------------
-
-export { ThroughputWindow };
-
-// ---------------------------------------------------------------------------
-// Test-only export — internal helpers used by run-stage.test.ts.
-// ---------------------------------------------------------------------------
-
-export const _test = { bootConfig, versionBumpReset, runOnce, nextPollDelay };
-
-// ---------------------------------------------------------------------------
-// runStage — the in-process entry point. One call per stage on boot.
-// ---------------------------------------------------------------------------
+export const _test = { bootConfig, versionBumpReset, runOnce };
 
 export interface RunStageHandle {
-  /** Cancel the poll loop and wait for in-flight assets to drain. */
+  readonly name: string;
+  /** From the last config read, which is at most a couple of seconds old while the lane is calling. */
+  readonly paused: boolean;
+  /** A slice is running. */
+  readonly busy: boolean;
+  /**
+   * About ten seconds of claiming: a full batch claims again
+   * at once, anything less waits a second first, and a pause ends the slice.
+   * A second call while one runs gets the running one, and once the runner has
+   * stopped it settles with an error even if a stuck handler still holds its
+   * batch.
+   */
+  runSlice: () => Promise<StageSlice>;
+  /**
+   * Whether a claim would find anything, without claiming it. A failed peek
+   * is recorded against the stage on `stageRegistry` and reads as no work.
+   */
+  hasWork: () => Promise<boolean>;
+  /** What a claim that found nothing would have done: the stall watch, the config read, the idle hook. */
+  idle: () => Promise<void>;
+  /** Stops new slices and waits a bounded time for in-flight assets to drain. */
   stop: () => Promise<void>;
 }
 
-/**
- * Minimum gap between `worker_config` reads in the poll loop.
- *
- * Keeps a drained backlog (`nextPollDelay` → 0) from re-reading the row on
- * every tick. Pause latency stays ≤ ~2 s.
- */
+/** Keeps a draining backlog from re-reading the row on every batch; pause latency stays ≤ ~2 s plus one batch. */
 const CONFIG_RELOAD_INTERVAL_MS = 2000;
 
+/** A slice gives way after this long so the workflow's history records progress; a batch is never cut short. */
+const SLICE_MS = 10_000;
+
+/** How long a slice waits after a batch that was not full, so new work is picked up within about a second. */
+const IDLE_WAIT_MS = 1000;
+
+/** A handler that ignores its abort signal cannot hold up shutdown for longer than this. */
+const DRAIN_MS = 30_000;
+
+export class StageStoppedError extends Error {
+  override name = 'StageStoppedError';
+  constructor(stage: string) {
+    super(`The ${stage} stage is shutting down`);
+  }
+}
+
+/** Only tests shorten these. */
+export interface RunStageOptions {
+  sliceMs?: number;
+  drainMs?: number;
+}
+
 /**
- * Boot and run a stage in the current process. Returns a handle whose `stop()`
- * cancels the loop and waits for in-flight work to drain.
- *
- * Behaviour preserved from the old supervisor + runtime:
- *   - bootConfig (seed-or-load with self-heal for partial PATCH rows)
- *   - version-bump re-queue of everything below the new target
- *   - poll loop with a per-tick claim + bounded worker pool
- *   - retry / dead-letter bookkeeping inside the tick
- *   - throughput window + in-flight set published to stageRegistry
- *   - pause: written to `worker_config`; re-read every tick
- *   - transient poll errors retried with exponential backoff (saturates at 30s)
+ * Boot a stage in the current process: seed or load its config, re-queue
+ * everything below a new target version, and publish it to `stageRegistry`.
+ * Nothing runs until the lane calls the returned handle.
  */
-export async function runStage<TPatch>(stage: StageConfig<TPatch>): Promise<RunStageHandle> {
+export async function runStage<TPatch>(
+  stage: StageConfig<TPatch>,
+  options: RunStageOptions = {},
+): Promise<RunStageHandle> {
   const log = childLogger(`workers:${stage.name}`);
   const repo = new WorkerConfigRepo();
   const generic = stage as unknown as StageConfig;
+  const deps = resolveStageDeps(stage.dependsOn);
 
   let config = await bootConfig(generic);
   log.info({ config }, `${stage.name} stage booted`);
@@ -119,17 +137,19 @@ export async function runStage<TPatch>(stage: StageConfig<TPatch>): Promise<RunS
   }
 
   const throughput = new ThroughputWindow();
+  const stallWatch = new StallWatch(
+    () => (config.stallAfterMinutes ?? DEFAULT_STALL_AFTER_MINUTES) * 60_000,
+  );
   const inFlightSet = new Set<string>();
   const abortController = new AbortController();
 
-  // Publish ourselves to the in-process registry so routes/events can read live
-  // state and route pause/resume / config-changed signals back to us.
   stageRegistry.register(stage.name, {
     targetVersion: stage.targetVersion,
-    dependsOn: resolveStageDeps(stage.dependsOn),
+    dependsOn: deps,
     getInFlight: () => inFlightSet.size,
     getThroughput: () => throughput.countInWindow(),
     getPaused: () => config.paused,
+    getStalledForMs: () => stallWatch.stalledForMs(inFlightSet.size),
     reloadConfig: async () => {
       const updated = await repo.load(stage.name);
       if (updated) {
@@ -151,16 +171,14 @@ export async function runStage<TPatch>(stage: StageConfig<TPatch>): Promise<RunS
   });
 
   let shuttingDown = false;
-  let pollTimer: ReturnType<typeof setTimeout> | null = null;
-  let consecutiveErrors = 0;
-  /** Timestamp of the most recent successful config read (ms). */
   let lastConfigReadAt = 0;
+  let slice: Promise<StageSlice> | null = null;
+  let idling: Promise<void> | null = null;
+  let peekFailed = false;
+  const stopped = Promise.withResolvers<never>();
+  stopped.promise.catch(() => {});
 
-  /**
-   * Re-read the stage's config so a pause/resume written by the API process
-   * takes effect without an IPC round-trip. Throttled, and best-effort: a
-   * failing read keeps the previous config rather than crashing the loop.
-   */
+  /** Best-effort: a failing read keeps the previous config. */
   const reloadConfigIfDue = async (): Promise<void> => {
     if (Date.now() - lastConfigReadAt < CONFIG_RELOAD_INTERVAL_MS) return;
     try {
@@ -175,12 +193,7 @@ export async function runStage<TPatch>(stage: StageConfig<TPatch>): Promise<RunS
     }
   };
 
-  /**
-   * Fire the stage's optional progress hook. Skipped while paused — the tick
-   * returns 0 immediately under pause, and the hook would otherwise observe a
-   * false "idle" edge every tick. Best-effort: a rejecting hook is logged,
-   * never allowed to stall the loop.
-   */
+  /** Skipped while paused, which would otherwise read as an idle edge on every call. */
   const notifyProgress = async (processed: number): Promise<void> => {
     if (!stage.onProgress || config.paused) return;
     try {
@@ -191,72 +204,129 @@ export async function runStage<TPatch>(stage: StageConfig<TPatch>): Promise<RunS
     }
   };
 
-  const poll = async (): Promise<void> => {
-    if (shuttingDown) return;
-    await reloadConfigIfDue();
-    // The global idle cadence, unless a full batch (→ 0, drain the backlog) or
-    // an error (→ exponential backoff) overrides it. See `nextPollDelay`.
-    let delay = POLL_INTERVAL_MS;
+  const runBatch = async (): Promise<number> => {
+    stallWatch.polled();
     try {
       const processed = await runOnce(
         generic,
         config,
-        undefined,
+        deps,
         abortController.signal,
         inFlightSet,
         throughput,
+        undefined,
+        stallWatch,
       );
-      consecutiveErrors = 0;
-      delay = nextPollDelay({
-        claimed: processed,
-        concurrency: config.concurrency,
-        paused: config.paused,
-        consecutiveErrors: 0,
-      });
-      // Surface a clean recovery via /api/workers/status — without this the
-      // last poll-loop error would linger as `lastError` indefinitely.
       stageRegistry.clearError(stage.name);
+      peekFailed = false;
       await notifyProgress(processed);
+      return processed;
     } catch (err) {
-      consecutiveErrors++;
-      delay = nextPollDelay({
-        claimed: 0,
-        concurrency: config.concurrency,
-        paused: config.paused,
-        consecutiveErrors,
-      });
-      const msg = err instanceof Error ? err.message : String(err);
-      // Published into the registry so claim/database failures show up on the
-      // status route instead of being a log-only event with the stage still
-      // reported as healthy.
-      stageRegistry.recordError(stage.name, msg);
-      log.error({ err, retryInMs: delay }, `${stage.name} poll tick error`);
+      stageRegistry.recordError(stage.name, err instanceof Error ? err.message : String(err));
+      log.error({ err }, `${stage.name} batch error`);
+      throw err;
     }
-    if (!shuttingDown) pollTimer = setTimeout(poll, delay);
   };
 
-  // First tick fires immediately so a freshly-booted stage doesn't wait a full
-  // poll interval before doing any work.
-  pollTimer = setTimeout(poll, 0);
+  const waitBeforeClaiming = (deadline: number): Promise<void> =>
+    sleep(Math.max(0, Math.min(IDLE_WAIT_MS, deadline - Date.now())), undefined, {
+      signal: abortController.signal,
+    }).catch(() => {});
+
+  const batchesUntil = async (deadline: number, claimed: number): Promise<StageSlice> => {
+    await reloadConfigIfDue();
+    if (config.paused) return { claimed, drained: true };
+    const processed = await runBatch();
+    const total = claimed + processed;
+    if (processed < deriveBatchSize(config.concurrency)) await waitBeforeClaiming(deadline);
+    if (shuttingDown || Date.now() >= deadline) return { claimed: total, drained: total === 0 };
+    return batchesUntil(deadline, total);
+  };
+
+  const startSlice = async (): Promise<StageSlice> => {
+    await idling;
+    return batchesUntil(Date.now() + (options.sliceMs ?? SLICE_MS), 0);
+  };
+
+  const runSlice = (): Promise<StageSlice> => {
+    if (shuttingDown) return Promise.reject(new StageStoppedError(stage.name));
+    slice ??= startSlice().finally(() => {
+      slice = null;
+    });
+    return Promise.race([slice, stopped.promise]);
+  };
+
+  const idleOnce = async (): Promise<void> => {
+    stallWatch.polled();
+    await reloadConfigIfDue();
+    await notifyProgress(0);
+  };
+
+  const idle = (): Promise<void> => {
+    if (shuttingDown || slice !== null) return Promise.resolve();
+    idling ??= idleOnce().finally(() => {
+      idling = null;
+    });
+    return idling;
+  };
+
+  const hasWork = async (): Promise<boolean> => {
+    try {
+      const found = await stageHasWork({
+        stage: stage.name,
+        targetVersion: stage.targetVersion,
+        dependsOn: deps,
+        inFlight: inFlightSet,
+        residual: stage.claimResidual,
+      });
+      if (peekFailed) stageRegistry.clearError(stage.name);
+      peekFailed = false;
+      return found;
+    } catch (err) {
+      peekFailed = true;
+      stageRegistry.recordError(stage.name, err instanceof Error ? err.message : String(err));
+      log.error({ err }, `${stage.name} could not check for work`);
+      return false;
+    }
+  };
+
+  /** Bounded, so a handler that ignores its abort signal cannot hold shutdown, or Temporal's drain, open. */
+  const drainSlice = async (): Promise<void> => {
+    const settled = slice?.then(
+      () => {},
+      () => {},
+    );
+    if (settled === undefined) return;
+    const timeout = new AbortController();
+    await Promise.race([
+      settled,
+      sleep(options.drainMs ?? DRAIN_MS, undefined, { signal: timeout.signal }).catch(() => {}),
+    ]);
+    timeout.abort();
+  };
 
   const stop = async (): Promise<void> => {
     if (shuttingDown) return;
     shuttingDown = true;
     log.info(`${stage.name} shutting down — draining`);
     abortController.abort();
-    if (pollTimer) {
-      clearTimeout(pollTimer);
-      pollTimer = null;
-    }
-    // Wait for in-flight handlers to finish. Bounded to 30s so a stuck handler
-    // cannot block server shutdown indefinitely.
-    const deadline = Date.now() + 30_000;
-    while (inFlightSet.size > 0 && Date.now() < deadline) {
-      await new Promise((r) => setTimeout(r, 50));
-    }
+    await drainSlice();
+    stopped.reject(new StageStoppedError(stage.name));
     stageRegistry.unregister(stage.name);
     log.info(`${stage.name} shut down`);
   };
 
-  return { stop };
+  return {
+    name: stage.name,
+    get paused() {
+      return config.paused;
+    },
+    get busy() {
+      return slice !== null;
+    },
+    runSlice,
+    hasWork,
+    idle,
+    stop,
+  };
 }

@@ -98,10 +98,12 @@ pub unsafe extern "C" fn maple_removal_selector_open(
 /// owner is null or exclusively owned, with all operations/embeddings finished.
 #[no_mangle]
 pub unsafe extern "C" fn maple_removal_selector_close(owner: *mut MapleRemovalSelector) {
-    if !owner.is_null() {
-        let owner = Box::from_raw(owner);
-        drop(Box::from_raw(owner.inner.cast::<Mutex<SmartSelector>>()));
-    }
+    crate::error::catch_panic("maple_removal_selector_close", (), || {
+        if !owner.is_null() {
+            let owner = Box::from_raw(owner);
+            drop(Box::from_raw(owner.inner.cast::<Mutex<SmartSelector>>()));
+        }
+    })
 }
 
 /// Create one cancellable encode/refine operation after selector initialization.
@@ -191,10 +193,12 @@ pub unsafe extern "C" fn maple_removal_selector_encode(
 /// embedding is null or exclusively owned and no refinement is in flight.
 #[no_mangle]
 pub unsafe extern "C" fn maple_removal_embedding_free(embedding: *mut MapleRemovalEmbedding) {
-    if !embedding.is_null() {
-        let embedding = Box::from_raw(embedding);
-        drop(Box::from_raw(embedding.inner.cast::<Embedding>()));
-    }
+    crate::error::catch_panic("maple_removal_embedding_free", (), || {
+        if !embedding.is_null() {
+            let embedding = Box::from_raw(embedding);
+            drop(Box::from_raw(embedding.inner.cast::<Embedding>()));
+        }
+    })
 }
 
 /// Refine positive/negative prompts against the retained source embedding.
@@ -293,10 +297,12 @@ pub unsafe extern "C" fn maple_removal_detector_open(
 /// owner is null or exclusively owned, with all detection calls finished.
 #[no_mangle]
 pub unsafe extern "C" fn maple_removal_detector_close(owner: *mut MapleRemovalDetector) {
-    if !owner.is_null() {
-        let owner = Box::from_raw(owner);
-        drop(Box::from_raw(owner.inner.cast::<Mutex<PersonDetector>>()));
-    }
+    crate::error::catch_panic("maple_removal_detector_close", (), || {
+        if !owner.is_null() {
+            let owner = Box::from_raw(owner);
+            drop(Box::from_raw(owner.inner.cast::<Mutex<PersonDetector>>()));
+        }
+    })
 }
 
 /// # Safety

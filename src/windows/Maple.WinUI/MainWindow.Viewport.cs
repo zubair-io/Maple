@@ -1,14 +1,18 @@
 using System;
 using System.Runtime.InteropServices.WindowsRuntime;
+using Maple.WinUI.Services;
+using Microsoft.UI.Input;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Input;
+using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Imaging;
+using Windows.System;
 
 namespace Maple.WinUI
 {
     /// <summary>Viewport presentation: the GPU/CPU frame paths that feed the
-    /// SwapChainPanel/Image pair (#2587), panel sizing, and the fit/1:1/pan
-    /// zoom model (#2572) layered over the ScrollViewer.</summary>
+    /// SwapChainPanel/Image pair (#2587), panel sizing, and the input
+    /// plumbing of the shared zoom model (#5714).</summary>
     public sealed partial class MainWindow
     {
         private WriteableBitmap? _viewportBitmap;
@@ -52,7 +56,6 @@ namespace Maple.WinUI
                 return;
             ViewportSwapChainPanel.Width = dims.Width;
             ViewportSwapChainPanel.Height = dims.Height;
-            SizeZoomHost();
             UpdateCropDisplay();
             UpdateMaskDisplay();
             UpdateRepairCanvas();
@@ -60,9 +63,12 @@ namespace Maple.WinUI
 
         private void OnCanvasHostSizeChanged(object sender, SizeChangedEventArgs e)
         {
+            ViewerViewport.Clip = new RectangleGeometry
+            {
+                Rect = new Windows.Foundation.Rect(0, 0, ViewerViewport.ActualWidth, ViewerViewport.ActualHeight),
+            };
             UpdateViewerChromeSize();
             UpdatePanelFit();
-            SizeZoomHost();
             UpdateCropDisplay();
             UpdateMaskDisplay();
             UpdateRepairCanvas();
@@ -82,92 +88,201 @@ namespace Maple.WinUI
                 : double.PositiveInfinity;
         }
 
-        // --- Zoom / pan (#2572): factor 1 = fit; drag pans when zoomed ---
+        // --- Zoom / pan (#5714): the shared Rust zoom model drives one scale +
+        //     translate over the fit layout, so ZoomHost and everything in it
+        //     (crop, mask, repair, native detail) stay in fit coordinates. ---
 
-        private bool _panning;
-        private Windows.Foundation.Point _panStart;
-        private (double H, double V) _panStartOffsets;
+        private readonly CanvasZoomController _canvasZoom = new();
+        private readonly CanvasTouchTracker _canvasTouches = new();
+        private CanvasZoomView _appliedZoomView;
+        private Windows.Foundation.Point? _mouseDragStart;
 
-        /// <summary>The zoom host tracks the scroll viewport at factor 1, so
-        /// "fit" is always zoomFactor 1 regardless of window size.</summary>
-        private void SizeZoomHost()
+        /// <summary>The picture's extent for the zoom model — source pixels
+        /// once the source size is read, the current stand-in frame's pixels
+        /// until then — and the committed crop's share of it (the crop
+        /// display scales the crop itself to fit). They stay separate so the
+        /// model can tell the picture resolving from a crop change.</summary>
+        private (double Width, double Height, double CropWidthFraction, double CropHeightFraction) CanvasZoomExtent()
         {
-            var width = ViewerScroll.ViewportWidth;
-            var height = ViewerScroll.ViewportHeight;
-            if (width > 0 && height > 0)
-            {
-                var scale = _nativeZoomLayout && _nativeGeometry is { } geometry
-                    ? Math.Max(geometry.CropWidth / width, geometry.CropHeight / height) / DisplayScale : 1;
-                ZoomHost.Width = width * scale;
-                ZoomHost.Height = height * scale;
-            }
+            var source = ReferenceEquals(_nativeGeometryPhoto, ViewModel.SelectedPhoto) ? _nativeGeometry : null;
+            var (width, height) = source is { } geometry
+                ? ((double)geometry.CropWidth, (double)geometry.CropHeight)
+                : DisplayedFrameDims();
+            var crop = ViewModel.Adjustments.Crop;
+            return !_cropArmed && !crop.IsIdentity && crop.RectIsValid
+                ? (width, height, crop.Right - crop.Left, crop.Bottom - crop.Top)
+                : (width, height, 1, 1);
         }
+
+        /// <summary>Feed the live viewport and extent to the zoom model and
+        /// present the result.</summary>
+        private void SyncCanvasZoom(bool refreshDetail = true)
+        {
+            if (ViewerViewport == null) return;
+            var (width, height, cropWidthFraction, cropHeightFraction) = CanvasZoomExtent();
+            _canvasZoom.UpdateGeometry(ViewerViewport.ActualWidth, ViewerViewport.ActualHeight,
+                width, height, DisplayScale, cropWidthFraction, cropHeightFraction);
+            ApplyCanvasZoom(refreshDetail);
+        }
+
+        private void ApplyCanvasZoom(bool refreshDetail = true)
+        {
+            if (ZoomPanTransform == null) return;
+            var view = _canvasZoom.View;
+            if (view == _appliedZoomView) return;
+            _appliedZoomView = view;
+            ZoomPanTransform.ScaleX = view.ScaleToFit;
+            ZoomPanTransform.ScaleY = view.ScaleToFit;
+            ZoomPanTransform.TranslateX = view.PanX;
+            ZoomPanTransform.TranslateY = view.PanY;
+            if (refreshDetail) QueueDetailRefresh();
+        }
+
+        // The XAML core stores transform values as float, so a read-back
+        // equals the applied double only after the same rounding.
+        private static bool TransformHolds(double applied, double value) => applied == (float)value;
 
         private void ResetZoom()
         {
-            _nativeZoomLayout = false;
-            SizeZoomHost();
-            ViewerScroll.ChangeView(0, 0, 1.0f, disableAnimation: true);
-            QueueDetailRefresh();
+            _canvasZoom.ResetToFit();
+            ApplyCanvasZoom();
         }
 
-        /// <summary>1:1 uses oriented RAW pixels per physical display pixel.</summary>
-        private float OneToOneZoomFactor()
+        private void StepZoom(bool zoomIn)
         {
-            return _nativeGeometry is { } geometry && ContentFitRect() is { } fit && fit.W > 0
-                ? (float)(geometry.CropWidth / (fit.W * DisplayScale)) : 1f;
+            SyncCanvasZoom(refreshDetail: false);
+            if (zoomIn) _canvasZoom.StepIn();
+            else _canvasZoom.StepOut();
+            ApplyCanvasZoom();
         }
 
-        private void SetZoom(float factor, Windows.Foundation.Point? focus = null)
+        private void ZoomToFill()
         {
-            factor = Math.Clamp(factor, (float)ViewerScroll.MinZoomFactor, (float)ViewerScroll.MaxZoomFactor);
-            var current = ViewerScroll.ZoomFactor;
-            // Keep the focus point (content coords) stationary in the viewport.
-            var focusContent = focus ?? new Windows.Foundation.Point(
-                (ViewerScroll.HorizontalOffset + ViewerScroll.ViewportWidth / 2) / current,
-                (ViewerScroll.VerticalOffset + ViewerScroll.ViewportHeight / 2) / current);
-            var offsetX = focusContent.X * factor - ViewerScroll.ViewportWidth / 2;
-            var offsetY = focusContent.Y * factor - ViewerScroll.ViewportHeight / 2;
-            ViewerScroll.ChangeView(Math.Max(0, offsetX), Math.Max(0, offsetY), factor,
-                disableAnimation: false);
+            SyncCanvasZoom(refreshDetail: false);
+            _canvasZoom.ZoomToFill();
+            ApplyCanvasZoom();
         }
 
         private void OnViewerDoubleTapped(object sender, DoubleTappedRoutedEventArgs e)
         {
-            var position = e.GetPosition(ZoomHost);
-            if (_nativeZoomLayout || Math.Abs(ViewerScroll.ZoomFactor - 1) > .001f) ResetZoom();
-            else _ = SetActualSizeAsync(position);
             e.Handled = true;
+            if (!_canvasZoom.IsFit)
+            {
+                ResetZoom();
+                return;
+            }
+            _ = SetActualSizeAsync(e.GetPosition(ViewerViewport));
         }
 
         private void HookViewerPan()
         {
-            ZoomHost.PointerPressed += (_, e) =>
+            ViewerViewport.PointerPressed += OnViewerPointerPressed;
+            ViewerViewport.PointerMoved += OnViewerPointerMoved;
+            // The pickers and the repair canvas mark their releases handled;
+            // a contact the viewer tracks must still be dropped on every end.
+            ViewerViewport.AddHandler(UIElement.PointerReleasedEvent,
+                new PointerEventHandler(OnViewerPointerReleased), handledEventsToo: true);
+            ViewerViewport.AddHandler(UIElement.PointerCanceledEvent,
+                new PointerEventHandler(OnViewerPointerEnded), handledEventsToo: true);
+            ViewerViewport.AddHandler(UIElement.PointerCaptureLostEvent,
+                new PointerEventHandler(OnViewerPointerEnded), handledEventsToo: true);
+            ViewerViewport.PointerExited += OnViewerPointerExited;
+            ViewerViewport.PointerWheelChanged += OnViewerPointerWheelChanged;
+        }
+
+        /// <summary>The white-balance and colour-curve pickers read the
+        /// press/release pair on ZoomHost, which a capture on the viewer would
+        /// swallow, so a touch made while a picker is armed is left to the
+        /// picker: neither captured nor tracked.</summary>
+        private bool CanvasPickArmed => _wbPickArmed || _colorCurvePickArmed;
+
+        /// <summary>A tracked touch whose capture did not take never reports
+        /// its lift here once it leaves the viewer; drop it so the next touch
+        /// is not read as a pinch. Exits bubbling up from children are not
+        /// the viewer's.</summary>
+        private void OnViewerPointerExited(object sender, PointerRoutedEventArgs e)
+        {
+            if (e.Pointer.PointerDeviceType != PointerDeviceType.Touch
+                || !ReferenceEquals(e.OriginalSource, ViewerViewport)) return;
+            foreach (var captured in ViewerViewport.PointerCaptures ?? [])
+                if (captured.PointerId == e.Pointer.PointerId) return;
+            ApplyTouch(_canvasTouches.Release(e.Pointer.PointerId));
+        }
+
+        private void OnViewerPointerPressed(object sender, PointerRoutedEventArgs e)
+        {
+            var point = e.GetCurrentPoint(ViewerViewport);
+            SyncCanvasZoom(refreshDetail: false);
+            if (e.Pointer.PointerDeviceType == PointerDeviceType.Touch)
             {
-                if (_activeGroup == "Heal") return;
-                if (ViewerScroll.ScrollableWidth <= 0 && ViewerScroll.ScrollableHeight <= 0)
-                    return;
-                _panning = true;
-                _panStart = e.GetCurrentPoint(this.Content).Position;
-                _panStartOffsets = (ViewerScroll.HorizontalOffset, ViewerScroll.VerticalOffset);
-                ZoomHost.CapturePointer(e.Pointer);
-            };
-            ZoomHost.PointerMoved += (_, e) =>
+                if (CanvasPickArmed) return;
+                ApplyTouch(_canvasTouches.Press(e.Pointer.PointerId, point.Position.X, point.Position.Y));
+                ViewerViewport.CapturePointer(e.Pointer);
+                return;
+            }
+            if (_mouseDragStart != null || _activeGroup == "Heal" || CanvasPickArmed
+                || !point.Properties.IsLeftButtonPressed || !_canvasZoom.CanPan)
+                return;
+            _mouseDragStart = point.Position;
+            _canvasZoom.DragBegan();
+            ViewerViewport.CapturePointer(e.Pointer);
+        }
+
+        private void OnViewerPointerMoved(object sender, PointerRoutedEventArgs e)
+        {
+            var position = e.GetCurrentPoint(ViewerViewport).Position;
+            if (e.Pointer.PointerDeviceType == PointerDeviceType.Touch)
             {
-                if (!_panning)
-                    return;
-                var position = e.GetCurrentPoint(this.Content).Position;
-                ViewerScroll.ChangeView(
-                    _panStartOffsets.H - (position.X - _panStart.X),
-                    _panStartOffsets.V - (position.Y - _panStart.Y),
-                    null, disableAnimation: true);
-            };
-            ZoomHost.PointerReleased += (_, e) =>
+                ApplyTouch(_canvasTouches.Move(e.Pointer.PointerId, position.X, position.Y));
+                return;
+            }
+            if (_mouseDragStart is not { } start) return;
+            _canvasZoom.DragChanged(position.X - start.X, position.Y - start.Y);
+            ApplyCanvasZoom();
+        }
+
+        /// <summary>A mouse drag ends when its left button lifts, not when
+        /// another button does.</summary>
+        private void OnViewerPointerReleased(object sender, PointerRoutedEventArgs e)
+        {
+            if (e.Pointer.PointerDeviceType != PointerDeviceType.Touch
+                && e.GetCurrentPoint(ViewerViewport).Properties.IsLeftButtonPressed)
+                return;
+            OnViewerPointerEnded(sender, e);
+        }
+
+        private void OnViewerPointerEnded(object sender, PointerRoutedEventArgs e)
+        {
+            if (e.Pointer.PointerDeviceType == PointerDeviceType.Touch)
             {
-                _panning = false;
-                ZoomHost.ReleasePointerCapture(e.Pointer);
-            };
-            ZoomHost.PointerCanceled += (_, _) => _panning = false;
+                ApplyTouch(_canvasTouches.Release(e.Pointer.PointerId));
+                return;
+            }
+            if (_mouseDragStart == null) return;
+            _mouseDragStart = null;
+            _canvasZoom.DragEnded();
+            ViewerViewport.ReleasePointerCapture(e.Pointer);
+            ApplyCanvasZoom();
+        }
+
+        private void ApplyTouch(CanvasTouchUpdate update)
+        {
+            _canvasZoom.ApplyTouch(update, dragPans: _activeGroup != "Heal" && !CanvasPickArmed);
+            ApplyCanvasZoom();
+        }
+
+        private void OnViewerPointerWheelChanged(object sender, PointerRoutedEventArgs e)
+        {
+            var point = e.GetCurrentPoint(ViewerViewport);
+            SyncCanvasZoom(refreshDetail: false);
+            var handled = _canvasZoom.Wheel(point.Properties.MouseWheelDelta,
+                point.Properties.IsHorizontalMouseWheel,
+                e.KeyModifiers.HasFlag(VirtualKeyModifiers.Control),
+                e.KeyModifiers.HasFlag(VirtualKeyModifiers.Shift),
+                point.Position.X, point.Position.Y);
+            if (!handled) return;
+            e.Handled = true;
+            ApplyCanvasZoom();
         }
 
         private void OnFrameReady(Services.DecodedImage source, byte[] bgra, int width, int height, uint[] bins, double millis)
@@ -185,6 +300,7 @@ namespace Maple.WinUI
                 {
                     _viewportBitmap = new WriteableBitmap(width, height);
                     ViewportImage.Source = _viewportBitmap;
+                    SyncCanvasZoom();
                 }
                 using (var stream = _viewportBitmap.PixelBuffer.AsStream())
                 {

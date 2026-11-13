@@ -20,7 +20,6 @@ public sealed partial class MainWindow
         Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent) };
     private CancellationTokenSource? _repairMappingRequest;
     private object? _repairMappingPhoto;
-    private int _repairOrientation;
     private RetouchState? _repairDraft;
     private RetouchSpot? _repairDragStart;
     private MaskPoint _repairAnchor;
@@ -40,16 +39,19 @@ public sealed partial class MainWindow
     private async Task PrepareRepairCanvasAsync()
     {
         var photo = ViewModel.SelectedPhoto;
-        if (photo == null || !CanEditRepairs) return;
+        if (photo == null || !ViewModel.AdjustmentsReady || ViewModel.IsRasterSource) return;
         _repairMappingRequest?.Cancel();
         _repairMappingRequest?.Dispose();
         var owner = _repairMappingRequest = new CancellationTokenSource();
         try
         {
-            var orientation = await _detailDecoder.ReadOrientationAsync(photo.EditPath, ViewModel.Adjustments.Clone(), owner.Token);
+            var frame = await _detailDecoder.ReadRepairFrameAsync(photo.EditPath, ViewModel.Adjustments.Clone(), owner.Token);
             if (_closing || owner.IsCancellationRequested || photo != ViewModel.SelectedPhoto || _activeGroup != "Heal") return;
-            _repairOrientation = (int)orientation;
             _repairMappingPhoto = photo;
+            var stored = ViewModel.Adjustments.Retouch;
+            if (stored.IsLegacyFrame)
+                ViewModel.NormalizeRetouchFrame(legacy =>
+                    XmpRetouch.ToUpright(legacy, (int)frame.Orientation, frame.UprightWidth, frame.UprightHeight));
             SyncRetouchPanel();
         }
         catch (OperationCanceledException) { }
@@ -60,8 +62,8 @@ public sealed partial class MainWindow
     }
 
     private RepairCanvasMap? RepairMap => ReferenceEquals(_repairMappingPhoto, ViewModel.SelectedPhoto)
-        && _repairOrientation is >= 1 and <= 8 && ContentFitRect() is { } fit && fit.H > 0
-        ? new(_repairOrientation, fit.W / fit.H, ViewModel.Adjustments) : null;
+        && ContentFitRect() is { } fit && fit.H > 0
+        ? new(fit.W / fit.H, ViewModel.Adjustments) : null;
 
     private void ExitRetouchCanvas()
     {
@@ -133,7 +135,7 @@ public sealed partial class MainWindow
         if (!CanEditRepairs || !e.GetCurrentPoint(_repairCanvas).Properties.IsLeftButtonPressed
             || RepairPoint(e) is not { } point || RepairMap is not { } map) return;
         // Leave numeric editing before canvas gestures so Delete/Undo target the repair.
-        ViewerScroll.Focus(FocusState.Pointer);
+        ViewerViewport.Focus(FocusState.Pointer);
         _repairDraft = ViewModel.Adjustments.Retouch;
         _repairGesturePhoto = ViewModel.SelectedPhoto;
         _repairAnchor = point;
@@ -143,7 +145,7 @@ public sealed partial class MainWindow
         {
             if (map.ToDisplay(new(x, y)) is not { } p) return false;
             return Math.Pow(p.X * _repairCanvas.Width - mouse.X, 2) + Math.Pow(p.Y * _repairCanvas.Height - mouse.Y, 2)
-                <= Math.Pow(14 / ViewerScroll.ZoomFactor, 2);
+                <= Math.Pow(14 / _canvasZoom.View.ScaleToFit, 2);
         }
         var selected = SelectedRepair;
         if (selected != null && Hit(selected.SourceX, selected.SourceY)) _repairDraggingSource = true;

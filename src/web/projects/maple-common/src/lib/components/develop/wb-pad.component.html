@@ -24,14 +24,22 @@
     <button
       class="flex h-11 w-11 shrink-0 cursor-pointer appearance-none items-center justify-center rounded-md border-[0.5px] outline-none transition-[background,border-color,color] duration-100 ease-out focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--pro-accent)]"
       [class]="eyedropBtnClass(eyedropperActive())"
-      title="Sample neutral grey point from canvas"
+      [title]="eyedropperUnavailable() ?? 'Sample neutral grey point from canvas'"
       aria-label="Eyedropper: set neutral white balance from canvas"
-      [disabled]="presetDisabled()"
+      [attr.aria-describedby]="eyedropperUnavailable() ? 'wb-eyedropper-reason' : null"
+      [disabled]="presetDisabled() || eyedropperUnavailable() !== null"
       (click)="onEyedropperClick()"
     >
       <maple-icon name="wb-eyedrop" [size]="14" aria-hidden="true" />
     </button>
   </div>
+  @if (eyedropperUnavailable(); as reason) {
+    <span
+      id="wb-eyedropper-reason"
+      class="font-sans text-[10px] text-[color:var(--pro-text-dim)] select-none"
+      >{{ reason }}</span
+    >
+  }
 
   <!-- White-balance provenance (#2434): what produced the pair above — the
        camera's own reading, a click on the canvas (with the point and the

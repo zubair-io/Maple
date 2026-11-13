@@ -15,38 +15,51 @@
 //     "Copy Selected Here" context-menu item, which needs no modifier key
 //     at all.
 import Foundation
+import MapleCore
 import SwiftUI
+import UniformTypeIdentifiers
+
 #if os(macOS)
-import AppKit
+  import AppKit
 #endif
 
 enum MapleDragModifier {
-    static func isCopyRequested() -> Bool {
-        #if os(macOS)
-        return NSEvent.modifierFlags.contains(.option)
-        #else
-        return false
-        #endif
-    }
+  static func isCopyRequested() -> Bool {
+    #if os(macOS)
+      return NSEvent.modifierFlags.contains(.option)
+    #else
+      return false
+    #endif
+  }
 }
 
 extension View {
-    /// OS file/folder URL drop target (#2649). Wraps
-    /// `dropDestination(for: URL.self)` with the closure explicitly typed to
-    /// pin the Bool-returning overload: iOS 26 added a Void `DropSession`
-    /// variant that otherwise wins overload resolution for single-expression
-    /// closures and silently discards the handled flag (it's also
-    /// unavailable before macOS 26 — this repo targets 14). Route every URL
-    /// drop target through here so a new call site can't silently bind the
-    /// wrong overload (#2950).
-    func urlDropDestination(
-        isTargeted: @escaping (Bool) -> Void = { _ in },
-        perform handler: @escaping ([URL]) -> Bool
-    ) -> some View {
-        dropDestination(
-            for: URL.self,
-            action: { (urls: [URL], _: CGPoint) -> Bool in handler(urls) },
-            isTargeted: isTargeted
-        )
-    }
+  /// OS file/folder URL drop target (#2649). Wraps
+  /// `dropDestination(for: URL.self)` with the closure explicitly typed to
+  /// pin the Bool-returning overload: iOS 26 added a Void `DropSession`
+  /// variant that otherwise wins overload resolution for single-expression
+  /// closures and silently discards the handled flag (it's also
+  /// unavailable before macOS 26 — this repo targets 14). Route every URL
+  /// drop target through here so a new call site can't silently bind the
+  /// wrong overload (#2950).
+  func urlDropDestination(
+    isTargeted: @escaping (Bool) -> Void = { _ in },
+    perform handler: @escaping ([URL]) -> Bool
+  ) -> some View {
+    dropDestination(
+      for: URL.self,
+      action: { (urls: [URL], _: CGPoint) -> Bool in
+        #if os(macOS)
+          // Our outgoing file URLs must not turn a grid-background drop
+          // into an incoming Finder drop / parent-folder access prompt.
+          let selectionType = NSPasteboard.PasteboardType(UTType.mapleAssetSelection.identifier)
+          guard NSPasteboard(name: .drag).availableType(from: [selectionType]) == nil else {
+            return false
+          }
+        #endif
+        return handler(urls)
+      },
+      isTargeted: isTargeted
+    )
+  }
 }

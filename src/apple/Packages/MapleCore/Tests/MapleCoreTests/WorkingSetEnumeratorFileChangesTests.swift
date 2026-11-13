@@ -14,6 +14,7 @@
 import FileProvider
 import XCTest
 @testable import MapleCore
+@testable import MapleFileProviderCore
 
 final class WorkingSetEnumeratorFileChangesTests: XCTestCase {
     private func root(id: String, path: String) -> LibraryRoot {
@@ -49,7 +50,7 @@ final class WorkingSetEnumeratorFileChangesTests: XCTestCase {
     }
 
     private func anchor(_ cursor: Int64) -> NSFileProviderSyncAnchor {
-        NSFileProviderSyncAnchor(String(cursor).data(using: .utf8)!)
+        WorkingSetEnumerator.anchor(cursor)
     }
 
     /// The core regression: a change row with no `asset_id` but a real

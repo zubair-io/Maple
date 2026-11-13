@@ -29,7 +29,7 @@ enum Navigation {
     Folder(PathBuf),
     Photo(Photo),
     CloudDownload(crate::cloud::CloudEntry),
-    CloudReady(Photo, crate::cloud::CloudEntry),
+    CloudReady(Photo, crate::cloud::CloudEntry, bool),
     CloudBrowse,
 }
 
@@ -37,7 +37,8 @@ pub struct MapleApp {
     zoom: zoom::ZoomCanvas,
     cloud: cloud::CloudState,
     cloud_editor: Option<crate::cloud::CloudEntry>,
-    save_documents: std::collections::VecDeque<(u64, SidecarDocument)>,
+    /// Queued saves: session, edit revision and the exact document sent.
+    save_documents: std::collections::VecDeque<(u64, u64, SidecarDocument)>,
     pending_navigation: Option<Navigation>,
     worker: Worker,
     thumbnails: ThumbnailWorker,
@@ -47,8 +48,10 @@ pub struct MapleApp {
     thumbnail_order: std::collections::VecDeque<PathBuf>,
     folder: Option<Folder>,
     selected: Option<Photo>,
+    launch_photo: Option<PathBuf>,
     document: Option<SidecarDocument>,
     white_balance: Option<crate::white_balance::WhiteBalance>,
+    auto_fit: Option<raw_core::view::auto_profile::AutoFitOutcome>,
     texture: Option<egui::TextureHandle>,
     gpu_texture: Option<crate::gpu_texture::NativeTexture>,
     gpu_state: Option<eframe::egui_wgpu::RenderState>,
@@ -70,6 +73,7 @@ pub struct MapleApp {
     active_group: crate::controls::Group,
     maple_icon: egui::TextureHandle,
     busy: bool,
+    listing: u64,
     status: String,
     error: Option<String>,
     saving: usize,
@@ -124,8 +128,10 @@ impl MapleApp {
             thumbnail_epoch: 0,
             folder: None,
             selected: None,
+            launch_photo: None,
             document: None,
             white_balance: None,
+            auto_fit: None,
             texture: None,
             gpu_texture: None,
             gpu_state: None,
@@ -147,6 +153,7 @@ impl MapleApp {
             active_group: crate::controls::Group::Light,
             maple_icon,
             busy: false,
+            listing: 0,
             status: "Open a folder to begin".into(),
             error: None,
             picker: None,
@@ -172,6 +179,19 @@ impl MapleApp {
 
     pub fn open_folder(&mut self, path: PathBuf) {
         self.navigate(Navigation::Folder(path));
+    }
+
+    /// Launch argument from the command line or a file manager's "Open with".
+    pub fn open_path(&mut self, path: PathBuf) {
+        let path = std::path::absolute(&path).unwrap_or(path);
+        match path.parent().filter(|_| path.is_file()) {
+            Some(folder) => {
+                let folder = folder.to_path_buf();
+                self.launch_photo = Some(path);
+                self.open_folder(folder);
+            }
+            None => self.open_folder(path),
+        }
     }
 
     pub fn select(&mut self, photo: Photo) {
@@ -202,9 +222,10 @@ impl MapleApp {
                 self.load_photo(photo);
             }
             Navigation::CloudDownload(entry) => self.cloud.request_edit(entry),
-            Navigation::CloudReady(photo, entry) => {
+            Navigation::CloudReady(photo, entry, pending_recovery) => {
                 self.load_photo(photo);
                 self.cloud_editor = Some(entry);
+                self.save_failed = pending_recovery;
                 self.cloud.active = false;
             }
             Navigation::CloudBrowse => {
@@ -239,7 +260,9 @@ impl MapleApp {
         self.comparison_error = None;
         self.auto_pending = None;
         self.document = None;
+        self.dirty = None;
         self.white_balance = None;
+        self.auto_fit = None;
         self.texture = None;
         self.gpu_texture = None;
         self.history.clear();
@@ -273,7 +296,7 @@ impl MapleApp {
         if self.dirty.take().is_some() {
             if let Some(document) = &self.document {
                 self.save_documents
-                    .push_back((self.session, document.clone()));
+                    .push_back((self.session, self.edit_revision, document.clone()));
                 self.saving += 1;
                 self.worker
                     .send(Command::Save(self.session, document.clone()));

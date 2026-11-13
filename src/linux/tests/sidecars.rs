@@ -79,18 +79,18 @@ fn imported_foreign_attributes_children_and_unexposed_edits_survive() {
 }
 
 #[test]
-fn refuses_external_changes_and_deletions() {
+fn unmergeable_outside_changes_and_deletions_refuse() {
     let temp = TempDir::new().unwrap();
     let original = temp.path().join("photo.nef");
     fs::write(&original, b"original").unwrap();
     let (mut store, document) = SidecarStore::open(&original).unwrap();
     fs::write(store.path(), "external edit").unwrap();
-    assert!(matches!(store.save(&document), Err(SidecarError::Conflict)));
+    assert!(matches!(store.save(&document), Err(SidecarError::Merge(_))));
     assert_eq!(fs::read_to_string(store.path()).unwrap(), "external edit");
     fs::remove_file(store.path()).unwrap();
     store.save(&document).unwrap();
     fs::remove_file(store.path()).unwrap();
-    assert!(matches!(store.save(&document), Err(SidecarError::Conflict)));
+    assert!(matches!(store.save(&document), Err(SidecarError::Removed)));
 }
 
 #[test]
@@ -485,4 +485,80 @@ fn lightroom_paint_and_maple_brush_survive_a_linux_edit_byte_for_byte() {
         block(&saved, "<papp:BrushCorrections", "</papp:BrushCorrections>"),
         maple
     );
+}
+
+const RETOUCH_AREAS: &str = r#"      <crs:RetouchAreas>
+        <rdf:Seq>
+          <rdf:li>
+            <rdf:Description crs:SpotType="heal" crs:SourceState="sourceSetExplicitly" crs:Method="circle" crs:SourceX="0.750000" crs:SourceY="0.500000" crs:Opacity="1.000000" crs:Feather="0.500000" crs:Seed="0">
+              <crs:Masks>
+                <rdf:Seq>
+                  <rdf:li crs:What="Mask/CircularGradient" crs:MaskValue="1" crs:X="0.250000" crs:Y="0.400000" crs:Radius="0.050000" crs:Flow="1" crs:CenterWeight="0"/>
+                </rdf:Seq>
+              </crs:Masks>
+            </rdf:Description>
+          </rdf:li>
+        </rdf:Seq>
+      </crs:RetouchAreas>"#;
+
+const RETOUCH_INFO: &str = r#"      <crs:RetouchInfo>
+        <rdf:Seq>
+          <rdf:li>centerX = 0.25, centerY = 0.4, radius = 0.05, sourceState = sourceSetExplicitly, sourceX = 0.75, sourceY = 0.5, spotType = heal</rdf:li>
+        </rdf:Seq>
+      </crs:RetouchInfo>"#;
+
+fn retouch_sidecar(papp_namespace: &str, repairs: &str) -> String {
+    format!(
+        r#"<x:xmpmeta xmlns:x="adobe:ns:meta/">
+  <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+    <rdf:Description rdf:about=""
+      xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/"{papp_namespace}
+      crs:Version="11.0">
+{repairs}
+    </rdf:Description>
+  </rdf:RDF>
+</x:xmpmeta>
+"#
+    )
+}
+
+fn reopen_after_unrelated_edit(source: &str) -> (String, maple_linux::sidecar::SidecarDocument) {
+    let temp = TempDir::new().unwrap();
+    let original = temp.path().join("photo.dng");
+    fs::write(&original, b"original").unwrap();
+    fs::write(sidecar_path(&original).unwrap(), source).unwrap();
+    let (mut store, mut document) = SidecarStore::open(&original).unwrap();
+    assert_eq!(document.model.retouch_spots.len(), 1);
+    let frame = document.model.retouch_frame;
+    Control::Exposure.set(&mut document.model, 0.5).unwrap();
+    store.save(&document).unwrap();
+    let saved = fs::read_to_string(store.path()).unwrap();
+    let (_, reopened) = SidecarStore::open(&original).unwrap();
+    assert_eq!(reopened.model.retouch_frame, frame);
+    assert_eq!(reopened.model.retouch_spots, document.model.retouch_spots);
+    (saved, reopened)
+}
+
+#[test]
+fn a_lightroom_repair_list_stays_upright_after_an_unrelated_linux_edit() {
+    use raw_core::types::RetouchFrame;
+    for repairs in [RETOUCH_AREAS, RETOUCH_INFO] {
+        let (saved, reopened) = reopen_after_unrelated_edit(&retouch_sidecar("", repairs));
+        assert_eq!(reopened.model.retouch_frame, RetouchFrame::Upright);
+        assert!(saved.contains(r#"papp:RetouchFrameVersion="2""#));
+        let (resaved, _) = reopen_after_unrelated_edit(&saved);
+        assert_eq!(resaved.matches("papp:RetouchFrameVersion").count(), 1);
+    }
+}
+
+#[test]
+fn a_legacy_maple_repair_list_stays_sensor_framed_and_unstamped() {
+    use raw_core::types::RetouchFrame;
+    let legacy = retouch_sidecar(
+        "\n      xmlns:papp=\"http://ns.justmaple.app/photo/1.0/\"\n      papp:Profile=\"Auto\"",
+        RETOUCH_AREAS,
+    );
+    let (saved, reopened) = reopen_after_unrelated_edit(&legacy);
+    assert_eq!(reopened.model.retouch_frame, RetouchFrame::Sensor);
+    assert!(!saved.contains("RetouchFrameVersion"));
 }

@@ -18,6 +18,11 @@ import { readHeicExifTiff } from './heic-exif.ts';
 import { readWebpExifTiff } from './webp-exif.ts';
 import { VIDEO_EXTS, STUB_IMAGE_EXTS, AUDIO_EXTS } from './media-types.ts';
 import { readVideoMetadata } from './video-metadata.ts';
+import {
+  blobReader,
+  readRawCaptureDates,
+  type RawCaptureDates,
+} from '../../../web/projects/maple-common/src/lib/addressing/exif-capture-dates.ts';
 
 /** HEIC/HEIF containers — exifr's `canHandle` rejects modern (>50-byte ftyp)
  * variants, so these go through our own box walker in `heic-exif.ts`, which
@@ -140,7 +145,7 @@ function asNumber(v: unknown): number | null {
  * [#2154]: the `Date` branch below had the exact same class of bug one
  * layer up. Every `Date` that reaches this function is one exifr itself
  * revived from a bare EXIF wall-clock string via local-timezone setters
- * (see `EXIFR_DATE_ONLY_OPTS`'s doc comment above) — `withRawCaptureDates`
+ * (see `EXIFR_DATE_ONLY_OPTS`'s doc comment above) — `normalizeWithRawDates`
  * replaces that revived `Date` with the raw, un-revived string for every
  * tag it can re-parse, so this branch is only reached as its fallback (the
  * re-parse came back without the tag). Calling `.toISOString()` on that
@@ -262,7 +267,7 @@ const EXIFR_PARSE_OPTS = {
  *
  * A blanket `reviveValues: false` on `EXIFR_PARSE_OPTS` would also turn off
  * GPS coordinate conversion and the other tag formatting this stage relies
- * on, so instead `withRawCaptureDates` below fires a second, narrowly-scoped
+ * on, so instead `normalizeWithRawDates` below fires a second, narrowly-scoped
  * parse for just the two date tags with revival off, and splices those raw
  * (unbiased) strings back into the main parse's result before
  * `normalizeExif` ever sees it — every other tag keeps going through the
@@ -273,16 +278,63 @@ const EXIFR_DATE_ONLY_OPTS = {
   reviveValues: false,
 };
 
-/** See `EXIFR_DATE_ONLY_OPTS`'s doc comment. `input` must be the same source
- * (buffer or path) the caller already parsed into `raw`, so the re-parse
- * reads the identical bytes. */
-async function withRawCaptureDates(input: string | Buffer, raw: LooseRecord): Promise<LooseRecord> {
-  const rawDates = (await exifr.parse(input, EXIFR_DATE_ONLY_OPTS)) as LooseRecord | undefined;
-  if (rawDates) {
-    if ('DateTimeOriginal' in rawDates) raw.DateTimeOriginal = rawDates.DateTimeOriginal;
-    if ('CreateDate' in rawDates) raw.CreateDate = rawDates.CreateDate;
-  }
-  return raw;
+/**
+ * The two raw capture-date strings for `input`, the same source (buffer or
+ * path) the caller already parsed. JPEG and TIFF-family inputs (every RAW, and
+ * the TIFF block HEIC and WebP carry) are read by the shared tag reader, which
+ * follows IFD offsets through ranged reads — exifr's chunked reader drops the
+ * ExifIFD of a 100 MP DNG that keeps it at the end of the file, leaving the
+ * maple_id on the fallback form while the device dates the same file (#5090).
+ * Other containers (PNG) keep exifr's own read.
+ */
+async function readCaptureDateStrings(input: string | Buffer): Promise<RawCaptureDates> {
+  const walked = await readRawCaptureDates(
+    blobReader(typeof input === 'string' ? Bun.file(input) : new Blob([Uint8Array.from(input)])),
+  );
+  if (walked) return walked;
+  const parsed = (await exifr.parse(input, EXIFR_DATE_ONLY_OPTS)) as LooseRecord | undefined;
+  const dates: RawCaptureDates = {};
+  if (typeof parsed?.DateTimeOriginal === 'string')
+    dates.DateTimeOriginal = parsed.DateTimeOriginal;
+  if (typeof parsed?.CreateDate === 'string') dates.CreateDate = parsed.CreateDate;
+  return dates;
+}
+
+/** exifr over `input` for every tag but the capture dates, which come from the
+ * raw strings (see `EXIFR_DATE_ONLY_OPTS`); null when the file has no EXIF at all. */
+async function parseWithRawDates(input: string | Buffer): Promise<AssetExif | null> {
+  const raw = (await exifr.parse(input, EXIFR_PARSE_OPTS)) as LooseRecord | undefined;
+  const dates = await readCaptureDateStrings(input);
+  if (!raw && !dates.DateTimeOriginal && !dates.CreateDate) return null;
+  return normalizeExif({
+    ...raw,
+    DateTimeOriginal: dates.DateTimeOriginal,
+    CreateDate: dates.CreateDate,
+  });
+}
+
+/** A video's `AssetExif` from its QuickTime `moov` atom (pure-JS, seeks past the media body). */
+async function readVideoExif(absPath: string): Promise<AssetExif | null> {
+  const meta = await readVideoMetadata(absPath);
+  if (!meta) return null;
+  return normalizeExif({
+    CreateDate: meta.creationDate ?? undefined,
+    latitude: meta.latitude ?? undefined,
+    longitude: meta.longitude ?? undefined,
+    Make: meta.make ?? undefined,
+    Model: meta.model ?? undefined,
+  });
+}
+
+/**
+ * What exifr is handed for `absPath`: HEIC and WebP carry their EXIF as a TIFF
+ * block inside a container exifr's own gate rejects, so the block is sliced out
+ * here (null when there is none); every other file is parsed in place.
+ */
+async function exifSource(ext: string, absPath: string): Promise<string | Buffer | null> {
+  if (HEIC_EXTS.has(ext)) return readHeicExifTiff(absPath);
+  if (WEBP_EXTS.has(ext)) return readWebpExifTiff(absPath);
+  return absPath;
 }
 
 /**
@@ -303,32 +355,16 @@ async function withRawCaptureDates(input: string | Buffer, raw: LooseRecord): Pr
 export async function readExif(absPath: string): Promise<AssetExif | null> {
   const ext = path.extname(absPath).toLowerCase();
 
-  // Video containers carry no EXIF, but iPhone `.mov`/`.mp4` keep their capture
-  // date + GPS in the QuickTime `moov` atom. Read those (pure-JS, seeks past the
-  // media body) and map onto the same `AssetExif` shape so videos get dated and
-  // geo-filed exactly like photos. `VIDEO_EXTS ⊂ NO_EXIF_EXTS`, so this branch
-  // must precede the skip below.
-  if (VIDEO_EXTS.has(ext)) {
-    const meta = await readVideoMetadata(absPath);
-    if (!meta) return null;
-    return normalizeExif({
-      CreateDate: meta.creationDate ?? undefined,
-      latitude: meta.latitude ?? undefined,
-      longitude: meta.longitude ?? undefined,
-      Make: meta.make ?? undefined,
-      Model: meta.model ?? undefined,
-    });
-  }
-
+  // iPhone `.mov`/`.mp4` keep their capture date + GPS in the QuickTime `moov`
+  // atom, so videos are dated and geo-filed like photos. `VIDEO_EXTS ⊂
+  // NO_EXIF_EXTS`, so this must precede the skip below.
+  if (VIDEO_EXTS.has(ext)) return readVideoExif(absPath);
   if (NO_EXIF_EXTS.has(ext)) return null;
 
   // A real image is never 0 bytes. Handed an empty file, exifr's reader trips
   // over the absent TIFF header and throws the opaque "undefined is not an
   // object (evaluating 'this.dataView.getUint16')". Fail with a message that
-  // names the cause instead. This is a library-level safety net: the exif
-  // stage already short-circuits empty files to a `damaged` tag before calling
-  // readExif (see workers/stages/exif.ts), but readExif is a standalone
-  // function and must not surface exifr's opaque crash to any caller.
+  // names the cause instead; readExif is standalone and must not surface it.
   const { size } = await fs.stat(absPath);
   if (size === 0) {
     throw new Error(
@@ -336,27 +372,6 @@ export async function readExif(absPath: string): Promise<AssetExif | null> {
     );
   }
 
-  if (HEIC_EXTS.has(ext)) {
-    // exifr can't get past its ftyp gate for these — extract the TIFF block
-    // ourselves, then let exifr parse that as a bare TIFF.
-    const tiff = await readHeicExifTiff(absPath);
-    if (!tiff) return null;
-    const raw = (await exifr.parse(tiff, EXIFR_PARSE_OPTS)) as LooseRecord | undefined;
-    if (!raw) return null;
-    return normalizeExif(await withRawCaptureDates(tiff, raw));
-  }
-
-  if (WEBP_EXTS.has(ext)) {
-    // exifr has no WebP parser — pull the TIFF out of the RIFF `EXIF` chunk
-    // ourselves, then let exifr parse that as a bare TIFF.
-    const tiff = await readWebpExifTiff(absPath);
-    if (!tiff) return null;
-    const raw = (await exifr.parse(tiff, EXIFR_PARSE_OPTS)) as LooseRecord | undefined;
-    if (!raw) return null;
-    return normalizeExif(await withRawCaptureDates(tiff, raw));
-  }
-
-  const raw = (await exifr.parse(absPath, EXIFR_PARSE_OPTS)) as LooseRecord | undefined;
-  if (!raw) return null;
-  return normalizeExif(await withRawCaptureDates(absPath, raw));
+  const source = await exifSource(ext, absPath);
+  return source === null ? null : parseWithRawDates(source);
 }

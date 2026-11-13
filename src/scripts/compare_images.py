@@ -2,7 +2,7 @@
 """Compare two sRGB PNG images: CIEDE2000 + per-channel bias, optionally with
 per-tonal-zone and per-hue-angle breakdowns.
 
-This is the ONE diff implementation. `test_color_pipeline.sh` calls
+This is the ONE diff implementation. The manual `diagnose_acr_comparison.sh` calls
 `diff_manifest_case()` for matched native-pair reduction; the standalone CLI
 wraps `diff()` for direct image-pair comparisons.
 
@@ -43,12 +43,12 @@ import json
 import os
 import sys
 import tempfile
-import xml.etree.ElementTree as ET
-from decimal import Decimal, InvalidOperation
 
 import colour
 import numpy as np
 from compare_images_chunks import perceptual_difference
+from compare_images_metadata import camera_raw_settings, verify_authoring_settings
+from compare_images_metadata import reference_crs as _reference_crs
 from PIL import Image
 
 # 4000x2667 (down) and 12288x8192 (full) ACR refs trip Pillow's
@@ -109,7 +109,7 @@ def _zone_stats(dE, ref_lab, cand, ref, roi: np.ndarray | None = None) -> dict:
         if n == 0:
             zones[name] = {"n": 0}
             continue
-        b = (cf[m] - rf[m]).mean(axis=0)
+        b = (cf[m] - rf[m]).mean(axis=0, dtype=np.float64)
         zones[name] = {
             "n": n,
             "mean_deltaE": float(dEf[m].mean()),
@@ -236,11 +236,14 @@ def diff(
 
     if roi_mask is not None:
         dE_flat = dE[roi_mask]
-        bias = (cand[roi_mask] - ref[roi_mask]).mean(axis=0)
+        bias = (cand[roi_mask] - ref[roi_mask]).mean(axis=0, dtype=np.float64)
         n_pixels = int(roi_mask.sum())
     else:
         dE_flat = dE.ravel()
-        bias = (cand - ref).mean(axis=(0, 1))
+        # Large interleaved RGB populations accumulate substantial f32 error
+        # even for a constant residual. Retain the pixels and metric, but sum
+        # in f64 so bias does not depend on resolution or pixel order (#4667).
+        bias = (cand - ref).mean(axis=(0, 1), dtype=np.float64)
         n_pixels = int(cand.shape[0] * cand.shape[1])
 
     out = {
@@ -266,6 +269,7 @@ def diff_manifest_case(
     *,
     case_label: str,
     reference_xmp: str | None = None,
+    reference_protocol: str | None = None,
     zones: bool = False,
     hue_bins: int = 0,
 ) -> dict:
@@ -275,12 +279,20 @@ def diff_manifest_case(
     its native `full` counterpart supplies the pixels. Missing full input is an
     error, never a fallback to a differently filtered reference. Files remain
     read-only and the numerical budgets and compared pixel population do not
-    change. Only exact baseline/baseline_auto labels use this protocol. Other cases,
-    including full-resolution detail, keep their existing behavior (#3678).
+    change. Baselines use this protocol by default. Other cases opt in through
+    the manifest's native-pair-lanczos-v1 protocol after explicit Adobe capture
+    qualification (#3678). Full-resolution comparisons retain every pixel.
     """
+    if reference_protocol not in (None, "native-pair-lanczos-v1"):
+        raise ValueError(f"unknown reference protocol: {reference_protocol!r}")
+    migrated = reference_protocol == "native-pair-lanczos-v1"
+    if migrated and reference_xmp is None:
+        raise ValueError(
+            "migrated native pair requires an explicit Adobe authoring sidecar"
+        )
     by_resolution = {output["resolution"]: output["png"] for output in outputs}
     preferred = by_resolution[preferred_resolution]
-    if case_label not in ("baseline", "baseline_auto"):
+    if not migrated and case_label not in ("baseline", "baseline_auto"):
         # Incremental migration tracked by #3678: the nonbaseline corpus lacks
         # qualified native pairs. Preserve its explicit legacy protocol; never
         # select a protocol based on whether a file happens to be present.
@@ -300,17 +312,24 @@ def diff_manifest_case(
         from write_xmp import reference_settings
 
         with open(reference_xmp, "rb") as sidecar:
-            expected = reference_settings(sidecar.read())
-        verify_png(native, expected)
-        verify_png(preferred, expected)
+            authoring_packet = sidecar.read()
+        authored_settings = camera_raw_settings(authoring_packet)
     with Image.open(preferred) as image:
         comparison_size = image.size
         preferred_settings = _reference_crs(image)
     with Image.open(native) as image:
         native_size = image.size
         native_settings = _reference_crs(image)
+    if reference_xmp is not None:
+        # The complete parser rejects DTDs before the subset verifier parses
+        # any of these same packets. Retain its specific control diagnostics.
+        expected = reference_settings(authoring_packet)
+        verify_png(native, expected)
+        verify_png(preferred, expected)
     if preferred_settings != native_settings:
         raise ValueError("native/down Camera Raw settings differ")
+    if reference_xmp is not None:
+        verify_authoring_settings(authored_settings, preferred_settings)
     with Image.open(cand_path) as image:
         if image.size != native_size:
             raise ValueError(
@@ -329,51 +348,11 @@ def diff_manifest_case(
         zones=zones,
         hue_bins=hue_bins,
         reference_size=comparison_size,
-    ) | {"reference_protocol": "baseline-native-pair-lanczos"}
-
-
-def _reference_crs(image: Image.Image) -> dict:
-    """Canonical Camera Raw settings, including nested curves and local edits.
-
-    Ignore container timestamps, but retain every CRS field (including process
-    version). Refuse metadata-free pairs rather than infer matching settings
-    from filenames. Decimal spelling and XML attribute order are immaterial.
-    """
-    packet = image.info.get("XML:com.adobe.xmp") or image.info.get("xmp")
-    if not packet:
-        raise ValueError(f"reference has no Camera Raw XMP: {image.filename}")
-    root = ET.fromstring(packet)
-    namespace = "{http://ns.adobe.com/camera-raw-settings/1.0/}"
-
-    def scalar(value):
-        value = (value or "").strip()
-        try:
-            return Decimal(value)
-        except InvalidOperation:
-            return value
-
-    def subtree(element):
-        return (
-            element.tag,
-            tuple(
-                sorted((key, scalar(value)) for key, value in element.attrib.items())
-            ),
-            scalar(element.text),
-            tuple(subtree(child) for child in element),
+    ) | {
+        "reference_protocol": (
+            "native-pair-lanczos-v1" if migrated else "baseline-native-pair-lanczos"
         )
-
-    settings = {}
-    for element in root.iter():
-        for key, value in element.attrib.items():
-            if key.startswith(namespace):
-                settings[key] = scalar(value)
-        if element.tag.startswith(namespace):
-            settings[element.tag] = (
-                subtree(element) if len(element) else scalar(element.text)
-            )
-    if not settings:
-        raise ValueError(f"reference has no Camera Raw settings: {image.filename}")
-    return settings
+    }
 
 
 def _srgb_to_p3_primaries(encoded: np.ndarray) -> np.ndarray:

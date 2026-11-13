@@ -33,7 +33,6 @@ import type { AssetId } from '../models/asset';
 import { SidecarSaveStateService } from './sidecar-save-state.service';
 import { XmpAdjustmentRestoreService } from './xmp-adjustment-restore.service';
 import { XmpStoreService } from './xmp-store.service';
-import { workflowXmpTestProvider } from './testing/workflow-xmp-test-provider';
 import { FolderAccessService } from '../folder-access/folder-access.service';
 import {
   fsAccessListEntries,
@@ -96,7 +95,6 @@ class ApiStub {
   getXmp = vi.fn((_path: string) => this.getXmpResult);
   putXmp = vi.fn((_path: string, xml: string) => of(xml));
   listFolders = vi.fn(() => of([LIBRARY]));
-  scanFolder = vi.fn(() => new Subject<never>().asObservable());
 }
 
 class NoopSidecarCache {
@@ -132,7 +130,6 @@ describe('XmpAdjustmentRestoreService (#2406)', () => {
             writeFile: fsAccessWriteFile,
           },
         },
-        workflowXmpTestProvider,
       ],
     });
 
@@ -247,18 +244,18 @@ describe('XmpAdjustmentRestoreService (#2406)', () => {
       // were invalidated by the authoritative absence.
       const directory = await fs.mkdtemp(join(tmpdir(), 'maple-absent-sidecar-'));
       try {
-        xmpStore.scheduleWrite(
-          ASSET_ID,
-          {
-            name: 'raws',
-            read: true,
-            write: true,
-            native: new DiskDirectory(directory) as unknown as FileSystemDirectoryHandle,
-          },
-          'test_0004.fff',
-          store.adjustmentFor(ASSET_ID)(),
-          { rating: 0, flag: 'unflagged', colorLabel: null },
-        );
+        const folder = {
+          name: 'raws',
+          read: true,
+          write: true,
+          native: new DiskDirectory(directory) as unknown as FileSystemDirectoryHandle,
+        };
+        xmpStore.replaceLoadedDocuments(folder, new Map([['test_0004.xmp', null]]));
+        xmpStore.scheduleWrite(ASSET_ID, folder, 'test_0004.fff', store.adjustmentFor(ASSET_ID)(), {
+          rating: 0,
+          flag: 'unflagged',
+          colorLabel: null,
+        });
         await xmpStore.flushAsset(ASSET_ID);
         const written = await fs.readFile(join(directory, 'test_0004.xmp'), 'utf8');
         expect(written).not.toContain('Deleted title');

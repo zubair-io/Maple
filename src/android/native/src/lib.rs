@@ -1,0 +1,481 @@
+//! Android native binding. Colour and geometry remain in raw-core/raw-gpu.
+mod auto_white_balance;
+mod cancellation;
+mod canvas_zoom;
+mod crop_overlay;
+mod fields;
+mod film;
+mod native_detail;
+mod platform_raster;
+mod point_curve;
+mod preview;
+mod scopes;
+mod transfer;
+mod xmp;
+
+use preview::Session;
+use std::{
+    cell::RefCell,
+    ffi::{c_char, c_void, CStr, CString},
+    panic::{catch_unwind, AssertUnwindSafe},
+    ptr,
+    rc::Rc,
+};
+
+thread_local! { static ERROR: RefCell<CString> = RefCell::new(CString::new("").unwrap()); }
+
+fn guarded<T>(fallback: T, body: impl FnOnce() -> Result<T, String>) -> T {
+    match catch_unwind(AssertUnwindSafe(body)) {
+        Ok(Ok(value)) => value,
+        result => {
+            let message = match result {
+                Ok(Err(message)) => message,
+                Err(panic) => panic
+                    .downcast_ref::<String>()
+                    .cloned()
+                    .or_else(|| {
+                        panic
+                            .downcast_ref::<&str>()
+                            .map(|value| (*value).to_owned())
+                    })
+                    .unwrap_or_else(|| "Native operation failed".into()),
+                _ => "Native operation failed".into(),
+            };
+            ERROR
+                .with(|slot| *slot.borrow_mut() = CString::new(message.replace('\0', "")).unwrap());
+            fallback
+        }
+    }
+}
+
+unsafe fn text<'a>(value: *const c_char) -> Result<&'a str, String> {
+    if value.is_null() {
+        return Err("Missing string argument".into());
+    }
+    CStr::from_ptr(value).to_str().map_err(|e| e.to_string())
+}
+
+#[no_mangle]
+pub extern "C" fn maple_android_error() -> *const c_char {
+    ERROR.with(|slot| slot.borrow().as_ptr())
+}
+
+#[no_mangle]
+pub extern "C" fn maple_android_create_renderer() -> *mut c_void {
+    guarded(ptr::null_mut(), || {
+        Ok(Box::into_raw(Box::new(Rc::new(raw_gpu::GpuContext::new_blocking()?))).cast())
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn maple_android_close_renderer(context: *mut c_void) {
+    if !context.is_null() {
+        guarded((), || {
+            drop(Box::from_raw(context.cast::<Rc<raw_gpu::GpuContext>>()));
+            Ok(())
+        });
+    }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn maple_android_open(
+    context: *mut c_void,
+    path: *const c_char,
+    xml: *const c_char,
+    edge: u32,
+) -> *mut c_void {
+    guarded(ptr::null_mut(), || {
+        let context = context
+            .cast::<Rc<raw_gpu::GpuContext>>()
+            .as_ref()
+            .ok_or("Closed renderer")?;
+        Ok(Box::into_raw(Box::new(Session::open_with_context(
+            Rc::clone(context),
+            text(path)?,
+            text(xml)?,
+            edge,
+        )?))
+        .cast())
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn maple_android_close(handle: *mut c_void) {
+    if !handle.is_null() {
+        guarded((), || {
+            drop(Box::from_raw(handle.cast::<Session>()));
+            Ok(())
+        });
+    }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn maple_android_values(handle: *mut c_void) -> *mut c_char {
+    guarded(ptr::null_mut(), || {
+        let session = handle.cast::<Session>().as_ref().ok_or("Closed editor")?;
+        let mut values: serde_json::Map<String, serde_json::Value> =
+            raw_core::types::ADJUSTMENT_SCHEMA
+                .iter()
+                .enumerate()
+                .filter_map(|(i, spec)| {
+                    fields::get(&session.model, i)
+                        .map(|v| (spec.name.to_owned(), serde_json::json!(v)))
+                })
+                .collect();
+        let (temperature, tint) = session.white_balance_values();
+        let (shot_temperature, shot_tint) = session.as_shot_white_balance_values();
+        values.insert(
+            "_shot_temperature".into(),
+            serde_json::json!(shot_temperature),
+        );
+        values.insert("_shot_tint".into(), serde_json::json!(shot_tint));
+        values.insert("temperature".into(), serde_json::json!(temperature));
+        values.insert("tint".into(), serde_json::json!(tint));
+        values.insert(
+            "_raw".into(),
+            serde_json::json!(if session.source_is_raw() { 1.0 } else { 0.0 }),
+        );
+        values.insert(
+            "_uncropped_aspect".into(),
+            serde_json::json!(session.uncropped_aspect()),
+        );
+        values.insert("_aspect".into(), serde_json::json!(session.aspect()));
+        Ok(CString::new(serde_json::Value::Object(values).to_string())
+            .map_err(|e| e.to_string())?
+            .into_raw())
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn maple_android_scope(
+    pixels: *const u32,
+    count: usize,
+    width: u32,
+    height: u32,
+) -> *mut c_char {
+    guarded(ptr::null_mut(), || {
+        if pixels.is_null() || count > (raw_core::scope::SCOPE_SNAPSHOT_MAX_DIM as usize).pow(2) {
+            return Err("Invalid scope snapshot".into());
+        }
+        let values = scopes::sample(std::slice::from_raw_parts(pixels, count), width, height)?;
+        Ok(CString::new(values).map_err(|e| e.to_string())?.into_raw())
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn maple_android_parametric_curve(xml: *const c_char) -> *mut c_char {
+    guarded(ptr::null_mut(), || {
+        let model = xmp::parse(text(xml)?)?;
+        let points = raw_core::stages::tone_curves::parametric_curve_preview(&model);
+        Ok(
+            CString::new(serde_json::to_string(&points).map_err(|e| e.to_string())?)
+                .map_err(|e| e.to_string())?
+                .into_raw(),
+        )
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn maple_android_auto_wb_new(
+    handle: *mut c_void,
+    xml: *const c_char,
+) -> *mut c_void {
+    guarded(ptr::null_mut(), || {
+        let session = handle.cast::<Session>().as_ref().ok_or("Closed editor")?;
+        Ok(Box::into_raw(Box::new(session.prepare_auto_white_balance(text(xml)?)?)).cast())
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn maple_android_auto_wb_run(work: *const c_void) -> *mut c_char {
+    guarded(ptr::null_mut(), || {
+        let work = work
+            .cast::<auto_white_balance::AutoWhiteBalanceWork>()
+            .as_ref()
+            .ok_or("Closed white balance analysis")?;
+        Ok(CString::new(work.run()?)
+            .map_err(|error| error.to_string())?
+            .into_raw())
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn maple_android_auto_wb_free(work: *mut c_void) {
+    if !work.is_null() {
+        guarded((), || {
+            drop(Box::from_raw(
+                work.cast::<auto_white_balance::AutoWhiteBalanceWork>(),
+            ));
+            Ok(())
+        });
+    }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn maple_android_free_string(value: *mut c_char) {
+    if !value.is_null() {
+        drop(CString::from_raw(value));
+    }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn maple_android_set(handle: *mut c_void, index: usize, value: f32) -> i32 {
+    guarded(-1, || {
+        let session = handle.cast::<Session>().as_mut().ok_or("Closed editor")?;
+        if !session.source_is_raw() && !fields::raster_allowed(index) {
+            return Err("This adjustment requires a RAW source".into());
+        }
+        fields::set(&mut session.model, index, value)?;
+        Ok(0)
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn maple_android_model(handle: *mut c_void, xml: *const c_char) -> i32 {
+    guarded(-1, || {
+        let session = handle.cast::<Session>().as_mut().ok_or("Closed editor")?;
+        let model = xmp::parse(text(xml)?)?;
+        if !session.source_is_raw() {
+            raw_core::pipeline::validate_raster_adjustments(&model).map_err(|e| e.to_string())?;
+        }
+        session.model = model;
+        Ok(0)
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn maple_android_raster_compatible(xml: *const c_char) -> bool {
+    guarded(false, || {
+        let model = xmp::parse(text(xml)?)?;
+        Ok(raw_core::pipeline::validate_raster_adjustments(&model).is_ok())
+    })
+}
+
+#[cfg(target_os = "android")]
+#[no_mangle]
+pub unsafe extern "C" fn maple_android_surface(
+    handle: *mut c_void,
+    window: *mut c_void,
+    width: u32,
+    height: u32,
+    wide_color: bool,
+) -> i32 {
+    guarded(-1, || {
+        let session = handle.cast::<Session>().as_mut().ok_or("Closed editor")?;
+        // Drop the old surface before JNI releases its ANativeWindow reference.
+        session.surface = None;
+        if let Some(window) = std::ptr::NonNull::new(window) {
+            session.surface = Some(raw_gpu::AndroidPresentSurface::new(
+                &session.ctx,
+                window,
+                width,
+                height,
+                wide_color,
+            )?);
+            session.target_primaries = session.surface.as_ref().unwrap().target_primaries();
+        }
+        Ok(0)
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn maple_android_output_primaries(handle: *mut c_void) -> u32 {
+    guarded(0, || {
+        Ok(handle
+            .cast::<Session>()
+            .as_ref()
+            .ok_or("Closed editor")?
+            .target_primaries)
+    })
+}
+
+#[cfg(target_os = "android")]
+#[no_mangle]
+pub unsafe extern "C" fn maple_android_render(handle: *mut c_void, cancel: *const c_void) -> i32 {
+    guarded(-1, || {
+        let presented = handle
+            .cast::<Session>()
+            .as_mut()
+            .ok_or("Closed editor")?
+            .render(cancellation::token(cancel)?)?;
+        Ok(if presented { 0 } else { 1 })
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn maple_android_preparation_new(
+    handle: *mut c_void,
+    output: *mut *mut c_void,
+) -> i32 {
+    guarded(-1, || {
+        let session = handle.cast::<Session>().as_ref().ok_or("Closed editor")?;
+        *output = session
+            .preparation()
+            .map_or(ptr::null_mut(), |work| Box::into_raw(Box::new(work)).cast());
+        Ok(0)
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn maple_android_preparation_run(
+    handle: *mut c_void,
+    cancel: *const c_void,
+) -> i32 {
+    guarded(-1, || {
+        let work = handle
+            .cast::<preview::Preparation>()
+            .as_mut()
+            .ok_or("Closed preparation")?;
+        Ok(if work.run(cancellation::token(cancel)?)? {
+            0
+        } else {
+            1
+        })
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn maple_android_preparation_apply(
+    session: *mut c_void,
+    work: *mut c_void,
+    cancel: *const c_void,
+) -> i32 {
+    guarded(-1, || {
+        let session = session.cast::<Session>().as_mut().ok_or("Closed editor")?;
+        let work = work
+            .cast::<preview::Preparation>()
+            .as_mut()
+            .ok_or("Closed preparation")?;
+        Ok(
+            if session.apply_preparation(work, cancellation::token(cancel)?)? {
+                0
+            } else {
+                1
+            },
+        )
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn maple_android_preparation_free(handle: *mut c_void) {
+    if !handle.is_null() {
+        drop(Box::from_raw(handle.cast::<preview::Preparation>()));
+    }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn maple_android_thumbnail(
+    path: *const c_char,
+    destination: *const c_char,
+    xml: *const c_char,
+    edge: u32,
+) -> i32 {
+    guarded(-1, || {
+        transfer::thumbnail(text(path)?, text(destination)?, text(xml)?, edge)?;
+        Ok(0)
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn maple_android_shared_derivative(
+    path: *const c_char,
+    destination: *const c_char,
+    xml: *const c_char,
+    preview: bool,
+) -> i32 {
+    guarded(-1, || {
+        transfer::shared_derivative(text(path)?, text(destination)?, text(xml)?, preview)?;
+        Ok(0)
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn maple_android_cache_png(fd: i32, destination: *const c_char) -> i32 {
+    guarded(-1, || {
+        transfer::cache_png(fd, text(destination)?)?;
+        Ok(0)
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn maple_android_cache_valid(
+    fd: i32,
+    edge: u32,
+    format: *const c_char,
+) -> bool {
+    guarded(false, || transfer::cache_valid(fd, edge, text(format)?))
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn maple_android_export_configured(
+    path: *const c_char,
+    xml: *const c_char,
+    destination: *const c_char,
+    format: *const c_char,
+    quality: u32,
+    edge: u32,
+    p3: bool,
+) -> i32 {
+    guarded(-1, || {
+        transfer::export_configured(
+            text(path)?,
+            text(xml)?,
+            text(destination)?,
+            text(format)?,
+            quality,
+            edge,
+            p3,
+        )
+        .map(|_| 0)
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn maple_android_export(
+    path: *const c_char,
+    xml: *const c_char,
+    destination: *const c_char,
+) -> i32 {
+    guarded(-1, || {
+        transfer::export(text(path)?, text(xml)?, text(destination)?)?;
+        Ok(0)
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn maple_android_stage_bitmap(
+    pixels: *const u8,
+    width: u32,
+    height: u32,
+    stride: usize,
+    format: u32,
+    profile: *const f32,
+    destination: *const c_char,
+) -> i32 {
+    guarded(-1, || {
+        if pixels.is_null() || profile.is_null() {
+            return Err("Missing decoded pixels or color profile".into());
+        }
+        let row = (width as usize)
+            .checked_mul(platform_raster::pixel_bytes(format)?)
+            .ok_or("Invalid bitmap width")?;
+        let size = (height as usize)
+            .checked_sub(1)
+            .and_then(|h| h.checked_mul(stride))
+            .and_then(|offset| offset.checked_add(row))
+            .ok_or("Invalid bitmap size")?;
+        platform_raster::stage(
+            std::slice::from_raw_parts(pixels, size),
+            width,
+            height,
+            stride,
+            format,
+            &std::slice::from_raw_parts(profile, 16).try_into().unwrap(),
+            std::path::Path::new(text(destination)?),
+        )?;
+        Ok(0)
+    })
+}
+
+#[cfg(test)]
+mod export_tests;

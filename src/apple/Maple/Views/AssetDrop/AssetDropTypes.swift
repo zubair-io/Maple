@@ -23,6 +23,12 @@ enum AssetDropDestination: Equatable {
     case cloud(server: URL, libraryFolderID: String, libraryRootPath: String, absPath: String)
 }
 
+/// The SMB connection and browsed share a drop batch started on (#4987).
+struct SMBDropBinding {
+    let source: SMBSource
+    let share: SMBCredentialStore.SavedShare
+}
+
 // MARK: - AssetDropCollisionPrompt
 
 /// Carries a pending collision decision from `AppShell+AssetDrop.swift`'s

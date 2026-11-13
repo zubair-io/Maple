@@ -77,6 +77,8 @@ export interface RenderBitmapRequest {
   maxPx: number;
   quality: number;
   ext: string;
+  /** Crop to the crop the source's sidecar records (#5608). */
+  applyCrop?: boolean;
 }
 
 /** Decode-validate an AVIF this pipeline just wrote (`thumbs/avif-checks.ts`). */
@@ -96,6 +98,19 @@ export interface ExportRecipeRequest {
   filmPath: string | null;
   outPath: string;
 }
+/** Ask whether a sidecar document carries render adjustments (#5231). */
+export interface SidecarAdjustmentsRequest {
+  type: 'sidecarAdjustments';
+  id: number;
+  xmp: string;
+}
+export interface SidecarAdjustmentsResponse {
+  type: 'sidecarAdjustments';
+  id: number;
+  ok: boolean;
+  authored?: boolean;
+  error?: string;
+}
 export interface AsShotRequest {
   type: 'asShot';
   id: number;
@@ -114,6 +129,7 @@ export type FfiRequest =
   | { type: 'removalSource'; id: number; rawPath: string; records: string }
   | { type: 'validateRemovalAsset'; id: number; filePath: string; name: string }
   | AsShotRequest
+  | SidecarAdjustmentsRequest
   | ExportRecipeRequest
   | RegisterLensProfileRequest
   | RenderThumbRequest
@@ -129,6 +145,7 @@ const requestTypes = {
   removalSource: true,
   validateRemovalAsset: true,
   asShot: true,
+  sidecarAdjustments: true,
   exportRecipe: true,
   registerLensProfile: true,
   renderThumb: true,
@@ -206,6 +223,7 @@ export type FfiResponse =
   | { type: 'exportRecipe'; id: number; ok: boolean; error?: string }
   | { type: 'validateRemovalAsset'; id: number; ok: boolean; error?: string }
   | AsShotResponse
+  | SidecarAdjustmentsResponse
   | RegisterLensProfileResponse
   | RenderThumbResponse
   | HistogramResponse

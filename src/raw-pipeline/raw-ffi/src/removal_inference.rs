@@ -76,14 +76,16 @@ pub unsafe extern "C" fn maple_removal_reconstructor_open(
 /// model is null or an unfreed handle returned by open, exclusively owned here.
 #[no_mangle]
 pub unsafe extern "C" fn maple_removal_reconstructor_close(model: *mut MapleRemovalReconstructor) {
-    if !model.is_null() {
-        let model = Box::from_raw(model);
-        if !model.inner.is_null() {
-            drop(Box::from_raw(
-                model.inner.cast::<Mutex<RemovalReconstructor>>(),
-            ));
+    crate::error::catch_panic("maple_removal_reconstructor_close", (), || {
+        if !model.is_null() {
+            let model = Box::from_raw(model);
+            if !model.inner.is_null() {
+                drop(Box::from_raw(
+                    model.inner.cast::<Mutex<RemovalReconstructor>>(),
+                ));
+            }
         }
-    }
+    })
 }
 
 /// Identity of exactly the verified graph bytes consumed by this ORT session.
@@ -187,13 +189,15 @@ pub(super) unsafe fn operation<'a>(
 /// operation is null or a live operation, not freed concurrently.
 #[no_mangle]
 pub unsafe extern "C" fn maple_removal_inference_cancel(operation: *const MapleRemovalInference) {
-    if let Some(inner) = operation
-        .as_ref()
-        .and_then(|op| op.inner.cast::<Inference>().as_ref())
-    {
-        inner.cancelled.store(true, Ordering::Release);
-        let _ = inner.options.terminate();
-    }
+    crate::error::catch_panic("maple_removal_inference_cancel", (), || {
+        if let Some(inner) = operation
+            .as_ref()
+            .and_then(|op| op.inner.cast::<Inference>().as_ref())
+        {
+            inner.cancelled.store(true, Ordering::Release);
+            let _ = inner.options.terminate();
+        }
+    })
 }
 
 /// Release an operation after all its generation/cancellation calls return.
@@ -201,12 +205,14 @@ pub unsafe extern "C" fn maple_removal_inference_cancel(operation: *const MapleR
 /// operation is null or an unfreed exclusively owned operation.
 #[no_mangle]
 pub unsafe extern "C" fn maple_removal_inference_free(operation: *mut MapleRemovalInference) {
-    if !operation.is_null() {
-        let operation = Box::from_raw(operation);
-        if !operation.inner.is_null() {
-            drop(Box::from_raw(operation.inner.cast::<Inference>()));
+    crate::error::catch_panic("maple_removal_inference_free", (), || {
+        if !operation.is_null() {
+            let operation = Box::from_raw(operation);
+            if !operation.inner.is_null() {
+                drop(Box::from_raw(operation.inner.cast::<Inference>()));
+            }
         }
-    }
+    })
 }
 
 /// Generate CHW model-domain RGB. Inputs: 3*512² float RGB in [0,1] and

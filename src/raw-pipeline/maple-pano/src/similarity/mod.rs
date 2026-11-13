@@ -137,7 +137,7 @@ const SCALE_CAP: f64 = 4.0;
 /// σ-marginalization levels (mirrors the rotation RANSAC).
 const SIGMA_LEVELS: usize = 8;
 /// τ(σ) = TAU_SCALE·σ: 0.99-quantile of the χ distribution with 2 DOF.
-const TAU_SCALE: f64 = 3.0348;
+pub(crate) const TAU_SCALE: f64 = 3.0348;
 /// Final inlier gate in units of the Rayleigh σ̂.
 const INLIER_SCALE: f64 = 3.5;
 /// Rayleigh median: median of Rayleigh(σ) is σ·√(2 ln 2).

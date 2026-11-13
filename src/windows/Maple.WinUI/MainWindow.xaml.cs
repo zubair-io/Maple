@@ -143,7 +143,9 @@ namespace Maple.WinUI
             BuildStarRow();
             InitializeInspectorFocus();
             BuildEditRail();
+            BuildToneCurveControls();
             BuildGradePanel();
+            BuildColorCurvesPanel();
             BuildProfilePanel();
             BuildFilmPanel();
             BuildPresetsPanel();
@@ -162,6 +164,7 @@ namespace Maple.WinUI
                 SyncDemosaicPanel();
                 SyncLensPanel();
                 SyncGradeWheels();
+                SyncColorCurvesPanel();
                 if (_activeGroup == "Tone Curve")
                     RefreshCurvePlot();
                 SyncCropFromModel();
@@ -242,9 +245,9 @@ namespace Maple.WinUI
             FilmstripRail.Background = (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources["MapleSidebar"];
             FilmstripRail.Padding = new Thickness(0);
             FilmstripRail.CornerRadius = new CornerRadius(edit ? 12 : 0);
-            Grid.SetColumn(ViewerScroll, edit ? 0 : 1);
-            Grid.SetColumnSpan(ViewerScroll, edit ? 2 : 1);
-            ViewerScroll.Margin = edit ? new Thickness(0) : new Thickness(24, 96, 24, 24);
+            Grid.SetColumn(ViewerViewport, edit ? 0 : 1);
+            Grid.SetColumnSpan(ViewerViewport, edit ? 2 : 1);
+            ViewerViewport.Margin = edit ? new Thickness(0) : new Thickness(24, 96, 24, 24);
             Grid.SetColumn(EditTopBar, 0);
             Grid.SetColumnSpan(EditTopBar, 2);
             UpdateViewerChromeSize();

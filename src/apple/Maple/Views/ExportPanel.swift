@@ -62,8 +62,13 @@ struct ExportPanel: View {
         }
 
         Section("Output") {
-          Text("File: \(vm.outputFileName(for: session.asset))")
-            .foregroundStyle(.secondary)
+          #if os(macOS)
+            Text("File: \(vm.outputFileName(for: session.asset))")
+              .foregroundStyle(.secondary)
+          #else
+            Text("File: \(vm.resolvedOutputFileName ?? vm.outputFileName(for: session.asset))")
+              .foregroundStyle(.secondary)
+          #endif
           Text(vm.outputDimensionsDescription(for: session))
             .foregroundStyle(.secondary)
         }
@@ -126,10 +131,17 @@ struct ExportPanel: View {
         }
       }
     #else
+      .task(id: vm.format) {
+        await vm.refreshOutputFileName(for: session.asset)
+      }
       .sheet(item: $vm.stagedFile) { file in
         ExportShareSheet(fileURL: file.url) { completed in
-          vm.stagedFile = nil
-          if completed { dismiss() }
+          vm.finishSharing(completed: completed)
+          if completed {
+            dismiss()
+          } else {
+            Task { await vm.refreshOutputFileName(for: session.asset) }
+          }
         }
         .presentationDetents([.medium, .large])
       }

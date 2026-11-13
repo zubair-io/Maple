@@ -17,6 +17,8 @@ extension FocusedValues {
 struct CanvasZoomCommands: Commands {
   @FocusedValue(\.canvasZoomController) private var controller
   @FocusedValue(\.editorCommandRouter) private var router
+  @FocusedValue(\.editorCanUndo) private var editorCanUndo
+  @FocusedValue(\.editorCanRedo) private var editorCanRedo
   @StateObject private var textHistory = EditorTextHistory()
 
   var body: some Commands {
@@ -33,7 +35,7 @@ struct CanvasZoomCommands: Commands {
         Button("Zoom Out") { run(.zoomOut) { controller?.stepZoomOut() } }
           .keyboardShortcut("-", modifiers: .command)
       }
-      .disabled(router == nil && controller == nil)
+      .disabled((router == nil && controller == nil) || controller?.isZoomLocked == true)
       Button("Before / After") { run(.compareToggle) {} }
         .disabled(router == nil)
       Button("Reset Visible Group") { run(.resetGroup) {} }
@@ -76,8 +78,12 @@ struct CanvasZoomCommands: Commands {
     router?.state.armedTool == .remove && router?.state.removal.canRedoSelection == true
   }
 
-  private var canUndo: Bool { removalCanUndo || (router?.state.canUndo ?? false) }
-  private var canRedo: Bool { removalCanRedo || (router?.state.canRedo ?? false) }
+  private var canUndo: Bool {
+    removalCanUndo || (editorCanUndo ?? router?.state.canUndo ?? false)
+  }
+  private var canRedo: Bool {
+    removalCanRedo || (editorCanRedo ?? router?.state.canRedo ?? false)
+  }
 
   private func run(_ command: EditorCommandRouter.Command, fallback: () -> Void) {
     if let router {

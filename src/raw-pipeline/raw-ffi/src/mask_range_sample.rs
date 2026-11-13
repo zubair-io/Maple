@@ -10,12 +10,18 @@
 //! `15` neutral (no hue to select). Every non-zero code also sets
 //! `maple_last_error` with the user-facing message.
 
+use std::borrow::Cow;
 use std::os::raw::c_char;
 
-use raw_core::stages::mask_range_sample::{sample_mask_range, RangeSampleError, RangeSeed};
+use raw_core::stages::mask_range_sample::{
+    sample_mask_range, seed_skin_mask_range_if_default_inert, stage_input_model, RangeSampleError,
+    RangeSeed,
+};
 
-use crate::error::{set_last_error, with_large_stack};
+use crate::error::{catch_panic_rc, set_last_error, with_large_stack};
 use crate::model::{load_xmp_model_owned, LoadModel};
+use crate::scene_linear_chain::{chain_inputs_from_params, MapleAdjustmentParams};
+use crate::scene_linear_chain_curves::{inject_tone_curves, MapleToneCurves};
 use crate::white_balance_sample::display_point_to_sensor;
 
 #[repr(C)]
@@ -121,6 +127,106 @@ pub unsafe extern "C" fn maple_sample_mask_range_oriented(
     })
 }
 
+/// Evaluate whether the default skin-tone range (`55° ± 25°`) is inert over
+/// `face_mask_ptr` and `mask_ptr`. The candidate skin seed is derived from
+/// `face_mask_ptr` (facial skin pixels, excluding torso clothing) and applied
+/// only when it improves coverage over `mask_ptr`. When `params` is non-null,
+/// `rgba_ptr` is developed to the `local_adjustments` stage input using
+/// `params` and upstream scene-linear `curves` (excluding downstream display
+/// curves and post-mask stages). When `params` is null, `rgba_ptr` is read
+/// directly as an already-developed pre-`local_adjustments` scene-linear
+/// Rec.2020 `RGBAf` buffer.
+/// Writes the adaptive `MapleRangeSeed` to `out` and returns `0` when
+/// adaptation is needed, `1` when the default skin-tone range should be kept
+/// unchanged, `2` on invalid arguments, or `8` on chain failure.
+///
+/// # Safety
+/// `rgba_ptr` must point to `width * height * 4` `f32` values; `params` and
+/// `curves` may be null or valid pointers for the duration of the call;
+/// `mask_ptr` and `face_mask_ptr` must point to `mask_len` and `face_mask_len`
+/// (`width * height`) `u8` values respectively; `out` must point to writable
+/// storage for one `MapleRangeSeed`.
+#[no_mangle]
+pub unsafe extern "C" fn maple_seed_skin_mask_range_if_default_inert(
+    rgba_ptr: *const f32,
+    width: usize,
+    height: usize,
+    params: *const MapleAdjustmentParams,
+    curves: *const MapleToneCurves,
+    mask_ptr: *const u8,
+    mask_len: usize,
+    face_mask_ptr: *const u8,
+    face_mask_len: usize,
+    out: *mut MapleRangeSeed,
+) -> i32 {
+    catch_panic_rc("maple_seed_skin_mask_range_if_default_inert", || {
+        if rgba_ptr.is_null() || mask_ptr.is_null() || face_mask_ptr.is_null() || out.is_null() {
+            return 2;
+        }
+        let Some(pixel_count) = width.checked_mul(height) else {
+            return 2;
+        };
+        let Some(float_count) = pixel_count.checked_mul(4) else {
+            return 2;
+        };
+        if pixel_count == 0
+            || mask_len != pixel_count
+            || face_mask_len != pixel_count
+            || u32::try_from(width).is_err()
+            || u32::try_from(height).is_err()
+        {
+            return 2;
+        }
+        let rgba = unsafe { std::slice::from_raw_parts(rgba_ptr, float_count) };
+        let mask = unsafe { std::slice::from_raw_parts(mask_ptr, mask_len) };
+        let face_mask = unsafe { std::slice::from_raw_parts(face_mask_ptr, face_mask_len) };
+        let stage_rgba: Cow<'_, [f32]> = if params.is_null() {
+            Cow::Borrowed(rgba)
+        } else {
+            let p = unsafe { &*params };
+            let mut ci = match unsafe { chain_inputs_from_params(p) } {
+                Ok(ci) => ci,
+                Err(e) => {
+                    set_last_error(e);
+                    return 8;
+                }
+            };
+            if !curves.is_null() {
+                unsafe { inject_tone_curves(&mut ci.model, &*curves) };
+            }
+            let stage_model = stage_input_model(&ci.model);
+            let opts = ci.options(true);
+            match raw_core::pipeline::apply_scene_linear_chain_f32(
+                rgba,
+                width as u32,
+                height as u32,
+                &stage_model,
+                &opts,
+            ) {
+                Ok(v) => Cow::Owned(v),
+                Err(e) => {
+                    set_last_error(format!("seed_skin_mask_range: {}", e));
+                    return 8;
+                }
+            }
+        };
+        match seed_skin_mask_range_if_default_inert(&stage_rgba, width, height, mask, face_mask) {
+            Some(seed) => {
+                unsafe {
+                    *out = MapleRangeSeed {
+                        hue_deg: seed.hue_deg,
+                        chroma_min: seed.chroma_min,
+                        l_min: seed.l_min,
+                        l_max: seed.l_max,
+                    };
+                }
+                0
+            }
+            None => 1,
+        }
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -184,5 +290,97 @@ mod tests {
         assert_eq!(code_for(&RangeSampleError::TooDark), 13);
         assert_eq!(code_for(&RangeSampleError::Neutral), 15);
         assert_eq!(code_for(&RangeSampleError::Develop("x".into())), 3);
+    }
+
+    #[test]
+    fn skin_mask_seed_ffi_validates_and_adapts() {
+        let mut o = out();
+        assert_eq!(
+            unsafe {
+                maple_seed_skin_mask_range_if_default_inert(
+                    std::ptr::null(),
+                    8,
+                    8,
+                    std::ptr::null(),
+                    std::ptr::null(),
+                    std::ptr::null(),
+                    64,
+                    std::ptr::null(),
+                    64,
+                    &mut o,
+                )
+            },
+            2
+        );
+        let mask = [255_u8; 64];
+        let mut covered = Vec::with_capacity(64 * 4);
+        for _ in 0..64 {
+            covered.extend_from_slice(&[0.35_f32, 0.22, 0.14, 1.0]);
+        }
+        assert_eq!(
+            unsafe {
+                maple_seed_skin_mask_range_if_default_inert(
+                    covered.as_ptr(),
+                    8,
+                    8,
+                    std::ptr::null(),
+                    std::ptr::null(),
+                    mask.as_ptr(),
+                    mask.len(),
+                    mask.as_ptr(),
+                    mask.len(),
+                    &mut o,
+                )
+            },
+            1
+        );
+
+        let mut params: MapleAdjustmentParams = unsafe { std::mem::zeroed() };
+        params.temperature = 6500.0;
+        params.decoded_temperature = 6500.0;
+        params.skip_agx = 1;
+        let blue_boost = [0.0_f32, 0.06, 1.0, 0.06];
+        let mut display_only: MapleToneCurves = unsafe { std::mem::zeroed() };
+        display_only.display_blue_ptr = blue_boost.as_ptr();
+        display_only.display_blue_len = blue_boost.len();
+        assert_eq!(
+            unsafe {
+                maple_seed_skin_mask_range_if_default_inert(
+                    covered.as_ptr(),
+                    8,
+                    8,
+                    &params,
+                    &display_only,
+                    mask.as_ptr(),
+                    mask.len(),
+                    mask.as_ptr(),
+                    mask.len(),
+                    &mut o,
+                )
+            },
+            1
+        );
+
+        let mut upstream_curves: MapleToneCurves = unsafe { std::mem::zeroed() };
+        upstream_curves.blue_ptr = blue_boost.as_ptr();
+        upstream_curves.blue_len = blue_boost.len();
+        assert_eq!(
+            unsafe {
+                maple_seed_skin_mask_range_if_default_inert(
+                    covered.as_ptr(),
+                    8,
+                    8,
+                    &params,
+                    &upstream_curves,
+                    mask.as_ptr(),
+                    mask.len(),
+                    mask.as_ptr(),
+                    mask.len(),
+                    &mut o,
+                )
+            },
+            0
+        );
+        assert!(o.hue_deg < 20.0);
     }
 }

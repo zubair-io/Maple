@@ -25,6 +25,7 @@ import XCTest
       await session.renderActor.awaitCurrentRenderIfInFlight()
       let before = session.model
       let service = AgentEditService()
+      await session.loadSidecar()
       service.activate(session)
       try await AgentHTTPTestClient.withService(service) { client in
         let state = try await client.send(

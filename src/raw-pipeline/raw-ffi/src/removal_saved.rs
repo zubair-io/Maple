@@ -254,10 +254,12 @@ pub unsafe extern "C" fn maple_removal_saved_open(
 /// owner is null or a live owner returned by open, with no concurrent calls.
 #[no_mangle]
 pub unsafe extern "C" fn maple_removal_saved_close(owner: *mut MapleSavedRemovals) {
-    if !owner.is_null() {
-        let owner = Box::from_raw(owner);
-        drop(Box::from_raw(owner.inner.cast::<SavedState>()));
-    }
+    crate::error::catch_panic("maple_removal_saved_close", (), || {
+        if !owner.is_null() {
+            let owner = Box::from_raw(owner);
+            drop(Box::from_raw(owner.inner.cast::<SavedState>()));
+        }
+    })
 }
 
 /// Ordered dependency-review indices as UTF-8 JSON. 100 is a size probe;
@@ -448,15 +450,17 @@ fn film_lut(bytes: &[u8]) -> Result<Option<raw_core::film::FilmLut>, String> {
 /// with no concurrent access. The byte pointer/length must be unchanged.
 #[no_mangle]
 pub unsafe extern "C" fn maple_removal_saved_free_buffer(output: *mut MapleRemovalBuffer) {
-    if let Some(output) = output.as_mut() {
-        if !output.bytes.is_null() {
-            drop(Box::from_raw(std::ptr::slice_from_raw_parts_mut(
-                output.bytes,
-                output.len,
-            )));
+    crate::error::catch_panic("maple_removal_saved_free_buffer", (), || {
+        if let Some(output) = output.as_mut() {
+            if !output.bytes.is_null() {
+                drop(Box::from_raw(std::ptr::slice_from_raw_parts_mut(
+                    output.bytes,
+                    output.len,
+                )));
+            }
+            *output = MapleRemovalBuffer::empty();
         }
-        *output = MapleRemovalBuffer::empty();
-    }
+    })
 }
 
 #[cfg(test)]

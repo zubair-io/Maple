@@ -22,8 +22,8 @@ public class NativeDetailHandleTests
             Assert.True((ulong)geometry.CropX + geometry.CropWidth <= geometry.SensorWidth);
             Assert.True((ulong)geometry.CropY + geometry.CropHeight <= geometry.SensorHeight);
             var rejected = new MapleSceneLinearBufferF32();
-            Assert.Equal(9, RawFfi.maple_render_handle_scene_linear_tile_ae_f32(handle,
-                uint.MaxValue, 0, 2, 2, 2, 2, 0, 0, 0, 1, &rejected));
+            Assert.Equal(9, RawFfi.maple_render_handle_capture_tile_f32(handle,
+                uint.MaxValue, 0, 2, 2, 2, 2, 0, &rejected));
             Assert.True(rejected.f32_rgba == null);
             var width = Math.Min(32u, geometry.CropWidth);
             var height = Math.Min(32u, geometry.CropHeight);
@@ -34,8 +34,8 @@ public class NativeDetailHandleTests
                 var buffer = new MapleSceneLinearBufferF32();
                 try
                 {
-                    var rc = RawFfi.maple_render_handle_scene_linear_tile_ae_f32(handle,
-                        origin.Item1, origin.Item2, width, height, width, height, 0, 0, 0, 1, &buffer);
+                    var rc = RawFfi.maple_render_handle_capture_tile_f32(handle,
+                        origin.Item1, origin.Item2, width, height, width, height, 0, &buffer);
                     Assert.True(rc == 0, RawFfi.LastError());
                     Assert.Equal(width, buffer.width);
                     Assert.Equal(height, buffer.height);

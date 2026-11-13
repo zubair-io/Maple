@@ -9,7 +9,7 @@
 
 use super::gpu_live_tests::{
     direct_raw_gpu, make_params, nonidentity_curve, nonidentity_lut, owned_arrays,
-    scene_linear_rgba,
+    scene_linear_rgba, TEST_ISO,
 };
 use super::*;
 use raw_core::types::WbMethod;
@@ -184,6 +184,9 @@ fn gpu_live_render_p3_primaries_marshals_correctly() {
             color_grade_global_hue: model.color_grade_global_hue,
             color_grade_global_saturation: model.color_grade_global_saturation,
             color_grade_global_luminance: model.color_grade_global_luminance,
+            color_grade_blending: model.color_grade_blending,
+            color_grade_shadow_edge: model.color_grade_shadow_edge,
+            color_grade_highlight_edge: model.color_grade_highlight_edge,
             sharpen_amount: model.sharpen_amount,
             sharpen_radius: model.sharpen_radius,
             sharpen_detail: model.sharpen_detail,
@@ -199,9 +202,9 @@ fn gpu_live_render_p3_primaries_marshals_correctly() {
             target_primaries: 1,
             input_shape: raw_gpu::InputShape::PostDcpRec2020Fp16,
             // Auto/AgX view tail (#1722 default, value 0).
-            // No DNG NoiseProfile in this fixture — the flat NLM filter (#1714).
+            // Same absent-profile ISO fallback as the FFI params.
             noise_profile: Vec::new(),
-            iso: 0,
+            iso: TEST_ISO,
             // No film look in this fixture (epic #2683 default: off).
             film_strength: 0.0,
             film_lut_size: 0,
@@ -213,6 +216,15 @@ fn gpu_live_render_p3_primaries_marshals_correctly() {
                 green: model.display_tone_curve_green.points.clone(),
                 blue: model.display_tone_curve_blue.points.clone(),
             },
+            color_curves: raw_gpu::ColorCurveInputs {
+                hue_vs_hue: model.color_curve_hue_vs_hue.points.clone().into(),
+                hue_vs_sat: model.color_curve_hue_vs_sat.points.clone().into(),
+                hue_vs_luma: model.color_curve_hue_vs_luma.points.clone().into(),
+                luma_vs_sat: model.color_curve_luma_vs_sat.points.clone().into(),
+                sat_vs_sat: model.color_curve_sat_vs_sat.points.clone().into(),
+                sat_vs_luma: model.color_curve_sat_vs_luma.points.clone().into(),
+            },
+            creative: None,
         };
         let ctx = GpuContext::new_blocking().expect("gpu context");
         let session = LiveSession::new(&ctx, &input, w, h).expect("session");

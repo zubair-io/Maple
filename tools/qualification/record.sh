@@ -7,8 +7,8 @@
 # Runs <command...> in the foreground, tees its output, parses the suite's
 # own summary line for executed / failed / skipped counts, and hands the
 # numbers to `qualification-record` (src/raw-pipeline/codegen/src/qualification_record.rs),
-# which stamps the record with the current pipeline + schema version, the
-# source's declared expected count, and a blake3 hash of its declared
+# which stamps the record with the source's
+# declared expected count and a blake3 hash of its declared
 # corpus, then writes test-fixtures/qualification/<source>.json.
 #
 # With --check the record is NOT written: the run is compared against the
@@ -42,6 +42,10 @@ if [[ $# -lt 4 || "$3" != "--" ]]; then
 	exit 2
 fi
 source_id="$1"
+if [[ "$source_id" == "color_harness" ]]; then
+	echo "qualification: ACR color_harness is retired; use test_color_pipeline.sh for Auto vs embedded JPEG. Historical ACR records are not current Auto evidence." >&2
+	exit 2
+fi
 backend="$2"
 shift 3
 

@@ -1,10 +1,14 @@
 /**
- * /api/jobs — JobRunner HTTP surface.
+ * /api/jobs — the HTTP surface of user jobs.
  *
  *   POST /api/jobs                  — create a queued job, returns `{ id }`
  *   GET  /api/jobs/:id              — full job document with progress
  *   POST /api/jobs/:id/cancel       — set `cancel_requested: true`
  *   GET  /api/jobs?status=&kind=&limit=  — list jobs (newest first)
+ *
+ * Operator operations (`OPERATION_KINDS`) are rows here too, but their own
+ * routes create them: the list never shows them, and only the owner reads or
+ * cancels one by id.
  *
  * The route lives behind `requireAuth`, so it is registered inside the
  * auth-gated sub-app in `src/index.ts`. See `docs/workers-architecture.md`
@@ -17,6 +21,7 @@ import type { SqliteDb } from '../db/repos/db-handle.ts';
 import { ObjectId } from '../db/object-id.ts';
 import type { JobKind, JobStatus, JobWithId } from '../db/schema.ts';
 import { createJob, getJob, listJobs, requestCancel } from '../job-runner/jobs.repo.ts';
+import { OPERATION_KINDS } from '../db/repos/jobs.sql.ts';
 
 import { initialExportPayload } from '../export/export-initial-payload.ts';
 import { parseSyncPayload } from '../job-runner/handlers/batch-adjustment-sync.ts';
@@ -28,6 +33,10 @@ const KNOWN_KINDS: ReadonlySet<JobKind> = new Set([
   'batch_adjustment_sync',
   'batch_recipe_export',
 ]);
+/** Rows only an owner reads here: backup restores, and the operator one-shots,
+ * which their own routes report on. */
+const OWNER_ONLY_KINDS: ReadonlySet<string> = new Set(['cloud_backup_restore', ...OPERATION_KINDS]);
+
 const KNOWN_STATUSES: ReadonlySet<JobStatus> = new Set([
   'queued',
   'running',
@@ -152,7 +161,10 @@ export function createJobsRoutes(dbOverride?: SqliteDb) {
         if (typeof filter === 'string') return status(400, { error: filter });
         const owner = Reflect.get(context, 'auth')?.user?.role === 'owner';
         const docs = await listJobs(
-          { ...filter, ...(owner ? {} : { excludeKind: 'cloud_backup_restore' as const }) },
+          {
+            ...filter,
+            excludeKinds: owner ? OPERATION_KINDS : ['cloud_backup_restore', ...OPERATION_KINDS],
+          },
           dbOverride,
         );
         return {
@@ -167,7 +179,7 @@ export function createJobsRoutes(dbOverride?: SqliteDb) {
       if (!ObjectId.isValid(params.id)) return status(400, { error: 'Invalid job id' });
       const doc = await getJob(new ObjectId(params.id), dbOverride);
       if (!doc) return status(404, { error: 'Job not found' });
-      if (doc.kind === 'cloud_backup_restore') {
+      if (OWNER_ONLY_KINDS.has(doc.kind)) {
         const denial = requireOwnerBeforeHandle({
           auth: Reflect.get(context, 'auth'),
           set: context.set,
@@ -184,7 +196,7 @@ export function createJobsRoutes(dbOverride?: SqliteDb) {
         return { error: 'Invalid job id' };
       }
       const doc = await getJob(new ObjectId(params.id), dbOverride);
-      if (doc?.kind === 'cloud_backup_restore') {
+      if (doc !== null && OWNER_ONLY_KINDS.has(doc.kind)) {
         const denial = requireOwnerBeforeHandle({ auth: Reflect.get(context, 'auth'), set });
         if (denial) return denial;
       }

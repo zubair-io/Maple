@@ -20,8 +20,86 @@ PROPERTIES = "org.freedesktop.DBus.Properties"
 ACTION = "org.a11y.atspi.Action"
 VALUE = "org.a11y.atspi.Value"
 
+STATE_NAMES = (
+    "invalid",
+    "active",
+    "armed",
+    "busy",
+    "checked",
+    "collapsed",
+    "defunct",
+    "editable",
+    "enabled",
+    "expandable",
+    "expanded",
+    "focusable",
+    "focused",
+    "has-tooltip",
+    "horizontal",
+    "iconified",
+    "modal",
+    "multi-line",
+    "multiselectable",
+    "opaque",
+    "pressed",
+    "resizable",
+    "selectable",
+    "selected",
+    "sensitive",
+    "showing",
+    "single-line",
+    "stale",
+    "transient",
+    "vertical",
+    "visible",
+    "manages-descendants",
+    "indeterminate",
+    "required",
+    "truncated",
+    "animated",
+    "invalid-entry",
+    "supports-autocompletion",
+    "selectable-text",
+    "is-default",
+    "visited",
+    "checkable",
+    "has-popup",
+    "read-only",
+)
 
-def wait_for(check, process):
+
+def decode_state_set(words):
+    """AT-SPI `Accessible.GetState` returns the state set as a bitfield of
+    uint32 words (`au`): state N is bit N % 32 of word N // 32."""
+    return [
+        index * 32 + bit
+        for index, word in enumerate(words)
+        for bit in range(32)
+        if int(word) >> bit & 1
+    ]
+
+
+def node_states(accessible):
+    return decode_state_set(accessible.GetState())
+
+
+def format_tree(records):
+    lines = ["Owned Maple AT-SPI tree (path, name, role, states, actions, interfaces):"]
+    for record in records:
+        states = ", ".join(
+            STATE_NAMES[state] if 0 <= state < len(STATE_NAMES) else str(state)
+            for state in record["states"]
+        )
+        lines.append(
+            f"{'  ' * record['depth']}{record['path']} "
+            f"name={record['name']!r} role={record['role']} "
+            f"states=[{states}] actions=[{', '.join(record['actions'])}] "
+            f"interfaces=[{', '.join(record['interfaces'])}]"
+        )
+    return "\n".join(lines)
+
+
+def wait_for(check, process, description):
     deadline = time.monotonic() + 30
     while time.monotonic() < deadline:
         if process.poll() is not None:
@@ -36,7 +114,7 @@ def wait_for(check, process):
         if result:
             return result
         time.sleep(0.1)
-    raise RuntimeError("Accessibility check timed out")
+    raise RuntimeError(f"Accessibility check timed out waiting for {description}")
 
 
 def exposure_value(path):
@@ -112,7 +190,9 @@ def inspect(binary):
                             continue
                     return None
 
-                name, app_path = wait_for(own_application, process)
+                name, app_path = wait_for(
+                    own_application, process, "the owned Maple application"
+                )
 
                 def nodes():
                     records = []
@@ -157,6 +237,75 @@ def inspect(binary):
                         None,
                     )
 
+                def tree_dump():
+                    records = []
+                    seen = set()
+
+                    def query(getter, fallback):
+                        try:
+                            return getter()
+                        except dbus.DBusException:
+                            return fallback
+
+                    def walk(path, depth):
+                        if path in seen:
+                            return
+                        seen.add(path)
+                        obj = bus.get_object(name, path, introspect=False)
+                        accessible = dbus.Interface(obj, ACCESSIBLE)
+                        properties = dbus.Interface(obj, PROPERTIES)
+                        record = {
+                            "path": path,
+                            "depth": depth,
+                            "name": query(
+                                lambda: str(properties.Get(ACCESSIBLE, "Name")),
+                                "<unavailable>",
+                            ),
+                            "role": query(lambda: int(accessible.GetRole()), -1),
+                            "interfaces": query(
+                                lambda: [str(v) for v in accessible.GetInterfaces()],
+                                [],
+                            ),
+                            "states": query(
+                                lambda: node_states(accessible),
+                                [],
+                            ),
+                            "actions": [],
+                        }
+                        records.append(record)
+                        if ACTION in record["interfaces"]:
+                            record["actions"] = query(
+                                lambda: [
+                                    str(action[0])
+                                    for action in dbus.Interface(
+                                        obj, ACTION
+                                    ).GetActions()
+                                ],
+                                ["<unavailable>"],
+                            )
+                        for child_name, child_path in accessible.GetChildren():
+                            if str(child_name) != name:
+                                raise RuntimeError(
+                                    "Maple tree references another application"
+                                )
+                            walk(str(child_path), depth + 1)
+
+                    try:
+                        walk(app_path, 0)
+                    except (dbus.DBusException, RuntimeError) as error:
+                        records.append(
+                            {
+                                "path": "<tree walk stopped>",
+                                "depth": 0,
+                                "name": repr(error),
+                                "role": -1,
+                                "interfaces": [],
+                                "states": [],
+                                "actions": [],
+                            }
+                        )
+                    return format_tree(records)
+
                 def click(label):
                     def invoke():
                         obj = named(label, ACTION)
@@ -168,14 +317,22 @@ def inspect(binary):
                                 return bool(actions.DoAction(index))
                         raise RuntimeError(f"No click action for {label}")
 
-                    wait_for(invoke, process)
+                    wait_for(invoke, process, f"the click on {label!r}")
 
                 try:
                     # AT-SPI role 23 is Frame; role 51 is Slider (52 is SpinButton).
-                    wait_for(lambda: named("Maple", ACCESSIBLE, 23), process)
+                    wait_for(
+                        lambda: named("Maple", ACCESSIBLE, 23),
+                        process,
+                        "the Maple frame",
+                    )
                     click("Open grey.dng")
                     click("Light")
-                    slider = wait_for(lambda: named("Exposure", VALUE, 51), process)
+                    slider = wait_for(
+                        lambda: named("Exposure", VALUE, 51),
+                        process,
+                        "the Exposure slider",
+                    )
                     properties = dbus.Interface(slider, PROPERTIES)
                     if float(properties.Get(VALUE, "CurrentValue")) != 0.0:
                         raise RuntimeError("Unexpected initial exposure")
@@ -183,9 +340,17 @@ def inspect(binary):
                         VALUE, "CurrentValue", dbus.Double(0.75, variant_level=1)
                     )
                     sidecar = photo.with_suffix(".xmp")
-                    wait_for(lambda: exposure_value(sidecar) == 0.75, process)
+                    wait_for(
+                        lambda: exposure_value(sidecar) == 0.75,
+                        process,
+                        "the Exposure sidecar autosave",
+                    )
                     click("Undo")
-                    wait_for(lambda: exposure_value(sidecar) == 0.0, process)
+                    wait_for(
+                        lambda: exposure_value(sidecar) == 0.0,
+                        process,
+                        "the Undo sidecar autosave",
+                    )
                     if photo.read_bytes() != original_bytes:
                         raise RuntimeError("Original RAW was modified")
                     print(
@@ -195,6 +360,7 @@ def inspect(binary):
                 except Exception:
                     log.seek(0)
                     print(log.read())
+                    print(tree_dump())
                     raise
                 finally:
                     if process.poll() is None:

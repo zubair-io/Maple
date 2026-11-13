@@ -107,7 +107,7 @@ final class GpuLiveCanvasController {
             // been presented into the CURRENT layer yet" — so the kick
             // below schedules a real present and the backdrop covers the
             // gap until it lands.
-            session.gpuFramePresented = false
+            session.canvasLayerReplaced()
             // CanvasZoomHost has already (or will imminently) pushed the real
             // clipped viewport. Kick the first render without overwriting it
             // with this potentially sensor-sized leaf.

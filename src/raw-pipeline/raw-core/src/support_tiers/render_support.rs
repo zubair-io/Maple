@@ -87,7 +87,9 @@ mod tests {
             crop_rect: None,
             iso: 100,
             noise_profile: None,
+            sensor_gain_maps: None,
             opcode_list3: None,
+            opcode_skips: Vec::new(),
             aperture: None,
             focal_length: None,
         }

@@ -90,6 +90,7 @@ docs/                         # See docs/README.md for the index
 - **Adding an Angular component?** Read `docs/best-practices.md` § "Angular". TL;DR: standalone, signals, `input()`/`output()`, separate `.ts`/`.html`/`.scss` files, observables at the service layer, view models in components.
 - **Adding a Swift view?** Read `docs/best-practices.md` § "Swift". TL;DR: `@Observable`, actor-isolated I/O, generation-counter guards for async state.
 - **Touching the XMP schema?** Read `docs/xmp-canonical-format.md`. Schema changes are versioned; passthrough XML preserves unknown fields byte-for-byte.
+- **Writing Rust?** The house style is `.claude/skills/rust-style/SKILL.md` (the `rust-style` skill): the Google Rust Style Guide adapted to Maple, with the repo's stricter invariants (no panics on bad input, determinism, no render-loop allocation) listed first.
 - **Touching the describe stage?** Read `docs/indexer-enrichment.md` § describe first — it covers the structured `VisionDoc`, the preview-stage dependency, and the no-XMP-for-derived-data invariant. qwen2.5-vl is the sole OCR source.
 
 ## Build & test — Apple
@@ -132,7 +133,7 @@ If ΔE numbers don't move after a `raw-core` edit, the xcframework is stale. Reb
 
 ### UITest visual harness
 
-Companion to the Rust color-pipeline harness at `src/scripts/test_color_pipeline.sh`. Same metric (CIEDE2000), different scope: live SwiftUI canvas screenshot vs committed golden, instead of `maple-cli` PNG vs ACR reference. Lives in the `MapleUITests` Xcode target at `src/apple/MapleUITests/`.
+Companion to the Rust color-pipeline harness at `src/scripts/test_color_pipeline.sh`. Same metric (CIEDE2000), different scope: live SwiftUI canvas screenshot vs committed golden, instead of `maple-cli` PNG vs the embedded camera JPEG. Lives in the `MapleUITests` Xcode target at `src/apple/MapleUITests/`.
 
 Run locally:
 
@@ -148,7 +149,7 @@ No trailing `NAME=value` override needed (or wanted — see the #2366 note below
 
 The harness launches Maple with `MAPLE_UITEST_FIXTURE=test_0017.dng` (resolved against `MAPLE_UITEST_FIXTURE_ROOT`), waits for the refine pass to publish a preview (`canvas-render-ready` accessibility identifier flips on), screenshots the canvas, and diffs against the committed PNG at `src/apple/MapleUITests/Goldens/test_0017-default.png`. Goldens are tiny (canvas-only crop — no chrome) and commit to the repo.
 
-**#2366 — env vars need the `TEST_RUNNER_` prefix, not a plain `NAME=value` xcodebuild arg.** `UITestFixtureRoot.current()` (used by `MapleAppDriver`)/`GoldenStore.goldensRoot()` run inside the XCUITest _runner_ process (`MapleUITests-Runner.app`, distinct from the app under test), which only ever sees scheme-declared environment variables carrying the `TEST_RUNNER_` prefix (Xcode strips it before injecting them) — a plain `MAPLE_UITEST_FIXTURE_ROOT=...` trailing arg to `xcodebuild test` sets a _build setting_, not a process environment variable, so it never reaches either process. The scheme's `TestAction` (`shouldUseLaunchSchemeArgsEnv = "NO"`, its own `<EnvironmentVariables>` block) is the place Xcode actually consults for a test run, and the `TEST_RUNNER_` prefix is what carries a value across into the runner process at all — moving these back into `LaunchAction`, or dropping the prefix, silently reproduces the original bug. On the iOS Simulator the scheme's `$(PROJECT_DIR)` arrives in the runner unexpanded, so `MapleUITests/Helpers/UITestFixtureRoot.swift` treats it as unset and falls back to the repo root baked in at compile time (`#filePath`) — which is why the iPhone gates execute under plain `xcodebuild test`; a fixture missing there skip-passes, while one missing at an explicitly named `TEST_RUNNER_MAPLE_UITEST_FIXTURE_ROOT` fails. Located fixtures are then copied into a fresh tmp directory before the app launches — `Maple.entitlements`' sandbox has no grant for arbitrary repo paths, so pointing the app straight at `test-fixtures/raws/` loads an asset title with a permanently blank canvas (the read is silently denied); staging under `NSTemporaryDirectory()` is the same mechanism `SliderMatrixUITests`/`StagedFixture` already rely on.
+**#2366 — env vars need the `TEST_RUNNER_` prefix, not a plain `NAME=value` xcodebuild arg.** `UITestFixtureRoot.current()` (used by `MapleAppDriver`)/`GoldenStore.goldensRoot()` run inside the XCUITest _runner_ process (`MapleUITests-Runner.app`, distinct from the app under test), which only ever sees scheme-declared environment variables carrying the `TEST_RUNNER_` prefix (Xcode strips it before injecting them) — a plain `MAPLE_UITEST_FIXTURE_ROOT=...` trailing arg to `xcodebuild test` sets a _build setting_, not a process environment variable, so it never reaches either process. The scheme's `TestAction` (`shouldUseLaunchSchemeArgsEnv = "NO"`, its own `<EnvironmentVariables>` block) is the place Xcode actually consults for a test run, and the `TEST_RUNNER_` prefix is what carries a value across into the runner process at all — moving these back into `LaunchAction`, or dropping the prefix, silently reproduces the original bug. On the iOS Simulator the scheme's `$(PROJECT_DIR)` arrives in the runner unexpanded, so `MapleUITests/Helpers/UITestFixtureRoot.swift` treats it as unset and falls back to the repo root baked in at compile time (`#filePath`) — which is why the iPhone gates execute under plain `xcodebuild test`; a fixture missing there skip-passes, while one missing at an explicitly named `TEST_RUNNER_MAPLE_UITEST_FIXTURE_ROOT` fails. Located fixtures are then copied into a fresh tmp directory before the app launches — `Maple.entitlements`' sandbox has no grant for arbitrary repo paths, so pointing the app straight at `test-fixtures/raws/` loads an asset title with a permanently blank canvas (the read is silently denied); staging under `NSTemporaryDirectory()` is the same mechanism `StagedFixture` already relies on.
 
 Re-record by deleting the PNG and re-running — the harness will write a new baseline and fail with a "baseline written" message. Open the file, eyeball it, then commit + re-run.
 
@@ -167,21 +168,9 @@ python3 src/scripts/compare_images.py \
   > src/apple/MapleUITests/Goldens/.calibration/expected.json
 ```
 
-### Slider-matrix harness
+### Slider-matrix harness (retired)
 
-Companion test class `SliderMatrixUITests` (Ticket 10-C) at `src/apple/MapleUITests/SliderMatrixUITests.swift`. Iterates every committed slider XMP under `test-fixtures/references/test_NNNN/xmp/` against the matching ACR-rendered reference at `test-fixtures/references/test_NNNN/down/<case>.png`. Per case: stages a tmp dir with the RAW + XMP renamed to `<stem>.xmp`, relaunches Maple pointed at the tmp, screenshots the canvas, resizes both to 1024px long edge, CIEDE2000-diffs.
-
-Run:
-
-```bash
-xcodebuild test \
-  -project src/apple/Maple.xcodeproj \
-  -scheme "Maple" \
-  -destination 'platform=macOS' \
-  -only-testing:MapleUITests/SliderMatrixUITests
-```
-
-Budgets are loose (mean ≤ 25, p95 ≤ 50, max ≤ 100, bias ≤ 0.10) to absorb the Maple-AgX-vs-ACR view-transform delta — ratchet downward as the pipeline tightens. Skip-passes when fixtures or references are absent. JSON-per-case report goes to stderr; failed cases attach candidate + reference PNGs as `XCTAttachment`s for triage.
+`SliderMatrixUITests` compared per-slider canvas screenshots against ACR-rendered references. ACR comparisons were retired from CI and colour gates by owner direction (#5000); the test source is archived at `test-fixtures/qualification/experiments/retired-acr/SliderMatrixUITests.swift.txt` and is no longer part of the `MapleUITests` target. Do not reinstate it or ACR targets. Colour accuracy is gated by `src/scripts/test_color_pipeline.sh` (Auto vs the embedded camera JPEG).
 
 ## Build & test — Web
 
@@ -228,7 +217,7 @@ bun run dev                   # Elysia on http://localhost:3000
 ./src/api/scripts/build-raw-ffi.sh
 ```
 
-The API serves the pre-built `src/web` Angular bundle for a complete Self Hosted deploy. There is no database service to start: the whole library index is one SQLite file at `./data/maple.sqlite` (override via `MAPLE_SQLITE_PATH`), which the server creates and migrates on its first boot.
+The API serves the pre-built `src/web` Angular bundle for a complete Self Hosted deploy. Pipeline stages, the discover sweep, user jobs, folder imports and scheduled maintenance (including the auth expiry sweep and the nightly SQLite backup, which no longer run in the API process) run on a Temporal server, `127.0.0.1:7233` unless Settings → Workers says otherwise; `temporal server start-dev` is enough for development, and `bun test` starts its own. `docs/temporal.md` covers the lanes, outages and the one-namespace-per-server rule. There is no database service to start: the whole library index is one SQLite file at `./data/maple.sqlite` (override via `MAPLE_SQLITE_PATH`), which the server creates and migrates on its first boot.
 
 ## Build & test — Rust core
 
@@ -237,7 +226,7 @@ cd src/raw-pipeline
 cargo test -p raw-core --lib            # ~840 lib tests (70 ignored, fixture-gated)
 cargo test -p raw-core --all-features   # includes fixture-gated tests
 
-# Color pipeline harness (CI gate — diffs vs ACR references, per-case budgets in test-fixtures/budgets.json)
+# Color accuracy gate (CI gate — Auto vs each RAW's embedded camera JPEG)
 src/scripts/test_color_pipeline.sh
 FILTER=baseline src/scripts/test_color_pipeline.sh   # subset to baseline cases for a fast spot-check
 
@@ -256,48 +245,74 @@ cargo run --release -p raw-core --example stage-trace -- <DNG> <X> <Y>
 cargo run --release -p raw-core --example raw-stats -- <DNG>
 ```
 
-Fixtures at `test-fixtures/raws/` (repo-root, not under `src/raw-pipeline/`) are gitignored. Reference RAW is a 100MP Hasselblad L3D-100c (DJI Mavic 3 Pro) frame at `test-fixtures/raws/dji-mavic3pro-100mp.dng`.
+Fixtures at `test-fixtures/raws/` (repo-root, not under `src/raw-pipeline/`) are gitignored. Reference RAW is a 100MP Hasselblad L3D-100c (DJI Mavic 4 Pro) frame at `test-fixtures/raws/dji-mavic3pro-100mp.dng`.
 
-## Objective color testing — no eyeballing
+### Shared Rust builds (sccache) — required on any machine with several worktrees
 
-Every color-pipeline change must pass the perceptual harness against ACR-rendered references. Screenshot comparisons are not acceptable evidence.
-
-The testing surface has two layers — a broad end-to-end gate and per-domain unit/integration gates that all run in CI:
+Every worktree builds its own `src/raw-pipeline/target` (20–27 GB each, release builds take 5–25 minutes), and a few parallel sessions will fill a disk and starve each other of CPU. Compile through `sccache` so identical crate compilations are shared across all worktrees and branches:
 
 ```bash
-# Broad end-to-end perceptual gate (the canonical color-correctness signal).
-src/scripts/test_color_pipeline.sh
-
-# Per-domain gates (fast unit/integration tests for specific subsystems).
-src/scripts/test_synthetic_grey.sh        # neutral pipeline + flatness invariants on a hand-rolled DNG
-src/scripts/test_grey_adjustments.sh      # closed-form predictors for every scene-linear slider + ACR parity
-src/scripts/test_grey_dcp.sh              # DCP code-path coverage (ColorMatrix1/2, ForwardMatrix1/2, PTC)
+brew install sccache
+mkdir -p ~/.cargo && touch ~/.cargo/config.toml
+cargo config get build.rustc-wrapper   # see what is already set before changing anything
 ```
 
-The end-to-end gate runs `maple-cli batch` against every case in `test-fixtures/references/manifest.json`, diffs each candidate vs. the ACR-rendered reference, and gates per-fixture × per-case `mean / p95 / max / bias` against `test-fixtures/budgets.json`. **Budgets are a one-way ratchet — they can only go down.** Lowering a budget happens in the same commit that delivers the improvement.
+Then **merge** these keys into `~/.cargo/config.toml`; if it already has a `[build]` or `[env]` table, add the keys to that table instead of appending a duplicate table (a duplicate table makes cargo reject the file):
 
-Adding a new case to the end-to-end gate:
+```toml
+[build]
+rustc-wrapper = "sccache"
+incremental = false        # sccache cannot cache incremental builds
 
-1. Render the ACR reference and place it under `test-fixtures/references/test_NNNN/down/<case>.png`.
-2. Add the case to `test-fixtures/references/manifest.json`.
-3. Run the harness once — it will FAIL with `no-budget-entry` for the new case.
-4. Inspect the printed `mean`/`p95`/`max`/`bias`, add a `budgets.json` entry whose ceilings are roughly 5–10% above those numbers (or pipe the captured table through `tools/budget_init.py` and merge).
-5. Commit the case, manifest entry, and budgets.json entry together.
+[env]
+SCCACHE_CACHE_SIZE = "60G"
+```
 
-Spot-check a single fixture:
+Verify with `cargo config get build.rustc-wrapper` and `sccache -s` (hits appear after a second build in another worktree).
+
+- The cache lives outside the worktrees (`~/Library/Caches/Mozilla.sccache`), so deleting a worktree's `target/` is cheap: the next build is mostly cache hits.
+- `build-xcframework.sh` hardcodes `CARGO_TARGET_DIR`; sccache still applies because it wraps `rustc`, not the target dir. Do not point worktrees at one shared `CARGO_TARGET_DIR`: concurrent builds then serialize on cargo's lock and thrash each other's fingerprints.
+- When a build is finished and you are idle, delete your worktree's `target/`, `.build/` and DerivedData; CI, not a local build, is the merge evidence.
+
+### Parallel agents and shared CI
+
+- **Rebase once, right before merge.** Every push restarts the whole CI suite. While iterating, push a fix once and do not chase `main` with repeated rebases. When the PR is otherwise ready, rebase onto the current `main` once (or earlier if GitHub reports a real conflict, merge state `DIRTY`), so the required checks run against the base the PR will land on. That one rebase is the merge contract; the rule is about not rebasing on every `main` advance in between.
+- **Silent reinterpretation needs a converter (#5007).** There is no pipeline output version to bump anymore, and evidence records are gated only on their corpus, so a colour change needs no version bump and no record re-recording. But a change that alters what an already-stored sidecar value _means_ must ship a per-field, load-time converter in the same PR — a version stamp on the affected field plus conversion into the current frame on load, following the `papp:WbScaleVersion` pattern (`docs/xmp-canonical-format.md`) with implementations in raw-core and each platform reader, pinned by tests. No converter, no merge. A semantics-version bump (for example a new `WbScaleVersion`) must also re-record `sidecar_contract_apple` and `sidecar_contract_api` in the same PR — no version gate remains to stale them automatically. Pure pixel-math changes need nothing beyond the colour harness.
+- **Heavy local suites one at a time.** Check `uptime` first and wait if the one-minute load is above about 40; never use broad `pkill -f` patterns, stop only the processes you started, by PID.
+
+## Objective color testing — embedded camera JPEG
+
+Auto's appearance target is the camera's embedded JPEG. Neutral retains its
+AgX appearance. Adobe Camera Raw image comparisons are retired from CI and
+color test gates by explicit owner direction (#5000); they are not merge or
+qualification requirements. Do not reinstate ACR targets to diagnose Auto.
 
 ```bash
+src/scripts/test_color_pipeline.sh            # canonical Auto-to-JPEG gate
 FILTER=test_0000 src/scripts/test_color_pipeline.sh
-FILTER=baseline src/scripts/test_color_pipeline.sh
+src/scripts/test_synthetic_grey.sh            # neutral/flatness invariants
+src/scripts/test_grey_adjustments.sh          # closed-form slider predictors
+src/scripts/test_grey_dcp.sh                  # DCP matrix-path correctness
 ```
 
-Sanity check vs the camera's embedded JPEG preview (NOT a CI gate — varies per camera body):
+The physical Auto gate renders each RAW with Profile=Auto and compares it to
+its own extracted, display-oriented, sRGB-normalized embedded JPEG. It measures
+signed RGB bias in five reference-luma bands at the unchanged 0.05 limit.
+Render errors, empty fixture selections and zero measurable comparisons fail.
+Missing embedded previews are reported separately, never as passing matches.
+CI without RAWs explicitly reports physical accuracy as NOT TESTED.
 
-```bash
-tools/sanity-checks/test_embedded_preview.sh
-```
+`MAPLE_CLI` pins a renderer, `RAW_DIR` selects physical RAWs, and `OUTPUT_DIR`
+selects a new evidence directory. `MANIFEST` may select baseline RAW paths;
+its Adobe outputs are never read. Preserve per-image PNGs, logs, hashes and
+metrics. Do not loosen the JPEG bias budget to conceal failures.
 
-When fixtures aren't present locally (e.g. CI without the gitignored RAWs), every gate skip-passes with a "skipping" message and exit 0 — so CI without fixtures doesn't fail spuriously.
+Keep independent closed-form math, sensor/decode, exposure, white balance,
+clipping, detail, CPU/GPU parity and performance tests. Internal algorithms
+with historical Adobe names remain tested against mathematical or JPEG targets.
+Historical ACR results and manual `diagnose_acr_*.sh` tools remain diagnostic
+records, not active color tests. The legacy `color_harness` qualification record
+is archived evidence, not proof of Auto-to-JPEG accuracy.
 
 ## Cross-platform parity
 
@@ -331,11 +346,11 @@ If a new feature adds allocation inside the render loop, it does not ship. If it
 - **Every PR closes a ticket.** Before starting work, ensure a GitHub issue exists for it — if not, open one (`gh issue create`) and add it to the right Project board (Files for FP work, KTLO for hygiene/bugs/refactors). Every PR description must include a `Closes #N` (or `Fixes #N`) line so the ticket auto-closes on merge. No drive-by PRs without a ticket.
 - **Open PRs as ready for review, not draft.** Drafts don't trigger CI or code review; open every PR ready so the gates run and reviewers see it immediately. If a branch genuinely isn't ready, don't push the PR yet.
 - **Merge PRs with "Rebase and merge," keep feature branches rebase-clean.** This repo uses GitHub's "Rebase and merge" as the standard merge strategy, not "Create a merge commit" or "Squash and merge" — it keeps `main`'s history linear and matches each landed commit to a real, individually-reviewable change. That means a feature branch must itself stay linear: when `main` has moved ahead, bring it up to date with `git fetch origin main && git rebase origin/main` (resolving any per-commit conflicts as they come up) and `git push --force-with-lease`, not `git merge origin/main`. A branch containing merge commits can't be rebased onto `main` by GitHub's UI ("This branch cannot be rebased due to conflicts") even when the actual content has no conflicts — if that happens, rebase the branch onto `main` locally to linearize it (dropping the merge commits) before pushing again.
-- **A mergeable PR is green on the base it will actually land on.** Two conditions, both of which this repo has already failed. The first is that no required check is red or still pending at the moment of the merge — a failure that "looks unrelated" and a check that is believed to be flaky both still count as red, and check state is read fresh at merge time rather than carried over from earlier in the day. Genuinely broken CI infrastructure is the one exception, and it gets fixed or explicitly waived rather than merged past. The second is that the checks were validated against the current tip of `main`. CI only ever proves something about the base commit it ran on, so a branch whose base has moved needs `git fetch origin main && git rebase origin/main && git push --force-with-lease` and a fresh run before it lands. That second condition is what catches semantic conflicts, where two changes are each correct alone and wrong together — on 2026-07-25 `main` went red on four checks because #943 and #944 each added a `_dialog-chrome.scss` partial under a different directory and a component ended up `@use`-ing both as `chrome`, and because an export PR took `raw-pipeline.service.ts` to 599 lines just before another PR's +19 broke the 600-line ceiling. Neither pair conflicted textually, so git merged both silently and nothing re-ran until the push to `main`. The shared-resource gates are where this bites: file-budget LOC ceilings, SCSS and TS module namespaces, codegen drift, parity budgets — headroom one PR can consume out from under another. A red `main` also outranks new feature work, because every open PR is now building on a broken base and its own green checks have stopped meaning anything.
+- **Required checks must pass before merge; freshness is required for releases.** Read check state fresh at merge time: a red or pending required check blocks merging. Ordinary PRs may auto-merge without rebasing onto every new main commit, provided GitHub reports no conflicts and required checks pass. Rebase for actual conflicts and use fresh CI after changing a PR. Release creation validates a pinned main revision and refuses to tag if main moves; the required release handoff check only allows the exact version-only commit whose parent is current main. Every main push refreshes that gate. See `docs/releases.md` for release freshness and its asynchronous race limits.
 - **Configure via the settings system, not new env vars.** App and runtime configuration belongs in Maple's DB-backed settings (the `worker_config` / enrichment-config tables, surfaced through the settings pages — `/settings/workers`, `/settings/enrichment`), not in new environment variables. A DB-backed setting is operator-toggleable at runtime (no restart, no shell access on the server) and shows up in the UI; an env var is invisible and requires a redeploy. New feature toggles and tunables (diagnostics, thresholds, worker knobs) must be added as settings with a control on the relevant settings page. Reserve environment variables for deploy/infra bootstrap that must be known before the DB is reachable — port, `MAPLE_SQLITE_PATH`, process role, secrets. (Existing env-gated diagnostics like `MAPLE_DIAG_EVENTLOOP` should migrate to settings when next touched, not be extended.)
-- **Ongoing per-asset work is a pipeline stage, not a job or a settings-page button.** Anything whose job is "eventually, every eligible asset gets property X" — generate a derivative, mirror it somewhere, compute a metric — belongs in `src/api/src/workers/stages/` as a `defineStage()` stage (`workers/stage-config.ts`, `workers/run-stage.ts`), the same shape as `exif`, `thumb`, `describe`, `geocode`. A stage gets pause/resume, concurrency, retry/backoff, dead-letter, and a live progress row on Settings → Workers for free from that generic machinery; a one-off JobRunner job (`workers/job-runner/`) or a bespoke settings-page trigger button reimplements a worse version of the same thing and is invisible to the operator anywhere else. Registering a stage takes three additions: the stage's own `startXStage()` export, an entry in `workers/stages/manifest.ts` (both `stageManifest` and `ALL_STAGE_NAMES` — this is what makes existing assets retroactively eligible and what the generic `/api/workers/status` progress counters key off), an entry in `workers/orchestrator.ts`'s `STAGE_STARTERS` (what actually boots the poll loop), and — for a clean label rather than the generic fallback — a `STAGE_META` entry in the web app's `workers.vm.ts`. A stage whose usefulness depends on external configuration the operator hasn't necessarily set yet (an API key, a self-hosted service URL) starts `pausedOnFirstBoot: true` (see `geocode.ts`) rather than silently marking every asset done before that configuration exists — a version-gated stage's `{ skip }` / `{ wrote }` / `{ patch }` return marks that asset permanently handled for the stage, so "not configured yet" must never reach that return path.
+- **Ongoing per-asset work is a pipeline stage, not a job or a settings-page button.** Anything whose job is "eventually, every eligible asset gets property X" — generate a derivative, mirror it somewhere, compute a metric — belongs in `src/api/src/workers/stages/` as a `defineStage()` stage (`workers/stage-config.ts`, `workers/run-stage.ts`), the same shape as `exif`, `thumb`, `describe`, `geocode`. A stage gets pause/resume, concurrency, retry/backoff, dead-letter, and a live progress row on Settings → Workers for free from that generic machinery; a one-off job (`job-runner/`) or a bespoke settings-page trigger button reimplements a worse version of the same thing and is invisible to the operator anywhere else. Registering a stage takes three additions: the stage file itself, exporting its definition and a `start<Name>Stage()` that calls `runStage`; its name in `ALL_STAGE_NAMES` (`workers/stages/stage-names.ts` — this is what makes existing assets retroactively eligible and what the generic `/api/workers/status` progress counters key off); and its `{ definition, start }` entry in `stageRegistrations` (`workers/stages/manifest.ts`), which is what the orchestrator boots (`stageManifest` is derived from it, and the type check refuses a name without an entry). For a clean label rather than the generic fallback, add a `STAGE_META` entry in the web app's `workers-stage-meta.ts`. A stage whose usefulness depends on external configuration the operator hasn't necessarily set yet (an API key, a self-hosted service URL) starts `pausedOnFirstBoot: true` (see `geocode.ts`) rather than silently marking every asset done before that configuration exists — a version-gated stage's `{ skip }` / `{ wrote }` / `{ patch }` return marks that asset permanently handled for the stage, so "not configured yet" must never reach that return path.
 
-  Reserve the JobRunner (`workers/job-runner/`, e.g. `batch_jpeg_export`, `pano_stitch`) for genuinely one-off, user-selected actions bounded to a specific request — export these N chosen photos, stitch this specific panorama — where there's no general "make every asset eventually satisfy this" backlog to keep working through.
+  Reserve jobs (`job-runner/`, e.g. `batch_jpeg_export`, `pano_stitch`, run on Temporal) for genuinely one-off, user-selected actions bounded to a specific request — export these N chosen photos, stitch this specific panorama — where there's no general "make every asset eventually satisfy this" backlog to keep working through. Operator one-shots — "Reconcile now", "Run clustering", a folder scan — are job kinds too (`mirror_reconcile`, `people_cluster`, `folder_scan`), but on a second lane, the `maple-operations` task queue (`job-runner/operation-queue.ts`), so they never queue behind a user's export or stitch; the database admits one active operation per kind (per folder for scans). A run-now button for a scheduled maintenance task is not a job: it is a forced request in `workers/maintenance/run-now.repo.ts`.
 
 ## Code commenting & token efficiency
 

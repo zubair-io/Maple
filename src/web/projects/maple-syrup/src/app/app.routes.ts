@@ -1,11 +1,22 @@
-import { Routes } from '@angular/router';
+import { inject } from '@angular/core';
+import { CanActivateFn, Router, Routes } from '@angular/router';
 import {
   BrowseShellComponent,
+  LibraryStateService,
   PreviewShellComponent,
   ProtocolHandlerComponent,
 } from '@maple-common';
 import { LandingComponent } from './landing/landing.component';
 import { HostedEditorRouteComponent } from './hosted-editor-route/hosted-editor-route.component';
+
+// A cold /browse navigation has no in-memory folder handle. Return to the
+// welcome screen, which offers saved local folders for reconnection.
+const hostedBrowseWithSource: CanActivateFn = () => {
+  const state = inject(LibraryStateService);
+  return state.currentFolder() || state.assets().length > 0
+    ? true
+    : inject(Router).createUrlTree(['/']);
+};
 
 // Hosted: `/` is the Landing page with two CTAs. Users enter Browse or the
 // Editor explicitly from there.
@@ -26,9 +37,10 @@ const baseRoutes: Routes = [
   // M2: path-based routes replacing ?folder= and fs: scheme.
   {
     path: 'browse/:slug',
+    canActivate: [hostedBrowseWithSource],
     children: [{ path: '**', component: BrowseShellComponent }],
   },
-  { path: 'browse', component: BrowseShellComponent },
+  { path: 'browse', component: BrowseShellComponent, canActivate: [hostedBrowseWithSource] },
   {
     path: 'edit/:slug',
     children: [{ path: '**', component: HostedEditorRouteComponent }],

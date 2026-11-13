@@ -70,11 +70,25 @@
                   class="thumb-ring pointer-events-none absolute inset-0 rounded-sm border-2 border-transparent transition-[border-color] duration-[80ms] group-[.is-selected]:border-primary"
                   aria-hidden="true"
                 ></div>
-                @if (p.hidden) {
-                  <div
-                    class="absolute left-1 top-1 flex h-[14px] px-1 items-center justify-center rounded-[3px] border-[0.5px] border-error-text bg-error-bg/90 backdrop-blur-[4px] text-[8px] font-semibold text-error-text"
-                  >
-                    HIDDEN
+                @if (p.hidden || p.stack) {
+                  <div class="absolute left-1 top-1 flex flex-col items-start gap-0.5">
+                    @if (p.stack) {
+                      <div
+                        data-testid="stack-badge"
+                        role="img"
+                        aria-label="RAW and JPEG"
+                        class="flex h-[14px] px-1 items-center justify-center rounded-[3px] border-[0.5px] border-white/20 bg-black/60 backdrop-blur-[4px] text-[8px] font-semibold text-white"
+                      >
+                        RAW+JPEG
+                      </div>
+                    }
+                    @if (p.hidden) {
+                      <div
+                        class="flex h-[14px] px-1 items-center justify-center rounded-[3px] border-[0.5px] border-error-text bg-error-bg/90 backdrop-blur-[4px] text-[8px] font-semibold text-error-text"
+                      >
+                        HIDDEN
+                      </div>
+                    }
                   </div>
                 }
                 @if (p.rating > 0) {

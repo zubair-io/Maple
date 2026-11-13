@@ -8,7 +8,7 @@
  * - `last_run`: telemetry from the most recent sweep pass.
  *
  * DB-backed per the CLAUDE.md "configure via the settings system" rule — operator-tunable
- * from Settings → Workers, re-read each sweep tick so changes take effect without restart.
+ * from Settings → Workers, re-read each pass so changes take effect without restart.
  */
 
 import {

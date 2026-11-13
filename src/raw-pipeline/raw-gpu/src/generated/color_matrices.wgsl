@@ -77,3 +77,6 @@ fn mul_srgb_to_rec2020(v: vec3<f32>) -> vec3<f32> {
 
 // Existing import-default maximum attenuation (#4112).
 const SHARPEN_PRESERVED_DARKENING: f32 = 0.4f;
+// Dark-channel transmission guards from stages/dehaze.rs (#4654).
+const DEHAZE_TRANSMISSION_OMEGA: f32 = 0.95f;
+const DEHAZE_AIRLIGHT_FLOOR: f32 = 1e-6f;

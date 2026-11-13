@@ -34,6 +34,30 @@ public struct FsImageExif: Decodable, Equatable, Sendable {
   }
 }
 
+/// One half of an Apple Live Photo pair, as the folder listing reports it
+/// (docs/api.md "Live Photo pairs"): this entry's role and the filename of
+/// the other half in the same folder.
+public struct LivePhotoLink: Decodable, Hashable, Sendable {
+  public enum Role: String, Decodable, Hashable, Sendable {
+    case still
+    case clip
+  }
+
+  public let role: Role
+  public let partner: String
+
+  public init(role: Role, partner: String) {
+    self.role = role
+    self.partner = partner
+  }
+
+  /// The partner's `fs:<absolute path>` id: this entry's folder plus the partner filename.
+  public func partnerRefID(ofRefID refID: String) -> String {
+    guard let separator = refID.lastIndex(of: "/") else { return partner }
+    return "\(refID[...separator])\(partner)"
+  }
+}
+
 /// One image entry from `/api/folder/:slug/*`.
 public struct FsImageEntry: Decodable, Equatable, Sendable {
   public let name: String
@@ -42,6 +66,7 @@ public struct FsImageEntry: Decodable, Equatable, Sendable {
   public let size: Int64
   public let ext: String
   public let exif: FsImageExif?
+  public let livePhoto: LivePhotoLink?
 }
 
 /// Full response shape of `/api/folder/:slug/*`.

@@ -43,7 +43,7 @@ public enum StageCatalog {
     "preview": StageMeta(
       group: .ingest, icon: "photo.on.rectangle",
       description:
-        "Builds the 1280-px preview cache used by the editor and enrichment. Concurrency also caps on-demand regeneration from cache-miss preview requests."
+        "Builds the 1280-px preview cache used by the editor and enrichment. A preview someone is waiting on is rendered first."
     ),
     "describe": StageMeta(
       group: .enrich, icon: "sparkles",
@@ -65,9 +65,9 @@ public enum StageCatalog {
     "face-embed": StageMeta(
       group: .enrich, icon: "person.crop.square",
       description: "Computes face embeddings used to cluster detections into people."),
-    "meili": StageMeta(
+    "search-blob": StageMeta(
       group: .index, icon: "magnifyingglass",
-      description: "Indexes assets into Meilisearch for full-text and semantic search."),
+      description: "Builds each asset's full-text search entry from its caption, people, place, transcript and OCR text."),
     "cf-thumb-sync": StageMeta(
       group: .index, icon: "cloud",
       description: "Mirrors thumbnails to the Cloudflare R2 bucket configured under Cloudflare."),
@@ -134,6 +134,7 @@ public enum StageCatalog {
     case .starting: return "Starting"
     case .restarting: return "Restarting"
     case .stopped: return "Stopped"
+    case .stalled: return "Stalled"
     case .unknown: return "Unknown"
     }
   }

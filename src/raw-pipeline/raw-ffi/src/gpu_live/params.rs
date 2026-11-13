@@ -5,7 +5,6 @@
 //! Pure relocation; no behavior change.
 
 use super::MapleGpuLiveParams;
-use raw_core::stages::perspective::{self, Perspective};
 use raw_gpu::{FullChainInputs, InputShape};
 use std::borrow::Cow;
 
@@ -21,6 +20,16 @@ unsafe fn read_points(ptr: *const f32, len: usize) -> Vec<(f32, f32)> {
     }
     let flat = std::slice::from_raw_parts(ptr, len);
     flat.chunks_exact(2).map(|c| (c[0], c[1])).collect()
+}
+
+/// Borrow color-curve pairs only for the enclosing unsafe render call.
+/// `ptr` must remain valid for `len` f32 reads throughout that call, or be null.
+unsafe fn borrow_color_points<'a>(ptr: *const f32, len: usize) -> raw_gpu::ColorCurvePoints<'a> {
+    raw_gpu::ColorCurvePoints::Flat(if ptr.is_null() || len == 0 {
+        &[]
+    } else {
+        std::slice::from_raw_parts(ptr, len)
+    })
 }
 
 /// Map a registry-resolved raster list into raw-gpu's own carrier shape
@@ -52,59 +61,9 @@ unsafe fn read_floats(ptr: *const f32, len: usize) -> Vec<f32> {
     std::slice::from_raw_parts(ptr, len).to_vec()
 }
 
-/// The three split fields read as a group: ALL THREE exactly `0.0` ⇒ absent
-/// (a stale host that predates the fields' append, or a zero-initialized
-/// caller, always leaves every one of them at the struct's zero default) ⇒
-/// substitute ACR's documented 25/50/75. Otherwise every field passes
-/// through UNCHANGED, including a genuine `0.0` in one of the three — `0.0`
-/// is an in-range axis position (the documented range is `[0, 100]`), so
-/// gating per-field would make it impossible for a live host to ever set
-/// `parametric_shadow_split` to exactly 0 (Copilot review on #3219: gating
-/// each field independently did exactly that). See the
-/// `parametric_{shadow,midtone,highlight}_split` doc comment on
-/// [`MapleGpuLiveParams`] for why this trio, unlike most tail fields, can't
-/// use `0.0` as its own per-field identity value.
-fn parametric_split_or_defaults(shadow: f32, midtone: f32, highlight: f32) -> [f32; 3] {
-    if shadow == 0.0 && midtone == 0.0 && highlight == 0.0 {
-        [25.0, 50.0, 75.0]
-    } else {
-        [shadow, midtone, highlight]
-    }
-}
+use crate::scene_linear_chain::parametric_split_or_defaults;
 
-/// The manual-geometry homography for the present shader (#3410), built from
-/// the C params against the presented image's own `width`/`height`.
-///
-/// `perspective_scale == 0.0` is read as a stale host and substituted with the
-/// canonical 100, so a caller built against a pre-#3410 header — whose zeroed
-/// tail would otherwise describe a degenerate zero-scale matrix — resolves to
-/// exactly [`Perspective::IDENTITY`] and the shader takes its un-warped path.
-/// See the field block on [`MapleGpuLiveParams`] for why this one field cannot
-/// use `0.0` as its own identity.
-pub(super) fn present_geometry_from_params(
-    p: &MapleGpuLiveParams,
-    width: u32,
-    height: u32,
-) -> raw_gpu::PresentGeometry {
-    let geometry = Perspective {
-        vertical: p.perspective_vertical,
-        horizontal: p.perspective_horizontal,
-        rotate: p.perspective_rotate,
-        scale: if p.perspective_scale == 0.0 {
-            Perspective::IDENTITY.scale
-        } else {
-            p.perspective_scale
-        },
-        aspect: p.perspective_aspect,
-        x: p.perspective_x,
-        y: p.perspective_y,
-    };
-    if geometry.is_identity() {
-        return raw_gpu::PresentGeometry::IDENTITY;
-    }
-    let inverse = geometry.inverse_matrix(perspective::aspect_ratio(width, height));
-    raw_gpu::PresentGeometry::from_inverse(inverse.0)
-}
+pub(super) use super::present_geometry::present_geometry_from_params;
 
 /// Build the `raw_gpu::FullChainInputs` the live chain consumes from the C params,
 /// deriving the WB matrix from temp/tint the same way the CPU chain does. The
@@ -112,34 +71,26 @@ pub(super) fn present_geometry_from_params(
 /// short editable point-curve arrays are owned. The host keeps all pointers live
 /// until the FFI call returns; GPU uploads copy into independently owned buffers.
 ///
+/// With `creative_ptr` set the buffer is a capture result and the creative
+/// stage replaces the white-balance pass (#5377); deriving its plan
+/// allocates nothing. Fails only on creative inputs that are not a capture
+/// decode's.
+///
 /// # Safety
 /// `p` and every non-null `(ptr, len)` it carries must remain valid and immutable
 /// for the returned inputs' lifetime (bounded by the synchronous FFI call).
-pub(super) unsafe fn inputs_from_params(p: &MapleGpuLiveParams) -> FullChainInputs<'_> {
+pub(super) unsafe fn inputs_from_params(
+    p: &MapleGpuLiveParams,
+) -> Result<FullChainInputs<'_>, String> {
     use raw_gpu::{CurveMode, ToneCurveInputs};
 
     let wb_method = match p.wb_method {
         1 => raw_core::types::WbMethod::DiagonalRec2020,
         _ => raw_core::types::WbMethod::Cat16,
     };
-    // Compute the WB matrix (#1240 follow-up). When the host supplies a
-    // `decoded_temperature` (> 0 — the 0/0 sentinel means "no decoded WB"),
-    // build the DELTA `M_net = M_live · M_decoded⁻¹` matching
-    // `raw_core::stages::white_balance::apply_delta`. This handles the editor
-    // decode-boundary contract: the f32 buffer is at D65 (post-DCP), but
-    // Apple's `processSceneLinear` passes `decodedTemp = asShot.temperature`,
-    // so the chain's WB step is the live-vs-asShot delta (identity at default
-    // slider value, where live == asShot). With `M_live` alone, the GPU
-    // canvas baked `wb_cat16(asShot)` into the D65 buffer for every render —
-    // a uniform colour cast on any photo whose as-shot CCT was far from D65
-    // (e.g. test_0002 at asShot=4522K).
-    //
-    // When the host does NOT supply decoded WB (0/0 sentinel), preserve the
-    // pre-#1240 absolute apply: `M_net = M_live`. This is what legacy callers
-    // (and the headless render path) expect — `wb_cat16_matrix(6500, 0)` is
-    // NOT exactly identity, so naively forcing `decoded_temp = 6500` and
-    // composing with its inverse would silently change the legacy output.
-    // (Copilot review on #1262.)
+    // Compute the WB matrix (#1240 follow-up). When `decoded_temperature > 0`,
+    // build `M_net = M_live · M_decoded⁻¹` matching `white_balance::apply_delta`.
+    // When 0/0, preserve the pre-#1240 absolute apply (`M_net = M_live`).
     let use_delta = p.decoded_temperature > 0.0;
     // WB slider frame (#1781): the decode-exported `SliderFrame` data. Only
     // meaningful for RAW input (`input_shape == 0` — a non-RAW buffer has no
@@ -224,6 +175,14 @@ pub(super) unsafe fn inputs_from_params(p: &MapleGpuLiveParams) -> FullChainInpu
             }
         }
     };
+    let creative = crate::capture_creative::gpu_plan(
+        p.creative_ptr,
+        raw_core::pipeline::CreativeTick {
+            temperature: p.temperature,
+            tint: p.tint,
+            wb_method,
+        },
+    )?;
     // Live-builder WB gate values (#1781). `build_live_chain` gates the WB
     // pass on `wb_is_noop(wb_temperature, wb_tint)` — the ABSOLUTE 6500/0
     // short-circuit predicate. Under the frame-anchored DELTA contract the
@@ -232,13 +191,19 @@ pub(super) unsafe fn inputs_from_params(p: &MapleGpuLiveParams) -> FullChainInpu
     // predicate test exactly that: `6500 + (live − decoded)` Kelvin and
     // `live − decoded` tint. Legacy paths (no frame) pass the raw live
     // values through unchanged — bit-identical gating to pre-#1781.
-    let (gate_temperature, gate_tint) = if frame_delta_engaged {
+    let legacy_gate = if frame_delta_engaged {
         (
             6500.0 + (p.temperature - p.decoded_temperature),
             p.tint - p.decoded_tint,
         )
     } else {
         (p.temperature, p.tint)
+    };
+    // The creative stage replaces the white-balance pass, so its inputs read
+    // as the pass's no-op.
+    let (wb_matrix, (gate_temperature, gate_tint)) = match creative {
+        Some(_) => (raw_core::math::Matrix3::IDENTITY.0, (6500.0, 0.0)),
+        None => (wb_matrix, legacy_gate),
     };
 
     let capture_sharpening = if p.capture_sharpening_enabled != 0 {
@@ -267,7 +232,7 @@ pub(super) unsafe fn inputs_from_params(p: &MapleGpuLiveParams) -> FullChainInpu
     let local_flat = read_floats(p.local_adjustments_ptr, p.local_adjustments_len);
     let (_, mask_rasters) = crate::mask_registry::layers_and_rasters_from_flat(&local_flat);
 
-    FullChainInputs {
+    Ok(FullChainInputs {
         nr_sampling_scale: p.nr_sampling_scale,
         whites_anchor_ev: p.whites_anchor_ev,
         wb_matrix,
@@ -337,6 +302,9 @@ pub(super) unsafe fn inputs_from_params(p: &MapleGpuLiveParams) -> FullChainInpu
         color_grade_global_hue: p.color_grade_global_hue,
         color_grade_global_saturation: p.color_grade_global_saturation,
         color_grade_global_luminance: p.color_grade_global_luminance,
+        color_grade_blending: p.color_grade_blending,
+        color_grade_shadow_edge: p.color_grade_shadow_edge,
+        color_grade_highlight_edge: p.color_grade_highlight_edge,
         // HSL 8-band adjustments (#1112).
         hsl_hue: [
             p.hsl_hue_red,
@@ -414,10 +382,10 @@ pub(super) unsafe fn inputs_from_params(p: &MapleGpuLiveParams) -> FullChainInpu
         },
         // The frame's DNG NoiseProfile + ISO (#1714) — what the NR stages'
         // per-pixel modulation is derived from. A null pointer / zero length is
-        // "no profile", which is the flat filter raw-core runs at
-        // `noise_profile: None`.
+        // "no profile": raw-core's `noise_profile: None`, the ISO-only fallback
+        // at a known ISO and the flat filter at ISO 0.
         noise_profile: read_floats(p.noise_profile_ptr, p.noise_profile_len as usize),
-        iso: p.iso,
+        iso: crate::scene_linear_chain::host_iso(p.iso, p.input_shape == 0),
         // Film look (epic #2683, Task 8). `film_lut_or_off` is the single
         // gate: a null pointer, a zero size, OR a `len` that doesn't match
         // `size³·3` all collapse to "off" (empty data, size 0) rather than
@@ -438,6 +406,32 @@ pub(super) unsafe fn inputs_from_params(p: &MapleGpuLiveParams) -> FullChainInpu
             ),
             blue: read_points(p.display_tone_curve_blue_ptr, p.display_tone_curve_blue_len),
         },
+        color_curves: raw_gpu::ColorCurveInputs {
+            hue_vs_hue: borrow_color_points(
+                p.color_curve_hue_vs_hue_ptr,
+                p.color_curve_hue_vs_hue_len,
+            ),
+            hue_vs_sat: borrow_color_points(
+                p.color_curve_hue_vs_sat_ptr,
+                p.color_curve_hue_vs_sat_len,
+            ),
+            hue_vs_luma: borrow_color_points(
+                p.color_curve_hue_vs_luma_ptr,
+                p.color_curve_hue_vs_luma_len,
+            ),
+            luma_vs_sat: borrow_color_points(
+                p.color_curve_luma_vs_sat_ptr,
+                p.color_curve_luma_vs_sat_len,
+            ),
+            sat_vs_sat: borrow_color_points(
+                p.color_curve_sat_vs_sat_ptr,
+                p.color_curve_sat_vs_sat_len,
+            ),
+            sat_vs_luma: borrow_color_points(
+                p.color_curve_sat_vs_luma_ptr,
+                p.color_curve_sat_vs_luma_len,
+            ),
+        },
         // Vectorscope scope pass (#3272). `scope_enabled == 0` forces `layer`
         // to -1 regardless of what `p.scope_layer` holds, so a disabled
         // request can never accidentally look "targeted" — matching
@@ -450,7 +444,10 @@ pub(super) unsafe fn inputs_from_params(p: &MapleGpuLiveParams) -> FullChainInpu
             },
             enabled: p.scope_enabled != 0,
         },
-    }
+        creative: creative
+            .as_ref()
+            .map(raw_core::gpu_host::creative::creative_inputs),
+    })
 }
 
 /// The host-declared film LUT edge + grid, or `(0, empty)` ("off") when the
@@ -559,3 +556,7 @@ mod tests {
 #[cfg(test)]
 #[path = "params_borrow_tests.rs"]
 mod borrow_tests;
+
+#[cfg(test)]
+#[path = "params_iso_tests.rs"]
+mod iso_tests;

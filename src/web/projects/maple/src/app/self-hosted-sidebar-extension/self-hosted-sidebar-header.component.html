@@ -1,9 +1,11 @@
-<mui-button
-  variant="ghost"
-  size="sm"
-  [iconOnly]="true"
-  iconLeading="plus"
-  title="Add a folder to your library"
-  ariaLabel="Add folder"
-  (pressed)="state.openLibraryPicker()"
-/>
+@if (isOwner()) {
+  <mui-button
+    variant="ghost"
+    size="sm"
+    [iconOnly]="true"
+    iconLeading="plus"
+    title="Add a folder to your library"
+    ariaLabel="Add folder"
+    (pressed)="state.openLibraryPicker()"
+  />
+}

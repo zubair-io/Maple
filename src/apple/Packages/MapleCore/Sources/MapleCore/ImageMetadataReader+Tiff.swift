@@ -5,7 +5,7 @@
 // dimensions (such as synthetic CFA Bayer DNGs without embedded previews,
 // or non-commercial camera profiles), this reader directly inspects the
 // standard TIFF IFD structure for ImageWidth (0x0100), ImageLength (0x0101),
-// and Orientation (0x0112).
+// Orientation (0x0112), and the RAW DefaultCropSize (0xC620).
 
 import CoreImage
 import Foundation
@@ -65,6 +65,7 @@ extension ImageMetadataReader {
     var visited = Set<Int>()
     var bestArea: Double = -1
     var bestSize: PixelSize? = nil
+    var rootOrientation: Int? = nil
 
     while !queue.isEmpty && visited.count < 32 {
       let offset = queue.removeFirst()
@@ -76,6 +77,7 @@ extension ImageMetadataReader {
       var ifdWidth: Double? = nil
       var ifdHeight: Double? = nil
       var ifdOrient: Int? = nil
+      var cropSize: PixelSize? = nil
 
       for _ in 0..<numEntries {
         guard entryOffset + 12 <= data.count else { break }
@@ -100,6 +102,45 @@ extension ImageMetadataReader {
           ifdHeight = readScalar()
         } else if tag == 0x0112 {
           ifdOrient = readU16(at: valOffset).map(Int.init)
+        } else if tag == 0xC620 && count == 2 {
+          // DNG DefaultCropSize is stored on the RAW SubIFD. SHORT pairs
+          // fit in the IFD entry; LONG and RATIONAL pairs live at an offset.
+          // ImageIO on iOS can expose only the embedded-preview IFD for FFF,
+          // so this is the usable image size for Info and 100% zoom.
+          let pair: (Double, Double)?
+          switch typ {
+          case 3:
+            if let w = readU16(at: valOffset), let h = readU16(at: valOffset + 2) {
+              pair = (Double(w), Double(h))
+            } else {
+              pair = nil
+            }
+          case 4:
+            if let arrayOffset = readU32(at: valOffset),
+              let w = readU32(at: Int(arrayOffset)),
+              let h = readU32(at: Int(arrayOffset) + 4)
+            {
+              pair = (Double(w), Double(h))
+            } else {
+              pair = nil
+            }
+          case 5:
+            if let arrayOffset = readU32(at: valOffset),
+              let wn = readU32(at: Int(arrayOffset)),
+              let wd = readU32(at: Int(arrayOffset) + 4),
+              let hn = readU32(at: Int(arrayOffset) + 8),
+              let hd = readU32(at: Int(arrayOffset) + 12), wd > 0, hd > 0
+            {
+              pair = (Double(wn) / Double(wd), Double(hn) / Double(hd))
+            } else {
+              pair = nil
+            }
+          default:
+            pair = nil
+          }
+          if let pair {
+            cropSize = PixelSize(width: pair.0, height: pair.1)
+          }
         } else if tag == 0x014A {
           if count == 1 {
             if let sub = readU32(at: valOffset), sub > 0 {
@@ -119,13 +160,27 @@ extension ImageMetadataReader {
         entryOffset += 12
       }
 
+      if offset == Int(ifd0Offset) {
+        rootOrientation = ifdOrient
+      }
+
       if let nextIfd = readU32(at: entryOffset), nextIfd > 0 {
         queue.append(Int(nextIfd))
       }
 
       if let w = ifdWidth, let h = ifdHeight, w > 0, h > 0 {
-        let oriented = orientedPixelSize(width: w, height: h, orientationValue: ifdOrient)
-        let area = oriented.width * oriented.height
+        let size: PixelSize
+        if let cropSize, cropSize.width > 0, cropSize.height > 0,
+          cropSize.width <= w, cropSize.height <= h
+        {
+          size = cropSize
+        } else {
+          size = PixelSize(width: w, height: h)
+        }
+        let oriented = orientedPixelSize(
+          width: size.width, height: size.height,
+          orientationValue: ifdOrient ?? rootOrientation)
+        let area = w * h
         if area > bestArea {
           bestArea = area
           bestSize = oriented

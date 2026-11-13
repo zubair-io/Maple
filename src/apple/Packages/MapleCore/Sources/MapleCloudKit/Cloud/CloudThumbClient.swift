@@ -47,6 +47,19 @@ public actor CloudThumbClient {
     try await fetch(addresses.url(route: "preview", absPath: absPath))
   }
 
+  /// The same display tier as ``preview(absPath:)``, classified instead of
+  /// thrown, so the Preview page can tell "indexing, retry after N s" from
+  /// "not found" from a transient failure (#5432).
+  public func previewOutcome(absPath: String) async -> PreviewFetchOutcome {
+    do {
+      let url = try await addresses.url(route: "preview", absPath: absPath)
+      let (data, response) = try await httpClient.data(for: URLRequest(url: url))
+      return PreviewFetchOutcome.classify(data: data, response: response)
+    } catch {
+      return PreviewFetchOutcome.classify(error: error)
+    }
+  }
+
   private func fetch(_ url: URL) async throws -> Data {
     let (data, resp) = try await httpClient.data(for: URLRequest(url: url))
     let status = (resp as? HTTPURLResponse)?.statusCode ?? -1

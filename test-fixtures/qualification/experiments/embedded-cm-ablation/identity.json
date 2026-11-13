@@ -1,0 +1,8 @@
+{
+  "scope": "Diagnostic profile-source ablation, not an adopted selection policy. Genuine embedded CM-only calibration preferred over bundle when flag1. Full embedded triad unchanged; no rawler substitutes.3case comparison, not full suite.",
+  "base_commit": "bfe563ae2689cbfebdcf432a03cc0d17c692ecee",
+  "binary_sha256": "706d0a4768772c649dbc1886972cb3f811bffaf61eaa1ba0272d8d71525a8d62",
+  "source_patch_sha256": "ded31656e1b0adb53a2d58752160381988d6321d2be9a9aab96b1bafbeb95f26",
+  "flag": "MAPLE_DIAGNOSTIC_EMBEDDED_CM=1",
+  "original_inputs_and_budgets": "unchanged"
+}

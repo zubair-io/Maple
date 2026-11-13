@@ -23,6 +23,10 @@
  * full-name convention videos use (`clip.mov` → `clip.mov.xmp`). Videos are
  * relocation candidates the same as any other asset (#1678).
  *
+ * A still's Live Photo clip (paired by Apple content identifier, #5448) follows
+ * it into the same folder with its sidecar; a paired clip is never a relocation
+ * candidate on its own and is left out of the count (#5543).
+ *
  * Does NOT stamp `backup_layout_version` — that marker belongs to the bulk
  * geo-migration sweep, not targeted on-demand relocates.
  *
@@ -55,9 +59,19 @@ function assetActiveFileInfo(asset: Pick<AssetDoc, 'fileinfo'>): FileInfo | null
 import { backupLocationSegments } from '../backup/location-segments.ts';
 import { sanitizeLocationSegments, SCREENSHOT_DIR_SEGMENT } from '../backup/path-formatter.ts';
 import { relocateGeoAsset } from '../library/relocate-geo.ts';
+import {
+  clipAddressBesideStill,
+  loadPlannedClips,
+  pairDestinationNames,
+  planLiveClips,
+  relocateLiveClip,
+  type LiveClipPlan,
+  type LoadedClip,
+} from '../library/relocate-live-clip.ts';
 import { child as childLogger } from '../log.ts';
 import type { AssetDoc, AssetWithId } from '../db/schema.ts';
 import type { ObjectId } from '../db/object-id.ts';
+import { requireFileAccessBeforeHandle } from '../auth/middleware.ts';
 import {
   findRelocateCandidatesByFilenames,
   type RelocateCandidateRow,
@@ -187,7 +201,7 @@ const RECONCILE_CONCURRENCY = 4;
  * `place_text` the user has already superseded — the batch metadata editor
  * writes the sidecar and marks the stage dirty, and the relocate offer surfaces
  * straight afterwards. A failed reconcile is logged and the asset is left out of
- * the writeback entirely, so its stage row stays below target and the poll loop
+ * the writeback entirely, so its stage row stays below target and the stage
  * retries it properly rather than the route marking it handled.
  */
 async function reconcileSidecarMetadata(ids: readonly ObjectId[]): Promise<void> {
@@ -269,6 +283,45 @@ async function didRename(id: ObjectId, originalFilename: string): Promise<boolea
   return primary != null && primary.filename !== originalFilename;
 }
 
+/** The Live Photo pairing of a batch: which clips follow their still instead of relocating by themselves. */
+function planLiveClipsFor(docs: readonly AssetWithId[]): Promise<LiveClipPlan> {
+  return planLiveClips(
+    docs.flatMap((doc) => {
+      const primary = assetActiveFileInfo(doc);
+      return primary ? [{ id: doc._id.toHexString(), primary }] : [];
+    }),
+  );
+}
+
+/** Moves the still's clip after the still has moved; a failed move comes back as the clip's own failed result entry. */
+async function moveClipBesideStill(input: {
+  clip: LoadedClip | undefined;
+  stillAddress: string;
+  stillFilename: string;
+  libRoot: string;
+  newDir: string;
+  destinationFilename: string | undefined;
+}): Promise<{ address: string; ok: false; error: string } | null> {
+  if (!input.clip) return null;
+  const moved = await relocateLiveClip(
+    input.clip,
+    input.libRoot,
+    input.newDir,
+    input.destinationFilename,
+  );
+  return moved.ok
+    ? null
+    : {
+        address: clipAddressBesideStill(
+          input.stillAddress,
+          input.stillFilename,
+          input.clip.location.filename,
+        ),
+        ok: false,
+        error: moved.error,
+      };
+}
+
 // ---------------------------------------------------------------------------
 // Shared request schema
 // ---------------------------------------------------------------------------
@@ -321,7 +374,10 @@ export const libraryRelocateRoutes = new Elysia({ name: 'libraryRelocate' })
       // simply doesn't surface, rather than 500-ing the panel.
       try {
         const docs = await findGeoDocs(absPaths, libs);
-        const count = docs.filter(wouldRelocate).length;
+        const { followerClipIds } = await planLiveClipsFor(docs);
+        const count = docs.filter(
+          (doc) => !followerClipIds.has(doc._id.toHexString()) && wouldRelocate(doc),
+        ).length;
         return { count };
       } catch (err: unknown) {
         log.warn(
@@ -332,6 +388,7 @@ export const libraryRelocateRoutes = new Elysia({ name: 'libraryRelocate' })
       }
     },
     {
+      beforeHandle: requireFileAccessBeforeHandle,
       body: RelocateBodySchema,
       detail: {
         summary: 'Count assets that would be relocated into their location folder',
@@ -385,7 +442,10 @@ export const libraryRelocateRoutes = new Elysia({ name: 'libraryRelocate' })
         libs = new Map();
       }
 
-      const docs = await findGeoDocs(absPaths, libs);
+      const allDocs = await findGeoDocs(absPaths, libs);
+      const livePlan = await planLiveClipsFor(allDocs);
+      const docs = allDocs.filter((doc) => !livePlan.followerClipIds.has(doc._id.toHexString()));
+      const loadedClips = await loadPlannedClips(livePlan);
 
       const results: Array<{
         address: string;
@@ -435,7 +495,9 @@ export const libraryRelocateRoutes = new Elysia({ name: 'libraryRelocate' })
           // The sidecar (and, if present, the apple_rendered_path companion)
           // is included automatically (#2667).
           const originalFilename = primary?.filename;
-          const outcome = await relocateGeoAsset(doc, libRoot, newDir, primary!);
+          const clip = loadedClips.get(doc._id.toHexString());
+          const pairNames = clip ? await pairDestinationNames(libRoot, primary!, clip, newDir) : {};
+          const outcome = await relocateGeoAsset(doc, libRoot, newDir, primary!, pairNames.still);
           // `renamed` is only meaningful for an actual move. relocateGeoAsset
           // can't report a collision auto-rename directly, so re-read the
           // repointed location and compare the new filename to the one we
@@ -456,6 +518,18 @@ export const libraryRelocateRoutes = new Elysia({ name: 'libraryRelocate' })
               ? 'library-relocate: asset relocated'
               : 'library-relocate: no move needed',
           );
+          const clipFailure =
+            outcome === 'moved'
+              ? await moveClipBesideStill({
+                  clip,
+                  stillAddress: representativeAddress,
+                  stillFilename: primary!.filename,
+                  libRoot,
+                  newDir,
+                  destinationFilename: pairNames.clip,
+                })
+              : null;
+          if (clipFailure) results.push(clipFailure);
         } catch (err: unknown) {
           const msg = err instanceof Error ? err.message : String(err);
           log.warn({ _id: String(doc._id), err: msg }, 'library-relocate: move failed');
@@ -472,6 +546,7 @@ export const libraryRelocateRoutes = new Elysia({ name: 'libraryRelocate' })
       return { results };
     },
     {
+      beforeHandle: requireFileAccessBeforeHandle,
       body: RelocateBodySchema,
       detail: {
         summary: 'Relocate assets into their canonical location folder (year/state/city)',

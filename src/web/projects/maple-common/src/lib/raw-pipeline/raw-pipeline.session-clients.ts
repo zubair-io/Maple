@@ -24,8 +24,11 @@ export class RawPipelineSessionClients {
     this.detail = new NativeDetailClient(worker, nextId, pending);
   }
 
-  renderNativeDetail(args: NativeDetailArgs): Promise<NativeDetailPixels> {
-    const revision = this.detail.revision();
+  nativeDetailRevision(): number {
+    return this.detail.revision();
+  }
+
+  renderNativeDetail(args: NativeDetailArgs, revision: number): Promise<NativeDetailPixels> {
     return this.detail.render(args, revision);
   }
 

@@ -1,3 +1,4 @@
+import { captureSidecarWriteScope } from './xmp-change';
 /**
  * Shared helper: resolve and authorize a caller-supplied file path against
  * registered library roots.
@@ -9,9 +10,8 @@
 import * as path from 'node:path';
 import { realpath } from 'node:fs/promises';
 import { parseRootList } from '../fs/root-list.ts';
-import { isWithinRoot } from '../fs/root.ts';
-import { loadLibraryRoots } from '../indexer/libraries.cache.ts';
-import { safeWriteAllowed } from '../fs/root.ts';
+import { isWithinRoot, resolveRealPath, safeWriteAllowed } from '../fs/root.ts';
+import { loadSharedLibraryRoots } from '../indexer/libraries.cache.ts';
 import { listLibraryRoots } from '../db/repos/folders.repo.ts';
 import type { SqliteDb } from '../db/repos/db-handle.ts';
 
@@ -29,7 +29,9 @@ import type { SqliteDb } from '../db/repos/db-handle.ts';
 export async function resolveAndAuthorizePath(
   raw: string | undefined,
   dbOverride?: SqliteDb,
-): Promise<{ ok: true; data: string } | { ok: false; status: number; error: string }> {
+): Promise<
+  { ok: true; data: string; writeScope: string } | { ok: false; status: number; error: string }
+> {
   if (typeof raw !== 'string' || raw.length === 0) {
     return { ok: false, status: 400, error: 'Missing required path' };
   }
@@ -37,7 +39,11 @@ export async function resolveAndAuthorizePath(
   try {
     if (/%[0-9A-Fa-f]{2}/.test(raw)) decoded = decodeURIComponent(raw);
   } catch {
-    return { ok: false, status: 400, error: 'Path is not a valid URL-encoded string' };
+    return {
+      ok: false,
+      status: 400,
+      error: 'Path is not a valid URL-encoded string',
+    };
   }
   if (!path.isAbsolute(decoded)) {
     return { ok: false, status: 400, error: 'Path must be absolute' };
@@ -48,13 +54,12 @@ export async function resolveAndAuthorizePath(
 
   const normalized = path.resolve(decoded);
 
-  const envRoots = parseRootList(process.env.MAPLE_ROOTS);
-  const libRoots = dbOverride
-    ? (await listLibraryRoots(dbOverride)).map((root) => root.path)
-    : [...(await loadLibraryRoots()).values()];
+  const envRoots = parseRootList(process.env.MAPLE_ROOTS).map((root) => path.resolve(root));
+  const libRoots = await loadSharedLibraryRoots(dbOverride);
+  const normalizedLibRoots = libRoots.map((root) => path.resolve(root));
   // Normalize each root with path.resolve (strips any trailing separator,
   // cross-platform) so the containment check below is separator-correct.
-  const allRoots = [...envRoots, ...libRoots].map((r) => path.resolve(r));
+  const allRoots = [...envRoots, ...normalizedLibRoots];
 
   if (allRoots.length === 0) {
     return {
@@ -64,16 +69,60 @@ export async function resolveAndAuthorizePath(
     };
   }
 
-  for (const root of allRoots) {
-    if (isWithinRoot(root, normalized)) {
-      return { ok: true, data: normalized };
+  // Keep lexical authorization so callers can continue using their registered
+  // symlink path. Scope admission by the physical parent directory so nested
+  // and enclosing symlink roots that reach one destination enter the same lane
+  // without probing unrelated library mounts.
+  if (!allRoots.some((root) => isWithinRoot(root, normalized))) {
+    return {
+      ok: false,
+      status: 403,
+      error: 'Path is not inside any registered library root',
+    };
+  }
+  const canonicalPath = await canonicalPathForAdmission(normalized);
+  return {
+    ok: true,
+    data: normalized,
+    writeScope: path.dirname(canonicalPath),
+  };
+}
+
+/** Capture a primary/catalog binding only for a sidecar mutation. Reads,
+ * preview-cache uploads and exports need path authorization without edit state. */
+export async function resolveAndAuthorizeSidecarWrite(
+  raw: string | undefined,
+  dbOverride?: SqliteDb,
+) {
+  const authorized = await resolveAndAuthorizePath(raw, dbOverride);
+  return authorized.ok
+    ? {
+        ...authorized,
+        writeScope: await captureSidecarWriteScope(
+          authorized.data,
+          authorized.writeScope,
+          dbOverride,
+        ),
+      }
+    : authorized;
+}
+
+/** Resolve an existing path or preserve its missing tail below a real parent. */
+async function canonicalPathForAdmission(filePath: string): Promise<string> {
+  let candidate = path.resolve(filePath);
+  const missingSegments: string[] = [];
+  while (true) {
+    try {
+      return path.join(await realpath(candidate), ...missingSegments);
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code !== 'ENOENT' && code !== 'ENOTDIR') throw error;
+      const parent = path.dirname(candidate);
+      if (parent === candidate) throw error;
+      missingSegments.unshift(path.basename(candidate));
+      candidate = parent;
     }
   }
-  return {
-    ok: false,
-    status: 403,
-    error: 'Path is not inside any registered library root',
-  };
 }
 
 export async function safeWriteAllowedForPath(filePath: string, dbOverride?: SqliteDb) {
@@ -85,11 +134,18 @@ export async function safeWriteAllowedForPath(filePath: string, dbOverride?: Sql
   const destination = path.resolve(filePath);
   const parent = await realpath(path.dirname(destination)).catch(() => path.dirname(destination));
   const candidate = path.resolve(parent, path.basename(destination));
-  const resolved = await realpath(candidate).catch(() => candidate);
+  const resolved = await resolveRealPath(candidate).catch(() => candidate);
   const normalizedRoots = await Promise.all(
     roots.map((root) => realpath(root).catch(() => path.resolve(root))),
   );
   return normalizedRoots.some((root) => isWithinRoot(root, resolved))
     ? { ok: true as const, data: resolved }
     : { ok: false as const, error: 'Photo is outside registered libraries' };
+}
+
+/** Reads need path access; mutations also capture the photo's current binding. */
+export function authorizeXmpRequest(raw: string | undefined, method: string) {
+  return method === 'GET' || method === 'HEAD'
+    ? resolveAndAuthorizePath(raw)
+    : resolveAndAuthorizeSidecarWrite(raw);
 }

@@ -25,7 +25,7 @@ function jwtSecret(): string {
   return secret;
 }
 
-async function authorized(token: string | undefined): Promise<AccessClaims | null> {
+export async function authorized(token: string | undefined): Promise<AccessClaims | null> {
   if (!token) return null;
   try {
     return await verifyAccessToken(token, jwtSecret());

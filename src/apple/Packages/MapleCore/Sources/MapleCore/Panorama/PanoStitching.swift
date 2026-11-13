@@ -47,16 +47,87 @@ public struct PanoOptions: Sendable, Equatable {
     public var retention: Retention = .keep
     public var localAlign: LocalAlign = .mesh
     public var strategy: Strategy = .auto
+    /// Boundary Warp strength in percent, 0 to 100 (the slider's own scale,
+    /// the same on the CLI, FFI and report). 0 leaves the edges as stitched.
+    /// Not part of the alignment key: changing it re-composites only.
+    public var boundaryWarp: Double = 0
+    /// Trim the output to the largest rectangle with no empty edges. Not part
+    /// of the alignment key.
+    public var autoCrop: Bool = false
 
     public init(retention: Retention = .keep,
                 localAlign: LocalAlign = .mesh,
-                strategy: Strategy = .auto) {
+                strategy: Strategy = .auto,
+                boundaryWarp: Double = 0,
+                autoCrop: Bool = false) {
         self.retention = retention
         self.localAlign = localAlign
         self.strategy = strategy
+        self.boundaryWarp = boundaryWarp
+        self.autoCrop = autoCrop
     }
 
+    /// These options with the edge settings back at their defaults. The edge
+    /// settings change neither the alignment nor the uncropped canvas, so
+    /// anything keyed on the solved geometry compares this.
+    public var withoutEdges: PanoOptions {
+        var copy = self
+        copy.boundaryWarp = 0
+        copy.autoCrop = false
+        return copy
+    }
+
+    public var hasEdgeSettings: Bool { boundaryWarp != 0 || autoCrop }
+
     public static let `default` = PanoOptions()
+}
+
+// MARK: - PanoFeatureEngine
+
+/// Detector/matcher that builds the frame-overlap graph (#4554). Classical
+/// is the default and needs no download; ML (ALIKED + LightGlue) is the
+/// opt-in engine from Settings → Pano.
+public enum PanoFeatureEngine: String, Sendable, CaseIterable {
+    case classical
+    case ml
+
+    public var displayName: String {
+        switch self {
+        case .classical: return "classical matcher"
+        case .ml: return "ML matcher (ALIKED + LightGlue)"
+        }
+    }
+}
+
+// MARK: - PanoMatcherOutcome
+
+/// The matcher a run used (#5487). ML that was opted into but cannot load
+/// (models or ONNX Runtime missing, or rejected) falls back to classical
+/// rather than failing the merge, and the merge sheet says so.
+public enum PanoMatcherOutcome: Sendable, Equatable {
+    case used(PanoFeatureEngine)
+    /// `reason` is the core's detail, for the log and tests only; it can
+    /// name environment variables and entry points, so it is never shown.
+    case classicalFallback(reason: String)
+    /// The server ran classical and said why, in words written for the user.
+    case serverClassicalFallback(note: String)
+
+    public var engine: PanoFeatureEngine {
+        switch self {
+        case .used(let engine): return engine
+        case .classicalFallback, .serverClassicalFallback: return .classical
+        }
+    }
+
+    /// One line for the merge sheet; `nil` when the selected matcher ran.
+    public var note: String? {
+        switch self {
+        case .used: return nil
+        case .classicalFallback:
+            return "Used the classical matcher because the ML matcher couldn’t be loaded on this device."
+        case .serverClassicalFallback(let note): return note
+        }
+    }
 }
 
 // MARK: - PanoStage
@@ -101,10 +172,34 @@ public struct PanoResult: Sendable {
     public let outputURL: URL
     /// One-paragraph human-readable summary produced by the stitcher.
     public let reportSummary: String
+    /// Whether the run started from an offered preview alignment.
+    public let alignmentOutcome: PanoAlignmentOutcome
+    public let matcher: PanoMatcherOutcome
+    /// What the engine did with the edge settings; `nil` when it did not say.
+    public let edges: PanoEdgesReport?
+    /// Set when the server stitched it (#5488): `outputURL` is then a path on
+    /// the server, and the panorama is this asset in the server's library.
+    public let serverAssetID: String?
+    /// The panorama is in a server library (stitched there, or uploaded
+    /// after a stitch from downloaded frames, #5489), not a local file.
+    public let storedOnServer: Bool
 
-    public init(outputURL: URL, reportSummary: String) {
+    public init(
+        outputURL: URL,
+        reportSummary: String,
+        alignmentOutcome: PanoAlignmentOutcome = .solved,
+        matcher: PanoMatcherOutcome = .used(.classical),
+        edges: PanoEdgesReport? = nil,
+        serverAssetID: String? = nil,
+        storedOnServer: Bool? = nil
+    ) {
         self.outputURL = outputURL
         self.reportSummary = reportSummary
+        self.alignmentOutcome = alignmentOutcome
+        self.matcher = matcher
+        self.edges = edges
+        self.serverAssetID = serverAssetID
+        self.storedOnServer = storedOnServer ?? (serverAssetID != nil)
     }
 }
 
@@ -134,14 +229,51 @@ public protocol PanoStitching: AnyObject, Sendable {
     ///     progress if needed.
     /// - Returns: A `PanoResult` describing the output file and run summary.
     /// - Throws: Any error from the stitching pipeline.
+    ///   - alignment: A preview's solved alignment. Reused when it still
+    ///     matches the inputs and geometry options, so matching is skipped;
+    ///     otherwise the stitch re-solves and reports `.stale`.
+    ///   - maxCanvasPixels: Output canvas pixel cap; a larger canvas is
+    ///     shrunk uniformly to fit. `nil` keeps the core's default cap.
     func stitch(
         assets: [AssetRef],
         options: PanoOptions,
+        alignment: PanoAlignment?,
+        maxCanvasPixels: Int?,
         progress: @escaping @MainActor (PanoStage, Double) -> Void
     ) async throws -> PanoResult
+
+    /// Build a quick low-resolution preview (~2048 px long edge) and the
+    /// solved alignment the full stitch can start from. Cancelling the
+    /// calling task stops the run and throws `CancellationError`.
+    func preview(
+        assets: [AssetRef],
+        options: PanoOptions,
+        alignment: PanoAlignment?,
+        progress: @escaping @MainActor (PanoStage, Double) -> Void
+    ) async throws -> PanoPreview
 
     /// Request cancellation of the in-progress stitch. The running `stitch`
     /// call should throw `CancellationError` as soon as possible after this.
     /// Safe to call multiple times or when idle.
     func cancel()
+
+    /// Whether the stitch runs in this process, so its output must be sized
+    /// to this device's memory from a preview's fit. A server stitch is not.
+    var runsInDeviceMemory: Bool { get }
+
+    /// Whether this stitcher applies Boundary Warp and Auto Crop. The merge
+    /// sheet shows the Edges section only when it does.
+    var supportsEdges: Bool { get }
+
+    /// Free space where a stitch of `assets` would write, or `nil` when it
+    /// writes nothing on this device or the space cannot be read.
+    func freeSpace(for assets: [AssetRef]) -> PanoFreeSpace?
+}
+
+extension PanoStitching {
+    public var runsInDeviceMemory: Bool { true }
+
+    public var supportsEdges: Bool { true }
+
+    public func freeSpace(for assets: [AssetRef]) -> PanoFreeSpace? { nil }
 }

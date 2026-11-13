@@ -6,7 +6,7 @@ color/Neutral gate remain unchanged. Passing this response gate does **not** mea
 the absolute color gate passes. Keeping both profiles visible makes the proposed
 response criterion concrete without silently removing an existing merge gate.
 
-Run `src/scripts/test_tone_whites.sh`. It runs the mathematical/real-file tests,
+Run `src/scripts/diagnose_acr_whites.sh` (a manual ACR diagnostic, outside CI and the colour gates since #5000). It runs the mathematical/real-file tests,
 verifies fixture integrity, filters the existing canonical manifest to baseline
 and Whites ±100, and develops those 54 cases separately for Auto and Neutral.
 It reuses `maple-cli batch --manifest ... --profile ... --no-bundled-lens` at

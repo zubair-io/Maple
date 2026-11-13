@@ -234,4 +234,15 @@ extension SearchParamsTests {
     p.month = 8
     XCTAssertEqual(dict(p.listQueryItems(page: 0, limit: 100))["month"], "8")
   }
+
+  func test_facetQueryItems_carryTheListsPageAndLimitOnlyWhenGiven() {
+    var p = SearchParams(libraryID: "lib-1")
+    p.placeQuery = "city streets"
+    XCTAssertNil(dict(p.facetQueryItems())["page"])
+    XCTAssertNil(dict(p.facetQueryItems())["limit"])
+    let paged = dict(p.facetQueryItems(page: 2, limit: 100))
+    XCTAssertEqual(paged["page"], "2")
+    XCTAssertEqual(paged["limit"], "100")
+    XCTAssertEqual(paged["placeQuery"], "city streets")
+  }
 }

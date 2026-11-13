@@ -27,7 +27,6 @@ import {
   type SettingsValue,
 } from '../db/repos/app-settings.repo.ts';
 import { child as childLogger } from '../log.ts';
-import { BACKFILL_MEILISEARCH_VECTORS_ID } from './migration/ids.ts';
 
 const DOC_ID = 'migration';
 const log = childLogger('migration:config');
@@ -53,9 +52,6 @@ export interface MigrationState {
   remaining?: number | null;
   /** ISO timestamp of that count. */
   remaining_at?: string | null;
-  /** Last counted size of the migration's own dead-letter queue, for the
-   * migrations that have one (`countFailedPermanently`). */
-  failed_permanently?: number | null;
 }
 
 /** The `migration` worker row's pending count: `remaining` summed over the
@@ -160,11 +156,6 @@ export async function setMigrationEnabled(
   enabled: boolean,
   nowIso: string,
 ): Promise<MigrationState> {
-  if (id === BACKFILL_MEILISEARCH_VECTORS_ID && enabled) {
-    const { clearMeilisearchBackfillRetryState } =
-      await import('../enrichment/meilisearch-backfill.ts');
-    await clearMeilisearchBackfillRetryState();
-  }
   const next = computeEnabledTransition(await loadMigrationState(id), enabled, nowIso);
   await patchMigrationState(id, next);
   return next;
@@ -172,10 +163,6 @@ export async function setMigrationEnabled(
 
 /** Clear a migration back to a pristine disabled/idle state (operator "reset"). */
 export async function resetMigrationState(id: string): Promise<MigrationState> {
-  if (id === BACKFILL_MEILISEARCH_VECTORS_ID) {
-    const { resetMeilisearchBackfillState } = await import('../enrichment/meilisearch-backfill.ts');
-    await resetMeilisearchBackfillState();
-  }
   const fresh = defaultMigrationState();
   await patchMigrationState(id, fresh);
   return fresh;

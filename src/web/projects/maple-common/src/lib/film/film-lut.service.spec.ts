@@ -33,6 +33,7 @@ describe('FilmLutService.getLattice', () => {
 
   afterEach(() => {
     vi.unstubAllGlobals();
+    vi.restoreAllMocks();
   });
 
   it('returns null without touching the cache or network for an empty lookId', async () => {
@@ -46,7 +47,7 @@ describe('FilmLutService.getLattice', () => {
   });
 
   it('fetches /film-luts/<id>.mlut on a cache miss and caches the result', async () => {
-    const bytes = bufferOf('mlut-v1-bytes');
+    const bytes = bufferOf('MLUT-v1-bytes');
     const fetchImpl = bytesFetch(bytes);
     vi.stubGlobal('fetch', fetchImpl);
 
@@ -59,7 +60,7 @@ describe('FilmLutService.getLattice', () => {
   });
 
   it('returns the cached bytes on a cache hit, without calling fetch', async () => {
-    const bytes = bufferOf('cached-bytes');
+    const bytes = bufferOf('MLUT-cached-bytes');
     await cache.put('black_white_kodak_tri_x_400', bytes);
     const fetchImpl = vi.fn();
     vi.stubGlobal('fetch', fetchImpl);
@@ -68,6 +69,41 @@ describe('FilmLutService.getLattice', () => {
 
     expect(fetchImpl).not.toHaveBeenCalled();
     expect(new Uint8Array(result!)).toEqual(new Uint8Array(bytes));
+  });
+
+  it('treats a cached entry without the MLUT magic as a miss and overwrites it', async () => {
+    await cache.put('slide_fuji_velvia_50', bufferOf('<!doctype html><html></html>'));
+    const fresh = bufferOf('MLUT-fresh-bytes');
+    const fetchImpl = bytesFetch(fresh);
+    vi.stubGlobal('fetch', fetchImpl);
+
+    const result = await service.getLattice('slide_fuji_velvia_50');
+
+    expect(fetchImpl).toHaveBeenCalledWith('/film-luts/slide_fuji_velvia_50.mlut');
+    expect(new Uint8Array(result!)).toEqual(new Uint8Array(fresh));
+    const stored = await cache.get('slide_fuji_velvia_50');
+    expect(new Uint8Array(stored!)).toEqual(new Uint8Array(fresh));
+  });
+
+  it('neither caches nor returns a 200 response without the MLUT magic', async () => {
+    vi.stubGlobal('fetch', bytesFetch(bufferOf('<!doctype html><html></html>')));
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    const result = await service.getLattice('slide_fuji_velvia_50');
+
+    expect(result).toBeNull();
+    expect(warn).toHaveBeenCalled();
+    await expect(cache.get('slide_fuji_velvia_50')).resolves.toBeNull();
+    warn.mockRestore();
+  });
+
+  it('rejects a response shorter than the MLUT magic', async () => {
+    vi.stubGlobal('fetch', bytesFetch(bufferOf('ML')));
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    await expect(service.getLattice('slide_fuji_velvia_50')).resolves.toBeNull();
+    await expect(cache.get('slide_fuji_velvia_50')).resolves.toBeNull();
+    warn.mockRestore();
   });
 
   it('resolves null (never throws) and warns on a 404', async () => {

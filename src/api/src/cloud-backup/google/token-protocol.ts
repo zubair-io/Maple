@@ -1,6 +1,14 @@
-import { GoogleConnectionError } from './config.ts';
+import { GoogleConnectionError, type GoogleDisconnectReason } from './config.ts';
 
-export class GoogleReconnectRequired extends GoogleConnectionError {}
+/** A definitive rejection of the stored renewal credentials; only this discards them. */
+export class GoogleReconnectRequired extends GoogleConnectionError {
+  constructor(
+    message: string,
+    readonly reason: GoogleDisconnectReason,
+  ) {
+    super(message);
+  }
+}
 
 /** Only fixed error categories escape this boundary; provider bodies may contain secrets. */
 export async function tokenResponse(response: Response, managed = false) {
@@ -11,7 +19,10 @@ export async function tokenResponse(response: Response, managed = false) {
 }
 function tokenFailure(body: Record<string, unknown>, managed: boolean): never {
   if (body.error === 'invalid_grant')
-    throw new GoogleReconnectRequired('Authorization expired or revoked; reconnect Google Drive.');
+    throw new GoogleReconnectRequired(
+      'Authorization expired or revoked; reconnect Google Drive.',
+      'invalid_grant',
+    );
   if (body.error === 'invalid_client')
     throw new GoogleConnectionError(
       managed
@@ -19,7 +30,10 @@ function tokenFailure(body: Record<string, unknown>, managed: boolean): never {
         : 'Check the Web Application Client ID and Client Secret.',
     );
   if (managed && body.error === 'invalid_proof')
-    throw new GoogleReconnectRequired('Maple authorization changed; reconnect Google Drive.');
+    throw new GoogleReconnectRequired(
+      'Maple authorization changed; reconnect Google Drive.',
+      'invalid_proof',
+    );
   throw new GoogleConnectionError(
     'Google token request failed; check application permissions and retry Connect.',
   );

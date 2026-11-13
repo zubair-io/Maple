@@ -63,3 +63,50 @@ fn borrowed_prefix_detection_allocates_nothing_with_owned_curves_and_metadata() 
     ACTIVE.with(|active| active.set(false));
     assert_eq!(ALLOCATIONS.with(Cell::get), 0);
 }
+
+#[test]
+fn a_white_balance_tick_binds_the_creative_stage_without_allocating() {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../test-fixtures/batch-transfer/source.dng");
+    let bytes = std::fs::read(&path).unwrap();
+    let raw = raw_core::decode::decode(&path).unwrap();
+    let mut model = AdjustmentModel {
+        temperature_seen: true,
+        tint_seen: true,
+        ..Default::default()
+    };
+    let capture = raw_core::gpu_host::capture::develop_capture_prefix_rgba_cancellable(
+        &raw,
+        &bytes,
+        "dng",
+        &model,
+        64,
+        raw_core::CancelToken::never(),
+    )
+    .unwrap();
+    let mut inputs = raw_core::gpu_host::build_full_chain_inputs(
+        &model,
+        Vec::new(),
+        0,
+        Vec::new(),
+        raw_core::gpu_host::NoiseProfileInputs {
+            profile: Vec::new(),
+            iso: 0,
+        },
+        None,
+        0,
+        capture.whites_anchor_ev,
+        1,
+    );
+    capture.creative.apply(&model, &mut inputs).unwrap();
+    ALLOCATIONS.with(|count| count.set(0));
+    ACTIVE.with(|active| active.set(true));
+    for tick in 0..1000 {
+        model.temperature = 2000.0 + tick as f32 * 40.0;
+        model.tint = (tick % 80) as f32 - 40.0;
+        capture.creative.apply(&model, &mut inputs).unwrap();
+    }
+    ACTIVE.with(|active| active.set(false));
+    assert_eq!(ALLOCATIONS.with(Cell::get), 0);
+    assert!(inputs.creative.is_some());
+}

@@ -15,6 +15,7 @@ import { workerRoutes } from './routes.ts';
 import { ffiPool, _resetFfiPoolForTests } from '../ffi/ffi-pool.ts';
 import { MAX_FFI_WORKERS, MIN_FFI_WORKERS } from '../ffi/ffi-pool-config.repo.ts';
 import { createLiveTestDatabase } from '../db/sqlite/test-sqlite.test-helpers.ts';
+import { writeWorkerMemory } from '../db/repos/worker-status.repo.ts';
 
 function app() {
   return new Elysia().use(workerRoutes());
@@ -33,8 +34,9 @@ async function patch(body: unknown) {
 describe('PATCH /api/workers/performance — body validation', () => {
   beforeEach(() => _resetFfiPoolForTests());
 
-  it('rejects a missing ffi_workers field (422 schema)', async () => {
-    expect((await patch({})).status).toBe(422);
+  it('rejects a body with neither setting (400)', async () => {
+    using _live = await createLiveTestDatabase();
+    expect((await patch({})).status).toBe(400);
   });
 
   it('rejects a non-numeric ffi_workers (422 schema)', async () => {
@@ -93,5 +95,65 @@ describe('GET /api/workers/performance', () => {
     expect(['db', 'env', 'default']).toContain(body.source);
     expect(body.pool).toHaveProperty('target');
     expect(body.pool).toHaveProperty('queued');
+  });
+});
+
+describe('decode memory budget (#5467)', () => {
+  beforeEach(() => _resetFfiPoolForTests());
+
+  it('saves the percent alone and reports it with the container limit it applies to', async () => {
+    using _live = await createLiveTestDatabase();
+    const res = await patch({ decode_memory_budget_percent: 35 });
+    expect(res.status).toBe(200);
+    const body = (await (
+      await app().handle(new Request('http://localhost/api/workers/performance'))
+    ).json()) as {
+      ffi_workers: number;
+      decode_memory_budget: {
+        percent: number;
+        source: string;
+        budget_bytes: number;
+        container_limit_bytes: number;
+        live: unknown;
+      };
+    };
+    expect(body.ffi_workers).toBe(1);
+    expect(body.decode_memory_budget.percent).toBe(35);
+    expect(body.decode_memory_budget.source).toBe('db');
+    expect(body.decode_memory_budget.budget_bytes).toBe(
+      Math.floor((body.decode_memory_budget.container_limit_bytes * 35) / 100),
+    );
+    expect(body.decode_memory_budget.live).toBeNull();
+  });
+
+  it('accepts 0 to remove the cap', async () => {
+    using _live = await createLiveTestDatabase();
+    const body = await (await patch({ decode_memory_budget_percent: 0 })).json();
+    expect(body.decode_memory_budget.percent).toBe(0);
+    expect(body.decode_memory_budget.budget_bytes).toBeNull();
+  });
+
+  it('rejects a non-numeric percent (422 schema)', async () => {
+    using _live = await createLiveTestDatabase();
+    expect((await patch({ decode_memory_budget_percent: 'lots' })).status).toBe(422);
+  });
+
+  it("reads the worker's last persisted reservation", async () => {
+    using _live = await createLiveTestDatabase();
+    const sample = { rss: 1, heapUsed: 1, heapTotal: 1, external: 0, arrayBuffers: 0, at: 1234 };
+    await writeWorkerMemory({
+      rows: [{ process: 'worker', pid: 1, ...sample }],
+      decodeBudget: { limitBytes: 100, reservedBytes: 40, running: 2, waiting: 3 },
+    });
+    const body = await (
+      await app().handle(new Request('http://localhost/api/workers/performance'))
+    ).json();
+    expect(body.decode_memory_budget.live).toEqual({
+      limit_bytes: 100,
+      reserved_bytes: 40,
+      running: 2,
+      waiting: 3,
+      at: 1234,
+    });
   });
 });

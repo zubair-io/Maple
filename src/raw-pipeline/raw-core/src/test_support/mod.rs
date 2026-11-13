@@ -4,12 +4,18 @@
 //! or the `synth-grey` example.
 
 pub mod canon_dcp;
+pub mod capture_seam;
 pub mod colorchecker;
+pub mod creative;
 pub mod fixtures;
+pub mod gain_map;
 pub mod hasselblad_dcp;
 pub mod predictions;
 pub mod predictions_display;
 pub mod synth_chart;
 pub mod synth_dng;
+pub mod synth_dng_preview;
+pub mod synth_linearraw_dng;
 pub mod synth_perf;
 pub mod synth_sweep;
+pub mod synth_unknown_body;

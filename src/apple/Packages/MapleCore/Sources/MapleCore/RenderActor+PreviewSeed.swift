@@ -8,15 +8,12 @@ extension RenderActor {
     rawResolution: CGSize,
     decodedAtModel: AdjustmentModel? = nil
   ) {
-    let sourceMtime = EditSession.sidecarMtime(for: asset)
-    let baked: AdjustmentModel?
-    do { baked = try Self.validatedBakedModel(for: asset) } catch { return }
     self.decodedImage = decoded
     self.decodedRawResolution = rawResolution
     self.decodedForAssetID = asset.id
-    self.decodedSidecarMtime = sourceMtime  // #950 fast-path gate
-    self.decodedBakedModel = baked  // #950
+    self.decodedSidecarMtime = EditSession.sidecarMtime(for: asset)  // #950 fast-path gate
     self.decodedSidecarURL = asset.sidecarURL
+    self.decodedBakedModel = Self.bakedModel(for: asset)  // #950
     self.decodedAtModel = decodedAtModel
     // Seeded buffers (cached rendered preview / embedded JPEG) are
     // low-resolution display previews, never a full decode — refine
@@ -28,7 +25,6 @@ extension RenderActor {
     self.decodedProfile = nil
     // Seeded buffers likewise carry no known auto-exposure state
     // (#1387) — same reasoning as `decodedProfile` above.
-    self.decodedQuality = nil
     self.decodedAutoExposure = nil
     // Seeded preview buffers carry no slider-frame export (#1781); a
     // stale frame from a previous decode must not describe them.
@@ -46,6 +42,7 @@ extension RenderActor {
     self.decodedHasLensCorrections = false
     self.decodedLensCorrectionCaInert = true
     self.decodedLensCorrectionDistortionInert = true
+    self.decodedCaptureBase = nil
     // #2049: a seed is a cache WRITE — bump identity so a GPU-live
     // session uploaded from the previous buffer knows to re-upload.
     self.decodeGeneration &+= 1
@@ -60,19 +57,15 @@ extension RenderActor {
     if decodedImage != nil && decodedForAssetID == asset.id {
       return false
     }
-    let sourceMtime = EditSession.sidecarMtime(for: asset)
-    let baked: AdjustmentModel?
-    do { baked = try Self.validatedBakedModel(for: asset) } catch { return false }
     self.decodedImage = decoded
     self.decodedRawResolution = rawResolution
     self.decodedForAssetID = asset.id
-    self.decodedSidecarMtime = sourceMtime  // #950 fast-path gate
-    self.decodedBakedModel = baked  // #950
+    self.decodedSidecarMtime = EditSession.sidecarMtime(for: asset)  // #950 fast-path gate
     self.decodedSidecarURL = asset.sidecarURL
+    self.decodedBakedModel = Self.bakedModel(for: asset)  // #950
     self.decodedAtModel = decodedAtModel
     self.decodedIsFull = false
     self.decodedProfile = nil  // #871 — see `seed(...)`
-    self.decodedQuality = nil
     self.decodedAutoExposure = nil  // #1387 — see `seed(...)`
     self.decodedWbFrame = nil  // #1781 — see `seed(...)`
     self.decodedWhitesAnchorEv = .nan
@@ -82,6 +75,7 @@ extension RenderActor {
     self.decodedHasLensCorrections = false  // #2231/#3189 — see `seed(...)`
     self.decodedLensCorrectionCaInert = true
     self.decodedLensCorrectionDistortionInert = true
+    self.decodedCaptureBase = nil
     self.decodeGeneration &+= 1  // #2049 — see `seed(...)`
     return true
   }

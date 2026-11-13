@@ -188,6 +188,8 @@ describe('the detail DTO returned by GET /api/assets/:id', () => {
       description_meta: { model: 'qwen' },
       ocr_text: 'SEA',
       ocr_meta: OCR_META,
+      deleted_at: null,
+      deleted_reason: null,
       owner_id: null,
       owner: null,
       vision: VISION,

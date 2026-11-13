@@ -8,9 +8,8 @@
 // (LivingSlider) converts these to SwiftUI `Color` / `LinearGradient` —
 // MapleCore itself does not import SwiftUI.
 //
-// Stops are pending final match against the exact `primitives.jsx` GRAD
-// imports; hex values documented inline match the current Pro palette spec
-// (A1, #1536) and will be ratcheted by the design pass in A2.
+// Static palettes are generated from raw-core ui_slider_gradients (#4662),
+// shared with Android so tool track colors cannot drift.
 
 import Foundation
 
@@ -65,169 +64,14 @@ extension GradientStop {
 /// sub-params that share the parent's visual.
 public enum GradientCatalog {
 
-  // MARK: Light group
-
-  /// Exposure — scene dark canvas → bright highlight.
-  public static let exposure: [GradientStop] = [
-    GradientStop(t: 0.0, hex: 0x0B0A08),  // canvas
-    GradientStop(t: 1.0, hex: 0xF2EFE9),  // text (bright)
-  ]
-
-  /// Brightness (midtone-band gain) — dim → neutral light.
-  public static let brightness: [GradientStop] = [
-    GradientStop(t: 0.0, hex: 0x6E675E),  // textDim
-    GradientStop(t: 1.0, hex: 0xF2EFE9),  // text
-  ]
-
-  /// Contrast — flat muted → punchy.
-  public static let contrast: [GradientStop] = [
-    GradientStop(t: 0.0, hex: 0x6E675E),  // textDim (flat)
-    GradientStop(t: 1.0, hex: 0xF2EFE9),  // text (punchy)
-  ]
-
-  /// Highlights — recovered mid-grey → blown white.
-  public static let highlights: [GradientStop] = [
-    GradientStop(t: 0.0, hex: 0x9B958C),  // recovered grey
-    GradientStop(t: 1.0, hex: 0xFFFFFF),  // full white
-  ]
-
-  /// Shadows — black → lifted shadow grey.
-  public static let shadows: [GradientStop] = [
-    GradientStop(t: 0.0, hex: 0x000000),  // pure black
-    GradientStop(t: 1.0, hex: 0x9B958C),  // lifted shadow
-  ]
-
-  /// Whites — near-white point → paper white.
-  public static let whites: [GradientStop] = [
-    GradientStop(t: 0.0, hex: 0xD8D4CC),  // near-white
-    GradientStop(t: 1.0, hex: 0xFFFFFF),  // paper white
-  ]
-
-  /// Blacks — pure black → raised black point.
-  public static let blacks: [GradientStop] = [
-    GradientStop(t: 0.0, hex: 0x000000),  // pure black
-    GradientStop(t: 1.0, hex: 0x3A352F),  // raised black point
-  ]
-
-  // MARK: Color group
-
-  /// Temp (colour temperature) — cool blue → warm amber.
-  public static let temp: [GradientStop] = [
-    GradientStop(t: 0.0, hex: 0x3B6FB0),  // cool blue
-    GradientStop(t: 1.0, hex: 0xE8A33D),  // warm amber
-  ]
-
-  /// Tint — green shift → magenta shift.
-  public static let tint: [GradientStop] = [
-    GradientStop(t: 0.0, hex: 0x3FAE6A),  // tint green
-    GradientStop(t: 1.0, hex: 0xC64FB0),  // tint magenta
-  ]
-
-  /// Vibrance — muted neutral → vibrant accent.
-  public static let vibrance: [GradientStop] = [
-    GradientStop(t: 0.0, hex: 0x6E675E),  // muted neutral
-    GradientStop(t: 1.0, hex: 0x4A9FC4),  // vibrant blue-teal
-  ]
-
-  /// Saturation — grey → saturated red accent.
-  public static let saturation: [GradientStop] = [
-    GradientStop(t: 0.0, hex: 0x6E675E),  // near-grey
-    GradientStop(t: 1.0, hex: 0xC4493A),  // accent red (saturated)
-  ]
-
-  /// HSL — a hue sweep across the band palette. Matches the web
-  /// `GRADIENTS.hsl` entry stop-for-stop so both platforms' HSL tracks
-  /// read the same. Used as the fall-back for any HSL sub-param whose
-  /// band has no swatch-derived track of its own.
-  public static let hsl: [GradientStop] = [
-    GradientStop(t: 0.0, hex: 0xC4493A),  // red
-    GradientStop(t: 0.33, hex: 0xE8A33D),  // orange
-    GradientStop(t: 0.66, hex: 0x3FAE6A),  // green
-    GradientStop(t: 1.0, hex: 0x3B6FB0),  // blue
-  ]
-
   /// Per-band HSL track: neutral grey → the band's own swatch, so the
   /// three sliders of the armed band carry that band's colour.
   public static func hslStops(for band: HSLBand) -> [GradientStop] {
     [
-      GradientStop(t: 0.0, hex: 0x6E675E),  // textDim (neutral)
+      brightness[0],  // textDim (neutral)
       GradientStop(t: 1.0, hex: band.swatch),
     ]
   }
-
-  // MARK: Effects group
-
-  /// Clarity — flat haze → micro-contrast crisp.
-  public static let clarity: [GradientStop] = [
-    GradientStop(t: 0.0, hex: 0x4A443B),  // borderHi (flat)
-    GradientStop(t: 1.0, hex: 0xA8A097),  // textMuted (crisp)
-  ]
-
-  /// Texture — soft detail → fine detail.
-  public static let texture: [GradientStop] = [
-    GradientStop(t: 0.0, hex: 0x4A443B),  // borderHi
-    GradientStop(t: 1.0, hex: 0xA8A097),  // textMuted
-  ]
-
-  /// Dehaze — hazy grey → clear neutral.
-  public static let dehaze: [GradientStop] = [
-    GradientStop(t: 0.0, hex: 0x4A443B),  // borderHi
-    GradientStop(t: 1.0, hex: 0xA8A097),  // textMuted
-  ]
-
-  /// Vignette — canvas black, mid lift, back to black (symmetric arc).
-  public static let vignette: [GradientStop] = [
-    GradientStop(t: 0.0, hex: 0x08070A),  // canvasAlt
-    GradientStop(t: 0.5, hex: 0x6E675E),  // textDim (lifted midpoint)
-    GradientStop(t: 1.0, hex: 0x08070A),  // canvasAlt
-  ]
-
-  /// Grain amount — panel quiet → textured warm.
-  public static let grain: [GradientStop] = [
-    GradientStop(t: 0.0, hex: 0x1D1B17),  // panel
-    GradientStop(t: 1.0, hex: 0xA8A097),  // textMuted
-  ]
-
-  // MARK: Detail group
-
-  /// Sharpen — soft haze → crisp edge.
-  public static let sharpen: [GradientStop] = [
-    GradientStop(t: 0.0, hex: 0x4A443B),  // borderHi
-    GradientStop(t: 1.0, hex: 0xF2EFE9),  // text (sharp)
-  ]
-
-  /// Noise reduction — flat grain → smooth.
-  public static let noise: [GradientStop] = [
-    GradientStop(t: 0.0, hex: 0x4A443B),  // borderHi (grain)
-    GradientStop(t: 1.0, hex: 0xF2EFE9),  // text (smooth)
-  ]
-
-  /// Colour noise reduction (same visual as luminance NR).
-  public static let colorNR: [GradientStop] = [
-    GradientStop(t: 0.0, hex: 0x4A443B),
-    GradientStop(t: 1.0, hex: 0xF2EFE9),
-  ]
-
-  /// Capture sharpening amount.
-  public static let captureSharpen: [GradientStop] = [
-    GradientStop(t: 0.0, hex: 0x4A443B),
-    GradientStop(t: 1.0, hex: 0xF2EFE9),
-  ]
-
-  /// Capture sharpening sigma (radius).
-  public static let captureSigma: [GradientStop] = [
-    GradientStop(t: 0.0, hex: 0x4A443B),
-    GradientStop(t: 1.0, hex: 0xF2EFE9),
-  ]
-
-  /// Tone Curve region sliders (#367) — black → paper white. All four
-  /// regions share it: each one lifts or lowers its own band of the same
-  /// neutral tone ramp, so a per-region gradient would say less, not
-  /// more, than the full ramp with the thumb sitting inside it.
-  public static let toneCurve: [GradientStop] = [
-    GradientStop(t: 0.0, hex: 0x000000),
-    GradientStop(t: 1.0, hex: 0xFFFFFF),
-  ]
 
   // MARK: - Look-up by Tool / sub-param id
 

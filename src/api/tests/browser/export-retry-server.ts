@@ -8,7 +8,7 @@ import { registerRoot } from '../../src/fs/root';
 import { createLiveTestDatabase, insertFolder } from '../../src/db/sqlite/test-sqlite.test-helpers';
 import { invalidateLibraryRoots } from '../../src/indexer/libraries.cache';
 import { createJobsRoutes } from '../../src/routes/jobs';
-import { JobRunner } from '../../src/job-runner/runner';
+import { startLocalTemporal } from '../../src/temporal/local-temporal.test-helpers';
 import { DEFAULT_EXPORT_RECIPE } from '../../src/generated/export-recipe.generated';
 import { _resetFfiPoolForTests, ffiPool } from '../../src/ffi/ffi-pool';
 
@@ -23,8 +23,7 @@ const raw = await readFile(
 );
 const xml =
   '<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/" crs:Exposure2012="1.2"/></rdf:RDF>';
-const jobs = new JobRunner();
-jobs.start();
+const jobs = await startLocalTemporal();
 const fixtures = new Map<string, string[]>();
 const hash = (value: Uint8Array) => createHash('sha256').update(value).digest('hex');
 const app = new Elysia()

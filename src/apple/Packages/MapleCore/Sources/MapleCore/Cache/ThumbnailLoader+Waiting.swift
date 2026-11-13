@@ -14,11 +14,69 @@ extension ThumbnailLoader {
     }
   }
 
+  func startLocalProducer(
+    key: String,
+    operation: @escaping @Sendable () async -> Data?
+  ) -> Task<Data?, Never> {
+    let producerID = UUID()
+    let task = Task.detached(priority: .utility) { () -> Data? in
+      do {
+        try await self.beginActiveProducer(producerID)
+      } catch {
+        await self.cleanupLocalProducer(producerID, key: key)
+        return nil
+      }
+      let result = await operation()
+      await self.endActiveProducer(producerID, key: key)
+      return result
+    }
+    taskProducerIDs[task] = producerID
+    inFlight[key] = task
+    return task
+  }
+
+  /// Serialized against `finishWaiting` by the actor: a producer is either
+  /// marked active (and kept) or abandoned before its work begins.
+  private func beginActiveProducer(_ id: UUID) async throws {
+    try await acquireDecodeSlot()
+    guard !Task.isCancelled else {
+      await releaseDecodeSlot()
+      throw CancellationError()
+    }
+    activeProducers.insert(id)
+  }
+
+  /// Number of callers currently waiting on `key`'s producer: whether a
+  /// running producer's expensive fallback is still wanted.
+  func waiterCount(forKey key: String) -> Int {
+    inFlight[key].map { thumbnailWaiters[$0]?.count ?? 0 } ?? 0
+  }
+
+  private func cleanupLocalProducer(_ id: UUID, key: String) {
+    activeProducers.remove(id)
+    if let task = inFlight[key], taskProducerIDs[task] == id {
+      inFlight.removeValue(forKey: key)
+    }
+    taskProducerIDs = taskProducerIDs.filter { $0.value != id }
+  }
+
+  private func endActiveProducer(_ id: UUID, key: String) async {
+    cleanupLocalProducer(id, key: key)
+    await releaseDecodeSlot()
+  }
+
+  private func isProducerActive(_ task: Task<Data?, Never>) -> Bool {
+    guard let id = taskProducerIDs[task] else { return false }
+    return activeProducers.contains(id)
+  }
+
   private func finishWaiting(_ task: Task<Data?, Never>, waiter: UUID, cancelled: Bool) {
     guard thumbnailWaiters[task]?.remove(waiter) != nil else { return }
     guard thumbnailWaiters[task]?.isEmpty == true else { return }
     thumbnailWaiters.removeValue(forKey: task)
-    if cancelled { task.cancel() }
+    if cancelled, !isProducerActive(task) {
+      task.cancel()
+    }
   }
 
 }

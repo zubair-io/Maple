@@ -64,6 +64,11 @@ public struct XMPPassthrough: Sendable, Equatable {
   /// in document order.
   public var unknownNodes: [String]
   public var maskGroups: [XMPMaskGroupTemplate]
+  /// Sibling `rdf:Description` elements (with modelled attributes/children
+  /// stripped) and non-`rdf:Description` children of `rdf:RDF` (#4690).
+  public var unknownRdfNodes: [String]
+  /// Non-`rdf:RDF` children of `x:xmpmeta` (#4690).
+  public var unknownXmpmetaNodes: [String]
 
   /// `xmp:Rating` and `xmp:Label` exactly as the source authored them, plus
   /// the colour label the source resolved to. The serializer re-emits them
@@ -78,17 +83,21 @@ public struct XMPPassthrough: Sendable, Equatable {
 
   public var isEmpty: Bool {
     unknownAttributes.isEmpty && unknownNodes.isEmpty && maskGroups.isEmpty
+      && unknownRdfNodes.isEmpty && unknownXmpmetaNodes.isEmpty
   }
 
   public init(
     unknownAttributes: [Attribute] = [], unknownNodes: [String] = [],
     maskGroups: [XMPMaskGroupTemplate] = [],
+    unknownRdfNodes: [String] = [], unknownXmpmetaNodes: [String] = [],
     authoredRating: String? = nil, authoredLabel: String? = nil,
     authoredColorLabel: ColorLabel? = nil
   ) {
     self.unknownAttributes = unknownAttributes
     self.unknownNodes = unknownNodes
     self.maskGroups = maskGroups
+    self.unknownRdfNodes = unknownRdfNodes
+    self.unknownXmpmetaNodes = unknownXmpmetaNodes
     self.authoredRating = authoredRating
     self.authoredLabel = authoredLabel
     self.authoredColorLabel = authoredColorLabel
@@ -131,6 +140,8 @@ enum XMPKnownFields {
     "crs:LuminanceSmoothing", "crs:ColorNoiseReduction",
     "papp:ChromaPrefilter", "papp:DeepDenoise", "papp:HotPixelSuppression",
     "papp:LensProfile",
+    "papp:FilmLook", "papp:FilmStrength",
+    "papp:RetouchFrameVersion",
     "papp:Demosaic",
     "papp:HighlightRecoveryMode", "papp:AutoExposure", "papp:Look", "papp:Profile",
     // WB method + point-curve mode (#431/#436; wired into Swift by
@@ -147,6 +158,7 @@ enum XMPKnownFields {
     "crs:ColorGradeShadowLum", "crs:ColorGradeMidtoneHue", "crs:ColorGradeMidtoneSat",
     "crs:ColorGradeMidtoneLum", "crs:ColorGradeHighlightLum",
     "crs:ColorGradeGlobalHue", "crs:ColorGradeGlobalSat", "crs:ColorGradeGlobalLum",
+    "papp:ColorGradeBlending", "papp:ColorGradeShadowEdge", "papp:ColorGradeHighlightEdge",
     "crs:LensProfileEnable", "crs:LensProfileDistortionScale",
     "crs:LensProfileChromaticAberrationScale", "crs:LensProfileVignettingScale",
     // Profile-free lateral CA + defringe (#3411) — the aberration Maple
@@ -216,7 +228,8 @@ enum XMPKnownFields {
   /// legacy string form the walker also READS: it is managed too, because
   /// a document carrying it is re-saved with the struct container instead
   /// and keeping the old element would leave two descriptions of the same
-  /// spots in one sidecar.
+  /// spots in one sidecar. A legacy list that decodes to no spot is the
+  /// exception: `parsePassthrough` keeps it verbatim.
   static let managedChildElements: Set<String> = Set(
     ToneCurveXMP.elements + LocalAdjustmentXMP.containers + [
       RetouchXMP.areasContainer,
@@ -248,5 +261,12 @@ enum XMPKnownFields {
     if name == "xmlns" { return true }
     guard name.hasPrefix("xmlns:") else { return false }
     return selfDeclaredNamespacePrefixes.contains(String(name.dropFirst("xmlns:".count)))
+  }
+
+  /// True when `name` is an attribute on a sibling `rdf:Description` that
+  /// Maple models on the primary `rdf:Description`. Keeps `rdf:about` and
+  /// `xmlns:` declarations intact on the preserved sibling.
+  static func isModeledDescriptionAttribute(_ name: String) -> Bool {
+    name != "rdf:about" && !name.hasSuffix(":about") && attributes.contains(name)
   }
 }

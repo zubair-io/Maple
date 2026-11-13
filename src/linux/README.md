@@ -15,54 +15,165 @@ cargo test --manifest-path src/linux/Cargo.toml
 cargo clippy --manifest-path src/linux/Cargo.toml --all-targets --no-deps -- -D warnings
 ```
 
-Build and package an installable archive:
+## Packages
+
+Maple for Linux is packaged as a native `.deb` for Ubuntu 24.04, as an AppImage
+and as a single-file Flatpak bundle. All three are built by the Linux workflow
+from the same Ubuntu 24.04 release executable, and each artifact has a `.sha256`
+file beside it. The `.deb` and AppImage need glibc 2.39 or newer on the host; the
+Flatpak brings its own through the `org.freedesktop.Platform` 25.08 runtime. The
+Flatpak is a downloadable bundle, not a Flathub listing. Build them locally from
+a release executable (the `.deb` needs `dpkg-dev`, the AppImage `squashfs-tools`
+and the pinned [type2 runtime](https://github.com/AppImage/type2-runtime/releases/tag/20251108),
+the Flatpak `flatpak-builder`, which installs the runtime and SDK from Flathub):
 
 ```bash
-cargo build --locked --release --manifest-path src/linux/Cargo.toml
-python3 src/linux/packaging/package.py
-mkdir -p "$HOME/.local"
-tar -xzf maple-0.1.0-x86_64-linux.tar.gz -C "$HOME/.local"
+cargo build --locked --release --manifest-path src/linux/Cargo.toml --bin maple-linux
+python3 src/linux/packaging/package.py deb --output-dir dist
+python3 src/linux/packaging/package.py appimage --runtime runtime-x86_64 --output-dir dist
+python3 src/linux/packaging/package.py flatpak --output-dir dist
 ```
 
-The archive contains `bin/maple-linux`, the desktop entry and the canonical
-Maple icon. Film assets are embedded in the executable; running the package
-does not require the source checkout. The archive name uses the executable's
-ELF architecture, including aarch64 cross builds. Ensure `$HOME/.local/bin` is
-in the desktop session's PATH. `update-desktop-database ~/.local/share/applications`
-and `gtk-update-icon-cache ~/.local/share/icons/hicolor` can refresh desktop caches
-where those utilities are installed.
+All three packages install the same desktop integration: the
+`app.justmaple.aperture` desktop entry, the canonical Maple icon and file
+associations, so **Open With → Maple** works from a file manager. The associated
+MIME types are the formats the library opens (`FILE_FORMATS` in
+[`src/library.rs`](src/library.rs)). Five RAW types that shared-mime-info 2.4
+does not define (SRW, 3FR, MEF, ERF, FFF) are declared by Maple's own MIME
+package, `packaging/app.justmaple.aperture.xml`. The `desktop_integration`
+test fails if the desktop entry or the MIME package drifts from that table,
+and on Linux it also checks the system MIME database resolves every other type.
+Opening a photo launches Maple on its folder with that photo selected.
 
-Runtime requirements include a Vulkan driver, Wayland or X11, xkbcommon and a
-desktop portal for the native file picker. On Debian/Ubuntu, the X11 path also
-needs `libxkbcommon-x11-0` (which brings `libxcb-xkb1`), `libxcursor1`,
-`libxi6` and `libxrandr2`. Cloud credentials require
-a working Secret Service provider such as GNOME Keyring. The binary uses the
-build machine's libc baseline; build on the oldest supported distribution for
-a release. The ordinary development-host executable requires glibc 2.43, verified
-from its ELF requirements, and is not the Ubuntu 24.04 artifact. A separate
-fresh release built inside Ubuntu Base 24.04.5 requires glibc 2.39 and its
-unpacked package passes X11 startup inside that environment with Ubuntu's
-Mesa 25.2.8 / LLVM 20.1.2. All 93 native tests pass on that baseline: 41
-editor/library tests and 52 integration tests, with none ignored. These cover
-sidecar persistence, cloud journals, browsing, retained detail, export, resident
-GPU preview and compositor pixels. The host build also
-passes GNOME Wayland startup. The Ubuntu package also passes Wayland startup
-under an isolated Weston headless compositor with its baseline libraries;
-full distribution interaction qualification remains open. These checks do not qualify
-older distributions, camera color, physical-GPU performance, real-account cloud
-access or complete desktop accessibility. Remote CI must still run separately.
+- **`.deb`:** `sudo apt install ./maple_<version>_amd64.deb`. Installing a newer
+  `.deb` the same way updates it; `sudo apt purge maple` removes it, and the
+  system's desktop, MIME and icon caches refresh through dpkg triggers. The
+  package depends on the Vulkan, Wayland, X11 and xkbcommon libraries Maple
+  loads at runtime and recommends Mesa's Vulkan driver and
+  `xdg-desktop-portal`.
+- **AppImage:** run `packaging/install-maple-appimage.sh Maple-<version>-x86_64.AppImage`
+  as your normal user. It extracts the AppImage into `~/.local/opt/maple-appimage`
+  (no FUSE or root needed), installs the desktop entry, icon and MIME package
+  under `$XDG_DATA_HOME`, and refreshes the user's caches. Running it again with
+  a newer AppImage replaces the installation; `~/.local/opt/maple-appimage/install-maple-appimage.sh --uninstall`
+  removes it, keeping any integration file changed since installation. The
+  AppImage does not bundle graphics libraries; on Ubuntu 24.04 install
+  `libvulkan1 mesa-vulkan-drivers libwayland-client0 libxkbcommon0 libxkbcommon-x11-0 libx11-6 libx11-xcb1 libxcb1 libxcursor1 libxi6 libxrandr2`.
+- **Flatpak:** `flatpak install --user Maple-<version>-x86_64.flatpak`. The
+  bundle names Flathub as its runtime source, so the first install also
+  downloads `org.freedesktop.Platform` 25.08 and its Mesa/NVIDIA graphics
+  extension; nothing else is needed on the host. Run it from the menu or with
+  `flatpak run app.justmaple.aperture`. Installing a newer bundle the same way
+  updates it, and `flatpak uninstall --user --delete-data app.justmaple.aperture`
+  removes it. The manifest, [`packaging/app.justmaple.aperture.yml`](packaging/app.justmaple.aperture.yml),
+  repackages the release executable rather than rebuilding it and justifies
+  each sandbox permission. Maple reads and writes the home directory, `/media`,
+  `/run/media` and `/mnt`, because sidecars are written beside the originals
+  and the document portal cannot create them. Photos elsewhere, including
+  GVfs network shares under `/run/user`, are not reachable from the Flatpak.
+
+All formats use the same desktop file ID, so a per-user AppImage or Flatpak
+installation takes precedence over an installed `.deb` in menus and file
+associations.
+Photos and XMP sidecars are never touched by install, update or removal.
+Cloud credentials require a working Secret Service provider such as GNOME Keyring.
+
+## Diagnostics
+
+`maple-linux --diagnose` (for the AppImage installation,
+`~/.local/opt/maple-appimage/usr/bin/maple-linux --diagnose`) prints an
+installation report without opening a window and without network access. It
+reports the GPU adapter Maple would use and whether it is Vulkan, the display
+session Maple will use and whether it is reachable (as in winit, a set
+`WAYLAND_DISPLAY` means Wayland with no X11 fallback; remote X11 displays are
+not probed), the runtime libraries that session loads, and whether the desktop
+portal file chooser (or the zenity fallback) is available for the folder
+picker. It never starts the portal; an installed but inactive portal is reported
+as activatable. Environment values and photo paths are never printed. It exits 1
+when it finds a problem that stops Maple from working, and 0 otherwise; software
+rendering and the zenity fallback are reported as notes. For the Flatpak, run
+`flatpak run app.justmaple.aperture --diagnose`; it reports from inside the sandbox.
+
+## Support matrix
+
+[`packaging/support-matrix.json`](packaging/support-matrix.json) is the
+published support claim. The table below is generated from it by
+`python3 src/linux/packaging/support_matrix.py --write`, and the Linux workflow
+fails if they disagree. Every `ci-smoke` row is turned into a CI container job,
+so a row cannot claim automation that does not run. A `qualified` row requires
+an evidence link, and none exists yet: physical Intel, AMD and NVIDIA GPUs under
+GNOME and KDE, on Wayland and X11, still need qualification with visible photo
+pixels in a screenshot.
+
+<!-- support-matrix:start -->
+
+| Distribution     | Package  | Session                      | GPU                      | Status   |
+| ---------------- | -------- | ---------------------------- | ------------------------ | -------- |
+| Ubuntu 24.04 LTS | .deb     | X11 (Xvfb, no desktop shell) | Mesa llvmpipe (software) | ci-smoke |
+| Ubuntu 24.04 LTS | .deb     | Wayland (headless Weston)    | Mesa llvmpipe (software) | ci-smoke |
+| Ubuntu 24.04 LTS | AppImage | X11 (Xvfb, no desktop shell) | Mesa llvmpipe (software) | ci-smoke |
+| Ubuntu 24.04 LTS | AppImage | Wayland (headless Weston)    | Mesa llvmpipe (software) | ci-smoke |
+| Ubuntu 24.04 LTS | Flatpak  | X11 (Xvfb, no desktop shell) | Mesa llvmpipe (software) | ci-smoke |
+| Ubuntu 24.04 LTS | Flatpak  | Wayland (headless Weston)    | Mesa llvmpipe (software) | ci-smoke |
+| Ubuntu 24.04 LTS | .deb     | GNOME Wayland                | Intel, AMD, NVIDIA       | untested |
+| Ubuntu 24.04 LTS | .deb     | GNOME X11                    | Intel, AMD, NVIDIA       | untested |
+| Ubuntu 24.04 LTS | .deb     | KDE Plasma Wayland           | Intel, AMD, NVIDIA       | untested |
+| Ubuntu 24.04 LTS | .deb     | KDE Plasma X11               | Intel, AMD, NVIDIA       | untested |
+| Ubuntu 24.04 LTS | AppImage | GNOME Wayland                | Intel, AMD, NVIDIA       | untested |
+| Ubuntu 24.04 LTS | AppImage | GNOME X11                    | Intel, AMD, NVIDIA       | untested |
+| Ubuntu 24.04 LTS | AppImage | KDE Plasma Wayland           | Intel, AMD, NVIDIA       | untested |
+| Ubuntu 24.04 LTS | AppImage | KDE Plasma X11               | Intel, AMD, NVIDIA       | untested |
+| Ubuntu 24.04 LTS | Flatpak  | GNOME Wayland                | Intel, AMD, NVIDIA       | untested |
+| Ubuntu 24.04 LTS | Flatpak  | GNOME X11                    | Intel, AMD, NVIDIA       | untested |
+| Ubuntu 24.04 LTS | Flatpak  | KDE Plasma Wayland           | Intel, AMD, NVIDIA       | untested |
+| Ubuntu 24.04 LTS | Flatpak  | KDE Plasma X11               | Intel, AMD, NVIDIA       | untested |
+
+- **qualified**: Installed, launched and showing photo pixels on physical hardware; evidence linked.
+- **ci-smoke**: Installed, launched, opened through Open With, updated (.deb from an older version; AppImage through its installed installer; Flatpak by installing the bundle recommitted as a newer build) and removed in a clean container by every Linux CI run, on Mesa llvmpipe software Vulkan. Proves startup and a committed window buffer, not photo pixels, desktop shell behaviour or GPU performance.
+- **untested**: Not verified; no support claim is made.
+
+<!-- support-matrix:end -->
+
+## Qualification and CI
+
+The ordinary development-host executable requires glibc 2.43, verified from its
+ELF requirements, and is not the Ubuntu 24.04 artifact. A separate fresh release
+built inside Ubuntu Base 24.04.5 requires glibc 2.39 and passes X11 startup
+inside that environment with Ubuntu's Mesa 25.2.8 / LLVM 20.1.2. All 93 native
+tests passed on that baseline at that checkpoint: 41 editor/library tests and
+52 integration tests, with none ignored. These cover sidecar persistence, cloud
+journals, browsing, retained detail, export, resident GPU preview and
+compositor pixels. The host build also passes GNOME Wayland startup. These
+checks do not qualify older distributions, camera color, physical-GPU
+performance, real-account cloud access or complete desktop accessibility.
 
 The Linux workflow builds all targets, runs native tests serially with a required
-Mesa Vulkan adapter, and assembles a release archive on Ubuntu 24.04. Its small
+Mesa Vulkan adapter, and builds the `.deb`, AppImage and Flatpak bundle on
+Ubuntu 24.04. Its small
 committed fixtures check integration and correctness; they do not qualify the
 100MP hardware budget, a real cloud account or color-managed desktop output.
-The workflow also launches the unpacked archive under Xvfb and requires a live
-window with the launched PID, minimum dimensions and Maple's desktop class.
-Run that check locally on X11 with `python3 src/linux/packaging/smoke.py /path/to/unpacked/bin/maple-linux`.
-On a live Wayland desktop, run `python3 src/linux/packaging/wayland_smoke.py /path/to/unpacked/bin/maple-linux`.
+The workflow extracts the `.deb` outside the checkout and launches it under Xvfb,
+requiring a live window with the launched PID, minimum dimensions and Maple's
+desktop class, then under headless Weston with the AT-SPI check below.
+Each package then runs `packaging/install_smoke.py` in a clean `ubuntu:24.04`
+container: install, `--diagnose` (before and after the runtime libraries are
+present), file associations, X11 and Wayland launch of the installed executable,
+an **Open With** launch through the installed desktop entry, an update (the
+`.deb` from a relabelled older version; the AppImage through its installed
+installer), and removal of the application and its desktop integration,
+including keeping a desktop entry the user edited. The Flatpak runs the same
+checks through `flatpak run` against its exported desktop entry and MIME
+package; its `--diagnose` also proves the sandbox finds a Vulkan adapter. Its
+update installs the bundle recommitted as a newer build, and removal also
+checks the app's data directory is gone. Its container runs privileged because
+bubblewrap needs mount and PID namespaces that Docker's defaults forbid, and it
+starts a system D-Bus, which Ubuntu's `flatpak run` needs for its parental
+controls check.
+
+Run the launch checks locally on X11 with `python3 src/linux/packaging/smoke.py /path/to/maple-linux`.
+On a live Wayland desktop, run `python3 src/linux/packaging/wayland_smoke.py /path/to/maple-linux`.
 For an isolated headless Wayland check, install Weston and run
-`python3 src/linux/packaging/weston_smoke.py /path/to/unpacked/bin/maple-linux`.
-CI runs this check against the same unpacked release archive as the X11 check.
+`python3 src/linux/packaging/weston_smoke.py /path/to/maple-linux`.
 The Wayland check unsets DISPLAY, follows Maple's own xdg toplevel/surface chain,
 requires configuration acknowledgement and a committed non-null content buffer,
 and verifies continued process lifetime. Mesa query callbacks cannot satisfy it.
@@ -75,6 +186,8 @@ editing and Undo through the desktop accessibility bus, real XMP autosave, and
 unchanged originals. It temporarily enables accessibility, restores the prior
 setting and closes only its own process. Full screen-reader and keyboard
 interaction qualification remains open.
+
+## Editor
 
 The current shell opens local folders, discovers child folders, shows a
 virtualized thumbnail grid, opens a fitted preview, navigates a filmstrip and
@@ -107,7 +220,11 @@ Colour tokens and adjustment ranges/defaults/wire
 keys come directly from raw-core.
 
 RAW previews, including all eight EXIF orientations, use the shared resident GPU chain on the
-worker. The native UI registers the resulting texture on that same device,
+worker. The resident upload is the capture decode (#5380): capture stages run
+once in the fixed as-shot basis, and each tick renders it through the decode's
+creative stage (white balance, camera profile, highlight recovery, exposure
+gain), so a white-balance drag matches the refined render within one 8-bit step
+without re-developing. The native UI registers the resulting texture on that same device,
 without a CPU readback or pixel upload per tick. The shared presentation shader
 writes encoded sRGB bytes into a UNORM attachment; egui samples a compatible
 sRGB view over that same allocation, so its compositor receives linear samples.
@@ -116,16 +233,18 @@ code value in the native compositor regression. Hot edits reuse the RAW prefix;
 upstream edits replace it. New render requests share one cancellation signal
 with CPU prefix development, RGBA packing and the active GPU chain, and
 reject obsolete results. Imported crops, orthogonal rotations and off-axis straighten use the same core
-rect rounding/angle snapping and resident presentation mapping. Combined perspective
-and off-axis straighten retain the CPU path until the two required resampling
-steps are implemented on the GPU (#4317). Failed GPU sessions use the
+rect rounding/angle snapping and resident presentation mapping. An off-axis crop
+over perspective presents as its own second resample after the perspective warp,
+matching the CPU path (#5844). Failed GPU sessions use the
 shared CPU renderer with a visible fallback reason; raster previews remain CPU.
 Imported point curves that exceed the GPU's normalized knot capacity also use
 the shared CPU renderer. Their complete control points remain in the XMP;
 duplicate points that normalize within capacity stay eligible for GPU rendering.
 Before/after comparison still uses the CPU reference.
-RAW and raster canvases expose Fit / 100%, F / Z, anchored pinch/ctrl-wheel zoom and
-clamped drag pan, with physical-pixel scale rather than preview-texture scale.
+RAW and raster canvases expose Fit / Fill / 100%, F / Z, anchored pinch/ctrl-wheel
+zoom from half of fit to 800%, double-click fit ↔ 100% and clamped drag pan, with
+physical-pixel scale rather than preview-texture scale. The zoom rules are the
+shared `raw_core::canvas` model (docs/zoom.md § Linux native canvas).
 Raster source dimensions come from the shared header probe with EXIF orientation
 applied, retained against the immutable opened snapshot. At 100% and above,
 a 150ms debounce develops one visible native-resolution RAW or raster patch
@@ -146,7 +265,8 @@ still finish before cancellation is observed. Crops and rotations use native pat
 straighten retains the canonical bilinear sampler and its full-image coordinates;
 filter, mask, grain and dither coordinates stay anchored to the full image.
 RAW patches retain sensor neighbours for demosaicing, then impose DefaultCrop
-before spatial color filters. Perspective and dehaze models use debounced
+before spatial color filters. Dehaze, global or per mask, tiles from the
+frame's proxy haze maps (#3287). Perspective models use debounced
 whole-image CPU refinement through
 shared export-quality RAW demosaicing or the shared raster renderer. Explicit
 zoom below 100% uses the same path at physical display resolution. Crop-relative
@@ -208,12 +328,26 @@ an explicit error; they never fall back to an unrequested ungraded render.
 
 Serialized saves run outside the UI thread after a 750ms idle interval, before
 navigation and before closing. A failed save keeps the edited document open.
-Retry Save XMP or explicitly reload XMP to discard those edits and read external
-changes. `SidecarStore` rejects malformed XML, sidecar symlinks and detected
-external changes. Saves sync a temporary file, retain existing permissions,
-rename in the same folder and sync the directory. Optimistic comparison does
-not provide a filesystem-wide lock against uncooperative external writers
-racing the rename. Originals are never written.
+Retry Save XMP or explicitly reload XMP to discard those edits.
+
+A sidecar changed outside Maple since the editor read or last published it is
+not refused (#4983): `SidecarStore` runs the shared
+`raw_core::workflow::SidecarWorkflow::reconcile_xmp` with the revision the edit
+was based on, publishes the merge and records the outside state as an `external`
+history entry. A property only one side changed keeps that side's value; one both
+changed takes Maple's. The editor adopts the merged document when no newer edit is
+waiting, without scheduling another save, and moves its undo and redo states onto
+it with the outside change applied, so a later Undo keeps that change and a Redo
+lands on top of a saved Undo. A save queued before adoption applies only its own
+changes relative to what Maple last meant to publish, so it never reverts the
+outside change. A sidecar removed outside
+Maple, malformed outside XML, more than one `rdf:Description`, or a merge the
+shared code rejects still refuses and keeps the edit. `SidecarStore` also rejects
+sidecar symlinks. Saves sync a temporary file, retain existing permissions,
+re-read the sidecar immediately before renaming in the same folder and sync the
+directory; a change landing in that window is refused, and saving again merges
+it. This optimistic comparison is not a filesystem-wide lock against
+uncooperative writers racing the rename. Originals are never written.
 
 The writer owns the controls exposed by this shell, Profile, culling and required
 bookkeeping. Other attributes and nested XML are retained from the imported
@@ -285,8 +419,12 @@ HTTP preconditions. It refuses servers lacking the precondition capability and
 retains local document state when the server rejects a stale version. Pending edits and their remote content baseline persist in a private journal
 under the desktop data directory (`maple/cloud-edits`). Journals exclude concurrent
 editors and resume unsynced edits after restart: on the next connection every pending
-journal for that server is synchronized, and one that cannot be is reported and held
-open until it is synchronized or reloaded. Credentials stay in Secret Service.
+journal for that server is checked against live original metadata before synchronization.
+A failed resume preserves the journal and reports it without blocking other photos.
+Opening its photograph exposes Save XMP and Reload XMP recovery immediately; active
+pending edits still prevent navigation until synchronized or explicitly reloaded.
+Changed remote originals are refused while their pending edits remain on disk.
+Credentials stay in Secret Service.
 
 For cross-process qualification against the actual Maple API XMP routes:
 

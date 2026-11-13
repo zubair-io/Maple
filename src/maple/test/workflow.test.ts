@@ -6,10 +6,7 @@ import { isNativeAvailable, loadNativeBinding } from '../src/native';
 import { resolvePlatformNapiAddon } from '../src/platform';
 import { tryLoadNapiBinding } from '../src/native-napi';
 const corpus = JSON.parse(
-  readFileSync(
-    new URL('../../../test-fixtures/workflow/contract-v1.json', import.meta.url),
-    'utf8',
-  ),
+  readFileSync(new URL('../../../test-fixtures/workflow/contract.json', import.meta.url), 'utf8'),
 );
 const xml = readFileSync(
   new URL('../../../test-fixtures/local-adjustments/lightroom-group-add.xmp', import.meta.url),
@@ -31,7 +28,7 @@ test.skipIf(!isNativeAvailable())(
       expect(binding.workflowValidateJson(json)).toEqual(read);
       expect(
         binding.workflowReadXmp(
-          embedded.value.replace('<papp:SchemaVersion>1', '<papp:SchemaVersion>2'),
+          embedded.value.replace('<papp:SchemaVersion>2', '<papp:SchemaVersion>3'),
         ).ok,
       ).toBe(false);
       expect(binding.workflowEmbedXmp('{}', embedded.value).ok).toBe(false);
@@ -47,7 +44,7 @@ test.skipIf(!isNativeAvailable())(
     expect(binding.workflowCheckpointXmp(xml)).toEqual({ ok: true, value: xml });
     expect(
       binding.workflowCheckpointXmp(
-        embedded.value.replace('<papp:SchemaVersion>1', '<papp:SchemaVersion>2'),
+        embedded.value.replace('<papp:SchemaVersion>2', '<papp:SchemaVersion>3'),
       ).ok,
     ).toBe(false);
     expect(binding.workflowVariantFilename('photo.MOV.xmp', row.variantId)).toEqual({
@@ -85,11 +82,11 @@ test.skipIf(!resolvePlatformNapiAddon())(
       expect(napi.workflowVariantFilename('../photo.xmp', row.variantId).ok).toBe(false);
       expect(
         napi.workflowCheckpointXmp(
-          embedded.value.replace('<papp:SchemaVersion>1', '<papp:SchemaVersion>2'),
+          embedded.value.replace('<papp:SchemaVersion>2', '<papp:SchemaVersion>3'),
         ).ok,
       ).toBe(false);
       expect(
-        napi.workflowValidateJson(json.replace('"schemaVersion":1', '"schemaVersion":2')).ok,
+        napi.workflowValidateJson(json.replace('"schemaVersion":2', '"schemaVersion":3')).ok,
       ).toBe(false);
     }
   },
@@ -126,7 +123,7 @@ test.skipIf(!isNativeAvailable() || !resolvePlatformNapiAddon())(
         });
         expect(
           binding.workflowCheckpointXmp(
-            embedded.value.replace('<papp:SchemaVersion>1', '<papp:SchemaVersion>2'),
+            embedded.value.replace('<papp:SchemaVersion>2', '<papp:SchemaVersion>3'),
           ).ok,
         ).toBe(false);
         expect(readFileSync(sidecar)).toEqual(Buffer.from(expected, 'utf8'));
@@ -180,7 +177,7 @@ test('real FFI and N-API commit/snapshot/restore persist exact checkpoints and r
       const restored = value(binding.workflowRestoreXmp(reopened, JSON.stringify(restore)));
       const record = JSON.parse(value(binding.workflowReadXmp(restored)));
       expect(record.snapshots).toEqual([snapshot]);
-      expect(record.history.at(-1)).toEqual(restore);
+      expect(record.history.at(-1)).toEqual({ ...restore, parentId: '', writer: '' });
       expect(value(binding.workflowCheckpointXmp(restored))).toBe(captured);
       expect(binding.workflowCommitXmp(edited, JSON.stringify(entry(saved, 4))).ok).toBe(false);
       expect(binding.workflowSnapshotXmp(saved, JSON.stringify(snapshot)).ok).toBe(false);
@@ -189,7 +186,7 @@ test('real FFI and N-API commit/snapshot/restore persist exact checkpoints and r
       ).toBe(false);
       expect(
         binding.workflowCommitXmp(
-          next.replace('<papp:SchemaVersion>1', '<papp:SchemaVersion>2'),
+          next.replace('<papp:SchemaVersion>2', '<papp:SchemaVersion>3'),
           JSON.stringify(entry(edited, 4)),
         ).ok,
       ).toBe(false);
@@ -198,5 +195,68 @@ test('real FFI and N-API commit/snapshot/restore persist exact checkpoints and r
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  }
+});
+
+test('real FFI and N-API reconcile a stale writer, keep both edits and derive the undo stacks', () => {
+  const ffi = loadNativeBinding();
+  const napi = tryLoadNapiBinding();
+  if (!napi) throw Error('Build raw-napi before reconcile qualification');
+  const withAttribute = (doc: string, name: string, value: string) =>
+    doc.replace('crs:ProcessVersion="15.4"', `crs:ProcessVersion="15.4" ${name}="${value}"`);
+  const id = (n: number) => `00000000-0000-0000-0000-${n.toString(16).padStart(12, '0')}`;
+  for (const binding of [ffi, napi]) {
+    const value = (result: ReturnType<typeof binding.workflowReadXmp>) => {
+      if (!result.ok) throw Error(result.error);
+      return result.value;
+    };
+    const entry = (doc: string, n: number, parentId: string, writer: string) => ({
+      id: id(n),
+      createdAtMs: n,
+      action: 'adjustment',
+      label: `Edit ${n}`,
+      parentId,
+      writer,
+      adjustmentXmp: value(binding.workflowCheckpointXmp(doc)),
+    });
+    const commit = (doc: string, row: ReturnType<typeof entry>) =>
+      value(binding.workflowCommitXmp(doc, JSON.stringify(row)));
+
+    const base = commit(xml, entry(xml, 1, '', 'apple'));
+    // Writer A publishes from the base; writer B, still on the base, reconciles.
+    const editedByA = withAttribute(base, 'crs:Exposure2012', '1.25');
+    const a = commit(editedByA, entry(editedByA, 2, id(1), 'apple'));
+    const incoming = withAttribute(base, 'crs:Contrast2012', '30');
+    const merged = value(binding.workflowReconcileXmp(base, a, incoming, '1790000000000'));
+    const b = commit(merged, entry(merged, 3, id(1), 'web'));
+
+    const record = JSON.parse(value(binding.workflowReadXmp(b)));
+    expect(record.history.map((row: { id: string }) => row.id)).toEqual([id(1), id(2), id(3)]);
+    expect(record.history[2]).toMatchObject({ parentId: id(1), writer: 'web' });
+    expect(b).toContain('crs:Exposure2012="1.25"');
+    expect(b).toContain('crs:Contrast2012="30"');
+    expect(JSON.parse(value(binding.workflowCursorXmp(b)))).toEqual({
+      undo: [id(1), id(2)],
+      redo: [],
+      synced: true,
+    });
+    // An outside edit becomes an `external` entry and the next undo step.
+    const outside = withAttribute(b, 'crs:Tint', '10');
+    const captured = value(
+      binding.workflowReconcileXmp(
+        b,
+        outside,
+        withAttribute(b, 'crs:Highlights2012', '-5'),
+        '1790000000001',
+      ),
+    );
+    expect(JSON.parse(value(binding.workflowReadXmp(captured))).history.at(-1)).toMatchObject({
+      action: 'external',
+      writer: '',
+    });
+    for (const now of ['-1', 'abc', '1.5', '9007199254740992']) {
+      expect(binding.workflowReconcileXmp(base, a, incoming, now).ok).toBe(false);
+    }
+    expect(binding.workflowReconcileXmp('not xml', a, incoming, '1').ok).toBe(false);
   }
 });

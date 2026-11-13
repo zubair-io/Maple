@@ -740,11 +740,6 @@
       "use": "Image(systemName: systemName)"
     },
     {
-      "file": "src/apple/Maple/Views/PreviewImage.swift",
-      "line": 84,
-      "use": "Image(systemName: \"photo\")"
-    },
-    {
       "file": "src/apple/Maple/Views/PreviewNavigationRail.swift",
       "line": 26,
       "use": "showsList ? \"Filmstrip\" : \"Photo list\", systemImage: showsList ? \"film\" : \"list.bullet\""
@@ -763,11 +758,6 @@
       "file": "src/apple/Maple/Views/PreviewView.swift",
       "line": 238,
       "use": "Image(systemName: \"info.circle\")"
-    },
-    {
-      "file": "src/apple/Maple/Views/PreviewZoomController.swift",
-      "line": 25,
-      "use": "image: UIImage(systemName: \"photo\")?.withConfiguration("
     },
     {
       "file": "src/apple/Maple/Views/Retouch/RetouchPanel.swift",
@@ -1487,12 +1477,6 @@
         "reason": "Apple-owned menu/navigation/toolbar metadata; SF symbols remain for the native menu renderer."
       },
       {
-        "file": "src/apple/Maple/Views/PreviewZoomController.swift",
-        "line": 25,
-        "source": "image: UIImage(systemName: \"photo\")?.withConfiguration(",
-        "reason": "Native Image/UIImage-producing placeholder API. The public image provider requires a platform image rather than a View."
-      },
-      {
         "file": "src/apple/Maple/Views/SMBFolderTreeRow.swift",
         "line": 153,
         "source": "Label(\"Move Selected Here\", systemImage: \"arrow.right.doc.on.clipboard\")",
@@ -1650,6 +1634,12 @@
       },
       {
         "file": "src/apple/Maple/Views/PillHeader.swift",
+        "line": 142,
+        "source": "Label(\"Zoom to Fill\", systemImage: \"aspectratio\")",
+        "reason": "Approved native Photos-style header and system overflow menu (#4003): use SF Symbols with native Liquid Glass controls; fill zoom stop added by #5710."
+      },
+      {
+        "file": "src/apple/Maple/Views/PillHeader.swift",
         "line": 109,
         "source": "Image(systemName: \"ellipsis\")",
         "reason": "Approved native Photos-style header and system overflow menu (#4003): use SF Symbols with native Liquid Glass controls."
@@ -1671,6 +1661,12 @@
         "line": 246,
         "source": "Image(systemName: \"info.circle\")",
         "reason": "Approved native Photos-style header and system overflow menu (#4003): use SF Symbols with native Liquid Glass controls."
+      },
+      {
+        "file": "src/apple/Maple/Views/PreviewView.swift",
+        "line": 250,
+        "source": "Image(systemName: playsMotionClip ? \"stop.circle\" : \"play.circle\")",
+        "reason": "Motion Photo play/stop sits in the same approved native Photos-style header (#4003, #5447): SF Symbols with native Liquid Glass controls."
       }
     ]
   }

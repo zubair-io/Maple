@@ -197,6 +197,215 @@ final class SearchViewModelCollectionTests: XCTestCase {
     XCTAssertFalse(vm.canLoadMore)
   }
 
+  // MARK: - Ranked windows and a loading engine (#4514)
+
+  func test_showCollection_pendingLiveReloadStaysPendingAndAsksAgainOnLoadMore() async throws {
+    let vm = makeVM()
+    var requestedOffsets: [Int] = []
+    var attempts = 0
+    let preview = [Self.makeAsset(id: "snap")]
+    vm.showCollection(
+      params: SearchParams(libraryID: "lib-test"),
+      firstPage: GeneratedSearchAssetPage(results: preview, total: 100, isSnapshot: true),
+      nextPage: { offset, _ in
+        requestedOffsets.append(offset)
+        return GeneratedSearchAssetPage(results: [], total: 2)
+      },
+      liveFirstPage: {
+        attempts += 1
+        return attempts == 1
+          ? GeneratedSearchAssetPage(results: preview, total: 1, isSnapshot: true, isPending: true)
+          : GeneratedSearchAssetPage(
+            results: [Self.makeAsset(id: "live1"), Self.makeAsset(id: "live2")], total: 2)
+      })
+    try await Task.sleep(for: .milliseconds(50))
+
+    XCTAssertEqual(attempts, 1)
+    XCTAssertEqual(vm.results.map(\.id), ["snap"])
+    XCTAssertEqual(vm.total, 1, "a pending preview ends paging at its own rows")
+    await vm.loadMore()
+    XCTAssertEqual(attempts, 2, "the next scroll to the end asks for the live page again")
+    XCTAssertEqual(requestedOffsets, [])
+    XCTAssertEqual(vm.results.map(\.id), ["live1", "live2"])
+  }
+
+  func test_loadMore_pagesPastTotalWhileTheWindowHasMore() async {
+    let vm = makeVM()
+    var requestedOffsets: [Int] = []
+    vm.showCollection(
+      params: SearchParams(libraryID: "lib-test"),
+      firstPage: GeneratedSearchAssetPage(
+        results: [Self.makeAsset(id: "a")], total: 1, more: true),
+      nextPage: { offset, _ in
+        requestedOffsets.append(offset)
+        return GeneratedSearchAssetPage(results: [Self.makeAsset(id: "b")], total: 2, more: false)
+      })
+
+    XCTAssertTrue(vm.canLoadMore, "a full window's total is not the end of the collection")
+    await vm.loadMore()
+    XCTAssertEqual(requestedOffsets, [1])
+    XCTAssertEqual(vm.results.map(\.id), ["a", "b"])
+    XCTAssertFalse(vm.canLoadMore)
+  }
+
+  func test_submit_stopsPagingAtACappedWindow() async {
+    let server = URL(string: "https://stub.test")!
+    let cfg = URLSessionConfiguration.ephemeral
+    cfg.protocolClasses = [StubURLProtocol.self]
+    StubURLProtocol.reset()
+    StubURLProtocol.responder = { request in
+      request.url?.path == "/api/search/facets"
+        ? .failure(URLError(.notConnectedToInternet))
+        : .http(
+          status: 200,
+          body: Data(
+            #"{"results":[{"id":"fs:/p/a.dng","folder_id":"lib","abs_path":"/p/a.dng","filename":"a.dng"}],"total":1,"more":false,"capped":true,"page":0,"limit":100}"#
+              .utf8))
+    }
+    let client = CloudSearchClient(
+      server: server,
+      httpClient: AuthenticatedHTTPClient.unauthenticated(
+        server: server, urlSession: URLSession(configuration: cfg)))
+    let vm = SearchViewModel(server: server, libraryID: "lib-test", searchClient: client)
+    vm.params.placeQuery = "city streets"
+
+    await vm.submit()
+
+    XCTAssertEqual(vm.results.map(\.id), ["fs:/p/a.dng"])
+    XCTAssertFalse(vm.canLoadMore, "a window stopped at the server's cap ends paging")
+    XCTAssertTrue(vm.cappedAtTotal)
+    XCTAssertTrue(vm.totalIsLowerBound, "the count reads N+, not an exact total")
+    XCTAssertNil(vm.loadError)
+  }
+
+  func test_loadMore_refetchesFacetsForTheWidenedWindow() async throws {
+    let server = URL(string: "https://stub.test")!
+    let cfg = URLSessionConfiguration.ephemeral
+    cfg.protocolClasses = [StubURLProtocol.self]
+    StubURLProtocol.reset()
+    let facetURLs = LockedURLs()
+    StubURLProtocol.responder = { request in
+      let url = request.url!
+      if url.path == "/api/search/facets" {
+        facetURLs.append(url)
+        return .http(
+          status: 200,
+          body: Data(
+            #"{"total":1,"cameras":[],"lenses":[],"extensions":[],"scene_types":[],"activities":[],"subjects":[],"is_screenshot":{"true":0,"false":1,"unknown":0},"people":[],"places":[]}"#
+              .utf8))
+      }
+      let items = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
+      let page = items.first { $0.name == "page" }?.value ?? "0"
+      let body =
+        page == "0"
+        ? #"{"results":[{"id":"fs:/p/a.dng","folder_id":"lib","abs_path":"/p/a.dng","filename":"a.dng"}],"total":1,"more":true,"page":0,"limit":1}"#
+        : #"{"results":[{"id":"fs:/p/b.dng","folder_id":"lib","abs_path":"/p/b.dng","filename":"b.dng"}],"total":2,"more":false,"page":1,"limit":1}"#
+      return .http(status: 200, body: Data(body.utf8))
+    }
+    let client = CloudSearchClient(
+      server: server,
+      httpClient: AuthenticatedHTTPClient.unauthenticated(
+        server: server, urlSession: URLSession(configuration: cfg)))
+    // 50 a page: page 0 fits step 100's quota of 75, page 1 (100 rows) needs step 400.
+    let vm = SearchViewModel(
+      server: server, libraryID: "lib-test", searchClient: client, limit: 50)
+    vm.params.placeQuery = "city streets"
+
+    await vm.submit()
+    XCTAssertTrue(vm.canLoadMore, "a full window's total is not the end")
+    await vm.loadMore()
+    let deadline = ContinuousClock.now.advanced(by: .seconds(5))
+    while facetURLs.count < 2, ContinuousClock.now < deadline {
+      try await Task.sleep(for: .milliseconds(5))
+    }
+
+    let pages = facetURLs.all.map { url in
+      URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?
+        .first { $0.name == "page" }?.value
+    }
+    XCTAssertEqual(pages, ["0", "1"], "facets follow the list into its widened window")
+    XCTAssertEqual(vm.total, 2)
+  }
+
+  func test_facetCache_isKeyedByWindowStep_soPagesInAStepShareIt() async throws {
+    let server = URL(string: "https://stub.test")!
+    let cfg = URLSessionConfiguration.ephemeral
+    cfg.protocolClasses = [StubURLProtocol.self]
+    StubURLProtocol.reset()
+    let facetURLs = LockedURLs()
+    StubURLProtocol.responder = { request in
+      let url = request.url!
+      if url.path == "/api/search/facets" {
+        facetURLs.append(url)
+        return .http(
+          status: 200,
+          body: Data(
+            #"{"total":1,"cameras":[],"lenses":[],"extensions":[],"scene_types":[],"activities":[],"subjects":[],"is_screenshot":{"true":0,"false":1,"unknown":0},"people":[],"places":[]}"#
+              .utf8))
+      }
+      let items = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
+      let page = Int(items.first { $0.name == "page" }?.value ?? "0") ?? 0
+      let rows = (0..<50).map {
+        #"{"id":"fs:/p/\#(page)-\#($0).dng","folder_id":"lib","abs_path":"/p/\#(page)-\#($0).dng","filename":"\#(page)-\#($0).dng"}"#
+      }
+      let body =
+        #"{"results":[\#(rows.joined(separator: ","))],"total":\#((page + 1) * 50 + 1),"more":true,"page":\#(page),"limit":50}"#
+      return .http(status: 200, body: Data(body.utf8))
+    }
+    let client = CloudSearchClient(
+      server: server,
+      httpClient: AuthenticatedHTTPClient.unauthenticated(
+        server: server, urlSession: URLSession(configuration: cfg)))
+    let vm = SearchViewModel(server: server, libraryID: "lib-test", searchClient: client, limit: 50)
+    vm.params.placeQuery = "city streets"
+
+    await vm.submit()
+    await vm.loadMore()
+    await vm.loadMore()
+    let deadline = ContinuousClock.now.advanced(by: .seconds(5))
+    while facetURLs.count < 2, ContinuousClock.now < deadline {
+      try await Task.sleep(for: .milliseconds(5))
+    }
+
+    let pages = facetURLs.all.map { url in
+      URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?
+        .first { $0.name == "page" }?.value
+    }
+    XCTAssertEqual(pages, ["0", "1"], "page 0 fits step 100's quota; pages 1 and 2 share step 400")
+  }
+
+  /// The server's `windowDepthFor` mapping (`search.ranked.test.ts` pins the same pairs): a page
+  /// is served from the first step whose quota — three quarters of its depth — reaches it.
+  func test_windowStep_matchesTheServersQuotaLadder() {
+    let pairs: [(need: Int, step: Int)] = [
+      (30, 100), (75, 100), (76, 400), (100, 400), (300, 400), (301, 1_600),
+      (1_200, 1_600), (1_201, 5_000), (3_750, 5_000), (3_751, 5_000), (9_000, 5_000),
+    ]
+    for pair in pairs {
+      XCTAssertEqual(SearchViewModel.windowStep(reaching: pair.need), pair.step, "need \(pair.need)")
+    }
+  }
+
+  func test_showCollection_cappedWindowReadsAsALowerBoundAndStopsAtItsTotal() async {
+    let vm = makeVM()
+    var requestedOffsets: [Int] = []
+    vm.showCollection(
+      params: SearchParams(libraryID: "lib-test"),
+      firstPage: GeneratedSearchAssetPage(
+        results: [Self.makeAsset(id: "a")], total: 2, capped: true),
+      nextPage: { offset, _ in
+        requestedOffsets.append(offset)
+        return GeneratedSearchAssetPage(
+          results: [Self.makeAsset(id: "b")], total: 2, capped: true)
+      })
+
+    XCTAssertTrue(vm.totalIsLowerBound, "a capped collection's count reads N+")
+    await vm.loadMore()
+    XCTAssertEqual(requestedOffsets, [1])
+    XCTAssertFalse(vm.canLoadMore, "paging stops at the capped window's total")
+    XCTAssertTrue(vm.cappedAtTotal)
+  }
+
   func test_submit_leavesCollectionMode() async {
     let vm = makeVM()
     var pagerCalls = 0
@@ -337,4 +546,14 @@ final class SlowFacetsURLProtocol: URLProtocol {
     client?.urlProtocol(self, didLoad: Data(json.utf8))
     client?.urlProtocolDidFinishLoading(self)
   }
+}
+
+/// URLs recorded from the URL-loading thread, read from the test.
+final class LockedURLs: @unchecked Sendable {
+  private let lock = NSLock()
+  private var urls: [URL] = []
+
+  func append(_ url: URL) { lock.withLock { urls.append(url) } }
+  var all: [URL] { lock.withLock { urls } }
+  var count: Int { all.count }
 }

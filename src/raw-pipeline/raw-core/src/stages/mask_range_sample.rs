@@ -26,9 +26,12 @@
 use crate::color::oklab::rec2020_to_oklab;
 use crate::image::{ColorSpace, Image, RawImage};
 use crate::pipeline::{develop_scene_linear_from_raw_with_quality, RenderQuality};
+use crate::stages::local_adjustments::range;
 use crate::stages::white_balance_sample::neighbourhood_mean;
-use crate::types::RangeRefinement;
+use crate::types::{RangeRefinement, SKIN_TONE_RANGE};
 use crate::xmp::AdjustmentModel;
+
+const MIN_DEFAULT_SKIN_COVERAGE_WEIGHT: f32 = 0.005;
 
 /// Below this Oklab chroma the hue is the neutral axis's noise, not a colour.
 /// Twice the smallest chroma floor the seed can write (`0.01`), so a colour
@@ -115,7 +118,7 @@ pub fn sample_mask_range(
 /// `model` with the local-adjustment stack and every stage after it
 /// switched off, so the scene-linear develop ends with the buffer that
 /// stage reads. Each of those stages is a bit-identical no-op at zero.
-pub(crate) fn stage_input_model(model: &AdjustmentModel) -> AdjustmentModel {
+pub fn stage_input_model(model: &AdjustmentModel) -> AdjustmentModel {
     AdjustmentModel {
         local_adjustments: Vec::new(),
         mask_rasters: Vec::new(),
@@ -123,6 +126,20 @@ pub(crate) fn stage_input_model(model: &AdjustmentModel) -> AdjustmentModel {
         sharpen_amount: 0.0,
         nr_luminance: 0.0,
         nr_color: 0.0,
+        display_tone_curve_luma: Default::default(),
+        display_tone_curve_red: Default::default(),
+        display_tone_curve_green: Default::default(),
+        display_tone_curve_blue: Default::default(),
+        split_tone_shadow_saturation: 0.0,
+        split_tone_highlight_saturation: 0.0,
+        color_grade_shadow_luminance: 0.0,
+        color_grade_midtone_saturation: 0.0,
+        color_grade_midtone_luminance: 0.0,
+        color_grade_highlight_luminance: 0.0,
+        color_grade_global_saturation: 0.0,
+        color_grade_global_luminance: 0.0,
+        grain_amount: 0.0,
+        film_strength: 0.0,
         ..model.clone()
     }
 }
@@ -201,6 +218,144 @@ impl RangeRefinement {
             feather,
         }
     }
+}
+
+fn signed_circular_delta_deg(a: f32, b: f32) -> f32 {
+    let raw = (a - b) % 360.0;
+    if raw > 180.0 {
+        raw - 360.0
+    } else if raw <= -180.0 {
+        raw + 360.0
+    } else {
+        raw
+    }
+}
+
+/// Evaluate [`SKIN_TONE_RANGE`] for a person-skin mask on the pre-`local_adjustments`
+/// scene-linear Rec.2020 `RGBAf` buffer (`width * height * 4` floats).
+///
+/// The candidate skin seed is derived exclusively from `face_skin_mask_bytes`
+/// (the person's face region, never torso/clothing pixels) and applied only
+/// when [`SKIN_TONE_RANGE`] (`55° ± 25°`) is inert on the face skin and the
+/// face-seeded range improves coverage on `target_mask_bytes` (#5317).
+pub fn seed_skin_mask_range_if_default_inert(
+    rgba_rec2020: &[f32],
+    width: usize,
+    height: usize,
+    target_mask_bytes: &[u8],
+    face_skin_mask_bytes: &[u8],
+) -> Option<RangeSeed> {
+    let pixel_count = width.checked_mul(height)?;
+    if width == 0
+        || height == 0
+        || target_mask_bytes.len() != pixel_count
+        || face_skin_mask_bytes.len() != pixel_count
+        || rgba_rec2020.len() != pixel_count.checked_mul(4)?
+    {
+        return None;
+    }
+
+    let step = (width.min(height) / 512).max(1);
+    let mut face_default_weight_sum = 0.0_f32;
+    let mut hues = Vec::new();
+    let mut chromas = Vec::new();
+    let mut lightnesses = Vec::new();
+    let mut sum_sin = 0.0_f32;
+    let mut sum_cos = 0.0_f32;
+
+    for y in (0..height).step_by(step) {
+        let row_offset = y * width;
+        for x in (0..width).step_by(step) {
+            let idx = row_offset + x;
+            if face_skin_mask_bytes[idx] < 128 {
+                continue;
+            }
+            let base = idx * 4;
+            let rgb = [
+                rgba_rec2020[base],
+                rgba_rec2020[base + 1],
+                rgba_rec2020[base + 2],
+            ];
+            let lab = rec2020_to_oklab(rgb);
+            let (l, a, b) = (lab[0], lab[1], lab[2]);
+            let chroma = (a * a + b * b).sqrt();
+            if !(l.is_finite()
+                && chroma.is_finite()
+                && (0.08..=0.98).contains(&l)
+                && (0.015..=0.18).contains(&chroma))
+            {
+                continue;
+            }
+            let hue_deg = b.atan2(a).to_degrees();
+            if !(-55.0..=95.0).contains(&hue_deg) {
+                continue;
+            }
+            face_default_weight_sum += range::weight(&SKIN_TONE_RANGE, rgb);
+            hues.push(hue_deg);
+            chromas.push(chroma);
+            lightnesses.push(l);
+            let rad = hue_deg.to_radians();
+            sum_sin += rad.sin();
+            sum_cos += rad.cos();
+        }
+    }
+
+    if hues.is_empty() {
+        return None;
+    }
+    if face_default_weight_sum / (hues.len() as f32) >= MIN_DEFAULT_SKIN_COVERAGE_WEIGHT {
+        return None;
+    }
+
+    let mean_hue = sum_sin.atan2(sum_cos).to_degrees();
+    let mut deltas: Vec<f32> = hues
+        .iter()
+        .map(|&h| signed_circular_delta_deg(h, mean_hue))
+        .collect();
+    deltas.sort_by(f32::total_cmp);
+    chromas.sort_by(f32::total_cmp);
+    lightnesses.sort_by(f32::total_cmp);
+
+    let median_hue = signed_circular_delta_deg(mean_hue + deltas[deltas.len() / 2], 0.0);
+    let sample = RangeSample {
+        hue_deg: median_hue,
+        chroma: chromas[chromas.len() / 2],
+        l: lightnesses[lightnesses.len() / 2],
+    };
+    let mut seed = RangeSeed::from_sample(&sample);
+    seed.l_min = seed.l_min.min(0.15);
+    seed.l_max = seed.l_max.max(0.95);
+    let adapted_range = SKIN_TONE_RANGE.with_seed(&seed);
+
+    let mut target_mask_count = 0_usize;
+    let mut target_default_weight_sum = 0.0_f32;
+    let mut target_adapted_weight_sum = 0.0_f32;
+    for y in (0..height).step_by(step) {
+        let row_offset = y * width;
+        for x in (0..width).step_by(step) {
+            let idx = row_offset + x;
+            if target_mask_bytes[idx] < 128 {
+                continue;
+            }
+            target_mask_count += 1;
+            let base = idx * 4;
+            let rgb = [
+                rgba_rec2020[base],
+                rgba_rec2020[base + 1],
+                rgba_rec2020[base + 2],
+            ];
+            target_default_weight_sum += range::weight(&SKIN_TONE_RANGE, rgb);
+            target_adapted_weight_sum += range::weight(&adapted_range, rgb);
+        }
+    }
+    if target_mask_count == 0
+        || target_default_weight_sum / (target_mask_count as f32)
+            >= MIN_DEFAULT_SKIN_COVERAGE_WEIGHT
+        || target_adapted_weight_sum <= target_default_weight_sum
+    {
+        return None;
+    }
+    Some(seed)
 }
 
 #[cfg(test)]

@@ -1,0 +1,9 @@
+{
+  "source_commit": "200d104c5b4298e9463d2dce750744e60e75c104",
+  "renderer_tree": "635d38dc06260b02aee0c578a2184c3808e85439",
+  "binary_sha256": "80eef9a307cceca4ef9ac19d7109909eb6f2fa783e088e1fe6199fc87273e512",
+  "pipeline_output_version": 37,
+  "auto_fit_model_version": 7,
+  "status": "geometry-only control: Neutral profile with existing --lens off; NOT color qualification",
+  "binary": "/Users/riabuz/.codex/color-suite-evidence/5000/auto-jpeg-refined-step/maple-cli"
+}

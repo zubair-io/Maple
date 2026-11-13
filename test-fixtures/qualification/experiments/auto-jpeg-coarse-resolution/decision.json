@@ -1,0 +1,74 @@
+{
+  "decision": "Rejected GRID17 candidate; restored GRID9. Marginal photographic improvement did not resolve flat appearance or pass the gate.",
+  "output_lut_size": 33,
+  "fixture": "test_0015",
+  "baseline": {
+    "metrics": {
+      "mean_absolute_channel_error": [
+        0.03814930621293376,
+        0.03847253525426156,
+        0.04132012928933602
+      ],
+      "p95_absolute_channel_error": [
+        0.12205743680968922,
+        0.12155682255944598,
+        0.12999168594873867
+      ],
+      "mean_delta_e_2000": 4.2063349293655135,
+      "p95_delta_e_2000": 12.039111337460945,
+      "newly_clipped_channel_fraction": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "gradient_mean_absolute_channel_error": [
+        0.02919980209352604,
+        0.028369713229424574,
+        0.03157092215283122
+      ]
+    },
+    "breaches": 93,
+    "gradients": "passed"
+  },
+  "candidate": {
+    "metrics": {
+      "mean_absolute_channel_error": [
+        0.03745386310482,
+        0.037529111827508364,
+        0.04006600660330184
+      ],
+      "p95_absolute_channel_error": [
+        0.12164212749081353,
+        0.1203659072082695,
+        0.12868701857228046
+      ],
+      "mean_delta_e_2000": 4.1062537911540185,
+      "p95_delta_e_2000": 11.932327302020429,
+      "newly_clipped_channel_fraction": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "gradient_mean_absolute_channel_error": [
+        0.02908583612948023,
+        0.028508133244050504,
+        0.03174874337332265
+      ]
+    },
+    "breaches": 90,
+    "gradients": "passed",
+    "binary_sha256": "8e30b398a596701b0a9c21c1d1692a34e66376a739188621f876a4e32adfca3f"
+  },
+  "sparse_solver": {
+    "commit": "f4d60ac95b",
+    "unit_tests_passed": 103,
+    "ignored_existing": 6,
+    "test_0015_png_sha256": "2821b2b4d07f0b011ed39e9b1f56062bc9b5578a057d8850c1d03bced5a54e2d",
+    "baseline_png_identical": true
+  },
+  "foreground_cell_occupancy": {
+    "grid9_largest_fraction": 0.5069876736612112,
+    "grid17_largest_fraction": 0.23109823968339036
+  },
+  "limits_changed": false
+}

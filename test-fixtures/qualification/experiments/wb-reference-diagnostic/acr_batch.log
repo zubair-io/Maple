@@ -1,0 +1,1 @@
+[2026-10-19T02:55:59] acr_batch.jsx starting[2026-10-19T02:55:59] manifest: /Users/riabuz/.codex/color-suite-evidence/5000/wb-reference-diagnostic/manifest.json[2026-10-19T02:55:59] cases: 2[2026-10-19T02:56:06] OK   test_0007/tint_min  (1 PNG, 7746 ms)[2026-10-19T02:56:14] OK   test_0007/tint_max  (1 PNG, 7260 ms)[2026-10-19T02:56:14] done — ok: 2, fail: 0

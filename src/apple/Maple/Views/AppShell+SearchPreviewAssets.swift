@@ -26,6 +26,7 @@ extension AppShell {
     let parentPath = (catalog.absPath as NSString).deletingLastPathComponent
     let source = CloudSource(
       server: LocalNetworkResolver.shared.effectiveURL(for: server),
+      identity: server,
       folderID: catalog.folderID,
       libraryPath: parentPath,
       httpClient: makeAuthenticatedHTTPClient(server: server))
@@ -52,9 +53,10 @@ extension AppShell {
       stableID: id,
       captureDate: image.exif?.capturedAt.flatMap(parseTimelineISO8601),
       thumbnailProvenance: .cloud(server: server),
-      displayPreviewProvider: { try await source.preview(for: imageRef) },
+      displayPreviewProvider: { await source.previewOutcome(for: imageRef) },
       catalog: CatalogRef(
         serverID: server, folderID: folderID, absPath: image.path, address: nil),
+      originalFileWriter: { try await source.writeOriginal(for: imageRef, to: $0) },
       bytesProvider: { try await source.rawBytes(for: imageRef) }
     )
   }

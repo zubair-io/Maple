@@ -16,14 +16,14 @@
  *   - `jobs.rows.ts`  row shapes and row → document conversions
  *   - `jobs.repo.ts`  the verbs the routes, the runner and the handlers call
  *
- * ## The job row is the work queue
+ * ## The job row is the record, Temporal is the schedule
  *
- * Claim and lease live on the row, exactly as they did on the document, and
- * {@link claimJob} is the one place that needs care. A Mongo `findOneAndUpdate`
- * with a sort is a compare-and-swap only one caller can win; the SQLite pool has
- * no primitive that both writes and returns rows, so the same guarantee comes
- * from re-checking the claimable predicate in the `UPDATE`'s own `WHERE` and
- * reading the row count. This is the shape `imports.repo.ts` already uses.
+ * A row is inserted `queued` and stays the thing every client reads. The worker
+ * tier relays each queued row into a Temporal workflow (`temporal/row-queue.ts`),
+ * and the workflow's activity calls {@link claimJob} for exactly that row. The
+ * holder recorded on the row is one activity attempt, and it exists to fence
+ * writes: an attempt Temporal has given up on can still be running in a hung
+ * process, and must not overwrite the attempt that replaced it.
  *
  * ## The active-batch fence has no index behind it any more
  *
@@ -45,11 +45,17 @@ import { newObjectIdHex } from '../object-id.ts';
 import { sqliteDb, type SqliteDb } from './db-handle.ts';
 import { toClaimedJob, toJobDoc, type ClaimedJob, type JobRow } from './jobs.rows.ts';
 import {
-  CLAIM_CANDIDATES_SQL,
   CLAIM_JOB_SQL,
+  DISPATCHED_MARKER,
+  HELD_JOBS_SQL,
   insertJobSql,
+  type JobInsertFence,
   JOB_BY_ID_SQL,
   listJobsSql,
+  MARK_DISPATCHED_SQL,
+  REQUEST_CANCEL_SQL,
+  NEXT_JOB_SQL,
+  OPERATION_KINDS,
   RESUME_BATCH_JOB_SQL,
   SAVE_LEDGER_ENTRY_SQL,
   SAVE_LEDGER_SQL,
@@ -76,8 +82,8 @@ export interface ListJobsFilter {
    * `running` in one query. */
   statuses?: JobStatus[];
   kind?: JobKind;
-  /** Exclude owner-only recovery jobs before pagination for member lists. */
-  excludeKind?: JobKind;
+  /** Kinds left out before pagination: owner-only rows, operator one-shots. */
+  excludeKinds?: readonly JobKind[];
   limit?: number;
 }
 
@@ -89,6 +95,47 @@ export class JobConflictError extends Error {
 /** What an operator is told when another settings batch holds the same library. */
 const BATCH_ACTIVE_MESSAGE =
   'Another settings batch is active in this library. Wait for it or cancel it first.';
+
+const PANO_STITCH_ACTIVE_MESSAGE =
+  'A panorama job is already running or queued. Wait for it to finish.';
+
+const OPERATION_ACTIVE_MESSAGE = 'This operation is already queued or running.';
+
+const FENCED_PANO_KINDS: ReadonlySet<string> = new Set(['pano_stitch', 'pano_preview']);
+
+const FENCED_OPERATION_KINDS: ReadonlySet<string> = new Set(OPERATION_KINDS);
+
+function insertFence(kind: string, scopes: string[] | undefined): JobInsertFence {
+  if (scopes !== undefined && scopes.length > 0) return 'batch_scopes';
+  // A clustering request lines up behind a running pass instead of joining it.
+  if (kind === 'people_cluster') return 'fresh_operation';
+  if (FENCED_OPERATION_KINDS.has(kind)) return 'operation';
+  return FENCED_PANO_KINDS.has(kind) ? 'pano_stitch' : 'none';
+}
+
+/** The folder an operation is exclusive to, or null for one that is exclusive server-wide. */
+export function operationFolderId(payload: Record<string, unknown>): string | null {
+  return typeof payload['folderId'] === 'string' ? payload['folderId'] : null;
+}
+
+function fenceParams(
+  fence: JobInsertFence,
+  input: CreateJobInput,
+  scopes: string[] | undefined,
+): SqlValue[] {
+  if (fence === 'batch_scopes') return [JSON.stringify(scopes)];
+  if (fence === 'operation') return [input.kind, operationFolderId(input.payload)];
+  if (fence === 'fresh_operation') return [input.kind, JSON.stringify(input.payload)];
+  return [];
+}
+
+const FENCE_MESSAGES: Record<JobInsertFence, string> = {
+  none: BATCH_ACTIVE_MESSAGE,
+  batch_scopes: BATCH_ACTIVE_MESSAGE,
+  pano_stitch: PANO_STITCH_ACTIVE_MESSAGE,
+  operation: OPERATION_ACTIVE_MESSAGE,
+  fresh_operation: OPERATION_ACTIVE_MESSAGE,
+};
 
 /**
  * The user-facing message for a conflict, or `undefined` when the error is
@@ -110,23 +157,7 @@ async function readJobRow(db: SqliteDb, hex: string): Promise<JobRow | null> {
   return rows[0] ?? null;
 }
 
-/**
- * The two instants every lease-renewing write needs together, derived from one
- * reading of the clock.
- *
- * Stamping `updated_at` from one reading and `lease_expires_at` from another
- * would make the lease differ from `leaseMs` by however long the statement took
- * to build — drift that only ever shows up as a rare mid-run reclaim.
- */
-function leaseStamps(leaseMs: number, now: () => Date): { nowIso: string; leaseIso: string } {
-  const at = now();
-  return {
-    nowIso: at.toISOString(),
-    leaseIso: new Date(at.getTime() + leaseMs).toISOString(),
-  };
-}
-
-/** The 15 bound values of a fresh job row, in column order. */
+/** The 14 bound values of a fresh job row, in column order. */
 function insertParams(
   id: string,
   input: CreateJobInput,
@@ -137,7 +168,6 @@ function insertParams(
     id,
     input.kind,
     'queued',
-    null,
     null,
     0,
     0,
@@ -169,8 +199,11 @@ function insertParams(
  *    stored job alone, and the read finds it. A replay of the *same* request is
  *    honest and returns that job; a different kind or payload under the same id
  *    is a caller error.
- *  - **Another settings batch holds one of these roots.** The fence blocked the
- *    insert, so no row with this id exists.
+ *  - **Another settings batch holds one of these roots**, or (for a pano job) a
+ *    panorama stitch is already queued or running, or (for an operation) one of
+ *    its kind is already active on the same folder, or (for clustering) one
+ *    with the same payload has not started yet. The fence blocked the insert,
+ *    so no row with this id exists.
  */
 export async function createJob(
   input: CreateJobInput,
@@ -180,12 +213,12 @@ export async function createJob(
 ): Promise<JobWithId> {
   const db = sqliteDb(dbOverride);
   const id = input.requestId ?? newObjectIdHex();
-  const fenced = scopes !== undefined && scopes.length > 0;
+  const fence = insertFence(input.kind, scopes);
   const params = insertParams(id, input, scopes, now().toISOString());
-  await db.write(insertJobSql(fenced), fenced ? [...params, JSON.stringify(scopes)] : params);
+  await db.write(insertJobSql(fence), [...params, ...fenceParams(fence, input, scopes)]);
 
   const row = await readJobRow(db, id);
-  if (row === null) throw new JobConflictError(BATCH_ACTIVE_MESSAGE);
+  if (row === null) throw new JobConflictError(FENCE_MESSAGES[fence]);
   const doc = toJobDoc(row);
   if (doc.kind !== input.kind || !isDeepStrictEqual(doc.payload, input.payload)) {
     throw new JobConflictError('The request id already belongs to a different job');
@@ -206,79 +239,71 @@ export async function listJobs(
 ): Promise<JobWithId[]> {
   const statuses = filter.statuses?.length ? filter.statuses : filter.status ? [filter.status] : [];
   const limit = Math.max(1, Math.min(200, filter.limit ?? 50));
+  const excluded = filter.excludeKinds ?? [];
   const rows = await sqliteDb(dbOverride).read<JobRow>(
-    listJobsSql(statuses.length, filter.kind !== undefined, filter.excludeKind !== undefined),
-    [
-      ...statuses,
-      ...(filter.kind === undefined ? [] : [filter.kind]),
-      ...(filter.excludeKind === undefined ? [] : [filter.excludeKind]),
-      limit,
-    ],
+    listJobsSql(statuses.length, filter.kind !== undefined, excluded.length),
+    [...statuses, ...(filter.kind === undefined ? [] : [filter.kind]), ...excluded, limit],
   );
   return rows.map(toJobDoc);
 }
 
 /**
- * Atomic claim: a `queued` job nobody holds, or a `running` one whose lease
- * expired because the previous worker died mid-run.
+ * Claim one job for an activity attempt, or `null` when there is nothing left
+ * to run: the job is gone, or already done, failed or cancelled.
  *
- * The exclusivity comes from the `UPDATE`'s own `WHERE`, not from the read above
- * it — see `jobs.sql.ts`. A row count of one means this caller won; zero means a
- * sibling runner took it in between, and the next candidate is tried, which is
- * why the read asks for several rather than one.
+ * Which job runs and when is Temporal's decision; this only records the attempt
+ * as the holder so every later write can be fenced to it — see `jobs.sql.ts`.
  */
 export async function claimJob(
+  id: ObjectId,
   workerId: string,
-  leaseMs: number,
   now: () => Date = () => new Date(),
   dbOverride?: SqliteDb,
 ): Promise<ClaimedJob | null> {
   const db = sqliteDb(dbOverride);
-  const { nowIso, leaseIso } = leaseStamps(leaseMs, now);
+  const hex = toHex(id);
+  const result = await db.write(CLAIM_JOB_SQL, [workerId, now().toISOString(), hex]);
+  if (result.changes === 0) return null;
+  const row = await readJobRow(db, hex);
+  return row === null ? null : toClaimedJob(row);
+}
 
-  const candidates = await db.read<{ id: string }>(CLAIM_CANDIDATES_SQL, [nowIso]);
-  for (const candidate of candidates) {
-    const result = await db.write(CLAIM_JOB_SQL, [
-      workerId,
-      leaseIso,
-      nowIso,
-      candidate.id,
-      nowIso,
-    ]);
-    if (result.changes === 0) continue;
-    const row = await readJobRow(db, candidate.id);
-    if (row !== null) return toClaimedJob(row);
-  }
-  return null;
+export async function nextJobId(dbOverride?: SqliteDb): Promise<string | null> {
+  const rows = await sqliteDb(dbOverride).read<{ id: string }>(NEXT_JOB_SQL, []);
+  return rows[0]?.id ?? null;
+}
+
+export async function heldJobIds(dbOverride?: SqliteDb): Promise<string[]> {
+  const rows = await sqliteDb(dbOverride).read<{ id: string }>(HELD_JOBS_SQL, []);
+  return rows.map((row) => row.id);
+}
+
+export async function markJobDispatched(id: string, dbOverride?: SqliteDb): Promise<void> {
+  await sqliteDb(dbOverride).write(MARK_DISPATCHED_SQL, [DISPATCHED_MARKER, id]);
 }
 
 /**
- * Patch progress counters on an in-flight claim, renewing the lease so a long
- * handler that is making progress does not get reaped.
+ * Patch progress counters on an in-flight claim.
  *
- * `workerId` makes the write a fenced one: it matches only while this worker
- * still holds a running claim, and a miss is the signal that the job was
- * reclaimed and this worker must stop. Without it the write is unfenced, which
- * is what the runner's own bookkeeping calls do.
+ * `workerId` makes the write a fenced one: it matches only while this attempt
+ * still holds a running claim, and a miss is the signal that a later attempt
+ * took the job over and this one must stop. Without it the write is unfenced.
  */
 export async function updateProgress(
   id: ObjectId,
   progress: { current: number; total: number },
-  leaseMs: number,
   now: () => Date = () => new Date(),
   workerId?: string,
   dbOverride?: SqliteDb,
 ): Promise<void> {
-  const { nowIso, leaseIso } = leaseStamps(leaseMs, now);
   const fence = workerId === undefined ? '' : ` AND locked_by = ? AND status = 'running'`;
   const result = await sqliteDb(dbOverride).write(
-    `UPDATE jobs SET progress_current = ?, progress_total = ?, lease_expires_at = ?, updated_at = ?
+    `UPDATE jobs SET progress_current = ?, progress_total = ?, updated_at = ?
       WHERE id = ?${fence}`,
     [
       progress.current,
       progress.total,
-      leaseIso,
-      nowIso,
+      now().toISOString(),
       toHex(id),
       ...(workerId === undefined ? [] : [workerId]),
     ],
@@ -288,7 +313,7 @@ export async function updateProgress(
   }
 }
 
-/** Apply a terminal state under the same lease fence used for progress writes. */
+/** Apply a terminal state under the same attempt fence used for progress writes. */
 async function finishJob(
   id: ObjectId,
   assignments: string,
@@ -299,7 +324,7 @@ async function finishJob(
 ): Promise<void> {
   const fence = workerId === undefined ? '' : ` AND locked_by = ? AND status = 'running'`;
   await sqliteDb(dbOverride).write(
-    `UPDATE jobs SET ${assignments}, locked_by = NULL, lease_expires_at = NULL, updated_at = ?
+    `UPDATE jobs SET ${assignments}, locked_by = NULL, updated_at = ?
       WHERE id = ?${fence}`,
     [...params, now().toISOString(), toHex(id), ...(workerId === undefined ? [] : [workerId])],
   );
@@ -353,8 +378,26 @@ export async function markCancelled(
 }
 
 /**
+ * Cancel a job nobody is running: one still queued, or one whose attempt is
+ * gone. A finished job is left exactly as it ended.
+ */
+export async function cancelUnfinishedJob(
+  id: ObjectId,
+  now: () => Date = () => new Date(),
+  dbOverride?: SqliteDb,
+): Promise<void> {
+  await sqliteDb(dbOverride).write(
+    `UPDATE jobs SET status = 'cancelled', cancel_requested = 1,
+            locked_by = NULL, updated_at = ?
+      WHERE id = ? AND status IN ('queued', 'running')`,
+    [now().toISOString(), toHex(id)],
+  );
+}
+
+/**
  * Flip the `cancel_requested` flag. The runner observes it between progress
- * steps and exits cleanly. Returns true if the job exists.
+ * steps and exits cleanly; an operation its lane has not handed over yet is
+ * cancelled outright (`REQUEST_CANCEL_SQL`). Returns true if the job exists.
  *
  * This pair of accessors — flip the flag, read the flag back — is spelled the
  * same way in `imports.repo.ts`, and the two are deliberately not one function.
@@ -376,10 +419,10 @@ export async function requestCancel(
   now: () => Date = () => new Date(),
   dbOverride?: SqliteDb,
 ): Promise<boolean> {
-  const result = await sqliteDb(dbOverride).write(
-    `UPDATE jobs SET cancel_requested = 1, updated_at = ? WHERE id = ?`,
-    [now().toISOString(), toHex(id)],
-  );
+  const result = await sqliteDb(dbOverride).write(REQUEST_CANCEL_SQL, [
+    now().toISOString(),
+    toHex(id),
+  ]);
   return result.changes > 0;
 }
 
@@ -398,8 +441,9 @@ function ledgerField(checkpoint: Record<string, unknown>, key: string): string {
 }
 
 /**
- * Fence checkpoint writes to the lease owner so a reclaimed job cannot be
- * overwritten by the former worker. Renew before each sidecar commit.
+ * Fence checkpoint writes to the attempt that holds the job, so one taken over
+ * by a later attempt cannot be overwritten by the former one. Saved before each
+ * sidecar commit.
  *
  * `entryIndex` narrows the write to one entry of `ledger.entries` plus the three
  * summary counters, which is what keeps a 2,000-photo batch from resending every
@@ -411,19 +455,18 @@ export async function saveJobCheckpoint(
   id: ObjectId,
   workerId: string,
   checkpoint: Record<string, unknown>,
-  leaseMs: number,
   now: () => Date = () => new Date(),
   entryIndex?: number,
   dbOverride?: SqliteDb,
 ): Promise<void> {
-  const { nowIso, leaseIso } = leaseStamps(leaseMs, now);
+  const nowIso = now().toISOString();
   const hex = toHex(id);
   const whole = JSON.stringify(checkpoint);
   const db = sqliteDb(dbOverride);
 
   const result =
     entryIndex === undefined
-      ? await db.write(SAVE_LEDGER_SQL, [whole, nowIso, leaseIso, hex, workerId])
+      ? await db.write(SAVE_LEDGER_SQL, [whole, nowIso, hex, workerId])
       : await db.write(SAVE_LEDGER_ENTRY_SQL, [
           entryIndex,
           entryIndex,
@@ -433,7 +476,6 @@ export async function saveJobCheckpoint(
           ledgerField(checkpoint, 'remaining'),
           whole,
           nowIso,
-          leaseIso,
           hex,
           workerId,
         ]);

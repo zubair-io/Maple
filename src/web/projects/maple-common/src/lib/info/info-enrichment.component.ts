@@ -51,6 +51,7 @@ import {
 import { MuiEnrichmentPanelComponent } from '../ui/enrichment-panel/mui-enrichment-panel.component';
 import { InfoVisionComponent } from './info-vision.component';
 import { InfoTranscriptComponent } from './info-transcript.component';
+import { InfoMirrorsComponent } from './info-mirrors.component';
 import {
   REFRESH_POLL_MS,
   REFRESH_TIMEOUT_MS,
@@ -67,7 +68,12 @@ import {
 @Component({
   selector: 'app-info-enrichment',
   standalone: true,
-  imports: [MuiEnrichmentPanelComponent, InfoVisionComponent, InfoTranscriptComponent],
+  imports: [
+    MuiEnrichmentPanelComponent,
+    InfoVisionComponent,
+    InfoTranscriptComponent,
+    InfoMirrorsComponent,
+  ],
   templateUrl: './info-enrichment.component.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: {
@@ -146,14 +152,20 @@ export class InfoEnrichmentComponent implements OnDestroy {
    *
    * Before this fallback existed the id lookup simply missed and the whole
    * enrichment pane silently rendered nothing for every grid asset.
+   *
+   * Compared by value: loading the sidecar replaces the focused `Asset`
+   * record, which must not cancel and refetch the same detail (#5388).
    */
-  private readonly detailRef = computed<{ kind: 'id' | 'address'; value: string } | null>(() => {
-    const asset = this.state.focusedAsset();
-    if (!asset) return null;
-    const apiId = this.state.apiIdFor(asset.id);
-    if (apiId) return { kind: 'id', value: apiId };
-    return asset.id ? { kind: 'address', value: asset.id } : null;
-  });
+  private readonly detailRef = computed<{ kind: 'id' | 'address'; value: string } | null>(
+    () => {
+      const asset = this.state.focusedAsset();
+      if (!asset) return null;
+      const apiId = this.state.apiIdFor(asset.id);
+      if (apiId) return { kind: 'id', value: apiId };
+      return asset.id ? { kind: 'address', value: asset.id } : null;
+    },
+    { equal: (a, b) => a?.kind === b?.kind && a?.value === b?.value },
+  );
 
   // ── Lifecycle plumbing ───────────────────────────────────────────────
 

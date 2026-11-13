@@ -13,9 +13,9 @@
 // from an abandoned attempt can't clobber a later retry's state.
 
 import Foundation
-import Observation
-import OSLog
 import MapleCore
+import OSLog
+import Observation
 
 private let pairAppleTVLog = Logger(subsystem: "app.justmaple.aperture", category: "PairAppleTV")
 
@@ -182,16 +182,19 @@ final class PairAppleTVViewModel {
         // logged so a silently-stale Keychain entry isn't a total mystery
         // later.
         do {
-          try TokenStore.save(refreshed, server: server)
+          try await TokenStore.saveAsync(refreshed, server: server)
         } catch {
-          pairAppleTVLog.error("failed to persist refreshed tokens for \(server.absoluteString, privacy: .public): \(error.localizedDescription, privacy: .public)")
+          pairAppleTVLog.error(
+            "failed to persist refreshed tokens for \(server.absoluteString, privacy: .public): \(error.localizedDescription, privacy: .public)"
+          )
         }
 
         // The just-rotated refresh token is this device's live primary
         // token — exactly what the server's mint-proof check wants (see
         // AuthClient.mintDeviceSession doc comment).
         mint = try await client.mintDeviceSession(
-          accessToken: refreshed.access, refreshToken: refreshed.refresh, label: label)
+          accessToken: refreshed.access, refreshToken: refreshed.refresh, label: label,
+          platform: .tvOS)
         // Same unconditional-persistence reasoning as the token save above:
         // cache the mint BEFORE the generation check, or a stale task would
         // leave a truly untracked orphaned device session server-side

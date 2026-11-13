@@ -146,10 +146,15 @@ final class SceneLinearVisualRegressionTests: XCTestCase {
 
         let processed = pipeline.processSceneLinear(
             decoded: decoded,
-            model: AdjustmentModel.default,
+            model: decodeResult.atAsShot(AdjustmentModel.default),
             targetSize: nil,
             asShot: nil,
-            profileLUT: profileLUT
+            profileLUT: profileLUT,
+            noiseProfile: decodeResult.noiseProfile,
+            iso: decodeResult.iso,
+            wbFrame: decodeResult.wbFrame,
+            whitesAnchorEv: decodeResult.whitesAnchorEv,
+            nrSamplingScale: decodeResult.nrSamplingScale
         )
 
         // Build a CIContext that mirrors the production pipeline's

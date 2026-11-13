@@ -72,4 +72,19 @@ final class BackupLibraryProgressTests: XCTestCase {
     vm.apply(.completed(id("90000"), mapleId: "m"))
     XCTAssertEqual(vm.fractionDone, 0.90001, accuracy: 0.000001)
   }
+
+  func testEnqueuedBatchAndCancelledBatchUpdateProgressCounts() {
+    let vm = BackupProgressViewModel()
+    vm.recordLibrarySnapshot(photoIDs: ["a"], backedUpIDs: ["a"])
+    let tB = BackupTask(id: id("b"), state: .pending, priority: .background)
+    let tC = BackupTask(id: id("c"), state: .pending, priority: .background)
+    vm.apply(.enqueuedBatch([tB, tC]))
+    XCTAssertEqual(vm.totalEnqueued, 2)
+    XCTAssertEqual(vm.pendingPhotoIDs, ["b", "c"])
+    XCTAssertEqual(vm.progressLabel, "1 of 3 photos backed up")
+
+    vm.apply(.cancelledBatch([id("b"), id("c")]))
+    XCTAssertEqual(vm.totalEnqueued, 0)
+    XCTAssertTrue(vm.pendingPhotoIDs.isEmpty)
+  }
 }

@@ -1,7 +1,7 @@
 // CanvasZoomModelTests.swift — #1099 (spec §5.0).
 //
 // Pure-function tests for the shared zoom/pan/gesture state machine:
-// the fit-vs-zoomed arbitration routing, the snap-to-fit threshold, the
+// the pannable-vs-editing arbitration routing, the fit detent, the
 // pinch start-capture (compounding guard), anchored-zoom pan math, pan
 // clamping, and the wheel-nudge detent accumulator. No SwiftUI, no
 // MainActor.
@@ -60,25 +60,25 @@ final class CanvasZoomModelTests: XCTestCase {
     func testDragIntentRoutesEditingAtFitAndPanWhenZoomed() {
         var model = CanvasZoomModel()
         XCTAssertFalse(model.isZoomedIn)
-        XCTAssertEqual(model.dragIntent, .editing)
+        XCTAssertEqual(model.dragIntent(context: context), .editing)
 
         model.zoomToScale(1.0)
         XCTAssertTrue(model.isZoomedIn)
-        XCTAssertEqual(model.dragIntent, .pan)
+        XCTAssertEqual(model.dragIntent(context: context), .pan)
 
         model.resetToFit()
-        XCTAssertEqual(model.dragIntent, .editing)
+        XCTAssertEqual(model.dragIntent(context: context), .editing)
     }
 
     func testWheelIntentMatrix() {
         var model = CanvasZoomModel()
         // At fit: Cmd → zoom; plain → editing (armed-tool nudge).
-        XCTAssertEqual(model.wheelIntent(commandHeld: true), .zoom)
-        XCTAssertEqual(model.wheelIntent(commandHeld: false), .editing)
+        XCTAssertEqual(model.wheelIntent(commandHeld: true, context: context), .zoom)
+        XCTAssertEqual(model.wheelIntent(commandHeld: false, context: context), .editing)
         // Zoomed in: Cmd → zoom (same); plain → pan.
         model.zoomToScale(2.0)
-        XCTAssertEqual(model.wheelIntent(commandHeld: true), .zoom)
-        XCTAssertEqual(model.wheelIntent(commandHeld: false), .pan)
+        XCTAssertEqual(model.wheelIntent(commandHeld: true, context: context), .zoom)
+        XCTAssertEqual(model.wheelIntent(commandHeld: false, context: context), .pan)
     }
 
     func testDragAtFitIsNotConsumedAndMovesNothing() {
@@ -115,6 +115,8 @@ final class CanvasZoomModelTests: XCTestCase {
     func testPinchAnchorsAgainstStartCapturedScaleNotLiveScale() {
         var model = CanvasZoomModel()
         // First frame captures the start (fit = 0.25).
+        model.pinchChanged(magnification: 1, location: CGPoint(x: 500, y: 400),
+                           context: context)
         model.pinchChanged(magnification: 2.0, location: CGPoint(x: 500, y: 400),
                            context: context)
         XCTAssertEqual(model.pixelScale, 0.5, accuracy: 1e-9)
@@ -126,17 +128,21 @@ final class CanvasZoomModelTests: XCTestCase {
 
     func testPinchClampsAtMaxAndAtHalfFit() {
         var model = CanvasZoomModel()
+        model.pinchChanged(magnification: 1, location: .zero, context: context)
         model.pinchChanged(magnification: 1000, location: .zero, context: context)
         XCTAssertEqual(model.pixelScale, CanvasZoomModel.maxPixelScale, accuracy: 1e-9)
 
         var out = CanvasZoomModel()
+        out.pinchChanged(magnification: 1, location: .zero, context: context)
         out.pinchChanged(magnification: 0.01, location: .zero, context: context)
         XCTAssertEqual(out.pixelScale, context.fitScale * 0.5, accuracy: 1e-9)
     }
 
     func testPinchEndWithinToleranceSnapsToFit() {
         var model = CanvasZoomModel()
-        // 1.01× fit lands inside the 1.02 snap threshold.
+        // 1.01× fit is inside fit's 4% detent band. This fixture's fill
+        // (0.2667) band overlaps fit's; 1.01× fit is nearer fit.
+        model.pinchChanged(magnification: 1, location: .zero, context: context)
         model.pinchChanged(magnification: 1.01, location: .zero, context: context)
         model.pinchEnded(magnification: 1.01, context: context)
         XCTAssertEqual(model.pixelScale, 0, "should reset to fit sentinel")
@@ -146,16 +152,20 @@ final class CanvasZoomModelTests: XCTestCase {
 
     func testPinchEndAboveToleranceKeepsScale() {
         var model = CanvasZoomModel()
+        model.pinchChanged(magnification: 1, location: .zero, context: context)
         model.pinchChanged(magnification: 2.0, location: .zero, context: context)
         model.pinchEnded(magnification: 2.0, context: context)
         XCTAssertEqual(model.pixelScale, 0.5, accuracy: 1e-9)
         XCTAssertNil(model.pinchStartScale, "start capture must clear on end")
     }
 
-    func testSnapToFitThresholdBoundary() {
+    func testFitDetentBandIsTwoSided() {
         let fit: CGFloat = 0.25
-        XCTAssertTrue(CanvasZoomModel.shouldSnapToFit(fit * 1.02, fit: fit))
-        XCTAssertFalse(CanvasZoomModel.shouldSnapToFit(fit * 1.021, fit: fit))
+        let fill: CGFloat = 1.0
+        XCTAssertEqual(CanvasZoomModel.detent(for: fit * 1.039, fit: fit, fill: fill), .fit)
+        XCTAssertEqual(CanvasZoomModel.detent(for: fit * 0.961, fit: fit, fill: fill), .fit)
+        XCTAssertNil(CanvasZoomModel.detent(for: fit * 1.041, fit: fit, fill: fill))
+        XCTAssertNil(CanvasZoomModel.detent(for: fit * 0.95, fit: fit, fill: fill))
     }
 
     // MARK: - Anchored zoom math
@@ -248,7 +258,7 @@ final class CanvasZoomModelTests: XCTestCase {
     func testStepZoomOutSnapsToFitWithinTolerance() {
         var model = CanvasZoomModel()
         model.zoomToScale(0.3)
-        // 0.3 / 1.25 = 0.24 ≤ 0.25 × 1.02 → snap.
+        // 0.3 / 1.25 = 0.24 crosses fit from above → settle on fit.
         model.stepZoomOut(context: context)
         XCTAssertEqual(model.pixelScale, 0)
         XCTAssertEqual(model.panOffset, .zero)
@@ -267,8 +277,18 @@ final class CanvasZoomModelTests: XCTestCase {
             .scale(8.0 / 1.25)
         )
         XCTAssertEqual(
-            CanvasZoomModel.zoomOutTarget(current: 0.26, fit: 0.25),
+            CanvasZoomModel.zoomOutTarget(current: 0.3, fit: 0.25),
             .snapToFit
+        )
+        XCTAssertEqual(
+            CanvasZoomModel.zoomOutTarget(current: 0.25, fit: 0.25),
+            .scale(0.2),
+            "from fit a step continues below fit"
+        )
+        XCTAssertEqual(
+            CanvasZoomModel.zoomOutTarget(current: 0.13, fit: 0.25),
+            .scale(0.125),
+            "the floor is half of fit"
         )
     }
 
@@ -358,6 +378,7 @@ final class CanvasZoomModelTests: XCTestCase {
             displayScale: 2
         )
         var model = CanvasZoomModel()
+        model.pinchChanged(magnification: 1, location: .zero, context: empty)
         model.pinchChanged(magnification: 2, location: .zero, context: empty)
         model.pinchEnded(magnification: 2, context: empty)
         model.dragChanged(translation: CGSize(width: 50, height: 50), context: empty)
@@ -366,30 +387,13 @@ final class CanvasZoomModelTests: XCTestCase {
         XCTAssertNil(empty.displayFrameInPoints(at: model.pixelScale))
     }
 
-    // MARK: - Live-centroid pinch pan (focal point + pan-while-pinch)
-
-    func testLivePinchPanPureScaleAnchorsAtCentroid() {
-        // Centroid fixed at the top-left quadrant; scale doubles. The image
-        // point under the centroid must stay put: with a 200×200 viewport,
-        // a = centroid − centre = (−50,−50); pan = a − a·2 = −a = (50,50).
-        let pan = CanvasZoomModel.livePinchPan(
-            liveCentroid: CGPoint(x: 50, y: 50),
-            startCentroid: CGPoint(x: 50, y: 50),
-            startPan: .zero,
-            startScale: 1,
-            newScale: 2,
-            viewportPoints: CGSize(width: 200, height: 200)
-        )
-        XCTAssertEqual(pan.width, 50, accuracy: 0.001)
-        XCTAssertEqual(pan.height, 50, accuracy: 0.001)
-    }
-
     func testDragEndedWhilePinchActiveDoesNotCommit() {
         // The simultaneous drag can deliver its end before the pinch end (both
         // fingers lifting together). While a pinch still owns the gesture, that
         // drag-end must not commit a pan (which would also fire a mid-pinch
         // session commit via the host) — the pinch commits on its own end.
         var model = CanvasZoomModel()
+        model.pinchChanged(magnification: 1, location: CGPoint(x: 500, y: 400), context: context)
         model.pinchChanged(magnification: 2.0, location: CGPoint(x: 500, y: 400), context: context)
         XCTAssertFalse(model.dragEnded(), "a drag ending while a pinch is active must not commit a pan")
     }
@@ -404,6 +408,7 @@ final class CanvasZoomModelTests: XCTestCase {
         let center = CGPoint(x: 500, y: 400)
         // Pinch in around the centre (→ no pan), while the simultaneous drag
         // fires (suppressed) and accumulates translation to (100, 0).
+        model.pinchChanged(magnification: 1, location: center, context: context)
         model.pinchChanged(magnification: 2.0, location: center, context: context)
         XCTAssertFalse(
             model.dragChanged(translation: CGSize(width: 100, height: 0), context: context),
@@ -416,21 +421,6 @@ final class CanvasZoomModelTests: XCTestCase {
         // Pan moved by the 10pt delta since the pinch ended — not the full 110.
         XCTAssertEqual(model.panOffset.width - panAfterPinch.width, 10, accuracy: 1e-6)
         XCTAssertEqual(model.panOffset.height - panAfterPinch.height, 0, accuracy: 1e-6)
-    }
-
-    func testLivePinchPanPureCentroidDriftPansByDelta() {
-        // No scale change; the centroid drifts by (+30,−20). The pan follows
-        // by exactly that delta (pan-while-pinch), regardless of position.
-        let pan = CanvasZoomModel.livePinchPan(
-            liveCentroid: CGPoint(x: 130, y: 80),
-            startCentroid: CGPoint(x: 100, y: 100),
-            startPan: CGSize(width: 10, height: 10),
-            startScale: 2,
-            newScale: 2,
-            viewportPoints: CGSize(width: 200, height: 200)
-        )
-        XCTAssertEqual(pan.width, 40, accuracy: 0.001)
-        XCTAssertEqual(pan.height, -10, accuracy: 0.001)
     }
 
 }

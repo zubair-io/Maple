@@ -13,7 +13,7 @@ export const ALL_STAGE_NAMES = [
   'face-embed',
   'describe',
   'geocode',
-  'meili',
+  'search-blob',
   'sidecar-metadata-index',
   'cf-thumb-sync',
   'transcribe',
@@ -21,6 +21,8 @@ export const ALL_STAGE_NAMES = [
   'cloud-backup',
   'person-segmentation',
   'embed',
+  'motion-photo',
+  'live-photo',
 ] as const;
 
 export type StageName = (typeof ALL_STAGE_NAMES)[number];

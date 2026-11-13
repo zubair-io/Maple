@@ -67,6 +67,9 @@ namespace Maple.WinUI.Services
         public string? PanoCliPath { get; set; }
         public string? PanoModelsDir { get; set; }
         public string? PanoOrtDylibPath { get; set; }
+        /// <summary>Opt-in ALIKED + LightGlue matcher (#4556). Off = the built-in
+        /// classical matcher, which needs no model or ONNX Runtime download.</summary>
+        public bool PanoUseMlMatcher { get; set; }
 
         public bool LeftPanelHidden { get; set; }
         public bool DetailPanelHidden { get; set; }

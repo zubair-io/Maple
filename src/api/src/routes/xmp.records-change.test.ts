@@ -146,25 +146,25 @@ describe('path-keyed XMP routes — change emission (#3563)', () => {
     expect(await checkpoint(final)).toBe(originalCheckpoint);
     expect(sidecarState(assetId)).toEqual({ has_xmp: 1, sidecar_ver: 4 });
     expect(await listChangesSince(live.handle, { since: 0, limit: 10 })).toHaveLength(4);
-    const stale = await workflowRequest(rawPath, 'commit', {
-      expectedXmp: first,
+    const forged = await workflowRequest(rawPath, 'commit', {
+      expectedXmp: final,
       xmp: workflowXml,
       entry: {
         id: crypto.randomUUID(),
         createdAtMs: 5,
         action: 'adjustment',
-        label: 'Stale',
-        adjustmentXmp: await checkpoint(workflowXml),
+        label: 'Forged',
+        adjustmentXmp: await checkpoint(workflowXml.replace('0.25', '9.75')),
       },
     });
-    expect(stale.status).toBe(409);
+    expect(forged.status).toBe(422);
     const id = crypto.randomUUID();
     const create = await app.handle(
       new Request(`http://localhost/api/xmp/variants?path=${encodeURIComponent(rawPath)}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          schemaVersion: 1,
+          schemaVersion: 2,
           variantId: id,
           variantName: 'Alternate',
           snapshots: [],

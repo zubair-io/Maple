@@ -1,0 +1,4636 @@
+{
+  "diagnostic_only": true,
+  "canonical_references_changed": false,
+  "canonical_sidecars_changed": false,
+  "budgets_changed": false,
+  "photoshop_version": "27.11.0",
+  "camera_raw_version": "18.7",
+  "settings_audit": {
+    "saved_pngs": 72,
+    "passed": 72,
+    "failed": 0
+  },
+  "canonical_tint_failures": {
+    "main": 18,
+    "pr": 18
+  },
+  "corrected_tint_failures": {
+    "main": 17,
+    "pr": 17
+  },
+  "newly_failing_pr_cases_against_main": {
+    "canonical": [],
+    "corrected": []
+  },
+  "reference_correction_changes": {
+    "old_fail_now_pass": 8,
+    "old_pass_now_fail": 7
+  },
+  "note": "Completing only omitted Adobe white-balance axes from the recorded baseline metadata makes Adobe honor authored tint. The comparison protocol and numeric budgets are unchanged. These diagnostic references are not installed as canonical inputs; the historical gate still fails.",
+  "cases": [
+    {
+      "case": "test_0000/tint_max",
+      "original_raw": "/Users/riabuz/Projects/_Maple/test-fixtures/raws/test_0000.DNG",
+      "raw_sha256": "f4b60b3672bdf7ff7f4376fba9da1b1d22c925ebc3e16baa5fd4a64fa1045aa5",
+      "canonical_xmp_sha256": "2ec42955a29b2a1275f5385966649de31e6c323ae30caf3fe5ce9c93c7190fac",
+      "adobe_xmp_sha256": "8d6111e859b6c7d2b0eb6bd0a0a939bbc1f0ef388c7fcd74929e7e6306b1997a",
+      "baseline_metadata_source": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0000/down/baseline.png",
+      "completed_axes": {},
+      "authored_axes": {
+        "Tint": "150",
+        "Temperature": "6500"
+      },
+      "canonical_unchanged": true,
+      "outputs": [
+        {
+          "resolution": "full",
+          "dimensions": [
+            12288,
+            8192
+          ],
+          "mode": "RGB",
+          "png_sha256": "7f47e5e8cc16c46233742a65acf1551479a5d8d3aba518a049a8e4e7efad0f51",
+          "icc_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "effective_xmp_sha256": "fcf2bd46b297f34ca5da859b5dbf9701b3b7a979f55356ce61415e95abe5ec1c"
+        },
+        {
+          "resolution": "down",
+          "dimensions": [
+            4000,
+            2667
+          ],
+          "mode": "RGB",
+          "png_sha256": "b5a55f35bf21fa6bc8e53a64eb10942917fef5e9a29ad3301eac9cd7f466256c",
+          "icc_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "effective_xmp_sha256": "bc37787ce752d91b3d02a7f1587ba31a8fb2dc6fcf8f4ee7247be65a21736003"
+        }
+      ],
+      "settings_audit_passed": true,
+      "canonical_comparisons": {
+        "main": {
+          "case": "test_0000/tint_max",
+          "version": "main",
+          "canonical_reference": true,
+          "metrics": {
+            "mean_deltaE": 29.064923240217915,
+            "p95_deltaE": 37.39056734764522,
+            "max_deltaE": 57.62990952439245,
+            "bias_r": 0.2981882393360138,
+            "bias_g": -0.3386244773864746,
+            "bias_b": 0.14122210443019867,
+            "n_pixels": 10668000,
+            "reference_protocol": "legacy-direct-reference"
+          },
+          "violations": {}
+        },
+        "pr": {
+          "case": "test_0000/tint_max",
+          "version": "pr",
+          "canonical_reference": true,
+          "metrics": {
+            "mean_deltaE": 29.064922903304943,
+            "p95_deltaE": 37.39056279421823,
+            "max_deltaE": 57.62990952439245,
+            "bias_r": 0.2981882393360138,
+            "bias_g": -0.33862441778182983,
+            "bias_b": 0.14122210443019867,
+            "n_pixels": 10668000,
+            "reference_protocol": "legacy-direct-reference"
+          },
+          "violations": {}
+        }
+      },
+      "corrected_comparisons": {
+        "main": {
+          "case": "test_0000/tint_max",
+          "version": "main",
+          "canonical_reference": false,
+          "metrics": {
+            "mean_deltaE": 14.393564896378706,
+            "p95_deltaE": 26.124771334965406,
+            "max_deltaE": 46.01733068853469,
+            "bias_r": 0.12308777123689651,
+            "bias_g": -0.25980013608932495,
+            "bias_b": -0.02851634845137596,
+            "n_pixels": 10668000,
+            "reference_protocol": "legacy-direct-reference"
+          },
+          "violations": {}
+        },
+        "pr": {
+          "case": "test_0000/tint_max",
+          "version": "pr",
+          "canonical_reference": false,
+          "metrics": {
+            "mean_deltaE": 14.393564349923452,
+            "p95_deltaE": 26.124771334965406,
+            "max_deltaE": 46.01733068853469,
+            "bias_r": 0.12308776378631592,
+            "bias_g": -0.25980010628700256,
+            "bias_b": -0.02851637452840805,
+            "n_pixels": 10668000,
+            "reference_protocol": "legacy-direct-reference"
+          },
+          "violations": {}
+        }
+      }
+    },
+    {
+      "case": "test_0000/tint_min",
+      "original_raw": "/Users/riabuz/Projects/_Maple/test-fixtures/raws/test_0000.DNG",
+      "raw_sha256": "f4b60b3672bdf7ff7f4376fba9da1b1d22c925ebc3e16baa5fd4a64fa1045aa5",
+      "canonical_xmp_sha256": "9bc0ca2a976f9019ecadb5a02ef6dc871219a4bb68a7cba9ac4bd3d709ad0768",
+      "adobe_xmp_sha256": "1c32896aafc15d850860daa49eb09b32bd364144e8d57ec78e233e5c7d762ec9",
+      "baseline_metadata_source": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0000/down/baseline.png",
+      "completed_axes": {},
+      "authored_axes": {
+        "Tint": "-150",
+        "Temperature": "6500"
+      },
+      "canonical_unchanged": true,
+      "outputs": [
+        {
+          "resolution": "full",
+          "dimensions": [
+            12288,
+            8192
+          ],
+          "mode": "RGB",
+          "png_sha256": "503fb0e66b05361e19eb6c5470a89c075c9a41e72e5287fc4c1ec235183c467d",
+          "icc_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "effective_xmp_sha256": "31229537c76c794f277e63d7feb873f8ac185315b3f0ed33cee677c815629ca0"
+        },
+        {
+          "resolution": "down",
+          "dimensions": [
+            4000,
+            2667
+          ],
+          "mode": "RGB",
+          "png_sha256": "69ecefa1e35d69984531af60c8139aee2e9993bb465928df0c239af838ed2e1a",
+          "icc_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "effective_xmp_sha256": "a8f287635e8638a9da6fccea2bf52d6007eff50e892c246e1722323d7a936478"
+        }
+      ],
+      "settings_audit_passed": true,
+      "canonical_comparisons": {
+        "main": {
+          "case": "test_0000/tint_min",
+          "version": "main",
+          "canonical_reference": true,
+          "metrics": {
+            "mean_deltaE": 32.68931895450233,
+            "p95_deltaE": 37.73891186478308,
+            "max_deltaE": 57.24834222022821,
+            "bias_r": -0.30913621187210083,
+            "bias_g": 0.08861169219017029,
+            "bias_b": -0.3292217254638672,
+            "n_pixels": 10668000,
+            "reference_protocol": "legacy-direct-reference"
+          },
+          "violations": {}
+        },
+        "pr": {
+          "case": "test_0000/tint_min",
+          "version": "pr",
+          "canonical_reference": true,
+          "metrics": {
+            "mean_deltaE": 32.68931912784658,
+            "p95_deltaE": 37.73891186478308,
+            "max_deltaE": 57.24834222022821,
+            "bias_r": -0.30913621187210083,
+            "bias_g": 0.08861169219017029,
+            "bias_b": -0.3292217552661896,
+            "n_pixels": 10668000,
+            "reference_protocol": "legacy-direct-reference"
+          },
+          "violations": {}
+        }
+      },
+      "corrected_comparisons": {
+        "main": {
+          "case": "test_0000/tint_min",
+          "version": "main",
+          "canonical_reference": false,
+          "metrics": {
+            "mean_deltaE": 8.08886407548801,
+            "p95_deltaE": 15.148353780393785,
+            "max_deltaE": 31.964333194765878,
+            "bias_r": -0.16750024259090424,
+            "bias_g": 0.004760695155709982,
+            "bias_b": -0.11124058067798615,
+            "n_pixels": 10668000,
+            "reference_protocol": "legacy-direct-reference"
+          },
+          "violations": {}
+        },
+        "pr": {
+          "case": "test_0000/tint_min",
+          "version": "pr",
+          "canonical_reference": false,
+          "metrics": {
+            "mean_deltaE": 8.088864218535782,
+            "p95_deltaE": 15.148353780393785,
+            "max_deltaE": 31.964333194765878,
+            "bias_r": -0.16750024259090424,
+            "bias_g": 0.004760696552693844,
+            "bias_b": -0.11124058067798615,
+            "n_pixels": 10668000,
+            "reference_protocol": "legacy-direct-reference"
+          },
+          "violations": {}
+        }
+      }
+    },
+    {
+      "case": "test_0001/tint_max",
+      "original_raw": "/Users/riabuz/Projects/_Maple/test-fixtures/raws/test_0001.RAW",
+      "raw_sha256": "c4aebea165cf2e782ac976ebafb986f356fdb7fa05834392ad7a8169cbeaf184",
+      "canonical_xmp_sha256": "9153671514de3d9e5f8b99d1a1cbc5de53526b322e90c4b00c47b32b70ef2bf6",
+      "adobe_xmp_sha256": "f68192e1a53ac3dd465f9f10c92dbd3c8b207c2d052d6bfd67d53fe4724f6a5b",
+      "baseline_metadata_source": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0001/down/baseline.png",
+      "completed_axes": {
+        "Temperature": "4450"
+      },
+      "authored_axes": {
+        "Tint": "150"
+      },
+      "canonical_unchanged": true,
+      "outputs": [
+        {
+          "resolution": "full",
+          "dimensions": [
+            4224,
+            2376
+          ],
+          "mode": "RGB",
+          "png_sha256": "62f9c03c68d48cd2b452a4470ff52fff98d1046615547a5a456055a52eee6132",
+          "icc_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "effective_xmp_sha256": "839d4f3220f9c525c21834b2549a06dba52b6bd3651e5ed1989c467e4df06fc1"
+        },
+        {
+          "resolution": "down",
+          "dimensions": [
+            4000,
+            2250
+          ],
+          "mode": "RGB",
+          "png_sha256": "2fe77ee91fdf32192228b5f6c8f279d8d4ca1120916392ce298400849771c2fb",
+          "icc_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "effective_xmp_sha256": "0323381be4d25b9538ec03e3930387dae184bf6e483507f26079e837707d740b"
+        }
+      ],
+      "settings_audit_passed": true,
+      "canonical_comparisons": {
+        "main": {
+          "case": "test_0001/tint_max",
+          "version": "main",
+          "canonical_reference": true,
+          "metrics": {
+            "mean_deltaE": 43.833371655897366,
+            "p95_deltaE": 59.45797400376483,
+            "max_deltaE": 87.99397439118403,
+            "bias_r": 0.14470775425434113,
+            "bias_g": -0.08304727077484131,
+            "bias_b": 0.45885100960731506,
+            "n_pixels": 9000000,
+            "reference_protocol": "legacy-direct-reference"
+          },
+          "violations": {
+            "mean": [
+              43.833371655897366,
+              31.8
+            ],
+            "p95": [
+              59.45797400376483,
+              47.9
+            ],
+            "max": [
+              87.99397439118403,
+              74.7
+            ],
+            "bias_b": [
+              0.45885100960731506,
+              0.3145
+            ]
+          }
+        },
+        "pr": {
+          "case": "test_0001/tint_max",
+          "version": "pr",
+          "canonical_reference": true,
+          "metrics": {
+            "mean_deltaE": 43.83226200772389,
+            "p95_deltaE": 59.456747347916654,
+            "max_deltaE": 87.99397439118403,
+            "bias_r": 0.14468242228031158,
+            "bias_g": -0.08304450660943985,
+            "bias_b": 0.4588375985622406,
+            "n_pixels": 9000000,
+            "reference_protocol": "legacy-direct-reference"
+          },
+          "violations": {
+            "mean": [
+              43.83226200772389,
+              31.8
+            ],
+            "p95": [
+              59.456747347916654,
+              47.9
+            ],
+            "max": [
+              87.99397439118403,
+              74.7
+            ],
+            "bias_b": [
+              0.4588375985622406,
+              0.3145
+            ]
+          }
+        }
+      },
+      "corrected_comparisons": {
+        "main": {
+          "case": "test_0001/tint_max",
+          "version": "main",
+          "canonical_reference": false,
+          "metrics": {
+            "mean_deltaE": 14.198714715754988,
+            "p95_deltaE": 30.644785094000753,
+            "max_deltaE": 84.5233703233744,
+            "bias_r": 0.1362052708864212,
+            "bias_g": 0.05611720308661461,
+            "bias_b": 0.08916475623846054,
+            "n_pixels": 9000000,
+            "reference_protocol": "legacy-direct-reference"
+          },
+          "violations": {
+            "max": [
+              84.5233703233744,
+              74.7
+            ]
+          }
+        },
+        "pr": {
+          "case": "test_0001/tint_max",
+          "version": "pr",
+          "canonical_reference": false,
+          "metrics": {
+            "mean_deltaE": 14.197779017166845,
+            "p95_deltaE": 30.64503651513898,
+            "max_deltaE": 84.5233703233744,
+            "bias_r": 0.136180117726326,
+            "bias_g": 0.05611991137266159,
+            "bias_b": 0.08915053308010101,
+            "n_pixels": 9000000,
+            "reference_protocol": "legacy-direct-reference"
+          },
+          "violations": {
+            "max": [
+              84.5233703233744,
+              74.7
+            ]
+          }
+        }
+      }
+    },
+    {
+      "case": "test_0001/tint_min",
+      "original_raw": "/Users/riabuz/Projects/_Maple/test-fixtures/raws/test_0001.RAW",
+      "raw_sha256": "c4aebea165cf2e782ac976ebafb986f356fdb7fa05834392ad7a8169cbeaf184",
+      "canonical_xmp_sha256": "e307c836d4d66b1d1e81b2f75107fd2a71d4e9ebf6422d3a6648ca97a127c67f",
+      "adobe_xmp_sha256": "bb05f90cdd6cd913977d22e4a8124f7442527dcb0f451e6a97b0c1acb807b684",
+      "baseline_metadata_source": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0001/down/baseline.png",
+      "completed_axes": {
+        "Temperature": "4450"
+      },
+      "authored_axes": {
+        "Tint": "-150"
+      },
+      "canonical_unchanged": true,
+      "outputs": [
+        {
+          "resolution": "full",
+          "dimensions": [
+            4224,
+            2376
+          ],
+          "mode": "RGB",
+          "png_sha256": "6906a8e47d81f2fc5804dbe64e3d8a4e8224de8a6c5e9df85f60aa5834e1108a",
+          "icc_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "effective_xmp_sha256": "0ee54a0e7d1fc7eaa939bbaae312270c441fdff50ee8275ca39fad49fc30f393"
+        },
+        {
+          "resolution": "down",
+          "dimensions": [
+            4000,
+            2250
+          ],
+          "mode": "RGB",
+          "png_sha256": "51d543d781f4948ef00fdbf3ff9562d8925e701f325235ccef90d9f31069f2af",
+          "icc_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "effective_xmp_sha256": "3913727dbc5d43557d6486f5af5ce5d4b6fb48a1f5eb0355537d527c2e6a37db"
+        }
+      ],
+      "settings_audit_passed": true,
+      "canonical_comparisons": {
+        "main": {
+          "case": "test_0001/tint_min",
+          "version": "main",
+          "canonical_reference": true,
+          "metrics": {
+            "mean_deltaE": 20.915158939167938,
+            "p95_deltaE": 30.110439349402515,
+            "max_deltaE": 64.41770291129619,
+            "bias_r": -0.014728991314768791,
+            "bias_g": 0.18163231015205383,
+            "bias_b": 0.011090101674199104,
+            "n_pixels": 9000000,
+            "reference_protocol": "legacy-direct-reference"
+          },
+          "violations": {}
+        },
+        "pr": {
+          "case": "test_0001/tint_min",
+          "version": "pr",
+          "canonical_reference": true,
+          "metrics": {
+            "mean_deltaE": 20.914801754759747,
+            "p95_deltaE": 30.11039073985115,
+            "max_deltaE": 64.41770291129619,
+            "bias_r": -0.014740359038114548,
+            "bias_g": 0.18163172900676727,
+            "bias_b": 0.011083376593887806,
+            "n_pixels": 9000000,
+            "reference_protocol": "legacy-direct-reference"
+          },
+          "violations": {}
+        }
+      },
+      "corrected_comparisons": {
+        "main": {
+          "case": "test_0001/tint_min",
+          "version": "main",
+          "canonical_reference": false,
+          "metrics": {
+            "mean_deltaE": 14.34343272811078,
+            "p95_deltaE": 23.254914644941014,
+            "max_deltaE": 78.23611256559131,
+            "bias_r": 0.15099024772644043,
+            "bias_g": 0.1400275081396103,
+            "bias_b": 0.17389975488185883,
+            "n_pixels": 9000000,
+            "reference_protocol": "legacy-direct-reference"
+          },
+          "violations": {
+            "max": [
+              78.23611256559131,
+              65.9
+            ]
+          }
+        },
+        "pr": {
+          "case": "test_0001/tint_min",
+          "version": "pr",
+          "canonical_reference": false,
+          "metrics": {
+            "mean_deltaE": 14.342507240397424,
+            "p95_deltaE": 23.25373598782714,
+            "max_deltaE": 78.23611256559131,
+            "bias_r": 0.15098032355308533,
+            "bias_g": 0.1400262862443924,
+            "bias_b": 0.17389263212680817,
+            "n_pixels": 9000000,
+            "reference_protocol": "legacy-direct-reference"
+          },
+          "violations": {
+            "max": [
+              78.23611256559131,
+              65.9
+            ]
+          }
+        }
+      }
+    },
+    {
+      "case": "test_0002/tint_max",
+      "original_raw": "/Users/riabuz/Projects/_Maple/test-fixtures/raws/test_0002.dng",
+      "raw_sha256": "4a4154b2595dc76a7d5e10cdcb65a386319e31647a585c23e262fe62b969c0fe",
+      "canonical_xmp_sha256": "9153671514de3d9e5f8b99d1a1cbc5de53526b322e90c4b00c47b32b70ef2bf6",
+      "adobe_xmp_sha256": "209f883436ee5c48058273eecd05e153b631177134e9f39d6e7d93af7926b0c2",
+      "baseline_metadata_source": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0002/down/baseline.png",
+      "completed_axes": {
+        "Temperature": "4450"
+      },
+      "authored_axes": {
+        "Tint": "150"
+      },
+      "canonical_unchanged": true,
+      "outputs": [
+        {
+          "resolution": "full",
+          "dimensions": [
+            7216,
+            5412
+          ],
+          "mode": "RGB",
+          "png_sha256": "57201e2352a2bc84cd2826f60a1d43c1c9b1d3f2ae7fe10fa6a315e96fd8e0fd",
+          "icc_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "effective_xmp_sha256": "7268a876ac70f061a1494258fb1c45fa2a1b332a6eda22f79c42af218ba24c11"
+        },
+        {
+          "resolution": "down",
+          "dimensions": [
+            4000,
+            3000
+          ],
+          "mode": "RGB",
+          "png_sha256": "7c96a9bfee803aaed3d85d0b0e123303bcb4ed0910044c646022621e3c2b32fb",
+          "icc_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "effective_xmp_sha256": "3949ed8dd4c5507b3c7b4fcc9c82a0b51f7b7cbd5bbacc9e8d4ec932e5b99f63"
+        }
+      ],
+      "settings_audit_passed": true,
+      "canonical_comparisons": {
+        "main": {
+          "case": "test_0002/tint_max",
+          "version": "main",
+          "canonical_reference": true,
+          "metrics": {
+            "mean_deltaE": 35.01842852054557,
+            "p95_deltaE": 39.81960288668632,
+            "max_deltaE": 52.13490267699079,
+            "bias_r": -0.21047908067703247,
+            "bias_g": -0.35694605112075806,
+            "bias_b": 0.06204456090927124,
+            "n_pixels": 12000000,
+            "reference_protocol": "legacy-direct-reference"
+          },
+          "violations": {
+            "mean": [
+              35.01842852054557,
+              25.8
+            ],
+            "p95": [
+              39.81960288668632,
+              31.1
+            ],
+            "max": [
+              52.13490267699079,
+              42.6
+            ]
+          }
+        },
+        "pr": {
+          "case": "test_0002/tint_max",
+          "version": "pr",
+          "canonical_reference": true,
+          "metrics": {
+            "mean_deltaE": 35.01842799711114,
+            "p95_deltaE": 39.81960288668632,
+            "max_deltaE": 52.13490267699079,
+            "bias_r": -0.2104795277118683,
+            "bias_g": -0.35694605112075806,
+            "bias_b": 0.062044452875852585,
+            "n_pixels": 12000000,
+            "reference_protocol": "legacy-direct-reference"
+          },
+          "violations": {
+            "mean": [
+              35.01842799711114,
+              25.8
+            ],
+            "p95": [
+              39.81960288668632,
+              31.1
+            ],
+            "max": [
+              52.13490267699079,
+              42.6
+            ]
+          }
+        }
+      },
+      "corrected_comparisons": {
+        "main": {
+          "case": "test_0002/tint_max",
+          "version": "main",
+          "canonical_reference": false,
+          "metrics": {
+            "mean_deltaE": 24.410159749989116,
+            "p95_deltaE": 36.01741889717765,
+            "max_deltaE": 45.4459246174984,
+            "bias_r": -0.20299510657787323,
+            "bias_g": -0.30797162652015686,
+            "bias_b": -0.08991365879774094,
+            "n_pixels": 12000000,
+            "reference_protocol": "legacy-direct-reference"
+          },
+          "violations": {
+            "p95": [
+              36.01741889717765,
+              31.1
+            ],
+            "max": [
+              45.4459246174984,
+              42.6
+            ]
+          }
+        },
+        "pr": {
+          "case": "test_0002/tint_max",
+          "version": "pr",
+          "canonical_reference": false,
+          "metrics": {
+            "mean_deltaE": 24.410164106054296,
+            "p95_deltaE": 36.01741889717765,
+            "max_deltaE": 45.4459246174984,
+            "bias_r": -0.20299570262432098,
+            "bias_g": -0.3079715967178345,
+            "bias_b": -0.08991407603025436,
+            "n_pixels": 12000000,
+            "reference_protocol": "legacy-direct-reference"
+          },
+          "violations": {
+            "p95": [
+              36.01741889717765,
+              31.1
+            ],
+            "max": [
+              45.4459246174984,
+              42.6
+            ]
+          }
+        }
+      }
+    },
+    {
+      "case": "test_0002/tint_min",
+      "original_raw": "/Users/riabuz/Projects/_Maple/test-fixtures/raws/test_0002.dng",
+      "raw_sha256": "4a4154b2595dc76a7d5e10cdcb65a386319e31647a585c23e262fe62b969c0fe",
+      "canonical_xmp_sha256": "e307c836d4d66b1d1e81b2f75107fd2a71d4e9ebf6422d3a6648ca97a127c67f",
+      "adobe_xmp_sha256": "8020eafc360ccbb5cb8be346daf8fc9f3d343a8624078504100d44586099b981",
+      "baseline_metadata_source": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0002/down/baseline.png",
+      "completed_axes": {
+        "Temperature": "4450"
+      },
+      "authored_axes": {
+        "Tint": "-150"
+      },
+      "canonical_unchanged": true,
+      "outputs": [
+        {
+          "resolution": "full",
+          "dimensions": [
+            7216,
+            5412
+          ],
+          "mode": "RGB",
+          "png_sha256": "8890680fc5e6fb154ca83e04ecaa7bcd11f1780cc967f72092146c84f7aa67e8",
+          "icc_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "effective_xmp_sha256": "a853060a96fe398625e4c889cb383a721bdf2780fc1f4516b0678d49b87568bc"
+        },
+        {
+          "resolution": "down",
+          "dimensions": [
+            4000,
+            3000
+          ],
+          "mode": "RGB",
+          "png_sha256": "dc622c9cfdb9bf1a3228fdd6fb60ec45778af92e77246fe92a2cae76ab998ead",
+          "icc_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "effective_xmp_sha256": "5c333789105d6dcbbfaa37c67513679277c190028d88cc0756607ed078decfb4"
+        }
+      ],
+      "settings_audit_passed": true,
+      "canonical_comparisons": {
+        "main": {
+          "case": "test_0002/tint_min",
+          "version": "main",
+          "canonical_reference": true,
+          "metrics": {
+            "mean_deltaE": 29.34582189603585,
+            "p95_deltaE": 33.683486110992376,
+            "max_deltaE": 48.97846661155149,
+            "bias_r": -0.35990744829177856,
+            "bias_g": -0.13122348487377167,
+            "bias_b": -0.3247542679309845,
+            "n_pixels": 12000000,
+            "reference_protocol": "legacy-direct-reference"
+          },
+          "violations": {}
+        },
+        "pr": {
+          "case": "test_0002/tint_min",
+          "version": "pr",
+          "canonical_reference": true,
+          "metrics": {
+            "mean_deltaE": 29.34585166443788,
+            "p95_deltaE": 33.683486110992376,
+            "max_deltaE": 48.97846661155149,
+            "bias_r": -0.3599080443382263,
+            "bias_g": -0.13122351467609406,
+            "bias_b": -0.3247543275356293,
+            "n_pixels": 12000000,
+            "reference_protocol": "legacy-direct-reference"
+          },
+          "violations": {}
+        }
+      },
+      "corrected_comparisons": {
+        "main": {
+          "case": "test_0002/tint_min",
+          "version": "main",
+          "canonical_reference": false,
+          "metrics": {
+            "mean_deltaE": 14.418865188648349,
+            "p95_deltaE": 15.631202681895752,
+            "max_deltaE": 44.38845075109775,
+            "bias_r": -0.22535012662410736,
+            "bias_g": -0.17923468351364136,
+            "bias_b": -0.17164596915245056,
+            "n_pixels": 12000000,
+            "reference_protocol": "legacy-direct-reference"
+          },
+          "violations": {}
+        },
+        "pr": {
+          "case": "test_0002/tint_min",
+          "version": "pr",
+          "canonical_reference": false,
+          "metrics": {
+            "mean_deltaE": 14.418851312154477,
+            "p95_deltaE": 15.631202681895752,
+            "max_deltaE": 44.38845075109775,
+            "bias_r": -0.225350484251976,
+            "bias_g": -0.17923474311828613,
+            "bias_b": -0.1716461181640625,
+            "n_pixels": 12000000,
+            "reference_protocol": "legacy-direct-reference"
+          },
+          "violations": {}
+        }
+      }
+    },
+    {
+      "case": "test_0003/tint_max",
+      "original_raw": "/Users/riabuz/Projects/_Maple/test-fixtures/raws/test_0003.CR2",
+      "raw_sha256": "195e1caf17a622c08323a76e8b0cfff9a9c5f76dbc5fa058af15273aa0eacf50",
+      "canonical_xmp_sha256": "9153671514de3d9e5f8b99d1a1cbc5de53526b322e90c4b00c47b32b70ef2bf6",
+      "adobe_xmp_sha256": "eb4d9738107ff9b361da2d29362f740291fce6ecc723ae24d74d1993d825bd1a",
+      "baseline_metadata_source": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0003/down/baseline.png",
+      "completed_axes": {
+        "Temperature": "5100"
+      },
+      "authored_axes": {
+        "Tint": "150"
+      },
+      "canonical_unchanged": true,
+      "outputs": [
+        {
+          "resolution": "full",
+          "dimensions": [
+            5792,
+            8688
+          ],
+          "mode": "RGB",
+          "png_sha256": "00d6d86e02c19a0615b44500c4613e4617db461fc2f922eeb8f9ac349653f7a6",
+          "icc_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "effective_xmp_sha256": "7f92ebcfd052cec4d51812ce301a35b24b56a34e51f5fd88cebbe162058c211b"
+        },
+        {
+          "resolution": "down",
+          "dimensions": [
+            2667,
+            4000
+          ],
+          "mode": "RGB",
+          "png_sha256": "8446171b707243104854620d11a8b0ca4c58a0843634fc21152e2b3105e70df2",
+          "icc_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "effective_xmp_sha256": "ec0d200730b9e35d1922be46f5d0dfbbde76ff3115297407f79ee647ce1652f0"
+        }
+      ],
+      "settings_audit_passed": true,
+      "canonical_comparisons": {
+        "main": {
+          "case": "test_0003/tint_max",
+          "version": "main",
+          "canonical_reference": true,
+          "metrics": {
+            "mean_deltaE": 18.519318199318064,
+            "p95_deltaE": 29.096362332458238,
+            "max_deltaE": 35.80721284632948,
+            "bias_r": 0.0597652792930603,
+            "bias_g": -0.02063809521496296,
+            "bias_b": 0.1320802867412567,
+            "n_pixels": 10668000,
+            "reference_protocol": "legacy-direct-reference"
+          },
+          "violations": {
+            "mean": [
+              18.519318199318064,
+              16.4
+            ],
+            "p95": [
+              29.096362332458238,
+              24.8
+            ],
+            "bias_b": [
+              0.1320802867412567,
+              0.1084
+            ]
+          }
+        },
+        "pr": {
+          "case": "test_0003/tint_max",
+          "version": "pr",
+          "canonical_reference": true,
+          "metrics": {
+            "mean_deltaE": 18.51931499174417,
+            "p95_deltaE": 29.096362332458238,
+            "max_deltaE": 35.80721284632948,
+            "bias_r": 0.05976521968841553,
+            "bias_g": -0.020638087764382362,
+            "bias_b": 0.1320803165435791,
+            "n_pixels": 10668000,
+            "reference_protocol": "legacy-direct-reference"
+          },
+          "violations": {
+            "mean": [
+              18.51931499174417,
+              16.4
+            ],
+            "p95": [
+              29.096362332458238,
+              24.8
+            ],
+            "bias_b": [
+              0.1320803165435791,
+              0.1084
+            ]
+          }
+        }
+      },
+      "corrected_comparisons": {
+        "main": {
+          "case": "test_0003/tint_max",
+          "version": "main",
+          "canonical_reference": false,
+          "metrics": {
+            "mean_deltaE": 11.133085239322714,
+            "p95_deltaE": 13.696065253212463,
+            "max_deltaE": 27.068079982414872,
+            "bias_r": -0.024816932156682014,
+            "bias_g": 0.07150404900312424,
+            "bias_b": -0.06932586431503296,
+            "n_pixels": 10668000,
+            "reference_protocol": "legacy-direct-reference"
+          },
+          "violations": {}
+        },
+        "pr": {
+          "case": "test_0003/tint_max",
+          "version": "pr",
+          "canonical_reference": false,
+          "metrics": {
+            "mean_deltaE": 11.133085499139392,
+            "p95_deltaE": 13.696065253212463,
+            "max_deltaE": 27.068079982414872,
+            "bias_r": -0.024816956371068954,
+            "bias_g": 0.07150403410196304,
+            "bias_b": -0.06932586431503296,
+            "n_pixels": 10668000,
+            "reference_protocol": "legacy-direct-reference"
+          },
+          "violations": {}
+        }
+      }
+    },
+    {
+      "case": "test_0003/tint_min",
+      "original_raw": "/Users/riabuz/Projects/_Maple/test-fixtures/raws/test_0003.CR2",
+      "raw_sha256": "195e1caf17a622c08323a76e8b0cfff9a9c5f76dbc5fa058af15273aa0eacf50",
+      "canonical_xmp_sha256": "e307c836d4d66b1d1e81b2f75107fd2a71d4e9ebf6422d3a6648ca97a127c67f",
+      "adobe_xmp_sha256": "54fd5dd038281cda876f7f1b2b5e582e3477549ab31a0aa01d07c5ca1bdd47ad",
+      "baseline_metadata_source": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0003/down/baseline.png",
+      "completed_axes": {
+        "Temperature": "5100"
+      },
+      "authored_axes": {
+        "Tint": "-150"
+      },
+      "canonical_unchanged": true,
+      "outputs": [
+        {
+          "resolution": "full",
+          "dimensions": [
+            5792,
+            8688
+          ],
+          "mode": "RGB",
+          "png_sha256": "0d8fbff9d5e8e0cb73cf5031a7930fbd4d2b687fc0866ba0d032002c9707b57a",
+          "icc_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "effective_xmp_sha256": "ce86e6add4c0966cbe3795117311ac03f277a5f9ca8d0b9d747f2ce961d76316"
+        },
+        {
+          "resolution": "down",
+          "dimensions": [
+            2667,
+            4000
+          ],
+          "mode": "RGB",
+          "png_sha256": "96726f025a6f4de0b789534c83011f7d846b42e375dd0a4fc8ea7a91fcbdc050",
+          "icc_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "effective_xmp_sha256": "c665cbba2a3ae457f21e35b4d02ceac9270dfc2254ed5724f2d96819041a194f"
+        }
+      ],
+      "settings_audit_passed": true,
+      "canonical_comparisons": {
+        "main": {
+          "case": "test_0003/tint_min",
+          "version": "main",
+          "canonical_reference": true,
+          "metrics": {
+            "mean_deltaE": 16.092387254185414,
+            "p95_deltaE": 24.552475368886466,
+            "max_deltaE": 34.45351705133999,
+            "bias_r": -0.04063006862998009,
+            "bias_g": 0.05062827095389366,
+            "bias_b": -0.03311152383685112,
+            "n_pixels": 10668000,
+            "reference_protocol": "legacy-direct-reference"
+          },
+          "violations": {}
+        },
+        "pr": {
+          "case": "test_0003/tint_min",
+          "version": "pr",
+          "canonical_reference": true,
+          "metrics": {
+            "mean_deltaE": 16.09238799575474,
+            "p95_deltaE": 24.552475368886466,
+            "max_deltaE": 34.45351705133999,
+            "bias_r": -0.04063010588288307,
+            "bias_g": 0.05062827467918396,
+            "bias_b": -0.03311152756214142,
+            "n_pixels": 10668000,
+            "reference_protocol": "legacy-direct-reference"
+          },
+          "violations": {}
+        }
+      },
+      "corrected_comparisons": {
+        "main": {
+          "case": "test_0003/tint_min",
+          "version": "main",
+          "canonical_reference": false,
+          "metrics": {
+            "mean_deltaE": 10.392787507783082,
+            "p95_deltaE": 13.425760325838109,
+            "max_deltaE": 28.089652268265993,
+            "bias_r": 0.12463884055614471,
+            "bias_g": 0.009033304639160633,
+            "bias_b": 0.11587995290756226,
+            "n_pixels": 10668000,
+            "reference_protocol": "legacy-direct-reference"
+          },
+          "violations": {
+            "bias_r": [
+              0.12463884055614471,
+              0.0601
+            ],
+            "bias_b": [
+              0.11587995290756226,
+              0.0601
+            ]
+          }
+        },
+        "pr": {
+          "case": "test_0003/tint_min",
+          "version": "pr",
+          "canonical_reference": false,
+          "metrics": {
+            "mean_deltaE": 10.392785762768856,
+            "p95_deltaE": 13.425760325838109,
+            "max_deltaE": 28.089652268265993,
+            "bias_r": 0.12463884055614471,
+            "bias_g": 0.009033304639160633,
+            "bias_b": 0.11587995290756226,
+            "n_pixels": 10668000,
+            "reference_protocol": "legacy-direct-reference"
+          },
+          "violations": {
+            "bias_r": [
+              0.12463884055614471,
+              0.0601
+            ],
+            "bias_b": [
+              0.11587995290756226,
+              0.0601
+            ]
+          }
+        }
+      }
+    },
+    {
+      "case": "test_0004/tint_max",
+      "original_raw": "/Users/riabuz/Projects/_Maple/test-fixtures/raws/test_0004.fff",
+      "raw_sha256": "209d464e13702de5f4fdb830ac26ac140c98a8d0dc3e81c5ba61d93677330832",
+      "canonical_xmp_sha256": "9153671514de3d9e5f8b99d1a1cbc5de53526b322e90c4b00c47b32b70ef2bf6",
+      "adobe_xmp_sha256": "01c90299e8990aa6b6609b7729550d79b8b35c27af2a7885552ce47bd6eb2b4e",
+      "baseline_metadata_source": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0004/down/baseline.png",
+      "completed_axes": {
+        "Temperature": "6000"
+      },
+      "authored_axes": {
+        "Tint": "150"
+      },
+      "canonical_unchanged": true,
+      "outputs": [
+        {
+          "resolution": "full",
+          "dimensions": [
+            7304,
+            5478
+          ],
+          "mode": "RGB",
+          "png_sha256": "26be918522479c6494bc808031def450123e819de01be4b5f42203ecfd45ad64",
+          "icc_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "effective_xmp_sha256": "27859a03b646e4271081d05edc19879e6ca8c44e3902d29b3fcbb0b09c7f39ef"
+        },
+        {
+          "resolution": "down",
+          "dimensions": [
+            4000,
+            3000
+          ],
+          "mode": "RGB",
+          "png_sha256": "4dcda0f541f811486a6ed650b8790925ef29e412f85dfd4ab627eba168f5418d",
+          "icc_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "effective_xmp_sha256": "da481158b301177f0084fd1564b70a5a432a45ef1816e3336d62d5074a69051a"
+        }
+      ],
+      "settings_audit_passed": true,
+      "canonical_comparisons": {
+        "main": {
+          "case": "test_0004/tint_max",
+          "version": "main",
+          "canonical_reference": true,
+          "metrics": {
+            "mean_deltaE": 21.08258446930074,
+            "p95_deltaE": 28.673302319411277,
+            "max_deltaE": 50.324040683848516,
+            "bias_r": 0.09817507117986679,
+            "bias_g": -0.11665505915880203,
+            "bias_b": 0.09529859572649002,
+            "n_pixels": 12000000,
+            "reference_protocol": "legacy-direct-reference"
+          },
+          "violations": {}
+        },
+        "pr": {
+          "case": "test_0004/tint_max",
+          "version": "pr",
+          "canonical_reference": true,
+          "metrics": {
+            "mean_deltaE": 21.082563624560002,
+            "p95_deltaE": 28.673226962517976,
+            "max_deltaE": 50.324040683848516,
+            "bias_r": 0.09817449748516083,
+            "bias_g": -0.11665507405996323,
+            "bias_b": 0.0952983945608139,
+            "n_pixels": 12000000,
+            "reference_protocol": "legacy-direct-reference"
+          },
+          "violations": {}
+        }
+      },
+      "corrected_comparisons": {
+        "main": {
+          "case": "test_0004/tint_max",
+          "version": "main",
+          "canonical_reference": false,
+          "metrics": {
+            "mean_deltaE": 9.632931390077204,
+            "p95_deltaE": 17.162081603157475,
+            "max_deltaE": 32.03283198841578,
+            "bias_r": -0.08866322040557861,
+            "bias_g": -0.049258921295404434,
+            "bias_b": -0.03999722748994827,
+            "n_pixels": 12000000,
+            "reference_protocol": "legacy-direct-reference"
+          },
+          "violations": {}
+        },
+        "pr": {
+          "case": "test_0004/tint_max",
+          "version": "pr",
+          "canonical_reference": false,
+          "metrics": {
+            "mean_deltaE": 9.632935025395094,
+            "p95_deltaE": 17.162081603157475,
+            "max_deltaE": 32.03283198841578,
+            "bias_r": -0.08866367489099503,
+            "bias_g": -0.04925892874598503,
+            "bias_b": -0.039997398853302,
+            "n_pixels": 12000000,
+            "reference_protocol": "legacy-direct-reference"
+          },
+          "violations": {}
+        }
+      }
+    },
+    {
+      "case": "test_0004/tint_min",
+      "original_raw": "/Users/riabuz/Projects/_Maple/test-fixtures/raws/test_0004.fff",
+      "raw_sha256": "209d464e13702de5f4fdb830ac26ac140c98a8d0dc3e81c5ba61d93677330832",
+      "canonical_xmp_sha256": "e307c836d4d66b1d1e81b2f75107fd2a71d4e9ebf6422d3a6648ca97a127c67f",
+      "adobe_xmp_sha256": "47bdde53225bdfbc00723503ba2a18650f8e85ffd92a83bca3857b907d3f2542",
+      "baseline_metadata_source": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0004/down/baseline.png",
+      "completed_axes": {
+        "Temperature": "6000"
+      },
+      "authored_axes": {
+        "Tint": "-150"
+      },
+      "canonical_unchanged": true,
+      "outputs": [
+        {
+          "resolution": "full",
+          "dimensions": [
+            7304,
+            5478
+          ],
+          "mode": "RGB",
+          "png_sha256": "15dbab682afc804fd4e5e08452d62d2b31c4408e21ee23b3cbd906f51146765d",
+          "icc_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "effective_xmp_sha256": "711fefbbf806393bf3121bf55ef283395650bd50bfc4e03e3fdbbd88a66efc96"
+        },
+        {
+          "resolution": "down",
+          "dimensions": [
+            4000,
+            3000
+          ],
+          "mode": "RGB",
+          "png_sha256": "fbc02f6bd1f833309dff4f170152653e80f8a66fa9c2b5df76e7995b81e22956",
+          "icc_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "effective_xmp_sha256": "52d9e873879d0637696e1ab150199c41bd51a578ab27745f089cbf90a7cb4348"
+        }
+      ],
+      "settings_audit_passed": true,
+      "canonical_comparisons": {
+        "main": {
+          "case": "test_0004/tint_min",
+          "version": "main",
+          "canonical_reference": true,
+          "metrics": {
+            "mean_deltaE": 22.9941841718591,
+            "p95_deltaE": 27.72158526371006,
+            "max_deltaE": 45.26914196880112,
+            "bias_r": -0.23493775725364685,
+            "bias_g": 0.02904951572418213,
+            "bias_b": -0.14463351666927338,
+            "n_pixels": 12000000,
+            "reference_protocol": "legacy-direct-reference"
+          },
+          "violations": {}
+        },
+        "pr": {
+          "case": "test_0004/tint_min",
+          "version": "pr",
+          "canonical_reference": true,
+          "metrics": {
+            "mean_deltaE": 22.99419959606438,
+            "p95_deltaE": 27.72158526371006,
+            "max_deltaE": 45.26914196880112,
+            "bias_r": -0.23493850231170654,
+            "bias_g": 0.029049400240182877,
+            "bias_b": -0.14463356137275696,
+            "n_pixels": 12000000,
+            "reference_protocol": "legacy-direct-reference"
+          },
+          "violations": {}
+        }
+      },
+      "corrected_comparisons": {
+        "main": {
+          "case": "test_0004/tint_min",
+          "version": "main",
+          "canonical_reference": false,
+          "metrics": {
+            "mean_deltaE": 9.22081725978886,
+            "p95_deltaE": 11.351799077947529,
+            "max_deltaE": 22.665050464529255,
+            "bias_r": -0.06838814914226532,
+            "bias_g": -0.06117419898509979,
+            "bias_b": 0.06013230234384537,
+            "n_pixels": 12000000,
+            "reference_protocol": "legacy-direct-reference"
+          },
+          "violations": {}
+        },
+        "pr": {
+          "case": "test_0004/tint_min",
+          "version": "pr",
+          "canonical_reference": false,
+          "metrics": {
+            "mean_deltaE": 9.220813722703483,
+            "p95_deltaE": 11.351793051460524,
+            "max_deltaE": 22.665050464529255,
+            "bias_r": -0.06838886439800262,
+            "bias_g": -0.06117431819438934,
+            "bias_b": 0.06013215705752373,
+            "n_pixels": 12000000,
+            "reference_protocol": "legacy-direct-reference"
+          },
+          "violations": {}
+        }
+      }
+    },
+    {
+      "case": "test_0005/tint_max",
+      "original_raw": "/Users/riabuz/Projects/_Maple/test-fixtures/raws/test_0005.RAF",
+      "raw_sha256": "a7124d13910e0241a6b035154bc1fcdb7be4439371d043b1e1950a0251feb51e",
+      "canonical_xmp_sha256": "9153671514de3d9e5f8b99d1a1cbc5de53526b322e90c4b00c47b32b70ef2bf6",
+      "adobe_xmp_sha256": "721311686f7e1f1490f927dfec1a43a775e076d753e5796167a0554911e98fc3",
+      "baseline_metadata_source": "/Users/riabuz/Projects/_Maple/.codex-worktrees/tone-slider-sprint/test-fixtures/references/test_0005/down/baseline.png",
+      "completed_axes": {
+        "Temperature": "5100"
+      },
+      "authored_axes": {
+        "Tint": "150"
+      },
+      "canonical_unchanged": true,
+      "outputs": [
+        {
+          "resolution": "full",
+          "dimensions": [
+            8256,
+            6192
+          ],
+          "mode": "RGB",
+          "png_sha256": "98719b2b79dc5e236448ca7a8a75df236a5a16eb8c1a45a7f0e5dcabb06c5d1e",
+          "icc_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "effective_xmp_sha256": "5855332e03ac7cb82750b2794f9e5c7d025219bc0cbdc842662e8cb7bf8e4b71"
+        },
+        {
+          "resolution": "down",
+          "dimensions": [
+            4000,
+            3000
+          ],
+          "mode": "RGB",
+          "png_sha256": "909246800e58bb1be63f7ff3b2e4d76ecb6c0d74354cdd72e2405d9caff25741",
+          "icc_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "effective_xmp_sha256": "fae8c2c0627959a9bc5d3cc3622b91444f767aea2bac256a24cc19a60cf007e0"
+        }
+      ],
+      "settings_audit_passed": true,
+      "canonical_comparisons": {
+        "main": {
+          "case": "test_0005/tint_max",
+          "version": "main",
+          "canonical_reference": true,
+          "metrics": {
+            "mean_deltaE": 23.3077199014708,
+            "p95_deltaE": 36.01076597685446,
+            "max_deltaE": 91.85488852723108,
+            "bias_r": 0.13290338218212128,
+            "bias_g": 0.007463699672371149,
+            "bias_b": 0.21012207865715027,
+            "n_pixels": 12000000,
+            "reference_protocol": "legacy-direct-reference"
+          },
+          "violations": {
+            "p95": [
+              36.01076597685446,
+              34.4
+            ]
+          }
+        },
+        "pr": {
+          "case": "test_0005/tint_max",
+          "version": "pr",
+          "canonical_reference": true,
+          "metrics": {
+            "mean_deltaE": 23.307678658060443,
+            "p95_deltaE": 36.01076597685446,
+            "max_deltaE": 91.85488852723108,
+            "bias_r": 0.13290312886238098,
+            "bias_g": 0.007463615387678146,
+            "bias_b": 0.21012164652347565,
+            "n_pixels": 12000000,
+            "reference_protocol": "legacy-direct-reference"
+          },
+          "violations": {
+            "p95": [
+              36.01076597685446,
+              34.4
+            ]
+          }
+        }
+      },
+      "corrected_comparisons": {
+        "main": {
+          "case": "test_0005/tint_max",
+          "version": "main",
+          "canonical_reference": false,
+          "metrics": {
+            "mean_deltaE": 12.993002889497147,
+            "p95_deltaE": 19.80766322599092,
+            "max_deltaE": 83.38999101180906,
+            "bias_r": 0.03290161117911339,
+            "bias_g": 0.12851248681545258,
+            "bias_b": -0.018615925684571266,
+            "n_pixels": 12000000,
+            "reference_protocol": "legacy-direct-reference"
+          },
+          "violations": {}
+        },
+        "pr": {
+          "case": "test_0005/tint_max",
+          "version": "pr",
+          "canonical_reference": false,
+          "metrics": {
+            "mean_deltaE": 12.993010823597613,
+            "p95_deltaE": 19.80778798679289,
+            "max_deltaE": 83.38999101180906,
+            "bias_r": 0.032901324331760406,
+            "bias_g": 0.1285124272108078,
+            "bias_b": -0.018616460263729095,
+            "n_pixels": 12000000,
+            "reference_protocol": "legacy-direct-reference"
+          },
+          "violations": {}
+        }
+      }
+    },
+    {
+      "case": "test_0005/tint_min",
+      "original_raw": "/Users/riabuz/Projects/_Maple/test-fixtures/raws/test_0005.RAF",
+      "raw_sha256": "a7124d13910e0241a6b035154bc1fcdb7be4439371d043b1e1950a0251feb51e",
+      "canonical_xmp_sha256": "e307c836d4d66b1d1e81b2f75107fd2a71d4e9ebf6422d3a6648ca97a127c67f",
+      "adobe_xmp_sha256": "9d7205fc94f233936bb48284efe9182a44d0bf8620b0549166f7c7e47e4ed106",
+      "baseline_metadata_source": "/Users/riabuz/Projects/_Maple/.codex-worktrees/tone-slider-sprint/test-fixtures/references/test_0005/down/baseline.png",
+      "completed_axes": {
+        "Temperature": "5100"
+      },
+      "authored_axes": {
+        "Tint": "-150"
+      },
+      "canonical_unchanged": true,
+      "outputs": [
+        {
+          "resolution": "full",
+          "dimensions": [
+            8256,
+            6192
+          ],
+          "mode": "RGB",
+          "png_sha256": "63683e1d9e1fb469638d42e319f2b2995c1007a1733d2c57651642636963644a",
+          "icc_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "effective_xmp_sha256": "2eb7f66efdb5713a716e89982d5dc88b86d1a5da64c7522dca200604600e1694"
+        },
+        {
+          "resolution": "down",
+          "dimensions": [
+            4000,
+            3000
+          ],
+          "mode": "RGB",
+          "png_sha256": "61e6b506de619b59f8511d2e54c8d7c571b045f2db22668e9f5ca63a7d41af43",
+          "icc_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "effective_xmp_sha256": "c7de966f417efc8290672178edd53fe1c6dbe3c24aa5f28f5e5a43efcb29a993"
+        }
+      ],
+      "settings_audit_passed": true,
+      "canonical_comparisons": {
+        "main": {
+          "case": "test_0005/tint_min",
+          "version": "main",
+          "canonical_reference": true,
+          "metrics": {
+            "mean_deltaE": 21.53232209143834,
+            "p95_deltaE": 27.657772775143222,
+            "max_deltaE": 91.8465345393527,
+            "bias_r": 0.02218194305896759,
+            "bias_g": 0.12155141681432724,
+            "bias_b": -0.010146279819309711,
+            "n_pixels": 12000000,
+            "reference_protocol": "legacy-direct-reference"
+          },
+          "violations": {}
+        },
+        "pr": {
+          "case": "test_0005/tint_min",
+          "version": "pr",
+          "canonical_reference": true,
+          "metrics": {
+            "mean_deltaE": 21.53232687592443,
+            "p95_deltaE": 27.657772775143222,
+            "max_deltaE": 91.8465345393527,
+            "bias_r": 0.02218187227845192,
+            "bias_g": 0.12155144661664963,
+            "bias_b": -0.010146386921405792,
+            "n_pixels": 12000000,
+            "reference_protocol": "legacy-direct-reference"
+          },
+          "violations": {}
+        }
+      },
+      "corrected_comparisons": {
+        "main": {
+          "case": "test_0005/tint_min",
+          "version": "main",
+          "canonical_reference": false,
+          "metrics": {
+            "mean_deltaE": 12.53767596946751,
+            "p95_deltaE": 20.28386456199539,
+            "max_deltaE": 93.07885890676484,
+            "bias_r": 0.1582535058259964,
+            "bias_g": 0.08135274797677994,
+            "bias_b": 0.15319475531578064,
+            "n_pixels": 12000000,
+            "reference_protocol": "legacy-direct-reference"
+          },
+          "violations": {
+            "bias_r": [
+              0.1582535058259964,
+              0.1329
+            ],
+            "bias_b": [
+              0.15319475531578064,
+              0.1329
+            ]
+          }
+        },
+        "pr": {
+          "case": "test_0005/tint_min",
+          "version": "pr",
+          "canonical_reference": false,
+          "metrics": {
+            "mean_deltaE": 12.537671734369479,
+            "p95_deltaE": 20.28383969753867,
+            "max_deltaE": 93.07885890676484,
+            "bias_r": 0.15825340151786804,
+            "bias_g": 0.08135280013084412,
+            "bias_b": 0.15319451689720154,
+            "n_pixels": 12000000,
+            "reference_protocol": "legacy-direct-reference"
+          },
+          "violations": {
+            "bias_r": [
+              0.15825340151786804,
+              0.1329
+            ],
+            "bias_b": [
+              0.15319451689720154,
+              0.1329
+            ]
+          }
+        }
+      }
+    },
+    {
+      "case": "test_0006/tint_max",
+      "original_raw": "/Users/riabuz/Projects/_Maple/test-fixtures/raws/test_0006.DNG",
+      "raw_sha256": "159326856c29073e845c3c5a9ecf98c6474f43ca15798a88ad5e2baecd0664b7",
+      "canonical_xmp_sha256": "9153671514de3d9e5f8b99d1a1cbc5de53526b322e90c4b00c47b32b70ef2bf6",
+      "adobe_xmp_sha256": "be3897819c83c9c18ad76d0f5d724ebb2823a9a0e09b9e94c8d1cc56e49f551d",
+      "baseline_metadata_source": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0006/down/baseline.png",
+      "completed_axes": {
+        "Temperature": "3750"
+      },
+      "authored_axes": {
+        "Tint": "150"
+      },
+      "canonical_unchanged": true,
+      "outputs": [
+        {
+          "resolution": "full",
+          "dimensions": [
+            5760,
+            3840
+          ],
+          "mode": "RGB",
+          "png_sha256": "c6a28495810c91c9ff03b1446966fc96b116022cc80b046e1e4836c0bdae82e6",
+          "icc_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "effective_xmp_sha256": "3b2624c5492d1d4bd39ab02dd7503cf898d02e84c36b5a1e069ca88ca150b1b5"
+        },
+        {
+          "resolution": "down",
+          "dimensions": [
+            4000,
+            2667
+          ],
+          "mode": "RGB",
+          "png_sha256": "5762b4312208623ddcfe6a65314fe9a10ae1a19acb233124160e912bdff9ca4b",
+          "icc_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "effective_xmp_sha256": "ee6c677623d5db0386315215c94c4578aa753266382125b630137b8ab840832c"
+        }
+      ],
+      "settings_audit_passed": true,
+      "canonical_comparisons": {
+        "main": {
+          "case": "test_0006/tint_max",
+          "version": "main",
+          "canonical_reference": true,
+          "metrics": {
+            "mean_deltaE": 21.21895336454455,
+            "p95_deltaE": 40.94246674381675,
+            "max_deltaE": 51.87264640218755,
+            "bias_r": 0.014228316955268383,
+            "bias_g": -0.048868559300899506,
+            "bias_b": 0.19497182965278625,
+            "n_pixels": 10668000,
+            "reference_protocol": "legacy-direct-reference"
+          },
+          "violations": {}
+        },
+        "pr": {
+          "case": "test_0006/tint_max",
+          "version": "pr",
+          "canonical_reference": true,
+          "metrics": {
+            "mean_deltaE": 21.21895336454455,
+            "p95_deltaE": 40.94246674381675,
+            "max_deltaE": 51.87264640218755,
+            "bias_r": 0.014228316955268383,
+            "bias_g": -0.048868559300899506,
+            "bias_b": 0.19497182965278625,
+            "n_pixels": 10668000,
+            "reference_protocol": "legacy-direct-reference"
+          },
+          "violations": {}
+        }
+      },
+      "corrected_comparisons": {
+        "main": {
+          "case": "test_0006/tint_max",
+          "version": "main",
+          "canonical_reference": false,
+          "metrics": {
+            "mean_deltaE": 30.631331892640812,
+            "p95_deltaE": 42.9647859403741,
+            "max_deltaE": 52.74280432852105,
+            "bias_r": 0.09994834661483765,
+            "bias_g": 0.09008033573627472,
+            "bias_b": -0.399143785238266,
+            "n_pixels": 10668000,
+            "reference_protocol": "legacy-direct-reference"
+          },
+          "violations": {
+            "mean": [
+              30.631331892640812,
+              22.3
+            ],
+            "bias_b": [
+              -0.399143785238266,
+              0.2195
+            ]
+          }
+        },
+        "pr": {
+          "case": "test_0006/tint_max",
+          "version": "pr",
+          "canonical_reference": false,
+          "metrics": {
+            "mean_deltaE": 30.631331892640812,
+            "p95_deltaE": 42.9647859403741,
+            "max_deltaE": 52.74280432852105,
+            "bias_r": 0.09994834661483765,
+            "bias_g": 0.09008033573627472,
+            "bias_b": -0.399143785238266,
+            "n_pixels": 10668000,
+            "reference_protocol": "legacy-direct-reference"
+          },
+          "violations": {
+            "mean": [
+              30.631331892640812,
+              22.3
+            ],
+            "bias_b": [
+              -0.399143785238266,
+              0.2195
+            ]
+          }
+        }
+      }
+    },
+    {
+      "case": "test_0006/tint_min",
+      "original_raw": "/Users/riabuz/Projects/_Maple/test-fixtures/raws/test_0006.DNG",
+      "raw_sha256": "159326856c29073e845c3c5a9ecf98c6474f43ca15798a88ad5e2baecd0664b7",
+      "canonical_xmp_sha256": "e307c836d4d66b1d1e81b2f75107fd2a71d4e9ebf6422d3a6648ca97a127c67f",
+      "adobe_xmp_sha256": "7ca14a70dd002277f48e332ec50cd87b99e5a05ec4c304201df3146b86d5c370",
+      "baseline_metadata_source": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0006/down/baseline.png",
+      "completed_axes": {
+        "Temperature": "3750"
+      },
+      "authored_axes": {
+        "Tint": "-150"
+      },
+      "canonical_unchanged": true,
+      "outputs": [
+        {
+          "resolution": "full",
+          "dimensions": [
+            5760,
+            3840
+          ],
+          "mode": "RGB",
+          "png_sha256": "79d5f8c69da0834c2ce809dfd9e62d7acd0527613f9249eb47f5a4e7168fb2ed",
+          "icc_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "effective_xmp_sha256": "bbb2bc25310b06c10582c772bf64129d556530816354b7e20832b9e6bbc02b0b"
+        },
+        {
+          "resolution": "down",
+          "dimensions": [
+            4000,
+            2667
+          ],
+          "mode": "RGB",
+          "png_sha256": "23650a4d92a3778416ad7987c2923595f6aae33b968589da36f3ffe659d27837",
+          "icc_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "effective_xmp_sha256": "7e57a3df38fa9ad9f616385c3d1381db3d2acda67ca09c243c73c0fc3eaf62bf"
+        }
+      ],
+      "settings_audit_passed": true,
+      "canonical_comparisons": {
+        "main": {
+          "case": "test_0006/tint_min",
+          "version": "main",
+          "canonical_reference": true,
+          "metrics": {
+            "mean_deltaE": 24.115683359643057,
+            "p95_deltaE": 28.16606689937061,
+            "max_deltaE": 40.9786287323273,
+            "bias_r": -0.20382778346538544,
+            "bias_g": 0.07773841917514801,
+            "bias_b": 0.017018934711813927,
+            "n_pixels": 10668000,
+            "reference_protocol": "legacy-direct-reference"
+          },
+          "violations": {}
+        },
+        "pr": {
+          "case": "test_0006/tint_min",
+          "version": "pr",
+          "canonical_reference": true,
+          "metrics": {
+            "mean_deltaE": 24.115683359643057,
+            "p95_deltaE": 28.16606689937061,
+            "max_deltaE": 40.9786287323273,
+            "bias_r": -0.20382778346538544,
+            "bias_g": 0.07773841917514801,
+            "bias_b": 0.017018934711813927,
+            "n_pixels": 10668000,
+            "reference_protocol": "legacy-direct-reference"
+          },
+          "violations": {}
+        }
+      },
+      "corrected_comparisons": {
+        "main": {
+          "case": "test_0006/tint_min",
+          "version": "main",
+          "canonical_reference": false,
+          "metrics": {
+            "mean_deltaE": 9.874812874771171,
+            "p95_deltaE": 15.51499281296022,
+            "max_deltaE": 36.33977658385053,
+            "bias_r": -0.05142184719443321,
+            "bias_g": 0.037515927106142044,
+            "bias_b": 0.19432498514652252,
+            "n_pixels": 10668000,
+            "reference_protocol": "legacy-direct-reference"
+          },
+          "violations": {}
+        },
+        "pr": {
+          "case": "test_0006/tint_min",
+          "version": "pr",
+          "canonical_reference": false,
+          "metrics": {
+            "mean_deltaE": 9.874812874771171,
+            "p95_deltaE": 15.51499281296022,
+            "max_deltaE": 36.33977658385053,
+            "bias_r": -0.05142184719443321,
+            "bias_g": 0.037515927106142044,
+            "bias_b": 0.19432498514652252,
+            "n_pixels": 10668000,
+            "reference_protocol": "legacy-direct-reference"
+          },
+          "violations": {}
+        }
+      }
+    },
+    {
+      "case": "test_0007/tint_max",
+      "original_raw": "/Users/riabuz/Projects/_Maple/test-fixtures/raws/test_0007.DNG",
+      "raw_sha256": "95dc76a2f255e623acaa5149b320389f7da7c995da890c3e0d511c0ff681b2e1",
+      "canonical_xmp_sha256": "9153671514de3d9e5f8b99d1a1cbc5de53526b322e90c4b00c47b32b70ef2bf6",
+      "adobe_xmp_sha256": "be3897819c83c9c18ad76d0f5d724ebb2823a9a0e09b9e94c8d1cc56e49f551d",
+      "baseline_metadata_source": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0007/down/baseline.png",
+      "completed_axes": {
+        "Temperature": "3750"
+      },
+      "authored_axes": {
+        "Tint": "150"
+      },
+      "canonical_unchanged": true,
+      "outputs": [
+        {
+          "resolution": "full",
+          "dimensions": [
+            5760,
+            3840
+          ],
+          "mode": "RGB",
+          "png_sha256": "b61583041550b120cfee04f3e3de7028da3348491a08d89a3b7e5daad7ef90eb",
+          "icc_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "effective_xmp_sha256": "ce97f084cfe9e69fe6c89d911ca2e5cdffe43fcb7aff263a52028a2ef1a0efa5"
+        },
+        {
+          "resolution": "down",
+          "dimensions": [
+            4000,
+            2667
+          ],
+          "mode": "RGB",
+          "png_sha256": "88ca9bacc752167f42e924330f24703ca2c901935f4b3c9577b58c27db3dcd14",
+          "icc_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "effective_xmp_sha256": "d53267ac21a7f02ab46fc5e49ab1f46f91732d1781b7ffcf02b039cec675b620"
+        }
+      ],
+      "settings_audit_passed": true,
+      "canonical_comparisons": {
+        "main": {
+          "case": "test_0007/tint_max",
+          "version": "main",
+          "canonical_reference": true,
+          "metrics": {
+            "mean_deltaE": 50.05201910053805,
+            "p95_deltaE": 60.66461396978947,
+            "max_deltaE": 77.33388562333113,
+            "bias_r": -0.10429241508245468,
+            "bias_g": -0.1714223474264145,
+            "bias_b": 0.5184453725814819,
+            "n_pixels": 10668000,
+            "reference_protocol": "legacy-direct-reference"
+          },
+          "violations": {
+            "mean": [
+              50.05201910053805,
+              19.7
+            ],
+            "p95": [
+              60.66461396978947,
+              28.3
+            ],
+            "max": [
+              77.33388562333113,
+              51.1
+            ],
+            "bias_g": [
+              -0.1714223474264145,
+              0.1079
+            ],
+            "bias_b": [
+              0.5184453725814819,
+              0.1079
+            ]
+          }
+        },
+        "pr": {
+          "case": "test_0007/tint_max",
+          "version": "pr",
+          "canonical_reference": true,
+          "metrics": {
+            "mean_deltaE": 50.05193215071097,
+            "p95_deltaE": 60.66461396978947,
+            "max_deltaE": 77.33388562333113,
+            "bias_r": -0.10429249703884125,
+            "bias_g": -0.1714223325252533,
+            "bias_b": 0.5184447169303894,
+            "n_pixels": 10668000,
+            "reference_protocol": "legacy-direct-reference"
+          },
+          "violations": {
+            "mean": [
+              50.05193215071097,
+              19.7
+            ],
+            "p95": [
+              60.66461396978947,
+              28.3
+            ],
+            "max": [
+              77.33388562333113,
+              51.1
+            ],
+            "bias_g": [
+              -0.1714223325252533,
+              0.1079
+            ],
+            "bias_b": [
+              0.5184447169303894,
+              0.1079
+            ]
+          }
+        }
+      },
+      "corrected_comparisons": {
+        "main": {
+          "case": "test_0007/tint_max",
+          "version": "main",
+          "canonical_reference": false,
+          "metrics": {
+            "mean_deltaE": 6.824827499668474,
+            "p95_deltaE": 20.050376404066483,
+            "max_deltaE": 54.818789778585035,
+            "bias_r": -0.01876269280910492,
+            "bias_g": -0.030744170770049095,
+            "bias_b": -0.016488760709762573,
+            "n_pixels": 10668000,
+            "reference_protocol": "legacy-direct-reference"
+          },
+          "violations": {
+            "max": [
+              54.818789778585035,
+              51.1
+            ]
+          }
+        },
+        "pr": {
+          "case": "test_0007/tint_max",
+          "version": "pr",
+          "canonical_reference": false,
+          "metrics": {
+            "mean_deltaE": 6.824829141064491,
+            "p95_deltaE": 20.050376404066483,
+            "max_deltaE": 54.818789778585035,
+            "bias_r": -0.018762754276394844,
+            "bias_g": -0.0307441558688879,
+            "bias_b": -0.016489533707499504,
+            "n_pixels": 10668000,
+            "reference_protocol": "legacy-direct-reference"
+          },
+          "violations": {
+            "max": [
+              54.818789778585035,
+              51.1
+            ]
+          }
+        }
+      }
+    },
+    {
+      "case": "test_0007/tint_min",
+      "original_raw": "/Users/riabuz/Projects/_Maple/test-fixtures/raws/test_0007.DNG",
+      "raw_sha256": "95dc76a2f255e623acaa5149b320389f7da7c995da890c3e0d511c0ff681b2e1",
+      "canonical_xmp_sha256": "e307c836d4d66b1d1e81b2f75107fd2a71d4e9ebf6422d3a6648ca97a127c67f",
+      "adobe_xmp_sha256": "7ca14a70dd002277f48e332ec50cd87b99e5a05ec4c304201df3146b86d5c370",
+      "baseline_metadata_source": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0007/down/baseline.png",
+      "completed_axes": {
+        "Temperature": "3750"
+      },
+      "authored_axes": {
+        "Tint": "-150"
+      },
+      "canonical_unchanged": true,
+      "outputs": [
+        {
+          "resolution": "full",
+          "dimensions": [
+            5760,
+            3840
+          ],
+          "mode": "RGB",
+          "png_sha256": "1ebab31fc90af9ddbdbf100306ad5e8926f5efbbdc97a932a875d6485a4b05d5",
+          "icc_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "effective_xmp_sha256": "47f042dbb323203b902cb894391a500bf92cfdd0e2204436328f76c5427d1963"
+        },
+        {
+          "resolution": "down",
+          "dimensions": [
+            4000,
+            2667
+          ],
+          "mode": "RGB",
+          "png_sha256": "5aee0fafd1663cd09b8e2a3e393edc6d480dbe2bc16df0c5735b900ddb84f8bb",
+          "icc_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "effective_xmp_sha256": "312326b591442472333d81f8590aa90c7e5038f2fc5d0846b8fe8896c069a944"
+        }
+      ],
+      "settings_audit_passed": true,
+      "canonical_comparisons": {
+        "main": {
+          "case": "test_0007/tint_min",
+          "version": "main",
+          "canonical_reference": true,
+          "metrics": {
+            "mean_deltaE": 18.351799866245265,
+            "p95_deltaE": 21.95561865384701,
+            "max_deltaE": 43.561507811836044,
+            "bias_r": -0.15359798073768616,
+            "bias_g": 0.05323931947350502,
+            "bias_b": -0.06506028771400452,
+            "n_pixels": 10668000,
+            "reference_protocol": "legacy-direct-reference"
+          },
+          "violations": {
+            "mean": [
+              18.351799866245265,
+              16.2
+            ],
+            "p95": [
+              21.95561865384701,
+              19.5
+            ],
+            "max": [
+              43.561507811836044,
+              43.2
+            ],
+            "bias_r": [
+              -0.15359798073768616,
+              0.1424
+            ]
+          }
+        },
+        "pr": {
+          "case": "test_0007/tint_min",
+          "version": "pr",
+          "canonical_reference": true,
+          "metrics": {
+            "mean_deltaE": 18.35180692929249,
+            "p95_deltaE": 21.95561865384701,
+            "max_deltaE": 43.561507811836044,
+            "bias_r": -0.15359801054000854,
+            "bias_g": 0.0532393679022789,
+            "bias_b": -0.06506042927503586,
+            "n_pixels": 10668000,
+            "reference_protocol": "legacy-direct-reference"
+          },
+          "violations": {
+            "mean": [
+              18.35180692929249,
+              16.2
+            ],
+            "p95": [
+              21.95561865384701,
+              19.5
+            ],
+            "max": [
+              43.561507811836044,
+              43.2
+            ],
+            "bias_r": [
+              -0.15359801054000854,
+              0.1424
+            ]
+          }
+        }
+      },
+      "corrected_comparisons": {
+        "main": {
+          "case": "test_0007/tint_min",
+          "version": "main",
+          "canonical_reference": false,
+          "metrics": {
+            "mean_deltaE": 4.511711124154095,
+            "p95_deltaE": 7.781575082153058,
+            "max_deltaE": 47.3381176124858,
+            "bias_r": 0.009398388676345348,
+            "bias_g": 0.014116348698735237,
+            "bias_b": 0.11616167426109314,
+            "n_pixels": 10668000,
+            "reference_protocol": "legacy-direct-reference"
+          },
+          "violations": {
+            "max": [
+              47.3381176124858,
+              43.2
+            ]
+          }
+        },
+        "pr": {
+          "case": "test_0007/tint_min",
+          "version": "pr",
+          "canonical_reference": false,
+          "metrics": {
+            "mean_deltaE": 4.511694785306912,
+            "p95_deltaE": 7.781575082153058,
+            "max_deltaE": 47.3381176124858,
+            "bias_r": 0.009398369118571281,
+            "bias_g": 0.014116393402218819,
+            "bias_b": 0.11616159230470657,
+            "n_pixels": 10668000,
+            "reference_protocol": "legacy-direct-reference"
+          },
+          "violations": {
+            "max": [
+              47.3381176124858,
+              43.2
+            ]
+          }
+        }
+      }
+    },
+    {
+      "case": "test_0008/tint_max",
+      "original_raw": "/Users/riabuz/Projects/_Maple/test-fixtures/raws/test_0008.RAF",
+      "raw_sha256": "95b33021160b239ceb1a09d46a1b29cb60cb7dd47581feb126b337c219091754",
+      "canonical_xmp_sha256": "9153671514de3d9e5f8b99d1a1cbc5de53526b322e90c4b00c47b32b70ef2bf6",
+      "adobe_xmp_sha256": "6c8cb364b1d96a62d111e21fb8f17dafce6c84efe1fc970e48a827b908a9c67f",
+      "baseline_metadata_source": "/Users/riabuz/Projects/_Maple/.codex-worktrees/tone-slider-sprint/test-fixtures/references/test_0008/down/baseline.png",
+      "completed_axes": {
+        "Temperature": "5150"
+      },
+      "authored_axes": {
+        "Tint": "150"
+      },
+      "canonical_unchanged": true,
+      "outputs": [
+        {
+          "resolution": "full",
+          "dimensions": [
+            6240,
+            4160
+          ],
+          "mode": "RGB",
+          "png_sha256": "d364649e81a9926a995cfb90e2175771f3ba0a91a87eddef4a775ec7d600230f",
+          "icc_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "effective_xmp_sha256": "d3f47355f112b4cb523f41c91f4f5c85f76cf5c20bea788a61e79da68ce5f76f"
+        },
+        {
+          "resolution": "down",
+          "dimensions": [
+            4000,
+            2667
+          ],
+          "mode": "RGB",
+          "png_sha256": "829204dcc658d0bd0f4ebcbcdb5f10872c8fc1aa880f0cdd2058e6a437f722b8",
+          "icc_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "effective_xmp_sha256": "aeed3e71c3239b2810debc357f0604057e38d3d560ef37e07dee4aa3cf8be439"
+        }
+      ],
+      "settings_audit_passed": true,
+      "canonical_comparisons": {
+        "main": {
+          "case": "test_0008/tint_max",
+          "version": "main",
+          "canonical_reference": true,
+          "metrics": {
+            "mean_deltaE": 25.483428895326078,
+            "p95_deltaE": 37.4862934158387,
+            "max_deltaE": 90.08168558083959,
+            "bias_r": -0.014445150271058083,
+            "bias_g": -0.15103934705257416,
+            "bias_b": 0.06161690875887871,
+            "n_pixels": 10668000,
+            "reference_protocol": "legacy-direct-reference"
+          },
+          "violations": {
+            "mean": [
+              25.483428895326078,
+              25.4
+            ],
+            "p95": [
+              37.4862934158387,
+              35.5
+            ]
+          }
+        },
+        "pr": {
+          "case": "test_0008/tint_max",
+          "version": "pr",
+          "canonical_reference": true,
+          "metrics": {
+            "mean_deltaE": 25.483428895326078,
+            "p95_deltaE": 37.4862934158387,
+            "max_deltaE": 90.08168558083959,
+            "bias_r": -0.014445150271058083,
+            "bias_g": -0.15103934705257416,
+            "bias_b": 0.06161690875887871,
+            "n_pixels": 10668000,
+            "reference_protocol": "legacy-direct-reference"
+          },
+          "violations": {
+            "mean": [
+              25.483428895326078,
+              25.4
+            ],
+            "p95": [
+              37.4862934158387,
+              35.5
+            ]
+          }
+        }
+      },
+      "corrected_comparisons": {
+        "main": {
+          "case": "test_0008/tint_max",
+          "version": "main",
+          "canonical_reference": false,
+          "metrics": {
+            "mean_deltaE": 13.180802083951729,
+            "p95_deltaE": 19.848344617026218,
+            "max_deltaE": 87.77953373643902,
+            "bias_r": -0.12186995893716812,
+            "bias_g": -0.07817551493644714,
+            "bias_b": -0.14478272199630737,
+            "n_pixels": 10668000,
+            "reference_protocol": "legacy-direct-reference"
+          },
+          "violations": {}
+        },
+        "pr": {
+          "case": "test_0008/tint_max",
+          "version": "pr",
+          "canonical_reference": false,
+          "metrics": {
+            "mean_deltaE": 13.180802083951729,
+            "p95_deltaE": 19.848344617026218,
+            "max_deltaE": 87.77953373643902,
+            "bias_r": -0.12186995893716812,
+            "bias_g": -0.07817551493644714,
+            "bias_b": -0.14478272199630737,
+            "n_pixels": 10668000,
+            "reference_protocol": "legacy-direct-reference"
+          },
+          "violations": {}
+        }
+      }
+    },
+    {
+      "case": "test_0008/tint_min",
+      "original_raw": "/Users/riabuz/Projects/_Maple/test-fixtures/raws/test_0008.RAF",
+      "raw_sha256": "95b33021160b239ceb1a09d46a1b29cb60cb7dd47581feb126b337c219091754",
+      "canonical_xmp_sha256": "e307c836d4d66b1d1e81b2f75107fd2a71d4e9ebf6422d3a6648ca97a127c67f",
+      "adobe_xmp_sha256": "cd724ec24f092ca8fa7433e41fdad54e5e57d6ca351a002c9dee0b99c9ff1806",
+      "baseline_metadata_source": "/Users/riabuz/Projects/_Maple/.codex-worktrees/tone-slider-sprint/test-fixtures/references/test_0008/down/baseline.png",
+      "completed_axes": {
+        "Temperature": "5150"
+      },
+      "authored_axes": {
+        "Tint": "-150"
+      },
+      "canonical_unchanged": true,
+      "outputs": [
+        {
+          "resolution": "full",
+          "dimensions": [
+            6240,
+            4160
+          ],
+          "mode": "RGB",
+          "png_sha256": "f852519b8b7f57da564f4fafb23a54f917b5557d85791fffd6c15df8a6021a3a",
+          "icc_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "effective_xmp_sha256": "906d94cffd75e3f5aef8fe12159aa5353926f7e3dd014bc7bf8ead70a5df3b32"
+        },
+        {
+          "resolution": "down",
+          "dimensions": [
+            4000,
+            2667
+          ],
+          "mode": "RGB",
+          "png_sha256": "4d5025a26428877b1e0ffcb5171ba001ab06db5e59a3c1343c9fe27c0be9c2b0",
+          "icc_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "effective_xmp_sha256": "293efe12288b94b334ea270615c78aa7f1573c7ba863a823d38e845cedd077b4"
+        }
+      ],
+      "settings_audit_passed": true,
+      "canonical_comparisons": {
+        "main": {
+          "case": "test_0008/tint_min",
+          "version": "main",
+          "canonical_reference": true,
+          "metrics": {
+            "mean_deltaE": 15.70736219974103,
+            "p95_deltaE": 22.907279841090098,
+            "max_deltaE": 89.54838826292095,
+            "bias_r": -0.14892596006393433,
+            "bias_g": -0.08279544860124588,
+            "bias_b": -0.14429815113544464,
+            "n_pixels": 10668000,
+            "reference_protocol": "legacy-direct-reference"
+          },
+          "violations": {}
+        },
+        "pr": {
+          "case": "test_0008/tint_min",
+          "version": "pr",
+          "canonical_reference": true,
+          "metrics": {
+            "mean_deltaE": 15.70736219974103,
+            "p95_deltaE": 22.907279841090098,
+            "max_deltaE": 89.54838826292095,
+            "bias_r": -0.14892596006393433,
+            "bias_g": -0.08279544860124588,
+            "bias_b": -0.14429815113544464,
+            "n_pixels": 10668000,
+            "reference_protocol": "legacy-direct-reference"
+          },
+          "violations": {}
+        }
+      },
+      "corrected_comparisons": {
+        "main": {
+          "case": "test_0008/tint_min",
+          "version": "main",
+          "canonical_reference": false,
+          "metrics": {
+            "mean_deltaE": 12.223807140104155,
+            "p95_deltaE": 19.050276216596462,
+            "max_deltaE": 91.8205313424326,
+            "bias_r": -0.05234886333346367,
+            "bias_g": -0.11654546111822128,
+            "bias_b": 0.011805904097855091,
+            "n_pixels": 10668000,
+            "reference_protocol": "legacy-direct-reference"
+          },
+          "violations": {}
+        },
+        "pr": {
+          "case": "test_0008/tint_min",
+          "version": "pr",
+          "canonical_reference": false,
+          "metrics": {
+            "mean_deltaE": 12.223807140104155,
+            "p95_deltaE": 19.050276216596462,
+            "max_deltaE": 91.8205313424326,
+            "bias_r": -0.05234886333346367,
+            "bias_g": -0.11654546111822128,
+            "bias_b": 0.011805904097855091,
+            "n_pixels": 10668000,
+            "reference_protocol": "legacy-direct-reference"
+          },
+          "violations": {}
+        }
+      }
+    },
+    {
+      "case": "test_0009/tint_max",
+      "original_raw": "/Users/riabuz/Projects/_Maple/test-fixtures/raws/test_0009.CR2",
+      "raw_sha256": "85bfec149261ffbae90797e45caae5e204e1e61ac62b92783925b5ee0f267d76",
+      "canonical_xmp_sha256": "9153671514de3d9e5f8b99d1a1cbc5de53526b322e90c4b00c47b32b70ef2bf6",
+      "adobe_xmp_sha256": "c51b95450db5d426aad512a5f109188c9724099c27da7b428def916c54890b0b",
+      "baseline_metadata_source": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0009/down/baseline.png",
+      "completed_axes": {
+        "Temperature": "4950"
+      },
+      "authored_axes": {
+        "Tint": "150"
+      },
+      "canonical_unchanged": true,
+      "outputs": [
+        {
+          "resolution": "full",
+          "dimensions": [
+            6720,
+            4480
+          ],
+          "mode": "RGB",
+          "png_sha256": "e17db511c8d2418d8d6afb2ad2f1d965aa4ce39ff508aed3fd49ec5ed980ca43",
+          "icc_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "effective_xmp_sha256": "e62cad893bcba1c78e064c5eb41aeeee25ce405cb4dc3e43130f315cf639caad"
+        },
+        {
+          "resolution": "down",
+          "dimensions": [
+            4000,
+            2667
+          ],
+          "mode": "RGB",
+          "png_sha256": "e33712d901043e062d3f8d86249df5698d8566b1da497d531bad78f3ea619f9f",
+          "icc_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "effective_xmp_sha256": "411f09e6bfdb0f591b9ca3793302dd707e4f4fb7809119086cfc221b33c3eb8c"
+        }
+      ],
+      "settings_audit_passed": true,
+      "canonical_comparisons": {
+        "main": {
+          "case": "test_0009/tint_max",
+          "version": "main",
+          "canonical_reference": true,
+          "metrics": {
+            "mean_deltaE": 19.211155667162654,
+            "p95_deltaE": 26.196692541126858,
+            "max_deltaE": 39.72853991212524,
+            "bias_r": 0.11265743523836136,
+            "bias_g": 0.028129100799560547,
+            "bias_b": 0.16456617414951324,
+            "n_pixels": 10668000,
+            "reference_protocol": "legacy-direct-reference"
+          },
+          "violations": {
+            "mean": [
+              19.211155667162654,
+              17.4
+            ],
+            "p95": [
+              26.196692541126858,
+              23.3
+            ],
+            "max": [
+              39.72853991212524,
+              39.4
+            ],
+            "bias_b": [
+              0.16456617414951324,
+              0.1598
+            ]
+          }
+        },
+        "pr": {
+          "case": "test_0009/tint_max",
+          "version": "pr",
+          "canonical_reference": true,
+          "metrics": {
+            "mean_deltaE": 19.211141411539913,
+            "p95_deltaE": 26.196799657782613,
+            "max_deltaE": 40.13581963427166,
+            "bias_r": 0.11265739798545837,
+            "bias_g": 0.028129078447818756,
+            "bias_b": 0.16456618905067444,
+            "n_pixels": 10668000,
+            "reference_protocol": "legacy-direct-reference"
+          },
+          "violations": {
+            "mean": [
+              19.211141411539913,
+              17.4
+            ],
+            "p95": [
+              26.196799657782613,
+              23.3
+            ],
+            "max": [
+              40.13581963427166,
+              39.4
+            ],
+            "bias_b": [
+              0.16456618905067444,
+              0.1598
+            ]
+          }
+        }
+      },
+      "corrected_comparisons": {
+        "main": {
+          "case": "test_0009/tint_max",
+          "version": "main",
+          "canonical_reference": false,
+          "metrics": {
+            "mean_deltaE": 12.20482975390593,
+            "p95_deltaE": 16.236875994025763,
+            "max_deltaE": 28.538150283596696,
+            "bias_r": 0.027394795790314674,
+            "bias_g": 0.11066913604736328,
+            "bias_b": -0.03591545671224594,
+            "n_pixels": 10668000,
+            "reference_protocol": "legacy-direct-reference"
+          },
+          "violations": {}
+        },
+        "pr": {
+          "case": "test_0009/tint_max",
+          "version": "pr",
+          "canonical_reference": false,
+          "metrics": {
+            "mean_deltaE": 12.20482694360164,
+            "p95_deltaE": 16.236883537840978,
+            "max_deltaE": 28.538150283596696,
+            "bias_r": 0.02739448845386505,
+            "bias_g": 0.11066915094852448,
+            "bias_b": -0.03591553494334221,
+            "n_pixels": 10668000,
+            "reference_protocol": "legacy-direct-reference"
+          },
+          "violations": {}
+        }
+      }
+    },
+    {
+      "case": "test_0009/tint_min",
+      "original_raw": "/Users/riabuz/Projects/_Maple/test-fixtures/raws/test_0009.CR2",
+      "raw_sha256": "85bfec149261ffbae90797e45caae5e204e1e61ac62b92783925b5ee0f267d76",
+      "canonical_xmp_sha256": "e307c836d4d66b1d1e81b2f75107fd2a71d4e9ebf6422d3a6648ca97a127c67f",
+      "adobe_xmp_sha256": "f0b17e8d46e10655de7aaae85c54931541f465973ff5eeb0a64d8e178d6e5832",
+      "baseline_metadata_source": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0009/down/baseline.png",
+      "completed_axes": {
+        "Temperature": "4950"
+      },
+      "authored_axes": {
+        "Tint": "-150"
+      },
+      "canonical_unchanged": true,
+      "outputs": [
+        {
+          "resolution": "full",
+          "dimensions": [
+            6720,
+            4480
+          ],
+          "mode": "RGB",
+          "png_sha256": "6ab078b6d867ca0847f0305b0ac140860ca0a00483fec55f51b32c170fcdf01f",
+          "icc_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "effective_xmp_sha256": "65fffdbb469f806ab48f0c394ff85838ccf9e4bd458b6f207338251931a407d8"
+        },
+        {
+          "resolution": "down",
+          "dimensions": [
+            4000,
+            2667
+          ],
+          "mode": "RGB",
+          "png_sha256": "0f4bbf1981514c7893985cb6e84fc2bd4c8bb6bb7c104b8cc7521e650223ca03",
+          "icc_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "effective_xmp_sha256": "e88231ad7b4ed9a87712c8a489e9837e2d9ce764f16dc98fa6232efe4a6ea60b"
+        }
+      ],
+      "settings_audit_passed": true,
+      "canonical_comparisons": {
+        "main": {
+          "case": "test_0009/tint_min",
+          "version": "main",
+          "canonical_reference": true,
+          "metrics": {
+            "mean_deltaE": 15.406948954169328,
+            "p95_deltaE": 24.993875448594448,
+            "max_deltaE": 33.31814888699861,
+            "bias_r": 0.017554212361574173,
+            "bias_g": 0.08831068128347397,
+            "bias_b": 0.0064709801226854324,
+            "n_pixels": 10668000,
+            "reference_protocol": "legacy-direct-reference"
+          },
+          "violations": {}
+        },
+        "pr": {
+          "case": "test_0009/tint_min",
+          "version": "pr",
+          "canonical_reference": true,
+          "metrics": {
+            "mean_deltaE": 15.40695347769918,
+            "p95_deltaE": 24.993875448594448,
+            "max_deltaE": 33.31814888699861,
+            "bias_r": 0.017553944140672684,
+            "bias_g": 0.08831058442592621,
+            "bias_b": 0.0064708818681538105,
+            "n_pixels": 10668000,
+            "reference_protocol": "legacy-direct-reference"
+          },
+          "violations": {}
+        }
+      },
+      "corrected_comparisons": {
+        "main": {
+          "case": "test_0009/tint_min",
+          "version": "main",
+          "canonical_reference": false,
+          "metrics": {
+            "mean_deltaE": 10.907855843767317,
+            "p95_deltaE": 15.58778059052288,
+            "max_deltaE": 28.935858163152883,
+            "bias_r": 0.15266914665699005,
+            "bias_g": 0.040013063699007034,
+            "bias_b": 0.13082022964954376,
+            "n_pixels": 10668000,
+            "reference_protocol": "legacy-direct-reference"
+          },
+          "violations": {
+            "bias_r": [
+              0.15266914665699005,
+              0.1024
+            ],
+            "bias_b": [
+              0.13082022964954376,
+              0.1024
+            ]
+          }
+        },
+        "pr": {
+          "case": "test_0009/tint_min",
+          "version": "pr",
+          "canonical_reference": false,
+          "metrics": {
+            "mean_deltaE": 10.907834151578903,
+            "p95_deltaE": 15.587800769685803,
+            "max_deltaE": 28.935858163152883,
+            "bias_r": 0.15266884863376617,
+            "bias_g": 0.040012992918491364,
+            "bias_b": 0.13082021474838257,
+            "n_pixels": 10668000,
+            "reference_protocol": "legacy-direct-reference"
+          },
+          "violations": {
+            "bias_r": [
+              0.15266884863376617,
+              0.1024
+            ],
+            "bias_b": [
+              0.13082021474838257,
+              0.1024
+            ]
+          }
+        }
+      }
+    },
+    {
+      "case": "test_0010/tint_max",
+      "original_raw": "/Users/riabuz/Projects/_Maple/test-fixtures/raws/test_0010.CR2",
+      "raw_sha256": "3ea2d03556747afcafa24f13fee69106f383dfaf3a2f436f8331f14518f20037",
+      "canonical_xmp_sha256": "9153671514de3d9e5f8b99d1a1cbc5de53526b322e90c4b00c47b32b70ef2bf6",
+      "adobe_xmp_sha256": "d693976e950a7204bb59d083203a2d8d6c8636e5cdb8a32de1ed335b3712f69d",
+      "baseline_metadata_source": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0010/down/baseline.png",
+      "completed_axes": {
+        "Temperature": "5000"
+      },
+      "authored_axes": {
+        "Tint": "150"
+      },
+      "canonical_unchanged": true,
+      "outputs": [
+        {
+          "resolution": "full",
+          "dimensions": [
+            5040,
+            3360
+          ],
+          "mode": "RGB",
+          "png_sha256": "7976399f4640d89b56a6c10cac2874aa064e275e526e0422f2e303981c1a986f",
+          "icc_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "effective_xmp_sha256": "68a780077c9cc6981d5612f5f85846843f46b473b808a0ee39568b11e8623c16"
+        },
+        {
+          "resolution": "down",
+          "dimensions": [
+            4000,
+            2667
+          ],
+          "mode": "RGB",
+          "png_sha256": "eb361e604cdc3fcdd6e91bab72e00feec8d7dfdcc0344035a015002efa818a8c",
+          "icc_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "effective_xmp_sha256": "c64025709caf945e265c55a965a034ec145f34fcdb6fd2ca39c615b28702eee7"
+        }
+      ],
+      "settings_audit_passed": true,
+      "canonical_comparisons": {
+        "main": {
+          "case": "test_0010/tint_max",
+          "version": "main",
+          "canonical_reference": true,
+          "metrics": {
+            "mean_deltaE": 14.562103618640336,
+            "p95_deltaE": 25.16512515638726,
+            "max_deltaE": 36.51169900499731,
+            "bias_r": 0.005815887823700905,
+            "bias_g": -0.034860171377658844,
+            "bias_b": 0.06903257220983505,
+            "n_pixels": 10668000,
+            "reference_protocol": "legacy-direct-reference"
+          },
+          "violations": {
+            "mean": [
+              14.562103618640336,
+              12.8
+            ],
+            "p95": [
+              25.16512515638726,
+              20.9
+            ],
+            "max": [
+              36.51169900499731,
+              31.7
+            ],
+            "bias_b": [
+              0.06903257220983505,
+              0.0392
+            ]
+          }
+        },
+        "pr": {
+          "case": "test_0010/tint_max",
+          "version": "pr",
+          "canonical_reference": true,
+          "metrics": {
+            "mean_deltaE": 14.562103618640336,
+            "p95_deltaE": 25.16512515638726,
+            "max_deltaE": 36.51169900499731,
+            "bias_r": 0.005815887823700905,
+            "bias_g": -0.034860171377658844,
+            "bias_b": 0.06903257220983505,
+            "n_pixels": 10668000,
+            "reference_protocol": "legacy-direct-reference"
+          },
+          "violations": {
+            "mean": [
+              14.562103618640336,
+              12.8
+            ],
+            "p95": [
+              25.16512515638726,
+              20.9
+            ],
+            "max": [
+              36.51169900499731,
+              31.7
+            ],
+            "bias_b": [
+              0.06903257220983505,
+              0.0392
+            ]
+          }
+        }
+      },
+      "corrected_comparisons": {
+        "main": {
+          "case": "test_0010/tint_max",
+          "version": "main",
+          "canonical_reference": false,
+          "metrics": {
+            "mean_deltaE": 15.152167612856315,
+            "p95_deltaE": 24.955006260616727,
+            "max_deltaE": 42.57630401605357,
+            "bias_r": -0.07362872362136841,
+            "bias_g": 0.06658580899238586,
+            "bias_b": -0.11290834844112396,
+            "n_pixels": 10668000,
+            "reference_protocol": "legacy-direct-reference"
+          },
+          "violations": {
+            "mean": [
+              15.152167612856315,
+              12.8
+            ],
+            "p95": [
+              24.955006260616727,
+              20.9
+            ],
+            "max": [
+              42.57630401605357,
+              31.7
+            ],
+            "bias_r": [
+              -0.07362872362136841,
+              0.0392
+            ],
+            "bias_g": [
+              0.06658580899238586,
+              0.0392
+            ],
+            "bias_b": [
+              -0.11290834844112396,
+              0.0392
+            ]
+          }
+        },
+        "pr": {
+          "case": "test_0010/tint_max",
+          "version": "pr",
+          "canonical_reference": false,
+          "metrics": {
+            "mean_deltaE": 15.152167612856315,
+            "p95_deltaE": 24.955006260616727,
+            "max_deltaE": 42.57630401605357,
+            "bias_r": -0.07362872362136841,
+            "bias_g": 0.06658580899238586,
+            "bias_b": -0.11290834844112396,
+            "n_pixels": 10668000,
+            "reference_protocol": "legacy-direct-reference"
+          },
+          "violations": {
+            "mean": [
+              15.152167612856315,
+              12.8
+            ],
+            "p95": [
+              24.955006260616727,
+              20.9
+            ],
+            "max": [
+              42.57630401605357,
+              31.7
+            ],
+            "bias_r": [
+              -0.07362872362136841,
+              0.0392
+            ],
+            "bias_g": [
+              0.06658580899238586,
+              0.0392
+            ],
+            "bias_b": [
+              -0.11290834844112396,
+              0.0392
+            ]
+          }
+        }
+      }
+    },
+    {
+      "case": "test_0010/tint_min",
+      "original_raw": "/Users/riabuz/Projects/_Maple/test-fixtures/raws/test_0010.CR2",
+      "raw_sha256": "3ea2d03556747afcafa24f13fee69106f383dfaf3a2f436f8331f14518f20037",
+      "canonical_xmp_sha256": "e307c836d4d66b1d1e81b2f75107fd2a71d4e9ebf6422d3a6648ca97a127c67f",
+      "adobe_xmp_sha256": "cf6434b1f904619f455a6bb3ab7d2d7d5d8dccf8a53ffc5a42a29ab91c2e664a",
+      "baseline_metadata_source": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0010/down/baseline.png",
+      "completed_axes": {
+        "Temperature": "5000"
+      },
+      "authored_axes": {
+        "Tint": "-150"
+      },
+      "canonical_unchanged": true,
+      "outputs": [
+        {
+          "resolution": "full",
+          "dimensions": [
+            5040,
+            3360
+          ],
+          "mode": "RGB",
+          "png_sha256": "dc4e358c1872ba3d749b51d1512adf2644998d71d63bbf825c25fe4787e92f39",
+          "icc_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "effective_xmp_sha256": "972994152a332bf8cc762fdeed21466d547676b30dc1486e4ddc877997e73968"
+        },
+        {
+          "resolution": "down",
+          "dimensions": [
+            4000,
+            2667
+          ],
+          "mode": "RGB",
+          "png_sha256": "1692d9bb7911c8ae8908f8da47956610fb9089cbe595a51f7aae2952245e66ff",
+          "icc_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "effective_xmp_sha256": "4bb57b3f148082645903307b8fe2e26c08c5f41c02b4018b66239a74713d63fa"
+        }
+      ],
+      "settings_audit_passed": true,
+      "canonical_comparisons": {
+        "main": {
+          "case": "test_0010/tint_min",
+          "version": "main",
+          "canonical_reference": true,
+          "metrics": {
+            "mean_deltaE": 16.799628247252823,
+            "p95_deltaE": 24.612062100489343,
+            "max_deltaE": 41.55789242731563,
+            "bias_r": -0.08309414237737656,
+            "bias_g": 0.034228838980197906,
+            "bias_b": -0.06471399962902069,
+            "n_pixels": 10668000,
+            "reference_protocol": "legacy-direct-reference"
+          },
+          "violations": {}
+        },
+        "pr": {
+          "case": "test_0010/tint_min",
+          "version": "pr",
+          "canonical_reference": true,
+          "metrics": {
+            "mean_deltaE": 16.799628247252823,
+            "p95_deltaE": 24.612062100489343,
+            "max_deltaE": 41.55789242731563,
+            "bias_r": -0.08309414237737656,
+            "bias_g": 0.034228838980197906,
+            "bias_b": -0.06471399962902069,
+            "n_pixels": 10668000,
+            "reference_protocol": "legacy-direct-reference"
+          },
+          "violations": {}
+        }
+      },
+      "corrected_comparisons": {
+        "main": {
+          "case": "test_0010/tint_min",
+          "version": "main",
+          "canonical_reference": false,
+          "metrics": {
+            "mean_deltaE": 10.665349151647053,
+            "p95_deltaE": 18.84702774942285,
+            "max_deltaE": 30.981200475039493,
+            "bias_r": 0.01991000398993492,
+            "bias_g": -0.09444409608840942,
+            "bias_b": 0.004830998368561268,
+            "n_pixels": 10668000,
+            "reference_protocol": "legacy-direct-reference"
+          },
+          "violations": {}
+        },
+        "pr": {
+          "case": "test_0010/tint_min",
+          "version": "pr",
+          "canonical_reference": false,
+          "metrics": {
+            "mean_deltaE": 10.665349151647053,
+            "p95_deltaE": 18.84702774942285,
+            "max_deltaE": 30.981200475039493,
+            "bias_r": 0.01991000398993492,
+            "bias_g": -0.09444409608840942,
+            "bias_b": 0.004830998368561268,
+            "n_pixels": 10668000,
+            "reference_protocol": "legacy-direct-reference"
+          },
+          "violations": {}
+        }
+      }
+    },
+    {
+      "case": "test_0011/tint_max",
+      "original_raw": "/Users/riabuz/Projects/_Maple/test-fixtures/raws/test_0011.ARW",
+      "raw_sha256": "3421b919ee81224d59f78872ee099a021bff0e2a47ae5fbbac385b182ac7241e",
+      "canonical_xmp_sha256": "9153671514de3d9e5f8b99d1a1cbc5de53526b322e90c4b00c47b32b70ef2bf6",
+      "adobe_xmp_sha256": "f2c2659bff54fe69bbfa01f956ef7277df6eca2174f83982d7de4c2f6cb72da8",
+      "baseline_metadata_source": "/Users/riabuz/Projects/_Maple/.codex-worktrees/tone-slider-sprint/test-fixtures/references/test_0011/down/baseline.png",
+      "completed_axes": {
+        "Temperature": "7050"
+      },
+      "authored_axes": {
+        "Tint": "150"
+      },
+      "canonical_unchanged": true,
+      "outputs": [
+        {
+          "resolution": "full",
+          "dimensions": [
+            9504,
+            6336
+          ],
+          "mode": "RGB",
+          "png_sha256": "69acea1bce7150079bfa5b3d81e8c4fba7d9c961764b547513c98e59c4474fbf",
+          "icc_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "effective_xmp_sha256": "c33007b4839fa48956a36e8c8b6d86bd1e682a5b70e955de1df0c5c90a0f160e"
+        },
+        {
+          "resolution": "down",
+          "dimensions": [
+            4000,
+            2667
+          ],
+          "mode": "RGB",
+          "png_sha256": "c772c8ee3d641d665d1577bdcae8d3b90c64bb5a9217496b5427e9a5c82f60db",
+          "icc_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "effective_xmp_sha256": "32ba49d21291032136f5cfc5ea9978827d177e453120a51929387a4385c90a35"
+        }
+      ],
+      "settings_audit_passed": true,
+      "canonical_comparisons": {
+        "main": {
+          "case": "test_0011/tint_max",
+          "version": "main",
+          "canonical_reference": true,
+          "metrics": {
+            "mean_deltaE": 16.388465037811372,
+            "p95_deltaE": 29.689368409319332,
+            "max_deltaE": 42.72873109684518,
+            "bias_r": 0.13786935806274414,
+            "bias_g": -0.006830006372183561,
+            "bias_b": 0.04854685068130493,
+            "n_pixels": 10668000,
+            "reference_protocol": "legacy-direct-reference"
+          },
+          "violations": {
+            "bias_r": [
+              0.13786935806274414,
+              0.115
+            ]
+          }
+        },
+        "pr": {
+          "case": "test_0011/tint_max",
+          "version": "pr",
+          "canonical_reference": true,
+          "metrics": {
+            "mean_deltaE": 16.38846262813931,
+            "p95_deltaE": 29.689368409319332,
+            "max_deltaE": 42.72873109684518,
+            "bias_r": 0.13786935806274414,
+            "bias_g": -0.006830001249909401,
+            "bias_b": 0.04854685440659523,
+            "n_pixels": 10668000,
+            "reference_protocol": "legacy-direct-reference"
+          },
+          "violations": {
+            "bias_r": [
+              0.13786935806274414,
+              0.115
+            ]
+          }
+        }
+      },
+      "corrected_comparisons": {
+        "main": {
+          "case": "test_0011/tint_max",
+          "version": "main",
+          "canonical_reference": false,
+          "metrics": {
+            "mean_deltaE": 7.370587574424234,
+            "p95_deltaE": 18.308492534753466,
+            "max_deltaE": 31.657466911254097,
+            "bias_r": 0.007634066976606846,
+            "bias_g": 0.01172981783747673,
+            "bias_b": 0.016360150650143623,
+            "n_pixels": 10668000,
+            "reference_protocol": "legacy-direct-reference"
+          },
+          "violations": {}
+        },
+        "pr": {
+          "case": "test_0011/tint_max",
+          "version": "pr",
+          "canonical_reference": false,
+          "metrics": {
+            "mean_deltaE": 7.370589481713206,
+            "p95_deltaE": 18.308492534753466,
+            "max_deltaE": 31.657466911254097,
+            "bias_r": 0.00763404555618763,
+            "bias_g": 0.011729826219379902,
+            "bias_b": 0.016360143199563026,
+            "n_pixels": 10668000,
+            "reference_protocol": "legacy-direct-reference"
+          },
+          "violations": {}
+        }
+      }
+    },
+    {
+      "case": "test_0011/tint_min",
+      "original_raw": "/Users/riabuz/Projects/_Maple/test-fixtures/raws/test_0011.ARW",
+      "raw_sha256": "3421b919ee81224d59f78872ee099a021bff0e2a47ae5fbbac385b182ac7241e",
+      "canonical_xmp_sha256": "e307c836d4d66b1d1e81b2f75107fd2a71d4e9ebf6422d3a6648ca97a127c67f",
+      "adobe_xmp_sha256": "5b98984a13b83a6f81bbca5da5cb62b399106840682a2f60d4fcc23bc328b18c",
+      "baseline_metadata_source": "/Users/riabuz/Projects/_Maple/.codex-worktrees/tone-slider-sprint/test-fixtures/references/test_0011/down/baseline.png",
+      "completed_axes": {
+        "Temperature": "7050"
+      },
+      "authored_axes": {
+        "Tint": "-150"
+      },
+      "canonical_unchanged": true,
+      "outputs": [
+        {
+          "resolution": "full",
+          "dimensions": [
+            9504,
+            6336
+          ],
+          "mode": "RGB",
+          "png_sha256": "75da2d7453969a61135c4281b01a01547ffcd1685c53201ce908cfaba2c3ec46",
+          "icc_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "effective_xmp_sha256": "619b9536697b504cb6873d1fef95e4e270f8fbc44de3f2b8d34f7e1f5e6c2d59"
+        },
+        {
+          "resolution": "down",
+          "dimensions": [
+            4000,
+            2667
+          ],
+          "mode": "RGB",
+          "png_sha256": "0a767830ca537c9307b6d9778b6a6e9ce8dd19569cf1a46225d9ed8ceda5251d",
+          "icc_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "effective_xmp_sha256": "80896aef046cb60ba936b7da4cff43d9cc78a3f6f2951ad19b265fd7e3346442"
+        }
+      ],
+      "settings_audit_passed": true,
+      "canonical_comparisons": {
+        "main": {
+          "case": "test_0011/tint_min",
+          "version": "main",
+          "canonical_reference": true,
+          "metrics": {
+            "mean_deltaE": 14.885176002740478,
+            "p95_deltaE": 25.949337462679196,
+            "max_deltaE": 47.55517184367116,
+            "bias_r": 0.019214486703276634,
+            "bias_g": 0.071176677942276,
+            "bias_b": -0.037786878645420074,
+            "n_pixels": 10668000,
+            "reference_protocol": "legacy-direct-reference"
+          },
+          "violations": {
+            "bias_g": [
+              0.071176677942276,
+              0.0659
+            ]
+          }
+        },
+        "pr": {
+          "case": "test_0011/tint_min",
+          "version": "pr",
+          "canonical_reference": true,
+          "metrics": {
+            "mean_deltaE": 14.885175836280393,
+            "p95_deltaE": 25.94927107769802,
+            "max_deltaE": 47.55517184367116,
+            "bias_r": 0.019214488565921783,
+            "bias_g": 0.071176677942276,
+            "bias_b": -0.037786878645420074,
+            "n_pixels": 10668000,
+            "reference_protocol": "legacy-direct-reference"
+          },
+          "violations": {
+            "bias_g": [
+              0.071176677942276,
+              0.0659
+            ]
+          }
+        }
+      },
+      "corrected_comparisons": {
+        "main": {
+          "case": "test_0011/tint_min",
+          "version": "main",
+          "canonical_reference": false,
+          "metrics": {
+            "mean_deltaE": 5.762748381566634,
+            "p95_deltaE": 19.40752369459045,
+            "max_deltaE": 43.3010618964158,
+            "bias_r": 0.0810064971446991,
+            "bias_g": 0.03971698507666588,
+            "bias_b": 0.04928060621023178,
+            "n_pixels": 10668000,
+            "reference_protocol": "legacy-direct-reference"
+          },
+          "violations": {
+            "bias_r": [
+              0.0810064971446991,
+              0.0659
+            ]
+          }
+        },
+        "pr": {
+          "case": "test_0011/tint_min",
+          "version": "pr",
+          "canonical_reference": false,
+          "metrics": {
+            "mean_deltaE": 5.76274899251874,
+            "p95_deltaE": 19.40752369459045,
+            "max_deltaE": 43.3010618964158,
+            "bias_r": 0.0810064971446991,
+            "bias_g": 0.03971697762608528,
+            "bias_b": 0.04928060621023178,
+            "n_pixels": 10668000,
+            "reference_protocol": "legacy-direct-reference"
+          },
+          "violations": {
+            "bias_r": [
+              0.0810064971446991,
+              0.0659
+            ]
+          }
+        }
+      }
+    },
+    {
+      "case": "test_0012/tint_max",
+      "original_raw": "/Users/riabuz/Projects/_Maple/test-fixtures/raws/test_0012.raf",
+      "raw_sha256": "35109fc20a849026c43c47674902431ef5a2d54b09b616995263dc75df17912f",
+      "canonical_xmp_sha256": "9153671514de3d9e5f8b99d1a1cbc5de53526b322e90c4b00c47b32b70ef2bf6",
+      "adobe_xmp_sha256": "84ba26b68deea7e512ce5d846265295b78235867602bafe5d003d4e49d995f8c",
+      "baseline_metadata_source": "/Users/riabuz/Projects/_Maple/.codex-worktrees/tone-slider-sprint/test-fixtures/references/test_0012/down/baseline.png",
+      "completed_axes": {
+        "Temperature": "4750"
+      },
+      "authored_axes": {
+        "Tint": "150"
+      },
+      "canonical_unchanged": true,
+      "outputs": [
+        {
+          "resolution": "full",
+          "dimensions": [
+            8256,
+            6192
+          ],
+          "mode": "RGB",
+          "png_sha256": "696affcb5137af1e0ff810be3aa32249e8dfd7e84cad5470ac35b36a42bacb7d",
+          "icc_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "effective_xmp_sha256": "0365ef21b73aa92f3ffd1a25320126669bbb41438a045ac613fc449299c2ee80"
+        },
+        {
+          "resolution": "down",
+          "dimensions": [
+            4000,
+            3000
+          ],
+          "mode": "RGB",
+          "png_sha256": "e252385740904db24c505be48bb05536921a84f5d56766c8925e84337a22fc05",
+          "icc_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "effective_xmp_sha256": "66448cd4669cf0dd4524d3e28c96caf15cf5f5531015bc9f9f9dfe264f8d7906"
+        }
+      ],
+      "settings_audit_passed": true,
+      "canonical_comparisons": {
+        "main": {
+          "case": "test_0012/tint_max",
+          "version": "main",
+          "canonical_reference": true,
+          "metrics": {
+            "mean_deltaE": 18.863690360078085,
+            "p95_deltaE": 33.5041198076819,
+            "max_deltaE": 99.10329670003392,
+            "bias_r": 0.12327214330434799,
+            "bias_g": -0.01977698877453804,
+            "bias_b": 0.17605751752853394,
+            "n_pixels": 12000000,
+            "reference_protocol": "legacy-direct-reference"
+          },
+          "violations": {
+            "p95": [
+              33.5041198076819,
+              33.4
+            ]
+          }
+        },
+        "pr": {
+          "case": "test_0012/tint_max",
+          "version": "pr",
+          "canonical_reference": true,
+          "metrics": {
+            "mean_deltaE": 18.863506702920162,
+            "p95_deltaE": 33.502490429929395,
+            "max_deltaE": 99.10329670003392,
+            "bias_r": 0.12326467037200928,
+            "bias_g": -0.019777333363890648,
+            "bias_b": 0.1760544627904892,
+            "n_pixels": 12000000,
+            "reference_protocol": "legacy-direct-reference"
+          },
+          "violations": {
+            "p95": [
+              33.502490429929395,
+              33.4
+            ]
+          }
+        }
+      },
+      "corrected_comparisons": {
+        "main": {
+          "case": "test_0012/tint_max",
+          "version": "main",
+          "canonical_reference": false,
+          "metrics": {
+            "mean_deltaE": 11.304903784870849,
+            "p95_deltaE": 23.39732297938346,
+            "max_deltaE": 95.7021468892005,
+            "bias_r": 0.059705182909965515,
+            "bias_g": 0.09156880527734756,
+            "bias_b": -0.05573500692844391,
+            "n_pixels": 12000000,
+            "reference_protocol": "legacy-direct-reference"
+          },
+          "violations": {}
+        },
+        "pr": {
+          "case": "test_0012/tint_max",
+          "version": "pr",
+          "canonical_reference": false,
+          "metrics": {
+            "mean_deltaE": 11.30489048989156,
+            "p95_deltaE": 23.397270407988646,
+            "max_deltaE": 95.7021468892005,
+            "bias_r": 0.05969848856329918,
+            "bias_g": 0.09156819432973862,
+            "bias_b": -0.055738698691129684,
+            "n_pixels": 12000000,
+            "reference_protocol": "legacy-direct-reference"
+          },
+          "violations": {}
+        }
+      }
+    },
+    {
+      "case": "test_0012/tint_min",
+      "original_raw": "/Users/riabuz/Projects/_Maple/test-fixtures/raws/test_0012.raf",
+      "raw_sha256": "35109fc20a849026c43c47674902431ef5a2d54b09b616995263dc75df17912f",
+      "canonical_xmp_sha256": "e307c836d4d66b1d1e81b2f75107fd2a71d4e9ebf6422d3a6648ca97a127c67f",
+      "adobe_xmp_sha256": "0e3f7672bbce5bd8363bc9fe67db80f16074fe16f55b2831bb0ecb5efd938b66",
+      "baseline_metadata_source": "/Users/riabuz/Projects/_Maple/.codex-worktrees/tone-slider-sprint/test-fixtures/references/test_0012/down/baseline.png",
+      "completed_axes": {
+        "Temperature": "4750"
+      },
+      "authored_axes": {
+        "Tint": "-150"
+      },
+      "canonical_unchanged": true,
+      "outputs": [
+        {
+          "resolution": "full",
+          "dimensions": [
+            8256,
+            6192
+          ],
+          "mode": "RGB",
+          "png_sha256": "7ca4130269aff635713a672c72278248e5c6e2b0f6d35e84c740ce3fbcba371e",
+          "icc_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "effective_xmp_sha256": "0a3481d7491b62ad0188a0e418f998090b0961f0d592022d45d38b00814d1fc5"
+        },
+        {
+          "resolution": "down",
+          "dimensions": [
+            4000,
+            3000
+          ],
+          "mode": "RGB",
+          "png_sha256": "96620b51165b111c82730a1035797b7d71909b4baf957fbe1be5c7fe8294b9d1",
+          "icc_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "effective_xmp_sha256": "425fe21f8e72e478826eaa4bd97e3758320c64c5d6dd1798773a481d7779e422"
+        }
+      ],
+      "settings_audit_passed": true,
+      "canonical_comparisons": {
+        "main": {
+          "case": "test_0012/tint_min",
+          "version": "main",
+          "canonical_reference": true,
+          "metrics": {
+            "mean_deltaE": 20.40660564491331,
+            "p95_deltaE": 30.180619913939257,
+            "max_deltaE": 98.07379274175864,
+            "bias_r": 0.049093421548604965,
+            "bias_g": 0.10553882271051407,
+            "bias_b": -0.02896987460553646,
+            "n_pixels": 12000000,
+            "reference_protocol": "legacy-direct-reference"
+          },
+          "violations": {}
+        },
+        "pr": {
+          "case": "test_0012/tint_min",
+          "version": "pr",
+          "canonical_reference": true,
+          "metrics": {
+            "mean_deltaE": 20.40672641312145,
+            "p95_deltaE": 30.180555441163303,
+            "max_deltaE": 98.07379274175864,
+            "bias_r": 0.04908912628889084,
+            "bias_g": 0.1055377721786499,
+            "bias_b": -0.028972361236810684,
+            "n_pixels": 12000000,
+            "reference_protocol": "legacy-direct-reference"
+          },
+          "violations": {}
+        }
+      },
+      "corrected_comparisons": {
+        "main": {
+          "case": "test_0012/tint_min",
+          "version": "main",
+          "canonical_reference": false,
+          "metrics": {
+            "mean_deltaE": 12.020674202294906,
+            "p95_deltaE": 25.26581443785622,
+            "max_deltaE": 98.39186856481813,
+            "bias_r": 0.19976094365119934,
+            "bias_g": 0.06267539411783218,
+            "bias_b": 0.11028973013162613,
+            "n_pixels": 12000000,
+            "reference_protocol": "legacy-direct-reference"
+          },
+          "violations": {
+            "bias_r": [
+              0.19976094365119934,
+              0.1167
+            ]
+          }
+        },
+        "pr": {
+          "case": "test_0012/tint_min",
+          "version": "pr",
+          "canonical_reference": false,
+          "metrics": {
+            "mean_deltaE": 12.020499159686004,
+            "p95_deltaE": 25.26509155437632,
+            "max_deltaE": 98.39186856481813,
+            "bias_r": 0.199757918715477,
+            "bias_g": 0.0626743733882904,
+            "bias_b": 0.11028709262609482,
+            "n_pixels": 12000000,
+            "reference_protocol": "legacy-direct-reference"
+          },
+          "violations": {
+            "bias_r": [
+              0.199757918715477,
+              0.1167
+            ]
+          }
+        }
+      }
+    },
+    {
+      "case": "test_0013/tint_max",
+      "original_raw": "/Users/riabuz/Projects/_Maple/test-fixtures/raws/test_0013.DNG",
+      "raw_sha256": "e91e77a4533ed7cce551d83330676ea5c47dd5e55fb38adda7819366afdbdfc2",
+      "canonical_xmp_sha256": "9153671514de3d9e5f8b99d1a1cbc5de53526b322e90c4b00c47b32b70ef2bf6",
+      "adobe_xmp_sha256": "5f9369ed9309d981d3b484b626468741450952056687de814eedadbee8c7a245",
+      "baseline_metadata_source": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0013/down/baseline.png",
+      "completed_axes": {
+        "Temperature": "5600"
+      },
+      "authored_axes": {
+        "Tint": "150"
+      },
+      "canonical_unchanged": true,
+      "outputs": [
+        {
+          "resolution": "full",
+          "dimensions": [
+            3024,
+            4032
+          ],
+          "mode": "RGB",
+          "png_sha256": "b36d9ceffdfdea53f24fd6f72534368b4788ea5d1d4503bbebf4f8929b3d1a25",
+          "icc_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "effective_xmp_sha256": "12566acb03daa94f795ffc2a9f2a622b8742a001757725751f593cb908cd89b6"
+        },
+        {
+          "resolution": "down",
+          "dimensions": [
+            3000,
+            4000
+          ],
+          "mode": "RGB",
+          "png_sha256": "4d84cc8c8d3406fc13c2035f5d733acb08795cac3c7183e528cad93982f7d6cb",
+          "icc_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "effective_xmp_sha256": "68589d7823be579deb00fc6c9ffe365af93306ba512b02c29718e6e461556387"
+        }
+      ],
+      "settings_audit_passed": true,
+      "canonical_comparisons": {
+        "main": {
+          "case": "test_0013/tint_max",
+          "version": "main",
+          "canonical_reference": true,
+          "metrics": {
+            "mean_deltaE": 18.087725421926425,
+            "p95_deltaE": 25.136340393225606,
+            "max_deltaE": 38.8129337552544,
+            "bias_r": 0.024983318522572517,
+            "bias_g": -0.10487700253725052,
+            "bias_b": 0.04058285057544708,
+            "n_pixels": 12000000,
+            "reference_protocol": "legacy-direct-reference"
+          },
+          "violations": {
+            "max": [
+              38.8129337552544,
+              37.8
+            ],
+            "bias_g": [
+              -0.10487700253725052,
+              0.0968
+            ]
+          }
+        },
+        "pr": {
+          "case": "test_0013/tint_max",
+          "version": "pr",
+          "canonical_reference": true,
+          "metrics": {
+            "mean_deltaE": 18.087725421926425,
+            "p95_deltaE": 25.136340393225606,
+            "max_deltaE": 38.8129337552544,
+            "bias_r": 0.024983318522572517,
+            "bias_g": -0.10487700253725052,
+            "bias_b": 0.04058285057544708,
+            "n_pixels": 12000000,
+            "reference_protocol": "legacy-direct-reference"
+          },
+          "violations": {
+            "max": [
+              38.8129337552544,
+              37.8
+            ],
+            "bias_g": [
+              -0.10487700253725052,
+              0.0968
+            ]
+          }
+        }
+      },
+      "corrected_comparisons": {
+        "main": {
+          "case": "test_0013/tint_max",
+          "version": "main",
+          "canonical_reference": false,
+          "metrics": {
+            "mean_deltaE": 10.171844085212397,
+            "p95_deltaE": 15.079299536783838,
+            "max_deltaE": 35.53191756631915,
+            "bias_r": -0.11959902197122574,
+            "bias_g": -0.01897304505109787,
+            "bias_b": -0.08757032454013824,
+            "n_pixels": 12000000,
+            "reference_protocol": "legacy-direct-reference"
+          },
+          "violations": {
+            "bias_r": [
+              -0.11959902197122574,
+              0.0968
+            ]
+          }
+        },
+        "pr": {
+          "case": "test_0013/tint_max",
+          "version": "pr",
+          "canonical_reference": false,
+          "metrics": {
+            "mean_deltaE": 10.171844085212397,
+            "p95_deltaE": 15.079299536783838,
+            "max_deltaE": 35.53191756631915,
+            "bias_r": -0.11959902197122574,
+            "bias_g": -0.01897304505109787,
+            "bias_b": -0.08757032454013824,
+            "n_pixels": 12000000,
+            "reference_protocol": "legacy-direct-reference"
+          },
+          "violations": {
+            "bias_r": [
+              -0.11959902197122574,
+              0.0968
+            ]
+          }
+        }
+      }
+    },
+    {
+      "case": "test_0013/tint_min",
+      "original_raw": "/Users/riabuz/Projects/_Maple/test-fixtures/raws/test_0013.DNG",
+      "raw_sha256": "e91e77a4533ed7cce551d83330676ea5c47dd5e55fb38adda7819366afdbdfc2",
+      "canonical_xmp_sha256": "e307c836d4d66b1d1e81b2f75107fd2a71d4e9ebf6422d3a6648ca97a127c67f",
+      "adobe_xmp_sha256": "d126e2fdc8657692e367b223a6759ccc3c2fba89a4d2d0694d58277524964e92",
+      "baseline_metadata_source": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0013/down/baseline.png",
+      "completed_axes": {
+        "Temperature": "5600"
+      },
+      "authored_axes": {
+        "Tint": "-150"
+      },
+      "canonical_unchanged": true,
+      "outputs": [
+        {
+          "resolution": "full",
+          "dimensions": [
+            3024,
+            4032
+          ],
+          "mode": "RGB",
+          "png_sha256": "8ee190f7dca6fd1a331618c63e1c0dbdc752b1997e109c71b02d5baf0c2425c8",
+          "icc_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "effective_xmp_sha256": "462e2dd2583f927629412c7f673ddcd4ebf0aa95162dfc6dfcc38f24f404eda7"
+        },
+        {
+          "resolution": "down",
+          "dimensions": [
+            3000,
+            4000
+          ],
+          "mode": "RGB",
+          "png_sha256": "88c9ac76155741e820b01be97c357378a769b019a23ae15b2f5d8db822584424",
+          "icc_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "effective_xmp_sha256": "e832c13c9980f5d6fb7ef2474ea1cd87c898e63645a5c59b10a43c30faa7c325"
+        }
+      ],
+      "settings_audit_passed": true,
+      "canonical_comparisons": {
+        "main": {
+          "case": "test_0013/tint_min",
+          "version": "main",
+          "canonical_reference": true,
+          "metrics": {
+            "mean_deltaE": 17.889918311544708,
+            "p95_deltaE": 24.187667367224993,
+            "max_deltaE": 41.38136779284696,
+            "bias_r": -0.08111101388931274,
+            "bias_g": -0.009079315699636936,
+            "bias_b": -0.136686772108078,
+            "n_pixels": 12000000,
+            "reference_protocol": "legacy-direct-reference"
+          },
+          "violations": {}
+        },
+        "pr": {
+          "case": "test_0013/tint_min",
+          "version": "pr",
+          "canonical_reference": true,
+          "metrics": {
+            "mean_deltaE": 17.889918311544708,
+            "p95_deltaE": 24.187667367224993,
+            "max_deltaE": 41.38136779284696,
+            "bias_r": -0.08111101388931274,
+            "bias_g": -0.009079315699636936,
+            "bias_b": -0.136686772108078,
+            "n_pixels": 12000000,
+            "reference_protocol": "legacy-direct-reference"
+          },
+          "violations": {}
+        }
+      },
+      "corrected_comparisons": {
+        "main": {
+          "case": "test_0013/tint_min",
+          "version": "main",
+          "canonical_reference": false,
+          "metrics": {
+            "mean_deltaE": 7.9551100009744244,
+            "p95_deltaE": 10.056845786964738,
+            "max_deltaE": 57.00355596981546,
+            "bias_r": 0.04483495280146599,
+            "bias_g": -0.05114446207880974,
+            "bias_b": 0.009159560315310955,
+            "n_pixels": 12000000,
+            "reference_protocol": "legacy-direct-reference"
+          },
+          "violations": {
+            "max": [
+              57.00355596981546,
+              43.2
+            ]
+          }
+        },
+        "pr": {
+          "case": "test_0013/tint_min",
+          "version": "pr",
+          "canonical_reference": false,
+          "metrics": {
+            "mean_deltaE": 7.9551100009744244,
+            "p95_deltaE": 10.056845786964738,
+            "max_deltaE": 57.00355596981546,
+            "bias_r": 0.04483495280146599,
+            "bias_g": -0.05114446207880974,
+            "bias_b": 0.009159560315310955,
+            "n_pixels": 12000000,
+            "reference_protocol": "legacy-direct-reference"
+          },
+          "violations": {
+            "max": [
+              57.00355596981546,
+              43.2
+            ]
+          }
+        }
+      }
+    },
+    {
+      "case": "test_0014/tint_max",
+      "original_raw": "/Users/riabuz/Projects/_Maple/test-fixtures/raws/test_0014.NEF",
+      "raw_sha256": "0c9438258ddae5260b9f5a1aace6658a723f1cb1acace3a6cb507116dc6da4f2",
+      "canonical_xmp_sha256": "9153671514de3d9e5f8b99d1a1cbc5de53526b322e90c4b00c47b32b70ef2bf6",
+      "adobe_xmp_sha256": "0d7ba3972aab957576afa946e55a9f9e817fc992a26e878419d9559c38d535db",
+      "baseline_metadata_source": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0014/down/baseline.png",
+      "completed_axes": {
+        "Temperature": "5250"
+      },
+      "authored_axes": {
+        "Tint": "150"
+      },
+      "canonical_unchanged": true,
+      "outputs": [
+        {
+          "resolution": "full",
+          "dimensions": [
+            8256,
+            5504
+          ],
+          "mode": "RGB",
+          "png_sha256": "782419ed0239e6fbc3770a928b8453897901f7d10040ed40bc9a09cbdebcdcc1",
+          "icc_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "effective_xmp_sha256": "1177bdd4f58ee168e184f2aa9d5741a3b7e35e4dda5d045d91bd3df17db6369c"
+        },
+        {
+          "resolution": "down",
+          "dimensions": [
+            4000,
+            2667
+          ],
+          "mode": "RGB",
+          "png_sha256": "afb6a826775726959c25aa07e569b66903d831319c66e5db3bd129ac011dc330",
+          "icc_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "effective_xmp_sha256": "f4f52e7a090992aa385787a701a489f3e51da96cd5e968e7ddb3322ce71ac848"
+        }
+      ],
+      "settings_audit_passed": true,
+      "canonical_comparisons": {
+        "main": {
+          "case": "test_0014/tint_max",
+          "version": "main",
+          "canonical_reference": true,
+          "metrics": {
+            "mean_deltaE": 26.586765839747613,
+            "p95_deltaE": 39.923399329475856,
+            "max_deltaE": 50.45939375171799,
+            "bias_r": 0.25210368633270264,
+            "bias_g": 0.13704435527324677,
+            "bias_b": 0.2783465087413788,
+            "n_pixels": 10668000,
+            "reference_protocol": "legacy-direct-reference"
+          },
+          "violations": {
+            "p95": [
+              39.923399329475856,
+              39.5
+            ]
+          }
+        },
+        "pr": {
+          "case": "test_0014/tint_max",
+          "version": "pr",
+          "canonical_reference": true,
+          "metrics": {
+            "mean_deltaE": 26.586639216358677,
+            "p95_deltaE": 39.923449567255894,
+            "max_deltaE": 50.45939375171799,
+            "bias_r": 0.2521028220653534,
+            "bias_g": 0.13704441487789154,
+            "bias_b": 0.27834534645080566,
+            "n_pixels": 10668000,
+            "reference_protocol": "legacy-direct-reference"
+          },
+          "violations": {
+            "p95": [
+              39.923449567255894,
+              39.5
+            ]
+          }
+        }
+      },
+      "corrected_comparisons": {
+        "main": {
+          "case": "test_0014/tint_max",
+          "version": "main",
+          "canonical_reference": false,
+          "metrics": {
+            "mean_deltaE": 15.565528233713433,
+            "p95_deltaE": 24.33343267154915,
+            "max_deltaE": 33.82612276885339,
+            "bias_r": 0.16670946776866913,
+            "bias_g": 0.1788603812456131,
+            "bias_b": 0.15504805743694305,
+            "n_pixels": 10668000,
+            "reference_protocol": "legacy-direct-reference"
+          },
+          "violations": {}
+        },
+        "pr": {
+          "case": "test_0014/tint_max",
+          "version": "pr",
+          "canonical_reference": false,
+          "metrics": {
+            "mean_deltaE": 15.565473263504373,
+            "p95_deltaE": 24.33343267154915,
+            "max_deltaE": 33.82612276885339,
+            "bias_r": 0.1667085736989975,
+            "bias_g": 0.17886023223400116,
+            "bias_b": 0.1550469696521759,
+            "n_pixels": 10668000,
+            "reference_protocol": "legacy-direct-reference"
+          },
+          "violations": {}
+        }
+      }
+    },
+    {
+      "case": "test_0014/tint_min",
+      "original_raw": "/Users/riabuz/Projects/_Maple/test-fixtures/raws/test_0014.NEF",
+      "raw_sha256": "0c9438258ddae5260b9f5a1aace6658a723f1cb1acace3a6cb507116dc6da4f2",
+      "canonical_xmp_sha256": "e307c836d4d66b1d1e81b2f75107fd2a71d4e9ebf6422d3a6648ca97a127c67f",
+      "adobe_xmp_sha256": "84f8d6350b135b6a1530cc2191acc0f9791c1eb98f24ad2f42b488d9f867d7dc",
+      "baseline_metadata_source": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0014/down/baseline.png",
+      "completed_axes": {
+        "Temperature": "5250"
+      },
+      "authored_axes": {
+        "Tint": "-150"
+      },
+      "canonical_unchanged": true,
+      "outputs": [
+        {
+          "resolution": "full",
+          "dimensions": [
+            8256,
+            5504
+          ],
+          "mode": "RGB",
+          "png_sha256": "f5177995e6b6fb0d4f19ac16a0160de6f6e4f6721f65bdb16ad3485d1137055c",
+          "icc_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "effective_xmp_sha256": "886538edc3fea5a219e394b590157ba9c4271dbf04aed86caa5438cca74ba8a1"
+        },
+        {
+          "resolution": "down",
+          "dimensions": [
+            4000,
+            2667
+          ],
+          "mode": "RGB",
+          "png_sha256": "570a8780b06a60c7a2a1260ba378ee9ed6b313e98426caa0070426a4252a2380",
+          "icc_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "effective_xmp_sha256": "933260295d3b06ad81b07a1fb00321c15a51484536b0ddd49c0810b380590d83"
+        }
+      ],
+      "settings_audit_passed": true,
+      "canonical_comparisons": {
+        "main": {
+          "case": "test_0014/tint_min",
+          "version": "main",
+          "canonical_reference": true,
+          "metrics": {
+            "mean_deltaE": 20.129451690149594,
+            "p95_deltaE": 26.58245210762364,
+            "max_deltaE": 48.09559974610789,
+            "bias_r": 0.09324987977743149,
+            "bias_g": 0.18847161531448364,
+            "bias_b": 0.07702331990003586,
+            "n_pixels": 10668000,
+            "reference_protocol": "legacy-direct-reference"
+          },
+          "violations": {}
+        },
+        "pr": {
+          "case": "test_0014/tint_min",
+          "version": "pr",
+          "canonical_reference": true,
+          "metrics": {
+            "mean_deltaE": 20.129444088810715,
+            "p95_deltaE": 26.582452829925902,
+            "max_deltaE": 48.09559974610789,
+            "bias_r": 0.0932491347193718,
+            "bias_g": 0.18847142159938812,
+            "bias_b": 0.0770224928855896,
+            "n_pixels": 10668000,
+            "reference_protocol": "legacy-direct-reference"
+          },
+          "violations": {}
+        }
+      },
+      "corrected_comparisons": {
+        "main": {
+          "case": "test_0014/tint_min",
+          "version": "main",
+          "canonical_reference": false,
+          "metrics": {
+            "mean_deltaE": 12.612022082242284,
+            "p95_deltaE": 21.211377928677543,
+            "max_deltaE": 34.865986342122135,
+            "bias_r": 0.19072118401527405,
+            "bias_g": 0.12921980023384094,
+            "bias_b": 0.17120160162448883,
+            "n_pixels": 10668000,
+            "reference_protocol": "legacy-direct-reference"
+          },
+          "violations": {}
+        },
+        "pr": {
+          "case": "test_0014/tint_min",
+          "version": "pr",
+          "canonical_reference": false,
+          "metrics": {
+            "mean_deltaE": 12.61198793856366,
+            "p95_deltaE": 21.21135034942446,
+            "max_deltaE": 34.865986342122135,
+            "bias_r": 0.1907203495502472,
+            "bias_g": 0.12921951711177826,
+            "bias_b": 0.17120084166526794,
+            "n_pixels": 10668000,
+            "reference_protocol": "legacy-direct-reference"
+          },
+          "violations": {}
+        }
+      }
+    },
+    {
+      "case": "test_0015/tint_max",
+      "original_raw": "/Users/riabuz/Projects/_Maple/test-fixtures/raws/test_0015.dng",
+      "raw_sha256": "3a859e917a91698a3e15ce3b3721a48a1fb1296873e0697d3bf7c2793297200d",
+      "canonical_xmp_sha256": "9153671514de3d9e5f8b99d1a1cbc5de53526b322e90c4b00c47b32b70ef2bf6",
+      "adobe_xmp_sha256": "9d36b715acb8d15c7d7737e4c52919e6409001e8177b326a3b4c7422c9ba2ff5",
+      "baseline_metadata_source": "/Users/riabuz/Projects/_Maple/.codex-worktrees/tone-slider-sprint/test-fixtures/references/test_0015/down/baseline.png",
+      "completed_axes": {
+        "Temperature": "5800"
+      },
+      "authored_axes": {
+        "Tint": "150"
+      },
+      "canonical_unchanged": true,
+      "outputs": [
+        {
+          "resolution": "full",
+          "dimensions": [
+            4064,
+            3056
+          ],
+          "mode": "RGB",
+          "png_sha256": "c0e1d2b9763fa2b315af429af4110863e982f8ab3888acd14aee71ad1b910a88",
+          "icc_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "effective_xmp_sha256": "270f0f100d10dcd03286097d2a24746f80c7f3749665b8119d696994b23c7102"
+        },
+        {
+          "resolution": "down",
+          "dimensions": [
+            4000,
+            3008
+          ],
+          "mode": "RGB",
+          "png_sha256": "a438d7db01e9d32a2f0fea69eec235f0f8961cead579584b826082a7de8b8b24",
+          "icc_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "effective_xmp_sha256": "5ffd5ef43a41c3e72afe042d7485bf746e597fcade2584bc7bf398e5b21864a8"
+        }
+      ],
+      "settings_audit_passed": true,
+      "canonical_comparisons": {
+        "main": {
+          "case": "test_0015/tint_max",
+          "version": "main",
+          "canonical_reference": true,
+          "metrics": {
+            "mean_deltaE": 11.580281683195066,
+            "p95_deltaE": 19.536920035376358,
+            "max_deltaE": 40.61065725120018,
+            "bias_r": -0.10578139871358871,
+            "bias_g": -0.13270516693592072,
+            "bias_b": -0.11906689405441284,
+            "n_pixels": 12032000,
+            "reference_protocol": "legacy-direct-reference"
+          },
+          "violations": {}
+        },
+        "pr": {
+          "case": "test_0015/tint_max",
+          "version": "pr",
+          "canonical_reference": true,
+          "metrics": {
+            "mean_deltaE": 11.58004246005008,
+            "p95_deltaE": 19.536920035376358,
+            "max_deltaE": 40.61065725120018,
+            "bias_r": -0.10578356683254242,
+            "bias_g": -0.1327044814825058,
+            "bias_b": -0.11906692385673523,
+            "n_pixels": 12032000,
+            "reference_protocol": "legacy-direct-reference"
+          },
+          "violations": {}
+        }
+      },
+      "corrected_comparisons": {
+        "main": {
+          "case": "test_0015/tint_max",
+          "version": "main",
+          "canonical_reference": false,
+          "metrics": {
+            "mean_deltaE": 21.60131881037997,
+            "p95_deltaE": 34.4841811094596,
+            "max_deltaE": 55.805152290795746,
+            "bias_r": -0.25297752022743225,
+            "bias_g": -0.0631258487701416,
+            "bias_b": -0.2320716381072998,
+            "n_pixels": 12032000,
+            "reference_protocol": "legacy-direct-reference"
+          },
+          "violations": {}
+        },
+        "pr": {
+          "case": "test_0015/tint_max",
+          "version": "pr",
+          "canonical_reference": false,
+          "metrics": {
+            "mean_deltaE": 21.601511091512357,
+            "p95_deltaE": 34.48467085389702,
+            "max_deltaE": 55.805152290795746,
+            "bias_r": -0.2529793977737427,
+            "bias_g": -0.06312553584575653,
+            "bias_b": -0.23207153379917145,
+            "n_pixels": 12032000,
+            "reference_protocol": "legacy-direct-reference"
+          },
+          "violations": {}
+        }
+      }
+    },
+    {
+      "case": "test_0015/tint_min",
+      "original_raw": "/Users/riabuz/Projects/_Maple/test-fixtures/raws/test_0015.dng",
+      "raw_sha256": "3a859e917a91698a3e15ce3b3721a48a1fb1296873e0697d3bf7c2793297200d",
+      "canonical_xmp_sha256": "e307c836d4d66b1d1e81b2f75107fd2a71d4e9ebf6422d3a6648ca97a127c67f",
+      "adobe_xmp_sha256": "939eb5c27e89451d18ac031da3d4f4f7eb533b9a7be148f52112fdd875422bb5",
+      "baseline_metadata_source": "/Users/riabuz/Projects/_Maple/.codex-worktrees/tone-slider-sprint/test-fixtures/references/test_0015/down/baseline.png",
+      "completed_axes": {
+        "Temperature": "5800"
+      },
+      "authored_axes": {
+        "Tint": "-150"
+      },
+      "canonical_unchanged": true,
+      "outputs": [
+        {
+          "resolution": "full",
+          "dimensions": [
+            4064,
+            3056
+          ],
+          "mode": "RGB",
+          "png_sha256": "46b0fe357d0be8aff84d31d15d96a245ea4fb279f11e19d8b1c8a837ab8ba077",
+          "icc_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "effective_xmp_sha256": "ef60b41439df2fb3a10f1b3b72cbf7b35f7d230a2fc712401ce1f4eb9070ad58"
+        },
+        {
+          "resolution": "down",
+          "dimensions": [
+            4000,
+            3008
+          ],
+          "mode": "RGB",
+          "png_sha256": "28fb530d387facd4b851b804db957bc6f14b6fee69a2710793ef75d6fae7ac7f",
+          "icc_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "effective_xmp_sha256": "ddfa3792bd396979646e9cbb79ecc56f9e23f18f6a1b182ec3b83a2a04aff047"
+        }
+      ],
+      "settings_audit_passed": true,
+      "canonical_comparisons": {
+        "main": {
+          "case": "test_0015/tint_min",
+          "version": "main",
+          "canonical_reference": true,
+          "metrics": {
+            "mean_deltaE": 14.832893341111951,
+            "p95_deltaE": 22.963343486803574,
+            "max_deltaE": 39.53485001171458,
+            "bias_r": -0.11562281101942062,
+            "bias_g": -0.1010320633649826,
+            "bias_b": -0.18007820844650269,
+            "n_pixels": 12032000,
+            "reference_protocol": "legacy-direct-reference"
+          },
+          "violations": {}
+        },
+        "pr": {
+          "case": "test_0015/tint_min",
+          "version": "pr",
+          "canonical_reference": true,
+          "metrics": {
+            "mean_deltaE": 14.832922735053739,
+            "p95_deltaE": 22.963331682377028,
+            "max_deltaE": 39.53485001171458,
+            "bias_r": -0.11562569439411163,
+            "bias_g": -0.1010313406586647,
+            "bias_b": -0.18007729947566986,
+            "n_pixels": 12032000,
+            "reference_protocol": "legacy-direct-reference"
+          },
+          "violations": {}
+        }
+      },
+      "corrected_comparisons": {
+        "main": {
+          "case": "test_0015/tint_min",
+          "version": "main",
+          "canonical_reference": false,
+          "metrics": {
+            "mean_deltaE": 14.822806015008721,
+            "p95_deltaE": 22.921438088225372,
+            "max_deltaE": 48.0743630924583,
+            "bias_r": -0.0032318108715116978,
+            "bias_g": -0.14434346556663513,
+            "bias_b": -0.04622728377580643,
+            "n_pixels": 12032000,
+            "reference_protocol": "legacy-direct-reference"
+          },
+          "violations": {}
+        },
+        "pr": {
+          "case": "test_0015/tint_min",
+          "version": "pr",
+          "canonical_reference": false,
+          "metrics": {
+            "mean_deltaE": 14.822610907399294,
+            "p95_deltaE": 22.92117689621844,
+            "max_deltaE": 43.67340300392173,
+            "bias_r": -0.0032342432532459497,
+            "bias_g": -0.14434272050857544,
+            "bias_b": -0.046227019280195236,
+            "n_pixels": 12032000,
+            "reference_protocol": "legacy-direct-reference"
+          },
+          "violations": {}
+        }
+      }
+    },
+    {
+      "case": "test_0017/tint_max",
+      "original_raw": "/Users/riabuz/Projects/_Maple/test-fixtures/raws/test_0017.dng",
+      "raw_sha256": "26be5e06dfb53a2938dab3ca8f06024533a9c0dd0c652938f39eb48bc325f95e",
+      "canonical_xmp_sha256": "9153671514de3d9e5f8b99d1a1cbc5de53526b322e90c4b00c47b32b70ef2bf6",
+      "adobe_xmp_sha256": "68e3252740a8a0dd9d2d5757804e2fd7b1669689f5997da05ae209437a891783",
+      "baseline_metadata_source": "/Users/riabuz/Projects/_Maple/.codex-worktrees/tone-slider-sprint/test-fixtures/references/test_0017/down/baseline.png",
+      "completed_axes": {
+        "Temperature": "5300"
+      },
+      "authored_axes": {
+        "Tint": "150"
+      },
+      "canonical_unchanged": true,
+      "outputs": [
+        {
+          "resolution": "full",
+          "dimensions": [
+            5976,
+            3984
+          ],
+          "mode": "RGB",
+          "png_sha256": "11d38d298bd396d0bfca7d3308739a75a510721c38f2be09a0c372be6dc29cb9",
+          "icc_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "effective_xmp_sha256": "18e21b888ade09ea447bf480c1f3410e4dd8df6be14f91d88a5dce181ec133ef"
+        },
+        {
+          "resolution": "down",
+          "dimensions": [
+            4000,
+            2667
+          ],
+          "mode": "RGB",
+          "png_sha256": "0f9eeac5f86409d8727083a23c3f09e0d626928e15ad4cb0556f421c089ccc6d",
+          "icc_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "effective_xmp_sha256": "ae6059b8f4ae2af06fa11a40feabbebe47e9aa4572d21d5d2329c6d3dc46d52b"
+        }
+      ],
+      "settings_audit_passed": true,
+      "canonical_comparisons": {
+        "main": {
+          "case": "test_0017/tint_max",
+          "version": "main",
+          "canonical_reference": true,
+          "metrics": {
+            "mean_deltaE": 22.347881304769295,
+            "p95_deltaE": 34.626578875879005,
+            "max_deltaE": 51.747001067686384,
+            "bias_r": 0.04451525956392288,
+            "bias_g": -0.061470869928598404,
+            "bias_b": 0.13244658708572388,
+            "n_pixels": 10668000,
+            "reference_protocol": "legacy-direct-reference"
+          },
+          "violations": {
+            "bias_b": [
+              0.13244658708572388,
+              0.1176
+            ]
+          }
+        },
+        "pr": {
+          "case": "test_0017/tint_max",
+          "version": "pr",
+          "canonical_reference": true,
+          "metrics": {
+            "mean_deltaE": 22.347862835699626,
+            "p95_deltaE": 34.626524692459654,
+            "max_deltaE": 51.747001067686384,
+            "bias_r": 0.044515036046504974,
+            "bias_g": -0.06147077679634094,
+            "bias_b": 0.13244648277759552,
+            "n_pixels": 10668000,
+            "reference_protocol": "legacy-direct-reference"
+          },
+          "violations": {
+            "bias_b": [
+              0.13244648277759552,
+              0.1176
+            ]
+          }
+        }
+      },
+      "corrected_comparisons": {
+        "main": {
+          "case": "test_0017/tint_max",
+          "version": "main",
+          "canonical_reference": false,
+          "metrics": {
+            "mean_deltaE": 10.356494187727053,
+            "p95_deltaE": 26.036324396291928,
+            "max_deltaE": 43.800350583595204,
+            "bias_r": -0.12020358443260193,
+            "bias_g": -0.02124802954494953,
+            "bias_b": -0.08682619035243988,
+            "n_pixels": 10668000,
+            "reference_protocol": "legacy-direct-reference"
+          },
+          "violations": {
+            "bias_r": [
+              -0.12020358443260193,
+              0.1176
+            ]
+          }
+        },
+        "pr": {
+          "case": "test_0017/tint_max",
+          "version": "pr",
+          "canonical_reference": false,
+          "metrics": {
+            "mean_deltaE": 10.356497200809413,
+            "p95_deltaE": 26.03627125626945,
+            "max_deltaE": 43.800350583595204,
+            "bias_r": -0.12020376324653625,
+            "bias_g": -0.02124798111617565,
+            "bias_b": -0.08682621270418167,
+            "n_pixels": 10668000,
+            "reference_protocol": "legacy-direct-reference"
+          },
+          "violations": {
+            "bias_r": [
+              -0.12020376324653625,
+              0.1176
+            ]
+          }
+        }
+      }
+    },
+    {
+      "case": "test_0017/tint_min",
+      "original_raw": "/Users/riabuz/Projects/_Maple/test-fixtures/raws/test_0017.dng",
+      "raw_sha256": "26be5e06dfb53a2938dab3ca8f06024533a9c0dd0c652938f39eb48bc325f95e",
+      "canonical_xmp_sha256": "e307c836d4d66b1d1e81b2f75107fd2a71d4e9ebf6422d3a6648ca97a127c67f",
+      "adobe_xmp_sha256": "b92158de02fd82ddffe2660ee47bb0afeac1e892692c712a09a94b05537d6b37",
+      "baseline_metadata_source": "/Users/riabuz/Projects/_Maple/.codex-worktrees/tone-slider-sprint/test-fixtures/references/test_0017/down/baseline.png",
+      "completed_axes": {
+        "Temperature": "5300"
+      },
+      "authored_axes": {
+        "Tint": "-150"
+      },
+      "canonical_unchanged": true,
+      "outputs": [
+        {
+          "resolution": "full",
+          "dimensions": [
+            5976,
+            3984
+          ],
+          "mode": "RGB",
+          "png_sha256": "23a5f3928f15d7dc1ed7347d141d7e562a19e71897b7cd44e74ffb859487fa72",
+          "icc_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "effective_xmp_sha256": "a8d0d0dd39526269dadb57e4ffdf7121c3cd7f3c91856530562005fb1eccd313"
+        },
+        {
+          "resolution": "down",
+          "dimensions": [
+            4000,
+            2667
+          ],
+          "mode": "RGB",
+          "png_sha256": "0e7fdbb3bac8981e80bace3371e29653b0b84d0a1e1f4b4a3ffd97a64d1022f5",
+          "icc_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "effective_xmp_sha256": "0e69df0aeecaed3d059a55d2a8f09ad19a93c373697f861fafe2ed734c3de7b5"
+        }
+      ],
+      "settings_audit_passed": true,
+      "canonical_comparisons": {
+        "main": {
+          "case": "test_0017/tint_min",
+          "version": "main",
+          "canonical_reference": true,
+          "metrics": {
+            "mean_deltaE": 20.32615292498219,
+            "p95_deltaE": 25.454180412247627,
+            "max_deltaE": 40.222582746702216,
+            "bias_r": -0.13799864053726196,
+            "bias_g": 0.02315637655556202,
+            "bias_b": -0.08221577107906342,
+            "n_pixels": 10668000,
+            "reference_protocol": "legacy-direct-reference"
+          },
+          "violations": {
+            "bias_r": [
+              -0.13799864053726196,
+              0.136
+            ]
+          }
+        },
+        "pr": {
+          "case": "test_0017/tint_min",
+          "version": "pr",
+          "canonical_reference": true,
+          "metrics": {
+            "mean_deltaE": 20.32616219184638,
+            "p95_deltaE": 25.454169257220272,
+            "max_deltaE": 40.222582746702216,
+            "bias_r": -0.1379987746477127,
+            "bias_g": 0.023156389594078064,
+            "bias_b": -0.0822158232331276,
+            "n_pixels": 10668000,
+            "reference_protocol": "legacy-direct-reference"
+          },
+          "violations": {
+            "bias_r": [
+              -0.1379987746477127,
+              0.136
+            ]
+          }
+        }
+      },
+      "corrected_comparisons": {
+        "main": {
+          "case": "test_0017/tint_min",
+          "version": "main",
+          "canonical_reference": false,
+          "metrics": {
+            "mean_deltaE": 12.163768391283424,
+            "p95_deltaE": 18.520307063229442,
+            "max_deltaE": 26.783400637365503,
+            "bias_r": -0.058159928768873215,
+            "bias_g": -0.09992507845163345,
+            "bias_b": 0.06730908155441284,
+            "n_pixels": 10668000,
+            "reference_protocol": "legacy-direct-reference"
+          },
+          "violations": {}
+        },
+        "pr": {
+          "case": "test_0017/tint_min",
+          "version": "pr",
+          "canonical_reference": false,
+          "metrics": {
+            "mean_deltaE": 12.16376453270485,
+            "p95_deltaE": 18.520307063229442,
+            "max_deltaE": 26.783400637365503,
+            "bias_r": -0.0581599660217762,
+            "bias_g": -0.09992511570453644,
+            "bias_b": 0.06730908900499344,
+            "n_pixels": 10668000,
+            "reference_protocol": "legacy-direct-reference"
+          },
+          "violations": {}
+        }
+      }
+    },
+    {
+      "case": "test_0018/tint_max",
+      "original_raw": "/Users/riabuz/Projects/_Maple/test-fixtures/raws/test_0018.dng",
+      "raw_sha256": "2a44135ce4f3beb064b72aad3d30cbf0e9313c729fa3a28db7f6b258f41eb6df",
+      "canonical_xmp_sha256": "9153671514de3d9e5f8b99d1a1cbc5de53526b322e90c4b00c47b32b70ef2bf6",
+      "adobe_xmp_sha256": "aec2a878cb4e9923b0cda702558e1a6e2388094fe44f72f8e5b219053b87c27c",
+      "baseline_metadata_source": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0018/down/baseline.png",
+      "completed_axes": {
+        "Temperature": "6500"
+      },
+      "authored_axes": {
+        "Tint": "150"
+      },
+      "canonical_unchanged": true,
+      "outputs": [
+        {
+          "resolution": "full",
+          "dimensions": [
+            848,
+            560
+          ],
+          "mode": "RGB",
+          "png_sha256": "7d5f61f4b309cf9ebbeac06c75584becc3dc75b9e6ea7a84d787ea948125a77d",
+          "icc_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "effective_xmp_sha256": "440f85643a95b309dfdae8e4615ba414446f62c084d0a3a84245eb6454fcab46"
+        },
+        {
+          "resolution": "down",
+          "dimensions": [
+            848,
+            560
+          ],
+          "mode": "RGB",
+          "png_sha256": "e908dab816472c4103507689cccb1cdcf6bdd5d8cca63737d5bb8895b16baf52",
+          "icc_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "effective_xmp_sha256": "e0f139f309fc7283e3939a78d45b7b3ec3143cad80eaa5d86bb0e514224550e5"
+        }
+      ],
+      "settings_audit_passed": true,
+      "canonical_comparisons": {
+        "main": {
+          "case": "test_0018/tint_max",
+          "version": "main",
+          "canonical_reference": true,
+          "metrics": {
+            "mean_deltaE": 22.65328049433719,
+            "p95_deltaE": 31.178757570064008,
+            "max_deltaE": 48.48758837096562,
+            "bias_r": -0.04370131716132164,
+            "bias_g": -0.26610779762268066,
+            "bias_b": -0.12307974696159363,
+            "n_pixels": 474880,
+            "reference_protocol": "legacy-direct-reference"
+          },
+          "violations": {
+            "mean": [
+              22.65328049433719,
+              17.27
+            ],
+            "p95": [
+              31.178757570064008,
+              21.3
+            ],
+            "max": [
+              48.48758837096562,
+              39.76
+            ],
+            "bias_g": [
+              -0.26610779762268066,
+              0.221
+            ]
+          }
+        },
+        "pr": {
+          "case": "test_0018/tint_max",
+          "version": "pr",
+          "canonical_reference": true,
+          "metrics": {
+            "mean_deltaE": 22.65328049433719,
+            "p95_deltaE": 31.178757570064008,
+            "max_deltaE": 48.48758837096562,
+            "bias_r": -0.04370131716132164,
+            "bias_g": -0.26610779762268066,
+            "bias_b": -0.12307974696159363,
+            "n_pixels": 474880,
+            "reference_protocol": "legacy-direct-reference"
+          },
+          "violations": {
+            "mean": [
+              22.65328049433719,
+              17.27
+            ],
+            "p95": [
+              31.178757570064008,
+              21.3
+            ],
+            "max": [
+              48.48758837096562,
+              39.76
+            ],
+            "bias_g": [
+              -0.26610779762268066,
+              0.221
+            ]
+          }
+        }
+      },
+      "corrected_comparisons": {
+        "main": {
+          "case": "test_0018/tint_max",
+          "version": "main",
+          "canonical_reference": false,
+          "metrics": {
+            "mean_deltaE": 18.700035452072278,
+            "p95_deltaE": 26.240105975974583,
+            "max_deltaE": 40.51357042900305,
+            "bias_r": -0.19639378786087036,
+            "bias_g": -0.24000664055347443,
+            "bias_b": -0.2309676855802536,
+            "n_pixels": 474880,
+            "reference_protocol": "legacy-direct-reference"
+          },
+          "violations": {
+            "mean": [
+              18.700035452072278,
+              17.27
+            ],
+            "p95": [
+              26.240105975974583,
+              21.3
+            ],
+            "max": [
+              40.51357042900305,
+              39.76
+            ],
+            "bias_g": [
+              -0.24000664055347443,
+              0.221
+            ],
+            "bias_b": [
+              -0.2309676855802536,
+              0.221
+            ]
+          }
+        },
+        "pr": {
+          "case": "test_0018/tint_max",
+          "version": "pr",
+          "canonical_reference": false,
+          "metrics": {
+            "mean_deltaE": 18.700035452072278,
+            "p95_deltaE": 26.240105975974583,
+            "max_deltaE": 40.51357042900305,
+            "bias_r": -0.19639378786087036,
+            "bias_g": -0.24000664055347443,
+            "bias_b": -0.2309676855802536,
+            "n_pixels": 474880,
+            "reference_protocol": "legacy-direct-reference"
+          },
+          "violations": {
+            "mean": [
+              18.700035452072278,
+              17.27
+            ],
+            "p95": [
+              26.240105975974583,
+              21.3
+            ],
+            "max": [
+              40.51357042900305,
+              39.76
+            ],
+            "bias_g": [
+              -0.24000664055347443,
+              0.221
+            ],
+            "bias_b": [
+              -0.2309676855802536,
+              0.221
+            ]
+          }
+        }
+      }
+    },
+    {
+      "case": "test_0018/tint_min",
+      "original_raw": "/Users/riabuz/Projects/_Maple/test-fixtures/raws/test_0018.dng",
+      "raw_sha256": "2a44135ce4f3beb064b72aad3d30cbf0e9313c729fa3a28db7f6b258f41eb6df",
+      "canonical_xmp_sha256": "e307c836d4d66b1d1e81b2f75107fd2a71d4e9ebf6422d3a6648ca97a127c67f",
+      "adobe_xmp_sha256": "8dae1b964328b8f5d8dfe255c3ac22cad8f0844aa3408d1079f53bfd4af10e2b",
+      "baseline_metadata_source": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0018/down/baseline.png",
+      "completed_axes": {
+        "Temperature": "6500"
+      },
+      "authored_axes": {
+        "Tint": "-150"
+      },
+      "canonical_unchanged": true,
+      "outputs": [
+        {
+          "resolution": "full",
+          "dimensions": [
+            848,
+            560
+          ],
+          "mode": "RGB",
+          "png_sha256": "a79f3a814e4e6bdbf3fc136dfad20f47c56a8973a3e676461f79f9fa0dfafe18",
+          "icc_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "effective_xmp_sha256": "b7f9fb621fdae702c18fdd0c413c691941397899535ca5b45767c40fad5596c8"
+        },
+        {
+          "resolution": "down",
+          "dimensions": [
+            848,
+            560
+          ],
+          "mode": "RGB",
+          "png_sha256": "5669df1631d29bda146131560abd2b09b7e9210b81c378bf349608461114dd84",
+          "icc_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "effective_xmp_sha256": "dea1d7c8250834d16ae5a99bf923e5143e7dd4843fe480d4b9f21f943e459a86"
+        }
+      ],
+      "settings_audit_passed": true,
+      "canonical_comparisons": {
+        "main": {
+          "case": "test_0018/tint_min",
+          "version": "main",
+          "canonical_reference": true,
+          "metrics": {
+            "mean_deltaE": 23.921290967623477,
+            "p95_deltaE": 32.67400241948173,
+            "max_deltaE": 43.94415280884082,
+            "bias_r": -0.3129555881023407,
+            "bias_g": -0.11853847652673721,
+            "bias_b": -0.3244800865650177,
+            "n_pixels": 474880,
+            "reference_protocol": "legacy-direct-reference"
+          },
+          "violations": {
+            "mean": [
+              23.921290967623477,
+              17.26
+            ],
+            "p95": [
+              32.67400241948173,
+              21.78
+            ],
+            "max": [
+              43.94415280884082,
+              39.25
+            ],
+            "bias_r": [
+              -0.3129555881023407,
+              0.2734
+            ],
+            "bias_b": [
+              -0.3244800865650177,
+              0.2734
+            ]
+          }
+        },
+        "pr": {
+          "case": "test_0018/tint_min",
+          "version": "pr",
+          "canonical_reference": true,
+          "metrics": {
+            "mean_deltaE": 23.921290967623477,
+            "p95_deltaE": 32.67400241948173,
+            "max_deltaE": 43.94415280884082,
+            "bias_r": -0.3129555881023407,
+            "bias_g": -0.11853847652673721,
+            "bias_b": -0.3244800865650177,
+            "n_pixels": 474880,
+            "reference_protocol": "legacy-direct-reference"
+          },
+          "violations": {
+            "mean": [
+              23.921290967623477,
+              17.26
+            ],
+            "p95": [
+              32.67400241948173,
+              21.78
+            ],
+            "max": [
+              43.94415280884082,
+              39.25
+            ],
+            "bias_r": [
+              -0.3129555881023407,
+              0.2734
+            ],
+            "bias_b": [
+              -0.3244800865650177,
+              0.2734
+            ]
+          }
+        }
+      },
+      "corrected_comparisons": {
+        "main": {
+          "case": "test_0018/tint_min",
+          "version": "main",
+          "canonical_reference": false,
+          "metrics": {
+            "mean_deltaE": 21.83517505265092,
+            "p95_deltaE": 28.47099869914453,
+            "max_deltaE": 60.96837569568505,
+            "bias_r": -0.18724070489406586,
+            "bias_g": -0.27482685446739197,
+            "bias_b": -0.2458336353302002,
+            "n_pixels": 474880,
+            "reference_protocol": "legacy-direct-reference"
+          },
+          "violations": {
+            "mean": [
+              21.83517505265092,
+              17.26
+            ],
+            "p95": [
+              28.47099869914453,
+              21.78
+            ],
+            "max": [
+              60.96837569568505,
+              39.25
+            ],
+            "bias_g": [
+              -0.27482685446739197,
+              0.2734
+            ]
+          }
+        },
+        "pr": {
+          "case": "test_0018/tint_min",
+          "version": "pr",
+          "canonical_reference": false,
+          "metrics": {
+            "mean_deltaE": 21.83517505265092,
+            "p95_deltaE": 28.47099869914453,
+            "max_deltaE": 60.96837569568505,
+            "bias_r": -0.18724070489406586,
+            "bias_g": -0.27482685446739197,
+            "bias_b": -0.2458336353302002,
+            "n_pixels": 474880,
+            "reference_protocol": "legacy-direct-reference"
+          },
+          "violations": {
+            "mean": [
+              21.83517505265092,
+              17.26
+            ],
+            "p95": [
+              28.47099869914453,
+              21.78
+            ],
+            "max": [
+              60.96837569568505,
+              39.25
+            ],
+            "bias_g": [
+              -0.27482685446739197,
+              0.2734
+            ]
+          }
+        }
+      }
+    }
+  ]
+}

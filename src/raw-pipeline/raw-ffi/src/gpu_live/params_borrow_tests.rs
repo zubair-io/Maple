@@ -3,12 +3,15 @@ use raw_core::view::auto_profile::{lut::ColorLut, ProfileCurve};
 
 #[test]
 fn live_frames_borrow_large_host_artifacts_without_copying() {
+    let color_points = [0.1, 0.7, 0.7, 0.3];
     let curve = ProfileCurve::identity().to_flat();
     let residual = ColorLut::identity(49);
     let film = ColorLut::identity(33);
     // The C caller commonly starts from a zero-initialized parameter block.
     let mut params: MapleGpuLiveParams = unsafe { std::mem::zeroed() };
     params.temperature = 6500.0;
+    params.color_curve_hue_vs_hue_ptr = color_points.as_ptr();
+    params.color_curve_hue_vs_hue_len = color_points.len();
     params.profile_curve_ptr = curve.as_ptr();
     params.profile_curve_len = curve.len();
     params.residual_lut_ptr = residual.data.as_ptr();
@@ -20,7 +23,9 @@ fn live_frames_borrow_large_host_artifacts_without_copying() {
 
     for exposure in 0..40 {
         params.exposure = exposure as f32 / 10.0;
-        let inputs = unsafe { inputs_from_params(&params) };
+        let inputs = unsafe { inputs_from_params(&params) }.unwrap();
+        assert!(matches!(&inputs.color_curves.hue_vs_hue,
+            raw_gpu::ColorCurvePoints::Flat(points) if points.as_ptr() == color_points.as_ptr()));
         assert!(matches!(inputs.profile_curve_flat, Cow::Borrowed(_)));
         assert!(matches!(inputs.residual_lut_data, Cow::Borrowed(_)));
         assert!(matches!(inputs.film_lut_data, Cow::Borrowed(_)));
@@ -69,4 +74,37 @@ fn absent_or_malformed_artifacts_signal_absence_without_allocating() {
     params.film_lut_size = 33;
     assert_eq!(unsafe { residual_or_empty(&params) }.0, 0);
     assert_eq!(unsafe { film_lut_or_off(&params) }.0, 0);
+}
+
+#[test]
+fn deriving_a_tick_creative_plan_allocates_nothing_and_borrows_the_tables() {
+    use raw_core::test_support::creative::{creative_stage, Tables};
+    let stage = creative_stage(Tables::DualHueSatMapAndLook, 1.2);
+    let (header, wire) = stage
+        .transport(raw_core::xmp::HighlightRecoveryMode::OklabChromaReduction)
+        .unwrap();
+    let tables = crate::wb_frame_flat::intern_table_wire(wire.floats());
+    let creative = crate::capture_creative::MapleCaptureCreative::new(&header, tables);
+    let mut params: MapleGpuLiveParams = unsafe { std::mem::zeroed() };
+    params.creative_ptr = &creative;
+    for temperature in [2000.0, 3300.0, 5200.0, 9000.0, 50000.0] {
+        params.temperature = temperature;
+        params.tint = 7.0;
+        let mut plan = None;
+        let allocations = crate::allocation_counter::count(|| {
+            let tick = raw_core::pipeline::CreativeTick {
+                temperature: params.temperature,
+                tint: params.tint,
+                wb_method: raw_core::types::WbMethod::Cat16,
+            };
+            plan = unsafe { crate::capture_creative::gpu_plan(params.creative_ptr, tick) }.unwrap();
+        });
+        assert_eq!(allocations, 0, "T={temperature}");
+        assert_eq!(plan.unwrap().tables.as_ptr(), tables.as_ptr());
+    }
+    let inputs = unsafe { inputs_from_params(&params) }.unwrap();
+    assert!(inputs.creative.is_some());
+    let absent = crate::capture_creative::MapleCaptureCreative::ABSENT;
+    params.creative_ptr = &absent;
+    assert!(unsafe { inputs_from_params(&params) }.is_err());
 }

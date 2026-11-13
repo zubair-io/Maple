@@ -1,0 +1,14 @@
+{
+  "name": "gpu-noise-relative",
+  "command": [
+    "cargo",
+    "test",
+    "-p",
+    "raw-gpu",
+    "--lib",
+    "noise_reduction",
+    "--",
+    "--nocapture"
+  ],
+  "exit_code": 0
+}

@@ -51,9 +51,12 @@ Modes:
 The CI job (cross.yml) resolves the PR merge base, `git show`s that revision's
 test-fixtures/budgets.json into a temp file, concatenates the PR body and the
 head commit message into a marker file, and runs `--base <that> --head
-test-fixtures/budgets.json --marker-file <that>`. When budgets.json did not
-exist at the merge base (a brand-new file) there is nothing to ratchet
-against and the job passes.
+test-fixtures/budgets.json --marker-file <that>`. On merge_group runs there
+is no PR payload, so the job additionally reads the queued PR numbers out
+of the merge-group head ref, fetches each queued PR's body from the API,
+and appends those bodies (failing closed if none can be identified). When
+budgets.json did not exist at the merge base (a brand-new file) there is
+nothing to ratchet against and the job passes.
 """
 
 from __future__ import annotations

@@ -104,8 +104,8 @@ enum CloudTimelineViewVM {
     /// Encoded tap-target decision for a merged cell — keeps the routing
     /// branch pure so the view's `onSelect` closure becomes a thin
     /// switch over this enum. `.cloud(asset)` means "open via
-    /// onSelectAsset"; `.local(ref)` means "open the PhotoKit asset
-    /// directly via onSelectLocalAsset"; `.none` means we couldn't find
+    /// onSelectAsset"; `.local(ref)` means "open the local asset (PhotoKit
+    /// or a saved Folder's file) via onSelectLocalAsset"; `.none` means we couldn't find
     /// the cloud-side asset (e.g. the search response lost the row
     /// between bucket count and page fetch).
     enum MergedSelectionTarget {

@@ -46,6 +46,7 @@ describe('backup inventory source jail', () => {
       deleted_at: null,
       hidden: 0,
       apple_rendered_path: null,
+      apple_live_video_path: null,
     };
   }
   async function capture(item = location()): Promise<CapturedFile[]> {
@@ -83,6 +84,21 @@ describe('backup inventory source jail', () => {
       expect(file.source.contentType).toBe('application/rdf+xml');
     }
     await expect(validateCapture(location(), files)).resolves.toBeUndefined();
+  });
+  it("captures an edited Live Photo's rendered image and .mov twin in their own roles (#5243)", async () => {
+    await writeFile(path.join(root, 'photo.dng'), 'pixels');
+    await writeFile(path.join(root, 'photo.rendered.jpg'), 'rendered');
+    await writeFile(path.join(root, 'photo.mov'), 'live');
+    const files = await capture({
+      ...location(),
+      apple_rendered_path: 'photo.rendered.jpg',
+      apple_live_video_path: 'photo.mov',
+    });
+    expect(files.map((file) => [file.path, file.role])).toEqual([
+      ['photo.dng', 'original'],
+      ['photo.rendered.jpg', 'companion'],
+      ['photo.mov', 'live-video'],
+    ]);
   });
   it('uses canonical registered root consistently when the configured root is a symlink', async () => {
     await writeFile(path.join(root, 'photo.dng'), 'inside');

@@ -1,0 +1,9 @@
+{
+  "status": "Relative NLM first physical witnesses only; no production adoption or full-suite count.",
+  "comparisons": 7,
+  "planned": 7,
+  "all_passed": false,
+  "all_original_inputs_unchanged": true,
+  "renderer_unchanged": true,
+  "production_changed": false
+}

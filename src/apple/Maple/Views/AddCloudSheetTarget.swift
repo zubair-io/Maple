@@ -7,8 +7,8 @@ import Foundation
 // MARK: - AddMapleCloud sheet target
 
 /// Backing value for `.sheet(item:)` so dismissal automatically resets to
-/// `nil`. Two cases mirror the two entry points: a fresh "+" tap and a
-/// click on a saved server whose tokens were cleared.
+/// `nil`. `.fresh` is the "+" tap; `.prefilled` re-signs-in an existing
+/// server, carrying its URL text from `CloudHost.signInPrefill(for:)`.
 enum AddCloudSheetTarget: Identifiable, Equatable {
     case fresh
     case prefilled(String)
@@ -16,14 +16,14 @@ enum AddCloudSheetTarget: Identifiable, Equatable {
     var id: String {
         switch self {
         case .fresh: return ""
-        case .prefilled(let host): return host
+        case .prefilled(let serverText): return serverText
         }
     }
 
     var prefill: String {
         switch self {
         case .fresh: return ""
-        case .prefilled(let host): return host
+        case .prefilled(let serverText): return serverText
         }
     }
 }

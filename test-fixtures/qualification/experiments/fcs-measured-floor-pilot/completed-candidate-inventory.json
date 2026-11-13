@@ -1,0 +1,366 @@
+[
+  {
+    "path": "/Users/riabuz/.codex/color-suite-evidence/5000/fcs-measured-floor-pilot/candidates/test_0018_contrast_max.png",
+    "sha256": "a6e868c7a4ac3b3cec232b892100eb1050be12f1b0880e70f02e9bc7ca4019a7"
+  },
+  {
+    "path": "/Users/riabuz/.codex/color-suite-evidence/5000/fcs-measured-floor-pilot/candidates/test_0000_nr_luminance_max.png",
+    "sha256": "486532bbf61c6520beeea29153204af20da9ce61d6ce88653757f993b5980347"
+  },
+  {
+    "path": "/Users/riabuz/.codex/color-suite-evidence/5000/fcs-measured-floor-pilot/candidates/test_0001_blacks_min.png",
+    "sha256": "fb60d038535f4d129c389b4ce41093001737ce0e98950c91ee7002d3ad965402"
+  },
+  {
+    "path": "/Users/riabuz/.codex/color-suite-evidence/5000/fcs-measured-floor-pilot/candidates/test_0001_clarity_min.png",
+    "sha256": "647ee7d4d8a8fcb4480ec589f4d4f5b1d257a558b50538a79c2d96b6d75e54bd"
+  },
+  {
+    "path": "/Users/riabuz/.codex/color-suite-evidence/5000/fcs-measured-floor-pilot/candidates/test_0001_dehaze_min.png",
+    "sha256": "8aa4bf45690d33cb507964a23d28769b790cb22dc80ca3e2240cbcf5e0d850c1"
+  },
+  {
+    "path": "/Users/riabuz/.codex/color-suite-evidence/5000/fcs-measured-floor-pilot/candidates/test_0001_shadows_max.png",
+    "sha256": "147dda97be4f1be8ce2b477964d0ea538f9f9bee1dd5297402c9d6ed02a7564e"
+  },
+  {
+    "path": "/Users/riabuz/.codex/color-suite-evidence/5000/fcs-measured-floor-pilot/candidates/test_0001_exposure_min.png",
+    "sha256": "960565fd363e74186eb68fcac0ef8414bff46e09e23aa0436d42bd9f603dd9be"
+  },
+  {
+    "path": "/Users/riabuz/.codex/color-suite-evidence/5000/fcs-measured-floor-pilot/candidates/test_0002_shadows_max.png",
+    "sha256": "499f05b8a2e81506e7ac7e574148c1073a92baa84afa7e2082dbc7330a66aa27"
+  },
+  {
+    "path": "/Users/riabuz/.codex/color-suite-evidence/5000/fcs-measured-floor-pilot/candidates/test_0002_vibrance_min.png",
+    "sha256": "bebc5e2569d5a1ad8d363f9865e22d2b7ed69a077efb0e89b628785c54ddd61b"
+  },
+  {
+    "path": "/Users/riabuz/.codex/color-suite-evidence/5000/fcs-measured-floor-pilot/candidates/test_0003_wb_auto.png",
+    "sha256": "76832515efa8abba203808d58c427411a88b0a02f918ceb92027f77d3be020a4"
+  },
+  {
+    "path": "/Users/riabuz/.codex/color-suite-evidence/5000/fcs-measured-floor-pilot/candidates/test_0003_dehaze_max.png",
+    "sha256": "90c8ad15effa7a1641e2dab6a1d8788cddd4abe08d77c7c9f5627d8d2f3fa4a8"
+  },
+  {
+    "path": "/Users/riabuz/.codex/color-suite-evidence/5000/fcs-measured-floor-pilot/candidates/test_0004_dehaze_max.png",
+    "sha256": "f125b357b2b164f99809db5683631d88c48ffabc58b374bbb3efc201c084c3c2"
+  },
+  {
+    "path": "/Users/riabuz/.codex/color-suite-evidence/5000/fcs-measured-floor-pilot/candidates/test_0004_highlights_min.png",
+    "sha256": "f86db6b10164a9b2d7396eba51a73ee7af7c053a8f24fe226cd8ff2c4bbbea31"
+  },
+  {
+    "path": "/Users/riabuz/.codex/color-suite-evidence/5000/fcs-measured-floor-pilot/candidates/test_0004_nr_color_max.png",
+    "sha256": "b3dfe6bc301c7c9bba61c462267e089a56ab446d2663fc0a462504b5cc6c403e"
+  },
+  {
+    "path": "/Users/riabuz/.codex/color-suite-evidence/5000/fcs-measured-floor-pilot/candidates/test_0007_dehaze_max.png",
+    "sha256": "73b5b941c52ff6874a8b14179704178221cdaea38496286b13e1464de97e26c6"
+  },
+  {
+    "path": "/Users/riabuz/.codex/color-suite-evidence/5000/fcs-measured-floor-pilot/candidates/test_0011_wb_tungsten.png",
+    "sha256": "203d5cacac9f71e45ef9971df02656cf5ede024d8afd4bfd208fd6d171a71e55"
+  },
+  {
+    "path": "/Users/riabuz/.codex/color-suite-evidence/5000/fcs-measured-floor-pilot/candidates/test_0018_clarity_min.png",
+    "sha256": "6443243d9305a824513fe8780ef409500d775d5b19f5dd5ccc13553df60f0ab5"
+  },
+  {
+    "path": "/Users/riabuz/.codex/color-suite-evidence/5000/fcs-measured-floor-pilot/candidates/test_0018_nr_color_min.png",
+    "sha256": "b34b731e5205d49891eab24234b197e15646b5c0167fe829827f3e590832de9d"
+  },
+  {
+    "path": "/Users/riabuz/.codex/color-suite-evidence/5000/fcs-measured-floor-pilot/candidates/test_0018_nr_luminance_max.png",
+    "sha256": "6f5d23865432282d1ecce7b5d923b196a053fc9612849866fc1dfece1e3f98f0"
+  },
+  {
+    "path": "/Users/riabuz/.codex/color-suite-evidence/5000/fcs-measured-floor-pilot/candidates/test_0018_saturation_min.png",
+    "sha256": "c2e5e5204dca6e9e55ca3e51205dbd1ac0a4a5782205915ee472f1ec0c18bc30"
+  },
+  {
+    "path": "/Users/riabuz/.codex/color-suite-evidence/5000/fcs-measured-floor-pilot/candidates/test_0018_sharpen_detail_min.png",
+    "sha256": "c71794ef1a9c1a5ac2c873e7e66ddedc7126d475bda3bf81f16f96ac9ce8e795"
+  },
+  {
+    "path": "/Users/riabuz/.codex/color-suite-evidence/5000/fcs-measured-floor-pilot/candidates/test_0018_sharpen_masking_max.png",
+    "sha256": "f00e82ca8bc29309c1533d3e5214ba6caa1d344ec3793394a22caf4a4a2a1423"
+  },
+  {
+    "path": "/Users/riabuz/.codex/color-suite-evidence/5000/fcs-measured-floor-pilot/candidates/test_0018_sharpen_radius_max.png",
+    "sha256": "155ebd77c02af1a18b128cd9c4822297f8e939619345a4671f9d22e694694988"
+  },
+  {
+    "path": "/Users/riabuz/.codex/color-suite-evidence/5000/fcs-measured-floor-pilot/candidates/test_0018_sharpen_radius_min.png",
+    "sha256": "cf33b90b00682376526754087f9874e7e459172d24c3ff457cbf6985b6767035"
+  },
+  {
+    "path": "/Users/riabuz/.codex/color-suite-evidence/5000/fcs-measured-floor-pilot/candidates/test_0018_temperature_max.png",
+    "sha256": "b70c040758f46a0d116c1d64613e88844c7dd02e84526e889885ea4a3045cc46"
+  },
+  {
+    "path": "/Users/riabuz/.codex/color-suite-evidence/5000/fcs-measured-floor-pilot/candidates/test_0018_wb_daylight.png",
+    "sha256": "31712647cbfdbcb7d68774a9e1aa02e2e232ebd9271df029716494a53e194d47"
+  },
+  {
+    "path": "/Users/riabuz/.codex/color-suite-evidence/5000/fcs-measured-floor-pilot/candidates/test_0018_wb_flash.png",
+    "sha256": "cb04e8b4f80acab897df1b2e795ac4eeb02826cce2d58b3b81ee7eb870ca5fe4"
+  },
+  {
+    "path": "/Users/riabuz/.codex/color-suite-evidence/5000/fcs-measured-floor-pilot/candidates/test_0000_dehaze_max.png",
+    "sha256": "ef3527bfdd01516f5c6522e76a68bbebdcf005bd0eebc02425a8beed1b19f687"
+  },
+  {
+    "path": "/Users/riabuz/.codex/color-suite-evidence/5000/fcs-measured-floor-pilot/candidates/test_0014_sharpen_detail_min.png",
+    "sha256": "f369fe06487c109b0f0b2e3702fc5a81a25d114aad9a9a43cad13e09f1dba002"
+  },
+  {
+    "path": "/Users/riabuz/.codex/color-suite-evidence/5000/fcs-measured-floor-pilot/auto_candidates/test_0001_baseline.png",
+    "sha256": "76eeaa35c56bc75f237cf405a5cac3cc02a8ca4b7e68ae6fe7138d8dafecef5d"
+  },
+  {
+    "path": "/Users/riabuz/.codex/color-suite-evidence/5000/fcs-measured-floor-pilot/candidates/test_0014_sharpen_radius_max.png",
+    "sha256": "488783a96d27ee4c1424784f8c8ef89687bb87a3b1c77597ed3b6512cfce185c"
+  },
+  {
+    "path": "/Users/riabuz/.codex/color-suite-evidence/5000/fcs-measured-floor-pilot/auto_candidates/test_0002_baseline.png",
+    "sha256": "dd66c627305e17b759f82c66dddeb33ca289251f7bf588f1999661a87d1cf4fe"
+  },
+  {
+    "path": "/Users/riabuz/.codex/color-suite-evidence/5000/fcs-measured-floor-pilot/auto_candidates/test_0004_baseline.png",
+    "sha256": "7914f4a638baf37412e4b7cfe586e9500d200b5a25870bd3c656311073da2c1b"
+  },
+  {
+    "path": "/Users/riabuz/.codex/color-suite-evidence/5000/fcs-measured-floor-pilot/auto_candidates/test_0003_baseline.png",
+    "sha256": "73922402eb72681dafb0178bad5f091bb1b9a401b346e06bc174190a6d5f6712"
+  },
+  {
+    "path": "/Users/riabuz/.codex/color-suite-evidence/5000/fcs-measured-floor-pilot/auto_candidates/test_0005_baseline.png",
+    "sha256": "d68240ceba67113784efd61f787a0d8e594f74822702ff882e4ddcc91a214cc6"
+  },
+  {
+    "path": "/Users/riabuz/.codex/color-suite-evidence/5000/fcs-measured-floor-pilot/auto_candidates/test_0006_baseline.png",
+    "sha256": "928cc354dc35153b8e302ef5e2bd91addc79cca40f99074bcdda358233e0fd31"
+  },
+  {
+    "path": "/Users/riabuz/.codex/color-suite-evidence/5000/fcs-measured-floor-pilot/auto_candidates/test_0007_baseline.png",
+    "sha256": "a3efa26b9fa8b3c8a31dc345be44a8f03741428755f82eff0b60612c75d98e1b"
+  },
+  {
+    "path": "/Users/riabuz/.codex/color-suite-evidence/5000/fcs-measured-floor-pilot/auto_candidates/test_0000_baseline.png",
+    "sha256": "fc348b5d261dd373e47e4deeb002d348f72866516c0167ec0406fe0e1cd483b2"
+  },
+  {
+    "path": "/Users/riabuz/.codex/color-suite-evidence/5000/fcs-measured-floor-pilot/auto_candidates/test_0008_baseline.png",
+    "sha256": "8138bc7d6e200f64e6ef26c7268d2af1b4f828f91fff6cb53e4fa4384b040f7a"
+  },
+  {
+    "path": "/Users/riabuz/.codex/color-suite-evidence/5000/fcs-measured-floor-pilot/auto_candidates/test_0009_baseline.png",
+    "sha256": "98f8018973ea0e7725928475d2641924e73201e809e597de7f2bf500b04dbd13"
+  },
+  {
+    "path": "/Users/riabuz/.codex/color-suite-evidence/5000/fcs-measured-floor-pilot/auto_candidates/test_0010_baseline.png",
+    "sha256": "12f9c41adf73e5c17438f428850b7f6a11b6eac3ce271375fdb35d91ad748b44"
+  },
+  {
+    "path": "/Users/riabuz/.codex/color-suite-evidence/5000/fcs-measured-floor-pilot/auto_candidates/test_0013_baseline.png",
+    "sha256": "2032fd8b33e3210a9c062252fb74c35290ad2d334fcb8da4fca4c6c63d13f36f"
+  },
+  {
+    "path": "/Users/riabuz/.codex/color-suite-evidence/5000/fcs-measured-floor-pilot/auto_candidates/test_0011_baseline.png",
+    "sha256": "2c65b7d0ce26120a6b3f93ea3206055e0ac5d0855a47974b1a292ee2a688dd26"
+  },
+  {
+    "path": "/Users/riabuz/.codex/color-suite-evidence/5000/fcs-measured-floor-pilot/auto_candidates/test_0012_baseline.png",
+    "sha256": "5a0550f9e92d2b0ffcac45e5d89e7a6373a701de6854dc1de088eee92706a62c"
+  },
+  {
+    "path": "/Users/riabuz/.codex/color-suite-evidence/5000/fcs-measured-floor-pilot/auto_candidates/test_0018_baseline.png",
+    "sha256": "c71794ef1a9c1a5ac2c873e7e66ddedc7126d475bda3bf81f16f96ac9ce8e795"
+  },
+  {
+    "path": "/Users/riabuz/.codex/color-suite-evidence/5000/fcs-measured-floor-pilot/auto_candidates/test_0019_baseline.png",
+    "sha256": "450d53cf5793b13e3627c4eae7e557f990b8f9e3c4860e5a4ffef2084e96daf6"
+  },
+  {
+    "path": "/Users/riabuz/.codex/color-suite-evidence/5000/fcs-measured-floor-pilot/auto_candidates/test_0015_baseline.png",
+    "sha256": "6f0ed7d2c716dd3ef5d72f3d6535e22fbe7ce71ea577759e094ede0556bd051a"
+  },
+  {
+    "path": "/Users/riabuz/.codex/color-suite-evidence/5000/fcs-measured-floor-pilot/auto_candidates/test_0014_baseline.png",
+    "sha256": "1357316f7ce48844b841e02eaf8b58cd1f9a02f8989a18666398773751d69a7d"
+  },
+  {
+    "path": "/Users/riabuz/.codex/color-suite-evidence/5000/fcs-measured-floor-pilot/auto_candidates/test_0020_baseline.png",
+    "sha256": "0d2e7eb4a12cdb22341543ff25192d3c542bf7c5b43cf387bcc59ed81936f950"
+  },
+  {
+    "path": "/Users/riabuz/.codex/color-suite-evidence/5000/fcs-measured-floor-pilot/auto_candidates/test_0017_baseline.png",
+    "sha256": "8fb117cadae13381e55f24560684b9729379feb3baf622a3749db77d785a8056"
+  },
+  {
+    "path": "/Users/riabuz/.codex/color-suite-evidence/5000/fcs-measured-floor-pilot/candidates/test_0000_baseline.png",
+    "sha256": "0d4497ebfc264ce25b653a0b31136c8121f2176cc2d15db3cb5fbadba791a341"
+  },
+  {
+    "path": "/Users/riabuz/.codex/color-suite-evidence/5000/fcs-measured-floor-pilot/candidates/test_0000_exposure_min.png",
+    "sha256": "298083eab6e5e442d929005a5b2935bfd194a12ed157f9c1442c7995f79aedff"
+  },
+  {
+    "path": "/Users/riabuz/.codex/color-suite-evidence/5000/fcs-measured-floor-pilot/candidates/test_0000_nr_color_min.png",
+    "sha256": "682f49d5a4dac5f7097fadc2b0fb198cbb54df0a339d8c77908d387503fdce9e"
+  },
+  {
+    "path": "/Users/riabuz/.codex/color-suite-evidence/5000/fcs-measured-floor-pilot/candidates/test_0000_nr_color_max.png",
+    "sha256": "53f61372691fd358e0bf7b84c492f293e17f05b689153c378d0ecd73687fd468"
+  },
+  {
+    "path": "/Users/riabuz/.codex/color-suite-evidence/5000/fcs-measured-floor-pilot/candidates/test_0000_shadows_min.png",
+    "sha256": "10a05202d8534818edc9a0a62857f31a4181a338afa196fac62b1eb3af3985f0"
+  },
+  {
+    "path": "/Users/riabuz/.codex/color-suite-evidence/5000/fcs-measured-floor-pilot/candidates/test_0000_sharpen_amount_max.png",
+    "sha256": "3fbefedcdb0a107c83364430843b79f7dc9a408a008dc0fc8bcbc1cb72f67282"
+  },
+  {
+    "path": "/Users/riabuz/.codex/color-suite-evidence/5000/fcs-measured-floor-pilot/candidates/test_0000_sharpen_amount_min.png",
+    "sha256": "70a82cf309a1d24a601f4768c35a8d43862aecd3b29a76908b05b1ea73e66250"
+  },
+  {
+    "path": "/Users/riabuz/.codex/color-suite-evidence/5000/fcs-measured-floor-pilot/candidates/test_0000_sharpen_detail_max.png",
+    "sha256": "0d4497ebfc264ce25b653a0b31136c8121f2176cc2d15db3cb5fbadba791a341"
+  },
+  {
+    "path": "/Users/riabuz/.codex/color-suite-evidence/5000/fcs-measured-floor-pilot/candidates/test_0000_sharpen_detail_min.png",
+    "sha256": "0d4497ebfc264ce25b653a0b31136c8121f2176cc2d15db3cb5fbadba791a341"
+  },
+  {
+    "path": "/Users/riabuz/.codex/color-suite-evidence/5000/fcs-measured-floor-pilot/candidates/test_0001_baseline.png",
+    "sha256": "76eeaa35c56bc75f237cf405a5cac3cc02a8ca4b7e68ae6fe7138d8dafecef5d"
+  },
+  {
+    "path": "/Users/riabuz/.codex/color-suite-evidence/5000/fcs-measured-floor-pilot/candidates/test_0002_baseline.png",
+    "sha256": "d4f20c89e9680a3fb8427683541b43832d330b8d2c07d65de3f2689ff7ff169d"
+  },
+  {
+    "path": "/Users/riabuz/.codex/color-suite-evidence/5000/fcs-measured-floor-pilot/candidates/test_0000_sharpen_masking_max.png",
+    "sha256": "87840024d5494d5d646cf72501af534bde5e978c2f23216b23c86278a7e9f0b1"
+  },
+  {
+    "path": "/Users/riabuz/.codex/color-suite-evidence/5000/fcs-measured-floor-pilot/candidates/test_0000_sharpen_radius_max.png",
+    "sha256": "91f2f9971c1bb16b8e343bb2a038174b7a9e42d336d67de23d573967e7c480fd"
+  },
+  {
+    "path": "/Users/riabuz/.codex/color-suite-evidence/5000/fcs-measured-floor-pilot/candidates/test_0002_wb_shade.png",
+    "sha256": "46bc2a3bc53cdbaac04ecf8ca59d42aaad25acd536479f6961a9ae86c81a5374"
+  },
+  {
+    "path": "/Users/riabuz/.codex/color-suite-evidence/5000/fcs-measured-floor-pilot/candidates/test_0002_sharpen_amount_max.png",
+    "sha256": "06150b0d20fba85cde514535518bcfaa7aa3c4c37fdc19984b77e112c97930f0"
+  },
+  {
+    "path": "/Users/riabuz/.codex/color-suite-evidence/5000/fcs-measured-floor-pilot/candidates/test_0000_sharpen_radius_min.png",
+    "sha256": "207d65ec69506b15bb5c79ea997caa1e58d0332a303f10276eb3d2ddfb3d6956"
+  },
+  {
+    "path": "/Users/riabuz/.codex/color-suite-evidence/5000/fcs-measured-floor-pilot/candidates/test_0003_baseline.png",
+    "sha256": "76832515efa8abba203808d58c427411a88b0a02f918ceb92027f77d3be020a4"
+  },
+  {
+    "path": "/Users/riabuz/.codex/color-suite-evidence/5000/fcs-measured-floor-pilot/candidates/test_0003_whites_min.png",
+    "sha256": "b288375bc17c61658f15ce2bcbf921c63c9c354efad7cca42d5b9ab1ef6f5c51"
+  },
+  {
+    "path": "/Users/riabuz/.codex/color-suite-evidence/5000/fcs-measured-floor-pilot/candidates/test_0004_baseline.png",
+    "sha256": "ba49de5b8cb33d2abee31bf9f3e808b8a897a954816b992a777a9d65b1b91c91"
+  },
+  {
+    "path": "/Users/riabuz/.codex/color-suite-evidence/5000/fcs-measured-floor-pilot/candidates/test_0003_sharpen_detail_min.png",
+    "sha256": "76832515efa8abba203808d58c427411a88b0a02f918ceb92027f77d3be020a4"
+  },
+  {
+    "path": "/Users/riabuz/.codex/color-suite-evidence/5000/fcs-measured-floor-pilot/candidates/test_0005_baseline.png",
+    "sha256": "c4f08f4a8346f01b2a37e7fd66a91139441fee03f8c65e17988578bf9913c95d"
+  },
+  {
+    "path": "/Users/riabuz/.codex/color-suite-evidence/5000/fcs-measured-floor-pilot/candidates/test_0006_baseline.png",
+    "sha256": "61c2bc7f33ecb9810f766b0146bf99afce9bc1000eec1c348b70e9915bd0c2a4"
+  },
+  {
+    "path": "/Users/riabuz/.codex/color-suite-evidence/5000/fcs-measured-floor-pilot/candidates/test_0007_baseline.png",
+    "sha256": "64d52cdf71e95a5da69c4431afa8a8e9791929ae13322d38315233a7c411215e"
+  },
+  {
+    "path": "/Users/riabuz/.codex/color-suite-evidence/5000/fcs-measured-floor-pilot/candidates/test_0007_clarity_max.png",
+    "sha256": "609dbf404d9721cf08dcf119d548651a07289d8bb70b26d6f75de84a8ba1ffad"
+  },
+  {
+    "path": "/Users/riabuz/.codex/color-suite-evidence/5000/fcs-measured-floor-pilot/candidates/test_0007_texture_max.png",
+    "sha256": "1ef9f02713d06557fcc5e600cc65797cd9aa63a7fab045ab87d70f1f59c84823"
+  },
+  {
+    "path": "/Users/riabuz/.codex/color-suite-evidence/5000/fcs-measured-floor-pilot/candidates/test_0008_baseline.png",
+    "sha256": "7d10e558d4ed313820a721adbc787b25777722779d94a32d7621021d6e081c61"
+  },
+  {
+    "path": "/Users/riabuz/.codex/color-suite-evidence/5000/fcs-measured-floor-pilot/candidates/test_0007_whites_min.png",
+    "sha256": "9213e1f01d1cadb33b3b65271ca8175f36fe91d2b475a1cf83c949869d203a73"
+  },
+  {
+    "path": "/Users/riabuz/.codex/color-suite-evidence/5000/fcs-measured-floor-pilot/candidates/test_0009_baseline.png",
+    "sha256": "5280a0664f0c43ff8caf6e27973c1d2b090d72b9560baba5e47e42df0296c4e1"
+  },
+  {
+    "path": "/Users/riabuz/.codex/color-suite-evidence/5000/fcs-measured-floor-pilot/candidates/test_0009_whites_max.png",
+    "sha256": "2cb028d7326dee4450dbbd949a571d9b8ee281953c1c1763960456f19572769a"
+  },
+  {
+    "path": "/Users/riabuz/.codex/color-suite-evidence/5000/fcs-measured-floor-pilot/candidates/test_0010_baseline.png",
+    "sha256": "c2a6f0c24bb2fca4e5e4c0efcb6787e81c21b468f8607264c02ea19091c131e2"
+  },
+  {
+    "path": "/Users/riabuz/.codex/color-suite-evidence/5000/fcs-measured-floor-pilot/candidates/test_0013_baseline.png",
+    "sha256": "9eaca14607862e2c009fdd0effed7add19e90de6f722599e3531347ce41040b7"
+  },
+  {
+    "path": "/Users/riabuz/.codex/color-suite-evidence/5000/fcs-measured-floor-pilot/candidates/test_0011_baseline.png",
+    "sha256": "aa563c8dc839e199f2f36af8684672399020c53b58932aa878dccdf316495d68"
+  },
+  {
+    "path": "/Users/riabuz/.codex/color-suite-evidence/5000/fcs-measured-floor-pilot/candidates/test_0014_baseline.png",
+    "sha256": "f369fe06487c109b0f0b2e3702fc5a81a25d114aad9a9a43cad13e09f1dba002"
+  },
+  {
+    "path": "/Users/riabuz/.codex/color-suite-evidence/5000/fcs-measured-floor-pilot/candidates/test_0012_baseline.png",
+    "sha256": "096d5e3c2104583209270a7c120e4929001b4493e9776d0e451dc5e4745783bd"
+  },
+  {
+    "path": "/Users/riabuz/.codex/color-suite-evidence/5000/fcs-measured-floor-pilot/candidates/test_0018_baseline.png",
+    "sha256": "c71794ef1a9c1a5ac2c873e7e66ddedc7126d475bda3bf81f16f96ac9ce8e795"
+  },
+  {
+    "path": "/Users/riabuz/.codex/color-suite-evidence/5000/fcs-measured-floor-pilot/candidates/test_0018_contrast_min.png",
+    "sha256": "b1b779e94c64731ad6cdcde8218342b202298dd113ce0e48fdbcc7b1f19ecbbc"
+  },
+  {
+    "path": "/Users/riabuz/.codex/color-suite-evidence/5000/fcs-measured-floor-pilot/candidates/test_0015_baseline.png",
+    "sha256": "a68d155d509e32c65a2ff4115bce6f1b1ef9ca640cbb756e74d2d7498b69a0c4"
+  },
+  {
+    "path": "/Users/riabuz/.codex/color-suite-evidence/5000/fcs-measured-floor-pilot/candidates/test_0019_baseline.png",
+    "sha256": "450d53cf5793b13e3627c4eae7e557f990b8f9e3c4860e5a4ffef2084e96daf6"
+  },
+  {
+    "path": "/Users/riabuz/.codex/color-suite-evidence/5000/fcs-measured-floor-pilot/candidates/test_0020_baseline.png",
+    "sha256": "0d2e7eb4a12cdb22341543ff25192d3c542bf7c5b43cf387bcc59ed81936f950"
+  },
+  {
+    "path": "/Users/riabuz/.codex/color-suite-evidence/5000/fcs-measured-floor-pilot/candidates/test_0015_sharpen_amount_max.png",
+    "sha256": "cfbd185548745ed4ab2e6ccb3489de8d95fac88eff1300a8d0248bb87564e165"
+  },
+  {
+    "path": "/Users/riabuz/.codex/color-suite-evidence/5000/fcs-measured-floor-pilot/candidates/test_0017_baseline.png",
+    "sha256": "ab14e9e7344b3c212be4738c071015c632f6e9d8a60a0bc0b6b7c1b1e78e76b4"
+  }
+]

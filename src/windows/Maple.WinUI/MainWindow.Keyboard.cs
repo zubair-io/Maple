@@ -111,6 +111,7 @@ namespace Maple.WinUI
                     ViewModel.EnsureDecoded();
                     break;
                 case VirtualKey.Escape when _wbPickArmed: CancelWhiteBalancePick(); break;
+                case VirtualKey.Escape when _colorCurvePickArmed: CancelColorCurvePick(); break;
                 case VirtualKey.Escape when _mode == ShellMode.Edit && _showScopes: OnCloseScopes(this, new Microsoft.UI.Xaml.RoutedEventArgs()); break;
                 case VirtualKey.Escape when _mode == ShellMode.Edit: SetMode(ShellMode.Preview); break;
                 case VirtualKey.Escape when _mode == ShellMode.Preview: SetMode(ShellMode.Browse); break;
@@ -121,10 +122,10 @@ namespace Maple.WinUI
                     _ = SetActualSizeAsync();
                     break;
                 case (VirtualKey)0xBB when ctrl && _mode != ShellMode.Browse:  // '=' / '+'
-                    SetZoom(ViewerScroll.ZoomFactor * 1.5f);
+                    StepZoom(zoomIn: true);
                     break;
                 case (VirtualKey)0xBD when ctrl && _mode != ShellMode.Browse:  // '-'
-                    SetZoom(ViewerScroll.ZoomFactor / 1.5f);
+                    StepZoom(zoomIn: false);
                     break;
                 case VirtualKey.Z when ctrl && shift: ViewModel.Redo(); break;
                 case VirtualKey.C when ctrl && shift: OnCopySettings(this, new RoutedEventArgs()); break;

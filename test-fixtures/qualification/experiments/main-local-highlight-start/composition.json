@@ -1,0 +1,38 @@
+{
+  "captured_main": "cf62d12ddc573cff68780e7754f7b5b63f7ae621",
+  "kept_current": [
+    "src/raw-pipeline/raw-core/src/stage_dump.rs",
+    "src/raw-pipeline/raw-core/src/stages/highlight_recovery.rs",
+    "src/raw-pipeline/raw-core/src/stages/highlight_recovery/tests_local_matching.rs",
+    "src/raw-pipeline/raw-core/src/version.rs",
+    "src/raw-pipeline/raw-core/src/view/auto_profile/cache.rs"
+  ],
+  "reset_to_captured_main": [
+    "src/raw-pipeline/raw-core/examples/amaze-region-probe.rs",
+    "src/raw-pipeline/raw-core/examples/negative-whites-curve-probe.rs",
+    "src/raw-pipeline/raw-core/examples/scene-anchor-probe.rs",
+    "src/raw-pipeline/raw-core/src/demosaic/amaze/diag.rs",
+    "src/raw-pipeline/raw-core/src/demosaic/amaze/fcs.rs",
+    "src/raw-pipeline/raw-core/src/demosaic/amaze/green.rs",
+    "src/raw-pipeline/raw-core/src/demosaic/amaze/mod.rs",
+    "src/raw-pipeline/raw-core/src/demosaic/amaze/tests_fcs_luminance_edge.rs",
+    "src/raw-pipeline/raw-core/src/demosaic/amaze/tests_fcs_measured_floor.rs",
+    "src/raw-pipeline/raw-core/src/demosaic/amaze/tests_white_balance.rs",
+    "src/raw-pipeline/raw-core/src/demosaic/dual/mod.rs",
+    "src/raw-pipeline/raw-core/src/demosaic/mod.rs",
+    "src/raw-pipeline/raw-core/src/pipeline/develop/mod.rs",
+    "src/raw-pipeline/raw-core/src/pipeline/develop_sized.rs",
+    "src/raw-pipeline/raw-core/src/pipeline/pano/mod.rs",
+    "src/raw-pipeline/raw-core/src/pipeline/tile/prefix.rs",
+    "src/raw-pipeline/raw-core/src/stages/nlm.rs",
+    "src/raw-pipeline/raw-core/src/stages/nlm_accumulate.rs",
+    "src/raw-pipeline/raw-core/src/stages/nlm_tests.rs",
+    "src/raw-pipeline/raw-core/src/stages/nlm_tests_box.rs",
+    "src/raw-pipeline/raw-core/src/stages/nlm_tests_tail.rs",
+    "src/raw-pipeline/raw-gpu/src/noise_reduction.wgsl",
+    "src/raw-pipeline/raw-gpu/src/noise_reduction/tests.rs",
+    "src/raw-pipeline/raw-gpu/src/noise_reduction/tests_tail.rs",
+    "src/raw-pipeline/raw-gpu/src/noise_reduction/tests_tiled.rs"
+  ],
+  "intent": "One processing change on captured main: local highlight-recovery chromaticity weighting. Current37 output label,fit7 cache identity and observation-only stage dump preserved. All other processing additions reverted in this isolated experiment only, including their new property tests. No shipping adoption."
+}

@@ -7,8 +7,7 @@
  * restore workflow a single asset uses — the `moveToTrash`/`moveOutOfTrash`
  * file move (itself built on the generic crash-safe `relocateFile`
  * primitive, `fs/relocate.ts`, #2629), the `markSoftDeleted`/
- * `restoreFromTrash` DB repoint, the best-effort Meilisearch
- * tombstone/re-index, and the change-feed emission — rather than
+ * `restoreFromTrash` DB repoint and the change-feed emission — rather than
  * re-implementing a parallel path that could drift from the single-asset
  * one. `routes/assets/trash.ts` calls these two functions directly for its
  * soft-delete / restore branches; the folder orchestrator calls them once
@@ -21,6 +20,8 @@
  * scope and pulling it in here would add an unused branch to every caller.
  */
 
+import { isExcludedLocation, type IgnoreVerdictMemo } from '../fs/mapleignore.ts';
+import { refusesMoveUnderMarker } from '../fs/mapleignore-guard.ts';
 import * as path from 'node:path';
 // Read-only re-stat of the restored file — routed through `fs/mirrored.ts`
 // (which re-exports the full `node:fs/promises` surface) rather than a
@@ -29,15 +30,12 @@ import { stat } from '../fs/mirrored.ts';
 import type { ObjectId } from '../db/object-id.ts';
 import { findFolderById } from '../db/repos/folders.repo.ts';
 import { moveToTrash, moveOutOfTrash } from '../fs/trash.ts';
-import { composeSearchBlob } from '../enrichment/search-blob.ts';
-import { classifyMediaType } from '../indexer/media-types.ts';
 import { recordAndPublishAssetChange } from '../db/repos/changes.repo.ts';
-import { meilisearchClient } from '../enrichment/meilisearch-client.ts';
 import {
   findCoreInfoById,
   markSoftDeleted,
   restoreFromTrash,
-  restoreBackupDestinationOccupied,
+  restoreDestinationClaimed,
 } from '../db/repos/assets.repo.ts';
 import {
   prepareLifecycle,
@@ -47,9 +45,13 @@ import {
   lifecycleCommit,
   fenceLifecycleMove,
 } from '../cloud-backup/lifecycle.ts';
-import type { AssetCoreInfo } from '../db/repos/assets.repo.ts';
-import type { FileInfo } from '../db/schema.ts';
+import type { FileInfo, FolderWithId } from '../db/schema.ts';
 import { child as childLogger } from '../log.ts';
+import {
+  resolveRestoreSource,
+  restoreDestinationRefusal,
+  type RestoreRefusal,
+} from './restore-source.ts';
 
 const log = childLogger('library/asset-trash');
 
@@ -86,7 +88,7 @@ function toEntrySpec(fi: FileInfo | null): AssetLocationEntry | null {
  * whatever shared module it settles on and delete this copy.
  */
 function activeFileInfo(fileinfo: FileInfo[] | undefined): FileInfo | null {
-  const live = (fileinfo ?? []).filter((entry) => !entry.deleted_at);
+  const live = (fileinfo ?? []).filter((entry) => !entry.deleted_at && !isExcludedLocation(entry));
   return live.find((entry) => !entry.missing_since) ?? live[0] ?? null;
 }
 
@@ -107,30 +109,18 @@ function activeFileInfo(fileinfo: FileInfo[] | undefined): FileInfo | null {
 function resolveEntrySpec(
   fileinfo: FileInfo[] | undefined,
   explicit?: AssetLocationEntry,
+  allowExcluded = false,
 ): AssetLocationEntry | null {
-  return explicit ?? toEntrySpec(activeFileInfo(fileinfo));
-}
-
-/** Best-effort Meilisearch tombstone on trash. The catalogue is canonical;
- * a failure here must NOT roll back the soft-delete. The caller's
- * `markSoftDeleted` already re-armed the meili stage in the same transaction
- * that stamped `deleted_at`, so the stage's own handler tombstones the
- * document with retry/backoff even when this inline call fails (#2354) —
- * this is a fast-path only. */
-async function tombstoneInSearch(assetId: ObjectId, mapleId: string | null): Promise<void> {
-  if (!mapleId) return;
-  try {
-    await meilisearchClient().tombstone(mapleId);
-  } catch (err) {
-    log.warn(
-      {
-        assetId: assetId.toHexString(),
-        mapleId,
-        err: err instanceof Error ? err.message : String(err),
-      },
-      'meilisearch tombstone on trash failed — the catalogue is canonical, search will exclude via deleted_at filter',
-    );
-  }
+  if (!explicit) return toEntrySpec(activeFileInfo(fileinfo));
+  // An explicit entry (folder trash, upload replacement) is held to the same
+  // `.mapleignore` exclusion as the default pick (#5398).
+  const recorded = (fileinfo ?? []).find(
+    (entry) =>
+      entry.library_id.equals(explicit.libraryId) &&
+      entry.path === explicit.path &&
+      entry.filename === explicit.filename,
+  );
+  return recorded && isExcludedLocation(recorded) && !allowExcluded ? null : explicit;
 }
 
 export type TrashAssetOutcome =
@@ -159,13 +149,41 @@ export interface TrashAssetOptions {
    * single-asset HTTP route, which falls back to `activeFileInfo`.
    */
   entry?: AssetLocationEntry;
+  /** Let `entry` name a `.mapleignore`-excluded location (#5398). Only the
+   * upload route sets it, when new bytes replace that exact path: the old
+   * bytes go to Trash with their asset, so the stale claim on the path is
+   * retired instead of being recovered onto the replacement later. */
+  allowExcluded?: true;
+  /** Shared across one batch (folder trash) so each directory's marker chain
+   * is walked once. */
+  ignoreMemo?: IgnoreVerdictMemo;
+}
+
+/** The entry a trash call acts on and its library, or the outcome to return
+ * instead. Unless `allowExcluded`, the entry's directory is checked on disk
+ * for a `.mapleignore` chain right before anything moves (#5398). */
+async function trashTarget(
+  fileinfo: FileInfo[] | undefined,
+  opts: TrashAssetOptions,
+): Promise<{ entrySpec: AssetLocationEntry; folder: FolderWithId } | TrashAssetOutcome> {
+  const entrySpec = resolveEntrySpec(fileinfo, opts.entry, opts.allowExcluded);
+  if (!entrySpec) return { kind: 'no-location' };
+  const folder = await findFolderById(entrySpec.libraryId);
+  if (!folder) return { kind: 'no-folder' };
+  if (
+    !opts.allowExcluded &&
+    (await refusesMoveUnderMarker(folder.path, entrySpec.path, opts.ignoreMemo))
+  ) {
+    return { kind: 'error', error: 'the file is under a .mapleignore folder' };
+  }
+  return { entrySpec, folder };
 }
 
 /**
  * Soft-delete one live asset: move its RAW + sidecars into
  * `.maple/trash/<rel>` (via `moveToTrash`), repoint its fileinfo entry and
- * stamp `deleted_at` (via `markSoftDeleted`), best-effort tombstone it in
- * Meilisearch, and emit a delete change for the File Provider extension.
+ * stamp `deleted_at` (via `markSoftDeleted`), and emit a delete change for the
+ * File Provider extension.
  * Mirrors the soft-delete branch of `DELETE /api/assets/:id` exactly when
  * called without `opts.entry`.
  */
@@ -181,12 +199,10 @@ export async function trashAssetById(
   // repoint, folder-root lookup, change-feed folder) derives from THIS,
   // never from `info.folder_id` (the asset's globally-primary library,
   // which can differ for a multi-location asset).
-  const entrySpec = resolveEntrySpec(info.fileinfo, opts.entry);
-  if (!entrySpec) return { kind: 'no-location' };
+  const resolvedTarget = await trashTarget(info.fileinfo, opts);
+  if ('kind' in resolvedTarget) return resolvedTarget;
+  const { entrySpec, folder } = resolvedTarget;
   const { libraryId, path: entryPath, filename: entryFilename } = entrySpec;
-
-  const folder = await findFolderById(libraryId);
-  if (!folder) return { kind: 'no-folder' };
   const absPathResolved = path.join(folder.path, entryPath, entryFilename);
   const originalAbsPath = absPathResolved;
 
@@ -224,8 +240,6 @@ export async function trashAssetById(
 
   await finishLocalLifecycle(intent);
 
-  await tombstoneInSearch(id, info.maple_id);
-
   // Emit a delete change keyed on the path the OS / File Provider knows
   // about (the pre-trash location). The asset row stays for restore.
   // `folder_id` MUST be the library the trashed ENTRY belongs to
@@ -261,15 +275,11 @@ export interface RestoreAssetOptions {
    * Defaults to the asset's recorded `original_path`. */
   targetRelativePath?: string;
   /**
-   * Explicit fileinfo entry identifying WHICH trashed location to restore
-   * — same rationale as `TrashAssetOptions.entry`. `activeFileInfo`'s
-   * live/not-missing-tagged selection can't distinguish the trashed entry
-   * from an untouched entry in a different library (a trashed entry's OWN
-   * `deleted_at`/`missing_since` stay null — only the doc's top-level
-   * `deleted_at` differs), so the folder-restore orchestrator
-   * (`library/folder-trash.ts`) always passes this explicitly. Also
-   * bypasses the cross-library guard, since the caller already knows the
-   * asset's restore-relevant library.
+   * The trashed location the folder-restore orchestrator
+   * (`library/folder-trash.ts`) matched. It must be the copy inside
+   * `.maple/trash/`, or the restore is refused (#5405). Without it the
+   * restore finds that copy itself. Also bypasses the cross-library guard,
+   * since the caller already knows the asset's restore-relevant library.
    */
   entry?: AssetLocationEntry;
 }
@@ -286,11 +296,8 @@ export type RestoreAssetOutcome =
     }
   | { kind: 'not-found' }
   | { kind: 'not-trashed' }
-  | { kind: 'no-location' }
-  | { kind: 'no-folder' }
   | { kind: 'cross-library'; assetFolderId: string }
-  | { kind: 'invalid'; error: string }
-  | { kind: 'error'; error: string };
+  | RestoreRefusal;
 
 type RestoreTargetResolution =
   | { kind: 'ok'; targetAbs: string }
@@ -393,57 +400,11 @@ async function restatRestoredFile(
   }
 }
 
-/** Best-effort Meilisearch re-index — symmetric with `tombstoneInSearch`.
- * `restoreFromTrash` re-arms the meili stage in the same transaction that
- * clears `deleted_at`, which is the correctness guarantee (#2354); this is a
- * fast-path convenience only. The blob is recomposed from the fields the core
- * info carries rather than read back from storage: `asset_search` holds a row
- * only for an asset with a non-empty blob, so there is nothing to read for the
- * assets most likely to be restored. */
-async function reindexRestoredInSearch(
-  assetId: ObjectId,
-  info: AssetCoreInfo,
-  restoredFilename: string,
-  assetFolderId: ObjectId,
-): Promise<void> {
-  if (!info.maple_id) return;
-  try {
-    await meilisearchClient().upsert({
-      id: info.maple_id,
-      filename: restoredFilename,
-      searchBlob: composeSearchBlob({
-        place: info.place,
-        description: info.description,
-        ocrText: info.ocr_text,
-        capturedMonth: info.exif?.captured_month,
-      }),
-      description: info.description,
-      ocrText: info.ocr_text,
-      folderId: assetFolderId.toHexString(),
-      capturedAt: info.exif?.captured_at ?? null,
-      deletedAt: null,
-      mediaType: classifyMediaType(restoredFilename),
-      // Not on the core-info projection; the meili stage's own pass carries the
-      // real value, and a restored asset is visible until it says otherwise.
-      hidden: false,
-    });
-  } catch (err) {
-    log.warn(
-      {
-        assetId: assetId.toHexString(),
-        mapleId: info.maple_id,
-        err: err instanceof Error ? err.message : String(err),
-      },
-      'meilisearch re-index on restore failed — the row restored OK, search will lag until next meili stage pass',
-    );
-  }
-}
-
 /**
  * Restore one trashed asset: move its file back out of trash (via
  * `moveOutOfTrash`, collision-safe via `pickFreeRestoredPath`), repoint its
- * fileinfo entry and clear `deleted_at` (via `restoreFromTrash`),
- * best-effort re-index it in Meilisearch, and emit a restore change.
+ * fileinfo entry and clear `deleted_at` (via `restoreFromTrash`), and
+ * emit a restore change.
  * Mirrors `POST /api/assets/:id/restore` exactly.
  */
 export async function restoreAssetById(
@@ -464,57 +425,69 @@ export async function restoreAssetById(
     };
   }
 
-  // The ONE entry this call acts on — same rationale as `trashAssetById`.
-  const entrySpec = resolveEntrySpec(info.fileinfo, opts.entry);
-  if (!entrySpec) return { kind: 'no-location' };
+  // Only the copy the trash action moved into `.maple/trash/` ever moves back
+  // (#5405); an untouched copy elsewhere stays where it is.
+  const source = await resolveRestoreSource(info.fileinfo, opts.entry);
+  if ('kind' in source) return source;
+  const { location, libraryRoot, absPath: trashedAbsPath } = source;
+  const entrySpec: AssetLocationEntry = {
+    libraryId: location.library_id,
+    path: location.path,
+    filename: location.filename,
+  };
   const assetFolderId = entrySpec.libraryId;
 
-  const folder = await findFolderById(assetFolderId);
-  if (!folder) return { kind: 'no-folder' };
-  const trashedAbsPath = path.join(folder.path, entrySpec.path, entrySpec.filename);
-
   const targetResolution = resolveRestoreTarget(
-    folder.path,
+    libraryRoot,
     info.original_path,
     assetFolderId,
     opts,
   );
   if (targetResolution.kind !== 'ok') return targetResolution;
+  const destinationRefusal = await restoreDestinationRefusal(
+    libraryRoot,
+    targetResolution.targetAbs,
+  );
+  if (destinationRefusal) return destinationRefusal;
+  const sourceSize = await stat(trashedAbsPath).then(
+    (st) => st.size,
+    () => info.size,
+  );
 
   const intent = await prepareLifecycle(
     id.toHexString(),
     'restore',
     assetFolderId.toHexString(),
-    path.relative(folder.path, trashedAbsPath).split(path.sep).join('/'),
+    path.relative(libraryRoot, trashedAbsPath).split(path.sep).join('/'),
   );
   const result = await runLifecycleMove(intent, () =>
     moveOutOfTrash(
       trashedAbsPath,
       targetResolution.targetAbs,
-      (target) => recordLifecycleTarget(intent, folder.path, trashedAbsPath, target),
-      () => fenceLifecycleMove(intent),
+      (target) => recordLifecycleTarget(intent, libraryRoot, trashedAbsPath, target),
+      async () => {
+        await source.recheck();
+        await fenceLifecycleMove(intent);
+      },
       async (target) => {
         const { size, mtimeMs } = await restatRestoredFile(target, info.size);
         await restoreFromTrash({
           id,
-          libraryRoot: folder.path,
+          libraryRoot,
           libraryId: assetFolderId,
           newAbsPath: target,
           size,
           mtimeMs,
-          source: {
-            libraryId: entrySpec.libraryId,
-            path: entrySpec.path,
-            filename: entrySpec.filename,
-          },
+          source: entrySpec,
           lifecycle: await lifecycleCommit(intent),
         });
       },
       (candidate) =>
-        restoreBackupDestinationOccupied(
+        restoreDestinationClaimed(
           id,
           assetFolderId,
-          path.relative(folder.path, candidate).split(path.sep).join('/'),
+          path.relative(libraryRoot, candidate).split(path.sep).join('/'),
+          sourceSize,
         ),
     ),
   );
@@ -529,8 +502,6 @@ export async function restoreAssetById(
     info.size,
   );
   await finishLocalLifecycle(intent);
-
-  await reindexRestoredInSearch(id, info, restoredFilename, assetFolderId);
 
   // `folder_id` MUST be the library the restored entry belongs to
   // (`assetFolderId`, resolved above from `opts.entry` or the asset's

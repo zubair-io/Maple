@@ -7,6 +7,7 @@
   /// used by desktop Browse; neither action writes to an unverified source.
   struct PhoneSelectionControls: View {
     let vm: BrowseViewModel
+    let displayedAssets: [AssetRef]
     let clipboard: AdjustmentClipboard?
     let onMergePanorama: (() -> Void)?
     let onEditMetadata: (() -> Void)?
@@ -22,14 +23,15 @@
       guard let library = batchLibrary, let contents = clipboard?.contents,
         contents.scopeID == library.id
       else { return false }
-      return !vm.selectedAssets.isEmpty
+      return !vm.selectedAssets(in: displayedAssets).isEmpty
     }
 
     private var canSync: Bool {
-      guard batchLibrary != nil, let source = vm.selectedAsset,
+      guard batchLibrary != nil,
+        let source = displayedAssets.first(where: { $0.id == vm.selectedID }),
         source.adjustmentTransferTarget != nil
       else { return false }
-      return vm.selectedAssets.contains { $0.id != source.id }
+      return vm.selectedAssets(in: displayedAssets).contains { $0.id != source.id }
     }
 
     var body: some View {
@@ -41,6 +43,7 @@
         if vm.isSelecting {
           PhoneSelectionBar(
             vm: vm,
+            displayedAssets: displayedAssets,
             onMergePanorama: onMergePanorama,
             onEditMetadata: onEditMetadata,
             onBatchRename: onBatchRename,
@@ -74,16 +77,18 @@
 
     private func pasteSettings() {
       guard let source = clipboard?.contents else { return }
-      presentTransfer(source: source, assets: vm.selectedAssets)
+      presentTransfer(source: source, assets: vm.selectedAssets(in: displayedAssets))
     }
 
     private func syncSettings() {
-      guard let clipboard, let source = vm.selectedAsset else { return }
+      guard let clipboard,
+        let source = displayedAssets.first(where: { $0.id == vm.selectedID })
+      else { return }
       guard let library = batchLibrary else {
         clipboard.batchTransfers.error = "Open a single library or folder to sync settings."
         return
       }
-      let targets = vm.selectedAssets.filter { $0.id != source.id }
+      let targets = vm.selectedAssets(in: displayedAssets).filter { $0.id != source.id }
       Task {
         do {
           _ = try library.store(source)

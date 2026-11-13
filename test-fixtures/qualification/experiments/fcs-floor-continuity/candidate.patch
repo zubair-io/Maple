@@ -1,0 +1,109 @@
+diff --git a/src/raw-pipeline/raw-core/src/demosaic/amaze/fcs.rs b/src/raw-pipeline/raw-core/src/demosaic/amaze/fcs.rs
+index 5094fade4a..8ea378f346 100644
+--- a/src/raw-pipeline/raw-core/src/demosaic/amaze/fcs.rs
++++ b/src/raw-pipeline/raw-core/src/demosaic/amaze/fcs.rs
+@@ -290,6 +290,18 @@ pub(super) fn suppress_false_colour(
+                     // BOTH fire.
+                     let alpha = (strength * ghf * disagree).clamp(0.0, 1.0);
+                     let blended = ((1.0 - alpha) * c_hue + alpha * c_val).max(0.0);
++                    // Continue the zero-kernel fallback toward the measured
++                    // floor instead of jumping from the donor mean at the
++                    // guard boundary. The permitted excess above the floor
++                    // falls linearly with the remaining measured deficit.
++                    // Zero/negative fallbacks retain their existing behavior.
++                    let blended = if px[t] > 0.0 && !guide_supported {
++                        let deficit = (measured_floor - c_hue) / measured_floor;
++                        let ceiling = measured_floor + deficit * (c_val - measured_floor);
++                        blended.min(ceiling)
++                    } else {
++                        blended
++                    };
+                     px[t] = if px[t] < 0.0 {
+                         supported_chroma_ceiling(x, y, w, cfa_flat, green)
+                             .map_or(blended, |ceiling| blended.min(ceiling))
+diff --git a/src/raw-pipeline/raw-core/src/demosaic/amaze/tests_fcs_measured_floor.rs b/src/raw-pipeline/raw-core/src/demosaic/amaze/tests_fcs_measured_floor.rs
+index be9472698e..80e0e85033 100644
+--- a/src/raw-pipeline/raw-core/src/demosaic/amaze/tests_fcs_measured_floor.rs
++++ b/src/raw-pipeline/raw-core/src/demosaic/amaze/tests_fcs_measured_floor.rs
+@@ -98,3 +98,81 @@ fn unsupported_green_keeps_positive_chroma_inside_the_measured_envelope() {
+         }
+     }
+ }
++
++#[test]
++fn unsupported_green_value_correction_is_continuous_at_measured_floor() {
++    for pattern in PATTERNS {
++        for centre_colour in [0, 2] {
++            for exposure in [0.01_f32, 1.0, 16.0] {
++                let i = (10..14)
++                    .flat_map(|y| (10..14).map(move |x| y * SIDE + x))
++                    .find(|&i| sampled(pattern, i) == centre_colour)
++                    .unwrap();
++                let target = 2 - centre_colour;
++                let mut green = vec![0.07 * exposure; SIDE * SIDE];
++                let mut cfa = green.clone();
++                for (offset, value) in [
++                    (-1_isize, 0.06),
++                    (1, 0.73),
++                    (-(SIDE as isize), 0.06),
++                    (SIDE as isize, 0.30),
++                ] {
++                    let n = (i as isize + offset) as usize;
++                    green[n] = value * exposure;
++                    cfa[n] = green[n];
++                }
++                for ((dx, dy), value) in [(-1_isize, -1_isize), (1, -1), (-1, 1), (1, 1)]
++                    .into_iter()
++                    .zip([0.1, 0.3, 0.5, 0.7])
++                {
++                    cfa[(i as isize + dy * SIDE as isize + dx) as usize] = value * exposure;
++                }
++                let floor = 0.1 * exposure;
++                let before = f32::from_bits(floor.to_bits() - 1);
++                let run = |value| {
++                    let mut image =
++                        Image::new(SIDE as u32, SIDE as u32, ColorSpace::CameraNativeLinearRgb);
++                    image.pixels.fill([0.07 * exposure; 3]);
++                    image.pixels[i][target] = value;
++                    let sampled_before = image.pixels[i][centre_colour];
++                    let green_before = image.pixels[i][1];
++                    fcs::suppress_false_colour(
++                        &mut image,
++                        &cfa,
++                        &green,
++                        SIDE,
++                        SIDE,
++                        pattern,
++                        fcs::FALSE_COLOUR_SUPPRESS_STRENGTH,
++                    );
++                    assert_eq!(image.pixels[i][centre_colour], sampled_before);
++                    assert_eq!(image.pixels[i][1], green_before);
++                    image.pixels[i][target]
++                };
++                let below = run(before);
++                let at = run(floor);
++                let zero = run(0.0);
++                let positive_zero = run(f32::from_bits(1));
++                assert!(
++                    zero.to_bits().abs_diff(positive_zero.to_bits()) <= 1,
++                    "The nonnegative correction must stay continuous at zero"
++                );
++                // The unique affine continuation connects the existing
++                // zero-kernel value fallback with the unchanged floor guard.
++                // Its slope need not be one; require <=1 ulp vs an independent
++                // f64 oracle, rather than imposing an invalid unit-slope bound.
++                let donor_mean = [0.1_f32, 0.3, 0.5, 0.7]
++                    .into_iter()
++                    .map(|v| v * exposure)
++                    .sum::<f32>()
++                    * 0.25;
++                let expected = (floor as f64
++                    + (donor_mean as f64 - floor as f64) * (floor as f64 - before as f64)
++                        / floor as f64) as f32;
++                assert!(below.to_bits().abs_diff(expected.to_bits()) <= 1,
++                    "{pattern:?} colour={centre_colour} exposure={exposure}: {below} vs analytic continuation {expected}");
++                assert_eq!(at.to_bits(), floor.to_bits());
++            }
++        }
++    }
++}

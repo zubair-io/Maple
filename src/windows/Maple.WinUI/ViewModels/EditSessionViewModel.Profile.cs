@@ -7,6 +7,20 @@ namespace Maple.WinUI.ViewModels
 {
     public partial class EditSessionViewModel
     {
+        private AutoProfileStatusState _autoProfileStatus;
+
+        /// <summary>What the current decode's Auto fit achieved (#5458); null
+        /// until that decode lands, and for Neutral or raster sources.</summary>
+        public AutoProfileOutcome? AutoProfileOutcome => _autoProfileStatus.Outcome;
+
+        private void UpdateAutoProfileStatus(AutoProfileStatusState next)
+        {
+            var outcomeChanged = next.Outcome != _autoProfileStatus.Outcome;
+            _autoProfileStatus = next;
+            if (outcomeChanged)
+                OnPropertyChanged(nameof(AutoProfileOutcome));
+        }
+
         /// <summary>A profile choice is one discrete, undoable edit. Finish
         /// any pending slider gesture before recording the profile change.</summary>
         public void SelectProfile(ProfileMode profile)
@@ -20,8 +34,7 @@ namespace Maple.WinUI.ViewModels
             _undoTimer = null;
             var before = Adjustments.Clone();
             if (_undoBaseline != null
-                && XmpWriter.Serialize(new XmpSidecarDocument { Adjustments = _undoBaseline })
-                    != XmpWriter.Serialize(new XmpSidecarDocument { Adjustments = before }))
+                && XmpWriter.Fingerprint(_undoBaseline) != XmpWriter.Fingerprint(before))
                 CommitUndoBoundary();
 
             Adjustments.Profile = profile;
@@ -51,8 +64,7 @@ namespace Maple.WinUI.ViewModels
             // Close any earlier quiet-timer edit first, so this gesture is its
             // own undo entry rather than merging with whatever preceded it.
             if (_undoBaseline != null
-                && XmpWriter.Serialize(new XmpSidecarDocument { Adjustments = _undoBaseline })
-                    != XmpWriter.Serialize(new XmpSidecarDocument { Adjustments = before }))
+                && XmpWriter.Fingerprint(_undoBaseline) != XmpWriter.Fingerprint(before))
                 CommitUndoBoundary();
 
             apply(Adjustments);
@@ -62,6 +74,17 @@ namespace Maple.WinUI.ViewModels
 
         private void AfterModelReplaced(AdjustmentState before)
         {
+            if (SelectedPhoto is { } photo)
+            {
+                var beforeHadBrush = before.LocalAdjustments.Any(layer => layer.Mask is BrushMask);
+                var currentHasBrush = Adjustments.LocalAdjustments.Any(layer => layer.Mask is BrushMask);
+                if (beforeHadBrush && !currentHasBrush)
+                    SetBrushCorrectionDiscardPath(photo.FilePath);
+                else if (currentHasBrush && _discardBrushCorrectionsForPhotoPath is { } path &&
+                    string.Equals(path, photo.FilePath, StringComparison.OrdinalIgnoreCase))
+                    SetBrushCorrectionDiscardPath(null);
+            }
+            ReleaseBrushRasters();
             SyncSlidersFromModel();
             ScheduleSidecarWrite();
             RefreshRenderAfterModelChange(before);
@@ -76,6 +99,11 @@ namespace Maple.WinUI.ViewModels
                 // Repair-only changes keep that calibration valid while the
                 // new repair pixels are prepared on the decode worker.
                 DecodeCurrent(photo, preserveCurrentBase: RenderEngine.OnlyRepairDecodeInputsChanged(before, Adjustments));
+                return;
+            }
+            if (Adjustments.LocalAdjustments.Any(layer => layer.Mask is BrushMask))
+            {
+                RehydrateCurrentBrushRasters(Adjustments, () => Renderer.RequestRender(Adjustments.Clone()));
                 return;
             }
             Renderer.RequestRender(Adjustments.Clone());

@@ -71,24 +71,26 @@ pub unsafe extern "C" fn maple_set_deep_denoise_progress(
     callback: MapleDeepDenoiseProgressFn,
     user: *mut c_void,
 ) {
-    let registration = callback.map(|f| Registration {
-        callback: f,
-        user: user as usize,
-    });
-    // Scoped so the write guard is released before `set_progress_sink` — that
-    // call takes bm3d's own lock, and holding two registry locks at once is
-    // how a lock-order inversion gets introduced later.
-    {
-        let mut guard = REGISTRATION
-            .write()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        *guard = registration;
-    }
-    bm3d::set_progress_sink(
-        registration
-            .is_some()
-            .then_some(forward as bm3d::ProgressSink),
-    );
+    crate::error::catch_panic("maple_set_deep_denoise_progress", (), || {
+        let registration = callback.map(|f| Registration {
+            callback: f,
+            user: user as usize,
+        });
+        // Scoped so the write guard is released before `set_progress_sink` — that
+        // call takes bm3d's own lock, and holding two registry locks at once is
+        // how a lock-order inversion gets introduced later.
+        {
+            let mut guard = REGISTRATION
+                .write()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            *guard = registration;
+        }
+        bm3d::set_progress_sink(
+            registration
+                .is_some()
+                .then_some(forward as bm3d::ProgressSink),
+        );
+    })
 }
 
 /// raw-core sink → the registered C callback.

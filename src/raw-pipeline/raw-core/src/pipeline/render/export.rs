@@ -110,13 +110,26 @@ pub fn render_export_from_raw_with_film(
     Ok((w, h, pixels))
 }
 
+/// The export terminal for `depth`, for renders that develop their own scene.
+pub(super) fn finish_depth(
+    scene: &mut Image,
+    orientation: ExifOrientation,
+    model: &AdjustmentModel,
+    depth: ExportDepth,
+) -> (u32, u32, ExportPixels) {
+    match depth {
+        ExportDepth::Eight => finish_eight(scene, orientation, model),
+        ExportDepth::Sixteen => finish_sixteen(scene, orientation, model),
+    }
+}
+
 /// 8-bit export terminal: dither/quantize, then the geometry tail.
 ///
 /// One terminal per depth, each with exactly one quantize call, so
 /// `dither_terminal_tests` can check the #441 invariant — nothing that touches
 /// pixel VALUES may run after the quantize — on the export chains the same way
 /// it checks it on the display chain.
-pub(super) fn finish_eight(
+fn finish_eight(
     scene: &mut Image,
     orientation: ExifOrientation,
     model: &AdjustmentModel,
@@ -130,7 +143,7 @@ pub(super) fn finish_eight(
 }
 
 /// 16-bit export terminal: dither/quantize at 16 bits, then the geometry tail.
-pub(super) fn finish_sixteen(
+fn finish_sixteen(
     scene: &mut Image,
     orientation: ExifOrientation,
     model: &AdjustmentModel,

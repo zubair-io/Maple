@@ -1,0 +1,9 @@
+/opt/homebrew/lib/python3.14/site-packages/colour/utilities/verbose.py:340: ColourUsageWarning: "Matplotlib" related API features are not available: "No module named 'matplotlib'".
+See the installation guide for more information: https://www.colour-science.org/installation-guide/
+  warn(*args, **kwargs)
+{"diagnostic_only": true, "source_fixture": "test_0010", "success": true, "message": "Optimization terminated successfully", "iterations": 13, "seconds": 0.9063200829987181, "minimum_constraint": -2.6103251504761005e-15, "objective": 0.035116120954640256}
+Traceback (most recent call last):
+  File "/Users/riabuz/.codex/color-suite-evidence/5000/auto-jpeg-smooth-neutral-probe/probe.py", line 44, in <module>
+    rgb=(h@lut[diag])[None,:,:];v=band.ramp_axis_values(rgb,'18_auto_tail','luma');row={'label':label,'neutral':{'second_difference':band.second_difference_spike(v),'flat_run':band.flat_run_fraction(v),'rgb_drift':band.per_row_rgb_drift(rgb)},'sets':[]}
+                                                                                                                                                                                ^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: module 'banding_check' has no attribute 'flat_run_fraction'

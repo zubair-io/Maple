@@ -18,7 +18,7 @@ import { maple } from 'maple';
 import { DEFAULT_EXPORT_RECIPE } from '../generated/export-recipe.generated.ts';
 import { ffiPool } from '../ffi/ffi-pool.ts';
 import { cachePathFor, resolveThumbPath, xmpSidecarPath } from '../fs/xmp.ts';
-import { PIPELINE_OUTPUT_VERSION } from '../generated/adjustment-fields.generated.ts';
+import { legacyDerivativePath } from '../fs/legacy-derivative.ts';
 import { thumbRoutes } from '../routes/library/thumb.ts';
 import { previewRoutes } from '../routes/library/preview.ts';
 import { registerLibrary, seedRouteAsset } from '../../tests/helpers/assets-route-fixtures.ts';
@@ -135,11 +135,8 @@ describe('RAW derivatives preserve real XMP edits (#3971)', () => {
           ),
         ).toEqual({ ok: true });
         const foreign = await readFile(cameraAvif);
-        const paths = [0, PIPELINE_OUTPUT_VERSION - 1, PIPELINE_OUTPUT_VERSION + 1].map((version) =>
-          output.replace(
-            `.v${PIPELINE_OUTPUT_VERSION}.avif`,
-            `${version === 0 ? '' : `.v${version}`}.avif`,
-          ),
+        const paths = [24, 26].map((version) =>
+          legacyDerivativePath(output)!.replace('.v25.avif', `.v${version}.avif`),
         );
         for (const path of paths) await writeFile(path, foreign);
         await tier.generate(rawPath);

@@ -1,61 +1,62 @@
 # Apple platform
 
-Everything Apple lives under `src/apple/`: one Xcode project (`Maple.xcodeproj`) that ships a single universal app — product name **Maple**, bundle id `app.justmaple.aperture`, running on macOS, iPhone and iPad from one target — plus a separate tvOS app, four extensions, a macOS LaunchAgent, and two test bundles. Almost none of the interesting code is in the Xcode targets: the domain lives in three local Swift packages under `src/apple/Packages/` (`MapleCore`, `MapleUI`, `MapleBackup`), and all the image math lives in Rust, linked as a static library through `Frameworks/RawPipeline.xcframework`. Those `.a` slices and the generated `RawPipeline.h` headers are gitignored (the static libs are 200–500 MB each), so a fresh clone must build them once with `scripts/build-xcframework.sh` before Xcode can link or SwiftPM can compile. The editor renders through the Rust FFI — either the wgpu GPU path presenting straight into a `CAMetalLayer`, or a CoreImage CPU fallback — never through hand-written Apple render kernels, which were all deleted once the Rust chain subsumed them.
+Everything Apple lives under `src/apple/`: one Xcode project (`Maple.xcodeproj`) that ships a single universal app — product name **Maple**, bundle id `app.justmaple.aperture`, running on macOS, iPhone and iPad from one target — plus a separate tvOS app with its Top Shelf extension (same bundle id, so one App Store record and one purchase cover every platform), a watchOS companion app, four extensions, a macOS LaunchAgent, and four test bundles. Almost none of the interesting code is in the Xcode targets: the domain lives in three local Swift packages under `src/apple/Packages/` (`MapleCore`, `MapleUI`, `MapleBackup`), and all the image math lives in Rust, linked as a static library through `Frameworks/RawPipeline.xcframework`. Those `.a` slices and the generated `RawPipeline.h` headers are gitignored (the static libs are 200–500 MB each), so a fresh clone must build them once with `scripts/build-xcframework.sh` before Xcode can link or SwiftPM can compile. The editor renders through the Rust FFI — either the wgpu GPU path presenting straight into a `CAMetalLayer`, or a CoreImage CPU fallback — never through hand-written Apple render kernels, which were all deleted once the Rust chain subsumed them.
 
 ## The Xcode project
 
-Nine native targets, two committed schemes.
+Thirteen native targets, three committed schemes.
 
-| Target               | Product           | Bundle id                   | Platforms          | Deployment            |
-| -------------------- | ----------------- | --------------------------- | ------------------ | --------------------- |
-| Maple                | app               | `app.justmaple.aperture`    | macOS, iOS, iPadOS | macOS 14.0 / iOS 26.0 |
-| Maple TV             | app               | `app.justmaple.aperture.tv` | tvOS               | tvOS 17.0             |
-| MapleFileProvider    | app extension     | `…aperture.FileProvider`    | macOS              | macOS 14.0            |
-| MapleFileProviderIOS | app extension     | `…aperture.FileProviderIOS` | iOS                | iOS 26.0              |
-| MapleQuickLook       | app extension     | `…aperture.QuickLook`       | macOS              | macOS 14.0            |
-| MapleWidget          | app extension     | `…aperture.Widget`          | macOS, iOS         | macOS 14.0 / iOS 26.0 |
-| MapleBackupAgent     | command-line tool | —                           | macOS              | macOS 14.0            |
-| MapleTests           | unit-test bundle  | `…aperture.Tests`           | macOS, iOS         | —                     |
-| MapleUITests         | UI-test bundle    | `…aperture.UITests`         | macOS, iOS         | —                     |
+| Target                       | Product           | Bundle id                      | Platforms          | Deployment            |
+| ---------------------------- | ----------------- | ------------------------------ | ------------------ | --------------------- |
+| Maple                        | app               | `app.justmaple.aperture`       | macOS, iOS, iPadOS | macOS 14.0 / iOS 26.0 |
+| Maple TV                     | app               | `app.justmaple.aperture`       | tvOS               | tvOS 17.0             |
+| Maple Watch Watch App        | companion app     | `app.justmaple.aperture.watch` | watchOS            | watchOS 10.0          |
+| MapleTopShelf                | app extension     | `…aperture.MapleTopShelf`      | tvOS               | tvOS 17.0             |
+| MapleFileProvider            | app extension     | `…aperture.FileProvider`       | macOS              | macOS 14.0            |
+| MapleFileProviderIOS         | app extension     | `…aperture.FileProviderIOS`    | iOS                | iOS 26.0              |
+| MapleQuickLook               | app extension     | `…aperture.QuickLook`          | macOS              | macOS 14.0            |
+| MapleWidget                  | app extension     | `…aperture.Widget`             | macOS, iOS         | macOS 14.0 / iOS 26.0 |
+| MapleBackupAgent             | command-line tool | —                              | macOS              | macOS 14.0            |
+| MapleTests                   | unit-test bundle  | `…aperture.Tests`              | macOS, iOS         | —                     |
+| MapleUITests                 | UI-test bundle    | `…aperture.UITests`            | macOS, iOS         | —                     |
+| Maple Watch Watch AppTests   | unit-test bundle  | `…aperture.watch.Tests`        | watchOS            | —                     |
+| Maple Watch Watch AppUITests | UI-test bundle    | `…aperture.watch.UITests`      | watchOS            | —                     |
 
 Which package products each target links (from `Maple.xcodeproj/project.pbxproj`):
 
-| Target                                                    | Links                                                          |
-| --------------------------------------------------------- | -------------------------------------------------------------- |
-| Maple                                                     | MapleCore, MapleUI, MapleBackup                                |
-| Maple TV                                                  | MapleCloudKit only — deliberately no RawPipeline, no MapleCore |
-| MapleWidget                                               | MapleCloudKit                                                  |
-| MapleFileProvider / MapleFileProviderIOS / MapleQuickLook | MapleCore                                                      |
-| MapleBackupAgent                                          | MapleCore, MapleBackup                                         |
+| Target                                   | Links                                                          |
+| ---------------------------------------- | -------------------------------------------------------------- |
+| Maple                                    | MapleCore, MapleUI, MapleBackup                                |
+| Maple TV                                 | MapleCloudKit only — deliberately no RawPipeline, no MapleCore |
+| Maple Watch Watch App                    | MapleWatch, which links only MapleCloudKit                     |
+| MapleWidget                              | MapleCloudKit                                                  |
+| MapleFileProvider / MapleFileProviderIOS | MapleFileProviderCore (+ MapleCloudKit) — no RawPipeline       |
+| MapleQuickLook                           | MapleCore                                                      |
+| MapleBackupAgent                         | MapleCore, MapleBackup                                         |
 
-Only two schemes are committed under `Maple.xcodeproj/xcshareddata/xcschemes/`: **Maple** (which also owns the MapleTests + MapleUITests test action, neither skipped) and **MapleBackupAgent**. The Maple scheme's test action pre-sets `MAPLE_UITEST_FIXTURE_ROOT` to the repo's `test-fixtures/raws` and `MAPLE_UITEST_GOLDENS_ROOT` to `MapleUITests/Goldens`, so a test run from Xcode finds fixtures without extra arguments.
+Three schemes are committed under `Maple.xcodeproj/xcshareddata/xcschemes/`: **Maple** (which also owns the MapleTests + MapleUITests test action, neither skipped), **MapleBackupAgent**, and **Maple Watch** (the Watch app and its tests). The Maple scheme's test action pre-sets `MAPLE_UITEST_FIXTURE_ROOT` to the repo's `test-fixtures/raws` and `MAPLE_UITEST_GOLDENS_ROOT` to `MapleUITests/Goldens`, so a test run from Xcode finds fixtures without extra arguments.
 
 ### Info.plist
 
 The app target sets `GENERATE_INFOPLIST_FILE = YES` **and** `INFOPLIST_FILE = Maple-Info.plist` — Xcode merges the two. The synthesized half comes from `INFOPLIST_KEY_*` build settings: display name "Maple", photography app category, camera / photo-library / local-network usage strings, `NSBonjourServices = _smb._tcp`, the three bundled font files (`Lato-Regular`, `Lato-Bold`, `Merriweather-Bold`, registered at runtime from `MapleApp.init`), and the supported orientations. `Maple-Info.plist` carries only the keys Xcode's synthesizer refuses to allowlist: the `maple://` URL scheme (`CFBundleURLTypes`), `NSAppTransportSecurity` → `NSAllowsLocalNetworking` (self-hosted servers on the LAN speak plain HTTP), the `CFBundleDocumentTypes` claims that put Maple in Finder's "Open With" (`public.camera-raw-image` plus JPEG/PNG/HEIC/HEIF/TIFF, both role `Viewer` / rank `Alternate`), and `LSSupportsOpeningDocumentsInPlace`. The four extension targets each own a hand-written `Info.plist` with `GENERATE_INFOPLIST_FILE = NO`.
 
-Build provenance keys (`MapleBuildGitSHA`, `MapleBuildDate`, and optional `MapleEarlyFeatures`) are stamped directly into the generated `Info.plist` at build time by the "Stamp build provenance" Run Script phase. To prevent race conditions with Xcode's `ProcessInfoPlistFile` during parallel or incremental builds, the phase declares `$(TARGET_BUILD_DIR)/$(INFOPLIST_PATH)` as an input path in its `inputPaths` array, guaranteeing that Xcode finishes generating the plist before stamping begins (#4183).
+Build provenance keys (`MapleBuildGitSHA` and `MapleBuildDate`) are stamped directly into the generated `Info.plist` at build time by the "Stamp build provenance" Run Script phase. To prevent race conditions with Xcode's `ProcessInfoPlistFile` during parallel or incremental builds, the phase declares `$(TARGET_BUILD_DIR)/$(INFOPLIST_PATH)` as an input path in its `inputPaths` array, guaranteeing that Xcode finishes generating the plist before stamping begins (#4183).
 
 The app's entitlements (`Maple/Maple.entitlements`) request the sandbox, the App Group `group.app.justmaple.aperture`, app-scope bookmarks, user-selected read/write, network client, the `…aperture.shared` keychain group, extended virtual addressing and increased memory limit (100 MP RAWs), and `com.apple.security.cs.disable-library-validation` — needed because panorama stitching `dlopen`s a Microsoft-signed ONNX Runtime dylib.
 
-The Maple target's **Stamp build provenance** phase declares
-`$(TARGET_BUILD_DIR)/$(INFOPLIST_PATH)` as an input (#4183). Xcode therefore
-finishes processing the app plist before the phase writes `MapleBuildGitSHA`,
-`MapleBuildDate` and the optional `MapleEarlyFeatures` value, then signs the app.
-The phase's position in the build-phase list alone does not establish this order.
-The existing CI commit/tag and explicit early-feature overrides retain their
-precedence; local Debug builds leave the early-feature key absent for the runtime
-default. Qualification checks clean and incremental Mac/simulator builds, final
-plist contents and deep signature verification.
+## Colour grading and curves
+
+`ColorGradingPanel.swift` draws the wheels, `Blending` and the tonal-zone strip; edge drags are measured in the strip's own named coordinate space and mapped by `ColorGradeZoneEdge` (MapleCore, tested) so the pivot follows the pointer, not the 22pt handle. `ToneCurveSection` adds the parametric split diamonds and mode toggle (`ToneCurveSplits`), and `ColorCurvesRibbonView` is the `8-Band Mixer | Color Curves` switch with six pills, knots, Lock Skin and the eyedropper, whose model is `ColorCurvePicker` (MapleCore). The eyedropper calls `maple_sample_color_curve_oriented` through `ColorCurveSample`.
 
 ## Local packages
 
 ### MapleCore
 
-`src/apple/Packages/MapleCore` — swift-tools-version 6.1, language mode pinned to Swift 5. Two library products:
+`src/apple/Packages/MapleCore` — swift-tools-version 6.1, language mode pinned to Swift 5. Three library products:
 
 - **MapleCore** — the domain core. Depends on the `RawPipeline` binary target, AMSMB2 (SMB 2/3 client), MapleBackup, and swift-otel (OTLP/HTTP trait only, which keeps the deployment floor at macOS 14 / iOS 17).
 - **MapleCloudKit** — deliberately dependency-free networking/auth/admin layer so the tvOS app can link it without pulling in RawPipeline.
+- **MapleFileProviderCore** — the File Provider implementation (`Sources/MapleCore/FileProvider/`), depending only on MapleCloudKit so the extensions stay small (see [File Provider memory budget](#file-provider-memory-budget)). MapleCore excludes that directory and re-exports the module, so app code still imports MapleCore alone.
 
 MapleCore's top-level directories map to subsystems: `Editor` (adjustment state, presets, crop geometry, tone curves, canvas zoom), `Cache` (thumbnail memory/disk, rendered-preview, decoded-RAW, tile manager, per-folder index), `Cloud` (self-hosted/hosted source, timeline view models, cloud sidecar store), `Sources` (the filesystem / SMB / PhotoKit adapters and bookmark store), `Browse` (merged-timeline math), `FileOperations` (local + SMB rename/move/trash, collision resolution, filename templates), `FileProvider` (the whole replicated-extension implementation), `Panorama` (stitcher protocol, Rust FFI stitcher, ML-runtime provisioning), `Auth`, `Observability` (OTel wiring), `Layout`, `Grid`, and `Generated` (codegen output — see below). Loose files at the package root hold the render path, the XMP serializer, and the FFI wrapper.
 
@@ -71,9 +72,33 @@ Adoption in the app is partial and observable: roughly 22 of the app's ~137 view
 
 ### MapleBackup
 
-`src/apple/Packages/MapleBackup` — the device-side PhotoKit backup engine, its only dependency GRDB. `BackupEngine` runs `queue.dequeue → state.transition(.uploading) → reader.read → upload → sidecars.delete → state.transition(.uploaded)`. `BackupStateStore` persists the queue's state machine to SQLite (one `tasks` table keyed by device id + PHAsset local id) because that shape needs concurrent updates and restart recovery; user-visible sidecars stay `.xmp` files in `AppSupportSidecarStore`, a file-per-PHAsset store. Failures return the task to `.pending` and retry with exponential backoff (1s, 2s, 4s… capped at an hour), giving up as `.failedRetry` after 8 attempts. When Wi-Fi-only is set and the device is on cellular, background-priority tasks are re-enqueued after a 30-second sleep rather than uploaded. Only the primary bytes upload decides success: the sidecar, Apple-rendered twin and Live Photo `.mov` are best-effort companions uploaded after the photo commits, each with its own bounded retry, and a companion failure never burns the photo's retry budget.
+`src/apple/Packages/MapleBackup` — the device-side PhotoKit backup engine, its only dependency GRDB. `BackupEngine` runs `queue.dequeue → state.claimForUpload → reader.read → upload → state.transition(.uploaded)`, where `upload` sends the original and then the Apple-rendered twin and Live Photo `.mov`; afterwards it sends the Maple edit sidecar best-effort and keeps the local `.xmp`. `BackupStateStore` persists the queue's state machine to SQLite (a `tasks` table keyed by device id + PHAsset local id, `uploaded_sidecars` for the edit revision last delivered per photo, and `discovery_cursors`, described below) because that shape needs concurrent updates and restart recovery; user-visible sidecars stay `.xmp` files in `AppSupportSidecarStore`, a file-per-PHAsset store. Failures return the task to `.pending` and retry with exponential backoff (1s, 2s, 4s… capped at an hour), giving up as `.failedRetry` after 8 attempts. When Wi-Fi-only is set and the device is on cellular, background-priority tasks are re-enqueued after a 30-second sleep rather than uploaded. A photo counts as uploaded only once its original, Apple-rendered twin and Live Photo `.mov` have all landed: a failed read or upload of either companion fails the attempt and retries on the photo's budget. A row records that it still owes companions until then, so a library walk never settles it from the server's copy of the original, and a photo out of retries stays failed until the user's Retry. Only the Maple edit sidecar is sent after the photo commits, best-effort with its own bounded retry; its delivered revision is tracked so a later walk re-sends an undelivered edit. On iOS the state database lives in the App Group container, where a process suspended holding a file lock is killed (`0xDEAD10CC`, #5652): leaving the foreground (and finishing or expiring a BGTask) stops the engine, then posts GRDB's suspend notification (`BackupStateSuspension`, `EngineHost.suspendStateStore`) under a short background assertion; the next foreground resumes the database and restarts the engine, and any write refused in between leaves its row for `rehydrate`. A panorama stitch on the device pauses the backup for its duration (#5653): `EngineHost.pauseForPanorama()` stops the engine (in-flight uploads are cancelled and their rows go back to `rehydrate`) and returns a counted pause; `releasePause` restarts the backup only when the last pause is released, the user has not stopped it, and the app is in the foreground. `BackupRunGate` holds both reasons the engine must stay down (suspension and pauses), so a pause released in the background does not restart the engine, backgrounding while paused changes nothing, and a BGProcessingTask wake does not run the backup while a stitch holds a pause. The backup panel shows "Paused for panorama" meanwhile. On iOS the engine also processes at most 3 assets at once (`BackupEngine.defaultMaxConcurrency`; 8 elsewhere), since each holds mapped resources until its upload ends.
+
+Before #5777, a photo could be marked uploaded after its Live Photo video or edited render was dropped, and neither the device's records nor a reinstall could tell. The periodic full scan repairs these photos (#5778). The server's `/backup/state` listing reports, for each original, whether it holds the video (`has_live_video`) and the render (`has_rendered`). For each photo recorded as uploaded whose companion the server lacks, the scan checks PhotoKit with the reader's own rule: the paired video of a Live Photo when Live Photos are included, and the full-size edit. The scan reads resources only for photos whose subtype or edit state says a companion may exist. A photo that still has the missing companion is re-queued and marked as owing companions, so the engine re-sends the original (which the server dedupes) and its companions. This also works after a reinstall, because the same scan first restores uploaded rows from the server's listing. The repair has three limits:
+
+- It runs only on full scans, never on change-driven walks.
+- It does nothing when a server is too old to report companions.
+- It re-queues a photo at most once per local store (`companion_repair_queued`). A repair that keeps failing ends in `.failedRetry`, like any other upload, and waits for the user's Retry.
+
+Each walk's decisions live in `BackupWalkPlanner` (MapleBackup), pure functions over the local rows, the discovery outcome and the server's holdings: which rows to forget, which server-held photos to settle, which failed ones to retry and which photos to enqueue. The app's `ChangeObserverWiring` fetches, plans and then applies each plan with the store calls, and `swift test` for MapleBackup runs in CI (`swift-ui` job in `.github/workflows/apple.yml`). The walk's `GET /backup/state` request waits up to 30 seconds, where it waited 10 before #5777, because a full scan's response lists every original the server holds for the device. A request that times out or fails leaves the walk on local records alone and logs a warning.
 
 `PhotoKitAssetReader` (in the app target) supplies the actual PhotoKit bytes; the engine takes it as an injected `AssetReader` so `swift test` can substitute synthetic data.
+
+#### Discovery
+
+A walk finds the library's eligible photos — images, plus videos when included, minus what the inclusion settings exclude (non-representative burst frames, iCloud Shared Library assets, iCloud Shared Album members) — in one of two ways. `BackupCursor.discovery` picks one from the device's row in `discovery_cursors`:
+
+- **Change replay.** `PHPhotoLibrary.fetchPersistentChanges(since:)` from the change token the last walk saved. Only inserted photos are fetched and filtered; deletions are the ids PhotoKit reports that it no longer has (a photo deleted and then restored from Recently Deleted is not one). A token PhotoKit can no longer replay falls back to a full listing. The token is taken before PhotoKit is queried, so a change racing the query is replayed by the next walk.
+- **Full scan.** Lists every eligible photo.
+
+A walk replays only while a full scan has finished for the current settings within seven days (`BackupCursor.fullScanInterval`). The stamp that records one (token, settings fingerprint, finish time) is written only after every discovered photo is recorded, so an interrupted scan starts over. The fingerprint covers the four inclusion settings and whether Photos access is full or limited, so changing a setting or granting full access lists the whole library; so do a first run, a user Restart (which also retries failures), the periodic safety walk (the weekly timer and the iOS background task), a week without a full scan and the first walk of every session (a replay counts the library as the session last saw it, and a launch has seen nothing). Replay reads only insertions and deletions, so a photo that becomes eligible by an update, such as being unhidden, waits up to seven days for the next full scan.
+
+What a walk does with the result:
+
+- **Server cursor.** `GET /backup/state` returns only what the server recorded since `last_server_reconciled_at`, the newest `first_seen` seen so far. A full scan, and any walk with an undelivered local edit, asks for everything, because the edit re-send needs the server path of photos that may predate the cursor.
+- **No-change shortcut.** After a first walk in the session, a replay that finds no insertions or deletions and no undelivered local edit only moves the change token (nothing is written when it is unchanged) and goes idle. The local-edit check picks its candidates in SQL from the stored edits and reads an edit again only when its size or modification date changed, so many edits do not make it expensive.
+- **Forgetting rows.** A replay forgets the rows of photos PhotoKit reports deleted. A full scan under full access forgets a row only when PhotoKit no longer returns the photo, which it learns by asking about the rows the listing lacks. A photo that an inclusion setting merely excludes keeps its row when that row is uploaded or owes companions, so switching the setting off and on does not upload it again, even when `/backup/state` is unreachable; its other pending and failed rows leave the queue, and it stays out of the library count. The store re-reads each of those rows in its own transaction before deleting it (`removeExcluded`), because a worker may have uploaded it, or left it owing companions, since the walk read the table; such a row is kept, and a pending one that now owes companions is parked. A pending row that owes companions is parked as `skippedPolicy` instead of deleted (its retry count and owed mark are kept; `rehydrate` and `claimForUpload` skip it, and so does the Wi-Fi-only gate, which returns a row to pending only while no walk has parked or settled it) and resumes when the photo is listed again. A full listing that is empty while local rows exist, and of whose rows PhotoKit returns none, forgets nothing and is not recorded as a completed scan, in case PhotoKit cannot show the library; a listing emptied only by the inclusion settings still reconciles its excluded rows. A listing under limited access forgets only photos the session saw and no longer sees. A replay counts the library as the session last saw it, so the first walk of every session lists the library once, whatever the settings: the local rows alone cannot say which photos the listing leaves out (a setting, a hidden photo, limited access) and would count them.
+- **Cold start.** Before the first walk finishes, the progress panel shows the library and backed-up counts from the local rows (`startupSnapshot`), and `rehydrate` re-queues pending rows as one batch.
 
 ## Building the Rust core
 
@@ -89,42 +114,47 @@ Release is the default and the right choice: the script's own header records a 2
 
 Two guards make staleness loud rather than silent:
 
-- **Content-hash fast path.** The script hashes every `.rs`, `.wgsl` and `.bin` under `raw-core/src`, `raw-ffi/src`, `raw-gpu/src` and `maple-pano/src`, plus `Cargo.lock`, the relevant `Cargo.toml`s and `cbindgen.toml`, and skips the build only when that hash matches the stamp at `Frameworks/.xcframework-stamp.<profile>` and every expected slice exists. Hashing content rather than mtimes is deliberate — a `git checkout` rewrites mtimes without changing content, which previously produced false skips that shipped slices missing new FFI symbols.
+- **Content-hash fast path.** The script hashes every `.rs`, `.wgsl` and `.bin` under `raw-core/src`, `raw-ffi/src`, `raw-gpu/src` and `maple-pano/src`, plus `Cargo.lock`, the relevant `Cargo.toml`s, `cbindgen.toml`, and the iOS ORT fetch script. Each input's path relative to `src/raw-pipeline` and its content enter the digest, so moving a matching build between checkouts preserves the fingerprint while renames and content changes invalidate it. The build skips only when that hash matches the successful-build stamp at `Frameworks/.xcframework-stamp.<profile>` and every expected slice exists. Hashing content rather than mtimes is deliberate — a `git checkout` rewrites mtimes without changing content, which previously produced false skips that shipped slices missing new FFI symbols. Run `bash src/apple/scripts/tests/test_xcframework_fingerprint.sh` to check the two-root fingerprint contract.
 - **Symbol-consistency guard.** After creating the xcframework it diffs every `maple_*` symbol declared in the generated header against `nm -gU` output for each slice, and refuses to write the stamp if any slice is missing one. If ΔE numbers don't move after a `raw-core` edit, the xcframework is stale — rerun with `--force`.
 
 Xcode Cloud runs `src/apple/ci_scripts/ci_post_clone.sh`, which installs rustup via Homebrew (the `sh.rustup.rs` bootstrap does not resolve on those workers), adds the four Apple targets, installs `cbindgen` pinned to **0.29.2**, and invokes the same script in release. `.github/workflows/apple.yml` pins the identical cbindgen version so the two CIs cannot generate different headers.
 
 ### Xcode Cloud distribution
 
-Stable tags use one macOS archive for both distribution channels. The archive
-action prepares the App Store/TestFlight export and a Developer ID export from
-the same compiled `.xcarchive`; it must not configure a second macOS archive
-action. The TestFlight/App Store post-action handles the store copy.
-`ci_post_xcodebuild.sh` consumes `CI_DEVELOPER_ID_SIGNED_APP_PATH`, notarizes and
-staples that app, creates a notarized/stapled universal DMG containing the
-signed app, and attaches it to the tag's draft GitHub Release. The script
-validates the signed app from the mounted final DMG because Xcode Cloud does
-not expose the Developer ID private key needed to sign the DMG container. The
-GitHub release workflow publishes the draft only after its independently built
-Windows assets and this DMG are both present.
+Stable tags use one macOS archive for both distribution channels. Xcode Cloud
+compiles the production `.xcarchive` and prepares the TestFlight/App Store
+export. The GitHub `release` workflow waits for the cloud build of the same
+commit, downloads its original archive, and manually exports it with the
+existing Developer ID certificate and provisioning profiles. It never
+recompiles Swift or Rust. This avoids the cloud-managed Developer ID lookup
+failure (error 7460, #5681).
 
-Configure the tag-triggered Xcode Cloud workflow as follows:
+Configure the tag-triggered Xcode Cloud Release workflow with one macOS archive
+action for the `Maple` scheme, TestFlight/App Store deployment preparation, and
+clean builds. Disable Direct Distribution preparation and remove its Notarize
+post-action: GitHub now handles that distribution channel. Keep iOS and App
+Store/TestFlight actions. `ci_post_xcodebuild.sh` returns immediately inside
+Xcode Cloud; its packaging implementation is reused by GitHub after manual
+export.
 
-- one macOS archive action for the `Maple` scheme, with TestFlight and App Store
-  deployment preparation;
-- Direct Distribution/notarization enabled for that archive so Xcode Cloud
-  provides `CI_DEVELOPER_ID_SIGNED_APP_PATH` from the same archive;
-- the existing TestFlight/App Store distribution post-action;
-- clean builds, as required by Xcode Cloud for external distribution;
-- the following secret environment variables: `GITHUB_TOKEN` (fine-grained
-  token scoped to this repository with Contents read/write), `AC_KEY_ID`,
-  `AC_ISSUER_ID`, and `AC_PRIVATE_KEY` (the downloaded `.p8` contents).
+The GitHub Mac signing job uses the `apple-signing` environment and existing
+`APPLE_TEAM_ID`, `MACOS_CERT_P12_BASE64`, `MACOS_CERT_PASSWORD`,
+`MACOS_PROVISIONING_PROFILES_BASE64`, `APPSTORE_KEY_ID`, `APPSTORE_ISSUER_ID`, and
+`APPSTORE_PRIVATE_KEY` secrets. The temporary signing keychain is removed on
+exit. The job checks the tag commit and app version, both CPU architectures,
+code signatures, app and DMG notarization/stapling, and Gatekeeper acceptance
+of the app mounted from the final DMG. It uploads an artifact with read-only
+repository permissions. The separate publication job waits for successful
+Windows and Mac signing, adds their artifacts to the draft release, and retains
+the Android asset gate before publication.
 
-Xcode Cloud signs the app with its cloud-managed Developer ID identity, whose
-private key is deliberately not available to custom scripts. The script
-notarizes the app and its DMG container with the App Store Connect API key;
-the final Gatekeeper check assesses the signed app inside the mounted DMG. No
-source compilation happens in the post-build script.
+For a Mac signing dry run, manually dispatch `release` with `release_tag` set
+to an existing release tag. Set `cloud_build_id` to select a specific completed
+cloud build, or leave it empty to discover the latest Release-workflow build
+of that commit. The verified DMG is saved as `recovered-mac-release`; a manual
+run never publishes. Empty inputs retain the Windows dry run. Recovery can
+reuse an archive from a failed distribution build, but rejects missing
+archives, unfinished builds, mismatched commits, and ambiguous artifacts.
 
 ## The render path
 
@@ -132,7 +162,7 @@ An open image is an `EditSession` (`@MainActor`, `@Observable`) holding the `Adj
 
 Every committed editor action is one `EditTransaction` (`Editor/EditTransaction.swift`): a per-session id, the action class (`adjustment`, `auto`, `crop`, `paste`, `preset`, `reset`, plus `mask` / `repair` / `variant` reserved for the surfaces that ship them), a user-visible description, the semantic before/after model, a deterministic sidecar diff (canonical XMP attribute keys and values, omit-on-default on both platforms), and the render-invalidation scope that diff implies (`crop` / `develop` / `decode`). `EditSession.beginEdit(kind:description:)` opens one, the gesture's per-tick model writes are previews (render + coalesced sidecar write, no history), and `endEdit()` — reached from `EditorState.endGesture()`, from every discrete edit, or lazily at the next boundary (`beginEdit`, `undo`, `redo`, `flushPendingSidecarWrite`) — closes it: a no-op is dropped, anything else becomes exactly one entry on the 32-deep undo ring (`EditSession+UndoRedo.swift`), is handed to the sidecar store as `after`, and is spoken through `EditAnnouncer` (an accessibility announcement by default). Undo and redo swap `before`/`after` and announce "Undo …" / "Redo …". The web `EditorStateService` mirrors the same object by hand; `EditTransactionTests` and `EditSessionTransactionTests` pin the diff format, the one-entry-per-action rule per action class, the real-`.xmp` reload round-trip, and the stale-render guard.
 
-`ImageEditPipeline` (an actor) has two entry points. `decodeSceneLinear…` runs the Rust scene-linear FFI once per asset open and returns a Rec.2020 buffer with the sidecar already applied; `processSceneLinear` then applies the per-tick chain on top of that cached decode — white balance delta → scene tone controls → tone curves → vibrance → saturation → HSL → clarity → texture → dehaze → local adjustments → vignette → sharpen → luminance NR → color NR → AgX → split tone → grain — in a single FFI call, with display encode fused into the same round trip when the chain cache misses. `PipelineRenderer` is the thin Swift wrapper over the C API (`maple_render_file`, `maple_render_bytes`, `maple_free_buffer`, `maple_last_error`); it copies pixels out of the C buffer into value types so no unsafe lifetimes leak.
+`ImageEditPipeline` (an actor) has two entry points. `decodeSceneLinear…` runs the Rust capture decode (`maple_render_*_capture*_f32`, #5377) once per asset open and returns the capture result — the RAW developed through the capture stages into the fixed as-shot Rec.2020 basis, before white balance and the camera profile — with its creative stage, which `WbSliderFrame.creative` (`CaptureCreative`) carries beside the slider frame's as-shot pair; `processSceneLinear` then applies the per-tick chain on top of that cached decode — the creative stage at the model's absolute slider pair (white balance, camera profile, Oklab recovery, auto exposure) → scene tone controls → tone curves → vibrance → saturation → HSL → clarity → texture → dehaze → local adjustments → vignette → sharpen → luminance NR → color NR → AgX → split tone → grain — in a single FFI call, with display encode fused into the same round trip when the chain cache misses. A third entry, `processSceneLinearWindow`, runs the same chain windowed for the 100% native-detail patch (see [zoom](zoom.md)). `PipelineRenderer` is the thin Swift wrapper over the C API (`maple_render_file`, `maple_render_bytes`, `maple_free_buffer`, `maple_last_error`); it copies pixels out of the C buffer into value types so no unsafe lifetimes leak.
 
 **There are no hand-written Apple render kernels.** `MetalKernels.swift` survives only as an accessor for the bundled `Metal/agx_lut.bin`, used as a parity oracle asserting the Apple-bundled AgX LUT byte-matches the Rust one. Render math exists in exactly two places: Rust CPU (`raw_core::pipeline::apply_scene_linear_chain_f32`) and WGSL on the GPU (`raw-gpu`). See [pipeline](pipeline.md).
 
@@ -146,6 +176,8 @@ Standalone `LocalHistogram.compute` and `computeNonRaw` still share one process-
 
 GPU session replacement is bounded: waiting requests share the previous session's teardown, and only the newest uncancelled request materializes pixels after that teardown finishes. A superseded open is treated as a dropped frame, so it cannot start a CPU fallback. Memory-pressure eviction invalidates pending opens as well as clearing the current upload. `GpuSessionReplacementTests` covers queued replacements, cancellation, eviction, reuse, and recovery after a failed readback (#3360).
 
+Both paths render the capture decode through its creative stage: `GpuLiveDriver` keeps the creative stage of the decode it uploaded and points every tick's `MapleGpuLiveParams.creative_ptr` at it, and the CPU chain, the scoped and windowed variants and the native-detail capture tile (`maple_render_handle_capture_tile_f32`) do the same through `MapleAdjustmentParams.creative_ptr`. A white-balance drag therefore re-runs no capture stage, and the live frame matches a fresh develop of the same model within one 8-bit step (see [pipeline](pipeline.md) § "The capture decode").
+
 The wgpu live path is always compiled and on by default; `GpuLiveFlag` turns it off only when the process is launched with `MAPLE_GPU_LIVE=0`. It is a _parallel presentation path_, not a rewrite: `GpuLiveDriver` opens a `GpuLiveSession` actor (one render in flight), uploads the decoded buffer once per dimension change, and presents straight from an f32 storage buffer into the canvas `CAMetalLayer` with no CPU readback. When it handles a frame it returns `true` and the caller skips the CoreImage publish entirely. It declines — falling back to CPU + CoreImage byte-for-byte — when the flag is off, no layer is registered yet, the session open or readback fails, or the sensor is too large: `gpuLiveMaxSensorLongEdge` is 13000 px, which covers the ~100 MP class (DJI/Hasselblad ≈12288, GFX ≈11648) while keeping bigger sensors on the memory-safe CPU path. A sensor size of zero (not yet seeded, as for PhotoKit assets whose size resolves asynchronously) also declines, because taking the GPU path on an unknown-size RAW is what previously OOM-killed a 100 MP library photo.
 
 ### Resolution ceilings
@@ -154,19 +186,20 @@ The wgpu live path is always compiled and on by default; `GpuLiveFlag` turns it 
 - A refine decode escalates demosaic quality when the display genuinely needs more than half-res: `refineDecodeQuality` returns `.preview` while the target is at or below `nativeLongEdge / 2`, and `.amaze` (or `.full`) above it. `.preview` caps its own output at roughly half the native long edge regardless of what the caller asks for, so without the escalation the canvas would upscale 2× then immediately downscale again.
 - `cappedToDelivered` is the downstream safety net, clamping the display target to the extent the decode actually returned.
 - Local, uncropped RAWs at native zoom first attempt the bounded native-detail path; otherwise refine uses the whole-image sized FFI. (The legacy `TileManager` grid compositor was retired in #3288.) See [zoom](zoom.md).
-- Masks are evaluated by the Rust core in full-frame normalized coordinates, and the CPU refine and export feed it the whole frame with the crop applied afterwards. The two paths that hand the chain a partial frame — the GPU-live present (cropped and straightened before upload) and the native-detail 1:1 patch — re-express the layer stack in the buffer's space first (`MaskAffine` + `MaskRemap`, `EditSession+MaskRemap.swift`): linear and radial masks by an exact parameter rewrite under the crop's affine, bitmap masks as a resampled raster registered per affine (`MaskRemapRasterCache`, see [caching](caching.md)).
+- Masks are evaluated by the Rust core in full-frame normalized coordinates, and the CPU refine and export feed it the whole frame with the crop applied afterwards. The GPU-live present (cropped and straightened before upload) hands the chain a partial frame, so it re-expresses the layer stack in the buffer's space first (`MaskAffine` + `MaskRemap`, `EditSession+MaskRemap.swift`): linear and radial masks by an exact parameter rewrite under the crop's affine, bitmap masks as a resampled raster registered per affine (`MaskRemapRasterCache`, see [caching](caching.md)). The native-detail 1:1 patch instead runs the windowed chain, which is told where the patch sits and evaluates the unmapped stack in full-frame coordinates itself (#5169).
 
 ### Auto profile
 
 `Profile::Auto` is a per-image, post-AgX display-space tail: a per-channel tone curve composed with a residual 3D LUT, both fit in f32 sRGB-encoded display space by one FFI call (`maple_compute_auto_profile_lut`) and applied on the CPU path as a `CIColorCubeWithColorSpace` tagged sRGB — the last op before the canvas raster, so CoreImage's own color management performs the encode. `AutoProfileLUT` caches the baked cube keyed on URL + mtime + quality. The fit is a cold operation (JPEG extract plus a full develop), so the CPU path only computes it after the GPU present has declined the frame; the GPU path does its own fit inside the session.
 
+That sRGB cube applies only when the render encodes to sRGB. When the target is Display P3 (a P3 canvas, the native-detail patch on a P3 canvas, or a JPEG P3 / HEIC P3 export), `ImageEditPipeline.DisplayEncodePlan` takes the cube's RGB lattice, which `AutoProfileLUT` caches beside the cube bytes and hands to every filter minted from them, and the encode runs the tail itself (`maple_encode_display_p3_auto_f32`, or the fused `maple_apply_chain_and_encode_display_p3_auto_f32`), so Auto keeps the wide gamut the way the GPU-live P3 path does (#4741). An export encodes to its format's primaries (`ExportFileFormat.encodePrimaries`), not the canvas setting. An active film look still pins the encode to sRGB, since its lattice is baked in sRGB.
+
 ### Runtime flags
 
 Cloud browsing, Timeline, Map, Search, backup, Files/Finder integration,
 Observability, and the Generated Search widget are available in every build.
-Their former Cloud rollout overrides are no longer read. Panorama stitching
-retains its separate `FeatureFlags.isPanoramaEnabled` gate and existing
-Panorama/early-feature overrides (#3893).
+Panorama stitching is also available in every build (#4567). The former
+Cloud and Panorama/early-feature rollout overrides are no longer read.
 
 | Variable                                            | Effect                                                                                    |
 | --------------------------------------------------- | ----------------------------------------------------------------------------------------- |
@@ -206,16 +239,34 @@ Every photo origin implements the `ImageSource` protocol (`Sources/ImageSource.s
 | `CloudSource`      | Maple Self Hosted / Hosted API | lists via `/api/fs/dir`, `ImageRef.id` is `fs:<absPath>`; thumbs and previews via the unified `/api/thumb                                                    | preview/:slug/\*`routes, original bytes via`/api/fs/raw` (mirror failover) |
 | `ComposedSource`   | pairs two of the above         | metadata and thumbs from the API, RAW bytes and XMP writes from SMB on the LAN                                                                               |
 
-Every cloud client holds absolute server paths (`SearchAsset.abs_path`, the `fs:<absPath>` ids above, `/api/fs/dir` listings), while the derivative routes are addressed by `slug:relPath` (#1325). `MapleCloudKit/Cloud/CloudAddressResolver.swift` bridges the two at the HTTP edge: it loads `/api/folders` once per client (one shared in-flight request across a grid's burst of thumb calls), picks the registered library whose root is the longest whole-segment ancestor of the path, percent-encodes each relative segment the way `encodeURIComponent` does, and refreshes the list at most once on a miss so a newly registered library resolves without a relaunch. `CloudThumbClient` and `CloudSource` both go through it; `/api/preview`'s `202` "indexing" reply (no catalog row yet) is surfaced as nil / a thrown 202 so the Preview screen keeps its thumbnail. Original bytes stay on `/api/fs/raw` because `/api/image/:slug/*` has no mirror read-failover (#926), and listings stay on `/api/fs/dir` because `/api/folder/:slug/*` carries no video entries, sizes, EXIF or sidecar pairing — both are server-side gaps tracked on #1325, not client choices to revisit here.
+Every cloud client holds absolute server paths (`SearchAsset.abs_path`, the `fs:<absPath>` ids above, `/api/fs/dir` listings), while the derivative routes are addressed by `slug:relPath` (#1325). `MapleCloudKit/Cloud/CloudAddressResolver.swift` bridges the two at the HTTP edge: it loads `/api/folders` once per client (one shared in-flight request across a grid's burst of thumb calls), picks the registered library whose root is the longest whole-segment ancestor of the path, percent-encodes each relative segment the way `encodeURIComponent` does, and refreshes the list at most once on a miss so a newly registered library resolves without a relaunch. `CloudThumbClient` and `CloudSource` both go through it; `/api/preview`'s `202` "indexing" reply (no catalog row yet) is classified as `PreviewFetchOutcome.indexing(retryAfter:)` alongside data, not-found and transient failures (`previewOutcome(for:)` / `previewOutcome(absPath:)`), so the Preview page keeps its thumbnail and retries (#5432). Original bytes stay on `/api/fs/raw` because `/api/image/:slug/*` has no mirror read-failover (#926), and listings stay on `/api/fs/dir` because `/api/folder/:slug/*` carries no video entries, sizes, EXIF or sidecar pairing — both are server-side gaps tracked on #1325, not client choices to revisit here.
 
 `MergedTimelineSource` is pure merge logic (no I/O) that unions any number of PhotoKit streams with any number of cloud streams and labels each cell `.synced`, `.cloudOnly` or `.localOnly`, ordered capture-date descending. It backs the all-sources timeline in `Cloud/AllSourcesTimelineViewModel.swift`.
+
+### Live Photo pairs
+
+A `CloudSource` folder listing entry that carries `livePhoto: { role, partner }` (see [api.md](api.md) § Live Photo pairs) decodes into `LivePhotoLink` and travels on `AssetRef.livePhoto` and `GridCellOverlays.livePhoto` (#5448). The still and the clip stay two grid tiles. Both show a `LIVE` pill in the top-leading corner (stacked under `HIDDEN` when both apply) and VoiceOver announces the tile as ", Live Photo". The clip tile also has a centred Play button (`LivePhotoClipOverlay`) laid over the tile, beside its tap target, so pressing it never opens Full image. The tile player (`MotionClipPlayerView(isInline: true)`) is muted, has no controls, and exists only while playing: it mints the `/api/video/fs` URL and its short-lived token at the press, and stops when the clip ends, fails, is stopped with the same button, or the tile scrolls away.
+
+In Full image the clip opens as an ordinary video. A paired still reuses the Motion Photo control: `PreviewMotionClip.clipURL` mints the partner's `/api/video/fs` URL from `LivePhotoLink.partnerRefID(ofRefID:)` with no `HEAD` probe, since the listing already named the partner, and the header offers "Play Live Photo". Any other JPEG or HEIC keeps the "Play Motion Photo" control and its `HEAD /api/motion` probe. A local-folder or SMB clip plays through the same control and tile button; `LivePhotoClip.playbackURL` resolves where the clip plays from for every source: the Self Hosted video URL, the sibling file of a local folder, or, for SMB, a copy staged in the temporary directory (AVPlayer cannot open an SMB location; the clip is a few seconds long, and copies older than an hour are swept on the next one). A paired SMB clip opened in Full image plays from the same copy.
+
+**Local folders and SMB shares (#5544)** list plain files, so the app pairs them itself with the rule the indexer uses (`LivePhotoPairing`; `library/live-photo-pairs.ts`): a still (`jpg`, `jpeg`, `heic`, `heif`) and a clip (`mov`) pair only when they share a folder, a case-folded stem and an Apple content identifier. The stem only nominates candidates, so a pair whose identifiers differ, a still renamed away from its clip's stem, and an orphan clip all stay independent files. **A file with no identifier is never paired by stem alone**: an edited export that lost its MakerNote, or a photo from another camera, shows as two unrelated tiles. A group that is not exactly one still and one clip (two stills, or two clips, carrying the same identifier) stays unpaired too. `test-fixtures/live-photo-pairing/cases.json` pins the rule; the indexer's Bun tests and `LivePhotoPairingTests` replay the same cases.
+
+The identifier is read from metadata only (`LiveContentIdentifier`, the Swift counterpart of `indexer/live-photo/content-id.ts`): the still's MakerNote tag `0x0011` from the JPEG Exif APP1 segment or the HEIF `Exif` item, the clip's `com.apple.quicktime.content.identifier` `mdta` key, through a bounded reader (a 64 KB head, then at most 8 MB of range reads). Only a stem shared by a still and a clip is read at all, so a folder without Live Photos costs no reads. `BrowseViewModel.loadFolder(url:)` reads local files; `SMBSource.livePhotoLinks()` issues range reads over the connection, at most four files at a time. Links are derived on every listing and never stored, so renaming, moving or trashing one half unpairs it with no write to the other.
+
+### Known limitations
+
+- **Reconnecting one SMB connection to a different server could point earlier references at the wrong files (#5150).** `SMBSource.connect()` keeps `listingID` when only the host string changes (a hostname versus its IP, #4987), so references listed before the reconnect stay valid. Remembered renames and moves also survive a host-only change when the share and username stay the same. If one instance reconnected to a _different_ server exposing a share with the same name and username, those older references and remembered relocations would resolve there, and a rename, trash or sidecar write could touch an unrelated file at the same path. Nothing does that today: the app opens a fresh `SMBSource` for every connect (`connectSMB`, the trash view, the sources settings). Code that starts reusing one across hosts must first compare a stable server identity. The SMB2 server GUID is the candidate: libsmb2 parses it from the negotiate reply (`src/apple/third_party/AMSMB2/Dependencies/libsmb2/lib/smb2-cmd-negotiate.c`) but drops it in `negotiate_cb` (`.../libsmb2/lib/libsmb2.c`), so using it needs a small vendored patch recorded in `src/apple/third_party/AMSMB2/MAPLE-PATCH.md`. That patch would keep the GUID on the context, add `smb2_get_server_guid` beside the existing `smb2_get_client_guid` and surface it through AMSMB2, after which `connect()` keeps `listingID` across a host change only when the GUIDs match. The filesystem number AMSMB2 reports (`statvfs.f_fsid`) is never filled in by libsmb2, so it can't stand in.
+
+### Preview display tier
+
+A full-image Preview page (`PreviewCanvasPage`, #5762) paints a cached grid bitmap (seed), then the grid thumbnail, then the display tier (refine), through the editor's shared canvas zoom. The canvas writes nothing to the photo's session, and so decodes nothing, until the photo is zoomed past the still's resolution once the display tier has landed or failed once (`PreviewCanvasRender`); only then does it mount the GPU canvas and render the RAW. An editor pushed over Preview (a navigation push, or the iPhone hero fading it) makes it let go of the session again. Only the visible page fetches the display tier: a neighbouring page, drawn beside it as a plain still by `PreviewCanvasPager`, loads the thumbnail only, and keeps its still when it slides in. A failed fetch retries while the page stays visible (`PreviewRefinementBackoff`: 2, 4, 8, 16 s, then every 16 s; a `202` waits at least its `Retry-After`, capped at 60 s; a `404` or other permanent client error stops until the developed image changes). Leaving the page cancels a pending retry. Every display tier except PhotoKit is one fixed 1280 px artifact (`ThumbnailSource.hasFixedPreviewTier`), so a fixed-tier page never cancels or repeats its refinement just to ask for more pixels, and a late thumbnail never paints over a landed refinement. Each step logs one `PreviewLoadLog` line (Console category `preview-load`, and the OTel exporter) with stage, event, a path-free asset id, source kind, target pixels, bytes, elapsed ms and the failure reason.
 
 ## Sidecars
 
 `SidecarStoreProtocol` is what `EditSession` needs: `load()`, `loadIfPresent()`, `update(model:culling:)`, `flush()`, `errors()`. `loadIfPresent()` returning `nil` is the signal to seed from as-shot white balance rather than honour stored edits, so it must distinguish "no sidecar" from "sidecar full of defaults".
 
 - `XMPSidecarStore` — local files. Writes are debounced 750 ms and land atomically via temp file plus rename, at `<raw-basename>.xmp` beside the original.
-- `SMBSidecarStore` / `CloudSidecarStore` — the same surface over SMB and over the API.
+- `SMBSidecarStore` / `CloudSidecarStore` — the same surface over SMB and over the API. `XMPSidecarStore`, `PhotoKitSidecarStore` and `CloudSidecarStore` merge a save onto a sidecar another writer changed and record the outside state as an `external` history entry instead of refusing it (#4983); the editor adopts the merge and rebuilds Undo/Redo from the persisted history, also after reopening. SMB keeps its strict whole-document check until #2437.
 - `PhotoKitSidecarStore` — same 750 ms debounce, but persists into MapleBackup's `AppSupportSidecarStore` keyed by PHAsset local id, because a Photos asset has no stable on-disk path to put a `.xmp` next to. This is also the store `BackupEngine` reads when deciding whether a real local edit exists to upload as a companion.
 
 Cloud folder refs (`fs:<absolute path>`) use `GET`/`POST /api/xmp?path=…`; catalog refs retain `GET`/`PUT /api/assets/:id/xmp`. A failed sidecar read records `sidecarError` and leaves the existing edit model intact instead of replacing it with defaults (#3357).
@@ -249,17 +300,34 @@ The output contains the five importable inference files, exact export records, u
 
 ## File Provider and Quick Look
 
-The macOS and iOS File Provider extensions are both three-line subclasses (`FileProviderExtension`, `FileProviderExtensionIOS`) whose entire behaviour is `MapleCore.FileProviderExtensionCore`, an `NSFileProviderReplicatedExtension`. Configuration crosses the process boundary as JSON files in the App Group container at `~/Library/Group Containers/group.app.justmaple.aperture/FileProviderConfig/<domain>.json` — `UserDefaults(suiteName:)` was abandoned because CFPreferences rejects `kCFPreferencesAnyUser` with a container. Missing the App Group entitlement is survivable: the config falls back to the caches directory, logs an error, and the extension boots dormant.
+The macOS and iOS File Provider extensions are both three-line subclasses (`FileProviderExtension`, `FileProviderExtensionIOS`) whose entire behaviour is `MapleFileProviderCore.FileProviderExtensionCore`, an `NSFileProviderReplicatedExtension`. Configuration crosses the process boundary as JSON files in the App Group container at `~/Library/Group Containers/group.app.justmaple.aperture/FileProviderConfig/<domain>.json` — `UserDefaults(suiteName:)` was abandoned because CFPreferences rejects `kCFPreferencesAnyUser` with a container. Missing the App Group entitlement is survivable: the config falls back to the caches directory, logs an error, and the extension boots dormant.
 
-`FileProviderIdentifier` is the item vocabulary: assets, folders, non-indexed files, sidecars (including `(conflict from <device>).xmp` copies), a per-library trash container, and synthetic `.maple/`, `.maple/thumbs/` and `.maple/previews/` directories the extension fabricates client-side because the server hides dotdirs from `/api/folder/:slug/*` (previews are `<filename>.v<pipeline version>.avif`, fetched from `GET /api/preview/:slug/*?pv=<pipeline version>`; both derived entries are versioned by the asset's sidecar mtime so a server-side edit refetches them). Thumbnail filenames inside them come from `MapleThumbCacheKey.sha256Prefix16(basename)` — the first 16 hex chars of SHA-256 over the _filename_, not the path, which is what lets `.maple/` travel with the photos. That helper is the single source of truth shared with `Cache/ThumbnailDiskCache.swift`, the Bun server, and the web cache.
+`FileProviderIdentifier` is the item vocabulary: assets, folders, non-indexed files, sidecars (including `(conflict from <device>).xmp` copies), and synthetic `.maple/`, `.maple/thumbs/` and `.maple/previews/` directories the extension fabricates client-side because the server hides dotdirs from `/api/folder/:slug/*` (previews are `<filename>.avif`, fetched from `GET /api/preview/:slug/*`; both derived entries are versioned by the asset's sidecar mtime so a server-side edit refetches them). Thumbnail filenames inside them come from `MapleThumbCacheKey.sha256Prefix16(basename)` — the first 16 hex chars of SHA-256 over the _filename_, not the path, which is what lets `.maple/` travel with the photos. That helper is the single source of truth shared with `Cache/ThumbnailDiskCache.swift`, the Bun server, and the web cache.
 
 `RemoteCatalog` fetches listings from the server with ETag caching; `ChangeFeedClient` holds an SSE subscription to `/api/changes/subscribe`, resuming from a stored cursor and reconnecting with exponential backoff capped at 16 s. On a 409 (stale cursor) it purges the ETag cache and signals `.workingSet` so the OS re-enumerates from scratch. `WorkingSet` is a bounded table of warm identifiers with kind-aware eviction: sidecars and favourites are eviction-immune, explicitly-requested items go next, and recency entries (last 30 days) are dropped first.
 
+Every item is reported under its real folder, resolved against the library list, and never under `.rootContainer`: the OS keeps the parent it is given, so an asset placed there showed at the top level of Maple in Files until it next changed (#5503). When the library list can't be loaded, the working-set listing, its change batch, `item(for:)` and `fetchContents` fail and the OS retries; an asset whose library isn't listed is left out (`noSuchItem` from `item(for:)`). Working-set sync anchors carry a `ws2:` prefix, and a bare-cursor anchor from an older build is answered with `syncAnchorExpired` once, so the OS lists the working set again and moves misplaced items back. The extension also adopts `NSFileProviderThumbnailing`: an indexed photo's Files and Finder icon is its `/api/assets/<id>/thumb` AVIF, even before the photo is downloaded.
+
 `MapleQuickLook` hooks Finder's spacebar preview. Given the local cache URL of a File Provider file, it resolves back to `(domain, assetID)` through the shared `FileProviderMetaStore` SQLite mirror and fetches the pre-baked AVIF from `GET /api/assets/<id>/thumb`, which is orders of magnitude cheaper than materializing and decoding a 40–150 MB RAW. Any failure throws, and the Quick Look runtime falls back to the system default — never worse than not having the extension.
+
+### File Provider memory budget
+
+iOS runs `MapleFileProviderIOS` under a hard 20 MB memory limit (`ActiveHard 20 MB (fatal)` in the device log): the kernel kills the process the moment its footprint crosses it, and every upload in flight is lost. The extension stays under the limit by design (#5456):
+
+- **Lean binary.** Both File Provider extensions link the `MapleFileProviderCore` product, not `MapleCore`. That target is the `Sources/MapleCore/FileProvider/` directory plus `MapleCloudKit` and nothing else — no RawPipeline (Rust core), AMSMB2, MapleBackup, OpenTelemetry or render code. MapleCore excludes the directory and re-exports the module, so app code keeps writing `import MapleCore`. Code added under `FileProvider/` must not reach back into MapleCore; the target fails to compile if it does.
+- **Bounded transfers.** File uploads (`createItem`, content-changing `modifyItem`) run at most `FileProviderExtensionCore.writeConcurrency` (3) at a time, and `fetchContents` downloads at most `fetchConcurrency` (3). Folder creates, renames, moves and XMP writes are small requests and skip the queue, so they never wait behind a bulk drop. Work waiting for a permit holds only its task continuation: no open file, request or buffer. Cancelling the OS's `Progress` while an item waits removes it from the queue, and cancelling a running fetch stops its download.
+- **Bounded change enumeration.** Every `enumerateChanges` (working set and folders) pages the global change feed and builds items for each row; after a relaunch all observed containers ask at once. At most two run together, with 200-row pages on iOS (500 on macOS).
+- **Streaming bodies.** Uploads stream from disk (`URLSession.upload(for:fromFile:)`); RAW, file, thumbnail and preview downloads stream to disk (`URLSession.download(for:)`). Only small JSON bodies and XMP sidecars are read into memory.
+- **One ephemeral session.** All requests share one `URLSession` with no URL cache, cookie or credential storage. Its per-host connection cap leaves room for every bounded transfer plus listing traffic, so no transfer waits in the session's own queue while its timeout runs.
+- **Bounded caches.** `RemoteCatalog`'s ETag cache holds at most `extensionETagCacheByteBudget` (1 MB of response bodies, a few MB decoded) in the extension. Working-set seeding fetches its three lists one at a time, each capped at the platform working-set capacity (2,500 on iOS, so a library with more favourites or XMP-bearing photos than that seeds only 2,500 of each into the iOS working set; they still appear in their folders), and hands items to the OS in batches of 200. Folder listings page 200 children at a time on iOS. The Quick Look mirror's SQLite page cache is 256 KB.
+
+**Recovery after a kill.** The OS redelivers `createItem` for anything that had not completed, and a redelivered create uploads again: the server keeps no content hash, so a same-name file with the same size and time could still hold different bytes, and the upload moves the replaced copy to the Maple trash. With at most three uploads in flight, a kill costs at most three re-uploads. Only when the OS sets `.mayAlreadyExist` and the name and size match does the extension report the stored file instead of uploading. `modifyItem` echoes changes the server does not store (dates, tags, extended attributes) for every item kind, and replaces a non-indexed file's bytes when they change; the server moves the previous copy to the Maple trash.
+
+When changing the extension, measure its footprint in **Release** on a device (Xcode's memory gauge or `footprint MapleFileProviderIOS`) at idle and during a burst of a few hundred drops. Debug builds add a large `.debug.dylib` and are not representative.
 
 ## Other targets
 
-**MapleBackupAgent** is a macOS LaunchAgent binary (`@main` in `MapleBackupAgentEntryPoint.swift`, named that way because `main.swift` and `@main` are mutually exclusive) that runs the same `MapleBackup` engine against the same settings the app writes, so backups continue with the app closed. Its `launchd` plist labels it `app.justmaple.aperture.backup` and points at `MapleAperture.app/Contents/Helpers/MapleBackupAgent`. On iOS the equivalent is a background task registered under `app.justmaple.aperture.backup.refresh` (`INFOPLIST_KEY_BGTaskSchedulerPermittedIdentifiers`, `Maple/Backup/BGTaskRegistration.swift`).
+**MapleBackupAgent** is a macOS LaunchAgent binary (`@main` in `MapleBackupAgentEntryPoint.swift`, named that way because `main.swift` and `@main` are mutually exclusive) that runs the same `MapleBackup` engine against the same settings the app writes, so backups continue with the app closed. Its `launchd` plist labels it `app.justmaple.aperture.backup` and points at `MapleAperture.app/Contents/Helpers/MapleBackupAgent`. On iOS the equivalent is a background task registered under `app.justmaple.aperture.backup.refresh` (`INFOPLIST_KEY_BGTaskSchedulerPermittedIdentifiers`, `Maple/Backup/BGTaskRegistration.swift`). A running panorama stitch uses a second background task, a `BGContinuedProcessingTask` under `app.justmaple.aperture.pano.stitch`, to keep running after the app is backgrounded and to show system progress with a stop control (`Maple/PanoContinuedProcessing.swift`, see `pano.md` § System progress and background continuation).
 
 **MapleWidget** shows a photo from the day's generated collections with its caption, sized so small/medium/large earn their content rather than scaling one layout. It links only MapleCloudKit and talks to the server through `WidgetSession`.
 
@@ -289,11 +357,11 @@ cd src/apple/Packages/MapleUI && swift test
 
 [Apple CI](../.github/workflows/apple.yml) has three distinct gates:
 
-- `swift-build` compiles MapleCore on `macos-15` with a generated header and stub archive. It does not link an executable or run tests.
+- `swift-build` compiles MapleCore on `macos-15` with a generated header and stub archive, then builds the `Maple TV` and `Maple Watch` schemes (unsigned, generic simulator; neither links RawPipeline). It does not link anything against RawPipeline or run tests.
 - `swift-regressions` builds a real release host Rust archive with `gpu,pano`, verifies its FFI exports, stages isolated packages, and executes the classes in [the run list](../.github/swift-regressions/run.txt) serially on `macos-latest` with the newest installed Xcode. Missing classes, skipped tests, failures, or incomplete execution fail the job; logs and derived xUnit results are uploaded.
 - `swift-regressions-coverage` checks that every MapleCore test class is listed as run or explicitly excluded. This is an inventory check, not execution or measured code coverage. An `untriaged` exclusion records unfinished classification, not evidence that a class cannot run.
 
-These jobs trigger on Apple/Rust source changes and changes to the workflow, class lists or coverage checker. They do not build the app, extensions or tvOS targets, execute XCUITest, or establish device performance. Those require local runs or separately configured Xcode Cloud workflows. See [Testing and CI](testing.md#what-ci-actually-builds-for-apple) for the exact execution contract and fixture rules.
+These jobs trigger on Apple/Rust source changes and changes to the workflow, class lists or coverage checker. They do not build the Maple app or its extensions, run the tvOS or watchOS tests, execute XCUITest, or establish device performance. Those require local runs or separately configured Xcode Cloud workflows. See [Testing and CI](testing.md#what-ci-actually-builds-for-apple) for the exact execution contract and fixture rules.
 
 ### UI test harnesses
 
@@ -308,12 +376,7 @@ xcodebuild test -project src/apple/Maple.xcodeproj -scheme "Maple" \
 
 The runner finds `test-fixtures/raws/` on its own (`Helpers/UITestFixtureRoot.swift`: the scheme's `TEST_RUNNER_MAPLE_UITEST_FIXTURE_ROOT`, else the repo root baked in at compile time — the path the iOS Simulator runner relies on). A trailing `MAPLE_UITEST_FIXTURE_ROOT=…` argument is a build setting and reaches nothing (#2366); to use fixtures elsewhere, prefix the variable with `TEST_RUNNER_` in `xcodebuild`'s environment — and then a missing fixture fails instead of skipping.
 
-**Slider matrix** (`SliderMatrixUITests`) walks every committed slider XMP under `test-fixtures/references/test_NNNN/xmp/`, stages a temp directory with the RAW plus the XMP renamed to the canonical sidecar name, relaunches the app against it, screenshots, resizes both candidate and reference to a 1024 px long edge, and diffs. Budgets are loose on purpose — mean ≤ 25, p95 ≤ 50, max ≤ 100, bias ≤ 0.10 — because Maple's AgX view transform differs from the reference renderer's even when the color math is right. Failed cases attach both PNGs for triage.
-
-```bash
-xcodebuild test -project src/apple/Maple.xcodeproj -scheme "Maple" \
-  -destination 'platform=macOS' -only-testing:MapleUITests/SliderMatrixUITests
-```
+**Slider matrix** (`SliderMatrixUITests`) is retired: it compared canvas screenshots against ACR renders, and ACR comparisons left CI and the colour gates in #5000. The archived source is `test-fixtures/qualification/experiments/retired-acr/SliderMatrixUITests.swift.txt`.
 
 **Synthetic grey** (`SyntheticGreyUITests`) renders a hand-rolled neutral DNG (`MapleUITests/Fixtures/synthetic/grey-l018-rggb.dng`) through the full Apple path and asserts two things per case: every pixel is neutral (R == G == B within 2 LSB), and the canvas mean matches the Rust-rendered mean within 3 LSB. Expected means are integers in the test file, regenerated from the Rust `grey_adjustments` test.
 
@@ -325,10 +388,25 @@ xcodebuild test -project src/apple/Maple.xcodeproj -scheme "Maple" \
 
 The app target compiles for macOS, iOS and iPadOS from the same sources, so both builds must stay green. The codebase carries roughly 100 `#if os(iOS)` and 100 `#if os(macOS)` blocks plus ~30 `canImport(UIKit)` guards. A macOS build never type-checks the contents of an `#if os(iOS)` block, so a change inside one can merge green and break the iOS build silently — build both destinations before claiming an Apple change works.
 
-The pattern shows up in test code too: `MapleUITests.swift`, `SliderMatrixUITests.swift` and `SyntheticGreyUITests.swift` all wrap themselves in `#if os(macOS)` because they drive AppKit, which lets the bundle still compile for the iOS Simulator where `PanoOrtSelftestUITests` runs. Extensions are the other axis: `MapleFileProvider` is macOS-only and `MapleFileProviderIOS` iOS-only (`SUPPORTED_PLATFORMS` in `project.pbxproj`), which is why the same core class has two thin subclasses instead of one shared target.
+The pattern shows up in test code too: `MapleUITests.swift` and `SyntheticGreyUITests.swift` both wrap themselves in `#if os(macOS)` because they drive AppKit, which lets the bundle still compile for the iOS Simulator where `PanoOrtSelftestUITests` runs. Extensions are the other axis: `MapleFileProvider` is macOS-only and `MapleFileProviderIOS` iOS-only (`SUPPORTED_PLATFORMS` in `project.pbxproj`), which is why the same core class has two thin subclasses instead of one shared target.
 
 ### Local MCP server (macOS)
 
 Enable Settings → General → AI Agents to serve MCP at `http://127.0.0.1:49157/mcp` from the running app. Choose **Copy setup prompt** and paste it into an AI tool to configure its connection. The prompt includes the actual URL, Keychain-backed bearer credential, Codex/Cursor configurations, and bundled Claude Desktop extension instructions. Settings shows connection status, startup errors and Retry.
 
 The HTTP transport awaits the existing `AgentEditService`, preserving revision checks, undo, and XMP persistence. Its `maple_export_photo` tool reuses `MapleExporter` with default full-resolution JPEG sRGB settings and saves a uniquely named file in the app's Documents/Exports folder (inside its sandbox container), returning the absolute path. A stale revision, changed photo or cancelled render does not publish a file. Disable access to invalidate queued calls and close all listeners and clients. iOS/tvOS do not link the HTTP product. See [MapleMCP](../src/apple/Packages/MapleMCP/README.md) for client setup, transport limits, and signed distribution qualification.
+
+## Maple Watch
+
+Maple Watch is an iPhone-assisted, read-only client for Self Hosted libraries (#3617). The `Maple Watch` shared scheme builds the watchOS app and its tests. The app target links `Packages/MapleWatch`, which consumes only the `MapleCloudKit` product from MapleCore; it never links RawPipeline. It offers library selection, Recent Photos, Memories, thumbnail lists and Crown-controlled photo viewing.
+
+Setup starts in iPhone Settings → Self Hosted → Connect Apple Watch. That entry, and the phone's Watch session at launch, are off until the Watch app ships: both are gated on the code constant `WatchPhonePairing.isEntryEnabled` (`Maple/Views/WatchPairingPhone.swift`, #5676). With it on, the user chooses a server and taps Allow Pairing, then taps Connect to iPhone on the Watch. WatchConnectivity carries an immediate request/reply, not a background credential transfer. The phone mints a distinct `watchos` device session through the existing `/api/auth/device-sessions` endpoint and journals the pending request/grant in its private keychain. An ambiguous mint outcome blocks automatic duplicate minting and offers explicit recovery. The Watch checks request ID and local generation before persisting credentials in its private keychain. A late reply after cancellation or disconnect cannot reconnect it. Matching acknowledgements clear only their pending grant.
+
+An installed Watch session is independent of the iPhone login. Web Settings → Account can revoke it. Disconnect on the Watch asks the server to end the session (best effort) and removes the local credentials. The phone must run a server version accepting `watchos` device-session requests. Image reads use existing server derivatives, never original RAWs. Both thumbnail and preview routes currently return AVIF; the larger-preview fallback covers missing/undecodable thumbnails but is not a JPEG codec fallback. Validate ImageIO decoding on physical Watch hardware, as well as pairing, network transitions and token refresh after suspension.
+
+```bash
+xcodebuild -project src/apple/Maple.xcodeproj -scheme "Maple Watch" \
+  -destination 'platform=watchOS Simulator,name=Apple Watch Series 11 (46mm)' test
+```
+
+Watch targets explicitly declare `watchos watchsimulator` to avoid inheriting the universal Apple app's platforms. The iOS app does not embed the Watch app or depend on its target (#5683): an embedded companion makes App Store review require Watch screenshots, so shipping the Watch app means restoring the iOS-only embed phase and target dependency. The package supports watchOS 10 and later. Like Maple TV, the Watch app does not link MapleUI (macOS 14 / iOS 17 only); it uses native watchOS SwiftUI controls and navigation. CI builds the `Maple Watch` scheme for a generic watchOS simulator but does not run its tests (see [Build and test](#build-and-test)).

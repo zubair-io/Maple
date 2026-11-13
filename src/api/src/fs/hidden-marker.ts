@@ -1,4 +1,5 @@
 import * as fs from './mirrored.ts';
+import { refusesFileUnderMarker } from './mapleignore-guard.ts';
 import { randomBytes } from 'node:crypto';
 
 /**
@@ -20,6 +21,7 @@ export function hiddenMarkerPath(absPath: string): string {
  * toggle races it, would otherwise collide on the identical temp path).
  */
 export async function writeHiddenMarker(absPath: string): Promise<void> {
+  if (await refusesFileUnderMarker(absPath)) return;
   const marker = hiddenMarkerPath(absPath);
   const tmp = `${marker}.tmp.${process.pid}.${randomBytes(8).toString('hex')}`;
   try {
@@ -41,6 +43,7 @@ export async function writeHiddenMarker(absPath: string): Promise<void> {
  * Remove the .hidden marker file if it exists.
  */
 export async function removeHiddenMarker(absPath: string): Promise<void> {
+  if (await refusesFileUnderMarker(absPath)) return;
   const marker = hiddenMarkerPath(absPath);
   try {
     await fs.unlink(marker);

@@ -1,0 +1,3 @@
+# 0011 controlled lens-off geometry diagnostic
+
+Neutral lens-off source4cf remains at an affine source→JPEG scale~0.98619, versus~0.98624 with the normal lens setting. This control does not remove the framing discrepancy; do not assume it is caused solely by Maple's lens toggle. The camera is SonyILCE-7RM4 with FE24-70mmF4ZAOSS; the existing resolver recognizes the lens. The JPEG edge pixels contain image content, not a uniform black padding border. These are geometry-only diagnostics, not color qualification or permission to change the comparator. Current lens defaults and test geometry remain unchanged pending the owner's coordinate-policy decision.

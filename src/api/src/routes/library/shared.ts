@@ -8,10 +8,12 @@ import { assertDerivativeCacheDirectory } from '../../indexer/derivative-cache.t
 import { isVideoFilename } from '../../indexer/media-types.ts';
 import { ffmpegBinary } from '../../thumbs/video-poster.ts';
 import { ffiPool } from '../../ffi/ffi-pool.ts';
+import { AuthoredSidecarRenderError } from '../../thumbs/raw-sidecar-render.ts';
+import { NoVideoStreamError, SourceDecodeError } from '../../thumbs/source-failure.ts';
+import { UnsupportedCameraError } from '../../ffi/unsupported-camera.ts';
 import type { Stats } from 'node:fs';
 import { t, type Context } from 'elysia';
 import { resolveAddress, type ResolvedAddress } from '../../library/address.ts';
-import { PIPELINE_OUTPUT_VERSION } from '../../generated/adjustment-fields.generated.ts';
 import {
   RAW_EXTENSIONS,
   BITMAP_EXTENSIONS,
@@ -178,7 +180,6 @@ export async function serveCachedBytesOr404(
     status: 200,
     headers: {
       'Content-Type': contentType,
-      'X-Maple-Pipeline-Version': String(PIPELINE_OUTPUT_VERSION),
       ETag: etag,
       'Cache-Control': cacheControl,
     },
@@ -254,7 +255,7 @@ export function isStreamedFilePath(path: string): boolean {
   // `libraryRoutes` (prefix `/api`), so it serves `/api/image/...` — an earlier
   // draft guessed `/api/library/image/` and silently never matched (Copilot
   // review on #2383).
-  return path.startsWith('/api/video/') || path.startsWith('/api/image/');
+  return ['/api/video/', '/api/image/', '/api/motion/'].some((prefix) => path.startsWith(prefix));
 }
 
 /** Serve a regular file with the single-range contract required by media players. */
@@ -264,6 +265,21 @@ export function streamFileRange(
   size: number,
   rangeHeader?: string,
 ): Response {
+  return streamFileSlice(absPath, contentType, { start: 0, length: size }, rangeHeader);
+}
+
+/**
+ * Serve `length` bytes of a file starting at `start` as if they were a whole
+ * file of their own: `Range` offsets and `Content-Range` totals are relative to
+ * the slice, so a media player sees an embedded clip as a standalone resource.
+ */
+export function streamFileSlice(
+  absPath: string,
+  contentType: string,
+  slice: { start: number; length: number },
+  rangeHeader?: string,
+): Response {
+  const size = slice.length;
   const common = {
     ...STREAMED_FILE_HEADERS,
     'Content-Type': contentType,
@@ -271,8 +287,9 @@ export function streamFileRange(
     'Cache-Control': 'private, max-age=0, must-revalidate',
     'Referrer-Policy': 'no-referrer',
   };
+  const file = Bun.file(absPath);
   if (!rangeHeader) {
-    return new Response(Bun.file(absPath), {
+    return new Response(file.slice(slice.start, slice.start + size), {
       status: 200,
       headers: { ...common, 'Content-Length': String(size) },
     });
@@ -285,7 +302,7 @@ export function streamFileRange(
     });
   }
   const length = range.end - range.start + 1;
-  return new Response(Bun.file(absPath).slice(range.start, range.end + 1), {
+  return new Response(file.slice(slice.start + range.start, slice.start + range.end + 1), {
     status: 206,
     headers: {
       ...common,
@@ -373,6 +390,38 @@ export async function derivativeDecoderUnavailable(sourcePath: string): Promise<
   return ffiPool().available()
     ? null
     : 'Derivative FFI not built — run src/api/scripts/build-raw-ffi.sh to build native/libraw_ffi.* first';
+}
+
+/** Authored edits that cannot be developed (#5231), an original the decoder
+ * refuses (#5474) and a camera body it does not know (#5499) are properties
+ * of the asset, not server faults, so they answer 422 rather than the generic
+ * 500. A video container with no video stream has no frame at all: 404. */
+export function derivativeGenerationFailure(
+  error: unknown,
+  set: Context['set'],
+  fallback: string,
+): { error: string; code?: string } {
+  if (error instanceof AuthoredSidecarRenderError) {
+    set.status = 422;
+    return {
+      error: 'The edits saved for this photo cannot be developed',
+      code: 'authored-edits-unrenderable',
+    };
+  }
+  if (error instanceof SourceDecodeError) {
+    set.status = 422;
+    return { error: 'This photo cannot be decoded', code: 'source-undecodable' };
+  }
+  if (error instanceof UnsupportedCameraError) {
+    set.status = 422;
+    return { error: 'This camera is not supported yet', code: 'camera-unsupported' };
+  }
+  if (error instanceof NoVideoStreamError) {
+    set.status = 404;
+    return { error: 'This file has no video frame', code: 'no-video-stream' };
+  }
+  set.status = 500;
+  return { error: fallback };
 }
 
 export async function resolveDerivativeAddress(

@@ -7,6 +7,7 @@ import { parseExportRecipe, exportRecipeProblem } from '../generated/export-reci
 import { ExportRecipeRenderService } from './export-recipe-render.service';
 import { EXPORT_RECIPE_SERVER, type ExportJobView } from './export-recipe-server';
 import {
+  readDirectoryCreatedOutputs,
   readExportQueue,
   saveExportQueue,
   recoverBrowserQueue,
@@ -15,6 +16,25 @@ import {
 } from './export-recipe-store';
 import { runBrowserRecipe } from './browser-recipe-runner';
 import { RecipeDirectoryAccessService } from './recipe-directory-access.service';
+
+async function attachBrowserDirectory(
+  record: RecipeQueueRecord,
+  latest: RecipeQueueRecord | null,
+  directories: RecipeDirectoryAccessService,
+): Promise<void> {
+  const handle = await directories.resolve(record.recipe.directory!);
+  record.directoryHandle = handle;
+  await directories.captureSources(record.targets);
+  record.protectedOriginals = record.targets.map((target) => target.sourceHandle ?? null);
+  const stored = await readDirectoryCreatedOutputs(handle);
+  const fromLatest =
+    latest?.createdOutputs &&
+    latest.directoryHandle &&
+    (await handle.isSameEntry(latest.directoryHandle))
+      ? latest.createdOutputs
+      : undefined;
+  if (stored || fromLatest) record.createdOutputs = { ...stored, ...fromLatest };
+}
 
 @Injectable({ providedIn: 'root' })
 export class ExportRecipeQueueService {
@@ -38,7 +58,20 @@ export class ExportRecipeQueueService {
   );
   private cancelled = false;
   private destroyed = false;
+  private reconnectCancelled = false;
+  private reconnectTask: Promise<void> | null = null;
   private readonly ready: Promise<void>;
+
+  private get reconnectStopped(): boolean {
+    return this.destroyed || this.reconnectCancelled;
+  }
+
+  private isSavedServerJob(
+    record: RecipeQueueRecord | null,
+    id: string,
+  ): record is RecipeQueueRecord & { serverJobId: string } {
+    return !!record && record.id === id && !!record.serverJobId;
+  }
 
   constructor() {
     inject(DestroyRef).onDestroy(() => {
@@ -47,8 +80,43 @@ export class ExportRecipeQueueService {
     this.ready = readExportQueue()
       .then((record) => {
         this.record.set(record && !record.serverJobId ? recoverBrowserQueue(record) : record);
+        if (record?.serverJobId && this.server && navigator.locks)
+          this.reconnectTask = this.reconnectServerJob(record.id);
       })
       .catch((error: unknown) => this.reportError(error));
+  }
+
+  /** A server export keeps running after its browser tab closes. Reconcile its
+   * saved snapshot on reopen without implicitly resuming a cancelled job. */
+  private async reconnectServerJob(id: string): Promise<void> {
+    for (;;) {
+      if (this.reconnectStopped) return;
+      let delay = 500;
+      try {
+        const active = await navigator.locks.request('maple-export-queue', async () => {
+          if (this.reconnectStopped) return false;
+          const latest = await readExportQueue();
+          if (!this.isSavedServerJob(latest, id)) return false;
+          const job = await firstValueFrom(this.server!.get(latest.serverJobId));
+          if (this.reconnectStopped) return false;
+          this.error.set(null);
+          this.applyServerSummary(latest, job);
+          await this.save(latest);
+          this.reportProgress(latest, '');
+          if (job.status !== 'queued' && job.status !== 'running') {
+            if (job.error) this.error.set(job.error);
+            return false;
+          }
+          return true;
+        });
+        if (!active) return;
+      } catch (error) {
+        if (this.reconnectStopped) return;
+        this.reportError(error);
+        delay = 2_000;
+      }
+      await new Promise((resolve) => setTimeout(resolve, delay));
+    }
   }
 
   async start(assets: readonly Asset[], value: unknown): Promise<void> {
@@ -78,11 +146,8 @@ export class ExportRecipeQueueService {
         serverJobId: recipe.destination === 'directory' && this.server ? id : null,
         cancelled: false,
       };
-      if (recipe.destination === 'directory' && !this.server) {
-        record.directoryHandle = await this.directories.resolve(recipe.directory!);
-        await this.directories.captureSources(targets);
-        record.protectedOriginals = targets.map((target) => target.sourceHandle ?? null);
-      }
+      if (recipe.destination === 'directory' && !this.server)
+        await attachBrowserDirectory(record, latest, this.directories);
       await this.execute(record);
     });
   }
@@ -155,9 +220,12 @@ export class ExportRecipeQueueService {
   ): Promise<void> {
     if (this.running()) return;
     this.running.set(true);
-    this.error.set(null);
-    this.cancelled = false;
+    this.reconnectCancelled = true;
     try {
+      await this.reconnectTask;
+      this.reconnectTask = null;
+      this.error.set(null);
+      this.cancelled = false;
       if (!navigator.locks)
         throw new Error(
           'Persistent export requires browser Web Locks. Use a current browser or the CLI.',

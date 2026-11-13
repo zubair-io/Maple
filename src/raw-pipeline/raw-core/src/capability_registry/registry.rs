@@ -239,7 +239,7 @@ pub const CAPABILITY_REGISTRY: &[Capability] = &[
         export_paths: ALL_EXPORTS,
         groups: &[],
         // Non-copyable (each spot names a source region in THIS image).
-        fields: &["retouch_spots"],
+        fields: &["retouch_spots", "retouch_frame"],
         integration: DEVELOP_INTEGRATION,
         qualification: &[],
     },

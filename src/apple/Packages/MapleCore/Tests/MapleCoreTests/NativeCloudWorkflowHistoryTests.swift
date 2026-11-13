@@ -17,7 +17,7 @@ import XCTest
         [SidecarWorkflow].self,
         from: Data(
           contentsOf:
-            WorkflowFixture.root().appending(path: "workflow/contract-v1.json")))
+            WorkflowFixture.root().appending(path: "workflow/contract.json")))
     }
 
     private func xml(_ source: NativeWorkflowHTTPFixture.Source) throws -> String {
@@ -238,14 +238,16 @@ import XCTest
         return results
       }
       _ = try await fixture.control("/workflow-fixture/\(source.key)/end-race", body: [:])
-      XCTAssertEqual(outcomes.filter { $0 }.count, 1)
-      XCTAssertEqual(try record(source).history.count, 1)
+      XCTAssertEqual(outcomes.filter { $0 }.count, 8)
+      XCTAssertEqual(try record(source).history.count, 8)
       for _ in 0..<8 {
         for store in stores { await store.flush() }
         if try record(source).history.count == 8 { break }
       }
       let workflow = try record(source)
+      XCTAssertEqual(workflow.history.count, 8)
       XCTAssertEqual(Set(workflow.history.map(\.id)).count, 8)
+      XCTAssertEqual(Set(workflow.history.map(\.writer)), ["apple"])
       XCTAssertEqual(
         try workflow.history.map { try XMPParser.parse($0.adjustmentXmp).0.exposure }.sorted(),
         (1...8).map { Double($0) / 10 })

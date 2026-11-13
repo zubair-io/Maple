@@ -1,0 +1,109 @@
+{
+  "scope": "Diagnostic only: identical captured-main renderer against original vs verified isolated Adobe captures. Canonical inputs are unchanged; no canonical failures counted as cleared.",
+  "main_commit": "cf62d12ddc573cff68780e7754f7b5b63f7ae621",
+  "original": {
+    "compared": 2,
+    "breaches": 2,
+    "skipped_no_raw": 0,
+    "skipped_no_candidate": 0,
+    "skipped_no_reference": 0,
+    "errors": 0,
+    "grand_mean_deltaE": 34.199378852667714,
+    "grand_bias_r": -0.12598526797785614,
+    "grand_bias_g": -0.05890536422067638,
+    "grand_bias_b": 0.24599448578440555,
+    "cases": [
+      {
+        "fixture": "test_0007",
+        "case": "tint_max",
+        "profile": "neutral",
+        "resolution": "down",
+        "status": "breach",
+        "breaches": [
+          "mean 50.05>19.70",
+          "p95 60.66>28.30",
+          "max 77.36>51.10",
+          "bias_G -0.1701>0.1079",
+          "bias_B +0.5559>0.1079"
+        ],
+        "mean": 50.04707717603685,
+        "p95": 60.66320798194458,
+        "max": 77.35943697051383,
+        "bR": -0.10403222159637388,
+        "bG": -0.17010864108001855,
+        "bB": 0.5558688096662764,
+        "n_pixels": 10668000,
+        "reference_protocol": "legacy-direct-reference"
+      },
+      {
+        "fixture": "test_0007",
+        "case": "tint_min",
+        "profile": "neutral",
+        "resolution": "down",
+        "status": "breach",
+        "breaches": [
+          "mean 18.35>16.20",
+          "p95 21.96>19.50",
+          "max 43.31>43.20",
+          "bias_R -0.1479>0.1424"
+        ],
+        "mean": 18.351680529298577,
+        "p95": 21.955608173960304,
+        "max": 43.31328413146149,
+        "bR": -0.14793831435933844,
+        "bG": 0.05229791263866578,
+        "bB": -0.06387983809746528,
+        "n_pixels": 10668000,
+        "reference_protocol": "legacy-direct-reference"
+      }
+    ]
+  },
+  "verified_diagnostic": {
+    "compared": 2,
+    "breaches": 1,
+    "skipped_no_raw": 0,
+    "skipped_no_candidate": 0,
+    "skipped_no_reference": 0,
+    "errors": 0,
+    "grand_mean_deltaE": 5.665544437623243,
+    "grand_bias_r": -0.0047447199216892316,
+    "grand_bias_g": -0.008515887259482118,
+    "grand_bias_b": 0.049457087242011075,
+    "cases": [
+      {
+        "fixture": "test_0007",
+        "case": "tint_max",
+        "profile": "neutral",
+        "resolution": "down",
+        "status": "passed",
+        "breaches": [],
+        "mean": 6.819519767512919,
+        "p95": 20.04756378342308,
+        "max": 49.743544714293385,
+        "bR": -0.018574852372051,
+        "bG": -0.030821173179187027,
+        "bB": -0.01626338243337125,
+        "n_pixels": 10668000,
+        "reference_protocol": "legacy-direct-reference"
+      },
+      {
+        "fixture": "test_0007",
+        "case": "tint_min",
+        "profile": "neutral",
+        "resolution": "down",
+        "status": "breach",
+        "breaches": [
+          "max 47.98>43.20"
+        ],
+        "mean": 4.511569107733567,
+        "p95": 7.781575082153058,
+        "max": 47.981948326707936,
+        "bR": 0.009085412528672537,
+        "bG": 0.013789398660222791,
+        "bB": 0.1151775569173934,
+        "n_pixels": 10668000,
+        "reference_protocol": "legacy-direct-reference"
+      }
+    ]
+  }
+}

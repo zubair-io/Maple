@@ -1,6 +1,6 @@
 //! Read-only source lookup for removal gestures (#3934). Uses the renderer's
 //! coefficient blend and polynomial, in its ActiveArea pixel-index convention.
-use super::{blend_warp_toward_identity, warp_source};
+use super::{blend_warp_toward_identity, warp::warp_source};
 use crate::pipeline::pano::opcodes::{ActiveAreaRect, WarpPlaneParams, WarpRectilinearOpcode};
 
 pub(crate) struct WarpPointMap {

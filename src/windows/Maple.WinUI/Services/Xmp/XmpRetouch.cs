@@ -11,6 +11,7 @@ namespace Maple.WinUI.Services.Xmp;
 public static class XmpRetouch
 {
     public const string Tag = "crs:RetouchAreas";
+    public const string FrameVersionKey = "papp:RetouchFrameVersion";
     private static readonly XNamespace Crs = XmpSchema.CrsNs;
     private static readonly XNamespace Rdf = XmpSchema.RdfNs;
 
@@ -45,7 +46,7 @@ public static class XmpRetouch
         return state;
     }
 
-    public static RetouchState Read(XElement container)
+    public static RetouchState Read(XElement container, bool isLegacyFrame = false)
     {
         var spots = new List<RetouchEntry>();
         var items = Items(container);
@@ -64,11 +65,12 @@ public static class XmpRetouch
             if (x is null || y is null || radius is null || sx is null || sy is null) continue;
             spots.Add(new(i, new(kind, x.Value, y.Value, sx.Value, sy.Value, radius.Value, feather, opacity)));
         }
-        return new(container.ToString(SaveOptions.DisableFormatting), spots);
+        return new(container.ToString(SaveOptions.DisableFormatting), spots, isLegacyFrame);
     }
 
     public static RetouchState Add(RetouchState state, RetouchSpot spot)
     {
+        RequireUpright(state);
         Validate(spot);
         var root = Root(state);
         Append(root, spot);
@@ -92,6 +94,7 @@ public static class XmpRetouch
 
     public static RetouchState Replace(RetouchState state, int index, RetouchSpot spot)
     {
+        RequireUpright(state);
         Validate(spot);
         var entry = Entry(state, index);
         if (entry.Spot == spot) return state;
@@ -100,12 +103,57 @@ public static class XmpRetouch
         return Read(root);
     }
 
+    /// <summary>
+    /// Re-expresses a legacy decode-frame list over the upright image (#4473):
+    /// both points follow the EXIF orientation and the radius, a fraction of the
+    /// sensor width, becomes a fraction of the upright width so the disc keeps
+    /// its pixel size. The extent is the oriented default-crop frame the stored fractions address (the native geometry's CropWidth/CropHeight). Unknown entries, attributes and children are untouched.
+    /// </summary>
+    public static RetouchState ToUpright(RetouchState state, int orientation, double uprightWidth, double uprightHeight)
+    {
+        if (!state.IsLegacyFrame) return state;
+        if (orientation is < 1 or > 8 || !double.IsFinite(uprightWidth) || !double.IsFinite(uprightHeight)
+            || uprightWidth <= 0 || uprightHeight <= 0)
+            throw new ArgumentOutOfRangeException(nameof(orientation));
+        var sensorWidth = orientation >= 5 ? uprightHeight : uprightWidth;
+        var radiusScale = sensorWidth / uprightWidth;
+        var root = Root(state);
+        var items = Items(root);
+        foreach (var entry in state.Spots)
+        {
+            var spot = entry.Spot;
+            var (x, y) = SensorToUpright(spot.X, spot.Y, orientation);
+            var (sx, sy) = SensorToUpright(spot.SourceX, spot.SourceY, orientation);
+            Set(Description(items[entry.XmlIndex]), spot with { X = x, Y = y, SourceX = sx, SourceY = sy, Radius = spot.Radius * radiusScale });
+        }
+        return Read(root);
+    }
+
+    private static (double X, double Y) SensorToUpright(double x, double y, int orientation) => orientation switch
+    {
+        1 => (x, y),
+        2 => (1 - x, y),
+        3 => (1 - x, 1 - y),
+        4 => (x, 1 - y),
+        5 => (y, x),
+        6 => (1 - y, x),
+        7 => (1 - y, 1 - x),
+        _ => (y, 1 - x),
+    };
+
     public static RetouchState Remove(RetouchState state, int index)
     {
+        RequireUpright(state);
         var entry = Entry(state, index);
         var root = Root(state);
         Items(root)[entry.XmlIndex].Remove();
         return Read(root);
+    }
+
+    private static void RequireUpright(RetouchState state)
+    {
+        if (state.IsLegacyFrame)
+            throw new InvalidOperationException("A legacy decode-frame repair list must be converted to the upright frame before it is edited.");
     }
 
     private static RetouchEntry Entry(RetouchState state, int index) =>

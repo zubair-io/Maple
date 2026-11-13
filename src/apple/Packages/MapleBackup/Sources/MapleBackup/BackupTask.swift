@@ -104,21 +104,22 @@ public enum BackupQueueEvent: Sendable {
   /// All queued work and scheduled retries have drained.
   case drained
   case enqueued(BackupTask)
+  case enqueuedBatch([BackupTask])
   case started(BackupTaskID)
   case preparing(BackupTaskID, message: String)
   case progress(BackupTaskID, sent: Int64, total: Int64)
   case completed(BackupTaskID, mapleId: String)
   case failed(BackupTaskID, error: String, willRetry: Bool)
   case cancelled(BackupTaskID)
-  /// Bytes already landed (`.completed` was emitted first), but at least one
-  /// best-effort companion (sidecar / rendered / live-mov) has fallen into its
-  /// bounded detached-retry path. Emitted once per task on the 0→1 transition
-  /// of its outstanding-companion count (#702). The photo is uploaded; some
-  /// derived artifact is still in flight.
+  case cancelledBatch([BackupTaskID])
+  /// The photo landed (`.completed` was emitted first), but its best-effort
+  /// local-edit sidecar has fallen into its bounded detached-retry path.
+  /// Emitted once per task on the 0→1 transition of its outstanding-companion
+  /// count (#702). The photo is uploaded; its edit is still in flight.
   case companionPending(BackupTaskID)
   /// The task's last outstanding companion reached a terminal state — it
   /// either landed on a retry or exhausted its bounded budget and was dropped
-  /// (re-derivable artifacts regenerate on a future walk). Emitted once per
+  /// (a later walk re-sends an undelivered edit). Emitted once per
   /// task on the →0 transition. After this the photo is fully done (#702).
   case companionsResolved(BackupTaskID)
 }

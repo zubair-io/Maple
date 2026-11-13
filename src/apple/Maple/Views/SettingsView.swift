@@ -28,6 +28,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
 enum SettingsTab: String, CaseIterable, Identifiable {
   case general
   case backup
+  case screenSaver
   case selfHosted
   case pano
   case observability
@@ -40,7 +41,7 @@ enum SettingsTab: String, CaseIterable, Identifiable {
 
   var section: SettingsSection {
     switch self {
-    case .general, .backup, .selfHosted, .pano:
+    case .general, .backup, .screenSaver, .selfHosted, .pano:
       return .general
     case .observability:
       return .observability
@@ -55,6 +56,7 @@ enum SettingsTab: String, CaseIterable, Identifiable {
     switch self {
     case .general: return "gear"
     case .backup: return "icloud.and.arrow.up"
+    case .screenSaver: return "wallpaper"
     case .selfHosted: return "cloud"
     case .pano: return "photo.stack"
     case .observability: return "waveform.path.ecg"
@@ -69,6 +71,7 @@ enum SettingsTab: String, CaseIterable, Identifiable {
     switch self {
     case .general: return "General"
     case .backup: return "Backup"
+    case .screenSaver: return "Screen Saver"
     case .selfHosted: return "Cloud"
     case .pano: return "Pano"
     case .observability: return "Observability"
@@ -89,17 +92,19 @@ enum SettingsTab: String, CaseIterable, Identifiable {
     case .sources: return "settings.tab.sources"
     case .pano: return "settings.tab.pano"
     case .about: return "settings.tab.about"
+    case .screenSaver: return "settings.tab.screenSaver"
     default: return nil
     }
   }
 
-  var isVisible: Bool {
-    switch self {
-    case .pano:
-      return FeatureFlags.isPanoramaEnabled
-    default:
-      return true
-    }
+  /// The screen saver runs during an iPhone/iPad Photos backup (#5457);
+  /// macOS has no equivalent.
+  var isAvailable: Bool {
+    #if os(iOS)
+      true
+    #else
+      self != .screenSaver
+    #endif
   }
 }
 
@@ -128,11 +133,9 @@ struct SettingsView: View {
   private var selectedTab: SettingsTab {
     get {
       #if os(macOS)
-        let tab = navigation.selectedTab
-        return (tab == .pano && !FeatureFlags.isPanoramaEnabled) ? .general : tab
+        navigation.selectedTab
       #else
-        let tab = localSelectedTab
-        return (tab == .pano && !FeatureFlags.isPanoramaEnabled) ? .general : tab
+        localSelectedTab
       #endif
     }
     nonmutating set {
@@ -165,9 +168,8 @@ struct SettingsView: View {
     #endif
     .onAppear {
       if let tab = initialTab {
-        let effectiveTab = (tab == .pano && !FeatureFlags.isPanoramaEnabled) ? .general : tab
-        selectedTab = effectiveTab
-        pushedTab = effectiveTab
+        selectedTab = tab
+        pushedTab = tab
       }
     }
   }
@@ -242,7 +244,7 @@ struct SettingsView: View {
   }
 
   private func visibleTabs(in section: SettingsSection) -> [SettingsTab] {
-    SettingsTab.allCases.filter { $0.section == section && $0.isVisible }
+    SettingsTab.allCases.filter { $0.section == section && $0.isAvailable }
   }
 
   @ViewBuilder
@@ -281,14 +283,12 @@ struct SettingsView: View {
       GeneralSettingsTab()
     case .backup:
       BackupSettingsView()
+    case .screenSaver:
+      ScreenSaverSettingsView()
     case .selfHosted:
       SelfHostedSettingsTab(sessionFor: sessionFor)
     case .pano:
-      if FeatureFlags.isPanoramaEnabled {
-        PanoSettingsView()
-      } else {
-        GeneralSettingsTab()
-      }
+      PanoSettingsView()
     case .observability:
       ObservabilitySettingsTab()
     case .sources:
@@ -372,6 +372,8 @@ struct GeneralSettingsTab: View {
       }
       .listRowBackground(MapleTokens.surface)
       #if os(macOS)
+        ExportRecipesSettingsSection()
+          .listRowBackground(MapleTokens.surface)
         AgentBridgeSettingsSection()
       #endif
     }

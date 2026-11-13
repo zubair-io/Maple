@@ -137,7 +137,7 @@ export async function keep(session: RemovalEditorSession): Promise<void> {
     session.check(token);
     session.committingXml = draft.xml;
     session.cullingFor(photo);
-    const sidecarRevision = await session.editor.acceptRemoval(
+    const sidecarRevision = await session.editor.removal.acceptRecords(
       draft.records,
       photo.model,
       session.replacingRemoval()
@@ -176,7 +176,7 @@ export async function undoKeep(session: RemovalEditorSession): Promise<void> {
   if (session.phase() !== 'ready' || !session.canUndoKeep()) return;
   session.editor.undo();
   try {
-    await session.editor.settleRemovalSave();
+    await session.editor.removal.settled();
   } catch (error) {
     session.message.set(error instanceof Error ? error.message : String(error));
   }

@@ -37,7 +37,9 @@ use std::ffi::{c_char, CStr};
 /// end-to-end and JS just reads the file. `quality` is JPEG quality in
 /// [1, 100]; pass 0 for the default (82). The parent dir of `out_path` must
 /// already exist. Returns 0 on success; non-zero on error (call
-/// `maple_last_error`).
+/// `maple_last_error`). `raw_core::Error::UNSUPPORTED_CAMERA_FFI_CODE` (15)
+/// means the decoder has no definition for the camera body: the original is
+/// intact but cannot be developed by this build (#5499).
 #[no_mangle]
 pub unsafe extern "C" fn maple_render_develop_jpeg_to_file(
     raw_path: *const c_char,
@@ -87,6 +89,14 @@ pub unsafe extern "C" fn maple_render_develop_jpeg_to_file(
 
     with_large_stack(move || {
         let raw_path = std::path::Path::new(&raw_path_str);
+        let out_path = std::path::Path::new(&out_path_str);
+        let inputs: Vec<&std::path::Path> = std::iter::once(raw_path)
+            .chain(xmp_path_str.as_deref().map(std::path::Path::new))
+            .collect();
+        if let Err(e) = raw_core::output_file::validate_destination(out_path, &inputs) {
+            set_last_error(format!("output: {e}"));
+            return 12;
+        }
         let model = match load_xmp_model_owned(xmp_path_str.as_deref()) {
             LoadModel::Ok(m) => m,
             LoadModel::Err(rc) => return rc,
@@ -104,6 +114,10 @@ pub unsafe extern "C" fn maple_render_develop_jpeg_to_file(
             decode_bytes(&raw_bytes, ext)
         }) {
             Ok(r) => r,
+            Err(e @ raw_core::Error::UnsupportedCamera { .. }) => {
+                set_last_error(e.to_string());
+                return raw_core::Error::UNSUPPORTED_CAMERA_FFI_CODE;
+            }
             Err(e) => {
                 set_last_error(format!("decode: {}", e));
                 return 7;
@@ -154,19 +168,9 @@ pub unsafe extern "C" fn maple_render_develop_jpeg_to_file(
             }
         };
 
-        // Atomic write: .tmp + rename. Parent dir is the caller's contract.
-        let out_path = std::path::Path::new(&out_path_str);
-        let mut tmp_path = std::ffi::OsString::from(out_path);
-        tmp_path.push(".tmp");
-        let tmp_path = std::path::PathBuf::from(tmp_path);
-        if let Err(e) = std::fs::write(&tmp_path, &jpeg) {
-            set_last_error(format!("tmp write: {}", e));
+        if let Err(e) = raw_core::output_file::write_derived(out_path, &inputs, &jpeg) {
+            set_last_error(format!("output write: {e}"));
             return 12;
-        }
-        if let Err(e) = std::fs::rename(&tmp_path, out_path) {
-            let _ = std::fs::remove_file(&tmp_path);
-            set_last_error(format!("rename: {}", e));
-            return 13;
         }
         0
     })

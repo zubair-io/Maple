@@ -37,8 +37,8 @@ struct KeywordChipsRow: View {
         added: addKeyword
       )
     }
-    .disabled(session == nil)
-    .opacity(session == nil ? 0.5 : 1.0)
+    .disabled(session == nil || session?.sidecarLoadFailed == true)
+    .opacity(session == nil || session?.sidecarLoadFailed == true ? 0.5 : 1.0)
     .accessibilityElement(children: .contain)
     .accessibilityIdentifier("info-panel-keywords")
   }

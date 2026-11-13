@@ -1,4 +1,3 @@
-import { PIPELINE_OUTPUT_VERSION } from '../../generated/adjustment-fields.generated.ts';
 /**
  * Integration tests for GET /api/preview/:slug/*
  *
@@ -20,6 +19,7 @@ import * as path from 'node:path';
 import { previewRoutes } from './preview.ts';
 import { invalidateLibraryRoots } from '../../indexer/libraries.cache.ts';
 import { registerLibrary, seedRouteAsset } from '../../../tests/helpers/assets-route-fixtures.ts';
+import { writeSettledFile } from '../../test-support/settled-file.ts';
 import { newObjectIdHex } from '../../db/object-id.ts';
 import {
   createLiveTestDatabase,
@@ -87,12 +87,7 @@ describe('GET /preview/:slug/*', () => {
 
     // Pre-stage the one preview file so the route serves it without generating.
     // The serving path only stats/reads it (no decode), so arbitrary bytes work.
-    const previewPath = path.join(
-      tmpDir,
-      '.maple',
-      'previews',
-      `ready.jpg.v${PIPELINE_OUTPUT_VERSION}.avif`,
-    );
+    const previewPath = path.join(tmpDir, '.maple', 'previews', `ready.jpg.avif`);
     await mkdir(path.dirname(previewPath), { recursive: true });
     await writeFile(previewPath, 'fake-preview-bytes');
 
@@ -113,5 +108,24 @@ describe('GET /preview/:slug/*', () => {
     );
     expect(revalidated.status).toBe(304);
     expect(revalidated.headers.get('ETag')).toBe(etag);
+  });
+
+  test('answers 422 source-undecodable when the decoder refuses the original (#5474)', async () => {
+    seedRouteAsset(live.db, {
+      libraryId,
+      path: '',
+      filename: 'broken.jpg',
+      mapleId: newObjectIdHex(),
+    });
+    await writeSettledFile(
+      path.join(tmpDir, 'broken.jpg'),
+      Buffer.from('\xff\xd8not a jpeg', 'latin1'),
+    );
+    const res = await app.handle(new Request('http://localhost/preview/prevlib/broken.jpg'));
+    expect(res.status).toBe(422);
+    expect(await res.json()).toEqual({
+      error: 'This photo cannot be decoded',
+      code: 'source-undecodable',
+    });
   });
 });

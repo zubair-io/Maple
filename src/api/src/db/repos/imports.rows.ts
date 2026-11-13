@@ -52,7 +52,6 @@ export interface ImportRow {
   count_failed: number;
   error: string | null;
   locked_by: string | null;
-  lease_expires_at: string | null;
   cancel_requested: number;
   created_at: string;
   updated_at: string;
@@ -97,7 +96,6 @@ export function toImportDoc(row: ImportRow): ImportWithId {
     },
     error: row.error,
     locked_by: row.locked_by,
-    lease_expires_at: row.lease_expires_at,
     cancel_requested: toBool(row.cancel_requested),
     created_at: row.created_at,
     updated_at: row.updated_at,
@@ -147,15 +145,18 @@ export interface ClaimedImport {
   library_id: ObjectId;
   library_root: string;
   scan_pending: boolean;
+  /** An earlier attempt was already running this import when this one claimed it. */
+  taken_over: boolean;
 }
 
 /** A claimed import, as the snapshot the worker runs from. */
-export function toClaimedImport(row: ImportRow): ClaimedImport {
+export function toClaimedImport(row: ImportRow, takenOver: boolean): ClaimedImport {
   return {
     _id: toObjectId(row.id),
     source_root: row.source_root,
     library_id: toObjectId(row.library_id),
     library_root: row.library_root,
     scan_pending: toBool(row.scan_pending),
+    taken_over: takenOver,
   };
 }

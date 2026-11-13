@@ -33,6 +33,8 @@ use crate::MapleScopeStats;
 fn default_params() -> MapleAdjustmentParams {
     MapleAdjustmentParams {
         nr_sampling_scale: 1.0,
+        wb_method: 0,
+        creative_ptr: std::ptr::null(),
         whites_anchor_ev: f32::NAN,
         temperature: 5500.0,
         tint: 0.0,
@@ -87,6 +89,9 @@ fn default_params() -> MapleAdjustmentParams {
         color_grade_global_hue: 0.0,
         color_grade_global_saturation: 0.0,
         color_grade_global_luminance: 0.0,
+        color_grade_blending: 100.0,
+        color_grade_shadow_edge: 0.564622,
+        color_grade_highlight_edge: 0.564622,
         hsl_hue_red: 0.0,
         hsl_hue_orange: 0.0,
         hsl_hue_yellow: 0.0,

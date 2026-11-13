@@ -1,17 +1,13 @@
 // LightTablePool.swift
 //
-// Pure merge-dedup helper for the Maple TV Light Table's ambient source
-// pool (#2121 F2). Mirrors the reasoning in TimelineGrouping.swift's
-// header exactly: the orchestration that FETCHES the candidate lists
-// (`CloudSearchClient.search`, one query for `flag=pick`, one for
-// `rating>=4`, and a `captured_desc` fallback when those two are thin)
-// is async/network code that lives in the app target
-// (`Maple TV/LightTableViewModel.swift`, which the SwiftPM test target
-// can't `@testable import` — no dedicated Xcode test bundle exists for
-// Maple TV, see `TVTimelineViewModelTests.swift`'s header for the same
-// situation). The SELECTION policy over already-fetched lists, though,
-// is pure data-in/data-out and belongs where `swift test` can exercise
-// the real function instead of a hand-maintained mirror.
+// Pure merge-dedup helper for the Light Table's ambient source pool
+// (#2121 F2). Mirrors the reasoning in TimelineGrouping.swift's header: the
+// orchestration that FETCHES the candidate lists (`CloudSearchClient.search`,
+// one query for `flag=pick`, one for `rating>=4`, and a `captured_desc`
+// fallback when those two are thin) is async/network code in
+// `LightTable/LightTableViewModel.swift`. The SELECTION policy over
+// already-fetched lists is pure data-in/data-out, kept separate so `swift
+// test` exercises the real function without standing up network clients.
 
 import Foundation
 

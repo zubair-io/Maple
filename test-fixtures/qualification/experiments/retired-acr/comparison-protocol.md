@@ -1,0 +1,16 @@
+# Historical ACR comparison protocol — retired
+
+It builds `maple-cli` in release (unconditionally — cargo's own fingerprint is the staleness check, so a stale prebuilt binary can't silently report old results), renders the manifest with `maple-cli batch`, and compares through `compare_images.py`'s `diff_manifest_case()`. For exact `baseline` cases (Neutral and Auto), the existing down reference supplies the dimensions and its native `full` counterpart supplies the pixels: both full candidate and full reference are reduced with the same Lanczos kernel. A missing native reference is a comparison error; the harness does not fall back to differently filtered down pixels. Other cases retain the legacy direct-reference protocol, including full-resolution detail comparisons; each comparison prints its protocol. Native-pair migration of the remaining corpus is tracked in [#3678](https://github.com/zubair-io/Maple/issues/3678). Output is a column-aligned table sorted by fixture and case, with per-fixture and grand-mean aggregates.
+
+**Reference protocol correction (#3633).** The ACR exporter uses Photoshop BICUBICSHARPER for its down PNGs. Previously only the candidate was reduced with Lanczos, attributing a difference between resizing filters to the color pipeline. On the same native 0000 ACR image this discrepancy alone reaches max ΔE 13.89. Matching both reductions corrects that measurement without altering original RAWs, sidecars, either reference tier, dimensions, numerical ceilings or metric definitions. Baseline full/down references must have matching Camera Raw metadata and compatible geometry; candidates must have the exact native reference dimensions. Explicit Adobe authoring sidecars are verified when supplied. This changes reference pixels and metric distributions, so old and new measurements are reported separately. The corpus audit found 576 missing native captures and 10 metadata-free pairs outside the 20 baseline pairs; broader migration is unfinished (#3678). The qualification report `test-fixtures/qualification/color-baseline-3633.md` records the old and corrected protocol results, including unchanged-main controls and reference hashes. The standalone `compare_images.py` CLI retains its existing direct-pair behavior for other callers.
+
+The metric, from [`compare_images.py`](../src/scripts/compare_images.py): mean / p95 / max CIEDE2000 plus per-channel bias (`bias_r`, `bias_g`, `bias_b`). `--zones` adds a shadow/mid/highlight breakdown keyed on the reference's L\*; `--hue-bins N` adds per-hue-angle deltas with low-chroma pixels routed to a neutral bucket. Python deps are pinned in `src/scripts/requirements.txt` (numpy, Pillow, colour-science, scipy, tifffile).
+
+Adobe's `Custom` white balance requires both `Temperature` and `Tint`.
+Reference preparation completes a missing axis only from the same fixture's
+recorded effective `As Shot` baseline PNG (#4784). It preserves authored axes
+and Maple's canonical XMP bytes. A missing baseline or an incomplete Custom pair
+fails preparation or verification; no universal camera white balance is used.
+
+Useful environment overrides: `MAPLE_CLI` (use a prebuilt binary, skipping the build), `MANIFEST`, `BUDGETS`, `KEEP_TMP`, and `ALLOW_MISSING_BUDGET` (by default a case with no budget entry **fails**, which is what forces new cases to be budgeted).
+

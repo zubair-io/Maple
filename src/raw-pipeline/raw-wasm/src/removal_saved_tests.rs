@@ -205,16 +205,21 @@ fn unprepared_or_changed_records_block_render_and_export() {
 #[test]
 fn saved_gpu_prefix_is_source_bound_and_reuses_hot_slider_base() {
     use crate::gpu_render::{
-        develop_prefix_rgba, develop_prefix_rgba_saved, require_prepared_removals,
+        develop_capture_prefix_rgba, develop_capture_prefix_rgba_saved, require_prepared_removals,
     };
+    use raw_core::gpu_host::live_profile::LiveProfile;
     let (raw, original, xmp, manifest, bytes) = fixture();
     let model = crate::mask_registry::parse_model(Some(&xmp)).unwrap();
     let stack = prepare(&raw, &original, &xmp, &manifest, &bytes).unwrap();
     assert!(require_no_unresolved_removals(&model).is_err());
-    assert!(develop_prefix_rgba(&raw, RAW, "dng", &model, 64).is_err());
-    assert!(develop_prefix_rgba_saved(&raw, RAW, "dng", &original, &model, 64, None).is_err());
+    assert!(
+        develop_capture_prefix_rgba_saved(&raw, RAW, "dng", &original, &model, 64, None).is_err()
+    );
     let other = ContentDigest::for_bytes(b"another RAW");
-    assert!(develop_prefix_rgba_saved(&raw, RAW, "dng", &other, &model, 64, Some(&stack)).is_err());
+    assert!(
+        develop_capture_prefix_rgba_saved(&raw, RAW, "dng", &other, &model, 64, Some(&stack))
+            .is_err()
+    );
     let mut changed = model.clone();
     changed.inpaint_removals[0].model_version.push('x');
     assert!(require_prepared_removals(Some(&stack), &changed).is_err());
@@ -223,37 +228,50 @@ fn saved_gpu_prefix_is_source_bound_and_reuses_hot_slider_base() {
     let ctx = raw_gpu::GpuContext::new_blocking()
         .expect("saved-prefix GPU qualification requires adapter");
     for cap in [4, 64] {
-        let (rgba, w, h, prefix, anchor, sampling) =
-            develop_prefix_rgba_saved(&raw, RAW, "dng", &original, &model, cap, Some(&stack))
-                .unwrap();
+        let prefix = develop_capture_prefix_rgba_saved(
+            &raw,
+            RAW,
+            "dng",
+            &original,
+            &model,
+            cap,
+            Some(&stack),
+        )
+        .unwrap();
         let expected = stack
-            .develop_with_gain(
+            .render_capture_sized_sensor_framed(
                 &raw,
                 &original,
-                &prefix,
+                &prefix.prefix_model,
                 RenderQuality::Amaze,
-                Some(cap),
+                cap,
                 CancelToken::never(),
             )
-            .unwrap()
-            .0;
-        assert_eq!(
-            rgba,
-            expected
-                .pixels
-                .iter()
-                .flat_map(|p| [p[0], p[1], p[2], 1.0])
-                .collect::<Vec<_>>()
-        );
-        assert_eq!(Some(anchor), expected.whites_anchor_ev);
-        assert_eq!(sampling, expected.nr_sampling_scale);
+            .unwrap();
+        assert_eq!(prefix.rgba, expected.rgba);
+        assert_eq!(prefix.whites_anchor_ev, expected.whites_anchor_ev);
+        assert_eq!(prefix.nr_sampling_scale, expected.nr_sampling_scale);
         let ordinary = raw_core::xmp::AdjustmentModel {
             inpaint_removals: Vec::new(),
             ..model.clone()
         };
-        let unedited = develop_prefix_rgba(&raw, RAW, "dng", &ordinary, cap).unwrap();
-        assert_ne!(rgba, unedited.0, "saved edit was ignored by GPU upload");
-        let session = raw_gpu::LiveSession::new(&ctx, &rgba, w, h).unwrap();
+        let unedited = develop_capture_prefix_rgba(&raw, RAW, "dng", &ordinary, cap).unwrap();
+        assert_ne!(
+            prefix.rgba, unedited.rgba,
+            "saved edit was ignored by GPU upload"
+        );
+        let session =
+            raw_gpu::LiveSession::new(&ctx, &prefix.rgba, prefix.width, prefix.height).unwrap();
+        let mut profile = LiveProfile::new(
+            &raw,
+            RAW,
+            "dng",
+            &model,
+            cap,
+            None,
+            0,
+            prefix.whites_anchor_ev,
+        );
         for (temperature, ev) in [(6500.0, 0.0), (4300.0, 2.0), (9000.0, -2.0)] {
             let grade = raw_core::xmp::AdjustmentModel {
                 temperature,
@@ -261,26 +279,35 @@ fn saved_gpu_prefix_is_source_bound_and_reuses_hot_slider_base() {
                 exposure: ev,
                 ..model.clone()
             };
-            let (_, _, _, hot_prefix, _, _) =
-                develop_prefix_rgba_saved(&raw, RAW, "dng", &original, &grade, cap, Some(&stack))
-                    .unwrap();
+            let hot = develop_capture_prefix_rgba_saved(
+                &raw,
+                RAW,
+                "dng",
+                &original,
+                &grade,
+                cap,
+                Some(&stack),
+            )
+            .unwrap();
             assert_eq!(
-                prefix, hot_prefix,
+                prefix.prefix_model, hot.prefix_model,
                 "WB/exposure must keep the resident base"
             );
-            let (mut inputs, _) = crate::gpu_render::chain_inputs_with_status(
-                &raw, RAW, "dng", &grade, None, 0, anchor,
-            );
-            inputs.nr_sampling_scale = sampling;
+            profile.update(&grade);
+            prefix
+                .creative
+                .apply(&grade, &mut profile.inputs)
+                .expect("creative");
+            profile.inputs.nr_sampling_scale = prefix.nr_sampling_scale;
             // The first activation of a chain signature may create its normal
             // pool bucket. A second tick must reuse it, as the existing live gate.
             let gpu = session
-                .render_to_buffer(&ctx, &inputs, &raw_gpu::CancelToken::new())
+                .render_to_buffer(&ctx, &profile.inputs, &raw_gpu::CancelToken::new())
                 .unwrap()
                 .unwrap();
             let before = session.pool_alloc_count(&ctx);
             let repeated = session
-                .render_to_buffer(&ctx, &inputs, &raw_gpu::CancelToken::new())
+                .render_to_buffer(&ctx, &profile.inputs, &raw_gpu::CancelToken::new())
                 .unwrap()
                 .unwrap();
             assert_eq!(gpu, repeated);
@@ -288,6 +315,12 @@ fn saved_gpu_prefix_is_source_bound_and_reuses_hot_slider_base() {
                 before,
                 session.pool_alloc_count(&ctx),
                 "hot saved sliders allocated new GPU resources"
+            );
+            let (_, _, gpu) = raw_core::image::apply_orientation(
+                &gpu,
+                prefix.width,
+                prefix.height,
+                raw.orientation,
             );
             let (_, _, cpu) = stack
                 .render_display(

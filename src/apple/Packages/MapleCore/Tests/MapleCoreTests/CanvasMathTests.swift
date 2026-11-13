@@ -164,6 +164,53 @@ final class CanvasMathTests: XCTestCase {
         XCTAssertEqual(canvas.refinedTargetSize, CGSize(width: 1000, height: 800))
     }
 
+    /// #5710: zoomed out below fit the image occupies less than the
+    /// viewport, so refine must not exceed the fit-cost target — it stays
+    /// equal to fast and the scheduler short-circuits.
+    func testRefinedTargetSizeBelowFitStaysAtFastTarget() {
+        let fit = CanvasMath(
+            viewportPx: CGSize(width: 1000, height: 800),
+            nativeImageSize: CGSize(width: 4000, height: 3000),
+            pixelScale: 0
+        )
+        let halfFit = CanvasMath(
+            viewportPx: CGSize(width: 1000, height: 800),
+            nativeImageSize: CGSize(width: 4000, height: 3000),
+            pixelScale: fit.fitPixelScale * 0.5
+        )
+        XCTAssertEqual(halfFit.refinedTargetSize, halfFit.fastTargetSize)
+        XCTAssertEqual(halfFit.refinedTargetSize, fit.refinedTargetSize)
+    }
+
+    /// #5710: fill is the larger axis ratio, and its refine target is the
+    /// on-screen frame — one rendered pixel per screen pixel, covering the
+    /// viewport on both axes.
+    func testFillPixelScaleAndRefineTargetAtFill() {
+        let canvas = CanvasMath(
+            viewportPx: CGSize(width: 1000, height: 800),
+            nativeImageSize: CGSize(width: 3000, height: 3000),
+            pixelScale: 0
+        )
+        XCTAssertEqual(canvas.fillPixelScale, 1000.0 / 3000.0, accuracy: 1e-9)
+        let fill = CanvasMath(
+            viewportPx: CGSize(width: 1000, height: 800),
+            nativeImageSize: CGSize(width: 3000, height: 3000),
+            pixelScale: canvas.fillPixelScale
+        )
+        let target = try! XCTUnwrap(fill.refinedTargetSize)
+        XCTAssertEqual(target.width, 1000, accuracy: 1e-6)
+        XCTAssertEqual(target.height, 1000, accuracy: 1e-6)
+    }
+
+    func testFillPixelScaleDegenerate() {
+        let canvas = CanvasMath(
+            viewportPx: CGSize(width: 1000, height: 800),
+            nativeImageSize: .zero,
+            pixelScale: 0
+        )
+        XCTAssertEqual(canvas.fillPixelScale, 1)
+    }
+
     /// At pixel-perfect (1.0), refine targets full native size — when the
     /// 2×-viewport headroom cap (#1637) doesn't bind. Viewport 2500×2000 →
     /// cap 5000 ≥ native 4000, so the `max(...)` takes native.

@@ -1,0 +1,31 @@
+diff --git a/src/raw-pipeline/raw-core/src/view/auto_profile/paired_fit.rs b/src/raw-pipeline/raw-core/src/view/auto_profile/paired_fit.rs
+index fa1e0aaae8..a56c51780d 100644
+--- a/src/raw-pipeline/raw-core/src/view/auto_profile/paired_fit.rs
++++ b/src/raw-pipeline/raw-core/src/view/auto_profile/paired_fit.rs
+@@ -184,7 +184,7 @@ fn solve_observations(
+     for weight in &mut confidence {
+         *weight = *weight / population + 1e-8;
+     }
+-    constrain_to_prior(&mut result.data, prior, &confidence);
++    refinement::constrain_neutral_axis(&mut result.data, prior, &confidence);
+     Some((result, coarse))
+ }
+ 
+diff --git a/src/raw-pipeline/raw-core/src/view/auto_profile/paired_refinement.rs b/src/raw-pipeline/raw-core/src/view/auto_profile/paired_refinement.rs
+index 7a9213ad69..5451b4516f 100644
+--- a/src/raw-pipeline/raw-core/src/view/auto_profile/paired_refinement.rs
++++ b/src/raw-pipeline/raw-core/src/view/auto_profile/paired_refinement.rs
+@@ -12,6 +12,13 @@ struct TrainingRow<'a> {
+     count: usize,
+ }
+ 
++/// Apply the same fixed neutral-axis constraints before and after fine fitting.
++/// Otherwise the coarse solution can flatten the tone curve that fine fitting
++/// subsequently treats as an immutable prior.
++pub(super) fn constrain_neutral_axis(data: &mut [f32], prior: &ColorLut, confidence: &[f64]) {
++    projection::constrain_to_prior(data, prior, confidence);
++}
++
+ fn training<'a>(native: &'a [Observation], display: &'a [Observation]) -> Vec<TrainingRow<'a>> {
+     let mut result = Vec::new();
+     for row in native.iter().filter(|r| !r.validation) {

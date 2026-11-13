@@ -4,6 +4,7 @@ import { HttpErrorResponse } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
 import { SERVER_WORKSPACE_PERSISTENCE } from '../../workspace/workspace-persistence';
 import { XmpParserService } from '../../xmp/xmp-parser.service';
+import { readSidecar, sidecarParseFailed } from '../../xmp/xmp-dom-utils';
 import { defaultAdjustmentModel, type AdjustmentModel } from '../../models/adjustment-model';
 
 @Injectable({ providedIn: 'root' })
@@ -25,10 +26,7 @@ export class BatchPreviewService {
     if (!path || !this.persistence) throw new Error(`Cannot resolve the sidecar for ${id}`);
     try {
       const xml = await firstValueFrom(this.persistence.readSidecar(path));
-      if (
-        xml &&
-        new DOMParser().parseFromString(xml, 'application/xml').querySelector('parsererror')
-      ) {
+      if (xml && sidecarParseFailed(readSidecar(xml).document)) {
         throw new Error(`The sidecar for ${id} is not valid XML`);
       }
       return {

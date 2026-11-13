@@ -73,11 +73,17 @@ public final class EditorState {
   /// spec §5.0). Owned here so its lifetime matches the (session,
   /// editor) pairing exactly — both hosts (`EditorSessionHost`,
   /// `EditorDestination`) rebuild `EditorState` per asset, which
-  /// resets zoom to fit on every open, same as the legacy surface.
+  /// resets zoom to fit on every open, except an open from Preview, which
+  /// hands over its zoom (#5764).
   public let zoom: CanvasZoomController
+  /// The still drawn as the canvas until real pixels land (#5755); an open
+  /// from Preview starts with Preview's.
+  public let seed = EditorSeedStore()
   public let whiteBalancePicker: WhiteBalancePicker
   /// The mask panel's colour-range eyedropper (#362) — same shape as the WB picker.
   public let maskRangePicker: MaskRangePicker
+  /// The Oklab secondary color curve panel mode + stage-input eyedropper (#5077).
+  public let colorCurvePicker: ColorCurvePicker
   public let retouch: RetouchSession
   public let removal: RemovalSession
 
@@ -97,14 +103,22 @@ public final class EditorState {
     self.armedGroup = armedGroup
     self.armedToolStorage = armedTool
     self.subParamMemory = memory
-    self.zoom = CanvasZoomController(session: session)
+    self.zoom = CanvasZoomController(session: session, chromeMeasured: false)
     self.whiteBalancePicker = WhiteBalancePicker(session: session)
     self.maskRangePicker = MaskRangePicker(session: session)
+    self.colorCurvePicker = ColorCurvePicker(session: session)
     self.retouch = RetouchSession(session: session)
     self.removal = RemovalSession(session: session)
     self.armedSubParamId = Self.resolveSubParamId(
       for: armedTool, memory: memory
     )
+    if let handoff = session.takeCanvasHandoff() {
+      zoom.receive(handoff)
+      seed.begin(session.asset.id)
+      if let still = handoff.still {
+        seed.publish(still.image, for: session.asset.id, isDisplayPreview: still.isDisplayPreview)
+      }
+    }
   }
 
   /// `true` when the session's model has diverged from its original
@@ -149,15 +163,16 @@ public final class EditorState {
   /// Crop (#638): arming `.crop` puts the session into crop-editing mode
   /// (`session.cropEditingActive`) so the canvas renders UNCROPPED under
   /// the overlay, resets the aspect lock to Free (so a ratio chosen on one
-  /// image doesn't carry into the next crop session), and snaps the canvas
-  /// to fit + zero pan (the overlay footprint maps 1:1 onto the painted
-  /// image only at fit). Arming any other tool clears crop-editing mode, so
+  /// image doesn't carry into the next crop session), and holds the canvas
+  /// at fit + zero pan while armed (the overlay footprint maps 1:1 onto the
+  /// painted image only at fit). Arming any other tool clears crop-editing mode, so
   /// the next render publishes the cropped+straightened result.
   public func arm(tool: Tool) {
     guard !session.isSavingRemoval else { return }
     if tool != .remove { removal.close() }
     whiteBalancePicker.cancel()
     maskRangePicker.cancel()
+    colorCurvePicker.cancel()
     // A parked commit-on-release value belongs to the OLD armed pair —
     // committing it now would land on the wrong field (#1153).
     cancelGesture()
@@ -173,19 +188,15 @@ public final class EditorState {
     // full frame before we fit — entering crop fits the whole frame, not
     // the cropped extent.
     session.cropEditingActive = nowCropEditing
+    // The crop overlay is drawn at the fit footprint, so zoom stays at fit
+    // + zero pan for the whole crop session, not only on entry (#5743).
+    zoom.lockZoomAtFit(nowCropEditing)
     if nowCropEditing && !wasCropEditing {
-      // Entering crop — reset the aspect lock and force fit + zero pan.
       cropAspectId = .free
-      zoom.resetToFit()
     } else if tool == .mask && !wasMaskArmed {
-      // Entering Mask fits too (#3354). `MaskOverlay` positions the
-      // raster with `CropGeometry.fitFootprint` — fit zoom, zero pan,
-      // exactly the assumption `CropOverlay` is built on and states in
-      // its header. Arming Mask left the canvas at whatever zoom the
-      // user was at, so the overlay was stretched across a viewport
-      // showing a zoomed crop: the red tint lined up with nothing and
-      // covered the frame, which reads as "the mask selected
-      // everything" rather than "the overlay is misaligned".
+      // Entering Mask fits too (#3354), so every handle starts within
+      // reach. Zoom stays live afterwards: `MaskOverlay` follows the
+      // photo's presented transform (#5744).
       zoom.resetToFit()
     }
   }

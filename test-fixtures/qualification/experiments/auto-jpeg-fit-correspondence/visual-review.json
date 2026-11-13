@@ -1,0 +1,12 @@
+{
+  "reviewed": "all 16 original/candidate/embedded JPEG triplets in four contact sheets",
+  "candidate_source": "27f00506a23bf76d6a5f1e9e6562758d951feb74",
+  "notes": [
+    "0007 change is subtle and remains an overall failing image.",
+    "0005 still differs from the reference; no pass claimed.",
+    "0015 foreground remains flat compared with embedded JPEG.",
+    "0017 remains faded.",
+    "Passing controls retain their existing positive results; 15 of 16 outputs are byte-identical to 87b1."
+  ],
+  "goal_complete": false
+}

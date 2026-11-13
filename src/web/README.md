@@ -113,7 +113,7 @@ npm run build:syrup                     # → dist/maple-syrup/browser/
 npm run build:maple                # → dist/maple/browser/
 ```
 
-Both outputs include `ngsw-worker.js` / `ngsw.json`, `raw_wasm_bg.wasm`, and
+Both outputs include `ngsw-worker.js` / `ngsw.json`, `pkg/raw_wasm_bg.wasm`, and
 `manifest.webmanifest`. Hosted omits API response caches; Self Hosted includes
 its thumbnail response cache.
 The Bun API's static-UI handler serves `dist/maple/browser/`.

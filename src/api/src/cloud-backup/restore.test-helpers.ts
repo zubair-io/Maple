@@ -5,7 +5,12 @@ import { createHash } from 'node:crypto';
 import { ObjectId } from '../db/object-id.ts';
 import { createLiveTestDatabase } from '../db/sqlite/test-sqlite.test-helpers.ts';
 import { registerRoot, unregisterRoot } from '../fs/root.ts';
-import type { BackupManifest, BackupObject, BackupProvider } from './provider.ts';
+import type {
+  BackupInspectOptions,
+  BackupManifest,
+  BackupObject,
+  BackupProvider,
+} from './provider.ts';
 import type { JobHandlerContext } from '../job-runner/handlers/index.ts';
 export const libraryId = 'a'.repeat(24),
   entryId = 'b'.repeat(24);
@@ -67,7 +72,12 @@ class MemoryProvider implements BackupProvider {
     for (const row of this.objects.values())
       if (row.object.key.startsWith(prefix)) yield row.object;
   }
-  async inspect(key: string) {
+  async inspect(
+    key: string,
+    _signal?: AbortSignal,
+    _locatorOrOptions?: string | BackupInspectOptions,
+    _heartbeat?: (candidate: BackupObject) => Promise<void>,
+  ) {
     this.inspections.push(key);
     return this.objects.get(key)?.object ?? null;
   }

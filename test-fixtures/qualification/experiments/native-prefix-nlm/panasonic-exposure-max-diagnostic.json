@@ -1,0 +1,388 @@
+{
+  "reference": "/Users/riabuz/.codex/color-suite-evidence/5000/input-snapshot/c8/c896eda06d7951c3cb3b7e6f5145b559c7464bc385e10623a847ad1a3a3b245e.png",
+  "reference_sha256": "c896eda06d7951c3cb3b7e6f5145b559c7464bc385e10623a847ad1a3a3b245e",
+  "canonical_comparator_sha256": "d62071c3dba62f439afe2426253a8b744cbfa3cb37761c0efb90baf575e8da2e",
+  "size": [
+    4000,
+    2250
+  ],
+  "variants": {
+    "native37": {
+      "path": "/Users/riabuz/.codex/color-suite-evidence/5000/native-prefix-nlm-pilot/candidates/test_0001_exposure_min.png",
+      "sha256": "da3070938c7907c8bf187383b5b9e74b0014372c72655f05a3c154e7489cfbc7",
+      "max": 7.985290853421119,
+      "top": [
+        {
+          "x": 2054,
+          "y": 1396,
+          "deltaE": 7.985290853421119,
+          "candidate_rgb8": [
+            18,
+            2,
+            12
+          ],
+          "reference_rgb8": [
+            0,
+            1,
+            2
+          ]
+        },
+        {
+          "x": 2437,
+          "y": 211,
+          "deltaE": 7.278049816548042,
+          "candidate_rgb8": [
+            6,
+            1,
+            18
+          ],
+          "reference_rgb8": [
+            2,
+            1,
+            1
+          ]
+        },
+        {
+          "x": 3967,
+          "y": 1339,
+          "deltaE": 6.982814343009325,
+          "candidate_rgb8": [
+            16,
+            3,
+            7
+          ],
+          "reference_rgb8": [
+            4,
+            6,
+            4
+          ]
+        },
+        {
+          "x": 2924,
+          "y": 1,
+          "deltaE": 6.852977492717863,
+          "candidate_rgb8": [
+            16,
+            15,
+            22
+          ],
+          "reference_rgb8": [
+            2,
+            11,
+            10
+          ]
+        },
+        {
+          "x": 139,
+          "y": 2248,
+          "deltaE": 6.85150047690048,
+          "candidate_rgb8": [
+            19,
+            6,
+            12
+          ],
+          "reference_rgb8": [
+            3,
+            4,
+            4
+          ]
+        },
+        {
+          "x": 2020,
+          "y": 1369,
+          "deltaE": 6.7540913570860885,
+          "candidate_rgb8": [
+            15,
+            1,
+            10
+          ],
+          "reference_rgb8": [
+            1,
+            1,
+            1
+          ]
+        },
+        {
+          "x": 2305,
+          "y": 2249,
+          "deltaE": 6.602522748815507,
+          "candidate_rgb8": [
+            8,
+            5,
+            20
+          ],
+          "reference_rgb8": [
+            0,
+            5,
+            9
+          ]
+        },
+        {
+          "x": 1,
+          "y": 1362,
+          "deltaE": 6.569376603000792,
+          "candidate_rgb8": [
+            16,
+            8,
+            22
+          ],
+          "reference_rgb8": [
+            8,
+            7,
+            10
+          ]
+        },
+        {
+          "x": 2828,
+          "y": 1,
+          "deltaE": 6.557746739169693,
+          "candidate_rgb8": [
+            14,
+            13,
+            19
+          ],
+          "reference_rgb8": [
+            6,
+            14,
+            11
+          ]
+        },
+        {
+          "x": 1882,
+          "y": 1338,
+          "deltaE": 6.391273388021509,
+          "candidate_rgb8": [
+            48,
+            39,
+            43
+          ],
+          "reference_rgb8": [
+            26,
+            23,
+            27
+          ]
+        },
+        {
+          "x": 3673,
+          "y": 2110,
+          "deltaE": 6.373014482693801,
+          "candidate_rgb8": [
+            19,
+            6,
+            10
+          ],
+          "reference_rgb8": [
+            2,
+            2,
+            1
+          ]
+        },
+        {
+          "x": 2360,
+          "y": 1926,
+          "deltaE": 6.367192496083566,
+          "candidate_rgb8": [
+            32,
+            25,
+            33
+          ],
+          "reference_rgb8": [
+            19,
+            17,
+            19
+          ]
+        }
+      ]
+    },
+    "balanced37": {
+      "path": "/Users/riabuz/.codex/color-suite-evidence/5000/branch37-full-suite/workspace/candidates/test_0001_exposure_min.png",
+      "sha256": "208321008f7dec5bccc05689c7fa805b337fb5068028b09fe40f52e62bcdae79",
+      "max": 7.510037896181721,
+      "top": [
+        {
+          "x": 2547,
+          "y": 1213,
+          "deltaE": 7.510037896181721,
+          "candidate_rgb8": [
+            57,
+            53,
+            57
+          ],
+          "reference_rgb8": [
+            32,
+            30,
+            34
+          ]
+        },
+        {
+          "x": 2054,
+          "y": 1396,
+          "deltaE": 6.720720494025933,
+          "candidate_rgb8": [
+            17,
+            4,
+            12
+          ],
+          "reference_rgb8": [
+            0,
+            1,
+            2
+          ]
+        },
+        {
+          "x": 2360,
+          "y": 1926,
+          "deltaE": 6.707595218330564,
+          "candidate_rgb8": [
+            31,
+            24,
+            33
+          ],
+          "reference_rgb8": [
+            19,
+            17,
+            19
+          ]
+        },
+        {
+          "x": 139,
+          "y": 2248,
+          "deltaE": 6.59952106775613,
+          "candidate_rgb8": [
+            20,
+            6,
+            7
+          ],
+          "reference_rgb8": [
+            3,
+            4,
+            4
+          ]
+        },
+        {
+          "x": 2437,
+          "y": 211,
+          "deltaE": 6.586860371323476,
+          "candidate_rgb8": [
+            3,
+            2,
+            18
+          ],
+          "reference_rgb8": [
+            2,
+            1,
+            1
+          ]
+        },
+        {
+          "x": 2137,
+          "y": 1272,
+          "deltaE": 6.375323471899171,
+          "candidate_rgb8": [
+            29,
+            24,
+            35
+          ],
+          "reference_rgb8": [
+            20,
+            18,
+            21
+          ]
+        },
+        {
+          "x": 2552,
+          "y": 1212,
+          "deltaE": 6.331288386393219,
+          "candidate_rgb8": [
+            49,
+            45,
+            51
+          ],
+          "reference_rgb8": [
+            28,
+            27,
+            31
+          ]
+        },
+        {
+          "x": 2533,
+          "y": 900,
+          "deltaE": 6.257386655173736,
+          "candidate_rgb8": [
+            30,
+            22,
+            33
+          ],
+          "reference_rgb8": [
+            17,
+            15,
+            21
+          ]
+        },
+        {
+          "x": 2137,
+          "y": 1273,
+          "deltaE": 6.22234136482155,
+          "candidate_rgb8": [
+            24,
+            19,
+            30
+          ],
+          "reference_rgb8": [
+            18,
+            16,
+            19
+          ]
+        },
+        {
+          "x": 2441,
+          "y": 1073,
+          "deltaE": 6.111226158365039,
+          "candidate_rgb8": [
+            43,
+            39,
+            44
+          ],
+          "reference_rgb8": [
+            24,
+            20,
+            23
+          ]
+        },
+        {
+          "x": 1594,
+          "y": 755,
+          "deltaE": 6.1036583463155045,
+          "candidate_rgb8": [
+            28,
+            22,
+            28
+          ],
+          "reference_rgb8": [
+            18,
+            19,
+            21
+          ]
+        },
+        {
+          "x": 1567,
+          "y": 774,
+          "deltaE": 6.068706767426896,
+          "candidate_rgb8": [
+            27,
+            21,
+            28
+          ],
+          "reference_rgb8": [
+            17,
+            17,
+            19
+          ]
+        }
+      ]
+    },
+    "captured_main": {
+      "missing": "/Users/riabuz/.codex/color-suite-evidence/5000/baseline-cf62d12ddc/workspace/candidates/test_0001_exposure_min.png"
+    }
+  }
+}

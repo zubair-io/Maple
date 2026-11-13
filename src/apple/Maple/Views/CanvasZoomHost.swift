@@ -19,6 +19,7 @@
 //                            nudge) or passes through when nil (legacy).
 //   • Cmd+wheel (macOS)    → zoom anchored at the cursor.
 //   • Double-tap / click   → per `doubleTapBehavior` (legacy: reset to fit; editor: toggle fit ↔ 100%).
+//   • Zoom badge           → cycles fit → fill → 100% (#5710).
 //
 // Scene-level CanvasZoomCommands route ⌘0/⌘1 to the ready canvas's controller.
 
@@ -52,76 +53,106 @@ struct CanvasZoomHost<CanvasLeaf: View, Fallback: View>: View {
   /// excluding the reported control bounds lets those scroll views work.
   /// `nil` when no control surface covers the canvas.
   var wheelExcludedFrame: CGRect? = nil
+  /// Keeps the zoom badge clear of the system bars and the editor's
+  /// controls when the canvas runs full-bleed beneath them (#5710).
+  var badgeInsets = EdgeInsets()
+  /// Global frame of the region clear of the system bars, when the canvas
+  /// runs beneath them; `nil` when it already sits inside it.
+  var safeAreaFrame: CGRect? = nil
+  /// Global frames of the chrome floating over the canvas (header,
+  /// inspector, dock, filmstrip). With `safeAreaFrame` they define the
+  /// visible area that fit, fill and the centred position resolve inside.
+  var coverFrames: [CGRect] = []
+  /// False until the chrome has reported `coverFrames`, a layout pass after
+  /// the canvas measured its viewport. The photo is drawn once the
+  /// controller has them, so it is first drawn where it rests (#5769).
+  var chromeMeasured = true
+  /// Preview's pager: hears every drag, with the part the pan left over.
+  var paging: CanvasPagingHooks? = nil
   /// The canvas leaf (CIImage raster / GPU layer). The host frames it to the resolved display frame.
   @ViewBuilder let canvasLeaf: () -> CanvasLeaf
   /// Shown while no frame can resolve (no preview yet / no native size). Gets the viewport's full size.
   @ViewBuilder let fallback: () -> Fallback
 
   @Environment(\.displayScale) private var displayScale
+  /// The move from the frame last shown to a settled zoom (a release below
+  /// fit, a detent, a chrome change), drawn as a compositor transform over
+  /// the settled frame. `nil` at rest. Held by the controller so overlays
+  /// follow it in the same frame (#5744).
+  var settle: CanvasSettleAnimation? {
+    get { controller.presentation.settle }
+    nonmutating set { controller.showSettle(newValue) }
+  }
+  /// Chrome insets that changed mid-pinch; applied on release so the photo
+  /// never moves under still fingers.
+  @State var pendingInsets: CanvasViewportInsets?
+  /// True from a drag's first frame to its end. SwiftUI never calls
+  /// `onEnded` for a cancelled drag; `dragGestureLive` resetting does.
+  @State var dragInProgress = false
+  /// The live drag's travel the pan did not take, for `paging`.
+  @State private var dragOverflow = CanvasDragOverflow()
+  @GestureState private var dragGestureLive = false
   #if os(macOS)
     @State private var nudgeAccumulator = CanvasWheelNudgeAccumulator()
+    /// The trackpad pinch's lifetime, as for the drag: a cancelled
+    /// `MagnifyGesture` never calls `onEnded`.
+    @State private var magnifyInProgress = false
+    @GestureState private var magnifyGestureLive = false
   #endif
   #if os(iOS)
     // Live pinch renders as a compositor `.scaleEffect` about the viewport CENTRE — `pixelScale`
     // stays untouched until release, so the frame never grows mid-gesture and never re-decodes
-    // per frame (#1493). Focal-anchoring lives entirely in `gestureCommittedPan` (the would-be
-    // committed pan), so the live visual equals the committed geometry. At rest `gestureZoom ==
-    // 1`, so the modifier chain is inert.
-    @State private var gestureZoom: CGFloat = 1
-    @State private var gestureCommittedPan: CGSize = .zero
-    @State private var pinchActive = false
-    @State private var pinchLastCentroid: CGPoint = .zero
+    // per frame (#1493). Focal-anchoring lives entirely in the live pinch's pan (the would-be
+    // committed pan), so the live visual equals the committed geometry. The controller holds
+    // that frame (`presentation.livePinch`) so overlays draw it too (#5744).
+    @State var pinchActive = false
+    // A pinch that began, or was overtaken, while zoom was held at fit is
+    // ignored to its end: resuming mid-gesture would jump by the scale the
+    // recognizer had already accumulated.
+    @State private var pinchIgnored = false
+    @State var pinchLastCentroid: CGPoint = .zero
     // Magnification of the LAST rendered frame — the commit uses this (not the gesture-end
     // recognizer scale, which differs as fingers lift), so committed scale/pan exactly matches.
-    @State private var pinchLastMag: CGFloat = 1
+    @State var pinchLastMag: CGFloat = 1
+    // Fingers in the last pinch frame. Two fingers rarely lift together: in
+    // between, the recognizer reports the remaining finger as the centroid
+    // (and its scale can step), so a change re-anchors the pinch rather than
+    // jumping the image by half the finger spread (#5732).
+    @State private var pinchTouchCount = 0
     // Live effective scale shown in the zoom badge during a pinch — `pixelScale` is frozen
     // mid-gesture (a compositor transform), so the badge would otherwise read the pre-pinch
     // value. nil → not pinching → badge reads the committed `effectivePixelScale`.
-    @State private var liveZoomScale: CGFloat?
+    @State var liveZoomScale: CGFloat?
     // When a pinch was released. Two fingers never lift in the same instant, so the lingering
     // finger fires a one-finger drag the moment the pinch ends, which would pan/jump the
     // just-committed canvas — ignore drag-pans for a short window after release (absorbing the
     // movement into the baseline so a deliberate continued pan resumes smoothly). Self-clearing.
     @State private var lastPinchEnd: Date?
   #endif
-
-  /// The pan offset the leaf is ACTUALLY laid out with — `gestureCommittedPan`
-  /// mid-pinch on iOS, else `controller.panOffset`. Single source for both the
-  /// leaf's own `.offset()` and the `canvas-image-rect` marker (#2288 review
-  /// on #3194 — two separately-computed expressions let the marker diverge
-  /// from the leaf's real position mid-pinch).
-  private var effectivePanOffset: CGSize {
-    #if os(iOS)
-      pinchActive ? gestureCommittedPan : controller.panOffset
-    #else
-      controller.panOffset
-    #endif
-  }
-
   var body: some View {
     GeometryReader { geo in
       ZStack {
-        if canvasReady, let frame = controller.displayFrameInPoints {
+        if canvasReady, controller.isChromeMeasured, let frame = controller.displayFrameInPoints {
+          // Live pinch (iOS): scale the frozen frame about its centre in the
+          // compositor (cheap, no re-decode), offset by the live pan (the
+          // focal anchor). A settle adds its own transform over the settled
+          // frame. Both are identity at rest; overlays read the same
+          // transform (`presentedGeometry(at:)`).
           canvasLeaf()
             .frame(width: frame.width, height: frame.height)
-            #if os(iOS)
-              // Live pinch: scale the frozen frame about its centre in the
-              // compositor (cheap, no re-decode); `effectivePanOffset` is the
-              // would-be committed pan (the focal anchor). `.scaleEffect(1)` is
-              // identity at rest — on release `panOffset == gestureCommittedPan`,
-              // geometrically identical, so there's no jump.
-              .scaleEffect(gestureZoom, anchor: .center)
-            #endif
-            .offset(effectivePanOffset)
+            .modifier(CanvasSettleTransform(controller: controller))
           // #2288 — 0×0 marker carrying the photo's rect as text; see imageRectAccessibilityValue's doc.
+          // The rect the photo rests at: the body is not redrawn per settle frame.
+          let shown = controller.settledGeometry
           Color.clear.frame(width: 0, height: 0)
             .accessibilityElement(children: .ignore)
             .accessibilityLabel("Editor canvas image rect")
             .accessibilityIdentifier("canvas-image-rect")
             .accessibilityValue(
               FullImageViewVM.imageRectAccessibilityValue(
-                containerSize: geo.size, imageSize: frame, panOffset: effectivePanOffset))
-        } else {
+                containerSize: geo.size, imageSize: shown?.displayFrame ?? frame,
+                panOffset: shown?.panOffset ?? controller.panOffset))
+        } else if controller.isChromeMeasured {
           fallback()
         }
       }
@@ -137,8 +168,8 @@ struct CanvasZoomHost<CanvasLeaf: View, Fallback: View>: View {
         // release — see `pinchChangedLive` / `pinchEndedLive`.
         .gesture(
           CanvasPinchGesture(
-            onChanged: { scale, location in
-              pinchChangedLive(scale: scale, location: location)
+            onChanged: { scale, location, touchCount in
+              pinchChangedLive(scale: scale, location: location, touchCount: touchCount)
             },
             onEnded: { scale in
               pinchEndedLive(scale: scale)
@@ -148,20 +179,67 @@ struct CanvasZoomHost<CanvasLeaf: View, Fallback: View>: View {
       #else
         .gesture(magnifyGesture(viewport: geo.size))
       #endif
-      .simultaneousGesture(dragGesture)
+      .simultaneousGesture(dragGesture(viewport: geo.size))
       .onTapGesture(count: 2) { location in
-        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-          controller.doubleTap(at: location, behavior: doubleTapBehavior)
-        }
+        controller.doubleTap(at: location, behavior: doubleTapBehavior)
       }
       .background(wheelCatcher)
-      .overlay(alignment: .bottomLeading) { zoomBadge }
+      .overlay(alignment: .bottomLeading) { zoomBadge(clearing: visibleInsets(geo)) }
       .focusedSceneValue(\.canvasZoomController, canvasReady ? controller : nil)
       .onAppear {
-        controller.viewportChanged(points: geo.size, displayScale: displayScale)
+        controller.viewportChanged(
+          points: geo.size, displayScale: displayScale, insets: visibleInsets(geo),
+          chromeMeasured: chromeMeasured)
       }
       .onChange(of: geo.size) { _, newSize in
-        controller.viewportChanged(points: newSize, displayScale: displayScale)
+        settle = nil
+        let insets = visibleInsets(geo)
+        if isPinching { pendingInsets = insets }
+        controller.viewportChanged(
+          points: newSize, displayScale: displayScale,
+          insets: isPinching ? controller.viewportInsets : insets, chromeMeasured: chromeMeasured)
+        refreshLivePinch()
+      }
+      .onChange(of: CanvasChrome(insets: visibleInsets(geo), measured: chromeMeasured)) {
+        _, chrome in
+        insetsChanged(chrome.insets)
+      }
+      .onChange(of: controller.restingFrame) { _, settled in
+        retargetSettle(to: settled)
+      }
+      .onChange(of: controller.commandedMove) { _, move in
+        animateCommand(move)
+      }
+      #if os(iOS)
+        .onChange(of: controller.isZoomLocked) { _, locked in
+          if locked { zoomLockEngaged() }
+        }
+        .onDisappear {
+          // The live pinch is the controller's now; a host torn down
+          // mid-pinch must not leave it drawn over the next one.
+          guard pinchActive else { return }
+          controller.pinchCancelled()
+          resetPinchState()
+        }
+      #endif
+      #if os(macOS)
+        .onChange(of: magnifyGestureLive) { _, live in
+          guard !live, magnifyInProgress else { return }
+          magnifyInProgress = false
+          let shown = controller.restingFrame
+          settleRelease(from: shown) { controller.pinchCancelled() }
+        }
+      #endif
+      .onChange(of: dragGestureLive) { _, live in
+        // The drag was cancelled (a system gesture took over, the view
+        // changed): commit it where it is, as its release would have. A
+        // live pinch is not the drag's and carries on.
+        guard !live, dragInProgress else { return }
+        dragInProgress = false
+        paging?.cancelled()
+        let shown = controller.restingFrame
+        controller.dragCancelled()
+        if settle == nil, !isPinching { beginSettle(from: shown) }
       }
       .onChange(of: ObjectIdentifier(controller)) { _, _ in
         // The host kept its identity but was handed a different controller
@@ -169,13 +247,18 @@ struct CanvasZoomHost<CanvasLeaf: View, Fallback: View>: View {
         // not fire again, and a controller that never learns the viewport
         // resolves fit to 1 — the image frames at 100% and cannot zoom out
         // (#3540). Report the live viewport to the newcomer.
-        controller.viewportChanged(points: geo.size, displayScale: displayScale)
+        controller.viewportChanged(
+          points: geo.size, displayScale: displayScale, insets: visibleInsets(geo),
+          chromeMeasured: chromeMeasured)
       }
       .onChange(of: displayScale) { _, newScale in
         // Window dragged to a display with a different backing
         // scale — same points, different real pixels. Re-resolve
         // so 100% stays pixel-perfect on the new screen.
-        controller.viewportChanged(points: geo.size, displayScale: newScale)
+        controller.viewportChanged(
+          points: geo.size, displayScale: newScale, insets: visibleInsets(geo),
+          chromeMeasured: chromeMeasured)
+        refreshLivePinch()
       }
       .onChange(of: controller.session.effectiveImageSize) { _, _ in
         // Pre-decode, fit mode guesses; recompute once the real
@@ -187,12 +270,19 @@ struct CanvasZoomHost<CanvasLeaf: View, Fallback: View>: View {
         // crop — which changes the displayed extent without touching
         // the sensor dims — re-resolves fit and re-frames the canvas
         // onto the cropped image.
-        controller.nativeImageSizeChanged()
+        // A provisional extent resolving keeps the photo's rect, so a
+        // running settle carries into the new extent's scale.
+        let rescale = controller.nativeImageSizeChanged()
+        if rescale != 1, let running = settle {
+          startSettle(running.rescaled(by: rescale, to: controller.restingFrame))
+        }
+        refreshLivePinch()
       }
       .onChange(of: controller.session.asset.id) { _, _ in
         // Asset switched under a reused view — reset to fit so a
         // stale pixelScale doesn't retarget the new image's
         // refine at full native.
+        settle = nil
         controller.assetChanged()
       }
     }
@@ -203,10 +293,17 @@ struct CanvasZoomHost<CanvasLeaf: View, Fallback: View>: View {
   #if os(macOS)
     private func magnifyGesture(viewport: CGSize) -> some Gesture {
       MagnifyGesture()
+        .updating($magnifyGestureLive) { _, live, _ in live = true }
         .onChanged { value in
+          if !magnifyInProgress {
+            magnifyInProgress = true
+            // A pinch whose end never arrived must not carry into this one.
+            if controller.model.pinchStartScale != nil { controller.pinchCancelled() }
+          }
           // The controller captures the start scale/pan/anchor on
           // the first frame — `magnification` is cumulative, so
           // anchoring against the live scale would compound.
+          if controller.model.pinchStartScale == nil { interruptSettle() }
           let anchor = CGPoint(
             x: value.startAnchor.x * viewport.width,
             y: value.startAnchor.y * viewport.height
@@ -217,7 +314,11 @@ struct CanvasZoomHost<CanvasLeaf: View, Fallback: View>: View {
           )
         }
         .onEnded { value in
-          controller.pinchEnded(magnification: value.magnification)
+          magnifyInProgress = false
+          let shown = controller.restingFrame
+          settleRelease(from: shown) {
+            controller.pinchEnded(magnification: value.magnification)
+          }
         }
     }
   #endif
@@ -229,14 +330,24 @@ struct CanvasZoomHost<CanvasLeaf: View, Fallback: View>: View {
     /// this focal + the start scale/pan; subsequent frames only update the cheap
     /// `.scaleEffect` (no `pixelScale` write → no frame growth → no per-frame
     /// re-decode, which was the lag).
-    private func pinchChangedLive(scale: CGFloat, location: CGPoint) {
+    private func pinchChangedLive(scale: CGFloat, location: CGPoint, touchCount: Int) {
+      guard !pinchIgnored, !controller.isZoomLocked else {
+        pinchIgnored = true
+        return
+      }
       if !pinchActive {
+        interruptSettle()
         pinchActive = true
         // Capture the start state in the model (magnification 1 → no change)
         // so the release commit + the live `gestureTransform` both anchor at
         // this focal + the start scale/pan.
         controller.pinchChanged(magnification: 1.0, location: location)
+      } else if touchCount != pinchTouchCount {
+        controller.pinchRebased(
+          shownMagnification: pinchLastMag, shownLocation: pinchLastCentroid,
+          magnification: scale, location: location)
       }
+      pinchTouchCount = touchCount
       pinchLastCentroid = location
       pinchLastMag = scale
       // The would-be committed scale + pan, clamped to the same legal region
@@ -244,73 +355,120 @@ struct CanvasZoomHost<CanvasLeaf: View, Fallback: View>: View {
       // frozen frame about its centre and offsetting by this pan reproduces the
       // committed geometry exactly — the live visual == the commit, no jump.
       let transform = controller.gestureTransform(magnification: scale, liveCentroid: location)
-      gestureZoom = transform.zoom
-      gestureCommittedPan = transform.committedPan
-      // `effectivePixelScale` is frozen at the start scale mid-gesture, so
-      // `start × zoom` == the live (would-be-committed) scale for the badge.
+      // `effectivePixelScale` is frozen at the pre-pinch scale mid-gesture, and
+      // `zoom` is relative to it, so their product is the live scale for the badge.
       liveZoomScale = controller.effectivePixelScale * transform.zoom
     }
 
     /// Pinch release: commit the final scale + focal-anchored pan to the model
     /// (one re-render at the new size) and reset the compositor transform.
     /// Because the committed frame at the new scale is geometrically identical
-    /// to the old frame under `.scaleEffect(gestureZoom)`, clearing the
+    /// to the old frame under the live pinch's `.scaleEffect`, clearing the
     /// transform in the same update is pop-free — the canvas just sharpens as
     /// the re-render lands.
     private func pinchEndedLive(scale: CGFloat) {
+      guard !pinchIgnored else {
+        pinchIgnored = false
+        return
+      }
       guard pinchActive else {
         controller.pinchEnded(magnification: scale)
         return
       }
       // Commit the LAST displayed frame's magnification + centroid (not the
-      // gesture-end scale, which drifts as the fingers lift) so the committed
-      // scale/pan equals what was on screen — the transform reset is pop-free.
-      controller.pinchChanged(magnification: pinchLastMag, location: pinchLastCentroid)
-      controller.pinchEnded(magnification: pinchLastMag)
-      resetPinchState()
+      // gesture-end scale, which drifts as the fingers lift). The release may
+      // settle elsewhere (back to fit from below it, a detent, the resting
+      // pan range), so the settle animates from exactly this shown frame.
+      let live = controller.presentation.livePinch
+      let shown = CanvasShownFrame(
+        scale: controller.effectivePixelScale * (live?.zoom ?? 1),
+        pan: live?.pan ?? controller.panOffset)
+      settleRelease(from: shown) {
+        controller.pinchChanged(magnification: pinchLastMag, location: pinchLastCentroid)
+        controller.pinchEnded(magnification: pinchLastMag)
+        resetPinchState()
+      }
       lastPinchEnd = Date()  // open the cooldown for the lingering finger
+    }
+
+    /// Zoom was held at fit under a live pinch (Crop armed): the controller
+    /// ended it, so drop the host's side and ignore the rest of the gesture.
+    private func zoomLockEngaged() {
+      guard pinchActive else { return }
+      resetPinchState()
+      pinchIgnored = true
+      if let pending = pendingInsets { insetsChanged(pending) }
     }
 
     /// Clear the per-gesture pinch bookkeeping so a release can't leave state
     /// set for the next pinch.
     private func resetPinchState() {
       pinchActive = false
-      gestureZoom = 1
-      gestureCommittedPan = .zero
       pinchLastMag = 1
+      pinchTouchCount = 0
       liveZoomScale = nil
     }
   #endif
 
-  private var dragGesture: some Gesture {
-    DragGesture(minimumDistance: 1)
-      .onChanged { value in
-        #if os(iOS)
-          // Within the post-pinch cooldown this is the lingering finger
-          // from the lift, not a deliberate pan — absorb it into the
-          // baseline (so a pan that continues past the window resumes with
-          // no jump) and don't move the canvas.
-          if let end = lastPinchEnd {
-            if Date().timeIntervalSince(end) < postPinchPanCooldown {
-              controller.rebaseDrag(translation: value.translation)
-              return
-            }
-            lastPinchEnd = nil  // window elapsed — resume normal panning
+  /// A pager's drags read in global space: Preview's pull-down moves and
+  /// scales the canvas under the finger, which would feed back into a local
+  /// translation.
+  private func dragGesture(viewport: CGSize) -> some Gesture {
+    DragGesture(
+      minimumDistance: 1, coordinateSpace: paging == nil ? CoordinateSpace.local : .global
+    )
+    .updating($dragGestureLive) { _, live, _ in live = true }
+    .onChanged { value in
+      if !dragInProgress {
+        dragInProgress = true
+        dragOverflow = CanvasDragOverflow()
+        controller.dragBegan()
+      }
+      #if os(iOS)
+        // Within the post-pinch cooldown this is the lingering finger
+        // from the lift, not a deliberate pan — absorb it into the
+        // baseline (so a pan that continues past the window resumes with
+        // no jump) and don't move the canvas.
+        if let end = lastPinchEnd {
+          if Date().timeIntervalSince(end) < postPinchPanCooldown {
+            controller.rebaseDrag(translation: value.translation)
+            dragOverflow.track(translation: value.translation.width, panMoved: 0, counts: false)
+            return
           }
-        #endif
-        // Pans only when zoomed in; a no-op at fit so the
-        // editing surface (armed-tool scrub on DragBar, system
-        // edge-swipe) keeps full ownership of fit-mode drags.
-        controller.dragChanged(translation: value.translation)
-      }
-      .onEnded { _ in
-        #if os(iOS)
-          lastPinchEnd = nil
-        #endif
-        controller.dragEnded()
-      }
+          lastPinchEnd = nil  // window elapsed — resume normal panning
+        }
+      #endif
+      // A pan that takes over a settle starts from what is on screen.
+      if settle != nil, controller.dragIntent == .pan { interruptSettle() }
+      controller.dragChanged(translation: value.translation, tracking: &dragOverflow)
+      paging?.changed(pagingFrame(value.translation))
+    }
+    .onEnded { value in
+      dragInProgress = false
+      #if os(iOS)
+        lastPinchEnd = nil
+      #endif
+      let frame = pagingFrame(value.translation)
+      paging?.ended(
+        CanvasPagingHooks.Release(
+          frame: frame,
+          predictedUnabsorbed: frame.unabsorbed + value.predictedEndTranslation.width
+            - value.translation.width,
+          velocity: value.velocity,
+          shownRect: controller.shownRect(inViewport: CGRect(origin: .zero, size: viewport))))
+      let shown = controller.restingFrame
+      controller.dragEnded()
+      if settle == nil { beginSettle(from: shown) }
+    }
   }
 
+  private func pagingFrame(_ translation: CGSize) -> CanvasPagingHooks.Frame {
+    CanvasPagingHooks.Frame(
+      translation: translation,
+      unabsorbed: dragOverflow.horizontal,
+      isZoomedIn: controller.isZoomedIn,
+      isPinching: isPinching)
+  }
   // MARK: - Scroll wheel (macOS)
 
   /// Transparent wheel-event catcher behind the canvas. Compiles to
@@ -345,9 +503,11 @@ struct CanvasZoomHost<CanvasLeaf: View, Fallback: View>: View {
         guard !event.isMomentum else { return true }
         let normalized = event.precise ? event.deltaY : event.deltaY * 8
         guard normalized != 0 else { return true }
+        interruptSettle()
         controller.wheelZoom(normalizedDeltaY: normalized, location: event.location)
         return true
       case .pan:
+        interruptSettle()
         let factor: CGFloat = event.precise ? 1 : 8
         controller.wheelPan(
           delta: CGSize(width: event.deltaX * factor, height: event.deltaY * factor)
@@ -375,7 +535,9 @@ struct CanvasZoomHost<CanvasLeaf: View, Fallback: View>: View {
   /// pinned to the viewport's bottom-leading corner — the `.clipped()`
   /// container above keeps it anchored to the visible canvas, not the
   /// potentially-huge image frame.
-  private var zoomBadge: some View {
+  /// Steps up past any chrome along the bottom edge (the iPhone controls)
+  /// as well as by `badgeInsets`.
+  private func zoomBadge(clearing visible: CanvasViewportInsets) -> some View {
     #if os(iOS)
       // During an iOS pinch `pixelScale` is frozen (the zoom is a compositor
       // transform), so read the live factor; macOS updates pixelScale live.
@@ -383,185 +545,16 @@ struct CanvasZoomHost<CanvasLeaf: View, Fallback: View>: View {
     #else
       let scale = controller.effectivePixelScale
     #endif
-    return CanvasZoomBadge(scale: scale, canvasReady: canvasReady, onFit: controller.resetToFit)
-  }
-}
-
-// MARK: - CanvasWheelExclusionFrame (macOS panel → CanvasZoomHost plumbing)
-
-/// Reports a panel's frame up to `wheelExcludedFrame` (#2683). `nil`
-/// (unmounted, or scoped off) clears rather than merges — one panel only.
-struct CanvasWheelExclusionKey: PreferenceKey {
-  static let defaultValue: CGRect? = nil
-  static func reduce(value: inout CGRect?, nextValue: () -> CGRect?) {
-    value = nextValue() ?? value
-  }
-}
-
-/// The `active`-gated decision `reportsWheelExclusion(in:active:)` makes —
-/// pulled out for unit testing (`CanvasWheelExclusionTests`, `MapleTests`
-/// target). `active: false` always resolves to `nil`, keeping the
-/// plain-wheel armed-tool nudge working for every tool but Film (#2683
-/// round-2 review item 1: previously excluded unconditionally).
-enum CanvasWheelExclusion {
-  static func resolvedFrame(panelFrame: CGRect, active: Bool) -> CGRect? {
-    active ? panelFrame : nil
-  }
-}
-
-extension View {
-  /// Marks this frame (in `named` coordinate space) a wheel-exclusion
-  /// region while `active` — trackpad scroll over it then reaches its own
-  /// `ScrollView` instead of the canvas's zoom/pan/wheel-nudge.
-  func reportsWheelExclusion(in named: String, active: Bool) -> some View {
-    background(
-      GeometryReader { proxy in
-        Color.clear.preference(
-          key: CanvasWheelExclusionKey.self,
-          value: CanvasWheelExclusion.resolvedFrame(
-            panelFrame: proxy.frame(in: .named(named)), active: active
-          )
-        )
-      }
+    return CanvasZoomBadge(
+      // A stand-in extent's percentage would change when the real size lands.
+      scale: controller.provisionalImageSize == nil ? scale : nil,
+      canvasReady: canvasReady && !controller.isZoomLocked,
+      nextStop: controller.nextZoomStop,
+      onAdvance: { controller.advanceZoomStop() }
     )
+    .padding(
+      EdgeInsets(
+        top: badgeInsets.top, leading: badgeInsets.leading,
+        bottom: max(badgeInsets.bottom, visible.bottom), trailing: badgeInsets.trailing))
   }
 }
-
-// MARK: - CanvasPinchGesture (iOS)
-
-#if os(iOS)
-  /// Bridges a UIKit `UIPinchGestureRecognizer` into SwiftUI so the canvas
-  /// zoom can anchor at the EXACT two-finger centroid. `recognizer.scale` is
-  /// the cumulative magnification since the gesture began (matching what the
-  /// `CanvasZoomController` expects); `recognizer.location(in:)` is the centroid
-  /// in the gesture view's local space — the reliable focal point SwiftUI's
-  /// `MagnifyGesture` (startAnchor / startLocation) failed to provide.
-  private struct CanvasPinchGesture: UIGestureRecognizerRepresentable {
-    let onChanged: (CGFloat, CGPoint) -> Void
-    let onEnded: (CGFloat) -> Void
-
-    func makeUIGestureRecognizer(context: Context) -> UIPinchGestureRecognizer {
-      UIPinchGestureRecognizer()
-    }
-
-    func handleUIGestureRecognizerAction(_ recognizer: UIPinchGestureRecognizer, context: Context) {
-      // `context.converter.localLocation` is the centroid in the SwiftUI
-      // view's LOCAL space (the viewport) — the space the zoom math uses.
-      // `recognizer.location(in: recognizer.view)` is measured against a
-      // larger hosting view whose origin sits above the viewport, so it read
-      // `y` too large and the focal point landed below the fingers.
-      let centroid = context.converter.localLocation
-      switch recognizer.state {
-      case .began, .changed:
-        onChanged(recognizer.scale, centroid)
-      case .ended, .cancelled, .failed:
-        onEnded(recognizer.scale)
-      default:
-        break
-      }
-    }
-  }
-#endif
-
-// MARK: - ScrollWheelCatcher (macOS)
-
-#if os(macOS)
-  /// Invisible NSView that observes scroll-wheel events over its own
-  /// frame via a local event monitor. `hitTest` returns nil so clicks and
-  /// drags pass straight through to the SwiftUI gestures above it; the
-  /// monitor sees every scroll event first and only intercepts those whose
-  /// cursor location falls inside this view's bounds in the key window.
-  struct ScrollWheelCatcher: NSViewRepresentable {
-    struct WheelEvent {
-      let deltaX: CGFloat
-      let deltaY: CGFloat
-      /// True for trackpads (continuous point deltas); false for
-      /// line-based mouse wheels.
-      let precise: Bool
-      /// Cursor location in this view's (flipped, top-left-origin)
-      /// coordinates — matches SwiftUI's local space.
-      let location: CGPoint
-      let commandHeld: Bool
-      let shiftHeld: Bool
-      let optionHeld: Bool
-      /// True during inertial-scroll momentum tails.
-      let isMomentum: Bool
-    }
-
-    /// Return true to consume the event (it never reaches AppKit),
-    /// false to pass it through unchanged.
-    let onWheel: @MainActor (WheelEvent) -> Bool
-
-    func makeNSView(context: Context) -> CatcherView {
-      let view = CatcherView()
-      view.onWheel = onWheel
-      return view
-    }
-
-    func updateNSView(_ nsView: CatcherView, context: Context) {
-      nsView.onWheel = onWheel
-    }
-
-    final class CatcherView: NSView {
-      var onWheel: (@MainActor (WheelEvent) -> Bool)?
-      private var monitor: Any?
-
-      /// Top-left-origin local coordinates, matching SwiftUI.
-      override var isFlipped: Bool { true }
-
-      /// Never participate in hit-testing — clicks, drags and pinches
-      /// belong to the SwiftUI layer; this view only watches the
-      /// event monitor.
-      override func hitTest(_ point: NSPoint) -> NSView? { nil }
-
-      override func viewDidMoveToWindow() {
-        super.viewDidMoveToWindow()
-        if window != nil {
-          installMonitorIfNeeded()
-        } else {
-          removeMonitorIfNeeded()
-        }
-      }
-
-      deinit {
-        if let monitor {
-          NSEvent.removeMonitor(monitor)
-        }
-      }
-
-      private func installMonitorIfNeeded() {
-        guard monitor == nil else { return }
-        monitor = NSEvent.addLocalMonitorForEvents(matching: [.scrollWheel]) { [weak self] event in
-          guard let self,
-            let handler = self.onWheel,
-            let window = self.window,
-            event.window === window
-          else { return event }
-          let local = self.convert(event.locationInWindow, from: nil)
-          guard self.bounds.contains(local) else { return event }
-          let wheel = WheelEvent(
-            deltaX: event.scrollingDeltaX,
-            deltaY: event.scrollingDeltaY,
-            precise: event.hasPreciseScrollingDeltas,
-            location: local,
-            commandHeld: event.modifierFlags.contains(.command),
-            shiftHeld: event.modifierFlags.contains(.shift),
-            optionHeld: event.modifierFlags.contains(.option),
-            isMomentum: event.momentumPhase != []
-          )
-          // Local monitors fire on the main thread; the handler
-          // touches MainActor state (controller / EditorState).
-          let consumed = MainActor.assumeIsolated { handler(wheel) }
-          return consumed ? nil : event
-        }
-      }
-
-      private func removeMonitorIfNeeded() {
-        if let monitor {
-          NSEvent.removeMonitor(monitor)
-          self.monitor = nil
-        }
-      }
-    }
-  }
-#endif

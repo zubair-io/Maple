@@ -1,8 +1,8 @@
 # Maple Self Hosted — Dockerfile
 #
 # Self-contained build: every artifact (the WASM image-pipeline blob, the
-# Angular SPA bundle, the native libraw_ffi.so, and the Bun runtime) is
-# produced inside Docker. The only thing you need on the host is Docker.
+# Angular SPA bundle, the native libraw_ffi.so, the maple-cli panorama
+# stitcher, and the Bun runtime) is produced inside Docker. The only thing you need on the host is Docker.
 #
 # Build context must be the monorepo root so the build can see src/api,
 # src/web, and src/raw-pipeline.
@@ -16,8 +16,13 @@
 #     -v maple_data:/app/data \
 #     -v /path/to/photos:/photos \
 #     -e MAPLE_ROOTS=/photos \
+#     -e MAPLE_TEMPORAL_ADDRESS=temporal.example:7233 \
 #     -v maple_config:/app/config \
 #     maple
+#
+# Maple runs all its background work on a Temporal server, which this image does
+# not contain. docker-compose.yml starts one next to it; with a bare
+# `docker run`, point MAPLE_TEMPORAL_ADDRESS (or Settings → Workers) at yours.
 #
 # The -v maple_data:/app/data mount is the one that matters. That file is the
 # library — folders, assets, settings, and the JWT signing secret — and the
@@ -37,15 +42,15 @@
 # src/raw-pipeline/raw-wasm/rust-toolchain.toml; rustup honours it
 # automatically.
 # ---------------------------------------------------------------------------
-FROM rust:1.83-slim AS wasm-builder
+FROM rust:1.98.1-slim-bookworm AS wasm-builder
 
 WORKDIR /build
 
-# wasm-pack needs curl + ca-certs to fetch its release bundle; install once.
+# Build the reviewed wasm-pack version using its published dependency lockfile.
 RUN apt-get update && apt-get install -y --no-install-recommends \
         curl ca-certificates pkg-config libssl-dev \
     && rm -rf /var/lib/apt/lists/* \
-    && curl -fsSL https://rustwasm.github.io/wasm-pack/installer/init.sh | sh
+    && cargo install wasm-pack --version 0.15.0 --locked
 
 COPY src/raw-pipeline/ raw-pipeline/
 
@@ -70,7 +75,7 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
 # Uses bun (not npm) — the workspace is bun-locked (bun.lock) and carries no
 # npm lockfile. bun runs @angular/cli without issue.
 # ---------------------------------------------------------------------------
-FROM oven/bun:1.4.2-slim AS ui-builder
+FROM oven/bun:1.4.4-slim AS ui-builder
 
 WORKDIR /build
 
@@ -104,6 +109,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends python3 \
     && rm -rf /var/lib/apt/lists/* \
     && bash scripts/sync-raw-wasm.sh
 
+# angular.json copies the film-look LUTs from `../../resources/film-luts`
+# (repo root, two levels above src/web) into the bundle's /film-luts, where the
+# browser fetches them (#5497). The same WORKDIR-relative `../..` puts them
+# where that input resolves: both Docker and Node clamp `..` at `/`, so from
+# WORKDIR /build each side lands on /resources/film-luts.
+COPY resources/film-luts/ ../../resources/film-luts/
+
 # Invoke ng directly to skip the `prebuild:maple` npm-lifecycle hook, which
 # tries to rebuild raw-wasm — already produced by the wasm-builder stage and
 # copied in above. The path it expects (../raw-pipeline/raw-wasm/build.sh)
@@ -118,16 +130,21 @@ ENV NODE_OPTIONS="--max-old-space-size=4096"
 RUN bun x ng build maple --configuration=production
 
 # ---------------------------------------------------------------------------
-# Stage 2: build the native libraw_ffi.so for the runtime image's arch.
-# Stable Rust; entirely independent of the wasm-builder stage.
+# Stage 2: build the native libraw_ffi.so and the maple-cli panorama stitcher
+# for the runtime image's arch. Stable Rust; entirely independent of the
+# wasm-builder stage.
+#
+# maple-cli is what `POST /api/pano/stitch` and `/preview` spawn (#5493).
+# `pano,pano-classical` gives it both matchers: classical needs nothing else,
+# and ML dlopens the ONNX Runtime this image already carries.
 #
 # `--features search` compiles the API-only `maple_search_*` symbols (#4462:
 # fastembed + Tantivy), whose tree needs Rust >= 1.86 (tantivy 0.26). The base
-# tracks the workspace's `stable` toolchain (src/raw-pipeline/rust-toolchain.toml,
+# matches the workspace's pinned native toolchain (src/raw-pipeline/rust-toolchain.toml,
 # which rustup honours inside this directory) and stays on bookworm so the .so
 # links against the same glibc as the bookworm-based runtime image.
 # ---------------------------------------------------------------------------
-FROM rust:1.98-slim-bookworm AS rust-builder
+FROM rust:1.98.1-slim-bookworm AS rust-builder
 
 WORKDIR /build
 
@@ -140,7 +157,9 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
     --mount=type=cache,id=raw-pipeline-target-ffi,target=/build/raw-pipeline/target \
     cd raw-pipeline \
  && cargo build --release -p raw-ffi --features search \
- && cp target/release/libraw_ffi.so /libraw_ffi.so
+ && cargo build --release -p maple-cli --features pano,pano-classical \
+ && cp target/release/libraw_ffi.so /libraw_ffi.so \
+ && cp target/release/maple-cli /maple-cli
 
 # CPU-only speech-to-text runtime. Model weights download on first use.
 FROM debian:bookworm-slim AS whisper-builder
@@ -163,7 +182,7 @@ RUN git clone --depth 1 --branch "${WHISPER_CPP_TAG}" https://github.com/ggergan
 # ---------------------------------------------------------------------------
 # Stage 3: runtime image — Bun server + UI bundle + native FFI.
 # ---------------------------------------------------------------------------
-FROM oven/bun:1.4.2-slim AS runtime
+FROM oven/bun:1.4.4-slim AS runtime
 
 WORKDIR /app
 
@@ -202,8 +221,10 @@ COPY src/api/package.json src/api/bun.lock* ./
 RUN bun install --production --frozen-lockfile
 
 COPY src/api/src/ src/
-# Dependency-free ID parser shared with the browser library.
+# Dependency-free ID parser and capture-date readers shared with the browser library.
 COPY src/web/projects/maple-common/src/lib/addressing/maple-id-parser.ts /web/projects/maple-common/src/lib/addressing/maple-id-parser.ts
+COPY src/web/projects/maple-common/src/lib/addressing/exif-capture-dates.ts /web/projects/maple-common/src/lib/addressing/exif-capture-dates.ts
+COPY src/web/projects/maple-common/src/lib/xmp/xmp-duplicate-attributes.ts /web/projects/maple-common/src/lib/xmp/xmp-duplicate-attributes.ts
 COPY src/api/tsconfig.json ./
 COPY resources/film-luts/ film-luts/
 
@@ -216,6 +237,18 @@ COPY --from=rust-builder /libraw_ffi.so native/
 # Select the library this image just built explicitly, so the loader never
 # prefers an npm-installed @justmaple/maple-<platform> prebuilt over it.
 ENV MAPLE_NATIVE_LIB=/app/native/libraw_ffi.so
+
+# The panorama stitcher from stage 2 (#5493). MAPLE_PANO_CLI only names the
+# binary this image ships, so a stock image stitches with no setup; the path
+# saved in Settings > Pano still wins. The check fails `docker build` on a
+# binary that cannot load or lacks the matcher, preview and memory-limit flags
+# the server relies on.
+COPY --from=rust-builder /maple-cli native/
+ENV MAPLE_PANO_CLI=/app/native/maple-cli
+RUN help="$("$MAPLE_PANO_CLI" pano stitch --help)" \
+ && printf '%s\n' "$help" | grep -q -- --features-engine \
+ && printf '%s\n' "$help" | grep -q -- --preview-out \
+ && printf '%s\n' "$help" | grep -q -- --memory-limit-bytes
 
 # ONNX Runtime for maple-search's query embedder (#4462). Like maple-pano's
 # `ml` feature, the crate dlopens a libonnxruntime >= 1.23 from a configured
@@ -243,6 +276,11 @@ RUN case "$(uname -m)" in \
       if (Number(version.split('.')[1]) < 23) throw new Error('ONNX Runtime ' + version + ' is older than 1.23'); \
       dlopen('/app/native/libraw_ffi.so', { maple_search_open: { args: ['ptr'], returns: 'ptr' } }); \
       console.log('ONNX Runtime ' + version + ', maple_search_* present');"
+
+# The Temporal SDK loads a prebuilt native bridge for the image's platform.
+# Load it now so an image that cannot run jobs fails to build instead of
+# booting with a worker tier that cannot start.
+RUN bun -e "require('@temporalio/worker'); console.log('Temporal SDK bridge loads');"
 
 ENV PORT=3000
 # The library database. /app/data is meant to be a mounted volume — see the

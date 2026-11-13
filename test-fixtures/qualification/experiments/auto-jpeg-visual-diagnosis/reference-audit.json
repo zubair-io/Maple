@@ -1,0 +1,110 @@
+{
+  "all16": [
+    {
+      "fixture": "test_0017",
+      "old_sha256": "19f620d07c2b06b29a7e0e4dea6ded9f3b3a108a4b81600d9c677a9acda8fa7f",
+      "new_sha256": "19f620d07c2b06b29a7e0e4dea6ded9f3b3a108a4b81600d9c677a9acda8fa7f",
+      "same": true
+    },
+    {
+      "fixture": "test_0015",
+      "old_sha256": "5e3d67e6ed652580679f7ff6b0d740e218380fa9ab260fa3e6bbf13055dba8fe",
+      "new_sha256": "5e3d67e6ed652580679f7ff6b0d740e218380fa9ab260fa3e6bbf13055dba8fe",
+      "same": true
+    },
+    {
+      "fixture": "test_0011",
+      "old_sha256": "dde686e9852185784a4bc67242fabb040ce2c5befe73c525b65fe27d3c15fcd3",
+      "new_sha256": "dde686e9852185784a4bc67242fabb040ce2c5befe73c525b65fe27d3c15fcd3",
+      "same": true
+    },
+    {
+      "fixture": "test_0013",
+      "old_sha256": "3e28203da1be426f6c86fa063c0e8c262102b4947484d04470cc3f31c7dd0aca",
+      "new_sha256": "3e28203da1be426f6c86fa063c0e8c262102b4947484d04470cc3f31c7dd0aca",
+      "same": true
+    },
+    {
+      "fixture": "test_0004",
+      "old_sha256": "873875c52ab155d88c139eaac8e06f87647e0aecbd49d606842917542c6785f2",
+      "new_sha256": "873875c52ab155d88c139eaac8e06f87647e0aecbd49d606842917542c6785f2",
+      "same": true
+    },
+    {
+      "fixture": "test_0009",
+      "old_sha256": "3ed06694a6de146f5c449c74bd59b79f8a56d7d6d675db57ba7c3811d81cb164",
+      "new_sha256": "3ed06694a6de146f5c449c74bd59b79f8a56d7d6d675db57ba7c3811d81cb164",
+      "same": true
+    },
+    {
+      "fixture": "test_0014",
+      "old_sha256": "40204dea96ed3989974becef40c6a66a1dd0fb8d170554070e01870d72a20771",
+      "new_sha256": "40204dea96ed3989974becef40c6a66a1dd0fb8d170554070e01870d72a20771",
+      "same": true
+    },
+    {
+      "fixture": "test_0002",
+      "old_sha256": "b6da80bcd53c5bb65605c95b3f235d8c77f93fb81afec3a533e057bc91787733",
+      "new_sha256": "b6da80bcd53c5bb65605c95b3f235d8c77f93fb81afec3a533e057bc91787733",
+      "same": true
+    },
+    {
+      "fixture": "test_0005",
+      "old_sha256": "882b270ca1594a801ecc236fcb7a985c2c8aa881d9008ed155de03678ad613b2",
+      "new_sha256": "306b584f2219468b87ad3077e024b007ad72627be5dfcd20ff889ad03841e860",
+      "same": false
+    },
+    {
+      "fixture": "test_0000",
+      "old_sha256": "f7100cf9e597a5e73719fb4660c89cf5143913f596c3248b4809f67025993ce6",
+      "new_sha256": "f7100cf9e597a5e73719fb4660c89cf5143913f596c3248b4809f67025993ce6",
+      "same": true
+    },
+    {
+      "fixture": "test_0003",
+      "old_sha256": "671fa1d439a20109d47aa531c02d2b8cde904c9383f2974597f465dbaefa07c5",
+      "new_sha256": "671fa1d439a20109d47aa531c02d2b8cde904c9383f2974597f465dbaefa07c5",
+      "same": true
+    },
+    {
+      "fixture": "test_0006",
+      "old_sha256": "62564f3d7b0242b319d1c4e54c62d30d03af2d47848f61e44ec8233f0c82c15b",
+      "new_sha256": "62564f3d7b0242b319d1c4e54c62d30d03af2d47848f61e44ec8233f0c82c15b",
+      "same": true
+    },
+    {
+      "fixture": "test_0007",
+      "old_sha256": "5611d486a58214103a54654de18ca79edea619ee47ad29b502ac2819a3e3fc65",
+      "new_sha256": "5611d486a58214103a54654de18ca79edea619ee47ad29b502ac2819a3e3fc65",
+      "same": true
+    },
+    {
+      "fixture": "test_0008",
+      "old_sha256": "d4b3dea1d1712d9c7b35dc8e4df265358a2c19970f7d1082cbe80b7e4de8e554",
+      "new_sha256": "d4b3dea1d1712d9c7b35dc8e4df265358a2c19970f7d1082cbe80b7e4de8e554",
+      "same": true
+    },
+    {
+      "fixture": "test_0010",
+      "old_sha256": "38733b5469659a1089505d73d2878612b89ab9e063d991dcaae304ca63591664",
+      "new_sha256": "38733b5469659a1089505d73d2878612b89ab9e063d991dcaae304ca63591664",
+      "same": true
+    },
+    {
+      "fixture": "test_0012",
+      "old_sha256": "90fdfcd27884c33aadb06cac17fb7dc834313188b6c99433c58a061b4647b3c3",
+      "new_sha256": "90fdfcd27884c33aadb06cac17fb7dc834313188b6c99433c58a061b4647b3c3",
+      "same": true
+    }
+  ],
+  "independent_adobe_matrix_reference": {
+    "mae_rgb": [
+      0.0010366015851008708,
+      0.001372304741439933,
+      0.0011888087269450013
+    ],
+    "p99_abs": 0.0034845627620031516,
+    "max_abs": 0.030483447701290252,
+    "old_vs_jpeg_mae": 6.480827886710239e-05
+  }
+}

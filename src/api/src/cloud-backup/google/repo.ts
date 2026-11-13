@@ -1,6 +1,6 @@
-import { GoogleConnectionError } from './config.ts';
+import { GoogleConnectionError, GoogleFlowUnavailable } from './config.ts';
 import { sqliteDb } from '../../db/repos/db-handle.ts';
-import { DEFAULT_GOOGLE_CONFIG, type GoogleConfig } from './config.ts';
+import { DEFAULT_GOOGLE_CONFIG, validDisconnect, type GoogleConfig } from './config.ts';
 import { seal, unseal } from './secrets.ts';
 
 export const GOOGLE_BACKUP_DDL = `
@@ -57,6 +57,7 @@ function normalizeConfig(config: GoogleConfig): GoogleConfig {
     clientSecret: clientMode === 'maple' ? '' : config.clientSecret,
     callbackMode: clientMode === 'maple' ? 'relay' : config.callbackMode,
     relayGrant: clientMode === 'maple' ? (config.relayGrant ?? null) : null,
+    disconnect: validDisconnect(config.disconnect),
   };
 }
 
@@ -138,22 +139,29 @@ export async function savePending(flow: PendingFlow): Promise<void> {
       'Google destination or configuration changed; start Connect again.',
     );
 }
-export async function consumePending(state: string, cookieHash: string): Promise<PendingFlow> {
-  const [row] = await sqliteDb().read<{ nonce: string; payload: string }>(
+export interface PendingRow {
+  nonce: string;
+  payload: string;
+}
+/** Reads, without consuming, the live flow bound to this exact state and browser cookie. */
+export async function findPending(state: string, cookieHash: string): Promise<PendingRow | null> {
+  const [row] = await sqliteDb().read<PendingRow>(
     'SELECT nonce, payload FROM backup_google_oauth WHERE state = ? AND cookie_hash = ? AND expires_at > ?',
     [state, cookieHash, Date.now()],
   );
-  if (!row)
-    throw new GoogleConnectionError(
-      'Google connection expired or browser session mismatched; start Connect again.',
-    );
+  return row ?? null;
+}
+export async function consumePending(
+  row: PendingRow,
+  state: string,
+  cookieHash: string,
+): Promise<PendingFlow> {
   const removed = await sqliteDb().write(
     `DELETE FROM backup_google_oauth WHERE nonce = ?
     AND state = ? AND cookie_hash = ? AND expires_at > ?`,
     [row.nonce, state, cookieHash, Date.now()],
   );
-  if (removed.changes !== 1)
-    throw new GoogleConnectionError('Google callback already used; start Connect again.');
+  if (removed.changes !== 1) throw new GoogleFlowUnavailable();
   return unseal<PendingFlow>(row.payload, `flow:${row.nonce}`);
 }
 export async function claimRefresh(id: string, epoch: number, owner: string): Promise<boolean> {

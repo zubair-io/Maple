@@ -23,24 +23,29 @@ import { ApiFolder } from '../api/bun-api-backend.service';
 import { MapleFolderHandle } from '../folder-access/folder-access.types';
 import { LibraryStore } from './library-store.service';
 import type { LensCorrectionCapability } from './library-store-lens-corrections';
+import type { AutoFitOutcome } from '../raw-pipeline/auto-fit-outcome';
 import { LibrarySelection } from './library-selection.service';
 import { LibraryCache } from './library-cache.service';
+import { FOLDER_LISTING_CACHE } from '../api/folder-listing-cache';
 import { LibraryFetch } from './library-fetch.service';
 import { LibraryStatusService } from './library-status.service';
 import { BrowsePreferencesService } from './browse-preferences.service';
 import type { BrowseViewMode } from './browse-preferences.service';
 import { EditPreviewPersistService } from './edit-preview-persist.service';
 import { XmpAdjustmentRestoreService } from '../xmp/xmp-adjustment-restore.service';
+import { HostedSidecarErrors } from './hosted-sidecar-errors.service';
 
 // Re-export RAW-extension helpers for callers that import from this module.
 export { SUPPORTED_RAW_EXTENSIONS, isSupportedRaw } from './library-fetch.service';
 
 @Injectable({ providedIn: 'root' })
 export class LibraryStateService {
+  private readonly sidecarErrors = inject(HostedSidecarErrors);
   private readonly store = inject(LibraryStore);
   private readonly selection = inject(LibrarySelection);
   private readonly cache_ = inject(LibraryCache);
   private readonly fetch_ = inject(LibraryFetch);
+  private readonly listingCache = inject(FOLDER_LISTING_CACHE);
   private readonly status = inject(LibraryStatusService);
   private readonly prefs = inject(BrowsePreferencesService);
   private readonly previewPersist = inject(EditPreviewPersistService);
@@ -53,14 +58,12 @@ export class LibraryStateService {
 
   // ── Self-Hosted bootstrap state ────────────────────────────────────────────
   // Async-lifecycle signals live in LibraryStatusService (slice 3 of #191);
-  // re-exported here so existing component consumers (browse-shell banners,
-  // asset-grid rescan button) keep working unchanged.
+  // re-exported here so existing component consumers (browse-shell banners)
+  // keep working unchanged.
   readonly backendLoading = this.status.backendLoading;
   readonly backendError = this.status.backendError;
   readonly backendEmpty = this.status.backendEmpty;
   readonly registeredFolders = this.store.registeredFolders;
-  readonly rescanStatus = this.status.rescanStatus;
-  readonly rescanError = this.status.rescanError;
 
   readonly pickerVisible = this.store.pickerVisible;
   openLibraryPicker(): void {
@@ -156,6 +159,10 @@ export class LibraryStateService {
     return this.fetch_.openFolder(folder);
   }
 
+  activateHostedFolder(folderId: string): boolean {
+    return this.fetch_.activateHostedFolder(folderId);
+  }
+
   // ── Self-Hosted bootstrap (Bun API) ────────────────────────────────────────
   loadFolderTree(): void {
     this.fetch_.loadFolderTree();
@@ -167,10 +174,6 @@ export class LibraryStateService {
 
   currentRegisteredFolder(): ApiFolder | null {
     return this.store.currentRegisteredFolder(this.selection.selectedSourceId());
-  }
-
-  rescanCurrentFolder(): void {
-    this.fetch_.rescanCurrentFolder();
   }
 
   openSelfHostedFolder(folder: ApiFolder): void {
@@ -194,6 +197,20 @@ export class LibraryStateService {
    * module doc (#2644). */
   refreshFolderListing(sourceId: string): void {
     this.fetch_.refreshFolderListing(sourceId);
+  }
+
+  /** Drop every cached listing and re-pull the open folder. The listing's
+   * shape follows server display settings (e.g. RAW+JPEG stacking, #5846), so
+   * a changed setting must not be answered from a listing cached under the
+   * old one. */
+  reloadListings(): void {
+    void this.listingCache
+      .clear()
+      .then(() => this.fetch_.refreshFolderListing(this.selection.selectedSourceId()));
+  }
+
+  refreshFolderChildren(sourceId: string): void {
+    this.fetch_.refreshFolderListing(sourceId, true);
   }
 
   absPathFor(assetId: AssetId): string | undefined {
@@ -268,7 +285,7 @@ export class LibraryStateService {
     lensCorrectionCaInert: boolean,
     cameraSupport?: CameraSupport | null,
     lensProfile?: LensProfileResolution | null,
-    autoFit?: boolean,
+    autoFit?: AutoFitOutcome,
     fitRevision?: number,
   ): void {
     this.store.lensCorrections.seed(
@@ -286,7 +303,7 @@ export class LibraryStateService {
   seedLensProfile(
     id: AssetId,
     lensProfile: LensProfileResolution | null,
-    autoFit?: boolean,
+    autoFit?: AutoFitOutcome,
     fitRevision?: number,
   ): void {
     this.store.lensCorrections.seedProfile(id, lensProfile, autoFit, fitRevision);
@@ -307,6 +324,10 @@ export class LibraryStateService {
     return this.cache_.thumbnailUrlFor(id);
   }
 
+  thumbnailFailed(id: AssetId): boolean {
+    return this.cache_.thumbnailFailed(id);
+  }
+
   /** Subscribe a tile to thumbnail-URL changes for `id`; see LibraryCache. */
   subscribeThumbUrl(id: AssetId, cb: (url: string | undefined) => void): () => void {
     return this.cache_.subscribeThumbUrl(id, cb);
@@ -318,7 +339,7 @@ export class LibraryStateService {
   }
 
   ensureThumbnailUrl(asset: Asset): void {
-    this.cache_.ensureThumbnailUrl(asset, (id, sha) => this.fetch_.updateIndexThumb(id, sha));
+    this.cache_.ensureThumbnailUrl(asset, (id) => this.fetch_.updateIndexThumb(id));
   }
 
   /** Drop `id`'s queued thumbnail load when a tile unmounts; see LibraryCache. */
@@ -331,6 +352,10 @@ export class LibraryStateService {
     return this.store.adjustmentFor(id);
   }
 
+  sidecarLoadError(id: AssetId): string | null {
+    return this.sidecarErrors.errors().get(id) ?? null;
+  }
+
   /** Freeze callbacks for the asset whose accepted pixels are being saved. */
   readonly removalSavingAsset = signal<AssetId | null>(null);
 
@@ -341,7 +366,7 @@ export class LibraryStateService {
   }
 
   updateAdjustment(id: AssetId, patch: Partial<AdjustmentModel>): void {
-    if (this.removalSavingAsset() === id) return;
+    if (this.sidecarLoadError(id) || this.removalSavingAsset() === id) return;
     if (
       Object.hasOwn(patch, 'inpaintRemovals') &&
       patch.inpaintRemovals !== this.store.adjustmentFor(id)().inpaintRemovals
@@ -363,6 +388,7 @@ export class LibraryStateService {
 
   // ── Derived signals ────────────────────────────────────────────────────────
   readonly assetsInSelectedFolder = this.selection.assetsInSelectedFolder;
+  readonly searchMatchedAssetsInSelectedFolder = this.selection.searchMatchedAssetsInSelectedFolder;
   readonly foldersInSelectedFolder = this.selection.foldersInSelectedFolder;
   readonly focusedAsset = this.selection.focusedAsset;
   readonly selectedCount = this.selection.selectedCount;
@@ -373,16 +399,19 @@ export class LibraryStateService {
 
   // ── Culling mutations (+ trigger debounced index write) ────────────────────
   setRating(id: AssetId, rating: number): void {
+    if (this.sidecarLoadError(id)) return;
     this.store.setCulling(id, { rating });
     this.fetch_.scheduleSidecarWrite(id);
   }
 
   setFlag(id: AssetId, flag: Flag): void {
+    if (this.sidecarLoadError(id)) return;
     this.store.setCulling(id, { flag });
     this.fetch_.scheduleSidecarWrite(id);
   }
 
   setColorLabel(id: AssetId, colorLabel: ColorLabel): void {
+    if (this.sidecarLoadError(id)) return;
     this.store.setCulling(id, { colorLabel });
     this.fetch_.scheduleSidecarWrite(id);
   }
@@ -397,6 +426,7 @@ export class LibraryStateService {
    * round-trip into a desync).
    */
   setKeywords(id: AssetId, keywords: readonly string[]): void {
+    if (this.sidecarLoadError(id)) return;
     const seen = new Set<string>();
     const deduped: string[] = [];
     for (const raw of keywords) {
@@ -457,8 +487,8 @@ export class LibraryStateService {
   }
 
   // ── Index write helper (called by AssetGridComponent post-write) ──────────
-  updateIndexThumb(assetId: AssetId, sha: string): Promise<void> {
-    return this.fetch_.updateIndexThumb(assetId, sha);
+  updateIndexThumb(assetId: AssetId): Promise<void> {
+    return this.fetch_.updateIndexThumb(assetId);
   }
 
   // ── Selection ──────────────────────────────────────────────────────────────

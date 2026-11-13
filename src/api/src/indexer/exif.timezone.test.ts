@@ -102,7 +102,7 @@ describe('normalizeExif captured_at — Date-instance wall-clock preservation (#
   // describe block guards against, one layer up (a `Date` instead of a
   // string). Every `Date` that reaches this branch in production is
   // exifr's own local-timezone-setter revival of a bare EXIF wall-clock
-  // value (see `withRawCaptureDates`'s and `asIsoDate`'s doc comments in
+  // value (see `normalizeWithRawDates`'s and `asIsoDate`'s doc comments in
   // `exif.ts`), so the fix reads the SAME local fields back out instead.
   for (const tz of ['UTC', 'America/New_York', 'Pacific/Kiritimati']) {
     it(`produces the golden UTC value under TZ=${tz}`, async () => {

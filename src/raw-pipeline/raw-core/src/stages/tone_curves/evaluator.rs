@@ -11,7 +11,7 @@ use crate::types::adjustment::{ToneCurve, ToneCurvePoint};
 /// above diffuse white (`log2(4) = 2`) leaves AgX-friendly headroom for
 /// specular highlights while still letting the curve editor cover the
 /// useful midtone-to-bright range with one knot per region.
-pub(super) const REF_MAX: f32 = 4.0;
+pub const REF_MAX: f32 = 4.0;
 
 /// A monotonic-cubic-ready curve: knots plus the Fritsch–Carlson slopes
 /// and tangents pre-computed once, so the per-pixel evaluator does zero

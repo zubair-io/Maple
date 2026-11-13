@@ -54,8 +54,9 @@ struct PhotoThumbnailCell: View {
   var dragPayload: DraggedAssetPayload? = nil
   /// Cell tap handler. Receives the cell's frame in the window's
   /// coordinate space at the moment of the tap — the iPhone Preview hero
-  /// grows out of exactly that rect.
-  let onTap: (CGRect) -> Void
+  /// grows out of exactly that rect. `nil` makes a display-only tile: no
+  /// gesture, no button trait, no VoiceOver action.
+  var onTap: ((CGRect) -> Void)? = nil
   /// Publishes this cell's live frame in the window's coordinate space on
   /// every layout change. The iPhone grid attaches it to the SELECTED cell
   /// only — one geometry watcher, not one per tile — so the Preview hero
@@ -80,17 +81,26 @@ struct PhotoThumbnailCell: View {
   /// Final pixels retained by this tile can outlive the shared cache entry.
   @State private var decodedRevision: String?
 
-  private var decodedKey: String {
-    DevelopedImageRevision.shared.decodedKey(
-      for: item.id, url: item.thumbnailSource.localAssetURL)
+  private var reloadKey: String {
+    DevelopedImageRevision.shared.reloadKey(
+      for: item.id, source: item.thumbnailSource)
+  }
+
+  /// A local decoded bitmap needs a fresh source stamp before reuse. Cloud
+  /// and PhotoKit keys have no local filesystem metadata and remain safe to
+  /// peek synchronously for an immediate scroll-back image.
+  private var hotImage: CGImage? {
+    guard item.thumbnailSource.localAssetURL == nil else { return nil }
+    return ThumbnailDecoder.cachedImage(forKey: reloadKey)
   }
 
   /// Multi-select-aware accessibility label — restores the per-cell
   /// "<name>, selected / not selected" announcement BrowseGrid had before the
   /// shared-cell migration. Single-select mode announces just the name.
   private var accessibilityLabelText: String {
-    guard let checked = multiSelectChecked else { return item.displayName }
-    return "\(item.displayName), \(checked ? "selected" : "not selected")"
+    let name = item.overlays.livePhoto == nil ? item.displayName : "\(item.displayName), Live Photo"
+    guard let checked = multiSelectChecked else { return name }
+    return "\(name), \(checked ? "selected" : "not selected")"
   }
 
   /// Selection hint, multi-select only. Empty (no hint) in single-select
@@ -124,11 +134,11 @@ struct PhotoThumbnailCell: View {
 
   var body: some View {
     // Render the decoded bitmap. `decoded` is set by the async `.task`; the
-    // sync `cachedImage(forKey:)` peek (an O(1) string lookup) shows a
-    // previously-decoded tile immediately on scroll-back, with no
-    // placeholder flash and no main-thread decode.
+    // sync `cachedImage(forKey:)` peek shows sourceless assets immediately.
+    // Local assets wait for an off-main source-stamp check before cached
+    // pixels can be reused, so external XMP changes never show stale edits.
     ThumbnailImage(
-      image: decoded ?? ThumbnailDecoder.cachedImage(forKey: decodedKey),
+      image: decoded ?? hotImage,
       displayMode: displayMode
     )
     .opacity(item.overlays.hidden ? 0.4 : 1.0)
@@ -146,15 +156,7 @@ struct PhotoThumbnailCell: View {
       }
     }
     .overlay(alignment: .topLeading) {
-      if item.overlays.hidden {
-        Text("HIDDEN")
-          .font(.system(size: 9, weight: .bold))
-          .foregroundStyle(.white)
-          .padding(.horizontal, 6)
-          .padding(.vertical, 3)
-          .background(Color.black.opacity(0.6), in: RoundedRectangle(cornerRadius: 3))
-          .padding(6)
-      }
+      GridCornerBadges(overlays: item.overlays)
     }
     .overlay(alignment: .topTrailing) {
       // Multi-select badge — only present when multiSelectChecked is non-nil.
@@ -173,7 +175,6 @@ struct PhotoThumbnailCell: View {
         .accessibilityHidden(true)
       }
     }
-    .modifier(TapWithFrame(onTap: onTap, onFrameChange: onFrameChange))
     // Drag preview (#2779): the cell's already-decoded bitmap (or the
     // sync `cachedImage` peek used above for the tile itself) — no
     // new decode work for the preview closure. `nil` when neither is
@@ -182,21 +183,30 @@ struct PhotoThumbnailCell: View {
     .modifier(
       DragPayloadModifier(
         payload: dragPayload,
-        thumbnail: decoded ?? ThumbnailDecoder.cachedImage(forKey: decodedKey))
+        thumbnail: decoded ?? hotImage)
     )
     .onAppear { onAppear?() }
     .modifier(OptionalContextMenu(items: contextMenuItems))
     // Accessibility: UITest harness resolves cells by displayName via
-    // `app.otherElements["thumb-<displayName>"]` — mirrors LibraryCell's
+    // `app.buttons["thumb-<displayName>"]` — mirrors LibraryCell's
     // `.accessibilityIdentifier("thumb-\(asset.displayName)")`.
     .accessibilityElement(children: .ignore)
-    .accessibilityAddTraits(.isButton)
+    .accessibilityAddTraits(onTap == nil ? [] : .isButton)
     .accessibilityIdentifier("thumb-\(item.displayName)")
     .accessibilityLabel(accessibilityLabelText)
     .accessibilityHint(accessibilityHintText)
+    // Attach activation after the final accessibility element: ignoring the
+    // thumbnail's children must not discard its VoiceOver press action.
+    .modifier(OptionalTapWithFrame(onTap: onTap, onFrameChange: onFrameChange))
     .task(id: item.id) { await onLoad?() }
-    .task(id: decodedKey) {
-      let key = decodedKey
+    .task(id: reloadKey) {
+      if item.thumbnailSource.localAssetURL != nil {
+        decoded = nil
+        decodedRevision = nil
+      }
+      let key = await DevelopedImageRevision.shared.decodedKeyAsync(
+        for: item.id, source: item.thumbnailSource)
+      guard !Task.isCancelled else { return }
       // Lazy grids retain cell state beyond the viewport. A cache eviction
       // must not make that cell discard and reload its own final bitmap.
       if decodedRevision == key, decoded != nil { return }
@@ -207,7 +217,7 @@ struct PhotoThumbnailCell: View {
         decodedRevision = key
         return
       }
-      decoded = nil
+      decoded = ThumbnailDecoder.cachedImage(forKey: "camera:" + key)
       decodedRevision = nil
       // Fetch bytes, then decode — both OFF the main actor. The whole
       // load is keyed on the asset id + saved revision, and it is
@@ -218,15 +228,20 @@ struct PhotoThumbnailCell: View {
       // resolves 20–30 tiles at once drives that many overlapping
       // animations and hitches the scroll. Thumbnails just appear
       // (Photos.app does the same during scroll).
-      let bytes = await provider.thumbnail(for: item.thumbnailSource) { camera in
-        let image = await ThumbnailDecoder.image(for: camera, key: "camera:" + key)
-        guard !Task.isCancelled, let image else { return }
-        // Keep camera pixels under a separate bounded bitmap-cache key so
-        // the final authored thumbnail can replace them.
-        decoded = image
+      // An empty answer is retried on a bounded backoff while the cell
+      // stays on screen, instead of leaving it grey until it is scrolled
+      // away and back (#5735).
+      let image = await ThumbnailRetry.load { () async -> CGImage? in
+        let bytes = await provider.thumbnail(for: item.thumbnailSource) { camera in
+          let image = await ThumbnailDecoder.image(for: camera, key: "camera:" + key)
+          guard !Task.isCancelled, let image else { return }
+          // Keep camera pixels under a separate bounded bitmap-cache key so
+          // the final authored thumbnail can replace them.
+          decoded = image
+        }
+        guard !Task.isCancelled else { return nil }
+        return await ThumbnailDecoder.image(for: bytes, key: key)
       }
-      guard !Task.isCancelled else { return }
-      let image = await ThumbnailDecoder.image(for: bytes, key: key)
       guard !Task.isCancelled else { return }
       if let image {
         decoded = image
@@ -407,7 +422,7 @@ private struct GridCellOverlayView: View {
 
 // MARK: - DragPayloadModifier
 
-/// Applies `.draggable(_:)` when `payload` is non-nil (#2646); a no-op
+/// Attaches a drag source when `payload` is non-nil (#2646); a no-op
 /// otherwise, so cells that never opt into dragging (`dragPayload` left at
 /// its `nil` default) don't pay for a drag-session gesture recognizer at
 /// all. The preview (#2779) is the dragged tile's thumbnail via
@@ -423,9 +438,13 @@ private struct DragPayloadModifier: ViewModifier {
 
   func body(content: Content) -> some View {
     if let payload {
-      content.draggable(payload) {
-        AssetDragPreview(thumbnail: thumbnail, count: payload.ids.count)
-      }
+      #if os(macOS)
+        content.background(MacAssetDragSource(payload: payload, thumbnail: thumbnail))
+      #else
+        content.draggable(payload) {
+          AssetDragPreview(thumbnail: thumbnail, count: payload.ids.count)
+        }
+      #endif
     } else {
       content
     }
@@ -443,8 +462,7 @@ private struct DragPayloadModifier: ViewModifier {
     item: item,
     provider: .preview(),
     displayMode: .fill,
-    isSelected: true,
-    onTap: { _ in }
+    isSelected: true
   )
   .frame(width: 120, height: 120)
   .padding()
@@ -460,8 +478,7 @@ private struct DragPayloadModifier: ViewModifier {
     item: item,
     provider: .preview(),
     displayMode: .fill,
-    isSelected: false,
-    onTap: { _ in }
+    isSelected: false
   )
   .frame(width: 180, height: 180)
   .padding()
@@ -480,8 +497,7 @@ private struct DragPayloadModifier: ViewModifier {
     item: item,
     provider: .preview(),
     displayMode: .fill,
-    isSelected: false,
-    onTap: { _ in }
+    isSelected: false
   )
   .frame(width: 140, height: 140)
   .padding()
@@ -498,8 +514,7 @@ private struct DragPayloadModifier: ViewModifier {
     provider: .preview(),
     displayMode: .fill,
     isSelected: true,
-    multiSelectChecked: true,
-    onTap: { _ in }
+    multiSelectChecked: true
   )
   .frame(width: 180, height: 180)
   .padding()
@@ -516,8 +531,7 @@ private struct DragPayloadModifier: ViewModifier {
     provider: .preview(),
     displayMode: .fill,
     isSelected: false,
-    multiSelectChecked: false,
-    onTap: { _ in }
+    multiSelectChecked: false
   )
   .frame(width: 180, height: 180)
   .padding()

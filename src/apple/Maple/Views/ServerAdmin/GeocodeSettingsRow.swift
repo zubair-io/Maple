@@ -5,7 +5,7 @@
 // coincide: `nominatim_url` is both a field every PUT must carry and the
 // URL this row actually edits. See GeocodeConfigPatch's doc comment for why
 // an out-of-range rate is sent through unclamped rather than reset to null
-// — that rule is specific to the three Meilisearch numerics on the next row.
+// — that rule is specific to the service search budget on the next row.
 
 import SwiftUI
 import MapleCore

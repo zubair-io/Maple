@@ -119,9 +119,8 @@ final class BackupEngineSidecarTests: XCTestCase {
 
         try await engine.processOne()
 
-        // The sidecar should be gone (deleted after upload).
-        XCTAssertNil(try sidecars.read(phassetLocalId: "P1"),
-            "Local-edit sidecar should be deleted after successful upload")
+        // The canonical local edit stays on disk after upload (#4719).
+        XCTAssertEqual(try sidecars.read(phassetLocalId: "P1"), localEditXmp)
 
         // The sidecar POST body must be the local-edit XMP.
         let requests = StubURLProtocol.recordedRequests

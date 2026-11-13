@@ -1,0 +1,179 @@
+[
+  {
+    "fixture": "test_0005",
+    "display_size": [
+      1024,
+      768
+    ],
+    "observations": [
+      {
+        "region": [
+          0,
+          768,
+          0,
+          1024
+        ],
+        "shift_x": 0,
+        "shift_y": 0
+      },
+      {
+        "region": [
+          0,
+          384,
+          0,
+          512
+        ],
+        "shift_x": 0,
+        "shift_y": 0
+      },
+      {
+        "region": [
+          0,
+          384,
+          512,
+          1024
+        ],
+        "shift_x": 0,
+        "shift_y": 0
+      },
+      {
+        "region": [
+          384,
+          768,
+          0,
+          512
+        ],
+        "shift_x": 0,
+        "shift_y": 0
+      },
+      {
+        "region": [
+          384,
+          768,
+          512,
+          1024
+        ],
+        "shift_x": 0,
+        "shift_y": 0
+      }
+    ]
+  },
+  {
+    "fixture": "test_0015",
+    "display_size": [
+      680,
+      512
+    ],
+    "observations": [
+      {
+        "region": [
+          0,
+          512,
+          0,
+          680
+        ],
+        "shift_x": 3,
+        "shift_y": 2
+      },
+      {
+        "region": [
+          0,
+          256,
+          0,
+          340
+        ],
+        "shift_x": -3,
+        "shift_y": 0
+      },
+      {
+        "region": [
+          0,
+          256,
+          340,
+          680
+        ],
+        "shift_x": 3,
+        "shift_y": -1
+      },
+      {
+        "region": [
+          256,
+          512,
+          0,
+          340
+        ],
+        "shift_x": -2,
+        "shift_y": 2
+      },
+      {
+        "region": [
+          256,
+          512,
+          340,
+          680
+        ],
+        "shift_x": 3,
+        "shift_y": 2
+      }
+    ]
+  },
+  {
+    "fixture": "test_0017",
+    "display_size": [
+      1024,
+      683
+    ],
+    "observations": [
+      {
+        "region": [
+          0,
+          683,
+          0,
+          1024
+        ],
+        "shift_x": 24,
+        "shift_y": -1
+      },
+      {
+        "region": [
+          0,
+          341,
+          0,
+          512
+        ],
+        "shift_x": 24,
+        "shift_y": -1
+      },
+      {
+        "region": [
+          0,
+          341,
+          512,
+          1024
+        ],
+        "shift_x": 23,
+        "shift_y": -1
+      },
+      {
+        "region": [
+          341,
+          683,
+          0,
+          512
+        ],
+        "shift_x": 0,
+        "shift_y": -6
+      },
+      {
+        "region": [
+          341,
+          683,
+          512,
+          1024
+        ],
+        "shift_x": -3,
+        "shift_y": -5
+      }
+    ]
+  }
+]

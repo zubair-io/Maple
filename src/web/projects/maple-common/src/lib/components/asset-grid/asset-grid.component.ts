@@ -14,13 +14,16 @@ import {
   Injector,
   OnDestroy,
   ViewChild,
+  afterRenderEffect,
   computed,
+  effect,
   inject,
   signal,
 } from '@angular/core';
 import { Router } from '@angular/router';
 import { ScrollingModule } from '@angular/cdk/scrolling';
 import { RowHeightsVirtualScrollDirective } from './row-heights-virtual-scroll';
+import { BrowseReturnPositionService } from './browse-return-position.service';
 import { DragDropModule } from '@angular/cdk/drag-drop';
 import { LibraryStateService } from '../../state/library-state.service';
 import { MapleIconComponent } from '../../icons/maple-icon.component';
@@ -29,6 +32,8 @@ import { GridFolderItem } from '../../models/folder';
 import { AssetTileComponent } from '../asset-tile/asset-tile.component';
 import { FolderTileComponent } from '../folder-tile/folder-tile.component';
 import { MuiButtonComponent } from '../../ui/button/mui-button.component';
+import { MuiEmptyStateComponent } from '../../ui/empty-state/mui-empty-state.component';
+import type { CullFilter } from '../../state/browse-preferences.service';
 import { STORAGE_KEYS, TypedStorage } from '../../util/typed-storage';
 import { parseAddress } from '../../addressing/maple-address';
 import { viewRouteCommands } from '../../addressing/route-address';
@@ -42,7 +47,7 @@ export type GridItem = { kind: 'folder'; folder: GridFolderItem } | { kind: 'ima
  * left-to-right in their own section above the photos (#3099 — the Windows
  * `BrowseFolderTiles` layout); image rows are justified to the container. */
 interface GridRow {
-  kind: 'folders' | 'images';
+  kind: 'folders' | 'images' | 'filter-empty';
   items: GridItem[];
   height: number;
   /** Space between tiles in this row, in px. */
@@ -59,6 +64,14 @@ const FOLDER_TILE_GAP = 4;
 /** Gap between the folder section and the first photo row. */
 const FOLDER_SECTION_GAP = 12;
 const IMAGE_GAP = 3;
+/** Tall enough for the empty state's icon, title, two-line message and button. */
+export const FILTER_EMPTY_ROW_HEIGHT = 220;
+
+const FILTER_EMPTY_SUBJECTS: Record<Exclude<CullFilter, 'all'>, string> = {
+  picks: 'picks',
+  '4stars': '4+ star photos',
+  edited: 'edited photos',
+};
 
 @Component({
   selector: 'app-asset-grid',
@@ -66,6 +79,7 @@ const IMAGE_GAP = 3;
   imports: [
     MapleIconComponent,
     MuiButtonComponent,
+    MuiEmptyStateComponent,
     ScrollingModule,
     RowHeightsVirtualScrollDirective,
     DragDropModule,
@@ -79,12 +93,14 @@ const IMAGE_GAP = 3;
 })
 export class AssetGridComponent implements AfterViewInit, OnDestroy {
   @ViewChild('gridContainer', { read: ElementRef }) gridContainerRef!: ElementRef<HTMLElement>;
+  @ViewChild('filterPill', { read: ElementRef }) filterPillRef?: ElementRef<HTMLElement>;
 
   /** Stable track-by for virtual scroll: keys off the first item's id so row
    * identity survives across re-packs of the same head item. Folder rows and
    * image rows share the same key space (folder ids are 'fs:<path>', asset
    * ids are UUIDs or 'fs:<path>' — disjoint by construction in practice). */
   trackRow = (_: number, row: GridRow): string => {
+    if (row.kind === 'filter-empty') return 'filter-empty';
     const head = row.items[0];
     if (!head) return `r${_}`;
     return head.kind === 'image' ? head.asset.id : head.folder.id;
@@ -99,14 +115,53 @@ export class AssetGridComponent implements AfterViewInit, OnDestroy {
 
   readonly state = inject(LibraryStateService);
   private readonly router = inject(Router);
+  private readonly injector = inject(Injector);
   protected readonly dragMove = inject(DRAG_MOVE_CAPABILITY);
   private readonly trash = inject(TRASH_CAPABILITY);
+  private readonly returnPosition = inject(BrowseReturnPositionService);
   protected readonly assetGridDropListId = ASSET_GRID_DROP_LIST_ID;
 
   readonly STAR_INDICES = [1, 2, 3, 4, 5];
 
   private containerWidth = signal<number>(800);
   private ro?: ResizeObserver;
+  private restoreFrame: number | null = null;
+
+  constructor() {
+    afterRenderEffect(() => {
+      const sourceId = this.state.selectedSourceId();
+      const rows = this.gridRows();
+      const position = this.returnPosition.forSource(sourceId);
+      const grid = this.gridContainerRef?.nativeElement;
+      if (!position || !grid) return;
+      if (
+        !rows.some((row) =>
+          row.items.some((item) => item.kind === 'image' && item.asset.id === position.assetId),
+        )
+      ) {
+        if (!this.state.backendLoading()) this.returnPosition.clear();
+        return;
+      }
+      if (this.restoreFrame !== null) return;
+      let attempts = 0;
+      const restoreWhenMeasured = () => {
+        if (this.returnPosition.forSource(this.state.selectedSourceId()) !== position) {
+          this.restoreFrame = null;
+          return;
+        }
+        // CDK publishes its scroll height after this render pass. A write before
+        // that happens is clamped to zero and loses the saved position.
+        if (attempts++ < 20 && position.scrollTop > 0 && grid.scrollHeight <= grid.clientHeight) {
+          this.restoreFrame = requestAnimationFrame(restoreWhenMeasured);
+          return;
+        }
+        grid.scrollTop = position.scrollTop;
+        this.returnPosition.clear();
+        this.restoreFrame = null;
+      };
+      this.restoreFrame = requestAnimationFrame(restoreWhenMeasured);
+    });
+  }
 
   readonly gridRows = computed((): GridRow[] => {
     const folders = this.state.foldersInSelectedFolder();
@@ -161,7 +216,43 @@ export class AssetGridComponent implements AfterViewInit, OnDestroy {
       });
     }
 
-    return rows;
+    return this.filterHidesAllPhotos()
+      ? [
+          ...rows,
+          {
+            kind: 'filter-empty',
+            items: [],
+            height: FILTER_EMPTY_ROW_HEIGHT,
+            gap: 0,
+            spacingBelow: 0,
+          },
+        ]
+      : rows;
+  });
+
+  /** Without this a persisted filter that matches nothing reads as a broken
+   * or empty folder (#5712). */
+  readonly filterHidesAllPhotos = computed(
+    () =>
+      this.state.assetsInSelectedFolder().length === 0 &&
+      this.state.filter() !== 'all' &&
+      this.state.searchMatchedAssetsInSelectedFolder().length > 0,
+  );
+
+  private readonly searching = computed(() => this.state.searchQuery().trim().length > 0);
+
+  readonly filterEmptyTitle = computed(() => {
+    const f = this.state.filter();
+    if (f === 'all') return '';
+    const subject = FILTER_EMPTY_SUBJECTS[f];
+    return this.searching() ? `No ${subject} match this search` : `No ${subject} in this folder`;
+  });
+
+  readonly filterEmptyMessage = computed(() => {
+    const hidden = this.state.searchMatchedAssetsInSelectedFolder().length;
+    const photos = this.searching() ? 'matching photo' : 'photo';
+    const subject = hidden === 1 ? `1 ${photos} is` : `${hidden} ${photos}s are`;
+    return `${subject} hidden by the ${this.filterLabel()} filter.`;
   });
 
   /** Each row's full box height (row + spacing below) — what the viewport's
@@ -180,15 +271,33 @@ export class AssetGridComponent implements AfterViewInit, OnDestroy {
 
   ngAfterViewInit(): void {
     if (!this.gridContainerRef) return;
+    const grid = this.gridContainerRef.nativeElement;
     this.ro = new ResizeObserver((entries) => {
       for (const e of entries) this.containerWidth.set(e.contentRect.width);
     });
-    this.ro.observe(this.gridContainerRef.nativeElement);
-    this.containerWidth.set(this.gridContainerRef.nativeElement.clientWidth || 800);
+    this.ro.observe(grid);
+    this.containerWidth.set(grid.clientWidth || 800);
+    this.scrollToTopOnFolderChange(grid);
+  }
+
+  private scrollToTopOnFolderChange(grid: HTMLElement): void {
+    let previousSourceId = this.state.selectedSourceId();
+    effect(
+      () => {
+        const sourceId = this.state.selectedSourceId();
+        if (sourceId === previousSourceId) return;
+        if (this.returnPosition.forSource(previousSourceId)) this.returnPosition.clear();
+        previousSourceId = sourceId;
+        if (this.returnPosition.forSource(sourceId)) return;
+        grid.scrollTop = 0;
+      },
+      { injector: this.injector },
+    );
   }
 
   ngOnDestroy(): void {
     this.ro?.disconnect();
+    if (this.restoreFrame !== null) cancelAnimationFrame(this.restoreFrame);
   }
 
   // (Thumbnail loading moved to LibraryStateService.ensureThumbnailUrl —
@@ -219,6 +328,15 @@ export class AssetGridComponent implements AfterViewInit, OnDestroy {
     const range = e.shiftKey;
     this.state.selectAsset(asset.id, additive, range);
     if (additive || range) return;
+
+    const sourceId = this.state.selectedSourceId();
+    if (sourceId) {
+      this.returnPosition.remember({
+        sourceId,
+        assetId: asset.id,
+        scrollTop: this.gridContainerRef?.nativeElement.scrollTop ?? 0,
+      });
+    }
 
     // Split the slug:relPath id into /view/:slug/** segments — passing the whole
     // id as one segment makes Preview resolve a bogus address and bounce back
@@ -309,9 +427,16 @@ export class AssetGridComponent implements AfterViewInit, OnDestroy {
   // capability → always `false` on Hosted); `dragDataFor` still has to
   // exist unconditionally because `cdkDrag`'s `[cdkDragData]` binding is
   // evaluated regardless of `[cdkDragDisabled]`.
+  //
+  // Touch-primary devices never get drag: an enabled `cdkDrag` sets
+  // `touch-action: none` on its tile, which hijacks a finger swipe as a
+  // drag and makes the grid unscrollable on phones and tablets.
+
+  private readonly hasFinePointer =
+    typeof matchMedia === 'function' && matchMedia('(pointer: fine)').matches;
 
   dragEnabled(): boolean {
-    return this.dragMove.available();
+    return this.hasFinePointer && this.dragMove.available();
   }
 
   isDraggable(item: GridItem): boolean {
@@ -355,7 +480,18 @@ export class AssetGridComponent implements AfterViewInit, OnDestroy {
 
   cycleFilter(): void {
     const cur = this.state.filter();
-    const next = cur === 'all' ? 'picks' : cur === 'picks' ? '4stars' : 'all';
+    this.applyFilter(
+      cur === 'all' ? 'picks' : cur === 'picks' ? '4stars' : cur === '4stars' ? 'edited' : 'all',
+    );
+  }
+
+  showAllPhotos(): void {
+    this.applyFilter('all');
+    // The pressed button's row is removed with the filter, which would drop focus to <body>.
+    this.filterPillRef?.nativeElement.querySelector('button')?.focus();
+  }
+
+  private applyFilter(next: CullFilter): void {
     this.state.filter.set(next);
     TypedStorage.set(STORAGE_KEYS.FILTER, next);
   }

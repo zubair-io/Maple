@@ -35,7 +35,7 @@ import type { AdjustmentModel, ToneCurve, ToneCurvePoint } from '../models/adjus
 import { numericSerializer } from './xmp-fields';
 import { managedXmpName } from './xmp-dom-utils';
 
-/** Model keys of the eight point curves, in canonical emit order. */
+/** Model keys of the 14 point curves, in canonical emit order. */
 export type ToneCurveKey =
   | 'toneCurveLuma'
   | 'toneCurveRed'
@@ -44,11 +44,17 @@ export type ToneCurveKey =
   | 'displayToneCurveLuma'
   | 'displayToneCurveRed'
   | 'displayToneCurveGreen'
-  | 'displayToneCurveBlue';
+  | 'displayToneCurveBlue'
+  | 'colorCurveHueVsHue'
+  | 'colorCurveHueVsSat'
+  | 'colorCurveHueVsLuma'
+  | 'colorCurveLumaVsSat'
+  | 'colorCurveSatVsSat'
+  | 'colorCurveSatVsLuma';
 
 /** Curve parent element name → model key, in canonical emit order: the four
- * scene-linear `papp:` curves (#365) followed by the four display-referred
- * `crs:` curves (#2232). */
+ * scene-linear `papp:` curves (#365), the four display-referred `crs:`
+ * curves (#2232), and the six Oklab secondary color curves (#5041). */
 const TONE_CURVE_ELEMENTS: ReadonlyArray<{ tag: string; modelKey: ToneCurveKey }> = [
   { tag: 'papp:SceneLinearToneCurve', modelKey: 'toneCurveLuma' },
   { tag: 'papp:SceneLinearToneCurveRed', modelKey: 'toneCurveRed' },
@@ -58,6 +64,12 @@ const TONE_CURVE_ELEMENTS: ReadonlyArray<{ tag: string; modelKey: ToneCurveKey }
   { tag: 'crs:ToneCurvePV2012Red', modelKey: 'displayToneCurveRed' },
   { tag: 'crs:ToneCurvePV2012Green', modelKey: 'displayToneCurveGreen' },
   { tag: 'crs:ToneCurvePV2012Blue', modelKey: 'displayToneCurveBlue' },
+  { tag: 'papp:ColorCurveHueVsHue', modelKey: 'colorCurveHueVsHue' },
+  { tag: 'papp:ColorCurveHueVsSat', modelKey: 'colorCurveHueVsSat' },
+  { tag: 'papp:ColorCurveHueVsLuma', modelKey: 'colorCurveHueVsLuma' },
+  { tag: 'papp:ColorCurveLumaVsSat', modelKey: 'colorCurveLumaVsSat' },
+  { tag: 'papp:ColorCurveSatVsSat', modelKey: 'colorCurveSatVsSat' },
+  { tag: 'papp:ColorCurveSatVsLuma', modelKey: 'colorCurveSatVsLuma' },
 ];
 
 /**

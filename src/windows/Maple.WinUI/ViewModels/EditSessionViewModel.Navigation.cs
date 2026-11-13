@@ -11,6 +11,7 @@ namespace Maple.WinUI.ViewModels
         private string? _selectedLocalFolder;
         private CloudFolderNode? _selectedCloudFolder;
         private bool _isCloudTimeline;
+        public event Action? BrowseLocationChanged;
 
         public System.Collections.Generic.IEnumerable<(string Label, Action Navigate)> BrowseAncestors()
         {
@@ -60,6 +61,7 @@ namespace Maple.WinUI.ViewModels
             BrowseFolders.Clear();
             ApplyFilters();
             SynchronizeFolderSelection();
+            BrowseLocationChanged?.Invoke();
         }
 
         // Run again when lazy children arrive, so navigation from a tile,

@@ -10,8 +10,9 @@
 //! pixel is invalid when it maps outside the source frame, behind the
 //! camera, or onto fully-invalid taps.
 //!
-//! The optional per-frame gain (spec §5.5) is folded into the sampling
-//! loop — same shape as the WGSL `warp_inverse` kernel will use (eng
+//! The per-frame photometric correction (gain, bias and the blind
+//! lens-falloff correction at the tap's source position, spec §5.5,
+//! #4522) is folded into the sampling loop — same shape as the WGSL `warp_inverse` kernel will use (eng
 //! design §5, "gain multiplier folded in — saves a pass").
 //!
 //! Rows are rayon-parallel; per-pixel work is pure, so output is
@@ -27,12 +28,15 @@ use rayon::prelude::*;
 
 use crate::camera::Camera;
 use crate::canvas::CanvasSpec;
+use crate::gain::FramePhotometry;
 use crate::ingest::{PlanarImage, ValidityMask};
 use crate::local_align::{LocalCorrection, MAX_CORRECTION_PX};
 use crate::math::Vec3;
-use crate::project::Projection;
 
-use std::f64::consts::TAU;
+mod stored;
+mod strip;
+pub(crate) use stored::warp_stored_to_canvas;
+pub use strip::{warp_to_canvas_strip, warp_window_to_canvas_strip, SourceRows};
 
 /// Canvas-space footprint of a source frame: a y range plus one or two
 /// half-open x spans (two when the frame straddles a fully-wrapped
@@ -55,19 +59,58 @@ impl CanvasBBox {
     }
 }
 
+/// The output pixels that can sample the canvas-space `bbox`: `bbox` itself
+/// without a boundary warp (#5572). A warped canvas never wraps, so the
+/// result has one x span.
+pub fn output_bbox(canvas: &CanvasSpec, bbox: CanvasBBox) -> Option<CanvasBBox> {
+    let Some(warp) = canvas.boundary_warp() else {
+        return Some(bbox);
+    };
+    let (x0, x1) = bbox
+        .x_spans
+        .iter()
+        .fold((u32::MAX, 0), |(a, b), &(s0, s1)| (a.min(s0), b.max(s1)));
+    let (ox0, oy0, ox1, oy1) = warp.on_canvas(canvas.width, canvas.height).output_box(
+        x0 as f64,
+        bbox.y0 as f64,
+        x1 as f64,
+        bbox.y1 as f64,
+    )?;
+    Some(CanvasBBox {
+        x_spans: vec![(ox0, ox1)],
+        y0: oy0,
+        y1: oy1,
+    })
+}
+
+/// [`frame_canvas_bbox`] as output pixels ([`output_bbox`]).
+pub fn frame_output_bbox(cam: &Camera, canvas: &CanvasSpec, margin_px: f64) -> Option<CanvasBBox> {
+    frame_canvas_bbox(cam, canvas, margin_px).and_then(|bbox| output_bbox(canvas, bbox))
+}
+
 /// Compute the canvas-space bounding box of a camera frame, expanded by
 /// `margin_px` on every side. Conservative: the box always contains the
 /// frame's full footprint (border extremes bound the interior for these
 /// projections as long as no pole lies inside the frame; pole-containing
-/// frames get the full x range and an extended y range).
+/// frames get the full periodic range and an extended bounded range).
+///
+/// The periodic axis is x for the standard angular canvases and y for the
+/// transverse ones. A frame straddling a transverse canvas's row seam
+/// gets the full canvas height, since [`CanvasBBox`] has one y range.
 ///
 /// Returns `None` when nothing of the frame can land on the canvas
 /// (e.g. the frame is entirely behind a rectilinear canvas plane).
 pub fn frame_canvas_bbox(cam: &Camera, canvas: &CanvasSpec, margin_px: f64) -> Option<CanvasBBox> {
     let w = cam.width as f64;
     let h = cam.height as f64;
-    let cw = canvas.width as f64;
-    let ch = canvas.height as f64;
+    let transverse = canvas.projection.is_transverse();
+    let to_periodic_bounded = |(x, y): (f64, f64)| if transverse { (y, x) } else { (x, y) };
+    let (a_len_px, b_len_px) = if transverse {
+        (canvas.height, canvas.width)
+    } else {
+        (canvas.width, canvas.height)
+    };
+    let (a_len, b_len) = (a_len_px as f64, b_len_px as f64);
 
     // Border ring: 16 samples per edge + exact corners.
     const EDGE: usize = 16;
@@ -89,99 +132,111 @@ pub fn frame_canvas_bbox(cam: &Camera, canvas: &CanvasSpec, margin_px: f64) -> O
         cam.world_dir_to_pixel(dir)
             .is_some_and(|(px, py)| cam.pixel_in_bounds(px, py, 0.0))
     };
-    let sees_zenith = sees(Vec3::new(0.0, -1.0, 0.0));
-    let sees_nadir = sees(Vec3::new(0.0, 1.0, 0.0));
+    let (pole_lo, pole_hi) = canvas.bounded_axis_poles();
+    let sees_lo = sees(pole_lo);
+    let sees_hi = sees(pole_hi);
 
-    let mut any_unrepresentable = sees_zenith || sees_nadir;
-    let mut px_lo = f64::INFINITY;
-    let mut px_hi = f64::NEG_INFINITY;
-    let mut py_lo = f64::INFINITY;
-    let mut py_hi = f64::NEG_INFINITY;
+    let mut any_unrepresentable = sees_lo || sees_hi;
+    let mut a_lo = f64::INFINITY;
+    let mut a_hi = f64::NEG_INFINITY;
+    let mut b_lo = f64::INFINITY;
+    let mut b_hi = f64::NEG_INFINITY;
 
-    // Unwrap x around the frame center for the angular projections so a
-    // frame straddling the canvas's u-origin gets a contiguous span.
-    let period = match canvas.projection {
-        Projection::Rectilinear => f64::INFINITY,
-        _ => TAU * canvas.pixels_per_radian(),
-    };
-    let center_px = center.and_then(|d| canvas.dir_to_pixel(d)).map(|(x, _)| x);
+    // Unwrap the periodic axis around the frame center so a frame
+    // straddling the canvas's periodic origin gets a contiguous span.
+    let period = canvas.wrap_period_px();
+    let center_a = center
+        .and_then(|d| canvas.dir_to_pixel(d))
+        .map(|p| to_periodic_bounded(p).0);
 
     for d in &dirs {
-        match canvas.dir_to_pixel(*d) {
+        match canvas.dir_to_pixel(*d).map(to_periodic_bounded) {
             None => any_unrepresentable = true,
-            Some((mut px, py)) => {
-                if let (Some(cx), true) = (center_px, period.is_finite()) {
-                    let rel = px - cx;
-                    px = cx + rel - (rel / period + 0.5).floor() * period;
+            Some((mut a, b)) => {
+                if let (Some(ca), true) = (center_a, period.is_finite()) {
+                    let rel = a - ca;
+                    a = ca + rel - (rel / period + 0.5).floor() * period;
                 }
-                px_lo = px_lo.min(px);
-                px_hi = px_hi.max(px);
-                py_lo = py_lo.min(py);
-                py_hi = py_hi.max(py);
+                a_lo = a_lo.min(a);
+                a_hi = a_hi.max(a);
+                b_lo = b_lo.min(b);
+                b_hi = b_hi.max(b);
             }
         }
     }
-    if !px_lo.is_finite() {
+    if !a_lo.is_finite() {
         // Every border direction is unrepresentable (and no pole seen):
         // nothing of the frame is on this canvas.
-        if !(sees_zenith || sees_nadir) {
+        if !(sees_lo || sees_hi) {
             return None;
         }
-        (px_lo, px_hi, py_lo, py_hi) = (0.0, cw, 0.0, ch);
+        (a_lo, a_hi, b_lo, b_hi) = (0.0, a_len, 0.0, b_len);
     }
 
-    // A frame containing a pole covers every longitude; a frame with
-    // unrepresentable border directions (rect canvas horizon,
-    // cylindrical pole) gets the conservative full x range too.
+    // A frame containing a pole covers the whole periodic axis; a frame
+    // with unrepresentable border directions (rect canvas horizon,
+    // cylinder pole) gets the conservative full periodic range too.
     if any_unrepresentable {
-        px_lo = 0.0;
-        px_hi = cw;
-        if sees_zenith {
-            py_lo = 0.0;
+        a_lo = 0.0;
+        a_hi = a_len;
+        if sees_lo {
+            b_lo = 0.0;
         }
-        if sees_nadir {
-            py_hi = ch;
+        if sees_hi {
+            b_hi = b_len;
         }
-        if !(sees_zenith || sees_nadir) {
-            // Rect-canvas horizon case: extent along y is unbounded in
-            // the unrepresentable direction — take the full canvas.
-            py_lo = 0.0;
-            py_hi = ch;
+        if !(sees_lo || sees_hi) {
+            // Rect-canvas horizon case: extent along the bounded axis is
+            // unbounded in the unrepresentable direction — take it all.
+            b_lo = 0.0;
+            b_hi = b_len;
         }
     }
 
-    px_lo -= margin_px;
-    px_hi += margin_px;
-    let y0 = ((py_lo - margin_px).floor().max(0.0)) as u32;
-    let y1 = ((py_hi + margin_px).ceil().min(ch).max(0.0)) as u32;
-    if y0 >= y1 {
+    a_lo -= margin_px;
+    a_hi += margin_px;
+    let b0 = ((b_lo - margin_px).floor().max(0.0)) as u32;
+    let b1 = ((b_hi + margin_px).ceil().min(b_len).max(0.0)) as u32;
+    if b0 >= b1 {
         return None;
     }
 
-    let x_spans = if px_hi - px_lo >= cw {
-        vec![(0u32, canvas.width)]
+    let a_spans = if a_hi - a_lo >= a_len {
+        vec![(0u32, a_len_px)]
     } else if canvas.is_full_wrap() {
-        // Wrap spans modulo the canvas width.
-        let lo = px_lo.floor().rem_euclid(cw);
-        let hi = px_hi.ceil().rem_euclid(cw);
+        // Wrap spans modulo the periodic length.
+        let lo = a_lo.floor().rem_euclid(a_len);
+        let hi = a_hi.ceil().rem_euclid(a_len);
         if lo <= hi {
-            vec![(lo as u32, (hi as u32).min(canvas.width).max(lo as u32 + 1))]
+            vec![(lo as u32, (hi as u32).min(a_len_px).max(lo as u32 + 1))]
         } else {
-            vec![
-                (0u32, (hi as u32 + 1).min(canvas.width)),
-                (lo as u32, canvas.width),
-            ]
+            vec![(0u32, (hi as u32 + 1).min(a_len_px)), (lo as u32, a_len_px)]
         }
     } else {
-        let lo = px_lo.floor().max(0.0) as u32;
-        let hi = (px_hi.ceil().min(cw) as u32).min(canvas.width);
+        let lo = a_lo.floor().max(0.0) as u32;
+        let hi = (a_hi.ceil().min(a_len) as u32).min(a_len_px);
         if lo >= hi {
             return None;
         }
         vec![(lo, hi)]
     };
 
-    Some(CanvasBBox { x_spans, y0, y1 })
+    if !transverse {
+        return Some(CanvasBBox {
+            x_spans: a_spans,
+            y0: b0,
+            y1: b1,
+        });
+    }
+    let (y0, y1) = match a_spans.as_slice() {
+        [(lo, hi)] => (*lo, *hi),
+        _ => (0, canvas.height),
+    };
+    Some(CanvasBBox {
+        x_spans: vec![(b0, b1)],
+        y0,
+        y1,
+    })
 }
 
 /// Catmull-Rom kernel weights for the four taps at lattice offsets
@@ -208,9 +263,11 @@ const MIN_TAP_WEIGHT: f64 = 1e-4;
 /// centers at half-integers), with validity-weighted renormalized taps.
 /// Returns `None` when no usable tap weight survives (fully invalid
 /// neighborhood).
-fn sample_bicubic(src: &PlanarImage, x_px: f64, y_px: f64) -> Option<[f32; 3]> {
-    let w = src.width() as i64;
-    let h = src.height() as i64;
+fn sample_bicubic(src: SourceRows<'_>, x_px: f64, y_px: f64) -> Option<[f32; 3]> {
+    let image = src.image();
+    let w = image.width() as i64;
+    let h = src.full_height() as i64;
+    let window_y0 = src.y0() as i64;
     let x = x_px - 0.5;
     let y = y_px - 0.5;
     let x1 = x.floor();
@@ -226,20 +283,21 @@ fn sample_bicubic(src: &PlanarImage, x_px: f64, y_px: f64) -> Option<[f32; 3]> {
         if ty < 0 || ty >= h {
             continue;
         }
-        let row = ty as usize * src.width() as usize;
+        let wy_row = ty - window_y0;
+        let row = wy_row as usize * image.width() as usize;
         for (i, &wxi) in wx.iter().enumerate() {
             let tx = x1 - 1 + i as i64;
             if tx < 0 || tx >= w {
                 continue;
             }
-            if !src.validity.get(tx as u32, ty as u32) {
+            if !image.validity.get(tx as u32, wy_row as u32) {
                 continue;
             }
             let wgt = wxi * wyj;
             let idx = row + tx as usize;
-            acc[0] += wgt * src.r[idx] as f64;
-            acc[1] += wgt * src.g[idx] as f64;
-            acc[2] += wgt * src.b[idx] as f64;
+            acc[0] += wgt * image.r[idx] as f64;
+            acc[1] += wgt * image.g[idx] as f64;
+            acc[2] += wgt * image.b[idx] as f64;
             wsum += wgt;
         }
     }
@@ -254,9 +312,9 @@ fn sample_bicubic(src: &PlanarImage, x_px: f64, y_px: f64) -> Option<[f32; 3]> {
     ])
 }
 
-/// Warp one source frame onto the canvas. `gain` is the per-channel
-/// multiplier from gain compensation (`[1.0; 3]` = none), folded into
-/// the sampling loop.
+/// Warp one source frame onto the canvas. `photometry` is the frame's
+/// gain, bias and falloff ([`FramePhotometry::IDENTITY`] = none), folded
+/// into the sampling loop.
 ///
 /// The output is a canvas-sized [`PlanarImage`] whose validity marks
 /// exactly the pixels that received a covered sample.
@@ -269,7 +327,7 @@ pub fn warp_to_canvas(
     src: &PlanarImage,
     cam: &Camera,
     canvas: &CanvasSpec,
-    gain: [f32; 3],
+    photometry: FramePhotometry,
     local_align: Option<&LocalCorrection>,
 ) -> PlanarImage {
     assert_eq!(
@@ -293,7 +351,7 @@ pub fn warp_to_canvas(
     } else {
         4.0
     };
-    let bbox = frame_canvas_bbox(cam, canvas, bbox_margin);
+    let bbox = frame_output_bbox(cam, canvas, bbox_margin);
 
     if let Some(bbox) = bbox {
         let src_w = src.width() as f64;
@@ -312,7 +370,7 @@ pub fn warp_to_canvas(
                 for &(sx0, sx1) in &bbox.x_spans {
                     for x in sx0 as usize..sx1 as usize {
                         let px = x as f64 + 0.5;
-                        let Some(dir) = canvas.pixel_to_dir(px, py) else {
+                        let Some(dir) = canvas.output_pixel_to_dir(px, py) else {
                             continue;
                         };
                         let Some((mut fx, mut fy)) = cam.world_dir_to_pixel(dir) else {
@@ -321,19 +379,20 @@ pub fn warp_to_canvas(
                         // Stage F: apply per-frame local alignment correction
                         // in a SINGLE resample — no extra pass.
                         if let Some(la) = local_align {
-                            (fx, fy) = la.apply(fx, fy);
+                            (fx, fy) = la.sample_point(fx, fy);
                         }
                         // Footprint test: the sample point must land on
                         // the source frame.
                         if fx < 0.0 || fx > src_w || fy < 0.0 || fy > src_h {
                             continue;
                         }
-                        let Some(s) = sample_bicubic(src, fx, fy) else {
+                        let Some(s) = sample_bicubic(SourceRows::full(src), fx, fy) else {
                             continue;
                         };
-                        row_r[x] = s[0] * gain[0];
-                        row_g[x] = s[1] * gain[1];
-                        row_b[x] = s[2] * gain[2];
+                        let [cr, cg, cb] = photometry.apply_at(s, fx, fy, src_w, src_h);
+                        row_r[x] = cr;
+                        row_g[x] = cg;
+                        row_b[x] = cb;
                         row_v[x] = true;
                     }
                 }
@@ -350,119 +409,6 @@ pub fn warp_to_canvas(
         }
     }
     PlanarImage::from_planes(canvas.width, canvas.height, r, g, b, mask)
-}
-
-/// Warp one source frame into a horizontal canvas strip `[tile_y0, tile_y1)`.
-///
-/// This is the memory-bounded variant used by [`crate::composite::composite_tiled`]
-/// (M6-D, #1248). Instead of materializing a full `canvas_width × canvas_height`
-/// buffer, it produces a `canvas_width × (tile_y1 - tile_y0)` [`PlanarImage`]
-/// covering only the requested canvas rows.
-///
-/// The semantics are identical to [`warp_to_canvas`] over the strip rows;
-/// pixel coordinates are the same — row 0 of the returned image corresponds to
-/// canvas row `tile_y0`.
-///
-/// `tile_y0` and `tile_y1` must satisfy `tile_y0 < tile_y1 <= canvas.height`.
-pub fn warp_to_canvas_strip(
-    src: &PlanarImage,
-    cam: &Camera,
-    canvas: &CanvasSpec,
-    gain: [f32; 3],
-    local_align: Option<&LocalCorrection>,
-    tile_y0: u32,
-    tile_y1: u32,
-) -> PlanarImage {
-    assert_eq!(
-        (src.width(), src.height()),
-        (cam.width, cam.height),
-        "source frame and camera dimensions must agree"
-    );
-    assert!(
-        tile_y0 < tile_y1 && tile_y1 <= canvas.height,
-        "tile y range [{tile_y0}, {tile_y1}) must be within [0, {})",
-        canvas.height
-    );
-    let cw = canvas.width as usize;
-    let th = (tile_y1 - tile_y0) as usize;
-    let n = cw * th;
-    let mut r = vec![0.0_f32; n];
-    let mut g = vec![0.0_f32; n];
-    let mut b = vec![0.0_f32; n];
-    let mut valid = vec![false; n];
-
-    let bbox_margin = if local_align.is_some() {
-        4.0 + MAX_CORRECTION_PX
-    } else {
-        4.0
-    };
-    // Compute the full bbox, then clamp to this tile's row range.
-    let Some(bbox) = frame_canvas_bbox(cam, canvas, bbox_margin) else {
-        let mask = ValidityMask::new_filled(canvas.width, tile_y1 - tile_y0, false);
-        return PlanarImage::from_planes(canvas.width, tile_y1 - tile_y0, r, g, b, mask);
-    };
-
-    // Only process rows that intersect both the frame bbox and this tile.
-    let row_lo = (bbox.y0 as usize).max(tile_y0 as usize);
-    let row_hi = (bbox.y1 as usize).min(tile_y1 as usize);
-    if row_lo >= row_hi {
-        let mask = ValidityMask::new_filled(canvas.width, tile_y1 - tile_y0, false);
-        return PlanarImage::from_planes(canvas.width, tile_y1 - tile_y0, r, g, b, mask);
-    }
-
-    let src_w = src.width() as f64;
-    let src_h = src.height() as f64;
-
-    // Strip-local indices: strip row 0 = canvas row tile_y0.
-    let strip_lo = row_lo - tile_y0 as usize;
-    let strip_hi = row_hi - tile_y0 as usize;
-
-    r[strip_lo * cw..strip_hi * cw]
-        .par_chunks_mut(cw)
-        .zip(g[strip_lo * cw..strip_hi * cw].par_chunks_mut(cw))
-        .zip(b[strip_lo * cw..strip_hi * cw].par_chunks_mut(cw))
-        .zip(valid[strip_lo * cw..strip_hi * cw].par_chunks_mut(cw))
-        .enumerate()
-        .for_each(|(dy, (((row_r, row_g), row_b), row_v))| {
-            let canvas_y = row_lo + dy;
-            let py = canvas_y as f64 + 0.5;
-            for &(sx0, sx1) in &bbox.x_spans {
-                for x in sx0 as usize..sx1 as usize {
-                    let px = x as f64 + 0.5;
-                    let Some(dir) = canvas.pixel_to_dir(px, py) else {
-                        continue;
-                    };
-                    let Some((mut fx, mut fy)) = cam.world_dir_to_pixel(dir) else {
-                        continue;
-                    };
-                    if let Some(la) = local_align {
-                        (fx, fy) = la.apply(fx, fy);
-                    }
-                    if fx < 0.0 || fx > src_w || fy < 0.0 || fy > src_h {
-                        continue;
-                    }
-                    let Some(s) = sample_bicubic(src, fx, fy) else {
-                        continue;
-                    };
-                    row_r[x] = s[0] * gain[0];
-                    row_g[x] = s[1] * gain[1];
-                    row_b[x] = s[2] * gain[2];
-                    row_v[x] = true;
-                }
-            }
-        });
-
-    let strip_h = tile_y1 - tile_y0;
-    let mut mask = ValidityMask::new_filled(canvas.width, strip_h, false);
-    for sy in 0..th {
-        let row = sy * cw;
-        for x in 0..cw {
-            if valid[row + x] {
-                mask.set(x as u32, sy as u32, true);
-            }
-        }
-    }
-    PlanarImage::from_planes(canvas.width, strip_h, r, g, b, mask)
 }
 
 #[cfg(test)]

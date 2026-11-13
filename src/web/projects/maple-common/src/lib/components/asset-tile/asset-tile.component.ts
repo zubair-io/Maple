@@ -1,8 +1,10 @@
 // Grid-cell asset tile — the browse grid's per-photo cell. Composed from
 // `<mui-media-cell layout="overlay">` (image, selection ring, corner-badge
 // slots, readonly rating/flags row) plus this component's own overlay
-// content: the HIDDEN badge, no-preview badge, select-mode checkbox,
-// edited-XMP checkmark, and the hover-reveal inline-rename field.
+// content: the HIDDEN badge, no-preview badge, Live Photo badge and clip Play
+// button, RAW+JPEG stack badge, select-mode checkbox and edited-XMP checkmark.
+// The tile carries no filename caption (#5846): the name lives in the Info
+// pane, which is also where rename starts, next to F2.
 //
 // Split out of `<maple-asset-thumb>` (MW6, ticket #3047) once the grid
 // variant moved onto Maple UI composition — `asset-thumb` now renders only
@@ -19,23 +21,35 @@
 // contract, same recycle/destroy cleanup rationale, extracted to a shared
 // function rather than duplicated between the two components verbatim.
 
-import { ChangeDetectionStrategy, Component, computed, inject, input, output } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  computed,
+  inject,
+  input,
+  output,
+  signal,
+} from '@angular/core';
+import { parseAddress, toApiPath } from '../../addressing/maple-address';
 import { MapleIconComponent } from '../../icons/maple-icon.component';
 import { Asset } from '../../models/asset';
 import { LibraryStateService } from '../../state/library-state.service';
 import { createAssetThumbnailUrlSignal } from '../../state/asset-thumbnail-url-signal';
 import { noPreviewBadgeLabel as computeNoPreviewBadgeLabel } from '../../state/no-preview-extensions';
-import { ASSET_RENAME_CAPABILITY } from '../../rename/asset-rename-capability';
-import { InlineRenameFieldComponent } from '../inline-rename-field/inline-rename-field.component';
+import {
+  mediaRouteUrl,
+  PREVIEW_VIDEO_ACCESS,
+} from '../../shells/preview-shell/preview-video-access';
 import { MuiMediaCellComponent } from '../../ui/media-cell/mui-media-cell.component';
 import type { MuiRatingFlagState } from '../../ui/rating-flags/mui-rating-flags.component';
+import { ASSET_RENAME_CAPABILITY } from '../../rename/asset-rename-capability';
+import { InlineRenameFieldComponent } from '../inline-rename-field/inline-rename-field.component';
 
 @Component({
   selector: 'maple-asset-tile',
   standalone: true,
-  imports: [MapleIconComponent, InlineRenameFieldComponent, MuiMediaCellComponent],
+  imports: [MapleIconComponent, MuiMediaCellComponent, InlineRenameFieldComponent],
   templateUrl: './asset-tile.component.html',
-  styleUrl: './asset-tile.component.scss',
   host: { class: 'block w-full h-full' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
@@ -52,30 +66,38 @@ export class AssetTileComponent {
   thumbClick = output<MouseEvent>();
 
   private state = inject(LibraryStateService);
-  /** Interface, not the concrete `AssetRenameService` — see
-   * `asset-rename-capability.ts`'s module doc for why this indirection
-   * exists (keeping Self-Hosted-only code out of Hosted's bundle). */
+  readonly sidecarError = computed(() => this.state.sidecarLoadError?.(this.asset().id) ?? null);
+  private readonly videoAccess = inject(PREVIEW_VIDEO_ACCESS);
+  /** The capability interface, not `AssetRenameService`: see
+   * `asset-rename-capability.ts` for why Hosted must not import the service. */
   protected readonly renameSvc = inject(ASSET_RENAME_CAPABILITY);
-
-  /** True while this tile's filename bar is showing the inline-rename
-   * field (#2637). */
+  /** F2 on the focused tile opens the rename field over it (#2637). */
   readonly isEditingFilename = computed(() => this.renameSvc.editingAssetId() === this.asset().id);
+  protected readonly pendingCollision = computed(() => {
+    const pending = this.renameSvc.collision();
+    return pending?.assetId === this.asset().id ? pending : null;
+  });
 
-  /** Why rename is unavailable for this asset, or '' when it's allowed —
-   * surfaced as the filename bar's `title` tooltip. */
-  readonly renameDisabledReason = computed(() => this.renameSvc.disabledReason(this.asset()) ?? '');
+  readonly livePhoto = computed(() => this.asset().livePhoto);
 
-  onFilenameDblClick(event: MouseEvent): void {
+  /** Tokenized clip URL while this tile plays its Live Photo clip inline; minted on Play so the token is current. */
+  readonly clipSrc = signal<string | undefined>(undefined);
+
+  onPlayClip(event: Event): void {
     event.stopPropagation();
-    this.renameSvc.startEditing(this.asset());
+    this.clipSrc.set(this.clipSrc() ? undefined : this.mintClipUrl());
   }
 
-  onRenameCommit(newFilename: string): void {
-    this.renameSvc.commit(this.asset(), newFilename);
+  stopClip(event?: Event): void {
+    event?.stopPropagation();
+    this.clipSrc.set(undefined);
   }
 
-  onCollisionResolved(policy: 'replace' | 'keep-both'): void {
-    this.renameSvc.resolveCollision(this.asset(), policy);
+  private mintClipUrl(): string | undefined {
+    const address = parseAddress(this.asset().id);
+    return address.slug && address.relPath
+      ? mediaRouteUrl(this.videoAccess, 'video', toApiPath(address))
+      : undefined;
   }
 
   /** Select mode (#2404) — session-scoped signal on LibraryStateService.
@@ -87,6 +109,7 @@ export class AssetTileComponent {
    * placeholder stays) — see `createAssetThumbnailUrlSignal`'s doc for the
    * ownership/cleanup contract, shared verbatim with `<maple-asset-thumb>`. */
   readonly thumbUrl = createAssetThumbnailUrlSignal(this.asset);
+  readonly thumbnailFailed = computed(() => this.state.thumbnailFailed(this.asset().id));
 
   /** Uppercased extension (e.g. "MP3", "EIP", "MOV") when this asset is a
    * recognised no-preview format, else undefined — drives the "no preview

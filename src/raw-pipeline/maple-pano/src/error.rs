@@ -47,6 +47,26 @@ pub enum PanoError {
         #[source]
         source: raw_core::Error,
     },
+
+    #[error("seam constraints: {0}")]
+    SeamConstraint(#[from] crate::seam::SeamConstraintError),
+
+    #[error("cancelled by caller")]
+    Cancelled,
+
+    /// The frame store's free-space preflight (or a write that hit a full
+    /// volume) found too little room under `path` (#5553). The store holds
+    /// the input frames at full resolution, so a smaller output does not
+    /// help; the caller has to free space (#5555).
+    #[error(
+        "not enough free space for the pano frame store under {path}: \
+         needs {needed} bytes, {available} available"
+    )]
+    InsufficientScratchSpace {
+        path: PathBuf,
+        needed: u64,
+        available: u64,
+    },
 }
 
 impl PanoError {

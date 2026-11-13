@@ -60,6 +60,6 @@ public sealed class PreviewDownsampleTests
     {
         Width = width, Height = height, Pixels = pixels,
         NoiseProfile = [], Iso = 100, AeGain = 1, WhitesAnchorEv = 0, NrSamplingScale = sampling,
-        DecodedTemperature = 6500, DecodedTint = 0, WbFrame = [],
+        DecodedTemperature = 6500, DecodedTint = 0,
     };
 }

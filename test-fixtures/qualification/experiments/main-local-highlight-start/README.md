@@ -1,0 +1,3 @@
+# Captured-main plus local highlight matching control
+
+Work in progress:8 physical controls running; no result/adoption/full-suite claim. This isolated component experiment restores captured-main processing everywhere except the local highlight-recovery hue matcher. Current version37/fit7 cache labels and observation-only stage dumps are retained.20 original AMaZE tests and44 highlight-recovery tests pass. Other branch processing additions and their property tests are reverted only in the experiment; production37 worktree is restored unchanged after freezing. The exact relative-to-current patch and composition are recorded.

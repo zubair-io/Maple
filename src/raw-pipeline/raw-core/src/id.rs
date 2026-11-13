@@ -33,6 +33,13 @@ pub const TAG_FALLBACK: u8 = 0x02;
 /// Number of leading bytes of a file that feed `sha1Head`.
 pub const SHA1_HEAD_BYTES: usize = 64 * 1024;
 
+/// Version of the capture-date selection rules feeding the primary form
+/// (which date string a client reads, and from which container). Bump when
+/// those rules change on any client; device id caches stamp rows with it
+/// and treat rows from another version as misses (#5106). The hash forms
+/// themselves are unversioned — they have never changed.
+pub const MAPLE_ID_DERIVATION_VERSION: u32 = 3;
+
 /// Which derivation produced a [`MapleId`].
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum IdKind {

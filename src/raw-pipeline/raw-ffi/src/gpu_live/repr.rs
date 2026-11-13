@@ -250,7 +250,7 @@ pub struct MapleGpuLiveParams {
     //     radius PER PIXEL off these, so a GPU chain that can't see them
     //     denoises differently from the exported frame. Appended at the tail
     //     per the offset-stable ABI convention: null pointer / zero len ⇒ the
-    //     flat filter, bit-identical to pre-#1714 output. ---
+    //     ISO-only fallback, or the flat filter at ISO 0. ---
     /// Flat `(slope, offset)` pairs from the DNG NoiseProfile tag.
     pub noise_profile_ptr: *const f32,
     pub noise_profile_len: u32,
@@ -366,4 +366,29 @@ pub struct MapleGpuLiveParams {
     pub whites_anchor_ev: f32,
     /// Output pixels per developed full-frame pixel. Nonpositive/nonfinite means native.
     pub nr_sampling_scale: f32,
+    /// Colour-grading zone-isolation controls (#5040). Zero-filled `(0, 0, 0)`
+    /// resolves to `(100.0, MIDTONE_ANCHOR_L, MIDTONE_ANCHOR_L)`.
+    pub color_grade_blending: f32,
+    pub color_grade_shadow_edge: f32,
+    pub color_grade_highlight_edge: f32,
+    /// Oklab secondary color curves (#5041, Stage 22b): flat `(x, y)` f32 pairs;
+    /// `len` = float count (`2 * points`). Null/zero = identity.
+    pub color_curve_hue_vs_hue_ptr: *const f32,
+    pub color_curve_hue_vs_hue_len: usize,
+    pub color_curve_hue_vs_sat_ptr: *const f32,
+    pub color_curve_hue_vs_sat_len: usize,
+    pub color_curve_hue_vs_luma_ptr: *const f32,
+    pub color_curve_hue_vs_luma_len: usize,
+    pub color_curve_luma_vs_sat_ptr: *const f32,
+    pub color_curve_luma_vs_sat_len: usize,
+    pub color_curve_sat_vs_sat_ptr: *const f32,
+    pub color_curve_sat_vs_sat_len: usize,
+    pub color_curve_sat_vs_luma_ptr: *const f32,
+    pub color_curve_sat_vs_luma_len: usize,
+    /// The capture decode's creative stage (#5377), or null. When set, the
+    /// uploaded buffer is a capture result and the chain runs the creative
+    /// stage at `temperature`/`tint` (the absolute slider pair in the
+    /// decode's slider frame) in place of the white-balance delta, so
+    /// `decoded_*` and `wb_frame_*` are not read. Borrowed for the call.
+    pub creative_ptr: *const crate::capture_creative::MapleCaptureCreative,
 }

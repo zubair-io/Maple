@@ -58,7 +58,13 @@ fn identity_warp_reproduces_source_near_exactly() {
             ((x + y) as f32 * 0.007).fract(),
         ]
     });
-    let out = warp_to_canvas(&src, &cam, &aligned_canvas(&cam), [1.0; 3], None);
+    let out = warp_to_canvas(
+        &src,
+        &cam,
+        &aligned_canvas(&cam),
+        FramePhotometry::IDENTITY,
+        None,
+    );
     for i in 0..src.pixel_count() {
         assert!((out.r[i] - src.r[i]).abs() < 1e-9, "R at {i}");
         assert!((out.g[i] - src.g[i]).abs() < 1e-9, "G at {i}");
@@ -68,14 +74,41 @@ fn identity_warp_reproduces_source_near_exactly() {
 }
 
 #[test]
-fn gain_is_folded_into_the_warp() {
+fn local_correction_samples_at_observed_point_not_predicted_plus() {
+    use crate::gain::FramePhotometry;
+    use crate::local_align::{LocalCorrection, GRID_COLS, GRID_ROWS};
+    let cam = Camera::new([0.0; 3], 100.0, 0.0, 0.0, 32, 24);
+    let src = planar_from_fn(32, 24, |x, _| [x as f32, 0.0, 0.0]);
+    let mut corr = LocalCorrection::identity(32.0, 24.0);
+    corr.nodes = vec![[2.0, 0.0]; GRID_COLS * GRID_ROWS];
+    let out = warp_to_canvas(
+        &src,
+        &cam,
+        &aligned_canvas(&cam),
+        FramePhotometry::IDENTITY,
+        Some(&corr),
+    );
+    for x in 6..26usize {
+        let got = out.r[12 * 32 + x] as f64;
+        let want = x as f64 - 2.0;
+        assert!((got - want).abs() < 1e-4, "x={x}: got {got}, want {want}");
+    }
+}
+
+#[test]
+fn gain_and_bias_are_folded_into_the_warp() {
     let cam = Camera::new([0.0; 3], 100.0, 0.0, 0.0, 32, 24);
     let src = planar_from_fn(32, 24, |_, _| [0.25, 0.5, 0.125]);
-    let out = warp_to_canvas(&src, &cam, &aligned_canvas(&cam), [2.0, 0.5, 4.0], None);
+    let photometry = FramePhotometry {
+        gain: [2.0, 0.5, 4.0],
+        bias: [0.0, 0.125, -0.25],
+        falloff_q: 0.0,
+    };
+    let out = warp_to_canvas(&src, &cam, &aligned_canvas(&cam), photometry, None);
     for i in 0..out.pixel_count() {
         assert_eq!(out.r[i], 0.5);
-        assert_eq!(out.g[i], 0.25);
-        assert_eq!(out.b[i], 0.5);
+        assert_eq!(out.g[i], 0.375);
+        assert_eq!(out.b[i], 0.25);
     }
 }
 
@@ -85,7 +118,7 @@ fn gain_is_folded_into_the_warp() {
 fn bicubic_reproduces_linear_ramp_at_fractional_offsets() {
     let src = planar_from_fn(32, 8, |x, _| [x as f32, 0.0, 0.0]);
     for &(sx, sy) in &[(5.75, 3.5), (8.5, 2.25), (12.301, 4.71), (2.5, 1.5)] {
-        let s = sample_bicubic(&src, sx, sy).expect("interior sample");
+        let s = sample_bicubic(SourceRows::full(&src), sx, sy).expect("interior sample");
         // Texel x stores value x; centers at x + 0.5 → value(sx) = sx − 0.5.
         assert!(
             (s[0] as f64 - (sx - 0.5)).abs() < 1e-5,
@@ -128,7 +161,7 @@ fn invalid_hole_does_not_smear_into_neighbors() {
         false,
     )
     .unwrap();
-    let out = warp_to_canvas(&src, &cam, &canvas, [1.0; 3], None);
+    let out = warp_to_canvas(&src, &cam, &canvas, FramePhotometry::IDENTITY, None);
     let mut checked_valid = 0;
     let mut hole_interior_invalid = 0;
     for y in 0..h {
@@ -157,7 +190,7 @@ fn footprint_validity_matches_camera_mapping() {
     let cam = Camera::new([0.1, 0.9, 0.0], 80.0, -0.03, 0.01, 64, 48);
     let src = planar_from_fn(64, 48, |_, _| [0.5; 3]);
     let canvas = CanvasSpec::full_sphere(96).unwrap();
-    let out = warp_to_canvas(&src, &cam, &canvas, [1.0; 3], None);
+    let out = warp_to_canvas(&src, &cam, &canvas, FramePhotometry::IDENTITY, None);
     let mut mismatches = 0;
     for y in 0..canvas.height {
         for x in 0..canvas.width {
@@ -186,7 +219,7 @@ fn wrap_straddling_frame_covers_both_canvas_edges() {
     let canvas = CanvasSpec::full_sphere(64).unwrap();
     let bbox = frame_canvas_bbox(&cam, &canvas, 4.0).expect("on canvas");
     assert_eq!(bbox.x_spans.len(), 2, "bbox must split across the wrap");
-    let out = warp_to_canvas(&src, &cam, &canvas, [1.0; 3], None);
+    let out = warp_to_canvas(&src, &cam, &canvas, FramePhotometry::IDENTITY, None);
     let h2 = canvas.height / 2;
     assert!(out.validity.get(0, h2), "left edge covered");
     assert!(out.validity.get(canvas.width - 1, h2), "right edge covered");
@@ -205,7 +238,7 @@ fn frame_behind_rect_canvas_is_fully_invalid() {
     let canvas = aligned_canvas(&forward);
     assert_eq!(frame_canvas_bbox(&cam, &canvas, 4.0), None);
     let src = planar_from_fn(32, 24, |_, _| [1.0; 3]);
-    let out = warp_to_canvas(&src, &cam, &canvas, [1.0; 3], None);
+    let out = warp_to_canvas(&src, &cam, &canvas, FramePhotometry::IDENTITY, None);
     assert_eq!(out.validity.count_valid(), 0);
 }
 
@@ -221,8 +254,28 @@ fn warp_is_deterministic() {
         ]
     });
     let canvas = CanvasSpec::full_sphere(80).unwrap();
-    let a = warp_to_canvas(&src, &cam, &canvas, [1.1, 0.9, 1.0], None);
-    let b = warp_to_canvas(&src, &cam, &canvas, [1.1, 0.9, 1.0], None);
+    let a = warp_to_canvas(
+        &src,
+        &cam,
+        &canvas,
+        FramePhotometry {
+            gain: [1.1, 0.9, 1.0],
+            bias: [0.0; 3],
+            falloff_q: 0.0,
+        },
+        None,
+    );
+    let b = warp_to_canvas(
+        &src,
+        &cam,
+        &canvas,
+        FramePhotometry {
+            gain: [1.1, 0.9, 1.0],
+            bias: [0.0; 3],
+            falloff_q: 0.0,
+        },
+        None,
+    );
     assert_eq!(a.r, b.r);
     assert_eq!(a.g, b.g);
     assert_eq!(a.b, b.b);
@@ -246,7 +299,11 @@ fn strip_warp_matches_full_warp_pixel_for_pixel() {
         ]
     });
     let canvas = CanvasSpec::full_sphere(80).unwrap();
-    let gain = [1.1_f32, 0.9, 1.05];
+    let gain = FramePhotometry {
+        gain: [1.1, 0.9, 1.05],
+        bias: [0.002, -0.001, 0.0],
+        falloff_q: 0.0,
+    };
 
     // Full warp reference.
     let full = warp_to_canvas(&src, &cam, &canvas, gain, None);
@@ -329,4 +386,32 @@ fn rotation_accessor_used_by_tests_matches_identity() {
         i.mul_vec(Vec3::new(0.3, -0.2, 0.9)),
         Vec3::new(0.3, -0.2, 0.9)
     );
+}
+
+/// The blind falloff correction (#4522) divides `V(r)` out at each
+/// tap's source position: a planted elliptical vignette over a flat scene
+/// warps back to the flat scene, corner and centre alike.
+#[test]
+fn falloff_is_divided_out_at_the_source_position() {
+    let (w, h) = (48_u32, 32_u32);
+    let q = 0.25_f64;
+    let cam = Camera::new([0.0; 3], 150.0, 0.0, 0.0, w, h);
+    let src = planar_from_fn(w, h, |x, y| {
+        let r2 =
+            (((x as f64 + 0.5) - 24.0) / 24.0).powi(2) + (((y as f64 + 0.5) - 16.0) / 16.0).powi(2);
+        [(0.4 / (1.0 + q * r2).powi(2)) as f32; 3]
+    });
+    let corner_before = src.r[0] / src.r[(16 * w + 24) as usize];
+    assert!(
+        corner_before < 0.5,
+        "planted vignette too weak: {corner_before}"
+    );
+    let photometry = FramePhotometry {
+        falloff_q: q as f32,
+        ..FramePhotometry::IDENTITY
+    };
+    let out = warp_to_canvas(&src, &cam, &aligned_canvas(&cam), photometry, None);
+    for i in 0..out.pixel_count() {
+        assert!((out.r[i] - 0.4).abs() < 1e-4, "pixel {i}: {}", out.r[i]);
+    }
 }

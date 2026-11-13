@@ -1,0 +1,195 @@
+warning: `#[macro_use]` attribute cannot be used on crates
+   --> third_party/zune-jpeg/src/lib.rs:166:1
+    |
+166 | #![macro_use]
+    | ^^^^^^^^^^^^^
+    |
+    = help: `#[macro_use]` can be applied to extern crates and modules
+    = warning: this was previously accepted by the compiler but is being phased out; it will become a hard error in a future release!
+    = note: `#[warn(unused_attributes)]` (part of `#[warn(unused)]`) on by default
+
+warning: `zune-jpeg` (lib) generated 1 warning (run `cargo fix --lib -p zune-jpeg` to apply 1 suggestion)
+   Compiling raw-core v0.1.0 (/Users/riabuz/.codex/worktrees/color-suite-progress/_Maple/src/raw-pipeline/raw-core)
+warning: duplicated attribute
+   --> raw-core/src/black_level.rs:167:5
+    |
+167 |     #[test]
+    |     ^^^^^^^
+    |
+    = note: `#[warn(duplicate_macro_attributes)]` on by default
+
+warning: hidden lifetime parameters in types are deprecated
+   --> raw-core/src/stages/highlight_recovery/guided.rs:202:24
+    |
+202 |         anchor: Option<FrameAnchor>,
+    |                        ^^^^^^^^^^^ expected lifetime parameter
+    |
+note: the lint level is defined here
+   --> raw-core/src/lib.rs:6:22
+    |
+  6 | #![warn(clippy::all, rust_2018_idioms)]
+    |                      ^^^^^^^^^^^^^^^^
+    = note: `#[warn(elided_lifetimes_in_paths)]` implied by `#[warn(rust_2018_idioms)]`
+help: indicate the anonymous lifetime
+    |
+202 |         anchor: Option<FrameAnchor<'_>>,
+    |                                   ++++
+
+warning: hidden lifetime parameters in types are deprecated
+   --> raw-core/src/stages/highlight_recovery/guided.rs:323:20
+    |
+323 |     anchor: Option<FrameAnchor>,
+    |                    ^^^^^^^^^^^ expected lifetime parameter
+    |
+help: indicate the anonymous lifetime
+    |
+323 |     anchor: Option<FrameAnchor<'_>>,
+    |                               ++++
+
+warning: hidden lifetime parameters in types are deprecated
+   --> raw-core/src/stages/highlight_recovery.rs:142:20
+    |
+142 |     anchor: Option<FrameAnchor>,
+    |                    ^^^^^^^^^^^ expected lifetime parameter
+    |
+help: indicate the anonymous lifetime
+    |
+142 |     anchor: Option<FrameAnchor<'_>>,
+    |                               ++++
+
+warning: hidden lifetime parameters in types are deprecated
+   --> raw-core/src/stages/highlight_recovery.rs:262:20
+    |
+262 |     anchor: Option<FrameAnchor>,
+    |                    ^^^^^^^^^^^ expected lifetime parameter
+    |
+help: indicate the anonymous lifetime
+    |
+262 |     anchor: Option<FrameAnchor<'_>>,
+    |                               ++++
+
+warning: unused attribute `allow`
+   --> raw-core/src/stages/nlm.rs:334:1
+    |
+334 | #[allow(clippy::too_many_arguments)]
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+note: the built-in attribute `allow` will be ignored, since it's applied to the macro invocation `include`
+   --> raw-core/src/stages/nlm.rs:335:1
+    |
+335 | include!("nlm_shift.rs");
+    | ^^^^^^^
+    = note: `#[warn(unused_attributes)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `camera`
+  --> raw-core/src/lens_profile/lensfun/tests_parity.rs:84:14
+   |
+84 |         let (camera, lens) = find_case(&case);
+   |              ^^^^^^ help: if this is intentional, prefix it with an underscore: `_camera`
+   |
+   = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `camera`
+   --> raw-core/src/lens_profile/lensfun/tests_parity.rs:111:14
+    |
+111 |         let (camera, lens) = find_case(&case);
+    |              ^^^^^^ help: if this is intentional, prefix it with an underscore: `_camera`
+
+warning: unused variable: `camera`
+   --> raw-core/src/lens_profile/lensfun/tests_parity.rs:149:14
+    |
+149 |         let (camera, lens) = find_case(&case);
+    |              ^^^^^^ help: if this is intentional, prefix it with an underscore: `_camera`
+
+warning: unused variable: `auto_lateral_ca`
+   --> raw-core/src/types/adjustment/schema/tests.rs:152:9
+    |
+152 |         auto_lateral_ca,
+    |         ^^^^^^^^^^^^^^^ help: try ignoring the field: `auto_lateral_ca: _`
+
+warning: unused variable: `defringe_purple_amount`
+   --> raw-core/src/types/adjustment/schema/tests.rs:153:9
+    |
+153 |         defringe_purple_amount,
+    |         ^^^^^^^^^^^^^^^^^^^^^^ help: try ignoring the field: `defringe_purple_amount: _`
+
+warning: unused variable: `defringe_purple_hue_lo`
+   --> raw-core/src/types/adjustment/schema/tests.rs:154:9
+    |
+154 |         defringe_purple_hue_lo,
+    |         ^^^^^^^^^^^^^^^^^^^^^^ help: try ignoring the field: `defringe_purple_hue_lo: _`
+
+warning: unused variable: `defringe_purple_hue_hi`
+   --> raw-core/src/types/adjustment/schema/tests.rs:155:9
+    |
+155 |         defringe_purple_hue_hi,
+    |         ^^^^^^^^^^^^^^^^^^^^^^ help: try ignoring the field: `defringe_purple_hue_hi: _`
+
+warning: unused variable: `defringe_green_amount`
+   --> raw-core/src/types/adjustment/schema/tests.rs:156:9
+    |
+156 |         defringe_green_amount,
+    |         ^^^^^^^^^^^^^^^^^^^^^ help: try ignoring the field: `defringe_green_amount: _`
+
+warning: unused variable: `defringe_green_hue_lo`
+   --> raw-core/src/types/adjustment/schema/tests.rs:157:9
+    |
+157 |         defringe_green_hue_lo,
+    |         ^^^^^^^^^^^^^^^^^^^^^ help: try ignoring the field: `defringe_green_hue_lo: _`
+
+warning: unused variable: `defringe_green_hue_hi`
+   --> raw-core/src/types/adjustment/schema/tests.rs:158:9
+    |
+158 |         defringe_green_hue_hi,
+    |         ^^^^^^^^^^^^^^^^^^^^^ help: try ignoring the field: `defringe_green_hue_hi: _`
+
+warning: function `accumulate_dynamic` is never used
+   --> raw-core/src/stages/nlm_accumulate.rs:185:15
+    |
+185 | pub(super) fn accumulate_dynamic(
+    |               ^^^^^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: function `scalar_dynamic` is never used
+   --> raw-core/src/stages/nlm_accumulate.rs:335:15
+    |
+335 | pub(super) fn scalar_dynamic(
+    |               ^^^^^^^^^^^^^^
+
+warning: function `run_err` is never used
+  --> raw-core/src/raster_recipe_exec_tests.rs:16:4
+   |
+16 | fn run_err(json: &str, input: &[u8], aux: &[u8]) -> crate::error::Error {
+   |    ^^^^^^^
+
+warning: comparison is useless due to type limits
+   --> raw-core/src/raster_colour_lab_tests.rs:464:29
+    |
+464 |         p3.data[0] > 200 && p3.data[0] <= 255,
+    |                             ^^^^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(unused_comparisons)]` on by default
+
+warning: `raw-core` (lib test) generated 20 warnings (run `cargo fix --lib -p raw-core --tests` to apply 11 suggestions)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 23.18s
+     Running unittests src/lib.rs (target/debug/deps/raw_core-7975e06b08697f92)
+
+running 1 test
+test demosaic::amaze::tests_fcs_luminance_edge::measured_floor::unsupported_green_value_correction_is_continuous_at_measured_floor ... FAILED
+
+failures:
+
+---- demosaic::amaze::tests_fcs_luminance_edge::measured_floor::unsupported_green_value_correction_is_continuous_at_measured_floor stdout ----
+
+thread 'demosaic::amaze::tests_fcs_luminance_edge::measured_floor::unsupported_green_value_correction_is_continuous_at_measured_floor' (3620753) panicked at raw-core/src/demosaic/amaze/tests_fcs_measured_floor.rs:172:17:
+Rggb colour=0 exposure=0.01: 0.0039999997 vs analytic continuation 0.0010000004
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    demosaic::amaze::tests_fcs_luminance_edge::measured_floor::unsupported_green_value_correction_is_continuous_at_measured_floor
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 2933 filtered out; finished in 0.01s
+
+error: test failed, to rerun pass `-p raw-core --lib`

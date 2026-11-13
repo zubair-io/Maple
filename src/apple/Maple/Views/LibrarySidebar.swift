@@ -199,6 +199,10 @@ struct LibrarySidebar: View {
   /// Observable singleton; sidebar re-renders when the registry mutates.
   @State private var registry = CloudServerRegistry.shared
 
+  /// False while the iPhone drawer is closed: reveals then jump without
+  /// animation, so the drawer opens already on the selected row (#5674).
+  @Environment(\.isSidebarPresented) private var isSidebarPresented
+
   /// Token returned by `PhotoKitChangeObserver.subscribe` — held for the
   /// view's lifetime so we can unsubscribe in `.task`'s cancellation.
   @State private var photosChangeToken: UUID?
@@ -232,12 +236,14 @@ struct LibrarySidebar: View {
         }
         .onPreferenceChange(SelectedFolderRowPreferenceKey.self) { selectedPath in
           guard let selectedPath else { return }
-          withAnimation(.easeInOut(duration: 0.15)) {
-            proxy.scrollTo(selectedPath)
-          }
+          revealFolderRow(selectedPath, proxy: proxy, instantly: !isSidebarPresented)
         }
         .onChange(of: selection) { _, newSelection in
           handleSelectionChange(newSelection, proxy: proxy)
+        }
+        .onChange(of: isSidebarPresented) { _, presented in
+          guard presented, let id = revealRowID(for: selection) else { return }
+          revealFolderRow(id, proxy: proxy, instantly: true)
         }
         .onChange(of: cloudCurrentPath) { _, newPath in
           guard let newPath else { return }
@@ -246,7 +252,8 @@ struct LibrarySidebar: View {
               cloudServersExpanded[serverURL] = true
             }
             revealFolderRow(
-              SidebarReveal.cloudRowId(serverURL: serverURL, path: newPath), proxy: proxy)
+              SidebarReveal.cloudRowId(serverURL: serverURL, path: newPath), proxy: proxy,
+              instantly: !isSidebarPresented)
           }
         }
       }
@@ -761,32 +768,53 @@ struct LibrarySidebar: View {
 
   private func handleSelectionChange(_ newSelection: LibrarySelection, proxy: ScrollViewProxy) {
     switch newSelection {
-    case .folder(let path):
+    case .folder:
       if !showFolders { showFolders = true }
-      revealFolderRow(path, proxy: proxy)
     case .cloudLibrary(let serverURL, _):
       if cloudServersExpanded[serverURL] == false {
         cloudServersExpanded[serverURL] = true
       }
-      if let path = pathFor(server: serverURL) {
-        revealFolderRow(SidebarReveal.cloudRowId(serverURL: serverURL, path: path), proxy: proxy)
-      }
-    case .smbShare(let share):
+    case .smbShare:
       if !showConnections { showConnections = true }
-      revealFolderRow(
-        SidebarReveal.smbRowId(
-          host: share.host, share: share.share, username: share.username, path: "", depth: 0),
-        proxy: proxy)
     default:
       break
     }
+    guard let id = revealRowID(for: newSelection) else { return }
+    revealFolderRow(id, proxy: proxy, instantly: !isSidebarPresented)
   }
 
-  private func revealFolderRow(_ id: String, proxy: ScrollViewProxy) {
-    withAnimation(.easeInOut(duration: 0.15)) {
-      proxy.scrollTo(id)
+  private func revealRowID(for selection: LibrarySelection) -> String? {
+    switch selection {
+    case .folder(let path):
+      return path
+    case .cloudLibrary(let serverURL, _):
+      return pathFor(server: serverURL).map {
+        SidebarReveal.cloudRowId(serverURL: serverURL, path: $0)
+      }
+    case .smbShare(let share):
+      return SidebarReveal.smbRowId(
+        host: share.host, share: share.share, username: share.username, path: "", depth: 0)
+    default:
+      return nil
     }
   }
+
+  /// An instant reveal happens out of sight, as the iPhone drawer opens, and
+  /// lands the row near the top with its parents above it. A visible one
+  /// scrolls only as far as needed, so a row already on screen stays put.
+  private func revealFolderRow(_ id: String, proxy: ScrollViewProxy, instantly: Bool) {
+    guard !instantly else {
+      withAnimation(nil) { proxy.scrollTo(id, anchor: UnitPoint(x: 0.5, y: 0.2)) }
+      return
+    }
+    withAnimation(.easeInOut(duration: 0.15)) { proxy.scrollTo(id) }
+  }
+}
+
+extension EnvironmentValues {
+  /// Always true where the sidebar is a fixed column (Mac, iPad); only the
+  /// iPhone drawer sets it from its open state.
+  @Entry var isSidebarPresented = true
 }
 
 // MARK: - SelectedFolderRowPreferenceKey

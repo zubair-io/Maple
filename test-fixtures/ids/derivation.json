@@ -1,0 +1,118 @@
+{
+  "comment": "Cross-client maple_id derivation goldens. Every client derives `capturedAt` from the file, then hashes the primary form (null -> fallback form); the server's readExif/deriveId produced these values. Cases marked `optional` name gitignored RAWs under test-fixtures/raws and are skipped when absent. Pinned by src/api/tests/maple-id-contract.test.ts, raw-core maple_id_derivation_corpus.rs, MapleCore MapleIdDerivationContractTests and the web maple-id-derivation-contract.spec.ts.",
+  "cases": [
+    {
+      "file": "dated-video.mov",
+      "capturedAt": "2026-04-05T18:26:20.000Z",
+      "id": "01b176338229c1cb8b9ddfc6235e829d"
+    },
+    {
+      "file": "mvhd-dated-video.mp4",
+      "capturedAt": "2024-03-01T09:00:00.000Z",
+      "id": "0128c49f4751c764b93034e838b75c90"
+    },
+    {
+      "file": "undated-video.mov",
+      "capturedAt": null,
+      "id": "02462a2d31e7cfa0297153a4eb71bbcd"
+    },
+    {
+      "file": "exif-in-video-container.mov",
+      "capturedAt": null,
+      "id": "02727f7821f0eec2c225662a2a208165"
+    },
+    {
+      "file": "still-blank-original-date.jpg",
+      "capturedAt": "2024-06-01T12:34:56.000Z",
+      "id": "01b070aac318b20a45cf629b2d2f1709"
+    },
+    {
+      "file": "still-zero-original-date.jpg",
+      "capturedAt": "1899-11-30T00:00:00.000Z",
+      "id": "012f4ad811f9fb08900967db02879d0d"
+    },
+    {
+      "file": "still-nonpadded-date.jpg",
+      "capturedAt": "2024-06-01T12:34:57.000Z",
+      "id": "01b0e633f31016880819b00ba8541589"
+    },
+    {
+      "file": "still-space-padded-hour.jpg",
+      "capturedAt": "2024-06-01T12:34:57.000Z",
+      "id": "0181b1282b0dbb908823e71ea3ac4b6c"
+    },
+    {
+      "file": "still-t-separator.jpg",
+      "capturedAt": "2024-06-01T12:34:56.000Z",
+      "id": "012af0279fff815d3182ab664bc66d05"
+    },
+    {
+      "file": "tiff-exif-ifd-past-64k.tif",
+      "capturedAt": "2024-06-01T12:34:56.000Z",
+      "id": "01f9675f9280dae4a621061acb3bee2d"
+    },
+    {
+      "file": "exif-png.png",
+      "capturedAt": "2024-06-01T12:34:56.000Z",
+      "id": "01049a4a276728a4243992eb3d33e79e"
+    },
+    {
+      "file": "exif-webp.webp",
+      "capturedAt": "2024-06-01T12:34:56.000Z",
+      "id": "018c08a7d34a8c3ac4a88b82de1f95b3"
+    },
+    {
+      "file": "exif-heic.heic",
+      "capturedAt": "2024-06-01T12:34:56.000Z",
+      "id": "01af66ca2d266bf2b10122a7ff88953a"
+    },
+    {
+      "file": "../raws/test_0000.DNG",
+      "capturedAt": "2026-04-04T03:41:00.000Z",
+      "id": "01266e19414e3893016b42c7359df1dd",
+      "optional": true
+    },
+    {
+      "file": "../raws/test_0002.dng",
+      "capturedAt": "2008-01-19T16:47:25.000Z",
+      "id": "01261810d3a60677f3235ab51281cd70",
+      "optional": true
+    },
+    {
+      "file": "../raws/test_0009.CR2",
+      "capturedAt": "2017-01-26T09:36:26.000Z",
+      "id": "01f53da96564b79c9a3df6e99b2bfe32",
+      "optional": true
+    },
+    {
+      "file": "../raws/test_0011.ARW",
+      "capturedAt": "2019-10-13T07:07:15.000Z",
+      "id": "018c82a4328d01ea08bf295826eb7497",
+      "optional": true
+    },
+    {
+      "file": "../raws/test_0014.NEF",
+      "capturedAt": "2017-10-15T17:34:59.000Z",
+      "id": "010e88d1566c4f35981e8c7a9f22bb1c",
+      "optional": true
+    },
+    {
+      "file": "../raws/test_0015.dng",
+      "capturedAt": "2022-09-10T11:32:07.000Z",
+      "id": "019e7f1fc25c9b36cb039ad0290ad95c",
+      "optional": true
+    },
+    {
+      "file": "../raws/test_0017.dng",
+      "capturedAt": "2000-01-14T21:05:58.000Z",
+      "id": "017b5467c47414c19d709206480c5f2d",
+      "optional": true
+    },
+    {
+      "file": "../raws/Lawrence.jpg",
+      "capturedAt": "2016-07-17T17:03:18.000Z",
+      "id": "01ee2e8a31eab8e16c125feba7acf557",
+      "optional": true
+    }
+  ]
+}

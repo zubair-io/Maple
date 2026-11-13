@@ -1,0 +1,28 @@
+diff --git a/src/raw-pipeline/raw-core/src/demosaic/mod.rs b/src/raw-pipeline/raw-core/src/demosaic/mod.rs
+index 223504a0c6..2fb6d046ef 100644
+--- a/src/raw-pipeline/raw-core/src/demosaic/mod.rs
++++ b/src/raw-pipeline/raw-core/src/demosaic/mod.rs
+@@ -106,19 +106,10 @@ pub(crate) fn camera_demosaic_cancellable(
+     neutral: [f32; 3],
+     cancel: crate::cancel::CancelToken<'_>,
+ ) -> Image {
+-    if !neutral.iter().all(|n| n.is_finite() && *n > 0.0) {
+-        return demosaic_cancellable(algo, mosaic, cfa, cancel);
+-    }
+-    let minimum = neutral.into_iter().fold(f32::INFINITY, f32::min);
+-    let scales = neutral.map(|n| minimum / n);
+-    if scales.iter().any(|v| *v <= 0.0) {
+-        return demosaic_cancellable(algo, mosaic, cfa, cancel);
+-    }
+-    match algo {
+-        DemosaicAlgorithm::Amaze => amaze::amaze_with_gains(mosaic, cfa, scales),
+-        DemosaicAlgorithm::DualAmazeVng4 => dual::dual_amaze_vng4_with_gains(mosaic, cfa, scales),
+-        _ => demosaic_cancellable(algo, mosaic, cfa, cancel),
+-    }
++    // Experimental control: re-evaluate the native camera-domain contract
++    // after restoring normalized NLM tails. No metadata or settings edited.
++    let _ = neutral;
++    demosaic_cancellable(algo, mosaic, cfa, cancel)
+ }
+ 
+ /// Flatten the sparse 3-channel mosaic to a single float per CFA position.

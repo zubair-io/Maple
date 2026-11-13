@@ -2,19 +2,18 @@
 //! genuine-exposure recovery, and residual-field absorption.
 //! Kept in a separate file for the file-size budget.
 
-use super::frame_cache::TileFrameCache;
 use super::photometry::{solve_photometry, FramePhotometry, PhotometryOptions};
 use super::placement::{TileCanvasSpec, TilePose};
+use crate::frame_store::InMemory;
+use crate::gain::LensGroups;
 use crate::ingest::{PlanarImage, ValidityMask};
 use crate::similarity::Similarity2d;
 
-/// #3197: `solve_photometry` reads frames through a `TileFrameCache` now,
-/// not a plain slice — this test helper seeds a cache (test-only,
-/// pre-decoded) and the parallel `full_dims` vector every call site
-/// needs.
-fn cache_and_dims(frames: &[PlanarImage]) -> (TileFrameCache<'static>, Vec<(u32, u32)>) {
+/// The in-memory frame source and the parallel `full_dims` every
+/// `solve_photometry` call needs.
+fn frames_and_dims(frames: &[PlanarImage]) -> (InMemory<'_>, Vec<(u32, u32)>) {
     let full_dims: Vec<(u32, u32)> = frames.iter().map(|f| (f.width(), f.height())).collect();
-    (TileFrameCache::from_frames(frames.to_vec()), full_dims)
+    (InMemory(frames), full_dims)
 }
 
 fn translation_pose(frame_idx: usize, tx: f64, ty: f64) -> TilePose {
@@ -95,9 +94,16 @@ fn shared_slope_absorbed_not_aliased_into_gain_ramp() {
         offset_y: 0.0,
     };
 
-    let (cache, full_dims) = cache_and_dims(&frames);
-    let (phot, summary) =
-        solve_photometry(&cache, &full_dims, &poses, &canvas, &test_opts()).unwrap();
+    let (source, full_dims) = frames_and_dims(&frames);
+    let (phot, summary) = solve_photometry(
+        &source,
+        &full_dims,
+        &poses,
+        &canvas,
+        &LensGroups::ingest_corrected(full_dims.len()),
+        &test_opts(),
+    )
+    .unwrap();
 
     assert!(
         (f64::from(summary.slope_x) - slope).abs() < 0.05,
@@ -145,9 +151,16 @@ fn true_exposure_steps_recovered_as_gains() {
         offset_y: 0.0,
     };
 
-    let (cache, full_dims) = cache_and_dims(&frames);
-    let (phot, summary) =
-        solve_photometry(&cache, &full_dims, &poses, &canvas, &test_opts()).unwrap();
+    let (source, full_dims) = frames_and_dims(&frames);
+    let (phot, summary) = solve_photometry(
+        &source,
+        &full_dims,
+        &poses,
+        &canvas,
+        &LensGroups::ingest_corrected(full_dims.len()),
+        &test_opts(),
+    )
+    .unwrap();
 
     assert!(
         f64::from(summary.slope_x).abs() < 0.05,
@@ -194,8 +207,16 @@ fn residual_blob_absorbed_by_field() {
     };
 
     let opts = test_opts();
-    let (cache, full_dims) = cache_and_dims(&frames);
-    let (phot, summary) = solve_photometry(&cache, &full_dims, &poses, &canvas, &opts).unwrap();
+    let (source, full_dims) = frames_and_dims(&frames);
+    let (phot, summary) = solve_photometry(
+        &source,
+        &full_dims,
+        &poses,
+        &canvas,
+        &LensGroups::ingest_corrected(full_dims.len()),
+        &opts,
+    )
+    .unwrap();
     assert!(
         summary.field_max_abs_ev > 0.15,
         "field did not engage: max {} EV",
@@ -297,8 +318,16 @@ fn per_channel_gains_ignore_dark_channel_samples() {
         ..test_opts()
     };
 
-    let (cache, full_dims) = cache_and_dims(&frames);
-    let (phot, _) = solve_photometry(&cache, &full_dims, &poses, &canvas, &opts).unwrap();
+    let (source, full_dims) = frames_and_dims(&frames);
+    let (phot, _) = solve_photometry(
+        &source,
+        &full_dims,
+        &poses,
+        &canvas,
+        &LensGroups::ingest_corrected(full_dims.len()),
+        &opts,
+    )
+    .unwrap();
 
     // Blue gain ratios track the true blue offsets despite only half the
     // pixels contributing. Dividing by the luminance count `n` instead of

@@ -24,29 +24,32 @@ import { createTestDatabase, testSqliteDb } from '../sqlite/test-sqlite.test-hel
 import { newObjectIdHex } from '../object-id.ts';
 import type { SqliteDb } from './db-handle.ts';
 import {
+  cancelUnfinishedJob,
   claimJob,
   completeJob,
   createJob,
   failJob,
   getJob,
+  heldJobIds,
   isCancelRequested,
   JobConflictError,
   jobConflictMessage,
   listJobs,
   markCancelled,
+  markJobDispatched,
+  nextJobId,
   requestCancel,
   resumeBatchJob,
   saveJobCheckpoint,
   updateProgress,
 } from './jobs.repo.ts';
 
-const LEASE = 60_000;
 const at = (ms: number) => () => new Date(ms);
 
-/** A queued `pano_stitch`, the kind with no scopes and no fence. */
-async function pano(db: SqliteDb, ms = 0) {
+/** A queued `cloud_backup_restore`, a kind with no scopes, no fence and no resume. */
+async function restoreJob(db: SqliteDb, ms = 0) {
   return createJob(
-    { kind: 'pano_stitch', payload: { assetIds: ['a', 'b'] } },
+    { kind: 'cloud_backup_restore', payload: { assetIds: ['a', 'b'] } },
     at(ms),
     undefined,
     db,
@@ -63,7 +66,7 @@ describe('createJob', () => {
     using handle = await createTestDatabase();
     const db = testSqliteDb(handle.db);
 
-    const job = await pano(db, 1_000);
+    const job = await restoreJob(db, 1_000);
 
     expect(job.status).toBe('queued');
     expect(job.payload).toEqual({ assetIds: ['a', 'b'] });
@@ -150,7 +153,7 @@ describe('the active-batch fence', () => {
     // An empty scope list locks no library, so it neither fences nor is fenced.
     await batch(db, []);
     // Neither does a job of a kind that never holds a library exclusively.
-    await pano(db);
+    await restoreJob(db);
 
     expect(handle.db.query(`SELECT COUNT(*) AS n FROM jobs`).get()).toEqual({ n: 4 });
   });
@@ -167,47 +170,116 @@ describe('the active-batch fence', () => {
 });
 
 describe('claimJob', () => {
-  test('takes the oldest queued job and marks it running under a lease', async () => {
+  test('marks the named job running under the attempt that claimed it', async () => {
     using handle = await createTestDatabase();
     const db = testSqliteDb(handle.db);
-    const older = await pano(db, 1_000);
-    await pano(db, 2_000);
+    const older = await restoreJob(db, 1_000);
+    const newer = await restoreJob(db, 2_000);
 
-    const claimed = await claimJob('worker-1', LEASE, at(3_000), db);
+    const claimed = await claimJob(newer._id, 'worker-1', at(3_000), db);
 
-    expect(claimed?._id.toHexString()).toBe(older._id.toHexString());
+    expect(claimed?._id.toHexString()).toBe(newer._id.toHexString());
     expect(claimed?.payload).toEqual({ assetIds: ['a', 'b'] });
-    const stored = await getJob(older._id, db);
+    const stored = await getJob(newer._id, db);
     expect(stored?.status).toBe('running');
     expect(stored?.locked_by).toBe('worker-1');
-    expect(stored?.lease_expires_at).toBe(new Date(3_000 + LEASE).toISOString());
+    expect(stored?.updated_at).toBe(new Date(3_000).toISOString());
+    expect((await getJob(older._id, db))?.status).toBe('queued');
   });
 
-  test('a held lease is not stealable, and an expired one is', async () => {
+  test('a later attempt takes a running job over and is handed its ledger', async () => {
     using handle = await createTestDatabase();
     const db = testSqliteDb(handle.db);
-    const job = await pano(db, 0);
-    await claimJob('worker-1', LEASE, at(1_000), db);
+    const job = await restoreJob(db, 0);
+    await claimJob(job._id, 'worker-1', at(0), db);
+    await saveJobCheckpoint(job._id, 'worker-1', { applied: 2 }, at(0), undefined, db);
 
-    expect(await claimJob('worker-2', LEASE, at(2_000), db)).toBeNull();
+    const retaken = await claimJob(job._id, 'worker-2', at(1), db);
 
-    const stolen = await claimJob('worker-2', LEASE, at(1_000 + LEASE + 1), db);
-    expect(stolen?._id.toHexString()).toBe(job._id.toHexString());
+    expect(retaken?.checkpoint).toEqual({ applied: 2 });
     expect((await getJob(job._id, db))?.locked_by).toBe('worker-2');
   });
 
-  test('a claim carries the saved ledger so the handler can resume', async () => {
+  test('a finished or unknown job is not claimable', async () => {
     using handle = await createTestDatabase();
     const db = testSqliteDb(handle.db);
-    const job = await pano(db, 0);
-    await claimJob('worker-1', LEASE, at(0), db);
-    await saveJobCheckpoint(job._id, 'worker-1', { applied: 2 }, LEASE, at(0), undefined, db);
+    const job = await restoreJob(db, 0);
+    await completeJob(job._id, { ok: true }, at(0), undefined, db);
 
-    // The holder died mid-run; a sibling takes the job over once the lease
-    // lapses and must be handed the ledger it left behind.
-    const reclaimed = await claimJob('worker-2', LEASE, at(LEASE + 1), db);
-    expect(reclaimed?._id.toHexString()).toBe(job._id.toHexString());
-    expect(reclaimed?.checkpoint).toEqual({ applied: 2 });
+    expect(await claimJob(job._id, 'worker-1', at(1), db)).toBeNull();
+    expect(await claimJob(new ObjectId(), 'worker-1', at(1), db)).toBeNull();
+    expect((await getJob(job._id, db))?.status).toBe('done');
+  });
+});
+
+describe('the relay queries', () => {
+  const hex = (job: { _id: ObjectId }) => job._id.toHexString();
+
+  test('the next job is the oldest queued one, and only once nothing is held', async () => {
+    using handle = await createTestDatabase();
+    const db = testSqliteDb(handle.db);
+    const older = await batch(db, ['/srv/one'], 1_000);
+    const newer = await restoreJob(db, 2_000);
+
+    expect(await nextJobId(db)).toBe(hex(older));
+    expect(await heldJobIds(db)).toEqual([]);
+
+    await markJobDispatched(hex(older), db);
+    expect(await nextJobId(db)).toBeNull();
+    expect(await heldJobIds(db)).toEqual([hex(older)]);
+
+    await claimJob(older._id, 'worker-1', at(3_000), db);
+    expect(await nextJobId(db)).toBeNull();
+    expect(await heldJobIds(db)).toEqual([hex(older)]);
+
+    await failJob(older._id, 'boom', at(4_000), 'worker-1', db);
+    expect(await nextJobId(db)).toBe(hex(newer));
+    expect(await heldJobIds(db)).toEqual([]);
+  });
+
+  test('a resumed job goes back in line by its creation time', async () => {
+    using handle = await createTestDatabase();
+    const db = testSqliteDb(handle.db);
+    const older = await batch(db, ['/srv/one'], 1_000);
+    const newer = await restoreJob(db, 2_000);
+    await failJob(older._id, 'boom', at(3_000), undefined, db);
+    expect(await nextJobId(db)).toBe(hex(newer));
+
+    expect(await resumeBatchJob(older._id, db)).toBe(true);
+
+    expect(await nextJobId(db)).toBe(hex(older));
+  });
+
+  test('marking never overwrites the attempt that already claimed the job', async () => {
+    using handle = await createTestDatabase();
+    const db = testSqliteDb(handle.db);
+    const job = await restoreJob(db, 0);
+    await claimJob(job._id, 'worker-1', at(0), db);
+
+    await markJobDispatched(hex(job), db);
+
+    expect((await getJob(job._id, db))?.locked_by).toBe('worker-1');
+  });
+
+  test('cancelling an unfinished job closes it and leaves a finished one alone', async () => {
+    using handle = await createTestDatabase();
+    const db = testSqliteDb(handle.db);
+    const [waiting, running, done] = await Promise.all([
+      restoreJob(db, 1),
+      restoreJob(db, 2),
+      restoreJob(db, 3),
+    ]);
+    await claimJob(running._id, 'worker-1', at(4), db);
+    await completeJob(done._id, { ok: true }, at(4), undefined, db);
+
+    await Promise.all(
+      [waiting, running, done].map((job) => cancelUnfinishedJob(job._id, at(5), db)),
+    );
+
+    const stored = await Promise.all([waiting, running, done].map((job) => getJob(job._id, db)));
+    expect(stored.map((job) => job?.status)).toEqual(['cancelled', 'cancelled', 'done']);
+    expect(stored[1]?.locked_by).toBeNull();
+    expect(stored[2]?.result).toEqual({ ok: true });
   });
 });
 
@@ -215,29 +287,33 @@ describe('progress and terminal states', () => {
   test('a fenced progress write refuses a worker that lost the lease', async () => {
     using handle = await createTestDatabase();
     const db = testSqliteDb(handle.db);
-    const job = await pano(db, 0);
-    await claimJob('worker-1', LEASE, at(0), db);
+    const job = await restoreJob(db, 0);
+    await claimJob(job._id, 'worker-1', at(0), db);
 
-    await updateProgress(job._id, { current: 1, total: 6 }, LEASE, at(1_000), 'worker-1', db);
+    await updateProgress(job._id, { current: 1, total: 6 }, at(1_000), 'worker-1', db);
     expect((await getJob(job._id, db))?.progress).toEqual({ current: 1, total: 6 });
 
-    const stale = updateProgress(job._id, { current: 2, total: 6 }, LEASE, at(0), 'worker-2', db);
+    const stale = updateProgress(job._id, { current: 2, total: 6 }, at(0), 'worker-2', db);
     await expect(stale).rejects.toThrow('claimed by another worker');
   });
 
   test('an unfenced progress write lands whoever holds the lease', async () => {
     using handle = await createTestDatabase();
     const db = testSqliteDb(handle.db);
-    const job = await pano(db, 0);
+    const job = await restoreJob(db, 0);
 
-    await updateProgress(job._id, { current: 3, total: 3 }, LEASE, at(0), undefined, db);
+    await updateProgress(job._id, { current: 3, total: 3 }, at(0), undefined, db);
     expect((await getJob(job._id, db))?.progress).toEqual({ current: 3, total: 3 });
   });
 
   test('done, failed and cancelled each release the lock and keep their payload', async () => {
     using handle = await createTestDatabase();
     const db = testSqliteDb(handle.db);
-    const [done, failed, cancelled] = await Promise.all([pano(db, 1), pano(db, 2), pano(db, 3)]);
+    const [done, failed, cancelled] = await Promise.all([
+      restoreJob(db, 1),
+      restoreJob(db, 2),
+      restoreJob(db, 3),
+    ]);
 
     await completeJob(done._id, { outputAssetId: 'x' }, at(0), undefined, db);
     await failJob(failed._id, 'maple-cli exited 1', at(0), undefined, db);
@@ -249,9 +325,7 @@ describe('progress and terminal states', () => {
       getJob(cancelled._id, db),
     ]);
     expect(stored.map((job) => job?.status)).toEqual(['done', 'failed', 'cancelled']);
-    expect(stored.every((job) => job?.locked_by === null && job?.lease_expires_at === null)).toBe(
-      true,
-    );
+    expect(stored.every((job) => job?.locked_by === null)).toBe(true);
     expect(stored[0]?.result).toEqual({ outputAssetId: 'x' });
     expect(stored[1]?.error).toBe('maple-cli exited 1');
     expect(stored[2]?.result).toEqual({ stagesCompleted: 2 });
@@ -260,7 +334,7 @@ describe('progress and terminal states', () => {
   test('cancellation is a flag the handler reads between steps', async () => {
     using handle = await createTestDatabase();
     const db = testSqliteDb(handle.db);
-    const job = await pano(db, 0);
+    const job = await restoreJob(db, 0);
 
     expect(await isCancelRequested(job._id, db)).toBe(false);
     expect(await requestCancel(job._id, at(0), db)).toBe(true);
@@ -274,28 +348,28 @@ describe('saveJobCheckpoint', () => {
 
   /** A running job held by `worker-1`. */
   async function running(db: SqliteDb) {
-    const job = await pano(db, 0);
-    await claimJob('worker-1', LEASE, at(0), db);
+    const job = await restoreJob(db, 0);
+    await claimJob(job._id, 'worker-1', at(0), db);
     return job;
   }
 
-  test('writes the whole ledger and renews the lease', async () => {
+  test('writes the whole ledger and stamps the write', async () => {
     using handle = await createTestDatabase();
     const db = testSqliteDb(handle.db);
     const job = await running(db);
 
-    await saveJobCheckpoint(job._id, 'worker-1', ledger, LEASE, at(5_000), undefined, db);
+    await saveJobCheckpoint(job._id, 'worker-1', ledger, at(5_000), undefined, db);
 
     const stored = await getJob(job._id, db);
     expect(stored?.checkpoint).toEqual(ledger);
-    expect(stored?.lease_expires_at).toBe(new Date(5_000 + LEASE).toISOString());
+    expect(stored?.updated_at).toBe(new Date(5_000).toISOString());
   });
 
   test('an entry write patches one element and the three counters', async () => {
     using handle = await createTestDatabase();
     const db = testSqliteDb(handle.db);
     const job = await running(db);
-    await saveJobCheckpoint(job._id, 'worker-1', ledger, LEASE, at(0), undefined, db);
+    await saveJobCheckpoint(job._id, 'worker-1', ledger, at(0), undefined, db);
 
     const advanced = {
       entries: [{ n: 0 }, { n: 1, done: true }],
@@ -303,7 +377,7 @@ describe('saveJobCheckpoint', () => {
       failed: 0,
       remaining: 1,
     };
-    await saveJobCheckpoint(job._id, 'worker-1', advanced, LEASE, at(0), 1, db);
+    await saveJobCheckpoint(job._id, 'worker-1', advanced, at(0), 1, db);
 
     expect((await getJob(job._id, db))?.checkpoint).toEqual(advanced);
   });
@@ -313,7 +387,7 @@ describe('saveJobCheckpoint', () => {
     const db = testSqliteDb(handle.db);
     const job = await running(db);
 
-    await saveJobCheckpoint(job._id, 'worker-1', ledger, LEASE, at(0), 1, db);
+    await saveJobCheckpoint(job._id, 'worker-1', ledger, at(0), 1, db);
 
     expect((await getJob(job._id, db))?.checkpoint).toEqual(ledger);
   });
@@ -323,9 +397,9 @@ describe('saveJobCheckpoint', () => {
     const db = testSqliteDb(handle.db);
     const job = await running(db);
 
-    await expect(
-      saveJobCheckpoint(job._id, 'worker-1', ledger, LEASE, at(0), 7, db),
-    ).rejects.toThrow('Invalid batch checkpoint entry');
+    await expect(saveJobCheckpoint(job._id, 'worker-1', ledger, at(0), 7, db)).rejects.toThrow(
+      'Invalid batch checkpoint entry',
+    );
   });
 
   test('a worker that lost the lease cannot overwrite the ledger', async () => {
@@ -334,7 +408,7 @@ describe('saveJobCheckpoint', () => {
     const job = await running(db);
 
     await expect(
-      saveJobCheckpoint(job._id, 'worker-2', ledger, LEASE, at(0), undefined, db),
+      saveJobCheckpoint(job._id, 'worker-2', ledger, at(0), undefined, db),
     ).rejects.toThrow('claimed by another worker');
   });
 });
@@ -344,8 +418,8 @@ describe('resumeBatchJob', () => {
     using handle = await createTestDatabase();
     const db = testSqliteDb(handle.db);
     const job = await batch(db, ['/srv/one']);
-    await claimJob('worker-1', LEASE, at(0), db);
-    await saveJobCheckpoint(job._id, 'worker-1', { applied: 1 }, LEASE, at(0), undefined, db);
+    await claimJob(job._id, 'worker-1', at(0), db);
+    await saveJobCheckpoint(job._id, 'worker-1', { applied: 1 }, at(0), undefined, db);
     await failJob(job._id, 'boom', at(0), undefined, db);
 
     expect(await resumeBatchJob(job._id, db)).toBe(true);
@@ -365,7 +439,7 @@ describe('resumeBatchJob', () => {
     const queued = await batch(db, ['/srv/one']);
     expect(await resumeBatchJob(queued._id, db)).toBe(false);
 
-    const pan = await pano(db, 1);
+    const pan = await restoreJob(db, 1);
     await failJob(pan._id, 'boom', at(0), undefined, db);
     expect(await resumeBatchJob(pan._id, db)).toBe(false);
   });
@@ -391,10 +465,10 @@ describe('listJobs', () => {
   test('filters by status and kind, newest first, and caps the limit', async () => {
     using handle = await createTestDatabase();
     const db = testSqliteDb(handle.db);
-    const queued = await pano(db, 1_000);
-    const older = await pano(db, 2_000);
-    const running = await pano(db, 3_000);
-    await claimJob('worker-1', LEASE, at(4_000), db);
+    const queued = await restoreJob(db, 1_000);
+    const older = await restoreJob(db, 2_000);
+    const running = await restoreJob(db, 3_000);
+    await claimJob(queued._id, 'worker-1', at(4_000), db);
     const batchJob = await batch(db, ['/srv/one'], 5_000);
 
     expect((await listJobs({ status: 'queued' }, db)).map((job) => job._id.toHexString())).toEqual([
@@ -405,7 +479,6 @@ describe('listJobs', () => {
     expect((await listJobs({ kind: 'batch_adjustment_sync' }, db)).length).toBe(1);
     expect((await listJobs({ statuses: ['running', 'queued'] }, db)).length).toBe(4);
     expect((await listJobs({ limit: 1 }, db)).length).toBe(1);
-    // The oldest job is the one the claim took, so it is no longer queued.
     expect((await listJobs({ status: 'running' }, db))[0]?._id.toHexString()).toBe(
       queued._id.toHexString(),
     );

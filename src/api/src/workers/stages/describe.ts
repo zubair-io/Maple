@@ -1,3 +1,4 @@
+import { withDescribeCosts, type DescribeCosts } from './describe-cost.ts';
 import { assignedAiPool } from '../../enrichment/ai-assigned-pool.ts';
 /**
  * Describe (caption + structured vision) stage.
@@ -14,7 +15,9 @@ import { assignedAiPool } from '../../enrichment/ai-assigned-pool.ts';
  *   ocr_text          — mirrored from vision.text_visible
  *   ocr_meta          — { engine: "qwen2.5-vl", … } — qwen2.5-vl is the sole OCR source
  *
- * On a parse failure the handler re-throws `VisionParseError`; the runtime
+ * A parse failure is re-asked in-handler a bounded number of times
+ * (`describe-parse-retry.ts`); if every answer is invalid the handler
+ * re-throws the last `VisionParseError`, and the runtime
  * stamps the message into `stages.describe.last_error` and increments
  * `attempts`. When `attempts >= maxAttempts` the row is marked dead and
  * the operator triages it in `/settings/workers`.
@@ -30,11 +33,12 @@ import { assignedAiPool } from '../../enrichment/ai-assigned-pool.ts';
  * Spec: `.archived-plans/specs/2026-05-19-qwen-vision-ocr-design.md`.
  */
 
-import { readFile } from 'node:fs/promises';
+import { readDerivative } from '../../fs/legacy-derivative.ts';
 import type { ImageDoc, StageContext, StageResult } from '../run-stage.ts';
 import { defineStage, runStage, type RunStageHandle } from '../run-stage.ts';
 import { cachePathForAsset } from '../../fs/xmp.ts';
-import { loadLibraryRoots } from '../../indexer/libraries.cache.ts';
+import { loadLibraryRootsForAsset } from '../../indexer/libraries.cache.ts';
+import { noResolvableLocation } from './no-resolvable-location.ts';
 import { assetPrimaryFileInfo } from '../../indexer/images.repo.ts';
 import { isUndecodableFilename, isVideoFilename } from '../../indexer/media-types.ts';
 import { relocateBackupScreenshot } from '../migration/refile-backups.ts';
@@ -60,6 +64,7 @@ import {
   VISION_DOC_JSON_SCHEMA,
 } from '../../enrichment/describe-providers/parse-vision-json.ts';
 import { PREVIEW_CACHE_SUFFIX } from '../../indexer/previewer.ts';
+import { retryInvalidModelOutput } from './describe-parse-retry.ts';
 import { maple } from 'maple';
 
 /**
@@ -189,8 +194,16 @@ export function setDescribeDepsForTests(deps: DescribeDeps | null): void {
   _deps = deps;
 }
 
-// fallow-ignore-next-line complexity
 export async function describeHandler(image: ImageDoc, ctx: StageContext): Promise<StageResult> {
+  return withDescribeCosts(image, ctx, describeAttempt);
+}
+
+// fallow-ignore-next-line complexity
+async function describeAttempt(
+  image: ImageDoc,
+  ctx: StageContext,
+  costs: DescribeCosts,
+): Promise<StageResult> {
   // Video containers, metadata-only stub images (eip/braw/afphoto/ai), and
   // audio have no still frame for the vision model to caption. They reach
   // this stage because the library can hold mixed media (the backup-ingest
@@ -238,15 +251,15 @@ export async function describeHandler(image: ImageDoc, ctx: StageContext): Promi
   // handles the transient case. Reserve `skip` for the genuine case:
   // libraries loaded fine, but the asset has no fileinfo[0] or its library
   // is unregistered.
-  const libs = await loadLibraryRoots();
+  const libs = await loadLibraryRootsForAsset(image as never);
 
   const previewPath = cachePathForAsset(image as never, libs, 'previews', PREVIEW_CACHE_SUFFIX);
   if (!previewPath) {
-    return { skip: 'no-resolvable-location' };
+    return noResolvableLocation(image as never, libs);
   }
   let avifBytes: Buffer;
   try {
-    avifBytes = await readFile(previewPath);
+    avifBytes = await readDerivative(previewPath);
   } catch (err) {
     const code = (err as NodeJS.ErrnoException).code;
     if (code === 'ENOENT') {
@@ -283,24 +296,33 @@ export async function describeHandler(image: ImageDoc, ctx: StageContext): Promi
   // on the least-loaded healthy endpoint and re-runs this on the next
   // server if the one it picked fails in a way that is the server's fault
   // (network / timeout / 5xx). A terminal 4xx propagates on the first try.
-  const { result, server } = await pool.run(async (provider, pickedServer) => ({
-    result: await provider.describe([jpegBytes], {
-      systemPrompt,
-      model: pickedServer.model ?? model,
-      // Constrain Ollama's output to the VisionDoc schema. Ollama 0.5+
-      // enforces this at decode time, so the model cannot emit out-of-enum
-      // values, drop required fields, or produce malformed JSON. The
-      // parse-vision-json synonym maps stay as defense in depth for older
-      // Ollama versions and edge cases.
-      format: provider.name === 'ollama' ? VISION_DOC_JSON_SCHEMA : undefined,
-    }),
-    server: pickedServer,
-  }));
-
-  // Strict parse — throws VisionParseError on malformed output. The runtime
-  // dead-letters the row after maxAttempts; operators triage via
-  // /settings/workers and see the truncated raw snippet in last_error.
-  const vision = parseVisionJson(result.text);
+  //
+  // The strict parse runs outside `pool.run` on purpose: a server that
+  // answered with an invalid VisionDoc did its job, so its breaker records a
+  // success, and the bad answer is re-asked by `retryInvalidModelOutput`
+  // instead of reaching the runner's attempt ladder.
+  const { result, server, vision } = await retryInvalidModelOutput(
+    async () => {
+      const answer = await pool.run(async (provider, pickedServer) => ({
+        result: await costs.record(
+          provider.describe([jpegBytes], {
+            systemPrompt,
+            model: pickedServer.model ?? model,
+            // Constrain Ollama's output to the VisionDoc schema. Ollama 0.5+
+            // enforces this at decode time, so the model cannot emit out-of-enum
+            // values, drop required fields, or produce malformed JSON. The
+            // parse-vision-json synonym maps stay as defense in depth for older
+            // Ollama versions and edge cases.
+            format: provider.name === 'ollama' ? VISION_DOC_JSON_SCHEMA : undefined,
+          }),
+        ),
+        server: pickedServer,
+      }));
+      return { ...answer, vision: parseVisionJson(answer.result.text) };
+    },
+    ctx.log,
+    image._id.toHexString(),
+  );
   const isScreenshot = isVideo ? false : vision.is_screenshot;
 
   const now = new Date().toISOString();
@@ -319,7 +341,7 @@ export async function describeHandler(image: ImageDoc, ctx: StageContext): Promi
       model: server.model ?? model,
       prompt_version: DESCRIBE_PROMPT_VERSION,
       generated_at: now,
-      cost_usd: result.cost_usd,
+      cost_usd: costs.total,
       ...result.provider_info,
     },
     // Structured vision subdoc — the new canonical source. The screenshot
@@ -383,12 +405,12 @@ export async function describeHandler(image: ImageDoc, ctx: StageContext): Promi
     }
   }
 
-  // `invalidates: ['meili', 'embed']` — meili depends on exif+thumb only, so for most
+  // `invalidates: ['search-blob', 'embed']` — search-blob depends on exif+thumb only, so for most
   // assets the search index was built long before this caption existed. The
-  // runner resets `stages.meili` in the same atomic write as the patch, so
+  // runner resets `stages.search-blob` in the same atomic write as the patch, so
   // every describe success (first run or post-retry-dead recovery, #2172)
-  // gets its caption/OCR reindexed into Meilisearch + the search blob.
-  return { patch, invalidates: ['meili', 'embed'] };
+  // gets its caption/OCR reindexed into the search blob and the embedder text.
+  return { patch, invalidates: ['search-blob', 'embed'] };
 }
 
 const describeStage = defineStage({

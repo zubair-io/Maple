@@ -455,3 +455,68 @@ fn absent_auto_curve_omits_curve_pass_and_active_mask_bit() {
         "full chain must omit AutoProfileCurvePass when curve is absent"
     );
 }
+
+/// #4741: a Display-P3 target with fitted Auto artifacts swaps `display_encode`
+/// for the split / restore pair (one extra pass); sRGB, absent artifacts and
+/// non-RAW shapes keep the existing chain, and the pool signature sees the swap.
+#[test]
+fn p3_target_with_auto_artifacts_adds_exactly_the_restore_pass() {
+    let no_airlight = AirlightSource::Cpu([0.0; 3]);
+    let case = neutral_case();
+    let srgb = case.gpu_inputs();
+    let mut p3 = case.gpu_inputs();
+    p3.target_primaries = 1;
+    assert_eq!(
+        build_live_chain(&srgb, no_airlight.clone()).len(),
+        VIEW_TAIL_PASS_COUNT
+    );
+    assert_eq!(
+        build_live_chain(&p3, no_airlight.clone()).len(),
+        VIEW_TAIL_PASS_COUNT + 1
+    );
+    assert_eq!(view_tail_pass_count(&p3), VIEW_TAIL_PASS_COUNT + 1);
+    assert_ne!(
+        chain_signature(&srgb, (8, 8), TEST_SESSION_ID),
+        chain_signature(&p3, (8, 8), TEST_SESSION_ID),
+        "the P3 Auto pair must land in a fresh pool bucket"
+    );
+
+    let mut p3_neutral = case.gpu_inputs();
+    p3_neutral.target_primaries = 1;
+    p3_neutral.profile_curve_flat = Vec::new().into();
+    p3_neutral.residual_lut_size = 0;
+    p3_neutral.residual_lut_data = Vec::new().into();
+    assert_eq!(
+        build_live_chain(&p3_neutral, no_airlight.clone()).len(),
+        VIEW_TAIL_PASS_COUNT - 2,
+        "Neutral P3 keeps the plain display_encode"
+    );
+
+    let mut p3_nonraw = case.gpu_inputs();
+    p3_nonraw.target_primaries = 1;
+    p3_nonraw.input_shape = crate::full_chain::InputShape::LinearRec2020Fp16;
+    assert_eq!(view_tail_pass_count(&p3_nonraw), VIEW_TAIL_PASS_COUNT - 3);
+}
+
+/// #4741 smoke on the real live chain: the P3 Auto pair runs end to end, keeps
+/// the pixel count and alpha lane, and an in-gamut mid-grey agrees with sRGB.
+#[test]
+fn p3_auto_live_chain_runs_and_keeps_alpha() {
+    let (w, h) = (4usize, 4usize);
+    let input: Vec<f32> = (0..w * h)
+        .flat_map(|i| [0.18, 0.18, 0.18, 0.25 + i as f32 * 0.01])
+        .collect();
+    let case = neutral_case();
+    let mut p3 = case.gpu_inputs();
+    p3.target_primaries = 1;
+    let out = run_live_chain(&input, w as u32, h as u32, &p3);
+    let srgb = run_live_chain(&input, w as u32, h as u32, &case.gpu_inputs());
+    assert_eq!(out.len(), input.len());
+    for (px, src) in out.chunks_exact(4).zip(input.chunks_exact(4)) {
+        assert_eq!(px[3].to_bits(), src[3].to_bits());
+    }
+    assert!(
+        max_abs_diff(&out, &srgb) < 2e-3,
+        "neutral grey must match sRGB"
+    );
+}

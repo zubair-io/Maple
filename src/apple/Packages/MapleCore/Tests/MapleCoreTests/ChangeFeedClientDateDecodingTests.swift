@@ -11,6 +11,7 @@
 
 import XCTest
 @testable import MapleCore
+@testable import MapleFileProviderCore
 
 final class ChangeFeedClientDateDecodingTests: XCTestCase {
     private func freshCursorDirectory() -> URL {

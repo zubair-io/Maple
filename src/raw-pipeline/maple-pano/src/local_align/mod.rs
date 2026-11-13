@@ -4,7 +4,7 @@
 //! Absorbs the cm-level camera position drift that a pure rotation model
 //! cannot represent. After global BA + stage-D/E gating, residuals on
 //! well-shot sets with finite-depth subjects are dominated by a structural
-//! parallax floor (DJI Mavic 3 Pro 100 MP, ~10 cm baseline). A strongly
+//! parallax floor (DJI Mavic 4 Pro 100 MP, ~10 cm baseline). A strongly
 //! regularized per-frame **bilinear mesh correction** fit over the
 //! stage-D/E survivors reduces those residuals without changing the BA
 //! rotations or the compositing pipeline's resample count.
@@ -77,6 +77,14 @@
 //! This is a **single resample** — no extra pass. The canvas bounding-box
 //! margin is widened by [`MAX_CORRECTION_PX`] so coverage stays correct.
 //!
+//! # Tile path (#4577)
+//!
+//! Planar (drone-survey) stitches reuse the same mesh fit through
+//! [`planar`]: data points come from each verified match's midpoint on
+//! the canvas mapped back through the frame's similarity pose, bounded by
+//! the tile path's own, wider envelope, and applied in the tile warp as
+//! the same single source-coordinate shift.
+//!
 //! # Identity guarantee (pure-rotation sets)
 //!
 //! On noiseless correspondences from a pure rotation-model set the fitted
@@ -88,6 +96,7 @@ use crate::ba::residual::{eval_residual, Block, FrameMeta, State};
 use crate::ba::FrameStats;
 
 mod fit;
+pub(crate) mod planar;
 
 pub(crate) use fit::fit_local_corrections;
 
@@ -225,6 +234,12 @@ impl LocalCorrection {
     pub fn apply(&self, px: f64, py: f64) -> (f64, f64) {
         let (dx, dy) = self.displacement(px, py);
         (px + dx, py + dy)
+    }
+
+    #[inline]
+    pub fn sample_point(&self, px: f64, py: f64) -> (f64, f64) {
+        let (dx, dy) = self.displacement(px, py);
+        (px - dx, py - dy)
     }
 
     /// Displacement magnitude at `(px, py)`.

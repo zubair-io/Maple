@@ -1,0 +1,42 @@
+[
+  {
+    "name": "cpu-dehaze",
+    "command": [
+      "cargo",
+      "test",
+      "-p",
+      "raw-core",
+      "--lib",
+      "stages::dehaze"
+    ],
+    "exit_code": 0,
+    "tests_passed": 17
+  },
+  {
+    "name": "gpu-dehaze",
+    "command": [
+      "cargo",
+      "test",
+      "-p",
+      "raw-gpu",
+      "--lib",
+      "dehaze"
+    ],
+    "exit_code": 0,
+    "tests_passed": 11
+  },
+  {
+    "name": "release",
+    "command": [
+      "cargo",
+      "build",
+      "--release",
+      "-p",
+      "maple-cli",
+      "--features",
+      "stage-dump"
+    ],
+    "exit_code": 0,
+    "tests_passed": null
+  }
+]

@@ -1,0 +1,4722 @@
+{
+  "complete_color_gate_passed": false,
+  "recorded_at": "2026-10-15T02:37:36.325211+00:00",
+  "candidate_revision": "c67deb3fcbc13a9f35848d0d3b34b887042d3e79",
+  "main_revision": "3c4e4a25ff3f202b11d85ccd325b8219d888c781",
+  "rebased_onto": "00165b847c61ca9be94f0a98ef540144e8cb3826",
+  "rebased_pipeline_and_comparison_code_unchanged": true,
+  "candidate_cli_sha256": "dae26398da05dfcbd6de0b67001ed20ff83bba1047cc621440f28a873ccefd2a",
+  "main_cli_sha256": "e41c6f970b30abde6e10fe7df8d551746201a3decedff3660ed7ad44559a7bda",
+  "budgets_sha256": "8a0427c569486b27c9c6cd3bfa5797bb031fa8c0a71d62fa29a9289bfcf17e58",
+  "canonical_record": {
+    "backend": "cpu-reference",
+    "command": "bash src/scripts/test_color_pipeline.sh",
+    "corpus_hash": "blake3:1f7314cde5a177cfe290623e724b0b555096b0662aa9ea4efcada3198eebf6eb",
+    "executed_cases": 796,
+    "expected_cases": 796,
+    "failed_cases": 92,
+    "git_sha": "c67deb3fcbc13a9f35848d0d3b34b887042d3e79",
+    "pipeline_version": 24,
+    "recorded_at": "2026-10-15T00:43:34Z",
+    "schema_version": 5,
+    "skipped_cases": 0,
+    "source": "color_harness"
+  },
+  "passes": [
+    {
+      "compared": 606,
+      "breaches": 76,
+      "skipped_no_raw": 0,
+      "skipped_no_candidate": 0,
+      "skipped_no_reference": 170,
+      "errors": 0,
+      "grand_mean_deltaE": 11.317242172604763,
+      "grand_bias_r": -0.0042803862294268245,
+      "grand_bias_g": -0.011575089825152582,
+      "grand_bias_b": -0.0027561543205646927
+    },
+    {
+      "profile": "auto",
+      "compared": 20,
+      "breaches": 0,
+      "skipped_no_raw": 0,
+      "skipped_no_candidate": 0,
+      "skipped_no_reference": 0,
+      "errors": 0,
+      "grand_mean_deltaE": 7.130537436314311
+    },
+    {
+      "profile": "detail-fullres",
+      "compared": 180,
+      "breaches": 16,
+      "skipped_no_raw": 0,
+      "skipped_no_candidate": 0,
+      "skipped_no_reference": 0,
+      "errors": 0,
+      "grand_mean_deltaE": 9.4357357504435
+    }
+  ],
+  "canonical_failed_cases": 92,
+  "main_control_cases_executed": 92,
+  "main_control_failed_cases": 92,
+  "newly_failing_cases_against_main": [],
+  "newly_breached_metrics_on_failed_cases_against_main": [],
+  "scope": "Main controls cover every failing candidate case, not a second full main run. Candidate breach strings retain the canonical harness precision; main control metrics are unrounded. This attributes failures but does not waive the failing physical gate.",
+  "comparisons": [
+    {
+      "case": "test_0000/contrast_min",
+      "resolution": "down",
+      "violations": {
+        "max": [
+          42.96925303095002,
+          39.0
+        ]
+      },
+      "metrics": {
+        "mean_deltaE": 6.102912873915088,
+        "p95_deltaE": 10.65822889463234,
+        "max_deltaE": 42.96925303095002,
+        "bias_r": 0.0006486088968813419,
+        "bias_g": 0.004442049190402031,
+        "bias_b": 0.006019470281898975,
+        "n_pixels": 10668000,
+        "reference_protocol": "legacy-direct-reference"
+      },
+      "candidate_canonical": {
+        "fixture": "test_0000",
+        "case": "contrast_min",
+        "profile": "neutral",
+        "resolution": "down",
+        "status": "breach",
+        "breaches": [
+          "max 42.97>39.00"
+        ],
+        "mean": 6.102912313302554
+      },
+      "artifact_paths": {
+        "raw": "/Users/riabuz/Projects/_Maple/test-fixtures/raws/test_0000.DNG",
+        "canonical_xmp": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0000/xmp/contrast_min.xmp",
+        "main_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/main-comparison/test_0000_contrast_min.png",
+        "candidate_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/maple-calibrate-XXXXXX.kdJ8km6opt/candidates/test_0000_contrast_min.png",
+        "reference": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0000/down/contrast_min.png"
+      },
+      "artifact_sha256": {
+        "raw": "f4b60b3672bdf7ff7f4376fba9da1b1d22c925ebc3e16baa5fd4a64fa1045aa5",
+        "canonical_xmp": "db6894a2e12a8b6f87c39eb0cf9a9e623d56ec438ce0ee129d021a4c424a0f03",
+        "main_png": "7feaaaf1aa2f0633072d7e7dc88feebe322c7836f384f6433fa44a283670f65f",
+        "candidate_png": "97d52c0aa6f2a38b840f413e1a94bc188faa91e6544bae8aa0ae198178f84c01",
+        "reference": "c5d15e13114c59d42b49d62c111b5777b6d3cf6ff762a664845a51fca69511d2"
+      }
+    },
+    {
+      "case": "test_0000/exposure_min",
+      "resolution": "down",
+      "violations": {
+        "max": [
+          31.34086192858468,
+          30.2
+        ]
+      },
+      "metrics": {
+        "mean_deltaE": 0.7147034707498936,
+        "p95_deltaE": 1.6715197769568086,
+        "max_deltaE": 31.34086192858468,
+        "bias_r": -0.009768148884177208,
+        "bias_g": -0.010270023718476295,
+        "bias_b": -0.01045235712081194,
+        "n_pixels": 10668000,
+        "reference_protocol": "legacy-direct-reference"
+      },
+      "candidate_canonical": {
+        "fixture": "test_0000",
+        "case": "exposure_min",
+        "profile": "neutral",
+        "resolution": "down",
+        "status": "breach",
+        "breaches": [
+          "max 31.26>30.20"
+        ],
+        "mean": 0.7147032147869035
+      },
+      "artifact_paths": {
+        "raw": "/Users/riabuz/Projects/_Maple/test-fixtures/raws/test_0000.DNG",
+        "canonical_xmp": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0000/xmp/exposure_min.xmp",
+        "main_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/main-comparison/test_0000_exposure_min.png",
+        "candidate_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/maple-calibrate-XXXXXX.kdJ8km6opt/candidates/test_0000_exposure_min.png",
+        "reference": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0000/down/exposure_min.png"
+      },
+      "artifact_sha256": {
+        "raw": "f4b60b3672bdf7ff7f4376fba9da1b1d22c925ebc3e16baa5fd4a64fa1045aa5",
+        "canonical_xmp": "65fa852fcc489e5775bca5595f027fb9c858f049866d8c3529ad59fc37431c61",
+        "main_png": "a8bf9a4ba7a31a49a57f03be31738529991c2ee29414f6e335bdbc475f6e3c91",
+        "candidate_png": "8ca0cb05c962a43123a8fcacd8d428e68d2b2ee3499aa981427b05d6a4492b5c",
+        "reference": "40e12bf2b24bb86fbf5eb9471e791500c447b7b3ea4666fa36a0c03d251bb7a6"
+      }
+    },
+    {
+      "case": "test_0000/highlights_max",
+      "resolution": "down",
+      "violations": {
+        "bias_r": [
+          -0.005949728656560183,
+          0.0054
+        ]
+      },
+      "metrics": {
+        "mean_deltaE": 6.277671959556813,
+        "p95_deltaE": 10.187082624651635,
+        "max_deltaE": 37.61755590560033,
+        "bias_r": -0.005949728656560183,
+        "bias_g": -0.003209681250154972,
+        "bias_b": -0.0005280089098960161,
+        "n_pixels": 10668000,
+        "reference_protocol": "legacy-direct-reference"
+      },
+      "candidate_canonical": {
+        "fixture": "test_0000",
+        "case": "highlights_max",
+        "profile": "neutral",
+        "resolution": "down",
+        "status": "breach",
+        "breaches": [
+          "bias_R -0.0059>0.0054"
+        ],
+        "mean": 6.2776708654909115
+      },
+      "artifact_paths": {
+        "raw": "/Users/riabuz/Projects/_Maple/test-fixtures/raws/test_0000.DNG",
+        "canonical_xmp": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0000/xmp/highlights_max.xmp",
+        "main_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/main-comparison/test_0000_highlights_max.png",
+        "candidate_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/maple-calibrate-XXXXXX.kdJ8km6opt/candidates/test_0000_highlights_max.png",
+        "reference": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0000/down/highlights_max.png"
+      },
+      "artifact_sha256": {
+        "raw": "f4b60b3672bdf7ff7f4376fba9da1b1d22c925ebc3e16baa5fd4a64fa1045aa5",
+        "canonical_xmp": "2b08fdb317e7410211747bcd7d3fb38b72aa3d2a8f6f50c49efdc44e9f8bf7ab",
+        "main_png": "561aa3d6e4407eaf5c6b0990d45edbf706c343e38051941c6aeaf38e91674c42",
+        "candidate_png": "2b50046c3eb264794eeae9ea0ceb1063a44982b0cf12bb5b9accd320a3d61f75",
+        "reference": "1ddb107e5f0fac8b2410723f2d9ec7d361daa15d0dc873fc8b9027fc85c29aed"
+      }
+    },
+    {
+      "case": "test_0000/nr_color_max",
+      "resolution": "full",
+      "violations": {
+        "max": [
+          47.15139854435208,
+          42.9
+        ]
+      },
+      "metrics": {
+        "mean_deltaE": 6.12126954568091,
+        "p95_deltaE": 10.093625580421174,
+        "max_deltaE": 47.15139854435208,
+        "bias_r": 0.013032001443207264,
+        "bias_g": 0.015318251214921474,
+        "bias_b": 0.017790304496884346,
+        "n_pixels": 100663296,
+        "reference_protocol": "legacy-direct-reference"
+      },
+      "candidate_canonical": {
+        "fixture": "test_0000",
+        "case": "nr_color_max",
+        "profile": "detail-fullres",
+        "resolution": "full",
+        "status": "breach",
+        "breaches": [
+          "max 46.95>42.90"
+        ],
+        "mean": 6.1212686385325865
+      },
+      "artifact_paths": {
+        "raw": "/Users/riabuz/Projects/_Maple/test-fixtures/raws/test_0000.DNG",
+        "canonical_xmp": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0000/xmp/nr_color_max.xmp",
+        "main_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/main-comparison/test_0000_nr_color_max.png",
+        "candidate_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/maple-calibrate-XXXXXX.kdJ8km6opt/candidates/test_0000_nr_color_max.png",
+        "reference": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0000/full/nr_color_max.png"
+      },
+      "artifact_sha256": {
+        "raw": "f4b60b3672bdf7ff7f4376fba9da1b1d22c925ebc3e16baa5fd4a64fa1045aa5",
+        "canonical_xmp": "c40bbf2092e346759d2a54e715b7424948a8598a1c637f0f0077481b29663f30",
+        "main_png": "9bddfb87ba365d94f394bb3ec77ce349a304c4af54d62c40194cfa1d064da911",
+        "candidate_png": "5702db75ec8a0a033ae0276205ee358e50b5dc3b90e8182d48504a16f47d84a6",
+        "reference": "9a732ae5d4207d86910fedfe576cb5ac9a4fef51489186ec0e5b312180ad6c55"
+      }
+    },
+    {
+      "case": "test_0000/nr_luminance_max",
+      "resolution": "full",
+      "violations": {
+        "max": [
+          53.99387847200087,
+          50.9
+        ]
+      },
+      "metrics": {
+        "mean_deltaE": 5.834755643873564,
+        "p95_deltaE": 9.895323567059776,
+        "max_deltaE": 53.99387847200087,
+        "bias_r": 0.013933591544628143,
+        "bias_g": 0.0162411667406559,
+        "bias_b": 0.01895303465425968,
+        "n_pixels": 100663296,
+        "reference_protocol": "legacy-direct-reference"
+      },
+      "candidate_canonical": {
+        "fixture": "test_0000",
+        "case": "nr_luminance_max",
+        "profile": "detail-fullres",
+        "resolution": "full",
+        "status": "breach",
+        "breaches": [
+          "max 53.99>50.90"
+        ],
+        "mean": 5.834754503616058
+      },
+      "artifact_paths": {
+        "raw": "/Users/riabuz/Projects/_Maple/test-fixtures/raws/test_0000.DNG",
+        "canonical_xmp": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0000/xmp/nr_luminance_max.xmp",
+        "main_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/main-comparison/test_0000_nr_luminance_max.png",
+        "candidate_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/maple-calibrate-XXXXXX.kdJ8km6opt/candidates/test_0000_nr_luminance_max.png",
+        "reference": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0000/full/nr_luminance_max.png"
+      },
+      "artifact_sha256": {
+        "raw": "f4b60b3672bdf7ff7f4376fba9da1b1d22c925ebc3e16baa5fd4a64fa1045aa5",
+        "canonical_xmp": "76058bd011775822f60dc156f876e12b18cd8a61ab374dfff0b07799f1e5141b",
+        "main_png": "a705a96468746073cdea80cfb881b9252e1f990c8ff242e6a7c8e08571ea0b43",
+        "candidate_png": "67d0a91bd63f9e21ac39c7f1e3280c113fd2df65f9ffe706c2137c18872a4b63",
+        "reference": "739c1cd530a605263131609283ac20d0d7ec917301b57b9401b5fcd410791257"
+      }
+    },
+    {
+      "case": "test_0000/shadows_min",
+      "resolution": "down",
+      "violations": {
+        "max": [
+          39.78492441005322,
+          38.0
+        ]
+      },
+      "metrics": {
+        "mean_deltaE": 7.2625268463182024,
+        "p95_deltaE": 14.038786421606991,
+        "max_deltaE": 39.78492441005322,
+        "bias_r": 0.03388742730021477,
+        "bias_g": 0.03615161404013634,
+        "bias_b": 0.03786252811551094,
+        "n_pixels": 10668000,
+        "reference_protocol": "legacy-direct-reference"
+      },
+      "candidate_canonical": {
+        "fixture": "test_0000",
+        "case": "shadows_min",
+        "profile": "neutral",
+        "resolution": "down",
+        "status": "breach",
+        "breaches": [
+          "max 39.84>38.00"
+        ],
+        "mean": 7.26252564710929
+      },
+      "artifact_paths": {
+        "raw": "/Users/riabuz/Projects/_Maple/test-fixtures/raws/test_0000.DNG",
+        "canonical_xmp": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0000/xmp/shadows_min.xmp",
+        "main_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/main-comparison/test_0000_shadows_min.png",
+        "candidate_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/maple-calibrate-XXXXXX.kdJ8km6opt/candidates/test_0000_shadows_min.png",
+        "reference": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0000/down/shadows_min.png"
+      },
+      "artifact_sha256": {
+        "raw": "f4b60b3672bdf7ff7f4376fba9da1b1d22c925ebc3e16baa5fd4a64fa1045aa5",
+        "canonical_xmp": "54c6ecedbdc6466ec0db6a7dd89b286b07d44afce3ef585e53a0dc8224289f4d",
+        "main_png": "fd50ec44f6fac55065c7d9b609f227ee3ca4cc0104f856c8c07b1e0dcafeced2",
+        "candidate_png": "347013616e894a7a40f4238a5da51c5a922816fef96137f1f0fefc82d4c45a7d",
+        "reference": "949514a0784c81b0fef87c745afe2bf7e4c9ad460bf9cde94fed8a0afe473745"
+      }
+    },
+    {
+      "case": "test_0000/sharpen_detail_max",
+      "resolution": "full",
+      "violations": {
+        "max": [
+          55.55214088057576,
+          52.2
+        ]
+      },
+      "metrics": {
+        "mean_deltaE": 5.820835756983506,
+        "p95_deltaE": 9.745572143798741,
+        "max_deltaE": 55.55214088057576,
+        "bias_r": 0.013254028744995594,
+        "bias_g": 0.015419109724462032,
+        "bias_b": 0.018066048622131348,
+        "n_pixels": 100663296,
+        "reference_protocol": "legacy-direct-reference"
+      },
+      "candidate_canonical": {
+        "fixture": "test_0000",
+        "case": "sharpen_detail_max",
+        "profile": "detail-fullres",
+        "resolution": "full",
+        "status": "breach",
+        "breaches": [
+          "max 54.71>52.20"
+        ],
+        "mean": 5.820834452382925
+      },
+      "artifact_paths": {
+        "raw": "/Users/riabuz/Projects/_Maple/test-fixtures/raws/test_0000.DNG",
+        "canonical_xmp": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0000/xmp/sharpen_detail_max.xmp",
+        "main_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/main-comparison/test_0000_sharpen_detail_max.png",
+        "candidate_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/maple-calibrate-XXXXXX.kdJ8km6opt/candidates/test_0000_sharpen_detail_max.png",
+        "reference": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0000/full/sharpen_detail_max.png"
+      },
+      "artifact_sha256": {
+        "raw": "f4b60b3672bdf7ff7f4376fba9da1b1d22c925ebc3e16baa5fd4a64fa1045aa5",
+        "canonical_xmp": "20a0372f6f785e4a1a9cd0a2b27457141e03f70a63d5ebc7bf9ffeecc32963a2",
+        "main_png": "9bbfe2a9f27ba2a69232e2f6f0518824a74eacd9474e827f64bd800ebe4d1d7a",
+        "candidate_png": "ba3699267a6ec3e91eaff03aba1c88defbeada2d8ff9f687f4cd1b7ca39eff57",
+        "reference": "f3fbe5ce34413558d53b0acabbabaf09bf23878b94db85f09010f1d5f33c64c0"
+      }
+    },
+    {
+      "case": "test_0000/sharpen_detail_min",
+      "resolution": "full",
+      "violations": {
+        "max": [
+          56.038120817265145,
+          52.3
+        ]
+      },
+      "metrics": {
+        "mean_deltaE": 5.760592201484452,
+        "p95_deltaE": 9.577557264087593,
+        "max_deltaE": 56.038120817265145,
+        "bias_r": 0.013196599669754505,
+        "bias_g": 0.015385382808744907,
+        "bias_b": 0.017933128401637077,
+        "n_pixels": 100663296,
+        "reference_protocol": "legacy-direct-reference"
+      },
+      "candidate_canonical": {
+        "fixture": "test_0000",
+        "case": "sharpen_detail_min",
+        "profile": "detail-fullres",
+        "resolution": "full",
+        "status": "breach",
+        "breaches": [
+          "max 54.13>52.30"
+        ],
+        "mean": 5.760590913555298
+      },
+      "artifact_paths": {
+        "raw": "/Users/riabuz/Projects/_Maple/test-fixtures/raws/test_0000.DNG",
+        "canonical_xmp": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0000/xmp/sharpen_detail_min.xmp",
+        "main_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/main-comparison/test_0000_sharpen_detail_min.png",
+        "candidate_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/maple-calibrate-XXXXXX.kdJ8km6opt/candidates/test_0000_sharpen_detail_min.png",
+        "reference": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0000/full/sharpen_detail_min.png"
+      },
+      "artifact_sha256": {
+        "raw": "f4b60b3672bdf7ff7f4376fba9da1b1d22c925ebc3e16baa5fd4a64fa1045aa5",
+        "canonical_xmp": "bcb08781519df6c6bfc00105c025aac5b2225f93de77999bbb989e0db1f9bf96",
+        "main_png": "9bbfe2a9f27ba2a69232e2f6f0518824a74eacd9474e827f64bd800ebe4d1d7a",
+        "candidate_png": "ba3699267a6ec3e91eaff03aba1c88defbeada2d8ff9f687f4cd1b7ca39eff57",
+        "reference": "57f3fc9b9224ba8a6f531a5c8c2da1cf90e465b4b5f93fb16215deca55ae9478"
+      }
+    },
+    {
+      "case": "test_0000/sharpen_masking_max",
+      "resolution": "full",
+      "violations": {
+        "max": [
+          56.09980898729109,
+          52.5
+        ]
+      },
+      "metrics": {
+        "mean_deltaE": 5.7633446775830395,
+        "p95_deltaE": 9.586574944227548,
+        "max_deltaE": 56.09980898729109,
+        "bias_r": 0.013651472516357899,
+        "bias_g": 0.01598767191171646,
+        "bias_b": 0.018567750230431557,
+        "n_pixels": 100663296,
+        "reference_protocol": "legacy-direct-reference"
+      },
+      "candidate_canonical": {
+        "fixture": "test_0000",
+        "case": "sharpen_masking_max",
+        "profile": "detail-fullres",
+        "resolution": "full",
+        "status": "breach",
+        "breaches": [
+          "max 54.39>52.50"
+        ],
+        "mean": 5.7633434189496455
+      },
+      "artifact_paths": {
+        "raw": "/Users/riabuz/Projects/_Maple/test-fixtures/raws/test_0000.DNG",
+        "canonical_xmp": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0000/xmp/sharpen_masking_max.xmp",
+        "main_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/main-comparison/test_0000_sharpen_masking_max.png",
+        "candidate_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/maple-calibrate-XXXXXX.kdJ8km6opt/candidates/test_0000_sharpen_masking_max.png",
+        "reference": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0000/full/sharpen_masking_max.png"
+      },
+      "artifact_sha256": {
+        "raw": "f4b60b3672bdf7ff7f4376fba9da1b1d22c925ebc3e16baa5fd4a64fa1045aa5",
+        "canonical_xmp": "ecdff2f1b5ebca2df31b1f5a5b1a30e0f8f725d710d7d9257e3c17294f6f3d31",
+        "main_png": "e4ae611071b3db0db12f7c0fae27136fb0caf69f97878b622634729cf8050fb7",
+        "candidate_png": "35d80fe100f616ba429dcd95b5d960594e19ecaaf40f2951c799e32d2000b78b",
+        "reference": "8de3dcb9c484c36e11b0fed7f22be9e8a24bf8815e82950dcb73a27a4808a51b"
+      }
+    },
+    {
+      "case": "test_0000/sharpen_radius_max",
+      "resolution": "full",
+      "violations": {
+        "max": [
+          55.84394805477503,
+          53.4
+        ]
+      },
+      "metrics": {
+        "mean_deltaE": 5.64332503140502,
+        "p95_deltaE": 9.417411360038319,
+        "max_deltaE": 55.84394805477503,
+        "bias_r": 0.009453335776925087,
+        "bias_g": 0.011759758926928043,
+        "bias_b": 0.01396618876606226,
+        "n_pixels": 100663296,
+        "reference_protocol": "legacy-direct-reference"
+      },
+      "candidate_canonical": {
+        "fixture": "test_0000",
+        "case": "sharpen_radius_max",
+        "profile": "detail-fullres",
+        "resolution": "full",
+        "status": "breach",
+        "breaches": [
+          "max 54.84>53.40"
+        ],
+        "mean": 5.643323926992179
+      },
+      "artifact_paths": {
+        "raw": "/Users/riabuz/Projects/_Maple/test-fixtures/raws/test_0000.DNG",
+        "canonical_xmp": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0000/xmp/sharpen_radius_max.xmp",
+        "main_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/main-comparison/test_0000_sharpen_radius_max.png",
+        "candidate_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/maple-calibrate-XXXXXX.kdJ8km6opt/candidates/test_0000_sharpen_radius_max.png",
+        "reference": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0000/full/sharpen_radius_max.png"
+      },
+      "artifact_sha256": {
+        "raw": "f4b60b3672bdf7ff7f4376fba9da1b1d22c925ebc3e16baa5fd4a64fa1045aa5",
+        "canonical_xmp": "66831a4d1dbf4e8a13f7e3cd3f12c6343f82d9efff76f23b1d09f99102d7220e",
+        "main_png": "567e88d44f16eb4c277aaa6c19c7d0dd522b5500b97473ea99db3d7c7fc5c53c",
+        "candidate_png": "0704019527b0aeb863108ef4ea36b667f86c8ee77fa5715316169b1d7aedf502",
+        "reference": "4e3da44d55c58fa04afb7a564790ba42061f92d053fe73e1e71603b6524e6b94"
+      }
+    },
+    {
+      "case": "test_0000/temperature_max",
+      "resolution": "down",
+      "violations": {
+        "max": [
+          38.13175596874737,
+          35.6
+        ]
+      },
+      "metrics": {
+        "mean_deltaE": 7.493337087187074,
+        "p95_deltaE": 13.936782714652184,
+        "max_deltaE": 38.13175596874737,
+        "bias_r": -0.10164815187454224,
+        "bias_g": -0.06294116377830505,
+        "bias_b": -0.09189910441637039,
+        "n_pixels": 10668000,
+        "reference_protocol": "legacy-direct-reference"
+      },
+      "candidate_canonical": {
+        "fixture": "test_0000",
+        "case": "temperature_max",
+        "profile": "neutral",
+        "resolution": "down",
+        "status": "breach",
+        "breaches": [
+          "max 38.13>35.60"
+        ],
+        "mean": 7.493336357363456
+      },
+      "artifact_paths": {
+        "raw": "/Users/riabuz/Projects/_Maple/test-fixtures/raws/test_0000.DNG",
+        "canonical_xmp": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0000/xmp/temperature_max.xmp",
+        "main_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/main-comparison/test_0000_temperature_max.png",
+        "candidate_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/maple-calibrate-XXXXXX.kdJ8km6opt/candidates/test_0000_temperature_max.png",
+        "reference": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0000/down/temperature_max.png"
+      },
+      "artifact_sha256": {
+        "raw": "f4b60b3672bdf7ff7f4376fba9da1b1d22c925ebc3e16baa5fd4a64fa1045aa5",
+        "canonical_xmp": "c763ee45fe20cfde582ec3394f02775c1f9115cf07ce60f8e864169ad414cf9e",
+        "main_png": "6b603ccf38baf307071429a5ae2ad734beb5513e24376aa64689ce4af28a1865",
+        "candidate_png": "b3ab3adacca7f40168f30656696b2205127cd1148c3c24cedc2f2809fdbddc11",
+        "reference": "19fd7751bb6e92fed139522bb0c8ea0dae802d3b4af41545d65fe12ad8f73102"
+      }
+    },
+    {
+      "case": "test_0000/wb_shade",
+      "resolution": "down",
+      "violations": {
+        "max": [
+          37.77033277124097,
+          37.5
+        ]
+      },
+      "metrics": {
+        "mean_deltaE": 5.79988158943891,
+        "p95_deltaE": 9.950082338108894,
+        "max_deltaE": 37.77033277124097,
+        "bias_r": -0.0012745766434818506,
+        "bias_g": -0.012932980433106422,
+        "bias_b": -0.009323111735284328,
+        "n_pixels": 10668000,
+        "reference_protocol": "legacy-direct-reference"
+      },
+      "candidate_canonical": {
+        "fixture": "test_0000",
+        "case": "wb_shade",
+        "profile": "neutral",
+        "resolution": "down",
+        "status": "breach",
+        "breaches": [
+          "max 37.83>37.50"
+        ],
+        "mean": 5.799880623822561
+      },
+      "artifact_paths": {
+        "raw": "/Users/riabuz/Projects/_Maple/test-fixtures/raws/test_0000.DNG",
+        "canonical_xmp": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0000/xmp/wb_shade.xmp",
+        "main_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/main-comparison/test_0000_wb_shade.png",
+        "candidate_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/maple-calibrate-XXXXXX.kdJ8km6opt/candidates/test_0000_wb_shade.png",
+        "reference": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0000/down/wb_shade.png"
+      },
+      "artifact_sha256": {
+        "raw": "f4b60b3672bdf7ff7f4376fba9da1b1d22c925ebc3e16baa5fd4a64fa1045aa5",
+        "canonical_xmp": "4e83a149b86cd884ddc5212f931bfbc453ef3c60d86432dc2ef64e90d283953b",
+        "main_png": "13548ef014dd89dd66d8db0945677265962baa3e2194f7af58c040e6ce62fe81",
+        "candidate_png": "5259e6095db030d90695b6d5e1774a3f55224a3675fbbebb7d64a6de235232aa",
+        "reference": "ad2621850089db91a88ddbd89b06b2546018ba886a4f27eac563c644dd10c447"
+      }
+    },
+    {
+      "case": "test_0000/wb_tungsten",
+      "resolution": "down",
+      "violations": {
+        "max": [
+          46.469376341555616,
+          45.9
+        ]
+      },
+      "metrics": {
+        "mean_deltaE": 11.548868062840233,
+        "p95_deltaE": 18.190012247112737,
+        "max_deltaE": 46.469376341555616,
+        "bias_r": 0.14311859011650085,
+        "bias_g": 0.014119943603873253,
+        "bias_b": 0.0924932062625885,
+        "n_pixels": 10668000,
+        "reference_protocol": "legacy-direct-reference"
+      },
+      "candidate_canonical": {
+        "fixture": "test_0000",
+        "case": "wb_tungsten",
+        "profile": "neutral",
+        "resolution": "down",
+        "status": "breach",
+        "breaches": [
+          "max 46.47>45.90"
+        ],
+        "mean": 11.548867231660381
+      },
+      "artifact_paths": {
+        "raw": "/Users/riabuz/Projects/_Maple/test-fixtures/raws/test_0000.DNG",
+        "canonical_xmp": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0000/xmp/wb_tungsten.xmp",
+        "main_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/main-comparison/test_0000_wb_tungsten.png",
+        "candidate_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/maple-calibrate-XXXXXX.kdJ8km6opt/candidates/test_0000_wb_tungsten.png",
+        "reference": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0000/down/wb_tungsten.png"
+      },
+      "artifact_sha256": {
+        "raw": "f4b60b3672bdf7ff7f4376fba9da1b1d22c925ebc3e16baa5fd4a64fa1045aa5",
+        "canonical_xmp": "40a4bc4f42ed9bd023ace403507f4c81effddeae1d0bbd3e88cbc35f1972e555",
+        "main_png": "60cc7348f3d4fff6e41f28c9c9f2f27374fef32539856e12b6d62ec07c152d46",
+        "candidate_png": "1c1fcbabe4669597b5dbd2eda9e642adc299e84c1b13f7db82910a4c4d3abcf0",
+        "reference": "7b125387b2d5292560506ef8277844b33045b85e69e4695ef397f2ba39e7f349"
+      }
+    },
+    {
+      "case": "test_0000/whites_min",
+      "resolution": "down",
+      "violations": {
+        "max": [
+          41.17447568076128,
+          38.1
+        ]
+      },
+      "metrics": {
+        "mean_deltaE": 5.200061135393492,
+        "p95_deltaE": 9.440261252673235,
+        "max_deltaE": 41.17447568076128,
+        "bias_r": 0.025866735726594925,
+        "bias_g": 0.02656642161309719,
+        "bias_b": 0.027900220826268196,
+        "n_pixels": 10668000,
+        "reference_protocol": "legacy-direct-reference"
+      },
+      "candidate_canonical": {
+        "fixture": "test_0000",
+        "case": "whites_min",
+        "profile": "neutral",
+        "resolution": "down",
+        "status": "breach",
+        "breaches": [
+          "max 41.17>38.10"
+        ],
+        "mean": 5.200060722618894
+      },
+      "artifact_paths": {
+        "raw": "/Users/riabuz/Projects/_Maple/test-fixtures/raws/test_0000.DNG",
+        "canonical_xmp": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0000/xmp/whites_min.xmp",
+        "main_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/main-comparison/test_0000_whites_min.png",
+        "candidate_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/maple-calibrate-XXXXXX.kdJ8km6opt/candidates/test_0000_whites_min.png",
+        "reference": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0000/down/whites_min.png"
+      },
+      "artifact_sha256": {
+        "raw": "f4b60b3672bdf7ff7f4376fba9da1b1d22c925ebc3e16baa5fd4a64fa1045aa5",
+        "canonical_xmp": "5c2b9e23ebf7c341d0bc7557d33962ec567ddb915be8b582a9d5246ace46706b",
+        "main_png": "4a14bc91a4e52a072a39ce5f485fe957e60ac22189bab792235cd4d832282e58",
+        "candidate_png": "9958b41f2b23af5829606f84ed7609a099bdc56421fe459ba4c5d9e619251fec",
+        "reference": "163c39d6ca5bc4b8e2440ea0bb765722f04aecb63be9a56a218c63bd8b78c5ee"
+      }
+    },
+    {
+      "case": "test_0001/tint_max",
+      "resolution": "down",
+      "metrics": {
+        "mean_deltaE": 43.833371655897366,
+        "p95_deltaE": 59.45797400376483,
+        "max_deltaE": 87.99397439118403,
+        "bias_r": 0.14470775425434113,
+        "bias_g": -0.08304727077484131,
+        "bias_b": 0.45885100960731506,
+        "n_pixels": 9000000,
+        "reference_protocol": "legacy-direct-reference"
+      },
+      "violations": {
+        "mean": [
+          43.833371655897366,
+          31.8
+        ],
+        "p95": [
+          59.45797400376483,
+          47.9
+        ],
+        "max": [
+          87.99397439118403,
+          74.7
+        ],
+        "bias_b": [
+          0.45885100960731506,
+          0.3145
+        ]
+      },
+      "candidate_canonical": {
+        "fixture": "test_0001",
+        "case": "tint_max",
+        "profile": "neutral",
+        "resolution": "down",
+        "status": "breach",
+        "breaches": [
+          "mean 43.83>31.80",
+          "p95 59.46>47.90",
+          "max 87.99>74.70",
+          "bias_B +0.4588>0.3145"
+        ],
+        "mean": 43.83226200772389
+      },
+      "artifact_paths": {
+        "raw": "/Users/riabuz/Projects/_Maple/test-fixtures/raws/test_0001.RAW",
+        "canonical_xmp": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0001/xmp/tint_max.xmp",
+        "main_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/main-comparison/test_0001_tint_max.png",
+        "candidate_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/maple-calibrate-XXXXXX.kdJ8km6opt/candidates/test_0001_tint_max.png",
+        "reference": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0001/down/tint_max.png"
+      },
+      "artifact_sha256": {
+        "raw": "c4aebea165cf2e782ac976ebafb986f356fdb7fa05834392ad7a8169cbeaf184",
+        "canonical_xmp": "9153671514de3d9e5f8b99d1a1cbc5de53526b322e90c4b00c47b32b70ef2bf6",
+        "main_png": "2152436de28fa271bae54d4b40342a2090884d9f13ee7780f99cc07981aec858",
+        "candidate_png": "fd8da8153eebee5458d69d1b3994789b866850eacf73feb8290228881b1ae756",
+        "reference": "bfc83d0eae033f0112f1329b0a34cceabf853a9c9b1dc732cfd7438b0f0f903f"
+      }
+    },
+    {
+      "case": "test_0002/tint_max",
+      "resolution": "down",
+      "metrics": {
+        "mean_deltaE": 35.01842852054557,
+        "p95_deltaE": 39.81960288668632,
+        "max_deltaE": 52.13490267699079,
+        "bias_r": -0.21047908067703247,
+        "bias_g": -0.35694605112075806,
+        "bias_b": 0.06204456090927124,
+        "n_pixels": 12000000,
+        "reference_protocol": "legacy-direct-reference"
+      },
+      "violations": {
+        "mean": [
+          35.01842852054557,
+          25.8
+        ],
+        "p95": [
+          39.81960288668632,
+          31.1
+        ],
+        "max": [
+          52.13490267699079,
+          42.6
+        ]
+      },
+      "candidate_canonical": {
+        "fixture": "test_0002",
+        "case": "tint_max",
+        "profile": "neutral",
+        "resolution": "down",
+        "status": "breach",
+        "breaches": [
+          "mean 35.02>25.80",
+          "p95 39.82>31.10",
+          "max 52.13>42.60"
+        ],
+        "mean": 35.01842799711114
+      },
+      "artifact_paths": {
+        "raw": "/Users/riabuz/Projects/_Maple/test-fixtures/raws/test_0002.dng",
+        "canonical_xmp": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0002/xmp/tint_max.xmp",
+        "main_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/main-tint-diagnostics/test_0002_tint_max.png",
+        "candidate_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/maple-calibrate-XXXXXX.kdJ8km6opt/candidates/test_0002_tint_max.png",
+        "reference": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0002/down/tint_max.png"
+      },
+      "artifact_sha256": {
+        "raw": "4a4154b2595dc76a7d5e10cdcb65a386319e31647a585c23e262fe62b969c0fe",
+        "canonical_xmp": "9153671514de3d9e5f8b99d1a1cbc5de53526b322e90c4b00c47b32b70ef2bf6",
+        "main_png": "d84eaf09e1f81733597afe82802cdd1dc9154e8728708782fe363c83aa7e4da4",
+        "candidate_png": "87528cf67acc6722138bf60ca26c01bc917042ca4c033376214c38a3fb3b0a97",
+        "reference": "84e2235b447f97f15a2eaafd2aee57379db986eab5171c72a4d03d2c2b18bb6b"
+      }
+    },
+    {
+      "case": "test_0002/whites_min",
+      "resolution": "down",
+      "violations": {
+        "mean": [
+          11.301936053572208,
+          9.4
+        ],
+        "p95": [
+          12.178154867387775,
+          11.3
+        ],
+        "bias_r": [
+          -0.15765485167503357,
+          0.1458
+        ]
+      },
+      "metrics": {
+        "mean_deltaE": 11.301936053572208,
+        "p95_deltaE": 12.178154867387775,
+        "max_deltaE": 37.69154356857474,
+        "bias_r": -0.15765485167503357,
+        "bias_g": -0.13457125425338745,
+        "bias_b": -0.10801614820957184,
+        "n_pixels": 12000000,
+        "reference_protocol": "legacy-direct-reference"
+      },
+      "candidate_canonical": {
+        "fixture": "test_0002",
+        "case": "whites_min",
+        "profile": "neutral",
+        "resolution": "down",
+        "status": "breach",
+        "breaches": [
+          "mean 11.30>9.40",
+          "p95 12.18>11.30",
+          "bias_R -0.1577>0.1458"
+        ],
+        "mean": 11.301918958384157
+      },
+      "artifact_paths": {
+        "raw": "/Users/riabuz/Projects/_Maple/test-fixtures/raws/test_0002.dng",
+        "canonical_xmp": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0002/xmp/whites_min.xmp",
+        "main_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/main-comparison/test_0002_whites_min.png",
+        "candidate_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/maple-calibrate-XXXXXX.kdJ8km6opt/candidates/test_0002_whites_min.png",
+        "reference": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0002/down/whites_min.png"
+      },
+      "artifact_sha256": {
+        "raw": "4a4154b2595dc76a7d5e10cdcb65a386319e31647a585c23e262fe62b969c0fe",
+        "canonical_xmp": "5c2b9e23ebf7c341d0bc7557d33962ec567ddb915be8b582a9d5246ace46706b",
+        "main_png": "c03e345ffbdcafc88605392f1b9f5da211c874b558561ecf2bf751d7874168d7",
+        "candidate_png": "728eeb8e6f8bdd4f73bd520c6f86f08cb72026a85241e56bc54e098d9b73bf42",
+        "reference": "98818109e5135a8c7cfbca61c0d37f4ca6d24ddd528936440f71ba22c1c15621"
+      }
+    },
+    {
+      "case": "test_0003/tint_max",
+      "resolution": "down",
+      "metrics": {
+        "mean_deltaE": 18.519318199318064,
+        "p95_deltaE": 29.096362332458238,
+        "max_deltaE": 35.80721284632948,
+        "bias_r": 0.0597652792930603,
+        "bias_g": -0.02063809521496296,
+        "bias_b": 0.1320802867412567,
+        "n_pixels": 10668000,
+        "reference_protocol": "legacy-direct-reference"
+      },
+      "violations": {
+        "mean": [
+          18.519318199318064,
+          16.4
+        ],
+        "p95": [
+          29.096362332458238,
+          24.8
+        ],
+        "bias_b": [
+          0.1320802867412567,
+          0.1084
+        ]
+      },
+      "candidate_canonical": {
+        "fixture": "test_0003",
+        "case": "tint_max",
+        "profile": "neutral",
+        "resolution": "down",
+        "status": "breach",
+        "breaches": [
+          "mean 18.52>16.40",
+          "p95 29.10>24.80",
+          "bias_B +0.1321>0.1084"
+        ],
+        "mean": 18.51931499174417
+      },
+      "artifact_paths": {
+        "raw": "/Users/riabuz/Projects/_Maple/test-fixtures/raws/test_0003.CR2",
+        "canonical_xmp": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0003/xmp/tint_max.xmp",
+        "main_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/main-tint-diagnostics/test_0003_tint_max.png",
+        "candidate_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/maple-calibrate-XXXXXX.kdJ8km6opt/candidates/test_0003_tint_max.png",
+        "reference": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0003/down/tint_max.png"
+      },
+      "artifact_sha256": {
+        "raw": "195e1caf17a622c08323a76e8b0cfff9a9c5f76dbc5fa058af15273aa0eacf50",
+        "canonical_xmp": "9153671514de3d9e5f8b99d1a1cbc5de53526b322e90c4b00c47b32b70ef2bf6",
+        "main_png": "eb2bbf02b81633d753ec3a2b635393eb2cca9438ac58c2bd7b344b08275c366e",
+        "candidate_png": "deabc9620fcbcec55337f43b104e74e947175a7d75c1de1ea54eba6a3df62529",
+        "reference": "74be9cab05547cab66299b575f611959e30f2dd8d8eca3476fcf239a3d2d5eb8"
+      }
+    },
+    {
+      "case": "test_0003/whites_max",
+      "resolution": "down",
+      "metrics": {
+        "mean_deltaE": 10.886145086310524,
+        "p95_deltaE": 20.473476522625244,
+        "max_deltaE": 31.987142795935963,
+        "bias_r": 0.09907516837120056,
+        "bias_g": 0.08513950556516647,
+        "bias_b": 0.08540288358926773,
+        "n_pixels": 10668000,
+        "reference_protocol": "legacy-direct-reference"
+      },
+      "violations": {
+        "p95": [
+          20.473476522625244,
+          19.1
+        ],
+        "max": [
+          31.987142795935963,
+          30.7
+        ]
+      },
+      "candidate_canonical": {
+        "fixture": "test_0003",
+        "case": "whites_max",
+        "profile": "neutral",
+        "resolution": "down",
+        "status": "breach",
+        "breaches": [
+          "p95 20.47>19.10",
+          "max 31.99>30.70"
+        ],
+        "mean": 10.88614539851573
+      },
+      "artifact_paths": {
+        "raw": "/Users/riabuz/Projects/_Maple/test-fixtures/raws/test_0003.CR2",
+        "canonical_xmp": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0003/xmp/whites_max.xmp",
+        "main_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/main-canonical-failures/test_0003_whites_max.png",
+        "candidate_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/maple-calibrate-XXXXXX.kdJ8km6opt/candidates/test_0003_whites_max.png",
+        "reference": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0003/down/whites_max.png"
+      },
+      "artifact_sha256": {
+        "raw": "195e1caf17a622c08323a76e8b0cfff9a9c5f76dbc5fa058af15273aa0eacf50",
+        "canonical_xmp": "9f46d554ce6b687660212dedd3af494ea412ce8986fc21f6557d9d057bb90ba9",
+        "main_png": "6033d82b92c290958e5194a2fbe84a54aed3dceb555720c1fc33ac9c1d64f307",
+        "candidate_png": "31621ae8079e63243a6aa7301e84afb95af54b7c9f9e92395b017d1298cc0d29",
+        "reference": "13eed5561b17335011c7a594a700912036a4266551201cbe3a883c7aa50d0197"
+      }
+    },
+    {
+      "case": "test_0003/whites_min",
+      "resolution": "down",
+      "metrics": {
+        "mean_deltaE": 6.202914135037362,
+        "p95_deltaE": 9.876782434399278,
+        "max_deltaE": 20.210888404361555,
+        "bias_r": 0.034743331372737885,
+        "bias_g": 0.024335145950317383,
+        "bias_b": 0.019363876432180405,
+        "n_pixels": 10668000,
+        "reference_protocol": "legacy-direct-reference"
+      },
+      "violations": {
+        "max": [
+          20.210888404361555,
+          19.5
+        ]
+      },
+      "candidate_canonical": {
+        "fixture": "test_0003",
+        "case": "whites_min",
+        "profile": "neutral",
+        "resolution": "down",
+        "status": "breach",
+        "breaches": [
+          "max 20.21>19.50"
+        ],
+        "mean": 6.202914024956974
+      },
+      "artifact_paths": {
+        "raw": "/Users/riabuz/Projects/_Maple/test-fixtures/raws/test_0003.CR2",
+        "canonical_xmp": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0003/xmp/whites_min.xmp",
+        "main_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/main-canonical-failures/test_0003_whites_min.png",
+        "candidate_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/maple-calibrate-XXXXXX.kdJ8km6opt/candidates/test_0003_whites_min.png",
+        "reference": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0003/down/whites_min.png"
+      },
+      "artifact_sha256": {
+        "raw": "195e1caf17a622c08323a76e8b0cfff9a9c5f76dbc5fa058af15273aa0eacf50",
+        "canonical_xmp": "5c2b9e23ebf7c341d0bc7557d33962ec567ddb915be8b582a9d5246ace46706b",
+        "main_png": "2ed850ad003c2995169b04649f4dd8530af318af22b804693076e6e653257bd4",
+        "candidate_png": "ca8ec3afc6f43aa61d093abe39c814b331d07f9ac21bb27121f211d3353f96da",
+        "reference": "c3534f8f27ac7e3eede8f3283a0013a520ecf556b0b1c2294460e56cfe42df70"
+      }
+    },
+    {
+      "case": "test_0005/tint_max",
+      "resolution": "down",
+      "metrics": {
+        "mean_deltaE": 23.3077199014708,
+        "p95_deltaE": 36.01076597685446,
+        "max_deltaE": 91.85488852723108,
+        "bias_r": 0.13290338218212128,
+        "bias_g": 0.007463699672371149,
+        "bias_b": 0.21012207865715027,
+        "n_pixels": 12000000,
+        "reference_protocol": "legacy-direct-reference"
+      },
+      "violations": {
+        "p95": [
+          36.01076597685446,
+          34.4
+        ]
+      },
+      "candidate_canonical": {
+        "fixture": "test_0005",
+        "case": "tint_max",
+        "profile": "neutral",
+        "resolution": "down",
+        "status": "breach",
+        "breaches": [
+          "p95 36.01>34.40"
+        ],
+        "mean": 23.307678658060443
+      },
+      "artifact_paths": {
+        "raw": "/Users/riabuz/Projects/_Maple/test-fixtures/raws/test_0005.RAF",
+        "canonical_xmp": "/Users/riabuz/Projects/_Maple/.codex-worktrees/tone-slider-sprint/test-fixtures/references/test_0005/xmp/tint_max.xmp",
+        "main_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/main-tint-diagnostics/test_0005_tint_max.png",
+        "candidate_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/maple-calibrate-XXXXXX.kdJ8km6opt/candidates/test_0005_tint_max.png",
+        "reference": "/Users/riabuz/Projects/_Maple/.codex-worktrees/tone-slider-sprint/test-fixtures/references/test_0005/down/tint_max.png"
+      },
+      "artifact_sha256": {
+        "raw": "a7124d13910e0241a6b035154bc1fcdb7be4439371d043b1e1950a0251feb51e",
+        "canonical_xmp": "9153671514de3d9e5f8b99d1a1cbc5de53526b322e90c4b00c47b32b70ef2bf6",
+        "main_png": "3cf821543679a8aba02d64ee8bbe637fc1327fddce007625fab387e2f0229373",
+        "candidate_png": "18b21353b18c2ae7f3a524b35be18a914c90dddf0e4c2125a5132f5fa318e3ff",
+        "reference": "5a4ae8ac79f40462771df01ebec51c0a49108a1bc72c8544d72dafe1ea398534"
+      }
+    },
+    {
+      "case": "test_0006/whites_min",
+      "resolution": "down",
+      "metrics": {
+        "mean_deltaE": 7.437938414425175,
+        "p95_deltaE": 11.812963103151509,
+        "max_deltaE": 46.94630823156347,
+        "bias_r": 4.317988350521773e-05,
+        "bias_g": 0.015620077028870583,
+        "bias_b": -0.025470104068517685,
+        "n_pixels": 10668000,
+        "reference_protocol": "legacy-direct-reference"
+      },
+      "violations": {
+        "max": [
+          46.94630823156347,
+          44.7
+        ]
+      },
+      "candidate_canonical": {
+        "fixture": "test_0006",
+        "case": "whites_min",
+        "profile": "neutral",
+        "resolution": "down",
+        "status": "breach",
+        "breaches": [
+          "max 46.95>44.70"
+        ],
+        "mean": 7.437938414425175
+      },
+      "artifact_paths": {
+        "raw": "/Users/riabuz/Projects/_Maple/test-fixtures/raws/test_0006.DNG",
+        "canonical_xmp": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0006/xmp/whites_min.xmp",
+        "main_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/main-canonical-failures/test_0006_whites_min.png",
+        "candidate_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/maple-calibrate-XXXXXX.kdJ8km6opt/candidates/test_0006_whites_min.png",
+        "reference": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0006/down/whites_min.png"
+      },
+      "artifact_sha256": {
+        "raw": "159326856c29073e845c3c5a9ecf98c6474f43ca15798a88ad5e2baecd0664b7",
+        "canonical_xmp": "5c2b9e23ebf7c341d0bc7557d33962ec567ddb915be8b582a9d5246ace46706b",
+        "main_png": "f90a04b088a763a20535ac6d56a2e488dedebb818ffcd41ea106b1adbf377438",
+        "candidate_png": "f90a04b088a763a20535ac6d56a2e488dedebb818ffcd41ea106b1adbf377438",
+        "reference": "ff518a4158176dc62d7cb1eac32fde43400699eb67c810a5a850e18adee61807"
+      }
+    },
+    {
+      "case": "test_0007/blacks_max",
+      "resolution": "down",
+      "metrics": {
+        "mean_deltaE": 6.837267323789351,
+        "p95_deltaE": 20.665598688289126,
+        "max_deltaE": 44.68899961698376,
+        "bias_r": -0.009360648691654205,
+        "bias_g": -0.005408736411482096,
+        "bias_b": 0.00028542964719235897,
+        "n_pixels": 10668000,
+        "reference_protocol": "legacy-direct-reference"
+      },
+      "violations": {
+        "max": [
+          44.68899961698376,
+          44.0
+        ]
+      },
+      "candidate_canonical": {
+        "fixture": "test_0007",
+        "case": "blacks_max",
+        "profile": "neutral",
+        "resolution": "down",
+        "status": "breach",
+        "breaches": [
+          "max 44.69>44.00"
+        ],
+        "mean": 6.837220462540579
+      },
+      "artifact_paths": {
+        "raw": "/Users/riabuz/Projects/_Maple/test-fixtures/raws/test_0007.DNG",
+        "canonical_xmp": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0007/xmp/blacks_max.xmp",
+        "main_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/main-canonical-failures/test_0007_blacks_max.png",
+        "candidate_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/maple-calibrate-XXXXXX.kdJ8km6opt/candidates/test_0007_blacks_max.png",
+        "reference": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0007/down/blacks_max.png"
+      },
+      "artifact_sha256": {
+        "raw": "95dc76a2f255e623acaa5149b320389f7da7c995da890c3e0d511c0ff681b2e1",
+        "canonical_xmp": "1f82cd681dd1609be85085bca162d87319cc0622676d2260242cca6c008c961f",
+        "main_png": "0ba195d542facc8174a67c1932de166fb7e932c44fef3343f0997481100ac0cd",
+        "candidate_png": "1a75a85dc8dae9a1e558260036fdec3fff4bf396bd3bec01265b2942ed3f7bd4",
+        "reference": "7641a30eb0df2e2fc4bc7edc7c91019f6b8243240bc91b3bb3f9a47ab46cb823"
+      }
+    },
+    {
+      "case": "test_0007/clarity_max",
+      "resolution": "down",
+      "metrics": {
+        "mean_deltaE": 8.334431360080284,
+        "p95_deltaE": 17.20466257706987,
+        "max_deltaE": 45.01485136999122,
+        "bias_r": 0.06941728293895721,
+        "bias_g": 0.06258155405521393,
+        "bias_b": 0.05702961981296539,
+        "n_pixels": 10668000,
+        "reference_protocol": "legacy-direct-reference"
+      },
+      "violations": {
+        "max": [
+          45.01485136999122,
+          42.1
+        ]
+      },
+      "candidate_canonical": {
+        "fixture": "test_0007",
+        "case": "clarity_max",
+        "profile": "neutral",
+        "resolution": "down",
+        "status": "breach",
+        "breaches": [
+          "max 45.01>42.10"
+        ],
+        "mean": 8.334416305236967
+      },
+      "artifact_paths": {
+        "raw": "/Users/riabuz/Projects/_Maple/test-fixtures/raws/test_0007.DNG",
+        "canonical_xmp": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0007/xmp/clarity_max.xmp",
+        "main_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/main-canonical-failures/test_0007_clarity_max.png",
+        "candidate_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/maple-calibrate-XXXXXX.kdJ8km6opt/candidates/test_0007_clarity_max.png",
+        "reference": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0007/down/clarity_max.png"
+      },
+      "artifact_sha256": {
+        "raw": "95dc76a2f255e623acaa5149b320389f7da7c995da890c3e0d511c0ff681b2e1",
+        "canonical_xmp": "bfa7c713ebad300e8a2edfbbe9ede5152db04ad1572e1c436ba0c69bc28f4f1a",
+        "main_png": "7d3ac8c90f55196b7c31b1bb6467ec93b23b248acbd2a998e53116ea912b9536",
+        "candidate_png": "55c71087312d3028a961942c4e34ac50ce76223e362c3e5fe3ea9c2d62e0a6bd",
+        "reference": "f62d7433ee3ef430a15385af153f21eca8aa7f4d45cc62881be490e1c89ba3b7"
+      }
+    },
+    {
+      "case": "test_0007/clarity_min",
+      "resolution": "down",
+      "metrics": {
+        "mean_deltaE": 4.97143069016973,
+        "p95_deltaE": 8.642542304801681,
+        "max_deltaE": 46.17484188425791,
+        "bias_r": 0.016100842505693436,
+        "bias_g": 0.021738270297646523,
+        "bias_b": 0.031022243201732635,
+        "n_pixels": 10668000,
+        "reference_protocol": "legacy-direct-reference"
+      },
+      "violations": {
+        "max": [
+          46.17484188425791,
+          42.9
+        ]
+      },
+      "candidate_canonical": {
+        "fixture": "test_0007",
+        "case": "clarity_min",
+        "profile": "neutral",
+        "resolution": "down",
+        "status": "breach",
+        "breaches": [
+          "max 46.17>42.90"
+        ],
+        "mean": 4.971394232116769
+      },
+      "artifact_paths": {
+        "raw": "/Users/riabuz/Projects/_Maple/test-fixtures/raws/test_0007.DNG",
+        "canonical_xmp": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0007/xmp/clarity_min.xmp",
+        "main_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/main-canonical-failures/test_0007_clarity_min.png",
+        "candidate_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/maple-calibrate-XXXXXX.kdJ8km6opt/candidates/test_0007_clarity_min.png",
+        "reference": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0007/down/clarity_min.png"
+      },
+      "artifact_sha256": {
+        "raw": "95dc76a2f255e623acaa5149b320389f7da7c995da890c3e0d511c0ff681b2e1",
+        "canonical_xmp": "9e2a695548d7f62dfc4bce482b66f65e05b860646e7d4371521a0728f7f2a757",
+        "main_png": "fdc3f95a3028ebfa281b9c57bd3aeec3349dd1570e9c0a85d2b762a192a4fa50",
+        "candidate_png": "68692b1b5dc2fbf1f0e2d50ac41a63369b85586098a464131b40d24d47e5c4fa",
+        "reference": "c36854aae27a31c301d50122aba90a5cf615d0d2919a98be1c2985fd3454f6d8"
+      }
+    },
+    {
+      "case": "test_0007/contrast_min",
+      "resolution": "down",
+      "metrics": {
+        "mean_deltaE": 5.196091925161912,
+        "p95_deltaE": 12.638147936110897,
+        "max_deltaE": 52.63781204115767,
+        "bias_r": -0.019530486315488815,
+        "bias_g": -0.03664436936378479,
+        "bias_b": -0.0623621866106987,
+        "n_pixels": 10668000,
+        "reference_protocol": "legacy-direct-reference"
+      },
+      "violations": {
+        "max": [
+          52.63781204115767,
+          49.7
+        ]
+      },
+      "candidate_canonical": {
+        "fixture": "test_0007",
+        "case": "contrast_min",
+        "profile": "neutral",
+        "resolution": "down",
+        "status": "breach",
+        "breaches": [
+          "max 52.64>49.70"
+        ],
+        "mean": 5.196058384691417
+      },
+      "artifact_paths": {
+        "raw": "/Users/riabuz/Projects/_Maple/test-fixtures/raws/test_0007.DNG",
+        "canonical_xmp": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0007/xmp/contrast_min.xmp",
+        "main_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/main-canonical-failures/test_0007_contrast_min.png",
+        "candidate_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/maple-calibrate-XXXXXX.kdJ8km6opt/candidates/test_0007_contrast_min.png",
+        "reference": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0007/down/contrast_min.png"
+      },
+      "artifact_sha256": {
+        "raw": "95dc76a2f255e623acaa5149b320389f7da7c995da890c3e0d511c0ff681b2e1",
+        "canonical_xmp": "db6894a2e12a8b6f87c39eb0cf9a9e623d56ec438ce0ee129d021a4c424a0f03",
+        "main_png": "44f3c07f634ebc7abfdf153f668e84ca18e29e456f8df59f3e7a0674ee0863a3",
+        "candidate_png": "662f5232b8e1cc01577c4cc7a0372fcabd1634c9fa1f40f4dd34f36cb46c416a",
+        "reference": "7f2c8c84afd58d87f41b0537b1ccca1eb97a5842fae5fd7263182365a565571a"
+      }
+    },
+    {
+      "case": "test_0007/shadows_min",
+      "resolution": "down",
+      "metrics": {
+        "mean_deltaE": 5.628383107210465,
+        "p95_deltaE": 10.971212905201613,
+        "max_deltaE": 44.824253701437875,
+        "bias_r": 0.029369760304689407,
+        "bias_g": 0.029232168570160866,
+        "bias_b": 0.03238643705844879,
+        "n_pixels": 10668000,
+        "reference_protocol": "legacy-direct-reference"
+      },
+      "violations": {
+        "max": [
+          44.824253701437875,
+          44.1
+        ]
+      },
+      "candidate_canonical": {
+        "fixture": "test_0007",
+        "case": "shadows_min",
+        "profile": "neutral",
+        "resolution": "down",
+        "status": "breach",
+        "breaches": [
+          "max 44.82>44.10"
+        ],
+        "mean": 5.6283707777279295
+      },
+      "artifact_paths": {
+        "raw": "/Users/riabuz/Projects/_Maple/test-fixtures/raws/test_0007.DNG",
+        "canonical_xmp": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0007/xmp/shadows_min.xmp",
+        "main_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/main-canonical-failures/test_0007_shadows_min.png",
+        "candidate_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/maple-calibrate-XXXXXX.kdJ8km6opt/candidates/test_0007_shadows_min.png",
+        "reference": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0007/down/shadows_min.png"
+      },
+      "artifact_sha256": {
+        "raw": "95dc76a2f255e623acaa5149b320389f7da7c995da890c3e0d511c0ff681b2e1",
+        "canonical_xmp": "54c6ecedbdc6466ec0db6a7dd89b286b07d44afce3ef585e53a0dc8224289f4d",
+        "main_png": "a59ad35de157d98e1c5e2019921a254fbd6c4934ccb0a4902f8b084723912229",
+        "candidate_png": "34cf986f03987771664a55df51c7675c6148d50a15ab3a537fa0f17f2ecf1a61",
+        "reference": "d8d2fca6baf1ac01c6e794acfc9773c6da730e38045809e0cb9768eea6ab66e0"
+      }
+    },
+    {
+      "case": "test_0007/temperature_min",
+      "resolution": "down",
+      "metrics": {
+        "mean_deltaE": 5.868416123611831,
+        "p95_deltaE": 10.575496480468388,
+        "max_deltaE": 50.57836992571647,
+        "bias_r": 0.02441091276705265,
+        "bias_g": 0.015946203842759132,
+        "bias_b": 0.01904498226940632,
+        "n_pixels": 10668000,
+        "reference_protocol": "legacy-direct-reference"
+      },
+      "violations": {
+        "max": [
+          50.57836992571647,
+          50.4
+        ]
+      },
+      "candidate_canonical": {
+        "fixture": "test_0007",
+        "case": "temperature_min",
+        "profile": "neutral",
+        "resolution": "down",
+        "status": "breach",
+        "breaches": [
+          "max 50.58>50.40"
+        ],
+        "mean": 5.868393469279041
+      },
+      "artifact_paths": {
+        "raw": "/Users/riabuz/Projects/_Maple/test-fixtures/raws/test_0007.DNG",
+        "canonical_xmp": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0007/xmp/temperature_min.xmp",
+        "main_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/main-canonical-failures/test_0007_temperature_min.png",
+        "candidate_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/maple-calibrate-XXXXXX.kdJ8km6opt/candidates/test_0007_temperature_min.png",
+        "reference": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0007/down/temperature_min.png"
+      },
+      "artifact_sha256": {
+        "raw": "95dc76a2f255e623acaa5149b320389f7da7c995da890c3e0d511c0ff681b2e1",
+        "canonical_xmp": "d99801a14c09932169924b2302415eb39426b705a9edb5c50d148e3dfa15992e",
+        "main_png": "916b9af8864603445a7848f1d46f58ef202f0eecf937b59dba10c2c081fe8206",
+        "candidate_png": "4d751ad1811f9338c7d85b7ce292021a3ef85d5adfea92496e23b4690e221718",
+        "reference": "7ab96990b63cd4f637b901b366b9bd8af1f9f5c048a7ee048bfeaa7103fcb99c"
+      }
+    },
+    {
+      "case": "test_0007/texture_max",
+      "resolution": "down",
+      "metrics": {
+        "mean_deltaE": 4.9366805516757974,
+        "p95_deltaE": 8.635053889958442,
+        "max_deltaE": 45.56779610582389,
+        "bias_r": 0.010717149823904037,
+        "bias_g": 0.015486344695091248,
+        "bias_b": 0.024287192150950432,
+        "n_pixels": 10668000,
+        "reference_protocol": "legacy-direct-reference"
+      },
+      "violations": {
+        "max": [
+          45.56779610582389,
+          43.4
+        ]
+      },
+      "candidate_canonical": {
+        "fixture": "test_0007",
+        "case": "texture_max",
+        "profile": "neutral",
+        "resolution": "down",
+        "status": "breach",
+        "breaches": [
+          "max 45.57>43.40"
+        ],
+        "mean": 4.936664568458481
+      },
+      "artifact_paths": {
+        "raw": "/Users/riabuz/Projects/_Maple/test-fixtures/raws/test_0007.DNG",
+        "canonical_xmp": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0007/xmp/texture_max.xmp",
+        "main_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/main-canonical-failures/test_0007_texture_max.png",
+        "candidate_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/maple-calibrate-XXXXXX.kdJ8km6opt/candidates/test_0007_texture_max.png",
+        "reference": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0007/down/texture_max.png"
+      },
+      "artifact_sha256": {
+        "raw": "95dc76a2f255e623acaa5149b320389f7da7c995da890c3e0d511c0ff681b2e1",
+        "canonical_xmp": "7591efce4b3867a45988c09f87feac5b282819a3b9d91b605633e43a46bf6724",
+        "main_png": "6c4beaca40c7affeb061e4a39ad91be546ea52704c6625b5adb20f87951a7535",
+        "candidate_png": "a39cc6aee3ee1bf4d3b375da4ec79b73b0ae14077f9bb202b6155711a427a510",
+        "reference": "afc24cb91df76006dd34b0cd0150c810963a36883afae64cdfbeffaa8f8025c3"
+      }
+    },
+    {
+      "case": "test_0007/texture_min",
+      "resolution": "down",
+      "metrics": {
+        "mean_deltaE": 4.876731244730596,
+        "p95_deltaE": 8.20077520724806,
+        "max_deltaE": 44.13155572456674,
+        "bias_r": 0.011996147222816944,
+        "bias_g": 0.016972796991467476,
+        "bias_b": 0.02554083801805973,
+        "n_pixels": 10668000,
+        "reference_protocol": "legacy-direct-reference"
+      },
+      "violations": {
+        "max": [
+          44.13155572456674,
+          43.2
+        ]
+      },
+      "candidate_canonical": {
+        "fixture": "test_0007",
+        "case": "texture_min",
+        "profile": "neutral",
+        "resolution": "down",
+        "status": "breach",
+        "breaches": [
+          "max 44.13>43.20"
+        ],
+        "mean": 4.876703378964311
+      },
+      "artifact_paths": {
+        "raw": "/Users/riabuz/Projects/_Maple/test-fixtures/raws/test_0007.DNG",
+        "canonical_xmp": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0007/xmp/texture_min.xmp",
+        "main_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/main-canonical-failures/test_0007_texture_min.png",
+        "candidate_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/maple-calibrate-XXXXXX.kdJ8km6opt/candidates/test_0007_texture_min.png",
+        "reference": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0007/down/texture_min.png"
+      },
+      "artifact_sha256": {
+        "raw": "95dc76a2f255e623acaa5149b320389f7da7c995da890c3e0d511c0ff681b2e1",
+        "canonical_xmp": "4c4c8ede82f537ab7b749929ca659615367e9747ddb25d06b0ab61405152ab9f",
+        "main_png": "49f051cdb5fc2a6922a153614e8cc72da8d59a3579e610eec76b74eb93537f76",
+        "candidate_png": "6ccb9587b54fda1fe4aefb697b3ba68b0e4cb7785983b8aa02edc8194d9bcbb7",
+        "reference": "604085ece535ef9b7912820786e270424ed43496b683122973caebc85383c964"
+      }
+    },
+    {
+      "case": "test_0007/tint_max",
+      "resolution": "down",
+      "metrics": {
+        "mean_deltaE": 50.05201910053805,
+        "p95_deltaE": 60.66461396978947,
+        "max_deltaE": 77.33388562333113,
+        "bias_r": -0.10429241508245468,
+        "bias_g": -0.1714223474264145,
+        "bias_b": 0.5184453725814819,
+        "n_pixels": 10668000,
+        "reference_protocol": "legacy-direct-reference"
+      },
+      "violations": {
+        "mean": [
+          50.05201910053805,
+          19.7
+        ],
+        "p95": [
+          60.66461396978947,
+          28.3
+        ],
+        "max": [
+          77.33388562333113,
+          51.1
+        ],
+        "bias_g": [
+          -0.1714223474264145,
+          0.1079
+        ],
+        "bias_b": [
+          0.5184453725814819,
+          0.1079
+        ]
+      },
+      "candidate_canonical": {
+        "fixture": "test_0007",
+        "case": "tint_max",
+        "profile": "neutral",
+        "resolution": "down",
+        "status": "breach",
+        "breaches": [
+          "mean 50.05>19.70",
+          "p95 60.66>28.30",
+          "max 77.33>51.10",
+          "bias_G -0.1714>0.1079",
+          "bias_B +0.5184>0.1079"
+        ],
+        "mean": 50.05193215071097
+      },
+      "artifact_paths": {
+        "raw": "/Users/riabuz/Projects/_Maple/test-fixtures/raws/test_0007.DNG",
+        "canonical_xmp": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0007/xmp/tint_max.xmp",
+        "main_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/main-tint-diagnostics/test_0007_tint_max.png",
+        "candidate_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/maple-calibrate-XXXXXX.kdJ8km6opt/candidates/test_0007_tint_max.png",
+        "reference": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0007/down/tint_max.png"
+      },
+      "artifact_sha256": {
+        "raw": "95dc76a2f255e623acaa5149b320389f7da7c995da890c3e0d511c0ff681b2e1",
+        "canonical_xmp": "9153671514de3d9e5f8b99d1a1cbc5de53526b322e90c4b00c47b32b70ef2bf6",
+        "main_png": "a7652c295f7458676e60bac78f517b96a8c28bd20ac20b22df577fadd48d8a37",
+        "candidate_png": "d9e96f21aed73f1bab3732045d3ef16027c141f7e4c22081c4dea3cacf61e1c6",
+        "reference": "882343054e8ff8e913f43bffb5b17ecacaec1a2ba16586f4bdd8462d6c36de0f"
+      }
+    },
+    {
+      "case": "test_0007/tint_min",
+      "resolution": "down",
+      "metrics": {
+        "mean_deltaE": 18.351799866245265,
+        "p95_deltaE": 21.95561865384701,
+        "max_deltaE": 43.561507811836044,
+        "bias_r": -0.15359798073768616,
+        "bias_g": 0.05323931947350502,
+        "bias_b": -0.06506028771400452,
+        "n_pixels": 10668000,
+        "reference_protocol": "legacy-direct-reference"
+      },
+      "violations": {
+        "mean": [
+          18.351799866245265,
+          16.2
+        ],
+        "p95": [
+          21.95561865384701,
+          19.5
+        ],
+        "max": [
+          43.561507811836044,
+          43.2
+        ],
+        "bias_r": [
+          -0.15359798073768616,
+          0.1424
+        ]
+      },
+      "candidate_canonical": {
+        "fixture": "test_0007",
+        "case": "tint_min",
+        "profile": "neutral",
+        "resolution": "down",
+        "status": "breach",
+        "breaches": [
+          "mean 18.35>16.20",
+          "p95 21.96>19.50",
+          "max 43.56>43.20",
+          "bias_R -0.1536>0.1424"
+        ],
+        "mean": 18.35180692929249
+      },
+      "artifact_paths": {
+        "raw": "/Users/riabuz/Projects/_Maple/test-fixtures/raws/test_0007.DNG",
+        "canonical_xmp": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0007/xmp/tint_min.xmp",
+        "main_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/main-tint-diagnostics/test_0007_tint_min.png",
+        "candidate_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/maple-calibrate-XXXXXX.kdJ8km6opt/candidates/test_0007_tint_min.png",
+        "reference": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0007/down/tint_min.png"
+      },
+      "artifact_sha256": {
+        "raw": "95dc76a2f255e623acaa5149b320389f7da7c995da890c3e0d511c0ff681b2e1",
+        "canonical_xmp": "e307c836d4d66b1d1e81b2f75107fd2a71d4e9ebf6422d3a6648ca97a127c67f",
+        "main_png": "a05b3c86e6a556076faf811c919ae9afa1f149ce33e9e2ef0d69a954d5e31b68",
+        "candidate_png": "a55539aa740dfe8111cc944f0b44680327734d30b51a3b5a5ba0406c92dfe1e1",
+        "reference": "73cde93da1196ba5f85480e37d621a55de0c3244b0f7aca2b50e896ca4357b56"
+      }
+    },
+    {
+      "case": "test_0007/wb_auto",
+      "resolution": "down",
+      "metrics": {
+        "mean_deltaE": 12.910635696289575,
+        "p95_deltaE": 17.321576176612837,
+        "max_deltaE": 43.7797167118803,
+        "bias_r": 0.11372965574264526,
+        "bias_g": 0.014925680123269558,
+        "bias_b": -0.07021783292293549,
+        "n_pixels": 10668000,
+        "reference_protocol": "legacy-direct-reference"
+      },
+      "violations": {
+        "max": [
+          43.7797167118803,
+          42.5
+        ]
+      },
+      "candidate_canonical": {
+        "fixture": "test_0007",
+        "case": "wb_auto",
+        "profile": "neutral",
+        "resolution": "down",
+        "status": "breach",
+        "breaches": [
+          "max 43.78>42.50"
+        ],
+        "mean": 12.910619053885894
+      },
+      "artifact_paths": {
+        "raw": "/Users/riabuz/Projects/_Maple/test-fixtures/raws/test_0007.DNG",
+        "canonical_xmp": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0007/xmp/wb_auto.xmp",
+        "main_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/main-canonical-failures/test_0007_wb_auto.png",
+        "candidate_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/maple-calibrate-XXXXXX.kdJ8km6opt/candidates/test_0007_wb_auto.png",
+        "reference": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0007/down/wb_auto.png"
+      },
+      "artifact_sha256": {
+        "raw": "95dc76a2f255e623acaa5149b320389f7da7c995da890c3e0d511c0ff681b2e1",
+        "canonical_xmp": "5ffc4db74020a2fdc0bd21da04ea40dae715a374f8cd40114d541f3d6c9cab3f",
+        "main_png": "ce91bf01eee3df9171af2b50402a476f2bec08fd27384529020c08fb4650d6c0",
+        "candidate_png": "9b73950ee5ec75969b4b026064e269deced5e683d507235d852da6ee38ce7b75",
+        "reference": "dc20bae05750b0c11d72ec7d4848f08654040f67bdc0e939b062b5e62b8187f7"
+      }
+    },
+    {
+      "case": "test_0007/wb_tungsten",
+      "resolution": "down",
+      "metrics": {
+        "mean_deltaE": 5.423421613001427,
+        "p95_deltaE": 9.274477281086948,
+        "max_deltaE": 44.67987942987289,
+        "bias_r": 0.038726989179849625,
+        "bias_g": 0.040430329740047455,
+        "bias_b": 0.04096316173672676,
+        "n_pixels": 10668000,
+        "reference_protocol": "legacy-direct-reference"
+      },
+      "violations": {
+        "max": [
+          44.67987942987289,
+          43.8
+        ]
+      },
+      "candidate_canonical": {
+        "fixture": "test_0007",
+        "case": "wb_tungsten",
+        "profile": "neutral",
+        "resolution": "down",
+        "status": "breach",
+        "breaches": [
+          "max 44.68>43.80"
+        ],
+        "mean": 5.4233873848807015
+      },
+      "artifact_paths": {
+        "raw": "/Users/riabuz/Projects/_Maple/test-fixtures/raws/test_0007.DNG",
+        "canonical_xmp": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0007/xmp/wb_tungsten.xmp",
+        "main_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/main-canonical-failures/test_0007_wb_tungsten.png",
+        "candidate_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/maple-calibrate-XXXXXX.kdJ8km6opt/candidates/test_0007_wb_tungsten.png",
+        "reference": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0007/down/wb_tungsten.png"
+      },
+      "artifact_sha256": {
+        "raw": "95dc76a2f255e623acaa5149b320389f7da7c995da890c3e0d511c0ff681b2e1",
+        "canonical_xmp": "40a4bc4f42ed9bd023ace403507f4c81effddeae1d0bbd3e88cbc35f1972e555",
+        "main_png": "283ebf8149de3eda0e8cb781ce7a9c396f94d9c79e0a350f9a71de1a9e169519",
+        "candidate_png": "dab38814fdea9e64fc5799b7c27557e04d07bbdf98a32fd1943d88d3de8471d2",
+        "reference": "169e7c112d9ecd26124c4c8e03e77f81c98df70352ae2fce512533ecce52fdd6"
+      }
+    },
+    {
+      "case": "test_0007/whites_min",
+      "resolution": "down",
+      "metrics": {
+        "mean_deltaE": 4.411494057148632,
+        "p95_deltaE": 7.768849671461793,
+        "max_deltaE": 49.13314730885221,
+        "bias_r": -0.0014266157522797585,
+        "bias_g": 0.010376798920333385,
+        "bias_b": 0.024811094626784325,
+        "n_pixels": 10668000,
+        "reference_protocol": "legacy-direct-reference"
+      },
+      "violations": {
+        "max": [
+          49.13314730885221,
+          41.4
+        ]
+      },
+      "candidate_canonical": {
+        "fixture": "test_0007",
+        "case": "whites_min",
+        "profile": "neutral",
+        "resolution": "down",
+        "status": "breach",
+        "breaches": [
+          "max 49.13>41.40"
+        ],
+        "mean": 4.411473956478811
+      },
+      "artifact_paths": {
+        "raw": "/Users/riabuz/Projects/_Maple/test-fixtures/raws/test_0007.DNG",
+        "canonical_xmp": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0007/xmp/whites_min.xmp",
+        "main_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/main-canonical-failures/test_0007_whites_min.png",
+        "candidate_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/maple-calibrate-XXXXXX.kdJ8km6opt/candidates/test_0007_whites_min.png",
+        "reference": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0007/down/whites_min.png"
+      },
+      "artifact_sha256": {
+        "raw": "95dc76a2f255e623acaa5149b320389f7da7c995da890c3e0d511c0ff681b2e1",
+        "canonical_xmp": "5c2b9e23ebf7c341d0bc7557d33962ec567ddb915be8b582a9d5246ace46706b",
+        "main_png": "e7f96f5ee881c8478998f4b1656564d131245b1a9bc5e3087257f84f007bc8c6",
+        "candidate_png": "688069934352db8322d69f5e254d3663a0d027a66b51abf0489dea03decce6b9",
+        "reference": "760cdb47f05866455305103d6706793d168eb1716427ecdbf9d42b9cbfdc0ad6"
+      }
+    },
+    {
+      "case": "test_0008/tint_max",
+      "resolution": "down",
+      "metrics": {
+        "mean_deltaE": 25.483428895326078,
+        "p95_deltaE": 37.4862934158387,
+        "max_deltaE": 90.08168558083959,
+        "bias_r": -0.014445150271058083,
+        "bias_g": -0.15103934705257416,
+        "bias_b": 0.06161690875887871,
+        "n_pixels": 10668000,
+        "reference_protocol": "legacy-direct-reference"
+      },
+      "violations": {
+        "mean": [
+          25.483428895326078,
+          25.4
+        ],
+        "p95": [
+          37.4862934158387,
+          35.5
+        ]
+      },
+      "candidate_canonical": {
+        "fixture": "test_0008",
+        "case": "tint_max",
+        "profile": "neutral",
+        "resolution": "down",
+        "status": "breach",
+        "breaches": [
+          "mean 25.48>25.40",
+          "p95 37.49>35.50"
+        ],
+        "mean": 25.483428895326078
+      },
+      "artifact_paths": {
+        "raw": "/Users/riabuz/Projects/_Maple/test-fixtures/raws/test_0008.RAF",
+        "canonical_xmp": "/Users/riabuz/Projects/_Maple/.codex-worktrees/tone-slider-sprint/test-fixtures/references/test_0008/xmp/tint_max.xmp",
+        "main_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/main-tint-diagnostics/test_0008_tint_max.png",
+        "candidate_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/maple-calibrate-XXXXXX.kdJ8km6opt/candidates/test_0008_tint_max.png",
+        "reference": "/Users/riabuz/Projects/_Maple/.codex-worktrees/tone-slider-sprint/test-fixtures/references/test_0008/down/tint_max.png"
+      },
+      "artifact_sha256": {
+        "raw": "95b33021160b239ceb1a09d46a1b29cb60cb7dd47581feb126b337c219091754",
+        "canonical_xmp": "9153671514de3d9e5f8b99d1a1cbc5de53526b322e90c4b00c47b32b70ef2bf6",
+        "main_png": "f6b84f1047d2fa7a6ce6ecda611ffd6f0d19cbd7b6379790da543fab49304fd8",
+        "candidate_png": "f6b84f1047d2fa7a6ce6ecda611ffd6f0d19cbd7b6379790da543fab49304fd8",
+        "reference": "64833dcb2754aa15ede3e077f8e3293f6a6a88507ea704aa90d238babde0874d"
+      }
+    },
+    {
+      "case": "test_0008/whites_min",
+      "resolution": "down",
+      "metrics": {
+        "mean_deltaE": 10.265953939036283,
+        "p95_deltaE": 18.88623188108181,
+        "max_deltaE": 73.3683271708185,
+        "bias_r": -0.06257137656211853,
+        "bias_g": -0.07994139194488525,
+        "bias_b": -0.0625813752412796,
+        "n_pixels": 10668000,
+        "reference_protocol": "legacy-direct-reference"
+      },
+      "violations": {
+        "mean": [
+          10.265953939036283,
+          9.2
+        ],
+        "p95": [
+          18.88623188108181,
+          18.7
+        ],
+        "bias_r": [
+          -0.06257137656211853,
+          0.0606
+        ],
+        "bias_g": [
+          -0.07994139194488525,
+          0.0606
+        ],
+        "bias_b": [
+          -0.0625813752412796,
+          0.0606
+        ]
+      },
+      "candidate_canonical": {
+        "fixture": "test_0008",
+        "case": "whites_min",
+        "profile": "neutral",
+        "resolution": "down",
+        "status": "breach",
+        "breaches": [
+          "mean 10.27>9.20",
+          "p95 18.89>18.70",
+          "bias_R -0.0626>0.0606",
+          "bias_G -0.0799>0.0606",
+          "bias_B -0.0626>0.0606"
+        ],
+        "mean": 10.265953939036283
+      },
+      "artifact_paths": {
+        "raw": "/Users/riabuz/Projects/_Maple/test-fixtures/raws/test_0008.RAF",
+        "canonical_xmp": "/Users/riabuz/Projects/_Maple/.codex-worktrees/tone-slider-sprint/test-fixtures/references/test_0008/xmp/whites_min.xmp",
+        "main_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/main-canonical-failures/test_0008_whites_min.png",
+        "candidate_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/maple-calibrate-XXXXXX.kdJ8km6opt/candidates/test_0008_whites_min.png",
+        "reference": "/Users/riabuz/Projects/_Maple/.codex-worktrees/tone-slider-sprint/test-fixtures/references/test_0008/down/whites_min.png"
+      },
+      "artifact_sha256": {
+        "raw": "95b33021160b239ceb1a09d46a1b29cb60cb7dd47581feb126b337c219091754",
+        "canonical_xmp": "5c2b9e23ebf7c341d0bc7557d33962ec567ddb915be8b582a9d5246ace46706b",
+        "main_png": "3bfb619d26fb7c5c2eee153a8ea54bd7fb6b7579f25d607d358c9934cfb42c7e",
+        "candidate_png": "3bfb619d26fb7c5c2eee153a8ea54bd7fb6b7579f25d607d358c9934cfb42c7e",
+        "reference": "9c2cc392f2601a8756b51a4fa86c3124d36e2e750f22f7fec287de8440a35830"
+      }
+    },
+    {
+      "case": "test_0009/tint_max",
+      "resolution": "down",
+      "metrics": {
+        "mean_deltaE": 19.211155667162654,
+        "p95_deltaE": 26.196692541126858,
+        "max_deltaE": 39.72853991212524,
+        "bias_r": 0.11265743523836136,
+        "bias_g": 0.028129100799560547,
+        "bias_b": 0.16456617414951324,
+        "n_pixels": 10668000,
+        "reference_protocol": "legacy-direct-reference"
+      },
+      "violations": {
+        "mean": [
+          19.211155667162654,
+          17.4
+        ],
+        "p95": [
+          26.196692541126858,
+          23.3
+        ],
+        "max": [
+          39.72853991212524,
+          39.4
+        ],
+        "bias_b": [
+          0.16456617414951324,
+          0.1598
+        ]
+      },
+      "candidate_canonical": {
+        "fixture": "test_0009",
+        "case": "tint_max",
+        "profile": "neutral",
+        "resolution": "down",
+        "status": "breach",
+        "breaches": [
+          "mean 19.21>17.40",
+          "p95 26.20>23.30",
+          "max 40.14>39.40",
+          "bias_B +0.1646>0.1598"
+        ],
+        "mean": 19.211141411539913
+      },
+      "artifact_paths": {
+        "raw": "/Users/riabuz/Projects/_Maple/test-fixtures/raws/test_0009.CR2",
+        "canonical_xmp": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0009/xmp/tint_max.xmp",
+        "main_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/main-tint-diagnostics/test_0009_tint_max.png",
+        "candidate_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/maple-calibrate-XXXXXX.kdJ8km6opt/candidates/test_0009_tint_max.png",
+        "reference": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0009/down/tint_max.png"
+      },
+      "artifact_sha256": {
+        "raw": "85bfec149261ffbae90797e45caae5e204e1e61ac62b92783925b5ee0f267d76",
+        "canonical_xmp": "9153671514de3d9e5f8b99d1a1cbc5de53526b322e90c4b00c47b32b70ef2bf6",
+        "main_png": "ec830f9823b6e28121d028c7ca8c9c1668f8df166f01a6b5b35006b5aa3d3963",
+        "candidate_png": "d44cd0a20f656b080e693ccf885d3d71153ef7af55bc054e7eafd0e6aa6991c2",
+        "reference": "0da3ec2850b24e565131b719d4b47168f5e90fe4892f66874fb65206ab04472a"
+      }
+    },
+    {
+      "case": "test_0009/whites_max",
+      "resolution": "down",
+      "metrics": {
+        "mean_deltaE": 9.267570458526452,
+        "p95_deltaE": 19.973817391553155,
+        "max_deltaE": 43.80205617046744,
+        "bias_r": 0.10419964790344238,
+        "bias_g": 0.057483263313770294,
+        "bias_b": 0.04781500622630119,
+        "n_pixels": 10668000,
+        "reference_protocol": "legacy-direct-reference"
+      },
+      "violations": {
+        "max": [
+          43.80205617046744,
+          42.4
+        ]
+      },
+      "candidate_canonical": {
+        "fixture": "test_0009",
+        "case": "whites_max",
+        "profile": "neutral",
+        "resolution": "down",
+        "status": "breach",
+        "breaches": [
+          "max 43.80>42.40"
+        ],
+        "mean": 9.26753888508658
+      },
+      "artifact_paths": {
+        "raw": "/Users/riabuz/Projects/_Maple/test-fixtures/raws/test_0009.CR2",
+        "canonical_xmp": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0009/xmp/whites_max.xmp",
+        "main_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/main-canonical-failures/test_0009_whites_max.png",
+        "candidate_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/maple-calibrate-XXXXXX.kdJ8km6opt/candidates/test_0009_whites_max.png",
+        "reference": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0009/down/whites_max.png"
+      },
+      "artifact_sha256": {
+        "raw": "85bfec149261ffbae90797e45caae5e204e1e61ac62b92783925b5ee0f267d76",
+        "canonical_xmp": "9f46d554ce6b687660212dedd3af494ea412ce8986fc21f6557d9d057bb90ba9",
+        "main_png": "5bfe45da98d64f339fed902ebf324a9c8d80d4326dc400526f8a6113a77c02a6",
+        "candidate_png": "877ab1d742f0682fb987dfcf8fc11a255914d2ac43be349a89e821845cbe444a",
+        "reference": "034c070b648e41db627471bd0eb689b11c083573b11e134c04de44893a12cf05"
+      }
+    },
+    {
+      "case": "test_0010/exposure_min",
+      "resolution": "down",
+      "metrics": {
+        "mean_deltaE": 0.8663547845936965,
+        "p95_deltaE": 2.1935292675130422,
+        "max_deltaE": 18.968045436099136,
+        "bias_r": -0.0034583061933517456,
+        "bias_g": -0.00217475020326674,
+        "bias_b": -0.0053878724575042725,
+        "n_pixels": 10668000,
+        "reference_protocol": "legacy-direct-reference"
+      },
+      "violations": {
+        "max": [
+          18.968045436099136,
+          18.2
+        ]
+      },
+      "candidate_canonical": {
+        "fixture": "test_0010",
+        "case": "exposure_min",
+        "profile": "neutral",
+        "resolution": "down",
+        "status": "breach",
+        "breaches": [
+          "max 18.97>18.20"
+        ],
+        "mean": 0.8663547845936965
+      },
+      "artifact_paths": {
+        "raw": "/Users/riabuz/Projects/_Maple/test-fixtures/raws/test_0010.CR2",
+        "canonical_xmp": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0010/xmp/exposure_min.xmp",
+        "main_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/main-canonical-failures/test_0010_exposure_min.png",
+        "candidate_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/maple-calibrate-XXXXXX.kdJ8km6opt/candidates/test_0010_exposure_min.png",
+        "reference": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0010/down/exposure_min.png"
+      },
+      "artifact_sha256": {
+        "raw": "3ea2d03556747afcafa24f13fee69106f383dfaf3a2f436f8331f14518f20037",
+        "canonical_xmp": "65fa852fcc489e5775bca5595f027fb9c858f049866d8c3529ad59fc37431c61",
+        "main_png": "9df86117c1bfa1aa64d56254192f6c28d31cf1e573bfc4dd026b85716882769e",
+        "candidate_png": "9df86117c1bfa1aa64d56254192f6c28d31cf1e573bfc4dd026b85716882769e",
+        "reference": "e51dc19a964d9c521245f0fee2e4c3ce4b4add0eb4c6657ae0cdf2b1ea550f65"
+      }
+    },
+    {
+      "case": "test_0010/tint_max",
+      "resolution": "down",
+      "metrics": {
+        "mean_deltaE": 14.562103618640336,
+        "p95_deltaE": 25.16512515638726,
+        "max_deltaE": 36.51169900499731,
+        "bias_r": 0.005815887823700905,
+        "bias_g": -0.034860171377658844,
+        "bias_b": 0.06903257220983505,
+        "n_pixels": 10668000,
+        "reference_protocol": "legacy-direct-reference"
+      },
+      "violations": {
+        "mean": [
+          14.562103618640336,
+          12.8
+        ],
+        "p95": [
+          25.16512515638726,
+          20.9
+        ],
+        "max": [
+          36.51169900499731,
+          31.7
+        ],
+        "bias_b": [
+          0.06903257220983505,
+          0.0392
+        ]
+      },
+      "candidate_canonical": {
+        "fixture": "test_0010",
+        "case": "tint_max",
+        "profile": "neutral",
+        "resolution": "down",
+        "status": "breach",
+        "breaches": [
+          "mean 14.56>12.80",
+          "p95 25.17>20.90",
+          "max 36.51>31.70",
+          "bias_B +0.0690>0.0392"
+        ],
+        "mean": 14.562103618640336
+      },
+      "artifact_paths": {
+        "raw": "/Users/riabuz/Projects/_Maple/test-fixtures/raws/test_0010.CR2",
+        "canonical_xmp": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0010/xmp/tint_max.xmp",
+        "main_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/main-tint-diagnostics/test_0010_tint_max.png",
+        "candidate_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/maple-calibrate-XXXXXX.kdJ8km6opt/candidates/test_0010_tint_max.png",
+        "reference": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0010/down/tint_max.png"
+      },
+      "artifact_sha256": {
+        "raw": "3ea2d03556747afcafa24f13fee69106f383dfaf3a2f436f8331f14518f20037",
+        "canonical_xmp": "9153671514de3d9e5f8b99d1a1cbc5de53526b322e90c4b00c47b32b70ef2bf6",
+        "main_png": "ac8d92c0d119dda3d18719c7d73e0b47d13eaa83f4de4eb5510e08c9b0262756",
+        "candidate_png": "ac8d92c0d119dda3d18719c7d73e0b47d13eaa83f4de4eb5510e08c9b0262756",
+        "reference": "7ea25b24432ecb88fc01ee0e955ce75708e01aea633e967840ccdb884a9f2bbd"
+      }
+    },
+    {
+      "case": "test_0011/baseline",
+      "resolution": "down",
+      "metrics": {
+        "mean_deltaE": 5.637899385229667,
+        "p95_deltaE": 19.562630037080986,
+        "max_deltaE": 34.81104600031448,
+        "bias_r": 0.03782997652888298,
+        "bias_g": 0.03153592348098755,
+        "bias_b": 0.031179362908005714,
+        "n_pixels": 10668000,
+        "reference_protocol": "baseline-native-pair-lanczos"
+      },
+      "violations": {
+        "bias_r": [
+          0.03782997652888298,
+          0.0113
+        ],
+        "bias_g": [
+          0.03153592348098755,
+          0.0113
+        ],
+        "bias_b": [
+          0.031179362908005714,
+          0.0113
+        ]
+      },
+      "candidate_canonical": {
+        "fixture": "test_0011",
+        "case": "baseline",
+        "profile": "neutral",
+        "resolution": "down",
+        "status": "breach",
+        "breaches": [
+          "bias_R +0.0378>0.0113",
+          "bias_G +0.0315>0.0113",
+          "bias_B +0.0312>0.0113"
+        ],
+        "mean": 5.637898727321003
+      },
+      "artifact_paths": {
+        "raw": "/Users/riabuz/Projects/_Maple/test-fixtures/raws/test_0011.ARW",
+        "canonical_xmp": "/Users/riabuz/Projects/_Maple/.codex-worktrees/tone-slider-sprint/test-fixtures/references/test_0011/xmp/baseline.xmp",
+        "main_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/main-canonical-failures/test_0011_baseline.png",
+        "candidate_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/maple-calibrate-XXXXXX.kdJ8km6opt/candidates/test_0011_baseline.png",
+        "reference": "/Users/riabuz/Projects/_Maple/.codex-worktrees/tone-slider-sprint/test-fixtures/references/test_0011/down/baseline.png"
+      },
+      "artifact_sha256": {
+        "raw": "3421b919ee81224d59f78872ee099a021bff0e2a47ae5fbbac385b182ac7241e",
+        "canonical_xmp": "23cdfdc027d919721421a3f68a2f30790b37b41837e2bfce924e79db86033b52",
+        "main_png": "e5419b6157f6b9ea5c7f922ee53ab7d89e3c272a964a94a1b6d1dee3828a49db",
+        "candidate_png": "fa35abc6f2f4f65760064baa29ab5ac6bee72bd41c405f1c692f32f88bafcac0",
+        "reference": "eb0964fca514f80816250b685665f8767790c89ae9958be78e9696844a1da687"
+      }
+    },
+    {
+      "case": "test_0011/blacks_max",
+      "resolution": "down",
+      "metrics": {
+        "mean_deltaE": 15.52490895614195,
+        "p95_deltaE": 28.520442135074997,
+        "max_deltaE": 37.07067176702,
+        "bias_r": 0.13992397487163544,
+        "bias_g": 0.1433648318052292,
+        "bias_b": 0.1310209184885025,
+        "n_pixels": 10668000,
+        "reference_protocol": "legacy-direct-reference"
+      },
+      "violations": {
+        "bias_r": [
+          0.13992397487163544,
+          0.1304
+        ],
+        "bias_g": [
+          0.1433648318052292,
+          0.1304
+        ],
+        "bias_b": [
+          0.1310209184885025,
+          0.1304
+        ]
+      },
+      "candidate_canonical": {
+        "fixture": "test_0011",
+        "case": "blacks_max",
+        "profile": "neutral",
+        "resolution": "down",
+        "status": "breach",
+        "breaches": [
+          "bias_R +0.1399>0.1304",
+          "bias_G +0.1434>0.1304",
+          "bias_B +0.1310>0.1304"
+        ],
+        "mean": 15.524903388941022
+      },
+      "artifact_paths": {
+        "raw": "/Users/riabuz/Projects/_Maple/test-fixtures/raws/test_0011.ARW",
+        "canonical_xmp": "/Users/riabuz/Projects/_Maple/.codex-worktrees/tone-slider-sprint/test-fixtures/references/test_0011/xmp/blacks_max.xmp",
+        "main_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/main-canonical-failures/test_0011_blacks_max.png",
+        "candidate_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/maple-calibrate-XXXXXX.kdJ8km6opt/candidates/test_0011_blacks_max.png",
+        "reference": "/Users/riabuz/Projects/_Maple/.codex-worktrees/tone-slider-sprint/test-fixtures/references/test_0011/down/blacks_max.png"
+      },
+      "artifact_sha256": {
+        "raw": "3421b919ee81224d59f78872ee099a021bff0e2a47ae5fbbac385b182ac7241e",
+        "canonical_xmp": "1f82cd681dd1609be85085bca162d87319cc0622676d2260242cca6c008c961f",
+        "main_png": "3ca9d4bd3faf4d03a84e0868777065e9a097a5ca3db9c1f23bf78baf53d12df3",
+        "candidate_png": "8e9e3aa06f469b1f05303c55e77163ff09144b5d05abbd0cbf8738b7c5820038",
+        "reference": "95ec202b465ec01d923888368cafee635703a41375e0a2787721dac2cfa4b569"
+      }
+    },
+    {
+      "case": "test_0011/blacks_min",
+      "resolution": "down",
+      "metrics": {
+        "mean_deltaE": 6.268452200769949,
+        "p95_deltaE": 33.22947652611091,
+        "max_deltaE": 49.99627684773618,
+        "bias_r": 0.06681928783655167,
+        "bias_g": 0.059386201202869415,
+        "bias_b": 0.04633329063653946,
+        "n_pixels": 10668000,
+        "reference_protocol": "legacy-direct-reference"
+      },
+      "violations": {
+        "bias_r": [
+          0.06681928783655167,
+          0.0476
+        ],
+        "bias_g": [
+          0.059386201202869415,
+          0.0476
+        ]
+      },
+      "candidate_canonical": {
+        "fixture": "test_0011",
+        "case": "blacks_min",
+        "profile": "neutral",
+        "resolution": "down",
+        "status": "breach",
+        "breaches": [
+          "bias_R +0.0668>0.0476",
+          "bias_G +0.0594>0.0476"
+        ],
+        "mean": 6.268452165920292
+      },
+      "artifact_paths": {
+        "raw": "/Users/riabuz/Projects/_Maple/test-fixtures/raws/test_0011.ARW",
+        "canonical_xmp": "/Users/riabuz/Projects/_Maple/.codex-worktrees/tone-slider-sprint/test-fixtures/references/test_0011/xmp/blacks_min.xmp",
+        "main_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/main-canonical-failures/test_0011_blacks_min.png",
+        "candidate_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/maple-calibrate-XXXXXX.kdJ8km6opt/candidates/test_0011_blacks_min.png",
+        "reference": "/Users/riabuz/Projects/_Maple/.codex-worktrees/tone-slider-sprint/test-fixtures/references/test_0011/down/blacks_min.png"
+      },
+      "artifact_sha256": {
+        "raw": "3421b919ee81224d59f78872ee099a021bff0e2a47ae5fbbac385b182ac7241e",
+        "canonical_xmp": "f1b014a1b53cc340a4b30f15c9114c7839ee6b1cb24673902c23f7ef5919ec38",
+        "main_png": "7dce10c710c8753252ae9bfa166b660c9bca08b8123dd2d80142719609d6fda5",
+        "candidate_png": "e8c246ca1528284fcbcaf4120890cf9c8d6fa1b11fbe9f48c993b0ee6149f8fc",
+        "reference": "1c9d6e6ab4c568fbe816054514d5d82023c282dd98a604e830f0e1baa46a5362"
+      }
+    },
+    {
+      "case": "test_0011/clarity_min",
+      "resolution": "down",
+      "metrics": {
+        "mean_deltaE": 5.589178864767207,
+        "p95_deltaE": 18.485521217619453,
+        "max_deltaE": 53.33207325954816,
+        "bias_r": 0.03920364752411842,
+        "bias_g": 0.033048033714294434,
+        "bias_b": 0.03208008036017418,
+        "n_pixels": 10668000,
+        "reference_protocol": "legacy-direct-reference"
+      },
+      "violations": {
+        "bias_r": [
+          0.03920364752411842,
+          0.0158
+        ],
+        "bias_g": [
+          0.033048033714294434,
+          0.0158
+        ],
+        "bias_b": [
+          0.03208008036017418,
+          0.0158
+        ]
+      },
+      "candidate_canonical": {
+        "fixture": "test_0011",
+        "case": "clarity_min",
+        "profile": "neutral",
+        "resolution": "down",
+        "status": "breach",
+        "breaches": [
+          "bias_R +0.0392>0.0158",
+          "bias_G +0.0330>0.0158",
+          "bias_B +0.0321>0.0158"
+        ],
+        "mean": 5.589178224977287
+      },
+      "artifact_paths": {
+        "raw": "/Users/riabuz/Projects/_Maple/test-fixtures/raws/test_0011.ARW",
+        "canonical_xmp": "/Users/riabuz/Projects/_Maple/.codex-worktrees/tone-slider-sprint/test-fixtures/references/test_0011/xmp/clarity_min.xmp",
+        "main_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/main-canonical-failures/test_0011_clarity_min.png",
+        "candidate_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/maple-calibrate-XXXXXX.kdJ8km6opt/candidates/test_0011_clarity_min.png",
+        "reference": "/Users/riabuz/Projects/_Maple/.codex-worktrees/tone-slider-sprint/test-fixtures/references/test_0011/down/clarity_min.png"
+      },
+      "artifact_sha256": {
+        "raw": "3421b919ee81224d59f78872ee099a021bff0e2a47ae5fbbac385b182ac7241e",
+        "canonical_xmp": "9e2a695548d7f62dfc4bce482b66f65e05b860646e7d4371521a0728f7f2a757",
+        "main_png": "489feecc358a717830a5b2d4efbca53cfb827f45f2c8e22e88a9738c46cd3afb",
+        "candidate_png": "e2540f497a83231434e6e9e08688cf6f560f64db40c3b84422d2c8e9dbcd21db",
+        "reference": "8050bedf09beff267257ce9317d30c210b827044f7b869f74200feffd2e1ecca"
+      }
+    },
+    {
+      "case": "test_0011/contrast_max",
+      "resolution": "down",
+      "metrics": {
+        "mean_deltaE": 6.686947877152603,
+        "p95_deltaE": 28.32162637615819,
+        "max_deltaE": 53.961555676445435,
+        "bias_r": 0.05613541230559349,
+        "bias_g": 0.05324448272585869,
+        "bias_b": 0.06341178715229034,
+        "n_pixels": 10668000,
+        "reference_protocol": "legacy-direct-reference"
+      },
+      "violations": {
+        "bias_b": [
+          0.06341178715229034,
+          0.062
+        ]
+      },
+      "candidate_canonical": {
+        "fixture": "test_0011",
+        "case": "contrast_max",
+        "profile": "neutral",
+        "resolution": "down",
+        "status": "breach",
+        "breaches": [
+          "bias_B +0.0634>0.0620"
+        ],
+        "mean": 6.686947624683742
+      },
+      "artifact_paths": {
+        "raw": "/Users/riabuz/Projects/_Maple/test-fixtures/raws/test_0011.ARW",
+        "canonical_xmp": "/Users/riabuz/Projects/_Maple/.codex-worktrees/tone-slider-sprint/test-fixtures/references/test_0011/xmp/contrast_max.xmp",
+        "main_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/main-canonical-failures/test_0011_contrast_max.png",
+        "candidate_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/maple-calibrate-XXXXXX.kdJ8km6opt/candidates/test_0011_contrast_max.png",
+        "reference": "/Users/riabuz/Projects/_Maple/.codex-worktrees/tone-slider-sprint/test-fixtures/references/test_0011/down/contrast_max.png"
+      },
+      "artifact_sha256": {
+        "raw": "3421b919ee81224d59f78872ee099a021bff0e2a47ae5fbbac385b182ac7241e",
+        "canonical_xmp": "9aab6ca6dbb151847c5f3a724d7f32f8fc8dd2a8bb05f7035ffc68c4ca2c5887",
+        "main_png": "13cba47bccb3573777b356634f9e2f483008d94f10774452b81963a304f06fb6",
+        "candidate_png": "56b7fd3dfc85c79787177b660c60772ec3a0803fb5131fae1c3f0a16af1a2d17",
+        "reference": "1231e4b3ae4a90f64e49bf003176acbd59b78684d6f902282b78a0e180642c56"
+      }
+    },
+    {
+      "case": "test_0011/dehaze_max",
+      "resolution": "down",
+      "metrics": {
+        "mean_deltaE": 9.96984932045798,
+        "p95_deltaE": 39.238167963636506,
+        "max_deltaE": 62.773438779287034,
+        "bias_r": 0.14776186645030975,
+        "bias_g": 0.09318387508392334,
+        "bias_b": 0.024440281093120575,
+        "n_pixels": 10668000,
+        "reference_protocol": "legacy-direct-reference"
+      },
+      "violations": {
+        "p95": [
+          39.238167963636506,
+          36.5
+        ]
+      },
+      "candidate_canonical": {
+        "fixture": "test_0011",
+        "case": "dehaze_max",
+        "profile": "neutral",
+        "resolution": "down",
+        "status": "breach",
+        "breaches": [
+          "p95 39.24>36.50"
+        ],
+        "mean": 9.969854769618983
+      },
+      "artifact_paths": {
+        "raw": "/Users/riabuz/Projects/_Maple/test-fixtures/raws/test_0011.ARW",
+        "canonical_xmp": "/Users/riabuz/Projects/_Maple/.codex-worktrees/tone-slider-sprint/test-fixtures/references/test_0011/xmp/dehaze_max.xmp",
+        "main_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/main-canonical-failures/test_0011_dehaze_max.png",
+        "candidate_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/maple-calibrate-XXXXXX.kdJ8km6opt/candidates/test_0011_dehaze_max.png",
+        "reference": "/Users/riabuz/Projects/_Maple/.codex-worktrees/tone-slider-sprint/test-fixtures/references/test_0011/down/dehaze_max.png"
+      },
+      "artifact_sha256": {
+        "raw": "3421b919ee81224d59f78872ee099a021bff0e2a47ae5fbbac385b182ac7241e",
+        "canonical_xmp": "e1eb911788f66211a084dd2f936b6b8445404ed8e63a8a166cf2b2f1549c113b",
+        "main_png": "acf8e91fd950036d83d2a8b99e5444f9e795d1b5ef3e34ec3305822edf682cd1",
+        "candidate_png": "d63bc5f342589845aad33d3ab3fcd8fec29abfd38f4fe8e0d5dd02c0db7983a2",
+        "reference": "f91e462f97c2490666db6c93f7c132f18f4623afba6bf00b133f7da5fbfaaebd"
+      }
+    },
+    {
+      "case": "test_0011/exposure_min",
+      "resolution": "down",
+      "metrics": {
+        "mean_deltaE": 2.2814785178294095,
+        "p95_deltaE": 7.198189242037434,
+        "max_deltaE": 23.722352009741773,
+        "bias_r": 0.028474168851971626,
+        "bias_g": 0.026346055790781975,
+        "bias_b": 0.024216830730438232,
+        "n_pixels": 10668000,
+        "reference_protocol": "legacy-direct-reference"
+      },
+      "violations": {
+        "mean": [
+          2.2814785178294095,
+          2.2
+        ]
+      },
+      "candidate_canonical": {
+        "fixture": "test_0011",
+        "case": "exposure_min",
+        "profile": "neutral",
+        "resolution": "down",
+        "status": "breach",
+        "breaches": [
+          "mean 2.28>2.20"
+        ],
+        "mean": 2.2814784965065362
+      },
+      "artifact_paths": {
+        "raw": "/Users/riabuz/Projects/_Maple/test-fixtures/raws/test_0011.ARW",
+        "canonical_xmp": "/Users/riabuz/Projects/_Maple/.codex-worktrees/tone-slider-sprint/test-fixtures/references/test_0011/xmp/exposure_min.xmp",
+        "main_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/main-canonical-failures/test_0011_exposure_min.png",
+        "candidate_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/maple-calibrate-XXXXXX.kdJ8km6opt/candidates/test_0011_exposure_min.png",
+        "reference": "/Users/riabuz/Projects/_Maple/.codex-worktrees/tone-slider-sprint/test-fixtures/references/test_0011/down/exposure_min.png"
+      },
+      "artifact_sha256": {
+        "raw": "3421b919ee81224d59f78872ee099a021bff0e2a47ae5fbbac385b182ac7241e",
+        "canonical_xmp": "65fa852fcc489e5775bca5595f027fb9c858f049866d8c3529ad59fc37431c61",
+        "main_png": "6d0c2ca7620c909541d338c90f0fab074c52df5f42cdd0510d2a6be1d8cd6ff0",
+        "candidate_png": "3541e5fba50772dfb14590e6d3fb536989f461fcb744a5fb5f93716dea7c1336",
+        "reference": "bd370d77163a27a7f3eca227970ccdcca2d2302e906fbb091954cd596585c21e"
+      }
+    },
+    {
+      "case": "test_0011/highlights_max",
+      "resolution": "down",
+      "metrics": {
+        "mean_deltaE": 7.577779739179605,
+        "p95_deltaE": 17.994167066031455,
+        "max_deltaE": 38.13723980137351,
+        "bias_r": 0.0024775320198386908,
+        "bias_g": 0.002967696636915207,
+        "bias_b": 0.03177429363131523,
+        "n_pixels": 10668000,
+        "reference_protocol": "legacy-direct-reference"
+      },
+      "violations": {
+        "bias_b": [
+          0.03177429363131523,
+          0.0234
+        ]
+      },
+      "candidate_canonical": {
+        "fixture": "test_0011",
+        "case": "highlights_max",
+        "profile": "neutral",
+        "resolution": "down",
+        "status": "breach",
+        "breaches": [
+          "bias_B +0.0318>0.0234"
+        ],
+        "mean": 7.577779033223061
+      },
+      "artifact_paths": {
+        "raw": "/Users/riabuz/Projects/_Maple/test-fixtures/raws/test_0011.ARW",
+        "canonical_xmp": "/Users/riabuz/Projects/_Maple/.codex-worktrees/tone-slider-sprint/test-fixtures/references/test_0011/xmp/highlights_max.xmp",
+        "main_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/main-canonical-failures/test_0011_highlights_max.png",
+        "candidate_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/maple-calibrate-XXXXXX.kdJ8km6opt/candidates/test_0011_highlights_max.png",
+        "reference": "/Users/riabuz/Projects/_Maple/.codex-worktrees/tone-slider-sprint/test-fixtures/references/test_0011/down/highlights_max.png"
+      },
+      "artifact_sha256": {
+        "raw": "3421b919ee81224d59f78872ee099a021bff0e2a47ae5fbbac385b182ac7241e",
+        "canonical_xmp": "2b08fdb317e7410211747bcd7d3fb38b72aa3d2a8f6f50c49efdc44e9f8bf7ab",
+        "main_png": "5b75d3963a4730a62677aa9368e40770b3bcc91cd018885540f36b305683c4c3",
+        "candidate_png": "f789591780ccbbaebc2291335c2d9fbef9adfc79b15438e1eccb2ecd8e881521",
+        "reference": "fcddd71ed972857bdd14ece55070b5a9c96b92ef5249c0009bbc4f338d3f6574"
+      }
+    },
+    {
+      "case": "test_0011/highlights_min",
+      "resolution": "down",
+      "metrics": {
+        "mean_deltaE": 7.671501524464767,
+        "p95_deltaE": 20.941282019468364,
+        "max_deltaE": 46.55483381339133,
+        "bias_r": 0.0916815847158432,
+        "bias_g": 0.08221606910228729,
+        "bias_b": 0.06911346316337585,
+        "n_pixels": 10668000,
+        "reference_protocol": "legacy-direct-reference"
+      },
+      "violations": {
+        "mean": [
+          7.671501524464767,
+          7.3
+        ],
+        "bias_r": [
+          0.0916815847158432,
+          0.0507
+        ],
+        "bias_g": [
+          0.08221606910228729,
+          0.0507
+        ],
+        "bias_b": [
+          0.06911346316337585,
+          0.0507
+        ]
+      },
+      "candidate_canonical": {
+        "fixture": "test_0011",
+        "case": "highlights_min",
+        "profile": "neutral",
+        "resolution": "down",
+        "status": "breach",
+        "breaches": [
+          "mean 7.67>7.30",
+          "bias_R +0.0917>0.0507",
+          "bias_G +0.0822>0.0507",
+          "bias_B +0.0691>0.0507"
+        ],
+        "mean": 7.671501068672031
+      },
+      "artifact_paths": {
+        "raw": "/Users/riabuz/Projects/_Maple/test-fixtures/raws/test_0011.ARW",
+        "canonical_xmp": "/Users/riabuz/Projects/_Maple/.codex-worktrees/tone-slider-sprint/test-fixtures/references/test_0011/xmp/highlights_min.xmp",
+        "main_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/main-canonical-failures/test_0011_highlights_min.png",
+        "candidate_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/maple-calibrate-XXXXXX.kdJ8km6opt/candidates/test_0011_highlights_min.png",
+        "reference": "/Users/riabuz/Projects/_Maple/.codex-worktrees/tone-slider-sprint/test-fixtures/references/test_0011/down/highlights_min.png"
+      },
+      "artifact_sha256": {
+        "raw": "3421b919ee81224d59f78872ee099a021bff0e2a47ae5fbbac385b182ac7241e",
+        "canonical_xmp": "634d95ad3e8b5143cc5e2d87868806b53daf0777e42fdbc6293d91757ecc2325",
+        "main_png": "b9af3159965bea8cd135a36fce050659a131126d3708d48152839f0d13159b99",
+        "candidate_png": "acc2df64cf2d09fbb563bb40580a01a5aa1e9144736af287c411faa768fe6b95",
+        "reference": "42f1dec64b015d6f22755ec95dd90214b19a6a875e7344219d5e5d27e2421b08"
+      }
+    },
+    {
+      "case": "test_0011/nr_color_max",
+      "resolution": "full",
+      "metrics": {
+        "mean_deltaE": 5.637647144996309,
+        "p95_deltaE": 19.62519415132372,
+        "max_deltaE": 35.74894609106636,
+        "bias_r": 0.03517002984881401,
+        "bias_g": 0.030343182384967804,
+        "bias_b": 0.02797597460448742,
+        "n_pixels": 60217344,
+        "reference_protocol": "legacy-direct-reference"
+      },
+      "violations": {
+        "bias_r": [
+          0.03517002984881401,
+          0.0116
+        ],
+        "bias_g": [
+          0.030343182384967804,
+          0.0116
+        ],
+        "bias_b": [
+          0.02797597460448742,
+          0.0116
+        ]
+      },
+      "candidate_canonical": {
+        "fixture": "test_0011",
+        "case": "nr_color_max",
+        "profile": "detail-fullres",
+        "resolution": "full",
+        "status": "breach",
+        "breaches": [
+          "bias_R +0.0352>0.0116",
+          "bias_G +0.0303>0.0116",
+          "bias_B +0.0280>0.0116"
+        ],
+        "mean": 5.637646906117706
+      },
+      "artifact_paths": {
+        "raw": "/Users/riabuz/Projects/_Maple/test-fixtures/raws/test_0011.ARW",
+        "canonical_xmp": "/Users/riabuz/Projects/_Maple/.codex-worktrees/tone-slider-sprint/test-fixtures/references/test_0011/xmp/nr_color_max.xmp",
+        "main_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/main-canonical-failures/test_0011_nr_color_max.png",
+        "candidate_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/maple-calibrate-XXXXXX.kdJ8km6opt/candidates/test_0011_nr_color_max.png",
+        "reference": "/Users/riabuz/Projects/_Maple/.codex-worktrees/tone-slider-sprint/test-fixtures/references/test_0011/full/nr_color_max.png"
+      },
+      "artifact_sha256": {
+        "raw": "3421b919ee81224d59f78872ee099a021bff0e2a47ae5fbbac385b182ac7241e",
+        "canonical_xmp": "c40bbf2092e346759d2a54e715b7424948a8598a1c637f0f0077481b29663f30",
+        "main_png": "34b4d3092338d9824fb3f230bcbb0168015cfd26a53793a5ea3e48f930355671",
+        "candidate_png": "8a57f0b20699846879846d8b718f77dade8f8cf38a3ce939aa24d19f8f813855",
+        "reference": "b5cc3c1b1553d35ec023efac146f55f10d3c40376c42f215e168ee12c57546eb"
+      }
+    },
+    {
+      "case": "test_0011/nr_color_min",
+      "resolution": "full",
+      "metrics": {
+        "mean_deltaE": 5.8437300750031325,
+        "p95_deltaE": 19.703298582794574,
+        "max_deltaE": 47.059825315552594,
+        "bias_r": 0.03523770347237587,
+        "bias_g": 0.030065177008509636,
+        "bias_b": 0.028318455442786217,
+        "n_pixels": 60217344,
+        "reference_protocol": "legacy-direct-reference"
+      },
+      "violations": {
+        "bias_r": [
+          0.03523770347237587,
+          0.0115
+        ],
+        "bias_g": [
+          0.030065177008509636,
+          0.0115
+        ],
+        "bias_b": [
+          0.028318455442786217,
+          0.0115
+        ]
+      },
+      "candidate_canonical": {
+        "fixture": "test_0011",
+        "case": "nr_color_min",
+        "profile": "detail-fullres",
+        "resolution": "full",
+        "status": "breach",
+        "breaches": [
+          "bias_R +0.0352>0.0115",
+          "bias_G +0.0301>0.0115",
+          "bias_B +0.0283>0.0115"
+        ],
+        "mean": 5.843729989392551
+      },
+      "artifact_paths": {
+        "raw": "/Users/riabuz/Projects/_Maple/test-fixtures/raws/test_0011.ARW",
+        "canonical_xmp": "/Users/riabuz/Projects/_Maple/.codex-worktrees/tone-slider-sprint/test-fixtures/references/test_0011/xmp/nr_color_min.xmp",
+        "main_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/main-canonical-failures/test_0011_nr_color_min.png",
+        "candidate_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/maple-calibrate-XXXXXX.kdJ8km6opt/candidates/test_0011_nr_color_min.png",
+        "reference": "/Users/riabuz/Projects/_Maple/.codex-worktrees/tone-slider-sprint/test-fixtures/references/test_0011/full/nr_color_min.png"
+      },
+      "artifact_sha256": {
+        "raw": "3421b919ee81224d59f78872ee099a021bff0e2a47ae5fbbac385b182ac7241e",
+        "canonical_xmp": "17b5bc0e8b00b1c1529c8e7f6a0f35e9a47091e5f1771a07b3732e7a73fad650",
+        "main_png": "4f2b571c0e9207735396d3c8dc659ce72ff895396a563c31d0d98e88bfc58606",
+        "candidate_png": "1ca59b3482ca8e9d601a3c7ebb5a18f0dbfd5d53c7c1ce1148c7ee30e3b7deb5",
+        "reference": "7a4083ed4dccb0ea3fcb3af7da879d0b13ada44b76b1ec2c52d291b5fa36f507"
+      }
+    },
+    {
+      "case": "test_0011/nr_luminance_max",
+      "resolution": "full",
+      "metrics": {
+        "mean_deltaE": 5.6199122898133895,
+        "p95_deltaE": 19.5523092953076,
+        "max_deltaE": 40.58780059073021,
+        "bias_r": 0.0350433811545372,
+        "bias_g": 0.030123572796583176,
+        "bias_b": 0.02783830277621746,
+        "n_pixels": 60217344,
+        "reference_protocol": "legacy-direct-reference"
+      },
+      "violations": {
+        "bias_r": [
+          0.0350433811545372,
+          0.0114
+        ],
+        "bias_g": [
+          0.030123572796583176,
+          0.0114
+        ],
+        "bias_b": [
+          0.02783830277621746,
+          0.0114
+        ]
+      },
+      "candidate_canonical": {
+        "fixture": "test_0011",
+        "case": "nr_luminance_max",
+        "profile": "detail-fullres",
+        "resolution": "full",
+        "status": "breach",
+        "breaches": [
+          "bias_R +0.0350>0.0114",
+          "bias_G +0.0301>0.0114",
+          "bias_B +0.0278>0.0114"
+        ],
+        "mean": 5.619911927324708
+      },
+      "artifact_paths": {
+        "raw": "/Users/riabuz/Projects/_Maple/test-fixtures/raws/test_0011.ARW",
+        "canonical_xmp": "/Users/riabuz/Projects/_Maple/.codex-worktrees/tone-slider-sprint/test-fixtures/references/test_0011/xmp/nr_luminance_max.xmp",
+        "main_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/main-canonical-failures/test_0011_nr_luminance_max.png",
+        "candidate_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/maple-calibrate-XXXXXX.kdJ8km6opt/candidates/test_0011_nr_luminance_max.png",
+        "reference": "/Users/riabuz/Projects/_Maple/.codex-worktrees/tone-slider-sprint/test-fixtures/references/test_0011/full/nr_luminance_max.png"
+      },
+      "artifact_sha256": {
+        "raw": "3421b919ee81224d59f78872ee099a021bff0e2a47ae5fbbac385b182ac7241e",
+        "canonical_xmp": "76058bd011775822f60dc156f876e12b18cd8a61ab374dfff0b07799f1e5141b",
+        "main_png": "6439c947e3155315ceac62159614c5b57ec1abb0ea5cf49ce89b4be64a70dbe2",
+        "candidate_png": "02160c3de28f7d70176bd6e17bc79de25687cb239b450897a5ffc7372b05fafa",
+        "reference": "092497db9ef4ff17f791ece6fed6da8725d2041b9670ca072f379e9b3cacbd92"
+      }
+    },
+    {
+      "case": "test_0011/saturation_max",
+      "resolution": "down",
+      "metrics": {
+        "mean_deltaE": 7.029156908679125,
+        "p95_deltaE": 19.176435728476186,
+        "max_deltaE": 51.81911089796109,
+        "bias_r": 0.025925392284989357,
+        "bias_g": 0.013323837891221046,
+        "bias_b": 0.02625587396323681,
+        "n_pixels": 10668000,
+        "reference_protocol": "legacy-direct-reference"
+      },
+      "violations": {
+        "bias_r": [
+          0.025925392284989357,
+          0.0216
+        ],
+        "bias_b": [
+          0.02625587396323681,
+          0.0216
+        ]
+      },
+      "candidate_canonical": {
+        "fixture": "test_0011",
+        "case": "saturation_max",
+        "profile": "neutral",
+        "resolution": "down",
+        "status": "breach",
+        "breaches": [
+          "bias_R +0.0259>0.0216",
+          "bias_B +0.0263>0.0216"
+        ],
+        "mean": 7.029156466964462
+      },
+      "artifact_paths": {
+        "raw": "/Users/riabuz/Projects/_Maple/test-fixtures/raws/test_0011.ARW",
+        "canonical_xmp": "/Users/riabuz/Projects/_Maple/.codex-worktrees/tone-slider-sprint/test-fixtures/references/test_0011/xmp/saturation_max.xmp",
+        "main_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/main-canonical-failures/test_0011_saturation_max.png",
+        "candidate_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/maple-calibrate-XXXXXX.kdJ8km6opt/candidates/test_0011_saturation_max.png",
+        "reference": "/Users/riabuz/Projects/_Maple/.codex-worktrees/tone-slider-sprint/test-fixtures/references/test_0011/down/saturation_max.png"
+      },
+      "artifact_sha256": {
+        "raw": "3421b919ee81224d59f78872ee099a021bff0e2a47ae5fbbac385b182ac7241e",
+        "canonical_xmp": "d6d7cf4385626feb2a939efa4dc9d22e1e49492bdfce34644f98aba3d543fa5f",
+        "main_png": "58d016b7879027fcdd79c44574f9437c974e9260ae08cfd470ba6a56351f7b33",
+        "candidate_png": "ae409d0d9ddb7c3d821e088a912f266cacc53841936be16657fd63ad90d751e3",
+        "reference": "1d52d08bdd5f784ec8c496e727e9ea4bb1cc145e1a8e5ccabd427447dcf9b1c5"
+      }
+    },
+    {
+      "case": "test_0011/saturation_min",
+      "resolution": "down",
+      "metrics": {
+        "mean_deltaE": 4.68460382448787,
+        "p95_deltaE": 19.290551019767136,
+        "max_deltaE": 39.99040918718413,
+        "bias_r": 0.05115869268774986,
+        "bias_g": 0.051159653812646866,
+        "bias_b": 0.051158178597688675,
+        "n_pixels": 10668000,
+        "reference_protocol": "legacy-direct-reference"
+      },
+      "violations": {
+        "bias_r": [
+          0.05115869268774986,
+          0.0324
+        ],
+        "bias_g": [
+          0.051159653812646866,
+          0.0324
+        ],
+        "bias_b": [
+          0.051158178597688675,
+          0.0324
+        ]
+      },
+      "candidate_canonical": {
+        "fixture": "test_0011",
+        "case": "saturation_min",
+        "profile": "neutral",
+        "resolution": "down",
+        "status": "breach",
+        "breaches": [
+          "bias_R +0.0512>0.0324",
+          "bias_G +0.0512>0.0324",
+          "bias_B +0.0512>0.0324"
+        ],
+        "mean": 4.68460377025565
+      },
+      "artifact_paths": {
+        "raw": "/Users/riabuz/Projects/_Maple/test-fixtures/raws/test_0011.ARW",
+        "canonical_xmp": "/Users/riabuz/Projects/_Maple/.codex-worktrees/tone-slider-sprint/test-fixtures/references/test_0011/xmp/saturation_min.xmp",
+        "main_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/main-canonical-failures/test_0011_saturation_min.png",
+        "candidate_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/maple-calibrate-XXXXXX.kdJ8km6opt/candidates/test_0011_saturation_min.png",
+        "reference": "/Users/riabuz/Projects/_Maple/.codex-worktrees/tone-slider-sprint/test-fixtures/references/test_0011/down/saturation_min.png"
+      },
+      "artifact_sha256": {
+        "raw": "3421b919ee81224d59f78872ee099a021bff0e2a47ae5fbbac385b182ac7241e",
+        "canonical_xmp": "16464187ebb189337b2d8149486e4c32fb302414a2e149da02cc74eff264a57e",
+        "main_png": "2fb7d8a61f5f06177680235f8b5225db74a7c04af877019afa18b3f4e9ff2b2e",
+        "candidate_png": "ddbfe630cf856460a830551a4fcc9990b723e3c934ab3f4dbd57e30fd4d9545a",
+        "reference": "3158dd35fc6b4cce5befd763e50dfe7532e6903d257ca06fdd6b4c0db767bb8c"
+      }
+    },
+    {
+      "case": "test_0011/shadows_min",
+      "resolution": "down",
+      "metrics": {
+        "mean_deltaE": 6.387037418810132,
+        "p95_deltaE": 27.461765019360833,
+        "max_deltaE": 46.58228642660121,
+        "bias_r": 0.052145734429359436,
+        "bias_g": 0.0483444444835186,
+        "bias_b": 0.04391421005129814,
+        "n_pixels": 10668000,
+        "reference_protocol": "legacy-direct-reference"
+      },
+      "violations": {
+        "bias_r": [
+          0.052145734429359436,
+          0.0358
+        ],
+        "bias_g": [
+          0.0483444444835186,
+          0.0358
+        ],
+        "bias_b": [
+          0.04391421005129814,
+          0.0358
+        ]
+      },
+      "candidate_canonical": {
+        "fixture": "test_0011",
+        "case": "shadows_min",
+        "profile": "neutral",
+        "resolution": "down",
+        "status": "breach",
+        "breaches": [
+          "bias_R +0.0521>0.0358",
+          "bias_G +0.0483>0.0358",
+          "bias_B +0.0439>0.0358"
+        ],
+        "mean": 6.387037252007911
+      },
+      "artifact_paths": {
+        "raw": "/Users/riabuz/Projects/_Maple/test-fixtures/raws/test_0011.ARW",
+        "canonical_xmp": "/Users/riabuz/Projects/_Maple/.codex-worktrees/tone-slider-sprint/test-fixtures/references/test_0011/xmp/shadows_min.xmp",
+        "main_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/main-canonical-failures/test_0011_shadows_min.png",
+        "candidate_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/maple-calibrate-XXXXXX.kdJ8km6opt/candidates/test_0011_shadows_min.png",
+        "reference": "/Users/riabuz/Projects/_Maple/.codex-worktrees/tone-slider-sprint/test-fixtures/references/test_0011/down/shadows_min.png"
+      },
+      "artifact_sha256": {
+        "raw": "3421b919ee81224d59f78872ee099a021bff0e2a47ae5fbbac385b182ac7241e",
+        "canonical_xmp": "54c6ecedbdc6466ec0db6a7dd89b286b07d44afce3ef585e53a0dc8224289f4d",
+        "main_png": "c83c61e5582e8690e289162cade1f9091188e5c57b971633e663ef41b04aea1b",
+        "candidate_png": "eab4b21eb5168e5517da46ca6bc3a3bbbfb9b4eace6101b77972539b0b785095",
+        "reference": "06566de6b4f498f4d555446b704ac9df41a0336fee60914b52b5dd2cf089f5a2"
+      }
+    },
+    {
+      "case": "test_0011/sharpen_amount_max",
+      "resolution": "full",
+      "metrics": {
+        "mean_deltaE": 5.585579969300749,
+        "p95_deltaE": 19.034539324676672,
+        "max_deltaE": 39.64610547257304,
+        "bias_r": 0.033905159682035446,
+        "bias_g": 0.02848421037197113,
+        "bias_b": 0.027618858963251114,
+        "n_pixels": 60217344,
+        "reference_protocol": "legacy-direct-reference"
+      },
+      "violations": {
+        "bias_r": [
+          0.033905159682035446,
+          0.0108
+        ],
+        "bias_g": [
+          0.02848421037197113,
+          0.0108
+        ],
+        "bias_b": [
+          0.027618858963251114,
+          0.0108
+        ]
+      },
+      "candidate_canonical": {
+        "fixture": "test_0011",
+        "case": "sharpen_amount_max",
+        "profile": "detail-fullres",
+        "resolution": "full",
+        "status": "breach",
+        "breaches": [
+          "bias_R +0.0339>0.0108",
+          "bias_G +0.0285>0.0108",
+          "bias_B +0.0276>0.0108"
+        ],
+        "mean": 5.585579755942125
+      },
+      "artifact_paths": {
+        "raw": "/Users/riabuz/Projects/_Maple/test-fixtures/raws/test_0011.ARW",
+        "canonical_xmp": "/Users/riabuz/Projects/_Maple/.codex-worktrees/tone-slider-sprint/test-fixtures/references/test_0011/xmp/sharpen_amount_max.xmp",
+        "main_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/main-canonical-failures/test_0011_sharpen_amount_max.png",
+        "candidate_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/maple-calibrate-XXXXXX.kdJ8km6opt/candidates/test_0011_sharpen_amount_max.png",
+        "reference": "/Users/riabuz/Projects/_Maple/.codex-worktrees/tone-slider-sprint/test-fixtures/references/test_0011/full/sharpen_amount_max.png"
+      },
+      "artifact_sha256": {
+        "raw": "3421b919ee81224d59f78872ee099a021bff0e2a47ae5fbbac385b182ac7241e",
+        "canonical_xmp": "a945d8e64b4791b4d9b58a2fc777b3c39c3b6ce340bc48c329554feeea8011a5",
+        "main_png": "437c914295fa611d4a576842431041de80504a0194d0c4b0569ceada9c20996e",
+        "candidate_png": "35ba2eefa5f17e425328b501eeb181e1f08452fb418cf0dbfea3764b5c6505aa",
+        "reference": "01718c2d1e134ad8f998de451eed35ed2e2b11bece5ff88219b23c257b828e61"
+      }
+    },
+    {
+      "case": "test_0011/sharpen_amount_min",
+      "resolution": "full",
+      "metrics": {
+        "mean_deltaE": 5.639999364558239,
+        "p95_deltaE": 19.64579938606045,
+        "max_deltaE": 40.7407301594807,
+        "bias_r": 0.03520927205681801,
+        "bias_g": 0.030403492972254753,
+        "bias_b": 0.02810552343726158,
+        "n_pixels": 60217344,
+        "reference_protocol": "legacy-direct-reference"
+      },
+      "violations": {
+        "bias_r": [
+          0.03520927205681801,
+          0.0117
+        ],
+        "bias_g": [
+          0.030403492972254753,
+          0.0117
+        ],
+        "bias_b": [
+          0.02810552343726158,
+          0.0117
+        ]
+      },
+      "candidate_canonical": {
+        "fixture": "test_0011",
+        "case": "sharpen_amount_min",
+        "profile": "detail-fullres",
+        "resolution": "full",
+        "status": "breach",
+        "breaches": [
+          "bias_R +0.0352>0.0117",
+          "bias_G +0.0304>0.0117",
+          "bias_B +0.0281>0.0117"
+        ],
+        "mean": 5.63999904010013
+      },
+      "artifact_paths": {
+        "raw": "/Users/riabuz/Projects/_Maple/test-fixtures/raws/test_0011.ARW",
+        "canonical_xmp": "/Users/riabuz/Projects/_Maple/.codex-worktrees/tone-slider-sprint/test-fixtures/references/test_0011/xmp/sharpen_amount_min.xmp",
+        "main_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/main-canonical-failures/test_0011_sharpen_amount_min.png",
+        "candidate_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/maple-calibrate-XXXXXX.kdJ8km6opt/candidates/test_0011_sharpen_amount_min.png",
+        "reference": "/Users/riabuz/Projects/_Maple/.codex-worktrees/tone-slider-sprint/test-fixtures/references/test_0011/full/sharpen_amount_min.png"
+      },
+      "artifact_sha256": {
+        "raw": "3421b919ee81224d59f78872ee099a021bff0e2a47ae5fbbac385b182ac7241e",
+        "canonical_xmp": "c6042f1be7bc4d5f021a5926841455a1d993fba119c34e962fabc2675d63d923",
+        "main_png": "41bfb812026d174b5cf4e398ed0889abbe7194a027d57b955b2cb5a2fd6212d9",
+        "candidate_png": "217214d0375439db7fd7f629ee7c14386bcdbf0c1694482e8590a894a7f7991b",
+        "reference": "0ba788fe065af7416806289337436bb15b01bcdde3d13cf39f6f9267b5733434"
+      }
+    },
+    {
+      "case": "test_0011/sharpen_detail_max",
+      "resolution": "full",
+      "metrics": {
+        "mean_deltaE": 5.636843201060484,
+        "p95_deltaE": 19.56867730953773,
+        "max_deltaE": 40.156935749226264,
+        "bias_r": 0.03518657758831978,
+        "bias_g": 0.030247891321778297,
+        "bias_b": 0.02798832207918167,
+        "n_pixels": 60217344,
+        "reference_protocol": "legacy-direct-reference"
+      },
+      "violations": {
+        "bias_r": [
+          0.03518657758831978,
+          0.0115
+        ],
+        "bias_g": [
+          0.030247891321778297,
+          0.0115
+        ],
+        "bias_b": [
+          0.02798832207918167,
+          0.0115
+        ]
+      },
+      "candidate_canonical": {
+        "fixture": "test_0011",
+        "case": "sharpen_detail_max",
+        "profile": "detail-fullres",
+        "resolution": "full",
+        "status": "breach",
+        "breaches": [
+          "bias_R +0.0352>0.0115",
+          "bias_G +0.0302>0.0115",
+          "bias_B +0.0280>0.0115"
+        ],
+        "mean": 5.636842939293907
+      },
+      "artifact_paths": {
+        "raw": "/Users/riabuz/Projects/_Maple/test-fixtures/raws/test_0011.ARW",
+        "canonical_xmp": "/Users/riabuz/Projects/_Maple/.codex-worktrees/tone-slider-sprint/test-fixtures/references/test_0011/xmp/sharpen_detail_max.xmp",
+        "main_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/main-canonical-failures/test_0011_sharpen_detail_max.png",
+        "candidate_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/maple-calibrate-XXXXXX.kdJ8km6opt/candidates/test_0011_sharpen_detail_max.png",
+        "reference": "/Users/riabuz/Projects/_Maple/.codex-worktrees/tone-slider-sprint/test-fixtures/references/test_0011/full/sharpen_detail_max.png"
+      },
+      "artifact_sha256": {
+        "raw": "3421b919ee81224d59f78872ee099a021bff0e2a47ae5fbbac385b182ac7241e",
+        "canonical_xmp": "20a0372f6f785e4a1a9cd0a2b27457141e03f70a63d5ebc7bf9ffeecc32963a2",
+        "main_png": "e5419b6157f6b9ea5c7f922ee53ab7d89e3c272a964a94a1b6d1dee3828a49db",
+        "candidate_png": "fa35abc6f2f4f65760064baa29ab5ac6bee72bd41c405f1c692f32f88bafcac0",
+        "reference": "72b07a5229f6722b2a9ed956f2f6bb2830fd8b0eb7121d0284a4971ec9234acf"
+      }
+    },
+    {
+      "case": "test_0011/sharpen_detail_min",
+      "resolution": "full",
+      "metrics": {
+        "mean_deltaE": 5.6415843504281815,
+        "p95_deltaE": 19.656260823490516,
+        "max_deltaE": 40.143452517806054,
+        "bias_r": 0.03520285338163376,
+        "bias_g": 0.030358342453837395,
+        "bias_b": 0.02804666757583618,
+        "n_pixels": 60217344,
+        "reference_protocol": "legacy-direct-reference"
+      },
+      "violations": {
+        "bias_r": [
+          0.03520285338163376,
+          0.0116
+        ],
+        "bias_g": [
+          0.030358342453837395,
+          0.0116
+        ],
+        "bias_b": [
+          0.02804666757583618,
+          0.0116
+        ]
+      },
+      "candidate_canonical": {
+        "fixture": "test_0011",
+        "case": "sharpen_detail_min",
+        "profile": "detail-fullres",
+        "resolution": "full",
+        "status": "breach",
+        "breaches": [
+          "bias_R +0.0352>0.0116",
+          "bias_G +0.0304>0.0116",
+          "bias_B +0.0280>0.0116"
+        ],
+        "mean": 5.641584079873052
+      },
+      "artifact_paths": {
+        "raw": "/Users/riabuz/Projects/_Maple/test-fixtures/raws/test_0011.ARW",
+        "canonical_xmp": "/Users/riabuz/Projects/_Maple/.codex-worktrees/tone-slider-sprint/test-fixtures/references/test_0011/xmp/sharpen_detail_min.xmp",
+        "main_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/main-canonical-failures/test_0011_sharpen_detail_min.png",
+        "candidate_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/maple-calibrate-XXXXXX.kdJ8km6opt/candidates/test_0011_sharpen_detail_min.png",
+        "reference": "/Users/riabuz/Projects/_Maple/.codex-worktrees/tone-slider-sprint/test-fixtures/references/test_0011/full/sharpen_detail_min.png"
+      },
+      "artifact_sha256": {
+        "raw": "3421b919ee81224d59f78872ee099a021bff0e2a47ae5fbbac385b182ac7241e",
+        "canonical_xmp": "bcb08781519df6c6bfc00105c025aac5b2225f93de77999bbb989e0db1f9bf96",
+        "main_png": "e5419b6157f6b9ea5c7f922ee53ab7d89e3c272a964a94a1b6d1dee3828a49db",
+        "candidate_png": "fa35abc6f2f4f65760064baa29ab5ac6bee72bd41c405f1c692f32f88bafcac0",
+        "reference": "f7318612b7ae28c4456670793b96c4c132eeca12e1a5c7be1f300313b9b7499d"
+      }
+    },
+    {
+      "case": "test_0011/sharpen_masking_max",
+      "resolution": "full",
+      "metrics": {
+        "mean_deltaE": 5.641308624169442,
+        "p95_deltaE": 19.65840451862254,
+        "max_deltaE": 39.94317717974424,
+        "bias_r": 0.03521027788519859,
+        "bias_g": 0.030398305505514145,
+        "bias_b": 0.028097372502088547,
+        "n_pixels": 60217344,
+        "reference_protocol": "legacy-direct-reference"
+      },
+      "violations": {
+        "bias_r": [
+          0.03521027788519859,
+          0.0117
+        ],
+        "bias_g": [
+          0.030398305505514145,
+          0.0117
+        ],
+        "bias_b": [
+          0.028097372502088547,
+          0.0117
+        ]
+      },
+      "candidate_canonical": {
+        "fixture": "test_0011",
+        "case": "sharpen_masking_max",
+        "profile": "detail-fullres",
+        "resolution": "full",
+        "status": "breach",
+        "breaches": [
+          "bias_R +0.0352>0.0117",
+          "bias_G +0.0304>0.0117",
+          "bias_B +0.0281>0.0117"
+        ],
+        "mean": 5.641308331951576
+      },
+      "artifact_paths": {
+        "raw": "/Users/riabuz/Projects/_Maple/test-fixtures/raws/test_0011.ARW",
+        "canonical_xmp": "/Users/riabuz/Projects/_Maple/.codex-worktrees/tone-slider-sprint/test-fixtures/references/test_0011/xmp/sharpen_masking_max.xmp",
+        "main_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/main-canonical-failures/test_0011_sharpen_masking_max.png",
+        "candidate_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/maple-calibrate-XXXXXX.kdJ8km6opt/candidates/test_0011_sharpen_masking_max.png",
+        "reference": "/Users/riabuz/Projects/_Maple/.codex-worktrees/tone-slider-sprint/test-fixtures/references/test_0011/full/sharpen_masking_max.png"
+      },
+      "artifact_sha256": {
+        "raw": "3421b919ee81224d59f78872ee099a021bff0e2a47ae5fbbac385b182ac7241e",
+        "canonical_xmp": "ecdff2f1b5ebca2df31b1f5a5b1a30e0f8f725d710d7d9257e3c17294f6f3d31",
+        "main_png": "c06ebce2cc5966b3972f0c9b7aee72b26a5b8edb295762d1fe25c9b63467f0ef",
+        "candidate_png": "7d98e69c65ac297f72e6cb38299f3bbe69b70af9cb2585cb18575f89988f7787",
+        "reference": "576fddb4edefac8bdcc15a9f98f7a2a1d398b971484046fccccfac13da3b615e"
+      }
+    },
+    {
+      "case": "test_0011/sharpen_radius_max",
+      "resolution": "full",
+      "metrics": {
+        "mean_deltaE": 5.630270958441317,
+        "p95_deltaE": 19.638461128002135,
+        "max_deltaE": 39.70697159790982,
+        "bias_r": 0.035021401941776276,
+        "bias_g": 0.03017512895166874,
+        "bias_b": 0.027803897857666016,
+        "n_pixels": 60217344,
+        "reference_protocol": "legacy-direct-reference"
+      },
+      "violations": {
+        "bias_r": [
+          0.035021401941776276,
+          0.0112
+        ],
+        "bias_g": [
+          0.03017512895166874,
+          0.0112
+        ],
+        "bias_b": [
+          0.027803897857666016,
+          0.0112
+        ]
+      },
+      "candidate_canonical": {
+        "fixture": "test_0011",
+        "case": "sharpen_radius_max",
+        "profile": "detail-fullres",
+        "resolution": "full",
+        "status": "breach",
+        "breaches": [
+          "bias_R +0.0350>0.0112",
+          "bias_G +0.0302>0.0112",
+          "bias_B +0.0278>0.0112"
+        ],
+        "mean": 5.630270623321209
+      },
+      "artifact_paths": {
+        "raw": "/Users/riabuz/Projects/_Maple/test-fixtures/raws/test_0011.ARW",
+        "canonical_xmp": "/Users/riabuz/Projects/_Maple/.codex-worktrees/tone-slider-sprint/test-fixtures/references/test_0011/xmp/sharpen_radius_max.xmp",
+        "main_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/main-canonical-failures/test_0011_sharpen_radius_max.png",
+        "candidate_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/maple-calibrate-XXXXXX.kdJ8km6opt/candidates/test_0011_sharpen_radius_max.png",
+        "reference": "/Users/riabuz/Projects/_Maple/.codex-worktrees/tone-slider-sprint/test-fixtures/references/test_0011/full/sharpen_radius_max.png"
+      },
+      "artifact_sha256": {
+        "raw": "3421b919ee81224d59f78872ee099a021bff0e2a47ae5fbbac385b182ac7241e",
+        "canonical_xmp": "66831a4d1dbf4e8a13f7e3cd3f12c6343f82d9efff76f23b1d09f99102d7220e",
+        "main_png": "4fbd6a825b62045fcb48f5639a09ad714121d91d3436c0e4714bec774f98a484",
+        "candidate_png": "32dafa67399152ee5a48689c71364d1de0ed1eda37d7ec64f64b4c7b1a38da81",
+        "reference": "28d798bcea6130d8ee4fbb52fe6fc5ede3812e5ddefd84aaca393559603e0cd3"
+      }
+    },
+    {
+      "case": "test_0011/sharpen_radius_min",
+      "resolution": "full",
+      "metrics": {
+        "mean_deltaE": 5.63972360166283,
+        "p95_deltaE": 19.6264021338804,
+        "max_deltaE": 40.78639143001309,
+        "bias_r": 0.03520577400922775,
+        "bias_g": 0.0303703173995018,
+        "bias_b": 0.028058458119630814,
+        "n_pixels": 60217344,
+        "reference_protocol": "legacy-direct-reference"
+      },
+      "violations": {
+        "bias_r": [
+          0.03520577400922775,
+          0.0116
+        ],
+        "bias_g": [
+          0.0303703173995018,
+          0.0116
+        ],
+        "bias_b": [
+          0.028058458119630814,
+          0.0116
+        ]
+      },
+      "candidate_canonical": {
+        "fixture": "test_0011",
+        "case": "sharpen_radius_min",
+        "profile": "detail-fullres",
+        "resolution": "full",
+        "status": "breach",
+        "breaches": [
+          "bias_R +0.0352>0.0116",
+          "bias_G +0.0304>0.0116",
+          "bias_B +0.0281>0.0116"
+        ],
+        "mean": 5.639723372720114
+      },
+      "artifact_paths": {
+        "raw": "/Users/riabuz/Projects/_Maple/test-fixtures/raws/test_0011.ARW",
+        "canonical_xmp": "/Users/riabuz/Projects/_Maple/.codex-worktrees/tone-slider-sprint/test-fixtures/references/test_0011/xmp/sharpen_radius_min.xmp",
+        "main_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/main-canonical-failures/test_0011_sharpen_radius_min.png",
+        "candidate_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/maple-calibrate-XXXXXX.kdJ8km6opt/candidates/test_0011_sharpen_radius_min.png",
+        "reference": "/Users/riabuz/Projects/_Maple/.codex-worktrees/tone-slider-sprint/test-fixtures/references/test_0011/full/sharpen_radius_min.png"
+      },
+      "artifact_sha256": {
+        "raw": "3421b919ee81224d59f78872ee099a021bff0e2a47ae5fbbac385b182ac7241e",
+        "canonical_xmp": "ffcc6ae09dbc31f554386a79af942bca9812605bb1a302de84cd13c63e6375c0",
+        "main_png": "3ad515dc89bde41a3c6cd118c79351473a495137db3ae19419ecf97311c32677",
+        "candidate_png": "b2e098f96fea77800632c34cf8b0abf35b24faec9dff817ccc8db64d754955b8",
+        "reference": "116080ff5347dddc16ede4639773e7c2e6d6fb2b28f53797b02440ab7c7ee33f"
+      }
+    },
+    {
+      "case": "test_0011/temperature_max",
+      "resolution": "down",
+      "metrics": {
+        "mean_deltaE": 4.942402974928266,
+        "p95_deltaE": 17.649285875532595,
+        "max_deltaE": 37.29975387143575,
+        "bias_r": 0.030682748183608055,
+        "bias_g": 0.027578160166740417,
+        "bias_b": 0.037241432815790176,
+        "n_pixels": 10668000,
+        "reference_protocol": "legacy-direct-reference"
+      },
+      "violations": {
+        "bias_r": [
+          0.030682748183608055,
+          0.0193
+        ],
+        "bias_g": [
+          0.027578160166740417,
+          0.0193
+        ],
+        "bias_b": [
+          0.037241432815790176,
+          0.0193
+        ]
+      },
+      "candidate_canonical": {
+        "fixture": "test_0011",
+        "case": "temperature_max",
+        "profile": "neutral",
+        "resolution": "down",
+        "status": "breach",
+        "breaches": [
+          "bias_R +0.0307>0.0193",
+          "bias_G +0.0276>0.0193",
+          "bias_B +0.0372>0.0193"
+        ],
+        "mean": 4.942403414728161
+      },
+      "artifact_paths": {
+        "raw": "/Users/riabuz/Projects/_Maple/test-fixtures/raws/test_0011.ARW",
+        "canonical_xmp": "/Users/riabuz/Projects/_Maple/.codex-worktrees/tone-slider-sprint/test-fixtures/references/test_0011/xmp/temperature_max.xmp",
+        "main_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/main-canonical-failures/test_0011_temperature_max.png",
+        "candidate_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/maple-calibrate-XXXXXX.kdJ8km6opt/candidates/test_0011_temperature_max.png",
+        "reference": "/Users/riabuz/Projects/_Maple/.codex-worktrees/tone-slider-sprint/test-fixtures/references/test_0011/down/temperature_max.png"
+      },
+      "artifact_sha256": {
+        "raw": "3421b919ee81224d59f78872ee099a021bff0e2a47ae5fbbac385b182ac7241e",
+        "canonical_xmp": "c763ee45fe20cfde582ec3394f02775c1f9115cf07ce60f8e864169ad414cf9e",
+        "main_png": "12a216ffc4a248d993c3900e16ce8e51071c67905519ad66468ed891b44455dc",
+        "candidate_png": "9d9e7ddb5f2f2d50d19f0785d06e01e088b29f1dd9a9219236efe3239d400420",
+        "reference": "170203c4f24f9e81153eb2a45c214a14de55349b05d70e3a28d707a608783f5f"
+      }
+    },
+    {
+      "case": "test_0011/texture_max",
+      "resolution": "down",
+      "metrics": {
+        "mean_deltaE": 5.709884483355872,
+        "p95_deltaE": 19.163434839213295,
+        "max_deltaE": 41.7357235575948,
+        "bias_r": 0.03726452589035034,
+        "bias_g": 0.03057187609374523,
+        "bias_b": 0.030618593096733093,
+        "n_pixels": 10668000,
+        "reference_protocol": "legacy-direct-reference"
+      },
+      "violations": {
+        "bias_r": [
+          0.03726452589035034,
+          0.0153
+        ],
+        "bias_g": [
+          0.03057187609374523,
+          0.0153
+        ],
+        "bias_b": [
+          0.030618593096733093,
+          0.0153
+        ]
+      },
+      "candidate_canonical": {
+        "fixture": "test_0011",
+        "case": "texture_max",
+        "profile": "neutral",
+        "resolution": "down",
+        "status": "breach",
+        "breaches": [
+          "bias_R +0.0373>0.0153",
+          "bias_G +0.0306>0.0153",
+          "bias_B +0.0306>0.0153"
+        ],
+        "mean": 5.709883679001915
+      },
+      "artifact_paths": {
+        "raw": "/Users/riabuz/Projects/_Maple/test-fixtures/raws/test_0011.ARW",
+        "canonical_xmp": "/Users/riabuz/Projects/_Maple/.codex-worktrees/tone-slider-sprint/test-fixtures/references/test_0011/xmp/texture_max.xmp",
+        "main_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/main-canonical-failures/test_0011_texture_max.png",
+        "candidate_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/maple-calibrate-XXXXXX.kdJ8km6opt/candidates/test_0011_texture_max.png",
+        "reference": "/Users/riabuz/Projects/_Maple/.codex-worktrees/tone-slider-sprint/test-fixtures/references/test_0011/down/texture_max.png"
+      },
+      "artifact_sha256": {
+        "raw": "3421b919ee81224d59f78872ee099a021bff0e2a47ae5fbbac385b182ac7241e",
+        "canonical_xmp": "7591efce4b3867a45988c09f87feac5b282819a3b9d91b605633e43a46bf6724",
+        "main_png": "bc36fcd17f68889a4ca486366e1eb05df197c48a1f0fbbf9f92b60a693a453a8",
+        "candidate_png": "094b5195cedb46d875adb07674254b48c3ab9ca312f08658d1376a4bc2b544c0",
+        "reference": "ed40e8f3bc55495d668f39c0a8a2948de2d8804c906af1f2773a4855053c1283"
+      }
+    },
+    {
+      "case": "test_0011/texture_min",
+      "resolution": "down",
+      "metrics": {
+        "mean_deltaE": 5.704383089029215,
+        "p95_deltaE": 19.865637527598942,
+        "max_deltaE": 37.07626626009783,
+        "bias_r": 0.0384875051677227,
+        "bias_g": 0.03249484300613403,
+        "bias_b": 0.031924616545438766,
+        "n_pixels": 10668000,
+        "reference_protocol": "legacy-direct-reference"
+      },
+      "violations": {
+        "bias_r": [
+          0.0384875051677227,
+          0.0168
+        ],
+        "bias_g": [
+          0.03249484300613403,
+          0.0168
+        ],
+        "bias_b": [
+          0.031924616545438766,
+          0.0168
+        ]
+      },
+      "candidate_canonical": {
+        "fixture": "test_0011",
+        "case": "texture_min",
+        "profile": "neutral",
+        "resolution": "down",
+        "status": "breach",
+        "breaches": [
+          "bias_R +0.0385>0.0168",
+          "bias_G +0.0325>0.0168",
+          "bias_B +0.0319>0.0168"
+        ],
+        "mean": 5.704382446319637
+      },
+      "artifact_paths": {
+        "raw": "/Users/riabuz/Projects/_Maple/test-fixtures/raws/test_0011.ARW",
+        "canonical_xmp": "/Users/riabuz/Projects/_Maple/.codex-worktrees/tone-slider-sprint/test-fixtures/references/test_0011/xmp/texture_min.xmp",
+        "main_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/main-canonical-failures/test_0011_texture_min.png",
+        "candidate_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/maple-calibrate-XXXXXX.kdJ8km6opt/candidates/test_0011_texture_min.png",
+        "reference": "/Users/riabuz/Projects/_Maple/.codex-worktrees/tone-slider-sprint/test-fixtures/references/test_0011/down/texture_min.png"
+      },
+      "artifact_sha256": {
+        "raw": "3421b919ee81224d59f78872ee099a021bff0e2a47ae5fbbac385b182ac7241e",
+        "canonical_xmp": "4c4c8ede82f537ab7b749929ca659615367e9747ddb25d06b0ab61405152ab9f",
+        "main_png": "c17a1d0ef5e42333d93d159cf289d8ea71c8ee33bcd0f40fedfd17fd96692c5f",
+        "candidate_png": "fa4444dbb19f9b5de18980aa891250170cea844188b39b20a290be99ee1e1760",
+        "reference": "776978bd30837ea6e8c422b2ecadc9b289f0d98fd2d86735de1ddd88a7303131"
+      }
+    },
+    {
+      "case": "test_0011/tint_max",
+      "resolution": "down",
+      "metrics": {
+        "mean_deltaE": 16.388465037811372,
+        "p95_deltaE": 29.689368409319332,
+        "max_deltaE": 42.72873109684518,
+        "bias_r": 0.13786935806274414,
+        "bias_g": -0.006830006372183561,
+        "bias_b": 0.04854685068130493,
+        "n_pixels": 10668000,
+        "reference_protocol": "legacy-direct-reference"
+      },
+      "violations": {
+        "bias_r": [
+          0.13786935806274414,
+          0.115
+        ]
+      },
+      "candidate_canonical": {
+        "fixture": "test_0011",
+        "case": "tint_max",
+        "profile": "neutral",
+        "resolution": "down",
+        "status": "breach",
+        "breaches": [
+          "bias_R +0.1379>0.1150"
+        ],
+        "mean": 16.38846262813931
+      },
+      "artifact_paths": {
+        "raw": "/Users/riabuz/Projects/_Maple/test-fixtures/raws/test_0011.ARW",
+        "canonical_xmp": "/Users/riabuz/Projects/_Maple/.codex-worktrees/tone-slider-sprint/test-fixtures/references/test_0011/xmp/tint_max.xmp",
+        "main_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/main-tint-diagnostics/test_0011_tint_max.png",
+        "candidate_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/maple-calibrate-XXXXXX.kdJ8km6opt/candidates/test_0011_tint_max.png",
+        "reference": "/Users/riabuz/Projects/_Maple/.codex-worktrees/tone-slider-sprint/test-fixtures/references/test_0011/down/tint_max.png"
+      },
+      "artifact_sha256": {
+        "raw": "3421b919ee81224d59f78872ee099a021bff0e2a47ae5fbbac385b182ac7241e",
+        "canonical_xmp": "9153671514de3d9e5f8b99d1a1cbc5de53526b322e90c4b00c47b32b70ef2bf6",
+        "main_png": "014caf169c9436c66e132038438a545d1b0a88d0e176d859276ff33361d70af3",
+        "candidate_png": "11510853d9c6497264137a3ee390900f9d34f55a88fd42779ebe11d6d3419aa0",
+        "reference": "f1b5cfcd2e91d606869858cc8cb6dc6446b6cd9c681d8044cfcbaabb8f82b77d"
+      }
+    },
+    {
+      "case": "test_0011/tint_min",
+      "resolution": "down",
+      "metrics": {
+        "mean_deltaE": 14.885176002740478,
+        "p95_deltaE": 25.949337462679196,
+        "max_deltaE": 47.55517184367116,
+        "bias_r": 0.019214486703276634,
+        "bias_g": 0.071176677942276,
+        "bias_b": -0.037786878645420074,
+        "n_pixels": 10668000,
+        "reference_protocol": "legacy-direct-reference"
+      },
+      "violations": {
+        "bias_g": [
+          0.071176677942276,
+          0.0659
+        ]
+      },
+      "candidate_canonical": {
+        "fixture": "test_0011",
+        "case": "tint_min",
+        "profile": "neutral",
+        "resolution": "down",
+        "status": "breach",
+        "breaches": [
+          "bias_G +0.0712>0.0659"
+        ],
+        "mean": 14.885175836280393
+      },
+      "artifact_paths": {
+        "raw": "/Users/riabuz/Projects/_Maple/test-fixtures/raws/test_0011.ARW",
+        "canonical_xmp": "/Users/riabuz/Projects/_Maple/.codex-worktrees/tone-slider-sprint/test-fixtures/references/test_0011/xmp/tint_min.xmp",
+        "main_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/main-tint-diagnostics/test_0011_tint_min.png",
+        "candidate_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/maple-calibrate-XXXXXX.kdJ8km6opt/candidates/test_0011_tint_min.png",
+        "reference": "/Users/riabuz/Projects/_Maple/.codex-worktrees/tone-slider-sprint/test-fixtures/references/test_0011/down/tint_min.png"
+      },
+      "artifact_sha256": {
+        "raw": "3421b919ee81224d59f78872ee099a021bff0e2a47ae5fbbac385b182ac7241e",
+        "canonical_xmp": "e307c836d4d66b1d1e81b2f75107fd2a71d4e9ebf6422d3a6648ca97a127c67f",
+        "main_png": "119f02f58228dab9b368e84860a31e029915c2f9c12e676526f8ed514f46b875",
+        "candidate_png": "8442352a0faa5cd9748b20de35f72ea4c0f8e3226e7709f03447cf2d8408997d",
+        "reference": "9f72fe0623cae18702d3098e6bb043f6ba94176eb5d63b07f1285f59f5ad6341"
+      }
+    },
+    {
+      "case": "test_0011/vibrance_max",
+      "resolution": "down",
+      "metrics": {
+        "mean_deltaE": 7.005350749054003,
+        "p95_deltaE": 21.27798958357725,
+        "max_deltaE": 50.67703889290107,
+        "bias_r": 0.06709472835063934,
+        "bias_g": 0.049433112144470215,
+        "bias_b": 0.033764731138944626,
+        "n_pixels": 10668000,
+        "reference_protocol": "legacy-direct-reference"
+      },
+      "violations": {
+        "bias_r": [
+          0.06709472835063934,
+          0.0349
+        ],
+        "bias_g": [
+          0.049433112144470215,
+          0.0349
+        ]
+      },
+      "candidate_canonical": {
+        "fixture": "test_0011",
+        "case": "vibrance_max",
+        "profile": "neutral",
+        "resolution": "down",
+        "status": "breach",
+        "breaches": [
+          "bias_R +0.0671>0.0349",
+          "bias_G +0.0494>0.0349"
+        ],
+        "mean": 7.005350099776558
+      },
+      "artifact_paths": {
+        "raw": "/Users/riabuz/Projects/_Maple/test-fixtures/raws/test_0011.ARW",
+        "canonical_xmp": "/Users/riabuz/Projects/_Maple/.codex-worktrees/tone-slider-sprint/test-fixtures/references/test_0011/xmp/vibrance_max.xmp",
+        "main_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/main-canonical-failures/test_0011_vibrance_max.png",
+        "candidate_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/maple-calibrate-XXXXXX.kdJ8km6opt/candidates/test_0011_vibrance_max.png",
+        "reference": "/Users/riabuz/Projects/_Maple/.codex-worktrees/tone-slider-sprint/test-fixtures/references/test_0011/down/vibrance_max.png"
+      },
+      "artifact_sha256": {
+        "raw": "3421b919ee81224d59f78872ee099a021bff0e2a47ae5fbbac385b182ac7241e",
+        "canonical_xmp": "2d8e0c447a012f7eaa323bc2200a3086d4b295dec292b82219771dc0087afba9",
+        "main_png": "556718735c37ee541721db06840be1cbd2600c86f5c87c4be90edc7ce0f34f07",
+        "candidate_png": "b470ebc3bb3c30e00653de50ab5769699fa119767306fd02d4d5e9edb28367be",
+        "reference": "5505485b64145587072b1ed01da9ff2929f86bd018afaf24bb8f407c5cef391a"
+      }
+    },
+    {
+      "case": "test_0011/vibrance_min",
+      "resolution": "down",
+      "metrics": {
+        "mean_deltaE": 5.201046053303782,
+        "p95_deltaE": 21.614389831933288,
+        "max_deltaE": 41.51153866703387,
+        "bias_r": 0.043427638709545135,
+        "bias_g": 0.04285181313753128,
+        "bias_b": 0.04380549117922783,
+        "n_pixels": 10668000,
+        "reference_protocol": "legacy-direct-reference"
+      },
+      "violations": {
+        "bias_r": [
+          0.043427638709545135,
+          0.0225
+        ],
+        "bias_g": [
+          0.04285181313753128,
+          0.0225
+        ],
+        "bias_b": [
+          0.04380549117922783,
+          0.0225
+        ]
+      },
+      "candidate_canonical": {
+        "fixture": "test_0011",
+        "case": "vibrance_min",
+        "profile": "neutral",
+        "resolution": "down",
+        "status": "breach",
+        "breaches": [
+          "bias_R +0.0434>0.0225",
+          "bias_G +0.0429>0.0225",
+          "bias_B +0.0438>0.0225"
+        ],
+        "mean": 5.20104566608813
+      },
+      "artifact_paths": {
+        "raw": "/Users/riabuz/Projects/_Maple/test-fixtures/raws/test_0011.ARW",
+        "canonical_xmp": "/Users/riabuz/Projects/_Maple/.codex-worktrees/tone-slider-sprint/test-fixtures/references/test_0011/xmp/vibrance_min.xmp",
+        "main_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/main-canonical-failures/test_0011_vibrance_min.png",
+        "candidate_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/maple-calibrate-XXXXXX.kdJ8km6opt/candidates/test_0011_vibrance_min.png",
+        "reference": "/Users/riabuz/Projects/_Maple/.codex-worktrees/tone-slider-sprint/test-fixtures/references/test_0011/down/vibrance_min.png"
+      },
+      "artifact_sha256": {
+        "raw": "3421b919ee81224d59f78872ee099a021bff0e2a47ae5fbbac385b182ac7241e",
+        "canonical_xmp": "37425186952af760870ea3fd259ed0f5016a31abaa806638d04b046a26166cb3",
+        "main_png": "13eb0f3c7bf837e0b6a3b615b7722de4b733a04dafcdfa805930fd59f538bc25",
+        "candidate_png": "4c3519d86605acb0e9826aecfca770e759542bc220e7ae3159f57ede29999808",
+        "reference": "ede0f7be44036d24cd4cc68791fccbc8525e4a2dacf52b3b17a42c2691cec7ff"
+      }
+    },
+    {
+      "case": "test_0011/wb_auto",
+      "resolution": "down",
+      "metrics": {
+        "mean_deltaE": 7.038574603586476,
+        "p95_deltaE": 19.90772128213458,
+        "max_deltaE": 39.09599853484845,
+        "bias_r": 0.04582846909761429,
+        "bias_g": 0.02665131725370884,
+        "bias_b": 0.046309199184179306,
+        "n_pixels": 10668000,
+        "reference_protocol": "legacy-direct-reference"
+      },
+      "violations": {
+        "bias_r": [
+          0.04582846909761429,
+          0.0317
+        ],
+        "bias_b": [
+          0.046309199184179306,
+          0.0317
+        ]
+      },
+      "candidate_canonical": {
+        "fixture": "test_0011",
+        "case": "wb_auto",
+        "profile": "neutral",
+        "resolution": "down",
+        "status": "breach",
+        "breaches": [
+          "bias_R +0.0458>0.0317",
+          "bias_B +0.0463>0.0317"
+        ],
+        "mean": 7.038573543046314
+      },
+      "artifact_paths": {
+        "raw": "/Users/riabuz/Projects/_Maple/test-fixtures/raws/test_0011.ARW",
+        "canonical_xmp": "/Users/riabuz/Projects/_Maple/.codex-worktrees/tone-slider-sprint/test-fixtures/references/test_0011/xmp/wb_auto.xmp",
+        "main_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/main-canonical-failures/test_0011_wb_auto.png",
+        "candidate_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/maple-calibrate-XXXXXX.kdJ8km6opt/candidates/test_0011_wb_auto.png",
+        "reference": "/Users/riabuz/Projects/_Maple/.codex-worktrees/tone-slider-sprint/test-fixtures/references/test_0011/down/wb_auto.png"
+      },
+      "artifact_sha256": {
+        "raw": "3421b919ee81224d59f78872ee099a021bff0e2a47ae5fbbac385b182ac7241e",
+        "canonical_xmp": "5ffc4db74020a2fdc0bd21da04ea40dae715a374f8cd40114d541f3d6c9cab3f",
+        "main_png": "e5419b6157f6b9ea5c7f922ee53ab7d89e3c272a964a94a1b6d1dee3828a49db",
+        "candidate_png": "fa35abc6f2f4f65760064baa29ab5ac6bee72bd41c405f1c692f32f88bafcac0",
+        "reference": "f1f9829f803ee264ae35a1dcff595d1596dbfe407991506b89eb3973331ea793"
+      }
+    },
+    {
+      "case": "test_0011/wb_cloudy",
+      "resolution": "down",
+      "metrics": {
+        "mean_deltaE": 5.804076788232693,
+        "p95_deltaE": 19.806156466451515,
+        "max_deltaE": 38.946173696125605,
+        "bias_r": 0.05070958286523819,
+        "bias_g": 0.03508157655596733,
+        "bias_b": 0.03248368203639984,
+        "n_pixels": 10668000,
+        "reference_protocol": "legacy-direct-reference"
+      },
+      "violations": {
+        "bias_r": [
+          0.05070958286523819,
+          0.0299
+        ],
+        "bias_g": [
+          0.03508157655596733,
+          0.0299
+        ],
+        "bias_b": [
+          0.03248368203639984,
+          0.0299
+        ]
+      },
+      "candidate_canonical": {
+        "fixture": "test_0011",
+        "case": "wb_cloudy",
+        "profile": "neutral",
+        "resolution": "down",
+        "status": "breach",
+        "breaches": [
+          "bias_R +0.0507>0.0299",
+          "bias_G +0.0351>0.0299",
+          "bias_B +0.0325>0.0299"
+        ],
+        "mean": 5.804076027315718
+      },
+      "artifact_paths": {
+        "raw": "/Users/riabuz/Projects/_Maple/test-fixtures/raws/test_0011.ARW",
+        "canonical_xmp": "/Users/riabuz/Projects/_Maple/.codex-worktrees/tone-slider-sprint/test-fixtures/references/test_0011/xmp/wb_cloudy.xmp",
+        "main_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/main-canonical-failures/test_0011_wb_cloudy.png",
+        "candidate_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/maple-calibrate-XXXXXX.kdJ8km6opt/candidates/test_0011_wb_cloudy.png",
+        "reference": "/Users/riabuz/Projects/_Maple/.codex-worktrees/tone-slider-sprint/test-fixtures/references/test_0011/down/wb_cloudy.png"
+      },
+      "artifact_sha256": {
+        "raw": "3421b919ee81224d59f78872ee099a021bff0e2a47ae5fbbac385b182ac7241e",
+        "canonical_xmp": "ee3af5243d1bbcc53442b5dbb268ea010a77a6cfbe6a84d0fabd573691f06cb6",
+        "main_png": "46c65ba529b28e26938ce42cd04bccbb51eec2d06ba392406a47ca6b5df6bc55",
+        "candidate_png": "a27b61a4f546b90d5c119c0b3df103df99504bca855975d8f29634890fe5e830",
+        "reference": "dcc42693b97057ef2e95d8b53628565aa56c7f7b82f327462ff8481c2b6e6917"
+      }
+    },
+    {
+      "case": "test_0011/wb_daylight",
+      "resolution": "down",
+      "metrics": {
+        "mean_deltaE": 6.5095032680218905,
+        "p95_deltaE": 20.26687159265375,
+        "max_deltaE": 39.5354122924353,
+        "bias_r": 0.0546284057199955,
+        "bias_g": 0.030705157667398453,
+        "bias_b": 0.028833910822868347,
+        "n_pixels": 10668000,
+        "reference_protocol": "legacy-direct-reference"
+      },
+      "violations": {
+        "bias_r": [
+          0.0546284057199955,
+          0.0323
+        ]
+      },
+      "candidate_canonical": {
+        "fixture": "test_0011",
+        "case": "wb_daylight",
+        "profile": "neutral",
+        "resolution": "down",
+        "status": "breach",
+        "breaches": [
+          "bias_R +0.0546>0.0323"
+        ],
+        "mean": 6.50950260697684
+      },
+      "artifact_paths": {
+        "raw": "/Users/riabuz/Projects/_Maple/test-fixtures/raws/test_0011.ARW",
+        "canonical_xmp": "/Users/riabuz/Projects/_Maple/.codex-worktrees/tone-slider-sprint/test-fixtures/references/test_0011/xmp/wb_daylight.xmp",
+        "main_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/main-canonical-failures/test_0011_wb_daylight.png",
+        "candidate_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/maple-calibrate-XXXXXX.kdJ8km6opt/candidates/test_0011_wb_daylight.png",
+        "reference": "/Users/riabuz/Projects/_Maple/.codex-worktrees/tone-slider-sprint/test-fixtures/references/test_0011/down/wb_daylight.png"
+      },
+      "artifact_sha256": {
+        "raw": "3421b919ee81224d59f78872ee099a021bff0e2a47ae5fbbac385b182ac7241e",
+        "canonical_xmp": "6f699378fa166d2b371111ff9260f19c6baa5f7569a70048b1fbb482e1ada225",
+        "main_png": "353648d6db57497ffcfe63b6dc44d161bc6510753ac9c13480df1984752089ff",
+        "candidate_png": "81f06f670c5c0a528ac9259fb4558f6994faa35d9ac5a177aa1505b3d3fd2fd6",
+        "reference": "565c659a0edfe7adeadc28cfffaadcd71c7c1a51eea226d66db3bdca33eb99b2"
+      }
+    },
+    {
+      "case": "test_0011/wb_flash",
+      "resolution": "down",
+      "metrics": {
+        "mean_deltaE": 6.386439989671121,
+        "p95_deltaE": 20.294169462062552,
+        "max_deltaE": 40.428395710290125,
+        "bias_r": 0.058627016842365265,
+        "bias_g": 0.03291148319840431,
+        "bias_b": 0.031130565330386162,
+        "n_pixels": 10668000,
+        "reference_protocol": "legacy-direct-reference"
+      },
+      "violations": {
+        "bias_r": [
+          0.058627016842365265,
+          0.0366
+        ]
+      },
+      "candidate_canonical": {
+        "fixture": "test_0011",
+        "case": "wb_flash",
+        "profile": "neutral",
+        "resolution": "down",
+        "status": "breach",
+        "breaches": [
+          "bias_R +0.0586>0.0366"
+        ],
+        "mean": 6.386439639308225
+      },
+      "artifact_paths": {
+        "raw": "/Users/riabuz/Projects/_Maple/test-fixtures/raws/test_0011.ARW",
+        "canonical_xmp": "/Users/riabuz/Projects/_Maple/.codex-worktrees/tone-slider-sprint/test-fixtures/references/test_0011/xmp/wb_flash.xmp",
+        "main_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/main-canonical-failures/test_0011_wb_flash.png",
+        "candidate_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/maple-calibrate-XXXXXX.kdJ8km6opt/candidates/test_0011_wb_flash.png",
+        "reference": "/Users/riabuz/Projects/_Maple/.codex-worktrees/tone-slider-sprint/test-fixtures/references/test_0011/down/wb_flash.png"
+      },
+      "artifact_sha256": {
+        "raw": "3421b919ee81224d59f78872ee099a021bff0e2a47ae5fbbac385b182ac7241e",
+        "canonical_xmp": "dddba9e356dac04044dd09aa5d11f1bf0e6288092d1e9ec343faed707a7ed6d5",
+        "main_png": "ae2413c0bcc3dd718059bf1f89e983567dedba8ef7499cd8e01528cf62b9ef32",
+        "candidate_png": "5db7b65635b6a51696bf3bb1189861c4440cc9c3f272baa1c1b0d53f76a9b14f",
+        "reference": "dbc50fa6be37caac22fdce73784fa6ace9fea574119edbca1160e62bf15364e6"
+      }
+    },
+    {
+      "case": "test_0011/wb_shade",
+      "resolution": "down",
+      "metrics": {
+        "mean_deltaE": 5.40187065726573,
+        "p95_deltaE": 19.42317670613636,
+        "max_deltaE": 39.16727963895768,
+        "bias_r": 0.04923297464847565,
+        "bias_g": 0.03737170621752739,
+        "bias_b": 0.03577415645122528,
+        "n_pixels": 10668000,
+        "reference_protocol": "legacy-direct-reference"
+      },
+      "violations": {
+        "bias_r": [
+          0.04923297464847565,
+          0.0281
+        ],
+        "bias_g": [
+          0.03737170621752739,
+          0.0281
+        ],
+        "bias_b": [
+          0.03577415645122528,
+          0.0281
+        ]
+      },
+      "candidate_canonical": {
+        "fixture": "test_0011",
+        "case": "wb_shade",
+        "profile": "neutral",
+        "resolution": "down",
+        "status": "breach",
+        "breaches": [
+          "bias_R +0.0492>0.0281",
+          "bias_G +0.0374>0.0281",
+          "bias_B +0.0358>0.0281"
+        ],
+        "mean": 5.401869673056533
+      },
+      "artifact_paths": {
+        "raw": "/Users/riabuz/Projects/_Maple/test-fixtures/raws/test_0011.ARW",
+        "canonical_xmp": "/Users/riabuz/Projects/_Maple/.codex-worktrees/tone-slider-sprint/test-fixtures/references/test_0011/xmp/wb_shade.xmp",
+        "main_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/main-canonical-failures/test_0011_wb_shade.png",
+        "candidate_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/maple-calibrate-XXXXXX.kdJ8km6opt/candidates/test_0011_wb_shade.png",
+        "reference": "/Users/riabuz/Projects/_Maple/.codex-worktrees/tone-slider-sprint/test-fixtures/references/test_0011/down/wb_shade.png"
+      },
+      "artifact_sha256": {
+        "raw": "3421b919ee81224d59f78872ee099a021bff0e2a47ae5fbbac385b182ac7241e",
+        "canonical_xmp": "4e83a149b86cd884ddc5212f931bfbc453ef3c60d86432dc2ef64e90d283953b",
+        "main_png": "56c7e3d54f6f165a6713f9415a3b8b72851e300000b4ce292fd7564a4854d8fc",
+        "candidate_png": "7da7c90c782927e10e9788098380b630162ef6ab4bdd32a8267c5f80a33af95f",
+        "reference": "1e35897cd6b16c153f168687de5eb0a24656e0eded86d2fb5b80671f8da81852"
+      }
+    },
+    {
+      "case": "test_0011/whites_max",
+      "resolution": "down",
+      "metrics": {
+        "mean_deltaE": 11.1122503587036,
+        "p95_deltaE": 28.942059527712654,
+        "max_deltaE": 52.6300854595671,
+        "bias_r": 0.022074436768889427,
+        "bias_g": 0.022734638303518295,
+        "bias_b": 0.061692073941230774,
+        "n_pixels": 10668000,
+        "reference_protocol": "legacy-direct-reference"
+      },
+      "violations": {
+        "mean": [
+          11.1122503587036,
+          10.4
+        ],
+        "p95": [
+          28.942059527712654,
+          18.8
+        ]
+      },
+      "candidate_canonical": {
+        "fixture": "test_0011",
+        "case": "whites_max",
+        "profile": "neutral",
+        "resolution": "down",
+        "status": "breach",
+        "breaches": [
+          "mean 11.11>10.40",
+          "p95 28.94>18.80"
+        ],
+        "mean": 11.11224957577856
+      },
+      "artifact_paths": {
+        "raw": "/Users/riabuz/Projects/_Maple/test-fixtures/raws/test_0011.ARW",
+        "canonical_xmp": "/Users/riabuz/Projects/_Maple/.codex-worktrees/tone-slider-sprint/test-fixtures/references/test_0011/xmp/whites_max.xmp",
+        "main_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/main-canonical-failures/test_0011_whites_max.png",
+        "candidate_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/maple-calibrate-XXXXXX.kdJ8km6opt/candidates/test_0011_whites_max.png",
+        "reference": "/Users/riabuz/Projects/_Maple/.codex-worktrees/tone-slider-sprint/test-fixtures/references/test_0011/down/whites_max.png"
+      },
+      "artifact_sha256": {
+        "raw": "3421b919ee81224d59f78872ee099a021bff0e2a47ae5fbbac385b182ac7241e",
+        "canonical_xmp": "9f46d554ce6b687660212dedd3af494ea412ce8986fc21f6557d9d057bb90ba9",
+        "main_png": "93deefd915c8aaec3370ee28600224ef5dd126ab7a3a80a1e9f99ecbfc5e367c",
+        "candidate_png": "8333ab2013fb725b01400c22ca2f7c12b3b03cabf89f8604fdb41ce77311162c",
+        "reference": "e6aeea5f0c4fb2f35028bf21f064fcc42688fb46609081e9cebbdbda4c84a03a"
+      }
+    },
+    {
+      "case": "test_0012/tint_max",
+      "resolution": "down",
+      "metrics": {
+        "mean_deltaE": 18.863690360078085,
+        "p95_deltaE": 33.5041198076819,
+        "max_deltaE": 99.10329670003392,
+        "bias_r": 0.12327214330434799,
+        "bias_g": -0.01977698877453804,
+        "bias_b": 0.17605751752853394,
+        "n_pixels": 12000000,
+        "reference_protocol": "legacy-direct-reference"
+      },
+      "violations": {
+        "p95": [
+          33.5041198076819,
+          33.4
+        ]
+      },
+      "candidate_canonical": {
+        "fixture": "test_0012",
+        "case": "tint_max",
+        "profile": "neutral",
+        "resolution": "down",
+        "status": "breach",
+        "breaches": [
+          "p95 33.50>33.40"
+        ],
+        "mean": 18.863506702920162
+      },
+      "artifact_paths": {
+        "raw": "/Users/riabuz/Projects/_Maple/test-fixtures/raws/test_0012.raf",
+        "canonical_xmp": "/Users/riabuz/Projects/_Maple/.codex-worktrees/tone-slider-sprint/test-fixtures/references/test_0012/xmp/tint_max.xmp",
+        "main_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/main-tint-diagnostics/test_0012_tint_max.png",
+        "candidate_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/maple-calibrate-XXXXXX.kdJ8km6opt/candidates/test_0012_tint_max.png",
+        "reference": "/Users/riabuz/Projects/_Maple/.codex-worktrees/tone-slider-sprint/test-fixtures/references/test_0012/down/tint_max.png"
+      },
+      "artifact_sha256": {
+        "raw": "35109fc20a849026c43c47674902431ef5a2d54b09b616995263dc75df17912f",
+        "canonical_xmp": "9153671514de3d9e5f8b99d1a1cbc5de53526b322e90c4b00c47b32b70ef2bf6",
+        "main_png": "33e4614509e00475f060a031d23e27e24339f2c1d1c5e3a36485ffb508f835a6",
+        "candidate_png": "60d9f8975f21629d2283072392360f901d3e89ae2082fd6a8d820cfc8a155a58",
+        "reference": "7c1b8e7fa4bffc8c04a6b35bd403a7baba8a5e1ff4b95dede3efc523d960983a"
+      }
+    },
+    {
+      "case": "test_0012/whites_max",
+      "resolution": "down",
+      "metrics": {
+        "mean_deltaE": 12.939178483683255,
+        "p95_deltaE": 31.529101957480925,
+        "max_deltaE": 100.00000073400935,
+        "bias_r": 0.08794835209846497,
+        "bias_g": 0.017652548849582672,
+        "bias_b": 0.02773502841591835,
+        "n_pixels": 12000000,
+        "reference_protocol": "legacy-direct-reference"
+      },
+      "violations": {
+        "p95": [
+          31.529101957480925,
+          29.6
+        ]
+      },
+      "candidate_canonical": {
+        "fixture": "test_0012",
+        "case": "whites_max",
+        "profile": "neutral",
+        "resolution": "down",
+        "status": "breach",
+        "breaches": [
+          "p95 31.53>29.60"
+        ],
+        "mean": 12.93872037778815
+      },
+      "artifact_paths": {
+        "raw": "/Users/riabuz/Projects/_Maple/test-fixtures/raws/test_0012.raf",
+        "canonical_xmp": "/Users/riabuz/Projects/_Maple/.codex-worktrees/tone-slider-sprint/test-fixtures/references/test_0012/xmp/whites_max.xmp",
+        "main_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/main-canonical-failures/test_0012_whites_max.png",
+        "candidate_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/maple-calibrate-XXXXXX.kdJ8km6opt/candidates/test_0012_whites_max.png",
+        "reference": "/Users/riabuz/Projects/_Maple/.codex-worktrees/tone-slider-sprint/test-fixtures/references/test_0012/down/whites_max.png"
+      },
+      "artifact_sha256": {
+        "raw": "35109fc20a849026c43c47674902431ef5a2d54b09b616995263dc75df17912f",
+        "canonical_xmp": "9f46d554ce6b687660212dedd3af494ea412ce8986fc21f6557d9d057bb90ba9",
+        "main_png": "105eac2a2b1187901661fd4b960497d2c5f485bfd65ce9b93098ad237e9043ec",
+        "candidate_png": "46d021f5b54b06473331a5ed6ca49f1a1bec62f92fc5fd9d9b417f93c64e2cf9",
+        "reference": "782c7031e2bf963b31889118a2bcdc259c7f848908b4a513c3f3810c3f79d975"
+      }
+    },
+    {
+      "case": "test_0013/tint_max",
+      "resolution": "down",
+      "metrics": {
+        "mean_deltaE": 18.087725421926425,
+        "p95_deltaE": 25.136340393225606,
+        "max_deltaE": 38.8129337552544,
+        "bias_r": 0.024983318522572517,
+        "bias_g": -0.10487700253725052,
+        "bias_b": 0.04058285057544708,
+        "n_pixels": 12000000,
+        "reference_protocol": "legacy-direct-reference"
+      },
+      "violations": {
+        "max": [
+          38.8129337552544,
+          37.8
+        ],
+        "bias_g": [
+          -0.10487700253725052,
+          0.0968
+        ]
+      },
+      "candidate_canonical": {
+        "fixture": "test_0013",
+        "case": "tint_max",
+        "profile": "neutral",
+        "resolution": "down",
+        "status": "breach",
+        "breaches": [
+          "max 38.81>37.80",
+          "bias_G -0.1049>0.0968"
+        ],
+        "mean": 18.087725421926425
+      },
+      "artifact_paths": {
+        "raw": "/Users/riabuz/Projects/_Maple/test-fixtures/raws/test_0013.DNG",
+        "canonical_xmp": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0013/xmp/tint_max.xmp",
+        "main_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/main-tint-diagnostics/test_0013_tint_max.png",
+        "candidate_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/maple-calibrate-XXXXXX.kdJ8km6opt/candidates/test_0013_tint_max.png",
+        "reference": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0013/down/tint_max.png"
+      },
+      "artifact_sha256": {
+        "raw": "e91e77a4533ed7cce551d83330676ea5c47dd5e55fb38adda7819366afdbdfc2",
+        "canonical_xmp": "9153671514de3d9e5f8b99d1a1cbc5de53526b322e90c4b00c47b32b70ef2bf6",
+        "main_png": "9455e86ca264f7ec0364faa947c859d86e50cca686aa768257d3366ef0283155",
+        "candidate_png": "9455e86ca264f7ec0364faa947c859d86e50cca686aa768257d3366ef0283155",
+        "reference": "c9c259c94dca270cd5f24a8fa5348fd228a3418642f7754b40017b740c1f8037"
+      }
+    },
+    {
+      "case": "test_0013/whites_min",
+      "resolution": "down",
+      "metrics": {
+        "mean_deltaE": 5.744393666486519,
+        "p95_deltaE": 8.393102006185384,
+        "max_deltaE": 22.954914877585725,
+        "bias_r": -0.01776207610964775,
+        "bias_g": -0.03563281148672104,
+        "bias_b": -0.04558729752898216,
+        "n_pixels": 12000000,
+        "reference_protocol": "legacy-direct-reference"
+      },
+      "violations": {
+        "mean": [
+          5.744393666486519,
+          5.0
+        ],
+        "p95": [
+          8.393102006185384,
+          8.3
+        ],
+        "bias_r": [
+          -0.01776207610964775,
+          0.0153
+        ],
+        "bias_g": [
+          -0.03563281148672104,
+          0.0153
+        ],
+        "bias_b": [
+          -0.04558729752898216,
+          0.0153
+        ]
+      },
+      "candidate_canonical": {
+        "fixture": "test_0013",
+        "case": "whites_min",
+        "profile": "neutral",
+        "resolution": "down",
+        "status": "breach",
+        "breaches": [
+          "mean 5.74>5.00",
+          "p95 8.39>8.30",
+          "bias_R -0.0178>0.0153",
+          "bias_G -0.0356>0.0153",
+          "bias_B -0.0456>0.0153"
+        ],
+        "mean": 5.744393666486519
+      },
+      "artifact_paths": {
+        "raw": "/Users/riabuz/Projects/_Maple/test-fixtures/raws/test_0013.DNG",
+        "canonical_xmp": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0013/xmp/whites_min.xmp",
+        "main_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/main-canonical-failures/test_0013_whites_min.png",
+        "candidate_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/maple-calibrate-XXXXXX.kdJ8km6opt/candidates/test_0013_whites_min.png",
+        "reference": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0013/down/whites_min.png"
+      },
+      "artifact_sha256": {
+        "raw": "e91e77a4533ed7cce551d83330676ea5c47dd5e55fb38adda7819366afdbdfc2",
+        "canonical_xmp": "5c2b9e23ebf7c341d0bc7557d33962ec567ddb915be8b582a9d5246ace46706b",
+        "main_png": "56693bb47043dc04395550da16aa0689aa2bdad1d2eb020164b113fab8c91863",
+        "candidate_png": "56693bb47043dc04395550da16aa0689aa2bdad1d2eb020164b113fab8c91863",
+        "reference": "a01527f76c7fb1c565294f71c98b9f014ffdb11c0de206e2508463c18370ce7a"
+      }
+    },
+    {
+      "case": "test_0014/tint_max",
+      "resolution": "down",
+      "metrics": {
+        "mean_deltaE": 26.586765839747613,
+        "p95_deltaE": 39.923399329475856,
+        "max_deltaE": 50.45939375171799,
+        "bias_r": 0.25210368633270264,
+        "bias_g": 0.13704435527324677,
+        "bias_b": 0.2783465087413788,
+        "n_pixels": 10668000,
+        "reference_protocol": "legacy-direct-reference"
+      },
+      "violations": {
+        "p95": [
+          39.923399329475856,
+          39.5
+        ]
+      },
+      "candidate_canonical": {
+        "fixture": "test_0014",
+        "case": "tint_max",
+        "profile": "neutral",
+        "resolution": "down",
+        "status": "breach",
+        "breaches": [
+          "p95 39.92>39.50"
+        ],
+        "mean": 26.586639216358677
+      },
+      "artifact_paths": {
+        "raw": "/Users/riabuz/Projects/_Maple/test-fixtures/raws/test_0014.NEF",
+        "canonical_xmp": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0014/xmp/tint_max.xmp",
+        "main_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/main-tint-diagnostics/test_0014_tint_max.png",
+        "candidate_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/maple-calibrate-XXXXXX.kdJ8km6opt/candidates/test_0014_tint_max.png",
+        "reference": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0014/down/tint_max.png"
+      },
+      "artifact_sha256": {
+        "raw": "0c9438258ddae5260b9f5a1aace6658a723f1cb1acace3a6cb507116dc6da4f2",
+        "canonical_xmp": "9153671514de3d9e5f8b99d1a1cbc5de53526b322e90c4b00c47b32b70ef2bf6",
+        "main_png": "f21c27028073ef9578f6139294c69b338a05c6a7300753c481000c5c56da5af6",
+        "candidate_png": "3aa6725f22140f25305568121236adccaa0bcffade694340b6ea69e07620c9a6",
+        "reference": "e2c55854b9120c6dbf9f8c2598b8efe5e91359e5364aef864f604057d276be68"
+      }
+    },
+    {
+      "case": "test_0014/whites_max",
+      "resolution": "down",
+      "metrics": {
+        "mean_deltaE": 18.159654277356747,
+        "p95_deltaE": 28.821487714328946,
+        "max_deltaE": 52.726376060230265,
+        "bias_r": 0.1332647055387497,
+        "bias_g": 0.12699517607688904,
+        "bias_b": 0.24193447828292847,
+        "n_pixels": 10668000,
+        "reference_protocol": "legacy-direct-reference"
+      },
+      "violations": {
+        "mean": [
+          18.159654277356747,
+          14.3
+        ],
+        "p95": [
+          28.821487714328946,
+          22.2
+        ],
+        "max": [
+          52.726376060230265,
+          46.6
+        ],
+        "bias_r": [
+          0.1332647055387497,
+          0.101
+        ],
+        "bias_g": [
+          0.12699517607688904,
+          0.101
+        ],
+        "bias_b": [
+          0.24193447828292847,
+          0.101
+        ]
+      },
+      "candidate_canonical": {
+        "fixture": "test_0014",
+        "case": "whites_max",
+        "profile": "neutral",
+        "resolution": "down",
+        "status": "breach",
+        "breaches": [
+          "mean 18.16>14.30",
+          "p95 28.82>22.20",
+          "max 52.73>46.60",
+          "bias_R +0.1333>0.1010",
+          "bias_G +0.1270>0.1010",
+          "bias_B +0.2419>0.1010"
+        ],
+        "mean": 18.159556202652276
+      },
+      "artifact_paths": {
+        "raw": "/Users/riabuz/Projects/_Maple/test-fixtures/raws/test_0014.NEF",
+        "canonical_xmp": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0014/xmp/whites_max.xmp",
+        "main_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/main-canonical-failures/test_0014_whites_max.png",
+        "candidate_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/maple-calibrate-XXXXXX.kdJ8km6opt/candidates/test_0014_whites_max.png",
+        "reference": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0014/down/whites_max.png"
+      },
+      "artifact_sha256": {
+        "raw": "0c9438258ddae5260b9f5a1aace6658a723f1cb1acace3a6cb507116dc6da4f2",
+        "canonical_xmp": "9f46d554ce6b687660212dedd3af494ea412ce8986fc21f6557d9d057bb90ba9",
+        "main_png": "6f00d4b58a418046580794258e7a6ed95011482eae62d5acc6b22416a7cba4d5",
+        "candidate_png": "1ab96c5ee19a9e1e677b656218192b55f05c40d9f339f00427329d268ad08cd7",
+        "reference": "b7d1049e14649787b1782aa9ba63afb3521a82d13fdf6110ecdd18b649f6c918"
+      }
+    },
+    {
+      "case": "test_0015/exposure_max",
+      "resolution": "down",
+      "metrics": {
+        "mean_deltaE": 12.713172020138945,
+        "p95_deltaE": 16.19178746817287,
+        "max_deltaE": 45.30385839791534,
+        "bias_r": -0.19139960408210754,
+        "bias_g": -0.12962990999221802,
+        "bias_b": -0.10058527439832687,
+        "n_pixels": 12032000,
+        "reference_protocol": "legacy-direct-reference"
+      },
+      "violations": {
+        "max": [
+          45.30385839791534,
+          34.0
+        ]
+      },
+      "candidate_canonical": {
+        "fixture": "test_0015",
+        "case": "exposure_max",
+        "profile": "neutral",
+        "resolution": "down",
+        "status": "breach",
+        "breaches": [
+          "max 45.30>34.00"
+        ],
+        "mean": 12.713103194601493
+      },
+      "artifact_paths": {
+        "raw": "/Users/riabuz/Projects/_Maple/test-fixtures/raws/test_0015.dng",
+        "canonical_xmp": "/Users/riabuz/Projects/_Maple/.codex-worktrees/tone-slider-sprint/test-fixtures/references/test_0015/xmp/exposure_max.xmp",
+        "main_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/main-canonical-failures/test_0015_exposure_max.png",
+        "candidate_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/maple-calibrate-XXXXXX.kdJ8km6opt/candidates/test_0015_exposure_max.png",
+        "reference": "/Users/riabuz/Projects/_Maple/.codex-worktrees/tone-slider-sprint/test-fixtures/references/test_0015/down/exposure_max.png"
+      },
+      "artifact_sha256": {
+        "raw": "3a859e917a91698a3e15ce3b3721a48a1fb1296873e0697d3bf7c2793297200d",
+        "canonical_xmp": "c7f37eed852b2c7ce5762e68e39407d257fcc307c5b7ed56a6dd1d7924acd7bc",
+        "main_png": "fb1d872dfd21c9ca0fb1adec93d82c66755d88b3120e1169251899018d562918",
+        "candidate_png": "de2edce99da02d43ad88911d13c77ddc56daeab65c16e448a10551e8b03539e8",
+        "reference": "6b8d81ab90598b817dc70104a4573eba2249fa154ccc42d8d3e68d6a14ec55c3"
+      }
+    },
+    {
+      "case": "test_0015/whites_min",
+      "resolution": "down",
+      "metrics": {
+        "mean_deltaE": 10.704928171886541,
+        "p95_deltaE": 17.979593757912344,
+        "max_deltaE": 36.6019760062628,
+        "bias_r": -0.08976437151432037,
+        "bias_g": -0.11378731578588486,
+        "bias_b": -0.10559824854135513,
+        "n_pixels": 12032000,
+        "reference_protocol": "legacy-direct-reference"
+      },
+      "violations": {
+        "mean": [
+          10.704928171886541,
+          9.2
+        ],
+        "p95": [
+          17.979593757912344,
+          17.4
+        ],
+        "bias_g": [
+          -0.11378731578588486,
+          0.0936
+        ],
+        "bias_b": [
+          -0.10559824854135513,
+          0.0936
+        ]
+      },
+      "candidate_canonical": {
+        "fixture": "test_0015",
+        "case": "whites_min",
+        "profile": "neutral",
+        "resolution": "down",
+        "status": "breach",
+        "breaches": [
+          "mean 10.70>9.20",
+          "p95 17.98>17.40",
+          "bias_G -0.1138>0.0936",
+          "bias_B -0.1056>0.0936"
+        ],
+        "mean": 10.70476289312996
+      },
+      "artifact_paths": {
+        "raw": "/Users/riabuz/Projects/_Maple/test-fixtures/raws/test_0015.dng",
+        "canonical_xmp": "/Users/riabuz/Projects/_Maple/.codex-worktrees/tone-slider-sprint/test-fixtures/references/test_0015/xmp/whites_min.xmp",
+        "main_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/main-canonical-failures/test_0015_whites_min.png",
+        "candidate_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/maple-calibrate-XXXXXX.kdJ8km6opt/candidates/test_0015_whites_min.png",
+        "reference": "/Users/riabuz/Projects/_Maple/.codex-worktrees/tone-slider-sprint/test-fixtures/references/test_0015/down/whites_min.png"
+      },
+      "artifact_sha256": {
+        "raw": "3a859e917a91698a3e15ce3b3721a48a1fb1296873e0697d3bf7c2793297200d",
+        "canonical_xmp": "5c2b9e23ebf7c341d0bc7557d33962ec567ddb915be8b582a9d5246ace46706b",
+        "main_png": "c6c7c2a488a838a3e11ced74741e2931ebaf076553d854c9a6a37c907fe96ff7",
+        "candidate_png": "57c896267e1641c187de515b8567c61d476a153fd1b6997a42ab9f84f10628fb",
+        "reference": "d2d47b957f0f3ef0714c7d2327cfebe053d96d92719d8326f73979490aac9264"
+      }
+    },
+    {
+      "case": "test_0017/tint_max",
+      "resolution": "down",
+      "metrics": {
+        "mean_deltaE": 22.347881304769295,
+        "p95_deltaE": 34.626578875879005,
+        "max_deltaE": 51.747001067686384,
+        "bias_r": 0.04451525956392288,
+        "bias_g": -0.061470869928598404,
+        "bias_b": 0.13244658708572388,
+        "n_pixels": 10668000,
+        "reference_protocol": "legacy-direct-reference"
+      },
+      "violations": {
+        "bias_b": [
+          0.13244658708572388,
+          0.1176
+        ]
+      },
+      "candidate_canonical": {
+        "fixture": "test_0017",
+        "case": "tint_max",
+        "profile": "neutral",
+        "resolution": "down",
+        "status": "breach",
+        "breaches": [
+          "bias_B +0.1324>0.1176"
+        ],
+        "mean": 22.347862835699626
+      },
+      "artifact_paths": {
+        "raw": "/Users/riabuz/Projects/_Maple/test-fixtures/raws/test_0017.dng",
+        "canonical_xmp": "/Users/riabuz/Projects/_Maple/.codex-worktrees/tone-slider-sprint/test-fixtures/references/test_0017/xmp/tint_max.xmp",
+        "main_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/main-tint-diagnostics/test_0017_tint_max.png",
+        "candidate_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/maple-calibrate-XXXXXX.kdJ8km6opt/candidates/test_0017_tint_max.png",
+        "reference": "/Users/riabuz/Projects/_Maple/.codex-worktrees/tone-slider-sprint/test-fixtures/references/test_0017/down/tint_max.png"
+      },
+      "artifact_sha256": {
+        "raw": "26be5e06dfb53a2938dab3ca8f06024533a9c0dd0c652938f39eb48bc325f95e",
+        "canonical_xmp": "9153671514de3d9e5f8b99d1a1cbc5de53526b322e90c4b00c47b32b70ef2bf6",
+        "main_png": "02d8f2c9b522ee0115c3b71dd532925787f616bfd4c99bc9811e1aa05ccca61f",
+        "candidate_png": "087ac9ff755c9f69143004fe5bd0ac7ae81c39cf1311f18451539260d18c8f86",
+        "reference": "43202829b114e862abb89625032ac4f82e85ee655d78ed9972c77dc409e37965"
+      }
+    },
+    {
+      "case": "test_0017/tint_min",
+      "resolution": "down",
+      "metrics": {
+        "mean_deltaE": 20.32615292498219,
+        "p95_deltaE": 25.454180412247627,
+        "max_deltaE": 40.222582746702216,
+        "bias_r": -0.13799864053726196,
+        "bias_g": 0.02315637655556202,
+        "bias_b": -0.08221577107906342,
+        "n_pixels": 10668000,
+        "reference_protocol": "legacy-direct-reference"
+      },
+      "violations": {
+        "bias_r": [
+          -0.13799864053726196,
+          0.136
+        ]
+      },
+      "candidate_canonical": {
+        "fixture": "test_0017",
+        "case": "tint_min",
+        "profile": "neutral",
+        "resolution": "down",
+        "status": "breach",
+        "breaches": [
+          "bias_R -0.1380>0.1360"
+        ],
+        "mean": 20.32616219184638
+      },
+      "artifact_paths": {
+        "raw": "/Users/riabuz/Projects/_Maple/test-fixtures/raws/test_0017.dng",
+        "canonical_xmp": "/Users/riabuz/Projects/_Maple/.codex-worktrees/tone-slider-sprint/test-fixtures/references/test_0017/xmp/tint_min.xmp",
+        "main_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/main-tint-diagnostics/test_0017_tint_min.png",
+        "candidate_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/maple-calibrate-XXXXXX.kdJ8km6opt/candidates/test_0017_tint_min.png",
+        "reference": "/Users/riabuz/Projects/_Maple/.codex-worktrees/tone-slider-sprint/test-fixtures/references/test_0017/down/tint_min.png"
+      },
+      "artifact_sha256": {
+        "raw": "26be5e06dfb53a2938dab3ca8f06024533a9c0dd0c652938f39eb48bc325f95e",
+        "canonical_xmp": "e307c836d4d66b1d1e81b2f75107fd2a71d4e9ebf6422d3a6648ca97a127c67f",
+        "main_png": "04e180fe16cc8acdfa7a38c66a5927b86a09b063dd8db1d7cced71bdf6fdf306",
+        "candidate_png": "62ac03fad399ee09bf26d9fc6774838a80f3ff9f00681b62e29f9147c8815d6c",
+        "reference": "affa09e37be64db79614b6198e79a4647177c34357fec1097162634e31eb7974"
+      }
+    },
+    {
+      "case": "test_0017/whites_max",
+      "resolution": "down",
+      "metrics": {
+        "mean_deltaE": 10.681114756038605,
+        "p95_deltaE": 15.93555435807017,
+        "max_deltaE": 30.249789142576933,
+        "bias_r": 0.056590914726257324,
+        "bias_g": 0.08440849930047989,
+        "bias_b": 0.11978127062320709,
+        "n_pixels": 10668000,
+        "reference_protocol": "legacy-direct-reference"
+      },
+      "violations": {
+        "bias_b": [
+          0.11978127062320709,
+          0.1173
+        ]
+      },
+      "candidate_canonical": {
+        "fixture": "test_0017",
+        "case": "whites_max",
+        "profile": "neutral",
+        "resolution": "down",
+        "status": "breach",
+        "breaches": [
+          "bias_B +0.1198>0.1173"
+        ],
+        "mean": 10.681102569981425
+      },
+      "artifact_paths": {
+        "raw": "/Users/riabuz/Projects/_Maple/test-fixtures/raws/test_0017.dng",
+        "canonical_xmp": "/Users/riabuz/Projects/_Maple/.codex-worktrees/tone-slider-sprint/test-fixtures/references/test_0017/xmp/whites_max.xmp",
+        "main_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/main-canonical-failures/test_0017_whites_max.png",
+        "candidate_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/maple-calibrate-XXXXXX.kdJ8km6opt/candidates/test_0017_whites_max.png",
+        "reference": "/Users/riabuz/Projects/_Maple/.codex-worktrees/tone-slider-sprint/test-fixtures/references/test_0017/down/whites_max.png"
+      },
+      "artifact_sha256": {
+        "raw": "26be5e06dfb53a2938dab3ca8f06024533a9c0dd0c652938f39eb48bc325f95e",
+        "canonical_xmp": "9f46d554ce6b687660212dedd3af494ea412ce8986fc21f6557d9d057bb90ba9",
+        "main_png": "26ab9aed1ca2fcde35e7eac3b47f42d55d57b6fb913068bf7c78763ed26f3b7c",
+        "candidate_png": "96a359be16e4a5dd585707422c2b4262350cab7b55b12aefdd0763978345a522",
+        "reference": "a6a1ba62937bcdd26302040a5a1b3b543ede7d7af56e2ceabec493c6d57b2518"
+      }
+    },
+    {
+      "case": "test_0018/contrast_min",
+      "resolution": "down",
+      "metrics": {
+        "mean_deltaE": 14.768536676785294,
+        "p95_deltaE": 21.064807646486564,
+        "max_deltaE": 39.51673106345902,
+        "bias_r": -0.17911149561405182,
+        "bias_g": -0.1760980635881424,
+        "bias_b": -0.17000679671764374,
+        "n_pixels": 474880,
+        "reference_protocol": "legacy-direct-reference"
+      },
+      "violations": {
+        "max": [
+          39.51673106345902,
+          36.97
+        ]
+      },
+      "candidate_canonical": {
+        "fixture": "test_0018",
+        "case": "contrast_min",
+        "profile": "neutral",
+        "resolution": "down",
+        "status": "breach",
+        "breaches": [
+          "max 39.52>36.97"
+        ],
+        "mean": 14.768536676785294
+      },
+      "artifact_paths": {
+        "raw": "/Users/riabuz/Projects/_Maple/test-fixtures/raws/test_0018.dng",
+        "canonical_xmp": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0018/xmp/contrast_min.xmp",
+        "main_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/main-canonical-failures/test_0018_contrast_min.png",
+        "candidate_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/maple-calibrate-XXXXXX.kdJ8km6opt/candidates/test_0018_contrast_min.png",
+        "reference": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0018/down/contrast_min.png"
+      },
+      "artifact_sha256": {
+        "raw": "2a44135ce4f3beb064b72aad3d30cbf0e9313c729fa3a28db7f6b258f41eb6df",
+        "canonical_xmp": "db6894a2e12a8b6f87c39eb0cf9a9e623d56ec438ce0ee129d021a4c424a0f03",
+        "main_png": "6547d761bd8b7e5967f92ef04e0ad66819d85a9d8f99a72cc8621daa7a84ffc3",
+        "candidate_png": "6547d761bd8b7e5967f92ef04e0ad66819d85a9d8f99a72cc8621daa7a84ffc3",
+        "reference": "176427812f0f01f57405d68231d66f54c6333f99edb33ed7f59459dc64c77c13"
+      }
+    },
+    {
+      "case": "test_0018/dehaze_max",
+      "resolution": "down",
+      "metrics": {
+        "mean_deltaE": 14.06526083908785,
+        "p95_deltaE": 20.40042579078564,
+        "max_deltaE": 46.97514828490151,
+        "bias_r": -0.12296435981988907,
+        "bias_g": -0.10483411699533463,
+        "bias_b": -0.09165491163730621,
+        "n_pixels": 474880,
+        "reference_protocol": "legacy-direct-reference"
+      },
+      "violations": {
+        "max": [
+          46.97514828490151,
+          46.1
+        ]
+      },
+      "candidate_canonical": {
+        "fixture": "test_0018",
+        "case": "dehaze_max",
+        "profile": "neutral",
+        "resolution": "down",
+        "status": "breach",
+        "breaches": [
+          "max 46.98>46.10"
+        ],
+        "mean": 14.06526083908785
+      },
+      "artifact_paths": {
+        "raw": "/Users/riabuz/Projects/_Maple/test-fixtures/raws/test_0018.dng",
+        "canonical_xmp": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0018/xmp/dehaze_max.xmp",
+        "main_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/main-canonical-failures/test_0018_dehaze_max.png",
+        "candidate_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/maple-calibrate-XXXXXX.kdJ8km6opt/candidates/test_0018_dehaze_max.png",
+        "reference": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0018/down/dehaze_max.png"
+      },
+      "artifact_sha256": {
+        "raw": "2a44135ce4f3beb064b72aad3d30cbf0e9313c729fa3a28db7f6b258f41eb6df",
+        "canonical_xmp": "e1eb911788f66211a084dd2f936b6b8445404ed8e63a8a166cf2b2f1549c113b",
+        "main_png": "cdc72c3bda54b624b1440be5712f86f5be178cb89ecc133006af21ac11936940",
+        "candidate_png": "cdc72c3bda54b624b1440be5712f86f5be178cb89ecc133006af21ac11936940",
+        "reference": "f7918615fcb89ed987e8ffc11538332efbac406262723b1a2f72e492744e725b"
+      }
+    },
+    {
+      "case": "test_0018/tint_max",
+      "resolution": "down",
+      "metrics": {
+        "mean_deltaE": 22.65328049433719,
+        "p95_deltaE": 31.178757570064008,
+        "max_deltaE": 48.48758837096562,
+        "bias_r": -0.04370131716132164,
+        "bias_g": -0.26610779762268066,
+        "bias_b": -0.12307974696159363,
+        "n_pixels": 474880,
+        "reference_protocol": "legacy-direct-reference"
+      },
+      "violations": {
+        "mean": [
+          22.65328049433719,
+          17.27
+        ],
+        "p95": [
+          31.178757570064008,
+          21.3
+        ],
+        "max": [
+          48.48758837096562,
+          39.76
+        ],
+        "bias_g": [
+          -0.26610779762268066,
+          0.221
+        ]
+      },
+      "candidate_canonical": {
+        "fixture": "test_0018",
+        "case": "tint_max",
+        "profile": "neutral",
+        "resolution": "down",
+        "status": "breach",
+        "breaches": [
+          "mean 22.65>17.27",
+          "p95 31.18>21.30",
+          "max 48.49>39.76",
+          "bias_G -0.2661>0.2210"
+        ],
+        "mean": 22.65328049433719
+      },
+      "artifact_paths": {
+        "raw": "/Users/riabuz/Projects/_Maple/test-fixtures/raws/test_0018.dng",
+        "canonical_xmp": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0018/xmp/tint_max.xmp",
+        "main_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/main-tint-diagnostics/test_0018_tint_max.png",
+        "candidate_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/maple-calibrate-XXXXXX.kdJ8km6opt/candidates/test_0018_tint_max.png",
+        "reference": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0018/down/tint_max.png"
+      },
+      "artifact_sha256": {
+        "raw": "2a44135ce4f3beb064b72aad3d30cbf0e9313c729fa3a28db7f6b258f41eb6df",
+        "canonical_xmp": "9153671514de3d9e5f8b99d1a1cbc5de53526b322e90c4b00c47b32b70ef2bf6",
+        "main_png": "c759433c10f12b095780017d6c3000d87adea3d65d691884a2d97ec81adc1a55",
+        "candidate_png": "c759433c10f12b095780017d6c3000d87adea3d65d691884a2d97ec81adc1a55",
+        "reference": "9e62e41033d695c9a97dec40f85fd82235f63153cb27aebfe333f7659d829d2a"
+      }
+    },
+    {
+      "case": "test_0018/tint_min",
+      "resolution": "down",
+      "metrics": {
+        "mean_deltaE": 23.921290967623477,
+        "p95_deltaE": 32.67400241948173,
+        "max_deltaE": 43.94415280884082,
+        "bias_r": -0.3129555881023407,
+        "bias_g": -0.11853847652673721,
+        "bias_b": -0.3244800865650177,
+        "n_pixels": 474880,
+        "reference_protocol": "legacy-direct-reference"
+      },
+      "violations": {
+        "mean": [
+          23.921290967623477,
+          17.26
+        ],
+        "p95": [
+          32.67400241948173,
+          21.78
+        ],
+        "max": [
+          43.94415280884082,
+          39.25
+        ],
+        "bias_r": [
+          -0.3129555881023407,
+          0.2734
+        ],
+        "bias_b": [
+          -0.3244800865650177,
+          0.2734
+        ]
+      },
+      "candidate_canonical": {
+        "fixture": "test_0018",
+        "case": "tint_min",
+        "profile": "neutral",
+        "resolution": "down",
+        "status": "breach",
+        "breaches": [
+          "mean 23.92>17.26",
+          "p95 32.67>21.78",
+          "max 43.94>39.25",
+          "bias_R -0.3130>0.2734",
+          "bias_B -0.3245>0.2734"
+        ],
+        "mean": 23.921290967623477
+      },
+      "artifact_paths": {
+        "raw": "/Users/riabuz/Projects/_Maple/test-fixtures/raws/test_0018.dng",
+        "canonical_xmp": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0018/xmp/tint_min.xmp",
+        "main_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/main-tint-diagnostics/test_0018_tint_min.png",
+        "candidate_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/maple-calibrate-XXXXXX.kdJ8km6opt/candidates/test_0018_tint_min.png",
+        "reference": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0018/down/tint_min.png"
+      },
+      "artifact_sha256": {
+        "raw": "2a44135ce4f3beb064b72aad3d30cbf0e9313c729fa3a28db7f6b258f41eb6df",
+        "canonical_xmp": "e307c836d4d66b1d1e81b2f75107fd2a71d4e9ebf6422d3a6648ca97a127c67f",
+        "main_png": "5457719f8192623244bafac7968216318cc9a27a3406367c3007a317769a7ba0",
+        "candidate_png": "5457719f8192623244bafac7968216318cc9a27a3406367c3007a317769a7ba0",
+        "reference": "8def4d254ba5ea3dbe908f1aa170864dfa579df83723a843647b9325577e69a4"
+      }
+    },
+    {
+      "case": "test_0018/whites_min",
+      "resolution": "down",
+      "metrics": {
+        "mean_deltaE": 13.459005772493926,
+        "p95_deltaE": 17.671619044258946,
+        "max_deltaE": 36.839536850528155,
+        "bias_r": -0.14262628555297852,
+        "bias_g": -0.1369554102420807,
+        "bias_b": -0.11481714993715286,
+        "n_pixels": 474880,
+        "reference_protocol": "legacy-direct-reference"
+      },
+      "violations": {
+        "mean": [
+          13.459005772493926,
+          10.3
+        ],
+        "p95": [
+          17.671619044258946,
+          14.5
+        ],
+        "max": [
+          36.839536850528155,
+          36.6
+        ],
+        "bias_r": [
+          -0.14262628555297852,
+          0.1142
+        ],
+        "bias_g": [
+          -0.1369554102420807,
+          0.1142
+        ],
+        "bias_b": [
+          -0.11481714993715286,
+          0.1142
+        ]
+      },
+      "candidate_canonical": {
+        "fixture": "test_0018",
+        "case": "whites_min",
+        "profile": "neutral",
+        "resolution": "down",
+        "status": "breach",
+        "breaches": [
+          "mean 13.46>10.30",
+          "p95 17.67>14.50",
+          "max 36.84>36.60",
+          "bias_R -0.1426>0.1142",
+          "bias_G -0.1370>0.1142",
+          "bias_B -0.1148>0.1142"
+        ],
+        "mean": 13.459005772493926
+      },
+      "artifact_paths": {
+        "raw": "/Users/riabuz/Projects/_Maple/test-fixtures/raws/test_0018.dng",
+        "canonical_xmp": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0018/xmp/whites_min.xmp",
+        "main_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/main-canonical-failures/test_0018_whites_min.png",
+        "candidate_png": "/Volumes/Projects/maple-pr4596-j8dkt3w2/maple-calibrate-XXXXXX.kdJ8km6opt/candidates/test_0018_whites_min.png",
+        "reference": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0018/down/whites_min.png"
+      },
+      "artifact_sha256": {
+        "raw": "2a44135ce4f3beb064b72aad3d30cbf0e9313c729fa3a28db7f6b258f41eb6df",
+        "canonical_xmp": "5c2b9e23ebf7c341d0bc7557d33962ec567ddb915be8b582a9d5246ace46706b",
+        "main_png": "1c9f9325e53abe21034376070e9eae0448b67b1e4d6379e9b48edf060e9cdc6d",
+        "candidate_png": "1c9f9325e53abe21034376070e9eae0448b67b1e4d6379e9b48edf060e9cdc6d",
+        "reference": "f83d5ee7884d52c4b9cd420d12dcc3e35c033dadff92cf6749fdb674ab3f6672"
+      }
+    }
+  ]
+}

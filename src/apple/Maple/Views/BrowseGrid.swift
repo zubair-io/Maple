@@ -19,6 +19,9 @@
 import MapleCore
 import MapleUI
 import SwiftUI
+import os
+
+private let browseGridLogger = Logger(subsystem: "app.justmaple.aperture", category: "browse-grid")
 
 #if os(macOS)
   import AppKit
@@ -69,6 +72,8 @@ struct BrowseGrid: View {
   /// lazily create per-asset `EditSession`s only when their cell scrolls
   /// into view, instead of eagerly priming every asset in the folder.
   var onPrimeSession: ((AssetRef) async -> Void)? = nil
+  var onReadGridFilterMetadata:
+    (@MainActor @Sendable (AssetRef) async throws -> GridFilterMetadata)? = nil
   /// Fired when the user taps "Merge to Panorama…" from the selection bar
   /// (≥2 assets selected). `nil` suppresses the bar entirely (e.g. previews).
   var onMergePanorama: (() -> Void)? = nil
@@ -78,6 +83,10 @@ struct BrowseGrid: View {
   /// Fired when the user taps "Batch Rename…" from the selection bar
   /// (#2641). `nil` hides the button.
   var onBatchRename: (() -> Void)? = nil
+  /// macOS Export recipes for the checked selection (#5435). `nil` hides the button.
+  var onExportRecipes: (() -> Void)? = nil
+  /// iPad: the floating one-row header that replaces the navigation bar (#5435).
+  var header: BrowseHeaderModel? = nil
   /// Delete key / "Move to Trash" context-menu item (#2653). Fires with
   /// the currently-active selection (multi-select checked set, or just
   /// the focused single asset). `nil` disables both the Delete-key
@@ -108,14 +117,38 @@ struct BrowseGrid: View {
   /// consumer in this file).
   @Environment(\.assetRename) private var assetRename
   @Environment(\.batchAdjustmentLibrary) var batchLibrary
+  #if os(iOS)
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+  #endif
 
   /// Local fallback when no parent binding is supplied (e.g. previews).
   /// Real toolbar wiring lives on `AppShell`.
   @State private var localDisplayMode: GridDisplayMode = .fill
+  /// The last plain-clicked tile anchors macOS Shift-click ranges. A stale
+  /// anchor from another folder is ignored by `selectRange`.
+  @State private var selectionAnchorID: AssetRef.ID?
 
   /// Resolved mode — parent binding wins; otherwise the local @State.
   private var resolvedDisplayMode: GridDisplayMode {
     displayMode?.wrappedValue ?? localDisplayMode
+  }
+
+  /// The floating header only replaces the navigation bar at regular width; a
+  /// compact (collapsed split view) column keeps its bar and back button.
+  private var activeHeader: BrowseHeaderModel? {
+    #if os(iOS)
+      horizontalSizeClass == .regular ? header : nil
+    #else
+      nil
+    #endif
+  }
+
+  @ViewBuilder
+  private func filterBar(matchingCount: Int, axis: Axis) -> some View {
+    if !vm.isMerged, !vm.assets.isEmpty, let onReadGridFilterMetadata {
+      GridFilterBar(
+        vm: vm, readMetadata: onReadGridFilterMetadata, matchingCount: matchingCount, axis: axis)
+    }
   }
 
   /// True when the current folder has neither sub-folders nor images. The
@@ -139,8 +172,19 @@ struct BrowseGrid: View {
   /// mode then falls back to `localProvider`.
   @State private var mergedProvider: ThumbnailProvider?
 
+  private static let topAnchorID = "browse-grid-top"
+
   var body: some View {
-    VStack(spacing: 0) {
+    let visibleAssets =
+      onReadGridFilterMetadata == nil
+      ? vm.assets : vm.gridAssets(sessions: sessions)
+    let visibleIDs = Set(visibleAssets.map(\.id))
+    let floatingHeader = activeHeader
+    return VStack(spacing: 0) {
+      if floatingHeader == nil {
+        filterBar(matchingCount: visibleAssets.count, axis: .vertical)
+          .padding(.vertical, 8)
+      }
       ZStack(alignment: .top) {
         // The grid itself — always in the hierarchy so SwiftUI doesn't
         // tear it down when assets briefly go empty during a source
@@ -148,21 +192,24 @@ struct BrowseGrid: View {
         // loaded at all.
         ScrollViewReader { proxy in
           ScrollView {
-            Group {
-              if vm.isMerged {
-                mergedGrid
-              } else {
-                normalGrid
+            VStack(spacing: 0) {
+              Color.clear.frame(height: 0).id(Self.topAnchorID)
+              Group {
+                if vm.isMerged {
+                  mergedGrid
+                } else {
+                  normalGrid(visibleAssets: visibleAssets, visibleIDs: visibleIDs)
+                }
               }
+              // UITest sentinel — the harness uses
+              // `app.otherElements["browse-grid"]` to confirm browse
+              // mode is active before driving thumbnail selection.
+              .accessibilityIdentifier("browse-grid")
+              .padding(8)
+              // Bottom padding so the last row isn't hidden under
+              // the selection bar when it's shown.
+              .padding(.bottom, vm.isSelecting ? 60 : 0)
             }
-            // UITest sentinel — the harness uses
-            // `app.otherElements["browse-grid"]` to confirm browse
-            // mode is active before driving thumbnail selection.
-            .accessibilityIdentifier("browse-grid")
-            .padding(8)
-            // Bottom padding so the last row isn't hidden under
-            // the selection bar when it's shown.
-            .padding(.bottom, vm.isSelecting ? 60 : 0)
           }
           .accessibilityIdentifier("browse-scroll")
           .background(MapleTokens.bg)
@@ -192,18 +239,37 @@ struct BrowseGrid: View {
             // enough to expose it.
             if let id = newID { proxy.scrollTo(id, anchor: nil) }
           }
+          .task {
+            // Preview replaces the Browse surface. When Back creates this
+            // scroll view again, selectedID is already set, so onChange does
+            // not fire and the grid otherwise starts at the first row.
+            await Task.yield()
+            guard !Task.isCancelled,
+              let id = vm.selectedID,
+              vm.assets.contains(where: { $0.id == id })
+            else { return }
+            proxy.scrollTo(id, anchor: nil)
+          }
+          .onChange(of: vm.listingGeneration) { proxy.scrollTo(Self.topAnchorID, anchor: .top) }
         }
 
         // Error banner at the top of the grid.
         if let err = vm.loadError {
           ErrorBanner(
             message: err.localizedDescription,
-            onRetry: { vm.loadError = nil },
+            onRetry: { Task { await vm.retryLastLoad() } },
             onDismiss: { vm.loadError = nil }
           )
           .padding(8)
         }
 
+      }
+      .safeAreaInset(edge: .top, spacing: 0) {
+        if let floatingHeader {
+          BrowseHeaderBar(model: floatingHeader, vm: vm) {
+            filterBar(matchingCount: visibleAssets.count, axis: .horizontal)
+          }
+        }
       }
 
       if let controller = clipboard?.batchTransfers {
@@ -215,17 +281,23 @@ struct BrowseGrid: View {
       if vm.isSelecting, let onMergePanorama {
         PanoSelectionBar(
           vm: vm,
+          displayedAssets: visibleAssets,
           onMerge: onMergePanorama,
           onEditMetadata: onEditMetadata,
           onBatchRename: onBatchRename,
+          onExportRecipes: onExportRecipes,
           onPasteAdjustments: clipboard != nil ? { pasteAdjustments() } : nil,
           onCopyAdjustments: clipboard != nil ? { copyAdjustments() } : nil,
           onSyncSettings: clipboard != nil ? { syncSettings() } : nil,
-          canPaste: (clipboard?.hasContents ?? false) && !vm.selectedIDs.isEmpty,
+          canPaste: (clipboard?.hasContents ?? false)
+            && !vm.selectedAssets(sessions: sessions).isEmpty,
           canSync: canSyncSettings
         )
       }
     }
+    #if os(iOS)
+      .toolbar(floatingHeader != nil ? .hidden : .automatic, for: .navigationBar)
+    #endif
     .sheet(item: $adjustmentDraft) { draft in
       AdjustmentGroupPickerSheet(
         draft: draft,
@@ -249,6 +321,7 @@ struct BrowseGrid: View {
     .keyboardShortcuts(
       vm: vm,
       sessions: sessions,
+      visibleAssets: visibleAssets,
       // #944: ⌘C/⌘V are only claimed when a clipboard is wired
       // (production always wires one; previews don't).
       onCopyAdjustments: clipboard != nil ? { copyAdjustments() } : nil,
@@ -299,7 +372,9 @@ struct BrowseGrid: View {
   /// Renders when `vm.isMerged` is false. Includes folder cells in the
   /// `leading:` slot, desktop badge overlays, multi-select, and session priming.
   @ViewBuilder
-  private var normalGrid: some View {
+  private func normalGrid(
+    visibleAssets: [AssetRef], visibleIDs: Set<AssetRef.ID>
+  ) -> some View {
     VStack(alignment: .leading, spacing: 0) {
       // Sub-folders first — Finder-style — in their own tile section
       // above the images (#3099). Hidden during multi-select so only
@@ -320,7 +395,7 @@ struct BrowseGrid: View {
         }
       }
       PhotoGrid(
-        data: vm.assets,
+        data: visibleAssets,
         columns: .responsiveBySizeClass,
         provider: localProvider,
         displayMode: resolvedDisplayMode,
@@ -346,20 +421,23 @@ struct BrowseGrid: View {
         // asset library re-ran millions of comparisons a frame. Build
         // the payload straight from the (already O(1)-membership) `Set`
         // of selected ids instead — O(selection size), not O(library
-        // size). Payload order is therefore selection-insertion order,
-        // not grid order; `AppShell+AssetDrop.swift`'s
-        // `performAssetDrop` restores grid order once, at drop time,
-        // from the already-materialized `browseVM.assets` array — not
-        // per cell here.
+        // size). Original files are resolved in grid order once, when
+        // the drag starts (#4632). Internal drop routing likewise
+        // restores grid order once in `performAssetDrop`.
         dragPayload: { asset in
           guard asset.thumbnailProvenance != .photoKit, !(vm.currentSource is PhotoKitSource) else {
             return nil
           }
-          let active = vm.isSelecting ? vm.selectedIDs : (vm.selectedID.map { Set([$0]) } ?? [])
+          let active =
+            vm.isSelecting
+            ? vm.selectedIDs.intersection(visibleIDs)
+            : (vm.selectedID.flatMap { visibleIDs.contains($0) ? Set([$0]) : nil } ?? [])
           guard active.contains(asset.id), active.count > 1 else {
-            return DraggedAssetPayload(ids: [asset.id])
+            return DraggedAssetPayload(ids: [asset.id], resolveAssets: { [asset] })
           }
-          return DraggedAssetPayload(ids: Array(active))
+          return DraggedAssetPayload(ids: Array(active)) {
+            vm.assets.filter { active.contains($0.id) }
+          }
         },
         contextMenuItems: { (asset: AssetRef) in
           // Reveal in Finder (#2658) rides in the same per-cell menu
@@ -395,8 +473,17 @@ struct BrowseGrid: View {
         renameOverlay: { asset in AnyView(GridCellRenameCaption(asset: asset)) },
         onTap: { asset, _ in
           if vm.isSelecting {
-            // Multi-select mode: tap toggles check.
-            vm.toggleSelected(asset.id)
+            #if os(macOS)
+              if (NSApp.currentEvent?.modifierFlags ?? NSEvent.modifierFlags).contains(.shift) {
+                selectionAnchorID = vm.selectRange(
+                  from: selectionAnchorID, to: asset.id, in: visibleAssets)
+              } else {
+                vm.toggleSelected(asset.id)
+                selectionAnchorID = asset.id
+              }
+            #else
+              vm.toggleSelected(asset.id)
+            #endif
           } else {
             // Normal mode: tap opens the editor.
             vm.selectedID = asset.id
@@ -428,7 +515,8 @@ struct BrowseGrid: View {
       sync: nil,
       isVideo: false,
       style: .desktop,
-      hidden: session?.culling.hidden ?? false
+      hidden: session?.culling.hidden ?? false,
+      livePhoto: asset.livePhoto?.role
     )
   }
 
@@ -448,7 +536,11 @@ struct BrowseGrid: View {
   /// the focused single asset. Same shape as the drag-payload "active
   /// selection" computation above.
   private func activeSelectionIDs() -> [AssetRef.ID] {
-    vm.isSelecting ? Array(vm.selectedIDs) : (vm.selectedID.map { [$0] } ?? [])
+    let visible = Set(
+      (onReadGridFilterMetadata == nil ? vm.assets : vm.gridAssets(sessions: sessions)).map(\.id))
+    return vm.isSelecting
+      ? vm.selectedIDs.filter { visible.contains($0) }
+      : vm.selectedID.flatMap { visible.contains($0) ? [$0] : nil } ?? []
   }
 
   /// "Move to Trash" context-menu item for one cell. If the right-clicked
@@ -585,6 +677,7 @@ private struct ErrorBanner: View {
 private struct BrowseKeyboardShortcuts: ViewModifier {
   let vm: BrowseViewModel
   let sessions: [AssetRef.ID: EditSession]
+  let visibleAssets: [AssetRef]
   /// #944: ⌘C copies the focused image's adjustments; ⌘V pastes the
   /// clipboard's adjustments onto every checked asset. `nil` leaves the
   /// shortcut unclaimed (no clipboard wired — e.g. previews).
@@ -601,11 +694,11 @@ private struct BrowseKeyboardShortcuts: ViewModifier {
     content
       // Arrow navigation
       .onKeyPress(.rightArrow) {
-        vm.selectNext()
+        vm.selectNext(in: visibleAssets)
         return .handled
       }
       .onKeyPress(.leftArrow) {
-        vm.selectPrev()
+        vm.selectPrev(in: visibleAssets)
         return .handled
       }
       // #2638: inline rename entry point. Single-select only — Enter
@@ -614,7 +707,10 @@ private struct BrowseKeyboardShortcuts: ViewModifier {
       // `.ignored` when there's nothing to act on so this doesn't
       // swallow Enter for some other in-focus control.
       .onKeyPress(.return) {
-        guard !vm.isSelecting, let asset = vm.selectedAsset, let assetRename else {
+        guard !vm.isSelecting,
+          let asset = visibleAssets.first(where: { $0.id == vm.selectedID }),
+          let assetRename
+        else {
           return .ignored
         }
         assetRename.begin(asset)
@@ -674,20 +770,28 @@ private struct BrowseKeyboardShortcuts: ViewModifier {
   }
 
   private func setStars(_ n: Int) {
-    guard let id = vm.selectedID, let session = sessions[id] else { return }
-    Task { @MainActor in
-      var c = session.culling
-      c.stars = n
-      session.culling = c
-    }
+    updateCulling { $0.stars = n }
   }
 
   private func setFlag(_ f: CullFlag) {
-    guard let id = vm.selectedID, let session = sessions[id] else { return }
+    updateCulling { $0.flag = f }
+  }
+
+  /// A primed session may not have loaded its sidecar yet; `setCulling`
+  /// waits for it so a rating never rewrites saved edits as defaults (#4708).
+  private func updateCulling(_ edit: @escaping (inout CullingState) -> Void) {
+    guard let id = vm.selectedID,
+      visibleAssets.contains(where: { $0.id == id }),
+      let session = sessions[id]
+    else { return }
     Task { @MainActor in
-      var c = session.culling
-      c.flag = f
-      session.culling = c
+      guard vm.selectedVisibleAsset(sessions: sessions)?.id == id else { return }
+      do {
+        try await session.setCulling(edit)
+      } catch {
+        browseGridLogger.error(
+          "rating not saved — sidecar unreadable: \(error.localizedDescription, privacy: .public)")
+      }
     }
   }
 }
@@ -696,6 +800,7 @@ extension View {
   fileprivate func keyboardShortcuts(
     vm: BrowseViewModel,
     sessions: [AssetRef.ID: EditSession],
+    visibleAssets: [AssetRef],
     onCopyAdjustments: (() -> Void)? = nil,
     onPasteAdjustments: (() -> Void)? = nil
   ) -> some View {
@@ -703,6 +808,7 @@ extension View {
       BrowseKeyboardShortcuts(
         vm: vm,
         sessions: sessions,
+        visibleAssets: visibleAssets,
         onCopyAdjustments: onCopyAdjustments,
         onPasteAdjustments: onPasteAdjustments
       ))

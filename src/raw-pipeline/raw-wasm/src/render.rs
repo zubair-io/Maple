@@ -35,7 +35,7 @@ pub struct MapleRender {
     lens_correction_ca_inert: bool,
     camera_support: Option<raw_core::support_tiers::RenderSupport>,
     lens_profile_json: Option<String>,
-    auto_fit: Option<bool>,
+    auto_fit: Option<raw_core::view::auto_profile::AutoFitOutcome>,
     crop_input_size: Option<[u32; 2]>,
 }
 
@@ -64,7 +64,7 @@ impl MapleRender {
         lens_correction_ca_inert: bool,
         camera_support: Option<raw_core::support_tiers::RenderSupport>,
         lens_profile_json: Option<String>,
-        auto_fit: Option<bool>,
+        auto_fit: Option<raw_core::view::auto_profile::AutoFitOutcome>,
     ) -> Self {
         Self {
             width,
@@ -151,13 +151,11 @@ impl MapleRender {
             .map(|support| support.to_json())
     }
 
-    /// Resolver facts for the imported LCP profile the model named, as JSON
-    /// (`crate::lens_profile::metadata`, #3479) — `None` when no profile is
-    /// selected or the named profile is not registered. Read once per reply.
-    /// Actual outcome of this render's Auto fit, never an extraction prediction.
+    /// Actual outcome of this render's Auto fit, never an extraction prediction:
+    /// `"applied"`, `"no-preview"` or `"unfitted"` (#5458); absent for Neutral.
     #[wasm_bindgen(getter)]
-    pub fn auto_fit(&self) -> Option<bool> {
-        self.auto_fit
+    pub fn auto_fit(&self) -> Option<String> {
+        self.auto_fit.map(|outcome| outcome.as_str().to_owned())
     }
 
     #[wasm_bindgen(getter)]
@@ -170,6 +168,9 @@ impl MapleRender {
         self.crop_input_size.map(|size| size[1])
     }
 
+    /// Resolver facts for the imported LCP profile the model named, as JSON
+    /// (`crate::lens_profile::metadata`, #3479) — `None` when no profile is
+    /// selected or the named profile is not registered. Read once per reply.
     #[wasm_bindgen(getter)]
     pub fn lens_profile_json(&self) -> Option<String> {
         self.lens_profile_json.clone()
@@ -434,14 +435,15 @@ pub fn render_bytes_sized(
 /// Apple (there via `decodeSceneLinearNonRaw` + CoreImage instead of a
 /// browser canvas, same colour math).
 ///
-/// `skip_agx: true` always: non-RAW input is already display-tone-mapped by
-/// whatever camera or renderer produced it, so running it through AgX (a
-/// scene-referred view transform) would double-tone-map — see
+/// `ChainOptions::uncalibrated_raster()` always: non-RAW input is already
+/// display-tone-mapped by whatever camera or renderer produced it, so running
+/// it through AgX (a scene-referred view transform) would double-tone-map — see
 /// `ChainOptions::skip_agx`'s doc and `processSceneLinearNonRaw`'s comment
 /// for the same reasoning on Apple. The WB baseline is fixed at the decode
 /// default (6500 K / 0 tint) — a developed image carries no camera As-Shot
 /// metadata, so (like Apple) the WB slider's own default IS the identity
-/// point.
+/// point. For the same reason it has no sensor ISO, so NR sees unknown ISO 0
+/// exactly as the native raster paths do (#4653).
 ///
 /// Returns the SAME `MapleRender` shape `render_bytes` does (u8 RGB, full
 /// size == develop size — there is no separate "native" size for an
@@ -457,10 +459,7 @@ pub fn develop_non_raw(
     let model = crate::mask_registry::parse_model(xmp.as_deref())
         .map_err(|e| JsError::new(&e.to_string()))?;
     crate::removal_saved::require_no_unresolved_removals(&model).map_err(|e| JsError::new(&e))?;
-    let opts = raw_core::pipeline::ChainOptions {
-        skip_agx: true,
-        ..Default::default()
-    };
+    let opts = raw_core::pipeline::ChainOptions::uncalibrated_raster();
     let chained =
         raw_core::pipeline::apply_scene_linear_chain_f32(in_f32_rgba, width, height, &model, &opts)
             .map_err(|e| JsError::new(&e.to_string()))?;
@@ -490,7 +489,8 @@ pub fn develop_non_raw(
         lens_correction_ca_inert: true,
         camera_support: None,
         lens_profile_json: None,
-        auto_fit: (model.profile == raw_core::xmp::Profile::Auto).then_some(false),
+        auto_fit: (model.profile == raw_core::xmp::Profile::Auto)
+            .then_some(raw_core::view::auto_profile::AutoFitOutcome::Unfitted),
         crop_input_size: None,
     })
 }

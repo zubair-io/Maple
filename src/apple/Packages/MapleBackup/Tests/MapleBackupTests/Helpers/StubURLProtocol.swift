@@ -1,5 +1,6 @@
 // Tests/MapleBackupTests/Helpers/StubURLProtocol.swift
 import Foundation
+@testable import MapleBackup
 
 /// In-test URL protocol stub. Set `StubURLProtocol.stub` before each test.
 ///
@@ -31,6 +32,15 @@ internal final class StubURLProtocol: URLProtocol {
     private nonisolated(unsafe) static var _stub: Stub?
     private nonisolated(unsafe) static var _recordedRequests: [URLRequest] = []
     private nonisolated(unsafe) static var _sequenceIndex = 0
+    private nonisolated(unsafe) static var _onRequest: (@Sendable (URLRequest) -> Void)?
+
+    /// Runs before each stubbed response — lets a test act while a request
+    /// is in flight (e.g. save a newer edit mid-upload). Cleared by
+    /// `clearRecording()`.
+    static var onRequest: (@Sendable (URLRequest) -> Void)? {
+        get { lock.lock(); defer { lock.unlock() }; return _onRequest }
+        set { lock.lock(); defer { lock.unlock() }; _onRequest = newValue }
+    }
 
     /// Per-test stub. Cleared in `setUp` for isolation.
     static var stub: Stub? {
@@ -49,6 +59,7 @@ internal final class StubURLProtocol: URLProtocol {
         lock.lock(); defer { lock.unlock() }
         _recordedRequests = []
         _sequenceIndex = 0
+        _onRequest = nil
     }
 
     override class func canInit(with request: URLRequest) -> Bool { true }
@@ -75,6 +86,7 @@ internal final class StubURLProtocol: URLProtocol {
         Self._recordedRequests.append(recorded)
         Self.lock.unlock()
 
+        Self.onRequest?(recorded)
         let effectiveStub = Self.resolveStub()
         apply(stub: effectiveStub)
     }
@@ -106,7 +118,9 @@ internal final class StubURLProtocol: URLProtocol {
             let res = HTTPURLResponse(url: request.url!, statusCode: code,
                                       httpVersion: "HTTP/1.1", headerFields: nil)!
             client?.urlProtocol(self, didReceive: res, cacheStoragePolicy: .notAllowed)
-            if let json { client?.urlProtocol(self, didLoad: Data(json.utf8)) }
+            if let body = json ?? sidecarReply(code: code) {
+                client?.urlProtocol(self, didLoad: Data(body.utf8))
+            }
             client?.urlProtocolDidFinishLoading(self)
         case .networkError(let code):
             client?.urlProtocol(self, didFailWithError: URLError(code))
@@ -116,6 +130,17 @@ internal final class StubURLProtocol: URLProtocol {
                                       httpVersion: "HTTP/1.1", headerFields: nil)!
             client?.urlProtocol(self, didReceive: res, cacheStoragePolicy: .notAllowed)
             client?.urlProtocolDidFinishLoading(self)
+        }
+    }
+
+    /// A real server always names where it stored a sidecar (#5021).
+    private func sidecarReply(code: Int) -> String? {
+        guard (200..<300).contains(code), request.url?.lastPathComponent == "sidecar",
+              let target = request.value(forHTTPHeaderField: "X-Maple-Target-Rel-Path")
+        else { return nil }
+        let reply = ["target_rel_path": BackupSidecarName.canonical(for: target)]
+        return (try? JSONSerialization.data(withJSONObject: reply)).flatMap {
+            String(data: $0, encoding: .utf8)
         }
     }
 

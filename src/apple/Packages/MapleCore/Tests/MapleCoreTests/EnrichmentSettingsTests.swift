@@ -1,7 +1,7 @@
 // EnrichmentSettingsTests.swift
 //
-// Wire shapes and form rules for the four T5a enrichment rows — Describe,
-// Transcribe, Geocode, Meilisearch (#2771).
+// Wire shapes and form rules for the T5a enrichment rows — Describe,
+// Transcribe, Geocode, service search (#2771).
 //
 // The rule that carries real risk is the shared-document merge hazard: the
 // PUT is patch/merge against ONE document every row writes to, so a row
@@ -18,11 +18,7 @@ final class EnrichmentConfigDecodeTests: XCTestCase {
   private let sampleJSON = """
     {"nominatim_url":"https://nominatim.example","geocode_worker_enabled":true,
      "nominatim_rate_limit_per_sec":10,"describe_provider_url":"http://localhost:11434",
-     "transcribe_model_tier":"medium.en","meilisearch_url":"http://meili.example",
-     "meilisearch_api_key_set":true,"meilisearch_task_timeout_seconds":600,
-     "meilisearch_semantic_enabled":false,"meilisearch_embedder_url":"http://localhost:11434",
-     "meilisearch_embedder_model":"bge-m3","meilisearch_semantic_ratio":0.5,
-     "service_search_rate_limit_per_minute":60}
+     "transcribe_model_tier":"medium.en","service_search_rate_limit_per_minute":60}
     """
 
   func test_decode_fullConfig() throws {
@@ -32,12 +28,6 @@ final class EnrichmentConfigDecodeTests: XCTestCase {
     XCTAssertEqual(cfg.nominatimRateLimitPerSec, 10)
     XCTAssertEqual(cfg.describeProviderURL, "http://localhost:11434")
     XCTAssertEqual(cfg.transcribeModelTier, .mediumEn)
-    XCTAssertEqual(cfg.meilisearchURL, "http://meili.example")
-    XCTAssertTrue(cfg.meilisearchAPIKeySet)
-    XCTAssertEqual(cfg.meilisearchTaskTimeoutSeconds, 600)
-    XCTAssertFalse(cfg.meilisearchSemanticEnabled)
-    XCTAssertEqual(cfg.meilisearchEmbedderModel, "bge-m3")
-    XCTAssertEqual(cfg.meilisearchSemanticRatio, 0.5)
     XCTAssertEqual(cfg.serviceSearchRateLimitPerMinute, 60)
   }
 
@@ -49,11 +39,7 @@ final class EnrichmentConfigDecodeTests: XCTestCase {
     // them instead of throwing keyNotFound on an older/partial response.
     let json = """
       {"nominatim_url":null,"geocode_worker_enabled":true,"nominatim_rate_limit_per_sec":10,
-       "describe_provider_url":null,"transcribe_model_tier":"large-v3","meilisearch_url":null,
-       "meilisearch_api_key_set":false,"meilisearch_task_timeout_seconds":600,
-       "meilisearch_semantic_enabled":false,"meilisearch_embedder_url":"http://x",
-       "meilisearch_embedder_model":"bge-m3","meilisearch_semantic_ratio":0.5,
-       "service_search_rate_limit_per_minute":60,"face_worker_enabled":false,
+       "describe_provider_url":null,"transcribe_model_tier":"large-v3","service_search_rate_limit_per_minute":60,"face_worker_enabled":false,
        "source":{"nominatim_url":"unset"}}
       """
     let cfg = try JSONDecoder().decode(EnrichmentConfig.self, from: Data(json.utf8))
@@ -77,10 +63,7 @@ final class DescribeSettingsFormTests: XCTestCase {
     EnrichmentConfig(
       nominatimURL: "https://nominatim.example", geocodeWorkerEnabled: true,
       nominatimRateLimitPerSec: 10, describeProviderURL: describeURL,
-      transcribeModelTier: .mediumEn, meilisearchURL: nil, meilisearchAPIKeySet: false,
-      meilisearchTaskTimeoutSeconds: 600, meilisearchSemanticEnabled: false,
-      meilisearchEmbedderURL: "http://x", meilisearchEmbedderModel: "bge-m3",
-      meilisearchSemanticRatio: 0.5, serviceSearchRateLimitPerMinute: 60)
+      transcribeModelTier: .mediumEn, serviceSearchRateLimitPerMinute: 60)
   }
 
   private func encoded(_ patch: DescribeConfigPatch) throws -> [String: Any] {
@@ -122,9 +105,6 @@ final class TranscribeSettingsFormTests: XCTestCase {
     EnrichmentConfig(
       nominatimURL: "https://nominatim.example", geocodeWorkerEnabled: true,
       nominatimRateLimitPerSec: 10, describeProviderURL: nil, transcribeModelTier: .baseEn,
-      meilisearchURL: nil, meilisearchAPIKeySet: false, meilisearchTaskTimeoutSeconds: 600,
-      meilisearchSemanticEnabled: false, meilisearchEmbedderURL: "http://x",
-      meilisearchEmbedderModel: "bge-m3", meilisearchSemanticRatio: 0.5,
       serviceSearchRateLimitPerMinute: 60)
   }
 
@@ -148,10 +128,7 @@ final class GeocodeSettingsFormTests: XCTestCase {
   private func config(url: String? = "https://nominatim.example", rate: Double = 10) -> EnrichmentConfig {
     EnrichmentConfig(
       nominatimURL: url, geocodeWorkerEnabled: true, nominatimRateLimitPerSec: rate,
-      describeProviderURL: nil, transcribeModelTier: .mediumEn, meilisearchURL: nil,
-      meilisearchAPIKeySet: false, meilisearchTaskTimeoutSeconds: 600,
-      meilisearchSemanticEnabled: false, meilisearchEmbedderURL: "http://x",
-      meilisearchEmbedderModel: "bge-m3", meilisearchSemanticRatio: 0.5,
+      describeProviderURL: nil, transcribeModelTier: .mediumEn,
       serviceSearchRateLimitPerMinute: 60)
   }
 
@@ -180,7 +157,7 @@ final class GeocodeSettingsFormTests: XCTestCase {
   }
 
   func test_patch_outOfRangeRateIsSentThroughUnclamped() throws {
-    // Unlike the Meilisearch numerics, geocode does NOT reset out-of-range
+    // Unlike the service search budget, geocode does NOT reset out-of-range
     // to null — it sends the typed value and lets the server 400. A 500
     // here (way outside [0.1, 100]) must still appear on the wire as 500.
     var form = GeocodeSettingsForm.seeded(from: config())
@@ -210,111 +187,42 @@ final class GeocodeSettingsFormTests: XCTestCase {
   }
 }
 
-final class MeilisearchSettingsFormTests: XCTestCase {
+final class ServiceSearchSettingsFormTests: XCTestCase {
 
   private func config() -> EnrichmentConfig {
     EnrichmentConfig(
       nominatimURL: "https://nominatim.example", geocodeWorkerEnabled: true,
       nominatimRateLimitPerSec: 10, describeProviderURL: nil, transcribeModelTier: .mediumEn,
-      meilisearchURL: "http://meili.example", meilisearchAPIKeySet: true,
-      meilisearchTaskTimeoutSeconds: 600, meilisearchSemanticEnabled: true,
-      meilisearchEmbedderURL: "http://ollama.internal", meilisearchEmbedderModel: "bge-m3",
-      meilisearchSemanticRatio: 0.5, serviceSearchRateLimitPerMinute: 60)
+      serviceSearchRateLimitPerMinute: 60)
   }
 
-  private func encoded(_ patch: MeilisearchConfigPatch) throws -> [String: Any] {
+  private func encoded(_ patch: ServiceSearchConfigPatch) throws -> [String: Any] {
     let data = try JSONEncoder().encode(patch)
     return try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
   }
 
-  // MARK: - Seeding
-
-  func test_seed_neverPopulatesAPIKey() {
-    let form = MeilisearchSettingsForm.seeded(from: config())
-    XCTAssertEqual(form.apiKey, "", "the key is write-only and never echoed by the server")
-    XCTAssertEqual(form.url, "http://meili.example")
-    XCTAssertTrue(form.semanticEnabled)
-    XCTAssertEqual(form.taskTimeoutSeconds, "600")
-    XCTAssertEqual(form.semanticRatio, "0.5")
+  func test_seed_populatesTheBudget() {
+    let form = ServiceSearchSettingsForm.seeded(from: config())
     XCTAssertEqual(form.serviceRateLimitPerMinute, "60")
   }
 
-  // MARK: - No-foreign-keys / base fields
-
   func test_patch_sendsOnlyBaseFieldsAndOwnFields() throws {
-    let form = MeilisearchSettingsForm.seeded(from: config())
+    let form = ServiceSearchSettingsForm.seeded(from: config())
     let obj = try encoded(form.patch(echoing: config()))
     XCTAssertEqual(
       Set(obj.keys),
-      [
-        "nominatim_url", "geocode_worker_enabled", "meilisearch_url",
-        "meilisearch_semantic_enabled", "meilisearch_embedder_model",
-        "meilisearch_task_timeout_seconds", "meilisearch_semantic_ratio",
-        "service_search_rate_limit_per_minute",
-      ], "meilisearch_api_key must be ABSENT (omitted) when the field is blank, not just falsy")
+      ["nominatim_url", "geocode_worker_enabled", "service_search_rate_limit_per_minute"])
   }
 
-  // MARK: - API key omit-when-blank
-
-  func test_patch_blankKeyOmitsFieldEntirely() throws {
-    var form = MeilisearchSettingsForm.seeded(from: config())
-    form.apiKey = "   "
+  func test_patch_inRangeServiceRateSendsTheValue() throws {
+    var form = ServiceSearchSettingsForm.seeded(from: config())
+    form.serviceRateLimitPerMinute = " 120 "
     let obj = try encoded(form.patch(echoing: config()))
-    XCTAssertFalse(
-      obj.keys.contains("meilisearch_api_key"),
-      "a saved key must survive an unrelated save — omit, don't null")
-  }
-
-  func test_patch_typedKeyIsTrimmedAndSet() throws {
-    var form = MeilisearchSettingsForm.seeded(from: config())
-    form.apiKey = "  s3cret  "
-    let obj = try encoded(form.patch(echoing: config()))
-    XCTAssertEqual(obj["meilisearch_api_key"] as? String, "s3cret")
-  }
-
-  // MARK: - Range-reset-to-null (not clamp)
-
-  func test_patch_outOfRangeTaskTimeoutSendsNull() throws {
-    var form = MeilisearchSettingsForm.seeded(from: config())
-    form.taskTimeoutSeconds = "5000"  // > 3600
-    let obj = try encoded(form.patch(echoing: config()))
-    XCTAssertTrue(
-      obj["meilisearch_task_timeout_seconds"] is NSNull,
-      "out-of-range must reset to default, not clamp to the 3600 ceiling")
-  }
-
-  func test_patch_belowMinTaskTimeoutSendsNull() throws {
-    var form = MeilisearchSettingsForm.seeded(from: config())
-    form.taskTimeoutSeconds = "10"  // < 30
-    let obj = try encoded(form.patch(echoing: config()))
-    XCTAssertTrue(obj["meilisearch_task_timeout_seconds"] is NSNull)
-  }
-
-  func test_patch_inRangeTaskTimeoutSendsTheValue() throws {
-    var form = MeilisearchSettingsForm.seeded(from: config())
-    form.taskTimeoutSeconds = "120"
-    let obj = try encoded(form.patch(echoing: config()))
-    XCTAssertEqual(obj["meilisearch_task_timeout_seconds"] as? Int, 120)
-  }
-
-  func test_patch_outOfRangeSemanticRatioSendsNull() throws {
-    var form = MeilisearchSettingsForm.seeded(from: config())
-    form.semanticRatio = "1.5"  // > 1
-    let obj = try encoded(form.patch(echoing: config()))
-    XCTAssertTrue(
-      obj["meilisearch_semantic_ratio"] is NSNull,
-      "out-of-range must reset to default, not clamp to the 1.0 ceiling")
-  }
-
-  func test_patch_negativeSemanticRatioSendsNull() throws {
-    var form = MeilisearchSettingsForm.seeded(from: config())
-    form.semanticRatio = "-0.1"
-    let obj = try encoded(form.patch(echoing: config()))
-    XCTAssertTrue(obj["meilisearch_semantic_ratio"] is NSNull)
+    XCTAssertEqual(obj["service_search_rate_limit_per_minute"] as? Int, 120)
   }
 
   func test_patch_outOfRangeServiceRateSendsNull() throws {
-    var form = MeilisearchSettingsForm.seeded(from: config())
+    var form = ServiceSearchSettingsForm.seeded(from: config())
     form.serviceRateLimitPerMinute = "50000"  // > 10000
     let obj = try encoded(form.patch(echoing: config()))
     XCTAssertTrue(
@@ -323,45 +231,10 @@ final class MeilisearchSettingsFormTests: XCTestCase {
   }
 
   func test_patch_zeroServiceRateSendsNull() throws {
-    var form = MeilisearchSettingsForm.seeded(from: config())
+    var form = ServiceSearchSettingsForm.seeded(from: config())
     form.serviceRateLimitPerMinute = "0"  // < min of 1
     let obj = try encoded(form.patch(echoing: config()))
     XCTAssertTrue(obj["service_search_rate_limit_per_minute"] is NSNull)
-  }
-
-  func test_patch_blankURLSendsExplicitNull() throws {
-    var form = MeilisearchSettingsForm.seeded(from: config())
-    form.url = ""
-    let obj = try encoded(form.patch(echoing: config()))
-    XCTAssertTrue(obj["meilisearch_url"] is NSNull)
-  }
-
-  func test_patch_blankEmbedderModelSendsExplicitNull() throws {
-    var form = MeilisearchSettingsForm.seeded(from: config())
-    form.embedderModel = "  "
-    let obj = try encoded(form.patch(echoing: config()))
-    XCTAssertTrue(obj["meilisearch_embedder_model"] is NSNull)
-  }
-
-  // MARK: - Test credentials
-
-  func test_testCredentials_nilWhenURLBlank() {
-    var form = MeilisearchSettingsForm.seeded(from: config())
-    form.url = "   "
-    XCTAssertNil(form.testCredentials())
-  }
-
-  func test_testCredentials_keyNilWhenBlank() {
-    let form = MeilisearchSettingsForm.seeded(from: config())
-    let creds = form.testCredentials()
-    XCTAssertEqual(creds?.url, "http://meili.example")
-    XCTAssertNil(creds?.apiKey)
-  }
-
-  func test_testCredentials_includesFreshlyTypedKey() {
-    var form = MeilisearchSettingsForm.seeded(from: config())
-    form.apiKey = "  s3cret  "
-    XCTAssertEqual(form.testCredentials()?.apiKey, "s3cret")
   }
 }
 
@@ -373,11 +246,7 @@ final class FaceModelsStatusDecodeTests: XCTestCase {
     let json = """
       {"nominatim_url":"https://nominatim.example","geocode_worker_enabled":true,
        "nominatim_rate_limit_per_sec":10,"describe_provider_url":null,
-       "transcribe_model_tier":"medium.en","meilisearch_url":null,
-       "meilisearch_api_key_set":false,"meilisearch_task_timeout_seconds":600,
-       "meilisearch_semantic_enabled":false,"meilisearch_embedder_url":"http://x",
-       "meilisearch_embedder_model":"bge-m3","meilisearch_semantic_ratio":0.5,
-       "service_search_rate_limit_per_minute":60,"face_model_dir":"/data/models",
+       "transcribe_model_tier":"medium.en","service_search_rate_limit_per_minute":60,"face_model_dir":"/data/models",
        "face_detector_url":"https://example.com/scrfd_10g.onnx","face_detector_sha256":"abc123",
        "face_recognizer_url":null,"face_recognizer_sha256":null,
        "face_min_detection_size":0.08,
@@ -419,9 +288,6 @@ final class FaceDetectSettingsFormTests: XCTestCase {
     EnrichmentConfig(
       nominatimURL: "https://nominatim.example", geocodeWorkerEnabled: true,
       nominatimRateLimitPerSec: 10, describeProviderURL: nil, transcribeModelTier: .mediumEn,
-      meilisearchURL: nil, meilisearchAPIKeySet: false, meilisearchTaskTimeoutSeconds: 600,
-      meilisearchSemanticEnabled: false, meilisearchEmbedderURL: "http://x",
-      meilisearchEmbedderModel: "bge-m3", meilisearchSemanticRatio: 0.5,
       serviceSearchRateLimitPerMinute: 60, faceModelDir: modelDir, faceDetectorURL: detectorURL,
       faceDetectorSHA256: "abc123", faceRecognizerURL: "https://example.com/arcface.onnx",
       faceRecognizerSHA256: "def456", faceMinDetectionSize: minSize)
@@ -512,9 +378,6 @@ final class FaceEmbedSettingsFormTests: XCTestCase {
     EnrichmentConfig(
       nominatimURL: "https://nominatim.example", geocodeWorkerEnabled: true,
       nominatimRateLimitPerSec: 10, describeProviderURL: nil, transcribeModelTier: .mediumEn,
-      meilisearchURL: nil, meilisearchAPIKeySet: false, meilisearchTaskTimeoutSeconds: 600,
-      meilisearchSemanticEnabled: false, meilisearchEmbedderURL: "http://x",
-      meilisearchEmbedderModel: "bge-m3", meilisearchSemanticRatio: 0.5,
       serviceSearchRateLimitPerMinute: 60, faceModelDir: "/data/models",
       faceDetectorURL: "https://example.com/scrfd_10g.onnx", faceDetectorSHA256: "abc123",
       faceRecognizerURL: "https://example.com/arcface.onnx", faceRecognizerSHA256: "def456",

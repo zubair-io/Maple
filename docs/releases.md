@@ -37,27 +37,87 @@ The source release is a tag, not a second mutable release branch. The
 The bump PR auto-merges independently of the tagged Apple/store builds; those
 continue building the immutable release tag, not the updated main branch.
 
+Release readiness and the main release controller share the workflow policy in
+`tools/release_ci.py`. Android and every required workflow must complete with
+`success`; `neutral` and `skipped` do not pass. Apple and native packages run as
+pinned reusable validations before tagging main and as direct workflows on the
+release PR. Linux and raw-pipeline use path filters that exclude the version-only
+handoff, so absent runs are allowed; any present run must succeed. The main
+controller also rejects unsuccessful additional push workflows, except its own
+release-handoff run.
+
+In a rebase merge queue, both required contexts evaluate the queue's exact
+merge-group commit. Release readiness waits for all twelve CI workflows that
+run on `merge_group`; missing, running, stale-head, and unsuccessful runs hold
+the group. It excludes itself and `release-handoff` from that wait. The handoff
+controller reads trusted main code and inspects the group commit as Git data.
+During an active handoff, only a group whose complete tree matches the approved
+version-only bump may pass. The queue must be configured for one PR per group.
+
 ## One-time rollout
 
 The workflow and controller must land on main before requiring their status.
-Keep the existing **Main** ruleset, strict up-to-date setting, rebase-only rule,
-and `Release readiness` check. Add **release-handoff-complete** as another
-required status check, issued by GitHub Actions. Do not replace existing rules.
+Keep the existing **Main** ruleset, rebase-only rule, and `Release readiness`
+check. Leave **Require branches to be up to date before merging** off so ordinary
+PRs can auto-merge after their required checks without updating to every main
+change. Add **release-handoff-complete** as another required status check, issued
+by GitHub Actions. Do not replace existing rules.
 
 First run **release-handoff** manually to seed statuses on open PR heads, then
 add the requirement. The release dispatcher refuses to create a release if
-the handoff or Release readiness requirement is absent, or strict up-to-date
-checks are disabled. Repository auto-merge must be enabled. A PAT/GitHub App credential in `VERSION_SYNC_TOKEN`
-(fallback: existing `JULES_GH`) needs contents, PRs, issues and statuses write,
-Actions/rules read. Project-board assignment is not part of release orchestration
+the handoff or Release readiness requirement is absent. Repository auto-merge
+must be enabled. A fine-grained PAT or GitHub App credential in the `release`
+environment's `VERSION_SYNC_TOKEN` needs contents, PRs, issues and statuses
+write, Actions/rules read. Project-board assignment is not part of release orchestration
 and requires no Projects permission. The credential must trigger
 downstream workflows; the ordinary `GITHUB_TOKEN` is not used for release pushes.
+
+### Protected environments for signing and release secrets (#4751)
+
+Create these environments before merging a workflow that references them, and
+move (do not copy) the named secrets into them, then delete the repo-level
+copies and rotate any credential that was ever repo-level:
+
+- `release` — deployment branches: `main` and tags matching `v*`. Holds
+  `VERSION_SYNC_TOKEN` and the Azure Trusted Signing set used by
+  `release.yml` (`AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET`,
+  `AZURE_TS_ENDPOINT`, `AZURE_TS_ACCOUNT`, `AZURE_TS_PROFILE`). The
+  `create-release` job in `version-sync.yml` and the `windows-app` job in
+  `release.yml` declare `environment: release`, so a branch workflow cannot
+  read these secrets.
+- `apple-signing` — deployment branches: `main` and tags matching `v*`. Holds
+  the Apple signing set (`MACOS_CERT_P12_*`, `APPSTORE_PRIVATE_KEY`). No
+  in-repo workflow consumes these today (Xcode Cloud signs externally); any
+  future workflow that does must declare `environment: apple-signing`, which
+  `tools/test_ci_secret_environments.py` enforces for these and the
+  `release`/`android-signing` sets.
+
+`publish-package.yml` holds no long-lived secret (npm uses OIDC provenance
+via `id-token`), so it needs no environment. Remove the repo-level `JULES_GH`
+owner PAT entirely — `version-sync` no longer falls back to it — and revoke
+the old PAT when rotating `VERSION_SYNC_TOKEN`. Bot accounts (Codex)
+must not hold a token with the `workflow` scope, so a bot push cannot add or
+modify a workflow under `.github/workflows/`.
 
 At rollout, main still says `0.1.2` and `v0.1.2` already exists on an older
 commit. Run **version-sync** with **advance_only = true** once. This explicitly
 opens the `0.1.3` migration PR without releasing anything or moving `v0.1.2`.
 Merge it after CI. Normal releases can then use the default mode. Activating
 the gate before this migration deliberately holds all other PRs until it lands.
+
+## Release-only freshness
+
+Release creation still validates a pinned revision and refuses to tag if main
+has moved. The required `release-handoff-complete` check allows the next-version
+PR only when its exact version-only commit is a direct child of current main.
+Every push to main refreshes that check for all open PR heads, revoking success
+for a stale release PR until the handoff is repaired. `Release readiness` still
+waits for the complete release CI suite. Ordinary PRs need no freshness check
+when no release handoff is active.
+
+Land the controller change that removes its branch-wide strict-check requirement
+before turning off the setting in the Main ruleset. Keep both release checks
+required throughout the transition.
 
 ## Failure and retry behavior
 

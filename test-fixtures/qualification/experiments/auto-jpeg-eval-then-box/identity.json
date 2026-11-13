@@ -1,0 +1,8 @@
+{
+  "source_processing_commit": "5b6d0f1d92af2879c3ff1511a52b0b1ad95d79c3",
+  "renderer_tree": "87a0c9ec55c221af598f53669ac1d2a1ccd495c0",
+  "binary_sha256": "9245fe3a2829392ae5470b61aae3617f2cca2c3afd940b8bf533b043cedcf0c3",
+  "pipeline_output_version": 37,
+  "auto_fit_model_version": 7,
+  "status": "unqualified correct-forward-operator field candidate"
+}

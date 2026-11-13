@@ -431,6 +431,13 @@ export const CLAIM_SURVIVOR_SQL = `
      SET name = ?, name_key = ?, updated_at = ?, centroid_face_count = -1
    WHERE id = ?`;
 
+/** Copy `hidden` and `excluded` from one person onto another (params: from, from, to). */
+export const ADOPT_VISIBILITY_SQL = `
+  UPDATE people
+     SET hidden = (SELECT hidden FROM people WHERE id = ?),
+         excluded = (SELECT excluded FROM people WHERE id = ?)
+   WHERE id = ?`;
+
 export const SET_SUGGESTION_SQL = `
   UPDATE people
      SET suggested_merge_person_id = ?, suggested_merge_score = ?, suggested_merges = ?

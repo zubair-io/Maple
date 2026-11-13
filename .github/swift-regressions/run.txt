@@ -12,20 +12,30 @@ RenderSchedulingBackpressureTests
 RenderRequestIdentityTests
 RenderActivityTests
 NativeDetailCancellationTests
-NativeAutoProfilePreparationTests
+DecodedCacheAgentCaptureTests
 DecodedCacheAutosaveTests
-DecodedCacheReplacementTests
+DecodedCacheColdOpenTests
+DecodedCacheLiveModelTests
 RenderedPreviewCacheWriteTests
 RawRenderSourceTests
+RawRenderSourceCancellationTests
 EditSessionNativeSizeSeedTests
 EditSessionPreviewCeilingTests
 CanvasMathTests
+GpuCanvasPlaceholderTests
+CpuBackdropVisibilityTests
+PreviewCanvasZoomTests
+PreviewCanvasPagingTests
+PreviewEditorHandoffTests
+EditorCanvasHandBackTests
+EditorFirstFrameTests
 GpuPrescaledExtentTests
 GpuReadbackFreshnessTests
 GpuExitPreviewCacheTests
 GpuPresentationOutcomeTests
 GpuSessionReplacementTests
 LocalAdjustmentXMPTests
+LookProfileXMPTests
 LocalAdjustmentBrushTests
 LocalAdjustmentBrushSessionTests
 LocalAdjustmentOrderTests
@@ -37,11 +47,16 @@ MaskCoordinatePrecisionTests
 # tool-count assertions were never run here.
 BlackWhiteMixInteractionTests
 CropEditingStateTests
+EditSessionSidecarWriteGuardTests
+EditSessionCancellationErrorTests
 EditSessionTransactionTests
 EditorAutoSourceTests
+EditorCanvasSeedTests
 EditorCommandRouterTests
 EditorCommandWhiteBalanceTests
 EditorHSLTests
+EditorSeedCanvasGeometryTests
+EditorSeedStoreTests
 EditorStateAutoResetTests
 EditorStateBlackWhiteTests
 EditorStatePresetsTests
@@ -78,6 +93,7 @@ ApnsDeviceRegistrationClientTests
 ApnsPushRegistrarTests
 AssetChangeRelativePathTests
 AssetDropCollisionResolverTests
+AssetDragFilesTests
 AssetRefCatalogTests
 AssetRefStableIDTests
 AssetRefStubAudioTests
@@ -85,13 +101,19 @@ AssetRefVideoTests
 AssetRenameFilenameTests
 BatchAdjustmentSessionTests
 BatchAdjustmentTransferTests
+BatchMetadataSessionSafetyTests
 BatchMetadataViewModelTests
 BatchRenameViewModelTests
 BoundedAsyncSemaphoreTests
 CameraSupportRegistryTests
 CanvasColorSpaceTests
+CanvasOverlayPresentationTests
+CanvasVisibleAreaTests
+CanvasZoomContinuityTests
 CanvasZoomControllerTests
 CanvasZoomModelTests
+CanvasZoomPinchRebaseTests
+CanvasZoomStopsTests
 CapabilityRegistryTests
 ChangeCursorStoreTests
 ChangeFeedClientBackoffTests
@@ -99,7 +121,11 @@ ChangeFeedClientDateDecodingTests
 ChangeFeedClientRestartTests
 SSELineDecoderTests
 CollisionResolverTests
+ColorCurvePickerTests
+ColorCurveXMPTests
+ColorGradeZoneEdgeTests
 ColorGradingXMPTests
+ToneCurveSplitsTests
 
 # KTLO qualification batch 2 (#3655): generated/temporary inputs, stubbed
 # HTTP and the committed synthetic RAW; no private fixtures or UI auth.
@@ -108,6 +134,7 @@ ColorWheelGeometryTests
 ComposedSourceTests
 CreateXMPPreconditionTests
 CropGeometryTests
+CropOverlaySurfaceTests
 DeepLinkParserSearchTests
 DeepLinkParserTests
 DeepLinkSearchParamsTests
@@ -141,6 +168,8 @@ FileOperationErrorTests
 FilesystemSourceCaptureDateTests
 FilesystemSourceExternalRenameTests
 FilesystemSourceMapleIdTests
+FilesystemSourceWriteXMPTests
+PhotoKitSourceXMPTests
 FilmLookCubeTests
 FilmLookXMPTests
 FilmLutStoreTests
@@ -166,6 +195,7 @@ LocalAdjustmentFlatTests
 LocalFileOperationsExternalRenameTests
 LocalFileOperationsFolderTests
 LocalFileOperationsRelocateTests
+LocalWorkflowVariantRelocateTests
 LocalFileOperationsTrashTests
 
 # KTLO qualification batch 4 (#3657): map geometry and offscreen bitmaps,
@@ -186,6 +216,8 @@ MapViewportRegionMapKitTests
 MapViewportTests
 MapleEnumeratorMapleDirTests
 MapleIdDerivationTests
+MapleIdDerivationContractTests
+RawExifDatesTests
 MapleItemCapabilitiesTests
 MapleItemTests
 MapleSidecarPathsTests
@@ -203,35 +235,43 @@ MaskRasterAlphaTests
 MaskRasterStoreTests
 MaskRemapRasterTests
 MaskRemapTests
-MeilisearchSettingsFormTests
+ServiceSearchSettingsFormTests
 MergedTimelineSourceTests
 MirrorConfigClientTests
 
 # KTLO qualification batch 5 (#3658): generated scene-linear FFI inputs,
 # isolated defaults/files, pure catalogs and stubbed HTTP clients.
 NativeDetailLODTests
+NativeDetailWindowChainTests
 PerspectiveXMPTests
 PhotoGridItemTests
 PhotosAccessMemoryTests
 PresetStoreTests
 PresetTests
+ProcessSceneLinearP3AutoTests
 ProcessSceneLinearTargetPrimariesOverrideTests
 QuickLookResolverTests
 RawCoreBridgeTests
 ResolveAbsolutePathTests
 RetouchGeometryTests
 RetouchXMPTests
+RetouchInfoPreservationTests
 RevealInFileManagerSelectionTests
 RevealTargetTests
 SavedFolderStoreTests
 SceneLinearChainF32BandingTests
+ChainCurvesWiringTests
 SceneLinearHalfShadowTransportTests
 SearchAssetAddressTests
 SearchCursorPaginationTests
+SearchRankPinTests
 SearchParamsTests
 SearchViewModelTests
 SearchViewModelCollectionTests
 GeneratedSearchCollectionsViewModelTests
+GeneratedSearchCollectionsOrderTests
+GeneratedSearchCollectionsCacheTests
+FolderTrashForYouCacheTests
 SessionPruningTests
 SidecarModifyIdempotencyTests
 SidecarPathTests
@@ -242,6 +282,7 @@ TVMapFocusOrderTests
 TVMapHeatmapTuningTests
 TVTimelineViewModelTests
 ToneCurveFlattenTests
+GpuCurveBufferTests
 
 # KTLO qualification batch 6 (#3659): WB sampling on committed synthetic
 # RAW, generated curves, temporary XMP files and stubbed HTTP/provider
@@ -250,9 +291,9 @@ ToneCurveMathTests
 ToneCurveTests
 ToneCurveXMPTests
 TranscribeSettingsFormTests
-TrashEnumeratorTests
 URLPathHierarchyTests
 UploadRetryIdempotencyTests
+VideoCaptureDateTests
 WbDngTemperatureTests
 WbProvenanceXMPTests
 WbScaleVersionTests
@@ -269,6 +310,7 @@ WorkingSetTests
 XMPAuthoredCullingTests
 XMPCanonicalFormatTests
 XMPCullFlagTests
+XMPDuplicateAttributeTests
 XMPLocalAdjustmentsTests
 XMPMetadataTests
 XMPPassthroughTests
@@ -277,12 +319,20 @@ XMPSerializationBlackWhiteTests
 XMPSerializationStageKnobTests
 XMPSerializationTests
 XMPSerializationWbMethodToneCurveModeTests
+XMPPassthroughNamespaceTests
+XMPSidecarStoreMetadataSaveTests
+XMPSidecarExternalConflictTests
+XMPSidecarReconcileTests
+CloudSidecarReconcileTests
+EditSessionHistoryReconcileTests
+EditSessionLateSidecarUndoTests
+XMPSidecarFilePublicationTests
+XMPSidecarDurableRecoveryTests
 DisplayPreviewPersistTests
 GpuPreviewPersistTests
 
 # App Store feature flags (#3773): pure env / UserDefaults / semver-string
 # resolution, no fixtures, no Metal, no host services.
-FeatureFlagsTests
 
 # Files edit refresh (#3957): observation and generated ImageIO pixels;
 # no RAW fixtures, Metal device, or host services.
@@ -298,6 +348,13 @@ PartialWhiteBalanceTests
 CloudSourceTests
 CloudSourceOriginalHTTPTests
 CloudAddressResolverTests
+CloudSourceMotionClipTests
+CloudSourceLivePhotoTests
+# Live Photo pairing on local folders and SMB (#5544): real temp-dir files, the shared rule corpus, owned Samba.
+LiveContentIdentifierTests
+LivePhotoPairingTests
+LivePhotoLocalFolderTests
+LivePhotoSMBTests
 
 # Unified native folder readers and the production API contract (#4006).
 UnifiedFolderConsumerTests
@@ -320,6 +377,7 @@ RemoteCatalogPreviewTests
 RemoteCatalogThumbTests
 RemoteCatalogXMPCreateTests
 TrashMetadataListingTests
+TrashOrphanedSidecarTests
 SMBFileOperationsFolderTests
 
 # Ownership facet choices and stale scope responses (#4016).
@@ -350,6 +408,10 @@ SMBWorkflowPublicationTests # #4065: actual owned Samba transport; no mount or s
 SMBWorkflowAcceptanceTests # #4065: actual owned Samba transport; no mount or sidecar mock
 SMBWhiteBalanceAcceptanceTests # #4085: all WB modes, actual SMB variants/reconnect/export
 SMBWorkflowRecoveryTests # #4065: drop actual accepted SMB rename acknowledgement
+SMBDuplicateContentMutationTests # #4705: identical copies on owned Samba; mutations address the listed file
+SMBCrossShareMutationTests # #4987: two owned Samba shares; a ref never mutates the same path on another share
+SMBVideoSidecarTests # #5053: owned Samba share; a video and its same-stem photo keep separate sidecars
+SMBSourceWriteXMPTests # #5173: source writeXMP publishes through the SMB sidecar store on owned Samba
 # Decode sampling density, render parameter forwarding and chain-cache identity.
 NoiseSamplingScaleHostTests
 AgentEditServiceTests # live AI agent bridge: revision, undo, reject-not-clamp, real HTTP + .xmp
@@ -359,10 +421,14 @@ AgentInspectionRevisionTests # real lazy-raster fences: discard replies after ed
 SMBDisconnectDrainTests
 SMBSourceDiscoveryTests
 AgentMaskScopeTests # vectorscope & mask tools: Rec.709 chroma, skin locus, mask creation, overlay render, local edits
+AgentSidecarReadinessTests
 AgentBrowseTests # browse mode & culling tools: list_photos, get_thumbnails, set_rating, set_flag, open_photo
 AgentScopeColorTests # #4104: paired ROI and canonical range coverage
 
 BrowseCancellationOwnershipTests
+ThumbnailFetchGateWaiterTests
+ThumbnailLoaderSourcelessProducerTests
+ThumbnailRetryTests
 
 AgentHTTPIntegrationTests
 AgentExportTests # default JPEG export, originals, revision races and cancellation
@@ -383,6 +449,117 @@ RestoreSafetyTests
 
 # SMB restore is copy-only: trashed files are marked, never deleted or renamed (#4139/#4173).
 SMBCopyOnlyRestoreTests
+
+# Panorama close guard (#5662): closing the merge view asks first only when a
+# running or finished stitch would be lost.
+PanoMergeDismissGuardTests
+
+# Panorama merge preview (#4579): PanoMergeSession preview/debounce/cancel
+# and alignment hand-off against an in-memory recording stitcher; no FFI.
+PanoMergePreviewTests
+
+# Panorama edges (#5575): Boundary Warp / Auto Crop reason copy, status
+# mapping, and the merge session's handling of an edge change; no FFI.
+PanoEdgesTests
+
+# Panorama system progress (#5663): run-state to continued-processing
+# begin/progress/end mapping; pure value type, no BackgroundTasks.
+PanoSystemProgressTests
+PanoSystemProgressArbiterTests
+
+# Panorama output size (#5454): memory-fit model and the merge session's
+# Full/Smaller choice against an in-memory recording stitcher; no FFI.
+PanoMemoryModelTests
+PanoOutputSizeSessionTests
+
+# Panorama backup pause (#5653): the stitch holds the host's backup pause and
+# releases it on every way the stitch can end; no FFI.
+PanoBackgroundPauseTests
+
+# Panorama storage fit (#5555): disk-fit model, its share of the Full/Smaller
+# choice, and the launch sweep of a terminated run's temp scratch.
+PanoDiskModelTests
+PanoDiskFitSessionTests
+PanoScratchSweepTests
+PanoOutputFolderTests
+
+# Panorama stop/cancel/restart: no zombie run, no overlapping stitches, a
+# cancelled FFI run is CancellationError, a superseded server preview is
+# stopped there.
+PanoMergeCancellationTests
+RustPanoStitcherCancellationTests
+ServerPanoPreviewSupersedeTests
+
+# Panorama ML paths and alignment hand-off: Maple's own env export never
+# reads as a user override, a half-installed models dir is not ready, an
+# alignment is offered only for the frames it was solved for.
+PanoMLEnvironmentTests
+PanoAlignmentHandoffTests
+
+# Panorama output names: a stitch never replaces an existing file, and
+# claiming a name writes nothing.
+PanoOutputDestinationTests
+
+# RGB bias precision (#4667): generated large images, no external fixtures.
+CIEDE2000BiasTests
+
+# Thumbnail cache keys and locations (#5033): hash vectors and small writes
+# into a temp dir, no render or decode; was mis-tagged slow in excluded.txt.
+ThumbnailDiskCacheKeyTests
+
+# Server URL parsing and the sign-in prefill round trip (#5033): pure string
+# work; was mis-tagged as talking to a host service in excluded.txt.
+CloudHostTests
+
+# Shared-sidecar ownership rule (#4707): real temp dirs + in-memory SMB transport.
+# SidecarStemRuleTests attaches a case-sensitive APFS sparse image with hdiutil
+# and fails (never skips) when the host cannot.
+LocalSidecarOwnershipTests
+SMBSidecarOwnershipTests
+SidecarStemRuleTests
+
+# Joined sidecar bytes are rechecked before restore and SMB relocation publish/delete.
+RestoreJoinedSidecarTests
+SMBRelocateJoinedSidecarTests
+
+# Capture refine budget (#5381): the per-device refine edge and iPhone clamp,
+# pure policy with no GPU or fixture.
+CaptureRefineBudgetTests
+
+# A Cloud permanent delete that kept the photo through another copy (#5419).
+CloudTrashKeptCopyTests
+
+# Preview display-tier outcome + retry (#5432):
+PreviewFetchOutcomeTests
+PreviewRefinementBackoffTests
+
+# Backup keep-awake / screen saver (#5457): pure policy and Light Table stage
+# geometry, no host services or fixtures.
+BackupScreenPolicyTests
+LightTableMetricsTests
+LightTableViewModelTests
+LightTablePaletteTests
+
+# File Provider extension memory budget (#5456): bounded createItem bursts over
+# real temp files, ETag cache byte budget, metadata-only modifyItem, and
+# sequential working-set seeding.
+FileProviderUploadBurstTests
+RemoteCatalogETagByteBudgetTests
+FileProviderModifyItemMetadataTests
+WorkingSetSeedBoundTests
+
+# File Provider parents (#5503): no working-set item, change or item(for:) is
+# ever parented at the top level; legacy working-set anchors expire once;
+# indexed photos serve their server thumbnail.
+FileProviderRootPlacementTests
+
+# Temporal job-server settings (#5826): pure decoding/form rules, a stubbed
+# HTTP client, and poll/save sequencing on an injected clock.
+TemporalSettingsDecodingTests
+TemporalSettingsFormTests
+TemporalSettingsClientTests
+TemporalSettingsModelTests
+
 # AI removal (#1472 / #3955): real committed RAW/XMP/companions and native FFI.
 LocalRelocationJournalTests
 LocalRemovalAssetStoreTests
@@ -408,13 +585,9 @@ RemovalSnapshotTests
 RemovalSessionTests
 MacRemovalModelStoreTests
 RemovalProxyTensorTests
-
 RemovalPeopleBridgeTests
-
 RemovalPersonRefinementTests
 RemovalSavedControlsTests
 RemovalRenderRecoveryTests
-NativeFloatExportTests
-
 SMBRemovalPublicationTests # #3984: retained removal records through real SMB model publication
 NativeRemovalPaintGroupsTests

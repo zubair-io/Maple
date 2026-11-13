@@ -1,0 +1,8 @@
+{
+  "source_commit": "785eba3e88",
+  "binary_sha256": "94d4cda681ed3268b787f3dd37409cb558c55e848ca6b5430bae572eb3da6b69",
+  "raw": "/Users/riabuz/.codex/color-suite-evidence/5000/input-snapshot/20/209d464e13702de5f4fdb830ac26ac140c98a8d0dc3e81c5ba61d93677330832.fff",
+  "fixture": "test_0004",
+  "diagnostic_exr_roi": "0,0,1,1",
+  "snapshot_scope": "Full fit-frame sampled operators; EXRs are only1x1, not full-frame qualification."
+}

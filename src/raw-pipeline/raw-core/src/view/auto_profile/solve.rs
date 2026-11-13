@@ -1,12 +1,12 @@
-//! Pure math for the #550 display-space Auto Profile fit: the EXACT
-//! eval-then-box design matrix, the per-band targets, and the Chebyshev
+//! Pure math for the #550 display-space Auto Profile fit: the cubic
+//! eval-then-box design matrices, the per-band targets, and the Chebyshev
 //! (minimax) monotone curve solver. Split out of `fit_display.rs` to keep
 //! that file under the 600-LOC hard budget; `fit_display` owns I/O,
 //! orientation, cropping, and orchestration, and calls into here.
 //!
 //! No I/O — all functions are deterministic given the design matrix + targets.
 
-use super::curve::ChannelCurve;
+use super::curve::{knot_tangent, ChannelCurve};
 
 /// 32 evenly-spaced anchors per channel curve (mirrors `curve::ANCHORS`).
 pub(super) const ANCHORS: usize = 32;
@@ -84,18 +84,26 @@ pub(super) fn footprint_sizes(
     out
 }
 
-/// Build the EXACT eval-then-box per-channel design matrices `M[lane][b][a]`,
-/// where the band mean of the rendered candidate equals `Σ_a M[b][a]·out[a]`.
+/// Per-channel eval-then-box design matrices for the monotone cubic curve
+/// (#4636): the band mean of the rendered candidate is
+/// `Σ_a values[b][a]·out[a] + Σ_a tangents[b][a]·m[a]`, with `m` the knot
+/// tangents `curve::eval_channel` derives from `out`.
+pub(super) struct CubicDesign {
+    pub values: [[[f32; ANCHORS]; LUMA_BANDS.len()]; 3],
+    pub tangents: [[[f32; ANCHORS]; LUMA_BANDS.len()]; 3],
+}
+
+/// Build the [`CubicDesign`] for the source crop.
 ///
 /// One pass over the full-res source crop: each source pixel `p` is mapped to
 /// the JPEG pixel `j` it downscales into (same integer span mapping the gate's
 /// reference resample uses), weighted by `1/|F_j|` so every JPEG pixel
 /// contributes total weight 1 (footprint-size-independent — the equal-per-
 /// JPEG-pixel weighting the gate applies). Its channel value selects an anchor
-/// bracket `(lo, frac)`; `eval = out[lo]·(1−frac) + out[lo+1]·frac`, so the
-/// pixel adds `(1/|F_j|)(1−frac)` to `M[band(j)][lo]` and `(1/|F_j|)frac` to
-/// `M[band(j)][lo+1]`. Finally each band row is divided by `N_b` (the JPEG-
-/// pixel count in band `b`) to form the per-band MEAN operator.
+/// bracket `(lo, t)`, and the pixel adds its `(1/|F_j|)`-weighted Hermite basis
+/// to the bracket's two value and two tangent columns. Finally each band row
+/// is divided by `N_b` (the JPEG-pixel count in band `b`) to form the per-band
+/// MEAN operator.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn build_design_matrices(
     src: &[f32],
@@ -109,9 +117,9 @@ pub(super) fn build_design_matrices(
     band_of: &[usize],
     band_counts: &[usize; LUMA_BANDS.len()],
     footprint: &[u32],
-) -> [[[f32; ANCHORS]; LUMA_BANDS.len()]; 3] {
-    let nb = LUMA_BANDS.len();
+) -> CubicDesign {
     let mut m = [[[0.0f64; ANCHORS]; LUMA_BANDS.len()]; 3];
+    let mut d = [[[0.0f64; ANCHORS]; LUMA_BANDS.len()]; 3];
 
     // Iterate OUTPUT (JPEG) pixels and GATHER each one's source span — the same
     // structure the gate's resample uses. This composes correctly for BOTH
@@ -151,9 +159,12 @@ pub(super) fn build_design_matrices(
                         let v = src[idx + lane].clamp(0.0, 1.0);
                         let scaled = v * (ANCHORS - 1) as f32;
                         let lo = (scaled.floor() as usize).min(ANCHORS - 2);
-                        let frac = (scaled - lo as f32) as f64;
-                        m[lane][b][lo] += inv_fp * (1.0 - frac);
-                        m[lane][b][lo + 1] += inv_fp * frac;
+                        let t = (scaled - lo as f32) as f64;
+                        let (t2, t3) = (t * t, t * t * t);
+                        m[lane][b][lo] += inv_fp * (2.0 * t3 - 3.0 * t2 + 1.0);
+                        m[lane][b][lo + 1] += inv_fp * (3.0 * t2 - 2.0 * t3);
+                        d[lane][b][lo] += inv_fp * (t3 - 2.0 * t2 + t);
+                        d[lane][b][lo + 1] += inv_fp * (t3 - t2);
                     }
                 }
             }
@@ -161,20 +172,44 @@ pub(super) fn build_design_matrices(
     }
 
     // Divide each band row by the JPEG-pixel count → per-band MEAN operator.
-    let mut out = [[[0.0f32; ANCHORS]; LUMA_BANDS.len()]; 3];
-    for lane in 0..3 {
-        for b in 0..nb {
-            let nbj = band_counts[b];
-            if nbj == 0 {
-                continue;
-            }
-            let inv = 1.0 / nbj as f64;
-            for a in 0..ANCHORS {
-                out[lane][b][a] = (m[lane][b][a] * inv) as f32;
-            }
-        }
+    let mean = |sums: &[[[f64; ANCHORS]; LUMA_BANDS.len()]; 3]| {
+        std::array::from_fn(|lane| {
+            std::array::from_fn(|b| {
+                let inv = (band_counts[b] > 0).then(|| 1.0 / band_counts[b] as f64);
+                std::array::from_fn(|a| inv.map_or(0.0, |inv| (sums[lane][b][a] * inv) as f32))
+            })
+        })
+    };
+    CubicDesign {
+        values: mean(&m),
+        tangents: mean(&d),
     }
-    out
+}
+
+/// Tangent refits for [`solve_cubic_minimax`]: each freezes the knot tangents of
+/// the previous curve, which makes the band means linear in the outputs again.
+/// The rendered band error settles by the third; across the 16 previewed
+/// fixtures four refits gave Auto 1.0 a summed mean ΔE2000 of 59.17 against
+/// 59.89 for one (#4636).
+const TANGENT_REFITS: usize = 4;
+
+/// Minimax-fit a channel against its [`CubicDesign`] rows, starting from the
+/// identity curve and refitting with the previous curve's tangents frozen.
+pub(super) fn solve_cubic_minimax(
+    values: &[[f32; ANCHORS]; LUMA_BANDS.len()],
+    tangents: &[[f32; ANCHORS]; LUMA_BANDS.len()],
+    band_target: &[f32; LUMA_BANDS.len()],
+    band_counts: &[usize; LUMA_BANDS.len()],
+) -> ChannelCurve {
+    (0..TANGENT_REFITS).fold(ChannelCurve::identity(), |curve, _| {
+        let shifted: [f32; LUMA_BANDS.len()] = std::array::from_fn(|b| {
+            let tangent_term: f32 = (0..ANCHORS)
+                .map(|a| tangents[b][a] * knot_tangent(&curve, a))
+                .sum();
+            band_target[b] - tangent_term
+        });
+        solve_minimax_monotone(values, &shifted, band_counts)
+    })
 }
 
 /// Per-band, per-channel mean of the JPEG target. `band_target[lane][b]` is the
@@ -497,98 +532,5 @@ pub(super) fn fill_untouched_monotone(out: &mut [f32; ANCHORS], touched: &[bool]
 }
 
 #[cfg(test)]
-mod solver_tests {
-    use super::*;
-
-    /// Evaluate a band's mean output `Σ_a M[b][a]·curve(a_input)` for a fitted
-    /// curve, mirroring the design-matrix contract.
-    fn band_mean(design_row: &[f32; ANCHORS], curve: &ChannelCurve) -> f32 {
-        // The design row weights anchor OUTPUTS directly; `curve.anchors[a].1`
-        // is `out[a]`. Re-derive the output vector from the curve.
-        (0..ANCHORS)
-            .map(|a| design_row[a] * curve.anchors[a].1)
-            .sum()
-    }
-
-    fn counts(all: usize) -> [usize; LUMA_BANDS.len()] {
-        [all; LUMA_BANDS.len()]
-    }
-
-    /// A feasible, clearly monotone target set: each band's design row puts all
-    /// weight on a single distinct anchor, with strictly increasing targets.
-    /// The solver must hit every target near-exactly and stay monotone.
-    #[test]
-    fn hits_feasible_isolated_anchor_targets() {
-        let anchors_used = [2usize, 9, 15, 22, 29];
-        let targets = [0.10f32, 0.30, 0.50, 0.70, 0.90];
-        let mut design = [[0.0f32; ANCHORS]; LUMA_BANDS.len()];
-        for b in 0..LUMA_BANDS.len() {
-            design[b][anchors_used[b]] = 1.0; // band mean == out[anchor]
-        }
-        let curve = solve_minimax_monotone(&design, &targets, &counts(1000));
-        for b in 0..LUMA_BANDS.len() {
-            let got = band_mean(&design[b], &curve);
-            assert!(
-                (got - targets[b]).abs() < 0.02,
-                "band {b}: got {got}, want {}",
-                targets[b]
-            );
-        }
-        // Monotone non-decreasing anchors.
-        for a in 1..ANCHORS {
-            assert!(curve.anchors[a].1 >= curve.anchors[a - 1].1 - 1e-6);
-        }
-    }
-
-    /// An infeasible target set: two bands share the SAME single anchor but
-    /// demand outputs 0.2 apart. No monotone curve can satisfy both; the
-    /// minimax solver must split the error to ~0.1 each (the LP optimum) rather
-    /// than letting one band absorb all of it.
-    #[test]
-    fn splits_error_on_shared_anchor_conflict() {
-        let mut design = [[0.0f32; ANCHORS]; LUMA_BANDS.len()];
-        // Only bands 0 and 1 have targets; both read anchor 10.
-        design[0][10] = 1.0;
-        design[1][10] = 1.0;
-        let mut targets = [f32::NAN; LUMA_BANDS.len()];
-        targets[0] = 0.40;
-        targets[1] = 0.60;
-        let mut c = counts(0);
-        c[0] = 1000;
-        c[1] = 1000;
-        let curve = solve_minimax_monotone(&design, &targets, &c);
-        let e0 = (band_mean(&design[0], &curve) - 0.40).abs();
-        let e1 = (band_mean(&design[1], &curve) - 0.60).abs();
-        let worst = e0.max(e1);
-        assert!(
-            (0.08..=0.12).contains(&worst),
-            "expected ~0.1 minimax split, got e0={e0} e1={e1}"
-        );
-    }
-
-    /// `footprint_sizes` returns 1 for an upscale (out larger than crop) — the
-    /// nearest-neighbour span that matches Pillow BOX on upscale — and the
-    /// integer area for a clean integer downscale.
-    #[test]
-    fn footprint_handles_up_and_downscale() {
-        // Upscale 2×2 crop → 4×4 out: every footprint is 1.
-        let up = footprint_sizes(2, 2, 4, 4);
-        assert!(up.iter().all(|&f| f == 1), "upscale footprints must be 1");
-        // Downscale 4×4 crop → 2×2 out: every footprint is 2×2 = 4.
-        let down = footprint_sizes(4, 4, 2, 2);
-        assert!(
-            down.iter().all(|&f| f == 4),
-            "downscale footprints must be 4"
-        );
-    }
-
-    /// `band_index` replicates the gate's edge handling: half-open earlier
-    /// bands, closed final band (pure white stays in highlights).
-    #[test]
-    fn band_index_edges_match_gate() {
-        assert_eq!(band_index(0.0), Some(0));
-        assert_eq!(band_index(0.10), Some(1)); // boundary belongs to upper band
-        assert_eq!(band_index(0.75), Some(4));
-        assert_eq!(band_index(1.0), Some(4)); // last band closed
-    }
-}
+#[path = "solve_tests.rs"]
+mod solver_tests;

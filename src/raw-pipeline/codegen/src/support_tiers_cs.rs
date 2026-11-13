@@ -23,7 +23,6 @@ fn quoted(value: &str) -> String {
 }
 
 pub(crate) fn emit_cs(registry: &SupportRegistry, evidence: &Evidence) -> String {
-    let build = evidence.build.expect("evidence carries a build identity");
     let mut out: String = BANNER
         .lines()
         .map(|line| format!("//{}{line}\n", if line.is_empty() { "" } else { " " }))
@@ -49,7 +48,7 @@ pub(crate) fn emit_cs(registry: &SupportRegistry, evidence: &Evidence) -> String
     ));
     out.push_str(support_evidence::CS_TYPES);
     out.push_str("    public sealed record SupportedCamera(string Key, string DisplayName, string Fixture, string FixtureDigest, CameraTier Tier, LensSupport Lens, ProfileResolution Resolution, IReadOnlyList<CameraQualificationEvidence> Qualification) { public string ProfileBundleDigest => CameraSupportRegistry.ProfileBundleDigest; }\n\n    public static class CameraSupportRegistry\n    {\n");
-    out.push_str(&format!("        public const uint SchemaVersion = {SUPPORT_TIER_SCHEMA_VERSION};\n        public const uint PipelineOutputVersion = {};\n        public const uint BundledModelCount = {};\n        public const string ProfileBundleDigest = {};\n\n",build.pipeline_version,registry.bundled_models.len(),quoted(&registry.profile_bundle_digest)));
+    out.push_str(&format!("        public const uint SchemaVersion = {SUPPORT_TIER_SCHEMA_VERSION};\n        public const uint BundledModelCount = {};\n        public const string ProfileBundleDigest = {};\n\n",registry.bundled_models.len(),quoted(&registry.profile_bundle_digest)));
     for (name, cases) in closed_enums() {
         for (method, index) in [("Id", 0), ("Label", 1), ("Explanation", 2)] {
             out.push_str(&format!(

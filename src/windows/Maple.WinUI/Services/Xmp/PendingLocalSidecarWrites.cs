@@ -10,29 +10,36 @@ namespace Maple.WinUI.Services.Xmp;
 /// dialogs drain these writes before reading their selection (#3878).</summary>
 public sealed class PendingLocalSidecarWrites
 {
-    private readonly object _gate = new();
-    private readonly Dictionary<string, XmpSidecarDocument> _pending = new(StringComparer.OrdinalIgnoreCase);
+    private sealed record PendingWrite(XmpSidecarDocument Document, bool DiscardBrushCorrections,
+        BrushCorrectionRestoreSnapshot? RestoreBrushCorrections);
 
-    public void Stage(string path, AdjustmentState adjustments, int rating, string flag, string? label)
+    private readonly object _gate = new();
+    private readonly Dictionary<string, PendingWrite> _pending = new(StringComparer.OrdinalIgnoreCase);
+
+    public void Stage(string path, AdjustmentState adjustments, int rating, string flag, string? label,
+        bool discardBrushCorrections = false, BrushCorrectionRestoreSnapshot? restoreBrushCorrections = null)
     {
-        lock (_gate) _pending[path] = new XmpSidecarDocument
+        lock (_gate) _pending[path] = new PendingWrite(new XmpSidecarDocument
         {
             Adjustments = adjustments.Clone(), Rating = rating, Flag = flag, ColorLabel = label,
-        };
+        }, discardBrushCorrections, restoreBrushCorrections);
     }
 
-    public XmpSidecarDocument? ReadPending(string path)
+    public PendingLocalSidecarWriteSnapshot? ReadPendingSnapshot(string path)
     {
         lock (_gate)
         {
-            if (!_pending.TryGetValue(path, out var value)) return null;
-            return new XmpSidecarDocument
+            if (!_pending.TryGetValue(path, out var pending)) return null;
+            var value = pending.Document;
+            return new PendingLocalSidecarWriteSnapshot(new XmpSidecarDocument
             {
                 Adjustments = value.Adjustments.Clone(), Rating = value.Rating,
                 Flag = value.Flag, ColorLabel = value.ColorLabel,
-            };
+            }, pending.DiscardBrushCorrections, pending.RestoreBrushCorrections);
         }
     }
+
+    public XmpSidecarDocument? ReadPending(string path) => ReadPendingSnapshot(path)?.Document;
 
     public bool Contains(string path) { lock (_gate) return _pending.ContainsKey(path); }
 
@@ -41,16 +48,20 @@ public sealed class PendingLocalSidecarWrites
         lock (_gate)
         {
             var results = new List<LocalSidecarWriteResult>();
-            foreach (var (path, snapshot) in _pending.ToArray())
+            foreach (var (path, pending) in _pending.ToArray())
             {
                 try
                 {
                     var xml = SidecarStore.Update(path, doc =>
                     {
-                        doc.Adjustments = snapshot.Adjustments.Clone();
-                        doc.Rating = snapshot.Rating;
-                        doc.Flag = snapshot.Flag;
-                        doc.ColorLabel = snapshot.ColorLabel;
+                        if (pending.DiscardBrushCorrections)
+                            XmpBrushCorrections.RemovePassthroughContainers(doc);
+                        else if (pending.RestoreBrushCorrections is { } restore)
+                            XmpBrushCorrections.RestorePassthroughContainers(doc, restore);
+                        doc.Adjustments = pending.Document.Adjustments.Clone();
+                        doc.Rating = pending.Document.Rating;
+                        doc.Flag = pending.Document.Flag;
+                        doc.ColorLabel = pending.Document.ColorLabel;
                     });
                     _pending.Remove(path);
                     results.Add(new(path, xml, null));
@@ -61,5 +72,8 @@ public sealed class PendingLocalSidecarWrites
         }
     }
 }
+
+public sealed record PendingLocalSidecarWriteSnapshot(XmpSidecarDocument Document,
+    bool DiscardBrushCorrections, BrushCorrectionRestoreSnapshot? RestoreBrushCorrections);
 
 public sealed record LocalSidecarWriteResult(string Path, string? Xml, Exception? Error);

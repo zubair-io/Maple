@@ -1,4 +1,3 @@
-import { PIPELINE_OUTPUT_VERSION } from '../generated/adjustment-model.generated';
 // Verifies the download-progress surface on HttpLibrarySource.imageBlob
 // (`/api/image/:slug/*`), the editor cold-open byte fetch for M2 addressing.
 // Mirrors raw-bytes-progress.spec.ts: passing an onProgress callback must
@@ -98,9 +97,7 @@ describe('HttpLibrarySource.thumbBlob / previewBlob status handling', () => {
   it('thumbBlob returns the JPEG Blob on 200', async () => {
     const blob = new Blob([new Uint8Array([1, 2, 3])], { type: 'image/jpeg' });
     const p = src.thumbBlob({ slug: 'lib', relPath: 'a.dng' });
-    http
-      .expectOne(`/api/thumb/lib/a.dng?pv=${PIPELINE_OUTPUT_VERSION}`)
-      .flush(blob, { status: 200, statusText: 'OK' });
+    http.expectOne(`/api/thumb/lib/a.dng`).flush(blob, { status: 200, statusText: 'OK' });
     expect(await p).toBe(blob);
   });
 
@@ -108,7 +105,7 @@ describe('HttpLibrarySource.thumbBlob / previewBlob status handling', () => {
     const p = src.thumbBlob({ slug: 'lib', relPath: 'b.dng' });
     // 202 body is JSON (`{status:"indexing"}`) — must NOT become a broken <img>.
     http
-      .expectOne(`/api/thumb/lib/b.dng?pv=${PIPELINE_OUTPUT_VERSION}`)
+      .expectOne(`/api/thumb/lib/b.dng`)
       .flush(new Blob([JSON.stringify({ status: 'indexing' })]), {
         status: 202,
         statusText: 'Accepted',
@@ -119,7 +116,7 @@ describe('HttpLibrarySource.thumbBlob / previewBlob status handling', () => {
   it('previewBlob returns null on 202', async () => {
     const p = src.previewBlob({ slug: 'lib', relPath: 'c.dng' });
     http
-      .expectOne(`/api/preview/lib/c.dng?pv=${PIPELINE_OUTPUT_VERSION}`)
+      .expectOne(`/api/preview/lib/c.dng`)
       .flush(new Blob([JSON.stringify({ status: 'indexing' })]), {
         status: 202,
         statusText: 'Accepted',

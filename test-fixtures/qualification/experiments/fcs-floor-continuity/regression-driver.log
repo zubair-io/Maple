@@ -1,0 +1,17 @@
+1 /16 test_0001/blacks_min before passed after passed
+2 /16 test_0001/clarity_min before passed after passed
+3 /16 test_0001/dehaze_min before breach after breach
+4 /16 test_0001/exposure_min before passed after passed
+5 /16 test_0001/shadows_max before passed after passed
+6 /16 test_0002/shadows_max before breach after breach
+7 /16 test_0002/vibrance_min before breach after breach
+8 /16 test_0000/dehaze_max before breach after breach
+9 /16 test_0003/wb_auto before passed after passed
+10 /16 test_0003/dehaze_max before breach after breach
+11 /16 test_0004/highlights_min before breach after breach
+12 /16 test_0004/dehaze_max before breach after breach
+13 /16 test_0007/dehaze_max before breach after breach
+14 /16 test_0011/wb_tungsten before pending after breach
+15 /16 test_0014/sharpen_detail_min before pending after breach
+16 /16 test_0014/sharpen_radius_max before pending after breach
+{"comparisons": 16, "failed": 11, "matched_source37": 13, "cleared_source37": [], "new_source37": [], "unmatched": ["test_0011/wb_tungsten", "test_0014/sharpen_detail_min", "test_0014/sharpen_radius_max"], "original_inputs_unchanged": true, "production_adopted": false}

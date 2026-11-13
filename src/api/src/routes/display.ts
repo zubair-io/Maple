@@ -8,14 +8,13 @@ export const displayRoutes = new Elysia()
   .put(
     '/api/display/config',
     async ({ body }) => {
-      await saveDisplayConfig({
-        show_hidden_images: body.show_hidden_images,
-      });
+      await saveDisplayConfig(body);
       return { ok: true };
     },
     {
       body: t.Object({
-        show_hidden_images: t.Boolean(),
+        show_hidden_images: t.Optional(t.Boolean()),
+        stack_raw_jpeg: t.Optional(t.Boolean()),
       }),
     },
   );

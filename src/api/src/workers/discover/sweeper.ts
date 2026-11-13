@@ -15,6 +15,7 @@ import {
 import { SUPPORTED_EXTS, toPosixRelDir } from './types.ts';
 import type { WatchEvent } from './types.ts';
 import { DUPLICATES_DIR_NAME } from '../../fs/duplicates.ts';
+import { sweepCrashLeftTemps } from '../../fs/crash-left-temps.ts';
 import * as frontier from './frontier.repo.ts';
 import type { FrontierDir } from './frontier.repo.ts';
 import { readCheckpoint, writeCheckpoint } from '../../db/repos/indexer-checkpoints.repo.ts';
@@ -27,6 +28,7 @@ import {
 } from './rename-reconcile.ts';
 import { FOLDER_HIDDEN_MARKER, reconcileFolderHidden } from './folder-hidden.ts';
 import type { CleanupHidden } from './folder-hidden.ts';
+import { skipsIgnoredDirectory } from './folder-ignore.ts';
 import { recoverDirectoryRemovals } from './removal-recovery.ts';
 
 const log = child('discover');
@@ -63,6 +65,12 @@ export async function visitDirectory(
     return;
   }
 
+  // Before any other work: rename reconciliation below moves sidecars on disk.
+  if (await skipsIgnoredDirectory(folderId, root, dir.dir_path, entries)) {
+    await frontier.completeDir(dir._id);
+    return;
+  }
+
   const recovery = await recoverDirectoryRemovals(dir.dir_path, root, entries);
   if (recovery.relist) {
     try {
@@ -74,6 +82,9 @@ export async function visitDirectory(
       return;
     }
   }
+
+  await sweepCrashLeftTemps(dir.dir_path, entries);
+
   const { subdirs, filesOnDisk, hasHiddenMarker } = partitionEntries(entries, dir.dir_path);
   for (const name of recovery.blocked) filesOnDisk.delete(name);
   // Effective folder-hidden state: own `.hidden` marker, or inherited from an
@@ -128,7 +139,11 @@ export async function visitDirectory(
 function partitionEntries(
   entries: readonly Dirent[],
   dirPath: string,
-): { subdirs: string[]; filesOnDisk: Map<string, string>; hasHiddenMarker: boolean } {
+): {
+  subdirs: string[];
+  filesOnDisk: Map<string, string>;
+  hasHiddenMarker: boolean;
+} {
   const subdirs: string[] = [];
   const filesOnDisk = new Map<string, string>(); // filename -> absPath (images only)
   const hasHiddenMarker = entries.some((e) => e.isFile() && e.name === FOLDER_HIDDEN_MARKER);
@@ -176,7 +191,10 @@ async function loadDirectoryCandidates(
   folderId: ObjectId,
   filesOnDisk: ReadonlyMap<string, string>,
   blocked: ReadonlySet<string>,
-): Promise<{ newCandidates: NewFileCandidate[]; missingCandidates: MissingFileCandidate[] }> {
+): Promise<{
+  newCandidates: NewFileCandidate[];
+  missingCandidates: MissingFileCandidate[];
+}> {
   const rel = toPosixRelDir(path.relative(root, dirPath));
   const recorded = (await listRecordedInDirectory(folderId, rel)).filter(
     (asset) => !blocked.has(asset.fileinfo.filename),
@@ -207,7 +225,11 @@ async function emitUnreconciledEvents(
 ): Promise<void> {
   for (const c of newCandidates) {
     if (reconciled.reconciledNewFilenames.has(c.filename)) continue;
-    await deps.handleEvent({ kind: 'created', absPath: c.absPath }, deps.folderId, root);
+    await deps.handleEvent(
+      { kind: 'created', absPath: c.absPath, markerChainChecked: true },
+      deps.folderId,
+      root,
+    );
   }
   for (const m of missingCandidates) {
     if (reconciled.reconciledMissingFilenames.has(m.filename)) continue;
@@ -279,77 +301,4 @@ export async function advanceSweep(
   });
   await frontier.seedRoot(folderId, rootPath, nextGen);
   return nextGen;
-}
-
-const LEASE_MS = 5 * 60 * 1000;
-
-export interface SweepConfig {
-  paused: boolean;
-  sweepDirIntervalMs: number;
-}
-
-export interface SweeperLoopOpts {
-  folderId: ObjectId;
-  root: string;
-  /** Starting sweep generation. Defaults to 1 for a fresh start. Pass the
-   * value read from the checkpoint when rehydrating after a process restart
-   * so the loop resumes the in-progress generation instead of re-walking
-   * from gen 1. */
-  startGen?: number;
-  deps: ReconcileDeps;
-  loadConfig: () => Promise<SweepConfig>;
-  sleep?: (ms: number) => Promise<void>;
-  onVisit?: (dirPath: string) => void;
-}
-
-export class SweeperLoop {
-  private shuttingDown = false;
-  private gen: number;
-  private readonly o: SweeperLoopOpts;
-  private readonly sleep: (ms: number) => Promise<void>;
-
-  constructor(o: SweeperLoopOpts) {
-    this.o = o;
-    this.gen = o.startGen ?? 1;
-    this.sleep = o.sleep ?? ((ms) => new Promise((r) => setTimeout(r, ms)));
-  }
-
-  stop(): void {
-    this.shuttingDown = true;
-  }
-
-  /** One claim→visit→pace cycle. Returns false when idle (nothing to do). */
-  private async tick(cfg: SweepConfig): Promise<boolean> {
-    const dir = await frontier.claimNextDir(this.o.folderId, this.gen, LEASE_MS);
-    if (!dir) {
-      this.gen = await advanceSweep(this.o.folderId, this.o.root, this.gen);
-      return false;
-    }
-    this.o.onVisit?.(dir.dir_path);
-    await visitDirectory(dir, this.o.root, this.o.deps);
-    await this.sleep(cfg.sweepDirIntervalMs);
-    return true;
-  }
-
-  /** Production loop: run until stop(); idle ⇒ sleep one interval and retry. */
-  async run(): Promise<void> {
-    while (!this.shuttingDown) {
-      const cfg = await this.o.loadConfig();
-      if (cfg.paused) {
-        await this.sleep(Math.max(1000, cfg.sweepDirIntervalMs));
-        continue;
-      }
-      const did = await this.tick(cfg);
-      if (!did) await this.sleep(Math.max(1000, cfg.sweepDirIntervalMs));
-    }
-  }
-
-  /** Test-only: drain until idle or a config flips paused. */
-  async runUntilIdleOrPaused(): Promise<void> {
-    for (;;) {
-      const cfg = await this.o.loadConfig();
-      if (cfg.paused) return;
-      if (!(await this.tick(cfg))) return;
-    }
-  }
 }

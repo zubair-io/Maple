@@ -11,6 +11,7 @@ import type { Stats } from 'node:fs';
 import * as path from 'node:path';
 import { isWithinRoot, type OpResult } from './root.ts';
 import { parseRootList } from './root-list.ts';
+import { ignoreVerdictForDir } from './mapleignore.ts';
 import { ObjectId } from '../db/object-id.ts';
 import { findListingAssetsByFilenames } from '../db/repos/assets.by-filename.ts';
 import { listFolders } from '../db/repos/folders.repo.ts';
@@ -260,12 +261,12 @@ export async function listDir(reqPath: string, showAll: boolean): Promise<OpResu
   // Issue 3 fix: return realpath form consistently for DirListing.path,
   // DirListing.parent, and entries[].path so the picker UI never sees a
   // path-style flip (e.g. /var vs /private/var on macOS) mid-navigation.
-  const isRoot = real === '/';
+  const parent = path.dirname(real);
   return {
     ok: true,
     data: {
       path: real,
-      parent: isRoot ? null : path.dirname(real),
+      parent: parent !== real && roots.some((root) => isUnderRoot(parent, root)) ? parent : null,
       entries: out,
     },
   };
@@ -929,6 +930,7 @@ async function enqueueBrowseIndex(dirPath: string, paths: string[]): Promise<voi
     return;
   }
 
+  if ((await ignoreVerdictForDir(folder.root, dirPath)) !== 'indexed') return;
   const folderObjectId = new ObjectId(folder.id);
   for (const absPath of paths) {
     handleEvent({ kind: 'created', absPath }, folderObjectId, folder.root).catch((err) =>

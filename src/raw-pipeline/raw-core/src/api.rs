@@ -20,7 +20,7 @@
 use crate::error::{Error, Result};
 use crate::image::{ExifOrientation, RawImage};
 
-use rawler::decoders::RawDecodeParams;
+use rawler::decoders::{RawDecodeParams, WellKnownIFD};
 use rawler::formats::tiff::{Rational, SRational};
 use rawler::rawsource::RawSource;
 
@@ -179,11 +179,26 @@ pub fn read_exif(bytes: &[u8], ext: &str) -> Result<Exif> {
 
     let none_if_empty = |s: String| if s.is_empty() { None } else { Some(s) };
 
+    // Rawler's generic EXIF pass leaves LensModel empty for DNG-family files
+    // (DJI, Hasselblad); the decode path reads it from the IFD, so do the same.
+    let lens_model = exif
+        .lens_model
+        .as_deref()
+        .filter(|name| !name.trim().is_empty())
+        .map(str::to_owned)
+        .or_else(|| {
+            decoder
+                .ifd(WellKnownIFD::Root)
+                .ok()
+                .flatten()
+                .and_then(|root| crate::lens_profile::metadata::lens_model(&root))
+        });
+
     Ok(Exif {
         camera_make: none_if_empty(md.make.clone()),
         camera_model: none_if_empty(md.model.clone()),
         lens_make: exif.lens_make.clone(),
-        lens_model: exif.lens_model.clone(),
+        lens_model,
         iso,
         shutter_s,
         aperture,
@@ -234,6 +249,16 @@ mod tests {
             "expected camera metadata, got {:?}",
             exif
         );
+    }
+
+    #[test]
+    #[cfg_attr(not(feature = "fixtures"), ignore)]
+    fn read_exif_reads_dng_lens_model_and_capture_time() {
+        let path = require_raw("dji-mavic3pro-100mp.dng");
+        let bytes = std::fs::read(&path).unwrap();
+        let exif = read_exif(&bytes, "dng").expect("read_exif");
+        assert_eq!(exif.lens_model.as_deref(), Some("28.0 mm f/2.0"));
+        assert_eq!(exif.captured_at.as_deref(), Some("2026:04:04 03:41:00"));
     }
 
     #[test]

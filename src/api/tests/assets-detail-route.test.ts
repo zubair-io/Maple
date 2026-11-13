@@ -151,5 +151,44 @@ describe('GET /api/assets/:id', () => {
     expect(body.enrichment.geocode.done_at).toBeNull();
     expect(body.enrichment.face.done_at).toBeNull();
     expect(body.enrichment.describe.done_at).toBeNull();
+    expect(body.deleted_at).toBeNull();
+    expect(body.deleted_reason).toBeNull();
+  });
+
+  it('exposes deleted_at and deleted_reason for trashed and reaped assets (#4805)', async () => {
+    const trashedId = insertAsset(live.db, { deletedAt: '2026-05-01T10:00:00Z' });
+    insertLocation(live.db, {
+      assetId: trashedId,
+      libraryId,
+      path: '.maple/trash/2024',
+      filename: 'trashed.dng',
+    });
+
+    const reapedId = insertAsset(live.db);
+    insertLocation(live.db, {
+      assetId: reapedId,
+      libraryId,
+      path: '2024',
+      filename: 'reaped.dng',
+      missingSince: '2026-04-30T00:00:00Z',
+    });
+    run(
+      live.db,
+      `UPDATE assets SET deleted_at = '2026-05-01T12:00:00Z', deleted_reason = 'reaped' WHERE id = ?`,
+      reapedId,
+    );
+
+    const trashedRes = await app().handle(new Request(`http://localhost/api/assets/${trashedId}`));
+    expect(trashedRes.status).toBe(200);
+    const trashedBody = await trashedRes.json();
+    expect(trashedBody.deleted_at).toBe('2026-05-01T10:00:00Z');
+    expect(trashedBody.deleted_reason).toBeNull();
+
+    const reapedRes = await app().handle(new Request(`http://localhost/api/assets/${reapedId}`));
+    expect(reapedRes.status).toBe(200);
+    const reapedBody = await reapedRes.json();
+    expect(reapedBody.deleted_at).toBe('2026-05-01T12:00:00Z');
+    expect(reapedBody.deleted_reason).toBe('reaped');
+    expect(reapedBody.abs_path).toBe(`${LIBRARY_ROOT}/2024/reaped.dng`);
   });
 });

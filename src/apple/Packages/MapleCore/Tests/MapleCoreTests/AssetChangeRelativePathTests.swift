@@ -5,11 +5,8 @@
 // instead of falling back to a synthesized guess. Tests cover both the
 // DTO decoder (must tolerate both shapes — with and without the field)
 // and the MapleItem stub constructor that turns folderID + relativePath
-// into a proper `folder(folderID, parentRelativePath)` parent. Since
-// #2537 the stub's own fallback (used only when the enumerator's
-// per-asset metadata GET fails) routes to `.rootContainer`, never
-// `.workingSet` — `item(for: .workingSet)` unconditionally returns
-// `noSuchItem`, so an item parented there could never resolve.
+// into a proper `folder(folderID, parentRelativePath)` parent. A row
+// without both gets no stub at all (#5503).
 
 #if canImport(FileProvider)
 import XCTest
@@ -129,48 +126,5 @@ final class AssetChangeRelativePathTests: XCTestCase {
         XCTAssertEqual(item.filename, "IMG_0002.dng")
     }
 
-    func testStubFallsBackToRootContainerWhenRelativePathMissing() {
-        // Legacy event — no relativePath. Parent must fall back to
-        // `.rootContainer` (always-valid). `.workingSet` is NOT a valid
-        // fallback: `item(for: .workingSet)` unconditionally returns
-        // `noSuchItem` (see `FileProviderExtensionCore.item(for:)`), so
-        // an item parented there could never resolve (#2537).
-        let item = MapleItem(stubAssetID: "abc",
-                             cursor: 1,
-                             folderID: "fid",
-                             relativePath: nil)
-        XCTAssertEqual(item.parentItemIdentifier, .rootContainer)
-        XCTAssertNotEqual(item.parentItemIdentifier, .workingSet)
-        // No filename hint to derive from — keep the (stub) marker so
-        // the call site is obvious in any log. This constructor is now
-        // reached only as a last-resort fallback when the enumerator's
-        // per-asset metadata GET fails (see `WorkingSetEnumerator
-        // .enumerateChanges`), not on the routine path.
-        XCTAssertEqual(item.filename, "(stub)")
-    }
-
-    func testStubFallsBackToRootContainerWhenFolderIDMissing() {
-        // Defensive — server event somehow carries relativePath but no
-        // folderID. We can't build a folder identifier without the
-        // folder ID, so fall back to `.rootContainer`, never
-        // `.workingSet`.
-        let item = MapleItem(stubAssetID: "abc",
-                             cursor: 1,
-                             folderID: nil,
-                             relativePath: "2024/x.dng")
-        XCTAssertEqual(item.parentItemIdentifier, .rootContainer)
-        XCTAssertNotEqual(item.parentItemIdentifier, .workingSet)
-    }
-
-    func testStubLegacyConstructorRoutesToRootContainer() {
-        // The original 2-arg init (no folder info at all) must fall
-        // back to `.rootContainer` for any caller that hasn't been
-        // updated yet — the new arguments are default-nil. Never
-        // `.workingSet` (#2537).
-        let item = MapleItem(stubAssetID: "abc", cursor: 1)
-        XCTAssertEqual(item.parentItemIdentifier, .rootContainer)
-        XCTAssertNotEqual(item.parentItemIdentifier, .workingSet)
-        XCTAssertEqual(item.filename, "(stub)")
-    }
 }
 #endif

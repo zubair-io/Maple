@@ -1,0 +1,704 @@
+{
+  "status": "Diagnostic attribution of one unresolved prototype regression; neither prototype is adopted.",
+  "decision": "Local hue weighting fixes the Canon Auto7 prototype regression (max39.33274 to37.87820 under39.00), but leaves Panasonic Auto1 unchanged at67.66056 over66.80. The sample studied is far below sensor saturation and is unchanged by recovery except ordinary WB; further clipping-estimator changes cannot explain this witness. Check Bayer-phase interpolation and sensor sample support independently before another physical experiment.",
+  "peaks": {
+    "scope": "Read-only diagnostic using exact canonical native-pair Lanczos and Lab/CIE2000 conversion, all pixels retained. Coordinates at comparison size; not sensor coordinates.",
+    "results": [
+      {
+        "experiment": "amaze-ordering-original-fcs-controls",
+        "native_size": [
+          4224,
+          2376
+        ],
+        "comparison_size": [
+          4000,
+          2250
+        ],
+        "position": [
+          1609,
+          4
+        ],
+        "max": 63.13483851503266,
+        "candidate_rgb": [
+          162,
+          154,
+          54
+        ],
+        "reference_rgb": [
+          61,
+          30,
+          66
+        ],
+        "pixels_above_66_8": 0
+      },
+      {
+        "experiment": "amaze-wb-fused-pilot-v2",
+        "native_size": [
+          4224,
+          2376
+        ],
+        "comparison_size": [
+          4000,
+          2250
+        ],
+        "position": [
+          1609,
+          4
+        ],
+        "max": 67.66056410741307,
+        "candidate_rgb": [
+          160,
+          164,
+          47
+        ],
+        "reference_rgb": [
+          61,
+          30,
+          66
+        ],
+        "pixels_above_66_8": 1
+      },
+      {
+        "experiment": "amaze-wb-local-recovery-v3",
+        "native_size": [
+          4224,
+          2376
+        ],
+        "comparison_size": [
+          4000,
+          2250
+        ],
+        "position": [
+          1609,
+          4
+        ],
+        "max": 67.66056410741307,
+        "candidate_rgb": [
+          160,
+          164,
+          47
+        ],
+        "reference_rgb": [
+          61,
+          30,
+          66
+        ],
+        "pixels_above_66_8": 1
+      }
+    ]
+  },
+  "stage_dump_matches_uninstrumented_png_sha256": true,
+  "stage_trace": {
+    "coordinate_mapping": "Native output1699,4 to raw1733,35 from Panasonic SensorLeftBorder34/TopBorder31. Region data before/after crop checked below; comparison peak1609,4 is Lanczos reduction and draws a neighborhood, not this single native sample.",
+    "stages": [
+      {
+        "stage": "00_sensor_linearized",
+        "space": "CameraNativeMosaic",
+        "full_dimensions": [
+          4330,
+          2439
+        ],
+        "position": [
+          1733,
+          35
+        ],
+        "rgb": [
+          0.04490717500448227,
+          0.0,
+          0.0
+        ]
+      },
+      {
+        "stage": "00a_baseline_exposure",
+        "space": "CameraNativeLinearRgb",
+        "full_dimensions": [
+          4330,
+          2439
+        ],
+        "position": [
+          1733,
+          35
+        ],
+        "rgb": [
+          0.04490717500448227,
+          0.06832165271043777,
+          0.012920220382511616
+        ]
+      },
+      {
+        "stage": "00b_highlight_recovery",
+        "space": "CameraNativeLinearRgb",
+        "full_dimensions": [
+          4330,
+          2439
+        ],
+        "position": [
+          1733,
+          35
+        ],
+        "rgb": [
+          0.09561983495950699,
+          0.06832165271043777,
+          0.02505441941320896
+        ]
+      },
+      {
+        "stage": "01b_crop_to_default",
+        "space": "CameraNativeLinearRgb",
+        "full_dimensions": [
+          4224,
+          2376
+        ],
+        "position": [
+          1699,
+          4
+        ],
+        "rgb": [
+          0.09561983495950699,
+          0.06832165271043777,
+          0.02505441941320896
+        ]
+      },
+      {
+        "stage": "02b_wb_camera",
+        "space": "CameraNativeLinearRgb",
+        "full_dimensions": [
+          4224,
+          2376
+        ],
+        "position": [
+          1699,
+          4
+        ],
+        "rgb": [
+          0.09561983495950699,
+          0.06832165271043777,
+          0.02505441941320896
+        ]
+      },
+      {
+        "stage": "03_dcp_apply",
+        "space": "SceneLinearRec2020",
+        "full_dimensions": [
+          4224,
+          2376
+        ],
+        "position": [
+          1699,
+          4
+        ],
+        "rgb": [
+          0.1039946973323822,
+          0.08986964076757431,
+          0.018190832808613777
+        ]
+      },
+      {
+        "stage": "03b_oklab_highlight_recovery",
+        "space": "SceneLinearRec2020",
+        "full_dimensions": [
+          4224,
+          2376
+        ],
+        "position": [
+          1699,
+          4
+        ],
+        "rgb": [
+          0.1039946973323822,
+          0.08986964076757431,
+          0.018190832808613777
+        ]
+      },
+      {
+        "stage": "03c_retouch",
+        "space": "SceneLinearRec2020",
+        "full_dimensions": [
+          4224,
+          2376
+        ],
+        "position": [
+          1699,
+          4
+        ],
+        "rgb": [
+          0.1039946973323822,
+          0.08986964076757431,
+          0.018190832808613777
+        ]
+      },
+      {
+        "stage": "04a_chroma_prefilter",
+        "space": "SceneLinearRec2020",
+        "full_dimensions": [
+          4224,
+          2376
+        ],
+        "position": [
+          1699,
+          4
+        ],
+        "rgb": [
+          0.1039946973323822,
+          0.08986964076757431,
+          0.018190832808613777
+        ]
+      },
+      {
+        "stage": "04ab_deep_denoise",
+        "space": "SceneLinearRec2020",
+        "full_dimensions": [
+          4224,
+          2376
+        ],
+        "position": [
+          1699,
+          4
+        ],
+        "rgb": [
+          0.1039946973323822,
+          0.08986964076757431,
+          0.018190832808613777
+        ]
+      },
+      {
+        "stage": "04b_capture_sharpening",
+        "space": "SceneLinearRec2020",
+        "full_dimensions": [
+          4224,
+          2376
+        ],
+        "position": [
+          1699,
+          4
+        ],
+        "rgb": [
+          0.1039946973323822,
+          0.08986964076757431,
+          0.018190832808613777
+        ]
+      },
+      {
+        "stage": "05_auto_exposure",
+        "space": "SceneLinearRec2020",
+        "full_dimensions": [
+          4224,
+          2376
+        ],
+        "position": [
+          1699,
+          4
+        ],
+        "rgb": [
+          0.3099592626094818,
+          0.2678591310977936,
+          0.054218314588069916
+        ]
+      },
+      {
+        "stage": "06_white_balance",
+        "space": "SceneLinearRec2020",
+        "full_dimensions": [
+          4224,
+          2376
+        ],
+        "position": [
+          1699,
+          4
+        ],
+        "rgb": [
+          0.3099592626094818,
+          0.2678591310977936,
+          0.054218314588069916
+        ]
+      },
+      {
+        "stage": "07_scene_tone_controls",
+        "space": "SceneLinearRec2020",
+        "full_dimensions": [
+          4224,
+          2376
+        ],
+        "position": [
+          1699,
+          4
+        ],
+        "rgb": [
+          0.3099592626094818,
+          0.2678591310977936,
+          0.054218314588069916
+        ]
+      },
+      {
+        "stage": "07b_tone_curves",
+        "space": "SceneLinearRec2020",
+        "full_dimensions": [
+          4224,
+          2376
+        ],
+        "position": [
+          1699,
+          4
+        ],
+        "rgb": [
+          0.3099592626094818,
+          0.2678591310977936,
+          0.054218314588069916
+        ]
+      },
+      {
+        "stage": "08_vibrance",
+        "space": "SceneLinearRec2020",
+        "full_dimensions": [
+          4224,
+          2376
+        ],
+        "position": [
+          1699,
+          4
+        ],
+        "rgb": [
+          0.3099592626094818,
+          0.2678591310977936,
+          0.054218314588069916
+        ]
+      },
+      {
+        "stage": "09_saturation",
+        "space": "SceneLinearRec2020",
+        "full_dimensions": [
+          4224,
+          2376
+        ],
+        "position": [
+          1699,
+          4
+        ],
+        "rgb": [
+          0.3099592626094818,
+          0.2678591310977936,
+          0.054218314588069916
+        ]
+      },
+      {
+        "stage": "09b_hsl",
+        "space": "SceneLinearRec2020",
+        "full_dimensions": [
+          4224,
+          2376
+        ],
+        "position": [
+          1699,
+          4
+        ],
+        "rgb": [
+          0.3099592626094818,
+          0.2678591310977936,
+          0.054218314588069916
+        ]
+      },
+      {
+        "stage": "10_clarity",
+        "space": "SceneLinearRec2020",
+        "full_dimensions": [
+          4224,
+          2376
+        ],
+        "position": [
+          1699,
+          4
+        ],
+        "rgb": [
+          0.3099592626094818,
+          0.2678591310977936,
+          0.054218314588069916
+        ]
+      },
+      {
+        "stage": "11_texture",
+        "space": "SceneLinearRec2020",
+        "full_dimensions": [
+          4224,
+          2376
+        ],
+        "position": [
+          1699,
+          4
+        ],
+        "rgb": [
+          0.3099592626094818,
+          0.2678591310977936,
+          0.054218314588069916
+        ]
+      },
+      {
+        "stage": "12_dehaze",
+        "space": "SceneLinearRec2020",
+        "full_dimensions": [
+          4224,
+          2376
+        ],
+        "position": [
+          1699,
+          4
+        ],
+        "rgb": [
+          0.3099592626094818,
+          0.2678591310977936,
+          0.054218314588069916
+        ]
+      },
+      {
+        "stage": "12a_defringe",
+        "space": "SceneLinearRec2020",
+        "full_dimensions": [
+          4224,
+          2376
+        ],
+        "position": [
+          1699,
+          4
+        ],
+        "rgb": [
+          0.3099592626094818,
+          0.2678591310977936,
+          0.054218314588069916
+        ]
+      },
+      {
+        "stage": "12b_local_adjustments",
+        "space": "SceneLinearRec2020",
+        "full_dimensions": [
+          4224,
+          2376
+        ],
+        "position": [
+          1699,
+          4
+        ],
+        "rgb": [
+          0.3099592626094818,
+          0.2678591310977936,
+          0.054218314588069916
+        ]
+      },
+      {
+        "stage": "12c_vignette",
+        "space": "SceneLinearRec2020",
+        "full_dimensions": [
+          4224,
+          2376
+        ],
+        "position": [
+          1699,
+          4
+        ],
+        "rgb": [
+          0.3099592626094818,
+          0.2678591310977936,
+          0.054218314588069916
+        ]
+      },
+      {
+        "stage": "13_sharpen",
+        "space": "SceneLinearRec2020",
+        "full_dimensions": [
+          4224,
+          2376
+        ],
+        "position": [
+          1699,
+          4
+        ],
+        "rgb": [
+          0.38640379905700684,
+          0.3339206278324127,
+          0.06759005039930344
+        ]
+      },
+      {
+        "stage": "14_nr_luminance",
+        "space": "SceneLinearRec2020",
+        "full_dimensions": [
+          4224,
+          2376
+        ],
+        "position": [
+          1699,
+          4
+        ],
+        "rgb": [
+          0.38640379905700684,
+          0.3339206278324127,
+          0.06759005039930344
+        ]
+      },
+      {
+        "stage": "15_nr_color",
+        "space": "SceneLinearRec2020",
+        "full_dimensions": [
+          4224,
+          2376
+        ],
+        "position": [
+          1699,
+          4
+        ],
+        "rgb": [
+          0.38640400767326355,
+          0.33392059803009033,
+          0.06759013235569
+        ]
+      },
+      {
+        "stage": "16_agx",
+        "space": "DisplayLinearRec2020",
+        "full_dimensions": [
+          4224,
+          2376
+        ],
+        "position": [
+          1699,
+          4
+        ],
+        "rgb": [
+          0.35049793124198914,
+          0.30289149284362793,
+          0.06130940467119217
+        ]
+      },
+      {
+        "stage": "16a0_display_tone_curve",
+        "space": "DisplayLinearRec2020",
+        "full_dimensions": [
+          4224,
+          2376
+        ],
+        "position": [
+          1699,
+          4
+        ],
+        "rgb": [
+          0.35049793124198914,
+          0.30289149284362793,
+          0.06130940467119217
+        ]
+      },
+      {
+        "stage": "16a_color_grade",
+        "space": "DisplayLinearRec2020",
+        "full_dimensions": [
+          4224,
+          2376
+        ],
+        "position": [
+          1699,
+          4
+        ],
+        "rgb": [
+          0.35049793124198914,
+          0.30289149284362793,
+          0.06130940467119217
+        ]
+      },
+      {
+        "stage": "16b_grain",
+        "space": "DisplayLinearRec2020",
+        "full_dimensions": [
+          4224,
+          2376
+        ],
+        "position": [
+          1699,
+          4
+        ],
+        "rgb": [
+          0.35049793124198914,
+          0.30289149284362793,
+          0.06130940467119217
+        ]
+      },
+      {
+        "stage": "17_srgb_linear",
+        "space": "DisplayLinearSrgb",
+        "full_dimensions": [
+          4224,
+          2376
+        ],
+        "position": [
+          1699,
+          4
+        ],
+        "rgb": [
+          0.39785197377204895,
+          0.2991844415664673,
+          0.03483632206916809
+        ]
+      }
+    ]
+  },
+  "sensor_neighborhood": {
+    "raw_position": [
+      1733,
+      35
+    ],
+    "neighborhood_raw_sum_5x5": [
+      [
+        0.0002508780744392425,
+        0.009784244932234287,
+        0.00878073275089264,
+        0.007777220103889704,
+        0.012794781476259232
+      ],
+      [
+        0.016808830201625824,
+        0.002759658731520176,
+        0.012293025851249695,
+        0.02734570950269699,
+        0.002759658731520176
+      ],
+      [
+        0.0047666835598647594,
+        0.011289513669908047,
+        0.04490717500448227,
+        0.010787757113575935,
+        0.018314098939299583
+      ],
+      [
+        0.006773707922548056,
+        0.009784244932234287,
+        0.08805820345878601,
+        0.011791269294917583,
+        0.010787757113575935
+      ],
+      [
+        0.0037631711456924677,
+        0.00727546401321888,
+        0.006271951831877232,
+        0.0052684396505355835,
+        0.013296538032591343
+      ]
+    ],
+    "green_cardinal_values": [
+      0.011289513669908047,
+      0.010787757113575935,
+      0.012293025851249695,
+      0.08805820345878601
+    ],
+    "unbalanced_reconstructed_green": 0.06832165271043777,
+    "scope": "Read-only single native sensor sample near the Lanczos-reduced failing pixel; no clipping at this sample. No direct per-native-pixel Adobe-match claim."
+  },
+  "source_patch_completion": {
+    "phase": "18 focused comparisons starting",
+    "base_commit": "a45a2d90a93dbab5d6e1495b9026b31a7c6e2a59",
+    "pipeline_output_version": "33 plus experimental WB and local recovery patches",
+    "binary_sha256": "6e0233c037a30fa729f91df06d8873de960aafc07a93d89014afd67769473034",
+    "source_patch_sha256": "d04ee46a3678fb59ac78b88a8e3f874907c8203cf69c8719b100f906a03d3e83",
+    "driver_sha256": "3794672bf40f45af068fd0dffeb4409cc58fdcdee10d6122020c01887ddf007b",
+    "scope": "Metadata-balanced fused AMaZE, original FCS, local chromaticity-weighted highlight estimator with unchanged count confidence.18focused comparisons, not adopted, not full qualification.",
+    "highlight_filtered_tests_passed": 107,
+    "highlight_filtered_tests_ignored": 1,
+    "source_complete_patch_sha256": "5669eb8111d566ce73aa40ca4d08357e2a870baeb675f40c021ce0d35a6cd3df",
+    "source_completion_note": "Adds the standalone donor regression test file omitted from the initial patch export. Processing source and frozen binary unchanged."
+  }
+}

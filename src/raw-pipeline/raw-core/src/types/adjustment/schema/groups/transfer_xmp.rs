@@ -81,6 +81,12 @@ pub const TRANSFER_XMP_ATTRIBUTES: &[(&str, &[&str])] = &[
         &["crs:ColorGradeGlobalSat"],
     ),
     ("color_grade_global_luminance", &["crs:ColorGradeGlobalLum"]),
+    ("color_grade_blending", &["papp:ColorGradeBlending"]),
+    ("color_grade_shadow_edge", &["papp:ColorGradeShadowEdge"]),
+    (
+        "color_grade_highlight_edge",
+        &["papp:ColorGradeHighlightEdge"],
+    ),
     ("hue_adjustment_red", &["crs:HueAdjustmentRed"]),
     ("hue_adjustment_orange", &["crs:HueAdjustmentOrange"]),
     ("hue_adjustment_yellow", &["crs:HueAdjustmentYellow"]),
@@ -226,6 +232,12 @@ pub const TRANSFER_XMP_ELEMENTS: &[(&str, &str)] = &[
     ("display_tone_curve_red", "crs:ToneCurvePV2012Red"),
     ("display_tone_curve_green", "crs:ToneCurvePV2012Green"),
     ("display_tone_curve_blue", "crs:ToneCurvePV2012Blue"),
+    ("color_curve_hue_vs_hue", "papp:ColorCurveHueVsHue"),
+    ("color_curve_hue_vs_sat", "papp:ColorCurveHueVsSat"),
+    ("color_curve_hue_vs_luma", "papp:ColorCurveHueVsLuma"),
+    ("color_curve_luma_vs_sat", "papp:ColorCurveLumaVsSat"),
+    ("color_curve_sat_vs_sat", "papp:ColorCurveSatVsSat"),
+    ("color_curve_sat_vs_luma", "papp:ColorCurveSatVsLuma"),
 ];
 
 #[cfg(test)]

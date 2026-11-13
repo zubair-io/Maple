@@ -1,0 +1,50 @@
+{
+  "status": "Rejected for the Pixel15 physical regression: numerical witnesses improve, but actual bias_B remains beyond unchanged budget. No broader physical cohort launched, no production adoption; exact source37 restored.",
+  "comparisons": 1,
+  "baseline_source": "b4523b79e616f2745f3b0a7e8e1c60b9bff08424",
+  "matched": [
+    {
+      "before": {
+        "fixture": "test_0015",
+        "case": "dehaze_max",
+        "profile": "neutral",
+        "resolution": "down",
+        "status": "breach",
+        "breaches": [
+          "bias_B -0.0740>0.0734"
+        ],
+        "mean": 12.52525856545924,
+        "p95": 24.738692996839113,
+        "max": 51.23532547327914,
+        "bR": 0.0008185434152027424,
+        "bG": -0.05760522084483594,
+        "bB": -0.07401121852586383,
+        "n_pixels": 12032000,
+        "reference_protocol": "legacy-direct-reference"
+      },
+      "after": {
+        "fixture": "test_0015",
+        "case": "dehaze_max",
+        "profile": "neutral",
+        "resolution": "down",
+        "status": "breach",
+        "breaches": [
+          "bias_B -0.0740>0.0734"
+        ],
+        "mean": 12.525199867132956,
+        "p95": 24.738310185848878,
+        "max": 51.23532547327914,
+        "bR": 0.0008166426016614037,
+        "bG": -0.05760425544535587,
+        "bB": -0.07401136030462906,
+        "n_pixels": 12032000,
+        "reference_protocol": "legacy-direct-reference"
+      }
+    }
+  ],
+  "all_original_inputs_unchanged": true,
+  "renderer_unchanged": true,
+  "bias_B_delta": -1.417787652280289e-07,
+  "required_bias_B_improvement": 0.0006112185258638214,
+  "interpretation": "The box-blur precision defect is independently reproducible (15 ulps on a constant, 610623 ulps on the HDR-to-dark row witness). f64 sums fix both without changing any original assertions, and17CPU/11GPU dehaze tests pass. This does not establish the cause of Pixel15 physical failure. Preserve patch for a separately qualified numerical repair; do not claim a color-suite clear."
+}

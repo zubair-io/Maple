@@ -17,7 +17,7 @@
 //! the query is not cached, so the retry searches again).
 
 use crate::error::{catch_panic_rc, set_last_error};
-use maple_search::{FusedHit, SearchConfig, SearchEngine, DIM};
+use maple_search::{FusedHit, SearchConfig, SearchEngine, SearchText, DIM};
 use std::ffi::{c_char, CStr};
 
 const RC_INVALID_ARGUMENT: i32 = 1;
@@ -67,19 +67,16 @@ fn rc(outcome: Result<(), i32>) -> i32 {
 /// `config_json` must be a NUL-terminated string.
 #[no_mangle]
 pub unsafe extern "C" fn maple_search_open(config_json: *const c_char) -> *mut MapleSearchHandle {
-    let opened = std::panic::catch_unwind(|| {
-        let json = utf8(config_json, "config").ok()?;
-        let config = engine_result(SearchConfig::from_json(json)).ok()?;
-        engine_result(SearchEngine::open(&config)).ok()
-    });
-    match opened {
-        Ok(Some(engine)) => Box::into_raw(Box::new(MapleSearchHandle(engine))),
-        Ok(None) => std::ptr::null_mut(),
-        Err(_) => {
-            set_last_error("maple_search_open: panicked".into());
-            std::ptr::null_mut()
-        }
-    }
+    crate::error::catch_panic("maple_search_open", std::ptr::null_mut(), || {
+        let open = || {
+            let json = utf8(config_json, "config").ok()?;
+            let config = engine_result(SearchConfig::from_json(json)).ok()?;
+            engine_result(SearchEngine::open(&config)).ok()
+        };
+        open().map_or(std::ptr::null_mut(), |engine| {
+            Box::into_raw(Box::new(MapleSearchHandle(engine)))
+        })
+    })
 }
 
 /// Frees a handle from `maple_search_open`. Null is a no-op. API-only.
@@ -88,9 +85,11 @@ pub unsafe extern "C" fn maple_search_open(config_json: *const c_char) -> *mut M
 /// `handle` must come from `maple_search_open` and not be used afterwards.
 #[no_mangle]
 pub unsafe extern "C" fn maple_search_close(handle: *mut MapleSearchHandle) {
-    if !handle.is_null() {
-        drop(Box::from_raw(handle));
-    }
+    crate::error::catch_panic("maple_search_close", (), || {
+        if !handle.is_null() {
+            drop(Box::from_raw(handle));
+        }
+    })
 }
 
 /// Replaces the vector matrix: `vectors` is `ids` rows of 1024 little-endian
@@ -175,13 +174,58 @@ pub unsafe extern "C" fn maple_search_query_vector(
     })
 }
 
-/// Inserts or replaces `id`. A null `vector` leaves its vector untouched,
-/// otherwise it must hold `dim` (1024) f32; a null `text` leaves its text
-/// untouched. Vectors apply at once, text on `maple_search_commit`. API-only.
+/// Embeds `texts_json` (a JSON array of strings) with the engine's bge-m3 and
+/// writes one unit vector of 1024 f32 per text, in input order, to `out`.
+/// `out_cap` counts f32; it must hold `1024 × texts`, else rc 100 with the
+/// floats needed in `*out_len`. API-only.
 ///
 /// # Safety
-/// `id` and a non-null `text` must be NUL-terminated strings; a non-null
-/// `vector` must be valid for `dim` f32.
+/// `texts_json` must be a NUL-terminated string, `out_len` non-null, and a
+/// non-null `out` valid for `out_cap` f32.
+#[no_mangle]
+pub unsafe extern "C" fn maple_search_embed(
+    handle: *const MapleSearchHandle,
+    texts_json: *const c_char,
+    out: *mut f32,
+    out_cap: usize,
+    out_len: *mut usize,
+) -> i32 {
+    catch_panic_rc("maple_search_embed", || {
+        rc(engine(handle).and_then(|engine| {
+            if out_len.is_null() {
+                set_last_error("out_len is null".into());
+                return Err(RC_INVALID_ARGUMENT);
+            }
+            let texts: Vec<String> =
+                serde_json::from_str(utf8(texts_json, "texts")?).map_err(|e| {
+                    set_last_error(format!("texts are not a JSON array of strings: {e}"));
+                    RC_INVALID_ARGUMENT
+                })?;
+            *out_len = texts.len() * DIM;
+            if out.is_null() || out_cap < *out_len {
+                return Err(RC_NEED_LARGER_BUFFER);
+            }
+            let borrowed: Vec<&str> = texts.iter().map(String::as_str).collect();
+            let vectors = engine_result(engine.embed_documents(&borrowed))?;
+            let written = std::slice::from_raw_parts_mut(out, *out_len);
+            written
+                .chunks_exact_mut(DIM)
+                .zip(&vectors)
+                .for_each(|(row, vector)| row.copy_from_slice(vector));
+            Ok(())
+        }))
+    })
+}
+
+/// Inserts or replaces `id`. A null `vector` leaves its vector untouched,
+/// otherwise it must hold `dim` (1024) f32. A null `text` leaves the keyword
+/// document untouched; otherwise `text` (the embedder template) and `blob`
+/// (the `search_blob`, null for none) replace it together. Vectors apply at
+/// once, text on `maple_search_commit`. API-only.
+///
+/// # Safety
+/// `id`, a non-null `text` and a non-null `blob` must be NUL-terminated
+/// strings; a non-null `vector` must be valid for `dim` f32.
 #[no_mangle]
 pub unsafe extern "C" fn maple_search_upsert(
     handle: *const MapleSearchHandle,
@@ -189,6 +233,7 @@ pub unsafe extern "C" fn maple_search_upsert(
     vector: *const f32,
     dim: usize,
     text: *const c_char,
+    blob: *const c_char,
 ) -> i32 {
     catch_panic_rc("maple_search_upsert", || {
         rc(engine(handle).and_then(|engine| {
@@ -201,7 +246,15 @@ pub unsafe extern "C" fn maple_search_upsert(
             let text = if text.is_null() {
                 None
             } else {
-                Some(utf8(text, "text")?)
+                let blob = if blob.is_null() {
+                    ""
+                } else {
+                    utf8(blob, "blob")?
+                };
+                Some(SearchText {
+                    template: utf8(text, "text")?,
+                    blob,
+                })
             };
             engine_result(engine.upsert(id, vector, text))
         }))

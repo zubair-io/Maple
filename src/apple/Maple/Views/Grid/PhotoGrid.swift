@@ -208,6 +208,7 @@ private struct PhotoGridCell<Element: Identifiable>: View {
     .overlay(alignment: .bottom) {
       grid.renameOverlay?(element)
     }
+    .overlay { LivePhotoClipOverlay(item: item).clipped() }
     .opacity(grid.isHidden?(element) == true ? 0 : 1)
     // Tag each photo cell so ScrollViewReader.scrollTo can target it.
     .id(element.id)

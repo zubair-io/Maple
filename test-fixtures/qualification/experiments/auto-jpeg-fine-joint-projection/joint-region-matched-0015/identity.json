@@ -1,0 +1,7 @@
+{
+  "source": "/Users/riabuz/.codex/color-suite-evidence/5000/auto-jpeg-fine-diagnostic-inputs/pilot_0015/diagnostic",
+  "scope": "offline diagnostic only; exact production fine inputs; joint regional projection not adopted",
+  "observation_sha256": "955da014a5efbe72fc8e72f136b39ce9a6c52d61e35cf75c0f3e6fc88a5573b0",
+  "fine_snapshot_sha256": "d41b71ad048a3a473b026562287b4e6ce199128d93d377100481c28fa1e22933",
+  "diagnostic_render_byte_identical_9eb_physical": true
+}

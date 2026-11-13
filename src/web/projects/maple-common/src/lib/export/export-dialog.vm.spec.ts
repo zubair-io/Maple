@@ -4,6 +4,7 @@ import {
   DEFAULT_QUALITY,
   FORMAT_CHOICES,
   baseName,
+  croppedOutputDimensions,
   exportFilename,
   outputDimensions,
   supportsQuality,
@@ -103,6 +104,48 @@ describe('export-dialog.vm', () => {
 
     it('tolerates an unknown native size without dividing by zero', () => {
       expect(outputDimensions(0, 0, 2048)).toEqual({ width: 0, height: 0 });
+    });
+  });
+
+  describe('croppedOutputDimensions', () => {
+    const square = { top: 0, left: 1 / 6, bottom: 1, right: 5 / 6, angle: 0 };
+
+    it('reports the actual square output for the 5976 × 3984 DNG crop', () => {
+      expect(croppedOutputDimensions(5976, 3984, 0, square)).toEqual({
+        width: 3984,
+        height: 3984,
+      });
+    });
+
+    it('caps before cropping, following the native sized render', () => {
+      expect(croppedOutputDimensions(5976, 3984, 2048, square)).toEqual({
+        width: 1366,
+        height: 1365,
+      });
+    });
+
+    it('swaps output axes for a quarter-turn crop', () => {
+      expect(
+        croppedOutputDimensions(6000, 4000, 0, {
+          top: 0.1,
+          left: 0.2,
+          bottom: 0.9,
+          right: 0.8,
+          angle: -90,
+        }),
+      ).toEqual({ width: 3200, height: 3600 });
+    });
+
+    it('treats an invalid crop rectangle as the full frame', () => {
+      expect(
+        croppedOutputDimensions(6000, 4000, 0, {
+          top: 0,
+          left: 0.9,
+          bottom: 1,
+          right: 0.1,
+          angle: 0,
+        }),
+      ).toEqual({ width: 6000, height: 4000 });
     });
   });
 });

@@ -41,6 +41,7 @@ export function isWhisperModelTier(value: string): value is WhisperModelTier {
 export interface RuntimeForm {
   concurrency: string;
   maxAttempts: string;
+  stallAfterMinutes: string;
   version?: string;
   prompt_text?: string;
 }
@@ -60,14 +61,6 @@ export interface EnrichmentForm {
   face_recognizer_sha256: string;
   /** Minimum face size as a string for the input element (normalised [0,1)). */
   face_min_detection_size: string;
-  // Meili (search index)
-  meilisearch_url: string;
-  // Write-only: always starts blank (the saved key is never echoed). A
-  // blank value on save means "leave the saved key unchanged".
-  meilisearch_api_key: string;
-  meilisearch_task_timeout_seconds: string;
-  meilisearch_semantic_enabled: boolean;
-  meilisearch_semantic_ratio: string;
   service_search_rate_limit_per_minute: string;
 }
 
@@ -81,6 +74,7 @@ export type SaveState = 'idle' | 'saving' | 'success' | 'error';
 export const DEFAULT_RUNTIME = Object.freeze({
   concurrency: 2,
   maxAttempts: 5,
+  stallAfterMinutes: 60,
 });
 
 /** Concurrency clamp ceiling. Raised 32 → 100 in #674 (pure guardrail); the
@@ -94,14 +88,14 @@ export function blankRuntime(stage: StageStatus): RuntimeForm {
   return {
     concurrency: String(cfg?.concurrency ?? DEFAULT_RUNTIME.concurrency),
     maxAttempts: String(cfg?.maxAttempts ?? DEFAULT_RUNTIME.maxAttempts),
+    stallAfterMinutes: String(cfg?.stallAfterMinutes ?? DEFAULT_RUNTIME.stallAfterMinutes),
     version: cfg?.version ?? 'v0.1.0',
     prompt_text: cfg?.prompt_text ?? '',
   };
 }
 
-/** Face slice of the seed. Grouped like the Meilisearch slice below so
- * `blankEnrichment` stays a readable assembly of per-domain groups rather
- * than one long fallback chain. */
+/** Face slice of the seed, so `blankEnrichment` stays a readable assembly of
+ * per-domain groups rather than one long fallback chain. */
 function blankFace(ec: EnrichmentConfigResponse | null) {
   // `text` keeps the null-coalescing in one place: a per-field `?? ''`
   // chain reads fine but scores as one branch each, and this block is all
@@ -117,13 +111,6 @@ function blankFace(ec: EnrichmentConfigResponse | null) {
   };
 }
 
-function blankMeilisearchSemantic(ec: EnrichmentConfigResponse | null) {
-  return {
-    meilisearch_semantic_enabled: ec?.meilisearch_semantic_enabled ?? false,
-    meilisearch_semantic_ratio: String(ec?.meilisearch_semantic_ratio ?? 0.5),
-  };
-}
-
 /** Seed the worker controls; AI assignments live on the AI page. */
 export function blankEnrichment(ec: EnrichmentConfigResponse | null): EnrichmentForm {
   return {
@@ -131,33 +118,13 @@ export function blankEnrichment(ec: EnrichmentConfigResponse | null): Enrichment
     nominatim_url: ec?.nominatim_url ?? '',
     nominatim_rate_limit_per_sec: String(ec?.nominatim_rate_limit_per_sec ?? 10),
     ...blankFace(ec),
-    meilisearch_url: ec?.meilisearch_url ?? '',
-    // Never seeded from the response — the key is write-only.
-    meilisearch_api_key: '',
-    meilisearch_task_timeout_seconds: String(ec?.meilisearch_task_timeout_seconds ?? 600),
-    ...blankMeilisearchSemantic(ec),
     service_search_rate_limit_per_minute: String(ec?.service_search_rate_limit_per_minute ?? 60),
   };
 }
 
-export function meilisearchFormToPatch(form: EnrichmentForm) {
-  const key = form.meilisearch_api_key.trim();
-  const taskTimeout = Number(form.meilisearch_task_timeout_seconds.trim());
-  const semanticRatioText = form.meilisearch_semantic_ratio.trim();
-  const semanticRatio = semanticRatioText === '' ? Number.NaN : Number(semanticRatioText);
+export function searchFormToPatch(form: EnrichmentForm) {
   const serviceRate = Number(form.service_search_rate_limit_per_minute.trim());
   return {
-    meilisearch_url: form.meilisearch_url.trim() || null,
-    ...(key.length > 0 ? { meilisearch_api_key: key } : {}),
-    meilisearch_task_timeout_seconds:
-      Number.isInteger(taskTimeout) && taskTimeout >= 30 && taskTimeout <= 3600
-        ? taskTimeout
-        : null,
-    meilisearch_semantic_enabled: form.meilisearch_semantic_enabled,
-    meilisearch_semantic_ratio:
-      Number.isFinite(semanticRatio) && semanticRatio >= 0 && semanticRatio <= 1
-        ? semanticRatio
-        : null,
     service_search_rate_limit_per_minute:
       Number.isInteger(serviceRate) && serviceRate > 0 ? serviceRate : null,
   };
@@ -180,6 +147,12 @@ export function runtimeFormToPatch(form: RuntimeForm): Partial<WorkerConfig> {
   return {
     concurrency: parseClampedInt(form.concurrency, 1, CONCURRENCY_MAX, DEFAULT_RUNTIME.concurrency),
     maxAttempts: parseClampedInt(form.maxAttempts, 1, 20, DEFAULT_RUNTIME.maxAttempts),
+    stallAfterMinutes: parseClampedInt(
+      form.stallAfterMinutes,
+      5,
+      1440,
+      DEFAULT_RUNTIME.stallAfterMinutes,
+    ),
     ...(form.version !== undefined ? { version: form.version.trim() || null } : {}),
     ...(form.prompt_text !== undefined ? { prompt_text: form.prompt_text.trim() || null } : {}),
   };
@@ -212,6 +185,7 @@ export function summarizeStages(stages: readonly StageStatus[]): {
   running: number;
   idle: number;
   paused: number;
+  stalled: number;
   dead: number;
   pending: number;
 } {
@@ -219,6 +193,7 @@ export function summarizeStages(stages: readonly StageStatus[]): {
     running: stages.filter((s) => s.status === 'running').length,
     idle: stages.filter((s) => s.status === 'idle').length,
     paused: stages.filter((s) => s.status === 'paused').length,
+    stalled: stages.filter((s) => s.status === 'stalled').length,
     dead: stages.reduce((acc, s) => acc + s.dead, 0),
     pending: stages.reduce((acc, s) => acc + s.pending, 0),
   };
@@ -254,6 +229,8 @@ export function statusLabel(s: StageStatus): string {
       return 'Restarting';
     case 'stopped':
       return 'Stopped';
+    case 'stalled':
+      return 'Stalled';
   }
 }
 
@@ -270,6 +247,8 @@ export function statusDotColor(s: StageStatus): string {
       return '#a8a29e';
     case 'error':
       return '#f87171';
+    case 'stalled':
+      return '#fbbf24';
   }
 }
 
@@ -290,15 +269,19 @@ export function pendingTitle(s: StageStatus): string {
   return `${ready} ready · ${blocked} blocked on an upstream stage · ${total} pending total`;
 }
 
-/** Why a stage paused ITSELF — `meili` does this when Meilisearch's address
- * policy rejects the embedding server (#3315), so the row must say so or the
- * operator's first move is to resume it straight back into the same failure.
+/** Why a stage paused ITSELF, so the row can say so or the operator's first
+ * move is to resume it straight back into the same failure.
  * Null for an operator pause (no reason recorded) and for a running stage:
  * the server clears the reason on every resume, and a stale reason on a row
  * that is no longer paused would be misleading. */
 export function pauseReason(s: StageStatus): string | null {
   const reason = s.config?.pause_reason?.trim() ?? '';
   return s.config?.paused === true && reason.length > 0 ? reason : null;
+}
+
+/** Tooltip for the status pill: why a stage is paused, or why it is stalled. */
+export function statusTitle(s: StageStatus): string | null {
+  return s.status === 'stalled' ? s.lastError : pauseReason(s);
 }
 
 /** Format a byte count compactly: 13478912 → "12.9 MB". */

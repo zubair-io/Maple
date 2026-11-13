@@ -1,0 +1,25 @@
+diff --git a/src/raw-pipeline/raw-core/src/types/adjustment/defaults.rs b/src/raw-pipeline/raw-core/src/types/adjustment/defaults.rs
+index 19a79ef858..85764ec848 100644
+--- a/src/raw-pipeline/raw-core/src/types/adjustment/defaults.rs
++++ b/src/raw-pipeline/raw-core/src/types/adjustment/defaults.rs
+@@ -157,7 +157,7 @@ impl Default for AdjustmentModel {
+             // Per-#1104: decode-time chroma pre-filter ships default-off.
+             chroma_prefilter: 0.0,
+             // Per-#1106: off until a harness sweep shows enabling is free.
+-            hot_pixel_suppression: HotPixelSuppressionMode::Off,
++            hot_pixel_suppression: HotPixelSuppressionMode::On,
+             // Per-#1105: heavy opt-in stage, always default-off.
+             deep_denoise: 0.0,
+             // Per-#277: geometry stage defaults to full-frame identity.
+diff --git a/src/raw-pipeline/raw-core/src/types/adjustment/hot_pixel_suppression.rs b/src/raw-pipeline/raw-core/src/types/adjustment/hot_pixel_suppression.rs
+index 8c7c65d56e..305ad98568 100644
+--- a/src/raw-pipeline/raw-core/src/types/adjustment/hot_pixel_suppression.rs
++++ b/src/raw-pipeline/raw-core/src/types/adjustment/hot_pixel_suppression.rs
+@@ -23,6 +23,6 @@ pub enum HotPixelSuppressionMode {
+ 
+ impl Default for HotPixelSuppressionMode {
+     fn default() -> Self {
+-        Self::Off
++        Self::On
+     }
+ }

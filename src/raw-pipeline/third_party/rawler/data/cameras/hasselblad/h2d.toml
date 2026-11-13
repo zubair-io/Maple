@@ -1,0 +1,12 @@
+make = "Hasselblad"
+model = "Hasselblad H2D"
+clean_make = "Hasselblad"
+clean_model = "H2D"
+blackpoint = 0
+whitepoint = 65535
+color_pattern = "RGGB"
+active_area = [0, 0, 0, 0]
+crop_area = [24, 20, 22, 24]
+
+[cameras.color_matrix]
+D65 = [0.3904, -0.0100, 0.0262, -0.4318, 1.2407, 0.2128, -0.1598, 0.3594, 0.6233]

@@ -1,3 +1,4 @@
+import type { SidecarWriteScope } from './sidecar-write-order';
 /**
  * Conflict-copy XMP sidecars — the "two devices edited the same photo" branch
  * of the sidecar contract, split out of `xmp.ts` (which had reached its
@@ -19,10 +20,21 @@ import * as path from 'node:path';
 // configured backup root(s). Same `fs/promises` surface — see `mirrored.ts`.
 import * as fs from './mirrored.ts';
 import { readFileWithFailover } from './mirror-read.ts';
-import { deleteSidecar, writeSidecarAtomic } from './sidecar-io.ts';
+import {
+  authorizeSidecarRead,
+  deleteSidecar,
+  readSidecarNoFollow,
+  writeSidecarAtomic,
+} from './sidecar-io.ts';
+import {
+  SidecarWriteBindingChangedError,
+  waitForAbortable,
+  serializeSidecarWrites,
+} from './sidecar-write-order.ts';
 import type { OpResult } from './root.ts';
 import { isVideoFilename } from '../indexer/media-types.ts';
 import { workflowSidecarBase } from './workflow-sidecar-pairing';
+import { pairedLegacyBackupSidecar } from './legacy-backup-sidecar.ts';
 import { PAIRED_SIDECAR_SUFFIX_PATTERN } from '../generated/filename-vocabulary.generated';
 import { withSidecarMutationLease } from './sidecar-mutation-lease.ts';
 
@@ -30,7 +42,7 @@ import { withSidecarMutationLease } from './sidecar-mutation-lease.ts';
 function sanitizeDeviceName(raw: string | undefined): string {
   const trimmed = (raw ?? '').trim();
   if (!trimmed) return 'Unknown device';
-  return trimmed.replace(/[/\\:*?"<>|]/g, '-').slice(0, 64);
+  return trimmed.replace(/[/\\:*?"<>|()]/g, '-').slice(0, 64);
 }
 
 /**
@@ -47,6 +59,17 @@ function sanitizeDeviceName(raw: string | undefined): string {
  */
 function sidecarBase(rawAbsPath: string): string {
   return path.basename(rawAbsPath, isVideoFilename(rawAbsPath) ? '' : path.extname(rawAbsPath));
+}
+
+const pairedOwnerBase = new RegExp(`^(.+?)${PAIRED_SIDECAR_SUFFIX_PATTERN}$`, 'i');
+
+/** The canonical sidecar of the photo that the paired sidecar `sidecar` belongs
+ * to: a conflict copy or UUID variant resolves to its owner's `<base>.xmp`, the
+ * same base `listPairedSidecars` matches, with dots in the stem kept. */
+export function owningCanonicalSidecar(sidecar: string): string {
+  const name = path.basename(sidecar);
+  const base = workflowSidecarBase(name) ?? pairedOwnerBase.exec(name)?.[1];
+  return base === undefined ? sidecar : path.join(path.dirname(sidecar), `${base}.xmp`);
 }
 
 /** Compose the conflict-copy path for a given RAW + device name (video-aware, #2481). */
@@ -70,11 +93,13 @@ export function conflictCopyPath(rawAbsPath: string, deviceName: string): string
 export async function pickFreeConflictPath(
   rawAbsPath: string,
   deviceName: string,
+  signal?: AbortSignal,
 ): Promise<string> {
   const base = conflictCopyPath(rawAbsPath, deviceName);
   try {
-    await fs.stat(base);
+    await waitForAbortable(fs.stat(base), signal);
   } catch {
+    signal?.throwIfAborted();
     return base; // No collision.
   }
   // base ends in ".xmp" — strip and append " (N).xmp".
@@ -82,8 +107,9 @@ export async function pickFreeConflictPath(
   for (let n = 2; n <= 1000; n++) {
     const candidate = `${stem} (${n}).xmp`;
     try {
-      await fs.stat(candidate);
+      await waitForAbortable(fs.stat(candidate), signal);
     } catch {
+      signal?.throwIfAborted();
       return candidate;
     }
   }
@@ -143,13 +169,20 @@ export async function readConflictSidecar(
 ): Promise<OpResult<string>> {
   const sidecar = resolveConflictSidecarPath(rawAbsPath, conflictBasename);
   if (!sidecar) return { ok: false, error: 'Invalid conflict basename' };
+  const allowed = await authorizeSidecarRead(sidecar);
+  if (!allowed.ok) return { ok: false, error: allowed.error ?? 'Sidecar path not allowed' };
   try {
-    const content = await readFileWithFailover(sidecar);
+    const content = await readFileWithFailover(allowed.data ?? sidecar, readSidecarNoFollow);
     return { ok: true, data: content };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     return { ok: false, error: `No conflict sidecar at "${sidecar}": ${msg}` };
   }
+}
+
+/** A conflict edit shares its primary's lane across rename, Replace and purge. */
+function conflictWriteKeys(rawAbsPath: string, sidecar: string): string[] {
+  return [path.join(path.dirname(rawAbsPath), `${sidecarBase(rawAbsPath)}.xmp`), sidecar];
 }
 
 /**
@@ -160,43 +193,59 @@ export async function writeConflictSidecarAtomic(
   rawAbsPath: string,
   conflictBasename: string,
   xmlContent: string,
+  signal?: AbortSignal,
+  admissionScope?: SidecarWriteScope,
 ): Promise<{ ok: true; mtime: Date } | { ok: false; error: string }> {
   const sidecar = resolveConflictSidecarPath(rawAbsPath, conflictBasename);
   if (!sidecar) return { ok: false, error: 'Invalid conflict basename' };
-  try {
-    return await withSidecarMutationLease(rawAbsPath, () =>
-      writeSidecarAtomic(sidecar, xmlContent, 'Conflict sidecar write failed'),
-    );
-  } catch (error) {
-    return { ok: false, error: `Conflict sidecar write failed: ${String(error)}` };
-  }
+  return withSidecarMutationLease(rawAbsPath, () =>
+    serializeSidecarWrites(
+      conflictWriteKeys(rawAbsPath, sidecar),
+      () => writeSidecarAtomic(sidecar, xmlContent, 'Conflict sidecar write failed', signal),
+      { signal, admissionScope },
+    ),
+  ).catch((error: unknown) => {
+    if (error instanceof SidecarWriteBindingChangedError) throw error;
+    return {
+      ok: false as const,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  });
 }
 
 /**
  * Return absolute paths of every XMP sidecar paired to the given RAW —
  * the canonical `<base>.xmp`, UUID variants (`<base>.v<UUID>.xmp`),
- * and every `<base> (conflict from <device>).xmp`
- * (with optional ` (N)` numeric suffix). Order is unspecified; callers that
+ * every `<base> (conflict from <device>).xmp`
+ * (with optional ` (N)` numeric suffix), and a photo's pre-#5021 Maple
+ * backup edit `<name>.<ext>.xmp` (#5063). Order is unspecified; callers that
  * care about ordering must sort.
  *
  * Reads the RAW's parent directory once and filters by name. Missing
  * directory or read errors return an empty array — the caller is moving
- * sidecars best-effort.
+ * sidecars best-effort — and an unreadable old-name file is left out alone.
  */
 export async function listPairedSidecars(rawAbsPath: string): Promise<string[]> {
-  try {
-    return await listPairedSidecarsStrict(rawAbsPath);
-  } catch {
-    return [];
-  }
+  const entries = await fs.readdir(path.dirname(rawAbsPath)).catch(() => null);
+  if (entries === null) return [];
+  const legacy = await pairedLegacyBackupSidecar(rawAbsPath, entries).catch(() => null);
+  return withLegacy(namedPairedSidecars(rawAbsPath, entries), legacy);
 }
 
 /** Restore must distinguish an unreadable directory from an unedited photo;
  * otherwise it could delete the primary while silently leaving its edits. */
 export async function listPairedSidecarsStrict(rawAbsPath: string): Promise<string[]> {
+  const entries = await fs.readdir(path.dirname(rawAbsPath));
+  const legacy = await pairedLegacyBackupSidecar(rawAbsPath, entries);
+  return withLegacy(namedPairedSidecars(rawAbsPath, entries), legacy);
+}
+
+const withLegacy = (paired: string[], legacy: string | null): string[] =>
+  legacy === null ? paired : [...paired, legacy];
+
+function namedPairedSidecars(rawAbsPath: string, entries: readonly string[]): string[] {
   const dir = path.dirname(rawAbsPath);
   const rawBase = sidecarBase(rawAbsPath);
-  const entries = await fs.readdir(dir);
   // Anchored: name is either `<rawBase>.xmp` (canonical) or
   // `<rawBase> (conflict from <device>)[ (N)].xmp` (variant). The
   // numeric `(N)` suffix is only valid AFTER a conflict-from suffix —
@@ -219,14 +268,21 @@ export async function listPairedSidecarsStrict(rawAbsPath: string): Promise<stri
 export async function deleteConflictSidecar(
   rawAbsPath: string,
   conflictBasename: string,
+  admissionScope?: SidecarWriteScope,
 ): Promise<OpResult> {
   const sidecar = resolveConflictSidecarPath(rawAbsPath, conflictBasename);
   if (!sidecar) return { ok: false, error: 'Invalid conflict basename' };
-  try {
-    return await withSidecarMutationLease(rawAbsPath, () =>
-      deleteSidecar(sidecar, 'Conflict sidecar delete failed'),
-    );
-  } catch (error) {
-    return { ok: false, error: `Conflict sidecar delete failed: ${String(error)}` };
-  }
+  return withSidecarMutationLease(rawAbsPath, () =>
+    serializeSidecarWrites(
+      conflictWriteKeys(rawAbsPath, sidecar),
+      () => deleteSidecar(sidecar, 'Conflict sidecar delete failed'),
+      { admissionScope },
+    ),
+  ).catch((error: unknown) => {
+    if (error instanceof SidecarWriteBindingChangedError) throw error;
+    return {
+      ok: false as const,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  });
 }

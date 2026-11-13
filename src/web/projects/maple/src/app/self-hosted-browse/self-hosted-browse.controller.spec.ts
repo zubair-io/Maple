@@ -48,6 +48,20 @@ describe('SelfHostedBrowseController', () => {
     expect(controller.panoAssetIds()).toEqual([]);
   });
 
+  it('refetches the open folder when a stitched panorama lands in the library (#5517)', () => {
+    Object.defineProperty(state, 'selectedSourceId', {
+      value: signal('photos:2026/trip'),
+      configurable: true,
+    });
+    const loadFolderTree = vi.spyOn(state, 'loadFolderTree').mockImplementation(() => {});
+    const reopen = vi.spyOn(state, 'openSelfHostedSubfolder').mockImplementation(() => {});
+
+    controller.onPanoCreated();
+
+    expect(loadFolderTree).toHaveBeenCalledTimes(1);
+    expect(reopen).toHaveBeenCalledWith('2026/trip', 'photos:2026/trip');
+  });
+
   it('fetches batch metadata by Maple address and opens the server panel', () => {
     const asset = { id: 'photos:2026/a.dng' } as Asset;
     Object.defineProperty(state, 'selectedAssetIds', {
@@ -126,6 +140,32 @@ describe('SelfHostedBrowseController', () => {
     controller.dismissBatchRename();
     expect(controller.batchRenameVisible()).toBe(false);
     expect(controller.batchRenameSelections()).toEqual([]);
+  });
+
+  it('openBatchRename carries a stacked RAW’s JPEG companion with its selection (#5846)', () => {
+    const raw = {
+      id: 'lib1:2026/a.cr3',
+      filename: 'a.cr3',
+      stack: { companion: { id: 'lib1:2026/a.jpg', name: 'a.jpg', ext: 'jpg', size: 1 } },
+    } as Asset;
+    Object.defineProperty(state, 'selectedAssetIds', {
+      value: signal(new Set([raw.id])),
+      configurable: true,
+    });
+    Object.defineProperty(state, 'assetsInSelectedFolder', {
+      value: signal([raw]),
+      configurable: true,
+    });
+
+    controller.openBatchRename();
+
+    expect(controller.batchRenameSelections()).toEqual([
+      {
+        address: raw.id,
+        filename: raw.filename,
+        companion: { address: 'lib1:2026/a.jpg', filename: 'a.jpg' },
+      },
+    ]);
   });
 
   it('onBatchRenameApplied repoints the selection to the renamed addresses before refetching (#2847)', () => {

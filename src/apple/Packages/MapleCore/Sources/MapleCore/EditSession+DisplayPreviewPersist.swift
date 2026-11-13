@@ -18,23 +18,33 @@ import Foundation
 
 @MainActor
 extension EditSession {
-  func scheduleDisplayPreviewPersist(_ rendered: CIImage) {
+  public var displayPreviewSink: (any DisplayPreviewSink)? {
+    previewPersistence.sink
+  }
+
+  public func scheduleDisplayPreviewPersist(_ rendered: CIImage) {
     guard workflow.selectedVariantId == WorkflowContract.primaryVariantID else { return }
-    guard hasSettledCPUAutoProfile else { return }
+    if sidecarWritesDisabled {
+      previewPersistence.stagePending(rendered)
+      return
+    }
     previewPersistence.schedule(rendered)
   }
 
   func flushDisplayPreviewPersist(expectedModel: AdjustmentModel? = nil) async {
     guard await cancelAndJoinDisplayPreviewPersist(expectedModel: expectedModel) else { return }
-    guard hasSettledAutoProfile else { return }
     let capturedModel = model
-    await previewPersistence.persistPending { self.model == capturedModel }
+    await previewPersistence.persistPending {
+      !self.sidecarWritesDisabled && self.model == capturedModel
+    }
   }
 
   @discardableResult
   func cancelAndJoinDisplayPreviewPersist(expectedModel: AdjustmentModel? = nil) async -> Bool {
+    guard !sidecarWritesDisabled else { return false }
     if let expectedModel, model != expectedModel { return false }
     await previewPersistence.cancelAndJoin()
+    guard !sidecarWritesDisabled else { return false }
     if let expectedModel, model != expectedModel { return false }
     return true
   }
@@ -54,6 +64,7 @@ extension EditSession {
   /// drop the final write if the session deallocated on teardown (jules
   /// review, #2009).
   public func persistDisplayPreviewOnExit() async {
+    guard !sidecarWritesDisabled else { return }
     let exitModel = model
     // Files bookmarks grant access on the resolved parent, not on child URLs.
     // Access extends the process sandbox, including the background writers.
@@ -64,35 +75,42 @@ extension EditSession {
     defer { if accessing { scope?.stopAccessingSecurityScopedResource() } }
     // Cache variants use the sidecar mtime: commit the final transaction
     // before capturing pixels and their cache revision.
-    await flushPendingSidecarWrite()
-    await nativeAutoProfile.awaitPreparation()
+    do {
+      try await flushPendingSidecarWriteConfirmed()
+      if let localStore = sidecarStore as? XMPSidecarStore {
+        try await localStore.requireObservedRevisionCurrent()
+      }
+    } catch {
+      // A changed external sidecar must not acquire a new preview/thumbnail
+      // stamped as if the stale editor model had been saved (#5348).
+      recordSidecarError(error)
+      if let conflict = error as? XMPStoreError, case .externalConflict = conflict {
+        sidecarWritesDisabled = true
+      }
+      previewPersistence.discardPendingImage()
+      await previewPersistence.cancelAndJoin()
+      return
+    }
     _ = await latestRenderSchedule?.value
     await renderActor.awaitCurrentRenderIfInFlight()
-    guard model == exitModel else { return }
-    // The preparation callback queues a refresh asynchronously. Exit can join
-    // preparation before that callback reaches the render scheduler, so ensure
-    // the final frame actually owns the ready tail before capturing it.
-    if nativeAutoProfile.ready != nil, !hasSettledAutoProfile {
-      let gen = await renderActor.currentGeneration()
-      await decodeAndRender(targetSize: fastTargetSize, phase: .fast, gen: gen)
-      guard model == exitModel else { return }
-    }
+    guard !sidecarWritesDisabled, model == exitModel else { return }
     // Cancellation alone cannot stop an encode/write already in progress.
     // Drain it before the current GPU frame can become the final sink write.
     guard await cancelAndJoinDisplayPreviewPersist(expectedModel: exitModel) else { return }
     // CPU render publishes enqueue a thumbnail write. Await a final write here
     // as well, so the reload signal below always follows the final pixels.
-    if workflow.selectedVariantId == WorkflowContract.primaryVariantID, hasSettledCPUAutoProfile, !gpuFramePresented || gpuPresentFailed, previewIsFullRender,
-      !isFullQualityDecoding,
+    if workflow.selectedVariantId == WorkflowContract.primaryVariantID,
+      !gpuFramePresented, previewIsFullRender, !isFullQualityDecoding,
       let url = asset.primaryURL, let image = renderedPreview
     {
       await ThumbnailLoader.shared.updateThumbnailFromRender(image, for: url)
     }
+    guard !sidecarWritesDisabled else { return }
     await refreshThumbnailFromCurrentGpuFrame(expectedModel: exitModel)
-    guard model == exitModel else { return }
+    guard !sidecarWritesDisabled, model == exitModel else { return }
     guard workflow.selectedVariantId == WorkflowContract.primaryVariantID else { return }
     await flushDisplayPreviewPersist(expectedModel: exitModel)
-    guard model == exitModel, let url = asset.primaryURL else { return }
+    guard !sidecarWritesDisabled, model == exitModel, let url = asset.primaryURL else { return }
     DevelopedImageRevision.shared.didPersist(for: url)
   }
 

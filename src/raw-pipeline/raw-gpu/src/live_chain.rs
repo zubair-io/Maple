@@ -64,6 +64,7 @@ use crate::agx::AgxPass;
 use crate::auto_profile_curve::{profile_curve_is_active, AutoProfileCurvePass};
 use crate::capture_sharpening::CaptureSharpeningPass;
 use crate::clarity::ClarityPass;
+use crate::color_curves::{color_curves_is_identity, ColorCurvesPass};
 use crate::color_grade::{color_grade_is_identity, ColorGradePass};
 use crate::defringe::DefringePass;
 use crate::dehaze::{AirlightSource, DehazePass};
@@ -79,6 +80,7 @@ use crate::local_adjustments::{
 };
 use crate::local_spatial::{layer_needs_spatial, LocalSpatialPass};
 use crate::noise_reduction::{NlmColorPass, NlmLumaPass};
+use crate::p3_auto::p3_auto_is_active;
 use crate::residual_lut::{residual_lut_is_active, ResidualLutPass};
 use crate::saturation::SaturationPass;
 use crate::scene_tone_controls::SceneToneControlsPass;
@@ -89,6 +91,7 @@ use crate::tone_curves::ToneCurvesPass;
 use crate::vibrance::VibrancePass;
 use crate::vignette::VignettePass;
 use crate::white_balance::WhiteBalancePass;
+use crate::{CreativeDcpPass, CreativeGainPass, PostDcpHighlightPass};
 
 mod builder;
 pub use builder::{build_live_chain, build_live_split};
@@ -168,6 +171,7 @@ pub fn view_tail_pass_count(inputs: &FullChainInputs) -> usize {
             inputs.residual_lut_size,
             &inputs.residual_lut_data,
         ))
+        + usize::from(p3_auto_is_active(inputs))
 }
 
 // Parity tests live in a sibling file to keep this module under the 600-LOC
@@ -176,7 +180,7 @@ pub fn view_tail_pass_count(inputs: &FullChainInputs) -> usize {
 // drift from the P4a gate's. Native test builds only.
 #[cfg(all(test, not(target_arch = "wasm32")))]
 #[path = "live_chain/tests.rs"]
-mod tests;
+pub(crate) mod tests;
 // The input-shape + sub-parameter pass-inclusion gates live in their own file
 // (600-LOC file budget); they reuse `tests::{neutral_case, run_live_chain,
 // TEST_SESSION_ID}` (`pub(super)` there). Same split shape as `gpu_render`'s
@@ -194,3 +198,15 @@ mod tests_scope;
 #[cfg(all(test, not(target_arch = "wasm32")))]
 #[path = "live_chain/tests_capacity.rs"]
 mod tests_capacity;
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+#[path = "live_chain/tests_creative.rs"]
+pub(crate) mod tests_creative;
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+#[path = "live_chain/tests_creative_chain.rs"]
+mod tests_creative_chain;
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+#[path = "live_chain/tests_creative_physical.rs"]
+mod tests_creative_physical;

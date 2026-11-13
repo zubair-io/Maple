@@ -11,17 +11,14 @@ import Foundation
 
 public enum DeviceIdentity {
 
-    /// Default storage at `~/Library/Application Support/Maple/device-id`.
-    /// Creates the containing directory if missing.
+    /// `device-id` inside the shared backup root (`BackupStorage.sharedRoot`),
+    /// so every Apple process reports the same device (#4717).
     public static func defaultStorageURL() throws -> URL {
-        let appSupport = try FileManager.default.url(
-            for: .applicationSupportDirectory,
-            in: .userDomainMask,
-            appropriateFor: nil,
-            create: true)
-        let dir = appSupport.appendingPathComponent("Maple", isDirectory: true)
-        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        return dir.appendingPathComponent("device-id")
+        storageURL(in: try BackupStorage.sharedRoot())
+    }
+
+    public static func storageURL(in root: URL) -> URL {
+        root.appendingPathComponent("device-id")
     }
 
     /// Read the persisted UUID at `storageURL`, or generate a fresh one on

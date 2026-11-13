@@ -12,10 +12,25 @@ use raw_core::pipeline::{
     RenderQuality,
 };
 use raw_core::view::auto_profile::cache::CacheKey as AutoCacheKey;
+use raw_core::view::auto_profile::AutoFitOutcome;
 use std::ffi::{c_char, CStr};
 
-/// Same quality discriminants as the RAW render/decode ABI. AMaZE must not
-/// fall through the historical boolean "nonzero means Preview" conversion.
+/// Auto Profile fit return code: Auto was selected but no embedded camera
+/// preview could be extracted, so the host renders Neutral (#5458). A literal
+/// because cbindgen drops a constant defined by another crate's path.
+pub const MAPLE_AUTO_FIT_NO_PREVIEW: i32 = 10;
+const _: () = assert!(MAPLE_AUTO_FIT_NO_PREVIEW == AutoFitOutcome::NO_PREVIEW_FFI_CODE);
+
+/// The return code an Auto fit with no applicable tail reports.
+pub(crate) fn no_tail_rc(outcome: AutoFitOutcome) -> i32 {
+    match outcome {
+        AutoFitOutcome::NoPreview => MAPLE_AUTO_FIT_NO_PREVIEW,
+        AutoFitOutcome::Applied | AutoFitOutcome::Unfitted => 1,
+    }
+}
+
+/// Same wire enum as `maple_render_file` (`render.rs`); the fit must develop at
+/// the quality the host decoded at, so AMaZE/Auto never collapse to Preview (#5158).
 pub(crate) fn quality_from_wire(value: i32) -> RenderQuality {
     match value {
         1 => RenderQuality::Preview,
@@ -65,54 +80,56 @@ pub unsafe extern "C" fn maple_compute_profile_lut(
     n: u32,
     out: *mut f32,
 ) -> i32 {
-    use raw_core::view::auto_profile::{
-        bake_profile_lut, ProfileCurve, MAX_LUT_SIZE, PROFILE_CURVE_FLAT_LEN,
-    };
-    if curve.is_null() || out.is_null() {
-        return -1;
-    }
-    // `out` is written as `*mut f32` via `copy_nonoverlapping`, which is UB if
-    // `out` is not f32-aligned. Public C ABI — validate alignment rather than
-    // trust the caller (mirrors the histogram guard in render.rs).
-    if (out as usize) % std::mem::align_of::<f32>() != 0 {
-        return -1;
-    }
-    if curve_len != PROFILE_CURVE_FLAT_LEN {
-        return -1;
-    }
-    let n = n as usize;
-    // Reject the degenerate and oversized `n` BEFORE calling `bake_profile_lut`
-    // — bake panics on those, and a panic across `extern "C"` aborts the host
-    // process. `MAX_LUT_SIZE` is the shared core constant, so FFI / WASM / core
-    // agree on the accepted range.
-    if n < 2 || n > MAX_LUT_SIZE {
-        return -1;
-    }
-    // Guard the output sizing arithmetic before allocating / writing.
-    let out_len = match n
-        .checked_mul(n)
-        .and_then(|nn| nn.checked_mul(n))
-        .and_then(|nnn| nnn.checked_mul(3))
-    {
-        Some(l) => l,
-        None => return -1,
-    };
-    let flat = std::slice::from_raw_parts(curve, curve_len);
-    let parsed = match ProfileCurve::from_flat(flat) {
-        Some(c) => c,
-        None => return -1,
-    };
-    let lut = bake_profile_lut(&parsed, n);
-    // Runtime length check that survives release builds: `bake_profile_lut`
-    // always returns exactly `n³ * 3` for an accepted `n`, so this never fires
-    // in practice, but guarding it (rather than `debug_assert_eq!`, which
-    // compiles out in release) prevents any OOB read in the unsafe copy below
-    // if that invariant were ever broken.
-    if lut.len() != out_len {
-        return -1;
-    }
-    std::ptr::copy_nonoverlapping(lut.as_ptr(), out, out_len);
-    0
+    crate::error::catch_panic_rc("maple_compute_profile_lut", || {
+        use raw_core::view::auto_profile::{
+            bake_profile_lut, ProfileCurve, MAX_LUT_SIZE, PROFILE_CURVE_FLAT_LEN,
+        };
+        if curve.is_null() || out.is_null() {
+            return -1;
+        }
+        // `out` is written as `*mut f32` via `copy_nonoverlapping`, which is UB if
+        // `out` is not f32-aligned. Public C ABI — validate alignment rather than
+        // trust the caller (mirrors the histogram guard in render.rs).
+        if (out as usize) % std::mem::align_of::<f32>() != 0 {
+            return -1;
+        }
+        if curve_len != PROFILE_CURVE_FLAT_LEN {
+            return -1;
+        }
+        let n = n as usize;
+        // Reject the degenerate and oversized `n` BEFORE calling `bake_profile_lut`
+        // — bake panics on those, and a panic across `extern "C"` aborts the host
+        // process. `MAX_LUT_SIZE` is the shared core constant, so FFI / WASM / core
+        // agree on the accepted range.
+        if n < 2 || n > MAX_LUT_SIZE {
+            return -1;
+        }
+        // Guard the output sizing arithmetic before allocating / writing.
+        let out_len = match n
+            .checked_mul(n)
+            .and_then(|nn| nn.checked_mul(n))
+            .and_then(|nnn| nnn.checked_mul(3))
+        {
+            Some(l) => l,
+            None => return -1,
+        };
+        let flat = std::slice::from_raw_parts(curve, curve_len);
+        let parsed = match ProfileCurve::from_flat(flat) {
+            Some(c) => c,
+            None => return -1,
+        };
+        let lut = bake_profile_lut(&parsed, n);
+        // Runtime length check that survives release builds: `bake_profile_lut`
+        // always returns exactly `n³ * 3` for an accepted `n`, so this never fires
+        // in practice, but guarding it (rather than `debug_assert_eq!`, which
+        // compiles out in release) prevents any OOB read in the unsafe copy below
+        // if that invariant were ever broken.
+        if lut.len() != out_len {
+            return -1;
+        }
+        std::ptr::copy_nonoverlapping(lut.as_ptr(), out, out_len);
+        0
+    })
 }
 
 /// Fit the per-image Auto Profile curve (#812) for a RAW file + XMP sidecar
@@ -132,9 +149,10 @@ pub unsafe extern "C" fn maple_compute_profile_lut(
 /// drift from `maple_render_file`'s CPU Auto Profile output.
 ///
 /// `quality_preview` mirrors `maple_render_file`: `0` = `RenderQuality::Full`
-/// (matches the parity harness / `maple-cli render`), `1` = `Preview`,
-/// `2` = AMaZE, `3` = Auto demosaic. Pass the same value the host's scene-linear decode
-/// used so the fitted curve matches the buffer being displayed.
+/// (matches the parity harness / `maple-cli render`), `1` = `Preview`
+/// (half-res develop), `2` = AMaZE, `3` = Auto demosaic. Pass the same value
+/// the host's scene-linear decode used so the fitted curve matches the buffer
+/// being displayed.
 ///
 /// `out` must point to at least `PROFILE_CURVE_FLAT_LEN` writable f32. On
 /// success the full flat curve is written and `0` is returned.
@@ -277,8 +295,8 @@ pub unsafe extern "C" fn maple_compute_profile_curve(
 /// must NOT fall back to plain AgX, which would render darker than Neutral).
 ///
 /// `quality_preview`: `0` = `Full` (matches the parity harness / `maple-cli`),
-/// `1` = `Preview` (half-res), `2` = AMaZE, `3` = Auto demosaic.
-/// Pass the same value used by the host decode.
+/// `1` = `Preview` (half-res develop), `2` = AMaZE, `3` = Auto demosaic. Pass
+/// the value the host's decode used.
 ///
 /// This is a **per-image, one-shot** call (JPEG extract + full develop + fit +
 /// bake, orders of magnitude over the slider-tick budget). Both fits are cached
@@ -289,8 +307,10 @@ pub unsafe extern "C" fn maple_compute_profile_curve(
 ///
 /// Returns:
 /// - `0` on success — `out` holds `n * n * n * 3` f32.
-/// - `1` when no tail applies (not `Profile::Auto`, or no embedded JPEG so both
-///   stages fail). `out` is untouched; the host renders plain AgX.
+/// - `1` when no tail applies (not `Profile::Auto`, or the fit produced no
+///   artifact). `out` is untouched; the host renders plain AgX.
+/// - [`MAPLE_AUTO_FIT_NO_PREVIEW`] like `1`, but because no embedded camera
+///   preview could be extracted (#5458).
 /// - `2`/`3` when `raw_path` / `xmp_path` is non-UTF-8.
 /// - `6`/`7` when the RAW read / decode fails (`maple_last_error` is set).
 /// - `9` on an internal invariant failure — the baked LUT length did not equal
@@ -382,7 +402,7 @@ pub unsafe extern "C" fn maple_compute_auto_profile_lut(
         let fit_result = {
             let auto_key = AutoCacheKey::from_path(raw_path, quality);
             match cached_auto_profile_fit(&model, auto_key.as_ref()) {
-                Some(pair) => Some(pair),
+                Some(pair) => Ok(pair),
                 None => {
                     // Miss (or no tail) — the pre-#2035 read + decode + fit
                     // path. Compute the decode-cache key BEFORE reading — if
@@ -427,9 +447,8 @@ pub unsafe extern "C" fn maple_compute_auto_profile_lut(
             }
         };
         let (curve_opt, residual_opt) = match fit_result {
-            Some(pair) => pair,
-            // Not Auto, or no embedded JPEG (both stages None) — host AgX.
-            None => return 1,
+            Ok(pair) => pair,
+            Err(outcome) => return no_tail_rc(outcome),
         };
         // Compose curve ∘ residual into one cube (#4212, #4216). An absent curve
         // skips its highlight soft knee; an absent residual bakes the curve only;
@@ -489,3 +508,7 @@ fn decode_auto_lut_cached(
 #[cfg(test)]
 #[path = "auto_profile_tests.rs"]
 mod auto_profile_tests;
+
+#[cfg(test)]
+#[path = "auto_profile_quality_tests.rs"]
+mod auto_profile_quality_tests;

@@ -1,0 +1,15 @@
+{
+  "comparisons": 16,
+  "failed": 11,
+  "matched_source37": 13,
+  "cleared_source37": [],
+  "new_source37": [],
+  "unmatched": [
+    "test_0011/wb_tungsten",
+    "test_0014/sharpen_detail_min",
+    "test_0014/sharpen_radius_max"
+  ],
+  "original_inputs_unchanged": true,
+  "production_adopted": false,
+  "status": "Do not adopt for the current color repair: no additional source37 clear in13 matched comparisons;3 parent rows pending complete37. Preserve proven discontinuity, passing30AMaZE tests and7initial physical witnesses for future work. Production unchanged."
+}

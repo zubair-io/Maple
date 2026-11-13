@@ -82,7 +82,9 @@ final class AgentScopeColorTests: XCTestCase {
       try CIContext().writeJPEGRepresentation(of: image, to: url, colorSpace: space)
     }
     let original = try Data(contentsOf: url)
-    let session = EditSession(asset: AssetRef(url: url), model: model(), culling: CullingState())
+    let session = EditSession(asset: AssetRef(url: url))
+    await session.loadSidecar()
+    session.model = model()
     session.previewSize = CGSize(width: 64, height: 48)
     await session.openAssetPipelineAsync()
     _ = await session.latestRenderSchedule?.value
@@ -185,7 +187,9 @@ final class AgentScopeColorTests: XCTestCase {
       size: CGSize(width: 64, height: 48), format: .RGBA8, colorSpace: space)
     try CIContext().writePNGRepresentation(of: image, to: url, format: .RGBA8, colorSpace: space)
 
-    let session = EditSession(asset: AssetRef(url: url), model: model(), culling: CullingState())
+    let session = EditSession(asset: AssetRef(url: url))
+    await session.loadSidecar()
+    session.model = model()
     session.previewSize = CGSize(width: 64, height: 48)
     await session.openAssetPipelineAsync()
     _ = await session.latestRenderSchedule?.value

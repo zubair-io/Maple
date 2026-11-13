@@ -36,6 +36,7 @@ export * from './lib/api/library-backend.token';
 export * from './lib/workspace/workspace-capabilities';
 export * from './lib/workspace/workspace-persistence';
 export * from './lib/workspace/server-library-io';
+export * from './lib/stack/stack-preference.service';
 export * from './lib/workspace/hosted-workspace.providers';
 export * from './lib/workspace/self-hosted-workspace.providers';
 export * from './lib/api/api-base-url.token';
@@ -47,7 +48,6 @@ export * from './lib/api/workers-api.service';
 export * from './lib/api/worker-events.service';
 export * from './lib/api/imports-api.service';
 export * from './lib/api/ai-api.service';
-export * from './lib/api/meilisearch-embedder-api.service';
 // #1231 — Panorama stitching
 export * from './lib/api/pano.service';
 export * from './lib/pano/pano-dialog.component';
@@ -91,6 +91,7 @@ export * from './lib/components/library-picker-modal/library-picker-modal.compon
 export * from './lib/folder-access/folder-access.types';
 export * from './lib/folder-access/folder-access.error';
 export * from './lib/folder-access/folder-access.service';
+export * from './lib/folder-access/drop-snapshot';
 export * from './lib/folder-access/file-cache';
 export * from './lib/maple-cache/maple-cache.types';
 export * from './lib/maple-cache/maple-cache.service';
@@ -209,6 +210,8 @@ export * from './lib/auth/auth.service';
 export * from './lib/auth/auth.guard';
 export * from './lib/auth/auth.interceptor';
 export * from './lib/auth/auth-bootstrap';
+export * from './lib/auth/native-handoff';
+export * from './lib/auth/native-handoff-consent.component';
 
 // Deep links (responsive-program #624) — maple:// scheme + HTTPS
 // shim resolved to Angular Router navigations.
@@ -350,6 +353,7 @@ export * from './lib/ui/list/mui-list.component';
 // Maple UI design system (#3000), wave 2 — Form/Media/Feedback atoms.
 export * from './lib/ui/input/mui-input.component';
 export * from './lib/ui/checkbox/mui-checkbox.component';
+export * from './lib/ui/toggle/mui-toggle.component';
 export * from './lib/ui/select/mui-select.component';
 export * from './lib/ui/segmented-toggle/mui-segmented-toggle.component';
 export * from './lib/ui/image/mui-image.component';

@@ -16,6 +16,7 @@ import MapleCore
 
 #if canImport(BackgroundTasks) && os(iOS)
   import BackgroundTasks
+  import UIKit
 
   enum BGTaskRegistration {
 
@@ -60,7 +61,8 @@ import MapleCore
       schedule()
 
       let runner = Task { @MainActor in
-        guard !BackupSettings.isStoppedByUser else { return }
+        await EngineHost.shared.resumeStateStore()
+        guard !BackupSettings.isStoppedByUser, !EngineHost.shared.isPausedForPanorama else { return }
         await MapleApp.startBackupIfAuthorized()
         // Walk first so any new captures since the app last ran get enqueued,
         // then drain the queue. iOS limits execution time via the expiration
@@ -83,13 +85,21 @@ import MapleCore
       task.expirationHandler = {
         // iOS is about to suspend us; give the engine a chance to bail cleanly.
         runner.cancel()
-        Task { @MainActor in await EngineHost.shared.stop() }
+        Task { @MainActor in await suspendIfBackgrounded() }
       }
 
-      Task {
+      Task { @MainActor in
         _ = await runner.value
+        await suspendIfBackgrounded()
         task.setTaskCompleted(success: !runner.isCancelled)
       }
+    }
+
+    /// A user who opened the app during the task owns the engine and the DB.
+    @MainActor
+    private static func suspendIfBackgrounded() async {
+      guard UIApplication.shared.applicationState != .active else { return }
+      await EngineHost.shared.suspendStateStore()
     }
   }
 

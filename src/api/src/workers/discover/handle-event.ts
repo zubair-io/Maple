@@ -32,6 +32,7 @@ import {
   findAssetForContent,
   insertDiscoveredAsset,
   isMapleIdConflict,
+  type AssetForContent,
   type DedupRefresh,
 } from '../../db/repos/assets.discover.dedup.ts';
 import { appendOrRefreshLocation } from './dedup-location.ts';
@@ -40,6 +41,7 @@ import { directoryHasKeepFile } from '../../fs/duplicates.ts';
 import { libraryRootAvailable, statKind } from '../missing-reaper.helpers.ts';
 import { buildFileinfoEntry } from './types.ts';
 import { refusesReservedTreeEvent } from './reserved-trees.ts';
+import { refusesIgnoredTreeEvent } from './folder-ignore.ts';
 import { classifyMediaType } from '../../indexer/media-types.ts';
 import { recoverRemovalForDiscover } from './removal-recovery.ts';
 
@@ -47,9 +49,9 @@ const log = child('discover');
 
 /**
  * `libraryRoot` is the absolute filesystem path of the library that owns
- * `folderId`. The supervisor caches this from the folders table at boot (see
- * `startDiscover`) so handleEvent doesn't pay a round-trip per event. Tests
- * that drive `handleEvent` directly must pass it.
+ * `folderId`. Each sweep slice resolves it from the folders table once (see
+ * `discover-activity.ts`) so handleEvent doesn't pay a round-trip per event.
+ * Tests that drive `handleEvent` directly must pass it.
  */
 export async function handleEvent(
   event: WatchEvent,
@@ -61,7 +63,7 @@ export async function handleEvent(
   // Reserved trees (`.maple/` cache, `_duplicates/` quarantine) must never be
   // indexed, whatever the producer — see `reserved-trees.ts` for why.
   if (refusesReservedTreeEvent(event, libraryRoot)) return;
-  if (!buildFileinfoEntry(libraryRoot, absPath, folderId)) return;
+  if (await refusesIgnoredTreeEvent(event, libraryRoot)) return;
   if (!(await recoverRemovalForDiscover(absPath, libraryRoot))) return;
   if (fromPath && !(await recoverRemovalForDiscover(fromPath, libraryRoot))) return;
 
@@ -190,9 +192,49 @@ async function handleCreatedOrModified(
   const keep = await directoryHasKeepFile(path.dirname(absPath));
   const entry = { ...baseEntry, keep };
 
-  let hashed: Awaited<ReturnType<typeof hashFileForId>>;
+  const hashed = await hashOrSkip(absPath);
+  if (!hashed) return;
+  const now = new Date().toISOString();
+  const reconciled = await reconcileStaleContentAt(entry, hashed.sha1_head, absPath);
+  const discovered: Discovered = {
+    kind,
+    absPath,
+    folderId,
+    entry,
+    hashed,
+    now,
+    reconciled,
+    refresh: { indexedAt: now, mtime: hashed.mtime, size: hashed.size },
+  };
+
+  const existing = await findAssetForContent(hashed.maple_id, hashed.sha1_head);
+  if (existing) {
+    // Same content — record the new location if the row has not seen it,
+    // refresh timestamps, revive a soft-deleted row (#2977). No user-edited
+    // field is touched on a dedup hit.
+    await recordContentHit(discovered, existing, keep, 'dedup');
+    return;
+  }
+  await insertOrJoinWinner(discovered);
+}
+
+type HashedFile = Awaited<ReturnType<typeof hashFileForId>>;
+
+/** One created/modified event, hashed and reconciled, on its way to a row. */
+interface Discovered {
+  kind: WatchEvent['kind'];
+  absPath: string;
+  folderId: ObjectId;
+  entry: LocationKey & { keep: boolean };
+  hashed: HashedFile;
+  now: string;
+  reconciled: Awaited<ReturnType<typeof reconcileStaleContentAt>>;
+  refresh: DedupRefresh;
+}
+
+async function hashOrSkip(absPath: string): Promise<HashedFile | null> {
   try {
-    hashed = await hashFileForId(absPath);
+    return await hashFileForId(absPath);
   } catch (err) {
     // hashFileForId opens + reads + stats the file. ENOENT here means the file
     // was unlinked between the watcher fire and our read; treat it like a stat
@@ -201,27 +243,34 @@ async function handleCreatedOrModified(
       { absPath, err: err instanceof Error ? err.message : err },
       'hash failed after watch event — skipping',
     );
-    return;
+    return null;
   }
-  const now = new Date().toISOString();
-  await reconcileStaleContentAt(entry, hashed.sha1_head, absPath);
+}
 
-  const refresh: DedupRefresh = { indexedAt: now, mtime: hashed.mtime, size: hashed.size };
-  const existing = await findAssetForContent(hashed.maple_id, hashed.sha1_head);
-  if (existing) {
-    // Same content — record the new location if the row has not seen it,
-    // refresh timestamps, revive a soft-deleted row (#2977). No user-edited
-    // field is touched on a dedup hit.
-    const dedup = await appendOrRefreshLocation(existing, entry, refresh, keep);
-    if (dedup === 'append') {
-      log.info({ absPath, maple_id: hashed.maple_id, dedup: 'append' }, 'deduped — new location');
-    } else {
-      log.debug({ absPath, maple_id: hashed.maple_id, dedup: 'noop' }, 'idempotent re-discover');
-    }
-    await publishDiscovered(kind, existing.id, folderId, absPath);
-    return;
-  }
+/**
+ * Record the location on a row that already holds this content, and publish
+ * only when that or the reconcile step changed something (#4507): a full
+ * re-walk of an unchanged library would otherwise journal one change row per
+ * file. The race-loser passes `keep` as `undefined` so it never rewrites the
+ * flag, mirroring its pre-cutover behaviour.
+ */
+async function recordContentHit(
+  discovered: Discovered,
+  existing: AssetForContent,
+  keep: boolean | undefined,
+  via: 'dedup' | 'race-loser',
+): Promise<void> {
+  const { kind, absPath, folderId, entry, hashed, refresh, reconciled } = discovered;
+  const dedup = await appendOrRefreshLocation(existing, entry, refresh, keep);
+  const fields = { absPath, maple_id: hashed.maple_id, dedup, via };
+  if (dedup === 'append') log.info(fields, 'deduped — new location');
+  else log.debug(fields, 're-discover');
+  if (dedup === 'noop' && reconciled === 'unchanged') return;
+  await publishDiscovered(kind, existing.id, folderId, absPath);
+}
 
+async function insertOrJoinWinner(discovered: Discovered): Promise<void> {
+  const { kind, absPath, folderId, entry, hashed, now } = discovered;
   try {
     const insertedId = await insertDiscoveredAsset({
       entry,
@@ -238,17 +287,11 @@ async function handleCreatedOrModified(
   } catch (err) {
     // A dedup-id collision means another worker inserted this content between
     // our lookup and our insert. Fall back to the append path against the
-    // winner — `keep` is intentionally omitted, mirroring the pre-cutover
-    // behaviour where the race-loser path never rewrote the flag.
+    // winner.
     if (!isMapleIdConflict(err)) throw err;
     const winner = await findAssetForContent(hashed.maple_id, hashed.sha1_head);
     if (!winner) throw err;
-    await appendOrRefreshLocation(winner, entry, refresh, undefined);
-    log.info(
-      { absPath, maple_id: hashed.maple_id, dedup: 'race-loser' },
-      'race lost — appended to winner',
-    );
-    await publishDiscovered(kind, winner.id, folderId, absPath);
+    await recordContentHit(discovered, winner, undefined, 'race-loser');
   }
 }
 
@@ -277,23 +320,24 @@ async function reconcileStaleContentAt(
   entry: LocationKey,
   sha1Head: string,
   absPath: string,
-): Promise<void> {
+): Promise<'adopted' | 'released' | 'unchanged'> {
   const stale = await findAssetAtLocation(entry);
-  if (!stale) return;
+  if (!stale) return 'unchanged';
   if (stale.sha1Head === null) {
     await adoptSha1Head(stale.id, sha1Head);
     log.info(
       { absPath, sha1_head: sha1Head },
       'legacy row without sha1_head — adopted hash from on-disk file',
     );
-    return;
+    return 'adopted';
   }
-  if (stale.sha1Head === sha1Head) return;
+  if (stale.sha1Head === sha1Head) return 'unchanged';
   await releaseChangedLocation(entry);
   log.info(
     { absPath, old_sha1_head: stale.sha1Head, new_sha1_head: sha1Head },
     'file content changed — released the location from the old row',
   );
+  return 'released';
 }
 
 function publishDiscovered(

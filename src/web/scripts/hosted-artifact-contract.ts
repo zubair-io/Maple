@@ -12,7 +12,9 @@ export const HOSTED_ICONS = [
 ] as const;
 
 export const HOSTED_WASM_ASSETS = [
-  '/raw_wasm_bg.wasm',
+  '/pkg/raw_wasm_bg.wasm',
   '/pkg/raw_wasm.js',
   '/pkg/workerHelpers.worker.js',
+  '/pkg/canvas/raw_wasm_canvas_bg.wasm',
+  '/pkg/canvas/raw_wasm_canvas.js',
 ] as const;

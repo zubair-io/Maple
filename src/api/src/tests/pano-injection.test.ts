@@ -77,17 +77,41 @@ exit 0
 
   it('rejects relative maple_cli_path in configuration', async () => {
     const { resolvePanoConfig } = await import('../pano/pano-config.repo.ts');
-    const resolved = resolvePanoConfig({ maple_cli_path: './maple-cli', enabled: true } as any);
+    const resolved = resolvePanoConfig({ maple_cli_path: './maple-cli', enabled: true } as any, {});
     expect(resolved.maple_cli_path).toBeNull();
   });
 
   it('rejects hyphen-prefixed maple_cli_path in configuration', async () => {
     const { resolvePanoConfig } = await import('../pano/pano-config.repo.ts');
-    const resolved = resolvePanoConfig({
-      maple_cli_path: '--dangerous-flag',
-      enabled: true,
-    } as any);
+    const resolved = resolvePanoConfig(
+      {
+        maple_cli_path: '--dangerous-flag',
+        enabled: true,
+      } as any,
+      {},
+    );
     expect(resolved.maple_cli_path).toBeNull();
+  });
+
+  it('keeps a rejected saved maple_cli_path unset rather than using the bundled one (#5493)', async () => {
+    const { resolvePanoConfig } = await import('../pano/pano-config.repo.ts');
+    const resolved = resolvePanoConfig({ maple_cli_path: './maple-cli' } as any, {
+      MAPLE_PANO_CLI: '/app/native/maple-cli',
+    });
+    expect(resolved.maple_cli_path).toBeNull();
+    expect(resolved.source.maple_cli_path).toBe('unset');
+    expect(resolved.enabled).toBe(false);
+  });
+
+  it('uses the bundled maple-cli and enables stitching when nothing is saved (#5493)', async () => {
+    const { resolvePanoConfig } = await import('../pano/pano-config.repo.ts');
+    const env = { MAPLE_PANO_CLI: '/app/native/maple-cli' };
+    expect(resolvePanoConfig(null, env)).toMatchObject({
+      maple_cli_path: '/app/native/maple-cli',
+      enabled: true,
+      source: { maple_cli_path: 'bundled', enabled: 'default' },
+    });
+    expect(resolvePanoConfig({ enabled: false } as any, env).enabled).toBe(false);
   });
 
   it('rejects relative models_dir in configuration', async () => {

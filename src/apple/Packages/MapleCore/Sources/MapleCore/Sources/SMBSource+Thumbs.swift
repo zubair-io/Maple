@@ -10,15 +10,15 @@ import Foundation
 import AMSMB2
 
 extension SMBSource {
-    /// ONE transport read at `<assetDir>/.maple/thumbs/<hash>.avif` (#2690)
+    /// ONE transport read at `<assetDir>/.maple/thumbs/<filename>.avif` (#2690)
     /// — see `SMBThumbCache`'s file header for the full rationale. `nil` on
     /// a miss (not connected, or the entry doesn't exist yet) runs
     /// `ThumbnailLoader`'s existing render-from-bytes fallback unchanged;
     /// `writeThumb(_:for:)` below persists that fallback's render back to
     /// this same path.
     public func thumb(for ref: ImageRef) async throws -> Data? {
-        guard let client else { return nil }
-        return await SMBThumbCache(transport: client).read(forAssetPath: path(for: ref))
+        guard let client, let path = try? listedPath(for: ref) else { return nil }
+        return await SMBThumbCache(transport: client).read(forAssetPath: path)
     }
 
     /// Write-back for `ThumbnailLoader`'s render-from-bytes fallback
@@ -27,7 +27,7 @@ extension SMBSource {
     /// failure (read-only share, dropped connection). See
     /// `SMBThumbCache.write`.
     public func writeThumb(_ data: Data, for ref: ImageRef) async {
-        guard let client else { return }
-        await SMBThumbCache(transport: client).write(data, forAssetPath: path(for: ref))
+        guard let client, let path = try? listedPath(for: ref) else { return }
+        await SMBThumbCache(transport: client).write(data, forAssetPath: path)
     }
 }

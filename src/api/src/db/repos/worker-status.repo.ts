@@ -40,6 +40,7 @@
 
 import type { FaceModelsLoadStatus } from '../../enrichment/face-models.ts';
 import type { ProcessMemoryRow } from '../../runtime/memory-telemetry.ts';
+import type { DecodeBudgetSnapshot } from '../../ffi/decode-memory-budget.ts';
 import type { StageStatusSnapshot } from '../../workers/registry.ts';
 import { sqliteDb, type SqliteDb } from './db-handle.ts';
 import { parseJson } from './values.ts';
@@ -80,6 +81,8 @@ export interface StatusCountsSnapshot {
 /** The worker tier's latest memory samples: its own row plus one per native child (#4445). */
 export interface WorkerMemorySnapshot {
   rows: ProcessMemoryRow[];
+  /** The worker's decode memory budget at the same sample (#5467); absent from older workers. */
+  decodeBudget?: DecodeBudgetSnapshot;
 }
 
 /** What the status route reads back. */

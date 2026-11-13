@@ -31,6 +31,40 @@ final class BackupSettingsTests: XCTestCase {
     XCTAssertEqual(loaded, s)
   }
 
+  // MARK: - App Group suite + one-time migration (#4717)
+
+  func testLoadMigratesFromTheLegacyStandardDomainOnce() {
+    let legacyName = "BackupSettingsTests-legacy-\(UUID().uuidString)"
+    let legacy = UserDefaults(suiteName: legacyName)!
+    defer { legacy.removePersistentDomain(forName: legacyName) }
+    let s = BackupSettings(
+      serverURL: "https://srv.example", libraryId: "lib1", rootFolder: "",
+      wifiOnly: false, includeLivePhotos: true, includeVideos: true, includeBursts: false,
+      includeSharedLibrary: false, includeSharedAlbums: false)
+    s.save(to: legacy)
+
+    XCTAssertEqual(BackupSettings.load(from: defaults, migratingFrom: legacy), s)
+    XCTAssertEqual(BackupSettings.load(from: defaults), s, "the shared suite now holds the settings")
+
+    var changed = s
+    changed.libraryId = "lib2"
+    changed.save(to: defaults)
+    XCTAssertEqual(
+      BackupSettings.load(from: defaults, migratingFrom: legacy), changed,
+      "once the shared suite has a value the legacy domain is never consulted again")
+  }
+
+  func testStoppedByUserMigratesFromTheLegacyStandardDomain() {
+    let legacyName = "BackupSettingsTests-legacy-\(UUID().uuidString)"
+    let legacy = UserDefaults(suiteName: legacyName)!
+    defer { legacy.removePersistentDomain(forName: legacyName) }
+    legacy.set(true, forKey: "maple.backup.stoppedByUser")
+
+    XCTAssertTrue(BackupSettings.isStoppedByUser(in: defaults, migratingFrom: legacy))
+    BackupSettings.setStoppedByUser(false, in: defaults)
+    XCTAssertFalse(BackupSettings.isStoppedByUser(in: defaults, migratingFrom: legacy))
+  }
+
   func testLoadReturnsNilWhenAbsent() {
     XCTAssertNil(BackupSettings.load(from: defaults))
   }

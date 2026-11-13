@@ -3,6 +3,48 @@ import XCTest
 @testable import MapleCore
 
 final class AdjustmentTransferTests: XCTestCase {
+  func testPreGradingDurableTransferDecodesMissingFieldsAndResumes() throws {
+    var before = AdjustmentModel.default
+    before.exposure = 0.5
+    var after = before
+    after.exposure = 1.25
+    let patch = PreparedAdjustmentTransfer(
+      model: after, groupIDs: [AdjustmentGroup.tone.rawValue], before: before)
+    var json = try XCTUnwrap(
+      JSONSerialization.jsonObject(with: JSONEncoder().encode(patch)) as? [String: Any])
+    let newKeys = [
+      "colorGradeBlending", "colorGradeShadowEdge", "colorGradeHighlightEdge",
+      "colorCurveHueVsHue", "colorCurveHueVsSat", "colorCurveHueVsLuma",
+      "colorCurveLumaVsSat", "colorCurveSatVsSat", "colorCurveSatVsLuma",
+    ]
+    for key in ["model", "before"] {
+      var model = try XCTUnwrap(json[key] as? [String: Any])
+      for field in newKeys { model.removeValue(forKey: field) }
+      json[key] = model
+    }
+    let restored = try JSONDecoder().decode(
+      PreparedAdjustmentTransfer.self, from: JSONSerialization.data(withJSONObject: json))
+    XCTAssertEqual(restored, patch)
+    XCTAssertNoThrow(try restored.validate(current: before))
+    XCTAssertEqual(restored.applying(to: before).exposure, 1.25)
+  }
+
+  func testGradingTransferKeepsExplicitValuesAndRejectsMalformedFields() throws {
+    var model = AdjustmentModel.default
+    model.colorGradeBlending = 32
+    model.colorGradeShadowEdge = 0.2
+    model.colorGradeHighlightEdge = 0.8
+    model.colorCurveHueVsSat = ToneCurve(points: [(0.2, 0), (0.3, 0.4), (0.4, 0)])
+    let data = try JSONEncoder().encode(model)
+    XCTAssertEqual(try JSONDecoder().decode(AdjustmentModel.self, from: data), model)
+    var json = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+    XCTAssertEqual(json["colorGradeBlending"] as? Double, 32)
+    json["colorGradeBlending"] = "malformed"
+    XCTAssertThrowsError(
+      try JSONDecoder().decode(
+        AdjustmentModel.self, from: JSONSerialization.data(withJSONObject: json)))
+  }
+
   func testRelativeWhiteBalanceUsesEachCamerasOwnBaselineAndClearsSampleLocation() throws {
     var source = AdjustmentModel.default
     source.temperature = 8550

@@ -9,8 +9,9 @@ import {
   DEFAULT_DB_BACKUP_POLICY,
   loadDbBackupSettings,
   saveDbBackupPolicy,
+  saveDbBackupStatus,
 } from './backup-retain-config.ts';
-import { backupDue, backupRunning, startDbBackup, stopDbBackupScheduler } from './db-backup.ts';
+import { backupDue, backupRunning, runDbBackupPass } from './db-backup.ts';
 import { createSnapshot } from './backup-snapshot.ts';
 import { BackupR2 } from './backup-r2.ts';
 import { restoreBackup } from './backup-restore.ts';
@@ -30,6 +31,13 @@ const objects = new Map<string, { bytes: ArrayBuffer; headers: Headers }>();
 let uploadFails = false;
 let corruptDownload = false;
 let deletes = 0;
+let uploadGate: Promise<void> = Promise.resolve();
+
+const signal = () => new AbortController().signal;
+const forcedBackup = () =>
+  runDbBackupPass(signal(), { force: true }).catch((error: unknown) => error);
+const scheduledBackup = () => runDbBackupPass(signal()).catch((error: unknown) => error);
+const backups = async () => (await new BackupR2(config).list()).length;
 
 beforeEach(async () => {
   directory = await mkdtemp(join(tmpdir(), 'maple-backup-test-'));
@@ -49,12 +57,14 @@ beforeEach(async () => {
   uploadFails = false;
   corruptDownload = false;
   deletes = 0;
+  uploadGate = Promise.resolve();
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const request = input instanceof Request ? input : new Request(input, init);
     expect(request.headers.get('authorization')).toContain('AWS4-HMAC-SHA256');
     const url = new URL(request.url);
     const key = decodeURIComponent(url.pathname.split('/').slice(2).join('/'));
     if (request.method === 'PUT') {
+      await uploadGate;
       if (uploadFails) return new Response('unavailable', { status: 503 });
       objects.set(key, { bytes: await request.arrayBuffer(), headers: request.headers });
       return new Response(null);
@@ -75,8 +85,16 @@ beforeEach(async () => {
   }) as typeof fetch;
 });
 
+async function until<T>(read: () => Promise<T | null>): Promise<T> {
+  for (let attempt = 0; attempt < 400; attempt++) {
+    const value = await read();
+    if (value !== null) return value;
+    await Bun.sleep(5);
+  }
+  throw new Error('timed out');
+}
+
 afterEach(async () => {
-  await stopDbBackupScheduler();
   globalThis.fetch = fetchOriginal;
   closeSqlitePool();
   await rm(directory, { recursive: true, force: true });
@@ -104,17 +122,13 @@ test('online WAL snapshot restores committed data without altering source', asyn
   expect((await readdir(directory)).some((name) => name.startsWith('.maple-restore-'))).toBe(false);
 });
 
-test('single-flight backup records failure without pruning and allows retry', async () => {
+test('a failed backup is recorded without pruning, and a later one succeeds', async () => {
   uploadFails = true;
-  expect(startDbBackup()).toBe(true);
-  expect(startDbBackup()).toBe(false);
-  await stopDbBackupScheduler();
-  expect(backupRunning()).toBe(false);
+  expect(await forcedBackup()).toBeInstanceOf(Error);
   expect((await loadDbBackupSettings()).status?.state).toBe('failed');
   expect(deletes).toBe(0);
   uploadFails = false;
-  expect(startDbBackup()).toBe(true);
-  await stopDbBackupScheduler();
+  expect(await forcedBackup()).toBeUndefined();
   const settings = await loadDbBackupSettings();
   expect(settings.status?.state).toBe('succeeded');
   expect(settings.last_success_at).toBeTruthy();
@@ -122,10 +136,37 @@ test('single-flight backup records failure without pruning and allows retry', as
   expect(await new BackupR2(config).list()).toEqual([settings.status!.key!]);
 });
 
+test('a backup that cannot create its scratch directory is recorded as failed', async () => {
+  const before = process.env.TMPDIR;
+  process.env.TMPDIR = join(directory, 'missing');
+  try {
+    expect(await forcedBackup()).toBeInstanceOf(Error);
+  } finally {
+    if (before === undefined) delete process.env.TMPDIR;
+    else process.env.TMPDIR = before;
+  }
+  expect((await loadDbBackupSettings()).status?.state).toBe('failed');
+  expect(await forcedBackup()).toBeUndefined();
+});
+
+test('a backup in progress is stored as running with a heartbeat', async () => {
+  const upload = Promise.withResolvers<void>();
+  uploadGate = upload.promise;
+  const backup = forcedBackup();
+  const running = await until(async () => (await loadDbBackupSettings()).status);
+  expect(running.state).toBe('running');
+  expect(running.heartbeat_at).toBeTruthy();
+  expect(backupRunning(running)).toBe(true);
+
+  upload.resolve();
+  await backup;
+
+  expect((await loadDbBackupSettings()).status?.state).toBe('succeeded');
+});
+
 test('corrupt download prevents pruning and restore publication', async () => {
   corruptDownload = true;
-  startDbBackup();
-  await stopDbBackupScheduler();
+  await forcedBackup();
   expect((await loadDbBackupSettings()).status?.state).toBe('failed');
   expect(deletes).toBe(0);
   expect(await new BackupR2(config).list()).toEqual([]);
@@ -198,6 +239,62 @@ test('daily schedule catches up once after local configured hour', () => {
   expect(backupDue(3, null, after)).toBe(true);
   expect(backupDue(3, new Date(2026, 8, 19, 4).toISOString(), after)).toBe(true);
   expect(backupDue(3, after.toISOString(), after)).toBe(false);
+});
+
+test('a scheduled pass does nothing while backups are disabled', async () => {
+  await saveDbBackupPolicy({ ...DEFAULT_DB_BACKUP_POLICY, bucket: config.bucket, hour: 0 });
+  await scheduledBackup();
+  expect((await loadDbBackupSettings()).status).toBeNull();
+});
+
+test('a scheduled pass backs up once a day once the configured hour has passed', async () => {
+  await saveDbBackupPolicy({
+    ...DEFAULT_DB_BACKUP_POLICY,
+    enabled: true,
+    bucket: config.bucket,
+    hour: 0,
+  });
+  await scheduledBackup();
+  expect((await loadDbBackupSettings()).status?.state).toBe('succeeded');
+
+  await scheduledBackup();
+  expect(await backups()).toBe(1);
+});
+
+test('a scheduled pass waits an hour after a failed attempt before trying again', async () => {
+  await saveDbBackupPolicy({
+    ...DEFAULT_DB_BACKUP_POLICY,
+    enabled: true,
+    bucket: config.bucket,
+    hour: 0,
+  });
+  uploadFails = true;
+  expect(await scheduledBackup()).toBeInstanceOf(Error);
+  uploadFails = false;
+
+  await scheduledBackup();
+  expect((await loadDbBackupSettings()).status?.state).toBe('failed');
+
+  const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60_000).toISOString();
+  await saveDbBackupStatus({ state: 'failed', started_at: twoHoursAgo, finished_at: twoHoursAgo });
+  await scheduledBackup();
+  expect((await loadDbBackupSettings()).status?.state).toBe('succeeded');
+});
+
+test('a running status only counts while its heartbeat is recent', () => {
+  const now = Date.parse('2026-11-12T12:00:00Z');
+  const at = (minutesAgo: number) => new Date(now - minutesAgo * 60_000).toISOString();
+  expect(backupRunning(null, now)).toBe(false);
+  expect(backupRunning({ state: 'running', started_at: at(30), heartbeat_at: at(1) }, now)).toBe(
+    true,
+  );
+  expect(backupRunning({ state: 'running', started_at: at(30), heartbeat_at: at(10) }, now)).toBe(
+    false,
+  );
+  expect(backupRunning({ state: 'running', started_at: at(30) }, now)).toBe(false);
+  expect(backupRunning({ state: 'succeeded', started_at: at(1), heartbeat_at: at(1) }, now)).toBe(
+    false,
+  );
 });
 
 test('snapshot work leaves the event loop and shared writer responsive', async () => {

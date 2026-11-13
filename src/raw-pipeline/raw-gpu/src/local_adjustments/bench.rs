@@ -79,6 +79,9 @@ pub(super) fn bench_inputs(layers_flat: Vec<f32>) -> FullChainInputs<'static> {
         color_grade_global_hue: 0.0,
         color_grade_global_saturation: 0.0,
         color_grade_global_luminance: 0.0,
+        color_grade_blending: 100.0,
+        color_grade_shadow_edge: 0.564622,
+        color_grade_highlight_edge: 0.564622,
         hsl_hue: [0.0; 8],
         hsl_sat: [0.0; 8],
         hsl_lum: [0.0; 8],
@@ -114,6 +117,8 @@ pub(super) fn bench_inputs(layers_flat: Vec<f32>) -> FullChainInputs<'static> {
         film_lut_key: 0,
         film_lut_data: Vec::new().into(),
         display_tone_curves: crate::display_tone_curve::DisplayToneCurveInputs::default(),
+        color_curves: crate::color_curves::ColorCurveInputs::default(),
+        creative: None,
     }
 }
 

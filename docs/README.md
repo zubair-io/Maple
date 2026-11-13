@@ -30,28 +30,30 @@ and Apple EditSession lifecycle, shared state and existing test boundaries.
 The [native Linux shell](../src/linux/README.md) documents its Rust UI, local and
 cloud editor, build/package commands and current qualification limits.
 
-| Doc                                                | Covers                                                                                                                                                                                                 |
-| -------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| [pipeline.md](pipeline.md)                         | The Rust workspace: decode, the develop chain stage by stage, colour management, the view transform, the wgpu/WGSL GPU path, FFI and WASM surfaces, `maple-cli`, codegen, the pipeline output version. |
-| [xmp-canonical-format.md](xmp-canonical-format.md) | The sidecar contract shared by the Rust, Swift, TypeScript, and C# implementations: namespaces, byte-canonical form, every field, tone curves, passthrough, versioning, and the round-trip tests.      |
-| [lens-profiles.md](lens-profiles.md)               | Imported LCP lens profiles (#2435): matching rules, the supported calibration model, the `papp:LensProfile` reference and how Self Hosted restores it for renders.                                     |
-| [zoom.md](zoom.md)                                 | The shared `pixelScale` zoom model, fast/refine render targets, the native-detail tile path, and the gated deep-zoom tile compositor.                                                                  |
-| [pano.md](pano.md)                                 | Panorama stitching in `maple-pano`: stages, ONNX models, the C ABI, and how Apple and the server drive it.                                                                                             |
-| [caching.md](caching.md)                           | Every cache on every platform, what keys it, and what invalidates it, including the `.maple/` folder cache shared across devices.                                                                      |
-| [performance.md](performance.md)                   | **Generated** — the committed per-device slider-tick, cold-open, and export benchmark table, the recording method and its caveats, and the local-only regression ratchet.                              |
+| Doc                                                  | Covers                                                                                                                                                                                             |
+| ---------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [pipeline.md](pipeline.md)                           | The Rust workspace: decode, the develop chain stage by stage, the capture-first split, colour management, the view transform, the wgpu/WGSL GPU path, FFI and WASM surfaces, `maple-cli`, codegen. |
+| [xmp-canonical-format.md](xmp-canonical-format.md)   | The sidecar contract shared by the Rust, Swift, TypeScript, and C# implementations: namespaces, byte-canonical form, every field, tone curves, passthrough, versioning, and the round-trip tests.  |
+| [auto-preview-coverage.md](auto-preview-coverage.md) | Which embedded camera preview Auto Profile fits against, per camera, how to audit a library with `maple-cli preview-coverage`, and what each client shows when no preview exists (#5458).          |
+| [lens-profiles.md](lens-profiles.md)                 | Imported LCP lens profiles (#2435): matching rules, the supported calibration model, the `papp:LensProfile` reference and how Self Hosted restores it for renders.                                 |
+| [zoom.md](zoom.md)                                   | The shared `pixelScale` zoom model, fast/refine render targets, the native-detail tile path, and the gated deep-zoom tile compositor.                                                              |
+| [pano.md](pano.md)                                   | Panorama stitching in `maple-pano`: stages, ONNX models, the C ABI, and how Apple and the server drive it.                                                                                         |
+| [caching.md](caching.md)                             | Every cache on every platform, what keys it, and what invalidates it, including the `.maple/` folder cache shared across devices.                                                                  |
+| [performance.md](performance.md)                     | **Generated** — the committed per-device slider-tick, cold-open, and export benchmark table, the recording method and its caveats, and the local-only regression ratchet.                          |
 
 ## Platforms
 
-| Doc                                            | Covers                                                                                                                                                                       |
-| ---------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [apple.md](apple.md)                           | The Xcode project, every target and extension, the three local packages, the xcframework build, the render path, sources, and the UI test harnesses.                         |
-| [web.md](web.md)                               | The Angular workspace: the `maple` and `maple-syrup` apps, `maple-common`, the render worker, WASM build and sync, service worker, tests, deployment.                        |
-| [api.md](api.md)                               | The Bun + Elysia server: process model, the SQLite library database, auth, library addressing, filesystem layout, native FFI, Cloudflare, Meilisearch, settings, operations. |
-| [cloud-backup.md](cloud-backup.md)             | Self Hosted folder/Google Drive backup setup, OAuth trust, hosted relay deployment, Trash and purge obligations, recovery, and the provider contract.                        |
-| [server-api.md](server-api.md)                 | The HTTP route reference, generated from the route sources with auth tier and parameters.                                                                                    |
-| [sqlite-schema.md](sqlite-schema.md)           | The library schema: table layout, the key-type decision, every query pattern mapped to the index that serves it, and the migration runner.                                   |
-| [indexer-enrichment.md](indexer-enrichment.md) | The discover sweep, the stage runner, every registered stage, the job runner, search indexing, and face clustering.                                                          |
-| [windows.md](windows.md)                       | The WinUI 3 shell, its P/Invoke surface onto the Rust core, File Explorer integration, tests, and CI.                                                                        |
+| Doc                                            | Covers                                                                                                                                                                                        |
+| ---------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [apple.md](apple.md)                           | The Xcode project, every target and extension, the three local packages, the xcframework build, the render path, sources, and the UI test harnesses.                                          |
+| [web.md](web.md)                               | The Angular workspace: the `maple` and `maple-syrup` apps, `maple-common`, the render worker, WASM build and sync, service worker, tests, deployment.                                         |
+| [api.md](api.md)                               | The Bun + Elysia server: process model, the SQLite library database, auth, library addressing, filesystem layout, native FFI, Cloudflare, the in-process search engine, settings, operations. |
+| [cloud-backup.md](cloud-backup.md)             | Self Hosted folder/Google Drive backup setup, OAuth trust, hosted relay deployment, Trash and purge obligations, recovery, and the provider contract.                                         |
+| [server-api.md](server-api.md)                 | The HTTP route reference, generated from the route sources with auth tier and parameters.                                                                                                     |
+| [sqlite-schema.md](sqlite-schema.md)           | The library schema: table layout, the key-type decision, every query pattern mapped to the index that serves it, and the migration runner.                                                    |
+| [indexer-enrichment.md](indexer-enrichment.md) | The discover sweep, the stage runner, every registered stage, the job runner, search indexing, and face clustering.                                                                           |
+| [temporal.md](temporal.md)                     | How the worker tier runs its background work on Temporal: the lanes, what the Temporal UI shows, outages, crash recovery, one namespace per server, configuration and running a server.       |
+| [windows.md](windows.md)                       | The WinUI 3 shell, its P/Invoke surface onto the Rust core, File Explorer integration, tests, and CI.                                                                                         |
 
 ## Operations and CI
 
@@ -81,6 +83,10 @@ cloud editor, build/package commands and current qualification limits.
 | [strategy/milestones/m4-color-output.md](strategy/milestones/m4-color-output.md)                       | Milestone 16 · Color & Output Qualification: the C0–C5 evidence suite, the camera/lens support-tier registry, and the Neutral/Camera Match/Auto Tone/Auto Look rendering modes.          |
 | [strategy/milestones/m5-workflow-expansion.md](strategy/milestones/m5-workflow-expansion.md)           | Milestone 17 · Professional Workflow Expansion (epic #2447/#2442): the decision framework for choosing the next adjacent professional workflow from evidence.                            |
 | [strategy/milestones/m6-native-to-web-editor-ui.md](strategy/milestones/m6-native-to-web-editor-ui.md) | Milestone 18 design spec: the editor surface/interaction parity manifest, the IA port, the command router, and the acceptance gates that bring the web editor to native-editor parity.   |
+
+## Release review
+
+The [v0.1.6 release review](release-review/feature-story-map.md) is a point-in-time review: the feature story map plus per-area findings for browse and search, the editor, export, files, library sources, panorama, and admin and auth.
 
 ## Conventions for editing these docs
 

@@ -5,7 +5,7 @@ and +1 EV on the two fixtures that showed the strongest positive Auto response.
 The RAW multiplier stays exactly `2^EV`; this corpus does not justify rescaling
 Exposure or capping the fitted Auto tone curve.
 
-Run `src/scripts/test_tone_exposure.sh`. It rebuilds the existing `tone_sprint`
+Run `src/scripts/diagnose_acr_exposure.sh` (a manual ACR diagnostic, outside CI and the colour gates since #5000). It rebuilds the existing `tone_sprint`
 production renderer and develops just test_0002 and test_0017 at 1024px with Full
 quality and Auto profile. A fresh temporary manifest uses the committed baseline
 XMPs here, so the gate does not depend on the gitignored main reference manifest.

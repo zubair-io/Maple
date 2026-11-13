@@ -28,6 +28,7 @@ import { RawPipelineService } from '../raw-pipeline/raw-pipeline.service';
 import { defaultAdjustmentModel, type AdjustmentModel } from '../models/adjustment-model';
 import type { Asset } from '../models/asset';
 import { XmpStoreService } from '../xmp/xmp-store.service';
+import { XmpRemovalWritesService } from '../xmp/xmp-store.writes';
 import { XmpParserService } from '../xmp/xmp-parser.service';
 import { LocalRemovalAssets } from '../removal/local-removal-assets';
 import { savedRemovalRecords } from '../removal/saved-removal-records';
@@ -158,21 +159,25 @@ describe('confirmed Web removal history with real XMP and companions', () => {
       bytes('mask.mimf'),
       bytes('patch.f16'),
     );
-    revision = await sidecars.captureRemovalRevision('photo', folder, 'photo.dng');
+    revision = await TestBed.inject(XmpRemovalWritesService).captureRemovalRevision(
+      'photo',
+      folder,
+      'photo.dng',
+    );
   });
   afterEach(async () => {
     await sidecars.flushAll();
     await fs.rm(root, { recursive: true, force: true });
   });
   const accept = () =>
-    editor.acceptRemoval(records, editor.currentAdjustment()!, 'Remove object', revision);
+    editor.removal.acceptRecords(records, editor.currentAdjustment()!, 'Remove object', revision);
   const undo = async () => {
     editor.undo();
-    await editor.settleRemovalSave();
+    await editor.removal.settled();
   };
   const redo = async () => {
     editor.redo();
-    await editor.settleRemovalSave();
+    await editor.removal.settled();
   };
   const saved = async () => savedRemovalRecords(await fs.readFile(join(root, 'photo.xmp'), 'utf8'));
   const slider = (exposure: number) => {
@@ -209,7 +214,11 @@ describe('confirmed Web removal history with real XMP and companions', () => {
 
   it('interleaves scalar and removal edits through the normal undo/redo ring', async () => {
     slider(0.5);
-    revision = await sidecars.captureRemovalRevision('photo', folder, 'photo.dng');
+    revision = await TestBed.inject(XmpRemovalWritesService).captureRemovalRevision(
+      'photo',
+      folder,
+      'photo.dng',
+    );
     await accept();
     slider(1);
     await sidecars.flushAsset('photo');
@@ -244,7 +253,7 @@ describe('confirmed Web removal history with real XMP and companions', () => {
     expect(editor.undoHistory()).toHaveLength(1);
     expect(editor.canRedo()).toBe(false);
     expect(await fs.readFile(join(root, 'photo.xmp'))).toEqual(before);
-    expect(editor.removalSaveError()).toContain('Write access revoked');
+    expect(editor.removal.saveError()).toContain('Write access revoked');
     failWrite = false;
     await undo();
     expect(await saved()).toBeUndefined();
@@ -312,7 +321,7 @@ describe('confirmed Web removal history with real XMP and companions', () => {
     slider(1);
     await sidecars.flushAsset('photo');
     expect(editor.resetAll()).toBe(true);
-    await editor.settleRemovalSave();
+    await editor.removal.settled();
     expect(await saved()).toBeUndefined();
     expect(editor.currentAdjustment()!.profile).toBe('Auto');
     expect(editor.undoHistory().at(-1)?.kind).toBe('reset');
@@ -331,8 +340,12 @@ describe('confirmed Web removal history with real XMP and companions', () => {
         before.inpaintRemovals!,
         JSON.stringify({ schema: 1, id, action, active }),
       );
-      const revision = await sidecars.captureRemovalRevision('photo', folder, 'photo.dng');
-      await editor.acceptRemoval(next, before, action, revision);
+      const revision = await TestBed.inject(XmpRemovalWritesService).captureRemovalRevision(
+        'photo',
+        folder,
+        'photo.dng',
+      );
+      await editor.removal.acceptRecords(next, before, action, revision);
       expect(await saved()).toBe(next === '[]' ? undefined : next);
       return next;
     };
@@ -376,8 +389,12 @@ describe('confirmed Web removal history with real XMP and companions', () => {
       records,
       JSON.stringify({ schema: 1, id: rows[0].id, action: 'replace', replacement: proposed }),
     );
-    const revision = await sidecars.captureRemovalRevision('photo', folder, 'photo.dng');
-    await editor.acceptRemoval(replacement, before, 'Replace removal', revision);
+    const revision = await TestBed.inject(XmpRemovalWritesService).captureRemovalRevision(
+      'photo',
+      folder,
+      'photo.dng',
+    );
+    await editor.removal.acceptRecords(replacement, before, 'Replace removal', revision);
     const replaced = JSON.parse(removal_saved_list((await saved())!));
     expect(replaced.map((row: { id: string }) => row.id)).toEqual(rows.map((row) => row.id));
     expect(replaced.map((row: { needs_review: boolean }) => row.needs_review)).toEqual([
@@ -401,14 +418,18 @@ describe('confirmed Web removal history with real XMP and companions', () => {
       records,
       JSON.stringify({ schema: 1, id, action: 'set-active', active: false }),
     );
-    const revision = await sidecars.captureRemovalRevision('photo', folder, 'photo.dng');
+    const revision = await TestBed.inject(XmpRemovalWritesService).captureRemovalRevision(
+      'photo',
+      folder,
+      'photo.dng',
+    );
     const external = (await fs.readFile(join(root, 'photo.xmp'), 'utf8')).replace(
       'foreign:Keep="untouched"',
       'foreign:Keep="external"',
     );
     await fs.writeFile(join(root, 'photo.xmp'), external);
     await expect(
-      editor.acceptRemoval(disabled, before, 'Disable removal', revision),
+      editor.removal.acceptRecords(disabled, before, 'Disable removal', revision),
     ).rejects.toThrow();
     expect(editor.currentAdjustment()).toEqual(before);
     expect(editor.undoHistory()).toHaveLength(1);

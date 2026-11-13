@@ -1,6 +1,7 @@
 import * as path from 'node:path';
 import { realpath } from '../fs/mirrored.ts';
 import { listPairedSidecarsStrict } from '../fs/xmp-conflict.ts';
+import { appleCompanionPaths } from '../db/apple-companions.ts';
 import { jailedFile, fileHash, relativeBackupPath } from './inventory.ts';
 import type { BackupRepository, BackupDestination, BackupEntry } from './repository.ts';
 
@@ -13,6 +14,7 @@ interface RecordedLocation {
   missing_since: string | null;
   deleted_reason: string | null;
   apple_rendered_path: string | null;
+  apple_live_video_path: string | null;
 }
 interface LocalFile {
   path: string;
@@ -121,6 +123,7 @@ async function inventoryLocation(
   location: RecordedLocation,
   history: BackupEntry[],
   repo: BackupRepository,
+  withCompanions: boolean,
 ): Promise<void> {
   relativeBackupPath(location.relative_path);
   const mirror = await mirrorRoot(destination, location);
@@ -132,12 +135,15 @@ async function inventoryLocation(
     location.ordinal,
     location.relative_path,
   );
-  const previous = retained(entry).localFiles ?? [];
-  // apple_rendered_path belongs to the primary location's library root; a
+  const recordedCompanions = appleCompanionPaths(location);
+  const previous = (retained(entry).localFiles ?? []).filter(
+    (file) => withCompanions || !recordedCompanions.includes(file.path),
+  );
+  // Apple companions belong to the primary location's library root; a
   // deduplicated copy in another library must not erase that root's namesake.
   const companions =
-    location.ordinal === location.primary_ordinal && location.apple_rendered_path
-      ? [relativeBackupPath(location.apple_rendered_path)]
+    withCompanions && location.ordinal === location.primary_ordinal
+      ? recordedCompanions.map(relativeBackupPath)
       : [];
   const paths = [
     ...new Set([
@@ -158,16 +164,19 @@ async function inventoryLocation(
 }
 
 /** Erasure follows recorded paths, including missing/reaped locations, rather
- * than the live-source admission rules used by outbound backup uploads. */
+ * than the live-source admission rules used by outbound backup uploads. With
+ * `only`, just that library-relative location is inventoried, and the photo's
+ * Apple companions only when they leave with it (#5403). */
 export async function inventoryFolderPurges(
   assetId: string,
   repo: BackupRepository,
+  only?: { libraryId: string; relativePath: string; withCompanions: boolean },
 ): Promise<void> {
   const locations = await repo.db.read<RecordedLocation>(
     `SELECT l.ordinal,(SELECT MIN(ordinal) FROM asset_locations WHERE asset_id=l.asset_id) AS primary_ordinal,
       l.library_id,f.path AS root,
       CASE WHEN l.path='' THEN l.filename ELSE l.path||'/'||l.filename END AS relative_path,
-      l.missing_since,a.deleted_reason,a.apple_rendered_path
+      l.missing_since,a.deleted_reason,a.apple_rendered_path,a.apple_live_video_path
       FROM asset_locations l JOIN folders f ON f.id=l.library_id JOIN assets a ON a.id=l.asset_id
       WHERE l.asset_id=?`,
     [assetId],
@@ -176,8 +185,20 @@ export async function inventoryFolderPurges(
     assetId,
   ]);
   for (const destination of (await repo.destinations()).filter((item) => item.kind === 'folder')) {
-    for (const location of locations.filter((item) => item.library_id === destination.libraryId)) {
-      await inventoryLocation(assetId, destination, location, history, repo);
+    for (const location of locations.filter(
+      (item) =>
+        item.library_id === destination.libraryId &&
+        (only === undefined ||
+          (item.library_id === only.libraryId && item.relative_path === only.relativePath)),
+    )) {
+      await inventoryLocation(
+        assetId,
+        destination,
+        location,
+        history,
+        repo,
+        only === undefined || only.withCompanions,
+      );
     }
   }
 }

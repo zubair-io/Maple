@@ -21,6 +21,7 @@
 #                                          helpers (compile_with_matrices / _nr)
 #     * generated/agx_coeffs.wgsl       — the AgX inset/outset matrices (agx only)
 #     * generated/local_mask_wire.wgsl — the local mask composition wire constants
+#     * generated/canvas_overlay.wgsl  — the overlay primitive tags + capacity
 #   So validating a kernel that calls `mul_rec2020_to_srgb` standalone reports a
 #   false "unknown identifier". To mirror the runtime concat without hard-coding
 #   a per-kernel header map (which would drift from the Rust source), each kernel
@@ -29,8 +30,9 @@
 #       (b) color_matrices + kernel
 #       (c) color_matrices + agx_coeffs + kernel
 #       (d) color_matrices + local_mask_wire + kernel
-#       (e) runtime present modules: present_chain + present_geometry, optionally
-#           followed by display_histogram (which shares that complete module)
+#       (e) present_chain + kernel (display histogram shares the display quantizer)
+#       (f) color_matrices + present_chain + kernel (P3-to-scRGB presentation)
+#       (g) canvas_overlay + kernel (canvas overlay surface)
 #   A kernel PASSES if it validates under ANY rung (unused header helpers are
 #   legal WGSL), and FAILS only if a genuine syntax/type error makes every rung
 #   fail. The generated headers are themselves validated standalone (rung a).
@@ -57,7 +59,8 @@ fi
 COLOR_MATRICES="$GEN_DIR/color_matrices.wgsl"
 AGX_COEFFS="$GEN_DIR/agx_coeffs.wgsl"
 LOCAL_MASK_WIRE="$GEN_DIR/local_mask_wire.wgsl"
-for f in "$COLOR_MATRICES" "$AGX_COEFFS" "$LOCAL_MASK_WIRE"; do
+CANVAS_OVERLAY="$GEN_DIR/canvas_overlay.wgsl"
+for f in "$COLOR_MATRICES" "$AGX_COEFFS" "$LOCAL_MASK_WIRE" "$CANVAS_OVERLAY"; do
 	if [[ ! -f "$f" ]]; then
 		echo "check_wgsl: generated header missing: $f (run tools/codegen.sh)" >&2
 		exit 2
@@ -82,6 +85,72 @@ while IFS= read -r kernel; do
 	checked=$((checked + 1))
 	base="$(basename "$kernel")"
 	assembled="$TMP/assembled.wgsl"
+
+	# Mirror the runtime's explicit portable/native helper assembly. Validate
+	# both subgroup widths as well as the portable module, independent of GPU.
+	if [[ "$kernel" == "$WGSL_DIR/bm3d/"* && "$base" != "common.wgsl" && "$base" != "basis_uniform.wgsl" ]]; then
+		shared=""
+		portable=""
+		native=""
+		case "$base" in
+		filter.wgsl | filter_helpers.wgsl | filter_portable.wgsl | filter_axes_subgroup.wgsl)
+			module="filter.wgsl"
+			shared="filter_helpers.wgsl"
+			portable="filter_portable.wgsl"
+			native="filter_axes_subgroup.wgsl"
+			;;
+		matching.wgsl | matching_portable.wgsl | matching_subgroup.wgsl)
+			module="matching.wgsl"
+			portable="matching_portable.wgsl"
+			native="matching_subgroup.wgsl"
+			;;
+		scan_selected.wgsl | scan_selected_portable.wgsl | scan_subgroup.wgsl)
+			module="scan_selected.wgsl"
+			portable="scan_selected_portable.wgsl"
+			native="scan_subgroup.wgsl"
+			;;
+		cache_hard.wgsl)
+			module="cache_hard.wgsl"
+			portable="cache_spectra_portable.wgsl"
+			native="cache_subgroup.wgsl"
+			;;
+		cache_spectra.wgsl | cache_spectra_portable.wgsl | cache_subgroup.wgsl)
+			module="cache_spectra.wgsl"
+			portable="cache_spectra_portable.wgsl"
+			native="cache_subgroup.wgsl"
+			;;
+		*) module="$base" ;;
+		esac
+		for variant in portable 32 64; do
+			[[ "$variant" == portable || -n "$native" ]] || continue
+			cat "$WGSL_DIR/bm3d/common.wgsl" "$WGSL_DIR/bm3d/basis_uniform.wgsl" >"$assembled"
+			if [[ -n "$shared" ]]; then cat "$WGSL_DIR/bm3d/$shared" >>"$assembled"; fi
+			if [[ "$variant" == portable ]]; then
+				if [[ -n "$portable" ]]; then cat "$WGSL_DIR/bm3d/$portable" >>"$assembled"; fi
+			else
+				echo "const SUBGROUP_WIDTH: u32 = ${variant}u;" >>"$assembled"
+				cat "$WGSL_DIR/bm3d/$native" >>"$assembled"
+			fi
+			cat "$WGSL_DIR/bm3d/$module" >>"$assembled"
+			if validate "$assembled"; then
+				echo "PASS  $base  (+bm3d/$variant)"
+			else
+				echo "FAIL  $base — BM3D $variant module does not validate:" >&2
+				sed 's/^/    /' "$TMP/err" >&2
+				fail=$((fail + 1))
+			fi
+		done
+		continue
+	fi
+
+	if [[ "$base" == "basis_uniform.wgsl" ]]; then
+		cat "$WGSL_DIR/bm3d/common.wgsl" "$kernel" >"$assembled"
+		if validate "$assembled"; then echo "PASS  $base"; else
+			fail=$((fail + 1))
+			cat "$TMP/err" >&2
+		fi
+		continue
+	fi
 
 	# Rung (a): standalone.
 	cp "$kernel" "$assembled"
@@ -111,34 +180,25 @@ while IFS= read -r kernel; do
 		continue
 	fi
 
-	# Runtime presentation is a composed module: present_geometry supplies the
-	# shared Params, buffers, dither helper, and quantized display-tail functions.
-	# Validate these files in the same composition as Rust's include_str! chain;
-	# appending the module to itself would create a duplicate Params declaration.
-	case "$base" in
-	present_chain.wgsl | present_geometry.wgsl)
-		cat "$WGSL_DIR/present_chain.wgsl" "$WGSL_DIR/present_geometry.wgsl" >"$assembled"
-		if validate "$assembled"; then
-			echo "PASS  $base  (runtime present composition)"
-			continue
-		fi
-		;;
-	display_histogram.wgsl)
-		cat "$WGSL_DIR/present_chain.wgsl" "$WGSL_DIR/present_geometry.wgsl" "$kernel" >"$assembled"
-		if validate "$assembled"; then
-			echo "PASS  $base  (runtime present + histogram composition)"
-			continue
-		fi
-		;;
-	esac
+	# Rung (e): display histogram shares the present shader's quantization.
+	cat "$WGSL_DIR/present_chain.wgsl" "$kernel" >"$assembled"
+	if validate "$assembled"; then
+		echo "PASS  $base  (+present_chain)"
+		continue
+	fi
 
-	# Other kernels may import the complete presentation module.
-	if [[ "$base" != "present_chain.wgsl" && "$base" != "present_geometry.wgsl" && "$base" != "display_histogram.wgsl" ]]; then
-		cat "$WGSL_DIR/present_chain.wgsl" "$WGSL_DIR/present_geometry.wgsl" "$kernel" >"$assembled"
-		if validate "$assembled"; then
-			echo "PASS  $base  (+runtime present module)"
-			continue
-		fi
+	# Rung (f): float presentation shares the quantizer and core color matrices.
+	cat "$COLOR_MATRICES" "$WGSL_DIR/present_chain.wgsl" "$kernel" >"$assembled"
+	if validate "$assembled"; then
+		echo "PASS  $base  (+color_matrices+present_chain)"
+		continue
+	fi
+
+	# Rung (g): the overlay surface shares the generated primitive tags.
+	cat "$CANVAS_OVERLAY" "$kernel" >"$assembled"
+	if validate "$assembled"; then
+		echo "PASS  $base  (+canvas_overlay)"
+		continue
 	fi
 
 	# Failed every rung — a real error. Show the richest-context diagnostic.

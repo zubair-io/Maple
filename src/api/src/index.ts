@@ -24,11 +24,6 @@
  *                        when unset.
  *   MAPLE_GEOCODE_WORKER_ENABLED — set to "false" to disable the geocode
  *                        worker even when a URL is provided. Default on.
- *   MAPLE_MEILISEARCH_URL — base URL of a Meilisearch sidecar for typo-
- *                        tolerant place search. When unset, the search
- *                        route uses Maple's own full-text index only. See
- *                        `docs/operations/meilisearch.md`.
- *   MAPLE_MEILISEARCH_API_KEY — bearer key for the Meilisearch instance.
  *   MAPLE_FACE_ORT_INTRA_OP_THREADS — intra-op thread count passed to
  *                        onnxruntime-node when creating the face InferenceSession
  *                        instances. Defaults to `min(4, availableParallelism())`.
@@ -56,6 +51,7 @@ import { managedHttps } from './network/managed-https.ts';
 import { httpsListenerFactory } from './network/managed-https-listener.ts';
 import { eventsRoutes } from './routes/events.ts';
 import { videoRoutes } from './routes/video.ts';
+import { motionRoutes } from './routes/motion.ts';
 import { securityHeaders } from './middleware/security-headers.ts';
 import { authRoutes } from './routes/auth.ts';
 import {
@@ -68,11 +64,6 @@ import { accountRoutes } from './routes/auth-account.ts';
 import { authDeviceSessionRoutes } from './routes/auth-device-sessions.ts';
 import { apnsDeviceRoutes } from './routes/apns-devices.ts';
 import { dbBackupRoutes } from './routes/db-backup.ts';
-import { startDbBackupScheduler, stopDbBackupScheduler } from './cloudflare/db-backup.ts';
-import {
-  startAuthExpiryScheduler,
-  stopAuthExpiryScheduler,
-} from './runtime/auth-expiry-scheduler.ts';
 import { cloudflareRoutes } from './routes/cloudflare.ts';
 import { usersRoutes } from './routes/users.ts';
 import { serviceApiKeyAdminRoutes } from './routes/service-api-keys.ts';
@@ -91,7 +82,6 @@ import { ensureSchemaAtBoot, sqliteDatabasePath } from './db/sqlite/boot-schema.
 import { loadMirrorConfig } from './fs/mirror-config.ts';
 import { flushPendingMirrorOps } from './fs/mirrored.ts';
 import { installMirrorQueueSink } from './workers/mirror/sink.ts';
-import { initializeHttpSearch } from './enrichment/meilisearch-http-bootstrap.ts';
 import {
   loadObservabilityConfig,
   resolveObservabilityConfig,
@@ -102,7 +92,7 @@ import { getApnsPushTrigger } from './apns/push-trigger.ts';
 import { startEventLoopLagMonitor, stopEventLoopLagMonitor } from './runtime/diag-eventloop.ts';
 import { startMemoryTelemetry, stopMemoryTelemetry } from './runtime/memory-telemetry.ts';
 import { startWorkerSupervisor, stopWorkerSupervisor } from './runtime/worker-supervisor.ts';
-import { startSelectedSearchEngine } from './search/search-engine-selection.ts';
+import { startSearchEngine } from './search/search-ranking.ts';
 import { stopSearchChildPool } from './search/search-pool.ts';
 import { SERVER_PORT } from './runtime/server-port.ts';
 import { TLS_ENABLED, listenOptions } from './runtime/tls-config.ts';
@@ -183,6 +173,7 @@ export function buildApp(_opts: { stageNames?: string[] } = {}): Elysia {
     // sub-app's `requireAuth` derive.
     .use(eventsRoutes)
     .use(videoRoutes)
+    .use(motionRoutes)
 
     // Authenticated API routes — the shared-bearer sub-app, extracted to
     // routes/authed-api.ts (#2893). Wrapped so the `requireAuth`
@@ -296,7 +287,6 @@ async function startSqlite(): Promise<void> {
 
 async function start(): Promise<void> {
   await startSqlite();
-  await startAuthExpiryScheduler();
   await ensureJwtSecret();
   log.info(
     {
@@ -387,8 +377,7 @@ async function start(): Promise<void> {
     // guarantees that. Respawn-on-crash and its backoff live in the supervisor.
     startWorkerSupervisor(import.meta.url);
 
-    await initializeHttpSearch();
-    await startSelectedSearchEngine();
+    startSearchEngine();
 
     try {
       // OpenTelemetry → SigNoz. The backend ships its own logs + traces over
@@ -408,8 +397,8 @@ async function start(): Promise<void> {
   // on missing `.part` files (returns 409 expected_offset: 0).
   //
   // Failure is logged at `error` (operator-visible) but non-fatal — the
-  // pattern matches the surrounding subsystem boots (workers, discover,
-  // meili, jobrunner all log + continue). A missing success line is the
+  // pattern matches the surrounding subsystem boots (mirror config, change
+  // feed, APNs, telemetry all log + continue). A missing success line is the
   // operator's signal that the backup subsystem is degraded; promoting to
   // process exit would be inconsistent with the rest of the boot.
   try {
@@ -444,7 +433,6 @@ async function start(): Promise<void> {
   // Per-process memory line once a minute, always on (#4445). The worker and
   // the native children run the same reporter under their own process names.
   startMemoryTelemetry({ process: 'api' });
-  startDbBackupScheduler();
 
   const server = buildApp();
   // listenOptions wires in TLS_CONFIG (validated at module load) when configured.
@@ -457,8 +445,6 @@ async function start(): Promise<void> {
 async function shutdown(signal: string): Promise<void> {
   log.info({ signal }, 'shutting down');
   managedHttps.stop();
-  await stopAuthExpiryScheduler();
-  await stopDbBackupScheduler();
   // Stop the event-loop lag probe (no-op if it was never started).
   try {
     stopEventLoopLagMonitor();
@@ -480,7 +466,7 @@ async function shutdown(signal: string): Promise<void> {
     log.warn({ err: e }, 'error stopping APNs push trigger');
   }
   // Terminate the worker child process. Its own SIGTERM handler drains all
-  // stages, discover, enrichment workers, job/import runners, and FFI pool
+  // stages, discover, enrichment workers, the Temporal host, and FFI pool
   // before exiting. Best-effort — worker may already be dead or not yet spawned.
   try {
     stopWorkerSupervisor();

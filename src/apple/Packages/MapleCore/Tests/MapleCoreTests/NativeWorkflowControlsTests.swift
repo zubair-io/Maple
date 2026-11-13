@@ -50,7 +50,7 @@ final class NativeWorkflowControlsTests: EditorTestCase {
     XCTAssertEqual(try Data(contentsOf: raw), files.original)
   }
 
-  func testForeignOnlyRestoreRecordsOneActionAndHistorySelectionRestoresMetadata() async throws {
+  func testCullingOnlyRestoreRecordsOneActionAndHistorySelectionPreservesMetadata() async throws {
     let files = try Fixture.files()
     defer { try? FileManager.default.removeItem(at: files.directory) }
     let path = SidecarPath.sidecarURL(for: files.raw)
@@ -136,10 +136,13 @@ final class NativeWorkflowControlsTests: EditorTestCase {
     XCTAssertNotNil(session.workflow.errorText)
     XCTAssertEqual(try Fixture.xml(path), changed)
     XCTAssertTrue(session.undoHistory.isEmpty)
-    await session.workflow.reload(session: session)
-    session.workflow.prepareRestore(id: snapshot.id, snapshot: true)
-    await session.workflow.confirmRestore(session: session)
-    XCTAssertNil(session.workflow.errorText)
+    // An open editor must continue rejecting the external revision. Restart
+    // the session to adopt it before issuing a new restore command.
+    let reopened = EditSession(asset: AssetRef(url: files.raw))
+    await reopened.workflow.reload(session: reopened)
+    reopened.workflow.prepareRestore(id: snapshot.id, snapshot: true)
+    await reopened.workflow.confirmRestore(session: reopened)
+    XCTAssertNil(reopened.workflow.errorText)
     XCTAssertEqual(try Fixture.checkpoint(path), snapshot.adjustmentXmp)
   }
 

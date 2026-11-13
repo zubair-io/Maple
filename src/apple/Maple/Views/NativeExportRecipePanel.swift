@@ -11,9 +11,10 @@
     let sessions: [AssetRef.ID: EditSession]
   }
 
+  /// Settings opens the panel with no selection: recipes and the saved queue only (#5435).
   struct NativeExportRecipePanel: View {
-    let assets: [AssetRef]
-    let resolve: NativeExportRecipePanelVM.Resolver
+    var assets: [AssetRef] = []
+    var resolve: NativeExportRecipePanelVM.Resolver? = nil
     @Environment(\.dismiss) private var dismiss
     @State private var vm = NativeExportRecipePanelVM()
 
@@ -55,14 +56,22 @@
             }
           }
           Section("Export selection") {
-            Text(
-              "\(assets.count) photos; captured edits and sequence numbers stay fixed during retry."
-            )
-            Button(vm.preparing ? "Capturing edits…" : "Add to queue") {
-              vm.enqueue(assets: assets, resolve: resolve)
+            if let resolve, !assets.isEmpty {
+              Text(
+                "\(assets.count) photos; captured edits and sequence numbers stay fixed during retry."
+              )
+              Button(vm.preparing ? "Capturing edits…" : "Add to queue") {
+                vm.enqueue(assets: assets, resolve: resolve)
+              }
+              .disabled(vm.preparing || vm.running || vm.executionError != nil)
+              .accessibilityIdentifier("native-recipe-enqueue")
+            } else {
+              Text(
+                "To export photos, choose Select in Browse, check the photos, then choose Export with Recipe…. In the editor, use More → Share / Export… → Saved recipes and export queue…."
+              )
+              .foregroundStyle(.secondary)
+              .accessibilityIdentifier("native-recipe-no-selection")
             }
-            .disabled(assets.isEmpty || vm.preparing || vm.running || vm.executionError != nil)
-            .accessibilityIdentifier("native-recipe-enqueue")
           }
           NativeExportQueueSection(vm: vm)
         }

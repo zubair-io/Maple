@@ -20,6 +20,14 @@
 // specifies for drag-and-drop collisions, just inline instead of a modal,
 // per #2637's "surface server rejections inline next to the field".
 //
+// RAW+JPEG stacks (#5050) are one tile but two renames. The RAW goes first;
+// the JPEG then follows to the RAW's new stem, always with `collision:
+// 'skip'`, so a Replace the user chose for the RAW never reaches a JPEG they
+// were not shown. A taken JPEG name raises its own prompt that names the
+// JPEG (Skip / Replace). Keep Both picks one `<stem>.N` free for the RAW, the
+// JPEG and their sidecar before either is renamed (`freePairFilename`). The
+// field follows the RAW's new id, so the JPEG's prompt or error stays visible.
+//
 // NOT injected directly by shared components (`asset-thumb`,
 // `info-filename-row`, `browse-shell`) — they depend on the
 // `AssetRenameCapability` interface / `ASSET_RENAME_CAPABILITY` token
@@ -31,20 +39,24 @@
 import { Injectable, inject, signal } from '@angular/core';
 import { Router } from '@angular/router';
 import { Asset, AssetId } from '../models/asset';
+import type { StackFile } from '../models/asset-stack';
+import { companionFilenameFor, freePairFilename } from '../stack/stack-pair-names';
+import { FolderOccupancyService } from '../stack/folder-occupancy.service';
 import {
   BunApiBackendService,
   ApiCollisionPolicy,
   ApiRenamedResult,
 } from '../api/bun-api-backend.service';
 import { LibraryStateService } from '../state/library-state.service';
-import { formatAddress, parseAddress } from '../addressing/maple-address';
+import { formatAddress, parentAddress, parseAddress } from '../addressing/maple-address';
 import { editRouteCommands, viewRouteCommands } from '../addressing/route-address';
 import { errorMessage } from '../util/errors';
-import type { AssetRenameCapability } from './asset-rename-capability';
+import type { AssetRenameCapability, RenameCollision } from './asset-rename-capability';
 
 @Injectable({ providedIn: 'root' })
 export class AssetRenameService implements AssetRenameCapability {
   private readonly api = inject(BunApiBackendService);
+  private readonly occupancy = inject(FolderOccupancyService);
   private readonly state = inject(LibraryStateService);
   private readonly router = inject(Router);
 
@@ -63,7 +75,7 @@ export class AssetRenameService implements AssetRenameCapability {
 
   /** Set when the last commit attempt collided with an existing filename —
    * the field swaps its input for Skip / Replace / Keep Both. */
-  readonly collision = signal<{ assetId: AssetId; filename: string } | null>(null);
+  readonly collision = signal<RenameCollision | null>(null);
 
   /**
    * Whether rename is available for `asset` at all, and why not when it
@@ -108,8 +120,11 @@ export class AssetRenameService implements AssetRenameCapability {
    * `_requestGeneration` (#2706 review) so a request already in flight when
    * `cancel()` fires — e.g. Escape pressed mid-request, which isn't gated
    * behind `busy()` the way the button controls are — can't land its
-   * response against a field the user already walked away from. */
+   * response against a field the user already walked away from. Walking away
+   * from a JPEG's prompt leaves the pair on two stems, so the listing is
+   * re-pulled to show the two files as they now are. */
   cancel(): void {
+    if (this.collision()?.companion) this.state.refreshFolderListing(this.state.selectedSourceId());
     this._requestGeneration++;
     this.editingAssetId.set(null);
     this.error.set(null);
@@ -147,7 +162,17 @@ export class AssetRenameService implements AssetRenameCapability {
       this.cancel();
       return;
     }
+    if (pending.companion) {
+      if (policy !== 'replace') return;
+      this.collision.set(null);
+      this._renameCompanion(asset, pending.companion, 'replace');
+      return;
+    }
     this.collision.set(null);
+    if (policy === 'keep-both' && asset.stack) {
+      this._keepBothPair(asset, asset.stack.companion.name, pending.filename);
+      return;
+    }
     this._send(asset, pending.filename, policy);
   }
 
@@ -181,8 +206,14 @@ export class AssetRenameService implements AssetRenameCapability {
           this.cancel();
           return;
         }
-        this._applyRenamed(asset, outcome, wasFocused, currentUrl);
-        this.cancel();
+        const renamed = this._applyRenamed(asset, outcome, wasFocused, currentUrl);
+        if (!asset.stack) {
+          this.cancel();
+          return;
+        }
+        this.editingAssetId.set(renamed.id);
+        const companion = { id: asset.stack.companion.id, filename: asset.stack.companion.name };
+        this._renameCompanion(renamed, companion, 'skip');
       },
       error: (err) => {
         if (generation !== this._requestGeneration) return;
@@ -192,12 +223,73 @@ export class AssetRenameService implements AssetRenameCapability {
     });
   }
 
+  /** Keep Both for a stack: one name free for the RAW, the JPEG and their
+   * sidecar, chosen from the folder's listing, then the normal skip-guarded
+   * rename to it. */
+  private _keepBothPair(asset: Asset, companionName: string, requested: string): void {
+    const generation = ++this._requestGeneration;
+    const parsed = parseAddress(asset.id);
+    const folder = parentAddress(parsed) ?? { slug: parsed.slug, relPath: '' };
+    this.busy.set(true);
+    this.occupancy.occupiedNames(formatAddress(folder)).subscribe({
+      next: (occupied) => {
+        if (generation !== this._requestGeneration) return;
+        this.busy.set(false);
+        const free = freePairFilename(occupied, requested, companionName);
+        if (free) this._send(asset, free, 'skip');
+        else this.error.set(`No free name for ${requested} and ${companionName} in this folder`);
+      },
+      error: (err) => {
+        if (generation !== this._requestGeneration) return;
+        this.busy.set(false);
+        this.error.set(errorMessage(err));
+      },
+    });
+  }
+
+  /** The JPEG of a stack whose RAW is now `raw` follows it to the RAW's stem.
+   * `collision` is `'skip'` unless the user chose Replace on the JPEG's own
+   * prompt. The listing is re-pulled once the JPEG has an outcome, because
+   * the companion's address is part of the RAW's tile. */
+  private _renameCompanion(
+    raw: Pick<Asset, 'id' | 'filename'>,
+    companion: StackFile,
+    collision: 'skip' | 'replace',
+  ): void {
+    const generation = ++this._requestGeneration;
+    const target = companionFilenameFor(companion.filename, raw.filename);
+    const failed = (reason: string): void => {
+      this.state.refreshFolderListing(this.state.selectedSourceId());
+      this.error.set(
+        `${raw.filename} was renamed, but ${companion.filename} could not be renamed to ${target}: ${reason}`,
+      );
+    };
+    this.busy.set(true);
+    this.api.renameAsset(companion.id, target, collision).subscribe({
+      next: (outcome) => {
+        if (generation !== this._requestGeneration) return;
+        this.busy.set(false);
+        if (outcome.kind === 'renamed') {
+          this.state.refreshFolderListing(this.state.selectedSourceId());
+          this.cancel();
+        } else if (outcome.reason === 'collision') {
+          this.collision.set({ assetId: raw.id, filename: target, companion });
+        } else failed(outcome.reason);
+      },
+      error: (err) => {
+        if (generation !== this._requestGeneration) return;
+        this.busy.set(false);
+        failed(errorMessage(err));
+      },
+    });
+  }
+
   private _applyRenamed(
     asset: Asset,
     outcome: ApiRenamedResult,
     wasFocused: boolean,
     currentUrl: string,
-  ): void {
+  ): Pick<Asset, 'id' | 'filename'> {
     const oldAddr = parseAddress(asset.id);
     const newId = formatAddress({
       slug: oldAddr.slug,
@@ -205,16 +297,18 @@ export class AssetRenameService implements AssetRenameCapability {
         outcome.newPath === '' ? outcome.newFilename : `${outcome.newPath}/${outcome.newFilename}`,
     });
     this.state.renameAsset(asset.id, newId, outcome.newFilename);
+    const renamed = { id: newId, filename: outcome.newFilename };
 
     // Follow the rename in an open editor/preview route so a reload of the
     // same tab doesn't 404 on the stale address. Only when the renamed
     // asset was actually the one focused/open — a rename fired from a grid
     // cell that isn't the current route target must not navigate anything.
-    if (!wasFocused) return;
+    if (!wasFocused) return renamed;
     if (currentUrl.startsWith('/edit/')) {
       void this.router.navigate(editRouteCommands(newId), { replaceUrl: true });
     } else if (currentUrl.startsWith('/view/')) {
       void this.router.navigate(viewRouteCommands(newId), { replaceUrl: true });
     }
+    return renamed;
   }
 }

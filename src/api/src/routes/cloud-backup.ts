@@ -15,6 +15,9 @@ import { ObjectId } from '../db/object-id.ts';
 import type { BackupDestination, BackupRepository } from '../cloud-backup/repository.ts';
 import { resumeRecoveryJob } from '../cloud-backup/recovery-jobs.ts';
 import { removedDestinationStatements } from '../cloud-backup/destination-removal.ts';
+import { loadConnection } from '../cloud-backup/google/repo.ts';
+import { connectionState } from '../cloud-backup/google/config.ts';
+import { destinationStatus } from '../cloud-backup/destination-status.ts';
 
 class BackupRequestError extends Error {
   readonly status = 400;
@@ -57,63 +60,18 @@ async function validateMirror(libraryId: string, target: string) {
     throw new BackupRequestError('Mirror path overlaps a library or another destination');
   return canonical;
 }
+// Unreadable credentials (rotated server secret, corrupt row) must not hide every destination.
+async function googleConnection(id: string) {
+  return loadConnection(id)
+    .then(({ config }) => connectionState(config))
+    .catch(() => ({ connected: false, disconnect: null }));
+}
 async function projection(row: BackupDestination) {
-  const [status] = await repo.db.read<{
-    pending: number;
-    verified: number;
-    trash: number;
-    blocked: number;
-    bytes: number;
-    lastError: string | null;
-  }>(
-    `SELECT COALESCE(SUM(CASE WHEN state!='purged' AND verified_sequence<sequence THEN 1 ELSE 0 END),0) AS pending,
-      COALESCE(SUM(CASE WHEN state!='purged' AND verified_sequence=sequence THEN 1 ELSE 0 END),0) AS verified,
-      COALESCE(SUM(CASE WHEN state='trash' THEN 1 ELSE 0 END),0) AS trash,
-      COALESCE(SUM(CASE WHEN last_error IS NOT NULL THEN 1 ELSE 0 END),0) AS blocked,
-      COALESCE(SUM((SELECT SUM(json_extract(value,'$.object.size')) FROM json_each(manifest,'$.files'))),0) AS bytes,
-      MAX(last_error) AS lastError FROM backup_entries WHERE destination_id=?`,
-    [row.id],
-  );
-  if (!status) throw new Error('Backup status query failed');
-  const purges = await repo.purges(row.id);
-  const [coverage] = await repo.db.read<{
-    pending: number;
-    missing: number;
-    prepared: number;
-  }>(
-    `SELECT
-    MAX(0,COALESCE((SELECT live_locations FROM backup_coverage_counts WHERE library_id=?),0)
-      - (SELECT COUNT(*) FROM backup_entries e
-        JOIN asset_locations l ON l.asset_id=e.asset_id AND l.ordinal=e.ordinal
-        JOIN assets a ON a.id=e.asset_id
-        WHERE e.destination_id=? AND l.library_id=? AND l.deleted_at IS NULL
-          AND l.missing_since IS NULL AND a.deleted_reason IS NULL
-          AND (e.state='purged' OR e.verified_sequence>=e.sequence))) AS pending,
-    (SELECT COUNT(*) FROM asset_locations
-      WHERE library_id=? AND missing_since IS NOT NULL)
-      + (SELECT COUNT(*) FROM assets AS a INDEXED BY assets_reaped
-        JOIN asset_locations l ON l.asset_id=a.id
-        WHERE a.deleted_reason='reaped' AND l.library_id=? AND l.missing_since IS NULL) AS missing,
-    (SELECT COUNT(*) FROM backup_lifecycle WHERE library_id=? AND phase='prepared') AS prepared`,
-    [row.libraryId, row.id, row.libraryId, row.libraryId, row.libraryId, row.libraryId],
-  );
-  if (!coverage) throw new Error('Backup coverage query failed');
-  return {
-    ...row,
-    status: {
-      pending: row.kind === 'google-drive' ? coverage.pending : status.pending,
-      missing: coverage.missing,
-      prepared: coverage.prepared,
-      verified: status.verified,
-      trash: status.trash,
-      blocked: status.blocked + coverage.prepared,
-      bytes: status.bytes,
-      lastError: coverage.prepared
-        ? 'Interrupted local move requires recovery or retry'
-        : status.lastError,
-      purgePending: purges.filter((p) => !p.completed).length,
-    },
-  };
+  const [status, connection] = await Promise.all([
+    destinationStatus(repo.db, row),
+    row.kind === 'google-drive' ? googleConnection(row.id) : null,
+  ]);
+  return { ...row, ...(connection ? { connection } : {}), status };
 }
 export const cloudBackupRoutes = new Elysia({
   name: 'cloudBackup',

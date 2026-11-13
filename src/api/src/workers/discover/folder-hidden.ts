@@ -18,7 +18,7 @@
  * location sits under a marked directory, and un-hide only when NONE does —
  * without the coverage check in `otherLiveEntryStillCovered`, a dup living in
  * both a marked and an unmarked dir would flip-flop every sweep generation,
- * thrashing Meilisearch re-indexing and R2 thumbnail delete/upload cycles.
+ * thrashing R2 thumbnail delete/upload cycles.
  */
 import path from 'node:path';
 import type { ObjectId } from '../../db/object-id.ts';

@@ -102,6 +102,7 @@ final class EditorWorkflowPerfTests: XCTestCase {
     let initialModel = session.model
     let changes: [(String, (inout AdjustmentModel, Double) -> Void)] = [
       ("exposure", { $0.exposure = -1 + $1 * 2 }),
+      ("highlights", { $0.highlights = -55 + $1 * 110 }),
       ("whiteBalance", { $0.temperature = 4500 + $1 * 3000 }),
       ("tone", { $0.contrast = -20 + $1 * 40 }),
       (

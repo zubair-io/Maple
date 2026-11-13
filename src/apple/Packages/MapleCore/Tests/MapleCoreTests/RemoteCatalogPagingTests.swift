@@ -2,6 +2,7 @@ import Foundation
 import XCTest
 
 @testable import MapleCore
+@testable import MapleFileProviderCore
 
 final class RemoteCatalogPagingTests: XCTestCase {
   func testDecodeUnpagedDirContentsOmitsCursor() throws {

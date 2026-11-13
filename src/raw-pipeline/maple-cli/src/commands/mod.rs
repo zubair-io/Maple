@@ -18,6 +18,7 @@ pub mod film_pack;
 pub mod fit_acr;
 pub mod fit_auto2;
 pub mod inspect;
+pub mod preview_coverage;
 pub mod render;
 pub mod render_lens;
 pub mod resize;
@@ -26,7 +27,7 @@ pub mod tile;
 pub mod transcode_dcp;
 pub mod types;
 
-#[cfg(feature = "pano")]
+#[cfg(any(feature = "pano", feature = "pano-classical"))]
 pub mod pano;
 
 mod removal;

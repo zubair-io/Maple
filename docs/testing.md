@@ -1,6 +1,6 @@
 # Testing and CI
 
-Maple's test surface has three layers. **Unit and integration tests** run per language in their own toolchain (`cargo test`, `swift test`, `bun test`, `ng test`, `dotnet test`, `vitest`). **Harness gates** are shell scripts under `src/scripts/` that render images through the real pipeline and compare them numerically — against Adobe Camera Raw references, against committed goldens, or against closed-form predictions — with per-case ceilings stored in JSON files that may only ever get stricter. **Repo tooling gates** under `tools/` guard cross-cutting invariants: file size, generated-code drift, budget ratchets, component-contract docs. GitHub Actions workflows wire these into CI; a few of the heaviest harnesses depend on RAW fixtures that are gitignored, so they deliberately no-op on a stock runner and only become meaningful on a fixture-provisioned machine.
+Maple's test surface has three layers. **Unit and integration tests** run per language in their own toolchain (`cargo test`, `swift test`, `bun test`, `ng test`, `dotnet test`, `vitest`). **Harness gates** are shell scripts under `src/scripts/` that render images through the real pipeline and compare them numerically — against camera embedded JPEGs, committed Maple goldens, or closed-form predictions — with per-case ceilings stored in JSON files that may only ever get stricter. **Repo tooling gates** under `tools/` guard cross-cutting invariants: file size, generated-code drift, budget ratchets, component-contract docs. GitHub Actions workflows wire these into CI; a few of the heaviest harnesses depend on RAW fixtures that are gitignored, so they deliberately no-op on a stock runner and only become meaningful on a fixture-provisioned machine.
 
 The rule that shapes everything colour-related: **no eyeballing**. A screenshot comparison is never acceptable evidence for a pipeline change. The number that counts is CIEDE2000 (ΔE₀₀) plus per-channel bias, produced by one shared implementation in [`src/scripts/compare_images.py`](../src/scripts/compare_images.py).
 
@@ -10,20 +10,19 @@ The rule that shapes everything colour-related: **no eyeballing**. A screenshot 
 
 The table below summarizes test and review workflows in [`.github/workflows/`](../.github/workflows/); release and version-management workflows also live there. Workflow definitions describe execution, not the current GitHub branch-protection settings. The repository merge contract requires green checks **on the current tip of `main`**: a branch whose base has moved needs a rebase and fresh checks. Optional jobs are identified explicitly below; a successful workflow summary alone does not prove that every suite executed.
 
-| Workflow              | Job(s)                                                                                                                    | What it actually runs                                                                                                                                                                                      | Trigger                                                                                   |
-| --------------------- | ------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
-| `cross.yml`           | Repo tooling, release/CI regression tests, selection and result jobs                                                      | prettier, oxlint, file budgets, budget ratchets, codegen drift, dead-code audits, secret scan, UI contract docs, editor parity manifest                                                                    | every push to `main` + every PR; expensive jobs selected by dependencies                  |
-| `web.yml`             | `build-wasm`, `web-build`, `web-test`, `web-test-common`, `web-webgpu-smoke`, `web-workflow-acceptance`, selection/result | One shared WASM build; Angular builds and unit suites, artifact/capability/adoption checks and Playwright; optional fixture-gated WebGPU smoke                                                             | every push to `main` + every PR; jobs selected by dependencies                            |
-| `maple-types.yml`     | `maple-typecheck`                                                                                                         | Strict package source and test typechecks using the frozen API dependency lock; no native library or image fixtures required                                                                               | every push to `main` + every PR + `workflow_dispatch`                                     |
-| `api.yml`             | `api-typecheck`, `api-tests`                                                                                              | `bun run typecheck` for source and tests, then `bun test --timeout 30000` with no database service, and the Meilisearch integration suite against a real `getmeili/meilisearch:v1.50.0`                    | every push to `main` + every PR + `workflow_dispatch`                                     |
-| `raw-pipeline.yml`    | `build-raw-ffi`, `raw-gpu`, `raw-gpu-metal`, `rust-tests`, `color-pipeline`, `pano-pipeline`                              | FFI compile+test, GPU/WGSL parity on software Vulkan, GPU/WGSL parity on real Metal (non-required, #2315), fixture-free Rust tests + synthetic gates, the ACR colour harness, the pano harness             | pushes/PRs touching `src/raw-pipeline/**`, the harness scripts, or the budget JSONs       |
-| `apple.yml`           | `swift-build`, `swift-regressions`, `swift-regressions-coverage`                                                          | MapleCore compile gate, executable regressions against a real host Rust archive, and the run/excluded class-list gate                                                                                      | pushes/PRs touching `src/apple/**` or `src/raw-pipeline/**`                               |
-| `windows.yml`         | Wrapper contract, build/tests, selection/result                                                                           | Supported Windows wrapper build, raw-core tests, WinUI XMP/FFI-layout tests and real window-lifecycle smoke                                                                                                | every push to `main` + every PR; jobs selected by dependencies                            |
-| `linux.yml`           | Native build/tests and archive                                                                                            | All-target Clippy, native library/integration tests serially on required software Vulkan, release binary and local-prefix archive; committed small fixtures, no physical-GPU or real-account qualification | Linux/shared Rust, film assets, native fixtures/icon or workflow changes; manual dispatch |
-| `cloudflare.yml`      | `cloudflare-test`, `cloudflare-ssr-test`, `cloudflare-drive-connect-test`                                                 | Typecheck and Vitest for the thumbnail cache, Hosted SSR and Google Drive callback Workers                                                                                                                 | pushes/PRs touching `src/cloudflare/**` or this workflow                                  |
-| `face-clustering.yml` | `face-clustering-quality`                                                                                                 | `src/scripts/test_face_clustering.sh`                                                                                                                                                                      | pushes/PRs touching `src/api/src/people/**`, the script, or its fixtures                  |
-| `deploy-hosted.yml`   | `build-and-deploy`                                                                                                        | Builds `maple-syrup` and uploads it to Azure Blob. **Publishing, not gating**                                                                                                                              | pushes to `main` touching `src/web/**` or `src/raw-pipeline/**`; `workflow_dispatch`      |
-| `jules-pr-review.yml` | `review`                                                                                                                  | Third-party automated reviewer. Skipped for PRs that touch only `CLAUDE.md` / `AGENTS.md` / plan-and-spec directories, and for forks                                                                       | PR opened / synchronized / reopened / ready-for-review against `main`                     |
+| Workflow              | Job(s)                                                                                                                    | What it actually runs                                                                                                                                                                                      | Trigger                                                                                                                                                                                             |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `cross.yml`           | Repo tooling, release/CI regression tests, selection and result jobs                                                      | prettier, oxlint, file budgets, budget ratchets, codegen drift, dead-code audits, secret scan, UI contract docs, editor parity manifest                                                                    | every push to `main` + every PR; expensive jobs selected by dependencies                                                                                                                            |
+| `web.yml`             | `build-wasm`, `web-build`, `web-test`, `web-test-common`, `web-webgpu-smoke`, `web-workflow-acceptance`, selection/result | One shared WASM build; Angular builds and unit suites, artifact/capability/adoption checks and Playwright; optional fixture-gated WebGPU smoke                                                             | every push to `main` + every PR; jobs selected by dependencies                                                                                                                                      |
+| `maple-types.yml`     | `maple-typecheck`                                                                                                         | Strict package source and test typechecks using the frozen API dependency lock; no native library or image fixtures required                                                                               | every push to `main` + every PR + `workflow_dispatch`                                                                                                                                               |
+| `api.yml`             | `api-typecheck`, `api-tests`                                                                                              | `bun run typecheck` for source and tests, then `bun test --timeout 30000` with no database service                                                                                                         | every push to `main` + every PR + `workflow_dispatch`                                                                                                                                               |
+| `raw-pipeline.yml`    | `build-raw-ffi`, `raw-gpu`, `raw-gpu-metal`, `rust-tests`, `color-pipeline`, `pano-pipeline`                              | FFI compile+test, GPU/WGSL parity on software Vulkan, GPU/WGSL parity on real Metal (non-required, #2315), fixture-free Rust tests + synthetic gates, Auto vs embedded-JPEG accuracy, the pano harness     | pushes/PRs touching `src/raw-pipeline/**`, the harness scripts, or the budget JSONs                                                                                                                 |
+| `apple.yml`           | `swift-build`, `swift-regressions`, `swift-regressions-coverage`                                                          | MapleCore compile gate, executable regressions against a real host Rust archive, and the run/excluded class-list gate                                                                                      | every push/PR runs `changes`; the macOS jobs run only when `tools/ci_changes.py` selects `swift` (Apple source, raw-pipeline, shared fixtures, API fixtures Swift boots, recipe-interchange inputs) |
+| `windows.yml`         | Wrapper contract, build/tests, selection/result                                                                           | Supported Windows wrapper build, raw-core tests, WinUI XMP/FFI-layout tests and real window-lifecycle smoke                                                                                                | every push to `main` + every PR; jobs selected by dependencies                                                                                                                                      |
+| `linux.yml`           | Native build/tests and archive                                                                                            | All-target Clippy, native library/integration tests serially on required software Vulkan, release binary and local-prefix archive; committed small fixtures, no physical-GPU or real-account qualification | Linux/shared Rust, film assets, native fixtures/icon or workflow changes; manual dispatch                                                                                                           |
+| `cloudflare.yml`      | `cloudflare-test`, `cloudflare-ssr-test`, `cloudflare-drive-connect-test`                                                 | Typecheck and Vitest for the thumbnail cache, Hosted SSR and Google Drive callback Workers                                                                                                                 | pushes/PRs touching `src/cloudflare/**` or this workflow                                                                                                                                            |
+| `face-clustering.yml` | `face-clustering-quality`                                                                                                 | `src/scripts/test_face_clustering.sh`                                                                                                                                                                      | pushes/PRs touching `src/api/src/people/**`, the script, or its fixtures                                                                                                                            |
+| `deploy-hosted.yml`   | `build-and-deploy`                                                                                                        | Builds `maple-syrup` and uploads it to Azure Blob. **Publishing, not gating**                                                                                                                              | pushes to `main` touching `src/web/**` or `src/raw-pipeline/**`; `workflow_dispatch`                                                                                                                |
 
 ### Dependency-aware CI selection
 
@@ -40,14 +39,45 @@ codegen drift check, even when the generator itself did not change.
 PR selection uses the event's immutable base/head merge base; main pushes use
 the entire before/after range. Deletes and both sides of renames count. Missing
 history, invalid events and empty diffs conservatively run everything. Manual
-runs and `release/next-v*` PRs retain full coverage. The eight workflow names
-polled by Release readiness remain unchanged; no branch protections are changed.
+runs and `release/next-v*` PRs retain full coverage. The workflow names
+polled by Release readiness remain unchanged.
 
 Each optimized workflow has an always-running result job using
 `tools/ci_result.py`: selection must succeed, every selected required job must
 succeed, and only explicitly unselected jobs may skip. The existing optional
 WebGPU smoke remains non-blocking; an absent RAW fixture is reported as not
 exercised before dependency/browser setup. It is not evidence of GPU parity.
+
+Release regression tests run only for changes to `tools/release_*`,
+`tools/test_release_*`, `tools/sync-release-version.sh`, or the release workflows.
+CI selection regression tests run when CI configuration or shared tooling changes.
+Unknown inputs, unavailable diffs and release PRs select all suites. Shared Rust
+and fixture changes select the platform builds without unrelated release tests.
+The two sidecar contract evidence records are the exception (#5406): each
+selects only the suite that owns it (API or Swift) plus the codegen drift check,
+and `raw-pipeline.yml`'s path filter excludes them, because no platform build or
+GPU job reads them. A registry change they cause lands in committed generated
+files, which select their own platforms.
+The NLM table test follows codegen selection, and the Swift test inventory follows
+Swift selection. Formatting, secret scanning and repository budget checks remain
+cross-cutting checks.
+
+For ordinary PRs, `Release readiness` is skipped before allocating a runner;
+release PRs still wait for the full release CI suite. Main requires the stable
+`Android result`, `API result`, `Web result`, `Windows result`, `Maple types result`,
+`Apple result`, and `Cross result` checks, plus `Release readiness` and
+`release-handoff-complete`. These aggregate results validate selected successes
+and intentional skips. Auto-merge waits for them without requiring ordinary PRs
+to update to every new main commit. Release freshness remains enforced by the
+handoff policy in `docs/releases.md`.
+
+`API image result` (`api-image.yml`) builds `src/api/Dockerfile` from the
+repository root, as the self-hosted production host does on every main push, then
+boots the image with a temporary data directory and waits for `GET /api/health`
+to report a connected database and `GET /` to serve the bundled UI
+(`src/api/scripts/image-boot-smoke.sh`, which also
+runs locally against any built image). It follows the `api` selection, writes the
+Docker layer cache only from main, and is not a required check.
 
 Web builds the canonical `gpu,parallel` WASM package once, shares it through an
 artifact from the same workflow run, and syncs it into each consumer. The stamp
@@ -79,7 +109,7 @@ not producer identity: GitHub cache scoping and the write restriction provide
 the trust boundary. Initial runs rebuild until normal main validation populates
 a matching entry; image/toolchain changes and cache eviction cause safe misses.
 
-`raw-pipeline.yml` and `apple.yml` retain their existing path-filtered coverage.
+`raw-pipeline.yml` retains its existing path-filtered coverage; `apple.yml` uses the `swift` selection above, with `validation-result` as its fail-closed aggregate.
 Release validation, tag publishing, Hosted deployment and Xcode Cloud are not
 short-circuited by this selector. No tests are selected solely by their filename.
 
@@ -114,7 +144,7 @@ Fixtures live in one shared `test-fixtures/` tree at the repository root, read b
 
 **Skip-pass** is the convention for everything that needs the gitignored RAWs: the script prints a "skipping" line and exits 0, so a clone without fixtures doesn't fail spuriously. Two refinements matter:
 
-- **Fail-closed once fixtures are half-present.** `test_color_pipeline.sh` skips only at preflight (missing manifest or missing budgets). Once both exist it refuses to report green on zero comparisons — an empty candidate directory, an unresolvable RAW path, or a `FILTER` matching nothing exits non-zero rather than passing vacuously.
+- **Fail-closed once fixtures are half-present.** `test_color_pipeline.sh` requires RAWs and measurable embedded-JPEG comparisons. Empty selections, render errors and zero comparisons fail; CI without physical fixtures reports NOT TESTED.
 - **Ignored, not silently skipped, in Rust.** Fixture-dependent tests are marked `#[cfg_attr(not(feature = "fixtures"), ignore)]`, so on a stock runner they appear in the `ignored` count. With `--features fixtures` a missing file **panics** ([`raw-core/src/test_support/fixtures.rs`](../src/raw-pipeline/raw-core/src/test_support/fixtures.rs)) — broken provisioning fails loudly instead of no-opping.
 
 The synthetic gates (grey, colour chart, banding) synthesise their inputs in memory and therefore **never** skip. They are the strictest always-on regression net in the repo.
@@ -138,7 +168,7 @@ cargo test -p raw-ffi --test develop_preview_parity
 cargo fmt --check -p raw-ffi        # raw-ffi is rustfmt-canonical; the rest of the workspace is not
 
 # Golden tests that shell out to compare_images.py — opt-in, needs Python + fixtures.
-cargo test -p raw-core --features golden golden -- --nocapture --test-threads=1
+# ACR golden image tests are archived; use test_color_pipeline.sh for Auto accuracy.
 ```
 
 Cargo features on `raw-core` that change what gets tested:
@@ -147,11 +177,10 @@ Cargo features on `raw-core` that change what gets tested:
 | -------------- | --------------------------------------------------------------------------------------------- |
 | `test-support` | DNG-synthesis helpers. Required by every `tests/*.rs` integration target. Never ship it.      |
 | `fixtures`     | Un-ignores the fixture-gated tests and makes a missing fixture a panic.                       |
-| `golden`       | Enables `tests/golden.rs`, which renders a fixture and shells out to `compare_images.py`.     |
 | `stage-dump`   | Writes one OpenEXR per pipeline stage to `$MAPLE_STAGE_DUMP`. Adds ~2 MB; diagnostics only.   |
 | `gpu`          | Pulls in the `raw-gpu` crate (wgpu/WGSL). Off by default so CPU-only builds don't carry wgpu. |
 
-The integration targets under `raw-core/tests/` are the synthetic gates' entry points: `grey_invariants`, `grey_adjustments`, `grey_adjustments_display`, `grey_adjustments_wb`, `grey_dcp_phase1`, `color_chart_invariants`, plus `golden` and the ACR-fitting helpers.
+The integration targets under `raw-core/tests/` are the synthetic gates' entry points: `grey_invariants`, `grey_adjustments`, `grey_adjustments_display`, `grey_adjustments_wb`, `grey_dcp_phase1`, `color_chart_invariants`, plus the solver math helpers (synthetic inputs, not Adobe image comparisons).
 
 The `build-raw-ffi` job also compile-gates `cargo build --bin maple-cli --features pano`, which is the only always-on CI step that compiles `maple-pano` with its ML stack.
 
@@ -159,101 +188,110 @@ The `build-raw-ffi` job also compile-gates `cargo build --bin maple-cli --featur
 
 ## The colour harness
 
-[`src/scripts/test_color_pipeline.sh`](../src/scripts/test_color_pipeline.sh) is the canonical perceptual gate.
+`src/scripts/test_color_pipeline.sh` is the canonical Auto appearance gate.
+It delegates to `test_auto_profile_match.sh`: each RAW is rendered with Auto
+and compared against its own camera-embedded JPEG, never an Adobe render.
+**Auto JPEG quality checks (#5000):** the old signed band means alone allowed
+severe visible defects. The runner and direct comparator now ALSO require
+non-cancelling full-frame/per-band RGB error at the JPEG grid, full-frame and
+8-by-8 regional error at display scale, perceptual mean/tail color error,
+clipping and gradient checks. Lens corrections remain enabled. A bounded
+structural affine fit maps reference scene coordinates to the untouched candidate
+grid. A radial residual is accepted only when spatially held-out landmark error
+improves by at least 25%, bidirectional coverage still passes, and the mapping
+has no folds or displacement exceeding the existing 10% geometry bound.
+OpenCV SIFT supplies mutual landmarks; selection never uses color scores.
+No evaluated colors, exposure or contrast are fitted. Only coordinates
+outside the geometric overlap are excluded. Both image directions must retain
+95% overlap and every 8-by-8 tile must retain 75%; insufficient support or
+structural confidence fails. Gradients use supported adjacent pixel pairs.
+The normalized transform is shared by native and display checks. Original
+unaligned metrics are retained alongside aligned acceptance scores.
+The fixed shared policy is in `src/scripts/auto_profile_quality.py`; its
+rationale and saved physical replay are in
+`test-fixtures/qualification/experiments/auto-jpeg-quality-harness/`.
+All 16 JPEG-bearing fixtures have committed photographic regression derivatives,
+including the four old passing controls, and identity controls. The small
+`test_0005` original also clears display limits after radial alignment; its
+damaged variant and full-resolution physical fixture still fail. Tests run in CI
+without RAWs. Numeric passes still require full-corpus visual review; this does
+not establish native detail, host/GPU parity or every-camera quality.
+Previewless RAWs separately require exact rendered Auto/Neutral pixel equality;
+they remain excluded from JPEG-match pass counts.
+
+Every JPEG-bearing RAW also runs `auto-tail-ramp` with the native AMaZE fit.
+Neutral, foliage, blue, magenta and skin ramps must all meet the existing
+`test_0000_auto2_*/18_auto_tail/*` ceilings in `banding_budgets.json`.
+The runner preserves `photographic_status` separately and fails the combined
+case if any ramp fails. Missing producers, wrong demosaic provenance, missing
+budgets and inconsistent measurement reports are errors, never skipped passes.
+The wrapper builds `maple-cli` with `stage-dump`; supplied binaries need that
+feature too. These checks qualify native CPU fits, not host proxy/GPU fits.
+
+The established metric is signed channel bias in five reference-luma bands,
+with the unchanged 0.05 limit. Preview extraction normalizes orientation and
+Adobe-RGB previews to display sRGB. Geometry uses the established aspect
+center-crop and BOX resize followed by structural reference-coordinate alignment;
+only the legacy signed-bias metric uses its established inner80% measurement.
 
 ```bash
-src/scripts/test_color_pipeline.sh                      # full manifest
-FILTER=test_0000 src/scripts/test_color_pipeline.sh     # one fixture
-FILTER=baseline  src/scripts/test_color_pipeline.sh     # one case across fixtures
-PREFERRED_RES=full src/scripts/test_color_pipeline.sh   # full-res references
+src/scripts/test_color_pipeline.sh
+FILTER=test_0000 src/scripts/test_color_pipeline.sh
+RAW_DIR=/path/to/raws OUTPUT_DIR=/path/to/new-evidence src/scripts/test_color_pipeline.sh
 ```
 
-It builds `maple-cli` in release (unconditionally — cargo's own fingerprint is the staleness check, so a stale prebuilt binary can't silently report old results), renders the manifest with `maple-cli batch`, and compares through `compare_images.py`'s `diff_manifest_case()`. For exact `baseline` cases (Neutral and Auto), the existing down reference supplies the dimensions and its native `full` counterpart supplies the pixels: both full candidate and full reference are reduced with the same Lanczos kernel. A missing native reference is a comparison error; the harness does not fall back to differently filtered down pixels. Other cases retain the legacy direct-reference protocol, including full-resolution detail comparisons; each comparison prints its protocol. Native-pair migration of the remaining corpus is tracked in [#3678](https://github.com/zubair-io/Maple/issues/3678). Output is a column-aligned table sorted by fixture and case, with per-fixture and grand-mean aggregates.
+`MAPLE_CLI` pins a renderer. `MANIFEST` may select baseline RAW paths; reference
+PNG and ACR-budget entries are not read. Evidence retains PNGs, logs, hashes,
+per-band results and `summary.json`. Render/extraction errors, missing RAWs,
+empty selections and zero measurable comparisons fail. Preview-less files
+are explicitly `no-preview`, never passing matches. CI without RAWs reports
+physical accuracy as **NOT TESTED**, while runner contract tests still execute.
 
-**Reference protocol correction (#3633).** The ACR exporter uses Photoshop BICUBICSHARPER for its down PNGs. Previously only the candidate was reduced with Lanczos, attributing a difference between resizing filters to the color pipeline. On the same native 0000 ACR image this discrepancy alone reaches max ΔE 13.89. Matching both reductions corrects that measurement without altering original RAWs, sidecars, either reference tier, dimensions, numerical ceilings or metric definitions. Baseline full/down references must have matching Camera Raw metadata and compatible geometry; candidates must have the exact native reference dimensions. Explicit Adobe authoring sidecars are verified when supplied. This changes reference pixels and metric distributions, so old and new measurements are reported separately. The corpus audit found 576 missing native captures and 10 metadata-free pairs outside the 20 baseline pairs; broader migration is unfinished (#3678). The qualification report `test-fixtures/qualification/color-baseline-3633.md` records the old and corrected protocol results, including unchanged-main controls and reference hashes. The standalone `compare_images.py` CLI retains its existing direct-pair behavior for other callers.
+Neutral retains AgX's intentional appearance. CPU/GPU parity, synthetic grey,
+DCP, exposure, white-balance and clipping invariants remain correctness gates.
+No ACR appearance comparison runs in CI or the color gate. The former shell
+harness and tone-response checks are manual `diagnose_acr_*.sh` tools only.
+Rust/Apple ACR image tests are archived as noncompiled text under
+`test-fixtures/qualification/experiments/retired-acr/`; historical references,
+budgets and failure ledgers remain evidence, not active Auto requirements.
+The old `color_harness` recorder explicitly rejects new qualification writes;
+its historical record does not attest to embedded-JPEG accuracy.
 
-The metric, from [`compare_images.py`](../src/scripts/compare_images.py): mean / p95 / max CIEDE2000 plus per-channel bias (`bias_r`, `bias_g`, `bias_b`). `--zones` adds a shadow/mid/highlight breakdown keyed on the reference's L\*; `--hue-bins N` adds per-hue-angle deltas with low-chroma pixels routed to a neutral bucket. Python deps are pinned in `src/scripts/requirements.txt` (numpy, Pillow, colour-science, scipy, tifffile).
+### Historical Adobe diagnostics
 
-Useful environment overrides: `MAPLE_CLI` (use a prebuilt binary, skipping the build), `MANIFEST`, `BUDGETS`, `KEEP_TMP`, and `ALLOW_MISSING_BUDGET` (by default a case with no budget entry **fails**, which is what forces new cases to be budgeted).
-
-### The one-way ratchet
-
-`test-fixtures/budgets.json` holds a `{version, fixtures: {<fixture>: {<case>: {mean, p95, max, bias}}}}` table. All four metrics are ceilings, so lower is stricter. **Budgets only go down**, and a budget drops in the same commit that delivers the improvement.
-
-[`tools/check_budget_ratchet.py`](../tools/check_budget_ratchet.py) is the gate. Per cell present on the base branch: a raised ceiling fails, and a _removed_ cell fails too (dropping a budget silently drops its gate). New cells pass — adding coverage is the ratchet turning the right way. CI resolves the PR merge base, `git show`s that revision's `budgets.json`, and diffs:
-
-```bash
-python3 tools/check_budget_ratchet.py --self-test                    # runs unconditionally in CI
-python3 tools/check_budget_ratchet.py --base <old.json> --head test-fixtures/budgets.json
-```
-
-[`test-fixtures/BUDGETS_DRIFT.md`](../test-fixtures/BUDGETS_DRIFT.md) is the log of budgets that are knowingly held rather than re-baselined — currently fourteen cases across `test_0013` and `test_0018` whose ceilings are frozen at values the harness still breaches, deliberately keeping those rows red rather than papering over a real systematic shift.
-
-**Re-baselining (#2335).** A raise is not always a regression: a legitimate re-capture against a changed default pipeline can ratchet most cells down while genuinely raising a few (#814: 218 down, 41 up), and the gate above has no way to let those 41 through short of disabling the whole required check — which would leave no record at all. Instead, cover each raised cell with a `RE-BASELINE:` marker line, one per cell, in the PR body or the head commit's own message (either is scanned; the commit message is the one that survives "Rebase and merge" into `main`'s permanent history, since the PR body itself does not):
-
-```
-RE-BASELINE: test_0013/baseline.max: retuned AgX sigmoid, see #814
-RE-BASELINE: test_0018/baseline_auto.p95: same retune, see #814
-```
-
-A marker with no justification text after the second colon does not count — the raise it would have covered still fails the gate. Every accepted marker is echoed to the CI log (`N audited RE-BASELINE raise(s)`) so the exception is visible next to the run, not just buried in the PR description; a raise still fails if no marker names its exact `<fixture>/<case>.<metric>` cell. Markers only ever excuse a _raise_ — a removed cell fails regardless, same as always.
-
-### Adding a case
-
-1. Save the native ACR capture to `test-fixtures/references/test_NNNN/full/<case>.png` and its down-resolution counterpart to `test-fixtures/references/test_NNNN/down/<case>.png`, with matching Camera Raw settings.
-2. Add the case to `test-fixtures/references/manifest.json`.
-3. Run the harness — it fails with `no-budget-entry`.
-4. Take the printed `mean / p95 / max / bias` and add a budget entry with roughly 5–10% headroom, or pipe the captured table through [`tools/budget_init.py`](../tools/budget_init.py), which does exactly that (`ceil(x * 1.05)` with floors of 0.5 / 1.0 / 1.0 / 0.005) and emits JSON.
-5. Commit the reference, the manifest entry, and the budgets entry together.
-
-`budget_init.py` parses both PASS and FAIL rows, so it is usable on the red run a re-baseline is captured from.
-
-### P3 primaries (#1339, P3 phase 3)
-
-ACR references are sRGB. Once `maple-cli render --target-primaries p3` renders true Display P3 (#1337), the harness can't diff that candidate against an sRGB reference directly — saturated colours would read as "out of budget" everywhere purely from the primaries mismatch, not a real pipeline error. The strategy: render in the target colourspace, **rotate the candidate back to sRGB before the diff**. Same references, same metric — no separate P3 reference set, since the rotation is exact linear-algebra (not a perceptual step), so nothing is lost going through it.
-
-The plumbing landed in this PR — `maple-cli render`/`batch --target-primaries {srgb,p3}` (default `srgb`, byte-identical to the historical behaviour) and `compare_images.py`'s `diff(..., source_primaries="srgb"|"p3")` / `--source-primaries` / `maple-cli diff --source-primaries` — but **no manifest cases or `budgets.json` entries were added**. `test-fixtures/BUDGETS_DRIFT.md` already carries fourteen cases held red pending #814's re-baseline; seeding P3 budgets before that lands would inherit the same unresolved baseline. Adding P3 cases to `test_color_pipeline.sh`'s manifest is a follow-up once #814 is closed, using the same [Adding a case](#adding-a-case) steps above with `--target-primaries p3` on the render side and `--source-primaries p3` on the diff side.
-
-The rotation itself: `pixels_srgb = M_P3→sRGB · pixels_p3`, applied in linear light (decode the shared sRGB OETF, rotate, re-encode) via `compare_images.py`'s `p3_to_srgb_primaries`, where `M_P3→sRGB = inv(M_SRGB_TO_P3)` and `M_SRGB_TO_P3` is copied verbatim from [`raw-core/src/color/matrices.rs::M_SRGB_TO_P3`](../src/raw-pipeline/raw-core/src/color/matrices.rs) — the same matrix `rec2020_to_display(TargetPrimaries::P3)` rotates through, not an independently-derived equivalent. Verify the rotation in isolation, no fixtures or references needed:
-
-```bash
-python3 src/scripts/compare_images.py --self-test
-```
-
-It checks: the two matrices are true inverses; white round-trips exactly (P3 and sRGB share the D65 white point); a synthetic in-gamut patch round-trips sRGB → P3 → sRGB within float rounding noise; an out-of-sRGB-gamut P3 primary clips into `[0,1]` without NaN; and — through the real `diff()` entry, with two temporary PNGs — a P3-rotated candidate against its own sRGB source reads near-zero ΔE while the same pair diffed _without_ the rotation reads far worse, proving the flag is actually wired into the comparison, not just correct in isolation.
+The retired ACR native-pair protocol, budgets and P3 comparison notes are
+preserved in `test-fixtures/qualification/experiments/retired-acr/`.
+They do not define Auto's target or a color CI requirement.
 
 ---
 
 ## Per-domain pipeline gates
 
-| Script                                                                          | Gate?                                                                        | Inputs                              | In CI                     |
-| ------------------------------------------------------------------------------- | ---------------------------------------------------------------------------- | ----------------------------------- | ------------------------- |
-| [`test_synthetic_grey.sh`](../src/scripts/test_synthetic_grey.sh)               | Yes, never skips                                                             | In-memory DNG                       | `rust-tests`              |
-| [`test_synthetic_color_chart.sh`](../src/scripts/test_synthetic_color_chart.sh) | Yes, never skips                                                             | Synthetic 24-patch chart            | `rust-tests`              |
-| [`test_grey_adjustments.sh`](../src/scripts/test_grey_adjustments.sh)           | Yes, never skips                                                             | In-memory DNG                       | `rust-tests`              |
-| [`test_tone_bands.sh`](../src/scripts/test_tone_bands.sh)                       | Yes; skips at preflight                                                      | RAWs + ACR refs                     | **not in CI**             |
-| [`test_tone_exposure.sh`](../src/scripts/test_tone_exposure.sh)                 | Yes; self-tests always run, real renders skip only when both RAWs are absent | Committed ACR ±1 EV refs + two RAWs | `rust-tests`              |
-| [`test_grey_dcp.sh`](../src/scripts/test_grey_dcp.sh)                           | Yes, never skips                                                             | In-memory DNG                       | `rust-tests`              |
-| [`test_banding.sh`](../src/scripts/test_banding.sh)                             | Yes; tail section skips without a RAW                                        | Synthetic ramps                     | `rust-tests`              |
-| [`test_color_pipeline.sh`](../src/scripts/test_color_pipeline.sh)               | Yes; skips at preflight                                                      | RAWs + ACR refs                     | `color-pipeline`          |
-| [`test_pano_pipeline.sh`](../src/scripts/test_pano_pipeline.sh)                 | Partly (see below)                                                           | `raws/pano_*/` sets                 | `pano-pipeline`           |
-| [`test_film_looks.sh`](../src/scripts/test_film_looks.sh)                       | Yes; skips without the RAW or LUT pack                                       | `test_0017.dng` + `.mlut` pack      | **not in CI**             |
-| [`test_face_clustering.sh`](../src/scripts/test_face_clustering.sh)             | Yes                                                                          | Committed JSONL corpus              | `face-clustering-quality` |
-| [`test_search_relevance.sh`](../src/scripts/test_search_relevance.sh)           | Yes; skips without sidecars                                                  | Committed query corpus              | **not in CI**             |
-| [`test_auto_profile_match.sh`](../src/scripts/test_auto_profile_match.sh)       | Yes; skips without RAWs                                                      | RAWs + embedded JPEGs               | **not in CI**             |
-| [`check_wgsl.sh`](../src/scripts/check_wgsl.sh)                                 | Yes                                                                          | WGSL sources                        | `raw-gpu`                 |
-| [`test_halo_detection.sh`](../src/scripts/test_halo_detection.sh)               | Diagnostic only                                                              | Synthetic disk                      | **not in CI**             |
-| [`test_hue_stability.sh`](../src/scripts/test_hue_stability.sh)                 | Diagnostic only                                                              | Synthetic primaries                 | **not in CI**             |
-| [`test_stage_diagnostic.sh`](../src/scripts/test_stage_diagnostic.sh)           | Diagnostic only                                                              | Committed grey DNG                  | **not in CI**             |
-| [`test_backup_smoke.ts`](../src/scripts/test_backup_smoke.ts)                   | Manual smoke test                                                            | A running API                       | **not in CI**             |
+| Script                                                                          | Gate?                                         | Inputs                         | In CI                     |
+| ------------------------------------------------------------------------------- | --------------------------------------------- | ------------------------------ | ------------------------- |
+| [`test_synthetic_grey.sh`](../src/scripts/test_synthetic_grey.sh)               | Yes, never skips                              | In-memory DNG                  | `rust-tests`              |
+| [`test_synthetic_color_chart.sh`](../src/scripts/test_synthetic_color_chart.sh) | Yes, never skips                              | Synthetic 24-patch chart       | `rust-tests`              |
+| [`test_grey_adjustments.sh`](../src/scripts/test_grey_adjustments.sh)           | Yes, never skips                              | In-memory DNG                  | `rust-tests`              |
+| [`test_grey_dcp.sh`](../src/scripts/test_grey_dcp.sh)                           | Yes, never skips                              | In-memory DNG                  | `rust-tests`              |
+| [`test_banding.sh`](../src/scripts/test_banding.sh)                             | Yes; tail section skips without a RAW         | Synthetic ramps                | `rust-tests`              |
+| `test_color_pipeline.sh`                                                        | Fails without measurable RAW/JPEG comparisons | RAWs + embedded JPEGs          | `color-pipeline`          |
+| [`test_pano_pipeline.sh`](../src/scripts/test_pano_pipeline.sh)                 | Partly (see below)                            | `raws/pano_*/` sets            | `pano-pipeline`           |
+| [`test_film_looks.sh`](../src/scripts/test_film_looks.sh)                       | Yes; skips without the RAW or LUT pack        | `test_0017.dng` + `.mlut` pack | **not in CI**             |
+| [`test_face_clustering.sh`](../src/scripts/test_face_clustering.sh)             | Yes                                           | Committed JSONL corpus         | `face-clustering-quality` |
+| `test_auto_profile_match.sh`                                                    | Same canonical JPEG gate                      | RAWs + embedded JPEGs          | `color-pipeline`          |
+| [`test_p3_auto_gamut.sh`](../src/scripts/test_p3_auto_gamut.sh)                 | Yes; NOT TESTED without RAWs                  | RAWs (sRGB vs P3 renders)      | `color-pipeline`          |
+| [`check_wgsl.sh`](../src/scripts/check_wgsl.sh)                                 | Yes                                           | WGSL sources                   | `raw-gpu`                 |
+| [`test_halo_detection.sh`](../src/scripts/test_halo_detection.sh)               | Diagnostic only                               | Synthetic disk                 | **not in CI**             |
+| [`test_hue_stability.sh`](../src/scripts/test_hue_stability.sh)                 | Diagnostic only                               | Synthetic primaries            | **not in CI**             |
+| [`test_stage_diagnostic.sh`](../src/scripts/test_stage_diagnostic.sh)           | Diagnostic only                               | Committed grey DNG             | **not in CI**             |
+| [`test_backup_smoke.ts`](../src/scripts/test_backup_smoke.ts)                   | Manual smoke test                             | A running API                  | **not in CI**             |
 
 Notes on the ones with unusual shapes:
 
 - **Banding.** `test_banding.sh` sweeps a neutral ramp plus four constant-hue Oklab chroma ramps, at seven slider extremes, through _two_ stages (the AgX gamut compress and the Rec.2020→sRGB display-encode compress) — either can regress independently. The metric is a second-difference spike, not first-difference monotonicity; `banding_check.py` carries the reasoning. Ceilings live in `banding_budgets.json` and are re-derivable with `BUDGET_INIT=1`. A trailing section fits the shipping Auto Profile tail from a real RAW and gates spike _and_ flat-run (posterization) budgets — that part skips when the RAW is absent.
-- **Pano.** Two things always run, fixtures or not: the budgets file must parse with the expected shape, and `pano_metrics.py --self-test` validates the metric implementation procedurally. Set discovery and the per-set gates activate only with `raws/pano_*/` present. Gated keys include `rmse`, `seam_energy`, `wrap_closure_px`, `mean_reproj_px`, and `coverage` — the last is a **floor**, breaching when it falls below its budget.
+- **Pano.** Two things always run, fixtures or not: the budgets file must parse with the expected shape, and `pano_metrics.py --self-test` validates the metric implementation procedurally. Set discovery and the per-set gates activate only with `raws/pano_*/` present. Each run gates one matcher (`PANO_ENGINE`, #5896): the ML matcher against each set's `stitch` budgets when `MAPLE_PANO_MODELS` is set, otherwise the classical matcher (the Apple, Windows and Self Hosted default) against its `stitch_classical` budgets. Gated keys include `rmse`, `seam_energy`, `seam_step_hard`, `seam_step_lowpass` (also on sets without a reference), `wrap_closure_px`, `mean_reproj_px`, and `coverage` — the last is a **floor**, breaching when it falls below its budget.
 - **Film looks.** A self-consistency ratchet, not an ACR comparison: each catalog look is rendered and diffed against a committed golden with tight budgets (mean ≤ 0.5, max ≤ 2.0 ΔE₀₀). The fixture uses `--no-bundled-lens`, matching the original goldens' geometry, and both baseline recording and comparison use Pillow Lanczos reduction (#3465). The [refresh qualification](../test-fixtures/qualification/film-3465.json) records old/new hashes, perceptual deltas, luminance-band changes and the passing rerun. A missing golden writes the baseline and fails with "baseline written" — eyeball it, then re-run. It also renders a no-look control and asserts every look differs from it by more than 0.5 mean ΔE₀₀, so a LUT that resolves to a no-op fails loudly instead of passing against its own inert baseline.
 - **Web cold-open intent (#4101).** `cd src/web && bun run e2e:cold-profile` is local physical qualification, separate from cloud CI. It requires `test-fixtures/raws/test_0007.DNG` and built GPU/parallel WASM. The four cases exercise CPU and GPU live rendering with As Shot and authored Custom white balance: select Auto while a real Neutral RAW reopen is held, release the actual decode/session reply, then verify the completed render intent, preserved white balance and visible pixels. A missing RAW skips these cases and does not qualify the behavior. Crop posture is covered separately by request-identity and component serializer unit tests.
-- **Search relevance.** Measures Recall@10, MRR, and per-query rank guards against the corpus in `src/api/tests/fixtures/search-relevance/`. Aggregates include only queries with relevance labels; unjudged observations report ranks and null recall. It needs a real Meilisearch _and_ a real Ollama with `bge-m3` pulled; either URL unset means exit 0. With the same integration URLs, `bun src/scripts/qualify_search_name_collisions.ts` reports a separate crowding diagnostic for #2386: 25 tagged photographs per ambiguous name, using a unique probe index deleted after the run. The #2386 bounded-head policy is asserted by the four corpus reading guards and `tests/search-name-diversity.integration.test.ts`, including named-caption crowding, stable pagination and native-order multi-term/punctuated queries. The canonical `test_search_relevance.sh` command executes both integration suites against the real services. The reading permutation applies only to a single unpunctuated word; multi-term queries preserve native ordering because match positions do not identify the matched term. Original measurements and the gate denominator conversion are in [`search-name-collisions-3965.json`](../test-fixtures/qualification/search-name-collisions-3965.json).
 - **Face clustering.** Runs the pure `clusterEmbeddings` function over the committed JSONL corpus and gates purity / NMI / V-measure / ARI / recall@1 against per-metric floors. No database needed — the CI job doesn't even run `bun install`, because the harness imports only dependency-free modules.
 
 ---
@@ -273,7 +311,7 @@ cargo test -p raw-gpu -- --test-threads=1                  # every WGSL kernel v
 cargo test -p raw-wasm --features gpu                      # render_bytes_gpu vs render_bytes
 ```
 
-`check_wgsl.sh` exists because naga has no `#include` but the Rust pipeline accessors assemble kernels by prepending generated headers (`generated/color_matrices.wgsl`, `generated/agx_coeffs.wgsl`). It validates each kernel under a ladder of header prefixes — standalone, with matrices, with matrices plus AgX coefficients — and passes if any rung validates, so a kernel calling `mul_rec2020_to_srgb` isn't a false "unknown identifier". naga-cli is pinned to the version wgpu bundles so the gate matches the compiler the app runs.
+`check_wgsl.sh` exists because naga has no `#include` but the Rust pipeline accessors assemble kernels by prepending generated headers (`generated/color_matrices.wgsl`, `generated/agx_coeffs.wgsl`, `generated/canvas_overlay.wgsl`). It validates each kernel under a ladder of header prefixes — standalone, with matrices, with matrices plus AgX coefficients — and passes if any rung validates, so a kernel calling `mul_rec2020_to_srgb` isn't a false "unknown identifier". naga-cli is pinned to the version wgpu bundles so the gate matches the compiler the app runs.
 
 The job sets `MAPLE_REQUIRE_GPU=1`, which turns raw-wasm's developer-friendly "no adapter, skipping" soft-pass into a panic. On a runner deliberately provisioned with an adapter, a skip is a broken gate, not a valid outcome.
 
@@ -283,12 +321,65 @@ The job sets `MAPLE_REQUIRE_GPU=1`, which turns raw-wasm's developer-friendly "n
 
 **Vectorscope scope pass (#3272)** rides the same `cargo test -p raw-gpu` / `cargo test -p raw-ffi --features gpu` invocations above — no new CI command, three new kinds of coverage: the WGSL kernel against `raw_core::scope::vectorscope_histogram_rgba` on a plain frame and one weighted by a `local_adjustments` mask's alpha-lane write (`raw-gpu/src/scope/tests.rs`); an alpha-passthrough gate proving every RGBA pass in an aggressive multi-stage live chain leaves the lane the scope depends on untouched (`raw-gpu/src/live_chain/tests_scope.rs`); and `LiveSession`'s double-buffered async readback — one tick late, never blocking — cross-checked against a full-precision f32 buffer readback, NOT a dithered u8 reconstruction (`raw-gpu/src/live_session/tests_scope.rs`'s module doc explains why the latter isn't a valid oracle for a chroma histogram). The CPU-fallback path (`maple_apply_chain_and_encode_display_scoped_f32`) has its own closed-form gate in `raw-ffi/src/scene_linear_chain_fused_tests.rs`, since it never dithers and so admits an exact expected total.
 
+### Capture-first gates (#5213)
+
+The capture-first split ([pipeline](pipeline.md#capture-first-the-capture-and-creative-halves-5213)) is gated at three layers. The CPU layer proves the split itself: the capture result never sees white balance, and the creative stage reproduces the develop. The GPU layer proves the WGSL creative stage and the capture-stage passes match their raw-core functions. The FFI layer proves that a host driving the live chain through the capture decode shows what a fresh develop renders. Relative thresholds below use `|gpu − cpu| / max(|cpu|, 1)` per channel, so values below 1 are compared absolutely and HDR values relatively; the FFI gates count 8-bit display steps instead. `raw-gpu-metal` is non-blocking (`continue-on-error`, see below), so on Apple's backend these gates are evidence, not a merge gate; the lavapipe `raw-gpu` job is the blocking one.
+
+**Synthetic gates.** These need no fixture and run in CI.
+
+| Gate                                                                                                                     | What it pins                                                                                                                                                                                                                                                               | Threshold                         | CI job                                          |
+| ------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------- | ----------------------------------------------- |
+| raw-core `pipeline/capture_first/tests.rs`                                                                               | The capture result is the same at every white balance; an unengaged capture passes the camera buffer through; the basis round trip is transparent; moving white balance keeps the as-shot exposure anchor; the per-tick chain and the haze map use the same creative stage | Exact or float-tight per test     | `rust-tests`                                    |
+| raw-core `capture_first/tests_signed.rs`                                                                                 | The signed-input guards of retouch, chroma pre-filter, BM3D and capture sharpening ([pipeline](pipeline.md#guards-on-signed-input))                                                                                                                                        | Finite; fixed points within 1e-5  | `rust-tests`                                    |
+| raw-core `capture_first/tests_plan.rs`                                                                                   | The GPU plan (`gpu_plan`) reproduces `CreativeStage::render` for every table shape and the uncalibrated tiers; a dual-illuminant as-shot table is the endpoints blended at the as-shot CCT                                                                                 | < 1e-4                            | `rust-tests`                                    |
+| raw-core `capture_first/tests_transport.rs`                                                                              | The FFI header and wire rebuild the stage exactly and refuse a damaged span or another profile's wire; a capture decode plus its creative stage reproduces the develop, and a capture tile reproduces the scene tile                                                       | < 1e-4; gain within 1e-6          | `rust-tests`                                    |
+| raw-gpu `live_chain/tests_creative.rs`                                                                                   | `CreativeDcpPass` → `PostDcpHighlightPass` → `CreativeGainPass` against `CreativeStage::render_basis` on signed, out-of-gamut and HDR input, over every table shape and five white balances; the gain lands after recovery and the tables; all eight orientations          | ≤ 1e-4                            | `raw-gpu` (lavapipe), `raw-gpu-metal`           |
+| raw-gpu `live_chain/tests_creative_chain.rs`                                                                             | A white-balance-only tick pushes no capture-stage pass                                                                                                                                                                                                                     | Exact pass list                   | `raw-gpu`, `raw-gpu-metal`                      |
+| raw-gpu `live_session/tests_creative.rs`                                                                                 | A warm white-balance drag allocates no pooled resource and uploads no table                                                                                                                                                                                                | Zero                              | `raw-gpu`, `raw-gpu-metal`                      |
+| raw-gpu `chroma_prefilter/tests.rs`, `bm3d/tests.rs` and the non-ignored tests in `bm3d/tests/`, `highlight_recovery.rs` | The capture-stage passes (#5217) against their raw-core stages, including signed and HDR input, tiled and portable BM3D, and cancellation                                                                                                                                  | < 1e-4 (chroma pre-filter < 2e-6) | `raw-gpu`, `raw-gpu-metal`                      |
+| raw-ffi `capture_creative_tests.rs`                                                                                      | `MapleCaptureCreative` round-trips every header and refuses an absent or damaged struct; the capture entries write the capture and its stage; the table pointer stays aligned; a CPU tick reuses its stage and allocates nothing                                           | Exact; zero allocations           | `build-raw-ffi` (`cargo test -p raw-ffi --lib`) |
+| raw-ffi `gpu_live_capture_tests.rs` (`--features gpu`)                                                                   | `maple_gpu_live_render` with `creative_ptr` against `render_basis`; the CPU chain entry with `creative_ptr` bit-identical to it; no GPU allocation after a drag's first tick                                                                                               | ≤ 1 8-bit step; exact; zero       | **local only**                                  |
+
+**Physical and controlled-hardware gates.** A physical gate runs on a real RAW from `test-fixtures/raws/`, which is gitignored, so none of these run in CI. Each is `#[ignore]`d (or `cfg_attr(not(feature = "fixtures"), ignore)`) and panics when its fixture is missing once it is asked to run, rather than skip-passing. The latency gate is the exception: it is ignored because it needs controlled hardware, and it reads the fixture only when `MAPLE_BM3D_BENCH_PHYSICAL` is set.
+
+| Gate                                                                                                   | Input                                                                                                                                                                                                                                                                                                                                                                                                                                            | Threshold                                                                                                            | Run it with                                                                                                         |
+| ------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| raw-gpu `live_chain/tests_creative_physical.rs` (`creative_stage_matches_the_cpu_oracle_on_test_0007`) | `test_0007.DNG`'s own profile and slider frame, with its 1536 px Preview-quality scene-linear render standing in for capture-basis pixels, at a given gain of 1.3, four white balances with recovery off and one with Oklab recovery                                                                                                                                                                                                             | Mean relative error ≤ 1e-6, max < 1e-4                                                                               | `cargo test -p raw-gpu --lib creative_stage_matches_the_cpu_oracle_on_test_0007 -- --ignored`                       |
+| raw-gpu `bm3d/tests/qualification.rs` (`bm3d_physical_scene_parity`)                                   | The same `test_0007` render at 2560 and 1536 px, BM3D strength 50                                                                                                                                                                                                                                                                                                                                                                                | Groups exact (first pass against the CPU, second against the GPU's own guide); mean ≤ 1e-6, p99.9 ≤ 1e-4, max ≤ 1e-2 | `cargo test -p raw-gpu --lib bm3d_physical_scene_parity -- --ignored`                                               |
+| raw-gpu `bm3d/tests/latency.rs` (`capture_refine_latency_gate`)                                        | Chroma pre-filter, BM3D and capture sharpening as one refine; synthetic by default, the `test_0007` render when `MAPLE_BM3D_BENCH_PHYSICAL` is set                                                                                                                                                                                                                                                                                               | p95 ≤ 250 ms at 2560 px with a 128 MiB BM3D cap, ≤ 130 ms at 1536 px with 32 MiB; warm ticks allocate nothing        | `cargo test --release -p raw-gpu --lib capture_refine_latency_gate -- --ignored --nocapture` on controlled hardware |
+| raw-ffi `gpu_live_capture_seam_tests.rs` (live vs refine)                                              | `test_0005.RAF` and `test_0007.DNG` at 512 px: a capture decode through `maple_gpu_live_render` against a fresh sized develop of the same model, at as-shot, ±800 K, 2000 K and 50000 K, across plain, chroma, denoise, retouch, sharpening, Oklab recovery, auto exposure off, and every stage with and without auto exposure                                                                                                                   | ≤ 1 8-bit step on every channel                                                                                      | `cargo test -p raw-ffi --features gpu,fixtures --lib gpu_live_capture_seam_tests`                                   |
+| raw-wasm `gpu_render/tests_capture.rs` (Web live vs refine, #5379, #5416)                              | `test_0005.RAF` and `test_0007.DNG`: the Web `WebLiveSession` tick on the capture decode against the Web CPU refine of the same model, over the same white-balance and capture-stage matrix as the seam gate, under both the Neutral and the Auto profile (the session fits Auto at its own develop edge, the entry the sized CPU refine of that edge fits); a synthetic-DNG subset and the warm-drag zero-allocation check run without fixtures | ≤ 1 8-bit step on every channel; zero allocations                                                                    | `cargo test -p raw-wasm --features gpu --lib tests_capture -- --ignored`                                            |
+
+The physical creative gate deliberately feeds an ordinary develop as its input: it checks the WGSL arithmetic on real camera tables and real scene statistics, not the capture half. The seam gate is the one that covers both halves end to end. The latency gate is the capture refine's own budget, never the 50 ms slider limit; the white-balance tick itself is timed, not gated, by `cargo run --release -p raw-gpu --example creative-live-timing -- <RAW> [edge]`.
+
 ### Metal and browser-WebGPU coverage (#2315)
+
+**Dehaze's proxy haze map (#3287)** is gated at three layers, all in the commands above. `raw-core`'s `stages::dehaze` tests pin the separable window minimum against the direct one, that a window recovers bit-exactly from the frame's map, and that the same synthetic scene dehazes alike at fit and at native resolution (and that the pre-#3287 per-buffer windows did not). `raw-gpu`'s `dehaze/tests.rs` holds the WGSL map and recovery to 1e-4 of `raw_core::stages::dehaze::apply` and pins the proxy grid to raw-core's; `live_session/tests_haze.rs` proves a dehaze-slider tick reuses the resident map with zero allocations and renders exactly what a fresh measurement does. The tile gates (`tile/tests_full_parity.rs`, fixture-free, and the fixture-gated `tests_render_anchors::tile_matches_full_chain_with_all_spatial_sliders`) carry global and per-mask dehaze cases, and `raw-ffi`'s `scene_linear_chain_window_target_tests.rs` gates the Apple/Windows windowed entry with the frame's map.
 
 Two additional jobs provide backend-specific evidence. Both currently set **`continue-on-error: true`** in their workflows, so inspect their individual outcomes rather than treating a green workflow summary as proof of execution or parity:
 
 - **`raw-gpu-metal`** (`raw-pipeline.yml`, `macos-latest`) runs `cargo test -p raw-gpu` unmodified, on the real Metal backend a GitHub-hosted macOS runner exposes to headless wgpu. It is deliberately minimal — just the parity tests themselves — because the compile gates and the WGSL naga-frontend validation are backend-independent and already run on Linux. `raw-gpu`'s tests hard-`.expect()` a `GpuContext`, so a missing Metal adapter fails this job outright rather than soft-passing; a clean run is itself the proof the runner has one.
 - **`web-webgpu-smoke`** (`web.yml`, `ubuntu-latest`) runs two existing dev-server e2e specs — `e2e/raw-open.spec.ts` (a real RAW decode with no WASM trap) and `e2e/slider-tick-render.perf.spec.ts` (opens a real live GPU/WASM render session and drives the Exposure slider through real per-tick renders) — in headless Chromium with `--enable-unsafe-webgpu` (set by the perf spec's own `launchOptions`, the flag that makes a WebGPU adapter resolve at all in headless Chrome). Both specs already skip-pass without the gitignored `test-fixtures/raws/test_0006.DNG`, the same convention as every other fixture-gated gate, so an unprovisioned run supplies no RAW-open or slider-render evidence — but unlike `color-pipeline`'s fixture probe (which skips before provisioning any toolchain), this job still pays the full Rust/wasm-pack + raw-wasm-build + Chromium-install setup cost every run, the same cost `web-build`/`web-test`/`web-test-common` already pay unconditionally.
+
+The colour-curves work is gated at four layers. `raw-core` pins the stage (`color_curves_tests.rs`), the eyedropper's orientation mapping against the orientation matrix for all eight EXIF tags, and the zone-weight goldens; `raw-gpu` pins the WGSL twin against `raw-core` (`color_curves/tests.rs`, within 1e-4, neutral bit-exact) and runs on Metal in `raw-gpu-metal`. The four sidecar writers share one canonical block and the omit-on-default rules (`tests_color_curves.rs`, `ColorCurveXMPTests.swift`, `color-curves-xmp.spec.ts`, `ColorCurveXmpTests.cs`), and the three editors' strips and split handles are tested against the same goldens or math (`color-grading-panel.spec.ts`, `tone-curve-splits.spec.ts`, `ColorGradeZoneEdgeTests`, `ColorGradeZoneWeightsTests`). `e2e/production/color-curves-ui.spec.ts` drives the real Hosted editor in Chrome: mode switch, six curve pills, ribbon knots, Lock Skin and the eyedropper.
+
+The physical upright-canvas regression (`cd src/web && bun x playwright test
+--config=playwright.orientation.config.ts`) requires `test_0013.DNG` and a real
+Chrome WebGPU adapter. It fails if either is absent. It compares upright canvas,
+native dimensions, crop bounds and a radial mask's pixel changes against its
+handle, then reopens the real OPFS sidecar through the CPU path.
+
+The physical crop regression (`cd src/web && bun x playwright test
+--config=playwright.crop-live.config.ts`) has the same prerequisites and fails
+the same way. On the same Rotate90 RAW it applies a rectangle, a quarter-turn,
+a free-angle crop and a free-angle crop over perspective to the live WebGPU
+canvas, then reopens the OPFS sidecar through the CPU path. The two canvases
+must have identical presented dimensions and agree within a coarse spatial
+budget, the canvas colour space must survive the resize, and clearing the crop
+and perspective must restore the full frame. Pixel-exact placement is gated
+natively, not here: `present_texture_tests` compares the GPU present with the
+CPU display tail within 1 LSB for every EXIF orientation, including off-axis
+crops over perspective.
 
 Real hardware — locally, and through the Apple UITest harness — remains the deeper signal for both surfaces; these two jobs are the cheap, always-on backstop against a divergence reaching `main` with every existing check green.
 
@@ -332,19 +423,18 @@ The visual harnesses in `src/apple/MapleUITests/` all follow one shape: stage a 
 | Test class             | What it proves                                                                                                                                                                                                         |
 | ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `MapleUITests`         | One fixture at default settings vs a committed golden (`Goldens/test_0017-default.png`). Budgets: mean ≤ 5, p95 ≤ 10, max ≤ 30, bias ≤ 0.05. Deleting the PNG re-records it and fails with "baseline written"          |
-| `SliderMatrixUITests`  | Every committed slider XMP under `references/<stem>/xmp/` vs its ACR render. Both sides resized to a 1024px long edge. Budgets are loose (Maple's AgX view transform differs from ACR's) and failures attach both PNGs |
 | `SyntheticGreyUITests` | The Apple path (Rust FFI scene-linear → Metal AgX → Metal sRGB encode) lands on the same grey the Rust CPU tail produces: every pixel neutral within ±2 LSB, canvas mean within ±3 LSB of six per-case expected values |
-| `CIEDE2000Tests`       | Cross-validates the Swift ΔE₀₀ port against `compare_images.py` on a committed calibration PNG pair                                                                                                                    |
+| `CIEDE2000Tests`       | Cross-validates the Swift ΔE₀₀ port against `compare_images.py` on the committed calibration cases, bundled as the `Goldens` folder                                                                                    |
 
 Fixture-dependent classes call `XCTSkip` when the RAW isn't present at the repo default, mirroring the shell harnesses — and fail when it isn't present at an explicitly named `TEST_RUNNER_MAPLE_UITEST_FIXTURE_ROOT`.
 
 ### What CI actually builds for Apple
 
-`apple.yml` retains a fast **compile-only** `swift-build` job: `swift build` of the MapleCore package on `macos-15`. It stages a cbindgen-generated `RawPipeline.h` into every xcframework slice and fabricates an empty stub `libraw_ffi.a`, because SwiftPM validates that a binary target's archive exists but never links a static library into a _library_ target. That is enough to catch the recurring failure class — a codegen-added enum case landing beside an exhaustive switch that never gained an arm — without a tens-of-minutes Rust cross-build. `cbindgen` is pinned to 0.29.2 here and in `ci_scripts/ci_post_clone.sh` so generated headers can't drift between the two CIs.
+`apple.yml` retains a fast **compile-only** `swift-build` job: `swift build` of the MapleCore package on `macos-15`. It stages a cbindgen-generated `RawPipeline.h` into every xcframework slice and fabricates an empty stub `libraw_ffi.a`, because SwiftPM validates that a binary target's archive exists but never links a static library into a _library_ target. That is enough to catch the recurring failure class — a codegen-added enum case landing beside an exhaustive switch that never gained an arm — without a tens-of-minutes Rust cross-build. `cbindgen` is pinned to 0.29.2 here and in `ci_scripts/ci_post_clone.sh` so generated headers can't drift between the two CIs. The same job then builds, unsigned and for a generic simulator, the two app schemes that link no RawPipeline: `Maple TV` (with its Top Shelf extension) and `Maple Watch` (with `Packages/MapleWatch`). It runs neither app nor their tests.
 
 The required `swift-regressions` job also executes a focused MapleCore suite on `macos-latest`, using the newest installed Xcode. MapleUI tests use the same runtime image and Xcode selection; the compile-only gate stays on `macos-15`. It builds only the host `raw-ffi` release archive with `gpu,pano`: panorama is needed to satisfy the package's `maple_pano_stitch` link reference, but the selected tests never run panorama or load ORT models. There are no cross-target builds or iOS ORT downloads. A host-only xcframework, MapleCore/MapleBackup copies and the tiny committed synthetic DNG are staged under `RUNNER_TEMP`; the checkout's framework is untouched. A preprocessed-header symbol check rejects an incomplete archive before linking.
 
-The execution gate runs the classes listed in [`.github/swift-regressions/run.txt`](../.github/swift-regressions/run.txt): the scheduling, cache, geometry, XMP and Metal-safe GPU-state classes from #3363 plus, since #3460, the pure editor-state classes (`EditorStateTests`, `EditorStatePresetsTests`, `EditorCommandRouterTests` and the other `EditorTestCase` subclasses). Every other MapleCore test class is in [`excluded.txt`](../.github/swift-regressions/excluded.txt) with a reason tag (`fixture`, `gpu`, `host`, `slow` or `untriaged`), and the `swift-regressions-coverage` job runs `tools/check-swift-regressions-coverage.py`, which fails when a test class is in neither list, in both, or listed but gone. A new test class therefore has to be placed on purpose; this makes exclusions visible, but does not execute them or prove they pass. In particular, `untriaged` means classification remains unfinished. Inventory totals are not executed-test counts or line/branch coverage. These use generated images, real temporary XMP/cache files, and the committed synthetic RAW; no private/100MP fixtures or UI authentication are required. Tests run serially with Metal enabled. The job fails on test failure, any skip, a missing class, or fewer than 67 executed cases; it does not impose a new hardware timing threshold or allow failures. Started/passed XCTest records and the final suite totals must agree. The uploaded xUnit report is derived from these validated serial XCTest log records (SwiftPM only emits Swift Testing XML in serial mode); the original log is uploaded alongside it.
+The execution gate runs the classes listed in [`.github/swift-regressions/run.txt`](../.github/swift-regressions/run.txt): the scheduling, cache, geometry, XMP and Metal-safe GPU-state classes from #3363 plus, since #3460, the pure editor-state classes (`EditorStateTests`, `EditorStatePresetsTests`, `EditorCommandRouterTests` and the other `EditorTestCase` subclasses). Every other MapleCore test class is in [`excluded.txt`](../.github/swift-regressions/excluded.txt) with a reason tag (`fixture`, `gpu`, `host`, `slow` or `untriaged`), and the `swift-regressions-coverage` job runs `tools/check-swift-regressions-coverage.py`, which fails when a test class is in neither list, in both, or listed but gone. A new test class therefore has to be placed on purpose, and a change that only edits the two lists selects just the `swift` consumer in `tools/ci_changes.py` (the lists are read only by the Swift jobs in `apple.yml`); this makes exclusions visible, but does not execute them or prove they pass. In particular, `untriaged` means classification remains unfinished. Inventory totals are not executed-test counts or line/branch coverage. These use generated images, real temporary XMP/cache files, and the committed synthetic RAW; no private/100MP fixtures or UI authentication are required. Tests run serially with Metal enabled. The job fails on test failure, any skip, a missing class, or fewer than 67 executed cases; it does not impose a new hardware timing threshold or allow failures. Started/passed XCTest records and the final suite totals must agree. The uploaded xUnit report is derived from these validated serial XCTest log records (SwiftPM only emits Swift Testing XML in serial mode); the original log is uploaded alongside it.
 
 The remaining package tests, UITest harnesses, and app-target build run locally or on Xcode Cloud. Xcode Cloud's workflows are configured in App Store Connect, not in this repo; the only repository-side hook is [`src/apple/ci_scripts/ci_post_clone.sh`](../src/apple/ci_scripts/ci_post_clone.sh), which installs Rust via Homebrew (with retry/backoff around the worker pool's flaky DNS), adds the four Apple targets, installs the pinned cbindgen, and runs `build-xcframework.sh --release` so the archive has real static libs to link.
 
@@ -441,7 +531,7 @@ bun run typecheck        # tsc --noEmit — required CI gate (api.yml)
 bun run lint             # oxlint src — this IS a CI gate (cross.yml)
 ```
 
-Nothing has to be running first. The library database is a file each test makes for itself, so a local `bun test` proves exactly what CI's does. CI stands up one real service rather than mocking it — `getmeili/meilisearch:v1.50.0` on 7700 — because one suite talks to a live Meilisearch: the main step runs `bun test --timeout 30000` with a throwaway `MAPLE_JWT_SECRET`, and a second step runs `src/enrichment/meilisearch-real.integration.test.ts` with `MAPLE_MEILISEARCH_INTEGRATION_URL` set, which is what un-gates it.
+Nothing has to be running first. The library database is a file each test makes for itself, and the tests that drive jobs, imports and stages through Temporal start their own throwaway server (the Temporal CLI is downloaded once and cached; see [temporal](temporal.md#running-a-temporal-server)), so a local `bun test` proves exactly what CI's does. CI runs `bun test --timeout 30000` with a throwaway `MAPLE_JWT_SECRET` and no service containers.
 
 [`src/api/src/db/sqlite/test-sqlite.test-helpers.ts`](../src/api/src/db/sqlite/test-sqlite.test-helpers.ts) gives each test its own database with the schema already applied, and disposes of it when the test's block exits:
 
@@ -508,13 +598,13 @@ Two rules the file-operations corpus states explicitly, and every runner honours
 `docs/capability-registry.md` (human-readable) and `docs/capability-registry.json` (machine-readable) report every editor capability's release state — `core`, `integrated`, or `released` — and are **generated, never edited**: `tools/codegen.sh` emits them, along with the Swift, TypeScript, and C# consumers (`MapleCore/Generated/CapabilityRegistry+Generated.swift`, `maple-common/src/lib/generated/capability-registry.generated.ts`, `Maple.WinUI/Generated/CapabilityRegistry.g.cs`), from two inputs:
 
 - **The registry** — `src/raw-pipeline/raw-core/src/capability_registry/registry.rs`, reviewed Rust. One entry per capability: a permanent snake_case id, an owner, the surfaces it ships on (per [features.md](features.md) § 8), its storage adapters, asset classes, preview and export paths, the `AdjustmentModel` fields it owns (every schema field must be owned by exactly one capability — `capability_registry/tests.rs` enforces it), and the evidence sources it needs for the `integrated` and `released` tiers.
-- **Evidence records** — `test-fixtures/qualification/<source>.json`, one per harness run, written by `tools/qualification/record.sh` and committed. Each carries the backend the suite ran on, the pipeline and sidecar schema versions at the time, a blake3 hash of the source's declared corpus, the declared expected case count, and the executed / failed / skipped counts.
+- **Evidence records** — `test-fixtures/qualification/<source>.json`, one per harness run, written by `tools/qualification/record.sh` and committed. Each carries the backend the suite ran on, a blake3 hash of the source's declared corpus, the declared expected case count, and the executed / failed / skipped counts. Records written before #5007 also carry pipeline and sidecar schema versions; those fields are ignored on load and are no longer written. The two sidecar contract corpora additionally hash the sidecar/XMP implementation they exercise, so a reader/writer change stales those records even when no test file moved.
 
-The state rule lives in `capability_registry/evidence.rs` and reads nothing but records. A source is **satisfied** only when its record is on the current `PIPELINE_OUTPUT_VERSION` and schema version, its corpus hash still matches the files the source declares (`EvidenceSource::corpus`), its backend is one the source accepts, `executed == expected` with both non-zero, and nothing failed or was skipped. A capability is `integrated` when every integration-tier source is satisfied **and every declared surface is covered by at least one of them** (`EvidenceSource::covers`); `released` additionally needs the same of its qualification tier. A capability with no surfaces, or no qualification sources, cannot leave `core` / `integrated` respectively — silence is never evidence, and neither is code presence.
+The state rule lives in `capability_registry/evidence.rs` and reads nothing but records. A source is **satisfied** only when nothing in its record failed (failure is conclusive, checked before the corpus so a failed run stays failed on a machine without the fixtures), its corpus hash still matches the files the source declares (`EvidenceSource::corpus`), its backend is one the source accepts, `executed == expected` with both non-zero, and nothing was skipped. No pipeline or schema version gates a record (#5007): a colour change alone never demotes one. A capability is `integrated` when every integration-tier source is satisfied **and every declared surface is covered by at least one of them** (`EvidenceSource::covers`); `released` additionally needs the same of its qualification tier. A capability with no surfaces, or no qualification sources, cannot leave `core` / `integrated` respectively — silence is never evidence, and neither is code presence.
 
 Colour evidence additionally binds the actual manifest to the bytes of every declared RAW, adjustment XMP, optional Adobe authoring XMP and reference PNG, including native/down protocol fields. Its identity also includes the fixed budgets, comparison/harness code and both the on-disk and compiled profile bundle (#4074). Paths locate inputs rather than identify them: byte-identical relocated corpora retain their identity. Repeated RAWs are streamed once, and unreferenced files do not change the measured corpus. Missing or malformed declared inputs prevent recording/loading evidence. The recorder hashes colour inputs before the run and rejects changes detected before writing the final record. The writer hashes the manifest selected by the existing `MANIFEST` override; the registry judges against its current canonical manifest, so a different measured corpus cannot promote current support tiers. Filtered, alternate-budget and noncanonical-resolution diagnostics run directly through the colour harness and cannot stamp the canonical qualification record. Absent gitignored inputs still skip in the rendering harness; they never create a satisfied evidence record.
 
-That rule is what makes the registry demote on its own. Bumping `PIPELINE_OUTPUT_VERSION`, editing `budgets.json`, adding a test to a corpus, or deleting a record all turn the affected sources unsatisfied on the next `tools/codegen.sh` run, and the `codegen-drift` job then refuses to merge until the demoted outputs are committed. The registry today reports **no capability as `released`**, honestly: no evidence source covers Windows at all, none covers Web at the qualification tier, and the Apple canvas golden (#2366) has no record yet.
+That rule is what makes the registry demote on its own. Editing `budgets.json`, adding a test to a corpus, or deleting a record all turn the affected sources unsatisfied on the next `tools/codegen.sh` run, and the `codegen-drift` job then refuses to merge until the demoted outputs are committed. Changing pipeline pixels does not: pixel correctness is gated directly by the colour harness and the budgets ratchet, not by recorded evidence. The registry today reports **no capability as `released`**, honestly: no evidence source covers Windows at all, none covers Web at the qualification tier, and the Apple canvas golden (#2366) has no record yet.
 
 Recording evidence:
 
@@ -523,22 +613,24 @@ Recording evidence:
 # run records failed_cases > 0, which is exactly what demotes the capabilities using it).
 tools/qualification/record.sh grey_adjustments cpu-reference -- bash src/scripts/test_grey_adjustments.sh
 tools/qualification/record.sh sidecar_contract_apple xctest-macos -- \
-  bash -c 'cd src/apple/Packages/MapleCore && swift test --filter SidecarTransactionContract'
+  swift test --package-path src/apple/Packages/MapleCore --filter SidecarTransactionContract
 tools/qualification/record.sh gpu_chain_parity_metal metal -- \
-  bash -c 'cd src/raw-pipeline && MAPLE_REQUIRE_GPU=1 cargo test -p raw-wasm --features gpu gpu_render'
-tools/qualification/record.sh color_harness cpu-reference -- bash src/scripts/test_color_pipeline.sh
+  bash -c 'cd src/raw-pipeline && MAPLE_REQUIRE_GPU=1 cargo test -p raw-wasm --features gpu gpu_render -- --include-ignored'
+# Retired ACR color_harness records are historical; run the Auto JPEG gate directly.
 
 # Then regenerate the registry and commit both.
 bash tools/codegen.sh
 ```
 
-The wrapper parses `cargo test`, `bun test`, `swift test`, and the colour harness's own `qualification: executed=… failed=… skipped=…` line, then calls `qualification-record` (`src/raw-pipeline/codegen/src/qualification_record.rs`) to stamp the versions and corpus hash. Sources, accepted backends, expected counts, and corpora are all declared in `capability_registry/mod.rs`; adding a test to a suite means bumping its `expected_cases` there and re-recording in the same PR.
+The Metal qualification requires `test-fixtures/raws/test_0006.DNG` and includes the otherwise ignored physical lossy-DNG white-balance case and the capture-first live-vs-refine gates on `test_0005.RAF` and `test_0007.DNG` (#5379): all 28 cases must execute without skips.
 
-CI keeps the CI-runnable records honest with `record.sh --check`, which re-runs the suite and fails if its counts differ from the committed record: the four synthetic grey gates in `rust-tests`, the API sidecar contract in `api-tests`, and the lavapipe GPU chain parity in `raw-gpu` (which, having no macOS equivalent, writes the record as a `qualification-gpu_chain_parity_lavapipe` artifact for a human to commit when none exists). The Apple contract suite, Metal parity, and the colour harness are recorded locally, and their records go stale the moment their corpus or the pipeline version moves. `codegen-drift` uploads `docs/capability-registry.json` + `.md` as the `capability-release-summary-<sha>` artifact of every run.
+The wrapper parses `cargo test`, `bun test`, `swift test`, and the colour harness's own `qualification: executed=… failed=… skipped=…` line, then calls `qualification-record` (`src/raw-pipeline/codegen/src/qualification_record.rs`) to stamp the expected count and corpus hash. Sources, accepted backends, expected counts, and corpora are all declared in `capability_registry/mod.rs`; adding a test to a suite means bumping its `expected_cases` there and re-recording in the same PR.
+
+CI keeps the CI-runnable records honest with `record.sh --check`, which re-runs the suite and fails if its counts differ from the committed record: the four synthetic grey gates in `rust-tests`, the API sidecar contract in `api-tests`, and the lavapipe GPU chain parity in `raw-gpu` (which, having no macOS equivalent, writes the record as a `qualification-gpu_chain_parity_lavapipe` artifact for a human to commit when none exists). The Apple contract suite, Metal parity, and the colour harness are recorded locally, and their records go stale the moment their corpus moves. `codegen-drift` uploads `docs/capability-registry.json` + `.md` as the `capability-release-summary-<sha>` artifact of every run.
 
 ### Lens corrections
 
-`test_color_pipeline.sh` renders with `--no-bundled-lens`: the ACR references were produced without lens-profile corrections, so the colour gate measures colour with the same geometry on both sides (embedded DNG corrections still apply on both). Lens geometry has its own gates below.
+The Auto JPEG gate renders with default geometry and records its center-crop/resize protocol. Lens geometry has its own independent gates below.
 
 Two gates cover the bundled Lensfun database (#3564). `lens_profile::lensfun::tests_parity` (part of `cargo test -p raw-core --lib`) reproduces `liblensfun`'s own source coordinates and vignetting factors from `test-fixtures/qualification/lensfun-reference.json` at exact sample points, to 0.05 px and 1e-4 in gain; the JSON is regenerated by `src/scripts/lensfun_reference.sh <lensfun-checkout>`, which builds `liblensfun` and runs `src/scripts/lensfun_reference.cpp`. `src/scripts/test_lensfun_vs_lcp.sh` compares the bundled calibration against Adobe's LCP for the same lens on `test_0011.ARW` by diffing the two resolved warp fields (`maple-cli render --lens-warp-out`, `src/scripts/lens_warp_diff.py`) against the ceilings in `test-fixtures/qualification/lensfun-vs-lcp.json`; it skip-passes when the RAW or the Adobe profile is absent, so it is a local gate on the machines that have both.
 

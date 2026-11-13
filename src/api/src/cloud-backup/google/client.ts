@@ -21,10 +21,13 @@ export interface DriveFile {
   driveId?: string;
 }
 /** Shared-drive ownership is collective; only an affirmative My Drive owner is allowed. */
+export function assertDriveFileId(id: string): void {
+  if (!/^[A-Za-z0-9_-]{1,200}$/.test(id)) throw new Error('Invalid Google file identifier.');
+}
 export function isOwnedMyDriveFile(file: DriveFile): boolean {
   return file.ownedByMe === true && file.driveId === undefined;
 }
-class GoogleDriveError extends Error {
+export class GoogleDriveError extends Error {
   constructor(
     public readonly status: number,
     public readonly retryAfterMs: number | null,
@@ -40,6 +43,14 @@ class GoogleDriveError extends Error {
 }
 export function isDriveStatus(error: unknown, ...statuses: number[]): error is GoogleDriveError {
   return error instanceof GoogleDriveError && statuses.includes(error.status);
+}
+/** Drive failures that say nothing about the object being worked on: the
+ * network (status 0), rejected credentials, quota, or Google itself. */
+export function isDriveConnectionFailure(error: unknown): error is GoogleDriveError {
+  return (
+    error instanceof GoogleDriveError &&
+    (error.status === 0 || error.status === 401 || error.status === 403 || error.status >= 500)
+  );
 }
 function driveEndpoint(url: string): URL {
   const parsed = new URL(url);
@@ -72,12 +83,26 @@ function resumableProgress(url: URL, init: RequestInit, response: Response): boo
 }
 export class DriveClient {
   constructor(
-    private token: () => Promise<string>,
+    private token: (signal?: AbortSignal) => Promise<string>,
     readonly transport: GoogleFetch = fetch,
+    private readonly onUnauthorized: (rejected: string) => void = () => {},
   ) {}
   async request(url: string, init: RequestInit = {}, signal?: AbortSignal): Promise<Response> {
+    const first = await this.send(url, init, signal);
+    if (first.response.status !== 401) return first.response;
+    // Drop the rejected token and retry once; every body sent here is buffered (#5038).
+    this.onUnauthorized(first.token);
+    const retried = await this.send(url, init, signal);
+    if (retried.response.status === 401) throw new GoogleDriveError(401, null);
+    return retried.response;
+  }
+  private async send(
+    url: string,
+    init: RequestInit,
+    signal?: AbortSignal,
+  ): Promise<{ response: Response; token: string }> {
     const parsed = driveEndpoint(url);
-    const token = await this.token();
+    const token = await this.token(signal);
     const response = await this.transport(parsed, {
       ...init,
       // Native Bun rejects 308 even without Location under redirect:'error'.
@@ -93,17 +118,21 @@ export class DriveClient {
     }).catch(() => {
       throw new GoogleDriveError(0, null);
     });
+    if (response.status === 401) {
+      await response.body?.cancel().catch(() => {});
+      return { response, token };
+    }
     if (!response.ok && !resumableProgress(parsed, init, response)) {
       await response.body?.cancel().catch(() => {});
       throw new GoogleDriveError(response.status, retryAfter(response));
     }
-    return response;
+    return { response, token };
   }
   async json<T>(url: string, init: RequestInit = {}, signal?: AbortSignal): Promise<T> {
     return (await this.request(url, init, signal)).json() as Promise<T>;
   }
   metadata(id: string, signal?: AbortSignal): Promise<DriveFile> {
-    if (!/^[A-Za-z0-9_-]{1,200}$/.test(id)) throw new Error('Invalid Google file identifier.');
+    assertDriveFileId(id);
     return this.json(`${DRIVE_API}/files/${id}?fields=${FILE_FIELDS}`, {}, signal);
   }
   async reserveId(signal?: AbortSignal): Promise<string> {

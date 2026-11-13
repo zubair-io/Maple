@@ -2,28 +2,35 @@
 //! The patch consumes the base render's AE and Auto artifacts, never fits
 //! a tone curve or measures exposure from a viewport's histogram.
 
-use super::{display_prefix, finish, render_display_scene_with_removals, RawInput};
+use super::{display_prefix, finish, render_display_scene_with_context_cancellable, RawInput};
 use crate::{
     error::{Error, Result},
     film::FilmLut,
     image::{apply_orientation, ColorSpace, ExifOrientation, Image, RawImage},
     pipeline::{RenderQuality, TileRect},
+    stages::dehaze::{self, FrameHaze},
     view::{auto_profile, encode},
     xmp::AdjustmentModel,
 };
 
 pub struct DetailContext {
     pub(super) native_highlight: Option<super::super::HighlightFrameContext>,
+    /// The frame's dehaze maps (#3287), measured once per context and carried
+    /// to the next one while only the dehaze amount changed.
+    pub(super) haze: Option<std::sync::Arc<FrameHaze>>,
     pub(super) model: AdjustmentModel,
+    pub(super) target: encode::TargetPrimaries,
     pub(super) active_model: AdjustmentModel,
     pub(super) ae_gain: f32,
     pub(super) whites_anchor_ev: Option<f32>,
+    pub(super) auto_fit: Option<auto_profile::AutoFitOutcome>,
     pub(super) profile_curve: Option<auto_profile::curve::ProfileCurve>,
     pub(super) profile_lut: Option<auto_profile::lut::ColorLut>,
     pub(super) auto_guard: bool,
 }
 
 pub struct DetailRenderOptions<'a> {
+    pub target: encode::TargetPrimaries,
     pub quality: RenderQuality,
     pub max_long_edge: u32,
     pub film_lut: Option<&'a FilmLut>,
@@ -36,11 +43,6 @@ pub fn render_detail_base(
     source: RawInput<'_>,
     options: DetailRenderOptions<'_>,
 ) -> Result<(u32, u32, Vec<u8>, DetailContext)> {
-    if !model.inpaint_removals.is_empty() {
-        return Err(Error::Pipeline(
-            "native detail requires verified removal companions".into(),
-        ));
-    }
     render_detail_base_cancellable(raw, model, source, options, crate::CancelToken::never())
 }
 
@@ -58,25 +60,43 @@ pub fn render_detail_base_cancellable(
             "native detail requires verified removal companions".into(),
         ));
     }
-    let (mut scene, context) = render_display_scene_with_removals(
+    render_base_with_haze(raw, model, source, options, None, cancel)
+}
+
+fn render_base_with_haze(
+    raw: &RawImage,
+    model: &AdjustmentModel,
+    source: RawInput<'_>,
+    options: DetailRenderOptions<'_>,
+    previous: Option<&DetailContext>,
+    cancel: crate::CancelToken<'_>,
+) -> Result<(u32, u32, Vec<u8>, DetailContext)> {
+    let (mut scene, context, _) = render_display_scene_with_context_cancellable(
         raw,
         model,
         options.quality,
         Some(source),
         Some(options.max_long_edge),
-        encode::TargetPrimaries::Srgb,
+        options.target,
         options.film_lut,
         cancel,
+        false,
         None,
     )?;
     if cancel.is_cancelled() {
         return Err(Error::Cancelled);
     }
     let rgb = encode::dither_and_quantize(&mut scene);
+    let (scene_w, scene_h) = (scene.width, scene.height);
+    drop(scene);
+    let context = DetailContext {
+        haze: measure_haze(raw, &context.active_model, previous, cancel)?,
+        ..context
+    };
     let (w, h, rgb) = finish::apply_geometry(
         rgb,
-        scene.width,
-        scene.height,
+        scene_w,
+        scene_h,
         raw.orientation,
         &crate::stages::perspective::Perspective::from_model(model),
         &model.crop,
@@ -97,22 +117,30 @@ impl crate::pipeline::ResolvedCalibrationRemovals {
         source: RawInput<'_>,
         options: DetailRenderOptions<'_>,
     ) -> Result<(u32, u32, Vec<u8>, DetailContext)> {
-        let (mut scene, context) = render_display_scene_with_removals(
+        let cancel = crate::CancelToken::never();
+        let (mut scene, context, _) = render_display_scene_with_context_cancellable(
             raw,
             model,
             options.quality,
             Some(source),
             Some(options.max_long_edge),
-            encode::TargetPrimaries::Srgb,
+            options.target,
             options.film_lut,
-            crate::CancelToken::never(),
+            cancel,
+            false,
             Some((self, original)),
         )?;
         let rgb = encode::dither_and_quantize(&mut scene);
+        let (scene_w, scene_h) = (scene.width, scene.height);
+        drop(scene);
+        let context = DetailContext {
+            haze: measure_haze(raw, &context.active_model, None, cancel)?,
+            ..context
+        };
         let (w, h, rgb) = finish::apply_geometry(
             rgb,
-            scene.width,
-            scene.height,
+            scene_w,
+            scene_h,
             raw.orientation,
             &crate::stages::perspective::Perspective::from_model(model),
             &model.crop,
@@ -149,6 +177,43 @@ impl crate::pipeline::ResolvedCalibrationRemovals {
     }
 }
 
+/// The maps native tiles of this edit recover with: measured by the same
+/// Preview-density proxy develop a native-resolution export uses (#3287), so
+/// a patch and the export agree. The base render above measures its own map
+/// from its sized buffer, so it can part from a patch by a code or so. A
+/// map from `previous` on the same source is kept while `haze_key` is
+/// unchanged. A cancelled measurement is reported, never replaced by a
+/// partial map.
+fn measure_haze(
+    raw: &RawImage,
+    active_model: &AdjustmentModel,
+    previous: Option<&DetailContext>,
+    cancel: crate::CancelToken<'_>,
+) -> Result<Option<std::sync::Arc<FrameHaze>>> {
+    if !dehaze::any_engaged(active_model) {
+        return Ok(None);
+    }
+    // Only a context retained on this very source (the native-evidence
+    // context pins it, as `render_detail_tile` checks) may lend its map.
+    let upstream_unchanged = |previous: &DetailContext| {
+        previous
+            .native_highlight
+            .as_ref()
+            .is_some_and(|frame| std::ptr::eq(frame.raw(), raw))
+            && dehaze::haze_key(&previous.active_model) == dehaze::haze_key(active_model)
+    };
+    if let Some(map) = previous
+        .filter(|previous| upstream_unchanged(previous))
+        .and_then(|previous| previous.haze.clone())
+    {
+        return Ok(Some(map));
+    }
+    let (frame_w, frame_h) = super::native_render_dims(raw);
+    let model = crate::types::with_brush_rasters(active_model, frame_w, frame_h);
+    super::super::develop_sized::frame_haze(raw, &model, cancel)
+        .map(|haze| haze.map(std::sync::Arc::new))
+}
+
 /// Retained-source counterpart for a native-detail session. The base keeps
 /// its requested quality; native evidence is separately prepared at Auto and
 /// carried over from `previous` while its prefix inputs are unchanged.
@@ -160,7 +225,28 @@ pub fn render_detail_base_retained(
     max_working_pixels: u64,
     previous: Option<DetailContext>,
 ) -> Result<(u32, u32, Vec<u8>, DetailContext)> {
-    let (w, h, rgb, mut context) = render_detail_base(&raw, model, source, options)?;
+    render_detail_base_retained_cancellable(
+        raw,
+        model,
+        source,
+        options,
+        max_working_pixels,
+        previous,
+        crate::CancelToken::never(),
+    )
+}
+
+pub fn render_detail_base_retained_cancellable(
+    raw: std::sync::Arc<RawImage>,
+    model: &AdjustmentModel,
+    source: RawInput<'_>,
+    options: DetailRenderOptions<'_>,
+    max_working_pixels: u64,
+    previous: Option<DetailContext>,
+    cancel: crate::CancelToken<'_>,
+) -> Result<(u32, u32, Vec<u8>, DetailContext)> {
+    let (w, h, rgb, mut context) =
+        render_base_with_haze(&raw, model, source, options, previous.as_ref(), cancel)?;
     let reusable = previous
         .and_then(|previous| previous.native_highlight)
         .filter(|frame| frame.reusable_for(&raw, &context.active_model, RenderQuality::Auto));
@@ -313,41 +399,42 @@ fn render_detail_tile_with_patches(
             "native-detail patch exceeds the memory budget".into(),
         ));
     }
-    let (w, h, rgba) = match patches {
-        Some(patches) => super::super::tile::render_saved_tile(
+    let (w, h, rgba) = match (patches, context.native_highlight.as_ref()) {
+        (Some(patches), _) => super::super::tile::render_saved_tile(
             raw,
             &context.active_model,
             absolute,
             quality,
             context.ae_gain,
+            context.haze.as_deref(),
             patches,
+            cancel,
         )?,
-        None => match context.native_highlight.as_ref() {
-            Some(frame) => {
-                if !std::ptr::eq(raw, frame.raw()) {
-                    return Err(Error::Pipeline(
-                        "native-detail source was replaced; prepare a new context".into(),
-                    ));
-                }
-                super::super::tile::render_scene_linear_tile_from_frame_context_cancellable_f32(
-                    frame,
-                    &context.active_model,
-                    absolute,
-                    None,
-                    context.ae_gain,
-                    cancel,
-                )?
+        (None, Some(frame)) => {
+            if !std::ptr::eq(raw, frame.raw()) {
+                return Err(Error::Pipeline(
+                    "native-detail source was replaced; prepare a new context".into(),
+                ));
             }
-            None => super::super::tile::render_scene_linear_tile_cancellable_f32(
-                raw,
+            super::super::tile::render_scene_linear_tile_from_frame_context_cancellable_f32(
+                frame,
                 &context.active_model,
                 absolute,
-                quality,
                 None,
                 context.ae_gain,
+                context.haze.as_deref(),
                 cancel,
-            )?,
-        },
+            )?
+        }
+        (None, None) => super::super::tile::render_scene_linear_tile_with_haze_cancellable_f32(
+            raw,
+            &context.active_model,
+            absolute,
+            quality,
+            context.ae_gain,
+            context.haze.as_deref(),
+            cancel,
+        )?,
     };
     let rgb: Vec<f32> = rgba
         .chunks_exact(4)
@@ -373,22 +460,26 @@ fn render_detail_tile_with_patches(
         raw.height,
     );
     let origin = (sx - crop.0, sy - crop.1);
-    display_prefix::apply(
-        &mut scene,
-        &context.model,
-        film_lut,
-        encode::TargetPrimaries::Srgb,
-        (origin, (crop.2, crop.3)),
-    );
-    let pixels: &mut [f32] = bytemuck::cast_slice_mut(&mut scene.pixels);
-    if let Some(curve) = &context.profile_curve {
-        auto_profile::apply_curve(pixels, curve);
-    }
-    if let Some(lut) = &context.profile_lut {
-        lut.apply_with_strength(pixels, auto_profile::lut::lut_strength_from_env());
-    }
-    if context.auto_guard {
-        encode::gamut_guard_display_encoded_srgb(&mut scene);
+    let window = (origin, (crop.2, crop.3));
+    if super::wide_gamut_auto::engaged(context.target, context.auto_guard) {
+        display_prefix::apply_linear(&mut scene, &context.model, film_lut, window);
+        super::wide_gamut_auto::encode_with_artifacts(
+            &mut scene,
+            context.profile_curve.as_ref(),
+            context.profile_lut.as_ref(),
+        );
+    } else {
+        display_prefix::apply(&mut scene, &context.model, film_lut, context.target, window);
+        let pixels: &mut [f32] = bytemuck::cast_slice_mut(&mut scene.pixels);
+        if let Some(curve) = &context.profile_curve {
+            auto_profile::apply_curve(pixels, curve);
+        }
+        if let Some(lut) = &context.profile_lut {
+            lut.apply_with_strength(pixels, auto_profile::lut::lut_strength_from_env());
+        }
+        if context.auto_guard {
+            encode::gamut_guard_display_encoded_srgb(&mut scene);
+        }
     }
     if cancel.is_cancelled() {
         return Err(Error::Cancelled);

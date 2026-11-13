@@ -40,4 +40,11 @@ public struct CloudHost: Equatable, Sendable {
 
     return CloudHost(url: url)
   }
+
+  /// The sign-in sheet's prefill for an existing server: the whole URL, so
+  /// `parse` keeps its scheme and port (#5033). A bare host re-parses as
+  /// `https://host`, a different server for `http://localhost:3000`.
+  public static func signInPrefill(for server: URL) -> String {
+    server.absoluteString
+  }
 }

@@ -76,6 +76,58 @@ fn max_abs_diff(a: &[f32], b: &[f32]) -> f32 {
         .fold(0.0_f32, f32::max)
 }
 
+/// Cover the common-highlight onset and shoulder across all channel orders.
+/// Build in inset space so the minimum straddles diffuse white explicitly.
+#[test]
+fn common_highlight_onset_and_shoulder_match_core_and_preserve_alpha() {
+    let ctx = GpuContext::new_blocking().expect("gpu context");
+    let outset = raw_core::view::agx::AGX_OUTSET_MATRIX;
+    let input: Vec<f32> = [
+        [8.0f32, 4.0, 1.0],
+        [8.0, 1.0, 4.0],
+        [4.0, 8.0, 1.0],
+        [1.0, 8.0, 4.0],
+        [4.0, 1.0, 8.0],
+        [1.0, 4.0, 8.0],
+    ]
+    .into_iter()
+    .flat_map(|inset| {
+        [0.999f32, 1.0, 1.001, 2.0, 16.3, 128.0, 1.0e6]
+            .into_iter()
+            .flat_map(move |scale| {
+                let scene = outset
+                    .map(|row| (row[0] * inset[0] + row[1] * inset[1] + row[2] * inset[2]) * scale);
+                [scene[0], scene[1], scene[2], 0.37]
+            })
+    })
+    .collect();
+    let count = (input.len() / 4) as u32;
+    let img = GpuImage::upload(&ctx, &input, count, 1);
+    let runner = ChainRunner::new(&ctx, &img);
+    for contrast in [-100.0f32, 0.0, 100.0] {
+        for whites in [-100.0f32, 0.0, 110.0] {
+            let reference = raw_core_agx(&input, contrast, whites);
+            let gpu = runner.run_blocking(&[&AgxPass { contrast, whites }]);
+            let mut scalar = input.clone();
+            apply_agx(&mut scalar, contrast, whites);
+            for (name, actual) in [("GPU", &gpu), ("scalar", &scalar)] {
+                let error = max_abs_diff(&reference, actual);
+                eprintln!(
+                    "common highlight {name}: contrast={contrast} whites={whites} error={error:e}"
+                );
+                assert!(actual.iter().all(|v| v.is_finite()));
+                assert!(
+                    error < 1e-4,
+                    "{name} contrast={contrast} whites={whites}: {error}"
+                );
+                for (pixel, original) in actual.chunks_exact(4).zip(input.chunks_exact(4)) {
+                    assert_eq!(pixel[3].to_bits(), original[3].to_bits());
+                }
+            }
+        }
+    }
+}
+
 /// THE PARITY GATE (the ticket's contract): the WGSL AgX kernel matches
 /// `raw_core::view::agx::apply_with_resolved_whites` — the actual Rust stage, via the test-only
 /// raw-core dev-dep — within 1e-4, at contrast 0. Exercises the neutral axis,

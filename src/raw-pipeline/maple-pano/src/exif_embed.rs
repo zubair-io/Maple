@@ -5,7 +5,8 @@
 //! panel:
 //!
 //! - IFD0 (TIFF root): Make, Model, Software, ExifIFD pointer, GPSInfo pointer
-//! - EXIF IFD: FNumber, ExposureTime, ISOSpeedRatings, LensModel, FocalLength
+//! - EXIF IFD: FNumber, ExposureTime, ISOSpeedRatings, LensModel, FocalLength,
+//!   DateTimeOriginal, DateTimeDigitized
 //! - GPS IFD: GPSLatitudeRef, GPSLatitude, GPSLongitudeRef, GPSLongitude
 //!   (populated only when the source frame carries GPS data)
 //!
@@ -43,6 +44,8 @@ const TAG_GPS_IFD: u16 = 0x8825;
 const TAG_EXPOSURE_TIME: u16 = 0x829A;
 const TAG_FNUMBER: u16 = 0x829D;
 const TAG_ISO: u16 = 0x8827;
+const TAG_DATE_TIME_ORIGINAL: u16 = 0x9003;
+const TAG_DATE_TIME_DIGITIZED: u16 = 0x9004;
 const TAG_FOCAL_LENGTH: u16 = 0x920A;
 const TAG_LENS_MODEL: u16 = 0xA434;
 
@@ -147,6 +150,36 @@ fn decimal_to_dms(decimal: f64) -> (u32, u32, u32) {
     let m = m_frac.floor() as u32;
     let s_ms = ((m_frac - m as f64) * 60.0 * 1000.0).round() as u32;
     (d, m, s_ms)
+}
+
+/// Normalise a capture time to the EXIF `YYYY:MM:DD HH:MM:SS` form. Accepts
+/// the ISO-8601 spelling some decoders report (`2015-11-14T14:26:58`) and
+/// drops anything after the seconds; returns `None` for non-timestamps and
+/// the all-zero stamp cameras write when their clock is unset.
+fn exif_datetime(raw: &str) -> Option<String> {
+    let head = raw.trim().get(..19)?;
+    let is_well_formed = head.bytes().enumerate().all(|(i, b)| match i {
+        4 | 7 => b == b':' || b == b'-',
+        10 => b == b' ' || b == b'T',
+        13 | 16 => b == b':',
+        _ => b.is_ascii_digit(),
+    });
+    let field = |from: usize| head[from..from + 2].parse::<u32>().unwrap_or(u32::MAX);
+    let is_real_clock = is_well_formed
+        && (1..=12).contains(&field(5))
+        && (1..=31).contains(&field(8))
+        && field(11) <= 23
+        && field(14) <= 59
+        && field(17) <= 59;
+    is_real_clock.then(|| {
+        head.char_indices()
+            .map(|(i, c)| match i {
+                4 | 7 => ':',
+                10 => ' ',
+                _ => c,
+            })
+            .collect()
+    })
 }
 
 /// Prepare a null-terminated, even-padded ASCII value.
@@ -383,6 +416,10 @@ pub fn build_exif_blob(exif: &Exif) -> Option<Vec<u8>> {
     }
     if let Some(lm) = &exif.lens_model {
         exif_entries.push(ascii_entry(TAG_LENS_MODEL, lm));
+    }
+    if let Some(taken) = exif.captured_at.as_deref().and_then(exif_datetime) {
+        exif_entries.push(ascii_entry(TAG_DATE_TIME_ORIGINAL, &taken));
+        exif_entries.push(ascii_entry(TAG_DATE_TIME_DIGITIZED, &taken));
     }
     exif_entries.sort_by_key(|e| e.tag);
 

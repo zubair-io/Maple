@@ -19,6 +19,7 @@ import { signal, type Signal } from '@angular/core';
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 
 import { ToneCurveComponent } from './tone-curve.component';
+import { EditorStateService } from '../../editor/editor-state.service';
 import { LibraryStateService } from '../../state/library-state.service';
 import { ImageCanvasService } from '../image-canvas/image-canvas.service';
 import { PLOT_SIZE } from './tone-curve.vm';
@@ -68,6 +69,7 @@ describe('ToneCurveComponent (#367)', () => {
       providers: [
         { provide: LibraryStateService, useValue: lib },
         { provide: ImageCanvasService, useValue: new CanvasStub() },
+        { provide: EditorStateService, useValue: { commit: vi.fn(), endEdit: vi.fn() } },
       ],
     });
     fixture = TestBed.createComponent(ToneCurveComponent);
@@ -267,6 +269,91 @@ describe('ToneCurveComponent (#367)', () => {
 
     panel.onParametricReset({ field: 'parametricDarks', label: 'Darks' });
     expect(lib.model().parametricDarks).toBe(0);
+  });
+
+  // ── Parametric split points & curve mode (#5039) ────────────────────────
+
+  it('switches toneCurveMode between PerChannel and RatioPreserving', () => {
+    expect(lib.model().toneCurveMode).toBe('PerChannel');
+    fixture.nativeElement.querySelector('[data-testid="tone-curve-mode-RatioPreserving"]').click();
+    fixture.detectChanges();
+    expect(lib.model().toneCurveMode).toBe('RatioPreserving');
+
+    fixture.nativeElement.querySelector('[data-testid="tone-curve-mode-PerChannel"]').click();
+    fixture.detectChanges();
+    expect(lib.model().toneCurveMode).toBe('PerChannel');
+  });
+
+  it('ignores unrelated touch pointers while dragging a split', () => {
+    plot();
+    const handle: Element = fixture.nativeElement.querySelector(
+      '[data-testid="tone-curve-split-shadow"]',
+    );
+    const touch = (type: string, id: number, x = 0.8) =>
+      new PointerEvent(type, {
+        pointerId: id,
+        pointerType: 'touch',
+        button: 0,
+        clientX: x * 200,
+        clientY: 196,
+        bubbles: true,
+      });
+    handle.dispatchEvent(touch('pointerdown', 7, 0.25));
+    handle.dispatchEvent(touch('pointerdown', 9));
+    window.dispatchEvent(touch('pointermove', 9));
+    expect(lib.model().parametricShadowSplit).toBe(25);
+    window.dispatchEvent(touch('pointerup', 9));
+    window.dispatchEvent(touch('pointercancel', 9));
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('.region-window')).toBeTruthy();
+    window.dispatchEvent(touch('pointermove', 7));
+    expect(lib.model().parametricShadowSplit).toBe(45);
+    window.dispatchEvent(touch('pointerup', 7));
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('.region-window')).toBeNull();
+  });
+
+  it('drags and clamps parametric split diamonds and shades active region window', () => {
+    const shadowDiamond: Element = fixture.nativeElement.querySelector(
+      '[data-testid="tone-curve-split-shadow"]',
+    );
+    expect(shadowDiamond).toBeTruthy();
+    plot();
+
+    // Drag shadow split toward 80 -> clamped to midtone (50) - 5 = 45
+    shadowDiamond.dispatchEvent(pointer('pointerdown', 0.25, 0.02));
+    fixture.detectChanges();
+    // Active region shading should appear during split drag
+    expect(fixture.nativeElement.querySelector('.region-window')).toBeTruthy();
+
+    window.dispatchEvent(pointer('pointermove', 0.8, 0.02));
+    window.dispatchEvent(new PointerEvent('pointerup'));
+    fixture.detectChanges();
+
+    expect(lib.model().parametricShadowSplit).toBe(45);
+    expect(fixture.nativeElement.querySelector('.region-window')).toBeNull();
+
+    // Reset splits button resets all 3 to 25 / 50 / 75
+    fixture.nativeElement.querySelector('[data-testid="tone-curve-reset-splits"]').click();
+    fixture.detectChanges();
+    expect(lib.model().parametricShadowSplit).toBe(25);
+  });
+
+  it('shows selected knot readout and deletes interior knot via delete button', () => {
+    plot().dispatchEvent(pointer('pointerdown', 0.5, 0.7));
+    flushFrame();
+    window.dispatchEvent(new PointerEvent('pointerup'));
+    fixture.detectChanges();
+
+    const readout = fixture.nativeElement.querySelector('[data-testid="tone-curve-knot-readout"]');
+    expect(readout?.textContent).toContain('input 50%, output 70%');
+
+    const delBtn = fixture.nativeElement.querySelector('[data-testid="tone-curve-delete-knot"]');
+    expect(delBtn).toBeTruthy();
+    delBtn.click();
+    fixture.detectChanges();
+
+    expect(lib.model().toneCurveLuma.points).toEqual([]);
   });
 
   // ── Display-referred family (#2232) ─────────────────────────────────────

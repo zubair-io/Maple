@@ -10,7 +10,7 @@ import { rejectLegacyAiWrite } from '../../routes/ai-legacy-write.ts';
  * DB-backed config, not env vars, per the CLAUDE.md settings rule — the
  * worker re-reads on its next pass, so a change takes effect with no restart
  * and no shell access on the server. The worker starts PAUSED (it needs
- * Ollama configured), so `paused: false` here is what actually turns the
+ * a text model configured), so `paused: false` here is what actually turns the
  * feature on.
  */
 
@@ -20,17 +20,24 @@ import {
   saveGeneratedSearchConfig,
   type GeneratedSearchConfig,
 } from './config.repo.ts';
-import { startRunNow } from './run-now.ts';
+import { requestMaintenanceRun } from '../maintenance/run-now.repo.ts';
+import { GENERATED_SEARCH_TASK, generatedSearchRunBusy } from './run-now.ts';
+import { loadLatestRunRecord } from './run-state.repo.ts';
 
 export const generatedSearchConfigRoutes = new Elysia({ prefix: '/api/workers' })
   .get('/generated-search/config', async () => {
     return await loadGeneratedSearchConfig();
   })
 
-  // Kick one pass now, returning immediately. Bypasses the pause gate (see
-  // run-now.ts — that is the point of the button); refuses a second click
-  // while a run is in flight.
-  .post('/generated-search/run', () => startRunNow())
+  // The most recent attempt across libraries, so a stalled schedule shows on
+  // Settings → Workers instead of only as an absence of new collections.
+  .get('/generated-search/last-run', async () => ({ last_run: await loadLatestRunRecord() }))
+
+  .post('/generated-search/run', async () => {
+    if (await generatedSearchRunBusy()) return { started: false, reason: 'already-running' };
+    await requestMaintenanceRun(GENERATED_SEARCH_TASK, { force: true });
+    return { started: true };
+  })
 
   .patch(
     '/generated-search/config',

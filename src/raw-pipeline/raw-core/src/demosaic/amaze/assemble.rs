@@ -104,7 +104,10 @@ pub(super) fn finish_tile(
 
     // --- G. Final assembly (engine 1455–1559). R/B at a G site come from
     // the hvwt-weighted 4-cardinal Dgrb; at a chroma site the opposite
-    // chroma comes directly from green − Dgrb.
+    // chroma comes directly from green − Dgrb. That opposite chroma stays
+    // signed: a negative value marks the directional kernel extrapolating
+    // the colour difference past green, which `fcs` resolves and clamps
+    // (#4123).
     for rr in 16..t.rr1 - 16 {
         let band_row = (rr - 16) * w;
         for cc in 16..t.cc1 - 16 {
@@ -133,8 +136,8 @@ pub(super) fn finish_tile(
                 px[0] = r.max(0.0);
                 px[2] = b.max(0.0);
             } else {
-                px[0] = (g - s.dgrb0[i >> 1]).max(0.0);
-                px[2] = (g - s.dgrb1[i >> 1]).max(0.0);
+                px[0] = g - s.dgrb0[i >> 1];
+                px[2] = g - s.dgrb1[i >> 1];
                 px[c] = s.cfa[i];
             }
 

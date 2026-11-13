@@ -39,7 +39,9 @@ fn raw() -> RawImage {
         crop_rect: None,
         iso: 100,
         noise_profile: None,
+        sensor_gain_maps: None,
         opcode_list3: None,
+        opcode_skips: Vec::new(),
         aperture: Some(4.0),
         focal_length: Some(35.0),
         lens_metadata: LensMetadata {
@@ -110,7 +112,7 @@ fn an_embedded_opcode_list_takes_priority_over_any_external_profile() {
     raw.opcode_list3 = Some((
         OpcodeList3 {
             opcodes: vec![],
-            skipped_unknown: 0,
+            skipped: Vec::new(),
         },
         ActiveAreaRect::full(8, 8),
     ));

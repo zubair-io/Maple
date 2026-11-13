@@ -29,7 +29,7 @@ import { EditorStateService } from '../../editor/editor-state.service';
 import type { AdjustmentModel } from '../../models/adjustment-model';
 import { MuiSelectComponent } from '../../ui/select/mui-select.component';
 import { WHITE_BALANCE_PRESETS } from '../../generated/white-balance-presets.generated';
-import { isSupportedRaw } from '../../state/raw-extensions';
+import { eyedropperUnavailableForFile, isSupportedRaw } from '../../state/raw-extensions';
 import { ADJUSTMENT_RANGES } from '../../generated/adjustment-tables.generated';
 
 const [TEMP_MIN, TEMP_MAX] = ADJUSTMENT_RANGES.temperature;
@@ -81,6 +81,12 @@ export class WbPadComponent {
     return model?.whiteBalancePreset === 'Custom' && model.wbSource === 'AsShot'
       ? 'As Shot'
       : (model?.whiteBalancePreset ?? 'As Shot');
+  });
+  readonly eyedropperUnavailable = computed(() => {
+    const id = this.library.focusedAssetId();
+    return eyedropperUnavailableForFile(
+      this.library.assets().find((item) => item.id === id)?.filename,
+    );
   });
   readonly presetDisabled = computed(
     () => this.editor.autoInFlight() || this.editor.wbSampleInFlight(),
@@ -190,7 +196,7 @@ export class WbPadComponent {
       }
       return;
     }
-    if (this.presetDisabled()) return;
+    if (this.presetDisabled() || this.eyedropperUnavailable() !== null) return;
     const id = this.library.focusedAssetId();
     if (!id) return;
     this.eyedropperActive.set(true);

@@ -9,6 +9,7 @@ import type * as BunFfi from 'bun:ffi';
 
 const RC_NEED_LARGER_BUFFER = 100;
 const INITIAL_RESULT_BYTES = 256 * 1024;
+const EMBEDDING_DIMS = 1024;
 
 export interface SearchEngineConfig {
   index_dir: string;
@@ -26,15 +27,23 @@ export interface FusedSearchHit {
   textRank: number | null;
 }
 
+/** One asset's keyword document: the embedder template and its `search_blob`. */
+export interface SearchText {
+  template: string;
+  blob: string;
+}
+
 /** One open engine. Every method throws with the library's own error message on failure. */
 export interface SearchEngine {
   loadVectors(vectors: Uint8Array, ids: readonly string[]): void;
-  upsert(id: string, vector: Float32Array | null, text: string | null): void;
+  upsert(id: string, vector: Float32Array | null, text: SearchText | null): void;
   delete(id: string): void;
   clearText(): void;
   commit(): void;
   counts(): { vectors: number; texts: number };
   query(query: string, k: number): FusedSearchHit[];
+  /** One unit bge-m3 vector per text, in input order — the `embed` stage's document vectors. */
+  embed(texts: readonly string[]): Float32Array[];
   close(): void;
 }
 
@@ -61,6 +70,10 @@ function openLibrary(libPath: string) {
       returns: FFIType.i32,
     },
     maple_search_upsert: {
+      args: [FFIType.ptr, FFIType.ptr, FFIType.ptr, FFIType.u64, FFIType.ptr, FFIType.ptr],
+      returns: FFIType.i32,
+    },
+    maple_search_embed: {
       args: [FFIType.ptr, FFIType.ptr, FFIType.ptr, FFIType.u64, FFIType.ptr],
       returns: FFIType.i32,
     },
@@ -85,7 +98,8 @@ export function openSearchEngine(config: SearchEngineConfig): SearchEngine {
     if (rc !== 0) fail(call, rc);
   };
 
-  const handle = symbols.maple_search_open(ptr(cstr(JSON.stringify(config))));
+  const configBytes = cstr(JSON.stringify(config));
+  const handle = symbols.maple_search_open(ptr(configBytes));
   if (handle === null) throw new Error(`maple_search_open: ${String(symbols.maple_last_error())}`);
 
   let results = Buffer.alloc(INITIAL_RESULT_BYTES);
@@ -115,19 +129,26 @@ export function openSearchEngine(config: SearchEngineConfig): SearchEngine {
       );
     },
     upsert(id, vector, text) {
+      // `ptr()` does not keep its buffer alive: an inline `ptr(cstr(...))` can be collected
+      // before the call reads it (measured: 6 garbled ids in 300k upserts), so each is bound here.
+      const idBytes = cstr(id);
+      const templateBytes = text === null ? null : cstr(text.template);
+      const blobBytes = text === null ? null : cstr(text.blob);
       check(
         'maple_search_upsert',
         symbols.maple_search_upsert(
           handle,
-          ptr(cstr(id)),
+          ptr(idBytes),
           vector === null ? null : ptr(vector),
           vector?.length ?? 0,
-          text === null ? null : ptr(cstr(text)),
+          templateBytes === null ? null : ptr(templateBytes),
+          blobBytes === null ? null : ptr(blobBytes),
         ),
       );
     },
     delete(id) {
-      check('maple_search_delete', symbols.maple_search_delete(handle, ptr(cstr(id))));
+      const idBytes = cstr(id);
+      check('maple_search_delete', symbols.maple_search_delete(handle, ptr(idBytes)));
     },
     clearText() {
       check('maple_search_clear_text', symbols.maple_search_clear_text(handle));
@@ -154,6 +175,17 @@ export function openSearchEngine(config: SearchEngineConfig): SearchEngine {
         vectorRank: hit.vector_rank,
         textRank: hit.text_rank,
       }));
+    },
+    embed(texts) {
+      if (texts.length === 0) return [];
+      const textsJson = cstr(JSON.stringify(texts));
+      const out = new Float32Array(texts.length * EMBEDDING_DIMS);
+      const outLength = new BigUint64Array(1);
+      check(
+        'maple_search_embed',
+        symbols.maple_search_embed(handle, ptr(textsJson), ptr(out), out.length, ptr(outLength)),
+      );
+      return texts.map((_, row) => out.slice(row * EMBEDDING_DIMS, (row + 1) * EMBEDDING_DIMS));
     },
     close() {
       symbols.maple_search_close(handle);

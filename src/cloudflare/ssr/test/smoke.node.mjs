@@ -12,7 +12,7 @@ const policy = {
 	'referrer-policy': 'no-referrer',
 };
 const assets = {
-	'/raw_wasm_bg.wasm': ['application/wasm', Buffer.from([0, 97, 115, 109, 1, 0, 0, 0, 255])],
+	'/pkg/raw_wasm_bg.wasm': ['application/wasm', Buffer.from([0, 97, 115, 109, 1, 0, 0, 0, 255])],
 	'/assets/brand/icon-512.png': ['image/png', Buffer.from([137, 80, 78, 71, 13, 10, 26, 10, 255])],
 	'/assets/fonts/Lato-Regular.woff2': ['font/woff2', Buffer.from([119, 79, 70, 50, 0, 255])],
 	'/ngsw.json': ['application/json', Buffer.from('{"hashTable":{}}')],
@@ -98,7 +98,7 @@ for (const path of Object.keys(assets)) {
 	});
 }
 
-for (const path of ['/', '/raw_wasm_bg.wasm', '/browse/smoke-check-library/does-not-exist']) {
+for (const path of ['/', '/pkg/raw_wasm_bg.wasm', '/browse/smoke-check-library/does-not-exist']) {
 	test(`CLI requires security headers on ${path}`, async () => {
 		const result = await runSmoke((requestPath, response) => {
 			if (requestPath === path) delete response.headers['cross-origin-embedder-policy'];
@@ -151,7 +151,7 @@ test('CLI requests the root as an HTML navigation, matching the SPA fallback con
 
 test('CLI compares decoded compressed bytes to the origin without mistaking wire Content-Length for decoded length', async () => {
 	const result = await runSmoke((path, response) => {
-		if (path !== '/raw_wasm_bg.wasm') return;
+		if (path !== '/pkg/raw_wasm_bg.wasm') return;
 		response.body = gzipSync(response.body);
 		response.headers['content-encoding'] = 'gzip';
 		response.headers['content-length'] = String(response.body.length);

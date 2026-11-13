@@ -6,6 +6,17 @@
  * always AVIF; only paths and render settings cross IPC.
  */
 import { ffiPool } from '../ffi/ffi-pool.ts';
+import { throwIfPermanentSourceFailure } from './source-failure.ts';
+
+/** Throw when a bitmap render failed because the decoder rejected the source. */
+export async function throwIfSourceRejected(
+  result: { ok: boolean; error?: string },
+  srcPath: string,
+): Promise<void> {
+  if (!result.ok && result.error !== undefined) {
+    await throwIfPermanentSourceFailure(result.error, srcPath);
+  }
+}
 
 export function renderImageThumbToFileViaPool(
   srcPath: string,
@@ -13,8 +24,9 @@ export function renderImageThumbToFileViaPool(
   maxPx: number,
   quality: number,
   ext: string,
+  applyCrop = false,
 ): Promise<{ ok: boolean; error?: string }> {
-  return ffiPool().renderBitmapThumbToFile(srcPath, outPath, maxPx, quality, ext);
+  return ffiPool().renderBitmapThumbToFile(srcPath, outPath, maxPx, quality, ext, applyCrop);
 }
 
 export function validateAvifViaPool(

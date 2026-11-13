@@ -383,8 +383,9 @@ export class BrowseShellComponent {
 
     const fid = this.state.focusedAssetId();
 
-    // F2: inline rename the focused asset (#2637) — same shared field the
-    // grid cell / info panel double-click opens.
+    // F2: inline rename the focused asset (#2637) — the field opens over the
+    // focused tile (`maple-asset-tile`), the same shared field the Info
+    // panel's filename row opens.
     if (e.key === 'F2' && fid) {
       const asset = this.state.focusedAsset();
       if (asset) this.renameSvc.startEditing(asset);

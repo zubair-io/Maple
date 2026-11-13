@@ -167,6 +167,7 @@ mod tests {
                     highlight: [40.0, sat, 0.0],
                     global: [0.0, 0.0, 0.0],
                     balance: 0.0,
+                    ..Default::default()
                 },
             );
             rec2020_to_srgb(&mut img);

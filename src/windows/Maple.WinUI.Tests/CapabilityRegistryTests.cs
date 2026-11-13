@@ -52,9 +52,8 @@ namespace Maple.WinUI.Tests
         }
 
         [Fact]
-        public void BuildIdentityIsPositive()
+        public void SchemaVersionIsPositive()
         {
-            Assert.True(CapabilityRegistry.PipelineOutputVersion > 0);
             Assert.True(CapabilityRegistry.SchemaVersion > 0);
         }
     }

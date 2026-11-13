@@ -19,7 +19,7 @@ use crate::{
     film,
     image::{Image, RawImage},
     types::adjustment::{AutoExposureMode, Profile},
-    view::{auto_profile, encode},
+    view::{auto_profile, auto_profile::AutoFitOutcome, encode},
     xmp::AdjustmentModel,
 };
 
@@ -27,12 +27,10 @@ use crate::{
 /// keep this file under the size budget; re-exported so `pipeline::{…}` and the
 /// FFI keep resolving `fit_profile_curve_from_raw` / `fit_auto_profile_from_raw`.
 mod auto_fit;
-mod auto_fit_native;
 pub use auto_fit::{
     cached_auto_profile_fit, fit_auto_profile_from_raw, fit_auto_profile_from_raw_at_cap,
-    fit_profile_curve_from_raw, FitCap,
+    fit_profile_curve_from_raw, FitArtifacts, FitCap,
 };
-pub use auto_fit_native::fit_native_auto_profile_cancellable;
 
 // Sized display render + `native_render_dims` (#1101) — size-budget split.
 mod sized;
@@ -42,25 +40,34 @@ pub use sized::{
 };
 
 // The orientation + crop tail, shared by the display and export depths (#943).
+mod cpu_preview;
+pub use cpu_preview::CpuPreview;
 mod detail;
 mod display_prefix;
 mod finish;
+mod wide_gamut_auto;
 pub use detail::{
     render_detail_base, render_detail_base_cancellable, render_detail_base_retained,
-    render_detail_tile, render_detail_tile_cancellable, DetailContext, DetailRenderOptions,
+    render_detail_base_retained_cancellable, render_detail_tile, render_detail_tile_cancellable,
+    DetailContext, DetailRenderOptions,
 };
 
 // Export render — the display chain at a caller-chosen depth / primaries (#943).
 mod export;
+// The same display tail kept at f32 for a destination encoder (#5163).
 mod float_export;
-pub use float_export::render_export_f32;
+// Display render that also reports the crop-input extent removal geometry inverts (#3941).
+mod display_geometry;
+pub use display_geometry::{render_display_with_geometry, DisplayRender};
 pub(super) mod removal;
+use removal::SavedRemovals;
 mod removal_scene_linear;
 pub use export::{
     decode_raster_base, render_export_from_raw, render_export_from_raw_with_film,
     render_export_raster, render_export_raster_cancellable, validate_raster_adjustments,
     ExportDepth, ExportPixels, RasterDetailImage,
 };
+pub use float_export::render_export_f32;
 
 // Synthetic-input render entries — the view transform applied to an already
 // scene-linear buffer (#943 size-budget split); re-exported so `pipeline::{…}`
@@ -68,8 +75,20 @@ pub use export::{
 mod synthetic;
 pub use synthetic::{render_from_scene_linear, render_from_scene_linear_with_chain};
 
+// Public 8-bit display render entries (size-budget split, #482).
+mod entries;
+pub use entries::{
+    render_from_raw, render_from_raw_with_quality, render_from_raw_with_quality_and_source,
+    render_from_raw_with_quality_source_and_film,
+};
 // Scene-linear (no-view-tail) render entries — fp16/f32 RGBA pack + orient
 // (#1170 size-budget split); re-exported so `pipeline::{…}` keeps resolving them.
+mod capture;
+pub(in crate::pipeline) use capture::render_capture_sized_sensor_framed_from_camera;
+pub use capture::{
+    finish_capture_refine, render_capture_from_raw_f32, render_capture_sized_from_raw_f32,
+    render_capture_sized_sensor_framed_f32, render_capture_with_base_from_raw_f32, CaptureRender,
+};
 mod scene_linear;
 pub use scene_linear::{
     render_scene_linear_from_raw_with_quality, render_scene_linear_from_raw_with_quality_f32,
@@ -100,77 +119,6 @@ pub enum RawInput<'a> {
     Bytes { bytes: &'a [u8], ext: &'a str },
 }
 
-/// Per spec § 02 filter chain, slice-1 through slice-5 subset:
-/// * Highlight reconstruction (§ 3.3a), SceneToneControls (§ 3.6 steps 1-5),
-///   Vibrance + Saturation (§ 3.7, Oklab), Clarity + Texture (§ 3.8),
-///   Dehaze (§ 3.9), Richardson-Lucy sharpen (§ 3.10, 3-iter, Gaussian PSF),
-///   simplified NR (§ 3.11, L-blur + chroma-blur in Oklab).
-/// * Crop (§ 3.12) skipped — no slice-5 fixture exercises it; lands with
-///   canonical XMP in slice 7.
-/// * Tone curves (§ 3.6 steps 6-7) deferred to slice 7; § 3.6b's
-///   DisplayReferredCurve landed later as `stages::display_tone_curve` (#2232).
-/// * AgX is the Sobotka power-curve approximation (slice-6 retightens).
-pub fn render_from_raw(raw: &RawImage, model: &AdjustmentModel) -> Result<(u32, u32, Vec<u8>)> {
-    render_from_raw_with_quality_and_source(raw, model, RenderQuality::Full, None)
-}
-
-pub fn render_from_raw_with_quality(
-    raw: &RawImage,
-    model: &AdjustmentModel,
-    quality: RenderQuality,
-) -> Result<(u32, u32, Vec<u8>)> {
-    render_from_raw_with_quality_and_source(raw, model, quality, None)
-}
-
-/// Render entry that carries the RAW source through to the view
-/// transform — required by `Profile::Auto` (Auto Profile Phase 1, #537),
-/// which reads the embedded JPEG preview to fit a per-image tone curve.
-///
-/// `raw_source` is `Option<RawInput<'_>>` rather than mandatory:
-/// - CLI / Apple FFI / tests pass `Some(RawInput::Path(_))` — the natural
-///   shape for code that already has a file path.
-/// - `raw-wasm::render_bytes` passes `Some(RawInput::Bytes(_))` — the
-///   browser only ever has the RAW in memory; PR-B (#555) wires this
-///   through so Auto Profile lights up on the web.
-/// - The legacy `maple_render_bytes` FFI entry still passes `None` (its
-///   only consumer doesn't surface a profile selector yet). On that path
-///   Auto Profile is unavailable and the view tail falls back to AgX —
-///   the same byte-for-byte result as `Profile::Neutral`.
-///
-/// The full Auto Profile flow runs whenever the caller supplies a source
-/// AND `model.profile == Profile::Auto` AND the JPEG extraction + curve
-/// fit succeeds.
-pub fn render_from_raw_with_quality_and_source(
-    raw: &RawImage,
-    model: &AdjustmentModel,
-    quality: RenderQuality,
-    raw_source: Option<RawInput<'_>>,
-) -> Result<(u32, u32, Vec<u8>)> {
-    render_display_from_raw(raw, model, quality, raw_source, None, None)
-}
-
-/// Sibling of [`render_from_raw_with_quality_and_source`] that also threads
-/// a baked film-look LUT (Task 1 [`film::FilmLut`]) through to the
-/// `film_look` stage (Task 3) between `color_grade` and `grain`. This is
-/// the single entry every host (CLI, Apple FFI, WASM) calls when a look is
-/// active (epic #2683).
-///
-/// `film_lut: None` renders byte-identical to
-/// [`render_from_raw_with_quality_and_source`] regardless of
-/// `model.film_look` / `model.film_strength` — a host that can't resolve
-/// the `.mlut` asset (missing file, disabled catalog) passes `None` and
-/// gets the exact no-look render rather than a render with dangling
-/// look-selection state.
-pub fn render_from_raw_with_quality_source_and_film(
-    raw: &RawImage,
-    model: &AdjustmentModel,
-    quality: RenderQuality,
-    raw_source: Option<RawInput<'_>>,
-    film_lut: Option<&film::FilmLut>,
-) -> Result<(u32, u32, Vec<u8>)> {
-    render_display_from_raw(raw, model, quality, raw_source, None, film_lut)
-}
-
 /// Display-encoded entry: [`render_display_scene`] into sRGB primaries, then
 /// the 8-bit terminal quantize and the geometry tail. Private to this module
 /// tree — the unsized wrapper above and the sized wrapper (`render/sized.rs`)
@@ -184,58 +132,20 @@ fn render_display_from_raw(
     film_lut: Option<&film::FilmLut>,
 ) -> Result<(u32, u32, Vec<u8>)> {
     render_from_raw_with_auto_fit(raw, model, quality, raw_source, max_long_edge, film_lut)
-        .map(|(w, h, pixels, _)| (w, h, pixels))
+        .map(|(w, h, bytes, _)| (w, h, bytes))
 }
 
-/// Display render with the actual Auto tail outcome (#4096). `None` means
-/// Auto was not selected; `Some(false)` means no usable fit was applied.
-/// Retains the existing render's result, without a second fit or source probe.
-/// Actual oriented crop-input extent, measured from the developed display
-/// buffer rather than estimated from sensor dimensions (#3941).
-pub struct DisplayRender {
-    pub pixels: (u32, u32, Vec<u8>),
-    pub crop_input_size: [u32; 2],
-    pub auto_fit: Option<bool>,
-}
-
-impl DisplayRender {
-    pub fn from_quantized(
-        bytes: Vec<u8>,
-        width: u32,
-        height: u32,
-        orientation: crate::image::ExifOrientation,
-        model: &AdjustmentModel,
-        auto_fit: Option<bool>,
-    ) -> Self {
-        let crop_input_size = if orientation.swaps_wh() {
-            [height, width]
-        } else {
-            [width, height]
-        };
-        let pixels = finish::apply_geometry(
-            bytes,
-            width,
-            height,
-            orientation,
-            &crate::stages::perspective::Perspective::from_model(model),
-            &model.crop,
-        );
-        Self {
-            pixels,
-            crop_input_size,
-            auto_fit,
-        }
-    }
-}
-
-pub fn render_display_with_geometry(
+/// Display render with the actual Auto tail outcome (#4096, #5458). `None`
+/// means Auto was not selected. Retains the existing render's result, without
+/// a second fit or source probe.
+pub fn render_from_raw_with_auto_fit(
     raw: &RawImage,
     model: &AdjustmentModel,
     quality: RenderQuality,
     raw_source: Option<RawInput<'_>>,
     max_long_edge: Option<u32>,
     film_lut: Option<&film::FilmLut>,
-) -> Result<DisplayRender> {
+) -> Result<(u32, u32, Vec<u8>, Option<AutoFitOutcome>)> {
     let (mut scene, context) = render_display_scene_with_context(
         raw,
         model,
@@ -249,23 +159,16 @@ pub fn render_display_with_geometry(
     let bytes = stage("dither_and_quantize", || {
         encode::dither_and_quantize(&mut scene)
     });
-    let auto_fit = (model.profile == Profile::Auto)
-        .then_some(context.profile_curve.is_some() || context.profile_lut.is_some());
-    Ok(DisplayRender::from_quantized(bytes, w, h, raw.orientation, model, auto_fit))
-}
-
-/// Display render plus the actual Auto tail outcome (#4096).
-pub fn render_from_raw_with_auto_fit(
-    raw: &RawImage,
-    model: &AdjustmentModel,
-    quality: RenderQuality,
-    raw_source: Option<RawInput<'_>>,
-    max_long_edge: Option<u32>,
-    film_lut: Option<&film::FilmLut>,
-) -> Result<(u32, u32, Vec<u8>, Option<bool>)> {
-    let rendered = render_display_with_geometry(raw, model, quality, raw_source, max_long_edge, film_lut)?;
-    let (w, h, bytes) = rendered.pixels;
-    Ok((w, h, bytes, rendered.auto_fit))
+    let auto_fit = context.auto_fit;
+    let (w, h, bytes) = finish::apply_geometry(
+        bytes,
+        w,
+        h,
+        raw.orientation,
+        &crate::stages::perspective::Perspective::from_model(model),
+        &model.crop,
+    );
+    Ok((w, h, bytes, auto_fit))
 }
 
 /// Shared body of every display-referred render: develop (full-res or
@@ -310,7 +213,7 @@ fn render_display_scene_with_context(
     target: encode::TargetPrimaries,
     film_lut: Option<&film::FilmLut>,
 ) -> Result<(Image, DetailContext)> {
-    render_display_scene_with_removals(
+    render_display_scene_with_context_cancellable(
         raw,
         model,
         quality,
@@ -319,11 +222,14 @@ fn render_display_scene_with_context(
         target,
         film_lut,
         crate::CancelToken::never(),
+        false,
         None,
     )
+    .map(|(scene, context, _)| (scene, context))
 }
 
-fn render_display_scene_with_removals(
+#[allow(clippy::too_many_arguments)]
+fn render_display_scene_with_context_cancellable(
     raw: &RawImage,
     model: &AdjustmentModel,
     quality: RenderQuality,
@@ -332,11 +238,12 @@ fn render_display_scene_with_removals(
     target: encode::TargetPrimaries,
     film_lut: Option<&film::FilmLut>,
     cancel: crate::CancelToken<'_>,
-    removals: Option<(
-        &super::ResolvedCalibrationRemovals,
-        &crate::types::accepted_removal::ContentDigest,
-    )>,
-) -> Result<(Image, DetailContext)> {
+    capture_prefix: bool,
+    removals: SavedRemovals<'_>,
+) -> Result<(Image, DetailContext, Option<Image>)> {
+    if cancel.is_cancelled() {
+        return Err(crate::error::Error::Cancelled);
+    }
     // Section 0 (Auto Profile root-cause fix): when Profile=Auto and we
     // will actually fit a curve, force AutoExposureMode::Off so the fitted
     // curve owns the entire scene→JPEG brightness relationship. Otherwise
@@ -381,20 +288,18 @@ fn render_display_scene_with_removals(
         .as_ref()
         .and_then(auto_profile::cache::get_lut);
     let cached_curve = auto_cache_key.as_ref().and_then(auto_profile::cache::get);
-    let preview = if !auto_profile_disabled
-        && model.profile == Profile::Auto
-        && (cached_curve.is_none() || cached_lut.is_none())
-    {
-        match &raw_source {
-            Some(RawInput::Path(p)) => auto_profile::preview::extract_for_fit(p),
-            Some(RawInput::Bytes { bytes, ext }) => {
-                auto_profile::preview::extract_for_fit_from_bytes(bytes, ext)
-            }
-            None => None,
+    let probe = match &raw_source {
+        Some(source)
+            if !auto_profile_disabled
+                && model.profile == Profile::Auto
+                && (cached_curve.is_none() || cached_lut.is_none()) =>
+        {
+            Some(auto_fit::preview_for_fit(source, auto_cache_key.as_ref()))
         }
-    } else {
-        None
+        _ => None,
     };
+    let missing_preview = probe.as_ref().and_then(|p| p.as_ref().err().copied());
+    let preview = probe.and_then(std::result::Result::ok);
     let auto_will_fit = cached_curve.is_some() || cached_lut.is_some() || preview.is_some();
     // Profile::Auto pins auto-exposure OFF because the Auto Profile tail owns the
     // scene→JPEG brightness mapping: the #550 curve is fit against the AE-Off
@@ -420,17 +325,19 @@ fn render_display_scene_with_removals(
     } else {
         model
     };
-    let (mut scene, ae_gain) = if let Some((stack, original)) = removals {
-        stack.develop_with_gain(
-            raw,
-            original,
-            active_model,
-            quality,
-            max_long_edge,
-            cancel,
-        )?
+    let (mut scene, ae_gain, prefix) = if let Some((stack, original)) = removals {
+        let (scene, gain) =
+            stack.develop_with_gain(raw, original, active_model, quality, max_long_edge, cancel)?;
+        (scene, gain, None)
+    } else if capture_prefix {
+        let mle = max_long_edge.expect("resident CPU preview always has a viewport cap");
+        let (prefix, gain) =
+            super::develop_sized::develop_sized_prefix(raw, active_model, quality, mle, cancel)?;
+        let mut scene = prefix.clone();
+        super::sized_detail::apply(&mut scene, raw, active_model, cancel)?;
+        (scene, gain, Some(prefix))
     } else {
-        match max_long_edge {
+        let (scene, gain) = match max_long_edge {
             // Sized: early-downsample develop — post-demosaic stages run on the
             // viewport-sized buffer. `None` keeps the unsized entry byte-for-byte.
             Some(mle) => develop_scene_linear_sized_from_raw_with_quality_cancellable_with_gain(
@@ -440,12 +347,14 @@ fn render_display_scene_with_removals(
                 mle,
                 cancel,
             )?,
-            None => {
-                develop_scene_linear_from_raw_with_quality_cancellable_with_gain(
-                    raw, active_model, quality, cancel,
-                )?
-            }
-        }
+            None => develop_scene_linear_from_raw_with_quality_cancellable_with_gain(
+                raw,
+                active_model,
+                quality,
+                cancel,
+            )?,
+        };
+        (scene, gain, None)
     };
 
     if cancel.is_cancelled() {
@@ -453,7 +362,15 @@ fn render_display_scene_with_removals(
     }
     let whites_anchor_ev = scene.whites_anchor_ev;
     let full = (scene.width, scene.height);
-    display_prefix::apply(&mut scene, model, film_lut, target, ((0, 0), full));
+    let wide_gamut_auto = wide_gamut_auto::engaged(
+        target,
+        model.profile == Profile::Auto && raw_source.is_some(),
+    );
+    if wide_gamut_auto {
+        display_prefix::apply_linear(&mut scene, model, film_lut, ((0, 0), full));
+    } else {
+        display_prefix::apply(&mut scene, model, film_lut, target, ((0, 0), full));
+    }
     // Auto Profile (#537/#913) — the per-image color tail toward the embedded
     // JPEG, in f32 sRGB-encoded display space: the #550 per-channel curve, then a
     // residual 3D LUT fit on the curved buffer. The fit samples the PINNED
@@ -469,31 +386,43 @@ fn render_display_scene_with_removals(
     let mut artifacts = (None, None);
     if model.profile == Profile::Auto && raw_source.is_some() {
         artifacts = stage("auto_profile", || {
-            auto_fit::run_auto_profile_stage(
-                &mut scene,
-                raw,
-                model,
-                active_model,
-                quality,
-                max_long_edge,
-                preview,
-                auto_cache_key.as_ref(),
-                cached_curve,
-                cached_lut,
-            )
+            if wide_gamut_auto {
+                auto_fit::fit_artifacts_from_pinned_develop(
+                    raw,
+                    model,
+                    quality,
+                    max_long_edge,
+                    preview,
+                    auto_cache_key.as_ref(),
+                    cached_curve,
+                    cached_lut,
+                )
+            } else {
+                auto_fit::run_auto_profile_stage(
+                    &mut scene,
+                    raw,
+                    model,
+                    active_model,
+                    quality,
+                    max_long_edge,
+                    film_lut,
+                    target,
+                    preview,
+                    auto_cache_key.as_ref(),
+                    cached_curve,
+                    cached_lut,
+                )
+            }
         });
         if cancel.is_cancelled() {
             return Err(crate::error::Error::Cancelled);
         }
-        // Hue-preserving gamut guard AFTER the Auto Profile curve+LUT (#1942):
-        // that stack runs in display-encoded space and can push a channel back
-        // out of [0, 1] or rotate a saturated color out of gamut, which the
-        // final `dither_and_quantize` would otherwise hard-clip per-channel
-        // (posterising pushed color — the #438/#1621 defect class). Inert on
-        // in-gamut pixels; only reshapes genuinely out-of-gamut post-LUT ones.
-        stage("auto_profile_gamut_guard", || {
-            encode::gamut_guard_display_encoded_srgb(&mut scene)
-        });
+        wide_gamut_auto::finish_auto_tail(
+            &mut scene,
+            wide_gamut_auto,
+            artifacts.0.as_ref(),
+            artifacts.1.as_ref(),
+        );
     }
     // The DisplayLookCurve (#371) used to shape pixels here; #443 retired
     // the static Look LUT and the Auto Profile stage (`view::auto_profile`,
@@ -512,15 +441,27 @@ fn render_display_scene_with_removals(
     Ok((
         scene,
         DetailContext {
+            target,
             native_highlight: None,
+            haze: None,
             model: model.clone(),
             active_model: active_model.clone(),
             ae_gain,
             whites_anchor_ev,
+            auto_fit: (model.profile == Profile::Auto).then(|| {
+                if artifacts.0.is_some() || artifacts.1.is_some() {
+                    AutoFitOutcome::Applied
+                } else {
+                    missing_preview
+                        .filter(|_| !auto_will_fit)
+                        .unwrap_or(AutoFitOutcome::Unfitted)
+                }
+            }),
             profile_curve: artifacts.0,
             profile_lut: artifacts.1,
             auto_guard: model.profile == Profile::Auto && raw_source.is_some(),
         },
+        prefix,
     ))
 }
 
@@ -564,3 +505,6 @@ mod auto_fit_status_tests;
 
 #[cfg(test)]
 mod mask_orientation_tests;
+
+#[cfg(test)]
+mod retouch_orientation_tests;

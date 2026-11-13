@@ -1,0 +1,83 @@
+{
+  "status": "supplemental known-failure comparisons completed; production unchanged",
+  "comparisons": 2,
+  "baseline_source": "b4523b79e616f2745f3b0a7e8e1c60b9bff08424",
+  "matched": [
+    {
+      "before": {
+        "fixture": "test_0001",
+        "case": "temperature_max",
+        "profile": "neutral",
+        "resolution": "down",
+        "status": "breach",
+        "breaches": [
+          "max 67.11>66.30"
+        ],
+        "mean": 9.82632820259935,
+        "p95": 17.731370949746637,
+        "max": 67.10771658724516,
+        "bR": 0.03625999608680368,
+        "bG": 0.06348217662400711,
+        "bB": 0.10433951729685498,
+        "n_pixels": 9000000,
+        "reference_protocol": "legacy-direct-reference"
+      },
+      "after": {
+        "fixture": "test_0001",
+        "case": "temperature_max",
+        "profile": "neutral",
+        "resolution": "down",
+        "status": "passed",
+        "breaches": [],
+        "mean": 9.608845374299321,
+        "p95": 17.182091191883075,
+        "max": 56.37556426515471,
+        "bR": 0.036510444479864866,
+        "bG": 0.06369871302115161,
+        "bB": 0.10387180573414158,
+        "n_pixels": 9000000,
+        "reference_protocol": "legacy-direct-reference"
+      }
+    },
+    {
+      "before": {
+        "fixture": "test_0015",
+        "case": "dehaze_max",
+        "profile": "neutral",
+        "resolution": "down",
+        "status": "breach",
+        "breaches": [
+          "bias_B -0.0740>0.0734"
+        ],
+        "mean": 12.52525856545924,
+        "p95": 24.738692996839113,
+        "max": 51.23532547327914,
+        "bR": 0.0008185434152027424,
+        "bG": -0.05760522084483594,
+        "bB": -0.07401121852586383,
+        "n_pixels": 12032000,
+        "reference_protocol": "legacy-direct-reference"
+      },
+      "after": {
+        "fixture": "test_0015",
+        "case": "dehaze_max",
+        "profile": "neutral",
+        "resolution": "down",
+        "status": "breach",
+        "breaches": [
+          "bias_B -0.0740>0.0734"
+        ],
+        "mean": 12.525208069404318,
+        "p95": 24.738585087219423,
+        "max": 51.23532547327914,
+        "bR": 0.0008165490602873724,
+        "bG": -0.05760439103146878,
+        "bB": -0.07401148872039424,
+        "n_pixels": 12032000,
+        "reference_protocol": "legacy-direct-reference"
+      }
+    }
+  ],
+  "all_original_inputs_unchanged": true,
+  "renderer_unchanged": true
+}

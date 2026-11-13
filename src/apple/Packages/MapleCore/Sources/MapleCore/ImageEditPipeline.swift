@@ -368,16 +368,12 @@ public actor ImageEditPipeline {
     public let image: CIImage
     public let noiseProfile: [Float]?
     public let iso: UInt32
-    /// Decode-exported WB slider frame (#1781); `nil` when the source
-    /// carries no frame. Survives the decode→render hand-off via
-    /// `DecodedSnapshot` so the per-tick chains and the As-Shot seed
-    /// use raw-core's numbers.
+    /// Decode-exported WB slider frame (#1781); `nil` when the source carries
+    /// no frame. The per-tick chains and the As-Shot seed use its numbers.
     public let wbFrame: WbSliderFrame?
-    /// Decode-exported auto-exposure gain (#1167/#2070); mirrors
-    /// `wbFrame`'s export contract (never optional — see
-    /// `MapleSceneLinearImageData.aeGain`). Survives the decode→render
-    /// hand-off via `DecodedSnapshot` so `NativeDetailRenderer` can
-    /// thread the SAME gain into a deep-zoom / native-detail tile.
+    /// Decode-exported auto-exposure gain (#1167/#2070), never optional (see
+    /// `MapleSceneLinearImageData.aeGain`); `NativeDetailRenderer` threads
+    /// the SAME gain into a deep-zoom / native-detail tile.
     public let aeGain: Float
     public let whitesAnchorEv: Float
     public let nrSamplingScale: Float
@@ -392,6 +388,8 @@ public actor ImageEditPipeline {
     public let lensCorrectionCaInert: Bool
     public let lensCorrectionDistortionInert: Bool
     public let cameraSupport: RawCameraSupport?
+    /// The sized decode's refine base (#5381); `nil` on every other path.
+    public var captureBase: CaptureBase? = nil
   }
 
   nonisolated public func decodeSceneLinear(
@@ -443,36 +441,7 @@ public actor ImageEditPipeline {
       )
       return nil
     }
-    // Build a CIImage directly from the f32 RGBA buffer (#487) tagged
-    // with extendedLinearITUR_2020.
-    // `CIImage(bitmapData:bytesPerRow:size:format:colorSpace:)` copies
-    // the bytes — `imageData.pixels` can be released after the call
-    // returns.
-    let w = imageData.width
-    let h = imageData.height
-    let bytesPerRow = w * imageData.bytesPerPixel
-    let space = CGColorSpace(name: CGColorSpace.extendedLinearITUR_2020)!
-    let ciImage = mapleStage("decode CIImage build") {
-      CIImage(
-        bitmapData: imageData.pixels,
-        bytesPerRow: bytesPerRow,
-        size: CGSize(width: w, height: h),
-        format: .RGBAf,
-        colorSpace: space
-      )
-    }
-    return SceneLinearDecodeResult(
-      image: ciImage,
-      noiseProfile: imageData.noiseProfile,
-      iso: imageData.iso,
-      wbFrame: imageData.wbFrame,
-      aeGain: imageData.aeGain,
-      whitesAnchorEv: imageData.whitesAnchorEv, nrSamplingScale: imageData.nrSamplingScale,
-      hasLensCorrections: imageData.hasLensCorrections,
-      lensCorrectionCaInert: imageData.lensCorrectionCaInert,
-      lensCorrectionDistortionInert: imageData.lensCorrectionDistortionInert,
-      cameraSupport: imageData.cameraSupport
-    )
+    return Self.sceneLinearResult(imageData)
   }
 
   // MARK: Decode (scene-linear sized — Plan 1 v2 viewport-sized FFI)
@@ -567,31 +536,7 @@ public actor ImageEditPipeline {
         profileOverride: profileOverride, autoExposureOverride: autoExposureOverride, cancel: cancel
       )
     }
-    let w = imageData.width
-    let h = imageData.height
-    let bytesPerRow = w * imageData.bytesPerPixel
-    let space = CGColorSpace(name: CGColorSpace.extendedLinearITUR_2020)!
-    let ciImage = mapleStage("decode CIImage build") {
-      CIImage(
-        bitmapData: imageData.pixels,
-        bytesPerRow: bytesPerRow,
-        size: CGSize(width: w, height: h),
-        format: .RGBAf,
-        colorSpace: space
-      )
-    }
-    return SceneLinearDecodeResult(
-      image: ciImage,
-      noiseProfile: imageData.noiseProfile,
-      iso: imageData.iso,
-      wbFrame: imageData.wbFrame,
-      aeGain: imageData.aeGain,
-      whitesAnchorEv: imageData.whitesAnchorEv, nrSamplingScale: imageData.nrSamplingScale,
-      hasLensCorrections: imageData.hasLensCorrections,
-      lensCorrectionCaInert: imageData.lensCorrectionCaInert,
-      lensCorrectionDistortionInert: imageData.lensCorrectionDistortionInert,
-      cameraSupport: imageData.cameraSupport
-    )
+    return Self.sceneLinearResult(imageData)
   }
 
   // MARK: Decode (non-RAW path — ImageIO + Core Image)
@@ -1073,7 +1018,8 @@ public actor ImageEditPipeline {
   /// that gate essentially never held. Those kernels are gone and the Rust
   /// chain runs both stages internally, so the fused path is now reachable
   /// at any slider state. The Auto Profile `CIColorCube` was never in the
-  /// gap — it applies AFTER the encode, via `applyAutoCubeIfEncoded`.
+  /// gap — on an sRGB encode it applies AFTER the encode, via
+  /// `applyAutoCubeIfEncoded`; on a P3 encode the tail runs inside it (#4741).
   ///
   /// Also reuses `ffiInputBufferCache` (#1959/#2083) exactly like
   /// `applySceneLinearChainViaFFI` — same key, same weak identity anchor,
@@ -1113,7 +1059,7 @@ public actor ImageEditPipeline {
     iso: UInt32 = 0,
     readbackCacheAnchor: CIImage? = nil,
     targetPrimaries: CanvasColorSpace = .srgb,
-    nativeAutoProfile: NativeAutoProfile? = nil
+    p3Auto: AutoProfileLUT.Lattice? = nil
   ) -> CIImage? {
     let extent = scaled.extent
     let w = Int(extent.width.rounded())
@@ -1176,18 +1122,43 @@ public actor ImageEditPipeline {
       let outputBytes: Data
       do {
         outputBytes = try mapleStage("fused chain+encode") {
-          try PipelineRenderer.applyChainAndEncodeDisplayTargetWithAuto(
+          if let p3Auto {
+            return try PipelineRenderer.applyChainAndEncodeDisplayP3Auto(
+              inputBytes: inputBytes, width: w, height: h, params: params,
+              curves: PipelineRenderer.ChainToneCurves(model: model),
+              noiseProfile: noiseProfile, localAdjustments: model.localAdjustments,
+              lattice: p3Auto)
+          }
+          return try PipelineRenderer.applyChainAndEncodeDisplayTarget(
             inputBytes: inputBytes, width: w, height: h, params: params,
             targetPrimaries: targetPrimaries.wireValue,
+            // #4738: point / display / parametric curves ride alongside the
+            // scalar params; the live canvas already showed them.
+            curves: PipelineRenderer.ChainToneCurves(model: model),
             noiseProfile: noiseProfile,
             // #3338: the mask stack has to ride every render call — raw-core
             // applies it inside the scene-linear chain.
-            localAdjustments: model.localAdjustments, nativeAutoProfile: nativeAutoProfile
+            localAdjustments: model.localAdjustments
           )
         }
       } catch {
         logger.error(
           "applyChainAndEncodeViaFusedFFI: FFI error: \(error.localizedDescription, privacy: .public)"
+        )
+        return nil
+      }
+      // #4738: raw-core's `render` warps perspective in `finish` (after
+      // develop, before crop) and the GPU-live present warps per tick; the
+      // FFI chain path never did, so refine and export lost the correction.
+      let warpedBytes: Data
+      do {
+        warpedBytes = try mapleStage("perspective") {
+          try PipelineRenderer.applyPerspective(
+            bytes: outputBytes, width: w, height: h, perspective: model.perspective)
+        }
+      } catch {
+        logger.error(
+          "applyChainAndEncodeViaFusedFFI: perspective error: \(error.localizedDescription, privacy: .public)"
         )
         return nil
       }
@@ -1200,7 +1171,7 @@ public actor ImageEditPipeline {
         ? Self.displayEncodedColorSpaceP3 : Self.displayEncodedColorSpace
       return mapleStage("fused chain+encode CIImage build") {
         CIImage(
-          bitmapData: outputBytes,
+          bitmapData: warpedBytes,
           bytesPerRow: rowBytes,
           size: CGSize(width: w, height: h),
           format: .RGBAf,
@@ -1264,7 +1235,8 @@ public actor ImageEditPipeline {
   /// setting.
   nonisolated private func encodeDisplayViaFFI(
     _ input: CIImage,
-    targetPrimaries: CanvasColorSpace = .srgb
+    targetPrimaries: CanvasColorSpace = .srgb,
+    p3Auto: AutoProfileLUT.Lattice? = nil
   ) -> CIImage? {
     let extent = input.extent
     let w = Int(extent.width.rounded())
@@ -1312,7 +1284,11 @@ public actor ImageEditPipeline {
       let outputBytes: Data
       do {
         outputBytes = try mapleStage("encode display (Oklab gamut)") {
-          try PipelineRenderer.encodeDisplay(
+          if let p3Auto {
+            return try PipelineRenderer.encodeDisplayP3Auto(
+              inputBytes: inputBytes, width: w, height: h, lattice: p3Auto)
+          }
+          return try PipelineRenderer.encodeDisplay(
             inputBytes: inputBytes, width: w, height: h,
             targetPrimaries: targetPrimaries.wireValue
           )
@@ -1349,8 +1325,10 @@ public actor ImageEditPipeline {
   /// together** invariant (#877 error-path fix).
   ///
   /// `encoded` is the result of `encodeDisplayViaFFI`: a non-nil
-  /// sRGB-gamma-encoded sRGB-primary CIImage on success, or `nil` when the
-  /// gamut-correct encode failed. `fallback` is the un-encoded, still
+  /// display-encoded CIImage on success, or `nil` when the gamut-correct
+  /// encode failed. `profileLUT` is non-nil only when `DisplayEncodePlan`
+  /// kept the sRGB encode, so a P3 Auto encode (#4741) arrives here with no
+  /// cube and passes through unchanged. `fallback` is the un-encoded, still
   /// **Rec.2020-tagged** display-linear image (the encode's input).
   ///
   /// On success the sRGB-tagged Auto cube applies on its matching
@@ -1517,19 +1495,12 @@ public actor ImageEditPipeline {
   /// `asShot` is unused in Plan 1; reserved for the WB Metal kernel
   /// in Plan 2.
   ///
-  /// Plan 2 M3 — `decodedAtModel` is the model the Rust FFI used during
-  /// decode (parsed from the sidecar on disk, or `.default` when no
-  /// sidecar exists). The WhiteBalance kernel uses it to apply only the
-  /// live-vs-decoded WB delta so opening a saved sidecar doesn't
-  /// double-apply WB between the Rust path and the Apple kernel.
-  /// `wbFrame` (#1781): the decode-exported WB slider frame. When present
-  /// the chain's WB delta is derived with the frame's own calibration —
-  /// anchored, like the frame-absent path, at the caller's `asShot`
-  /// (`wbDeltaAnchor`: the frame's as-shot pair, the WB the strip-XMP
-  /// decode actually baked — #1976) — so this CPU tick path agrees with
-  /// both the GPU live chain and a fresh full develop of the same model.
-  /// `nil` keeps the legacy asShot-anchored generic delta bit-for-bit.
-  nonisolated func processSceneLinearResolved(
+  /// `decodedAtModel` is unused.
+  /// `wbFrame` (#5377): the capture decode's slider frame and creative
+  /// stage. The decoded buffer is a capture result, so the chain runs the
+  /// creative stage at the model's absolute slider pair — the same stage a
+  /// fresh develop runs — and `asShot` no longer anchors anything.
+  nonisolated public func processSceneLinear(
     decoded: CIImage,
     model: AdjustmentModel,
     targetSize: CGSize? = nil,
@@ -1544,17 +1515,14 @@ public actor ImageEditPipeline {
     nrSamplingScale: Float = 1,
     // #3190 review follow-up: `FilmLookCube.apply` (baked/fit in sRGB,
     // same as the Auto Profile cube) runs on THIS function's output at
-    // every call site that has a film look active. When nil (every
-    // pre-existing call site), the encode's target is derived as usual
-    // (`profileLUT != nil ? .srgb : CanvasColorSpace.current`). A
-    // caller that is about to composite a film-look cube on the result
-    // MUST pass `.srgb` here whenever its lattice is active — same
-    // "sRGB-baked lattice pins the encode to sRGB regardless of canvas"
-    // rule already applied to the Auto Profile cube below, extended to
-    // the second sRGB-baked lattice in this pipeline.
-    targetPrimariesOverride: CanvasColorSpace? = nil,
-    nativeAutoProfile: NativeAutoProfile?
-  ) -> CIImage? {
+    // every call site that has a film look active. Export passes its
+    // format's primaries; when nil, the encode follows the canvas
+    // (`DisplayEncodePlan.resolve`). A caller that is about to composite
+    // a film-look cube on the result MUST pass `.srgb` here whenever its
+    // lattice is active, which also keeps an Auto render on the sRGB
+    // encode + cube route.
+    targetPrimariesOverride: CanvasColorSpace? = nil
+  ) -> CIImage {
     let scaled = Self.prescaleForDisplay(decoded, targetSize: targetSize)
     let renderNrSamplingScale = NoiseSamplingScale.reduced(
       nrSamplingScale, from: decoded.extent.size, to: scaled.extent.size)
@@ -1567,43 +1535,16 @@ public actor ImageEditPipeline {
     // pipeline's algorithmic decisions verbatim, which closes the
     // drift between Apple and Rust on every cheap stage.
     //
-    // WB contract (paired with `RawCoreBridge.stripAppleGPUStages`):
-    //
-    //   1. The FFI scene-linear decode OMITS the WB fields from the
-    //      strip XMP (`omitWhiteBalance`, #1883), so raw-core resolves
-    //      the develop at the image's As-Shot WB. The cached buffer is
-    //      the as-shot develop (post-DCP reference) regardless of
-    //      sidecar contents. This eliminates the "first-open at
-    //      as-shot, post-sidecar at user-temp" inconsistency that
-    //      surfaced as a magenta cast on every slider write.
-    //
-    //   2. Apple's chain passes `decodedTemp = asShot.temperature`
-    //      (NOT 6500). The chain's `apply_delta(live, decoded)`
-    //      computes `wb_gains(live) / wb_gains(asShot)`, which is
-    //      identity at `live == asShot` — matching the reference renderer's "As Shot"
-    //      UX where the default slider value produces zero WB shift
-    //      (the post-DCP buffer is already at D65, viewed as the
-    //      camera's intended scene rendering). Moving the slider
-    //      applies a relative shift from asShot.
-    //
-    //   Why NOT pass decodedTemp=6500: on test_0002 (Hasselblad
-    //   H5D-40, asShotCCT=4522, asShotTint=-43.7),
-    //   `wb_gains(4522, -43.7) ≈ (1.04, 1.0, 2.13)` — applied to
-    //   the D65 buffer the B channel doubles, producing a uniform
-    //   magenta cast. The relative-to-asShot formula (g_live /
-    //   g_asShot) cancels this 2.13× B amplification at slider
-    //   = asShot.
-    //
-    // `decodedAtModel` is unused; kept on the signature so a future
-    // saved-WB sidecar workflow can re-thread per-asset baselines.
+    // White balance (#5377): the decode is a capture result, which no
+    // white balance has touched, and the chain's creative stage renders it
+    // at the model's slider pair. For a RAW, `asShot` only feeds the log
+    // and the chain cache key.
     let _ = decodedAtModel
-    // #1976: the anchor is `asShot` (the caller's `wbDeltaAnchor` — the
-    // frame's as-shot pair when a frame is present) in BOTH branches:
-    // the strip-XMP decode omits WB, so the buffer is always an
-    // as-shot develop. The old frame-present override to an explicit
-    // 6500/0 described a warm develop that never existed post-#1894
-    // and overcooled every settled render into cyan.
-    let frame = (wbFrame?.isPresent == true) ? wbFrame : nil
+    let frame = wbFrame
+    // #4741: on a P3 target the Auto tail runs inside the encode, so the
+    // wide gamut survives; an sRGB target keeps the encode + cube route.
+    let encodePlan = DisplayEncodePlan.resolve(
+      requested: targetPrimariesOverride ?? CanvasColorSpace.current, profileLUT: profileLUT)
     let decodedTemp = asShot?.temperature ?? 6500.0
     let decodedTint = asShot?.tint ?? 0.0
     if let asShot {
@@ -1625,7 +1566,7 @@ public actor ImageEditPipeline {
     // — it applies AFTER the encode either way, fused or not, so
     // applying it here to `fusedEncoded` matches
     // `applyAutoCubeIfEncoded`'s success branch exactly.
-    if nativeAutoProfile != nil || !Self.fusedChainEncodeDisabled {
+    if !Self.fusedChainEncodeDisabled {
       let extent = scaled.extent
       let w = Int(extent.width.rounded())
       let h = Int(extent.height.rounded())
@@ -1640,7 +1581,7 @@ public actor ImageEditPipeline {
           )
           return sceneLinearChainCache.get(key) == nil
         }()
-        if nativeAutoProfile != nil || wouldMissChainCache,
+        if wouldMissChainCache,
           let fusedEncoded = applyChainAndEncodeViaFusedFFI(
             scaled, model: model,
             decodedTemperature: decodedTemp, decodedTint: decodedTint,
@@ -1649,30 +1590,17 @@ public actor ImageEditPipeline {
             noiseProfile: noiseProfile,
             iso: iso,
             readbackCacheAnchor: targetSize != nil ? decoded : nil,
-            // #3190: an Auto Profile cube is fit/baked in sRGB —
-            // applying it to a P3-encoded buffer would be a
-            // color-space mismatch (the cube's LUT domain no
-            // longer matches the pixel values it's applied to).
-            // Pin the encode to sRGB whenever a cube is present OR
-            // the caller is about to composite an sRGB-baked film
-            // look cube (`targetPrimariesOverride`, review
-            // follow-up); only a Neutral-profile, no-film render
-            // honors the user's canvas setting.
-            targetPrimaries: targetPrimariesOverride
-              ?? (nativeAutoProfile?.artifacts != nil || profileLUT != nil
-                ? .srgb : CanvasColorSpace.current),
-            nativeAutoProfile: nativeAutoProfile
+            // #3190: the Auto cube is fit in sRGB, so it only ever
+            // follows an sRGB encode; on P3 the tail runs inside the
+            // encode instead (#4741).
+            targetPrimaries: encodePlan.target,
+            p3Auto: encodePlan.p3Auto
           )
         {
-          return nativeAutoProfile != nil
-            ? fusedEncoded : AutoProfileLUT.apply(profileLUT, to: fusedEncoded)
+          return AutoProfileLUT.apply(encodePlan.cube, to: fusedEncoded)
         }
       }
     }
-
-    // A prepared native tail cannot fall through to a cube-less legacy frame
-    // and then be persisted as settled. Let the native caller report failure.
-    if nativeAutoProfile != nil { return nil }
 
     // #1959/#2042 — the input-readback cache is gated to BOUNDED
     // (non-nil `targetSize`) renders: slider drag ticks always carry a
@@ -1719,22 +1647,17 @@ public actor ImageEditPipeline {
     // to match, so:
     //   * Neutral is gamut-correct (no green clip), matching the CLI, and
     //     honors `CanvasColorSpace.current` (P3 target when selected).
-    //   * the Auto cube below applies on its matching sRGB-encoded domain
-    //     (no clamp inside the cube's color management) — the cube is
-    //     fit in sRGB, so `targetPrimaries` is pinned to `.srgb`
-    //     whenever `profileLUT` is present, same reasoning as the fused
-    //     path above. A caller compositing a film-look cube afterward
-    //     (also sRGB-baked) pins the same way via
-    //     `targetPrimariesOverride`.
+    //   * Auto on an sRGB target: the cube below applies on its matching
+    //     sRGB-encoded domain (it is fit in sRGB). Auto on a P3 target:
+    //     the tail runs inside the encode and no cube follows (#4741). A
+    //     caller compositing a film-look cube afterward (also sRGB-baked)
+    //     pins the sRGB route via `targetPrimariesOverride`.
     //   * the canvas raster (`createCGImage(displayP3)`) converts
     //     the tagged buffer → P3 with all values in-gamut — nothing
     //     clips, whether the buffer was already P3 (a no-op convert) or
     //     still sRGB.
     let encoded = encodeDisplayViaFFI(
-      chained,
-      targetPrimaries: targetPrimariesOverride
-        ?? (profileLUT != nil ? .srgb : CanvasColorSpace.current)
-    )
+      chained, targetPrimaries: encodePlan.target, p3Auto: encodePlan.p3Auto)
     // Auto Profile (#812) — the LAST display-space op, matching the CPU
     // path's `auto_profile` → quantize order. `profileLUT` is a
     // CIColorCubeWithColorSpace tagged sRGB; on a successful encode its
@@ -1751,7 +1674,7 @@ public actor ImageEditPipeline {
     // `applyAutoCubeIfEncoded` drops to the cube-less Rec.2020 fallback
     // (Neutral) instead.
     return Self.applyAutoCubeIfEncoded(
-      encoded: encoded, fallback: chained, profileLUT: profileLUT
+      encoded: encoded, fallback: chained, profileLUT: encodePlan.cube
     )
   }
 
@@ -1795,13 +1718,10 @@ public actor ImageEditPipeline {
   /// primaries `image`'s bytes are actually gamma-encoded in, or this is a
   /// silent mistag, not a real conversion. `processSceneLinear`'s output
   /// is `encodeDisplayViaFFI`'s result (#877, P3-aware since #3190):
-  /// sRGB-gamma-encoded sRGB-primary whenever an Auto Profile cube is in
-  /// play (the cube is fit/baked in sRGB) or the canvas is set to sRGB,
-  /// and Display-P3-gamma-encoded P3-primary when `Profile::Neutral` and
-  /// the canvas is set to Display P3 — see `processSceneLinear`'s
-  /// `targetPrimaries: profileLUT != nil ? .srgb : CanvasColorSpace.current`
-  /// for the exact rule callers must mirror when choosing `colorSpace`
-  /// here (jules review on #3239: this used to be hardcoded to
+  /// encoded in `DisplayEncodePlan.resolve`'s target — Display P3 when the
+  /// canvas is P3 (Auto included since #4741) and no film cube follows,
+  /// sRGB otherwise. Callers pass that plan's `colorSpace` here (jules
+  /// review on #3239: this used to be hardcoded to
   /// `displayEncodedColorSpace`/sRGB regardless of what `image` actually
   /// carried, causing an unintended P3→sRGB conversion at materialization
   /// whenever the canvas was P3). Defaults to `displayEncodedColorSpace`

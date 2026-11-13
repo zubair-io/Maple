@@ -14,7 +14,13 @@
 //!   `cfa.name` is a string like `"RGGB"` / `"BGGR"` / `"GRBG"` / `"GBRG"`.
 //!   Six-character X-Trans names are also possible — those return
 //!   `Error::UnsupportedCfa` per spec §3.3.
-//! - Black/white levels: `blacklevel.as_bayer_array() -> [f32; 4]` and
+//! - Black levels: `blacklevel.{levels, cpp, width, height}` is the full
+//!   per-site table, reduced by `crate::black_level::reduce_black_levels`
+//!   (rawler's own `as_bayer_array()` collapses anything but a 4-entry
+//!   table to `[levels[0]; 4]`, #4730); Canon's reduced CR2 RGB is already
+//!   black-referenced and decodes with black 0 (#4644), while Nikon's small
+//!   NEF (black 0) and Sony's YCbCr ARW (twice the sensor black) keep the
+//!   levels rawler reports (#5117). White levels:
 //!   `whitelevel.as_bayer_array() -> [f32; 4]`.
 //! - WB: `wb_coeffs: [f32; 4]` in RGBE order; index 1 is Green, used as the
 //!   normalising channel.
@@ -24,12 +30,14 @@
 //! - CCT: rawler 0.7 does not expose CCT directly; `as_shot_cct` is `None`.
 
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
-use rawler::decoders::{RawDecodeParams, WellKnownIFD};
+use rawler::decoders::{FormatHint, RawDecodeParams, WellKnownIFD};
 use rawler::imgop::xyz::Illuminant as RawlerIlluminant;
 use rawler::rawimage::{RawImageData, RawPhotometricInterpretation};
 use rawler::rawsource::RawSource;
 use rawler::tags::DngTag;
+use rayon::prelude::*;
 
 use crate::color::illuminant::Illuminant as CoreIlluminant;
 use crate::error::Error;
@@ -89,6 +97,17 @@ pub fn decode_bytes(bytes: &[u8], ext: &str) -> Result<RawImage> {
     // ── 1. Decode via rawler ───────────────────────────────────────────────
     let params = RawDecodeParams::default();
     let raw = rawler::decode(&source, &params).map_err(|e| {
+        if let rawler::RawlerError::Unsupported {
+            what, make, model, ..
+        } = &e
+        {
+            if what == "Unknown camera" {
+                return Error::UnsupportedCamera {
+                    make: make.clone(),
+                    model: model.clone(),
+                };
+            }
+        }
         // Belt-and-braces: even when ext wasn't `.x3f` (e.g. a wrapped
         // X3F passed without the extension hint), rawler's own decoder
         // emits "X3F decoding not implemented yet" — promote it to the
@@ -227,49 +246,53 @@ pub fn decode_bytes(bytes: &[u8], ext: &str) -> Result<RawImage> {
         });
     }
 
-    // ── 3a. Default-crop rectangle (DNG § 6.3 DefaultCropOrigin/Size) ────
-    // Rawler's `crop_area` is consistently populated for DNG / CR2 / CR3 /
-    // ARW / NEF / RAF / ORF / RW2 from either the camera-table per-body
-    // crop or the DNG tags themselves (see rawler/src/decoders/dng.rs:248).
-    // Prefer it as the primary source. Fall back to reading DNG tags
-    // directly only when rawler returns None — covers the rare malformed-
-    // metadata case.
-    //
-    // Coordinates are sensor-absolute. The pipeline applies the crop
-    // post-demosaic and (for half-res Preview) halves the rect at
-    // apply-time, so we don't even-align here.
-    //
-    // test_0002 (DNG without crop tags), test_0013 (iPhone DNG, ditto),
-    // test_0016 (X3F that rawler can't decode) hit the None path. The
-    // pipeline treats None as "no crop" — full-sensor render, matches
-    // ACR's behaviour on these fixtures.
-    let crop_rect = crate::raw_dimensions::default_crop(&raw, root_ifd.as_deref());
-
     // ── 4. Black / white levels ───────────────────────────────────────────
-    // `as_bayer_array()` returns 4 values in [top-left, top-right, bottom-left, bottom-right]
-    // order matching the 2×2 Bayer tile — i.e. the same per-position indexing
-    // our `RawImage.black_level` uses.
-    let bl = raw.blacklevel.as_bayer_array();
-    let mut black_level = [
-        bl[0].round() as u32,
-        bl[1].round() as u32,
-        bl[2].round() as u32,
-        bl[3].round() as u32,
-    ];
+    // DNG anchors `BlackLevel` at the ActiveArea origin while rawler's DNG
+    // decoder re-anchors only the CFA by `CFA::shift(left, top)`, which the
+    // X-Trans table keying undoes; RAF tables share the CFA origin (#4730).
+    // rawler picks that decoder from the `DNGVersion` tag, not the extension.
+    let decoded_as_dng = decoder
+        .as_ref()
+        .is_some_and(|dec| matches!(dec.format_hint(), FormatHint::DNG));
+    let black_table_cfa_shift = if decoded_as_dng {
+        raw.active_area
+            .as_ref()
+            .map_or((0, 0), |area| (area.p.x as u32, area.p.y as u32))
+    } else {
+        (0, 0)
+    };
+    let mut black_level = crate::black_level::reduce_black_levels(
+        &raw.blacklevel.as_vec(),
+        raw.blacklevel.cpp,
+        raw.blacklevel.width,
+        raw.blacklevel.height,
+        cfa,
+        black_table_cfa_shift,
+    );
 
     let wl = raw.whitelevel.as_bayer_array();
     // All four positions share the same white level in practice; we take the max
     // to be conservative (never over-clip).
     let mut white_level = wl.iter().cloned().fold(f32::NEG_INFINITY, f32::max).round() as u32;
+    let mut has_uniform_declared_white_level = wl
+        .iter()
+        .all(|&position_white| position_white.round() as u32 == white_level);
 
     // ── 4a. RawTherapee camconst.json override ────────────────────────────
     let iso: u32 = decoder
         .as_ref()
         .and_then(|dec| dec.raw_metadata(&source, &params).ok())
         .and_then(|md| md.exif.iso_speed_ratings.map(|v| v as u32))
+        .filter(|&iso| iso > 0)
         .unwrap_or(100);
 
-    {
+    let reconstructed_canon_rgb = crate::black_level::is_reconstructed_canon_rgb(
+        cfa,
+        decoder
+            .as_ref()
+            .is_some_and(|dec| matches!(dec.format_hint(), FormatHint::CR2)),
+    );
+    if !reconstructed_canon_rgb {
         if let Some(lin) =
             crate::camera_calibration::lookup_linearization(&raw.clean_make, &raw.clean_model, iso)
         {
@@ -278,11 +301,19 @@ pub fn decode_bytes(bytes: &[u8], ext: &str) -> Result<RawImage> {
             }
             if let Some(wl_bucket) = lin.white_for_iso(iso) {
                 white_level = wl_bucket.scalar_conservative();
+                has_uniform_declared_white_level = true;
             }
         }
     }
 
+    let black_level = if reconstructed_canon_rgb {
+        [0; 4]
+    } else {
+        black_level
+    };
+
     // ── 5. Raw pixel data ─────────────────────────────────────────────────
+    let source_is_float = matches!(&raw.data, RawImageData::Float(_));
     let raw_data: Vec<u16> = match raw.data {
         RawImageData::Integer(data) => data,
         RawImageData::Float(fdata) => {
@@ -314,6 +345,34 @@ pub fn decode_bytes(bytes: &[u8], ext: &str) -> Result<RawImage> {
             data
         }
     };
+
+    let (raw_data, white_level) = crate::masked_margin::refill_masked_margins(
+        raw_data,
+        width as usize,
+        height as usize,
+        &cfa,
+        raw.active_area.map(|r| crate::masked_margin::ActiveArea {
+            left: r.p.x,
+            top: r.p.y,
+            width: r.d.w,
+            height: r.d.h,
+            declared: decoded_as_dng,
+        }),
+        &black_level,
+        white_level,
+        |data| {
+            effective_white_level_for_source_data(
+                data,
+                width,
+                height,
+                &black_level,
+                white_level,
+                has_uniform_declared_white_level,
+                cfa,
+                source_is_float,
+            )
+        },
+    );
 
     // ── 6. White balance ──────────────────────────────────────────────────
     // rawler's `wb_coeffs` are WB *multipliers* (the gains that balance
@@ -511,18 +570,14 @@ pub fn decode_bytes(bytes: &[u8], ext: &str) -> Result<RawImage> {
                     Some((illum, m))
                 };
             // ForwardMatrix maps *reference* white-balanced camera RGB →
-            // XYZ-D50, but the sensor buffer is *individual* camera RGB. Fold
-            // `individualToReference = inv(diag(AB) × CameraCalibrationN)` into
-            // FM so it consumes this unit's RGB directly — matching the DNG SDK
-            // `fCameraToPCS = forwardMatrix * Invert(refCameraWhite) *
-            // individualToReference`. Exactly `FM` when the calibration is
-            // identity (i.e. every FM-shipping body today — Apple etc.), so no
-            // fixture moves; a singular correction leaves FM untouched.
+            // XYZ-D50; resolve this unit's calibration for the as-shot
+            // pre-gained buffer DCP receives (#4646, `forward_calibration`).
             let fold_i2r = |illum: CoreIlluminant, fm: Matrix3| -> Matrix3 {
-                match individual_correction(illum).inverse() {
-                    Some(i2r) => fm.mul_mat(&i2r),
-                    None => fm,
-                }
+                crate::color::forward_calibration::balanced_forward_matrix(
+                    fm,
+                    individual_correction(illum),
+                    as_shot_neutral,
+                )
             };
             if let Some((illum, m)) =
                 read_fm(DngTag::ForwardMatrix1, DngTag::CalibrationIlluminant1)
@@ -589,6 +644,12 @@ pub fn decode_bytes(bytes: &[u8], ext: &str) -> Result<RawImage> {
         })
     });
 
+    // ── 10. Default-crop rectangle (DNG § 6.3 DefaultCropOrigin/Size) ────
+    // Shared with the cold dimensions query (`raw_dimensions::from_source`)
+    // so the two can never disagree on how the rectangle is read.
+    let crop_rect =
+        crate::raw_dimensions::default_crop(raw.crop_area, width, height, root_ifd.as_deref());
+
     let md = decoder
         .as_ref()
         .and_then(|dec| dec.raw_metadata(&source, &params).ok());
@@ -607,7 +668,13 @@ pub fn decode_bytes(bytes: &[u8], ext: &str) -> Result<RawImage> {
         }
     });
 
-    let opcode_list3 = crate::pipeline::pano::opcodes::read_opcode_list3(bytes, ext, width, height);
+    let opcodes = crate::sensor_gain_maps::read(
+        bytes,
+        ext,
+        width,
+        height,
+        crate::masked_margin::cfa_period(&cfa) as u32,
+    );
 
     // Assemble first with a placeholder BE, then resolve the bundled-profile
     // contribution against the fully-populated RawImage (§ 1b compose chain).
@@ -637,7 +704,9 @@ pub fn decode_bytes(bytes: &[u8], ext: &str) -> Result<RawImage> {
         crop_rect,
         iso,
         noise_profile,
-        opcode_list3,
+        sensor_gain_maps: opcodes.sensor_gain_maps,
+        opcode_list3: opcodes.list3,
+        opcode_skips: opcodes.skipped,
         aperture,
         focal_length,
         lens_metadata: crate::lens_profile::LensMetadata {
@@ -675,6 +744,7 @@ pub fn decode_bytes(bytes: &[u8], ext: &str) -> Result<RawImage> {
         0.0
     };
     image.baseline_exposure = compose_baseline_exposure(be_from_tags, be_from_bundle, be_override);
+    crate::sensor_gain_maps::log_skipped_required_once(&image);
     Ok(image)
 }
 
@@ -886,31 +956,491 @@ fn rawler_illuminant_to_core(r: &RawlerIlluminant) -> CoreIlluminant {
 /// precision through the u16 requantization and leaves ~2 stops of over-white
 /// HDR headroom before the `u16::MAX` ceiling.
 const FLOAT_WHITE_ANCHOR: u32 = 16_384;
+const EFFECTIVE_WHITE_MAX_SCAN_SHARDS: usize = 2;
+const EFFECTIVE_WHITE_MAX_REGIONS: usize = 12;
+const EFFECTIVE_WHITE_MIN_SPATIAL_SPAN: u32 = 128;
+const EFFECTIVE_WHITE_MIN_FRAME_SPAN_DIVISOR: u32 = 4;
+
+#[derive(Clone, Copy)]
+struct EffectiveWhiteRegions {
+    values: [u64; EFFECTIVE_WHITE_MAX_REGIONS],
+    len: usize,
+    rows: [u32; 2],
+    row_count: u8,
+    columns: [u32; 2],
+    column_count: u8,
+}
+
+impl Default for EffectiveWhiteRegions {
+    fn default() -> Self {
+        Self {
+            values: [0; EFFECTIVE_WHITE_MAX_REGIONS],
+            len: 0,
+            rows: [0; 2],
+            row_count: 0,
+            columns: [0; 2],
+            column_count: 0,
+        }
+    }
+}
+
+impl EffectiveWhiteRegions {
+    fn iter(&self) -> impl Iterator<Item = &u64> {
+        self.values[..self.len].iter()
+    }
+
+    fn insert(&mut self, region: u64, row: u32, column: u32, limit: usize) {
+        if self.len < limit && self.values[..self.len].contains(&region) {
+            return;
+        }
+        Self::insert_axis(&mut self.rows, &mut self.row_count, row);
+        Self::insert_axis(&mut self.columns, &mut self.column_count, column);
+        if self.len >= limit {
+            return;
+        }
+        self.values[self.len] = region;
+        self.len += 1;
+    }
+
+    fn merge(&mut self, other: &Self, regions_w: usize, limit: usize) {
+        for &region in other.iter() {
+            let row = (region / regions_w as u64) as u32;
+            let column = (region % regions_w as u64) as u32;
+            self.insert(region, row, column, limit);
+        }
+        for &row in &other.rows[..usize::from(other.row_count)] {
+            Self::insert_axis(&mut self.rows, &mut self.row_count, row);
+        }
+        for &column in &other.columns[..usize::from(other.column_count)] {
+            Self::insert_axis(&mut self.columns, &mut self.column_count, column);
+        }
+    }
+
+    fn has_two_dimensional_support(&self, required_regions: usize) -> bool {
+        self.len >= required_regions && self.row_count >= 2 && self.column_count >= 2
+    }
+
+    fn insert_axis(values: &mut [u32; 2], count: &mut u8, value: u32) {
+        let len = usize::from(*count);
+        if len < values.len() && !values[..len].contains(&value) {
+            values[len] = value;
+            *count += 1;
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+struct EffectiveWhiteBounds {
+    min_x: u32,
+    max_x: u32,
+    min_y: u32,
+    max_y: u32,
+}
+
+impl Default for EffectiveWhiteBounds {
+    fn default() -> Self {
+        Self {
+            min_x: u32::MAX,
+            max_x: 0,
+            min_y: u32::MAX,
+            max_y: 0,
+        }
+    }
+}
+
+impl EffectiveWhiteBounds {
+    fn include(&mut self, x: usize, y: usize) {
+        self.min_x = self.min_x.min(x as u32);
+        self.max_x = self.max_x.max(x as u32);
+        self.min_y = self.min_y.min(y as u32);
+        self.max_y = self.max_y.max(y as u32);
+    }
+
+    fn merge(&mut self, other: Self) {
+        if other.min_x == u32::MAX {
+            return;
+        }
+        self.min_x = self.min_x.min(other.min_x);
+        self.max_x = self.max_x.max(other.max_x);
+        self.min_y = self.min_y.min(other.min_y);
+        self.max_y = self.max_y.max(other.max_y);
+    }
+
+    fn spans_frame(&self, frame_width: u32, frame_height: u32) -> bool {
+        self.max_x.saturating_sub(self.min_x) >= EFFECTIVE_WHITE_MIN_SPATIAL_SPAN
+            && self.max_y.saturating_sub(self.min_y) >= EFFECTIVE_WHITE_MIN_SPATIAL_SPAN
+            && self.max_x.saturating_sub(self.min_x)
+                >= frame_width.div_ceil(EFFECTIVE_WHITE_MIN_FRAME_SPAN_DIVISOR)
+            && self.max_y.saturating_sub(self.min_y)
+                >= frame_height.div_ceil(EFFECTIVE_WHITE_MIN_FRAME_SPAN_DIVISOR)
+    }
+}
+
+struct EffectiveWhiteCandidate {
+    value: u16,
+    position: usize,
+    sample_count: u32,
+    in_highlight_range: bool,
+    eligible: bool,
+    required_regions: usize,
+    spatial_bounds: EffectiveWhiteBounds,
+    occupied_regions: [EffectiveWhiteRegions; 4],
+}
+
+impl EffectiveWhiteCandidate {
+    fn has_spatial_support(
+        &self,
+        required_regions: usize,
+        frame_width: u32,
+        frame_height: u32,
+    ) -> bool {
+        self.spatial_bounds.spans_frame(frame_width, frame_height)
+            && self
+                .occupied_regions
+                .iter()
+                .all(|regions| regions.has_two_dimensional_support(required_regions))
+    }
+}
+
+struct EffectiveWhiteScan {
+    histogram: Vec<[u32; 4]>,
+    candidates: Vec<EffectiveWhiteCandidate>,
+    candidates_by_position: [Vec<usize>; 4],
+    candidate_lookup: Vec<[i32; 4]>,
+}
+
+impl EffectiveWhiteScan {
+    fn new() -> Self {
+        Self {
+            histogram: vec![[0; 4]; usize::from(u16::MAX) + 1],
+            candidates: Vec::new(),
+            candidates_by_position: std::array::from_fn(|_| Vec::new()),
+            candidate_lookup: vec![[-1; 4]; usize::from(u16::MAX) + 1],
+        }
+    }
+
+    fn accumulate_rows(
+        &mut self,
+        pixels: &[u16],
+        start_y: usize,
+        width: usize,
+        black_level: &[u32; 4],
+        declared: u32,
+        minimum_tracked_value: u32,
+    ) {
+        let regions_w = (width + 64).div_ceil(128);
+        let x_offsets = [0, 64, 0, 64];
+        let y_offsets = [0, 0, 64, 64];
+        for (row_offset, row) in pixels.chunks_exact(width).enumerate() {
+            let y = start_y + row_offset;
+            let y_base = (y & 1) * 2;
+            for (x, &value) in row.iter().enumerate() {
+                let position = y_base + (x & 1);
+                self.histogram[usize::from(value)][position] += 1;
+                if u32::from(value) < minimum_tracked_value {
+                    continue;
+                }
+
+                let value_index = usize::from(value);
+                let candidate_index = if self.candidate_lookup[value_index][position] < 0 {
+                    let denom = (declared as f64 - black_level[position] as f64).max(1.0);
+                    let fraction = (u32::from(value) as f64 - black_level[position] as f64) / denom;
+                    let in_highlight_range = fraction >= 0.90;
+                    let region_capacity = if (0.90..0.96).contains(&fraction) {
+                        12
+                    } else {
+                        6
+                    };
+                    let candidate_index = self.candidates.len();
+                    self.candidates.push(EffectiveWhiteCandidate {
+                        value,
+                        position,
+                        sample_count: 0,
+                        in_highlight_range,
+                        eligible: false,
+                        required_regions: region_capacity,
+                        spatial_bounds: EffectiveWhiteBounds::default(),
+                        occupied_regions: [EffectiveWhiteRegions::default(); 4],
+                    });
+                    self.candidates_by_position[position].push(candidate_index);
+                    self.candidate_lookup[value_index][position] = candidate_index as i32;
+                    candidate_index
+                } else {
+                    self.candidate_lookup[value_index][position] as usize
+                };
+
+                let candidate = &mut self.candidates[candidate_index];
+                candidate.spatial_bounds.include(x, y);
+                for grid in 0..4 {
+                    let row = (y + y_offsets[grid]) / 128;
+                    let column = (x + x_offsets[grid]) / 128;
+                    let region = (row * regions_w + column) as u64;
+                    candidate.occupied_regions[grid].insert(
+                        region,
+                        row as u32,
+                        column as u32,
+                        candidate.required_regions,
+                    );
+                }
+            }
+        }
+    }
+
+    fn merge(mut self, other: Self, width: usize) -> Self {
+        let regions_w = (width + 64).div_ceil(128);
+        for (target, source) in self.histogram.iter_mut().zip(other.histogram) {
+            for position in 0..4 {
+                target[position] += source[position];
+            }
+        }
+        for candidate in other.candidates {
+            let value_index = usize::from(candidate.value);
+            let position = candidate.position;
+            let existing = self.candidate_lookup[value_index][position];
+            if existing < 0 {
+                let index = self.candidates.len();
+                self.candidates_by_position[position].push(index);
+                self.candidate_lookup[value_index][position] = index as i32;
+                self.candidates.push(candidate);
+                continue;
+            }
+
+            let target = &mut self.candidates[existing as usize];
+            target.spatial_bounds.merge(candidate.spatial_bounds);
+            for grid in 0..4 {
+                target.occupied_regions[grid].merge(
+                    &candidate.occupied_regions[grid],
+                    regions_w,
+                    target.required_regions,
+                );
+            }
+        }
+        self
+    }
+}
+
+/// Infer a lower effective sensor white when a large RAW shows repeated
+/// clipping below its declared level. Near-white plateaus must occupy at least
+/// six 128px regions and span at least one quarter of the frame on both axes;
+/// dense midrange plateaus must occupy 12. Each threshold must hold on four
+/// 128px grids offset by half a cell, so a small stripe or frame-local patch
+/// cannot qualify just because it crosses grid boundaries. A lower scalar
+/// ceiling is also rejected when another Bayer position has one populated
+/// brighter source-code bin with distributed support but no qualifying
+/// plateau of its own, or when a Bayer position contains a dense brighter
+/// population that may be a localized real highlight.
+fn effective_white_level(
+    data: &[u16],
+    width: u32,
+    height: u32,
+    black_level: &[u32; 4],
+    declared: u32,
+) -> u32 {
+    // Tiny synthesized DNGs cannot distinguish a sensor clipping plateau
+    // from a deliberately flat chart patch, so retain their declared level.
+    if declared == 0 || width < 256 || height < 256 {
+        return declared;
+    }
+    let (w, h) = (width as usize, height as usize);
+    if data.len() < w.saturating_mul(h) {
+        return declared;
+    }
+    let pixel_data = &data[..w * h];
+    let minimum_tracked_value = (0..4)
+        .map(|position| {
+            let denom = (declared as f64 - black_level[position] as f64).max(1.0);
+            (black_level[position] as f64 + denom * 0.90).ceil() as u32
+        })
+        .min()
+        .unwrap_or(u32::MAX);
+    // Most frames contain no values near white. A parallel max reduction
+    // rejects those without allocating histograms or candidate state.
+    if pixel_data
+        .par_iter()
+        .copied()
+        .max()
+        .map_or(true, |maximum| u32::from(maximum) < minimum_tracked_value)
+    {
+        return declared;
+    }
+
+    // Spatial and histogram evidence are accumulated together on parallel
+    // row bands. Fixed-size region sets bound per-code evidence, and the
+    // reduction merges only the first 6/12 regions each test needs.
+    const ROWS_PER_SCAN_CHUNK: usize = 128;
+    let chunk_count = h.div_ceil(ROWS_PER_SCAN_CHUNK);
+    // Candidate state is fixed-size, but a very large pool would still
+    // multiply the histogram, lookup table, and candidate arrays. Two scan
+    // shards retain useful parallelism while bounding this temporary memory.
+    let shard_count = rayon::current_num_threads()
+        .min(chunk_count)
+        .min(EFFECTIVE_WHITE_MAX_SCAN_SHARDS)
+        .max(1);
+    let next_chunk = AtomicUsize::new(0);
+    let mut partial_scans = (0..shard_count)
+        .map(|_| EffectiveWhiteScan::new())
+        .collect::<Vec<_>>();
+    partial_scans.par_iter_mut().for_each(|scan| loop {
+        let chunk_index = next_chunk.fetch_add(1, Ordering::Relaxed);
+        if chunk_index >= chunk_count {
+            break;
+        }
+        let start_y = chunk_index * ROWS_PER_SCAN_CHUNK;
+        let end_y = (start_y + ROWS_PER_SCAN_CHUNK).min(h);
+        scan.accumulate_rows(
+            &pixel_data[start_y * w..end_y * w],
+            start_y,
+            w,
+            black_level,
+            declared,
+            minimum_tracked_value,
+        );
+    });
+    let mut partial_iter = partial_scans.into_iter();
+    let mut scan = partial_iter.next().unwrap_or_else(EffectiveWhiteScan::new);
+    for partial in partial_iter {
+        scan = scan.merge(partial, w);
+    }
+    let histogram = scan.histogram;
+    let mut candidates = scan.candidates;
+    let mut candidates_by_position = scan.candidates_by_position;
+
+    for candidate in &mut candidates {
+        let count = histogram[usize::from(candidate.value)][candidate.position];
+        let denom = (declared as f64 - black_level[candidate.position] as f64).max(1.0);
+        let fraction =
+            (u32::from(candidate.value) as f64 - black_level[candidate.position] as f64) / denom;
+        let is_sparse_near_declared_white = (0.96..0.995).contains(&fraction);
+        let is_dense_sub_declared_white = (0.90..0.96).contains(&fraction) && count >= 1024;
+        candidate.sample_count = count;
+        candidate.eligible =
+            count >= 32 && (is_sparse_near_declared_white || is_dense_sub_declared_white);
+        candidate.required_regions = if is_dense_sub_declared_white { 12 } else { 6 };
+    }
+    for position_candidates in &mut candidates_by_position {
+        position_candidates
+            .sort_unstable_by_key(|&index| std::cmp::Reverse(candidates[index].value));
+    }
+
+    // Compare each candidate with the nearest spatially distributed highlight
+    // bins on either side. This uses the decoded source grid rather than an
+    // arbitrary u16 distance, while localized defect plateaus cannot hide a
+    // lower genuine saturation plateau.
+    let mut nearest_higher_count = vec![0u32; candidates.len()];
+    let mut nearest_lower_count = vec![0u32; candidates.len()];
+    for position_candidates in &candidates_by_position {
+        let mut higher_count = 0;
+        for &candidate_index in position_candidates {
+            let candidate = &candidates[candidate_index];
+            if !candidate.in_highlight_range {
+                continue;
+            }
+            nearest_higher_count[candidate_index] = higher_count;
+            if candidate.has_spatial_support(6, width, height) {
+                higher_count = candidate.sample_count;
+            }
+        }
+        let mut lower_count = 0;
+        for &candidate_index in position_candidates.iter().rev() {
+            let candidate = &candidates[candidate_index];
+            if !candidate.in_highlight_range {
+                continue;
+            }
+            nearest_lower_count[candidate_index] = lower_count;
+            if candidate.has_spatial_support(6, width, height) {
+                lower_count = candidate.sample_count;
+            }
+        }
+    }
+
+    // A single scalar normalization ceiling must not clip a Bayer position
+    // whose valid saturation plateau is higher than another position's.
+    let best = candidates_by_position
+        .iter()
+        .filter_map(|position_candidates| {
+            position_candidates.iter().find_map(|&candidate_index| {
+                let candidate = &candidates[candidate_index];
+                let has_required_support =
+                    candidate.has_spatial_support(candidate.required_regions, width, height);
+                let is_histogram_peak = candidate.sample_count
+                    >= nearest_higher_count[candidate_index].saturating_mul(4)
+                    && candidate.sample_count
+                        >= nearest_lower_count[candidate_index].saturating_mul(4);
+                (candidate.eligible && has_required_support && is_histogram_peak)
+                    .then_some(u32::from(candidate.value))
+            })
+        })
+        .max();
+    let Some(best) = best.filter(|&b| b > black_level.iter().max().copied().unwrap_or(0)) else {
+        return declared;
+    };
+    let unprotected_bayer_highlights = (0..4).any(|position| {
+        let sample_count = histogram
+            .iter()
+            .enumerate()
+            .filter(|(value, _)| *value as u32 > best)
+            .map(|(_, counts)| counts[position])
+            .sum::<u32>();
+        // Dense brighter populations preserve the declared ceiling even if
+        // they are localized. Some packed RAW encodings also expand one valid
+        // source code into only a handful of samples, so the frame-span and
+        // four-grid checks retain one sparse, distributed decoded source-code
+        // bin while rejecting unrelated isolated defects. The all-ones u16
+        // ceiling is not useful source-code evidence: hot/stuck photosites can
+        // hit it without representing a real highlight population.
+        let densely_populated_brighter_highlights = sample_count >= 1024;
+        let distributed_sparse_highlight = candidates_by_position[position].iter().any(|index| {
+            let candidate = &candidates[*index];
+            u32::from(candidate.value) > best
+                && candidate.value < u16::MAX
+                && candidate.sample_count >= 6
+                && candidate.has_spatial_support(6, width, height)
+        });
+        sample_count >= 6 && (densely_populated_brighter_highlights || distributed_sparse_highlight)
+    });
+    if unprotected_bayer_highlights {
+        declared
+    } else {
+        best
+    }
+}
+
+fn effective_white_level_for_source_data(
+    data: &[u16],
+    width: u32,
+    height: u32,
+    black_level: &[u32; 4],
+    declared: u32,
+    has_uniform_declared_white_level: bool,
+    cfa: crate::image::CfaPattern,
+    source_is_float: bool,
+) -> u32 {
+    if !has_uniform_declared_white_level
+        || source_is_float
+        || !matches!(
+            cfa,
+            crate::image::CfaPattern::Rggb
+                | crate::image::CfaPattern::Bggr
+                | crate::image::CfaPattern::Grbg
+                | crate::image::CfaPattern::Gbrg
+        )
+    {
+        return declared;
+    }
+    effective_white_level(data, width, height, black_level, declared)
+}
 
 /// Requantize float-format DNG samples into the u16 buffer the decode pipeline
-/// expects, preserving float precision AND over-white HDR headroom (#1917).
+/// expects, preserving float precision and over-white HDR headroom (#1917).
 ///
-/// Float DNGs — e.g. ACR/Lightroom HDR-Merge output (#459) — are scene-linear
-/// floats whose nominal white is `white_level` (DNG spec default 1.0) and which
-/// legitimately carry over-white HDR headroom. The pre-#1917 code scaled by the
-/// raw metadata `white_level` and rounded to u16: for the float-default white of
-/// 1.0 (→ u32 1) that collapsed the whole image onto ~2 integer levels — 0.18
-/// mid-gray and 0.5 both round to 0 — annihilating float precision and the HDR
-/// headroom this format exists to carry, contradicting the scene-referred
-/// invariant ("nothing before the view transform clips").
-///
-/// Fix: anchor nominal white at [`FLOAT_WHITE_ANCHOR`] via an integer boost that
-/// only ever *raises* precision (never below the metadata white), and return
-/// that anchored value as the effective `white_level` so downstream
-/// `sensor_linearize` still maps nominal white → scene-linear 1.0. Values above
+/// Float DNGs are scene-linear and can legitimately carry values above nominal
+/// white. Anchor nominal white at [`FLOAT_WHITE_ANCHOR`] via an integer boost
+/// that only raises precision, then return that anchored value so downstream
+/// `sensor_linearize` maps nominal white to scene-linear 1.0. Values above
 /// nominal white are retained up to `u16::MAX` (~4× / 2 stops) rather than
-/// clipped at the white point.
-///
-/// Note: fully unbounded >1.0 headroom into the scene-linear buffer additionally
-/// requires relaxing the generic `linearize` `[0, 1]` clamp for float sources
-/// (and, for arbitrary headroom, an f32 raw lane — the u16 buffer caps in-lane
-/// headroom at 65535 regardless); that is out of scope for this decode-boundary
-/// fix, which eliminates the precision/headroom destruction at import.
+/// clipped at the white point. Fully unbounded headroom requires relaxing the
+/// generic `linearize` `[0, 1]` clamp and an f32 raw lane, outside this decode
+/// boundary fix.
 fn requantize_float_samples(fdata: &[f32], white_level: u32) -> (Vec<u16>, u32) {
     let white = white_level.max(1);
     let boost = (FLOAT_WHITE_ANCHOR / white).max(1);
@@ -1032,6 +1562,625 @@ mod tests {
     /// both corrupt the reciprocal-CCT interpolation weight. The correct
     /// EXIF LightSource mapping is 17=A, 20=D55, 21=D65, 22=D75, 23=D50.
     #[test]
+    fn effective_white_detects_sub_declared_saturation() {
+        let (w, h) = (512usize, 512usize);
+        let mut data = vec![1000u16; w * h];
+        for y in (0..h).step_by(2) {
+            for x in (0..w).step_by(2) {
+                data[y * w + x] = 62193;
+            }
+        }
+        assert_eq!(
+            effective_white_level(&data, 512, 512, &[0; 4], 65535),
+            62193
+        );
+    }
+
+    #[test]
+    fn effective_white_inference_skips_requantized_float_samples() {
+        let data = vec![16_300u16; 512 * 512];
+        let cfa = crate::image::CfaPattern::Rggb;
+        let infer = |source_is_float| {
+            effective_white_level_for_source_data(
+                &data,
+                512,
+                512,
+                &[0; 4],
+                16_384,
+                true,
+                cfa,
+                source_is_float,
+            )
+        };
+
+        assert_eq!(infer(true), 16_384);
+        assert_eq!(infer(false), 16_300);
+    }
+
+    #[test]
+    fn effective_white_keeps_distinct_declared_bayer_levels() {
+        let (w, h) = (512usize, 512usize);
+        let mut data = vec![1000u16; w * h];
+        for y in (0..h).step_by(2) {
+            for x in (0..w).step_by(2) {
+                data[y * w + x] = 62193;
+            }
+        }
+        let cfa = crate::image::CfaPattern::Rggb;
+
+        assert_eq!(
+            effective_white_level(&data, 512, 512, &[0; 4], 65535),
+            62193
+        );
+        assert_eq!(
+            effective_white_level_for_source_data(
+                &data, 512, 512, &[0; 4], 65535, false, cfa, false,
+            ),
+            65535
+        );
+    }
+
+    #[test]
+    fn effective_white_keeps_highest_qualifying_bayer_position() {
+        let (w, h) = (512usize, 512usize);
+        let mut data = vec![1000u16; w * h];
+        for y in (0..h).step_by(2) {
+            for x in (0..w).step_by(2) {
+                data[y * w + x] = 62000;
+            }
+        }
+        for tile_y in 0..4 {
+            for tile_x in 0..4 {
+                let y = tile_y * 128;
+                let x = tile_x * 128 + 1;
+                data[y * w + x] = 63000;
+                data[(y + 2) * w + x + 2] = 63000;
+            }
+        }
+        assert_eq!(
+            effective_white_level(&data, 512, 512, &[0; 4], 65535),
+            63000
+        );
+    }
+
+    #[test]
+    fn effective_white_ignores_isolated_hot_pixel_above_clipping_plateau() {
+        let (w, h) = (512usize, 512usize);
+        let mut data = vec![1000u16; w * h];
+        for y in (0..h).step_by(2) {
+            for x in (0..w).step_by(2) {
+                data[y * w + x] = 62193;
+            }
+        }
+        data[0] = u16::MAX;
+        assert_eq!(
+            effective_white_level(&data, 512, 512, &[0; 4], 65535),
+            62193
+        );
+    }
+
+    #[test]
+    fn effective_white_keeps_declared_for_dark_frame() {
+        let data = vec![4000u16; 512 * 512];
+        assert_eq!(
+            effective_white_level(&data, 512, 512, &[0; 4], 65535),
+            65535
+        );
+    }
+
+    #[test]
+    fn effective_white_keeps_declared_without_spike() {
+        let (w, h) = (512usize, 512usize);
+        let mut data = vec![1000u16; w * h];
+        data[0] = 62193;
+        data[1] = 62193;
+        assert_eq!(
+            effective_white_level(&data, 512, 512, &[0; 4], 65535),
+            65535
+        );
+    }
+
+    #[test]
+    fn effective_white_rejects_broad_near_white_histogram_without_a_peak() {
+        let (w, h) = (512usize, 512usize);
+        let mut data = vec![1000u16; w * h];
+        for value_offset in 0..64usize {
+            for sample in 0..32usize {
+                let tile = sample % 16;
+                let repeat = sample / 16;
+                let local_slot = value_offset * 2 + repeat;
+                let x = (tile % 4) * 32 + (local_slot % 16) * 2;
+                let y = (tile / 4) * 32 + (local_slot / 16) * 2;
+                data[y * w + x] = 63_000 + value_offset as u16;
+            }
+        }
+        assert_eq!(
+            effective_white_level(&data, 512, 512, &[0; 4], 65535),
+            65535
+        );
+    }
+
+    #[test]
+    fn effective_white_bounds_state_for_broad_16_bit_highlights() {
+        let (w, h) = (512usize, 512usize);
+        let first_highlight = 58_982u16;
+        let highlight_codes = usize::from(u16::MAX - first_highlight) + 1;
+        let data = (0..w * h)
+            .map(|index| first_highlight + (index % highlight_codes) as u16)
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            effective_white_level(&data, w as u32, h as u32, &[0; 4], 65535),
+            65535
+        );
+    }
+
+    #[test]
+    fn effective_white_rejects_broad_near_white_histogram_on_four_code_grid() {
+        let (w, h) = (512usize, 512usize);
+        let mut data = vec![1000u16; w * h];
+        for value_offset in 0..65usize {
+            for sample in 0..32usize {
+                let tile = sample % 16;
+                let repeat = sample / 16;
+                let local_slot = value_offset * 2 + repeat;
+                let x = (tile % 4) * 32 + (local_slot % 16) * 2;
+                let y = (tile / 4) * 32 + (local_slot / 16) * 2;
+                data[y * w + x] = 63_000 + (value_offset * 4) as u16;
+            }
+        }
+        assert_eq!(
+            effective_white_level(&data, 512, 512, &[0; 4], 65535),
+            65535
+        );
+    }
+
+    #[test]
+    fn effective_white_compares_nonlinearly_spaced_highlight_codes() {
+        let (w, h) = (512usize, 512usize);
+        let mut data = vec![1000u16; w * h];
+        for tile_y in 0..4 {
+            for tile_x in 0..4 {
+                let y = tile_y * 128;
+                let x = tile_x * 128;
+                data[(y + 20) * w + x + 20] = 64_508;
+                data[(y + 22) * w + x + 22] = 64_508;
+                data[(y + 24) * w + x + 24] = 65_020;
+                data[(y + 26) * w + x + 26] = 65_020;
+            }
+        }
+        // A brighter but localized plateau should not obscure the distributed
+        // adjacent source codes, even when the decoder expands them far apart.
+        for offset in (80..88).step_by(2) {
+            for x_offset in (80..88).step_by(2) {
+                data[offset * w + x_offset] = 65_532;
+            }
+        }
+        assert_eq!(
+            effective_white_level(&data, 512, 512, &[0; 4], 65535),
+            65535
+        );
+    }
+
+    #[test]
+    fn effective_white_preserves_sparse_distributed_code_255_highlights() {
+        let (w, h) = (512usize, 512usize);
+        let mut data = vec![1000u16; w * h];
+
+        // A broad code-254 plateau is a plausible lower white level, but a
+        // sparse, frame-wide code-255 population can still contain real
+        // sensor samples after IIQ-S source-code expansion.
+        for tile_y in 0..4 {
+            for tile_x in 0..4 {
+                let y = tile_y * 128;
+                let x = tile_x * 128;
+                data[(y + 20) * w + x + 20] = 65_020;
+                data[(y + 22) * w + x + 22] = 65_020;
+            }
+        }
+        for tile_y in 0..4 {
+            for tile_x in 0..2 {
+                let y = tile_y * 128;
+                let x = tile_x * 128;
+                data[(y + 8) * w + x + 8] = 65_532;
+            }
+        }
+
+        assert_eq!(
+            effective_white_level(&data, 512, 512, &[0; 4], 65535),
+            65535
+        );
+    }
+
+    #[test]
+    fn effective_white_detects_clipping_plateau_on_four_code_grid() {
+        let (w, h) = (512usize, 512usize);
+        let mut data = vec![1000u16; w * h];
+        for y in (0..h).step_by(2) {
+            for x in (0..w).step_by(2) {
+                data[y * w + x] = 62_192;
+            }
+        }
+        assert_eq!(
+            effective_white_level(&data, 512, 512, &[0; 4], 65535),
+            62_192
+        );
+    }
+
+    #[test]
+    fn effective_white_continues_after_localized_higher_spike() {
+        let (w, h) = (512usize, 512usize);
+        let mut data = vec![1000u16; w * h];
+        for tile in 0..8usize {
+            let tile_x = tile % 4;
+            let tile_y = tile / 4;
+            for dy in (0..4).step_by(2) {
+                for dx in (0..4).step_by(2) {
+                    let x = tile_x * 128 + dx;
+                    let y = tile_y * 128 + dy;
+                    data[y * w + x] = 64_856;
+                }
+            }
+        }
+        for tile in 8..12usize {
+            let tile_x = tile % 4;
+            let tile_y = tile / 4;
+            for dy in (0..8).step_by(2) {
+                for dx in (0..4).step_by(2) {
+                    let x = tile_x * 128 + dx;
+                    let y = tile_y * 128 + dy;
+                    data[y * w + x] = 65_200;
+                }
+            }
+        }
+        assert_eq!(
+            effective_white_level(&data, 512, 512, &[0; 4], 65535),
+            64_856
+        );
+    }
+
+    #[test]
+    fn effective_white_ignores_repeated_midrange_chart_patch() {
+        let (w, h) = (512usize, 512usize);
+        let mut data = vec![1000u16; w * h];
+        for y in 0..32 {
+            for x in 0..40 {
+                data[y * w + x] = 62206;
+            }
+        }
+        assert_eq!(
+            effective_white_level(&data, 512, 512, &[0; 4], 65535),
+            65535
+        );
+    }
+
+    #[test]
+    fn effective_white_rejects_a_localized_flat_midrange_patch() {
+        let (w, h) = (512usize, 512usize);
+        let mut data = vec![1000u16; w * h];
+        for y in 0..64 {
+            for x in 0..64 {
+                data[y * w + x] = 62206;
+            }
+        }
+        assert_eq!(
+            effective_white_level(&data, 512, 512, &[0; 4], 65535),
+            65535
+        );
+    }
+
+    #[test]
+    fn effective_white_preserves_declared_for_dense_localized_brighter_highlights() {
+        let (w, h) = (512usize, 512usize);
+        let mut data = vec![1000u16; w * h];
+        for tile_y in 0..4 {
+            for tile_x in 0..4 {
+                let y = tile_y * 128;
+                let x = tile_x * 128;
+                data[y * w + x] = 64_856;
+                data[(y + 2) * w + x + 2] = 64_856;
+            }
+        }
+        for y in 256..356 {
+            for x in 256..356 {
+                data[y * w + x] = 65_000;
+            }
+        }
+
+        assert_eq!(
+            effective_white_level(&data, 512, 512, &[0; 4], 65535),
+            65535
+        );
+    }
+
+    #[test]
+    fn effective_white_does_not_aggregate_distinct_isolated_defects() {
+        let (w, h) = (512usize, 512usize);
+        let mut data = vec![1000u16; w * h];
+        for y in (0..h).step_by(2) {
+            for x in (0..w).step_by(2) {
+                data[y * w + x] = 64_856;
+            }
+        }
+        for (index, (x, y)) in [
+            (10, 10),
+            (300, 10),
+            (10, 200),
+            (300, 200),
+            (10, 400),
+            (400, 400),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            data[y * w + x] = 65_000 + index as u16;
+        }
+
+        assert_eq!(
+            effective_white_level(&data, 512, 512, &[0; 4], 65535),
+            64_856
+        );
+    }
+
+    #[test]
+    fn effective_white_rejects_distributed_all_ones_stuck_pixels() {
+        let (w, h) = (512usize, 512usize);
+        let mut data = vec![1000u16; w * h];
+        for y in (0..h).step_by(2) {
+            for x in (0..w).step_by(2) {
+                data[y * w + x] = 64_856;
+            }
+        }
+        for (x, y) in [
+            (20, 20),
+            (148, 20),
+            (276, 20),
+            (404, 20),
+            (20, 148),
+            (148, 148),
+        ] {
+            data[y * w + x] = u16::MAX;
+        }
+
+        assert_eq!(
+            effective_white_level(&data, 512, 512, &[0; 4], 65535),
+            64_856
+        );
+    }
+
+    #[test]
+    fn effective_white_detects_dense_clipping_across_separated_tiles() {
+        let (w, h) = (512usize, 512usize);
+        let mut data = vec![1000u16; w * h];
+        for tile_y in 0..4 {
+            for tile_x in 0..4 {
+                for y in (tile_y * 128..tile_y * 128 + 16).step_by(2) {
+                    for x in (tile_x * 128..tile_x * 128 + 16).step_by(2) {
+                        data[y * w + x] = 62206;
+                        data[y * w + x + 1] = 62206;
+                        data[(y + 1) * w + x] = 62206;
+                        data[(y + 1) * w + x + 1] = 62206;
+                    }
+                }
+            }
+        }
+        assert_eq!(
+            effective_white_level(&data, 512, 512, &[0; 4], 65535),
+            62206
+        );
+    }
+
+    #[test]
+    fn effective_white_detects_sparse_clipping_near_declared_white() {
+        let (w, h) = (512usize, 512usize);
+        let mut data = vec![1000u16; w * h];
+        for tile_y in 0..4 {
+            for tile_x in 0..4 {
+                let y = tile_y * 128;
+                let x = tile_x * 128;
+                data[y * w + x] = 64856;
+                data[(y + 2) * w + x + 2] = 64856;
+            }
+        }
+        assert_eq!(
+            effective_white_level(&data, 512, 512, &[0; 4], 65535),
+            64856
+        );
+    }
+
+    #[test]
+    fn effective_white_rejects_a_localized_flat_near_white_patch() {
+        let (w, h) = (512usize, 512usize);
+        let mut data = vec![1000u16; w * h];
+        // 32 samples on one CFA position, all inside a 64×64 patch. The count
+        // alone resembles clipping, but is localized to fewer than six regions.
+        for tile_y in 0..2 {
+            for tile_x in 0..2 {
+                for dy in (0..4).step_by(2) {
+                    for dx in (0..8).step_by(2) {
+                        let y = tile_y * 32 + dy;
+                        let x = tile_x * 32 + dx;
+                        data[y * w + x] = 64856;
+                    }
+                }
+            }
+        }
+        assert_eq!(
+            effective_white_level(&data, 512, 512, &[0; 4], 65535),
+            65535
+        );
+    }
+
+    #[test]
+    fn effective_white_rejects_a_frame_localized_near_white_patch() {
+        let (w, h) = (2048usize, 2048usize);
+        let mut data = vec![1000u16; w * h];
+        for y in 800..1184 {
+            for x in 832..1216 {
+                data[y * w + x] = 64856;
+            }
+        }
+
+        assert_eq!(
+            effective_white_level(&data, w as u32, h as u32, &[0; 4], 65535),
+            65535
+        );
+    }
+
+    #[test]
+    fn effective_white_rejects_horizontal_and_vertical_near_white_stripes() {
+        let (w, h) = (1024usize, 1024usize);
+        let stripe_value = 64856;
+        let mut horizontal = vec![1000u16; w * h];
+        for x in 0..w {
+            horizontal[256 * w + x] = stripe_value;
+        }
+        let mut vertical = vec![1000u16; w * h];
+        for y in 0..h {
+            vertical[y * w + 256] = stripe_value;
+        }
+
+        for data in [&horizontal, &vertical] {
+            assert_eq!(
+                effective_white_level(data, w as u32, h as u32, &[0; 4], 65535),
+                65535
+            );
+        }
+    }
+
+    #[test]
+    fn effective_white_rejects_a_translated_localized_near_white_patch() {
+        let (w, h) = (512usize, 512usize);
+        let mut data = vec![1000u16; w * h];
+        for tile_y in 0..2 {
+            for tile_x in 0..2 {
+                for dy in (0..4).step_by(2) {
+                    for dx in (0..8).step_by(2) {
+                        let y = 31 + tile_y * 32 + dy;
+                        let x = 31 + tile_x * 32 + dx;
+                        data[y * w + x] = 64856;
+                    }
+                }
+            }
+        }
+        assert_eq!(
+            effective_white_level(&data, 512, 512, &[0; 4], 65535),
+            65535
+        );
+    }
+
+    #[test]
+    fn effective_white_rejects_a_boundary_crossing_64px_near_white_patch() {
+        let (w, h) = (512usize, 512usize);
+        let mut data = vec![1000u16; w * h];
+        for y in 31..95 {
+            for x in 31..95 {
+                data[y * w + x] = 64856;
+            }
+        }
+        assert_eq!(
+            effective_white_level(&data, 512, 512, &[0; 4], 65535),
+            65535
+        );
+    }
+
+    #[test]
+    fn effective_white_rejects_a_boundary_crossing_128x192_near_white_patch() {
+        let (w, h) = (512usize, 512usize);
+        let mut data = vec![1000u16; w * h];
+        for y in 31..223 {
+            for x in 31..159 {
+                data[y * w + x] = 64856;
+            }
+        }
+        assert_eq!(
+            effective_white_level(&data, 512, 512, &[0; 4], 65535),
+            65535
+        );
+    }
+
+    #[test]
+    fn effective_white_keeps_declared_when_another_bayer_position_has_highlights() {
+        let (w, h) = (512usize, 512usize);
+        let mut data = vec![1000u16; w * h];
+        for tile_y in 0..4 {
+            for tile_x in 0..4 {
+                let y = tile_y * 128;
+                let x = tile_x * 128;
+                data[y * w + x] = 64856;
+                data[(y + 2) * w + x + 2] = 64856;
+            }
+        }
+        for (x, y) in [
+            (21, 20),
+            (301, 20),
+            (21, 200),
+            (301, 200),
+            (21, 400),
+            (401, 400),
+        ] {
+            data[y * w + x] = 64857;
+        }
+        assert_eq!(
+            effective_white_level(&data, 512, 512, &[0; 4], 65535),
+            65535
+        );
+    }
+
+    #[test]
+    fn effective_white_keeps_declared_when_plateau_position_has_highlights() {
+        let (w, h) = (512usize, 512usize);
+        let mut data = vec![1000u16; w * h];
+        for tile_y in 0..4 {
+            for tile_x in 0..4 {
+                let y = tile_y * 128;
+                let x = tile_x * 128;
+                data[y * w + x] = 64856;
+                data[(y + 2) * w + x + 2] = 64856;
+            }
+        }
+        for (x, y) in [
+            (20, 20),
+            (300, 20),
+            (20, 200),
+            (300, 200),
+            (20, 400),
+            (400, 400),
+        ] {
+            data[y * w + x] = 64857;
+        }
+        assert_eq!(
+            effective_white_level(&data, 512, 512, &[0; 4], 65535),
+            65535
+        );
+    }
+
+    #[test]
+    #[cfg_attr(not(feature = "fixtures"), ignore)]
+    fn fixture_localized_bright_plateaus_keep_declared_white() {
+        // test_0004's plateau is its non-image border columns x = 0..3;
+        // test_0018/0019's is one 143×127 corner patch. Neither is spatial
+        // evidence of clipping, so the declared white must survive (#5443).
+        for (name, declared, plateau) in [
+            ("test_0004.fff", 65535u32, 64856u16),
+            ("test_0018.dng", 65535, 62193),
+            ("test_0019.dng", 65535, 62206),
+        ] {
+            let path = require_raw(name);
+            let raw = decode_path(&path).expect("decode fixture");
+            let brightest = raw.raw_data.iter().copied().max().unwrap_or(0);
+            assert_eq!(brightest, plateau, "{name}: fixture plateau moved");
+            assert_eq!(raw.white_level, declared, "{name} effective white level");
+            let clipped = raw
+                .raw_data
+                .iter()
+                .filter(|&&v| (v as f64) / (raw.white_level as f64) >= 0.995)
+                .count();
+            assert_eq!(clipped, 0, "{name}: clip mask must stay empty");
+        }
+    }
+
+    #[test]
     fn exif_illuminant_codes_map_to_correct_illuminant() {
         assert_eq!(exif_illuminant_to_core(17), CoreIlluminant::StdA);
         assert_eq!(exif_illuminant_to_core(20), CoreIlluminant::D55);
@@ -1138,7 +2287,7 @@ mod tests {
             };
             match err {
                 Error::Decode { reason, .. } => assert!(
-                    reason.contains("invalid sensor dimensions"),
+                    reason.contains("dimension"),
                     "unexpected decode-error reason for {}×{}: {}",
                     w,
                     h,
@@ -1182,8 +2331,8 @@ mod tests {
 
     /// #1947: a per-unit-calibrated body ships non-identity `AnalogBalance`
     /// and `CameraCalibrationN`. Decode must fold them into the stored matrices
-    /// per the DNG SDK: `CM' = diag(AB) × CC × CM` (individual XYZ→camera) and
-    /// `FM' = FM × inv(diag(AB) × CC)` (individual → reference before FM).
+    /// per the DNG SDK: `CM' = diag(AB) × CC × CM` (individual XYZ→camera), and
+    /// FM resolved for the as-shot pre-gained buffer (`forward_calibration`).
     #[test]
     fn decode_folds_analog_balance_and_camera_calibration() {
         use crate::test_support::synth_dng::SyntheticGreyDng;
@@ -1214,12 +2363,31 @@ mod tests {
         // Tags round-trip through 1e-6 rationals; allow a loose fp tolerance.
         assert_matrix_close(got_cm, &want_cm, 1e-3, "folded ColorMatrix");
 
-        let want_fm = fm.mul_mat(&correction.inverse().expect("correction invertible"));
+        // #4646: dng_sdk maps unbalanced RGB `p` with `FM · diag(R·w)⁻¹ · R`,
+        // R = correction⁻¹; DCP receives `p / w`, so a neutral (`p = w`) must
+        // land on FM's own white and a coloured sample on the SDK's XYZ.
         let got_fm = raw
             .forward_matrices
             .get(&CoreIlluminant::D65)
             .expect("D65 forward matrix present");
-        assert_matrix_close(got_fm, &want_fm, 1e-3, "folded ForwardMatrix");
+        let white = raw.as_shot_neutral;
+        let to_reference = correction.inverse().expect("correction invertible");
+        let reference_white = to_reference.mul_vec(white);
+        let sdk = |p: [f32; 3]| {
+            let reference = to_reference.mul_vec(p);
+            fm.mul_vec(std::array::from_fn(|c| reference[c] / reference_white[c]))
+        };
+        for p in [white, [0.3, 0.6, 0.1], [0.7, 0.2, 0.5]] {
+            let balanced = got_fm.mul_vec(std::array::from_fn(|c| p[c] / white[c]));
+            let want = sdk(p);
+            assert!(
+                balanced
+                    .iter()
+                    .zip(&want)
+                    .all(|(a, b)| (a - b).abs() < 1e-3),
+                "{p:?}: {balanced:?} vs {want:?}"
+            );
+        }
     }
 
     /// #1947 safety: with the calibration tags at their default identity (the
@@ -1589,6 +2757,23 @@ mod tests {
             raw.raw_data.len(),
             3 * raw.width as usize * raw.height as usize,
             "LinearRaw raw_data must be interleaved RGB (3 × w × h)"
+        );
+    }
+
+    /// #4644: Canon's reduced CR2 (test_0010, 5D Mark IV sRAW) reconstructs
+    /// black-referenced RGB, so it decodes with black 0 like LibRaw and the
+    /// DNG Converter; the same body's Bayer CR2 (test_0009) keeps its black.
+    #[test]
+    #[cfg_attr(not(feature = "fixtures"), ignore)]
+    fn reduced_canon_cr2_is_black_referenced_but_bayer_cr2_is_not() {
+        let reduced = decode_path(&require_raw("test_0010.CR2")).expect("decode sRAW CR2");
+        assert_eq!(reduced.cfa, CfaPattern::LinearRgb);
+        assert_eq!(reduced.black_level, [0; 4]);
+        let bayer = decode_path(&require_raw("test_0009.CR2")).expect("decode Bayer CR2");
+        assert!(
+            bayer.black_level.iter().all(|&b| b > 0),
+            "{:?}",
+            bayer.black_level
         );
     }
 }

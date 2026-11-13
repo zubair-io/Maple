@@ -98,6 +98,7 @@ pub unsafe extern "C" fn maple_removal_saved_detail(
                             ext: &owner.ext,
                         },
                         DetailRenderOptions {
+                            target: raw_core::view::encode::TargetPrimaries::Srgb,
                             quality: if preview {
                                 RenderQuality::Preview
                             } else {

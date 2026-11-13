@@ -7,7 +7,7 @@ export type EnrichmentKind =
   | 'geocode'
   | 'face-detect'
   | 'face-embed'
-  | 'meili';
+  | 'search';
 
 export interface StageMeta {
   readonly id: string;
@@ -57,7 +57,23 @@ export const STAGE_META: Record<string, StageMeta> = {
     icon: 'image',
     enrichment: null,
     description:
-      'Builds 1280-px preview cache used by the editor and enrichment LLM. Concurrency also caps on-demand regeneration triggered by cache-miss preview requests (e.g. Browse) — an in-process throttle (this API process only) against a synchronized regeneration burst.',
+      'Builds 1280-px preview cache used by the editor and enrichment LLM. A preview someone is waiting on (e.g. opening a photo) is rendered first, and the stage pauses new renders until it is done.',
+  },
+  'motion-photo': {
+    id: 'motion-photo',
+    group: 'Ingest',
+    icon: 'image',
+    enrichment: null,
+    description:
+      'Finds the short video Android phones embed in Motion Photo JPEG and HEIC stills and records where it sits, so it can play in Full image. Reads metadata only; originals are never changed.',
+  },
+  'live-photo': {
+    id: 'live-photo',
+    group: 'Ingest',
+    icon: 'image',
+    enrichment: null,
+    description:
+      "Reads the content identifier Apple writes into a Live Photo's still and its video clip, so the two show as a pair only when the identifiers match. Reads metadata only; originals are never changed.",
   },
   describe: {
     id: 'describe',
@@ -122,14 +138,15 @@ export const STAGE_META: Record<string, StageMeta> = {
     icon: 'search',
     enrichment: null,
     description:
-      'Embeds each asset’s caption, people, place, transcript and OCR text on the embedding model chosen in Settings → AI and stores the vector for semantic search. Starts paused — confirm the embedder there, then resume here.',
+      'Embeds each asset’s caption, people, place, transcript and OCR text with the bundled bge-m3 model on this server’s CPU and stores the vector for semantic search.',
   },
-  meili: {
-    id: 'meili',
+  'search-blob': {
+    id: 'search-blob',
     group: 'Index',
     icon: 'search',
-    enrichment: 'meili',
-    description: 'Pushes enriched assets to Meilisearch so they show up in the library search.',
+    enrichment: 'search',
+    description:
+      'Builds each asset’s full-text search entry from its caption, people, place, transcript and OCR text. Keyword searches read it, and so do all searches while the search engine is still loading.',
   },
   'sidecar-metadata-index': {
     id: 'sidecar-metadata-index',

@@ -35,8 +35,14 @@ extension MoleculesL1GallerySection {
     var sliderCard: some View {
         GallerySpecimenCard(name: "Slider", purpose: "Labeled slider with numeric readout", builtFrom: "Text, Input") {
             VStack(spacing: MuiTokens.spacingSm) {
-                MuiSlider(label: "Exposure", value: .constant(0.3), range: -2...2, step: 0.1)
-                MuiSlider(label: "Locked", value: .constant(50), disabled: true)
+                MuiSlider(label: "Exposure", value: .constant(0.3), range: -2...2, step: 0.1, unit: "EV")
+                MuiSlider(
+                    label: "Boundary Warp", value: .constant(50), unit: "%",
+                    helper: "Stretches the edges toward a full rectangle.")
+                MuiSlider(
+                    label: "Boundary Warp", value: .constant(100), unit: "%",
+                    helper: "Limited to 62% so the image doesn't fold.", helperTone: .warning)
+                MuiSlider(label: "Locked", value: .constant(50), unit: "%", disabled: true)
             }
         }
     }

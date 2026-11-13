@@ -95,7 +95,46 @@ def test_ramp_axis_values_chroma_zero_for_achromatic_srgb_linear():
     lightness — sanity check for the `_to_oklab` reimplementation."""
     rgb = np.full((2, 2, 3), 0.4, dtype=np.float32)
     chroma = banding_check.ramp_axis_values(rgb, "17_srgb_linear", "chroma")
+    assert chroma.shape == (2, 2, 2), chroma.shape
     assert np.allclose(chroma, 0.0, atol=1e-5), chroma
+
+
+def _red_ramp(offsets: np.ndarray) -> np.ndarray:
+    rgb = np.full((4, offsets.size, 3), 0.4, dtype=np.float32)
+    rgb[:, :, 0] += offsets.astype(np.float32)
+    return rgb
+
+
+def _chroma_spike(offsets: np.ndarray) -> dict:
+    rgb = _red_ramp(offsets)
+    vector = banding_check.ramp_axis_values(rgb, "17_srgb_linear", "chroma")
+    magnitude = np.linalg.norm(vector, axis=-1)
+    return {
+        "vector": banding_check.second_difference_spike(vector),
+        "magnitude": banding_check.second_difference_spike(magnitude),
+    }
+
+
+def test_chroma_ramp_crossing_neutral_does_not_false_fail():
+    """#5111: a smooth ramp whose start sits just off neutral crosses it
+    within its first samples. Chroma magnitude folds there (V kink) and
+    reads as a spike; the (a, b) vector stays smooth through neutral."""
+    offsets = (np.arange(64) - 1.5) * 0.004
+    spike = _chroma_spike(offsets)
+    assert spike["magnitude"]["max_spike_ratio"] > 0.9, spike
+    assert spike["vector"]["max_spike_ratio"] < 0.05, spike
+
+
+def test_chroma_ramp_with_plateau_still_fails():
+    """A genuinely banded chroma ramp (smooth rise, then dead flat) must
+    still trip the vector metric."""
+    rising = np.arange(32) * 0.004
+    offsets = np.concatenate([rising, np.full(32, rising[-1])])
+    spike = _chroma_spike(offsets)
+    assert spike["vector"]["max_spike_ratio"] > 0.5, spike
+    assert banding_check.flat_run(
+        banding_check.ramp_axis_values(_red_ramp(offsets), "17_srgb_linear", "chroma")
+    )["max_flat_run_frac"] > 0.4
 
 
 def test_ramp_axis_values_luma_matches_rec2020_weights():
@@ -179,6 +218,8 @@ def main() -> int:
         test_second_difference_flags_a_plateau,
         test_second_difference_small_on_smooth_soft_knee,
         test_ramp_axis_values_chroma_zero_for_achromatic_srgb_linear,
+        test_chroma_ramp_crossing_neutral_does_not_false_fail,
+        test_chroma_ramp_with_plateau_still_fails,
         test_ramp_axis_values_luma_matches_rec2020_weights,
         test_check_budget_passes_within_ceiling,
         test_check_budget_fails_over_ceiling,

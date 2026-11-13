@@ -22,16 +22,15 @@
  *
  * ## Why the downstream re-arms are declared rather than written
  *
- * Three stages can need re-arming from one run of this handler: `meili` always,
- * `geocode` when the coordinates moved, and `cf-thumb-sync` when the asset just
- * became visible again. The first was always declared as `invalidates`; the
- * other two were separate `updateOne` calls this handler issued itself, before
+ * Two stages can need re-arming from one run of this handler: `geocode` when the
+ * coordinates moved, and `cf-thumb-sync` when the asset just became visible
+ * again. They were separate `updateOne` calls this handler issued itself, before
  * returning, and that is a write that can be lost independently of the patch it
  * belongs with — a crash in the gap leaves the new coordinates stored with
  * `geocode` still marked done against the old ones, and nothing notices. Named
- * in `invalidates` instead, all three are statements in the same transaction as
- * this stage's own success row (`db/repos/stage-writeback.ts`), so either
- * everything lands or nothing does.
+ * in `invalidates` instead, they are statements in the same transaction as this
+ * stage's own success row (`db/repos/stage-writeback.ts`), so either everything
+ * lands or nothing does.
  *
  * Spec: docs/superpowers/specs/2026-06-26-batch-metadata-editor-design.md
  */
@@ -197,12 +196,10 @@ export async function sidecarMetadataIndexHandler(
     await cleanupR2ThumbForHiddenAsset(image);
   }
 
-  // Effective hidden/screenshot/place metadata changes affect Meilisearch
-  // filters, so the search document is rebuilt atomically with the metadata
-  // projection. `embed` is deliberately absent: this handler writes only the
-  // override document and culling columns, none of which the embedder template
-  // reads, and a GPS edit reaches `embed` through geocode's own success path.
-  const invalidates = ['meili'];
+  // `search-blob` and `embed` are deliberately absent: this handler writes only the override
+  // document and culling columns, none of which feed the blob or the embedder template, and a
+  // GPS edit reaches both through geocode's own success path.
+  const invalidates: string[] = [];
 
   // The inverse transition — explicitly un-hidden — re-arms `cf-thumb-sync` so
   // the pipeline picks the asset back up: that stage's own `{ skip: 'hidden' }`

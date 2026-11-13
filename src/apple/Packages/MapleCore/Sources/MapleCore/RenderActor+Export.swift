@@ -1,8 +1,12 @@
 // RenderActor+Export.swift — full-resolution export render (slice 2).
 //
-// Full RAW export uses the shared Rust float display terminal, including
-// film, saved removals and geometry. Fast/non-RAW exports retain the bounded
-// preview graph; the session applies their crop before destination encoding.
+// Full-quality decode and develop of an immutable export model. The session
+// applies crop and optional non-RAW film before MapleExporter encodes it.
+//
+// Export is the one render path that genuinely wants a full-sensor decode —
+// every interactive path decodes to a bounded display target (#785/#1637/
+// #2058), so `renderForExport` is the sole remaining caller of the unsized
+// `decodeSceneLinear` with the AMaZE flag gate (#940).
 
 import CoreImage
 import Foundation
@@ -10,25 +14,40 @@ import Foundation
 extension RenderActor {
   // MARK: - Export (slice 2)
 
+  /// The interactive decode sniffs extensionless PhotoKit bytes, but export
+  /// has its own decode entry point. Use that same content classification so
+  /// a JPEG whose display name is a PhotoKit identifier never reaches rawler.
+  func isRawForExport(_ asset: AssetRef) async throws -> Bool {
+    guard asset.primaryURL == nil, asset.hintExtension == nil,
+      asset.explicitIsRaw == nil, let provider = asset.bytesProvider
+    else { return asset.isRaw }
+    if let resolved = resolvedIsRaw(for: asset.id) { return resolved }
+    let bytes = try await provider()
+    let resolved = AssetRef.detectIsRaw(bytes: bytes) ?? asset.isRaw
+    recordResolvedIsRaw(asset.id, resolved)
+    return resolved
+  }
+
   public func renderForExport(
     asset: AssetRef,
     model: AdjustmentModel,
     asShot: ImageEditPipeline.AsShotWB?,
     targetSize: CGSize? = nil,
     qualityOverride: PipelineRenderer.Quality? = nil,
-    // #3190 review follow-up: `EditSession.renderForExport()` composites
-    // an sRGB-baked `FilmLookCube` on this function's NON-RAW result
-    // when the asset has a resolvable look — the caller passes `.srgb`
-    // in that case so the encode doesn't hand the cube P3-gamma bytes.
-    // RAW and non-RAW callers may also pin the delivery primaries
-    // independently of the live canvas (#1472).
-    targetPrimariesOverride: CanvasColorSpace? = nil,
-    filmLut: (data: [Float], size: Int, key: UInt32)? = nil
+    // The export format's encode primaries (#4741), so an sRGB file from
+    // a P3 canvas is gamut-compressed rather than clipped at the format
+    // conversion. `EditSession.renderForExport()` forces `.srgb` when it
+    // composites an sRGB-baked `FilmLookCube` on the result (#3190): a
+    // non-RAW or fast RAW export with a look reaches here with `.srgb`, and
+    // a full-size RAW export with a look takes `maple_render_file_with_film`.
+    // `nil` follows the canvas setting.
+    targetPrimariesOverride: CanvasColorSpace? = nil
   ) async throws -> CIImage {
     let pipeline = self.pipeline
     let m = model
+    let isRaw = try await isRawForExport(asset)
 
-    if !asset.isRaw {
+    if !isRaw {
       let decoded: CIImage
       if targetSize != nil,
         decodedForAssetID == asset.id,
@@ -58,21 +77,13 @@ extension RenderActor {
     let quality: PipelineRenderer.Quality =
       qualityOverride ?? (targetSize != nil ? .preview : (AmazeFlag.isEnabled ? .amaze : .full))
 
-    guard let targetSize else {
-      return try await renderFullRawExport(
-        asset: asset, model: m, quality: quality,
-        target: targetPrimariesOverride ?? CanvasColorSpace.current, filmLut: filmLut)
-    }
-
-    let liveBaked = RawCoreBridge.stripAppleGPUStages(m)
     let canReuseCachedDecode =
-      decodedForAssetID == asset.id
+      targetSize != nil
+      && decodedForAssetID == asset.id
       && decodedImage != nil
       && decodedProfile == m.profile
       && decodedAutoExposure == m.autoExposure
-      && (decodedBakedModel == liveBaked
-        || (decodedBakedModel == nil
-          && liveBaked == RawCoreBridge.stripAppleGPUStages(AdjustmentModel())))
+      && Self.exportCanReuse(cachedBakedModel: decodedBakedModel, live: m)
 
     let decodeResult: ImageEditPipeline.SceneLinearDecodeResult?
     if canReuseCachedDecode, let cached = decodedImage {
@@ -97,9 +108,19 @@ extension RenderActor {
       let xml = XMPSerializer.serialize(model: m, culling: CullingState())
       try xml.write(to: sidecar, atomically: true, encoding: .utf8)
       defer { try? FileManager.default.removeItem(at: sidecar) }
-      decodeResult = await pipeline.decodeSceneLinearSized(
-        asset: asset, targetSize: targetSize, xmpPath: sidecar, quality: quality,
-        profileOverride: m.profile, autoExposureOverride: m.autoExposure)
+      if let targetSize {
+        decodeResult = await pipeline.decodeSceneLinearSized(
+          asset: asset, targetSize: targetSize, xmpPath: sidecar, quality: quality,
+          profileOverride: isRaw ? m.profile : nil,
+          autoExposureOverride: isRaw ? m.autoExposure : nil
+        )
+      } else {
+        decodeResult = await pipeline.decodeSceneLinear(
+          asset: asset, quality: quality, xmpPath: sidecar,
+          profileOverride: isRaw ? m.profile : nil,
+          autoExposureOverride: isRaw ? m.autoExposure : nil
+        )
+      }
     }
     guard let exportDecodeResult = decodeResult else {
       throw RenderError.pipelineFailed
@@ -123,8 +144,6 @@ extension RenderActor {
     let exportNoiseProfile = exportDecodeResult.noiseProfile
     let exportISO = exportDecodeResult.iso
     let exportWbFrame = exportDecodeResult.wbFrame
-    // Frame-less RAWs use absolute CAT16 in the full develop; a metadata
-    // estimate is not a decode-baked camera WB anchor (#1472).
     let exportAnchor =
       exportWbFrame.flatMap { frame -> ImageEditPipeline.AsShotWB? in
         guard frame.isPresent else { return nil }
@@ -152,9 +171,22 @@ extension RenderActor {
     }.value
   }
 
-  /// Compatibility RGB8 file render with the shared film stage (#2683).
-  /// The normal full export uses `renderFullRawExport` to retain float
-  /// precision. This dedicated actor keeps the synchronous FFI off MainActor.
+  /// Full decode→develop→render of a RAW+XMP with a film-look lattice
+  /// blended in (epic #2683, Task 10 / bugfix round 2). Wraps
+  /// `PipelineRenderer.render(rawPath:xmpPath:quality:filmLut:)` —
+  /// `maple_render_file_with_film` under the FFI — the same heavy,
+  /// CPU-bound call the plain `renderForExport` above keeps off the main
+  /// actor via `Task.detached`. This entry doesn't need the extra
+  /// `Task.detached` hop: `PipelineRenderer` is a stateless `Sendable`
+  /// struct around the FFI, and `RenderActor` is already a dedicated
+  /// actor distinct from `@MainActor` — running the call directly inside
+  /// this method keeps it off the main actor without adding a second
+  /// concurrency domain to reason about.
+  ///
+  /// `EditSession.renderExportWithFilmLook()` keeps the `@MainActor`-side
+  /// responsibilities (the applicability guard, flushing the pending
+  /// sidecar write, resolving the lattice from `filmLutStore`) and awaits
+  /// this method for the heavy render only.
   public func renderExportWithFilmLook(
     rawPath: URL,
     xmpPath: URL?,

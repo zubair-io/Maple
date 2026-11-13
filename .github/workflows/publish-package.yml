@@ -7,6 +7,8 @@
 name: publish-package
 
 on:
+  merge_group:
+    types: [checks_requested]
   workflow_call:
     outputs:
       validated_sha:
@@ -76,25 +78,28 @@ jobs:
             libc_type: musl
             platform_dir: linux-arm64-musl
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master; Rust 1.98.1
         with:
+          toolchain: 1.98.1
           targets: ${{ matrix.target }}
 
       - name: Install Zig
-        uses: mlugg/setup-zig@v1
+        uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2.2.1
         with:
           version: 0.13.0
 
       - name: Install cargo-zigbuild
-        run: pipx install cargo-zigbuild
+        run: |
+          printf 'ziglang==0.13.0\n' > "$RUNNER_TEMP/cargo-zigbuild-constraints.txt"
+          pipx install cargo-zigbuild==0.23.4 --pip-args="--constraint $RUNNER_TEMP/cargo-zigbuild-constraints.txt"
 
       - name: Setup Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
-          python-version: '3.12'
+          python-version: '3.12.15'
 
       # Only ordinary PRs reuse final binaries; release validation compiles both crates.
       - name: Fingerprint native package binaries
@@ -107,7 +112,7 @@ jobs:
         id: native-cache
         if: github.event_name == 'pull_request' && !startsWith(github.head_ref, 'release/next-v') && steps.native-fingerprint.outcome == 'success' && steps.native-fingerprint.outputs.key != ''
         continue-on-error: true
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .native-package-cache
           key: ${{ steps.native-fingerprint.outputs.key }}
@@ -121,7 +126,7 @@ jobs:
 
       - name: Rust cache
         if: steps.native-restore.outcome != 'success' || steps.native-restore.outputs.reused != 'true'
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
         with:
           workspaces: src/raw-pipeline -> target
           key: ${{ matrix.target }}
@@ -139,7 +144,7 @@ jobs:
           ./src/maple/scripts/audit-linkage.sh "src/raw-pipeline/target/${{ matrix.target }}/release/libraw_ffi.so" "${{ matrix.libc_type }}"
 
       - name: Upload Linux binary artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: ${{ matrix.pkg_name }}
           path: src/raw-pipeline/target/${{ matrix.target }}/release/libraw_ffi.so
@@ -168,13 +173,13 @@ jobs:
       - name: Save native package cache
         continue-on-error: true
         if: github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && steps.native-fingerprint.outcome == 'success' && steps.native-fingerprint.outputs.key != '' && steps.native-stage.outcome == 'success'
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .native-package-cache
           key: ${{ steps.native-fingerprint.outputs.key }}
 
       - name: Upload Linux napi artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: ${{ matrix.pkg_name }}-napi
           path: src/raw-pipeline/target/${{ matrix.target }}/release/raw-napi.${{ matrix.platform_dir }}.node
@@ -194,17 +199,19 @@ jobs:
             pkg_name: maple-darwin-x64
             platform_dir: darwin-x64
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master; Rust 1.98.1
         with:
+          toolchain: 1.98.1
           targets: ${{ matrix.target }}
 
       - name: Setup Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
-          python-version: '3.12'
+          # Latest 3.12 build published by actions/python-versions on macOS/Windows.
+          python-version: '3.12.10'
 
       # Only ordinary PRs reuse final binaries; release validation compiles both crates.
       - name: Fingerprint native package binaries
@@ -217,7 +224,7 @@ jobs:
         id: native-cache
         if: github.event_name == 'pull_request' && !startsWith(github.head_ref, 'release/next-v') && steps.native-fingerprint.outcome == 'success' && steps.native-fingerprint.outputs.key != ''
         continue-on-error: true
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .native-package-cache
           key: ${{ steps.native-fingerprint.outputs.key }}
@@ -231,7 +238,7 @@ jobs:
 
       - name: Rust cache
         if: steps.native-restore.outcome != 'success' || steps.native-restore.outputs.reused != 'true'
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
         with:
           workspaces: src/raw-pipeline -> target
           key: ${{ matrix.target }}
@@ -242,7 +249,7 @@ jobs:
           cargo build --manifest-path src/raw-pipeline/Cargo.toml --release -p raw-ffi --target ${{ matrix.target }}
 
       - name: Upload macOS binary artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: ${{ matrix.pkg_name }}
           path: src/raw-pipeline/target/${{ matrix.target }}/release/libraw_ffi.dylib
@@ -269,13 +276,13 @@ jobs:
       - name: Save native package cache
         continue-on-error: true
         if: github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && steps.native-fingerprint.outcome == 'success' && steps.native-fingerprint.outputs.key != '' && steps.native-stage.outcome == 'success'
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .native-package-cache
           key: ${{ steps.native-fingerprint.outputs.key }}
 
       - name: Upload macOS napi artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: ${{ matrix.pkg_name }}-napi
           path: src/raw-pipeline/target/${{ matrix.target }}/release/raw-napi.${{ matrix.platform_dir }}.node
@@ -285,17 +292,19 @@ jobs:
     name: build-windows (maple-win32-x64-msvc)
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master; Rust 1.98.1
         with:
+          toolchain: 1.98.1
           targets: x86_64-pc-windows-msvc
 
       - name: Setup Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
-          python-version: '3.12'
+          # Latest 3.12 build published by actions/python-versions on macOS/Windows.
+          python-version: '3.12.10'
 
       # Only ordinary PRs reuse final binaries; release validation compiles both crates.
       - name: Fingerprint native package binaries
@@ -308,7 +317,7 @@ jobs:
         id: native-cache
         if: github.event_name == 'pull_request' && !startsWith(github.head_ref, 'release/next-v') && steps.native-fingerprint.outcome == 'success' && steps.native-fingerprint.outputs.key != ''
         continue-on-error: true
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .native-package-cache
           key: ${{ steps.native-fingerprint.outputs.key }}
@@ -322,7 +331,7 @@ jobs:
 
       - name: Rust cache
         if: steps.native-restore.outcome != 'success' || steps.native-restore.outputs.reused != 'true'
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
         with:
           workspaces: src/raw-pipeline -> target
           key: x86_64-pc-windows-msvc
@@ -333,7 +342,7 @@ jobs:
           cargo build --manifest-path src/raw-pipeline/Cargo.toml --release -p raw-ffi --target x86_64-pc-windows-msvc
 
       - name: Upload Windows binary artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: maple-win32-x64-msvc
           path: src/raw-pipeline/target/x86_64-pc-windows-msvc/release/raw_ffi.dll
@@ -360,13 +369,13 @@ jobs:
       - name: Save native package cache
         continue-on-error: true
         if: github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && steps.native-fingerprint.outcome == 'success' && steps.native-fingerprint.outputs.key != '' && steps.native-stage.outcome == 'success'
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .native-package-cache
           key: ${{ steps.native-fingerprint.outputs.key }}
 
       - name: Upload Windows napi artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: maple-win32-x64-msvc-napi
           path: src/raw-pipeline/target/x86_64-pc-windows-msvc/release/raw-napi.win32-x64-msvc.node
@@ -380,26 +389,26 @@ jobs:
       contents: read
       id-token: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
-          bun-version: latest
+          bun-version: 1.4.2
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          node-version: 22
+          node-version: 22.23.3
           registry-url: 'https://registry.npmjs.org'
 
       - name: Upgrade npm for OIDC Trusted Publishing
         run: |
-          npm install --global npm@11
+          npm install --global npm@11.21.1
           npm --version
 
       - name: Download all compiled binary artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           path: artifacts
 
@@ -512,20 +521,20 @@ jobs:
     runs-on: ubuntu-latest
     if: always() && needs.publish.result == 'success'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Setup Bun (packaging/build helper only — never runs the smoke test)
-        uses: oven-sh/setup-bun@v2
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
-          bun-version: latest
+          bun-version: 1.4.2
 
       - name: Setup Node.js 22
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          node-version: 22
+          node-version: 22.23.3
 
       - name: Download all compiled binary artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           path: artifacts
 

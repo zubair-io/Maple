@@ -1,31 +1,25 @@
-// Continuous pixelScale zoom + gestures (#1100, spec §5.0/§5.2).
+// Gesture recognition over the shared Rust zoom model (#1100, #5714; spec
+// §5.0/§5.2, docs/zoom.md). The model's own rules are pinned by the Rust
+// tests in raw-core `canvas`; these specs run the real `raw_wasm_canvas` module and
+// check that each DOM gesture reaches the right transition with the right
+// coordinates, and that what the model returns is committed.
 //
-// Layer 1 — pure math: fit scale, settle/pinch clamps (snap-to-fit at
-// fit×1.02, cap 8, mid-pinch undershoot to fit×0.5), anchored-zoom pan,
-// pan clamping.
-// Layer 2 — the CanvasZoomGestures controller against a fake host: pinch
-// with a start-captured scale (no frame-over-frame compounding), centroid
-// anchoring, snap on release, wheel routing per the §5.0 table, double-click
-// fit ↔ 100%.
-// Layer 3 — component wiring: Cmd/Ctrl+0/1 (bare digits stay with the S5
+// Layer 1 — the CanvasZoomGestures controller against a fake host.
+// Layer 2 — component wiring: Cmd/Ctrl+0/1 (bare digits stay with the S5
 // tool/rating handlers), ctrl-wheel zoom consumed via preventDefault, plain
-// wheel pans only when zoomed.
+// wheel at fit left alone, double-click through the template.
 
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
 import { signal, type WritableSignal } from '@angular/core';
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from 'vitest';
 
+import * as rawWasm from '../../raw-pipeline/pkg/canvas/raw_wasm_canvas';
 import { ImageCanvasComponent } from './image-canvas.component';
 import { ImageCanvasService } from './image-canvas.service';
-import {
-  CanvasZoomGestures,
-  clampPan,
-  fitPixelScale,
-  panForAnchoredZoom,
-  pinchPixelScale,
-  settlePixelScale,
-  type ZoomGestureHost,
-} from './image-canvas.zoom-gestures';
+import { CanvasZoomGestures, type ZoomGestureHost } from './image-canvas.zoom-gestures';
+import { installCanvasZoomWasm } from './image-canvas.zoom-wasm';
 import { LibraryStateService } from '../../state/library-state.service';
 import { LensCorrectionCapabilities } from '../../state/library-store-lens-corrections';
 import { RawPipelineService } from '../../raw-pipeline/raw-pipeline.service';
@@ -33,101 +27,134 @@ import { XmpSerializerService } from '../../xmp/xmp-serializer.service';
 import { defaultAdjustmentModel, type AdjustmentModel } from '../../models/adjustment-model';
 import type { Asset, AssetId } from '../../models/asset';
 
-describe('zoom math (#1100)', () => {
-  it('fitPixelScale is real px per image px at fit', () => {
-    // 4000×2500 image in a 1000×726 CSS wrap at dpr 2 → min(2000/4000, 1452/2500).
-    expect(fitPixelScale(4000, 2500, 1000, 726, 2)).toBeCloseTo(0.5, 5);
-    // Degenerate inputs fall back to 1 (never 0/NaN).
-    expect(fitPixelScale(0, 0, 1000, 726, 2)).toBe(1);
+beforeAll(() => {
+  const output = rawWasm.initSync({
+    module: readFileSync(
+      resolve(
+        process.cwd(),
+        'projects/maple-common/src/lib/raw-pipeline/pkg/canvas/raw_wasm_canvas_bg.wasm',
+      ),
+    ),
   });
-
-  it('settlePixelScale snaps to fit below fit×1.02 and caps at 8', () => {
-    const fit = 0.5;
-    expect(settlePixelScale(0.509, fit)).toBe(0); // ≤ fit×1.02 → fit
-    expect(settlePixelScale(0.52, fit)).toBeCloseTo(0.52, 5);
-    expect(settlePixelScale(11, fit)).toBe(8); // cap
-  });
-
-  it('pinchPixelScale allows the mid-gesture undershoot to fit×0.5', () => {
-    const fit = 0.5;
-    expect(pinchPixelScale(0.1, fit)).toBeCloseTo(0.25, 5); // floor fit×0.5
-    expect(pinchPixelScale(0.4, fit)).toBeCloseTo(0.4, 5); // below fit but above floor
-    expect(pinchPixelScale(11, fit)).toBe(8);
-  });
-
-  it('panForAnchoredZoom keeps the image point under the anchor stationary', () => {
-    // Image point under anchor a: p = (a − pan)/s. After the new pan, the
-    // same p must project back onto a.
-    const pan = { x: 10, y: -20 };
-    const anchor = { x: 100, y: 50 };
-    const s = 0.5;
-    const s2 = 1.25;
-    const p = { x: (anchor.x - pan.x) / s, y: (anchor.y - pan.y) / s };
-    const pan2 = panForAnchoredZoom(pan, anchor, s, s2);
-    expect(pan2.x + p.x * s2).toBeCloseTo(anchor.x, 5);
-    expect(pan2.y + p.y * s2).toBeCloseTo(anchor.y, 5);
-  });
-
-  it('clampPan stops the image edges at the viewport and centers fitting axes', () => {
-    // Image 3000×500 CSS in a 1000×700 wrap: x range ±1000, y centered.
-    expect(clampPan({ x: 5000, y: 40 }, 3000, 500, 1000, 700)).toEqual({ x: 1000, y: 0 });
-    expect(clampPan({ x: -5000, y: -40 }, 3000, 500, 1000, 700)).toEqual({ x: -1000, y: 0 });
-    expect(clampPan({ x: 250, y: 0 }, 3000, 500, 1000, 700)).toEqual({ x: 250, y: 0 });
-  });
+  installCanvasZoomWasm(rawWasm, output.memory);
 });
 
-describe('CanvasZoomGestures controller (#1100)', () => {
-  // Fake host: 1000×726 CSS wrap at (0,0), dpr 2, 4000×2500 native → fit 0.5.
+describe('CanvasZoomGestures over the shared model', () => {
+  // 1000×726 CSS wrap at (0,0), dpr 2, 4000×2500 native: fit 0.5, fill 0.5808.
+  const FIT = 0.5;
+  const FILL = 1452 / 2500;
+  let wrap: { w: number; h: number };
   let pixelScale: number;
   let pan: { x: number; y: number };
   let commits: Array<{ ps: number; pan: { x: number; y: number } }>;
   let g: CanvasZoomGestures;
+  /** Stands in for the host's signals: bumped on every write to the view below. */
+  const writes = signal(0);
+  const touched = (): void => writes.update((n) => n + 1);
 
   beforeEach(() => {
+    wrap = { w: 1000, h: 726 };
     pixelScale = 0;
     pan = { x: 0, y: 0 };
     commits = [];
     const host: ZoomGestureHost = {
-      wrapSize: () => ({ w: 1000, h: 726 }),
+      wrapSize: () => (writes(), wrap),
       wrapRect: () =>
-        ({ left: 0, top: 0, width: 1000, height: 726, right: 1000, bottom: 726 }) as DOMRect,
+        ({
+          left: 0,
+          top: 0,
+          width: wrap.w,
+          height: wrap.h,
+          right: wrap.w,
+          bottom: wrap.h,
+        }) as DOMRect,
       nativeSize: () => ({ w: 4000, h: 2500 }),
       devicePixelRatio: () => 2,
-      pixelScale: () => pixelScale,
-      pan: () => pan,
+      pixelScale: () => (writes(), pixelScale),
+      pan: () => (writes(), pan),
       commitView: (ps, p) => {
         commits.push({ ps, pan: p });
         pixelScale = ps;
-        pan = ps === 0 ? { x: 0, y: 0 } : p;
+        pan = p;
+        touched();
       },
       moveDivider: () => {},
     };
     g = new CanvasZoomGestures(host);
   });
 
-  it('pinch uses a START-captured scale — no frame-over-frame compounding', () => {
-    g.onPointerDown({ pointerId: 1, clientX: 400, clientY: 300 });
-    g.onPointerDown({ pointerId: 2, clientX: 600, clientY: 300 }); // dist 200
-    // Two moves to the SAME 2× spread: the second must not double again.
-    g.onPointerMove({ pointerId: 1, clientX: 300, clientY: 300 });
-    g.onPointerMove({ pointerId: 2, clientX: 700, clientY: 300 }); // dist 400 = 2×
-    const after = pixelScale;
-    expect(after).toBeCloseTo(0.5 * 2, 5); // fit(0.5) × magnification(2)
-    g.onPointerMove({ pointerId: 2, clientX: 700, clientY: 300 }); // same spread again
-    expect(pixelScale).toBeCloseTo(after, 5);
+  /** A horizontal two-pointer pinch about the viewport centre. */
+  function pinch(fromSpread: number, toSpread: number, release = true): void {
+    const cx = 500;
+    const cy = 363;
+    g.onPointerDown({ pointerId: 1, clientX: cx - fromSpread / 2, clientY: cy });
+    g.onPointerDown({ pointerId: 2, clientX: cx + fromSpread / 2, clientY: cy });
+    g.onPointerMove({ pointerId: 1, clientX: cx - toSpread / 2, clientY: cy });
+    g.onPointerMove({ pointerId: 2, clientX: cx + toSpread / 2, clientY: cy });
+    if (!release) return;
+    g.onPointerUp({ pointerId: 1, clientX: cx - toSpread / 2, clientY: cy });
+    g.onPointerUp({ pointerId: 2, clientX: cx + toSpread / 2, clientY: cy });
+  }
+
+  it('pinch derives every frame from the start capture — no compounding', () => {
+    pinch(200, 400, false);
+    expect(pixelScale).toBeCloseTo(FIT * 2, 9);
+    g.onPointerMove({ pointerId: 2, clientX: 800, clientY: 363 });
+    expect(pixelScale).toBeCloseTo(FIT * 2.5, 9);
   });
 
-  it('releasing a pinch below fit×1.02 snaps back to fit and recenters', () => {
-    g.onPointerDown({ pointerId: 1, clientX: 400, clientY: 300 });
-    g.onPointerDown({ pointerId: 2, clientX: 600, clientY: 300 });
-    // Pinch IN slightly (0.98×): mid-gesture stays continuous (undershoot)…
-    g.onPointerMove({ pointerId: 1, clientX: 402, clientY: 300 });
-    expect(pixelScale).toBeGreaterThan(0);
-    expect(pixelScale).toBeLessThan(0.5);
-    // …and the release snaps to fit (0) with pan reset.
-    g.onPointerUp({ pointerId: 1, clientX: 402, clientY: 300 });
+  it('a pinch released inside the fit band settles on fit and recentres', () => {
+    pinch(200, 197);
     expect(pixelScale).toBe(0);
-    expect(commits[commits.length - 1]).toEqual({ ps: 0, pan: { x: 0, y: 0 } });
+    expect(pan).toEqual({ x: 0, y: 0 });
+  });
+
+  it('a pinch below fit follows the fingers down to the half-fit floor and releases to fit', () => {
+    pinch(200, 140, false);
+    expect(pixelScale).toBeCloseTo(FIT * 0.7, 9);
+    g.onPointerMove({ pointerId: 2, clientX: 510, clientY: 363 });
+    expect(pixelScale).toBeCloseTo(FIT * 0.5, 9);
+    g.onPointerUp({ pointerId: 1, clientX: 490, clientY: 363 });
+    g.onPointerUp({ pointerId: 2, clientX: 510, clientY: 363 });
+    expect(pixelScale).toBe(0);
+    expect(pan).toEqual({ x: 0, y: 0 });
+  });
+
+  it('a pinch released inside the fill band settles on fill, which follows a resize', () => {
+    pinch(200, 230);
+    expect(pixelScale).toBeCloseTo(FILL, 9);
+    wrap = { w: 726, h: 1000 };
+    touched();
+    g.reclamp();
+    expect(pixelScale).toBeCloseTo(2000 / 2500, 9);
+  });
+
+  it('the pinch keeps the image point under the start centroid under the live one', () => {
+    g.onPointerDown({ pointerId: 1, clientX: 700, clientY: 200 });
+    g.onPointerDown({ pointerId: 2, clientX: 900, clientY: 200 });
+    g.onPointerMove({ pointerId: 1, clientX: 600, clientY: 200 });
+    const start = { x: 800 - 500, y: 200 - 363 };
+    const image = { x: start.x / (FIT / 2), y: start.y / (FIT / 2) };
+    expect(pixelScale).toBeCloseTo(FIT * 1.5, 9);
+    expect(pan.x + image.x * (pixelScale / 2)).toBeCloseTo(750 - 500, 6);
+    expect(pan.y + image.y * (pixelScale / 2)).toBeCloseTo(start.y, 6);
+  });
+
+  it('one-pointer drag pans while the image overflows and is left alone at fit', () => {
+    g.onPointerDown({ pointerId: 1, clientX: 100, clientY: 100 });
+    g.onPointerMove({ pointerId: 1, clientX: 140, clientY: 120 });
+    g.onPointerUp({ pointerId: 1, clientX: 140, clientY: 120 });
+    expect(commits).toEqual([]);
+
+    pixelScale = 2;
+    touched();
+    g.onPointerDown({ pointerId: 1, clientX: 100, clientY: 100 });
+    g.onPointerMove({ pointerId: 1, clientX: 140, clientY: 120 });
+    expect(pan).toEqual({ x: 40, y: 20 });
+    g.onPointerUp({ pointerId: 1, clientX: 140, clientY: 120 });
+    g.onPointerDown({ pointerId: 1, clientX: 0, clientY: 0 });
+    g.onPointerMove({ pointerId: 1, clientX: 10, clientY: 0 });
+    expect(pan).toEqual({ x: 50, y: 20 });
   });
 
   it('ctrlKey wheel zooms at the cursor and is consumed', () => {
@@ -135,75 +162,232 @@ describe('CanvasZoomGestures controller (#1100)', () => {
       ctrlKey: true,
       metaKey: false,
       deltaX: 0,
-      deltaY: -100, // zoom in: ×e^1 ≈ 2.718
+      deltaY: -100,
       clientX: 800,
       clientY: 200,
     });
     expect(consumed).toBe(true);
-    expect(pixelScale).toBeCloseTo(0.5 * Math.exp(1), 3);
-    // Anchored: the image point under (800, 200) stayed put. Anchor is
-    // relative to the wrap center (500, 363).
-    const cssBefore = 0.5 / 2;
-    const cssAfter = pixelScale / 2;
+    expect(pixelScale).toBeCloseTo(FIT * Math.pow(2, 100 * 0.015), 9);
     const anchor = { x: 300, y: -163 };
-    const p = { x: anchor.x / cssBefore, y: anchor.y / cssBefore }; // pan was 0
-    expect(pan.x + p.x * cssAfter).toBeCloseTo(anchor.x, 3);
-    expect(pan.y + p.y * cssAfter).toBeCloseTo(anchor.y, 3);
+    const image = { x: anchor.x / (FIT / 2), y: anchor.y / (FIT / 2) };
+    expect(pan.x + image.x * (pixelScale / 2)).toBeCloseTo(anchor.x, 6);
+    expect(pan.y + image.y * (pixelScale / 2)).toBeCloseTo(anchor.y, 6);
   });
 
-  it('plain wheel is NOT consumed at fit (S5 armed-tool nudge keeps it) and pans when zoomed', () => {
-    const atFit = g.onWheel({
-      ctrlKey: false,
-      metaKey: false,
-      deltaX: 0,
-      deltaY: 50,
-      clientX: 0,
-      clientY: 0,
-    });
-    expect(atFit).toBe(false);
-    expect(pixelScale).toBe(0);
-
-    pixelScale = 2; // zoomed
-    const zoomed = g.onWheel({
+  it('plain wheel pans only while the image overflows; otherwise the tool nudge keeps it', () => {
+    const wheel = {
       ctrlKey: false,
       metaKey: false,
       deltaX: 30,
       deltaY: 50,
       clientX: 0,
       clientY: 0,
-    });
-    expect(zoomed).toBe(true);
-    expect(commits[commits.length - 1].pan).toEqual({ x: -30, y: -50 });
+    };
+    expect(g.onWheel(wheel)).toBe(false);
+    expect(pixelScale).toBe(0);
+
+    g.stepZoom(-1);
+    expect(pixelScale).toBeLessThan(FIT);
+    expect(g.onWheel(wheel)).toBe(false);
+
+    pixelScale = 2;
+    pan = { x: 0, y: 0 };
+    touched();
+    expect(g.onWheel(wheel)).toBe(true);
+    expect(pan).toEqual({ x: -30, y: -50 });
+  });
+
+  it('drag and wheel stay with the editor at fit and below, and pan once the image overflows', () => {
+    expect(g.pointerEditsAtZoom()).toBe(true);
+    g.stepZoom(-1);
+    expect(g.pointerEditsAtZoom()).toBe(true);
+    g.stepZoom(1);
+    g.stepZoom(1);
+    expect(pixelScale).toBeGreaterThan(FIT);
+    expect(g.pointerEditsAtZoom()).toBe(false);
+  });
+
+  it('a third finger taking over the pinch re-measures from the reached zoom instead of jumping', () => {
+    g.onPointerDown({ pointerId: 1, clientX: 400, clientY: 363 });
+    g.onPointerDown({ pointerId: 2, clientX: 600, clientY: 363 });
+    g.onPointerMove({ pointerId: 2, clientX: 800, clientY: 363 });
+    const reached = pixelScale;
+    expect(reached).toBeCloseTo(FIT * 2, 9);
+    g.onPointerDown({ pointerId: 3, clientX: 900, clientY: 363 });
+    g.onPointerUp({ pointerId: 1, clientX: 400, clientY: 363 });
+    expect(pixelScale).toBeCloseTo(reached, 9);
+    g.onPointerMove({ pointerId: 3, clientX: 1000, clientY: 363 });
+    expect(pixelScale).toBeCloseTo(reached * 2, 9);
+  });
+
+  it("the badge's next stop follows a pinch that settles on fill", () => {
+    expect(g.nextBadgeStop()).toBe(rawWasm.CanvasZoomStop.Fill);
+    pinch(200, 230);
+    expect(g.nextBadgeStop()).toBe(rawWasm.CanvasZoomStop.ActualSize);
+  });
+
+  it('a chord wheel with no vertical delta is consumed without leaving fit', () => {
+    const swipe = { ctrlKey: true, metaKey: false, deltaX: 40, deltaY: 0, clientX: 0, clientY: 0 };
+    expect(g.onWheel(swipe)).toBe(true);
+    expect(commits).toEqual([]);
+    expect(pixelScale).toBe(0);
   });
 
   it('double-click toggles fit ↔ 100%', () => {
-    g.onDoubleClick(500, 363); // center → pan stays 0
+    g.onDoubleClick(500, 363);
     expect(pixelScale).toBe(1);
     g.onDoubleClick(500, 363);
     expect(pixelScale).toBe(0);
   });
 
-  it('stepZoom steps multiplicatively and snaps to fit at the bottom', () => {
+  it('steps by 1.25×, settles on fit from above, and continues below fit', () => {
     g.stepZoom(1);
-    expect(pixelScale).toBeCloseTo(0.7, 5); // fit 0.5 × 1.4
+    expect(pixelScale).toBeCloseTo(FIT * 1.25, 9);
     g.stepZoom(-1);
-    expect(pixelScale).toBe(0); // back to ~fit → snap
+    expect(pixelScale).toBe(0);
+    g.stepZoom(-1);
+    expect(pixelScale).toBeCloseTo(FIT / 1.25, 9);
+  });
+
+  it('the badge cycles fit → fill → 100% → fit', () => {
+    expect(g.nextBadgeStop()).toBe(rawWasm.CanvasZoomStop.Fill);
+    g.advanceStop();
+    expect(pixelScale).toBeCloseTo(FILL, 9);
+    expect(g.nextBadgeStop()).toBe(rawWasm.CanvasZoomStop.ActualSize);
+    g.advanceStop();
+    expect(pixelScale).toBe(1);
+    g.advanceStop();
+    expect(pixelScale).toBe(0);
+  });
+
+  it('adopts a zoom written outside the model', () => {
+    g.stepZoom(1);
+    pixelScale = 0;
+    pan = { x: 0, y: 0 };
+    touched();
+    g.stepZoom(1);
+    expect(pixelScale).toBeCloseTo(FIT * 1.25, 9);
+  });
+
+  it('reports the effective zoom as a percent', () => {
+    expect(g.zoomPercent()).toBe('50%');
+    g.onDoubleClick(500, 363);
+    expect(g.zoomPercent()).toBe('100%');
+  });
+
+  // #5745: an outer layer that took the capture kept the canvas from ever
+  // seeing pointer 1's release; a later finger then pinched against it.
+  it('a pointer whose capture was lost stops counting, so a later one-finger drag pans', () => {
+    g.onPointerDown({ pointerId: 1, clientX: 100, clientY: 100 });
+    g.onLostPointerCapture({ pointerId: 1, clientX: 100, clientY: 100 });
+    pixelScale = 2;
+    touched();
+    g.onPointerDown({ pointerId: 2, clientX: 300, clientY: 100 });
+    g.onPointerMove({ pointerId: 2, clientX: 500, clientY: 100 });
+    expect(pixelScale).toBe(2);
+    expect(pan).toEqual({ x: 200, y: 0 });
+  });
+
+  it('losing the capture mid-pinch ends the pinch', () => {
+    pinch(200, 400, false);
+    const reached = pixelScale;
+    g.onLostPointerCapture({ pointerId: 1, clientX: 400, clientY: 363 });
+    g.onPointerMove({ pointerId: 2, clientX: 900, clientY: 363 });
+    expect(pixelScale).toBeCloseTo(reached, 9);
+  });
+
+  it('a fresh primary press drops pointers whose release never arrived', () => {
+    g.onPointerDown({ pointerId: 1, clientX: 100, clientY: 100, isPrimary: true });
+    pixelScale = 2;
+    touched();
+    g.onPointerDown({ pointerId: 2, clientX: 300, clientY: 100, isPrimary: true });
+    g.onPointerMove({ pointerId: 2, clientX: 500, clientY: 100, isPrimary: true });
+    expect(pixelScale).toBe(2);
+    expect(pan).toEqual({ x: 200, y: 0 });
+  });
+
+  it('a fresh primary pen press leaves a live touch pinch alone', () => {
+    const touch = { pointerType: 'touch' };
+    g.onPointerDown({ pointerId: 1, clientX: 400, clientY: 363, isPrimary: true, ...touch });
+    g.onPointerDown({ pointerId: 2, clientX: 600, clientY: 363, isPrimary: false, ...touch });
+    g.onPointerDown({
+      pointerId: 9,
+      clientX: 50,
+      clientY: 50,
+      isPrimary: true,
+      pointerType: 'pen',
+    });
+    g.onPointerMove({ pointerId: 2, clientX: 800, clientY: 363, ...touch });
+    expect(pixelScale).toBeCloseTo(FIT * 2, 9);
+  });
+
+  it('a press a descendant already took (a crop or mask handle) stays with it', () => {
+    const el = document.createElement('div');
+    const handle = document.createElement('div');
+    el.append(handle);
+    const capture = vi.fn();
+    el.setPointerCapture = capture;
+    handle.addEventListener('pointerdown', (e) => e.preventDefault());
+    const pointerDown = vi.spyOn(g, 'onPointerDown');
+    const detach = g.attach(el);
+
+    handle.dispatchEvent(
+      new MouseEvent('pointerdown', { bubbles: true, cancelable: true, button: 0 }),
+    );
+
+    expect(capture).not.toHaveBeenCalled();
+    expect(pointerDown).not.toHaveBeenCalled();
+    detach();
+  });
+
+  it('a lostpointercapture event on the wrap releases that pointer', () => {
+    const el = document.createElement('div');
+    const detach = g.attach(el);
+    const lost = vi.spyOn(g, 'onLostPointerCapture');
+    const event = new MouseEvent('lostpointercapture', { bubbles: true });
+    Object.defineProperty(event, 'pointerId', { value: 4 });
+    el.dispatchEvent(event);
+    expect(lost).toHaveBeenCalledOnce();
+    detach();
   });
 
   it('leaves interactive descendants in control of their pointer stream', () => {
-    const wrap = document.createElement('div');
+    const el = document.createElement('div');
     const button = document.createElement('button');
-    wrap.append(button);
+    el.append(button);
     const pointerDown = vi.spyOn(g, 'onPointerDown');
     const clicked = vi.fn();
     button.addEventListener('click', clicked);
-    const detach = g.attach(wrap);
+    const detach = g.attach(el);
 
     button.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, button: 0 }));
     button.click();
 
     expect(pointerDown).not.toHaveBeenCalled();
     expect(clicked).toHaveBeenCalledOnce();
+    detach();
+  });
+});
+
+describe('pointer ownership by marked descendants', () => {
+  it('does not capture the pointer for a [data-owns-pointer] descendant, so its click is not retargeted', () => {
+    const host = {} as ZoomGestureHost;
+    const g = new CanvasZoomGestures(host);
+    const wrap = document.createElement('div');
+    const overlay = document.createElement('div');
+    overlay.setAttribute('data-owns-pointer', '');
+    wrap.append(overlay);
+    const capture = vi.fn();
+    wrap.setPointerCapture = capture;
+    const pointerDown = vi.spyOn(g, 'onPointerDown').mockImplementation(() => undefined);
+    const detach = g.attach(wrap);
+
+    overlay.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, button: 0 }));
+    expect(capture).not.toHaveBeenCalled();
+    expect(pointerDown).not.toHaveBeenCalled();
+
+    wrap.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, button: 0 }));
+    expect(capture).toHaveBeenCalledOnce();
     detach();
   });
 });

@@ -14,9 +14,9 @@
 //! decision of what to strip lives where the GPU-chain knowledge lives
 //! (i.e. the Swift side).
 //!
-//! Tile dehaze guard stays on the Rust side because it's a safety gate
-//! (full-image dark-channel computation that can't run on a crop tile),
-//! not GPU-chain knowledge.
+//! Tile dehaze needs the whole frame's haze maps, which the core measures
+//! itself for these entries (#3287) — a frame-level concern, not GPU-chain
+//! knowledge.
 //!
 //! Auto Profile / auto-exposure contract (#871 × #927 — see #1174):
 //! under `Profile::Auto` every entry in this module (and the f32

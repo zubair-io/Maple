@@ -64,6 +64,35 @@ impl CloudClient {
         }
         json(self.request(Method::GET, endpoint, None, &[])?)
     }
+    pub fn stat_entry(&mut self, entry: &CloudEntry) -> Result<CloudEntry, CloudError> {
+        #[derive(Deserialize)]
+        struct Metadata {
+            size: u64,
+            mtime: String,
+        }
+        let (slug, path) = entry
+            .address
+            .split_once(':')
+            .ok_or_else(|| CloudError::Protocol("Missing library address".into()))?;
+        let library = self
+            .libraries()?
+            .into_iter()
+            .find(|library| library.slug == slug)
+            .ok_or_else(|| CloudError::Protocol("Cloud library no longer exists".into()))?;
+        let mut endpoint = self.server.endpoint("api/folders")?;
+        endpoint
+            .path_segments_mut()
+            .map_err(|_| CloudError::Protocol("Invalid server URL".into()))?
+            .push(&library.id)
+            .push("file-meta");
+        endpoint.query_pairs_mut().append_pair("path", path);
+        let metadata: Metadata = json(self.request(Method::GET, endpoint, None, &[])?)?;
+        Ok(CloudEntry {
+            size: metadata.size,
+            mtime: metadata.mtime,
+            ..entry.clone()
+        })
+    }
     pub fn derivative(&mut self, kind: &str, address: &str) -> Result<Vec<u8>, CloudError> {
         if !["thumb", "preview"].contains(&kind) {
             return Err(CloudError::Protocol("Invalid derivative kind".into()));

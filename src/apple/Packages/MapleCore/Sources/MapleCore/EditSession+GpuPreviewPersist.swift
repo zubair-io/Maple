@@ -33,16 +33,16 @@ extension EditSession {
   }
 
   func refreshThumbnailFromCurrentGpuFrame(expectedModel capturedModel: AdjustmentModel) async {
-    guard hasSettledAutoProfile, gpuFramePresented, let driver = gpuLiveDriver else { return }
+    guard !sidecarWritesDisabled, gpuFramePresented, let driver = gpuLiveDriver else { return }
     // A crop/baked edit can still be waiting for admission when the editor
     // disappears. Join that work, then validate the actual uploaded pixels.
     _ = await latestRenderSchedule?.value
     await renderActor.awaitCurrentRenderIfInFlight()
-    let snapshot = await renderActor.snapshot(forAsset: asset)
+    let snapshot = await renderActor.snapshot(forAsset: asset, liveModel: decodeKey(capturedModel))
     let resolvedIsRaw = await renderActor.resolvedIsRaw(for: asset.id) ?? asset.isRaw
     let identity = GpuUploadIdentity(
       decodeGeneration: snapshot.decodeGeneration, crop: capturedModel.crop)
-    guard model == capturedModel, !isFullQualityDecoding, !gpuPresentFailed,
+    guard !sidecarWritesDisabled, model == capturedModel, !isFullQualityDecoding, !gpuPresentFailed,
       snapshot.image != nil, snapshot.isFresh,
       !resolvedIsRaw
         || (snapshot.profile == capturedModel.profile
@@ -50,7 +50,6 @@ extension EditSession {
       driver.isOpen(coveringWidth: 1, height: 1, identity: identity)
     else { return }
     let liveSession = driver.session
-    let autoID = driver.nativeAutoProfileID
     let thumbnailURL = asset.primaryURL
     let selectedVariant = workflow.selectedVariantId
     let selectedXML = workflow.previews.captureXML
@@ -62,29 +61,27 @@ extension EditSession {
     } else {
       cacheWrite = nil
     }
-    guard model == capturedModel, liveSession === driver.session else { return }
+    guard !sidecarWritesDisabled, model == capturedModel, liveSession === driver.session else {
+      return
+    }
     // Same WB anchor as the live present; readback reruns that chain.
-    let liveWbFrame = resolvedIsRaw ? wbSliderFrame : nil
     let anchor = wbDeltaAnchor
-    let cct = resolvedIsRaw ? anchor?.temperature : 6500.0
-    let tint = resolvedIsRaw ? anchor?.tint : 0.0
+    let cct = resolvedIsRaw ? (anchor?.temperature ?? asShotCCT) : 6500.0
+    let tint = resolvedIsRaw ? (anchor?.tint ?? asShotTint) : 0.0
     guard
       let frame = await driver.renderCurrentFrameBytes(
         model: capturedModel,
         asShotCCT: cct,
-        asShotTint: tint,
-        wbFrame: liveWbFrame
+        asShotTint: tint
       )
     else { return }
-    guard model == capturedModel, driver === gpuLiveDriver,
-      liveSession === driver.session, !gpuPresentFailed,
-      driver.nativeAutoProfileID == autoID, hasSettledAutoProfile
+    guard !sidecarWritesDisabled, model == capturedModel, driver === gpuLiveDriver,
+      liveSession === driver.session, !gpuPresentFailed
     else { return }
     let stillCurrent: @MainActor @Sendable () -> Bool = {
-      self.model == capturedModel && driver === self.gpuLiveDriver
+      !self.sidecarWritesDisabled && self.model == capturedModel && driver === self.gpuLiveDriver
         && liveSession === driver.session && !self.gpuPresentFailed
         && self.workflow.selectedVariantId == selectedVariant
-        && driver.nativeAutoProfileID == autoID && self.hasSettledAutoProfile
     }
     // Off the MainActor (per-pixel RGBA expansion + AVIF encode), but
     // AWAITED so the exit path knows the write completed.

@@ -5,9 +5,10 @@ import SwiftUI
 /// Every input is implemented by the same LivingSlider as the stacked panel.
 struct DragBar: View {
   @Bindable var state: EditorState
+  var style: LivingSlider.Style = .dragBar
 
   var body: some View {
-    LivingSliderRow(state: state, tool: state.armedTool, style: .dragBar)
+    LivingSliderRow(state: state, tool: state.armedTool, style: style)
       .disabled(!state.armedToolAcceptsValueEdits)
       .accessibilityIdentifier("editor-drag-bar")
   }

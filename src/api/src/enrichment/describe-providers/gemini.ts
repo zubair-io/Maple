@@ -13,6 +13,10 @@
 
 import {
   RemoteError,
+  requireFrames,
+  timedProviderFetch,
+  tokenUsageInfo,
+  billedOutputText,
   type DescribeOptions,
   type DescribeProvider,
   type DescribeResult,
@@ -21,7 +25,8 @@ import {
 const ENDPOINT_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
 const MODELS_ENDPOINT = 'https://generativelanguage.googleapis.com/v1beta/models';
 const DEFAULT_TIMEOUT_MS = 30_000;
-const DEFAULT_MAX_TOKENS = 256;
+// Thinking tokens count against maxOutputTokens, so this leaves room for them on top of the JSON.
+const MAX_OUTPUT_TOKENS = 8192;
 
 /**
  * Per-million-char USD pricing (Gemini's public rate sheet uses
@@ -51,10 +56,12 @@ interface GeminiResponse {
   usageMetadata?: {
     promptTokenCount?: unknown;
     candidatesTokenCount?: unknown;
+    thoughtsTokenCount?: unknown;
   };
 }
 
 export class GeminiProvider implements DescribeProvider {
+  // fallow-ignore-next-line unused-class-member -- part of the DescribeProvider contract; callers use it through the interface
   readonly name = 'gemini' as const;
 
   private readonly apiKey: string;
@@ -68,6 +75,7 @@ export class GeminiProvider implements DescribeProvider {
   }
 
   /** GET `/v1beta/models?key=...` — verifies the key works. */
+  // fallow-ignore-next-line unused-class-member -- part of the DescribeProvider contract; callers use it through the interface
   async health(): Promise<void> {
     const url = `${MODELS_ENDPOINT}?key=${encodeURIComponent(this.apiKey)}`;
     const res = await this.timedFetch(url, { method: 'GET' });
@@ -92,7 +100,7 @@ export class GeminiProvider implements DescribeProvider {
           ],
         },
       ],
-      generationConfig: { maxOutputTokens: DEFAULT_MAX_TOKENS },
+      generationConfig: { maxOutputTokens: MAX_OUTPUT_TOKENS },
     });
     const res = await this.timedFetch(url, {
       method: 'POST',
@@ -109,54 +117,39 @@ export class GeminiProvider implements DescribeProvider {
       throw new RemoteError(`Malformed Gemini JSON: ${msg}`, false);
     }
 
-    const text = extractCandidateText(parsed.candidates);
-    if (text.length === 0) {
-      throw new RemoteError('Gemini returned empty content', false);
-    }
-    const inTokens =
-      typeof parsed.usageMetadata?.promptTokenCount === 'number'
-        ? parsed.usageMetadata.promptTokenCount
-        : 0;
+    const inTokens = tokenCount(parsed.usageMetadata?.promptTokenCount);
     const outTokens =
-      typeof parsed.usageMetadata?.candidatesTokenCount === 'number'
-        ? parsed.usageMetadata.candidatesTokenCount
-        : 0;
+      tokenCount(parsed.usageMetadata?.candidatesTokenCount) +
+      tokenCount(parsed.usageMetadata?.thoughtsTokenCount);
     const cost = priceForModel(opts.model, inTokens, outTokens);
+    const text = billedOutputText(
+      'Gemini',
+      cost,
+      firstCandidateFinishReason(parsed.candidates) === 'MAX_TOKENS'
+        ? `finishReason=MAX_TOKENS, maxOutputTokens=${MAX_OUTPUT_TOKENS}`
+        : null,
+      () => extractCandidateText(parsed.candidates),
+    );
     return {
       text,
       cost_usd: cost,
-      provider_info: {
-        model: typeof parsed.modelVersion === 'string' ? parsed.modelVersion : opts.model,
-        input_tokens: String(inTokens),
-        output_tokens: String(outTokens),
-      },
+      provider_info: tokenUsageInfo(parsed.modelVersion, opts.model, inTokens, outTokens),
     };
   }
 
   private async timedFetch(url: string, init: RequestInit): Promise<Response> {
-    const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), this.timeoutMs);
-    try {
-      return await this.fetchImpl(url, { ...init, signal: ctrl.signal });
-    } catch (err) {
-      const aborted = err instanceof Error && (err.name === 'AbortError' || ctrl.signal.aborted);
-      const msg = err instanceof Error ? err.message : String(err);
-      throw new RemoteError(
-        aborted
-          ? `Gemini request timed out after ${this.timeoutMs}ms`
-          : `Gemini request failed: ${msg}`,
-        true,
-      );
-    } finally {
-      clearTimeout(timer);
-    }
+    return timedProviderFetch('Gemini', url, init, {
+      timeoutMs: this.timeoutMs,
+      fetchImpl: this.fetchImpl,
+    });
   }
 }
 
-function requireFrames(frames: readonly Buffer[]): void {
-  if (frames.length === 0) {
-    throw new RemoteError('Describe requires at least one JPEG frame', false);
-  }
+function firstCandidateFinishReason(candidates: unknown): unknown {
+  const first = Array.isArray(candidates) ? candidates[0] : undefined;
+  return first && typeof first === 'object'
+    ? (first as { finishReason?: unknown }).finishReason
+    : undefined;
 }
 
 function extractCandidateText(candidates: unknown): string {
@@ -185,6 +178,10 @@ function extractCandidateText(candidates: unknown): string {
     }
   }
   return parts.join('\n').trim();
+}
+
+function tokenCount(value: unknown): number {
+  return typeof value === 'number' ? value : 0;
 }
 
 function priceForModel(model: string, inTokens: number, outTokens: number): number {

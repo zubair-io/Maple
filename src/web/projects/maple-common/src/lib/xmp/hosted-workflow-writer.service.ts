@@ -12,6 +12,16 @@ import { WorkflowXmpService } from './workflow-xmp.service';
 import { XmpParserService } from './xmp-parser.service';
 import { savedRemovalRecords } from '../removal/saved-removal-records';
 import { XmpSerializerService } from './xmp-serializer.service';
+import { HostedSidecarFreshnessService } from './hosted-sidecar-freshness.service';
+import { readSidecar } from './xmp-dom-utils';
+import type { SidecarWrite } from './sidecar-binding';
+import { WEB_WRITER, headId } from './workflow-lineage';
+
+/** The record a write appends to and the id its next entry names as parent. */
+interface Lineage {
+  readonly record: SidecarWorkflow | null;
+  readonly parentId: string;
+}
 
 interface CapturedAction {
   readonly id: string;
@@ -29,6 +39,7 @@ export class HostedWorkflowWriterService {
   private readonly core = inject(WorkflowXmpService);
   private readonly parser = inject(XmpParserService);
   private readonly serializer = inject(XmpSerializerService);
+  private readonly freshness = inject(HostedSidecarFreshnessService);
   private readonly actions = new WeakMap<MapleFolderHandle, Map<string, CapturedAction[]>>();
 
   capture(
@@ -59,6 +70,10 @@ export class HostedWorkflowWriterService {
     this.actions.set(folder, files);
   }
 
+  discard(folder: MapleFolderHandle, name: string): void {
+    this.actions.get(folder)?.delete(name);
+  }
+
   async write(
     folder: MapleFolderHandle,
     name: string,
@@ -67,45 +82,131 @@ export class HostedWorkflowWriterService {
     fallback?: PassthroughBucket,
     metadata?: XmpMetadata,
     variantId = PRIMARY_VARIANT_ID,
-  ): Promise<string> {
+    expectedDocument?: string | null,
+  ): Promise<SidecarWrite> {
     // Validate the frozen binding before acquiring a lock or touching its file.
     await this.core.variantFilename(name, variantId);
     return navigator.locks.request('maple-workflow-variant:' + variantId, async () => {
-      const current = await this.readCurrent(folder, name);
-      const workflow = await this.selectedRecord(current, variantId);
-      const passthrough =
-        current === null ? fallback : this.parser.parseAdjustmentModel(current).passthrough;
-      const records = current === null ? undefined : savedRemovalRecords(current);
+      const current = await this.freshness.readCurrent(folder, name);
+      // A removed sidecar has nothing to merge onto and still refuses.
+      if (current === null) this.freshness.assertUnchanged(folder, name, current, expectedDocument);
+      const base = this.freshness.baseline(folder, name, expectedDocument);
       const pending = this.actions.get(folder)?.get(name) ?? [];
-      const retained = await pending.reduce(
-        async (previous, captured) =>
-          this.applyCapture(
-            await previous,
-            { ...captured, model: { ...captured.model, inpaintRemovals: records } },
-            passthrough,
-            metadata,
-          ),
-        Promise.resolve(workflow),
+      const { xml: output, reconciled } = await this.compose(
+        { current, base, pending, variantId },
+        { model, culling, fallback, metadata },
       );
-      const checkpoint = await this.core.checkpoint(
-        this.serializer.serialize(
-          { ...model, inpaintRemovals: records },
-          passthrough,
-          culling,
-          passthrough ? undefined : metadata,
-        ),
+      this.freshness.assertUnchanged(
+        folder,
+        name,
+        await this.freshness.readCurrent(folder, name),
+        current,
       );
-      const output = retained === null ? checkpoint : await this.core.embed(retained, checkpoint);
       await this.access.writeFile(folder, name, new TextEncoder().encode(output));
+      this.freshness.remember(folder, name, output);
       // Only a successful atomic close acknowledges these immutable captures.
       const published = new Set(pending.map((captured) => captured.id));
       const remaining = (this.actions.get(folder)?.get(name) ?? []).filter(
         (captured) => !published.has(captured.id),
       );
       this.actions.get(folder)?.set(name, remaining);
-      return output;
+      return { xml: output, reconciled };
     });
   }
+
+  /** The document to publish: the model over `current`, merged first when `current` is not `base`. */
+  private async compose(
+    disk: {
+      readonly current: string | null;
+      readonly base: string | null;
+      readonly pending: readonly CapturedAction[];
+      readonly variantId: string;
+    },
+    edit: {
+      readonly model: AdjustmentModel;
+      readonly culling: XmpCulling;
+      readonly fallback?: PassthroughBucket;
+      readonly metadata?: XmpMetadata;
+    },
+  ): Promise<SidecarWrite> {
+    const { current, base, variantId } = disk;
+    const records = current === null ? undefined : savedRemovalRecords(current);
+    const model = { ...edit.model, inpaintRemovals: records };
+    const pending = disk.pending.map((captured) => ({
+      ...captured,
+      model: { ...captured.model, inpaintRemovals: records },
+    }));
+    const workflow = await this.selectedRecord(
+      current === null ? null : readSidecar(current).xml,
+      variantId,
+    );
+    const passthrough =
+      current === null ? edit.fallback : this.parser.parseAdjustmentModel(current).passthrough;
+    const incoming = await this.core.checkpoint(
+      this.serializer.serialize(
+        model,
+        passthrough,
+        edit.culling,
+        passthrough ? undefined : edit.metadata,
+      ),
+    );
+    if (current !== null && current !== base) {
+      const merge = await this.merge(base, current, incoming);
+      const retained = await this.appendCaptures(
+        merge,
+        pending,
+        { checkpoint: merge.checkpoint, passthrough: merge.passthrough },
+        edit.metadata,
+      );
+      const xml =
+        pending.length === 0 ? merge.merged : await this.embedded(retained, merge.checkpoint);
+      return { xml, reconciled: true };
+    }
+    const retained = await this.appendCaptures(
+      { record: workflow, parentId: headId(workflow) },
+      pending,
+      { passthrough },
+      edit.metadata,
+    );
+    return { xml: await this.embedded(retained, incoming), reconciled: false };
+  }
+
+  private async embedded(retained: Lineage, checkpoint: string): Promise<string> {
+    return retained.record === null ? checkpoint : this.core.embed(retained.record, checkpoint);
+  }
+
+  /** Append each captured action; `last.checkpoint`, when given, is the document the final one commits. */
+  private appendCaptures(
+    start: Lineage,
+    pending: readonly CapturedAction[],
+    last: { readonly checkpoint?: string; readonly passthrough?: PassthroughBucket },
+    metadata?: XmpMetadata,
+  ): Promise<Lineage> {
+    return pending.reduce(
+      async (previous, captured, index) =>
+        this.applyCapture(
+          await previous,
+          captured,
+          index === pending.length - 1 ? last.checkpoint : undefined,
+          last.passthrough,
+          metadata,
+        ),
+      Promise.resolve(start),
+    );
+  }
+
+  /** Three-way merge of the writer's document onto a sidecar that changed since `base` (#4983). */
+  private async merge(base: string | null, current: string, incoming: string) {
+    const merged = await this.core.reconcile(base ?? '', current, incoming, Date.now());
+    return {
+      merged,
+      checkpoint: await this.core.checkpoint(merged),
+      record: await this.core.read(merged),
+      parentId: headId(base === null ? null : await this.core.read(base)),
+      passthrough: this.parser.parseAdjustmentModel(merged).passthrough,
+    };
+  }
+
   private async selectedRecord(
     current: string | null,
     variantId: string,
@@ -117,28 +218,24 @@ export class HostedWorkflowWriterService {
       throw Error('Variant identity does not match the selected sidecar.');
     return workflow;
   }
-  private async readCurrent(folder: MapleFolderHandle, name: string): Promise<string | null> {
-    const entry = (await this.access.listEntries(folder)).find((item) => item.name === name);
-    if (entry && entry.kind !== 'file') throw Error(`Sidecar path is not a file: ${name}`);
-    return entry
-      ? new TextDecoder('utf-8', { fatal: true }).decode(await this.access.readFile(folder, name))
-      : null;
-  }
 
   private async applyCapture(
-    record: SidecarWorkflow | null,
+    { record, parentId }: Lineage,
     captured: CapturedAction,
+    mergedDocument: string | undefined,
     passthrough?: PassthroughBucket,
     metadata?: XmpMetadata,
-  ): Promise<SidecarWorkflow | null> {
-    const checkpoint = await this.core.checkpoint(
-      this.serializer.serialize(
-        captured.model,
-        passthrough,
-        captured.culling,
-        passthrough ? undefined : metadata,
-      ),
-    );
+  ): Promise<Lineage> {
+    const checkpoint =
+      mergedDocument ??
+      (await this.core.checkpoint(
+        this.serializer.serialize(
+          captured.model,
+          passthrough,
+          captured.culling,
+          passthrough ? undefined : metadata,
+        ),
+      ));
     const candidate = record === null ? checkpoint : await this.core.embed(record, checkpoint);
     const committed = await this.core.commit(
       {
@@ -146,10 +243,12 @@ export class HostedWorkflowWriterService {
         createdAtMs: captured.createdAtMs,
         action: captured.action,
         label: captured.label,
+        parentId,
+        writer: WEB_WRITER,
         adjustmentXmp: checkpoint,
       },
       candidate,
     );
-    return this.core.read(committed);
+    return { record: await this.core.read(committed), parentId: captured.id };
   }
 }

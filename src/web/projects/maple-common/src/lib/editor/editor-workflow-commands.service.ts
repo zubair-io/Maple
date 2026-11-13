@@ -1,3 +1,4 @@
+import { primarySidecarFilename } from '../xmp/sidecar-binding';
 import { Injectable, inject } from '@angular/core';
 import { firstValueFrom } from 'rxjs';
 import { HttpErrorResponse } from '@angular/common/http';
@@ -19,6 +20,8 @@ import {
 } from '../generated/workflow.generated';
 import { defaultAdjustmentModel, type AdjustmentModel } from '../models/adjustment-model';
 import { stableStringify } from './edit-transaction';
+import { historyRingSteps, type RingSteps } from './editor-workflow-ring';
+import { WEB_WRITER, headId } from '../xmp/workflow-lineage';
 
 export interface WorkflowDocument {
   readonly xml: string | null;
@@ -61,6 +64,14 @@ export class EditorWorkflowCommandsService {
   async load(source: WorkflowEdit): Promise<WorkflowDocument> {
     await this.settle(source);
     return this.read(source);
+  }
+
+  async ringSteps(source: WorkflowEdit): Promise<RingSteps> {
+    const { xml, record } = await this.load(source);
+    if (xml === null || record === null) return { undo: [], redo: [] };
+    const cursor = await this.core.cursor(xml);
+    const current = await this.core.checkpoint(xml);
+    return historyRingSteps({ record, cursor, current }, (state) => this.model(source, state));
   }
 
   async prepareSnapshot(source: WorkflowEdit, name: string): Promise<SnapshotCommand> {
@@ -124,6 +135,7 @@ export class EditorWorkflowCommandsService {
       expectedXmp: document.xml,
       before: await this.core.checkpoint(document.xml),
       entry: this.entry(
+        document.record,
         target.adjustmentXmp,
         snapshot ? 'snapshot-restore' : 'history-restore',
         `Restore ${snapshot?.name ?? historical!.label}`,
@@ -143,7 +155,7 @@ export class EditorWorkflowCommandsService {
       source,
       expectedXmp: document.xml,
       before: await this.core.checkpoint(document.xml),
-      entry: this.entry(checkpoint, action, label),
+      entry: this.entry(document.record, checkpoint, action, label),
     };
   }
 
@@ -213,8 +225,21 @@ export class EditorWorkflowCommandsService {
     );
   }
 
-  private entry(adjustmentXmp: string, action: string, label: string): WorkflowHistoryEntry {
-    return { id: crypto.randomUUID(), createdAtMs: Date.now(), action, label, adjustmentXmp };
+  private entry(
+    record: SidecarWorkflow | null,
+    adjustmentXmp: string,
+    action: string,
+    label: string,
+  ): WorkflowHistoryEntry {
+    return {
+      id: crypto.randomUUID(),
+      createdAtMs: Date.now(),
+      action,
+      label,
+      parentId: headId(record),
+      writer: WEB_WRITER,
+      adjustmentXmp,
+    };
   }
   private async settle(source: WorkflowEdit): Promise<void> {
     if (source.backend === 'hosted') await this.writer.settleAsset(source.id);
@@ -252,6 +277,6 @@ export class EditorWorkflowCommandsService {
     });
   }
   private primaryName(source: WorkflowEdit): string {
-    return source.filename.replace(/\.[^.]+$/, '') + '.xmp';
+    return primarySidecarFilename(source.filename);
   }
 }

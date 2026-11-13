@@ -43,12 +43,13 @@ export interface PxRect {
 export type CropHandle = 'tl' | 'tr' | 'bl' | 'br' | 't' | 'b' | 'l' | 'r' | 'move';
 
 /** Fit footprint: the largest centered rect of the image's aspect that fits the
- *  viewport without upscaling past 1:1 CSS — the same rule as the 2D canvas
- *  `computeEffectivePx('fit', …)`, so the overlay aligns with the painted image. */
+ *  viewport — the same rule as the 2D canvas `computeEffectivePx('fit', …)` and
+ *  the shared zoom model's fit (a small image fills the viewport, #5746), so the
+ *  overlay aligns with the painted image. */
 export function fitFootprint(wrapW: number, wrapH: number, imgW: number, imgH: number): Footprint {
   const safeImgW = imgW > 0 ? imgW : 1;
   const safeImgH = imgH > 0 ? imgH : 1;
-  const scale = Math.min(wrapW / safeImgW, wrapH / safeImgH, 1);
+  const scale = Math.min(wrapW / safeImgW, wrapH / safeImgH);
   const width = safeImgW * scale;
   const height = safeImgH * scale;
   return {

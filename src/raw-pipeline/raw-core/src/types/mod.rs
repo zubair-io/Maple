@@ -30,4 +30,4 @@ pub use local_adjustment::{
     MaskRaster, MaskSource, PartialAdjustments, Point2, RangeRefinement, BRUSH_RASTER_LONG_EDGE,
     LAYER_FLAT_LEN, SKIN_TONE_RANGE,
 };
-pub use retouch::{RetouchKind, RetouchSpot};
+pub use retouch::{RetouchFrame, RetouchKind, RetouchSpot};

@@ -7,8 +7,8 @@
 
 import type { ObjectId } from '../../db/object-id.ts';
 import type { AssetOwnerSummary } from '../../db/assets.transform.ts';
-import { ownerSummariesForIds } from '../../db/repos/assets.owners.ts';
 import type { AssetDoc, FileInfo, Place } from '../../db/schema.ts';
+import type { SearchDoc } from '../../db/repos/search.repo.ts';
 import { assetAbsPath, assetPrimaryFileInfo } from '../../indexer/images.repo.ts';
 
 export interface SearchResultPHLink {
@@ -143,14 +143,11 @@ export function projectAsset(
   return result;
 }
 
-/** Populate the page's unique owners once for either Search backend. */
-export async function projectAssets(
-  docs: readonly (AssetDoc & { _id: ObjectId })[],
+/** A page of search documents, each already carrying the owner its hydration resolved. */
+export function projectAssets(
+  docs: readonly SearchDoc[],
   libraries: ReadonlyMap<string, string>,
   idToSlug: ReadonlyMap<string, string>,
-): Promise<SearchResult[]> {
-  const owners = await ownerSummariesForIds(docs.map((doc) => ownerIdString(doc.owner_id)));
-  return docs.map((doc) =>
-    projectAsset(doc, libraries, idToSlug, owners.get(ownerIdString(doc.owner_id) ?? '') ?? null),
-  );
+): SearchResult[] {
+  return docs.map((doc) => projectAsset(doc, libraries, idToSlug, doc.owner));
 }

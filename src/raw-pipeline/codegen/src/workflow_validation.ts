@@ -14,6 +14,15 @@ export function parseSidecarWorkflow(input: unknown): SidecarWorkflow {
     validateName(entry.label);
     if (!(WORKFLOW_ACTIONS as readonly string[]).includes(entry.action))
       throw new Error('Unsupported workflow action');
+    if (entry.parentId) {
+      validateIdentity(entry.parentId);
+      if (entry.parentId === entry.id) throw new Error('History entry cannot be its own parent');
+    }
+    if (entry.writer) {
+      validateName(entry.writer);
+      if (new TextEncoder().encode(entry.writer).length > WORKFLOW_WRITER_MAX_BYTES)
+        throw new Error('Workflow writer label is too long');
+    }
   }
   if (new TextEncoder().encode(JSON.stringify(workflow)).length > WORKFLOW_MAX_BYTES)
     throw new Error('Workflow exceeds byte budget');
@@ -25,14 +34,15 @@ function validateRecord(input: unknown, type: string): void {
   const value = input as Record<string, unknown>;
   const fields = WORKFLOW_FIELDS[type];
   if (
-    Object.keys(value).length !== Object.keys(fields).length ||
-    Object.keys(value).some((key) => !Object.hasOwn(fields, key))
+    Object.keys(value).some((key) => !Object.hasOwn(fields, key)) ||
+    Object.entries(fields).some(([key, kind]) => !kind.endsWith('?') && !Object.hasOwn(value, key))
   )
     throw new Error('Workflow record has missing or unknown fields');
   for (const [key, kind] of Object.entries(fields)) validateField(value[key], key, kind);
 }
 function validateField(field: unknown, key: string, kind: string): void {
-  if (kind === 'string') {
+  if (kind === 'string?' && field === undefined) return;
+  if (kind === 'string' || kind === 'string?') {
     if (typeof field !== 'string') throw new Error(`Invalid workflow ${key}`);
     return;
   }

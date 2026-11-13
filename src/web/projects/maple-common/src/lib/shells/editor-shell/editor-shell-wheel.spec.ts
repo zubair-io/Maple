@@ -17,12 +17,10 @@ import {
   wheelBurstActive,
 } from './editor-shell-wheel';
 
-function makeShell(
-  opts: { pixelScale?: number; commitsOnRelease?: boolean; accepts?: boolean } = {},
-) {
+function makeShell(opts: { pans?: boolean; commitsOnRelease?: boolean; accepts?: boolean } = {}) {
   let value = 0;
   const shell = {
-    canvasSvc: { pixelScale: () => opts.pixelScale ?? 0 },
+    canvasSvc: { pointerEditsAtZoom: () => !opts.pans },
     editorState: {
       armedTool: signal('exposure'),
       armedSubParamId: signal<string | null>(null),
@@ -78,7 +76,7 @@ describe('onCanvasWheel', () => {
     onCanvasWheel(shell, state, consumed);
     expect(mocks.editorState.setArmedInternalValue).not.toHaveBeenCalled();
 
-    const zoomed = makeShell({ pixelScale: 2 });
+    const zoomed = makeShell({ pans: true });
     onCanvasWheel(zoomed.shell, state, wheel(-40));
     expect(zoomed.mocks.editorState.setArmedInternalValue).not.toHaveBeenCalled();
 

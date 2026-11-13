@@ -52,6 +52,10 @@ enum EditorTextInput {
   #endif
 }
 
+extension Notification.Name {
+  static let mapleEditorHistoryDidChange = Notification.Name("mapleEditorHistoryDidChange")
+}
+
 /// A scene command's enablement must refresh when a native field starts
 /// editing or its undo manager changes, even when no photo model changes.
 @MainActor
@@ -77,6 +81,7 @@ final class EditorTextHistory: ObservableObject {
     let names =
       editing + [
         .NSUndoManagerDidCloseUndoGroup, .NSUndoManagerDidUndoChange, .NSUndoManagerDidRedoChange,
+        .mapleEditorHistoryDidChange,
       ]
     observation = Publishers.MergeMany(names.map { NotificationCenter.default.publisher(for: $0) })
       .sink { [weak self] _ in

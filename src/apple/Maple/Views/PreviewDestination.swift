@@ -49,9 +49,16 @@ struct PreviewDestination: View {
     /// swipe / arrow / filmstrip. Kept local so prev/next never pushes a new
     /// stack entry (spec §4: navigation swaps the preview in place).
     @State private var shownID: AssetRef.ID?
+    /// Cross-build identity of the shown asset (#4714): a sibling list
+    /// rebuilt from a Timeline refresh carries fresh `id`s, and resolving
+    /// by `stableID` keeps the pager on the same photo instead of snapping
+    /// back to the pushed one.
+    @State private var shownStableID: String?
     @State private var isClosing = false
     private var shownAsset: AssetRef {
-        assets.first { $0.id == shownID } ?? asset
+        assets.first { $0.id == shownID }
+            ?? shownStableID.flatMap { stable in assets.first { $0.stableID == stable } }
+            ?? asset
     }
 
     var body: some View {
@@ -66,6 +73,7 @@ struct PreviewDestination: View {
             onEdit: onEdit,
             onSelectAsset: { next in
                 shownID = next.id
+                shownStableID = next.stableID
                 onSelectionChanged(next)
             }
         )
@@ -76,6 +84,7 @@ struct PreviewDestination: View {
             // parent re-pushed a different asset while this view was still on
             // screen (jules review).
             shownID = asset.id
+            shownStableID = asset.stableID
         }
     }
 

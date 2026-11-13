@@ -1,3 +1,4 @@
+import { syncCopiedFile } from '../fs/sync-file.ts';
 /**
  * Filesystem copy primitives for the Imports worker (ticket #742).
  *
@@ -31,20 +32,8 @@ export async function copyFileAtomic(src: string, destAbs: string): Promise<bool
   await fs.mkdir(path.dirname(destAbs), { recursive: true });
   const tmp = `${destAbs}.import.tmp.${process.pid}.${randomBytes(8).toString('hex')}`;
   await fs.copyFile(src, tmp);
-  // Durably flush the copied bytes before the publish so a power loss can't
-  // surface a zero-length file.
   try {
-    const fh = await fs.open(tmp, 'r+');
-    try {
-      await fh.datasync();
-    } finally {
-      await fh.close();
-    }
-  } catch {
-    // datasync is best-effort hardening; a filesystem that rejects it
-    // (some network mounts) must not fail the copy.
-  }
-  try {
+    await syncCopiedFile(tmp);
     // Links tmp → destAbs (fails EEXIST) then unlinks tmp, so the source
     // stays untouched and an existing destination is never lost.
     return await moveNoClobber(tmp, destAbs);

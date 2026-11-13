@@ -21,9 +21,11 @@
 
 import { Injectable, inject } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
-import { Observable, forkJoin, map, of, catchError } from 'rxjs';
+import { Observable, forkJoin, map, of, catchError, switchMap } from 'rxjs';
 import { API_BASE_URL } from '../api/api-base-url.token';
 import { BunApiBackendService } from '../api/bun-api-backend.service';
+import { renameCompanions, withCompanionPreview } from './batch-rename-companions';
+import { FolderOccupancyService } from '../stack/folder-occupancy.service';
 import type {
   BatchRenameApplyResult,
   BatchRenameCollisionPolicy,
@@ -130,6 +132,7 @@ export class BatchRenameService {
   private readonly http = inject(HttpClient);
   private readonly base = inject(API_BASE_URL);
   private readonly api = inject(BunApiBackendService);
+  private readonly occupancy = inject(FolderOccupancyService);
 
   /** Resolve every `address` to its server asset id, in the caller's order. Never
    * errors as a whole — a single address's resolution failure becomes
@@ -143,6 +146,7 @@ export class BatchRenameService {
             address: selection.address,
             filename: selection.filename,
             id: detail.id,
+            ...(selection.companion ? { companion: selection.companion } : {}),
           })),
           catchError(() =>
             of({ address: selection.address, filename: selection.filename, id: null }),
@@ -168,6 +172,7 @@ export class BatchRenameService {
     return this.http
       .post<RawPreviewResponse>(`${this.base}/assets/batch-rename/preview`, {
         ids: withIds.map((row) => row.id),
+        source_addresses: withIds.map((row) => row.address),
         template: options.template,
         sequence_start: options.sequenceStart,
         sequence_pad_width: options.sequencePadWidth,
@@ -175,7 +180,7 @@ export class BatchRenameService {
       .pipe(
         map((res) => {
           const byAddress = new Map(withIds.map((row, i) => [row.address, res.items[i]!]));
-          return resolved.map((row) => {
+          const items = resolved.map((row) => {
             if (row.id === null) return unresolvedPreviewItem(row);
             const item = byAddress.get(row.address)!;
             return {
@@ -186,6 +191,7 @@ export class BatchRenameService {
               duplicate: item.duplicate,
             };
           });
+          return withCompanionPreview(items, resolved);
         }),
       );
   }
@@ -219,6 +225,7 @@ export class BatchRenameService {
     return this.http
       .post<RawApplyResponse>(`${this.base}/assets/batch-rename`, {
         ids: withIds.map((row) => row.id),
+        source_addresses: withIds.map((row) => row.address),
         template: options.template,
         sequence_start: options.sequenceStart,
         sequence_pad_width: options.sequencePadWidth,
@@ -238,6 +245,14 @@ export class BatchRenameService {
           };
           return { summary, results };
         }),
+        switchMap((applied) =>
+          renameCompanions(
+            { api: this.api, occupancy: this.occupancy },
+            withIds,
+            applied,
+            collision,
+          ),
+        ),
       );
   }
 }

@@ -1,0 +1,26 @@
+{
+  "purpose": "Pair-domain diagnostics, not a physical gate or source change. Separate structured fit, bake approximation and native-pixel averaging.",
+  "binary_sha256": "3fa3ab473fd886705e41aa397d263ace73ba507834120d9507ac6b64ba682dc9",
+  "cases": [
+    {
+      "fixture": "test_0017",
+      "raw_sha256": "26be5e06dfb53a2938dab3ca8f06024533a9c0dd0c652938f39eb48bc325f95e",
+      "report_sha256": "b04ed834dd7b5113bef11f1c5e900e04824044ce101934ca3e9b8d58aacf668c",
+      "report": "test_0017-bands.json"
+    },
+    {
+      "fixture": "test_0015",
+      "raw_sha256": "3a859e917a91698a3e15ce3b3721a48a1fb1296873e0697d3bf7c2793297200d",
+      "report_sha256": "932fbbfd0ce5fe021049116667969566488f3c32d0b9270885dd8600b7163a6a",
+      "report": "test_0015-bands.json"
+    },
+    {
+      "fixture": "test_0012",
+      "raw_sha256": "35109fc20a849026c43c47674902431ef5a2d54b09b616995263dc75df17912f",
+      "report_sha256": "a75d34ab3887918636d0cb89c006f312a3a910ee496d9265366786915e9a0ba3",
+      "report": "test_0012-bands.json"
+    }
+  ],
+  "source_sha256": "154bd0f11e8e230e6c703f6d4adfa3b12c397059d540406e8340807fb3f5c987",
+  "complete": true
+}

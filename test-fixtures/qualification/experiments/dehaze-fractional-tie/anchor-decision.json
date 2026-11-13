@@ -1,0 +1,50 @@
+{
+  "status": "Rejected for this physical-color repair: target remains beyond unchanged bias_B budget; no wider physical cohort launched; source37 restored clean.",
+  "comparisons": 1,
+  "baseline_source": "b4523b79e616f2745f3b0a7e8e1c60b9bff08424",
+  "matched": [
+    {
+      "before": {
+        "fixture": "test_0015",
+        "case": "dehaze_max",
+        "profile": "neutral",
+        "resolution": "down",
+        "status": "breach",
+        "breaches": [
+          "bias_B -0.0740>0.0734"
+        ],
+        "mean": 12.52525856545924,
+        "p95": 24.738692996839113,
+        "max": 51.23532547327914,
+        "bR": 0.0008185434152027424,
+        "bG": -0.05760522084483594,
+        "bB": -0.07401121852586383,
+        "n_pixels": 12032000,
+        "reference_protocol": "legacy-direct-reference"
+      },
+      "after": {
+        "fixture": "test_0015",
+        "case": "dehaze_max",
+        "profile": "neutral",
+        "resolution": "down",
+        "status": "breach",
+        "breaches": [
+          "bias_B -0.0740>0.0734"
+        ],
+        "mean": 12.52522804903131,
+        "p95": 24.738361490358578,
+        "max": 51.23532547327914,
+        "bR": 0.0008163427476608008,
+        "bG": -0.05760454747703052,
+        "bB": -0.07401062240303741,
+        "n_pixels": 12032000,
+        "reference_protocol": "legacy-direct-reference"
+      }
+    }
+  ],
+  "all_original_inputs_unchanged": true,
+  "renderer_unchanged": true,
+  "absolute_bias_B_improvement": 5.96122826421186e-07,
+  "required_improvement_to_budget": 0.0006112185258638214,
+  "interpretation": "Cutoff ties are observable and the new invariance tests fail on original code, but resolving them does not explain the Pixel15 physical regression. Preserve evidence without adopting algorithm changes."
+}

@@ -2,7 +2,7 @@
 // (T5a #2771 + T5b #2772).
 //
 // Six rows — Describe, Transcribe, Geocode, Face-detect, Face-embed,
-// Meilisearch — each writing to the SAME shared `app_settings` document
+// service search — each writing to the SAME shared `app_settings` document
 // server-side (src/api/src/routes/enrichment.ts). Every row is split into
 // its own file (DescribeSettingsRow.swift etc.), mirroring the "enrichment
 // forms subdivided by stage family" split called out in epic #2765's
@@ -73,7 +73,7 @@ struct EnrichmentSettingsView: View {
                     onSaved: { loadState = .loaded($0) })
                 FaceEmbedSettingsRow(
                     client: client, snapshot: config, onSaved: { loadState = .loaded($0) })
-                MeilisearchSettingsRow(
+                ServiceSearchSettingsRow(
                     client: client, snapshot: config, onSaved: { loadState = .loaded($0) })
             }
         }

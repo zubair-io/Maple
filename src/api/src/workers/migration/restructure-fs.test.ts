@@ -2,7 +2,7 @@ import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { planAndPlace, finalize, revertCreated, SourceMissingError } from './restructure-fs.ts';
+import { planAndPlace, finalize, revertPlaced, SourceMissingError } from './restructure-fs.ts';
 import { conflictCopyPath } from '../../fs/xmp-conflict.ts';
 
 let root: string;
@@ -43,6 +43,7 @@ describe('planAndPlace — crash-safe ordering', () => {
       filename: 'IMG.HEIC',
       newDir: '2024/Tokyo',
       renderedRelOld: null,
+      liveVideoRelOld: null,
     });
 
     expect(plan.outcome).toBe('copied');
@@ -66,6 +67,7 @@ describe('planAndPlace — crash-safe ordering', () => {
       filename: 'CLIP.mov',
       newDir: '2024/Tokyo',
       renderedRelOld: null,
+      liveVideoRelOld: null,
     });
 
     expect(plan.outcome).toBe('copied');
@@ -78,7 +80,9 @@ describe('planAndPlace — crash-safe ordering', () => {
     expect(await exists('2024/Tokyo/03-15/CLIP.mov')).toBe(true);
     expect(await exists('2024/Tokyo/03-15/CLIP.mov.xmp')).toBe(true);
     expect(plan.sourcesToDelete).toContain(path.join(root, '2024/Tokyo/03-15/CLIP.mov'));
-    expect(plan.sourcesToDelete).toContain(path.join(root, '2024/Tokyo/03-15/CLIP.mov.xmp'));
+    expect(plan.carriedSidecars.map((c) => c.source)).toContain(
+      path.join(root, '2024/Tokyo/03-15/CLIP.mov.xmp'),
+    );
   });
 
   test('a video sidecar does not pull in a same-stem photo sidecar (Live Photo pairing safety, #1678)', async () => {
@@ -94,6 +98,7 @@ describe('planAndPlace — crash-safe ordering', () => {
       filename: 'IMG_1.MOV',
       newDir: '2024/Tokyo',
       renderedRelOld: null,
+      liveVideoRelOld: null,
     });
 
     expect(await exists('2024/Tokyo/IMG_1.MOV')).toBe(true);
@@ -120,14 +125,15 @@ describe('planAndPlace — crash-safe ordering', () => {
       filename: 'CLIP.MOV',
       newDir: '2024/Tokyo',
       renderedRelOld: null,
+      liveVideoRelOld: null,
     });
 
     expect(await exists('2024/Tokyo/CLIP.MOV')).toBe(true);
     expect(await exists('2024/Tokyo/CLIP.MOV.xmp')).toBe(true);
     expect(await exists('2024/Tokyo/CLIP.MOV (conflict from MacBook).xmp')).toBe(true);
     expect(await read('2024/Tokyo/CLIP.MOV (conflict from MacBook).xmp')).toBe('conflict-edits');
-    // Source conflict copy is scheduled for deletion, not stranded.
-    expect(plan.sourcesToDelete).toContain(conflictAbs);
+    // Source conflict copy is carried for settling, not stranded.
+    expect(plan.carriedSidecars.map((c) => c.source)).toContain(conflictAbs);
   });
 
   test('a video conflict-copy sidecar is not stolen by a same-stem photo relocation (Live Photo pairing safety, #2481)', async () => {
@@ -143,6 +149,7 @@ describe('planAndPlace — crash-safe ordering', () => {
       filename: 'IMG_1.HEIC',
       newDir: '2024/Tokyo',
       renderedRelOld: null,
+      liveVideoRelOld: null,
     });
 
     expect(await exists('2024/Tokyo/IMG_1.HEIC')).toBe(true);
@@ -163,12 +170,43 @@ describe('planAndPlace — crash-safe ordering', () => {
       filename: 'IMG.HEIC',
       newDir: '2024/Tokyo',
       renderedRelOld: '2024/Tokyo/03-15/IMG.rendered.JPEG',
+      liveVideoRelOld: null,
     });
     expect(plan.newRenderedRel).toBe('2024/Tokyo/IMG.rendered.JPEG');
     expect(await exists('2024/Tokyo/IMG.rendered.JPEG')).toBe(true);
   });
 
-  test('reports createdPaths; revertCreated rolls them back leaving sources intact', async () => {
+  test("an edited Live Photo's rendered image and .mov twin both travel (#5243)", async () => {
+    await write('2024/Tokyo/03-15/IMG.HEIC', 'pixels');
+    await write('2024/Tokyo/03-15/IMG.rendered.JPEG', 'rendered');
+    await write('2024/Tokyo/03-15/IMG.mov', 'live');
+
+    const plan = await planAndPlace({
+      libRoot: root,
+      oldDir: '2024/Tokyo/03-15',
+      filename: 'IMG.HEIC',
+      newDir: '2024/Tokyo',
+      renderedRelOld: '2024/Tokyo/03-15/IMG.rendered.JPEG',
+      liveVideoRelOld: '2024/Tokyo/03-15/IMG.mov',
+    });
+    expect(plan.newRenderedRel).toBe('2024/Tokyo/IMG.rendered.JPEG');
+    expect(plan.newLiveVideoRel).toBe('2024/Tokyo/IMG.mov');
+    expect(await read('2024/Tokyo/IMG.mov')).toBe('live');
+
+    await finalize({
+      libRoot: root,
+      oldDirAbs: plan.oldDirAbs,
+      mapleId: undefined,
+      filename: 'IMG.HEIC',
+      sourcesToDelete: plan.sourcesToDelete,
+      carriedSidecars: plan.carriedSidecars,
+    });
+    expect(await exists('2024/Tokyo/03-15/IMG.mov')).toBe(false);
+    expect(await exists('2024/Tokyo/03-15/IMG.rendered.JPEG')).toBe(false);
+    expect(await exists('2024/Tokyo/03-15/IMG.HEIC')).toBe(false);
+  });
+
+  test('reports its publications; revertPlaced rolls them back leaving sources intact', async () => {
     await write('2024/Tokyo/03-15/IMG.HEIC', 'pixels');
     await write('2024/Tokyo/03-15/IMG.xmp', 'edits');
 
@@ -178,13 +216,15 @@ describe('planAndPlace — crash-safe ordering', () => {
       filename: 'IMG.HEIC',
       newDir: '2024/Tokyo',
       renderedRelOld: null,
+      liveVideoRelOld: null,
     });
-    // The new copies are tracked for rollback (primary + sidecar).
-    expect(plan.createdPaths).toContain(path.join(root, '2024/Tokyo/IMG.HEIC'));
-    expect(plan.createdPaths).toContain(path.join(root, '2024/Tokyo/IMG.xmp'));
+    // The new copies are tracked for rollback by the identity they were published with.
+    const published = plan.publications.map((p) => p.path);
+    expect(published).toContain(path.join(root, '2024/Tokyo/IMG.HEIC'));
+    expect(published).toContain(path.join(root, '2024/Tokyo/IMG.xmp'));
 
     // Simulate a failed DB repoint: roll back. Originals must survive.
-    await revertCreated(plan.createdPaths);
+    await revertPlaced(plan);
     expect(await exists('2024/Tokyo/IMG.HEIC')).toBe(false);
     expect(await exists('2024/Tokyo/IMG.xmp')).toBe(false);
     expect(await read('2024/Tokyo/03-15/IMG.HEIC')).toBe('pixels'); // source intact
@@ -199,6 +239,7 @@ describe('planAndPlace — crash-safe ordering', () => {
         filename: 'GONE.HEIC',
         newDir: '2024/Tokyo',
         renderedRelOld: null,
+        liveVideoRelOld: null,
       }),
     ).rejects.toBeInstanceOf(SourceMissingError);
   });
@@ -215,6 +256,7 @@ describe('planAndPlace — collisions', () => {
       filename: 'IMG.HEIC',
       newDir: '2024/Tokyo',
       renderedRelOld: null,
+      liveVideoRelOld: null,
     });
     expect(plan.outcome).toBe('deduped');
     expect(plan.newRelPath).toBe('2024/Tokyo/IMG.HEIC');
@@ -232,6 +274,7 @@ describe('planAndPlace — collisions', () => {
       filename: 'IMG.HEIC',
       newDir: '2024/Tokyo',
       renderedRelOld: null,
+      liveVideoRelOld: null,
     });
     expect(plan.outcome).toBe('renamed');
     expect(plan.newRelPath).toBe('2024/Tokyo/IMG.1.HEIC');
@@ -250,6 +293,7 @@ describe('planAndPlace — collisions', () => {
       filename: 'IMG.HEIC',
       newDir: '2024/Tokyo',
       renderedRelOld: null,
+      liveVideoRelOld: null,
     });
     expect(plan.outcome).toBe('renamed');
     expect(plan.newRelPath).toBe('2024/Tokyo/IMG.1.HEIC');
@@ -274,6 +318,7 @@ describe('finalize — delete sources, drop cache, reclaim folder', () => {
       filename: 'IMG.HEIC',
       newDir: '2024/Tokyo',
       renderedRelOld: null,
+      liveVideoRelOld: null,
     });
     await finalize({
       libRoot: root,
@@ -281,6 +326,7 @@ describe('finalize — delete sources, drop cache, reclaim folder', () => {
       mapleId: 'abc123',
       filename: 'IMG.HEIC',
       sourcesToDelete: plan.sourcesToDelete,
+      carriedSidecars: plan.carriedSidecars,
     });
 
     expect(await exists('2024/Tokyo/03-15/IMG.HEIC')).toBe(false);
@@ -301,6 +347,7 @@ describe('finalize — delete sources, drop cache, reclaim folder', () => {
       filename: 'IMG.HEIC',
       newDir: '2024/Tokyo',
       renderedRelOld: null,
+      liveVideoRelOld: null,
     });
     await finalize({
       libRoot: root,
@@ -308,6 +355,7 @@ describe('finalize — delete sources, drop cache, reclaim folder', () => {
       mapleId: undefined,
       filename: 'IMG.HEIC',
       sourcesToDelete: plan.sourcesToDelete,
+      carriedSidecars: plan.carriedSidecars,
     });
 
     expect(await exists('2024/Tokyo/03-15')).toBe(true);
@@ -325,6 +373,7 @@ describe('finalize — delete sources, drop cache, reclaim folder', () => {
       filename: 'IMG.HEIC',
       newDir: '2024/Tokyo',
       renderedRelOld: null,
+      liveVideoRelOld: null,
     });
     await finalize({
       libRoot: root,
@@ -332,6 +381,7 @@ describe('finalize — delete sources, drop cache, reclaim folder', () => {
       mapleId: 'abc123',
       filename: 'IMG.HEIC',
       sourcesToDelete: plan.sourcesToDelete,
+      carriedSidecars: plan.carriedSidecars,
     });
 
     // Mine dropped, theirs preserved; dir stays because a foreign cache remains.
@@ -348,6 +398,7 @@ describe('finalize — delete sources, drop cache, reclaim folder', () => {
       mapleId: undefined,
       filename: 'x.HEIC',
       sourcesToDelete: [],
+      carriedSidecars: [],
     });
     expect(await exists('')).toBe(true); // root still there
   });
@@ -365,6 +416,7 @@ describe('finalize — delete sources, drop cache, reclaim folder', () => {
       filename: 'IMG.HEIC',
       newDir: '2024/Tokyo',
       renderedRelOld: null,
+      liveVideoRelOld: null,
     });
     await finalize({
       libRoot: root,
@@ -372,6 +424,7 @@ describe('finalize — delete sources, drop cache, reclaim folder', () => {
       mapleId: undefined, // legacy row never got a maple_id-keyed cache
       filename: 'IMG.HEIC',
       sourcesToDelete: plan.sourcesToDelete,
+      carriedSidecars: plan.carriedSidecars,
     });
 
     // Legacy cache cleared and the day-folder reclaimed.

@@ -64,6 +64,13 @@ describe('MuiToastContainerComponent', () => {
     fixture.componentRef.setInput('position', 'top-right');
     fixture.detectChanges();
     expect(el.className).toContain('position-top-right');
+
+    fixture.componentRef.setInput('position', 'top-center-below-header');
+    fixture.detectChanges();
+    expect(el.className).toContain('position-top-center-below-header');
+    expect(el.className).toContain('top-44');
+    expect(el.className).toContain('w-[calc(100vw-3rem)]');
+    expect(el.className).toContain('max-w-sm');
   });
 
   it('the `inline` input switches from fixed to absolute positioning', () => {

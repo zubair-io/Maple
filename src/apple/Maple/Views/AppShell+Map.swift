@@ -33,11 +33,13 @@ import SwiftUI
 
 @MainActor
 extension AppShell {
-  /// Sidebar MAP row action.
-  func openMap() {
+  /// Sidebar MAP row action. `server` pins the account to query — a
+  /// reopen after signing in to that server (#5033) — instead of resolving
+  /// it from the current selection.
+  func openMap(server: URL? = nil) {
     // Capture BEFORE flipping `librarySelection` below — once it's
     // `.map` there's no `.cloudLibrary` left to read.
-    let resolvedServer = resolveMapServerURL()
+    let resolvedServer = server ?? resolveMapServerURL()
 
     librarySelection = .map
     currentRootBookmark = nil
@@ -69,20 +71,12 @@ extension AppShell {
       // selected with a stale map VM or unavailable-reason.
       guard librarySelection == .map else { return }
 
-      // `hasAccount` is trivially true here (`serverID` is non-nil by
-      // construction) — routing through the shared selector still
-      // keeps "what reason, if any" single-sourced with its test
-      // coverage rather than re-deriving `.signInRequired` inline.
-      if let reason = MapAvailability.reason(hasAccount: true, isSignedIn: session.isSignedIn) {
-        // Bootstrap only restores an already-persisted token; it
-        // does not prompt for credentials. A server that genuinely
-        // needs fresh sign-in surfaces `MapEmptyState(.signInRequired)`
-        // (#2848) rather than presenting `addCloudSheetTarget` here —
-        // the same trade-off `makePhoneSearchSession()` makes for the
-        // account-wide iPhone Search tab, unlike the per-library
-        // `loadCloudLibrary()` path, which does prompt. Not fixed
-        // here: building a sign-in prompt for an account-wide
-        // surface is a bigger change than this ticket's scope.
+      // Bootstrap only restores an already-persisted token; it does not
+      // prompt. A server that needs fresh credentials shows
+      // `MapEmptyState(.signInRequired)`, whose Sign in button routes to
+      // `signInForMap(_:)` (#5033) rather than presenting the sheet
+      // unasked on a sidebar tap.
+      if let reason = MapAvailability.reason(server: serverID, isSignedIn: session.isSignedIn) {
         mapUnavailableReason = reason
         return
       }
@@ -102,6 +96,26 @@ extension AppShell {
       // time something reads it (#2848 review).
       mapUnavailableReason = nil
     }
+  }
+
+  /// The Map empty state's Sign in button (#5033): the same prefilled
+  /// re-auth sheet the sidebar's "Sign in" presents.
+  func signInForMap(_ server: URL) {
+    // A folder reopen left over from an earlier, abandoned sign-in must not
+    // replay and pull the user off the Map.
+    pendingCloudReopen = nil
+    addCloudSheetTarget = .prefilled(CloudHost.signInPrefill(for: server))
+  }
+
+  /// Called after any completed sign-in, from the Map's own button or the
+  /// sidebar: a Map still showing a sign-in or no-account message for that
+  /// server rebuilds itself instead of waiting for the user to navigate away
+  /// and back (#5033).
+  func reopenMapIfAwaitingSignIn(to server: URL) {
+    guard librarySelection == .map,
+      mapUnavailableReason?.reopensAfterSignIn(to: server) == true
+    else { return }
+    openMap(server: server)
   }
 
   /// The server Map queries: the currently-open cloud library's server if

@@ -7,8 +7,10 @@ import subprocess
 import tempfile
 from pathlib import Path
 
+from release_ci import waiting_for
 from release_handoff import (
     CONTEXT,
+    allowed_group,
     allowed_pr,
     branch,
     git,
@@ -88,22 +90,21 @@ def remote_tag(tag):
 def status(repo, pr, state, description):
     payload = {"state": state, "context": CONTEXT, "description": description}
     sha = pr["head"]["sha"]
-    # The combined endpoint returns the latest status for each context. Do not
-    # consume GitHub's 1,000-status allowance merely to change the run URL.
+    # Status history includes creator; the combined /status response omits it.
+    # Newest first: inspect the latest entry for this context, preserving actor
+    # verification without consuming the 1,000-status limit for unchanged runs.
     page = 1
     while True:
-        current = api(repo, f"commits/{sha}/status?per_page=100&page={page}")
-        previous = next(
-            (item for item in current["statuses"] if item["context"] == CONTEXT), None
-        )
-        if previous or len(current["statuses"]) < 100:
+        current = api(repo, f"commits/{sha}/statuses?per_page=100&page={page}")
+        previous = next((item for item in current if item["context"] == CONTEXT), None)
+        if previous or len(current) < 100:
             break
         page += 1
     if (
         previous
         and previous["state"] == state
         and previous.get("description") == description
-        and previous.get("creator", {}).get("login") == "github-actions[bot]"
+        and (previous.get("creator") or {}).get("login") == "github-actions[bot]"
     ):
         return
     if os.environ.get("GITHUB_RUN_ID"):
@@ -113,7 +114,7 @@ def status(repo, pr, state, description):
     api(repo, f"statuses/{sha}", payload)
 
 
-def refresh_gate(repo):
+def refresh_gate(repo, group_sha=None):
     refresh_refs()
     main = git("rev-parse", "origin/main")
     current = version(main)
@@ -139,6 +140,23 @@ def refresh_gate(repo):
             print(f"Invalid handoff (keeping gate closed): {error}")
     # Old already-released main versions also fail closed, requiring a migration bump.
     active = handoff is not None or tagged
+    if group_sha:
+        allowed = (
+            not active
+            and subprocess.run(
+                ["git", "merge-base", "--is-ancestor", main, group_sha], check=False
+            ).returncode
+            == 0
+        ) or (valid and allowed_group(main, group_sha, handoff))
+        status(
+            repo,
+            {"head": {"sha": group_sha}},
+            "success" if allowed else "pending",
+            "Handoff complete or approved version bump"
+            if allowed
+            else f"Waiting for the next-version PR after v{current}",
+        )
+        return
     decisions = {}
     for pr in open_prs(repo):
         allowed = not active or (valid and allowed_pr(pr, main, handoff, tagged))
@@ -175,12 +193,9 @@ def require_gate(repo):
         raise ValueError(
             f"Require {CONTEXT} and Release readiness in the Main ruleset before creating releases"
         )
-    if not any(
-        rule["parameters"].get("strict_required_status_checks_policy")
-        for rule in rules
-        if rule["type"] == "required_status_checks"
-    ):
-        raise ValueError("Require strict up-to-date checks before creating releases")
+    # Freshness is release-specific: release() pins the current main revision,
+    # and refresh_gate() requires the handoff commit's parent to equal main.
+    # Ordinary PRs may pass their required checks against an older main.
 
 
 def require_release_validation(sha):
@@ -201,20 +216,11 @@ def require_green_main(repo, sha):
             f"repos/{repo}/actions/runs?head_sha={sha}&event=push&per_page=100",
         )
     )
-    latest = {}
-    for page in pages:
-        for workflow in page["workflow_runs"]:
-            latest.setdefault(workflow["name"], workflow)
-    expected = {"API tests", "cross", "web", "windows", "Maple package types"}
-    missing = expected - latest.keys()
-    if missing:
-        raise ValueError(f"Missing main CI: {sorted(missing)}")
-    for name, workflow in latest.items():
-        # This controller can itself be the current push-triggered run.
-        if name == "release-handoff":
-            continue
-        if workflow["status"] != "completed" or workflow["conclusion"] != "success":
-            raise ValueError(f"main CI is not green: {name}: {workflow['html_url']}")
+    waiting = waiting_for(
+        [workflow for page in pages for workflow in page["workflow_runs"]], "push"
+    )
+    if waiting:
+        raise ValueError(f"main CI is not green: {', '.join(waiting)}")
 
 
 def handoff_issue(repo, tag):
@@ -400,7 +406,7 @@ def release(repo, requested, advance_only=False, release_sha=None):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=["release", "gate", "advance"])
+    parser.add_argument("command", choices=["release", "gate", "group-gate", "advance"])
     parser.add_argument(
         "--repo",
         default=os.environ.get("GITHUB_REPOSITORY"),
@@ -408,9 +414,16 @@ if __name__ == "__main__":
     )
     parser.add_argument("--next-version", default="")
     parser.add_argument("--release-sha", default=os.environ.get("GITHUB_SHA"))
+    parser.add_argument("--group-sha")
     args = parser.parse_args()
     if args.command == "gate":
         refresh_gate(args.repo)
+    elif args.command == "group-gate":
+        if not args.group_sha or git("rev-parse", "FETCH_HEAD") != args.group_sha:
+            raise ValueError(
+                "Fetched merge-group ref must match the event's exact head SHA"
+            )
+        refresh_gate(args.repo, group_sha=args.group_sha)
     else:
         release(
             args.repo,

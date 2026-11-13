@@ -40,8 +40,8 @@ describe('/api/presets', () => {
   // the last test's database has no successor to close it, so the paired form
   // left this suite's handle installed process-wide for the rest of the run.
   // Bun runs every test file in one process, so a suite later in the run that
-  // asserts no database is open (`preview-ondemand-limiter.test.ts`, which
-  // pins the gate keeping a pre-startup request off an absent pool) saw this
+  // asserts no database is open (the since-removed on-demand limiter suite,
+  // which pinned a pre-startup request off an absent pool) saw this
   // one's and failed — in the full run only, which is what made it look like
   // the limiter's problem rather than this suite's.
   afterEach(() => {

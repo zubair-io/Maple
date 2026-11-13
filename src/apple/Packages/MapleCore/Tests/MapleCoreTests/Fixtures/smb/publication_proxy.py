@@ -86,9 +86,10 @@ args = parser.parse_args()
 with socket.socket() as listener:
     listener.bind(("127.0.0.1", 0))
     listener.listen()
-    (args.directory / "proxy.json").write_text(
-        json.dumps({"port": listener.getsockname()[1]})
-    )
+    receipt = args.directory / "proxy.json"
+    pending_receipt = args.directory / "proxy.json.pending"
+    pending_receipt.write_text(json.dumps({"port": listener.getsockname()[1]}))
+    pending_receipt.replace(receipt)
     while True:
         client, _ = listener.accept()
         threading.Thread(

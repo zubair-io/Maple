@@ -4,6 +4,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using CommunityToolkit.Mvvm.ComponentModel;
+using Maple.WinUI.Models;
 using Maple.WinUI.Services;
 using Maple.WinUI.Services.Cloud;
 
@@ -18,9 +19,7 @@ namespace Maple.WinUI.ViewModels
         [ObservableProperty] private string _cloudStatus = "Not connected";
         [ObservableProperty] private bool _cloudConnected;
 
-        private CloudClient? _cloud;
         private CloudPkcePending? _pendingSignIn;
-        private CancellationTokenSource? _signInPollCts;
 
         /// <summary>The live cloud client, if any (#2589) — handed to the
         /// Cloud Files sync root as an accessor rather than a captured
@@ -33,8 +32,9 @@ namespace Maple.WinUI.ViewModels
         /// CompleteAuthCallbackAsync. Returns (ok, message, devLoginEnabled).</summary>
         public async Task<(bool Ok, string Message, bool DevLoginEnabled)> StartBrowserSignInAsync(string serverUrl)
         {
-            _signInPollCts?.Cancel();
-            _cloud?.Dispose();
+            if (await ReleaseCloudSessionAsync() is { } blocked)
+                return (false, blocked, false);
+            DisposeCloudClient();
             _cloud = new CloudClient(serverUrl);
             HookTokenRotation(_cloud);
             var (ok, message, devLogin) = await _cloud.ProbeAsync(CancellationToken.None);
@@ -49,95 +49,8 @@ namespace Maple.WinUI.ViewModels
                 CloudPkce.ChallengeFor(_pendingSignIn.Verifier), _pendingSignIn.State);
             System.Diagnostics.Process.Start(
                 new System.Diagnostics.ProcessStartInfo(url) { UseShellExecute = true });
-            CloudStatus = "Waiting for browser sign-in…";
-            StartSignInPolling(_pendingSignIn, _cloud);
+            CloudStatus = "Finish sign-in in your browser, then choose Open Maple.";
             return (true, message, devLogin);
-        }
-
-        /// <summary>Poll the server for the pending ceremony's code (#3063).
-        /// The maple-app:// redirect is the fast path, but Chromium refuses to
-        /// launch an external scheme from a script navigation with no user
-        /// gesture — which is exactly what an already-signed-in browser does
-        /// (the #2964 bootstrap redirect). The signed-in web app still MINTS
-        /// the code server-side, so polling with the private verifier
-        /// completes the sign-in without any browser cooperation. First of
-        /// the redirect/poll paths to complete wins; the other no-ops.</summary>
-        private void StartSignInPolling(CloudPkcePending pending, CloudClient client)
-        {
-            _signInPollCts?.Cancel();
-            var cts = new CancellationTokenSource(TimeSpan.FromMinutes(3));
-            _signInPollCts = cts;
-            _ = Task.Run(async () =>
-            {
-                try
-                {
-                    while (true)
-                    {
-                        await Task.Delay(TimeSpan.FromSeconds(2), cts.Token);
-                        var (ok, fatal, message) = await client.ClaimNativeCodeAsync(
-                            pending.State, pending.Verifier, cts.Token);
-                        if (fatal)
-                        {
-                            // Permanent (bad request / user gone) — the ceremony
-                            // can never complete; stop polling and surface it.
-                            OnUi(() =>
-                            {
-                                if (_pendingSignIn == pending && _signInPollCts == cts)
-                                    CloudStatus = $"Sign-in failed: {message}";
-                            });
-                            return;
-                        }
-                        if (!ok)
-                            continue; // nothing pending yet (or transient) — keep polling
-                        OnUi(() => _ = CompleteClaimedSignInAsync(pending, client, message));
-                        return;
-                    }
-                }
-                catch (OperationCanceledException)
-                {
-                    // Superseded by another ceremony/callback, or the 3-minute
-                    // window elapsed. Only the timeout of a STILL-pending
-                    // ceremony deserves a status update.
-                    OnUi(() =>
-                    {
-                        if (_pendingSignIn == pending && _signInPollCts == cts)
-                            CloudStatus = "Browser sign-in timed out — try again.";
-                    });
-                }
-                catch (ObjectDisposedException)
-                {
-                    // The client was superseded (disposed) between our cancel
-                    // check and the request — this ceremony is over.
-                }
-                finally
-                {
-                    // Free the CTS timer promptly. On the UI thread, and only
-                    // after un-publishing the field, so the Cancel() call sites
-                    // (all UI-thread) can never touch a disposed CTS.
-                    OnUi(() =>
-                    {
-                        if (_signInPollCts == cts)
-                            _signInPollCts = null;
-                        cts.Dispose();
-                    });
-                }
-            });
-            // (No cts.Token on Task.Run: a pre-canceled token would skip the
-            // body entirely and leak the CTS past its finally.)
-        }
-
-        /// <summary>UI-thread tail of a successful poll claim: mirror of
-        /// CompleteAuthCallbackAsync's post-redeem steps, guarded so a redirect
-        /// callback that already completed this ceremony makes this a no-op.</summary>
-        private async Task CompleteClaimedSignInAsync(
-            CloudPkcePending pending, CloudClient client, string message)
-        {
-            if (_pendingSignIn != pending || _cloud != client)
-                return;
-            _pendingSignIn = null;
-            CloudStatus = message;
-            PersistCloudSession(pending.ServerUrl, client.RefreshToken);
-            await FinishConnectAsync();
         }
 
         /// <summary>Step 2: the maple-app://auth-success?code=…&state=… callback.
@@ -151,23 +64,23 @@ namespace Maple.WinUI.ViewModels
                 CloudStatus = "Unexpected sign-in callback (no sign-in in progress).";
                 return;
             }
-            var query = System.Web.HttpUtility.ParseQueryString(uri.Query);
-            var code = query["code"];
-            var state = query["state"];
-            if (string.IsNullOrEmpty(code) || state != pending.State)
+            if (!CloudSignInCallback.MatchesPending(uri, pending, out var code))
             {
                 CloudStatus = "Sign-in callback rejected (state mismatch).";
                 return;
             }
-            _pendingSignIn = null;
-            _signInPollCts?.Cancel();
+            var client = _cloud;
 
-            var (ok, message) = await _cloud.RedeemNativeCodeAsync(
-                code!, pending.Verifier, CancellationToken.None);
+            var (ok, message, retryable) = await CloudSignInCallback.RedeemAsync(client, pending, code);
+            if (_pendingSignIn != pending || _cloud != client)
+                return;
             CloudStatus = ok ? message : $"Sign-in failed: {message}";
+            if (!ok && retryable)
+                return;
+            _pendingSignIn = null;
             if (!ok)
                 return;
-            PersistCloudSession(pending.ServerUrl, _cloud.RefreshToken);
+            PersistCloudSession(pending.ServerUrl, client.RefreshToken);
             await FinishConnectAsync();
         }
 
@@ -175,8 +88,9 @@ namespace Maple.WinUI.ViewModels
         /// no email, no browser. Probes first when needed.</summary>
         public async Task<(bool Ok, string Message)> DevSignInAsync(string serverUrl)
         {
-            _signInPollCts?.Cancel();
-            _cloud?.Dispose();
+            if (await ReleaseCloudSessionAsync() is { } blocked)
+                return (false, blocked);
+            DisposeCloudClient();
             _cloud = new CloudClient(serverUrl);
             HookTokenRotation(_cloud);
             var (probeOk, probeMessage, devLogin) = await _cloud.ProbeAsync(CancellationToken.None);
@@ -216,7 +130,9 @@ namespace Maple.WinUI.ViewModels
                 return;
             }
             CloudStatus = $"Reconnecting to {settings.CloudServerUrl}…";
-            _cloud?.Dispose();
+            if (await ReleaseCloudSessionAsync() is not null)
+                return;
+            DisposeCloudClient();
             _cloud = new CloudClient(settings.CloudServerUrl!);
             HookTokenRotation(_cloud);
             switch (await _cloud.RestoreSessionAsync(refreshToken, CancellationToken.None))
@@ -337,15 +253,23 @@ namespace Maple.WinUI.ViewModels
         /// sidecar. Also arms the developed-preview re-publish.</summary>
         private void PushCloudSidecar(PhotoItem photo)
         {
-            if (_cloud == null)
+            var client = _cloudSlot.Resolve(_openCloudGeneration);
+            if (client == null)
                 return;
             var doc = _cloudDoc ?? new Services.Xmp.XmpSidecarDocument();
             doc.Adjustments = Adjustments.Clone();
+            var discardBrushCorrections = ShouldDiscardBrushCorrectionsFor(photo.FilePath);
+            if (discardBrushCorrections)
+                Services.Xmp.XmpBrushCorrections.RemovePassthroughContainers(doc);
+            var restoreBrushCorrections = BrushCorrectionsToRestoreFor(photo.FilePath, Adjustments);
+            if (!discardBrushCorrections && restoreBrushCorrections is not null)
+                Services.Xmp.XmpBrushCorrections.RestorePassthroughContainers(doc, restoreBrushCorrections);
+            if (discardBrushCorrections) _brushDiscardGeneration++;
+            var discardGeneration = _brushDiscardGeneration;
             doc.Rating = photo.Rating;
             doc.Flag = photo.FlagStatus;
             doc.ColorLabel = photo.ColorLabel;
             _cloudDoc = doc;
-            var client = _cloud;
             var snapshot = doc.Adjustments.Clone();
             var version = _photoOpenVersion;
             var serverPath = photo.FilePath;
@@ -353,9 +277,14 @@ namespace Maple.WinUI.ViewModels
                 ? new CloudPreviewPublication(client, serverPath, original, Services.Xmp.XmpWriter.Serialize(doc)) : null;
             TrackCloudMetadataWrite(async () =>
             {
-                await client.UpdateDevelopSidecarAsync(serverPath, snapshot);
+                await client.UpdateDevelopSidecarAsync(serverPath, snapshot, discardBrushCorrections,
+                    restoreBrushCorrections);
                 await OnUiAcknowledgedAsync(() =>
                 {
+                    if (discardBrushCorrections && _brushDiscardGeneration == discardGeneration &&
+                        _discardBrushCorrectionsForPhotoPath is { } discardedPath &&
+                        string.Equals(discardedPath, serverPath, StringComparison.OrdinalIgnoreCase))
+                        SetBrushCorrectionDiscardPath(null);
                     if (publication != null)
                     {
                         if (!_disposed && version == _photoOpenVersion && ReferenceEquals(photo, SelectedPhoto))

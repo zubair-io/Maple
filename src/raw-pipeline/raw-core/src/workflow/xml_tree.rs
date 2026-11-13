@@ -1,5 +1,8 @@
 //! Strict RDF workflow element conversion (#4036). The field table owns names/types.
-use super::{WireKind, WorkflowRecord, WORKFLOW_RECORDS};
+use super::{
+    WireKind, WorkflowField, WorkflowRecord, LEGACY_HISTORY_FIELDS, LEGACY_WORKFLOW_VERSION,
+    WORKFLOW_RECORDS, WORKFLOW_VERSION,
+};
 use quick_xml::{events::Event, Reader};
 use serde_json::{Map, Value};
 
@@ -86,7 +89,29 @@ pub(super) fn read(xml: &str) -> Result<Value, String> {
     if node.name != "papp:Workflow" {
         return Err("expected workflow element".into());
     }
-    record(&node, "SidecarWorkflow")
+    let legacy = node
+        .children
+        .iter()
+        .find(|child| child.name == "papp:SchemaVersion")
+        .is_some_and(|child| child.text.trim() == LEGACY_WORKFLOW_VERSION.to_string());
+    let value = record(&node, "SidecarWorkflow", legacy)?;
+    Ok(if legacy { migrate_v1(value) } else { value })
+}
+
+/// v1 history was one linear chain written by one writer at a time, so each
+/// entry's parent is its predecessor; the writer was never recorded.
+fn migrate_v1(mut value: Value) -> Value {
+    value["schemaVersion"] = Value::from(WORKFLOW_VERSION);
+    if let Some(history) = value["history"].as_array_mut() {
+        let ids: Vec<Value> = history.iter().map(|entry| entry["id"].clone()).collect();
+        for (index, entry) in history.iter_mut().enumerate() {
+            entry["parentId"] = index
+                .checked_sub(1)
+                .map_or_else(|| Value::from(""), |previous| ids[previous].clone());
+            entry["writer"] = Value::from("");
+        }
+    }
+    value
 }
 
 fn attach(node: Node, stack: &mut [Node], root: &mut Option<Node>) -> Result<(), String> {
@@ -110,15 +135,25 @@ fn tag(field: &str) -> String {
     format!("papp:{}{}", field[..1].to_ascii_uppercase(), &field[1..])
 }
 
-fn record(node: &Node, name: &str) -> Result<Value, String> {
-    let schema = schema(name)?;
-    if !node.text.trim().is_empty() || node.children.len() != schema.fields.len() {
+/// The fields a record carries in the version being read.
+fn fields(name: &str, legacy: bool) -> Result<Vec<&'static WorkflowField>, String> {
+    Ok(schema(name)?
+        .fields
+        .iter()
+        .filter(|field| {
+            !legacy || name != "WorkflowHistoryEntry" || LEGACY_HISTORY_FIELDS.contains(&field.name)
+        })
+        .collect())
+}
+
+fn record(node: &Node, name: &str, legacy: bool) -> Result<Value, String> {
+    let fields = fields(name, legacy)?;
+    if !node.text.trim().is_empty() || node.children.len() != fields.len() {
         return Err("missing or unknown workflow XML fields".into());
     }
     let mut out = Map::new();
     for child in &node.children {
-        let field = schema
-            .fields
+        let field = fields
             .iter()
             .find(|field| tag(field.name) == child.name)
             .ok_or("unknown workflow XML field")?;
@@ -126,7 +161,7 @@ fn record(node: &Node, name: &str) -> Result<Value, String> {
             return Err("duplicate workflow XML field".into());
         }
         let value = match field.kind {
-            WireKind::Text => {
+            WireKind::Text | WireKind::OptionalText => {
                 if !child.children.is_empty() {
                     return Err("nested scalar workflow field".into());
                 }
@@ -162,7 +197,7 @@ fn record(node: &Node, name: &str) -> Result<Value, String> {
                         if entry.name != "rdf:li" {
                             return Err("workflow sequence needs rdf:li".into());
                         }
-                        record(entry, record_name)
+                        record(entry, record_name, legacy)
                     })
                     .collect();
                 Value::Array(entries?)

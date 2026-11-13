@@ -10,6 +10,7 @@ import { Injectable, inject } from '@angular/core';
 import { HttpClient, HttpParams } from '@angular/common/http';
 import { Observable, map } from 'rxjs';
 import { API_BASE_URL } from './api-base-url.token';
+import { StackPreferenceService } from '../stack/stack-preference.service';
 
 /** Viewport bounds in decimal degrees — the same shape the map wrapper's
  * `getBounds()` returns, so callers never touch a MapLibre `LngLatBounds`
@@ -44,6 +45,7 @@ interface MapClustersResponse {
 export class MapClustersService {
   private readonly http = inject(HttpClient);
   private readonly base = inject(API_BASE_URL);
+  private readonly stackPreference = inject(StackPreferenceService);
 
   /** GET /api/map/clusters?bbox=west,south,east,north&zoom=Z. `zoom` should
    * be an integer — the server clamps/validates it regardless, but sending
@@ -53,8 +55,10 @@ export class MapClustersService {
     const params = new HttpParams()
       .set('bbox', `${bbox.west},${bbox.south},${bbox.east},${bbox.north}`)
       .set('zoom', String(zoom));
-    return this.http
-      .get<MapClustersResponse>(`${this.base}/map/clusters`, { params })
+    return this.stackPreference
+      .withStackParam(params, (query) =>
+        this.http.get<MapClustersResponse>(`${this.base}/map/clusters`, { params: query }),
+      )
       .pipe(map((response) => response.cells));
   }
 }

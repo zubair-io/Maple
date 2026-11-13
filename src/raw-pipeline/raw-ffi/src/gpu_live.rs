@@ -72,6 +72,14 @@ struct GpuShared {
     /// dims)`, reused across presents AND across handle re-opens.
     #[cfg(target_vendor = "apple")]
     present_surface: Option<raw_gpu::PersistentPresentSurface>,
+    /// The canvas overlay's own `CAMetalLayer` surface (#5715), cached on
+    /// `(generation, layer, dims)` like `present_surface`.
+    #[cfg(target_vendor = "apple")]
+    overlay_surface: Option<raw_gpu::PersistentOverlaySurface>,
+    /// The canvas placeholder still (#5758), presented into `present_surface`
+    /// until the live chain's first frame; its buffer is reused per upload.
+    #[cfg(target_vendor = "apple")]
+    placeholder: Option<raw_gpu::PlaceholderSource>,
     /// The cached WinUI 3 `SwapChainPanel` present surface (#2561) — the
     /// Windows twin of `present_surface`, created on the first
     /// `maple_gpu_present_chain_winui` call with identical cache semantics.
@@ -86,6 +94,31 @@ fn lock_shared() -> std::sync::MutexGuard<'static, Option<GpuShared>> {
     GPU_SHARED
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+/// Create the process-wide context on first use (a live open or a capture
+/// refine, whichever comes first).
+fn ensure_context(shared: &mut Option<GpuShared>) -> Result<(), String> {
+    if shared.is_some() {
+        return Ok(());
+    }
+    let ctx = GpuContext::new_blocking().map_err(|e| e.to_string())?;
+    // #4340: neutral frames omit this pass; finish driver compilation
+    // during initialization, before the first Exposure gesture.
+    #[cfg(target_os = "windows")]
+    ctx.prepare_scene_tone_controls();
+    *shared = Some(GpuShared {
+        ctx,
+        #[cfg(target_vendor = "apple")]
+        present_surface: None,
+        #[cfg(target_vendor = "apple")]
+        overlay_surface: None,
+        #[cfg(target_vendor = "apple")]
+        placeholder: None,
+        #[cfg(target_os = "windows")]
+        present_surface_winui: None,
+    });
+    Ok(())
 }
 
 mod repr;
@@ -176,26 +209,9 @@ pub unsafe extern "C" fn maple_gpu_live_open(
         // One process-wide GpuContext (#1769): created on the FIRST open, reused
         // by every subsequent open/render/present. See [`GpuShared`].
         let mut shared = lock_shared();
-        if shared.is_none() {
-            match GpuContext::new_blocking() {
-                Ok(ctx) => {
-                    // #4340: neutral frames omit this pass; finish driver compilation
-                    // during initialization, before the first Exposure gesture.
-                    #[cfg(target_os = "windows")]
-                    ctx.prepare_scene_tone_controls();
-                    *shared = Some(GpuShared {
-                        ctx,
-                        #[cfg(target_vendor = "apple")]
-                        present_surface: None,
-                        #[cfg(target_os = "windows")]
-                        present_surface_winui: None,
-                    });
-                }
-                Err(e) => {
-                    set_last_error(format!("gpu_live_open: {e}"));
-                    return -5;
-                }
-            }
+        if let Err(e) = ensure_context(&mut shared) {
+            set_last_error(format!("gpu_live_open: {e}"));
+            return -5;
         }
         let ctx = &shared.as_ref().expect("initialized above").ctx;
         // Validates dims against the device's REAL limits before allocating.
@@ -218,6 +234,7 @@ pub unsafe extern "C" fn maple_gpu_live_open(
     })
 }
 
+mod capture_refine;
 mod entries;
 mod inspection;
 pub use inspection::*;
@@ -234,6 +251,14 @@ pub use entries::*;
 // inline; cbindgen still wraps the declaration in `#if defined(__APPLE__)`.
 #[cfg(target_vendor = "apple")]
 mod present;
+// The canvas placeholder present (`maple_gpu_present_placeholder`, #5758).
+#[cfg(target_vendor = "apple")]
+mod placeholder;
+
+// The canvas overlay surface present (#5715): its own `CAMetalLayer`, drawn
+// without the live session or the develop chain.
+#[cfg(target_vendor = "apple")]
+mod present_overlay;
 
 // The Windows `SwapChainPanel` present entry (`maple_gpu_present_chain_winui`,
 // #2561) — the DX12 twin of `present`, same sibling-module split.
@@ -243,6 +268,7 @@ mod present_winui;
 // The C-params -> FullChainInputs marshalling lives in a sibling module
 // (600-LOC file budget; same split pattern as raw_gpu's live_session/limits).
 mod params;
+mod present_geometry;
 mod scope_poll;
 
 #[cfg(test)]
@@ -287,6 +313,20 @@ mod gpu_live_chain_parity_tests;
 #[cfg(test)]
 #[path = "gpu_live_wb_seam_tests.rs"]
 mod gpu_live_wb_seam_tests;
+// The capture-first live chain (#5377): creative-stage parity, the WB drag's
+// allocations, and the fixture-gated live-vs-refine gate.
+#[cfg(test)]
+#[path = "gpu_live_capture_refine_physical_tests.rs"]
+mod gpu_live_capture_refine_physical_tests;
+#[cfg(test)]
+#[path = "gpu_live_capture_refine_tests.rs"]
+mod gpu_live_capture_refine_tests;
+#[cfg(test)]
+#[path = "gpu_live_capture_seam_tests.rs"]
+mod gpu_live_capture_seam_tests;
+#[cfg(test)]
+#[path = "gpu_live_capture_tests.rs"]
+mod gpu_live_capture_tests;
 // Film-look tail host parity (epic #2683, Task 8) — split out per the
 // 600-LOC budget; reuses `gpu_live_tests`' + `gpu_live_wb_frame_tests`'
 // `pub(super)` helpers the same way the other siblings above do.

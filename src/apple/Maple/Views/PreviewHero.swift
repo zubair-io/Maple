@@ -142,6 +142,17 @@ struct PreviewHero<Content: View>: View {
                 onPhaseChange(.open)
             }
         }
+        // The hero stays mounted while its subject changes underneath it
+        // (an editor filmstrip switch rewrites the `.preview` entry, Preview
+        // pages to a sibling). `onAppear` never re-fires then, so without
+        // this the phase stayed `.opening` and the Preview chrome — header
+        // and filmstrip — never came back (#4714).
+        .onChange(of: subject.asset.id) { _, _ in
+            guard phase != .closing else { return }
+            progress = 1
+            phase = .open
+            onPhaseChange(.open)
+        }
         .onChange(of: closeRequest) { _, request in
             guard let request, phase == .open else { return }
             closeStart = request.fromRect ?? nil

@@ -41,11 +41,14 @@
     </div>
   } @else {
     <div class="hsl-panel contents">
-      <app-value-chip class="pointer-events-none" />
-      <div class="w-full overflow-x-auto">
-        <app-sub-param-row />
-      </div>
-      <app-drag-bar class="w-full" />
+      <pro-color-curves-ribbon #colorCurves />
+      @if (!colorCurves.curvesMode()) {
+        <app-value-chip class="pointer-events-none" />
+        <div class="w-full overflow-x-auto">
+          <app-sub-param-row />
+        </div>
+        <app-drag-bar class="w-full" />
+      }
     </div>
   }
 </ng-template>
@@ -92,6 +95,14 @@
     class="pointer-events-none absolute inset-0 z-10 transition-opacity [transition-duration:var(--pro-motion-recede)]"
     [class]="chromeLayerOpacityClass()"
   >
+    @if (sidecarLoadError(); as error) {
+      <p
+        role="alert"
+        class="absolute top-12 left-1/2 z-20 w-[min(90vw,32rem)] -translate-x-1/2 rounded bg-black/85 px-4 py-2 text-center text-sm text-white"
+      >
+        {{ error }}
+      </p>
+    }
     <!-- ── Top bar ────────────────────────────────────────────────── -->
     <!-- Stable IA regions (#2449): every primary job has one named home on
          every breakpoint — `data-editor-region` is the hook the cross-width
@@ -716,6 +727,7 @@
       <app-info-panel
         [asset]="state.focusedAsset()"
         [insideSheet]="true"
+        [visible]="infoOpen()"
         [allowServerHistogramFallback]="false"
         (close)="infoOpen.set(false)"
       />
@@ -741,16 +753,17 @@
   <app-export-dialog
     [visible]="exportOpen()"
     [asset]="state.focusedAsset()"
+    [crop]="editorState.currentAdjustment()?.crop ?? null"
     (dismiss)="exportOpen.set(false)"
   />
 </div>
 
-@if (editorState.removalSaveError()) {
+@if (editorState.removal.saveError()) {
   <p
     role="alert"
     class="fixed bottom-20 left-1/2 z-30 max-w-[80vw] -translate-x-1/2 rounded-lg bg-surface px-3 py-2 text-sm text-error-text"
     data-testid="removal-history-error"
   >
-    {{ editorState.removalSaveError() }}
+    {{ editorState.removal.saveError() }}
   </p>
 }

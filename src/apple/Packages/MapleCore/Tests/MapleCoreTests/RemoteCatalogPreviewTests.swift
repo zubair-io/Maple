@@ -8,7 +8,7 @@ final class RemoteCatalogPreviewTests: XCTestCase {
     #"[{"id":"f1","slug":"photos","path":"/photos","label":"Photos","file_count":1,"created_at":"2026-01-01T00:00:00Z"}]"#
       .utf8)
 
-  func testPreviewUsesVersionedUnifiedAddressAndRevalidatesBytes() async throws {
+  func testPreviewUsesUnversionedUnifiedAddressAndRevalidatesBytes() async throws {
     let server = URL(string: "https://example.test/maple/")!
     var requests: [URLRequest] = []
     let session = URLSession.stubbedSequence { request in
@@ -38,9 +38,7 @@ final class RemoteCatalogPreviewTests: XCTestCase {
       XCTAssertEqual(
         components.percentEncodedPath,
         "/maple/api/preview/photos/My%20Album%20%23%3F/photo%20%25.dng")
-      XCTAssertEqual(
-        components.queryItems, [URLQueryItem(name: "pv", value: String(MaplePipelineVersion.value))]
-      )
+      XCTAssertNil(components.queryItems, "derivative reads carry no pipeline version (#4793)")
     }
     XCTAssertEqual(previews.last?.value(forHTTPHeaderField: "If-None-Match"), "preview-etag")
   }

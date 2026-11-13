@@ -14,6 +14,9 @@ export interface WorkflowBinding {
     workflowEmbedXmp(json: string, xmp: string): WorkflowResult;
     workflowCheckpointXmp(xmp: string): WorkflowResult;
     workflowVariantFilename(primaryName: string, variantId: string): WorkflowResult;
+    /** `nowMs` is a decimal millisecond timestamp (every native argument is text). */
+    workflowReconcileXmp(base: string, current: string, incoming: string, nowMs: string): WorkflowResult;
+    workflowCursorXmp(xmp: string): WorkflowResult;
 }
 type WorkflowLibrary = {
     symbols: Record<string, (...args: unknown[]) => unknown>;
@@ -49,6 +52,14 @@ export declare function getWorkflowFfiSymbols(FFIType: Record<string, string | n
         returns: string | number;
     };
     maple_workflow_embed_xmp: {
+        args: (string | number)[];
+        returns: string | number;
+    };
+    maple_workflow_reconcile_xmp: {
+        args: (string | number)[];
+        returns: string | number;
+    };
+    maple_workflow_cursor_xmp: {
         args: (string | number)[];
         returns: string | number;
     };

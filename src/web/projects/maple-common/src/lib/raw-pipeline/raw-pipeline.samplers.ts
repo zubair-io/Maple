@@ -16,9 +16,9 @@
 
 import type { RegisterPending } from './raw-pipeline.export-request';
 import { dispatchSampleWb } from './raw-pipeline.sample-wb-request';
-import { dispatchSampleRange } from './raw-pipeline.sample-range-request';
+import { dispatchSampleColorCurve, dispatchSampleRange } from './raw-pipeline.sample-range-request';
 import type { WbSampleResult } from './raw-pipeline.sample-wb.types';
-import type { MaskRangeSeed } from './raw-pipeline.sample-range.types';
+import type { ColorCurveSampleResult, MaskRangeSeed } from './raw-pipeline.sample-range.types';
 
 /** Runs one request behind the service's decode chain, handing it the
  *  worker, a fresh correlation id and the pending-map registrar. */
@@ -62,5 +62,18 @@ export function sampleMaskRange(
 ): Promise<MaskRangeSeed> {
   return queue((worker, id, register) =>
     dispatchSampleRange(worker, id, register, bytes, ext, xmp, nx, ny),
+  );
+}
+
+export function sampleColorCurve(
+  queue: SampleQueue,
+  bytes: Uint8Array,
+  ext: string,
+  xmp: string | undefined,
+  nx: number,
+  ny: number,
+): Promise<ColorCurveSampleResult> {
+  return queue((worker, id, register) =>
+    dispatchSampleColorCurve(worker, id, register, bytes, ext, xmp, nx, ny),
   );
 }

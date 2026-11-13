@@ -15,7 +15,6 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { signAccessToken } from '../src/auth/tokens.ts';
 import { newObjectIdHex } from '../src/db/object-id.ts';
-import { setMeilisearchClientForTests } from '../src/enrichment/meilisearch-client.ts';
 import {
   createLiveTestDatabase,
   type LiveTestDatabase,
@@ -23,8 +22,6 @@ import {
 import { withTestEnv } from '../src/test-support/env.test-helpers.ts';
 import {
   assetRow,
-  capturingMeili,
-  failingMeili,
   primaryAbsPath,
   registerLibrary,
   seedRouteAsset,
@@ -88,14 +85,7 @@ describe('DELETE /api/assets/:id (trash + permanent purge)', () => {
 
   afterAll(async () => {
     live.close();
-    setMeilisearchClientForTests(null);
     await fs.rm(ROOT, { recursive: true, force: true });
-  });
-
-  beforeEach(() => {
-    // Reset the meili mock before every test so calls don't leak across
-    // cases. Individual tests reinstall a capturing mock when needed.
-    setMeilisearchClientForTests(null);
   });
 
   test('moves RAW + sidecar to trash; sets deleted_at + original_path', async () => {
@@ -140,44 +130,46 @@ describe('DELETE /api/assets/:id (trash + permanent purge)', () => {
     expect(assetRow(live.db, assetId)).toBeNull();
   });
 
-  test('soft-delete tombstones the asset in Meilisearch when maple_id is present', async () => {
-    const meili = capturingMeili();
-    setMeilisearchClientForTests(meili);
+  // #5063: its pre-#5021 backup edit goes with it; another tool's file stays.
+  test("permanent purge removes the photo's old-name backup edit, never another tool's", async () => {
     const { app } = await import('../src/index.ts');
-    const mapleId = 'deadbeefdeadbeef';
-    const { assetId } = await makeAsset('IMG_meili1.ARW', Buffer.from('raw'), { mapleId });
+    const { assetId } = await makeAsset('IMG_3.HEIC', Buffer.from('photo'));
+    await app.handle(del(assetId));
+    const trashed = primaryAbsPath(live.db, ROOT, assetId)!;
+    await fs.writeFile(
+      `${trashed}.xmp`,
+      '<x:xmpmeta xmlns:papp="http://ns.justmaple.app/photo/1.0/">backup</x:xmpmeta>',
+    );
+    const other = path.join(path.dirname(trashed), 'IMG_4.HEIC.xmp');
+    await fs.writeFile(other, '<x:xmpmeta xmlns:darktable="http://darktable.sf.net/"/>');
 
-    const res = await app.handle(del(assetId));
-    expect(res.status).toBe(204);
-    expect(meili.tombstones).toEqual([mapleId]);
-    expect(meili.upserts).toEqual([]);
+    expect((await app.handle(del(assetId))).status).toBe(204);
+
+    await expect(fs.stat(`${trashed}.xmp`)).rejects.toThrow();
+    await fs.stat(other);
   });
 
-  test('soft-delete skips Meilisearch when maple_id is absent (legacy row)', async () => {
-    const meili = capturingMeili();
-    setMeilisearchClientForTests(meili);
-    const { app } = await import('../src/index.ts');
-    const { assetId } = await makeAsset('IMG_meili2.ARW', Buffer.from('raw'));
-
-    const res = await app.handle(del(assetId));
-    expect(res.status).toBe(204);
-    expect(meili.tombstones).toEqual([]);
-  });
-
-  test('soft-delete 204s even when Meilisearch throws', async () => {
-    setMeilisearchClientForTests(failingMeili(['tombstone']));
-    const { app } = await import('../src/index.ts');
-    const { assetId, absPath } = await makeAsset('IMG_meili3.ARW', Buffer.from('raw'), {
-      mapleId: 'abc123',
-    });
-
-    const res = await app.handle(del(assetId));
-    expect(res.status).toBe(204);
-    // Catalog state still flipped despite the Meilisearch failure.
-    const row = assetRow(live.db, assetId);
-    expect(row!.deleted_at).toBeTruthy();
-    expect(row!.original_path).toBe(absPath);
-  });
+  test.skipIf(process.getuid?.() === 0)(
+    "permanent purge refuses while the photo's old-name edit can't be read",
+    async () => {
+      const { app } = await import('../src/index.ts');
+      const { assetId } = await makeAsset('IMG_5.HEIC', Buffer.from('photo'));
+      await app.handle(del(assetId));
+      const trashed = primaryAbsPath(live.db, ROOT, assetId)!;
+      await fs.writeFile(
+        `${trashed}.xmp`,
+        '<x:xmpmeta xmlns:papp="http://ns.justmaple.app/photo/1.0/">backup</x:xmpmeta>',
+      );
+      await fs.chmod(`${trashed}.xmp`, 0o000);
+      try {
+        expect((await app.handle(del(assetId))).status).toBe(500);
+      } finally {
+        await fs.chmod(`${trashed}.xmp`, 0o644);
+      }
+      await fs.stat(trashed);
+      expect(assetRow(live.db, assetId)).not.toBeNull();
+    },
+  );
 
   test('404 on unknown asset id', async () => {
     const { app } = await import('../src/index.ts');

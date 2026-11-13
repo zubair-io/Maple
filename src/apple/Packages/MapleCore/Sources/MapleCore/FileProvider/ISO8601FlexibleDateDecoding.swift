@@ -16,7 +16,7 @@
 
 import Foundation
 
-enum ISO8601FlexibleDateDecoding {
+package enum ISO8601FlexibleDateDecoding {
     private static let withFractional: ISO8601DateFormatter = {
         let f = ISO8601DateFormatter()
         f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
@@ -31,7 +31,7 @@ enum ISO8601FlexibleDateDecoding {
     /// Parses `raw` as ISO-8601, tolerating both the fractional-second
     /// form the server emits and the plain whole-second form. Returns
     /// nil if neither formatter can parse it.
-    static func date(from raw: String) -> Date? {
+    package static func date(from raw: String) -> Date? {
         withFractional.date(from: raw) ?? plain.date(from: raw)
     }
 
@@ -39,7 +39,7 @@ enum ISO8601FlexibleDateDecoding {
     /// Assign directly to a decoder's `dateDecodingStrategy`, or use the
     /// `decoder` convenience below for the common case of a decoder that
     /// needs no other configuration.
-    static var strategy: JSONDecoder.DateDecodingStrategy {
+    package static var strategy: JSONDecoder.DateDecodingStrategy {
         .custom { decoder in
             let container = try decoder.singleValueContainer()
             let raw = try container.decode(String.self)
@@ -52,7 +52,7 @@ enum ISO8601FlexibleDateDecoding {
     }
 
     /// A fresh `JSONDecoder` pre-configured with `strategy`.
-    static var decoder: JSONDecoder {
+    package static var decoder: JSONDecoder {
         let d = JSONDecoder()
         d.dateDecodingStrategy = strategy
         return d

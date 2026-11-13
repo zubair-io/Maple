@@ -53,6 +53,15 @@ fn native_worker_publishes_resident_frames_and_saves_without_touching_raw() {
         _ => panic!("Profile change did not prepare a resident frame"),
     };
     assert!(!std::sync::Arc::ptr_eq(&second.view, &neutral.view));
+    assert_eq!(
+        first.auto_fit,
+        Some(raw_core::view::auto_profile::AutoFitOutcome::NoPreview),
+        "the preview-less fixture's Auto frame reports the missing camera preview"
+    );
+    assert_eq!(
+        neutral.auto_fit, None,
+        "a Neutral frame has no Auto outcome"
+    );
     document.model.crop.left = 0.375;
     document.model.crop.right = 0.625;
     worker.send(Command::Render(1, 4, document.model.clone()));
@@ -64,15 +73,11 @@ fn native_worker_publishes_resident_frames_and_saves_without_touching_raw() {
     document.model.perspective_vertical = 10.0;
     worker.send(Command::Render(1, 5, document.model.clone()));
     match receive(&worker) {
-        Event::GpuFallback(1, 5, reason) => assert!(reason.contains("Combined perspective")),
-        _ => panic!("Two geometry resampling steps must not silently collapse"),
-    }
-    match receive(&worker) {
-        Event::Rendered(1, 5, Ok(image)) => assert!(image.size[0] > 0 && image.size[1] > 0),
-        _ => panic!("Combined geometry fallback did not produce CPU pixels"),
+        Event::GpuRendered(1, 5, frame) => assert!(frame.dims.0 < neutral.dims.0),
+        _ => panic!("A crop over perspective must present on the GPU as two resamples"),
     }
     worker.send(Command::Save(1, document));
-    assert!(matches!(receive(&worker), Event::Saved(1, Ok(()))));
+    assert!(matches!(receive(&worker), Event::Saved(1, Ok(None))));
     worker.finish();
     assert_eq!(std::fs::read(path).unwrap(), bytes);
     let saved =

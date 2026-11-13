@@ -22,13 +22,24 @@ public partial class EditSessionViewModel
         var cloudXml = _cloudDoc == null ? null : XmpWriter.Serialize(_cloudDoc);
         var dirty = _sidecarDirty;
         var cloud = _cloud;
-        var inputs = selected.Select(p => new
+        var inputs = selected.Select(p =>
         {
-            p.FilePath, p.EditPath, p.IsCloud, p.LocalCachePath, p.FileSizeBytes,
-            Stem = Path.GetFileNameWithoutExtension(p.FileName),
-            Captured = p.CaptureDate?.ToString("yyyy:MM:dd HH:mm:ss", CultureInfo.InvariantCulture),
-            IsOpen = ReferenceEquals(p, open),
-            Pending = p.IsCloud ? null : _localMetadataWrites.ReadPending(p.FilePath),
+            var isOpen = ReferenceEquals(p, open);
+            var pending = p.IsCloud ? null : _localMetadataWrites.ReadPendingSnapshot(p.FilePath);
+            return new
+            {
+                p.FilePath, p.EditPath, p.IsCloud, p.LocalCachePath, p.FileSizeBytes,
+                Stem = Path.GetFileNameWithoutExtension(p.FileName),
+                Captured = p.CaptureDate?.ToString("yyyy:MM:dd HH:mm:ss", CultureInfo.InvariantCulture),
+                IsOpen = isOpen,
+                Pending = pending,
+                DiscardBrushCorrections = isOpen
+                    ? ShouldDiscardBrushCorrectionsFor(p.FilePath)
+                    : pending?.DiscardBrushCorrections ?? false,
+                RestoreBrushCorrections = isOpen
+                    ? BrushCorrectionsToRestoreFor(p.FilePath, adjustments)
+                    : pending?.RestoreBrushCorrections,
+            };
         }).ToArray();
         return Task.Run<IReadOnlyList<ExportInput>>(async () =>
         {
@@ -61,7 +72,9 @@ public partial class EditSessionViewModel
                     if (p.IsOpen && p.IsCloud && !useActive && dirty)
                         throw new IOException("Cloud edits were still loading when this photo was changed. Wait for its edits to load before exporting.");
                     snapshots.Add(new ExportInput(path, ExportSnapshot.Serialize(xml,
-                        useActive ? adjustments : p.Pending?.Adjustments), p.Stem, p.Captured));
+                        useActive ? adjustments : p.Pending?.Document.Adjustments,
+                        p.DiscardBrushCorrections,
+                        p.RestoreBrushCorrections), p.Stem, p.Captured));
                 }
                 catch (Exception error) when (error is not OperationCanceledException and not OutOfMemoryException)
                 { throw new IOException($"Cannot queue {p.Stem}: {error.Message}", error); }

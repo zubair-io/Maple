@@ -38,22 +38,42 @@ extension SMBFileOperations {
           "Restore copy differs from source: \(original.path)")
       }
     }
-    for attempt in -1...CollisionResolver.maxAttempts {
+    attempts: for attempt in -1...CollisionResolver.maxAttempts {
       try Task.checkCancellation()
       let target = RestoreCollisionNaming.candidate(original, attempt: attempt)
-      guard !(try await RestoreSMBFile.exists(target, transport: transport)),
-        try await restorePairedSidecars(target, transport: transport).isEmpty
-      else { continue }
-      let destinations = try members.map { member in
+      guard !(try await RestoreSMBFile.exists(target, transport: transport)) else { continue }
+      let planned = try members.map { member in
         member.source == source
           ? target : try RestoreSidecarPairing.target(member.source, from: source, to: target)
       }
+      // An occupied sidecar holding exactly the incoming bytes is the pair's
+      // already-restored other half: join it instead of colliding (#4707).
+      var joined: [Int: String] = [:]
+      var joinedFiles: [Int: RestoreSMBFile] = [:]
+      for occupant in try await restorePairedSidecars(target, transport: transport) {
+        var match: Int?
+        for index in members.indices where members[index].source != source && joined[index] == nil {
+          if await SidecarOwnership.sameSMBFile(planned[index], occupant, transport: transport) {
+            match = index
+            break
+          }
+        }
+        guard let match,
+          await SidecarOwnership.smbSidecarAlreadyCarried(
+            members[match].staged, at: occupant, transport: transport)
+        else { continue attempts }
+        let identity = try await RestoreSMBFile.capture(occupant, transport: transport)
+        guard identity.hash == members[match].copy.hash else { continue attempts }
+        joined[match] = occupant
+        joinedFiles[match] = identity
+      }
+      let destinations = planned.enumerated().map { joined[$0.offset] ?? $0.element }
       var published: [Int] = []
       do {
         for member in members {
           try await member.original.assertUnchanged(member.source, transport: transport)
         }
-        for (index, member) in members.enumerated() {
+        for (index, member) in members.enumerated() where joined[index] == nil {
           try await member.copy.assertUnchanged(member.staged, transport: transport)
           try await member.copy.moveIfUnchanged(
             member.staged, to: destinations[index], transport: transport)
@@ -74,7 +94,8 @@ extension SMBFileOperations {
       }
       do {
         for (index, member) in members.enumerated() {
-          try await member.copy.assertUnchanged(destinations[index], transport: transport)
+          try await (joinedFiles[index] ?? member.copy).assertUnchanged(
+            destinations[index], transport: transport)
         }
       } catch {
         try await restoreUnpublish(

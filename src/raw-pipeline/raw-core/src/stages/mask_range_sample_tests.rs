@@ -189,3 +189,78 @@ fn stage_input_model_strips_only_the_stack_and_its_downstream() {
     assert_eq!(probe.nr_luminance, 0.0);
     assert_eq!(probe.nr_color, 0.0);
 }
+
+#[test]
+fn skin_mask_seed_keeps_default_when_skin_tone_range_covers_mask() {
+    let rgb = rgb_of(0.55, 0.06, 52.0);
+    let mut rgba = Vec::with_capacity(64 * 4);
+    for _ in 0..64 {
+        rgba.extend_from_slice(&[rgb[0], rgb[1], rgb[2], 1.0]);
+    }
+    let mask = vec![255_u8; 64];
+    assert_eq!(
+        seed_skin_mask_range_if_default_inert(&rgba, 8, 8, &mask, &mask),
+        None
+    );
+}
+
+#[test]
+fn skin_mask_seed_adapts_when_default_skin_tone_range_is_inert() {
+    let rgb = rgb_of(0.45, 0.05, -17.0);
+    let mut rgba = Vec::with_capacity(64 * 4);
+    for _ in 0..64 {
+        rgba.extend_from_slice(&[rgb[0], rgb[1], rgb[2], 1.0]);
+    }
+    let mask = vec![255_u8; 64];
+    let seed = seed_skin_mask_range_if_default_inert(&rgba, 8, 8, &mask, &mask).unwrap();
+    let adapted = SKIN_TONE_RANGE.with_seed(&seed);
+    assert_eq!(range::weight(&adapted, rgb), 1.0);
+}
+
+#[test]
+fn skin_mask_seed_uses_face_evidence_instead_of_clothing_majority() {
+    let skin_rgb = rgb_of(0.45, 0.05, -17.0);
+    let shirt_rgb = rgb_of(0.42, 0.09, 15.0);
+    let mut rgba = Vec::with_capacity(100 * 4);
+    let mut face_mask = vec![0_u8; 100];
+    let mut body_mask = vec![0_u8; 100];
+    for i in 0..100 {
+        let rgb = if i < 20 {
+            face_mask[i] = 255;
+            skin_rgb
+        } else if i < 35 {
+            body_mask[i] = 255;
+            skin_rgb
+        } else {
+            body_mask[i] = 255;
+            shirt_rgb
+        };
+        rgba.extend_from_slice(&[rgb[0], rgb[1], rgb[2], 1.0]);
+    }
+    let seed = seed_skin_mask_range_if_default_inert(&rgba, 10, 10, &body_mask, &face_mask)
+        .expect("face evidence should seed body skin range");
+    assert!((seed.hue_deg - (-17.0)).abs() < 1.0, "{seed:?}");
+    let adapted = SKIN_TONE_RANGE.with_seed(&seed);
+    assert_eq!(range::weight(&adapted, skin_rgb), 1.0);
+    assert_eq!(
+        seed_skin_mask_range_if_default_inert(&rgba, 10, 10, &body_mask, &[0_u8; 100]),
+        None
+    );
+
+    let covered_body_skin_rgb = rgb_of(0.55, 0.06, 55.0);
+    let mut mixed_rgba = Vec::with_capacity(100 * 4);
+    for i in 0..100 {
+        let rgb = if i < 20 {
+            skin_rgb
+        } else if i < 40 {
+            covered_body_skin_rgb
+        } else {
+            skin_rgb
+        };
+        mixed_rgba.extend_from_slice(&[rgb[0], rgb[1], rgb[2], 1.0]);
+    }
+    assert_eq!(
+        seed_skin_mask_range_if_default_inert(&mixed_rgba, 10, 10, &body_mask, &face_mask),
+        None
+    );
+}

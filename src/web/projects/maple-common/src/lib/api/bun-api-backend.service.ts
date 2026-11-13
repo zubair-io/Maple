@@ -1,4 +1,3 @@
-import { PIPELINE_OUTPUT_VERSION } from '../generated/adjustment-model.generated';
 // BunApiBackend — HttpClient wrapper for the Maple Self Hosted API.
 //
 // Endpoints documented in src/api/README.md.
@@ -19,14 +18,9 @@ import type { ObservabilityConfigResponse } from '../observability/observability
 import type { NetworkConfigPatch, NetworkConfigResponse } from '../network/network-config.model';
 import type { ApnsConfigPatch, ApnsConfigResponse } from '../network/apns-config.model';
 import type { RenderConfigPatch, RenderConfigResponse } from '../raw-pipeline/render-config.model';
-import type {
-  ApiFolder,
-  ApiHistogram,
-  FolderRescanResult,
-  FolderScanResult,
-} from '../workspace/server-library-io';
+import type { ApiDisplayConfig, ApiFolder, ApiHistogram } from '../workspace/server-library-io';
 
-export type { ApiFolder, ApiHistogram } from '../workspace/server-library-io';
+export type { ApiDisplayConfig, ApiFolder, ApiHistogram } from '../workspace/server-library-io';
 
 /** A backup/mirror location for a library (mirrors the server `MirrorLocation`). */
 /** One row of the owner-only user roster (#2893). */
@@ -377,6 +371,23 @@ export interface ApiAssetDetail {
   hidden_reason?: 'manual' | 'nudity' | 'nudity-burst' | 'folder' | null;
   hidden_ack?: boolean;
   enrichment: ApiEnrichment;
+  /** Per-destination mirror state, projected from Maple's SQLite backup tables. */
+  mirrors?: ApiAssetMirrorState[];
+}
+
+export interface ApiAssetMirrorState {
+  destinationId: string;
+  destinationName: string;
+  provider: 'folder' | 'google-drive';
+  enabled: boolean;
+  path: string;
+  state: 'active' | 'trash' | 'purged';
+  status: 'synced' | 'pending' | 'error' | 'paused' | 'trash' | 'purged';
+  sequence: number;
+  verifiedSequence: number;
+  attempts: number;
+  retryAt: number;
+  lastError: string | null;
 }
 
 /** `ApiAssetDetail` plus the `slug:relPath` address `GET /api/photos/hidden`
@@ -742,11 +753,11 @@ export class BunApiBackendService {
     return this.http.get<ApiWorkerStatus>(`${this.base}/workers/status`);
   }
 
-  getDisplayConfig(): Observable<{ show_hidden_images: boolean }> {
-    return this.http.get<{ show_hidden_images: boolean }>(`${this.base}/display/config`);
+  getDisplayConfig(): Observable<ApiDisplayConfig> {
+    return this.http.get<ApiDisplayConfig>(`${this.base}/display/config`);
   }
 
-  saveDisplayConfig(config: { show_hidden_images: boolean }): Observable<{ ok: boolean }> {
+  saveDisplayConfig(config: Partial<ApiDisplayConfig>): Observable<{ ok: boolean }> {
     return this.http.put<{ ok: boolean }>(`${this.base}/display/config`, config);
   }
 
@@ -812,7 +823,7 @@ export class BunApiBackendService {
    * size dimension), so the `?size=320x320` this used to append was inert
    * (#2220). */
   getThumb(assetId: string): Observable<Blob> {
-    return this.http.get(`${this.base}/assets/${assetId}/thumb?pv=${PIPELINE_OUTPUT_VERSION}`, {
+    return this.http.get(`${this.base}/assets/${assetId}/thumb`, {
       responseType: 'blob',
     });
   }
@@ -878,6 +889,9 @@ export class BunApiBackendService {
           {
             new_filename: newFilename,
             collision,
+            // An asset id may have several identical-content file locations.
+            // Preserve the clicked path so the server renames that location.
+            ...(assetIdOrAddress.includes(':') ? { source_address: assetIdOrAddress } : {}),
           },
         )
         .pipe(
@@ -928,6 +942,7 @@ export class BunApiBackendService {
             mode,
             collision,
             destination_path: destinationPath,
+            ...(assetIdOrAddress.includes(':') ? { source_address: assetIdOrAddress } : {}),
             ...(destinationFilename !== undefined
               ? { destination_filename: destinationFilename }
               : {}),
@@ -996,34 +1011,8 @@ export class BunApiBackendService {
    */
   putPreview(path: string, body: Blob, contentType: 'image/avif' | 'image/jpeg'): Observable<void> {
     return this.http.put<void>(`${this.base}/preview?path=${encodeURIComponent(path)}`, body, {
-      headers: {
-        'Content-Type': contentType,
-        'X-Maple-Pipeline-Version': String(PIPELINE_OUTPUT_VERSION),
-      },
+      headers: { 'Content-Type': contentType },
     });
-  }
-
-  /** Force a re-scan of one library folder. Resets every stage's version to 0
-   * for all assets under the folder path tree so the pipeline re-processes them.
-   * Returns immediately; the workers pick up the reset docs on their next poll. */
-  rescanFolder(folderId: string): Observable<FolderRescanResult> {
-    return this.http.post<FolderRescanResult>(
-      `${this.base}/folders/${encodeURIComponent(folderId)}/rescan`,
-      {},
-    );
-  }
-
-  /** Content-aware re-discover of one library folder, for auto-scan-on-open
-   * (#804). Re-walks the folder tree so a moved/new file is relinked onto its
-   * existing asset (stages then resume); unlike `rescanFolder` this does NOT
-   * zero stage versions, so opening a folder doesn't reprocess the library.
-   * Server-side gated by `last_scan` — a folder scanned within a recent window
-   * short-circuits (`skipped: 'recent'`) without re-walking. */
-  scanFolder(folderId: string): Observable<FolderScanResult> {
-    return this.http.post<FolderScanResult>(
-      `${this.base}/folders/${encodeURIComponent(folderId)}/scan`,
-      {},
-    );
   }
 
   // -------------------------------------------------------------------------
@@ -1074,16 +1063,7 @@ export class BunApiBackendService {
     /** Minimum face size (normalised [0,1) on the 640-px detection frame).
      * `null` clears back to the built-in default (0.06). */
     face_min_detection_size?: number | null;
-    // ── Search index (Phase 7) ────────────────────────────────────
-    /** Meilisearch sidecar URL. `null`/empty clears back to env / disabled. */
-    meilisearch_url?: string | null;
-    /** Meilisearch API key (write-only secret). Non-empty string sets it;
-     * `null` clears back to env; omitted/empty leaves the saved key alone. */
-    meilisearch_api_key?: string | null;
-    meilisearch_task_timeout_seconds?: number | null;
-    meilisearch_semantic_enabled?: boolean | null;
-    meilisearch_embedder_model?: string | null;
-    meilisearch_semantic_ratio?: number | null;
+    // ── Search index ──────────────────────────────────────────────
     service_search_rate_limit_per_minute?: number | null;
   }): Observable<EnrichmentConfigResponse> {
     return this.http.put<EnrichmentConfigResponse>(`${this.base}/enrichment/config`, body);
@@ -1094,17 +1074,6 @@ export class BunApiBackendService {
   testNominatim(url: string): Observable<EnrichmentTestResponse> {
     return this.http.post<EnrichmentTestResponse>(`${this.base}/enrichment/test`, {
       nominatim_url: url,
-    });
-  }
-
-  /** Health-check an arbitrary Meilisearch URL without saving. Pass
-   * `apiKey` to probe with a freshly-typed (not-yet-saved) key; omit it to
-   * let the server fall back to the saved key / `MAPLE_MEILISEARCH_API_KEY`
-   * env var. The key is write-only — never echoed back. */
-  testMeilisearch(url: string, apiKey?: string | null): Observable<EnrichmentTestResponse> {
-    return this.http.post<EnrichmentTestResponse>(`${this.base}/enrichment/test-meili`, {
-      meilisearch_url: url,
-      ...(apiKey ? { api_key: apiKey } : {}),
     });
   }
 
@@ -1459,22 +1428,6 @@ export interface EnrichmentConfigResponse {
    * (default 0.06). Detections whose shorter bbox side is below this value
    * (normalised [0,1) on the 640-px frame) are dropped before persisting. */
   face_min_detection_size: number;
-  /** Meilisearch sidecar URL (DB → env → null). `null` disables the sidecar;
-   * search then falls back to the server's own full-text search. */
-  meilisearch_url: string | null;
-  /** Whether a Meilisearch API key is configured (DB or env). The key itself
-   * is a secret and is never sent on the wire — only this boolean. */
-  meilisearch_api_key_set: boolean;
-  /** Maximum wait for one asynchronous Meilisearch indexing task. */
-  meilisearch_task_timeout_seconds?: number;
-  /** DB-backed master switch for Maple-owned hybrid semantic search. */
-  meilisearch_semantic_enabled: boolean;
-  /** Ollama URL that Meilisearch uses to embed documents and queries. */
-  meilisearch_embedder_url: string;
-  /** Ollama embedding model used for documents and queries. */
-  meilisearch_embedder_model: string;
-  /** Hybrid vector/keyword blend in [0, 1]. */
-  meilisearch_semantic_ratio: number;
   /** Per-service-key request budget for POST /api/search/assets. */
   service_search_rate_limit_per_minute?: number;
   /** Set when face worker is enabled but the model files are missing — UI
@@ -1509,13 +1462,6 @@ export interface EnrichmentConfigResponse {
     face_recognizer_url: 'db' | 'env' | 'unset';
     face_recognizer_sha256: 'db' | 'env' | 'unset';
     face_min_detection_size: 'db' | 'default';
-    meilisearch_url: 'db' | 'env' | 'unset';
-    meilisearch_api_key: 'db' | 'env' | 'unset';
-    meilisearch_task_timeout_seconds?: 'db' | 'default';
-    meilisearch_semantic_enabled: 'db' | 'default';
-    meilisearch_embedder_url: 'db' | 'env' | 'default';
-    meilisearch_embedder_model: 'db' | 'default';
-    meilisearch_semantic_ratio: 'db' | 'default';
     service_search_rate_limit_per_minute?: 'db' | 'default';
   };
 }
@@ -1525,15 +1471,6 @@ export interface EnrichmentTestResponse {
   url?: string;
   error?: string;
   status?: number | null;
-  semanticReady?: boolean;
-  semantic?: {
-    embedderName: string;
-    model: string;
-    meilisearchReachable: boolean;
-    embedderConfigured: boolean;
-    embedderReachable: boolean;
-    error: string | null;
-  };
 }
 
 export interface EnrichmentTestDescribeResponse {

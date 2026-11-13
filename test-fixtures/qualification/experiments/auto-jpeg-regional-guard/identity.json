@@ -1,0 +1,8 @@
+{
+  "source_processing_commit": "548751db18b91cf7cbe8d110d0b076e287ef1e87",
+  "renderer_tree": "450cab8212c893eec6825de2d70bb22f2d346240",
+  "binary_sha256": "064d31bd9b1dd1339a05423296bd8ef241b343242744cb1b78ab62f49625ba60",
+  "pipeline_output_version": 37,
+  "auto_fit_model_version": 7,
+  "status": "unqualified local-region selection guard candidate"
+}

@@ -135,4 +135,81 @@ final class SMBWorkflowPublicationTests: XCTestCase {
     await competing.disconnect()
     await fixture.close()
   }
+
+  func testSMBReplacePreservesOccupantWhenCopyFailsAndRefusesDirectoryAndInvalidBasename()
+    async throws
+  {
+    let t = FakeSMBTransport()
+    await t.seed("new", at: "/Source/IMG_1.dng")
+    await t.seed("<new-xmp/>", at: "/Source/IMG_1.xmp")
+    await t.seed("existing", at: "/Album/IMG_1.dng")
+    await t.seed("<existing-xmp/>", at: "/Album/IMG_1.xmp")
+    await t.setFailCopyToPath("/Album/IMG_1.dng")
+
+    do {
+      _ = try await SMBFileOperations.relocate(
+        "/Source/IMG_1.dng", to: "/Album", mode: .move, collision: .replace, transport: t)
+      XCTFail("expected the injected failure to propagate")
+    } catch {}
+
+    let occupantAfterFailedCopy = await t.fileContents(at: "/Album/IMG_1.dng")
+    let occupantSidecarAfterFailedCopy = await t.fileContents(at: "/Album/IMG_1.xmp")
+    let sourceAfterFailedCopy = await t.fileContents(at: "/Source/IMG_1.dng")
+    XCTAssertEqual(occupantAfterFailedCopy, "existing")
+    XCTAssertEqual(occupantSidecarAfterFailedCopy, "<existing-xmp/>")
+    XCTAssertEqual(sourceAfterFailedCopy, "new")
+
+    await t.seed("keep-me", at: "/DirTarget/IMG_1.dng/nested.dng")
+    do {
+      _ = try await SMBFileOperations.relocate(
+        "/Source/IMG_1.dng", to: "/DirTarget", mode: .move, collision: .replace, transport: t)
+      XCTFail("expected invalidDestination when replacing a directory")
+    } catch FileOperationError.invalidDestination {}
+
+    let nestedContents = await t.fileContents(at: "/DirTarget/IMG_1.dng/nested.dng")
+    XCTAssertEqual(nestedContents, "keep-me")
+
+    do {
+      _ = try await SMBFileOperations.relocate(
+        "/Source/IMG_1.dng", to: "/Album", newBasename: "../escaped.dng", mode: .move, transport: t)
+      XCTFail("expected invalidName for traversal basename")
+    } catch FileOperationError.invalidName {}
+
+    await t.setFailCopyToPath("/Album/IMG_1.xmp")
+    do {
+      _ = try await SMBFileOperations.relocate(
+        "/Source/IMG_1.dng", to: "/Album", mode: .move, collision: .replace, transport: t)
+      XCTFail("expected sidecar copy failure to propagate")
+    } catch {}
+    let occupantAfterSidecarFail = await t.fileContents(at: "/Album/IMG_1.dng")
+    let sidecarAfterSidecarFail = await t.fileContents(at: "/Album/IMG_1.xmp")
+    XCTAssertEqual(occupantAfterSidecarFail, "existing")
+    XCTAssertEqual(sidecarAfterSidecarFail, "<existing-xmp/>")
+
+    await t.setFailCopyToPath(nil)
+    do {
+      try await SMBFileOperations.copyVerified(
+        from: "/Source/IMG_1.dng", to: "/Album/IMG_1.dng", transport: t)
+      XCTFail("expected destinationExists when allowReplace is false")
+    } catch FileOperationError.destinationExists {}
+
+    _ = try await SMBFileOperations.relocate(
+      "/Source/IMG_1.dng", to: "/Album", mode: .move, collision: .replace, transport: t)
+    let trashTouched = await t.directoryExists(at: "/.maple/trash")
+    XCTAssertFalse(trashTouched)
+
+    let longStem = String(repeating: "A", count: 251)
+    let longDng = "\(longStem).dng"
+    let longXmp = "\(longStem).xmp"
+    await t.seed("long-new", at: "/Source/\(longDng)")
+    await t.seed("<long-new/>", at: "/Source/\(longXmp)")
+    await t.seed("long-old", at: "/Album/\(longDng)")
+    await t.seed("<long-old/>", at: "/Album/\(longXmp)")
+    _ = try await SMBFileOperations.relocate(
+      "/Source/\(longDng)", to: "/Album", mode: .move, collision: .replace, transport: t)
+    let longResult = await t.fileContents(at: "/Album/\(longDng)")
+    let longSidecarResult = await t.fileContents(at: "/Album/\(longXmp)")
+    XCTAssertEqual(longResult, "long-new")
+    XCTAssertEqual(longSidecarResult, "<long-new/>")
+  }
 }

@@ -118,6 +118,9 @@ fn schema_f32_defaults_match_struct_default() {
             "defringe_green_amount" => m.defringe_green_amount,
             "defringe_green_hue_lo" => m.defringe_green_hue_lo,
             "defringe_green_hue_hi" => m.defringe_green_hue_hi,
+            "color_grade_blending" => m.color_grade_blending,
+            "color_grade_shadow_edge" => m.color_grade_shadow_edge,
+            "color_grade_highlight_edge" => m.color_grade_highlight_edge,
             other => panic!("unknown f32 field {}", other),
         };
         assert_eq!(

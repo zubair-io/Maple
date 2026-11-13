@@ -1,8 +1,8 @@
 import { cacheFormatMatches } from '../support/cache-image-signature';
-import { PIPELINE_OUTPUT_VERSION } from '../../projects/maple-common/src/lib/generated/adjustment-model.generated';
 import { RESOLVED_PREVIEW_SELECTOR } from '../support/preview-surface';
 import { access, mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
 import { basename, join } from 'node:path';
+import { createHash } from 'node:crypto';
 import { test, expect } from '../support/production-test';
 import {
   readProductionFixtureManifest,
@@ -125,8 +125,7 @@ test('Hosted uses an existing .maple preview before reading the RAW', async ({
     .toBeGreaterThan(0);
   const previewReadyMs = Date.now() - previewStarted;
   const previewRead = picker.operations.findIndex(
-    ({ kind, path }) =>
-      kind === 'read' && path === `.maple/previews/test_0017.dng.v${PIPELINE_OUTPUT_VERSION}.avif`,
+    ({ kind, path }) => kind === 'read' && path === `.maple/previews/test_0017.dng.avif`,
   );
   const rawRead = picker.operations.findIndex(
     ({ kind, path }) => kind === 'read' && path === 'test_0017.dng',
@@ -135,20 +134,8 @@ test('Hosted uses an existing .maple preview before reading the RAW', async ({
   expect(rawRead, 'the cached preview must win before a RAW byte read').toBe(-1);
   expect(
     cacheFormatMatches(
-      join(
-        manifest.populatedFolder,
-        '.maple',
-        'previews',
-        `test_0017.dng.v${PIPELINE_OUTPUT_VERSION}.avif`,
-      ),
-      await readFile(
-        join(
-          manifest.populatedFolder,
-          '.maple',
-          'previews',
-          `test_0017.dng.v${PIPELINE_OUTPUT_VERSION}.avif`,
-        ),
-      ),
+      join(manifest.populatedFolder, '.maple', 'previews', `test_0017.dng.avif`),
+      await readFile(join(manifest.populatedFolder, '.maple', 'previews', `test_0017.dng.avif`)),
     ),
   ).toBe(true);
   await testInfo.attach('hosted-folder-cache-timing.json', {
@@ -174,7 +161,7 @@ test("Hosted records Chrome's actual preview format and reuses it without readin
     manifest.writableFolder,
     '.maple',
     'previews',
-    `test_0006.DNG.v${PIPELINE_OUTPUT_VERSION}.preview.json`,
+    `test_0006.DNG.preview.json`,
   );
   await expect
     .poll(() => readFile(descriptorPath, 'utf8').catch(() => ''), { timeout: 90_000 })
@@ -192,7 +179,7 @@ test("Hosted records Chrome's actual preview format and reuses it without readin
     webp: 'image/webp',
     png: 'image/png',
   } as const;
-  const artifactName = `test_0006.DNG.v${PIPELINE_OUTPUT_VERSION}.${extensions[descriptor.format]}`;
+  const artifactName = `test_0006.DNG.${extensions[descriptor.format]}`;
   const artifactPath = join(manifest.writableFolder, '.maple', 'previews', artifactName);
   expect(descriptor).toMatchObject({
     version: 1,
@@ -247,7 +234,7 @@ test('Hosted writable folder writes XMP and restores it after a reload and re-op
     manifest.writableFolder,
     '.maple',
     'previews',
-    `test_0006.DNG.v${PIPELINE_OUTPUT_VERSION}.preview.json`,
+    `test_0006.DNG.preview.json`,
   );
   await expect
     .poll(() => readFile(descriptorPath, 'utf8').catch(() => ''), { timeout: 90_000 })
@@ -261,7 +248,7 @@ test('Hosted writable folder writes XMP and restores it after a reload and re-op
     manifest.writableFolder,
     '.maple',
     'previews',
-    `test_0006.DNG.v${PIPELINE_OUTPUT_VERSION}.${extensions[beforeEditDescriptor.format]}`,
+    `test_0006.DNG.${extensions[beforeEditDescriptor.format]}`,
   );
   const beforeEditBytes = await readFile(beforeEditArtifact);
   const exposure = page.getByRole('slider', { name: 'Exposure' });
@@ -349,7 +336,7 @@ test('Hosted writable folder writes XMP and restores it after a reload and re-op
               manifest.writableFolder,
               '.maple',
               'previews',
-              `test_0006.DNG.v${PIPELINE_OUTPUT_VERSION}.${extensions[descriptor.format]}`,
+              `test_0006.DNG.${extensions[descriptor.format]}`,
             ),
           );
           return !artifact.equals(beforeEditBytes);
@@ -365,13 +352,23 @@ test('Hosted writable folder writes XMP and restores it after a reload and re-op
   const developedDescriptor = JSON.parse(await readFile(descriptorPath, 'utf8')) as {
     format: 'avif' | 'jpeg' | 'webp' | 'png';
     artifactLastModified: number;
+    sidecarFingerprint: string;
+    artifactFingerprint: string;
   };
   expect(developedDescriptor.artifactLastModified).toBeGreaterThan(
     beforeEditDescriptor.artifactLastModified,
   );
-  const developedArtifactName = `test_0006.DNG.v${PIPELINE_OUTPUT_VERSION}.${extensions[developedDescriptor.format]}`;
+  const developedArtifactName = `test_0006.DNG.${extensions[developedDescriptor.format]}`;
   const developedBytes = await readFile(
     join(manifest.writableFolder, '.maple', 'previews', developedArtifactName),
+  );
+  expect(developedDescriptor.sidecarFingerprint).toBe(
+    createHash('sha256')
+      .update(await readFile(sidecar))
+      .digest('hex'),
+  );
+  expect(developedDescriptor.artifactFingerprint).toBe(
+    createHash('sha256').update(developedBytes).digest('hex'),
   );
   expect(developedBytes.equals(beforeEditBytes), 'the post-edit preview pixels must change').toBe(
     false,
@@ -392,9 +389,7 @@ test('Hosted writable folder writes XMP and restores it after a reload and re-op
     .poll(() =>
       picker.operations
         .map(({ kind, path }) => `${kind}:${path}`)
-        .lastIndexOf(
-          `write:.maple/previews/test_0006.DNG.v${PIPELINE_OUTPUT_VERSION}.preview.json`,
-        ),
+        .lastIndexOf(`write:.maple/previews/test_0006.DNG.preview.json`),
     )
     .toBeGreaterThan(artifactWriteIndex);
   await page.reload();
@@ -443,21 +438,19 @@ test('Hosted writable folder writes XMP and restores it after a reload and re-op
   await expect.poll(() => expectedErrors).toHaveLength(1);
   picker.setWritePermission(true);
   await restoredExposure.press('ArrowRight');
-  const recoveredExposureAttribute = await restoredExposure.getAttribute('aria-valuenow');
-  const recoveredExposure = Number(recoveredExposureAttribute);
-  expect(recoveredExposureAttribute).not.toBeNull();
-  expect(Number.isFinite(recoveredExposure)).toBe(true);
-  expect(
-    recoveredExposure,
-    'the ArrowRight after write permission returns must move Exposure again',
-  ).not.toBe(Number(editedExposure));
   await expect
     .poll(async () => {
       const xml = await readFile(sidecar, 'utf8').catch(() => '');
       const serialized = /crs:Exposure2012="([^"]+)"/.exec(xml)?.[1];
-      return serialized === undefined ? null : Number(serialized);
+      const editorValue = Number(await restoredExposure.getAttribute('aria-valuenow'));
+      return (
+        serialized !== undefined &&
+        Number.isFinite(editorValue) &&
+        editorValue !== Number(editedExposure) &&
+        Math.abs(Number(serialized) - editorValue) < 0.005
+      );
     })
-    .toBeCloseTo(recoveredExposure, 2);
+    .toBe(true);
   await expect(page.getByRole('alert')).toHaveCount(0);
 });
 test('Hosted opens one RAW directly and downloads its XMP without a filmstrip', async ({

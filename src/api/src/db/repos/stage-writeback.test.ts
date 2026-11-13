@@ -1,6 +1,6 @@
 /**
  * What each handler result records, ported from the Mongo runner's writeback
- * suites (`run-stage.poll-loop.test.ts`, `run-stage.invalidates.test.ts`,
+ * suites (`run-stage.outcomes.test.ts`, `run-stage.invalidates.test.ts`,
  * `run-stage.rearm.test.ts`).
  *
  * The Mongo versions drive a whole `runOnce` against an in-memory collection
@@ -19,7 +19,7 @@ import {
   tagLocationMissingStatement,
   type StageAttempt,
 } from './stage-writeback.ts';
-import { renewStageLease } from './stage-claim.ts';
+import { claimStageBatch, renewStageLease } from './stage-claim.ts';
 import { damagedTag, seedClaimableAsset, stageRow } from './stage-runtime.test-helpers.ts';
 import { createTestDatabase, testSqliteDb } from '../sqlite/test-sqlite.test-helpers.ts';
 
@@ -145,7 +145,7 @@ describe('invalidates', () => {
     using handle = await createTestDatabase();
     const db = testSqliteDb(handle.db);
     const assetId = seedLeased(handle.db, {
-      stages: { [STAGE]: {}, meili: { version: 6, attempts: 1, dead: true } },
+      stages: { [STAGE]: {}, 'search-blob': { version: 6, attempts: 1, dead: true } },
     });
 
     await db.transaction(
@@ -157,14 +157,14 @@ describe('invalidates', () => {
             params: [assetId, 'a cat'],
           },
         ],
-        invalidates: ['meili'],
+        invalidates: ['search-blob'],
       }),
     );
 
-    // describe → meili is the canonical caller: the caption lands after the
+    // describe → search-blob is the canonical caller: the caption lands after the
     // search index was already built, so without this the recovered text never
     // becomes searchable (#2172).
-    expect(stageRow(handle.db, assetId, 'meili')).toMatchObject({
+    expect(stageRow(handle.db, assetId, 'search-blob')).toMatchObject({
       version: 0,
       attempts: 0,
       dead: 0,
@@ -180,24 +180,24 @@ describe('invalidates', () => {
     const assetId = seedLeased(handle.db, { stages: { [STAGE]: {} } });
 
     await db.transaction(
-      stageResultStatements(attempt(assetId), { patch: [], invalidates: ['meili'] }),
+      stageResultStatements(attempt(assetId), { patch: [], invalidates: ['search-blob'] }),
     );
 
     // Rows are seeded at asset creation, so "the row exists" is the normal
     // case — and it is exactly the assumption that produced #2177, where a
     // stage silently never re-armed because its bookkeeping was absent.
-    expect(stageRow(handle.db, assetId, 'meili')?.version).toBe(0);
+    expect(stageRow(handle.db, assetId, 'search-blob')?.version).toBe(0);
   });
 
   test('never re-arms the writing stage itself', () => {
-    expect(invalidationStatements(['meili', STAGE], STAGE, 'a')).toHaveLength(1);
+    expect(invalidationStatements(['search-blob', STAGE], STAGE, 'a')).toHaveLength(1);
   });
 
   test('rejects a name that was meant to be a field path', () => {
-    // `invalidates: ['meili.version']` means the author thought they were
+    // `invalidates: ['search-blob.version']` means the author thought they were
     // writing a Mongo `$set` path. Honouring it would create a stage_state row
     // for a stage no runner will ever claim.
-    expect(() => invalidationStatements(['meili.version'], STAGE, 'a')).toThrow(
+    expect(() => invalidationStatements(['search-blob.version'], STAGE, 'a')).toThrow(
       /invalid stage name/,
     );
   });
@@ -468,3 +468,93 @@ describe('the lease fence', () => {
 function toArgs(statement: { sql: string; params?: unknown }): [string, never] {
   return [statement.sql, statement.params as never];
 }
+
+describe('a deferred run', () => {
+  const CLAIM_AT = new Date('2026-06-01T12:00:00.000Z');
+  const RETRY_AT = new Date('2026-06-01T12:05:00.000Z');
+  const request = {
+    stage: STAGE,
+    targetVersion: 7,
+    dependsOn: [],
+    limit: 10,
+    maxAttempts: 5,
+    leaseMs: 15 * 60_000,
+  };
+
+  test('gives the attempt back and re-queues the asset at retryAt, not at lease expiry', async () => {
+    using handle = await createTestDatabase();
+    const db = testSqliteDb(handle.db);
+    const assetId = seedClaimableAsset(handle.db, { stages: { [STAGE]: {} } });
+
+    const claim = await claimStageBatch({ ...request, now: CLAIM_AT }, db);
+    const row = claim.claimed[0];
+    expect(row?.claim_token).toBeTruthy();
+
+    await db.transaction(
+      stageResultStatements(
+        {
+          target: {
+            assetId,
+            stage: STAGE,
+            targetVersion: 7,
+            lease: row?.claim_token ?? '',
+          },
+          attemptNo: 1,
+          maxAttempts: 5,
+          dependsOn: [],
+          at: CLAIM_AT,
+        },
+        { defer: { reason: 'drive offline', retryAt: RETRY_AT } },
+      ),
+    );
+
+    expect(stageRow(handle.db, assetId, STAGE)).toMatchObject({
+      attempts: 0,
+      dead: 0,
+      last_error: 'drive offline',
+      next_attempt_at: RETRY_AT.toISOString(),
+      claim_token: null,
+    });
+    const early = await claimStageBatch(
+      { ...request, now: new Date(RETRY_AT.getTime() - 1000) },
+      db,
+    );
+    const due = await claimStageBatch({ ...request, now: RETRY_AT }, db);
+    expect(early.claimed).toEqual([]);
+    expect(due.claimed.map((claimed) => claimed.asset_id)).toEqual([assetId]);
+  });
+
+  test('a stale claimer cannot defer a row another worker now holds', async () => {
+    using handle = await createTestDatabase();
+    const db = testSqliteDb(handle.db);
+    const assetId = seedClaimableAsset(handle.db, { stages: { [STAGE]: {} } });
+    const first = await claimStageBatch({ ...request, now: CLAIM_AT }, db);
+    const second = await claimStageBatch(
+      { ...request, now: new Date(CLAIM_AT.getTime() + 16 * 60_000) },
+      db,
+    );
+
+    await db.transaction(
+      stageResultStatements(
+        {
+          target: {
+            assetId,
+            stage: STAGE,
+            targetVersion: 7,
+            lease: first.claimed[0]?.claim_token ?? '',
+          },
+          attemptNo: 1,
+          maxAttempts: 5,
+          dependsOn: [],
+          at: CLAIM_AT,
+        },
+        { defer: { reason: 'drive offline', retryAt: RETRY_AT } },
+      ),
+    );
+
+    expect(stageRow(handle.db, assetId, STAGE)).toMatchObject({
+      attempts: 2,
+      claim_token: second.claimed[0]?.claim_token,
+    });
+  });
+});

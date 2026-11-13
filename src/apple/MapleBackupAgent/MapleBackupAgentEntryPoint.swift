@@ -22,41 +22,49 @@ import MapleCore
 @main
 struct MapleBackupAgentEntryPoint {
   static func main() async throws {
-    guard !BackupSettings.isStoppedByUser, let s = BackupSettings.load(), s.isConfigured else {
+    guard BackupSettings.configuredForHelper() != nil else {
       FileHandle.standardError.write(
         Data("MapleBackupAgent: no backup settings configured; exiting\n".utf8))
+      return
+    }
+
+    // Same App Group root the app writes (#4717) — a separate process must
+    // report the same device id and resume the same state DB.
+    let storageRoot = try BackupStorage.sharedRoot()
+    // One engine per shared state DB (#4988). While the app is backing up it
+    // owns the work; wait for it to finish rather than exiting, because
+    // launchd does not relaunch a helper that exited successfully.
+    let engineLock: BackupEngineLock
+    do {
+      engineLock = try await BackupEngineLock.acquireWhenFree(
+        in: storageRoot, pollInterval: .seconds(5))
+    } catch {
+      // A failing exit keeps launchd's KeepAlive retry; contention never gets here.
+      FileHandle.standardError.write(
+        Data("MapleBackupAgent: can't take the backup engine lock: \(error)\n".utf8))
+      throw error
+    }
+    defer { engineLock.release() }
+    // The user may have stopped backup or changed the library meanwhile.
+    guard let s = BackupSettings.configuredForHelper() else {
+      FileHandle.standardError.write(
+        Data("MapleBackupAgent: backup was stopped while waiting; exiting\n".utf8))
       return
     }
     guard let url = URL(string: s.serverURL) else {
       FileHandle.standardError.write(Data("MapleBackupAgent: invalid server URL\n".utf8))
       return
     }
-
     let deviceId = try DeviceIdentity.current(
-      storageURL: try DeviceIdentity.defaultStorageURL())
+      storageURL: DeviceIdentity.storageURL(in: storageRoot))
     let sidecars = AppSupportSidecarStore(
-      root: try AppSupportSidecarStore.defaultRoot())
-
-    let appSupport = try FileManager.default.url(
-      for: .applicationSupportDirectory, in: .userDomainMask,
-      appropriateFor: nil, create: true
-    )
-    .appendingPathComponent("Maple", isDirectory: true)
-    try FileManager.default.createDirectory(at: appSupport, withIntermediateDirectories: true)
-    let stateURL = appSupport.appendingPathComponent(s.stateDatabaseFilename)
+      root: try AppSupportSidecarStore.defaultRoot(in: storageRoot))
+    let stateURL = BackupStorage.stateDatabaseURL(
+      in: storageRoot, filename: s.stateDatabaseFilename)
     let state = try BackupStateStore(databaseURL: stateURL)
 
     let queue = InProcessBackupQueue()
-    // Rehydrate pending tasks from the shared state DB so we resume the
-    // app's backlog instead of starting cold.
-    for task in try await state.tasks(in: .pending) {
-      await queue.enqueue(task, priority: .background)
-    }
-    for task in try await state.tasks(in: .uploading) {
-      // Anything left in .uploading from a crashed run goes back to .pending.
-      try await state.transition(task.id, to: .pending)
-      await queue.enqueue(task, priority: .background)
-    }
+    try await state.rehydrate(into: queue, priority: .background)
 
     // #855: backup routes are gated, so the agent must send a bearer too. It
     // reads the same Keychain-backed tokens the app saved — which requires the
@@ -90,7 +98,8 @@ struct MapleBackupAgentEntryPoint {
       // agent target (drag it in via Xcode Build Phases → Compile Sources).
       let reader: any AssetReader = PhotoKitAssetReader(
         deviceId: deviceId,
-        geocode: GeocodeClient(baseURL: effectiveURL))
+        geocode: GeocodeClient(baseURL: effectiveURL),
+        includeLivePhotos: s.includeLivePhotos)
     #else
       fatalError("MapleBackupAgent requires Photos.framework")
     #endif
@@ -99,5 +108,13 @@ struct MapleBackupAgentEntryPoint {
       queue: queue, state: state, upload: upload,
       sidecars: sidecars, reader: reader)
     await engine.run()
+  }
+}
+
+extension BackupSettings {
+  /// Settings the helper may run with: configured and not stopped by the user.
+  fileprivate static func configuredForHelper() -> BackupSettings? {
+    guard !isStoppedByUser, let settings = load(), settings.isConfigured else { return nil }
+    return settings
   }
 }

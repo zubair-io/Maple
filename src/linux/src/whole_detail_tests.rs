@@ -39,6 +39,7 @@ fn raw_whole_refinement_matches_shared_renderer_and_rejects_stale_results() {
             ext: "dng",
         },
         pipeline::DetailRenderOptions {
+            target: raw_core::view::encode::TargetPrimaries::Srgb,
             quality: pipeline::RenderQuality::Auto,
             max_long_edge: rect.out_w.max(rect.out_h),
             film_lut: None,
@@ -160,6 +161,7 @@ fn native_raw_geometry_refinement_uses_export_quality_and_complete_frame() {
             ext: "dng",
         },
         pipeline::DetailRenderOptions {
+            target: raw_core::view::encode::TargetPrimaries::Srgb,
             quality: pipeline::RenderQuality::Auto,
             max_long_edge: native.0.max(native.1),
             film_lut: None,

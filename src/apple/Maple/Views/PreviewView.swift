@@ -5,25 +5,23 @@
 // grid tap lands HERE, not in the editor; the editor is reachable only via the
 // Edit button. The whole point is speed:
 //
-//   • It creates NO render pipeline. It mounts no interactive GPU/CPU canvas
-//     and no zoom controller. It paints a cached JPEG through the SAME
-//     `ThumbnailProvider` / `ThumbnailLoader` path the grid + filmstrip already
-//     use — so opening a photo paints in ~1 frame and never blocks on the RAW
-//     pipeline. Once the thumbnail is on screen, `ThumbnailProvider.preview`
-//     swaps in the display tier (spec §3 / slice A1): `.maple/previews` 1600 px
-//     for local assets, `/api/fs/preview` 1280 px for Maple Cloud, PHImageManager
-//     high-quality for PhotoKit.
-//   • Info's rating and flag controls reuse the asset's `EditSession` (created
-//     lazily by the grid's `ensureSession`; `EditSession.init` allocates a
-//     pipeline object but does NOT decode or render — the heavy work is
-//     `ensureRenderStarted()`, which only the editor calls). Preview never
-//     calls it, so those affordances cost nothing.
+//   • It decodes nothing to open or page. The photo is drawn through the
+//     editor's shared canvas (`PreviewCanvasPager`, #5762), which shows a
+//     cached JPEG fetched through the SAME `ThumbnailProvider` /
+//     `ThumbnailLoader` path the grid + filmstrip already use — so opening a
+//     photo paints in ~1 frame — then the display tier (spec §3 / slice A1):
+//     `.maple/previews` for local assets, `/api/fs/preview` 1280 px for Maple
+//     Cloud, PHImageManager high-quality for PhotoKit. The RAW renders only
+//     once the photo is zoomed past that still's resolution.
+//   • The canvas and Info use the asset's `EditSession`, whose init decodes
+//     nothing; Edit hands the editor the canvas as shown (#5764).
 //
 // Layout (spec §4):
 //   ┌──────────────────────────────────────────────┐
-//   │  ‹  filename                Edit       Info    │  ← one floating header
+//   │  ‹  filename                Edit       Info    │  ← one floating header,
+//   │                                              │    over the photo (#5435)
 //   │  ┌──────┐                                     │
-//   │  │ film │            FIT IMAGE                │  ← body + Preview rail
+//   │  │ film │      FIT IMAGE (full-bleed)         │  ← body + Preview rail
 //   │  │ rail │                                     │    (larger widths; list toggle)
 //   │  └──────┘                                     │
 //   └──────────────────────────────────────────────┘
@@ -97,7 +95,14 @@ struct PreviewView: View {
   @State private var railListPosition: AssetRef.ID?
   /// Finger travel of the pull-down (iPhone) — the still follows it.
   @State private var plainPullTranslation: CGSize = .zero
+  /// The photo area at rest, in window space (`photoAreaAtRestReporter`).
+  @State private var photoArea: CGRect = .zero
   @State private var isPlainPullDismissing = false
+  @State private var canvasOnScreen = PreviewCanvasOnScreen()
+  /// Whether the server has an Android Motion Photo clip for this still, and
+  /// whether the user asked to play it (#5447).
+  @State private var hasMotionClip = false
+  @State private var playsMotionClip = false
   /// The open Duo can retain a compact size class. Use available width for
   /// Preview's rail/Info adaptation, not the size class or reference pixels.
   private func usesWideLayout(_ width: CGFloat) -> Bool {
@@ -106,6 +111,11 @@ struct PreviewView: View {
     #else
       true
     #endif
+  }
+
+  private func isFullBleedAllowed(in geometry: GeometryProxy) -> Bool {
+    FullBleedCanvas.isAllowed(
+      idiom: MapleShellKind.currentIdiom, screen: FullBleedCanvas.screen(of: geometry))
   }
 
   private func usesInfoInspector(_ width: CGFloat) -> Bool {
@@ -133,13 +143,16 @@ struct PreviewView: View {
     GeometryReader { geometry in
       previewContent(
         isWide: usesWideLayout(geometry.size.width),
-        hasInspector: usesInfoInspector(geometry.size.width)
+        hasInspector: usesInfoInspector(geometry.size.width),
+        isFullBleedAllowed: isFullBleedAllowed(in: geometry)
       )
       .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
   }
 
-  private func previewContent(isWide: Bool, hasInspector: Bool) -> some View {
+  private func previewContent(
+    isWide: Bool, hasInspector: Bool, isFullBleedAllowed: Bool
+  ) -> some View {
     ZStack {
       MapleTokens.bg
         .opacity(PreviewViewVM.plainPullBackdropOpacity(translationY: plainPullTranslation.height))
@@ -166,10 +179,25 @@ struct PreviewView: View {
       // swipe / pager.
       ZStack {
         imageBody
+          .overlay {
+            if playsMotionClip {
+              MotionClipPlayerView {
+                await PreviewMotionClip.clipURL(for: asset, source: source)
+              } onFinished: {
+                playsMotionClip = false
+              }
+              .id(asset.id)
+              .background(MapleTokens.bg)
+            }
+          }
           .background(photoAreaReporter)
-          .padding(.horizontal, isWide ? 16 : 8)
+          .padding(.horizontal, Self.photoAreaInset(isWide: isWide))
+          // Wider layouts draw the photo edge to edge, beneath the status
+          // bar, header and rail, so fit is the whole screen (#5710).
+          .ignoresSafeArea(edges: isWide && isFullBleedAllowed ? .all : [])
           .scaleEffect(PreviewViewVM.plainPullScale(translationY: plainPullTranslation.height))
           .offset(plainPullTranslation)
+          .background(photoAreaAtRestReporter(inset: Self.photoAreaInset(isWide: isWide)))
 
         if isWide {
           PreviewNavigationRail(
@@ -228,7 +256,25 @@ struct PreviewView: View {
           .padding(.horizontal, 12)
           .accessibilityIdentifier("preview-filename")
       } trailing: {
+        if hasMotionClip {
+          Button {
+            playsMotionClip.toggle()
+          } label: {
+            Image(systemName: playsMotionClip ? "stop.circle" : "play.circle")
+              .font(.system(size: 22))
+              .frame(minWidth: 44, minHeight: 44)
+              .contentShape(Rectangle())
+          }
+          .buttonStyle(.plain)
+          .foregroundStyle(ProTokens.text)
+          .accessibilityLabel(
+            playsMotionClip ? "Show still photo" : PreviewMotionClip.playLabel(for: asset)
+          )
+          .accessibilityIdentifier("preview-motion")
+        }
+
         Button {
+          canvasOnScreen.handOff(to: sessions[asset.id])
           onEdit(asset)
         } label: {
           Image(systemName: "pencil")
@@ -257,7 +303,7 @@ struct PreviewView: View {
         )
         .accessibilityIdentifier("preview-info")
       }
-      .padding(.top, 8)
+      .statusRowHeaderPlacement(surface: "preview")
       .opacity(chromeOpacity)
     }
     // After the chrome overlays, so the reveal fades them.
@@ -280,6 +326,13 @@ struct PreviewView: View {
     // asset rather than reusing the previous one's session.
     .onChange(of: asset.id) { _, _ in
       infoSession = nil
+    }
+    .task(id: asset.id) {
+      playsMotionClip = false
+      hasMotionClip = false
+      let hasClip = await PreviewMotionClip.hasClip(for: asset, source: source)
+      guard !Task.isCancelled else { return }
+      hasMotionClip = hasClip
     }
     // Re-prime the Info session whenever the pane is open — on first
     // appearance (the pane defaults to open, so no tap ever fires) and
@@ -305,6 +358,8 @@ struct PreviewView: View {
     }
     .accessibilityElement(children: .contain)
     .accessibilityIdentifier("preview-view")
+    // Before Info so the inspector column keeps its own safe area.
+    .modifier(PreviewTopBleed(isPhoneShell: isPhoneShell))
     // Info: inspector column (regular) / bottom sheet (compact), mirroring
     // how `AppShellMacLayout` / `DetailPanel` present the editor's own
     // Info inspector.
@@ -337,33 +392,26 @@ struct PreviewView: View {
 
   // MARK: - Image body
 
-  /// The fit-to-screen still. Purely a `PreviewImage` (thumbnail-cache
-  /// backed) — no canvas, no zoom, no session.
+  /// The photo through the editor's shared canvas (#5762, #5764).
   @ViewBuilder
   private var imageBody: some View {
     if asset.isVideo {
       PreviewVideoView(asset: asset, source: source)
     } else {
-      #if os(iOS)
-        PreviewPager(
-          asset: asset,
-          assets: assets,
-          source: source,
-          provider: provider,
-          onSelectAsset: onSelectAsset,
-          onPlainPullChanged: updatePlainPull,
-          onPlainPullEnded: finishPlainPull
-        )
-        .accessibilityIdentifier("preview-image")
-      #else
-        // PageTabViewStyle is an iOS/iPadOS interaction. macOS keeps the
-        // lightweight current image and uses the existing left/right keys.
-        PreviewImage(
-          source: PreviewViewVM.thumbnailSource(for: asset, source: source),
-          provider: provider
-        )
-        .accessibilityIdentifier("preview-image")
-      #endif
+      PreviewCanvasPager(
+        asset: asset,
+        assets: assets,
+        source: source,
+        provider: provider,
+        session: sessions[asset.id],
+        onScreen: canvasOnScreen,
+        onSelectAsset: onSelectAsset,
+        onPlainPullChanged: updatePlainPull,
+        onPlainPullEnded: finishPlainPull
+      )
+      .accessibilityIdentifier("preview-image")
+      // The canvas needs the photo's session; priming one decodes nothing.
+      .task(id: asset.id) { _ = await ensureInfoSession() }
     }
   }
 
@@ -415,13 +463,28 @@ struct PreviewView: View {
     onSelectAsset(prev)
   }
 
-  /// Publishes where the photo is laid out (window space) so the iPhone
-  /// hero can land its still exactly on Preview's own. Measured under the
-  /// pull's scale/offset, so it is the rest position.
+  private static func photoAreaInset(isWide: Bool) -> CGFloat { isWide ? 0 : 8 }
+
+  /// Publishes where the photo is drawn (window space) so the iPhone hero
+  /// can land its still exactly on Preview's own.
   @ViewBuilder private var photoAreaReporter: some View {
     #if os(iOS)
       GeometryReader { geometry in
         Color.clear.preference(key: PreviewPhotoAreaKey.self, value: geometry.frame(in: .global))
+      }
+    #else
+      Color.clear
+    #endif
+  }
+
+  /// The photo area at rest: measured outside the pull's scale and offset,
+  /// so a pull, or its spring back, never moves it.
+  @ViewBuilder private func photoAreaAtRestReporter(inset: CGFloat) -> some View {
+    #if os(iOS)
+      GeometryReader { geometry in
+        Color.clear.onChange(of: geometry.frame(in: .global), initial: true) {
+          photoArea = $1.insetBy(dx: inset, dy: 0)
+        }
       }
     #else
       Color.clear
@@ -443,13 +506,12 @@ struct PreviewView: View {
       isPlainPullDismissing = true
       if let onPullDownCommitted {
         // Hand the hero the photo where the finger left it: the pager
-        // reports the still's rest rect (the UIKit view knows nothing
-        // of the SwiftUI pull transform), so apply the pull's scale
-        // and offset here. The still itself stays where it is; the
-        // hero hides this whole view the moment the close begins.
-        let pulled = photoRect.map { rest in
+        // reports the photo's rect within the photo area, which is drawn
+        // scaled and offset by the pull. The hero hides this whole view the
+        // moment the close begins.
+        let pulled = photoRect.map { photo in
           PreviewViewVM.pulledRect(
-            rest,
+            photo, inRestArea: photoArea,
             scale: PreviewViewVM.plainPullScale(translationY: translation.height),
             offset: translation)
         }
@@ -465,9 +527,6 @@ struct PreviewView: View {
   }
 
 }
-
-// The UIKit pager lives in PreviewPager.swift so this screen remains focused
-// on composition, navigation, and presentation state.
 
 // MARK: - InfoPrimeTrigger
 

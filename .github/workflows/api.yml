@@ -1,6 +1,8 @@
 name: API tests
 
 on:
+  merge_group:
+    types: [checks_requested]
   push:
     branches: [main]
   pull_request:
@@ -17,9 +19,9 @@ jobs:
   api-typecheck:
     needs: changes
     if: needs.changes.outputs.api == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7.0.1
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
@@ -33,16 +35,9 @@ jobs:
   api-tests:
     needs: changes
     if: needs.changes.outputs.api == 'true'
-    runs-on: ubuntu-latest
-    services:
-      meilisearch:
-        image: getmeili/meilisearch:v1.50.0
-        ports:
-          - 7700:7700
-        env:
-          MEILI_ENV: development
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7.0.1
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
@@ -51,7 +46,7 @@ jobs:
         run: bun install --frozen-lockfile
       - uses: dtolnay/rust-toolchain@stable
       - name: Cache cargo registry + raw-pipeline target
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/registry
@@ -64,14 +59,12 @@ jobs:
         run: bash src/api/scripts/build-raw-ffi.sh
       - name: Run API tests
         working-directory: src/api
+        # The suite takes minutes; a hung test process must not hold the runner
+        # for the 6 h job default (#5701).
+        timeout-minutes: 30
         env:
           MAPLE_JWT_SECRET: ci-test-secret-not-for-production-only
         run: bun test --timeout 30000
-      - name: Verify real Meilisearch task and search compatibility
-        working-directory: src/api
-        env:
-          MAPLE_MEILISEARCH_INTEGRATION_URL: http://localhost:7700
-        run: bun test src/enrichment/meilisearch-real.integration.test.ts --timeout 30000
       # Capability-registry evidence check (#2430): the #2431 sidecar
       # transaction contract (already part of the full `bun test` above) is
       # re-run through tools/qualification/record.sh --check, which compares
@@ -91,9 +84,9 @@ jobs:
     name: API result
     needs: [changes, api-typecheck, api-tests]
     if: always()
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7.0.1
       - run: python3 tools/ci_result.py api-typecheck=api api-tests=api
         env:
           NEEDS_JSON: ${{ toJSON(needs) }}

@@ -64,8 +64,7 @@ function finish(
   run(
     handleDb,
     `UPDATE imports SET status = ?, count_copied = ?, count_skipped = ?, count_failed = ?,
-        error = ?, locked_by = 'worker-1', lease_expires_at = '2099-01-01T00:00:00.000Z',
-        cancel_requested = 1
+        error = ?, locked_by = 'worker-1', cancel_requested = 1
       WHERE id = ?`,
     status,
     counts.copied,
@@ -110,7 +109,6 @@ describe('retryImport — the guard', () => {
     expect(after.counts).toEqual({ copied: 1, skipped: 0, failed: 0 });
     expect(after.error).toBeNull();
     expect(after.locked_by).toBeNull();
-    expect(after.lease_expires_at).toBeNull();
     expect(after.cancel_requested).toBe(false);
     expect(after.scan_pending).toBe(false);
     expect(after.updated_at).toBe('2026-04-05T00:00:00.000Z');

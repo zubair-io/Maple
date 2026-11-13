@@ -9,23 +9,30 @@ on:
     branches: [main, 'release/next-v*']
     tags: ['v*']
   workflow_dispatch:
+  merge_group:
+    types: [checks_requested]
 
 permissions:
   contents: read
   pull-requests: read
   statuses: write
 
+# Merge-group runs only write a status on their own group commit, so each gets
+# its own group: GitHub keeps one pending run per group and would otherwise let a
+# later trigger replace a queued group run. Refreshes and the release itself
+# (version-sync.yml) stay serialized on the shared key.
 concurrency:
-  group: release-handoff
+  group: ${{ github.event_name == 'merge_group' && format('release-handoff-merge-{0}', github.event.merge_group.head_sha) || 'release-handoff' }}
   cancel-in-progress: false
 
 jobs:
   refresh:
     name: Refresh release handoff statuses
-    runs-on: ubuntu-latest
+    if: github.event_name != 'merge_group'
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: main
           fetch-depth: 0
@@ -36,3 +43,25 @@ jobs:
         run: |
           gh auth setup-git
           python3 tools/release_control.py gate
+
+  group:
+    name: Refresh release handoff status for merge group
+    if: github.event_name == 'merge_group'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Validate and report exact group commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GROUP_REF: ${{ github.event.merge_group.head_ref }}
+          GROUP_SHA: ${{ github.event.merge_group.head_sha }}
+        run: |
+          test -n "$GROUP_SHA" && test "$GROUP_SHA" = "$GITHUB_SHA"
+          gh auth setup-git
+          git fetch origin "$GROUP_REF"
+          python3 tools/release_control.py group-gate --group-sha "$GROUP_SHA"

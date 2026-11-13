@@ -18,16 +18,16 @@
 //! persistence / render path) and *qualified* (its output is numerically
 //! proven). A source is satisfied only by an [`EvidenceRecord`] that a
 //! harness wrote — `test-fixtures/qualification/<source>.json`, produced by
-//! `tools/qualification/record.sh` — whose pipeline version, schema
-//! version, corpus hash, backend, and executed case count all still match
-//! what the registry declares today. Anything else (no record, a record
-//! from an older pipeline, a re-touched corpus, a skipped or failing case,
+//! `tools/qualification/record.sh` — whose corpus hash, backend, and
+//! executed case count all still match what the registry declares today.
+//! Anything else (no record, a re-touched corpus, a skipped or failing case,
 //! or an executed count that does not equal the declared expected count)
 //! leaves the capability at the state below. See `evidence.rs` for the
 //! exact rule and `docs/testing.md` § "Capability registry" for the
 //! operator workflow.
 
 mod color_corpus;
+mod corpora;
 mod evidence;
 mod registry;
 #[cfg(test)]
@@ -35,8 +35,7 @@ mod tests;
 
 pub use color_corpus::hash_manifest as hash_color_manifest;
 pub use evidence::{
-    classify, hash_corpus, judge, BuildIdentity, Classification, Evidence, EvidenceRecord, Finding,
-    RecordStatus,
+    classify, hash_corpus, judge, Classification, Evidence, EvidenceRecord, Finding, RecordStatus,
 };
 pub use registry::CAPABILITY_REGISTRY;
 
@@ -223,8 +222,7 @@ pub enum ReleaseState {
     /// declared qualification source is missing, stale, vacuous, or red.
     Integrated,
     /// Every declared integration *and* qualification source is satisfied
-    /// on every declared surface, against the current pipeline version,
-    /// schema version, and corpus.
+    /// on every declared surface, against the current corpus.
     Released,
 }
 
@@ -444,12 +442,16 @@ impl EvidenceSource {
             EvidenceSource::ColorChart => 7,
             EvidenceSource::ColorHarness => 796,
             EvidenceSource::SidecarContractApple => 12,
-            EvidenceSource::SidecarContractApi => 3,
+            EvidenceSource::SidecarContractApi => 4,
             // 19: the high-amount sharpen undershoot case (#4112) joins the 18
             // raw-wasm gpu_render parity cases; the Auto-fit regressions (#4171)
-            // now run with the shared gpu_host in raw-core.
-            EvidenceSource::GpuChainParityLavapipe => 19,
-            EvidenceSource::GpuChainParityMetal => 22,
+            // now run with the shared gpu_host in raw-core; the capture-first
+            // synthetic live-vs-refine gate and white-balance tick (#5379) add 2.
+            EvidenceSource::GpuChainParityLavapipe => 21,
+            // Metal qualification also runs the physical lossy-DNG/WB case and
+            // the capture-first live-vs-refine gates on test_0005/test_0007
+            // (#5379) with --include-ignored; all 28 current cases must execute.
+            EvidenceSource::GpuChainParityMetal => 28,
             EvidenceSource::AppleCanvasGolden => 1,
         }
     }
@@ -464,56 +466,19 @@ impl EvidenceSource {
     }
 
     /// Repo-relative files (or directories, walked recursively) whose
-    /// contents define the source's corpus. A record is stale the moment
-    /// any of them changes — see [`hash_corpus`].
+    /// contents define the source's corpus — see [`corpora`] for the
+    /// lists. A record is stale the moment any of them changes.
     pub const fn corpus(self) -> &'static [&'static str] {
-        match self {
-            EvidenceSource::GreyAdjustments => &[
-                "src/raw-pipeline/raw-core/tests/grey_adjustments.rs",
-                "src/raw-pipeline/raw-core/tests/grey_adjustments_display.rs",
-                "src/raw-pipeline/raw-core/tests/grey_adjustments_wb.rs",
-                "src/raw-pipeline/raw-core/tests/whites_anchor_develop.rs",
-            ],
-            EvidenceSource::SyntheticGrey => &["src/raw-pipeline/raw-core/tests/grey_invariants.rs"],
-            EvidenceSource::GreyDcp => &["src/raw-pipeline/raw-core/tests/grey_dcp_phase1.rs"],
-            EvidenceSource::ColorChart => {
-                &["src/raw-pipeline/raw-core/tests/color_chart_invariants.rs"]
-            }
-            EvidenceSource::ColorHarness => &[
-                "test-fixtures/budgets.json",
-                "src/raw-pipeline/raw-core/src/color/profiles/profiles.bin",
-                "src/scripts/test_color_pipeline.sh",
-                "src/scripts/compare_images.py",
-                "src/scripts/acr-reference/verify_settings.py",
-                "src/scripts/acr-reference/write_xmp.py",
-            ],
-            EvidenceSource::SidecarContractApple => &[
-                "src/apple/Packages/MapleCore/Tests/MapleCoreTests/SidecarContractSupport.swift",
-                "src/apple/Packages/MapleCore/Tests/MapleCoreTests/SidecarTransactionContractCloudTests.swift",
-                "src/apple/Packages/MapleCore/Tests/MapleCoreTests/SidecarTransactionContractFilesystemTests.swift",
-                "src/apple/Packages/MapleCore/Tests/MapleCoreTests/SidecarTransactionContractPhotoKitTests.swift",
-                "src/apple/Packages/MapleCore/Tests/MapleCoreTests/SidecarTransactionContractSMBTests.swift",
-            ],
-            EvidenceSource::SidecarContractApi => {
-                &["src/api/src/routes/xmp.sidecar-contract.test.ts"]
-            }
-            EvidenceSource::GpuChainParityLavapipe | EvidenceSource::GpuChainParityMetal => &[
-                "src/raw-pipeline/raw-wasm/src/gpu_render.rs",
-                "src/raw-pipeline/raw-wasm/src/gpu_render",
-                "src/apple/MapleUITests/Fixtures/synthetic/grey-l018-rggb.dng",
-            ],
-            EvidenceSource::AppleCanvasGolden => &[
-                "src/apple/MapleUITests/MapleUITests.swift",
-                "src/apple/MapleUITests/Goldens/test_0017-default.png",
-            ],
-        }
+        corpora::corpus_paths(self)
     }
 }
 
-/// The sidecar schema version the registry evaluates evidence against —
-/// the only semantics version the XMP schema carries
-/// (`papp:WbScaleVersion`, see `docs/xmp-canonical-format.md` § "Schema
-/// versioning"). A record written before a bump is stale.
+/// The sidecar schema version — the only semantics version the XMP
+/// schema carries (`papp:WbScaleVersion`, see
+/// `docs/xmp-canonical-format.md` § "Schema versioning"). Emitted into
+/// the generated build stamps; since #5007 it no longer gates evidence
+/// records (a bump must instead re-record the sidecar contract suites —
+/// see CLAUDE.md).
 pub fn current_schema_version() -> u32 {
     match WbScaleVersion::default() {
         WbScaleVersion::V1 => 1,

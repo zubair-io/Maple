@@ -1,0 +1,817 @@
+{
+  "scope": "Full18-fixture Whites -100 effect vs each renderer baseline; diagnostic, no production/reference/budget changes. All pixels measured; neutral masks additionally reported. Both reference edits share their original exporter and both candidates share Lanczos reduction. Own-baseline L bins compare response shape independently of baseline tone mismatch.",
+  "renderer_commit": "cf62d12ddc573cff68780e7754f7b5b63f7ae621",
+  "original_input_snapshots_verified": 72,
+  "analysis_sha256": "f42bb25aa4eadc2922eed9a2796681953b5a6dc692dcf5bed99b9ce09c17ebe1",
+  "full_results_sha256": "baa7257c8d8c77105d99629e5878beb4142874158f2d5b160f0e2f12396ae154",
+  "fixtures": [
+    {
+      "fixture": "test_0000",
+      "pixels": 10668000,
+      "size": [
+        4000,
+        2667
+      ],
+      "baseline_bias": [
+        0.012596172894737967,
+        0.014613556312410014,
+        0.016774371842999236
+      ],
+      "whites_bias": [
+        0.025539186001081682,
+        0.026190061580682877,
+        0.02746659660800982
+      ],
+      "operator_excess_rgb_delta": [
+        0.012943013106343715,
+        0.011576505268272863,
+        0.010692224765010583
+      ],
+      "operator_excess_mean_delta_L": 1.10488160425444,
+      "input_paths": [
+        "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0000/down/baseline.png",
+        "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0000/down/whites_min.png",
+        "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0000/xmp/baseline.xmp",
+        "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0000/xmp/whites_min.xmp"
+      ],
+      "candidate_paths": [
+        "/var/folders/qn/gpgsv1591kz40pfbjgnnvzxm0000gn/T/maple-calibrate-XXXXXX.OMuZnJH7jA/candidates/test_0000_baseline.png",
+        "/var/folders/qn/gpgsv1591kz40pfbjgnnvzxm0000gn/T/maple-calibrate-XXXXXX.OMuZnJH7jA/candidates/test_0000_whites_min.png"
+      ]
+    },
+    {
+      "fixture": "test_0001",
+      "pixels": 9000000,
+      "size": [
+        4000,
+        2250
+      ],
+      "baseline_bias": [
+        0.1555997206527307,
+        0.1453505345941974,
+        0.1537067065303223
+      ],
+      "whites_bias": [
+        0.1354529698161313,
+        0.12360101906331766,
+        0.13163131772634734
+      ],
+      "operator_excess_rgb_delta": [
+        -0.020146750836599392,
+        -0.021749515530879726,
+        -0.02207538880397497
+      ],
+      "operator_excess_mean_delta_L": -2.0843191799135523,
+      "input_paths": [
+        "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0001/down/baseline.png",
+        "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0001/down/whites_min.png",
+        "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0001/xmp/baseline.xmp",
+        "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0001/xmp/whites_min.xmp"
+      ],
+      "candidate_paths": [
+        "/var/folders/qn/gpgsv1591kz40pfbjgnnvzxm0000gn/T/maple-calibrate-XXXXXX.OMuZnJH7jA/candidates/test_0001_baseline.png",
+        "/var/folders/qn/gpgsv1591kz40pfbjgnnvzxm0000gn/T/maple-calibrate-XXXXXX.OMuZnJH7jA/candidates/test_0001_whites_min.png"
+      ]
+    },
+    {
+      "fixture": "test_0002",
+      "pixels": 12000000,
+      "size": [
+        4000,
+        3000
+      ],
+      "baseline_bias": [
+        -0.19299273376190273,
+        -0.16092993560615199,
+        -0.14298184928944213
+      ],
+      "whites_bias": [
+        -0.16230623797088384,
+        -0.13270986083395553,
+        -0.11390338716113846
+      ],
+      "operator_excess_rgb_delta": [
+        0.030686495791018897,
+        0.028220074772196457,
+        0.029078462128303673
+      ],
+      "operator_excess_mean_delta_L": 2.417935715942617,
+      "input_paths": [
+        "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0002/down/baseline.png",
+        "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0002/down/whites_min.png",
+        "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0002/xmp/baseline.xmp",
+        "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0002/xmp/whites_min.xmp"
+      ],
+      "candidate_paths": [
+        "/var/folders/qn/gpgsv1591kz40pfbjgnnvzxm0000gn/T/maple-calibrate-XXXXXX.OMuZnJH7jA/candidates/test_0002_baseline.png",
+        "/var/folders/qn/gpgsv1591kz40pfbjgnnvzxm0000gn/T/maple-calibrate-XXXXXX.OMuZnJH7jA/candidates/test_0002_whites_min.png"
+      ]
+    },
+    {
+      "fixture": "test_0003",
+      "pixels": 10668000,
+      "size": [
+        2667,
+        4000
+      ],
+      "baseline_bias": [
+        0.036041230729642104,
+        0.027166662574838962,
+        0.024733882846010247
+      ],
+      "whites_bias": [
+        0.034308362956276206,
+        0.023958895736194363,
+        0.01936951651612573
+      ],
+      "operator_excess_rgb_delta": [
+        -0.0017328677733658981,
+        -0.003207766838644599,
+        -0.005364366329884518
+      ],
+      "operator_excess_mean_delta_L": -0.3215472621696791,
+      "input_paths": [
+        "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0003/down/baseline.png",
+        "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0003/down/whites_min.png",
+        "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0003/xmp/baseline.xmp",
+        "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0003/xmp/whites_min.xmp"
+      ],
+      "candidate_paths": [
+        "/var/folders/qn/gpgsv1591kz40pfbjgnnvzxm0000gn/T/maple-calibrate-XXXXXX.OMuZnJH7jA/candidates/test_0003_baseline.png",
+        "/var/folders/qn/gpgsv1591kz40pfbjgnnvzxm0000gn/T/maple-calibrate-XXXXXX.OMuZnJH7jA/candidates/test_0003_whites_min.png"
+      ]
+    },
+    {
+      "fixture": "test_0004",
+      "pixels": 12000000,
+      "size": [
+        4000,
+        3000
+      ],
+      "baseline_bias": [
+        -0.02199912479258026,
+        -0.02224145324072002,
+        -0.018929866741350332
+      ],
+      "whites_bias": [
+        -0.014696951456040108,
+        -0.014478148213521058,
+        -0.011116915286202067
+      ],
+      "operator_excess_rgb_delta": [
+        0.007302173336540152,
+        0.007763305027198963,
+        0.007812951455148265
+      ],
+      "operator_excess_mean_delta_L": 0.6596352371860146,
+      "input_paths": [
+        "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0004/down/baseline.png",
+        "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0004/down/whites_min.png",
+        "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0004/xmp/baseline.xmp",
+        "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0004/xmp/whites_min.xmp"
+      ],
+      "candidate_paths": [
+        "/var/folders/qn/gpgsv1591kz40pfbjgnnvzxm0000gn/T/maple-calibrate-XXXXXX.OMuZnJH7jA/candidates/test_0004_baseline.png",
+        "/var/folders/qn/gpgsv1591kz40pfbjgnnvzxm0000gn/T/maple-calibrate-XXXXXX.OMuZnJH7jA/candidates/test_0004_whites_min.png"
+      ]
+    },
+    {
+      "fixture": "test_0005",
+      "pixels": 12000000,
+      "size": [
+        4000,
+        3000
+      ],
+      "baseline_bias": [
+        0.11488933048198385,
+        0.09541447667543218,
+        0.08627323375584783
+      ],
+      "whites_bias": [
+        0.10031082134570662,
+        0.08086917863156218,
+        0.07104717051121184
+      ],
+      "operator_excess_rgb_delta": [
+        -0.014578509136277229,
+        -0.014545298043870003,
+        -0.01522606324463599
+      ],
+      "operator_excess_mean_delta_L": -1.3884464051355665,
+      "input_paths": [
+        "/Users/riabuz/Projects/_Maple/.codex-worktrees/tone-slider-sprint/test-fixtures/references/test_0005/down/baseline.png",
+        "/Users/riabuz/Projects/_Maple/.codex-worktrees/tone-slider-sprint/test-fixtures/references/test_0005/down/whites_min.png",
+        "/Users/riabuz/Projects/_Maple/.codex-worktrees/tone-slider-sprint/test-fixtures/references/test_0005/xmp/baseline.xmp",
+        "/Users/riabuz/Projects/_Maple/.codex-worktrees/tone-slider-sprint/test-fixtures/references/test_0005/xmp/whites_min.xmp"
+      ],
+      "candidate_paths": [
+        "/var/folders/qn/gpgsv1591kz40pfbjgnnvzxm0000gn/T/maple-calibrate-XXXXXX.OMuZnJH7jA/candidates/test_0005_baseline.png",
+        "/var/folders/qn/gpgsv1591kz40pfbjgnnvzxm0000gn/T/maple-calibrate-XXXXXX.OMuZnJH7jA/candidates/test_0005_whites_min.png"
+      ]
+    },
+    {
+      "fixture": "test_0006",
+      "pixels": 10668000,
+      "size": [
+        4000,
+        2667
+      ],
+      "baseline_bias": [
+        0.01382396126865082,
+        0.022008704305955473,
+        -0.0264622205414638
+      ],
+      "whites_bias": [
+        4.8750317128254395e-05,
+        0.01536380582326391,
+        -0.02475033298322335
+      ],
+      "operator_excess_rgb_delta": [
+        -0.013775210951522565,
+        -0.006644898482691564,
+        0.0017118875582404491
+      ],
+      "operator_excess_mean_delta_L": -0.839068285035776,
+      "input_paths": [
+        "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0006/down/baseline.png",
+        "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0006/down/whites_min.png",
+        "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0006/xmp/baseline.xmp",
+        "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0006/xmp/whites_min.xmp"
+      ],
+      "candidate_paths": [
+        "/var/folders/qn/gpgsv1591kz40pfbjgnnvzxm0000gn/T/maple-calibrate-XXXXXX.OMuZnJH7jA/candidates/test_0006_baseline.png",
+        "/var/folders/qn/gpgsv1591kz40pfbjgnnvzxm0000gn/T/maple-calibrate-XXXXXX.OMuZnJH7jA/candidates/test_0006_whites_min.png"
+      ]
+    },
+    {
+      "fixture": "test_0007",
+      "pixels": 10668000,
+      "size": [
+        4000,
+        2667
+      ],
+      "baseline_bias": [
+        0.011261291555343167,
+        0.015898301647469193,
+        0.02433840946967475
+      ],
+      "whites_bias": [
+        -0.001424788097424301,
+        0.010112460104267695,
+        0.024159952676567564
+      ],
+      "operator_excess_rgb_delta": [
+        -0.012686079652767468,
+        -0.005785841543201498,
+        -0.00017845679310718454
+      ],
+      "operator_excess_mean_delta_L": -0.7687823037072943,
+      "input_paths": [
+        "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0007/down/baseline.png",
+        "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0007/down/whites_min.png",
+        "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0007/xmp/baseline.xmp",
+        "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0007/xmp/whites_min.xmp"
+      ],
+      "candidate_paths": [
+        "/var/folders/qn/gpgsv1591kz40pfbjgnnvzxm0000gn/T/maple-calibrate-XXXXXX.OMuZnJH7jA/candidates/test_0007_baseline.png",
+        "/var/folders/qn/gpgsv1591kz40pfbjgnnvzxm0000gn/T/maple-calibrate-XXXXXX.OMuZnJH7jA/candidates/test_0007_whites_min.png"
+      ]
+    },
+    {
+      "fixture": "test_0008",
+      "pixels": 10668000,
+      "size": [
+        4000,
+        2667
+      ],
+      "baseline_bias": [
+        -0.0743227463780129,
+        -0.0904851170167913,
+        -0.07502032425838973
+      ],
+      "whites_bias": [
+        -0.06181101001308853,
+        -0.07776163091840105,
+        -0.0616019972239194
+      ],
+      "operator_excess_rgb_delta": [
+        0.012511736364924364,
+        0.012723486098390246,
+        0.013418327034470323
+      ],
+      "operator_excess_mean_delta_L": 1.0617172320236103,
+      "input_paths": [
+        "/Users/riabuz/Projects/_Maple/.codex-worktrees/tone-slider-sprint/test-fixtures/references/test_0008/down/baseline.png",
+        "/Users/riabuz/Projects/_Maple/.codex-worktrees/tone-slider-sprint/test-fixtures/references/test_0008/down/whites_min.png",
+        "/Users/riabuz/Projects/_Maple/.codex-worktrees/tone-slider-sprint/test-fixtures/references/test_0008/xmp/baseline.xmp",
+        "/Users/riabuz/Projects/_Maple/.codex-worktrees/tone-slider-sprint/test-fixtures/references/test_0008/xmp/whites_min.xmp"
+      ],
+      "candidate_paths": [
+        "/var/folders/qn/gpgsv1591kz40pfbjgnnvzxm0000gn/T/maple-calibrate-XXXXXX.OMuZnJH7jA/candidates/test_0008_baseline.png",
+        "/var/folders/qn/gpgsv1591kz40pfbjgnnvzxm0000gn/T/maple-calibrate-XXXXXX.OMuZnJH7jA/candidates/test_0008_whites_min.png"
+      ]
+    },
+    {
+      "fixture": "test_0009",
+      "pixels": 10668000,
+      "size": [
+        4000,
+        2667
+      ],
+      "baseline_bias": [
+        0.08594501521045511,
+        0.06842035243584399,
+        0.056544207975215366
+      ],
+      "whites_bias": [
+        0.07774256336863195,
+        0.06077870270347974,
+        0.04853805675975548
+      ],
+      "operator_excess_rgb_delta": [
+        -0.008202451841823166,
+        -0.007641649732364253,
+        -0.008006151215459889
+      ],
+      "operator_excess_mean_delta_L": -0.743752730911535,
+      "input_paths": [
+        "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0009/down/baseline.png",
+        "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0009/down/whites_min.png",
+        "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0009/xmp/baseline.xmp",
+        "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0009/xmp/whites_min.xmp"
+      ],
+      "candidate_paths": [
+        "/var/folders/qn/gpgsv1591kz40pfbjgnnvzxm0000gn/T/maple-calibrate-XXXXXX.OMuZnJH7jA/candidates/test_0009_baseline.png",
+        "/var/folders/qn/gpgsv1591kz40pfbjgnnvzxm0000gn/T/maple-calibrate-XXXXXX.OMuZnJH7jA/candidates/test_0009_whites_min.png"
+      ]
+    },
+    {
+      "fixture": "test_0010",
+      "pixels": 10668000,
+      "size": [
+        4000,
+        2667
+      ],
+      "baseline_bias": [
+        0.0009255265186527417,
+        0.02643480487418637,
+        -0.005164234244968813
+      ],
+      "whites_bias": [
+        -0.004013693094034321,
+        0.02009413837813262,
+        -0.011367165658992595
+      ],
+      "operator_excess_rgb_delta": [
+        -0.0049392196126870624,
+        -0.0063406664960537484,
+        -0.006202931414023782
+      ],
+      "operator_excess_mean_delta_L": -0.5631621224651568,
+      "input_paths": [
+        "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0010/down/baseline.png",
+        "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0010/down/whites_min.png",
+        "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0010/xmp/baseline.xmp",
+        "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0010/xmp/whites_min.xmp"
+      ],
+      "candidate_paths": [
+        "/var/folders/qn/gpgsv1591kz40pfbjgnnvzxm0000gn/T/maple-calibrate-XXXXXX.OMuZnJH7jA/candidates/test_0010_baseline.png",
+        "/var/folders/qn/gpgsv1591kz40pfbjgnnvzxm0000gn/T/maple-calibrate-XXXXXX.OMuZnJH7jA/candidates/test_0010_whites_min.png"
+      ]
+    },
+    {
+      "fixture": "test_0011",
+      "pixels": 10668000,
+      "size": [
+        4000,
+        2667
+      ],
+      "baseline_bias": [
+        0.04029610362291769,
+        0.033921459466965564,
+        0.031433173287101546
+      ],
+      "whites_bias": [
+        0.04271735672636073,
+        0.035464568812811736,
+        0.02772740441087862
+      ],
+      "operator_excess_rgb_delta": [
+        0.002421253103443044,
+        0.001543109345846172,
+        -0.0037057688762229257
+      ],
+      "operator_excess_mean_delta_L": 0.06662273250427875,
+      "input_paths": [
+        "/Users/riabuz/Projects/_Maple/.codex-worktrees/tone-slider-sprint/test-fixtures/references/test_0011/down/baseline.png",
+        "/Users/riabuz/Projects/_Maple/.codex-worktrees/tone-slider-sprint/test-fixtures/references/test_0011/down/whites_min.png",
+        "/Users/riabuz/Projects/_Maple/.codex-worktrees/tone-slider-sprint/test-fixtures/references/test_0011/xmp/baseline.xmp",
+        "/Users/riabuz/Projects/_Maple/.codex-worktrees/tone-slider-sprint/test-fixtures/references/test_0011/xmp/whites_min.xmp"
+      ],
+      "candidate_paths": [
+        "/var/folders/qn/gpgsv1591kz40pfbjgnnvzxm0000gn/T/maple-calibrate-XXXXXX.OMuZnJH7jA/candidates/test_0011_baseline.png",
+        "/var/folders/qn/gpgsv1591kz40pfbjgnnvzxm0000gn/T/maple-calibrate-XXXXXX.OMuZnJH7jA/candidates/test_0011_whites_min.png"
+      ]
+    },
+    {
+      "fixture": "test_0012",
+      "pixels": 12000000,
+      "size": [
+        4000,
+        3000
+      ],
+      "baseline_bias": [
+        0.14335093716951558,
+        0.06846426892993002,
+        0.033655955040643115
+      ],
+      "whites_bias": [
+        0.13106195639031465,
+        0.05565040918646519,
+        0.01633843936811097
+      ],
+      "operator_excess_rgb_delta": [
+        -0.012288980779200931,
+        -0.012813859743464828,
+        -0.017317515672532147
+      ],
+      "operator_excess_mean_delta_L": -1.2621027218983167,
+      "input_paths": [
+        "/Users/riabuz/Projects/_Maple/.codex-worktrees/tone-slider-sprint/test-fixtures/references/test_0012/down/baseline.png",
+        "/Users/riabuz/Projects/_Maple/.codex-worktrees/tone-slider-sprint/test-fixtures/references/test_0012/down/whites_min.png",
+        "/Users/riabuz/Projects/_Maple/.codex-worktrees/tone-slider-sprint/test-fixtures/references/test_0012/xmp/baseline.xmp",
+        "/Users/riabuz/Projects/_Maple/.codex-worktrees/tone-slider-sprint/test-fixtures/references/test_0012/xmp/whites_min.xmp"
+      ],
+      "candidate_paths": [
+        "/var/folders/qn/gpgsv1591kz40pfbjgnnvzxm0000gn/T/maple-calibrate-XXXXXX.OMuZnJH7jA/candidates/test_0012_baseline.png",
+        "/var/folders/qn/gpgsv1591kz40pfbjgnnvzxm0000gn/T/maple-calibrate-XXXXXX.OMuZnJH7jA/candidates/test_0012_whites_min.png"
+      ]
+    },
+    {
+      "fixture": "test_0013",
+      "pixels": 12000000,
+      "size": [
+        3000,
+        4000
+      ],
+      "baseline_bias": [
+        -0.028343438047576275,
+        -0.042227452498479756,
+        -0.04573407617319414
+      ],
+      "whites_bias": [
+        -0.017343077621428116,
+        -0.035070698113749854,
+        -0.04401478041413126
+      ],
+      "operator_excess_rgb_delta": [
+        0.011000360426148159,
+        0.007156754384729902,
+        0.0017192957590628777
+      ],
+      "operator_excess_mean_delta_L": 0.6275045090416156,
+      "input_paths": [
+        "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0013/down/baseline.png",
+        "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0013/down/whites_min.png",
+        "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0013/xmp/baseline.xmp",
+        "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0013/xmp/whites_min.xmp"
+      ],
+      "candidate_paths": [
+        "/var/folders/qn/gpgsv1591kz40pfbjgnnvzxm0000gn/T/maple-calibrate-XXXXXX.OMuZnJH7jA/candidates/test_0013_baseline.png",
+        "/var/folders/qn/gpgsv1591kz40pfbjgnnvzxm0000gn/T/maple-calibrate-XXXXXX.OMuZnJH7jA/candidates/test_0013_whites_min.png"
+      ]
+    },
+    {
+      "fixture": "test_0014",
+      "pixels": 10668000,
+      "size": [
+        4000,
+        2667
+      ],
+      "baseline_bias": [
+        0.18894355041298738,
+        0.1739647385266116,
+        0.17596550975993036
+      ],
+      "whites_bias": [
+        0.17375158820112122,
+        0.15633639041525843,
+        0.1577696148874872
+      ],
+      "operator_excess_rgb_delta": [
+        -0.015191962211866167,
+        -0.017628348111353165,
+        -0.018195894872443164
+      ],
+      "operator_excess_mean_delta_L": -1.6826575987099237,
+      "input_paths": [
+        "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0014/down/baseline.png",
+        "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0014/down/whites_min.png",
+        "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0014/xmp/baseline.xmp",
+        "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0014/xmp/whites_min.xmp"
+      ],
+      "candidate_paths": [
+        "/var/folders/qn/gpgsv1591kz40pfbjgnnvzxm0000gn/T/maple-calibrate-XXXXXX.OMuZnJH7jA/candidates/test_0014_baseline.png",
+        "/var/folders/qn/gpgsv1591kz40pfbjgnnvzxm0000gn/T/maple-calibrate-XXXXXX.OMuZnJH7jA/candidates/test_0014_whites_min.png"
+      ]
+    },
+    {
+      "fixture": "test_0015",
+      "pixels": 12032000,
+      "size": [
+        4000,
+        3008
+      ],
+      "baseline_bias": [
+        -0.11668520287020251,
+        -0.12972016719174256,
+        -0.11113549394994227
+      ],
+      "whites_bias": [
+        -0.08840508909837941,
+        -0.11221058865086525,
+        -0.10653552926227333
+      ],
+      "operator_excess_rgb_delta": [
+        0.0282801137718231,
+        0.017509578540877313,
+        0.004599964687668934
+      ],
+      "operator_excess_mean_delta_L": 1.6220308956694471,
+      "input_paths": [
+        "/Users/riabuz/Projects/_Maple/.codex-worktrees/tone-slider-sprint/test-fixtures/references/test_0015/down/baseline.png",
+        "/Users/riabuz/Projects/_Maple/.codex-worktrees/tone-slider-sprint/test-fixtures/references/test_0015/down/whites_min.png",
+        "/Users/riabuz/Projects/_Maple/.codex-worktrees/tone-slider-sprint/test-fixtures/references/test_0015/xmp/baseline.xmp",
+        "/Users/riabuz/Projects/_Maple/.codex-worktrees/tone-slider-sprint/test-fixtures/references/test_0015/xmp/whites_min.xmp"
+      ],
+      "candidate_paths": [
+        "/var/folders/qn/gpgsv1591kz40pfbjgnnvzxm0000gn/T/maple-calibrate-XXXXXX.OMuZnJH7jA/candidates/test_0015_baseline.png",
+        "/var/folders/qn/gpgsv1591kz40pfbjgnnvzxm0000gn/T/maple-calibrate-XXXXXX.OMuZnJH7jA/candidates/test_0015_whites_min.png"
+      ]
+    },
+    {
+      "fixture": "test_0017",
+      "pixels": 10668000,
+      "size": [
+        4000,
+        2667
+      ],
+      "baseline_bias": [
+        -0.03344487555553066,
+        -0.006846476875976559,
+        0.02332642305477073
+      ],
+      "whites_bias": [
+        -0.03684094457148668,
+        -0.01045344429484868,
+        0.02057455644437739
+      ],
+      "operator_excess_rgb_delta": [
+        -0.003396069015956016,
+        -0.00360696741887212,
+        -0.0027518666103933387
+      ],
+      "operator_excess_mean_delta_L": -0.39582269830648764,
+      "input_paths": [
+        "/Users/riabuz/Projects/_Maple/.codex-worktrees/tone-slider-sprint/test-fixtures/references/test_0017/down/baseline.png",
+        "/Users/riabuz/Projects/_Maple/.codex-worktrees/tone-slider-sprint/test-fixtures/references/test_0017/down/whites_min.png",
+        "/Users/riabuz/Projects/_Maple/.codex-worktrees/tone-slider-sprint/test-fixtures/references/test_0017/xmp/baseline.xmp",
+        "/Users/riabuz/Projects/_Maple/.codex-worktrees/tone-slider-sprint/test-fixtures/references/test_0017/xmp/whites_min.xmp"
+      ],
+      "candidate_paths": [
+        "/var/folders/qn/gpgsv1591kz40pfbjgnnvzxm0000gn/T/maple-calibrate-XXXXXX.OMuZnJH7jA/candidates/test_0017_baseline.png",
+        "/var/folders/qn/gpgsv1591kz40pfbjgnnvzxm0000gn/T/maple-calibrate-XXXXXX.OMuZnJH7jA/candidates/test_0017_whites_min.png"
+      ]
+    },
+    {
+      "fixture": "test_0018",
+      "pixels": 474880,
+      "size": [
+        848,
+        560
+      ],
+      "baseline_bias": [
+        -0.151892666202896,
+        -0.15669538020642698,
+        -0.15623760946693388
+      ],
+      "whites_bias": [
+        -0.142870031205719,
+        -0.13733077726967874,
+        -0.11500273238228531
+      ],
+      "operator_excess_rgb_delta": [
+        0.009022634997176981,
+        0.019364602936748243,
+        0.04123487708464857
+      ],
+      "operator_excess_mean_delta_L": 0.8505377671748127,
+      "input_paths": [
+        "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0018/down/baseline.png",
+        "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0018/down/whites_min.png",
+        "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0018/xmp/baseline.xmp",
+        "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0018/xmp/whites_min.xmp"
+      ],
+      "candidate_paths": [
+        "/var/folders/qn/gpgsv1591kz40pfbjgnnvzxm0000gn/T/maple-calibrate-XXXXXX.OMuZnJH7jA/candidates/test_0018_baseline.png",
+        "/var/folders/qn/gpgsv1591kz40pfbjgnnvzxm0000gn/T/maple-calibrate-XXXXXX.OMuZnJH7jA/candidates/test_0018_whites_min.png"
+      ]
+    }
+  ],
+  "neutral_response_summary": {
+    "scope": "Diagnostic own-baseline neutral response, not a gate or coefficient calibration. >=1000 neutral pixels per renderer/bin; equal fixture weights. Exact current grey curve sampled via Rust public neutral_curve.",
+    "mean_operator_excess_L": -0.09104420080313622,
+    "rows": [
+      {
+        "L_range": [
+          0,
+          5
+        ],
+        "fixtures": 5,
+        "reference_median_delta_L": 0.0,
+        "candidate_median_delta_L": 0.0,
+        "exact_neutral_curve_delta_L_at_bin_center": 0.0
+      },
+      {
+        "L_range": [
+          5,
+          10
+        ],
+        "fixtures": 8,
+        "reference_median_delta_L": -0.10656015953288178,
+        "candidate_median_delta_L": 0.0,
+        "exact_neutral_curve_delta_L_at_bin_center": 0.0
+      },
+      {
+        "L_range": [
+          10,
+          15
+        ],
+        "fixtures": 12,
+        "reference_median_delta_L": -0.357264260287333,
+        "candidate_median_delta_L": 0.0,
+        "exact_neutral_curve_delta_L_at_bin_center": 0.0
+      },
+      {
+        "L_range": [
+          15,
+          20
+        ],
+        "fixtures": 13,
+        "reference_median_delta_L": -0.47868766670165575,
+        "candidate_median_delta_L": 0.0,
+        "exact_neutral_curve_delta_L_at_bin_center": -0.023401654004099912
+      },
+      {
+        "L_range": [
+          20,
+          25
+        ],
+        "fixtures": 14,
+        "reference_median_delta_L": -0.6651943739231617,
+        "candidate_median_delta_L": -0.3536062586557581,
+        "exact_neutral_curve_delta_L_at_bin_center": -0.22079778031484865
+      },
+      {
+        "L_range": [
+          25,
+          30
+        ],
+        "fixtures": 14,
+        "reference_median_delta_L": -0.9019680396057301,
+        "candidate_median_delta_L": -0.6604341634256302,
+        "exact_neutral_curve_delta_L_at_bin_center": -0.5958311962630222
+      },
+      {
+        "L_range": [
+          30,
+          35
+        ],
+        "fixtures": 14,
+        "reference_median_delta_L": -1.2695188709816316,
+        "candidate_median_delta_L": -1.2315594910325731,
+        "exact_neutral_curve_delta_L_at_bin_center": -1.0946680292606945
+      },
+      {
+        "L_range": [
+          35,
+          40
+        ],
+        "fixtures": 14,
+        "reference_median_delta_L": -1.6858357515656088,
+        "candidate_median_delta_L": -1.7025889032145893,
+        "exact_neutral_curve_delta_L_at_bin_center": -1.6639708607657886
+      },
+      {
+        "L_range": [
+          40,
+          45
+        ],
+        "fixtures": 14,
+        "reference_median_delta_L": -2.1343689648661637,
+        "candidate_median_delta_L": -2.3424485206338375,
+        "exact_neutral_curve_delta_L_at_bin_center": -2.2382612218428846
+      },
+      {
+        "L_range": [
+          45,
+          50
+        ],
+        "fixtures": 14,
+        "reference_median_delta_L": -2.751544073969015,
+        "candidate_median_delta_L": -2.8282588122591945,
+        "exact_neutral_curve_delta_L_at_bin_center": -2.7795838166276132
+      },
+      {
+        "L_range": [
+          50,
+          55
+        ],
+        "fixtures": 16,
+        "reference_median_delta_L": -3.412322551278705,
+        "candidate_median_delta_L": -3.4299595407921455,
+        "exact_neutral_curve_delta_L_at_bin_center": -3.3205882677228127
+      },
+      {
+        "L_range": [
+          55,
+          60
+        ],
+        "fixtures": 15,
+        "reference_median_delta_L": -4.162354957357916,
+        "candidate_median_delta_L": -4.007849317588215,
+        "exact_neutral_curve_delta_L_at_bin_center": -3.949065874113452
+      },
+      {
+        "L_range": [
+          60,
+          65
+        ],
+        "fixtures": 15,
+        "reference_median_delta_L": -4.881357581578103,
+        "candidate_median_delta_L": -4.782730179541328,
+        "exact_neutral_curve_delta_L_at_bin_center": -4.680466261414223
+      },
+      {
+        "L_range": [
+          65,
+          70
+        ],
+        "fixtures": 14,
+        "reference_median_delta_L": -5.666883677514483,
+        "candidate_median_delta_L": -5.6482827966621585,
+        "exact_neutral_curve_delta_L_at_bin_center": -5.509982742652255
+      },
+      {
+        "L_range": [
+          70,
+          75
+        ],
+        "fixtures": 14,
+        "reference_median_delta_L": -6.517067694565521,
+        "candidate_median_delta_L": -6.59358050908776,
+        "exact_neutral_curve_delta_L_at_bin_center": -6.422857546701044
+      },
+      {
+        "L_range": [
+          75,
+          80
+        ],
+        "fixtures": 14,
+        "reference_median_delta_L": -7.512425299571753,
+        "candidate_median_delta_L": -7.403422066012437,
+        "exact_neutral_curve_delta_L_at_bin_center": -7.38856505793284
+      },
+      {
+        "L_range": [
+          80,
+          85
+        ],
+        "fixtures": 13,
+        "reference_median_delta_L": -8.55457185825231,
+        "candidate_median_delta_L": -8.3091431476213,
+        "exact_neutral_curve_delta_L_at_bin_center": -8.351406517144298
+      },
+      {
+        "L_range": [
+          85,
+          90
+        ],
+        "fixtures": 6,
+        "reference_median_delta_L": -9.732852323226975,
+        "candidate_median_delta_L": -9.040812860446636,
+        "exact_neutral_curve_delta_L_at_bin_center": -9.212392324551546
+      },
+      {
+        "L_range": [
+          90,
+          95
+        ],
+        "fixtures": 1,
+        "reference_median_delta_L": -9.698353938398725,
+        "candidate_median_delta_L": -9.62799138419824,
+        "exact_neutral_curve_delta_L_at_bin_center": -9.79056168756378
+      }
+    ]
+  }
+}

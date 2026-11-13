@@ -59,6 +59,34 @@ impl RetouchKind {
     }
 }
 
+/// The frame a stored spot list is expressed in. Maple originally stored
+/// spots in whatever frame the authoring host used (the decode / sensor
+/// frame on Windows, the upright display frame on Apple and Web) while every
+/// render read them as sensor-framed, so on an EXIF-rotated RAW the hosts
+/// disagreed (#4473). Every host now authors upright and stamps
+/// `papp:RetouchFrameVersion="2"`; a list without the stamp predates it and
+/// keeps its established meaning, the sensor frame.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum RetouchFrame {
+    Sensor,
+    #[default]
+    Upright,
+}
+
+impl RetouchFrame {
+    /// The `papp:RetouchFrameVersion` value, or `None` for the unstamped legacy frame.
+    pub fn stamp(self) -> Option<&'static str> {
+        match self {
+            RetouchFrame::Sensor => None,
+            RetouchFrame::Upright => Some("2"),
+        }
+    }
+
+    pub fn from_stamp(s: &str) -> Option<Self> {
+        (s == "2").then_some(RetouchFrame::Upright)
+    }
+}
+
 /// One repair spot. Ordered: the list applies front to back, so a later
 /// spot can source from an earlier spot's result (Lightroom's own stacking).
 #[derive(Clone, Copy, Debug, PartialEq)]

@@ -1,0 +1,423 @@
+{
+  "diagnostic_only": true,
+  "profile": "Neutral",
+  "auto_exposure": "Off",
+  "varied": "LensProfileDistortionScale only",
+  "interpretation": "Measures geometry against embedded JPEG, not optical correctness. Neutral brightness is not an Auto appearance acceptance result. Production lens corrections remain enabled.",
+  "cases": [
+    {
+      "status": "measured",
+      "mutual_matches": 925,
+      "inlier_landmarks": 925,
+      "size": [
+        680,
+        512
+      ],
+      "held_out_geometry_median_error_px": {
+        "affine": 1.1780054462536975,
+        "affine_plus_radial": 0.4290784473554433
+      },
+      "regions": {
+        "center": {
+          "landmarks": 235,
+          "median_displacement_px": 0.9746096134185791,
+          "p95_displacement_px": 1.3502579927444458,
+          "signed_display_luma": -0.0681673087045826,
+          "absolute_display_luma": 0.07850508671955236
+        },
+        "middle": {
+          "landmarks": 452,
+          "median_displacement_px": 0.6536166071891785,
+          "p95_displacement_px": 1.7503397464752197,
+          "signed_display_luma": -0.08675375591078573,
+          "absolute_display_luma": 0.08890922234795766
+        },
+        "outer": {
+          "landmarks": 238,
+          "median_displacement_px": 2.6325621604919434,
+          "p95_displacement_px": 4.3460001945495605,
+          "signed_display_luma": -0.09114316043145183,
+          "absolute_display_luma": 0.09514466738465333
+        }
+      },
+      "fixture": "test_0015",
+      "distortion_strength": 100,
+      "candidate_sha256": "cda09506d618d26b7d41d9b2c26b78762359ee5d4188ab438af9e9c839a603db",
+      "reference_sha256": "5e3d67e6ed652580679f7ff6b0d740e218380fa9ab260fa3e6bbf13055dba8fe",
+      "affine_warp": [
+        [
+          0.9826372874268109,
+          0.00019960220170373984,
+          0.008417405906476718
+        ],
+        [
+          0.00010880105108955886,
+          0.9817591920464633,
+          0.008649018878430942
+        ]
+      ],
+      "affine_fit": [
+        {
+          "edge": 128,
+          "correlation": 0.8893002239598944,
+          "iterations": 8
+        },
+        {
+          "edge": 256,
+          "correlation": 0.847081551806275,
+          "iterations": 10
+        },
+        {
+          "edge": 512,
+          "correlation": 0.6683012686916234,
+          "iterations": 14
+        }
+      ]
+    },
+    {
+      "status": "measured",
+      "mutual_matches": 936,
+      "inlier_landmarks": 933,
+      "size": [
+        680,
+        512
+      ],
+      "held_out_geometry_median_error_px": {
+        "affine": 0.18754679746845568,
+        "affine_plus_radial": 0.1878451260819156
+      },
+      "regions": {
+        "center": {
+          "landmarks": 252,
+          "median_displacement_px": 0.20262973010540009,
+          "p95_displacement_px": 0.6328830718994141,
+          "signed_display_luma": -0.06934874609876801,
+          "absolute_display_luma": 0.07777262920696297
+        },
+        "middle": {
+          "landmarks": 461,
+          "median_displacement_px": 0.19772270321846008,
+          "p95_displacement_px": 0.6532014608383179,
+          "signed_display_luma": -0.0867840022944643,
+          "absolute_display_luma": 0.0877594123795206
+        },
+        "outer": {
+          "landmarks": 220,
+          "median_displacement_px": 0.17957693338394165,
+          "p95_displacement_px": 0.6884016394615173,
+          "signed_display_luma": -0.09108841022608846,
+          "absolute_display_luma": 0.09113574579156555
+        }
+      },
+      "fixture": "test_0015",
+      "distortion_strength": 0,
+      "candidate_sha256": "bae86eba3fc643ec7607fa5fbb2a090f9ea359e52ff36effa7ced998ac41ce18",
+      "reference_sha256": "5e3d67e6ed652580679f7ff6b0d740e218380fa9ab260fa3e6bbf13055dba8fe",
+      "affine_warp": [
+        [
+          0.9947717693378713,
+          0.00012968403958254002,
+          0.0023919909389955316
+        ],
+        [
+          -0.00012547186336358277,
+          0.9947643626527762,
+          0.0023338557780491135
+        ]
+      ],
+      "affine_fit": [
+        {
+          "edge": 128,
+          "correlation": 0.9543859595999648,
+          "iterations": 9
+        },
+        {
+          "edge": 256,
+          "correlation": 0.8974896240861647,
+          "iterations": 7
+        },
+        {
+          "edge": 512,
+          "correlation": 0.8485662476388917,
+          "iterations": 15
+        }
+      ]
+    },
+    {
+      "status": "measured",
+      "mutual_matches": 439,
+      "inlier_landmarks": 415,
+      "size": [
+        1024,
+        683
+      ],
+      "held_out_geometry_median_error_px": {
+        "affine": 0.8693838867290207,
+        "affine_plus_radial": 0.4609328509597721
+      },
+      "regions": {
+        "center": {
+          "landmarks": 156,
+          "median_displacement_px": 0.5799602270126343,
+          "p95_displacement_px": 1.3034344911575317,
+          "signed_display_luma": -0.09935203688300476,
+          "absolute_display_luma": 0.09994586208352708
+        },
+        "middle": {
+          "landmarks": 204,
+          "median_displacement_px": 0.7512741684913635,
+          "p95_displacement_px": 2.272766351699829,
+          "signed_display_luma": -0.06253269661757913,
+          "absolute_display_luma": 0.06463220200550851
+        },
+        "outer": {
+          "landmarks": 55,
+          "median_displacement_px": 3.086287021636963,
+          "p95_displacement_px": 4.982451438903809,
+          "signed_display_luma": -0.01534861547955801,
+          "absolute_display_luma": 0.04810028299780582
+        }
+      },
+      "fixture": "test_0006",
+      "distortion_strength": 100,
+      "candidate_sha256": "40f666cce29fa815326642cca6b06ccd231da51cf0adc8c9c047d45c25751818",
+      "reference_sha256": "62564f3d7b0242b319d1c4e54c62d30d03af2d47848f61e44ec8233f0c82c15b",
+      "affine_warp": [
+        [
+          0.996171490419883,
+          4.063034277102904e-06,
+          0.0019648182865204876
+        ],
+        [
+          -0.0014621720006882993,
+          0.9980422993967667,
+          0.0017024853658484888
+        ]
+      ],
+      "affine_fit": [
+        {
+          "edge": 128,
+          "correlation": 0.9811784636759533,
+          "iterations": 6
+        },
+        {
+          "edge": 256,
+          "correlation": 0.9726244761641081,
+          "iterations": 6
+        },
+        {
+          "edge": 512,
+          "correlation": 0.9251845058492552,
+          "iterations": 7
+        }
+      ]
+    },
+    {
+      "status": "measured",
+      "mutual_matches": 473,
+      "inlier_landmarks": 468,
+      "size": [
+        1024,
+        683
+      ],
+      "held_out_geometry_median_error_px": {
+        "affine": 0.26890380746176207,
+        "affine_plus_radial": 0.26491991871926435
+      },
+      "regions": {
+        "center": {
+          "landmarks": 177,
+          "median_displacement_px": 0.25205910205841064,
+          "p95_displacement_px": 0.808955192565918,
+          "signed_display_luma": -0.09907438804889446,
+          "absolute_display_luma": 0.09909405972680675
+        },
+        "middle": {
+          "landmarks": 231,
+          "median_displacement_px": 0.31522753834724426,
+          "p95_displacement_px": 1.2960065603256226,
+          "signed_display_luma": -0.06214847301918037,
+          "absolute_display_luma": 0.0634887020725879
+        },
+        "outer": {
+          "landmarks": 60,
+          "median_displacement_px": 0.39791908860206604,
+          "p95_displacement_px": 1.3539435863494873,
+          "signed_display_luma": -0.014703565796995518,
+          "absolute_display_luma": 0.04105745590702959
+        }
+      },
+      "fixture": "test_0006",
+      "distortion_strength": 0,
+      "candidate_sha256": "22bdd079f15f51f834887173bfa35d1520d17f7650c15e039579636a93e456b0",
+      "reference_sha256": "62564f3d7b0242b319d1c4e54c62d30d03af2d47848f61e44ec8233f0c82c15b",
+      "affine_warp": [
+        [
+          0.9996916777681379,
+          0.00027139999859629834,
+          0.00016080061606172884
+        ],
+        [
+          2.6791417948331375e-05,
+          0.9994604987343303,
+          0.00026668300299752165
+        ]
+      ],
+      "affine_fit": [
+        {
+          "edge": 128,
+          "correlation": 0.9918691230852044,
+          "iterations": 7
+        },
+        {
+          "edge": 256,
+          "correlation": 0.9868766879220192,
+          "iterations": 30
+        },
+        {
+          "edge": 512,
+          "correlation": 0.9521586455302284,
+          "iterations": 13
+        }
+      ]
+    },
+    {
+      "status": "measured",
+      "mutual_matches": 459,
+      "inlier_landmarks": 436,
+      "size": [
+        1024,
+        683
+      ],
+      "held_out_geometry_median_error_px": {
+        "affine": 0.8596142547430128,
+        "affine_plus_radial": 0.43311154326673806
+      },
+      "regions": {
+        "center": {
+          "landmarks": 156,
+          "median_displacement_px": 0.5361257791519165,
+          "p95_displacement_px": 2.133603811264038,
+          "signed_display_luma": -0.15545500651048727,
+          "absolute_display_luma": 0.15553309970540186
+        },
+        "middle": {
+          "landmarks": 218,
+          "median_displacement_px": 0.7220205664634705,
+          "p95_displacement_px": 1.8627256155014038,
+          "signed_display_luma": -0.1237769660025515,
+          "absolute_display_luma": 0.12392537187937382
+        },
+        "outer": {
+          "landmarks": 62,
+          "median_displacement_px": 3.3066656589508057,
+          "p95_displacement_px": 4.903134346008301,
+          "signed_display_luma": -0.0845963999869751,
+          "absolute_display_luma": 0.08839310653138946
+        }
+      },
+      "fixture": "test_0007",
+      "distortion_strength": 100,
+      "candidate_sha256": "6c1538825851d5b350fafbd558132cc692fb70b7bb9572514511fda819d05d2c",
+      "reference_sha256": "5611d486a58214103a54654de18ca79edea619ee47ad29b502ac2819a3e3fc65",
+      "affine_warp": [
+        [
+          0.9963566991265352,
+          -1.1216166292423729e-05,
+          0.0018706070517178729
+        ],
+        [
+          -0.0016095530340013405,
+          0.9981845841289753,
+          0.0017163381551150536
+        ]
+      ],
+      "affine_fit": [
+        {
+          "edge": 128,
+          "correlation": 0.9868697809125853,
+          "iterations": 8
+        },
+        {
+          "edge": 256,
+          "correlation": 0.977653074956472,
+          "iterations": 5
+        },
+        {
+          "edge": 512,
+          "correlation": 0.9326135648807332,
+          "iterations": 10
+        }
+      ]
+    },
+    {
+      "status": "measured",
+      "mutual_matches": 519,
+      "inlier_landmarks": 512,
+      "size": [
+        1024,
+        683
+      ],
+      "held_out_geometry_median_error_px": {
+        "affine": 0.26428460700677414,
+        "affine_plus_radial": 0.255281393344433
+      },
+      "regions": {
+        "center": {
+          "landmarks": 187,
+          "median_displacement_px": 0.176985964179039,
+          "p95_displacement_px": 0.9249521493911743,
+          "signed_display_luma": -0.1551656073802228,
+          "absolute_display_luma": 0.15517456440300997
+        },
+        "middle": {
+          "landmarks": 253,
+          "median_displacement_px": 0.31167879700660706,
+          "p95_displacement_px": 1.3723299503326416,
+          "signed_display_luma": -0.12361439281681894,
+          "absolute_display_luma": 0.123618672347722
+        },
+        "outer": {
+          "landmarks": 72,
+          "median_displacement_px": 0.44434040784835815,
+          "p95_displacement_px": 1.6545042991638184,
+          "signed_display_luma": -0.08385416617519656,
+          "absolute_display_luma": 0.08410309396845998
+        }
+      },
+      "fixture": "test_0007",
+      "distortion_strength": 0,
+      "candidate_sha256": "5495c4e7960936756d9ca26b384385bdf1520d209f12fe2dd6d8d0ab7ef8d818",
+      "reference_sha256": "5611d486a58214103a54654de18ca79edea619ee47ad29b502ac2819a3e3fc65",
+      "affine_warp": [
+        [
+          0.999200232241028,
+          -0.00015953770528652418,
+          0.0005181136209856185
+        ],
+        [
+          -0.00029382100027611484,
+          1.0005839415429283,
+          -0.00013949721765215597
+        ]
+      ],
+      "affine_fit": [
+        {
+          "edge": 128,
+          "correlation": 0.9961213604282257,
+          "iterations": 16
+        },
+        {
+          "edge": 256,
+          "correlation": 0.9906242290131092,
+          "iterations": 12
+        },
+        {
+          "edge": 512,
+          "correlation": 0.9593818223348202,
+          "iterations": 27
+        }
+      ]
+    }
+  ]
+}

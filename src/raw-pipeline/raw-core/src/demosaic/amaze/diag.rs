@@ -11,12 +11,11 @@ use crate::image::CfaPattern;
 const EPS: f32 = 1e-5;
 const EPS_SQ: f32 = 1e-10;
 const ARTHRESH: f32 = 0.75;
-const CLIP_PT: f32 = 1.0;
 
 // Gaussian on the 5×5 alt quincunx, sigma = 1.5 (engine 121).
 const GAUSSEVEN: [f32; 2] = [0.137_194_94, 0.056_402_53];
 
-pub(super) fn diagonal_refine(s: &mut Scratch, t: &Tile, pattern: CfaPattern) {
+pub(super) fn diagonal_refine(s: &mut Scratch, t: &Tile, pattern: CfaPattern, clip_point: f32) {
     let v1 = TS as isize;
     let p1 = -(TS as isize) + 1; // NE
     let p2 = -2 * (TS as isize) + 2;
@@ -132,10 +131,10 @@ pub(super) fn diagonal_refine(s: &mut Scratch, t: &Tile, pattern: CfaPattern) {
                         + (1.0 - mwt) * median3(rbm_v, s.cfa[at(i, -m1)], s.cfa[at(i, m1)]);
                 }
             }
-            if rbp_v > CLIP_PT {
+            if rbp_v > clip_point {
                 rbp_v = median3(rbp_v, s.cfa[at(i, -p1)], s.cfa[at(i, p1)]);
             }
-            if rbm_v > CLIP_PT {
+            if rbm_v > clip_point {
                 rbm_v = median3(rbm_v, s.cfa[at(i, -m1)], s.cfa[at(i, m1)]);
             }
             s.rbm[i >> 1] = rbm_v;
@@ -213,10 +212,10 @@ pub(super) fn diagonal_refine(s: &mut Scratch, t: &Tile, pattern: CfaPattern) {
                     ginth = hwt * ginth + (1.0 - hwt) * median3(ginth, s.cfa[i - 1], s.cfa[i + 1]);
                 }
             }
-            if ginth > CLIP_PT {
+            if ginth > clip_point {
                 ginth = median3(ginth, s.cfa[i - 1], s.cfa[i + 1]);
             }
-            if gintv > CLIP_PT {
+            if gintv > clip_point {
                 gintv = median3(gintv, s.cfa[at(i, -v1)], s.cfa[at(i, v1)]);
             }
             s.rgbgreen[i] = ginth * (1.0 - s.hvwt[i >> 1]) + gintv * s.hvwt[i >> 1];

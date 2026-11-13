@@ -54,6 +54,7 @@
 
 import CoreImage
 import Foundation
+import RawPipeline
 
 /// Per-session actor boundary for the render pipeline. Owns the decoded-
 /// image cache (slice 2) plus the two-phase scheduler (slice 3).
@@ -94,13 +95,14 @@ public actor RenderActor {
   /// drag pause. Keying on the stripped model is correct by construction:
   /// identical stripped model ⇒ identical decode ⇒ cache hit; a change to
   /// any *baked* (KEPT) field — `highlightRecovery`,
-  /// `captureSharpeningAmount/Sigma`, the unsharp `sharpenRadius/Detail/
-  /// Masking` — changes the value and forces a re-decode. We store the
+  /// `captureSharpeningAmount/Sigma` — changes the value and forces a
+  /// re-decode (the unsharp `sharpenRadius/Detail/Masking` are stripped
+  /// since #4737 and no longer do). We store the
   /// stripped model itself and compare by value (`==`): a hash would be a
   /// collision risk for zero benefit on a single in-memory comparison.
   ///
-  /// `nil` = "no sidecar on disk at decode time" (the FFI used
-  /// `AdjustmentModel::default()`, which is already in the stripped state).
+  /// Missing sidecars use the stripped default model, matching the decode
+  /// prefix. `nil` means no cached buffer identity has been captured.
   /// The rendered-preview DISK cache (`RenderedPreviewCache`) and the
   /// deep-zoom tile cache KEEP sidecar-mtime — they depend on the FULL
   /// model and are cross-session; only this in-memory cache changes.
@@ -118,7 +120,7 @@ public actor RenderActor {
   /// hot path allocation-free (CLAUDE.md § Performance invariants) while
   /// the baked model remains the authoritative key — mtime can only make
   /// us do MORE work (parse on a same-baked save), never serve a stale
-  /// buffer. `nil` mirrors `decodedBakedModel == nil` (no sidecar).
+  /// buffer. `nil` here means no sidecar mtime was observed.
   var decodedSidecarMtime: Date?
   var decodedSidecarURL: URL?
 
@@ -156,6 +158,12 @@ public actor RenderActor {
   var decodedHasLensCorrections: Bool = false
   var decodedLensCorrectionCaInert: Bool = true
   var decodedLensCorrectionDistortionInert: Bool = true
+  /// The cached decode's refine base and the request it answered (#5381).
+  var decodedCaptureBase: (base: CaptureBase, request: CaptureRefineRequest)?
+  /// The GPU capture refine follows the GPU kill switch (`MAPLE_GPU_LIVE=0`).
+  var captureRefineEnabled = GpuLiveFlag.isEnabled
+  /// Refines attempted from a cached base, for the kill-switch test.
+  var captureRefineAttempts = 0
 
   /// Profile the cached `decodedImage` was developed for (#871). The
   /// decode buffer is now profile-dependent: `Profile::Auto` develops
@@ -175,9 +183,6 @@ public actor RenderActor {
   /// seeded buffer.
   var decodedAutoExposure: AutoExposureMode?
 
-  /// Demosaic quality of the cached pixels; nil for display seeds and non-RAW.
-  var decodedQuality: PipelineRenderer.Quality?
-
   /// Whether the cached `decodedImage` is a FULL-resolution decode
   /// (sufficient for the refine pass / a deep-zoom crop) or a
   /// downsampled fast-phase decode (#785). The fast phase accepts any
@@ -193,8 +198,8 @@ public actor RenderActor {
   /// WRITTEN — a real decode landing in `sharedDecode`'s write-gated
   /// block, or a `seed`/`seedIfUnpopulated` call (#2049). This is the
   /// buffer's IDENTITY, independent of pixel dimensions: a baked-field
-  /// edit (highlightRecovery, captureSharpeningAmount/Sigma, the unsharp
-  /// sharpenRadius/Detail/Masking) forces a fresh decode at the SAME
+  /// edit (highlightRecovery, captureSharpeningAmount/Sigma) forces a
+  /// fresh decode at the SAME
   /// target dims, so dims alone can't tell the GPU-live present that the
   /// uploaded buffer is stale — this generation can. Never reset (a
   /// monotonic counter across asset switches is fine: switching assets
@@ -203,22 +208,22 @@ public actor RenderActor {
   var decodeGeneration: UInt64 = 0
 
   /// (image, noiseProfile, iso, wbFrame, aeGain, whitesAnchorEv, nrSamplingScale, hasLensCorrections, lensCorrectionCaInert,
-  /// lensCorrectionDistortionInert, cameraSupport) — see `SceneLinearDecodeResult`'s doc for each field
-  /// (#1709 fix 4 / #1781 / #1167,#2070 / #2231,#3189). Non-RAW yields
-  /// (image, nil, 0, nil, 1.0, .nan, 1.0, false, true, true, nil).
+  /// lensCorrectionDistortionInert, cameraSupport, captureBase) — see `SceneLinearDecodeResult`'s doc for each field
+  /// (#1709 fix 4 / #1781 / #1167,#2070 / #2231,#3189 / #5381). Non-RAW yields
+  /// (image, nil, 0, nil, 1.0, .nan, 1.0, false, true, true, nil, nil).
   var decodeTask:
     Task<
       (
         CIImage, [Float]?, UInt32, WbSliderFrame?, Float, Float, Float, Bool, Bool, Bool,
-        RawCameraSupport?,
-        PipelineRenderer.Quality?
+        RawCameraSupport?, CaptureBase?
       )?,
       Never
     >?
-  /// Includes normalization and cache publication, so single-flight joins get matching metadata.
-  var decodePublicationTask: Task<CIImage?, Never>?
   var decodeTaskAssetID: AssetRef.ID?
   var decodeTaskSidecarURL: URL?
+  /// Baked model the in-flight decode was launched for (#4715), so a
+  /// baked edit landing mid-decode starts its own rather than joining.
+  var decodeTaskBakedModel: AdjustmentModel?
   /// Cancel flag bound to the in-flight `decodeTask` (#951). Created when a
   /// NEW decode launches in `sharedDecode`; flipped (`requestCancel()`) only
   /// when that decode is genuinely abandoned — a different-identity decode
@@ -244,9 +249,6 @@ public actor RenderActor {
   /// in-flight decode for the other profile (it would get the wrong-AE
   /// buffer), so the join check below compares this too.
   var decodeTaskProfile: Profile?
-  /// Accepted records and other baked inputs captured before this task starts.
-  /// A later Keep cannot join or relabel an earlier original-only decode.
-  var decodeTaskBakedModel: AdjustmentModel?
   /// Auto-exposure mode `decodeTask` was launched for (#1387) — part of
   /// the task IDENTITY alongside `decodeTaskProfile`, same join rule.
   var decodeTaskAutoExposure: AutoExposureMode?
@@ -321,20 +323,18 @@ public actor RenderActor {
   /// `internal` for `RenderActor+TestHooks.swift` — see `renderTask`.
   var refineTask: Task<Void, Never>?
 
-  /// Monotonic generation counter — bumped by `scheduleRender` and `cancelAll`
-  /// (NOT on `scheduleRefine`). The render closure receives its
+  /// Generation counter, advanced by the shared scheduling rules
+  /// (`raw_core::canvas::RenderSchedule`, #5714) on `scheduleRender` and
+  /// `cancelAll` (NOT on `scheduleRefine`). The render closure receives its
   /// generation at spawn time and must re-read `currentGeneration()`
   /// (or compare against the captured `gen`) before publishing so
   /// stale results from a superseded schedule don't clobber the
   /// preview produced by the newer one.
-  private var renderGeneration: UInt64 = 0
+  private var schedule = MapleCanvasRenderSchedule()
 
-  /// Refine debounce — 150 ms matches CLAUDE.md § Performance
-  /// invariants. Slice-2 EditSession used 250 ms; slice 3 aligns to
-  /// the spec. The shorter delay makes the refine pass land sooner
-  /// after the user stops dragging without measurably hurting the
-  /// coalesce ratio on a continuous slider drag.
-  public static let refineDebounceMilliseconds: UInt64 = 150
+  /// Refine debounce from the shared scheduling rules — 150 ms, matching
+  /// CLAUDE.md § Performance invariants.
+  public static let refineDebounceMilliseconds: UInt64 = maple_canvas_refine_debounce_ms()
 
   public init(pipeline: ImageEditPipeline) {
     self.pipeline = pipeline
@@ -427,7 +427,7 @@ public actor RenderActor {
   /// Identical semantics to the `gen != renderGeneration` guard the
   /// pre-slice-3 EditSession scheduler used.
   public func currentGeneration() -> UInt64 {
-    renderGeneration
+    schedule.generation
   }
 
   /// Cancel previous fast/refine work and admit the newest generation
@@ -439,8 +439,8 @@ public actor RenderActor {
   ) -> UInt64 {
     renderTask?.cancel()
     refineTask?.cancel()
-    renderGeneration &+= 1
-    let gen = renderGeneration
+    schedule = maple_canvas_render_schedule_render(schedule)
+    let gen = schedule.generation
     editSessionLogger.debug(
       "scheduleRender gen=\(gen) phase=\(String(describing: phase), privacy: .public)"
     )
@@ -453,7 +453,9 @@ public actor RenderActor {
   private func runScheduledRender(
     gen: UInt64, work: @Sendable (UInt64) async -> Void
   ) async {
-    guard gen == renderGeneration, !Task.isCancelled else { return }
+    guard maple_canvas_render_schedule_is_current(schedule, gen) != 0, !Task.isCancelled else {
+      return
+    }
     await work(gen)
   }
 
@@ -466,11 +468,11 @@ public actor RenderActor {
   ) -> UInt64 {
     // An old fast pass can resume after a newer pass registered its refine.
     // Reject it before cancel-previous touches the newer tail (#3363).
-    if let expectedGeneration, expectedGeneration != renderGeneration {
-      return renderGeneration
-    }
+    let admitted = maple_canvas_render_schedule_admits_refine(
+      schedule, expectedGeneration == nil ? 0 : 1, expectedGeneration ?? 0)
+    guard admitted != 0 else { return schedule.generation }
     refineTask?.cancel()
-    let gen = renderGeneration
+    let gen = schedule.generation
     refineTask = Task { [work] in
       try? await Task.sleep(for: .milliseconds(Int(RenderActor.refineDebounceMilliseconds)))
       guard !Task.isCancelled else { return }
@@ -517,7 +519,7 @@ public actor RenderActor {
   /// teardown so background work from the previous asset doesn't
   /// continue to spend GPU cycles after the user moved on.
   public func cancelAll() {
-    renderGeneration &+= 1
+    schedule = maple_canvas_render_schedule_cancel_all(schedule)
     renderTask?.cancel()
     refineTask?.cancel()
     renderTask = nil
@@ -530,9 +532,6 @@ public actor RenderActor {
     // reads valid memory after we drop our reference.
     decodeCancelFlag?.requestCancel()
     decodeCancelFlag = nil
-    decodeTask = nil
-    decodePublicationTask = nil
-    decodeTaskAssetID = nil
   }
 
   // MARK: - Test hooks

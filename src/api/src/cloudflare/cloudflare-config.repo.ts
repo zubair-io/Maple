@@ -8,7 +8,7 @@
  * `PUT /api/cloudflare/config` (per CLAUDE.md, settings belong in the
  * DB-backed settings system, not new env vars). `secret_access_key` is
  * stored in plaintext at rest, matching the existing
- * `meilisearch_api_key` precedent — never introduce new at-rest
+ * provider API key precedent — never introduce new at-rest
  * encryption piecemeal per-feature.
  */
 

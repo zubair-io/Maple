@@ -2,15 +2,22 @@
 //! `tile/mod.rs` for the file-size budget (#3086).
 
 use crate::blend::{blend_multiband, levels_for_overlap_width, MAX_LEVELS};
+use crate::boundary_warp::{BoundaryWarp, BoundaryWarpReport};
+use crate::composite::{AutoCropReport, CanvasSink, UncoveredCount};
 use crate::error::PanoError;
-use crate::gain::GainOptions;
+use crate::gain::{GainOptions, LensFalloff, LensGroups};
 use crate::ingest::PlanarImage;
+use crate::local_align::planar::planar_residuals;
+use crate::local_align::LocalCorrection;
 
-use super::frame_cache::TileFrameCache;
+use crate::frame_store::FrameRows;
+
+use super::footprint::{auto_crop_rect, TileCoverage};
 use super::masks::{estimate_min_overlap_width, voronoi_masks_region};
 use super::photometry::{solve_photometry, PhotometryOptions};
 use super::placement::{TileCanvasSpec, TilePose};
-use super::warp::warp_to_tile_region;
+use super::source::{frame_canvas_box, read_window, Cell};
+use super::warp::{inverse_similarity_with_offset, warp_to_tile_region};
 use super::{TileEdge, TILE_PX};
 
 /// Compute the halo width (pixels) that covers the full influence radius of
@@ -53,8 +60,22 @@ pub struct TileCompositeReport {
     pub mean_planar_residual_px: f64,
     /// Max planar residual over verified inlier pairs (px).
     pub max_planar_residual_px: f64,
+    /// The planar residuals before the Stage-F mesh (#4577); equal to the
+    /// two above when local alignment is off.
+    pub mean_planar_before_local_px: f64,
+    pub max_planar_before_local_px: f64,
+    /// Per-frame Stage-F correction RMS (px), parallel to `placements`;
+    /// 0 for frames left uncorrected.
+    pub local_correction_rms_px: Vec<f64>,
     /// Halo width used in the tiled multiband blend (px).
     pub halo_px: usize,
+    /// The boundary warp the output was composited through (#5572); `None`
+    /// when none was requested.
+    pub boundary_warp: Option<BoundaryWarpReport>,
+    /// Output pixels no frame covered.
+    pub uncovered_px: u64,
+    /// The rectangle Auto Crop kept (#5573); `None` when none was requested.
+    pub auto_crop: Option<AutoCropReport>,
     /// Shared per-frame log-slope along frame-local x (#350 layer A).
     pub photometric_slope_x: f32,
     /// Shared per-frame log-slope along frame-local y (#350 layer A).
@@ -63,6 +84,16 @@ pub struct TileCompositeReport {
     pub exposure_field_mean_abs_ev: f64,
     /// Max |residual exposure field| in EV (#350 layer B).
     pub exposure_field_max_abs_ev: f64,
+    /// Blind lens falloff per lens group (#4522); frames are input
+    /// indices. Empty when ingest corrected every placed frame.
+    pub falloff: Vec<LensFalloff>,
+}
+
+impl TileCompositeReport {
+    /// The output's size: the whole canvas, whatever Auto Crop found.
+    pub fn output_size(&self) -> (u32, u32) {
+        (self.canvas.width, self.canvas.height)
+    }
 }
 
 /// End-to-end tile composite with spatial tiling + multiband blend.
@@ -86,7 +117,8 @@ pub struct TileCompositeReport {
 ///    power of two with a ×2 safety factor.
 /// 4. **Per output tile** `[tx0, ty0)–(tx1, ty1)`: expand by halo on
 ///    each side (clamped to canvas). Warp each frame into the haloed
-///    region only (`warp_to_tile_region`). Compute Voronoi masks for
+///    region only (`warp_to_tile_region`), from the source window that
+///    region's taps touch (`source::read_window`). Compute Voronoi masks for
 ///    the haloed region. Run `blend_multiband` on the haloed layers +
 ///    masks + gains. Copy only the interior (drop halo border) into the
 ///    output canvas. Drop tile buffers before the next tile.
@@ -102,28 +134,34 @@ pub struct TileCompositeReport {
 /// explicitly reduces the halo below `halo_for_levels(levels)`, which the
 /// public API does not expose.
 ///
-/// # Frame access contract (#3197)
+/// # Frame access (#3197, #5560)
 ///
-/// `cache` decodes frames on demand, keyed by `poses[i].frame_idx` — the
-/// *original* input frame index, not a position in `poses`. `full_dims`
-/// is indexed the same way (one entry per original input frame) and
-/// gives pixel dimensions without paying for a decode; `tile_edges` is
-/// filtered to the reachable component (same contract as before). Peak
-/// resident frames is bounded by `cache`'s capacity, not by the total
-/// input frame count — see `TileFrameCache` docs.
-///
-/// `pub(crate)`, not `pub`: `TileFrameCache` itself is crate-internal,
-/// so this can't be called from outside the crate either — the only
-/// caller is `stitch::tile_stitch`.
+/// `frames` is indexed by `poses[i].frame_idx` — the *original* input
+/// frame index, not a position in `poses`. `full_dims` and
+/// `lenses.of_frame` are indexed the same way; `full_dims` gives pixel
+/// dimensions without reading pixels; `tile_edges` is filtered to the
+/// reachable component. Each output tile reads, per frame it can see, only
+/// the source window its haloed region needs, and drops it once that
+/// frame's layer is warped — so peak residency is a few tile-sized
+/// windows, not whole frames.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn composite_tile(
-    cache: &TileFrameCache,
+    frames: &dyn FrameRows,
     full_dims: &[(u32, u32)],
     tile_edges: &[TileEdge],
     poses: &[TilePose],
+    corrections: Option<&[LocalCorrection]>,
     canvas: &TileCanvasSpec,
+    boundary_warp: Option<&BoundaryWarp>,
+    lenses: &LensGroups,
     gain_opts: &GainOptions,
     levels_override: Option<usize>,
-) -> Result<(PlanarImage, TileCompositeReport), PanoError> {
+    auto_crop: bool,
+    sink: &mut dyn CanvasSink,
+) -> Result<TileCompositeReport, PanoError> {
+    let output = boundary_warp.map(|map| map.on_canvas(canvas.width, canvas.height));
+    let mut counted = UncoveredCount::new(sink);
+    let sink = &mut counted;
     if poses.is_empty() {
         return Err(PanoError::InvalidOptions(
             "composite_tile: no frames".into(),
@@ -137,46 +175,19 @@ pub(crate) fn composite_tile(
         )));
     }
 
-    // ── planar residuals ─────────────────────────────────────────────────────
-    let max_frame_idx = poses.iter().map(|p| p.frame_idx).max().unwrap_or(0);
-    let mut frame_to_local = vec![usize::MAX; max_frame_idx + 1];
-    for (li, pose) in poses.iter().enumerate() {
-        frame_to_local[pose.frame_idx] = li;
-    }
-    let mut residual_sum = 0.0_f64;
-    let mut residual_max = 0.0_f64;
-    let mut residual_count = 0usize;
-    for edge in tile_edges {
-        let la = frame_to_local.get(edge.a).copied().unwrap_or(usize::MAX);
-        let lb = frame_to_local.get(edge.b).copied().unwrap_or(usize::MAX);
-        if la == usize::MAX || lb == usize::MAX {
-            continue;
-        }
-        let pa = &poses[la];
-        let pb = &poses[lb];
-        for m in &edge.inlier_matches {
-            let (cax, cay) = pa.sim.apply(m.a.0, m.a.1);
-            let (cbx, cby) = pb.sim.apply(m.b.0, m.b.1);
-            let res = ((cax - cbx).powi(2) + (cay - cby).powi(2)).sqrt();
-            residual_sum += res;
-            if res > residual_max {
-                residual_max = res;
-            }
-            residual_count += 1;
-        }
-    }
-    let mean_planar = if residual_count > 0 {
-        residual_sum / residual_count as f64
-    } else {
-        0.0
-    };
+    let (mean_before, max_before) = planar_residuals(poses, tile_edges, None);
+    let (mean_planar, residual_max) = planar_residuals(poses, tile_edges, corrections);
+    let max_correction_px = corrections.map_or(0.0, |cs| {
+        cs.iter().map(|c| c.max_correction_px).fold(0.0, f64::max)
+    });
 
     // ── photometric solve: gains + shared ramp + residual fields (#350) ──────
     let (photometry, phot_summary) = solve_photometry(
-        cache,
+        frames,
         full_dims,
         poses,
         canvas,
+        lenses,
         &PhotometryOptions::from_gain(gain_opts),
     )?;
     let gains: Vec<[f32; 3]> = photometry.iter().map(|p| p.gain).collect();
@@ -185,20 +196,22 @@ pub(crate) fn composite_tile(
     // We need the min overlap width for level selection. Compute cheaply via
     // a canvas-space scan at a coarse stride (same approach as voronoi_masks_tile
     // but just for overlap width stats, no actual masking needed here).
-    let min_overlap = estimate_min_overlap_width(cache, full_dims, poses, canvas)?;
+    let min_overlap = estimate_min_overlap_width(frames, full_dims, poses, canvas, output)?;
     let levels = levels_override
         .unwrap_or_else(|| levels_for_overlap_width(min_overlap))
         .clamp(1, MAX_LEVELS);
     let halo = halo_for_levels(levels);
 
-    // ── canvas output buffers ────────────────────────────────────────────────
+    // Output goes to `sink` one full-width band of tiles at a time (#5452).
     let cw = canvas.width as usize;
     let ch = canvas.height as usize;
-    let n = cw * ch;
-    let mut out_r = vec![0.0_f32; n];
-    let mut out_g = vec![0.0_f32; n];
-    let mut out_b = vec![0.0_f32; n];
-    let mut out_valid = vec![false; n];
+    let crop_rect = auto_crop
+        .then(|| {
+            let coverage = TileCoverage::new(poses, full_dims, corrections, canvas);
+            auto_crop_rect(&coverage, canvas, output)
+        })
+        .flatten();
+    sink.begin(canvas.width, canvas.height)?;
 
     // Per-frame canvas-space bounding boxes for spatial culling (#3086).
     // A similarity maps the frame rectangle to a convex quad, so the
@@ -209,28 +222,27 @@ pub(crate) fn composite_tile(
         .iter()
         .map(|pose| {
             let (fw, fh) = full_dims[pose.frame_idx];
-            let (fw, fh) = (fw as f64, fh as f64);
-            let corners = [(0.0, 0.0), (fw, 0.0), (0.0, fh), (fw, fh)];
-            let mapped = corners
-                .iter()
-                .map(|&(x, y)| pose.sim.apply(x, y))
-                .map(|(x, y)| (x + canvas.offset_x, y + canvas.offset_y));
-            mapped.fold(
-                (
-                    f64::INFINITY,
-                    f64::INFINITY,
-                    f64::NEG_INFINITY,
-                    f64::NEG_INFINITY,
-                ),
-                |(x0, y0, x1, y1), (x, y)| (x0.min(x), y0.min(y), x1.max(x), y1.max(y)),
-            )
+            let (x0, y0, x1, y1) = frame_canvas_box(pose, (fw as f64, fh as f64), canvas);
+            let pad = max_correction_px * pose.sim.scale;
+            (x0 - pad, y0 - pad, x1 + pad, y1 + pad)
         })
+        .collect();
+
+    let inv_sims: Vec<_> = poses
+        .iter()
+        .map(|p| inverse_similarity_with_offset(&p.sim, canvas.offset_x, canvas.offset_y))
         .collect();
 
     // ── spatial tile loop ────────────────────────────────────────────────────
     let mut ty0 = 0usize;
     while ty0 < ch {
         let ty1 = (ty0 + TILE_PX).min(ch);
+        let band_n = cw * (ty1 - ty0);
+        let mut out_r = vec![0.0_f32; band_n];
+        let mut out_g = vec![0.0_f32; band_n];
+        let mut out_b = vec![0.0_f32; band_n];
+        let mut out_valid =
+            crate::ingest::ValidityMask::new_filled(canvas.width, (ty1 - ty0) as u32, false);
         let mut tx0 = 0usize;
         while tx0 < cw {
             let tx1 = (tx0 + TILE_PX).min(cw);
@@ -241,22 +253,21 @@ pub(crate) fn composite_tile(
             let hx1 = (tx1 + halo).min(cw);
             let hy1 = (ty1 + halo).min(ch);
 
-            // Cull frames whose canvas bbox misses the haloed region, then
-            // warp only the survivors (#3086). The 1 px pad absorbs the
-            // +0.5 pixel-center sampling and float slop at the boundary.
-            // #3197: this culling is also what keeps the on-demand decode
-            // cache's working set small — a tile typically activates only
-            // the handful of frames whose bbox actually reaches it, and
-            // this loop is sequential (one tile pinned at a time, dropped
-            // before the next), so it never pins more than that handful
-            // regardless of the cache's own capacity.
+            let haloed = Cell {
+                x0: hx0,
+                y0: hy0,
+                x1: hx1,
+                y1: hy1,
+            };
+            // Cull frames whose canvas bbox misses what the haloed region
+            // samples, then warp only the survivors (#3086). The 1 px pad
+            // absorbs the +0.5 pixel-center sampling and float slop at the
+            // boundary.
+            let (sx0, sy0, sx1, sy1) = haloed.sampled_extent(output);
             let active: Vec<usize> = (0..poses.len())
                 .filter(|&i| {
                     let (bx0, by0, bx1, by1) = frame_bboxes[i];
-                    bx1 >= hx0 as f64 - 1.0
-                        && bx0 <= hx1 as f64 + 1.0
-                        && by1 >= hy0 as f64 - 1.0
-                        && by0 <= hy1 as f64 + 1.0
+                    bx1 >= sx0 - 1.0 && bx0 <= sx1 + 1.0 && by1 >= sy0 - 1.0 && by0 <= sy1 + 1.0
                 })
                 .collect();
             if active.is_empty() {
@@ -266,11 +277,19 @@ pub(crate) fn composite_tile(
             let haloed_layers: Vec<PlanarImage> = active
                 .iter()
                 .map(|&i| -> Result<PlanarImage, PanoError> {
-                    let frame = cache.get(poses[i].frame_idx)?;
+                    let window = read_window(
+                        frames,
+                        poses[i].frame_idx,
+                        &inv_sims[i],
+                        haloed.sampled_centres(output),
+                        corrections.map_or(0.0, |c| c[i].max_correction_px),
+                    )?;
                     Ok(warp_to_tile_region(
-                        &frame,
+                        window.view(),
                         &poses[i],
+                        corrections.map(|c| &c[i]),
                         canvas,
+                        output,
                         &photometry[i],
                         hx0,
                         hy0,
@@ -299,6 +318,7 @@ pub(crate) fn composite_tile(
                 &active_poses,
                 &active_dims,
                 canvas,
+                output,
                 hx0,
                 hy0,
             );
@@ -320,11 +340,11 @@ pub(crate) fn composite_tile(
                         continue;
                     }
                     let bi = by * bw + bx;
-                    let oi = oy * cw + ox;
+                    let oi = (oy - ty0) * cw + ox;
                     out_r[oi] = blended.r[bi];
                     out_g[oi] = blended.g[bi];
                     out_b[oi] = blended.b[bi];
-                    out_valid[oi] = true;
+                    out_valid.set(ox as u32, (oy - ty0) as u32, true);
                 }
             }
 
@@ -332,34 +352,42 @@ pub(crate) fn composite_tile(
             // the next tile iteration.
             tx0 = tx1;
         }
+        sink.rows(&PlanarImage::from_planes(
+            canvas.width,
+            (ty1 - ty0) as u32,
+            out_r,
+            out_g,
+            out_b,
+            out_valid,
+        ))?;
         ty0 = ty1;
     }
 
-    // Build output validity mask.
-    let mut validity = crate::ingest::ValidityMask::new_filled(canvas.width, canvas.height, false);
-    for (i, &v) in out_valid.iter().enumerate() {
-        if v {
-            validity.set((i % cw) as u32, (i / cw) as u32, true);
-        }
-    }
-    let output =
-        PlanarImage::from_planes(canvas.width, canvas.height, out_r, out_g, out_b, validity);
-
-    Ok((
-        output,
-        TileCompositeReport {
-            canvas: canvas.clone(),
-            placements: poses.to_vec(),
-            gains,
-            blend_levels: levels,
-            min_overlap_width_px: min_overlap,
-            mean_planar_residual_px: mean_planar,
-            max_planar_residual_px: residual_max,
-            halo_px: halo,
-            photometric_slope_x: phot_summary.slope_x,
-            photometric_slope_y: phot_summary.slope_y,
-            exposure_field_mean_abs_ev: phot_summary.field_mean_abs_ev,
-            exposure_field_max_abs_ev: phot_summary.field_max_abs_ev,
-        },
-    ))
+    Ok(TileCompositeReport {
+        canvas: canvas.clone(),
+        placements: poses.to_vec(),
+        gains,
+        blend_levels: levels,
+        min_overlap_width_px: min_overlap,
+        mean_planar_residual_px: mean_planar,
+        max_planar_residual_px: residual_max,
+        mean_planar_before_local_px: mean_before,
+        max_planar_before_local_px: max_before,
+        local_correction_rms_px: corrections.map_or_else(
+            || vec![0.0; poses.len()],
+            |cs| cs.iter().map(|c| c.rms_px).collect(),
+        ),
+        halo_px: halo,
+        boundary_warp: None,
+        uncovered_px: counted.uncovered,
+        auto_crop: auto_crop.then_some(AutoCropReport {
+            rect: crop_rect,
+            invalid_px: 0,
+        }),
+        photometric_slope_x: phot_summary.slope_x,
+        photometric_slope_y: phot_summary.slope_y,
+        exposure_field_mean_abs_ev: phot_summary.field_mean_abs_ev,
+        exposure_field_max_abs_ev: phot_summary.field_max_abs_ev,
+        falloff: phot_summary.falloff,
+    })
 }

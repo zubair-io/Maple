@@ -116,6 +116,39 @@ mod curve_tests {
         }
     }
 
+    /// #4636: a knot where the secant changes sharply keeps the anchors and
+    /// monotonicity, but the slope no longer jumps there as it did under
+    /// linear interpolation.
+    #[test]
+    fn kinked_anchors_evaluate_with_continuous_slope() {
+        let knot = 20.0 / 31.0;
+        let c = ChannelCurve {
+            anchors: std::array::from_fn(|i| {
+                let x = i as f32 / 31.0;
+                let y = if i <= 20 {
+                    0.5 * x
+                } else {
+                    0.5 * knot + 1.6 * (x - knot)
+                };
+                (x, y)
+            }),
+        };
+        for (x, y) in c.anchors {
+            assert!((eval_channel(&c, x) - y).abs() < 1e-6, "anchor ({x}, {y})");
+        }
+        let samples: Vec<f32> = (0..=4096)
+            .map(|i| eval_channel(&c, i as f32 / 4096.0))
+            .collect();
+        assert!(samples.windows(2).all(|w| w[1] >= w[0]), "monotone");
+        let h = 1e-4;
+        let slope = |a: f32, b: f32| (eval_channel(&c, b) - eval_channel(&c, a)) / (b - a);
+        let jump = (slope(knot, knot + h) - slope(knot - h, knot)).abs();
+        assert!(
+            jump < 0.02,
+            "slope jump at the knot {jump}; linear jumps 1.1"
+        );
+    }
+
     #[test]
     fn cdf_of_uniform_is_linear() {
         // 1000 evenly-spaced values in [0,1]
@@ -257,7 +290,11 @@ mod apply_tests {
         let lab = srgb_linear_to_oklab(lin);
         let scaled = [lab[0], lab[1] * 1.3, lab[2] * 1.3];
         let back = oklab_to_srgb_linear(scaled);
-        let expected = [srgb_gamma(back[0]), srgb_gamma(back[1]), srgb_gamma(back[2])];
+        let expected = [
+            srgb_gamma(back[0]),
+            srgb_gamma(back[1]),
+            srgb_gamma(back[2]),
+        ];
 
         let mut rgb = input.to_vec();
         apply_curve(&mut rgb, &curve);
@@ -271,8 +308,11 @@ mod apply_tests {
         // difference is not a reliable saturation proxy: the boost redistributes
         // across channels, so it can shrink even when chroma grows.)
         let oklab_chroma = |p: [f32; 3]| -> f32 {
-            let lab =
-                srgb_linear_to_oklab([srgb_gamma_inv(p[0]), srgb_gamma_inv(p[1]), srgb_gamma_inv(p[2])]);
+            let lab = srgb_linear_to_oklab([
+                srgb_gamma_inv(p[0]),
+                srgb_gamma_inv(p[1]),
+                srgb_gamma_inv(p[2]),
+            ]);
             (lab[1] * lab[1] + lab[2] * lab[2]).sqrt()
         };
         let chroma_in = oklab_chroma(input);

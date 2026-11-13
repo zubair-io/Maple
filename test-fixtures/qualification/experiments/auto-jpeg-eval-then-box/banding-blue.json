@@ -1,0 +1,41 @@
+{
+  "stage": "18_auto_tail",
+  "ramp_axis": "chroma",
+  "shape": [
+    8,
+    1024,
+    3
+  ],
+  "second_difference": {
+    "max_abs_d2": 0.00011166158486074912,
+    "mean_abs_d2": 1.0408151958731216e-06,
+    "max_spike_ratio": 0.2942254228797161,
+    "mean_spike_ratio": 0.2942254228797161
+  },
+  "flat_run": {
+    "max_flat_run_frac": 0.0,
+    "flat_eps": 1e-06
+  },
+  "rgb_drift": null,
+  "shadow_gaps": {
+    "r": {
+      "gap_bins": 0,
+      "n_samples": 0
+    },
+    "g": {
+      "gap_bins": 0,
+      "n_samples": 0
+    },
+    "b": {
+      "gap_bins": 0,
+      "n_samples": 0
+    }
+  },
+  "budget_key": "test_0000_auto2_blue/18_auto_tail/chroma",
+  "budget": {
+    "max_abs_d2": 0.001,
+    "max_spike_ratio": 1.2,
+    "max_flat_run_frac": 0.02
+  },
+  "passed": true
+}

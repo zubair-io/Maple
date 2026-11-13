@@ -44,7 +44,7 @@ fn ffi_forwards_preview_sampling_to_chroma_nr() {
         75.0,
         CancelToken::never(),
         None,
-        0,
+        default_params().iso,
         0.25,
     );
     let actual = render(&input, 0.25);

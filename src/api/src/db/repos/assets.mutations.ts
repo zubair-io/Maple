@@ -29,8 +29,8 @@
  * `asset.search_blob` has exactly two other writers: the boot-time backfill in
  * `db/client.ts`, which runs once per database, and the other of these two
  * override routes, which an operator drives by hand. And both of these
- * mutations re-arm the `meili` stage in the same transaction, so the search
- * document is rebuilt from the live row afterwards regardless — the same
+ * mutations re-arm the `search-blob` stage in the same transaction, so the blob
+ * is rebuilt from the live row afterwards regardless — the same
  * "inline write is the fast path, the stage re-arm is the correctness
  * mechanism" argument the trash workflows already rest on.
  */
@@ -40,7 +40,7 @@ import type { SqlStatement } from '../sqlite/protocol.ts';
 import { composeSearchBlob } from '../../enrichment/search-blob.ts';
 import type { Enrichment, Place } from '../schema.ts';
 import { SEARCH_BLOB_INPUTS_SQL } from './assets.sql.ts';
-import { searchRearmStatements } from './assets.stage-rearm.ts';
+import { searchBlobRearmStatements, searchRearmStatements } from './assets.stage-rearm.ts';
 import { sqliteDb, updateOutcome, type SqliteDb, type UpdateOutcome } from './db-handle.ts';
 
 /** The sources the synthesised search blob is rebuilt from. */
@@ -159,7 +159,12 @@ async function applyOverride(
   const inputs = rows[0];
   if (!inputs) return updateOutcome(0);
   const { statement, blob } = write(inputs);
-  await db.transaction([statement, searchBlobStatement(hex, blob), ...searchRearmStatements(hex)]);
+  await db.transaction([
+    statement,
+    searchBlobStatement(hex, blob),
+    ...searchBlobRearmStatements(hex),
+    ...searchRearmStatements(hex),
+  ]);
   return updateOutcome(1);
 }
 

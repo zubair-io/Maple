@@ -40,5 +40,8 @@ export function sanitizeWorkerConfig(doc: WorkerConfigDoc): WorkerConfig {
     ...(typeof doc.prompt_text === 'string' ? { prompt_text: doc.prompt_text } : {}),
     ...(typeof doc.ai_provider === 'string' ? { ai_provider: doc.ai_provider } : {}),
     ...(typeof doc.ai_model === 'string' ? { ai_model: doc.ai_model } : {}),
+    ...(typeof doc.stallAfterMinutes === 'number'
+      ? { stallAfterMinutes: doc.stallAfterMinutes }
+      : {}),
   };
 }

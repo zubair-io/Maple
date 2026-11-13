@@ -6,7 +6,7 @@
  * A fake maple-cli shell script stands in for the real binary so tests
  * never need ML models. The fake:
  *   - Prints 6 pano: <stage> progress lines to stderr.
- *   - Writes a 1×1 white PNG to the path given via --out.
+ *   - Writes a 1×1 white PNG to the path given via --display.
  *   - Exits 0.
  *
  * Tests cover:
@@ -16,6 +16,8 @@
  *   - GET /api/pano/jobs/:id returns the job
  *   - DELETE /api/pano/jobs/:id sets cancel_requested
  *   - GET/PUT /api/pano/config round-trips
+ *
+ * The bundled-binary default (#5493) is covered in pano.bundled.test.ts.
  *   - 400 on bad ObjectId
  *
  * Path-resolution, index-on-demand, and security tests live in
@@ -34,6 +36,8 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { panoRoutes } from './pano.ts';
+import { ML_FALLBACK_NOTE } from '../pano/pano-engine.ts';
+import { fakeAuth } from '../../tests/helpers/test-auth.ts';
 import {
   createLiveTestDatabase,
   insertFolder,
@@ -41,13 +45,16 @@ import {
   type LiveTestDatabase,
 } from '../db/sqlite/test-sqlite.test-helpers.ts';
 import { invalidateLibraryRoots } from '../indexer/libraries.cache.ts';
+import { getJob } from '../job-runner/jobs.repo.ts';
 
-const app = new Elysia().use(panoRoutes);
+const app = new Elysia().use(fakeAuth()).use(panoRoutes);
 
 let live: LiveTestDatabase;
 
-/** Absolute path of the fake maple-cli shell script. */
+/** Absolute path of the fake maple-cli shell script (accepts --features-engine). */
 let fakeCli = '';
+/** A fake pre-#4523 maple-cli: ML-only, its help lists no --features-engine. */
+let legacyCli = '';
 let tmpDir = '';
 let folderId: string;
 
@@ -58,16 +65,17 @@ const TINY_PNG_B64 =
 
 beforeAll(async () => {
   // Create fake maple-cli.
-  tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'maple-pano-test-'));
+  tmpDir = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'maple-pano-test-')));
   fakeCli = path.join(tmpDir, 'fake-maple-cli');
   await fs.writeFile(
     fakeCli,
     `#!/bin/sh
 # Fake maple-cli for pano route tests.
-# Parses --out <path> and writes a tiny PNG there; prints progress to stderr.
+# Parses --display <path> and writes a tiny PNG there; prints progress to stderr.
+case " $* " in *" --help "*) echo "      --features-engine <FEATURES_ENGINE>"; exit 0;; esac
 OUT=""
 while [ $# -gt 0 ]; do
-  if [ "$1" = "--out" ]; then
+  if [ "$1" = "--display" ]; then
     shift; OUT="$1"
   fi
   shift
@@ -85,13 +93,24 @@ exit 0
 `,
   );
   await fs.chmod(fakeCli, 0o755);
+  legacyCli = path.join(tmpDir, 'legacy-maple-cli');
+  await fs.writeFile(
+    legacyCli,
+    `#!/bin/sh\necho "Usage: maple-cli pano stitch [OPTIONS]"\nexit 0\n`,
+  );
+  await fs.chmod(legacyCli, 0o755);
 });
 
 afterAll(async () => {
   await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => {});
 });
 
+let ambientPanoCli: string | undefined;
+
 beforeEach(async () => {
+  // An image that bundles maple-cli exports MAPLE_PANO_CLI; these tests assume no bundled binary.
+  ambientPanoCli = process.env.MAPLE_PANO_CLI;
+  delete process.env.MAPLE_PANO_CLI;
   live = await createLiveTestDatabase();
   const libPath = path.join(tmpDir, 'lib');
   await fs.mkdir(libPath, { recursive: true });
@@ -102,6 +121,7 @@ beforeEach(async () => {
 });
 
 afterEach(() => {
+  if (ambientPanoCli !== undefined) process.env.MAPLE_PANO_CLI = ambientPanoCli;
   live.close();
   invalidateLibraryRoots();
 });
@@ -204,6 +224,15 @@ describe('GET /api/pano/config', () => {
     expect(body.enabled).toBe(false);
     expect(body.maple_cli_path).toBeNull();
   });
+
+  it('defaults the matcher to classical', async () => {
+    const body = (await (await getReq('/api/pano/config')).json()) as {
+      matcher: string;
+      source: { matcher: string };
+    };
+    expect(body.matcher).toBe('classical');
+    expect(body.source.matcher).toBe('default');
+  });
 });
 
 describe('PUT /api/pano/config', () => {
@@ -217,6 +246,20 @@ describe('PUT /api/pano/config', () => {
     expect(body.ok).toBe(true);
     expect(body.maple_cli_path).toBe(fakeCli);
     expect(body.enabled).toBe(true);
+  });
+
+  it('persists the matcher selection', async () => {
+    const body = (await (await putJson('/api/pano/config', { matcher: 'ml' })).json()) as {
+      matcher: string;
+      source: { matcher: string };
+    };
+    expect(body.matcher).toBe('ml');
+    expect(body.source.matcher).toBe('db');
+  });
+
+  it('rejects an unknown matcher value', async () => {
+    const res = await putJson('/api/pano/config', { matcher: 'sift' });
+    expect(res.status).toBe(422);
   });
 });
 
@@ -236,6 +279,145 @@ describe('POST /api/pano/stitch (provisioning)', () => {
     expect(res.status).toBe(409);
     const body = (await res.json()) as { error: string };
     expect(body.error).toBe('pano_not_provisioned');
+  });
+});
+
+// ── matcher selection (#4555) ─────────────────────────────────────────────────
+
+describe('POST /api/pano/stitch (matcher)', () => {
+  const LEGACY_ENV = ['MAPLE_PANO_MODELS', 'ORT_DYLIB_PATH'] as const;
+  const savedEnv = new Map<string, string | undefined>();
+  beforeEach(() => {
+    for (const name of LEGACY_ENV) {
+      savedEnv.set(name, process.env[name]);
+      delete process.env[name];
+    }
+  });
+  afterEach(() => {
+    for (const name of LEGACY_ENV) {
+      const value = savedEnv.get(name);
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
+  });
+
+  async function stitchPayload(): Promise<Record<string, unknown>> {
+    const res = await postJson('/api/pano/stitch', STITCH_BODY());
+    expect(res.status).toBe(201);
+    const { id } = (await res.json()) as { id: string };
+    const job = await getJob(new ObjectId(id));
+    if (!job) throw new Error('job not persisted');
+    return job.payload;
+  }
+
+  it('stitches with the classical matcher on a server with no models or ONNX Runtime', async () => {
+    await putJson('/api/pano/config', { maple_cli_path: fakeCli, enabled: true });
+    const payload = await stitchPayload();
+    expect(payload.featuresEngine).toBe('classical');
+    expect(payload.modelsDir).toBeNull();
+    expect(payload.ortDylibPath).toBeNull();
+  });
+
+  it('falls back to the classical matcher when ML is selected without model paths (#5487)', async () => {
+    await putJson('/api/pano/config', { maple_cli_path: fakeCli, enabled: true, matcher: 'ml' });
+    const payload = await stitchPayload();
+    expect(payload.featuresEngine).toBe('classical');
+    expect(payload.modelsDir).toBeNull();
+    expect(payload.ortDylibPath).toBeNull();
+    expect(payload.matcherNote).toBe(ML_FALLBACK_NOTE);
+  });
+
+  it('falls back to the classical matcher when a configured ONNX Runtime path is gone (#5487)', async () => {
+    await putJson('/api/pano/config', {
+      maple_cli_path: fakeCli,
+      enabled: true,
+      matcher: 'ml',
+      models_dir: tmpDir,
+      ort_dylib_path: path.join(tmpDir, 'deleted-libonnxruntime.so'),
+    });
+    const payload = await stitchPayload();
+    expect(payload.featuresEngine).toBe('classical');
+    expect(payload.matcherNote).toBe(ML_FALLBACK_NOTE);
+  });
+
+  it('falls back to the classical matcher when ML has models but no ONNX Runtime (#5487)', async () => {
+    await putJson('/api/pano/config', {
+      maple_cli_path: fakeCli,
+      enabled: true,
+      matcher: 'ml',
+      models_dir: tmpDir,
+    });
+    const payload = await stitchPayload();
+    expect(payload.featuresEngine).toBe('classical');
+    expect(payload.matcherNote).toBe(ML_FALLBACK_NOTE);
+  });
+
+  it('stitches with the ML matcher once its model paths are provisioned', async () => {
+    const ortDylib = path.join(tmpDir, 'libonnxruntime.so');
+    await fs.writeFile(ortDylib, '');
+    await putJson('/api/pano/config', {
+      maple_cli_path: fakeCli,
+      enabled: true,
+      matcher: 'ml',
+      models_dir: tmpDir,
+      ort_dylib_path: ortDylib,
+    });
+    const payload = await stitchPayload();
+    expect(payload.featuresEngine).toBe('ml');
+    expect(payload.modelsDir).toBe(tmpDir);
+    expect(payload.ortDylibPath).toBe(ortDylib);
+  });
+
+  it('keeps an ML setup provisioned only through the legacy environment variables working', async () => {
+    const ortDylib = path.join(tmpDir, 'libonnxruntime.so');
+    await fs.writeFile(ortDylib, '');
+    process.env.MAPLE_PANO_MODELS = tmpDir;
+    process.env.ORT_DYLIB_PATH = ortDylib;
+    const cfg = (await (
+      await putJson('/api/pano/config', { maple_cli_path: fakeCli, enabled: true, matcher: 'ml' })
+    ).json()) as { source: { models_dir: string; ort_dylib_path: string } };
+    expect(cfg.source.models_dir).toBe('env');
+    expect(cfg.source.ort_dylib_path).toBe('env');
+    const payload = await stitchPayload();
+    expect(payload.featuresEngine).toBe('ml');
+    expect(payload.modelsDir).toBe(tmpDir);
+    expect(payload.ortDylibPath).toBe(ortDylib);
+  });
+
+  it('reports whether the configured binary accepts --features-engine', async () => {
+    const current = (await (
+      await putJson('/api/pano/config', { maple_cli_path: fakeCli, enabled: true })
+    ).json()) as { features_engine_supported: boolean };
+    expect(current.features_engine_supported).toBe(true);
+    const legacy = (await (
+      await putJson('/api/pano/config', { maple_cli_path: legacyCli })
+    ).json()) as { features_engine_supported: boolean };
+    expect(legacy.features_engine_supported).toBe(false);
+  });
+
+  it('refuses a pre-classical binary without ML paths in plain language (409 pano_cli_outdated)', async () => {
+    await putJson('/api/pano/config', { maple_cli_path: legacyCli, enabled: true });
+    const res = await postJson('/api/pano/stitch', STITCH_BODY());
+    expect(res.status).toBe(409);
+    const body = (await res.json()) as { error: string; message: string };
+    expect(body.error).toBe('pano_cli_outdated');
+    expect(body.message).toContain('Settings > Pano');
+    expect(body.message).not.toContain('cargo');
+  });
+
+  it('runs a pre-classical binary as ML, without the flag it lacks, when ML paths are set', async () => {
+    const ortDylib = path.join(tmpDir, 'libonnxruntime.so');
+    await fs.writeFile(ortDylib, '');
+    await putJson('/api/pano/config', {
+      maple_cli_path: legacyCli,
+      enabled: true,
+      models_dir: tmpDir,
+      ort_dylib_path: ortDylib,
+    });
+    const payload = await stitchPayload();
+    expect(payload.featuresEngine).toBeNull();
+    expect(payload.modelsDir).toBe(tmpDir);
+    expect(payload.ortDylibPath).toBe(ortDylib);
   });
 });
 
@@ -260,11 +442,10 @@ describe('POST /api/pano/stitch (provisioned)', () => {
     run(
       live.db,
       `INSERT INTO jobs
-         (id, kind, status, locked_by, lease_expires_at, cancel_requested,
+         (id, kind, status, locked_by, cancel_requested,
           progress_current, progress_total, error, created_at, updated_at, params)
-       VALUES (?, 'pano_stitch', 'running', 'worker-1', ?, 0, 0, 0, NULL, ?, ?, '{}')`,
+       VALUES (?, 'pano_stitch', 'running', 'worker-1', 0, 0, 0, NULL, ?, ?, '{}')`,
       new ObjectId().toHexString(),
-      new Date(Date.now() + 60_000).toISOString(),
       now,
       now,
     );
@@ -275,11 +456,31 @@ describe('POST /api/pano/stitch (provisioned)', () => {
     expect(body.error).toBe('pano_job_running');
   });
 
+  it('answers a repeat of the queued request with its job, not a second stitch (#5488)', async () => {
+    // A client whose POST response was lost retries the same request.
+    const request = STITCH_BODY();
+    const first = await postJson('/api/pano/stitch', request);
+    expect(first.status).toBe(201);
+    const again = await postJson('/api/pano/stitch', {
+      ...request,
+      assetIds: [...request.assetIds].reverse(),
+    });
+    expect(again.status).toBe(200);
+    expect(((await again.json()) as { id: string }).id).toBe(
+      ((await first.json()) as { id: string }).id,
+    );
+    const changed = await postJson('/api/pano/stitch', {
+      ...request,
+      options: { ...request.options, retention: 'strict' },
+    });
+    expect(changed.status).toBe(409);
+  });
+
   it('returns 409 pano_job_running when a queued job already exists (back-to-back requests)', async () => {
     // Two close-together stitch POSTs must not enqueue multiple concurrent jobs.
     // The first creates a queued job; the second must see the queued job and
     // return 409 — not enqueue a second job that a worker would later execute
-    // concurrently (pano is ~tens of GB RSS, concurrent runs OOM the box).
+    // concurrently (a stitch holds the whole decode memory budget; concurrent runs OOM the box).
     // First request — should succeed.
     const first = await postJson('/api/pano/stitch', STITCH_BODY());
     expect(first.status).toBe(201);

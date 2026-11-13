@@ -56,7 +56,7 @@ async function openPreview(page: Page, filename: string): Promise<Locator> {
 async function openEditor(page: Page): Promise<Locator> {
   const dismissLanBanner = page.getByRole('button', { name: 'Dismiss', exact: true });
   if (await dismissLanBanner.isVisible()) await dismissLanBanner.click();
-  await page.getByLabel('Edit', { exact: true }).click();
+  await page.getByRole('button', { name: 'Edit', exact: true }).click();
   await expect(page).toHaveURL(/\/edit\//);
   await expect(page.getByText('Decoding RAW...', { exact: true })).toHaveCount(0, {
     timeout: 90_000,
@@ -137,7 +137,7 @@ test('Self Hosted reopens RAF pixels and recovers a named one-shot byte failure'
 
   const dismissLanBanner = page.getByRole('button', { name: 'Dismiss', exact: true });
   if (await dismissLanBanner.isVisible()) await dismissLanBanner.click();
-  await page.getByLabel('Edit', { exact: true }).click();
+  await page.getByRole('button', { name: 'Edit', exact: true }).click();
   await expect(page).toHaveURL(/\/edit\//);
   const error = page.getByTestId('byte-load-error');
   await expect(error).toContainText(RAF, { timeout: 90_000 });

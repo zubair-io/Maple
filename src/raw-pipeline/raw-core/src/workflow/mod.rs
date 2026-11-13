@@ -5,30 +5,53 @@
 //! a second hand-copied development schema cannot silently lose new fields.
 //! Host sibling storage ships under #4040. Cache-aware switching, transaction
 //! integration, deletion/recovery and UI remain under #2437.
+//!
+//! Schema v2 (#4983) makes the history a lineage: every entry names the entry
+//! it was based on and the writer that produced it, and a stale writer's change
+//! is reconciled onto the current document instead of being refused.
 
 use serde::{Deserialize, Serialize};
 
+mod description;
+mod merge;
+#[cfg(test)]
+mod merge_tests;
 #[cfg(test)]
 mod mutation_tests;
 mod mutations;
+mod reconcile;
+#[cfg(test)]
+mod reconcile_tests;
+mod stacks;
+pub use stacks::HistoryCursor;
+#[cfg(test)]
+mod stacks_tests;
 #[cfg(test)]
 mod tests;
 mod validation;
 mod variants;
+pub use validation::timestamp_ms;
 pub use variants::variant_filename;
 mod xml;
 #[cfg(test)]
 mod xml_tests;
 mod xml_tree;
 
-pub const WORKFLOW_VERSION: u32 = 1;
+/// v2 (#4983) adds per-entry lineage (`parentId`, `writer`) and the `external`
+/// action. A v1 record migrates on read, so a v1 sidecar becomes v2 on its
+/// next commit.
+pub const WORKFLOW_VERSION: u32 = 2;
+pub const LEGACY_WORKFLOW_VERSION: u32 = 1;
 /// Canonical lowercase identity vocabulary, emitted to host wire validators.
 pub const WORKFLOW_UUID_PATTERN: &str =
     r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
 /// Cheap host dispatch guard only; Rust still resolves/validates the namespace.
 pub const WORKFLOW_MARKUP_PATTERN: &str = r"<(?:[^<\s:]+:)?Workflow(?=[\s/>])";
-/// Matches the existing 32-commit Apple/Web undo window.
+/// Matches the existing 32-commit Apple/Web undo window. The 256 KiB sidecar
+/// bound below is the tighter limit for edits that carry large masks.
 pub const HISTORY_LIMIT: usize = 32;
+/// Longest accepted `writer` label, in UTF-8 bytes.
+pub const WRITER_MAX_BYTES: usize = 64;
 /// Matches the existing backup-sidecar ingress bound; embedding also checks
 /// the final XML size at the host's confirmed-write boundary (#2437).
 pub const WORKFLOW_MAX_BYTES: usize = 256 * 1024;
@@ -44,11 +67,17 @@ pub const WORKFLOW_ACTIONS: &[&str] = &[
     "undo",
     "redo",
     "variant-create",
+    "external",
 ];
+/// A state written by something that keeps no history, captured when a
+/// conflicting write is reconciled (#4983).
+pub const EXTERNAL_ACTION: &str = "external";
 
 #[derive(Clone, Copy)]
 pub enum WireKind {
     Text,
+    /// Text a host may leave out when it builds a record; absent reads as empty.
+    OptionalText,
     U32,
     U64,
     List(&'static str),
@@ -63,11 +92,11 @@ pub struct WorkflowRecord {
 }
 
 macro_rules! workflow_record {
-    ($name:ident, $fields:ident { $( $field:ident : $ty:ty => $wire:literal, $kind:expr; )* }) => {
+    ($name:ident, $fields:ident { $( $(#[$attr:meta])* $field:ident : $ty:ty => $wire:literal, $kind:expr; )* }) => {
         #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
         #[serde(deny_unknown_fields)]
         pub struct $name {
-            $( #[serde(rename = $wire)] pub $field: $ty, )*
+            $( $(#[$attr])* #[serde(rename = $wire)] pub $field: $ty, )*
         }
         pub const $fields: &[WorkflowField] = &[
             $( WorkflowField { name: $wire, kind: $kind }, )*
@@ -86,8 +115,15 @@ workflow_record! { WorkflowHistoryEntry, HISTORY_FIELDS {
     created_at_ms: u64 => "createdAtMs", WireKind::U64;
     action: String => "action", WireKind::Text;
     label: String => "label", WireKind::Text;
+    #[serde(default)]
+    parent_id: String => "parentId", WireKind::OptionalText;
+    #[serde(default)]
+    writer: String => "writer", WireKind::OptionalText;
     adjustment_xmp: String => "adjustmentXmp", WireKind::Text;
 }}
+/// The v1 entry layout; the v1 reader migrates it to v2.
+pub const LEGACY_HISTORY_FIELDS: &[&str] =
+    &["id", "createdAtMs", "action", "label", "adjustmentXmp"];
 workflow_record! { SidecarWorkflow, WORKFLOW_FIELDS {
     schema_version: u32 => "schemaVersion", WireKind::U32;
     variant_id: String => "variantId", WireKind::Text;
@@ -120,6 +156,11 @@ impl SidecarWorkflow {
             snapshots: Vec::new(),
             history: Vec::new(),
         }
+    }
+
+    /// Id of the newest history entry, or `""` when nothing was recorded.
+    pub fn head_id(&self) -> &str {
+        self.history.last().map_or("", |head| head.id.as_str())
     }
 
     pub fn parse(json: &str) -> Result<Self, String> {

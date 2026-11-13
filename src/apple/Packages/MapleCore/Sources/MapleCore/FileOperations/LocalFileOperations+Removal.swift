@@ -2,8 +2,50 @@
 // are never removed here: other photos and history may still reference them.
 import Darwin
 import Foundation
+import OSLog
+
+private let removalRelocationLog = Logger(
+  subsystem: "app.justmaple.aperture", category: "LocalFileOperations")
 
 extension LocalFileOperations {
+  /// Cheap pre-check so ordinary photos never take the removal lock or hash
+  /// their original on a move.
+  static func sidecarCarriesRemovals(_ sidecar: URL) -> Bool {
+    (try? String(contentsOf: sidecar, encoding: .utf8))?.contains("InpaintRemovals") ?? false
+  }
+
+  static func finalizeLocalSnapshot(
+    _ plan: RelocatePlan, snapshot: LocalRelocationSnapshot
+  ) async {
+    defer { snapshot.lease?.release() }
+    do {
+      let source = try LocalRemovalRelocation.open(
+        rawURL: URL(fileURLWithPath: plan.sourcePrimaryPath))
+      guard source.snapshot == snapshot.sidecar,
+        source.originalDigest == snapshot.originalDigest
+      else { throw RemovalError.saveConflict }
+      let destinationLock = try lockRelocationDestination(
+        URL(fileURLWithPath: plan.finalPrimaryPath), sourceSidecar: source.sourceSidecar)
+      defer { unlockRelocationDestination(destinationLock) }
+      try LocalRelocationJournal.verifyOwner(
+        snapshot.journalID, target: URL(fileURLWithPath: plan.finalPrimaryPath))
+      try source.verifyDestination(rawURL: URL(fileURLWithPath: plan.finalPrimaryPath))
+      if plan.mode == .move {
+        try removeSnapshotSources(plan)
+        await invalidateDerivedCaches(forOldPrimaryPath: plan.sourcePrimaryPath)
+        await refreshLibraryIndexAfterMove(plan)
+      }
+      discardReplacementBackups(snapshot)
+      try LocalRelocationJournal.remove(
+        snapshot.journalID, target: URL(fileURLWithPath: plan.finalPrimaryPath))
+    } catch {
+      try? sealCopiedSnapshot(plan, snapshot: snapshot)
+      removalRelocationLog.error(
+        "finalizeRelocate: snapshot changed or delete failed; source or recovery evidence retained: \(error.localizedDescription, privacy: .public)"
+      )
+    }
+  }
+
   static func placeLocalSnapshot(
     _ source: LocalRemovalRelocation, from raw: URL,
     to target: URL, mode: RelocateMode,
@@ -189,9 +231,12 @@ extension LocalFileOperations {
 
   static func removeSnapshotSources(_ plan: RelocatePlan) throws {
     // Remove XMP only after primary unlink succeeds. A same-stem extension
-    // change shares the same sidecar and must retain it at the destination.
+    // change shares the same sidecar and must retain it at the destination;
+    // a sidecar another same-stem photo still uses is never taken (#4707).
+    let source = URL(fileURLWithPath: plan.sourcePrimaryPath)
+    let sidecarShared = SidecarOwnership.localStemClaimedBySibling(source)
     try FileManager.default.removeItem(atPath: plan.sourcePrimaryPath)
-    if let sourceSidecar = plan.sourceSidecarPath {
+    if let sourceSidecar = plan.sourceSidecarPath, !sidecarShared, !plan.retainsSourceSidecar {
       let original = URL(fileURLWithPath: sourceSidecar).resolvingSymlinksInPath()
       let destination = plan.finalSidecarPath.map {
         URL(fileURLWithPath: $0).resolvingSymlinksInPath()

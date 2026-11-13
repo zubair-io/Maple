@@ -17,6 +17,9 @@ wgpu = "23"
 bytemuck.workspace = true
 futures-channel = "0.3"
 
+[target.'cfg(target_os = "android")'.dependencies]
+raw-window-handle = "0.6"
+
 # pollster (native block_on) is meaningless on wasm32, where callers await the
 # async core directly via wasm-bindgen-futures. Keep it off the wasm tree.
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
@@ -50,4 +53,6 @@ web-sys = { version = "0.3", features = ["HtmlCanvasElement", "OffscreenCanvas"]
 # its optional `gpu` feature, which stays disabled here. Dev-deps don't enter the
 # normal build graph, so raw-core / raw-wasm default + `gpu` trees are unchanged.
 [dev-dependencies]
-raw-core = { path = "../raw-core", default-features = false }
+rayon.workspace = true
+half = "=2.7.1"
+raw-core = { path = "../raw-core", default-features = false, features = ["test-support"] }

@@ -12,7 +12,7 @@ using Maple.WinUI.Services.Xmp;
 namespace Maple.WinUI.ViewModels
 {
     /// <summary>
-    /// Per-session editing state: the selected photo's decoded scene-linear
+    /// Per-session editing state: the selected photo's decoded capture
     /// base, the canonical AdjustmentState, the render loop, debounced XMP
     /// sidecar persistence, and the undo stack. Library concerns live in the
     /// EditSessionViewModel.Library.cs partial.
@@ -50,8 +50,7 @@ namespace Maple.WinUI.ViewModels
         public bool HasNonDefaultEdits()
         {
             var defaults = DefaultAdjustments();
-            return XmpWriter.Serialize(new XmpSidecarDocument { Adjustments = Adjustments }) !=
-                XmpWriter.Serialize(new XmpSidecarDocument { Adjustments = defaults });
+            return XmpWriter.Fingerprint(Adjustments) != XmpWriter.Fingerprint(defaults);
         }
         public List<AdjustmentSectionViewModel> Sections { get; }
         public List<HslBandViewModel> HslBands { get; }
@@ -75,6 +74,10 @@ namespace Maple.WinUI.ViewModels
         private AdjustmentState? _undoBaseline;
         private Timer? _sidecarTimer;
         private Timer? _undoTimer;
+        private string? _discardBrushCorrectionsForPhotoPath;
+        private long _brushDiscardGeneration;
+        private readonly Dictionary<string, BrushCorrectionRestoreSnapshot> _brushCorrectionsRemovedByReset =
+            new(StringComparer.OrdinalIgnoreCase);
         /// <summary>Shared by <see cref="_decodeCancel"/> and
         /// <see cref="_amazeCancel"/> (#3417 Jules review): a signal
         /// (<see cref="CancelActiveDecode"/>) and a free (a decode task's
@@ -97,9 +100,10 @@ namespace Maple.WinUI.ViewModels
         private bool _sidecarDirty;
         private float _asShotTemperature = 6500f;
         private float _asShotTint;
-        /// <summary>The photo the scene-linear decode has run (or is running)
+        /// <summary>The photo the capture decode has run (or is running)
         /// for — decode is lazy and only starts on Edit entry.</summary>
         private PhotoItem? _decodedPhoto;
+        private (int Width, int Height)? _decodedImageSize;
 
         [ObservableProperty]
         private PhotoItem? _selectedPhoto;
@@ -180,13 +184,16 @@ namespace Maple.WinUI.ViewModels
             else
             {
                 _photoOpenVersion++;
+                _decodedImageSize = null;
                 AdjustmentsReady = false;
                 HasSidecarLoadError = false;
                 IsDecoding = false;
                 Interlocked.Increment(ref _decodeGeneration);
                 CancelActiveDecode();
                 Renderer.SetImage(null);
+                ReleaseBrushRasters();
             }
+            UpdateAutoProfileStatus(_autoProfileStatus.Begin(_decodeGeneration, keepOutcome: false));
         }
 
         private void OpenForEditing(PhotoItem photo)
@@ -201,15 +208,18 @@ namespace Maple.WinUI.ViewModels
             HasSidecarLoadError = false;
             SidecarLoadError = string.Empty;
             _openPhoto = photo;
+            _openCloudGeneration = _cloudSlot.Generation;
             _asShotTemperature = 6500f;
             _asShotTint = 0;
             _sidecarDirty = false;
             _decodedPhoto = null;
+            _decodedImageSize = null;
             Interlocked.Increment(ref _decodeGeneration);
             CancelActiveDecode();
             // Never let a stale image produce frames for the new photo; the
             // Preview screen shows the embedded JPEG until Edit decodes.
             Renderer.SetImage(null);
+            ReleaseBrushRasters();
             IsDecoding = false;
             DecodeStatus = string.Empty;
 
@@ -254,7 +264,7 @@ namespace Maple.WinUI.ViewModels
             RequestEmbeddedPreview(photo);
         }
 
-        /// <summary>Start the scene-linear decode for the current photo if it
+        /// <summary>Start the capture decode for the current photo if it
         /// has not run yet — called when the Edit screen is entered. The
         /// embedded-JPEG preview stays on screen until the first chain frame.</summary>
         public void EnsureDecoded()
@@ -272,7 +282,7 @@ namespace Maple.WinUI.ViewModels
             DecodeCurrent(photo);
         }
 
-        /// <summary>Re-run the scene-linear decode for the current model without
+        /// <summary>Re-run the capture decode for the current model without
         /// resetting the undo stack (used at open and when a decode-owned field
         /// like AutoExposure changes). Always decodes at Preview first; see
         /// <see cref="ScheduleAmazeUpgrade"/> for the optional follow-up
@@ -288,10 +298,14 @@ namespace Maple.WinUI.ViewModels
             ResetLensProfileState();   // #3480 — EditSessionViewModel.LensProfile.cs
             RefreshLensProfileChoices(photo);   // #3568 — the profile dropdown's option list
             var generation = Interlocked.Increment(ref _decodeGeneration);
+            UpdateAutoProfileStatus(_autoProfileStatus.Begin(generation, keepOutcome: preserveCurrentBase));
             CancelActiveDecode();
             // Repair-only updates retain the last completed base so exposure and
             // other chain controls can render while the replacement decodes.
-            if (!preserveCurrentBase) Renderer.SetImage(null);
+            if (!preserveCurrentBase)
+            {
+                Renderer.SetImage(null);
+            }
 
             IsDecoding = true;
             HasDecodeError = false;
@@ -311,9 +325,7 @@ namespace Maple.WinUI.ViewModels
                         photo.EditPath, model, PreviewLongEdge, RefineDecodeQuality.Preview, cancelFlag);
                     if (generation != _decodeGeneration)
                         return;
-                    Renderer.SetImage(decoded, () => !_disposed && generation == Volatile.Read(ref _decodeGeneration));
-                    OnUi(() => ApplyDecodedState(generation, photo, decoded));
-                    ScheduleAmazeUpgrade(generation, photo, model, decoded);
+                    RegisterBrushRastersAndPublish(generation, photo, decoded, model);
                 }
                 catch (Exception ex)
                 {
@@ -425,7 +437,9 @@ namespace Maple.WinUI.ViewModels
                 _sidecarDirty = false;
                 if (photo.IsCloud) PushCloudSidecar(photo);
                 else _localMetadataWrites.Stage(photo.FilePath, Adjustments,
-                    photo.Rating, photo.FlagStatus, photo.ColorLabel);
+                    photo.Rating, photo.FlagStatus, photo.ColorLabel,
+                    ShouldDiscardBrushCorrectionsFor(photo.FilePath),
+                    BrushCorrectionsToRestoreFor(photo.FilePath, Adjustments));
             }
             _localMetadataError = null;
             var failures = new List<string>();
@@ -439,6 +453,9 @@ namespace Maple.WinUI.ViewModels
                 }
                 else
                 {
+                    if (_discardBrushCorrectionsForPhotoPath is { } discardedPath &&
+                        string.Equals(discardedPath, result.Path, StringComparison.OrdinalIgnoreCase))
+                        SetBrushCorrectionDiscardPath(null);
                     if (string.Equals(result.Path, photo?.FilePath, StringComparison.OrdinalIgnoreCase))
                         _lastSidecarWriteText = result.Xml;
                     OnUi(() => SidecarSaved?.Invoke());
@@ -469,6 +486,7 @@ namespace Maple.WinUI.ViewModels
                     if (!ReferenceEquals(photo, SelectedPhoto)) return;
                     if (_sidecarDirty || _localMetadataWrites.Contains(photo.FilePath)) return;
                     var before = Adjustments;
+                    ReleaseBrushRasters();
                     Adjustments = doc.Adjustments;
                     photo.Rating = doc.Rating ?? 0;
                     photo.FlagStatus = doc.Flag ?? "none";

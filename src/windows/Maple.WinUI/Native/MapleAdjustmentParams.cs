@@ -7,7 +7,7 @@ namespace Maple.WinUI.Native
     /// C-ABI mirror of raw-ffi's MapleAdjustmentParams (scene_linear_chain.rs).
     /// Field order matches the Rust declaration byte-for-byte; fields are only
     /// ever appended at the tail (offset-stable ABI convention). Expected size
-    /// on x64: 696 bytes — asserted at startup by RawFfi.VerifyAbi().
+    /// on x64: 728 bytes — asserted at startup by RawFfi.VerifyAbi().
     /// </summary>
     [StructLayout(LayoutKind.Sequential)]
     public unsafe struct MapleAdjustmentParams
@@ -125,6 +125,16 @@ namespace Maple.WinUI.Native
         public float defringe_green_hue_hi;
         public float whites_anchor_ev;
         public float nr_sampling_scale;
+        /// <summary>#4738: 0 = CAT16 (default), 1 = diagonal Rec.2020 gains.</summary>
+        public uint wb_method;
+        public float color_grade_blending;
+        public float color_grade_shadow_edge;
+        public float color_grade_highlight_edge;
+        // The capture decode's creative stage (#5377), pinned for the call:
+        // the chain renders it at the absolute temperature/tint and ignores
+        // decoded_* and wb_frame_*. Null (a raster) keeps the
+        // scene-linear white-balance delta.
+        public MapleCaptureCreative* creative_ptr;
 
         /// <summary>
         /// Build params from the canonical model, mirroring the Swift reference
@@ -141,6 +151,9 @@ namespace Maple.WinUI.Native
                 nr_sampling_scale = nrSamplingScale,
                 temperature = (float)m.Temperature,
                 tint = (float)m.Tint,
+                // #4740: the CPU chain honours the model's WB method like
+                // the live chain (0 = CAT16, 1 = diagonal Rec.2020).
+                wb_method = m.WbMethod == WbMethod.DiagonalRec2020 ? 1u : 0u,
                 exposure = (float)m.Exposure,
                 contrast = (float)m.Contrast,
                 highlights = (float)m.Highlights,
@@ -209,6 +222,9 @@ namespace Maple.WinUI.Native
                 color_grade_global_hue = (float)m.ColorGradeGlobalHue,
                 color_grade_global_saturation = (float)m.ColorGradeGlobalSaturation,
                 color_grade_global_luminance = (float)m.ColorGradeGlobalLuminance,
+                color_grade_blending = (float)m.ColorGradeBlending,
+                color_grade_shadow_edge = (float)m.ColorGradeShadowEdge,
+                color_grade_highlight_edge = (float)m.ColorGradeHighlightEdge,
                 sharpen_amount = (float)m.SharpenAmount,
                 sharpen_radius = (float)m.SharpenRadius,
                 sharpen_detail = (float)m.SharpenDetail,

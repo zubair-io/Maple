@@ -41,7 +41,7 @@ export async function variantPreviewCache() {
     for (let index = 0; index < 3; index++) {
       const variantId = crypto.randomUUID();
       await variants.create(folder, 'photo.xmp', {
-        schemaVersion: 1,
+        schemaVersion: 2,
         variantId,
         variantName: 'Exposure ' + index,
         snapshots: [],

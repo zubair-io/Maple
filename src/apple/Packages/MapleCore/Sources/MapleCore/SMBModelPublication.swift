@@ -44,7 +44,9 @@ final class SMBModelPublication: @unchecked Sendable {
           model: savedModel, culling: culling,
           metadata: current.map { XMPParser.parseMetadata($0) } ?? XmpMetadata(),
           passthrough: current.map { XMPParser.parsePassthrough($0) } ?? .empty)
-        let entry = try entry(WorkflowSidecarCore.checkpoint(xmp: checkpoint))
+        let entry = try entry(
+          WorkflowSidecarCore.checkpoint(xmp: checkpoint),
+          parentId: WorkflowSidecarCore.headId(xmp: current, variantId: variantId))
         let output =
           try entry.map { try WorkflowSidecarCore.commit($0, in: checkpoint) }
           ?? checkpoint
@@ -72,9 +74,10 @@ final class SMBModelPublication: @unchecked Sendable {
     WorkflowSidecarError(message: "The sidecar changed. Refresh before retrying the edit.")
   }
 
-  private func entry(_ checkpoint: String) -> WorkflowHistoryEntry? {
+  private func entry(_ checkpoint: String, parentId: String = "") -> WorkflowHistoryEntry? {
     guard let action, let label else { return nil }
     return WorkflowHistoryEntry(
-      id: id, createdAtMs: createdAtMs, action: action, label: label, adjustmentXmp: checkpoint)
+      id: id, createdAtMs: createdAtMs, action: action, label: label, parentId: parentId,
+      writer: WorkflowContract.appleWriter, adjustmentXmp: checkpoint)
   }
 }

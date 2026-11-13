@@ -117,17 +117,33 @@ extension AppShell {
   /// exist, so the header no longer shows the bare `serverID.host` (#782).
   @MainActor
   func cloudLibraryTitle(serverID: URL, folderID: String, libraryPath: String) -> String {
+    let folder = CloudFoldersCache.load(server: serverID)?.first(where: { $0.id == folderID })
+    let leaf = (libraryPath as NSString).lastPathComponent
+    // A subfolder opened from the sidebar is titled by its own name; only
+    // the library's root takes the server's name (#5674).
+    if let folder, !leaf.isEmpty,
+      URL(fileURLWithPath: folder.path).standardizedFileURL
+        != URL(fileURLWithPath: libraryPath).standardizedFileURL
+    {
+      return leaf
+    }
     if let name = CloudServerRegistry.shared.displayName(for: serverID) {
       return name
     }
-    if let folder = CloudFoldersCache.load(server: serverID)?
-      .first(where: { $0.id == folderID })
-    {
-      return folder.displayName
-    }
-    let leaf = (libraryPath as NSString).lastPathComponent
+    if let folder { return folder.displayName }
     if !leaf.isEmpty { return leaf }
     return serverID.host ?? serverID.absoluteString
+  }
+
+  func makeCloudLibrarySource(
+    serverID: URL, folderID: String, path: String, httpClient: AuthenticatedHTTPClient? = nil
+  ) -> CloudSource {
+    CloudSource(
+      server: LocalNetworkResolver.shared.effectiveURL(for: serverID),
+      identity: serverID,
+      folderID: folderID,
+      libraryPath: path,
+      httpClient: httpClient ?? makeAuthenticatedHTTPClient(server: serverID))
   }
 
   @MainActor
@@ -138,6 +154,9 @@ extension AppShell {
       .cloudLibrary(serverID: serverID, folderID: folderID, libraryPath: libraryPath))
     currentRootBookmark = nil
 
+    // On iPhone a back swipe can put another folder level's model on top
+    // while this load awaits; it must keep filling the model it started in.
+    let model = browseVM
     Task { @MainActor in
       let session = sessionFor(serverID)
       // On cold start, sessionFor() returns a freshly-constructed
@@ -164,7 +183,7 @@ extension AppShell {
           serverID: serverID,
           folderID: folderID,
           libraryPath: libraryPath)
-        addCloudSheetTarget = .prefilled(serverID.host ?? serverID.absoluteString)
+        addCloudSheetTarget = .prefilled(CloudHost.signInPrefill(for: serverID))
         return
       }
 
@@ -180,14 +199,11 @@ extension AppShell {
         // tap doesn't go through there.
         cloudAssetDetailClient = CloudAssetDetailClient(
           server: effectiveServer, httpClient: httpClient)
-        let source = CloudSource(
-          server: effectiveServer,
-          folderID: folderID,
-          libraryPath: libraryPath,
-          httpClient: httpClient)
+        let source = makeCloudLibrarySource(
+          serverID: serverID, folderID: folderID, path: libraryPath, httpClient: httpClient)
         // Use the dir-listing loader so the grid shows BOTH
         // subfolders and images at this level.
-        await browseVM.loadCloudDir(source, absPath: libraryPath)
+        await model.loadCloudDir(source, absPath: libraryPath)
 
         // Path-not-on-server fallback. If the persisted path
         // was renamed or deleted server-side, /api/fs/dir 4xx's
@@ -195,7 +211,8 @@ extension AppShell {
         // library's registered root via /api/folders and retry
         // there, then update the persisted selection so cold
         // start no longer points at the missing path.
-        if browseVM.loadError != nil {
+        guard model === browseVM else { return }
+        if model.loadError != nil {
           let foldersClient = CloudFoldersClient(
             server: effectiveServer,
             httpClient: httpClient)
@@ -211,7 +228,7 @@ extension AppShell {
                 serverID: serverID,
                 folderID: folderID,
                 libraryPath: registered.path))
-            await browseVM.loadCloudDir(source, absPath: registered.path)
+            await model.loadCloudDir(source, absPath: registered.path)
           }
         }
 
@@ -221,18 +238,19 @@ extension AppShell {
         // user on an error banner with no way back in.
         if ReauthDecision.needsSignIn(
           isSignedIn: session.isSignedIn,
-          loadError: browseVM.loadError)
+          loadError: model.loadError)
         {
           pendingCloudReopen = PendingCloudOpen(
             serverID: serverID,
             folderID: folderID,
             libraryPath: libraryPath)
           if addCloudSheetTarget == nil {
-            addCloudSheetTarget = .prefilled(serverID.host ?? serverID.absoluteString)
+            addCloudSheetTarget = .prefilled(CloudHost.signInPrefill(for: serverID))
           }
           return
         }
 
+        guard model === browseVM else { return }
         libraryTitle = cloudLibraryTitle(
           serverID: serverID,
           folderID: folderID,
@@ -353,6 +371,7 @@ extension AppShell {
     let parentPath = (asset.abs_path as NSString).deletingLastPathComponent
     let source = CloudSource(
       server: effectiveServer,
+      identity: server,
       folderID: asset.folder_id,
       libraryPath: parentPath,
       httpClient: httpClient)
@@ -395,6 +414,7 @@ extension AppShell {
         absPath: asset.abs_path,
         address: asset.address
       ),
+      originalFileWriter: { try await source.writeOriginal(for: imageRef, to: $0) },
       bytesProvider: { try await downloadBox.bytes() }
     )
     if sessions[assetRef.id] == nil {

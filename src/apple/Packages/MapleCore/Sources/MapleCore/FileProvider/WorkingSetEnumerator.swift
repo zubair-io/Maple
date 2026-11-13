@@ -69,23 +69,20 @@ final class WorkingSetEnumerator: NSObject, NSFileProviderEnumerator {
                         lastTouched: now
                     )
                 }
-                // Resolve each entry's real folder parent so working-set
-                // items don't appear under a "Working Set" container in
-                // Finder. The OS still uses the working set for indexing
-                // and search; with real parents, items show up only in
-                // their owning folder.
-                let roots = (try? await rootCache?.roots()) ?? []
-                let items = entries.map { e -> MapleItem in
-                    let parent = Self.resolveParent(folderID: e.folderID,
-                                                     absPath: e.absPath,
-                                                     roots: roots)
-                    return MapleItem(workingSetEntry: e, parent: parent)
+                // An entry whose library isn't listed is left out rather
+                // than shown at the top level (#5503).
+                let roots = try await libraryRoots(covering: Set(entries.map(\.folderID)))
+                for start in stride(from: 0, to: entries.count, by: Self.enumerationBatchSize) {
+                    let batch = entries[start..<min(start + Self.enumerationBatchSize, entries.count)]
+                    observer.didEnumerate(batch.compactMap { e -> MapleItem? in
+                        Self.resolveParent(folderID: e.folderID, absPath: e.absPath, roots: roots)
+                            .map { MapleItem(workingSetEntry: e, parent: $0) }
+                    })
                 }
-                observer.didEnumerate(items)
                 observer.finishEnumerating(upTo: nil)
             } catch {
                 log.error("workingSet enumerate failed: \(error.localizedDescription, privacy: .public)")
-                observer.finishEnumeratingWithError(error)
+                observer.finishEnumeratingWithError(enumerationError(error))
             }
         }
     }
@@ -95,12 +92,23 @@ final class WorkingSetEnumerator: NSObject, NSFileProviderEnumerator {
     /// OS will call `enumerateChanges` again from the new anchor; the
     /// remaining backlog is then drained in a second (and third, …)
     /// round-trip.
-    private static let changesPageLimit = 500
+    private static let changesPageLimit = FileProviderChangeEnumeration.pageLimit
+
+    /// Items handed to the OS per `didEnumerate` call, so the extension
+    /// never holds every working-set item at once (#5456).
+    static let enumerationBatchSize = 200
 
     func enumerateChanges(for observer: NSFileProviderChangeObserver,
                           from anchor: NSFileProviderSyncAnchor) {
-        let since = Self.parseAnchor(anchor)
+        guard let since = Self.parseAnchor(anchor) else {
+            observer.finishEnumeratingWithError(
+                NSError(domain: NSFileProviderErrorDomain,
+                        code: NSFileProviderError.syncAnchorExpired.rawValue))
+            return
+        }
         Task {
+            guard await FileProviderChangeEnumeration.acquire(for: observer) else { return }
+            defer { FileProviderChangeEnumeration.release() }
             do {
                 let page = try await catalog.listChanges(since: since, limit: Self.changesPageLimit)
                 // Prefetch the library roots ONCE per call. Each row
@@ -112,7 +120,7 @@ final class WorkingSetEnumerator: NSObject, NSFileProviderEnumerator {
                 // and resolves against the cached list via
                 // `Self.resolveParent(folderID:absPath:roots:)`; mirror
                 // that here (Copilot review, PR #2687).
-                let roots = (try? await rootCache?.roots()) ?? []
+                let roots = try await libraryRoots(covering: Set(page.changes.compactMap(\.folderID)))
                 let resolution = await WorkingSetChangeResolver.resolveChanges(
                     page.changes, catalog: catalog, roots: roots,
                     workingSet: workingSet, log: log
@@ -122,8 +130,7 @@ final class WorkingSetEnumerator: NSObject, NSFileProviderEnumerator {
                     // A genuine connectivity failure (not merely a bad
                     // HTTP status from a server we DID reach) hit the
                     // per-asset metadata GET. Handing every row in the
-                    // batch its own stub — same hardcoded filename,
-                    // same `.rootContainer` parent — would paint
+                    // batch its own placeholder stub would paint
                     // Finder with a pile of colliding "(stub)" entries
                     // for the duration of the outage (jules WARN, PR
                     // #2687). Fail the whole call instead: the anchor
@@ -190,7 +197,7 @@ final class WorkingSetEnumerator: NSObject, NSFileProviderEnumerator {
                 )
             } catch {
                 log.error("enumerateChanges failed: \(error.localizedDescription, privacy: .public)")
-                observer.finishEnumeratingWithError(error)
+                observer.finishEnumeratingWithError(enumerationError(error))
             }
         }
     }
@@ -202,33 +209,39 @@ final class WorkingSetEnumerator: NSObject, NSFileProviderEnumerator {
 
     // MARK: - Helpers
 
-    /// Same shape as `FileProviderExtensionCore.resolveAssetParent` but
-    /// scoped to the WorkingSet enumeration loop — caller pre-fetches
-    /// the roots once and we resolve all entries against the same list.
-    /// Also called from `WorkingSetChangeResolver.resolveChange`.
-    ///
-    /// Fallbacks mirror the extension-core helper: never `.workingSet`
-    /// (the OS now treats that container as `noSuchItem`, which aborts
-    /// materialization). folderID-in-roots-but-prefix-mismatch routes
-    /// to the library root; folderID-not-in-roots routes to
-    /// `.rootContainer`.
+    /// Loaded once per call; a failure fails the call so the OS retries,
+    /// instead of resolving every item against an empty list. The served
+    /// list may predate a library added since, so one that misses any of
+    /// `folderIDs` is fetched fresh once; an asset whose library is still
+    /// absent is skipped and its change consumed, since no folder of
+    /// Maple's can show it either. No rootCache means no libraries.
+    private func libraryRoots(covering folderIDs: Set<String>) async throws -> [LibraryRoot] {
+        guard let rootCache else { return [] }
+        let served = try await rootCache.roots()
+        guard !folderIDs.subtracting([""]).isSubset(of: Set(served.map(\.id))) else { return served }
+        await rootCache.invalidate()
+        return try await rootCache.roots()
+    }
+
+    /// The folder an asset sits in, or nil when its library is not in
+    /// `roots`. Nil is never mapped to `.rootContainer`: the OS keeps that
+    /// parent and shows the asset at the top level until it next changes
+    /// (#5503). Never `.workingSet` either, which `item(for:)` answers with
+    /// `noSuchItem`. An `absPath` outside its library resolves to the
+    /// library root.
     static func resolveParent(folderID: String,
                               absPath: String,
-                              roots: [LibraryRoot]) -> NSFileProviderItemIdentifier {
-        guard let root = roots.first(where: { $0.id == folderID }) else {
-            return .rootContainer
-        }
+                              roots: [LibraryRoot]) -> NSFileProviderItemIdentifier? {
+        guard let root = roots.first(where: { $0.id == folderID }) else { return nil }
         let rootWithSlash = root.path.hasSuffix("/") ? root.path : root.path + "/"
         guard absPath.hasPrefix(rootWithSlash) else {
-            let rootIdent = FileProviderIdentifier.folder(folderID: folderID,
-                                                           relativePath: "")
-            return NSFileProviderItemIdentifier(rootIdent.rawValue)
+            return NSFileProviderItemIdentifier(
+                FileProviderIdentifier.folder(folderID: folderID, relativePath: "").rawValue)
         }
         let relative = String(absPath.dropFirst(rootWithSlash.count))
         let parentRelative = (relative as NSString).deletingLastPathComponent
-        let parentID = FileProviderIdentifier.folder(folderID: folderID,
-                                                       relativePath: parentRelative)
-        return NSFileProviderItemIdentifier(parentID.rawValue)
+        return NSFileProviderItemIdentifier(
+            FileProviderIdentifier.folder(folderID: folderID, relativePath: parentRelative).rawValue)
     }
 
     private static func kindFor(_ e: AssetListEntry) -> WorkingSetKind {
@@ -240,14 +253,21 @@ final class WorkingSetEnumerator: NSObject, NSFileProviderEnumerator {
         return .recent
     }
 
-    private static func anchor(_ cursor: Int64) -> NSFileProviderSyncAnchor {
-        NSFileProviderSyncAnchor(String(cursor).data(using: .utf8)!)
+    /// Prefix of every working-set anchor. A bare-cursor anchor comes from
+    /// a build that could parent items at the top level (#5503); refusing
+    /// it once makes the OS list the working set again and re-read every
+    /// item's parent.
+    static let anchorPrefix = "ws2:"
+
+    static func anchor(_ cursor: Int64) -> NSFileProviderSyncAnchor {
+        NSFileProviderSyncAnchor(Data((anchorPrefix + String(cursor)).utf8))
     }
 
-    private static func parseAnchor(_ anchor: NSFileProviderSyncAnchor) -> Int64 {
-        guard let s = String(data: anchor.rawValue, encoding: .utf8),
-              let v = Int64(s) else { return 0 }
-        return v
+    /// Nil when `anchor` predates `anchorPrefix` or cannot be read.
+    static func parseAnchor(_ anchor: NSFileProviderSyncAnchor) -> Int64? {
+        guard let text = String(data: anchor.rawValue, encoding: .utf8),
+              text.hasPrefix(anchorPrefix) else { return nil }
+        return Int64(text.dropFirst(anchorPrefix.count))
     }
 }
 
@@ -274,12 +294,21 @@ public actor WorkingSetListCache {
     private var cachedAt: Date?
     private let ttl: TimeInterval
     private let now: () -> Date
+    private let limit: Int
 
     /// `now` is injectable so tests can advance the clock deterministically
-    /// instead of sleeping past a real TTL window.
-    init(catalog: RemoteCatalog, ttl: TimeInterval = 5 * 60, now: @escaping () -> Date = Date.init) {
+    /// instead of sleeping past a real TTL window. `limit` caps each of the
+    /// three queries at the platform's working-set capacity (#5456): on iOS
+    /// three 20,000-row responses alone would exceed the extension's 20 MB
+    /// limit. A library with more favourites or XMP-bearing photos than
+    /// that seeds only `limit` of each; the rest still enumerate through
+    /// their folders.
+    init(catalog: RemoteCatalog, ttl: TimeInterval = 5 * 60,
+         limit: Int = WorkingSet.defaultCapacity,
+         now: @escaping () -> Date = Date.init) {
         self.catalog = catalog
         self.ttl = ttl
+        self.limit = limit
         self.now = now
     }
 
@@ -287,20 +316,17 @@ public actor WorkingSetListCache {
         if let c = cached, let cachedAt, now().timeIntervalSince(cachedAt) < ttl {
             return c
         }
-        // Pull all three filters and merge by id. Cap each query at 20k
-        // (server-side ceiling) — the working set itself is capped at
-        // 20k, so we never need more across the union.
-        async let favs = catalog.listAssets(ratingGTE: 1, limit: 20_000)
-        async let xmps = catalog.listAssets(hasXMP: true, limit: 20_000)
-        let thirtyDaysAgo = Date().addingTimeInterval(-30 * 86_400)
-        async let recents = catalog.listAssets(capturedAfter: thirtyDaysAgo, limit: 20_000)
-        let (a, b, c) = try await (favs.assets, xmps.assets, recents.assets)
-        var byId: [String: AssetListEntry] = [:]
+        // One query at a time, so only one response body is ever decoding.
         // Later writes win — we want favourite/xmp metadata if the same
-        // asset appears in multiple result sets, so order the merge to
-        // put recent first, then the eviction-immune kinds.
-        for e in c { byId[e.id] = e }
-        for e in a + b { byId[e.id] = e }
+        // asset appears in multiple result sets, so merge recent first,
+        // then the eviction-immune kinds.
+        var byId: [String: AssetListEntry] = [:]
+        let thirtyDaysAgo = Date().addingTimeInterval(-30 * 86_400)
+        for e in try await catalog.listAssets(capturedAfter: thirtyDaysAgo, limit: limit).assets {
+            byId[e.id] = e
+        }
+        for e in try await catalog.listAssets(ratingGTE: 1, limit: limit).assets { byId[e.id] = e }
+        for e in try await catalog.listAssets(hasXMP: true, limit: limit).assets { byId[e.id] = e }
         let merged = Array(byId.values)
         cached = merged
         cachedAt = now()

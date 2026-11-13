@@ -80,6 +80,7 @@
     /// grid stays live beneath it and none of the stack root's toolbars is
     /// laid out under it.
     @State private var hero: PreviewHeroSubject?
+    @State private var heroSeedTask: Task<Void, Never>?
     /// The tapped tile's window-space frame — where the hero grows from;
     /// nil for a Timeline / Search / deep-link push (it grows from centre).
     @State private var heroTileFrame: CGRect?
@@ -124,6 +125,8 @@
     let mapUnavailableReason: MapUnavailableReason?
     @Binding var browseDisplayMode: GridDisplayMode
     let browseVM: BrowseViewModel
+    /// The Library tab's root screen model; differs while a folder is pushed.
+    let rootBrowseVM: BrowseViewModel
     @Binding var sessions: [AssetRef.ID: EditSession]
 
     /// Passed through to the Settings tab so ServerAdmin (#2766) resolves
@@ -162,11 +165,16 @@
     /// Forwarded to the Library tab's `AppShellCenterColumn` call site
     /// (#2886) — mirrors `AppShellMacLayout`'s identically-named property.
     let onSelectMapPlace: (MapPlaceSearchTarget) -> Void
+    let onSignInForMap: (URL) -> Void
     let onSelectLocalAsset: (ImageRef) -> AssetRef?
     let onGrantPhotosAccess: () -> Void
     let onNavigateFolder: (URL) -> Void
     let onOpenEditor: (AssetRef) -> Void
     let onPrimeSession: (AssetRef) async -> Void
+    let onReadGridFilterMetadata: @MainActor @Sendable (AssetRef) async throws -> GridFilterMetadata
+    /// Synchronous source-aware session factory (`AppShell.browseSession`)
+    /// for the editor's unprimed fallback (#4712).
+    let makeEditSession: (AssetRef) -> EditSession
     let onFullImageFallback: () -> Void
     /// #2299: resolves the iPhone Preview sibling list for a Timeline-opened
     /// asset — forwarded straight through to `PhoneLibraryView`.
@@ -245,7 +253,8 @@
               mapThumbCache: mapThumbCache,
               mapUnavailableReason: mapUnavailableReason,
               browseDisplayMode: $browseDisplayMode,
-              browseVM: browseVM,
+              browseVM: rootBrowseVM,
+              activeBrowseVM: browseVM,
               sessions: $sessions,
               libraryPath: $libraryPath,
               toolbarContent: toolbarContent,
@@ -269,8 +278,9 @@
               },
               cloudPreviewSource: cloudPreviewSource,
               onSelectMapPlace: onSelectMapPlace,
-              // Merged-PhotoKit (local-only) timeline cells: same S5
-              // push as cloud assets (#809).
+              onSignInForMap: onSignInForMap,
+              // Local-only timeline cells (PhotoKit or a saved Folder's
+              // file): same S5 push as cloud assets (#809).
               onSelectLocalAsset: { ref in
                 if let assetRef = onSelectLocalAsset(ref) {
                   pushPreview(assetRef)
@@ -295,6 +305,8 @@
               onSelectedTileFrameChange: { selectedTileFrame = $0 },
               hiddenTileID: hero == nil || heroPhase == .open ? nil : hero?.asset.id,
               onPrimeSession: onPrimeSession,
+              onReadGridFilterMetadata: onReadGridFilterMetadata,
+              makeEditSession: makeEditSession,
               onFullImageFallback: onFullImageFallback,
               timelinePreviewSiblingAssets: timelinePreviewSiblingAssets,
               onMergePanorama: onMergePanorama,
@@ -307,6 +319,7 @@
             )
           }
           .toolbar(presentsPreviewHero ? .hidden : .visible, for: .navigationBar)
+          .background(PhoneTabReselectInterceptor(onReselect: openDrawerOnLibraryReselect))
           // PreviewHero is drawn above the live grid. Keep the grid mounted
           // for its close transition, but never expose its controls behind
           // the preview to VoiceOver or UI automation.
@@ -336,6 +349,7 @@
               .opacity(presentsPreviewHero ? 1 : 0)
               .allowsHitTesting(presentsPreviewHero)
               .accessibilityHidden(!presentsPreviewHero)
+              .environment(\.previewCanvasIsCovered, !presentsPreviewHero)
               .zIndex(1)
             }
           }
@@ -347,16 +361,15 @@
             // the entry going away (back from a popped editor, a
             // reset) drops it.
             guard let entry else {
+              heroSeedTask?.cancel()
               hero = nil
               heroClose = nil
               return
             }
             guard hero?.asset.id != entry.id else { return }
             selectedTileFrame = nil
-            heroPhase = .opening
-            hero = PreviewHeroSubject(
-              asset: entry,
-              image: ThumbnailDecoder.cachedImage(forKey: entry.stableID ?? entry.id.uuidString))
+            if hero == nil { heroPhase = .opening }
+            showHero(for: entry, fallback: nil)
           }
         }
 
@@ -387,7 +400,8 @@
               makeSession: makePhoneSearchSession,
               resolveAsset: resolveSearchAsset,
               loadSiblingAssets: searchPreviewSiblingAssets,
-              onPrimeSession: onPrimeSession
+              onPrimeSession: onPrimeSession,
+              makeEditSession: makeEditSession
             )
           }
         }
@@ -423,12 +437,20 @@
 
     /// Prefill the Search tab with `text` and switch to it. `SearchView`'s
     /// `.onAppear` re-issues a non-empty query, so the search runs on arrival.
-    /// Clearing `libraryPath` pops any open editor/preview (and its info
-    /// sheet) so the user lands cleanly on the results.
+    /// Dropping the open editor/preview (and its info sheet) lands the user
+    /// cleanly on the results; the folder they were in stays.
     private func searchFor(_ text: String) {
       searchQuery = text
-      libraryPath = []
+      libraryPath = LibraryDestination.folderEntries(in: libraryPath)
       activeTab = "search"
+    }
+
+    /// Re-tapping the selected Library tab opens the side menu and keeps the
+    /// folder stack (#5674); other tabs keep UIKit's pop to root.
+    private func openDrawerOnLibraryReselect() -> Bool {
+      guard activeTab == "library" else { return false }
+      withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) { isDrawerOpen = true }
+      return true
     }
 
     /// Preview supplies its own non-interactive scale/fade presentation. Turn
@@ -466,12 +488,33 @@
         onEdit: { asset in libraryPath.append(.edit(asset)) },
         onSelectionChanged: { asset in
           browseVM.selectedID = asset.id
+          // Follow the page so the hero's subject (and the tile it hides
+          // on close) is the photo actually on screen (#4714). A sibling
+          // whose thumbnail is not cached keeps the previous still rather
+          // than closing on the grey 1×1 placeholder.
+          showHero(for: asset, fallback: hero?.image)
           // Prime the real session the moment a lazily-built sibling
           // becomes the shown asset, so a later Edit tap reuses it
           // (idempotent, matches `onPrimeSession`'s BrowseGrid contract).
           Task { await onPrimeSession(asset) }
         }
       )
+    }
+
+    /// Keep the preview transition responsive even when the image lives on
+    /// a slow mounted folder. A late seed belongs only to its current asset.
+    private func showHero(for asset: AssetRef, fallback: CGImage?) {
+      heroSeedTask?.cancel()
+      hero = PreviewHeroSubject(asset: asset, image: fallback)
+      heroSeedTask = Task {
+        let key = await DevelopedImageRevision.shared.decodedKeyAsync(
+          for: asset.stableID ?? asset.id.uuidString,
+          source: .local(asset, source: nil))
+        guard !Task.isCancelled, hero?.asset.id == asset.id,
+          let image = ThumbnailDecoder.cachedImage(forKey: key)
+        else { return }
+        hero = PreviewHeroSubject(asset: asset, image: image)
+      }
     }
 
     /// Remove the `.preview` entry once the hero has closed. Everything
@@ -484,19 +527,15 @@
     }
 
     /// `libraryPath` without its `.preview` entry — what the Library tab's
-    /// NavigationStack actually pushes. Writes (a pop) remove from the tail
-    /// of the full path, so a popped editor lands back on Preview.
+    /// NavigationStack actually pushes. A popped editor lands back on
+    /// Preview; a popped folder lands on its parent's grid.
     private var pushedLibraryPath: Binding<[LibraryDestination]> {
       Binding(
         get: {
           LibraryDestination.pushedDestinations(in: libraryPath)
         },
         set: { pushed in
-          let previews = libraryPath.filter {
-            if case .preview = $0 { return true }
-            return false
-          }
-          libraryPath = previews + pushed
+          libraryPath = LibraryDestination.applyingPushedDestinations(pushed, to: libraryPath)
         }
       )
     }

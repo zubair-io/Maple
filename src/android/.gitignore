@@ -1,0 +1,11 @@
+.gradle/
+.kotlin/
+.cxx/
+**/build/
+local.properties
+native/target/
+ci-artifacts/
+*.jks
+*.p12
+*.keystore
+out/

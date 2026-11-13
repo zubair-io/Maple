@@ -63,6 +63,8 @@
 //! positive seen from above, ±180°; pitch 0 = level, −90 = nadir; roll
 //! normally 0. Mapping into the crate's world frame is the solver's job.
 
+use std::collections::HashMap;
+
 use quick_xml::events::Event;
 use quick_xml::name::ResolveResult;
 use quick_xml::reader::NsReader;
@@ -78,6 +80,17 @@ pub struct GimbalPrior {
     pub yaw_deg: f64,
     pub pitch_deg: f64,
     pub roll_deg: f64,
+}
+
+/// DJI aircraft GPS fix from the XMP packet (#4519). Advisory: it only
+/// gates structured-grid loop closures by ground distance.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct GpsPrior {
+    pub lat_deg: f64,
+    pub lon_deg: f64,
+    /// Height above the take-off point, metres — the closest available
+    /// proxy for height above ground.
+    pub relative_altitude_m: Option<f64>,
 }
 
 /// Per-frame initialization priors derived from [`PanoSourceMetadata`].
@@ -96,6 +109,8 @@ pub struct FramePriors {
     /// DJI gimbal attitude, when the source carries a `drone-dji` XMP
     /// packet with all three angles.
     pub gimbal: Option<GimbalPrior>,
+    /// DJI aircraft GPS fix, when the XMP packet carries one.
+    pub gps: Option<GpsPrior>,
 }
 
 impl FramePriors {
@@ -127,6 +142,7 @@ impl FramePriors {
             focal_35mm_equiv,
             focal_px: focal_px_from_exif(focal_35mm_equiv, w, h),
             gimbal: md.xmp_packet.as_deref().and_then(parse_dji_gimbal),
+            gps: md.xmp_packet.as_deref().and_then(parse_dji_gps),
         }
     }
 }
@@ -218,10 +234,42 @@ pub fn derive_focal_35mm_equiv(
 /// wrong prior is worse than no prior). Malformed XML degrades to `None`,
 /// never an error — the prior is advisory.
 pub fn parse_dji_gimbal(xmp: &[u8]) -> Option<GimbalPrior> {
+    let attrs = dji_numeric_attributes(xmp)?;
+    Some(GimbalPrior {
+        yaw_deg: *attrs.get("GimbalYawDegree")?,
+        pitch_deg: *attrs.get("GimbalPitchDegree")?,
+        roll_deg: *attrs.get("GimbalRollDegree")?,
+    })
+}
+
+/// Parse the aircraft GPS fix (`drone-dji:GpsLatitude` /
+/// `GpsLongitude`, plus `RelativeAltitude` above take-off when present)
+/// out of a raw XMP packet (#4519). Some DJI firmwares spell the
+/// longitude tag `GpsLongtitude`; both are accepted. An out-of-range or
+/// `(0, 0)` "no fix" position yields `None`.
+pub fn parse_dji_gps(xmp: &[u8]) -> Option<GpsPrior> {
+    let attrs = dji_numeric_attributes(xmp)?;
+    let lat_deg = *attrs.get("GpsLatitude")?;
+    let lon_deg = *attrs
+        .get("GpsLongitude")
+        .or_else(|| attrs.get("GpsLongtitude"))?;
+    let plausible =
+        lat_deg.abs() <= 90.0 && lon_deg.abs() <= 180.0 && (lat_deg != 0.0 || lon_deg != 0.0);
+    plausible.then(|| GpsPrior {
+        lat_deg,
+        lon_deg,
+        relative_altitude_m: attrs.get("RelativeAltitude").copied(),
+    })
+}
+
+/// Every numeric attribute in a `drone-dji` namespace (any URI containing
+/// `drone-dji` — module docs), keyed by local name. `None` on malformed
+/// XML.
+fn dji_numeric_attributes(xmp: &[u8]) -> Option<HashMap<String, f64>> {
     let mut reader = NsReader::from_reader(xmp);
     // The xpacket wrapper and padding around the XML are fine for
     // quick-xml; non-UTF-8 or truncated packets surface as Err → None.
-    let (mut yaw, mut pitch, mut roll) = (None, None, None);
+    let mut attrs = HashMap::new();
     let mut buf = Vec::new();
     loop {
         match reader.read_event_into(&mut buf) {
@@ -234,16 +282,13 @@ pub fn parse_dji_gimbal(xmp: &[u8]) -> Option<GimbalPrior> {
                     if !contains_subslice(ns.as_ref(), b"drone-dji") {
                         continue;
                     }
-                    let slot = match local.as_ref() {
-                        b"GimbalYawDegree" => &mut yaw,
-                        b"GimbalPitchDegree" => &mut pitch,
-                        b"GimbalRollDegree" => &mut roll,
-                        _ => continue,
-                    };
-                    if let Ok(v) = attr.unescape_value() {
-                        if let Ok(parsed) = v.trim().parse::<f64>() {
-                            *slot = Some(parsed);
-                        }
+                    let parsed = attr
+                        .unescape_value()
+                        .ok()
+                        .and_then(|v| v.trim().parse::<f64>().ok())
+                        .filter(|v| v.is_finite());
+                    if let Some(value) = parsed {
+                        attrs.insert(String::from_utf8_lossy(local.as_ref()).into_owned(), value);
                     }
                 }
             }
@@ -253,11 +298,7 @@ pub fn parse_dji_gimbal(xmp: &[u8]) -> Option<GimbalPrior> {
         }
         buf.clear();
     }
-    Some(GimbalPrior {
-        yaw_deg: yaw?,
-        pitch_deg: pitch?,
-        roll_deg: roll?,
-    })
+    Some(attrs)
 }
 
 /// `haystack.contains(needle)` for byte slices.

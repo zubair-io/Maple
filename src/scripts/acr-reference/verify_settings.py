@@ -35,9 +35,30 @@ def equivalent(key, actual, expected) -> bool:
 
 
 def verify_png(path: Path, expected: dict) -> None:
-    if not REFERENCE_KEYS <= set(expected) <= REFERENCE_KEYS | OPTIONAL_REFERENCE_KEYS:
+    # Older sidecars may omit these controls only while luminance NR is off.
+    # Active NR must be reproducible without inheriting Adobe defaults (#4851).
+    dormant_luminance_keys = (
+        {
+            "LuminanceNoiseReductionDetail",
+            "LuminanceNoiseReductionContrast",
+        }
+        if equivalent("LuminanceSmoothing", expected.get("LuminanceSmoothing"), "0")
+        else set()
+    )
+    missing = sorted(REFERENCE_KEYS - dormant_luminance_keys - set(expected))
+    unexpected = sorted(set(expected) - REFERENCE_KEYS - OPTIONAL_REFERENCE_KEYS)
+    if missing or unexpected:
         raise ValueError(
             "reference XMP must explicitly author all neutral tone/lens controls"
+            f" (missing: {', '.join(missing) or 'none'};"
+            f" unexpected: {', '.join(unexpected) or 'none'})"
+        )
+    if (
+        expected.get("WhiteBalance", "").casefold() == "custom"
+        and not OPTIONAL_REFERENCE_KEYS <= expected.keys()
+    ):
+        raise ValueError(
+            "Custom reference XMP must explicitly author Temperature and Tint"
         )
     with Image.open(path) as image:
         metadata = image.info.get("XML:com.adobe.xmp") or image.info.get("xmp")
@@ -52,6 +73,8 @@ def verify_png(path: Path, expected: dict) -> None:
         "SharpenEdgeMasking": "Sharpness",
         "ColorNoiseReductionDetail": "ColorNoiseReduction",
         "ColorNoiseReductionSmoothness": "ColorNoiseReduction",
+        "LuminanceNoiseReductionDetail": "LuminanceSmoothing",
+        "LuminanceNoiseReductionContrast": "LuminanceSmoothing",
     }
     for key in sorted(expected):
         parent = dormant_parent.get(key)

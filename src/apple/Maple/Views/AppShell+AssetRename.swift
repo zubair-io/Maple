@@ -86,13 +86,26 @@ extension AppShell {
       return
     }
     renameError = nil
+    // Bind to the share that listed `asset` before any suspension: a share switch
+    // during the sidecar flush must not retarget the same path on another share.
+    let smbSource = browseVM.currentSource as? SMBSource
+    // On iPhone the user can open another folder level before the rename
+    // lands; the photo is renamed in the folder it was picked in.
+    let sourceModel = browseVM
     Task { @MainActor in
       do {
-        let newAsset = try await performRename(asset: asset, to: newFilename)
-        applyRenamed(oldID: asset.id, newAsset: newAsset)
+        if let existingSession = sessions[asset.id] {
+          try await existingSession.flushPendingSidecarWriteConfirmed()
+          await existingSession.setSidecarWritesEnabled(false)
+        }
+        let newAsset = try await performRename(
+          asset: asset, to: newFilename, smbSource: smbSource)
+        await applyRenamed(
+          oldID: asset.id, newAsset: newAsset, in: sourceModel, smbSource: smbSource)
         renamingAssetID = nil
         renameError = nil
       } catch {
+        await sessions[asset.id]?.setSidecarWritesEnabled(true)
         renameError = error.localizedDescription
       }
     }
@@ -100,15 +113,17 @@ extension AppShell {
 
   // MARK: - Routing
 
-  private func performRename(asset: AssetRef, to newFilename: String) async throws -> AssetRef {
+  private func performRename(
+    asset: AssetRef, to newFilename: String, smbSource: SMBSource?
+  ) async throws -> AssetRef {
     if asset.catalog != nil {
       return try await renameCloudAsset(asset, to: newFilename)
     }
     if let url = asset.primaryURL {
       return try await renameLocalAsset(asset, url: url, to: newFilename)
     }
-    if browseVM.currentSource is SMBSource {
-      return try await renameSMBAsset(asset, to: newFilename)
+    if let smbSource {
+      return try await renameSMBAsset(asset, to: newFilename, source: smbSource)
     }
     throw FileOperationError.unsupportedSource("rename is not available for this asset")
   }
@@ -131,31 +146,17 @@ extension AppShell {
 
   // MARK: - SMB
 
-  private func renameSMBAsset(_ asset: AssetRef, to newFilename: String) async throws -> AssetRef {
-    guard let source = browseVM.currentSource as? SMBSource,
-      let mapleID = asset.stableID,
-      let bytesProvider = asset.bytesProvider
+  private func renameSMBAsset(
+    _ asset: AssetRef, to newFilename: String, source: SMBSource
+  ) async throws -> AssetRef {
+    guard let ref = asset.smbMutationRef,
+      asset.bytesProvider != nil
     else {
       throw FileOperationError.sourceMissing("SMB share is not connected")
     }
-    let ref = ImageRef(id: mapleID, displayName: asset.displayName, url: nil)
-    _ = try await source.renameAsset(ref, to: newFilename)
-    let ext = (newFilename as NSString).pathExtension.lowercased()
-    // Reuse the OLD `bytesProvider` verbatim: it closes over the SAME
-    // `ImageRef` (maple_id, unchanged by a rename) and resolves the
-    // share-relative path at CALL time via `SMBSource.path(for:)` —
-    // which `renameAsset` above just updated — so it already points at
-    // the new location without rebuilding anything.
-    return AssetRef(
-      displayName: newFilename,
-      hintExtension: ext.isEmpty ? nil : ext,
-      stableID: mapleID,
-      captureDate: asset.captureDate,
-      explicitIsRaw: asset.explicitIsRaw,
-      thumbnailProvenance: asset.thumbnailProvenance,
-      displayPreviewProvider: asset.displayPreviewProvider,
-      bytesProvider: bytesProvider
-    )
+    let path = try await source.renameAsset(ref, to: newFilename)
+    // Keep decode routing and bind drag-out to the confirmed new path.
+    return try asset.renamedSMB(to: newFilename, at: path, source: source)
   }
 
   // MARK: - Cloud
@@ -163,7 +164,7 @@ extension AppShell {
   private func renameCloudAsset(_ asset: AssetRef, to newFilename: String) async throws -> AssetRef
   {
     guard let catalog = asset.catalog, let assetID = asset.stableID,
-      let bytesProvider = asset.bytesProvider
+      asset.bytesProvider != nil
     else {
       throw FileOperationError.unsupportedSource(
         "This photo hasn't finished indexing on the server yet — rename isn't available until it has."
@@ -175,24 +176,11 @@ extension AppShell {
     let result = try await remote.renameAsset(assetID: assetID, newFilename: newFilename)
     switch result {
     case .ok(let response):
-      let ext = (newFilename as NSString).pathExtension.lowercased()
-      return AssetRef(
-        displayName: newFilename,
-        hintExtension: ext.isEmpty ? nil : ext,
-        stableID: assetID,
-        captureDate: asset.captureDate,
-        explicitIsRaw: asset.explicitIsRaw,
-        thumbnailProvenance: asset.thumbnailProvenance,
-        displayPreviewProvider: asset.displayPreviewProvider,
-        // The server response has no fresh `address` (slug:relPath)
-        // for the new location — nil is the CORRECT value here, not
-        // a regression: `InfoPanelView.loadEnrichment` already falls
-        // back to a by-fspath lookup when `catalog.address` is nil.
-        catalog: CatalogRef(
-          serverID: catalog.serverID, folderID: catalog.folderID,
-          absPath: response.newAbsPath, address: nil),
-        bytesProvider: bytesProvider
+      let source = CloudSource(
+        server: effectiveServer, identity: catalog.serverID, folderID: catalog.folderID,
+        libraryPath: "", httpClient: httpClient
       )
+      return try asset.renamedCloud(to: newFilename, at: response.newAbsPath, source: source)
     case .skipped:
       throw FileOperationError.destinationExists(newFilename)
     case .invalid(let message):
@@ -204,26 +192,46 @@ extension AppShell {
 
   // MARK: - Post-commit reconciliation
 
-  /// Patches `browseVM.assets` IN PLACE (same index — no rescan),
+  /// Patches the source folder's assets IN PLACE (same index — no rescan),
   /// repoints selection, and rebuilds any live `EditSession` at the new
   /// id via the existing lazy `ensureSession(for:)` — which resolves the
   /// right remote sidecar store per source kind and calls `loadSidecar()`,
   /// so the session hydrates from the sidecar the relocate engine already
   /// moved rather than needing its in-memory state hand-carried over.
-  private func applyRenamed(oldID: AssetRef.ID, newAsset: AssetRef) {
-    if let idx = browseVM.assets.firstIndex(where: { $0.id == oldID }) {
-      browseVM.assets[idx] = newAsset
+  private func applyRenamed(
+    oldID: AssetRef.ID, newAsset: AssetRef, in model: BrowseViewModel, smbSource: SMBSource?
+  ) async {
+    if let idx = model.assets.firstIndex(where: { $0.id == oldID }) {
+      model.assets[idx] = newAsset
+      model.invalidateGridFilterForAssetIdentityChange()
     }
-    let wasSelected = browseVM.selectedID == oldID
-    if browseVM.selectedIDs.contains(oldID) {
-      browseVM.selectedIDs.remove(oldID)
-      browseVM.selectedIDs.insert(newAsset.id)
+    let wasSelected = model.selectedID == oldID
+    if model.selectedIDs.contains(oldID) {
+      model.selectedIDs.remove(oldID)
+      model.selectedIDs.insert(newAsset.id)
     }
-    sessions.removeValue(forKey: oldID)
+    let departing = sessions.removeValue(forKey: oldID)
+    // In-flight edits follow the rename to its own share, not whichever is open now (#4987).
+    let newSession = browseSession(for: newAsset, smbSource: smbSource)
+    if let departing {
+      await newSession.adoptInFlightRenameEdits(from: departing)
+      Task { await departing.setSidecarWritesEnabled(false) }
+    }
+    if !newSession.hasLoadedSidecar {
+      Task { await newSession.loadSidecar() }
+    }
     if wasSelected {
-      browseVM.selectedID = newAsset.id
+      model.selectedID = newAsset.id
     }
-    ensureSession(for: newAsset)
+    #if os(iOS)
+      // Preview pages by selection without rewriting its route, so the
+      // selection counts only when it belongs to the folder on screen.
+      if (wasSelected && model === browseVM)
+        || libraryPath.contains(where: { $0.asset?.id == oldID })
+      {
+        libraryPath = LibraryDestination.replacingAsset(in: libraryPath, with: newAsset)
+      }
+    #endif
   }
 }
 

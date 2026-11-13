@@ -160,16 +160,16 @@ describe('re-arming a stage while an attempt is in flight', () => {
     expect(new Set(leases).size).toBe(3);
   });
 
-  test('the same re-arm also stops a stale meili completion from restoring its version', async () => {
+  test('the same re-arm also stops a stale embed completion from restoring its version', async () => {
     using handle = await createTestDatabase();
     const db = testSqliteDb(handle.db);
-    const assetId = seedClaimableAsset(handle.db, { stages: { meili: {} } });
-    const oldClaim = await claim(db, 'meili', assetId);
+    const assetId = seedClaimableAsset(handle.db, { stages: { embed: {} } });
+    const oldClaim = await claim(db, 'embed', assetId);
 
     await db.transaction(searchRearmStatements(assetId));
     await db.transaction(stageSuccessStatements(oldClaim));
 
-    expect(stageRow(handle.db, assetId, 'meili')).toMatchObject({
+    expect(stageRow(handle.db, assetId, 'embed')).toMatchObject({
       version: 0,
       next_attempt_at: null,
     });

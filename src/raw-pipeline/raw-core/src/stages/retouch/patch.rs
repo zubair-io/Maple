@@ -132,7 +132,11 @@ pub(super) fn apply_footprint(
                     if i % pw == 0 && cancel.is_cancelled() {
                         return Err(Error::Cancelled);
                     }
-                    out_c[i] = (dst_low[i] + (src_c[i] - src_low[i])).max(0.0);
+                    // Heal must not invent negative light, but on the signed
+                    // capture-first basis (#5213) the destination may
+                    // already carry some; the floor follows it down.
+                    let floor = dst_low[i].min(0.0);
+                    out_c[i] = (dst_low[i] + (src_c[i] - src_low[i])).max(floor);
                 }
             }
             out

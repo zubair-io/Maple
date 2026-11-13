@@ -1,7 +1,22 @@
 //! ICC belongs to the primary item's associated colour property, not alpha.
 use super::*;
 
-pub(super) fn read_icc(iprp: &[u8], primary: u32) -> Option<Vec<u8>> {
+pub(crate) fn read_icc(iprp: &[u8], primary: u32) -> Option<&[u8]> {
+    read_colour_property(iprp, primary, &[b"prof", b"rICC"])
+        .and_then(|payload| payload.get(4..))
+        .filter(|profile| !profile.is_empty())
+}
+
+pub(crate) fn read_nclx(iprp: &[u8], primary: u32) -> Option<(u16, u16)> {
+    let payload = read_colour_property(iprp, primary, &[b"nclx"])?;
+    let cicp = payload.get(4..11)?;
+    Some((
+        u16::from_be_bytes([cicp[0], cicp[1]]),
+        u16::from_be_bytes([cicp[2], cicp[3]]),
+    ))
+}
+
+fn read_colour_property<'a>(iprp: &'a [u8], primary: u32, kinds: &[&[u8; 4]]) -> Option<&'a [u8]> {
     let ipco = find_child_box(iprp, 0, iprp.len(), b"ipco")?;
     let ipma = find_child_box(iprp, 0, iprp.len(), b"ipma")?;
     let associations = transform::parse_ipma_for_item(ipma, primary);
@@ -9,18 +24,13 @@ pub(super) fn read_icc(iprp: &[u8], primary: u32) -> Option<Vec<u8>> {
     let mut index = 1;
     while let Some((kind, start, end)) = box_header(ipco, at, ipco.len()) {
         let payload = ipco.get(start..end)?;
-        if kind == *b"colr" && associations.contains(&index) {
-            let profile = match payload.get(..4)? {
-                b"prof" | b"rICC" => payload.get(4..)?,
-                _ => {
-                    at = end;
-                    index += 1;
-                    continue;
-                }
-            };
-            if !profile.is_empty() && profile.len() <= crate::raster_meta::MAX_SIDECAR_BYTES {
-                return Some(profile.to_vec());
-            }
+        if kind == *b"colr"
+            && associations.contains(&index)
+            && kinds
+                .iter()
+                .any(|kind| payload.get(..4) == Some(kind.as_slice()))
+        {
+            return Some(payload);
         }
         at = end;
         index += 1;
@@ -65,7 +75,7 @@ mod tests {
     fn primary_association_controls_profile_selection() {
         for kind in [b"prof", b"rICC"] {
             assert_eq!(
-                read_icc(&properties(1, kind), 1).as_deref(),
+                read_icc(&properties(1, kind), 1),
                 Some(b"profile".as_slice())
             );
             assert_eq!(
@@ -80,6 +90,34 @@ mod tests {
             );
         }
     }
+    #[test]
+    fn nclx_requires_a_complete_primary_item_association() {
+        let nclx = bx(b"colr", b"nclx\0\x0c\0\x0d\0\x06\x80");
+        let ipco = bx(b"ipco", &nclx);
+        for association in [0, 1, 2] {
+            let fixture = properties(association, b"prof");
+            let ipma = find_child_box(&fixture, 0, fixture.len(), b"ipma").unwrap();
+            let iprp = [ipco.clone(), bx(b"ipma", ipma)].concat();
+            assert_eq!(read_nclx(&iprp, 1), (association == 1).then_some((12, 13)));
+            for end in 0..iprp.len() {
+                assert_eq!(read_nclx(&iprp[..end], 1), None);
+            }
+        }
+    }
+
+    #[test]
+    fn oversized_profile_presence_is_not_capped() {
+        let profile = vec![0; crate::raster_meta::MAX_SIDECAR_BYTES + 1];
+        let ipco = bx(
+            b"ipco",
+            &bx(b"colr", &[b"prof".as_slice(), &profile].concat()),
+        );
+        let association = properties(1, b"prof");
+        let ipma = find_child_box(&association, 0, association.len(), b"ipma").unwrap();
+        let iprp = [ipco, bx(b"ipma", ipma)].concat();
+        assert!(read_icc(&iprp, 1).is_some());
+    }
+
     #[test]
     fn truncated_colour_properties_are_total() {
         let fixture = properties(1, b"prof");

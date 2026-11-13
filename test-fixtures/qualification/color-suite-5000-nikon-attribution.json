@@ -1,0 +1,87 @@
+{
+  "scope": "Nikon sharpen_amount_max only. Historical pre-AgX control versus byte-identical current AgX output; this does not prove a current full-suite count.",
+  "current_renderer_commit": "cf62d12ddc573cff68780e7754f7b5b63f7ae621",
+  "candidate_sha256": "490b2f52d0e16adcf0d5b1cb0590a7aac667bfea5ea43d90123432b03fbeb691",
+  "historical_inputs_reverified": true,
+  "historical_attribution": {
+    "main_bias": [
+      0.17707738039100443,
+      0.16156593811047737,
+      0.16786906609835922
+    ],
+    "candidate_bias": [
+      0.1773304125949424,
+      0.1616701303848276,
+      0.16783952304522184
+    ],
+    "changed_green_improved_pixels": 42442,
+    "changed_green_worsened_pixels": 1164774,
+    "changed_green_equal_absolute_error_pixels": 0,
+    "rgb_absolute_error_delta_sum": [
+      2917887,
+      1122192,
+      -267109
+    ],
+    "bins": [
+      {
+        "codes": [
+          0,
+          63
+        ],
+        "pixels": 8115545,
+        "main_green_error_sum": 157385349,
+        "candidate_green_error_sum": 157385349,
+        "green_absolute_error_delta_sum": 0
+      },
+      {
+        "codes": [
+          64,
+          127
+        ],
+        "pixels": 19639671,
+        "main_green_error_sum": 1071616522,
+        "candidate_green_error_sum": 1071616522,
+        "green_absolute_error_delta_sum": 0
+      },
+      {
+        "codes": [
+          128,
+          191
+        ],
+        "pixels": 15865599,
+        "main_green_error_sum": 628884887,
+        "candidate_green_error_sum": 629560846,
+        "green_absolute_error_delta_sum": 671551
+      },
+      {
+        "codes": [
+          192,
+          241
+        ],
+        "pixels": 1820209,
+        "main_green_error_sum": 14252235,
+        "candidate_green_error_sum": 14783600,
+        "green_absolute_error_delta_sum": 450641
+      },
+      {
+        "codes": [
+          242,
+          255
+        ],
+        "pixels": 0,
+        "main_green_error_sum": 0,
+        "candidate_green_error_sum": 0,
+        "green_absolute_error_delta_sum": 0
+      }
+    ],
+    "metric_bias_reproduced": true,
+    "input_sha256": {
+      "/Volumes/Projects/maple-color-gate-20261015/main-efa6-physical/outputs/maple-calibrate-Gm1z6O/candidates/test_0014_sharpen_amount_max.png": "e7e0516eb35e60c2834831a435b1b635860a89f2e985c64aa0d36e774d7114f0",
+      "/Volumes/Projects/maple-color-gate-20261015/agx-common-highlight-isolated/physical/outputs/maple-calibrate-dkOGkC/candidates/test_0014_sharpen_amount_max.png": "490b2f52d0e16adcf0d5b1cb0590a7aac667bfea5ea43d90123432b03fbeb691",
+      "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0014/full/sharpen_amount_max.png": "789bb089325c2a452085b8d63bc5a741a041ae585b370d95e3ffc1ac343d864a"
+    },
+    "inputs_unchanged": true
+  },
+  "green_bias_above_budget": 7.01303848276158e-05,
+  "added_green_bias": 0.00010419227435023992
+}

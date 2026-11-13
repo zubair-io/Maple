@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 
 /// Namespace scopes are needed only while importing XMP, outside the render loop.
 #[derive(Default)]
-pub(super) struct Namespaces {
+pub(in crate::xmp) struct Namespaces {
     scopes: Vec<BTreeMap<String, String>>,
 }
 
@@ -41,7 +41,9 @@ impl Namespaces {
         };
         let canonical = match uri.as_str() {
             "http://ns.adobe.com/camera-raw-settings/1.0/" => "crs",
-            "http://ns.justmaple.app/photo/1.0/" | "http://ns.justmaple.app/1.0/" => "papp",
+            "http://ns.justmaple.app/photo/1.0/"
+            | "http://ns.justmaple.app/1.0/"
+            | "https://maple.app/ns/1.0/" => "papp",
             "http://www.w3.org/1999/02/22-rdf-syntax-ns#" => "rdf",
             _ => return format!("unowned:{local}"),
         };
@@ -73,7 +75,7 @@ impl Namespaces {
         Ok((name, normalized.into_owned()))
     }
 
-    pub(super) fn start(
+    pub(in crate::xmp) fn start(
         &mut self,
         element: &BytesStart<'_>,
     ) -> Result<(String, BytesStart<'static>)> {
@@ -83,11 +85,14 @@ impl Namespaces {
         Ok(normalized)
     }
 
-    pub(super) fn empty(&self, element: &BytesStart<'_>) -> Result<(String, BytesStart<'static>)> {
+    pub(in crate::xmp) fn empty(
+        &self,
+        element: &BytesStart<'_>,
+    ) -> Result<(String, BytesStart<'static>)> {
         Self::normalized(element, &self.scope(element)?)
     }
 
-    pub(super) fn end(&mut self, name: &str) -> String {
+    pub(in crate::xmp) fn end(&mut self, name: &str) -> String {
         let result = self
             .scopes
             .last()

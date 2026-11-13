@@ -52,7 +52,7 @@ public actor ThumbnailLoader {
   }()
   let decodeSlots = BoundedAsyncSemaphore(value: maxConcurrentDecodes)
 
-  /// In-flight loads, keyed by `cacheKey(for: assetURL)`. When two grid
+  /// In-flight loads, keyed by `ThumbnailDiskCache.memoryKey(for:)`. When two grid
   /// cells request the same thumbnail simultaneously (happens on scroll /
   /// layout churn), the second call awaits the first's Task instead of
   /// starting a duplicate decode. Major CPU win on large folders.
@@ -83,6 +83,13 @@ public actor ThumbnailLoader {
   // Multiple visible surfaces may share one producer. Cancellation owns a
   // consumer, not the producer, until the final consumer disappears.
   var thumbnailWaiters: [Task<Data?, Never>: Set<UUID>] = [:]
+  var activeProducers: Set<UUID> = []
+  var taskProducerIDs: [Task<Data?, Never>: UUID] = [:]
+  let cameraPreviewCache: NSCache<NSString, NSData> = {
+    let cache = NSCache<NSString, NSData>()
+    cache.countLimit = 128
+    return cache
+  }()
 
   // MARK: - Public API
 
@@ -121,7 +128,7 @@ public actor ThumbnailLoader {
     //    `await acquireDecodeSlot()` here would suspend the actor
     //    mid-registration and reopen the race — the Jules finding on
     //    PR #1907's display-preview path, same fix).
-    let coalescingKey = ThumbnailDiskCache.cacheKey(for: assetURL)
+    let coalescingKey = ThumbnailDiskCache.memoryKey(for: assetURL)
     if let existing = inFlight[coalescingKey], !existing.isCancelled {
       return await awaitThumbnail(existing)
     }
@@ -132,24 +139,10 @@ public actor ThumbnailLoader {
     //    span of the FFI call so the mmap inside `std::fs::read` sees
     //    an active scope.
     let scope = scopeParentURL ?? assetURL.deletingLastPathComponent()
-    let task = Task.detached(priority: .utility) { () -> Data? in
-      // Gate concurrent thumbs so the browse grid doesn't fire N
-      // decodes in parallel when the user opens a big folder.
-      do { try await self.acquireDecodeSlot() } catch { return nil }
-      let result = await Self.produceThumbnail(assetURL: assetURL, scope: scope)
-      await self.releaseDecodeSlot()
-      return result
+    let task = startLocalProducer(key: coalescingKey) {
+      await Self.produceThumbnail(assetURL: assetURL, scope: scope)
     }
-    inFlight[coalescingKey] = task
-    let result = await awaitThumbnail(task)
-    // Conditional removal: `cancelAll()` may have cleared the map and a
-    // NEWER task may already be registered under this key — evicting it
-    // here would silently break coalescing for that asset until the new
-    // task completes (Jules review, PR #1911).
-    if inFlight[coalescingKey] == task {
-      inFlight.removeValue(forKey: coalescingKey)
-    }
-    return result
+    return await awaitThumbnail(task)
   }
 
   /// Check that ImageIO can decode the cached image, not just read its header.
@@ -184,20 +177,16 @@ public actor ThumbnailLoader {
     let accessing = scope.startAccessingSecurityScopedResource()
     defer { if accessing { scope.stopAccessingSecurityScopedResource() } }
 
-    // ASSET-RELATIVE .maple/thumbs — render-time derivatives written
-    // next to the asset (e.g. a pano in Panoramas/) are found even when
-    // the singleton cache is configured for a different (parent) folder.
-    // (#1365.) The disk-cache hit at step 1 short-circuits before this,
-    // so RAWs in their own folder never pay for it.
-    let relThumb = MapleSidecarPaths.thumbURL(for: assetURL)
-    if FileManager.default.fileExists(atPath: relThumb.path) {
-      if let data = try? Data(contentsOf: relThumb), Self.isUsableImageData(data) {
+    // Retry under the claimed scope, using the same original/XMP freshness
+    // gate as step 1. A raw derivative read here would re-stamp stale bytes
+    // after an external sidecar change (#5346).
+    if let data = await ThumbnailDiskCache.shared.thumbnailData(for: assetURL) {
+      if Self.isUsableImageData(data) {
         guard !Task.isCancelled else { return nil }
-        await ThumbnailDiskCache.shared.storeThumbnailData(data, for: assetURL)
         return data
       }
       // A broken shared derivative should trigger source-based regeneration.
-      try? FileManager.default.removeItem(at: relThumb)
+      await ThumbnailDiskCache.shared.removeThumbnail(for: assetURL)
     }
 
     // VIDEO PATH — extract a poster frame via AVFoundation (#1642).
@@ -229,17 +218,34 @@ public actor ThumbnailLoader {
       return nil
     }
 
-    // Cold RAWs with a sidecar must preserve the authored render, including
-    // film looks; extracting the camera JPEG would undo the edit (#3973).
-    if !NonRawImageExtensions.all.contains(ext) {
+    // A sidecar on either RAW or non-RAW sources is authoritative. Rebuild
+    // authored pixels before trying a camera-original thumbnail (#3973/#5346).
+    let sourceSignature = LocalDerivativeSourceStamp.signature(for: assetURL)
+    if NonRawImageExtensions.all.contains(ext) {
+      do {
+        if let data = try await renderNonRawSidecarDerivative(
+          at: assetURL,
+          targetLongEdge: CGFloat(MapleThumbCacheKey.onShareThumbLongEdgePx),
+          quality: MapleThumbCacheKey.onShareThumbAVIFQuality
+        ) {
+          return await ThumbnailDiskCache.shared.storeThumbnailDataIfCurrent(
+            data, for: assetURL, sourceSignature: sourceSignature) ? data : nil
+        }
+      } catch {
+        logger.error(
+          "non-RAW sidecar thumbnail failed for \(assetURL.lastPathComponent, privacy: .public): \(error.localizedDescription, privacy: .public)"
+        )
+        return nil
+      }
+    } else {
       do {
         if let data = try renderRawSidecarDerivative(
           at: assetURL,
           targetLongEdge: CGFloat(MapleThumbCacheKey.onShareThumbLongEdgePx),
           quality: MapleThumbCacheKey.onShareThumbAVIFQuality
         ) {
-          await ThumbnailDiskCache.shared.storeThumbnailData(data, for: assetURL)
-          return data
+          return await ThumbnailDiskCache.shared.storeThumbnailDataIfCurrent(
+            data, for: assetURL, sourceSignature: sourceSignature) ? data : nil
         }
       } catch {
         logger.error(
@@ -248,6 +254,7 @@ public actor ThumbnailLoader {
         return nil
       }
     }
+    guard LocalDerivativeSourceStamp.matches(sourceSignature, for: assetURL) else { return nil }
 
     // FAST PATH — the shared Rust extractor reads the camera JPEG for
     // RAWs; ImageIO handles ordinary bitmaps. Neither synthesizes an
@@ -312,6 +319,9 @@ public actor ThumbnailLoader {
     for task in inFlight.values { task.cancel() }
     inFlight.removeAll()
     cameraPreviewWaiters.removeAll()
+    thumbnailWaiters.removeAll()
+    activeProducers.removeAll()
+    taskProducerIDs.removeAll()
   }
 
   /// Shrink the in-memory cache to roughly 25% of capacity. Called on
@@ -372,7 +382,7 @@ public actor ThumbnailLoader {
     //    previously had no coalescing at all: two cells requesting the
     //    same PhotoKit/SelfHosted asset each ran their own fetch +
     //    render). Namespaced so a stable id can never collide with the
-    //    URL overload's basename-hash keys.
+    //    URL overload's `memoryKey(for:)` keys.
     let coalescingKey = "sourceless:" + key
     if let existing = inFlight[coalescingKey], !existing.isCancelled {
       return await awaitThumbnail(existing)
@@ -383,26 +393,26 @@ public actor ThumbnailLoader {
     let provider = asset.bytesProvider
     let hint = asset.hintExtension ?? ""
     // Built once, reused by both the source.thumb() branch and the
-    // fallback's write-back call below — only id+displayName are
-    // needed; URL is unused for sourceless adapters.
-    let ref = stableID.map { ImageRef(id: $0, displayName: displayName) }
-    let task = Task.detached(priority: .utility) { () -> Data? in
-      do { try await self.acquireDecodeSlot() } catch { return nil }
-      let result = await self.produceSourcelessThumbnail(
-        source: source, ref: ref, key: key, provider: provider, hint: hint)
-      await self.releaseDecodeSlot()
-      return result
+    // fallback's write-back call below. The SMB location pins the read and
+    // write-back to the copy and share that listed it (#5051).
+    let smbPath = asset.smbPath
+    let smbSourceID = asset.smbSourceID
+    let ref = stableID.map {
+      ImageRef(id: $0, displayName: displayName, smbPath: smbPath, smbSourceID: smbSourceID)
     }
-    inFlight[coalescingKey] = task
-    let result = await awaitThumbnail(task)
-    if inFlight[coalescingKey] == task {
-      inFlight.removeValue(forKey: coalescingKey)
+    // A producer, like the URL-keyed path: a Maple Cloud request already on
+    // the wire finishes and fills the cache when its last cell scrolls away,
+    // instead of being cancelled into the RAW-download fallback (#5735).
+    let task = startLocalProducer(key: coalescingKey) {
+      await self.produceSourcelessThumbnail(
+        source: source, ref: ref, key: key, coalescingKey: coalescingKey,
+        provider: provider, hint: hint)
     }
-    return result
+    return await awaitThumbnail(task)
   }
 
   private nonisolated func produceSourcelessThumbnail(
-    source: (any ImageSource)?, ref: ImageRef?, key: String,
+    source: (any ImageSource)?, ref: ImageRef?, key: String, coalescingKey: String,
     provider: (@Sendable () async throws -> Data)?, hint: String
   ) async -> Data? {
     // Source-provided thumbnail (server-rendered / PhotoKit fast
@@ -419,8 +429,10 @@ public actor ThumbnailLoader {
     // Fallback: pull RAW bytes through the asset's provider, render
     // via the Rust pipeline, encode AVIF, persist — under the
     // decode-slot gate (acquired INSIDE the task; see the URL-keyed
-    // overload for why).
-    guard let provider else { return nil }
+    // overload for why). A full RAW download is only worth starting while
+    // a cell still wants this thumbnail; one that scrolled away must not
+    // hold a decode slot and the network for nobody.
+    guard let provider, await waiterCount(forKey: coalescingKey) > 0 else { return nil }
     let result: Data? = await {
       do {
         let bytes = try await provider()

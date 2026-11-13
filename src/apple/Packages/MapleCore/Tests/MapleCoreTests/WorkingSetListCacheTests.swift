@@ -12,6 +12,7 @@
 
 import XCTest
 @testable import MapleCore
+@testable import MapleFileProviderCore
 
 final class WorkingSetListCacheTests: XCTestCase {
     /// Each uncached `entries()` call fans out to three `/api/assets`

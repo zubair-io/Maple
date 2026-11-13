@@ -41,3 +41,8 @@ export function removalRecords(xml: string): string | null {
   if (values.length > 1) throw new Error('Conflicting InpaintRemovals fields');
   return values[0] ?? null;
 }
+
+export function removalStackChanged(current: string | null, next: string): boolean {
+  const before = current ? (removalRecords(current) ?? '[]') : '[]';
+  return before !== (removalRecords(next) ?? '[]');
+}

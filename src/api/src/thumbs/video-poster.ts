@@ -30,6 +30,8 @@
 import * as fs from 'node:fs/promises';
 import { child as childLogger } from '../log.ts';
 import { probeCommand } from '../process/probe-command.ts';
+import { throttledWarn } from '../log-throttle.ts';
+import { throwIfPermanentSourceFailure } from './source-failure.ts';
 
 const log = childLogger('video-poster');
 
@@ -138,9 +140,11 @@ async function isRunnable(bin: string): Promise<boolean> {
 
 /**
  * Extract a single poster frame from `videoPath` and write it to
- * `outJpegPath`. Returns false — never throws — when the host has no ffmpeg,
- * when the container holds no decodable video stream, or when extraction times
- * out; the caller treats that exactly like any other failed render branch.
+ * `outJpegPath`. Returns false when the host has no ffmpeg, when extraction
+ * times out, or when ffmpeg fails for a reason that may not be the file's.
+ * Throws `SourceDecodeError` for a container ffmpeg cannot parse and
+ * `NoVideoStreamError` for one with no video stream (#5513): both describe
+ * the original's bytes, so no retry would change them.
  *
  * `outJpegPath` is a caller-owned temp path. On failure nothing is left behind
  * at that path.
@@ -156,26 +160,35 @@ export async function extractVideoPosterJpeg(
   // SEEK_SECONDS leaves ffmpeg past EOF, where it exits 0 having written
   // nothing — which is why success is judged on the output file being present
   // and non-empty rather than on the exit code alone.
-  if (await runFfmpeg(bin, videoPath, outJpegPath, SEEK_SECONDS)) return true;
-  return await runFfmpeg(bin, videoPath, outJpegPath, 0);
+  const seeked = await runFfmpeg(bin, videoPath, outJpegPath, SEEK_SECONDS);
+  if (seeked === null) return true;
+  log.debug(seeked, 'ffmpeg produced no frame at seek — retrying from start');
+  const fromStart = await runFfmpeg(bin, videoPath, outJpegPath, 0);
+  if (fromStart === null) return true;
+  throttledWarn(log, `no-poster:${videoPath}`, fromStart, 'ffmpeg produced no poster frame');
+  return false;
 }
 
-async function runFfmpeg(
-  bin: string,
-  videoPath: string,
-  outJpegPath: string,
-  seekSeconds: number,
-): Promise<boolean> {
-  // `-ss` BEFORE `-i` is the fast path: ffmpeg seeks the container directly
-  // instead of decoding-and-discarding every frame up to the timestamp, which
-  // on a long clip is the difference between milliseconds and minutes.
-  //
-  // `-map 0:v:0` pins the first video stream — without it a file carrying a
-  // cover-art / thumbnail stream can yield that instead of real footage.
-  // `-an`/`-sn` drop audio and subtitles. `-frames:v 1` stops after one frame.
-  // Rotation from the container's display matrix is applied by default, which
-  // is what the thumb contract wants: orientation baked into the pixels.
-  const args = [
+interface FfmpegFailure {
+  videoPath: string;
+  exitCode: number | null;
+  seekSeconds: number;
+  stderr: string;
+}
+
+/**
+ * `-ss` BEFORE `-i` is the fast path: ffmpeg seeks the container directly
+ * instead of decoding-and-discarding every frame up to the timestamp, which
+ * on a long clip is the difference between milliseconds and minutes.
+ *
+ * `-map 0:v:0` pins the first video stream — without it a file carrying a
+ * cover-art / thumbnail stream can yield that instead of real footage.
+ * `-an`/`-sn` drop audio and subtitles. `-frames:v 1` stops after one frame.
+ * Rotation from the container's display matrix is applied by default, which
+ * is what the thumb contract wants: orientation baked into the pixels.
+ */
+function posterArgs(videoPath: string, outJpegPath: string, seekSeconds: number): string[] {
+  return [
     '-hide_banner',
     '-loglevel',
     'error',
@@ -198,57 +211,81 @@ async function runFfmpeg(
     '-y',
     outJpegPath,
   ];
+}
 
+/** What one ffmpeg invocation did, before any judgement of it. */
+export interface FfmpegRun {
+  timedOut: boolean;
+  exitCode: number | null;
+  stderr: string;
+  producedBytes: boolean;
+}
+
+/**
+ * Null when the run left a poster. Throws for a permanent source failure
+ * (`throwIfPermanentSourceFailure`); otherwise returns the failure to log.
+ * Exit code alone is not sufficient — see the short-clip note in
+ * `extractVideoPosterJpeg` — so success also needs real bytes on disk.
+ */
+export async function posterRunFailure(
+  run: FfmpegRun,
+  videoPath: string,
+  seekSeconds: number,
+): Promise<FfmpegFailure | null> {
+  if (run.timedOut) return { videoPath, exitCode: null, seekSeconds, stderr: 'timed out' };
+  if (run.exitCode === 0 && run.producedBytes) return null;
+  const stderr = run.stderr.trim().slice(0, 500);
+  await throwIfPermanentSourceFailure(stderr, videoPath);
+  return { videoPath, exitCode: run.exitCode, seekSeconds, stderr };
+}
+
+async function spawnFfmpeg(bin: string, args: string[], outJpegPath: string): Promise<FfmpegRun> {
+  const proc = Bun.spawn([bin, ...args], { stdout: 'ignore', stderr: 'pipe' });
   const timedOut = { value: false };
+  const timer = setTimeout(() => {
+    timedOut.value = true;
+    proc.kill();
+  }, TIMEOUT_MS);
   try {
-    const proc = Bun.spawn([bin, ...args], {
-      stdout: 'ignore',
-      stderr: 'pipe',
-    });
-    const timer = setTimeout(() => {
-      timedOut.value = true;
-      proc.kill();
-    }, TIMEOUT_MS);
-
-    const [exitCode, stderr] = await (async () => {
-      try {
-        const text = await new Response(proc.stderr).text();
-        return [await proc.exited, text] as const;
-      } finally {
-        clearTimeout(timer);
-      }
-    })();
-
-    if (timedOut.value) {
-      log.warn({ videoPath, timeoutMs: TIMEOUT_MS }, 'ffmpeg timed out');
-      await discard(outJpegPath);
-      return false;
-    }
-
-    // Exit code alone is not sufficient — see the short-clip note in
-    // `extractVideoPosterJpeg`. Require real bytes on disk.
-    if (exitCode === 0 && (await hasBytes(outJpegPath))) return true;
-
-    // A failed seek attempt is expected for sub-second clips, so it logs at
-    // debug; the caller retries from frame 0 and only that failure is notable.
-    const detail = {
-      videoPath,
+    const stderr = await new Response(proc.stderr).text();
+    const exitCode = await proc.exited;
+    return {
+      timedOut: timedOut.value,
       exitCode,
-      seekSeconds,
-      stderr: stderr.trim().slice(0, 500),
+      stderr,
+      producedBytes: await hasBytes(outJpegPath),
     };
-    if (seekSeconds > 0) {
-      log.debug(detail, 'ffmpeg produced no frame at seek — retrying from start');
-    } else {
-      log.warn(detail, 'ffmpeg produced no poster frame');
-    }
-    await discard(outJpegPath);
-    return false;
-  } catch (e) {
-    log.warn({ videoPath, err: e instanceof Error ? e.message : e }, 'ffmpeg spawn threw');
-    await discard(outJpegPath);
-    return false;
+  } finally {
+    clearTimeout(timer);
   }
+}
+
+function spawnThrew(videoPath: string, e: unknown): FfmpegRun {
+  const err = e instanceof Error ? e.message : String(e);
+  log.warn({ videoPath, err }, 'ffmpeg spawn threw');
+  return { timedOut: false, exitCode: null, stderr: err, producedBytes: false };
+}
+
+/** Null when a frame landed at `outJpegPath`, else why it did not. Nothing is
+ * left at `outJpegPath` on any failure, thrown or returned. */
+async function runFfmpeg(
+  bin: string,
+  videoPath: string,
+  outJpegPath: string,
+  seekSeconds: number,
+): Promise<FfmpegFailure | null> {
+  const run = await spawnFfmpeg(
+    bin,
+    posterArgs(videoPath, outJpegPath, seekSeconds),
+    outJpegPath,
+  ).catch((e: unknown) => spawnThrew(videoPath, e));
+  if (run.timedOut) log.warn({ videoPath, timeoutMs: TIMEOUT_MS }, 'ffmpeg timed out');
+  const failure = posterRunFailure(run, videoPath, seekSeconds);
+  await failure.then(
+    (outcome) => outcome && discard(outJpegPath),
+    () => discard(outJpegPath),
+  );
+  return failure;
 }
 
 async function hasBytes(p: string): Promise<boolean> {

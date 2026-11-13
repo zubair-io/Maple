@@ -1,4 +1,3 @@
-import { PIPELINE_OUTPUT_VERSION } from '../src/generated/adjustment-fields.generated.ts';
 /**
  * P3 tests — Filesystem path restriction helpers.
  */
@@ -48,6 +47,8 @@ describe('safeReadFile', () => {
   });
 
   afterAll(async () => {
+    const { unregisterRoot } = await import('../src/fs/root.ts');
+    unregisterRoot(tmpDir);
     await fs.rm(tmpDir, { recursive: true, force: true });
   });
 
@@ -86,15 +87,11 @@ describe('xmpSidecarPath', () => {
 });
 
 describe('resolveThumbPath', () => {
-  it('places thumb under .maple/thumbs/<sha256_prefix16(basename)>.avif', async () => {
-    const { resolveThumbPath, sha256Prefix16 } = await import('../src/fs/xmp.ts');
-    const result = resolveThumbPath('/photos/mydir/IMG_001.dng');
-    const expectedKey = sha256Prefix16('IMG_001.dng');
-    expect(result).toBe(
-      `/photos/mydir/.maple/thumbs/${expectedKey}.v${PIPELINE_OUTPUT_VERSION}.avif`,
+  it('places thumb under .maple/thumbs/<basename>.avif', async () => {
+    const { resolveThumbPath } = await import('../src/fs/xmp.ts');
+    expect(resolveThumbPath('/photos/mydir/IMG_001.dng')).toBe(
+      '/photos/mydir/.maple/thumbs/IMG_001.dng.avif',
     );
-    // 16 hex chars
-    expect(expectedKey).toMatch(/^[0-9a-f]{16}$/);
   });
 
   it('returns the same path regardless of folder location (filename-only key)', async () => {
@@ -116,6 +113,8 @@ describe('writeXmpAtomic', () => {
   });
 
   afterAll(async () => {
+    const { unregisterRoot } = await import('../src/fs/root.ts');
+    unregisterRoot(tmpDir);
     await fs.rm(tmpDir, { recursive: true, force: true });
   });
 

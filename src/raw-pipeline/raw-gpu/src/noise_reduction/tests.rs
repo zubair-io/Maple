@@ -92,8 +92,8 @@ pub(super) fn modest_image(w: usize, h: usize) -> Vec<f32> {
 
 // ── Pass constructors ─────────────────────────────────────────────────────────
 
-/// A luma-NR pass with NO DNG NoiseProfile — the flat, un-modulated filter these
-/// gates cover, matching the `None` the raw-core references are called with. The
+/// A luma-NR pass with NO DNG NoiseProfile at `iso` 100 — the ISO-only fallback,
+/// matching the `None` the raw-core references are called with. The
 /// per-pixel-modulated case is gated in the sibling `tests_profile.rs` (#1714).
 pub(super) fn luma_pass(amount: f32) -> NlmLumaPass<'static> {
     NlmLumaPass {
@@ -237,7 +237,7 @@ fn nlm_core_matches_denoise_plane_luma_params() {
         w as u32,
         h as u32,
         params,
-        NoiseModulation::from_profile(None, 100, false),
+        NoiseModulation::from_profile(None, 0, false),
     );
 
     let (max_diff, worst_i) = max_diff_at(&reference, &gpu);
@@ -271,7 +271,7 @@ fn nlm_core_matches_denoise_plane_chroma_params() {
         w as u32,
         h as u32,
         params,
-        NoiseModulation::from_profile(None, 100, false),
+        NoiseModulation::from_profile(None, 0, false),
     );
 
     let (max_diff, worst_i) = max_diff_at(&reference, &gpu);
@@ -300,7 +300,7 @@ fn nlm_core_matches_denoise_plane_half_strength() {
         w as u32,
         h as u32,
         params,
-        NoiseModulation::from_profile(None, 100, false),
+        NoiseModulation::from_profile(None, 0, false),
     );
     let (max_diff, _) = max_diff_at(&reference, &gpu);
     eprintln!("PLANE PARITY (amount=50): max abs diff = {max_diff:e}");
@@ -329,7 +329,7 @@ fn nlm_core_border_and_interior_coverage_non_vacuous() {
         w as u32,
         h as u32,
         params,
-        NoiseModulation::from_profile(None, 100, false),
+        NoiseModulation::from_profile(None, 0, false),
     );
 
     // Border strip: raw-core passes it through unchanged; GPU must agree AND
@@ -555,3 +555,6 @@ fn nlm_composes_as_one_pass_in_a_chain() {
         "luma-then-color NR produced non-finite output"
     );
 }
+
+#[path = "tests_tail.rs"]
+mod tail;

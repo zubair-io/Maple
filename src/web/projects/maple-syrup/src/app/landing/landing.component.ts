@@ -25,8 +25,9 @@ import {
   MuiListRowComponent,
   folderUnreadableError,
   persistFile,
+  snapshotDrop,
 } from '@maple-common';
-import type { MuiCommandItem } from '@maple-common';
+import type { MuiCommandItem, PersistedHandleRecord } from '@maple-common';
 import { resolveSingleFileSelection } from './single-file-selection';
 
 function isEditableTarget(target: EventTarget | null): boolean {
@@ -58,6 +59,7 @@ export class LandingComponent {
 
   /** True when the browser exposes `showDirectoryPicker` (Chromium-only today). */
   readonly hasFsAccess = this.fs.hasFsAccess;
+  readonly recentFolders = this.fs.persistedHandles;
   readonly isDragging = signal(false);
   readonly errorMessage = signal<string | null>(null);
   readonly commandsOpen = signal(false);
@@ -129,6 +131,16 @@ export class LandingComponent {
     }
   }
 
+  /** Reconnect a folder saved by Chrome without making the user find it again. */
+  async reopenFolder(record: PersistedHandleRecord): Promise<void> {
+    this.errorMessage.set(null);
+    try {
+      await this.openFolderHandle(await this.fs.reopenPersistedHandle(record));
+    } catch (error) {
+      this.showError(`Maple could not reopen “${record.name}”.`, error);
+    }
+  }
+
   onDragOver(event: DragEvent): void {
     event.preventDefault();
     if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy';
@@ -146,16 +158,16 @@ export class LandingComponent {
     const transfer = event.dataTransfer;
     if (!transfer) return;
 
+    const drop = snapshotDrop(transfer);
     try {
-      const folder = await this.fs.openDroppedFolder(transfer);
+      const folder = await this.fs.openDroppedFolder(drop);
       if (folder) {
         await this.openFolderHandle(folder);
         return;
       }
 
-      const files = Array.from(transfer.files);
-      if (files.length > 0) {
-        await this.openFiles(files);
+      if (drop.files.length > 0) {
+        await this.openFiles(drop.files);
         return;
       }
       this.errorMessage.set('Drop a supported RAW, image, or folder.');

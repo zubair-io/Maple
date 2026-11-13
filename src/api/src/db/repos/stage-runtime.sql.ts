@@ -246,7 +246,7 @@ export const STAGE_SUCCESS_SQL = `
    WHERE asset_id = ? AND stage = ?${LEASE_FENCE}`;
 
 /**
- * Mark another stage stale so its poll loop rebuilds from what this one just
+ * Mark another stage stale so its next slice rebuilds from what this one just
  * wrote — the `invalidates` mechanism (#2172) and the upstream half of a
  * `rearm` (#2177), which are the same field reset.
  *
@@ -267,7 +267,7 @@ export const STAGE_INVALIDATE_SQL = `
     next_attempt_at = NULL, claim_token = NULL`;
 
 /**
- * A stage recorded as handled by something other than its own poll loop.
+ * A stage recorded as handled by something other than its own slices.
  *
  * `/api/library/relocate` is the caller, and the only one: it cannot relocate an
  * asset into its canonical location folder using a `place_text` the sidecar has
@@ -280,7 +280,7 @@ export const STAGE_INVALIDATE_SQL = `
  * a row for an asset that no longer exists. It carries no lease fence, because
  * there is no lease to fence on. And it clears `next_attempt_at` outright, which
  * is what the Mongo route did by rewriting the whole `stages.<name>`
- * subdocument: a poll loop holding a live claim on the same asset therefore
+ * subdocument: a slice holding a live claim on the same asset therefore
  * loses its exclusivity, and the worst case is that its writeback and this one
  * both land, in either order, on an idempotent handler.
  *
@@ -354,13 +354,26 @@ export const STAGE_CLAIM_ROLLBACK_SQL = `
    WHERE asset_id = ? AND stage = ?${LEASE_FENCE}`;
 
 /**
+ * A handler that cannot make progress yet — a Drive destination that is
+ * offline — asks to be retried at a chosen time without spending an attempt.
+ * The lease is cleared and `next_attempt_at` becomes the retry time, so the
+ * asset is claimable exactly then rather than when its lease would have lapsed.
+ *
+ * Parameters: `last_error`, `retry_at`, `asset_id`, `stage`, `lease`.
+ */
+export const STAGE_DEFER_SQL = `
+  UPDATE stage_state
+     SET attempts = MAX(attempts - 1, 0), last_error = ?, next_attempt_at = ?, claim_token = NULL
+   WHERE asset_id = ? AND stage = ?${LEASE_FENCE}`;
+
+/**
  * Park one row whose attempt budget was consumed without it ever completing —
  * the signature of an uncatchable native death mid-handler (#897).
  *
  * There is deliberately no statement here that FINDS those rows. `attempts` is
  * not a column of `stage_claim`, so a sweep for `attempts >= maxAttempts` would
  * walk the stage's whole backlog reading a row body per candidate, on every
- * poll tick of every stage — measured at 10.4 ms per claim on 20,000 assets,
+ * batch of every stage — measured at 10.4 ms per claim on 20,000 assets,
  * against 0.4 ms once it was removed. The candidates the claim already read
  * carry their attempt counts, so `stage-claim.ts` partitions them in memory,
  * which is also exactly what the Mongo runner does.
@@ -446,6 +459,17 @@ export function rearmStageByFilenamesSql(count: number): string {
  */
 export const SEED_STAGE_ROW_SQL = `
   INSERT INTO stage_state (asset_id, stage) VALUES (?, ?)
+  ON CONFLICT (asset_id, stage) DO NOTHING`;
+
+/**
+ * Seed every listed stage for the asset that holds a `maple_id`, whichever row
+ * that turns out to be — for writers that upsert by content identity and so do
+ * not know whether the asset is new. Binds the stage names as a JSON array,
+ * then the `maple_id`.
+ */
+export const SEED_STAGE_ROWS_BY_MAPLE_ID_SQL = `
+  INSERT INTO stage_state (asset_id, stage)
+  SELECT a.id, s.value FROM assets a, json_each(?) s WHERE a.maple_id = ?
   ON CONFLICT (asset_id, stage) DO NOTHING`;
 
 /**

@@ -16,15 +16,22 @@
 # links a static library into a library target — linking happens in the
 # app/test executables, which this job doesn't build.
 #
-# The job runs on Apple- and raw-pipeline-scoped changes: every incident
-# class either edits src/apple/** directly (committed generated Swift,
-# hand-written Swift) or changes the raw-ffi surface the header is
-# generated from (src/raw-pipeline/**). API changes also run the live native
-# change-feed restart gate against actual Bun sockets and SQLite (#3770).
+# The macOS jobs run only when tools/ci_changes.py selects `swift`: every
+# incident class either edits src/apple/** directly (committed generated
+# Swift, hand-written Swift) or changes the raw-ffi surface the header is
+# generated from (src/raw-pipeline/**), plus the shared fixtures, API server
+# entry points and web recipe-interchange inputs the Swift tests read. The
+# live native change-feed restart gate (#3770) boots API fixture servers, so
+# any API module they transitively import also selects `swift`
+# (SWIFT_API_ENTRY_POINTS). Unrelated diffs (e.g. src/api-only) skip the macOS jobs;
+# validation-result counts an intentional skip as a pass and a skip of a
+# selected job as a failure. Release and manual runs select everything.
 
 name: apple
 
 on:
+  merge_group:
+    types: [checks_requested]
   workflow_call:
     outputs:
       validated_sha:
@@ -32,39 +39,7 @@ on:
         value: ${{ jobs.validation-result.outputs.sha }}
   push:
     branches: [main]
-    paths:
-      - 'src/apple/**'
-      - 'src/api/**'
-      - 'src/raw-pipeline/**'
-      - '.github/workflows/apple.yml'
-      - '.github/swift-regressions/**'
-      - 'tools/check-swift-regressions-coverage.py'
-      - 'src/scripts/test_export_recipe_interchange.sh'
-      - 'src/scripts/qualification/recipe-interchange.swift'
-      - 'test-fixtures/export-recipes/interchange-cases.json'
-      - 'src/web/e2e/recipe-interchange/**'
-      - 'src/web/playwright.recipe-interchange.config.ts'
-      - 'src/web/projects/maple-common/src/lib/export/export-recipe-store.ts'
-      - 'src/web/projects/maple-common/src/lib/generated/export-recipe.generated.ts'
-      - 'src/web/package.json'
-      - 'src/web/bun.lock'
   pull_request:
-    paths:
-      - 'src/apple/**'
-      - 'src/api/**'
-      - 'src/raw-pipeline/**'
-      - '.github/workflows/apple.yml'
-      - '.github/swift-regressions/**'
-      - 'tools/check-swift-regressions-coverage.py'
-      - 'src/scripts/test_export_recipe_interchange.sh'
-      - 'src/scripts/qualification/recipe-interchange.swift'
-      - 'test-fixtures/export-recipes/interchange-cases.json'
-      - 'src/web/e2e/recipe-interchange/**'
-      - 'src/web/playwright.recipe-interchange.config.ts'
-      - 'src/web/projects/maple-common/src/lib/export/export-recipe-store.ts'
-      - 'src/web/projects/maple-common/src/lib/generated/export-recipe.generated.ts'
-      - 'src/web/package.json'
-      - 'src/web/bun.lock'
 
 # Cancel in-progress runs on non-main refs (PRs, feature branches). Pushes to
 # main always run to completion so the protected-branch signal stays accurate.
@@ -78,28 +53,41 @@ env:
   CBINDGEN_VERSION: '0.29.2'
 
 jobs:
+  changes:
+    uses: ./.github/workflows/ci-changes.yml
+
   validation-result:
-    needs: [swift-build, swift-ui, swift-regressions-coverage, swift-regressions]
-    runs-on: ubuntu-latest
+    name: Apple result
+    needs: [changes, swift-build, swift-ui, swift-regressions-coverage, swift-regressions]
+    if: always()
+    runs-on: ubuntu-24.04
     outputs:
       sha: ${{ steps.revision.outputs.sha }}
     steps:
+      - uses: actions/checkout@v7.0.1
+      - run: python3 tools/ci_result.py swift-build=swift swift-ui=swift swift-regressions=swift swift-regressions-coverage=swift
+        env:
+          NEEDS_JSON: ${{ toJSON(needs) }}
       - id: revision
         run: echo "sha=$GITHUB_SHA" >> "$GITHUB_OUTPUT"
 
   swift-build:
     name: swift-build (MapleCore compile gate)
+    needs: changes
+    if: needs.changes.outputs.swift == 'true'
     runs-on: macos-15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7.0.1
       - name: Test release archive platform detection
         run: python3 src/apple/ci_scripts/test_post_xcodebuild.py
-      - name: Test native removal xcframework input invalidation
-        run: python3 tools/test_xcframework_removal_inputs.py
-      - name: Verify shared removal calibration fixture copies
+      - name: Verify the Apple removal fixture copy matches test-fixtures/removal
         run: |
           python3 tools/test_removal_fixture_copies.py
           python3 tools/check_removal_fixture_copies.py
+      - name: Test xcframework input fingerprint across checkout roots
+        run: bash src/apple/scripts/tests/test_xcframework_fingerprint.sh
+      - name: Test native removal xcframework input invalidation
+        run: python3 tools/test_xcframework_removal_inputs.py
 
       # The package is swift-tools-version 6.1; the image's default Xcode can
       # lag the newest installed one, so select the highest deterministically.
@@ -117,7 +105,7 @@ jobs:
 
       - name: Cache cbindgen binary
         id: cbindgen-cache
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.cargo/bin/cbindgen
           key: cbindgen-${{ env.CBINDGEN_VERSION }}-${{ runner.os }}-${{ runner.arch }}
@@ -151,7 +139,7 @@ jobs:
           ar -rc "$FRAMEWORK/macos-arm64_x86_64/libraw_ffi.a" /tmp/maple_stub.o
 
       - name: Cache SwiftPM build directory
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             src/apple/Packages/MapleCore/.build
@@ -170,11 +158,22 @@ jobs:
             -destination 'generic/platform=tvOS Simulator' \
             -derivedDataPath "$RUNNER_TEMP/maple-tv-build" CODE_SIGNING_ALLOWED=NO build
 
+      # Compiles the watchOS app and Packages/MapleWatch against MapleCloudKit,
+      # whose watchOS branches nothing else builds (#5851). Build only: no
+      # simulator boot, no tests.
+      - name: Build Maple Watch
+        run: |
+          xcodebuild -project src/apple/Maple.xcodeproj -scheme 'Maple Watch' \
+            -destination 'generic/platform=watchOS Simulator' \
+            -derivedDataPath "$RUNNER_TEMP/maple-watch-build" CODE_SIGNING_ALLOWED=NO build
+
   swift-ui:
     name: swift-ui (MapleUI tests)
+    needs: changes
+    if: needs.changes.outputs.swift == 'true'
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7.0.1
       - name: Select newest Xcode
         run: |
           set -euo pipefail
@@ -194,19 +193,29 @@ jobs:
       - name: Execute MapleMCP tests
         working-directory: src/apple/Packages/MapleMCP
         run: swift test
+      # The PhotoKit backup engine, its SQLite state store and the walk
+      # planner. The package depends only on GRDB, so it needs neither the Rust
+      # archive nor a staged header.
+      - name: Execute MapleBackup tests
+        working-directory: src/apple/Packages/MapleBackup
+        run: swift test
       - name: Check native icon exceptions
         run: python3 tools/check-apple-icons.py
 
   swift-regressions-coverage:
     name: swift-regressions-coverage (every test class is run or excluded on purpose)
-    runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.swift == 'true'
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7.0.1
       - run: python3 tools/check-swift-regressions-coverage.py
 
   swift-regressions:
     name: swift-regressions (MapleCore execution gate)
+    needs: changes
+    if: needs.changes.outputs.swift == 'true'
     runs-on: macos-latest
     timeout-minutes: 60
     env:
@@ -214,13 +223,19 @@ jobs:
       MAPLE_GPU_LIVE: '1'
       MAPLE_FILEPROVIDER_TEST_API_ROOT: ${{ github.workspace }}/src/api
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7.0.1
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
       - name: Install live change-feed fixture dependencies
         working-directory: src/api
         run: bun install --frozen-lockfile
+      # The workflow fixture server starts a throwaway Temporal server, whose
+      # binary is downloaded on first use; fetch it here, outside the fixture's
+      # start-up timeout.
+      - name: Fetch the Temporal test server
+        working-directory: src/api
+        run: bun scripts/prewarm-temporal.ts
       - name: Install real SMB workflow fixture server
         run: HOMEBREW_NO_AUTO_UPDATE=1 brew install samba
       - name: Select newest Xcode
@@ -238,7 +253,7 @@ jobs:
         run: rustup component add llvm-tools-preview
       - name: Cache cbindgen binary
         id: cbindgen-cache
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.cargo/bin/cbindgen
           key: cbindgen-${{ env.CBINDGEN_VERSION }}-${{ runner.os }}-${{ runner.arch }}
@@ -246,7 +261,7 @@ jobs:
         if: steps.cbindgen-cache.outputs.cache-hit != 'true'
         run: cargo install cbindgen --locked --version "$CBINDGEN_VERSION"
       - name: Cache host Rust build
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/registry
@@ -312,6 +327,7 @@ jobs:
           cp -R src/apple/MapleUITests/Fixtures/synthetic "$MAPLE_SWIFT_TEST_ROOT/MapleUITests/Fixtures/"
           mkdir -p "$MAPLE_SWIFT_TEST_ROOT/test-fixtures"
           cp -R test-fixtures/local-adjustments "$MAPLE_SWIFT_TEST_ROOT/test-fixtures/"
+          cp -R test-fixtures/xmp-namespaces "$MAPLE_SWIFT_TEST_ROOT/test-fixtures/"
           cp -R test-fixtures/removal "$MAPLE_SWIFT_TEST_ROOT/test-fixtures/"
           # AutoProfileCanvasParityTests.fixtureDir walks six parents from
           # the staged Swift package, so removal fixtures also live beside
@@ -321,6 +337,8 @@ jobs:
           cp -R test-fixtures/workflow "$MAPLE_SWIFT_TEST_ROOT/test-fixtures/"
           cp -R test-fixtures/export-recipes "$MAPLE_SWIFT_TEST_ROOT/test-fixtures/"
           cp -R test-fixtures/file-operations "$MAPLE_SWIFT_TEST_ROOT/test-fixtures/"
+          cp -R test-fixtures/look-profiles "$MAPLE_SWIFT_TEST_ROOT/test-fixtures/"
+          cp -R test-fixtures/ids "$MAPLE_SWIFT_TEST_ROOT/test-fixtures/"
           mkdir -p "$MAPLE_SWIFT_TEST_ROOT/test-fixtures/batch-transfer"
           cp test-fixtures/batch-transfer/{source,target}.dng "$MAPLE_SWIFT_TEST_ROOT/test-fixtures/batch-transfer/"
       # Independent saved-recipe transport gate (#4207), using the real host archive.
@@ -336,7 +354,7 @@ jobs:
             "$CARGO_TARGET_DIR/release/libraw_ffi.a" "$MAPLE_SWIFT_TEST_ROOT/Headers"
       - name: Upload recipe interchange evidence
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: recipe-interchange
           path: |
@@ -345,7 +363,7 @@ jobs:
             src/web/test-results/recipe-interchange/
           if-no-files-found: error
       - name: Cache SwiftPM regression build
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ${{ env.MAPLE_SWIFT_TEST_ROOT }}/Packages/MapleCore/.build
@@ -449,7 +467,7 @@ jobs:
           PYCODE
       - name: Upload regression results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: apple-swift-regressions
           path: |

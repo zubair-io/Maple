@@ -1,0 +1,17 @@
+{
+  "scope": "Diagnostic-only ROI stage dumps of captured-main baseline; verify output pixel identity against complete baseline. Original input snapshots unchanged.",
+  "roi": [
+    0,
+    6000,
+    512,
+    640
+  ],
+  "raw_sha256": "f4b60b3672bdf7ff7f4376fba9da1b1d22c925ebc3e16baa5fd4a64fa1045aa5",
+  "canonical_xmp_sha256": "23cdfdc027d919721421a3f68a2f30790b37b41837e2bfce924e79db86033b52",
+  "binary_sha256": "5e37291ca51c4f22d85af1bbc63b5d3f4e1e82e933e2f23996b6c62a1c706ef6",
+  "output_sha256": "68bae830a59e359eb9ec02b33940b2b44a5f2682d232ae69ee4c77e4d776f867",
+  "byte_identical_to_frozen_baseline": true,
+  "stage_count": 33,
+  "validation": "Four focused stage-dump tests pass; feature-enabled release build passes; full 100MP baseline PNG byte-identical to captured-main output. Diagnostic changes do not clear any color cases.",
+  "working_remaining_failures": 103
+}

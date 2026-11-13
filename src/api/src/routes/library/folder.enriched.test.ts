@@ -32,6 +32,8 @@ interface Entry {
   isVideo?: boolean;
   isStub?: boolean;
   isAudio?: boolean;
+  isMotionPhoto?: boolean;
+  livePhoto?: { role: 'still' | 'clip'; partner: string };
 }
 interface Listing {
   address: string;
@@ -135,6 +137,61 @@ describe('unified enriched folder listing #4001', () => {
       exif: { camera_make: 'Hasselblad', width: 100 },
     });
   });
+  test('loads pre-existing XMP filters for unindexed photos before Preview, even across pages', async () => {
+    await fs.writeFile(path.join(root, 'edited.jpg'), 'original bytes');
+    await fs.writeFile(
+      path.join(root, 'edited.xmp'),
+      '<rdf:Description xmlns:xmp="http://ns.adobe.com/xap/1.0/" ' +
+        'xmlns:papp="http://ns.justmaple.app/photo/1.0/" ' +
+        'xmp:Rating="4" papp:Flag="pick" xmp:Label="Red"/>',
+    );
+    await fs.writeFile(path.join(root, 'plain.jpg'), 'original bytes');
+
+    const first = await listing('', '?limit=1');
+    expect(first.images).toMatchObject([
+      {
+        name: 'edited.jpg',
+        indexed: false,
+        edited: true,
+        rating: 4,
+        flag: 'pick',
+        colorLabel: 'red',
+      },
+    ]);
+    const all = await listing();
+    expect(all.images.find((entry) => entry.name === 'plain.jpg')).not.toHaveProperty('edited');
+    expect(all.images.find((entry) => entry.name === 'edited.jpg')).toMatchObject({
+      edited: true,
+      rating: 4,
+      flag: 'pick',
+    });
+    await fs.unlink(path.join(root, 'edited.xmp'));
+    const withoutSidecar = await listing();
+    expect(withoutSidecar.images.find((entry) => entry.name === 'edited.jpg')).not.toHaveProperty(
+      'edited',
+    );
+  });
+  test('merges culling from sibling XMP descriptions through an in-library sidecar link', async () => {
+    await fs.writeFile(path.join(root, 'linked.jpg'), 'original bytes');
+    await fs.writeFile(
+      path.join(root, 'metadata.xmp'),
+      '<x:xmpmeta xmlns:x="adobe:ns:meta/" xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" ' +
+        'xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:z="http://ns.adobe.com/xap/1.0/" ' +
+        'xmlns:m="http://ns.justmaple.app/photo/1.0/"><rdf:RDF>' +
+        '<rdf:Description rdf:about="#foreign" z:Rating="1"/>' +
+        '<rdf:Description rdf:about="" dc:format="image/jpeg"/>' +
+        '<rdf:Description rdf:about="" z:Rating="4" m:Flag="pick" z:Label="Blue"/>' +
+        '</rdf:RDF></x:xmpmeta>',
+    );
+    await fs.symlink(path.join(root, 'metadata.xmp'), path.join(root, 'linked.xmp'));
+    const body = await listing();
+    expect(body.images.find((entry) => entry.name === 'linked.jpg')).toMatchObject({
+      edited: true,
+      rating: 4,
+      flag: 'pick',
+      colorLabel: 'blue',
+    });
+  });
   test('lists documents, extensionless files and video/stub/audio flags', async () => {
     for (const name of ['notes.txt', 'README', 'clip.MOV', 'sound.wav', 'design.afphoto']) {
       await fs.writeFile(path.join(root, name), name);
@@ -145,6 +202,39 @@ describe('unified enriched folder listing #4001', () => {
     expect(body.images.find((entry) => entry.name === 'clip.MOV')?.isVideo).toBe(true);
     expect(body.images.find((entry) => entry.name === 'sound.wav')?.isAudio).toBe(true);
     expect(body.images.find((entry) => entry.name === 'design.afphoto')?.isStub).toBe(true);
+  });
+  test('flags only indexed stills with a recorded motion clip as Motion Photos (#5447)', async () => {
+    const motion = seed('PXL_1.MP.jpg');
+    seed('plain.jpg');
+    run(
+      live.db,
+      `UPDATE assets SET motion_video_start = 10, motion_video_length = 20,
+              motion_video_mime = 'video/mp4', motion_source_size = 30 WHERE id = ?`,
+      motion,
+    );
+    const body = await listing();
+    expect(body.images.find((entry) => entry.name === 'PXL_1.MP.jpg')?.isMotionPhoto).toBe(true);
+    expect(body.images.find((entry) => entry.name === 'plain.jpg')).not.toHaveProperty(
+      'isMotionPhoto',
+    );
+  });
+  test('links a still and clip whose content identifiers match and leaves the rest independent (#5448)', async () => {
+    const identify = (id: string, contentId: string) =>
+      run(live.db, 'UPDATE assets SET live_content_id = ? WHERE id = ?', contentId, id);
+    identify(seed('IMG_1.HEIC'), 'AAAAAAAA-1111-2222-3333-444444444444');
+    identify(seed('IMG_1.MOV'), 'AAAAAAAA-1111-2222-3333-444444444444');
+    identify(seed('IMG_2.JPG'), 'BBBBBBBB-1111-2222-3333-444444444444');
+    identify(seed('IMG_2.MOV'), 'CCCCCCCC-1111-2222-3333-444444444444');
+    seed('IMG_3.HEIC');
+    identify(seed('IMG_3.MOV'), 'DDDDDDDD-1111-2222-3333-444444444444');
+    const body = await listing();
+    const livePhoto = (name: string) => body.images.find((entry) => entry.name === name)?.livePhoto;
+    expect(livePhoto('IMG_1.HEIC')).toEqual({ role: 'still', partner: 'IMG_1.MOV' });
+    expect(livePhoto('IMG_1.MOV')).toEqual({ role: 'clip', partner: 'IMG_1.HEIC' });
+    expect(livePhoto('IMG_2.JPG')).toBeUndefined();
+    expect(livePhoto('IMG_2.MOV')).toBeUndefined();
+    expect(livePhoto('IMG_3.HEIC')).toBeUndefined();
+    expect(livePhoto('IMG_3.MOV')).toBeUndefined();
   });
   test('pairs canonical, conflict and full-name video XMP across pages', async () => {
     const photo = seed('photo.dng');
@@ -304,6 +394,7 @@ describe('unified enriched folder listing #4001', () => {
       await fs.writeFile(path.join(root, 'bad.xmp'), '<x:xmpmeta/>');
       const body = await listing();
       expect(body.images.map((entry) => entry.name)).toEqual(['good.dng']);
+      expect(body.images[0]).not.toHaveProperty('edited');
       expect(body.sidecars).toEqual([]);
     } finally {
       await fs.rm(outside, { recursive: true, force: true });

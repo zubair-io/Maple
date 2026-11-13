@@ -92,7 +92,7 @@ function parseFile(
   const file = record(value),
     object = record(file.object);
   const role = stringValue(file.role);
-  if (!['original', 'sidecar', 'companion'].includes(role))
+  if (!['original', 'sidecar', 'companion', 'live-video'].includes(role))
     throw new Error('Invalid backup file role');
   const path = relativeBackupPath(stringValue(file.path));
   const sha256 = stringValue(object.sha256);

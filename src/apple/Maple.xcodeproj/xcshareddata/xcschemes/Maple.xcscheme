@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <Scheme
-   LastUpgradeVersion = "2640"
+   LastUpgradeVersion = "2710"
    version = "1.7">
    <BuildAction
       parallelizeBuildables = "YES"
@@ -48,15 +48,6 @@
       shouldUseLaunchSchemeArgsEnv = "NO"
       shouldAutocreateTestPlan = "YES">
       <EnvironmentVariables>
-         <!-- #2366: these must carry the TEST_RUNNER_ prefix to reach the
-              XCUITest runner process (MapleAppDriver.fixtureRoot() /
-              GoldenStore.goldensRoot() both read ProcessInfo INSIDE the
-              runner, a separate process from the app under test — plain
-              keys here only ever reached an app that isn't even the one
-              reading them). shouldUseLaunchSchemeArgsEnv is NO so this
-              block — not LaunchAction's — is the one Xcode actually
-              consults for test runs; MAPLE_PROFILE is duplicated below to
-              preserve the same app-launch behavior on Test that Run has. -->
          <EnvironmentVariable
             key = "TEST_RUNNER_MAPLE_UITEST_FIXTURE_ROOT"
             value = "$(PROJECT_DIR)/../../test-fixtures/raws"

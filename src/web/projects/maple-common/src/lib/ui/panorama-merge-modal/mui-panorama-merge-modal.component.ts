@@ -8,6 +8,7 @@ import { ChangeDetectionStrategy, Component, input, model, output } from '@angul
 import { MuiButtonComponent } from '../button/mui-button.component';
 import { MuiMediaCellComponent } from '../media-cell/mui-media-cell.component';
 import { MuiOverlayShellComponent } from '../overlay-shell/mui-overlay-shell.component';
+import { MuiPanoramaEdgesComponent } from '../panorama-edges/mui-panorama-edges.component';
 import { MuiProgressComponent } from '../progress/mui-progress.component';
 import type { MuiSegmentedToggleOption } from '../segmented-toggle/mui-segmented-toggle.component';
 import { MuiSegmentedToggleComponent } from '../segmented-toggle/mui-segmented-toggle.component';
@@ -22,6 +23,8 @@ export interface MuiPanoramaFrame {
 export interface MuiPanoramaMergeSettings {
   readonly projection: string;
   readonly blendMode: string;
+  readonly boundaryWarp: number;
+  readonly autoCrop: boolean;
 }
 
 const PROJECTION_OPTIONS: readonly MuiSegmentedToggleOption[] = [
@@ -42,6 +45,7 @@ const BLEND_MODE_OPTIONS: readonly MuiSegmentedToggleOption[] = [
     MuiButtonComponent,
     MuiMediaCellComponent,
     MuiOverlayShellComponent,
+    MuiPanoramaEdgesComponent,
     MuiProgressComponent,
     MuiSegmentedToggleComponent,
     MuiTextComponent,
@@ -55,17 +59,29 @@ export class MuiPanoramaMergeModalComponent {
   readonly frames = input.required<readonly MuiPanoramaFrame[]>();
   readonly projection = model<string>('spherical');
   readonly blendMode = model<string>('linear');
+  /** Boundary Warp in percent; follows the thumb while dragging. */
+  readonly boundaryWarp = model<number>(0);
+  readonly autoCrop = model<boolean>(false);
+  /** Why the warp did not apply as asked, from the engine's latest report. */
+  readonly boundaryWarpReason = input<string | null>(null);
   readonly stitching = input<boolean>(false);
   /** 0–100, ignored while `stitching` is false. */
   readonly progress = input<number>(0);
 
   readonly mergeRequested = output<MuiPanoramaMergeSettings>();
+  /** The final Boundary Warp once a drag ends: the host re-runs its preview here. */
+  readonly boundaryWarpCommitted = output<number>();
   readonly dismissed = output<void>();
 
   readonly projectionOptions = PROJECTION_OPTIONS;
   readonly blendModeOptions = BLEND_MODE_OPTIONS;
 
   confirmMerge(): void {
-    this.mergeRequested.emit({ projection: this.projection(), blendMode: this.blendMode() });
+    this.mergeRequested.emit({
+      projection: this.projection(),
+      blendMode: this.blendMode(),
+      boundaryWarp: this.boundaryWarp(),
+      autoCrop: this.autoCrop(),
+    });
   }
 }

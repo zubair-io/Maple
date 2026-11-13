@@ -20,6 +20,8 @@
       try FileManager.default.copyItem(at: fixture, to: raw)
       let original = try Data(contentsOf: raw)
       let session = EditSession(asset: AssetRef(url: raw), model: .default, culling: CullingState())
+      await session.loadSidecar()
+      let hydrated = session.model
       let service = AgentEditService(exportDirectory: dir.appendingPathComponent("Exports"))
       service.activate(session)
       let server = MCPHTTPServer { request in await service.handle(request) }
@@ -56,7 +58,7 @@
           url, "maple_undo",
           ["expected_revision": try XCTUnwrap(edited["structuredContent"]?["revision"])])
         XCTAssertEqual(undone["isError"], false)
-        XCTAssertEqual(session.model, .default)
+        XCTAssertEqual(session.model, hydrated)
         XCTAssertEqual(try Data(contentsOf: raw), original)
         await server.stop()
       } catch {

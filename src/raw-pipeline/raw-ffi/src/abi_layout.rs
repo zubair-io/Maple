@@ -1,25 +1,6 @@
 //! ABI-layout export for the hand-mirrored C# structs (#3221).
-//!
-//! `src/windows/Maple.WinUI/Native/*.cs` re-declares every `#[repr(C)]`
-//! struct the WinUI shell passes across `raw_ffi.dll` field by field, in
-//! declaration order, and nothing checked that the two agreed: the
-//! `MapleGpuLiveParams` mirror was missing #2683's film-look tail for a
-//! month (the Rust side read those fields past the end of the C#
-//! allocation), and `MapleSceneLinearBufferF32` was missing #2231's two
-//! trailing `u32`s. [`maple_abi_layout`] lets the WinUI test suite
-//! (`RawFfiLayoutTests`) ask the DLL it will actually load for the size and
-//! every field offset of each mirrored struct — computed here with
-//! `core::mem::offset_of!` from the real definitions, never re-typed — and
-//! assert `Marshal.SizeOf` / `Marshal.OffsetOf` against them, field name by
-//! field name, in the existing `windows-x64` job.
-//!
-//! Wire format (UTF-8, no trailing NUL): `size=<bytes>;<field>=<offset>;…`
-//! with the fields in declaration order, so the consumer can also check
-//! that its own field ORDER matches, not just the offsets.
-//!
-//! Adding a field to one of these structs: append it to the matching list
-//! below. Forgetting to does not hide drift — `size=` still moves, and the
-//! C# side also fails when a mirror field has no Rust entry.
+//! Wire format: `size=<bytes>;<field>=<offset>;…` in declaration order.
+//! Asserted against `Marshal.SizeOf` / `Marshal.OffsetOf` in `RawFfiLayoutTests`.
 
 use core::mem::{offset_of, size_of};
 use std::ffi::CStr;
@@ -161,6 +142,11 @@ pub(crate) fn describe(name: &str) -> Option<String> {
                 defringe_green_hue_hi,
                 whites_anchor_ev,
                 nr_sampling_scale,
+                wb_method,
+                color_grade_blending,
+                color_grade_shadow_edge,
+                color_grade_highlight_edge,
+                creative_ptr,
             }))
         }
         "MapleToneCurves" => Some(layout!(crate::scene_linear_chain_curves::MapleToneCurves {
@@ -181,6 +167,25 @@ pub(crate) fn describe(name: &str) -> Option<String> {
             display_green_len,
             display_blue_ptr,
             display_blue_len,
+            parametric_highlights,
+            parametric_lights,
+            parametric_darks,
+            parametric_shadows,
+            parametric_shadow_split,
+            parametric_midtone_split,
+            parametric_highlight_split,
+            color_curve_hue_vs_hue_ptr,
+            color_curve_hue_vs_hue_len,
+            color_curve_hue_vs_sat_ptr,
+            color_curve_hue_vs_sat_len,
+            color_curve_hue_vs_luma_ptr,
+            color_curve_hue_vs_luma_len,
+            color_curve_luma_vs_sat_ptr,
+            color_curve_luma_vs_sat_len,
+            color_curve_sat_vs_sat_ptr,
+            color_curve_sat_vs_sat_len,
+            color_curve_sat_vs_luma_ptr,
+            color_curve_sat_vs_luma_len,
         })),
         "MapleSceneLinearBufferF32" => Some(layout!(crate::buffers::MapleSceneLinearBufferF32 {
             f32_rgba,
@@ -216,6 +221,55 @@ pub(crate) fn describe(name: &str) -> Option<String> {
             whites_anchor_ev,
             nr_sampling_scale,
         })),
+        "MapleCreativeTable" => Some(layout!(crate::capture_creative::MapleCreativeTable {
+            offset,
+            dims,
+            srgb,
+        })),
+        "MapleCaptureCreative" => Some(layout!(crate::capture_creative::MapleCaptureCreative {
+            present,
+            highlight_recovery,
+            ae_gain,
+            as_shot_neutral,
+            illuminant,
+            illuminant_cct,
+            color_matrix,
+            has_forward_matrix,
+            forward_matrix,
+            scene_cct,
+            scene_white_xyz,
+            wb_already_baked,
+            has_cm_endpoints,
+            cm_cold,
+            cct_cold,
+            cm_warm,
+            cct_warm,
+            has_fm_cold,
+            fm_cold,
+            has_fm_warm,
+            fm_warm,
+            has_frame,
+            frame_has_endpoints,
+            frame_m_cold,
+            frame_cct_cold,
+            frame_m_warm,
+            frame_cct_warm,
+            frame_cm_as_shot,
+            frame_scene_cct,
+            frame_scene_tint,
+            frame_render_cm,
+            as_shot_table,
+            hsm,
+            cold,
+            warm,
+            look,
+            tables,
+            tables_len,
+        })),
+        "MapleCaptureBufferF32" => Some(layout!(crate::capture_creative::MapleCaptureBufferF32 {
+            scene,
+            creative,
+        })),
         "MapleAutoAdjustments" => Some(layout!(crate::auto_adjustments::MapleAutoAdjustments {
             exposure,
             temperature,
@@ -230,6 +284,73 @@ pub(crate) fn describe(name: &str) -> Option<String> {
             temperature,
             tint,
             algorithm_version,
+        })),
+        "MapleCanvasSize" => Some(layout!(crate::canvas_math::MapleCanvasSize {
+            width,
+            height
+        })),
+        "MapleCanvasPoint" => Some(layout!(crate::canvas_math::MapleCanvasPoint { x, y })),
+        "MapleCanvasRect" => Some(layout!(crate::canvas_math::MapleCanvasRect {
+            x,
+            y,
+            width,
+            height,
+        })),
+        "MapleCanvasInsets" => Some(layout!(crate::canvas_zoom_insets::MapleCanvasInsets {
+            top,
+            left,
+            bottom,
+            right,
+        })),
+        "MapleCanvasZoomContext" => Some(layout!(crate::canvas_zoom::MapleCanvasZoomContext {
+            viewport_points,
+            native_image_size,
+            display_scale,
+            insets,
+        })),
+        "MapleCanvasZoomState" => Some(layout!(crate::canvas_zoom::MapleCanvasZoomState {
+            pixel_scale,
+            pan_offset,
+            base_pan,
+            has_drag_translation_base,
+            drag_translation_base,
+            has_pinch_start_scale,
+            pinch_start_scale,
+            pinch_start_pan,
+            pinch_start_centroid,
+            pinch_last_centroid,
+            fills_viewport,
+            pinch_start_magnification,
+            pinch_last_magnification,
+            has_drag_last_translation,
+            drag_last_translation,
+        })),
+        "MapleCanvasZoomTransition" => {
+            Some(layout!(crate::canvas_zoom::MapleCanvasZoomTransition {
+                state,
+                handled
+            }))
+        }
+        "MapleCanvasMathInput" => Some(layout!(crate::canvas_math::MapleCanvasMathInput {
+            viewport_px,
+            native_image_size,
+            pixel_scale,
+            pan_offset,
+            display_scale,
+        })),
+        "MapleCanvasMathResult" => Some(layout!(crate::canvas_math::MapleCanvasMathResult {
+            has_image_extent,
+            image_extent,
+            fit_pixel_scale,
+            fill_pixel_scale,
+            effective_pixel_scale,
+            has_display_frame,
+            display_frame_in_points,
+            has_fast_target,
+            fast_target_size,
+            has_refined_target,
+            refined_target_size,
+            visible_source_rect,
         })),
         #[cfg(feature = "gpu")]
         "MapleGpuLiveParams" => Some(layout!(crate::gpu_live::MapleGpuLiveParams {
@@ -387,6 +508,22 @@ pub(crate) fn describe(name: &str) -> Option<String> {
             defringe_green_hue_hi,
             whites_anchor_ev,
             nr_sampling_scale,
+            color_grade_blending,
+            color_grade_shadow_edge,
+            color_grade_highlight_edge,
+            color_curve_hue_vs_hue_ptr,
+            color_curve_hue_vs_hue_len,
+            color_curve_hue_vs_sat_ptr,
+            color_curve_hue_vs_sat_len,
+            color_curve_hue_vs_luma_ptr,
+            color_curve_hue_vs_luma_len,
+            color_curve_luma_vs_sat_ptr,
+            color_curve_luma_vs_sat_len,
+            color_curve_sat_vs_sat_ptr,
+            color_curve_sat_vs_sat_len,
+            color_curve_sat_vs_luma_ptr,
+            color_curve_sat_vs_luma_len,
+            creative_ptr,
         })),
         #[cfg(feature = "gpu")]
         "MapleGpuLiveSession" => Some(layout!(crate::gpu_live::MapleGpuLiveSession { inner })),
@@ -394,20 +531,8 @@ pub(crate) fn describe(name: &str) -> Option<String> {
     }
 }
 
-/// Write the layout description of the `#[repr(C)]` struct named
-/// `struct_name` (e.g. `"MapleGpuLiveParams"`) into the caller-owned
-/// `out_buf` (UTF-8, NOT NUL-terminated) and its byte length into
-/// `out_len`.
-///
-/// Returns 0 on success; 1 when `struct_name` is not a struct this build
-/// exports a layout for (`out_len` is set to 0); 2 when `out_cap` is too
-/// small (`out_len` carries the required length, `out_buf` is untouched);
-/// -1 when `struct_name`, `out_buf` or `out_len` is null or `struct_name`
-/// is not valid UTF-8. 4 KiB is ample for every struct today.
-///
-/// # Safety
-/// `struct_name` must be a NUL-terminated string; `out_buf` must be valid
-/// for `out_cap` writes; `out_len` must be valid for one write.
+/// Write the layout description of `struct_name` into `out_buf` and `out_len`.
+/// Returns 0 on success; 1 if unknown; 2 if `out_cap` is too small; -1 on null/invalid UTF-8.
 #[no_mangle]
 pub unsafe extern "C" fn maple_abi_layout(
     struct_name: *const c_char,
@@ -415,116 +540,26 @@ pub unsafe extern "C" fn maple_abi_layout(
     out_cap: usize,
     out_len: *mut usize,
 ) -> i32 {
-    if struct_name.is_null() || out_buf.is_null() || out_len.is_null() {
-        return -1;
-    }
-    let Ok(name) = CStr::from_ptr(struct_name).to_str() else {
-        return -1;
-    };
-    let Some(text) = describe(name) else {
-        *out_len = 0;
-        return 1;
-    };
-    *out_len = text.len();
-    if text.len() > out_cap {
-        return 2;
-    }
-    std::ptr::copy_nonoverlapping(text.as_ptr(), out_buf, text.len());
-    0
+    crate::error::catch_panic_rc("maple_abi_layout", || {
+        if struct_name.is_null() || out_buf.is_null() || out_len.is_null() {
+            return -1;
+        }
+        let Ok(name) = CStr::from_ptr(struct_name).to_str() else {
+            return -1;
+        };
+        let Some(text) = describe(name) else {
+            *out_len = 0;
+            return 1;
+        };
+        *out_len = text.len();
+        if text.len() > out_cap {
+            return 2;
+        }
+        std::ptr::copy_nonoverlapping(text.as_ptr(), out_buf, text.len());
+        0
+    })
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use std::ffi::CString;
-
-    fn parse(text: &str) -> (usize, Vec<(String, usize)>) {
-        let mut parts = text.split(';');
-        let size = parts
-            .next()
-            .and_then(|s| s.strip_prefix("size="))
-            .and_then(|s| s.parse().ok())
-            .expect("leading size=");
-        let fields = parts
-            .map(|p| {
-                let (name, off) = p.split_once('=').expect("name=offset");
-                (name.to_owned(), off.parse().expect("offset"))
-            })
-            .collect();
-        (size, fields)
-    }
-
-    /// Every exported layout is well-formed, its offsets are strictly
-    /// increasing (declaration order, no two fields aliasing) and end
-    /// inside the struct, and the known-good `MapleAdjustmentParams` size
-    /// the WinUI startup guard (`RawFfi.VerifyAbi`) pins is what we export.
-    #[test]
-    fn exported_layouts_are_ordered_and_bounded() {
-        let names = [
-            "MapleScopeStats",
-            "MapleAdjustmentParams",
-            "MapleToneCurves",
-            "MapleSceneLinearBufferF32",
-            "MapleAutoAdjustments",
-            "MapleWbSample",
-            #[cfg(feature = "gpu")]
-            "MapleGpuLiveParams",
-            #[cfg(feature = "gpu")]
-            "MapleGpuLiveSession",
-        ];
-        for name in names {
-            let text = describe(name).unwrap_or_else(|| panic!("{name} exported"));
-            let (size, fields) = parse(&text);
-            assert!(!fields.is_empty(), "{name}: no fields");
-            assert_eq!(fields[0].1, 0, "{name}: first field at offset 0");
-            for w in fields.windows(2) {
-                assert!(
-                    w[0].1 < w[1].1,
-                    "{name}: {} then {} not ascending",
-                    w[0].0,
-                    w[1].0
-                );
-            }
-            assert!(
-                fields.last().unwrap().1 < size,
-                "{name}: last field inside the struct"
-            );
-        }
-        let (size, _) = parse(&describe("MapleAdjustmentParams").unwrap());
-        assert_eq!(
-            size, 704,
-            "RawFfi.VerifyAbi pins MapleAdjustmentParams at 704 bytes"
-        );
-    }
-
-    #[test]
-    fn extern_entry_writes_text_and_reports_errors() {
-        let name = CString::new("MapleToneCurves").unwrap();
-        let mut buf = vec![0u8; 4096];
-        let mut len = 0usize;
-        let rc = unsafe { maple_abi_layout(name.as_ptr(), buf.as_mut_ptr(), buf.len(), &mut len) };
-        assert_eq!(rc, 0);
-        assert_eq!(
-            std::str::from_utf8(&buf[..len]).unwrap(),
-            describe("MapleToneCurves").unwrap()
-        );
-
-        let mut small = [0u8; 4];
-        let mut need = 0usize;
-        let rc =
-            unsafe { maple_abi_layout(name.as_ptr(), small.as_mut_ptr(), small.len(), &mut need) };
-        assert_eq!(rc, 2);
-        assert_eq!(need, len);
-
-        let unknown = CString::new("NotAStruct").unwrap();
-        let mut len = 7usize;
-        let rc =
-            unsafe { maple_abi_layout(unknown.as_ptr(), buf.as_mut_ptr(), buf.len(), &mut len) };
-        assert_eq!(rc, 1);
-        assert_eq!(len, 0);
-
-        let rc =
-            unsafe { maple_abi_layout(std::ptr::null(), buf.as_mut_ptr(), buf.len(), &mut len) };
-        assert_eq!(rc, -1);
-    }
-}
+#[path = "abi_layout_tests.rs"]
+mod tests;

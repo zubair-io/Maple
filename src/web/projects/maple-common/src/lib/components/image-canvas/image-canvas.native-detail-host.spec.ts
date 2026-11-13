@@ -1,9 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
-import { canvasDisplayDims, createNativeDetail } from './image-canvas.native-detail-host';
+import { canvasImageExtent, createNativeDetail } from './image-canvas.native-detail-host';
 import type { ImageCanvasComponent } from './image-canvas.component';
 
 function setup() {
   const crop = { left: 0, top: 0, right: 1, bottom: 1, angle: 0 };
+  let painted = { w: 800, h: 533 };
   let disabled = false,
     scale = 1,
     split: number | null = null;
@@ -21,9 +22,10 @@ function setup() {
     renderGeneration: 1,
     serializeForRender: () => 'xmp',
     state: { focusedAsset: () => ({ id: 'one' }), adjustmentFor: () => () => ({ crop }) },
+    cropSession: { active: () => false },
     canvasSvc: {
       nativeDimensions: () => ({ w: 6000, h: 4000 }),
-      paintedAspect: () => ({ w: 800, h: 533 }),
+      paintedAspect: () => painted,
       pixelScale: () => scale,
       beforeAfterSplitX: () => split,
     },
@@ -47,22 +49,27 @@ function setup() {
     disable: () => (disabled = true),
     zoomOut: () => (scale = 0.99),
     compare: () => (split = 0.5),
+    paint: (w: number, h: number) => (painted = { w, h }),
   };
 }
 
 describe('native-detail host eligibility', () => {
   it('uses oriented native dimensions at 100% instead of the sized bitmap extent', () => {
     const { host } = setup();
-    expect(canvasDisplayDims(host as unknown as ImageCanvasComponent)).toEqual({
+    expect(canvasImageExtent(host as unknown as ImageCanvasComponent)).toEqual({
       w: 6000,
       h: 4000,
     });
   });
 
-  it('keeps the rendered aspect for an applied crop', () => {
-    const { host, crop } = setup();
+  it('sizes an applied crop by the cropped native extent', () => {
+    const { host, crop, paint } = setup();
     crop.right = 0.6;
-    expect(canvasDisplayDims(host as unknown as ImageCanvasComponent)).toEqual({ w: 800, h: 533 });
+    paint(720, 800);
+    expect(canvasImageExtent(host as unknown as ImageCanvasComponent)).toEqual({
+      w: 3600,
+      h: 4000,
+    });
   });
 
   it('requests source pixels at true 100% on the CPU RAW canvas', async () => {

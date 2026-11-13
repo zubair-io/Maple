@@ -2,13 +2,18 @@
 // source (issue #2631).
 //
 // macOS owns a real Trash the user already knows how to look in, so a
-// filesystem-source delete goes straight to `FileManager.trashItem` — one
-// syscall for an ordinary photo. Accepted AI removals instead travel as one
-// verified recovery folder so Finder cannot separate RAW/XMP/companions (#3944). iOS/iPadOS has no OS trash for a
+// filesystem-source delete goes through Finder's recycle operation, so Finder
+// records the original locations for Put Back. Accepted AI removals instead
+// travel as one verified recovery folder so Finder cannot separate
+// RAW/XMP/companions (#3944). iOS/iPadOS has no OS trash for a
 // security-scoped folder, so it falls back to `.maple/trash/<rel>` under the
 // library root via the SAME relocate primitive every other move here uses.
 
 import Foundation
+
+#if os(macOS)
+  import AppKit
+#endif
 
 extension LocalFileOperations {
 
@@ -22,32 +27,89 @@ extension LocalFileOperations {
   }
 
   #if os(macOS)
-    /// The real OS Trash. No `#if`-independent counterpart to test against —
-    /// `FileManager.trashItem` is Apple's own contract to keep, not logic
-    /// this module owns.
+    /// Finder's recycle operation records original locations for Put Back.
+    /// `FileManager.trashItem` moves bytes to Trash but leaves Finder without
+    /// that restore action (#5343).
     static func trashToOSTrash(_ primaryURL: URL) async throws -> RelocateOutcome {
       let fm = FileManager.default
-      let source = try LocalRemovalRelocation.open(rawURL: primaryURL)
-      if let records = source.records, !(try RemovalBridge.assetNames(records: records)).isEmpty {
-        return try await trashAcceptedRemoval(source, raw: primaryURL)
+      if sidecarCarriesRemovals(SidecarPath.sidecarURL(for: primaryURL)) {
+        let source = try LocalRemovalRelocation.open(rawURL: primaryURL)
+        if let records = source.records, !(try RemovalBridge.assetNames(records: records)).isEmpty {
+          return try await trashAcceptedRemoval(source, raw: primaryURL)
+        }
       }
-      var trashedPrimary: NSURL?
-      try fm.trashItem(at: primaryURL, resultingItemURL: &trashedPrimary)
-
       let sidecarURL = SidecarPath.sidecarURL(for: primaryURL)
-      var trashedSidecarURL: URL?
-      if fm.fileExists(atPath: sidecarURL.path) {
-        var resultingURL: NSURL?
-        try? fm.trashItem(at: sidecarURL, resultingItemURL: &resultingURL)
-        trashedSidecarURL = resultingURL as URL?
+      let sidecarShared = SidecarOwnership.localStemClaimedBySibling(primaryURL)
+      let variants = try LocalWorkflowVariants.paired(with: primaryURL)
+      var originals = [primaryURL]
+      if !sidecarShared {
+        if fm.fileExists(atPath: sidecarURL.path) { originals.append(sidecarURL) }
+        originals.append(contentsOf: variants)
+      }
+      var recycled: [URL: URL] = [:]
+      // Finder records Put Back for only the first URL in a recycle batch.
+      // Give every owned companion its own recycle request (#5343).
+      for (index, original) in originals.enumerated() {
+        if index > 0 {
+          // The recycle callback precedes Finder's Put Back registration.
+          // Back-to-back requests leave later items without an original path.
+          try await Task.sleep(for: .seconds(2))
+        }
+        recycled[original] = try await recycleInFinder(original)
+      }
+      guard let trashedPrimary = recycled[primaryURL] else {
+        throw CocoaError(.fileWriteUnknown)
+      }
+
+      let trashedSidecarURL =
+        sidecarShared
+        ? (fm.fileExists(atPath: sidecarURL.path) ? trashCopy(of: sidecarURL) : nil)
+        : recycled[sidecarURL]
+      if sidecarShared {
+        for variant in variants { _ = trashCopy(of: variant) }
       }
       await invalidateDerivedCaches(forOldPrimaryPath: primaryURL.path)
       return RelocateOutcome(
-        primaryPath: (trashedPrimary as URL?)?.path ?? primaryURL.path,
+        primaryPath: trashedPrimary.path,
         sidecarPath: trashedSidecarURL?.path,
         renamedDueToCollision: false,
         sidecarFollowed: trashedSidecarURL != nil
       )
+    }
+
+    private static func recycleInFinder(_ url: URL) async throws -> URL {
+      let destinations: [URL: URL] = try await withCheckedThrowingContinuation { continuation in
+        NSWorkspace.shared.recycle([url]) { destinations, error in
+          if let error {
+            continuation.resume(throwing: error)
+          } else {
+            continuation.resume(returning: destinations)
+          }
+        }
+      }
+      guard let destination = destinations[url] else { throw CocoaError(.fileWriteUnknown) }
+      return destination
+    }
+
+    private static func trashedItem(_ url: URL) -> URL? {
+      var resultingURL: NSURL?
+      try? FileManager.default.trashItem(at: url, resultingItemURL: &resultingURL)
+      return resultingURL as URL?
+    }
+
+    /// A sidecar another same-stem photo still uses stays put (#4707); the
+    /// Trash gets a same-named copy, staged on the same volume.
+    private static func trashCopy(of sidecarURL: URL) -> URL? {
+      let fm = FileManager.default
+      guard
+        let staging = try? fm.url(
+          for: .itemReplacementDirectory, in: .userDomainMask, appropriateFor: sidecarURL,
+          create: true)
+      else { return nil }
+      defer { try? fm.removeItem(at: staging) }
+      let copy = staging.appendingPathComponent(sidecarURL.lastPathComponent)
+      guard (try? fm.copyItem(at: sidecarURL, to: copy)) != nil else { return nil }
+      return trashedItem(copy)
     }
   #endif
 
@@ -197,7 +259,7 @@ extension LocalFileOperations {
     }
   }
 
-  /// Permanently unlinks a trashed item — primary, sidecar, and its
+  /// Permanently unlinks a trashed item — primary, sidecars, and its
   /// marker — with no further recovery. Best-effort on the sidecar/marker
   /// (matches every other cleanup path in this module); the primary
   /// unlink is the one call that throws.
@@ -212,11 +274,19 @@ extension LocalFileOperations {
   public static func permanentlyDeleteFromMapleTrash(_ item: TrashedItem, libraryRoot: URL) throws {
     try requireUnderMapleTrash(item.primaryPath, libraryRoot: libraryRoot)
     let fm = FileManager.default
+    let primary = URL(fileURLWithPath: item.primaryPath)
+    let variants = try LocalWorkflowVariants.paired(with: primary)
+    let shared = SidecarOwnership.localStemClaimedBySibling(primary)
     try fm.removeItem(atPath: item.primaryPath)
-    if let sidecarPath = item.sidecarPath {
-      try? fm.removeItem(atPath: sidecarPath)
+    if !shared {
+      if let sidecarPath = item.sidecarPath {
+        try? fm.removeItem(atPath: sidecarPath)
+      }
+      for variant in variants {
+        try? fm.removeItem(at: variant)
+      }
     }
-    removeTrashedMarker(forItemAt: URL(fileURLWithPath: item.primaryPath))
+    removeTrashedMarker(forItemAt: primary)
   }
 
   /// Throws `.invalidDestination` unless `path` resolves to somewhere
@@ -243,8 +313,9 @@ extension LocalFileOperations {
   /// existed, or a marker write that failed) are left alone rather than
   /// guessed at — the same conservatism as the PhotoKit orphan sweeper
   /// only ever acting on dated entries. Also removes any ORPHANED marker
-  /// (`sweepOrphanedMarkers`) whose primary is already gone. Returns the
-  /// total count of primaries purged plus orphaned markers removed.
+  /// (`sweepOrphanedMarkers`) whose primary is already gone, and any orphaned
+  /// sidecar (`sweepOrphanedSidecars`, #5132). Returns the total count of
+  /// primaries purged plus orphaned markers and sidecars removed.
   @discardableResult
   public static func sweepExpiredMapleTrash(
     libraryRoot: URL, olderThanDays: Int = 30, now: Date = Date()
@@ -259,6 +330,8 @@ extension LocalFileOperations {
       }
     }
     purged += sweepOrphanedMarkers(libraryRoot: libraryRoot)
+    purged += sweepOrphanedSidecars(
+      libraryRoot: libraryRoot, olderThanDays: olderThanDays, now: now)
     return purged
   }
 

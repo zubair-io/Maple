@@ -1,0 +1,33 @@
+{
+  "purpose": "Investigate JPEG-match failures; same processing, test-support diagnostic CLI; no ACR renders, no production adoption.",
+  "binary_sha256": "fb454931b001493d1d1eea4414e93624a15052206a55cc3beac22d1471474a9c",
+  "pipeline_output_version": 37,
+  "producer_features": [
+    "test-support",
+    "stage-dump (inactive)"
+  ],
+  "cases": [
+    {
+      "fixture": "test_0017",
+      "exit": 0,
+      "raw_sha256": "26be5e06dfb53a2938dab3ca8f06024533a9c0dd0c652938f39eb48bc325f95e",
+      "report": "test_0017-fit.txt",
+      "report_sha256": "d8d9f6bb6c3f9bd78ba45312ddd6ba154b57a333ab987176821ffac6489316d7"
+    },
+    {
+      "fixture": "test_0015",
+      "exit": 0,
+      "raw_sha256": "3a859e917a91698a3e15ce3b3721a48a1fb1296873e0697d3bf7c2793297200d",
+      "report": "test_0015-fit.txt",
+      "report_sha256": "9c18826dceafd6ecfbef5efcb2174ebf47a7d47a5c7b7d4b51fff474fc45e3a9"
+    },
+    {
+      "fixture": "test_0012",
+      "exit": 0,
+      "raw_sha256": "35109fc20a849026c43c47674902431ef5a2d54b09b616995263dc75df17912f",
+      "report": "test_0012-fit.txt",
+      "report_sha256": "4d799cafa1c294acf8523721e06861f79a977b61ae912d7adfd835f601fdbdf8"
+    }
+  ],
+  "complete": true
+}

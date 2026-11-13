@@ -20,7 +20,10 @@
  *   X-Maple-Suffix-Override — optional; when set, the final filename is
  *                             `<base>.<suffix-override>` instead of
  *                             `<base>.rendered.<ext>`. Used by the Live Photo
- *                             .mov path to skip the `.rendered.` infix.
+ *                             .mov path to skip the `.rendered.` infix; that
+ *                             upload gets its own session and is recorded as
+ *                             the asset's apple_live_video_path rather than
+ *                             its apple_rendered_path.
  *   X-Maple-PHAsset-Cloud-Id — optional; Apple PHCloudIdentifier. When two
  *                             devices on the same iCloud library both back
  *                             up the rendered companion for the same photo,
@@ -37,17 +40,28 @@
  *         Body: { retry_after_seconds }. Same-key metadata mismatches
  *         self-heal silently (session reset in place).
  */
-import { backupId, backupChunkRange, backupLibrary, backupLibraryId } from './backup-id.ts';
+import {
+  backupChunkRange,
+  backupId,
+  backupLibrary,
+  backupLibraryId,
+  isSafeRelPath,
+} from './backup-id.ts';
 import { openChunkSession, takeChunk } from './backup-chunk.ts';
 import { Elysia, t } from 'elysia';
-import { setAppleRenderedPath } from '../db/repos/backup.repo.ts';
+import {
+  fillAppleCompanionPath,
+  setAppleCompanionPath,
+} from '../db/repos/backup-companions.repo.ts';
+import { assetOwnsRelPath } from '../db/repos/assets.location-owner.ts';
+import { filesIdentical, moveNoClobber } from '../backup/fs-util.ts';
+import type { ObjectId } from '../db/object-id.ts';
 import { uploadSessions } from '../backup/upload-session.ts';
 import { isSafeFilenamePart, containedJoin } from '../backup/path-safety.ts';
 import { child as childLogger } from '../log.ts';
 // Mirror-aware drop-in: the rendered-companion publish replicates to the
 // library's backup root(s). `link` and `copyFile` are both mirror-aware.
 import fs from '../fs/mirrored.ts';
-import { constants as fsConstants } from 'node:fs';
 import path from 'node:path';
 
 const log = childLogger('backup-rendered');
@@ -69,35 +83,9 @@ const log = childLogger('backup-rendered');
  * Cross-filesystem fallback uses `open(O_CREAT | O_EXCL)` via `fs.open(dst, "wx")`
  * — the kernel-level analog that's atomic w.r.t. concurrent creates. */
 async function atomicMove(src: string, dst: string): Promise<void> {
-  try {
-    await fs.link(src, dst);
-    await fs.unlink(src);
-    return;
-  } catch (e: any) {
-    if (e?.code === 'EEXIST') throw e;
-    if (e?.code !== 'EXDEV') throw e;
+  if (!(await moveNoClobber(src, dst))) {
+    throw Object.assign(new Error(`Rendered destination is occupied: ${dst}`), { code: 'EEXIST' });
   }
-  // Cross-filesystem: copy with COPYFILE_EXCL (O_CREAT | O_EXCL) so a
-  // concurrent create still surfaces EEXIST atomically, then drop the tmp.
-  // Going through the mirror-aware `copyFile` (rather than a raw FileHandle
-  // write) is what lets the rendered companion replicate to the backup root.
-  await fs.copyFile(src, dst, fsConstants.COPYFILE_EXCL);
-  await fs.unlink(src);
-}
-
-/**
- * Validate that a relative path is safe: no ".." segments, no leading slash,
- * no backslash, no empty segments.
- */
-function isSafeRelPath(relPath: string): boolean {
-  if (!relPath || relPath.length === 0 || relPath.length > 2048) return false;
-  if (relPath.startsWith('/') || relPath.startsWith('\\')) return false;
-  const parts = relPath.split(/[/\\]/);
-  for (const part of parts) {
-    if (part === '..' || part === '.') return false;
-    if (part.length === 0) return false;
-  }
-  return true;
 }
 
 /**
@@ -201,16 +189,31 @@ function unsafeFilenamePart(ext: string | undefined, suffix: string | undefined)
   return null;
 }
 
+/** `relPath` itself, then `<stem>-1<ext>`, `<stem>-2<ext>`, … in its folder. */
+function companionCandidate(relPath: string, attempt: number): string {
+  if (attempt === 0) return relPath;
+  const dir = path.posix.dirname(relPath);
+  const ext = path.posix.extname(relPath);
+  const name = `${path.posix.basename(relPath, ext)}-${attempt}${ext}`;
+  return dir === '.' ? name : `${dir}/${name}`;
+}
+
 /**
- * Moves the assembled companion into the library.
+ * Moves the assembled companion into the library and returns the rel path it
+ * actually landed at.
  *
- * `EEXIST` is success, not a failure: another device won the race past the
- * cloud-id check and its copy is already at the canonical path. The asset
- * update that follows either already points there or is about to, so the loser
- * drops its temporary copy and reports the same result.
+ * Walks the canonical name and then its suffixed siblings. A name an asset
+ * owns is skipped. A free name is claimed without clobbering. An occupied name
+ * is adopted only when it already holds these exact bytes — another device
+ * placed this same companion there first, including at a suffix, so a second
+ * device reuses it instead of leaking another copy. Anything else — an
+ * unrelated file, or another asset's original under a case alias — would be
+ * recorded as this photo's companion and deleted with it on a Trash purge
+ * (#4695), so the walk moves on.
  */
 async function placeRenderedFile(
   tmpFile: string,
+  libraryId: ObjectId,
   libraryRoot: string,
   relPath: string,
 ): Promise<Response | string> {
@@ -219,24 +222,53 @@ async function placeRenderedFile(
   const finalPath = containedJoin(libraryRoot, relPath);
   if (!finalPath) return badRequest('resolved path escapes library root');
   await fs.mkdir(path.dirname(finalPath), { recursive: true });
-  try {
-    await atomicMove(tmpFile, finalPath);
-  } catch (e: unknown) {
-    if ((e as { code?: unknown } | null)?.code !== 'EEXIST') throw e;
-    await fs.unlink(tmpFile).catch(() => {});
+  for (let attempt = 0; attempt <= 9999; attempt++) {
+    const candidate = companionCandidate(relPath, attempt);
+    if (await assetOwnsRelPath(libraryId, candidate)) continue;
+    const absPath = path.join(libraryRoot, ...candidate.split('/'));
+    try {
+      await atomicMove(tmpFile, absPath);
+    } catch (e: unknown) {
+      if ((e as { code?: unknown } | null)?.code !== 'EEXIST') throw e;
+      if (!(await filesIdentical(tmpFile, absPath))) continue;
+      await fs.unlink(tmpFile).catch(() => {});
+    }
+    if (candidate !== relPath) {
+      log.warn({ requested: relPath, placed: candidate }, 'rendered companion target occupied');
+    }
+    return candidate;
   }
-  return finalPath;
+  throw new Error(`no free name for rendered companion ${relPath}`);
 }
 
 /**
- * The cloud id a rendered session claims, which is the photo's with a suffix.
- *
- * The suffix is what namespaces rendered sessions apart from the original-asset
- * sessions for the same photo. Without it a rendered upload from device B sees
- * device A's ORIGINAL session as a busy peer and backs off for nothing.
+ * Whether a companion an earlier session placed at `relPath` can stand for
+ * this upload: its file is still in the library and no asset has since claimed
+ * the path as its own photo, which a Trash purge of this one would delete.
  */
-function renderedSessionCloudId(phCloudId: string | undefined): string | undefined {
-  return phCloudId === undefined ? undefined : `${phCloudId}::rendered`;
+async function landedCompanionIsReusable(
+  libraryId: ObjectId,
+  libraryRoot: string,
+  relPath: string,
+): Promise<boolean> {
+  const absPath = containedJoin(libraryRoot, relPath);
+  if (!absPath || !(await fs.stat(absPath).catch(() => null))) return false;
+  return !(await assetOwnsRelPath(libraryId, relPath));
+}
+
+/**
+ * The cloud id a companion session claims, which is the photo's with a suffix.
+ *
+ * The suffix is what namespaces companion sessions apart from the original-asset
+ * sessions for the same photo, and from each other. Without it a rendered upload
+ * from device B sees device A's ORIGINAL session as a busy peer and backs off
+ * for nothing.
+ */
+function companionSessionCloudId(
+  phCloudId: string | undefined,
+  companion: string,
+): string | undefined {
+  return phCloudId === undefined ? undefined : `${phCloudId}::${companion}`;
 }
 
 function badRequest(error: string): Response {
@@ -265,10 +297,12 @@ export const backupRenderedRoutes = new Elysia().post(
     // Compute target rel-path for the rendered companion.
     const targetRelPath = renderedRelPath(originalRelPath, filenameExt, suffixOverride);
 
-    // Use synthetic phid so rendered sessions don't collide with original sessions.
-    const syntheticPhid = `${phid}::rendered`;
+    // A Live Photo's .mov and its Apple-rendered edit are separate uploads of
+    // the same photo, so each gets its own session, apart from the original's.
+    const companion = suffixOverride === undefined ? 'rendered' : 'live';
+    const syntheticPhid = `${phid}::${companion}`;
 
-    const renderedCloudId = renderedSessionCloudId(phCloudId);
+    const renderedCloudId = companionSessionCloudId(phCloudId, companion);
 
     const opened = await openChunkSession({
       libraryId,
@@ -280,20 +314,36 @@ export const backupRenderedRoutes = new Elysia().post(
       phassetCloudId: renderedCloudId,
     });
     if (opened instanceof Response) return opened;
-    const { session, didReset, alreadyComplete } = opened;
+    const { session, alreadyComplete } = opened;
+    const slot = companion === 'live' ? 'apple_live_video_path' : 'apple_rendered_path';
+    // A disambiguated upload completed under its sibling name; that, not the
+    // occupied path the device asked for, is where its bytes are.
+    const landed = session.resolved_rel_path ?? session.target_rel_path;
+    const reusable =
+      alreadyComplete && (await landedCompanionIsReusable(libraryId, folder.path, landed));
 
     // Same short-circuit as backup-ingest: when the rendered companion
     // already finished server-side, return 200 with the stored target path
     // so the client doesn't burn retry slots on an upload that's already
-    // landed on disk.
-    if (alreadyComplete) {
+    // landed on disk. A device re-sending a companion the asset has no record
+    // of (#5778) must still leave it recorded.
+    if (reusable && session.maple_id) {
       log.debug(
-        { phid, targetRelPath: session.target_rel_path },
+        { phid, targetRelPath: landed },
         'rendered ingest short-circuit (already complete)',
       );
+      await fillAppleCompanionPath(libraryId, session.maple_id, slot, landed);
       set.status = 200;
-      return { target_rel_path: session.target_rel_path };
+      return { target_rel_path: landed };
     }
+    // Bytes that finished once but are gone, or now belong to another asset,
+    // are accepted again rather than reported as delivered.
+    if (alreadyComplete) {
+      await uploadSessions.resetForRestart(session._id);
+      session.state = 'open';
+      session.received_bytes = 0;
+    }
+    const didReset = opened.didReset || alreadyComplete;
 
     const resolvedTargetRelPath = session.target_rel_path;
 
@@ -315,19 +365,19 @@ export const backupRenderedRoutes = new Elysia().post(
     // Final chunk — move assembled file into place + update AssetDoc.
     // -----------------------------------------------------------------------
 
-    const placed = await placeRenderedFile(tmpFile, folder.path, resolvedTargetRelPath);
+    const placed = await placeRenderedFile(tmpFile, libraryId, folder.path, resolvedTargetRelPath);
     if (placed instanceof Response) return placed;
-    await uploadSessions.complete({ sessionId: session._id, mapleId });
+    await uploadSessions.complete({ sessionId: session._id, mapleId, resolvedRelPath: placed });
 
-    // Persist apple_rendered_path on the matching asset. Post
+    // Record the companion on the matching asset. Post
     // drop-abs-path-2026-05-21 the per-library pointer is the asset's
     // locations, so the update is scoped by a location in this library plus
     // the content-addressed `maple_id`.
-    await setAppleRenderedPath(libraryId, mapleId, resolvedTargetRelPath);
+    await setAppleCompanionPath(libraryId, mapleId, slot, placed);
 
-    log.debug({ phid, targetRelPath: resolvedTargetRelPath, mapleId }, 'rendered ingest complete');
+    log.debug({ phid, targetRelPath: placed, mapleId }, 'rendered ingest complete');
     set.status = 200;
-    return { target_rel_path: resolvedTargetRelPath };
+    return { target_rel_path: placed };
   },
   {
     params: t.Object({ libraryId: t.String() }),

@@ -187,32 +187,75 @@ final class RawCoreBridgeTests: XCTestCase {
         // autoExposure (#1387) is a decode-baked scalar gain — no Apple
         // Metal live re-apply, same story as highlightRecovery above.
         XCTAssertEqual(stripped.autoExposure, original.autoExposure)
-        // sharpenRadius / sharpenDetail / sharpenMasking are read by the
-        // post-chain Metal kernel using the live model; the decode
-        // ignores them, so the strip leaves them alone.
-        XCTAssertEqual(stripped.sharpenRadius, original.sharpenRadius)
-        XCTAssertEqual(stripped.sharpenDetail, original.sharpenDetail)
-        XCTAssertEqual(stripped.sharpenMasking, original.sharpenMasking)
         // captureSharpening* run inside the Rust decode (post-DCP) and have
         // no Apple Metal equivalent — kept so the live slider value reaches
         // the FFI decode.
         XCTAssertEqual(stripped.captureSharpeningAmount, original.captureSharpeningAmount)
         XCTAssertEqual(stripped.captureSharpeningSigma, original.captureSharpeningSigma)
-        // split_tone (#1111) and grain (#1110) run only POST-AgX; the Apple
-        // decode stops at scene-linear (pre-AgX), so even though the temp XMP
-        // carries these values the decode never applies them — there is
-        // nothing to double-apply. Stripping them would be pointless (and
-        // misleading), so the strip leaves them untouched; they still shape
-        // the live chain output, so they belong in the SceneLinearChainCache
-        // key instead.
-        XCTAssertEqual(stripped.splitToneShadowHue, original.splitToneShadowHue)
-        XCTAssertEqual(stripped.splitToneShadowSaturation, original.splitToneShadowSaturation)
-        XCTAssertEqual(stripped.splitToneHighlightHue, original.splitToneHighlightHue)
-        XCTAssertEqual(stripped.splitToneHighlightSaturation, original.splitToneHighlightSaturation)
-        XCTAssertEqual(stripped.splitToneBalance, original.splitToneBalance)
-        XCTAssertEqual(stripped.grainAmount, original.grainAmount)
-        XCTAssertEqual(stripped.grainSize, original.grainSize)
-        XCTAssertEqual(stripped.grainRoughness, original.grainRoughness)
+    }
+
+    /// #4737 — the stripped model is the decoded-image cache key
+    /// (`RenderActor.bakedModel`, `RenderActor+Export`). Rust's
+    /// `prefix_policy!` neutralises every field below; Swift did not, so a
+    /// grain / split-tone / colour-grade / film / display-curve / sharpen-
+    /// radius edit changed the key and forced a full RAW re-decode on the
+    /// next refine or sized export — seconds on 100 MP — although the decode
+    /// never applies any of them (they are post-AgX or Metal-only).
+    func test_strip_neutralises_every_field_rust_prefix_policy_neutralises() {
+        var authored = sampleModel()
+        authored.parametricShadowSplit = 10
+        authored.parametricMidtoneSplit = 40
+        authored.parametricHighlightSplit = 90
+        authored.toneCurveMode = .ratioPreserving
+        authored.displayToneCurveLuma = ToneCurve(points: [(0, 0), (0.4, 0.6), (1, 1)])
+        authored.displayToneCurveRed = authored.displayToneCurveLuma
+        authored.displayToneCurveGreen = authored.displayToneCurveLuma
+        authored.displayToneCurveBlue = authored.displayToneCurveLuma
+        authored.colorGradeShadowLuminance = 12
+        authored.colorGradeMidtoneHue = 200
+        authored.colorGradeMidtoneSaturation = 30
+        authored.colorGradeMidtoneLuminance = -8
+        authored.colorGradeHighlightLuminance = 9
+        authored.colorGradeGlobalHue = 45
+        authored.colorGradeGlobalSaturation = 15
+        authored.colorGradeGlobalLuminance = -3
+        authored.filmLook = "kodachrome"
+        authored.filmStrength = 60
+        authored.wbMethod = .diagonalRec2020
+
+        let stripped = RawCoreBridge.stripAppleGPUStages(authored)
+        let d = AdjustmentModel()
+
+        XCTAssertEqual(stripped.parametricShadowSplit, d.parametricShadowSplit)
+        XCTAssertEqual(stripped.parametricMidtoneSplit, d.parametricMidtoneSplit)
+        XCTAssertEqual(stripped.parametricHighlightSplit, d.parametricHighlightSplit)
+        XCTAssertEqual(stripped.toneCurveMode, d.toneCurveMode)
+        XCTAssertEqual(stripped.displayToneCurveLuma, d.displayToneCurveLuma)
+        XCTAssertEqual(stripped.displayToneCurveRed, d.displayToneCurveRed)
+        XCTAssertEqual(stripped.displayToneCurveGreen, d.displayToneCurveGreen)
+        XCTAssertEqual(stripped.displayToneCurveBlue, d.displayToneCurveBlue)
+        XCTAssertEqual(stripped.splitToneShadowHue, d.splitToneShadowHue)
+        XCTAssertEqual(stripped.splitToneShadowSaturation, d.splitToneShadowSaturation)
+        XCTAssertEqual(stripped.splitToneHighlightHue, d.splitToneHighlightHue)
+        XCTAssertEqual(stripped.splitToneHighlightSaturation, d.splitToneHighlightSaturation)
+        XCTAssertEqual(stripped.splitToneBalance, d.splitToneBalance)
+        XCTAssertEqual(stripped.colorGradeShadowLuminance, d.colorGradeShadowLuminance)
+        XCTAssertEqual(stripped.colorGradeMidtoneHue, d.colorGradeMidtoneHue)
+        XCTAssertEqual(stripped.colorGradeMidtoneSaturation, d.colorGradeMidtoneSaturation)
+        XCTAssertEqual(stripped.colorGradeMidtoneLuminance, d.colorGradeMidtoneLuminance)
+        XCTAssertEqual(stripped.colorGradeHighlightLuminance, d.colorGradeHighlightLuminance)
+        XCTAssertEqual(stripped.colorGradeGlobalHue, d.colorGradeGlobalHue)
+        XCTAssertEqual(stripped.colorGradeGlobalSaturation, d.colorGradeGlobalSaturation)
+        XCTAssertEqual(stripped.colorGradeGlobalLuminance, d.colorGradeGlobalLuminance)
+        XCTAssertEqual(stripped.grainAmount, d.grainAmount)
+        XCTAssertEqual(stripped.grainSize, d.grainSize)
+        XCTAssertEqual(stripped.grainRoughness, d.grainRoughness)
+        XCTAssertEqual(stripped.filmLook, d.filmLook)
+        XCTAssertEqual(stripped.filmStrength, d.filmStrength)
+        XCTAssertEqual(stripped.sharpenRadius, d.sharpenRadius)
+        XCTAssertEqual(stripped.sharpenDetail, d.sharpenDetail)
+        XCTAssertEqual(stripped.sharpenMasking, d.sharpenMasking)
+        XCTAssertEqual(stripped.wbMethod, d.wbMethod)
     }
 
     func test_strip_is_idempotent() {

@@ -22,7 +22,7 @@ import { toneCurveBlocks } from './xmp-tone-curves';
 import { localAdjustmentBlocksWithPassthrough } from './xmp-mask-group-passthrough';
 import { planLayerOrder } from './xmp-verbatim-layer-order';
 import { passthroughForMetadataReplacement } from './xmp-metadata-passthrough';
-import { retouchAreasBlock } from './xmp-retouch';
+import { retouchAreasBlock, retouchFrameParts } from './xmp-retouch';
 import { withRemovalRecords } from '../removal/removal-editor-recipe';
 import { DESCRIPTION_CHILD_INDENT, canonicalDocument } from './xmp-canonical';
 import {
@@ -123,6 +123,7 @@ export class XmpSerializerService {
     // switch, WB method, tone-curve mode, black & white) — see
     // `xmp-serializer-parts.ts`.
     parts.push(...enumFieldParts(model));
+    parts.push(...retouchFrameParts(model));
     // Crop / straighten (#277) — see `xmp-serializer-parts.ts`.
     parts.push(...cropParts(model.crop));
     // Rating / flag / colorLabel.

@@ -2,7 +2,6 @@
 
 import { Injectable, signal, computed } from '@angular/core';
 import type { DecodedImage } from '../../raw-pipeline/raw-pipeline.types';
-import { MAX_PIXEL_SCALE } from './image-canvas.zoom-gestures';
 
 @Injectable({ providedIn: 'root' })
 export class ImageCanvasService {
@@ -10,10 +9,20 @@ export class ImageCanvasService {
    * Continuous zoom as REAL screen pixels per image pixel (#1100,
    * docs/zoom.md): `0` = fit (auto-computed from viewport/native),
    * `1.0` = true 100% (1 image px = 1 device px — dpr-aware, pixel-perfect
-   * on retina), capped at 8.0. Replaces the stepped `ZoomLevel`.
+   * on retina), capped at 8.0. Written by the shared Rust zoom model through
+   * `image-canvas.zoom-gestures.ts`; `zoomToFit` / `zoomTo100` below set
+   * exactly the model's fit and centred-100% states.
    */
   readonly pixelScale = signal<number>(0);
   readonly pan = signal<{ x: number; y: number }>({ x: 0, y: 0 });
+
+  /**
+   * True while nothing overflows the viewport (fit or below), so a plain
+   * drag or wheel on the canvas is the editor's scrub / tool nudge rather
+   * than a pan. Published by the canvas from the shared zoom model's input
+   * routing; fit-only until a canvas mounts.
+   */
+  readonly pointerEditsAtZoom = signal(true);
   readonly beforeAfterSplitX = signal<number | null>(null);
 
   /** Native, display-oriented image dimensions for geometry consumers such as
@@ -53,6 +62,8 @@ export class ImageCanvasService {
    */
   readonly paintedAspect = signal<{ w: number; h: number } | null>(null);
 
+  readonly effectivePx = signal<{ canvasW: number; canvasH: number } | null>(null);
+
   readonly showBeforeAfter = computed(() => this.beforeAfterSplitX() !== null);
 
   // ── Momentary before/after (#2450) ─────────────────────────────────────
@@ -85,8 +96,7 @@ export class ImageCanvasService {
   }
 
   // ── Bounded step zoom by request (#2450) ───────────────────────────────
-  // The step needs the viewport/native geometry only `CanvasZoomGestures`
-  // holds, so keyboard ⌘= / ⌘- post a request here and the zoom host
+  // The step needs the viewport/native geometry only the zoom host holds, so keyboard ⌘= / ⌘- post a request here and the zoom host
   // answers it — the same bounded, centre-anchored step the toolbar and the
   // wheel use.
   readonly stepZoomRequest = signal<{ readonly seq: number; readonly direction: 1 | -1 }>({
@@ -121,14 +131,5 @@ export class ImageCanvasService {
   zoomTo100(): void {
     this.pixelScale.set(1);
     this.pan.set({ x: 0, y: 0 });
-  }
-
-  /**
-   * Set a settled pixelScale, clamped to `[0, 8]`. `0` = fit. Snap-to-fit
-   * and anchoring live in `CanvasZoomGestures` (they need viewport/native
-   * geometry this service deliberately doesn't hold).
-   */
-  setPixelScale(v: number): void {
-    this.pixelScale.set(Math.min(Math.max(v, 0), MAX_PIXEL_SCALE));
   }
 }

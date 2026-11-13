@@ -10,6 +10,7 @@ import type {
   WorkersStatusResponse,
   WorkersStatusUpdate,
   EnrichmentConfigResponse,
+  TemporalSettings,
 } from '@maple-common';
 
 export const wsFrames = new Subject<WorkersStatusUpdate>();
@@ -114,13 +115,6 @@ export const MOCK_ENRICHMENT: EnrichmentConfigResponse = {
   face_recognizer_url: null,
   face_recognizer_sha256: null,
   face_min_detection_size: 0.06,
-  meilisearch_url: null,
-  meilisearch_api_key_set: false,
-  meilisearch_task_timeout_seconds: 600,
-  meilisearch_semantic_enabled: false,
-  meilisearch_embedder_url: 'http://localhost:11434',
-  meilisearch_embedder_model: 'bge-m3',
-  meilisearch_semantic_ratio: 0.5,
   service_search_rate_limit_per_minute: 60,
   source: {
     nominatim_url: 'unset',
@@ -141,13 +135,12 @@ export const MOCK_ENRICHMENT: EnrichmentConfigResponse = {
     face_recognizer_url: 'unset',
     face_recognizer_sha256: 'unset',
     face_min_detection_size: 'default',
-    meilisearch_url: 'unset',
-    meilisearch_api_key: 'unset',
-    meilisearch_task_timeout_seconds: 'default',
-    meilisearch_semantic_enabled: 'default',
-    meilisearch_embedder_url: 'default',
-    meilisearch_embedder_model: 'default',
-    meilisearch_semantic_ratio: 'default',
     service_search_rate_limit_per_minute: 'default',
   },
+};
+
+export const MOCK_TEMPORAL: TemporalSettings = {
+  address: '127.0.0.1:7233',
+  namespace: 'default',
+  connection: { state: 'connected', error: null, checkedAt: null },
 };

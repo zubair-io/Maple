@@ -119,7 +119,10 @@ describe('mergePeopleInto', () => {
     const first = insertPerson(db, { name: 'A. Lovelace' });
     const second = insertPerson(db, { name: 'Countess' });
     for (const person of [first, second]) {
-      insertFace(db, { assetId: insertLiveAsset(db, library), personId: person });
+      insertFace(db, {
+        assetId: insertLiveAsset(db, library),
+        personId: person,
+      });
     }
 
     const result = await mergePeopleInto(
@@ -143,7 +146,10 @@ describe('mergePeopleInto', () => {
     const target = insertPerson(db, { name: 'Ada' });
     const real = insertPerson(db, { name: 'Real' });
     const elsewhere = insertPerson(db, { name: 'Elsewhere' });
-    const alreadyMerged = insertPerson(db, { name: 'Gone', mergedInto: elsewhere });
+    const alreadyMerged = insertPerson(db, {
+      name: 'Gone',
+      mergedInto: elsewhere,
+    });
 
     const result = await mergePeopleInto(
       new ObjectId(target),

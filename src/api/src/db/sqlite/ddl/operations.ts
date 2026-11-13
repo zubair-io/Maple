@@ -1,12 +1,16 @@
 /**
  * Operational tables: the job runner, imports, the indexer and discover
- * queues, per-stage worker config and handler routing, backup/upload sessions
- * and APNs device tokens.
+ * queues, per-stage worker config, backup/upload sessions and APNs device
+ * tokens.
  *
  * These are queues and configuration, not the photo library, so the schema
- * rule that applies is a different one: claim queries need real columns for
- * their lease and status fields, and everything else can stay a payload. A
- * `jobs` row is read whole by exactly one worker at a time.
+ * rule that applies is a different one: the relay and claim statements need
+ * real columns for their status and holder fields, and everything else can
+ * stay a payload. A `jobs` row is read whole by exactly one worker at a time.
+ *
+ * The `lease_expires_at` columns and the `*_claim` indexes on `jobs` and
+ * `imports` are frozen 0001 DDL: Temporal's heartbeat replaced them, and 0043
+ * drops them (#5825).
  *
  * `job.id`, `import.id` and `upload_session.id` all reach clients through
  * polling endpoints, so they keep the 24-character hex shape.
@@ -20,7 +24,7 @@ CREATE TABLE jobs (
   kind   TEXT NOT NULL,
   status TEXT NOT NULL CHECK (status IN ('queued', 'running', 'done', 'failed', 'cancelled')),
 
-  -- Claim lease, mirroring the geocode worker's.
+  -- The attempt holding the job; the lease beside it is dropped by 0043.
   locked_by        TEXT,
   lease_expires_at TEXT,
   cancel_requested INTEGER NOT NULL DEFAULT 0 CHECK (cancel_requested IN (0, 1)),
@@ -161,7 +165,7 @@ CREATE INDEX discover_frontier_claim
  * Every configurable field is nullable, which is the shape the repository
  * actually writes rather than the shape `WorkerConfig` declares.
  * `WorkerConfigRepo.patch` upserts a *partial* config:
- * `registerPausableWorker` (`workers/pause-control.ts`) persists `{ paused }`
+ * `pausableWorker` (`workers/pause-control.ts`) persists `{ paused }`
  * and nothing else, against a row that need not exist yet, so a row routinely
  * holds a name and one field. The four fields TypeScript marks required are
  * required of a merged, *loaded* config — `bootConfig` substitutes the stage's
@@ -205,6 +209,7 @@ CREATE TABLE worker_config (
 ) WITHOUT ROWID;
 `;
 
+// Frozen 0001 DDL; nothing reads handler overrides, so 0042 drops the table (#5825).
 export const STAGE_HANDLERS_TABLE_DDL = `
 CREATE TABLE stage_handlers (
   stage      TEXT NOT NULL PRIMARY KEY,

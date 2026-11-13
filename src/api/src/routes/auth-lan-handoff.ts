@@ -1,3 +1,4 @@
+import { handoffUserWithProof } from './auth-handoff-proof.ts';
 // src/api/src/routes/auth-lan-handoff.ts
 //
 // Web-to-web-LAN session handoff. Two endpoints:
@@ -12,7 +13,6 @@
 // redirect carrying only a short-lived one-time code — never tokens) without
 // repeating the ceremony there.
 import { Elysia, t } from 'elysia';
-import { ObjectId } from '../db/object-id.ts';
 import { findUserById } from '../db/repos/auth.users.repo.ts';
 import { signAccessToken, REFRESH_TTL_SECONDS } from '../auth/tokens.ts';
 import { accessClaimsFor, toPublicAuthUser } from '../auth/permissions.ts';
@@ -30,21 +30,33 @@ function jwtSecret(): string {
 /**
  * Authed issue. The public-URL page calls this once signed in, and redirects
  * to `http://<lan-ip>:<port>/?lan_handoff=<code>` with the result — never the
- * tokens themselves.
+ * tokens themselves. Requires persistent-login proof (`maple_refresh` cookie or
+ * `refresh_token` body) or fresh passkey step-up (`X-Step-Up` header) so an
+ * access-only JWT cannot mint a refresh family (#4673).
  *
  * Self-gating: `requireAuth` is `.use`d on this instance's own chain (same
  * pattern as `/native-code`), so its scoped derive stays contained when
  * mounted.
  */
-export const lanHandoffIssueRoutes = new Elysia()
-  .use(requireAuth)
-  .post('/api/auth/lan-handoff', async ({ auth }) => {
+export const lanHandoffIssueRoutes = new Elysia().use(requireAuth).post(
+  '/api/auth/lan-handoff',
+  async ({ auth, body, cookie, headers, set }) => {
+    const userId = await handoffUserWithProof({ auth, body, cookie, headers, set }, jwtSecret());
+    if (!userId) return { error: 'refresh-token proof or step-up required' };
     const issued = await issueLanHandoffCode({
-      userId: new ObjectId(auth.user.sub),
+      userId,
       deviceLabel: 'Local network session',
     });
     return { code: issued.code };
-  });
+  },
+  {
+    body: t.Optional(
+      t.Object({
+        refresh_token: t.Optional(t.String()),
+      }),
+    ),
+  },
+);
 
 /**
  * Public redeem. The LAN-origin page, on load, finds `?lan_handoff=<code>` in

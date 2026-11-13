@@ -30,7 +30,8 @@ extension EditorCanvasView {
   }
 
   /// True once real pixels for this asset are actually painted — the GPU
-  /// layer has presented a frame, or the CPU path has a rendered preview.
+  /// layer has presented a frame, the GPU leaf's CPU backdrop holds a
+  /// completed full render (#4496), or the CPU path has a rendered preview.
   /// Distinct from `canvasIsReady`, which only says the leaf is MOUNTED
   /// (the GPU leaf mounts before it has anything to show). The cold-open
   /// loading bar and the zoom-to-open thumbnail seed (#1489) both key off
@@ -39,23 +40,37 @@ extension EditorCanvasView {
     EditSession.canvasHasFrame(
       gpuActive: useGpuCanvas,
       gpuFramePresented: state.session.gpuFramePresented,
-      hasRenderedPreview: state.session.renderedPreview != nil
+      hasRenderedPreview: state.session.renderedPreview != nil,
+      renderedPreviewIsFullRender: state.session.renderedPreviewIsFullRender
     )
   }
 
-  private var showCpuBackdrop: Bool {
-    state.session.isFullQualityDecoding || !state.session.gpuFramePresented
-  }
+  private var showCpuBackdrop: Bool { state.session.showsCpuBackdrop }
 
   private var straightenAngle: Double {
     guard state.armedTool == .crop else { return 0 }
     return state.session.model.crop.angle
   }
 
-  @ViewBuilder
   var canvasLeaf: some View {
-    canvasLeafContent
-      .rotationEffect(.degrees(straightenAngle))
+    ZStack {
+      canvasLeafContent
+      if !useGpuCanvas {
+        EditorSeedImage(
+          assetID: state.session.asset.id, visible: seedVisible, store: seedStore)
+      }
+    }
+    .rotationEffect(.degrees(straightenAngle))
+  }
+
+  /// A seed alone mounts the CPU leaf: the photo's frame is laid out from it.
+  var hasSeed: Bool {
+    !useGpuCanvas && seedVisible && seedStore.image(for: state.session.asset.id) != nil
+  }
+
+  var seedVisible: Bool {
+    EditorCanvasSeed.isVisible(
+      showingOriginal: state.session.showingOriginal, hasOnscreenFrame: canvasHasOnscreenFrame)
   }
 
   @ViewBuilder
@@ -96,16 +111,20 @@ extension EditorCanvasView {
       // (verified via a11y dump — even `canvas-zoom-indicator` reads
       // `editor-view` there), so the iPad harness matches on
       // label + value instead (#1769).
+      // `canvasHasOnscreenFrame`, not raw `gpuFramePresented` (#4496): the
+      // sentinel must report what the seed thumbnail reports, so a CPU
+      // full render shown by the backdrop (PhotoKit, oversized sensors)
+      // reads ready instead of `canvas-rendering` forever.
       .accessibilityValue(
         FullImageViewVM.canvasAccessibilityID(
           isRendering: state.session.isRendering,
-          hasPreview: state.session.gpuFramePresented
+          hasPreview: canvasHasOnscreenFrame
         )
       )
       .accessibilityIdentifier(
         FullImageViewVM.canvasAccessibilityID(
           isRendering: state.session.isRendering,
-          hasPreview: state.session.gpuFramePresented
+          hasPreview: canvasHasOnscreenFrame
         )
       )
     } else if let preview = state.session.showingOriginal ? nil : state.session.renderedPreview {
@@ -163,22 +182,24 @@ extension EditorCanvasView {
       .accessibilityIdentifier("editor-canvas-placeholder")
   }
 
-  /// The grid thumbnail painted above the canvas leaf / placeholder until
-  /// the canvas has real pixels (#2374). Composed in `canvasLayer` so it
-  /// sits over the GPU leaf — which mounts opaque before its first frame —
-  /// and under the download overlay.
-  var seedThumbnail: some View {
-    EditorSeedThumbnail(
+  /// Loads the seed for the open asset (#2374, #5731), hands it to the GPU
+  /// canvas as its placeholder (#5758) and feeds its aspect to the zoom
+  /// while the photo's real size is unknown (#5755).
+  var seedLoader: some View {
+    EditorSeedLoader(
       asset: state.session.asset,
       source: filmstripSource,
-      visible: !state.session.showingOriginal && !canvasHasOnscreenFrame
+      visible: seedVisible,
+      store: seedStore,
+      zoom: state.zoom,
+      session: state.session
     )
   }
 
   /// Byte-download progress for a cloud open (#822). Composed in
-  /// `canvasLayer` above the seed thumbnail rather than inside the
-  /// placeholder, so it is visible on the GPU path too — there the leaf
-  /// mounts immediately and the placeholder never shows (#2374).
+  /// `canvasLayer` above the canvas rather than inside the placeholder, so
+  /// it is visible over the seed and on the GPU path, where the leaf mounts
+  /// immediately and the placeholder never shows (#2374).
   @ViewBuilder
   var downloadOverlay: some View {
     if let progress = state.session.downloadProgress, progress.isDownloading {
@@ -229,7 +250,7 @@ extension EditorCanvasView {
 /// `sourceRect` is top-left-oriented source geometry, matching the zoom
 /// controller; SwiftUI's geometry is top-left-oriented too, so placement is a
 /// direct normalized mapping. The parent host clips this leaf to the viewport.
-private struct NativeDetailOverlay: View {
+struct NativeDetailOverlay: View {
   let image: CIImage
   let sourceRect: CGRect
   let sourceSize: CGSize

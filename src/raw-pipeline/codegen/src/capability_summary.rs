@@ -9,7 +9,7 @@
 //! under the repo's `prettier --check` gate without a formatting pass.
 
 use raw_core::capability_registry::{
-    classify, Capability, Evidence, EvidenceSource, Finding, ReleaseState,
+    classify, current_schema_version, Capability, Evidence, EvidenceSource, Finding, ReleaseState,
 };
 
 // -------------------------------------------------------------------------
@@ -17,7 +17,6 @@ use raw_core::capability_registry::{
 // -------------------------------------------------------------------------
 
 pub(crate) fn emit_md(registry: &[Capability], evidence: &Evidence) -> String {
-    let build = evidence.build.expect("evidence carries a build identity");
     let classified: Vec<_> = registry
         .iter()
         .map(|c| (c, classify(c, evidence)))
@@ -32,12 +31,8 @@ pub(crate) fn emit_md(registry: &[Capability], evidence: &Evidence) -> String {
     );
     s.push_str("## Build\n\n");
     s.push_str(&format!(
-        "- Pipeline output version: {}\n",
-        build.pipeline_version
-    ));
-    s.push_str(&format!(
         "- Sidecar schema version: {}\n",
-        build.schema_version
+        current_schema_version()
     ));
     s.push_str(&format!(
         "- Capabilities: {} ({} released, {} integrated, {} core)\n\n",
@@ -89,15 +84,13 @@ pub(crate) fn emit_md(registry: &[Capability], evidence: &Evidence) -> String {
         let status = raw_core::capability_registry::judge(*source, evidence);
         match evidence.records.get(source) {
             Some(r) => s.push_str(&format!(
-                "- Record: {} — {} of {} executed, {} failed, {} skipped, on `{}`, pipeline v{}, schema v{}, commit `{}`, recorded {}\n",
+                "- Record: {} — {} of {} executed, {} failed, {} skipped, on `{}`, commit `{}`, recorded {}\n",
                 status.describe(),
                 r.executed_cases,
                 r.expected_cases,
                 r.failed_cases,
                 r.skipped_cases,
                 r.backend,
-                r.pipeline_version,
-                r.schema_version,
                 if r.git_sha.is_empty() { "unknown" } else { &r.git_sha },
                 if r.recorded_at.is_empty() { "at an unknown time" } else { &r.recorded_at },
             )),
@@ -159,7 +152,6 @@ fn finding_json(f: &Finding) -> J {
 }
 
 pub(crate) fn emit_json(registry: &[Capability], evidence: &Evidence) -> String {
-    let build = evidence.build.expect("evidence carries a build identity");
     let capabilities = registry
         .iter()
         .map(|cap| {
@@ -204,8 +196,6 @@ pub(crate) fn emit_json(registry: &[Capability], evidence: &Evidence) -> String 
             let record = match evidence.records.get(source) {
                 Some(r) => J::Obj(vec![
                     ("backend", J::Str(r.backend.clone())),
-                    ("pipeline_version", J::Num(r.pipeline_version.into())),
-                    ("schema_version", J::Num(r.schema_version.into())),
                     ("corpus_hash", J::Str(r.corpus_hash.clone())),
                     ("expected_cases", J::Num(r.expected_cases.into())),
                     ("executed_cases", J::Num(r.executed_cases.into())),
@@ -247,13 +237,10 @@ pub(crate) fn emit_json(registry: &[Capability], evidence: &Evidence) -> String 
         ),
         (
             "build",
-            J::Obj(vec![
-                (
-                    "pipeline_output_version",
-                    J::Num(build.pipeline_version.into()),
-                ),
-                ("schema_version", J::Num(build.schema_version.into())),
-            ]),
+            J::Obj(vec![(
+                "schema_version",
+                J::Num(current_schema_version().into()),
+            )]),
         ),
         ("capabilities", J::Arr(capabilities)),
         ("evidence_sources", J::Arr(sources)),
@@ -326,17 +313,10 @@ pub(crate) fn print_json(v: &J, indent: usize, used: usize, out: &mut String) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use raw_core::capability_registry::{BuildIdentity, CAPABILITY_REGISTRY};
+    use raw_core::capability_registry::CAPABILITY_REGISTRY;
 
     fn no_evidence() -> Evidence {
-        Evidence {
-            records: Default::default(),
-            build: Some(BuildIdentity {
-                pipeline_version: 2,
-                schema_version: 5,
-            }),
-            corpus_hashes: Default::default(),
-        }
+        Evidence::default()
     }
 
     #[test]
@@ -361,7 +341,11 @@ mod tests {
     fn json_is_valid_and_carries_build_and_states() {
         let out = emit_json(CAPABILITY_REGISTRY, &no_evidence());
         let v: serde_json::Value = serde_json::from_str(&out).expect("valid JSON");
-        assert_eq!(v["build"]["pipeline_output_version"], 2);
+        assert!(v["build"].get("pipeline_output_version").is_none());
+        assert_eq!(
+            v["build"]["schema_version"],
+            raw_core::capability_registry::current_schema_version()
+        );
         assert_eq!(
             v["capabilities"].as_array().unwrap().len(),
             CAPABILITY_REGISTRY.len()

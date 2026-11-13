@@ -94,3 +94,52 @@ test('mounted jobs list excludes owner-only recovery before LIMIT and preserves 
     process.env.MAPLE_JWT_SECRET = previous;
   }
 });
+
+test('operator one-shots stay out of the jobs list, and only an owner reads or cancels one by id', async () => {
+  using live = await createLiveTestDatabase();
+  const previous = process.env.MAPLE_JWT_SECRET;
+  const secret = 'job-visibility-operations-test-secret-long';
+  process.env.MAPLE_JWT_SECRET = secret;
+  try {
+    const app = buildApp({ stageNames: [] });
+    const owner = await signAccessToken(
+      { sub: '111111111111111111111111', email: null, role: 'owner', file_access: true },
+      secret,
+    );
+    const member = await signAccessToken(
+      { sub: '222222222222222222222222', email: null, role: 'member', file_access: true },
+      secret,
+    );
+    const at = () => new Date(Date.UTC(2026, 0, 1));
+    const exported = await createJob(
+      { kind: 'batch_jpeg_export', payload: {} },
+      at,
+      undefined,
+      live.handle,
+    );
+    const scan = await createJob(
+      { kind: 'folder_scan', payload: { folderId: 'a'.repeat(24) } },
+      at,
+      undefined,
+      live.handle,
+    );
+    await createJob({ kind: 'mirror_reconcile', payload: {} }, at, undefined, live.handle);
+    const call = (path: string, token: string, method = 'GET') =>
+      app.handle(
+        new Request(`http://localhost/api/jobs${path}`, {
+          method,
+          headers: { Authorization: `Bearer ${token}` },
+        }),
+      );
+
+    for (const token of [owner, member]) {
+      const { jobs } = (await (await call('', token)).json()) as { jobs: { id: string }[] };
+      expect(jobs.map((job) => job.id)).toEqual([exported._id.toHexString()]);
+    }
+    expect((await call(`/${scan._id.toHexString()}`, member)).status).toBe(403);
+    expect((await call(`/${scan._id.toHexString()}/cancel`, member, 'POST')).status).toBe(403);
+    expect((await call(`/${scan._id.toHexString()}`, owner)).status).toBe(200);
+  } finally {
+    process.env.MAPLE_JWT_SECRET = previous;
+  }
+});

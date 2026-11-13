@@ -1,0 +1,62 @@
+{
+  "purpose": "Pair-domain diagnostics, not a physical gate or source change. Separate structured fit, bake approximation and native-pixel averaging.",
+  "binary_sha256": "3fa3ab473fd886705e41aa397d263ace73ba507834120d9507ac6b64ba682dc9",
+  "cases": [
+    {
+      "fixture": "test_0000",
+      "raw_sha256": "f4b60b3672bdf7ff7f4376fba9da1b1d22c925ebc3e16baa5fd4a64fa1045aa5",
+      "report_sha256": "edc3d1962a9d1da0ef2345c0ac50fab2894835c7db9470cebac2cd43d1786571",
+      "report": "test_0000-bands.json"
+    },
+    {
+      "fixture": "test_0005",
+      "raw_sha256": "a7124d13910e0241a6b035154bc1fcdb7be4439371d043b1e1950a0251feb51e",
+      "report_sha256": "359e56fe2e3285212e531cee9a6ac98527ee2a1a25dfa47df639bf17db46a8eb",
+      "report": "test_0005-bands.json"
+    },
+    {
+      "fixture": "test_0006",
+      "raw_sha256": "159326856c29073e845c3c5a9ecf98c6474f43ca15798a88ad5e2baecd0664b7",
+      "report_sha256": "880e0e1bfe12c1a31472ba4baf6d236fa84a3197ae61dbcee1e4d388f976db0c",
+      "report": "test_0006-bands.json"
+    },
+    {
+      "fixture": "test_0007",
+      "raw_sha256": "95dc76a2f255e623acaa5149b320389f7da7c995da890c3e0d511c0ff681b2e1",
+      "report_sha256": "be9d23dadf50848b0a75a43a8e5001ef8d87432b7b71c8bac76f3168dfa6cabf",
+      "report": "test_0007-bands.json"
+    },
+    {
+      "fixture": "test_0008",
+      "raw_sha256": "95b33021160b239ceb1a09d46a1b29cb60cb7dd47581feb126b337c219091754",
+      "report_sha256": "12cb71f52452d512c0b74308ff9f60d7f9d09ec54d7c3dc06bbfe14db93edf51",
+      "report": "test_0008-bands.json"
+    },
+    {
+      "fixture": "test_0010",
+      "raw_sha256": "3ea2d03556747afcafa24f13fee69106f383dfaf3a2f436f8331f14518f20037",
+      "report_sha256": "d80dd5bbb082e2e5fde353a33cf3c0fc672dade03349c9620176323dce6fd126",
+      "report": "test_0010-bands.json"
+    },
+    {
+      "fixture": "test_0011",
+      "raw_sha256": "3421b919ee81224d59f78872ee099a021bff0e2a47ae5fbbac385b182ac7241e",
+      "report_sha256": "ec7864f26f2d56bc0b6126916a857c6b9fea72f68faf4b700f639ec8136f09e0",
+      "report": "test_0011-bands.json"
+    },
+    {
+      "fixture": "test_0013",
+      "raw_sha256": "e91e77a4533ed7cce551d83330676ea5c47dd5e55fb38adda7819366afdbdfc2",
+      "report_sha256": "5f1434145e315ebe07458a2a6d8616010d016169e63fa1fcf55f40c1f0f8e73f",
+      "report": "test_0013-bands.json"
+    },
+    {
+      "fixture": "test_0014",
+      "raw_sha256": "0c9438258ddae5260b9f5a1aace6658a723f1cb1acace3a6cb507116dc6da4f2",
+      "report_sha256": "f3b086b71cfe04a24b30f0244a40043f0fa3f47e29754d708fe3d86cfcb1f3f5",
+      "report": "test_0014-bands.json"
+    }
+  ],
+  "source_sha256": "154bd0f11e8e230e6c703f6d4adfa3b12c397059d540406e8340807fb3f5c987",
+  "complete": true
+}

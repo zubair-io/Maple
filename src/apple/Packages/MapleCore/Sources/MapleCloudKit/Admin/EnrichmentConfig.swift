@@ -1,7 +1,7 @@
 // EnrichmentConfig.swift — wire types for /api/enrichment/config (T5a + T5b).
 //
 // Configures the six service-backed enrichment stages: Describe,
-// Transcribe, Geocode, Face-detect, Face-embed, Meilisearch
+// Transcribe, Geocode, Face-detect, Face-embed, plus the service search budget
 // (src/api/src/routes/enrichment.ts). The maintenance panels (mirror,
 // derivative-audit, GPU live render) are separate documents/routes and live
 // in MirrorConfig.swift / DerivativeAuditConfig.swift / RenderConfig.swift.
@@ -27,20 +27,6 @@ public struct EnrichmentConfig: Decodable, Sendable, Equatable {
   public let nominatimRateLimitPerSec: Double
   public let describeProviderURL: String?
   public let transcribeModelTier: WhisperModelTier
-  public let meilisearchURL: String?
-  /// Whether a Meilisearch API key is configured (DB or env). The key
-  /// itself is a secret and is stripped server-side before the response —
-  /// only this boolean crosses the wire (`toPublicConfig` in enrichment.ts).
-  public let meilisearchAPIKeySet: Bool
-  public let meilisearchTaskTimeoutSeconds: Int
-  public let meilisearchSemanticEnabled: Bool
-  /// Read-only mirror shown on the Meilisearch row: the Ollama endpoint
-  /// Meilisearch's embedder actually calls. Always Describe's resolved URL
-  /// server-side (`meilisearchEmbedderUrl` in enrichment-config.resolve.ts)
-  /// — Maple owns both configs and refuses to let them drift apart.
-  public let meilisearchEmbedderURL: String
-  public let meilisearchEmbedderModel: String
-  public let meilisearchSemanticRatio: Double
   public let serviceSearchRateLimitPerMinute: Int
   // ── Face worker (T5b, #2772) ─────────────────────────────────────────
   /// Resolved model dir (DB → env → ~/.maple/models/). Always populated.
@@ -61,9 +47,7 @@ public struct EnrichmentConfig: Decodable, Sendable, Equatable {
 
   public init(
     nominatimURL: String?, geocodeWorkerEnabled: Bool, nominatimRateLimitPerSec: Double,
-    describeProviderURL: String?, transcribeModelTier: WhisperModelTier, meilisearchURL: String?,
-    meilisearchAPIKeySet: Bool, meilisearchTaskTimeoutSeconds: Int, meilisearchSemanticEnabled: Bool,
-    meilisearchEmbedderURL: String, meilisearchEmbedderModel: String, meilisearchSemanticRatio: Double,
+    describeProviderURL: String?, transcribeModelTier: WhisperModelTier,
     serviceSearchRateLimitPerMinute: Int, faceModelDir: String = "", faceDetectorURL: String? = nil,
     faceDetectorSHA256: String? = nil, faceRecognizerURL: String? = nil,
     faceRecognizerSHA256: String? = nil, faceMinDetectionSize: Double = 0.06,
@@ -74,13 +58,6 @@ public struct EnrichmentConfig: Decodable, Sendable, Equatable {
     self.nominatimRateLimitPerSec = nominatimRateLimitPerSec
     self.describeProviderURL = describeProviderURL
     self.transcribeModelTier = transcribeModelTier
-    self.meilisearchURL = meilisearchURL
-    self.meilisearchAPIKeySet = meilisearchAPIKeySet
-    self.meilisearchTaskTimeoutSeconds = meilisearchTaskTimeoutSeconds
-    self.meilisearchSemanticEnabled = meilisearchSemanticEnabled
-    self.meilisearchEmbedderURL = meilisearchEmbedderURL
-    self.meilisearchEmbedderModel = meilisearchEmbedderModel
-    self.meilisearchSemanticRatio = meilisearchSemanticRatio
     self.serviceSearchRateLimitPerMinute = serviceSearchRateLimitPerMinute
     self.faceModelDir = faceModelDir
     self.faceDetectorURL = faceDetectorURL
@@ -97,13 +74,6 @@ public struct EnrichmentConfig: Decodable, Sendable, Equatable {
     case nominatimRateLimitPerSec = "nominatim_rate_limit_per_sec"
     case describeProviderURL = "describe_provider_url"
     case transcribeModelTier = "transcribe_model_tier"
-    case meilisearchURL = "meilisearch_url"
-    case meilisearchAPIKeySet = "meilisearch_api_key_set"
-    case meilisearchTaskTimeoutSeconds = "meilisearch_task_timeout_seconds"
-    case meilisearchSemanticEnabled = "meilisearch_semantic_enabled"
-    case meilisearchEmbedderURL = "meilisearch_embedder_url"
-    case meilisearchEmbedderModel = "meilisearch_embedder_model"
-    case meilisearchSemanticRatio = "meilisearch_semantic_ratio"
     case serviceSearchRateLimitPerMinute = "service_search_rate_limit_per_minute"
     case faceModelDir = "face_model_dir"
     case faceDetectorURL = "face_detector_url"
@@ -124,13 +94,6 @@ public struct EnrichmentConfig: Decodable, Sendable, Equatable {
     nominatimRateLimitPerSec = try c.decode(Double.self, forKey: .nominatimRateLimitPerSec)
     describeProviderURL = try c.decodeIfPresent(String.self, forKey: .describeProviderURL)
     transcribeModelTier = try c.decode(WhisperModelTier.self, forKey: .transcribeModelTier)
-    meilisearchURL = try c.decodeIfPresent(String.self, forKey: .meilisearchURL)
-    meilisearchAPIKeySet = try c.decode(Bool.self, forKey: .meilisearchAPIKeySet)
-    meilisearchTaskTimeoutSeconds = try c.decode(Int.self, forKey: .meilisearchTaskTimeoutSeconds)
-    meilisearchSemanticEnabled = try c.decode(Bool.self, forKey: .meilisearchSemanticEnabled)
-    meilisearchEmbedderURL = try c.decode(String.self, forKey: .meilisearchEmbedderURL)
-    meilisearchEmbedderModel = try c.decode(String.self, forKey: .meilisearchEmbedderModel)
-    meilisearchSemanticRatio = try c.decode(Double.self, forKey: .meilisearchSemanticRatio)
     serviceSearchRateLimitPerMinute = try c.decode(Int.self, forKey: .serviceSearchRateLimitPerMinute)
     faceModelDir = try c.decodeIfPresent(String.self, forKey: .faceModelDir) ?? ""
     faceDetectorURL = try c.decodeIfPresent(String.self, forKey: .faceDetectorURL)
@@ -175,9 +138,6 @@ public enum EnrichmentModels {
 public enum EnrichmentLimits {
   /// `MIN_NOMINATIM_RATE_LIMIT_PER_SEC` / `MAX_NOMINATIM_RATE_LIMIT_PER_SEC`.
   public static let nominatimRateLimitPerSec = 0.1...100.0
-  /// `MIN_MEILISEARCH_TASK_TIMEOUT_SECONDS` / `MAX_...`.
-  public static let meilisearchTaskTimeoutSeconds = 30...3600
-  public static let meilisearchSemanticRatio = 0.0...1.0
   /// `MIN_SERVICE_SEARCH_RATE_LIMIT_PER_MINUTE` / `MAX_...`. The web form
   /// (`workers.component.ts`) only checks `> 0` and leaves the upper bound
   /// to the server; this enforces both bounds client-side, which matches
@@ -198,7 +158,7 @@ public struct DescribeConfigPatch: Encodable, Sendable, Equatable {
   public let nominatimURL: String?
   public let geocodeWorkerEnabled: Bool
   /// `nil` sends an explicit `null`, clearing back to env/default — unlike
-  /// the Cloudflare/Meilisearch secrets, this isn't write-only, so a blank
+  /// the Cloudflare secrets, this isn't write-only, so a blank
   /// field means "clear", not "keep".
   public let describeProviderURL: String?
 
@@ -255,7 +215,7 @@ public struct GeocodeConfigPatch: Encodable, Sendable, Equatable {
   public let nominatimURL: String?
   public let geocodeWorkerEnabled: Bool
   /// `nil` sends an explicit `null` (clear to env/default). Always present,
-  /// never omitted. Unlike the three Meilisearch numerics below, an
+  /// never omitted. Unlike the service search budget below, an
   /// out-of-range value here is NOT reset to null client-side — it is sent
   /// through as typed and the server 400s the whole save
   /// (`MIN_NOMINATIM_RATE_LIMIT_PER_SEC` / `MAX_...` in
@@ -284,57 +244,26 @@ public struct GeocodeConfigPatch: Encodable, Sendable, Equatable {
   }
 }
 
-/// Meilisearch row. Carries two rules from `meilisearchFormToPatch`
-/// (`workers.vm.ts:273`): the API key is write-only and OMITTED when blank
-/// (never sent as null — there is no "clear" affordance on this row), while
-/// the three numeric fields reset to `null` (not a clamped edge value) when
-/// out of range.
-public struct MeilisearchConfigPatch: Encodable, Sendable, Equatable {
+/// Service search row. The budget resets to `null` (not a clamped edge value)
+/// when out of range.
+public struct ServiceSearchConfigPatch: Encodable, Sendable, Equatable {
   public let nominatimURL: String?
   public let geocodeWorkerEnabled: Bool
-  public let meilisearchURL: String?
-  /// `nil` OMITS the key entirely so the stored key survives. A blank form
-  /// field must never serialize to explicit `null` here — that would clear
-  /// a working key on every unrelated save.
-  public let meilisearchAPIKey: String?
-  public let meilisearchSemanticEnabled: Bool
-  public let meilisearchEmbedderModel: String?
-  /// `nil` sends explicit `null` (reset to default) when out of
-  /// `EnrichmentLimits.meilisearchTaskTimeoutSeconds`. Always present.
-  public let meilisearchTaskTimeoutSeconds: Int?
-  /// `nil` sends explicit `null` when out of
-  /// `EnrichmentLimits.meilisearchSemanticRatio`. Always present.
-  public let meilisearchSemanticRatio: Double?
   /// `nil` sends explicit `null` when out of
   /// `EnrichmentLimits.serviceSearchRateLimitPerMinute`. Always present.
   public let serviceSearchRateLimitPerMinute: Int?
 
   public init(
-    nominatimURL: String?, geocodeWorkerEnabled: Bool, meilisearchURL: String?,
-    meilisearchAPIKey: String?, meilisearchSemanticEnabled: Bool, meilisearchEmbedderModel: String?,
-    meilisearchTaskTimeoutSeconds: Int?, meilisearchSemanticRatio: Double?,
-    serviceSearchRateLimitPerMinute: Int?
+    nominatimURL: String?, geocodeWorkerEnabled: Bool, serviceSearchRateLimitPerMinute: Int?
   ) {
     self.nominatimURL = nominatimURL
     self.geocodeWorkerEnabled = geocodeWorkerEnabled
-    self.meilisearchURL = meilisearchURL
-    self.meilisearchAPIKey = meilisearchAPIKey
-    self.meilisearchSemanticEnabled = meilisearchSemanticEnabled
-    self.meilisearchEmbedderModel = meilisearchEmbedderModel
-    self.meilisearchTaskTimeoutSeconds = meilisearchTaskTimeoutSeconds
-    self.meilisearchSemanticRatio = meilisearchSemanticRatio
     self.serviceSearchRateLimitPerMinute = serviceSearchRateLimitPerMinute
   }
 
   enum CodingKeys: String, CodingKey {
     case nominatimURL = "nominatim_url"
     case geocodeWorkerEnabled = "geocode_worker_enabled"
-    case meilisearchURL = "meilisearch_url"
-    case meilisearchAPIKey = "meilisearch_api_key"
-    case meilisearchSemanticEnabled = "meilisearch_semantic_enabled"
-    case meilisearchEmbedderModel = "meilisearch_embedder_model"
-    case meilisearchTaskTimeoutSeconds = "meilisearch_task_timeout_seconds"
-    case meilisearchSemanticRatio = "meilisearch_semantic_ratio"
     case serviceSearchRateLimitPerMinute = "service_search_rate_limit_per_minute"
   }
 
@@ -342,14 +271,6 @@ public struct MeilisearchConfigPatch: Encodable, Sendable, Equatable {
     var c = encoder.container(keyedBy: CodingKeys.self)
     try c.encodeNullable(nominatimURL, forKey: .nominatimURL)
     try c.encode(geocodeWorkerEnabled, forKey: .geocodeWorkerEnabled)
-    try c.encodeNullable(meilisearchURL, forKey: .meilisearchURL)
-    // OMIT, not null-encode — the one field in this file with keep/blank
-    // semantics rather than clear/blank semantics.
-    try c.encodeIfPresent(meilisearchAPIKey, forKey: .meilisearchAPIKey)
-    try c.encode(meilisearchSemanticEnabled, forKey: .meilisearchSemanticEnabled)
-    try c.encodeNullable(meilisearchEmbedderModel, forKey: .meilisearchEmbedderModel)
-    try c.encodeNullable(meilisearchTaskTimeoutSeconds, forKey: .meilisearchTaskTimeoutSeconds)
-    try c.encodeNullable(meilisearchSemanticRatio, forKey: .meilisearchSemanticRatio)
     try c.encodeNullable(
       serviceSearchRateLimitPerMinute, forKey: .serviceSearchRateLimitPerMinute)
   }
@@ -361,8 +282,7 @@ extension KeyedEncodingContainer {
   /// "omitted" (leave unchanged) from "null" (reset to default) for most
   /// fields, so the auto-synthesized Encodable behaviour — which omits `nil`
   /// optionals — is wrong for them; every patch type above calls this
-  /// explicitly for every field except the one that genuinely wants omit
-  /// (the Meilisearch API key).
+  /// explicitly for every field.
   mutating func encodeNullable<T: Encodable>(_ value: T?, forKey key: Key) throws {
     if let value {
       try encode(value, forKey: key)

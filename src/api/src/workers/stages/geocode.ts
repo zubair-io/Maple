@@ -6,12 +6,12 @@
  * public, operator-configured for self-hosted). The operator must confirm their
  * Nominatim URL and rate limit in `/settings/workers` before unpausing.
  *
- * Images without GPS coordinates return `{ skip }` — not an error, not
+ * Images without GPS coordinates (user override or EXIF) return `{ skip }` — not an error, not
  * retried. The runtime counts them as successes toward throughput and marks
- * the stage done so the meili fan-in is unblocked.
+ * the stage done so the search-blob fan-in is unblocked.
  *
- * The old worker's inline Meilisearch upsert is dropped — the `meili` stage
- * (Task 5) owns the Meilisearch write once all enrichment stages have run.
+ * The old worker's inline search upsert is dropped — the `search-blob` stage
+ * owns the blob once all enrichment stages have run.
  */
 
 import type { ImageDoc, StageContext, StageResult } from '../run-stage.ts';
@@ -21,6 +21,7 @@ import { NominatimClient } from '../../enrichment/nominatim-client.ts';
 import { parseNominatimResponse } from '../../enrichment/place-parser.ts';
 import { loadEnrichmentConfig } from '../../enrichment/enrichment-config.repo.ts';
 import { resolveEnrichmentConfig } from '../../enrichment/enrichment-config.resolve.ts';
+import { effectiveMetadata } from '../../metadata/override-resolver.ts';
 import { backupLocationSegments } from '../../backup/location-segments.ts';
 import { placeStatements } from '../../db/repos/assets.stage-patches.ts';
 import type { SqlStatement } from '../../db/sqlite/protocol.ts';
@@ -67,19 +68,19 @@ export function setGeocodeDepsForTests(deps: GeocodeDeps | null): void {
 
 export async function geocodeHandler(image: ImageDoc, _ctx: StageContext): Promise<StageResult> {
   const { client, cache } = await getDeps();
-  const gps = image.exif?.gps;
+  const { gps } = effectiveMetadata(image);
   if (!gps || typeof gps.lat !== 'number' || typeof gps.lng !== 'number') {
     return { skip: 'no-gps' };
   }
   const { lat, lng } = gps;
   const cached = await cache.get(lat, lng);
   const place = cached ?? null;
-  if (place) return { patch: placePatch(image, place), invalidates: ['meili', 'embed'] };
+  if (place) return { patch: placePatch(image, place), invalidates: ['search-blob', 'embed'] };
 
   const raw = await client.reverse(lat, lng);
   const fresh = parseNominatimResponse(raw, lat, lng, GEOCODE_HANDLER_VERSION, () => new Date());
   await cache.set(lat, lng, fresh);
-  return { patch: placePatch(image, fresh), invalidates: ['meili', 'embed'] };
+  return { patch: placePatch(image, fresh), invalidates: ['search-blob', 'embed'] };
 }
 
 /** Write the place, and — when it changes the canonical backup folder — reset
@@ -96,7 +97,8 @@ const geocodeStage = defineStage({
   name: 'geocode',
   // v2: exif v2 corrects western-hemisphere longitude sign — bump so docs
   // already geocoded with the wrong-sign coords re-run against the fixed gps.
-  targetVersion: 2,
+  // v3: honours metadata_override.gps — re-run docs skipped as no-gps despite an override.
+  targetVersion: 3,
   // Wait for exif v2 specifically — dep on bare "exif" would let geocode
   // run on stale v1 coords if it polls a doc before exif catches up.
   dependsOn: [{ name: 'exif', minVersion: 2 }],

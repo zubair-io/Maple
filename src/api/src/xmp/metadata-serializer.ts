@@ -10,12 +10,15 @@
  * - Re-use the encode helpers from `xmp-metadata.ts` (web layer) verbatim.
  *   They are pure functions with no browser/Angular deps so they import fine
  *   in Bun.
- * - For the attribute-injection path: replace managed attribute key=value
- *   pairs in the rdf:Description opening tag via regex substitution, then
- *   append new ones.
+ * - The primary rdf:Description is located with the namespace-aware span
+ *   parser from `transfer-document.ts`; only its opening tag is edited for
+ *   attributes (either quote style), and a self-closing tag is opened before
+ *   nested blocks are added (#4684).
  * - For nested elements (lang-alt/seq/bag): remove old managed blocks, then
- *   append new ones inside rdf:Description.
+ *   append new ones inside that rdf:Description.
  * - Namespace declarations are added as needed.
+ * - The result is parsed before it is returned, so a malformed merge is
+ *   surfaced to the caller instead of being published.
  *
  * This is intentionally NOT byte-identical to the web serializer — that
  * parity is tracked as a separate KTLO ticket. The output is semantically
@@ -26,6 +29,10 @@
  */
 
 import type { XmpMetadataInput } from './metadata-input.ts';
+import { adobeLabelColor } from './color-label.ts';
+import { parseXmpMetadata } from './metadata-parser.ts';
+import { keepRetouchFrame } from './retouch-frame.ts';
+import { primaryDescription, xmlSpans } from './transfer-document.ts';
 
 // ---------------------------------------------------------------------------
 // Encode helpers (copied from xmp-metadata.ts — pure math, no browser deps)
@@ -152,6 +159,21 @@ const NS_MAP: Record<string, string> = {
 // Attribute builder
 // ---------------------------------------------------------------------------
 
+const TEXT_ATTRS = [
+  ['dateTimeOriginal', 'exif:DateTimeOriginal'],
+  ['timeZone', 'papp:TimeZone'],
+  ['sublocation', 'Iptc4xmpCore:Location'],
+  ['city', 'photoshop:City'],
+  ['state', 'photoshop:State'],
+  ['country', 'photoshop:Country'],
+  ['countryCode', 'Iptc4xmpCore:CountryCode'],
+  ['headline', 'photoshop:Headline'],
+  ['instructions', 'photoshop:Instructions'],
+  ['creatorJobTitle', 'photoshop:AuthorsPosition'],
+  ['credit', 'photoshop:Credit'],
+  ['source', 'photoshop:Source'],
+] as const satisfies readonly (readonly [keyof XmpMetadataInput, string])[];
+
 function buildMetadataAttrParts(m: XmpMetadataInput): string[] {
   const parts: string[] = [];
   const push = (key: string, value: string) => parts.push(`${key}="${escapeAttr(value)}"`);
@@ -163,21 +185,20 @@ function buildMetadataAttrParts(m: XmpMetadataInput): string[] {
     push('exif:GPSAltitude', alt.value);
     push('exif:GPSAltitudeRef', alt.ref);
   }
-  if (m.dateTimeOriginal) push('exif:DateTimeOriginal', m.dateTimeOriginal);
-  if (m.timeZone) push('papp:TimeZone', m.timeZone);
-  if (m.sublocation) push('Iptc4xmpCore:Location', m.sublocation);
-  if (m.city) push('photoshop:City', m.city);
-  if (m.state) push('photoshop:State', m.state);
-  if (m.country) push('photoshop:Country', m.country);
-  if (m.countryCode) push('Iptc4xmpCore:CountryCode', m.countryCode);
-  if (m.headline) push('photoshop:Headline', m.headline);
-  if (m.instructions) push('photoshop:Instructions', m.instructions);
-  if (m.creatorJobTitle) push('photoshop:AuthorsPosition', m.creatorJobTitle);
-  if (m.credit) push('photoshop:Credit', m.credit);
-  if (m.source) push('photoshop:Source', m.source);
+  for (const [field, key] of TEXT_ATTRS) {
+    const value = m[field];
+    if (value) push(key, value);
+  }
   if (m.copyrightStatus === 'copyrighted') push('xmpRights:Marked', 'True');
   else if (m.copyrightStatus === 'public-domain') push('xmpRights:Marked', 'False');
-  // Culling. Rating is rounded and must land in the readable 1–5 range — a value
+  parts.push(...buildCullingAttrParts(m));
+  return parts;
+}
+
+function buildCullingAttrParts(m: XmpMetadataInput): string[] {
+  const parts: string[] = [];
+  const push = (key: string, value: string) => parts.push(`${key}="${escapeAttr(value)}"`);
+  // Rating is rounded and must land in the readable 1–5 range — a value
   // outside 0–5 (e.g. from a non-route caller; the batch route already 422s
   // these) is ignored rather than written as an attr the 1–5 parser can't read
   // back. 0 means cleared, so it emits nothing.
@@ -293,14 +314,15 @@ export interface MergeMetadataOptions {
  * Merge metadata edits into an existing XMP sidecar string.
  *
  * - Existing adjustment/culling/passthrough content is preserved.
- * - Old managed metadata attribute values are removed from the rdf:Description tag.
- * - New managed attribute values are appended to the rdf:Description tag.
+ * - Old managed metadata attribute values are removed from the primary rdf:Description tag.
+ * - New managed attribute values are appended to that tag.
  * - Old managed nested element blocks are removed.
- * - New managed nested element blocks are injected inside rdf:Description.
+ * - New managed nested element blocks are injected inside the primary rdf:Description;
+ *   a self-closing `<rdf:Description …/>` is opened first so they have somewhere to live.
  * - Required namespace declarations are added to the rdf:Description tag.
  *
- * Returns the modified XMP string. Never throws on malformed XML — falls
- * back to returning the original unchanged string.
+ * Throws when the existing sidecar is not well-formed XML, has no rdf:Description,
+ * or the merged result would not parse — such a result must never be published.
  */
 export function mergeMetadataIntoXmp(
   xml: string,
@@ -309,107 +331,84 @@ export function mergeMetadataIntoXmp(
 ): string {
   const stub = opts.metadataOnly ? METADATA_ONLY_STUB_XMP : STUB_XMP;
   const base = xml.trim().length > 0 ? xml : stub;
+  const merged = keepRetouchFrame(base, applyMerge(base, meta));
+  xmlSpans(merged);
+  return merged;
+}
 
-  try {
-    return applyMerge(base, meta);
-  } catch {
-    // Defensive: if anything goes wrong, return the base unchanged.
-    return base;
-  }
+/** Managed keys owned by the fields present in `meta` (by key, so an explicit `null` clear counts). */
+function touchedKeys(
+  registry: Record<string, readonly string[] | string>,
+  meta: XmpMetadataInput,
+): Set<string> {
+  return new Set(
+    Object.entries(registry)
+      .filter(([field]) => field in meta)
+      .flatMap(([, keys]) => (typeof keys === 'string' ? [keys] : [...keys])),
+  );
+}
+
+function removeTouchedBlocks(xml: string, tags: Set<string>): string {
+  return [...tags].reduce(
+    (text, tag) =>
+      text.replace(
+        new RegExp(`\\s*<${escapeRegex(tag)}[\\s>][\\s\\S]*?<\\/${escapeRegex(tag)}>`, 'g'),
+        '',
+      ),
+    xml,
+  );
+}
+
+function stripTouchedAttrs(openingTag: string, keys: Set<string>): string {
+  return [...keys].reduce(
+    (tag, key) =>
+      tag.replace(new RegExp(`\\s+${escapeRegex(key)}\\s*=\\s*(?:"[^"]*"|'[^']*')`, 'g'), ''),
+    openingTag,
+  );
+}
+
+function appendToOpeningTag(openingTag: string, additions: string[]): string {
+  if (additions.length === 0) return openingTag;
+  return openingTag.replace(
+    /\s*(\/?>)$/,
+    (_ending, close: string) => `\n   ${additions.join('\n   ')}${close}`,
+  );
 }
 
 function applyMerge(xml: string, meta: XmpMetadataInput): string {
-  // Determine which managed keys/tags this edit TOUCHES — only fields present
-  // in the input (by key, so an explicit `null` clear counts; an omitted field
-  // does not). Untouched fields in the existing sidecar are left intact.
-  const touchedAttrKeys = new Set<string>();
-  const touchedTags = new Set<string>();
-  for (const [field, keys] of Object.entries(FIELD_TO_ATTR_KEYS)) {
-    if (field in meta) for (const k of keys) touchedAttrKeys.add(k);
-  }
-  for (const [field, tag] of Object.entries(FIELD_TO_NESTED_TAG)) {
-    if (field in meta) touchedTags.add(tag);
-  }
+  const touchedAttrKeys = contradictsAuthoredAdobeLabel(xml, meta)
+    ? new Set([...touchedKeys(FIELD_TO_ATTR_KEYS, meta), 'xmp:Label'])
+    : touchedKeys(FIELD_TO_ATTR_KEYS, meta);
+  const base = removeTouchedBlocks(xml, touchedKeys(FIELD_TO_NESTED_TAG, meta));
 
-  // 1. Remove ONLY the touched managed attribute keys from rdf:Description.
-  let result = xml;
-  for (const key of touchedAttrKeys) {
-    // Match: whitespace? key="value" (with possible entity sequences in value)
-    const re = new RegExp(`\\s*${escapeRegex(key)}="[^"]*"`, 'g');
-    result = result.replace(re, '');
-  }
+  const primary = primaryDescription(base);
+  const nsDecls = [...requiredNamespacePrefixes(meta)]
+    .filter((prefix) => NS_MAP[prefix] !== undefined && primary.namespaces[prefix] === undefined)
+    .map((prefix) => `xmlns:${prefix}="${NS_MAP[prefix]}"`);
+  const openingTag = appendToOpeningTag(
+    stripTouchedAttrs(base.slice(primary.start, primary.openEnd), touchedAttrKeys),
+    [...nsDecls, ...buildMetadataAttrParts(meta)],
+  );
 
-  // 2. Remove ONLY the touched managed nested element blocks.
-  for (const tag of touchedTags) {
-    // Match the full element including its content, across lines.
-    const re = new RegExp(`\\s*<${escapeRegex(tag)}[\\s\\S]*?<\\/${escapeRegex(tag)}>`, 'g');
-    result = result.replace(re, '');
-  }
-
-  // 3. Build new attribute parts.
-  const newAttrs = buildMetadataAttrParts(meta);
-
-  // 4. Build new nested blocks.
   const newBlocks = buildMetadataNestedBlocks(meta);
-
-  // 5. Inject new namespace declarations (only those not already present).
-  const neededPrefixes = requiredNamespacePrefixes(meta);
-  const nsDecls: string[] = [];
-  for (const prefix of neededPrefixes) {
-    const uri = NS_MAP[prefix];
-    if (uri && !result.includes(`xmlns:${prefix}=`)) {
-      nsDecls.push(`xmlns:${prefix}="${uri}"`);
-    }
-  }
-
-  // 6. Inject namespace declarations + new attributes into the rdf:Description opening tag.
-  // Strategy: find the closing `>` (or `/>`) of the rdf:Description tag and inject before it.
-  if (newAttrs.length > 0 || nsDecls.length > 0) {
-    // The opening tag may end with `>` (has children) or `/>` (self-closing).
-    // We want the first `>` after `<rdf:Description`.
-    const descTagEnd = findDescriptionTagEnd(result);
-    if (descTagEnd !== -1) {
-      const insertPoint = descTagEnd;
-      const toInsert =
-        (nsDecls.length > 0 ? '\n   ' + nsDecls.join('\n   ') : '') +
-        (newAttrs.length > 0 ? '\n   ' + newAttrs.join('\n   ') : '');
-      result = result.slice(0, insertPoint) + toInsert + result.slice(insertPoint);
-    }
-  }
-
-  // 7. Inject nested blocks inside rdf:Description, before its closing tag.
-  if (newBlocks.length > 0) {
-    const closingTag = '</rdf:Description>';
-    const idx = result.lastIndexOf(closingTag);
-    if (idx !== -1) {
-      const insertion = '\n' + newBlocks.join('\n') + '\n';
-      result = result.slice(0, idx) + insertion + result.slice(idx);
-    }
-  }
-
-  return result;
+  const before = base.slice(0, primary.start);
+  if (newBlocks.length === 0) return before + openingTag + base.slice(primary.openEnd);
+  const blocks = newBlocks.join('\n');
+  return primary.tag.isSelfClosing
+    ? `${before}${openingTag.replace(/\/>$/, '>')}\n${blocks}\n</${primary.tag.name}>${base.slice(primary.openEnd)}`
+    : `${before}${openingTag}${base.slice(primary.openEnd, primary.closeStart)}${blocks}\n${base.slice(primary.closeStart)}`;
 }
 
-/** Find the position of the closing `>` of the `<rdf:Description …>` opening tag. */
-function findDescriptionTagEnd(xml: string): number {
-  const startIdx = xml.indexOf('<rdf:Description');
-  if (startIdx === -1) return -1;
-
-  // Scan forward from startIdx for the first unquoted `>`.
-  let inQuote = false;
-  let quoteChar = '';
-  for (let i = startIdx + 1; i < xml.length; i++) {
-    const ch = xml[i];
-    if (inQuote) {
-      if (ch === quoteChar) inQuote = false;
-    } else if (ch === '"' || ch === "'") {
-      inQuote = true;
-      quoteChar = ch;
-    } else if (ch === '>') {
-      return i;
-    }
-  }
-  return -1;
+/**
+ * `xmp:Label` belongs to the author (#4403, docs/xmp-canonical-format.md § Culling fields):
+ * it is dropped only when this edit changes the colour label and the authored word is one
+ * of Adobe's six colours, which would otherwise contradict the new `papp:ColorLabel`.
+ */
+function contradictsAuthoredAdobeLabel(xml: string, meta: XmpMetadataInput): boolean {
+  if (!('colorLabel' in meta)) return false;
+  const authoredWord = /\sxmp:Label=(["'])(.*?)\1/.exec(xml)?.[2];
+  if (authoredWord === undefined || adobeLabelColor(authoredWord) === undefined) return false;
+  return (meta.colorLabel || null) !== (parseXmpMetadata(xml).colorLabel ?? null);
 }
 
 function escapeRegex(s: string): string {

@@ -1,0 +1,25 @@
+{
+  "source_commit": "8c8c470982",
+  "type": "complete20 frozen physical-output regrade, not fresh render",
+  "counts": {
+    "passed": 7,
+    "failed": 9,
+    "no-preview": 4
+  },
+  "newly_cleared_measurement_failures": [
+    "test_0008",
+    "test_0011"
+  ],
+  "new_color_fixes": 0,
+  "tests": {
+    "auto_python": 38,
+    "wrapper_python": 4,
+    "historical_negative_derivatives_still_rejected": 28,
+    "new_photographic_damage_cases_rejected": 48
+  },
+  "versions": {
+    "pipeline": 37,
+    "fit": 7
+  },
+  "goal_complete": false
+}

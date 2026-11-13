@@ -1,0 +1,60 @@
+[
+  {
+    "fixture": "test_0015",
+    "status": "held-out cached diagnostic only; neither a render nor a production proposal",
+    "sample_count": 65536,
+    "global-colour": {
+      "mean_de": 6.557523837457729,
+      "p95_de": 22.824907942182218,
+      "mae_rgb": [
+        0.06787916816157241,
+        0.06754097650070305,
+        0.06260390943905521
+      ],
+      "nearest_source_distance_p95": 0.00301142775733933
+    },
+    "within-display-region-colour": {
+      "mean_de": 6.238752242709263,
+      "p95_de": 22.314356098375548,
+      "mae_rgb": [
+        0.06552439547661001,
+        0.06477775358398995,
+        0.06047661485206319
+      ],
+      "nearest_source_distance_p95": 0.006833731639093643
+    },
+    "baseline": {
+      "mean_de": 8.717679895637305,
+      "p95_de": 21.19767133351432
+    }
+  },
+  {
+    "fixture": "test_0017",
+    "status": "held-out cached diagnostic only; neither a render nor a production proposal",
+    "sample_count": 65536,
+    "global-colour": {
+      "mean_de": 9.898783309817285,
+      "p95_de": 23.745642236034914,
+      "mae_rgb": [
+        0.0790253308831932,
+        0.08728332533468729,
+        0.08644502232954654
+      ],
+      "nearest_source_distance_p95": 0.005847196297859332
+    },
+    "within-display-region-colour": {
+      "mean_de": 9.061556915735212,
+      "p95_de": 22.431486019949443,
+      "mae_rgb": [
+        0.07301494599710119,
+        0.07918247748196335,
+        0.07976543716613951
+      ],
+      "nearest_source_distance_p95": 0.014578838791507927
+    },
+    "baseline": {
+      "mean_de": 10.68127921558891,
+      "p95_de": 24.07637173938643
+    }
+  }
+]

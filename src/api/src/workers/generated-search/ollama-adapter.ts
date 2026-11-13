@@ -13,21 +13,13 @@
  */
 
 import { child as childLogger } from '../../log.ts';
+import type { FetchLike, JsonClient } from './json-client.ts';
 
 const log = childLogger('generated-search:ollama');
 
 /** Text generation is slower than the describe stage's per-image call — the
  * proposal prompt is long and thinking models spend tokens before emitting. */
 const REQUEST_TIMEOUT_MS = 180_000;
-
-export interface OllamaJsonClient {
-  generateJson(prompt: string, schema: unknown): Promise<unknown>;
-}
-
-/** Just the slice of `fetch` this adapter uses. Narrower than `typeof fetch`
- * on purpose: the full signature carries overloads a test stub cannot
- * satisfy, and widening the stubs with casts would hide real mismatches. */
-export type FetchLike = (url: string, init: RequestInit) => Promise<Response>;
 
 interface GenerateBody {
   response?: unknown;
@@ -47,7 +39,7 @@ export function createOllamaJsonClient(
   baseUrl: string,
   model: string,
   fetchImpl: FetchLike = fetch,
-): OllamaJsonClient {
+): JsonClient {
   const url = `${baseUrl.replace(/\/+$/, '')}/api/generate`;
 
   return {

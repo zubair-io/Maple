@@ -2372,6 +2372,7 @@ version = "0.1.0"
 dependencies = [
  "clap",
  "image",
+ "libc",
  "maple-ort",
  "ort",
  "png 0.17.16",
@@ -2381,8 +2382,10 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
+ "tempfile",
  "thiserror 2.0.18",
  "toml",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -3399,6 +3402,7 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.18",
  "tiff",
+ "windows-sys 0.61.2",
  "zune-jpeg",
 ]
 
@@ -3417,6 +3421,7 @@ version = "0.1.0"
 dependencies = [
  "blake3",
  "image",
+ "libc",
  "maple-pano",
  "maple-removal",
  "maple-search",
@@ -3434,9 +3439,12 @@ version = "0.1.0"
 dependencies = [
  "bytemuck",
  "futures-channel",
+ "half",
  "js-sys",
  "pollster",
  "raw-core",
+ "raw-window-handle",
+ "rayon",
  "wasm-bindgen",
  "web-sys",
  "wgpu",
@@ -3477,6 +3485,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "raw-wasm-canvas"
+version = "0.1.0"
+dependencies = [
+ "wasm-bindgen",
+]
+
+[[package]]
 name = "raw-window-handle"
 version = "0.6.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3485,8 +3500,6 @@ checksum = "20675572f6f24e9e76ef639bc5552774ed45f1c30e2951e1e99c59888861c539"
 [[package]]
 name = "rawler"
 version = "0.7.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "04f4cc35c23969a4a834e0b117c7da41ace812eb9053b5effc3fc5c77d114677"
 dependencies = [
  "backtrace",
  "bitstream-io",

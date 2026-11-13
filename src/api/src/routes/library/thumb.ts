@@ -1,4 +1,3 @@
-import { incompatiblePipelineVersion } from '../../runtime/http-pipeline-version.ts';
 import { Elysia, type Context } from 'elysia';
 import { child as childLogger } from '../../log.ts';
 import { computeBodyETag, ifNoneMatchEqual } from '../../runtime/http-etag.ts';
@@ -9,7 +8,6 @@ import {
   assertDerivativeCacheDirectory,
   isDerivativeCacheFresh,
 } from '../../indexer/derivative-cache.ts';
-import { PIPELINE_OUTPUT_VERSION } from '../../generated/adjustment-fields.generated.ts';
 import { isUndecodableFilename } from '../../indexer/media-types.ts';
 import { isDecodableRasterExt, lowerExt } from '../fs-jail.ts';
 import {
@@ -20,13 +18,17 @@ import {
   parseWildcardSegments,
   wildcardSlugParams,
   derivativeDecoderUnavailable,
+  derivativeGenerationFailure,
   resolveDerivativeAddress,
 } from './shared.ts';
 
-const log = childLogger('routes/library/thumb');
-const inflightThumbGen = new Map<string, Promise<void>>();
+/** Tells the Cloudflare thumb Worker not to mirror this response into R2 (#4750). */
+const EDGE_CACHEABLE_HEADER = 'X-Maple-Cacheable';
 
-function generateThumbDeduped(absPath: string, thumbPath: string): Promise<void> {
+const log = childLogger('routes/library/thumb');
+const inflightThumbGen = new Map<string, Promise<boolean>>();
+
+function generateThumbDeduped(absPath: string, thumbPath: string): Promise<boolean> {
   const existing = inflightThumbGen.get(thumbPath);
   if (existing) return existing;
   const pending = generateThumb(absPath, thumbPath).finally(() =>
@@ -41,6 +43,7 @@ async function serveThumb(
   thumbPath: string,
   ifNoneMatch: string | undefined,
   set: Context['set'],
+  edgeCacheable: boolean,
 ): Promise<Response | { error: string }> {
   try {
     await assertDerivativeCacheDirectory(thumbPath);
@@ -68,10 +71,10 @@ async function serveThumb(
       status: unchanged ? 304 : 200,
       headers: {
         'Content-Type': 'image/avif',
-        'X-Maple-Pipeline-Version': String(PIPELINE_OUTPUT_VERSION),
         ETag: etag,
         'Cache-Control': MUTABLE_PREVIEW_CACHE,
         'X-Thumb-Cache': fresh ? 'hit' : 'miss',
+        ...(edgeCacheable ? {} : { [EDGE_CACHEABLE_HEADER]: '0' }),
       },
     });
   } catch (err) {
@@ -79,16 +82,13 @@ async function serveThumb(
       { absPath, thumbPath, err: err instanceof Error ? err.message : err },
       'thumbnail read failed',
     );
-    set.status = 500;
-    return { error: 'Thumbnail generation failed' };
+    return derivativeGenerationFailure(err, set, 'Thumbnail generation failed');
   }
 }
 
 export const thumbRoutes = new Elysia().get(
   '/thumb/:slug/*',
-  async ({ params, headers, query, set }) => {
-    const versionError = incompatiblePipelineVersion(query.pv, set);
-    if (versionError) return versionError;
+  async ({ params, headers, set }) => {
     const segments = parseWildcardSegments((params as Record<string, string>)['*'] ?? '');
     const filename = segments.at(-1) ?? '';
     if (!filename) {
@@ -118,7 +118,13 @@ export const thumbRoutes = new Elysia().get(
       set.status = 404;
       return { error: 'Cannot resolve thumbnail path for this asset' };
     }
-    return serveThumb(absPath, thumbPath, headers['if-none-match'], set);
+    return serveThumb(
+      absPath,
+      thumbPath,
+      headers['if-none-match'],
+      set,
+      asset !== null && !asset.hidden,
+    );
   },
   { params: wildcardSlugParams() },
 );

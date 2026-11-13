@@ -48,11 +48,15 @@ public sealed class SavedRemovalNativeTests(ITestOutputHelper output) : IDisposa
     {
         var snapshot = Path.Combine(root, "reference.xmp");
         File.WriteAllText(snapshot, XmpWriter.Serialize(document));
-        var buffer = new MapleSceneLinearBufferF32();
-        var rc = RawFfi.maple_render_file_scene_linear_sized_f32(Raw, snapshot, (uint)cap, 1, IntPtr.Zero, &buffer);
+        var capture = new MapleCaptureBufferF32();
+        var rc = RawFfi.maple_render_file_capture_sized_f32(Raw, snapshot, (uint)cap, 1, IntPtr.Zero, &capture);
         Assert.True(rc == 0, RawFfi.LastError());
-        try { return new ReadOnlySpan<float>(buffer.f32_rgba, checked((int)(buffer.width * buffer.height * 4))).ToArray(); }
-        finally { RawFfi.maple_free_scene_linear_buffer_f32(&buffer); }
+        try
+        {
+            var buffer = &capture.scene;
+            return new ReadOnlySpan<float>(buffer->f32_rgba, checked((int)(buffer->width * buffer->height * 4))).ToArray();
+        }
+        finally { RawFfi.maple_free_capture_buffer_f32(&capture); }
     }
 
     [Theory]

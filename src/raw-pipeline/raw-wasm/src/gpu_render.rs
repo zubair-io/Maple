@@ -2,8 +2,8 @@
 //! P4b-web / #1029).
 //!
 //! The WASM counterpart of [`crate::render_bytes`]: decodes a RAW from bytes and
-//! produces the SAME u8 RGB display surface, but routes the scene-linear-subset +
-//! view-tail + dither through the merged wgpu+WGSL chain ([`raw_gpu::LiveSession`])
+//! produces the SAME u8 RGB display surface, but routes the creative stage, the
+//! scene-linear sliders, the view tail and the dither through the merged wgpu+WGSL chain ([`raw_gpu::LiveSession`])
 //! instead of `raw-core`'s CPU pipeline. Gated behind `raw-wasm`'s `gpu` feature
 //! (off by default; the CPU `render_bytes` + WebGL2 paths remain the fallback —
 //! deletion is P5).
@@ -15,21 +15,21 @@
 //! inside wasm32's permanently-grown heap. No target ⇒ the
 //! [`DEFAULT_TARGET_LONG_EDGE`] (2048) cap.
 //!
-//! ## The decode boundary (why two develops, and where the split lands)
+//! ## The decode boundary: the capture decode (#5379)
 //!
-//! The GPU chain re-applies `white_balance` → … → `nr_color` + the view tail, so
-//! its INPUT must be the post-`auto_exposure` (develop stage 05), pre-`white_balance`
-//! (stage 06) scene-linear Rec.2020 buffer. raw-core exposes no such split point,
-//! so we obtain it by developing through the EXISTING
-//! [`develop_scene_linear_sized_from_raw_with_quality`] with a STRIPPED model: the
-//! stages the GPU chain re-runs (WB / tone / vibrance / … / sharpen / nr) are set
-//! to their no-op defaults so each `apply` short-circuits BIT-EXACTLY, while the
-//! upstream stages the GPU chain does NOT do (`highlight_recovery`,
-//! `capture_sharpening`, `profile`, the `auto_exposure` MODE) keep the real
-//! model's values. The develop output then IS the post-AE buffer (zero-drift —
-//! identical upstream math), and the GPU chain re-applies the real model's WB /
-//! tone / … absolutely. `capture_sharpening` is baked in this prefix, so the GPU
-//! chain gets `capture_sharpening: None` (the Apple decode-boundary contract).
+//! The upload is raw-core's capture decode (docs/pipeline.md § "The capture
+//! decode"), left in sensor framing: the RAW developed through the capture
+//! stages (retouch, chroma pre-filter, BM3D, capture sharpening) into the fixed
+//! as-shot Rec.2020 basis, with no white balance, camera profile, Oklab recovery
+//! or exposure gain applied. It is decoded from a STRIPPED model: the stages the
+//! GPU chain re-runs (tone / vibrance / … / sharpen / nr) are pinned to their
+//! no-op defaults and white balance to the as-shot sentinel, while the upstream
+//! fields (`highlight_recovery`, `capture_sharpening`, `profile`, the
+//! `auto_exposure` MODE, …) keep the real model's values. The decode also returns
+//! its creative stage, which the GPU chain runs in place of the white-balance
+//! pass with the real model's white balance; every other slider runs as before.
+//! `capture_sharpening` is baked in the capture, so the GPU chain gets
+//! `capture_sharpening: None`.
 //!
 //! ## auto-exposure decision (the one wholesale-parity risk)
 //!
@@ -46,24 +46,18 @@
 // they compile for `wasm32` OR `test`. The `#[wasm_bindgen] async` entry
 // (`render_bytes_gpu`) is wasm-only — its macro expansion references
 // `wasm_bindgen_futures`, a wasm-only dep.
-#[cfg(test)]
-use raw_core::gpu_host::prepare::auto_will_fit;
 #[cfg(any(target_arch = "wasm32", test))]
-pub(crate) use raw_core::gpu_host::prepare::chain_inputs_with_status;
+pub(crate) use raw_core::gpu_host::capture::{develop_capture_prefix_rgba, CapturePrefix};
 #[cfg(any(target_arch = "wasm32", test))]
-use raw_core::gpu_host::prepare::effective_ae_mode;
+pub(crate) use raw_core::gpu_host::model::prefix_matches;
 #[cfg(test)]
 pub(crate) use raw_core::gpu_host::prepare::fit_profile_artifacts_with_status;
-#[cfg(target_arch = "wasm32")]
-pub(crate) use raw_core::gpu_host::prepare::prefix_model_for;
+#[cfg(any(target_arch = "wasm32", test))]
+pub(crate) use raw_core::gpu_host::prepare::{auto_will_fit, chain_inputs_with_status};
 #[cfg(any(target_arch = "wasm32", test))]
 use raw_core::xmp::AdjustmentModel;
 #[cfg(any(target_arch = "wasm32", test))]
 use raw_gpu::{GpuContext, LiveSession};
-#[cfg(any(target_arch = "wasm32", test))]
-mod geometry;
-#[cfg(any(target_arch = "wasm32", test))]
-pub(crate) use geometry::display_geometry;
 
 #[cfg(target_arch = "wasm32")]
 use crate::MapleRender;
@@ -114,10 +108,6 @@ pub(crate) fn effective_target_long_edge(requested: Option<u32>, ctx: &GpuContex
 
 #[cfg(test)]
 use raw_core::gpu_host::model::stripped_prefix_model;
-#[cfg(any(target_arch = "wasm32", test))]
-use raw_core::gpu_host::white_balance;
-#[cfg(any(target_arch = "wasm32", test))]
-pub(crate) use white_balance::GpuWhiteBalance;
 
 /// Select the display-encode `target_primaries` (`display_encode.wgsl`: 0 = sRGB,
 /// 1 = Display P3) that MATCHES the canvas colour-space tag the present surface
@@ -160,31 +150,94 @@ pub(crate) fn resolve_target_color_space(requested: Option<&str>) -> &str {
     }
 }
 
+/// Build the `AdjustmentModel` for `WebLiveSession::render_with_params` from a
+/// flat 19-scalar parameter slice (#4736), starting from default kept-prefix
+/// fields with `sharpen_amount` and `nr_color` zeroed to match the stripped prefix.
+#[cfg(any(target_arch = "wasm32", test))]
+pub(crate) fn model_from_live_params(params: &[f32]) -> Result<AdjustmentModel, String> {
+    if params.len() < 19 {
+        return Err(
+            "render_with_params: params slice too short (expected at least 19 elements)"
+                .to_string(),
+        );
+    }
+    Ok(AdjustmentModel {
+        exposure: params[0],
+        brightness: params[1],
+        contrast: params[2],
+        highlights: params[3],
+        shadows: params[4],
+        whites: params[5],
+        blacks: params[6],
+        vibrance: params[7],
+        saturation: params[8],
+        temperature: params[9],
+        tint: params[10],
+        temperature_seen: true,
+        tint_seen: true,
+        clarity: params[11],
+        texture: params[12],
+        dehaze: params[13],
+        vignette_amount: params[14],
+        vignette_feather: params[15],
+        grain_amount: params[16],
+        grain_size: params[17],
+        grain_roughness: params[18],
+        sharpen_amount: 0.0,
+        nr_color: 0.0,
+        ..AdjustmentModel::default()
+    })
+}
+
+/// Infer the `auto_will_fit` probe outcome from a freshly-developed `prefix_model`
+/// when `model` used `Profile::Auto` with `AutoExposureMode::On` (#4736).
+#[cfg(any(target_arch = "wasm32", test))]
+pub(crate) fn inferred_auto_will_fit(
+    model: &AdjustmentModel,
+    prefix_model: &AdjustmentModel,
+) -> Option<bool> {
+    use raw_core::types::adjustment::{AutoExposureMode, Profile};
+    (model.profile == Profile::Auto && model.auto_exposure != AutoExposureMode::Off)
+        .then_some(prefix_model.auto_exposure == AutoExposureMode::Off)
+}
+
+/// Whether `model`'s kept-prefix fields match `prefix_model`, consulting and
+/// populating `auto_will_fit_cache` at most once so preview-less Auto images
+/// never re-probe `raw` on scalar slider ticks (#4736).
+#[cfg(any(target_arch = "wasm32", test))]
+pub(crate) fn session_prefix_matches(
+    model: &AdjustmentModel,
+    prefix_model: &AdjustmentModel,
+    raw: &[u8],
+    ext: &str,
+    auto_will_fit_cache: &mut Option<bool>,
+) -> bool {
+    use raw_core::types::adjustment::{AutoExposureMode, Profile};
+    if !prefix_matches(model, prefix_model, prefix_model.auto_exposure) {
+        return false;
+    }
+    let ae_mode = if model.profile != Profile::Auto || model.auto_exposure == AutoExposureMode::Off
+    {
+        model.auto_exposure
+    } else if *auto_will_fit_cache.get_or_insert_with(|| auto_will_fit(model, raw, ext)) {
+        AutoExposureMode::Off
+    } else {
+        AutoExposureMode::On
+    };
+    ae_mode == prefix_model.auto_exposure
+}
+
 #[cfg(test)]
 mod primaries_tests {
     /// #1913: the live present's display-encode primaries must match the canvas
-    /// colour-space tag the surface achieved. Before the fix the chain hardcoded
-    /// sRGB (`target_primaries: 0`) while the canvas was retagged `display-p3`,
-    /// oversaturating every frame. This gates the pure selector (the full present
-    /// is WebGPU-only, exercised on-device) and would have failed on the old
-    /// always-`0` behaviour for the `display-p3` case. Lives here (not in the
-    /// gpu-feature-gated `gpu_render/tests.rs`) so it runs in the default host
-    /// test build.
+    /// colour-space tag the surface achieved.
     #[test]
     fn target_primaries_matches_canvas_color_space() {
         use super::target_primaries_for_color_space as select;
-        assert_eq!(
-            select("display-p3"),
-            1,
-            "display-p3 canvas must encode P3 primaries (1)"
-        );
-        assert_eq!(
-            select("srgb"),
-            0,
-            "srgb canvas must encode sRGB primaries (0)"
-        );
-        assert_eq!(select("unknown"), 0, "unknown tag falls back to sRGB (0)");
-        assert_eq!(select(""), 0, "empty tag falls back to sRGB (0)");
+        assert_eq!(select("display-p3"), 1);
+        assert_eq!(select("srgb"), 0);
+        assert_eq!(select("unknown"), 0);
+        assert_eq!(select(""), 0);
     }
 
     #[test]
@@ -202,15 +255,96 @@ mod primaries_tests {
         assert_eq!(resolve(Some("P3")), "display-p3");
         assert_eq!(resolve(Some("adobe-rgb")), "display-p3");
     }
+
+    /// #4736: `render_with_params` must build its `AdjustmentModel` from default
+    /// kept-prefix fields (not by cloning a stale `self.prefix_model`) and
+    /// detect when the session's uploaded prefix was non-default, while caching
+    /// `auto_will_fit` so preview-less Auto ticks never re-probe `raw`.
+    #[test]
+    fn set_then_revert_prefix_redevelops_on_render_with_params() {
+        use raw_core::types::{
+            adjustment::AutoExposureMode,
+            local_adjustment::Point2,
+            retouch::{RetouchKind, RetouchSpot},
+        };
+        use raw_core::xmp::{HighlightRecoveryMode, Profile};
+
+        assert!(super::model_from_live_params(&[0.0; 18]).is_err());
+        let params = [
+            0.5, 1.0, 10.0, -15.0, 20.0, 5.0, -5.0, 12.0, 8.0, 5200.0, 4.0, 15.0, 10.0, 5.0, -10.0,
+            50.0, 0.0, 25.0, 50.0,
+        ];
+        let rev = super::model_from_live_params(&params).expect("19 params valid");
+        assert_eq!(
+            (rev.exposure, rev.temperature, rev.tint),
+            (0.5, 5200.0, 4.0)
+        );
+        assert!(rev.temperature_seen && rev.tint_seen);
+        assert_eq!((rev.sharpen_amount, rev.nr_color), (0.0, 0.0));
+        assert_eq!(
+            rev.highlight_recovery,
+            HighlightRecoveryMode::ChromaticAdaptation
+        );
+        assert_eq!(rev.profile, Profile::Auto);
+        assert!(rev.retouch_spots.is_empty());
+
+        let spot = RetouchSpot {
+            kind: RetouchKind::Clone,
+            center: Point2 { x: 0.25, y: 0.25 },
+            source: Point2 { x: 0.75, y: 0.75 },
+            radius: 0.15,
+            feather: 0.5,
+            opacity: 1.0,
+        };
+        let edited = super::AdjustmentModel {
+            highlight_recovery: HighlightRecoveryMode::Off,
+            profile: Profile::Neutral,
+            retouch_spots: vec![spot],
+            ..rev.clone()
+        };
+        let mut prefix = super::stripped_prefix_model(&edited, AutoExposureMode::On);
+        let mut auto_fits = super::inferred_auto_will_fit(&edited, &prefix);
+        assert_eq!(auto_fits, None);
+        assert!(!super::session_prefix_matches(
+            &rev,
+            &prefix,
+            &[],
+            "dng",
+            &mut auto_fits
+        ));
+
+        prefix = super::stripped_prefix_model(&rev, AutoExposureMode::On);
+        auto_fits = super::inferred_auto_will_fit(&rev, &prefix);
+        assert_eq!(auto_fits, Some(false));
+
+        let mut next_params = params;
+        next_params[0] = 1.25;
+        let next_model = super::model_from_live_params(&next_params).expect("next params");
+        assert!(super::session_prefix_matches(
+            &next_model,
+            &prefix,
+            &[],
+            "dng",
+            &mut auto_fits
+        ));
+
+        let fitted = super::stripped_prefix_model(&rev, AutoExposureMode::Off);
+        assert_eq!(super::inferred_auto_will_fit(&rev, &fitted), Some(true));
+        assert!(!super::session_prefix_matches(
+            &next_model,
+            &fitted,
+            &[],
+            "dng",
+            &mut auto_fits
+        ));
+    }
 }
 
 #[cfg(any(target_arch = "wasm32", test))]
 #[path = "gpu_render/prefix.rs"]
 mod prefix;
 #[cfg(any(target_arch = "wasm32", test))]
-pub(crate) use prefix::{
-    develop_prefix_rgba, develop_prefix_rgba_saved, require_prepared_removals,
-};
+pub(crate) use prefix::{develop_capture_prefix_rgba_saved, require_prepared_removals};
 /// The decode-boundary + GPU-chain CORE, factored out of [`render_bytes_gpu`] so
 /// a NATIVE (Metal) host test can drive the exact same plumbing the wasm entry
 /// runs — `render_bytes_gpu` is `#[wasm_bindgen]` (wasm-only), but everything
@@ -226,7 +360,7 @@ pub(crate) use prefix::{
 /// This is the ONE-SHOT u8-readback path (the W1 parity gate + the gpu-off-bundle
 /// fallback). The persistent zero-readback path
 /// ([`crate::web_live_session::WebLiveSession`]) reuses the SAME
-/// [`develop_prefix_rgba`] / [`chain_inputs_with_status`] helpers but uploads once
+/// [`develop_capture_prefix_rgba`] / [`chain_inputs_with_status`] helpers but uploads once
 /// and presents to a surface instead of reading back.
 ///
 /// `max_long_edge` (#1080): optional viewport target from the JS caller, in real
@@ -254,7 +388,15 @@ async fn render_gpu_core_with_status(
     ext: &str,
     model: &AdjustmentModel,
     max_long_edge: Option<u32>,
-) -> Result<(u32, u32, Vec<u8>, Option<bool>), String> {
+) -> Result<
+    (
+        u32,
+        u32,
+        Vec<u8>,
+        Option<raw_core::view::auto_profile::AutoFitOutcome>,
+    ),
+    String,
+> {
     // Context FIRST: the effective develop target clamps to this device's
     // texture cap, so the device must exist before the sized develop runs.
     // Fallible (#1079): no adapter / device surfaces as an Err so the worker
@@ -264,20 +406,29 @@ async fn render_gpu_core_with_status(
         .map_err(|e| format!("render_bytes_gpu: {e}"))?;
     let target = effective_target_long_edge(max_long_edge, &ctx);
 
-    let (rgba, w, h, _prefix_model, whites_anchor_ev, nr_sampling_scale) =
-        develop_prefix_rgba(raw_img, raw, ext, model, target)?;
+    crate::removal_saved::require_no_unresolved_removals(model)?;
+    let prefix = develop_capture_prefix_rgba(raw_img, raw, ext, model, target)?;
+    let (rgba, w, h) = (&prefix.rgba, prefix.width, prefix.height);
     // Film looks are session-resident; one-shot renders have no uploaded LUT.
-    let (mut inputs, auto_fit) =
-        chain_inputs_with_status(raw_img, raw, ext, model, None, 0, whites_anchor_ev);
-    GpuWhiteBalance::resolve(raw_img)?.apply(model, &mut inputs);
-    inputs.nr_sampling_scale = nr_sampling_scale;
+    let (mut inputs, auto_fit) = chain_inputs_with_status(
+        raw_img,
+        raw,
+        ext,
+        model,
+        target,
+        None,
+        0,
+        prefix.whites_anchor_ev,
+    );
+    prefix.creative.apply(model, &mut inputs)?;
+    inputs.nr_sampling_scale = prefix.nr_sampling_scale;
 
     // Upload ONCE, run the gated live chain + the WGSL terminal dither, read the
     // u8 RGB surface back. wasm has no blocking poll, so we await the async core.
     // Every GPU step is fallible (#1079): dims past the device's limits, a failed
     // readback — each surfaces as an Err for the same CPU fallback.
     let session =
-        LiveSession::new(&ctx, &rgba, w, h).map_err(|e| format!("render_bytes_gpu: {e}"))?;
+        LiveSession::new(&ctx, rgba, w, h).map_err(|e| format!("render_bytes_gpu: {e}"))?;
     let rgb = session
         .render_async(&ctx, &inputs, None)
         .await
@@ -294,10 +445,11 @@ async fn render_gpu_core_with_status(
 /// (epic #925, P4b-web / #1029) — the GPU-resident counterpart of
 /// [`crate::render_bytes`], returning the SAME [`MapleRender`] shape.
 ///
-/// Pipeline: decode → develop the STRIPPED prefix (post-`auto_exposure`,
-/// pre-`white_balance` scene-linear Rec.2020 buffer) → fit the Auto Profile
+/// Pipeline: decode → the capture decode of the STRIPPED prefix (the fixed
+/// as-shot basis plus its creative stage, #5379) → fit the Auto Profile
 /// curve + residual LUT → upload to a [`LiveSession`] → drive the gated live
-/// chain + the WGSL terminal dither (async; wasm uses `GpuContext::new_async` +
+/// chain (the creative stage in place of white balance) + the WGSL terminal
+/// dither (async; wasm uses `GpuContext::new_async` +
 /// `LiveSession::render_async`) → EXIF-orient → u8 RGB.
 ///
 /// The fresh-open WB substitution + as-shot derivation match `render_bytes`
@@ -393,7 +545,7 @@ mod tests_mask_raster;
 #[cfg(all(test, not(target_arch = "wasm32")))]
 #[path = "gpu_render/tests_sharpen.rs"]
 mod tests_sharpen;
-
+// The capture-first live-vs-refine gate and white-balance tick (#5379).
 #[cfg(all(test, not(target_arch = "wasm32")))]
-#[path = "gpu_render/tests_geometry_shader.rs"]
-mod tests_geometry_shader;
+#[path = "gpu_render/tests_capture.rs"]
+mod tests_capture;

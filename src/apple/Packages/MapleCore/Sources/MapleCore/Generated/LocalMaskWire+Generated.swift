@@ -12,6 +12,7 @@ public enum LocalMaskWire {
   public static let componentInvertOffset: Int = 12
   public static let componentCodeCount: Int = 24
   public static let maskGroupVersion: Int = 1
+  public static let brushRasterLongEdge: Int = 1024
   public static let brushVersion: Int = 1
   public static let layerOrderAttribute = "papp:LayerOrder"
 }

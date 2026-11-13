@@ -26,8 +26,8 @@ struct GoldenBudget {
 
 enum GoldenStore {
     /// Resolve the directory holding canonical goldens. Override via
-    /// `MAPLE_UITEST_GOLDENS_ROOT`; otherwise walk the same candidate
-    /// chain CIEDE2000Tests uses (CWD → ../../src/apple/...).
+    /// `MAPLE_UITEST_GOLDENS_ROOT`; otherwise walk CWD-relative
+    /// candidates (CWD → ../../src/apple/...).
     static func goldensRoot() throws -> URL {
         if let root = ProcessInfo.processInfo.environment["MAPLE_UITEST_GOLDENS_ROOT"],
            !root.isEmpty {

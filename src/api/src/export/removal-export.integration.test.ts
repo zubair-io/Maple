@@ -91,7 +91,7 @@ describe.skipIf(!nativeLibAvailable())('saved-removal durable export jobs (#1472
         },
       },
     });
-    expect((await jobs.claimJob('removal-worker', 60000))?._id.toHexString()).toBe(
+    expect((await jobs.claimJob(job._id, 'removal-worker'))?._id.toHexString()).toBe(
       job._id.toHexString(),
     );
     return job;
@@ -101,9 +101,10 @@ describe.skipIf(!nativeLibAvailable())('saved-removal durable export jobs (#1472
     return {
       jobId,
       checkpoint: (await jobs.getJob(jobId))?.checkpoint,
-      saveCheckpoint: (value) => jobs.saveJobCheckpoint(jobId, 'removal-worker', value, 60000),
+      saveCheckpoint: (value, entryIndex) =>
+        jobs.saveJobCheckpoint(jobId, 'removal-worker', value, undefined, entryIndex),
       reportProgress: (current, total) =>
-        jobs.updateProgress(jobId, { current, total }, 60000, undefined, 'removal-worker'),
+        jobs.updateProgress(jobId, { current, total }, undefined, 'removal-worker'),
       shouldCancel: () => jobs.isCancelRequested(jobId),
     };
   }

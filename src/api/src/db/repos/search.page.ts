@@ -5,7 +5,7 @@
  *
  * A search response carries a page of results and a count of everything that
  * matched, and the failure mode when those disagree is not subtle — the grid
- * shows "1,482 photos" above an empty scroller. The Meilisearch branch produced
+ * shows "1,482 photos" above an empty scroller. A ranked branch produced
  * exactly that once, by post-filtering a single page and reporting a count from
  * a different predicate. Here {@link searchPage} and {@link searchCount} take
  * the same translated {@link SearchWhere} and compose it the same way, so the
@@ -19,27 +19,31 @@
  * the wire shape cannot drift from the Mongo path during the cutover — and
  * `cursorFromDoc` keeps working on the last row of the page for free.
  *
- * Four statements per page. The first decides *which* assets; the other three
- * fill in the locations, the caption and the PhotoKit links for exactly those
- * ids. That ordering is the semi-join rule again: nothing after the first query
- * can widen or narrow the result set.
+ * Five statements per page, in two round trips to the pool. The first decides
+ * *which* assets; the other four fill in the locations, the caption, the
+ * PhotoKit links and the owner for exactly those ids, all at once. That ordering
+ * is the semi-join rule again: nothing after the first query can widen or narrow
+ * the result set.
  */
 
-import { ObjectId } from '../object-id.ts';
+import { normaliseObjectIdHex, ObjectId } from '../object-id.ts';
+import type { AssetOwnerSummary } from '../assets.transform.ts';
 import type { AssetDoc, AssetExif, Place } from '../schema.ts';
+import { ownerSummariesForIds } from './assets.owners.ts';
 import { groupByAsset, json, toFileInfo, type LocationRow } from './assets.rows.ts';
 import { locationsByAssetIdsSql } from './assets.sql.ts';
 import {
   countSql,
   descriptionsByAssetIdsSql,
-  idPageSql,
-  mapleIdPageSql,
   pageSql,
   phassetLinksByAssetIdsSql,
   seekPredicate,
+  windowColumnsSql,
 } from './search.sql.ts';
 import type { SearchWhere } from './search.where.ts';
-import { assetsDb, type SqliteDb } from './db-handle.ts';
+import { assetsDb, bulkLane, type SqliteDb } from './db-handle.ts';
+import { inGivenOrder } from './search.ranked.ts';
+import { collapseShots, type ShotFields } from './search.shots.ts';
 
 /** The narrow `assets` projection a search result is built from. */
 interface PageRow {
@@ -69,6 +73,9 @@ interface LinkRow {
   phasset_cloud_id: string | null;
   first_seen: string;
 }
+
+/** A search result row as `projectAsset` reads it: the document plus its owner, resolved with it. */
+export type SearchDoc = AssetDoc & { _id: ObjectId; owner: AssetOwnerSummary | null };
 
 /** The cursor shape `routes/search/cursor.ts` decodes and validates. */
 export interface SeekPosition {
@@ -119,7 +126,7 @@ export async function searchPage(
   where: SearchWhere,
   options: PageOptions,
   dbOverride?: SqliteDb,
-): Promise<Array<AssetDoc & { _id: ObjectId }>> {
+): Promise<SearchDoc[]> {
   if (options.cursor && where.match.kind === 'match') {
     throw new Error('searchPage: a seek cursor cannot resume a relevance-ordered text query');
   }
@@ -131,57 +138,19 @@ export async function searchPage(
 }
 
 /**
- * The assets behind a page of Meilisearch hits, in the order the sidecar
- * ranked them.
- *
- * The sidecar answers with `maple_id`s and a relevance order; the rows still
- * come from here, and every structured filter the caller asked for still
- * applies to them. That second half is what stops this from being a
- * post-filter: `where` carries the whole query except its free text, so a
- * camera or a date range narrows the statement rather than thinning a page
- * after the fact.
- *
- * The text match is dropped rather than carried through, and that is the one
- * thing here that cannot be inferred. Meilisearch is typo-tolerant, so a hit
- * for "Musum" is a row whose text says "Museum" — re-running the full-text
- * match over the ids it returned would reject the very rows it matched and
- * answer an empty page. Its own `WHERE` already did the text half.
- *
- * Ids with no surviving row simply drop out, which is what a hard delete
- * between the sidecar's index and this read looks like.
- */
-export async function searchByMapleIds(
-  where: SearchWhere,
-  mapleIds: readonly string[],
-  dbOverride?: SqliteDb,
-): Promise<Array<AssetDoc & { _id: ObjectId }>> {
-  if (mapleIds.length === 0) return [];
-  const db = assetsDb(dbOverride);
-  const statement = mapleIdPageSql({ ...where, match: { kind: 'none' } }, mapleIds);
-  const rows = await db.read<PageRow & { maple_id: string | null }>(
-    statement.sql,
-    statement.params,
-  );
-  const byMapleId = new Map(rows.map((row) => [row.maple_id, row] as const));
-  const ordered = mapleIds
-    .map((id) => byMapleId.get(id))
-    .filter((row): row is PageRow & { maple_id: string | null } => row !== undefined);
-  return hydrate(db, ordered);
-}
-
-/**
  * The assets behind a stored list of ids, in the stored order, keeping only
  * those that still pass `where`'s live filters. Ids with no surviving row drop
- * out.
+ * out. The ids lead, so each is one keyed probe (#4593): beside the filters as a
+ * bare `IN`, an owner filter had the planner walk that owner's whole live index.
  */
 export async function searchByIds(
   where: SearchWhere,
   ids: readonly string[],
   dbOverride?: SqliteDb,
-): Promise<Array<AssetDoc & { _id: ObjectId }>> {
+): Promise<SearchDoc[]> {
   if (ids.length === 0) return [];
   const db = assetsDb(dbOverride);
-  const statement = idPageSql(where, ids);
+  const statement = windowColumnsSql(where, ids);
   const rows = await db.read<PageRow>(statement.sql, statement.params);
   const byId = new Map(rows.map((row) => [row.id, row] as const));
   const ordered = ids.map((id) => byId.get(id)).filter((row): row is PageRow => row !== undefined);
@@ -189,48 +158,121 @@ export async function searchByIds(
 }
 
 /**
- * Which of `mapleIds` survive every filter of `where` but its text, in the order given — the
- * in-process engine's candidates (#4463) narrowed before they are counted and paged.
+ * Fills a set of chosen `assets` rows out into documents.
+ *
+ * Four statements, all keyed on the ids the first query already decided on,
+ * so nothing here can widen or narrow the result set — the semi-join rule
+ * again, one level up. They go out together: the owner lookup used to wait
+ * for the other three to come back, one more trip through the reader queue on
+ * every search (#4503). They go through the bulk lane, so a page's fan-out can
+ * never hold every reader and stall a concurrent grid page (#4413).
  */
-export async function mapleIdsMatching(
-  where: SearchWhere,
-  mapleIds: readonly string[],
-  dbOverride?: SqliteDb,
-): Promise<string[]> {
-  if (mapleIds.length === 0) return [];
-  const statement = mapleIdPageSql({ ...where, match: { kind: 'none' } }, mapleIds);
-  const rows = await assetsDb(dbOverride).read<{ maple_id: string | null }>(
-    statement.sql,
-    statement.params,
+async function hydrate(db: SqliteDb, rows: readonly PageRow[]): Promise<SearchDoc[]> {
+  if (rows.length === 0) return [];
+  const sides = await sideTables(
+    bulkLane(db),
+    rows.map((row) => row.id),
+    rows.map(ownerKey),
   );
-  const surviving = new Set(rows.map((row) => row.maple_id));
-  return mapleIds.filter((id) => surviving.has(id));
+  return rows.map((row) => toSearchDoc(row, sides));
 }
 
 /**
- * Fills a set of chosen `assets` rows out into documents.
- *
- * Three statements, all keyed on the ids the first query already decided on,
- * so nothing here can widen or narrow the result set — the semi-join rule
- * again, one level up.
+ * The shots of a ranked window that still pass `where` but its text, in window order (#4545): an
+ * asset deleted or hidden after the window was ranked drops out, wherever in the window it sits,
+ * so a total counted from these is one every page of the window agrees on. The window's copies
+ * are re-checked and collapsed again (#4557), so a shot whose kept copy died is represented by a
+ * live sibling instead of vanishing. One statement, a keyed probe per row — the same bound the
+ * ranking itself has.
  */
-async function hydrate(
-  db: SqliteDb,
-  rows: readonly PageRow[],
-): Promise<Array<AssetDoc & { _id: ObjectId }>> {
+export async function windowSurvivors<T extends { id: string } & ShotFields>(
+  where: SearchWhere,
+  window: { rows: readonly T[]; copies?: readonly T[] },
+  dbOverride?: SqliteDb,
+): Promise<T[]> {
+  const rows = window.copies ?? window.rows;
   if (rows.length === 0) return [];
-  const ids = rows.map((row) => row.id);
-  const [locations, descriptions, links] = await Promise.all([
-    db.read<LocationRow>(locationsByAssetIdsSql(ids.length), ids),
-    db.read<DescriptionRow>(descriptionsByAssetIdsSql(ids.length), ids),
-    db.read<LinkRow>(phassetLinksByAssetIdsSql(ids.length), ids),
+  const live = windowColumnsSql(
+    where,
+    rows.map((row) => row.id),
+    'assets.id AS id',
+  );
+  const alive = await bulkLane(assetsDb(dbOverride)).read<{ id: string }>(live.sql, live.params);
+  const ids = new Set(alive.map((row) => row.id));
+  return collapseShots(rows.filter((row) => ids.has(row.id)));
+}
+
+/**
+ * The documents behind a ranked window's page, in the order given (#4514). The window knows each
+ * row's owner, so the page's columns are read beside its side tables — one trip through the bulk
+ * lane instead of two. The columns are read under `where` again (its text stripped, as the window
+ * already matched it): an asset deleted or hidden after the window was ranked drops out of the
+ * page instead of being served (#4545).
+ */
+export async function windowDocs(
+  where: SearchWhere,
+  page: readonly { id: string; owner_id: string | null }[],
+  dbOverride?: SqliteDb,
+): Promise<SearchDoc[]> {
+  if (page.length === 0) return [];
+  const lane = bulkLane(assetsDb(dbOverride));
+  const ids = page.map((row) => row.id);
+  const live = windowColumnsSql(where, ids);
+  const [columns, sides] = await Promise.all([
+    lane.read<PageRow>(live.sql, live.params),
+    sideTables(lane, ids, page.map(ownerKey)),
   ]);
+  const ownerIds = new Map(page.map((row) => [row.id, row.owner_id] as const));
+  return inGivenOrder(ids, columns, (row) => row.id).map((row) =>
+    toSearchDoc({ ...row, owner_id: ownerIds.get(row.id) ?? null }, sides),
+  );
+}
 
-  const locationsByAsset = groupByAsset(locations);
-  const linksByAsset = groupByAsset(links);
-  const captions = new Map(descriptions.map((row) => [row.asset_id, row.description] as const));
+interface SideTables {
+  locations: ReadonlyMap<string, LocationRow[]>;
+  links: ReadonlyMap<string, LinkRow[]>;
+  captions: ReadonlyMap<string, string | null>;
+  owners: ReadonlyMap<string, AssetOwnerSummary>;
+}
 
-  return rows.map((row) => toAssetDoc(row, locationsByAsset, linksByAsset, captions));
+async function sideTables(
+  lane: SqliteDb,
+  ids: readonly string[],
+  ownerKeys: readonly (string | null)[],
+): Promise<SideTables> {
+  const [locations, descriptions, links, owners] = await Promise.all([
+    lane.read<LocationRow>(locationsByAssetIdsSql(ids.length), ids),
+    lane.read<DescriptionRow>(descriptionsByAssetIdsSql(ids.length), ids),
+    lane.read<LinkRow>(phassetLinksByAssetIdsSql(ids.length), ids),
+    ownerSummariesForIds(ownerKeys, lane),
+  ]);
+  return {
+    locations: groupByAsset(locations),
+    links: groupByAsset(links),
+    captions: new Map(descriptions.map((row) => [row.asset_id, row.description] as const)),
+    owners,
+  };
+}
+
+function toSearchDoc(row: PageRow, sides: SideTables): SearchDoc {
+  return {
+    ...toAssetDoc(row, sides.locations, sides.links, sides.captions),
+    owner: sides.owners.get(ownerKey(row) ?? '') ?? null,
+  };
+}
+
+/**
+ * The `users.id` an `owner_id` names: a valid id in the lowercase spelling `users.id` is stored in,
+ * anything else as it is, so a corrupt value simply misses (#4511).
+ */
+function ownerKey(row: { owner_id: string | null }): string | null {
+  return normaliseObjectIdHex(row.owner_id) ?? (row.owner_id || null);
+}
+
+/** A corrupt `owner_id` stays the raw string rather than failing the whole page (#4511). */
+function ownerIdOf(raw: string | null): ObjectId | string | null {
+  if (raw === null) return null;
+  return ObjectId.isValid(raw) ? new ObjectId(raw) : raw;
 }
 
 /**
@@ -263,7 +305,7 @@ function toAssetDoc(
     exif: json<AssetExif>(row.exif),
     place: json<Place>(row.place),
     description: captions.get(row.id) ?? null,
-    owner_id: row.owner_id ? new ObjectId(row.owner_id) : null,
+    owner_id: ownerIdOf(row.owner_id),
     phasset_links: linkRows.map((link) => ({
       device_id: link.device_id,
       phasset_local_id: link.phasset_local_id,

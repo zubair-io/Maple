@@ -143,7 +143,7 @@ pub struct SliderFrameExport {
     pub render_wb_already_baked: f32,
     /// `profile.cm_endpoints.m_cold/cct_cold` — the render profile's OWN
     /// dual-illuminant CM pair (distinct from `m_cold`/`cct_cold` above,
-    /// which are the VALUE frame's). `render_cct_warm - render_cct_cold <
+    /// which are the VALUE frame's). `|render_cct_warm - render_cct_cold| <
     /// 1.0` ⇒ no render-profile endpoints (single-illuminant profile —
     /// `c_at` is then constant across every target/anchor, matching
     /// `retargeted_render_profile`'s own single-calibration short-circuit).
@@ -304,7 +304,7 @@ impl SliderFrameExport {
             .iter()
             .flatten()
             .all(|v| *v == 0.0);
-        let endpoints_present = self.render_cct_warm - self.render_cct_cold >= 1.0;
+        let endpoints_present = (self.render_cct_warm - self.render_cct_cold).abs() >= 1.0;
         fm_present || endpoints_present
     }
 
@@ -325,7 +325,7 @@ impl SliderFrameExport {
         let fm_cold_present = !self.render_fm_cold.0.iter().flatten().all(|v| *v == 0.0);
         let fm_warm_present = !self.render_fm_warm.0.iter().flatten().all(|v| *v == 0.0);
         let cm_endpoints =
-            (self.render_cct_warm - self.render_cct_cold >= 1.0).then(|| CmEndpoints {
+            ((self.render_cct_warm - self.render_cct_cold).abs() >= 1.0).then(|| CmEndpoints {
                 m_cold: self.render_cm_cold,
                 cct_cold: self.render_cct_cold,
                 m_warm: self.render_cm_warm,
@@ -344,6 +344,7 @@ impl SliderFrameExport {
             look_table: None,
             tone_curve: None,
             cm_endpoints,
+            hsm_endpoints: None,
         }
     }
 

@@ -24,7 +24,9 @@ extension EditSession {
     {
       return (preview, nil)
     }
-    let initial = await renderActor.snapshot(forAsset: asset)
+    // The canvas keys its decode on the live model (#4715); a disk-keyed
+    // snapshot would call a remote asset's baked edit stale forever.
+    let initial = await renderActor.snapshot(forAsset: asset, liveModel: decodeKey(renderModel))
     if initial.image == nil || !initial.isFresh {
       // XMP publication may complete after the scheduled frame. Acquire the
       // actual current develop, then require a fresh canonical scene buffer.
@@ -33,7 +35,7 @@ extension EditSession {
       await renderActor.awaitCurrentRenderIfInFlight()
     }
     let model = renderModel
-    let snapshot = await renderActor.snapshot(forAsset: asset)
+    let snapshot = await renderActor.snapshot(forAsset: asset, liveModel: decodeKey(model))
     let resolvedIsRaw = await renderActor.resolvedIsRaw(for: asset.id) ?? asset.isRaw
     guard let decoded = snapshot.image, snapshot.isFresh,
       !resolvedIsRaw
@@ -70,19 +72,15 @@ extension EditSession {
     let target = CGSize(
       width: fullTarget.width * inputScale, height: fullTarget.height * inputScale)
     let filmLattice = filmLutStore.lattice(for: model.filmLook)
-    let autoTail: (filter: CIFilter?, native: NativeAutoProfile?) =
-      resolvedIsRaw
-      ? await autoProfileLUTForCPURender(
-        asset: asset, model: model, quality: snapshot.quality ?? .preview,
-        decodeGeneration: snapshot.decodeGeneration) : (nil, nil)
+    let profileLUT =
+      resolvedIsRaw ? await autoProfileLUTForCPURender(asset: asset, model: model).filter : nil
     let capture = Task<(canvas: CIImage, weights: CIImage?), Error>.detached(
       priority: .userInitiated
     ) {
       try Self.captureAgentCPUFrame(
         pipeline: pipeline, decoded: decoded, target: target, source: source,
         snapshot: snapshot, model: model, resolvedIsRaw: resolvedIsRaw, anchor: anchor,
-        layer: layer, crop: crop, nativeSize: nativeSize, profileLUT: autoTail.filter,
-        nativeAutoProfile: autoTail.native,
+        layer: layer, crop: crop, nativeSize: nativeSize, profileLUT: profileLUT,
         filmLattice: filmLattice, hasMask: maskID != nil)
     }
     return try await capture.value
@@ -92,8 +90,7 @@ extension EditSession {
     pipeline: ImageEditPipeline, decoded: CIImage, target: CGSize, source: CGSize,
     snapshot: RenderActor.DecodedSnapshot, model: AdjustmentModel, resolvedIsRaw: Bool,
     anchor: ImageEditPipeline.AsShotWB?, layer: Int32, crop: Crop, nativeSize: CGSize,
-    profileLUT: CIFilter?, nativeAutoProfile: NativeAutoProfile?,
-    filmLattice: (data: [Float], size: Int, key: UInt32)?, hasMask: Bool
+    profileLUT: CIFilter?, filmLattice: (data: [Float], size: Int, key: UInt32)?, hasMask: Bool
   ) throws -> (canvas: CIImage, weights: CIImage?) {
     guard let floats = pipeline.sceneLinearFloats(from: decoded, targetSize: target) else {
       throw AgentError(
@@ -116,17 +113,9 @@ extension EditSession {
     for index in stride(from: 3, to: rgb.count, by: 4) {
       rgb[index] = 1
     }
-    // Canonical capture shares the settled native Auto tail with the canvas.
-    // Coverage remains the paired pre-display weights, never color transformed.
-    let rgbaData: Data
-    if nativeAutoProfile?.artifacts != nil {
-      let sceneData: Data = floats.pixels.withUnsafeBufferPointer { Data(buffer: $0) }
-      rgbaData = try PipelineRenderer.applyChainAndEncodeDisplayTargetWithAuto(
-        inputBytes: sceneData, width: floats.width, height: floats.height, params: params,
-        targetPrimaries: CanvasColorSpace.srgb.wireValue, noiseProfile: snapshot.noiseProfile,
-        localAdjustments: model.localAdjustments, nativeAutoProfile: nativeAutoProfile)
-    } else {
-      rgbaData = rgb.withUnsafeBufferPointer { Data(buffer: $0) }
+    let rgbaData: Data = rgb.withUnsafeBufferPointer {
+      (buffer: UnsafeBufferPointer<Float>) -> Data in
+      Data(buffer: buffer)
     }
     let encoded: CIImage = CIImage(
       bitmapData: rgbaData,

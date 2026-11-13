@@ -16,33 +16,11 @@ use serde_json::Value;
 
 use super::{Capability, EvidenceSource, ReleaseState, Surface};
 
-/// The build the registry is evaluated for. A record pinned to different
-/// numbers is stale.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct BuildIdentity {
-    /// `raw_core::PIPELINE_OUTPUT_VERSION` at generation time.
-    pub pipeline_version: u32,
-    /// [`super::current_schema_version`] at generation time.
-    pub schema_version: u32,
-}
-
-impl BuildIdentity {
-    /// The identity of the crate this code was compiled from.
-    pub fn current() -> Self {
-        Self {
-            pipeline_version: crate::PIPELINE_OUTPUT_VERSION,
-            schema_version: super::current_schema_version(),
-        }
-    }
-}
-
 /// One harness run, as written to `test-fixtures/qualification/<source>.json`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct EvidenceRecord {
     pub source: EvidenceSource,
     pub backend: String,
-    pub pipeline_version: u32,
-    pub schema_version: u32,
     /// `blake3:<hex>` over the source's declared corpus — see [`hash_corpus`].
     pub corpus_hash: String,
     pub expected_cases: u32,
@@ -89,8 +67,6 @@ impl EvidenceRecord {
         Ok(Self {
             source,
             backend: str_field("backend")?,
-            pipeline_version: u32_field("pipeline_version")?,
-            schema_version: u32_field("schema_version")?,
             corpus_hash: str_field("corpus_hash")?,
             expected_cases: u32_field("expected_cases")?,
             executed_cases: u32_field("executed_cases")?,
@@ -107,8 +83,6 @@ impl EvidenceRecord {
         serde_json::json!({
             "source": self.source.id(),
             "backend": self.backend,
-            "pipeline_version": self.pipeline_version,
-            "schema_version": self.schema_version,
             "corpus_hash": self.corpus_hash,
             "expected_cases": self.expected_cases,
             "executed_cases": self.executed_cases,
@@ -123,12 +97,10 @@ impl EvidenceRecord {
     /// The fields the rule reads — everything except the informational
     /// `git_sha` / `recorded_at` / `command`. Two records that agree here
     /// are the same evidence.
-    pub fn load_bearing(&self) -> (EvidenceSource, &str, u32, u32, &str, u32, u32, u32, u32) {
+    pub fn load_bearing(&self) -> (EvidenceSource, &str, &str, u32, u32, u32, u32) {
         (
             self.source,
             &self.backend,
-            self.pipeline_version,
-            self.schema_version,
             &self.corpus_hash,
             self.expected_cases,
             self.executed_cases,
@@ -138,20 +110,20 @@ impl EvidenceRecord {
     }
 }
 
-/// Everything [`classify`] needs: the records on disk, the build they are
-/// judged against, and the current corpus hash per source.
+/// Everything [`classify`] needs: the records on disk and the current
+/// corpus hash per source.
 #[derive(Clone, Debug, Default)]
 pub struct Evidence {
     pub records: BTreeMap<EvidenceSource, EvidenceRecord>,
-    pub build: Option<BuildIdentity>,
     pub corpus_hashes: BTreeMap<EvidenceSource, String>,
 }
 
 impl Evidence {
     /// Load every `<source>.json` under `dir` and hash the corpus (under
-    /// `repo_root`) of every source that has one. A missing directory is an
-    /// empty evidence set (every capability stays `Core`); an unparseable
-    /// record or an unhashable corpus is an error.
+    /// `repo_root`) of every source without an explicitly failed run. Failed
+    /// records cannot qualify and remain reportable without local fixtures.
+    /// A missing directory is an empty evidence set (every capability stays
+    /// `Core`); an unparseable record or unhashable nonfailed corpus is an error.
     pub fn load(repo_root: &Path, dir: &Path) -> Result<Self, String> {
         let mut records = BTreeMap::new();
         for source in EvidenceSource::ALL {
@@ -173,15 +145,16 @@ impl Evidence {
             records.insert(*source, record);
         }
         // A corpus hash is only ever compared against a record, so only the
-        // recorded sources are hashed — `tools/codegen.sh` loads evidence
-        // once per emitted target, and the corpora include binary fixtures.
+        // nonfailed recorded sources are hashed. A failed run cannot qualify
+        // on any corpus; retaining its failure and provenance must also work
+        // in CI checkouts without the gitignored physical-image corpus.
         let corpus_hashes = records
-            .keys()
-            .map(|s| s.corpus_hash(repo_root).map(|h| (*s, h)))
+            .iter()
+            .filter(|(_, record)| record.failed_cases == 0)
+            .map(|(s, _)| s.corpus_hash(repo_root).map(|h| (*s, h)))
             .collect::<Result<BTreeMap<_, _>, _>>()?;
         Ok(Self {
             records,
-            build: Some(BuildIdentity::current()),
             corpus_hashes,
         })
     }
@@ -250,10 +223,6 @@ fn walk_sorted(path: &Path) -> Result<Vec<PathBuf>, String> {
 pub enum RecordStatus {
     /// No `<source>.json` record exists.
     Missing,
-    /// The record was made on a different pipeline output version.
-    StalePipeline { recorded: u32, current: u32 },
-    /// The record was made on a different sidecar schema version.
-    StaleSchema { recorded: u32, current: u32 },
     /// The corpus changed since the record was written.
     StaleCorpus,
     /// The record claims a backend the source does not accept.
@@ -277,8 +246,6 @@ impl RecordStatus {
     pub fn id(&self) -> &'static str {
         match self {
             RecordStatus::Missing => "missing",
-            RecordStatus::StalePipeline { .. } => "stale_pipeline",
-            RecordStatus::StaleSchema { .. } => "stale_schema",
             RecordStatus::StaleCorpus => "stale_corpus",
             RecordStatus::UnacceptedBackend(_) => "unaccepted_backend",
             RecordStatus::CountMismatch { .. } => "count_mismatch",
@@ -293,12 +260,6 @@ impl RecordStatus {
     pub fn describe(&self) -> String {
         match self {
             RecordStatus::Missing => "no record".to_owned(),
-            RecordStatus::StalePipeline { recorded, current } => {
-                format!("recorded on pipeline v{recorded}, current is v{current}")
-            }
-            RecordStatus::StaleSchema { recorded, current } => {
-                format!("recorded on schema v{recorded}, current is v{current}")
-            }
             RecordStatus::StaleCorpus => "corpus changed since the record".to_owned(),
             RecordStatus::UnacceptedBackend(b) => format!("backend `{b}` not accepted"),
             RecordStatus::CountMismatch { expected, executed } => {
@@ -336,20 +297,10 @@ pub fn judge(source: EvidenceSource, evidence: &Evidence) -> RecordStatus {
     let Some(record) = evidence.records.get(&source) else {
         return RecordStatus::Missing;
     };
-    let Some(build) = evidence.build else {
-        return RecordStatus::Missing;
-    };
-    if record.pipeline_version != build.pipeline_version {
-        return RecordStatus::StalePipeline {
-            recorded: record.pipeline_version,
-            current: build.pipeline_version,
-        };
-    }
-    if record.schema_version != build.schema_version {
-        return RecordStatus::StaleSchema {
-            recorded: record.schema_version,
-            current: build.schema_version,
-        };
+    // Failure is conclusive even when the measured corpus is not installed.
+    // Passing records still require the complete current-corpus validation.
+    if record.failed_cases > 0 {
+        return RecordStatus::Failed(record.failed_cases);
     }
     if evidence.corpus_hashes.get(&source) != Some(&record.corpus_hash) {
         return RecordStatus::StaleCorpus;
@@ -369,9 +320,6 @@ pub fn judge(source: EvidenceSource, evidence: &Evidence) -> RecordStatus {
             expected,
             executed: record.executed_cases,
         };
-    }
-    if record.failed_cases > 0 {
-        return RecordStatus::Failed(record.failed_cases);
     }
     if record.skipped_cases > 0 {
         return RecordStatus::Skipped(record.skipped_cases);

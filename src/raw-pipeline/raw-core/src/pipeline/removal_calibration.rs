@@ -105,18 +105,48 @@ pub(super) fn develop_with_gain(
     if max_long_edge == Some(0) {
         return Err(invalid("output cap must be positive"));
     }
-    if !patches.is_empty() {
-        validate_upstream(model)?;
-        for patch in patches {
-            patch.validate().map_err(|reason| invalid(&reason))?;
-        }
-    }
+    validate_patches(model, patches)?;
     match max_long_edge {
         Some(cap) => super::develop_sized::develop_with_calibration_patches(
             raw, model, quality, cap, cancel, patches,
         ),
         None => develop::develop_with_calibration_patches(raw, model, quality, cancel, patches),
     }
+}
+
+fn validate_patches(model: &AdjustmentModel, patches: &[InpaintPatch]) -> Result<()> {
+    if !patches.is_empty() {
+        validate_upstream(model)?;
+        for patch in patches {
+            patch.validate().map_err(|reason| invalid(&reason))?;
+        }
+    }
+    Ok(())
+}
+
+/// The sensor-framed sized capture decode with the replacements composited
+/// into the pre-optics camera plate, for a live host's resident prefix.
+pub(super) fn render_capture_sized_sensor_framed(
+    raw: &RawImage,
+    model: &AdjustmentModel,
+    quality: RenderQuality,
+    max_long_edge: u32,
+    patches: &[InpaintPatch],
+    cancel: CancelToken<'_>,
+) -> Result<super::CaptureRender> {
+    if max_long_edge == 0 {
+        return Err(invalid("output cap must be positive"));
+    }
+    validate_patches(model, patches)?;
+    let ready = super::develop_sized::camera_with_patches(
+        raw,
+        model,
+        quality,
+        max_long_edge,
+        cancel,
+        patches,
+    )?;
+    super::render::render_capture_sized_sensor_framed_from_camera(raw, model, ready, cancel)
 }
 
 pub(super) fn validate_upstream(model: &AdjustmentModel) -> Result<()> {

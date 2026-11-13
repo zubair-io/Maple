@@ -80,14 +80,24 @@ fi
 # directly. --no-self-update keeps `rustup` itself brew-managed so brew can
 # upgrade it cleanly later.
 #
-# Ensure the toolchain configured in rust-toolchain.toml, the components it requests
-# (rustfmt, clippy), and every Apple cross-compile target are installed in ONE
-# retry-wrapped step.
-# lazily fetch the components, or letting build-xcframework.sh `rustup target
-# add` them — collapses the toolchain network I/O into a single retry-guarded
-# operation, and makes build-xcframework.sh's target-add loop a no-op on CI.
-echo "==> rustup toolchain install stable (+ rustfmt/clippy + Apple targets)"
-retry rustup toolchain install stable \
+# Install the toolchain pinned in src/raw-pipeline/rust-toolchain.toml, its
+# components (rustfmt, clippy) and every Apple cross-compile target in ONE
+# retry-wrapped step, so build-xcframework.sh's target-add loop is a no-op on
+# CI. It must be the pinned channel: cargo in the workspace builds with it, and
+# targets installed on any other channel leave cargo auto-installing a bare
+# pinned toolchain with no Apple targets (#5226).
+RUST_TOOLCHAIN_FILE="$REPO_ROOT/src/raw-pipeline/rust-toolchain.toml"
+if [ ! -f "$RUST_TOOLCHAIN_FILE" ]; then
+    echo "ERROR: $RUST_TOOLCHAIN_FILE not found" >&2
+    exit 1
+fi
+RUST_TOOLCHAIN="$(sed -n 's/^channel *= *"\([^"]*\)".*/\1/p' "$RUST_TOOLCHAIN_FILE")"
+if [ -z "$RUST_TOOLCHAIN" ]; then
+    echo "ERROR: no toolchain channel found in $RUST_TOOLCHAIN_FILE" >&2
+    exit 1
+fi
+echo "==> rustup toolchain install $RUST_TOOLCHAIN (+ rustfmt/clippy + Apple targets)"
+retry rustup toolchain install "$RUST_TOOLCHAIN" \
     --profile minimal \
     --component rustfmt --component clippy \
     --target aarch64-apple-ios \
@@ -95,7 +105,7 @@ retry rustup toolchain install stable \
     --target aarch64-apple-darwin \
     --target x86_64-apple-darwin \
     --no-self-update
-rustup default stable
+rustup default "$RUST_TOOLCHAIN"
 
 # rustup-init installs to ~/.cargo/bin; cargo install lands binaries there too.
 export PATH="$HOME/.cargo/bin:$PATH"

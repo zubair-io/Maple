@@ -25,6 +25,7 @@
 import { Injectable, computed, effect, inject, linkedSignal, signal } from '@angular/core';
 import { EditorStateService } from '../../editor/editor-state.service';
 import { LibraryStateService } from '../../state/library-state.service';
+import { eyedropperUnavailableForFile } from '../../state/raw-extensions';
 import { RawPipelineService } from '../../raw-pipeline/raw-pipeline.service';
 import { XmpSerializerService } from '../../xmp/xmp-serializer.service';
 import {
@@ -466,6 +467,10 @@ export class MaskSessionService {
 
   /** Why the last eyedropper pick was refused; cleared by the next arm. */
   readonly rangeMessage = signal<string | null>(null);
+
+  readonly rangeSampleUnavailable = computed(() =>
+    eyedropperUnavailableForFile(this.library.focusedAsset()?.filename),
+  );
 
   /** True while a pick is in flight — the panel disables its eyedropper. */
   readonly rangeSampleInFlight = signal(false);

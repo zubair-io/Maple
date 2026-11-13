@@ -7,42 +7,50 @@ import init, {
   workflow_embed_xmp,
   workflow_checkpoint_xmp,
   workflow_variant_filename,
+  workflow_reconcile_xmp,
+  workflow_cursor_xmp,
 } from '../raw-pipeline/pkg/raw_wasm';
+import { RAW_WASM_URL } from '../raw-pipeline/wasm-asset-url';
+const CONVERSIONS: Record<string, (xmp: string, json: string) => string> = {
+  commit: workflow_commit_xmp,
+  snapshot: workflow_snapshot_xmp,
+  restore: workflow_restore_xmp,
+  reconcile: (xmp, json) => {
+    const { base, incoming, nowMs } = JSON.parse(json);
+    return workflow_reconcile_xmp(base, xmp, incoming, nowMs);
+  },
+  cursor: workflow_cursor_xmp,
+  read: workflow_read_xmp,
+  embed: (xmp, json) => workflow_embed_xmp(json, xmp),
+  checkpoint: workflow_checkpoint_xmp,
+  filename: workflow_variant_filename,
+};
 // Metadata needs neither pixel buffers nor Rayon. Never used for render ticks.
-const ready = init({ module_or_path: '/raw_wasm_bg.wasm' });
+const ready = init({ module_or_path: RAW_WASM_URL });
 addEventListener(
   'message',
   async (
     event: MessageEvent<{
       id: number;
-      operation: 'read' | 'embed' | 'checkpoint' | 'filename' | 'commit' | 'snapshot' | 'restore';
+      operation:
+        | 'read'
+        | 'embed'
+        | 'checkpoint'
+        | 'filename'
+        | 'commit'
+        | 'snapshot'
+        | 'restore'
+        | 'reconcile'
+        | 'cursor';
       xmp: string;
       json?: string;
     }>,
   ) => {
     try {
       await ready;
-      const convert = () => {
-        switch (event.data.operation) {
-          case 'commit':
-            return workflow_commit_xmp(event.data.xmp, event.data.json!);
-          case 'snapshot':
-            return workflow_snapshot_xmp(event.data.xmp, event.data.json!);
-          case 'restore':
-            return workflow_restore_xmp(event.data.xmp, event.data.json!);
-          case 'read':
-            return workflow_read_xmp(event.data.xmp);
-          case 'embed':
-            return workflow_embed_xmp(event.data.json!, event.data.xmp);
-          case 'checkpoint':
-            return workflow_checkpoint_xmp(event.data.xmp);
-          case 'filename':
-            return workflow_variant_filename(event.data.xmp, event.data.json!);
-          default:
-            throw Error('Unsupported workflow operation');
-        }
-      };
-      const value = convert();
+      const convert = CONVERSIONS[event.data.operation];
+      if (!convert) throw Error('Unsupported workflow operation');
+      const value = convert(event.data.xmp, event.data.json!);
       postMessage({ id: event.data.id, value });
     } catch (error) {
       postMessage({

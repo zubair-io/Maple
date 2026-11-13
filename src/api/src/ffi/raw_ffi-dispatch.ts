@@ -65,6 +65,16 @@ export async function handleFfiRequest(
       error: error ?? undefined,
     };
   }
+  if (req.type === 'sidecarAdjustments') {
+    // A dylib that predates the check cannot tell, so it develops every
+    // sidecar exactly as it did before #5231.
+    const verdict = ffi.xmpHasRenderAdjustments?.(req.xmp) ?? {
+      authored: true,
+    };
+    return 'error' in verdict
+      ? { type: req.type, id: req.id, ok: false, error: verdict.error }
+      : { type: req.type, id: req.id, ok: true, authored: verdict.authored };
+  }
   if (req.type === 'removalAssets' || req.type === 'removalSource') {
     return {
       type: req.type,
@@ -114,6 +124,7 @@ export async function handleFfiRequest(
         req.maxPx,
         req.ext,
         req.quality,
+        req.applyCrop === true,
       );
       return { type: 'renderBitmap', id: req.id, ok };
     } catch (e) {
@@ -134,7 +145,12 @@ export async function handleFfiRequest(
       const result = await checkAvifOutput(req.filePath, req.expectedLongEdgePx);
       return result.ok
         ? { type: 'validateAvif', id: req.id, ok: true }
-        : { type: 'validateAvif', id: req.id, ok: false, reason: result.reason };
+        : {
+            type: 'validateAvif',
+            id: req.id,
+            ok: false,
+            reason: result.reason,
+          };
     } catch (e) {
       return {
         type: 'validateAvif',

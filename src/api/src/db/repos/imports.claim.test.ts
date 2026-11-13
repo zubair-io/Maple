@@ -1,28 +1,27 @@
 /**
- * The import queue: claiming, lease renewal, per-file progress, cancellation
- * and the three terminal transitions.
+ * The import queue: the relay's view of it (which import goes to Temporal
+ * next, which ones Temporal holds), claiming one by id, lease renewal,
+ * per-file progress, cancellation and the three terminal transitions.
  *
- * The claim is the part of this port that could not copy its mechanism.
- * MongoDB's `findOneAndUpdate` picks a winner inside the server; here the
- * winner is decided by the row count of an `UPDATE` that repeats the claimable
- * predicate, and the last test in the claim block fails if that `WHERE` clause
- * is weakened. The progress writes matter for the same reason from the other
- * direction: a file row that vanished underneath the worker must not let the
- * import-level counters advance.
+ * The progress writes matter because a file row that vanished underneath the
+ * worker must not let the import-level counters advance.
  */
 
 import { describe, expect, test } from 'bun:test';
 import { ObjectId } from '../object-id.ts';
 import {
+  cancelUnfinishedImport,
   claimImport,
   completeImport,
   createImport,
   failImport,
   getImport,
   getImportFiles,
+  heldImportIds,
   isImportCancelRequested,
   markImportCancelled,
-  renewImportLease,
+  markImportDispatched,
+  nextImportId,
   requestImportCancel,
   updateImportProgress,
 } from './imports.repo.ts';
@@ -33,10 +32,7 @@ import {
   testSqliteDb,
 } from '../sqlite/test-sqlite.test-helpers.ts';
 import type { ImportFileEntry } from '../schema.ts';
-import type { SqlParams } from '../sqlite/protocol.ts';
 import type { SqliteDb } from './db-handle.ts';
-
-const CANDIDATE_QUERY = 'ORDER BY created_at, id LIMIT 8';
 
 function entries(count: number): ImportFileEntry[] {
   return Array.from({ length: count }, (_unused, i) => ({
@@ -69,148 +65,142 @@ async function newImport(
   return created._id;
 }
 
-/**
- * The same handle, except that a rival worker claims the ids the first
- * candidate read returned before this caller can act on them.
- */
-function withRivalWorker(db: SqliteDb, claim: (ids: string[]) => void): SqliteDb {
-  let fired = false;
-  return {
-    ...db,
-    read: async <T>(sql: string, params?: SqlParams): Promise<T[]> => {
-      const rows = await db.read<T>(sql, params);
-      if (!fired && sql.includes(CANDIDATE_QUERY)) {
-        fired = true;
-        claim((rows as Array<{ id: string }>).map((row) => row.id));
-      }
-      return rows;
-    },
-  };
-}
+const AT = () => new Date('2026-04-03T00:00:00.000Z');
 
 describe('claimImport', () => {
-  test('claims the oldest pending import and leaves nothing for the next worker', async () => {
+  test('claims the import it is given, by id, and records the attempt holding it', async () => {
     using handle = await createTestDatabase();
     const db = testSqliteDb(handle.db);
     const library = new ObjectId(insertFolder(handle.db));
-    const older = await newImport(db, library, 2, '2026-04-01T10:00:00.000Z');
-    const newer = await newImport(db, library, 0, '2026-04-02T10:00:00.000Z');
+    await newImport(db, library, 0, '2026-04-01T10:00:00.000Z');
+    const newer = await newImport(db, library, 2, '2026-04-02T10:00:00.000Z');
 
-    const first = await claimImport(
-      'worker-1',
-      60_000,
-      () => new Date('2026-04-03T00:00:00.000Z'),
-      db,
-    );
-    expect(first!._id.toHexString()).toBe(older.toHexString());
-    expect(first!.source_root).toBe('/inbox');
-    expect(first!.library_id.toHexString()).toBe(library.toHexString());
-    expect(first!.scan_pending).toBe(false);
+    const claimed = await claimImport(newer, 'attempt-1', AT, db);
 
-    const claimed = (await getImport(older, db))!;
-    expect(claimed.status).toBe('running');
-    expect(claimed.locked_by).toBe('worker-1');
-    expect(claimed.lease_expires_at).toBe('2026-04-03T00:01:00.000Z');
-
-    const second = await claimImport(
-      'worker-2',
-      60_000,
-      () => new Date('2026-04-03T00:00:00.000Z'),
-      db,
-    );
-    expect(second!._id.toHexString()).toBe(newer.toHexString());
-    expect(
-      await claimImport('worker-3', 60_000, () => new Date('2026-04-03T00:00:00.000Z'), db),
-    ).toBeNull();
+    expect(claimed!._id.toHexString()).toBe(newer.toHexString());
+    expect(claimed!.source_root).toBe('/inbox');
+    expect(claimed!.library_id.toHexString()).toBe(library.toHexString());
+    expect(claimed!.scan_pending).toBe(false);
+    expect(claimed!.taken_over).toBe(false);
+    const after = (await getImport(newer, db))!;
+    expect(after.status).toBe('running');
+    expect(after.locked_by).toBe('attempt-1');
+    expect(after.updated_at).toBe(AT().toISOString());
   });
 
-  test('leaves a running import alone until its lease lapses', async () => {
-    using handle = await createTestDatabase();
-    const db = testSqliteDb(handle.db);
-    const library = new ObjectId(insertFolder(handle.db));
-    const id = await newImport(db, library);
-
-    await claimImport('worker-1', 60_000, () => new Date('2026-04-03T00:00:00.000Z'), db);
-    expect(
-      await claimImport('worker-2', 60_000, () => new Date('2026-04-03T00:00:30.000Z'), db),
-    ).toBeNull();
-
-    const retaken = await claimImport(
-      'worker-2',
-      60_000,
-      () => new Date('2026-04-03T00:02:00.000Z'),
-      db,
-    );
-    expect(retaken!._id.toHexString()).toBe(id.toHexString());
-    expect((await getImport(id, db))!.locked_by).toBe('worker-2');
-  });
-
-  test('never reclaims a running import that recorded no lease at all', async () => {
+  test('a later attempt takes over a running import', async () => {
     using handle = await createTestDatabase();
     const db = testSqliteDb(handle.db);
     const library = new ObjectId(insertFolder(handle.db));
     const id = await newImport(db, library);
     run(
       handle.db,
-      `UPDATE imports SET status = 'running', locked_by = 'ghost', lease_expires_at = NULL
-        WHERE id = ?`,
+      `UPDATE imports SET status = 'running', locked_by = 'import-worker-1-abc' WHERE id = ?`,
       id.toHexString(),
     );
 
-    expect(await claimImport('worker-1', 60_000, undefined, db)).toBeNull();
+    expect((await claimImport(id, 'attempt-2', AT, db))!.taken_over).toBe(true);
+    expect((await getImport(id, db))!.locked_by).toBe('attempt-2');
   });
 
-  test('skips an import a rival worker claimed after the candidate read', async () => {
+  test('a finished import, or one that never existed, is not claimed', async () => {
     using handle = await createTestDatabase();
     const db = testSqliteDb(handle.db);
     const library = new ObjectId(insertFolder(handle.db));
-    const older = await newImport(db, library, 0, '2026-04-01T10:00:00.000Z');
-    const newer = await newImport(db, library, 0, '2026-04-02T10:00:00.000Z');
+    const id = await newImport(db, library);
+    await completeImport(id, { copied: 0, skipped: 0, failed: 0 }, undefined, db);
 
-    const stolen: string[] = [];
-    const racy = withRivalWorker(db, (ids) => {
-      const first = ids[0];
-      if (first === undefined) return;
-      stolen.push(first);
-      run(
-        handle.db,
-        `UPDATE imports SET status = 'running', locked_by = 'rival',
-            lease_expires_at = '2099-01-01T00:00:00.000Z' WHERE id = ?`,
-        first,
-      );
-    });
-
-    const claimed = await claimImport('worker-1', 60_000, undefined, racy);
-
-    expect(stolen).toEqual([older.toHexString()]);
-    expect(claimed!._id.toHexString()).toBe(newer.toHexString());
-    // The rival keeps its import.
-    expect((await getImport(older, db))!.locked_by).toBe('rival');
-  });
-
-  test('returns null when a rival takes every candidate', async () => {
-    using handle = await createTestDatabase();
-    const db = testSqliteDb(handle.db);
-    const library = new ObjectId(insertFolder(handle.db));
-    await newImport(db, library, 0, '2026-04-01T10:00:00.000Z');
-    await newImport(db, library, 0, '2026-04-02T10:00:00.000Z');
-
-    const racy = withRivalWorker(db, (ids) => {
-      for (const id of ids) {
-        run(
-          handle.db,
-          `UPDATE imports SET status = 'running', locked_by = 'rival',
-              lease_expires_at = '2099-01-01T00:00:00.000Z' WHERE id = ?`,
-          id,
-        );
-      }
-    });
-
-    expect(await claimImport('worker-1', 60_000, undefined, racy)).toBeNull();
+    expect(await claimImport(id, 'attempt-1', undefined, db)).toBeNull();
+    expect(await claimImport(new ObjectId(), 'attempt-1', undefined, db)).toBeNull();
+    expect((await getImport(id, db))!.status).toBe('done');
   });
 });
 
-describe('updateImportProgress and renewImportLease', () => {
+describe('the relay queue', () => {
+  test('offers the oldest pending import, and nothing more while one is held', async () => {
+    using handle = await createTestDatabase();
+    const db = testSqliteDb(handle.db);
+    const library = new ObjectId(insertFolder(handle.db));
+    const newer = await newImport(db, library, 0, '2026-04-02T10:00:00.000Z');
+    const older = await newImport(db, library, 0, '2026-04-01T10:00:00.000Z');
+
+    expect(await nextImportId(db)).toBe(older.toHexString());
+    expect(await heldImportIds(db)).toEqual([]);
+
+    await markImportDispatched(older.toHexString(), db);
+
+    expect((await getImport(older, db))!.locked_by).toBe('temporal');
+    expect(await nextImportId(db)).toBeNull();
+    expect(await heldImportIds(db)).toEqual([older.toHexString()]);
+
+    await claimImport(older, 'attempt-1', undefined, db);
+    expect(await nextImportId(db)).toBeNull();
+    expect(await heldImportIds(db)).toEqual([older.toHexString()]);
+
+    await completeImport(older, { copied: 0, skipped: 0, failed: 0 }, undefined, db);
+    expect(await heldImportIds(db)).toEqual([]);
+    expect(await nextImportId(db)).toBe(newer.toHexString());
+  });
+
+  test('marking dispatched leaves an import its activity already claimed alone', async () => {
+    using handle = await createTestDatabase();
+    const db = testSqliteDb(handle.db);
+    const library = new ObjectId(insertFolder(handle.db));
+    const id = await newImport(db, library);
+    await claimImport(id, 'attempt-1', undefined, db);
+
+    await markImportDispatched(id.toHexString(), db);
+
+    expect((await getImport(id, db))!.locked_by).toBe('attempt-1');
+  });
+
+  test('an import left running by the old runner counts as held', async () => {
+    using handle = await createTestDatabase();
+    const db = testSqliteDb(handle.db);
+    const library = new ObjectId(insertFolder(handle.db));
+    const running = await newImport(db, library, 0, '2026-04-02T10:00:00.000Z');
+    await newImport(db, library, 0, '2026-04-01T10:00:00.000Z');
+    run(
+      handle.db,
+      `UPDATE imports SET status = 'running', locked_by = 'import-worker-1-abc' WHERE id = ?`,
+      running.toHexString(),
+    );
+
+    expect(await heldImportIds(db)).toEqual([running.toHexString()]);
+    expect(await nextImportId(db)).toBeNull();
+  });
+
+  test('cancelling an unfinished import releases it and lets the next one through', async () => {
+    using handle = await createTestDatabase();
+    const db = testSqliteDb(handle.db);
+    const library = new ObjectId(insertFolder(handle.db));
+    const stopped = await newImport(db, library, 0, '2026-04-01T10:00:00.000Z');
+    const next = await newImport(db, library, 0, '2026-04-02T10:00:00.000Z');
+    await claimImport(stopped, 'attempt-1', undefined, db);
+
+    await cancelUnfinishedImport(stopped, AT, db);
+
+    const after = (await getImport(stopped, db))!;
+    expect(after.status).toBe('cancelled');
+    expect(after.cancel_requested).toBe(true);
+    expect(after.locked_by).toBeNull();
+    expect(await nextImportId(db)).toBe(next.toHexString());
+  });
+
+  test('cancelling leaves a finished import as it finished', async () => {
+    using handle = await createTestDatabase();
+    const db = testSqliteDb(handle.db);
+    const library = new ObjectId(insertFolder(handle.db));
+    const id = await newImport(db, library);
+    await failImport(id, 'disk full', undefined, db);
+
+    await cancelUnfinishedImport(id, undefined, db);
+
+    expect((await getImport(id, db))!.status).toBe('failed');
+  });
+});
+
+describe('updateImportProgress', () => {
   test('records one file outcome and the import-level tally together', async () => {
     using handle = await createTestDatabase();
     const db = testSqliteDb(handle.db);
@@ -227,7 +217,6 @@ describe('updateImportProgress and renewImportLease', () => {
         current: 1,
         counts: { copied: 1, skipped: 0, failed: 0 },
       },
-      60_000,
       () => new Date('2026-04-03T00:00:00.000Z'),
       db,
     );
@@ -244,7 +233,7 @@ describe('updateImportProgress and renewImportLease', () => {
     const after = (await getImport(id, db))!;
     expect(after.progress).toEqual({ current: 1, total: 3 });
     expect(after.counts).toEqual({ copied: 1, skipped: 0, failed: 0 });
-    expect(after.lease_expires_at).toBe('2026-04-03T00:01:00.000Z');
+    expect(after.updated_at).toBe('2026-04-03T00:00:00.000Z');
   });
 
   test('records a failure with its message', async () => {
@@ -263,7 +252,6 @@ describe('updateImportProgress and renewImportLease', () => {
         current: 1,
         counts: { copied: 0, skipped: 0, failed: 1 },
       },
-      60_000,
       undefined,
       db,
     );
@@ -290,7 +278,6 @@ describe('updateImportProgress and renewImportLease', () => {
           current: 1,
           counts: { copied: 1, skipped: 0, failed: 0 },
         },
-        60_000,
         undefined,
         db,
       ),
@@ -299,21 +286,7 @@ describe('updateImportProgress and renewImportLease', () => {
     const after = (await getImport(id, db))!;
     expect(after.progress).toEqual(before.progress);
     expect(after.counts).toEqual(before.counts);
-    expect(after.lease_expires_at).toBe(before.lease_expires_at);
-  });
-
-  test('renews a lease only while the import is running', async () => {
-    using handle = await createTestDatabase();
-    const db = testSqliteDb(handle.db);
-    const library = new ObjectId(insertFolder(handle.db));
-    const id = await newImport(db, library);
-
-    await renewImportLease(id, 60_000, () => new Date('2026-04-03T00:00:00.000Z'), db);
-    expect((await getImport(id, db))!.lease_expires_at).toBeNull();
-
-    await claimImport('worker-1', 1_000, () => new Date('2026-04-03T00:00:00.000Z'), db);
-    await renewImportLease(id, 600_000, () => new Date('2026-04-03T00:00:10.000Z'), db);
-    expect((await getImport(id, db))!.lease_expires_at).toBe('2026-04-03T00:10:10.000Z');
+    expect(after.updated_at).toBe(before.updated_at);
   });
 });
 
@@ -351,7 +324,7 @@ describe('terminal transitions', () => {
     const db = testSqliteDb(handle.db);
     const library = new ObjectId(insertFolder(handle.db));
     const id = await newImport(db, library);
-    await claimImport('worker-1', 60_000, undefined, db);
+    await claimImport(id, 'worker-1', undefined, db);
     run(handle.db, `UPDATE imports SET error = 'earlier failure' WHERE id = ?`, id.toHexString());
 
     await completeImport(
@@ -366,7 +339,6 @@ describe('terminal transitions', () => {
     expect(done.counts).toEqual({ copied: 4, skipped: 1, failed: 0 });
     expect(done.error).toBeNull();
     expect(done.locked_by).toBeNull();
-    expect(done.lease_expires_at).toBeNull();
     expect(done.updated_at).toBe('2026-04-03T01:00:00.000Z');
   });
 
@@ -375,7 +347,7 @@ describe('terminal transitions', () => {
     const db = testSqliteDb(handle.db);
     const library = new ObjectId(insertFolder(handle.db));
     const id = await newImport(db, library);
-    await claimImport('worker-1', 60_000, undefined, db);
+    await claimImport(id, 'worker-1', undefined, db);
 
     await failImport(id, 'source root vanished', undefined, db);
 
@@ -383,7 +355,6 @@ describe('terminal transitions', () => {
     expect(failed.status).toBe('failed');
     expect(failed.error).toBe('source root vanished');
     expect(failed.locked_by).toBeNull();
-    expect(failed.lease_expires_at).toBeNull();
   });
 
   test('cancelling keeps the tally of what had already been copied', async () => {
@@ -391,7 +362,7 @@ describe('terminal transitions', () => {
     const db = testSqliteDb(handle.db);
     const library = new ObjectId(insertFolder(handle.db));
     const id = await newImport(db, library);
-    await claimImport('worker-1', 60_000, undefined, db);
+    await claimImport(id, 'worker-1', undefined, db);
 
     await markImportCancelled(id, { copied: 2, skipped: 0, failed: 1 }, undefined, db);
 
@@ -399,5 +370,21 @@ describe('terminal transitions', () => {
     expect(cancelled.status).toBe('cancelled');
     expect(cancelled.counts).toEqual({ copied: 2, skipped: 0, failed: 1 });
     expect(cancelled.locked_by).toBeNull();
+  });
+
+  test('a late finish leaves an import its workflow already stopped as cancelled', async () => {
+    using handle = await createTestDatabase();
+    const db = testSqliteDb(handle.db);
+    const library = new ObjectId(insertFolder(handle.db));
+    const id = await newImport(db, library);
+    await claimImport(id, 'worker-1', undefined, db);
+    await cancelUnfinishedImport(id, undefined, db);
+
+    await completeImport(id, { copied: 1, skipped: 0, failed: 0 }, undefined, db);
+    await failImport(id, 'late', undefined, db);
+
+    const after = (await getImport(id, db))!;
+    expect(after.status).toBe('cancelled');
+    expect(after.error).toBeNull();
   });
 });

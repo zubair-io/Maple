@@ -62,7 +62,7 @@ pub(super) fn optics(raw: &mut RawImage) {
                     gains: vec![1.2, 1.1, 1.0, 1.0, 1.3, 1.1, 1.4, 1.2, 1.0, 1.1, 1.0, 1.3],
                 }),
             ],
-            skipped_unknown: 0,
+            skipped: Vec::new(),
         },
         ActiveAreaRect::full(raw.width, raw.height),
     ));

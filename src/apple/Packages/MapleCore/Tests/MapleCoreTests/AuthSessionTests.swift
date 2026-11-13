@@ -382,6 +382,95 @@ final class AuthSessionTests: XCTestCase {
     XCTAssertNil(AuthUserCache.load(server: server))
   }
 
+  /// #4873 — `AuthSession.signOut`, `AuthSession.setSignedIn` (pairing), and
+  /// `CloudServerRegistry.remove` must acquire the same per-server refresh lock
+  /// as `AuthenticatedHTTPClient.refresh` so none of them can clear or overwrite
+  /// the Keychain inside the window between `refresh`'s generation check and
+  /// `onTokensRefreshed`.
+  func testCredentialWritersWaitForInFlightRefreshCriticalSection() async throws {
+    let lockServer = URL(string: "https://auth-lock-\(UUID().uuidString).invalid:8443")!
+    let refreshCheckedGeneration = expectation(description: "refresh checked generation under lock")
+    let writerDispatched = expectation(description: "contending writer dispatched")
+
+    actor Timeline {
+      var events: [String] = []
+      func record(_ event: String) { events.append(event) }
+      func all() -> [String] { events }
+    }
+    let timeline = Timeline()
+
+    StubURLProtocol.responder = { req in
+      if req.url?.path == "/api/auth/refresh" {
+        return .http(status: 200, body: Data(#"{"access_token":"A2","refresh_token":"R2"}"#.utf8))
+      }
+      if req.value(forHTTPHeaderField: "Authorization") == "Bearer A1" {
+        return .http(status: 401, body: Data())
+      }
+      return .http(status: 200, body: Data("{}".utf8))
+    }
+
+    var reads = 0
+    let http = AuthenticatedHTTPClient(
+      server: lockServer,
+      urlSession: TestURLSession.make(),
+      tokensProvider: {
+        reads += 1
+        // Read 1: initial request signing. Read 2: under-lock pre-refresh check.
+        // Read 3: under-lock pre-persist generation check (#4845).
+        if reads == 3 {
+          refreshCheckedGeneration.fulfill()
+          // Pause in the exact microsecond window between the generation check
+          // and `onTokensRefreshed` while the contending writer tries to clear.
+          usleep(120_000)
+        }
+        return AuthTokens(access: "A1", refresh: "R1")
+      },
+      onTokensRefreshed: { rotated in
+        // Re-entrantly calls `TokenStore.save` under the already-held refresh lock.
+        try? TokenStore.save(rotated, server: lockServer)
+        let semaphore = DispatchSemaphore(value: 0)
+        Task {
+          await timeline.record("onTokensRefreshed")
+          semaphore.signal()
+        }
+        semaphore.wait()
+      },
+      onSignOut: {}
+    )
+
+    let requestTask = Task {
+      _ = try await http.data(for: URLRequest(url: lockServer.appending(path: "/api/folders")))
+    }
+
+    await fulfillment(of: [refreshCheckedGeneration], timeout: 2.0)
+
+    let suiteName = "AuthSessionLockTests.\(UUID().uuidString)"
+    let defaults = UserDefaults(suiteName: suiteName)!
+    defer { defaults.removePersistentDomain(forName: suiteName) }
+    let registry = CloudServerRegistry(defaults: defaults)
+    registry.register(lockServer)
+
+    let writerTask = Task.detached {
+      writerDispatched.fulfill()
+      TokenStore.clear(server: lockServer)
+      await timeline.record("writer-clear-finished")
+    }
+
+    await fulfillment(of: [writerDispatched], timeout: 2.0)
+    try await requestTask.value
+    await writerTask.value
+
+    registry.remove(lockServer)
+    await timeline.record("registry-remove-finished")
+
+    let events = await timeline.all()
+    XCTAssertEqual(
+      events,
+      ["onTokensRefreshed", "writer-clear-finished", "registry-remove-finished"],
+      "credential writers must block on the refresh lock until onTokensRefreshed finishes"
+    )
+  }
+
   // MARK: - helpers
 
   private static func meBody(user: AuthUser) -> Data {

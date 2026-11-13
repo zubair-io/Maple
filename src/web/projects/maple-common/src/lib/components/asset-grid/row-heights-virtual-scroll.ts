@@ -12,7 +12,7 @@
 // rendered row. Each height passed in is the row's full box (height +
 // spacing below), so the template must keep spacing inside the row box.
 
-import { Directive, forwardRef, input, effect } from '@angular/core';
+import { Directive, forwardRef, input, OnChanges } from '@angular/core';
 import {
   CdkVirtualScrollViewport,
   VIRTUAL_SCROLL_STRATEGY,
@@ -192,16 +192,17 @@ export function indexAtOffset(offsets: readonly number[], offset: number): numbe
     },
   ],
 })
-export class RowHeightsVirtualScrollDirective {
+export class RowHeightsVirtualScrollDirective implements OnChanges {
   readonly mapleRowHeights = input.required<readonly number[]>();
   readonly minBufferPx = input<number>(600);
   readonly maxBufferPx = input<number>(900);
 
   readonly strategy = new RowHeightsVirtualScrollStrategy([], 600, 900);
 
-  constructor() {
-    effect(() => {
-      this.strategy.updateRows(this.mapleRowHeights(), this.minBufferPx(), this.maxBufferPx());
-    });
+  ngOnChanges(): void {
+    // Like CDK's fixed-size directive, publish the range during input changes,
+    // before CdkVirtualFor checks its rendered items. A later signal effect
+    // can leave its update pending until the next unrelated user interaction.
+    this.strategy.updateRows(this.mapleRowHeights(), this.minBufferPx(), this.maxBufferPx());
   }
 }

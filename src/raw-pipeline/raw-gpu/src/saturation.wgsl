@@ -177,12 +177,15 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgroups) 
         return;
     }
 
-    // Fast path: the scaled target is already in gamut. Most +saturation pixels
+    // Fast path: the scaled target is below the compression knee. Most +saturation pixels
     // are far enough from the hull that this wins. Return the ROUND-TRIPPED
     // target (`rgb_target`), NOT the untouched input — only the neutral guard
     // above is a bit-exact passthrough. Mirrors the Rust fast path.
     let rgb_target = oklab_to_rec2020(vec3<f32>(l, a_hat * c_target, b_hat * c_target));
-    if (min_channel_in_gamut(rgb_target)) {
+    // #4664: only skip compression below its knee, not at the hull.
+    let c_probe = c_target / GAMUT_KNEE_FRACTION;
+    let rgb_probe = oklab_to_rec2020(vec3<f32>(l, a_hat * c_probe, b_hat * c_probe));
+    if (min_channel_in_gamut(rgb_probe)) {
         output_buf[i] = vec4<f32>(rgb_target, px.a);
         return;
     }
@@ -192,7 +195,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgroups) 
     // never reduces chroma below the input" — if the input was already past the
     // hull (e.g. vibrance pushed it out before saturation), soft_compress(..) ≤
     // c_hull < c_in and the `max` pins c_out to c_in. Mirrors the Rust tail.
-    let c_hull = bisect_gamut_hull(l, a_hat, b_hat, c_target);
+    let c_hull = bisect_gamut_hull(l, a_hat, b_hat, c_probe);
     let c_floor = c_in;
     let c_out = max(soft_compress(c_target, c_hull), c_floor);
     let out_rgb = oklab_to_rec2020(vec3<f32>(l, a_hat * c_out, b_hat * c_out));

@@ -1,10 +1,12 @@
 pub mod dcp;
 pub mod dng_temperature;
+pub(crate) mod forward_calibration;
 pub mod hsm;
 pub mod illuminant;
 pub mod matrices;
 pub mod oklab;
 pub mod oklab_gamut;
+pub(crate) mod oklab_gamut_clip;
 pub mod profile_gain_table_map;
 pub mod profile_loader;
 pub mod profile_tone_curve;

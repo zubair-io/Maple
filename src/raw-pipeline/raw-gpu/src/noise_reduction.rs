@@ -80,21 +80,20 @@ fn chroma_params(amount: f32) -> NlmParams {
 pub(crate) struct NoiseModulation {
     s_coeff: f32,
     o_coeff: f32,
-    /// `noise_profile.is_some()` — matching raw-core's `use_dynamic`. Note this
-    /// is TRUE even at `iso == 0` (where both coefficients are zero and every
-    /// pixel lands on the `scale = 0.1` clamp), because that is what raw-core
-    /// does.
+    /// A supplied profile or a known ISO — matching raw-core's `use_dynamic`.
+    /// A supplied profile is dynamic even at `iso == 0` (both coefficients
+    /// zero, every pixel on the `scale = 0.1` clamp), as in raw-core.
     dynamic: bool,
 }
 
 impl NoiseModulation {
     /// Mirror of `raw_core::stages::nlm::get_noise_params` + its `use_dynamic`
     /// flag. `is_chroma` selects the a/b channel combination (mean of the R and B
-    /// coefficients) over the luma one (BT.2020-weighted). A `None` profile is
-    /// the FLAT filter — `scale ≡ 1`, i.e. the classic constant-`h`, full-`S`
-    /// NLM, bit-identical to the pre-#1714 GPU behaviour.
+    /// coefficients) over the luma one (BT.2020-weighted). Without a profile a
+    /// known ISO selects the ISO-only fallback (#4638); without either it is
+    /// the FLAT filter — `scale ≡ 1`, the classic constant-`h`, full-`S` NLM.
     pub(crate) fn from_profile(profile: Option<&[f32]>, iso: u32, is_chroma: bool) -> Self {
-        let dynamic = profile.is_some();
+        let dynamic = profile.is_some() || iso > 0;
         let (s_coeff, o_coeff) = noise_params(profile, iso, is_chroma);
         Self {
             s_coeff,
@@ -144,8 +143,9 @@ fn fallback_noise_params(iso: u32) -> (f32, f32) {
 
 /// The passes carry the profile as a `Vec<f32>` (a C-FFI / WASM caller has no
 /// `Option`), so EMPTY is the "no profile" encoding — it maps to raw-core's
-/// `None`, i.e. the flat filter. A decoder that found a NoiseProfile always
-/// yields at least one `(slope, offset)` pair, so no real profile is lost here.
+/// `None`: the ISO-only fallback at a known ISO, the flat filter at 0. A decoder
+/// that found a NoiseProfile always yields at least one `(slope, offset)` pair,
+/// so no real profile is lost here.
 fn profile_slice(profile: &[f32]) -> Option<&[f32]> {
     (!profile.is_empty()).then_some(profile)
 }
@@ -284,9 +284,9 @@ pub(crate) fn encode_nlm_on_plane(
 pub struct NlmLumaPass<'a> {
     pub nr_luminance: f32,
     /// The DNG NoiseProfile row(s) from `RawImage::noise_profile`, empty when the
-    /// file carries none. Drives the per-pixel modulation (#1714); empty means
-    /// the classic constant-`h` filter, matching raw-core at `noise_profile:
-    /// None`.
+    /// file carries none. Drives the per-pixel modulation (#1714); empty matches
+    /// raw-core at `noise_profile: None` — the ISO-only fallback, or the classic
+    /// constant-`h` filter at ISO 0.
     pub noise_profile: std::borrow::Cow<'a, [f32]>,
     /// `RawImage::iso`. Zero is raw-core's "unknown ISO" sentinel and zeroes both
     /// profile coefficients.
@@ -383,10 +383,10 @@ impl Pass for NlmColorPass<'_> {
         // `denoise_plane` calls); then a single writeback restores both. Both
         // read the SAME L plane as their modulation guide — chroma noise is
         // modelled off luminance, exactly as raw-core hands `&l_plane` to both
-        // chroma calls — so L is extracted ONCE, and only when a profile is
-        // present: without one the fused plane kernel uses `scale ≡ 1` without
+        // chroma calls — so L is extracted ONCE, and only when modulation is
+        // dynamic: otherwise the fused plane kernel uses `scale ≡ 1` without
         // reading the guide, so extracting L would be a wasted full-plane
-        // dispatch on every profile-less render. The a plane stands in as the
+        // dispatch on every unmodulated render. The a plane stands in as the
         // (unread) binding there. A frame's profile is fixed for the session, so
         // the two shapes never alternate under one pooled chain signature.
         let modulation =

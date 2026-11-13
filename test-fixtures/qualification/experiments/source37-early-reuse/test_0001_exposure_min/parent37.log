@@ -1,0 +1,20 @@
+/opt/homebrew/lib/python3.14/site-packages/colour/utilities/verbose.py:340: ColourUsageWarning: "Matplotlib" related API features are not available: "No module named 'matplotlib'".
+See the installation guide for more information: https://www.colour-science.org/installation-guide/
+  warn(*args, **kwargs)
+verd fixture      case                       n_pix    mean    p95    max        bR       bG       bB
+----------------------------------------------------------------------------------------------------
+# reference protocol test_0001/exposure_min: legacy-direct-reference
+PASS test_0001    exposure_min               9.00M    0.68   1.61   7.51   +0.0021  +0.0005  +0.0014
+----------------------------------------------------------------------------------------------------
+     test_0001    (1 cases)                      -    0.68      -      -   +0.0021  +0.0005  +0.0014
+====================================================================================================
+     GRAND        (1 cases)                      -    0.68      -      -   +0.0021  +0.0005  +0.0014
+
+# Reading the bias columns:
+#   bR/bG/bB are mean (candidate - reference) per channel in [0,1] sRGB-encoded units.
+#   Positive = Maple has too much of that channel. Negative = too little.
+#   Systematic bias (same sign across all fixtures) -> a calibration target.
+#   Cast that grows with exposure_max -> AgX gain. Only on wb_* -> WB delta logic.
+#   Cast on baseline only -> DCP / forward-matrix.
+# stats: 1 compared, 0 budget breach(es), 0 skipped(no-raw), 0 skipped(no-candidate), 0 skipped(no-reference), 0 errors
+{"compared": 1, "breaches": 0, "skipped_no_raw": 0, "skipped_no_candidate": 0, "skipped_no_reference": 0, "errors": 0, "grand_mean_deltaE": 0.6838225617311218, "grand_bias_r": 0.002130698956815267, "grand_bias_g": 0.0004906606112511622, "grand_bias_b": 0.0013703298687790003}

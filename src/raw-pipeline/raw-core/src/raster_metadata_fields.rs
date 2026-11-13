@@ -18,6 +18,10 @@ pub(crate) struct HeaderFields {
     pub chroma_subsampling: Option<String>,
     pub pages: Option<usize>,
     pub page_primary: Option<usize>,
+    #[serde(skip)]
+    pub has_profile: bool,
+    pub color_primaries: Option<u16>,
+    pub transfer_characteristics: Option<u16>,
     pub compression: Option<&'static str>,
     pub resolution_unit: Option<&'static str>,
 }

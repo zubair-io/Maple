@@ -36,56 +36,115 @@ use super::{PlanarImage, ValidityMask};
 /// Downscale `src` so its long edge is at most `max_long_edge` (≥ 1).
 /// See module docs for algorithm, rounding, and validity semantics.
 pub fn proxy_to_long_edge(src: &PlanarImage, max_long_edge: u32) -> PlanarImage {
-    let max_long_edge = max_long_edge.max(1);
-    let (sw, sh) = (src.width(), src.height());
-    if sw.max(sh) <= max_long_edge {
+    let Some((dw, dh)) = proxy_dims(src.width(), src.height(), max_long_edge) else {
         return src.clone();
+    };
+    let mut proxy = Proxy::new(dw, dh);
+    (0..dh).for_each(|y| proxy.fill_row(y, src, 0, src.width(), src.height()));
+    proxy.finish()
+}
+
+/// [`proxy_to_long_edge`] of a `width × height` frame that is never resident:
+/// `read_rows(y0, rows)` returns rows `y0..y0 + rows`, asked once per proxy
+/// row (the whole frame once when no downscale applies). Bit-identical to
+/// downscaling the whole frame.
+pub fn proxy_from_row_windows<E>(
+    width: u32,
+    height: u32,
+    max_long_edge: u32,
+    mut read_rows: impl FnMut(u32, u32) -> Result<PlanarImage, E>,
+) -> Result<PlanarImage, E> {
+    let Some((dw, dh)) = proxy_dims(width, height, max_long_edge) else {
+        return read_rows(0, height);
+    };
+    let mut proxy = Proxy::new(dw, dh);
+    for y in 0..dh {
+        let (y0, y1) = source_span(y, height, dh);
+        let window = read_rows(y0 as u32, (y1 - y0) as u32)?;
+        proxy.fill_row(y, &window, y0, width, height);
     }
-    let (dw, dh) = if sw >= sh {
+    Ok(proxy.finish())
+}
+
+/// `None` when the frame is already inside the cap (never upscale).
+fn proxy_dims(sw: u32, sh: u32, max_long_edge: u32) -> Option<(u32, u32)> {
+    let max_long_edge = max_long_edge.max(1);
+    if sw.max(sh) <= max_long_edge {
+        return None;
+    }
+    Some(if sw >= sh {
         let scale = max_long_edge as f64 / sw as f64;
         (max_long_edge, ((sh as f64 * scale).round() as u32).max(1))
     } else {
         let scale = max_long_edge as f64 / sh as f64;
         (((sw as f64 * scale).round() as u32).max(1), max_long_edge)
-    };
+    })
+}
 
-    let (sw_us, dw_us, dh_us) = (sw as usize, dw as usize, dh as usize);
-    let mut r = vec![0.0f32; dw_us * dh_us];
-    let mut g = vec![0.0f32; dw_us * dh_us];
-    let mut b = vec![0.0f32; dw_us * dh_us];
-    let mut validity = ValidityMask::new_filled(dw, dh, true);
+/// Source span `[⌊i·s/d⌋, ⌊(i+1)·s/d⌋)` of destination index `i`, forced
+/// non-empty and clamped to the frame.
+fn source_span(i: u32, s: u32, d: u32) -> (usize, usize) {
+    let lo = (i as u64 * s as u64 / d as u64) as usize;
+    let hi = ((i as u64 + 1) * s as u64 / d as u64).max(lo as u64 + 1) as usize;
+    (lo, hi.min(s as usize))
+}
 
-    for y in 0..dh_us {
-        let y0 = (y as u64 * sh as u64 / dh as u64) as usize;
-        let y1 = ((y as u64 + 1) * sh as u64 / dh as u64).max(y0 as u64 + 1) as usize;
-        let y1 = y1.min(sh as usize);
-        for x in 0..dw_us {
-            let x0 = (x as u64 * sw as u64 / dw as u64) as usize;
-            let x1 = ((x as u64 + 1) * sw as u64 / dw as u64).max(x0 as u64 + 1) as usize;
-            let x1 = x1.min(sw as usize);
+struct Proxy {
+    dw: u32,
+    dh: u32,
+    r: Vec<f32>,
+    g: Vec<f32>,
+    b: Vec<f32>,
+    validity: ValidityMask,
+}
+
+impl Proxy {
+    fn new(dw: u32, dh: u32) -> Self {
+        let n = dw as usize * dh as usize;
+        Self {
+            dw,
+            dh,
+            r: vec![0.0; n],
+            g: vec![0.0; n],
+            b: vec![0.0; n],
+            validity: ValidityMask::new_filled(dw, dh, true),
+        }
+    }
+
+    /// Destination row `y` from `window`, which holds source rows starting at
+    /// `window_y0` of a `sw × sh` frame and covers the row's source span.
+    fn fill_row(&mut self, y: u32, window: &PlanarImage, window_y0: usize, sw: u32, sh: u32) {
+        let (y0, y1) = source_span(y, sh, self.dh);
+        let sw_us = sw as usize;
+        for x in 0..self.dw as usize {
+            let (x0, x1) = source_span(x as u32, sw, self.dw);
             let (mut sr, mut sg, mut sb, mut n) = (0.0f64, 0.0f64, 0.0f64, 0u32);
             let mut all_valid = true;
             for sy in y0..y1 {
-                let row = sy * sw_us;
+                let wy = sy - window_y0;
+                let row = wy * sw_us;
                 for sx in x0..x1 {
-                    sr += src.r[row + sx] as f64;
-                    sg += src.g[row + sx] as f64;
-                    sb += src.b[row + sx] as f64;
+                    sr += window.r[row + sx] as f64;
+                    sg += window.g[row + sx] as f64;
+                    sb += window.b[row + sx] as f64;
                     n += 1;
-                    all_valid &= src.validity.get(sx as u32, sy as u32);
+                    all_valid &= window.validity.get(sx as u32, wy as u32);
                 }
             }
             let nf = n.max(1) as f64;
-            let di = y * dw_us + x;
-            r[di] = (sr / nf) as f32;
-            g[di] = (sg / nf) as f32;
-            b[di] = (sb / nf) as f32;
+            let di = y as usize * self.dw as usize + x;
+            self.r[di] = (sr / nf) as f32;
+            self.g[di] = (sg / nf) as f32;
+            self.b[di] = (sb / nf) as f32;
             if !all_valid {
-                validity.set(x as u32, y as u32, false);
+                self.validity.set(x as u32, y, false);
             }
         }
     }
-    PlanarImage::from_planes(dw, dh, r, g, b, validity)
+
+    fn finish(self) -> PlanarImage {
+        PlanarImage::from_planes(self.dw, self.dh, self.r, self.g, self.b, self.validity)
+    }
 }
 
 #[cfg(test)]
@@ -221,5 +280,42 @@ mod tests {
         let src = planar_from_fn(7, 5, |_, _| [0.5; 3]);
         let p = proxy_to_long_edge(&src, 3);
         assert_eq!((p.width(), p.height()), (3, 2));
+    }
+
+    #[test]
+    fn row_windows_give_the_same_proxy_as_the_whole_frame() {
+        let src = planar_from_fn(97, 61, |x, y| {
+            let v = ((x * 31 + y * 17) % 23) as f32 * 0.013 + 0.1;
+            [v, v * 1.7, v * 0.4 + x as f32 * 1e-3]
+        });
+        for cap in [7, 24, 60, 97, 400] {
+            let want = proxy_to_long_edge(&src, cap);
+            let mut asked = Vec::new();
+            let got = proxy_from_row_windows::<()>(src.width(), src.height(), cap, |y0, rows| {
+                asked.push((y0, rows));
+                let w = src.width() as usize;
+                let range = y0 as usize * w..(y0 + rows) as usize * w;
+                Ok(PlanarImage::from_planes(
+                    src.width(),
+                    rows,
+                    src.r[range.clone()].to_vec(),
+                    src.g[range.clone()].to_vec(),
+                    src.b[range].to_vec(),
+                    ValidityMask::new_filled(src.width(), rows, true),
+                ))
+            })
+            .unwrap();
+            assert_eq!((got.width(), got.height()), (want.width(), want.height()));
+            assert_eq!(
+                (&got.r, &got.g, &got.b),
+                (&want.r, &want.g, &want.b),
+                "cap {cap}"
+            );
+            assert_eq!(
+                asked.iter().map(|&(_, n)| n).sum::<u32>(),
+                src.height(),
+                "each row read once"
+            );
+        }
     }
 }

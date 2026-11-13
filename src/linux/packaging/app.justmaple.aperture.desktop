@@ -1,10 +1,13 @@
 [Desktop Entry]
 Type=Application
 Name=Maple
+GenericName=RAW Photo Editor
 Comment=Non-destructive RAW photo editor
-Exec=maple-linux
+Exec=maple-linux %f
+TryExec=maple-linux
 Icon=app.justmaple.aperture
 Terminal=false
 Categories=Graphics;Photography;
+MimeType=image/x-canon-cr2;image/x-canon-cr3;image/x-nikon-nef;image/x-sony-arw;image/x-adobe-dng;image/x-fuji-raf;image/x-olympus-orf;image/x-panasonic-rw2;image/x-pentax-pef;image/x-samsung-srw;image/x-sigma-x3f;image/x-hasselblad-3fr;image/x-mamiya-mef;image/x-epson-erf;image/x-minolta-mrw;image/x-panasonic-rw;image/x-hasselblad-fff;image/jpeg;image/png;image/webp;image/tiff;
 StartupNotify=true
 StartupWMClass=app.justmaple.aperture

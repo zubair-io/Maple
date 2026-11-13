@@ -8,7 +8,7 @@ final class WorkflowSidecarTests: XCTestCase {
     try JSONDecoder().decode(
       [SidecarWorkflow].self,
       from: Data(
-        contentsOf: WorkflowFixture.root().appendingPathComponent("workflow/contract-v1.json")))[1]
+        contentsOf: WorkflowFixture.root().appendingPathComponent("workflow/contract.json")))[1]
   }
   private func xml() throws -> String {
     try String(
@@ -76,7 +76,7 @@ final class WorkflowSidecarTests: XCTestCase {
     XCTAssertThrowsError(
       try WorkflowSidecarCore.restore(entry(edited, "snapshot-restore"), in: next))
     let future = next.replacingOccurrences(
-      of: "<papp:SchemaVersion>1", with: "<papp:SchemaVersion>2")
+      of: "<papp:SchemaVersion>2", with: "<papp:SchemaVersion>3")
     XCTAssertThrowsError(try WorkflowSidecarCore.commit(entry(edited), in: future))
     XCTAssertEqual(try String(contentsOf: sidecar, encoding: .utf8), next)
     XCTAssertEqual(try Data(contentsOf: original), Data([1, 0, 255, 42]))
@@ -130,7 +130,8 @@ final class WorkflowSidecarTests: XCTestCase {
     try Data(source.utf8).write(to: primary)
     let store = WorkflowVariantStore(rawURL: raw)
     let branch = SidecarWorkflow(
-      schemaVersion: 1, variantId: UUID().uuidString.lowercased(), variantName: "Alternate",
+      schemaVersion: WorkflowContract.version, variantId: UUID().uuidString.lowercased(),
+      variantName: "Alternate",
       snapshots: [], history: [])
     let destination = try await store.create(branch)
     let initial = try String(contentsOf: destination, encoding: .utf8)
@@ -264,7 +265,7 @@ final class WorkflowSidecarTests: XCTestCase {
     try Data(checkpoint.utf8).write(to: sibling, options: .atomic)
     XCTAssertEqual(try String(contentsOf: sibling, encoding: .utf8), checkpoint)
     let future = embedded.replacingOccurrences(
-      of: "<papp:SchemaVersion>1", with: "<papp:SchemaVersion>2")
+      of: "<papp:SchemaVersion>2", with: "<papp:SchemaVersion>3")
     XCTAssertThrowsError(try WorkflowSidecarCore.checkpoint(xmp: future))
     XCTAssertEqual(try Data(contentsOf: sibling), Data(checkpoint.utf8))
     XCTAssertEqual(try Data(contentsOf: raw), original)
@@ -295,7 +296,7 @@ final class WorkflowSidecarTests: XCTestCase {
     let workflow = try JSONDecoder().decode(
       [SidecarWorkflow].self,
       from: Data(
-        contentsOf: WorkflowFixture.root().appendingPathComponent("workflow/contract-v1.json")))[0]
+        contentsOf: WorkflowFixture.root().appendingPathComponent("workflow/contract.json")))[0]
     try await store.writeWorkflowConfirmed(workflow)
     let reopened = XMPSidecarStore(rawURL: original)
     let loaded = try await reopened.readWorkflow()
@@ -317,7 +318,7 @@ final class WorkflowSidecarTests: XCTestCase {
     try Data([42]).write(to: original)
     let workflow = try record()
     let future = try WorkflowSidecarCore.embed(workflow, in: xml())
-      .replacingOccurrences(of: "<papp:SchemaVersion>1", with: "<papp:SchemaVersion>2")
+      .replacingOccurrences(of: "<papp:SchemaVersion>2", with: "<papp:SchemaVersion>3")
     try Data(future.utf8).write(to: sidecar)
     let store = XMPSidecarStore(rawURL: original)
     do {
@@ -406,7 +407,7 @@ final class WorkflowSidecarTests: XCTestCase {
     let destination = try await store.create(first)
     let saved = try String(contentsOf: destination, encoding: .utf8)
     let future = saved.replacingOccurrences(
-      of: "<papp:SchemaVersion>1", with: "<papp:SchemaVersion>2")
+      of: "<papp:SchemaVersion>2", with: "<papp:SchemaVersion>3")
     try Data(future.utf8).write(to: destination)
     do {
       try await store.write(variantId: first.variantId, xmp: xml())
@@ -426,6 +427,32 @@ final class WorkflowSidecarTests: XCTestCase {
     } catch {}
     XCTAssertEqual(try String(contentsOf: destination, encoding: .utf8), mismatch)
     XCTAssertEqual(try Data(contentsOf: raw), Data([42]))
+  }
+
+  func testCaseOnlyRawRenameKeepsSharedJpegVariantVisible() async throws {
+    let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: dir) }
+    guard SidecarOwnership.localVolumeFoldsCase(dir) else {
+      throw XCTSkip("Requires a case-folding volume")
+    }
+    let raw = dir.appendingPathComponent("photo.dng")
+    let jpeg = dir.appendingPathComponent("photo.jpg")
+    try Data([42]).write(to: raw)
+    try Data([43]).write(to: jpeg)
+    try Data(xml().utf8).write(to: SidecarPath.sidecarURL(for: raw))
+    let variant = try record()
+    _ = try await WorkflowVariantStore(rawURL: raw).create(variant)
+
+    _ = try await LocalFileOperations.relocate(
+      raw, to: dir, newBasename: "PHOTO.DNG", mode: .move)
+
+    let listed = try await WorkflowVariantStore(rawURL: jpeg).list()
+    XCTAssertEqual(Set(listed.map(\.variantId)), Set(["primary", variant.variantId]))
+    XCTAssertTrue(listed.allSatisfy(\.exists))
+    XCTAssertEqual(listed.last?.workflow, variant)
+    let names = try FileManager.default.contentsOfDirectory(atPath: dir.path)
+    XCTAssertTrue(names.contains("PHOTO.v\(variant.variantId).xmp"))
   }
 
 }

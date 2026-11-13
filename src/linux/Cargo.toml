@@ -26,9 +26,19 @@ getrandom = "0.3"
 keyring = { version = "3.6", features = ["sync-secret-service", "crypto-rust", "vendored"] }
 webbrowser = "1"
 dirs = "6"
+libc = "0.2"
+zbus = { version = "5.19", default-features = false, features = ["async-io", "blocking-api"] }
+
+[dev-dependencies]
+raw-core = { path = "../raw-pipeline/raw-core", features = ["test-support"] }
+
+[features]
+# Runs the tests that read the gitignored test-fixtures/raws (#1082).
+fixtures = []
 
 # Keep the shared workspace's decoder safety patches in every native host.
 [patch.crates-io]
+rawler = { path = "../raw-pipeline/third_party/rawler" }
 rav1d = { path = "../raw-pipeline/third_party/rav1d" }
 zune-jpeg = { path = "../raw-pipeline/third_party/zune-jpeg" }
 avif-parse = { path = "../raw-pipeline/third_party/avif-parse" }

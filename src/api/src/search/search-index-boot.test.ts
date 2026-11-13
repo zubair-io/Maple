@@ -10,8 +10,6 @@ import {
 } from '../db/sqlite/test-sqlite.test-helpers.ts';
 import {
   bootSearchIndex,
-  incompatibleEmbedderState,
-  matchesQueryEmbedder,
   readIndexState,
   reusableIndexState,
   SEARCH_INDEX_VERSION,
@@ -58,18 +56,26 @@ test('a first boot rebuilds the text, records the version and reports ready twic
 
 test('a boot on a current index only catches up instead of rebuilding', async () => {
   const engine = new RecordingEngine();
-  engine.texts.set('harbour', 'kept from the last run');
-  const saved = { version: SEARCH_INDEX_VERSION, textWatermark: '2020-06-01T00:00:00.000Z' };
+  engine.texts.set('harbour', { template: 'kept from the last run', blob: '' });
+  const saved = {
+    version: SEARCH_INDEX_VERSION,
+    textWatermark: '2020-06-01T00:00:00.000Z',
+    blobWatermark: '2020-06-01T00:00:00.000Z',
+  };
 
   await bootSearchIndex(engine, 'bge-m3', saved, join(dir, 'state.json'), () => {});
 
   expect(engine.clears).toBe(0);
-  expect(engine.texts.get('harbour')).toBe('kept from the last run');
+  expect(engine.texts.get('harbour')?.template).toBe('kept from the last run');
 });
 
 test('a boot whose text count disagrees with the vectors rebuilds after all', async () => {
   const engine = new RecordingEngine();
-  const saved = { version: SEARCH_INDEX_VERSION, textWatermark: '2020-06-01T00:00:00.000Z' };
+  const saved = {
+    version: SEARCH_INDEX_VERSION,
+    textWatermark: '2020-06-01T00:00:00.000Z',
+    blobWatermark: '2020-06-01T00:00:00.000Z',
+  };
 
   await bootSearchIndex(engine, 'bge-m3', saved, join(dir, 'state.json'), () => {});
 
@@ -81,21 +87,31 @@ test('an index from another version is deleted before the engine opens it', () =
   const indexDir = join(dir, 'text');
   const stateFile = join(dir, 'state.json');
   mkdirSync(indexDir);
-  writeFileSync(stateFile, JSON.stringify({ version: '0.0', textWatermark: '2026-01-01' }));
+  writeFileSync(
+    stateFile,
+    JSON.stringify({ version: '0.0', textWatermark: '2026-01-01', blobWatermark: '2026-01-01' }),
+  );
 
   expect(reusableIndexState(stateFile, indexDir)).toBeNull();
   expect(existsSync(indexDir)).toBe(false);
 
   writeFileSync(
     stateFile,
-    JSON.stringify({ version: SEARCH_INDEX_VERSION, textWatermark: '2026-01-01' }),
+    JSON.stringify({
+      version: SEARCH_INDEX_VERSION,
+      textWatermark: '2026-01-01',
+      blobWatermark: '2026-01-02',
+    }),
   );
   mkdirSync(indexDir);
-  expect(reusableIndexState(stateFile, indexDir)?.textWatermark).toBe('2026-01-01');
+  expect(reusableIndexState(stateFile, indexDir)).toMatchObject({
+    textWatermark: '2026-01-01',
+    blobWatermark: '2026-01-02',
+  });
   expect(existsSync(indexDir)).toBe(true);
 });
 
-test('with no vector of the configured model the child reports empty, never ready', async () => {
+test('with no bge-m3 vector yet the child reports empty, never ready', async () => {
   live.db.run(`DELETE FROM asset_vectors`);
   const states: SearchChildState[] = [];
 
@@ -104,19 +120,4 @@ test('with no vector of the configured model the child reports empty, never read
   );
 
   expect(states.map((state) => state.phase)).toEqual(['empty', 'empty']);
-});
-
-test('only bge-m3, under any Ollama tag, is compatible with the query embedder', () => {
-  for (const model of ['bge-m3', 'bge-m3:latest', 'BGE-M3:567m', 'library/bge-m3']) {
-    expect(matchesQueryEmbedder(model)).toBe(true);
-    expect(incompatibleEmbedderState(model)).toBeNull();
-  }
-  for (const model of ['nomic-embed-text', 'bge-large', 'qwen3-embedding:8b', '']) {
-    expect(matchesQueryEmbedder(model)).toBe(false);
-  }
-  expect(incompatibleEmbedderState('nomic-embed-text')).toMatchObject({
-    phase: 'incompatible-embedder',
-    model: 'nomic-embed-text',
-    vectors: 0,
-  });
 });

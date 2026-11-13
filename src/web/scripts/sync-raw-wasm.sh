@@ -32,12 +32,12 @@ echo "Synced raw-wasm pkg/ -> projects/maple-common/src/lib/raw-pipeline/pkg/"
 # the src/api production static server. `initThreadPool` then times out and
 # every session silently falls back to single-threaded.
 #
-# Fix: spawn a dedicated worker-side entry by an ABSOLUTE, hash-free served URL
-# (`/pkg/workerHelpers.worker.js`) that both servers actually return, and let
-# that entry load the glue at runtime (`./raw_wasm.js`) rather than at bundle
-# time. The compiled module + shared memory are handed in via postMessage, so
-# no second wasm fetch happens. `/pkg/workerHelpers.worker.js` and
-# `/pkg/raw_wasm.js` are published by the `assets` globs in angular.json.
+# Fix: spawn a dedicated worker-side entry by a hash-free URL under the app
+# base (`pkg/workerHelpers.worker.js`) and let that entry load the glue at
+# runtime (`./raw_wasm.js`) rather than at bundle time. The compiled module +
+# shared memory are handed in via postMessage, so no second wasm fetch happens.
+# `/pkg/workerHelpers.worker.js` and `/pkg/raw_wasm.js` are published by the
+# `assets` globs in angular.json.
 #
 # This runs on every sync because pkg/ is gitignored and regenerated, so the
 # patch must live here (a committed pkg edit would be silently overwritten).
@@ -127,15 +127,16 @@ export async function startWorkers(module, memory, builder) {
 
   _workers = await Promise.all(
     Array.from({ length: builder.numThreads() }, async () => {
-      // Spawn the worker-side entry by ABSOLUTE served URL. It cannot be a
-      // relative `new URL(..., import.meta.url)`: this code is bundled into the
-      // render-worker chunk, and esbuild neither rewrites nor re-emits a
-      // `new Worker(new URL())` that sits inside a worker bundle, so a relative
-      // URL resolves to the chunk's dir (server root) and 404s. `/pkg/...` is a
-      // stable path served in dev (Angular assets) and prod (src/api static UI).
-      const worker = new Worker(new URL('/pkg/workerHelpers.worker.js', import.meta.url), {
-        type: 'module'
-      });
+      // esbuild leaves nested worker URLs inside this bundle untouched, so
+      // resolve the published asset from the render worker's app directory.
+      // In production workers are emitted beside the app bundles; Vite serves
+      // source workers below /src during workflow tests, which use origin root.
+      const appBase = new URL(
+        self.location.pathname.endsWith('.ts') ? '/' : '.',
+        self.location.href,
+      );
+      const workerUrl = new URL('pkg/workerHelpers.worker.js', appBase);
+      const worker = new Worker(workerUrl, { type: 'module' });
       worker.postMessage(workerInit);
       await waitForMsgType(worker, 'wasm_bindgen_worker_ready');
       return worker;
@@ -151,13 +152,14 @@ export async function startWorkers(module, memory, builder) {
 worker_side = '''\
 // Maple patch (#2097) — rayon sub-worker entry.
 //
-// Lives at the pkg ROOT so it is copied to a stable, hash-free served path
-// `/pkg/workerHelpers.worker.js` and loaded as a plain ES-module worker at
-// runtime. wasm-bindgen-rayon's own self-spawn can't survive the
+// Lives at the pkg ROOT so it is copied to a stable, hash-free path under the
+// app base (`pkg/workerHelpers.worker.js`) and loaded as a plain ES-module
+// worker at runtime. wasm-bindgen-rayon's own self-spawn can't survive the
 // Angular/esbuild bundler (it is inlined into the render-worker chunk and the
 // nested `new Worker(new URL())` is left resolving to the server root, a 404).
-// `startWorkers` (patched workerHelpers.js) spawns THIS file by absolute URL
-// instead, and the glue is loaded here at runtime rather than bundle-time.
+// `startWorkers` (patched workerHelpers.js) spawns THIS file relative to the
+// app base instead, and the glue is loaded here at runtime rather than
+// bundle-time.
 //
 // The compiled WebAssembly.Module and shared memory arrive via postMessage, so
 // `pkg.default(init)` reuses them — no second wasm fetch.

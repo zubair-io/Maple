@@ -15,11 +15,12 @@ export interface InventoryLocation {
   deleted_at: string | null;
   hidden: number;
   apple_rendered_path: string | null;
+  apple_live_video_path: string | null;
 }
 export interface CapturedFile {
   path: string;
   absolutePath: string;
-  role: 'original' | 'sidecar' | 'companion';
+  role: 'original' | 'sidecar' | 'companion' | 'live-video';
   stamp: string;
   source: PublishSource;
   /** The engine releases the pinned descriptor after every transfer outcome. */
@@ -34,7 +35,7 @@ export async function assetInventory(
   return repo.db.read<InventoryLocation>(
     `SELECT l.asset_id,l.ordinal,l.library_id,f.path AS root,
     CASE WHEN l.path='' THEN l.filename ELSE l.path||'/'||l.filename END AS relative_path,
-    a.original_path,a.deleted_at,a.hidden,a.apple_rendered_path
+    a.original_path,a.deleted_at,a.hidden,a.apple_rendered_path,a.apple_live_video_path
     FROM asset_locations l JOIN assets a ON a.id=l.asset_id JOIN folders f ON f.id=l.library_id
     WHERE l.asset_id=? AND l.library_id=? AND l.deleted_at IS NULL AND l.missing_since IS NULL
     AND (a.deleted_reason IS NULL OR a.deleted_reason!='reaped')`,
@@ -260,15 +261,19 @@ export async function captureInventory(
   const root = await realpath(location.root);
   const original = await jailedFile(root, location.relative_path);
   const sidecars = (await listPairedSidecarsStrict(original)).sort();
-  const companion = location.apple_rendered_path
-    ? [await jailedFile(root, location.apple_rendered_path)]
-    : [];
+  const recorded = [
+    { relative: location.apple_rendered_path, role: 'companion' as const },
+    { relative: location.apple_live_video_path, role: 'live-video' as const },
+  ];
+  const companions = await Promise.all(
+    recorded.flatMap(({ relative, role }) =>
+      relative ? [jailedFile(root, relative).then((absolute) => ({ absolute, role }))] : [],
+    ),
+  );
   const paths = [
     { absolute: original, role: 'original' as const },
     ...sidecars.map((absolute) => ({ absolute, role: 'sidecar' as const })),
-    ...companion
-      .filter((p) => p !== original)
-      .map((absolute) => ({ absolute, role: 'companion' as const })),
+    ...companions.filter(({ absolute }) => absolute !== original),
   ];
   const result: CapturedFile[] = [];
   try {

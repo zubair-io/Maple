@@ -23,4 +23,8 @@ public static unsafe partial class RawFfi
         [MarshalAs(UnmanagedType.LPUTF8Str)] string recipeJson,
         [MarshalAs(UnmanagedType.LPUTF8Str)] string? filmDirectory,
         [MarshalAs(UnmanagedType.LPUTF8Str)] string stagingPath);
+
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int maple_xmp_has_render_adjustments(
+        [MarshalAs(UnmanagedType.LPUTF8Str)] string xmpXml);
 }

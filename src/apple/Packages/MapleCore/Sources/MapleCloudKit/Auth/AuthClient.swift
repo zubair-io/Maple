@@ -55,13 +55,19 @@ public struct AuthMeResponse: Decodable {
 }
 
 /// Response from `POST /api/auth/device-sessions` — a new, device-scoped
-/// token pair minted for a paired tvOS device. See `AuthClient.mintDeviceSession`.
+/// token pair minted for a paired Apple TV or Watch. See `AuthClient.mintDeviceSession`.
 public struct DeviceSessionMint: Codable {
   public let id: String
   // swift-format-ignore: AlwaysUseLowerCamelCase
   public let access_token: String
   // swift-format-ignore: AlwaysUseLowerCamelCase
   public let refresh_token: String
+}
+
+/// The device kind a paired-device session is minted for (its server `platform` marker).
+public enum PairedDevicePlatform: String, Sendable {
+  case tvOS = "tvos"
+  case watchOS = "watchos"
 }
 
 public actor AuthClient {
@@ -110,22 +116,21 @@ public actor AuthClient {
         auth: accessToken) as EmptyResponse
   }
 
-  /// Mints a new, device-scoped token pair for a paired tvOS device. Called
-  /// once, at the end of the pairing handshake — the phone (which holds a
-  /// live PRIMARY session) proves it by sending its own current
-  /// `refreshToken` as `refresh_token`; the server mints a distinct
-  /// credential in the same family for the TV rather than handing the TV
-  /// the phone's own tokens. `platform` is hardcoded to `"tvos"`: it's the
-  /// only value the server accepts for this endpoint (see the milestone B
-  /// wire contract). 403 on an invalid/expired/family-revoked/platform-marked
-  /// proof surfaces as `AuthClientError.forbidden`, same as every other
-  /// mutating AuthClient call.
+  /// Mints a new, device-scoped token pair for a paired device. Called once,
+  /// at the end of the pairing handshake — the phone (which holds a live
+  /// PRIMARY session) proves it by sending its own current `refreshToken` as
+  /// `refresh_token`; the server mints a distinct credential in the same
+  /// family for the device rather than handing it the phone's own tokens.
+  /// 403 on an invalid/expired/family-revoked/platform-marked proof surfaces
+  /// as `AuthClientError.forbidden`, same as every other mutating AuthClient
+  /// call.
   public func mintDeviceSession(
-    accessToken: String, refreshToken: String, label: String
+    accessToken: String, refreshToken: String, label: String,
+    platform: PairedDevicePlatform
   ) async throws -> DeviceSessionMint {
     return try await postJSON(
       "/api/auth/device-sessions",
-      body: ["label": label, "platform": "tvos", "refresh_token": refreshToken],
+      body: ["label": label, "platform": platform.rawValue, "refresh_token": refreshToken],
       auth: accessToken)
   }
 

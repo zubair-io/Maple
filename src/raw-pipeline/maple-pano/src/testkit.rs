@@ -41,6 +41,7 @@
 use crate::camera::Camera;
 use crate::math::Vec3;
 use crate::prng::SplitMix64;
+use crate::source::EquirectSource;
 use crate::twoview::PixelCorrespondence;
 
 /// Options for [`generate_pair_correspondences`].
@@ -252,6 +253,46 @@ fn plant_outlier_pixel(
         }
     }
     best.0
+}
+
+/// Aperiodic three-octave value-noise equirect (grey, linear `[0, 1)`).
+///
+/// The renderer's [`crate::synthetic`] scene is built for the geometry
+/// gates — isotropic blobs carry no corner response and its checker is
+/// periodic, so a descriptor matcher finds little it can tell apart. This
+/// scene gives image-feature gates (#4523) corners that are distinct
+/// everywhere; it is the same field `tests/ml_smoke.rs` renders.
+pub fn value_noise_source(width: u32, height: u32) -> EquirectSource {
+    fn hash(x: u64, y: u64, octave: u64) -> f32 {
+        let h = x
+            .wrapping_mul(0x9E37_79B9_7F4A_7C15)
+            .wrapping_add(y.wrapping_mul(0xC2B2_AE3D_27D4_EB4F))
+            .wrapping_add(octave.wrapping_mul(0x1656_67B1_9E37_79F9));
+        let h = (h ^ (h >> 33)).wrapping_mul(0xFF51_AFD7_ED55_8CCD);
+        ((h ^ (h >> 33)) & 0xFFFF) as f32 / 65535.0
+    }
+    let sample = |x: usize, y: usize| {
+        [(0_u64, 40_usize), (1, 10), (2, 3)]
+            .iter()
+            .zip([0.5_f32, 0.25, 0.125])
+            .map(|(&(octave, cell), amp)| {
+                let (gx, gy) = ((x / cell) as u64, (y / cell) as u64);
+                let fx = (x % cell) as f32 / cell as f32;
+                let fy = (y % cell) as f32 / cell as f32;
+                let top = hash(gx, gy, octave) * (1.0 - fx) + hash(gx + 1, gy, octave) * fx;
+                let bot = hash(gx, gy + 1, octave) * (1.0 - fx) + hash(gx + 1, gy + 1, octave) * fx;
+                amp * (top * (1.0 - fy) + bot * fy)
+            })
+            .sum::<f32>()
+    };
+    let pixels = (0..height as usize)
+        .flat_map(|y| (0..width as usize).map(move |x| [sample(x, y); 3]))
+        .collect();
+    EquirectSource {
+        width,
+        height,
+        pixels,
+    }
 }
 
 #[cfg(test)]

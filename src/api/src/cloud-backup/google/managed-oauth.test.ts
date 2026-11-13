@@ -153,7 +153,7 @@ for (const error of ['invalid_grant', 'invalid_proof']) {
     server.controls.renewal = { error, error_description: 'private-token-secret' };
     server.controls.renewalStatus = 400;
     await expect(googleAccessToken(f.destination.id, server.transport)).rejects.toThrow(
-      'reconnect Google Drive',
+      `(${error}) at `,
     );
     expect((await loadConnection(f.destination.id)).config).toMatchObject({
       refreshToken: null,

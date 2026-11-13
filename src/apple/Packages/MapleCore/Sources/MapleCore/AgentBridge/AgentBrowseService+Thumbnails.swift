@@ -34,7 +34,7 @@ extension AgentBrowseService {
         return thumbnail
       }
     }
-    if let provider = asset.displayPreviewProvider, let data = try? await provider() {
+    if let provider = asset.displayPreviewProvider, let data = await provider().data {
       if let thumbnail = await Task.detached(
         priority: .utility,
         operation: {

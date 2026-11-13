@@ -21,10 +21,19 @@ final class CropGeometryTests: XCTestCase {
         XCTAssertEqual(fp.top, 0, accuracy: 1e-6)
     }
 
-    func testFitFootprintNeverUpscales() {
+    /// The crop overlay lies on the photo as the canvas paints it: an image
+    /// smaller than the viewport is upscaled to fit, exactly as the canvas
+    /// fit does.
+    func testFitFootprintUpscalesASmallImageLikeTheCanvasFit() throws {
         let fp = CropGeometry.fitFootprint(wrapW: 4000, wrapH: 4000, imgW: 600, imgH: 400)
-        XCTAssertEqual(fp.width, 600, accuracy: 1e-6)
-        XCTAssertEqual(fp.height, 400, accuracy: 1e-6)
+        let canvas = CanvasZoomContext(
+            viewportPoints: CGSize(width: 4000, height: 4000),
+            nativeImageSize: CGSize(width: 600, height: 400), displayScale: 1)
+        let frame = try XCTUnwrap(canvas.displayFrameInPoints(at: 0))
+        XCTAssertEqual(fp.width, frame.width, accuracy: 1e-6)
+        XCTAssertEqual(fp.height, frame.height, accuracy: 1e-6)
+        XCTAssertEqual(fp.width, 4000, accuracy: 1e-6)
+        XCTAssertEqual(fp.top, (4000 - frame.height) / 2, accuracy: 1e-6)
     }
 
     // MARK: - cropRectToPx / pxToNormalized round-trip
@@ -178,6 +187,19 @@ final class CropGeometryTests: XCTestCase {
         let size = CropImageStage.croppedSize(crop, nativeSize: CGSize(width: 4000, height: 3000))
         XCTAssertEqual(size.width, 2000, accuracy: 1e-6)
         XCTAssertEqual(size.height, 1500, accuracy: 1e-6)
+    }
+
+    func testExportOutputSizeUsesPixelRoundedCropRect() {
+        let crop = Crop(top: 0, left: 1.0 / 6.0, bottom: 1, right: 5.0 / 6.0)
+        let fast = CropImageStage.exportOutputSize(
+            crop, uncroppedSize: CGSize(width: 1280, height: 853))
+        XCTAssertEqual(fast, CGSize(width: 854, height: 853))
+        let full = CropImageStage.exportOutputSize(
+            crop, uncroppedSize: CGSize(width: 6000, height: 4000))
+        XCTAssertEqual(full, CGSize(width: 4000, height: 4000))
+        XCTAssertEqual(
+            CropImageStage.exportOutputSize(.identity, uncroppedSize: CGSize(width: 1280, height: 853)),
+            CGSize(width: 1280, height: 853))
     }
 
     func testCroppedSizePureAngleKeepsFullFrame() {

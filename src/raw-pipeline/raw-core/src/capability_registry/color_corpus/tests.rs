@@ -1,5 +1,5 @@
 use super::*;
-use crate::capability_registry::{judge, BuildIdentity, Evidence, EvidenceRecord, RecordStatus};
+use crate::capability_registry::{judge, Evidence, EvidenceRecord, RecordStatus};
 use serde_json::json;
 
 fn fixture(absolute: bool) -> tempfile::TempDir {
@@ -71,6 +71,8 @@ fn every_measured_file_and_calibration_input_invalidates_old_evidence() {
         "reference.png",
         "test-fixtures/budgets.json",
         "src/raw-pipeline/raw-core/src/color/profiles/profiles.bin",
+        "src/scripts/compare_images_chunks.py",
+        "src/scripts/compare_images_metadata.py",
     ] {
         let dir = fixture(false);
         let before = hash(dir.path()).unwrap();
@@ -91,6 +93,10 @@ fn protocol_changes_and_adobe_authoring_sidecars_count() {
     value["cases"][0]["outputs"][0]["long_edge"] = json!(2048);
     write_manifest(dir.path(), &value);
     assert_ne!(before, hash(dir.path()).unwrap());
+    let legacy = hash(dir.path()).unwrap();
+    value["cases"][0]["reference_protocol"] = json!("native-pair-lanczos-v1");
+    write_manifest(dir.path(), &value);
+    assert_ne!(legacy, hash(dir.path()).unwrap());
     value["cases"][0]["acr_xmp"] = json!("model.xmp");
     write_manifest(dir.path(), &value);
     let with_adobe = hash(dir.path()).unwrap();
@@ -138,12 +144,9 @@ fn missing_inputs_empty_cases_and_ambiguous_protocols_fail_explicitly() {
 fn real_record_loading_demotes_changed_pixels_with_unchanged_budgets_and_counts() {
     let dir = fixture(false);
     let source = EvidenceSource::ColorHarness;
-    let build = BuildIdentity::current();
     let record = EvidenceRecord {
         source,
         backend: "cpu-reference".into(),
-        pipeline_version: build.pipeline_version,
-        schema_version: build.schema_version,
         corpus_hash: source.corpus_hash(dir.path()).unwrap(),
         expected_cases: source.expected_cases(),
         executed_cases: source.expected_cases(),
@@ -200,4 +203,40 @@ fn decoder_extension_changes_identity_but_directory_locations_do_not() {
     value["cases"][0]["raw"] = json!("raw.jpg");
     write_manifest(dir.path(), &value);
     assert_ne!(before, hash(dir.path()).unwrap());
+}
+
+#[test]
+fn failed_physical_record_remains_failed_without_installed_corpus() {
+    let dir = tempfile::tempdir().unwrap();
+    let source = EvidenceSource::ColorHarness;
+    let record = EvidenceRecord {
+        source,
+        backend: "cpu-reference".into(),
+        corpus_hash: format!("blake3:{}", "a".repeat(64)),
+        expected_cases: source.expected_cases(),
+        executed_cases: source.expected_cases(),
+        failed_cases: 92,
+        skipped_cases: 0,
+        git_sha: "0123456789012345678901234567890123456789".into(),
+        recorded_at: String::new(),
+        command: String::new(),
+    };
+    let records = dir.path().join("qualification");
+    std::fs::create_dir_all(&records).unwrap();
+    let path = records.join("color_harness.json");
+    std::fs::write(&path, record.to_json().to_string()).unwrap();
+    let evidence = Evidence::load(dir.path(), &records).unwrap();
+    assert_eq!(judge(source, &evidence), RecordStatus::Failed(92));
+    assert!(evidence.corpus_hashes.is_empty());
+    assert_eq!(evidence.records[&source].corpus_hash, record.corpus_hash);
+
+    // Changing the claimed result to pass must not bypass the missing inputs.
+    let passing = EvidenceRecord {
+        failed_cases: 0,
+        ..record
+    };
+    std::fs::write(&path, passing.to_json().to_string()).unwrap();
+    assert!(Evidence::load(dir.path(), &records)
+        .unwrap_err()
+        .contains("manifest.json"));
 }

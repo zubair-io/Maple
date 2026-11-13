@@ -44,7 +44,7 @@ async function expectAssets(page: Page): Promise<void> {
 
 async function openBrowseFolder(page: Page): Promise<void> {
   await page.goto('/browse');
-  await page.getByRole('button', { name: 'Open folder', exact: true }).click();
+  await page.getByRole('button', { name: /Open (?:a )?folder/ }).click();
   await expectAssets(page);
 }
 
@@ -152,6 +152,9 @@ test('Hosted Browse and Preview visible actions work in installed Chrome', async
   await expect(page.getByRole('button', { name: 'Filter: 4+ stars' })).toBeVisible();
   await expect(page.getByRole('button', { name: SOURCE, exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Filter: 4+ stars' }).click();
+  await expect(page.getByRole('button', { name: 'Filter: Edited' })).toBeVisible();
+  await expectAssets(page);
+  await page.getByRole('button', { name: 'Filter: Edited' }).click();
   await expect(page.getByRole('button', { name: 'Filter: All' })).toBeVisible();
   await expectAssets(page);
 
@@ -217,7 +220,7 @@ test('Hosted Browse and Preview visible actions work in installed Chrome', async
   await verifyStagedRawHashes(manifest);
 });
 
-test('Hosted Browse one-RAW import previews before editing without an editor filmstrip', async ({
+test('Hosted welcome one-RAW import opens Editor without a filmstrip', async ({
   page,
 }, testInfo) => {
   hostedOnly(testInfo.project.name);
@@ -226,17 +229,55 @@ test('Hosted Browse one-RAW import previews before editing without an editor fil
   const raw = manifest.sourceHashes.find(({ path }) => basename(path) === 'test_0004.fff');
   expect(raw).toBeDefined();
 
-  await page.goto('/browse');
+  await page.goto('/');
   const chooser = page.waitForEvent('filechooser');
-  await page.getByRole('button', { name: 'Import RAW files' }).click();
+  await page.getByRole('button', { name: /Open a photo/ }).click();
   await (await chooser).setFiles(raw!.path);
 
-  await expect(page).toHaveURL(/\/view\//);
-  await expect(page.getByTestId('preview-filename')).toHaveText('test_0004.fff');
-  await expectPreviewPixels(page.locator(PREVIEW_IMAGE_SELECTOR).last());
-  await page.getByRole('button', { name: 'Edit', exact: true }).click();
   await expect(page).toHaveURL(/\/edit\//);
   await expect(page.locator('editor-filmstrip')).toHaveCount(0);
   await expect(page.getByText(/Download XMP/i)).toBeVisible();
   await verifyOriginalRawHashes(manifest);
+});
+
+test('Hosted cache refreshes Browse and Preview after an external XMP change', async ({
+  page,
+}, testInfo) => {
+  hostedOnly(testInfo.project.name);
+  test.setTimeout(240_000);
+  const manifest = await readProductionFixtureManifest();
+  await resetWritableFixtureFolder(manifest.writableFolder);
+  await writeFile(join(manifest.writableFolder, 'test_0006.xmp'), seedXmp(2));
+  const picker = await installNativeProductionFolderPicker(page, manifest.writableFolder);
+  await openBrowseFolder(page);
+
+  const tile = page
+    .locator('app-asset-grid maple-asset-tile')
+    .filter({ has: page.getByRole('button', { name: SOURCE, exact: true }) });
+  const tileImage = tile.locator('img');
+  await expect(tileImage).toBeVisible({ timeout: 60_000 });
+  const editedThumb = await tileImage.screenshot();
+  await page.getByRole('button', { name: SOURCE, exact: true }).click();
+  const preview = page.locator(PREVIEW_IMAGE_SELECTOR).last();
+  await expectPreviewPixels(preview);
+  const editedPreview = await preview.screenshot();
+  await page.getByRole('button', { name: 'Back', exact: true }).click();
+
+  await picker.writeText('test_0006.xmp', seedXmp(0));
+  await page.getByRole('button', { name: 'Open folder', exact: true }).click();
+  await expectAssets(page);
+  await expect(async () => {
+    await expect(tileImage).toBeVisible();
+    expect((await tileImage.screenshot()).equals(editedThumb)).toBe(false);
+  }).toPass({ timeout: 60_000 });
+  await page.getByRole('button', { name: SOURCE, exact: true }).click();
+  await expectPreviewPixels(preview);
+  await expect(async () => {
+    await expectPreviewPixels(preview);
+    expect((await preview.screenshot()).equals(editedPreview)).toBe(false);
+  }).toPass({ timeout: 60_000 });
+
+  await picker.verifyRawHashes();
+  await verifyOriginalRawHashes(manifest);
+  await verifyStagedRawHashes(manifest);
 });

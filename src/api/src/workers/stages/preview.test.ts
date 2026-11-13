@@ -1,4 +1,3 @@
-import { PIPELINE_OUTPUT_VERSION } from '../../generated/adjustment-fields.generated.ts';
 import { describe, expect, it, beforeAll, afterAll, spyOn } from 'bun:test';
 import { mkdtemp, mkdir, rm, writeFile, readFile, stat, utimes } from 'node:fs/promises';
 import * as os from 'node:os';
@@ -79,8 +78,8 @@ let mockRenderCalls = 0;
  *
  * Patched via `spyOn` on the module namespace, NOT `mock.module`, and
  * restored in `afterAll`: #2032's root cause was precisely a sibling file's
- * `mock.module` fake (of `generatePreview`, in
- * `routes/library/preview-ondemand-limiter.test.ts`) whose afterAll restore
+ * `mock.module` fake (of `generatePreview`, in the since-removed on-demand
+ * limiter route suite) whose afterAll restore
  * silently failed to take effect on CI's (linux) test-file collection order,
  * leaking `generated-<n>` text bytes into this file's preview paths. `spyOn`
  * patches the one export in place — every importer calls through the
@@ -198,7 +197,7 @@ function makeDoc(
         processed_at: null,
         dead: false,
       },
-      meili: {
+      'search-blob': {
         version: 0,
         attempts: 0,
         last_error: null,
@@ -483,7 +482,7 @@ describe('preview handler — path-keyed cache path', () => {
       'trip',
       '.maple',
       'previews',
-      `wide.jpg.v${PIPELINE_OUTPUT_VERSION}.${PREVIEW_CACHE_SUFFIX}`,
+      `wide.jpg.${PREVIEW_CACHE_SUFFIX}`,
     );
     const s = await stat(expected);
     expect(s.size).toBeGreaterThan(0);

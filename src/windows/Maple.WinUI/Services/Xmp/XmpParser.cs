@@ -31,7 +31,7 @@ namespace Maple.WinUI.Services.Xmp
             var names = new HashSet<string>(XmpSchema.NumericFields.Select(f => f.Key))
             {
                 "papp:CaptureSharpeningRadius", // legacy read-only alias (#456/#464)
-                "papp:WbScaleVersion",
+                "papp:WbScaleVersion", XmpRetouch.FrameVersionKey,
                 "crs:Version", "crs:ProcessVersion", "crs:HasSettings",
                 "papp:HighlightRecoveryMode", "papp:AutoExposure",
                 "papp:Look", "papp:Profile", "papp:FilmLook", "papp:Demosaic",
@@ -85,6 +85,8 @@ namespace Maple.WinUI.Services.Xmp
             ParseAttributes(primary, doc, sawPapp);
             doc.Adjustments.InpaintRemovals = removals;
             ParseChildren(primary, doc, xml);
+            if (!doc.RetouchFrameStamped && sawPapp)
+                doc.Adjustments.Retouch = doc.Adjustments.Retouch.AsLegacyFrame();
             doc.Adjustments.LocalAdjustments = XmpLayerOrder.Sorted(doc.Adjustments.LocalAdjustments);
             CollectSiblingPassthrough(rdf, primary, doc);
             return doc;
@@ -132,6 +134,13 @@ namespace Maple.WinUI.Services.Xmp
                     case "crs:Version": doc.Version = attr.Value; break;
                     case "crs:ProcessVersion": doc.ProcessVersion = attr.Value; break;
                     case "crs:HasSettings": break;
+                    case XmpRetouch.FrameVersionKey:
+                        // An unstamped Maple repair list predates the upright frame
+                        // (#4473) and is converted once the RAW's orientation is
+                        // known; a Lightroom document carries no `papp:` namespace
+                        // and is already upright.
+                        doc.RetouchFrameStamped = attr.Value == "2";
+                        break;
                     case "papp:WbScaleVersion":
                         // Mirrors Swift's `(1...5).contains(v)` guard: a
                         // stamp outside the known range is treated as
@@ -388,7 +397,10 @@ namespace Maple.WinUI.Services.Xmp
                     continue;
                 }
                 if (XmpLayerOrder.IsBrushContainer(child))
+                {
+                    doc.Adjustments.LocalAdjustments.AddRange(XmpBrushCorrections.Parse(child));
                     doc.VerbatimLayerOrders.AddRange(XmpLayerOrder.Keys(XmpLayerOrder.ContainerItems(child)));
+                }
                 doc.PassthroughNodes.Add(child.ToString(SaveOptions.DisableFormatting));
                 doc.ChildOrder.Add(ChildSlot.ForPassthrough(doc.PassthroughNodes.Count - 1));
             }
@@ -471,16 +483,22 @@ namespace Maple.WinUI.Services.Xmp
                 .Count(a => !a.IsNamespaceDeclaration && CanonicalName(a) is { } n &&
                             n != "rdf:about" && ConsumedAttributes.Contains(n));
             var children = desc.Elements().Count(c =>
-                ToneCurveTagFor(c) is not null || XmpLocalAdjustments.ContainerTagFor(c) is not null || XmpRetouch.IsContainer(c));
+                ToneCurveTagFor(c) is not null || XmpLocalAdjustments.ContainerTagFor(c) is not null ||
+                XmpLayerOrder.IsBrushContainer(c) || XmpRetouch.IsContainer(c));
             return attrs + children;
         }
 
+        // An embedded workflow record is not Maple authorship of the develop
+        // settings; raw-core, Swift and Web skip that subtree too (#4473).
         private static bool DocumentCarriesPappNamespace(XDocument source) =>
-            source.Descendants().Any(e =>
+            source.Descendants().Where(e => !e.AncestorsAndSelf().Any(IsWorkflowRecord)).Any(e =>
                 XmpSchema.IsPappUri(e.Name.NamespaceName) ||
                 e.Attributes().Any(a =>
                     XmpSchema.IsPappUri(a.Name.NamespaceName) ||
                     (a.IsNamespaceDeclaration && XmpSchema.IsPappUri(a.Value))));
+
+        private static bool IsWorkflowRecord(XElement e) =>
+            e.Name.LocalName == "Workflow" && XmpSchema.IsPappUri(e.Name.NamespaceName);
 
     }
 }

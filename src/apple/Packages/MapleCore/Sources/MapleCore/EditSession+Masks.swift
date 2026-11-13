@@ -13,6 +13,14 @@ import Foundation
 // keeps the invariant visible at the declaration (#3291 review).
 @MainActor
 extension EditSession {
+  struct ActiveBrushStroke {
+    var maskId: UUID
+    var width: Int
+    var height: Int
+    var accumulator: [Float]
+    var currentDigest: String
+  }
+
   /// Whether the mask overlay should be painted right now (#3364).
   ///
   /// The red tint answers "what is selected", which is what you want
@@ -43,8 +51,8 @@ extension EditSession {
   /// Detect people in a fresh, uncropped reduced-resolution develop of the
   /// current asset. The people picker calls this once when it opens.
   public func detectMaskPersons() async throws -> [PersonCandidate] {
-    let image = try await renderForSegmentation()
-    return try await personSkinMaskService.detectPersons(in: image)
+    let seg = try await renderForSegmentation()
+    return try await personSkinMaskService.detectPersons(in: seg.image)
   }
 
   /// Create a person-skin `LocalAdjustment`, register its raster, select it.
@@ -61,12 +69,12 @@ extension EditSession {
   func preparePersonSkinMask(person: PersonCandidate, facialSkin: Bool, bodySkin: Bool)
     async throws -> LocalAdjustment
   {
-    let image = try await renderForSegmentation()
+    let seg = try await renderForSegmentation()
     let request = SkinRasterRequest(person: person.id, facialSkin: facialSkin, bodySkin: bodySkin)
     let modelId = "apple-vision-person-instance/1"
     let digest = Self.maskDigest(assetKey: assetIdentityKey(), request: request, model: modelId)
     let (w, h, bytes) = try await maskRasterStore.raster(for: digest, model: modelId) {
-      try await self.personSkinMaskService.makeRaster(image: image, request: request)
+      try await self.personSkinMaskService.makeRaster(image: seg.image, request: request)
     }
     guard
       let rasterId = MaskRasterRegistry.register(digest: digest, width: w, height: h, bytes: bytes)
@@ -75,8 +83,32 @@ extension EditSession {
     }
     let recipe = BitmapRecipe(
       person: person.id, facialSkin: facialSkin, bodySkin: bodySkin, model: modelId, digest: digest)
+    let faceSkinBytes: [UInt8] = try await {
+      if facialSkin && !bodySkin {
+        return bytes
+      }
+      let faceRequest = SkinRasterRequest(person: person.id, facialSkin: true, bodySkin: false)
+      let faceDigest = Self.maskDigest(
+        assetKey: assetIdentityKey(), request: faceRequest, model: modelId)
+      let (fw, fh, faceBytes) = try await maskRasterStore.raster(for: faceDigest, model: modelId) {
+        try await self.personSkinMaskService.makeRaster(image: seg.image, request: faceRequest)
+      }
+      return (fw == w && fh == h) ? faceBytes : [UInt8](repeating: 0, count: w * h)
+    }()
+    let range: RangeRefinement = {
+      guard let rawDecoded = seg.rawDecoded else { return .skinTone }
+      return PersonSkinRangeInitializer.initialRange(
+        decoded: rawDecoded,
+        model: seg.effectiveModel,
+        asShot: seg.asShot,
+        maskWidth: w,
+        maskHeight: h,
+        maskBytes: bytes,
+        faceSkinMaskBytes: faceSkinBytes
+      )
+    }()
     let layer = LocalAdjustment(
-      mask: .bitmap(recipe: recipe, rasterId: rasterId), range: .skinTone,
+      mask: .bitmap(recipe: recipe, rasterId: rasterId), range: range,
       adjustments: PartialAdjustments())
     return layer
   }
@@ -172,8 +204,8 @@ extension EditSession {
     let request = SkinRasterRequest(
       person: recipe.person, facialSkin: recipe.facialSkin, bodySkin: recipe.bodySkin)
     return try await maskRasterStore.raster(for: recipe.digest, model: recipe.model) {
-      let image = try await self.renderForSegmentation()
-      return try await self.personSkinMaskService.makeRaster(image: image, request: request)
+      let seg = try await self.renderForSegmentation()
+      return try await self.personSkinMaskService.makeRaster(image: seg.image, request: request)
     }
   }
 
@@ -424,18 +456,50 @@ extension EditSession {
   /// neither matters for a Vision input); non-RAW assets (panoramas,
   /// JPEG/HEIF/PNG) go through the CoreImage-only path those already use
   /// everywhere else in this file's sibling `LocalHistogram.computeNonRaw`.
-  private func renderForSegmentation() async throws -> CGImage {
+  private struct SegmentationRender {
+    let image: CGImage
+    let rawDecoded: ImageEditPipeline.SceneLinearDecodeResult?
+    let effectiveModel: AdjustmentModel
+    let asShot: ImageEditPipeline.AsShotWB?
+  }
+
+  private func renderForSegmentation() async throws -> SegmentationRender {
     let target = CGSize(width: 1024, height: 1024)
     let pipeline = ImageEditPipeline()
     let ciImage: CIImage
+    var effectiveModel = model
+    var rawDecoded: ImageEditPipeline.SceneLinearDecodeResult?
+    var frameAsShot: ImageEditPipeline.AsShotWB?
     if asset.isRaw {
-      guard let decoded = await pipeline.decodeSceneLinearSized(asset: asset, targetSize: target)
+      let liveXMP = RawCoreBridge.writeStrippedModelXMP(
+        model, profileOverride: model.profile, autoExposureOverride: model.autoExposure)
+      defer { if let liveXMP { try? FileManager.default.removeItem(at: liveXMP) } }
+      guard
+        let liveXMP,
+        let decoded = await pipeline.decodeSceneLinearSized(
+          asset: asset, targetSize: target, xmpPath: liveXMP,
+          profileOverride: model.profile, autoExposureOverride: model.autoExposure
+        )
       else {
         throw PipelineError.renderFailed(code: -1, message: "mask segmentation decode failed")
       }
+      rawDecoded = decoded
+      frameAsShot = {
+        guard let frame = decoded.wbFrame, frame.isPresent else { return wbDeltaAnchor }
+        return ImageEditPipeline.AsShotWB(
+          temperature: Double(frame.sceneCCT), tint: Double(frame.asShotTint))
+      }()
+      if asShotCCT == nil,
+        let asShot = frameAsShot,
+        model.temperature == AdjustmentModel.default.temperature,
+        model.tint == AdjustmentModel.default.tint
+      {
+        effectiveModel.temperature = asShot.temperature
+        effectiveModel.tint = asShot.tint
+      }
       ciImage = pipeline.processSceneLinear(
-        decoded: decoded.image, model: model, targetSize: nil,
-        asShot: nil, decodedAtModel: nil, profileLUT: nil,
+        decoded: decoded.image, model: effectiveModel, targetSize: nil,
+        asShot: frameAsShot, decodedAtModel: nil, profileLUT: nil,
         assetID: asset.id, noiseProfile: decoded.noiseProfile, iso: decoded.iso,
         wbFrame: decoded.wbFrame, whitesAnchorEv: decoded.whitesAnchorEv,
         nrSamplingScale: decoded.nrSamplingScale
@@ -452,6 +516,11 @@ extension EditSession {
     guard let image = pipeline.renderPreview(ciImage, targetSize: target) else {
       throw PipelineError.renderFailed(code: -2, message: "mask segmentation CGImage render failed")
     }
-    return image
+    return SegmentationRender(
+      image: image,
+      rawDecoded: rawDecoded,
+      effectiveModel: effectiveModel,
+      asShot: frameAsShot
+    )
   }
 }

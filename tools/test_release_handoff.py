@@ -21,8 +21,13 @@ class GitFixture(unittest.TestCase):
         self.addCleanup(os.chdir, self.previous)
         os.chdir(self.directory.name)
         self.git("init", "--bare", "remote.git")
+        self.git("--git-dir=remote.git", "config", "gc.auto", "0")
+        self.git("--git-dir=remote.git", "config", "maintenance.auto", "false")
         self.git("init", "-b", "main", "work")
         os.chdir("work")
+        # Detached Git housekeeping can outlive a command and race temp cleanup (#4993).
+        self.git("config", "gc.auto", "0")
+        self.git("config", "maintenance.auto", "false")
         self.git("config", "user.name", "Release test")
         self.git("config", "user.email", "release@example.test")
         self.git("remote", "add", "origin", "../remote.git")
@@ -105,16 +110,16 @@ class GitFixture(unittest.TestCase):
         }
 
     def api(self, repo, endpoint, payload=None):
-        if endpoint.startswith("commits/") and "/status?" in endpoint:
+        if endpoint.startswith("commits/") and "/statuses?" in endpoint:
             sha = endpoint.split("/")[1]
             previous = next(
                 (item for head, item in reversed(self.statuses) if head == sha), None
             )
-            return {
-                "statuses": [{**previous, "creator": {"login": "github-actions[bot]"}}]
+            return (
+                [{**previous, "creator": {"login": "github-actions[bot]"}}]
                 if previous
                 else []
-            }
+            )
         if endpoint.startswith("statuses/"):
             self.statuses.append((endpoint.split("/")[1], payload))
             return {}
@@ -125,7 +130,7 @@ class GitFixture(unittest.TestCase):
                 {
                     "type": "required_status_checks",
                     "parameters": {
-                        "strict_required_status_checks_policy": True,
+                        "strict_required_status_checks_policy": False,
                         "required_status_checks": [
                             {"context": policy.CONTEXT},
                             {"context": "Release readiness"},
@@ -185,6 +190,40 @@ class VersionTests(GitFixture):
 
 
 class GateTests(GitFixture):
+    def test_group_status_is_on_group_sha_and_only_exact_bump_passes(self):
+        bump = self.handoff()
+        self.git("checkout", "--detach", self.main)
+        self.git("merge", "--no-ff", "--no-edit", bump)
+        group = self.git("rev-parse", "HEAD")
+        self.prs = [self.pr(self.main)]
+        control.refresh_gate("owner/repo", group_sha=group)
+        self.assertEqual(self.statuses[-1][0], group)
+        self.assertEqual(self.statuses[-1][1]["state"], "success")
+        self.write("extra.txt", "Other source change\n")
+        changed = self.commit("Extra group change")
+        control.refresh_gate("owner/repo", group_sha=changed)
+        self.assertEqual(self.statuses[-1][0], changed)
+        self.assertEqual(self.statuses[-1][1]["state"], "pending")
+
+    def test_group_with_active_handoff_blocks_other_change(self):
+        self.handoff()
+        self.git("checkout", "--detach", self.main)
+        self.write("feature.txt", "Unrelated PR\n")
+        group = self.commit("Group candidate")
+        control.refresh_gate("owner/repo", group_sha=group)
+        self.assertEqual(self.statuses[-1][1]["state"], "pending")
+
+    def test_group_without_handoff_passes_and_untagged_bump_blocks(self):
+        self.git("checkout", "--detach", self.main)
+        self.write("feature.txt", "Ordinary PR\n")
+        group = self.commit("Group candidate")
+        control.refresh_gate("owner/repo", group_sha=group)
+        self.assertEqual(self.statuses[-1][1]["state"], "success")
+        self.git("checkout", "--detach", self.main)
+        bump = self.handoff(tagged=False)
+        control.refresh_gate("owner/repo", group_sha=bump)
+        self.assertEqual(self.statuses[-1][1]["state"], "pending")
+
     def test_unchanged_status_is_not_posted_again(self):
         self.prs = [self.pr(self.main)]
         control.refresh_gate("owner/repo")
@@ -215,13 +254,54 @@ class GateTests(GitFixture):
             "creator": {"login": "github-actions[bot]"},
         }
         pages = [
-            {"statuses": [{"context": f"check-{index}"} for index in range(100)]},
-            {"statuses": [matching]},
+            [{"context": f"check-{index}"} for index in range(100)],
+            [matching],
         ]
         with patch.object(control, "api", side_effect=pages) as request:
             control.status("owner/repo", self.pr(self.main), "success", "ready")
         self.assertEqual(request.call_count, 2)
         self.assertIn("page=2", request.call_args.args[1])
+
+    def test_status_history_preserves_creator_and_avoids_exhausted_status_writes(self):
+        matching = {
+            "context": policy.CONTEXT,
+            "state": "success",
+            "description": "ready",
+            "creator": {"login": "github-actions[bot]"},
+        }
+
+        def history_only(repo, endpoint, payload=None):
+            self.assertEqual(repo, "owner/repo")
+            self.assertEqual(
+                endpoint, f"commits/{self.main}/statuses?per_page=100&page=1"
+            )
+            self.assertIsNone(payload, "Unchanged status must never be posted again")
+            return [matching]
+
+        with patch.object(control, "api", side_effect=history_only) as request:
+            control.status("owner/repo", self.pr(self.main), "success", "ready")
+        self.assertEqual(request.call_count, 1)
+
+    def test_latest_status_is_not_hidden_by_older_matching_status(self):
+        older = {
+            "context": policy.CONTEXT,
+            "state": "success",
+            "description": "ready",
+            "creator": {"login": "github-actions[bot]"},
+        }
+        for latest in (
+            {**older, "state": "pending"},
+            {**older, "creator": {"login": "some-user"}},
+        ):
+            with (
+                self.subTest(latest=latest),
+                patch.object(
+                    control, "api", side_effect=[[latest, older], {}]
+                ) as request,
+            ):
+                control.status("owner/repo", self.pr(self.main), "success", "ready")
+            self.assertEqual(request.call_count, 2)
+            self.assertEqual(request.call_args.args[1], f"statuses/{self.main}")
 
     def test_status_from_another_actor_is_replaced(self):
         matching = {
@@ -230,9 +310,7 @@ class GateTests(GitFixture):
             "description": "ready",
             "creator": {"login": "some-user"},
         }
-        with patch.object(
-            control, "api", side_effect=[{"statuses": [matching]}, {}]
-        ) as request:
+        with patch.object(control, "api", side_effect=[[matching], {}]) as request:
             control.status("owner/repo", self.pr(self.main), "success", "ready")
         self.assertEqual(request.call_count, 2)
 
@@ -240,6 +318,14 @@ class GateTests(GitFixture):
         self.prs = [self.pr(self.main), self.pr(self.main, repo="fork/repo")]
         control.refresh_gate("owner/repo")
         self.assertEqual([p["state"] for _, p in self.statuses], ["success"])
+
+    def test_ordinary_pr_behind_main_passes_without_handoff(self):
+        self.prs = [self.pr(self.main)]
+        self.write("new.txt", "Another merge\n")
+        moved = self.commit("Main moved")
+        self.git("push", "origin", f"{moved}:refs/heads/main")
+        control.refresh_gate("owner/repo")
+        self.assertEqual(self.statuses[-1][1]["state"], "success")
 
     def test_before_tag_all_prs_blocked(self):
         head = self.handoff(tagged=False)
@@ -301,6 +387,20 @@ class GateTests(GitFixture):
         moved = self.commit("Main moved")
         self.git("push", "origin", f"{moved}:refs/heads/main")
         self.prs = [self.pr(head, policy.branch("1.2.3"))]
+        control.refresh_gate("owner/repo")
+        self.assertEqual(self.statuses[-1][1]["state"], "pending")
+
+    def test_main_movement_revokes_green_release_even_with_identical_tree(self):
+        head = self.handoff()
+        self.prs = [self.pr(head, policy.branch("1.2.3"))]
+        control.refresh_gate("owner/repo")
+        self.assertEqual(self.statuses[-1][1]["state"], "success")
+
+        self.git("checkout", "--detach", self.main)
+        self.git("commit", "--allow-empty", "-m", "Main moved without file changes")
+        moved = self.git("rev-parse", "HEAD")
+        self.git("push", "origin", f"{moved}:refs/heads/main")
+        policy.validate_bump(moved, head)
         control.refresh_gate("owner/repo")
         self.assertEqual(self.statuses[-1][1]["state"], "pending")
 

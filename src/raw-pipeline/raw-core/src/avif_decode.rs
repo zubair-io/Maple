@@ -47,6 +47,8 @@ pub struct AvifProbe {
     pub height: u32,
     pub has_alpha: bool,
     pub bit_depth: u8,
+    pub color_primaries: u16,
+    pub transfer_characteristics: u16,
 }
 
 /// `ftyp` box with an AVIF-family brand in the first 32 bytes. Delegates to
@@ -147,6 +149,8 @@ fn probe_sequence(obu: &[u8], has_alpha: bool) -> Result<AvifProbe> {
         width: hdr.max_width as u32,
         height: hdr.max_height as u32,
         has_alpha,
+        color_primaries: hdr.pri as u16,
+        transfer_characteristics: hdr.trc as u16,
         bit_depth: if hdr.hbd == 0 {
             8
         } else if hdr.hbd == 1 {
@@ -419,7 +423,7 @@ use color::normalize_colour;
 pub(crate) fn normalizes_to_srgb(bytes: &[u8]) -> Result<bool> {
     let container = parse_container(bytes)?;
     let header = sequence_header(&container.primary_item)?;
-    Ok(color::normalizes_to_srgb(&header))
+    Ok(color::normalizes_to_srgb(bytes, &header))
 }
 
 /// Decode an AVIF still image to RGB8 (or RGBA8 when the container carries an
@@ -430,7 +434,7 @@ pub fn decode_avif(bytes: &[u8]) -> Result<RasterImage> {
     let colour = decode_obu(&data.primary_item)?;
     let rgb = yuv_to_rgb(&colour);
     let header = sequence_header(&data.primary_item)?;
-    let p3 = color::normalizes_to_srgb(&header);
+    let p3 = color::normalizes_to_srgb(bytes, &header);
     let (w, h) = (colour.width as u32, colour.height as u32);
     let Some(alpha_obu) = data.alpha_item.as_deref() else {
         return Ok(normalize_colour(RasterImage::new_rgb(w, h, rgb), p3));
@@ -469,3 +473,7 @@ pub fn decode_avif(bytes: &[u8]) -> Result<RasterImage> {
 #[cfg(test)]
 #[path = "avif_decode_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "avif_container_color_tests.rs"]
+mod container_color_tests;

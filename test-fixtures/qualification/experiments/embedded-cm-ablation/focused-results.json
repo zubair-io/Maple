@@ -1,0 +1,95 @@
+[
+  {
+    "profile": "auto",
+    "compared": 1,
+    "breaches": 1,
+    "skipped_no_raw": 0,
+    "skipped_no_candidate": 0,
+    "skipped_no_reference": 0,
+    "errors": 0,
+    "grand_mean_deltaE": 3.965640233686138,
+    "cases": [
+      {
+        "fixture": "test_0002",
+        "case": "baseline_auto",
+        "profile": "auto",
+        "resolution": "down",
+        "status": "breach",
+        "breaches": [
+          "mean 3.97>3.60",
+          "p95 6.04>5.70"
+        ],
+        "mean": 3.965640233686138,
+        "p95": 6.039868249543321,
+        "max": 28.83391977216082,
+        "bR": -0.0060798943223599345,
+        "bG": 0.026116406255260655,
+        "bB": 0.030166485688003713,
+        "n_pixels": 12000000,
+        "reference_protocol": "baseline-native-pair-lanczos"
+      }
+    ]
+  },
+  {
+    "compared": 1,
+    "breaches": 0,
+    "skipped_no_raw": 0,
+    "skipped_no_candidate": 0,
+    "skipped_no_reference": 0,
+    "errors": 0,
+    "grand_mean_deltaE": 12.855986538691829,
+    "grand_bias_r": -0.20480428152651375,
+    "grand_bias_g": -0.1576959984014102,
+    "grand_bias_b": -0.14229978685662562,
+    "cases": [
+      {
+        "fixture": "test_0002",
+        "case": "baseline",
+        "profile": "neutral",
+        "resolution": "down",
+        "status": "passed",
+        "breaches": [],
+        "mean": 12.855986538691829,
+        "p95": 13.892555821105734,
+        "max": 33.80940435774526,
+        "bR": -0.20480428152651375,
+        "bG": -0.1576959984014102,
+        "bB": -0.14229978685662562,
+        "n_pixels": 12000000,
+        "reference_protocol": "baseline-native-pair-lanczos"
+      }
+    ]
+  },
+  {
+    "compared": 1,
+    "breaches": 1,
+    "skipped_no_raw": 0,
+    "skipped_no_candidate": 0,
+    "skipped_no_reference": 0,
+    "errors": 0,
+    "grand_mean_deltaE": 9.815093986957171,
+    "grand_bias_r": -0.1512226947524223,
+    "grand_bias_g": -0.14055638049432845,
+    "grand_bias_b": -0.13573326051308718,
+    "cases": [
+      {
+        "fixture": "test_0002",
+        "case": "vibrance_min",
+        "profile": "neutral",
+        "resolution": "down",
+        "status": "breach",
+        "breaches": [
+          "max 40.10>31.00"
+        ],
+        "mean": 9.815093986957171,
+        "p95": 12.887843434122097,
+        "max": 40.102508457615684,
+        "bR": -0.1512226947524223,
+        "bG": -0.14055638049432845,
+        "bB": -0.13573326051308718,
+        "n_pixels": 12000000,
+        "reference_protocol": "legacy-direct-reference"
+      }
+    ]
+  }
+]

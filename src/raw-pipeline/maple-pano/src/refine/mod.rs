@@ -61,15 +61,18 @@
 
 mod sample;
 mod warp;
+mod windowed;
 
 use rayon::prelude::*;
 
+use crate::frame_store::SourceView;
 use crate::ingest::PlanarImage;
 use crate::twoview::PixelCorrespondence;
 
 use sample::{mean_ssd, parabolic_delta, sample_luma_grid_into, IDENTITY_WARP};
 
 pub use warp::RefineGeometry;
+pub(crate) use windowed::refine_from_frames;
 
 /// Tuning for [`refine_correspondences`]. Defaults are the #1210 design
 /// values.
@@ -136,21 +139,49 @@ pub fn refine_correspondences(
     matches: &[PixelCorrespondence],
     opts: &RefineOptions,
 ) -> RefineOutcome {
-    let patch_radius = i64::from(opts.patch_radius.max(1));
-    let search_radius = i64::from(
-        opts.search_radius
-            .unwrap_or_else(|| derived_search_radius(scale_b))
-            .max(1),
-    );
+    outcome_of(refine_views(
+        SourceView::whole(full_a),
+        SourceView::whole(full_b),
+        scale_a,
+        scale_b,
+        geometry,
+        matches,
+        opts,
+    ))
+}
 
-    let per_match: Vec<(PixelCorrespondence, bool)> = matches
+/// `(patch_radius, search_radius)` in full-res px for a B-side scale.
+fn radii(scale_b: (f64, f64), opts: &RefineOptions) -> (i64, i64) {
+    (
+        i64::from(opts.patch_radius.max(1)),
+        i64::from(
+            opts.search_radius
+                .unwrap_or_else(|| derived_search_radius(scale_b))
+                .max(1),
+        ),
+    )
+}
+
+/// Refine every match against frames A and B seen through `view_a` /
+/// `view_b`, which must cover every pixel each match samples.
+fn refine_views(
+    view_a: SourceView<'_>,
+    view_b: SourceView<'_>,
+    scale_a: (f64, f64),
+    scale_b: (f64, f64),
+    geometry: Option<&RefineGeometry<'_>>,
+    matches: &[PixelCorrespondence],
+    opts: &RefineOptions,
+) -> Vec<(PixelCorrespondence, bool)> {
+    let (patch_radius, search_radius) = radii(scale_b, opts);
+    matches
         .par_iter()
         .map_init(Scratch::default, |scratch, m| {
             let a_full = (m.a.0 * scale_a.0, m.a.1 * scale_a.1);
             let b_seed = (m.b.0 * scale_b.0, m.b.1 * scale_b.1);
             match refine_one(
-                full_a,
-                full_b,
+                view_a,
+                view_b,
                 a_full,
                 b_seed,
                 geometry,
@@ -169,22 +200,17 @@ pub fn refine_correspondences(
                 ),
             }
         })
-        .collect();
+        .collect()
+}
 
-    let mut refined = Vec::with_capacity(per_match.len());
-    let mut refined_mask = Vec::with_capacity(per_match.len());
-    let mut refined_count = 0usize;
-    for (m, ok) in per_match {
-        refined.push(m);
-        refined_mask.push(ok);
-        refined_count += usize::from(ok);
-    }
-    let fallback_count = refined.len() - refined_count;
+fn outcome_of(per_match: Vec<(PixelCorrespondence, bool)>) -> RefineOutcome {
+    let (refined, refined_mask): (Vec<_>, Vec<_>) = per_match.into_iter().unzip();
+    let refined_count = refined_mask.iter().filter(|&&ok| ok).count();
     RefineOutcome {
+        fallback_count: refined.len() - refined_count,
         refined,
         refined_mask,
         refined_count,
-        fallback_count,
     }
 }
 
@@ -208,10 +234,10 @@ struct Scratch {
 
 /// One correspondence: `Some(refined_b)` or `None` for fallback (see the
 /// module docs for the gate list).
-#[allow(clippy::too_many_arguments)] // private kernel of one public entry point
+#[allow(clippy::too_many_arguments)] // private kernel of the refine entry points
 fn refine_one(
-    full_a: &PlanarImage,
-    full_b: &PlanarImage,
+    view_a: SourceView<'_>,
+    view_b: SourceView<'_>,
     a_full: (f64, f64),
     b_seed: (f64, f64),
     geometry: Option<&RefineGeometry<'_>>,
@@ -238,7 +264,7 @@ fn refine_one(
     let jinv = geometry
         .and_then(|g| warp::local_warp_inverse(g, a_full))
         .unwrap_or(IDENTITY_WARP);
-    if !sample_luma_grid_into(full_a, a_full, patch_radius, &jinv, &mut scratch.template) {
+    if !sample_luma_grid_into(view_a, a_full, patch_radius, &jinv, &mut scratch.template) {
         return None;
     }
     let template = &scratch.template;
@@ -254,7 +280,7 @@ fn refine_one(
     // axis-aligned — the warp lives entirely on the template side.
     let window_half = patch_radius + search_radius;
     if !sample_luma_grid_into(
-        full_b,
+        view_b,
         b_seed,
         window_half,
         &IDENTITY_WARP,
@@ -381,7 +407,7 @@ mod tests {
     fn shifted(a: &PlanarImage, t: (f64, f64)) -> PlanarImage {
         planar_from_fn(a.width(), a.height(), |x, y| {
             let (px, py) = (f64::from(x) + 0.5 - t.0, f64::from(y) + 0.5 - t.1);
-            luma_bilinear(a, px, py).unwrap_or(0.0) as f32
+            luma_bilinear(SourceView::whole(a), px, py).unwrap_or(0.0) as f32
         })
     }
 

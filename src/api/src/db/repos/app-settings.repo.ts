@@ -78,7 +78,7 @@ const SELECT_SQL = `SELECT doc FROM app_settings WHERE id = ?`;
  * contains either character, so this is defence rather than a fix for a live
  * call site.
  */
-function jsonPath(dotted: string): string {
+export function jsonPath(dotted: string): string {
   const segments = dotted
     .split('.')
     .map((segment) => `"${segment.replace(/[\\"]/g, (char) => `\\${char}`)}"`);
@@ -152,6 +152,23 @@ export async function unsetAppSettings(
   await sqliteDb(dbOverride).write(
     `UPDATE app_settings SET doc = json_remove(doc, ${args}) WHERE id = ?`,
     [...paths.map(jsonPath), id],
+  );
+}
+
+/**
+ * Removes `path` only while `holds.path` still has `holds.value`, checked in
+ * the same statement, so a write another process makes between a caller's read
+ * and this removal is kept.
+ */
+export async function unsetAppSettingWhile(
+  id: string,
+  path: string,
+  holds: { path: string; value: string },
+  dbOverride?: SqliteDb,
+): Promise<void> {
+  await sqliteDb(dbOverride).write(
+    `UPDATE app_settings SET doc = json_remove(doc, ?) WHERE id = ? AND json_extract(doc, ?) = ?`,
+    [jsonPath(path), id, jsonPath(holds.path), holds.value],
   );
 }
 

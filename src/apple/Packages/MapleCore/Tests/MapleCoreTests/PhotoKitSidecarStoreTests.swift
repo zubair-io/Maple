@@ -44,7 +44,7 @@ final class PhotoKitSidecarStoreTests: XCTestCase {
 
     /// The write side of #2555: `update()` + `flush()` must land real bytes
     /// in `AppSupportSidecarStore` at the `phassetLocalId` key —
-    /// `BackupEngine.uploadCompanionsBestEffort` reads this exact store via
+    /// `BackupEngine.sendEditSidecarBestEffort` reads this exact store via
     /// `sidecars.read(phassetLocalId:)` to decide whether a local edit
     /// exists. Before this fix, nothing ever called `update()` for a
     /// PhotoKit-provenance `EditSession`, so this key was always empty.

@@ -12,7 +12,6 @@ fn bkey(hash: u64) -> CacheKey {
         hash,
         quality: RenderQuality::Full,
         origin: FitOrigin::Standalone,
-        fit_model_version: AUTO_FIT_MODEL_VERSION,
     }
 }
 
@@ -179,9 +178,9 @@ fn bytes_key_path_and_bytes_variants_never_collide() {
     let path_key = CacheKey::Path {
         path: PathBuf::from("/x"),
         mtime: SystemTime::UNIX_EPOCH,
+        len: 0,
         quality: RenderQuality::Full,
         origin: FitOrigin::Standalone,
-        fit_model_version: AUTO_FIT_MODEL_VERSION,
     };
     let bytes_key = bkey(0);
     assert_ne!(path_key, bytes_key);
@@ -292,37 +291,42 @@ fn cross_origin_lookup_misses() {
     assert!(get_lut(&curve_only).is_none(), "curve-only never has a LUT");
 }
 
-/// Curve and residual must come from the same fitting-model version,
-/// including after a caller changes the origin of a path or bytes key.
+/// #5485: a recorded no-preview verdict never reads as a fitted curve, and a
+/// later fit under the same key replaces it.
 #[test]
-fn fit_model_version_invalidates_both_artifact_caches() {
+fn no_preview_verdict_is_not_a_curve_5485() {
     let _g = test_lock();
-    clear_for_test();
-    clear_lut_for_test();
+    let key = bkey(5485);
+    insert_no_preview(key.clone());
+    assert!(has_no_preview(&key));
+    assert!(get(&key).is_none());
+    insert(key.clone(), dummy_curve(1.0));
+    assert!(!has_no_preview(&key));
+    assert!(get(&key).is_some());
+    insert_no_preview(key.clone());
+    assert!(
+        !has_no_preview(&key),
+        "a verdict never replaces a fitted curve"
+    );
+    assert_eq!(get(&key).map(|c| c.chroma_boost), Some(1.0));
+}
+
+#[test]
+fn path_key_includes_length() {
     let dir = tempfile::tempdir().expect("tempdir");
-    let path = dir.path().join("model-version.bin");
-    std::fs::write(&path, b"fit-model-version").expect("write");
-    let keys = [
-        CacheKey::from_path(&path, RenderQuality::Full).expect("path key"),
-        CacheKey::from_bytes(b"fit-model-version", RenderQuality::Full),
-    ];
-    for current in keys {
-        let mut older = current.clone();
-        let (CacheKey::Path {
-            fit_model_version, ..
-        }
-        | CacheKey::Bytes {
-            fit_model_version, ..
-        }) = &mut older;
-        assert_eq!(*fit_model_version, AUTO_FIT_MODEL_VERSION);
-        *fit_model_version -= 1;
-        let current = current.with_origin(FitOrigin::Render(Some(768)));
-        let older = older.with_origin(FitOrigin::Render(Some(768)));
-        insert(older.clone(), dummy_curve(4.2));
-        insert_lut(older.clone(), ColorLut::identity(5));
-        assert!(get(&current).is_none(), "old fit curve must miss");
-        assert!(get_lut(&current).is_none(), "old residual LUT must miss");
-        assert!(get(&older).is_some());
-        assert!(get_lut(&older).is_some());
-    }
+    let path = dir.path().join("len.bin");
+    std::fs::write(&path, b"short").expect("write");
+    let file = std::fs::File::options()
+        .write(true)
+        .open(&path)
+        .expect("open");
+    let mtime = file.metadata().expect("meta").modified().expect("mtime");
+    let before = CacheKey::from_path(&path, RenderQuality::Full).expect("key before");
+    file.set_len(4096).expect("grow");
+    file.set_modified(mtime).expect("restore mtime");
+    let after = CacheKey::from_path(&path, RenderQuality::Full).expect("key after");
+    assert_ne!(
+        before, after,
+        "a length change under an unchanged mtime is a new key"
+    );
 }

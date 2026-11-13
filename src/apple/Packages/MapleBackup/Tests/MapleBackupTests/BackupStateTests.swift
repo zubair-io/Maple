@@ -155,6 +155,29 @@ final class BackupStateTests: XCTestCase {
         let row = try await store2.find(id)
         XCTAssertEqual(row?.state, .uploaded)
     }
+
+    func testRehydrateResumesInterruptedUploadsWithEachTasksPriorityOrAnOverride() async throws {
+        let store = try freshStore()
+        let edit = BackupTaskID(deviceId: "d", phassetLocalId: "edit")
+        let crashed = BackupTaskID(deviceId: "d", phassetLocalId: "crashed")
+        try await store.upsert([
+            BackupTask(id: edit, state: .pending, priority: .userEdit),
+            BackupTask(id: crashed, state: .uploading, priority: .background),
+        ])
+
+        let own = RecordingQueue()
+        let count = try await store.rehydrate(into: own)
+        XCTAssertEqual(count, 2)
+        let ownPriorities = await own.priorities
+        XCTAssertEqual(ownPriorities, [edit: .userEdit, crashed: .background])
+        let resumed: BackupTask? = try await store.find(crashed)
+        XCTAssertEqual(resumed?.state, .pending, "an interrupted upload goes back to pending")
+
+        let overridden = RecordingQueue()
+        try await store.rehydrate(into: overridden, priority: .background)
+        let overriddenPriorities = await overridden.priorities
+        XCTAssertEqual(overriddenPriorities, [edit: .background, crashed: .background])
+    }
 }
 
 // MARK: - captured_at persistence + migration (#3388)
@@ -222,4 +245,17 @@ final class BackupStateCapturedAtTests: XCTestCase {
         let fresh = try await store.find(BackupTaskID(deviceId: "d", phassetLocalId: "fresh"))
         XCTAssertEqual(fresh?.capturedAt, shot)
     }
+}
+
+private actor RecordingQueue: BackupQueue {
+    private(set) var priorities: [BackupTaskID: BackupPriority] = [:]
+
+    func enqueue(_ task: BackupTask, priority: BackupPriority) async {
+        priorities[task.id] = priority
+    }
+    func cancel(_ id: BackupTaskID) async {}
+    func dequeue() async -> BackupTask? { nil }
+    func observe() -> AsyncStream<BackupQueueEvent> { AsyncStream { $0.finish() } }
+    func snapshot() async -> [BackupTask] { [] }
+    func emit(_ event: BackupQueueEvent) async {}
 }

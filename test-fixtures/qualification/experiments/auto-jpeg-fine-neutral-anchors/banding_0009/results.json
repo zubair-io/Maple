@@ -1,0 +1,82 @@
+[
+  {
+    "version": "before",
+    "fixture": "test_0009",
+    "ramp": "neutral",
+    "exit": 1,
+    "budget_key": "test_0000_auto2_neutral/18_auto_tail/luma",
+    "qualification": "cross-camera diagnostic using unchanged test0000 reference ceilings; compared before/after, not a new camera-specific budget"
+  },
+  {
+    "version": "before",
+    "fixture": "test_0009",
+    "ramp": "foliage",
+    "exit": 0,
+    "budget_key": "test_0000_auto2_foliage/18_auto_tail/chroma",
+    "qualification": "cross-camera diagnostic using unchanged test0000 reference ceilings; compared before/after, not a new camera-specific budget"
+  },
+  {
+    "version": "before",
+    "fixture": "test_0009",
+    "ramp": "blue",
+    "exit": 0,
+    "budget_key": "test_0000_auto2_blue/18_auto_tail/chroma",
+    "qualification": "cross-camera diagnostic using unchanged test0000 reference ceilings; compared before/after, not a new camera-specific budget"
+  },
+  {
+    "version": "before",
+    "fixture": "test_0009",
+    "ramp": "magenta",
+    "exit": 0,
+    "budget_key": "test_0000_auto2_magenta/18_auto_tail/chroma",
+    "qualification": "cross-camera diagnostic using unchanged test0000 reference ceilings; compared before/after, not a new camera-specific budget"
+  },
+  {
+    "version": "before",
+    "fixture": "test_0009",
+    "ramp": "skin",
+    "exit": 0,
+    "budget_key": "test_0000_auto2_skin/18_auto_tail/chroma",
+    "qualification": "cross-camera diagnostic using unchanged test0000 reference ceilings; compared before/after, not a new camera-specific budget"
+  },
+  {
+    "version": "after",
+    "fixture": "test_0009",
+    "ramp": "neutral",
+    "exit": 1,
+    "budget_key": "test_0000_auto2_neutral/18_auto_tail/luma",
+    "qualification": "cross-camera diagnostic using unchanged test0000 reference ceilings; compared before/after, not a new camera-specific budget"
+  },
+  {
+    "version": "after",
+    "fixture": "test_0009",
+    "ramp": "foliage",
+    "exit": 0,
+    "budget_key": "test_0000_auto2_foliage/18_auto_tail/chroma",
+    "qualification": "cross-camera diagnostic using unchanged test0000 reference ceilings; compared before/after, not a new camera-specific budget"
+  },
+  {
+    "version": "after",
+    "fixture": "test_0009",
+    "ramp": "blue",
+    "exit": 0,
+    "budget_key": "test_0000_auto2_blue/18_auto_tail/chroma",
+    "qualification": "cross-camera diagnostic using unchanged test0000 reference ceilings; compared before/after, not a new camera-specific budget"
+  },
+  {
+    "version": "after",
+    "fixture": "test_0009",
+    "ramp": "magenta",
+    "exit": 0,
+    "budget_key": "test_0000_auto2_magenta/18_auto_tail/chroma",
+    "qualification": "cross-camera diagnostic using unchanged test0000 reference ceilings; compared before/after, not a new camera-specific budget"
+  },
+  {
+    "version": "after",
+    "fixture": "test_0009",
+    "ramp": "skin",
+    "exit": 0,
+    "budget_key": "test_0000_auto2_skin/18_auto_tail/chroma",
+    "qualification": "cross-camera diagnostic using unchanged test0000 reference ceilings; compared before/after, not a new camera-specific budget"
+  }
+]

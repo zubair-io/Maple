@@ -4,7 +4,17 @@
  * involved, since `apns-sender.test.ts` already covers the sender itself.
  */
 
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'bun:test';
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  jest,
+  spyOn,
+} from 'bun:test';
 import { ObjectId } from '../db/object-id.ts';
 import {
   createLiveTestDatabase,
@@ -15,6 +25,7 @@ import { newObjectIdHex } from '../db/object-id.ts';
 import { getChangeBus, __resetChangeBusForTests } from '../runtime/change-bus.ts';
 import type { AssetChangeWithId } from '../db/schema.ts';
 import { registerDeviceToken, listAllDeviceTokens } from './apns-devices.repo.ts';
+import * as apnsConfig from './apns-config.repo.ts';
 import { saveApnsSettingsConfig } from './apns-config.repo.ts';
 import { ApnsPushTrigger } from './push-trigger.ts';
 import type { ApnsSendResult } from './apns-sender.ts';
@@ -46,6 +57,7 @@ beforeEach(async () => {
 });
 
 afterEach(() => {
+  jest.useRealTimers();
   __resetChangeBusForTests();
   live.close();
 });
@@ -173,29 +185,39 @@ describe('ApnsPushTrigger', () => {
     setEnvCreds();
     await registerDevice('tok-1');
     let calls = 0;
+    const sent = Promise.withResolvers<void>();
     const trigger = new ApnsPushTrigger({
       coalesceMs: 30,
       senderFactory: () => ({
         sendFileProviderWake: async (): Promise<ApnsSendResult> => {
           calls++;
+          sent.resolve();
           return { ok: true };
         },
       }),
     });
-    trigger.start();
-    // 5 changes 20ms apart — each gap is under the 30ms window (so every
-    // change resets the timer), but the burst spans 80ms total, well past
-    // the window. A leading-edge throttle would have fired mid-burst; a
-    // true debounce fires exactly once, after the last change settles.
-    let cursor = 1;
-    for (let i = 0; i < 5; i++) {
-      getChangeBus().publish(fakeChange(new ObjectId(), cursor++));
-      await wait(20);
+    const fires = spyOn(apnsConfig, 'loadApnsSettingsConfig');
+    jest.useFakeTimers();
+    try {
+      trigger.start();
+      // Virtual gaps remain below 30 ms even on a stalled CI runner, while
+      // the total burst exceeds it. A throttle would fire during the burst.
+      for (let cursor = 1; cursor <= 5; cursor++) {
+        getChangeBus().publish(fakeChange(new ObjectId(), cursor));
+        jest.advanceTimersByTime(20);
+      }
+      expect(fires).not.toHaveBeenCalled();
+      jest.advanceTimersByTime(9);
+      expect(fires).not.toHaveBeenCalled();
+      jest.advanceTimersByTime(1);
+      expect(fires).toHaveBeenCalledTimes(1);
+      await sent.promise;
+      expect(calls).toBe(1);
+    } finally {
+      trigger.stop();
+      jest.useRealTimers();
+      fires.mockRestore();
     }
-    expect(calls).toBe(0); // not yet — still inside the post-last-change window
-    await wait(50); // past the 30ms window since the last change
-    trigger.stop();
-    expect(calls).toBe(1);
   });
 
   it('wakes every registered device, across every user', async () => {

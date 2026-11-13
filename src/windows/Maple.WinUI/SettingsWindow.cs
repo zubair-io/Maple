@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -9,6 +10,7 @@ using Microsoft.UI.Xaml.Media;
 using Maple.UI;
 using Maple.UI.Atoms;
 using Maple.WinUI.Services;
+using Maple.WinUI.Services.Pano;
 using Maple.WinUI.ViewModels;
 
 namespace Maple.WinUI
@@ -58,6 +60,7 @@ namespace Maple.WinUI
             Padding = new Thickness(28, 24, 28, 24),
         };
         private string _activeSectionId = "library";
+        private CancellationTokenSource? _mlMatcherDownload;
 
         public SettingsWindow(
             EditSessionViewModel viewModel, Action openCloudConnect, Action<bool> setSidebarVisible,
@@ -69,6 +72,7 @@ namespace Maple.WinUI
             _setCloudFiles = setCloudFiles;
 
             Title = "Maple Settings";
+            Closed += (_, _) => _mlMatcherDownload?.Cancel();
             AppWindow.Resize(new Windows.Graphics.SizeInt32(1000, 720));
 
             var nav = new StackPanel { Orientation = Orientation.Vertical, Spacing = 2, Padding = new Thickness(12, 20, 8, 12) };
@@ -293,6 +297,7 @@ namespace Maple.WinUI
                 Title = "PANORAMA STITCHING",
                 Rows = new[]
                 {
+                    MlMatcherRow(settings.PanoUseMlMatcher),
                     PanoPathRow("pano-cli", "maple-cli path",
                         "Overrides where the pano stitcher executable is found. Empty uses maple-cli.exe beside the app.",
                         settings.PanoCliPath, (s, value) => s.PanoCliPath = value),
@@ -304,6 +309,78 @@ namespace Maple.WinUI
                         settings.PanoOrtDylibPath, (s, value) => s.PanoOrtDylibPath = value),
                 },
             });
+        }
+
+        private MuiSettingsSectionRow MlMatcherRow(bool useMlMatcher)
+        {
+            var toggle = new MuiCheckbox
+            {
+                Label = "Use ML matcher",
+                IsThreeState = false,
+                CheckedState = useMlMatcher,
+            };
+            var status = new MuiStatusText { State = MuiStatusTextState.Idle };
+            toggle.Click += async (_, _) =>
+            {
+                var enabled = toggle.CheckedState == true;
+                _mlMatcherDownload?.Cancel();
+                try
+                {
+                    AppSettings.Update(s => s.PanoUseMlMatcher = enabled);
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    toggle.CheckedState = AppSettings.Load().PanoUseMlMatcher;
+                    status.State = MuiStatusTextState.Error;
+                    status.Text = $"Couldn't save: {ex.Message}";
+                    return;
+                }
+                status.State = MuiStatusTextState.Idle;
+                status.Text = string.Empty;
+                if (enabled)
+                    await ProvisionMlMatcherAsync(status);
+            };
+            var content = new StackPanel { Orientation = Orientation.Vertical, Spacing = 6 };
+            content.Children.Add(toggle);
+            content.Children.Add(status);
+            return new MuiSettingsSectionRow("pano-matcher", "Feature matcher", null,
+                "Off: panoramas stitch with the built-in classical matcher — nothing to download. "
+                + "On: the ALIKED + LightGlue ML matcher, which aligns nadir drone strips more "
+                + "accurately; turning it on downloads the pinned models (~57 MB) and ONNX Runtime "
+                + @"1.23.2 (~120 MB) into %LOCALAPPDATA%\Maple.",
+                content, StartExpanded: true);
+        }
+
+        /// <summary>Opting in is what downloads the ML runtime (#4556). A
+        /// failed or cancelled download leaves the setting on; the stitch
+        /// dialog then offers the download again.</summary>
+        private async Task ProvisionMlMatcherAsync(MuiStatusText status)
+        {
+            var download = new CancellationTokenSource();
+            _mlMatcherDownload = download;
+            var queue = DispatcherQueue;
+            void Report(MuiStatusTextState state, string text) => queue.TryEnqueue(() =>
+            {
+                if (_mlMatcherDownload != download)
+                    return;
+                status.State = state;
+                status.Text = text;
+            });
+            var provisioner = new PanoProvisioner(AppSettings.Load());
+            try
+            {
+                await Task.Run(() => provisioner.ProvisionAsync(
+                    text => Report(MuiStatusTextState.Saving, text), download.Token), download.Token);
+                Report(MuiStatusTextState.Saved, "ML matcher ready");
+            }
+            catch (OperationCanceledException)
+            {
+                Report(MuiStatusTextState.Idle, string.Empty);
+            }
+            catch (Exception ex)
+            {
+                Report(MuiStatusTextState.Error, $"Download failed: {ex.Message}");
+            }
         }
 
         private static MuiSettingsSectionRow PanoPathRow(

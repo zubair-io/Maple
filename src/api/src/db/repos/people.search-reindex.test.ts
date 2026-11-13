@@ -3,10 +3,10 @@
  *
  * Converted from the `people-search-reindex` block of the Mongo
  * `people/people.repo.test.ts`. The behaviour under test is unchanged: renaming
- * or reassigning somebody must put the affected assets back in the meili
- * stage's queue, and must not drag unrelated assets in with them.
+ * or reassigning somebody must put the affected assets back in the search
+ * stages' queue, and must not drag unrelated assets in with them.
  *
- * What did change is where "queued" lives. On MongoDB it was a `stages.meili`
+ * What did change is where "queued" lives. On MongoDB it was a `stages.<name>`
  * subdocument the update created on demand; here it is a `stage_state` row that
  * may or may not exist yet, which is why the writes upsert. An asset with no
  * row at all is the interesting case — assuming the row is there is what
@@ -18,7 +18,7 @@ import type { Database } from 'bun:sqlite';
 import { ObjectId } from '../object-id.ts';
 import { createTestDatabase } from '../sqlite/test-sqlite.test-helpers.ts';
 import { insertStageState } from './assets.test-helpers.ts';
-import { MEILI_STAGE, stageRearmBatchStatement } from './assets.stage-rearm.ts';
+import { SEARCH_BLOB_STAGE, stageRearmBatchStatement } from './assets.stage-rearm.ts';
 import { stageRow } from './stage-runtime.test-helpers.ts';
 import {
   insertFace,
@@ -31,7 +31,7 @@ import { renamePerson } from './people.repo.ts';
 
 /** An asset already processed at v6, with dead-letter bookkeeping to clear. */
 function indexedAtVersionSix(db: Database, assetId: string): void {
-  insertStageState(db, assetId, MEILI_STAGE, {
+  insertStageState(db, assetId, SEARCH_BLOB_STAGE, {
     version: 6,
     attempts: 3,
     dead: true,
@@ -54,14 +54,14 @@ describe('asset search-stage resets', () => {
     indexedAtVersionSix(db, sibling);
 
     const [written] = await testDb(db).transaction([
-      stageRearmBatchStatement([target], MEILI_STAGE),
+      stageRearmBatchStatement([target], SEARCH_BLOB_STAGE),
     ]);
 
     expect(written?.changes).toBe(1);
-    expect(stageRow(db, target, MEILI_STAGE)).toMatchObject({ version: 0, dead: 0 });
+    expect(stageRow(db, target, SEARCH_BLOB_STAGE)).toMatchObject({ version: 0, dead: 0 });
     // Re-arming a whole person's corpus for a single-asset change would
     // re-queue thousands of unchanged rows on a large library.
-    expect(stageRow(db, sibling, MEILI_STAGE)?.version).toBe(6);
+    expect(stageRow(db, sibling, SEARCH_BLOB_STAGE)?.version).toBe(6);
   });
 
   test('an unknown asset id inserts nothing', async () => {
@@ -69,7 +69,7 @@ describe('asset search-stage resets', () => {
     const db = handle.db;
 
     const [written] = await testDb(db).transaction([
-      stageRearmBatchStatement([new ObjectId().toHexString()], MEILI_STAGE),
+      stageRearmBatchStatement([new ObjectId().toHexString()], SEARCH_BLOB_STAGE),
     ]);
 
     expect(written?.changes).toBe(0);
@@ -79,7 +79,7 @@ describe('asset search-stage resets', () => {
   test('an empty id list writes nothing', async () => {
     using handle = await createTestDatabase();
     const [written] = await testDb(handle.db).transaction([
-      stageRearmBatchStatement([], MEILI_STAGE),
+      stageRearmBatchStatement([], SEARCH_BLOB_STAGE),
     ]);
     expect(written?.changes).toBe(0);
   });
@@ -99,6 +99,6 @@ describe('the people mutations trigger the re-arm themselves', () => {
     await renamePerson(new ObjectId(person), 'RhoRenamed', testDb(db));
 
     // The local work request commits before the mutation returns.
-    expect(stageRow(db, asset, MEILI_STAGE)?.version).toBe(0);
+    expect(stageRow(db, asset, SEARCH_BLOB_STAGE)?.version).toBe(0);
   });
 });

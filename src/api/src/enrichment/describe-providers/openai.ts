@@ -1,24 +1,31 @@
 /**
  * OpenAI vision provider.
  *
- * Posts to `/v1/chat/completions` with the image as an `image_url` content
+ * Posts to `/chat/completions` with the image as an `image_url` content
  * part (data-URI base64). Default model `gpt-4o-mini`. Tracks input + output
  * tokens; computes cost from the published per-million-token rates.
+ *
+ * A custom base URL points the same protocol at any OpenAI-compatible server
+ * (vLLM, llama.cpp, Strata, …); those calls are not priced against OpenAI's
+ * rate card.
  *
  * Spec: `docs/indexer-enrichment.md` §6.
  */
 
 import {
   RemoteError,
+  requireFrames,
+  timedProviderFetch,
+  tokenUsageInfo,
+  billedOutputText,
   type DescribeOptions,
   type DescribeProvider,
   type DescribeResult,
 } from './index.ts';
 
-const ENDPOINT = 'https://api.openai.com/v1/chat/completions';
-const MODELS_ENDPOINT = 'https://api.openai.com/v1/models';
+export const OPENAI_DEFAULT_BASE_URL = 'https://api.openai.com/v1';
 const DEFAULT_TIMEOUT_MS = 30_000;
-const DEFAULT_MAX_TOKENS = 256;
+const MAX_OUTPUT_TOKENS = 2048;
 
 /**
  * Per-million-token USD pricing. Match by prefix so versioned aliases (e.g.
@@ -34,6 +41,7 @@ const FALLBACK_RATE = { in_per_m: 0.15, out_per_m: 0.6 };
 
 export interface OpenAIProviderConfig {
   apiKey: string;
+  baseUrl?: string | null;
   /** Per-call request timeout in milliseconds. Default 30_000. */
   requestTimeoutMs?: number;
   /** Test override. */
@@ -47,21 +55,27 @@ interface OpenAIChatResponse {
 }
 
 export class OpenAIProvider implements DescribeProvider {
+  // fallow-ignore-next-line unused-class-member -- part of the DescribeProvider contract; callers use it through the interface
   readonly name = 'openai' as const;
 
   private readonly apiKey: string;
+  private readonly baseUrl: string;
+  private readonly billed: boolean;
   private readonly timeoutMs: number;
   private readonly fetchImpl: typeof fetch;
 
   constructor(config: OpenAIProviderConfig) {
     this.apiKey = config.apiKey;
+    this.baseUrl = openAiBaseUrl(config.baseUrl);
+    this.billed = this.baseUrl === OPENAI_DEFAULT_BASE_URL;
     this.timeoutMs = config.requestTimeoutMs ?? DEFAULT_TIMEOUT_MS;
     this.fetchImpl = config.fetchImpl ?? fetch;
   }
 
-  /** GET `/v1/models` — verifies the key works without spending tokens. */
+  /** GET `/models` — verifies the key works without spending tokens. */
+  // fallow-ignore-next-line unused-class-member -- part of the DescribeProvider contract; callers use it through the interface
   async health(): Promise<void> {
-    const res = await this.timedFetch(MODELS_ENDPOINT, {
+    const res = await this.timedFetch(`${this.baseUrl}/models`, {
       method: 'GET',
       headers: this.headers(),
     });
@@ -72,7 +86,7 @@ export class OpenAIProvider implements DescribeProvider {
     requireFrames(jpegFrames);
     const body = JSON.stringify({
       model: opts.model,
-      max_tokens: DEFAULT_MAX_TOKENS,
+      max_tokens: MAX_OUTPUT_TOKENS,
       messages: [
         {
           role: 'user',
@@ -88,7 +102,7 @@ export class OpenAIProvider implements DescribeProvider {
         },
       ],
     });
-    const res = await this.timedFetch(ENDPOINT, {
+    const res = await this.timedFetch(`${this.baseUrl}/chat/completions`, {
       method: 'POST',
       headers: { ...this.headers(), 'content-type': 'application/json' },
       body,
@@ -103,23 +117,23 @@ export class OpenAIProvider implements DescribeProvider {
       throw new RemoteError(`Malformed OpenAI JSON: ${msg}`, false);
     }
 
-    const text = extractFirstChoiceText(parsed.choices);
-    if (text.length === 0) {
-      throw new RemoteError('OpenAI returned empty content', false);
-    }
     const inTokens =
       typeof parsed.usage?.prompt_tokens === 'number' ? parsed.usage.prompt_tokens : 0;
     const outTokens =
       typeof parsed.usage?.completion_tokens === 'number' ? parsed.usage.completion_tokens : 0;
-    const cost = priceForModel(opts.model, inTokens, outTokens);
+    const cost = this.billed ? priceForModel(opts.model, inTokens, outTokens) : 0;
+    const text = billedOutputText(
+      'OpenAI',
+      cost,
+      firstChoiceFinishReason(parsed.choices) === 'length'
+        ? `finish_reason=length, max_tokens=${MAX_OUTPUT_TOKENS}`
+        : null,
+      () => extractFirstChoiceText(parsed.choices),
+    );
     return {
       text,
       cost_usd: cost,
-      provider_info: {
-        model: typeof parsed.model === 'string' ? parsed.model : opts.model,
-        input_tokens: String(inTokens),
-        output_tokens: String(outTokens),
-      },
+      provider_info: tokenUsageInfo(parsed.model, opts.model, inTokens, outTokens),
     };
   }
 
@@ -128,29 +142,27 @@ export class OpenAIProvider implements DescribeProvider {
   }
 
   private async timedFetch(url: string, init: RequestInit): Promise<Response> {
-    const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), this.timeoutMs);
-    try {
-      return await this.fetchImpl(url, { ...init, signal: ctrl.signal });
-    } catch (err) {
-      const aborted = err instanceof Error && (err.name === 'AbortError' || ctrl.signal.aborted);
-      const msg = err instanceof Error ? err.message : String(err);
-      throw new RemoteError(
-        aborted
-          ? `OpenAI request timed out after ${this.timeoutMs}ms`
-          : `OpenAI request failed: ${msg}`,
-        true,
-      );
-    } finally {
-      clearTimeout(timer);
-    }
+    return timedProviderFetch('OpenAI', url, init, {
+      timeoutMs: this.timeoutMs,
+      fetchImpl: this.fetchImpl,
+    });
   }
 }
 
-function requireFrames(frames: readonly Buffer[]): void {
-  if (frames.length === 0) {
-    throw new RemoteError('Describe requires at least one JPEG frame', false);
-  }
+export function openAiBaseUrl(raw: string | null | undefined): string {
+  return raw?.trim().replace(/\/+$/, '') || OPENAI_DEFAULT_BASE_URL;
+}
+
+/** The deployment's `MAPLE_OPENAI_API_KEY` belongs to OpenAI itself and must never reach another host. */
+export function allowsEnvOpenAiKey(raw: string | null | undefined): boolean {
+  return openAiBaseUrl(raw) === OPENAI_DEFAULT_BASE_URL;
+}
+
+function firstChoiceFinishReason(choices: unknown): unknown {
+  const first = Array.isArray(choices) ? choices[0] : undefined;
+  return first && typeof first === 'object'
+    ? (first as { finish_reason?: unknown }).finish_reason
+    : undefined;
 }
 
 function extractFirstChoiceText(choices: unknown): string {

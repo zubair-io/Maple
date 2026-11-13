@@ -5,7 +5,7 @@ import XCTest
 
 final class WorkflowContractTests: XCTestCase {
   private func corpusData() throws -> Data {
-    try Data(contentsOf: WorkflowFixture.root().appendingPathComponent("workflow/contract-v1.json"))
+    try Data(contentsOf: WorkflowFixture.root().appendingPathComponent("workflow/contract.json"))
   }
   func testCompleteCheckpointBytesSurviveActualFilesAndReopen() throws {
     let values = try JSONDecoder().decode([SidecarWorkflow].self, from: corpusData())
@@ -51,7 +51,7 @@ final class WorkflowContractTests: XCTestCase {
     let history = try XCTUnwrap(base["history"] as? [[String: Any]])
     let snapshots = try XCTUnwrap(base["snapshots"] as? [[String: Any]])
     let invalid: [[String: Any]] = [
-      base.merging(["schemaVersion": 2]) { _, new in new },
+      base.merging(["schemaVersion": 3]) { _, new in new },
       base.merging(["future": true]) { _, new in new },
       base.filter { $0.key != "variantName" },
       base.merging(["variantId": "../photo"]) { _, new in new },
@@ -85,7 +85,7 @@ final class WorkflowContractTests: XCTestCase {
 
 /// Both the checkout and CI's isolated package must include the committed corpus.
 enum WorkflowFixture {
-  static let required = ["workflow/contract-v1.json", "local-adjustments/lightroom-group-add.xmp"]
+  static let required = ["workflow/contract.json", "local-adjustments/lightroom-group-add.xmp"]
   static func root(from file: URL = URL(fileURLWithPath: #filePath)) throws -> URL {
     let parents = sequence(first: file.standardizedFileURL.deletingLastPathComponent()) {
       directory -> URL? in

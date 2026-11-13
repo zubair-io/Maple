@@ -8,12 +8,11 @@
 // wrong; it never RAN, because a stale artifact was still key-valid and
 // short-circuited it.
 //
-// `RenderedPreviewCacheUpgradeTests` (MapleCore) owns the key algebra: it
-// proves that an entry stored under a previous `viewTransformVersion` /
-// `pipelineOutputVersion` is not served, using the real constants. What that
-// test CANNOT see is whether the live app honours the disk cache at all —
-// whether a stale JPEG really does reach the canvas and displace the render.
-// That is this file's half, and it needs the running app:
+// `RenderedPreviewCacheUpgradeTests` (MapleCore) owns the key algebra. Since
+// #4793 the key carries no version, so an app upgrade keeps serving persisted
+// entries by design. What MapleCore CANNOT see is whether a stale JPEG that
+// the cache does serve can displace the settled render. That is this file's
+// half, and it needs the running app:
 //
 //   Launch 1  clean       → the pipeline runs, the canvas lands on the
 //                           Rust-predicted value, and a preview is persisted.
@@ -22,9 +21,9 @@
 //                           renders to completion, and settles on the true
 //                           pixels — proving a poisoned cache cannot corrupt
 //                           the settled canvas.
-//   Launch 3  upgraded    → the same poisoned bytes are moved to a DIFFERENT
-//                           variant digest — exactly what a version bump does
-//                           to the key from the cache's point of view — and
+//   Launch 3  re-keyed    → the same poisoned bytes are moved to a DIFFERENT
+//                           variant digest — what an mtime or sidecar change
+//                           does to the key from the cache's point of view — and
 //                           the canvas must be back on the correct value, with
 //                           no stale short-circuit and no live-vs-refine
 //                           divergence.
@@ -112,9 +111,9 @@ import XCTest
           + "canvas must land on the Rust-predicted mean \(Self.expectedMean), "
           + "measured \(poisonedMean)")
 
-      // ── Launch 3: the upgrade. Same bytes, under keys this build does not
-      //    compute — which is exactly what a version bump does to the whole
-      //    store. Every `.jpg` is re-keyed, not just the one launch 1 wrote,
+      // ── Launch 3: re-keyed. Same bytes, under keys this build does not
+      //    compute — what a source or sidecar change does to an entry.
+      //    Every `.jpg` is re-keyed, not just the one launch 1 wrote,
       //    so a preview launch 2 re-persisted cannot mask the result. ──
       try Self.rekeyEverything(in: previewDir)
       let upgradedMean = try launchAndMeasureMean(staged)

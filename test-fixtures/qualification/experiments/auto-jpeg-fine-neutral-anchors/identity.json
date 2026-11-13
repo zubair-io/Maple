@@ -1,0 +1,11 @@
+{
+  "source_commit": "9ebc50a4c1ca7244ceb0662d5e3e77af3c568c0e",
+  "renderer_tree": "cb14ec1aba42b2559b7a8a3529d14889e7317c16",
+  "binary": "/Users/riabuz/.codex/color-suite-evidence/5000/auto-jpeg-fine-neutral-anchors/maple-cli",
+  "binary_sha256": "3826347bf3b00ca9f5ca31e16f278ec86853c3787a270154f8757286fe13d72c",
+  "raw": "/Users/riabuz/.codex/color-suite-evidence/5000/input-snapshot/3e/3ea2d03556747afcafa24f13fee69106f383dfaf3a2f436f8331f14518f20037.CR2",
+  "raw_sha256": "3ea2d03556747afcafa24f13fee69106f383dfaf3a2f436f8331f14518f20037",
+  "pipeline_output_version": 37,
+  "fit_version": 7,
+  "status": "complete physical checkpoint:9JPEGpass7fail4exactfallback0error;100units8host7GPU5canonicalramps;changedfixturegrayramps preserved; goal incomplete"
+}

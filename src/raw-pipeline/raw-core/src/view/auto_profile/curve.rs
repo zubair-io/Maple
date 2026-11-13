@@ -1,4 +1,4 @@
-//! Per-channel monotone piecewise-linear tone curve fit from source + target
+//! Per-channel monotone tone curve fit from source + target
 //! distributions. Pure functions; no I/O.
 //!
 //! The fit method (CDF matching):
@@ -12,7 +12,7 @@
 //! 3. Clamp tiny floating-point inversions back to monotone.
 //!
 //! Curves are stored as 32 evenly-spaced `(input, output)` anchor pairs so
-//! evaluation is a single multiply + floor + linear interpolation between
+//! evaluation is a single multiply + floor + cubic interpolation between
 //! adjacent anchors — no binary search.
 
 const ANCHORS: usize = 32;
@@ -28,7 +28,7 @@ const CDF_BINS: usize = 256;
 /// lightness_band_offsets (5), ab_band_offsets (10) = 220.
 pub const PROFILE_CURVE_FLAT_LEN: usize = 3 * ANCHORS * 2 + 9 + 1 + 2 + 1 + 5 + 10;
 
-/// 32-anchor monotone piecewise-linear curve per channel.
+/// 32-anchor monotone curve per channel, evaluated as a monotone cubic.
 ///
 /// Anchors are stored as `(input, output)` pairs sorted by input ascending.
 /// Input values are evenly spaced in `[0, 1]` at construction time, which
@@ -235,7 +235,7 @@ pub fn build_cdf(samples: &[f32], bins: usize) -> Vec<f32> {
     cdf
 }
 
-/// Fit a monotone piecewise-linear curve that maps the source distribution
+/// Fit a monotone 32-anchor curve that maps the source distribution
 /// onto the target distribution. Both slices contain samples in `[0, 1]`.
 ///
 /// Returns the identity curve if either distribution is empty (no signal
@@ -286,17 +286,38 @@ fn quantile_of(cdf: &[f32], v: f32) -> f32 {
     1.0
 }
 
-/// Evaluate a channel curve at `v` in `[0, 1]`. Linear interpolation
-/// between the two anchors bracketing `v`. Out-of-range `v` is clamped.
+/// Evaluate a channel curve at `v` in `[0, 1]`: a monotone cubic Hermite
+/// through the anchors, so the slope is continuous at every knot (#4636).
+/// Out-of-range `v` is clamped. Tangents are the harmonic mean of the
+/// neighbouring secants (zero across a turn or flat), at most twice the
+/// smaller secant, which keeps every segment within the Fritsch–Carlson
+/// monotone region; the end knots take their one secant. Mirrored by
+/// raw-gpu's oracle and `auto_profile_curve.wgsl`.
 pub fn eval_channel(curve: &ChannelCurve, v: f32) -> f32 {
-    let v = v.clamp(0.0, 1.0);
-    // Anchors are evenly spaced in input — multiplying by `ANCHORS - 1`
-    // gives the fractional anchor index directly.
-    let scaled = v * (ANCHORS - 1) as f32;
-    let lo = scaled.floor() as usize;
-    let hi = (lo + 1).min(ANCHORS - 1);
+    let output = |i: usize| curve.anchors[i].1;
+    let scaled = v.clamp(0.0, 1.0) * (ANCHORS - 1) as f32;
+    let lo = (scaled.floor() as usize).min(ANCHORS - 2);
     let t = scaled - lo as f32;
-    let lo_y = curve.anchors[lo].1;
-    let hi_y = curve.anchors[hi].1;
-    lo_y + (hi_y - lo_y) * t
+    let (t2, t3) = (t * t, t * t * t);
+    (2.0 * t3 - 3.0 * t2 + 1.0) * output(lo)
+        + (t3 - 2.0 * t2 + t) * knot_tangent(curve, lo)
+        + (3.0 * t2 - 2.0 * t3) * output(lo + 1)
+        + (t3 - t2) * knot_tangent(curve, lo + 1)
+}
+
+/// The cubic's tangent at knot `k`, in output per anchor step.
+pub(super) fn knot_tangent(curve: &ChannelCurve, k: usize) -> f32 {
+    let secant = |k: usize| curve.anchors[k + 1].1 - curve.anchors[k].1;
+    match k {
+        0 => secant(0),
+        k if k == ANCHORS - 1 => secant(ANCHORS - 2),
+        k => {
+            let (before, after) = (secant(k - 1), secant(k));
+            if before * after <= 0.0 {
+                0.0
+            } else {
+                2.0 * before * after / (before + after)
+            }
+        }
+    }
 }

@@ -119,7 +119,7 @@ describe('XMP WbScaleVersion (#1780)', () => {
     const { model } = parser.parseAdjustmentModel(xml);
     expect(model.wbScaleVersion).toBe(5);
     expect(model.temperature).toBeCloseTo(5696.39, 1);
-    expect(model.tint).toBeCloseTo(-3.92, 2);
+    expect(model.tint).toBeCloseTo(-5.04, 2);
   });
 
   it('converts a V3-authored pair jointly into V5 on load (#1893/#1894)', () => {
@@ -128,7 +128,7 @@ describe('XMP WbScaleVersion (#1780)', () => {
     const { model } = parser.parseAdjustmentModel(xml);
     expect(model.wbScaleVersion).toBe(5);
     expect(model.temperature).toBeCloseTo(5526.09, 1);
-    expect(model.tint).toBeCloseTo(-32.58, 2);
+    expect(model.tint).toBeCloseTo(-33.05, 2);
   });
 
   it('converts a V4-authored pair jointly into V5 on load (#1894)', () => {
@@ -139,7 +139,7 @@ describe('XMP WbScaleVersion (#1780)', () => {
     const { model } = parser.parseAdjustmentModel(xml);
     expect(model.wbScaleVersion).toBe(5);
     expect(model.temperature).toBeCloseTo(5526.6, 1);
-    expect(model.tint).toBeCloseTo(-42.38, 2);
+    expect(model.tint).toBeCloseTo(-42.85, 2);
   });
 
   it('passes a V5-stamped pair through unconverted', () => {

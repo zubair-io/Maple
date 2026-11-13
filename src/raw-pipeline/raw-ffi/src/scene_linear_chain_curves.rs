@@ -55,11 +55,85 @@ pub struct MapleToneCurves {
     pub display_green_len: usize,
     pub display_blue_ptr: *const f32,
     pub display_blue_len: usize,
+    // --- #4738: the parametric tone curve (`tone_curves` stage input) that
+    //     the scalar params never carried. Regions are the four ACR-style
+    //     sliders in `[-100, 100]`; splits are axis positions in `[0, 100]`
+    //     read as a trio — all three `0.0` ⇒ the 25/50/75 defaults (see
+    //     `parametric_split_or_defaults`). Zero-initialised ⇒ identity. ---
+    pub parametric_highlights: f32,
+    pub parametric_lights: f32,
+    pub parametric_darks: f32,
+    pub parametric_shadows: f32,
+    pub parametric_shadow_split: f32,
+    pub parametric_midtone_split: f32,
+    pub parametric_highlight_split: f32,
+    // --- #5041: Oklab secondary color curves (Stage 22b). Same flat `(x, y)`
+    //     pair wire shape as `luma_ptr` above. Null/zero-length = identity. ---
+    pub color_curve_hue_vs_hue_ptr: *const f32,
+    pub color_curve_hue_vs_hue_len: usize,
+    pub color_curve_hue_vs_sat_ptr: *const f32,
+    pub color_curve_hue_vs_sat_len: usize,
+    pub color_curve_hue_vs_luma_ptr: *const f32,
+    pub color_curve_hue_vs_luma_len: usize,
+    pub color_curve_luma_vs_sat_ptr: *const f32,
+    pub color_curve_luma_vs_sat_len: usize,
+    pub color_curve_sat_vs_sat_ptr: *const f32,
+    pub color_curve_sat_vs_sat_len: usize,
+    pub color_curve_sat_vs_luma_ptr: *const f32,
+    pub color_curve_sat_vs_luma_len: usize,
 }
 
 /// # Safety
 /// `ptr` must be valid for `len` f32 reads, or null. A trailing odd float
 /// (len not a multiple of 2) is ignored rather than read as a half-pair.
+/// Everything `MapleToneCurves` carries that the scalar params ABI cannot:
+/// point curves, their mode, the display-referred curves (#2232) and the
+/// parametric regions + splits (#4738). Shared by every curves-aware entry.
+///
+/// # Safety
+/// Each non-null `*_ptr` must point at `*_len` readable `f32`s.
+pub(crate) unsafe fn inject_tone_curves(
+    model: &mut raw_core::xmp::AdjustmentModel,
+    c: &MapleToneCurves,
+) {
+    model.tone_curve_luma = curve_from_flat(c.luma_ptr, c.luma_len);
+    model.tone_curve_red = curve_from_flat(c.red_ptr, c.red_len);
+    model.tone_curve_green = curve_from_flat(c.green_ptr, c.green_len);
+    model.tone_curve_blue = curve_from_flat(c.blue_ptr, c.blue_len);
+    model.tone_curve_mode = match c.mode {
+        1 => ToneCurveMode::RatioPreserving,
+        _ => ToneCurveMode::PerChannel,
+    };
+    model.display_tone_curve_luma = curve_from_flat(c.display_luma_ptr, c.display_luma_len);
+    model.display_tone_curve_red = curve_from_flat(c.display_red_ptr, c.display_red_len);
+    model.display_tone_curve_green = curve_from_flat(c.display_green_ptr, c.display_green_len);
+    model.display_tone_curve_blue = curve_from_flat(c.display_blue_ptr, c.display_blue_len);
+    model.parametric_highlights = c.parametric_highlights;
+    model.parametric_lights = c.parametric_lights;
+    model.parametric_darks = c.parametric_darks;
+    model.parametric_shadows = c.parametric_shadows;
+    let [shadow, midtone, highlight] = crate::scene_linear_chain::parametric_split_or_defaults(
+        c.parametric_shadow_split,
+        c.parametric_midtone_split,
+        c.parametric_highlight_split,
+    );
+    model.parametric_shadow_split = shadow;
+    model.parametric_midtone_split = midtone;
+    model.parametric_highlight_split = highlight;
+    model.color_curve_hue_vs_hue =
+        curve_from_flat(c.color_curve_hue_vs_hue_ptr, c.color_curve_hue_vs_hue_len);
+    model.color_curve_hue_vs_sat =
+        curve_from_flat(c.color_curve_hue_vs_sat_ptr, c.color_curve_hue_vs_sat_len);
+    model.color_curve_hue_vs_luma =
+        curve_from_flat(c.color_curve_hue_vs_luma_ptr, c.color_curve_hue_vs_luma_len);
+    model.color_curve_luma_vs_sat =
+        curve_from_flat(c.color_curve_luma_vs_sat_ptr, c.color_curve_luma_vs_sat_len);
+    model.color_curve_sat_vs_sat =
+        curve_from_flat(c.color_curve_sat_vs_sat_ptr, c.color_curve_sat_vs_sat_len);
+    model.color_curve_sat_vs_luma =
+        curve_from_flat(c.color_curve_sat_vs_luma_ptr, c.color_curve_sat_vs_luma_len);
+}
+
 unsafe fn curve_from_flat(ptr: *const f32, len: usize) -> ToneCurve {
     if ptr.is_null() || len < 2 {
         return ToneCurve::default();
@@ -86,9 +160,20 @@ pub unsafe extern "C" fn maple_apply_chain_and_encode_display_curves_f32(
     curves: *const MapleToneCurves,
     out_ptr: *mut f32,
 ) -> i32 {
-    chain_with_film(
-        in_ptr, width, height, params, curves, None, 0.0, out_ptr, None,
-    )
+    crate::error::catch_panic_rc("maple_apply_chain_and_encode_display_curves_f32", || {
+        chain_with_film(
+            in_ptr,
+            width,
+            height,
+            params,
+            curves,
+            None,
+            0.0,
+            out_ptr,
+            None,
+            std::ptr::null(),
+        )
+    })
 }
 
 /// Film-aware sibling for a cached LUT; no LUT decoding/copying per tick.
@@ -106,20 +191,26 @@ pub unsafe extern "C" fn maple_apply_chain_and_encode_display_curves_film_f32(
     strength: f32,
     out_ptr: *mut f32,
 ) -> i32 {
-    if !strength.is_finite() || !(0.0..=100.0).contains(&strength) {
-        set_last_error("film chain: strength must be finite and in 0..100".into());
-        return 4;
-    }
-    chain_with_film(
-        in_ptr,
-        width,
-        height,
-        params,
-        curves,
-        film.as_ref().map(|handle| &handle.lut),
-        strength,
-        out_ptr,
-        None,
+    crate::error::catch_panic_rc(
+        "maple_apply_chain_and_encode_display_curves_film_f32",
+        || {
+            if !strength.is_finite() || !(0.0..=100.0).contains(&strength) {
+                set_last_error("film chain: strength must be finite and in 0..100".into());
+                return 4;
+            }
+            chain_with_film(
+                in_ptr,
+                width,
+                height,
+                params,
+                curves,
+                film.as_ref().map(|handle| &handle.lut),
+                strength,
+                out_ptr,
+                None,
+                std::ptr::null(),
+            )
+        },
     )
 }
 
@@ -131,8 +222,22 @@ pub struct MapleChainWindow {
     pub full_height: u32,
 }
 
+impl From<&MapleChainWindow> for raw_core::pipeline::ChainWindow {
+    fn from(window: &MapleChainWindow) -> Self {
+        Self {
+            x: window.x,
+            y: window.y,
+            full_width: window.full_width,
+            full_height: window.full_height,
+        }
+    }
+}
+
 /// # Safety
-/// Same lifetime and buffer contract as the Film entry; window must be valid.
+/// Same lifetime and buffer contract as the Film entry; window must be valid
+/// and `haze` null or a live `MapleHazeMap` — the frame's dehaze maps from
+/// `maple_scene_linear_chain_haze_map_f32`, required (else `8`) when dehaze is
+/// engaged globally or in a layer (#3287).
 #[no_mangle]
 pub unsafe extern "C" fn maple_apply_chain_and_encode_window_f32(
     in_ptr: *const f32,
@@ -143,32 +248,31 @@ pub unsafe extern "C" fn maple_apply_chain_and_encode_window_f32(
     film: *const crate::film::MapleFilmLut,
     strength: f32,
     window: *const MapleChainWindow,
+    haze: *const crate::MapleHazeMap,
     out_ptr: *mut f32,
 ) -> i32 {
-    let Some(window) = window.as_ref() else {
-        set_last_error("native detail: null window".into());
-        return 1;
-    };
-    if !strength.is_finite() || !(0.0..=100.0).contains(&strength) {
-        set_last_error("native detail: invalid film strength".into());
-        return 4;
-    }
-    chain_with_film(
-        in_ptr,
-        width,
-        height,
-        params,
-        curves,
-        film.as_ref().map(|f| &f.lut),
-        strength,
-        out_ptr,
-        Some(raw_core::pipeline::ChainWindow {
-            x: window.x,
-            y: window.y,
-            full_width: window.full_width,
-            full_height: window.full_height,
-        }),
-    )
+    crate::error::catch_panic_rc("maple_apply_chain_and_encode_window_f32", || {
+        let Some(window) = window.as_ref() else {
+            set_last_error("native detail: null window".into());
+            return 1;
+        };
+        if !strength.is_finite() || !(0.0..=100.0).contains(&strength) {
+            set_last_error("native detail: invalid film strength".into());
+            return 4;
+        }
+        chain_with_film(
+            in_ptr,
+            width,
+            height,
+            params,
+            curves,
+            film.as_ref().map(|f| &f.lut),
+            strength,
+            out_ptr,
+            Some(window.into()),
+            haze,
+        )
+    })
 }
 
 unsafe fn chain_with_film(
@@ -181,6 +285,7 @@ unsafe fn chain_with_film(
     strength: f32,
     out_ptr: *mut f32,
     window: Option<raw_core::pipeline::ChainWindow>,
+    haze: *const crate::MapleHazeMap,
 ) -> i32 {
     if in_ptr.is_null() || params.is_null() || out_ptr.is_null() {
         set_last_error("apply_chain_and_encode_display_curves_f32: null pointer".into());
@@ -210,25 +315,21 @@ unsafe fn chain_with_film(
 
     // Same shared slider -> model mapping as every chain entry (#1486), then
     // inject the point curves the scalar ABI cannot carry.
-    let mut ci = chain_inputs_from_params(p);
+    let mut ci = match chain_inputs_from_params(p) {
+        Ok(ci) => ci,
+        Err(e) => {
+            set_last_error(e);
+            return 8;
+        }
+    };
     ci.model.film_strength = strength;
     if !curves.is_null() {
-        let c = &*curves;
-        ci.model.tone_curve_luma = curve_from_flat(c.luma_ptr, c.luma_len);
-        ci.model.tone_curve_red = curve_from_flat(c.red_ptr, c.red_len);
-        ci.model.tone_curve_green = curve_from_flat(c.green_ptr, c.green_len);
-        ci.model.tone_curve_blue = curve_from_flat(c.blue_ptr, c.blue_len);
-        ci.model.tone_curve_mode = match c.mode {
-            1 => ToneCurveMode::RatioPreserving,
-            _ => ToneCurveMode::PerChannel,
-        };
-        ci.model.display_tone_curve_luma = curve_from_flat(c.display_luma_ptr, c.display_luma_len);
-        ci.model.display_tone_curve_red = curve_from_flat(c.display_red_ptr, c.display_red_len);
-        ci.model.display_tone_curve_green =
-            curve_from_flat(c.display_green_ptr, c.display_green_len);
-        ci.model.display_tone_curve_blue = curve_from_flat(c.display_blue_ptr, c.display_blue_len);
+        inject_tone_curves(&mut ci.model, &*curves);
     }
-    let opts = ci.options(p.skip_agx != 0);
+    let opts = raw_core::pipeline::ChainOptions {
+        haze_map: haze.as_ref().map(|haze| &*haze.0),
+        ..ci.options(p.skip_agx != 0)
+    };
 
     let in_slice = std::slice::from_raw_parts(in_ptr, lanes);
     let rendered = match window {

@@ -5,11 +5,17 @@
     "src/cloudflare/backup-snapshot.worker.ts",
     "scripts/restore-sqlite-r2.ts",
     "src/workers/worker-main.ts",
+    // Temporal bundles this file into its workflow sandbox by path
+    // (temporal-host.ts WORKFLOWS_PATH), so its re-exports have no importer.
+    "src/temporal/workflows.ts",
+    // Run by CI to fetch the Temporal test server ahead of the fixture servers.
+    "scripts/prewarm-temporal.ts",
     "src/ffi/raw_ffi.child.ts",
     "src/thumbs/hdr-decode.child.ts",
     "src/enrichment/face-pool.child.ts",
     "src/search/search.child.ts",
     "src/db/sqlite/db.worker.ts",
+    "src/fs/rename-no-replace.worker.ts",
     "scripts/sqlite-bench/run.ts",
 
     // The benchmarks. Entry points, run by hand, so their exports have no
@@ -26,11 +32,10 @@
     // against one generated library. Same reason as the blocks above.
     "scripts/sqlite-bench/stage-backlog-counts.ts",
     "src/people/clustering-quality-harness.ts",
-    "tools/export-search-corpus.ts",
     "src/runtime/__fixtures__/stderr-crash-child.ts",
     "src/runtime/__fixtures__/stderr-crash-harness.ts",
     "src/__fixtures__/otel-crash-child.ts",
-    // The auth-expiry regression launches a real API process with this preload.
+    // The API boot test (tests/api-boot.test.ts) launches a real API process with this preload.
     "tests/coverage.child.preload.ts",
     // #3770 — launched by the native File Provider live restart tests.
     "tests/fixtures/file-provider-restart.ts",
@@ -43,7 +48,15 @@
     // #3797 — the reader-pool sizing and degradation benchmark. Same shape as
     // the block above: an entry point run by hand, so nothing imports it. On
     // its own line for the same reason those are.
-    "scripts/sqlite-bench/reader-pool.ts"
+    "scripts/sqlite-bench/reader-pool.ts",
+
+    // #4514 — the For You load reproduction and the caption library it runs on.
+    "scripts/sqlite-bench/caption-library.ts",
+    "scripts/sqlite-bench/generated-search-load.ts",
+    // #5707 — what one Backup settings page load costs, old aggregates vs counters.
+    "scripts/sqlite-bench/backup-destination-status.ts",
+    // #4510 — the worker-tier stand-in `remote-search.test.ts` spawns as a real child.
+    "src/search/__fixtures__/remote-search-child.ts"
   ],
   // #4035 deliberately stages the Rust-generated workflow contract; API
   // persistence consumers land under #2437. Like the Web mirror, this output

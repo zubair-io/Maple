@@ -306,6 +306,53 @@ namespace Maple.WinUI.Tests
         }
 
         [Fact]
+        public async Task ReplacePolicy_DuplicateRenderedNames_SecondItemIsSuffixedNotOverwritten()
+        {
+            var a = WriteItem("a", "shot_a.dng", "A");
+            var b = WriteItem("b", "shot_b.dng", "B");
+
+            var outcomes = await BatchRenameLogic.ApplySequentialAsync(
+                new[] { a, b }, "same.{ext}", 0, 0, CollisionPolicy.Replace, FakeRender);
+
+            Assert.All(outcomes, o => Assert.Equal(BatchRenameOutcomeKind.Relocated, o.Kind));
+            Assert.Equal("same.dng", outcomes[0].NewFileName);
+            Assert.Equal("same.1.dng", outcomes[1].NewFileName);
+            Assert.Equal("A", File.ReadAllText(Path.Combine(_dir, "same.dng")));
+            Assert.Equal("B", File.ReadAllText(Path.Combine(_dir, "same.1.dng")));
+        }
+
+        [Fact]
+        public async Task ReplacePolicy_RenumberChain_NoBatchMemberIsOverwritten()
+        {
+            var items = new[]
+            {
+                WriteItem("1", "Trip_0001.dng", "one"),
+                WriteItem("2", "Trip_0002.dng", "two"),
+                WriteItem("3", "Trip_0003.dng", "three"),
+            };
+
+            var outcomes = await BatchRenameLogic.ApplySequentialAsync(
+                items, "Trip_{n}.{ext}", 2, 4, CollisionPolicy.Replace, FakeRender);
+
+            Assert.All(outcomes, o => Assert.Equal(BatchRenameOutcomeKind.Relocated, o.Kind));
+            var survivingContents = Directory.GetFiles(_dir).Select(File.ReadAllText).OrderBy(c => c).ToArray();
+            Assert.Equal(new[] { "one", "three", "two" }, survivingContents);
+        }
+
+        [Fact]
+        public async Task ReplacePolicy_TargetOutsideTheBatch_StillOverwrites()
+        {
+            var a = WriteItem("a", "shot_a.dng", "A");
+            File.WriteAllText(Path.Combine(_dir, "taken.dng"), "old");
+
+            var outcomes = await BatchRenameLogic.ApplySequentialAsync(
+                new[] { a }, "taken.{ext}", 0, 0, CollisionPolicy.Replace, FakeRender);
+
+            Assert.Equal("taken.dng", outcomes[0].NewFileName);
+            Assert.Equal("A", File.ReadAllText(Path.Combine(_dir, "taken.dng")));
+        }
+
+        [Fact]
         public async Task ProgressCallback_FiresOncePerItemInOrder()
         {
             var a = WriteItem("a", "a.dng", "A");

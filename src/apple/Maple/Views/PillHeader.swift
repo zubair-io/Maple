@@ -12,32 +12,61 @@ struct PillHeader: View {
   @Binding var showsScope: Bool
   @Binding var showsScopesPanel: Bool
   let scopesPanelAvailable: Bool
+  /// The open Duo carries the group switcher in this row (#5710).
+  var showsGroupSwitcher = false
 
   var body: some View {
+    header
+      .buttonStyle(.plain)
+      .accessibilityElement(children: .contain)
+      .accessibilityIdentifier("editor-pill-header")
+  }
+
+  @ViewBuilder private var header: some View {
+    #if os(iOS)
+      if showsGroupSwitcher {
+        FloatingImageHeader(identifierPrefix: "editor", onBack: onBack) {
+          EditorHistogramChip(session: state.session)
+        } trailing: {
+          actions
+        } accessory: {
+          EditorGroupSwitcher(state: state)
+            .accessibilityIdentifier("editor-header-groups")
+        }
+      } else {
+        plainHeader
+      }
+    #else
+      plainHeader
+    #endif
+  }
+
+  private var plainHeader: some View {
     FloatingImageHeader(identifierPrefix: "editor", onBack: onBack) {
       EditorHistogramChip(session: state.session)
     } trailing: {
-      EditorAutoButton(state: state)
-        .id(ObjectIdentifier(state.session))
-
-      Button {
-        perform(.undo)
-      } label: {
-        Image(systemName: "arrow.uturn.backward")
-          .font(.system(size: 22))
-          .frame(width: 44, height: 44)
-          .contentShape(Rectangle())
-      }
-      .disabled(!state.canUndo)
-      .accessibilityLabel("Undo")
-      .accessibilityIdentifier("editor-undo")
-      .help("Undo (⌘Z)")
-
-      overflowMenu
+      actions
     }
-    .buttonStyle(.plain)
-    .accessibilityElement(children: .contain)
-    .accessibilityIdentifier("editor-pill-header")
+  }
+
+  @ViewBuilder private var actions: some View {
+    EditorAutoButton(state: state)
+      .id(ObjectIdentifier(state.session))
+
+    Button {
+      perform(.undo)
+    } label: {
+      Image(systemName: "arrow.uturn.backward")
+        .font(.system(size: 22))
+        .frame(width: 44, height: 44)
+        .contentShape(Rectangle())
+    }
+    .disabled(!state.canUndo)
+    .accessibilityLabel("Undo")
+    .accessibilityIdentifier("editor-undo")
+    .help("Undo (⌘Z)")
+
+    overflowMenu
   }
 
   private var overflowMenu: some View {
@@ -102,11 +131,21 @@ struct PillHeader: View {
         } label: {
           Label("Zoom to Fit", systemImage: "arrow.up.left.and.arrow.down.right")
         }
-        .disabled(state.zoom.displayFrameInPoints == nil)
+        .disabled(state.zoom.displayFrameInPoints == nil || state.zoom.isZoomLocked)
         .accessibilityValue(
-          FullImageViewVM.zoomAccessibilityLabel(for: state.zoom.effectivePixelScale)
+          state.zoom.provisionalImageSize == nil
+            ? FullImageViewVM.zoomAccessibilityLabel(for: state.zoom.effectivePixelScale)
+            : CanvasZoomBadge.unknownZoomAccessibilityValue
         )
         .accessibilityIdentifier("editor-pill-zoom")
+
+        Button {
+          state.zoom.zoomToFill()
+        } label: {
+          Label("Zoom to Fill", systemImage: "aspectratio")
+        }
+        .disabled(state.zoom.displayFrameInPoints == nil || state.zoom.isZoomLocked)
+        .accessibilityIdentifier("editor-pill-zoom-fill")
       }
     } label: {
       Image(systemName: "ellipsis")

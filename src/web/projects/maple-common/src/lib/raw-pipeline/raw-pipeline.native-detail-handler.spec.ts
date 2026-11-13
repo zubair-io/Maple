@@ -86,6 +86,27 @@ describe('worker native-detail handle lifetime', () => {
     });
   });
 
+  it('does not open when close lands after dispatch but before the queued render runs', async () => {
+    const dispatchedEpoch = worker.epochSnapshot();
+    closeNativeDetail();
+    await worker.render(request(), dispatchedEpoch);
+    expect(fake.open).not.toHaveBeenCalled();
+    expect(postMessage.mock.lastCall?.[0]).toMatchObject({
+      type: 'native-detail-error',
+      superseded: true,
+    });
+  });
+
+  it('still opens the next asset when both renders were dispatched before either ran', async () => {
+    const firstEpoch = worker.epochSnapshot();
+    const secondEpoch = worker.epochSnapshot();
+    await worker.render(request(), firstEpoch);
+    await worker.render({ ...request(), sourceId: 'two', id: 2 }, secondEpoch);
+    expect(fake.open).toHaveBeenCalledTimes(2);
+    expect(fake.free).toHaveBeenCalledOnce();
+    expect(postMessage.mock.lastCall?.[0]).toMatchObject({ type: 'native-detail-success' });
+  });
+
   it('does not reopen after close while initialization is still pending', async () => {
     let ready!: (value: unknown) => void;
     fake.ready.mockImplementationOnce(() => new Promise((resolve) => (ready = resolve)));

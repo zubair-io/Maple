@@ -1,0 +1,381 @@
+diff --git a/src/raw-pipeline/raw-core/src/stages/nlm.rs b/src/raw-pipeline/raw-core/src/stages/nlm.rs
+index 5ed3790643..c0a9d87b13 100644
+--- a/src/raw-pipeline/raw-core/src/stages/nlm.rs
++++ b/src/raw-pipeline/raw-core/src/stages/nlm.rs
+@@ -66,15 +66,13 @@ mod chroma;
+ mod tiled;
+ pub(crate) use chroma::denoise_chroma_pair_cancellable;
+ 
+-/// Fast exp(-x) lookup. The NLM weight is `exp(-d²/(h²·area))` where the
+-/// argument is always ≥ 0. For x ≥ `FAST_EXP_RANGE` the weight is ≤ ~3.4e-4
+-/// — well below the noise floor of f32 accumulation across O(1000) pixels,
+-/// so we clamp to 0. The bound is `≥` (not `>`) so that the `i+1` table
+-/// lookup stays in range — at exactly `x = FAST_EXP_RANGE`, `i = TABLE_SIZE`
+-/// and `table[i+1]` would be out of bounds. Inside the range we linearly
+-/// interpolate a 512-entry table. Measured at ~0.6 ns per call on Apple
+-/// Silicon (vs ~5 ns for hardware `expf`) — at 81 shifts × 2 MP, the
+-/// saving is ~36 ms.
++/// Fast exp(-x) weights for NLM's `exp(-d²/(h²·area))` kernel.
++/// Interpolate the existing 512-entry table below x=8 and retain the
++/// hardware-exp tail above it: small absolute weights can dominate after
++/// normalization when every neighboring match is weak. The >= guard also
++/// keeps the i+1 lookup within the table. Natural f32 underflow is zero at
++/// x>=104. The common-range lookup was measured at ~0.6 ns per call on
++/// Apple Silicon versus ~5 ns for hardware expf.
+ const FAST_EXP_RANGE: f32 = 8.0;
+ const FAST_EXP_TABLE_SIZE: usize = 512;
+ 
+@@ -112,7 +110,9 @@ fn fast_neg_exp(x: f32) -> f32 {
+     }
+     // exp(-x) ranges from 1.0 at x=0 down to ~3.4e-4 at x=8.
+     if x >= FAST_EXP_RANGE {
+-        return 0.0;
++        // exp(-104) rounds to zero in f32. Keep every representable tail
++        // below that point; an absolute cutoff at 8 breaks normalization.
++        return if x >= 104.0 { 0.0 } else { (-x).exp() };
+     }
+     let t = x * (FAST_EXP_TABLE_SIZE as f32 / FAST_EXP_RANGE);
+     let i = t as usize;
+@@ -349,3 +349,7 @@ mod tests_box;
+ #[cfg(test)]
+ #[path = "nlm_tests_determinism.rs"]
+ mod tests_determinism;
++
++#[cfg(test)]
++#[path = "nlm_tests_tail.rs"]
++mod tests_tail;
+diff --git a/src/raw-pipeline/raw-core/src/stages/nlm_accumulate.rs b/src/raw-pipeline/raw-core/src/stages/nlm_accumulate.rs
+index 57e4d5393b..7f3f528fe7 100644
+--- a/src/raw-pipeline/raw-core/src/stages/nlm_accumulate.rs
++++ b/src/raw-pipeline/raw-core/src/stages/nlm_accumulate.rs
+@@ -5,6 +5,19 @@
+ use super::fast_exp_table;
+ use super::fast_neg_exp;
+ 
++#[cfg(any(
++    target_arch = "aarch64",
++    all(target_arch = "wasm32", target_feature = "simd128")
++))]
++fn repair_gaussian_tails(arguments: [f32; 4], mut weights: [f32; 4]) -> [f32; 4] {
++    for i in 0..4 {
++        if arguments[i] >= 8.0 {
++            weights[i] = fast_neg_exp(arguments[i]);
++        }
++    }
++    weights
++}
++
+ pub(super) fn accumulate(
+     sums: &[f32],
+     shifted: &[f32],
+@@ -45,6 +58,16 @@ pub(super) fn accumulate(
+                     vmulq_f32(vsubq_f32(vld1q_f32(b.as_ptr()), av), fraction),
+                 );
+                 let weight = vbslq_f32(vcltq_f32(x, vdupq_n_f32(8.0)), weight, vdupq_n_f32(0.0));
++                let weight = if vmaxvq_u32(vcgeq_f32(x, vdupq_n_f32(8.0))) != 0 {
++                    let mut xs = [0.0; 4];
++                    let mut ws = [0.0; 4];
++                    vst1q_f32(xs.as_mut_ptr(), x);
++                    vst1q_f32(ws.as_mut_ptr(), weight);
++                    let repaired = repair_gaussian_tails(xs, ws);
++                    vld1q_f32(repaired.as_ptr())
++                } else {
++                    weight
++                };
+                 vst1q_f32(
+                     acc.as_mut_ptr().add(start),
+                     vaddq_f32(
+@@ -111,6 +134,24 @@ pub(super) fn accumulate(
+                 );
+                 let weight = v128_bitselect(zero, weight, f32x4_ge(x, f32x4_splat(8.0)));
+                 let weight = v128_bitselect(f32x4_splat(1.0), weight, f32x4_lt(x, zero));
++                let weight = if v128_any_true(f32x4_ge(x, f32x4_splat(8.0))) {
++                    let xs = [
++                        f32x4_extract_lane::<0>(x),
++                        f32x4_extract_lane::<1>(x),
++                        f32x4_extract_lane::<2>(x),
++                        f32x4_extract_lane::<3>(x),
++                    ];
++                    let ws = [
++                        f32x4_extract_lane::<0>(weight),
++                        f32x4_extract_lane::<1>(weight),
++                        f32x4_extract_lane::<2>(weight),
++                        f32x4_extract_lane::<3>(weight),
++                    ];
++                    let repaired = repair_gaussian_tails(xs, ws);
++                    repaired.as_ptr().cast::<v128>().read_unaligned()
++                } else {
++                    weight
++                };
+                 store_f32x4(
+                     acc.as_mut_ptr().add(start),
+                     f32x4_add(
+@@ -199,6 +240,24 @@ pub(super) fn accumulate_dynamic(
+                 );
+                 let weight = v128_bitselect(zero, weight, f32x4_ge(x, f32x4_splat(8.0)));
+                 let weight = v128_bitselect(f32x4_splat(1.0), weight, f32x4_lt(x, zero));
++                let weight = if v128_any_true(f32x4_ge(x, f32x4_splat(8.0))) {
++                    let xs = [
++                        f32x4_extract_lane::<0>(x),
++                        f32x4_extract_lane::<1>(x),
++                        f32x4_extract_lane::<2>(x),
++                        f32x4_extract_lane::<3>(x),
++                    ];
++                    let ws = [
++                        f32x4_extract_lane::<0>(weight),
++                        f32x4_extract_lane::<1>(weight),
++                        f32x4_extract_lane::<2>(weight),
++                        f32x4_extract_lane::<3>(weight),
++                    ];
++                    let repaired = repair_gaussian_tails(xs, ws);
++                    repaired.as_ptr().cast::<v128>().read_unaligned()
++                } else {
++                    weight
++                };
+                 let enabled = i32x4_ge(
+                     load_unaligned(search.as_ptr().add(start)),
+                     i32x4_splat(distance as i32),
+diff --git a/src/raw-pipeline/raw-core/src/stages/nlm_tests.rs b/src/raw-pipeline/raw-core/src/stages/nlm_tests.rs
+index 9136a05111..0a866aacd0 100644
+--- a/src/raw-pipeline/raw-core/src/stages/nlm_tests.rs
++++ b/src/raw-pipeline/raw-core/src/stages/nlm_tests.rs
+@@ -240,8 +240,8 @@ fn fast_neg_exp_weight_never_exceeds_one_for_any_input() {
+     // Positive sweep across the LUT range and past FAST_EXP_RANGE = 8:
+     // bounded to [0, 1], non-increasing, and — inside the table range —
+     // within the LUT's linear-interpolation budget (~3e-5 per segment) of
+-    // hardware exp. Past the range the function documents truncation to 0
+-    // (drops the ≤ ~3.4e-4 tail).
++    // hardware exp. Outside the table range retain the hardware-exp tail;
++    // small weights remain relevant after normalization.
+     let mut prev = 1.0f32;
+     for i in 0..=4096 {
+         let x = i as f32 * (10.0 / 4096.0);
+@@ -257,7 +257,11 @@ fn fast_neg_exp_weight_never_exceeds_one_for_any_input() {
+                 "weight {w} deviates from exp(-x) at x={x} beyond the LUT budget",
+             );
+         } else {
+-            assert_eq!(w, 0.0, "x={x} ≥ FAST_EXP_RANGE must truncate to 0");
++            assert_eq!(
++                w.to_bits(),
++                (-x).exp().to_bits(),
++                "x={x}: positive Gaussian tails must survive normalization"
++            );
+         }
+         prev = w;
+     }
+diff --git a/src/raw-pipeline/raw-core/src/stages/nlm_tests_box.rs b/src/raw-pipeline/raw-core/src/stages/nlm_tests_box.rs
+index f1ff35ebd6..2ab8eb9d39 100644
+--- a/src/raw-pipeline/raw-core/src/stages/nlm_tests_box.rs
++++ b/src/raw-pipeline/raw-core/src/stages/nlm_tests_box.rs
+@@ -258,8 +258,8 @@ fn border_strip_passes_through_unchanged() {
+ 
+ /// f64 ground-truth NLM — the naive O(N·S²·P²) reference both f32 paths are
+ /// graded against. Full-f64 patch SSD, weights, and per-pixel average. Uses
+-/// exact `(-x).exp()` (not the `fast_neg_exp` LUT) with the same range/sign
+-/// clamps as the production function. Because of this, the max-abs difference
++/// exact `(-x).exp()` (not the LUT) and the same lower-bound guard as
++/// production, with no artificial exponential cutoff. Because of this, the max-abs difference
+ /// it reports captures BOTH accumulation-order error AND LUT-interpolation
+ /// error vs the exact result — it is NOT a pure summation-accuracy probe.
+ #[cfg(test)]
+@@ -273,8 +273,6 @@ fn denoise_plane_f64_truth(plane: &[f32], w: usize, h: usize, params: NlmParams)
+         let x = ssd * inv_norm;
+         if x < 0.0 {
+             1.0
+-        } else if x >= 8.0 {
+-            0.0
+         } else {
+             (-x).exp()
+         }
+diff --git a/src/raw-pipeline/raw-gpu/src/noise_reduction.wgsl b/src/raw-pipeline/raw-gpu/src/noise_reduction.wgsl
+index fec5cb25eb..37c37d9c2c 100644
+--- a/src/raw-pipeline/raw-gpu/src/noise_reduction.wgsl
++++ b/src/raw-pipeline/raw-gpu/src/noise_reduction.wgsl
+@@ -12,15 +12,18 @@
+ // FAST_EXP_RANGE = 8.0, FAST_EXP_TABLE_SIZE = 512. The table index is
+ // `t = x · (TABLE_SIZE / RANGE) = x · 64`, `i = floor(t)`, `frac = t - i`. The
+ // table stores exp(-(i / 64)), rounded once into canonical f32 bits shared by all hosts and the GPU.
+-// This preserves the CPU lookup while removing two exponentials per shift/pixel.
++// Keep the common-range lookup; positive tails remain meaningful after normalization.
+ const FAST_EXP_RANGE: f32 = 8.0;
+ const FAST_EXP_INV_STEP: f32 = 512.0 / 8.0; // TABLE_SIZE / RANGE
+ 
+ fn fast_neg_exp(x: f32) -> f32 {
+     // x is always >= 0 (it's `ssd · inv_norm`, both non-negative). The `>=` bound
+     // mirrors raw-core (so the i+1 endpoint never runs past the table tail).
++    if (x >= 104.0) {
++        return 0.0; // natural f32 underflow
++    }
+     if (x >= FAST_EXP_RANGE) {
+-        return 0.0;
++        return exp(-x);
+     }
+     let t = x * FAST_EXP_INV_STEP;
+     let i = floor(t);
+diff --git a/src/raw-pipeline/raw-gpu/src/noise_reduction/tests.rs b/src/raw-pipeline/raw-gpu/src/noise_reduction/tests.rs
+index 8efc4795ab..9b27c368d9 100644
+--- a/src/raw-pipeline/raw-gpu/src/noise_reduction/tests.rs
++++ b/src/raw-pipeline/raw-gpu/src/noise_reduction/tests.rs
+@@ -555,3 +555,6 @@ fn nlm_composes_as_one_pass_in_a_chain() {
+         "luma-then-color NR produced non-finite output"
+     );
+ }
++
++#[path = "tests_tail.rs"]
++mod tail;
+diff --git a/src/raw-pipeline/raw-gpu/src/noise_reduction/tests_tiled.rs b/src/raw-pipeline/raw-gpu/src/noise_reduction/tests_tiled.rs
+index f63abfc998..59c92c98af 100644
+--- a/src/raw-pipeline/raw-gpu/src/noise_reduction/tests_tiled.rs
++++ b/src/raw-pipeline/raw-gpu/src/noise_reduction/tests_tiled.rs
+@@ -83,13 +83,13 @@ fn tiled_partial_workgroups_preserve_profile_radius_gates() {
+ }
+ 
+ #[test]
+-fn tiled_weight_lookup_preserves_interpolation_and_cutoff() {
++fn tiled_weight_lookup_preserves_interpolation_and_gaussian_tail() {
+     let ctx = GpuContext::new_blocking().expect("GPU required");
+     let (width, height) = (19, 17);
+     let params = chroma_params(25.0);
+     let center = 8 * width + 8;
+     // Odd shifts compare constant differences across the full patch, making
+-    // SSD/(h²·area) land on both sides of interpolation knots and the x=8 cutoff.
++    // SSD/(h²·area) land on both sides of interpolation knots and the x=8 lookup boundary.
+     for energy in [0.001f32, 0.015624, 0.015626, 3.999, 4.001, 7.999, 8.001] {
+         let amplitude = params.h * energy.sqrt();
+         let plane: Vec<f32> = (0..width * height)
+@@ -107,10 +107,17 @@ fn tiled_weight_lookup_preserves_interpolation_and_cutoff() {
+         );
+         let (error, index) = max_diff_at(&reference, &gpu);
+         assert!(error < 1e-7, "energy={energy}: {error} at {index}");
+-        if energy < 8.0 {
+-            assert!(reference[center] - plane[center] > 1e-6);
+-        } else {
+-            assert!((gpu[center] - plane[center]).abs() < 1e-7);
+-        }
++        assert!(reference[center] - plane[center] > 1e-6);
++        // Twenty even-shift neighbors and the max-weight center have weight
++        // one; twenty-eight odd-shift neighbors have the same Gaussian weight.
++        let delta = f64::from(plane[center + 1] - plane[center]);
++        let exponent = delta * delta / f64::from(params.h).powi(2);
++        let weight = (-exponent).exp();
++        let expected = f64::from(plane[center]) + delta * 28.0 * weight / (21.0 + 28.0 * weight);
++        assert!(
++            (f64::from(gpu[center]) - expected).abs() < 1e-7,
++            "energy={energy}: {} != Gaussian mean {expected}",
++            gpu[center]
++        );
+     }
+ }
+diff --git a/src/raw-pipeline/raw-core/src/stages/nlm_tests_tail.rs b/src/raw-pipeline/raw-core/src/stages/nlm_tests_tail.rs
+new file mode 100644
+index 0000000000..f630c0ddea
+--- /dev/null
++++ b/src/raw-pipeline/raw-core/src/stages/nlm_tests_tail.rs
+@@ -0,0 +1,69 @@
++//! Gaussian tails remain meaningful after NLM weight normalization.
++use super::{accumulate, denoise_plane, fast_neg_exp, NlmParams};
++
++#[test]
++fn gaussian_lookup_boundary_retains_positive_tail_weights() {
++    for x in [8.0_f32, 8.125, 9.0, 16.0, 32.0, 80.0] {
++        let expected = (-x).exp();
++        assert_eq!(fast_neg_exp(x).to_bits(), expected.to_bits(), "x={x}");
++    }
++    let before = fast_neg_exp(f32::from_bits(8.0_f32.to_bits() - 1));
++    let at = fast_neg_exp(8.0);
++    assert!(before >= at && before - at < 2e-8);
++}
++
++#[test]
++fn normalized_gaussian_tails_denoise_an_isolated_chroma_impulse() {
++    for exposure in [0.5_f32, 1.0, 2.0] {
++        let (w, h) = (17, 17);
++        let background = 0.02 * exposure;
++        let center = 0.14 * exposure;
++        let delta = center - background;
++        let mut plane = vec![background; w * h];
++        let i = 8 * w + 8;
++        plane[i] = center;
++        let params = NlmParams {
++            patch_radius: 2,
++            search_radius: 1,
++            h: (2.0 * delta * delta / (25.0 * 8.125)).sqrt(),
++        };
++        let out = denoise_plane(&plane, w, h, params);
++        // Every neighboring patch has the same SSD: all eight positive
++        // weights and the max-weight center normalize to an equal average.
++        let expected = (8.0 * background + center) / 9.0;
++        assert!(
++            (out[i] - expected).abs() < 2e-6 * exposure,
++            "exposure={exposure}: {} != {expected}",
++            out[i]
++        );
++    }
++}
++
++#[test]
++fn vector_and_scalar_tail_weights_match_the_gaussian() {
++    let arguments = [8.0_f32, 8.125, 9.0, 16.0, 32.0, 80.0, 0.0, 7.99, 12.0, 24.0];
++    for n in [1, 3, 4, 5, 8, 10] {
++        let values: Vec<_> = (0..n).map(|i| 0.01 + i as f32 * 0.013).collect();
++        let mut acc = vec![0.0; n];
++        let mut weights = vec![0.0; n];
++        let mut maxima = vec![0.0; n];
++        accumulate::accumulate(
++            &arguments[..n],
++            &values,
++            &mut acc,
++            &mut weights,
++            &mut maxima,
++            1.0,
++        );
++        for i in 0..n {
++            let expected = if arguments[i] < 8.0 {
++                fast_neg_exp(arguments[i])
++            } else {
++                (-arguments[i]).exp()
++            };
++            assert_eq!(weights[i].to_bits(), expected.to_bits(), "n={n} lane={i}");
++            assert_eq!(maxima[i].to_bits(), expected.to_bits());
++            assert_eq!(acc[i].to_bits(), (expected * values[i]).to_bits());
++        }
++    }
++}
+diff --git a/src/raw-pipeline/raw-gpu/src/noise_reduction/tests_tail.rs b/src/raw-pipeline/raw-gpu/src/noise_reduction/tests_tail.rs
+new file mode 100644
+index 0000000000..3e1e6e258a
+--- /dev/null
++++ b/src/raw-pipeline/raw-gpu/src/noise_reduction/tests_tail.rs
+@@ -0,0 +1,32 @@
++//! GPU proof that small absolute Gaussian weights remain effective after normalization.
++use super::*;
++
++#[test]
++fn normalized_gaussian_tail_denoises_the_impulse_on_gpu() {
++    let ctx = GpuContext::new_blocking().expect("GPU required");
++    let (w, h) = (17usize, 17usize);
++    let background = 0.02_f32;
++    let center = 0.14_f32;
++    let delta = center - background;
++    let mut plane = vec![background; w * h];
++    let i = 8 * w + 8;
++    plane[i] = center;
++    let params = NlmParams {
++        patch_radius: 2,
++        search_radius: 1,
++        h: (2.0 * delta * delta / (25.0 * 8.125)).sqrt(),
++    };
++    let gpu = denoise_plane_gpu(
++        &ctx,
++        &plane,
++        &plane,
++        w as u32,
++        h as u32,
++        params,
++        NoiseModulation::from_profile(None, 100, false),
++    );
++    let expected = (8.0 * background + center) / 9.0;
++    assert!((gpu[i] - expected).abs() < 2e-6, "{} != {expected}", gpu[i]);
++    let cpu = raw_core_denoise_plane(&plane, w, h, params);
++    assert!((gpu[i] - cpu[i]).abs() < 1e-5);
++}

@@ -101,7 +101,7 @@ describe('library-relocate end-to-end', () => {
     });
     expect(stageVersionOf(live.db, asset.assetId, 'thumb')).toBe(0);
     expect(stageVersionOf(live.db, asset.assetId, 'preview')).toBe(0);
-    expect(stageVersionOf(live.db, asset.assetId, 'meili')).toBe(0);
+    expect(stageVersionOf(live.db, asset.assetId, 'embed')).toBe(0);
   });
 
   it('relocates a photo flagged missing_since, and clears the flag', async () => {

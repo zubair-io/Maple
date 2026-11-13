@@ -28,28 +28,30 @@ pub unsafe extern "C" fn maple_film_lut_create(
     data: *const f32,
     len: usize,
 ) -> *mut MapleFilmLut {
-    let expected = (size as usize)
-        .checked_pow(3)
-        .and_then(|n| n.checked_mul(3));
-    if !(2..=129).contains(&size)
-        || expected != Some(len)
-        || data.is_null()
-        || (data as usize) % std::mem::align_of::<f32>() != 0
-    {
-        set_last_error("film_lut_create: invalid lattice shape or pointer".into());
-        return std::ptr::null_mut();
-    }
-    let values = std::slice::from_raw_parts(data, len);
-    if values.iter().any(|value| !value.is_finite()) {
-        set_last_error("film_lut_create: non-finite lattice".into());
-        return std::ptr::null_mut();
-    }
-    Box::into_raw(Box::new(MapleFilmLut {
-        lut: raw_core::film::FilmLut {
-            size: size as usize,
-            data: values.to_vec(),
-        },
-    }))
+    crate::error::catch_panic("maple_film_lut_create", std::ptr::null_mut(), || {
+        let expected = (size as usize)
+            .checked_pow(3)
+            .and_then(|n| n.checked_mul(3));
+        if !(2..=129).contains(&size)
+            || expected != Some(len)
+            || data.is_null()
+            || (data as usize) % std::mem::align_of::<f32>() != 0
+        {
+            set_last_error("film_lut_create: invalid lattice shape or pointer".into());
+            return std::ptr::null_mut();
+        }
+        let values = std::slice::from_raw_parts(data, len);
+        if values.iter().any(|value| !value.is_finite()) {
+            set_last_error("film_lut_create: non-finite lattice".into());
+            return std::ptr::null_mut();
+        }
+        Box::into_raw(Box::new(MapleFilmLut {
+            lut: raw_core::film::FilmLut {
+                size: size as usize,
+                data: values.to_vec(),
+            },
+        }))
+    })
 }
 
 /// # Safety
@@ -57,9 +59,11 @@ pub unsafe extern "C" fn maple_film_lut_create(
 /// No other call may borrow the handle while it is released.
 #[no_mangle]
 pub unsafe extern "C" fn maple_film_lut_destroy(handle: *mut MapleFilmLut) {
-    if !handle.is_null() {
-        drop(Box::from_raw(handle));
-    }
+    crate::error::catch_panic("maple_film_lut_destroy", (), || {
+        if !handle.is_null() {
+            drop(Box::from_raw(handle));
+        }
+    })
 }
 
 /// Decode a `.mlut` v1 byte buffer into a flat `size³·3` f32 RGB lattice
@@ -92,35 +96,37 @@ pub unsafe extern "C" fn maple_film_lut_decode(
     out: *mut f32,
     out_cap: usize,
 ) -> i32 {
-    if bytes.is_null() || out.is_null() {
-        return -1;
-    }
-    // `out` is written via `copy_nonoverlapping` below as `*mut f32` — reject
-    // a mis-aligned buffer up front (UB otherwise), mirroring the alignment
-    // guards in `render.rs` / `gpu_auto_profile.rs`.
-    if (out as usize) % std::mem::align_of::<f32>() != 0 {
-        return -1;
-    }
-
-    let input = std::slice::from_raw_parts(bytes, len);
-    let lut = match decode_mlut(input) {
-        Ok(l) => l,
-        Err(e) => {
-            set_last_error(format!("maple_film_lut_decode: {e}"));
+    crate::error::catch_panic_rc("maple_film_lut_decode", || {
+        if bytes.is_null() || out.is_null() {
             return -1;
         }
-    };
-    if lut.data.len() > out_cap {
-        set_last_error(format!(
-            "maple_film_lut_decode: out_cap {out_cap} too small for grid size {} \
-             ({} floats needed) — re-call with a larger buffer",
-            lut.size,
-            lut.data.len()
-        ));
-        return -2;
-    }
-    // SAFETY: `out` validated non-null + f32-aligned above; the caller
-    // guarantees it is writable for `out_cap >= lut.data.len()` floats.
-    std::ptr::copy_nonoverlapping(lut.data.as_ptr(), out, lut.data.len());
-    lut.size as i32
+        // `out` is written via `copy_nonoverlapping` below as `*mut f32` — reject
+        // a mis-aligned buffer up front (UB otherwise), mirroring the alignment
+        // guards in `render.rs` / `gpu_auto_profile.rs`.
+        if (out as usize) % std::mem::align_of::<f32>() != 0 {
+            return -1;
+        }
+
+        let input = std::slice::from_raw_parts(bytes, len);
+        let lut = match decode_mlut(input) {
+            Ok(l) => l,
+            Err(e) => {
+                set_last_error(format!("maple_film_lut_decode: {e}"));
+                return -1;
+            }
+        };
+        if lut.data.len() > out_cap {
+            set_last_error(format!(
+                "maple_film_lut_decode: out_cap {out_cap} too small for grid size {} \
+                 ({} floats needed) — re-call with a larger buffer",
+                lut.size,
+                lut.data.len()
+            ));
+            return -2;
+        }
+        // SAFETY: `out` validated non-null + f32-aligned above; the caller
+        // guarantees it is writable for `out_cap >= lut.data.len()` floats.
+        std::ptr::copy_nonoverlapping(lut.data.as_ptr(), out, lut.data.len());
+        lut.size as i32
+    })
 }

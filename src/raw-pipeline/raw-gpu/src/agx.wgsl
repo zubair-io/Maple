@@ -1,17 +1,9 @@
 // agx.wgsl — AgX view transform (scene-linear Rec.2020 -> display-linear
 // Rec.2020). A P2 view-transform stage (epic #925 / #990).
 //
-// Line-for-line WGSL port of `raw_core::view::agx::apply` -> `agx_pixel`
-// (post-#435: inset -> log encode -> whites white-point remap -> ratio-
-// preserving sigmoid -> outset -> Oklab hue-preserving gamut compression).
-// Mirrors the GLSL shader at
-// src/web/projects/maple-common/src/lib/webgl/shaders/agx-view-transform.ts,
-// but matches raw-core's runtime path exactly by sampling the SAME baked
-// 512-entry LUT (agx_lut.bin) raw-core's `sample_lut` reads, uploaded to a
-// storage buffer — NOT the closed-form sigmoid the GLSL recomputes. That
-// keeps the GPU on the same numerical path the parity oracle uses (closed-
-// form vs LUT differ ~1e-4, which the ratio scale + outset would amplify
-// past the gate).
+// Mirrors raw-core's inset, Whites/contrast sigmoid, common-highlight
+// compression, outset and Oklab gamut compression. Sampling the same baked
+// 512-entry LUT avoids closed-form differences that exceed the parity gate.
 //
 // Two `#include`-free concats are prepended at module creation (WGSL has no
 // `#include`):
@@ -32,7 +24,10 @@
 //   * contrast: slope = 1 + (contrast/100)*0.5; pivot the normalized-log
 //     value around AGX_MID_NORM BEFORE sampling the LUT.
 //   * ratio sigmoid: n = max(R,G,B); if n <= 1e-6 (RATIO_FLOOR) sigmoid the
-//     floor once and return that neutral; else scale RGB by sigmoid(n)/n.
+//     floor once and return that neutral; below common diffuse white scale
+//     RGB by sigmoid(n)/n. Above it, blend the minimum toward its own curve
+//     value with the common-highlight Hermite weight and preserve the middle
+//     channel fraction between extrema.
 //   * oklab_gamut_compress (#1621 soft-knee): below the knee (chroma <=
 //     THRESHOLD*hull, EPS_HI=1+1e-5, EPS_LO=-1e-5) passes through; else find
 //     the hull (bracket + 24-iter bisection) and apply the Reinhard soft-knee
@@ -137,18 +132,32 @@ fn agx_sigmoid_curve(x: f32, slope: f32, whites: f32) -> f32 {
     return agx_sample_lut(modulated);
 }
 
-// Ratio-preserving sigmoid: sigmoid the max channel, scale RGB by the same
-// factor (hue invariant). Mirrors raw-core `norm_sigmoid_ratio`.
-fn agx_ratio_sigmoid(inset: vec3<f32>, slope: f32, whites: f32) -> vec3<f32> {
+// Ratio response below common diffuse white, endpoint roll-off above it.
+// Mirrors raw-core `sigmoid_hue_range`, preserving the middle-channel fraction.
+fn agx_hue_sigmoid(inset: vec3<f32>, slope: f32, whites: f32) -> vec3<f32> {
     let n = max(max(inset.x, inset.y), inset.z);
     if (n <= AGX_RATIO_FLOOR) {
         // Deep shadow: sigmoid the floor once, return the neutral.
         let v = agx_sigmoid_curve(AGX_RATIO_FLOOR, slope, whites);
         return vec3<f32>(v, v, v);
     }
-    let sn = agx_sigmoid_curve(n, slope, whites);
-    let ratio = sn / n;
-    return inset * ratio;
+    let lo = min(min(inset.x, inset.y), inset.z);
+    let high_out = agx_sigmoid_curve(n, slope, whites);
+    if (lo <= 1.0) {
+        return inset * (high_out / n);
+    }
+    let span = n - lo;
+    if (span <= AGX_RATIO_FLOOR * n) {
+        return vec3<f32>(high_out);
+    }
+    let ratio_low = lo * high_out / n;
+    let shoulder_log = AGX_MAX_EV + log2(AGX_MID_GRAY);
+    let t = clamp(log2(lo) / shoulder_log, 0.0, 1.0);
+    let weight = t * t * (3.0 - 2.0 * t);
+    let endpoint_low = max(agx_sigmoid_curve(lo, slope, whites), ratio_low);
+    let low_out = ratio_low + weight * (endpoint_low - ratio_low);
+    let gain = (high_out - low_out) / span;
+    return vec3<f32>(low_out) + (inset - vec3<f32>(lo)) * gain;
 }
 
 // ── Oklab round-trip (rec2020 pair) for gamut compression ────────────────
@@ -283,7 +292,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgroups) 
 
     // 2) Ratio-preserving sigmoid (hue invariant). The whites white-point
     //    remap runs inside the sigmoid, before the contrast slope.
-    let sig = agx_ratio_sigmoid(inset, slope, params.whites);
+    let sig = agx_hue_sigmoid(inset, slope, params.whites);
 
     // 3) Outset matrix back to Rec.2020 primaries.
     let outc = mul_agx_outset(sig);

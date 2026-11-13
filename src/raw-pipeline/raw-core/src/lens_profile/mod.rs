@@ -9,20 +9,20 @@ mod resolve;
 mod xml;
 pub use resolve::{LensQuery, Resolution, SampleWeight, Source};
 mod apply;
-pub use apply::apply;
 pub(crate) use apply::source as correction_source;
+pub use apply::{apply, apply_windowed, reach_px};
 mod auto;
 pub(crate) use auto::needs_acknowledgement;
 pub mod lensfun;
 pub(crate) mod metadata;
 pub use auto::{
-    applies, auto_match, compatible_lenses, evidence_for, resolve_auto, resolve_for_model,
-    set_auto_match_enabled,
+    applies, auto_match, compatible_lenses, evidence_for, resolve_auto, resolve_bundled,
+    resolve_for_model, set_auto_match_enabled,
 };
 mod registry;
 pub use registry::{
-    apply_for_raw, clear_cache, has_capacity, parse_reference, profile_id, register,
-    resolve_for_raw, ProfileRef,
+    apply_for_raw, apply_for_raw_windowed, clear_cache, has_capacity, parse_reference, profile_id,
+    reach_for_raw, register, resolve_for_raw, ProfileRef,
 };
 
 pub fn corrections_enabled(model: &crate::AdjustmentModel) -> bool {

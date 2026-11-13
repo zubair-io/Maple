@@ -44,6 +44,7 @@ import { firstValueFrom } from 'rxjs';
 import { SearchResult, SearchService } from '../../api/search.service';
 import { FilesystemBrowseService } from '../../api/filesystem-browse.service';
 import { Asset } from '../../models/asset';
+import { stackFromSearchWire } from '../../models/asset-stack';
 import { viewRouteCommands } from '../../addressing/route-address';
 import { LibraryStateService } from '../../state/library-state.service';
 import { TimelineStateService } from '../../state/timeline-state.service';
@@ -536,6 +537,9 @@ export class TimelineViewComponent implements AfterViewInit, OnDestroy {
       iso: p.iso ?? undefined,
       capturedAt: p.captured_at ?? undefined,
       size: p.size,
+      // Set even when absent: the hit is the server's current pairing, so an asset a folder
+      // listing stacked before the pair split (or the setting went off) loses its stale stack.
+      stack: stackFromSearchWire(p.stack).stack,
     });
   }
 

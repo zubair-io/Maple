@@ -1,0 +1,57 @@
+{
+  "stage": "18_auto_tail",
+  "ramp_axis": "luma",
+  "shape": [
+    8,
+    1024,
+    3
+  ],
+  "second_difference": {
+    "max_abs_d2": 0.004957409820427354,
+    "mean_abs_d2": 2.7295465270339165e-05,
+    "max_spike_ratio": 0.3579556999415176,
+    "mean_spike_ratio": 0.3579556999415176
+  },
+  "flat_run": {
+    "max_flat_run_frac": 0.007820136852394917,
+    "flat_eps": 1e-06
+  },
+  "rgb_drift": {
+    "max_abs_rg": 0.009854912757873535,
+    "max_abs_rb": 0.02388465404510498,
+    "max_abs_gb": 0.01830267906188965,
+    "mean_abs_rg": 0.009854912757873535,
+    "mean_abs_rb": 0.02388465404510498,
+    "mean_abs_gb": 0.01830267906188965
+  },
+  "shadow_gaps": {
+    "r": {
+      "gap_bins": 66,
+      "n_samples": 16,
+      "first_bin": 0,
+      "last_bin": 67,
+      "total_bins_in_range": 68
+    },
+    "g": {
+      "gap_bins": 66,
+      "n_samples": 16,
+      "first_bin": 0,
+      "last_bin": 67,
+      "total_bins_in_range": 68
+    },
+    "b": {
+      "gap_bins": 66,
+      "n_samples": 16,
+      "first_bin": 0,
+      "last_bin": 67,
+      "total_bins_in_range": 68
+    }
+  },
+  "budget_key": "test_0000_auto2_neutral/18_auto_tail/luma",
+  "budget": {
+    "max_abs_d2": 0.004007,
+    "max_spike_ratio": 1.2,
+    "max_flat_run_frac": 0.02
+  },
+  "passed": false
+}

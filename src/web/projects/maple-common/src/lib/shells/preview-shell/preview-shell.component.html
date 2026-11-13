@@ -18,12 +18,25 @@
         >{{ assetName() }}</span
       >
       <div class="preview-top-actions ml-auto flex items-center gap-1">
+        @if (motion.available()) {
+          <mui-button
+            class="[&_button]:h-11 [&_button]:w-11"
+            variant="ghost"
+            [iconOnly]="true"
+            iconLeading="play-circle"
+            [ariaLabel]="'Play ' + motion.noun()"
+            [ariaPressed]="motion.playing()"
+            [toggled]="motion.playing()"
+            (pressed)="motion.toggle()"
+          />
+        }
         <mui-button
           class="[&_button]:h-11 [&_button]:w-11"
           variant="ghost"
           [iconOnly]="true"
           iconLeading="flag"
           ariaLabel="Flag"
+          [disabled]="!!sidecarLoadError()"
           [ariaExpanded]="flagOpen()"
           ariaControls="preview-flag-popover"
           (pressed)="flagOpen.set(!flagOpen())"
@@ -34,6 +47,7 @@
           [iconOnly]="true"
           iconLeading="edit"
           ariaLabel="Edit"
+          [disabled]="!!sidecarLoadError()"
           (pressed)="edit()"
         />
         <mui-button
@@ -50,10 +64,27 @@
     </div>
 
     <div
-      class="absolute inset-0 grid place-items-center select-none [touch-action:pan-y_pinch-zoom]"
+      class="absolute inset-0 isolate grid place-items-center select-none [touch-action:pan-y_pinch-zoom]"
       data-testid="preview-surface"
       (pointerdown)="onImagePointerDown($event)"
     >
+      @if (motion.src(); as clip) {
+        <video
+          class="absolute inset-0 z-10 h-full w-full bg-black object-contain"
+          data-testid="motion-clip-player"
+          [src]="clip"
+          [poster]="previewUrl() ?? thumbUrl()"
+          autoplay
+          controls
+          playsinline
+          preload="auto"
+          [attr.aria-label]="motion.noun() + ' clip'"
+          (ended)="motion.stop()"
+          (error)="motion.stop()"
+          (pointerdown)="$event.stopPropagation()"
+          (pointerup)="$event.stopPropagation()"
+        ></video>
+      }
       @if (videoUrl(); as video) {
         <video
           class="h-full w-full bg-black object-contain"
@@ -96,6 +127,19 @@
             />
           }
         }
+        @if (imageUnavailable() && !sidecarLoadError()) {
+          <p role="status" class="max-w-sm px-6 text-center text-sm text-white/80">
+            Preview unavailable. This file may be corrupt or unsupported.
+          </p>
+        }
+        @if (sidecarLoadError(); as error) {
+          <p
+            role="alert"
+            class="pointer-events-none absolute bottom-24 max-w-md rounded bg-black/80 px-4 py-2 text-center text-sm text-white"
+          >
+            {{ error }}
+          </p>
+        }
       }
     </div>
 
@@ -112,10 +156,22 @@
       role="toolbar"
       aria-label="Preview actions"
     >
+      @if (motion.available()) {
+        <mui-action-button
+          class="[&_button]:min-h-11 [&_button]:min-w-14"
+          icon="play-circle"
+          [label]="motion.label()"
+          [title]="'Play ' + motion.noun()"
+          orientation="stacked"
+          [selected]="motion.playing()"
+          (pressed)="motion.toggle()"
+        />
+      }
       <mui-action-button
         class="[&_button]:min-h-11 [&_button]:min-w-14"
         icon="flag"
         label="Flag"
+        [disabled]="!!sidecarLoadError()"
         orientation="stacked"
         [selected]="null"
         [ariaExpanded]="flagOpen()"
@@ -126,6 +182,7 @@
         class="[&_button]:min-h-11 [&_button]:min-w-14"
         icon="edit"
         label="Edit"
+        [disabled]="!!sidecarLoadError()"
         orientation="stacked"
         [selected]="null"
         (pressed)="edit()"
@@ -174,6 +231,7 @@
       <app-info-panel
         [asset]="state.focusedAsset()"
         [insideSheet]="true"
+        [visible]="infoOpen()"
         (close)="infoOpen.set(false)"
       />
     </mui-sheet-shell>

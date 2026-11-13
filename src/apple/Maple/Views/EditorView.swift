@@ -15,6 +15,9 @@ struct EditorView: View {
   var filmstripAssets: [AssetRef] = []
   var onSelectAsset: (AssetRef) -> Void = { _ in }
   var filmstripSource: (any ImageSource)? = nil
+  #if os(iOS)
+    @State private var screenSaverID = UUID()
+  #endif
 
   var body: some View {
     GeometryReader { geometry in
@@ -29,10 +32,7 @@ struct EditorView: View {
       let hasSideRail =
         geometry.safeAreaInsets.trailing
         > geometry.safeAreaInsets.leading + 72
-      let usesDuoToolRail =
-        MapleShellKind.currentIdiom == .phone
-        && (hasSideRail
-          || (horizontalSizeClass == .regular && geometry.size.width > geometry.size.height))
+      let usesDuoToolRail = MapleShellKind.currentIdiom == .phone && hasSideRail
       EditorSurface(
         state: state, onDismiss: onDismiss, onInfo: onInfo,
         filmstripAssets: filmstripAssets, onSelectAsset: onSelectAsset,
@@ -41,6 +41,10 @@ struct EditorView: View {
       )
       .environment(\.mapleLayout, layout.density)
     }
+    #if os(iOS)
+      .onAppear { BackupScreenSaverController.shared.editorAppeared(screenSaverID) }
+      .onDisappear { BackupScreenSaverController.shared.editorDisappeared(screenSaverID) }
+    #endif
   }
 }
 
@@ -77,6 +81,12 @@ struct EditorSurface: View {
   /// reaches the panel's own `ScrollView` instead of nudging the armed
   /// tool or zooming/panning the canvas underneath it.
   @State private var wheelExclusionFrame: CGRect?
+
+  /// Global frames of the header, controls and filmstrip floating over the
+  /// canvas: the canvas fits and centres the photo in what they leave visible.
+  /// `nil` until they first report, a layout pass after the canvas (#5769);
+  /// the canvas draws nothing until then, so the header must always report.
+  @State private var canvasCoverFrames: [CGRect]?
   @State private var removalReturnTool: Tool = .exposure
 
   /// Whether the vectorscope HUD is showing (#3277). Persisted so the
@@ -109,6 +119,7 @@ struct EditorSurface: View {
         state: state,
         filmstripSource: filmstripSource,
         wheelExclusionFrame: wheelExclusionFrame,
+        coverFrames: isFocusedMacRemoval ? [] : canvasCoverFrames,
         hasFilmstrip: !isFocusedMacRemoval && !filmstripAssets.isEmpty
       )
 
@@ -128,6 +139,7 @@ struct EditorSurface: View {
           source: filmstripSource,
           onSelect: onSelectAsset
         )
+        .coversCanvas()
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
         .padding(.leading, EditorCropGeometry.filmstripLeadingPadding)
         .ignoresSafeArea(edges: .bottom)
@@ -149,9 +161,9 @@ struct EditorSurface: View {
           .padding(.top, 60)
       }
 
-      // The open landscape Duo uses the floating inspector. Its closed
+      // The open landscape Duo uses the vertical control bar. Its closed
       // display keeps the compact slider controls but moves group selection
-      // into the system rail. EditorState survives either reflow.
+      // into the trailing side rail. EditorState survives either reflow.
       if isFocusedMacRemoval {
         FocusedRemovalControls(state: state)
       } else {
@@ -163,9 +175,10 @@ struct EditorSurface: View {
                 IPhoneControlBar(
                   state: state, onPresetsTap: { presetsOpen = true },
                   maximumPanelHeight: min(300, geometry.size.height * 0.4),
-                  showsGroupTabs: !usesDuoToolRail
+                  showsGroupTabs: !usesDuoToolRail, showsScope: showsScope
                 )
                 .reportsWheelExclusion(in: "editorCanvas", active: true)
+                .coversCanvas()
               }
               .frame(maxWidth: .infinity, maxHeight: .infinity)
               .ignoresSafeArea(edges: .bottom)
@@ -173,11 +186,11 @@ struct EditorSurface: View {
           } else {
             EditorControls(
               state: state, onPresetsTap: { presetsOpen = true },
-              usesSystemToolRail: usesDuoToolRail
+              hasFilmstrip: !filmstripAssets.isEmpty, showsScope: showsScope
             )
           }
         }
-        .disabled(state.session.isSavingRemoval)
+        .disabled(!state.session.hasLoadedSidecar || state.session.isSavingRemoval)
         .popover(isPresented: presetsPresented(asSheet: false), arrowEdge: .trailing) {
           presetsPanel.frame(width: 340, height: 460)
         }
@@ -204,15 +217,24 @@ struct EditorSurface: View {
               },
               showsScope: $showsScope,
               showsScopesPanel: $showsScopesPanel,
-              scopesPanelAvailable: isRegular
+              scopesPanelAvailable: isRegular,
+              showsGroupSwitcher: headerCarriesGroups
             )
+            .coversCanvas()
             Spacer(minLength: 0)
           }
+          EditorSidecarLoadNotice(session: state.session)
+            .padding(.top, 8)
           Spacer()
         }
-        .padding(.top, 8)
-        .frame(maxWidth: .infinity)
+        .statusRowHeaderPlacement(surface: "editor")
         .ignoresSafeArea(edges: .bottom)
+        #if os(iOS)
+          if sideRailCarriesGroups {
+            EditorSideGroupRail(state: state)
+          }
+        #endif
+        // Keep per-frame rendering observations inside the status leaf.
         EditorRenderStatus(state: state)
       } else {
         RemovalExitButton(state: state, returnTool: removalReturnTool)
@@ -234,12 +256,8 @@ struct EditorSurface: View {
           // MAPLE_GPU_HUD=1); compiles out / EmptyView otherwise. Ported
           // from the legacy FullImageView when it was retired (#1807).
           EditorFrameTimeHUD(session: state.session)
-          // Skin-tone vectorscope HUD (#3277) — toggled by the pill's
-          // "Scope" button, persisted via `showsScope`; armed below.
-          if showsScope {
-            VectorscopeHud(state: state)
-          }
         }
+        .padding(.top, 60)
       }
     }
     // Mac extends under its hidden window toolbar. iOS keeps the top
@@ -252,6 +270,7 @@ struct EditorSurface: View {
     // (#2683) — see `wheelExclusionFrame`.
     .coordinateSpace(name: "editorCanvas")
     .onPreferenceChange(CanvasWheelExclusionKey.self) { wheelExclusionFrame = $0 }
+    .onPreferenceChange(CanvasCoverFramesKey.self) { canvasCoverFrames = $0 }
     // Scope producer arming (#3277, #3251): one switch for both scope
     // surfaces, so hiding the HUD while the panel is up (or vice versa)
     // cannot disarm the producer the other one still reads.
@@ -305,16 +324,7 @@ struct EditorSurface: View {
       // (EditorView leaves the view hierarchy and its modifier disappears).
       .toolbar(.hidden, for: .windowToolbar)
     #elseif os(iOS)
-      .toolbar(usesDuoToolRail ? .visible : .hidden, for: .navigationBar)
-      .toolbarBackground(.hidden, for: .navigationBar)
-      .navigationBarBackButtonHidden(usesDuoToolRail)
-      .toolbar {
-        if usesDuoToolRail {
-          EditorDuoToolRail(
-            state: state, onPresetsTap: { presetsOpen = true },
-            showsSpecialTools: !usesPhoneControls)
-        }
-      }
+      .toolbar(.hidden, for: .navigationBar)
     #endif
     // Editor key commands (arrows, compare, nudge, filmstrip navigation)
     // are routed by one shared scope so a focused slider or text field can
@@ -322,6 +332,13 @@ struct EditorSurface: View {
     .modifier(EditorCommandScope(state: state, navigate: navigateFilmstrip))
     .id(ObjectIdentifier(state.session))
   }
+
+  /// The closed Duo's compact controls hand group selection to the trailing
+  /// side rail (#5770). The open Duo carries it in the header row instead
+  /// (#5710). Neither uses the navigation bar, which would push the header
+  /// down a level.
+  private var sideRailCarriesGroups: Bool { usesDuoToolRail && usesPhoneControls }
+  private var headerCarriesGroups: Bool { usesDuoToolRail && !usesPhoneControls }
 
   private func navigateFilmstrip(_ direction: Int) {
     guard let index = filmstripAssets.firstIndex(where: { $0.id == state.session.asset.id }),

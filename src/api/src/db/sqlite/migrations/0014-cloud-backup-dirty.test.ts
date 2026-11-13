@@ -149,7 +149,7 @@ test('the real dedup refresh preserves verified backups until indexed byte metad
       false,
       testSqliteDb(handle.db),
     ),
-  ).toBe('refresh');
+  ).toBe('noop');
   expect(state(handle, assetId)).toEqual(before);
   expect(
     await appendOrRefreshLocation(

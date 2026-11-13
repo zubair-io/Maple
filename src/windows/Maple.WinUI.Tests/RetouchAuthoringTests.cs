@@ -148,6 +148,7 @@ public class RetouchAuthoringTests
         xml = document.ToString();
         var doc = XmpParser.Parse(xml)!;
         Assert.Equal(Spot, Assert.Single(doc.Adjustments.Retouch.Spots).Spot);
+        doc.Adjustments.Retouch = XmpRetouch.ToUpright(doc.Adjustments.Retouch, 1, 4000, 3000);
         doc.Adjustments.Retouch = XmpRetouch.Replace(doc.Adjustments.Retouch, 0, Spot with { Kind = RetouchKind.Clone });
         var saved = XmpWriter.Serialize(doc);
         Assert.Contains("payload = preserve", saved);

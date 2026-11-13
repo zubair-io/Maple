@@ -44,7 +44,7 @@
 //! | -------------- | ----------------------------------------------------- |
 //! | [`math`]       | Hand-rolled `Vec3`/`Mat3`, axis-angle exp/log         |
 //! | [`distortion`] | k1/k2 radial polynomial, forward + Newton inverse     |
-//! | [`project`]    | Rectilinear/cylindrical/spherical forward+inverse     |
+//! | [`project`]    | Rectilinear/cylindrical/spherical (+ transverse) maps |
 //! | [`camera`]     | Posed pinhole camera, pixel ↔ world-direction         |
 //! | [`prng`]       | SplitMix64 (pinned in-tree for byte determinism)      |
 //! | [`synthetic`]  | Procedural equirect test scene                        |
@@ -63,6 +63,7 @@ pub mod error;
 pub mod exif_embed;
 pub mod gt;
 pub mod math;
+pub mod png_output;
 pub mod prng;
 pub mod project;
 pub mod render;
@@ -96,9 +97,13 @@ pub mod twoview;
 //               statically linked via the official iOS xcframework at
 //               `ORT_LIB_LOCATION`). Both features use the same `dep:ort`
 //               workspace entry — no separate alias needed.
-#[cfg(any(feature = "ml", feature = "ml-static"))]
+//
+// `classical-features` (#4523) supplies the same `features` / `matching`
+// record types from a clean-room Harris + gradient-histogram path with no
+// `ort`, so the stitch pipeline builds without ONNX Runtime.
+#[cfg(any(feature = "ml", feature = "ml-static", feature = "classical-features"))]
 pub mod features;
-#[cfg(any(feature = "ml", feature = "ml-static"))]
+#[cfg(any(feature = "ml", feature = "ml-static", feature = "classical-features"))]
 pub mod matching;
 #[cfg(any(feature = "ml", feature = "ml-static"))]
 pub mod models;
@@ -128,7 +133,7 @@ pub mod ba;
 // verifier's `PixelCorrespondence` input. Appended after the ba block.
 pub mod leveling;
 
-#[cfg(any(feature = "ml", feature = "ml-static"))]
+#[cfg(any(feature = "ml", feature = "ml-static", feature = "classical-features"))]
 pub mod glue;
 
 // --- M2-CPU compositing (#1155, spec §5.4–§5.8): canvas → warp → gain →
@@ -171,7 +176,7 @@ pub mod tile;
 // Apple↔CLI parity gap (CLAUDE.md principle #4). Requires `ml` or
 // `ml-static` (M6 #1244 — iOS static-link path).
 // Appended after tile — keep lib.rs append-only.
-#[cfg(any(feature = "ml", feature = "ml-static"))]
+#[cfg(any(feature = "ml", feature = "ml-static", feature = "classical-features"))]
 pub mod stitch;
 
 // --- Content-aware seam finding (M2b, #1179, spec §5.7): a graph-cut
@@ -181,3 +186,17 @@ pub mod stitch;
 // Rust, no `ml`/`ml-static` gate) so it builds on every target the crate
 // does, including iOS. Appended after stitch — keep lib.rs append-only.
 pub mod seam;
+
+// --- Shared coarse-field solver (#4521): the matrix-free screened-Poisson
+// conjugate gradients used by the tile strategy's residual exposure fields
+// and the rotation strategy's per-view exposure field. Appended after
+// seam — keep lib.rs append-only.
+pub(crate) mod screened_cg;
+
+// --- Disk-backed decoded source frames (#5553, epic #5450): each frame is
+// developed once in row bands into a per-stitch scratch file and read back
+// by row window. Appended after screened_cg — keep lib.rs append-only.
+pub mod frame_store;
+
+// --- Boundary Warp (#5570): panorama rectangling ------------------------
+pub mod boundary_warp;

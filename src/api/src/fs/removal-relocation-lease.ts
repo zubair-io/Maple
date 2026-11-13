@@ -2,7 +2,7 @@
 import { dlopen, FFIType } from 'bun:ffi';
 import { basename, dirname, join } from 'node:path';
 import * as fs from './mirrored.ts';
-import { xmpSidecarPath } from './xmp.ts';
+import { xmpSidecarPath } from './xmp-sidecar-path';
 
 const FLOCK_LIBRARY =
   process.platform === 'darwin'

@@ -113,7 +113,7 @@ export async function changeSaved(
     );
     session.committingXml = session.recipe(photo, records);
     session.cullingFor(photo);
-    const revision = await session.editor.acceptRemoval(
+    const revision = await session.editor.removal.acceptRecords(
       records,
       photo.model,
       active === undefined ? 'Delete removal' : active ? 'Enable removal' : 'Disable removal',

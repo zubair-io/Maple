@@ -11,18 +11,15 @@
 // a REAL component with a stub that invokes the callback synchronously
 // (the empty-stub mock used elsewhere would mask an NG0600 regression).
 //
-// Every `render()` call awaits `TestBed.compileComponents()` first, and
-// every enclosing `it()` is `async` (#2706 web-build bundle-size fix): the
-// template has an `@defer (on interaction(renameTrigger))` block, and
-// Angular's JIT compiler (used in tests) resolves a deferred block's
-// dependencies asynchronously even with `deferBlockBehavior: Manual`.
 
-import { TestBed, DeferBlockBehavior } from '@angular/core/testing';
+import { TestBed } from '@angular/core/testing';
+import { signal } from '@angular/core';
 import { describe, it, expect, beforeEach } from 'vitest';
 
 import { AssetTileComponent } from './asset-tile.component';
 import { LibraryStateService } from '../../state/library-state.service';
 import type { Asset, AssetId } from '../../models/asset';
+import { PREVIEW_VIDEO_ACCESS } from '../../shells/preview-shell/preview-video-access';
 
 type ThumbCb = (url: string | undefined) => void;
 
@@ -36,15 +33,12 @@ function configure(
     ensureThumbnailUrl?: (a: Asset) => void;
     cancelQueuedThumbnail?: (id: AssetId) => void;
     isSelecting?: () => boolean;
+    thumbnailFailed?: (id: AssetId) => boolean;
   } = {},
 ) {
   TestBed.resetTestingModule();
   TestBed.configureTestingModule({
-    // `imports` (not just `providers`) is required so TestBed queues
-    // AssetTileComponent's async defer-block metadata BEFORE
-    // `compileComponents()` runs below.
     imports: [AssetTileComponent],
-    deferBlockBehavior: DeferBlockBehavior.Manual,
     providers: [
       {
         provide: LibraryStateService,
@@ -53,6 +47,7 @@ function configure(
           cancelQueuedThumbnail: overrides.cancelQueuedThumbnail ?? (() => {}),
           subscribeThumbUrl,
           isSelecting: overrides.isSelecting ?? (() => false),
+          thumbnailFailed: overrides.thumbnailFailed ?? (() => false),
         },
       },
     ],
@@ -161,6 +156,32 @@ describe('AssetTileComponent — component-owned thumbnail signal', () => {
 });
 
 describe('AssetTileComponent — no-preview badge', () => {
+  it('shows an unavailable badge after a RAW thumbnail fails, then hides it when an image arrives', async () => {
+    const failed = signal(false);
+    let pushThumb: ThumbCb = () => {};
+    configure(
+      (_id, cb) => {
+        pushThumb = cb;
+        cb(undefined);
+        return () => {};
+      },
+      { thumbnailFailed: () => failed() },
+    );
+    await TestBed.compileComponents();
+    const fixture = TestBed.createComponent(AssetTileComponent);
+    fixture.componentRef.setInput('asset', makeAsset('lib:broken.dng', 'broken.dng'));
+    fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).not.toContain('PREVIEW UNAVAILABLE');
+
+    failed.set(true);
+    fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).toContain('PREVIEW UNAVAILABLE');
+
+    pushThumb('blob:valid');
+    fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).not.toContain('PREVIEW UNAVAILABLE');
+  });
+
   async function render(filename: string, thumbUrl: string | undefined = undefined) {
     configure(syncStub(thumbUrl));
     await TestBed.compileComponents();
@@ -339,15 +360,11 @@ describe('AssetTileComponent — accessible name and selection state (#2414)', (
     expect(button.querySelector('.thumb-ring')).not.toBeNull();
   });
 
-  it('the rename trigger button is NOT a descendant of the interactive overlay button (nested-interactive safety)', async () => {
-    const fixture = await render('a.jpg');
+  it('shows no filename caption on the tile (#5846): the name lives in the Info pane', async () => {
+    const fixture = await render('IMG_0099.dng', 'blob:loaded');
     fixture.detectChanges();
-    const button = wrapper(fixture);
-    const renameTrigger = fixture.nativeElement.querySelector(
-      '.filename-bar:not(.editing)',
-    ) as HTMLElement;
-    expect(renameTrigger).not.toBeNull();
-    expect(button.contains(renameTrigger)).toBe(false);
+    expect(fixture.nativeElement.querySelector('.filename-bar')).toBeNull();
+    expect(fixture.nativeElement.textContent).not.toContain('IMG_0099.dng');
   });
 
   it('thumbClick emits the underlying MouseEvent (for modifier-key multi-select)', async () => {
@@ -380,5 +397,123 @@ describe('AssetTileComponent — hidden dimming and badge', () => {
     const fixture = await render(false);
     expect(fixture.nativeElement.textContent).not.toContain('HIDDEN');
     expect(fixture.nativeElement.querySelector('.overlay.is-dimmed')).toBeNull();
+  });
+});
+
+describe('AssetTileComponent — Live Photo badge and clip playback', () => {
+  const ACCESS = { apiBase: 'https://maple.test/api', bearer: () => 'token-1' };
+
+  async function render(livePhoto: Asset['livePhoto'], filename = 'IMG_1.MOV') {
+    configure(syncStub(undefined));
+    TestBed.overrideProvider(PREVIEW_VIDEO_ACCESS, { useValue: ACCESS });
+    await TestBed.compileComponents();
+    const fixture = TestBed.createComponent(AssetTileComponent);
+    fixture.componentRef.setInput('asset', {
+      ...makeAsset('lib:2026/IMG_1.MOV', filename),
+      ...(livePhoto ? { livePhoto } : {}),
+    });
+    fixture.detectChanges();
+    return fixture;
+  }
+
+  const query = (fixture: Awaited<ReturnType<typeof render>>, testId: string) =>
+    fixture.nativeElement.querySelector(`[data-testid="${testId}"]`) as HTMLElement | null;
+
+  it('badges both halves of a pair', async () => {
+    const clip = await render({ role: 'clip', partnerId: 'lib:2026/IMG_1.HEIC' });
+    expect(query(clip, 'live-badge')?.textContent?.trim()).toBe('LIVE');
+    expect(query(clip, 'live-badge')?.getAttribute('aria-label')).toBe('Live Photo');
+    const still = await render({ role: 'still', partnerId: 'lib:2026/IMG_1.MOV' }, 'IMG_1.HEIC');
+    expect(query(still, 'live-badge')).not.toBeNull();
+  });
+
+  it('shows no badge or Play for an unpaired file', async () => {
+    const fixture = await render(undefined);
+    expect(query(fixture, 'live-badge')).toBeNull();
+    expect(query(fixture, 'live-clip-play')).toBeNull();
+  });
+
+  it('offers Play on the clip tile only', async () => {
+    const still = await render({ role: 'still', partnerId: 'lib:2026/IMG_1.MOV' }, 'IMG_1.HEIC');
+    expect(query(still, 'live-clip-play')).toBeNull();
+    const clip = await render({ role: 'clip', partnerId: 'lib:2026/IMG_1.HEIC' });
+    expect(query(clip, 'live-clip-play')).not.toBeNull();
+    expect(query(clip, 'live-clip-player')).toBeNull();
+  });
+
+  it('plays the clip inline without emitting the tile click', async () => {
+    const fixture = await render({ role: 'clip', partnerId: 'lib:2026/IMG_1.HEIC' });
+    let clicks = 0;
+    fixture.componentInstance.thumbClick.subscribe(() => clicks++);
+    query(fixture, 'live-clip-play')!.click();
+    fixture.detectChanges();
+    const player = query(fixture, 'live-clip-player') as HTMLVideoElement;
+    expect(player.getAttribute('src')).toBe(
+      'https://maple.test/api/video/lib/2026/IMG_1.MOV?token=token-1',
+    );
+    expect(player.muted).toBe(true);
+    expect(player.hasAttribute('playsinline')).toBe(true);
+    expect(clicks).toBe(0);
+  });
+
+  it('stops on a second Play press, on ended and on error', async () => {
+    const fixture = await render({ role: 'clip', partnerId: 'lib:2026/IMG_1.HEIC' });
+    const play = () => {
+      query(fixture, 'live-clip-play')!.click();
+      fixture.detectChanges();
+    };
+    play();
+    play();
+    expect(query(fixture, 'live-clip-player')).toBeNull();
+    play();
+    query(fixture, 'live-clip-player')!.dispatchEvent(new Event('ended'));
+    fixture.detectChanges();
+    expect(query(fixture, 'live-clip-player')).toBeNull();
+    play();
+    query(fixture, 'live-clip-player')!.dispatchEvent(new Event('error'));
+    fixture.detectChanges();
+    expect(query(fixture, 'live-clip-player')).toBeNull();
+  });
+
+  it('stops without opening Full image when the playing clip is clicked', async () => {
+    const fixture = await render({ role: 'clip', partnerId: 'lib:2026/IMG_1.HEIC' });
+    let clicks = 0;
+    fixture.componentInstance.thumbClick.subscribe(() => clicks++);
+    query(fixture, 'live-clip-play')!.click();
+    fixture.detectChanges();
+    query(fixture, 'live-clip-player')!.click();
+    fixture.detectChanges();
+    expect(query(fixture, 'live-clip-player')).toBeNull();
+    expect(clicks).toBe(0);
+  });
+});
+
+describe('AssetTileComponent — RAW+JPEG stack badge (#5846)', () => {
+  async function render(stack: Asset['stack']) {
+    configure(syncStub(undefined));
+    await TestBed.compileComponents();
+    const fixture = TestBed.createComponent(AssetTileComponent);
+    fixture.componentRef.setInput('asset', {
+      ...makeAsset('lib:2026/IMG_1.CR3', 'IMG_1.CR3'),
+      ...(stack ? { stack } : {}),
+    });
+    fixture.detectChanges();
+    return fixture;
+  }
+
+  const badge = (fixture: Awaited<ReturnType<typeof render>>) =>
+    fixture.nativeElement.querySelector('[data-testid="stack-badge"]') as HTMLElement | null;
+
+  it('badges a stacked RAW as one tile', async () => {
+    const fixture = await render({
+      companion: { id: 'lib:2026/IMG_1.JPG', name: 'IMG_1.JPG', ext: 'jpg', size: 10 },
+    });
+    expect(badge(fixture)?.textContent?.trim()).toBe('RAW+JPEG');
+    expect(badge(fixture)?.getAttribute('aria-label')).toBe('RAW and JPEG');
+    expect(fixture.nativeElement.querySelectorAll('.mui-media-cell.overlay')).toHaveLength(1);
+  });
+
+  it('shows no badge for an unstacked asset', async () => {
+    expect(badge(await render(undefined))).toBeNull();
   });
 });

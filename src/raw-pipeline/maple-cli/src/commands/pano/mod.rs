@@ -13,7 +13,9 @@
 //!
 //! Two modes:
 //!
-//! - **Single set** (positional frames + `--out`): the operator flow.
+//! - **Single set** (positional frames + `--out` and/or `--display`): the
+//!   operator flow. `--display` alone writes only the finished display PNG,
+//!   which is what the Self Hosted server imports into the library.
 //!   `--max-mean-px` / `--max-residual-px` can relax the spec §5.3
 //!   acceptance gate for input with uncorrected lens distortion (#1159).
 //! - **Batch** (`--manifest` + `--out-dir`): the regression-harness
@@ -30,7 +32,12 @@
 //! does so before invoking this command).
 
 mod discovery;
+mod edges;
 mod io;
+mod preview;
+mod progress;
+mod refusal;
+mod seam_constraints;
 mod tile;
 
 use std::path::{Path, PathBuf};
@@ -40,11 +47,11 @@ use clap::Subcommand;
 
 use maple_pano::exif_embed::build_exif_blob;
 use maple_pano::render::PngMetadata;
-use maple_pano::stitch::{self, StitchOptions, StitchSuccess};
+use maple_pano::stitch::{self, DisplayPng, PngCanvasSink, StitchOptions, StitchSuccess};
 use raw_core::read_exif;
 
 use discovery::filter_conforming_frames;
-use io::{stitch_report, write_png16, ReportContext};
+use io::{stitch_report, ReportContext};
 
 mod args;
 pub use args::StitchArgs;
@@ -89,11 +96,21 @@ pub fn run(cmd: PanoCmd) -> Result<(), String> {
 /// Where one stitched set's artifacts go.
 struct SetOutputs {
     /// Scene-linear 16-bit PNG.
-    linear: PathBuf,
+    linear: Option<PathBuf>,
     /// sRGB-encoded 16-bit PNG.
     display: Option<PathBuf>,
     /// Report JSON.
     report: Option<PathBuf>,
+}
+
+impl SetOutputs {
+    /// The PNG the run is reported as having written.
+    fn written(&self) -> &Path {
+        self.display
+            .as_deref()
+            .or(self.linear.as_deref())
+            .expect("SetOutputs has at least one PNG")
+    }
 }
 
 fn run_stitch(args: StitchArgs) -> Result<(), String> {
@@ -115,17 +132,20 @@ fn run_stitch(args: StitchArgs) -> Result<(), String> {
     if args.inputs.len() < 2 {
         return Err("single-set mode needs 2+ input frames (or use --manifest)".into());
     }
-    let out = args
-        .out
-        .as_ref()
-        .ok_or("single-set mode requires --out")?
-        .clone();
+    if let Some(preview_out) = &args.preview_out {
+        let mut inputs = args.inputs.clone();
+        inputs.sort();
+        return preview::run_preview(&inputs, preview_out, &args);
+    }
+    if args.out.is_none() && args.display.is_none() {
+        return Err("single-set mode requires --out or --display".into());
+    }
     let mut inputs = args.inputs.clone();
     inputs.sort();
     let report = stitch_set(
         &inputs,
         &SetOutputs {
-            linear: out,
+            linear: args.out.clone(),
             display: args.display.clone(),
             report: args.report.clone(),
         },
@@ -181,7 +201,7 @@ fn stitch_manifest(manifest_path: &Path, out_dir: &Path, args: &StitchArgs) -> R
         }
         eprintln!("pano[{name}]: stitching {} frames ...", frames.len());
         let outs = SetOutputs {
-            linear: out_dir.join(format!("{name}.linear.png")),
+            linear: Some(out_dir.join(format!("{name}.linear.png"))),
             display: Some(out_dir.join(format!("{name}.png"))),
             report: Some(out_dir.join(format!("{name}.report.json"))),
         };
@@ -210,25 +230,8 @@ fn stitch_manifest(manifest_path: &Path, out_dir: &Path, args: &StitchArgs) -> R
     }
 }
 
-/// The full per-set pipeline. Returns the report JSON (also written to
-/// `outs.report` when set).
-fn stitch_set(
-    inputs: &[PathBuf],
-    outs: &SetOutputs,
-    gate_budgets: (f64, f64),
-    args: &StitchArgs,
-) -> Result<serde_json::Value, String> {
-    let t0 = Instant::now();
-
-    // Build PNG metadata EARLY — before stitch/composite, when the only
-    // allocation is the source frame bytes needed to parse EXIF.  At this
-    // point RSS is at its lowest; after stitch() returns the composite
-    // buffer is still live in memory alongside the decoded frames.  Both
-    // the rotation path (below) and the tile path (tile.rs) receive this
-    // pre-computed value so neither path re-reads the RAW at peak RSS.
-    let display_meta = outs.display.as_ref().map(|_| display_png_meta(inputs));
-
-    let opts = StitchOptions {
+fn stitch_options(args: &StitchArgs, gate_budgets: (f64, f64)) -> Result<StitchOptions, String> {
+    Ok(StitchOptions {
         retention: args.retention.policy(),
         local_align: args.local_align.enabled(),
         strategy: args.strategy.to_request(),
@@ -242,48 +245,61 @@ fn stitch_set(
         // iOS-FFI-only path (M6-C, #1253). See StitchOptions::use_coreml.
         use_coreml: false,
         seam_strategy: args.seam_strategy.to_strategy(),
-    };
+        seam_constraints: seam_constraints::load(args.seam_constraints.as_deref())?,
+        grid: args.grid_layout(),
+        feature_engine: args.features_engine.to_engine(),
+        capture_owner: true,
+        boundary_warp: args.boundary_warp / 100.0,
+        auto_crop: args.auto_crop,
+        memory_limit_bytes: args.memory_limit_bytes,
+    })
+}
 
-    let progress = |stage: u32, _frac: f32| {
-        // Progress to stderr so it doesn't pollute the report JSON on stdout.
-        let label = match stage {
-            0 => "decode",
-            1 => "features",
-            2 => "match_graph",
-            3 => "refine",
-            4 => "solve",
-            5 => "composite",
-            _ => "?",
-        };
-        let _ = label; // consumed only at stage start (frac == 0.0)
-    };
+/// The full per-set pipeline. Returns the report JSON (also written to
+/// `outs.report` when set).
+fn stitch_set(
+    inputs: &[PathBuf],
+    outs: &SetOutputs,
+    gate_budgets: (f64, f64),
+    args: &StitchArgs,
+) -> Result<serde_json::Value, String> {
+    let t0 = Instant::now();
+
+    // Build PNG metadata EARLY — before stitch/composite, when the only
+    // allocation is the source frame bytes needed to parse EXIF, so it is
+    // never re-read at peak RSS (#1349). The composite streams straight
+    // into both PNGs through the sink (#5452): the finished display PNG
+    // (AgX view tail like a RAW render, #1335) and the scene-linear carrier.
+    let display = outs.display.as_ref().map(|path| DisplayPng {
+        path: path.clone(),
+        meta: display_png_meta(inputs),
+        sidecars: false,
+    });
+    let mut sink = PngCanvasSink::new(display, outs.linear.clone());
+
+    let opts = stitch_options(args, gate_budgets)?;
 
     // After #1270 `stitch` handles both rotation and tile internally.
     // ALIKED + LightGlue run once; the result is either Rotation or Tile.
-    match stitch::stitch(inputs, &opts, progress, || false) {
-        Ok(StitchSuccess::Rotation(outcome)) => {
-            // ---- write outputs -----------------------------------------------
-            let t_out = Instant::now();
-            write_png16(&outs.linear, &outcome.image, false)?;
-            if let Some(display) = &outs.display {
-                // Finished, display-referred sRGB (#1335): AgX view tail like a
-                // RAW render. develop_for_display returns the encoded 16-bit
-                // buffer directly → write it straight out (no re-quantize).
-                let data = maple_pano::stitch::develop_for_display(&outcome.image);
-                // EXIF + sRGB tag were computed BEFORE stitch() to avoid a
-                // peak-RSS re-read of the source RAW (#1349 fix).
-                let meta = display_meta.expect("display_meta is Some when outs.display is Some");
-                maple_pano::render::write_frame_png(
-                    display,
-                    outcome.image.width(),
-                    outcome.image.height(),
-                    &data,
-                    &meta,
-                )
-                .map_err(|e| format!("{}: {e}", display.display()))?;
-            }
-            let write_s = t_out.elapsed().as_secs_f64();
-
+    let (offered, unreadable) = preview::offered_alignment(args);
+    let run = stitch::stitch_reusing(
+        inputs,
+        &opts,
+        offered.as_ref(),
+        &mut sink,
+        progress::stderr_progress(),
+        || false,
+    )
+    .map_err(|e| refusal::describe(e, outs.report.as_deref()))?;
+    preview::save_alignment(args.alignment_out.as_deref(), &run.alignment)?;
+    let t_out = Instant::now();
+    sink.finish().map_err(|e| e.to_string())?;
+    let write_s = t_out.elapsed().as_secs_f64();
+    let (width, height) = run.success.canvas_size();
+    let edges_block = edges::edges_report(args.boundary_warp, args.auto_crop, &run.success.edges());
+    let alignment = preview::alignment_report(&preview::verdict(run.reuse, unreadable));
+    let report = match run.success {
+        StitchSuccess::Rotation(outcome) => {
             eprintln!(
                 "pano: solve — mean {:.3}px max {:.3}px over {} rounds ({} LM iters), \
                  focal {:.1}px, dropped {:?}, leveled={}",
@@ -311,23 +327,42 @@ fn stitch_set(
             }
             eprintln!(
                 "pano: wrote {} ({}x{}) in {:.1}s",
-                outs.linear.display(),
-                outcome.image.width(),
-                outcome.image.height(),
+                outs.written().display(),
+                width,
+                height,
                 t0.elapsed().as_secs_f64()
             );
 
+            if let Some(owner) = &outcome.comp_report.owner {
+                if let Some(report_path) = &outs.report {
+                    let owner_path = report_path.with_file_name(
+                        report_path
+                            .file_name()
+                            .unwrap_or_default()
+                            .to_string_lossy()
+                            .replace(".report.json", ".owner.png"),
+                    );
+                    let mut data = owner.to_dense();
+                    data.iter_mut()
+                        .for_each(|o| *o = if *o == u16::MAX { 0 } else { *o + 1 });
+                    maple_pano::render::write_owner_png(&owner_path, width, height, &data)
+                        .map_err(|e| format!("{}: {e}", owner_path.display()))?;
+                }
+            }
+
             let [decode_s, features_s, graph_s, refine_s, solve_s, composite_s] =
                 outcome.stage_timings_s;
-            let report = stitch_report(&ReportContext {
+            stitch_report(&ReportContext {
                 inputs,
                 applied_opcodes: &outcome.applied_opcodes,
                 solution: &outcome.solution,
                 refined_matches: outcome.refined_matches,
                 fallback_matches: outcome.fallback_matches,
                 reverify: &outcome.reverify,
+                match_graph: &outcome.match_graph,
                 leveled: outcome.leveled,
                 horizon_tilt_deg: outcome.horizon_tilt_deg,
+                horizon_tilt_rms_deg: outcome.horizon_tilt_rms_deg,
                 gate_budgets,
                 retention: args.retention.label(),
                 local_align: args.local_align.label(),
@@ -343,33 +378,29 @@ fn stitch_set(
                     ("write", write_s),
                     ("total", t0.elapsed().as_secs_f64()),
                 ],
-            });
-            if let Some(path) = &outs.report {
-                let pretty = serde_json::to_string_pretty(&report).expect("report serializes");
-                std::fs::write(path, &pretty).map_err(|e| format!("{}: {e}", path.display()))?;
-            }
-            Ok(report)
+            })
         }
 
         // ---- Tile strategy: stitch() ran the tile pipeline directly ---------
         // After #1270 there is no TileNotSupported fallthrough — `stitch`
         // returns the tile outcome inline (ML ran once, re-verify with
         // unit-focal cameras, full-res decode for NCC, planar composite).
-        Ok(StitchSuccess::Tile(tile_outcome)) => {
-            tile::run_tile_from_outcome(tile::TileOutcomeArgs {
-                outcome: tile_outcome,
-                outs_linear: &outs.linear,
-                outs_display: outs.display.as_deref(),
-                outs_report: outs.report.as_deref(),
-                inputs,
-                // Pass the metadata computed BEFORE stitch() so the tile
-                // write path does not re-read the source RAW at peak RSS
-                // (#1349 fix).
-                display_meta,
-                t0,
-            })
-        }
-
-        Err(e) => Err(e.to_string()),
+        StitchSuccess::Tile(tile_outcome) => tile::run_tile_from_outcome(tile::TileOutcomeArgs {
+            outcome: tile_outcome,
+            written: outs.written(),
+            inputs,
+            write_s,
+            t0,
+        })?,
+    };
+    let report = edges::with_block(
+        edges::with_block(report, "alignment", alignment),
+        "edges",
+        edges_block,
+    );
+    if let Some(path) = &outs.report {
+        let pretty = serde_json::to_string_pretty(&report).expect("report serializes");
+        std::fs::write(path, &pretty).map_err(|e| format!("{}: {e}", path.display()))?;
     }
+    Ok(report)
 }

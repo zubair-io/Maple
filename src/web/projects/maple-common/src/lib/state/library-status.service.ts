@@ -1,9 +1,9 @@
 // Library status — async-status / data-loading signals for the Self-Hosted
-// bootstrap and rescan flows.
+// bootstrap flow.
 //
 // Lifted out of `library-store.service.ts` (ticket #191, slice 3) so the data
 // store only holds library data + adjustment models, while transient
-// async-lifecycle banners (loading / error / empty / rescan progress) live
+// async-lifecycle banners (loading / error / empty) live
 // alongside each other in a single status surface.
 //
 // Owned signals:
@@ -11,13 +11,10 @@
 //   - backendLoading      (true while listFolders / listAssets is in flight)
 //   - backendError        (last backend error message, cleared on success)
 //   - backendEmpty        (true when API returned zero folders)
-//   - rescanStatus        (idle | running | done | error)
-//   - rescanError         (last rescan error message)
 //
 // Writers: `LibraryFetch` flips these during `loadFolderTree`,
-// `addLibraryFolder`, `rescanCurrentFolder`, and `openSelfHostedFolder`.
-// Readers: browse-shell banners, asset-grid rescan button, library-state
-// facade.
+// `addLibraryFolder`, and `openSelfHostedFolder`.
+// Readers: browse-shell banners and the library-state facade.
 //
 // The `status` computed collapses the three backend* flags into a single
 // state token for consumers that just want the banner enum without
@@ -30,7 +27,6 @@
 
 import { Injectable, Signal, computed, signal } from '@angular/core';
 
-export type RescanStatus = 'idle' | 'running' | 'done' | 'error';
 export type BackendStatus = 'loading' | 'ready' | 'empty' | 'error';
 
 @Injectable({ providedIn: 'root' })
@@ -41,10 +37,6 @@ export class LibraryStatusService {
   readonly backendError = signal<string | null>(null);
   /** True when the API returned zero folders (index not configured yet). */
   readonly backendEmpty = signal<boolean>(false);
-
-  /** Transient state for the "Rescan" button on the toolbar. */
-  readonly rescanStatus = signal<RescanStatus>('idle');
-  readonly rescanError = signal<string | null>(null);
 
   /**
    * Collapsed banner enum. Mirrors the precedence the browse-shell uses to

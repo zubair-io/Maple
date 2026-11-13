@@ -1,0 +1,7 @@
+# The same pinned nightly as raw-wasm/rust-toolchain.toml, so the wasm32 target
+# the web CI job installs for raw-wasm also builds this crate. Nothing here
+# needs nightly: this module is built without atomics or build-std.
+[toolchain]
+channel = "nightly-2025-10-01"
+components = ["rust-src", "rustfmt", "clippy"]
+targets = ["wasm32-unknown-unknown"]

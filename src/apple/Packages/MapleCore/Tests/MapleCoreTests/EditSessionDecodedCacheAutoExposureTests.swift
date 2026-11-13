@@ -59,34 +59,15 @@ final class EditSessionDecodedCacheAutoExposureTests: XCTestCase {
                        "an AE-Off decode after an AE-On one must RE-KEY the cache to Off "
                        + "(not serve the cached AE-On buffer) — #1387")
 
-        func meanGreen(_ ci: CIImage) -> Double {
-            let ctx = CIContext(options: [
-                .workingColorSpace: CGColorSpace(name: CGColorSpace.extendedLinearITUR_2020)!,
-                .workingFormat: CIFormat.RGBAf,
-            ])
-            let e = ci.extent
-            let w = 48, h = 48
-            var px = [Float](repeating: 0, count: w * h * 4)
-            px.withUnsafeMutableBytes { buf in
-                ctx.render(
-                    ci.transformed(by: CGAffineTransform(
-                        scaleX: CGFloat(w) / e.width, y: CGFloat(h) / e.height)),
-                    toBitmap: buf.baseAddress!, rowBytes: w * 16,
-                    bounds: CGRect(x: 0, y: 0, width: w, height: h),
-                    format: .RGBAf,
-                    colorSpace: CGColorSpace(name: CGColorSpace.extendedLinearITUR_2020)!
-                )
-            }
-            var s = 0.0
-            for i in 0..<(w * h) { s += Double(px[i * 4 + 1]) }
-            return s / Double(w * h)
-        }
-        let offMean = meanGreen(aeOff), onMean = meanGreen(aeOn)
-        XCTAssertLessThan(
-            offMean, onMean * 0.95,
-            "AE-Off buffer must be darker than AE-On — equal means the autoExposure param "
-            + "didn't route to a distinct decode / cache served the wrong buffer "
-            + "(off=\(offMean) on=\(onMean))."
-        )
+        // The capture decode (#5377) applies auto exposure in its creative
+        // stage, so the two decodes differ in the gain they carry, not in
+        // their pixels.
+        XCTAssertEqual(snapOff.aeGain, 1.0, "the AE-Off decode carries no exposure gain")
+        XCTAssertGreaterThan(
+            snapOn.aeGain, 1.05,
+            "the AE-On decode must carry its gain — equal means the autoExposure param "
+            + "didn't route to a distinct decode / cache served the wrong buffer")
+        XCTAssertFalse(snapOn.wbFrame?.creative === snapOff.wbFrame?.creative)
+        _ = (aeOn, aeOff)
     }
 }

@@ -1,6 +1,6 @@
 /**
  * Table-driven tests for the conservative natural-language date parser.
- * Pure logic — no Mongo, no Meili. `now` is pinned so "no-year" forms
+ * Pure logic — no Mongo, no engine. `now` is pinned so "no-year" forms
  * resolve deterministically.
  */
 
@@ -147,7 +147,7 @@ describe('parseNlDateRange — must NOT match', () => {
 /**
  * #2952 — a bare season or holiday word used to consume the whole query.
  * `winter` became a Dec–Feb window with NO search text left, so
- * `usesPlaceText()` went false, Meilisearch was never queried, and the route
+ * the residual text went empty, the engine was never queried, and the route
  * returned "everything captured last winter, newest first" with no relevance
  * ranking at all. The reported top hit for `winter` was a golf-app screenshot
  * captured on the window's final day.

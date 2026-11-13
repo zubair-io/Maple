@@ -1,13 +1,5 @@
 @if (state.pickerVisible()) {
-  <div
-    class="fixed inset-0 z-[1000] flex items-center justify-center bg-black/55"
-    (click)="onBackdropClick()"
-  >
-    <div class="flex w-full max-w-[600px]" (click)="$event.stopPropagation()">
-      <app-library-picker
-        (pick)="onPick($event)"
-        (cancel)="onCancel()"
-      />
-    </div>
-  </div>
+  <mui-overlay-shell [open]="true" ariaLabel="Pick a library folder" (dismissed)="onCancel()">
+    <app-library-picker [framed]="false" (pick)="onPick($event)" (cancel)="onCancel()" />
+  </mui-overlay-shell>
 }

@@ -38,16 +38,34 @@
 //! centered at `(ix + 0.5, iy + 0.5)` — the crate-wide binding convention
 //! ([`crate::camera`]), so they feed `Camera::pixel_to_world_dir` and the
 //! #1138 geometry stack without adjustment.
+//!
+//! # Classical fallback (`classical-features`, #4523)
+//!
+//! [`classical`] produces the same [`FeatureSet`] from a clean-room Harris
+//! scale-space detector and an orientation-normalised gradient-histogram
+//! descriptor, with no ONNX Runtime; its matcher emits the same
+//! [`crate::matching::MlMatch`] records LightGlue does.
 
+#[cfg(any(feature = "ml", feature = "ml-static"))]
 pub mod postprocess;
+#[cfg(any(feature = "ml", feature = "ml-static"))]
 pub mod preprocess;
 
+#[cfg(any(feature = "ml", feature = "ml-static"))]
 mod aliked;
 
+#[cfg(feature = "classical-features")]
+pub mod classical;
+
+#[cfg(any(feature = "ml", feature = "ml-static"))]
 pub use aliked::{AlikedDetector, DetectorOptions};
+#[cfg(any(feature = "ml", feature = "ml-static"))]
 pub use postprocess::KeypointFilter;
 
-use crate::models::MlError;
+/// A frame buffer whose dimensions and sample count disagree.
+#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+#[error("invalid image input: {0}")]
+pub struct FrameError(pub String);
 
 /// An owned scene-linear RGB image: row-major, interleaved `[r, g, b]`,
 /// values nominally in `[0, 1]` linear light (the crate's image
@@ -62,15 +80,15 @@ pub struct LinearRgbFrame {
 
 impl LinearRgbFrame {
     /// Wrap an interleaved RGB f32 buffer, validating the length.
-    pub fn new(width: u32, height: u32, pixels: Vec<f32>) -> Result<Self, MlError> {
+    pub fn new(width: u32, height: u32, pixels: Vec<f32>) -> Result<Self, FrameError> {
         let expected = width as usize * height as usize * 3;
         if width == 0 || height == 0 {
-            return Err(MlError::BadImage(format!(
+            return Err(FrameError(format!(
                 "frame dimensions must be non-zero (got {width}x{height})"
             )));
         }
         if pixels.len() != expected {
-            return Err(MlError::BadImage(format!(
+            return Err(FrameError(format!(
                 "pixel buffer has {} samples, {width}x{height} RGB needs {expected}",
                 pixels.len()
             )));
@@ -85,7 +103,7 @@ impl LinearRgbFrame {
     /// Convert a 16-bit interleaved RGB frame (the [`crate::render`]
     /// output format) to linear f32 — a pure `v / 65535` normalization,
     /// matching the renderer's "outputs are 16-bit linear PNGs" contract.
-    pub fn from_u16_rgb(width: u32, height: u32, data: &[u16]) -> Result<Self, MlError> {
+    pub fn from_u16_rgb(width: u32, height: u32, data: &[u16]) -> Result<Self, FrameError> {
         let pixels = data.iter().map(|&v| v as f32 / 65535.0).collect();
         Self::new(width, height, pixels)
     }
@@ -122,6 +140,7 @@ pub struct FeatureSet {
     /// Keypoints in the detector's normalized inference coordinates
     /// (`[-1, 1]` over the letterboxed square) — exactly what the paired
     /// LightGlue export takes as `kpts0`/`kpts1`. Parallel to `keypoints`.
+    #[cfg_attr(not(any(feature = "ml", feature = "ml-static")), allow(dead_code))]
     pub(crate) norm_keypoints: Vec<[f32; 2]>,
 }
 
@@ -149,10 +168,8 @@ mod tests {
     #[test]
     fn linear_rgb_frame_validates_length() {
         assert!(LinearRgbFrame::new(2, 2, vec![0.0; 12]).is_ok());
-        let err = LinearRgbFrame::new(2, 2, vec![0.0; 11]).expect_err("wrong len");
-        assert!(matches!(err, MlError::BadImage(_)));
-        let err = LinearRgbFrame::new(0, 2, vec![]).expect_err("zero dim");
-        assert!(matches!(err, MlError::BadImage(_)));
+        assert!(LinearRgbFrame::new(2, 2, vec![0.0; 11]).is_err());
+        assert!(LinearRgbFrame::new(0, 2, vec![]).is_err());
     }
 
     #[test]

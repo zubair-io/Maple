@@ -242,6 +242,7 @@ namespace Maple.WinUI.ViewModels
                     Sl("Highlights Lum", -100, 100, 1, m => m.ColorGradeHighlightLuminance, (m, v) => m.ColorGradeHighlightLuminance = v, plain),
                     Sl("Global Lum", -100, 100, 1, m => m.ColorGradeGlobalLuminance, (m, v) => m.ColorGradeGlobalLuminance = v, plain),
                     Sl("Balance", -100, 100, 1, m => m.SplitToneBalance, (m, v) => m.SplitToneBalance = v, plain),
+                    Sl("Blending", 0, 100, 1, m => m.ColorGradeBlending, (m, v) => m.ColorGradeBlending = v),
                 }, expanded: false),
 
                 new("Detail", new[]
@@ -278,7 +279,7 @@ namespace Maple.WinUI.ViewModels
 
                 // Lens corrections (#3480): the imported-LCP / embedded-opcode
                 // strengths. All three are DECODE-OWNED (the profile is applied
-                // in the scene-linear decode stage, before the default crop),
+                // in the capture decode stage, before the default crop),
                 // so they commit on release like capture sharpening; the Lens
                 // panel enables each row only for a family the resolved
                 // calibration actually covers (`IsEnabled` above).

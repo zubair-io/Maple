@@ -21,7 +21,9 @@ pub mod color_labels;
 pub mod image;
 pub use image::{CfaPattern, ColorSpace, ExifOrientation, Image, RawImage};
 
+pub mod black_level;
 pub mod decode;
+pub(crate) mod masked_margin;
 pub mod raw_dimensions;
 
 pub mod lens_profile;
@@ -31,6 +33,7 @@ pub mod decode_cache;
 pub mod dng_ifd_walker;
 
 pub mod linearize;
+pub mod sensor_gain_maps;
 
 pub mod demosaic;
 
@@ -60,6 +63,8 @@ pub mod icc;
 /// Edited-image export — render + encode to a deliverable file (#943).
 pub mod export;
 pub mod export_recipe;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod output_file;
 pub mod workflow;
 
 /// Embedded-preview extraction shared by raw-ffi (native, file-based) and
@@ -130,15 +135,25 @@ pub mod test_support;
 pub mod stage_dump;
 
 pub mod batch_transfer;
+/// Canvas zoom model and view/image mapping shared by every platform shell (#5714).
+pub mod canvas;
+/// The still the canvas draws until the first render (#5758); outside `canvas` because it needs the colour and view modules.
+pub mod canvas_placeholder;
 /// Vectorscope statistics (#3272): the CPU producer/parity oracle for the GPU
 /// scope pass — see `raw-gpu/src/scope.rs` and `scope_vectorscope.wgsl`.
 pub mod scope;
+
+/// The ranked search window's ladder (#4514), emitted to the API and Apple by `tools/codegen.sh`.
+pub mod ranked_window;
+/// What a panorama stitch costs in memory (#5835), read by maple-pano and emitted to Apple by `tools/codegen.sh`.
+pub mod pano_memory;
 pub mod types;
 pub use types::{
     AdjustmentModel, FieldKind, FieldSpec, HighlightRecoveryMode, LocalAdjustment, Mask,
     PartialAdjustments, Point2, ToneCurveMode, WbSource, WhiteBalancePreset, ADJUSTMENT_SCHEMA,
 };
 
+pub mod ui_slider_gradients;
 pub mod ui_tokens;
 
 /// Capability registry — what the editor can do, where it ships, and the
@@ -147,16 +162,16 @@ pub mod ui_tokens;
 pub mod capability_registry;
 pub mod support_tiers;
 
-pub mod version;
-pub use version::PIPELINE_OUTPUT_VERSION;
-
 pub mod xmp;
 
 pub mod pipeline;
 pub use pipeline::render_from_raw;
 // Maple Pano ingest entry (#1156): scene-linear decode that stops before
 // every display-prep stage, plus the metadata-only priors pass.
-pub use pipeline::{decode_for_pano, read_pano_metadata, PanoIngest, PanoSourceMetadata};
+pub use pipeline::{
+    decode_for_pano, develop_banded_for_pano, read_pano_metadata, FalloffCorrection,
+    PanoBandScratch, PanoBandedIngest, PanoBlockSink, PanoIngest, PanoSourceMetadata,
+};
 
 pub mod api;
 pub use api::{decode_raw, read_exif, Exif, ExifGps};

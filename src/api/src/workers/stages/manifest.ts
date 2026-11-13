@@ -16,7 +16,7 @@ import faceDetectStage, { startFaceDetectStage } from './face-detect.ts';
 import faceEmbedStage, { startFaceEmbedStage } from './face-embed.ts';
 import describeStage, { startDescribeStage } from './describe.ts';
 import geocodeStage, { startGeocodeStage } from './geocode.ts';
-import meiliStage, { startMeiliStage } from './meili.ts';
+import searchBlobStage, { startSearchBlobStage } from './search-blob.ts';
 import sidecarMetadataIndexStage, {
   startSidecarMetadataIndexStage,
 } from './sidecar-metadata-index.ts';
@@ -26,6 +26,8 @@ import videoDescribeStage, { startVideoDescribeStage } from './video-describe.ts
 import cloudBackupStage, { startCloudBackupStage } from './cloud-backup.ts';
 import embedStage, { startEmbedStage } from './embed.ts';
 import personSegmentationStage, { startPersonSegmentationStage } from './person-segmentation.ts';
+import motionPhotoStage, { startMotionPhotoStage } from './motion-photo.ts';
+import livePhotoStage, { startLivePhotoStage } from './live-photo.ts';
 import type { RunStageHandle, StageConfig } from '../run-stage.ts';
 import { ALL_STAGE_NAMES, assertCompleteStageNames, type StageName } from './stage-names.ts';
 
@@ -38,7 +40,7 @@ export const stageRegistrations = {
   'face-embed': { definition: faceEmbedStage, start: startFaceEmbedStage },
   describe: { definition: describeStage, start: startDescribeStage },
   geocode: { definition: geocodeStage, start: startGeocodeStage },
-  meili: { definition: meiliStage, start: startMeiliStage },
+  'search-blob': { definition: searchBlobStage, start: startSearchBlobStage },
   'sidecar-metadata-index': {
     definition: sidecarMetadataIndexStage,
     start: startSidecarMetadataIndexStage,
@@ -52,6 +54,11 @@ export const stageRegistrations = {
     start: startPersonSegmentationStage,
   },
   embed: { definition: embedStage, start: startEmbedStage },
+  'motion-photo': {
+    definition: motionPhotoStage,
+    start: startMotionPhotoStage,
+  },
+  'live-photo': { definition: livePhotoStage, start: startLivePhotoStage },
 } satisfies Record<StageName, { definition: StageConfig; start: () => Promise<RunStageHandle> }>;
 
 export const stageManifest = ALL_STAGE_NAMES.map((name) => stageRegistrations[name].definition);

@@ -28,6 +28,7 @@ import { FolderAccessService } from '../folder-access/folder-access.service';
 import type { MapleFolderHandle } from '../folder-access/folder-access.types';
 import { defaultAdjustmentModel } from '../models/adjustment-model';
 import { XmpStoreService } from '../xmp/xmp-store.service';
+import { XmpRemovalWritesService } from '../xmp/xmp-store.writes';
 import { XmpParserService } from '../xmp/xmp-parser.service';
 import { SidecarSaveStateService } from '../xmp/sidecar-save-state.service';
 import { LocalRemovalAssets } from './local-removal-assets';
@@ -46,7 +47,7 @@ describe('durable browser removal through actual WASM and filesystem files', () 
   const publish = () =>
     assets.publish(text('request.txt'), '[]', fixture('mask.mimf'), fixture('patch.f16'));
   const commit = (records: string, expected = '[]') =>
-    sidecars.writeRemovalConfirmed(
+    TestBed.inject(XmpRemovalWritesService).writeRemovalConfirmed(
       'photo',
       folder,
       'photo.dng',
@@ -153,8 +154,12 @@ describe('durable browser removal through actual WASM and filesystem files', () 
     );
     await sidecars.bindVariant('photo', folder, 'photo.dng', id);
     const records = await publish();
-    const revision = await sidecars.captureRemovalRevision('photo', folder, 'photo.dng');
-    await sidecars.writeRemovalConfirmed(
+    const revision = await TestBed.inject(XmpRemovalWritesService).captureRemovalRevision(
+      'photo',
+      folder,
+      'photo.dng',
+    );
+    await TestBed.inject(XmpRemovalWritesService).writeRemovalConfirmed(
       'photo',
       folder,
       'photo.dng',

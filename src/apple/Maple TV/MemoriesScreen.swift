@@ -48,10 +48,22 @@ struct MemoriesScreen: View {
   init(session: TVCloudSession, libraryID: String) {
     self.session = session
     self.libraryID = libraryID
+    let server = session.server
+    let thumbClient = session.thumbClient
+    let thumbCache = session.thumbCache
     _viewModel = State(
       initialValue: GeneratedSearchCollectionsViewModel(
         libraryID: libraryID,
-        client: session.generatedSearchClient
+        client: session.generatedSearchClient,
+        cache: .shared,
+        cacheHost: server.cacheHostKey,
+        coverWarmer: { cover in
+          await TVRemoteImage.prefetchThumb(
+            server: server, absPath: cover.abs_path, thumbClient: thumbClient,
+            thumbCache: thumbCache)
+          return await TVRemoteImage.cachedImage(
+            server: server, absPath: cover.abs_path, kind: .thumb) != nil
+        }
       ))
   }
 

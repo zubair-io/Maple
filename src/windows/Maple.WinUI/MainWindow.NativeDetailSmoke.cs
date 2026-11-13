@@ -15,8 +15,8 @@ public sealed partial class MainWindow
             || !ZoomReadout.Text.StartsWith("100%")))
             await Task.Delay(50);
         if (_nativeGeometry is not { } geometry || ContentFitRect() is not { } fit
-            || Math.Abs(fit.W * ViewerScroll.ZoomFactor * DisplayScale / geometry.CropWidth - 1) > .002)
-            throw new InvalidOperationException($"Actual Size did not resolve original pixels: zoom={ViewerScroll.ZoomFactor}, dpi={DisplayScale}, fit={ContentFitRect()}, source={_nativeGeometry?.CropWidth}, status={ZoomReadout.Text}");
+            || Math.Abs(fit.W * ZoomPanTransform.ScaleX * DisplayScale / geometry.CropWidth - 1) > .002)
+            throw new InvalidOperationException($"Actual Size did not resolve original pixels: zoom={ZoomPanTransform.ScaleX}, dpi={DisplayScale}, fit={ContentFitRect()}, source={_nativeGeometry?.CropWidth}, status={ZoomReadout.Text}");
         if (NativeDetailOverlay.Visibility != Visibility.Visible || NativeDetailOverlay.Source is not WriteableBitmap)
             throw new InvalidOperationException($"Native patch was not presented: {ZoomReadout.Text}");
         if (!ZoomReadout.Text.StartsWith("100%") || !ZoomReadout.Text.EndsWith("native detail"))

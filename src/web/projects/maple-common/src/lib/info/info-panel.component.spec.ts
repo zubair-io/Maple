@@ -17,6 +17,8 @@ import { of } from 'rxjs';
 import { InfoPanelComponent } from './info-panel.component';
 import { provideInfoPanelExtension } from './info-panel-extension';
 import { LibraryStateService } from '../state/library-state.service';
+import { ExifReaderService } from '../addressing/exif-reader.service';
+import { HOSTED_INFO_EXIF_ENABLED } from './hosted-info-exif';
 import { SERVER_LIBRARY_IO } from '../workspace/server-library-io';
 import type { ServerLibraryIo, ApiHistogram } from '../workspace/server-library-io';
 import type { Asset } from '../models/asset';
@@ -53,6 +55,7 @@ class FakeLibraryStateService {
   focusedAssetId = signal<string | undefined>(undefined);
   focusedAsset = signal<Asset | null>(null);
   apiIdFor = vi.fn().mockReturnValue(undefined);
+  bytesForAsset = vi.fn().mockResolvedValue(new Uint8Array([1]));
 }
 
 @Component({ selector: 'app-test-info-extension', standalone: true, template: 'Extended info' })
@@ -62,14 +65,25 @@ function makeFixture(
   opts: {
     asset?: Asset | null;
     insideSheet?: boolean;
+    visible?: boolean;
     extension?: boolean;
     serverHistogram?: ApiHistogram;
+    hostedExif?: Record<string, unknown>;
   } = {},
 ) {
   TestBed.configureTestingModule({
     imports: [InfoPanelComponent],
     providers: [
       { provide: LibraryStateService, useValue: new FakeLibraryStateService() },
+      ...(opts.hostedExif
+        ? [
+            { provide: HOSTED_INFO_EXIF_ENABLED, useValue: true },
+            {
+              provide: ExifReaderService,
+              useValue: { parse: vi.fn().mockResolvedValue(opts.hostedExif) },
+            },
+          ]
+        : []),
       ...(opts.extension ? [provideInfoPanelExtension(TestInfoExtensionComponent)] : []),
       ...(opts.serverHistogram
         ? [
@@ -86,6 +100,7 @@ function makeFixture(
   const fixture = TestBed.createComponent(InfoPanelComponent);
   fixture.componentRef.setInput('asset', opts.asset === undefined ? STUB_ASSET : opts.asset);
   fixture.componentRef.setInput('insideSheet', opts.insideSheet ?? false);
+  fixture.componentRef.setInput('visible', opts.visible ?? true);
   fixture.detectChanges();
   return fixture;
 }
@@ -99,6 +114,76 @@ describe('InfoPanelComponent', () => {
     expect(el.querySelector('mui-rating-flags')).not.toBeNull();
     expect(el.querySelector('mui-label-value-grid')).not.toBeNull();
     expect(el.querySelector('mui-keyword-row')).not.toBeNull();
+  });
+
+  it('shows the filename and, for a RAW+JPEG stack, both files with the RAW primary (#5846)', () => {
+    const stacked = {
+      ...STUB_ASSET,
+      filename: 'IMG_0001.CR3',
+      size: 1024 * 1024,
+      stack: {
+        companion: { id: 'lib:IMG_0001.JPG', name: 'IMG_0001.JPG', ext: 'jpg', size: 2048 },
+      },
+    };
+    const el = makeFixture({ asset: stacked }).nativeElement as HTMLElement;
+    expect(el.querySelector('[data-testid="info-filename"]')?.textContent).toContain(
+      'IMG_0001.CR3',
+    );
+    const rows = [...el.querySelectorAll('.stack-file-row')];
+    expect(rows.map((row) => row.getAttribute('data-primary'))).toEqual(['true', 'false']);
+    expect(rows[0]!.textContent).toContain('IMG_0001.CR3');
+    expect(rows[1]!.textContent).toContain('IMG_0001.JPG');
+  });
+
+  it('lists no stack files for an ordinary asset, but still shows its filename', () => {
+    const el = makeFixture().nativeElement as HTMLElement;
+    expect(el.querySelector('.stack-file-row')).toBeNull();
+    expect(el.querySelector('[data-testid="info-filename"]')?.textContent).toContain(
+      'IMG_0001.dng',
+    );
+  });
+
+  it('fills Hosted camera rows from the selected file without indexing the folder', async () => {
+    const fixture = makeFixture({
+      asset: {
+        ...STUB_ASSET,
+        camera: undefined,
+        lens: undefined,
+        aperture: undefined,
+        shutter: undefined,
+        iso: undefined,
+        focalLength: undefined,
+      },
+      hostedExif: {
+        Model: 'Canon EOS 5DS R',
+        LensModel: 'EF50mm f/1.2L USM',
+        FNumber: 5.6,
+        ExposureTime: 0.004,
+        ISO: 200,
+        FocalLength: 50,
+      },
+    });
+    await vi.waitFor(() => {
+      fixture.detectChanges();
+      const rows = fixture.nativeElement.querySelector('mui-label-value-grid')?.textContent ?? '';
+      expect(rows).toContain('Canon EOS 5DS R');
+      expect(rows).toContain('EF50mm f/1.2L USM');
+      expect(rows).toContain('1/250');
+      expect(rows).toContain('50mm');
+    });
+  });
+
+  it('defers Hosted EXIF reads until a projected phone Info sheet opens', async () => {
+    const fixture = makeFixture({
+      insideSheet: true,
+      visible: false,
+      hostedExif: { Model: 'Canon' },
+    });
+    const svc = TestBed.inject(LibraryStateService) as unknown as FakeLibraryStateService;
+    expect(svc.bytesForAsset).not.toHaveBeenCalled();
+    fixture.componentRef.setInput('visible', true);
+    fixture.detectChanges();
+    await vi.waitFor(() => expect(svc.bytesForAsset).toHaveBeenCalledOnce());
   });
 
   it('shows resolver-derived support reactively and removes it when switching to an unassessed asset', () => {

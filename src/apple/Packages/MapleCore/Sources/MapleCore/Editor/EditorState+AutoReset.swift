@@ -61,6 +61,31 @@ extension EditorState {
         for sub in tool.subParams {
           reset[keyPath: sub.keyPath] = sub.defaultDisplayValue
         }
+        if tool == .toneCurve {
+          reset.toneCurveLuma = .identity
+          reset.toneCurveRed = .identity
+          reset.toneCurveGreen = .identity
+          reset.toneCurveBlue = .identity
+          reset.displayToneCurveLuma = .identity
+          reset.displayToneCurveRed = .identity
+          reset.displayToneCurveGreen = .identity
+          reset.displayToneCurveBlue = .identity
+          reset.toneCurveMode = AdjustmentModel.default.toneCurveMode
+          reset.parametricShadowSplit = AdjustmentModel.default.parametricShadowSplit
+          reset.parametricMidtoneSplit = AdjustmentModel.default.parametricMidtoneSplit
+          reset.parametricHighlightSplit = AdjustmentModel.default.parametricHighlightSplit
+        } else if tool == .hsl {
+          reset.colorCurveHueVsHue = .identity
+          reset.colorCurveHueVsSat = .identity
+          reset.colorCurveHueVsLuma = .identity
+          reset.colorCurveLumaVsSat = .identity
+          reset.colorCurveSatVsSat = .identity
+          reset.colorCurveSatVsLuma = .identity
+        } else if tool == .colorGrade {
+          reset.colorGradeBlending = AdjustmentModel.default.colorGradeBlending
+          reset.colorGradeShadowEdge = AdjustmentModel.default.colorGradeShadowEdge
+          reset.colorGradeHighlightEdge = AdjustmentModel.default.colorGradeHighlightEdge
+        }
       }
     }
     guard reset != session.model else { return }

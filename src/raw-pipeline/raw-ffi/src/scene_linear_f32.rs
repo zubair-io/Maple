@@ -29,7 +29,7 @@ use std::ffi::{c_char, CStr};
 /// every other rc here (1/2/3 = arg errors, 6/7/8 = read/decode/render
 /// failures, 9 = bad size) so Swift maps it to the silent "dropped" path
 /// instead of a render error — only when a non-null cancel flag was set.
-const RC_CANCELLED: i32 = 4;
+pub(crate) const RC_CANCELLED: i32 = 4;
 
 /// f32 sibling of [`maple_render_file_scene_linear`]. Identical inputs and
 /// error codes; the output buffer is [`MapleSceneLinearBufferF32`] (16
@@ -437,9 +437,9 @@ pub unsafe extern "C" fn maple_render_bytes_scene_linear_sized_f32(
 /// `wb_camera::SliderFrame` data + in-frame as-shot `(scene_cct, tint)`, so
 /// the host can derive per-tick WB deltas in the develop chain's own
 /// calibration frame. Gated on EXACTLY the tiers `pipeline::develop` gates
-/// `wb_camera` on (real calibration, pre-gained Bayer/full-LinearRaw source);
-/// everything else exports `SliderFrameExport::ABSENT`, matching the develop
-/// chain's own post-DCP CAT16 fallback.
+/// `wb_camera` on (real calibration, pre-gained Bayer/full-LinearRaw
+/// source); everything else exports `SliderFrameExport::ABSENT`, matching
+/// the develop chain's own post-DCP CAT16 fallback.
 pub(crate) fn wb_frame_export(
     raw: &raw_core::RawImage,
 ) -> raw_core::stages::wb_camera::SliderFrameExport {

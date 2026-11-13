@@ -67,10 +67,9 @@ pub fn plane_byte_len(width: u32, height: u32) -> u64 {
 /// plain create. Returns an [`Plane`] (`Arc<Buffer>`); deref for `&Buffer`.
 pub fn alloc_plane(ctx: &GpuContext, width: u32, height: u32, label: &str) -> Plane {
     let byte_len = plane_byte_len(width, height);
-    let label = label.to_string();
-    pool_scratch(ctx, byte_len, move |device| {
+    pool_scratch(ctx, byte_len, |device| {
         device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some(&label),
+            label: Some(label),
             size: byte_len,
             usage: SCRATCH_USAGE,
             mapped_at_creation: false,
@@ -98,10 +97,9 @@ pub fn pool_data_storage(ctx: &GpuContext, contents: &[u8], label: &str) -> Plan
 /// extra full-image scratch beyond the chain's ping-pong pair.
 pub fn alloc_rgba(ctx: &GpuContext, width: u32, height: u32, label: &str) -> Plane {
     let byte_len = (width as u64) * (height as u64) * 4 * std::mem::size_of::<f32>() as u64;
-    let label = label.to_string();
-    pool_scratch(ctx, byte_len, move |device| {
+    pool_scratch(ctx, byte_len, |device| {
         device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some(&label),
+            label: Some(label),
             size: byte_len,
             usage: SCRATCH_USAGE,
             mapped_at_creation: false,
@@ -201,10 +199,9 @@ pub fn plane_vec2_byte_len(width: u32, height: u32) -> u64 {
 /// — see [`box_blur_vec2_encode`]). Returns an [`Plane`] (`Arc<Buffer>`).
 pub fn alloc_plane_vec2(ctx: &GpuContext, width: u32, height: u32, label: &str) -> Plane {
     let byte_len = plane_vec2_byte_len(width, height);
-    let label = label.to_string();
-    pool_scratch(ctx, byte_len, move |device| {
+    pool_scratch(ctx, byte_len, |device| {
         device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some(&label),
+            label: Some(label),
             size: byte_len,
             usage: SCRATCH_USAGE,
             mapped_at_creation: false,

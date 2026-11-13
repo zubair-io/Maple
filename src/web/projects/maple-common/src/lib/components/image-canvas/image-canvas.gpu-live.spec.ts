@@ -111,7 +111,9 @@ describe('ImageCanvasComponent — GPU live-render path (#1038)', () => {
         scopePixels: scopeSnap(),
       }),
     );
-    renderSessionSpy = vi.fn(() => Promise.resolve({ colorSpace: 'display-p3' }));
+    renderSessionSpy = vi.fn(() =>
+      Promise.resolve({ colorSpace: 'display-p3', width: 4000, height: 3000 }),
+    );
     closeSessionSpy = vi.fn();
 
     (globalThis as unknown as { ResizeObserver: unknown }).ResizeObserver = class {

@@ -1,0 +1,150 @@
+diff --git a/src/raw-pipeline/raw-core/src/stages/dehaze.rs b/src/raw-pipeline/raw-core/src/stages/dehaze.rs
+index bf4bc8d299..661d979db4 100644
+--- a/src/raw-pipeline/raw-core/src/stages/dehaze.rs
++++ b/src/raw-pipeline/raw-core/src/stages/dehaze.rs
+@@ -37,15 +37,33 @@ fn atmospheric_light(img: &Image, dc: &[f32]) -> [f32; 3] {
+             .partial_cmp(&dc[a])
+             .unwrap_or(std::cmp::Ordering::Equal)
+     });
+-    let mut sum = [0.0f32; 3];
+-    for &i in &idx[..top_n] {
++    // The cutoff may pass through a plateau from the spatial min filter.
++    // Give equal dark-channel values equal selection mass, independent of
++    // pixel order or the sort's arbitrary tie order. Total mass stays top_n.
++    let cutoff = dc[idx[top_n - 1]];
++    let above = dc.iter().filter(|&&v| v > cutoff).count();
++    let tied = dc.iter().filter(|&&v| v == cutoff).count();
++    let tie_weight = (top_n - above) as f64 / tied as f64;
++    let mut sum = [0.0f64; 3];
++    for i in 0..n {
++        let weight = if dc[i] > cutoff {
++            1.0
++        } else if dc[i] == cutoff {
++            tie_weight
++        } else {
++            continue;
++        };
+         let p = img.pixels[i];
+-        sum[0] += p[0];
+-        sum[1] += p[1];
+-        sum[2] += p[2];
++        for c in 0..3 {
++            sum[c] += p[c] as f64 * weight;
++        }
+     }
+-    let k = top_n as f32;
+-    [sum[0] / k, sum[1] / k, sum[2] / k]
++    let k = top_n as f64;
++    [
++        (sum[0] / k) as f32,
++        (sum[1] / k) as f32,
++        (sum[2] / k) as f32,
++    ]
+ }
+ 
+ /// Transmission estimate: `t(x,y) = 1 - ω * min over 15×15 of min(rgb/A)`.
+diff --git a/src/raw-pipeline/raw-core/src/stages/dehaze_tests.rs b/src/raw-pipeline/raw-core/src/stages/dehaze_tests.rs
+index 920199796e..ba43eacf8a 100644
+--- a/src/raw-pipeline/raw-core/src/stages/dehaze_tests.rs
++++ b/src/raw-pipeline/raw-core/src/stages/dehaze_tests.rs
+@@ -355,3 +355,43 @@ fn dehaze_positive_increases_contrast() {
+     let after = img.pixels[10 * 30 + 10][0];
+     assert!(after >= 0.0 && after <= 1.5);
+ }
++
++#[test]
++fn atmospheric_light_cutoff_ties_do_not_choose_a_spatial_color() {
++    let mut img = Image::new(1000, 1, ColorSpace::SceneLinearRec2020);
++    for (i, p) in img.pixels.iter_mut().enumerate() {
++        *p = if i < 500 {
++            [2.0, 1.0, 1.0]
++        } else {
++            [1.0, 4.0, 1.0]
++        };
++    }
++    // Both halves have minimum channel 1, so the REAL spatial dark
++    // channel is tied throughout; mirroring the scene cannot change A.
++    let mut dc = dark_channel(&img);
++    let a = atmospheric_light(&img, &dc);
++    img.pixels.reverse();
++    dc.reverse();
++    let b = atmospheric_light(&img, &dc);
++    for c in 0..3 {
++        assert!((a[c] - [1.5, 2.5, 1.0][c]).abs() < 1e-6, "{a:?}");
++        assert!((a[c] - b[c]).abs() < 1e-6, "{a:?} != {b:?}");
++    }
++}
++
++#[test]
++fn atmospheric_light_partial_tie_preserves_top_fraction_mass() {
++    let mut img = Image::new(2000, 1, ColorSpace::SceneLinearRec2020);
++    let mut dc = vec![0.1; 2000];
++    img.pixels[0] = [8.0, 1.0, 1.0];
++    img.pixels[1] = [0.8, 2.0, 0.8];
++    img.pixels[2] = [0.8, 0.8, 4.0];
++    dc[0] = 1.0;
++    dc[1] = 0.8;
++    dc[2] = 0.8;
++    let a = atmospheric_light(&img, &dc);
++    // top_n=2: one above the cutoff, then half of each tied position.
++    for c in 0..3 {
++        assert!((a[c] - [4.4, 1.2, 1.7][c]).abs() < 1e-6, "{a:?}");
++    }
++}
+diff --git a/src/raw-pipeline/raw-gpu/src/dehaze/oracle.rs b/src/raw-pipeline/raw-gpu/src/dehaze/oracle.rs
+index 262a90f0b8..0d23c94b3c 100644
+--- a/src/raw-pipeline/raw-gpu/src/dehaze/oracle.rs
++++ b/src/raw-pipeline/raw-gpu/src/dehaze/oracle.rs
+@@ -48,9 +48,8 @@ fn dark_channel(pixels: &[[f32; 3]], w: usize, h: usize) -> Vec<f32> {
+ 
+ /// Atmospheric light A: mean of the original image at the brightest 0.1% of
+ /// dark-channel positions. Faithful to
+-/// `raw_core::stages::dehaze::atmospheric_light` — INCLUDING the exact
+-/// `sort_unstable_by` descending comparator (tie-breaks must match: on a small
+-/// image `top_n` is tiny, so one swapped pixel shifts A enough to fail parity).
++/// `raw_core::stages::dehaze::atmospheric_light`, including fractional
++/// selection of the entire cutoff tie group and f64 accumulation.
+ fn atmospheric_light(pixels: &[[f32; 3]], dc: &[f32]) -> [f32; 3] {
+     let n = dc.len();
+     let top_n = (n / 1000).max(1);
+@@ -60,15 +59,33 @@ fn atmospheric_light(pixels: &[[f32; 3]], dc: &[f32]) -> [f32; 3] {
+             .partial_cmp(&dc[a])
+             .unwrap_or(std::cmp::Ordering::Equal)
+     });
+-    let mut sum = [0.0f32; 3];
+-    for &i in &idx[..top_n] {
++    // The cutoff may pass through a plateau from the spatial min filter.
++    // Give equal dark-channel values equal selection mass, independent of
++    // pixel order or the sort's arbitrary tie order. Total mass stays top_n.
++    let cutoff = dc[idx[top_n - 1]];
++    let above = dc.iter().filter(|&&v| v > cutoff).count();
++    let tied = dc.iter().filter(|&&v| v == cutoff).count();
++    let tie_weight = (top_n - above) as f64 / tied as f64;
++    let mut sum = [0.0f64; 3];
++    for i in 0..n {
++        let weight = if dc[i] > cutoff {
++            1.0
++        } else if dc[i] == cutoff {
++            tie_weight
++        } else {
++            continue;
++        };
+         let p = pixels[i];
+-        sum[0] += p[0];
+-        sum[1] += p[1];
+-        sum[2] += p[2];
++        for c in 0..3 {
++            sum[c] += p[c] as f64 * weight;
++        }
+     }
+-    let k = top_n as f32;
+-    [sum[0] / k, sum[1] / k, sum[2] / k]
++    let k = top_n as f64;
++    [
++        (sum[0] / k) as f32,
++        (sum[1] / k) as f32,
++        (sum[2] / k) as f32,
++    ]
+ }
+ 
+ /// Transmission: `1 - ω·(15×15 window min of min(rgb/A))`, clamp-to-edge, with

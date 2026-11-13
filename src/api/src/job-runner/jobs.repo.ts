@@ -1,7 +1,5 @@
 /**
- * Accessor for the `jobs` table. Mirrors the geocode worker's claim-and-lease
- * shape (`docs/indexer-enrichment.md` §3.1) but at job granularity rather than
- * per-stage state.
+ * Accessor for the `jobs` table.
  *
  * Every operation now lives in `db/repos/jobs.repo.ts` (#3787), and this
  * module is the seam the runner, the HTTP routes and the handlers keep
@@ -32,14 +30,19 @@ import {
 import type { SqliteDb } from '../db/repos/db-handle.ts';
 
 export {
+  cancelUnfinishedJob,
   claimJob,
   completeJob,
   failJob,
+  heldJobIds,
   isCancelRequested,
   JobConflictError,
   jobConflictMessage,
   listJobs,
   markCancelled,
+  markJobDispatched,
+  nextJobId,
+  operationFolderId,
   requestCancel,
   resumeBatchJob,
   saveJobCheckpoint,

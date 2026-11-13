@@ -397,3 +397,92 @@ fn a_window_missing_only_the_source_is_refused() {
         .expect_err("an out-of-window source must refuse the window");
     assert!(err.to_string().contains("source"));
 }
+
+#[test]
+fn orienting_to_sensor_keeps_the_pixel_radius_and_moves_both_points() {
+    use crate::image::ExifOrientation;
+    use crate::types::retouch::RetouchFrame;
+
+    let spot = hard_spot(
+        RetouchKind::Clone,
+        Point2::new(0.25, 0.5),
+        Point2::new(0.75, 0.5),
+        0.1,
+    );
+    let spots = [spot];
+    let sensor = (400, 200);
+    let mapped = orient_spots_to_sensor(
+        &spots,
+        RetouchFrame::Upright,
+        ExifOrientation::Rotate90,
+        sensor,
+    );
+    let oriented = mapped[0];
+    assert_eq!((oriented.center.x, oriented.center.y), (0.5, 0.75));
+    assert_eq!((oriented.source.x, oriented.source.y), (0.5, 0.25));
+    let display_radius_px = 0.1 * 200.0;
+    assert!((oriented.radius * sensor.0 as f32 - display_radius_px).abs() < 1e-4);
+
+    let untouched = orient_spots_to_sensor(
+        &spots,
+        RetouchFrame::Upright,
+        ExifOrientation::Normal,
+        sensor,
+    );
+    assert!(matches!(untouched, std::borrow::Cow::Borrowed(_)));
+}
+
+#[test]
+fn a_legacy_sensor_framed_list_is_not_remapped() {
+    use crate::image::ExifOrientation;
+    use crate::types::retouch::RetouchFrame;
+
+    let spots = [hard_spot(
+        RetouchKind::Clone,
+        Point2::new(0.25, 0.5),
+        Point2::new(0.75, 0.5),
+        0.1,
+    )];
+    let mapped = orient_spots_to_sensor(
+        &spots,
+        RetouchFrame::Sensor,
+        ExifOrientation::Rotate90,
+        (400, 200),
+    );
+    assert!(matches!(mapped, std::borrow::Cow::Borrowed(_)));
+}
+
+/// The same vectors pin Windows' legacy sensor-to-upright conversion
+/// (`RepairCanvasMapTests` / `XmpRetouchTests.ConversionFollowsTheExifOrientation`):
+/// the sensor point (0.2, 0.3) sits at these upright locations.
+#[test]
+fn upright_locations_map_back_to_the_known_sensor_point_for_every_orientation() {
+    use crate::image::ExifOrientation;
+    use crate::types::retouch::RetouchFrame;
+
+    for (tag, x, y) in [
+        (1, 0.2, 0.3),
+        (2, 0.8, 0.3),
+        (3, 0.8, 0.7),
+        (4, 0.2, 0.7),
+        (5, 0.3, 0.2),
+        (6, 0.7, 0.2),
+        (7, 0.7, 0.8),
+        (8, 0.3, 0.8),
+    ] {
+        let spots = [hard_spot(
+            RetouchKind::Clone,
+            Point2::new(x, y),
+            Point2::new(x, y),
+            0.05,
+        )];
+        let mapped = orient_spots_to_sensor(
+            &spots,
+            RetouchFrame::Upright,
+            ExifOrientation::from_u16(tag),
+            (400, 300),
+        );
+        assert!((mapped[0].center.x - 0.2).abs() < 1e-6, "tag {tag}");
+        assert!((mapped[0].center.y - 0.3).abs() < 1e-6, "tag {tag}");
+    }
+}

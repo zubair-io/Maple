@@ -33,6 +33,8 @@ export interface RecipeQueueRecord {
   directoryHandle?: FileSystemDirectoryHandle;
   /** All initial originals survive failed-item filtering and queue reloads (#4107). */
   protectedOriginals?: (FileSystemFileHandle | null)[];
+  /** Lowercased destination filename -> SHA-256 digest written by export (#4697). */
+  createdOutputs?: Record<string, string>;
 }
 
 async function db(): Promise<IDBDatabase> {
@@ -76,6 +78,10 @@ export async function saveRecipe(value: unknown): Promise<void> {
 export async function deleteRecipe(name: string): Promise<void> {
   await transaction('recipes', 'readwrite', (store) => store.delete(name));
 }
+interface DirectoryOutputsEntry {
+  directoryHandle: FileSystemDirectoryHandle;
+  outputs: Record<string, string>;
+}
 export async function readExportQueue(): Promise<RecipeQueueRecord | null> {
   const value: RecipeQueueRecord | undefined = await transaction('queue', 'readonly', (store) =>
     store.get('active'),
@@ -83,6 +89,44 @@ export async function readExportQueue(): Promise<RecipeQueueRecord | null> {
   if (!value) return null;
   parseExportRecipe(value.recipe);
   return value;
+}
+let directoryOutputsChain: Promise<void> = Promise.resolve();
+export async function readDirectoryCreatedOutputs(
+  directoryHandle: FileSystemDirectoryHandle,
+): Promise<Record<string, string> | undefined> {
+  if (typeof indexedDB === 'undefined') return undefined;
+  await directoryOutputsChain;
+  const list =
+    (await transaction<DirectoryOutputsEntry[] | undefined>('queue', 'readonly', (store) =>
+      store.get('created-outputs'),
+    )) ?? [];
+  for (const item of list) {
+    if (await directoryHandle.isSameEntry(item.directoryHandle)) return { ...item.outputs };
+  }
+  return undefined;
+}
+export function saveDirectoryCreatedOutputs(
+  directoryHandle: FileSystemDirectoryHandle,
+  outputs: Record<string, string>,
+): Promise<void> {
+  if (typeof indexedDB === 'undefined' || !Object.keys(outputs).length) return Promise.resolve();
+  const operation = directoryOutputsChain.then(async () => {
+    const list =
+      (await transaction<DirectoryOutputsEntry[] | undefined>('queue', 'readonly', (store) =>
+        store.get('created-outputs'),
+      )) ?? [];
+    const next: DirectoryOutputsEntry[] = [];
+    let merged = { ...outputs };
+    for (const item of list) {
+      if (await directoryHandle.isSameEntry(item.directoryHandle))
+        merged = { ...item.outputs, ...outputs };
+      else next.push(item);
+    }
+    next.unshift({ directoryHandle, outputs: merged });
+    await transaction('queue', 'readwrite', (store) => store.put(next, 'created-outputs'));
+  });
+  directoryOutputsChain = operation.catch(() => undefined);
+  return operation;
 }
 export async function saveExportQueue(value: RecipeQueueRecord): Promise<void> {
   await transaction('queue', 'readwrite', (store) => store.put(value, 'active'));

@@ -11,7 +11,7 @@ use std::{
 
 pub enum Command {
     Connect(String),
-    Claim,
+    Claim(String),
     Folder(u64, String, Option<String>),
     Disconnect,
     Download(u64, CloudEntry),
@@ -27,7 +27,7 @@ pub enum Event {
     Connected(Vec<CloudLibrary>),
     Folder(u64, Box<CloudFolder>),
     Derivative(u64, String, bool, Result<egui::ColorImage, String>),
-    EditReady(u64, crate::library::Photo, CloudEntry),
+    EditReady(u64, crate::library::Photo, CloudEntry, bool),
     Reloaded(u64, crate::library::Photo),
     Synced(u64, Result<(), String>),
     Resumed(Vec<String>, Vec<String>),
@@ -77,33 +77,44 @@ impl Worker {
                                             return Err("Synchronize pending cloud edits before changing images".into());
                                         }
                                     }
-                                    let mut candidate =
-                                        super::EditJournal::open(&base, &server, &entry)
-                                            .map_err(|error| error.to_string())?;
-                                    if !candidate.pending().map_err(|error| error.to_string())? {
-                                        let download = connection
-                                            .download_for_edit(&entry)
-                                            .map_err(|error| error.to_string())?;
-                                        candidate
-                                            .prepare(&server, &entry, download)
-                                            .map_err(|error| error.to_string())?;
-                                    }
-                                    journal = Some(candidate);
-                                } else {
-                                    let edit = journal.as_mut().expect("matching journal");
-                                    if !edit.pending().map_err(|error| error.to_string())? {
-                                        let download = connection
-                                            .download_for_edit(&entry)
-                                            .map_err(|error| error.to_string())?;
-                                        edit.prepare(&server, &entry, download)
-                                            .map_err(|error| error.to_string())?;
-                                    }
                                 }
-                                let edit = journal.as_ref().expect("opened journal");
+                                let mut candidate = if same {
+                                    None
+                                } else {
+                                    Some(
+                                        super::EditJournal::open(&base, &server, &entry)
+                                            .map_err(|error| error.to_string())?,
+                                    )
+                                };
+                                let edit = candidate
+                                    .as_mut()
+                                    .or(journal.as_mut())
+                                    .ok_or("No cloud editor journal is open")?;
+                                let pending_recovery =
+                                    edit.pending().map_err(|error| error.to_string())?;
+                                if pending_recovery {
+                                    let live = connection
+                                        .stat_entry(&entry)
+                                        .map_err(|error| error.to_string())?;
+                                    edit.validate_original(&live)
+                                        .map_err(|error| error.to_string())?;
+                                } else {
+                                    let download = connection
+                                        .download_for_edit(&entry)
+                                        .map_err(|error| error.to_string())?;
+                                    edit.prepare(&server, &entry, download)
+                                        .map_err(|error| error.to_string())?;
+                                }
+                                let photo =
+                                    photo_at(edit.path().map_err(|error| error.to_string())?)?;
+                                if let Some(candidate) = candidate {
+                                    journal = Some(candidate);
+                                }
                                 return Ok(Some(Event::EditReady(
                                     epoch,
-                                    photo_at(edit.path().map_err(|error| error.to_string())?)?,
+                                    photo,
                                     entry,
+                                    pending_recovery,
                                 )));
                             }
                             Command::Reload(id, path) => {
@@ -126,6 +137,10 @@ impl Worker {
                                     if edit.path().map_err(|e| e.to_string())? != path {
                                         return Err("Cloud image changed before this save".into());
                                     }
+                                    let live = connection
+                                        .stat_entry(&edit.entry().ok_or("No cloud edit is open")?)
+                                        .map_err(|e| e.to_string())?;
+                                    edit.verify_original(&live).map_err(|e| e.to_string())?;
                                     edit.synchronize(connection, &document)
                                         .map_err(|e| e.to_string())
                                 })();
@@ -159,12 +174,12 @@ impl Worker {
                                 client = Some(connection);
                                 return Ok(Some(event));
                             }
-                            Command::Claim => {
+                            Command::Claim(code) => {
                                 let connection =
                                     client.as_mut().ok_or("Connect to a Maple server first")?;
                                 let ceremony =
                                     pending.as_ref().ok_or("No sign-in ceremony is pending")?;
-                                match connection.claim(ceremony) {
+                                match connection.claim(ceremony, &code) {
                                     Ok(true) => {
                                         pending = None;
                                         resume_due = true;
@@ -201,9 +216,6 @@ impl Worker {
                         resume_due = false;
                         let resumed = super::resume_pending(&edits_directory()?, connection)
                             .map_err(|error| error.to_string())?;
-                        if journal.is_none() {
-                            journal = resumed.held;
-                        }
                         return Ok(Some(Event::Resumed(
                             resumed.synchronized,
                             resumed.unsynchronized,

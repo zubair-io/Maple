@@ -5,7 +5,9 @@
 
 import { describe, it, expect } from 'bun:test';
 import {
+  DEFAULT_DECODE_MEMORY_BUDGET_PERCENT,
   DEFAULT_FFI_WORKERS,
+  MAX_DECODE_MEMORY_BUDGET_PERCENT,
   MAX_FFI_WORKERS,
   MIN_FFI_WORKERS,
   clampFfiWorkers,
@@ -102,5 +104,37 @@ describe('performance config — SQLite round-trip', () => {
     const loaded = await loadPerformanceConfig();
     expect(loaded?.ffi_workers).toBe(5);
     expect(typeof loaded?.updated_at).toBe('number');
+  });
+});
+
+describe('decode memory budget percent (#5467)', () => {
+  it('defaults when nothing is saved', () => {
+    const r = resolveFfiPoolConfig(null, {});
+    expect(r.decode_memory_budget_percent).toBe(DEFAULT_DECODE_MEMORY_BUDGET_PERCENT);
+    expect(r.source.decode_memory_budget_percent).toBe('default');
+  });
+
+  it('keeps a saved 0, the no-cap escape hatch', () => {
+    const r = resolveFfiPoolConfig({ decode_memory_budget_percent: 0 }, {});
+    expect(r.decode_memory_budget_percent).toBe(0);
+    expect(r.source.decode_memory_budget_percent).toBe('db');
+  });
+
+  it('clamps a hand-edited value into range', () => {
+    expect(
+      resolveFfiPoolConfig({ decode_memory_budget_percent: 400 }, {}).decode_memory_budget_percent,
+    ).toBe(MAX_DECODE_MEMORY_BUDGET_PERCENT);
+    expect(
+      resolveFfiPoolConfig({ decode_memory_budget_percent: -5 }, {}).decode_memory_budget_percent,
+    ).toBe(0);
+  });
+
+  it('saves the percent without touching ffi_workers', async () => {
+    using _live = await createLiveTestDatabase();
+    await savePerformanceConfig({ ffi_workers: 6 });
+    await savePerformanceConfig({ decode_memory_budget_percent: 35 });
+    const resolved = resolveFfiPoolConfig(await loadPerformanceConfig(), {});
+    expect(resolved.ffi_workers).toBe(6);
+    expect(resolved.decode_memory_budget_percent).toBe(35);
   });
 });

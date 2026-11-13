@@ -36,6 +36,9 @@ struct TrashBrowserSheet: View {
   /// duplicate call if tapped again.
   @State private var busyFolderIDs: Set<String> = []
   @State private var errorMessage: String?
+  /// A non-error outcome worth saying, e.g. a permanent delete that kept the
+  /// photo because another copy exists (#5419).
+  @State private var notice: String?
   @State private var pendingPermanentDelete: TrashBrowserRow?
 
   private static let dateStyle: Date.FormatStyle = .init(date: .abbreviated, time: .omitted)
@@ -71,6 +74,13 @@ struct TrashBrowserSheet: View {
           .font(.system(size: 11))
           .foregroundStyle(MapleTokens.errorText)
           .padding(10)
+      }
+
+      if let notice {
+        MuiToast(variant: .info, message: notice, autoDismissMs: nil, dismissed: { self.notice = nil })
+          .id(notice)
+          .padding(10)
+          .accessibilityIdentifier("trashBrowser.notice")
       }
 
       content
@@ -277,9 +287,13 @@ struct TrashBrowserSheet: View {
     guard let onRestoreFolder, !busyFolderIDs.contains(group.id) else { return }
     busyFolderIDs.insert(group.id)
     let outcome = await onRestoreFolder(group.id)
+    notice = nil
     switch outcome {
     case .succeeded:
       errorMessage = nil
+    case .kept(let message):
+      errorMessage = nil
+      notice = message
     case .stale(let reason):
       errorMessage = reason
     case .failed(let message):
@@ -305,10 +319,15 @@ struct TrashBrowserSheet: View {
   private func apply(
     _ outcome: TrashRowActionOutcome, to row: TrashBrowserRow, failureFallback: String
   ) {
+    notice = nil
     switch outcome {
     case .succeeded:
       rows.removeAll { $0.id == row.id }
       errorMessage = nil
+    case .kept(let message):
+      rows.removeAll { $0.id == row.id }
+      errorMessage = nil
+      notice = message
     case .stale(let reason):
       rows.removeAll { $0.id == row.id }
       errorMessage = reason

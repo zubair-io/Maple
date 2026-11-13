@@ -60,10 +60,7 @@ final class PreviewPathContractTests: XCTestCase {
       assetURL = assetURL.appendingPathComponent(c.filename)
 
       let resolved = MapleSidecarPaths.previewURL(for: assetURL)
-      let expected = libraryRoot.appendingPathComponent(
-        c.relPath.replacingOccurrences(
-          of: "{pipelineOutputVersion}", with: String(AdjustmentModel.pipelineOutputVersion))
-      ).path
+      let expected = libraryRoot.appendingPathComponent(c.relPath).path
 
       XCTAssertEqual(
         resolved.path, expected,

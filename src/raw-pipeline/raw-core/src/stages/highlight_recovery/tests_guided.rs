@@ -139,8 +139,8 @@ fn scene_median_samples_the_whole_region_not_the_top() {
         }
     }
     let mask = vec![0u8; w * h];
-    let median =
-        scene_median(&img, &mask, 0, 0, w as i32, h as i32).expect("unclipped samples exist");
+    let median = scene_median(&img, &mask, [f32::INFINITY; 3], 0, 0, w as i32, h as i32)
+        .expect("unclipped samples exist");
     assert_eq!(
         median, COOL,
         "top-biased scene prior: median {median:?} follows the warm top third"
@@ -161,7 +161,7 @@ fn scene_median_keeps_sparse_evidence_in_a_large_clipped_region() {
         mask[8 * w + x] = 0;
     }
     assert_eq!(
-        scene_median(&img, &mask, 0, 0, w as i32, h as i32),
+        scene_median(&img, &mask, [f32::INFINITY; 3], 0, 0, w as i32, h as i32),
         Some(COOL)
     );
 }

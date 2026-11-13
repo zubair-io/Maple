@@ -215,6 +215,31 @@ impl ResolvedCalibrationRemovals {
             cancel,
         )
     }
+
+    /// The sensor-framed sized capture decode for a live host's resident
+    /// prefix, with this stack's replacements composited.
+    pub fn render_capture_sized_sensor_framed(
+        &self,
+        raw: &RawImage,
+        original: &ContentDigest,
+        model: &AdjustmentModel,
+        quality: super::RenderQuality,
+        max_long_edge: u32,
+        cancel: CancelToken<'_>,
+    ) -> crate::Result<super::CaptureRender> {
+        if cancel.is_cancelled() {
+            return Err(crate::Error::Cancelled);
+        }
+        self.verify_current(raw, original, model)?;
+        super::removal_calibration::render_capture_sized_sensor_framed(
+            raw,
+            model,
+            quality,
+            max_long_edge,
+            &self.patches,
+            cancel,
+        )
+    }
 }
 
 #[cfg(test)]

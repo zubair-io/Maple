@@ -1,0 +1,10 @@
+{
+  "launcher_pid": 46679,
+  "planned": 93,
+  "reused_same_frozen_renderer": 7,
+  "new_render_tasks": 86,
+  "completed": 93,
+  "phase": "complete",
+  "original_inputs": 158,
+  "binary_sha256": "d9130ce9d4f573352043af5acb9d79fbbe2dd596bac5389d0e9eacf5bab4e38f"
+}

@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto';
 import { join } from 'node:path';
 import type { Locator, Page, TestInfo } from '@playwright/test';
 import { expect, test } from '../support/production-test';
@@ -11,8 +10,7 @@ import {
 
 const TARGET = 'test_0006.DNG';
 const OTHER_ASSET = 'test_0008.RAF';
-const TARGET_THUMB_STEM = createHash('sha256').update(TARGET).digest('hex').slice(0, 16);
-const TARGET_THUMB_PATTERN = new RegExp(`^\\.maple/thumbs/${TARGET_THUMB_STEM}\\.(?:avif|jpg)$`);
+const TARGET_THUMB_PATTERN = /^\.maple\/thumbs\/test_0006\.DNG\.(?:avif|jpg)$/;
 
 const VIEWPORTS = [
   { name: 'desktop', width: 1440, height: 900, hasFilmstrip: true },

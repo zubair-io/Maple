@@ -1,0 +1,162 @@
+[
+  {
+    "fixture": "test_0000",
+    "status": "failed",
+    "mean_de": 7.162097371007438,
+    "p95_de": 22.293276928013697,
+    "failed_global_metrics": [
+      "gradient_mean_absolute_channel_error",
+      "mean_absolute_channel_error",
+      "mean_delta_e_2000",
+      "p95_absolute_channel_error",
+      "p95_delta_e_2000"
+    ],
+    "failed_tile_channels": 191
+  },
+  {
+    "fixture": "test_0002",
+    "status": "passed",
+    "mean_de": 0.8255839924356,
+    "p95_de": 3.0917235163552568,
+    "failed_global_metrics": [],
+    "failed_tile_channels": 0
+  },
+  {
+    "fixture": "test_0003",
+    "status": "failed",
+    "mean_de": 2.8680518565272513,
+    "p95_de": 8.404322574413413,
+    "failed_global_metrics": [],
+    "failed_tile_channels": 16
+  },
+  {
+    "fixture": "test_0004",
+    "status": "passed",
+    "mean_de": 2.3984990682149623,
+    "p95_de": 7.711909799791088,
+    "failed_global_metrics": [],
+    "failed_tile_channels": 0
+  },
+  {
+    "fixture": "test_0005",
+    "status": "failed",
+    "mean_de": 3.2714274280253313,
+    "p95_de": 9.97026709448764,
+    "failed_global_metrics": [
+      "p95_absolute_channel_error"
+    ],
+    "failed_tile_channels": 19
+  },
+  {
+    "fixture": "test_0006",
+    "status": "failed",
+    "mean_de": 3.0843863961942612,
+    "p95_de": 7.6585050314679854,
+    "failed_global_metrics": [],
+    "failed_tile_channels": 14
+  },
+  {
+    "fixture": "test_0007",
+    "status": "failed",
+    "mean_de": 3.708891213151388,
+    "p95_de": 8.840214136966676,
+    "failed_global_metrics": [
+      "p95_absolute_channel_error"
+    ],
+    "failed_tile_channels": 50
+  },
+  {
+    "fixture": "test_0008",
+    "status": "failed",
+    "mean_de": 6.592924194366219,
+    "p95_de": 19.76222850543668,
+    "failed_global_metrics": [
+      "mean_absolute_channel_error",
+      "mean_delta_e_2000",
+      "p95_absolute_channel_error",
+      "p95_delta_e_2000"
+    ],
+    "failed_tile_channels": 104
+  },
+  {
+    "fixture": "test_0009",
+    "status": "passed",
+    "mean_de": 1.1093889695618508,
+    "p95_de": 2.4270306978072647,
+    "failed_global_metrics": [],
+    "failed_tile_channels": 0
+  },
+  {
+    "fixture": "test_0010",
+    "status": "failed",
+    "mean_de": 3.480021926076415,
+    "p95_de": 9.556187738353438,
+    "failed_global_metrics": [],
+    "failed_tile_channels": 0
+  },
+  {
+    "fixture": "test_0011",
+    "status": "failed",
+    "mean_de": 2.6666670418037057,
+    "p95_de": 8.845923240271409,
+    "failed_global_metrics": [],
+    "failed_tile_channels": 9
+  },
+  {
+    "fixture": "test_0012",
+    "status": "failed",
+    "mean_de": 8.954307456787687,
+    "p95_de": 21.184145036257792,
+    "failed_global_metrics": [
+      "mean_absolute_channel_error",
+      "mean_delta_e_2000",
+      "p95_absolute_channel_error",
+      "p95_delta_e_2000"
+    ],
+    "failed_tile_channels": 158
+  },
+  {
+    "fixture": "test_0013",
+    "status": "passed",
+    "mean_de": 2.2767805663304954,
+    "p95_de": 5.251691172585424,
+    "failed_global_metrics": [],
+    "failed_tile_channels": 0
+  },
+  {
+    "fixture": "test_0014",
+    "status": "passed",
+    "mean_de": 1.1162290923192146,
+    "p95_de": 2.5855301386093235,
+    "failed_global_metrics": [],
+    "failed_tile_channels": 0
+  },
+  {
+    "fixture": "test_0015",
+    "status": "failed",
+    "mean_de": 8.731924913644725,
+    "p95_de": 21.19195568324417,
+    "failed_global_metrics": [
+      "gradient_mean_absolute_channel_error",
+      "mean_absolute_channel_error",
+      "mean_delta_e_2000",
+      "p95_absolute_channel_error",
+      "p95_delta_e_2000"
+    ],
+    "failed_tile_channels": 157
+  },
+  {
+    "fixture": "test_0017",
+    "status": "failed",
+    "mean_de": 9.540507249664941,
+    "p95_de": 21.44476258481266,
+    "failed_global_metrics": [
+      "gradient_mean_absolute_channel_error",
+      "mean_absolute_channel_error",
+      "mean_delta_e_2000",
+      "p95_absolute_channel_error",
+      "p95_delta_e_2000"
+    ],
+    "failed_tile_channels": 178
+  }
+]

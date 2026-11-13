@@ -1,0 +1,807 @@
+{
+  "scope": "All20baseline scene-anchor diagnostics using1024px Preview, not full physical-gate measurements; no parameter or input changes. Verify any cap-causality claim on full path.",
+  "probe_binary_sha256": "5b590eacfd80989938373e406a62a1b2c8d3f58e893977ab5a452b0b85f9c1d4",
+  "probe_source_sha256": "b8565d346d48eecaace18ce8fee0dea952dea7e9300d77f2f80ab187a73645bb",
+  "fixtures": [
+    {
+      "anchor_ev": 0.7488973140716553,
+      "anchor_gain": 1.6805078983306885,
+      "auto_exposure": "On",
+      "baseline_exposure": 1.0099999904632568,
+      "cached_scene_format": "interleaved-rgb-f32-le",
+      "cached_scene_space": "SceneLinearRec2020",
+      "camera": "L3D-100c",
+      "dimensions": [
+        1024,
+        683
+      ],
+      "distribution": {
+        "global_log_average_before_anchor": 0.16927940081019507,
+        "global_log_offset": 1e-06,
+        "midgrey_after_anchor": 0.2889789044857025,
+        "nonpositive_luma_pixels": 0,
+        "percentiles_after_anchor": {
+          "p001": 0.039711181074380875,
+          "p01": 0.058656081557273865,
+          "p05": 0.08744030445814133,
+          "p25": 0.1564350128173828,
+          "p50": 0.2849712073802948,
+          "p75": 0.5244737863540649,
+          "p95": 0.8576011061668396,
+          "p99": 1.430256962776184,
+          "p999": 2.8824682235717773
+        },
+        "reconstructed_anchor_gain": 1.6656131744384766,
+        "reconstructed_highlight_gain": 1.6656131744384766,
+        "reconstructed_midtone_gain": 1.0467594861984253,
+        "reconstruction_relative_error": 0.008863210678100586,
+        "valid": true
+      },
+      "quality": "preview",
+      "whites_anchor_ev": 2.207329034805298,
+      "fixture": "test_0000",
+      "raw_sha256": "f4b60b3672bdf7ff7f4376fba9da1b1d22c925ebc3e16baa5fd4a64fa1045aa5",
+      "canonical_xmp_sha256": "23cdfdc027d919721421a3f68a2f30790b37b41837e2bfce924e79db86033b52"
+    },
+    {
+      "anchor_ev": 1.5895580053329468,
+      "anchor_gain": 3.0095713138580322,
+      "auto_exposure": "On",
+      "baseline_exposure": 0.0,
+      "cached_scene_format": "interleaved-rgb-f32-le",
+      "cached_scene_space": "SceneLinearRec2020",
+      "camera": "DMC-LX2",
+      "dimensions": [
+        1024,
+        576
+      ],
+      "distribution": {
+        "global_log_average_before_anchor": 0.09572751899209134,
+        "global_log_offset": 1e-06,
+        "midgrey_after_anchor": 0.29027673602104187,
+        "nonpositive_luma_pixels": 0,
+        "percentiles_after_anchor": {
+          "p001": 0.0236989613622427,
+          "p01": 0.04875482618808746,
+          "p05": 0.09663955867290497,
+          "p25": 0.20186440646648407,
+          "p50": 0.29072776436805725,
+          "p75": 0.42243432998657227,
+          "p95": 0.8504672646522522,
+          "p99": 1.077067494392395,
+          "p999": 1.2154611349105835
+        },
+        "reconstructed_anchor_gain": 3.007917881011963,
+        "reconstructed_highlight_gain": 3.007917881011963,
+        "reconstructed_midtone_gain": 1.8662289381027222,
+        "reconstruction_relative_error": 0.0005493760108947754,
+        "valid": true
+      },
+      "quality": "preview",
+      "whites_anchor_ev": 0.9890689849853516,
+      "fixture": "test_0001",
+      "raw_sha256": "c4aebea165cf2e782ac976ebafb986f356fdb7fa05834392ad7a8169cbeaf184",
+      "canonical_xmp_sha256": "23cdfdc027d919721421a3f68a2f30790b37b41837e2bfce924e79db86033b52"
+    },
+    {
+      "anchor_ev": 0.32186880707740784,
+      "anchor_gain": 1.2499486207962036,
+      "auto_exposure": "On",
+      "baseline_exposure": 0.0,
+      "cached_scene_format": "interleaved-rgb-f32-le",
+      "cached_scene_space": "SceneLinearRec2020",
+      "camera": "Hasselblad H2D-39",
+      "dimensions": [
+        1024,
+        768
+      ],
+      "distribution": {
+        "global_log_average_before_anchor": 0.2685550733949061,
+        "global_log_offset": 1e-06,
+        "midgrey_after_anchor": 0.5096973180770874,
+        "nonpositive_luma_pixels": 0,
+        "percentiles_after_anchor": {
+          "p001": 0.01556784100830555,
+          "p01": 0.022302240133285522,
+          "p05": 0.03715002164244652,
+          "p25": 0.12399117648601532,
+          "p50": 0.7323338389396667,
+          "p75": 0.7965245246887207,
+          "p95": 0.849998414516449,
+          "p99": 0.8834240436553955,
+          "p999": 0.8964402079582214
+        },
+        "reconstructed_anchor_gain": 1.2499510049819946,
+        "reconstructed_highlight_gain": 1.2499510049819946,
+        "reconstructed_midtone_gain": 0.441420316696167,
+        "reconstruction_relative_error": 1.9073486328125e-06,
+        "valid": true
+      },
+      "quality": "preview",
+      "whites_anchor_ev": 1.9731389284133911,
+      "fixture": "test_0002",
+      "raw_sha256": "4a4154b2595dc76a7d5e10cdcb65a386319e31647a585c23e262fe62b969c0fe",
+      "canonical_xmp_sha256": "23cdfdc027d919721421a3f68a2f30790b37b41837e2bfce924e79db86033b52"
+    },
+    {
+      "anchor_ev": 1.6341748237609863,
+      "anchor_gain": 3.1040995121002197,
+      "auto_exposure": "On",
+      "baseline_exposure": 0.0,
+      "cached_scene_format": "interleaved-rgb-f32-le",
+      "cached_scene_space": "SceneLinearRec2020",
+      "camera": "EOS 5DS R",
+      "dimensions": [
+        1024,
+        683
+      ],
+      "distribution": {
+        "global_log_average_before_anchor": 0.06056458875233177,
+        "global_log_offset": 1e-06,
+        "midgrey_after_anchor": 0.21071161329746246,
+        "nonpositive_luma_pixels": 0,
+        "percentiles_after_anchor": {
+          "p001": 0.014990922063589096,
+          "p01": 0.017525576055049896,
+          "p05": 0.021559283137321472,
+          "p25": 0.11900843679904938,
+          "p50": 0.20642155408859253,
+          "p75": 0.40141233801841736,
+          "p95": 0.8504067063331604,
+          "p99": 1.7053163051605225,
+          "p999": 2.4147987365722656
+        },
+        "reconstructed_anchor_gain": 3.1026151180267334,
+        "reconstructed_highlight_gain": 3.1026151180267334,
+        "reconstructed_midtone_gain": 2.6516711711883545,
+        "reconstruction_relative_error": 0.000478208065032959,
+        "valid": true
+      },
+      "quality": "preview",
+      "whites_anchor_ev": 1.6251791715621948,
+      "fixture": "test_0003",
+      "raw_sha256": "195e1caf17a622c08323a76e8b0cfff9a9c5f76dbc5fa058af15273aa0eacf50",
+      "canonical_xmp_sha256": "23cdfdc027d919721421a3f68a2f30790b37b41837e2bfce924e79db86033b52"
+    },
+    {
+      "anchor_ev": 0.9923217296600342,
+      "anchor_gain": 1.9893839359283447,
+      "auto_exposure": "On",
+      "baseline_exposure": 0.0,
+      "cached_scene_format": "interleaved-rgb-f32-le",
+      "cached_scene_space": "SceneLinearRec2020",
+      "camera": "H5D-40",
+      "dimensions": [
+        1024,
+        768
+      ],
+      "distribution": {
+        "global_log_average_before_anchor": 0.13686434114222273,
+        "global_log_offset": 1e-06,
+        "midgrey_after_anchor": 0.32213643193244934,
+        "nonpositive_luma_pixels": 0,
+        "percentiles_after_anchor": {
+          "p001": 0.03741281479597092,
+          "p01": 0.0453067421913147,
+          "p05": 0.05984656885266304,
+          "p25": 0.11784707009792328,
+          "p50": 0.30211520195007324,
+          "p75": 0.6624413132667542,
+          "p95": 0.85100919008255,
+          "p99": 0.997260570526123,
+          "p999": 1.065787434577942
+        },
+        "reconstructed_anchor_gain": 1.9870247840881348,
+        "reconstructed_highlight_gain": 1.9870247840881348,
+        "reconstructed_midtone_gain": 1.1116070747375488,
+        "reconstruction_relative_error": 0.0011858940124511719,
+        "valid": true
+      },
+      "quality": "preview",
+      "whites_anchor_ev": 1.4673649072647095,
+      "fixture": "test_0004",
+      "raw_sha256": "209d464e13702de5f4fdb830ac26ac140c98a8d0dc3e81c5ba61d93677330832",
+      "canonical_xmp_sha256": "23cdfdc027d919721421a3f68a2f30790b37b41837e2bfce924e79db86033b52"
+    },
+    {
+      "anchor_ev": 1.930085301399231,
+      "anchor_gain": 3.810777425765991,
+      "auto_exposure": "On",
+      "baseline_exposure": 0.0,
+      "cached_scene_format": "interleaved-rgb-f32-le",
+      "cached_scene_space": "SceneLinearRec2020",
+      "camera": "GFX 50S",
+      "dimensions": [
+        1024,
+        768
+      ],
+      "distribution": {
+        "global_log_average_before_anchor": 0.08734022605099338,
+        "global_log_offset": 1e-06,
+        "midgrey_after_anchor": 0.34881311655044556,
+        "nonpositive_luma_pixels": 0,
+        "percentiles_after_anchor": {
+          "p001": 0.006869531702250242,
+          "p01": 0.039608586579561234,
+          "p05": 0.09591645747423172,
+          "p25": 0.19055241346359253,
+          "p50": 0.2745780348777771,
+          "p75": 0.7231153249740601,
+          "p95": 0.851041316986084,
+          "p99": 0.8932253122329712,
+          "p999": 1.0563278198242188
+        },
+        "reconstructed_anchor_gain": 3.806114912033081,
+        "reconstructed_highlight_gain": 3.806114912033081,
+        "reconstructed_midtone_gain": 1.9664970636367798,
+        "reconstruction_relative_error": 0.0012235045433044434,
+        "valid": true
+      },
+      "quality": "preview",
+      "whites_anchor_ev": 0.3770529627799988,
+      "fixture": "test_0005",
+      "raw_sha256": "a7124d13910e0241a6b035154bc1fcdb7be4439371d043b1e1950a0251feb51e",
+      "canonical_xmp_sha256": "23cdfdc027d919721421a3f68a2f30790b37b41837e2bfce924e79db86033b52"
+    },
+    {
+      "anchor_ev": 0.8693606853485107,
+      "anchor_gain": 1.8268531560897827,
+      "auto_exposure": "On",
+      "baseline_exposure": 0.25,
+      "cached_scene_format": "interleaved-rgb-f32-le",
+      "cached_scene_space": "SceneLinearRec2020",
+      "camera": "EOS 5D Mark III",
+      "dimensions": [
+        1024,
+        683
+      ],
+      "distribution": {
+        "global_log_average_before_anchor": 0.11030638578929874,
+        "global_log_offset": 1e-06,
+        "midgrey_after_anchor": 0.22499647736549377,
+        "nonpositive_luma_pixels": 0,
+        "percentiles_after_anchor": {
+          "p001": 0.00034267661976628006,
+          "p01": 0.0026374044828116894,
+          "p05": 0.0263160802423954,
+          "p25": 0.12893527746200562,
+          "p50": 0.23134730756282806,
+          "p75": 0.39854153990745544,
+          "p95": 0.8505577445030212,
+          "p99": 1.007002830505371,
+          "p999": 1.36382257938385
+        },
+        "reconstructed_anchor_gain": 1.825655221939087,
+        "reconstructed_highlight_gain": 1.825655221939087,
+        "reconstructed_midtone_gain": 1.46150541305542,
+        "reconstruction_relative_error": 0.0006557106971740723,
+        "valid": true
+      },
+      "quality": "preview",
+      "whites_anchor_ev": 1.6238521337509155,
+      "fixture": "test_0006",
+      "raw_sha256": "159326856c29073e845c3c5a9ecf98c6474f43ca15798a88ad5e2baecd0664b7",
+      "canonical_xmp_sha256": "23cdfdc027d919721421a3f68a2f30790b37b41837e2bfce924e79db86033b52"
+    },
+    {
+      "anchor_ev": 1.2814918756484985,
+      "anchor_gain": 2.4309022426605225,
+      "auto_exposure": "On",
+      "baseline_exposure": 0.25,
+      "cached_scene_format": "interleaved-rgb-f32-le",
+      "cached_scene_space": "SceneLinearRec2020",
+      "camera": "EOS 5D Mark III",
+      "dimensions": [
+        1024,
+        683
+      ],
+      "distribution": {
+        "global_log_average_before_anchor": 0.08439416045679317,
+        "global_log_offset": 1e-06,
+        "midgrey_after_anchor": 0.21093936264514923,
+        "nonpositive_luma_pixels": 0,
+        "percentiles_after_anchor": {
+          "p001": 0.005419430322945118,
+          "p01": 0.011789352633059025,
+          "p05": 0.03715226426720619,
+          "p25": 0.12425003945827484,
+          "p50": 0.21463565528392792,
+          "p75": 0.3729192316532135,
+          "p95": 0.8506272435188293,
+          "p99": 1.033625841140747,
+          "p999": 1.4658725261688232
+        },
+        "reconstructed_anchor_gain": 2.429109811782837,
+        "reconstructed_highlight_gain": 2.429109811782837,
+        "reconstructed_midtone_gain": 2.0743517875671387,
+        "reconstruction_relative_error": 0.0007373690605163574,
+        "valid": true
+      },
+      "quality": "preview",
+      "whites_anchor_ev": 1.2527774572372437,
+      "fixture": "test_0007",
+      "raw_sha256": "95dc76a2f255e623acaa5149b320389f7da7c995da890c3e0d511c0ff681b2e1",
+      "canonical_xmp_sha256": "23cdfdc027d919721421a3f68a2f30790b37b41837e2bfce924e79db86033b52"
+    },
+    {
+      "anchor_ev": 0.7472516894340515,
+      "anchor_gain": 1.6785920858383179,
+      "auto_exposure": "On",
+      "baseline_exposure": 0.0,
+      "cached_scene_format": "interleaved-rgb-f32-le",
+      "cached_scene_space": "SceneLinearRec2020",
+      "camera": "X-T3",
+      "dimensions": [
+        1024,
+        683
+      ],
+      "distribution": {
+        "global_log_average_before_anchor": 0.09934802335390158,
+        "global_log_offset": 1e-06,
+        "midgrey_after_anchor": 0.18073463439941406,
+        "nonpositive_luma_pixels": 0,
+        "percentiles_after_anchor": {
+          "p001": 0.0032185318414121866,
+          "p01": 0.006108494009822607,
+          "p05": 0.022075895220041275,
+          "p25": 0.06623097509145737,
+          "p50": 0.17285391688346863,
+          "p75": 0.5250670909881592,
+          "p95": 0.8501937389373779,
+          "p99": 0.9304596781730652,
+          "p999": 1.0268666744232178
+        },
+        "reconstructed_anchor_gain": 1.678209662437439,
+        "reconstructed_highlight_gain": 1.678209662437439,
+        "reconstructed_midtone_gain": 1.671769142150879,
+        "reconstruction_relative_error": 0.00022780895233154297,
+        "valid": true
+      },
+      "quality": "preview",
+      "whites_anchor_ev": 1.6214903593063354,
+      "fixture": "test_0008",
+      "raw_sha256": "95b33021160b239ceb1a09d46a1b29cb60cb7dd47581feb126b337c219091754",
+      "canonical_xmp_sha256": "23cdfdc027d919721421a3f68a2f30790b37b41837e2bfce924e79db86033b52"
+    },
+    {
+      "anchor_ev": 1.8617504835128784,
+      "anchor_gain": 3.634483814239502,
+      "auto_exposure": "On",
+      "baseline_exposure": 0.0,
+      "cached_scene_format": "interleaved-rgb-f32-le",
+      "cached_scene_space": "SceneLinearRec2020",
+      "camera": "EOS 5D Mark IV",
+      "dimensions": [
+        1024,
+        683
+      ],
+      "distribution": {
+        "global_log_average_before_anchor": 0.04887234017037517,
+        "global_log_offset": 1e-06,
+        "midgrey_after_anchor": 0.1797841489315033,
+        "nonpositive_luma_pixels": 0,
+        "percentiles_after_anchor": {
+          "p001": 0.010385545901954174,
+          "p01": 0.014248284511268139,
+          "p05": 0.027296677231788635,
+          "p25": 0.08272289484739304,
+          "p50": 0.17621007561683655,
+          "p75": 0.42095324397087097,
+          "p95": 0.9854825139045715,
+          "p99": 1.2096030712127686,
+          "p999": 1.4768010377883911
+        },
+        "reconstructed_anchor_gain": 3.638847589492798,
+        "reconstructed_highlight_gain": 3.1348211765289307,
+        "reconstructed_midtone_gain": 3.638847589492798,
+        "reconstruction_relative_error": 0.0012006759643554688,
+        "valid": true
+      },
+      "quality": "preview",
+      "whites_anchor_ev": 0.8852846026420593,
+      "fixture": "test_0009",
+      "raw_sha256": "85bfec149261ffbae90797e45caae5e204e1e61ac62b92783925b5ee0f267d76",
+      "canonical_xmp_sha256": "23cdfdc027d919721421a3f68a2f30790b37b41837e2bfce924e79db86033b52"
+    },
+    {
+      "anchor_ev": 2.314326047897339,
+      "anchor_gain": 4.9737229347229,
+      "auto_exposure": "On",
+      "baseline_exposure": 0.0,
+      "cached_scene_format": "interleaved-rgb-f32-le",
+      "cached_scene_space": "SceneLinearRec2020",
+      "camera": "EOS 5D Mark IV",
+      "dimensions": [
+        1024,
+        683
+      ],
+      "distribution": {
+        "global_log_average_before_anchor": 0.017968238533217797,
+        "global_log_offset": 1e-06,
+        "midgrey_after_anchor": 0.1796126365661621,
+        "nonpositive_luma_pixels": 25746,
+        "percentiles_after_anchor": {
+          "p001": -8.181237909354877e-10,
+          "p01": 0.0,
+          "p05": 6.7957894316350576e-06,
+          "p25": 0.05280110239982605,
+          "p50": 0.19646410644054413,
+          "p75": 0.4942115545272827,
+          "p95": 1.2699754238128662,
+          "p99": 1.6124173402786255,
+          "p999": 1.987213373184204
+        },
+        "reconstructed_anchor_gain": 4.984449863433838,
+        "reconstructed_highlight_gain": 3.3289341926574707,
+        "reconstructed_midtone_gain": 4.984449863433838,
+        "reconstruction_relative_error": 0.0021567344665527344,
+        "valid": true
+      },
+      "quality": "preview",
+      "whites_anchor_ev": 0.841262698173523,
+      "fixture": "test_0010",
+      "raw_sha256": "3ea2d03556747afcafa24f13fee69106f383dfaf3a2f436f8331f14518f20037",
+      "canonical_xmp_sha256": "23cdfdc027d919721421a3f68a2f30790b37b41837e2bfce924e79db86033b52"
+    },
+    {
+      "anchor_ev": 1.5283658504486084,
+      "anchor_gain": 2.884589195251465,
+      "auto_exposure": "On",
+      "baseline_exposure": 0.0,
+      "cached_scene_format": "interleaved-rgb-f32-le",
+      "cached_scene_space": "SceneLinearRec2020",
+      "camera": "ILCE-7RM4",
+      "dimensions": [
+        1024,
+        683
+      ],
+      "distribution": {
+        "global_log_average_before_anchor": 0.059083706941396634,
+        "global_log_offset": 1e-06,
+        "midgrey_after_anchor": 0.17984992265701294,
+        "nonpositive_luma_pixels": 0,
+        "percentiles_after_anchor": {
+          "p001": 0.0025737478863447905,
+          "p01": 0.004642542451620102,
+          "p05": 0.009102389216423035,
+          "p25": 0.030162116512656212,
+          "p50": 0.1246834322810173,
+          "p75": 1.5833640098571777,
+          "p95": 2.0715324878692627,
+          "p99": 2.1862263679504395,
+          "p999": 2.2096939086914062
+        },
+        "reconstructed_anchor_gain": 2.886996269226074,
+        "reconstructed_highlight_gain": 1.1836169958114624,
+        "reconstructed_midtone_gain": 2.886996269226074,
+        "reconstruction_relative_error": 0.0008344650268554688,
+        "valid": true
+      },
+      "quality": "preview",
+      "whites_anchor_ev": 2.073835849761963,
+      "fixture": "test_0011",
+      "raw_sha256": "3421b919ee81224d59f78872ee099a021bff0e2a47ae5fbbac385b182ac7241e",
+      "canonical_xmp_sha256": "23cdfdc027d919721421a3f68a2f30790b37b41837e2bfce924e79db86033b52"
+    },
+    {
+      "anchor_ev": 1.9255167245864868,
+      "anchor_gain": 3.7987289428710938,
+      "auto_exposure": "On",
+      "baseline_exposure": 0.0,
+      "cached_scene_format": "interleaved-rgb-f32-le",
+      "cached_scene_space": "SceneLinearRec2020",
+      "camera": "GFX 50R",
+      "dimensions": [
+        1024,
+        768
+      ],
+      "distribution": {
+        "global_log_average_before_anchor": 0.06493988109744128,
+        "global_log_offset": 1e-06,
+        "midgrey_after_anchor": 0.32257720828056335,
+        "nonpositive_luma_pixels": 0,
+        "percentiles_after_anchor": {
+          "p001": 0.006334987934678793,
+          "p01": 0.010891294106841087,
+          "p05": 0.020104672759771347,
+          "p25": 0.1672092229127884,
+          "p50": 0.3262389898300171,
+          "p75": 0.5401774644851685,
+          "p95": 0.8512884378433228,
+          "p99": 1.6060621738433838,
+          "p999": 1.740566611289978
+        },
+        "reconstructed_anchor_gain": 3.7929797172546387,
+        "reconstructed_highlight_gain": 3.7929797172546387,
+        "reconstructed_midtone_gain": 2.119713544845581,
+        "reconstruction_relative_error": 0.0015134811401367188,
+        "valid": true
+      },
+      "quality": "preview",
+      "whites_anchor_ev": 1.2237298488616943,
+      "fixture": "test_0012",
+      "raw_sha256": "35109fc20a849026c43c47674902431ef5a2d54b09b616995263dc75df17912f",
+      "canonical_xmp_sha256": "23cdfdc027d919721421a3f68a2f30790b37b41837e2bfce924e79db86033b52"
+    },
+    {
+      "anchor_ev": 1.132940411567688,
+      "anchor_gain": 2.1930525302886963,
+      "auto_exposure": "On",
+      "baseline_exposure": -0.3022167682647705,
+      "cached_scene_format": "interleaved-rgb-f32-le",
+      "cached_scene_space": "SceneLinearRec2020",
+      "camera": "iPhone 12 Pro",
+      "dimensions": [
+        1024,
+        768
+      ],
+      "distribution": {
+        "global_log_average_before_anchor": 0.09992074628510027,
+        "global_log_offset": 1e-06,
+        "midgrey_after_anchor": 0.2471955269575119,
+        "nonpositive_luma_pixels": 0,
+        "percentiles_after_anchor": {
+          "p001": 0.013426993042230606,
+          "p01": 0.022816885262727737,
+          "p05": 0.03923805058002472,
+          "p25": 0.08779265731573105,
+          "p50": 0.30539757013320923,
+          "p75": 0.5189379453659058,
+          "p95": 0.850278913974762,
+          "p99": 1.0559006929397583,
+          "p999": 1.416259527206421
+        },
+        "reconstructed_anchor_gain": 2.192333221435547,
+        "reconstructed_highlight_gain": 2.192333221435547,
+        "reconstructed_midtone_gain": 1.5969117879867554,
+        "reconstruction_relative_error": 0.0003280043601989746,
+        "valid": true
+      },
+      "quality": "preview",
+      "whites_anchor_ev": 1.4193586111068726,
+      "fixture": "test_0013",
+      "raw_sha256": "e91e77a4533ed7cce551d83330676ea5c47dd5e55fb38adda7819366afdbdfc2",
+      "canonical_xmp_sha256": "23cdfdc027d919721421a3f68a2f30790b37b41837e2bfce924e79db86033b52"
+    },
+    {
+      "anchor_ev": 3.0,
+      "anchor_gain": 8.0,
+      "auto_exposure": "On",
+      "baseline_exposure": 0.0,
+      "cached_scene_format": "interleaved-rgb-f32-le",
+      "cached_scene_space": "SceneLinearRec2020",
+      "camera": "D850",
+      "dimensions": [
+        1024,
+        683
+      ],
+      "distribution": {
+        "global_log_average_before_anchor": 0.027496756123170214,
+        "global_log_offset": 1e-06,
+        "midgrey_after_anchor": 0.1703663021326065,
+        "nonpositive_luma_pixels": 0,
+        "percentiles_after_anchor": {
+          "p001": 0.02445693127810955,
+          "p01": 0.041277289390563965,
+          "p05": 0.06478863209486008,
+          "p25": 0.1128980740904808,
+          "p50": 0.16273677349090576,
+          "p75": 0.3246065378189087,
+          "p95": 1.3240779638290405,
+          "p99": 1.4354822635650635,
+          "p999": 1.5234320163726807
+        },
+        "reconstructed_anchor_gain": 8.0,
+        "reconstructed_highlight_gain": 5.13564920425415,
+        "reconstructed_midtone_gain": 8.452376365661621,
+        "reconstruction_relative_error": 0.0,
+        "valid": true
+      },
+      "quality": "preview",
+      "whites_anchor_ev": -0.002075344789773226,
+      "fixture": "test_0014",
+      "raw_sha256": "0c9438258ddae5260b9f5a1aace6658a723f1cb1acace3a6cb507116dc6da4f2",
+      "canonical_xmp_sha256": "23cdfdc027d919721421a3f68a2f30790b37b41837e2bfce924e79db86033b52"
+    },
+    {
+      "anchor_ev": 1.4211829900741577,
+      "anchor_gain": 2.6780502796173096,
+      "auto_exposure": "On",
+      "baseline_exposure": 0.7200000286102295,
+      "cached_scene_format": "interleaved-rgb-f32-le",
+      "cached_scene_space": "SceneLinearRec2020",
+      "camera": "Pixel 6 Pro",
+      "dimensions": [
+        1024,
+        770
+      ],
+      "distribution": {
+        "global_log_average_before_anchor": 0.06631548725890259,
+        "global_log_offset": 1e-06,
+        "midgrey_after_anchor": 0.18002556264400482,
+        "nonpositive_luma_pixels": 0,
+        "percentiles_after_anchor": {
+          "p001": 0.02052411437034607,
+          "p01": 0.02329324558377266,
+          "p05": 0.028298066928982735,
+          "p25": 0.0654226690530777,
+          "p50": 0.1854584813117981,
+          "p75": 0.4766923487186432,
+          "p95": 1.0608456134796143,
+          "p99": 1.8146302700042725,
+          "p999": 3.328676462173462
+        },
+        "reconstructed_anchor_gain": 2.6776702404022217,
+        "reconstructed_highlight_gain": 2.1457815170288086,
+        "reconstructed_midtone_gain": 2.6776702404022217,
+        "reconstruction_relative_error": 0.00014191865921020508,
+        "valid": true
+      },
+      "quality": "preview",
+      "whites_anchor_ev": 1.9053709506988525,
+      "fixture": "test_0015",
+      "raw_sha256": "3a859e917a91698a3e15ce3b3721a48a1fb1296873e0697d3bf7c2793297200d",
+      "canonical_xmp_sha256": "23cdfdc027d919721421a3f68a2f30790b37b41837e2bfce924e79db86033b52"
+    },
+    {
+      "anchor_ev": 0.9925175905227661,
+      "anchor_gain": 1.9896540641784668,
+      "auto_exposure": "On",
+      "baseline_exposure": -0.7799999713897705,
+      "cached_scene_format": "interleaved-rgb-f32-le",
+      "cached_scene_space": "SceneLinearRec2020",
+      "camera": "M10",
+      "dimensions": [
+        1024,
+        683
+      ],
+      "distribution": {
+        "global_log_average_before_anchor": 0.10706897750471474,
+        "global_log_offset": 1e-06,
+        "midgrey_after_anchor": 0.17974650859832764,
+        "nonpositive_luma_pixels": 0,
+        "percentiles_after_anchor": {
+          "p001": 0.03725447878241539,
+          "p01": 0.05706719309091568,
+          "p05": 0.08128310739994049,
+          "p25": 0.12841743230819702,
+          "p50": 0.17578405141830444,
+          "p75": 0.29549652338027954,
+          "p95": 1.2064392566680908,
+          "p99": 1.8121675252914429,
+          "p999": 2.2075695991516113
+        },
+        "reconstructed_anchor_gain": 1.9924601316452026,
+        "reconstructed_highlight_gain": 1.4018161296844482,
+        "reconstructed_midtone_gain": 1.9924601316452026,
+        "reconstruction_relative_error": 0.001410365104675293,
+        "valid": true
+      },
+      "quality": "preview",
+      "whites_anchor_ev": 2.343226432800293,
+      "fixture": "test_0017",
+      "raw_sha256": "26be5e06dfb53a2938dab3ca8f06024533a9c0dd0c652938f39eb48bc325f95e",
+      "canonical_xmp_sha256": "23cdfdc027d919721421a3f68a2f30790b37b41837e2bfce924e79db86033b52"
+    },
+    {
+      "anchor_ev": 0.25234636664390564,
+      "anchor_gain": 1.1911427974700928,
+      "auto_exposure": "On",
+      "baseline_exposure": 0.0,
+      "cached_scene_format": "interleaved-rgb-f32-le",
+      "cached_scene_space": "SceneLinearRec2020",
+      "camera": "",
+      "dimensions": [
+        424,
+        280
+      ],
+      "distribution": {
+        "global_log_average_before_anchor": 0.23313319442078193,
+        "global_log_offset": 1e-06,
+        "midgrey_after_anchor": 0.27973851561546326,
+        "nonpositive_luma_pixels": 0,
+        "percentiles_after_anchor": {
+          "p001": 0.05368407443165779,
+          "p01": 0.0619426853954792,
+          "p05": 0.08958110958337784,
+          "p25": 0.2016761749982834,
+          "p50": 0.27008941769599915,
+          "p75": 0.43213972449302673,
+          "p95": 0.8500003218650818,
+          "p99": 1.1303993463516235,
+          "p999": 1.156893014907837
+        },
+        "reconstructed_anchor_gain": 1.1911424398422241,
+        "reconstructed_highlight_gain": 1.1911424398422241,
+        "reconstructed_midtone_gain": 0.7664504647254944,
+        "reconstruction_relative_error": 2.980232238769531e-07,
+        "valid": true
+      },
+      "quality": "preview",
+      "whites_anchor_ev": 2.3984174728393555,
+      "fixture": "test_0018",
+      "raw_sha256": "2a44135ce4f3beb064b72aad3d30cbf0e9313c729fa3a28db7f6b258f41eb6df",
+      "canonical_xmp_sha256": "23cdfdc027d919721421a3f68a2f30790b37b41837e2bfce924e79db86033b52"
+    },
+    {
+      "anchor_ev": 0.23124432563781738,
+      "anchor_gain": 1.173846960067749,
+      "auto_exposure": "On",
+      "baseline_exposure": 0.0,
+      "cached_scene_format": "interleaved-rgb-f32-le",
+      "cached_scene_space": "SceneLinearRec2020",
+      "camera": "",
+      "dimensions": [
+        424,
+        280
+      ],
+      "distribution": {
+        "global_log_average_before_anchor": 0.23996787461049096,
+        "global_log_offset": 1e-06,
+        "midgrey_after_anchor": 0.2854377031326294,
+        "nonpositive_luma_pixels": 0,
+        "percentiles_after_anchor": {
+          "p001": 0.05283370241522789,
+          "p01": 0.061046209186315536,
+          "p05": 0.08828156441450119,
+          "p25": 0.20957747101783752,
+          "p50": 0.2684550881385803,
+          "p75": 0.43540626764297485,
+          "p95": 0.8499999046325684,
+          "p99": 1.1139774322509766,
+          "p999": 1.1404268741607666
+        },
+        "reconstructed_anchor_gain": 1.1738470792770386,
+        "reconstructed_highlight_gain": 1.1738470792770386,
+        "reconstructed_midtone_gain": 0.740240216255188,
+        "reconstruction_relative_error": 1.1920928955078125e-07,
+        "valid": true
+      },
+      "quality": "preview",
+      "whites_anchor_ev": 2.398407459259033,
+      "fixture": "test_0019",
+      "raw_sha256": "8e4a4681b5297c09e78974fdb36bb4b3268e271a54eb16892cc382260db9d064",
+      "canonical_xmp_sha256": "23cdfdc027d919721421a3f68a2f30790b37b41837e2bfce924e79db86033b52"
+    },
+    {
+      "anchor_ev": 0.15559957921504974,
+      "anchor_gain": 1.113884449005127,
+      "auto_exposure": "On",
+      "baseline_exposure": 0.0,
+      "cached_scene_format": "interleaved-rgb-f32-le",
+      "cached_scene_space": "SceneLinearRec2020",
+      "camera": "",
+      "dimensions": [
+        1024,
+        768
+      ],
+      "distribution": {
+        "global_log_average_before_anchor": 0.11693270830173173,
+        "global_log_offset": 1e-06,
+        "midgrey_after_anchor": 0.17965297400951385,
+        "nonpositive_luma_pixels": 0,
+        "percentiles_after_anchor": {
+          "p001": 0.0011896714568138123,
+          "p01": 0.003183746477589011,
+          "p05": 0.004154541529715061,
+          "p25": 0.04185336455702782,
+          "p50": 0.20194150507450104,
+          "p75": 0.5021045207977295,
+          "p95": 0.9471368789672852,
+          "p99": 1.133509874343872,
+          "p999": 3.6840660572052
+        },
+        "reconstructed_anchor_gain": 1.116036057472229,
+        "reconstructed_highlight_gain": 0.9996461868286133,
+        "reconstructed_midtone_gain": 1.116036057472229,
+        "reconstruction_relative_error": 0.0019316673278808594,
+        "valid": true
+      },
+      "quality": "preview",
+      "whites_anchor_ev": 2.483315944671631,
+      "fixture": "test_0020",
+      "raw_sha256": "000883c07a8f722a8ddde450ac656a5d01e629a3be39216e43cfd32a2c42d8ff",
+      "canonical_xmp_sha256": "23cdfdc027d919721421a3f68a2f30790b37b41837e2bfce924e79db86033b52"
+    }
+  ]
+}

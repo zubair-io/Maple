@@ -65,15 +65,16 @@ async function post(path: string, value: unknown): Promise<{ id: string }> {
   return response.json();
 }
 async function run(id: string) {
-  expect((await jobs.claimJob('retry-original-worker', 60000))?._id.toHexString()).toBe(id);
+  expect((await jobs.claimJob(new ObjectId(id), 'retry-original-worker'))?._id.toHexString()).toBe(
+    id,
+  );
   const job = (await jobs.getJob(new ObjectId(id)))!;
   const ctx: JobHandlerContext = {
     jobId: job._id,
     checkpoint: job.checkpoint,
-    saveCheckpoint: (value) =>
-      jobs.saveJobCheckpoint(job._id, 'retry-original-worker', value, 60000),
+    saveCheckpoint: (value) => jobs.saveJobCheckpoint(job._id, 'retry-original-worker', value),
     reportProgress: (current, total) =>
-      jobs.updateProgress(job._id, { current, total }, 60000, undefined, 'retry-original-worker'),
+      jobs.updateProgress(job._id, { current, total }, undefined, 'retry-original-worker'),
     shouldCancel: () => jobs.isCancelRequested(job._id),
   };
   const result = await batchRecipeExportHandler.run(job.payload, ctx);

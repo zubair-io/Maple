@@ -180,6 +180,14 @@ describe('ImageCanvasComponent — two-phase live re-render (#846/#1101)', () =>
     expect(serializeOpened(opened)).not.toBe(component.serializeForRender(opened));
   });
 
+  it('publishes effectivePx for the pick overlay and clears it on destroy (#4677)', async () => {
+    focused.set(fakeAsset('a'));
+    await settle(REFINE_MS + 50);
+    expect(canvasSvc.effectivePx()).not.toBeNull();
+    fixture.destroy();
+    expect(canvasSvc.effectivePx()).toBeNull();
+  });
+
   it('cold open issues exactly one viewport-sized decode and records native dims', async () => {
     focused.set(fakeAsset('a'));
     await settle(REFINE_MS + 50);

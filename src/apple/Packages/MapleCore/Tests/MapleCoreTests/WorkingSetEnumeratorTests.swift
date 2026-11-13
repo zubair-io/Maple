@@ -1,6 +1,7 @@
 import FileProvider
 import XCTest
 @testable import MapleCore
+@testable import MapleFileProviderCore
 
 /// Coverage for the static parent-resolution helpers used by
 /// `WorkingSetEnumerator` (and mirrored on `FileProviderExtensionCore`).
@@ -22,7 +23,7 @@ final class WorkingSetEnumeratorTests: XCTestCase {
             roots: roots
         )
         XCTAssertEqual(
-            parent.rawValue,
+            parent?.rawValue,
             FileProviderIdentifier
                 .folder(folderID: "F1", relativePath: "2026/Adam")
                 .rawValue
@@ -41,7 +42,7 @@ final class WorkingSetEnumeratorTests: XCTestCase {
             roots: roots
         )
         XCTAssertEqual(
-            parent.rawValue,
+            parent?.rawValue,
             FileProviderIdentifier
                 .folder(folderID: "F1", relativePath: "")
                 .rawValue,
@@ -50,18 +51,15 @@ final class WorkingSetEnumeratorTests: XCTestCase {
         XCTAssertNotEqual(parent, .workingSet)
     }
 
-    /// folderID isn't in the roots list (domain unregistered, cache
-    /// race). Fall to `.rootContainer` — uglier surface (asset shows up
-    /// alongside the library roots rather than under one), but the
-    /// identifier is always valid and materialization completes.
-    func testResolveParentFallsToRootContainerForUnknownFolderID() {
+    /// An unknown library has no parent at all (#5503): `.rootContainer`
+    /// would show the asset at the top level of Maple in Files.
+    func testResolveParentIsNilForUnknownFolderID() {
         let roots = [root(id: "F1", path: "/srv/photos/Library")]
         let parent = WorkingSetEnumerator.resolveParent(
-            folderID: "F2",  // not in roots
+            folderID: "F2",
             absPath: "/srv/photos/Other/foo.dng",
             roots: roots
         )
-        XCTAssertEqual(parent, .rootContainer)
-        XCTAssertNotEqual(parent, .workingSet)
+        XCTAssertNil(parent)
     }
 }

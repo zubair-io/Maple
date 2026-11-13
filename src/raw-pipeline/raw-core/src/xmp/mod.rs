@@ -3,15 +3,20 @@
 //! `AdjustmentModel` value.
 
 use crate::error::{Error, Result};
+use crate::types::retouch::RetouchFrame;
 use quick_xml::escape::escape;
 use quick_xml::events::BytesStart;
 
 mod fields;
 mod reader;
 pub use reader::parse;
+mod import;
+mod import_validation;
+pub use import::{parse_namespaced, SUBJECT_EXTRA_ATTRIBUTES, SUBJECT_EXTRA_CONTAINERS};
 mod local_adjustments;
 mod removal_records;
 mod retouch;
+mod subject;
 #[cfg(test)]
 mod tests_removal_namespace;
 mod tone_curves;
@@ -66,6 +71,7 @@ fn apply_attributes(
     model: &mut AdjustmentModel,
     papp_seen: &mut bool,
     stamp: &mut Option<WbScaleVersion>,
+    retouch_stamp: &mut Option<RetouchFrame>,
 ) -> Result<()> {
     // Track whether the new-style `papp:CaptureSharpeningSigma`
     // attribute has been written into `capture_sharpening_sigma`
@@ -124,6 +130,12 @@ fn apply_attributes(
                 other => return Err(Error::Xmp(format!("unknown WbScaleVersion: {}", other))),
             });
         }
+        if key == "papp:RetouchFrameVersion" {
+            *retouch_stamp =
+                Some(RetouchFrame::from_stamp(value.as_ref()).ok_or_else(|| {
+                    Error::Xmp(format!("unknown RetouchFrameVersion: {}", value))
+                })?);
+        }
         set_field(
             model,
             key,
@@ -163,6 +175,9 @@ pub fn serialize(model: &AdjustmentModel) -> String {
         Profile::Neutral => "Neutral",
     };
     out.push_str(&format!(r#" papp:Profile="{profile}""#));
+    if let (false, Some(stamp)) = (model.retouch_spots.is_empty(), model.retouch_frame.stamp()) {
+        out.push_str(&format!(r#" papp:RetouchFrameVersion="{stamp}""#));
+    }
     // Brightness (#1102) — emitted only when non-default (0), matching the
     // Swift/TS writers' omit-on-default convention.
     if model.brightness != 0.0 {
@@ -247,6 +262,31 @@ pub fn serialize(model: &AdjustmentModel) -> String {
     // matching the omit-on-default convention above.
     if model.film_strength != 100.0 {
         out.push_str(&format!(r#" papp:FilmStrength="{}""#, model.film_strength));
+    }
+    // Colour-grading zone-isolation controls (#5040) — emitted only when
+    // non-default under the canonical 2-decimal wire codec.
+    for (key, value, default) in [
+        (
+            "papp:ColorGradeBlending",
+            model.color_grade_blending,
+            100.0_f32,
+        ),
+        (
+            "papp:ColorGradeShadowEdge",
+            model.color_grade_shadow_edge,
+            0.564622_f32,
+        ),
+        (
+            "papp:ColorGradeHighlightEdge",
+            model.color_grade_highlight_edge,
+            0.564622_f32,
+        ),
+    ] {
+        let rounded = (value * 100.0).round() / 100.0;
+        let default_rounded = (default * 100.0).round() / 100.0;
+        if rounded.is_finite() && rounded != default_rounded {
+            out.push_str(&format!(r#" {key}="{rounded}""#));
+        }
     }
     // Parametric tone-curve region sliders (#365) — Lightroom-compatible
     // PV2012 `crs:` keys, emitted only when non-default (0) to mirror the
@@ -417,11 +457,15 @@ mod black_white;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
+mod tests_color_curves;
+#[cfg(test)]
 mod tests_detail;
 #[cfg(test)]
 mod tests_display_tone_curves;
 #[cfg(test)]
 mod tests_effects;
+#[cfg(test)]
+mod tests_import;
 #[cfg(test)]
 mod tests_lens;
 #[cfg(test)]
@@ -436,6 +480,8 @@ mod tests_local_adjustments_canonical;
 mod tests_local_adjustments_order;
 #[cfg(test)]
 mod tests_local_adjustments_spatial;
+#[cfg(test)]
+mod tests_look_profile;
 #[cfg(test)]
 mod tests_metadata;
 #[cfg(test)]

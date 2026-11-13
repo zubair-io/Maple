@@ -171,3 +171,79 @@ fn exposure_rational_genuine_reciprocal_stays_1_over_n() {
     assert_eq!(n, 1);
     assert_eq!(d, 1000);
 }
+
+fn exif_ifd_ascii(blob: &[u8], wanted: u16) -> Option<String> {
+    let le16 = |at: usize| u16::from_le_bytes([blob[at], blob[at + 1]]);
+    let le32 = |at: usize| u32::from_le_bytes([blob[at], blob[at + 1], blob[at + 2], blob[at + 3]]);
+    let ifd0_count = le16(8) as usize;
+    let exif_off = (0..ifd0_count)
+        .map(|i| 10 + i * 12)
+        .find(|&slot| le16(slot) == TAG_EXIF_IFD)
+        .map(|slot| le32(slot + 8) as usize)?;
+    let count = le16(exif_off) as usize;
+    let slot = (0..count)
+        .map(|i| exif_off + 2 + i * 12)
+        .find(|&slot| le16(slot) == wanted)?;
+    let len = le32(slot + 4) as usize;
+    let start = le32(slot + 8) as usize;
+    Some(String::from_utf8_lossy(&blob[start..start + len - 1]).into_owned())
+}
+
+fn blob_with_capture(captured_at: Option<&str>) -> Vec<u8> {
+    build_exif_blob(&Exif {
+        captured_at: captured_at.map(str::to_owned),
+        ..make_exif()
+    })
+    .unwrap()
+}
+
+#[test]
+fn capture_time_is_written_as_taken_date() {
+    let blob = blob_with_capture(Some("2026:04:06 02:59:55"));
+    assert_eq!(
+        exif_ifd_ascii(&blob, TAG_DATE_TIME_ORIGINAL).as_deref(),
+        Some("2026:04:06 02:59:55")
+    );
+    assert_eq!(
+        exif_ifd_ascii(&blob, TAG_DATE_TIME_DIGITIZED).as_deref(),
+        Some("2026:04:06 02:59:55")
+    );
+}
+
+#[test]
+fn iso_style_capture_time_is_normalised_to_exif_form() {
+    let blob = blob_with_capture(Some("2015-11-14T14:26:58"));
+    assert_eq!(
+        exif_ifd_ascii(&blob, TAG_DATE_TIME_ORIGINAL).as_deref(),
+        Some("2015:11:14 14:26:58")
+    );
+}
+
+#[test]
+fn unparseable_capture_time_is_omitted() {
+    for bad in [
+        None,
+        Some(""),
+        Some("yesterday"),
+        Some("2026:04:06"),
+        Some("0000:00:00 00:00:00"),
+        Some("2026:13:40 25:61:61"),
+        Some("２０２６年０４月０６日 ０２時５９分５５秒"),
+    ] {
+        let blob = blob_with_capture(bad);
+        assert_eq!(
+            exif_ifd_ascii(&blob, TAG_DATE_TIME_ORIGINAL),
+            None,
+            "{bad:?}"
+        );
+    }
+}
+
+#[test]
+fn lens_model_is_written_to_exif_ifd() {
+    let blob = blob_with_capture(None);
+    assert_eq!(
+        exif_ifd_ascii(&blob, TAG_LENS_MODEL).as_deref(),
+        Some("DJI DL 35mm F2.8 LS ASPH")
+    );
+}

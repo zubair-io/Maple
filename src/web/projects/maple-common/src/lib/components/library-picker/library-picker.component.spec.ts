@@ -3,6 +3,7 @@ import { provideHttpClient } from '@angular/common/http';
 import { provideHttpClientTesting, HttpTestingController } from '@angular/common/http/testing';
 import { LibraryPickerComponent } from './library-picker.component';
 import { API_BASE_URL } from '../../api/api-base-url.token';
+import { LIBRARY_SOURCE } from '../../addressing/library-source';
 import { vi } from 'vitest';
 
 // DOM selectors mirror the template at library-picker.component.html.
@@ -42,11 +43,13 @@ describe('LibraryPickerComponent', () => {
         provideHttpClient(),
         provideHttpClientTesting(),
         { provide: API_BASE_URL, useValue: '/api' },
+        { provide: LIBRARY_SOURCE, useValue: {} },
       ],
     });
     fixture = TestBed.createComponent(LibraryPickerComponent);
     http = TestBed.inject(HttpTestingController);
     fixture.detectChanges();
+    http.expectOne('/api/fs/roots').flush({ roots: ['/'] });
   });
 
   afterEach(() => {

@@ -12,7 +12,7 @@ import type { WorkersStatusResponse } from './workers-api.service';
 class FakeWebSocket {
   static instances: FakeWebSocket[] = [];
   onopen: (() => void) | null = null;
-  onclose: (() => void) | null = null;
+  onclose: ((ev?: { code: number }) => void) | null = null;
   onerror: (() => void) | null = null;
   onmessage: ((ev: { data: string }) => void) | null = null;
   closed = false;
@@ -54,9 +54,11 @@ const STATUS: WorkersStatusResponse = {
 describe('WorkerEventsService', () => {
   let svc: WorkerEventsService;
   let origWs: typeof globalThis.WebSocket;
+  let refresh: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
     FakeWebSocket.instances = [];
+    refresh = vi.fn(async () => 'refreshed' as const);
     origWs = globalThis.WebSocket;
     (globalThis as unknown as { WebSocket: unknown }).WebSocket =
       FakeWebSocket as unknown as typeof globalThis.WebSocket;
@@ -65,7 +67,10 @@ describe('WorkerEventsService', () => {
       providers: [
         WorkerEventsService,
         { provide: API_BASE_URL, useValue: '/api' },
-        { provide: AuthService, useValue: { bearer: 'tok-123' } as Partial<AuthService> },
+        {
+          provide: AuthService,
+          useValue: { bearer: 'tok-123', refresh } as Partial<AuthService>,
+        },
       ],
     });
     svc = TestBed.inject(WorkerEventsService);
@@ -139,6 +144,93 @@ describe('WorkerEventsService', () => {
     expect(ws.closed).toBe(false);
     sub.unsubscribe();
     expect(ws.closed).toBe(true);
+  });
+
+  it('refreshes the token on 4401 before reconnecting, with growing delays (#4678)', async () => {
+    vi.useFakeTimers();
+    try {
+      const sub = svc.workersStatus$.subscribe();
+      FakeWebSocket.instances[0].onclose?.({ code: 4401 });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(refresh).toHaveBeenCalledTimes(1);
+      await vi.advanceTimersByTimeAsync(999);
+      expect(FakeWebSocket.instances).toHaveLength(1);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(FakeWebSocket.instances).toHaveLength(2);
+      FakeWebSocket.instances[1].onopen?.();
+      FakeWebSocket.instances[1].onclose?.({ code: 4401 });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(refresh).toHaveBeenCalledTimes(2);
+      await vi.advanceTimersByTimeAsync(1_999);
+      expect(FakeWebSocket.instances).toHaveLength(2);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(FakeWebSocket.instances).toHaveLength(3);
+      FakeWebSocket.instances[2].onclose?.({ code: 4401 });
+      await vi.advanceTimersByTimeAsync(3_999);
+      expect(FakeWebSocket.instances).toHaveLength(3);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(FakeWebSocket.instances).toHaveLength(4);
+      sub.unsubscribe();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('stops reconnecting when refresh is rejected on 4401 (#4678)', async () => {
+    vi.useFakeTimers();
+    refresh.mockResolvedValue('rejected' as const);
+    try {
+      const sub = svc.workersStatus$.subscribe();
+      FakeWebSocket.instances[0].onclose?.({ code: 4401 });
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(refresh).toHaveBeenCalledTimes(1);
+      expect(FakeWebSocket.instances).toHaveLength(1);
+      sub.unsubscribe();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('does not refresh on non-4401 closes (#4678)', async () => {
+    vi.useFakeTimers();
+    try {
+      const sub = svc.workersStatus$.subscribe();
+      FakeWebSocket.instances[0].onclose?.({ code: 1006 });
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(refresh).not.toHaveBeenCalled();
+      expect(FakeWebSocket.instances).toHaveLength(2);
+      sub.unsubscribe();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('resets backoff only after the first server message, not on open (#4678)', async () => {
+    vi.useFakeTimers();
+    try {
+      const sub = svc.workersStatus$.subscribe();
+      FakeWebSocket.instances[0].onclose?.({ code: 1006 });
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(FakeWebSocket.instances).toHaveLength(2);
+      FakeWebSocket.instances[1].onopen?.();
+      FakeWebSocket.instances[1].onclose?.({ code: 1006 });
+      await vi.advanceTimersByTimeAsync(1_999);
+      expect(FakeWebSocket.instances).toHaveLength(2);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(FakeWebSocket.instances).toHaveLength(3);
+      FakeWebSocket.instances[2].emit({
+        type: 'workers-status',
+        status: STATUS,
+        counted: true,
+        ts: 1,
+      });
+      FakeWebSocket.instances[2].onclose?.({ code: 1006 });
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(FakeWebSocket.instances).toHaveLength(4);
+      sub.unsubscribe();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('reconnects after the socket closes unexpectedly', () => {

@@ -18,13 +18,8 @@
 // (#1387) is a Swift enum field like `highlightRecovery` / `profile` —
 // captured and applied below, not routed through this passthrough list.
 //
-// `wb_method` / `tone_curve_mode` (#431/#436) map to nil below too: the
-// Swift `AdjustmentModel` doesn't carry either field (`FieldName` still
-// has the codegen'd cases — the schema knows about them — but there is no
-// Swift property to write into). Wiring them onto the model is #2216,
-// scoped to the XMP sidecar layer; wiring THIS bridge to use them once
-// they exist is a further, separate step, same shape as this ticket's
-// `film_look` fix below.
+// `wb_method` remains outside this preset bridge. `tone_curve_mode` is
+// captured and applied as a known string enum alongside the exposed editor mode.
 //
 // The four `tone_curve_*` point curves (#366) map to nil for a different
 // reason: the Swift model DOES carry them, but a preset `fields` map is a
@@ -97,6 +92,9 @@ extension AdjustmentModel.FieldName {
     case .colorGradeGlobalHue: return \.colorGradeGlobalHue
     case .colorGradeGlobalSaturation: return \.colorGradeGlobalSaturation
     case .colorGradeGlobalLuminance: return \.colorGradeGlobalLuminance
+    case .colorGradeBlending: return \.colorGradeBlending
+    case .colorGradeShadowEdge: return \.colorGradeShadowEdge
+    case .colorGradeHighlightEdge: return \.colorGradeHighlightEdge
     // HSL 8-band per-channel adjustments (#1112).
     case .hueAdjustmentRed: return \.hueAdjustmentRed
     case .hueAdjustmentOrange: return \.hueAdjustmentOrange
@@ -157,10 +155,8 @@ extension AdjustmentModel.FieldName {
     // Enum-valued fields have no *numeric* key path. `.highlightRecovery`
     // / `.autoExposure` / `.look` / `.profile` / `.hotPixelSuppression` /
     // `.blackWhite` / `.lensProfileEnable` are captured and applied as a
-    // string enum below instead. `.wbMethod` / `.toneCurveMode` have no
-    // Swift property at all yet (see the file header) — they map to nil
-    // here too, and fall through to `default` in `PresetAdjustments`
-    // below.
+    // string enum below instead, including `.toneCurveMode`. `.wbMethod`
+    // remains outside this bridge (see the file header).
     // #2434 provenance detail: raw-core's NON_COPYABLE_FIELDS — a look
     // must not carry one image's sample point or derivation version, so
     // they are invisible to presets and to the group merge, like the
@@ -188,10 +184,12 @@ extension AdjustmentModel.FieldName {
     // land with the curve editor (#367).
     case .toneCurveLuma, .toneCurveRed, .toneCurveGreen, .toneCurveBlue:
       return nil
-    // Display-referred point curves (#2232) — same structured-`ToneCurve`
-    // reasoning as the scene-linear curves above.
+    // Display-referred point curves (#2232) and secondary Oklab color
+    // curves (#5041) — same structured-`ToneCurve` reasoning as above.
     case .displayToneCurveLuma, .displayToneCurveRed, .displayToneCurveGreen,
-      .displayToneCurveBlue:
+      .displayToneCurveBlue, .colorCurveHueVsHue, .colorCurveHueVsSat,
+      .colorCurveHueVsLuma, .colorCurveLumaVsSat, .colorCurveSatVsSat,
+      .colorCurveSatVsLuma:
       return nil
     // Manual geometry (#3410). The canonical field names stay flat; Swift
     // groups the seven under one nested value type (see `Perspective.swift`),
@@ -256,6 +254,9 @@ extension AdjustmentModel.FieldName {
     case .colorGradeGlobalHue: return AdjustmentModel.colorGradeGlobalHueRange
     case .colorGradeGlobalSaturation: return AdjustmentModel.colorGradeGlobalSaturationRange
     case .colorGradeGlobalLuminance: return AdjustmentModel.colorGradeGlobalLuminanceRange
+    case .colorGradeBlending: return AdjustmentModel.colorGradeBlendingRange
+    case .colorGradeShadowEdge: return AdjustmentModel.colorGradeShadowEdgeRange
+    case .colorGradeHighlightEdge: return AdjustmentModel.colorGradeHighlightEdgeRange
     // HSL 8-band per-channel adjustments (#1112).
     case .hueAdjustmentRed: return AdjustmentModel.hueAdjustmentRedRange
     case .hueAdjustmentOrange: return AdjustmentModel.hueAdjustmentOrangeRange
@@ -347,6 +348,8 @@ public enum PresetAdjustments {
         fields[field.rawValue] = .string(model.look.rawValue)
       case .profile where model.profile != defaults.profile:
         fields[field.rawValue] = .string(model.profile.rawValue)
+      case .toneCurveMode where model.toneCurveMode != defaults.toneCurveMode:
+        fields[field.rawValue] = .string(model.toneCurveMode.rawValue)
       case .wbSource where model.wbSource != defaults.wbSource:
         fields[field.rawValue] = .string(model.wbSource.rawValue)
       // Hot/dead-pixel suppression (#1106) — enum decode-product field.
@@ -405,9 +408,8 @@ public enum PresetAdjustments {
       }
       // Enum-valued fields: apply only known variants (`film_look`
       // below is the one exception — free-form, so ANY string
-      // applies). `wb_method` / `tone_curve_mode` /
-      // `capture_sharpening_radius` have no Swift property at all
-      // (see the file header) and fall through to `default`.
+      // applies). `wb_method` and `capture_sharpening_radius` remain
+      // outside this bridge and fall through to `default`.
       guard case .string(let rawValue) = value else { continue }
       switch field {
       case .highlightRecovery:
@@ -421,6 +423,10 @@ public enum PresetAdjustments {
       case .profile:
         guard let profile = Profile(rawValue: rawValue) else { continue }
         merged.profile = profile
+        applied += 1
+      case .toneCurveMode:
+        guard let mode = ToneCurveMode(rawValue: rawValue) else { continue }
+        merged.toneCurveMode = mode
         applied += 1
       case .hotPixelSuppression:
         guard let mode = HotPixelSuppressionMode(rawValue: rawValue) else { continue }

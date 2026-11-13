@@ -178,6 +178,11 @@ public struct AdjustmentModel: Codable, Sendable, Equatable, Hashable {
   public var colorGradeGlobalHue: Double  // 0..360, default 0
   public var colorGradeGlobalSaturation: Double  // 0..100, default 0
   public var colorGradeGlobalLuminance: Double  // -100..100, default 0
+  @ColorGradeBlendingValue public var colorGradeBlending: Double = 100  // 0..100, default 100
+  /// Shadow edge: 0.10 through the generated midtone anchor.
+  @ColorGradeEdgeValue public var colorGradeShadowEdge: Double = ColorGradeZoneEdge.anchor
+  /// Highlight edge: the generated midtone anchor through 0.90.
+  @ColorGradeEdgeValue public var colorGradeHighlightEdge: Double = ColorGradeZoneEdge.anchor
 
   // HSL per-band adjustments (#1112, tone/zoom design spec § 10.4).
   // Scene-linear Oklab, normalized raised-cosine partition of unity.
@@ -272,6 +277,16 @@ public struct AdjustmentModel: Codable, Sendable, Equatable, Hashable {
   public var displayToneCurveGreen: ToneCurve  // default .identity (empty)
   public var displayToneCurveBlue: ToneCurve  // default .identity (empty)
 
+  // Secondary Oklab color curves (#5041) — applied in scene-linear Oklab
+  // right after the 8-band HSL mixer. Carried with inline defaults to keep
+  // AdjustmentModel+Init within the 570-line headroom budget.
+  @ColorCurveValue public var colorCurveHueVsHue: ToneCurve = .identity
+  @ColorCurveValue public var colorCurveHueVsSat: ToneCurve = .identity
+  @ColorCurveValue public var colorCurveHueVsLuma: ToneCurve = .identity
+  @ColorCurveValue public var colorCurveLumaVsSat: ToneCurve = .identity
+  @ColorCurveValue public var colorCurveSatVsSat: ToneCurve = .identity
+  @ColorCurveValue public var colorCurveSatVsLuma: ToneCurve = .identity
+
   /// Decode-time chroma pre-filter (#1104, tone/zoom design § 3.1).
   /// Luma-guided sparse cross-bilateral on opponent chroma, baked into
   /// the Rust decode product (post-DCP, pre auto-exposure) — there is
@@ -321,6 +336,10 @@ public struct AdjustmentModel: Codable, Sendable, Equatable, Hashable {
   /// and immutable export/history snapshots; never copied through preset groups.
   /// An absent field remains compatible with older Codable snapshots.
   public var inpaintRemovals: RemovalRecords? = nil
+  /// `true` (nil otherwise, so older persisted models still decode) for a list read without `papp:RetouchFrameVersion` from a Maple
+  /// sidecar (#4473): it predates the upright-frame stamp, is written back
+  /// unstamped, and becomes upright when a spot is edited. Never set by authoring.
+  public var retouchListIsLegacy: Bool?
 
   /// DNG-embedded lens corrections (#376) — the master switch plus the
   /// per-family strength of the distortion (`WarpRectilinear`), lateral-CA

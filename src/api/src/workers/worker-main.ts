@@ -1,6 +1,6 @@
 /**
  * Worker process entry. Runs the entire worker tier (stages, import, discover,
- * job runner, maintenance, enrichment) OFF the API event loop. The API spawns
+ * Temporal host, maintenance, enrichment) OFF the API event loop. The API spawns
  * this as one niced child; a crash/runaway here can never touch the HTTP server.
  */
 import { installChildHardening } from '../runtime/child-process-worker.ts';
@@ -15,8 +15,13 @@ import {
   loadObservabilityConfig,
 } from '../observability/observability-config.repo.ts';
 import { child as childLogger } from '../log.ts';
+import { installWorkerLibraryRootsSync } from '../indexer/libraries.cache.ts';
+import { installRemoteInProcessSearch } from '../search/remote-search.ts';
+import { installRemoteDocumentEmbedder } from '../search/remote-embed.ts';
+import { installWorkerPreviewPriority } from './background-preview-gate.ts';
 
 installChildHardening('worker');
+installWorkerPreviewPriority();
 // An uncaught exception or unhandled rejection flushes telemetry before the
 // process exits (#2196). Installed before anything else runs so an early
 // boot failure is covered too; a native abort is beyond any hook and is
@@ -46,7 +51,7 @@ async function main(): Promise<void> {
   // and the mirror silently drifts — and the mirror-scan/copy reconcile that
   // should catch the drift is itself gated off (`isMirroringActive()` is false).
   // The API process loads this in index.ts; the worker tier must do the same.
-  // After this initial load, `startMaintenanceJobs` re-reads the config on an
+  // After this initial load, `startMaintenanceSupport` re-reads the config on an
   // interval, so a failure here self-heals (and later config changes propagate)
   // without a worker restart.
   try {
@@ -57,6 +62,9 @@ async function main(): Promise<void> {
       'initial mirror config load failed — the periodic reload will retry; mirroring inactive until it succeeds',
     );
   }
+  installWorkerLibraryRootsSync();
+  installRemoteInProcessSearch();
+  installRemoteDocumentEmbedder();
   await startWorkers();
   log.info('worker tier started');
   const shutdown = async () => {

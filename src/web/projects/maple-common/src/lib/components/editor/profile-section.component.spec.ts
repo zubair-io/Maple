@@ -8,9 +8,10 @@ import { RawPipelineService } from '../../raw-pipeline/raw-pipeline.service';
 import { LibraryStateService } from '../../state/library-state.service';
 import { XmpParserService } from '../../xmp/xmp-parser.service';
 import { XmpSerializerService } from '../../xmp/xmp-serializer.service';
+import type { AutoFitOutcome } from '../../raw-pipeline/auto-fit-outcome';
 
 describe('ProfileSectionComponent', () => {
-  const outcomes = signal<Record<string, boolean | undefined>>({});
+  const outcomes = signal<Record<string, AutoFitOutcome | undefined>>({});
   const assetId = 'asset-1';
   let library: ReturnType<typeof makeLibraryStub> & {
     focusedAssetId: ReturnType<typeof signal<string | null>>;
@@ -49,24 +50,40 @@ describe('ProfileSectionComponent', () => {
     const fixture = render();
     const status = fixture.nativeElement.querySelector('[role="status"]');
     expect(status.getAttribute('aria-live')).toBe('polite');
-    outcomes.set({ [assetId]: true });
+    outcomes.set({ [assetId]: 'applied' });
     fixture.detectChanges();
     expect(status.textContent).toContain('matched to this image’s embedded camera preview');
-    outcomes.set({ [assetId]: false });
+    outcomes.set({ [assetId]: 'unfitted' });
     fixture.detectChanges();
     expect(status.textContent.trim()).toBe(
       'Auto matching is unavailable for this image; camera-preview matching was not applied.',
     );
-    expect(status.textContent).not.toContain('no preview');
+    expect(status.textContent).not.toContain('no camera preview');
     library.focusedAssetId.set('asset-2');
     fixture.detectChanges();
     expect(status.textContent).toContain('Checking Auto matching');
-    outcomes.set({ [assetId]: true });
+    outcomes.set({ [assetId]: 'applied' });
     fixture.detectChanges();
     expect(status.textContent).toContain('Checking Auto matching');
     library.focusedAssetId.set(assetId);
     fixture.detectChanges();
     expect(status.textContent).toContain('matched to this image’s embedded camera preview');
+  });
+
+  it('announces the Neutral fallback when Auto has no camera preview to match', () => {
+    const fixture = render();
+    const status = fixture.nativeElement.querySelector('[role="status"]');
+    const picker = fixture.nativeElement.querySelector('mui-segmented-toggle');
+    expect(picker.getAttribute('role')).toBe('radiogroup');
+    expect(picker.getAttribute('aria-describedby')).toBe(status.id);
+    outcomes.set({ [assetId]: 'no-preview' });
+    fixture.detectChanges();
+    expect(status.textContent.trim()).toBe(
+      'Auto unavailable: no camera preview — showing Neutral.',
+    );
+    fixture.componentInstance.select('Neutral');
+    fixture.detectChanges();
+    expect(status.textContent.trim()).toBe('Uses a fixed base rendering.');
   });
 
   it('selects Neutral as one undoable edit and persists the same render intent', () => {

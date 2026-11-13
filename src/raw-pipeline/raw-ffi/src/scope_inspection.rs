@@ -106,7 +106,13 @@ pub unsafe extern "C" fn maple_apply_chain_scope_rgba_f32(
         return -1;
     }
     catch_panic_rc("scope CPU", || {
-        let ci = crate::scene_linear_chain::chain_inputs_from_params(&*params);
+        let ci = match crate::scene_linear_chain::chain_inputs_from_params(&*params) {
+            Ok(ci) => ci,
+            Err(e) => {
+                set_last_error(format!("scope CPU: {e}"));
+                return -1;
+            }
+        };
         if scope_layer >= 0 && scope_layer as usize >= ci.model.local_adjustments.len() {
             set_last_error("scope CPU: selected layer is unavailable".into());
             return -1;

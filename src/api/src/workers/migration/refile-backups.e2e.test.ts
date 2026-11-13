@@ -114,17 +114,17 @@ describe('refile-backups end-to-end', () => {
       phassetDevices: ['dev'],
       place: JAPAN,
       exif: { captured_year: 2024 },
-      stages: ['thumb', 'preview', 'meili', 'embed'],
+      stages: ['thumb', 'preview', 'search-blob', 'embed'],
       location: { libraryId: library.folderId, path: oldRel, filename: 'IMG_GEO.HEIC' },
     });
     library.db.run(`UPDATE stage_state SET version = 1 WHERE asset_id = ?`, [id]);
-    // #2357: a previously dead-lettered meili stage must be fully re-armed by
+    // #2357: a previously dead-lettered embed stage must be fully re-armed by
     // the repoint, not left stale at the old filename.
     library.db.run(
       `UPDATE stage_state
           SET version = 3, attempts = 5, last_error = 'boom', dead = 1,
               processed_at = '2024-01-01T00:00:00.000Z'
-        WHERE asset_id = ? AND stage IN ('meili', 'embed')`,
+        WHERE asset_id = ? AND stage = 'embed'`,
       [id],
     );
 
@@ -133,7 +133,7 @@ describe('refile-backups end-to-end', () => {
     expect(location(library, id).path).toBe('2024/Japan/Kyoto');
     expect(location(library, id).filename).toBe('IMG_GEO.HEIC');
     expect(assetRow(library.db, id)!.backup_layout_version).toBe(BACKUP_LAYOUT_VERSION);
-    for (const stage of ['thumb', 'preview', 'meili', 'embed']) {
+    for (const stage of ['thumb', 'preview', 'embed']) {
       expect(stageRow(library.db, id, stage)).toEqual({
         version: 0,
         attempts: 0,
@@ -149,6 +149,39 @@ describe('refile-backups end-to-end', () => {
     await expect(fs.stat(path.join(library.root, oldRel))).rejects.toThrow();
 
     expect(await refileRemaining()).toBe(0);
+  });
+
+  it("carries an edited Live Photo's rendered image and .mov twin and repoints both (#5243)", async () => {
+    using library = await createBackupLibrary('refile-live-');
+    const oldRel = '2024/Tokyo';
+    await writeFiles(library, oldRel, {
+      'IMG_LIVE.HEIC': 'pixels',
+      'IMG_LIVE.rendered.JPEG': 'rendered',
+      'IMG_LIVE.mov': 'live',
+    });
+
+    const id = seedAsset(library.db, {
+      mapleId: 'refile-live-id',
+      phassetDevices: ['dev'],
+      place: JAPAN,
+      exif: { captured_year: 2024 },
+      appleRenderedPath: `${oldRel}/IMG_LIVE.rendered.JPEG`,
+      appleLiveVideoPath: `${oldRel}/IMG_LIVE.mov`,
+      location: { libraryId: library.folderId, path: oldRel, filename: 'IMG_LIVE.HEIC' },
+    });
+
+    await runTick();
+
+    const newRel = '2024/Japan/Kyoto';
+    expect(location(library, id).path).toBe(newRel);
+    expect(assetRow(library.db, id)).toMatchObject({
+      apple_rendered_path: `${newRel}/IMG_LIVE.rendered.JPEG`,
+      apple_live_video_path: `${newRel}/IMG_LIVE.mov`,
+    });
+    const moved = path.join(library.root, newRel);
+    expect(await fs.readFile(path.join(moved, 'IMG_LIVE.rendered.JPEG'), 'utf8')).toBe('rendered');
+    expect(await fs.readFile(path.join(moved, 'IMG_LIVE.mov'), 'utf8')).toBe('live');
+    await expect(fs.stat(path.join(library.root, oldRel))).rejects.toThrow();
   });
 
   it('unfreezes an asset stamped at an older generation and stuck at a stale POI path', async () => {
@@ -243,7 +276,7 @@ describe('refile-backups end-to-end', () => {
       phassetDevices: ['dev'],
       place: FRANCE,
       exif: { captured_year: 2024 },
-      stages: ['thumb', 'preview', 'meili'],
+      stages: ['thumb', 'preview', 'search-blob'],
       location: { libraryId: library.folderId, path: rel, filename: 'IMG_OK.HEIC' },
     });
     library.db.run(`UPDATE stage_state SET version = 4 WHERE asset_id = ?`, [id]);
@@ -254,7 +287,7 @@ describe('refile-backups end-to-end', () => {
     expect(location(library, id).path).toBe(rel);
     // Nothing moved, so the path-keyed caches are still valid.
     expect(stageRow(library.db, id, 'thumb')!.version).toBe(4);
-    expect(stageRow(library.db, id, 'meili')!.version).toBe(4);
+    expect(stageRow(library.db, id, 'search-blob')!.version).toBe(4);
     expect(await fs.readFile(path.join(library.root, rel, 'IMG_OK.HEIC'), 'utf8')).toBe('pixels');
   });
 

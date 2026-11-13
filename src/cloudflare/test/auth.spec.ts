@@ -21,6 +21,16 @@ describe('verifyBearer', () => {
 		expect(await verifyBearer(`Bearer ${token}`, SECRET)).toBe(true);
 	});
 
+	it('rejects a step-up token that carries no role', async () => {
+		const token = await sign({ purpose: 'step_up' }, 900);
+		expect(await verifyBearer(`Bearer ${token}`, SECRET)).toBe(false);
+	});
+
+	it('rejects a token with an unknown role', async () => {
+		const token = await sign({ role: 'guest' }, 900);
+		expect(await verifyBearer(`Bearer ${token}`, SECRET)).toBe(false);
+	});
+
 	it('rejects a missing Authorization header', async () => {
 		expect(await verifyBearer(null, SECRET)).toBe(false);
 	});

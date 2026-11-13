@@ -64,11 +64,23 @@ namespace Maple.WinUI.Tests
             new object[] { typeof(MapleAdjustmentParams) },
             new object[] { typeof(MapleToneCurves) },
             new object[] { typeof(MapleSceneLinearBufferF32) },
+            new object[] { typeof(MapleCreativeTable) },
+            new object[] { typeof(MapleCaptureCreative) },
+            new object[] { typeof(MapleCaptureBufferF32) },
             new object[] { typeof(MapleAutoAdjustments) },
             new object[] { typeof(MapleWbSample) },
             new object[] { typeof(MapleGpuLiveParams) },
             new object[] { typeof(MapleGpuLiveSession) },
             new object[] { typeof(MapleScopeStats) },
+            new object[] { typeof(MapleCanvasSize) },
+            new object[] { typeof(MapleCanvasPoint) },
+            new object[] { typeof(MapleCanvasRect) },
+            new object[] { typeof(MapleCanvasInsets) },
+            new object[] { typeof(MapleCanvasZoomContext) },
+            new object[] { typeof(MapleCanvasZoomState) },
+            new object[] { typeof(MapleCanvasZoomTransition) },
+            new object[] { typeof(MapleCanvasMathInput) },
+            new object[] { typeof(MapleCanvasMathResult) },
         };
 
         [Theory]

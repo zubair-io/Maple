@@ -1,0 +1,34 @@
+{
+  "scope": "Attribute13prefix regressions with pre-existing metadata-balanced AMaZE binary, no green-support guard and no local-HR change. Original controls unchanged; diagnostic only.",
+  "binary_identity": {
+    "phase": "58 focused comparisons starting",
+    "base_commit": "a45a2d90a93dbab5d6e1495b9026b31a7c6e2a59",
+    "pipeline_output_version": "33 plus experimental metadata WB patch",
+    "binary_sha256": "64fd69674fe257b1c7a8b31a3f1b5d6c37ac89c4bf2e59e3016b1a1559b3abee",
+    "source_patch_sha256": "b68fe7c5e8144711f622fcd578cc9e6c7b30070eb7cbf5dbf0b6495ff9fb6ef3",
+    "driver_sha256": "420dd845a5bc39007c89a741a9617fff2dc20163e94273f6826dac3507fe1692",
+    "scope": "Fused scalar AMaZE, original FCS, metadata-balanced AMaZE and dual detailed component consistently across camera paths; measured CFA restored bit exactly. No HR change. Experimental, not adopted.",
+    "unit_tests_passed": 24,
+    "additional_fallback_tests_passed": 2,
+    "total_amaze_tests_passed": 26,
+    "tile_tests_passed": 12,
+    "dual_tests_passed": 18,
+    "composed_gpu_cpu_tests_passed": 1,
+    "source_with_additional_tests_sha256": "a690abc36c674eb483a64a47f1dba96f9679d879a925199a343e8bccb6b0310f"
+  },
+  "targets": [
+    "test_0000/dehaze_max",
+    "test_0001/blacks_min",
+    "test_0001/clarity_min",
+    "test_0001/dehaze_min",
+    "test_0001/shadows_max",
+    "test_0002/shadows_max",
+    "test_0002/vibrance_min",
+    "test_0003/dehaze_max",
+    "test_0003/wb_auto",
+    "test_0004/dehaze_max",
+    "test_0004/highlights_min",
+    "test_0007/dehaze_max",
+    "test_0011/wb_tungsten"
+  ]
+}

@@ -25,6 +25,8 @@ pub(crate) struct ChainInputs<'a> {
     pub iso: u32,
     pub whites_anchor_ev: f32,
     pub nr_sampling_scale: f32,
+    /// The capture decode's creative stage (#5377), shared across ticks.
+    pub creative: Option<std::sync::Arc<raw_core::pipeline::CreativeStage>>,
 }
 
 impl<'a> ChainInputs<'a> {
@@ -46,15 +48,31 @@ impl<'a> ChainInputs<'a> {
                 .whites_anchor_ev
                 .is_finite()
                 .then_some(self.whites_anchor_ev),
+            haze_map: None,
+            creative: self.creative.as_deref(),
         }
+    }
+}
+
+/// A stale RAW host leaves ISO 0, which keeps the legacy RAW default of 100;
+/// a raster has no sensor ISO and stays unknown like the shared raster chain
+/// (#4653). The CPU and GPU-live chains both resolve through this.
+pub(crate) fn host_iso(iso: u32, is_raw: bool) -> u32 {
+    match (iso, is_raw) {
+        (0, true) => 100,
+        (iso, _) => iso,
     }
 }
 
 /// # Safety
 /// `p` must be a valid `MapleAdjustmentParams`; when `noise_profile_len > 0`
 /// its `noise_profile_ptr` must be valid and aligned for that many `f32`s for
-/// the duration of `'a`.
-pub(crate) unsafe fn chain_inputs_from_params(p: &MapleAdjustmentParams) -> ChainInputs<'_> {
+/// the duration of `'a`, and `creative_ptr` null or a capture decode's struct,
+/// whose tables are its interned wire.
+/// Fails only on creative inputs that are not a capture decode's.
+pub(crate) unsafe fn chain_inputs_from_params(
+    p: &MapleAdjustmentParams,
+) -> Result<ChainInputs<'_>, String> {
     // Build an AdjustmentModel from the C-ABI params. Fields the chain
     // uses get copied across; sharpen + nr_color stay default (they're
     // applied on the GPU after this call returns) and other fields keep
@@ -99,6 +117,10 @@ pub(crate) unsafe fn chain_inputs_from_params(p: &MapleAdjustmentParams) -> Chai
     model.split_tone_highlight_hue = p.split_tone_highlight_hue;
     model.split_tone_highlight_saturation = p.split_tone_highlight_saturation;
     model.split_tone_balance = p.split_tone_balance;
+    model.wb_method = match p.wb_method {
+        1 => raw_core::types::WbMethod::DiagonalRec2020,
+        _ => raw_core::types::WbMethod::Cat16,
+    };
     // HSL 8-band adjustments (#1112)
     model.hue_adjustment_red = p.hsl_hue_red;
     model.hue_adjustment_orange = p.hsl_hue_orange;
@@ -150,6 +172,15 @@ pub(crate) unsafe fn chain_inputs_from_params(p: &MapleAdjustmentParams) -> Chai
     model.color_grade_global_hue = p.color_grade_global_hue;
     model.color_grade_global_saturation = p.color_grade_global_saturation;
     model.color_grade_global_luminance = p.color_grade_global_luminance;
+    let (cg_blending, cg_shadow_edge, cg_highlight_edge) =
+        raw_core::stages::color_grade::color_grade_zone_or_defaults(
+            p.color_grade_blending,
+            p.color_grade_shadow_edge,
+            p.color_grade_highlight_edge,
+        );
+    model.color_grade_blending = cg_blending;
+    model.color_grade_shadow_edge = cg_shadow_edge;
+    model.color_grade_highlight_edge = cg_highlight_edge;
     model.look = raw_core::view::look::Look::from(p.look_mode);
     // Sharpen + chroma NR (#1043) — set EXPLICITLY from the params tail
     // rather than left at `AdjustmentModel::default()` (40 / 25), so a host
@@ -235,7 +266,7 @@ pub(crate) unsafe fn chain_inputs_from_params(p: &MapleAdjustmentParams) -> Chai
                 std::slice::from_raw_parts(p.noise_profile_ptr, p.noise_profile_len as usize)
             })
         };
-    let iso = if p.iso == 0 { 100 } else { p.iso };
+    let iso = host_iso(p.iso, p.skip_agx == 0);
 
     // WB slider frame (#1781): RAW shapes only — a non-RAW buffer has no
     // camera calibration and its D65-anchored delta stays on the generic
@@ -262,7 +293,23 @@ pub(crate) unsafe fn chain_inputs_from_params(p: &MapleAdjustmentParams) -> Chai
         render_fm_cold: &p.wb_frame_render_fm_cold,
         render_fm_warm: &p.wb_frame_render_fm_warm,
     });
-    ChainInputs {
+    // A capture decode's tables are its interned, process-lifetime wire.
+    let creative = crate::capture_creative::creative_from_ptr::<'static>(p.creative_ptr)?;
+    let model = match &creative {
+        Some((header, _)) => raw_core::xmp::AdjustmentModel {
+            highlight_recovery: if header.highlight_recovery {
+                raw_core::xmp::HighlightRecoveryMode::OklabChromaReduction
+            } else {
+                raw_core::xmp::HighlightRecoveryMode::Off
+            },
+            ..model
+        },
+        None => model,
+    };
+    let creative = creative
+        .map(|(header, tables)| crate::capture_creative::cpu_stage(&header, tables))
+        .transpose()?;
+    Ok(ChainInputs {
         model,
         decoded_temp,
         decoded_tint,
@@ -272,5 +319,21 @@ pub(crate) unsafe fn chain_inputs_from_params(p: &MapleAdjustmentParams) -> Chai
         iso,
         whites_anchor_ev: p.whites_anchor_ev,
         nr_sampling_scale: p.nr_sampling_scale,
+        creative,
+    })
+}
+
+/// The three parametric split fields read as a group: ALL THREE exactly
+/// `0.0` ⇒ absent (a zero-initialised caller, or a host that predates the
+/// fields) ⇒ ACR's documented 25/50/75. Otherwise every field passes through
+/// unchanged, including a genuine `0.0` in one of them — `0.0` is an
+/// in-range axis position, so gating per field would make it impossible to
+/// ever set a split to exactly 0 (Copilot review on #3219). Shared by the
+/// GPU-live params and the curves-aware CPU chain entry (#4738).
+pub(crate) fn parametric_split_or_defaults(shadow: f32, midtone: f32, highlight: f32) -> [f32; 3] {
+    if shadow == 0.0 && midtone == 0.0 && highlight == 0.0 {
+        [25.0, 50.0, 75.0]
+    } else {
+        [shadow, midtone, highlight]
     }
 }

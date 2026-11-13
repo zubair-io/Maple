@@ -96,6 +96,7 @@ final class CanvasZoomControllerTests: XCTestCase {
 
   func testPinchFramesDoNotRetargetSessionUntilEnd() {
     let controller = makeController()
+    controller.pinchChanged(magnification: 1, location: CGPoint(x: 500, y: 400))
     controller.pinchChanged(magnification: 4.0, location: CGPoint(x: 500, y: 400))
     XCTAssertEqual(
       controller.model.pixelScale, 1.0, accuracy: 1e-9,
@@ -111,6 +112,7 @@ final class CanvasZoomControllerTests: XCTestCase {
   func testPinchEndPushesVisibleSourceRect() {
     let controller = makeController()
     // Center-anchored pinch fit → 100%.
+    controller.pinchChanged(magnification: 1, location: CGPoint(x: 500, y: 400))
     controller.pinchChanged(magnification: 4.0, location: CGPoint(x: 500, y: 400))
     controller.pinchEnded(magnification: 4.0)
     // 100%: 2000×1600 viewport px over an 8000×6000 image, centered.
@@ -168,6 +170,62 @@ final class CanvasZoomControllerTests: XCTestCase {
     XCTAssertEqual(controller.session.pixelScale, 1.0, accuracy: 1e-9)
     controller.doubleTap(at: CGPoint(x: 500, y: 400), behavior: .toggleFitAnd100)
     XCTAssertEqual(controller.session.pixelScale, 0.25, accuracy: 1e-9)
+  }
+
+  /// #5710: the badge cycle commits each stop, and fill stays fill
+  /// (covering the new viewport) when the canvas rotates.
+  func testAdvanceZoomStopCommitsFitFillActualSize() {
+    let controller = makeController()
+    XCTAssertEqual(controller.nextZoomStop, .fill)
+    controller.advanceZoomStop()
+    XCTAssertEqual(controller.session.pixelScale, 1600.0 / 6000.0, accuracy: 1e-9)
+    XCTAssertEqual(controller.nextZoomStop, .actualSize)
+
+    controller.viewportChanged(points: CGSize(width: 800, height: 1000), displayScale: 2)
+    XCTAssertEqual(
+      controller.session.pixelScale, 2000.0 / 6000.0, accuracy: 1e-9,
+      "portrait fill covers the taller viewport")
+
+    controller.advanceZoomStop()
+    XCTAssertEqual(controller.session.pixelScale, 1.0, accuracy: 1e-9)
+    controller.advanceZoomStop()
+    XCTAssertFalse(controller.isZoomedIn)
+  }
+
+  func testZoomToFillCommitsAndTheBadgeOffersTheNextStop() {
+    let controller = makeController()
+    controller.zoomToFill()
+    XCTAssertEqual(controller.session.pixelScale, 1600.0 / 6000.0, accuracy: 1e-9)
+    XCTAssertEqual(controller.nextZoomStop, .actualSize)
+    controller.zoomToScale(1)
+    XCTAssertEqual(controller.nextZoomStop, .fit, "after 100% the badge returns to fit")
+    controller.zoomToScale(0.5)
+    XCTAssertEqual(controller.nextZoomStop, .fit, "a free scale returns to fit")
+  }
+
+  /// #5710: below fit the session keeps the fit-cost render targets.
+  func testBelowFitCommitKeepsRefineAtTheFastTarget() {
+    let controller = makeController()
+    controller.stepZoomOut()
+    XCTAssertEqual(controller.session.pixelScale, 0.2, accuracy: 1e-9)
+    XCTAssertEqual(controller.session.refinedTargetSize, controller.session.fastTargetSize)
+    XCTAssertEqual(controller.displayFrameInPoints, CGSize(width: 800, height: 600))
+  }
+
+  /// #5749: the live iOS pinch transform follows the fingers through the
+  /// fill band; only the release settles on fill (the host animates it).
+  func testGestureTransformFollowsTheFingersAndTheReleaseSettlesOnFill() {
+    let controller = makeController()
+    controller.viewportChanged(points: CGSize(width: 1000, height: 1000), displayScale: 2)
+    controller.pinchChanged(magnification: 1, location: CGPoint(x: 500, y: 500))
+    let fit = controller.context.fitScale
+    let fill = controller.context.fillScale
+    let transform = controller.gestureTransform(
+      magnification: fill / fit * 1.03, liveCentroid: CGPoint(x: 500, y: 500))
+    XCTAssertEqual(transform.zoom, fill / fit * 1.03, accuracy: 1e-9)
+    controller.pinchEnded(magnification: fill / fit * 1.03)
+    XCTAssertEqual(controller.session.pixelScale, fill, accuracy: 1e-9)
+    XCTAssertEqual(controller.model.currentStop, .fill)
   }
 
   func testWheelZoomCommitsImmediately() {

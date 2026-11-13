@@ -22,8 +22,19 @@
 
 import { InjectionToken, Signal, signal } from '@angular/core';
 import type { Asset, AssetId } from '../models/asset';
+import type { StackFile } from '../models/asset-stack';
 
 export type RenameCollisionPolicy = 'skip' | 'replace' | 'keep-both';
+
+/** A pending same-name collision. `filename` is the name that is taken. When
+ * `companion` is set, the RAW of a RAW+JPEG stack has already been renamed and
+ * it is the JPEG's target that is taken: the prompt names the JPEG and offers
+ * Skip or Replace only, since Keep Both would split the pair's stem. */
+export interface RenameCollision {
+  readonly assetId: AssetId;
+  readonly filename: string;
+  readonly companion?: StackFile;
+}
 
 export interface AssetRenameCapability {
   /** Id of the asset with a live inline-rename field, or `null`. */
@@ -33,7 +44,7 @@ export interface AssetRenameCapability {
   /** True while a commit request is in flight. */
   readonly busy: Signal<boolean>;
   /** Set when the last commit attempt collided with an existing filename. */
-  readonly collision: Signal<{ assetId: AssetId; filename: string } | null>;
+  readonly collision: Signal<RenameCollision | null>;
   /** Why rename is unavailable for `asset`, or `null` when it's allowed. */
   disabledReason(asset: Asset): string | null;
   startEditing(asset: Asset): void;

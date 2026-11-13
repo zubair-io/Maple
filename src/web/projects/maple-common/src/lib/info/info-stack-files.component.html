@@ -1,0 +1,21 @@
+@if (rows().length > 0) {
+  <section aria-label="Files" class="flex flex-col gap-1">
+    <mui-text variant="row-label">Files</mui-text>
+    <ul class="m-0 flex list-none flex-col gap-1 p-0">
+      @for (row of rows(); track row.key) {
+        <li
+          class="stack-file-row flex flex-wrap items-center justify-between gap-x-3"
+          [attr.data-primary]="row.primary"
+        >
+          <mui-text variant="body" class="min-w-0 truncate">{{ row.name }}</mui-text>
+          <span class="flex items-center gap-2">
+            <mui-text variant="body" color="muted">{{ row.type }} · {{ row.size }}</mui-text>
+            @if (row.primary) {
+              <mui-text variant="row-label">Primary</mui-text>
+            }
+          </span>
+        </li>
+      }
+    </ul>
+  </section>
+}

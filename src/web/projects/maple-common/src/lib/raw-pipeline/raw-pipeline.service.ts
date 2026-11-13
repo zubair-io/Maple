@@ -1,7 +1,10 @@
+import { CpuSourceTransfer } from './raw-pipeline.cpu-source';
 // RawPipelineService — Angular wrapper around the raw-decode Web Worker.
 // Lazy-creates the worker on first call, reuses for subsequent calls,
 // terminates on app destroy. All decodes run off the main thread.
 //
+// The worker's thread-pool status protocol outlived the public observables
+// #3048 removed; the subjects below still receive those messages.
 
 import { Injectable, Injector, OnDestroy, inject, signal } from '@angular/core';
 import { BehaviorSubject } from 'rxjs';
@@ -12,9 +15,9 @@ import type {
   SetFilmLutRequest,
   WorkerResponse,
 } from './raw-pipeline.types';
-import { RawPipelineDecodeQueue } from './raw-pipeline.decode-queue';
 import { RawPipelineExportClient } from './raw-pipeline.export-client';
 import { RawPipelineSessionClients } from './raw-pipeline.session-clients';
+import type { RemovalCompanionBundle } from '../removal/removal-companion-bundle';
 import { dispatchAutoAdjust } from './raw-pipeline.auto-adjust-request';
 import {
   dispatchImportLensProfile,
@@ -29,11 +32,12 @@ import type { CompatibleLensProfile, LensProfileEvidence } from '../lens/lens-pr
 import { LIBRARY_BACKEND } from '../api/library-backend.token';
 import type { SampleQueue } from './raw-pipeline.samplers';
 import {
+  sampleColorCurve as runColorCurveSample,
   sampleMaskRange as runMaskRangeSample,
   sampleWhiteBalance as runWhiteBalanceSample,
 } from './raw-pipeline.samplers';
 import type { WbSampleResult } from './raw-pipeline.sample-wb.types';
-import type { MaskRangeSeed } from './raw-pipeline.sample-range.types';
+import type { ColorCurveSampleResult, MaskRangeSeed } from './raw-pipeline.sample-range.types';
 import {
   dispatchGuidedGeometry,
   type GuidedCorrection,
@@ -55,7 +59,6 @@ import {
 } from './raw-pipeline.gpu-live-session';
 
 export type { AutoAdjustPatch } from './raw-pipeline.types';
-import type { RemovalCompanionBundle } from '../removal/removal-companion-bundle';
 import { GpuLiveRenderGate } from './gpu-live-render.gate';
 import { CanvasColorSpacePref } from './canvas-color-space.pref';
 import { isNonRawExtension } from '../state/raw-extensions';
@@ -70,7 +73,9 @@ import { handleWorkerMessage } from './raw-pipeline.worker-dispatch';
 
 @Injectable({ providedIn: 'root' })
 export class RawPipelineService implements OnDestroy {
-  // Operator changes apply at the next open (#1029 / #1062).
+  // Routes the legacy `decode()` through the GPU live chain when true (#1029);
+  // the worker still falls back to `render_bytes` on a gpu-off bundle. Read
+  // at REQUEST time (#1062) so an operator flip lands on the next open.
   private readonly gate = inject(GpuLiveRenderGate);
 
   // #3191: the requested GPU-live canvas colour space, read per session-open
@@ -86,8 +91,8 @@ export class RawPipelineService implements OnDestroy {
 
   private worker: Worker | null = null;
   private nextId = 1;
+  private readonly cpuSource = new CpuSourceTransfer();
   private pending = new Map<number, PendingHandler>();
-  private readonly decodeQueue = new RawPipelineDecodeQueue();
   /** Bumped every time the worker is retired — the WASM registry (mask and brush
    *  rasters included) dies with it, so hosts memoizing registry ids re-resolve when
    *  this moves; a signal, so an effect reading it re-registers after a restart. */
@@ -98,30 +103,13 @@ export class RawPipelineService implements OnDestroy {
     return this.workerEpoch();
   }
 
-  /** Paint/Smart paint preparation (#3934 / #3942), never a slider operation. */
-  private readonly sessionClients = new RawPipelineSessionClients(
-    () => this.ensureWorker(),
-    () => this.nextId++,
-    this.pending,
-    (run) => this.sampleQueue(() => run()),
-  );
-  readonly removal = this.sessionClients.removal;
-  readonly savedPreview = this.sessionClients.savedPreview;
-  private readonly exportClient = new RawPipelineExportClient(
-    () => this.ensureWorker(),
-    () => this.nextId++,
-    this.pending,
-    (run) => this.enqueueDecode(run),
-    () => this.closeNativeDetail(),
-  );
-  readonly exportRevision = this.exportClient.revision;
-
-  exportImage(
-    ...args: Parameters<RawPipelineExportClient['exportImage']>
-  ): ReturnType<RawPipelineExportClient['exportImage']> {
-    return this.exportClient.exportImage(...args);
-  }
-
+  // T10: threaded-state, reported by the worker once WASM init completes.
+  // `isThreaded$`/`threadCount$`, the observables that used to surface this
+  // to a UI, were deleted as dead (#3048 — no production caller remained).
+  // The subjects themselves stay: `raw-pipeline.worker-dispatch.ts`'s shared
+  // `WorkerDispatchContext` still populates them from the worker's `status`
+  // message, and retiring that protocol end-to-end is a separate follow-up
+  // (see the module doc above).
   private readonly threadedSubject = new BehaviorSubject<boolean | null>(null);
   private readonly threadCountSubject = new BehaviorSubject<number>(1);
 
@@ -191,6 +179,7 @@ export class RawPipelineService implements OnDestroy {
     worker.terminate();
     if (this.worker !== worker) return;
     this.workerEpoch.update((epoch) => epoch + 1);
+    this.cpuSource.clear();
     this.deepDenoiseProgress.set(null);
     this.sessionClients.workerFailed();
     this.pending.forEach(({ reject }) => reject(new Error(message)));
@@ -198,16 +187,43 @@ export class RawPipelineService implements OnDestroy {
     this.worker = null;
   }
 
-  // Serialization gate: the worker's `message` handler is async, so multiple
-  // concurrent decode requests would be in-flight at once and each one holds
-  // hundreds of MB of zero-initialized f32 scratch buffers in WASM memory.
-  // Two large decodes running together blow past the 4 GiB wasm32 cap and
-  // abort with `RuntimeError: unreachable`. Queue them here so exactly one
-  // decode sits in the worker at any moment.
+  // Serialize CPU work: concurrent sensor develops can exceed wasm32 memory.
+  private decodeChain: Promise<unknown> = Promise.resolve();
+  private enqueue<T>(run: () => Promise<T>): Promise<T> {
+    const next = this.decodeChain.then(run, run);
+    this.decodeChain = next.catch(() => this.cpuSource.clear());
+    return next;
+  }
+  /** Paint/Smart paint preparation (#3934 / #3942), never a slider operation. */
+  private readonly sessionClients = new RawPipelineSessionClients(
+    () => this.ensureWorker(),
+    () => this.nextId++,
+    this.pending,
+    (run) => this.sampleQueue(() => run()),
+  );
+  readonly removal = this.sessionClients.removal;
+  readonly savedPreview = this.sessionClients.savedPreview;
+  private readonly exportClient = new RawPipelineExportClient(
+    () => this.ensureWorker(),
+    () => this.nextId++,
+    this.pending,
+    (run) => this.enqueue(run),
+    () => {
+      this.closeNativeDetail();
+      this.cpuSource.clear();
+    },
+  );
+  readonly exportRevision = this.exportClient.revision;
+
   // Called through NativeDetailHost's Pick<RawPipelineService, ...> boundary.
   // fallow-ignore-next-line unused-class-member
   renderNativeDetail(args: NativeDetailArgs): Promise<NativeDetailPixels> {
-    return this.enqueueDecode(() => this.sessionClients.renderNativeDetail(args));
+    const revision = this.sessionClients.nativeDetailRevision();
+    const run = () => {
+      this.cpuSource.clear();
+      return this.sessionClients.renderNativeDetail(args, revision);
+    };
+    return this.enqueue(run);
   }
 
   closeNativeDetail(): void {
@@ -235,26 +251,29 @@ export class RawPipelineService implements OnDestroy {
     qualityPreview?: boolean,
     filmLut?: ArrayBuffer,
   ): Promise<DecodedImage> {
-    // Non-RAW images never touch demosaic but DO run the per-tick adjustment
-    // chain (#3039, mirroring Apple's `processSceneLinearNonRaw`), so they
-    // join the serialization gate and cross into the worker like a RAW.
+    // RAW and browser-decoded raster develops share the worker serialization gate.
     this.closeNativeDetail();
-    const run = isNonRawExtension(ext)
-      ? () =>
-          developNonRaw(
+    const nonRaw = isNonRawExtension(ext);
+    const epoch = this.cpuSource.epoch;
+    const run = nonRaw
+      ? () => {
+          this.cpuSource.clear();
+          return developNonRaw(
             bytes,
             xmp,
             () => this.ensureWorker(),
             () => this.nextId++,
             this.pending.set.bind(this.pending),
-          )
-      : () => this.decodeOnce(bytes, ext, xmp, maxLongEdge, qualityPreview, filmLut);
-    return this.enqueueDecode(run);
+          );
+        }
+      : () => this.decodeOnce(bytes, ext, epoch, xmp, maxLongEdge, qualityPreview, filmLut);
+    return this.enqueue(run);
   }
 
   private decodeOnce(
     bytes: Uint8Array,
     ext: string,
+    epoch: number,
     xmp?: string,
     maxLongEdge?: number,
     qualityPreview?: boolean,
@@ -267,21 +286,17 @@ export class RawPipelineService implements OnDestroy {
       return Promise.reject(new Error('RawPipelineService: worker unavailable'));
     }
     const id = this.nextId++;
-    // Transfer the underlying buffer so the main thread doesn't keep a copy.
-    const buffer = bytes.buffer.slice(
-      bytes.byteOffset,
-      bytes.byteOffset + bytes.byteLength,
-    ) as ArrayBuffer;
+    const source = this.cpuSource;
+    const retain = maxLongEdge !== undefined && maxLongEdge > 0 && epoch === source.epoch;
+    source.prepare(bytes, ext, worker, id, retain);
     const request: DecodeRequest = {
       id,
       type: 'decode',
-      bytes: buffer,
+      bytes: source.buffer,
+      cpuSourceToken: source.token,
       ext,
       xmp,
-      // GPU live-render routing (#1029). Only the legacy display-encoded path
-      // (this method) participates; the scene-linear WebGL2 path is unchanged.
-      // The worker ignores it for sized requests (they are the editor's 2D
-      // CPU fast/refine phases — the GPU path uses the persistent session).
+      // Sized requests retain the CPU session; unsized GPU routing is unchanged.
       gpu: this.gpuLiveRenderEnabled,
       maxLongEdge,
       qualityPreview,
@@ -290,10 +305,8 @@ export class RawPipelineService implements OnDestroy {
     return dispatchWithMark<DecodedImage>(
       worker,
       request,
-      // `filmLut` is deliberately absent from the transfer list — see
-      // `decode()`'s doc. Structured-cloning a `.mlut` grid (tens of KB) is
-      // negligible next to the RAW `bytes` transfer this call already makes.
-      [buffer],
+      // Film remains structured-cloned; only a new source transfers RAW bytes.
+      source.transferred,
       'maple:decode',
       ({ resolve, reject }) => ({ kind: 'legacy', resolve, reject }),
       this.pending.set.bind(this.pending),
@@ -302,14 +315,10 @@ export class RawPipelineService implements OnDestroy {
 
   // ── Persistent GPU live session (epic #925, P4b-web / #1038) ───────────────
   // A worker-resident `WebLiveSession` presents straight to a transferred
-  // `OffscreenCanvas` (no readback). Outside the `decode()` gate — the worker
-  // serializes session ops itself. Bodies live in `raw-pipeline.gpu-live-session.ts`.
-  // Reached via `this.host.pipeline.<method>` on the `GpuPresentHost` interface,
-  // which fallow's dead-code pass can't trace — hence the suppression on each.
+  // `OffscreenCanvas` (no readback). Outside the decode gate: opening retires
+  // CPU source custody synchronously, ahead of any later queued decode. Bodies: `raw-pipeline.gpu-live-session.ts`.
 
-  /** Whether the GPU live-render path is enabled right now (#1038, #1062):
-   * the build-time token AND the operator's DB-backed setting. Evaluated per
-   * call, so a runtime flip is picked up by the next image open. */
+  /** Build capability and runtime setting, evaluated at each image open. */
   get gpuLiveRenderEnabled(): boolean {
     return this.gate.enabled();
   }
@@ -329,6 +338,7 @@ export class RawPipelineService implements OnDestroy {
     } catch {
       return Promise.reject(new Error('RawPipelineService: worker unavailable'));
     }
+    this.cpuSource.retire();
     return openLiveSessionRequest(
       worker,
       this.nextId++,
@@ -344,13 +354,19 @@ export class RawPipelineService implements OnDestroy {
   }
 
   // fallow-ignore-next-line unused-class-member
-  async renderLiveSession(
+  renderLiveSession(
     xmp?: string,
     params?: Float32Array,
     savedRemovals?: RemovalCompanionBundle,
   ): Promise<RenderedLiveSession> {
+    let worker: Worker;
+    try {
+      worker = this.ensureWorker();
+    } catch {
+      return Promise.reject(new Error('RawPipelineService: worker unavailable'));
+    }
     return renderLiveSessionRequest(
-      this.ensureWorker(),
+      worker,
       this.nextId++,
       this.pending.set.bind(this.pending),
       xmp,
@@ -359,6 +375,7 @@ export class RawPipelineService implements OnDestroy {
     );
   }
 
+  // fallow-ignore-next-line unused-class-member
   closeLiveSession(): void {
     if (!this.worker) return;
     closeLiveSessionRequest(this.worker, this.nextId++);
@@ -494,17 +511,26 @@ export class RawPipelineService implements OnDestroy {
     return runMaskRangeSample(this.sampleQueue, bytes, ext, xmp, nx, ny);
   }
 
+  sampleColorCurve(
+    bytes: Uint8Array,
+    ext: string,
+    xmp: string | undefined,
+    nx: number,
+    ny: number,
+  ): Promise<ColorCurveSampleResult> {
+    return runColorCurveSample(this.sampleQueue, bytes, ext, xmp, nx, ny);
+  }
+
   /** Chains one request after the in-flight decode work: every sampler, the
    *  AUTO probe and a lens-profile import develop their own decode, so two
    *  must never sit in the WASM heap at once. */
   private readonly sampleQueue: SampleQueue = (run) => {
-    const once = () => this.dispatchNow(run);
-    return this.enqueueDecode(once);
+    const once = () => {
+      this.cpuSource.clear();
+      return this.dispatchNow(run);
+    };
+    return this.enqueue(once);
   };
-
-  private enqueueDecode<T>(run: () => Promise<T>): Promise<T> {
-    return this.decodeQueue.enqueue(run);
-  }
 
   private readonly dispatchNow: SampleQueue = (run) => {
     try {
@@ -514,8 +540,15 @@ export class RawPipelineService implements OnDestroy {
     }
   };
 
+  exportImage(
+    ...args: Parameters<RawPipelineExportClient['exportImage']>
+  ): ReturnType<RawPipelineExportClient['exportImage']> {
+    return this.exportClient.exportImage(...args);
+  }
+
   ngOnDestroy(): void {
     this.sessionClients.close();
+    this.cpuSource.clear();
     this.worker?.terminate();
     this.worker = null;
     this.pending.forEach(({ reject }) => reject(new Error('RawPipelineService destroyed')));

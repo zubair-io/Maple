@@ -52,6 +52,7 @@ import type { DecodedImage } from '../raw-pipeline/raw-pipeline.types';
 import { LibraryStore } from './library-store.service';
 import { LibraryCache } from './library-cache.service';
 import { MapleCacheService } from '../maple-cache/maple-cache.service';
+import { hostedSidecarFingerprint } from '../maple-cache/hosted-sidecar-fingerprint';
 import {
   samePreviewSource,
   type PreviewSourceIdentity,
@@ -59,6 +60,8 @@ import {
 import { SERVER_WORKSPACE_PERSISTENCE } from '../workspace/workspace-persistence';
 import { RawPipelineService } from '../raw-pipeline/raw-pipeline.service';
 import { XmpSerializerService } from '../xmp/xmp-serializer.service';
+import { XmpParserService } from '../xmp/xmp-parser.service';
+import { defaultAdjustmentModel } from '../models/adjustment-model';
 import {
   PREVIEW_LONG_EDGE_PX,
   encodeDevelopedRenderToAvif,
@@ -67,6 +70,7 @@ import {
 import { isSupportedRaw } from './raw-extensions';
 import { previewLocation, type PreviewLocation } from './preview-location';
 import { XmpStoreService } from '../xmp/xmp-store.service';
+import { HostedSidecarFreshnessService } from '../xmp/hosted-sidecar-freshness.service';
 import { PRIMARY_VARIANT_ID } from '../generated/workflow.generated';
 
 /** Idle debounce before a developed preview is persisted, in ms. Longer than
@@ -89,7 +93,9 @@ export class EditPreviewPersistService {
   private readonly serverPersistence = inject(SERVER_WORKSPACE_PERSISTENCE);
   private readonly pipeline = inject(RawPipelineService);
   private readonly xmpSerializer = inject(XmpSerializerService);
+  private readonly xmpParser = inject(XmpParserService);
   private readonly sidecars = inject(XmpStoreService);
+  private readonly sidecarFreshness = inject(HostedSidecarFreshnessService);
   private readonly destroyRef = inject(DestroyRef, { optional: true });
   private readonly injector = inject(Injector);
 
@@ -268,7 +274,7 @@ export class EditPreviewPersistService {
     if (this.store.backend === 'self-hosted') {
       await this._persistServerBacked(id, img, current);
     } else if (hostedTarget) {
-      await this._persistHosted(id, img, hostedTarget, current);
+      await this._persistHosted(id, img, hostedTarget, xmp, current);
     }
   }
 
@@ -299,10 +305,12 @@ export class EditPreviewPersistService {
    * otherwise a high-quality JPEG stored under its actual declared format.
    * No-ops on a read-only or not-yet-resolved folder, an asset with no
    * addressable on-disk location, or unavailable source identity. */
+  // fallow-ignore-next-line complexity
   private async _persistHosted(
     id: AssetId,
     img: DecodedImage,
     target: HostedPreviewTarget,
+    renderedXmp: string,
     current: () => boolean,
   ): Promise<void> {
     if (this.isDestroyed || this.store.currentFolder() !== target.folder || !target.folder.write)
@@ -313,12 +321,31 @@ export class EditPreviewPersistService {
     const sourceAfter = await this.cache.hostedBytes.identityFor(id);
     if (this.isDestroyed || !current() || !samePreviewSource(target.sourceBefore, sourceAfter))
       return;
+    const binding = this.sidecars.bindingFor(id, target.folder, target.location.filename);
+    const path = [target.location.dir, binding.filename].filter(Boolean).join('/');
+    let xml: string | null;
+    let persistedModel;
+    try {
+      xml = await this.sidecarFreshness.readCurrent(target.folder, path);
+      this.sidecarFreshness.assertUnchanged(target.folder, path, xml);
+      persistedModel = {
+        ...defaultAdjustmentModel(),
+        ...(xml === null ? {} : this.xmpParser.parseAdjustmentModel(xml).model),
+      };
+    } catch {
+      return;
+    }
+    // A sidecar write may still be pending or may have failed. Only publish a
+    // preview if the bytes on disk represent the model used for its pixels.
+    if (this.xmpSerializer.serialize(persistedModel) !== renderedXmp) return;
+    if (this.isDestroyed || !current()) return;
     await this.mapleCache.writePreview(
       target.folder,
       target.location.dir,
       target.location.filename,
       blob,
       target.sourceBefore,
+      await hostedSidecarFingerprint(xml),
     );
   }
 

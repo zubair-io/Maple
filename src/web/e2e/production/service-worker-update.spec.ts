@@ -48,12 +48,6 @@ async function expectV2(page: Page): Promise<void> {
   await expect.poll(() => documentVersion(page)).toBe('v2');
 }
 
-async function preloadBrowseFonts(page: Page): Promise<void> {
-  await page.evaluate(async () => {
-    await document.fonts.load('12px "JetBrains Mono"');
-  });
-}
-
 async function restoreOnlineV1(context: BrowserContext, request: APIRequestContext): Promise<void> {
   await context.setOffline(false);
   await selectVersion(request, 'v1');
@@ -95,19 +89,15 @@ test('Hosted installs a dismissed update on the next Angular route change', asyn
   try {
     await openControlledV1(page, request);
     await detectV2(page, request);
-    await preloadBrowseFonts(page);
     await updateToast(page).getByRole('button', { name: 'Dismiss' }).click();
     await expect(updateToast(page)).toHaveCount(0);
 
     const navigated = page.waitForEvent('framenavigated', (frame) => frame === page.mainFrame());
-    await page.evaluate(() => {
-      history.pushState({}, '', '/browse');
-      dispatchEvent(new PopStateEvent('popstate', { state: history.state }));
-    });
+    await page.getByRole('link', { name: 'Privacy Policy' }).click();
     await navigated;
-    await expect(page).toHaveURL(/\/browse$/);
+    await expect(page).toHaveURL(/\/privacy$/);
     await expectV2(page);
-    await expect(page.getByRole('button', { name: 'Open folder' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Privacy Policy' })).toBeVisible();
   } finally {
     await restoreOnlineV1(context, request);
   }

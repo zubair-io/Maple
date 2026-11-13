@@ -57,27 +57,32 @@ impl MapleApp {
                     egui::vec2(w as f32, h as f32)
                 })
                 .unwrap_or(image_size);
-        let ppp = ui.ctx().pixels_per_point();
+        let geometry = super::zoom::CanvasGeometry {
+            viewport,
+            source: source_size,
+            pixels_per_point: ui.ctx().pixels_per_point(),
+        };
         if response.double_clicked() {
-            if self.zoom.scale == 0.0 && self.zoom.native.is_some() {
-                self.zoom.scale = 1.0;
+            if self.zoom.native.is_some() {
+                let position = response.interact_pointer_pos().unwrap_or(viewport.center());
+                self.zoom.double_click(position, &geometry);
             } else {
                 self.zoom.fit();
             }
         }
+        if response.drag_started() {
+            self.zoom.drag_started();
+        }
         if response.dragged() && !self.comparing {
-            self.zoom.pan += ui.input(|i| i.pointer.delta());
+            self.zoom.drag(response.drag_delta(), &geometry);
+        }
+        if response.drag_stopped() {
+            self.zoom.drag_ended();
         }
         if response.hovered() && self.zoom.native.is_some() {
-            let factor = ui.input(|i| i.zoom_delta());
-            if factor != 1.0 {
-                self.zoom.zoom_at(
-                    factor,
-                    response.hover_pos().unwrap_or(viewport.center()),
-                    viewport,
-                    source_size,
-                    ppp,
-                );
+            let position = response.hover_pos().unwrap_or(viewport.center());
+            for factor in super::zoom::zoom_steps(ui.ctx()) {
+                self.zoom.zoom_at(factor, position, &geometry);
             }
         }
         if self.zoom.native.is_some() && !super::zoom::text_is_focused(ui.ctx()) {
@@ -85,11 +90,10 @@ impl MapleApp {
                 self.zoom.fit();
             }
             if ui.input(|i| super::keyboard::plain_key_pressed(i, egui::Key::Z)) {
-                self.zoom.scale = 1.0;
-                self.zoom.pan = egui::Vec2::ZERO;
+                self.zoom.zoom_to(1.0);
             }
         }
-        let image = self.zoom.image_rect(viewport, source_size, ppp);
+        let image = self.zoom.image_rect(&geometry);
         let uv = egui::Rect::from_min_max(egui::Pos2::ZERO, egui::pos2(1.0, 1.0));
         let painter = ui
             .painter()
@@ -98,10 +102,10 @@ impl MapleApp {
             .zoom
             .base
             .as_ref()
-            .filter(|_| self.zoom.scale > 0.0 && !self.comparing)
+            .filter(|_| self.zoom.is_zoomed() && !self.comparing)
             .map_or(texture_id, |(_, texture)| texture.id());
         painter.image(base_id, image, uv, egui::Color32::WHITE);
-        if self.zoom.scale > 0.0 && !self.comparing {
+        if self.zoom.is_zoomed() && !self.comparing {
             if let Some((rect, texture)) = &self.zoom.patch {
                 let min = image.min
                     + egui::vec2(rect.src_x as f32, rect.src_y as f32) / source_size * image.size();
@@ -118,12 +122,12 @@ impl MapleApp {
         }
         let refinement_status = if self.zoom.refining() {
             Some("Refining…")
-        } else if self.zoom.scale >= 1.0 {
+        } else if self.zoom.scale() >= 1.0 {
             self.zoom.resolution_status.as_deref()
         } else {
             None
         };
-        if self.zoom.scale > 0.0 && !self.comparing {
+        if self.zoom.is_zoomed() && !self.comparing {
             if let Some(status) = refinement_status {
                 painter.text(
                     viewport.right_bottom() + egui::vec2(-8.0, -8.0),
@@ -134,7 +138,7 @@ impl MapleApp {
                 );
             }
         }
-        let percent = image.width() / source_size.x * ppp * 100.0;
+        let percent = image.width() / source_size.x * geometry.pixels_per_point * 100.0;
         painter.text(
             viewport.left_bottom() + egui::vec2(8.0, -8.0),
             egui::Align2::LEFT_BOTTOM,

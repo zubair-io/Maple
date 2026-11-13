@@ -1,17 +1,14 @@
-/** Streaming upload steps; replacement always retains durable Trash/purge intent. */
+/** Streaming upload steps. Replacing a same-named file always keeps the previous
+ * bytes: a catalogued asset goes through the leased Trash workflow, anything else
+ * (video, plain file) is moved to `.maple/trash` by path (#4694). An existing
+ * sidecar is never replaced here — sidecars are written through the XMP routes
+ * with their preconditions, so the raw upload answers 409 instead. */
 import * as path from 'node:path';
 import { open, rename, stat, unlink, utimes } from '../fs/mirrored.ts';
-import {
-  RAW_EXTENSIONS,
-  BITMAP_EXTENSIONS,
-  PSD_HDR_EXTENSIONS,
-  STUB_IMAGE_EXTENSIONS,
-  AUDIO_EXTENSIONS,
-} from '../fs/browse.ts';
 import { findAssetToReplaceAtAddress, upsertUploadedAsset } from '../db/repos/assets.address.ts';
 import { recordAndPublishAssetChange } from '../db/changes.repo.ts';
 import { ALL_STAGE_NAMES } from '../workers/stages/manifest.ts';
-import { classifyMediaType } from '../indexer/media-types.ts';
+import { classifyMediaType, isVideoFilename } from '../indexer/media-types.ts';
 import {
   trashUploadReplacement,
   discardIdenticalReplacement,
@@ -19,19 +16,22 @@ import {
 import type { FolderWithId } from '../db/schema.ts';
 import type { ObjectId } from '../db/object-id.ts';
 import { child } from '../log.ts';
+import { ignoreVerdict } from '../fs/mapleignore.ts';
+import { publishWholeExclusive } from '../fs/publish-whole.ts';
+import { PublishCollisionError } from '../fs/relocate-publish.ts';
+import { withUploadedPrimaryFence } from '../fs/relocate-replace-fence';
+import { serializeSidecarWrite } from '../fs/sidecar-write-order.ts';
+import {
+  captureUploadedSidecarAdmission,
+  type UploadedSidecarAdmission,
+} from './folders.upload-sidecar-admission';
 
 const log = child('folders/upload');
-const mediaExtensions = [
-  RAW_EXTENSIONS,
-  BITMAP_EXTENSIONS,
-  PSD_HDR_EXTENSIONS,
-  STUB_IMAGE_EXTENSIONS,
-  AUDIO_EXTENSIONS,
-];
-export function isIndexedUpload(filename: string): boolean {
-  const extension = path.extname(filename).slice(1).toLowerCase();
-  return mediaExtensions.some((extensions) => extensions.has(extension));
+function isSidecarUpload(filename: string): boolean {
+  return path.extname(filename).toLowerCase() === '.xmp';
 }
+/** The target already holds a file this route must not replace; the route answers 409. */
+export class UploadConflictError extends Error {}
 async function removeFailedUpload(filename: string): Promise<void> {
   await unlink(filename).catch(() => {});
 }
@@ -82,6 +82,7 @@ interface UploadTarget {
   isMedia: boolean;
   mtimeHeader: string | undefined;
   ownerId: string | undefined;
+  sidecarAdmission?: UploadedSidecarAdmission;
 }
 interface TrashedReplacement {
   docId: ObjectId;
@@ -99,36 +100,69 @@ async function sourceExists(filename: string): Promise<boolean> {
     return false;
   }
 }
+function refuseSidecarReplacement(target: string, filename: string): void {
+  if (!isSidecarUpload(filename)) return;
+  throw new UploadConflictError(
+    `A sidecar already exists at "${target}"; write sidecars through the XMP routes`,
+  );
+}
 async function trashExistingUpload(input: UploadTarget): Promise<TrashedReplacement | undefined> {
-  if (!input.isMedia) return;
   const { folder, target, absPath, filename } = input;
   try {
     await stat(absPath);
+    refuseSidecarReplacement(target, filename);
     const directory = relativeDirectory(target);
     const existing = await findAssetToReplaceAtAddress(folder._id, directory, filename);
-    const moved = await trashUploadReplacement(
-      existing?._id,
-      folder.path,
-      folder._id,
-      absPath,
-      directory,
+    const moved = await trashUploadReplacement({
+      existingId: existing?._id,
+      root: folder.path,
+      libraryId: folder._id,
+      original: absPath,
+      relativeDirectory: directory,
       filename,
-    );
+      pairedWithSidecars: input.isMedia || isVideoFilename(filename),
+      ignored: await insideIgnoredFolder(input),
+    });
     if (moved.kind === 'ok')
       return existing ? { docId: existing._id, newAbsPath: moved.newAbsPath } : undefined;
     // Another actor may have completed the move; it owns the Trash update.
     if (await sourceExists(absPath)) throw new Error(moved.error);
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') return;
+    if (error instanceof UploadConflictError) throw error;
     throw uploadError('pre-trash', error);
   }
 }
 async function publishUploadedBody(input: UploadTarget): Promise<void> {
+  if (isSidecarUpload(input.filename)) return publishUploadedSidecar(input);
   try {
     await rename(input.tmp, input.absPath);
   } catch (error) {
     throw uploadError('rename', error);
   }
+}
+
+/** Inside the sidecar's save barrier and exclusive (#5067): a save through the
+ * XMP routes that landed after the existence check is never replaced. */
+async function publishUploadedSidecar(input: UploadTarget): Promise<void> {
+  const admission =
+    input.sidecarAdmission ?? (await captureUploadedSidecarAdmission(input.absPath));
+  await serializeSidecarWrite(
+    input.absPath,
+    async () => {
+      try {
+        await publishWholeExclusive(input.tmp, input.absPath);
+      } catch (error) {
+        if (!(error instanceof PublishCollisionError)) throw uploadError('publish', error);
+        refuseSidecarReplacement(input.target, input.filename);
+        throw error;
+      } finally {
+        await unlink(input.tmp).catch(() => {});
+      }
+      await preserveUploadMtime(input.absPath, input.mtimeHeader);
+    },
+    { primarySidecar: admission?.primarySidecar, admissionScope: admission?.scope },
+  );
 }
 async function preserveUploadMtime(filename: string, value: string | undefined): Promise<void> {
   if (typeof value !== 'string' || !/^\d+$/.test(value)) return;
@@ -176,6 +210,9 @@ async function indexUploadedMedia(
     throw uploadError('metadata', error);
   }
 }
+async function insideIgnoredFolder(input: UploadTarget): Promise<boolean> {
+  return (await ignoreVerdict(input.folder.path, relativeDirectory(input.target))) !== 'indexed';
+}
 async function announceUploadedFile(input: UploadTarget, assetId: ObjectId | null): Promise<void> {
   await recordAndPublishAssetChange({
     kind: 'create',
@@ -188,13 +225,32 @@ async function announceUploadedFile(input: UploadTarget, assetId: ObjectId | nul
   });
 }
 export async function finalizeUploadedFile(input: UploadTarget) {
+  if (isSidecarUpload(input.filename)) return finalizeUpload(input);
+  // Raw uploads also replace a primary between owner lookup and scope capture.
+  // Keep their whole publication in the same generation as move/copy Replace.
+  try {
+    return await withUploadedPrimaryFence(input.absPath, () => finalizeUpload(input));
+  } catch (error) {
+    // Admission can fail before finalizeUpload owns the temporary file.
+    await removeFailedUpload(input.tmp);
+    throw error;
+  }
+}
+
+async function finalizeUpload(input: UploadTarget) {
   try {
     const trashed = await trashExistingUpload(input);
     await publishUploadedBody(input);
     const info = await stat(input.absPath);
-    await preserveUploadMtime(input.absPath, input.mtimeHeader);
+    if (!isSidecarUpload(input.filename))
+      await preserveUploadMtime(input.absPath, input.mtimeHeader);
     await discardRedundantTrash(input, trashed);
-    const assetId = input.isMedia ? await indexUploadedMedia(input, info.size, info.mtimeMs) : null;
+    // A replaced asset the indexer had catalogued (e.g. a video) is re-indexed
+    // even when the extension is outside the direct-upload set, so the
+    // replacement does not vanish from the catalog until the next sweep.
+    const catalogued =
+      (input.isMedia || trashed !== undefined) && !(await insideIgnoredFolder(input));
+    const assetId = catalogued ? await indexUploadedMedia(input, info.size, info.mtimeMs) : null;
     await announceUploadedFile(input, assetId);
     return {
       ...(assetId ? { asset_id: assetId.toHexString() } : {}),

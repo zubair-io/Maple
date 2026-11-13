@@ -14,9 +14,19 @@
 // loop tight.
 
 import { TestBed } from '@angular/core/testing';
-import { mkdtempSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  statSync,
+  unlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { LibraryStore } from './library-store.service';
 import { provideHttpClient } from '@angular/common/http';
 import { provideHttpClientTesting } from '@angular/common/http/testing';
@@ -34,7 +44,56 @@ import { FolderAccessService } from '../folder-access/folder-access.service';
 import { FolderEntry } from '../folder-access/folder-access.types';
 import { XmpStoreService } from '../xmp/xmp-store.service';
 import { LibraryFetch } from './library-fetch.service';
+import { HostedRawSidecarService } from './hosted-raw-sidecar.service';
 import { MapleCacheService } from '../maple-cache/maple-cache.service';
+import { selectSidebarEntry } from '../shells/browse-shell/source-selection';
+
+/** Exercise FolderAccessService's real FS Access path against disposable files. */
+function directoryHandle(directory: string): FileSystemDirectoryHandle {
+  const fileHandle = (path: string): FileSystemFileHandle =>
+    ({
+      kind: 'file',
+      name: basename(path),
+      getFile: async () =>
+        new File([new Uint8Array(readFileSync(path))], basename(path), {
+          lastModified: statSync(path).mtimeMs,
+        }),
+      createWritable: async () => {
+        let bytes = new Uint8Array();
+        return {
+          write: async (data: ArrayBuffer) => {
+            bytes = new Uint8Array(data);
+          },
+          close: async () => {
+            writeFileSync(path, bytes);
+          },
+          abort: async () => undefined,
+        } as unknown as FileSystemWritableFileStream;
+      },
+    }) as FileSystemFileHandle;
+  return {
+    kind: 'directory',
+    name: basename(directory),
+    getFileHandle: async (name: string, options?: { create?: boolean }) => {
+      const path = join(directory, name);
+      if (!existsSync(path) && !options?.create)
+        throw new DOMException(`Missing file: ${name}`, 'NotFoundError');
+      return fileHandle(path);
+    },
+    getDirectoryHandle: async (name: string, options?: { create?: boolean }) => {
+      const path = join(directory, name);
+      if (options?.create) mkdirSync(path, { recursive: true });
+      if (!existsSync(path)) throw new DOMException(`Missing folder: ${name}`, 'NotFoundError');
+      return directoryHandle(path);
+    },
+    entries: async function* () {
+      for (const name of readdirSync(directory)) {
+        const path = join(directory, name);
+        yield [name, statSync(path).isDirectory() ? directoryHandle(path) : fileHandle(path)];
+      }
+    },
+  } as FileSystemDirectoryHandle;
+}
 
 // This spec constructs the real BrowsePreferencesService (via
 // LibraryStateService); its persistence effects write `cm.*` keys into the
@@ -183,6 +242,51 @@ describe('LibraryStateService.addImportedAsset', () => {
     ]);
   });
 
+  it('shows the original but blocks edits while a Hosted RAW sidecar is malformed', async () => {
+    const directory = mkdtempSync(join(tmpdir(), 'maple-malformed-xmp-'));
+    const path = join(directory, 'A.xmp');
+    const folderAccess = TestBed.inject(FolderAccessService);
+    Object.defineProperty(folderAccess, 'backend', { value: 'fs-access' });
+    const folder = { name: 'Raws', read: true, write: true, native: directoryHandle(directory) };
+    const malformed = Buffer.from('<x:xmpmeta><rdf:RDF');
+    try {
+      writeFileSync(join(directory, 'A.DNG'), new Uint8Array([1]));
+      writeFileSync(path, malformed);
+      await svc.openFolder(folder);
+      const id = svc.assets().find((asset) => asset.filename === 'A.DNG')?.id;
+      expect(id).toBeDefined();
+      if (!id) throw new Error('Missing temporary RAW fixture');
+      expect(svc.sidecarLoadError(id)).toContain('XMP sidecar');
+      expect(
+        await TestBed.inject(HostedRawSidecarService).read(folder, { filename: 'A.DNG', dir: '' }),
+      ).toBeNull();
+      svc.setRating(id, 3);
+      svc.setFlag(id, 'pick');
+      svc.updateAdjustment(id, { exposure: 1 });
+      await svc.flushPendingXmpWrites();
+      await svc.flushPendingIndexWrites();
+      expect(readFileSync(path)).toEqual(malformed);
+      expect(svc.assets().find((asset) => asset.id === id)).toMatchObject({
+        rating: 0,
+        flag: 'unflagged',
+      });
+      expect(svc.adjustmentModels().get(id)?.exposure).toBe(0);
+
+      writeFileSync(
+        path,
+        '<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description /></rdf:RDF></x:xmpmeta>',
+      );
+      await svc.openFolder(folder);
+      expect(svc.sidecarLoadError(id)).toBeNull();
+      svc.setRating(id, 3);
+      await svc.flushPendingXmpWrites();
+      expect(svc.assets().find((asset) => asset.id === id)?.rating).toBe(3);
+      expect(readFileSync(path, 'utf8')).toContain('Rating="3"');
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
   it('keeps distinct fallback folders in separate address namespaces', async () => {
     const folderAccess = TestBed.inject(FolderAccessService);
     const entry: FolderEntry = {
@@ -208,6 +312,36 @@ describe('LibraryStateService.addImportedAsset', () => {
       'f-summer-photos-2',
       'f-summer-photos-3',
     ]);
+  });
+
+  it('switches the active handle when selecting a previous same-name Hosted folder', async () => {
+    const folderAccess = TestBed.inject(FolderAccessService);
+    const folderA = { name: 'First', read: true, write: true };
+    const folderB = { name: 'Second', read: true, write: true };
+    const listEntries = vi.spyOn(folderAccess, 'listEntries').mockImplementation(async (folder) => [
+      {
+        name: 'same-name.dng',
+        kind: 'file',
+        getFile: () =>
+          Promise.resolve(
+            new File([new Uint8Array([folder === folderA ? 1 : 2])], 'same-name.dng'),
+          ),
+        getSubFolder: () => Promise.reject(new Error('not a folder')),
+      },
+    ]);
+    vi.spyOn(folderAccess, 'readFile').mockRejectedValue(new Error('cache miss'));
+
+    await svc.openFolder(folderA);
+    const assetA = svc.assets().find((asset) => asset.folderId === 'f-first');
+    await svc.openFolder(folderB);
+    expect(svc.currentFolder()).toBe(folderB);
+
+    selectSidebarEntry(svc, 'f-first');
+
+    await vi.waitFor(() => expect(svc.currentFolder()).toBe(folderA));
+    expect(svc.selectedSourceId()).toBe('f-first');
+    expect(listEntries).toHaveBeenLastCalledWith(folderA);
+    expect(svc.assetsInSelectedFolder().map((asset) => asset.id)).toEqual([assetA!.id]);
   });
 
   it('writes the active fallback namespace assets to its .maple index', async () => {
@@ -263,21 +397,21 @@ describe('LibraryStateService.addImportedAsset', () => {
       await svc.openFolder(folder);
       const id = 'raws:A.DNG';
       const revision = caps.autoFitRevisionFor(id);
-      caps.seedProfile(id, null, true, revision);
+      caps.seedProfile(id, null, 'applied', revision);
       writeFileSync(path, sidecar('Neutral'));
       const original = readFileSync(path);
       await svc.openFolder(folder);
       expect(svc.adjustmentModels().get(id)?.profile).toBe('Neutral');
       expect(caps.autoFitRevisionFor(id)).toBe(revision + 1);
       expect(caps.for(id).autoFit).toBeUndefined();
-      caps.seedProfile(id, null, true, revision);
+      caps.seedProfile(id, null, 'applied', revision);
       expect(caps.for(id).autoFit).toBeUndefined();
       expect(readFileSync(path)).toEqual(original);
       const neutralRevision = caps.autoFitRevisionFor(id);
-      caps.seedProfile(id, null, false, neutralRevision);
+      caps.seedProfile(id, null, 'unfitted', neutralRevision);
       await svc.openFolder(folder);
       expect(caps.autoFitRevisionFor(id)).toBe(neutralRevision);
-      expect(caps.for(id).autoFit).toBe(false);
+      expect(caps.for(id).autoFit).toBe('unfitted');
       unlinkSync(path);
       await svc.openFolder(folder);
       expect(svc.adjustmentModels().get(id)?.profile).toBe('Auto');

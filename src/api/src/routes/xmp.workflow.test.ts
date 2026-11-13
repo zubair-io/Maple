@@ -11,7 +11,7 @@ import { WORKFLOW_MAX_BYTES, WORKFLOW_MAX_TIMESTAMP_MS } from '../generated/work
 
 const corpus = JSON.parse(
   await readFile(
-    new URL('../../../../test-fixtures/workflow/contract-v1.json', import.meta.url),
+    new URL('../../../../test-fixtures/workflow/contract.json', import.meta.url),
     'utf8',
   ),
 );
@@ -36,7 +36,7 @@ afterEach(async () => {
   else process.env.MAPLE_ROOTS = oldRoots;
   await rm(directory, { recursive: true, force: true });
 });
-const patch = (body: unknown) =>
+const patch = (body: unknown, signal?: AbortSignal) =>
   app.handle(
     new Request(
       'http://localhost/api/xmp/workflow?path=' + encodeURIComponent(join(directory, 'photo.dng')),
@@ -44,6 +44,7 @@ const patch = (body: unknown) =>
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
+        signal,
       },
     ),
   );
@@ -113,8 +114,8 @@ test('API uses real Rust and atomic sidecar files while preserving authored WB/c
 test('future/malformed records leave the exact on-disk sidecar and original untouched', async () => {
   expect((await patch(corpus[0])).status).toBe(200);
   const future = (await readFile(join(directory, 'photo.xmp'), 'utf8')).replace(
-    '<papp:SchemaVersion>1',
     '<papp:SchemaVersion>2',
+    '<papp:SchemaVersion>3',
   );
   await writeFile(join(directory, 'photo.xmp'), future);
   expect((await patch(corpus[1])).status).toBe(422);
@@ -154,7 +155,12 @@ test('API creates a workflow sidecar when none exists without touching the origi
   expect(await readFile(join(directory, 'photo.dng'))).toEqual(Buffer.from([1, 0, 255, 42]));
 });
 
-const variantRequest = (route: string, method: 'GET' | 'POST' | 'PUT', body?: unknown) => {
+const variantRequest = (
+  route: string,
+  method: 'GET' | 'POST' | 'PUT',
+  body?: unknown,
+  signal?: AbortSignal,
+) => {
   const url = `http://localhost/api/xmp/${route}`;
   const request =
     method === 'GET'
@@ -163,6 +169,7 @@ const variantRequest = (route: string, method: 'GET' | 'POST' | 'PUT', body?: un
           method: method === 'POST' ? 'POST' : 'PUT',
           headers: { 'Content-Type': method === 'POST' ? 'application/json' : 'application/xml' },
           body: method === 'POST' ? JSON.stringify(body) : String(body),
+          signal,
         });
   return app.handle(request);
 };
@@ -222,7 +229,7 @@ test('missing, future and mismatched selected variants reject without fallback o
   expect((await variantRequest(route, 'POST', first)).status).toBe(201);
   const filename = join(directory, `photo.v${first.variantId}.xmp`);
   const saved = await readFile(filename, 'utf8');
-  const future = saved.replace('<papp:SchemaVersion>1', '<papp:SchemaVersion>2');
+  const future = saved.replace('<papp:SchemaVersion>2', '<papp:SchemaVersion>3');
   await writeFile(filename, future);
   const selected = 'variant?' + variantQuery() + '&variantId=' + first.variantId;
   expect((await variantRequest(selected, 'PUT', xml)).status).toBe(422);
@@ -468,42 +475,38 @@ test('confirmed selected-variant actions retain immutable snapshots and history 
   expect(await readFile(join(directory, 'photo.dng'))).toEqual(Buffer.from([1, 0, 255, 42]));
 });
 
-test('competing confirmed commits reject stale writers without dropping semantic history', async () => {
+test('competing confirmed commits from one base all land without dropping semantic history', async () => {
   await symlink(directory, join(directory, 'inside-alias'), 'dir');
-  const first = historyEntry(xml);
+  const ids = Array.from({ length: 8 }, () => crypto.randomUUID());
   const outcomes = await Promise.all(
-    Array.from({ length: 8 }, (_, index) =>
+    ids.map((id, index) =>
       actionRequest(
         'commit',
         'primary',
-        {
-          expectedXmp: xml,
-          xmp: xml,
-          entry: { ...first, id: crypto.randomUUID() },
-        },
+        { expectedXmp: xml, xmp: xml, entry: { ...historyEntry(xml), id } },
         index % 2 === 0
           ? join(directory, 'photo.dng')
           : join(directory, 'inside-alias', 'photo.dng'),
       ),
     ),
   );
-  expect(outcomes.map((row) => row.status).sort()).toEqual([
-    200, 409, 409, 409, 409, 409, 409, 409,
-  ]);
+  expect(outcomes.map((row) => row.status)).toEqual(ids.map(() => 200));
   const saved = await readFile(join(directory, 'photo.xmp'), 'utf8');
-  expect(JSON.parse(await nativeValue('workflowReadXmp', saved)).history).toHaveLength(1);
+  const rows: { id: string }[] = JSON.parse(await nativeValue('workflowReadXmp', saved)).history;
+  expect(rows.map((row) => row.id).sort()).toEqual([...ids].sort());
   const retry = await actionRequest('commit', 'primary', {
     expectedXmp: saved,
     xmp: xml,
     entry: historyEntry(xml),
   });
   expect(retry.status).toBe(200);
-  expect(JSON.parse(await nativeValue('workflowReadXmp', await retry.text())).history).toHaveLength(
-    2,
+  const kept: { history: unknown[] } = JSON.parse(
+    await nativeValue('workflowReadXmp', await retry.text()),
   );
+  expect(kept.history).toHaveLength(9);
 });
 
-test('explicit primary absence creates only once, while missing named branches never fall back', async () => {
+test('explicit primary absence reconciles concurrent creators, while missing named branches never fall back', async () => {
   await unlink(join(directory, 'photo.xmp'));
   const requests = await Promise.all(
     [0, 1].map(() =>
@@ -514,7 +517,9 @@ test('explicit primary absence creates only once, while missing named branches n
       }),
     ),
   );
-  expect(requests.map((row) => row.status).sort()).toEqual([200, 409]);
+  expect(requests.map((row) => row.status)).toEqual([200, 200]);
+  const saved = await readFile(join(directory, 'photo.xmp'), 'utf8');
+  expect(JSON.parse(await nativeValue('workflowReadXmp', saved)).history).toHaveLength(2);
   expect(
     (
       await actionRequest('commit', crypto.randomUUID(), {

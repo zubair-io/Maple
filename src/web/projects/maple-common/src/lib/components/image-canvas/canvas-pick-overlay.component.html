@@ -4,12 +4,15 @@
      without sampling. -->
 @if (pick.active()) {
   <!-- Not role="button": activation needs pointer coordinates, so there is
-       no keyboard equivalent to announce (#3309). The
+       no keyboard equivalent to announce (#3309). `data-owns-pointer` keeps
+       the wrap's gesture handler from capturing the pointer, which would
+       retarget this click to the wrap and strand the pick. The
        instruction below is the live region assistive tech reads, and Escape
        is handled on the document so it works without focusing anything. -->
   <div
     class="pointer-events-auto absolute inset-0 z-[9] cursor-crosshair"
     data-testid="canvas-pick-overlay"
+    data-owns-pointer
     (click)="onClick($event)"
   >
     <div

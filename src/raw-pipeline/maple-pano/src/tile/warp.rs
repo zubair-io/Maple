@@ -19,13 +19,17 @@
 //! `[rx0, rx1) × [ry0, ry1)` of the canvas — pixel-for-pixel identical
 //! to taking that crop out of `warp_to_tile_canvas`, but without
 //! allocating the full canvas buffer. Used by the tiled multiband
-//! composite (#1291) to bound peak memory.
+//! composite (#1291) to bound peak memory. Since #5560 it samples a
+//! [`SourceView`]: the window of the frame that region's taps touch.
 
 use rayon::prelude::*;
 
 use super::photometry::FramePhotometry;
 use super::placement::{TileCanvasSpec, TilePose};
+use super::source::SourceView;
+use crate::boundary_warp::CanvasWarp;
 use crate::ingest::{PlanarImage, ValidityMask};
+use crate::local_align::LocalCorrection;
 use crate::similarity::Similarity2d;
 
 /// The canvas offset is applied inside the inverse similarity so the
@@ -43,6 +47,7 @@ pub fn warp_to_tile_canvas(
     let src_h = src.height() as f64;
 
     let inv = inverse_similarity(&pose.sim, canvas.offset_x, canvas.offset_y);
+    let view = SourceView::whole(src);
 
     let mut r = vec![0.0_f32; n];
     let mut g = vec![0.0_f32; n];
@@ -63,7 +68,7 @@ pub fn warp_to_tile_canvas(
                 if fx < 0.0 || fx > src_w || fy < 0.0 || fy > src_h {
                     continue;
                 }
-                if let Some([sr, sg, sb]) = sample_bicubic(src, fx - 0.5, fy - 0.5) {
+                if let Some([sr, sg, sb]) = sample_bicubic(view, fx - 0.5, fy - 0.5) {
                     row_r[col] = (sr * gain[0]).max(0.0);
                     row_g[col] = (sg * gain[1]).max(0.0);
                     row_b[col] = (sb * gain[2]).max(0.0);
@@ -90,10 +95,18 @@ pub fn warp_to_tile_canvas(
 /// corresponding crop of `warp_to_tile_canvas` — same inverse similarity,
 /// same bicubic kernel, same gain application. Nothing outside the region
 /// is computed or allocated.
+///
+/// `local` is the frame's Stage-F mesh (#4577): it shifts the source
+/// sample point after the inverse similarity, inside the same resample.
+/// The region is in output pixels, each sampling the canvas through `warp`
+/// when there is one (#5572).
+#[allow(clippy::too_many_arguments)]
 pub(super) fn warp_to_tile_region(
-    src: &PlanarImage,
+    src: SourceView<'_>,
     pose: &TilePose,
+    local: Option<&LocalCorrection>,
     canvas: &TileCanvasSpec,
+    warp: Option<CanvasWarp<'_>>,
     phot: &FramePhotometry,
     rx0: usize,
     ry0: usize,
@@ -106,13 +119,13 @@ pub(super) fn warp_to_tile_region(
     let rw = rx1 - rx0;
     let rh = ry1 - ry0;
     let n = rw * rh;
-    let src_w = src.width() as f64;
-    let src_h = src.height() as f64;
+    let (src_w, src_h) = src.frame_dims();
+    let (src_w, src_h) = (src_w as f64, src_h as f64);
 
     let inv = inverse_similarity_with_offset(&pose.sim, canvas.offset_x, canvas.offset_y);
     let gain = phot.gain;
     // The ramp + field corrections are log-domain and channel-shared:
-    // out = v · gain · exp(−(slope_x·(ξ−½) + slope_y·(η−½) + field)).
+    // out = v · gain · exp(−(slope_x·(ξ−½) + slope_y·(η−½) + field)) · V(r).
     let has_ramp = phot.slope_x != 0.0 || phot.slope_y != 0.0 || phot.field.is_some();
 
     let mut r = vec![0.0_f32; n];
@@ -126,10 +139,12 @@ pub(super) fn warp_to_tile_region(
         .zip(valid.par_chunks_mut(rw))
         .enumerate()
         .for_each(|(row, (((row_r, row_g), row_b), row_v))| {
-            let cy = (ry0 + row) as f64 + 0.5;
+            let oy = (ry0 + row) as f64 + 0.5;
             for col in 0..rw {
-                let cx = (rx0 + col) as f64 + 0.5;
-                let (fx, fy) = inv.apply(cx, cy);
+                let ox = (rx0 + col) as f64 + 0.5;
+                let (cx, cy) = warp.map_or((ox, oy), |w| w.unwarp(ox, oy));
+                let (px, py) = inv.apply(cx, cy);
+                let (fx, fy) = local.map_or((px, py), |c| c.apply(px, py));
                 if fx < 0.0 || fx > src_w || fy < 0.0 || fy > src_h {
                     continue;
                 }
@@ -142,9 +157,10 @@ pub(super) fn warp_to_tile_region(
                     } else {
                         1.0
                     };
-                    row_r[col] = (sr * gain[0] * corr).max(0.0);
-                    row_g[col] = (sg * gain[1] * corr).max(0.0);
-                    row_b[col] = (sb * gain[2] * corr).max(0.0);
+                    let falloff = phot.falloff_at(fx, fy, src_w, src_h);
+                    row_r[col] = (sr * gain[0] * corr * falloff).max(0.0);
+                    row_g[col] = (sg * gain[1] * corr * falloff).max(0.0);
+                    row_b[col] = (sb * gain[2] * corr * falloff).max(0.0);
                     row_v[col] = true;
                 }
             }
@@ -210,11 +226,11 @@ fn catmull_rom(f: f64) -> [f64; 4] {
     ]
 }
 
-/// Bicubic Catmull-Rom interpolation. Exported pub(super) for
-/// [`super::gain_solve`].
-pub(super) fn sample_bicubic(src: &PlanarImage, x_px: f64, y_px: f64) -> Option<[f32; 3]> {
-    let sw = src.width() as i64;
-    let sh = src.height() as i64;
+/// Bicubic Catmull-Rom interpolation in frame pixel coordinates; taps
+/// outside the frame or invalid are skipped and the weights renormalized.
+pub(super) fn sample_bicubic(src: SourceView<'_>, x_px: f64, y_px: f64) -> Option<[f32; 3]> {
+    let (sw, sh) = src.frame_dims();
+    let pixels = src.pixels();
     let ix = x_px.floor() as i64;
     let iy = y_px.floor() as i64;
     let fx = x_px - ix as f64;
@@ -235,14 +251,13 @@ pub(super) fn sample_bicubic(src: &PlanarImage, x_px: f64, y_px: f64) -> Option<
             if col < 0 || col >= sw {
                 continue;
             }
-            if !src.validity.get(col as u32, row as u32) {
+            let Some(idx) = src.valid_index(col, row) else {
                 continue;
-            }
+            };
             let w = wx[dx as usize] * wy[dy as usize];
-            let idx = (row as usize) * (sw as usize) + col as usize;
-            acc[0] += w * src.r[idx] as f64;
-            acc[1] += w * src.g[idx] as f64;
-            acc[2] += w * src.b[idx] as f64;
+            acc[0] += w * pixels.r[idx] as f64;
+            acc[1] += w * pixels.g[idx] as f64;
+            acc[2] += w * pixels.b[idx] as f64;
             w_total += w;
         }
     }
@@ -326,5 +341,74 @@ mod tests {
         assert!(!out.validity.get(5, 16), "expected invalid at (5,16)");
         // Pixel at (20, 16) should be covered.
         assert!(out.validity.get(20, 16), "expected valid at (20,16)");
+    }
+
+    /// The warp and the residual report must agree on where a corrected
+    /// frame puts its content — the sign of the mesh shift (#4577).
+    #[test]
+    fn mesh_shift_lands_where_the_residual_model_says() {
+        let (w, h) = (96u32, 64u32);
+        let blob = (40.5, 30.5);
+        let plane: Vec<f32> = (0..h)
+            .flat_map(|y| (0..w).map(move |x| (x, y)))
+            .map(|(x, y)| {
+                let (dx, dy) = (x as f64 + 0.5 - blob.0, y as f64 + 0.5 - blob.1);
+                (-(dx * dx + dy * dy) / 18.0).exp() as f32
+            })
+            .collect();
+        let src = PlanarImage::from_planes(
+            w,
+            h,
+            plane.clone(),
+            plane.clone(),
+            plane,
+            ValidityMask::new_filled(w, h, true),
+        );
+        let pose = TilePose {
+            sim: Similarity2d {
+                scale: 1.0,
+                theta: 0.0,
+                tx: 0.0,
+                ty: 0.0,
+            },
+            frame_idx: 0,
+        };
+        let canvas = TileCanvasSpec {
+            width: w,
+            height: h,
+            offset_x: 0.0,
+            offset_y: 0.0,
+        };
+        let mut corr = LocalCorrection::identity(f64::from(w), f64::from(h));
+        corr.nodes.iter_mut().for_each(|n| *n = [3.0, -2.0]);
+        let phot = super::super::photometry::FramePhotometry::neutral();
+        let out = warp_to_tile_region(
+            SourceView::whole(&src),
+            &pose,
+            Some(&corr),
+            &canvas,
+            None,
+            &phot,
+            0,
+            0,
+            w as usize,
+            h as usize,
+        );
+
+        let (sum, sx, sy) = (0..h as usize)
+            .flat_map(|y| (0..w as usize).map(move |x| (x, y)))
+            .fold((0.0, 0.0, 0.0), |(s, sx, sy), (x, y)| {
+                let v = f64::from(out.r[y * w as usize + x]);
+                (s + v, sx + v * (x as f64 + 0.5), sy + v * (y as f64 + 0.5))
+            });
+        let expected = crate::local_align::planar::corrected_canvas_point(&pose, Some(&corr), blob);
+        assert!(
+            (sx / sum - expected.0).abs() < 0.05 && (sy / sum - expected.1).abs() < 0.05,
+            "blob at ({:.3}, {:.3}), model says ({:.3}, {:.3})",
+            sx / sum,
+            sy / sum,
+            expected.0,
+            expected.1
+        );
     }
 }

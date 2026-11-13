@@ -25,21 +25,197 @@
  *     single filesystem operation, so two concurrent create-only writers
  *     for the same path can never both "win".
  *
- * All three jail-check the destination through `safeWriteAllowed` first, and
- * all three go through the mirror-aware fs drop-in, so a published sidecar
- * replicates to the library's backup and a deleted one is deleted there too.
+ * All three jail-check the destination through `safeWriteAllowed` first and
+ * additionally require the path to RESOLVE to an `.xmp` file (#4749): a
+ * `<stem>.xmp` that is a symlink to the original would otherwise be written
+ * over or unlinked in its place. Reads apply the same rule via
+ * `authorizeSidecarRead`. All three go through the mirror-aware fs drop-in,
+ * so a published sidecar replicates to the library's backup and a deleted one
+ * is deleted there too.
  */
 
+import { refusesFileUnderMarker } from './mapleignore-guard.ts';
 import * as path from 'node:path';
 import { randomBytes } from 'node:crypto';
 // Mirror-aware drop-in — see `mirrored.ts`.
 import * as fs from './mirrored.ts';
-import { safeWriteAllowed } from './root.ts';
+import { publishWholeExclusive } from './publish-whole.ts';
+import { PublishCollisionError } from './relocate-publish.ts';
+import {
+  checkAllowed,
+  getRegisteredRoots,
+  isWithinRoot,
+  resolveRealPathThroughAncestors,
+  safeWriteAllowed,
+} from './root.ts';
+import { parseRootList } from './root-list.ts';
+import { loadLibraryRoots } from '../indexer/libraries.cache.ts';
 import type { OpResult } from './root.ts';
+import { waitForAbortable } from './sidecar-write-order.ts';
+
+const SIDECAR_EXTENSION = '.xmp';
+
+/** Every root a sidecar may resolve into: `MAPLE_ROOTS`, roots registered at
+ * runtime, and the database libraries. The fs jail alone allows everything
+ * when the first two are empty — the documented default deployment, which
+ * never calls `registerRoot` for its libraries (#4819) — so the sidecar jail
+ * consults the libraries itself. A failed library lookup with no declared
+ * roots fails closed: only a successful lookup that finds no library at all
+ * reaches the intentional allow-all case. */
+async function sidecarRoots(): Promise<{ roots: string[]; error: string | null }> {
+  const declared = [...parseRootList(process.env.MAPLE_ROOTS), ...getRegisteredRoots()];
+  const libraries = await loadLibraryRoots().then(
+    (roots) => ({ roots: [...roots.values()], error: null }),
+    (error: unknown) => ({
+      roots: [],
+      error: error instanceof Error ? error.message : String(error),
+    }),
+  );
+  return {
+    roots: await Promise.all(
+      [...declared, ...libraries.roots].map((root) => resolveRealPathThroughAncestors(root)),
+    ),
+    error: declared.length === 0 ? libraries.error : null,
+  };
+}
+
+async function requireSidecarResolution(
+  requested: string,
+  allowed: OpResult<string>,
+): Promise<OpResult<string>> {
+  if (!allowed.ok) return allowed;
+  const resolved = allowed.data ?? requested;
+  if (path.extname(resolved).toLowerCase() !== SIDECAR_EXTENSION) {
+    return {
+      ok: false,
+      error: `Sidecar path "${requested}" resolves to "${resolved}", which is not an .xmp file`,
+    };
+  }
+  const [{ roots, error }, canonical] = await Promise.all([
+    sidecarRoots(),
+    resolveRealPathThroughAncestors(resolved),
+  ]);
+  if (error !== null) {
+    return {
+      ok: false,
+      error: `Sidecar path "${requested}" refused: library roots unavailable (${error})`,
+    };
+  }
+  return roots.length === 0 || roots.some((root) => isWithinRoot(root, canonical))
+    ? { ok: true, data: resolved }
+    : {
+        ok: false,
+        error: `Sidecar path "${requested}" resolves to "${resolved}", outside every library root`,
+      };
+}
+
+/** Jail check for a sidecar about to be written or deleted; resolves symlinks
+ * and refuses any target that is not itself an `.xmp` file inside a library
+ * root (#4749). */
+export async function authorizeSidecarWrite(destPath: string): Promise<OpResult<string>> {
+  const resolution = await requireSidecarResolution(destPath, await safeWriteAllowed(destPath));
+  if (!resolution.ok) return resolution;
+  const written = resolution.data ?? destPath;
+  if (!(await refusesFileUnderMarker(destPath)) && !(await refusesFileUnderMarker(written))) {
+    return resolution;
+  }
+  return { ok: false, error: `Sidecar path "${destPath}" is under a .mapleignore folder` };
+}
+
+/** Jail check for a sidecar about to be read — same rules as writes, so a
+ * sidecar symlink cannot disclose an original or an out-of-root file. */
+export async function authorizeSidecarRead(sidecar: string): Promise<OpResult<string>> {
+  return requireSidecarResolution(sidecar, await checkAllowed(sidecar));
+}
+
+/** Read a sidecar without following a symlink in its final component, so a
+ * directory entry swapped for a link between authorization and open is refused
+ * (`ELOOP`) rather than followed (#4749). Callers pass the authorized path. */
+export async function readSidecarNoFollow(sidecar: string): Promise<string> {
+  const handle = await fs.open(sidecar, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
+  try {
+    return await handle.readFile('utf8');
+  } finally {
+    await handle.close();
+  }
+}
+
+export async function authorizeUnlessAborted(destPath: string, signal?: AbortSignal) {
+  try {
+    return await waitForAbortable(authorizeSidecarWrite(destPath), signal);
+  } catch (error) {
+    if (!signal?.aborted) throw error;
+    return {
+      ok: false as const,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
 
 /** Only ENOENT means absence; permission and I/O errors must remain failures. */
 export function isMissingSidecar(error: unknown): boolean {
   return !!error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT';
+}
+
+function temporarySidecarPath(destPath: string): string {
+  return `${destPath}.tmp.${process.pid}.${randomBytes(8).toString('hex')}`;
+}
+
+async function stageSidecarTemp(
+  destPath: string,
+  tmpPath: string,
+  content: string,
+  signal?: AbortSignal,
+): Promise<void> {
+  const staging = (async () => {
+    signal?.throwIfAborted();
+    await fs.mkdir(path.dirname(destPath), { recursive: true });
+    signal?.throwIfAborted();
+    const fh = await fs.open(tmpPath, 'w');
+    try {
+      signal?.throwIfAborted();
+      await fh.writeFile(content, 'utf-8');
+      signal?.throwIfAborted();
+      await fh.datasync();
+      signal?.throwIfAborted();
+    } finally {
+      await fh.close();
+    }
+  })();
+
+  try {
+    await waitForAbortable(staging, signal);
+  } catch (error) {
+    if (signal?.aborted) {
+      void staging.then(
+        () => removeTemporarySidecar(tmpPath),
+        () => removeTemporarySidecar(tmpPath),
+      );
+    }
+    throw error;
+  }
+}
+
+async function publishStagedSidecar(
+  destPath: string,
+  tmpPath: string,
+  content: string,
+  signal: AbortSignal | undefined,
+  publish: (tmpPath: string, destPath: string) => Promise<void>,
+): Promise<Date> {
+  await stageSidecarTemp(destPath, tmpPath, content, signal);
+  signal?.throwIfAborted();
+  await publish(tmpPath, destPath);
+  const st = await waitForAbortable(fs.stat(destPath), signal);
+  return st.mtime;
+}
+
+async function removeTemporarySidecar(tmpPath: string): Promise<void> {
+  try {
+    await fs.unlink(tmpPath);
+  } catch {
+    /* temp never created, or already gone */
+  }
 }
 
 /**
@@ -52,100 +228,97 @@ export async function writeSidecarAtomic(
   destPath: string,
   content: string,
   failureLabel: string,
+  signal?: AbortSignal,
 ): Promise<{ ok: true; mtime: Date } | { ok: false; error: string }> {
-  const allowed = await safeWriteAllowed(destPath);
+  const allowed = await authorizeUnlessAborted(destPath, signal);
   if (!allowed.ok) return { ok: false, error: allowed.error ?? 'Path not allowed' };
 
-  const tmp = `${destPath}.tmp.${process.pid}.${randomBytes(8).toString('hex')}`;
+  const tmp = temporarySidecarPath(destPath);
   try {
-    // Ensure the directory exists (it should, but be defensive).
-    await fs.mkdir(path.dirname(destPath), { recursive: true });
-    const fh = await fs.open(tmp, 'w');
-    try {
-      await fh.writeFile(content, 'utf-8');
-      await fh.datasync();
-    } finally {
-      await fh.close();
-    }
-    await fs.rename(tmp, destPath);
-    const st = await fs.stat(destPath);
-    return { ok: true, mtime: st.mtime };
+    const mtime = await publishStagedSidecar(destPath, tmp, content, signal, fs.rename);
+    return { ok: true, mtime };
   } catch (err) {
-    try {
-      await fs.unlink(tmp);
-    } catch {
-      /* temp never created, or already gone */
-    }
+    if (signal?.aborted) void removeTemporarySidecar(tmp);
+    else await removeTemporarySidecar(tmp);
     const msg = err instanceof Error ? err.message : String(err);
     return { ok: false, error: `${failureLabel}: ${msg}` };
   }
 }
 
+type CreateIfAbsentResult =
+  | { ok: true; mtime: Date }
+  | { ok: false; exists: true }
+  | { ok: false; error: string };
+
 /**
- * Atomically publish `content` at `destPath` only if nothing is there yet.
- * Unlike `writeSidecarAtomic`, this can't be raced: the destination is
- * created with `link`, which the kernel resolves as a single all-or-nothing
- * operation (either the link is created, or it fails with `EEXIST` because
- * something else won the race) — there is no separate check step for another
- * writer to land in between. `failureLabel` prefixes any non-`EEXIST` error.
+ * Atomically publish `content` at `destPath` only if nothing is there yet. It
+ * can't be raced: `publishWholeExclusive` creates the name with a hard link, or
+ * where links aren't supported (SMB, exFAT) with a no-replace rename, or failing
+ * that an exclusive create — each settled by the volume as one step, so no
+ * writer outside Maple can land between a check and the publish (#5143).
+ * `failureLabel` prefixes any error other than the name being taken.
  */
-export async function writeSidecarCreateOnly(
+export function writeSidecarExclusive(
   destPath: string,
   content: string,
   failureLabel: string,
-): Promise<{ ok: true; mtime: Date } | { ok: false; exists: true } | { ok: false; error: string }> {
-  const allowed = await safeWriteAllowed(destPath);
+  signal?: AbortSignal,
+): Promise<CreateIfAbsentResult> {
+  return writeSidecarIfAbsent(
+    destPath,
+    content,
+    failureLabel,
+    signal,
+    async (staged, dest) => {
+      await publishWholeExclusive(staged, dest);
+    },
+    (err) => err instanceof PublishCollisionError,
+  );
+}
+
+/** The create-only write the XMP routes name; one implementation with `writeSidecarExclusive`. */
+export const writeSidecarCreateOnly = writeSidecarExclusive;
+
+async function writeSidecarIfAbsent(
+  destPath: string,
+  content: string,
+  failureLabel: string,
+  signal: AbortSignal | undefined,
+  publish: (tmpPath: string, destPath: string) => Promise<void>,
+  isTaken: (err: unknown) => boolean,
+): Promise<CreateIfAbsentResult> {
+  const allowed = await authorizeUnlessAborted(destPath, signal);
   if (!allowed.ok) return { ok: false, error: allowed.error ?? 'Path not allowed' };
 
-  const tmp = `${destPath}.tmp.${process.pid}.${randomBytes(8).toString('hex')}`;
+  const tmp = temporarySidecarPath(destPath);
   try {
-    // Ensure the directory exists (it should, but be defensive).
-    await fs.mkdir(path.dirname(destPath), { recursive: true });
-    const fh = await fs.open(tmp, 'w');
-    try {
-      await fh.writeFile(content, 'utf-8');
-      await fh.datasync();
-    } finally {
-      await fh.close();
-    }
-    // `link` is the atomic "create only if absent" primitive: it either
-    // creates `destPath` pointing at the same inode as `tmp`, or fails with
-    // EEXIST without touching whatever is already at `destPath`. There is no
-    // window between "check" and "act" for a concurrent writer to land in —
-    // unlike `stat` followed by `rename`, which are two separate operations.
-    await fs.link(tmp, destPath);
-    const st = await fs.stat(destPath);
-    return { ok: true, mtime: st.mtime };
+    const mtime = await publishStagedSidecar(destPath, tmp, content, signal, publish);
+    return { ok: true, mtime };
   } catch (err) {
-    const alreadyExists = isEexist(err);
-    return alreadyExists
+    return isTaken(err)
       ? { ok: false, exists: true }
       : {
           ok: false,
           error: `${failureLabel}: ${err instanceof Error ? err.message : String(err)}`,
         };
   } finally {
-    // The tmp file is redundant once `link` has published its content under
-    // `destPath` (they're the same inode) — and it's still just clutter on
-    // any failure path. Best-effort: it never existed, or it's already gone.
-    try {
-      await fs.unlink(tmp);
-    } catch {
-      /* temp never created, or already gone */
-    }
+    // The tmp file is redundant once the publish put its bytes under `destPath`,
+    // and it's clutter on any failure path. Best-effort: it may never have existed.
+    if (signal?.aborted) void removeTemporarySidecar(tmp);
+    else await removeTemporarySidecar(tmp);
   }
 }
 
-function isEexist(err: unknown): boolean {
-  return (
-    !!err && typeof err === 'object' && 'code' in err && (err as { code: string }).code === 'EEXIST'
-  );
-}
-
 /** Delete a sidecar. Idempotent — a file that was already gone is success. */
-export async function deleteSidecar(destPath: string, failureLabel: string): Promise<OpResult> {
-  const allowed = await safeWriteAllowed(destPath);
+export async function deleteSidecar(
+  destPath: string,
+  failureLabel: string,
+  signal?: AbortSignal,
+): Promise<OpResult> {
+  signal?.throwIfAborted();
+  const allowed = await authorizeUnlessAborted(destPath, signal);
   if (!allowed.ok) return { ok: false, error: allowed.error };
+  signal?.throwIfAborted();
   try {
     await fs.unlink(destPath);
     return { ok: true };

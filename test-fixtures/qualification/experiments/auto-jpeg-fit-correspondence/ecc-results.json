@@ -1,0 +1,402 @@
+[
+  {
+    "fixture": "test_0000",
+    "status": "geometry estimation diagnostic ONLY; no renderer or gate change",
+    "source": "original pre-fix Auto PNG, independent of current candidate",
+    "affine_source_to_reference": [
+      [
+        0.9996556639671326,
+        -6.898304854985327e-05,
+        0.6746041178703308
+      ],
+      [
+        1.46716201925301e-05,
+        0.9997272491455078,
+        0.559831440448761
+      ]
+    ],
+    "ecc_levels": [
+      0.995963959008532,
+      0.9904280082770257,
+      0.9797512358995214
+    ],
+    "max_grid_difference_from_root_sift_pixels": 0.13147495966342898,
+    "median_grid_difference_from_root_sift_pixels": 0.04590643398804522,
+    "seconds": 0.03561700000136625
+  },
+  {
+    "fixture": "test_0002",
+    "status": "geometry estimation diagnostic ONLY; no renderer or gate change",
+    "source": "original pre-fix Auto PNG, independent of current candidate",
+    "affine_source_to_reference": [
+      [
+        1.0010325908660889,
+        4.652554343920201e-05,
+        -0.05396207422018051
+      ],
+      [
+        7.840335456421599e-05,
+        1.0004328489303589,
+        -0.04190463200211525
+      ]
+    ],
+    "ecc_levels": [
+      0.9939817898353484,
+      0.9872430415597527,
+      0.9842600619524765
+    ],
+    "max_grid_difference_from_root_sift_pixels": 0.22995405421249093,
+    "median_grid_difference_from_root_sift_pixels": 0.11401603886565567,
+    "seconds": 0.024937041001976468
+  },
+  {
+    "fixture": "test_0003",
+    "status": "geometry estimation diagnostic ONLY; no renderer or gate change",
+    "source": "original pre-fix Auto PNG, independent of current candidate",
+    "affine_source_to_reference": [
+      [
+        0.9942545294761658,
+        -0.00022964076197240502,
+        2.0297093391418457
+      ],
+      [
+        -2.2613332475884818e-05,
+        0.9922657608985901,
+        3.9521889686584473
+      ]
+    ],
+    "ecc_levels": [
+      0.9901344714164877,
+      0.9834341830191433,
+      0.9576887561540265
+    ],
+    "max_grid_difference_from_root_sift_pixels": 1.3059887125736378,
+    "median_grid_difference_from_root_sift_pixels": 0.8412881046687374,
+    "seconds": 0.024366333993384615
+  },
+  {
+    "fixture": "test_0004",
+    "status": "geometry estimation diagnostic ONLY; no renderer or gate change",
+    "source": "original pre-fix Auto PNG, independent of current candidate",
+    "affine_source_to_reference": [
+      [
+        1.0011435747146606,
+        -4.234575681039132e-05,
+        -0.37889260053634644
+      ],
+      [
+        4.203999924357049e-05,
+        1.0008668899536133,
+        -0.314894437789917
+      ]
+    ],
+    "ecc_levels": [
+      0.9890501063058218,
+      0.9842693851622332,
+      0.9722375685397381
+    ],
+    "max_grid_difference_from_root_sift_pixels": 0.13251339515790758,
+    "median_grid_difference_from_root_sift_pixels": 0.11565294611300171,
+    "seconds": 0.01451670798996929
+  },
+  {
+    "fixture": "test_0005",
+    "status": "geometry estimation diagnostic ONLY; no renderer or gate change",
+    "source": "original pre-fix Auto PNG, independent of current candidate",
+    "affine_source_to_reference": [
+      [
+        1.0046600103378296,
+        -0.0007972991443239152,
+        -1.9047188758850098
+      ],
+      [
+        -0.0006567139062099159,
+        1.0016382932662964,
+        -0.16127318143844604
+      ]
+    ],
+    "ecc_levels": [
+      0.9828708668487756,
+      0.9544540896634092,
+      0.8309238718405304
+    ],
+    "max_grid_difference_from_root_sift_pixels": 3.560657230994777,
+    "median_grid_difference_from_root_sift_pixels": 2.3985395785470023,
+    "seconds": 0.017975084003410302
+  },
+  {
+    "fixture": "test_0006",
+    "status": "geometry estimation diagnostic ONLY; no renderer or gate change",
+    "source": "original pre-fix Auto PNG, independent of current candidate",
+    "affine_source_to_reference": [
+      [
+        0.9924835562705994,
+        0.0009889360517263412,
+        3.5798473358154297
+      ],
+      [
+        -0.0007531964802183211,
+        0.9946627616882324,
+        2.1427958011627197
+      ]
+    ],
+    "ecc_levels": [
+      0.9746861652514308,
+      0.964950100347236,
+      0.9159082885016483
+    ],
+    "max_grid_difference_from_root_sift_pixels": 4.31270259778926,
+    "median_grid_difference_from_root_sift_pixels": 3.7752452514643555,
+    "seconds": 0.026549749993137084
+  },
+  {
+    "fixture": "test_0007",
+    "status": "geometry estimation diagnostic ONLY; no renderer or gate change",
+    "source": "original pre-fix Auto PNG, independent of current candidate",
+    "affine_source_to_reference": [
+      [
+        0.992717981338501,
+        0.0010421951301395893,
+        3.459059953689575
+      ],
+      [
+        -0.0006766332662664354,
+        0.9948666095733643,
+        2.035801887512207
+      ]
+    ],
+    "ecc_levels": [
+      0.9820728482391775,
+      0.9730475842598276,
+      0.9274403424222035
+    ],
+    "max_grid_difference_from_root_sift_pixels": 3.662344066918518,
+    "median_grid_difference_from_root_sift_pixels": 3.052606278013196,
+    "seconds": 0.024367750011151657
+  },
+  {
+    "fixture": "test_0008",
+    "status": "geometry estimation diagnostic ONLY; no renderer or gate change",
+    "source": "original pre-fix Auto PNG, independent of current candidate",
+    "affine_source_to_reference": [
+      [
+        1.0124303102493286,
+        -5.498523387359455e-05,
+        -6.388588905334473
+      ],
+      [
+        0.00013853640120942146,
+        1.0117114782333374,
+        -4.092299461364746
+      ]
+    ],
+    "ecc_levels": [
+      0.979055415477122,
+      0.9762002476573831,
+      0.9705550719645737
+    ],
+    "max_grid_difference_from_root_sift_pixels": 0.3733545196362957,
+    "median_grid_difference_from_root_sift_pixels": 0.14316135075235426,
+    "seconds": 0.02242399999522604
+  },
+  {
+    "fixture": "test_0009",
+    "status": "geometry estimation diagnostic ONLY; no renderer or gate change",
+    "source": "original pre-fix Auto PNG, independent of current candidate",
+    "affine_source_to_reference": [
+      [
+        0.9999539256095886,
+        -2.4534971089451574e-05,
+        0.03426232188940048
+      ],
+      [
+        -1.1740192348952405e-05,
+        1.0000015497207642,
+        0.0138196786865592
+      ]
+    ],
+    "ecc_levels": [
+      0.9971770038486302,
+      0.9973106045633863,
+      0.9968499280474316
+    ],
+    "max_grid_difference_from_root_sift_pixels": 0.026784610893958956,
+    "median_grid_difference_from_root_sift_pixels": 0.015006400105026145,
+    "seconds": 0.02098712499719113
+  },
+  {
+    "fixture": "test_0010",
+    "status": "geometry estimation diagnostic ONLY; no renderer or gate change",
+    "source": "original pre-fix Auto PNG, independent of current candidate",
+    "affine_source_to_reference": [
+      [
+        1.0000122785568237,
+        7.505616667913273e-05,
+        -0.020645134150981903
+      ],
+      [
+        1.318139402428642e-05,
+        0.9999920129776001,
+        -0.003059553448110819
+      ]
+    ],
+    "ecc_levels": [
+      0.9938914890612758,
+      0.9890213850952206,
+      0.9827861089698875
+    ],
+    "max_grid_difference_from_root_sift_pixels": 0.08113206250435416,
+    "median_grid_difference_from_root_sift_pixels": 0.03999536031792868,
+    "seconds": 0.020238124998286366
+  },
+  {
+    "fixture": "test_0011",
+    "status": "geometry estimation diagnostic ONLY; no renderer or gate change",
+    "source": "original pre-fix Auto PNG, independent of current candidate",
+    "affine_source_to_reference": [
+      [
+        0.9859407544136047,
+        -0.00015409699699375778,
+        7.273007392883301
+      ],
+      [
+        7.261597784236073e-05,
+        0.9883461594581604,
+        3.920262098312378
+      ]
+    ],
+    "ecc_levels": [
+      0.9838721202527168,
+      0.9857208753862173,
+      0.9819549653714814
+    ],
+    "max_grid_difference_from_root_sift_pixels": 1.1884391213454648,
+    "median_grid_difference_from_root_sift_pixels": 0.4342313989773063,
+    "seconds": 0.014865709003061056
+  },
+  {
+    "fixture": "test_0012",
+    "status": "geometry estimation diagnostic ONLY; no renderer or gate change",
+    "source": "original pre-fix Auto PNG, independent of current candidate",
+    "affine_source_to_reference": [
+      [
+        0.9872825145721436,
+        0.00016371207311749458,
+        6.426261901855469
+      ],
+      [
+        0.00010326447227271274,
+        0.9869663715362549,
+        4.970797061920166
+      ]
+    ],
+    "ecc_levels": [
+      0.9676137481778795,
+      0.9669782473056528,
+      0.9649080943472265
+    ],
+    "max_grid_difference_from_root_sift_pixels": 0.20845626083560842,
+    "median_grid_difference_from_root_sift_pixels": 0.11735050028825453,
+    "seconds": 0.017529249991639517
+  },
+  {
+    "fixture": "test_0013",
+    "status": "geometry estimation diagnostic ONLY; no renderer or gate change",
+    "source": "original pre-fix Auto PNG, independent of current candidate",
+    "affine_source_to_reference": [
+      [
+        0.9999829530715942,
+        -1.6186386346817017e-05,
+        0.02021881565451622
+      ],
+      [
+        1.9735554815270007e-05,
+        0.999992847442627,
+        0.006665398366749287
+      ]
+    ],
+    "ecc_levels": [
+      0.9795291344521755,
+      0.9728766551643658,
+      0.9641713020637543
+    ],
+    "max_grid_difference_from_root_sift_pixels": 0.019372415629338047,
+    "median_grid_difference_from_root_sift_pixels": 0.013441773386311915,
+    "seconds": 0.012373374993330799
+  },
+  {
+    "fixture": "test_0014",
+    "status": "geometry estimation diagnostic ONLY; no renderer or gate change",
+    "source": "original pre-fix Auto PNG, independent of current candidate",
+    "affine_source_to_reference": [
+      [
+        0.9999344348907471,
+        4.210257884551538e-06,
+        0.03457812964916229
+      ],
+      [
+        -1.5713801985839382e-05,
+        0.9999648332595825,
+        0.006107911933213472
+      ]
+    ],
+    "ecc_levels": [
+      0.9937250110589296,
+      0.9959859630476836,
+      0.996967812161844
+    ],
+    "max_grid_difference_from_root_sift_pixels": 0.023307018397217185,
+    "median_grid_difference_from_root_sift_pixels": 0.011108228870211113,
+    "seconds": 0.02084862500487361
+  },
+  {
+    "fixture": "test_0015",
+    "status": "geometry estimation diagnostic ONLY; no renderer or gate change",
+    "source": "original pre-fix Auto PNG, independent of current candidate",
+    "affine_source_to_reference": [
+      [
+        0.9879868626594543,
+        0.000319052895065397,
+        3.8565192222595215
+      ],
+      [
+        0.00028149294666945934,
+        0.9862418174743652,
+        3.130194664001465
+      ]
+    ],
+    "ecc_levels": [
+      0.946517059296044,
+      0.9381678122719308,
+      0.8604293649414171
+    ],
+    "max_grid_difference_from_root_sift_pixels": 2.8667969742609913,
+    "median_grid_difference_from_root_sift_pixels": 2.319440914753879,
+    "seconds": 0.022483708002255298
+  },
+  {
+    "fixture": "test_0017",
+    "status": "geometry estimation diagnostic ONLY; no renderer or gate change",
+    "source": "original pre-fix Auto PNG, independent of current candidate",
+    "affine_source_to_reference": [
+      [
+        1.017676591873169,
+        -0.00044169698958285153,
+        -7.127511501312256
+      ],
+      [
+        -1.7225349438376725e-05,
+        1.0174496173858643,
+        -4.890248775482178
+      ]
+    ],
+    "ecc_levels": [
+      0.9731264358137806,
+      0.9656588519771876,
+      0.9600598869138621
+    ],
+    "max_grid_difference_from_root_sift_pixels": 0.47370552580401126,
+    "median_grid_difference_from_root_sift_pixels": 0.22693025661628302,
+    "seconds": 0.022686750002321787
+  }
+]

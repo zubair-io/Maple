@@ -47,7 +47,7 @@ final class WorkerStatusDecodingTests: XCTestCase {
   func test_decode_nullConfigAndLastError() throws {
     // Uncounted frames zero the counts and null the config.
     let json = """
-      {"name":"meili","status":"paused","inFlight":0,"configured":1,"pending":0,
+      {"name":"search-blob","status":"paused","inFlight":0,"configured":1,"pending":0,
        "ready":0,"blocked":0,"dead":0,"throughput":0,"lastError":"boom",
        "config":null,"batchSize":1}
       """
@@ -66,6 +66,17 @@ final class WorkerStatusDecodingTests: XCTestCase {
       """
     let s = try JSONDecoder().decode(StageStatus.self, from: Data(json.utf8))
     XCTAssertEqual(s.status, .unknown)
+  }
+
+  func test_decode_stalledStatus() throws {
+    let json = """
+      {"name":"cloud-backup","status":"stalled","inFlight":2,"configured":1,"pending":9,
+       "ready":9,"blocked":0,"dead":0,"throughput":0,
+       "lastError":"No progress for 80 minutes while work is waiting",
+       "config":null,"batchSize":5}
+      """
+    let s = try JSONDecoder().decode(StageStatus.self, from: Data(json.utf8))
+    XCTAssertEqual(s.status, .stalled)
   }
 
   func test_decode_payloadDefaultsDamagedToZero() throws {
@@ -103,11 +114,11 @@ final class StageCatalogTests: XCTestCase {
   }
 
   func test_grouped_ordersIngestEnrichIndexAndKeepsEmptyGroups() {
-    let grouped = StageCatalog.grouped([stage("thumb"), stage("meili")])
+    let grouped = StageCatalog.grouped([stage("thumb"), stage("search-blob")])
     XCTAssertEqual(grouped.map(\.group), [.ingest, .enrich, .index])
     XCTAssertEqual(grouped[0].rows.map(\.name), ["thumb"])
     XCTAssertTrue(grouped[1].rows.isEmpty)
-    XCTAssertEqual(grouped[2].rows.map(\.name), ["meili"])
+    XCTAssertEqual(grouped[2].rows.map(\.name), ["search-blob"])
   }
 
   func test_grouped_unknownStageLandsInIngest() {
@@ -136,6 +147,7 @@ final class StageCatalogTests: XCTestCase {
     XCTAssertEqual(StageCatalog.statusLabel(.starting), "Starting")
     XCTAssertEqual(StageCatalog.statusLabel(.restarting), "Restarting")
     XCTAssertEqual(StageCatalog.statusLabel(.stopped), "Stopped")
+    XCTAssertEqual(StageCatalog.statusLabel(.stalled), "Stalled")
     XCTAssertEqual(StageCatalog.statusLabel(.unknown), "Unknown")
   }
 

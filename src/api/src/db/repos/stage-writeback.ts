@@ -56,9 +56,11 @@
 
 import type { StageResult } from '../../workers/stage-config.ts';
 import type { SqlStatement } from '../sqlite/protocol.ts';
+import { describeFailureCostStatements } from './describe-cost.ts';
 import {
   STAGE_CLAIM_ROLLBACK_SQL,
   STAGE_DAMAGED_SQL,
+  STAGE_DEFER_SQL,
   STAGE_FAILURE_SQL,
   STAGE_INVALIDATE_SQL,
   STAGE_REARM_SELF_SQL,
@@ -77,9 +79,9 @@ const STAGE_NAME_PATTERN = /^[a-z][a-z0-9_-]*$/;
  * On Mongo this guarded against a `.`- or `$`-bearing value silently creating
  * unintended nested fields inside a `$set` path. Here the name is a bound
  * parameter and cannot reach the SQL text, so the injection is gone — but the
- * mistake it caught is not. `invalidates: ['meili.version']` means the author
+ * mistake it caught is not. `invalidates: ['search-blob.version']` means the author
  * thought they were writing a field path, and honouring it would create a
- * `stage_state` row for a stage called `meili.version` that no runner will ever
+ * `stage_state` row for a stage called `search-blob.version` that no runner will ever
  * claim. Failing the attempt loudly is still the right answer.
  */
 function assertStageNames(names: readonly string[]): void {
@@ -90,7 +92,7 @@ function assertStageNames(names: readonly string[]): void {
 }
 
 /**
- * Mark downstream stages stale so their poll loops rebuild from what this
+ * Mark downstream stages stale so their next slices rebuild from what this
  * stage just wrote (#2172). The writing stage's own name is excluded: its row
  * is the runner's, written in the same transaction.
  */
@@ -112,7 +114,7 @@ export interface StageTarget {
   stage: string;
   targetVersion: number;
   /**
-   * The lease the claim stamped — `ClaimedStageRow.next_attempt_at`, or the
+   * The claim token the claim stamped — `ClaimedStageRow.claim_token`, or the
    * value the last `renewStageLease` returned. Every statement that writes the
    * claimed row is fenced on it, so a writeback from an attempt whose lease has
    * already been taken over matches nothing.
@@ -350,6 +352,7 @@ export function stageFailureStatements(input: {
     retryInMs,
     terminal,
     statements: [
+      ...describeFailureCostStatements(target.assetId, target.stage, err),
       {
         sql: STAGE_FAILURE_SQL,
         params: [
@@ -409,8 +412,7 @@ export function stageResultStatements(
   if ('defer' in result) {
     return [
       {
-        sql: `UPDATE stage_state SET attempts=MAX(attempts-1,0),last_error=?,next_attempt_at=?
-      WHERE asset_id=? AND stage=? AND next_attempt_at=?`,
+        sql: STAGE_DEFER_SQL,
         params: [
           result.defer.reason.slice(0, 500),
           result.defer.retryAt.toISOString(),

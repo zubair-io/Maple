@@ -13,9 +13,28 @@ use quick_xml::reader::Reader;
 /// serialized without the other four crop edges — spec § 01 invariant 3).
 /// The parser does two passes per element so attribute order is irrelevant.
 pub fn parse(xml: &str) -> Result<AdjustmentModel> {
-    let mut model = AdjustmentModel::default();
+    let eligible = subject::eligible_descriptions(xml, false);
     let mut reader = Reader::from_str(xml);
     reader.config_mut().trim_text(true);
+    let mut model = parse_events(
+        std::iter::from_fn(move || {
+            Some(
+                reader
+                    .read_event()
+                    .map_err(|error| Error::Xmp(error.to_string())),
+            )
+        }),
+        Some(&eligible),
+    )?;
+    model.inpaint_removals = removal_records::parse(xml)?;
+    Ok(model)
+}
+
+pub(super) fn parse_events<'a>(
+    events: impl Iterator<Item = Result<Event<'a>>>,
+    eligible: Option<&[bool]>,
+) -> Result<AdjustmentModel> {
+    let mut model = AdjustmentModel::default();
 
     // WB scale versioning (#1780) — document-level state. `papp_seen`
     // records whether ANY element carries the Maple `papp:` namespace
@@ -32,9 +51,18 @@ pub fn parse(xml: &str) -> Result<AdjustmentModel> {
     // WB (nothing to convert; scale-agnostic) — is V5 (#1894).
     let mut papp_seen = false;
     let mut stamp: Option<WbScaleVersion> = None;
+    // Repair-spot frame (#4473): an explicit `papp:RetouchFrameVersion` wins;
+    // an unstamped Maple-authored list predates the stamp and is sensor-framed
+    // (every render read it that way); a document with no `papp:` namespace
+    // (Lightroom) is expressed over the upright image.
+    let mut retouch_stamp: Option<RetouchFrame> = None;
     // Persisted authoring records are never current development attributes.
     // Their scoped namespace must not reclassify foreign WB as legacy Maple.
     let mut workflow_depth = 0usize;
+    let mut namespaces = local_adjustments::namespaces::Namespaces::default();
+    let mut stack: Vec<String> = Vec::new();
+    let mut top_desc_depth: Option<usize> = None;
+    let mut desc_index = 0usize;
     // Point tone curves (#365) are the one part of the schema that is not a
     // flat attribute — they are nested `rdf:Seq` / `rdf:li` content under the
     // four `papp:SceneLinearToneCurve*` parents. The walker owns that subtree;
@@ -49,21 +77,60 @@ pub fn parse(xml: &str) -> Result<AdjustmentModel> {
     // `crs:RetouchInfo` string form it also accepts.
     let mut retouch = RetouchWalker::default();
 
-    loop {
-        match reader.read_event() {
+    for event in events {
+        match event {
             Ok(Event::Start(e)) => {
                 let name = element_name(&e)?.to_string();
                 if workflow_depth > 0 || name == "papp:Workflow" {
                     workflow_depth += 1;
                     continue;
                 }
+                let (canon_name, _) = namespaces.start(&e)?;
+                // Lightroom's profile look (#4685) nests the profile's own PV2012
+                // curves and grayscale flag under `crs:Look`: the profile's recipe,
+                // not the user's edit, so the subtree is opaque passthrough.
+                if is_profile_look(&name, &canon_name) {
+                    namespaces.end(&name);
+                    workflow_depth = 1;
+                    continue;
+                }
+                if stack.len() == 1
+                    && subject::is_xmpmeta_name(&stack[0])
+                    && !subject::is_rdf_name(&canon_name)
+                {
+                    namespaces.end(&name);
+                    workflow_depth = 1;
+                    continue;
+                }
+                if let Some(flags) = eligible {
+                    if top_desc_depth.is_none()
+                        && stack.last().is_none_or(|p| subject::is_rdf_name(p))
+                        && subject::is_description_name(&canon_name)
+                    {
+                        let keep = flags.get(desc_index).copied().unwrap_or(true);
+                        desc_index += 1;
+                        if !keep {
+                            namespaces.end(&name);
+                            workflow_depth = 1;
+                            continue;
+                        }
+                        top_desc_depth = Some(stack.len());
+                    }
+                }
+                stack.push(canon_name);
                 // Inside a tone-curve or local-adjustments subtree there are
                 // no flat Maple attributes to read, so the attribute walk is
                 // skipped entirely for elements either walker claims.
                 if local_adj.start(&name, &e)? || retouch.start(&name, &e)? {
                     // handled
                 } else if !curves.start(&name) {
-                    apply_attributes(&e, &mut model, &mut papp_seen, &mut stamp)?;
+                    apply_attributes(
+                        &e,
+                        &mut model,
+                        &mut papp_seen,
+                        &mut stamp,
+                        &mut retouch_stamp,
+                    )?;
                 }
             }
             Ok(Event::Empty(e)) => {
@@ -71,8 +138,36 @@ pub fn parse(xml: &str) -> Result<AdjustmentModel> {
                 if workflow_depth > 0 || name == "papp:Workflow" {
                     continue;
                 }
+                let (canon_name, _) = namespaces.empty(&e)?;
+                if is_profile_look(&name, &canon_name) {
+                    continue;
+                }
+                if stack.len() == 1
+                    && subject::is_xmpmeta_name(&stack[0])
+                    && !subject::is_rdf_name(&canon_name)
+                {
+                    continue;
+                }
+                if let Some(flags) = eligible {
+                    if top_desc_depth.is_none()
+                        && stack.last().is_none_or(|p| subject::is_rdf_name(p))
+                        && subject::is_description_name(&canon_name)
+                    {
+                        let keep = flags.get(desc_index).copied().unwrap_or(true);
+                        desc_index += 1;
+                        if !keep {
+                            continue;
+                        }
+                    }
+                }
                 if !local_adj.empty(&name, &e)? && !retouch.empty(&name, &e)? {
-                    apply_attributes(&e, &mut model, &mut papp_seen, &mut stamp)?;
+                    apply_attributes(
+                        &e,
+                        &mut model,
+                        &mut papp_seen,
+                        &mut stamp,
+                        &mut retouch_stamp,
+                    )?;
                 }
             }
             Ok(Event::Text(t)) => {
@@ -88,6 +183,11 @@ pub fn parse(xml: &str) -> Result<AdjustmentModel> {
                     workflow_depth -= 1;
                     continue;
                 }
+                namespaces.end("");
+                stack.pop();
+                if top_desc_depth == Some(stack.len()) {
+                    top_desc_depth = None;
+                }
                 let name = std::str::from_utf8(e.name().as_ref())
                     .map_err(|e| Error::Xmp(e.to_string()))?
                     .to_string();
@@ -96,7 +196,7 @@ pub fn parse(xml: &str) -> Result<AdjustmentModel> {
                 curves.end(&name, &mut model);
             }
             Ok(Event::Eof) => break,
-            Err(e) => return Err(Error::Xmp(e.to_string())),
+            Err(error) => return Err(error),
             _ => {}
         }
     }
@@ -110,7 +210,12 @@ pub fn parse(xml: &str) -> Result<AdjustmentModel> {
         model.local_adjustments = canonical_layers;
     }
     retouch.finish(&mut model);
-    model.inpaint_removals = removal_records::parse(xml)?;
+    model.retouch_frame =
+        retouch_stamp.unwrap_or(if papp_seen && !model.retouch_spots.is_empty() {
+            RetouchFrame::Sensor
+        } else {
+            RetouchFrame::Upright
+        });
     let unstamped_is_v1 = papp_seen && (model.temperature_seen || model.tint_seen);
     // Unstamped, non-Maple (or WB-less) documents are V5 (#1894): an
     // ACR/Lightroom-authored crs:Tint is expressed in ACR's own convention,
@@ -128,4 +233,10 @@ pub fn parse(xml: &str) -> Result<AdjustmentModel> {
         WbScaleVersion::V5
     });
     Ok(model)
+}
+
+/// The walkers match raw prefixed names, so the raw spelling is skipped too;
+/// the canonical spelling catches a Camera Raw namespace bound to another prefix.
+fn is_profile_look(raw: &str, canonical: &str) -> bool {
+    raw == "crs:Look" || canonical == "crs:Look"
 }

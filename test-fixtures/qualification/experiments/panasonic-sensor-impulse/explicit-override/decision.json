@@ -1,0 +1,22 @@
+{
+  "diagnostic_only": true,
+  "comparisons": 9,
+  "planned": 91,
+  "fresh_rendered": 8,
+  "reused_verified_control": 1,
+  "new_failures_vs_original_conditions": [
+    [
+      "test_0002",
+      "baseline_auto",
+      "auto"
+    ],
+    [
+      "test_0003",
+      "baseline_auto",
+      "auto"
+    ]
+  ],
+  "original_inputs_revalidated": true,
+  "staged_inputs_unchanged": true,
+  "status": "rejected on observed regressions"
+}

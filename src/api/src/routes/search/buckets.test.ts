@@ -60,7 +60,7 @@ describe('makeBucketsCacheKey — scope isolation (#2131)', () => {
  * asserts the keys (and the "field absent" key) are all distinct.
  *
  * `NON_FILTER_FIELDS` lists the `SearchQuery` fields `buildFilter` never
- * reads: `page`/`limit`/`sort`/`cursor` (pagination/ordering only — the
+ * reads: `page`/`limit`/`sort`/`cursor`/`rankPin` (pagination/ordering only — the
  * buckets aggregation ignores them). `people` moved OUT of this list in
  * #2864, when it became a real Mongo filter (resolved person ids on
  * `faces.person_id`) alongside the new `place` param.
@@ -109,7 +109,7 @@ const FILTER_AFFECTING_FIELD_VALUES: Record<string, [string, string]> = {
   owner: ['664000000000000000000001', '664000000000000000000002'],
 };
 
-const NON_FILTER_FIELDS = new Set(['page', 'limit', 'sort', 'cursor']);
+const NON_FILTER_FIELDS = new Set(['page', 'limit', 'sort', 'cursor', 'rankPin']);
 
 const ALL_SEARCH_QUERY_FIELDS: Record<keyof SearchQuery, true> = {
   q: true,
@@ -148,6 +148,7 @@ const ALL_SEARCH_QUERY_FIELDS: Record<keyof SearchQuery, true> = {
   limit: true,
   sort: true,
   cursor: true,
+  rankPin: true,
 };
 
 describe('makeBucketsCacheKey — completeness vs SearchQuery', () => {

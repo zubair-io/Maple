@@ -182,10 +182,10 @@ describe('ImageCanvasRawOpen', () => {
     expect(capabilities.for('a').autoFit).toBeUndefined();
     expect(h.loading()).toBe(true);
     expect(h.byteLoadError()).toBeNull();
-    finishSecond({ ...decoded, autoFit: true });
+    finishSecond({ ...decoded, autoFit: 'applied' });
     await current;
-    expect(capabilities.for('a').autoFit).toBe(true);
-    expect(h.pixels()?.autoFit).toBe(true);
+    expect(capabilities.for('a').autoFit).toBe('applied');
+    expect(h.pixels()?.autoFit).toBe('applied');
   });
 
   it('shows the embedded JPEG while the full RAW decode is pending', async () => {

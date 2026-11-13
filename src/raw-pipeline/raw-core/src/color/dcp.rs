@@ -37,16 +37,13 @@ pub struct DcpProfile {
     /// and `dng_color_spec.cpp:444-446` builds the full transform as
     /// `forwardMatrix × Invert(refCameraWhite.AsDiagonal()) ×
     /// individualToReference`, where `individualToReference =
-    /// inv(AnalogBalance × CameraCalibration)`. Maple folds that
-    /// `individualToReference` term into this `forward_matrix` at decode
-    /// time (see `decode.rs` §8·pre / §8b), so for a per-unit-calibrated
-    /// back this field already carries `FM × inv(AB × CC)`; for the common
-    /// case (AB = CC = Identity — every FM-shipping body today) the fold is
-    /// an exact no-op and this is the raw ForwardMatrix. The remaining
-    /// `Diag(refCameraWhite)⁻¹ × camera_raw` term is represented by Maple's
-    /// AsShotNeutral pre-gain BEFORE DCP (see `pipeline::develop` step 4),
-    /// so DCP just needs `cam_to_pro = inv(M_pro_to_xyz_d50) × FM` and
-    /// emphatically does NOT compose FM with `inv(CM)`.
+    /// inv(AnalogBalance × CameraCalibration)`. Decode resolves that whole
+    /// product for Maple's AsShotNeutral pre-gained buffer (see
+    /// `pipeline::develop` step 4) into this field
+    /// (`color::forward_calibration`, #4646): exactly the raw ForwardMatrix
+    /// for any diagonal calibration, the common case, so DCP just needs
+    /// `cam_to_pro = inv(M_pro_to_xyz_d50) × FM` and emphatically does NOT
+    /// compose FM with `inv(CM)`.
     ///
     /// Optional per DNG spec. When present and `wb_already_baked = true`,
     /// the FM path runs. When absent OR `wb_already_baked = false` (the
@@ -97,13 +94,25 @@ pub struct DcpProfile {
     /// [`DcpProfile::color_matrix_for_cct`] then returns `color_matrix`
     /// unchanged.
     pub cm_endpoints: Option<CmEndpoints>,
+    /// Both dual-illuminant HueSatMaps `hsm` was lerped from, so a white
+    /// balance retarget resolves the table at the same CCT as the
+    /// ForwardMatrix (#4633). `None` unless both tables are present.
+    pub hsm_endpoints: Option<std::sync::Arc<HsmEndpoints>>,
+}
+
+/// The cold- and warm-illuminant HueSatMaps of a dual-illuminant profile,
+/// paired with [`CmEndpoints`]' CCTs.
+#[derive(Clone, Debug)]
+pub struct HsmEndpoints {
+    pub cold: HsmTable,
+    pub warm: HsmTable,
 }
 
 /// The two calibration endpoints of a dual-illuminant profile, in the
 /// codebase's sort-by-CCT convention: "cold" = the LOWER-CCT calibration
 /// illuminant (e.g. StdA 2856 K), "warm" = the higher-CCT one (e.g. D65
 /// 6504 K) — matching `profile_from_embedded`'s cold/warm pairing.
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, PartialEq)]
 pub struct CmEndpoints {
     /// ColorMatrix calibrated under the lower-CCT illuminant.
     pub m_cold: Matrix3,
@@ -152,6 +161,7 @@ impl DcpProfile {
             look_table: None,
             tone_curve: None,
             cm_endpoints: None,
+            hsm_endpoints: None,
         }
     }
 
@@ -224,7 +234,7 @@ fn normalize_to_y1(xyz: crate::math::Vec3) -> crate::math::Vec3 {
 /// concern, not a pipeline concern. The bundled profile set (`#324` /
 /// `profile_loader`) strips PLT and PTC at bundle-build time; HSM stays.
 ///
-/// Two paths inside `apply_with_post_pro`:
+/// Two paths inside `apply_colorimetry_in_place`:
 ///
 /// * **FM path** — when `profile.forward_matrix` is `Some` AND
 ///   `profile.wb_already_baked` is `true` (i.e. the pipeline's
@@ -256,7 +266,9 @@ fn normalize_to_y1(xyz: crate::math::Vec3) -> crate::math::Vec3 {
 /// lift doesn't introduce an Adobe-rendering-intent dependency; it's a
 /// gamut-correctness guard).
 pub fn apply_colorimetry(camera: &Image, profile: &DcpProfile) -> crate::Result<Image> {
-    apply_with_post_pro(camera, profile)
+    let mut image = camera.clone();
+    apply_colorimetry_in_place(&mut image, profile)?;
+    Ok(image)
 }
 
 /// Back-compat alias for [`apply_colorimetry`] — older internal callers and
@@ -299,13 +311,23 @@ fn soft_floor(p: [f32; 3]) -> [f32; 3] {
 /// fallback (`inv(M_pro) · bradford(scene_white → D50) · inv(CM)`). Kept as
 /// a named helper so [`camera_to_rec2020_matrix`] (the #1780 WB-scale
 /// migration's probe of the develop chain's linear rendering transform)
-/// shares the exact dispatch `apply_with_post_pro` renders with — a second
+/// shares the exact dispatch `apply_colorimetry_in_place` renders with — a second
 /// hand-rolled copy of this match would drift.
 pub(crate) fn camera_to_prophoto_matrix(profile: &DcpProfile) -> crate::Result<Matrix3> {
+    camera_to_prophoto_with_forward(profile, profile.forward_matrix)
+}
+
+/// [`camera_to_prophoto_matrix`] with the ForwardMatrix supplied, so a white
+/// balance retarget can name the matrix `wb_camera::retargeted_render_profile`
+/// would install without cloning the profile's tables.
+pub(crate) fn camera_to_prophoto_with_forward(
+    profile: &DcpProfile,
+    forward_matrix: Option<Matrix3>,
+) -> crate::Result<Matrix3> {
     let inv_pro = M_PRO_TO_XYZ_D50
         .inverse()
         .expect("ProPhoto matrix is invertible");
-    match (profile.forward_matrix, profile.wb_already_baked) {
+    match (forward_matrix, profile.wb_already_baked) {
         (Some(fm), true) => Ok(inv_pro.mul_mat(&fm)),
         _ => {
             // Non-FM / pre-gain-skipped path: invert CM here (lazily — the
@@ -359,8 +381,11 @@ pub(crate) fn scene_white_anchor(camera: &Image, profile: &DcpProfile) -> crate:
     ))
 }
 
-fn apply_with_post_pro(camera: &Image, profile: &DcpProfile) -> crate::Result<Image> {
-    camera.assert_space(ColorSpace::CameraNativeLinearRgb);
+/// [`apply_colorimetry`] on `image`'s own buffer: every pass is per-pixel,
+/// so the result is bit-identical without a second full-frame image
+/// (the pano ingest's memory peak, #5453).
+pub fn apply_colorimetry_in_place(image: &mut Image, profile: &DcpProfile) -> crate::Result<()> {
+    image.assert_space(ColorSpace::CameraNativeLinearRgb);
 
     // Camera RGB → ProPhoto D50.
     //
@@ -371,14 +396,11 @@ fn apply_with_post_pro(camera: &Image, profile: &DcpProfile) -> crate::Result<Im
     //     `dng_color_spec.cpp:444-446` the SDK builds `fCameraToPCS =
     //     forwardMatrix * Invert(refCameraWhite.AsDiagonal()) *
     //     individualToReference` where `individualToReference =
-    //     inv(AnalogBalance × CameraCalibration)`. Maple folds the
-    //     `individualToReference` term into `profile.forward_matrix` at
-    //     decode (`decode.rs` §8·pre / §8b), so the chain here reduces to
-    //     `FM_folded × Diag(refCameraWhite)⁻¹ × camera_raw` — identical to
-    //     the raw FM whenever AB = CC = Identity (every FM-shipping body
-    //     today). Maple's pipeline already divided camera RGB by
-    //     AsShotNeutral upstream, so the buffer is in the FM-input space —
-    //     DCP just multiplies by FM (yielding XYZ-D50) and then by
+    //     inv(AnalogBalance × CameraCalibration)`. Decode resolves that
+    //     product for the AsShotNeutral pre-gained buffer into
+    //     `profile.forward_matrix` (`color::forward_calibration`, #4646) —
+    //     the raw FM for any diagonal calibration — so DCP just multiplies
+    //     by FM (yielding XYZ-D50) and then by
     //     `inv(M_pro_to_xyz_d50)` to land in linear-ProPhoto-D50.
     //     Critically: FM is NOT composed with `inv(CM)` (that double-
     //     rotates an already-white-balanced buffer and was the pre-#354 bug
@@ -405,41 +427,34 @@ fn apply_with_post_pro(camera: &Image, profile: &DcpProfile) -> crate::Result<Im
         // tone mapping. See the `apply_colorimetry` doc-comment for the full
         // rationale and `grey_dcp_phase1::profile_tone_curve_is_noop_under_colorimetry_only`
         // for the test that pins this contract.
-        let mut pro = camera.empty_in_space(ColorSpace::CameraNativeLinearRgb);
-        pro.pixels
+        image
+            .pixels
             .par_iter_mut()
-            .zip(camera.pixels.par_iter())
-            .for_each(|(o, p)| {
-                *o = cam_to_pro.mul_vec(*p);
-            });
+            .for_each(|p| *p = cam_to_pro.mul_vec(*p));
         if let Some(table) = profile.hsm.as_ref() {
-            hsm::apply(&mut pro, table);
+            hsm::apply(image, table);
         }
         if let Some(table) = profile.look_table.as_ref() {
-            apply_look_table(&mut pro, table);
+            apply_look_table(image, table);
         }
         let exit = m_pro_to_rec2020();
-        let mut out = camera.empty_in_space(ColorSpace::SceneLinearRec2020);
-        out.pixels
+        image
+            .pixels
             .par_iter_mut()
-            .zip(pro.pixels.par_iter())
-            .for_each(|(o, p)| {
-                *o = soft_floor(exit.mul_vec(*p));
-            });
-        return Ok(out);
+            .for_each(|p| *p = soft_floor(exit.mul_vec(*p)));
+        image.space = ColorSpace::SceneLinearRec2020;
+        return Ok(());
     }
 
     // Fast path: no HSM. Fold cam_to_pro and exit into one matrix.
     let exit = m_pro_to_rec2020();
     let m = exit.mul_mat(&cam_to_pro);
-    let mut out = camera.empty_in_space(ColorSpace::SceneLinearRec2020);
-    out.pixels
+    image
+        .pixels
         .par_iter_mut()
-        .zip(camera.pixels.par_iter())
-        .for_each(|(o, p)| {
-            *o = soft_floor(m.mul_vec(*p));
-        });
-    Ok(out)
+        .for_each(|p| *p = soft_floor(m.mul_vec(*p)));
+    image.space = ColorSpace::SceneLinearRec2020;
+    Ok(())
 }
 
 // ── Dual-illuminant reciprocal-CCT interpolation ─────────────────────────────
@@ -608,7 +623,26 @@ pub fn interpolated_profile(
             fm_cold,
             fm_warm,
         }),
+        hsm_endpoints: hsm_cold.zip(hsm_warm).map(|(cold, warm)| {
+            std::sync::Arc::new(HsmEndpoints {
+                cold: cold.clone(),
+                warm: warm.clone(),
+            })
+        }),
     }
+}
+
+/// The reciprocal-CCT weight of the warm table at `cct_target`, the same `t`
+/// `interpolate_cm` uses. `None` when the two calibrations are the same
+/// illuminant, where the cold table stands alone.
+pub(crate) fn hsm_lerp_weight(cct_cold: f32, cct_warm: f32, cct_target: f32) -> Option<f32> {
+    if (cct_cold - cct_warm).abs() < 1.0 {
+        return None;
+    }
+    let inv_t1 = 1.0 / cct_cold;
+    let inv_t2 = 1.0 / cct_warm;
+    let inv_target = 1.0 / cct_target;
+    Some(((inv_target - inv_t1) / (inv_t2 - inv_t1)).clamp(0.0, 1.0))
 }
 
 /// Pick or interpolate an HSM table for a target scene CCT, mirroring the
@@ -619,7 +653,7 @@ pub fn interpolated_profile(
 /// Returns `None` only when both inputs are `None` or when a dual table
 /// pair has incompatible dims/encoding (in which case we conservatively
 /// pick the cold table; HSM failure shouldn't break decode).
-fn lerp_hsm_for_cct(
+pub(crate) fn lerp_hsm_for_cct(
     hsm_cold: Option<&HsmTable>,
     hsm_warm: Option<&HsmTable>,
     cct_cold: f32,
@@ -627,20 +661,12 @@ fn lerp_hsm_for_cct(
     cct_target: f32,
 ) -> Option<HsmTable> {
     match (hsm_cold, hsm_warm) {
-        (Some(c), Some(w)) => {
-            // Same `t` formula used by `interpolate_cm`, kept inline so the
-            // two functions can drift together if the CCT model ever changes.
-            if (cct_cold - cct_warm).abs() < 1.0 {
-                return Some(c.clone());
-            }
-            let inv_t1 = 1.0 / cct_cold;
-            let inv_t2 = 1.0 / cct_warm;
-            let inv_target = 1.0 / cct_target;
-            let t = ((inv_target - inv_t1) / (inv_t2 - inv_t1)).clamp(0.0, 1.0);
+        (Some(c), Some(w)) => match hsm_lerp_weight(cct_cold, cct_warm, cct_target) {
+            None => Some(c.clone()),
             // If shapes don't match (rare malformed DNG), fall back to the
             // cold table — applying a same-shape mismatch ratio would crash.
-            hsm::lerp_tables(c, w, t).or_else(|| Some(c.clone()))
-        }
+            Some(t) => hsm::lerp_tables(c, w, t).or_else(|| Some(c.clone())),
+        },
         (Some(c), None) => Some(c.clone()),
         (None, Some(w)) => Some(w.clone()),
         (None, None) => None,
@@ -780,8 +806,8 @@ pub fn profile_for(raw: &RawImage) -> crate::Result<DcpProfile> {
 /// through `profile.color_matrix` (the render profile's frame); the slider
 /// frame now prefers the DNG's own embedded calibration when present
 /// (matching ACR's slider scale — see `SliderFrame`'s doc for the
-/// test_0000 7471.6 K-vs-5507.7 K measurement), so the estimate moved with
-/// it.
+/// pre-#4661 test_0000 7471.6 K-vs-5507.7 K measurement), so the estimate
+/// moved with it.
 ///
 /// CCT and tint are now (#1894) a JOINT pair read off the SAME xy point:
 /// `inv(frame CM at scene_cct) · raw.as_shot_neutral`, normalized to Y=1
@@ -800,7 +826,8 @@ pub fn profile_for(raw: &RawImage) -> crate::Result<DcpProfile> {
 /// every non-LinearRaw Bayer source), which represents where a
 /// pipeline-pre-gained NEUTRAL PATCH lands in XYZ post-DCP, not the scene
 /// illuminant's own chromaticity — a completely different quantity
-/// (measured on test_0000.DNG: xy≈(0.387, 0.260), ~0.09 uv units off ANY
+/// (measured on test_0000.DNG through its pre-#4661 aliased profile:
+/// xy≈(0.387, 0.260), ~0.09 uv units off ANY
 /// locus point — 10× the whole tint slider's ±100 range).
 ///
 /// `white_balance_auto::estimate_tint_from_scene_xyz` (the Hernández-Andrés
@@ -909,7 +936,7 @@ pub fn profile_for_with_source(raw: &RawImage) -> crate::Result<(DcpProfile, Pro
             return Ok((p, ProfileSource::BundleConfident));
         }
         // to_dcp_profile only fails when the bundle entry has no CMs at
-        // all — never observed in practice across the 1,447-profile set.
+        // all — never observed in practice across the ~1,459-profile set.
         // Fall through to the embedded-CM / rawler-fallback paths for the
         // degenerate case.
     }
@@ -952,6 +979,7 @@ pub fn profile_for_with_source(raw: &RawImage) -> crate::Result<(DcpProfile, Pro
             look_table: None, // PLT wiring to DNG source deferred (#1691 Phase 2)
             tone_curve: raw.profile_tone_curve.clone(),
             cm_endpoints: None,
+            hsm_endpoints: None,
         },
         ProfileSource::RawlerFallback,
     ))
@@ -1148,8 +1176,10 @@ fn profile_from_embedded_cm_only(
     wb_already_baked: bool,
 ) -> Option<(DcpProfile, Illuminant)> {
     let (mut profile, illuminant) = profile_from_embedded(raw, wb_already_baked)?;
-    // Enforce the tier's "no HSM" contract — see fn-level doc.
+    // Enforce the tier's "no HSM" contract — see fn-level doc — including
+    // the endpoints a white-balance retarget would re-lerp (#4633).
     profile.hsm = None;
+    profile.hsm_endpoints = None;
     Some((profile, illuminant))
 }
 
@@ -1207,6 +1237,7 @@ pub(crate) fn single_illuminant_profile(
         look_table,
         tone_curve,
         cm_endpoints: None,
+        hsm_endpoints: None,
     }
 }
 
@@ -1298,7 +1329,9 @@ mod tests {
             crop_rect: None,
             iso: 100,
             noise_profile: None,
+            sensor_gain_maps: None,
             opcode_list3: None,
+            opcode_skips: Vec::new(),
             aperture: None,
             focal_length: None,
             lens_metadata: Default::default(),
@@ -1386,7 +1419,9 @@ mod tests {
             crop_rect: None,
             iso: 100,
             noise_profile: None,
+            sensor_gain_maps: None,
             opcode_list3: None,
+            opcode_skips: Vec::new(),
             aperture: None,
             focal_length: None,
             lens_metadata: Default::default(),
@@ -1442,6 +1477,7 @@ mod tests {
             look_table: None,
             tone_curve: None,
             cm_endpoints: None,
+            hsm_endpoints: None,
         };
         let mut img = Image::new(2, 2, ColorSpace::CameraNativeLinearRgb);
         for p in &mut img.pixels {
@@ -1655,6 +1691,7 @@ mod tests {
             look_table: None,
             tone_curve: None,
             cm_endpoints: None,
+            hsm_endpoints: None,
         };
 
         // Run a neutral 0.18 mid-gray camera-RGB patch through both.
@@ -1965,7 +2002,9 @@ mod tests {
             crop_rect: None,
             iso: 100,
             noise_profile: None,
+            sensor_gain_maps: None,
             opcode_list3: None,
+            opcode_skips: Vec::new(),
             aperture: None,
             focal_length: None,
             lens_metadata: Default::default(),
@@ -2339,7 +2378,9 @@ mod tests {
             crop_rect: None,
             iso: 100,
             noise_profile: None,
+            sensor_gain_maps: None,
             opcode_list3: None,
+            opcode_skips: Vec::new(),
             aperture: None,
             focal_length: None,
             lens_metadata: Default::default(),
@@ -2448,10 +2489,9 @@ mod tests {
     }
 
     /// #825: `BundleConfident` must not silently drop a source DNG's own
-    /// HueSatMap data. The current committed `profiles.bin` ships matrices
-    /// only (no HSM — regenerating it needs the external `.dcp` corpus
-    /// `convert_dcps.py --include-hsm` reads from, not present in this
-    /// repo), so `profile_loader::to_dcp_profile`'s fallback to
+    /// HueSatMap data. The committed `profiles.bin` ships matrices only (no
+    /// body is opted in with `convert_dcps.py --hsm-ucm` since #5224, and
+    /// `--include-hsm` needs the external `.dcp` corpus), so `profile_loader::to_dcp_profile`'s fallback to
     /// `raw.hsm_data` (keyed by the BUNDLE's own illum1/illum2, per its doc
     /// comment) is, today, the ONLY path any bundled body's HSM reaches the
     /// render — exercised for real by `test_0000.DNG` (Hasselblad L3D-100c),
@@ -2831,6 +2871,48 @@ mod tests {
         );
     }
 
+    /// #4633: the tier also drops the dual endpoints, so a white-balance
+    /// retarget cannot re-lerp a HueSatMap the tier removed.
+    #[test]
+    fn embedded_cm_only_clears_dual_hsm_endpoints() {
+        let table = |hue: f32| {
+            crate::color::hsm::HsmTable::new(
+                [1, 1, 1],
+                vec![hue, 1.0, 1.0],
+                crate::color::hsm::HsmEncoding::Linear,
+            )
+            .expect("valid 1x1x1 HSM")
+        };
+        let cm_warm = Matrix3([
+            [0.6722, -0.0635, -0.0963],
+            [-0.4287, 1.2460, 0.2028],
+            [-0.0908, 0.2162, 0.5668],
+        ]);
+        let cm_cold = Matrix3([
+            [0.7234, 0.0231, -0.0542],
+            [-0.3956, 1.1998, 0.2239],
+            [-0.0512, 0.1892, 0.5231],
+        ]);
+        let cms = std::collections::HashMap::from([
+            (Illuminant::StdA, cm_cold),
+            (Illuminant::D65, cm_warm),
+        ]);
+        let hsms = std::collections::HashMap::from([
+            (Illuminant::StdA, table(0.0)),
+            (Illuminant::D65, table(15.0)),
+        ]);
+        let raw = make_raw_with_ucm(
+            "Hypothetical Uncovered Body",
+            cms,
+            std::collections::HashMap::new(),
+            hsms,
+        );
+        let (profile, source) = profile_for_with_source(&raw).expect("resolver should succeed");
+        assert!(matches!(source, ProfileSource::EmbeddedCmOnly { .. }));
+        assert!(profile.cm_endpoints.is_some());
+        assert!(profile.hsm.is_none() && profile.hsm_endpoints.is_none());
+    }
+
     #[test]
     fn test_apply_look_table_shifts() {
         let mut table_data = Vec::new();
@@ -2904,6 +2986,7 @@ mod tests {
             look_table: None,
             tone_curve: None,
             cm_endpoints: None,
+            hsm_endpoints: None,
         };
         // Profile B: wb_already_baked=true + FM present → takes FM path.
         let profile_wb_true = DcpProfile {

@@ -33,6 +33,7 @@
  */
 
 import type { ObjectId } from '../object-id.ts';
+import type { AppleCompanionPaths } from '../apple-companions.ts';
 import type { LocationKey } from './assets.discover.ts';
 import {
   BACKUP_ORIGIN,
@@ -140,7 +141,7 @@ export async function stampMarkerIfUnmoved(
  * `thumb` and `preview` reset to version 0 because their cache key is derived
  * from the file's path, so the `.maple` derivatives were dropped with the move
  * (`docs/caching.md`). The expensive per-image stages are deliberately not in
- * that list: the pixels did not change. `meili` is re-armed because `filename`
+ * that list: the pixels did not change. `embed` is re-armed because `filename`
  * is the highest-weight lexical field in the search index and a relocate that
  * skipped it leaves the document permanently stale (#2357).
  */
@@ -148,7 +149,7 @@ export async function repointBackupLocation(
   assetId: ObjectId,
   from: LocationKey,
   to: { path: string; filename: string },
-  appleRenderedPath: string | null,
+  companions: AppleCompanionPaths,
   marker: { name: MigrationMarker; version: number } | undefined,
   dbOverride?: SqliteDb,
 ): Promise<boolean> {
@@ -166,9 +167,14 @@ export async function repointBackupLocation(
   const stamp = marker === undefined ? '' : `, ${marker.name} = ?`;
   await db.transaction([
     {
-      sql: `UPDATE assets SET apple_rendered_path = ?${stamp} WHERE id = ?`,
-      params:
-        marker === undefined ? [appleRenderedPath, id] : [appleRenderedPath, marker.version, id],
+      sql: `UPDATE assets SET apple_rendered_path = ?, apple_live_video_path = ?${stamp}
+        WHERE id = ?`,
+      params: [
+        companions.apple_rendered_path,
+        companions.apple_live_video_path,
+        ...(marker === undefined ? [] : [marker.version]),
+        id,
+      ],
     },
     ...searchRearmStatements(id),
     ...relocateCacheRearmStatements(id),

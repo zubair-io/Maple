@@ -14,16 +14,34 @@ namespace Maple.WinUI.Native
         private const string Dll = "raw_ffi.dll";
 
         /// <summary>
-        /// Guards the hand-mirrored struct layouts against drift from the Rust
-        /// declarations (fields are append-only at the tail). Call once at startup.
+        /// Guards the hand-mirrored struct sizes against drift from the Rust
+        /// declarations (fields are append-only at the tail). Call once at
+        /// startup; RawFfiLayoutTests checks every field offset.
         /// </summary>
         public static void VerifyAbi()
         {
-            var paramsSize = sizeof(MapleAdjustmentParams);
-            if (paramsSize != 704)
+            RequireSize(sizeof(MapleAdjustmentParams), 728, "MapleAdjustmentParams", "scene_linear_chain.rs");
+            RequireSize(sizeof(MapleGpuLiveParams), 1112, "MapleGpuLiveParams", "gpu_live/repr.rs");
+            RequireSize(sizeof(MapleSceneLinearBufferF32), 408, "MapleSceneLinearBufferF32", "buffers.rs");
+            RequireSize(sizeof(MapleCaptureCreative), 560, "MapleCaptureCreative", "capture_creative.rs");
+            RequireSize(sizeof(MapleCaptureBufferF32), 968, "MapleCaptureBufferF32", "capture_creative.rs");
+            RequireSize(sizeof(MapleCanvasSize), 16, "MapleCanvasSize", "canvas_math.rs");
+            RequireSize(sizeof(MapleCanvasPoint), 16, "MapleCanvasPoint", "canvas_math.rs");
+            RequireSize(sizeof(MapleCanvasRect), 32, "MapleCanvasRect", "canvas_math.rs");
+            RequireSize(sizeof(MapleCanvasInsets), 32, "MapleCanvasInsets", "canvas_zoom_insets.rs");
+            RequireSize(sizeof(MapleCanvasZoomContext), 72, "MapleCanvasZoomContext", "canvas_zoom.rs");
+            RequireSize(sizeof(MapleCanvasZoomState), 176, "MapleCanvasZoomState", "canvas_zoom.rs");
+            RequireSize(sizeof(MapleCanvasZoomTransition), 184, "MapleCanvasZoomTransition", "canvas_zoom.rs");
+            RequireSize(sizeof(MapleCanvasMathInput), 64, "MapleCanvasMathInput", "canvas_math.rs");
+            RequireSize(sizeof(MapleCanvasMathResult), 152, "MapleCanvasMathResult", "canvas_math.rs");
+        }
+
+        private static void RequireSize(int actual, int expected, string name, string rustFile)
+        {
+            if (actual != expected)
                 throw new InvalidOperationException(
-                    $"MapleAdjustmentParams is {paramsSize} bytes; the Rust ABI expects 704. " +
-                    "The C# mirror has drifted from raw-ffi/src/scene_linear_chain.rs.");
+                    $"{name} is {actual} bytes; the Rust ABI expects {expected}. " +
+                    $"The C# mirror has drifted from raw-ffi/src/{rustFile}.");
         }
 
         [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
@@ -35,22 +53,39 @@ namespace Maple.WinUI.Native
             return ptr == IntPtr.Zero ? null : Marshal.PtrToStringUTF8(ptr);
         }
 
-        // --- Decode: scene-linear f32 (preferred family; supports cancellation) ---
+        // --- Decode: the capture decode (#5377; supports cancellation). The
+        //     pixels stop before white balance and the camera profile; the
+        //     returned creative stage renders them on every tick. ---
 
         [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
-        public static extern int maple_render_file_scene_linear_sized_f32(
+        public static extern int maple_render_file_capture_sized_f32(
             [MarshalAs(UnmanagedType.LPUTF8Str)] string rawPath,
             [MarshalAs(UnmanagedType.LPUTF8Str)] string? xmpPath,
             uint maxLongEdge,
             int qualityPreview,
             IntPtr cancelFlag,
-            MapleSceneLinearBufferF32* outBuffer);
+            MapleCaptureBufferF32* outBuffer);
+
+        /// <summary>Frees the scene buffer's allocations of a capture buffer.
+        /// The creative tables are shared and stay valid.</summary>
+        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+        public static extern void maple_free_capture_buffer_f32(
+            MapleCaptureBufferF32* buffer);
 
         [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
         public static extern void maple_free_scene_linear_buffer_f32(
             MapleSceneLinearBufferF32* buffer);
 
-        // --- Per-tick chain: scene-linear f32 in → display-encoded sRGB f32 out.
+        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+        public static extern int maple_brush_rasterize(float* dabs, nuint dabCount, uint width, uint height, byte* output, nuint outputLength);
+
+        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+        public static extern int maple_mask_raster_register(byte* digest, uint width, uint height, byte* data, nuint dataLength);
+
+        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+        public static extern void maple_mask_raster_release(uint rasterId);
+
+        // --- Per-tick chain: capture basis (RAW) or scene-linear (raster) f32 in → display-encoded sRGB f32 out.
         //     Aliasing in/out is explicitly permitted for this fused entry. ---
 
         [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
@@ -190,7 +225,7 @@ namespace Maple.WinUI.Native
         /// <summary>
         /// The eyedropper. `nx`/`ny` are normalised [0, 1] in the UNCROPPED,
         /// EXIF-oriented frame — the frame the viewport presents (the
-        /// scene-linear decode is oriented, `render_scene_linear_sized_*`) —
+        /// capture decode is oriented, `maple_render_file_capture_sized_f32`) —
         /// and raw-ffi maps them back onto the sensor itself, the same entry
         /// Apple's `WhiteBalanceSampler` calls. `xmpPath` is the current edit
         /// model (a probe sidecar), so the sample develops with the user's
@@ -207,6 +242,19 @@ namespace Maple.WinUI.Native
             float nx,
             float ny,
             out MapleWbSample outSample);
+
+        /// <summary>
+        /// Stage-input eyedropper for the Oklab secondary color curves (#5041).
+        /// Evaluates upstream stages through 8-band HSL and returns normalized
+        /// Oklab coordinates at (nx, ny) in the uncropped oriented frame.
+        /// </summary>
+        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+        public static extern int maple_sample_color_curve_oriented(
+            [MarshalAs(UnmanagedType.LPUTF8Str)] string rawPath,
+            [MarshalAs(UnmanagedType.LPUTF8Str)] string? xmpPath,
+            float nx,
+            float ny,
+            out MapleColorCurveSample outSample);
 
         // --- Filename-template engine (#2628): shared with Apple (C-FFI) and
         //     the Self Hosted API (bun:ffi) via the same raw-ffi symbol.

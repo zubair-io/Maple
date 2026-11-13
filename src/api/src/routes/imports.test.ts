@@ -29,6 +29,7 @@ let live: LiveTestDatabase;
 const app = new Elysia().use(fakeAuth()).use(importsRoutes);
 let sourceRoot: string;
 let libraryId: string;
+const inheritedRoots = process.env.MAPLE_ROOTS;
 
 async function put(rel: string, mtimeUtc: string): Promise<void> {
   const abs = path.join(sourceRoot, rel);
@@ -56,6 +57,8 @@ beforeEach(async () => {
 
 afterAll(async () => {
   live?.close();
+  if (inheritedRoots === undefined) delete process.env.MAPLE_ROOTS;
+  else process.env.MAPLE_ROOTS = inheritedRoots;
   await fs.rm(sourceRoot, { recursive: true, force: true }).catch(() => {});
 });
 

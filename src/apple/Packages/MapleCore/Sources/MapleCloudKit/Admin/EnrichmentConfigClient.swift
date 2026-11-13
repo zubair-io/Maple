@@ -1,5 +1,5 @@
 // EnrichmentConfigClient.swift — GET/PUT /api/enrichment/config, plus the
-// three POST /test* probes (T5a, #2771).
+// two POST /test* probes (T5a, #2771).
 //
 // GET and the probes are `requireAuth`-only (member-readable); PUT is
 // additionally `requireOwnerBeforeHandle` (src/api/src/routes/enrichment.ts)
@@ -18,7 +18,6 @@ public actor EnrichmentConfigClient {
 
   private var configURL: URL { server.appending(path: "/api/enrichment/config") }
   private var testGeocodeURL: URL { server.appending(path: "/api/enrichment/test") }
-  private var testMeiliURL: URL { server.appending(path: "/api/enrichment/test-meili") }
   private var testDescribeURL: URL { server.appending(path: "/api/enrichment/test-describe") }
 
   public func fetch() async throws -> EnrichmentConfig {
@@ -27,9 +26,9 @@ public actor EnrichmentConfigClient {
     return try JSONDecoder().decode(EnrichmentConfig.self, from: data)
   }
 
-  /// Persist one row's patch. Generic over the four patch types
+  /// Persist one row's patch. Generic over the patch types
   /// (`DescribeConfigPatch`, `TranscribeConfigPatch`, `GeocodeConfigPatch`,
-  /// `MeilisearchConfigPatch`) since all four PUT the same endpoint and
+  /// `ServiceSearchConfigPatch`, ...) since they all PUT the same endpoint and
   /// decode the same response — the row-scoping that keeps this safe lives
   /// in each patch type's `Encodable` conformance, not here.
   public func save<Patch: Encodable>(_ patch: Patch) async throws -> EnrichmentConfig {
@@ -49,19 +48,11 @@ public actor EnrichmentConfigClient {
     try await postTest(testGeocodeURL, body: Body(nominatim_url: nominatimURL))
   }
 
-  /// Probe a Meilisearch URL without saving. `apiKey` is optional and
-  /// write-only: pass a freshly-typed key to probe with it, or omit it to
-  /// let the server fall back to the saved key / env var.
-  public func testMeilisearch(url: String, apiKey: String?) async throws {
-    struct Body: Encodable { let meilisearch_url: String; let api_key: String? }
-    try await postTest(testMeiliURL, body: Body(meilisearch_url: url, api_key: apiKey))
-  }
-
   /// Probe the Describe provider without saving. Provider is always
   /// `"ollama"` and model is always the locked `EnrichmentModels
   /// .describeModel` — this row has no provider picker (mirrors the
   /// hard-coded body in `workers.component.ts`'s `testConnection`). Unlike
-  /// `testGeocode` / `testMeilisearch`, there is no blank-URL guard here —
+  /// `testGeocode`, there is no blank-URL guard here —
   /// an empty URL is valid input and lets the server fall back to its own
   /// default Ollama endpoint.
   public func testDescribe(providerURL: String?) async throws {
@@ -71,7 +62,7 @@ public actor EnrichmentConfigClient {
       body: Body(provider: "ollama", url: providerURL, model: EnrichmentModels.describeModel, api_key: nil))
   }
 
-  /// Shared POST + decode + `ok`-check for the three probes above. A
+  /// Shared POST + decode + `ok`-check for the two probes above. A
   /// non-2xx status still throws via `ServerAdminError.from` first (request
   /// validation failures use 4xx); a 2xx with `ok: false` is the health
   /// check itself failing, which the endpoints report without an error

@@ -13,16 +13,17 @@
  *                                    `${endpoint}/v1/traces` to verify reach +
  *                                    auth without saving.
  *
- * All routes are mounted behind `requireAuth` — see `src/index.ts`. The
- * ingestion key is echoed on GET (unlike the meilisearch key, which is
- * write-only) BECAUSE the client transport posts straight to SigNoz with it;
- * the gate is the bearer-auth wrapper, not field-level redaction. Write
- * semantics still mirror meilisearch_api_key (non-empty sets, null clears to
- * env, ""/omitted leaves unchanged) so a blank field in the UI never wipes a
- * key the operator typed once.
+ * All routes are mounted behind `requireAuth` (also embedded here so the module
+ * is self-gating). `PUT /config` and `POST /test` are owner-only (#4744): the
+ * first redirects every client's telemetry, the second can carry the saved
+ * ingestion key — and it only ever does so to the saved endpoint, never to a
+ * caller-chosen URL. Write semantics mirror the provider API keys (non-empty
+ * sets, null clears to env, ""/omitted leaves unchanged) so a blank field in
+ * the UI never wipes a key the operator typed once.
  */
 
 import { Elysia, t } from 'elysia';
+import { requireAuth, requireOwnerBeforeHandle } from '../auth/middleware.ts';
 import { child as childLogger } from '../log.ts';
 import {
   MAX_SAMPLE_RATIO,
@@ -31,6 +32,7 @@ import {
   resolveObservabilityConfig,
   saveObservabilityConfig,
   validateHttpUrl,
+  type ObservabilityConfig,
   type ResolvedObservabilityConfig,
 } from '../observability/observability-config.repo.ts';
 import { applyOtelConfig } from '../otel.ts';
@@ -110,6 +112,116 @@ const ConfigBody = t.Object({
   sample_ratio: t.Optional(t.Union([t.Number(), t.Null()])),
 });
 
+type ConfigBodyInput = typeof ConfigBody.static;
+
+/** Validate the two fields of a PUT that can be malformed. `endpoint`:
+ * omitted = keep, `null`/empty = clear, otherwise an http(s) URL normalised
+ * without trailing slashes (`${endpoint}/v1/traces` must not double up).
+ * `sample_ratio`: omitted = keep, `null` = clear, otherwise finite in [0, 1]. */
+function validateConfigBody(
+  body: ConfigBodyInput,
+):
+  | { endpoint: string | null | undefined; sampleRatio: number | null | undefined }
+  | { error: string } {
+  const endpoint = body.endpoint === undefined ? undefined : validateHttpUrl(body.endpoint);
+  if (endpoint !== null && typeof endpoint === 'object') {
+    return { error: `Invalid endpoint: ${endpoint.error}` };
+  }
+  const sampleRatio = body.sample_ratio;
+  if (
+    typeof sampleRatio === 'number' &&
+    (!Number.isFinite(sampleRatio) ||
+      sampleRatio < MIN_SAMPLE_RATIO ||
+      sampleRatio > MAX_SAMPLE_RATIO)
+  ) {
+    return {
+      error: `Invalid sample_ratio: must be a number between ${MIN_SAMPLE_RATIO} and ${MAX_SAMPLE_RATIO} (got ${sampleRatio})`,
+    };
+  }
+  return { endpoint, sampleRatio };
+}
+
+/** Turn the probe's HTTP answer into the route's verdict. A non-2xx is a
+ * plain failure; a 2xx that does not look like OTLP (an HTML SPA page from
+ * the UI/query port) is NOT a real accept, so it is flagged with the :4318
+ * recommendation. */
+function interpretProbeResponse(res: Response, portHint: string | null) {
+  if (!res.ok) {
+    // A 404 most often means "right host, wrong port" — the endpoint answered
+    // HTTP but has no /v1/traces route. The port hint applies to any non-2xx.
+    const base = `SigNoz returned HTTP ${res.status}`;
+    const error = portHint ? `${base}. ${portHint}` : base;
+    return { ok: false, status: res.status, error, recommendation: portHint ?? undefined };
+  }
+  const contentType = res.headers.get('content-type');
+  if (!looksLikeOtlpResponse(contentType)) {
+    return {
+      ok: false,
+      status: res.status,
+      error:
+        `Endpoint replied ${res.status} but with "${contentType ?? 'no content-type'}", not an OTLP response — this is probably not SigNoz's OTLP/HTTP receiver. ` +
+        (portHint ?? `SigNoz's OTLP/HTTP receiver defaults to :${OTLP_HTTP_DEFAULT_PORT}.`),
+      recommendation: portHint ?? `Use SigNoz's OTLP/HTTP port :${OTLP_HTTP_DEFAULT_PORT}.`,
+    };
+  }
+  return { ok: true, status: res.status };
+}
+
+/** Normalise the write-only `ingestion_key` field of a PUT into a save patch.
+ * `undefined`/blank leaves the saved key alone, `null` clears it, a non-empty
+ * string sets it. A key is persisted together with the endpoint it is for
+ * (#4744), in the same write, so no interleaving of two saves can leave a key
+ * bound to an endpoint it was not typed for: the resolver drops a key whose
+ * binding no longer matches. A legacy key with no binding is pinned to the
+ * endpoint it is being moved away from. */
+async function resolveIngestionKeyPatch(
+  typed: string | null | undefined,
+  endpoint: string | null | undefined,
+): Promise<Pick<ObservabilityConfig, 'ingestion_key' | 'ingestion_key_endpoint'>> {
+  const saved = await loadObservabilityConfig();
+  return ingestionKeyPatchFor(typed, endpoint, saved, resolveObservabilityConfig(saved).endpoint);
+}
+
+/** Pure form of `resolveIngestionKeyPatch` over the row that was read. A key
+ * and its binding always land in the same write: a new key carries the
+ * endpoint it is for, and a legacy (unbound) key being moved away from its
+ * endpoint is written back together with that binding — so a save that read
+ * stale state can at worst restore the key it saw, never re-bind one that
+ * landed meanwhile. */
+export function ingestionKeyPatchFor(
+  typed: string | null | undefined,
+  endpoint: string | null | undefined,
+  saved: ObservabilityConfig | null,
+  savedEndpoint: string | null,
+): Pick<ObservabilityConfig, 'ingestion_key' | 'ingestion_key_endpoint'> {
+  if (typed === null) return { ingestion_key: null, ingestion_key_endpoint: null };
+  const trimmed = typed?.trim() ?? '';
+  if (trimmed.length > 0) {
+    return {
+      ingestion_key: trimmed,
+      // Omitted endpoint = keep the saved one; an explicit null clears it and
+      // the key must stay bound to "no endpoint", not to the one being cleared.
+      ingestion_key_endpoint: endpoint === undefined ? savedEndpoint : endpoint,
+    };
+  }
+  const legacyKey = saved?.ingestion_key_endpoint === undefined ? saved?.ingestion_key : undefined;
+  return endpoint !== undefined && typeof legacyKey === 'string' && legacyKey.length > 0
+    ? { ingestion_key: legacyKey, ingestion_key_endpoint: savedEndpoint }
+    : {};
+}
+
+/** The key a `/test` probe may carry: the typed one as given, else the saved
+ * one only for the saved endpoint, else none. */
+async function resolveProbeKey(
+  typed: string | null | undefined,
+  endpoint: string,
+): Promise<string | null> {
+  if (typeof typed === 'string' && typed.trim().length > 0) return typed.trim();
+  const saved = resolveObservabilityConfig(await loadObservabilityConfig());
+  const savedKey = saved.ingestion_key?.trim() ?? '';
+  return savedKey.length > 0 && saved.endpoint === endpoint ? savedKey : null;
+}
+
 const TestBody = t.Object({
   endpoint: t.String({ minLength: 1 }),
   /** Optional write-only key to probe with a not-yet-saved value. When omitted
@@ -118,6 +230,7 @@ const TestBody = t.Object({
 });
 
 export const observabilityRoutes = new Elysia({ prefix: '/api/observability' })
+  .use(requireAuth)
   .get('/config', async () => {
     // The ingestion key is NEVER returned — clients send telemetry through the
     // `/otlp/*` proxy below, which injects the key server-side. We expose only
@@ -129,53 +242,19 @@ export const observabilityRoutes = new Elysia({ prefix: '/api/observability' })
   .put(
     '/config',
     async ({ body, set }) => {
-      // ── endpoint ──────────────────────────────────────────────────────
-      // `undefined` = field omitted (keep existing); `null`/empty = clear back
-      // to env/unset; otherwise must be a valid http(s) URL (trailing slashes
-      // stripped on save so `${endpoint}/v1/traces` doesn't double up).
-      let endpoint: string | null | undefined;
-      if (body.endpoint !== undefined) {
-        const validated = validateHttpUrl(body.endpoint);
-        if (validated && typeof validated === 'object' && 'error' in validated) {
-          set.status = 400;
-          return { error: `Invalid endpoint: ${validated.error}` };
-        }
-        endpoint = validated as string | null;
+      const validated = validateConfigBody(body);
+      if ('error' in validated) {
+        set.status = 400;
+        return { error: validated.error };
       }
+      const { endpoint, sampleRatio } = validated;
 
-      // ── sample_ratio ──────────────────────────────────────────────────
-      // `undefined` = keep existing; `null` = clear to env/default; otherwise
-      // must be a finite number in [0, 1].
-      const sampleRatio = body.sample_ratio;
-      if (typeof sampleRatio === 'number') {
-        if (
-          !Number.isFinite(sampleRatio) ||
-          sampleRatio < MIN_SAMPLE_RATIO ||
-          sampleRatio > MAX_SAMPLE_RATIO
-        ) {
-          set.status = 400;
-          return {
-            error: `Invalid sample_ratio: must be a number between ${MIN_SAMPLE_RATIO} and ${MAX_SAMPLE_RATIO} (got ${sampleRatio})`,
-          };
-        }
-      }
-
-      // ── ingestion_key (secret, write-only on input) ───────────────────
-      // `undefined`/empty string = leave the saved key unchanged (a blank
-      // field in the UI must not wipe it); `null` = clear back to env; a
-      // non-empty string sets a new key.
-      let ingestionKey: string | null | undefined;
-      if (body.ingestion_key === null) {
-        ingestionKey = null;
-      } else if (typeof body.ingestion_key === 'string') {
-        const trimmed = body.ingestion_key.trim();
-        if (trimmed.length > 0) ingestionKey = trimmed;
-      }
+      const keyPatch = await resolveIngestionKeyPatch(body.ingestion_key, endpoint);
 
       await saveObservabilityConfig({
         ...(body.enabled !== undefined ? { enabled: body.enabled } : {}),
         ...(endpoint !== undefined ? { endpoint } : {}),
-        ...(ingestionKey !== undefined ? { ingestion_key: ingestionKey } : {}),
+        ...keyPatch,
         ...(body.service_namespace !== undefined
           ? { service_namespace: body.service_namespace }
           : {}),
@@ -202,7 +281,7 @@ export const observabilityRoutes = new Elysia({ prefix: '/api/observability' })
 
       return toPublicConfig(resolved);
     },
-    { body: ConfigBody },
+    { body: ConfigBody, beforeHandle: requireOwnerBeforeHandle },
   )
 
   .post(
@@ -222,18 +301,11 @@ export const observabilityRoutes = new Elysia({ prefix: '/api/observability' })
       // key (if any) authenticates.
       const headers: Record<string, string> = { 'Content-Type': 'application/json' };
       // Auth header precedence, matching the form's "blank keeps the saved key"
-      // semantics: a typed key wins; otherwise fall back to the saved DB key so
-      // testing a saved-key deployment with a blank field still authenticates.
-      // The field is write-only, so the UI can't echo the key back to send it.
-      let probeKey: string | null = null;
-      if (typeof body.ingestion_key === 'string' && body.ingestion_key.trim().length > 0) {
-        probeKey = body.ingestion_key.trim();
-      } else {
-        const saved = await loadObservabilityConfig();
-        if (typeof saved?.ingestion_key === 'string' && saved.ingestion_key.trim().length > 0) {
-          probeKey = saved.ingestion_key.trim();
-        }
-      }
+      // semantics: a typed key wins; otherwise the saved DB key is used — but
+      // ONLY when the probe targets the endpoint that key was saved for
+      // (#4744). The field is write-only, so this is the one path the saved
+      // secret can leave the server on; it must never follow a caller URL.
+      const probeKey = await resolveProbeKey(body.ingestion_key, validated);
       if (probeKey) {
         headers['signoz-access-token'] = probeKey;
       }
@@ -244,31 +316,7 @@ export const observabilityRoutes = new Elysia({ prefix: '/api/observability' })
           headers,
           body: JSON.stringify({ resourceSpans: [] }),
         });
-        const contentType = res.headers.get('content-type');
-
-        if (!res.ok) {
-          // Non-2xx. A 404 most often means "right host, wrong port" — the
-          // endpoint answered HTTP but has no /v1/traces route. Append the port
-          // hint when we have one (applies to any non-2xx, 404 included).
-          const base = `SigNoz returned HTTP ${res.status}`;
-          const error = portHint ? `${base}. ${portHint}` : base;
-          return { ok: false, status: res.status, error, recommendation: portHint ?? undefined };
-        }
-
-        // 2xx — but a 2xx from the UI/query port (an HTML SPA page) is NOT a
-        // real OTLP accept. Only treat it as success when the response actually
-        // looks like OTLP (JSON / protobuf). Otherwise flag it + recommend 4318.
-        if (!looksLikeOtlpResponse(contentType)) {
-          return {
-            ok: false,
-            status: res.status,
-            error:
-              `Endpoint replied ${res.status} but with "${contentType ?? 'no content-type'}", not an OTLP response — this is probably not SigNoz's OTLP/HTTP receiver. ` +
-              (portHint ?? `SigNoz's OTLP/HTTP receiver defaults to :${OTLP_HTTP_DEFAULT_PORT}.`),
-            recommendation: portHint ?? `Use SigNoz's OTLP/HTTP port :${OTLP_HTTP_DEFAULT_PORT}.`,
-          };
-        }
-        return { ok: true, status: res.status };
+        return interpretProbeResponse(res, portHint);
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         // Connection refused on a wrong port is also a strong signal.
@@ -279,7 +327,7 @@ export const observabilityRoutes = new Elysia({ prefix: '/api/observability' })
         };
       }
     },
-    { body: TestBody },
+    { body: TestBody, beforeHandle: requireOwnerBeforeHandle },
   )
 
   // ── OTLP proxy ────────────────────────────────────────────────────────────

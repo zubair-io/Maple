@@ -1,7 +1,7 @@
 //! Projection canvas: the output pixel grid a panorama composites into
 //! (M2-CPU, #1155; stitching spec §5.4).
 //!
-//! A [`CanvasSpec`] is an affine window onto one of the three
+//! A [`CanvasSpec`] is an affine window onto one of the
 //! [`Projection`] surfaces plus an optional canvas-to-world rotation:
 //!
 //! ```text
@@ -28,12 +28,20 @@
 //! projections (leveling is the solver's job, not the canvas's); a
 //! rectilinear canvas is yawed/pitched toward the content centroid with
 //! zero roll.
+//!
+//! Vertical pitch sweeps get a transverse canvas instead (#4518, see
+//! [`transverse`]): its surface axis is the horizontal pitch axis, `v`
+//! (rows) is the periodic pitch angle and `u` (columns) the bounded
+//! cross-sweep coordinate, so the wrap seam runs between the top and
+//! bottom rows rather than the left and right columns.
 
+use crate::boundary_warp::BoundaryWarp;
 use crate::error::PanoError;
 use crate::math::{Mat3, Vec3};
 use crate::project::Projection;
 
 use std::f64::consts::{FRAC_PI_2, PI, TAU};
+use std::sync::Arc;
 
 /// Projection selection policy for [`auto_canvas`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -93,15 +101,20 @@ pub struct CanvasSpec {
     /// built by [`auto_canvas`] — they keep the world vertical).
     rotation: Mat3,
     rotation_inv: Mat3,
-    /// `true` when the u axis tiles the full circle (du · width = 2π).
+    /// `true` when the periodic axis tiles the full circle
+    /// (`du · width = 2π`, or `|dv| · height = 2π` when transverse).
     full_wrap: bool,
+    /// Maps each output pixel to the canvas position it samples (#5572).
+    boundary_warp: Option<Arc<BoundaryWarp>>,
 }
 
 impl CanvasSpec {
     /// General constructor. `du`/`dv` are the per-pixel steps of the
     /// affine pixel→surface map (`dv < 0` puts larger `v` at the top).
-    /// `full_wrap` declares that `width · |du| == 2π` (the caller
-    /// guarantees it; [`auto_canvas`] and [`full_sphere`] do).
+    /// `full_wrap` declares that the periodic axis tiles the full circle —
+    /// `width · |du| == 2π`, or `height · |dv| == 2π` for a transverse
+    /// projection (the caller guarantees it; [`auto_canvas`] and
+    /// [`full_sphere`] do).
     ///
     /// [`full_sphere`]: CanvasSpec::full_sphere
     #[allow(clippy::too_many_arguments)]
@@ -137,6 +150,7 @@ impl CanvasSpec {
             rotation,
             rotation_inv: rotation.transpose(),
             full_wrap,
+            boundary_warp: None,
         })
     }
 
@@ -165,10 +179,36 @@ impl CanvasSpec {
         )
     }
 
-    /// `true` when the canvas u axis tiles the full circle (columns 0
-    /// and `width − 1` are angular neighbors).
+    /// `true` when the canvas's periodic axis tiles the full circle:
+    /// columns 0 and `width − 1` are angular neighbors, or rows 0 and
+    /// `height − 1` for a transverse projection.
     pub fn is_full_wrap(&self) -> bool {
         self.full_wrap
+    }
+
+    /// Pixel length of one full turn along the periodic axis (columns,
+    /// or rows when transverse); infinite for rectilinear.
+    pub fn wrap_period_px(&self) -> f64 {
+        match self.projection {
+            Projection::Rectilinear => f64::INFINITY,
+            Projection::Cylindrical | Projection::Spherical => TAU / self.du.abs(),
+            Projection::TransverseCylindrical | Projection::TransverseSpherical => {
+                TAU / self.dv.abs()
+            }
+        }
+    }
+
+    /// World directions of the surface poles that sit at the low and the
+    /// high pixel end of the non-periodic axis: zenith/nadir (rows) for
+    /// the standard surfaces, the canvas ∓X axis (columns) when
+    /// transverse.
+    pub fn bounded_axis_poles(&self) -> (Vec3, Vec3) {
+        if self.projection.is_transverse() {
+            let x = self.rotation.mul_vec(Vec3::new(1.0, 0.0, 0.0));
+            (x.scale(-1.0), x)
+        } else {
+            (Vec3::new(0.0, -1.0, 0.0), Vec3::new(0.0, 1.0, 0.0))
+        }
     }
 
     /// Output pixels per radian along u at the window reference (the
@@ -196,24 +236,28 @@ impl CanvasSpec {
 
     /// Continuous pixel position of a world direction. `None` when the
     /// projection cannot represent the direction (rectilinear: behind
-    /// the canvas plane; cylindrical: at the poles).
+    /// the canvas plane; the cylinders: at their poles).
     ///
-    /// For the angular projections the longitude-like `u` is wrapped
-    /// into `[u0, u0 + 2π)` so any canvas window placement works; the
+    /// For the angular projections the periodic coordinate (`u`, or `v`
+    /// when transverse) is wrapped one turn from the window origin so any
+    /// canvas window placement works; the
     /// returned pixel may lie outside `[0, width] × [0, height]` —
     /// callers decide what "on the canvas" means.
     #[inline]
     pub fn dir_to_pixel(&self, dir: Vec3) -> Option<(f64, f64)> {
         let d = self.rotation_inv.mul_vec(dir);
         let (u, v) = self.projection.forward(d)?;
-        let px = match self.projection {
-            Projection::Rectilinear => (u - self.u0) / self.du,
-            Projection::Cylindrical | Projection::Spherical => {
-                (u - self.u0).rem_euclid(TAU) / self.du
-            }
-        };
+        let px = (u - self.u0) / self.du;
         let py = (v - self.v0) / self.dv;
-        Some((px, py))
+        Some(match self.projection {
+            Projection::Rectilinear => (px, py),
+            Projection::Cylindrical | Projection::Spherical => {
+                ((u - self.u0).rem_euclid(TAU) / self.du, py)
+            }
+            Projection::TransverseCylindrical | Projection::TransverseSpherical => {
+                (px, py.rem_euclid(self.wrap_period_px()))
+            }
+        })
     }
 
     /// Total pixel count.
@@ -229,14 +273,15 @@ impl CanvasSpec {
     /// [`Self::is_full_wrap`]'s `width · |du| == 2π` invariant exact
     /// regardless of the integer rounding on `width`/`height`).
     ///
-    /// A no-op (clones `self`) when already at or under the cap. Used by
+    /// A copy of `self` when already at or under the cap. Used by
     /// the graph-cut seam finder (#1179) to build a cheap low-resolution
     /// "seam canvas" for content-aware mask computation ahead of the
-    /// memory-bounded full-resolution tiled composite.
+    /// memory-bounded full-resolution tiled composite. The downscaled canvas
+    /// is a solve canvas, so it carries no boundary warp.
     pub fn downscaled(&self, max_pixels: usize) -> Self {
         let total = self.pixel_count();
         if total <= max_pixels || max_pixels == 0 {
-            return self.clone();
+            return self.clone().with_boundary_warp(None);
         }
         let scale = (max_pixels as f64 / total as f64).sqrt();
         let width = ((self.width as f64 * scale).floor() as u32).max(1);
@@ -254,7 +299,40 @@ impl CanvasSpec {
             rotation: self.rotation,
             rotation_inv: self.rotation_inv,
             full_wrap: self.full_wrap,
+            boundary_warp: None,
         }
+    }
+
+    /// This canvas with its output pixels sampling `warp` (#5572). Only the
+    /// per-output-pixel consumers read it, through [`Self::unwarp`]; every
+    /// solve keeps the unwarped canvas coordinates.
+    pub fn with_boundary_warp(self, warp: Option<Arc<BoundaryWarp>>) -> Self {
+        Self {
+            boundary_warp: warp,
+            ..self
+        }
+    }
+
+    pub fn boundary_warp(&self) -> Option<&BoundaryWarp> {
+        self.boundary_warp.as_deref()
+    }
+
+    /// The canvas position output pixel position `(px, py)` samples: itself
+    /// without a boundary warp.
+    #[inline]
+    pub fn unwarp(&self, px: f64, py: f64) -> (f64, f64) {
+        match &self.boundary_warp {
+            None => (px, py),
+            Some(warp) => warp.on_canvas(self.width, self.height).unwarp(px, py),
+        }
+    }
+
+    /// [`Self::pixel_to_dir`] of the canvas position output pixel position
+    /// `(px, py)` samples.
+    #[inline]
+    pub fn output_pixel_to_dir(&self, px: f64, py: f64) -> Option<Vec3> {
+        let (x, y) = self.unwarp(px, py);
+        self.pixel_to_dir(x, y)
     }
 }
 
@@ -281,7 +359,10 @@ pub(super) struct CameraSamples {
 }
 
 mod auto;
-pub use auto::{angular_extent_deg, auto_canvas, natural_canvas_pixel_ratio};
+mod natural;
+mod transverse;
+pub use auto::{angular_extent_deg, auto_canvas};
+pub use natural::natural_canvas_pixel_ratio;
 
 /// Natural-canvas-to-cap pixel-ratio above which a rotation BA solution is
 /// treated as degenerate and rejected fail-fast (see the guard in
@@ -301,3 +382,5 @@ pub(crate) const DEGENERATE_CANVAS_RATIO: f64 = 8.0;
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod transverse_tests;

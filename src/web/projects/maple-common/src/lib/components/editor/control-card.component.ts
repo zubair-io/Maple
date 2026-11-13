@@ -57,7 +57,9 @@ import { manualAdjustmentPatch } from '../../editor/editor-state.wb-sample';
 import { EditorStateService } from '../../editor/editor-state.service';
 import { LibraryStateService } from '../../state/library-state.service';
 import { gradientFor } from '../develop/gradient-catalog';
+import { defaultGeneratedAdjustmentModel } from '../../generated/adjustment-model.generated';
 import type { AdjustmentModel } from '../../models/adjustment-model';
+import { subParamsFor } from '../../editor/tool-sub-param';
 
 /** Tools shown as sliders in the control card (excludes crop/presets/hsl/
  *  bwMix — bwMix (#276) has no single primary drag-bar field, same reason
@@ -69,6 +71,36 @@ const SLIDER_TOOLS: Partial<Record<ToolGroup, readonly ToolId[]>> = {
   effects: ['clarity', 'texture', 'dehaze', 'vignette', 'grain'],
   detail: ['sharpen', 'noise', 'colorNR'],
 };
+
+/** Add the Effects sub-tools omitted from the single-slider card list. */
+function addEffectsSubtoolDefaults(patch: Partial<AdjustmentModel>): void {
+  const defaults = defaultGeneratedAdjustmentModel();
+  for (const tool of ['vignette', 'grain', 'colorGrade'] as const) {
+    for (const sub of subParamsFor(tool)) {
+      (patch as Record<string, number>)[sub.field] = defaults[sub.field];
+    }
+  }
+  patch.colorGradeBlending = defaults.colorGradeBlending;
+  patch.colorGradeShadowEdge = defaults.colorGradeShadowEdge;
+  patch.colorGradeHighlightEdge = defaults.colorGradeHighlightEdge;
+  patch.filmLook = defaults.filmLook;
+  patch.filmStrength = defaults.filmStrength;
+}
+
+function addColorSubtoolDefaults(patch: Partial<AdjustmentModel>): void {
+  const defaults = defaultGeneratedAdjustmentModel();
+  for (const tool of ['hsl', 'bwMix'] as const) {
+    for (const sub of subParamsFor(tool)) {
+      (patch as Record<string, number>)[sub.field] = defaults[sub.field];
+    }
+  }
+  patch.colorCurveHueVsHue = { points: [] };
+  patch.colorCurveHueVsSat = { points: [] };
+  patch.colorCurveHueVsLuma = { points: [] };
+  patch.colorCurveLumaVsSat = { points: [] };
+  patch.colorCurveSatVsSat = { points: [] };
+  patch.colorCurveSatVsLuma = { points: [] };
+}
 
 /** A sub-tool row entry: `id` is the `ToolId` it arms, `null` for Basic —
  *  the group's plain sliders. */
@@ -305,7 +337,7 @@ export class ControlCardComponent {
       this.pendingNoisePanel = false;
       this.armCountAtNoiseStart = this.editorState.toolArmCount;
     }
-    this.editorState.commit();
+    this.editorState.commit('adjustment', this.labelFor(tool));
     // Marks the gesture for the command router (#2450): navigation is
     // refused while a drag is in flight, so the ticks below can never be
     // applied to a different asset than the one the drag started on.
@@ -384,13 +416,14 @@ export class ControlCardComponent {
     this.editorState.haptic('reset');
   }
 
-  /** Reset all sliders in the active group. */
+  /** Reset all adjustments in the active group. */
   resetGroup(): void {
     const current = this.currentAdj();
     if (!current) return;
     const id = this.libraryState.focusedAssetId();
     if (!id) return;
-    const tools = this.slidersFor(this.activeGroup());
+    const group = this.activeGroup();
+    const tools = this.slidersFor(group);
     if (tools.length === 0) return;
     this.editorState.commit();
     const patch: Partial<AdjustmentModel> = {};
@@ -399,6 +432,11 @@ export class ControlCardComponent {
       if (field) {
         (patch as Record<string, number>)[field] = defaultDisplayValue(tool);
       }
+    }
+    if (group === 'color') {
+      addColorSubtoolDefaults(patch);
+    } else if (group === 'effects') {
+      addEffectsSubtoolDefaults(patch);
     }
     this.libraryState.updateAdjustment(id, manualAdjustmentPatch(patch, current));
     this.editorState.haptic('reset');

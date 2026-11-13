@@ -1,0 +1,11 @@
+{
+  "base_commit": "95fc03d6819b34f46f928ba93de58188a4014022",
+  "pipeline_output_version": "37 plus experimental fractional dehaze ties",
+  "auto_fit_model_version": 7,
+  "binary_sha256": "e0615f4cc04daf1439afffa031fe49ab31ffcebef137f96d29e946c896d0b844",
+  "source_patch_sha256": "ebf3d895cb9b5b94788f37b7248e69844fdd7c99112836dd7356b0b117ed00bf",
+  "status": "Experimental, not adopted. Complete patch includes incidental cargo-fmt whitespace changes; these are restored and will not be pushed.",
+  "cpu_dehaze_passed": 17,
+  "gpu_dehaze_passed": 11,
+  "physical_gate": "Target Pixel dehaze first; do not launch wider cohort unless target clears."
+}

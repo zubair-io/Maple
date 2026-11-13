@@ -272,9 +272,12 @@ export async function resolveOriginalReadSource(
 // ---------------------------------------------------------------------------
 
 /** Read a mirror copy under the timeout + health accounting. Null on any miss. */
-async function readMirrorFile(t: MirrorTarget): Promise<string | null> {
+async function readMirrorFile(
+  t: MirrorTarget,
+  read: (absPath: string) => Promise<string>,
+): Promise<string | null> {
   try {
-    const text = await withTimeout(readFile(t.mirrorPath, 'utf-8'));
+    const text = await withTimeout(read(t.mirrorPath));
     markMirrorHealthy(t.mirrorRoot);
     return text;
   } catch (err) {
@@ -291,15 +294,18 @@ async function readMirrorFile(t: MirrorTarget): Promise<string | null> {
  * primary's original error when no replica can serve it, so callers keep their
  * existing error messages.
  */
-export async function readFileWithFailover(absPath: string): Promise<string> {
+export async function readFileWithFailover(
+  absPath: string,
+  readPrimary: (absPath: string) => Promise<string> = (p) => readFile(p, 'utf-8'),
+): Promise<string> {
   try {
-    return await readFile(absPath, 'utf-8');
+    return await readPrimary(absPath);
   } catch (err) {
     const targets = readableTargets(absPath);
     if (targets.length === 0) throw err;
     if (await isPrimaryRootReachable(targets)) throw err;
     for (const target of targets) {
-      const text = await readMirrorFile(target);
+      const text = await readMirrorFile(target, readPrimary);
       if (text !== null) {
         log.warn({ absPath, mirror: target.mirrorPath }, 'primary unreachable — read from mirror');
         return text;

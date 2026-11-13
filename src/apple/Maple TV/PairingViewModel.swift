@@ -133,7 +133,7 @@ final class PairingViewModel {
         let client = AuthClient(server: grant.serverURL)
         let me = try await client.me(accessToken: grant.accessToken)
         guard generation == pairingGeneration else { return }  // superseded by a new session
-        try TokenStore.save(
+        try await TokenStore.saveAsync(
           AuthTokens(access: grant.accessToken, refresh: grant.refreshToken),
           server: grant.serverURL
         )

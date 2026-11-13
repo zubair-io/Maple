@@ -2,6 +2,7 @@
   import Foundation
   import XCTest
   @testable import MapleCore
+@testable import MapleFileProviderCore
 
   /// Live Bun sockets, persisted SQLite and the File Provider's production client (#3770).
   final class ChangeFeedClientRestartTests: XCTestCase {

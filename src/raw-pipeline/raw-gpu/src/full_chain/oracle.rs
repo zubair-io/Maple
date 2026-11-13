@@ -25,6 +25,7 @@
 //! - [`max_abs_diff`] / [`moved`] — the diff metrics both gates report.
 
 use crate::capture_sharpening::CaptureSharpeningParams;
+use crate::color_curves::ColorCurveInputs;
 use crate::display_tone_curve::DisplayToneCurveInputs;
 use crate::tone_curves::{CurveMode, ToneCurveInputs};
 use crate::FullChainInputs;
@@ -103,6 +104,9 @@ pub fn rc_capture(
         noise_floor: p.noise_floor,
     }
 }
+
+/// Shared per-image ISO for both composed-chain implementations.
+pub const CASE_ISO: u32 = 100;
 
 /// The one-source-of-truth case: an `AdjustmentModel` + per-image data. The GPU
 /// [`FullChainInputs`] (via [`Case::gpu_inputs`]) AND the CPU oracle (via
@@ -263,6 +267,9 @@ impl Case {
             color_grade_global_hue: self.model.color_grade_global_hue,
             color_grade_global_saturation: self.model.color_grade_global_saturation,
             color_grade_global_luminance: self.model.color_grade_global_luminance,
+            color_grade_blending: self.model.color_grade_blending,
+            color_grade_shadow_edge: self.model.color_grade_shadow_edge,
+            color_grade_highlight_edge: self.model.color_grade_highlight_edge,
             sharpen_amount: self.model.sharpen_amount,
             sharpen_radius: self.model.sharpen_radius,
             sharpen_detail: self.model.sharpen_detail,
@@ -283,21 +290,12 @@ impl Case {
             target_primaries: 0,
             // All oracle cases are RAW — the full chain.
             input_shape: crate::full_chain::InputShape::PostDcpRec2020Fp16,
-            // No DNG NoiseProfile — matching the `None` [`cpu_oracle`] passes to
-            // `apply_luminance` / `apply_color`, so both sides run the flat NLM.
-            // The PER-PIXEL modulation (#1714) is gated at the plane and stage
-            // level in `noise_reduction/tests_profile.rs`, where the reference can
-            // be driven with a profile without re-deriving one for the whole
-            // composed chain.
+            // The absent profile and known ISO match the CPU oracle. Both sides
+            // exercise the existing ISO fallback rather than comparing different
+            // per-image metadata. Explicit profile rows are covered separately.
             noise_profile: Vec::new(),
-            iso: 0,
-            // Off by default (`film_lut: None`) — every case that doesn't set
-            // it explicitly gets `film_lut_size: 0`, so `build_split` /
-            // `build_live_split` omit `FilmLutPass` exactly as before this
-            // field existed. `film_lut_key` is a fixed non-zero constant
-            // whenever a look IS loaded — content-identity uniqueness across
-            // DIFFERENT loaded looks is exercised by `live_chain::tests_gating`,
-            // not by this composed-chain harness.
+            iso: CASE_ISO,
+            // Off by default (`film_lut: None`) — omits `FilmLutPass`.
             film_strength: self.film_strength,
             film_lut_size: self.film_lut.as_ref().map_or(0, |l| l.size as u32),
             film_lut_key: if self.film_lut.is_some() { 1 } else { 0 },
@@ -313,6 +311,15 @@ impl Case {
                 green: self.model.display_tone_curve_green.points.clone(),
                 blue: self.model.display_tone_curve_blue.points.clone(),
             },
+            color_curves: ColorCurveInputs {
+                hue_vs_hue: self.model.color_curve_hue_vs_hue.points.clone().into(),
+                hue_vs_sat: self.model.color_curve_hue_vs_sat.points.clone().into(),
+                hue_vs_luma: self.model.color_curve_hue_vs_luma.points.clone().into(),
+                luma_vs_sat: self.model.color_curve_luma_vs_sat.points.clone().into(),
+                sat_vs_sat: self.model.color_curve_sat_vs_sat.points.clone().into(),
+                sat_vs_luma: self.model.color_curve_sat_vs_luma.points.clone().into(),
+            },
+            creative: None,
         }
     }
 }
@@ -348,6 +355,7 @@ fn pre_dehaze_image(input: &[f32], w: u32, h: u32, case: &Case) -> Image {
     raw_core::stages::saturation::apply(&mut img, case.model.saturation);
     // HSL (#1112) — after saturation, before clarity (develop order, scene-linear).
     raw_core::stages::hsl::apply_model(&mut img, &case.model);
+    raw_core::stages::color_curves::apply_model(&mut img, &case.model);
     raw_core::stages::clarity::apply(&mut img, case.model.clarity);
     raw_core::stages::texture::apply(&mut img, case.model.texture);
     img
@@ -425,9 +433,9 @@ pub fn cpu_oracle(input: &[f32], w: u32, h: u32, case: &Case) -> Vec<f32> {
         &mut img,
         case.model.nr_luminance,
         None,
-        100,
+        CASE_ISO,
     );
-    raw_core::stages::noise_reduction::apply_color(&mut img, case.model.nr_color, None, 100);
+    raw_core::stages::noise_reduction::apply_color(&mut img, case.model.nr_color, None, CASE_ISO);
 
     // --- view tail (agx → rec2020_to_srgb → srgb_gamma_encode → curve → LUT,
     //     matching the GPU suffix AND raw-core's render tail exactly). ALWAYS

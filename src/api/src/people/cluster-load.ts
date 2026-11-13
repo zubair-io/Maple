@@ -23,7 +23,7 @@
  * logger (see `db/sqlite/pool.ts`).
  *
  * `clustering-job.ts` keeps every WRITE-side concern (person creation,
- * assignment buffering, centroid persistence, cover backfill, meili reindex).
+ * assignment buffering, centroid persistence, cover backfill, search reindex).
  */
 
 import type { Bbox } from '../db/schema.ts';

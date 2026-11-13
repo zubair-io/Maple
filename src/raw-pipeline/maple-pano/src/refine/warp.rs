@@ -25,7 +25,7 @@
 //! to the uncompensated (identity) template — never a fabricated warp.
 
 use crate::camera::Camera;
-use crate::distortion::distort;
+use crate::distortion::distort_in_domain;
 use crate::math::{Mat3, Vec3};
 
 /// The pair geometry the warp compensation runs on. Both cameras carry
@@ -91,7 +91,7 @@ fn project_camera_frame(cam: &Camera, d: Vec3) -> Option<(f64, f64)> {
     if d.z <= 1e-12 {
         return None;
     }
-    let (xd, yd) = distort(d.x / d.z, d.y / d.z, cam.k1, cam.k2);
+    let (xd, yd) = distort_in_domain(d.x / d.z, d.y / d.z, cam.k1, cam.k2)?;
     let (cx, cy) = cam.principal_point();
     Some((cam.focal_px * xd + cx, cam.focal_px * yd + cy))
 }

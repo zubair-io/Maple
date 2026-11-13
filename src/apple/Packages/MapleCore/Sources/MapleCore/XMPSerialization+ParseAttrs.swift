@@ -168,6 +168,12 @@ extension _XMPParserDelegate {
       model.colorGradeGlobalSaturation = d(value) ?? model.colorGradeGlobalSaturation
     case "crs:ColorGradeGlobalLum":
       model.colorGradeGlobalLuminance = d(value) ?? model.colorGradeGlobalLuminance
+    case "papp:ColorGradeBlending":
+      model.colorGradeBlending = d(value) ?? model.colorGradeBlending
+    case "papp:ColorGradeShadowEdge":
+      model.colorGradeShadowEdge = d(value) ?? model.colorGradeShadowEdge
+    case "papp:ColorGradeHighlightEdge":
+      model.colorGradeHighlightEdge = d(value) ?? model.colorGradeHighlightEdge
     case "crs:WhiteBalance":
       model.whiteBalancePreset = WhiteBalancePreset(rawValue: value) ?? .custom
       if let (t, ti) = model.whiteBalancePreset.pair {
@@ -345,6 +351,10 @@ extension _XMPParserDelegate {
     case "crs:HasCrop", "crs:CropConstrainToWarp": break
     // Consumed at document level in `didStartElement` (#1780).
     case "papp:WbScaleVersion": break
+    // Repair-spot frame stamp (#4473): Apple authored upright before the
+    // stamp existed, so an unstamped list is read as upright; the writer
+    // restamps it on the next save.
+    case "papp:RetouchFrameVersion": break
     // Lightroom culling
     case "xmp:Rating":
       culling.stars = XMPParser.ratingValue(value)

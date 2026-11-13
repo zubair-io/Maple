@@ -170,3 +170,35 @@ fn gauss_eliminate_identity_system() {
     assert!((x[1] - 5.0).abs() < 1e-10);
     assert!((x[2] - 5.0).abs() < 1e-10);
 }
+
+#[test]
+fn reversed_strip_rotations_stay_consistent_across_the_pi_wrap() {
+    let rotated = |a: usize, b: usize, theta_deg: f64| TileConstraint {
+        a,
+        b,
+        sim_ab: Similarity2d {
+            scale: 1.0,
+            theta: theta_deg.to_radians(),
+            tx: 0.0,
+            ty: 300.0,
+        },
+        weight: 50.0,
+    };
+    let constraints = vec![
+        translation_constraint(0, 1, 200.0, 0.0, 50.0),
+        translation_constraint(2, 3, -200.0, 0.0, 50.0),
+        rotated(0, 2, 179.5),
+        rotated(1, 3, -179.5),
+    ];
+    let dims = vec![(400u32, 400u32); 4];
+    let (poses, _, orphans) = solve_tile_poses(4, &constraints, 0, &dims).unwrap();
+    assert!(orphans.is_empty());
+    let off_half_turn = |theta: f64| (theta.abs() - std::f64::consts::PI).abs().to_degrees();
+    for frame in [2, 3] {
+        assert!(
+            off_half_turn(poses[frame].sim.theta) < 1.0,
+            "frame {frame} theta {:.2}°, expected a half turn",
+            poses[frame].sim.theta.to_degrees()
+        );
+    }
+}

@@ -30,6 +30,7 @@ import {
   MuiSettingsRowComponent,
   type GeneratedSearchCard,
   type GeneratedSearchConfig,
+  type GeneratedSearchLastRun,
 } from '@maple-common';
 import {
   GeneratedSearchKnobsComponent,
@@ -88,11 +89,51 @@ export class GeneratedSearchSettingsComponent implements OnInit {
     if (config === null) return '';
     const count = this.cards().length;
     if (!this.enabled()) return `paused · ${config.collections_per_day}/day when enabled`;
-    return count === 0 ? 'no collections yet' : `${count} collections today`;
+    const collections = count === 0 ? 'no collections yet' : `${count} collections today`;
+    return this.lastRun()?.outcome === 'failed' ? `${collections} · last run failed` : collections;
+  });
+
+  /** The latest attempt, so a stalled daily schedule is visible here rather
+   * than only as an absence of new collections. */
+  protected readonly lastRun = signal<GeneratedSearchLastRun | null>(null);
+
+  protected readonly lastRunOutcome = computed(() => {
+    const run = this.lastRun();
+    if (run === null) return 'never run';
+    switch (run.outcome) {
+      case 'saved':
+        return `saved ${run.saved}`;
+      case 'empty':
+        return 'nothing cleared the floor';
+      case 'failed':
+        return run.error === null ? 'failed' : `failed: ${run.error}`;
+      case 'dry-run':
+        return 'dry run, nothing saved';
+      case 'running':
+        return 'running';
+    }
+  });
+
+  protected readonly lastRunAt = computed(() => {
+    const started = this.lastRun()?.started_at;
+    if (started === undefined) return '';
+    const date = new Date(started);
+    return Number.isNaN(date.getTime()) ? '' : date.toLocaleString();
   });
 
   async ngOnInit(): Promise<void> {
     await this.reload();
+  }
+
+  /** A failure is swallowed like the collections list: the config half of
+   * the panel still works without it. */
+  private async loadLastRun(): Promise<void> {
+    try {
+      const response = await firstValueFrom(this.api.getGeneratedSearchLastRun());
+      this.lastRun.set(response.last_run);
+    } catch {
+      this.lastRun.set(null);
+    }
   }
 
   private async reload(): Promise<void> {
@@ -108,8 +149,7 @@ export class GeneratedSearchSettingsComponent implements OnInit {
         retention_days: config.retention_days,
         dry_run: config.dry_run,
       });
-      await this.resolveLibrary();
-      await this.loadCards();
+      await Promise.all([this.loadLastRun(), this.resolveLibrary().then(() => this.loadCards())]);
     } catch (err: unknown) {
       this.error.set(errorMessage(err));
     } finally {
@@ -152,8 +192,9 @@ export class GeneratedSearchSettingsComponent implements OnInit {
    * (not a constant) so the spec can zero it instead of waiting wall-clock. */
   protected refreshDelayMs = 4000;
 
-  /** Kick a pass immediately — the scheduled tick can be up to a day away,
-   * and this is the answer to "I just enabled it, why is nothing happening?".
+  /** Kick a pass immediately — after a failed attempt the schedule backs off
+   * for an hour or more, and this is the answer to "I just enabled it, why is
+   * nothing happening?".
    * A pass takes minutes (LLM calls), so this waits briefly then refreshes
    * the list; a still-running pass simply shows up on the next panel load.
    *
@@ -166,7 +207,7 @@ export class GeneratedSearchSettingsComponent implements OnInit {
     try {
       await firstValueFrom(this.api.runGeneratedSearchNow());
       await new Promise((resolve) => setTimeout(resolve, this.refreshDelayMs));
-      await this.loadCards();
+      await Promise.all([this.loadCards(), this.loadLastRun()]);
     } catch (err: unknown) {
       this.error.set(errorMessage(err));
     } finally {

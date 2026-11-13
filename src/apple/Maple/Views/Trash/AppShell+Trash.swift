@@ -42,17 +42,23 @@ extension AppShell {
         }
         let targets = resolved.compactMap { assetsByID[$0] }
         guard !targets.isEmpty else { return }
+        // The whole batch stays on the share it started on (#4987): a share switch
+        // mid-batch must not send the remaining paths to the newly connected share.
+        let smbSource = browseVM.currentSource as? SMBSource
+        // On iPhone the user can open another folder level while the batch
+        // runs; the trashed photos leave the folder they were picked in.
+        let sourceModel = browseVM
 
         assetTrashTask = Task { @MainActor in
             var results: [AssetTrashItemResult] = []
             var trashedIDs: Set<AssetRef.ID> = []
             for asset in targets {
-                let outcome = await performAssetTrash(asset)
+                let outcome = await performAssetTrash(asset, smbSource: smbSource)
                 results.append(AssetTrashItemResult(id: asset.id, displayName: asset.displayName, outcome: outcome))
                 if case .trashed = outcome { trashedIDs.insert(asset.id) }
             }
             if !trashedIDs.isEmpty {
-                applyTrashedOut(trashedIDs)
+                applyTrashedOut(trashedIDs, from: sourceModel)
             }
             presentTrashResultIfNeeded(results)
             assetTrashTask = nil
@@ -65,7 +71,9 @@ extension AppShell {
 
     // MARK: - Per-item routing
 
-    private func performAssetTrash(_ asset: AssetRef) async -> AssetTrashItemResult.Outcome {
+    private func performAssetTrash(
+        _ asset: AssetRef, smbSource: SMBSource?
+    ) async -> AssetTrashItemResult.Outcome {
         if isPhotoKitAsset(asset) {
             return .failed("PhotoKit photos have no file on disk Maple can trash — delete them from the Photos app instead.")
         }
@@ -75,8 +83,8 @@ extension AppShell {
         if let url = asset.primaryURL {
             return await performLocalTrash(asset, url: url)
         }
-        if browseVM.currentSource is SMBSource {
-            return await performSMBTrash(asset)
+        if let smbSource {
+            return await performSMBTrash(asset, source: smbSource)
         }
         return .failed("This source doesn't support Trash yet.")
     }
@@ -101,11 +109,12 @@ extension AppShell {
 
     // MARK: - SMB
 
-    private func performSMBTrash(_ asset: AssetRef) async -> AssetTrashItemResult.Outcome {
-        guard let source = browseVM.currentSource as? SMBSource, let mapleID = asset.stableID else {
+    private func performSMBTrash(
+        _ asset: AssetRef, source: SMBSource
+    ) async -> AssetTrashItemResult.Outcome {
+        guard let ref = asset.smbMutationRef else {
             return .failed("SMB share is not connected")
         }
-        let ref = ImageRef(id: mapleID, displayName: asset.displayName, url: nil)
         do {
             _ = try await source.trashAsset(ref)
             return .trashed(destination: .mapleTrash)
@@ -133,9 +142,14 @@ extension AppShell {
         do {
             switch try await remote.deleteAsset(assetID: assetID, intent: .trash) {
             case .ok:
+                await ForYouCache.shared.forgetAsset(
+                    host: catalog.serverID.cacheHostKey, assetID: assetID, absPath: catalog.absPath)
                 return .trashed(destination: .cloudTrash)
             case .stateMismatch:
                 return .failed("This photo is already in the Cloud trash.")
+            case .keptSurvivingCopy:
+                // Only a purge answers this; a trash intent never does.
+                return .failed("This photo is still in the library.")
             }
         } catch {
             return .failed(error.localizedDescription)
@@ -146,11 +160,11 @@ extension AppShell {
 
     /// A trashed asset no longer lives in the folder the grid is showing —
     /// same removal shape as `AppShell+AssetDrop.swift`'s `applyMovedOut`.
-    private func applyTrashedOut(_ ids: Set<AssetRef.ID>) {
-        browseVM.assets.removeAll { ids.contains($0.id) }
-        browseVM.selectedIDs.subtract(ids)
-        if let selected = browseVM.selectedID, ids.contains(selected) {
-            browseVM.selectedID = nil
+    private func applyTrashedOut(_ ids: Set<AssetRef.ID>, from model: BrowseViewModel) {
+        model.assets.removeAll { ids.contains($0.id) }
+        model.selectedIDs.subtract(ids)
+        if let selected = model.selectedID, ids.contains(selected) {
+            model.selectedID = nil
         }
         for id in ids {
             sessions.removeValue(forKey: id)
@@ -291,6 +305,10 @@ extension AppShell {
                 switch try await remote.deleteAsset(assetID: row.id, intent: .purge) {
                 case .ok:
                     return .succeeded
+                case .keptSurvivingCopy(let absPath, let cleanupPending):
+                    await refreshCloudGridShowingKeptCopy(at: absPath)
+                    return .kept(notice: CloudTrashKeptCopy.notice(
+                        filename: row.displayName, cleanupPending: cleanupPending))
                 case .stateMismatch:
                     return .stale(reason: "\"\(row.displayName)\" was restored elsewhere — it's no longer in the trash.")
                 }
@@ -298,6 +316,16 @@ extension AppShell {
                 return .failed(error.localizedDescription)
             }
         }
+    }
+
+    /// A kept photo shows again at its surviving copy (#5419): reload the
+    /// Cloud grid when the folder on screen is the one that now holds it.
+    private func refreshCloudGridShowingKeptCopy(at keptAbsPath: String?) async {
+        guard let source = browseVM.currentSource as? CloudSource else { return }
+        let folderPath = await source.currentPath
+        guard CloudTrashKeptCopy.folderShowsKeptCopy(folderPath: folderPath, keptAbsPath: keptAbsPath)
+        else { return }
+        await browseVM.retryLastLoad()
     }
 
     /// Tears down the SMB trash browser's throwaway connection when the

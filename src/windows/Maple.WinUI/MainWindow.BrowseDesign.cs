@@ -34,6 +34,7 @@ public sealed partial class MainWindow
         _browseDesignReady = true;
         UpdateBrowseLocation();
         PhotoGrid.Loaded += (_, _) => ApplyBrowseDensity();
+        ViewModel.BrowseLocationChanged += ScrollBrowseToTop;
         ViewModel.PropertyChanged += (_, e) =>
         {
             if (_closing) return;
@@ -46,6 +47,12 @@ public sealed partial class MainWindow
                 UpdateBrowseLocation();
             }
         };
+    }
+
+    private void ScrollBrowseToTop()
+    {
+        FindDescendant<ScrollViewer>(PhotoGrid)?.ChangeView(null, 0, null, true);
+        FindDescendant<ScrollViewer>(BrowseFolderTiles)?.ChangeView(null, 0, null, true);
     }
 
     private void UpdateBrowseLocation()

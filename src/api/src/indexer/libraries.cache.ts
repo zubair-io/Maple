@@ -28,8 +28,10 @@
  * slug → { libraryId, root, label } map so `resolveAddress` can resolve a
  * slug to a library root with zero additional DB round-trips.
  */
-import type { ObjectId } from '../db/object-id.ts';
-import { listLibraryRoots } from '../db/repos/folders.repo.ts';
+import { ObjectId } from '../db/object-id.ts';
+import type { SqliteDb } from '../db/repos/db-handle.ts';
+import { listLibraryRoots, type LibraryRoot } from '../db/repos/folders.repo.ts';
+import { isSqliteOpen } from '../db/sqlite/index.ts';
 
 /** Resolved library info keyed by slug. */
 export interface LibraryBySlug {
@@ -46,10 +48,15 @@ interface LibraryCache {
 }
 
 let cached: LibraryCache | null = null;
+let loading: Promise<LibraryCache> | null = null;
+let generation = 0;
+let cachedAtMs = 0;
 
-async function loadCache(): Promise<LibraryCache> {
-  if (cached) return cached;
-  const roots = await listLibraryRoots();
+export const UNKNOWN_LIBRARY_RELOAD_MIN_INTERVAL_MS = 5_000;
+const invalidateListeners = new Set<() => void>();
+const NO_LIBRARY_ROOTS: ReadonlyMap<string, string> = new Map();
+
+function buildLibraryCache(roots: readonly LibraryRoot[]): LibraryCache {
   const byId = new Map<string, string>();
   const bySlug = new Map<string, LibraryBySlug>();
   for (const root of roots) {
@@ -60,12 +67,90 @@ async function loadCache(): Promise<LibraryCache> {
     // why this used to be a conditional.
     bySlug.set(root.slug, { libraryId: root.id, root: root.path, label: root.label });
   }
-  cached = { byId, bySlug };
-  return cached;
+  return { byId, bySlug };
+}
+
+async function loadCache(): Promise<LibraryCache> {
+  if (cached) return cached;
+  if (loading) return loading;
+  const loadGeneration = generation;
+  const load = (async () => {
+    const loaded = buildLibraryCache(await listLibraryRoots());
+    // An invalidation that landed while this read was in flight means the rows
+    // may predate the folder change it announced; serve them once, never cache them.
+    if (loadGeneration === generation) {
+      cached = loaded;
+      cachedAtMs = Date.now();
+    }
+    return loaded;
+  })();
+  loading = load;
+  try {
+    return await load;
+  } finally {
+    if (loading === load) loading = null;
+  }
 }
 
 export async function loadLibraryRoots(): Promise<ReadonlyMap<string, string>> {
   return (await loadCache()).byId;
+}
+
+interface AssetLibraryRefs {
+  fileinfo?: readonly { library_id: ObjectId | string; deleted_at?: string | null }[];
+}
+
+function liveLibraryIds(asset: AssetLibraryRefs): string[] {
+  return (asset.fileinfo ?? [])
+    .filter((entry) => !entry.deleted_at)
+    .map((entry) =>
+      typeof entry.library_id === 'string'
+        ? new ObjectId(entry.library_id).toHexString()
+        : entry.library_id.toHexString(),
+    );
+}
+
+/**
+ * `loadLibraryRoots()` for a caller resolving one asset's on-disk location.
+ * The worker process is never told when the API process registers a library,
+ * so a live location pointing at an id the cache has not seen triggers one
+ * re-read of the folders table (at most once per interval, so an asset whose
+ * library is genuinely gone cannot turn every claim into a query).
+ */
+export async function loadLibraryRootsForAsset(
+  asset: AssetLibraryRefs,
+): Promise<ReadonlyMap<string, string>> {
+  const known = await loadLibraryRoots();
+  const hasUnknown = liveLibraryIds(asset).some((id) => !known.has(id));
+  if (!hasUnknown || Date.now() - cachedAtMs < UNKNOWN_LIBRARY_RELOAD_MIN_INTERVAL_MS) {
+    return known;
+  }
+  invalidateLibraryRoots();
+  return loadLibraryRoots();
+}
+
+export function hasUnregisteredLibrary(
+  asset: AssetLibraryRefs,
+  libs: ReadonlyMap<string, string>,
+): boolean {
+  return liveLibraryIds(asset).some((id) => !libs.has(id));
+}
+
+/**
+ * Library roots for the path jail. Served from the same cache, which
+ * `invalidateLibraryRoots` keeps coherent across the API and worker processes;
+ * with no database open (unit tests, shutdown) it reports no roots rather than
+ * opening one, so the jail fails closed.
+ */
+export async function loadJailLibraryRoots(): Promise<ReadonlyMap<string, string>> {
+  if (cached) return cached.byId;
+  return isSqliteOpen() ? loadLibraryRoots() : NO_LIBRARY_ROOTS;
+}
+
+export async function loadSharedLibraryRoots(dbOverride?: SqliteDb): Promise<string[]> {
+  return dbOverride
+    ? (await listLibraryRoots(dbOverride)).map((root) => root.path)
+    : [...(await loadLibraryRoots()).values()];
 }
 
 /**
@@ -77,8 +162,50 @@ export async function getLibraryBySlug(slug: string): Promise<LibraryBySlug | nu
   return c.bySlug.get(slug) ?? null;
 }
 
-export function invalidateLibraryRoots(): void {
+export const LIBRARIES_CACHE_INVALIDATE_MESSAGE = {
+  type: 'libraries-cache-invalidate',
+} as const;
+
+export function isLibrariesCacheInvalidateMessage(message: unknown): boolean {
+  return (
+    typeof message === 'object' &&
+    message !== null &&
+    (message as { type?: unknown }).type === LIBRARIES_CACHE_INVALIDATE_MESSAGE.type
+  );
+}
+
+export function onInvalidateLibraryRoots(listener: () => void): void {
+  invalidateListeners.add(listener);
+}
+
+/** Worker boot: relay library-roots invalidations to/from the parent API process over IPC. */
+export function installWorkerLibraryRootsSync(): void {
+  const send = process.send?.bind(process);
+  if (!send) return;
+  onInvalidateLibraryRoots(() => {
+    try {
+      send(LIBRARIES_CACHE_INVALIDATE_MESSAGE);
+    } catch {
+      /* parent channel closed */
+    }
+  });
+  process.on('message', (message: unknown) => {
+    if (isLibrariesCacheInvalidateMessage(message)) invalidateLibraryRoots({ localOnly: true });
+  });
+}
+
+export function invalidateLibraryRoots(options?: { localOnly?: boolean }): void {
+  generation += 1;
   cached = null;
+  loading = null;
+  if (options?.localOnly) return;
+  for (const listener of invalidateListeners) {
+    try {
+      listener();
+    } catch {
+      /* best effort */
+    }
+  }
 }
 
 /**
@@ -104,11 +231,9 @@ export async function loadLibraryIdToSlug(): Promise<ReadonlyMap<string, string>
  * Pass `null` to revert to the lazy-load behaviour.
  */
 export function setLibraryRootsForTests(map: ReadonlyMap<string, string> | null): void {
-  if (map === null) {
-    cached = null;
-  } else {
-    cached = { byId: map, bySlug: new Map() };
-  }
+  generation += 1;
+  loading = null;
+  cached = map === null ? null : { byId: map, bySlug: new Map() };
 }
 
 /**

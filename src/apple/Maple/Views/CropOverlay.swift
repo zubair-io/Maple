@@ -3,22 +3,25 @@
 // Mounted over the editor canvas while the Crop tool is armed (see
 // EditorView's canvas ZStack). The canvas behind shows the image UNCROPPED
 // (the render path strips the crop while `session.cropEditingActive`) and
-// rotated by the straighten angle (a `.rotationEffect` on the canvas leaf);
-// this view draws the axis-aligned crop rectangle, the darkened mask
-// outside it, the rule-of-thirds grid, and the eight drag handles —
+// rotated by the straighten angle (a `.rotationEffect` on the canvas leaf),
 // matching the renderer's "rotate the frame, then cut an axis-aligned rect"
 // model (spec § 3.12).
 //
-// Crop-rect edits are pure overlay math: dragging a handle mutates
+// The dimmed mask, frame, rule-of-thirds grid and corner dots are drawn by
+// the shared Rust overlay renderer into their own upright layer
+// (`CropOverlayLayerView`, #5715). This view keeps what stays native: the
+// drag gesture and one accessible element per handle, positioned from the
+// same Rust geometry.
+//
+// Crop-rect edits are pure overlay work: dragging a handle mutates
 // `session.model.crop`, which the canvas (rendering uncropped while armed)
-// does NOT re-render for — so a drag costs zero pipeline work. The cropped
+// does NOT re-render for, and redraws only the overlay layer. The cropped
 // result renders once, when the tool disarms.
 //
-// Geometry mirrors the web `CropOverlayComponent`: the footprint is the
-// FULL-FRAME image's fit rect, centered in the canvas wrap (the crop tool
-// forces fit + zero pan on entry, so the painted image maps 1:1 onto it),
-// and all the pure math lives in `MapleCore.CropGeometry` so the platforms
-// can't drift.
+// The footprint is the FULL-FRAME image's fit rect, centered in the canvas
+// wrap (zoom is held at fit + zero pan while the crop tool is armed, #5743,
+// so the painted image maps 1:1 onto it); all the geometry lives in
+// `MapleCore.CropGeometry`.
 
 import SwiftUI
 import MapleCore
@@ -44,6 +47,8 @@ struct CropOverlay: View {
 
     @State private var drag: DragState?
 
+    @Environment(\.displayScale) private var displayScale
+
     var body: some View {
         GeometryReader { geo in
             let wrapW = Double(geo.size.width)
@@ -52,14 +57,21 @@ struct CropOverlay: View {
             let footprint = CropGeometry.fitFootprint(
                 wrapW: wrapW, wrapH: wrapH, imgW: dims.w, imgH: dims.h
             )
-            let cropRect = currentCrop()
-            let rect = CropGeometry.cropRectToPx(cropRect, footprint)
+            let input = CropOverlayInput(
+                crop: currentCrop(),
+                viewport: geo.size,
+                imageSize: CGSize(width: dims.w, height: dims.h),
+                pixelScale: Double(displayScale),
+                activeHandle: drag?.handle
+            )
 
             ZStack(alignment: .topLeading) {
-                maskLayer(rect: rect, footprint: footprint)
-                frameLayer(rect: rect)
-                gridLayer(rect: rect)
-                handleLayer(rect: rect)
+                CropOverlayLayerView(input: input)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+                ForEach(CropOverlaySurface.accessibleHandles, id: \.self) { handle in
+                    handleElement(handle, input: input)
+                }
             }
             .frame(width: geo.size.width, height: geo.size.height)
             .contentShape(Rectangle())
@@ -71,86 +83,32 @@ struct CropOverlay: View {
         .allowsHitTesting(true)
     }
 
-    // MARK: - Layers
+    // MARK: - Accessibility
 
-    private func maskLayer(rect: CropGeometry.PxRect, footprint: CropGeometry.Footprint) -> some View {
-        // Four dark rectangles surrounding the crop box (top / bottom /
-        // left / right), mirroring the web `maskRects` — but bounded to the
-        // image's own footprint rather than the full canvas, so the mask
-        // dims excluded PHOTO content only. Without this, fit-mode letterbox
-        // bars (aspect-mismatched image) and the crop-margin border both read
-        // as part of the mask instead of plain canvas background.
-        let fpLeft = footprint.left
-        let fpTop = footprint.top
-        let fpRight = footprint.left + footprint.width
-        let fpBottom = footprint.top + footprint.height
-        let masks: [CGRect] = [
-            CGRect(x: fpLeft, y: fpTop, width: footprint.width, height: max(0, rect.y - fpTop)),
-            CGRect(x: fpLeft, y: rect.y + rect.height,
-                   width: footprint.width, height: max(0, fpBottom - (rect.y + rect.height))),
-            CGRect(x: fpLeft, y: rect.y, width: max(0, rect.x - fpLeft), height: rect.height),
-            CGRect(x: rect.x + rect.width, y: rect.y,
-                   width: max(0, fpRight - (rect.x + rect.width)), height: rect.height),
-        ]
-        return ZStack(alignment: .topLeading) {
-            ForEach(Array(masks.enumerated()), id: \.offset) { _, m in
-                Rectangle()
-                    .fill(Color.black.opacity(0.55))
-                    .frame(width: m.width, height: m.height)
-                    .offset(x: m.minX, y: m.minY)
-            }
-        }
-        .allowsHitTesting(false)
-    }
-
-    private func frameLayer(rect: CropGeometry.PxRect) -> some View {
-        Rectangle()
-            .stroke(Color.white.opacity(0.9), lineWidth: 1)
-            .frame(width: CGFloat(rect.width), height: CGFloat(rect.height))
-            .offset(x: CGFloat(rect.x), y: CGFloat(rect.y))
+    /// An invisible element over one handle, sized to its grab area, so
+    /// VoiceOver can find each corner and edge of the crop.
+    private func handleElement(_ handle: CropGeometry.Handle, input: CropOverlayInput) -> some View {
+        Color.clear
+            .frame(width: handleTolerance * 2, height: handleTolerance * 2)
             .allowsHitTesting(false)
+            .accessibilityElement()
+            .accessibilityLabel(Self.handleLabel(handle))
+            .accessibilityIdentifier("editor-crop-handle-\(handle.rawValue)")
+            .position(CropOverlaySurface.handleCenter(handle, input))
     }
 
-    private func gridLayer(rect: CropGeometry.PxRect) -> some View {
-        // Rule-of-thirds grid, mirroring the web `gridLines`.
-        let v1 = rect.x + rect.width / 3
-        let v2 = rect.x + 2 * rect.width / 3
-        let h1 = rect.y + rect.height / 3
-        let h2 = rect.y + 2 * rect.height / 3
-        return Path { p in
-            p.move(to: CGPoint(x: v1, y: rect.y))
-            p.addLine(to: CGPoint(x: v1, y: rect.y + rect.height))
-            p.move(to: CGPoint(x: v2, y: rect.y))
-            p.addLine(to: CGPoint(x: v2, y: rect.y + rect.height))
-            p.move(to: CGPoint(x: rect.x, y: h1))
-            p.addLine(to: CGPoint(x: rect.x + rect.width, y: h1))
-            p.move(to: CGPoint(x: rect.x, y: h2))
-            p.addLine(to: CGPoint(x: rect.x + rect.width, y: h2))
+    private static func handleLabel(_ handle: CropGeometry.Handle) -> String {
+        switch handle {
+        case .tl: return "Top-left crop handle"
+        case .tr: return "Top-right crop handle"
+        case .bl: return "Bottom-left crop handle"
+        case .br: return "Bottom-right crop handle"
+        case .t: return "Top crop edge"
+        case .b: return "Bottom crop edge"
+        case .l: return "Left crop edge"
+        case .r: return "Right crop edge"
+        case .move: return "Crop area"
         }
-        .stroke(Color.white.opacity(0.35), lineWidth: 0.5)
-        .allowsHitTesting(false)
-    }
-
-    private func handleLayer(rect: CropGeometry.PxRect) -> some View {
-        // Four corner dots, mirroring the web `corners`. (Edge handles are
-        // hit-tested by `CropGeometry.hitTestHandle` but draw nothing
-        // distinct — the frame edge is their affordance, same as the web
-        // edge bars; corners are the visible grab points.)
-        let corners: [(Double, Double)] = [
-            (rect.x, rect.y),
-            (rect.x + rect.width, rect.y),
-            (rect.x, rect.y + rect.height),
-            (rect.x + rect.width, rect.y + rect.height),
-        ]
-        return ZStack(alignment: .topLeading) {
-            ForEach(Array(corners.enumerated()), id: \.offset) { _, c in
-                Circle()
-                    .fill(Color.white)
-                    .frame(width: 12, height: 12)
-                    .offset(x: CGFloat(c.0) - 6, y: CGFloat(c.1) - 6)
-            }
-        }
-        .allowsHitTesting(false)
     }
 
     // MARK: - Gesture

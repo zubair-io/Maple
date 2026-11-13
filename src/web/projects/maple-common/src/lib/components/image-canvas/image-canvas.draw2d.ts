@@ -55,9 +55,10 @@ export interface EffectivePx {
 
 /**
  * Derive the displayed image size in CSS px for the current zoom: `'fit'`
- * scales the asset into the wrap (never upscaling past 1:1 CSS), a numeric
- * zoom applies directly. Falls back to the reference 6240×4160 asset dims
- * while the real dimensions are unknown (pre-decode).
+ * scales the image into the wrap by the shared zoom model's fit rule (a small
+ * image fills the wrap too, so the first pinch frame continues from it,
+ * #5746), a numeric zoom applies directly. Falls back to the reference
+ * 6240×4160 asset dims while the real dimensions are unknown (pre-decode).
  */
 export function computeEffectivePx(
   zoom: 'fit' | number,
@@ -69,7 +70,7 @@ export function computeEffectivePx(
   const aw = assetW ?? 6240;
   const ah = assetH ?? 4160;
   if (zoom === 'fit') {
-    const scale = Math.min(wrapW / aw, wrapH / ah, 1);
+    const scale = Math.min(wrapW / aw, wrapH / ah);
     return { scale, canvasW: Math.round(aw * scale), canvasH: Math.round(ah * scale) };
   }
   const scale = zoom;

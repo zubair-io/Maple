@@ -160,6 +160,9 @@ fn attributes(
             );
         }
     }
+    if let (false, Some(stamp)) = (model.retouch_spots.is_empty(), model.retouch_frame.stamp()) {
+        attrs.insert("papp:RetouchFrameVersion".into(), stamp.into());
+    }
     if model.auto_exposure == raw_core::types::adjustment::AutoExposureMode::Off {
         attrs.insert("papp:AutoExposure".into(), "Off".into());
     }
@@ -191,6 +194,7 @@ fn owned(key: &str, authored_wb: bool) -> bool {
                 | "xmp:Rating"
                 | "papp:Flag"
                 | "papp:WbScaleVersion"
+                | "papp:RetouchFrameVersion"
         )
         || (authored_wb
             && matches!(

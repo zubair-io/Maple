@@ -41,6 +41,14 @@ export class NativeDetailWorker {
 
   close(): void {
     this.epoch++;
+    this.releaseCurrent();
+  }
+
+  epochSnapshot(): number {
+    return this.epoch;
+  }
+
+  private releaseCurrent(): void {
     this.current?.session.free();
     this.current = null;
   }
@@ -58,7 +66,7 @@ export class NativeDetailWorker {
     if (generation !== this.epoch) throw new NativeDetailSupersededError();
     if (this.current?.sourceId !== sourceId) {
       if (!bytes) throw new Error('Removal RAW session changed; reopen the tool');
-      this.close();
+      this.releaseCurrent();
       this.current = { sourceId, session: this.deps.open(new Uint8Array(bytes), ext) };
     }
     // Synchronous use stays inside the owner: another queued image open must
@@ -67,13 +75,13 @@ export class NativeDetailWorker {
     return action(this.current.session);
   }
 
-  async render(req: NativeDetailRequest): Promise<void> {
-    const generation = this.epoch;
+  async render(req: NativeDetailRequest, dispatchedEpoch?: number): Promise<void> {
+    const generation = dispatchedEpoch ?? this.epoch;
     try {
       await this.deps.ready();
       if (generation !== this.epoch) throw new NativeDetailSupersededError();
       if (this.current?.sourceId !== req.sourceId) {
-        this.close();
+        this.releaseCurrent();
         if (!req.bytes) throw new Error('Native-detail session unavailable');
         this.current = {
           sourceId: req.sourceId,
@@ -142,8 +150,11 @@ const worker = new NativeDetailWorker({
 });
 
 export const closeNativeDetail = (): void => worker.close();
-export const handleNativeDetail = (request: NativeDetailRequest): Promise<void> =>
-  worker.render(request);
+export const nativeDetailEpoch = (): number => worker.epochSnapshot();
+export const handleNativeDetail = (
+  request: NativeDetailRequest,
+  dispatchedEpoch?: number,
+): Promise<void> => worker.render(request, dispatchedEpoch);
 
 export const withNativeRemovalSession = <T>(
   sourceId: string,

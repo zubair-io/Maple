@@ -35,7 +35,7 @@ use raw_core::raster::{
 use raw_core::raster_encode::{encode_raster_opts, RasterEncodeOptions};
 use raw_core::view::encode::TargetPrimaries;
 
-use crate::error::error_message;
+use crate::error::{error_message, guarded_compute};
 
 const FLAG_FILL: u32 = 1;
 const FLAG_AUTO_ORIENT: u32 = 2;
@@ -185,31 +185,33 @@ impl Task for RasterRenderBufTask {
     type JsValue = RasterBufResult;
 
     fn compute(&mut self) -> Result<Self::Output> {
-        let format = match parse_format(self.format.as_deref()) {
-            Ok(f) => f,
-            Err(e) => return Ok(RasterBufResult::err(e)),
-        };
-        let raster = match decode_raster(&self.bytes, None) {
-            Ok(r) => r,
-            Err(e) => {
-                return Ok(RasterBufResult::err(error_message(
-                    "failed to decode raster",
-                    e,
-                )))
-            }
-        };
-        let params = RenderParams {
-            width: self.width,
-            height: self.height,
-            flags: self.flags,
-            filter: self.filter,
-            format,
-            quality: self.quality,
-            effort: self.effort,
-        };
-        Ok(match render_v2(raster, &params) {
-            Ok(bytes) => RasterBufResult::ok(bytes),
-            Err(e) => RasterBufResult::err(e),
+        guarded_compute("RasterRenderBufTask", || {
+            let format = match parse_format(self.format.as_deref()) {
+                Ok(f) => f,
+                Err(e) => return Ok(RasterBufResult::err(e)),
+            };
+            let raster = match decode_raster(&self.bytes, None) {
+                Ok(r) => r,
+                Err(e) => {
+                    return Ok(RasterBufResult::err(error_message(
+                        "failed to decode raster",
+                        e,
+                    )))
+                }
+            };
+            let params = RenderParams {
+                width: self.width,
+                height: self.height,
+                flags: self.flags,
+                filter: self.filter,
+                format,
+                quality: self.quality,
+                effort: self.effort,
+            };
+            Ok(match render_v2(raster, &params) {
+                Ok(bytes) => RasterBufResult::ok(bytes),
+                Err(e) => RasterBufResult::err(e),
+            })
         })
     }
 
@@ -275,39 +277,41 @@ impl Task for RasterFromRawRenderBufTask {
     type JsValue = RasterBufResult;
 
     fn compute(&mut self) -> Result<Self::Output> {
-        let format = match parse_format(self.format.as_deref()) {
-            Ok(f) => f,
-            Err(e) => return Ok(RasterBufResult::err(e)),
-        };
-        let raster = match RasterImage::from_raw(
-            self.src_width,
-            self.src_height,
-            self.channels.min(255) as u8,
-            self.pixels.clone(),
-        ) {
-            Ok(r) => r,
-            Err(e) => {
-                return Ok(RasterBufResult::err(error_message(
-                    "invalid raw pixel input",
-                    e,
-                )))
-            }
-        };
-        // Auto-orient is meaningless with no source metadata — the C ABI
-        // masks the bit out before rendering (`raster_v2.rs` line 246).
-        let flags = self.flags & !FLAG_AUTO_ORIENT;
-        let params = RenderParams {
-            width: self.width,
-            height: self.height,
-            flags,
-            filter: self.filter,
-            format,
-            quality: self.quality,
-            effort: self.effort,
-        };
-        Ok(match render_v2(raster, &params) {
-            Ok(bytes) => RasterBufResult::ok(bytes),
-            Err(e) => RasterBufResult::err(e),
+        guarded_compute("RasterFromRawRenderBufTask", || {
+            let format = match parse_format(self.format.as_deref()) {
+                Ok(f) => f,
+                Err(e) => return Ok(RasterBufResult::err(e)),
+            };
+            let raster = match RasterImage::from_raw(
+                self.src_width,
+                self.src_height,
+                self.channels.min(255) as u8,
+                self.pixels.clone(),
+            ) {
+                Ok(r) => r,
+                Err(e) => {
+                    return Ok(RasterBufResult::err(error_message(
+                        "invalid raw pixel input",
+                        e,
+                    )))
+                }
+            };
+            // Auto-orient is meaningless with no source metadata — the C ABI
+            // masks the bit out before rendering (`raster_v2.rs` line 246).
+            let flags = self.flags & !FLAG_AUTO_ORIENT;
+            let params = RenderParams {
+                width: self.width,
+                height: self.height,
+                flags,
+                filter: self.filter,
+                format,
+                quality: self.quality,
+                effort: self.effort,
+            };
+            Ok(match render_v2(raster, &params) {
+                Ok(bytes) => RasterBufResult::ok(bytes),
+                Err(e) => RasterBufResult::err(e),
+            })
         })
     }
 

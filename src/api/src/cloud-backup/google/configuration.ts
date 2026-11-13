@@ -1,4 +1,4 @@
-import { GoogleConnectionError, type GoogleConfig } from './config.ts';
+import { GoogleConnectionError, withoutCredentials, type GoogleConfig } from './config.ts';
 import { managedClientId } from './managed.ts';
 import type { GoogleFetch } from './oauth.ts';
 
@@ -32,17 +32,8 @@ export async function configuredGoogleClient(
     clientId !== current.clientId ||
     clientSecret !== current.clientSecret ||
     callbackMode !== current.callbackMode;
-  return {
-    changed,
-    config: {
-      ...current,
-      clientMode,
-      clientId,
-      clientSecret,
-      callbackMode,
-      ...(changed ? { refreshToken: null, relayGrant: null } : {}),
-    },
-  };
+  const config = { ...current, clientMode, clientId, clientSecret, callbackMode };
+  return { changed, config: changed ? withoutCredentials(config) : config };
 }
 
 async function managedApplication(body: GoogleConfigPatch, transport?: GoogleFetch) {

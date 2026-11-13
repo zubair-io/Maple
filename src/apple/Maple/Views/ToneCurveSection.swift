@@ -89,7 +89,10 @@ struct ToneCurveSection: View {
   /// model, not a value stored in it, so it deliberately does NOT persist to
   /// the sidecar.
   @State private var selectedChannelID = "luma"
+  @State private var activeRegion: ParametricRegion?
+  @State private var selectedKnotIndex: Int?
   @Environment(\.toneCurveKeyboardBridge) private var keyboardBridge
+  @Environment(\.mapleLayout) private var layout
   @State private var curveKeyHandler: ((KeyPress) -> KeyPress.Result)?
 
   private var channels: [Channel] {
@@ -105,11 +108,31 @@ struct ToneCurveSection: View {
   }
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 10) {
+    VStack(alignment: .leading, spacing: layout == .phone ? 6 : 10) {
       familyRow
+      if selectedFamily == .sceneLinear {
+        ToneCurveModeRow(
+          mode: state.session.model.toneCurveMode,
+          onSelect: { newMode in
+            keyboardBridge?.resign?()
+            state.commit(description: "Tone Curve mode")
+            state.session.model.toneCurveMode = newMode
+            state.session.endEdit()
+          }
+        )
+      }
       channelRow
       curvePlot
+        .frame(maxWidth: .infinity, alignment: .center)
+      if let knotInfo = selectedKnotInfo {
+        ToneCurveKnotReadout(
+          knot: knotInfo.knot,
+          isEndpoint: knotInfo.isEndpoint,
+          onDelete: deleteSelectedKnot
+        )
+      }
       if selectedFamily == .sceneLinear {
+        splitBar
         regionSliders
       }
     }
@@ -132,8 +155,82 @@ struct ToneCurveSection: View {
         if editing { state.commit() } else { state.endGesture() }
       },
       keyboardBridge: keyboardBridge,
-      onKeyHandlerChanged: { handler in curveKeyHandler = handler }
+      onKeyHandlerChanged: { handler in curveKeyHandler = handler },
+      activeRegion: selectedFamily == .sceneLinear ? activeRegion : nil,
+      shadowSplit: state.session.model.parametricShadowSplit,
+      midtoneSplit: state.session.model.parametricMidtoneSplit,
+      highlightSplit: state.session.model.parametricHighlightSplit,
+      onSelectedKnotChanged: { idx in selectedKnotIndex = idx }
     )
+  }
+
+  private var selectedKnotInfo: (knot: ToneCurvePoint, isEndpoint: Bool)? {
+    guard let idx = selectedKnotIndex else { return nil }
+    let list = ToneCurveEditing.materialize(points)
+    guard list.indices.contains(idx) else { return nil }
+    return (list[idx], idx == 0 || idx == list.count - 1)
+  }
+
+  private func deleteSelectedKnot() {
+    guard let idx = selectedKnotIndex else { return }
+    let next = ToneCurveEditing.remove(points, index: idx)
+    guard ToneCurve(points: next) != ToneCurve(points: points) else { return }
+    selectedKnotIndex = nil
+    state.commit()
+    writeCurve(next)
+    state.endGesture()
+  }
+
+  private var splitBar: some View {
+    ToneCurveSplitBar(
+      shadowSplit: state.session.model.parametricShadowSplit,
+      midtoneSplit: state.session.model.parametricMidtoneSplit,
+      highlightSplit: state.session.model.parametricHighlightSplit,
+      onChange: { handle, value in
+        switch handle {
+        case .shadow: state.session.model.parametricShadowSplit = value
+        case .midtone: state.session.model.parametricMidtoneSplit = value
+        case .highlight: state.session.model.parametricHighlightSplit = value
+        }
+      },
+      onEditingChanged: { handle, editing in
+        if editing {
+          keyboardBridge?.resign?()
+          activeRegion = Self.region(forSplit: handle)
+          state.commit(description: "Tone Curve split")
+        } else {
+          activeRegion = nil
+          state.endGesture()
+        }
+      },
+      onReset: { handle in
+        keyboardBridge?.resign?()
+        state.commit(description: "Reset Tone Curve split")
+        switch handle {
+        case .shadow: state.session.model.parametricShadowSplit = ToneCurveSplits.defaultShadow
+        case .midtone: state.session.model.parametricMidtoneSplit = ToneCurveSplits.defaultMidtone
+        case .highlight:
+          state.session.model.parametricHighlightSplit = ToneCurveSplits.defaultHighlight
+        }
+        state.session.endEdit()
+      },
+      onResetAll: {
+        keyboardBridge?.resign?()
+        state.commit(description: "Reset Tone Curve splits")
+        state.session.model.parametricShadowSplit = ToneCurveSplits.defaultShadow
+        state.session.model.parametricMidtoneSplit = ToneCurveSplits.defaultMidtone
+        state.session.model.parametricHighlightSplit = ToneCurveSplits.defaultHighlight
+        state.session.endEdit()
+      }
+    )
+  }
+
+  private static func region(forSplit handle: ParametricSplitHandle) -> ParametricRegion {
+    switch handle {
+    case .shadow: return .shadows
+    case .midtone: return .darks
+    case .highlight: return .highlights
+    }
   }
 
   // MARK: - Family selector
@@ -225,8 +322,10 @@ struct ToneCurveSection: View {
       onEditingChanged: { editing in
         if editing {
           keyboardBridge?.resign?()
+          activeRegion = ParametricRegion(rawValue: sub.id)
           state.beginSliderInteraction(tool: .toneCurve, subParamID: sub.id)
         } else {
+          activeRegion = nil
           state.endGesture()
         }
       }

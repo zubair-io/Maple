@@ -92,16 +92,17 @@ final class SharpenSliderTickPerfTests: XCTestCase {
 
         let pipeline = ImageEditPipeline()
         let asset = AssetRef(url: fixtureURL)
-        guard let decoded = await pipeline.decodeSceneLinear(
+        guard let decodeResult = await pipeline.decodeSceneLinear(
             asset: asset,
             quality: .preview,
             xmpPath: nil
-        ).map(\.image) else {
+        ) else {
             throw XCTSkip(
                 "decodeSceneLinear returned nil for \(fixtureURL.lastPathComponent) " +
                 "(likely an unsupported RAW format in this build of rawler)."
             )
         }
+        let decoded = decodeResult.image
 
         let asShot: ImageEditPipeline.AsShotWB? = {
             guard let meta = ImageMetadataReader.readAsShotWB(from: fixtureURL) else {
@@ -176,6 +177,7 @@ final class SharpenSliderTickPerfTests: XCTestCase {
             return SliderTickPerfHarness.measureDrag(
                 pipeline: pipeline,
                 decoded: decoded,
+                wbFrame: decodeResult.wbFrame,
                 asShot: asShot,
                 assetID: asset.id,
                 ctx: ctx,

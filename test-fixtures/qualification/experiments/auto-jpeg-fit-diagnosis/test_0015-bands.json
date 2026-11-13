@@ -1,0 +1,235 @@
+{
+  "baked_lut_before_pixel_mean": [
+    {
+      "band": 0,
+      "bias": [
+        0.18368422047777064,
+        0.19206652385119405,
+        0.19471642780924084
+      ],
+      "breach": true,
+      "measurable": true,
+      "n": 17295
+    },
+    {
+      "band": 1,
+      "bias": [
+        0.12507417859074202,
+        0.12590137042056446,
+        0.14608378757250856
+      ],
+      "breach": true,
+      "measurable": true,
+      "n": 35915
+    },
+    {
+      "band": 2,
+      "bias": [
+        0.023385230737770005,
+        0.008099352711014588,
+        0.01919295025200424
+      ],
+      "breach": false,
+      "measurable": true,
+      "n": 65439
+    },
+    {
+      "band": 3,
+      "bias": [
+        0.024578656991169467,
+        -0.028840042962508056,
+        -0.07194436349473658
+      ],
+      "breach": true,
+      "measurable": true,
+      "n": 98972
+    },
+    {
+      "band": 4,
+      "bias": [
+        -0.15556734211744253,
+        -0.15858684347374982,
+        -0.1527155670106224
+      ],
+      "breach": true,
+      "measurable": true,
+      "n": 5419
+    }
+  ],
+  "baked_lut_on_pair_mean": [
+    {
+      "band": 0,
+      "bias": [
+        0.19523471979008103,
+        0.20286752790246018,
+        0.20503422052403747
+      ],
+      "breach": true,
+      "measurable": true,
+      "n": 17295
+    },
+    {
+      "band": 1,
+      "bias": [
+        0.13363828675155767,
+        0.13372400759194333,
+        0.153323040479338
+      ],
+      "breach": true,
+      "measurable": true,
+      "n": 35915
+    },
+    {
+      "band": 2,
+      "bias": [
+        0.028161678494360035,
+        0.012448638064599813,
+        0.023059942833607905
+      ],
+      "breach": false,
+      "measurable": true,
+      "n": 65439
+    },
+    {
+      "band": 3,
+      "bias": [
+        0.025281025622075716,
+        -0.02819450134050488,
+        -0.07139598416860177
+      ],
+      "breach": true,
+      "measurable": true,
+      "n": 98972
+    },
+    {
+      "band": 4,
+      "bias": [
+        -0.15510963398188457,
+        -0.1580895560130705,
+        -0.1523592742821633
+      ],
+      "breach": true,
+      "measurable": true,
+      "n": 5419
+    }
+  ],
+  "direct_model_on_pair_mean": [
+    {
+      "band": 0,
+      "bias": [
+        0.21268021262499354,
+        0.22540383374398715,
+        0.2134886537204397
+      ],
+      "breach": true,
+      "measurable": true,
+      "n": 17295
+    },
+    {
+      "band": 1,
+      "bias": [
+        0.13851274236005676,
+        0.14446954284121064,
+        0.153425784124139
+      ],
+      "breach": true,
+      "measurable": true,
+      "n": 35915
+    },
+    {
+      "band": 2,
+      "bias": [
+        0.026380689893730856,
+        0.01719064046966995,
+        0.02386169807068064
+      ],
+      "breach": false,
+      "measurable": true,
+      "n": 65439
+    },
+    {
+      "band": 3,
+      "bias": [
+        0.017628416056181172,
+        -0.027210090271892202,
+        -0.06178336056102976
+      ],
+      "breach": true,
+      "measurable": true,
+      "n": 98972
+    },
+    {
+      "band": 4,
+      "bias": [
+        -0.1606328336707251,
+        -0.1566339950430413,
+        -0.14560705805027213
+      ],
+      "breach": true,
+      "measurable": true,
+      "n": 5419
+    }
+  ],
+  "fit_stats": {
+    "patches_used": 223038
+  },
+  "geometry": "production fit pair sampler: integer-span box means; physical gate independently uses Pillow BOX",
+  "input": [
+    {
+      "band": 0,
+      "bias": [
+        0.007135756676744677,
+        -0.011004225736315383,
+        0.023968520153816827
+      ],
+      "breach": false,
+      "measurable": true,
+      "n": 17295
+    },
+    {
+      "band": 1,
+      "bias": [
+        -0.07189657881116404,
+        -0.0996451167395974,
+        -0.045342696793937515
+      ],
+      "breach": true,
+      "measurable": true,
+      "n": 35915
+    },
+    {
+      "band": 2,
+      "bias": [
+        -0.1403419984319338,
+        -0.19921309501610132,
+        -0.18322173101621508
+      ],
+      "breach": true,
+      "measurable": true,
+      "n": 65439
+    },
+    {
+      "band": 3,
+      "bias": [
+        -0.016781486766392906,
+        -0.17163393169480246,
+        -0.32111357224895176
+      ],
+      "breach": true,
+      "measurable": true,
+      "n": 98972
+    },
+    {
+      "band": 4,
+      "bias": [
+        -0.2081140711677401,
+        -0.2534799484584517,
+        -0.282255988897356
+      ],
+      "breach": true,
+      "measurable": true,
+      "n": 5419
+    }
+  ],
+  "purpose": "JPEG-pair fit diagnostic, not the physical PNG gate; default pinned prefix, no ACR inputs"
+}

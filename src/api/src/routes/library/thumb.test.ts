@@ -12,14 +12,20 @@
 
 import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
 import { Elysia } from 'elysia';
-import { mkdir, mkdtemp, writeFile, rm, realpath } from 'node:fs/promises';
+import { mkdir, mkdtemp, readdir, writeFile, rm, realpath } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 import { thumbRoutes } from './thumb.ts';
-import { resolveThumbPath } from '../../fs/xmp.ts';
+import { resolveThumbPath, sha256Prefix16 } from '../../fs/xmp.ts';
 import { invalidateLibraryRoots } from '../../indexer/libraries.cache.ts';
 import { registerLibrary, seedRouteAsset } from '../../../tests/helpers/assets-route-fixtures.ts';
 import { newObjectIdHex } from '../../db/object-id.ts';
+import { solidJpeg } from '../../test-support/synth-image.ts';
+import { audioOnlyVideo } from '../../test-support/synth-video.ts';
+import { writeSettledFile } from '../../test-support/settled-file.ts';
+import { ffmpegBinary } from '../../thumbs/video-poster.ts';
+import { _setFfiPoolForTests } from '../../ffi/ffi-pool.ts';
+import { developRejection } from '../../ffi/unsupported-camera.ts';
 import {
   createLiveTestDatabase,
   type LiveTestDatabase,
@@ -103,15 +109,67 @@ describe('GET /thumb/:slug/*', () => {
     expect(second.headers.get('ETag')).toBe(etag);
   });
 
+  describe('edge-cacheability header (#4750)', () => {
+    async function requestSeeded(filename: string, hidden: boolean) {
+      const id = seedRouteAsset(live.db, {
+        libraryId,
+        path: '',
+        filename,
+        mapleId: newObjectIdHex(),
+      });
+      if (hidden) live.db.run(`UPDATE assets SET hidden = 1 WHERE id = ?`, [id]);
+      const src = path.join(tmpDir, filename);
+      await writeFile(src, 'fake-source');
+      const thumbPath = resolveThumbPath(src);
+      await mkdir(path.dirname(thumbPath), { recursive: true });
+      await writeFile(thumbPath, 'thumb-bytes');
+      return app.handle(new Request(`http://localhost/thumb/thumblib/${filename}`));
+    }
+
+    test('a visible indexed asset carries no opt-out', async () => {
+      const res = await requestSeeded('visible.jpg', false);
+      expect(res.status).toBe(200);
+      expect(res.headers.get('X-Maple-Cacheable')).toBeNull();
+    });
+
+    test('a hidden asset tells the edge not to mirror it', async () => {
+      const res = await requestSeeded('hidden.jpg', true);
+      expect(res.status).toBe(200);
+      expect(res.headers.get('X-Maple-Cacheable')).toBe('0');
+    });
+
+    test('an un-indexed file tells the edge not to mirror it', async () => {
+      const src = path.join(tmpDir, 'unindexed.jpg');
+      await writeFile(src, 'fake-source');
+      const thumbPath = resolveThumbPath(src);
+      await mkdir(path.dirname(thumbPath), { recursive: true });
+      await writeFile(thumbPath, 'thumb-bytes');
+      const res = await app.handle(new Request('http://localhost/thumb/thumblib/unindexed.jpg'));
+      expect(res.headers.get('X-Maple-Cacheable')).toBe('0');
+    });
+  });
+
   test('never serves corrupt unindexed video bytes as an image', async () => {
     const src = path.join(tmpDir, 'clip.mov');
     await writeFile(src, 'fake-video-bytes');
 
     const res = await app.handle(new Request('http://localhost/thumb/thumblib/clip.mov'));
-    expect([404, 503]).toContain(res.status);
+    expect([404, 422, 503]).toContain(res.status);
     expect(res.status).not.toBe(200);
     expect(res.headers.get('Content-Type')).not.toBe('image/jpeg');
     expect(res.headers.get('Content-Type')).not.toBe('image/avif');
+  });
+
+  test('answers 404 no-video-stream for an audio-only video container (#5513)', async () => {
+    const ffmpeg = await ffmpegBinary();
+    const clip = ffmpeg && (await audioOnlyVideo(ffmpeg, path.join(tmpDir, 'take.mov')));
+    if (!clip) return;
+    const res = await app.handle(new Request('http://localhost/thumb/thumblib/take.mov'));
+    expect(res.status).toBe(404);
+    expect(await res.json()).toEqual({
+      error: 'This file has no video frame',
+      code: 'no-video-stream',
+    });
   });
 
   test('never serves corrupt indexed video bytes as an image', async () => {
@@ -126,7 +184,7 @@ describe('GET /thumb/:slug/*', () => {
     await writeFile(src, 'fake-video-bytes-2');
 
     const res = await app.handle(new Request('http://localhost/thumb/thumblib/indexed-clip.mp4'));
-    expect([404, 503]).toContain(res.status);
+    expect([404, 422, 503]).toContain(res.status);
     expect(res.status).not.toBe(200);
     expect(res.headers.get('Content-Type')).not.toBe('image/jpeg');
     expect(res.headers.get('Content-Type')).not.toBe('image/avif');
@@ -187,5 +245,96 @@ describe('GET /thumb/:slug/*', () => {
     );
     expect(res.status).toBe(304);
     expect(res.headers.get('ETag')).toBe(etag);
+  });
+
+  test('ignores a pv query param and sends no pipeline-version header (#4793)', async () => {
+    const src = path.join(tmpDir, 'old-client.jpg');
+    await writeFile(src, 'fake-source');
+    const thumbPath = resolveThumbPath(src);
+    await mkdir(path.dirname(thumbPath), { recursive: true });
+    await writeFile(thumbPath, 'thumb-bytes');
+
+    for (const query of ['?pv=24', '?pv=25', '?pv=999']) {
+      const res = await app.handle(
+        new Request(`http://localhost/thumb/thumblib/old-client.jpg${query}`),
+      );
+      expect(res.status).toBe(200);
+      expect(res.headers.get('X-Maple-Pipeline-Version')).toBeNull();
+    }
+  });
+
+  test('renames the frozen legacy hashed thumb into place on a miss instead of regenerating (#4793)', async () => {
+    const src = path.join(tmpDir, 'IMG_1234.CR2');
+    await writeFile(src, 'fake-raw');
+    const thumbsDir = path.join(tmpDir, '.maple', 'thumbs');
+    await mkdir(thumbsDir, { recursive: true });
+    await writeFile(path.join(thumbsDir, `${sha256Prefix16('IMG_1234.CR2')}.v25.avif`), 'legacy');
+
+    const res = await app.handle(new Request('http://localhost/thumb/thumblib/IMG_1234.CR2'));
+    expect(res.status).toBe(200);
+    expect(res.headers.get('X-Thumb-Cache')).toBe('hit');
+    expect(await res.text()).toBe('legacy');
+    expect(resolveThumbPath(src)).toBe(path.join(thumbsDir, 'IMG_1234.CR2.avif'));
+    expect(await readdir(thumbsDir)).toEqual(['IMG_1234.CR2.avif']);
+  });
+
+  describe('on-demand generation outcomes (#5474)', () => {
+    test('generates a thumb for an original wider than 16384 px on the first request', async () => {
+      await writeFile(
+        path.join(tmpDir, 'DJI_0483_D.JPG'),
+        await solidJpeg(19_000, 8, [90, 140, 200]),
+      );
+      const res = await app.handle(new Request('http://localhost/thumb/thumblib/DJI_0483_D.JPG'));
+      expect(res.status).toBe(200);
+      expect(res.headers.get('Content-Type')).toBe('image/avif');
+      expect(res.headers.get('X-Thumb-Cache')).toBe('miss');
+    }, 60_000);
+
+    test('answers 422 source-undecodable when the decoder refuses the original', async () => {
+      await writeSettledFile(
+        path.join(tmpDir, 'broken.jpg'),
+        Buffer.from('\xff\xd8not a jpeg', 'latin1'),
+      );
+      const res = await app.handle(new Request('http://localhost/thumb/thumblib/broken.jpg'));
+      expect(res.status).toBe(422);
+      expect(await res.json()).toEqual({
+        error: 'This photo cannot be decoded',
+        code: 'source-undecodable',
+      });
+    });
+
+    test('answers 422 camera-unsupported for a RAW the decoder has no body for (#5499)', async () => {
+      await writeFile(path.join(tmpDir, 'frame.3fr'), Buffer.alloc(1024));
+      const previous = _setFfiPoolForTests({
+        available: () => true,
+        poolSize: () => 1,
+        renderThumbnailAvifToFile: () => Promise.reject(new Error('render-failed')),
+        renderDevelopJpegToFile: (rawPath: string) =>
+          Promise.reject(
+            developRejection('unsupported camera: Hasselblad Hasselblad H2D', rawPath),
+          ),
+      } as never);
+      try {
+        const res = await app.handle(new Request('http://localhost/thumb/thumblib/frame.3fr'));
+        expect(res.status).toBe(422);
+        expect(await res.json()).toEqual({
+          error: 'This camera is not supported yet',
+          code: 'camera-unsupported',
+        });
+      } finally {
+        _setFfiPoolForTests(previous);
+      }
+    });
+
+    test('still answers 404 when an indexed original is gone from disk', async () => {
+      seedRouteAsset(live.db, {
+        libraryId,
+        path: '',
+        filename: 'vanished.jpg',
+        mapleId: newObjectIdHex(),
+      });
+      const res = await app.handle(new Request('http://localhost/thumb/thumblib/vanished.jpg'));
+      expect(res.status).toBe(404);
+    });
   });
 });

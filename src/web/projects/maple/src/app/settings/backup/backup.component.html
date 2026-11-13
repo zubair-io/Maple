@@ -110,6 +110,15 @@
                     (checkedChange)="enabled(destination, $event)"
                   />
                 </div>
+                @if (disconnectedMessage(destination); as disconnected) {
+                  <mui-banner
+                    class="mt-2"
+                    variant="error"
+                    [message]="disconnected"
+                    actionLabel="Show reconnect options"
+                    (actionPressed)="expanded.set(destination.id)"
+                  />
+                }
                 @if (destination.path) {
                   <p class="font-mono text-[12px] break-all">{{ destination.path }}</p>
                 }
@@ -138,6 +147,8 @@
                 </div>
                 @if (destination.status.lastError) {
                   <p role="alert" class="text-error-text text-[12px]">
+                    {{ destination.status.lastErrorCount }}
+                    {{ destination.status.lastErrorCount === 1 ? 'entry' : 'entries' }}:
                     {{ destination.status.lastError }}
                   </p>
                 }

@@ -1,0 +1,857 @@
+{
+  "physical_inputs_verified": 963,
+  "allowed_absent_detail_down_tiers": [
+    {
+      "case": "test_0000/nr_color_max",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    },
+    {
+      "case": "test_0000/nr_color_min",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    },
+    {
+      "case": "test_0000/nr_luminance_max",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    },
+    {
+      "case": "test_0000/sharpen_amount_max",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    },
+    {
+      "case": "test_0000/sharpen_amount_min",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    },
+    {
+      "case": "test_0000/sharpen_detail_max",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    },
+    {
+      "case": "test_0000/sharpen_detail_min",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    },
+    {
+      "case": "test_0000/sharpen_masking_max",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    },
+    {
+      "case": "test_0000/sharpen_radius_max",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    },
+    {
+      "case": "test_0000/sharpen_radius_min",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    },
+    {
+      "case": "test_0001/nr_color_max",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    },
+    {
+      "case": "test_0001/nr_color_min",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    },
+    {
+      "case": "test_0001/nr_luminance_max",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    },
+    {
+      "case": "test_0001/sharpen_amount_max",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    },
+    {
+      "case": "test_0001/sharpen_amount_min",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    },
+    {
+      "case": "test_0001/sharpen_detail_max",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    },
+    {
+      "case": "test_0001/sharpen_detail_min",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    },
+    {
+      "case": "test_0001/sharpen_masking_max",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    },
+    {
+      "case": "test_0001/sharpen_radius_max",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    },
+    {
+      "case": "test_0001/sharpen_radius_min",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    },
+    {
+      "case": "test_0003/nr_color_max",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    },
+    {
+      "case": "test_0003/nr_color_min",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    },
+    {
+      "case": "test_0003/nr_luminance_max",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    },
+    {
+      "case": "test_0003/sharpen_amount_max",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    },
+    {
+      "case": "test_0003/sharpen_amount_min",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    },
+    {
+      "case": "test_0003/sharpen_detail_max",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    },
+    {
+      "case": "test_0003/sharpen_detail_min",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    },
+    {
+      "case": "test_0003/sharpen_masking_max",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    },
+    {
+      "case": "test_0003/sharpen_radius_max",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    },
+    {
+      "case": "test_0003/sharpen_radius_min",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    },
+    {
+      "case": "test_0004/nr_color_max",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    },
+    {
+      "case": "test_0004/nr_color_min",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    },
+    {
+      "case": "test_0004/nr_luminance_max",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    },
+    {
+      "case": "test_0004/sharpen_amount_max",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    },
+    {
+      "case": "test_0004/sharpen_amount_min",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    },
+    {
+      "case": "test_0004/sharpen_detail_max",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    },
+    {
+      "case": "test_0004/sharpen_detail_min",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    },
+    {
+      "case": "test_0004/sharpen_masking_max",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    },
+    {
+      "case": "test_0004/sharpen_radius_max",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    },
+    {
+      "case": "test_0004/sharpen_radius_min",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    },
+    {
+      "case": "test_0005/nr_color_max",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    },
+    {
+      "case": "test_0005/nr_color_min",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    },
+    {
+      "case": "test_0005/nr_luminance_max",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    },
+    {
+      "case": "test_0005/sharpen_amount_max",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    },
+    {
+      "case": "test_0005/sharpen_amount_min",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    },
+    {
+      "case": "test_0005/sharpen_detail_max",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    },
+    {
+      "case": "test_0005/sharpen_detail_min",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    },
+    {
+      "case": "test_0005/sharpen_masking_max",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    },
+    {
+      "case": "test_0005/sharpen_radius_max",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    },
+    {
+      "case": "test_0005/sharpen_radius_min",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    },
+    {
+      "case": "test_0006/nr_color_max",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    },
+    {
+      "case": "test_0006/nr_color_min",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    },
+    {
+      "case": "test_0006/nr_luminance_max",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    },
+    {
+      "case": "test_0006/sharpen_amount_max",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    },
+    {
+      "case": "test_0006/sharpen_amount_min",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    },
+    {
+      "case": "test_0006/sharpen_detail_max",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    },
+    {
+      "case": "test_0006/sharpen_detail_min",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    },
+    {
+      "case": "test_0006/sharpen_masking_max",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    },
+    {
+      "case": "test_0006/sharpen_radius_max",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    },
+    {
+      "case": "test_0006/sharpen_radius_min",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    },
+    {
+      "case": "test_0007/nr_color_max",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    },
+    {
+      "case": "test_0007/nr_color_min",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    },
+    {
+      "case": "test_0007/nr_luminance_max",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    },
+    {
+      "case": "test_0007/sharpen_amount_max",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    },
+    {
+      "case": "test_0007/sharpen_amount_min",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    },
+    {
+      "case": "test_0007/sharpen_detail_max",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    },
+    {
+      "case": "test_0007/sharpen_detail_min",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    },
+    {
+      "case": "test_0007/sharpen_masking_max",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    },
+    {
+      "case": "test_0007/sharpen_radius_max",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    },
+    {
+      "case": "test_0007/sharpen_radius_min",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    },
+    {
+      "case": "test_0008/nr_color_max",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    },
+    {
+      "case": "test_0008/nr_color_min",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    },
+    {
+      "case": "test_0008/nr_luminance_max",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    },
+    {
+      "case": "test_0008/sharpen_amount_max",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    },
+    {
+      "case": "test_0008/sharpen_amount_min",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    },
+    {
+      "case": "test_0008/sharpen_detail_max",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    },
+    {
+      "case": "test_0008/sharpen_detail_min",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    },
+    {
+      "case": "test_0008/sharpen_masking_max",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    },
+    {
+      "case": "test_0008/sharpen_radius_max",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    },
+    {
+      "case": "test_0008/sharpen_radius_min",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    },
+    {
+      "case": "test_0009/nr_color_max",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    },
+    {
+      "case": "test_0009/nr_color_min",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    },
+    {
+      "case": "test_0009/nr_luminance_max",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    },
+    {
+      "case": "test_0009/sharpen_amount_max",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    },
+    {
+      "case": "test_0009/sharpen_amount_min",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    },
+    {
+      "case": "test_0009/sharpen_detail_max",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    },
+    {
+      "case": "test_0009/sharpen_detail_min",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    },
+    {
+      "case": "test_0009/sharpen_masking_max",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    },
+    {
+      "case": "test_0009/sharpen_radius_max",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    },
+    {
+      "case": "test_0009/sharpen_radius_min",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    },
+    {
+      "case": "test_0010/nr_color_max",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    },
+    {
+      "case": "test_0010/nr_color_min",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    },
+    {
+      "case": "test_0010/nr_luminance_max",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    },
+    {
+      "case": "test_0010/sharpen_amount_max",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    },
+    {
+      "case": "test_0010/sharpen_amount_min",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    },
+    {
+      "case": "test_0010/sharpen_detail_max",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    },
+    {
+      "case": "test_0010/sharpen_detail_min",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    },
+    {
+      "case": "test_0010/sharpen_masking_max",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    },
+    {
+      "case": "test_0010/sharpen_radius_max",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    },
+    {
+      "case": "test_0010/sharpen_radius_min",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    },
+    {
+      "case": "test_0011/nr_color_max",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    },
+    {
+      "case": "test_0011/nr_color_min",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    },
+    {
+      "case": "test_0011/nr_luminance_max",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    },
+    {
+      "case": "test_0011/sharpen_amount_max",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    },
+    {
+      "case": "test_0011/sharpen_amount_min",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    },
+    {
+      "case": "test_0011/sharpen_detail_max",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    },
+    {
+      "case": "test_0011/sharpen_detail_min",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    },
+    {
+      "case": "test_0011/sharpen_masking_max",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    },
+    {
+      "case": "test_0011/sharpen_radius_max",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    },
+    {
+      "case": "test_0011/sharpen_radius_min",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    },
+    {
+      "case": "test_0012/nr_color_max",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    },
+    {
+      "case": "test_0012/nr_color_min",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    },
+    {
+      "case": "test_0012/nr_luminance_max",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    },
+    {
+      "case": "test_0012/sharpen_amount_max",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    },
+    {
+      "case": "test_0012/sharpen_amount_min",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    },
+    {
+      "case": "test_0012/sharpen_detail_max",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    },
+    {
+      "case": "test_0012/sharpen_detail_min",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    },
+    {
+      "case": "test_0012/sharpen_masking_max",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    },
+    {
+      "case": "test_0012/sharpen_radius_max",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    },
+    {
+      "case": "test_0012/sharpen_radius_min",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    },
+    {
+      "case": "test_0013/nr_color_max",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    },
+    {
+      "case": "test_0013/nr_color_min",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    },
+    {
+      "case": "test_0013/nr_luminance_max",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    },
+    {
+      "case": "test_0013/sharpen_amount_max",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    },
+    {
+      "case": "test_0013/sharpen_amount_min",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    },
+    {
+      "case": "test_0013/sharpen_detail_max",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    },
+    {
+      "case": "test_0013/sharpen_detail_min",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    },
+    {
+      "case": "test_0013/sharpen_masking_max",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    },
+    {
+      "case": "test_0013/sharpen_radius_max",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    },
+    {
+      "case": "test_0013/sharpen_radius_min",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    },
+    {
+      "case": "test_0014/nr_color_max",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    },
+    {
+      "case": "test_0014/nr_color_min",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    },
+    {
+      "case": "test_0014/nr_luminance_max",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    },
+    {
+      "case": "test_0014/sharpen_amount_max",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    },
+    {
+      "case": "test_0014/sharpen_amount_min",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    },
+    {
+      "case": "test_0014/sharpen_detail_max",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    },
+    {
+      "case": "test_0014/sharpen_detail_min",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    },
+    {
+      "case": "test_0014/sharpen_masking_max",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    },
+    {
+      "case": "test_0014/sharpen_radius_max",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    },
+    {
+      "case": "test_0014/sharpen_radius_min",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    },
+    {
+      "case": "test_0015/nr_color_max",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    },
+    {
+      "case": "test_0015/nr_color_min",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    },
+    {
+      "case": "test_0015/nr_luminance_max",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    },
+    {
+      "case": "test_0015/sharpen_amount_max",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    },
+    {
+      "case": "test_0015/sharpen_amount_min",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    },
+    {
+      "case": "test_0015/sharpen_detail_max",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    },
+    {
+      "case": "test_0015/sharpen_detail_min",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    },
+    {
+      "case": "test_0015/sharpen_masking_max",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    },
+    {
+      "case": "test_0015/sharpen_radius_max",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    },
+    {
+      "case": "test_0015/sharpen_radius_min",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    },
+    {
+      "case": "test_0017/nr_color_max",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    },
+    {
+      "case": "test_0017/nr_color_min",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    },
+    {
+      "case": "test_0017/nr_luminance_max",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    },
+    {
+      "case": "test_0017/sharpen_amount_max",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    },
+    {
+      "case": "test_0017/sharpen_amount_min",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    },
+    {
+      "case": "test_0017/sharpen_detail_max",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    },
+    {
+      "case": "test_0017/sharpen_detail_min",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    },
+    {
+      "case": "test_0017/sharpen_masking_max",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    },
+    {
+      "case": "test_0017/sharpen_radius_max",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    },
+    {
+      "case": "test_0017/sharpen_radius_min",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    },
+    {
+      "case": "test_0018/nr_color_max",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    },
+    {
+      "case": "test_0018/nr_color_min",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    },
+    {
+      "case": "test_0018/nr_luminance_max",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    },
+    {
+      "case": "test_0018/sharpen_amount_max",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    },
+    {
+      "case": "test_0018/sharpen_amount_min",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    },
+    {
+      "case": "test_0018/sharpen_detail_max",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    },
+    {
+      "case": "test_0018/sharpen_detail_min",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    },
+    {
+      "case": "test_0018/sharpen_masking_max",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    },
+    {
+      "case": "test_0018/sharpen_radius_max",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    },
+    {
+      "case": "test_0018/sharpen_radius_min",
+      "resolution": "down",
+      "reason": "not listed in captured manifest; covered by native detail comparison"
+    }
+  ],
+  "manifest_sha256": "8af5140a210214bd5255e4b27a38ff70b35efe48c918a6045bda4c8176ccc218",
+  "complete": true
+}

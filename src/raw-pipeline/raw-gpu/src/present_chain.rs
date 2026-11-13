@@ -66,8 +66,8 @@ use crate::live_session::LiveSession;
 // the bind-group layout are single-sourced across Apple `CAMetalLayer` + web
 // `OffscreenCanvas` + the host offscreen parity gate.
 use crate::present_chain_pipeline::{
-    build_present_pipeline, encode_present_pass, pick_surface_format, PresentDispatchCache,
-    PresentGeometry,
+    build_present_dispatch_scaled, build_present_pipeline, encode_present_pass,
+    pick_surface_format, PresentDispatchCache, PresentGeometry,
 };
 use std::ffi::c_void;
 
@@ -220,36 +220,13 @@ impl PersistentPresentSurface {
         geometry: PresentGeometry,
         frame: wgpu::SurfaceTexture,
     ) {
-        // Preserve Apple's existing policy of releasing the previous session's
-        // dispatch bindings on a switch. The stable key protects all targets
-        // without changing this surface's session-lifetime policy.
-        if self.last_session.replace(session.identity()) != session.identity() {
-            self.present_cache.invalidate();
-        }
-        let chain_buf = session.ping_pong_buffer(final_idx);
-        // Get-or-build the present dispatch for THIS chain buffer identity
-        // Both persistent ping-pong directions stay cached, so crossing a
-        // slider's no-op threshold does not rebuild the present dispatch.
-        let (_uniform, bind_group) = self.present_cache.get_or_build_scaled(
-            ctx,
-            &self.bind_group_layout,
-            chain_buf,
-            (session.identity(), final_idx),
-            ((self.width, self.height), (0, 0)),
-            geometry,
-        );
-        let view = frame
-            .texture
-            .create_view(&wgpu::TextureViewDescriptor::default());
-        let mut encoder = ctx
-            .device
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("present-chain-encoder"),
-            });
-        session.histogram.encode(ctx, &mut encoder, final_idx);
-        encode_present_pass(&mut encoder, &self.pipeline, &bind_group, &view);
-        ctx.queue.submit(Some(encoder.finish()));
-        frame.present();
+        let source = PresentSource {
+            buffer: session.ping_pong_buffer(final_idx),
+            identity: (session.identity(), final_idx),
+            dims: (0, 0),
+            histogram: Some((session, final_idx)),
+        };
+        self.present_reserved_source(ctx, source, geometry, frame);
     }
 }
 
@@ -303,58 +280,10 @@ pub unsafe fn present_chain_to_surface(
     if cancel.is_cancelled() {
         return Ok(false);
     }
-    let (width, height) = session.dims();
-    if width == 0 || height == 0 {
-        return Err(format!(
-            "present_chain: invalid image size {width}x{height}"
-        ));
-    }
-    // Validate the surface dims against the DEVICE's actual texture limit BEFORE
-    // configuring (#1079): a >limit configure trips wgpu's `handle_error_fatal`
-    // panic, which unwinds through the `extern "C"` FFI and aborts the app. A
-    // clean Err lets the Swift host fall back to the CPU render path instead.
-    let max_dim = ctx.device.limits().max_texture_dimension_2d;
-    if width > max_dim || height > max_dim {
-        return Err(format!(
-            "present_chain: surface {width}x{height} exceeds the device's max texture \
-             dimension {max_dim}"
-        ));
-    }
-
-    let needs_fresh_surface = match cache {
-        Some(existing) => existing.layer != layer as usize || existing.generation != generation,
-        None => true,
-    };
-
-    let just_configured = if needs_fresh_surface {
-        // Drop any stale surface BEFORE creating its replacement: if the
-        // caller swapped CAMetalLayers (or bumped the generation over a
-        // suspect surface), the old wgpu::Surface is bound to a
-        // possibly-destroyed layer and must not outlive a failed create.
-        // Deterministic teardown-then-create, never two surfaces (two
-        // devices) racing on the same live layer.
-        *cache = None;
-        *cache = Some(PersistentPresentSurface::create(
-            ctx, layer, width, height, generation,
-        )?);
-        true
-    } else {
-        let existing = cache.as_mut().expect("checked Some above");
-        if (existing.width, existing.height) != (width, height) {
-            existing.reconfigure(ctx, width, height);
-            true
-        } else {
-            false
-        }
-    };
-
+    let just_configured =
+        PersistentPresentSurface::ensure(ctx, layer, cache, generation, session.dims())?;
     let surface = cache.as_ref().expect("populated above");
-    let acquire = || {
-        surface
-            .surface
-            .get_current_texture()
-            .map_err(|error| format!("get_current_texture failed: {error}"))
-    };
+    let acquire = || surface.acquire();
     let result = with_reserved_frame(cancel, acquire, |frame| {
         let Some(final_idx) = session.render_chain_to_f32(ctx, inputs, cancel)? else {
             return Ok(false);
@@ -412,8 +341,30 @@ pub fn present_chain_to_offscreen(
     final_idx: usize,
     geometry: PresentGeometry,
 ) -> Result<Vec<u8>, String> {
-    let source_dims = session.dims();
-    let (width, height) = geometry.surface_dimensions(source_dims);
+    present_buffer_to_offscreen(
+        ctx,
+        session.ping_pong_buffer(final_idx),
+        (session.dims(), (0, 0)),
+        geometry,
+        |_encoder| {
+            #[cfg(target_vendor = "apple")]
+            session.histogram.encode(ctx, _encoder, final_idx);
+        },
+    )
+}
+
+/// The offscreen present of any display-encoded buffer: `dims` is the
+/// target's size and the buffer's when it differs (`(0, 0)` = equal).
+/// `before_present` records work that rides the same submit.
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) fn present_buffer_to_offscreen(
+    ctx: &GpuContext,
+    buffer: &wgpu::Buffer,
+    dims: ((u32, u32), (u32, u32)),
+    geometry: PresentGeometry,
+    before_present: impl FnOnce(&mut wgpu::CommandEncoder),
+) -> Result<Vec<u8>, String> {
+    let ((width, height), src_dims) = dims;
     let max_dim = ctx.device.limits().max_texture_dimension_2d;
     if width == 0 || height == 0 || width > max_dim || height > max_dim {
         return Err(format!(
@@ -439,26 +390,18 @@ pub fn present_chain_to_offscreen(
     let view = target.create_view(&wgpu::TextureViewDescriptor::default());
 
     let (pipeline, bgl) = build_present_pipeline(ctx, format);
-    let chain_buf = session.ping_pong_buffer(final_idx);
     // One-shot host oracle call, not a render-loop tick — build fresh directly
     // (no cache needed; #1930's zero-alloc invariant is about the PER-TICK
     // present path, which this parity harness isn't).
-    let dispatch = crate::present_chain_pipeline::build_present_dispatch_scaled(
-        ctx,
-        &bgl,
-        chain_buf,
-        (width, height),
-        source_dims,
-        geometry,
-    );
+    let dispatch =
+        build_present_dispatch_scaled(ctx, &bgl, buffer, (width, height), src_dims, geometry);
 
     let mut encoder = ctx
         .device
         .create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("present-chain-offscreen-encoder"),
         });
-    #[cfg(target_vendor = "apple")]
-    session.histogram.encode(ctx, &mut encoder, final_idx);
+    before_present(&mut encoder);
     encode_present_pass(&mut encoder, &pipeline, &dispatch.bind_group, &view);
 
     // Copy the rendered texture to a padded readback buffer (wgpu requires the
@@ -551,3 +494,15 @@ mod airlight_tests;
 #[cfg(all(test, target_vendor = "apple"))]
 #[path = "present_chain/reservation_tests.rs"]
 mod reservation_tests;
+
+#[cfg(target_vendor = "apple")]
+#[path = "present_chain/surface_source.rs"]
+mod surface_source;
+#[cfg(target_vendor = "apple")]
+use surface_source::PresentSource;
+
+#[cfg(target_vendor = "apple")]
+#[path = "present_chain/placeholder_surface.rs"]
+mod placeholder_surface;
+#[cfg(target_vendor = "apple")]
+pub use placeholder_surface::present_placeholder_to_surface;

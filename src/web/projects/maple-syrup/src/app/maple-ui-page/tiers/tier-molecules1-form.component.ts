@@ -67,6 +67,7 @@ export class TierMolecules1FormComponent {
   renameValue = 'test_0003';
   searchValue = '';
   sliderValue = 0.3;
+  warpValue = 40;
   warmthValue = 0.6;
   readonly warmthGradient = 'linear-gradient(90deg, #3b82f6, #f5f2eb, #f59e0b)';
   straightenValue = 8;

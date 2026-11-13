@@ -41,6 +41,15 @@ namespace Maple.WinUI.Services
             var m = model.Clone();
             m.Temperature = d.Temperature;
             m.Tint = d.Tint;
+            // The provenance goes with the pair (#4739): raw-core's reader
+            // turns a named `crs:WhiteBalance` back into a temperature/tint
+            // pair, so a preset left here is baked into the base and then
+            // applied again by the chain.
+            m.WhiteBalancePreset = d.WhiteBalancePreset;
+            m.WbSource = d.WbSource;
+            m.WbSampleX = d.WbSampleX;
+            m.WbSampleY = d.WbSampleY;
+            m.WbAlgorithmVersion = d.WbAlgorithmVersion;
             m.Exposure = 0; m.Brightness = 0; m.Contrast = 0;
             m.Highlights = 0; m.Shadows = 0; m.Whites = 0; m.Blacks = 0;
             m.ParametricHighlights = 0; m.ParametricLights = 0;
@@ -54,6 +63,9 @@ namespace Maple.WinUI.Services
             m.ToneCurveGreen.Clear(); m.ToneCurveBlue.Clear();
             m.DisplayToneCurveLuma.Clear(); m.DisplayToneCurveRed.Clear();
             m.DisplayToneCurveGreen.Clear(); m.DisplayToneCurveBlue.Clear();
+            m.ColorCurveHueVsHue.Clear(); m.ColorCurveHueVsSat.Clear();
+            m.ColorCurveHueVsLuma.Clear(); m.ColorCurveLumaVsSat.Clear();
+            m.ColorCurveSatVsSat.Clear(); m.ColorCurveSatVsLuma.Clear();
             m.Crop = Models.CropState.Identity;   // display-side (#2582), never baked at decode
             m.Vibrance = 0; m.Saturation = 0; m.Clarity = 0; m.Texture = 0; m.Dehaze = 0;
             m.HueAdjustmentRed = 0; m.HueAdjustmentOrange = 0; m.HueAdjustmentYellow = 0;
@@ -78,6 +90,9 @@ namespace Maple.WinUI.Services
             m.ColorGradeMidtoneSaturation = 0; m.ColorGradeMidtoneLuminance = 0;
             m.ColorGradeHighlightLuminance = 0; m.ColorGradeGlobalHue = 0;
             m.ColorGradeGlobalSaturation = 0; m.ColorGradeGlobalLuminance = 0;
+            m.ColorGradeBlending = d.ColorGradeBlending;
+            m.ColorGradeShadowEdge = d.ColorGradeShadowEdge;
+            m.ColorGradeHighlightEdge = d.ColorGradeHighlightEdge;
             m.VignetteAmount = 0; m.VignetteFeather = d.VignetteFeather;
             m.GrainAmount = 0; m.GrainSize = d.GrainSize; m.GrainRoughness = d.GrainRoughness;
             m.FilmLook = ""; m.FilmStrength = d.FilmStrength;

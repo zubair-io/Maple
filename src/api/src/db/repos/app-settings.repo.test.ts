@@ -14,6 +14,7 @@ import {
   deleteAppSettings,
   patchAppSettings,
   readAppSettings,
+  unsetAppSettingWhile,
   unsetAppSettings,
 } from './app-settings.repo.ts';
 
@@ -139,6 +140,37 @@ describe('unsetAppSettings', () => {
     const db = testSqliteDb(handle.db);
     await unsetAppSettings('nothing-here', ['a.b'], db);
     expect(await readAppSettings('nothing-here', db)).toBeNull();
+  });
+});
+
+describe('unsetAppSettingWhile', () => {
+  test('removes the path while the guarded field still has the expected value', async () => {
+    using handle = await createTestDatabase();
+    const db = testSqliteDb(handle.db);
+    await patchAppSettings('maintenance', { 'requests.a.at': 'one', 'requests.b.at': 'one' }, db);
+    await unsetAppSettingWhile(
+      'maintenance',
+      'requests.a',
+      { path: 'requests.a.at', value: 'one' },
+      db,
+    );
+    const doc = await readAppSettings<{ requests: Record<string, unknown> }>('maintenance', db);
+    expect(Object.keys(doc?.requests ?? {})).toEqual(['b']);
+  });
+
+  test('leaves the path alone once the guarded field has been rewritten', async () => {
+    using handle = await createTestDatabase();
+    const db = testSqliteDb(handle.db);
+    await patchAppSettings('maintenance', { 'requests.a.at': 'two' }, db);
+    await unsetAppSettingWhile(
+      'maintenance',
+      'requests.a',
+      { path: 'requests.a.at', value: 'one' },
+      db,
+    );
+    expect(await readAppSettings<object>('maintenance', db)).toMatchObject({
+      requests: { a: { at: 'two' } },
+    });
   });
 });
 

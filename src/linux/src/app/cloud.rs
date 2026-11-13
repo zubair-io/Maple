@@ -12,7 +12,7 @@ pub(super) struct CloudState {
     worker: worker::Worker,
     pub downloading: bool,
     pub edit_error: Option<String>,
-    pub ready: Option<(crate::library::Photo, CloudEntry)>,
+    pub ready: Option<(crate::library::Photo, CloudEntry, bool)>,
     pub reloaded: Option<(u64, crate::library::Photo)>,
     pub synchronized: std::collections::VecDeque<(u64, Result<(), String>)>,
     pub edit_request: Option<CloudEntry>,
@@ -30,6 +30,7 @@ pub(super) struct CloudState {
     pending: HashSet<String>,
     order: VecDeque<String>,
     sign_in: Option<String>,
+    sign_in_code: String,
     claim_inflight: bool,
     next_claim: Instant,
     sign_in_started: Instant,
@@ -60,6 +61,7 @@ impl CloudState {
             pending: HashSet::new(),
             order: VecDeque::new(),
             sign_in: None,
+            sign_in_code: String::new(),
             claim_inflight: false,
             next_claim: Instant::now(),
             sign_in_started: Instant::now(),
@@ -107,10 +109,10 @@ impl CloudState {
     pub fn poll(&mut self, context: &egui::Context) {
         while let Ok(event) = self.worker.events.try_recv() {
             match event {
-                Event::EditReady(epoch, photo, entry) => {
+                Event::EditReady(epoch, photo, entry, pending_recovery) => {
                     self.downloading = false;
                     if epoch == self.epoch {
-                        self.ready = Some((photo, entry));
+                        self.ready = Some((photo, entry, pending_recovery));
                     }
                 }
                 Event::Reloaded(id, photo) => {
@@ -137,6 +139,7 @@ impl CloudState {
 
                 Event::SignIn(url) => {
                     self.sign_in = Some(url.clone());
+                    self.sign_in_code.clear();
                     self.claim_inflight = false;
                     self.sign_in_started = Instant::now();
                     self.next_claim = Instant::now();
@@ -152,6 +155,7 @@ impl CloudState {
                     self.libraries = libraries;
                     self.sign_in = None;
                     self.claim_inflight = false;
+                    self.sign_in_code.clear();
                     self.message = "Connected to Maple".into();
                     self.error = None;
                     self.active = true;
@@ -160,6 +164,8 @@ impl CloudState {
                 Event::Waiting => {
                     self.claim_inflight = false;
                     self.next_claim = Instant::now() + Duration::from_secs(2);
+                    self.message =
+                        "Code not accepted yet. Check the code or restart browser sign-in.".into();
                 }
                 Event::Folder(epoch, folder) if epoch == self.epoch => {
                     self.loading = false;
@@ -218,6 +224,7 @@ impl CloudState {
                     self.texture = None;
                     self.cache.clear();
                     self.sign_in = None;
+                    self.sign_in_code.clear();
                     self.message = "Disconnected".into();
                 }
                 Event::Error(error) => {
@@ -239,9 +246,6 @@ impl CloudState {
                 self.sign_in = None;
                 self.connecting = false;
                 self.error = Some("Browser sign-in timed out. Connect again to retry.".into());
-            } else if !self.claim_inflight && Instant::now() >= self.next_claim {
-                self.claim_inflight = true;
-                self.worker.send(Command::Claim);
             }
             context.request_repaint_after(Duration::from_millis(250));
         }

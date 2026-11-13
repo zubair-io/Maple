@@ -1,3 +1,4 @@
+import { primarySidecarFilename } from '../xmp/sidecar-binding';
 import { Injectable, inject } from '@angular/core';
 import { firstValueFrom } from 'rxjs';
 import { HttpErrorResponse } from '@angular/common/http';
@@ -20,7 +21,11 @@ import {
   WORKFLOW_VARIANT_SERVER,
   type WorkflowVariantServer,
 } from '../workspace/workflow-variant-server';
-import { PRIMARY_VARIANT_ID, type SidecarWorkflow } from '../generated/workflow.generated';
+import {
+  PRIMARY_VARIANT_ID,
+  WORKFLOW_VERSION,
+  type SidecarWorkflow,
+} from '../generated/workflow.generated';
 import { stableStringify } from './edit-transaction';
 import { defaultAdjustmentModel } from '../models/adjustment-model';
 
@@ -63,7 +68,7 @@ export class EditorWorkflowVariantsService {
     const current = await this.commands.load(source);
     const xml = current.xml ?? (await this.createInitialSidecar(source));
     const workflow: SidecarWorkflow = {
-      schemaVersion: 1,
+      schemaVersion: WORKFLOW_VERSION,
       variantId: crypto.randomUUID(),
       variantName: trimmed,
       snapshots: [],
@@ -209,6 +214,6 @@ export class EditorWorkflowVariantsService {
   }
 
   private primaryName(source: WorkflowEdit): string {
-    return source.filename.replace(/\.[^.]+$/, '') + '.xmp';
+    return primarySidecarFilename(source.filename);
   }
 }

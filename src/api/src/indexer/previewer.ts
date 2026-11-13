@@ -49,12 +49,15 @@ import { replicatePath } from '../fs/mirrored.ts';
 import { ffiPool } from '../ffi/ffi-pool.ts';
 import { BITMAP_EXTENSIONS, PSD_HDR_EXTENSIONS } from './media-types.ts';
 import { isUndecodableFilename, isVideoFilename } from './media-types.ts';
-import { renderImageThumbToFileViaPool } from '../thumbs/bitmap-pool.ts';
+import { renderImageThumbToFileViaPool, throwIfSourceRejected } from '../thumbs/bitmap-pool.ts';
 import { extractVideoPosterJpeg } from '../thumbs/video-poster.ts';
 import { finalizeAvifRender } from '../thumbs/validate-avif.ts';
 import { renderRawSidecarDerivative } from '../thumbs/raw-sidecar-render.ts';
 import { assertDerivativeCacheDirectory, isDerivativeCacheFresh } from './derivative-cache.ts';
 import { child as childLogger } from '../log.ts';
+import { throttledWarn } from '../log-throttle.ts';
+import { DecodeMemoryBudgetError } from '../ffi/decode-memory-budget.ts';
+import { UnsupportedCameraError } from '../ffi/unsupported-camera.ts';
 
 const log = childLogger('previewer');
 
@@ -102,11 +105,17 @@ let _failed = 0;
  * `previewPathOverride` supplies the indexed filename cache path via
  * `cachePathForAsset`. Without an override, background callers derive the
  * same per-directory cache location from the original path.
+ *
+ * Resolves true when a fresh preview is on disk (already cached or just
+ * published). Throws `SourceDecodeError` when the decoder rejects the
+ * original, and `UnsupportedCameraError` when a RAW has no embedded preview
+ * and its camera body is unknown to the decoder; every other failure resolves
+ * false.
  */
 export async function generatePreview(
   absPath: string,
   previewPathOverride?: string,
-): Promise<void> {
+): Promise<boolean> {
   const ext = path.extname(absPath).toLowerCase();
   const extNoDot = ext.startsWith('.') ? ext.slice(1) : ext;
   const previewPath =
@@ -120,13 +129,13 @@ export async function generatePreview(
     _failed++;
     log.warn({ previewPath, err: e instanceof Error ? e.message : e }, 'mkdir failed');
     logTotals();
-    return;
+    return false;
   }
 
   if (await isPreviewCacheFresh(previewPath, absPath)) {
     _cached++;
     logTotals();
-    return;
+    return true;
   }
 
   // Metadata-only stub images (eip/braw/afphoto/ai) and audio have no still
@@ -139,7 +148,7 @@ export async function generatePreview(
     _failed++;
     log.warn({ absPath }, 'skipped: no still frame to preview');
     logTotals();
-    return;
+    return false;
   }
 
   // Encode to a private temp path first, not `previewPath` directly — a
@@ -154,9 +163,11 @@ export async function generatePreview(
   if (RAW_EXTS.has(ext)) {
     renderOk = await renderRawPreviewToFile(absPath, tmpPath);
   } else if (isVideoFilename(absPath)) {
-    renderOk = await renderVideoPreviewToFile(absPath, tmpPath);
+    renderOk = await renderVideoPreviewToFile(absPath, tmpPath).catch(discardOnThrow(tmpPath));
   } else if (BITMAP_EXTENSIONS.has(extNoDot) || PSD_HDR_EXTENSIONS.has(extNoDot)) {
-    renderOk = await renderBitmapPreviewToFile(absPath, tmpPath, extNoDot);
+    renderOk = await renderBitmapPreviewToFile(absPath, tmpPath, extNoDot, true).catch(
+      discardOnThrow(tmpPath),
+    );
   } else {
     // Unknown format — no decode path can produce a genuine AVIF from these
     // bytes, so there is nothing to write. A raw byte copy under a
@@ -168,7 +179,7 @@ export async function generatePreview(
     _failed++;
     log.warn({ absPath }, 'skipped: unrecognized format, no preview generated');
     logTotals();
-    return;
+    return false;
   }
 
   const ok = await finalizeAvifRender(renderOk, tmpPath, previewPath, PREVIEW_LONG_EDGE_PX, log, {
@@ -184,9 +195,20 @@ export async function generatePreview(
     replicatePath(previewPath);
   } else {
     _failed++;
-    log.warn({ absPath }, 'failed');
+    throttledWarn(log, `preview-failed:${absPath}`, { absPath }, 'failed');
   }
   logTotals();
+  return ok;
+}
+
+/** A render that threw (a typed source failure) still counts as failed and
+ * leaves no temp file behind; the error itself propagates to the caller. */
+function discardOnThrow(tmpPath: string): (e: unknown) => Promise<never> {
+  return async (e: unknown) => {
+    _failed++;
+    await fs.rm(tmpPath, { force: true });
+    throw e;
+  };
 }
 
 export async function isPreviewCacheFresh(previewPath: string, absPath: string): Promise<boolean> {
@@ -202,9 +224,15 @@ function logTotals(): void {
 
 /** Shared by every render-branch catch block below: log the failure with
  * context + a normalized error message, then return `false` so the caller
- * can `return logRenderFailure(...)` in one line. */
+ * can `return logRenderFailure(...)` in one line. A deferred render repeats
+ * every 30 minutes, so the same failure on the same file WARNs once a window. */
 function logRenderFailure(context: Record<string, unknown>, err: unknown, label: string): false {
-  log.warn({ ...context, err: err instanceof Error ? err.message : err }, label);
+  throttledWarn(
+    log,
+    `${label}:${JSON.stringify(context)}`,
+    { ...context, err: err instanceof Error ? err.message : err },
+    label,
+  );
   return false;
 }
 
@@ -309,6 +337,7 @@ async function developRawPreviewToFile(
     }
     return await renderBitmapPreviewToFile(jpegPath, outPath, 'jpg');
   } catch (e) {
+    if (e instanceof DecodeMemoryBudgetError || e instanceof UnsupportedCameraError) throw e;
     return logRenderFailure({ rawPath, extractError }, e, 'demosaic fallback threw');
   } finally {
     try {
@@ -346,25 +375,27 @@ async function renderBitmapPreviewToFile(
   srcPath: string,
   outPath: string,
   ext: string,
+  isOriginal = false,
 ): Promise<boolean> {
-  try {
-    // AVIF, quality 70 — matches the RAW path's rationale above.
-    const result = await renderImageThumbToFileViaPool(
-      srcPath,
-      outPath,
-      PREVIEW_LONG_EDGE_PX,
-      70,
-      ext,
+  // AVIF, quality 70 — matches the RAW path's rationale above.
+  const result = await renderImageThumbToFileViaPool(
+    srcPath,
+    outPath,
+    PREVIEW_LONG_EDGE_PX,
+    70,
+    ext,
+    isOriginal,
+  ).catch((e: unknown) => logRenderFailure({ srcPath }, e, 'FFI pool threw'));
+  if (result === false) return false;
+  if (!result.ok) {
+    logRenderFailure(
+      { srcPath },
+      result.error ?? 'FFI bitmap render failed',
+      'FFI child returned error',
     );
-    if (!result.ok) {
-      return logRenderFailure(
-        { srcPath },
-        result.error ?? 'FFI bitmap render failed',
-        'FFI child returned error',
-      );
-    }
-    return true;
-  } catch (e) {
-    return logRenderFailure({ srcPath }, e, 'FFI pool threw');
+    // Only the original describes the asset; see the thumbnailer's twin.
+    if (isOriginal) await throwIfSourceRejected(result, srcPath);
+    return false;
   }
+  return true;
 }

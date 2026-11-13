@@ -34,11 +34,13 @@ namespace Maple.WinUI.Services.FileOperations
         /// of the destination, preserve the source's mtime (a pure
         /// rename/move must not invalidate an mtime-keyed cache), verify,
         /// then atomically publish via `File.Move` (a same-volume rename,
-        /// never a byte-for-byte second write). On any failure the temp file
+        /// never a byte-for-byte second write). With <paramref name="overwrite"/>
+        /// false an occupant appearing at the destination fails the publish
+        /// rather than being replaced. On any failure the temp file
         /// is removed and the error propagates; neither `source` nor any
         /// prior occupant of `destination` is ever touched.
         /// </summary>
-        internal static void CopyVerified(string source, string destination)
+        internal static void CopyVerified(string source, string destination, bool overwrite = true)
         {
             var sourceInfo = new FileInfo(source);
             if (!sourceInfo.Exists)
@@ -62,7 +64,7 @@ namespace Maple.WinUI.Services.FileOperations
 
                 VerifyCopy(sourceSize, sourceMtimeUtc, tmp);
 
-                File.Move(tmp, destination, overwrite: true);
+                File.Move(tmp, destination, overwrite);
             }
             catch (Exception ex)
             {

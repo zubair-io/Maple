@@ -41,10 +41,17 @@ public struct XMPParser {
     m.tintSeen = false
     var c = CullingState()
     let parser = XMLParser(data: Data(xml.utf8))
-    let delegate = _XMPParserDelegate(model: m, culling: c)
+    let delegate = _XMPParserDelegate(
+      model: m, culling: c,
+      primaryDescription: XMPChildElementScanner.primaryDescription(in: xml))
     parser.delegate = delegate
     guard parser.parse() else {
       let err = parser.parserError?.localizedDescription ?? "unknown XML error"
+      if let repaired = XMPDuplicateAttributes.removingRepeats(in: xml),
+        let result = try? parse(repaired)
+      {
+        return result
+      }
       throw XMPError.parseError(err)
     }
     m = delegate.model
@@ -66,6 +73,13 @@ public struct XMPParser {
     m.inpaintRemovals = try RemovalXMPRecords.read(Data(xml.utf8)).map {
       try RemovalRecords(json: $0)
     }
+    // An unstamped Maple list is the legacy sensor frame (#4473). It is kept
+    // exactly as read and left unstamped, so an unrelated save cannot relabel
+    // another host's decode-frame spots as upright; the first spot edit here
+    // adopts the list as upright.
+    m.retouchListIsLegacy =
+      !m.retouchSpots.isEmpty && !delegate.sawRetouchFrameStamp && delegate.sawPappNamespace
+      ? true : nil
     // WB scale versioning (#1780/#1875/#1893/#1894), resolved at
     // document level: an explicit `papp:WbScaleVersion` stamp wins;
     // otherwise a document carrying the Maple `papp:` namespace AND an
@@ -151,11 +165,17 @@ final class _XMPParserDelegate: NSObject, XMLParserDelegate {
   var temperatureSeen = false
   var tintSeen = false
   var wbScaleStamp: Int? = nil
+  var sawRetouchFrameStamp: Bool = false
   /// Namespace aliases identify Maple provenance without changing the
   /// historical prefix-based WB-scale migration above.
   var sawMapleNamespaceURI: Bool = false
   private var workflowDepth = 0
   private var namespaceScopes: [[String: String]] = []
+  private let primaryDescription: XMPChildElementScanner.PrimaryDescription?
+  private var topLevelDescriptionIndex = 0
+  private var primaryDescriptionContext: XMPChildElementScanner.DescriptionContext?
+  private var sawRdfEnvelope = false
+  private var rdfEnvelopeDepth: Int?
 
   /// `dc:subject` is the only XMP element that isn't an attribute on
   /// `rdf:Description` — it's a nested bag of `rdf:li` children:
@@ -192,9 +212,13 @@ final class _XMPParserDelegate: NSObject, XMLParserDelegate {
   /// walk lives in `XMPSerialization+Retouch.swift`.
   var retouch = RetouchWalker()
 
-  init(model: AdjustmentModel, culling: CullingState) {
+  init(
+    model: AdjustmentModel, culling: CullingState,
+    primaryDescription: XMPChildElementScanner.PrimaryDescription? = nil
+  ) {
     self.model = model
     self.culling = culling
+    self.primaryDescription = primaryDescription
   }
 
   func parser(
@@ -217,7 +241,9 @@ final class _XMPParserDelegate: NSObject, XMLParserDelegate {
         key == "xmlns"
           ? ("", value) : (key.hasPrefix("xmlns:") ? (String(key.dropFirst(6)), value) : nil)
       })
-    let namespaces = (namespaceScopes.last ?? [:]).merging(declarations) { _, current in current }
+    let namespaces =
+      (namespaceScopes.last ?? ["rdf": "http://www.w3.org/1999/02/22-rdf-syntax-ns#"])
+      .merging(declarations) { _, current in current }
     let qualified = qName ?? elementName
     let parts = qualified.split(separator: ":", maxSplits: 1).map(String.init)
     let prefix = parts.count == 2 ? parts[0] : ""
@@ -225,6 +251,44 @@ final class _XMPParserDelegate: NSObject, XMLParserDelegate {
     if local == "Workflow", namespaces[prefix] == XMPCanonical.pappNamespaceURI {
       workflowDepth = 1
       return
+    }
+    let depth = namespaceScopes.count
+    let canonicalName = XMPChildElementScanner.canonicalQualifiedName(
+      qualified, namespaces: namespaces)
+    // #4685: Lightroom's `crs:Look` nests the profile's own PV2012 curves and
+    // grayscale flag under `crs:Parameters` — the profile's recipe, not the
+    // user's edit — so the subtree is skipped whole and survives as passthrough.
+    if qualified == "crs:Look" || canonicalName == "crs:Look" {
+      workflowDepth = 1
+      return
+    }
+    if !sawRdfEnvelope, depth <= 1, canonicalName == "rdf:RDF" {
+      sawRdfEnvelope = true
+      rdfEnvelopeDepth = depth + 1
+    } else if depth == 1, rdfEnvelopeDepth == nil, primaryDescription != nil {
+      workflowDepth = 1
+      return
+    }
+    if rdfEnvelopeDepth == depth || (depth == 0 && primaryDescription == nil),
+      canonicalName == "rdf:Description"
+    {
+      let currentIndex = topLevelDescriptionIndex
+      topLevelDescriptionIndex += 1
+      let context = XMPChildElementScanner.descriptionContext(
+        attributes: attributeDict, namespaces: namespaces)
+      if let primary = primaryDescription {
+        if !primary.matches(index: currentIndex, context: context) {
+          workflowDepth = 1
+          return
+        }
+      } else if let primary = primaryDescriptionContext {
+        if !primary.hasExplicitSubject || context != primary {
+          workflowDepth = 1
+          return
+        }
+      } else {
+        primaryDescriptionContext = context
+      }
     }
     namespaceScopes.append(namespaces)
     // dc:subject — nested keyword bag. Enter the subtree on the opening
@@ -250,6 +314,7 @@ final class _XMPParserDelegate: NSObject, XMLParserDelegate {
     if attributeDict["crs:Temperature"] != nil || attributeDict["crs:Tint"] != nil {
       sawExplicitWb = true
     }
+    if attributeDict["papp:RetouchFrameVersion"] == "2" { sawRetouchFrameStamp = true }
     if let stamp = attributeDict["papp:WbScaleVersion"], let v = Int(stamp),
       (1...5).contains(v)
     {
@@ -348,6 +413,9 @@ final class _XMPParserDelegate: NSObject, XMLParserDelegate {
       return
     }
     _ = namespaceScopes.popLast()
+    if let envDepth = rdfEnvelopeDepth, namespaceScopes.count < envDepth {
+      rdfEnvelopeDepth = nil
+    }
     let qual = qName ?? elementName
     localAdjustments.end(qual)
     retouch.end(qual)
@@ -414,10 +482,6 @@ public struct XMPSerializer {
       ]).joined(separator: "\n")
   }
 
-  /// The `dc` namespace declaration, needed whenever the keyword bag is
-  /// emitted (and by the metadata overload's `dc:` blocks).
-  static let dcNamespace = (prefix: "dc", uri: "http://purl.org/dc/elements/1.1/")
-
   // MARK: - Public serializer
 
   /// Serialize a full adjustment sidecar. This is the persisted-save entry
@@ -457,40 +521,43 @@ public struct XMPSerializer {
       + _ratingAndLabelAttrs(culling: culling, passthrough: passthrough)
       + _removalAttrs(model)
       + _passthroughAttrs(passthrough)
-    let keywordsBlock = _buildKeywordsBlock(culling: culling)
-    // Point tone curves (#365) — the second nested child block. Children
-    // of `rdf:Description` sit at six spaces in this document shape (see
-    // `docs/xmp-canonical-format.md` § "Indentation"). Identity curves
-    // emit nothing, so a model with no authored curve keeps the
-    // pre-#365 bytes exactly.
-    let toneCurvesBlock = _buildToneCurvesBlock(
-      model: model, indent: XMPCanonical.childIndent)
-    // Local adjustments (#358) — the canonical mask containers, after
-    // the curves and before the passthrough nodes, the slot the
-    // TypeScript and C# writers use too.
-    let localAdjustmentsBlock = _buildLocalAdjustmentsBlockWithPassthrough(
-      LocalAdjustmentOrder.keyed(model.localAdjustments, around: passthrough),
-      indent: XMPCanonical.childIndent, templates: passthrough.maskGroups)
-    // Repair spots (#3409) — the `crs:RetouchAreas` container, after the
-    // mask containers and before the passthrough nodes, the same slot the
-    // TypeScript writer gives it.
-    let retouchBlock = _buildRetouchAreasBlock(
-      model: model, indent: XMPCanonical.childIndent)
-    // Unknown nested nodes sit last, the slot the TypeScript serializer
-    // gives them, so Maple's own children stay grouped ahead of whatever
-    // the source document carried.
-    let passthroughBlock = _passthroughNodesBlock(
-      passthrough, indent: XMPCanonical.childIndent)
-    let children = [
-      keywordsBlock, toneCurvesBlock, localAdjustmentsBlock, retouchBlock, passthroughBlock,
-    ]
-    .filter { !$0.isEmpty }
-    .joined(separator: "\n")
+    let developChildren = _developChildren(model: model, passthrough: passthrough)
+    let children = ([_buildKeywordsBlock(culling: culling)] + developChildren)
+      .filter { !$0.isEmpty }
+      .joined(separator: "\n")
 
     return XMPCanonical.document(
-      extraNamespaces: culling.keywords.isEmpty ? [] : [dcNamespace],
+      extraNamespaces: _conditionalNamespaces(
+        needed: culling.keywords.isEmpty ? [] : ["dc"], passthrough: passthrough),
       attributes: attrs,
-      children: children)
+      children: children,
+      rdfNodes: passthrough.unknownRdfNodes,
+      xmpmetaNodes: passthrough.unknownXmpmetaNodes)
+  }
+
+  /// The develop child blocks every serialize overload emits after the
+  /// keyword bag (and, for the metadata overload, after the rights blocks),
+  /// in the canonical slot order the TypeScript and C# writers use too: point
+  /// tone curves (#365), the local-adjustment containers with the opaque
+  /// mask-group templates spliced in (#358, #3274), the `crs:RetouchAreas`
+  /// container (#3409), then the preserved unknown nodes last (#2233).
+  /// Children of `rdf:Description` sit at six spaces (see
+  /// `docs/xmp-canonical-format.md` § "Indentation"); empty blocks are
+  /// returned as empty strings for the caller to drop. One list, shared, so
+  /// a metadata-carrying save can never again omit a block the base save
+  /// writes (#4687).
+  static func _developChildren(
+    model: AdjustmentModel, passthrough: XMPPassthrough
+  ) -> [String] {
+    let indent = XMPCanonical.childIndent
+    return [
+      _buildToneCurvesBlock(model: model, indent: indent),
+      _buildLocalAdjustmentsBlockWithPassthrough(
+        LocalAdjustmentOrder.keyed(model.localAdjustments, around: passthrough),
+        indent: indent, templates: passthrough.maskGroups),
+      _buildRetouchAreasBlock(model: model, indent: indent),
+      _passthroughNodesBlock(passthrough, indent: indent),
+    ]
   }
 
   // serialize(model:culling:metadata:) + escapeXMLAttr live in

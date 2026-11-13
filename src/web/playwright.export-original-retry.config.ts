@@ -20,7 +20,8 @@ export default defineConfig({
       timeout: 30000,
     },
     {
-      command: 'bun ../api/tests/browser/export-retry-server.ts',
+      command: 'bun tests/browser/export-retry-server.ts',
+      cwd: '../api',
       url: 'http://127.0.0.1:4519/workflow-fixture/health',
       reuseExistingServer: false,
       timeout: 30000,

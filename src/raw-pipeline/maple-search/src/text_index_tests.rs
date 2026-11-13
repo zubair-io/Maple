@@ -227,3 +227,114 @@ fn equal_scores_cut_by_id_not_insertion_order() {
     let expected: Vec<(String, usize)> = ascending[..100].iter().cloned().zip(0..).collect();
     assert_eq!(forwards, expected);
 }
+
+fn blob_library() -> (tempfile::TempDir, TextIndex) {
+    let dir = tempfile::tempdir().unwrap();
+    let index = TextIndex::open(dir.path()).unwrap();
+    index
+        .rebuild([
+            (
+                "field",
+                SearchText {
+                    template: "field.dng players on a sports field",
+                    blob: "athlete cleats field lacrosse players sports",
+                },
+            ),
+            (
+                "coach",
+                SearchText {
+                    template: "coach.dng an athlete stretching before the game",
+                    blob: "athlete before coach game stretching",
+                },
+            ),
+            ("harbour", "harbour.dng a quiet harbour at dawn".into()),
+        ])
+        .unwrap();
+    (dir, index)
+}
+
+fn scored(hits: Vec<ScoredId>) -> Vec<(String, f32)> {
+    hits.into_iter().map(|hit| (hit.id, hit.score)).collect()
+}
+
+#[test]
+fn a_vision_tag_only_in_the_blob_matches() {
+    let (_dir, index) = blob_library();
+    assert_eq!(find(&index, "lacrosse"), ["field"]);
+    assert_eq!(find(&index, "cleats harbour"), ["field", "harbour"]);
+}
+
+#[test]
+fn a_template_match_outranks_a_blob_only_match() {
+    let (_dir, index) = blob_library();
+    let hits = scored(index.search(&parse_text_query("athlete"), 10).unwrap());
+    assert_eq!(hits[0].0, "coach");
+    assert_eq!(hits[1].0, "field");
+    assert!(hits[0].1 > hits[1].1);
+}
+
+fn harbour_scores<'a>(
+    docs: impl IntoIterator<Item = (&'a str, SearchText<'a>)>,
+) -> Vec<(String, f32)> {
+    let dir = tempfile::tempdir().unwrap();
+    let index = TextIndex::open(dir.path()).unwrap();
+    index.rebuild(docs).unwrap();
+    scored(index.search(&parse_text_query("harbour"), 10).unwrap())
+}
+
+// Two fresh builds rather than an upsert into one index: Tantivy's BM25 counts a replaced
+// document's tombstone (`max_doc`, its tokens) until a background merge drops it, so scores read
+// right after an upsert depend on merge timing whatever the blob field does.
+#[test]
+fn a_document_without_a_blob_scores_as_it_did_before() {
+    let template_only = harbour_scores(LIBRARY.map(|(id, text)| (id, text.into())));
+    let with_a_blob = harbour_scores(LIBRARY.map(|(id, text)| {
+        let blob = if id == "lantern" {
+            "kyoto lanterns night paper street"
+        } else {
+            ""
+        };
+        (
+            id,
+            SearchText {
+                template: text,
+                blob,
+            },
+        )
+    }));
+    assert_eq!(with_a_blob, template_only);
+}
+
+#[test]
+fn a_rewritten_blob_replaces_the_old_tags() {
+    let (_dir, index) = blob_library();
+    index
+        .upsert(
+            "field",
+            SearchText {
+                template: "field.dng players on a sports field",
+                blob: "field players rugby sports",
+            },
+        )
+        .unwrap();
+    index.commit().unwrap();
+    assert!(find(&index, "lacrosse").is_empty());
+    assert_eq!(find(&index, "rugby"), ["field"]);
+}
+
+#[test]
+fn an_excluded_term_in_the_blob_excludes() {
+    let (_dir, index) = blob_library();
+    assert!(find(&index, "players -lacrosse").is_empty());
+    assert_eq!(
+        index.ids_matching_any(&["cleats".to_owned()]).unwrap(),
+        ["field"]
+    );
+}
+
+#[test]
+fn a_phrase_matches_inside_one_field_only() {
+    let (_dir, index) = blob_library();
+    assert_eq!(find(&index, r#""sports field""#), ["field"]);
+    assert!(find(&index, r#""sports field athlete""#).is_empty());
+}

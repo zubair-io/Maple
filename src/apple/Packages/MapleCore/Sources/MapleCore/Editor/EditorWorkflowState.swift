@@ -16,8 +16,11 @@ public final class EditorWorkflowState {
   public private(set) var record: SidecarWorkflow?
   public private(set) var pendingRestoreLabel: String?
   var isApplying = false
+  @TaskLocal private static var currentOperationID: UUID?
+  @ObservationIgnored private var activeOperationID: UUID?
   @ObservationIgnored var task: Task<Void, Never>?
   @ObservationIgnored var generation: UInt64 = 0
+  @ObservationIgnored var undoRestoreTask: Task<Void, Never>?
   @ObservationIgnored private var pending: WorkflowPublication?
   @ObservationIgnored private var beforeCheckpoint: String?
   @ObservationIgnored private var replay: (id: UInt64, undo: Bool, command: WorkflowPublication)?
@@ -28,39 +31,71 @@ public final class EditorWorkflowState {
     session.sidecarStore is any WorkflowSidecarStoreProtocol
   }
 
+  var hasExternalOperationInFlight: Bool {
+    guard isBusy || task != nil else { return false }
+    if let current = Self.currentOperationID, current == activeOperationID {
+      return false
+    }
+    return true
+  }
+
+  func runTracked(_ body: @MainActor @escaping () async -> Void) async {
+    let opID = UUID()
+    activeOperationID = opID
+    let op = Task { @MainActor in
+      await Self.$currentOperationID.withValue(opID) {
+        await body()
+      }
+    }
+    task = op
+    await op.value
+    if task == op { task = nil }
+    if activeOperationID == opID { activeOperationID = nil }
+  }
+
+  func waitForIdle() async {
+    while hasExternalOperationInFlight, let op = task {
+      await op.value
+      if task == op { task = nil }
+    }
+  }
+
   public func reload(session: EditSession) async {
-    guard !isBusy, !session.isSavingRemoval else { return }
+    guard !isBusy, !session.sidecarWritesDisabled, !session.isSavingRemoval else { return }
     session.endEdit()
     isBusy = true
     generation &+= 1
     let current = generation
-    defer { if current == generation { isBusy = false } }
-    do {
-      await session.loadSidecar()
-      guard session.hasLoadedSidecar else {
-        throw session.sidecarError
-          ?? failure("The photo's sidecar could not be loaded. Retry after reopening.")
+    await runTracked {
+      defer { if current == self.generation { self.isBusy = false } }
+      do {
+        await session.loadSidecar()
+        guard session.hasLoadedSidecar else {
+          throw session.sidecarError
+            ?? self.failure("The photo's sidecar could not be loaded. Retry after reopening.")
+        }
+        await session.sidecarUpdateTask?.value
+        let xml = try await self.store(session).readWorkflowXML()
+        guard current == self.generation, !session.sidecarWritesDisabled else { return }
+        try self.adoptDocument(xml)
+        if let variantsStore =
+          session.primarySidecarStore as? any WorkflowVariantSidecarStoreProtocol
+        {
+          let listed = try await variantsStore.listWorkflowVariants()
+          guard current == self.generation, !session.sidecarWritesDisabled else { return }
+          self.variants = listed
+        }
+        self.pending = nil
+        self.pendingRestoreLabel = nil
+        self.errorText = nil
+      } catch {
+        if current == self.generation { self.showFailure(error) }
       }
-      await session.sidecarUpdateTask?.value
-      let xml = try await store(session).readWorkflowXML()
-      guard current == generation else { return }
-      try adoptDocument(xml)
-      if let variantsStore = session.primarySidecarStore as? any WorkflowVariantSidecarStoreProtocol
-      {
-        let listed = try await variantsStore.listWorkflowVariants()
-        guard current == generation else { return }
-        variants = listed
-      }
-      pending = nil
-      pendingRestoreLabel = nil
-      errorText = nil
-    } catch {
-      if current == generation { errorText = error.localizedDescription }
     }
   }
 
   public func saveSnapshot(name: String, session: EditSession) async {
-    guard !isBusy, !session.isSavingRemoval else { return }
+    guard !isBusy, !session.sidecarWritesDisabled, !session.isSavingRemoval else { return }
     let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !trimmed.isEmpty else {
       errorText = "Enter a snapshot name."
@@ -69,33 +104,39 @@ public final class EditorWorkflowState {
     session.endEdit()
     isBusy = true
     let current = generation
-    defer { if current == generation { isBusy = false } }
-    do {
-      await session.sidecarUpdateTask?.value
-      let writer = try store(session)
-      let command: WorkflowPublication
-      if let prior = pending, case .snapshot(_, _, let snapshot) = prior, snapshot.name == trimmed {
-        command = prior
-      } else {
-        let xml = try await writer.readWorkflowXML()
-        guard current == generation else { return }
-        let initial = xml ?? XMPSerializer.serialize(model: session.model, culling: session.culling)
-        let snapshot = WorkflowSnapshot(
-          id: UUID().uuidString.lowercased(), name: trimmed, createdAtMs: timestamp(),
-          adjustmentXmp: try WorkflowSidecarCore.checkpoint(xmp: initial))
-        command = .snapshot(
-          expectedXmp: xml, initialXmp: xml == nil ? initial : nil, snapshot: snapshot)
-        pending = command
+    await runTracked {
+      defer { if current == self.generation { self.isBusy = false } }
+      do {
+        await session.sidecarUpdateTask?.value
+        let writer = try self.store(session)
+        let command: WorkflowPublication
+        if let prior = self.pending, case .snapshot(_, _, let snapshot) = prior,
+          snapshot.name == trimmed
+        {
+          command = prior
+        } else {
+          let xml = try await writer.readWorkflowXML()
+          guard current == self.generation, !session.sidecarWritesDisabled else { return }
+          let initial =
+            xml ?? XMPSerializer.serialize(model: session.model, culling: session.culling)
+          let snapshot = WorkflowSnapshot(
+            id: UUID().uuidString.lowercased(), name: trimmed, createdAtMs: self.timestamp(),
+            adjustmentXmp: try WorkflowSidecarCore.checkpoint(xmp: initial))
+          command = .snapshot(
+            expectedXmp: xml, initialXmp: xml == nil ? initial : nil, snapshot: snapshot)
+          self.pending = command
+        }
+        guard current == self.generation, !session.sidecarWritesDisabled else { return }
+        let published = try await writer.publishWorkflow(command)
+        guard current == self.generation, !session.sidecarWritesDisabled else { return }
+        try self.adoptDocument(published)
+        self.pending = nil
+        self.errorText = nil
+        session.sidecarError = nil
+        session.announcer.announce("Saved snapshot \(trimmed)")
+      } catch {
+        if current == self.generation { self.showFailure(error) }
       }
-      let published = try await writer.publishWorkflow(command)
-      guard current == generation else { return }
-      try adoptDocument(published)
-      pending = nil
-      errorText = nil
-      session.sidecarError = nil
-      session.announcer.announce("Saved snapshot \(trimmed)")
-    } catch {
-      if current == generation { errorText = error.localizedDescription }
     }
   }
 
@@ -117,9 +158,10 @@ public final class EditorWorkflowState {
         entry: WorkflowHistoryEntry(
           id: UUID().uuidString.lowercased(), createdAtMs: timestamp(),
           action: snapshot ? "snapshot-restore" : "history-restore",
-          label: "Restore \(selected.0)", adjustmentXmp: selected.1))
+          label: "Restore \(selected.0)", parentId: record?.history.last?.id ?? "",
+          writer: WorkflowContract.appleWriter, adjustmentXmp: selected.1))
       errorText = nil
-    } catch { errorText = error.localizedDescription }
+    } catch { showFailure(error) }
   }
 
   public func cancelRestore() {
@@ -138,9 +180,8 @@ public final class EditorWorkflowState {
   }
 
   public func confirmRestore(session: EditSession) async {
-    guard !isBusy, !session.isSavingRemoval, case .restore(_, let entry) = pending,
-      let command = pending,
-      let before = beforeCheckpoint
+    guard !isBusy, !session.sidecarWritesDisabled, !session.isSavingRemoval, case .restore(_, let entry) = pending,
+      let command = pending, let before = beforeCheckpoint
     else { return }
     session.endEdit()
     isBusy = true
@@ -148,31 +189,35 @@ public final class EditorWorkflowState {
     let editID = session.transactions.nextID
     let modelBefore = session.model
     let cullingBefore = session.culling
-    defer { if current == generation { isBusy = false } }
-    do {
-      await session.sidecarUpdateTask?.value
-      let published = try await store(session).publishWorkflow(command)
-      guard current == generation else { return }
-      let after = try WorkflowSidecarCore.checkpoint(xmp: published)
-      if before != after {
-        let restored = try await restoredState(published, session: session)
-        guard current == generation, session.transactions.nextID == editID,
-          session.model == modelBefore, session.culling == cullingBefore
-        else {
-          releaseRasters(restored.0)
-          return
+    await runTracked {
+      defer { if current == self.generation { self.isBusy = false } }
+      do {
+        await session.sidecarUpdateTask?.value
+        guard current == self.generation, !session.sidecarWritesDisabled else { return }
+        let published = try await self.store(session).publishWorkflow(command)
+        guard current == self.generation, !session.sidecarWritesDisabled else { return }
+        let after = try WorkflowSidecarCore.checkpoint(xmp: published)
+        if before != after {
+          let restored = try await self.restoredState(published, session: session)
+          guard current == self.generation, !session.sidecarWritesDisabled,
+            session.transactions.nextID == editID,
+            session.model == modelBefore, session.culling == cullingBefore
+          else {
+            self.releaseRasters(restored.0)
+            return
+          }
+          session.recordWorkflowRestore(
+            before: before, after: after, restored: restored, label: entry.label)
         }
-        session.recordWorkflowRestore(
-          before: before, after: after, restored: restored, label: entry.label)
+        try self.adoptDocument(published)
+        self.pending = nil
+        self.beforeCheckpoint = nil
+        self.pendingRestoreLabel = nil
+        self.errorText = nil
+        session.sidecarError = nil
+      } catch {
+        if current == self.generation { self.showFailure(error) }
       }
-      try adoptDocument(published)
-      pending = nil
-      beforeCheckpoint = nil
-      pendingRestoreLabel = nil
-      errorText = nil
-      session.sidecarError = nil
-    } catch {
-      if current == generation { errorText = error.localizedDescription }
     }
   }
 
@@ -194,13 +239,21 @@ public final class EditorWorkflowState {
   }
 
   func beginReplay(session: EditSession, transaction: EditTransaction, undo: Bool) {
-    guard !isBusy, !session.isSavingRemoval else { return }
+    guard !isBusy, !session.sidecarWritesDisabled, !session.isSavingRemoval else { return }
     isBusy = true
     let current = generation
-    task = Task {
-      await self.replayCheckpoint(
-        session: session, transaction: transaction, undo: undo, generation: current)
+    let opID = UUID()
+    activeOperationID = opID
+    var op: Task<Void, Never>?
+    op = Task { @MainActor in
+      await Self.$currentOperationID.withValue(opID) {
+        await self.replayCheckpoint(
+          session: session, transaction: transaction, undo: undo, generation: current)
+      }
+      if self.task == op { self.task = nil }
+      if self.activeOperationID == opID { self.activeOperationID = nil }
     }
+    task = op
   }
 
   private func replayCheckpoint(
@@ -218,20 +271,23 @@ public final class EditorWorkflowState {
         guard let xml = try await writer.readWorkflowXML() else {
           throw failure("The sidecar is missing. Restore it before editing.")
         }
-        guard current == generation else { return }
+        guard current == generation, !session.sidecarWritesDisabled else { return }
         command = .replay(
           expectedXmp: xml,
           entry: WorkflowHistoryEntry(
             id: UUID().uuidString.lowercased(), createdAtMs: timestamp(),
             action: undo ? "undo" : "redo",
             label: "\(undo ? "Undo" : "Redo") \(transaction.description)",
+            parentId: try WorkflowSidecarCore.headId(xmp: xml, variantId: selectedVariantId),
+            writer: WorkflowContract.appleWriter,
             adjustmentXmp: undo ? checkpoint.before : checkpoint.after))
         replay = (transaction.id, undo, command)
       }
+      guard current == generation, !session.sidecarWritesDisabled else { return }
       let published = try await writer.publishWorkflow(command)
-      guard current == generation else { return }
+      guard current == generation, !session.sidecarWritesDisabled else { return }
       let restored = try await restoredState(published, session: session)
-      guard current == generation else {
+      guard current == generation, !session.sidecarWritesDisabled else {
         releaseRasters(restored.0)
         return
       }
@@ -241,12 +297,13 @@ public final class EditorWorkflowState {
       errorText = nil
       session.sidecarError = nil
     } catch {
-      if current == generation { errorText = error.localizedDescription }
+      if current == generation { showFailure(error) }
     }
   }
 
   func releaseRasters(_ model: AdjustmentModel) {
-    Set(model.localAdjustments.flatMap(\.mask.registeredRasterIds)).forEach(MaskRasterRegistry.release)
+    Set(model.localAdjustments.flatMap(\.mask.registeredRasterIds)).forEach(
+      MaskRasterRegistry.release)
   }
 
   func restoredState(_ xml: String, session: EditSession) async throws -> (
@@ -278,5 +335,11 @@ public final class EditorWorkflowState {
   private func timestamp() -> UInt64 { UInt64(Date().timeIntervalSince1970 * 1000) }
   private func failure(_ message: String) -> WorkflowSidecarError {
     WorkflowSidecarError(message: message)
+  }
+
+  /// Cancelled work was abandoned, not refused, so it never reaches the panel.
+  func showFailure(_ error: Error) {
+    guard !error.isCancellation else { return }
+    errorText = error.localizedDescription
   }
 }

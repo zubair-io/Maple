@@ -12,6 +12,7 @@ import { describe, it, expect, vi } from 'vitest';
 
 import { HostedPreviewResolver } from './hosted-preview-resolver.service';
 import { LibraryStore } from './library-store.service';
+import { HostedSidecarErrors } from './hosted-sidecar-errors.service';
 import { MapleCacheService } from '../maple-cache/maple-cache.service';
 import { EmbeddedPreviewService } from '../raw-pipeline/embedded-preview.service';
 import type { Asset, AssetId } from '../models/asset';
@@ -30,6 +31,10 @@ function setup(
     providers: [
       HostedPreviewResolver,
       { provide: LibraryStore, useValue: store },
+      {
+        provide: HostedSidecarErrors,
+        useValue: { errors: store['sidecarLoadErrors'] ?? (() => new Map()) },
+      },
       { provide: MapleCacheService, useValue: mapleCache },
       { provide: EmbeddedPreviewService, useValue: previewExtractor },
     ],
@@ -55,10 +60,16 @@ describe('HostedPreviewResolver.resolve', () => {
 
     const blob = await resolver.resolve('lib:2026/a.dng' as AssetId, getBytes);
 
-    expect(readPreview).toHaveBeenCalledWith(folder, '2026', 'a.dng', {
-      size: 0,
-      lastModified: 0,
-    });
+    expect(readPreview).toHaveBeenCalledWith(
+      folder,
+      '2026',
+      'a.dng',
+      {
+        size: 0,
+        lastModified: 0,
+      },
+      'absent',
+    );
     expect(getBytes).toHaveBeenCalledWith('lib:2026/a.dng');
     expect(extractEmbeddedPreview).toHaveBeenCalledWith(new Uint8Array([1, 2, 3]), 'dng');
     expect(blob).toBe(jpeg); // display uses the fast JPEG, not the AVIF
@@ -83,10 +94,17 @@ describe('HostedPreviewResolver.resolve', () => {
     await settle();
 
     expect(blob).toBe(jpeg);
-    expect(writePreview).toHaveBeenCalledWith(expect.anything(), '2026', 'a.dng', jpeg, {
-      size: 0,
-      lastModified: 0,
-    });
+    expect(writePreview).toHaveBeenCalledWith(
+      expect.anything(),
+      '2026',
+      'a.dng',
+      jpeg,
+      {
+        size: 0,
+        lastModified: 0,
+      },
+      'absent',
+    );
   });
 
   it('does not publish old pixels when the RAW is replaced during extraction', async () => {
@@ -142,10 +160,16 @@ describe('HostedPreviewResolver.resolve', () => {
       'lib:top.dng' as AssetId,
       vi.fn(async () => new Uint8Array([1])),
     );
-    expect(readPreview).toHaveBeenCalledWith(expect.anything(), '', 'top.dng', {
-      size: 0,
-      lastModified: 0,
-    });
+    expect(readPreview).toHaveBeenCalledWith(
+      expect.anything(),
+      '',
+      'top.dng',
+      {
+        size: 0,
+        lastModified: 0,
+      },
+      'absent',
+    );
   });
 
   it('cache hit: returns the cached AVIF without extracting, reading bytes, or writing', async () => {
@@ -166,6 +190,34 @@ describe('HostedPreviewResolver.resolve', () => {
     expect(blob).toBe(cached);
     expect(getBytes).not.toHaveBeenCalled();
     expect(extractEmbeddedPreview).not.toHaveBeenCalled();
+    expect(writePreview).not.toHaveBeenCalled();
+  });
+
+  it('unreadable XMP bypasses a cached authored preview and does not cache the original', async () => {
+    const cached = new Blob(['old authored pixels'], { type: 'image/avif' });
+    const original = new Blob(['original'], { type: 'image/jpeg' });
+    const readPreview = vi.fn(async () => cached);
+    const writePreview = vi.fn();
+    const extractEmbeddedPreview = vi.fn(async () => ({ width: 8, height: 6, blob: original }));
+    const id = 'lib:2026/a.dng' as AssetId;
+    const resolver = setup(
+      {
+        findAsset: () => rawAsset(),
+        currentFolder: () => ({ write: true }),
+        sidecarLoadErrors: () => new Map([[id, 'Unreadable XMP']]),
+      },
+      { readPreview, writePreview },
+      { extractEmbeddedPreview },
+    );
+
+    const blob = await resolver.resolve(
+      id,
+      vi.fn(async () => new Uint8Array([1])),
+    );
+    await settle();
+
+    expect(blob).toBe(original);
+    expect(readPreview).not.toHaveBeenCalled();
     expect(writePreview).not.toHaveBeenCalled();
   });
 

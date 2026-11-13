@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 #
 # Build the raw-wasm crate into a wasm-pack `pkg/` directory with threading
-# (wasm-bindgen-rayon) enabled.
+# (wasm-bindgen-rayon) enabled, then the main thread's small canvas zoom
+# module (raw-wasm-canvas, #5714) into `pkg/canvas/`.
 #
 # Prerequisites (one-time):
 #   cargo install wasm-pack
@@ -21,20 +22,41 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
+# Unthreaded: no atomics rustflags (those live in raw-wasm/.cargo/config.toml,
+# which a build from raw-wasm-canvas/ never reads) and no build-std, so it gets
+# an ordinary unshared memory. Its own target dir keeps the two flag sets from
+# invalidating each other's wasm32 artifacts.
+build_canvas() {
+	echo "[raw-wasm] Building raw-wasm-canvas (main-thread canvas zoom model)"
+	(
+		cd "$WORKSPACE_DIR/raw-wasm-canvas"
+		CARGO_TARGET_DIR="$WORKSPACE_DIR/target/wasm-canvas" wasm-pack build \
+			--target web \
+			--release \
+			--out-dir "$SCRIPT_DIR/pkg/canvas"
+	)
+}
+
 # Fast-path: skip if no Rust source has changed since the last successful
 # build. Stamp is touched at the end on success. Set FORCE_WASM_REBUILD=1 or
 # pass --force to bypass.
 WORKSPACE_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 STAMP="$SCRIPT_DIR/pkg/.build-stamp"
+CANVAS_WASM="$SCRIPT_DIR/pkg/canvas/raw_wasm_canvas_bg.wasm"
 
 if [[ "${FORCE_WASM_REBUILD:-}" != "1" && "${1:-}" != "--force" &&
-	-f "$STAMP" && -d "$SCRIPT_DIR/pkg" ]]; then
+	-f "$STAMP" ]]; then
 	changes=$(find "$WORKSPACE_DIR" \
 		\( -type d \( -name target -o -name .git -o -name pkg \) -prune \) -o \
 		-type f \( -name '*.rs' -o -name 'Cargo.toml' -o -name 'Cargo.lock' \) \
 		-newer "$STAMP" -print -quit 2>/dev/null)
-	if [[ -z "$changes" ]]; then
+	if [[ -z "$changes" && -f "$CANVAS_WASM" ]]; then
 		echo "[raw-wasm] No source changes since last build — skipping."
+		exit 0
+	fi
+	if [[ -z "$changes" ]]; then
+		build_canvas
+		touch "$STAMP"
 		exit 0
 	fi
 	echo "[raw-wasm] change detected: $changes"
@@ -58,6 +80,8 @@ wasm-pack build \
 	-- \
 	--features gpu,parallel,avif \
 	-Z build-std=panic_abort,std
+
+build_canvas
 
 touch "$STAMP"
 

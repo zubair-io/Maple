@@ -57,6 +57,7 @@ export {
   recordAssetChangeRow,
   listChangesSince,
   recordAndPublishAssetChange,
+  recordAndPublishAssetChangeOrThrow,
   highestCursor,
   isChangeCursorTooOld,
   type ListChangesQuery,

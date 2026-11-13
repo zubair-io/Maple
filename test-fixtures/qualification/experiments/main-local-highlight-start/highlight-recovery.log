@@ -1,0 +1,224 @@
+warning: `#[macro_use]` attribute cannot be used on crates
+   --> third_party/zune-jpeg/src/lib.rs:166:1
+    |
+166 | #![macro_use]
+    | ^^^^^^^^^^^^^
+    |
+    = help: `#[macro_use]` can be applied to extern crates and modules
+    = warning: this was previously accepted by the compiler but is being phased out; it will become a hard error in a future release!
+    = note: `#[warn(unused_attributes)]` (part of `#[warn(unused)]`) on by default
+
+warning: `zune-jpeg` (lib) generated 1 warning (run `cargo fix --lib -p zune-jpeg` to apply 1 suggestion)
+warning: duplicated attribute
+   --> raw-core/src/black_level.rs:167:5
+    |
+167 |     #[test]
+    |     ^^^^^^^
+    |
+    = note: `#[warn(duplicate_macro_attributes)]` on by default
+
+warning: hidden lifetime parameters in types are deprecated
+   --> raw-core/src/stages/highlight_recovery/guided.rs:202:24
+    |
+202 |         anchor: Option<FrameAnchor>,
+    |                        ^^^^^^^^^^^ expected lifetime parameter
+    |
+note: the lint level is defined here
+   --> raw-core/src/lib.rs:6:22
+    |
+  6 | #![warn(clippy::all, rust_2018_idioms)]
+    |                      ^^^^^^^^^^^^^^^^
+    = note: `#[warn(elided_lifetimes_in_paths)]` implied by `#[warn(rust_2018_idioms)]`
+help: indicate the anonymous lifetime
+    |
+202 |         anchor: Option<FrameAnchor<'_>>,
+    |                                   ++++
+
+warning: hidden lifetime parameters in types are deprecated
+   --> raw-core/src/stages/highlight_recovery/guided.rs:323:20
+    |
+323 |     anchor: Option<FrameAnchor>,
+    |                    ^^^^^^^^^^^ expected lifetime parameter
+    |
+help: indicate the anonymous lifetime
+    |
+323 |     anchor: Option<FrameAnchor<'_>>,
+    |                               ++++
+
+warning: hidden lifetime parameters in types are deprecated
+   --> raw-core/src/stages/highlight_recovery.rs:142:20
+    |
+142 |     anchor: Option<FrameAnchor>,
+    |                    ^^^^^^^^^^^ expected lifetime parameter
+    |
+help: indicate the anonymous lifetime
+    |
+142 |     anchor: Option<FrameAnchor<'_>>,
+    |                               ++++
+
+warning: hidden lifetime parameters in types are deprecated
+   --> raw-core/src/stages/highlight_recovery.rs:262:20
+    |
+262 |     anchor: Option<FrameAnchor>,
+    |                    ^^^^^^^^^^^ expected lifetime parameter
+    |
+help: indicate the anonymous lifetime
+    |
+262 |     anchor: Option<FrameAnchor<'_>>,
+    |                               ++++
+
+warning: unused attribute `allow`
+   --> raw-core/src/stages/nlm.rs:334:1
+    |
+334 | #[allow(clippy::too_many_arguments)]
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+note: the built-in attribute `allow` will be ignored, since it's applied to the macro invocation `include`
+   --> raw-core/src/stages/nlm.rs:335:1
+    |
+335 | include!("nlm_shift.rs");
+    | ^^^^^^^
+    = note: `#[warn(unused_attributes)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `camera`
+  --> raw-core/src/lens_profile/lensfun/tests_parity.rs:84:14
+   |
+84 |         let (camera, lens) = find_case(&case);
+   |              ^^^^^^ help: if this is intentional, prefix it with an underscore: `_camera`
+   |
+   = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `camera`
+   --> raw-core/src/lens_profile/lensfun/tests_parity.rs:111:14
+    |
+111 |         let (camera, lens) = find_case(&case);
+    |              ^^^^^^ help: if this is intentional, prefix it with an underscore: `_camera`
+
+warning: unused variable: `camera`
+   --> raw-core/src/lens_profile/lensfun/tests_parity.rs:149:14
+    |
+149 |         let (camera, lens) = find_case(&case);
+    |              ^^^^^^ help: if this is intentional, prefix it with an underscore: `_camera`
+
+warning: unused variable: `auto_lateral_ca`
+   --> raw-core/src/types/adjustment/schema/tests.rs:152:9
+    |
+152 |         auto_lateral_ca,
+    |         ^^^^^^^^^^^^^^^ help: try ignoring the field: `auto_lateral_ca: _`
+
+warning: unused variable: `defringe_purple_amount`
+   --> raw-core/src/types/adjustment/schema/tests.rs:153:9
+    |
+153 |         defringe_purple_amount,
+    |         ^^^^^^^^^^^^^^^^^^^^^^ help: try ignoring the field: `defringe_purple_amount: _`
+
+warning: unused variable: `defringe_purple_hue_lo`
+   --> raw-core/src/types/adjustment/schema/tests.rs:154:9
+    |
+154 |         defringe_purple_hue_lo,
+    |         ^^^^^^^^^^^^^^^^^^^^^^ help: try ignoring the field: `defringe_purple_hue_lo: _`
+
+warning: unused variable: `defringe_purple_hue_hi`
+   --> raw-core/src/types/adjustment/schema/tests.rs:155:9
+    |
+155 |         defringe_purple_hue_hi,
+    |         ^^^^^^^^^^^^^^^^^^^^^^ help: try ignoring the field: `defringe_purple_hue_hi: _`
+
+warning: unused variable: `defringe_green_amount`
+   --> raw-core/src/types/adjustment/schema/tests.rs:156:9
+    |
+156 |         defringe_green_amount,
+    |         ^^^^^^^^^^^^^^^^^^^^^ help: try ignoring the field: `defringe_green_amount: _`
+
+warning: unused variable: `defringe_green_hue_lo`
+   --> raw-core/src/types/adjustment/schema/tests.rs:157:9
+    |
+157 |         defringe_green_hue_lo,
+    |         ^^^^^^^^^^^^^^^^^^^^^ help: try ignoring the field: `defringe_green_hue_lo: _`
+
+warning: unused variable: `defringe_green_hue_hi`
+   --> raw-core/src/types/adjustment/schema/tests.rs:158:9
+    |
+158 |         defringe_green_hue_hi,
+    |         ^^^^^^^^^^^^^^^^^^^^^ help: try ignoring the field: `defringe_green_hue_hi: _`
+
+warning: function `accumulate_dynamic` is never used
+   --> raw-core/src/stages/nlm_accumulate.rs:144:15
+    |
+144 | pub(super) fn accumulate_dynamic(
+    |               ^^^^^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: function `scalar_dynamic` is never used
+   --> raw-core/src/stages/nlm_accumulate.rs:276:15
+    |
+276 | pub(super) fn scalar_dynamic(
+    |               ^^^^^^^^^^^^^^
+
+warning: function `run_err` is never used
+  --> raw-core/src/raster_recipe_exec_tests.rs:16:4
+   |
+16 | fn run_err(json: &str, input: &[u8], aux: &[u8]) -> crate::error::Error {
+   |    ^^^^^^^
+
+warning: comparison is useless due to type limits
+   --> raw-core/src/raster_colour_lab_tests.rs:464:29
+    |
+464 |         p3.data[0] > 200 && p3.data[0] <= 255,
+    |                             ^^^^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(unused_comparisons)]` on by default
+
+warning: `raw-core` (lib test) generated 20 warnings (run `cargo fix --lib -p raw-core --tests` to apply 11 suggestions)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.14s
+     Running unittests src/lib.rs (target/debug/deps/raw_core-7975e06b08697f92)
+
+running 44 tests
+test stages::highlight_recovery::tests::empty_image_is_a_noop ... ok
+test stages::highlight_recovery::tests::mode_off_is_identity ... ok
+test stages::highlight_recovery::tests::off_preserves_pixels_at_nonzero_baseline_exposure ... ok
+test stages::highlight_recovery::tests::negligible_baseline_matches_the_develop_gain_fast_path ... ok
+test stages::highlight_recovery::tests::deeply_negative_baseline_preserves_black_and_unclipped_pixels ... ok
+test stages::highlight_recovery::tests::nothing_to_recover_is_identity_under_chromatic_adaptation ... ok
+test stages::highlight_recovery::tests::positive_baseline_exposure_does_not_reconstruct_unclipped_pixels ... ok
+test stages::highlight_recovery::tests::unclipped_pixels_pass_through ... ok
+test stages::highlight_recovery::tests_guided::chroma_weight_matches_on_chromaticity_not_level ... ok
+test stages::highlight_recovery::tests::fully_clipped_pixel_lands_neutral ... ok
+test stages::highlight_recovery::tests::fully_clipped_pixel_lands_neutral_under_daylight_wb ... ok
+test stages::highlight_recovery::tests::fully_clipped_white_tracks_baseline_exposure_with_and_without_pre_gain ... ok
+test stages::highlight_recovery::tests_guided::skip_grid_proves_empty_windows ... ok
+test stages::highlight_recovery::tests::two_channel_clip_recovers_chromaticity_from_neighbors ... ok
+test stages::highlight_recovery::tests::negative_baseline_exposure_recovers_sensor_clipped_green ... ok
+test stages::highlight_recovery::tests_guided::tier1_ignores_distant_content_and_scene_prior ... ok
+test stages::highlight_recovery::tests::g_clipped_with_neutral_neighbors_uses_both_known_channels ... ok
+test stages::highlight_recovery::tests::recovered_neighbors_never_become_chromaticity_witnesses ... ok
+test stages::highlight_recovery::tests::clip_margin_tracks_baseline_gain_in_both_directions ... ok
+test stages::highlight_recovery::tests::conflicting_known_channel_edges_are_combined_without_privileging_green ... ok
+test stages::highlight_recovery::tests_mask_aware::every_partial_mask_uses_the_same_known_energy_for_target_and_witnesses ... ok
+test stages::highlight_recovery::tests_guided::fully_blown_frame_keeps_the_exact_neutral_fallback ... ok
+test stages::highlight_recovery::tests_ripple::near_ceiling_channel_above_another_stays_scene_evidence ... ok
+test stages::highlight_recovery::tests::g_clipped_pixel_loses_magenta_under_daylight_wb ... ok
+test stages::highlight_recovery::tests::legacy_blend_mode_upgrades_to_chromatic_adaptation ... ok
+test stages::highlight_recovery::tests_ripple::near_ceiling_pixel_without_a_clip_nearby_is_scene_evidence ... ok
+test stages::highlight_recovery::tests_mask_aware::nonpositive_or_cancelling_known_energy_leaves_the_target_untouched ... ok
+test stages::highlight_recovery::tests_mask_aware::baseline_gain_preserves_reconstruction_including_witness_selection ... ok
+test stages::highlight_recovery::tests_mask_aware::negative_witnesses_do_not_turn_a_positive_saturated_channel_negative ... ok
+test stages::highlight_recovery::tests_mask_aware::either_known_channel_can_supply_energy_across_a_dark_edge ... ok
+test stages::highlight_recovery_oklab::tests::opt_out_modes_are_no_ops_post_dcp ... ok
+test stages::highlight_recovery_oklab::tests::unclipped_pixel_passes_through ... ok
+test stages::highlight_recovery::tests_local_matching::local_recovery_downweights_foreign_hue_without_changing_known_channels ... ok
+test stages::highlight_recovery::tests_guided::large_blown_region_recovers_chromaticity_from_distant_witnesses ... ok
+test stages::highlight_recovery_oklab::tests::clipped_red_is_brought_into_gamut_and_hue_preserved ... ok
+test stages::highlight_recovery_oklab::tests::chromatic_adaptation_default_does_not_touch_post_dcp_buffer ... ok
+test stages::highlight_recovery::tests_mask_aware::channel_permutation_does_not_change_the_estimate ... ok
+test stages::highlight_recovery::tests_mask_aware::unsupported_partial_clips_retain_the_brightest_known_neutral_fallback ... ok
+test stages::highlight_recovery_oklab::tests::sensor_clip_bisection_has_no_pre_1621_style_plateau ... ok
+test stages::highlight_recovery::tests_guided::hue_edge_downweights_foreign_witnesses ... ok
+test stages::highlight_recovery::tests_guided::scene_median_keeps_sparse_evidence_in_a_large_clipped_region ... ok
+test stages::highlight_recovery::tests_guided::scene_median_samples_the_whole_region_not_the_top ... ok
+test stages::highlight_recovery::tests_ripple::demosaic_ripple_beside_a_green_clip_keeps_the_sky_hue ... ok
+test stages::highlight_recovery::tests_guided::warm_scene_fallback_preserves_cast_without_local_support ... ok
+
+test result: ok. 44 passed; 0 failed; 0 ignored; 0 measured; 2877 filtered out; finished in 0.02s
+

@@ -72,6 +72,7 @@ struct AppShellMacLayout<SidebarContent: View, ToolbarContentT: ToolbarContent>:
   /// Map pin/cluster tap (#2830) → AppShell activates search filtered by
   /// the resolved target (a place name, or the has-GPS scope fallback).
   let onSelectMapPlace: (MapPlaceSearchTarget) -> Void
+  let onSignInForMap: (URL) -> Void
   /// Dismiss the cloud search UI.
   let onCloseSearch: () -> Void
   let onSelectLocalAsset: (ImageRef) -> Void
@@ -83,6 +84,7 @@ struct AppShellMacLayout<SidebarContent: View, ToolbarContentT: ToolbarContent>:
   var onDropAssetsOnFolder: ((URL, Data, Set<AssetRef.ID>?, Bool) -> Void)? = nil
   let onOpenEditor: (AssetRef) -> Void
   let onPrimeSession: (AssetRef) async -> Void
+  let onReadGridFilterMetadata: @MainActor @Sendable (AssetRef) async throws -> GridFilterMetadata
   /// Recover from a vanished selection by flipping back to Browse.
   let onFullImageFallback: () -> Void
   /// S5 EditorView dismiss (back to browse) — #815.
@@ -107,6 +109,10 @@ struct AppShellMacLayout<SidebarContent: View, ToolbarContentT: ToolbarContent>:
   /// #2641: called when the user taps "Batch Rename…" from BrowseGrid
   /// (forwarded from AppShellCenterColumn → BrowseGrid → PanoSelectionBar).
   var onBatchRename: (() -> Void)? = nil
+  /// #5435: macOS "Export with Recipe…" from the BrowseGrid selection bar.
+  var onExportRecipes: (() -> Void)? = nil
+  /// #5435: iPad Browse's floating header, which also owns the sidebar toggle.
+  var browseHeader: BrowseHeaderModel? = nil
   /// #2653: Delete key / "Move to Trash" context-menu item, forwarded
   /// through to BrowseGrid.
   var onTrashAssets: (([AssetRef.ID]) -> Void)? = nil
@@ -185,10 +191,30 @@ struct AppShellMacLayout<SidebarContent: View, ToolbarContentT: ToolbarContent>:
     .navigationSplitViewStyle(.balanced)
   }
 
+  #if os(iOS)
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+  #endif
+  @Environment(\.mapleLayout) private var layout
+
+  /// Mirrors when `BrowseGrid` shows the header: regular width and not the
+  /// sub-768pt layout, which renders `LibraryGrid` instead.
+  private var showsBrowseHeader: Bool {
+    #if os(iOS)
+      browseHeader != nil && horizontalSizeClass == .regular && layout != .phone
+    #else
+      false
+    #endif
+  }
+
   private var browse: some View {
     NavigationSplitView(columnVisibility: $columnVisibility) {
       sidebar()
         .navigationSplitViewColumnWidth(min: 180, ideal: 220, max: 280)
+        #if os(iOS)
+          // The header carries the only toggle; the sidebar column itself
+          // always reports compact, so the width is decided here.
+          .toolbar(removing: showsBrowseHeader ? .sidebarToggle : nil)
+        #endif
     } detail: {
       centerColumn
         .navigationTitle("Library — \(libraryTitle)")
@@ -220,6 +246,7 @@ struct AppShellMacLayout<SidebarContent: View, ToolbarContentT: ToolbarContent>:
       sessions: $sessions,
       onSelectCloudAsset: onSelectCloudAsset,
       onSelectMapPlace: onSelectMapPlace,
+      onSignInForMap: onSignInForMap,
       onCloseSearch: onCloseSearch,
       onSelectLocalAsset: onSelectLocalAsset,
       onGrantPhotosAccess: onGrantPhotosAccess,
@@ -228,6 +255,7 @@ struct AppShellMacLayout<SidebarContent: View, ToolbarContentT: ToolbarContent>:
       onDropAssetsOnFolder: onDropAssetsOnFolder,
       onOpenEditor: onOpenEditor,
       onPrimeSession: onPrimeSession,
+      onReadGridFilterMetadata: onReadGridFilterMetadata,
       onFullImageFallback: onFullImageFallback,
       onEditorDismiss: onEditorDismiss,
       onEditorInfo: onEditorInfo,
@@ -237,6 +265,8 @@ struct AppShellMacLayout<SidebarContent: View, ToolbarContentT: ToolbarContent>:
       onMergePanorama: onMergePanorama,
       onEditMetadata: onEditMetadata,
       onBatchRename: onBatchRename,
+      onExportRecipes: onExportRecipes,
+      browseHeader: browseHeader,
       onTrashAssets: onTrashAssets,
       clipboard: clipboard
     )

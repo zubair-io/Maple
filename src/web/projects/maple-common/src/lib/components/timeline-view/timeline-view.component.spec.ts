@@ -209,6 +209,72 @@ describe('TimelineViewComponent', () => {
     expect(hiddenImg.className).toContain('group-[.dimmed]:opacity-45');
   });
 
+  it('badges a folded RAW+JPEG hit and carries its JPEG into the selected asset (#5849)', async () => {
+    const companion = {
+      id: 'jpeg-id',
+      name: 'a.JPG',
+      address: 'lib:2026/a.JPG',
+      path: '/Lib/2026/a.JPG',
+      size: 42,
+      mtime: '2026-05-20T00:00:00.000Z',
+      ext: 'jpg',
+    };
+    searchStub.pages = [
+      {
+        total: 1,
+        page: 0,
+        limit: 200,
+        results: [
+          {
+            ...makeResult('lib:2026/a.CR3', '/Lib/2026/a.CR3', '2026-05-20T00:00:00.000Z'),
+            stack: { companion },
+          },
+        ],
+      },
+    ];
+    library.selectedSourceId.set('lib:');
+    vi.spyOn(TestBed.inject(Router), 'navigate').mockResolvedValue(true);
+    const fixture = TestBed.createComponent(TimelineViewComponent);
+    fixture.detectChanges();
+    await new Promise((r) => setTimeout(r, 300));
+    fixture.detectChanges();
+
+    const tile = fixture.nativeElement.querySelector('.timeline-photo') as HTMLElement;
+    expect(tile.querySelector('[data-testid="stack-badge"]')?.textContent?.trim()).toBe('RAW+JPEG');
+
+    tile.click();
+    const asset = library.assets().find((a) => a.id === 'lib:2026/a.CR3');
+    expect(asset?.stack).toEqual({
+      companion: { id: 'lib:2026/a.JPG', name: 'a.JPG', ext: 'jpg', size: 42 },
+    });
+  });
+
+  it('clears a stack the asset carried when its hit is no longer folded (#5849)', async () => {
+    library.hydrateSelfHostedFsAsset('lib:2026/a.CR3', {
+      stack: { companion: { id: 'lib:2026/a.JPG', name: 'a.JPG', ext: 'jpg', size: 42 } },
+    });
+    searchStub.pages = [
+      {
+        total: 1,
+        page: 0,
+        limit: 200,
+        results: [makeResult('lib:2026/a.CR3', '/Lib/2026/a.CR3', '2026-05-20T00:00:00.000Z')],
+      },
+    ];
+    library.selectedSourceId.set('lib:');
+    vi.spyOn(TestBed.inject(Router), 'navigate').mockResolvedValue(true);
+    const fixture = TestBed.createComponent(TimelineViewComponent);
+    fixture.detectChanges();
+    await new Promise((r) => setTimeout(r, 300));
+    fixture.detectChanges();
+
+    const tile = fixture.nativeElement.querySelector('.timeline-photo') as HTMLElement;
+    expect(tile.querySelector('[data-testid="stack-badge"]')).toBeNull();
+
+    tile.click();
+    expect(library.assets().find((a) => a.id === 'lib:2026/a.CR3')?.stack).toBeUndefined();
+  });
+
   it('loads correctly when the newest photo in scope is years old (the original bug)', async () => {
     searchStub.pages = [
       {

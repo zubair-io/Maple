@@ -5,7 +5,7 @@
 // does put only its own keys on the wire (the form-level tests in
 // EnrichmentSettingsTests.swift cover the same rule at the encoding layer;
 // these confirm the client doesn't add anything on top). The `ok: false`
-// probe tests are the other load-bearing case here: all three test* routes
+// probe tests are the other load-bearing case here: both test* routes
 // report a failed health check on a 2xx status, so a client that only
 // checks the HTTP status would read a failure as success.
 
@@ -27,11 +27,7 @@ final class EnrichmentConfigClientTests: XCTestCase {
     let json = """
       {"nominatim_url":"https://nominatim.example","geocode_worker_enabled":true,
        "nominatim_rate_limit_per_sec":10,"describe_provider_url":null,
-       "transcribe_model_tier":"medium.en","meilisearch_url":null,
-       "meilisearch_api_key_set":false,"meilisearch_task_timeout_seconds":600,
-       "meilisearch_semantic_enabled":false,"meilisearch_embedder_url":"http://x",
-       "meilisearch_embedder_model":"bge-m3","meilisearch_semantic_ratio":0.5,
-       "service_search_rate_limit_per_minute":60}
+       "transcribe_model_tier":"medium.en","service_search_rate_limit_per_minute":60}
       """
     let resp = HTTPURLResponse(
       url: req.url!, statusCode: 200, httpVersion: "HTTP/1.1",
@@ -81,22 +77,17 @@ final class EnrichmentConfigClientTests: XCTestCase {
       Set(obj.keys), ["nominatim_url", "geocode_worker_enabled", "describe_provider_url"])
   }
 
-  func test_save_meilisearchPatch_putsOnlyOwnFieldsAndOmitsBlankKey() async throws {
+  func test_save_serviceSearchPatch_putsOnlyOwnFields() async throws {
     let session = URLSession.stubbedSequence { self.okConfigResponse($0) }
     _ = try await client(session).save(
-      MeilisearchConfigPatch(
+      ServiceSearchConfigPatch(
         nominatimURL: "https://nominatim.example", geocodeWorkerEnabled: true,
-        meilisearchURL: "http://meili.example", meilisearchAPIKey: nil,
-        meilisearchSemanticEnabled: false, meilisearchEmbedderModel: "bge-m3",
-        meilisearchTaskTimeoutSeconds: 600, meilisearchSemanticRatio: 0.5,
         serviceSearchRateLimitPerMinute: 60))
     let body = try XCTUnwrap(URLProtocolStub.capturedBodies["https://x/api/enrichment/config"])
     let obj = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
-    XCTAssertFalse(obj.keys.contains("meilisearch_api_key"))
-    XCTAssertFalse(
-      obj.keys.contains("describe_provider_url"), "meili save must not touch the describe row")
-    XCTAssertFalse(
-      obj.keys.contains("transcribe_model_tier"), "meili save must not touch the transcribe row")
+    XCTAssertEqual(
+      Set(obj.keys),
+      ["nominatim_url", "geocode_worker_enabled", "service_search_rate_limit_per_minute"])
   }
 
   func test_save_403ForNonOwner() async {
@@ -148,33 +139,6 @@ final class EnrichmentConfigClientTests: XCTestCase {
     } catch let error as ServerAdminError {
       XCTAssertEqual(error.statusCode, 200)
       XCTAssertEqual(error.message, "connect ECONNREFUSED")
-    } catch {
-      XCTFail("expected ServerAdminError, got \(error)")
-    }
-  }
-
-  func test_testMeilisearch_omitsAPIKeyWhenNil() async throws {
-    let session = URLSession.stubbedSequence { req in
-      let resp = HTTPURLResponse(
-        url: req.url!, statusCode: 200, httpVersion: "HTTP/1.1",
-        headerFields: ["Content-Type": "application/json"])!
-      return (Data(#"{"ok":true}"#.utf8), resp)
-    }
-    try await client(session).testMeilisearch(url: "http://meili.example", apiKey: nil)
-    let body = try XCTUnwrap(URLProtocolStub.capturedBodies["https://x/api/enrichment/test-meili"])
-    let obj = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
-    XCTAssertFalse(obj.keys.contains("api_key"))
-  }
-
-  func test_testMeilisearch_okFalseOn200StillThrows() async {
-    let session = URLSession.stubbed(
-      response: #"{"ok":false,"error":"Meilisearch health check failed"}"#,
-      contentType: "application/json", status: 200)
-    do {
-      try await client(session).testMeilisearch(url: "http://dead.example", apiKey: nil)
-      XCTFail("expected throw on ok:false")
-    } catch let error as ServerAdminError {
-      XCTAssertEqual(error.message, "Meilisearch health check failed")
     } catch {
       XCTFail("expected ServerAdminError, got \(error)")
     }

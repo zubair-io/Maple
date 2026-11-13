@@ -24,7 +24,11 @@ fn test_frame(scene_cct: f32, cm: [[f32; 3]; 3]) -> SliderFrame {
         cm_as_shot: Matrix3(cm),
         scene_cct,
         scene_tint: 0.0,
-        render_cm: Matrix3([[0.6722,-0.0635,-0.0963],[-0.4287,1.2460,0.2028],[-0.0908,0.2162,0.5668]]),
+        render_cm: Matrix3([
+            [0.6722, -0.0635, -0.0963],
+            [-0.4287, 1.2460, 0.2028],
+            [-0.0908, 0.2162, 0.5668],
+        ]),
     }
 }
 
@@ -47,6 +51,7 @@ fn test_profile(scene_cct: f32, cm: [[f32; 3]; 3], as_shot_neutral: [f32; 3]) ->
         look_table: None,
         tone_curve: None,
         cm_endpoints: None,
+        hsm_endpoints: None,
     }
 }
 

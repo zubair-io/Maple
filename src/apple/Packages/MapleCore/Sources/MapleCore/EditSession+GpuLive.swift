@@ -107,13 +107,15 @@ extension EditSession {
     targetSize: CGSize?,
     gen: UInt64?,
     decodeGeneration: UInt64,
-    quality: PipelineRenderer.Quality,
     appliedCrop: Crop,
     noiseProfile: [Float]? = nil,
     iso: UInt32 = 0,
     whitesAnchorEv: Float = .nan,
-    nrSamplingScale: Float = 1
+    nrSamplingScale: Float = 1,
+    wbFrame: WbSliderFrame? = nil
   ) async -> Bool {
+    let fitRevision = autoFitRevision
+    let fitAssetID = asset.id
     guard GpuLiveFlag.isEnabled, let driver = gpuLiveDriver else {
       editSessionLogger.notice("GPU-TRACE reject flag-or-driver gen=\(gen ?? 0)")
       return false
@@ -201,7 +203,8 @@ extension EditSession {
           width: dims.width, height: dims.height,
           inputShape: inputShape, identity: uploadIdentity,
           noiseProfile: noiseProfile, iso: iso, whitesAnchorEv: whitesAnchorEv,
-          nrSamplingScale: uploadNrSamplingScale
+          nrSamplingScale: uploadNrSamplingScale,
+          wbFrame: resolvedIsRaw ? wbFrame : nil
         ) {
           try Task.checkCancellation()
           guard let buf = pipeline.sceneLinearFloats(from: decoded, targetSize: targetSize) else {
@@ -210,6 +213,10 @@ extension EditSession {
           try Task.checkCancellation()
           return buf.pixels
         }
+        // Same MainActor slice as the open's return: the upload now holds
+        // this identity, so the native-detail patch can measure its dehaze
+        // maps from the buffer the canvas received (#5215).
+        driver.recordUploadedPrescale(targetSize, identity: uploadIdentity)
         MemoryProbe.sample("gpu-open dims=\(dims.width)x\(dims.height)")
       } catch is CancellationError {
         return true  // Superseded work must not allocate a CPU fallback either.
@@ -244,11 +251,19 @@ extension EditSession {
       }
     }
 
+    let autoFitOutcome: AutoFitStatus?
+    // Cloud RAWs need the same fit as local files. The session stages
+    // their bytes once for the path-only FFI (#3357).
     if resolvedIsRaw, m.profile == .auto,
-      !(await prepareGpuAutoProfile(
-        driver: driver, model: m, decodeGeneration: decodeGeneration, quality: quality, gen: gen))
+      let url = try? await renderActor.rawRenderSource.url(for: asset)
     {
-      return true  // Superseded work must not start a CPU fallback.
+      let scope = asset.scopeParentURL ?? url.deletingLastPathComponent()
+      let accessing = scope.startAccessingSecurityScopedResource()
+      defer { if accessing { scope.stopAccessingSecurityScopedResource() } }
+      autoFitOutcome = await driver.fitAutoProfileIfNeeded(
+        rawPath: url.path, model: m, quality: .preview)
+    } else {
+      autoFitOutcome = .unavailable
     }
 
     // Film look (epic #2683, Task 10): resolve + push BEFORE this present,
@@ -278,29 +293,19 @@ extension EditSession {
     editSessionLogger.notice(
       "GPU-TRACE present begin gen=\(gen ?? 0) dims=\(dims.width)x\(dims.height)")
     var presentErr: Error? = nil
-    // #1781/#1976: with a decode-exported slider frame the delta
-    // anchors at the frame's own as-shot pair (`wbDeltaAnchor` — the
-    // WB the strip-XMP decode actually baked) and the FFI derives the
-    // matrix with the frame's own calibration — matching the CPU tick
-    // chain and a fresh full develop. Frame-less RAW uses the absolute
-    // CAT16 sentinel (#1472); non-RAW keeps the D65 baseline (#1734).
-    let liveWbFrame = resolvedIsRaw ? wbSliderFrame : nil
+    // A RAW renders through the uploaded decode's creative stage (#5377),
+    // which ignores the anchor; non-RAW keeps the D65 delta baseline (#1734).
     let anchor = wbDeltaAnchor
-    let submission = editSessionSignposter.beginInterval(
-      "GpuDriverAwait", id: editSessionSignposter.makeSignpostID(),
-      "generation \(gen ?? 0, privacy: .public)")
     let didPresent = await driver.present(
       model: m,
-      asShotCCT: resolvedIsRaw ? anchor?.temperature : 6500.0,
-      asShotTint: resolvedIsRaw ? anchor?.tint : 0.0,
-      wbFrame: liveWbFrame,
+      asShotCCT: resolvedIsRaw ? (anchor?.temperature ?? asShotCCT) : 6500.0,
+      asShotTint: resolvedIsRaw ? (anchor?.tint ?? asShotTint) : 0.0,
       scopeEnabled: scopeEnabled,
       scopeLayer: scopeLayerIndex
     ) { [weak self] error in
       presentErr = error
       self?.renderError = error
     }
-    editSessionSignposter.endInterval("GpuDriverAwait", submission)
     // Only overwrite on an actual new sample — mirrors the driver's own
     // "one-off readback miss leaves the previous sample in place"
     // contract one layer up. Gated on `scopeEnabled` too, so turning the
@@ -396,10 +401,15 @@ extension EditSession {
     // pixels. Do not wake histograms or claim that a stale frame is ready.
     guard didPresent, !Task.isCancelled else { return true }
     if let gen, gen != (await renderActor.currentGeneration()) { return true }
+    if let autoFitOutcome {
+      publishAutoFit(
+        autoFitOutcome, assetID: fitAssetID, profile: m.profile, revision: fitRevision)
+    }
     editSessionLogger.notice("GPU-TRACE present OK gen=\(gen ?? 0)")
     lastPublishedRenderGeneration = gen
-    editSessionSignposter.emitEvent("GpuPublished", "generation \(gen ?? 0, privacy: .public)")
     if !gpuFramePresented { gpuFramePresented = true }
+    let presentedLongEdge = driver.currentDims.map { CGFloat(max($0.width, $0.height)) } ?? 0
+    if gpuFrameLongEdgePixels != presentedLongEdge { gpuFrameLongEdgePixels = presentedLongEdge }
     histogramState.framePresented()
     editSessionSignposter.emitEvent("GPU frame submitted")
     // GPU analog of the CPU publish clear (#1221): `decodeAndRender` returns
@@ -428,12 +438,47 @@ extension EditSession {
   /// `renderedPreview` (GPU path) nor a hardcoded constant drives readiness. Pure
   /// (all inputs explicit) so it is unit-testable without env/flags, and
   /// `nonisolated` so it's callable off the MainActor. See #1069.
+  ///
+  /// On the GPU leaf a completed CPU full render ALSO counts (#4496): the
+  /// leaf's CPU backdrop paints `renderedPreview` until the first present,
+  /// and a bytes-backed PhotoKit asset renders its first frames on the CPU
+  /// path by design (the large-sensor gate declines a not-yet-seeded
+  /// `nativeImageSize`), so those pixels really are on glass. Seeds still
+  /// do not count — `renderedPreviewIsFullRender` is false for them. A
+  /// render developed off the embedded-preview decode while the full
+  /// decode is still in flight DOES count, on purpose: it is a complete
+  /// display-resolution frame the backdrop shows, and the cold-open
+  /// loading bar stays up on `isResolvingFirstFrame` regardless — the
+  /// `!isFullQualityDecoding` term belongs only to the persist gate.
   public nonisolated static func canvasHasFrame(
     gpuActive: Bool,
     gpuFramePresented: Bool,
-    hasRenderedPreview: Bool
+    hasRenderedPreview: Bool,
+    renderedPreviewIsFullRender: Bool
   ) -> Bool {
-    gpuActive ? gpuFramePresented : hasRenderedPreview
+    let cpuFrameOnGlass = hasRenderedPreview && renderedPreviewIsFullRender
+    return gpuActive ? (gpuFramePresented || cpuFrameOnGlass) : hasRenderedPreview
+  }
+
+  /// Whether the CPU backdrop is drawn over the GPU canvas. A thumbnail seed
+  /// stays hidden once the GPU placeholder is on screen: drawn above it, the
+  /// thumbnail would cover the display preview that replaces that placeholder.
+  public nonisolated static func showsCpuBackdrop(
+    isFullQualityDecoding: Bool,
+    gpuFramePresented: Bool,
+    backdropIsThumbnailSeed: Bool,
+    placeholderOnScreen: Bool
+  ) -> Bool {
+    guard !(backdropIsThumbnailSeed && placeholderOnScreen) else { return false }
+    return isFullQualityDecoding || !gpuFramePresented
+  }
+
+  public var showsCpuBackdrop: Bool {
+    Self.showsCpuBackdrop(
+      isFullQualityDecoding: isFullQualityDecoding,
+      gpuFramePresented: gpuFramePresented,
+      backdropIsThumbnailSeed: renderedPreview != nil && previewIsThumbnailSeed,
+      placeholderOnScreen: canvasPlaceholderOnScreen)
   }
 
   /// Whether the cold-open loading indicator should be visible: while the

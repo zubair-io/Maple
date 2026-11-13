@@ -19,6 +19,8 @@ namespace Maple.WinUI.Services.Xmp
         private static readonly Encoding Utf8NoBom = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
         private static readonly object WriteGate = new();
 
+        public const long MaxSidecarBytes = 4 * 1024 * 1024;
+
         public static byte[]? ReadSnapshot(string rawPath)
         {
             lock (WriteGate)
@@ -26,7 +28,7 @@ namespace Maple.WinUI.Services.Xmp
                 try
                 {
                     using var stream = new FileStream(SidecarPathFor(rawPath), FileMode.Open, FileAccess.Read, FileShare.Read);
-                    if (stream.Length > 4 * 1024 * 1024) throw new IOException("Sidecar exceeds the 4 MiB editing limit.");
+                    if (stream.Length > MaxSidecarBytes) throw new IOException("Sidecar exceeds the 4 MiB editing limit.");
                     var bytes = new byte[checked((int)stream.Length)];
                     stream.ReadExactly(bytes);
                     return bytes;
@@ -62,7 +64,7 @@ namespace Maple.WinUI.Services.Xmp
                 try
                 {
                     using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
-                    if (stream.Length > 4 * 1024 * 1024) throw new IOException("Sidecar exceeds the 4 MiB editing limit.");
+                    if (stream.Length > MaxSidecarBytes) throw new IOException("Sidecar exceeds the 4 MiB editing limit.");
                     using var reader = new StreamReader(stream, Encoding.UTF8);
                     doc = XmpParser.Parse(reader.ReadToEnd())
                         ?? throw new IOException("Existing sidecar is invalid; it was not overwritten.");

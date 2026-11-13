@@ -5,10 +5,7 @@ import XCTest
 
 @MainActor
 final class PartialWhiteBalanceTests: XCTestCase {
-  private let frame = WbSliderFrame(
-    mCold: [0.89, -0.10, 0.08, -0.43, 1.21, 0.22, -0.03, 0.14, 0.76], cctCold: 2856,
-    mWarm: [0.75, -0.06, -0.05, -0.43, 1.21, 0.22, -0.09, 0.23, 0.65], cctWarm: 6504,
-    sceneCCT: 5520.125, asShotTint: -43.79)
+  private let frame = WbSliderFrame(sceneCCT: 5520.125, asShotTint: -43.79)
 
   private func xml(_ attrs: String) -> String {
     """
@@ -258,6 +255,27 @@ final class PartialWhiteBalanceTests: XCTestCase {
     XCTAssertEqual(try Data(contentsOf: png), bytes)
   }
 
+  func testColdNonRawDerivativeResolvesLegacyPartialTint() async throws {
+    let root = try SidecarContractIO.makeTempDirectory(prefix: "partial-wb-cold-bitmap")
+    defer { try? FileManager.default.removeItem(at: root) }
+    let png = root.appendingPathComponent("photo.png")
+    let original = try SidecarContractIO.makeSyntheticOriginal(at: png)
+    let sidecar = SidecarPath.sidecarURL(for: png)
+    var derivatives: [Data] = []
+    for version in [2, 5] {
+      let attrs =
+        #"crs:Tint="40" crs:Exposure2012="1.25" xmlns:papp="http://ns.justmaple.app/photo/1.0/" papp:WbScaleVersion="\#(version)""#
+      try xml(attrs).write(to: sidecar, atomically: true, encoding: .utf8)
+      let rendered = try await ThumbnailLoader.renderNonRawSidecarDerivative(
+        at: png, targetLongEdge: 256, quality: 0.7)
+      derivatives.append(try XCTUnwrap(rendered))
+    }
+    XCTAssertNotEqual(
+      derivatives[0], derivatives[1],
+      "V2 Tint=40 must render with its converted value, not V5's literal tint")
+    XCTAssertEqual(try Data(contentsOf: png), original)
+  }
+
   func testUnreadableRawPreservesImportedFieldsAndReportsResolutionFailure() async throws {
     let root = try SidecarContractIO.makeTempDirectory(prefix: "partial-wb-error")
     defer { try? FileManager.default.removeItem(at: root) }
@@ -272,7 +290,7 @@ final class PartialWhiteBalanceTests: XCTestCase {
     XCTAssertNotNil(session.partialWhiteBalanceImportError)
     XCTAssertNotNil(session.model.partialWhiteBalance)
     session.publishAutoFit(
-      true, assetID: session.asset.id, profile: .auto, revision: session.autoFitRevision)
+      .active, assetID: session.asset.id, profile: .auto, revision: session.autoFitRevision)
     await session.decodeAndRender(targetSize: nil, phase: .fast)
     XCTAssertEqual(session.autoFitStatus, .active, "A WB failure cannot overwrite an achieved fit")
     session.resetAutoFitStatus()

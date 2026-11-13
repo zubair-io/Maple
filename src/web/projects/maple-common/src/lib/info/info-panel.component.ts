@@ -56,7 +56,14 @@ import { ImageCanvasService } from '../components/image-canvas/image-canvas.serv
 import { computeRgbHistograms } from '../raw-pipeline/image-utils';
 import { SERVER_LIBRARY_IO } from '../workspace/server-library-io';
 import { LibraryStateService } from '../state/library-state.service';
+import { ExifReaderService } from '../addressing/exif-reader.service';
 import { InfoFilenameRowComponent } from './info-filename-row.component';
+import { InfoStackFilesComponent } from './info-stack-files.component';
+import {
+  HOSTED_INFO_EXIF_ENABLED,
+  HOSTED_INFO_EXIF_TAGS,
+  hostedInfoFields,
+} from './hosted-info-exif';
 import { MuiTextComponent } from '../ui/text/mui-text.component';
 import { INFO_PANEL_EXTENSION } from './info-panel-extension';
 import {
@@ -79,6 +86,7 @@ import type { MuiRatingFlagState } from '../ui/rating-flags/mui-rating-flags.com
   imports: [
     MuiTextComponent,
     InfoFilenameRowComponent,
+    InfoStackFilesComponent,
     MuiButtonComponent,
     MuiRatingFlagsComponent,
     MuiHistogramComponent,
@@ -109,6 +117,8 @@ export class InfoPanelComponent {
   }
   private readonly state = inject(LibraryStateService);
   private readonly serverIo = inject(SERVER_LIBRARY_IO, { optional: true });
+  private readonly exifReader = inject(ExifReaderService);
+  private readonly hostedExifEnabled = inject(HOSTED_INFO_EXIF_ENABLED, { optional: true });
   private readonly canvas = inject(ImageCanvasService);
 
   /** Focused asset whose info to render. `null` keeps the layout stable
@@ -120,6 +130,9 @@ export class InfoPanelComponent {
    * header (title + close X). `false` on the tablet/desktop inspector
    * pane, where the parent tab bar already says "Info". */
   readonly insideSheet = input<boolean>(false);
+
+  /** Phone sheets project their content even while closed. */
+  readonly visible = input<boolean>(true);
 
   /** Permit a server histogram when this surface has no live canvas pixels.
    * Editor callers disable this; Browse/Preview retain the default fallback. */
@@ -140,7 +153,13 @@ export class InfoPanelComponent {
   // methods), so the two-way `[(rating)]`/`[(flag)]` models below commit
   // straight through — no local draft state to reconcile.
 
-  protected readonly ratingFlagsDisabled = computed(() => this.asset() === null);
+  protected readonly sidecarError = computed(() => {
+    const id = this.asset()?.id;
+    return id ? (this.state.sidecarLoadError?.(id) ?? null) : null;
+  });
+  protected readonly ratingFlagsDisabled = computed(
+    () => this.asset() === null || this.sidecarError() !== null,
+  );
   protected readonly currentRating = computed(() => this.asset()?.rating ?? 0);
   protected readonly currentFlagState = computed(() =>
     toMuiFlagState(this.asset()?.flag ?? 'unflagged'),
@@ -161,7 +180,14 @@ export class InfoPanelComponent {
 
   // ── EXIF / GPS grid — mui-label-value-grid wiring ────────────────────
 
-  protected readonly metadataRows = computed(() => cameraLocationRows(this.asset()));
+  private readonly hostedExif = signal<{ id: string; fields: Partial<Asset> } | null>(null);
+  protected readonly metadataRows = computed(() => {
+    const asset = this.asset();
+    const exif = this.hostedExif();
+    return cameraLocationRows(
+      asset && exif?.id === asset.id ? { ...asset, ...exif.fields } : asset,
+    );
+  });
   protected readonly cameraSupport = computed(() => {
     const asset = this.asset();
     return asset ? this.state.lensCorrectionsFor(asset.id).cameraSupport : undefined;
@@ -224,6 +250,26 @@ export class InfoPanelComponent {
   });
 
   constructor() {
+    // Hosted folder listings deliberately avoid reading EXIF from every RAW.
+    // Parse only the Info panel's selected photo, using bytes already held by
+    // the open-image cache when available. Ignore late results after a switch.
+    effect((onCleanup) => {
+      const id = this.assetId();
+      if (!id || !this.hostedExifEnabled || !this.visible()) return;
+      let cancelled = false;
+      onCleanup(() => {
+        cancelled = true;
+      });
+      void this.state
+        .bytesForAsset(id)
+        .then((bytes) => this.exifReader.parse(bytes, HOSTED_INFO_EXIF_TAGS, true))
+        .then((raw) => {
+          if (!cancelled) this.hostedExif.set({ id, fields: hostedInfoFields(raw) });
+        })
+        .catch(() => {
+          // Corrupt or unreadable files keep truthful placeholders in Info.
+        });
+    });
     // Refetch only when the logical asset ID changes. Preview enriches its
     // Asset record by object replacement, which must not restart this
     // native request for the same file.

@@ -1,6 +1,7 @@
 import { expect, test, type Page, type BrowserContext, type Route } from '@playwright/test';
 
 test.use({ serviceWorkers: 'block' });
+const AUTH_ORIGIN = `http://localhost:${process.env.MAPLE_E2E_SELF_HOSTED_PORT ?? '4401'}`;
 
 async function authFixture(page: Page, context: BrowserContext, claimed: boolean) {
   const session = await context.newCDPSession(page);
@@ -89,6 +90,7 @@ async function authFixture(page: Page, context: BrowserContext, claimed: boolean
       ['/api/auth/me', { user: { id: 'qa-owner', email: null, role: 'owner' } }],
       ['/api/folders', []],
       ['/api/fs/list', { path: '/', parent: null, entries: [] }],
+      ['/api/fs/roots', { roots: ['/'] }],
     ]);
     await route.fulfill({ json: responses.get(path) ?? {} });
   });
@@ -113,7 +115,7 @@ for (const width of [1440, 768, 390]) {
       page.on('pageerror', (error) => errors.push(error.message));
       const auth = await authFixture(page, context, claimed);
       try {
-        await page.goto(`http://localhost:4419/${claimed ? 'join' : 'sign-in'}`);
+        await page.goto(`${AUTH_ORIGIN}/${claimed ? 'join' : 'sign-in'}`);
         const submit = page.getByRole('button', { name: 'Create passkey', exact: true });
         if (claimed) {
           const code = page.getByRole('textbox', { name: 'Invite code', exact: true });
@@ -166,7 +168,7 @@ for (const width of [1440, 768, 390]) {
         });
         if (claimed) {
           auth.signOut();
-          await page.goto('http://localhost:4419/sign-in?returnUrl=%2Fbrowse');
+          await page.goto(`${AUTH_ORIGIN}/sign-in?returnUrl=%2Fbrowse`);
           const signIn = page.getByRole('button', { name: 'Sign in with a passkey' });
           await signIn.focus();
           await signIn.press('Enter');
@@ -181,7 +183,7 @@ for (const width of [1440, 768, 390]) {
         await page.route('**/api/auth/bootstrap', (route) =>
           route.fulfill({ json: { claimed: true, dev_login_enabled: true } }),
         );
-        await page.goto('http://localhost:4419/sign-in?returnUrl=%2Fbrowse');
+        await page.goto(`${AUTH_ORIGIN}/sign-in?returnUrl=%2Fbrowse`);
         const dev = page.getByRole('button', { name: 'Sign in as dev (no passkey)' });
         await dev.focus();
         await dev.press('Enter');

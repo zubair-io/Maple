@@ -8,10 +8,8 @@ import { Asset, AssetId } from '../models/asset';
 import { SERVER_LIBRARY_IO } from '../workspace/server-library-io';
 import { FilesystemBrowseService, type DownloadProgress } from '../api/filesystem-browse.service';
 import { FolderEntry, MapleFolderHandle } from '../folder-access/folder-access.types';
-import { MapleCacheService } from '../maple-cache/maple-cache.service';
 import { RawPipelineService } from '../raw-pipeline/raw-pipeline.service';
 import { resizeBitmapToCanvas, canvasToBlob } from '../raw-pipeline/image-utils';
-import { sha256Prefix16 } from '../maple-cache/sha';
 import { LibraryStore } from './library-store.service';
 import { LibrarySelection } from './library-selection.service';
 import { LIBRARY_SOURCE, type LibrarySource } from '../addressing/library-source';
@@ -24,6 +22,8 @@ import { isM2Asset, readAssetBytes } from './library-cache.byte-source';
 import { previewLoader } from './library-cache.preview-loader';
 import { HostedByteSnapshotCache } from './hosted-byte-snapshot-cache';
 import { decodeHostedThumb } from './library-cache.hosted-thumb';
+import { HostedThumbCache } from './library-cache.hosted-thumb-cache';
+import { HostedSidecarErrors } from './hosted-sidecar-errors.service';
 import { ThumbLoadQueue, QUEUE_CLEARED_MESSAGE } from './library-cache.thumb-queue';
 
 @Injectable({ providedIn: 'root' })
@@ -33,9 +33,10 @@ export class LibraryCache {
   private readonly api = inject(SERVER_LIBRARY_IO, { optional: true });
   private readonly fsBrowse = inject(FilesystemBrowseService);
   private readonly librarySource: LibrarySource = inject(LIBRARY_SOURCE);
-  private readonly cache = inject(MapleCacheService);
+  private readonly hostedThumbCache = inject(HostedThumbCache);
   private readonly pipeline = inject(RawPipelineService);
   private readonly hostedPreview = inject(HostedPreviewResolver);
+  private readonly sidecarErrors = inject(HostedSidecarErrors);
   private readonly destroyRef = inject(DestroyRef, { optional: true });
 
   private _lastSelectedSourceId = this.selection.selectedSourceId();
@@ -372,6 +373,10 @@ export class LibraryCache {
     return this.thumbChannel.get(id);
   }
 
+  thumbnailFailed(id: AssetId): boolean {
+    return this.thumbFails.has(id);
+  }
+
   /** Idempotently load the blob-URL thumbnail for one asset. Grid + filmstrip
    * call this on every visible row; it short-circuits when the URL is cached,
    * a load is in flight, or the load already failed this session
@@ -389,15 +394,12 @@ export class LibraryCache {
    * loader bookkeeping, never rendering state; tiles repaint through their
    * `subscribeThumbUrl` callback, so nothing here should make a caller reactive.
    * See `library-cache.thumb-reactivity.spec.ts`. */
-  ensureThumbnailUrl(asset: Asset, onThumbWritten?: (id: AssetId, sha: string) => void): void {
+  ensureThumbnailUrl(asset: Asset, onThumbWritten?: (id: AssetId) => void): void {
     if (!asset) return;
     untracked(() => this._ensureThumbnailUrlUntracked(asset, onThumbWritten));
   }
 
-  private _ensureThumbnailUrlUntracked(
-    asset: Asset,
-    onThumbWritten?: (id: AssetId, sha: string) => void,
-  ): void {
+  private _ensureThumbnailUrlUntracked(asset: Asset, onThumbWritten?: (id: AssetId) => void): void {
     if (this.thumbnailUrls().has(asset.id) || this.thumbFails.has(asset.id)) return;
     if (this.thumbLoadingTokens.has(asset.id)) return;
 
@@ -453,9 +455,9 @@ export class LibraryCache {
   }
 
   private async _tryReadCachedThumb(folder: MapleFolderHandle, asset: Asset): Promise<boolean> {
+    if (this.sidecarErrors.errors().has(asset.id)) return false;
     try {
-      const sha = await sha256Prefix16(asset.filename);
-      const cached = await this.cache.readThumb(folder, sha);
+      const cached = await this.hostedThumbCache.read(folder, asset);
       if (cached) {
         this.cacheThumbnailUrl(asset.id, URL.createObjectURL(cached));
         return true;
@@ -468,9 +470,8 @@ export class LibraryCache {
 
   private async _ensureThumbnailUrlInternal(
     asset: Asset,
-    onThumbWritten?: (id: AssetId, sha: string) => void,
+    onThumbWritten?: (id: AssetId) => void,
   ): Promise<void> {
-    // 1. Hosted: try the .maple/thumbs/ on-disk cache first (local IndexedDB lookup, no network).
     if (this.store.backend !== 'self-hosted') {
       const folder = this.store.currentFolder();
       if (folder && (await this._tryReadCachedThumb(folder, asset))) {
@@ -484,7 +485,7 @@ export class LibraryCache {
 
   private _enqueueThumbNetworkLoad(
     asset: Asset,
-    onThumbWritten?: (id: AssetId, sha: string) => void,
+    onThumbWritten?: (id: AssetId) => void,
   ): Promise<void> {
     return this.thumbQueue.enqueue(asset.id, () => this._loadThumbInternal(asset, onThumbWritten));
   }
@@ -516,7 +517,6 @@ export class LibraryCache {
         }
       }
     }
-
     // 2. Self-Hosted API asset (older grid mounts that resolved an apiId).
     const apiId = this.store.apiAssetIds.get(asset.id);
     if (!apiId) return;
@@ -527,9 +527,10 @@ export class LibraryCache {
 
   private async _loadHostedThumb(
     asset: Asset,
-    onThumbWritten?: (id: AssetId, sha: string) => void,
+    onThumbWritten?: (id: AssetId) => void,
   ): Promise<void> {
     const folder = this.store.currentFolder();
+    const sidecarBefore = folder ? await this.hostedThumbCache.snapshot(folder, asset) : undefined;
     const bitmap = await decodeHostedThumb(asset, {
       preview: this.hostedPreview,
       pipeline: this.pipeline,
@@ -544,16 +545,15 @@ export class LibraryCache {
     const { blob, format } = await canvasToBlob(canvas);
     this.cacheThumbnailUrl(asset.id, URL.createObjectURL(blob));
     if (folder?.write) {
-      const sha = await sha256Prefix16(asset.filename);
-      void this.cache
-        .writeThumb(folder, sha, blob, format)
-        .then(() => onThumbWritten?.(asset.id, sha));
+      void this.hostedThumbCache
+        .writeIfCurrent(folder, asset, blob, format, sidecarBefore)
+        .then((wrote) => wrote && onThumbWritten?.(asset.id))
+        .catch((error) => console.warn('[state] thumb write failed', asset.filename, error));
     }
   }
-
   private async _loadThumbInternal(
     asset: Asset,
-    onThumbWritten?: (id: AssetId, sha: string) => void,
+    onThumbWritten?: (id: AssetId) => void,
   ): Promise<void> {
     try {
       if (this.store.backend === 'self-hosted') {

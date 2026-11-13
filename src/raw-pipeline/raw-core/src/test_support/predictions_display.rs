@@ -173,6 +173,7 @@ mod tests {
                 highlight: [210.0, 60.0, -15.0],
                 global: [90.0, 20.0, 5.0],
                 balance: bal,
+                ..Default::default()
             };
             let mut img = Image::new(1, 1, ColorSpace::DisplayLinearRec2020);
             img.pixels[0] = [v, v, v];

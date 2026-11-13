@@ -433,6 +433,30 @@ describe('/api/ai routes', () => {
   });
 
   describe('POST /api/ai/test', () => {
+    it('never sends a cloud key to the Ollama URL these routes fall back to', async () => {
+      const fetchSpy = spyOn(globalThis, 'fetch').mockResolvedValue(
+        new Response('{}', { status: 401 }),
+      );
+      try {
+        await req(
+          '/api/ai/test',
+          {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({
+              provider: 'openai',
+              api_key: 'sk-cloud',
+              url: 'http://ollama.lan:11434',
+            }),
+          },
+          ownerToken,
+        );
+        expect(String(fetchSpy.mock.calls[0]?.[0])).toBe('https://api.openai.com/v1/models');
+      } finally {
+        fetchSpy.mockRestore();
+      }
+    });
+
     it('tests connection for owner and fails cleanly on bad config', async () => {
       const res = await req(
         '/api/ai/test',

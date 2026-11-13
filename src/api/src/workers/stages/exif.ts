@@ -4,7 +4,7 @@
  *
  * The primary-form maple:id embeds BLAKE3( SHA1(head) || capturedAt ||
  * cameraSerial || shutterCount ) (tag 0x01). The discover watcher writes
- * the fallback form (tag 0x02, SHA1(head) only) inline at insert; this
+ * the fallback form (tag 0x02, SHA1(full file) || size) inline at insert; this
  * stage upgrades it if DateTimeOriginal is present. See
  * `src/api/src/indexer/id.ts` for the byte layout.
  *
@@ -17,11 +17,12 @@ import * as fs from 'node:fs/promises';
 import { ObjectId } from '../../db/object-id.ts';
 import { readExif } from '../../indexer/exif.ts';
 import { isLikelyScreenshot } from '../../indexer/screenshot.ts';
-import { deriveId } from '../../indexer/id.ts';
+import { deriveId, hashFileForId } from '../../indexer/id.ts';
 import { assetAbsPath, assetPrimaryFileInfo } from '../../indexer/images.repo.ts';
 import { findMapleIdHolder, mergeIntoSurvivor } from '../../db/repos/assets.merge.ts';
 import { exifPatchStatements } from '../../db/repos/assets.stage-patches.ts';
-import { loadLibraryRoots } from '../../indexer/libraries.cache.ts';
+import { loadLibraryRootsForAsset } from '../../indexer/libraries.cache.ts';
+import { noResolvableLocation } from './no-resolvable-location.ts';
 import type { AssetExif } from '../../db/schema.ts';
 import { recordAndPublishAssetChange } from '../../db/repos/changes.repo.ts';
 import type { ImageDoc, StageResult } from '../run-stage.ts';
@@ -50,7 +51,12 @@ const exifStage = defineStage({
   name: 'exif',
   // v2: GPS hemisphere refs added to the exifr pick list — earlier indexes
   // wrote western-hemisphere longitudes as positive. Bumping forces re-extract.
-  targetVersion: 2,
+  // v3: dateless rows still holding the legacy head-only 0x02 id are re-derived
+  // to the full-file fallback (#4728).
+  // v4: capture dates are read by the shared tag reader, so a RAW whose ExifIFD
+  // exifr's chunked reader dropped (100 MP DNGs keep it at the end of the file)
+  // gains its date and upgrades from the fallback id to the primary one (#5090).
+  targetVersion: 4,
   dependsOn: [],
   // Reads the original file — an ENOENT means it vanished from disk, so the
   // runner tags `missing_since` for the missing-reaper.
@@ -80,10 +86,10 @@ const exifStage = defineStage({
     // gone) — is the genuinely-orphaned one: the runner stamps
     // `missing_since` on that skip instead of marking the stage done, so the
     // missing-reaper sees it. See run-stage.ts.
-    const libs = await loadLibraryRoots();
+    const libs = await loadLibraryRootsForAsset(image);
     const absPath = assetAbsPath(image, libs);
     if (!absPath) {
-      return { skip: 'no-resolvable-location' };
+      return noResolvableLocation(image, libs);
     }
 
     // Stat the file first — throws ENOENT when it doesn't exist, satisfying
@@ -111,15 +117,22 @@ const exifStage = defineStage({
     // Heuristic screenshot seed — describe stage refines this later.
     const isScreenshot = isLikelyScreenshot(absPath, exif?.camera_make ?? null);
 
-    // Upgrade maple_id to primary form if capturedAt is available.
-    if (exif?.captured_at) {
-      const head = await readHead(absPath);
-      const id = deriveId(
-        head,
-        exif.captured_at,
-        null, // camera_serial not in AssetExif schema yet
-        null, // shutter_count not in AssetExif schema yet
-      );
+    // Upgrade maple_id to primary form if capturedAt is available. A dateless
+    // row stays fallback-form, but one still holding the legacy head-only id
+    // is re-derived over the full file (#4728); an id discover already derived
+    // over the full file matches neither and costs no extra read.
+    const head = await readHead(absPath);
+    const id = exif?.captured_at
+      ? deriveId(
+          head,
+          exif.captured_at,
+          null, // camera_serial not in AssetExif schema yet
+          null, // shutter_count not in AssetExif schema yet
+        )
+      : image.maple_id === deriveId(head, null, null, null).hex
+        ? { hex: (await hashFileForId(absPath)).maple_id }
+        : null;
+    if (id) {
       if (id.hex !== image.maple_id) {
         // The upgrade only runs when the id is actually changing — same
         // value would be a no-op, but a different value risks colliding

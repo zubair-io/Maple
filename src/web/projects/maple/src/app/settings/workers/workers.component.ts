@@ -58,8 +58,8 @@ import { GpuLiveRenderSettingsComponent } from './gpu-live-render-settings.compo
 import { CanvasColorSpaceSettingsComponent } from './canvas-color-space-settings.component';
 import { FacePurgePanelComponent } from './face-purge-panel.component';
 import { ServiceApiKeysComponent } from './service-api-keys.component';
+import { TemporalSettingsComponent } from './temporal-settings.component';
 import { AiWorkerSummaryComponent } from '../ai/ai-worker-summary.component';
-import { MeilisearchEmbedderDriftComponent } from './meilisearch-embedder-drift.component';
 import {
   groupStagesByPipeline,
   summarizeStages,
@@ -69,6 +69,7 @@ import {
   throughputLabel,
   pendingTitle,
   pauseReason,
+  statusTitle,
   formatBytes,
   formatDate,
   countsAsOfLabel,
@@ -76,7 +77,7 @@ import {
   memoryDetailTitle,
   totalRss,
   runtimeFormToPatch,
-  meilisearchFormToPatch,
+  searchFormToPatch,
   blankRuntime,
   blankEnrichment,
   errorMessage,
@@ -110,8 +111,8 @@ import {
     CanvasColorSpaceSettingsComponent,
     FacePurgePanelComponent,
     ServiceApiKeysComponent,
+    TemporalSettingsComponent,
     AiWorkerSummaryComponent,
-    MeilisearchEmbedderDriftComponent,
   ],
   templateUrl: './workers.component.html',
   styleUrl: './workers.component.scss',
@@ -211,11 +212,13 @@ export class WorkersComponent implements OnInit, OnDestroy {
     if (this.destroyed) return;
     this.statusSub = this.events.workersStatus$.subscribe({
       next: ({ status, counted }) => {
+        if (this.destroyed) return;
         if (counted) this.gotWsFrame = true;
         this.status.set(status);
         this.error.set(null);
       },
       error: (err) => {
+        if (this.destroyed) return;
         this.error.set(errorMessage(err) ?? 'Failed to load worker status.');
       },
     });
@@ -223,7 +226,7 @@ export class WorkersComponent implements OnInit, OnDestroy {
 
   private fetchStatusFallback(): void {
     if (this.destroyed) return;
-    this.statusSub = this.api.getStatus().subscribe({
+    this.fallbackSub = this.api.getStatus().subscribe({
       next: (data) => {
         if (this.gotWsFrame || this.destroyed) return;
         this.status.set(data);
@@ -321,15 +324,6 @@ export class WorkersComponent implements OnInit, OnDestroy {
         return;
       }
       this.enrichmentApi.testNominatim(url).subscribe(observer);
-    } else if (meta.enrichment === 'meili') {
-      const url = form.meilisearch_url.trim();
-      if (url.length === 0) {
-        finishErr(new Error('Enter a URL to test.'));
-        return;
-      }
-      this.enrichmentApi
-        .testMeilisearch(url, form.meilisearch_api_key.trim() || null)
-        .subscribe(observer);
     }
   }
 
@@ -455,8 +449,8 @@ export class WorkersComponent implements OnInit, OnDestroy {
       // is owned by the face-detect row, so it is deliberately not sent here.
       body.face_recognizer_url = form.face_recognizer_url.trim() || null;
       body.face_recognizer_sha256 = form.face_recognizer_sha256.trim() || null;
-    } else if (kind === 'meili') {
-      Object.assign(body, meilisearchFormToPatch(form));
+    } else if (kind === 'search') {
+      Object.assign(body, searchFormToPatch(form));
     }
     this.enrichmentApi.saveEnrichmentConfig(body).subscribe({
       next: (cfg) => {
@@ -517,6 +511,7 @@ export class WorkersComponent implements OnInit, OnDestroy {
   throughputLabel = throughputLabel;
   pendingTitle = pendingTitle;
   pauseReason = pauseReason;
+  statusTitle = statusTitle;
   formatBytes = formatBytes;
   formatDate = formatDate;
 

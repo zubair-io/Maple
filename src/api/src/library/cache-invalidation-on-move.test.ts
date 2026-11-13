@@ -69,7 +69,12 @@ const EXPENSIVE_STAGES = ['describe', 'face-detect', 'face-embed', 'geocode'] as
 
 /** Every other stage an asset carries, so the fixture is a whole asset rather
  * than the handful of rows a given assertion reads. */
-const OTHER_STAGES = ['meili', 'sidecar-metadata-index', 'cf-thumb-sync', 'transcribe'] as const;
+const OTHER_STAGES = [
+  'search-blob',
+  'sidecar-metadata-index',
+  'cf-thumb-sync',
+  'transcribe',
+] as const;
 
 let root: string;
 
@@ -296,7 +301,7 @@ describe('cache invalidation on move (#2659)', () => {
 
   // #2847: trash and restore are relocates too (the bytes move into and back
   // out of `.maple/trash/`), so they must carry the same cheap-tier /
-  // expensive-tier contract as `relocateAsset` — previously only `meili` was
+  // expensive-tier contract as `relocateAsset` — previously only the search stage was
   // re-armed, and a restored asset's thumb/preview bookkeeping kept claiming
   // "done" for a path the file had left.
   test('trash (#2847) resets ONLY thumb/preview in the same transaction that stamps deleted_at; the expensive stages are left alone', async () => {

@@ -9,6 +9,7 @@
 import { computed, signal } from '@angular/core';
 import type { AdjustmentModel } from '../models/adjustment-model';
 import type { XmpSerializerService } from '../xmp/xmp-serializer.service';
+import type { RingStep } from './editor-workflow-ring';
 import {
   type EditTransaction,
   type EditTransactionKind,
@@ -95,8 +96,48 @@ export class EditTransactionRing {
     description: string,
   ): EditTransaction | null {
     if (checkpoint.before === checkpoint.after) return null;
+    const tx = this.checkpointTransaction(serializer, before, after, checkpoint, description);
+    this._undo.update((stack) => pushCapped(stack, tx));
+    this._redo.set([]);
+    this.lastCommitted.set(tx);
+    return tx;
+  }
+
+  /** Nothing recorded, open, or redoable since the bind. */
+  untouched(): boolean {
+    return !this._pending && this._undo().length === 0 && this._redo().length === 0;
+  }
+
+  /** Rebuild Undo/Redo from the persisted history of a reopened sidecar (#4983).
+   * An untouched ring only: anything recorded or open since the bind is newer. */
+  seed(
+    serializer: XmpSerializerService,
+    undo: readonly RingStep[],
+    redo: readonly RingStep[],
+  ): boolean {
+    if (!this.untouched()) return false;
+    const build = (step: RingStep) =>
+      this.checkpointTransaction(
+        serializer,
+        step.before,
+        step.after,
+        step.checkpoint,
+        step.description,
+      );
+    this._undo.set(undo.map(build).slice(-UNDO_STACK_CAP));
+    this._redo.set(redo.map(build).reverse().slice(-UNDO_STACK_CAP));
+    return true;
+  }
+
+  private checkpointTransaction(
+    serializer: XmpSerializerService,
+    before: AdjustmentModel,
+    after: AdjustmentModel,
+    checkpoint: NonNullable<EditTransaction['checkpoint']>,
+    description: string,
+  ): EditTransaction {
     this._nextId += 1;
-    const tx: EditTransaction = {
+    return {
       id: this._nextId,
       kind: 'variant',
       description,
@@ -106,10 +147,6 @@ export class EditTransactionRing {
       diff: sidecarDiff(serializer, before, after),
       invalidation: classifyInvalidation(before, after),
     };
-    this._undo.update((stack) => pushCapped(stack, tx));
-    this._redo.set([]);
-    this.lastCommitted.set(tx);
-    return tx;
   }
 
   /** A durable edit is recorded only after its XMP write succeeds. */

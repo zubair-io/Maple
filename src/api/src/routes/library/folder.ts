@@ -11,7 +11,12 @@ import { computeBodyETag, ifNoneMatchEqual } from '../../runtime/http-etag.ts';
 import { child as childLogger } from '../../log.ts';
 
 const log = childLogger('routes/library/folder');
-const listingQuery = t.Object({ cursor: t.Optional(t.String()), limit: t.Optional(t.String()) });
+const listingQuery = t.Object({
+  cursor: t.Optional(t.String()),
+  limit: t.Optional(t.String()),
+  // Opt-in RAW+JPEG folding (#5050): File Provider, Android and Windows list every file.
+  stack: t.Optional(t.Union([t.Literal('0'), t.Literal('1')])),
+});
 const jsonError = (status: number, message: string): Response =>
   new Response(JSON.stringify({ error: message }), {
     status,
@@ -30,7 +35,12 @@ function pageLimit(raw: string | undefined): number | undefined {
   return parsed;
 }
 async function enqueueDiscover(listing: FolderListing, resolved: FolderAddress) {
-  if (!listing.images.some((image) => !image.indexed)) return;
+  // A JPEG folded into an indexed RAW is unindexed too.
+  const unindexed = listing.images.some(
+    (image) =>
+      !image.indexed || (image.stack !== undefined && image.stack.companion.id === undefined),
+  );
+  if (!unindexed) return;
   // The worker owns hashing, pacing and inherited folder-hidden state. The
   // request only records durable work; it never hashes a directory or RAW.
   try {
@@ -65,7 +75,7 @@ function listingError(error: unknown): Response {
 async function buildFolderListing(
   slug: string,
   wildcard: string,
-  query: { cursor?: string; limit?: string },
+  query: { cursor?: string; limit?: string; stack?: '0' | '1' },
   ifNoneMatch: string | undefined,
 ): Promise<Response> {
   const started = performance.now();
@@ -76,6 +86,7 @@ async function buildFolderListing(
     const listing = await listUnifiedFolder(slug, relPath, resolved, {
       cursor: query.cursor,
       limit,
+      stack: query.stack === '1',
     });
     await enqueueDiscover(listing, resolved);
     return listingResponse(listing, started, ifNoneMatch);

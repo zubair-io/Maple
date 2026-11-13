@@ -65,7 +65,7 @@ import { ImageCanvasRawOpen } from './image-canvas.raw-open';
 import { ImageCanvasFilmSync } from './image-canvas.film';
 import { FilmLutService } from '../../film/film-lut.service';
 import { ImageCanvasZoomHost } from './image-canvas.zoom-host';
-import { canvasDisplayDims, createNativeDetail } from './image-canvas.native-detail-host';
+import { createImageExtent, createNativeDetail } from './image-canvas.native-detail-host';
 import { ImageCanvasNativeDetail } from './image-canvas.native-detail';
 import { SavedRemovalRenderService } from '../../removal/saved-removal-render.service';
 import { HOST_CLASS, beforeAfterBtnClass as beforeAfterBtnClassFn } from './image-canvas.classes';
@@ -108,7 +108,7 @@ export class ImageCanvasComponent
   readonly gpuFallback = inject(GpuFallbackNoticeService);
   private readonly embeddedPreview = inject(EmbeddedPreviewService);
   private readonly injector = inject(Injector);
-  protected readonly cropSession = inject(CropSessionService);
+  readonly cropSession = inject(CropSessionService);
   protected readonly guidedGeometry = inject(GuidedGeometrySessionService);
   readonly filmLut = inject(FilmLutService); // #2683, read by ImageCanvasFilmSync
 
@@ -142,6 +142,7 @@ export class ImageCanvasComponent
   private cleanupDrawEffect?: () => void;
   private cleanupRefineViewEffect?: () => void;
   private cleanupGpuKillSwitchEffect?: () => void; // #2340
+  private cleanupEffectivePxEffect?: () => void;
   // Public for `GpuPresentHost` (the helper's stale guards read it); component-mutated.
   currentAssetId: AssetId | null = null;
 
@@ -202,15 +203,17 @@ export class ImageCanvasComponent
   private readonly zoomHost = new ImageCanvasZoomHost(this);
   protected readonly gestures = this.zoomHost.gestures;
   readonly zoomLabel = this.zoomHost.zoomLabel;
+  readonly zoomBadgeAction = this.zoomHost.zoomBadgeAction;
 
   readonly downloadProgress = computed(() =>
     canvasDownloadProgress(this.state.openDownloadProgress(), this.state.focusedAsset()),
   );
   readonly deepDenoiseProgress = computed(() => canvasDeepDenoiseProgress(this.pipeline));
 
-  // Source extent makes 100% pixel-perfect; applied crops keep the painted aspect.
+  /** One extent for the zoom model and the draw, so neither jumps (#5746). */
+  readonly imageExtent = createImageExtent(this);
   private effectivePx = computed(() => {
-    const { w, h } = canvasDisplayDims(this);
+    const { w, h } = this.imageExtent() ?? {};
     return computeEffectivePx(this.zoomHost.cssZoom(), w, h, this.wrapW(), this.wrapH());
   });
 
@@ -372,6 +375,11 @@ export class ImageCanvasComponent
     // flips GpuLiveRenderGate off mid-session. See wireGpuKillSwitchEffect's
     // doc comment for why this can't just wait for the next asset open.
     this.cleanupGpuKillSwitchEffect = wireGpuKillSwitchEffect(this, this.gpuPresent, this.injector);
+
+    const effectivePxEff = effect(() => this.canvasSvc.effectivePx.set(this.effectivePx()), {
+      injector: this.injector,
+    });
+    this.cleanupEffectivePxEffect = () => effectivePxEff.destroy();
   }
 
   ngOnDestroy(): void {
@@ -384,6 +392,8 @@ export class ImageCanvasComponent
     this.cleanupComparison?.();
     this.cleanupRefineViewEffect?.();
     this.cleanupGpuKillSwitchEffect?.();
+    this.cleanupEffectivePxEffect?.();
+    this.canvasSvc.effectivePx.set(null);
     this.clearRerenderTimers();
     // Invalidate any in-flight re-render so a late decode can't touch a
     // destroyed component's signals.
@@ -517,7 +527,7 @@ export class ImageCanvasComponent
         // the model. HSL / tone / split-tone / sharpen / NR / profile edits it
         // can't carry leave `params` undefined, so `gpuPresent.render` routes
         // through the full render(xmp) path instead of silently dropping them.
-        if (canUseLiveFastPath(model)) params = buildLiveParams(model);
+        if (canUseLiveFastPath(model, this.gpuPresent.prefixModel)) params = buildLiveParams(model);
       }
       // The helper presents to the OffscreenCanvas + stale-guards on `generation`,
       // returning whether to record the result (see its `render()` doc).

@@ -1,0 +1,19 @@
+{
+  "new_peak": [
+    2136,
+    1353
+  ],
+  "new_max": 31.676458678619177,
+  "error_at_previous_peak": 31.676458678619177,
+  "new_candidate_rgb": [
+    144,
+    88,
+    133
+  ],
+  "reference_rgb": [
+    186,
+    183,
+    195
+  ],
+  "pixels_above_31": 3
+}

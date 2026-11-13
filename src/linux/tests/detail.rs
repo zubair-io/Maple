@@ -48,6 +48,7 @@ fn retained_native_patches_match_core_and_refresh_after_edit_or_rejection() {
             ext: "dng",
         },
         DetailRenderOptions {
+            target: raw_core::view::encode::TargetPrimaries::Srgb,
             quality: RenderQuality::Preview,
             max_long_edge: 1600,
             film_lut: Some(film.lut),
@@ -117,6 +118,7 @@ fn retained_native_patches_match_core_and_refresh_after_edit_or_rejection() {
                 ext: "dng",
             },
             DetailRenderOptions {
+                target: raw_core::view::encode::TargetPrimaries::Srgb,
                 quality: RenderQuality::Preview,
                 max_long_edge: 1600,
                 film_lut: Some(film.lut),

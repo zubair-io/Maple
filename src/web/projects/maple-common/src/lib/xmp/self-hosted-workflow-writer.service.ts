@@ -1,7 +1,8 @@
 import { Injectable, inject } from '@angular/core';
-import { defer, firstValueFrom, type Observable } from 'rxjs';
+import { Subject, defer, firstValueFrom, type Observable } from 'rxjs';
 import type { AdjustmentModel } from '../models/adjustment-model';
 import type { XmpCulling } from './xmp.types';
+import { WEB_WRITER, headId } from './workflow-lineage';
 import { XmpParserService } from './xmp-parser.service';
 import { XmpSerializerService } from './xmp-serializer.service';
 import { WorkflowXmpService } from './workflow-xmp.service';
@@ -29,6 +30,14 @@ interface CapturedAction {
   readonly cullingPatch: Readonly<Partial<XmpCulling>>;
 }
 
+/** A commit the server merged onto a sidecar that changed since it was read (#4983). */
+export interface SelfHostedMerge {
+  readonly path: string;
+  readonly variantId: string;
+  readonly xml: string;
+  readonly saved: { readonly model: AdjustmentModel; readonly culling: XmpCulling };
+}
+
 /** HTTP publication uses immutable gesture intent and the actual current source XML (#4053). */
 @Injectable({ providedIn: 'root' })
 export class SelfHostedWorkflowWriterService {
@@ -38,6 +47,8 @@ export class SelfHostedWorkflowWriterService {
   private readonly core = inject(WorkflowXmpService);
   private readonly actions = new Map<string, readonly CapturedAction[]>();
   private readonly sources = new Map<string, WorkflowSidecarBinding>();
+  /** Commits whose stored document differs from the one sent; the live model adopts them. */
+  readonly merged = new Subject<SelfHostedMerge>();
   // Only the armed editor gesture needs a live preview model. Semantic actions
   // already own immutable retry captures; browsing must not retain every path (#4058).
   private activePath: string | null = null;
@@ -127,7 +138,7 @@ export class SelfHostedWorkflowWriterService {
       // captured UUID acknowledges the already-persisted action on retry.
       const published = workflow?.history.some((entry) => entry.id === captured.id)
         ? current
-        : await this.commit(path, current, captured, variantId);
+        : await this.commit(path, current, captured, variantId, headId(workflow));
       const remaining = (this.actions.get(key) ?? []).filter((entry) => entry.id !== captured.id);
       if (remaining.length === 0) {
         this.actions.delete(key);
@@ -149,6 +160,7 @@ export class SelfHostedWorkflowWriterService {
     current: string | null,
     captured: CapturedAction,
     variantId: string,
+    parentId: string,
   ) {
     if (!this.persistence) throw Error('Self Hosted sidecar persistence is not configured');
     const parsed = current === null ? null : this.parser.parseAdjustmentModel(current);
@@ -164,7 +176,7 @@ export class SelfHostedWorkflowWriterService {
         parsed ? undefined : {},
       ),
     );
-    return firstValueFrom(
+    const published = await firstValueFrom(
       this.persistence.commitSidecar(
         path,
         current,
@@ -174,10 +186,23 @@ export class SelfHostedWorkflowWriterService {
           createdAtMs: captured.createdAtMs,
           action: captured.action,
           label: captured.label,
+          parentId,
+          writer: WEB_WRITER,
           adjustmentXmp: checkpoint,
         },
         variantId,
       ),
     );
+    const stored = (await this.core.read(published))?.history.find(
+      (entry) => entry.id === captured.id,
+    );
+    if (stored && stored.adjustmentXmp !== checkpoint)
+      this.merged.next({
+        path,
+        variantId,
+        xml: published,
+        saved: { model: captured.model, culling: captured.culling },
+      });
+    return published;
   }
 }

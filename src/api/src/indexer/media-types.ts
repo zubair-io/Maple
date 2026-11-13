@@ -206,3 +206,18 @@ export const STUB_IMAGE_EXTENSIONS = withoutLeadingDot(STUB_IMAGE_EXTS);
 /** `AUDIO_EXTS` in no-dot form (see #1835): metadata-only stubs, same as
  * `STUB_IMAGE_EXTENSIONS`. */
 export const AUDIO_EXTENSIONS = withoutLeadingDot(AUDIO_EXTS);
+
+const CATALOGUED_EXTENSIONS = [
+  RAW_EXTENSIONS,
+  BITMAP_EXTENSIONS,
+  PSD_HDR_EXTENSIONS,
+  STUB_IMAGE_EXTENSIONS,
+  AUDIO_EXTENSIONS,
+];
+
+/** A still or audio file the indexer catalogues by extension (video is
+ * matched separately by `isVideoFilename`). */
+export function isCataloguedFilename(filename: string): boolean {
+  const extension = path.extname(filename).slice(1).toLowerCase();
+  return CATALOGUED_EXTENSIONS.some((extensions) => extensions.has(extension));
+}

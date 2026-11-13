@@ -20,7 +20,11 @@
 
 import { personIdsToDrop } from '../../db/repos/people.visibility.ts';
 import { personIdsForNames } from '../../db/repos/people.search-filter.ts';
-import { buildSearchWhere, type SearchWhere } from '../../db/repos/search.where.ts';
+import {
+  boundedTextQuery,
+  buildSearchWhere,
+  type SearchWhere,
+} from '../../db/repos/search.where.ts';
 import { extractDatesFromQuery, peopleNames, type SearchQuery } from '../../routes/search/query.ts';
 import type { GeneratedQuery } from './validate.ts';
 
@@ -41,7 +45,8 @@ export function toSearchQuery(stored: GeneratedQuery, libraryId: string): Search
     isScreenshot: 'false',
   };
 
-  if (stored.placeQuery !== undefined) query.placeQuery = stored.placeQuery;
+  // A card stored before the cap (#4514) is shortened, never refused.
+  if (stored.placeQuery !== undefined) query.placeQuery = boundedTextQuery(stored.placeQuery);
   if (stored.from !== undefined) query.from = stored.from;
   if (stored.to !== undefined) query.to = stored.to;
   if (stored.month !== undefined) query.month = stored.month;

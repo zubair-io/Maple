@@ -111,7 +111,16 @@ papp:WbScaleVersion="1" vendor:Private="retain-me"/>
     assert_eq!(reopened.model.wb_scale_version, WbScaleVersion::V5);
     assert!((reopened.model.temperature - temperature - 50.0).abs() < 0.01);
     assert!((reopened.model.tint - tint).abs() < 0.01);
-    assert_eq!(pixels(&raw, &document.model), pixels(&raw, &reopened.model));
+    // The V1 to V5 conversion rounds the pair to about 0.005 K, and auto
+    // exposure is anchored on the as-shot render (#5218), so that rounding
+    // can move a dithered pixel by one step but never more.
+    let converted = pixels(&raw, &reopened.model);
+    let worst = pixels(&raw, &document.model)
+        .iter()
+        .zip(&converted)
+        .map(|(a, b)| a.abs_diff(*b))
+        .max();
+    assert!(worst <= Some(1), "converted WB moved a pixel by {worst:?}");
 }
 
 #[test]

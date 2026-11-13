@@ -46,16 +46,80 @@ struct HSLSection: View {
 
   var body: some View {
     VStack(alignment: .leading, spacing: 8) {
-      bandChips
-      VStack(spacing: 10) {
-        ForEach(HSLChannel.allCases, id: \.self) { channel in
-          channelSlider(channel, band: selectedBand)
+      modeSwitch
+      if state.colorCurvePicker.isColorCurvesMode {
+        ColorCurvesRibbonView(state: state)
+      } else {
+        bandChips
+        VStack(spacing: 10) {
+          ForEach(HSLChannel.allCases, id: \.self) { channel in
+            channelSlider(channel, band: selectedBand)
+          }
         }
       }
     }
     .frame(maxWidth: .infinity, alignment: .leading)
     .accessibilityElement(children: .contain)
     .accessibilityIdentifier("editor-hsl-section")
+  }
+
+  private var anyColorCurveModified: Bool {
+    ColorCurveKind.allCases.contains { !state.session.model[keyPath: $0.keyPath].isIdentity }
+  }
+
+  private var modeSwitch: some View {
+    HStack(spacing: 4) {
+      modeChip(
+        label: "8-Band Mixer",
+        isSelected: !state.colorCurvePicker.isColorCurvesMode,
+        isModified: HSLBand.all.contains(where: isModified),
+        id: "editor-hsl-mode-bands"
+      ) {
+        state.colorCurvePicker.cancel()
+        state.colorCurvePicker.isColorCurvesMode = false
+      }
+      modeChip(
+        label: "Color Curves",
+        isSelected: state.colorCurvePicker.isColorCurvesMode,
+        isModified: anyColorCurveModified,
+        id: "editor-hsl-mode-curves"
+      ) {
+        if state.armedTool != .hsl { state.arm(tool: .hsl) }
+        state.colorCurvePicker.isColorCurvesMode = true
+      }
+    }
+  }
+
+  private func modeChip(
+    label: String, isSelected: Bool, isModified: Bool, id: String, action: @escaping () -> Void
+  ) -> some View {
+    Button(action: action) {
+      HStack(spacing: 4) {
+        Text(label)
+          .font(.system(size: 10, weight: isSelected ? .semibold : .regular))
+          .foregroundStyle(isSelected ? MapleTokens.primary : MapleTokens.textMuted)
+        if isModified {
+          Circle()
+            .fill(MapleTokens.primary)
+            .frame(width: 4, height: 4)
+        }
+      }
+      .frame(maxWidth: .infinity)
+      .padding(.vertical, 4)
+      .background(
+        RoundedRectangle(cornerRadius: MapleTokens.Radius.sm, style: .continuous)
+          .fill(isSelected ? MapleTokens.primary.opacity(0.15) : Color.clear)
+      )
+      .overlay(
+        RoundedRectangle(cornerRadius: MapleTokens.Radius.sm, style: .continuous)
+          .stroke(isSelected ? MapleTokens.primary : MapleTokens.border, lineWidth: 0.5)
+      )
+      .contentShape(Rectangle())
+    }
+    .buttonStyle(.plain)
+    .accessibilityLabel(label)
+    .accessibilityAddTraits(isSelected ? .isSelected : [])
+    .accessibilityIdentifier(id)
   }
 
   // MARK: - Band chips

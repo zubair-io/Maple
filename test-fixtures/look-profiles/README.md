@@ -1,0 +1,7 @@
+# Profile-look references
+
+Lightroom Classic has written an Adobe profile look into every sidecar since the 2018 profile browser: a `crs:Look` child of the primary `rdf:Description` whose nested `crs:Parameters` block carries the profile's own `crs:ToneCurvePV2012*` contrast curves, `crs:ConvertToGrayscale`, `crs:ProcessVersion`, `crs:CameraProfile` and `crs:LookTable`. Those are the profile's recipe, not the photographer's edits — the user-authored curve, if any, is the sibling `crs:ToneCurvePV2012*` block directly under the primary description.
+
+`lightroom-adobe-color.xmp` carries the Adobe Color look (`crs:ConvertToGrayscale="False"` in the parameters, the seven-point profile contrast curve, identity red/green/blue curves). `lightroom-adobe-monochrome.xmp` carries the Adobe Monochrome look, whose parameters set `crs:ConvertToGrayscale="True"`. Both documents are hand-authored in Lightroom Classic's own layout (single-space indentation, `x:xmptk`, nested `rdf:Description` elements) for #4685; the look UUIDs match Adobe's published profile identifiers while the digest and look-table hashes are placeholders. Unrelated camera, develop and catalog metadata was omitted.
+
+Neither fixture contains any user edit. Every reader (raw-core, Swift, TypeScript) must parse them to the default adjustment model — no display tone curve, colour rendering, V5 white-balance scale — and every writer must re-emit the `crs:Look` subtree byte-for-byte as passthrough.

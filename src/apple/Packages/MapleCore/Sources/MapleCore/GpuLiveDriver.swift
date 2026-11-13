@@ -1,24 +1,19 @@
 // GpuLiveDriver.swift — the EditSession-owned driver for the wgpu live render
 // path (epic #925, P4b-apple / #1028).
 //
-// Always compiled, but only instantiated when the runtime flag is on
-// (`GpuLiveFlag.isEnabled` — `EditSession.gpuLiveDriver` is `nil` otherwise). Flag
-// OFF = the editor uses the CPU + Metal + CIColorCube path
-// (`processSceneLinear` → `renderedPreview` → `CIImageView`) byte-for-byte.
+// Only instantiated when `GpuLiveFlag.isEnabled`; flag OFF = the CPU + Metal +
+// CIColorCube path (`processSceneLinear` → `renderedPreview`) byte-for-byte.
 //
 // ## Role
 //
 // Bridges the EditSession two-phase scheduler to the serialized `GpuLiveSession`
-// + the `CAMetalLayer` the canvas view hosts. The CPU path publishes a `CIImage`
-// to `renderedPreview`; the GPU path instead presents directly to the layer (no
-// CIImage, no `renderedPreview` write). So this is a PARALLEL presentation path,
-// not a rewrite of `processSceneLinear` — which stays untouched (the flag-off
-// guarantee).
+// + the canvas `CAMetalLayer`: a PARALLEL presentation path (no CIImage, no
+// `renderedPreview` write), not a rewrite of `processSceneLinear`.
 //
 // ## What it owns
 //
 //   * the `GpuLiveSession` (upload-once per dims; re-opened on a viewport ⇄ full
-//     resize, pairing with the sized-fast / full-refine decode split);
+//     resize; a same-size re-decode replaces its pixels in place, #5381);
 //   * a weak reference to the registered `CAMetalLayer` (the view owns the layer's
 //     lifetime; the driver presents into it);
 //   * the per-image Auto Profile artifacts (fit once on open, via the session).
@@ -26,12 +21,9 @@
 // ## Serialization + cancellation
 //
 // `GpuLiveSession` is an `actor` (one render in flight — the `!Send` Rust
-// context). The driver's `present` calls hop onto it; the EditSession scheduler's
-// GENERATION GUARD (the same `gen == live` check the CPU path uses before
-// `renderedPreview = image`) decides whether a finished present is still current —
-// a stale present (superseded by a newer edit) is simply not the one that lands on
-// screen, exactly as today. A per-present `CancelFlag` lets a queued-but-stale
-// present bail at the FFI entry before burning a GPU cycle.
+// context). The EditSession scheduler's GENERATION GUARD (the CPU path's
+// `gen == live` check) decides whether a finished present is still current; a
+// per-present `CancelFlag` lets a queued-but-stale present bail at the FFI entry.
 
 import Foundation
 import QuartzCore
@@ -47,8 +39,8 @@ private let gpuDriverSignposter = OSSignposter(
 ///
 ///   * `decodeGeneration` — the `RenderActor` write-generation the uploaded
 ///     buffer came from. A baked-field edit (highlightRecovery,
-///     captureSharpeningAmount/Sigma, the unsharp sharpenRadius/Detail/
-///     Masking) forces a fresh decode at the SAME target dims; dims alone
+///     captureSharpeningAmount/Sigma) forces a fresh decode at the SAME
+///     target dims; dims alone
 ///     can't detect that, so reusing the session on dims would silently
 ///     present the live chain over the STALE uploaded buffer (#2049).
 ///   * `crop` — the crop actually folded into the uploaded pixels
@@ -76,29 +68,34 @@ public final class GpuLiveDriver {
   /// on a dims change. Held strongly — it owns the uploaded image + GPU buffers.
   private(set) var session: GpuLiveSession?
   var sessionRevision: UInt64 = 0
-  private var sessionPreparation: Task<GpuLiveSession, Error>?
+  var sessionPreparation: Task<GpuLiveSession, Error>?
   // Shared teardown barrier: queued replacements retain no f32 readback.
   // Internal so concurrency tests can suspend teardown deterministically.
   var sessionTeardown: Task<Void, Never>?
   /// Dims the current `session` was opened at; a present that isn't COVERED by
   /// these dims (either axis smaller than requested) forces a re-open
   /// (upload-once-and-reuse is per-covering-dims, #2039 — see `isOpen`).
-  private var sessionDims: (width: Int, height: Int)?
+  var sessionDims: (width: Int, height: Int)?
 
   /// Identity of the pixels currently uploaded to `session` (#2039, #2049) —
   /// the decode generation + crop `open` was last called with. A present
   /// whose requested identity doesn't match this, even at covered dims,
   /// forces a re-open (see `GpuUploadIdentity`).
-  private var uploadedIdentity: GpuUploadIdentity?
+  var uploadedIdentity: GpuUploadIdentity?
+  /// The capture decode's frame and creative stage for the uploaded pixels
+  /// (#5377): every tick renders them through it, so it is set with them.
+  var uploadedWbFrame: WbSliderFrame?
+  /// The prescale target of the current upload (#5215); see `canvasHazeSource`.
+  var uploadedPrescale: (targetSize: CGSize?, identity: GpuUploadIdentity)?
 
   /// The canvas layer to present into. Weak — the SwiftUI view owns it; if the
   /// view goes away the driver simply has nothing to present to.
-  private weak var layer: CAMetalLayer?
+  weak var layer: CAMetalLayer?
 
   /// The `CanvasColorSpace` last tagged onto `layer.colorspace` (#1338) —
   /// tracked so `present()` only touches the layer when the user-facing
   /// setting actually changed, not on every tick.
-  private var taggedColorSpace: CanvasColorSpace?
+  var taggedColorSpace: CanvasColorSpace?
 
   /// The surface-cache generation token (#1769). Forwarded to every
   /// `maple_gpu_present_chain`; the Rust side keys its PROCESS-WIDE present
@@ -111,27 +108,24 @@ public final class GpuLiveDriver {
   ///     re-derivation wgpu cannot see — see `presentDivergenceCheck`).
   /// A bump forces a deterministic old-surface teardown + fresh configure +
   /// the settle double-present on the Rust side.
-  private var surfaceGeneration: UInt64 = 0
+  var surfaceGeneration: UInt64 = 0
 
   /// The `(generation, dims)` of the most recent SUCCESSFUL present — the
   /// state the Rust cache is known to be configured at. Drives the
   /// drawableSize-divergence check: only when the upcoming present would hit
   /// the no-configure fast path (same generation, same dims) does a
   /// drawableSize mismatch mean an external invalidation.
-  private var lastPresentedKey: (generation: UInt64, width: Int, height: Int)?
+  var lastPresentedKey: (generation: UInt64, width: Int, height: Int)?
 
   /// The RAW path + decode quality for the Auto Profile fit (set on open).
-  var autoProfileFitDone = false
-  var autoProfileFitOutcome: Bool?
-  var autoProfileFitTask: Task<Bool, Never>?
-  var nativeAutoProfileID: UUID?
+  private var autoProfileFit: Task<AutoFitStatus, Never>?
 
   /// The current film-look lattice (epic #2683, Task 10), if any — pushed by
   /// `EditSession` via `setFilmLut`/`clearFilmLut` whenever
   /// `model.filmLook` resolves through `FilmLutStore`. Remembered here
   /// (not just forwarded to the current `GpuLiveSession`) because `open`
   /// REPLACES the session on every dims change (viewport ⇄ full-res, a
-  /// crop edit, a baked-field re-decode) — unlike `autoProfileFitDone`,
+  /// crop edit, a baked-field re-decode) — unlike `autoProfileFit`,
   /// which re-fits per open, the film lattice doesn't need re-decoding,
   /// just re-applying to the fresh session so a look survives a resize.
   private var filmLut: (data: [Float], size: Int, key: UInt32)?
@@ -181,6 +175,10 @@ public final class GpuLiveDriver {
   /// flashing to nothing every tick scope stats didn't happen to update.
   public private(set) var lastScopeSample: ScopeSample?
 
+  /// The canvas placeholder (#5758, `GpuLiveDriver+Placeholder.swift`).
+  var placeholderGate = GpuPlaceholderGate()
+  weak var placeholderCancel: CancelFlag?
+
   /// Cancel flag of the most-recent present. The CPU path drops a stale
   /// render at the `renderedPreview =` generation gate; the GPU present has
   /// no such gate — once `present_chain_to_surface` runs, it's on screen. So
@@ -190,7 +188,7 @@ public final class GpuLiveDriver {
   /// serializes the presents themselves (one render in flight), so this is
   /// purely the "supersede the one already queued" guard. Held weakly: it's
   /// owned for the duration of its present call by `present(...)` below.
-  private weak var inFlightCancel: CancelFlag?
+  weak var inFlightCancel: CancelFlag?
 
   public init() {}
 
@@ -218,23 +216,8 @@ public final class GpuLiveDriver {
       // just because it matches the PREVIOUS layer's last-applied
       // value.
       taggedColorSpace = nil
+      placeholderLayerChanged()
     }
-  }
-
-  /// Keep `layer.colorspace` in lockstep with `target` (#1338) — the exact
-  /// `CanvasColorSpace` `present()` below is ABOUT to pass into
-  /// `GpuLiveParams`/`PipelineRenderer` for `target_primaries`. `present()`
-  /// reads `CanvasColorSpace.current` ONCE and hands the SAME value to
-  /// both this call and the params call — two independent `.current` reads
-  /// a moment apart could observe a mid-flight Settings change differently
-  /// and reproduce #1512 (CoreAnimation double- or non-converting the
-  /// primaries) for exactly one frame (Copilot review on #3192).
-  private func retagLayerIfNeeded(_ layer: CAMetalLayer, to target: CanvasColorSpace) {
-    guard target != taggedColorSpace else { return }
-    let name: CFString = target == .displayP3 ? CGColorSpace.displayP3 : CGColorSpace.sRGB
-    guard let space = CGColorSpace(name: name) else { return }
-    layer.colorspace = space
-    taggedColorSpace = target
   }
 
   /// Reuse a covering upload or replace it after the previous session closes.
@@ -246,10 +229,20 @@ public final class GpuLiveDriver {
     identity: GpuUploadIdentity, noiseProfile: [Float]? = nil, iso: UInt32 = 0,
     whitesAnchorEv: Float = .nan,
     nrSamplingScale: Float = 1,
+    wbFrame: WbSliderFrame? = nil,
     pixels: @escaping @Sendable () throws -> [Float]
   ) async throws {
     try Task.checkCancellation()
     guard !isOpen(coveringWidth: width, height: height, identity: identity) else { return }
+    let exports = GpuUploadExports(
+      noiseProfile: noiseProfile, iso: iso, whitesAnchorEv: whitesAnchorEv,
+      nrSamplingScale: nrSamplingScale)
+    if try await replaceUploadedImage(
+      width: width, height: height, inputShape: inputShape, identity: identity,
+      exports: exports, wbFrame: wbFrame, pixels: pixels)
+    {
+      return
+    }
     sessionRevision &+= 1
     let revision = sessionRevision
     beginSessionTeardown()
@@ -297,10 +290,8 @@ public final class GpuLiveDriver {
     self.session = s
     self.sessionDims = (width, height)
     self.uploadedIdentity = identity
-    self.autoProfileFitDone = false
-    self.autoProfileFitOutcome = nil
-    self.autoProfileFitTask = nil
-    self.nativeAutoProfileID = nil
+    self.uploadedWbFrame = wbFrame
+    self.autoProfileFit = nil
     self.inputShape = inputShape
     if let filmLut {
       await s.setFilmLut(data: filmLut.data, size: filmLut.size, key: filmLut.key)
@@ -316,27 +307,37 @@ public final class GpuLiveDriver {
     inFlightCancel?.requestCancel()
     let old = session
     let preparation = sessionPreparation
-    let fit = autoProfileFitTask
     guard old != nil || preparation != nil else { return }
     preparation?.cancel()
-    fit?.cancel()
     sessionPreparation = nil
     session = nil
     sessionDims = nil
     uploadedIdentity = nil
-    autoProfileFitDone = false
-    autoProfileFitOutcome = nil
-    autoProfileFitTask = nil
-    nativeAutoProfileID = nil
+    uploadedWbFrame = nil
+    uploadedPrescale = nil
+    autoProfileFit = nil
     let previous = sessionTeardown
     sessionTeardown = Task {
       if let previous { await previous.value }
-      if let fit { _ = await fit.value }
       if let old { await old.close() }
       if let preparation, let prepared = try? await preparation.value {
         await prepared.close()
       }
     }
+  }
+
+  /// Reuse the actual fit outcome for this opened GPU session (#4096).
+  @discardableResult
+  public func fitAutoProfileIfNeeded(
+    rawPath: String, model: AdjustmentModel, quality: PipelineRenderer.Quality
+  ) async -> AutoFitStatus? {
+    guard let s = session, model.profile == .auto else { return nil }
+    let revision = sessionRevision
+    let fit = autoProfileFit ?? Task { await s.fitAutoProfile(rawPath: rawPath, quality: quality) }
+    autoProfileFit = fit
+    let outcome = await fit.value
+    guard revision == sessionRevision else { return nil }
+    return outcome
   }
 
   /// Present `model` to the registered layer via the GPU chain. SUPERSEDES
@@ -353,7 +354,6 @@ public final class GpuLiveDriver {
     model: AdjustmentModel,
     asShotCCT: Double? = nil,
     asShotTint: Double? = nil,
-    wbFrame: WbSliderFrame? = nil,
     scopeEnabled: Bool = false,
     scopeLayer: Int32 = -1,
     onError: (Error) -> Void
@@ -399,6 +399,7 @@ public final class GpuLiveDriver {
     let interval = gpuDriverSignposter.beginInterval(
       "GpuPresentRequest", id: gpuDriverSignposter.makeSignpostID())
     defer { gpuDriverSignposter.endInterval("GpuPresentRequest", interval) }
+    placeholderChainWillPresent()
     inFlightCancel?.requestCancel()
     let cancel = CancelFlag()
     inFlightCancel = cancel
@@ -409,7 +410,7 @@ public final class GpuLiveDriver {
           asShotCCT: asShotCCT, asShotTint: asShotTint,
           inputShape: self.inputShape,
           surfaceGeneration: submittedSurfaceGeneration,
-          wbFrame: wbFrame,
+          wbFrame: uploadedWbFrame,
           targetColorSpace: colorSpace,
           scopeEnabled: scopeEnabled,
           scopeLayer: scopeLayer
@@ -466,8 +467,7 @@ public final class GpuLiveDriver {
   public func renderCurrentFrameBytes(
     model: AdjustmentModel,
     asShotCCT: Double? = nil,
-    asShotTint: Double? = nil,
-    wbFrame: WbSliderFrame? = nil
+    asShotTint: Double? = nil
   ) async -> (bytes: [UInt8], width: Int, height: Int)? {
     guard let s = session, let dims = sessionDims else { return nil }
     guard !Task.isCancelled else { return nil }
@@ -479,7 +479,7 @@ public final class GpuLiveDriver {
           asShotCCT: asShotCCT,
           asShotTint: asShotTint,
           inputShape: inputShape,
-          wbFrame: wbFrame, targetColorSpace: .srgb
+          wbFrame: uploadedWbFrame, targetColorSpace: .srgb
         )
       else { return nil }
       guard !Task.isCancelled, revision == sessionRevision else { return nil }
@@ -555,6 +555,7 @@ public final class GpuLiveDriver {
   /// Memory-pressure eviction also invalidates replacements waiting on close,
   /// so a stale render cannot reopen an editor that has just been evicted.
   public func closeSession() async {
+    placeholderCancel?.requestCancel()
     sessionRevision &+= 1
     let revision = sessionRevision
     beginSessionTeardown()

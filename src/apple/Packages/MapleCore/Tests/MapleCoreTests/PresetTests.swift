@@ -114,6 +114,34 @@ final class PresetTests: XCTestCase {
 
   // MARK: - Apply
 
+  func testToneCurveModePresetRoundTripAndExplicitDefault() throws {
+    var edited = AdjustmentModel.default
+    edited.toneCurveMode = .ratioPreserving
+    let fields = PresetAdjustments.captureFields(from: edited)
+    XCTAssertEqual(fields["tone_curve_mode"], .string("RatioPreserving"))
+    let data = try JSONEncoder().encode(fields)
+    let decoded = try JSONDecoder().decode([String: PresetFieldValue].self, from: data)
+    let restored = PresetAdjustments.merged(.default, applying: decoded)
+    XCTAssertEqual(restored.appliedFieldCount, 1)
+    XCTAssertEqual(restored.model, edited)
+
+    let cleared = PresetAdjustments.merged(
+      edited, applying: ["tone_curve_mode": .string("PerChannel")])
+    XCTAssertEqual(cleared.appliedFieldCount, 1)
+    XCTAssertEqual(cleared.model.toneCurveMode, .perChannel)
+    XCTAssertNil(PresetAdjustments.captureFields(from: cleared.model)["tone_curve_mode"])
+  }
+
+  func testToneCurveModePresetRejectsUnknownAndNonStringValues() {
+    var edited = AdjustmentModel.default
+    edited.toneCurveMode = .ratioPreserving
+    for value in [PresetFieldValue.string("FutureMode"), .number(1), .bool(true)] {
+      let result = PresetAdjustments.merged(edited, applying: ["tone_curve_mode": value])
+      XCTAssertEqual(result.appliedFieldCount, 0)
+      XCTAssertEqual(result.model, edited)
+    }
+  }
+
   func testMergedClampsNumericValuesToCanonicalRange() {
     let (merged, applied) = PresetAdjustments.merged(
       .default,
@@ -142,22 +170,14 @@ final class PresetTests: XCTestCase {
   }
 
   func testMergedSkipsFieldsNotWiredIntoThePresetBridge() {
-    // `capture_sharpening_radius` is a `FieldName` case the Swift
-    // struct genuinely has no property for (the legacy, read-only
-    // capture-sharpening alias — see `AdjustmentModel` docs). `wb_method`
-    // / `tone_curve_mode` are schema fields (`FieldName` carries the
-    // cases via codegen) that aren't wired into the preset bridge at
-    // all yet — see `PresetAdjustmentBridge.swift`'s file header. A
-    // web-written preset carrying any of these three must apply its
-    // other fields and skip these (preserved in the stored document,
-    // never applied). `auto_exposure` (#1387) and `film_look` (#2720)
-    // ARE wired — see `testMergedAppliesAutoExposure` and
-    // `testMergedAppliesFilmStrengthAndFilmLook` below.
+    // The legacy capture-sharpening alias has no model property, and
+    // wb_method remains outside the preset bridge. Preserve these in the
+    // document while applying recognized fields. Tone-curve mode is covered
+    // by the round-trip and explicit-default tests above.
     let (merged, applied) = PresetAdjustments.merged(
       .default,
       applying: [
         "wb_method": .string("DiagonalRec2020"),
-        "tone_curve_mode": .string("RatioPreserving"),
         "capture_sharpening_radius": .number(1.5),  // deprecated alias
         "contrast": .number(10),
       ])

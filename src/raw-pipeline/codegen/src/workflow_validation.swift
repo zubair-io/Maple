@@ -37,6 +37,16 @@ extension WorkflowHistoryEntry {
     else {
       throw WorkflowWireError.invalid
     }
+    if !parentId.isEmpty {
+      try workflowIdentity(parentId)
+      guard parentId != id else { throw WorkflowWireError.invalid }
+    }
+    if !writer.isEmpty {
+      try workflowName(writer)
+      guard writer.utf8.count <= WorkflowContract.writerMaxBytes else {
+        throw WorkflowWireError.invalid
+      }
+    }
   }
 }
 extension SidecarWorkflow {
@@ -63,7 +73,7 @@ extension SidecarWorkflow {
       "history": history.map {
         [
           "id": $0.id, "createdAtMs": $0.createdAtMs, "action": $0.action, "label": $0.label,
-          "adjustmentXmp": $0.adjustmentXmp,
+          "parentId": $0.parentId, "writer": $0.writer, "adjustmentXmp": $0.adjustmentXmp,
         ] as [String: Any]
       },
     ]

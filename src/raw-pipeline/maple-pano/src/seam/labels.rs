@@ -15,7 +15,8 @@
 //!    labelled `i` or `j` — a pixel labelled by some other frame `k` is
 //!    left for the `(i, k)` / `(j, k)` pass to resolve. Every such
 //!    pair-cut is a valid alpha-expansion move, so the total seam energy
-//!    is monotone non-increasing across passes.
+//!    is monotone non-increasing across passes. A cut the solver reports
+//!    unsolved ends the solve with `None`.
 //! 4. Repeat until fewer than [`CONVERGE_THRESHOLD`] of pixels change
 //!    label in a full pass, or [`MAX_ITER`] passes have run.
 //!
@@ -28,7 +29,8 @@ use rayon::prelude::*;
 
 use crate::ingest::PlanarImage;
 
-use super::pairwise;
+use super::constraints::SeamPins;
+use super::pairwise::{self, Pin};
 
 /// Cap on alpha-expansion passes over the full overlap-pair list.
 const MAX_ITER: u32 = 3;
@@ -70,10 +72,16 @@ fn overlapping_pairs(layers: &[PlanarImage]) -> Vec<(usize, usize)> {
 /// pixel (or [`UNLABELLED`]). `layers[i]` must all share the same canvas
 /// dimensions — the caller (`seam::masks`) guarantees this since every
 /// layer here is a warp onto the same [`crate::canvas::CanvasSpec`].
-pub fn compute_labels(layers: &[PlanarImage]) -> Vec<i32> {
+///
+/// `pins` (user seam constraints, #4520) restrict each pixel's candidate
+/// frames: a forced pixel starts on its frame, and every expansion move
+/// pins disallowed labels out at infinite capacity, so no pass can move a
+/// pixel onto a frame its constraints forbid. [`SeamPins::none`] leaves
+/// the solve exactly as it was before constraints existed.
+pub fn compute_labels(layers: &[PlanarImage], pins: &SeamPins) -> Option<Vec<i32>> {
     let n = layers.len();
     if n == 0 {
-        return Vec::new();
+        return Some(Vec::new());
     }
     let (w, h) = (layers[0].width(), layers[0].height());
     let n_px = (w as usize) * (h as usize);
@@ -82,15 +90,15 @@ pub fn compute_labels(layers: &[PlanarImage]) -> Vec<i32> {
     let mut labels = vec![UNLABELLED; n_px];
     for (px, label) in labels.iter_mut().enumerate() {
         let (x, y) = ((px % w as usize) as u32, (px / w as usize) as u32);
-        for (i, layer) in layers.iter().enumerate() {
-            if layer.validity.get(x, y) {
-                *label = i as i32;
-                break;
-            }
+        let first_allowed = pins
+            .forced(px)
+            .or_else(|| (0..n).find(|&i| layers[i].validity.get(x, y) && pins.allows(i, px)));
+        if let Some(i) = first_allowed {
+            *label = i as i32;
         }
     }
     if n == 1 {
-        return labels;
+        return Some(labels);
     }
 
     let pairs = overlapping_pairs(layers);
@@ -98,7 +106,13 @@ pub fn compute_labels(layers: &[PlanarImage]) -> Vec<i32> {
     for _ in 0..MAX_ITER {
         let mut changes: u64 = 0;
         for &(i, j) in &pairs {
-            let use_b = pairwise::cut(&layers[i], &layers[j]);
+            let use_b = pairwise::cut_pinned(&layers[i], &layers[j], |px| {
+                match (pins.allows(i, px), pins.allows(j, px)) {
+                    (true, false) => Pin::A,
+                    (false, true) => Pin::B,
+                    _ => Pin::Free,
+                }
+            })?;
             let (li, lj) = (i as i32, j as i32);
             for (px, label) in labels.iter_mut().enumerate() {
                 if *label != li && *label != lj {
@@ -109,7 +123,9 @@ pub fn compute_labels(layers: &[PlanarImage]) -> Vec<i32> {
                     let (x, y) = ((px % w as usize) as u32, (px / w as usize) as u32);
                     // Defensive: only move to a label whose frame is
                     // actually valid at this pixel.
-                    if layers[proposed as usize].validity.get(x, y) {
+                    if layers[proposed as usize].validity.get(x, y)
+                        && pins.allows(proposed as usize, px)
+                    {
                         *label = proposed;
                         changes += 1;
                     }
@@ -121,7 +137,7 @@ pub fn compute_labels(layers: &[PlanarImage]) -> Vec<i32> {
             break;
         }
     }
-    labels
+    Some(labels)
 }
 
 /// Hard per-frame binary masks from the label field: `mask[i][px] = 1.0`
@@ -231,7 +247,7 @@ mod tests {
         let right = frame(30, h, |x, _| x >= 18, [0.3, 0.35, 0.42]);
         let layers = vec![left, mid, right];
 
-        let labels = compute_labels(&layers);
+        let labels = compute_labels(&layers, &SeamPins::none()).unwrap();
         for y in 0..h {
             for x in 0..30u32 {
                 let idx = (y * 30 + x) as usize;
@@ -248,7 +264,7 @@ mod tests {
     #[test]
     fn single_frame_is_labelled_everywhere_it_is_valid() {
         let layers = vec![frame(6, 6, |_, _| true, [0.5, 0.5, 0.5])];
-        let labels = compute_labels(&layers);
+        let labels = compute_labels(&layers, &SeamPins::none()).unwrap();
         assert!(labels.iter().all(|&l| l == 0));
     }
 

@@ -38,6 +38,7 @@ const google: BackupDestination = {
     blocked: 0,
     bytes: 84500000000,
     lastError: null,
+    lastErrorCount: 0,
   },
 };
 const folder: BackupDestination = {
@@ -60,6 +61,7 @@ const config: GoogleBackupConfig = {
   callbackUrl: 'https://photos.example.com/api/cloud-backup/google/callback',
   googleRedirectUri: 'https://mapleeditor.com/api/connect/google-drive/callback',
   mapleClientAvailable: false,
+  disconnect: null,
 };
 
 const baseProviders = [
@@ -147,6 +149,7 @@ export const EdgeCases: Story = {
                     purgePending: 4,
                     blocked: 14,
                     lastError: 'Reconnect Google to complete permanent-delete obligations.',
+                    lastErrorCount: 14,
                   },
                 },
               ]),
@@ -166,6 +169,41 @@ export const EdgeCases: Story = {
   ],
 };
 
+const revoked = {
+  reason: 'invalid_grant' as const,
+  at: '2026-11-02T12:16:00.000Z',
+  message:
+    "Google expired or revoked Maple's Drive authorization (invalid_grant) at 2026-11-02T12:16:00Z. Reconnect Google Drive to resume backup.",
+};
+export const GoogleDisconnected: Story = {
+  decorators: [
+    applicationConfig({
+      providers: [
+        {
+          provide: CloudBackupService,
+          useValue: {
+            ...api,
+            destinations: () =>
+              of([
+                {
+                  ...google,
+                  connection: { connected: false, disconnect: revoked },
+                  status: {
+                    ...google.status,
+                    blocked: 232832,
+                    lastError: revoked.message,
+                    lastErrorCount: 232832,
+                  },
+                },
+              ]),
+            googleConfig: () =>
+              of({ ...config, connected: false, accountEmail: null, disconnect: revoked }),
+          },
+        },
+      ],
+    }),
+  ],
+};
 export const MapleClient: Story = {
   decorators: [
     applicationConfig({

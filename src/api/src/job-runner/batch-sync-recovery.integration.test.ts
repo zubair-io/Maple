@@ -83,9 +83,9 @@ async function context(jobId: ObjectId, worker = 'worker-a'): Promise<JobHandler
     jobId,
     checkpoint: (await jobs.getJob(jobId))?.checkpoint,
     saveCheckpoint: (value, entryIndex) =>
-      jobs.saveJobCheckpoint(jobId, worker, value, 60000, undefined, entryIndex),
+      jobs.saveJobCheckpoint(jobId, worker, value, undefined, entryIndex),
     reportProgress: (current, total) =>
-      jobs.updateProgress(jobId, { current, total }, 60000, undefined, worker),
+      jobs.updateProgress(jobId, { current, total }, undefined, worker),
     shouldCancel: () => jobs.isCancelRequested(jobId),
   };
 }
@@ -94,7 +94,7 @@ async function claimed(targets: Awaited<ReturnType<typeof target>>[]) {
     kind: 'batch_adjustment_sync',
     payload: { targets, patch },
   });
-  expect((await jobs.claimJob('worker-a', 60000))?._id.toHexString()).toBe(job._id.toHexString());
+  expect((await jobs.claimJob(job._id, 'worker-a'))?._id.toHexString()).toBe(job._id.toHexString());
   return job;
 }
 
@@ -175,7 +175,7 @@ describe('interrupted batch adjustment sync', () => {
       }),
     );
     expect(response.status).toBe(200);
-    await jobs.claimJob('worker-a', 60000);
+    await jobs.claimJob(job._id, 'worker-a');
     const completed = await batchAdjustmentSyncHandler.run(job.payload, await context(job._id));
     expect(completed.result.applied).toEqual(targets.map((t) => t.id));
     expect(await readFile(xmpSidecarPath(targets[0].path), 'utf8')).toBe(changedAfter);
@@ -222,20 +222,14 @@ describe('interrupted batch adjustment sync', () => {
     expect(await readFile(xmpSidecarPath(photo.path), 'utf8')).toBe(edit);
   });
 
-  it('fences stale progress, checkpoint and completion after a lease is reclaimed', async () => {
+  it('fences stale progress, checkpoint and completion after a newer attempt takes over', async () => {
     using live = await createLiveTestDatabase();
     seedLibrary(live.db);
     const job = await claimed([await target('fence')]);
-    run(
-      live.db,
-      'UPDATE jobs SET lease_expires_at = ? WHERE id = ?',
-      '2000-01-01T00:00:00.000Z',
-      job._id.toHexString(),
-    );
-    expect((await jobs.claimJob('worker-b', 60000))?._id).toEqual(job._id);
-    await expect(jobs.saveJobCheckpoint(job._id, 'worker-a', {}, 60000)).rejects.toThrow('lease');
+    expect((await jobs.claimJob(job._id, 'worker-b'))?._id).toEqual(job._id);
+    await expect(jobs.saveJobCheckpoint(job._id, 'worker-a', {})).rejects.toThrow('lease');
     await expect(
-      jobs.updateProgress(job._id, { current: 99, total: 99 }, 60000, undefined, 'worker-a'),
+      jobs.updateProgress(job._id, { current: 99, total: 99 }, undefined, 'worker-a'),
     ).rejects.toThrow('lease');
     await jobs.completeJob(job._id, {}, undefined, 'worker-a');
     await jobs.failJob(job._id, 'stale failure', undefined, 'worker-a');

@@ -14,6 +14,11 @@ import {
   type DescribeProviderName,
 } from './describe-providers/index.ts';
 import { DEFAULT_DESCRIBE_MODELS, asDescribeProvider } from './enrichment-config.repo.ts';
+import {
+  OPENAI_DEFAULT_BASE_URL,
+  allowsEnvOpenAiKey,
+  openAiBaseUrl,
+} from './describe-providers/openai.ts';
 
 export interface ProviderModelOptions {
   url?: string | null;
@@ -73,12 +78,15 @@ async function fetchModelIds(
   return ids;
 }
 
-async function fetchOpenAiModels(apiKey: string): Promise<string[]> {
+/** OpenAI's own catalogue is narrowed to vision-capable names; a compatible server's is not. */
+async function fetchOpenAiModels(apiKey: string | null, url?: string | null): Promise<string[]> {
+  const baseUrl = openAiBaseUrl(url);
   const all = await fetchModelIds(
-    'https://api.openai.com/v1/models',
-    { Authorization: `Bearer ${apiKey}` },
-    'OpenAI',
+    `${baseUrl}/models`,
+    apiKey ? { Authorization: `Bearer ${apiKey}` } : {},
+    baseUrl === OPENAI_DEFAULT_BASE_URL ? 'OpenAI' : 'OpenAI-compatible server',
   );
+  if (baseUrl !== OPENAI_DEFAULT_BASE_URL) return all.sort();
   const visionLike = all.filter(
     (id) =>
       id.startsWith('gpt-4o') ||
@@ -131,11 +139,14 @@ async function fetchLiveModels(
   if (provider === 'ollama') {
     return await fetchOllamaModels(opts.url);
   }
+  if (provider === 'openai' && !allowsEnvOpenAiKey(opts.url)) {
+    return await fetchOpenAiModels(apiKey, opts.url);
+  }
   if (!apiKey) {
     throw new Error('No API key provided or found in environment');
   }
   if (provider === 'openai') {
-    return await fetchOpenAiModels(apiKey);
+    return await fetchOpenAiModels(apiKey, opts.url);
   }
   if (provider === 'anthropic') {
     return await fetchAnthropicModels(apiKey);
@@ -151,7 +162,9 @@ export async function listProviderModels(
   provider: DescribeProviderName,
   opts: ProviderModelOptions = {},
 ): Promise<{ models: string[]; source: 'live' | 'fallback'; error?: string }> {
-  const apiKey = opts.apiKey !== undefined ? opts.apiKey?.trim() || null : resolveEnvKey(provider);
+  const envKeyAllowed = provider !== 'openai' || allowsEnvOpenAiKey(opts.url);
+  const envKey = envKeyAllowed ? resolveEnvKey(provider) : null;
+  const apiKey = opts.apiKey !== undefined ? opts.apiKey?.trim() || null : envKey;
 
   try {
     const models = await fetchLiveModels(provider, opts, apiKey);

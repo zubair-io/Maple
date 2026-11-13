@@ -137,6 +137,17 @@ CREATE INDEX people_merged_into
 `;
 
 /**
+ * Every search, list, facet and bucket asks which people are hidden or excluded (#4546). Both flags
+ * are a few hundred rows in tens of thousands, so a partial index per flag turns the full table
+ * scan (which reads every wide row's overflow pages) into a read of just the flagged ids. Added by
+ * migration 0027 rather than folded into PEOPLE_INDEX_DDL, which belongs to the frozen 0001.
+ */
+export const PEOPLE_FLAG_INDEX_DDL = `
+CREATE INDEX people_excluded ON people (id) WHERE excluded = 1;
+CREATE INDEX people_hidden ON people (id) WHERE hidden = 1;
+`;
+
+/**
  * One permanently-dismissed "not a match" pair from the merge-suggestion
  * banner. `pair` is the direction-independent key built by `sortedPairKey`, so
  * it stays a single unique string rather than two ordered columns.

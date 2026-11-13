@@ -12,6 +12,10 @@
 // class only from `provideSelfHostedWorkspace()` (and the Self Hosted app)
 // is what keeps `TrashApiService`'s asset/folder routes out of Hosted's
 // static bundle.
+//
+// A RAW+JPEG stack (#5050) is one queue item and one tile in the summary:
+// the RAW is trashed first and the JPEG only if the RAW went, so a RAW that
+// fails keeps its whole tile in place.
 
 import { Injectable, inject, signal } from '@angular/core';
 import { Observable, map, of, switchMap } from 'rxjs';
@@ -21,6 +25,7 @@ import { TrashApiService } from '../api/trash-api.service';
 import { parseAddress } from '../addressing/maple-address';
 import { LibraryStateService } from '../state/library-state.service';
 import type { AssetId } from '../models/asset';
+import { stackTiles, type StackTile } from '../models/asset-stack';
 import { errorMessage } from '../util/errors';
 import type { TrashCapability } from './trash-capability';
 import type {
@@ -144,10 +149,9 @@ export class TrashService implements TrashCapability {
     if (this._busy() || (assetIds.length === 0 && folderIds.length === 0)) return;
     this._busy.set(true);
     this._resultSummary.set(null);
-    const assetsById = new Map(
-      this.state.assetsInSelectedFolder().map((asset) => [asset.id, asset]),
-    );
-    void this.runTrashQueue(assetIds, assetsById, sourceFolderId, folderIds);
+    // Every loaded asset, not only the open folder's: the tile's companion is
+    // read off the asset wherever the selection came from.
+    void this.runTrashQueue(stackTiles(assetIds, this.state.assets()), sourceFolderId, folderIds);
   }
 
   /** Same registered-library lookup `folder-tree-crud.component.ts`'s
@@ -241,22 +245,36 @@ export class TrashService implements TrashCapability {
     this.state.selectedFolderIds.update((prev) => prune(prev, folderIds));
   }
 
+  /** Trash one tile: the RAW, then its JPEG only if the RAW left the folder. */
+  private async trashOneTile(tile: StackTile): Promise<TrashItemFailure | null> {
+    const failure = await this.trashOneAsset(tile.id, tile.filename);
+    if (!tile.companion || (failure && !failure.alreadyTrashed)) return failure;
+    const companion = await this.trashOneAsset(tile.companion.id, tile.companion.filename);
+    if (!companion || companion.alreadyTrashed) return failure;
+    // Keyed on the JPEG: it is the file still in the folder, so the RAW's
+    // id is pruned from the selection like any trashed asset.
+    return {
+      assetId: tile.companion.id,
+      filename: tile.filename,
+      reason: `${tile.filename} was moved to Trash, but its JPEG ${tile.companion.filename} was not: ${companion.reason}`,
+    };
+  }
+
   private async runTrashQueue(
-    assetIds: AssetId[],
-    assetsById: Map<AssetId, { id: AssetId; filename: string }>,
+    tiles: StackTile[],
     sourceFolderId: string,
     folderIds: string[] = [],
   ): Promise<void> {
     const failed: TrashItemFailure[] = [];
-    for (const assetId of assetIds) {
-      const filename = assetsById.get(assetId)?.filename ?? assetId;
-      const failure = await this.trashOneAsset(assetId, filename);
+    for (const tile of tiles) {
+      const failure = await this.trashOneTile(tile);
       if (failure) failed.push(failure);
     }
     for (const folderId of folderIds) {
       const failure = await this.trashOneFolder(folderId);
       if (failure) failed.push(failure);
     }
+    const assetIds = tiles.map((tile) => tile.id);
     const total = assetIds.length + folderIds.length;
     this._busy.set(false);
     this._resultSummary.set({ total, trashed: total - failed.length, failed });

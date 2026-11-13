@@ -107,6 +107,19 @@ describe('ExportDialogComponent', () => {
     expect(options.length).toBeGreaterThan(1);
   });
 
+  it('updates the displayed export size when the focused photo is cropped', async () => {
+    const { fixture } = await setup();
+    fixture.componentRef.setInput('crop', {
+      top: 0,
+      left: 0.125,
+      bottom: 1,
+      right: 0.875,
+      angle: 0,
+    });
+    fixture.detectChanges();
+    expect(fixture.componentInstance.sizeHint()).toContain('3000 × 3000 px');
+  });
+
   it('renders the mui-export-modal open with the format/color-space/size choice tables', async () => {
     const { fixture } = await setup();
     expect(fixture.nativeElement.querySelector('mui-overlay-shell')).not.toBeNull();

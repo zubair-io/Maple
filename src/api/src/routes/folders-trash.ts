@@ -41,6 +41,7 @@ type ResolveError = { status: number; error: string };
 async function resolveFolderAndTarget(
   paramsId: string,
   headers: Record<string, string | undefined>,
+  allowRoot: boolean,
 ): Promise<ResolvedTarget | ResolveError> {
   let folderId: ObjectId;
   try {
@@ -52,6 +53,12 @@ async function resolveFolderAndTarget(
   const folder = await findFolderById(folderId);
   if (!folder) {
     return { status: 404, error: 'Folder not found' };
+  }
+
+  // Restore All explicitly addresses the whole library with `.`. Keep a
+  // missing header invalid, and do not permit this sentinel for trash-folder.
+  if (allowRoot && headers['x-maple-target-path'] === '.') {
+    return { folderId, folder, relPath: '' };
   }
 
   const validated = validateRelPathHeader(headers['x-maple-target-path'], 'X-Maple-Target-Path');
@@ -82,8 +89,9 @@ async function runFolderBatch(
   headers: Record<string, string | undefined>,
   set: { status?: number | string },
   runOp: (folderId: ObjectId, folderRoot: string, relPath: string) => Promise<unknown>,
+  allowRoot = false,
 ) {
-  const resolved = await resolveFolderAndTarget(paramsId, headers);
+  const resolved = await resolveFolderAndTarget(paramsId, headers, allowRoot);
   if (isResolveError(resolved)) {
     set.status = resolved.status;
     return { error: resolved.error };
@@ -100,5 +108,5 @@ export const foldersTrashRoutes = new Elysia({ prefix: '/api/folders' })
     runFolderBatch(params.id, headers, set, trashFolderRecursive),
   )
   .post('/:id/restore-folder', ({ params, headers, set }) =>
-    runFolderBatch(params.id, headers, set, restoreFolderRecursive),
+    runFolderBatch(params.id, headers, set, restoreFolderRecursive, true),
   );

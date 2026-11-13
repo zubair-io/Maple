@@ -32,8 +32,25 @@ describe('/api/display/config', () => {
   it('GET /api/display/config returns defaults', async () => {
     const res = await app().handle(new Request('http://localhost/api/display/config'));
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { show_hidden_images: boolean };
+    const body = (await res.json()) as { show_hidden_images: boolean; stack_raw_jpeg: boolean };
     expect(body.show_hidden_images).toBe(false);
+    expect(body.stack_raw_jpeg).toBe(true);
+  });
+
+  it('PUT stores the RAW+JPEG stacking choice without touching the other setting', async () => {
+    const put = (body: object) =>
+      app().handle(
+        new Request('http://localhost/api/display/config', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        }),
+      );
+    expect((await put({ show_hidden_images: true })).status).toBe(200);
+    expect((await put({ stack_raw_jpeg: false })).status).toBe(200);
+
+    const res = await app().handle(new Request('http://localhost/api/display/config'));
+    expect(await res.json()).toEqual({ show_hidden_images: true, stack_raw_jpeg: false });
   });
 
   it('PUT /api/display/config updates config', async () => {

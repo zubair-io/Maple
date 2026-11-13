@@ -51,6 +51,15 @@ const ASSET_C_SUBFOLDER: Asset = {
   aspectRatio: 1.5,
 };
 
+const ASSET_D_STACKED: Asset = {
+  ...ASSET_A,
+  id: 'photos:IMG_0004.CR3',
+  filename: 'IMG_0004.CR3',
+  stack: {
+    companion: { id: 'photos:IMG_0004.JPG', name: 'IMG_0004.JPG', ext: 'jpg', size: 1 },
+  },
+};
+
 /** `ASSET_A`/`ASSET_B`/`ASSET_C_SUBFOLDER`'s resolved server ids, as
  * `getAssetDetailsByAddress` would return them — asserted against, never
  * equal to the address itself, so a regression that goes back to calling
@@ -59,6 +68,8 @@ const API_ID_BY_ADDRESS: Record<string, string> = {
   [ASSET_A.id]: '507f1f77bcf86cd799439011',
   [ASSET_B.id]: '507f1f77bcf86cd799439012',
   [ASSET_C_SUBFOLDER.id]: '507f1f77bcf86cd799439013',
+  [ASSET_D_STACKED.id]: '507f1f77bcf86cd799439014',
+  'photos:IMG_0004.JPG': '507f1f77bcf86cd799439015',
 };
 
 const LIBRARY: ApiFolder = {
@@ -111,7 +122,7 @@ describe('TrashService', () => {
       getAssetDetailsByAddress: getAssetDetailsByAddressSpy,
     };
     const fakeState = {
-      assetsInSelectedFolder: () => [ASSET_A, ASSET_B, ASSET_C_SUBFOLDER],
+      assets: () => [ASSET_A, ASSET_B, ASSET_C_SUBFOLDER, ASSET_D_STACKED],
       refreshFolderListing: refreshFolderListingSpy,
       currentRegisteredFolder: () => LIBRARY,
       registeredFolders: () => [LIBRARY],
@@ -198,6 +209,44 @@ describe('TrashService', () => {
       expect(deleteAssetSpy).toHaveBeenCalledWith(API_ID_BY_ADDRESS[ASSET_B.id], 'trash');
       expect(service.resultSummary()).toEqual({ total: 2, trashed: 2, failed: [] });
       expect(refreshFolderListingSpy).toHaveBeenCalledWith(LIBRARY_ID);
+    });
+
+    it('sends a stacked RAW and its JPEG companion to Trash together (#5846)', async () => {
+      deleteAssetSpy.mockReturnValue(of({ kind: 'ok' }));
+      service.trashAssets([ASSET_D_STACKED.id], LIBRARY_ID);
+      await vi.waitFor(() => expect(service.busy()).toBe(false));
+      expect(deleteAssetSpy.mock.calls).toEqual([
+        ['507f1f77bcf86cd799439014', 'trash'],
+        ['507f1f77bcf86cd799439015', 'trash'],
+      ]);
+      expect(service.resultSummary()).toEqual({ total: 1, trashed: 1, failed: [] });
+    });
+
+    it('does not trash the companion twice when it is already part of the request', async () => {
+      deleteAssetSpy.mockReturnValue(of({ kind: 'ok' }));
+      service.trashAssets([ASSET_D_STACKED.id, 'photos:IMG_0004.JPG'], LIBRARY_ID);
+      await vi.waitFor(() => expect(service.busy()).toBe(false));
+      expect(deleteAssetSpy).toHaveBeenCalledTimes(2);
+    });
+
+    it('keeps the JPEG when its RAW cannot be trashed', async () => {
+      deleteAssetSpy.mockReturnValueOnce(throwError(() => new Error('locked')));
+      service.trashAssets([ASSET_D_STACKED.id], LIBRARY_ID);
+      await vi.waitFor(() => expect(service.busy()).toBe(false));
+      expect(deleteAssetSpy).toHaveBeenCalledTimes(1);
+      expect(service.resultSummary()).toMatchObject({ total: 1, trashed: 0 });
+    });
+
+    it('reports a JPEG that did not follow its RAW to Trash, naming both files', async () => {
+      deleteAssetSpy
+        .mockReturnValueOnce(of({ kind: 'ok' }))
+        .mockReturnValueOnce(throwError(() => new Error('locked')));
+      service.trashAssets([ASSET_D_STACKED.id], LIBRARY_ID);
+      await vi.waitFor(() => expect(service.busy()).toBe(false));
+      const summary = service.resultSummary();
+      expect(summary).toMatchObject({ total: 1, trashed: 0 });
+      expect(summary?.failed[0]).toMatchObject({ assetId: 'photos:IMG_0004.JPG' });
+      expect(summary?.failed[0]?.reason).toContain('its JPEG IMG_0004.JPG was not: locked');
     });
 
     // #2841 — this is the exact bug: `TrashApiService.deleteAsset` used to

@@ -22,8 +22,8 @@ final class MapleIdDerivationTests: XCTestCase {
         let head = pseudoRandomBytes(1024)
         let id = await MapleIdDerivation.derive(
             headBytes: head,
-            exifDateTimeOriginal: "2024:06:01 12:34:56",
-            exifCreateDate: "1999:01:01 00:00:00",
+            capturedAtISO8601: ExifCaptureDate.capturedAt(
+                dateTimeOriginal: "2024:06:01 12:34:56", createDate: "1999:01:01 00:00:00"),
             filesize: UInt64(head.count),
             nextChunk: { Data() }
         )
@@ -36,8 +36,8 @@ final class MapleIdDerivationTests: XCTestCase {
         let head = pseudoRandomBytes(1024)
         let id = await MapleIdDerivation.derive(
             headBytes: head,
-            exifDateTimeOriginal: nil,
-            exifCreateDate: "2024:06:01 12:34:56",
+            capturedAtISO8601: ExifCaptureDate.capturedAt(
+                dateTimeOriginal: nil, createDate: "2024:06:01 12:34:56"),
             filesize: UInt64(head.count),
             nextChunk: { Data() }
         )
@@ -49,8 +49,8 @@ final class MapleIdDerivationTests: XCTestCase {
         let head = pseudoRandomBytes(1024)
         let id = await MapleIdDerivation.derive(
             headBytes: head,
-            exifDateTimeOriginal: "not a date",
-            exifCreateDate: "2024:06:01 12:34:56",
+            capturedAtISO8601: ExifCaptureDate.capturedAt(
+                dateTimeOriginal: "not a date", createDate: "2024:06:01 12:34:56"),
             filesize: UInt64(head.count),
             nextChunk: { Data() }
         )
@@ -75,8 +75,7 @@ final class MapleIdDerivationTests: XCTestCase {
 
         let id = await MapleIdDerivation.derive(
             headBytes: head,
-            exifDateTimeOriginal: nil,
-            exifCreateDate: nil,
+            capturedAtISO8601: nil,
             filesize: UInt64(whole.count),
             nextChunk: {
                 guard !chunks.isEmpty else { return Data() }
@@ -96,8 +95,7 @@ final class MapleIdDerivationTests: XCTestCase {
 
         let id = await MapleIdDerivation.derive(
             headBytes: whole.prefix(64 * 1024),
-            exifDateTimeOriginal: nil,
-            exifCreateDate: nil,
+            capturedAtISO8601: nil,
             filesize: UInt64(whole.count),
             nextChunk: {
                 guard offset < whole.count else { return Data() }
@@ -120,8 +118,7 @@ final class MapleIdDerivationTests: XCTestCase {
 
         let id = await MapleIdDerivation.derive(
             headBytes: Data(),
-            exifDateTimeOriginal: "2024:06:01 12:34:56",
-            exifCreateDate: nil,
+            capturedAtISO8601: "2024-06-01T12:34:56.000Z",
             filesize: UInt64(whole.count),
             nextChunk: {
                 guard !chunks.isEmpty else { return Data() }
@@ -149,8 +146,7 @@ final class MapleIdDerivationTests: XCTestCase {
         do {
             _ = try await MapleIdDerivation.derive(
                 headBytes: head,
-                exifDateTimeOriginal: nil,
-                exifCreateDate: nil,
+                capturedAtISO8601: nil,
                 filesize: 4096,
                 nextChunk: {
                     callCount += 1
@@ -182,8 +178,7 @@ final class MapleIdDerivationTests: XCTestCase {
     func testEmptyFileProducesValidFallbackIdNotNil() async {
         let id = await MapleIdDerivation.derive(
             headBytes: Data(),
-            exifDateTimeOriginal: nil,
-            exifCreateDate: nil,
+            capturedAtISO8601: nil,
             filesize: 0,
             nextChunk: { Data() }
         )
@@ -196,11 +191,11 @@ final class MapleIdDerivationTests: XCTestCase {
     func testDeterministicAcrossRepeatedCalls() async {
         let head = pseudoRandomBytes(512)
         let a = await MapleIdDerivation.derive(
-            headBytes: head, exifDateTimeOriginal: "2024:06:01 12:34:56",
-            exifCreateDate: nil, filesize: UInt64(head.count), nextChunk: { Data() })
+            headBytes: head, capturedAtISO8601: "2024-06-01T12:34:56.000Z",
+            filesize: UInt64(head.count), nextChunk: { Data() })
         let b = await MapleIdDerivation.derive(
-            headBytes: head, exifDateTimeOriginal: "2024:06:01 12:34:56",
-            exifCreateDate: nil, filesize: UInt64(head.count), nextChunk: { Data() })
+            headBytes: head, capturedAtISO8601: "2024-06-01T12:34:56.000Z",
+            filesize: UInt64(head.count), nextChunk: { Data() })
         XCTAssertEqual(a, b)
     }
 }

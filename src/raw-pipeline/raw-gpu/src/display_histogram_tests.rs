@@ -72,3 +72,7 @@ fn large_preview_has_bounded_sample_count_and_fast_readback() {
 #[cfg(target_vendor = "apple")]
 #[path = "display_histogram_phase_tests.rs"]
 mod phase;
+
+#[cfg(target_vendor = "apple")]
+#[path = "display_histogram_round_trip_tests.rs"]
+mod round_trip;

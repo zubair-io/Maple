@@ -2,22 +2,24 @@
 //! Owned by one render worker on the native UI's shared device.
 use raw_core::{
     gpu_host::{
-        model::{prefix_matches, update_chain_inputs},
-        prepare::{auto_will_fit, chain_inputs_with_status, develop_prefix_rgba_cancellable},
-        GpuWhiteBalance,
+        capture::{develop_capture_prefix_rgba_cancellable, LiveCreative},
+        live_profile::LiveProfile,
+        model::prefix_matches,
     },
-    types::adjustment::{AdjustmentModel, AutoExposureMode, Profile},
+    types::adjustment::AdjustmentModel,
     ExifOrientation, RawImage,
 };
 use raw_gpu::{CancelToken, GpuContext, LiveSession, PresentGeometry, PresentTexture};
 
+/// The resident upload is the capture decode (#5380) in sensor framing, and
+/// every tick binds the decode's creative stage in place of the
+/// white-balance pass.
 pub struct GpuPreview {
     session: LiveSession,
     target: PresentTexture,
     prefix: AdjustmentModel,
-    white_balance: GpuWhiteBalance,
-    inputs: raw_gpu::FullChainInputs<'static>,
-    auto_fit: bool,
+    creative: LiveCreative,
+    profile: LiveProfile,
     sampling_scale: f32,
     long_edge: u32,
     uploads: u64,
@@ -68,19 +70,19 @@ impl GpuPreview {
         let long_edge = long_edge
             .max(1)
             .min(ctx.device.limits().max_texture_dimension_2d);
-        let (pixels, width, height, prefix, whites_anchor, sampling_scale) =
-            develop_prefix_rgba_cancellable(
-                raw,
-                bytes,
-                ext,
-                model,
-                long_edge,
-                raw_core::CancelToken::new(cancel.flag()),
-            )?;
+        let capture = develop_capture_prefix_rgba_cancellable(
+            raw,
+            bytes,
+            ext,
+            model,
+            long_edge,
+            raw_core::CancelToken::new(cancel.flag()),
+        )?;
         if cancel.is_cancelled() {
             return Err("Preview cancelled".into());
         }
-        let session = LiveSession::new(ctx, &pixels, width, height)?;
+        let (width, height) = (capture.width, capture.height);
+        let session = LiveSession::new(ctx, &capture.rgba, width, height)?;
         let film = crate::film::resolve(&model.film_look)?;
         let display_dims = if raw.orientation.swaps_wh() {
             (height, width)
@@ -93,23 +95,23 @@ impl GpuPreview {
             display_dims.1,
         );
         let target = PresentTexture::new(ctx, crop.dims)?;
-        let (inputs, _) = chain_inputs_with_status(
+        let profile = LiveProfile::new(
             raw,
             bytes,
             ext,
             model,
+            long_edge,
             film.as_ref().map(|film| film.lut),
             film.as_ref().map_or(0, |film| film.key),
-            whites_anchor,
+            capture.whites_anchor_ev,
         );
         Ok(Self {
             session,
             target,
-            prefix,
-            white_balance: GpuWhiteBalance::resolve(raw)?,
-            inputs,
-            auto_fit: auto_will_fit(model, bytes, ext),
-            sampling_scale,
+            prefix: capture.prefix_model,
+            creative: capture.creative,
+            profile,
+            sampling_scale: capture.nr_sampling_scale,
             long_edge,
             uploads: 1,
         })
@@ -135,20 +137,15 @@ impl GpuPreview {
                 "An imported tone curve exceeds the GPU preview's control-point capacity".into(),
             );
         }
-        let crop = raw_core::stages::crop::CropPresentation::new(&model.crop, 1, 1);
-        if crop.resamples
-            && !raw_core::stages::perspective::Perspective::from_model(model).is_identity()
-        {
-            return Err(
-                "Combined perspective and straighten GPU sampling is pending (#4317)".into(),
-            );
-        }
         crate::film::resolve(&model.film_look)?;
         Ok(())
     }
 
     pub fn target(&self) -> &PresentTexture {
         &self.target
+    }
+    pub fn auto_fit(&self) -> Option<raw_core::view::auto_profile::AutoFitOutcome> {
+        self.profile.auto_fit
     }
     pub fn upload_count(&self) -> u64 {
         self.uploads
@@ -175,11 +172,7 @@ impl GpuPreview {
             return Ok(false);
         }
         Self::validate(model)?;
-        let ae = if self.auto_fit && model.profile == Profile::Auto {
-            AutoExposureMode::Off
-        } else {
-            model.auto_exposure
-        };
+        let ae = self.profile.effective_ae(model);
         if !prefix_matches(model, &self.prefix, ae) {
             // Prepare replacement resources before dropping the last valid frame.
             let Some(replacement) =
@@ -191,24 +184,25 @@ impl GpuPreview {
             *self = replacement;
             self.uploads = uploads;
         }
+        self.profile.update(model);
         let film = crate::film::resolve(&model.film_look)?;
         let key = film.as_ref().map_or(0, |film| film.key);
-        if self.inputs.film_lut_key != key {
-            self.inputs.film_lut_key = key;
-            self.inputs.film_lut_size = film.as_ref().map_or(0, |film| film.lut.size as u32);
+        if self.profile.inputs.film_lut_key != key {
+            self.profile.inputs.film_lut_key = key;
+            self.profile.inputs.film_lut_size =
+                film.as_ref().map_or(0, |film| film.lut.size as u32);
             // Embedded, immutable lattices have a static lifetime. A look switch
             // updates the binding without cloning the lattice or RAW prefix.
-            self.inputs.film_lut_data = std::borrow::Cow::Borrowed(
+            self.profile.inputs.film_lut_data = std::borrow::Cow::Borrowed(
                 film.as_ref().map_or(&[], |film| film.lut.data.as_slice()),
             );
         }
-        update_chain_inputs(model, &mut self.inputs);
-        self.white_balance.apply(model, &mut self.inputs);
-        self.inputs.nr_sampling_scale = self.sampling_scale;
-        self.inputs.target_primaries = 0; // Native UNORM texture carries sRGB display bytes.
+        self.creative.apply(model, &mut self.profile.inputs)?;
+        self.profile.inputs.nr_sampling_scale = self.sampling_scale;
+        self.profile.inputs.target_primaries = 0; // Native UNORM texture carries sRGB display bytes.
         let Some(index) = self
             .session
-            .render_chain_to_f32(ctx, &self.inputs, cancel)?
+            .render_chain_to_f32(ctx, &self.profile.inputs, cancel)?
         else {
             return Ok(false);
         };
@@ -223,7 +217,9 @@ impl GpuPreview {
 
 /// The display → sensor transform for the present pass. An identity
 /// composition must take the shader's direct-load path: the resample arm
-/// would bilinearly blend neighbours and drift from the CPU reference.
+/// would bilinearly blend neighbours and drift from the CPU reference. A
+/// resampling crop over active perspective is its own second resample, as
+/// the CPU path warps and then crops (#5844).
 fn present_geometry(
     orientation: ExifOrientation,
     (sensor_width, sensor_height): (u32, u32),
@@ -236,10 +232,13 @@ fn present_geometry(
         (sensor_width, sensor_height)
     };
     let crop = raw_core::stages::crop::CropPresentation::new(&model.crop, width, height);
-    let inverse = Perspective::from_model(model).inverse_matrix(aspect_ratio(width, height));
-    let composed = Homography(orientation.display_to_sensor_matrix())
-        .mul(&inverse)
-        .mul(&crop.inverse);
+    let perspective = Perspective::from_model(model);
+    let display_to_sensor = Homography(orientation.display_to_sensor_matrix())
+        .mul(&perspective.inverse_matrix(aspect_ratio(width, height)));
+    if crop.resamples && !perspective.is_identity() {
+        return PresentGeometry::from_stages(display_to_sensor.0, crop.inverse.0, (width, height));
+    }
+    let composed = display_to_sensor.mul(&crop.inverse);
     if composed == Homography::IDENTITY {
         PresentGeometry::IDENTITY
     } else {
@@ -247,6 +246,12 @@ fn present_geometry(
     }
 }
 
+#[cfg(test)]
+#[path = "gpu_preview_capture_tests.rs"]
+mod capture_tests;
+#[cfg(test)]
+#[path = "gpu_preview_geometry_tests.rs"]
+mod geometry_tests;
 #[cfg(test)]
 mod present_geometry_tests {
     use super::*;

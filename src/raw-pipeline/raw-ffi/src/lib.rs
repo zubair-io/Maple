@@ -51,18 +51,25 @@ mod auto_profile_compose;
 mod auto_profile_lut_apply;
 mod auto_tone;
 mod buffers;
-mod display_f32;
-#[cfg(test)]
-mod display_f32_tests;
-pub use display_f32::{
-    maple_free_display_buffer_f32, maple_render_file_display_f32, MapleDisplayBufferF32,
-};
 mod camera_support;
 mod cancel;
+mod canvas_crop;
+mod canvas_math;
+mod canvas_native_detail;
+mod canvas_overlay;
+mod canvas_render_schedule;
+mod canvas_zoom;
+mod canvas_zoom_continuity;
+mod canvas_zoom_insets;
+mod canvas_zoom_rules;
+mod capture_base;
+mod capture_creative;
+mod capture_f32;
 mod white_balance_sample;
 // Colour-range eyedropper for the mask panel (#362): same transport as the
 // white-balance sampler above, reads the pixel entering the local-adjustments
 // stage and returns a seeded `papp:Range*` quadruple.
+mod color_curve_sample;
 mod mask_range_sample;
 // BM3D deep-denoise progress bridge (#1153): the editor's determinate
 // indicator is fed by the stage's own per-row ticks, so raw-core's progress
@@ -70,7 +77,11 @@ mod mask_range_sample;
 mod as_shot_white_balance;
 mod deep_denoise_progress;
 mod error;
+#[cfg(test)]
+mod extern_panic_barrier_tests;
 mod imported_white_balance;
+#[cfg(test)]
+mod panic_barrier_tests;
 // Batch-rename filename-template engine FFI (#2628). Pure marshalling over
 // `raw_core::filename` — no worker-thread dispatch, no GPU gate.
 mod filename;
@@ -98,10 +109,6 @@ mod gpu_live;
 #[cfg(feature = "gpu")]
 mod gpu_auto_profile;
 mod handle;
-#[cfg(feature = "gpu")]
-mod native_auto_profile;
-mod raw_dimensions;
-pub use raw_dimensions::{maple_raw_dimensions_bytes, maple_raw_dimensions_file};
 mod id;
 // Brush dab-series rasterization (#360): `maple_brush_rasterize` stamps a
 // dab series into the caller's R8 buffer — the bytes the host then registers
@@ -152,7 +159,16 @@ mod render_develop;
 // of `render` per the 600-LOC file-size budget; `render::maple_render_file`
 // delegates its shared body here with `film_lut: None`.
 mod render_film;
+// `maple_histogram_{file,bytes}` + `bin_rgb888`, moved verbatim out of
+// `render` per the file-size budget (#5163).
 mod render_histogram;
+// Cold DefaultCrop dimensions from metadata alone (#5163) — the host's canvas
+// layout fallback for a RAW its own metadata reader cannot parse.
+mod raw_dimensions;
+// The shared display tail kept at f32 for a destination encoder (#5163).
+mod display_f32;
+#[cfg(test)]
+mod display_f32_tests;
 mod scene_linear;
 mod scene_linear_chain;
 // The C-visible vectorscope statistics block (#3272) — `MapleScopeStats` +
@@ -168,11 +184,19 @@ mod scope_stats;
 // chain + display-encode in one call over one buffer, no intervening
 // Swift-side CIImage wrap/readback. Split out of `scene_linear_chain`
 // (rather than added to it) per the 600-LOC file-size budget.
-mod native_auto_chain;
 mod scene_linear_chain_fused;
 // Curves-aware sibling of the fused entry (#2576): same chain + encode, plus
 // the user point tone curves the scalars-only params ABI cannot carry.
 mod scene_linear_chain_curves;
+// #4738: the P3-aware fused entry's curves-aware twin, and the perspective
+// warp for hosts that run the chain over the scene-linear FFI buffer.
+mod perspective_entry;
+mod scene_linear_chain_curves_target;
+// #4741: P3 encodes that run the Auto tail inside the encode.
+mod scene_linear_chain_p3_auto;
+// #3287: the whole frame's dehaze maps a native-detail window recovers with.
+mod scene_linear_chain_haze;
+pub use scene_linear_chain_haze::MapleHazeMap;
 // Multi-format developed export (#2584): the C-ABI shim over
 // raw_core::export (JPEG / 16-bit TIFF / PNG, ICC-tagged, long-edge cap).
 mod export_file;
@@ -216,6 +240,7 @@ pub use auto_adjustments::MapleAutoAdjustments;
 pub use auto_tone::MapleAutoTone;
 pub use buffers::{MapleImageBuffer, MapleSceneLinearBuffer};
 pub use cancel::MapleCancelFlag;
+pub use color_curve_sample::{maple_sample_color_curve_oriented, MapleColorCurveSample};
 // #1153: cbindgen needs visibility on the callback typedef; the
 // `#[no_mangle]` registration entry is exported regardless.
 pub use deep_denoise_progress::{maple_set_deep_denoise_progress, MapleDeepDenoiseProgressFn};
@@ -225,9 +250,10 @@ pub use filename::MapleFilenameResult;
 pub use handle::MapleRawHandle;
 pub use id::MapleFallbackIdHasher;
 pub use workflow::{
-    maple_workflow_checkpoint_xmp, maple_workflow_commit_xmp, maple_workflow_embed_xmp,
-    maple_workflow_read_xmp, maple_workflow_restore_xmp, maple_workflow_snapshot_xmp,
-    maple_workflow_validate_json, maple_workflow_variant_filename,
+    maple_workflow_checkpoint_xmp, maple_workflow_commit_xmp, maple_workflow_cursor_xmp,
+    maple_workflow_embed_xmp, maple_workflow_read_xmp, maple_workflow_reconcile_xmp,
+    maple_workflow_restore_xmp, maple_workflow_snapshot_xmp, maple_workflow_validate_json,
+    maple_workflow_variant_filename,
 };
 // #3271: cbindgen needs no extra visibility here (both entries are plain
 // scalar-argument externs), but `pub use` keeps them reachable from Rust
@@ -286,6 +312,12 @@ pub use removal_smart::{
     maple_removal_people_suggestions_buf, maple_removal_smart_mask_buf,
     maple_removal_smart_prompts_buf, maple_removal_smart_strokes_buf,
 };
+// #5163: cbindgen needs visibility on the f32 display buffer struct; the
+// entries are re-exported alongside it for Rust integration tests.
+pub use display_f32::{
+    maple_free_display_buffer_f32, maple_render_file_display_f32, MapleDisplayBufferF32,
+};
+pub use raw_dimensions::{maple_raw_dimensions_bytes, maple_raw_dimensions_file};
 pub use scene_linear_chain::MapleAdjustmentParams;
 // #3272: cbindgen needs visibility on the struct; ungated (the CPU fused
 // entry writes through it even without the `gpu` feature).
@@ -299,8 +331,9 @@ pub use gpu_live::{MapleGpuLiveParams, MapleGpuLiveSession};
 // Enabled by `pano` (macOS) or `pano-ios` (iOS static-link, M6 #1244).
 #[cfg(any(feature = "pano", feature = "pano-ios"))]
 pub use pano::{
-    maple_pano_stitch, MaplePanoLocalAlign, MaplePanoProgressFn, MaplePanoRetention,
-    MaplePanoStrategy,
+    maple_pano_preview, maple_pano_stitch, maple_pano_stitch_aligned, MaplePanoBoundaryWarpStatus,
+    MaplePanoEdges, MaplePanoEdgesReport, MaplePanoFeatureEngine, MaplePanoLocalAlign,
+    MaplePanoPreviewSizes, MaplePanoProgressFn, MaplePanoRetention, MaplePanoStrategy,
 };
 // ORT smoke test entry (iOS + iOS-sim only, M6 #1244). Gated on `pano-ios`
 // AND `target_os = "ios"` — macOS uses load-dynamic ORT so `ort::init()` (no
@@ -329,10 +362,12 @@ pub use raster_v2::{
 // directory (the FFI entries they exercise are crate-private through
 // `#[no_mangle]`, not `pub`, so integration-test access is awkward).
 #[cfg(test)]
-mod auto_profile_quality_tests;
+mod allocation_counter;
 #[cfg(test)]
 #[path = "auto_tone_tests.rs"]
 mod auto_tone_tests;
+#[cfg(test)]
+mod degenerate_preview_tests;
 #[cfg(test)]
 #[path = "filename_tests.rs"]
 mod filename_tests;
@@ -346,11 +381,15 @@ mod handle_tests;
 #[path = "id_tests.rs"]
 mod id_tests;
 #[cfg(test)]
+mod perspective_entry_tests;
+#[cfg(test)]
 #[path = "render_film_tests.rs"]
 mod render_film_tests;
 #[cfg(test)]
 #[path = "render_tests.rs"]
 mod render_tests;
+#[cfg(test)]
+mod scene_linear_chain_curves_target_tests;
 #[cfg(test)]
 #[path = "scene_linear_chain_curves_tests.rs"]
 mod scene_linear_chain_curves_tests;
@@ -361,14 +400,20 @@ mod scene_linear_chain_encode_target_tests;
 #[path = "scene_linear_chain_fused_tests.rs"]
 mod scene_linear_chain_fused_tests;
 #[cfg(test)]
+mod scene_linear_chain_iso_tests;
+#[cfg(test)]
 #[path = "scene_linear_chain_local_tests.rs"]
 mod scene_linear_chain_local_tests;
+#[cfg(test)]
+mod scene_linear_chain_parametric_tests;
 #[cfg(test)]
 #[path = "scene_linear_chain_patches_tests.rs"]
 mod scene_linear_chain_patches_tests;
 #[cfg(test)]
 #[path = "scene_linear_chain_tests.rs"]
 mod scene_linear_chain_tests;
+#[cfg(test)]
+mod scene_linear_chain_window_target_tests;
 #[cfg(test)]
 mod scene_linear_sampling_tests;
 #[cfg(test)]
@@ -377,6 +422,8 @@ mod scene_linear_tests;
 #[cfg(test)]
 #[path = "thumbnail_tests.rs"]
 mod thumbnail_tests;
+#[cfg(test)]
+mod unsupported_camera_tests;
 
 #[cfg(test)]
 mod scope_inspection_tests;

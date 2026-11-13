@@ -175,4 +175,34 @@ describe('API sidecar transaction contract (#2431)', () => {
     const leftoverTemp = (await fs.readdir(tmpDir)).filter((name) => name.includes('.tmp.'));
     expect(leftoverTemp).toEqual([]);
   });
+
+  test('rejects a symlinked sidecar escaping the library when MAPLE_ROOTS is unset (#4747)', async () => {
+    delete process.env.MAPLE_ROOTS;
+    const outsideDir = await fs.realpath(
+      await fs.mkdtemp(path.join(os.tmpdir(), 'sidecar-contract-outside-')),
+    );
+    try {
+      const outsideTarget = path.join(outsideDir, 'escaped.xmp');
+      await fs.writeFile(outsideTarget, '<untouched/>', 'utf-8');
+
+      const liveEscapeAsset = path.join(tmpDir, 'live-escape.dng');
+      await fs.writeFile(liveEscapeAsset, originalBytes);
+      await fs.symlink(outsideTarget, path.join(tmpDir, 'live-escape.xmp'));
+
+      const danglingTarget = path.join(outsideDir, 'dangling-escaped.xmp');
+      const danglingEscapeAsset = path.join(tmpDir, 'dangling-escape.dng');
+      await fs.writeFile(danglingEscapeAsset, originalBytes);
+      await fs.symlink(danglingTarget, path.join(tmpDir, 'dangling-escape.xmp'));
+
+      const liveRes = await put(liveEscapeAsset, PASSTHROUGH_LADEN_DOCUMENT);
+      expect(liveRes.status).toBe(500);
+      expect(await fs.readFile(outsideTarget, 'utf-8')).toBe('<untouched/>');
+
+      const danglingRes = await put(danglingEscapeAsset, PASSTHROUGH_LADEN_DOCUMENT);
+      expect(danglingRes.status).toBe(500);
+      await expect(fs.stat(danglingTarget)).rejects.toThrow();
+    } finally {
+      await fs.rm(outsideDir, { recursive: true, force: true });
+    }
+  });
 });

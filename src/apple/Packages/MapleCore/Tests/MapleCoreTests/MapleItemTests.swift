@@ -2,6 +2,7 @@ import FileProvider
 import XCTest
 
 @testable import MapleCore
+@testable import MapleFileProviderCore
 
 final class MapleItemTests: XCTestCase {
   // MARK: - itemVersion / modifyItem precondition contract
@@ -64,7 +65,7 @@ final class MapleItemTests: XCTestCase {
   /// decode to nil so the modifyItem path treats them as "no
   /// precondition known" rather than silently using a bogus epoch.
   func testStubItemVersionDecodesToNil() throws {
-    let item = MapleItem(stubAssetID: "650a1b", cursor: 0)
+    let item = MapleItem(stubAssetID: "650a1b", cursor: 0, folderID: "fid", relativePath: "a.dng")
     // stub uses cursor as mtime; with cursor=0 the prior-mtime decoder
     // should bail (epoch > 0 guard).
     let decoded = MapleItem.decodePriorMtime(item.itemVersion.contentVersion)
@@ -149,44 +150,6 @@ final class MapleItemTests: XCTestCase {
     XCTAssertNotNil(MapleItem.decodePriorMtime(item.itemVersion.contentVersion))
   }
 
-  // MARK: - Trashed item / missing asset id (#2546)
-
-  private func makeTrashItem(assetID: String?) -> TrashItem {
-    TrashItem(
-      assetID: assetID,
-      filename: "IMG_1.ARW",
-      originalRelativePath: "2024/IMG_1.ARW",
-      trashRelativePath: ".maple/trash/2024/IMG_1.ARW",
-      size: 40_000_000,
-      mtime: Date(timeIntervalSince1970: 1_700_000_000),
-      deletedAt: Date(timeIntervalSince1970: 1_700_000_100)
-    )
-  }
-
-  func testTrashedMapleItemBuildsForPresentAssetID() throws {
-    let parent = NSFileProviderItemIdentifier("trash/f1")
-    let item = MapleItem(trashed: makeTrashItem(assetID: "abc123"), parentTrashIdentifier: parent)
-    XCTAssertNotNil(item)
-    let parsed = try FileProviderIdentifier(rawValue: item!.itemIdentifier.rawValue)
-    XCTAssertEqual(parsed, .asset("abc123"))
-  }
-
-  /// #2546: `TrashItem.assetID` is now optional (a non-image row has
-  /// none). `MapleItem(trashed:)` must return nil rather than crash or
-  /// build an unaddressable item, mirroring the existing
-  /// `MapleItem(image:)` failable-init pattern for unindexed images.
-  func testTrashedMapleItemReturnsNilForMissingAssetID() {
-    let parent = NSFileProviderItemIdentifier("trash/f1")
-    let item = MapleItem(trashed: makeTrashItem(assetID: nil), parentTrashIdentifier: parent)
-    XCTAssertNil(item)
-  }
-
-  func testTrashedMapleItemReturnsNilForEmptyAssetID() {
-    let parent = NSFileProviderItemIdentifier("trash/f1")
-    let item = MapleItem(trashed: makeTrashItem(assetID: ""), parentTrashIdentifier: parent)
-    XCTAssertNil(item)
-  }
-
   // MARK: - Sidecar from asset metadata (#3563)
 
   private func meta(filename: String, xmpMtime: Double?, xmpSize: Int64?) -> AssetMetadata {
@@ -238,6 +201,138 @@ final class MapleItemTests: XCTestCase {
     XCTAssertNil(older.xmpMtime, "a server without the field reads as no sidecar")
   }
 
+  func testAssetMetadataIsTrashedPrefersDeletedAtAndFallsBackToTrashPath() throws {
+    let reapedJSON = """
+      {"id":"a1","folder_id":"F1","filename":"x.dng","abs_path":"/l/2024/x.dng","size":1,
+       "mtime":1700000000000,"rating":0,"deleted_at":"2026-05-01T12:00:00Z","deleted_reason":"reaped"}
+      """
+    let reaped = try JSONDecoder().decode(AssetMetadata.self, from: Data(reapedJSON.utf8))
+    XCTAssertEqual(reaped.deletedAt, "2026-05-01T12:00:00Z")
+    XCTAssertTrue(
+      reaped.isTrashed,
+      "reaped assets keep their original abs_path; deleted_at must mark them trashed (#4805)")
+
+    let legacyTrashedJSON = """
+      {"id":"a1","folder_id":"F1","filename":"x.dng","abs_path":"/l/.maple/trash/2024/x.dng",
+       "size":1,"mtime":1700000000000,"rating":0}
+      """
+    let legacyTrashed = try JSONDecoder().decode(
+      AssetMetadata.self, from: Data(legacyTrashedJSON.utf8))
+    XCTAssertNil(legacyTrashed.deletedAt)
+    XCTAssertTrue(
+      legacyTrashed.isTrashed,
+      "when deleted_at is absent on an older server, .maple/trash/ in abs_path remains the fallback"
+    )
+
+    let liveJSON = """
+      {"id":"a1","folder_id":"F1","filename":"x.dng","abs_path":"/l/2024/x.dng","size":1,
+       "mtime":1700000000000,"rating":0,"deleted_at":null}
+      """
+    let live = try JSONDecoder().decode(AssetMetadata.self, from: Data(liveJSON.utf8))
+    XCTAssertNil(live.deletedAt)
+    XCTAssertFalse(live.isTrashed)
+  }
+
+  func testReapedAssetResolvesToNoSuchItemEvenWhenPathIsNotInTrash() {
+    let validAssetID = "650a1b2c3d4e5f6071829304"
+    let folderID = "650a1b2c3d4e5f6071829305"
+    let body =
+      #"{"id": "\#(validAssetID)", "folder_id": "\#(folderID)", "filename": "IMG_1.dng", "#
+      + #""abs_path": "/lib/2024/IMG_1.dng", "size": 100, "mtime": 1700000000000, "rating": 0, "#
+      + #""deleted_at": "2026-05-01T12:00:00Z", "deleted_reason": "reaped"}"#
+    let catalog = FPCoreTestSupport.makeCatalog { _ in
+      (200, Data(body.utf8), ["Content-Type": "application/json"])
+    }
+    let roots = [LibraryRoot(id: folderID, path: "/lib", label: "Lib", fileCount: 1)]
+    let core = FPCoreTestSupport.makeCore(catalog: catalog, roots: roots, test: self)
+    let done = expectation(description: "item(for:) completed")
+    var received: (item: NSFileProviderItem?, error: Error?) = (nil, nil)
+
+    _ = core.item(
+      for: NSFileProviderItemIdentifier(FileProviderIdentifier.asset(validAssetID).rawValue),
+      request: NSFileProviderRequest()
+    ) { item, error in
+      received = (item, error)
+      done.fulfill()
+    }
+    wait(for: [done], timeout: 5)
+
+    XCTAssertNil(
+      received.item,
+      "a reaped asset must be evicted, not re-attached under its original folder")
+    XCTAssertEqual((received.error as NSError?)?.code, NSFileProviderError.noSuchItem.rawValue)
+  }
+
+  func testReapedAssetFetchContentsResolvesToNoSuchItemEvenWhenRawDownloadReturns403() {
+    let validAssetID = "650a1b2c3d4e5f6071829304"
+    let folderID = "650a1b2c3d4e5f6071829305"
+    let body =
+      #"{"id": "\#(validAssetID)", "folder_id": "\#(folderID)", "filename": "IMG_1.dng", "#
+      + #""abs_path": "/lib/2024/IMG_1.dng", "size": 100, "mtime": 1700000000000, "rating": 0, "#
+      + #""deleted_at": "2026-05-01T12:00:00Z", "deleted_reason": "reaped"}"#
+    let catalog = FPCoreTestSupport.makeCatalog { req in
+      if req.url?.path.hasSuffix("/raw") == true {
+        return (403, Data(#"{"error":"forbidden"}"#.utf8), ["Content-Type": "application/json"])
+      }
+      return (200, Data(body.utf8), ["Content-Type": "application/json"])
+    }
+    let roots = [LibraryRoot(id: folderID, path: "/lib", label: "Lib", fileCount: 1)]
+    let core = FPCoreTestSupport.makeCore(catalog: catalog, roots: roots, test: self)
+    let done = expectation(description: "fetchContents completed")
+    var received: (url: URL?, item: NSFileProviderItem?, error: Error?) = (nil, nil, nil)
+
+    _ = core.fetchContents(
+      for: NSFileProviderItemIdentifier(FileProviderIdentifier.asset(validAssetID).rawValue),
+      version: nil,
+      request: NSFileProviderRequest()
+    ) { url, item, error in
+      received = (url, item, error)
+      done.fulfill()
+    }
+    wait(for: [done], timeout: 5)
+
+    XCTAssertNil(received.url)
+    XCTAssertNil(received.item)
+    XCTAssertEqual(
+      (received.error as NSError?)?.code, NSFileProviderError.noSuchItem.rawValue,
+      "reaped asset whose on-disk RAW is missing (403) must surface noSuchItem, not a download error"
+    )
+  }
+
+  func testReapedAssetInBatchMetaResolvesToDeletionsInsteadOfLiveItems() async {
+    let validAssetID = "650a1b2c3d4e5f6071829304"
+    let folderID = "650a1b2c3d4e5f6071829305"
+    let batchBody =
+      #"{"assets": [{"id": "\#(validAssetID)", "folder_id": "\#(folderID)", "filename": "IMG_1.dng", "#
+      + #""abs_path": "/lib/2024/IMG_1.dng", "size": 100, "mtime": 1700000000000, "rating": 0, "#
+      + #""deleted_at": "2026-05-01T12:00:00Z", "deleted_reason": "reaped"}]}"#
+    let catalog = FPCoreTestSupport.makeCatalog { _ in
+      (200, Data(batchBody.utf8), ["Content-Type": "application/json"])
+    }
+    let changeJSON =
+      #"{"cursor": 42, "kind": "update", "asset_id": "\#(validAssetID)", "#
+      + #""folder_id": "\#(folderID)", "relative_path": "2024/IMG_1.dng", "at": 1700000000000}"#
+    let change = try! JSONDecoder().decode(AssetChange.self, from: Data(changeJSON.utf8))
+
+    let resolved = await FolderChangeMatching.resolve(
+      changes: [change],
+      folderID: folderID,
+      relativePath: "2024",
+      catalog: catalog
+    )
+    XCTAssertTrue(
+      resolved.updates.isEmpty,
+      "trashed/reaped asset in batch-meta must not emit live item updates")
+    XCTAssertEqual(
+      Set(resolved.deletes.map(\.rawValue)),
+      Set([
+        FileProviderIdentifier.asset(validAssetID).rawValue,
+        MapleItem.sidecarIdentifier(assetID: validAssetID).rawValue,
+        FileProviderIdentifier.thumb(assetID: validAssetID).rawValue,
+        FileProviderIdentifier.preview(assetID: validAssetID).rawValue,
+      ]))
+  }
+
   // MARK: - Derived items (#3571)
 
   func testPreviewItemIsReadOnlyAvifNamedAfterTheRawAndVersionedBySeed() {
@@ -248,7 +343,7 @@ final class MapleItemTests: XCTestCase {
       previewForAsset: "aaaaaaaaaaaaaaaaaaaaaaaa",
       displayFilename: MapleItem.previewFilename(forRawBasename: "IMG_1.dng"),
       modified: seed, parentIdentifier: parent)
-    XCTAssertEqual(item.filename, "IMG_1.dng.v\(AdjustmentModel.pipelineOutputVersion).avif")
+    XCTAssertEqual(item.filename, "IMG_1.dng.avif")
     XCTAssertEqual(item.itemIdentifier.rawValue, "preview/aaaaaaaaaaaaaaaaaaaaaaaa")
     XCTAssertEqual(item.parentItemIdentifier, parent)
     XCTAssertEqual(item.capabilities, [.allowsReading])

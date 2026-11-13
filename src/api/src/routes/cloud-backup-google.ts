@@ -1,4 +1,4 @@
-import { GoogleConnectionError } from '../cloud-backup/google/config.ts';
+import { GoogleConnectionError, GoogleFlowUnavailable } from '../cloud-backup/google/config.ts';
 import { Elysia, t } from 'elysia';
 import { requireAuth, requireOwner } from '../auth/middleware.ts';
 import {
@@ -7,12 +7,15 @@ import {
   FLOW_TTL,
   GOOGLE_CALLBACK_PATH,
   publicConfig,
+  withoutCredentials,
 } from '../cloud-backup/google/config.ts';
 import { loadConnection, reserveRoot, saveConfig } from '../cloud-backup/google/repo.ts';
 import {
-  startGoogleFlow,
+  completedGoogleFlowDestination,
   finishGoogleFlow,
+  forgetGoogleAccessToken,
   googleAccessToken,
+  startGoogleFlow,
   type GoogleFetch,
 } from '../cloud-backup/google/oauth.ts';
 import {
@@ -34,6 +37,7 @@ export interface GoogleRouteDependencies {
   } | null>;
   attachRoot: (id: string, rootId: string, accountId: string, generation: number) => Promise<void>;
   connectionChanged: (id: string) => Promise<void>;
+  connectionRestored: (id: string) => Promise<void>;
   transport?: GoogleFetch;
 }
 const IdParams = t.Object({ destinationId: t.String({ format: 'uuid' }) });
@@ -65,6 +69,8 @@ function cookieValue(request: Request) {
     .find((part) => part.startsWith(`${FLOW_COOKIE}=`));
   return match?.slice(FLOW_COOKIE.length + 1) ?? '';
 }
+const connectedLocation = (callback: string, destinationId: string) =>
+  `${new URL(callback).origin}/settings/backup?connected=${destinationId}`;
 const errorMessage = (error: unknown) =>
   error instanceof GoogleConnectionError
     ? error.message
@@ -116,7 +122,11 @@ export function buildGoogleBackupRoutes(deps: GoogleRouteDependencies) {
           'Connect Google Drive before attaching an existing backup folder.',
         );
       await validateGoogleRoot(
-        new DriveClient(() => googleAccessToken(id, deps.transport), deps.transport),
+        new DriveClient(
+          () => googleAccessToken(id, deps.transport),
+          deps.transport,
+          (rejected) => forgetGoogleAccessToken(id, rejected),
+        ),
         body.rootId,
       );
       await deps.attachRoot(id, body.rootId, config.accountId!, destination.generation);
@@ -132,7 +142,10 @@ export function buildGoogleBackupRoutes(deps: GoogleRouteDependencies) {
     const connection = await loadConnection(id);
     const token = () => googleAccessToken(id, deps.transport);
     if (existingRoot) {
-      await validateGoogleRoot(new DriveClient(token, deps.transport), existingRoot);
+      await validateGoogleRoot(
+        new DriveClient(token, deps.transport, (rejected) => forgetGoogleAccessToken(id, rejected)),
+        existingRoot,
+      );
       if ((await loadConnection(id)).epoch !== connection.epoch)
         throw new GoogleConnectionError(
           'Connection changed; reconnect before attaching the backup.',
@@ -143,7 +156,9 @@ export function buildGoogleBackupRoutes(deps: GoogleRouteDependencies) {
     const reserved = await reserveRoot(
       id,
       connection.epoch,
-      await new DriveClient(token, deps.transport).reserveId(),
+      await new DriveClient(token, deps.transport, (rejected) =>
+        forgetGoogleAccessToken(id, rejected),
+      ).reserveId(),
     );
     const rootId = await createGoogleRoot(token, deps.transport, reserved);
     if ((await loadConnection(id)).epoch !== connection.epoch)
@@ -151,6 +166,12 @@ export function buildGoogleBackupRoutes(deps: GoogleRouteDependencies) {
         'Connection changed; attach the created Maple folder after reconnecting.',
       );
     await deps.attachRoot(id, rootId, connection.config.accountId!, destination.generation);
+  };
+  const repeatedConnect = async (state: string) => {
+    const destinationId = await completedGoogleFlowDestination(state).catch(() => null);
+    if (!destinationId) return null;
+    const destination = await deps.destination(destinationId).catch(() => null);
+    return destination?.kind === 'google-drive' ? destinationId : null;
   };
   const owner = new Elysia({
     name: 'googleBackupOwner',
@@ -220,7 +241,7 @@ export function buildGoogleBackupRoutes(deps: GoogleRouteDependencies) {
         if (
           !(await saveConfig(
             params.destinationId,
-            { ...current.config, refreshToken: null, relayGrant: null },
+            withoutCredentials(current.config),
             current.epoch,
           ))
         )
@@ -249,29 +270,33 @@ export function buildGoogleBackupRoutes(deps: GoogleRouteDependencies) {
     GOOGLE_CALLBACK_PATH,
     async ({ request }) => {
       const url = new URL(request.url);
+      const state = url.searchParams.get('state') ?? '';
       try {
         const origin = await deps.origin();
         const expected = callbackUrl(origin);
         // A TLS terminating reverse proxy may give Bun an internal HTTP URL.
         // Authority is the fixed route + host-only Secure cookie + exact bound
         // state and configured origin, never Host/Forwarded-derived routing.
-        const { destinationId, rootId } = await finishGoogleFlow(
-          url.searchParams.get('state') ?? '',
+        const { destinationId } = await finishGoogleFlow(
+          state,
           cookieValue(request),
           url.searchParams.get('code'),
           url.searchParams.has('error'),
           deps.origin,
           deps.transport,
+          async (id, rootId) => {
+            await requireDestination(id);
+            await deps.connectionChanged(id);
+            await ensureRoot(id, rootId);
+            await deps.connectionRestored(id);
+          },
         );
-        await requireDestination(destinationId);
-        await deps.connectionChanged(destinationId);
-        await ensureRoot(destinationId, rootId);
         return new Response(null, {
           status: 303,
           headers: {
             ...safeHeaders,
             'Set-Cookie': flowCookie('', expected, 0),
-            Location: `${new URL(expected).origin}/settings/backup?connected=${destinationId}`,
+            Location: connectedLocation(expected, destinationId),
           },
         });
       } catch (error) {
@@ -283,6 +308,14 @@ export function buildGoogleBackupRoutes(deps: GoogleRouteDependencies) {
           return new Response(errorMessage(error), {
             status: 400,
             headers: safeHeaders,
+          });
+        const repeated =
+          error instanceof GoogleFlowUnavailable ? await repeatedConnect(state) : null;
+        // A spent flow authorizes nothing new, so the cookie of any newer flow stays untouched.
+        if (repeated)
+          return new Response(null, {
+            status: 303,
+            headers: { ...safeHeaders, Location: connectedLocation(expected, repeated) },
           });
         const destination = new URL('/settings/backup', new URL(expected).origin);
         destination.searchParams.set('googleError', errorMessage(error));

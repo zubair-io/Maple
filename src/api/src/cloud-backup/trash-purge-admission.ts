@@ -5,6 +5,7 @@ export interface TrashPurgeCandidate {
   deletedAt: string | null;
   deletedReason: string | null;
   appleRenderedPath: string | null;
+  appleLiveVideoPath: string | null;
   locations: Array<{
     libraryId: string;
     path: string;
@@ -17,12 +18,14 @@ export function capturedTrashPurge(info: {
   deleted_at: string | null;
   deleted_reason: string | null;
   apple_rendered_path?: string;
+  apple_live_video_path?: string;
   fileinfo?: FileInfo[];
 }): TrashPurgeCandidate {
   return {
     deletedAt: info.deleted_at,
     deletedReason: info.deleted_reason,
     appleRenderedPath: info.apple_rendered_path ?? null,
+    appleLiveVideoPath: info.apple_live_video_path ?? null,
     locations: (info.fileinfo ?? []).map((location) => ({
       libraryId: location.library_id.toHexString(),
       path: location.path,
@@ -37,7 +40,7 @@ export function capturedTrashPurge(info: {
 export function trashPurgeGuard(candidate: TrashPurgeCandidate) {
   return {
     sql: `AND a.deleted_at IS NOT NULL AND a.deleted_at=? AND a.deleted_reason IS ?
-      AND a.apple_rendered_path IS ?
+      AND a.apple_rendered_path IS ? AND a.apple_live_video_path IS ?
       AND (SELECT COUNT(*) FROM asset_locations WHERE asset_id=a.id)=?
       AND NOT EXISTS(SELECT 1 FROM json_each(?) expected WHERE NOT EXISTS
         (SELECT 1 FROM asset_locations l WHERE l.asset_id=a.id
@@ -50,6 +53,7 @@ export function trashPurgeGuard(candidate: TrashPurgeCandidate) {
       candidate.deletedAt,
       candidate.deletedReason,
       candidate.appleRenderedPath,
+      candidate.appleLiveVideoPath,
       candidate.locations.length,
       JSON.stringify(candidate.locations),
     ],

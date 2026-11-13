@@ -71,6 +71,37 @@ describe('renderImageThumbToFile', () => {
     expect(hiBytes.equals(loBytes)).toBe(false);
   });
 
+  it('crops a bitmap original to its sidecar crop when asked, and only then (#5608)', async () => {
+    const src = path.join(dir, 'pano.png');
+    const left = solidRgb(40, 20, [255, 0, 0]);
+    const wide = new Uint8Array(40 * 20 * 3);
+    for (let y = 0; y < 20; y++) {
+      for (let x = 0; x < 40; x++) wide.set(x < 20 ? [255, 0, 0] : [0, 0, 255], (y * 40 + x) * 3);
+    }
+    expect(left.data.length).toBe(wide.length);
+    await writeFile(
+      src,
+      await maple({ data: wide, width: 40, height: 20, channels: 3 }).toFormat('png').toBuffer(),
+    );
+    await writeFile(
+      path.join(dir, 'pano.xmp'),
+      '<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description rdf:about="" xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/" crs:HasCrop="True" crs:CropLeft="0.500000" crs:CropTop="0.000000" crs:CropRight="1.000000" crs:CropBottom="1.000000"/></rdf:RDF></x:xmpmeta>',
+    );
+    const whole = path.join(dir, 'whole.avif');
+    const cropped = path.join(dir, 'cropped.avif');
+
+    await renderImageThumbToFile(src, whole, 64, 'png');
+    await renderImageThumbToFile(src, cropped, 64, 'png', 60, true);
+
+    const wholeMeta = await maple(whole).metadata();
+    const croppedMeta = await maple(cropped).metadata();
+    expect([wholeMeta.width, wholeMeta.height]).toEqual([40, 20]);
+    expect([croppedMeta.width, croppedMeta.height]).toEqual([20, 20]);
+    const { data } = await maple(cropped).toRaw();
+    expect(data[2]).toBeGreaterThan(200);
+    expect(data[0]).toBeLessThan(60);
+  });
+
   it('renders an uncompressed TIFF down to a bounded AVIF thumb', async () => {
     // Pipeline smoke test against the real Maple decoder: a TIFF in, a
     // size-bounded AVIF out. Guards the decode → rotate → resize → encode

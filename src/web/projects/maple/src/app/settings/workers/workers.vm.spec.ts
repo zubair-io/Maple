@@ -32,14 +32,15 @@ import {
   formatDate,
   groupStagesByPipeline,
   isWhisperModelTier,
-  meilisearchFormToPatch,
   parseClampedInt,
   pendingTitle,
   pauseReason,
   runtimeFormToPatch,
+  searchFormToPatch,
   stageMeta,
   statusDotColor,
   statusLabel,
+  statusTitle,
   summarizeStages,
   throughputLabel,
 } from './workers.vm';
@@ -114,7 +115,8 @@ describe('stageMeta', () => {
     expect(STAGE_META['face-detect'].enrichment).toBe('face-detect');
     expect(STAGE_META['face-embed'].group).toBe('Enrich');
     expect(STAGE_META['face-embed'].enrichment).toBe('face-embed');
-    expect(STAGE_META['meili'].group).toBe('Index');
+    expect(STAGE_META['search-blob'].group).toBe('Index');
+    expect(STAGE_META['search-blob'].enrichment).toBe('search');
   });
 });
 
@@ -148,23 +150,32 @@ describe('runtimeFormToPatch', () => {
     const patch = runtimeFormToPatch({
       concurrency: '250', // > 100 → 100
       maxAttempts: 'oops',
+      stallAfterMinutes: '2', // < 5 → 5
     });
     expect(patch).toEqual({
       concurrency: 100,
       maxAttempts: DEFAULT_RUNTIME.maxAttempts,
+      stallAfterMinutes: 5,
     });
     expect('pollIntervalMs' in patch).toBe(false);
     expect('batchSize' in patch).toBe(false);
   });
 
   it('clamps a sane concurrency through unchanged', () => {
-    const patch = runtimeFormToPatch({ concurrency: '64', maxAttempts: '7' });
-    expect(patch).toEqual({ concurrency: 64, maxAttempts: 7 });
+    const patch = runtimeFormToPatch({
+      concurrency: '64',
+      maxAttempts: '7',
+      stallAfterMinutes: '120',
+    });
+    expect(patch).toEqual({ concurrency: 64, maxAttempts: 7, stallAfterMinutes: 120 });
   });
 
   it('admits concurrency up to the new 100 ceiling', () => {
     expect(CONCURRENCY_MAX).toBe(100);
-    expect(runtimeFormToPatch({ concurrency: '100', maxAttempts: '5' }).concurrency).toBe(100);
+    expect(
+      runtimeFormToPatch({ concurrency: '100', maxAttempts: '5', stallAfterMinutes: '60' })
+        .concurrency,
+    ).toBe(100);
   });
 });
 
@@ -179,6 +190,7 @@ describe('blankRuntime', () => {
     );
     expect(form.concurrency).toBe('12');
     expect(form.maxAttempts).toBe('5');
+    expect(form.stallAfterMinutes).toBe('60');
     expect(form.version).toBe('v1.2.3');
     expect(form.prompt_text).toBe('hello prompt');
   });
@@ -202,7 +214,6 @@ describe('blankEnrichment', () => {
       describe_provider: 'ollama',
       describe_provider_url: 'http://ollama.local',
       describe_servers: [{ url: 'http://ollama.local', concurrency: 2 }],
-      meilisearch_embedder_model: 'custom-embedder',
       describe_model: 'gemma4:12b',
       describe_system_prompt: '',
       describe_daily_cap_usd: 0,
@@ -214,12 +225,7 @@ describe('blankEnrichment', () => {
       face_recognizer_url: null,
       face_recognizer_sha256: null,
       face_min_detection_size: 0.08,
-      meilisearch_url: 'http://meili.local:7700',
-      meilisearch_api_key_set: true,
-      meilisearch_task_timeout_seconds: 900,
-      meilisearch_semantic_enabled: true,
-      meilisearch_embedder_url: 'http://ollama.local:11434',
-      meilisearch_semantic_ratio: 0.7,
+      service_search_rate_limit_per_minute: 120,
       source: {} as EnrichmentConfigResponse['source'],
     };
     const form = blankEnrichment(ec);
@@ -230,12 +236,7 @@ describe('blankEnrichment', () => {
     expect('describe_model' in form).toBe(false);
     expect(form.face_model_dir).toBe('/tmp/models');
     expect(form.face_min_detection_size).toBe('0.08');
-    expect(form.meilisearch_url).toBe('http://meili.local:7700');
-    expect(form.meilisearch_task_timeout_seconds).toBe('900');
-    expect(form.meilisearch_semantic_enabled).toBe(true);
-    expect(form.meilisearch_semantic_ratio).toBe('0.7');
-    // API key is write-only — never seeded from the response, even when set.
-    expect(form.meilisearch_api_key).toBe('');
+    expect(form.service_search_rate_limit_per_minute).toBe('120');
   });
 
   it('falls back to safe defaults when snapshot is null', () => {
@@ -243,35 +244,23 @@ describe('blankEnrichment', () => {
     expect('describe_model' in form).toBe(false);
     expect(form.nominatim_rate_limit_per_sec).toBe('10');
     expect(form.nominatim_url).toBe('');
-    expect(form.meilisearch_url).toBe('');
-    expect(form.meilisearch_api_key).toBe('');
-    expect(form.meilisearch_task_timeout_seconds).toBe('600');
-    expect(form.meilisearch_semantic_enabled).toBe(false);
-    expect(form.meilisearch_semantic_ratio).toBe('0.5');
+    expect(form.service_search_rate_limit_per_minute).toBe('60');
   });
 });
 
-describe('meilisearchFormToPatch', () => {
-  it('includes the UI-controlled semantic settings and preserves a blank secret', () => {
+describe('searchFormToPatch', () => {
+  it('sends the service search budget as a number', () => {
     const form = blankEnrichment(null);
-    form.meilisearch_url = ' http://meili.local:7700 ';
-    form.meilisearch_semantic_enabled = true;
-    form.meilisearch_semantic_ratio = '0.65';
+    form.service_search_rate_limit_per_minute = ' 90 ';
 
-    expect(meilisearchFormToPatch(form)).not.toHaveProperty('meilisearch_embedder_model');
-    expect(meilisearchFormToPatch(form)).toMatchObject({
-      meilisearch_url: 'http://meili.local:7700',
-      meilisearch_semantic_enabled: true,
-      meilisearch_semantic_ratio: 0.65,
-    });
-    expect(meilisearchFormToPatch(form)).not.toHaveProperty('meilisearch_api_key');
+    expect(searchFormToPatch(form)).toEqual({ service_search_rate_limit_per_minute: 90 });
   });
 
-  it('resets a blank semantic blend to the backend default', () => {
+  it('resets a blank or invalid budget to the backend default', () => {
     const form = blankEnrichment(null);
-    form.meilisearch_semantic_ratio = ' ';
+    form.service_search_rate_limit_per_minute = ' ';
 
-    expect(meilisearchFormToPatch(form).meilisearch_semantic_ratio).toBeNull();
+    expect(searchFormToPatch(form).service_search_rate_limit_per_minute).toBeNull();
   });
 });
 
@@ -281,7 +270,7 @@ describe('groupStagesByPipeline', () => {
   it('buckets stages into Ingest / Enrich / Index in pipeline order', () => {
     const grouped = groupStagesByPipeline([
       stage({ name: 'cloud-backup' }),
-      stage({ name: 'meili' }),
+      stage({ name: 'search-blob' }),
       stage({ name: 'hash' }),
       stage({ name: 'face-detect' }),
       stage({ name: 'face-embed' }),
@@ -291,7 +280,7 @@ describe('groupStagesByPipeline', () => {
     const [ingest, enrich, index, maintenance] = grouped;
     expect(ingest.rows.map((r) => r.name)).toEqual(['hash', 'exif']);
     expect(enrich.rows.map((r) => r.name)).toEqual(['face-detect', 'face-embed']);
-    expect(index.rows.map((r) => r.name)).toEqual(['meili']);
+    expect(index.rows.map((r) => r.name)).toEqual(['search-blob']);
     expect(maintenance.rows.map((r) => r.name)).toEqual(['cloud-backup']);
   });
 
@@ -310,12 +299,20 @@ describe('summarizeStages', () => {
       stage({ status: 'running', pending: 50, dead: 2 }),
       stage({ status: 'paused', pending: 0, dead: 1 }),
       stage({ status: 'error', pending: 10, dead: 0 }),
+      stage({ status: 'stalled', pending: 5, dead: 0 }),
     ]);
-    expect(sum).toEqual({ running: 2, idle: 1, paused: 1, dead: 3, pending: 180 });
+    expect(sum).toEqual({ running: 2, idle: 1, paused: 1, stalled: 1, dead: 3, pending: 185 });
   });
 
   it('returns zeros when no stages are reported', () => {
-    expect(summarizeStages([])).toEqual({ running: 0, idle: 0, paused: 0, dead: 0, pending: 0 });
+    expect(summarizeStages([])).toEqual({
+      running: 0,
+      idle: 0,
+      paused: 0,
+      stalled: 0,
+      dead: 0,
+      pending: 0,
+    });
   });
 });
 
@@ -354,6 +351,15 @@ describe('statusLabel', () => {
     expect(statusLabel(stage({ status: 'starting' }))).toBe('Starting');
     expect(statusLabel(stage({ status: 'restarting' }))).toBe('Restarting');
     expect(statusLabel(stage({ status: 'stopped' }))).toBe('Stopped');
+    expect(statusLabel(stage({ status: 'stalled' }))).toBe('Stalled');
+  });
+});
+
+describe('statusTitle', () => {
+  it('explains a stall, and otherwise shows the pause reason', () => {
+    const note = 'No progress for 20 minutes while work is waiting';
+    expect(statusTitle(stage({ status: 'stalled', lastError: note }))).toBe(note);
+    expect(statusTitle(stage({ status: 'running', lastError: 'boom' }))).toBeNull();
   });
 });
 
@@ -364,6 +370,7 @@ describe('statusDotColor', () => {
     expect(statusDotColor(stage({ status: 'paused' }))).toBe('#a8a29e');
     expect(statusDotColor(stage({ status: 'starting' }))).toBe('#a8a29e');
     expect(statusDotColor(stage({ status: 'error' }))).toBe('#f87171');
+    expect(statusDotColor(stage({ status: 'stalled' }))).toBe('#fbbf24');
   });
 });
 
@@ -407,15 +414,14 @@ describe('formatDate', () => {
   });
 });
 
-// ── Self-imposed pause reason (#3315) ─────────────────────────────────────
+// ── Self-imposed pause reason ─────────────────────────────────────
 
 describe('pauseReason', () => {
-  const reason =
-    'Paused automatically: Meilisearch blocked the embedding server’s address. Configure MEILI_EXPERIMENTAL_ALLOWED_IP_NETWORKS on the Meilisearch process, then resume this stage.';
+  const reason = 'Paused automatically: the embedding server could not be reached.';
 
   it('returns the reason a stage paused itself with', () => {
     const s = stage({
-      name: 'meili',
+      name: 'embed',
       status: 'paused',
       config: workerConfig({ paused: true, pause_reason: reason }),
     });

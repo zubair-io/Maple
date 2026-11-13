@@ -21,8 +21,10 @@ import { Router } from '@angular/router';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
 import { AssetGridComponent } from './asset-grid.component';
+import { BrowseReturnPositionService } from './browse-return-position.service';
 import { LibraryStateService } from '../../state/library-state.service';
 import { TRASH_CAPABILITY } from '../../trash/trash-capability';
+import { DRAG_MOVE_CAPABILITY } from '../../drag-move/drag-move-capability';
 import type { Asset, AssetId } from '../../models/asset';
 
 function makeAsset(id: string): Asset {
@@ -72,6 +74,7 @@ describe('AssetGridComponent — click semantics (#2404)', () => {
             selectFolder,
             openSelfHostedSubfolder,
             setFolderOpen,
+            selectedSourceId: () => 'lib:2026',
           },
         },
         { provide: Router, useValue: { navigate } },
@@ -88,6 +91,19 @@ describe('AssetGridComponent — click semantics (#2404)', () => {
     expect(navigate).toHaveBeenCalledTimes(1);
     // fs:/no-colon ids pass through as a single segment (route-address.ts).
     expect(navigate).toHaveBeenCalledWith(['/view', 'a1.jpg']);
+  });
+
+  it('remembers the visible grid offset before opening Preview', () => {
+    const returnPosition = TestBed.inject(BrowseReturnPositionService);
+    component.gridContainerRef = { nativeElement: { scrollTop: 680 } } as never;
+
+    component.onThumbClick(asset, click());
+
+    expect(returnPosition.forSource('lib:2026')).toEqual({
+      sourceId: 'lib:2026',
+      assetId: asset.id,
+      scrollTop: 680,
+    });
   });
 
   it('Cmd-click toggles selection and does not navigate', () => {
@@ -226,6 +242,107 @@ describe('AssetGridComponent — thumbnail size accessibility (#2462)', () => {
     expect(slider().value).toBe('180');
     expect(slider().min).toBe('60');
     expect(slider().max).toBe('220');
+  });
+});
+
+describe('AssetGridComponent — scroll resets on folder navigation (#4792)', () => {
+  let fixture: ComponentFixture<AssetGridComponent>;
+  const selectedSourceId = signal('lib:2026');
+  const assetsInSelectedFolder = signal<Asset[]>([]);
+
+  beforeEach(() => {
+    selectedSourceId.set('lib:2026');
+    assetsInSelectedFolder.set([]);
+    vi.stubGlobal(
+      'ResizeObserver',
+      class {
+        observe = vi.fn();
+        disconnect = vi.fn();
+      },
+    );
+    TestBed.configureTestingModule({
+      providers: [
+        {
+          provide: LibraryStateService,
+          useValue: {
+            currentFolder: () => undefined,
+            selectedSourceLabel: () => 'lib',
+            thumbSize: () => 140,
+            sort: () => 'date',
+            filter: () => 'all',
+            selectedTotalCount: () => 0,
+            foldersInSelectedFolder: () => [],
+            assetsInSelectedFolder,
+            selectedAssetIds: () => new Set<AssetId>(),
+            isSelecting: () => false,
+            selectedFolderIds: () => new Set<string>(),
+            backendLoading: () => assetsInSelectedFolder().length === 0,
+            backendError: () => undefined,
+            ensureThumbnailUrl: vi.fn(),
+            thumbnailFailed: () => false,
+            subscribeThumbUrl: () => () => {},
+            cancelQueuedThumbnail: vi.fn(),
+            selectedSourceId,
+          },
+        },
+        { provide: Router, useValue: { navigate: vi.fn() } },
+      ],
+    });
+
+    fixture = TestBed.createComponent(AssetGridComponent);
+    fixture.detectChanges();
+  });
+
+  afterEach(() => vi.unstubAllGlobals());
+  function scrolledGrid(): HTMLElement {
+    const grid = fixture.componentInstance.gridContainerRef.nativeElement;
+    Object.defineProperty(grid, 'scrollTop', { value: 500, writable: true, configurable: true });
+    return grid;
+  }
+
+  it('scrolls back to the top when a different folder is opened', () => {
+    const grid = scrolledGrid();
+
+    selectedSourceId.set('lib:2026/France');
+    fixture.detectChanges();
+
+    expect(grid.scrollTop).toBe(0);
+  });
+
+  it('keeps the scroll offset when the same folder refreshes its contents', () => {
+    const grid = scrolledGrid();
+
+    assetsInSelectedFolder.set([{ ...makeAsset('a1'), aspectRatio: 3 / 2 }]);
+    selectedSourceId.set('lib:2026');
+    fixture.detectChanges();
+
+    expect(grid.scrollTop).toBe(500);
+  });
+
+  it('restores the remembered offset after the virtual grid has its scroll height', async () => {
+    const memory = TestBed.inject(BrowseReturnPositionService);
+    memory.remember({ sourceId: 'lib:2026', assetId: 'a1' as AssetId, scrollTop: 500 });
+    fixture.destroy();
+
+    fixture = TestBed.createComponent(AssetGridComponent);
+    fixture.detectChanges();
+    const grid = fixture.componentInstance.gridContainerRef.nativeElement;
+    let scrollHeight = 0;
+    Object.defineProperty(grid, 'scrollHeight', { get: () => scrollHeight });
+    Object.defineProperty(grid, 'clientHeight', { value: 600 });
+    expect(grid.scrollTop).toBe(0);
+
+    assetsInSelectedFolder.set([{ ...makeAsset('a1'), aspectRatio: 3 / 2 }]);
+    fixture.detectChanges();
+    expect(memory.forSource('lib:2026')).not.toBeNull();
+    scrollHeight = 1200;
+
+    await vi.waitFor(() => expect(grid.scrollTop).toBe(500));
+    expect(memory.forSource('lib:2026')).toBeNull();
+    memory.remember({ sourceId: 'lib:2026', assetId: 'a1' as AssetId, scrollTop: 500 });
+    assetsInSelectedFolder.set([{ ...makeAsset('a2'), aspectRatio: 3 / 2 }]);
+    fixture.detectChanges();
+    expect(memory.forSource('lib:2026')).toBeNull();
   });
 });
 
@@ -416,5 +533,38 @@ describe('AssetGridComponent — Delete/Backspace sends selection to Trash (#275
     selectedSourceId = undefined;
     component.onGridKeydown(keydown('Delete'));
     expect(trashAssets).not.toHaveBeenCalled();
+  });
+});
+
+describe('AssetGridComponent — touch devices keep native scroll (drag-move)', () => {
+  const imageItem = { kind: 'image', asset: makeAsset('a1') } as Parameters<
+    AssetGridComponent['isDraggable']
+  >[0];
+
+  function build(finePointer: boolean): AssetGridComponent {
+    vi.stubGlobal('matchMedia', (query: string) => ({
+      matches: query === '(pointer: fine)' && finePointer,
+    }));
+    TestBed.configureTestingModule({
+      providers: [
+        { provide: LibraryStateService, useValue: {} },
+        { provide: Router, useValue: { navigate: vi.fn() } },
+        { provide: DRAG_MOVE_CAPABILITY, useValue: { available: () => true } },
+      ],
+    });
+    return TestBed.runInInjectionContext(() => new AssetGridComponent());
+  }
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    TestBed.resetTestingModule();
+  });
+
+  it('disables tile drag on a coarse (touch) pointer so swipes scroll the grid', () => {
+    expect(build(false).isDraggable(imageItem)).toBe(false);
+  });
+
+  it('keeps tile drag on a fine (mouse/trackpad) pointer', () => {
+    expect(build(true).isDraggable(imageItem)).toBe(true);
   });
 });

@@ -1,5 +1,9 @@
 <div
-  class="flex w-full max-w-[560px] flex-col gap-4 rounded-lg bg-surface p-6 shadow-[0_8px_32px_rgba(0,0,0,0.4)]"
+  [class]="
+    framed()
+      ? 'flex w-full max-w-[560px] flex-col gap-4 rounded-lg bg-surface p-6 shadow-[0_8px_32px_rgba(0,0,0,0.4)]'
+      : 'flex w-full flex-col gap-4'
+  "
 >
   <header>
     <h2 class="m-0 mb-1 text-base font-semibold">Pick a library folder</h2>
@@ -8,6 +12,15 @@
       later from the sidebar.
     </p>
   </header>
+
+  @if (roots().length > 1) {
+    <mui-select
+      ariaLabel="Filesystem root"
+      [value]="selectedRoot()"
+      [options]="rootOptions()"
+      (valueChange)="onRootChange($event)"
+    />
+  }
 
   <div class="flex items-center gap-2 text-xs">
     <mui-button variant="secondary" size="sm" (pressed)="onUp()" [disabled]="!listing()?.parent"
@@ -20,6 +33,7 @@
     <mui-checkbox
       label="Show system folders"
       [checked]="showAll()"
+      [disabled]="roots().length === 0"
       (checkedChange)="onToggleShowAll()"
     />
   </div>
@@ -27,7 +41,8 @@
   @if (loading()) {
     <div class="p-6 text-center text-xs text-text-muted">Loading…</div>
   } @else if (error(); as e) {
-    <div class="p-6 text-center text-xs text-error-text">{{ e }}</div>
+    <div class="p-6 text-center text-xs text-error-text" role="alert">{{ e }}</div>
+    <mui-button variant="secondary" (pressed)="retry()">Retry loading folders</mui-button>
   } @else if ((listing()?.entries?.length ?? 0) === 0) {
     <div class="p-6 text-center text-xs text-text-muted">(no subfolders here)</div>
   } @else {

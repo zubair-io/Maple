@@ -3,6 +3,7 @@ import Foundation
 import XCTest
 
 @testable import MapleCore
+@testable import MapleFileProviderCore
 
 /// #2542: `createFolderItem` used to call `catalog.makeDir` — server-side
 /// `mkdir -p`, idempotent, 201 whether or not the folder pre-existed —

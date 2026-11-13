@@ -63,6 +63,11 @@ RAW is opened by its named thumbnail; the Exposure slider is set through AT-SPI,
 its XMP autosave is checked, then Undo must persist the default again. Original
 bytes must remain unchanged. Replaced loading nodes trigger a fresh tree read;
 missing controls, unsupported actions and incorrect sidecar results fail.
+A browse thumbnail keeps one accessible node from its loading placeholder to
+its loaded image, so the Open click lands even when the thumbnail finishes
+loading between the tree read and the action (#5207). On any failure the
+harness prints the owned application's AT-SPI tree with each node's name,
+role, states, actions and interfaces, and names the step that timed out.
 The test also requires the accessible window name to be Maple and stops its
 owned process. It does not qualify screen-reader speech, every control, display
 color, a real cloud account or physical-GPU timing.

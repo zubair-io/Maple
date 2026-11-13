@@ -10,6 +10,8 @@
 import { InjectionToken } from '@angular/core';
 import type { MapleAddress } from './maple-address';
 import type { DownloadProgress } from '../api/filesystem-browse.service';
+import type { StackWire } from '../models/asset-stack';
+import type { ColorLabelValue } from '../models/color-label';
 
 /** A sub-folder entry returned by `LibrarySource.listFolder`. */
 export interface LibraryFolderEntry {
@@ -22,11 +24,33 @@ export interface ImageEntry {
   address: string;
   mapleId: string | null;
   indexed: boolean;
+  /** File size in bytes from the folder walk. */
+  size?: number;
+  /** Canonical on-disk XMP culling, available before the photo is opened. */
+  edited?: boolean;
+  rating?: number;
+  flag?: 'pick' | 'reject';
+  colorLabel?: ColorLabelValue;
   width?: number;
   height?: number;
   capturedAt?: string;
+  /** Indexed camera metadata supplied by the Self-Hosted folder endpoint. */
+  exif?: {
+    camera_make?: string | null;
+    camera_model?: string | null;
+    lens?: string | null;
+    aperture?: number | null;
+    shutter?: string | null;
+    iso?: number | null;
+    focal_length?: number | null;
+    gps?: { lat: number; lng: number } | null;
+  } | null;
   /** True when the asset is a video container. Used for grid badge. */
   isVideo?: boolean;
+  /** One half of a paired Live Photo; `partner` is the other half's filename in the same folder. */
+  livePhoto?: { role: 'still' | 'clip'; partner: string };
+  /** RAW primary only: the same-stem JPEG the API folded into this entry. */
+  stack?: StackWire;
 }
 
 export interface FolderListing {

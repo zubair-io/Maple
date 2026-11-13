@@ -53,7 +53,7 @@ const HSL_HUE_MAX_RAD: f32 = 30.0_f32 * std::f32::consts::PI / 180.0;
 /// `raw_core::stages::hsl::{HSL_GAMUT_EPS, HSL_GAMUT_KNEE_FRACTION,
 /// HSL_GAMUT_BISECT_ITERS}` — the WGSL kernel carries the same values.
 const HSL_GAMUT_EPS: f32 = 1e-5;
-const HSL_GAMUT_KNEE_FRACTION: f32 = 0.8;
+pub(crate) const HSL_GAMUT_KNEE_FRACTION: f32 = 0.8;
 const HSL_GAMUT_BISECT_ITERS: usize = 24;
 
 /// Circular angular distance (degrees) in [0, 180].
@@ -301,16 +301,24 @@ pub fn apply_hsl(
         let rot_a_hat = a_hat * cos_dh - b_hat * sin_dh;
         let rot_b_hat = a_hat * sin_dh + b_hat * cos_dh;
 
-        // Fast path: rotated + scaled target stays in gamut.
+        // Fast path: rotated + scaled target stays below the compression knee.
         let rgb_target = oklab_to_rec2020([l_new, c_target * rot_a_hat, c_target * rot_b_hat]);
-        let out = if rgb_target[0].min(rgb_target[1]).min(rgb_target[2]) >= -HSL_GAMUT_EPS {
+        // #4664: only skip compression below its knee, not at the hull.
+        let c_probe = c_target / HSL_GAMUT_KNEE_FRACTION;
+        let rgb_probe = oklab_to_rec2020([l_new, rot_a_hat * c_probe, rot_b_hat * c_probe]);
+        let out = if rgb_probe[0].min(rgb_probe[1]).min(rgb_probe[2]) >= -HSL_GAMUT_EPS {
             rgb_target
         } else {
             // Bisect for the hull chroma along the POST-ROTATION hue ray, then
             // Reinhard-soft-compress into it (no `.max(c_floor)` — raw-core's
             // #1748 rationale: rotation can land on a narrower hull section).
-            let c_hull = hsl_bisect_gamut_hull(l_new, rot_a_hat, rot_b_hat, c_target);
-            let c_out = hsl_soft_compress(c_target, c_hull);
+            let c_hull = hsl_bisect_gamut_hull(l_new, rot_a_hat, rot_b_hat, c_probe);
+            let geometry_distance = ((l_new - l0).powi(2)
+                + (rot_a_hat * c - a0).powi(2)
+                + (rot_b_hat * c - b0).powi(2))
+            .sqrt();
+            let input_in_gamut = px[0].min(px[1]).min(px[2]) >= -HSL_GAMUT_EPS;
+            let c_out = hsl_soft_compress(c_target, c_hull, c, geometry_distance, input_in_gamut);
             oklab_to_rec2020([l_new, rot_a_hat * c_out, rot_b_hat * c_out])
         };
         px[0] = out[0];
@@ -366,8 +374,20 @@ fn bw_pixel(rgb: [f32; 3], bw_mix: &[f32; NUM_BANDS]) -> [f32; 3] {
 /// Reinhard-style smooth compression — `raw_core::stages::hsl::hsl_soft_compress`
 /// verbatim (the WGSL kernel mirrors the same fn).
 #[inline]
-fn hsl_soft_compress(c_target: f32, c_hull: f32) -> f32 {
-    let c_thresh = HSL_GAMUT_KNEE_FRACTION * c_hull;
+pub(crate) fn hsl_soft_compress(
+    c_target: f32,
+    c_hull: f32,
+    c_input: f32,
+    geometry_distance: f32,
+    input_in_gamut: bool,
+) -> f32 {
+    let shoulder = (1.0 - HSL_GAMUT_KNEE_FRACTION) * c_hull;
+    let span = if input_in_gamut {
+        shoulder.min((c_hull - c_input).max(0.0) + geometry_distance)
+    } else {
+        shoulder
+    };
+    let c_thresh = c_hull - span;
     if c_target <= c_thresh {
         return c_target;
     }

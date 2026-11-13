@@ -18,9 +18,6 @@ public sealed partial class MainWindow
         var group = _activeGroup;
         var originalExposure = adjustments.Exposure;
         var originalDepth = ViewModel.UndoCount;
-        var originalZoom = ViewerScroll.ZoomFactor;
-        var originalX = ViewerScroll.HorizontalOffset;
-        var originalY = ViewerScroll.VerticalOffset;
         var exposureSlider = FindDescendant<Maple.UI.Atoms.MuiAdjustmentSlider>(EditPanel)
             ?? throw new InvalidOperationException("Resize qualification requires the visible Exposure slider");
         OnSliderGestureStarted(exposureSlider, EventArgs.Empty);
@@ -30,11 +27,14 @@ public sealed partial class MainWindow
             new Services.Xmp.XmpSidecarDocument { Adjustments = adjustments });
         try
         {
-            ViewerScroll.ChangeView(null, null, 1.75f, true);
-            var zoomDeadline = Environment.TickCount64 + 5000;
-            while (Math.Abs(ViewerScroll.ZoomFactor - 1.75) > .001 && Environment.TickCount64 < zoomDeadline)
-                await Task.Delay(50);
-            if (Math.Abs(ViewerScroll.ZoomFactor - 1.75) > .001 || ViewModel.UndoCount != originalDepth + 1 ||
+            // A free scale holds its pixel scale across resizes (#5714).
+            await _geometryWork;
+            SyncCanvasZoom(refreshDetail: false);
+            _canvasZoom.ResetToFit();
+            for (var step = 0; step < 3; step++) _canvasZoom.StepIn();
+            ApplyCanvasZoom();
+            var zoomedScale = _canvasZoom.State.pixel_scale;
+            if (_canvasZoom.CurrentStop != Native.RawFfi.MAPLE_CANVAS_ZOOM_STOP_NONE || ViewModel.UndoCount != originalDepth + 1 ||
                 ViewModel.Adjustments.Exposure != exposureSlider.Value || exposureSlider.Value != originalExposure + .25)
                 throw new InvalidOperationException("Resize qualification could not establish edited, zoomed state");
             foreach (var size in new[] { new SizeInt32(1440, 960), new SizeInt32(1024, 768) })
@@ -65,7 +65,8 @@ public sealed partial class MainWindow
                 if (!ReferenceEquals(photo, ViewModel.SelectedPhoto) || !ReferenceEquals(adjustments, ViewModel.Adjustments) ||
                     group != _activeGroup || EditPanel.Visibility != Visibility.Visible)
                     throw new InvalidOperationException("Native resize changed the selected document or active tool");
-                if (ViewModel.UndoCount != originalDepth + 1 || Math.Abs(ViewerScroll.ZoomFactor - 1.75) > .001 ||
+                if (ViewModel.UndoCount != originalDepth + 1 || _canvasZoom.State.pixel_scale != zoomedScale ||
+                    !TransformHolds(ZoomPanTransform.ScaleX, _canvasZoom.View.ScaleToFit) ||
                     editedState != Services.Xmp.XmpWriter.Serialize(
                         new Services.Xmp.XmpSidecarDocument { Adjustments = ViewModel.Adjustments }))
                     throw new InvalidOperationException("Native resize changed edits, undo history or zoom");
@@ -85,7 +86,7 @@ public sealed partial class MainWindow
             AppWindow.Resize(originalSize);
             await Task.Delay(200);
             root.UpdateLayout();
-            ViewerScroll.ChangeView(originalX, originalY, originalZoom, true);
+            ResetZoom();
         }
     }
 

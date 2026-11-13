@@ -32,6 +32,7 @@ import {
 import { invalidateLibraryRoots } from '../indexer/libraries.cache.ts';
 import { hashFileForId } from '../indexer/id.ts';
 import { ALL_STAGE_NAMES } from '../workers/stages/manifest.ts';
+import { withOperationsRunning } from '../job-runner/operation-runner.test-helpers.ts';
 import { foldersRoutes } from './folders.ts';
 
 interface LocationRow {
@@ -62,12 +63,16 @@ async function makeRoot(prefix: string): Promise<string> {
   return root;
 }
 
-function scan(folderId: string): Promise<Response> {
+function requestScan(folderId: string): Promise<Response> {
   const app = new Elysia().use(fakeAuth()).use(foldersRoutes);
   return app.handle(
     new Request(`http://localhost/api/folders/${folderId}/scan`, { method: 'POST' }),
   );
 }
+
+/** The worker tier walks the folder while the request waits. */
+const scan = (folderId: string): Promise<Response> =>
+  withOperationsRunning(() => requestScan(folderId));
 
 describe('POST /api/folders/:id/scan — relink on open', () => {
   it('relinks a moved file onto its existing asset row (same id, live location appended)', async () => {
@@ -170,6 +175,33 @@ describe('POST /api/folders/:id/scan — relink on open', () => {
     expect(secondBody.skipped).toBe('recent');
     // last_scan unchanged — the second call did not re-walk or re-stamp.
     expect(secondBody.last_scan).toBe(firstScan);
+  });
+
+  it('joins a walk already in progress instead of starting a second one', async () => {
+    const root = await makeRoot('scan-overlap-');
+    await writeFile(path.join(root, 'IMG.dng'), Buffer.alloc(72 * 1024, 0x3c));
+    const folderId = insertFolder(live.db, { path: root, slug: 'overlap-test' });
+
+    const responses = await withOperationsRunning(() =>
+      Promise.all([requestScan(folderId), requestScan(folderId), requestScan(folderId)]),
+    );
+    const bodies = (await Promise.all(responses.map((r) => r.json()))) as Array<{
+      ok: boolean;
+      last_scan?: string;
+    }>;
+
+    expect(bodies.every((b) => b.ok)).toBe(true);
+    expect(new Set(bodies.map((b) => b.last_scan)).size).toBe(1);
+    const changes = live.db
+      .query(`SELECT COUNT(*) AS n FROM asset_changes WHERE abs_path = ?`)
+      .get(path.join(root, 'IMG.dng')) as { n: number };
+    expect(changes.n).toBe(1);
+    const scans = live.db
+      .query(`SELECT COUNT(*) AS n FROM jobs WHERE kind = 'folder_scan'`)
+      .get() as {
+      n: number;
+    };
+    expect(scans.n).toBe(1);
   });
 
   it('returns 404 for an unknown folder id', async () => {

@@ -11,13 +11,29 @@ import Foundation
 
 public protocol BackupQueue: Actor {
   func enqueue(_ task: BackupTask, priority: BackupPriority) async
+  func enqueue(_ tasks: [BackupTask], priority: BackupPriority?) async
   func cancel(_ id: BackupTaskID) async
+  func cancel(_ ids: [BackupTaskID]) async
   func dequeue() async -> BackupTask?
   func observe() -> AsyncStream<BackupQueueEvent>
   func snapshot() async -> [BackupTask]
   /// Broadcast an event to all observers. Used by BackupEngine to report
   /// .started / .completed / .failed transitions.
   func emit(_ event: BackupQueueEvent) async
+}
+
+extension BackupQueue {
+  public func enqueue(_ tasks: [BackupTask], priority: BackupPriority?) async {
+    for task in tasks {
+      await enqueue(task, priority: priority ?? task.priority)
+    }
+  }
+
+  public func cancel(_ ids: [BackupTaskID]) async {
+    for id in ids {
+      await cancel(id)
+    }
+  }
 }
 
 public actor InProcessBackupQueue: BackupQueue {
@@ -53,6 +69,23 @@ public actor InProcessBackupQueue: BackupQueue {
   public init() {}
 
   public func enqueue(_ task: BackupTask, priority: BackupPriority) async {
+    insertOrReplace(task, priority: priority)
+    await emit(.enqueued(task))
+  }
+
+  public func enqueue(_ tasks: [BackupTask], priority: BackupPriority?) async {
+    guard !tasks.isEmpty else { return }
+    if tasks.count == 1 {
+      await enqueue(tasks[0], priority: priority ?? tasks[0].priority)
+      return
+    }
+    for task in tasks {
+      insertOrReplace(task, priority: priority ?? task.priority)
+    }
+    await emit(.enqueuedBatch(tasks))
+  }
+
+  private func insertOrReplace(_ task: BackupTask, priority: BackupPriority) {
     // Indexed binary heap: O(log n) enqueue/dequeue at 100k assets.
     // A repeated notification must not enqueue a second copy of a task.
     if let index = positions[task.id] { remove(at: index) }
@@ -61,12 +94,23 @@ public actor InProcessBackupQueue: BackupQueue {
     entries.append(entry)
     positions[task.id] = entries.count - 1
     siftUp(entries.count - 1)
-    await emit(.enqueued(task))
   }
 
   public func cancel(_ id: BackupTaskID) async {
     if let index = positions[id] { remove(at: index) }
     await emit(.cancelled(id))
+  }
+
+  public func cancel(_ ids: [BackupTaskID]) async {
+    guard !ids.isEmpty else { return }
+    if ids.count == 1 {
+      await cancel(ids[0])
+      return
+    }
+    for id in ids {
+      if let index = positions[id] { remove(at: index) }
+    }
+    await emit(.cancelledBatch(ids))
   }
 
   public func dequeue() async -> BackupTask? {

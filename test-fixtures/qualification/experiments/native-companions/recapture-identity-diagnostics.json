@@ -1,0 +1,127 @@
+[
+  {
+    "case": "test_0000/contrast_min",
+    "same_dimensions": true,
+    "pixels_changed": 60,
+    "max_code_difference": 1,
+    "mean_code_difference": [
+      9.373828271466067e-08,
+      -9.373828271466067e-08,
+      1.8747656542932134e-07
+    ],
+    "effective_changes": {
+      "{http://ns.adobe.com/camera-raw-settings/1.0/}ReshapeAmount": {
+        "old": "None",
+        "new": "0"
+      },
+      "{http://ns.adobe.com/camera-raw-settings/1.0/}Version": {
+        "old": "18.2.2",
+        "new": "18.7"
+      },
+      "{http://ns.adobe.com/camera-raw-settings/1.0/}Glow": {
+        "old": "None",
+        "new": "0"
+      }
+    }
+  },
+  {
+    "case": "test_0000/exposure_min",
+    "same_dimensions": true,
+    "pixels_changed": 50,
+    "max_code_difference": 1,
+    "mean_code_difference": [
+      3.749531308586427e-07,
+      3.749531308586427e-07,
+      -4.6869141357330333e-07
+    ],
+    "effective_changes": {
+      "{http://ns.adobe.com/camera-raw-settings/1.0/}ReshapeAmount": {
+        "old": "None",
+        "new": "0"
+      },
+      "{http://ns.adobe.com/camera-raw-settings/1.0/}Version": {
+        "old": "18.2.2",
+        "new": "18.7"
+      },
+      "{http://ns.adobe.com/camera-raw-settings/1.0/}Glow": {
+        "old": "None",
+        "new": "0"
+      }
+    }
+  },
+  {
+    "case": "test_0000/temperature_max",
+    "same_dimensions": true,
+    "pixels_changed": 55,
+    "max_code_difference": 2,
+    "mean_code_difference": [
+      -1.8747656542932134e-07,
+      4.6869141357330333e-07,
+      -1.8747656542932134e-07
+    ],
+    "effective_changes": {
+      "{http://ns.adobe.com/camera-raw-settings/1.0/}ReshapeAmount": {
+        "old": "None",
+        "new": "0"
+      },
+      "{http://ns.adobe.com/camera-raw-settings/1.0/}Version": {
+        "old": "18.2.2",
+        "new": "18.7"
+      },
+      "{http://ns.adobe.com/camera-raw-settings/1.0/}Glow": {
+        "old": "None",
+        "new": "0"
+      }
+    }
+  },
+  {
+    "case": "test_0007/texture_max",
+    "same_dimensions": true,
+    "pixels_changed": 0,
+    "max_code_difference": 0,
+    "mean_code_difference": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "effective_changes": {
+      "{http://ns.adobe.com/camera-raw-settings/1.0/}ReshapeAmount": {
+        "old": "None",
+        "new": "0"
+      },
+      "{http://ns.adobe.com/camera-raw-settings/1.0/}Version": {
+        "old": "18.2.2",
+        "new": "18.7"
+      },
+      "{http://ns.adobe.com/camera-raw-settings/1.0/}Glow": {
+        "old": "None",
+        "new": "0"
+      }
+    }
+  },
+  {
+    "case": "test_0007/whites_min",
+    "same_dimensions": true,
+    "pixels_changed": 0,
+    "max_code_difference": 0,
+    "mean_code_difference": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "effective_changes": {
+      "{http://ns.adobe.com/camera-raw-settings/1.0/}ReshapeAmount": {
+        "old": "None",
+        "new": "0"
+      },
+      "{http://ns.adobe.com/camera-raw-settings/1.0/}Version": {
+        "old": "18.2.2",
+        "new": "18.7"
+      },
+      "{http://ns.adobe.com/camera-raw-settings/1.0/}Glow": {
+        "old": "None",
+        "new": "0"
+      }
+    }
+  }
+]

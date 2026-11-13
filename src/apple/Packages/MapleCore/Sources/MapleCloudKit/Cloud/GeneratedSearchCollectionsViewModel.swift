@@ -16,6 +16,15 @@
 //     `excludeHiddenPeople` and the screenshot exclusion when IT runs the
 //     stored query; a client that rebuilt the query would drop both, on a
 //     television, unattended.
+//   * Cards show in a shuffled order that holds for the session
+//     (`ForYouOrder`, #4594), never the server's.
+//   * A load renders the library's cached set first (`ForYouCache`, #4595)
+//     and revalidates behind it. A card's cover changes only when the server
+//     names a different first photo, and only once that photo's thumbnail is
+//     decoded (`coverWarmer`), so a cover never blanks or flickers. A cached
+//     set older than `maxCoverAge` shows its cards without covers: a cover
+//     is a photo the server's hidden-people and screenshot filters chose,
+//     and a stale one may no longer pass them.
 //
 // Generation-counter staleness guard: bump
 // before any `await`, re-check after every suspension point, so a library
@@ -51,21 +60,71 @@ public final class GeneratedSearchCollectionsViewModel {
   /// Enough to fill the first screens of a 3-column grid; the rest pages in.
   nonisolated static let firstPageSize = 30
   private let client: GeneratedSearchClient
+  private let sessionOrder: ForYouSessionOrder
+  private var random: AnyRandomNumberGenerator
+  private let cache: ForYouCache?
+  private let cacheHost: String
+  private let coverWarmer: (@Sendable (SearchAsset) async -> Bool)?
+  private let now: @Sendable () -> Date
   private var generation: Int = 0
+  /// The cache epoch the pages on screen were checked against. When the
+  /// cache's epoch has moved past it, a photo was trashed since.
+  private var seenEpoch: Int?
 
-  public init(libraryID: String, client: GeneratedSearchClient) {
+  /// How old a cached set's covers may be and still render before the
+  /// server has re-applied its visibility filters.
+  nonisolated static let maxCoverAge: TimeInterval = 3 * 24 * 60 * 60
+
+  /// - Parameters:
+  ///   - cache: Where the rendered set persists between visits and launches;
+  ///     nil keeps it in memory only.
+  ///   - cacheHost: The server's `cacheHostKey`, so two servers sharing a
+  ///     library id never share a cached set.
+  ///   - coverWarmer: Fetches and decodes a new cover's thumbnail into the
+  ///     surface's decoded-image cache, so the card swaps straight from the
+  ///     old picture to the new one. Returns false when it couldn't, and the
+  ///     card then keeps its old cover.
+  public init(
+    libraryID: String,
+    client: GeneratedSearchClient,
+    cache: ForYouCache? = nil,
+    cacheHost: String = "",
+    coverWarmer: (@Sendable (SearchAsset) async -> Bool)? = nil,
+    sessionOrder: ForYouSessionOrder = .shared,
+    random: some RandomNumberGenerator = SystemRandomNumberGenerator(),
+    now: @escaping @Sendable () -> Date = Date.init
+  ) {
     self.libraryID = libraryID
     self.client = client
+    self.cache = cache
+    self.cacheHost = cacheHost
+    self.coverWarmer = coverWarmer
+    self.now = now
+    self.sessionOrder = sessionOrder
+    self.random = AnyRandomNumberGenerator(random)
   }
 
   /// Load the most recent day that produced anything. Omitting the date is
   /// what keeps a late or empty run showing yesterday's set rather than
-  /// blanking the screen.
+  /// blanking the screen. An empty screen first shows the cached set, before
+  /// any request goes out.
+  ///
+  /// A refresh is stale when something on the server was trashed while it
+  /// ran (see `ForYouCache.commit`). It is then run again under the new
+  /// epoch, as many times as trashes keep landing mid-refresh: the server
+  /// already excludes what was trashed, so the rerun's pages are safe to
+  /// show, and an unrelated trash doesn't cost the row its covers.
   public func load() async {
     generation += 1
     let g = generation
     isLoading = true
     defer { if g == generation { isLoading = false } }
+
+    let cached = await cache?.readWithEpoch(libraryID: libraryID, host: cacheHost)
+    guard g == generation else { return }
+    if collections.isEmpty, let snapshot = cached?.snapshot { show(snapshot) }
+    let epoch = cached?.epoch
+    seenEpoch = epoch
 
     let loaded: [GeneratedSearchCard]
     do {
@@ -78,7 +137,7 @@ public final class GeneratedSearchCollectionsViewModel {
     }
     guard g == generation else { return }
     loadError = nil
-    collections = loaded
+    collections = arrangeForSession(loaded)
     // Drop covers for collections that just fell out of the set. A reload
     // replaces `collections` wholesale, so without this the map only ever
     // grows — every day's retired collections stay resident for the life of
@@ -88,22 +147,79 @@ public final class GeneratedSearchCollectionsViewModel {
     firstPages = firstPages.filter { loadedIDs.contains($0.key) }
 
     // One snapshot fetch per collection (there are a handful per day), run
-    // concurrently. A failure just leaves that card on its gradient.
-    await withTaskGroup(of: (String, GeneratedSearchAssetPage?).self) { group in
+    // concurrently. A failed fetch, or a replacement cover that couldn't be
+    // decoded, keeps whatever the card already shows. An empty page is an
+    // answer, not a failure: the old cover no longer passes the filters.
+    let shownCoverIDs = covers.mapValues(\.id)
+    let fetched = await withTaskGroup(of: (String, GeneratedSearchAssetPage?).self) { group in
       for collection in loaded {
-        group.addTask { [client] in
-          (
-            collection.id,
-            try? await client.assets(
+        let shownCoverID = shownCoverIDs[collection.id]
+        group.addTask { [client, coverWarmer] in
+          guard
+            let page = try? await client.assets(
               collectionID: collection.id, limit: Self.firstPageSize, snapshot: true)
-          )
+          else { return (collection.id, nil) }
+          guard let cover = page.results.first, cover.id != shownCoverID, let coverWarmer
+          else { return (collection.id, page) }
+          let warmed = await coverWarmer(cover)
+          return (collection.id, warmed || shownCoverID == nil ? page : nil)
         }
       }
-      for await (id, page) in group {
-        guard g == generation else { return }
-        if let page { firstPages[id] = page }
+      return await group.reduce(into: [String: GeneratedSearchAssetPage]()) { pages, result in
+        if let page = result.1 { pages[result.0] = page }
       }
     }
+    guard g == generation else { return }
+    let refreshed = firstPages.merging(fetched) { _, new in new }
+    guard let cache, let epoch else {
+      firstPages = refreshed
+      return
+    }
+    let snapshot = ForYouSnapshot(collections: collections, firstPages: refreshed, savedAt: now())
+    if await cache.commit(snapshot, libraryID: libraryID, host: cacheHost, epoch: epoch) {
+      guard g == generation else { return }
+      firstPages = refreshed
+      return
+    }
+    // A photo was trashed while this refresh was in flight, so what it
+    // fetched may show it. Use the pruned cache pages for covers already on
+    // screen: a partial trash can change a page without removing its cover.
+    let surviving = await cache.read(libraryID: libraryID, host: cacheHost)?.firstPages ?? [:]
+    guard g == generation else { return }
+    firstPages = surviving.filter { firstPages[$0.key] != nil }
+    await load()
+  }
+
+  /// For a surface that keeps this view model across appearances (the
+  /// iPhone Search tab): if a photo was trashed since the cards were last
+  /// checked, take the trashed covers down now, then refresh for their
+  /// replacements.
+  public func dropTrashedCovers() async {
+    guard let cache else { return }
+    let current = await cache.epoch(host: cacheHost)
+    guard let seenEpoch, current != seenEpoch else { return }
+    let surviving = await cache.read(libraryID: libraryID, host: cacheHost)?.firstPages ?? [:]
+    firstPages = surviving.filter { firstPages[$0.key] != nil }
+    self.seenEpoch = current
+    await load()
+  }
+
+  private func show(_ cached: ForYouSnapshot) {
+    collections = arrangeForSession(cached.collections)
+    guard now().timeIntervalSince(cached.savedAt) <= Self.maxCoverAge else { return }
+    let ids = Set(cached.collections.map(\.id))
+    firstPages = cached.firstPages.filter { ids.contains($0.key) }
+  }
+
+  /// `loaded` in this session's order for the library, recorded so the next
+  /// load — on this view model or a new one — keeps it.
+  private func arrangeForSession(_ loaded: [GeneratedSearchCard]) -> [GeneratedSearchCard] {
+    let day = ForYouOrder.day(of: loaded)
+    let order = ForYouOrder.arrange(
+      loaded.map(\.id), keeping: sessionOrder.order(for: libraryID, day: day), using: &random)
+    sessionOrder.record(order, day: day, for: libraryID)
+    let byID = Dictionary(loaded.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+    return order.compactMap { byID[$0] }
   }
 
   /// The FIRST PAGE of one collection's photos, plus the collection's full

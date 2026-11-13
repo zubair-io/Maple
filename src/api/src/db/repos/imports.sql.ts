@@ -6,11 +6,11 @@
  * and a reviewer should be able to read them together rather than stepping
  * through TypeScript. Two shapes here are load-bearing.
  *
- * **The claimable predicate is written once.** {@link CLAIMABLE_PREDICATE}
- * appears in the candidate query and again in the compare-and-swap that decides
- * the winner. If those two drifted, a worker could claim an import the
- * candidate query never considered claimable, which is the failure Mongo's
- * `findOneAndUpdate` made impossible by construction.
+ * **One import is held at a time.** {@link NEXT_IMPORT_SQL} only offers the
+ * oldest waiting import once no other is held, and {@link HELD_IMPORTS_SQL}
+ * names the held ones with the same predicate, so the relay and the
+ * reconciliation that checks on it cannot disagree about which rows Temporal
+ * holds.
  *
  * **The file inserts are batched but not chunked across transactions.** An
  * import's rows all land in one transaction, so a batch is about the parameter
@@ -26,10 +26,10 @@ import { placeholders } from './values.ts';
 const IMPORT_COLUMNS = `
   id, status, source_root, library_id, library_root, scan_pending,
   progress_current, progress_total, count_copied, count_skipped, count_failed,
-  error, locked_by, lease_expires_at, cancel_requested, created_at, updated_at`;
+  error, locked_by, cancel_requested, created_at, updated_at`;
 
 /** The number of `?` an insert of a whole import row binds. */
-const IMPORT_COLUMN_COUNT = 17;
+const IMPORT_COLUMN_COUNT = 16;
 
 export const IMPORT_BY_ID_SQL = `SELECT ${IMPORT_COLUMNS} FROM imports WHERE id = ?`;
 
@@ -54,26 +54,69 @@ export function listImportsSql(scoped: boolean): string {
 }
 
 /**
- * Free or lease-expired: a `pending` import nobody holds, or a `running` one
- * whose holder's lease ran out mid-copy.
- *
- * `lease_expires_at < ?` never matches a NULL lease, in SQLite and in MongoDB
- * alike — Mongo's range operators are type-bracketed, so `{ $lt: <string> }`
- * skips null — which is what keeps a `running` import that never recorded a
- * lease from being reclaimed by either engine.
+ * An import Temporal holds: running, or pending with its workflow already
+ * started. At most one exists at a time, because {@link NEXT_IMPORT_SQL} waits
+ * for it.
  */
-const CLAIMABLE_PREDICATE = `(
-  (status = 'pending' AND locked_by IS NULL)
-  OR (status = 'running' AND lease_expires_at < ?)
-)`;
+const HELD = `(status = 'running' OR (status = 'pending' AND locked_by IS NOT NULL))`;
 
-export const CLAIM_CANDIDATES_SQL = `
-  SELECT id FROM imports WHERE ${CLAIMABLE_PREDICATE} ORDER BY created_at, id LIMIT 8`;
+/**
+ * The oldest pending import, but only once nothing else is held.
+ *
+ * Handing Temporal one import at a time is what keeps imports in the order they
+ * were created. `locked_by IS NULL` separates a fresh or retried import from a
+ * held one; every statement that puts an import back into `pending` clears it.
+ */
+export const NEXT_IMPORT_SQL = `
+  SELECT id FROM imports
+   WHERE status = 'pending' AND locked_by IS NULL
+     AND NOT EXISTS (SELECT 1 FROM imports WHERE ${HELD})
+   ORDER BY created_at, id LIMIT 1`;
 
-export const CLAIM_IMPORT_SQL = `
+export const HELD_IMPORTS_SQL = `SELECT id FROM imports WHERE ${HELD} ORDER BY created_at, id`;
+
+/** Guarded so an import its activity has already claimed keeps that claim. */
+export const MARK_IMPORT_DISPATCHED_SQL = `
+  UPDATE imports SET locked_by = ? WHERE id = ? AND status = 'pending' AND locked_by IS NULL`;
+
+/**
+ * Hand one import to the activity attempt Temporal just delivered.
+ *
+ * A `running` row is taken over, not skipped: Temporal only delivers another
+ * attempt after the previous one missed its heartbeat deadline, so the holder
+ * named in `locked_by` is gone. Whatever that holder still tries to write is
+ * refused by {@link heldBy}. A finished import matches nothing, which is how a
+ * redelivery becomes a no-op.
+ *
+ * Two statements in one transaction, the takeover first, so the claim also
+ * reports which it was. In the other order the takeover would match the row the
+ * pending claim had just moved to `running`, and every claim would report one.
+ */
+const claimImportSql = (from: 'running' | 'pending'): string => `
   UPDATE imports
-     SET status = 'running', locked_by = ?, lease_expires_at = ?, updated_at = ?
-   WHERE id = ? AND ${CLAIMABLE_PREDICATE}`;
+     SET status = 'running', locked_by = ?, updated_at = ?
+   WHERE id = ? AND status = '${from}'`;
+
+export const TAKE_OVER_IMPORT_SQL = claimImportSql('running');
+export const CLAIM_PENDING_IMPORT_SQL = claimImportSql('pending');
+
+const HELD_BY_SQL = `EXISTS (SELECT 1 FROM imports WHERE id = ? AND locked_by = ? AND status = 'running')`;
+
+export interface AttemptFence {
+  sql: string;
+  params: string[];
+}
+
+/**
+ * The fence on a write made by one activity attempt: it lands only while that
+ * attempt still holds the running import. Empty for a write made outside an
+ * attempt.
+ */
+export function heldBy(importId: string, holder: string | undefined): AttemptFence {
+  return holder === undefined
+    ? { sql: '', params: [] }
+    : { sql: ` AND ${HELD_BY_SQL}`, params: [importId, holder] };
+}
 
 /**
  * Rows per bulk-insert statement.
@@ -93,15 +136,24 @@ function fileValues(count: number): string {
  * The statements that write `files` as `import_files` rows for `importId`,
  * numbered by position. Empty for an empty list.
  */
-export function insertFileStatements(importId: string, files: ImportFileEntry[]): SqlStatement[] {
+export function insertFileStatements(
+  importId: string,
+  files: ImportFileEntry[],
+  holder?: string,
+): SqlStatement[] {
+  const fence = heldBy(importId, holder);
   return Array.from({ length: Math.ceil(files.length / INSERT_BATCH) }, (_unused, batch) => {
     const start = batch * INSERT_BATCH;
     const slice = files.slice(start, start + INSERT_BATCH);
+    const rows = `VALUES ${fileValues(slice.length)}`;
     return {
       sql: `INSERT INTO import_files
               (import_id, idx, src, dest, size, mtime, kind, state, error)
-            VALUES ${fileValues(slice.length)}`,
-      params: slice.flatMap((file, offset) => importFileParams(importId, file, start + offset)),
+            ${holder === undefined ? rows : `SELECT * FROM (${rows}) WHERE TRUE${fence.sql}`}`,
+      params: [
+        ...slice.flatMap((file, offset) => importFileParams(importId, file, start + offset)),
+        ...fence.params,
+      ],
     };
   });
 }

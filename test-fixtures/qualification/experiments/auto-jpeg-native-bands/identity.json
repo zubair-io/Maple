@@ -1,0 +1,8 @@
+{
+  "source_commit": "9ce4ed5858c8bd6335213cd766ddafb77270679d",
+  "renderer_tree": "55d6f5a4ce5a05577688c0ee7d65b957a90b7e97",
+  "binary_sha256": "489c242aa88c396c5e623e51a7b761e2ccc918b05fa38beda18725c7522e2a3e",
+  "pipeline_output_version": 37,
+  "auto_fit_model_version": 7,
+  "status": "unqualified native-band selection; all20physical fixtures"
+}

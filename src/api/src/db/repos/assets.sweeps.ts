@@ -40,6 +40,7 @@
  * rows it counts committing together.
  */
 
+import { presentAppleCompanions } from '../apple-companions.ts';
 import type { ObjectId } from '../object-id.ts';
 import type { FileInfo } from '../schema.ts';
 import { toFileInfo, type LocationRow } from './assets.rows.ts';
@@ -60,6 +61,7 @@ export interface TrashedAsset {
   deleted_reason: string | null;
   fileinfo: FileInfo[];
   apple_rendered_path?: string;
+  apple_live_video_path?: string;
 }
 
 /** An asset holding at least one location tagged `missing_since`. */
@@ -163,8 +165,9 @@ export async function listTrashedBefore(
     deleted_at: string;
     deleted_reason: string | null;
     apple_rendered_path: string | null;
+    apple_live_video_path: string | null;
   }>(
-    `SELECT id, deleted_at, deleted_reason, apple_rendered_path FROM assets
+    `SELECT id, deleted_at, deleted_reason, apple_rendered_path, apple_live_video_path FROM assets
       WHERE deleted_at IS NOT NULL AND deleted_at < ?
       ORDER BY deleted_at`,
     [cutoffIso],
@@ -173,7 +176,7 @@ export async function listTrashedBefore(
     _id: toObjectId(row.id),
     deleted_at: row.deleted_at,
     deleted_reason: row.deleted_reason,
-    ...(row.apple_rendered_path ? { apple_rendered_path: row.apple_rendered_path } : {}),
+    ...presentAppleCompanions(row),
     fileinfo,
   }));
 }

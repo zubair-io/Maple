@@ -24,6 +24,7 @@
   [visible]="controller.panoVisible()"
   [assetIds]="controller.panoAssetIds()"
   (dismiss)="controller.dismissPano()"
+  (created)="controller.onPanoCreated()"
 />
 
 <app-batch-metadata-panel

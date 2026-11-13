@@ -14,6 +14,7 @@ import {
 import {
   parseRetouchAreasContainer,
   parseRetouchInfoContainer,
+  RETOUCH_FRAME_VERSION_KEY,
   retouchContainerKind,
 } from './xmp-retouch';
 import type { RetouchSpot } from '../models/retouch-spot';
@@ -38,6 +39,7 @@ const KNOWN_ATTRIBUTES = new Set<string>([
   'papp:Profile',
   'papp:FilmLook',
   'papp:LensProfile',
+  'papp:Demosaic',
   'papp:HotPixelSuppression',
   'crs:LensProfileEnable',
   'crs:AutoLateralCA',
@@ -51,6 +53,7 @@ const KNOWN_ATTRIBUTES = new Set<string>([
   'papp:ToneCurveMode',
   'crs:ConvertToGrayscale',
   'papp:WbScaleVersion',
+  RETOUCH_FRAME_VERSION_KEY,
   'crs:HasCrop',
   'crs:CropTop',
   'crs:CropLeft',
@@ -78,10 +81,17 @@ const CANONICAL_NAMESPACE_URIS: Readonly<Record<string, string>> = {
  *  also survive as a passthrough node — that would emit it twice. Both
  *  repair containers (#3409) qualify: `crs:RetouchAreas` is rewritten from
  *  `model.retouchSpots`, and the legacy `crs:RetouchInfo` is read into the
- *  same list and replaced by the struct form on the next save. */
-const isManagedChild = (child: Element): boolean =>
-  (child.namespaceURI === DC_NAMESPACE && child.localName === 'subject') ||
-  retouchContainerKind(child) !== undefined;
+ *  same list and replaced by the struct form on the next save. A legacy list
+ *  that decodes to no spot is not the model's to replace, so it stays a
+ *  passthrough node (#5658). */
+const isManagedChild = (child: Element): boolean => {
+  const retouchKind = retouchContainerKind(child);
+  return (
+    (child.namespaceURI === DC_NAMESPACE && child.localName === 'subject') ||
+    retouchKind === 'areas' ||
+    (retouchKind === 'legacy' && parseRetouchInfoContainer(child).length > 0)
+  );
+};
 
 const visibleNamespaceUris = (description: Element): Map<string, string> => {
   const namespaces = new Map<string, string>();
@@ -104,8 +114,19 @@ const isModeledAttribute = (attribute: Attr): boolean => {
   return name !== null && name !== 'rdf:about' && KNOWN_ATTRIBUTES.has(name);
 };
 
+const eligibleDescriptions = (primary: Element): Element[] =>
+  primary.parentElement
+    ? Array.from(primary.parentElement.children).filter(
+        (child) =>
+          child.namespaceURI === RDF_NAMESPACE &&
+          child.localName === 'Description' &&
+          sharesMaskGroupContext(child, primary),
+      )
+    : [primary];
+
 const withoutModeledFields = (source: Element, primary: Element): Element => {
   const clone = source.cloneNode(true) as Element;
+  if (!sharesMaskGroupContext(source, primary)) return clone;
   for (const attribute of Array.from(source.attributes)) {
     if (!isModeledAttribute(attribute)) continue;
     if (attribute.namespaceURI)
@@ -114,8 +135,6 @@ const withoutModeledFields = (source: Element, primary: Element): Element => {
   }
   const clonedChildren = Array.from(clone.children);
   Array.from(source.children).forEach((child, index) => {
-    if (localAdjustmentContainerKind(child) === 'group' && !sharesMaskGroupContext(source, primary))
-      return;
     if (toneCurveElementKey(child) || localAdjustmentContainerKind(child) || isManagedChild(child))
       clonedChildren[index]?.remove();
   });
@@ -148,32 +167,78 @@ const preservedStructure = (
 };
 
 /**
- * Every repair spot `description` carries (#3409). The struct
+ * Every repair spot `descriptions` carry (#3409). The struct
  * `crs:RetouchAreas` container wins whenever it produced one; the legacy
  * `crs:RetouchInfo` strings are the fallback for a document that only has
  * those.
  */
-function retouchSpotsFrom(description: Element): RetouchSpot[] {
+function retouchSpotsFrom(descriptions: readonly Element[]): RetouchSpot[] {
   const areas: RetouchSpot[] = [];
   const legacy: RetouchSpot[] = [];
-  for (const child of Array.from(description.children)) {
-    const kind = retouchContainerKind(child);
-    if (kind === 'areas') areas.push(...parseRetouchAreasContainer(child));
-    else if (kind === 'legacy') legacy.push(...parseRetouchInfoContainer(child));
+  for (const description of descriptions) {
+    for (const child of Array.from(description.children)) {
+      const kind = retouchContainerKind(child);
+      if (kind === 'areas') areas.push(...parseRetouchAreasContainer(child));
+      else if (kind === 'legacy') legacy.push(...parseRetouchInfoContainer(child));
+    }
   }
   return areas.length > 0 ? areas : legacy;
 }
 
 /** Layer-order keys of a brush container kept verbatim because it could not be modeled. */
-const verbatimBrushLayerOrders = (description: Element): number[] =>
-  Array.from(description.children)
-    .filter(
-      (child) =>
-        !localAdjustmentContainerKind(child) &&
-        !isManagedChild(child) &&
-        managedXmpName(child) === 'papp:BrushCorrections',
-    )
-    .flatMap(verbatimLayerOrders);
+const verbatimBrushLayerOrders = (descriptions: readonly Element[]): number[] =>
+  descriptions.flatMap((description) =>
+    Array.from(description.children)
+      .filter(
+        (child) =>
+          !localAdjustmentContainerKind(child) &&
+          !isManagedChild(child) &&
+          managedXmpName(child) === 'papp:BrushCorrections',
+      )
+      .flatMap(verbatimLayerOrders),
+  );
+
+function isModeledDescriptionChild(
+  child: Element,
+  model: Partial<AdjustmentModel>,
+  seenCurves: Set<string>,
+): boolean {
+  if (managedXmpName(child) === 'papp:InpaintRemovals') return true;
+  const curveKey = toneCurveElementKey(child);
+  if (curveKey) {
+    if (!seenCurves.has(curveKey)) {
+      seenCurves.add(curveKey);
+      model[curveKey] = parseToneCurveElement(child);
+    }
+    return true;
+  }
+  const containerKind = localAdjustmentContainerKind(child);
+  if (containerKind === 'group') return true;
+  if (containerKind) {
+    model.localAdjustments = [
+      ...(model.localAdjustments ?? []),
+      ...parseLocalAdjustmentsContainer(child, containerKind),
+    ];
+    return true;
+  }
+  return isManagedChild(child);
+}
+
+function hydrateDescriptionChildren(
+  descriptions: readonly Element[],
+  primary: Element,
+  model: Partial<AdjustmentModel>,
+): string[] {
+  const unknownNodes: string[] = [];
+  const seenCurves = new Set<string>();
+  for (const current of descriptions) {
+    for (const child of Array.from(current.children)) {
+      if (isModeledDescriptionChild(child, model, seenCurves)) continue;
+      if (current === primary) unknownNodes.push(selfContainedXml(child));
+    }
+  }
+  return unknownNodes;
+}
 
 /**
  * Capture fields Maple does not model and hydrate Maple-owned point curves.
@@ -209,46 +274,22 @@ export function collectXmpPassthrough(
       }
       return { name: attr.name, value: attr.value };
     });
-  const unknownNodes: string[] = [];
   const passthroughPrefixes = new Set<string>();
-  // Repair spots (#3409) are collected in one pass of their own so the
-  // child loop below keeps a single skip branch for them rather than the
-  // two-container-plus-precedence logic `retouchSpotsFrom` owns.
-  const retouchSpots = retouchSpotsFrom(description);
+  const descriptions = eligibleDescriptions(description);
+  const retouchSpots = retouchSpotsFrom(descriptions);
   if (retouchSpots.length > 0) model.retouchSpots = retouchSpots;
-
-  for (const child of Array.from(description.children)) {
-    if (managedXmpName(child) === 'papp:InpaintRemovals') {
-      passthroughNamespaceUris.set('papp', CANONICAL_NAMESPACE_URIS['papp']);
-      unknownAttributes.push({ name: 'papp:InpaintRemovals', value: child.textContent ?? '' });
-      continue;
-    }
-    const curveKey = toneCurveElementKey(child);
-    if (curveKey) {
-      model[curveKey] = parseToneCurveElement(child);
-      continue;
-    }
-    // Local adjustments (#358): both containers are modeled, so they hydrate
-    // the model — in document order, linear and radial alike — and never
-    // reach the passthrough bucket, or the writer would emit them twice.
-    const containerKind = localAdjustmentContainerKind(child);
-    if (containerKind === 'group') continue;
-    if (containerKind) {
-      model.localAdjustments = [
-        ...(model.localAdjustments ?? []),
-        ...parseLocalAdjustmentsContainer(child, containerKind),
-      ];
-      continue;
-    }
-    // `isManagedChild` covers both repair containers (#3409), hydrated above.
-    if (isManagedChild(child)) continue;
-    unknownNodes.push(selfContainedXml(child));
-  }
+  for (const current of descriptions)
+    for (const child of Array.from(current.children))
+      if (managedXmpName(child) === 'papp:InpaintRemovals') {
+        passthroughNamespaceUris.set('papp', CANONICAL_NAMESPACE_URIS['papp']);
+        unknownAttributes.push({ name: 'papp:InpaintRemovals', value: child.textContent ?? '' });
+      }
+  const unknownNodes = hydrateDescriptionChildren(descriptions, description, model);
 
   if (unknownAttributes.filter((a) => a.name === 'papp:InpaintRemovals').length > 1)
     throw new Error('The sidecar contains conflicting removal records.');
   const { verbatim: groupKeys, ...maskGroups } = collectMaskGroups(description, model);
-  const verbatimLayerOrderKeys = [...verbatimBrushLayerOrders(description), ...groupKeys];
+  const verbatimLayerOrderKeys = [...verbatimBrushLayerOrders(descriptions), ...groupKeys];
   orderLocalAdjustments(model, verbatimLayerOrderKeys);
 
   for (const attr of unknownAttributes) {

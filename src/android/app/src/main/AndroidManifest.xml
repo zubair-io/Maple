@@ -1,0 +1,78 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-feature android:name="android.hardware.vulkan.level" android:version="1" android:required="false" />
+    <application android:label="Maple" android:icon="@drawable/maple_icon" android:theme="@style/MapleTheme" android:allowBackup="false" android:networkSecurityConfig="@xml/network_security_config" android:supportsRtl="true">
+        <activity android:name=".MainActivity" android:exported="true" android:launchMode="singleTask" android:colorMode="wideColorGamut">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:mimeType="image/jpeg" />
+                <data android:mimeType="image/png" />
+                <data android:mimeType="image/webp" />
+                <data android:mimeType="image/tiff" />
+                <data android:mimeType="image/heic" />
+                <data android:mimeType="image/heif" />
+                <data android:mimeType="image/x-adobe-dng" />
+                <data android:mimeType="image/x-canon-cr2" />
+                <data android:mimeType="image/x-canon-cr3" />
+                <data android:mimeType="image/x-nikon-nef" />
+                <data android:mimeType="image/x-sony-arw" />
+                <data android:mimeType="image/x-fuji-raf" />
+                <data android:mimeType="image/x-olympus-orf" />
+                <data android:mimeType="image/x-panasonic-rw2" />
+                <data android:mimeType="image/x-pentax-pef" />
+                <data android:mimeType="image/x-samsung-srw" />
+                <data android:mimeType="image/x-sigma-x3f" />
+                <data android:mimeType="image/x-hasselblad-3fr" />
+                <data android:mimeType="image/x-hasselblad-fff" />
+                <data android:mimeType="image/x-minolta-mrw" />
+                <data android:mimeType="image/x-mamiya-mef" />
+                <data android:mimeType="image/x-epson-erf" />
+                <data android:mimeType="image/x-dcraw" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="maple-app" android:host="auth-success" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="image/jpeg" />
+                <data android:mimeType="image/png" />
+                <data android:mimeType="image/webp" />
+                <data android:mimeType="image/tiff" />
+                <data android:mimeType="image/heic" />
+                <data android:mimeType="image/heif" />
+                <data android:mimeType="image/x-adobe-dng" />
+                <data android:mimeType="image/x-canon-cr2" />
+                <data android:mimeType="image/x-canon-cr3" />
+                <data android:mimeType="image/x-nikon-nef" />
+                <data android:mimeType="image/x-sony-arw" />
+                <data android:mimeType="image/x-fuji-raf" />
+                <data android:mimeType="image/x-olympus-orf" />
+                <data android:mimeType="image/x-panasonic-rw2" />
+                <data android:mimeType="image/x-pentax-pef" />
+                <data android:mimeType="image/x-samsung-srw" />
+                <data android:mimeType="image/x-sigma-x3f" />
+                <data android:mimeType="image/x-hasselblad-3fr" />
+                <data android:mimeType="image/x-hasselblad-fff" />
+                <data android:mimeType="image/x-minolta-mrw" />
+                <data android:mimeType="image/x-mamiya-mef" />
+                <data android:mimeType="image/x-epson-erf" />
+                <data android:mimeType="image/x-dcraw" />
+            </intent-filter>
+        </activity>
+        <activity-alias android:name=".AvifOpenActivity" android:targetActivity=".MainActivity" android:enabled="@bool/supports_avif" android:exported="true">
+            <intent-filter><action android:name="android.intent.action.VIEW" /><category android:name="android.intent.category.DEFAULT" /><category android:name="android.intent.category.BROWSABLE" /><data android:mimeType="image/avif" /></intent-filter>
+            <intent-filter><action android:name="android.intent.action.SEND" /><category android:name="android.intent.category.DEFAULT" /><data android:mimeType="image/avif" /></intent-filter>
+        </activity-alias>
+    </application>
+</manifest>

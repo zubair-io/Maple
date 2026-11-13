@@ -1,0 +1,15 @@
+{
+  "base_commit": "b4523b79e616f2745f3b0a7e8e1c60b9bff08424",
+  "source_patch_sha256": "f9274cf41897030079f76cd4056f4fde2af1f685d8ed596d7248e60d54ae31c8",
+  "new_test_files": [
+    {
+      "path": "src/raw-pipeline/raw-core/src/stages/nlm_tests_tail.rs",
+      "sha256": "e919dbb7448a1f97fdb066c9f863514b15e539684146d77fab4594e33c076231"
+    },
+    {
+      "path": "src/raw-pipeline/raw-gpu/src/noise_reduction/tests_tail.rs",
+      "sha256": "69c9697da356da39a672a7ea4f6cdc429225f48d38d698f8e1151581933e0414"
+    }
+  ],
+  "complete_patch_reverse_check_passed": true
+}

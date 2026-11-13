@@ -1,6 +1,6 @@
 use super::{
     SidecarWorkflow, WorkflowHistoryEntry, WorkflowSnapshot, HISTORY_LIMIT, MAX_TIMESTAMP_MS,
-    PRIMARY_VARIANT_ID, WORKFLOW_ACTIONS, WORKFLOW_MAX_BYTES, WORKFLOW_VERSION,
+    PRIMARY_VARIANT_ID, WORKFLOW_ACTIONS, WORKFLOW_MAX_BYTES, WORKFLOW_VERSION, WRITER_MAX_BYTES,
 };
 use quick_xml::{events::Event, name::ResolveResult, reader::NsReader};
 use std::collections::HashSet;
@@ -35,6 +35,16 @@ fn name(value: &str) -> Result<(), String> {
         return Err("workflow name/label must contain visible text without controls".into());
     }
     Ok(())
+}
+
+/// A host-supplied JS number as a workflow timestamp (whole, non-negative, JSON-safe).
+pub fn timestamp_ms(value: f64) -> Result<u64, String> {
+    if !value.is_finite() || value < 0.0 || value.fract() != 0.0 {
+        return Err("workflow timestamp must be a non-negative whole number".into());
+    }
+    let value = value as u64;
+    timestamp(value)?;
+    Ok(value)
 }
 
 fn timestamp(value: u64) -> Result<(), String> {
@@ -124,6 +134,21 @@ pub(super) fn history_entry(value: &WorkflowHistoryEntry) -> Result<(), String> 
     identity(&value.id)?;
     name(&value.label)?;
     timestamp(value.created_at_ms)?;
+    // Empty means no recorded base (the first retained entry, or a base that
+    // compaction already retired).
+    if !value.parent_id.is_empty() {
+        identity(&value.parent_id)?;
+    }
+    if value.parent_id == value.id {
+        return Err("history entry cannot be its own parent".into());
+    }
+    // Empty means unrecorded: an external capture or a pre-v2 entry.
+    if !value.writer.is_empty() {
+        name(&value.writer)?;
+        if value.writer.len() > WRITER_MAX_BYTES {
+            return Err(format!("writer label exceeds {WRITER_MAX_BYTES} bytes"));
+        }
+    }
     if !WORKFLOW_ACTIONS.contains(&value.action.as_str()) {
         return Err(format!(
             "unsupported semantic history action {}",
@@ -160,6 +185,19 @@ pub(super) fn workflow(value: &SidecarWorkflow) -> Result<(), String> {
             return Err("duplicate history identity".into());
         }
         history_entry(entry)?;
+    }
+    // A parent still in the history must precede its child, which also rules
+    // out cycles. A parent that compaction retired is simply absent.
+    for (index, entry) in value.history.iter().enumerate() {
+        if let Some(parent) = value
+            .history
+            .iter()
+            .position(|old| old.id == entry.parent_id)
+        {
+            if parent >= index {
+                return Err("history parent must precede its child".into());
+            }
+        }
     }
     Ok(())
 }

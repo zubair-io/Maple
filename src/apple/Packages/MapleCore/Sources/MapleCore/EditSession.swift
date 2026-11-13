@@ -28,10 +28,20 @@ public final class EditSession {
   public internal(set) var autoFitStatus: AutoFitStatus = .pending
   var autoFitRevision: UInt64 = 0
   public internal(set) var hasLoadedSidecar = false
+  /// The last sidecar read failed and no read has succeeded since: nothing
+  /// is persisted until `loadSidecar()` succeeds (#4708).
+  public internal(set) var sidecarLoadFailed = false
 
-  /// Remote-original download progress, shared with `prepareCloudSession`.
-  /// Local/PhotoKit assets have no byte-download progress.
+  /// Byte-download progress for a remote (cloud) asset open (#822). Set by
+  /// the caller (`prepareCloudSession`) when the asset's bytes arrive over
+  /// HTTP, so the editor can show a determinate download bar while the
+  /// fetch is in flight. `nil` for local / PhotoKit assets — their bytes
+  /// are on disk or in Photos, so there's nothing to track and the editor
+  /// skips the bar. The progress-reporting bytes provider drives the same
+  /// instance; see `prepareCloudSession`.
   @ObservationIgnored public let downloadProgress: DownloadProgress?
+
+  // MARK: Model
 
   public var model: AdjustmentModel {
     didSet {
@@ -40,13 +50,7 @@ public final class EditSession {
         self.selectedMaskId = nil
       }
       if model.profile != oldValue.profile { resetAutoFitStatus() }
-      guard !isHydratingInitialState else { return }
-      guard permitsModelChange(from: oldValue) else {
-        isHydratingInitialState = true
-        model = oldValue
-        isHydratingInitialState = false
-        return
-      }
+      guard !isHydratingInitialState, acceptsModelChange(from: oldValue) else { return }
       // Slider → render wire. If this log doesn't fire on a slider
       // drag, the @Bindable write never landed on `session.model` (the
       // binding path is broken). If it fires but the image doesn't
@@ -81,7 +85,12 @@ public final class EditSession {
 
   public var culling: CullingState {
     didSet {
-      guard !isHydratingInitialState else { return }
+      guard !isHydratingInitialState, !workflow.isApplying else { return }
+      guard hasLoadedSidecar else {
+        let change = CullingPatch(from: oldValue, to: culling)
+        queuedCullingPatch = queuedCullingPatch?.merging(change) ?? change
+        return
+      }
       scheduleSidecarUpdate(model: model, culling: culling)
     }
   }
@@ -89,8 +98,15 @@ public final class EditSession {
   /// Snapshot at session open — used by before/after toggle.
   public internal(set) var originalModel: AdjustmentModel
 
-  /// Camera white balance from the RAW metadata; nil before hydration or
-  /// when unavailable. It anchors pipeline and inspector As-Shot values.
+  /// As-shot white balance read from the RAW file's metadata via
+  /// `CIRAWFilter`. `nil` when the file is not a recognized RAW or when
+  /// metadata is unreadable. Populated by `loadSidecar()` on session open;
+  /// used by:
+  ///   • `ImageEditPipeline.process(...)` — passed as the `neutral` input
+  ///     to `CITemperatureAndTint` so the Temperature slider behaves like
+  ///     Lightroom's (slider = scene white point, default = as-shot).
+  ///   • DetailPanel's Info tab — surfaced to the user as read-only
+  ///     metadata.
   public internal(set) var asShotCCT: Double?
   public internal(set) var asShotTint: Double?
 
@@ -142,17 +158,12 @@ public final class EditSession {
   /// rasterizing a full-sensor `CGImage`.
   public var nativeDetailPreview: CIImage?
   public internal(set) var nativeDetailSourceRect: CGRect = .zero
-  /// True only when `renderedPreview` is a COMPLETED full-canvas render of
-  /// the current model. False for cold-open seeds (cached JPEG, embedded
-  /// JPEG, `.maple` sidecar preview) and for progressive composites that
-  /// stitch a fresh viewport patch over an older underlay (visible-region
-  /// refine, deep-zoom tiles). `persistCurrentPreviewToCache` gates on this:
-  /// persisting a seed or a mixed-provenance composite bakes a tone seam
-  /// into `RenderedPreviewCache` + the browse thumbnail that then reappears
-  /// on every cold open until a full render overwrites it (#1881).
-  /// `@ObservationIgnored` — cache-provenance bookkeeping, not view state;
-  /// only the paired `renderedPreview` write should drive UI updates.
-  @ObservationIgnored var previewIsFullRender: Bool = false
+  /// The two stored halves of `previewIsFullRender` (EditSession+Derived.swift):
+  /// what the last publish decided, and whether `releaseTransientMemory`
+  /// evicted the decoded cache underneath it since (#1881, #4496). Both
+  /// observed — the canvas readiness predicate reads the first.
+  var previewIsCompletedRender: Bool = false
+  var previewOutlivedDecodeCache: Bool = false
 
   /// True only while `renderedPreview` holds the browse-grid-thumbnail seed
   /// (#2040) and nothing richer has landed yet. `ensureRenderStarted`'s
@@ -194,6 +205,12 @@ public final class EditSession {
   /// describe (left set, the re-entry render kicks short-circuit and the
   /// CPU backdrop stays hidden: the black-canvas-on-reopen bug). See #1069.
   public var gpuFramePresented: Bool = false
+  public internal(set) var canvasPlaceholderOnScreen: Bool = false
+  /// The long edge, in pixels, of the image the last GPU present drew (#5768).
+  public internal(set) var gpuFrameLongEdgePixels: CGFloat = 0
+
+  /// What Preview or the editor left for the other to open with (#5764).
+  @ObservationIgnored public var canvasHandoff: CanvasZoomHandoff?
 
   /// True once a wgpu present has THROWN for this session (#1769). Views gate
   /// the GPU canvas leaf on this: a torn/failed present must not stay on
@@ -322,14 +339,14 @@ public final class EditSession {
 
   // MARK: Undo / redo
   public let workflow = EditorWorkflowState()
+  public internal(set) var isSavingRemoval = false
+  @ObservationIgnored var removalCommitTask: Task<Void, Error>?
+  @ObservationIgnored var isApplyingRemovalCommit = false
 
   /// Storage only — the ring behaviour (`canUndo`/`canRedo`, `beginEdit`,
   /// `undo`, `redo`, `resetToOriginal`, `undoStackCap`) lives in
   /// `EditSession+UndoRedo.swift`. Internal rather than private so that
   /// sibling file can reach them.
-  public internal(set) var isSavingRemoval = false
-  @ObservationIgnored var removalCommitTask: Task<Void, Error>?
-  @ObservationIgnored var isApplyingRemovalCommit = false
   @ObservationIgnored var transactions = EditTransactionRing()
   /// The most recently recorded, undone, or redone transaction.
   public internal(set) var lastCommittedTransaction: EditTransaction?
@@ -365,8 +382,6 @@ public final class EditSession {
   ///
   /// `internal` so the test suite can poke the actor's cache state
   /// and scheduler directly via `await session.renderActor.…`.
-  @ObservationIgnored let nativeAutoProfile = NativeAutoProfileState()
-  @ObservationIgnored var nativeAutoFrameID: UUID?
   @ObservationIgnored let renderActor: RenderActor
   /// File-backed sidecar store. `nil` for sourceless assets (PhotoKit, self-
   /// hosted API) where sidecar persistence goes through the source's
@@ -374,11 +389,15 @@ public final class EditSession {
   @ObservationIgnored let primarySidecarStore: (any SidecarStoreProtocol)?
   /// Tail of the existing sidecar forwarding tasks, joined by an exit flush.
   @ObservationIgnored var sidecarUpdateTask: Task<Void, Never>?
-
+  /// Blocks sidecar/preview writes during asset rename and tracks in-flight edits (#4711).
+  @ObservationIgnored var sidecarWritesDisabled = false
+  @ObservationIgnored var sidecarDirtyWhileDisabled = false
+  @ObservationIgnored var sidecarUpdateGeneration: UInt64 = 0
+  @ObservationIgnored var confirmedSidecarGeneration: UInt64 = 0
   /// Owns pending preview/debounce/write lifetime; session guards remain here.
   @ObservationIgnored let previewPersistence: DisplayPreviewPersistence
-
   @ObservationIgnored var sidecarErrorTask: Task<Void, Never>?
+  @ObservationIgnored var sidecarReconciliationTask: Task<Void, Never>?
 
   /// The wgpu live-render driver (epic #925, P4b-apple / #1028). Created
   /// lazily ONLY when the runtime flag is on (`GpuLiveFlag.isEnabled` —
@@ -395,6 +414,8 @@ public final class EditSession {
   /// for every session pre-created by the browse grid, and it should not
   /// write sidecars back out while reading them.
   @ObservationIgnored var isHydratingInitialState = false
+  @ObservationIgnored var queuedCullingPatch: CullingPatch?
+  @ObservationIgnored var cullingEditTail: Task<Error?, Never>?
 
   /// Flips on when a caller actually asks this session for pixels. The app
   /// primes sessions for every folder asset so metadata/culling is ready,
@@ -422,7 +443,7 @@ public final class EditSession {
   @ObservationIgnored public lazy var maskRasterStore = MaskRasterStore(
     directory: maskCacheDirectory())
 
-  /// Bitmap rasters re-expressed per crop / native-detail window (#355) — see `EditSession+MaskRemap.swift`.
+  /// Bitmap rasters re-expressed per GPU-live crop (#355) — see `EditSession+MaskRemap.swift`.
   @ObservationIgnored let maskRemapRasters = MaskRemapRasterCache()
 
   /// The mask panel's selection — the highlighted row, whose sliders show, and the scope HUD's target.
@@ -454,14 +475,6 @@ public final class EditSession {
   /// Current brush tip (#360) — tool state, not layer state: every dab the
   /// overlay stamps copies these values in.
   public var brushTip: BrushTip = .default
-
-  struct ActiveBrushStroke {
-    var maskId: UUID
-    var width: Int
-    var height: Int
-    var accumulator: [Float]
-    var currentDigest: String
-  }
 
   /// Incremental accumulator kept alive between `beginBrushStroke` and
   /// `endBrushStroke` (#4416) so a drag does not re-rasterize the entire dab series.
@@ -525,17 +538,11 @@ public final class EditSession {
     self.pipeline = pipeline
     self.nativeDetailRenderer = NativeDetailRenderer()
     self.renderActor = RenderActor(pipeline: pipeline, rawRenderSource: rawSource)
-    if let url = asset.primaryURL {
-      // Local-file asset — write to the .xmp sidecar next to the RAW.
-      self.primarySidecarStore = XMPSidecarStore(rawURL: url)
-    } else if let remote = remoteSidecarStore {
-      // Cloud-backed (or PhotoKit) asset — caller injects a remote
-      // store that round-trips through the API.
-      self.primarySidecarStore = remote
-    } else {
-      // Sourceless and no remote store wired — edits are session-local.
-      self.primarySidecarStore = nil
-    }
+    // Local files own a revision-guarded XMP store; cloud/PhotoKit use the
+    // injected store, and sourceless sessions stay in memory.
+    let localSidecarStore = asset.primaryURL.map { XMPSidecarStore(rawURL: $0) }
+    self.primarySidecarStore =
+      localSidecarStore.map { $0 as any SidecarStoreProtocol } ?? remoteSidecarStore
 
     // Preview sink parallels the sidecar store (#2009): a local file next
     // to the RAW for URL-backed assets, else the injected cloud uploader,
@@ -543,7 +550,8 @@ public final class EditSession {
     if let url = asset.primaryURL {
       self.previewPersistence = DisplayPreviewPersistence(
         sink: LocalDisplayPreviewSink(
-          previewURL: MapleSidecarPaths.previewURL(for: url), scopeParentURL: asset.scopeParentURL))
+          previewURL: MapleSidecarPaths.previewURL(for: url), assetURL: url,
+          scopeParentURL: asset.scopeParentURL, sidecarStore: localSidecarStore))
     } else {
       self.previewPersistence = DisplayPreviewPersistence(sink: remotePreviewSink)
     }
@@ -552,7 +560,6 @@ public final class EditSession {
   }
 
   deinit {
-    sidecarErrorTask?.cancel()
+    for task in [sidecarErrorTask, sidecarReconciliationTask] { task?.cancel() }
   }
-
 }

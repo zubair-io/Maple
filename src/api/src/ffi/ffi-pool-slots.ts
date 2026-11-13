@@ -49,6 +49,9 @@ export interface PendingRequest {
   post: (w: PoolWorker) => void;
   onResponse: (msg: FfiResponse) => boolean;
   onError: (err: Error) => void;
+  /** Terminate the child after this call: a develop leaves gigabytes of freed
+   * heap mapped in the child, which no later reservation accounts for (#5467). */
+  retireWorkerAfter?: boolean;
 }
 
 /** A worker slot. `inFlight` is the request currently running on it (null =
@@ -66,6 +69,7 @@ export class WorkerSlotPool {
   private queue: PendingRequest[] = [];
   private targetSize = DEFAULT_FFI_WORKERS;
   private spawnFailed = false;
+  private everSpawned = false;
   private shuttingDown = false;
   private readonly workerFactory: WorkerFactory;
 
@@ -199,9 +203,12 @@ export class WorkerSlotPool {
     try {
       w = this.workerFactory();
     } catch (e) {
-      // First spawn failure latches: the worker module is unusable, so don't
-      // retry on every request. Reject all queued work so callers don't hang.
-      this.spawnFailed = true;
+      // A failure before any child ever started latches: the worker module is
+      // unusable, so don't retry on every request. Once a child has run, a
+      // failure is transient (children are retired after each develop, #5467),
+      // so the next request tries again. Either way, reject queued work so
+      // callers don't hang.
+      this.spawnFailed = !this.everSpawned;
       const err = new Error(
         'ffi-pool: failed to spawn worker — ' + (e instanceof Error ? e.message : String(e)),
       );
@@ -210,6 +217,7 @@ export class WorkerSlotPool {
       return null;
     }
 
+    this.everSpawned = true;
     const slot: WorkerSlot = { worker: w, inFlight: null, surplus: false };
 
     w.addEventListener('message', (event) => this.onWorkerMessage(slot, event.data as FfiResponse));
@@ -260,18 +268,15 @@ export class WorkerSlotPool {
         ),
       );
     }
-    this.releaseSlot(slot);
+    this.releaseSlot(slot, req.retireWorkerAfter === true);
   }
 
-  /** A worker finished its call. Terminate it if it was retired on a shrink,
-   * otherwise hand it the next queued request. */
-  private releaseSlot(slot: WorkerSlot): void {
+  /** A worker finished its call. Terminate it if it was retired on a shrink
+   * or by its request, then hand queued work to the remaining (or a fresh) child. */
+  private releaseSlot(slot: WorkerSlot, retire: boolean): void {
     slot.inFlight = null;
-    if (slot.surplus) {
-      this.terminateSlot(slot);
-      return;
-    }
-    this.dispatch();
+    if (slot.surplus || retire) this.terminateSlot(slot);
+    if (!slot.surplus) this.dispatch();
   }
 
   private terminateSlot(slot: WorkerSlot): void {

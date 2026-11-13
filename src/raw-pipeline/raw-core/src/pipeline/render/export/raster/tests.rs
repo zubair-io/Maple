@@ -324,3 +324,66 @@ fn oriented_editor_base_matches_export_with_asymmetric_grain() {
     ));
     assert!(decode_raster_base(&tagged, 0, crate::CancelToken::never()).is_err());
 }
+
+#[test]
+fn raster_export_does_not_invent_a_sensor_iso() {
+    let pixels = RgbImage::from_fn(64, 48, |x, y| Rgb([(x * 4) as u8, (y * 5) as u8, 110]));
+    let mut bytes = Cursor::new(Vec::new());
+    DynamicImage::ImageRgb8(pixels)
+        .write_to(&mut bytes, image::ImageFormat::Png)
+        .unwrap();
+    let bytes = bytes.into_inner();
+    let original = bytes.clone();
+    let edits = AdjustmentModel::default();
+    let (w, h, base) = decode_raster_base(&bytes, 64, crate::CancelToken::never()).unwrap();
+    let predict = |iso| {
+        let options = ChainOptions {
+            skip_agx: true,
+            iso,
+            ..Default::default()
+        };
+        let scene =
+            crate::pipeline::apply_scene_linear_chain_f32(&base, w, h, &edits, &options).unwrap();
+        let encoded = crate::pipeline::encode_display_srgb_f32(&scene, w, h).unwrap();
+        encoded
+            .chunks_exact(4)
+            .flat_map(|p| {
+                p[..3]
+                    .iter()
+                    .map(|v| (v.clamp(0.0, 1.0) * 255.0).round() as u8)
+            })
+            .collect::<Vec<_>>()
+    };
+    let expected = predict(0);
+    let legacy = predict(100);
+    assert!(
+        expected
+            .iter()
+            .zip(&legacy)
+            .any(|(a, b)| a.abs_diff(*b) > 1),
+        "fixture must distinguish unknown from invented ISO"
+    );
+    let (_, _, ExportPixels::Eight(actual)) = render_export_raster(
+        &bytes,
+        &edits,
+        None,
+        TargetPrimaries::Srgb,
+        ExportDepth::Eight,
+        None,
+    )
+    .unwrap() else {
+        panic!("RGB8 export")
+    };
+    assert_eq!(actual.len(), expected.len());
+    let worst = actual
+        .iter()
+        .zip(&expected)
+        .map(|(a, b)| a.abs_diff(*b))
+        .max()
+        .unwrap();
+    assert!(
+        worst <= 1,
+        "unknown sensor metadata must match explicit ISO0, allowing only terminal dither: {worst}"
+    );
+    assert_eq!(bytes, original);
+}

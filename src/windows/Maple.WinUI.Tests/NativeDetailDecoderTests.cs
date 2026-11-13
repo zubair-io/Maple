@@ -76,7 +76,8 @@ public class NativeDetailDecoderTests
         Assert.Equal(anchor.AeGain, patch.Image.AeGain);
         Assert.Equal(anchor.WhitesAnchorEv, patch.Image.WhitesAnchorEv);
         Assert.Equal(anchor.DecodedTemperature, patch.Image.DecodedTemperature);
-        Assert.Same(anchor.WbFrame, patch.Image.WbFrame);
+        Assert.NotNull(anchor.Creative);
+        Assert.Same(anchor.Creative, patch.Image.Creative);
         Assert.Same(anchor.NoiseProfile, patch.Image.NoiseProfile);
         Assert.All(patch.Image.Pixels, value => Assert.True(float.IsFinite(value)));
         await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() => decoder.DecodeAsync(path, model, anchor,

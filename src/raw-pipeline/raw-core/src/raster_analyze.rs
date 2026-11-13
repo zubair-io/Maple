@@ -127,7 +127,7 @@ fn metadata_reply(
         "channels": channels,
         "orientation": probe.orientation,
         "hasAlpha": fields.source_channels.map(|n| n == 2).unwrap_or(probe.has_alpha),
-        "hasProfile": sidecars.icc.is_some(),
+        "hasProfile": sidecars.icc.is_some() || fields.has_profile,
         "space": space,
         "depth": depth,
         "density": sidecars.density,
@@ -371,8 +371,13 @@ fn header_fields<R: std::io::BufRead + std::io::Seek>(
                 path: "<metadata>".into(),
                 source,
             })?;
+        let probe = crate::avif_decode::probe_avif_reader(reader)?;
         crate::raster_metadata_fields::HeaderFields {
-            bits_per_sample: Some(crate::avif_decode::probe_avif_reader(reader)?.bit_depth),
+            bits_per_sample: Some(probe.bit_depth),
+            color_primaries: fields.color_primaries.or(Some(probe.color_primaries)),
+            transfer_characteristics: fields
+                .transfer_characteristics
+                .or(Some(probe.transfer_characteristics)),
             ..fields
         }
     } else {

@@ -1,4 +1,3 @@
-import { PIPELINE_OUTPUT_VERSION } from '../src/generated/adjustment-fields.generated.ts';
 /**
  * Concurrent-writer / no-partial-AVIF test: `PUT /api/preview` racing the
  * `preview` worker stage's own writer (#1997, epic #1993 stage 5's
@@ -64,7 +63,6 @@ describe('PUT /api/preview racing the `preview` stage — no partial AVIF (#1997
       new Request(`http://localhost/api/preview?path=${encodeURIComponent(path)}`, {
         method: 'PUT',
         headers: {
-          'x-maple-pipeline-version': String(PIPELINE_OUTPUT_VERSION),
           'content-type': 'image/avif',
         },
         body: Buffer.isBuffer(body) ? new Uint8Array(body) : body,

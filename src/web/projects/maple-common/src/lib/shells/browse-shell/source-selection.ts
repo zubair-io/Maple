@@ -42,6 +42,7 @@ function findEntry(entries: readonly SidebarEntry[], id: string): SidebarEntry |
  */
 export function selectSidebarEntry(state: LibraryStateService, id: string): void {
   if (state.viewMode() !== 'folder') state.setViewMode('folder');
+  if (state.backend === 'hosted' && state.activateHostedFolder(id)) return;
   const absPath = findEntry(state.sidebarTree(), id)?.absPath;
   if (absPath || id.includes(':')) {
     // After M2, id is `slug:relPath`; derive relPath from it when there's no

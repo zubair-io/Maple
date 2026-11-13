@@ -182,5 +182,8 @@ fn eval_monotonic_cubic(curve: &PreparedCurve, x: f32) -> f32 {
     let h10 = t3 - 2.0 * t2 + t;
     let h01 = -2.0 * t3 + 3.0 * t2;
     let h11 = t3 - t2;
-    h00 * knots[i].1 + h10 * dx * curve.tangents[i] + h01 * knots[i + 1].1 + h11 * dx * curve.tangents[i + 1]
+    h00 * knots[i].1
+        + h10 * dx * curve.tangents[i]
+        + h01 * knots[i + 1].1
+        + h11 * dx * curve.tangents[i + 1]
 }

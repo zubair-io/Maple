@@ -1,5 +1,6 @@
 // Asset domain model — matches the shape used in _design-reference/lib/data.jsx.
 
+import type { AssetStack } from './asset-stack';
 import type { ColorLabelValue } from './color-label';
 
 export type AssetId = string;
@@ -93,6 +94,12 @@ export interface Asset {
   /** True when the asset is a video file. Batch-metadata path is unchanged
    *  (server detects extension); this field is for UI badges. */
   isVideo?: boolean;
+
+  /** One half of a paired Live Photo; `partnerId` is the other half's asset id. */
+  livePhoto?: { role: 'still' | 'clip'; partnerId: AssetId };
+
+  /** The same-stem JPEG folded into this RAW's tile (#5050); this asset is the primary. */
+  stack?: AssetStack;
 
   // IPTC
   title?: string;

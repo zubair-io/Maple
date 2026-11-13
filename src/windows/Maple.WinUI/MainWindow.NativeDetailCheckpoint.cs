@@ -48,7 +48,7 @@ public sealed partial class MainWindow
         await _detailWork;
         if (!ReferenceEquals(photo, ViewModel.SelectedPhoto) || ContentFitRect() is not { } fit)
             throw new InvalidOperationException("Native checkpoint lost current source ownership or layout.");
-        var physicalScale = fit.W * ViewerScroll.ZoomFactor * DisplayScale / geometry.CropWidth;
+        var physicalScale = fit.W * ZoomPanTransform.ScaleX * DisplayScale / geometry.CropWidth;
         if (Math.Abs(physicalScale - 1) > .002 || !ZoomReadout.Text.StartsWith("100%"))
             throw new InvalidOperationException($"Actual Size physical scale is incorrect: {physicalScale}, {ZoomReadout.Text}");
         if (tileFallback)
