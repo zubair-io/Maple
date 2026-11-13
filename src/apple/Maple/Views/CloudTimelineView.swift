@@ -83,8 +83,9 @@ struct CloudTimelineView: View {
         }
         ForEach(vm.buckets, id: \.bucketKey) { bucket in
           let bucketKey = CloudTimelineViewModel.BucketKey(year: bucket.year, month: bucket.month)
+          // `stackingRevision`: a RAW+JPEG stacking change reloads the months on screen (#5050).
           let sectionTaskID =
-            "\(vm.ownerID ?? "all"):\(CloudTimelineViewVM.bucketKey(year: bucket.year, month: bucket.month))"
+            "\(vm.ownerID ?? "all"):\(CloudTimelineViewVM.bucketKey(year: bucket.year, month: bucket.month)):\(vm.stackingRevision)"
           CloudTimelineMonthSection(
             year: bucket.year,
             month: bucket.month,

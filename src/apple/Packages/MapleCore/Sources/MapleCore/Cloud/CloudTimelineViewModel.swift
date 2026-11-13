@@ -16,6 +16,9 @@ public final class CloudTimelineViewModel {
 
   public private(set) var ownerID: String?
   public private(set) var pageLoadRevision = 0
+  /// Bumped once a stacking change has reloaded the months; the month sections' load tasks key on
+  /// it so the visible months fetch their pages again (#5050).
+  public private(set) var stackingRevision = 0
   public let ownerFilter: AssetOwnerFilterModel
 
   /// Local photos have no server owner; only All owners includes them.
@@ -203,6 +206,18 @@ public final class CloudTimelineViewModel {
     loadError = nil
     isLoadingBuckets = false
     recomputeBuckets()
+  }
+
+  /// The server's 'Show one image for RAW+JPEG pairs' changed (#5050): every page held here and in
+  /// the on-disk cache was folded, or not, by the old value. Drop them and reload the months, then
+  /// bump `stackingRevision` so the visible months fetch again, never mixing the two.
+  public func reloadForStackingChange() async {
+    _ = bumpGeneration()
+    pagesByBucket = [:]
+    mergedPagesByBucket = [:]
+    await pagesCache.clearLibrary(host: server.cacheHostKey, libraryID: libraryID)
+    await loadBuckets()
+    stackingRevision &+= 1
   }
 
   public var ownerFacetParams: SearchParams {

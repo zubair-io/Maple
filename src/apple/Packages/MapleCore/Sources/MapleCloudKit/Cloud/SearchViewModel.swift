@@ -154,19 +154,6 @@ public final class SearchViewModel {
   /// selected person / place).
   public var unifiedFilterCount: Int { params.unifiedFilterCount }
 
-  /// Facet rows for the filter panel's PEOPLE section ([] until the first
-  /// facets response, or on servers predating the field).
-  public var peopleFacets: [ValueFacet] { facets?.people ?? [] }
-
-  /// Facet rows for the filter panel's PLACES section.
-  public var placeFacets: [ValueFacet] { facets?.places ?? [] }
-
-  /// Live "Show N results" count for the current filter set — the facets
-  /// total when one is loaded, else the result-list total.
-  public var facetTotal: Int { facets?.total ?? total }
-  /// Which matches the facet rows count (#4431); `.all` until facets load.
-  public var facetScope: FacetScope { facets?.scope ?? .all }
-
   // MARK: - Loaders
 
   /// Debounced text-input handler. Coalesces rapid keystrokes into one
@@ -409,6 +396,21 @@ public final class SearchViewModel {
   /// changed.
   public func submitIfChanged() async {
     if params != lastSubmittedParams { await submit() }
+  }
+
+  /// The server's 'Show one image for RAW+JPEG pairs' changed (#5050): every page and facet held
+  /// was folded, or not, by the old value. Drop them and re-run the shown search from page 0, so
+  /// one result set never mixes folded and unfolded pages. Collections (not stack-aware) and the
+  /// idle page (nothing searched) are left alone.
+  public func refreshForStackingChange() async {
+    pageCache = [:]
+    facetCache = [:]
+    guard collectionPager == nil, let submitted = lastSubmittedParams else { return }
+    let searched =
+      !submitted.q.isEmpty || !submitted.placeQuery.isEmpty || submitted.hasActiveFilters
+      || submitted.hasUnifiedFilters
+    guard searched || !results.isEmpty || isLoading else { return }
+    await submit()
   }
 
   /// Fetch the next page and append. No-ops when a load is already in

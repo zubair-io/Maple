@@ -94,7 +94,8 @@ struct AllSourcesTimelineView: View {
             }
           )
           .id(sectionTaskID)
-          .task(id: sectionTaskID) {
+          // `stackingRevision`: a RAW+JPEG stacking change reloads the months on screen (#5050).
+          .task(id: "\(sectionTaskID):\(vm.stackingRevision)") {
             await vm.loadPage(year: bucket.year, month: bucket.month)
           }
         }
