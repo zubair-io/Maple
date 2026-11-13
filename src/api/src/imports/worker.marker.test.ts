@@ -179,6 +179,33 @@ test('a marked name that cannot be read fails the group and keeps the marker; no
   expect(third.handed).toEqual([imp.landed('IMG.dng')]);
 });
 
+test('a sidecar recorded failed follows its renamed image, so a retry copies it beside that image and no other', async () => {
+  using live = await createLiveTestDatabase();
+  const imp = await pendingImport(live.db, 'failed-follows', IMAGE_WITH_SIDECAR);
+  await place(imp.landed('IMG.dng'), 'a different photo with the same name');
+  await attemptKilledAfter(1, imp.importId);
+  await fs.chmod(imp.landed('IMG-1.dng'), 0o000);
+  await attemptKilledAfter(2, imp.importId, 'second');
+  await fs.chmod(imp.landed('IMG-1.dng'), 0o644);
+  expect(await states(imp.id)).toEqual(['failed', 'pending']);
+  expect(await dests(imp.id)).toEqual([`${DIR}/IMG.xmp`, `${DIR}/IMG.dng`]);
+
+  await attemptThatFinishes(imp.importId, {}, 'third');
+
+  expect(await states(imp.id)).toEqual(['failed', 'copied']);
+  expect(await dests(imp.id)).toEqual([`${DIR}/IMG-1.xmp`, `${DIR}/IMG-1.dng`]);
+
+  expect(await retryImport(imp.id)).toBe(true);
+  const fourth = await attemptThatFinishes(imp.importId, {}, 'fourth');
+
+  expect(await imp.landedNames()).toEqual(['IMG-1.dng', 'IMG-1.xmp', 'IMG.dng']);
+  expect(await fs.readFile(imp.landed('IMG-1.xmp'), 'utf8')).toBe(imp.bytes('IMG.xmp'));
+  expect(await states(imp.id)).toEqual(['copied', 'copied']);
+  expect((await repo.getImport(imp.id))!.counts).toEqual({ copied: 2, skipped: 0, failed: 0 });
+  expect(fourth.handed).toEqual([imp.landed('IMG-1.dng')]);
+  expect(fourth.rearmed).toEqual(['IMG-1.dng']);
+});
+
 test('a sidecar that cannot be read where an earlier attempt left it fails that one file, and the import goes on', async () => {
   using live = await createLiveTestDatabase();
   const imp = await pendingImport(live.db, 'unreadable-sidecar', [

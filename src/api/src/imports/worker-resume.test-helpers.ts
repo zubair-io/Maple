@@ -142,13 +142,13 @@ export function observedRunner(
   return { runner, handed, rearmed };
 }
 
-/** A first attempt whose worker is killed at the write after `writes` clock-reading ones. */
-export async function attemptKilledAfter(writes: number, importId: string) {
-  const first = observedRunner({ now: clockOfWorkerKilledAfter(writes) });
-  await expect(first.runner.run(importId, recordedAttempt('first'))).rejects.toThrow(
+/** An attempt whose worker is killed at the write after `writes` clock-reading ones. */
+export async function attemptKilledAfter(writes: number, importId: string, identity = 'first') {
+  const killed = observedRunner({ now: clockOfWorkerKilledAfter(writes) });
+  await expect(killed.runner.run(importId, recordedAttempt(identity))).rejects.toThrow(
     'worker killed',
   );
-  return first;
+  return killed;
 }
 
 /** An attempt that must end the import `done`. */

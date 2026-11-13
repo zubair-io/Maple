@@ -54,10 +54,14 @@ async function placeInterruptedSidecar(
 
 /**
  * Copies the still-pending sidecars of a primary that is already at
- * `landedDest` and re-records everything else unchanged. When a sidecar newly
- * lands next to an image the library already indexed, the image is handed to
- * the indexer again and its sidecar-metadata index is re-armed, because that
- * stage may already have settled on "no sidecar" for it.
+ * `landedDest` and re-records everything else with its outcome unchanged. When
+ * the primary landed under a new name, every sidecar row that is not copied
+ * takes the name beside it, a failed one included: a later retry copies a
+ * failed sidecar to the destination its row names, and the old name is beside
+ * a different image. When a sidecar newly lands next to an image the library
+ * already indexed, the image is handed to the indexer again and its
+ * sidecar-metadata index is re-armed, because that stage may already have
+ * settled on "no sidecar" for it.
  *
  * `interrupted` marks a group an earlier attempt started: its primary carried a
  * publish marker. That attempt may have put sidecars in place without recording
@@ -87,22 +91,23 @@ export async function resumeLandedPrimary(args: {
   // a fresh copy takes the sidecars an earlier run skipped with it as well.
   const outstanding = (state: ImportFileEntry['state']): boolean =>
     state === 'pending' || (primary.state !== 'copied' && state === 'skipped_duplicate');
-  const pending = sidecarDestsBeside(
+  const toPlace = sidecarIndexes.filter((index) => outstanding(files[index].state));
+  const followers = sidecarDestsBeside(
     files,
     primaryIndex,
-    sidecarIndexes.filter((index) => outstanding(files[index].state)),
+    sidecarIndexes.filter((index) => files[index].state !== 'copied'),
     landedDest,
   );
-  const destOf = new Map(pending.map((sidecar) => [sidecar.index, sidecar.destRel]));
-  if (!interrupted && pending.length > 0) await seams.markPublishing(primaryIndex, landedDest);
-  await record(primaryIndex, 'copied', null, landedDest, renamedSidecars(files, pending));
+  const destOf = new Map(followers.map((sidecar) => [sidecar.index, sidecar.destRel]));
+  if (!interrupted && toPlace.length > 0) await seams.markPublishing(primaryIndex, landedDest);
+  await record(primaryIndex, 'copied', null, landedDest, renamedSidecars(files, followers));
 
   let newlyCopied = 0;
   for (const sIdx of sidecarIndexes) {
     const sidecar = files[sIdx];
-    const destRel = destOf.get(sIdx);
-    if (destRel === undefined) {
-      await record(sIdx, sidecar.state, sidecar.error, sidecar.dest);
+    const destRel = destOf.get(sIdx) ?? sidecar.dest;
+    if (!toPlace.includes(sIdx)) {
+      await record(sIdx, sidecar.state, sidecar.error, destRel);
       continue;
     }
     const r = interrupted
