@@ -29,6 +29,7 @@ import type { ImportStatus } from '../schema.ts';
 import { isSafeFilename } from '../../backup/path-formatter.ts';
 import { isSafeLabel } from '../../imports/dest.ts';
 import { changesAt, sqliteDb, type SqliteDb } from './db-handle.ts';
+import { getImportPublishingDests } from './imports.publishing.ts';
 import { getImport, getImportFiles, type ImportFileEntryWithIdx } from './imports.repo.ts';
 import { placeholders, toHex } from './values.ts';
 
@@ -69,8 +70,8 @@ function destIsSafe(dest: string): boolean {
  * Split the file rows into the failures worth re-attempting and the ones that
  * must stay failed. A file whose destination is permanently unsafe (a backslash
  * filename, say, which can never pass `destRelPath`) is never resurrected.
- * Copied, skipped and pending rows are untouched: an already-copied image
- * dedup-skips on the re-run, so nothing is re-copied.
+ * Copied, skipped and pending rows are untouched: an already-copied image is
+ * recognised on the re-run, so nothing is re-copied.
  */
 function partitionFailures(fileRows: ImportFileEntryWithIdx[]): {
   recoverableIdxs: number[];
@@ -167,6 +168,12 @@ async function requeueRecoveredFiles(
  * the guard and something was actually re-queued; false otherwise — not found,
  * not retryable, or nothing recoverable.
  *
+ * A `failed` import that still has `pending` files, or a publish marker, stopped
+ * partway on an error that was not about any one file, and may have left a file
+ * in the library that no row accounts for or an image that was never handed to
+ * the indexer. It is re-queued even with no failed file to reset: the next
+ * attempt finishes that group from its publish marker.
+ *
  * Two recovery shapes (#800), chosen by whether the import produced file rows
  * at all: see {@link requeueForRescan} and {@link requeueRecoveredFiles}.
  */
@@ -190,11 +197,16 @@ export async function retryImport(
   }
 
   const { recoverableIdxs, stillFailed } = partitionFailures(fileRows);
-  // Nothing recoverable among the file rows — a no-op retry is not meaningful,
-  // because only permanently-unsafe failures remain. The fileless case is
-  // handled by the re-scan branch above, so reaching here means there ARE file
-  // rows and re-scanning would not help: the names are still unsafe.
-  if (recoverableIdxs.length === 0) return false;
+  const stoppedPartway =
+    doc.status === 'failed' &&
+    (fileRows.some((file) => file.state === 'pending') ||
+      (await getImportPublishingDests(id, db)).size > 0);
+  // Nothing recoverable among the file rows and nothing left unprocessed — a
+  // no-op retry is not meaningful, because only permanently-unsafe failures
+  // remain. The fileless case is handled by the re-scan branch above, so
+  // reaching here means there ARE file rows and re-scanning would not help:
+  // the names are still unsafe.
+  if (recoverableIdxs.length === 0 && !stoppedPartway) return false;
 
   return requeueRecoveredFiles(
     db,

@@ -12,6 +12,7 @@
 import { describe, expect, test } from 'bun:test';
 import { ObjectId } from '../object-id.ts';
 import { createImport, getImport, getImportFiles } from './imports.repo.ts';
+import { getImportPublishingDests } from './imports.publishing.ts';
 import { retryImport } from './imports.retry.ts';
 import {
   createTestDatabase,
@@ -117,6 +118,74 @@ describe('retryImport — the guard', () => {
     // The copied file is left alone; only the failure is re-queued.
     expect(files.map((file) => file.state)).toEqual(['copied', 'pending']);
     expect(files[1]!.error).toBeNull();
+  });
+});
+
+describe('retryImport — an import that stopped partway', () => {
+  test('a failed import with files still pending is re-queued with nothing to reset, and keeps its publish marker', async () => {
+    using handle = await createTestDatabase();
+    const db = testSqliteDb(handle.db);
+    const library = new ObjectId(insertFolder(handle.db));
+
+    const id = await seedImport(db, library, [
+      entry({ state: 'copied' }),
+      entry({ src: '/inbox/IMG_2.dng', dest: '2026/04/IMG_2.dng' }),
+      entry({ src: '/inbox/IMG_2.xmp', dest: '2026/04/IMG_2.xmp', kind: 'sidecar' }),
+    ]);
+    run(
+      handle.db,
+      `UPDATE import_files SET publishing_dest = '2026/04/IMG_2-1.dng' WHERE import_id = ? AND idx = 1`,
+      id.toHexString(),
+    );
+    finish(handle.db, id, 'failed', { copied: 1, skipped: 0, failed: 0 }, 'database is locked');
+
+    expect(await retryImport(id, undefined, db)).toBe(true);
+
+    const after = (await getImport(id, db))!;
+    expect(after.status).toBe('pending');
+    expect(after.error).toBeNull();
+    expect(after.locked_by).toBeNull();
+    expect(after.scan_pending).toBe(false);
+    expect(after.counts).toEqual({ copied: 1, skipped: 0, failed: 0 });
+    expect((await getImportFiles(id, db)).map((file) => file.state)).toEqual([
+      'copied',
+      'pending',
+      'pending',
+    ]);
+    expect([...(await getImportPublishingDests(id, db))]).toEqual([[1, '2026/04/IMG_2-1.dng']]);
+  });
+
+  test('a failed import whose files are all recorded but which still carries a marker is re-queued', async () => {
+    using handle = await createTestDatabase();
+    const db = testSqliteDb(handle.db);
+    const library = new ObjectId(insertFolder(handle.db));
+
+    const id = await seedImport(db, library, [entry({ state: 'copied' })]);
+    finish(handle.db, id, 'failed', { copied: 1, skipped: 0, failed: 0 }, 'database is locked');
+    expect(await retryImport(id, undefined, db)).toBe(false);
+
+    run(
+      handle.db,
+      `UPDATE import_files SET publishing_dest = dest WHERE import_id = ?`,
+      id.toHexString(),
+    );
+    expect(await retryImport(id, undefined, db)).toBe(true);
+    expect((await getImport(id, db))!.status).toBe('pending');
+  });
+
+  test('a pending file does not make a done import retryable when its only failure is unrecoverable', async () => {
+    using handle = await createTestDatabase();
+    const db = testSqliteDb(handle.db);
+    const library = new ObjectId(insertFolder(handle.db));
+
+    const id = await seedImport(db, library, [
+      entry({ src: '/inbox/x.dng', dest: 'x.dng', state: 'failed', error: 'unsafe dest' }),
+      entry({ src: '/inbox/IMG_2.dng', dest: '2026/04/IMG_2.dng' }),
+    ]);
+    finish(handle.db, id, 'done', { copied: 0, skipped: 0, failed: 1 });
+
+    expect(await retryImport(id, undefined, db)).toBe(false);
+    expect((await getImport(id, db))!.status).toBe('done');
   });
 });
 
