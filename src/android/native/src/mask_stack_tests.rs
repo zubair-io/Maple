@@ -201,3 +201,55 @@ fn a_container_binding_a_canonical_prefix_elsewhere_is_never_declared_twice() {
         );
     }
 }
+
+/// raw-core renders radial, then linear.
+fn assert_radial_then_linear(saved: &Sidecar) {
+    let stack = rendered(&saved.xml);
+    let masks: Vec<&Mask> = stack.iter().map(|layer| &layer.mask).collect();
+    assert!(
+        matches!(masks[..], [Mask::Radial { .. }, Mask::Linear { .. }]),
+        "{}",
+        saved.xml
+    );
+}
+
+#[test]
+fn a_brush_container_raw_core_drops_whole_never_unkeys_the_stack() {
+    // A linear keyed 2, a radial keyed 1, and an unkeyed brush container one
+    // of whose strokes is a brush version this build cannot read.
+    let stack = android_stack();
+    let mut xml = write(
+        &sidecar(EMPTY),
+        &[new_layer(stack[0].clone()), new_layer(stack[1].clone())],
+    );
+    for (container, key) in [
+        ("<crs:GradientBasedCorrections>", "2"),
+        ("<crs:CircularGradientBasedCorrections>", "1"),
+    ] {
+        let at = xml.find(container).unwrap();
+        let description = at + xml[at..].find("<rdf:Description").unwrap();
+        let attribute = format!(" papp:LayerOrder=\"{key}\"");
+        xml.insert_str(description + "<rdf:Description".len(), &attribute);
+    }
+    let item = |brush: &str| {
+        let end = brush.rfind("</rdf:li>").unwrap() + "</rdf:li>".len();
+        brush[brush.find("<rdf:li>").unwrap()..end].to_owned()
+    };
+    let unreadable = BRUSH.replace("papp:BrushVersion=\"1\"", "papp:BrushVersion=\"99\"");
+    let mixed = BRUSH.replacen(&item(BRUSH), &(item(BRUSH) + &item(&unreadable)), 1);
+    let close = "</crs:CircularGradientBasedCorrections>";
+    let source = through_file(&xml.replacen(close, &format!("{close}{mixed}"), 1));
+    assert_radial_then_linear(&source);
+
+    let mut layers = read(&source);
+    let mut linear = layer_from_json(&layers[1]).unwrap();
+    assert!(
+        matches!(linear.layer.mask, Mask::Linear { .. }),
+        "Android lists raw-core's order"
+    );
+    linear.layer.adjustments.exposure = Some(1.25);
+    layers[1] = layer_json(&linear);
+    let saved = through_file(&write(&source, &layers));
+    assert_radial_then_linear(&saved);
+    assert_eq!(rendered(&saved.xml)[1], linear.layer, "{}", saved.xml);
+}

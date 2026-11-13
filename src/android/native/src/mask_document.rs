@@ -220,6 +220,9 @@ impl Document {
                 let close = text[..seq.span.end]
                     .rfind("</")
                     .ok_or("Malformed sequence")?;
+                // raw-core drops a whole brush container when any one stroke is unreadable.
+                let whole =
+                    rank != 2 || !single_layer(&text[root.span.clone()], &scope)?.is_empty();
                 for (item_index, item) in seq.children.iter().enumerate() {
                     let piece = format!(
                         "{}{}{}",
@@ -237,7 +240,7 @@ impl Document {
                             all_keys(item, &mut keys);
                             keys.first().copied()
                         });
-                    let layer = layers.into_iter().next();
+                    let layer = layers.into_iter().next().filter(|_| whole);
                     let authored = match (&layer, structure) {
                         (Some(layer), Some((description, leaves)))
                             if rank != 2
