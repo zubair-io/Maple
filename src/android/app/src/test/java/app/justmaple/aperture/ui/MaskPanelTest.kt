@@ -195,4 +195,19 @@ class MaskPanelTest {
         compose.runOnIdle { assertNull(model.state.value.maskSelection) }
         assertFalse(document().serialize().contains("MaskGroupBasedCorrections"))
     }
+
+    @Test
+    fun componentEditsReachTheShownComponentAfterUndoingAnAddedOne() {
+        showPanel()
+        click("editor-mask-add-linear")
+        click("editor-mask-add-radial-component")
+        click("editor-mask-add-linear-component")
+        compose.runOnIdle { model.undo() }
+        // The selection still names the third component; the panel shows the second.
+        compose.onNodeWithTag("editor-mask-component-1").assertIsSelected()
+        oneEntry { click("editor-mask-component-combine-subtract") }
+        assertEquals(MaskCombine.Subtract, (layers()[0].shape as MaskGroup).components[1].combine)
+        oneEntry { click("editor-mask-component-invert") }
+        assertTrue((layers()[0].shape as MaskGroup).components[1].invert)
+    }
 }

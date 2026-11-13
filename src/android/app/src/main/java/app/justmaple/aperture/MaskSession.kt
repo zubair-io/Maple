@@ -196,12 +196,14 @@ fun MapleViewModel.selectMaskComponent(index: Int) {
     updateMaskState { it.copy(maskComponent = index) }
 }
 
+/** Edits the component the panel shows: a selection past the group (after an undo) is clamped, as there. */
 private fun MapleViewModel.editComponent(transform: (MaskComponent) -> MaskComponent) {
-    val index = state.value.maskComponent
+    val component = state.value.maskComponent
     editSelected(commit = true) { layer ->
         val group = layer.shape as? MaskGroup ?: return@editSelected layer
+        val index = component.coerceIn(group.components.indices)
         val parts = group.components.toMutableList()
-        parts.getOrNull(index)?.let { parts[index] = transform(it) }
+        parts[index] = transform(parts[index])
         layer.copy(shape = group.copy(components = parts))
     }
 }
