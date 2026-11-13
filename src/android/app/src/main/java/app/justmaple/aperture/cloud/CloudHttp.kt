@@ -17,6 +17,10 @@ import org.json.JSONObject
 internal class CloudStatusException(val status: Int, message: String) :
     IllegalStateException(message)
 
+/** Another account signed in on the connection: requests bound to the previous one stop unsent. */
+internal class CloudAccountChangedException :
+    IOException("The Maple Cloud account changed; these uploads wait for the account that saved them")
+
 internal data class CloudResponse(
     val status: Int,
     private val body: ByteArray,
@@ -60,10 +64,11 @@ internal interface CloudTransport {
 
     fun download(id: String, path: String, output: OutputStream, signal: CancellationSignal? = null)
 
-    fun upload(id: String, path: String, file: File, headers: Map<String, String>): CloudResponse
+    /** Carried only by [account]'s session, including after a token refresh. */
+    fun upload(id: String, path: String, file: File, headers: Map<String, String>, account: String): CloudResponse
 }
 
-internal class CloudHttp(private val credentials: CloudCredentials) : CloudTransport {
+internal class CloudHttp(private val credentials: CloudSessions) : CloudTransport {
     override fun request(
         id: String,
         path: String,
@@ -103,8 +108,13 @@ internal class CloudHttp(private val credentials: CloudCredentials) : CloudTrans
     }
 
     /** Sends the file with a fixed length; the body is re-read if a token refresh retries. */
-    override fun upload(id: String, path: String, file: File, headers: Map<String, String>): CloudResponse =
-        authenticated(id, path, "POST", null, headers, upload = file) { read(it) }
+    override fun upload(
+        id: String,
+        path: String,
+        file: File,
+        headers: Map<String, String>,
+        account: String,
+    ): CloudResponse = authenticated(id, path, "POST", null, headers, upload = file, account = account) { read(it) }
 
     // Logout and refresh share a lane: a refresh cannot publish tokens after removal.
     // The lane is process-wide: the app and the documents provider hold separate
@@ -134,10 +144,11 @@ internal class CloudHttp(private val credentials: CloudCredentials) : CloudTrans
         headers: Map<String, String>,
         upload: File? = null,
         watch: CancellationSignal? = null,
+        account: String? = null,
         read: (HttpURLConnection) -> T,
     ): T {
         require(path.startsWith("/api/"))
-        val server = server(id)
+        val server = server(id).boundTo(account)
         val connection =
             open(
                 server.origin,
@@ -175,7 +186,7 @@ internal class CloudHttp(private val credentials: CloudCredentials) : CloudTrans
                         )
                         .also(credentials::save)
                 }
-            }
+            }.boundTo(account)
         val retry =
             open(
                 renewed.origin,
@@ -195,6 +206,10 @@ internal class CloudHttp(private val credentials: CloudCredentials) : CloudTrans
 
     private fun server(id: String) =
         credentials.servers().find { it.id == id } ?: error("Cloud connection was removed")
+
+    private fun CloudServer.boundTo(account: String?) = also {
+        if (account != null && it.account != account) throw CloudAccountChangedException()
+    }
 
     companion object {
         private val REFRESH_LOCK = Any()

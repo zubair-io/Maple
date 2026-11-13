@@ -430,7 +430,8 @@ const folderRoutesCore = new Elysia({ prefix: '/api/folders' })
     },
   )
 
-  // Streaming upload: body is raw file bytes, target path in X-Maple-Target-Path.
+  // Streaming upload: body is raw file bytes, target path in X-Maple-Target-Path;
+  // `X-Maple-Require-Absent: true` publishes only into a free name (409 otherwise).
   //
   // The route reads `request.body` directly as a Web ReadableStream and
   // pipes it to disk chunk-by-chunk via `Bun.write`. Earlier revisions
@@ -476,6 +477,7 @@ const folderRoutesCore = new Elysia({ prefix: '/api/folders' })
             mtimeHeader: headers['x-maple-file-mtime'],
             ownerId,
             sidecarAdmission,
+            requireAbsent: headers['x-maple-require-absent'] === 'true',
           }),
         );
         set.status = 201;
