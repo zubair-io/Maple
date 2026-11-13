@@ -55,6 +55,8 @@
     "scripts/sqlite-bench/generated-search-load.ts",
     // #5707 — what one Backup settings page load costs, old aggregates vs counters.
     "scripts/sqlite-bench/backup-destination-status.ts",
+    // #5849 — the 0044 migration's cost and the folded count/histogram plans at 1M assets.
+    "scripts/sqlite-bench/raw-jpeg-stacks.ts",
     // #4510 — the worker-tier stand-in `remote-search.test.ts` spawns as a real child.
     "src/search/__fixtures__/remote-search-child.ts"
   ],

@@ -352,17 +352,35 @@ that differs is written out.
 
 | Call site                                            | SQLite                                                                                                     | Index                                              |
 | ---------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- | -------------------------------------------------- |
-| facet total, generated-search preview, buckets total | `COUNT(*)`                                                                                                 | `assets_live`                                      |
+| facet total, generated-search preview, buckets total | `COUNT(*)` (`stack=1`, unfiltered: `AND +stack_primary_id IS NULL`, #5849)                                 | `assets_live`                                      |
 | camera facet                                         | `GROUP BY camera_make, camera_model`                                                                       | `assets_facet_camera`                              |
 | lens facet                                           | `GROUP BY lens`                                                                                            | `assets_facet_lens`                                |
 | places facet                                         | `GROUP BY place_locality, place_region`                                                                    | `assets_facet_place_label`                         |
 | country drill-down                                   | `GROUP BY place_country_code`                                                                              | `assets_facet_place`                               |
-| timeline buckets                                     | `GROUP BY captured_year, captured_month`                                                                   | `assets_live_captured_ym`                          |
+| timeline buckets                                     | `GROUP BY captured_year, captured_month` (`stack=1`, unfiltered: `AND +stack_primary_id IS NULL`)          | `assets_live_captured_ym`                          |
 | screenshot tri-state                                 | `GROUP BY is_screenshot`                                                                                   | `assets_facet_screenshot`                          |
 | scene / activity facets                              | mirrored live/hidden state + `WHERE` nonempty group key + `GROUP BY` it; join for additional asset filters | `asset_detail_scene_type`, `asset_detail_activity` |
 | capture range, ISO range                             | `MIN` / `MAX`                                                                                              | `assets_live_captured`, `assets_facet_iso`         |
 | extension facet                                      | mirrored live/hidden state + `GROUP BY extension` on ordinal 0                                             | `asset_locations_facet_extension`                  |
 | people facet                                         | mirrored live/hidden state + `SELECT person_id, COUNT(DISTINCT asset_id) FROM faces`                       | `faces_facet_person`                               |
+
+`assets_live` and `assets_live_captured_ym` carry `stack_primary_id` as a
+trailing column (migration 0044, #5849), so a search that folds RAW+JPEG
+stacks answers its count and its histogram from the index alone; the grid page
+reads its row anyway and tests the pointer there. The fold carries a unary `+`
+so it is a residual and never a seek: it matches nearly every row, but
+`sqlite_stat1` sees one row per non-null pointer and rates `IS NULL` as nearly
+unique, and once `ANALYZE` has run the planner otherwise skip-scans
+`assets_live` for the histogram, reading every live row and sorting them
+(`search.query-plan.stacks.test.ts`). `assets_stack_primary`, partial over the
+non-null pointers, finds a page's companions. The facet groups do not fold,
+which is what keeps them index-only. A filtered request (`stack=1` plus any
+filter clause, including the map viewport) cannot use the bare residual: the
+RAW might fail a filter its JPEG passes, so the JPEG drops only when its RAW,
+probed by primary key in an `EXISTS`, passes the same clauses (`stackFold` in
+`db/repos/search.where.ts`). That probe runs only for
+the paired JPEGs the other clauses let through. Generated-search previews and
+counts never fold.
 
 The vision facets are the one row where the exclusion is load-bearing rather
 than decorative. A bare `GROUP BY vision_scene_type` implies nothing about
@@ -921,6 +939,18 @@ Connection management is not the runner's business. It talks to a `MigrationDb`
 and the worker-backed pool can satisfy with its read / write / transaction
 primitives. The only requirement is that every call lands on the same
 connection with writes serialised, or `BEGIN` means nothing.
+
+### Release notes: one-time upgrade delays
+
+- **0044 (RAW+JPEG stacks, #5849).** The first boot after upgrading rebuilds `assets_live` and
+  `assets_live_captured_ym` and pairs every existing same-stem RAW+JPEG, in one transaction,
+  before the server listens: requests are refused until it finishes, and later boots skip it.
+  It took 7.7 s wall (8.8 s CPU) on a 1,000,000-asset library on an M-series Mac
+  (`scripts/sqlite-bench/raw-jpeg-stacks.ts`); it grows with the library and is several times
+  slower on NAS-class hardware. Do not stop the server during that first boot; a stopped
+  migration rolls back and runs again on the next boot. The boot connection's 5 s
+  `busy_timeout` is safe only because one process migrates (`ensureSchemaAtBoot` has a single
+  caller); a second process migrating the same file at the same time would fail to boot.
 
 ## Measured
 

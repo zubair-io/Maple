@@ -284,10 +284,15 @@ function rangeFacet(where: SearchWhere, column: string, index: string): BoundSta
  * because each wants its own index and the pool can run them concurrently on
  * different readers. That is also how the Mongo route does it, so the shapes
  * line up one to one.
+ *
+ * Only `total` folds RAW+JPEG stacks (#5849), so "Show N results" matches the
+ * list. The groups count files: a stack is a CR3 and a JPG in the extension
+ * facet, and folding them would cost every index-only group its row reads.
  */
-export function facetStatements(where: SearchWhere): Record<FacetName, BoundStatement> {
+export function facetStatements(folded: SearchWhere): Record<FacetName, BoundStatement> {
+  const where: SearchWhere = { ...folded, foldStacks: false };
   return {
-    total: countSql(where),
+    total: countSql(folded),
     cameras: statement(
       'assets.camera_make AS make, assets.camera_model AS model, COUNT(*) AS count',
       where,

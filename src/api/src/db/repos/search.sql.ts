@@ -259,7 +259,8 @@ function rankedPageSql(
 /**
  * The columns of a ranked window's ids that still pass `where` but its text — the page's by
  * default. The ids lead through `CROSS JOIN`, so `assets` is probed by key once per id: given the
- * filters as a bare `WHERE`, the planner walks the live index instead.
+ * filters as a bare `WHERE`, the planner walks the live index instead. The ids were already
+ * folded when they were chosen (`foldRankedStacks`), so the probe does not fold them again.
  */
 export function windowColumnsSql(
   where: SearchWhere,
@@ -268,7 +269,7 @@ export function windowColumnsSql(
 ): BoundStatement {
   const filtered = statement(
     projection,
-    { ...where, match: { kind: 'none' } },
+    { ...where, match: { kind: 'none' }, foldStacks: false },
     '',
     undefined,
     [],

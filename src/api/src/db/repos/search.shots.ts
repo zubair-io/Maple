@@ -20,6 +20,11 @@
  */
 export interface ShotFields {
   owner_id?: string | null;
+  /**
+   * The owner of the shot when it is not the row's own: a RAW+JPEG stack is served as its RAW but
+   * keeps the shot of the JPEG that ranked first (#5849), owner included.
+   */
+  shot_owner_id?: string | null;
   captured_at: string | null;
   media_kind: string;
   filename: string | null;
@@ -57,13 +62,20 @@ export function shotStem(filename: string): string {
   return stem.replace(COPY_MARKERS, '').replace(EXPORT_SUFFIX, '$1').replace(COPY_MARKERS, '');
 }
 
+/** Whose shot a row is: its `shot_owner_id` when it carries one, its own owner otherwise. */
+export function shotOwner(row: ShotFields): string | null | undefined {
+  return row.shot_owner_id === undefined ? row.owner_id : row.shot_owner_id;
+}
+
 /** The shot a row belongs to, or null when the row lacks what the rule needs and stands alone. */
 export function shotKey(row: ShotFields): string | null {
   if (row.captured_at === null || row.filename === null) return null;
   if (row.captured_at.length < CAPTURE_SECOND_LENGTH) return null;
   const stem = shotStem(row.filename);
   const second = row.captured_at.slice(0, CAPTURE_SECOND_LENGTH);
-  return stem.length > 0 ? [row.owner_id ?? '', second, row.media_kind, stem].join('\u0000') : null;
+  return stem.length > 0
+    ? [shotOwner(row) ?? '', second, row.media_kind, stem].join('\u0000')
+    : null;
 }
 
 /**

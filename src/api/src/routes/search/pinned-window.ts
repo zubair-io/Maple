@@ -31,7 +31,7 @@ import {
   type WindowPass,
   type WindowRow,
 } from '../../db/repos/search.ranked.ts';
-import { collapseShots } from '../../db/repos/search.shots.ts';
+import { collapseShots, shotOwner } from '../../db/repos/search.shots.ts';
 import {
   engineRanker,
   firstEngine,
@@ -100,17 +100,42 @@ interface Merged {
   scores: Map<string, number>;
 }
 
-function merge(into: Merged, pass: WindowPass): Merged {
-  const held = new Set(into.copies.map((row) => row.r));
+/**
+ * `into` with the rows of a deeper step it does not hold yet. A row is the same row across steps
+ * by its asset or, when the request folds RAW+JPEG stacks, by its stack: a step that ranked only
+ * the JPEG serves it alone, a deeper step that also ranked the RAW serves the RAW in its place
+ * (`foldRankedStacks`). That RAW takes the JPEG's position, keeping the JPEG's shot, so a stack is
+ * never served twice and every row behind it stays where earlier pages left it.
+ */
+function merge(into: Merged, pass: WindowPass, foldStacks: boolean): Merged {
+  const keyOf = (row: WindowRow) => (foldStacks ? (row.stack_primary_id ?? row.id) : row.id);
+  const copies = [...into.copies];
+  const at = new Map(copies.map((row, index) => [keyOf(row), index] as const));
+  for (const row of pass.copies ?? pass.rows) {
+    const index = at.get(keyOf(row));
+    if (index === undefined) at.set(keyOf(row), copies.push(row) - 1);
+    else copies[index] = stackLeader(copies[index]!, row);
+  }
   const scores = new Map(pass.scores ?? []);
   into.scores.forEach((score, id) => scores.set(id, score));
-  const copies = [...into.copies, ...(pass.copies ?? pass.rows).filter((row) => !held.has(row.r))];
   return {
     rows: collapseShots(copies),
     copies,
     semantic: new Set([...into.semantic, ...(pass.semantic ?? [])]),
     scores,
   };
+}
+
+/**
+ * What a held row stands for once a deeper step served `row` for the same asset or stack: the
+ * stack's RAW in place of the JPEG an earlier step served alone, keeping that JPEG's shot (owner,
+ * capture time, kind, filename) whichever half the deeper step ranked first; its own `owner_id`
+ * stays the RAW's, the document it is served as.
+ */
+function stackLeader(held: WindowRow, row: WindowRow): WindowRow {
+  if (!held.stack_primary_id || row.id !== held.stack_primary_id) return held;
+  const { captured_at, media_kind, filename } = held;
+  return { ...row, shot_owner_id: shotOwner(held), captured_at, media_kind, filename };
 }
 
 /**
@@ -139,7 +164,7 @@ export async function pinnedWindow(
     // The same lookahead `rankWindow` asks for at the cap, so a replayed step ranks as it did.
     const pass = await ranker(depth!, atCap ? 1 : 0);
     if (pass === null) return null;
-    const next = merge(merged, pass);
+    const next = merge(merged, pass, request.where.foldStacks === true);
     if (rest.length > 0) return rank(next, steps, rest);
     const full = pass.considered >= depth!;
     if (next.rows.length < sufficient && full && !atCap) {

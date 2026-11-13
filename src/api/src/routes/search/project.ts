@@ -5,7 +5,9 @@
  * importing the full Elysia app.
  */
 
+import * as path from 'node:path';
 import type { ObjectId } from '../../db/object-id.ts';
+import type { StackCompanionRow } from '../../db/repos/assets.raw-jpeg-stacks.ts';
 import type { AssetOwnerSummary } from '../../db/assets.transform.ts';
 import type { AssetDoc, FileInfo, Place } from '../../db/schema.ts';
 import type { SearchDoc } from '../../db/repos/search.repo.ts';
@@ -60,6 +62,8 @@ export interface SearchResult {
   hidden?: boolean;
   owner_id: string | null;
   owner: AssetOwnerSummary | null;
+  /** RAW results only, when the request folded RAW+JPEG stacks: the JPEG it stands for. */
+  stack?: { companion: SearchStackCompanion };
 }
 
 /**
@@ -143,11 +147,49 @@ export function projectAsset(
   return result;
 }
 
+/**
+ * The JPEG folded into a RAW result (#5849), in the folder listing's companion shape so a client
+ * reads `stack.companion` the same way from either response, plus the JPEG's asset id.
+ */
+export interface SearchStackCompanion {
+  id: string;
+  name: string;
+  address: string | null;
+  path: string;
+  size: number;
+  mtime: string;
+  ext: string;
+}
+
+function stackCompanion(
+  row: StackCompanionRow,
+  libraries: ReadonlyMap<string, string>,
+  idToSlug: ReadonlyMap<string, string>,
+): SearchStackCompanion {
+  const rel = row.path ? `${row.path}/${row.filename}` : row.filename;
+  const slug = idToSlug.get(row.library_id);
+  const root = libraries.get(row.library_id);
+  return {
+    id: row.id,
+    name: row.filename,
+    address: slug ? `${slug}:${rel}` : null,
+    path: root ? path.join(root, rel) : '',
+    size: row.size,
+    mtime: new Date(row.mtime).toISOString(),
+    ext: path.extname(row.filename).slice(1).toLowerCase(),
+  };
+}
+
 /** A page of search documents, each already carrying the owner its hydration resolved. */
 export function projectAssets(
   docs: readonly SearchDoc[],
   libraries: ReadonlyMap<string, string>,
   idToSlug: ReadonlyMap<string, string>,
 ): SearchResult[] {
-  return docs.map((doc) => projectAsset(doc, libraries, idToSlug, doc.owner));
+  return docs.map((doc) => {
+    const result = projectAsset(doc, libraries, idToSlug, doc.owner);
+    return doc.stackCompanion
+      ? { ...result, stack: { companion: stackCompanion(doc.stackCompanion, libraries, idToSlug) } }
+      : result;
+  });
 }

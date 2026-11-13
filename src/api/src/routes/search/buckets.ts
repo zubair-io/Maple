@@ -79,6 +79,7 @@ const BUCKETS_CACHE_KEY_FIELDS = [
   'ownerId',
   'owner_id',
   'owner',
+  'stack',
 ] as const satisfies readonly (keyof SearchQuery)[];
 
 /** Stable JSON serialisation of a SearchQuery. Field order is fixed

@@ -76,6 +76,7 @@ const TOTAL_CACHE_KEY_FIELDS = [
   'ownerId',
   'owner_id',
   'owner',
+  'stack',
 ] as const satisfies ReadonlyArray<keyof SearchQuery>;
 
 /** Stable JSON serialisation of a SearchQuery over `TOTAL_CACHE_KEY_FIELDS`.

@@ -30,3 +30,23 @@ export function pairRawJpegStacks(filenames: readonly string[]): ReadonlyMap<str
     }),
   );
 }
+
+/** One catalogued file of a folder, as the persisted pairing reads it. */
+export interface StackFile {
+  asset_id: string;
+  filename: string;
+}
+
+/**
+ * The persisted form of {@link pairRawJpegStacks} for one folder's catalogued
+ * files: each JPEG's asset id mapped to its RAW's (#5849).
+ */
+export function pairStackAssets(files: readonly StackFile[]): ReadonlyMap<string, string> {
+  const idOf = new Map(files.map((file) => [file.filename, file.asset_id]));
+  return new Map(
+    [...pairRawJpegStacks(files.map((file) => file.filename))].flatMap(([raw, jpeg]) => {
+      const [rawId, jpegId] = [idOf.get(raw), idOf.get(jpeg)];
+      return rawId && jpegId && rawId !== jpegId ? [[jpegId, rawId] as [string, string]] : [];
+    }),
+  );
+}

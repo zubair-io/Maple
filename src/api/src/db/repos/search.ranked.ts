@@ -50,6 +50,14 @@ export interface RankedAsset {
  */
 export interface WindowRow extends RankedAsset, ShotFields {
   maple_id: string | null;
+  /** The RAW a paired JPEG folds into (#5849); a ranked window folds in memory. */
+  stack_primary_id?: string | null;
+  /**
+   * On a stack's RAW, its JPEG (`assets.rowid` and id) when that ranked and passed the filters
+   * too and was folded into it ({@link foldRankedStacks}): the map places the stack by it when
+   * the RAW has no GPS in the viewport, and the facet groups count it, as they count files.
+   */
+  stack_companion?: RankedAsset;
   owner_id: string | null;
 }
 
@@ -63,6 +71,11 @@ export interface WindowPass {
   scores?: ReadonlyMap<string, number>;
   /** The lookahead hits that pass the filters: never served, only read for which shot they are. */
   beyond?: WindowRow[];
+  /**
+   * Lookahead hits folded into a RAW+JPEG stack another hit leads ({@link foldRankedStacks}): the
+   * other half of a photograph already counted, so never a match left past the cap.
+   */
+  foldedBeyond?: number;
   /** Every survivor in rank order, copies of a shot included, when collapsing dropped any. */
   copies?: WindowRow[];
 }
@@ -178,7 +191,8 @@ export function cappedPast(held: readonly WindowRow[], pass: WindowPass, depth: 
   const beyond = pass.beyond ?? [];
   const newShots = collapseShots([...held, ...beyond]).length - held.length;
   const copiesBeyond = beyond.length - newShots;
-  return depth >= RANKED_WINDOW_MAX && pass.considered - copiesBeyond > depth;
+  const others = pass.considered - (pass.foldedBeyond ?? 0) - copiesBeyond;
+  return depth >= RANKED_WINDOW_MAX && others > depth;
 }
 
 /** A pass with one row per shot, keeping every copy aside when that dropped any. */
@@ -225,7 +239,7 @@ function windowOf(pass: WindowPass, depth: number): RankedWindow {
 export function ftsWindowSql(where: SearchWhere, depth: number, lookahead = 0): BoundStatement {
   if (where.match.kind !== 'match') throw new Error('ftsWindowSql: not a text query');
   const narrowing = monthNarrowing(where);
-  const rest = searchWhereSql({ ...where, match: { kind: 'none' } });
+  const rest = searchWhereSql(rankedFilters(where));
   const probed =
     lookahead > 0
       ? {
@@ -245,6 +259,7 @@ export function ftsWindowSql(where: SearchWhere, depth: number, lookahead = 0): 
     alive AS MATERIALIZED (
       SELECT hit.rank AS rank, hit.sr AS sr, assets.rowid AS r, assets.id AS id,
              assets.maple_id AS maple_id, assets.owner_id AS owner_id,
+             assets.stack_primary_id AS stack_primary_id,
              assets.captured_at AS captured_at, assets.media_kind AS media_kind,
              ${LIVE_FILENAME_SQL} AS filename, ${probed.beyond} AS beyond
         FROM hit
@@ -253,6 +268,7 @@ export function ftsWindowSql(where: SearchWhere, depth: number, lookahead = 0): 
        ${rest.sql})
   SELECT (SELECT COUNT(*) FROM hit) AS considered, alive.r AS r, alive.id AS id,
          alive.maple_id AS maple_id, alive.owner_id AS owner_id,
+         alive.stack_primary_id AS stack_primary_id,
          alive.captured_at AS captured_at, alive.media_kind AS media_kind,
          alive.filename AS filename, alive.beyond AS beyond
     FROM (SELECT 1) LEFT JOIN alive ON 1
@@ -278,17 +294,84 @@ export function ftsRanker(where: SearchWhere, dbOverride?: SqliteDb): WindowRank
       }
     >(assetsDb(dbOverride), window.sql, window.params);
     const survivors = answer.flatMap(
-      ({ r, id, maple_id, owner_id, captured_at, media_kind, filename, beyond }) =>
+      ({
+        r,
+        id,
+        maple_id,
+        owner_id,
+        stack_primary_id,
+        captured_at,
+        media_kind,
+        filename,
+        beyond,
+      }) =>
         r === null || id === null || media_kind === null
           ? []
-          : [{ row: { r, id, maple_id, owner_id, captured_at, media_kind, filename }, beyond }],
+          : [
+              {
+                row: {
+                  r,
+                  id,
+                  maple_id,
+                  owner_id,
+                  stack_primary_id,
+                  captured_at,
+                  media_kind,
+                  filename,
+                },
+                beyond,
+              },
+            ],
     );
-    return {
+    return foldRankedStacks(where, {
       considered: answer[0]?.considered ?? 0,
       rows: survivors.flatMap(({ row, beyond }) => (beyond ? [] : [row])),
       beyond: survivors.flatMap(({ row, beyond }) => (beyond ? [row] : [])),
-    };
+    });
   };
+}
+
+/**
+ * A ranked pass with each RAW+JPEG stack served once, at the rank of whichever half ranked first
+ * (#5849). The window is filtered unfolded and folded here because the RAW must have ranked too:
+ * a JPEG whose RAW the engine never returned, or a filter rejected, stays a result of its own.
+ * When both ranked, the RAW leads the stack from the better of the two ranks and its later rank
+ * drops out, like a later copy of a shot (`collapseShots`). That keeps the fold prefix-stable: a
+ * wider ladder step that admits a RAW ranked past a narrower one only turns the JPEG already
+ * served into its stack, and never shifts the rows behind it. The leader keeps the shot (owner,
+ * capture time, kind, filename) of the half that ranked first, so the copies a narrower step
+ * collapsed into the JPEG stay collapsed into the stack; its own `owner_id` stays the RAW's, the
+ * document it is served as. A lookahead row folds against the served rows and the lookahead alike,
+ * and is counted in `foldedBeyond` when it does, so the other half of a held stack is never taken
+ * for a match left past the cap (`cappedPast`).
+ */
+export function foldRankedStacks(where: SearchWhere, pass: WindowPass): WindowPass {
+  if (where.foldStacks !== true) return pass;
+  // Each stack's leading row, keyed by its RAW's id.
+  const leaders = new Map<string, WindowRow>();
+  const fold = (rows: readonly WindowRow[], pool: readonly WindowRow[]) => {
+    const byId = new Map(pool.map((row) => [row.id, row] as const));
+    return rows.flatMap((row) => {
+      const key = row.stack_primary_id ?? row.id;
+      const held = leaders.get(key);
+      if (held !== undefined) {
+        if (held.id === key && row.id !== key) held.stack_companion = { r: row.r, id: row.id };
+        return [];
+      }
+      const raw = row.stack_primary_id ? byId.get(row.stack_primary_id) : undefined;
+      const { owner_id: shot_owner_id, captured_at, media_kind, filename } = row;
+      const companion = { r: row.r, id: row.id };
+      const leader = raw
+        ? { ...raw, shot_owner_id, captured_at, media_kind, filename, stack_companion: companion }
+        : { ...row };
+      leaders.set(key, leader);
+      return [leader];
+    });
+  };
+  const rows = fold(pass.rows, pass.rows);
+  if (!pass.beyond) return { ...pass, rows };
+  const beyond = fold(pass.beyond, [...pass.rows, ...pass.beyond]);
+  return { ...pass, rows, beyond, foldedBeyond: pass.beyond.length - beyond.length };
 }
 
 /**
@@ -321,6 +404,27 @@ export function inGivenOrder<T>(
 }
 
 /**
+ * `where` as a ranked window filters its hits: without the text, which the engine matched, and
+ * unfolded, because the window folds RAW+JPEG stacks in memory (`foldRankedStacks`), where it is
+ * known whether the RAW also ranked. One part of the fold cannot wait for that: a hidden RAW
+ * hides its stack (`stackFold` in `search.where.ts`), and the hidden RAW never reaches the
+ * window to say so. So under the default visibility a JPEG whose RAW is hidden is left out here,
+ * whether or not the RAW ranked, which also keeps the window prefix-stable.
+ */
+function rankedFilters(where: SearchWhere): SearchWhere {
+  const unfolded: SearchWhere = { ...where, match: { kind: 'none' }, foldStacks: false };
+  if (where.foldStacks !== true || where.hidden !== 0) return unfolded;
+  return {
+    ...unfolded,
+    clauses: [
+      ...where.clauses,
+      `(+assets.stack_primary_id IS NULL OR NOT EXISTS (SELECT 1 FROM assets AS stack_raw
+          WHERE stack_raw.id = assets.stack_primary_id AND stack_raw.hidden = 1))`,
+    ],
+  };
+}
+
+/**
  * The rows behind a set of `maple_id`s that pass every filter of `where` but its text. The index
  * is named because the planner cannot see how short the id list is: with statistics that favour a
  * filter's index it walked the whole live set instead of probing a few thousand ids.
@@ -328,9 +432,10 @@ export function inGivenOrder<T>(
 export function mapleIdRowsSql(where: SearchWhere, mapleIds: readonly string[]): BoundStatement {
   return statement(
     `assets.rowid AS r, assets.id AS id, assets.maple_id AS maple_id, assets.owner_id AS owner_id,
+     assets.stack_primary_id AS stack_primary_id,
      assets.captured_at AS captured_at, assets.media_kind AS media_kind,
      ${LIVE_FILENAME_SQL} AS filename`,
-    { ...where, match: { kind: 'none' } },
+    rankedFilters(where),
     '',
     {
       sql: 'assets.maple_id IS NOT NULL AND assets.maple_id IN (SELECT value FROM json_each(?))',

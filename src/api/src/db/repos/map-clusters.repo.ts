@@ -33,12 +33,15 @@ import type { FileInfo } from '../schema.ts';
 import { bucketedIds, locationsByAssetIdsSql } from './assets.sql.ts';
 import { toFileInfo, type LocationRow } from './assets.rows.ts';
 import { assetsDb, readBulk, type SqliteDb } from './db-handle.ts';
-import type { RankedAsset } from './search.ranked.ts';
+import type { WindowRow } from './search.ranked.ts';
 import { placeholders } from './values.ts';
 import { fromClause } from './search.sql.ts';
 import { searchWhereSql, type BoundPredicate, type SearchWhere } from './search.where.ts';
 
 export type { SqliteDb } from './db-handle.ts';
+
+/** What the map reads of a ranked window row: the asset, and the JPEG folded into it (#5849). */
+export type MapWindowRow = Pick<WindowRow, 'r' | 'stack_companion'>;
 
 /** The viewport, in decimal degrees. `west > east` crosses the antimeridian. */
 export interface MapBbox {
@@ -96,23 +99,46 @@ function bboxPredicate(bbox: MapBbox): BoundPredicate {
 
 /**
  * What the cells aggregate. A text search is clustered over its ranked window — the rows the
- * caller's list is served from, already filtered — so the map never groups the whole match set
- * (#4514); without text, the translated query and the viewport as before.
+ * caller's list is served from, already filtered and already RAW+JPEG-folded — so the map never
+ * groups the whole match set (#4514); without text, the translated query and the viewport. The
+ * viewport is one more clause there, so a folded JPEG is only dropped when its RAW has GPS in the
+ * viewport too (a RAW whose GPS did not parse leaves its JPEG's pin on the map, #5849). A window
+ * says the same through its stacks: a ranked JPEG folded into its RAW (`stack_companion`) is
+ * clustered in the RAW's place when the RAW has no GPS in the viewport, so a stack is one pin
+ * either way.
  */
 function cellScope(
   where: SearchWhere,
   viewport: BoundPredicate,
-  window: readonly RankedAsset[] | undefined,
+  window: readonly MapWindowRow[] | undefined,
 ): { from: string; bound: BoundPredicate } {
-  if (window === undefined)
-    return { from: fromClause(where), bound: searchWhereSql(where, viewport) };
+  if (window === undefined) {
+    const located: SearchWhere = {
+      ...where,
+      clauses: [...where.clauses, `(${viewport.sql})`],
+      params: [...where.params, ...viewport.params],
+    };
+    return { from: fromClause(where), bound: searchWhereSql(located) };
+  }
+  const companions = window.flatMap((row) =>
+    row.stack_companion === undefined ? [] : [row.stack_companion.r],
+  );
+  const rawLocated = viewport.sql.replace(/\bassets\./g, 'stack_raw.');
   return {
     from: 'FROM assets',
     bound: searchWhereSql(
-      { ...where, match: { kind: 'none' } },
+      { ...where, match: { kind: 'none' }, foldStacks: false },
       {
-        sql: `assets.rowid IN (SELECT value FROM json_each(?)) AND ${viewport.sql}`,
-        params: [JSON.stringify(window.map((row) => row.r)), ...viewport.params],
+        sql: `assets.rowid IN (SELECT value FROM json_each(?)) AND ${viewport.sql}
+          AND (assets.rowid NOT IN (SELECT value FROM json_each(?))
+               OR NOT EXISTS (SELECT 1 FROM assets AS stack_raw
+                               WHERE stack_raw.id = assets.stack_primary_id AND ${rawLocated}))`,
+        params: [
+          JSON.stringify([...window.map((row) => row.r), ...companions]),
+          ...viewport.params,
+          JSON.stringify(companions),
+          ...viewport.params,
+        ],
       },
     ),
   };
@@ -145,7 +171,7 @@ export async function mapClusters(
   bbox: MapBbox,
   cellSizeDeg: number,
   dbOverride?: SqliteDb,
-  window?: readonly RankedAsset[],
+  window?: readonly MapWindowRow[],
 ): Promise<MapClusterCell[]> {
   const db = assetsDb(dbOverride);
   const scope = cellScope(where, bboxPredicate(bbox), window);
