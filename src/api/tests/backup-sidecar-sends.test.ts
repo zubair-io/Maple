@@ -370,4 +370,24 @@ describe('backup sends are reconciled from what the device sent (#5796)', () => 
       head: ack.head,
     });
   });
+
+  test.each(['head', 'digest'] as const)(
+    'a resend acknowledged at its own head leaves that head exact for a %s client',
+    async (kind) => {
+      const target = await seedUpload(`acknowledged-${kind}`);
+      // A same-stem sibling shares the sidecar: only a send naming its exact head lands.
+      await fs.writeFile(path.join(lib.tmpLib, `2024/CAS/acknowledged-${kind}.cr2`), '');
+      const a = await withDeviceRecord(xmp('A', { exposure: '1' }));
+      const first = await firstSend(target, a);
+      // Resent against the head it created, A changes nothing and is acknowledged there.
+      const ack = await replyOf(post(target, a, undefined, first.head));
+      expect(ack).toMatchObject({ unchanged: true, head: first.head });
+
+      const edit = xmp('B', { exposure: '2' });
+      const next =
+        kind === 'head' ? post(target, edit, undefined, ack.head) : post(target, edit, sha256(a));
+      expect((await replyOf(next)).head).toBeDefined();
+      expect(property(await onDisk(target.relPath), 'exposure')).toBe('2');
+    },
+  );
 });

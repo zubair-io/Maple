@@ -128,6 +128,14 @@ type Found = Omit<SendParent, 'fromCurrent'>;
 const landedBy = (entry: WorkflowHistoryEntry, sha256: string) =>
   entry.id === backupEntryId(entry.parentId ?? '', sha256);
 
+/** What the device held at `known`, the entry its send landed as: what it sent when the
+ * ledger keeps that, else the entry's adjustments. A kept row may only acknowledge the
+ * send at its own entry, so the device held the entry exactly unless the two differ. */
+function landedAt(known: WorkflowHistoryEntry, row: SentRecord | undefined): Found {
+  const ancestor = row?.checkpoint ?? known.adjustmentXmp;
+  return { known, id: known.id, ancestor, exact: ancestor === known.adjustmentXmp };
+}
+
 /** The entry a head names, from what that send carried when the server merged it. */
 async function headParent(
   history: readonly WorkflowHistoryEntry[],
@@ -137,7 +145,7 @@ async function headParent(
   const known = history.find((entry) => entry.id === head);
   if (known === undefined) return null;
   const own = (await send.sentFor({ entryId: head })).find((row) => landedBy(known, row.sha256));
-  return { known, id: known.id, ancestor: own?.checkpoint ?? known.adjustmentXmp, exact: !own };
+  return landedAt(known, own);
 }
 
 /** The latest place in the history the device sent `sha256`: the entry it became, or one
@@ -150,9 +158,7 @@ async function digestParent(
   const rows = await send.sentFor({ sha256 });
   for (const known of history.toReversed()) {
     const row = rows.find((candidate) => candidate.entryId === known.id);
-    if (landedBy(known, sha256)) {
-      return { known, id: known.id, ancestor: row?.checkpoint ?? known.adjustmentXmp, exact: !row };
-    }
+    if (landedBy(known, sha256)) return landedAt(known, row);
     if (row) return { known, id: known.id, ancestor: row.checkpoint, exact: true };
   }
   const unrecorded = rows.find((row) => row.entryId === '');
