@@ -57,7 +57,12 @@ test('a file already present with the same bytes is skipped without a marker', a
     },
   });
 
-  expect(outcome).toEqual({ state: 'skipped_duplicate', error: null, destRel: '2024/IMG.dng' });
+  expect(outcome).toEqual({
+    state: 'skipped_duplicate',
+    error: null,
+    destRel: '2024/IMG.dng',
+    alreadyPresent: true,
+  });
   expect(markedNames).toEqual([]);
 });
 
