@@ -18,6 +18,7 @@ mod point_curve;
 mod preview;
 mod scopes;
 mod transfer;
+mod xml_carry;
 mod xmp;
 
 use preview::Session;
