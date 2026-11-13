@@ -38,7 +38,11 @@ export async function copyFileAtomic(src: string, destAbs: string): Promise<bool
     // stays untouched and an existing destination is never lost.
     return await moveNoClobber(tmp, destAbs);
   } finally {
-    await fs.rm(tmp, { force: true });
+    // A publish that landed has already moved the temp away. If removing what
+    // is left of it throws, that must not report the file as failed: the
+    // import would drop its marker and a retry would skip the image as a
+    // duplicate, sidecars and all.
+    await fs.rm(tmp, { force: true }).catch(() => {});
   }
 }
 
