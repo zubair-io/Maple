@@ -145,15 +145,18 @@ export interface ClaimedImport {
   library_id: ObjectId;
   library_root: string;
   scan_pending: boolean;
+  /** An earlier attempt was already running this import when this one claimed it. */
+  taken_over: boolean;
 }
 
 /** A claimed import, as the snapshot the worker runs from. */
-export function toClaimedImport(row: ImportRow): ClaimedImport {
+export function toClaimedImport(row: ImportRow, takenOver: boolean): ClaimedImport {
   return {
     _id: toObjectId(row.id),
     source_root: row.source_root,
     library_id: toObjectId(row.library_id),
     library_root: row.library_root,
     scan_pending: toBool(row.scan_pending),
+    taken_over: takenOver,
   };
 }

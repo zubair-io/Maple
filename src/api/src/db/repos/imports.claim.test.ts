@@ -81,6 +81,7 @@ describe('claimImport', () => {
     expect(claimed!.source_root).toBe('/inbox');
     expect(claimed!.library_id.toHexString()).toBe(library.toHexString());
     expect(claimed!.scan_pending).toBe(false);
+    expect(claimed!.taken_over).toBe(false);
     const after = (await getImport(newer, db))!;
     expect(after.status).toBe('running');
     expect(after.locked_by).toBe('attempt-1');
@@ -98,7 +99,7 @@ describe('claimImport', () => {
       id.toHexString(),
     );
 
-    expect(await claimImport(id, 'attempt-2', AT, db)).not.toBeNull();
+    expect((await claimImport(id, 'attempt-2', AT, db))!.taken_over).toBe(true);
     expect((await getImport(id, db))!.locked_by).toBe('attempt-2');
   });
 
