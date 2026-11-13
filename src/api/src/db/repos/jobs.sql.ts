@@ -237,10 +237,10 @@ export const MARK_DISPATCHED_SQL = `
 /**
  * Hand one job to the activity attempt Temporal just delivered.
  *
- * A `running` row is taken over, not skipped: Temporal only delivers another
- * attempt after the previous one missed its heartbeat deadline, so the holder
- * named in `locked_by` is gone. Whatever that holder still tries to write is
- * refused by the `locked_by` fence on the progress, ledger and finish writes.
+ * A `running` row is taken over, not skipped: Temporal delivers another attempt
+ * once the previous one missed its heartbeat deadline or was reset, and the
+ * holder named in `locked_by` may still be running. Whatever it still tries to
+ * write is refused by the `locked_by` fence on the progress, ledger and finish writes.
  * A finished job matches nothing, which is how a redelivery becomes a no-op.
  */
 export const CLAIM_JOB_SQL = `
