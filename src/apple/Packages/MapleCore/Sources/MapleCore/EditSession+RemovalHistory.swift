@@ -217,6 +217,7 @@ extension EditSession {
       transactions.undoStack.removeLast()
       transactions.redoStack.append(tx)
       trim(&transactions.redoStack)
+      settleHistoryRasters(leaving: before)
       lastCommittedTransaction = tx
       announcer.announce("Undo \(tx.description)")
     case .redo(let tx):
@@ -224,6 +225,7 @@ extension EditSession {
       transactions.redoStack.removeLast()
       transactions.undoStack.append(tx)
       trim(&transactions.undoStack)
+      settleHistoryRasters(leaving: before)
       lastCommittedTransaction = tx
       announcer.announce("Redo \(tx.description)")
     }

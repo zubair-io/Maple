@@ -9,7 +9,9 @@ fn owned(namespace: ResolveResult<'_>) -> Result<bool> {
     match namespace {
         ResolveResult::Bound(uri) => Ok(matches!(
             uri.as_ref(),
-            b"http://ns.justmaple.app/photo/1.0/" | b"http://ns.justmaple.app/1.0/"
+            b"http://ns.justmaple.app/photo/1.0/"
+                | b"http://ns.justmaple.app/1.0/"
+                | b"https://maple.app/ns/1.0/"
         )),
         ResolveResult::Unbound => Ok(false),
         ResolveResult::Unknown(_) => Err(Error::Xmp(
@@ -31,6 +33,9 @@ fn accept(records: &mut Option<Vec<Removal>>, text: &str) -> Result<()> {
 /// one owned list. Foreign fields stay opaque; ambiguous or nested payloads
 /// cannot turn an accepted edit into a partial list or an unedited render.
 pub(super) fn parse(xml: &str) -> Result<Vec<Removal>> {
+    if !xml.contains("InpaintRemovals") {
+        return Ok(Vec::new());
+    }
     let mut reader = NsReader::from_str(xml);
     let mut buffer = Vec::new();
     let mut records = None;
