@@ -75,24 +75,36 @@ extension RawJpegStackServerTests {
     XCTAssertEqual(recorder.requests.filter { $0.path.hasSuffix("/relocate") }.count, 0)
   }
 
-  /// The JPEG's own name in its own folder is not a file to displace.
+  /// The JPEG's own name in its own folder is not a file to displace, also for a hit, whose stack
+  /// carries no `address`: the server refuses to trash the indexed JPEG, and its id is the JPEG's.
   func testReplacingInTheJpegsOwnFolderNeverTrashesTheJpeg() async throws {
-    let recorder = Recorder()
-    let catalog = catalog(recorder) { record, request in
-      if record.path == "/api/folders/f1/file-meta" {
-        return self.fileMeta(request, taken: ["Trip/IMG_1.JPG"])
+    let hit = RawJpegStack(
+      primary: .init(name: "IMG_1.CR3", size: 3), companion: .init(name: "IMG_1.JPG", size: 2),
+      location: .cloud(address: nil, path: "/srv/photos/Library/Trip/IMG_1.JPG", id: jpegID))
+    for stack in [self.stack, hit] {
+      let recorder = Recorder()
+      let catalog = catalog(recorder) { record, request in
+        if record.path == "/api/folders/f1/file-meta" {
+          return self.fileMeta(request, taken: ["Trip/IMG_1.JPG"])
+        }
+        if record.method == "DELETE" {
+          return self.respond(
+            request, status: 409,
+            json: #"{"error":"path is an indexed asset","asset_id":"\#(self.jpegID)"}"#)
+        }
+        return self.moved(
+          request, path: "Trip",
+          filename: record.path.contains(self.rawID) ? "IMG_1.CR3" : "IMG_1.JPG")
       }
-      return self.moved(
-        request, path: "Trip",
-        filename: record.path.contains(self.rawID) ? "IMG_1.CR3" : "IMG_1.JPG")
+
+      let result = try await catalog.relocateAsset(
+        assetID: rawID, mode: .move, collision: .replace, destinationPath: "Trip",
+        sourceAddress: "lib:Trip/IMG_1.CR3", stack: stack, libraryFolderID: "f1",
+        restore: ("Trip", "IMG_1.CR3"), companionCollision: .replace)
+
+      guard case .ok = result else { return XCTFail("expected a move, got \(result)") }
+      XCTAssertEqual(recorder.requests.filter { $0.path.hasSuffix("/relocate") }.count, 2)
     }
-
-    _ = try await catalog.relocateAsset(
-      assetID: rawID, mode: .move, collision: .replace, destinationPath: "Trip",
-      sourceAddress: "lib:Trip/IMG_1.CR3", stack: stack, libraryFolderID: "f1",
-      restore: ("Trip", "IMG_1.CR3"), companionCollision: .replace)
-
-    XCTAssertFalse(recorder.requests.contains { $0.method == "DELETE" })
   }
 
   /// #5050 review: `file-meta` answers 404 for a folder, so a folder named `IMG_1.JPG` read as a

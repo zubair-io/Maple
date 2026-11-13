@@ -188,21 +188,19 @@ extension RemoteCatalog {
 
   /// Sends the file at the JPEG's name in `destinationPath`, which the JPEG's own prompt chose to
   /// replace, to the server's Trash before the RAW moves, and returns its name (nil when nothing
-  /// was there). While it sits there it shares the destination's sidecar stem, so the server will
-  /// not let the RAW replace that sidecar (`relocate-sidecar-plan.ts`, #4692) and the pair cannot
-  /// land, and a sidecar the RAW's Replace left behind would pass to the JPEG. In the Trash it stays
-  /// recoverable, where a Replace would delete it. A file the server indexes as a photo of its own
-  /// is refused before anything moves: trashing that asset would trash every copy of it.
+  /// was displaced). While it sits there it shares the destination's sidecar stem, so the server
+  /// will not let the RAW replace that sidecar (`relocate-sidecar-plan.ts`, #4692) and the pair
+  /// cannot land, and a sidecar the RAW's Replace left behind would pass to the JPEG. In the Trash
+  /// it stays recoverable, where a Replace would delete it. The server refuses to trash an indexed
+  /// file this way, which leaves the JPEG itself alone (a hit carries no `address` to compare paths
+  /// by, only its `id`), and a photo of its own there is refused before anything moves: trashing
+  /// that asset would trash every copy of it.
   private func trashDisplacedCompanion(
     _ stack: RawJpegStack, libraryFolderID: String, destinationPath: String
   ) async throws -> String? {
     let name = stack.companion.name
     let path = destinationPath.isEmpty ? name : "\(destinationPath)/\(name)"
-    if let address = companionAddress(of: stack),
-      Self.relativePath(ofAddress: address)?.caseInsensitiveCompare(path) == .orderedSame
-    {
-      return nil  // the JPEG itself
-    }
+
     switch try await occupant(folderID: libraryFolderID, relativePath: path) {
     case .free: return nil
     case .notAFile:
@@ -211,13 +209,15 @@ extension RemoteCatalog {
           + " or move that folder first.")
     case .file: break
     }
-    if case .indexedAsset = try await deleteFile(folderID: libraryFolderID, relativePath: path) {
-      throw FileOperationError.invalidDestination(
-        "\(name) in the destination is a photo of its own on the server. Move or trash it there"
-          + " first: replacing it along with the RAW would leave the RAW and that photo sharing one"
-          + " sidecar.")
-    }
-    return name
+    guard
+      case .indexedAsset(let indexed) = try await deleteFile(
+        folderID: libraryFolderID, relativePath: path)
+    else { return name }
+    if try indexed == companionID(of: stack) { return nil }  // the JPEG itself
+    throw FileOperationError.invalidDestination(
+      "\(name) in the destination is a photo of its own on the server. Move or trash it there"
+        + " first: replacing it along with the RAW would leave the RAW and that photo sharing one"
+        + " sidecar.")
   }
 
   /// Throws before a batch rename under Replace sends the RAW: the server deletes what the RAW's
