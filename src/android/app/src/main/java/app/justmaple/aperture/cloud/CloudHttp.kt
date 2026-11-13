@@ -1,6 +1,10 @@
 package app.justmaple.aperture.cloud
 
+import android.os.CancellationSignal
+import android.os.OperationCanceledException
 import app.justmaple.aperture.data.XmpEncoding
+import java.io.File
+import java.io.IOException
 import java.io.OutputStream
 import java.io.OutputStreamWriter
 import java.io.StringReader
@@ -8,6 +12,14 @@ import java.net.HttpURLConnection
 import java.net.URL
 import java.nio.ByteBuffer
 import org.json.JSONObject
+
+/** A non-success response; the status lets callers tell missing items from failures. */
+internal class CloudStatusException(val status: Int, message: String) :
+    IllegalStateException(message)
+
+/** Another account signed in on the connection: requests bound to the previous one stop unsent. */
+internal class CloudAccountChangedException :
+    IOException("The Maple Cloud account changed; these uploads wait for the account that saved them")
 
 internal data class CloudResponse(
     val status: Int,
@@ -26,44 +38,90 @@ internal data class CloudResponse(
     fun writeTo(output: OutputStream) = output.write(body, 0, size)
 
     fun requireSuccess(): CloudResponse = apply {
-        check(status in 200..299) {
-            when (status) {
-                401 -> "Cloud session expired. Reconnect this server in Settings."
-                403 -> "Your account does not have access to this library."
-                412 -> "The cloud sidecar changed outside Maple. Reopen the photo before saving."
-                else -> "Cloud request failed (HTTP $status). Please try again."
-            }
-        }
+        if (status !in 200..299)
+            throw CloudStatusException(
+                status,
+                when (status) {
+                    401 -> "Cloud session expired. Reconnect this server in Settings."
+                    403 -> "Your account does not have access to this library."
+                    412 ->
+                        "The cloud sidecar changed outside Maple. Reopen the photo before saving."
+                    else -> "Cloud request failed (HTTP $status). Please try again."
+                },
+            )
     }
 }
 
-internal class CloudHttp(private val credentials: CloudCredentials) {
-    private val refreshLock = Any()
-
+/** The authenticated server calls the documents provider makes; tests serve them in-process. */
+internal interface CloudTransport {
     fun request(
         id: String,
         path: String,
         method: String = "GET",
         body: String? = null,
         headers: Map<String, String> = emptyMap(),
+    ): CloudResponse
+
+    fun download(id: String, path: String, output: OutputStream, signal: CancellationSignal? = null)
+
+    /** Carried only by [account]'s session, including after a token refresh. */
+    fun upload(id: String, path: String, file: File, headers: Map<String, String>, account: String): CloudResponse
+}
+
+internal class CloudHttp(private val credentials: CloudSessions) : CloudTransport {
+    override fun request(
+        id: String,
+        path: String,
+        method: String,
+        body: String?,
+        headers: Map<String, String>,
     ): CloudResponse =
         authenticated(id, path, method, body, headers) { connection ->
             read(connection, if (path.substringBefore('?') == "/api/xmp") 128 else 16)
         }
 
-    fun download(id: String, path: String, output: OutputStream) {
-        authenticated(id, path, "GET", null, emptyMap()) { connection ->
-            check(connection.responseCode == 200) {
-                "Cloud download failed (HTTP ${connection.responseCode})"
+    /** Streams the body; cancelling the signal aborts the socket mid-transfer. */
+    override fun download(id: String, path: String, output: OutputStream, signal: CancellationSignal?) {
+        try {
+            authenticated(id, path, "GET", null, emptyMap(), watch = signal) { connection ->
+                if (connection.responseCode != 200)
+                    throw CloudStatusException(
+                        connection.responseCode,
+                        "Cloud download failed (HTTP ${connection.responseCode})",
+                    )
+                connection.inputStream.use { input ->
+                    val buffer = ByteArray(64 * 1024)
+                    while (true) {
+                        signal?.throwIfCanceled()
+                        val count = input.read(buffer)
+                        if (count < 0) break
+                        output.write(buffer, 0, count)
+                    }
+                }
             }
-            connection.inputStream.use { it.copyTo(output) }
+        } catch (failure: IOException) {
+            signal?.throwIfCanceled()
+            throw failure
+        } finally {
+            signal?.setOnCancelListener(null)
         }
     }
 
+    /** Sends the file with a fixed length; the body is re-read if a token refresh retries. */
+    override fun upload(
+        id: String,
+        path: String,
+        file: File,
+        headers: Map<String, String>,
+        account: String,
+    ): CloudResponse = authenticated(id, path, "POST", null, headers, upload = file, account = account) { read(it) }
+
     // Logout and refresh share a lane: a refresh cannot publish tokens after removal.
+    // The lane is process-wide: the app and the documents provider hold separate
+    // clients over one credential store, and refresh tokens rotate on every use.
     fun disconnect(id: String) {
         val current =
-            synchronized(refreshLock) {
+            synchronized(REFRESH_LOCK) {
                 val server = credentials.servers().find { it.id == id } ?: return
                 credentials.remove(id)
                 server
@@ -84,10 +142,13 @@ internal class CloudHttp(private val credentials: CloudCredentials) {
         method: String,
         body: String?,
         headers: Map<String, String>,
+        upload: File? = null,
+        watch: CancellationSignal? = null,
+        account: String? = null,
         read: (HttpURLConnection) -> T,
     ): T {
         require(path.startsWith("/api/"))
-        val server = server(id)
+        val server = server(id).boundTo(account)
         val connection =
             open(
                 server.origin,
@@ -95,6 +156,8 @@ internal class CloudHttp(private val credentials: CloudCredentials) {
                 method,
                 body,
                 headers + ("Authorization" to "Bearer ${server.access}"),
+                upload,
+                watch,
             )
         if (connection.responseCode != 401)
             return try {
@@ -104,7 +167,7 @@ internal class CloudHttp(private val credentials: CloudCredentials) {
             }
         connection.disconnect()
         val renewed =
-            synchronized(refreshLock) {
+            synchronized(REFRESH_LOCK) {
                 val current = server(id)
                 if (current.access != server.access) current
                 else {
@@ -123,7 +186,7 @@ internal class CloudHttp(private val credentials: CloudCredentials) {
                         )
                         .also(credentials::save)
                 }
-            }
+            }.boundTo(account)
         val retry =
             open(
                 renewed.origin,
@@ -131,6 +194,8 @@ internal class CloudHttp(private val credentials: CloudCredentials) {
                 method,
                 body,
                 headers + ("Authorization" to "Bearer ${renewed.access}"),
+                upload,
+                watch,
             )
         return try {
             read(retry)
@@ -142,7 +207,13 @@ internal class CloudHttp(private val credentials: CloudCredentials) {
     private fun server(id: String) =
         credentials.servers().find { it.id == id } ?: error("Cloud connection was removed")
 
+    private fun CloudServer.boundTo(account: String?) = also {
+        if (account != null && it.account != account) throw CloudAccountChangedException()
+    }
+
     companion object {
+        private val REFRESH_LOCK = Any()
+
         fun publicPost(origin: String, path: String, json: JSONObject): CloudResponse {
             val connection =
                 open(
@@ -165,6 +236,8 @@ internal class CloudHttp(private val credentials: CloudCredentials) {
             method: String,
             body: String?,
             headers: Map<String, String>,
+            upload: File? = null,
+            watch: CancellationSignal? = null,
         ): HttpURLConnection {
             val connection = URL(origin + path).openConnection() as HttpURLConnection
             connection.instanceFollowRedirects = false
@@ -173,6 +246,10 @@ internal class CloudHttp(private val credentials: CloudCredentials) {
             connection.requestMethod = method
             headers.forEach(connection::setRequestProperty)
             try {
+                watch?.let { signal ->
+                    signal.setOnCancelListener { connection.disconnect() }
+                    if (signal.isCanceled) throw OperationCanceledException()
+                }
                 if (body != null) {
                     val length = utf8Length(body)
                     connection.doOutput = true
@@ -181,6 +258,13 @@ internal class CloudHttp(private val credentials: CloudCredentials) {
                         OutputStreamWriter(connection.outputStream, Charsets.UTF_8).use { output ->
                             input.copyTo(output, 4096)
                         }
+                    }
+                }
+                if (upload != null) {
+                    connection.doOutput = true
+                    connection.setFixedLengthStreamingMode(upload.length())
+                    upload.inputStream().use { input ->
+                        connection.outputStream.use { input.copyTo(it, 64 * 1024) }
                     }
                 }
                 return connection

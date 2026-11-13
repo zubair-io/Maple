@@ -130,6 +130,8 @@ class AndroidWorkflowTests(unittest.TestCase):
             "python3 tools/android_test_reports.py",
             "sudo udevadm trigger --settle --name-match=kvm",
             "test -r /dev/kvm && test -w /dev/kvm",
+            "bun install --frozen-lockfile",
+            "bun scripts/prewarm-temporal.ts",
         ):
             self.assertIn(gate, commands)
         reports = next(
@@ -148,6 +150,7 @@ class AndroidWorkflowTests(unittest.TestCase):
             "vulkan.level",
             "logcat -d",
             "screencap",
+            "scripts/with-cloud-api.sh ./gradlew",
         ):
             self.assertIn(contract, runner)
         self.assertNotIn("connectedDebugAndroidTest ||", runner)

@@ -229,6 +229,8 @@
         "src/routes/folders.register-owner.test.ts",
         "src/routes/folders.ts",
         "src/routes/folders.upload.test.ts",
+        // Stages a disposable library under os.tmpdir() and reads it back to prove nothing was replaced.
+        "src/routes/folders.upload-require-absent.test.ts",
         // #5822: the folder-scan walk only lists directories; its tests and the reconcile tests stage disposable libraries and mirrors under os.tmpdir().
         "src/job-runner/handlers/folder-scan.ts",
         "src/job-runner/handlers/folder-scan.test.ts",

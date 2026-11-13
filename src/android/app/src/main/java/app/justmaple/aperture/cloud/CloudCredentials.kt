@@ -23,7 +23,30 @@ internal data class CloudServer(
     val origin: String,
     val access: String,
     val refresh: String,
-)
+) {
+    /** The signed-in user on this server: tokens rotate, the user they name does not. */
+    val account: String
+        get() = "$origin#${subject(access)}"
+
+    private fun subject(access: String): String =
+        runCatching {
+                val payload = access.split('.')[1]
+                val json = String(Base64.decode(payload, Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING))
+                JSONObject(json).getString("sub").also { require(it.isNotBlank()) }
+            }
+            .getOrElse {
+                throw IllegalStateException("This Maple Cloud sign-in is invalid. Sign in again from Maple.")
+            }
+}
+
+/** The signed-in servers [CloudHttp] authenticates with; tests keep them in memory. */
+internal interface CloudSessions {
+    fun servers(): List<CloudServer>
+
+    fun save(server: CloudServer)
+
+    fun remove(id: String)
+}
 
 internal data class CloudLogin(
     val origin: String,
@@ -99,7 +122,7 @@ internal data class CloudLogin(
 }
 
 /** Tokens and pending PKCE secrets are encrypted by a non-exportable device key. */
-internal class CloudCredentials(context: Context) {
+internal class CloudCredentials(context: Context) : CloudSessions {
     private val preferences = context.getSharedPreferences("maple-cloud", Context.MODE_PRIVATE)
     private val key: SecretKey
         get() {
@@ -121,7 +144,7 @@ internal class CloudCredentials(context: Context) {
         }
 
     @Synchronized
-    fun servers(): List<CloudServer> {
+    override fun servers(): List<CloudServer> {
         val list = JSONArray(read("servers") ?: "[]")
         return (0 until list.length()).map { index ->
             val item = list.getJSONObject(index)
@@ -135,7 +158,7 @@ internal class CloudCredentials(context: Context) {
     }
 
     @Synchronized
-    fun save(server: CloudServer) {
+    override fun save(server: CloudServer) {
         write(
             "servers",
             JSONArray()
@@ -155,7 +178,7 @@ internal class CloudCredentials(context: Context) {
     }
 
     @Synchronized
-    fun remove(id: String) {
+    override fun remove(id: String) {
         write(
             "servers",
             JSONArray()

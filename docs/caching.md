@@ -516,6 +516,25 @@ not a cache. It is synced before moving an existing canonical XMP to a backup.
 An interrupted replacement is recovered before reads/writes; original photos
 are never modified or treated as disposable cache data.
 
+### Documents provider (#5836)
+
+`MapleDocumentsProvider` ([android-documents-provider](android-documents-provider.md))
+keeps these, all bounded:
+
+| Cache                    | Key / identity                                                                                                                               | Invalidation / bound                                                                                                                                                                              |
+| ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Downloaded original      | SHA-256 of `documents-original-v1:`, document ID, server size and mtime (from a `file-meta` stat on every open)                              | 512 MiB across servers in `cacheDir/documents-provider/originals/<server>/`; a changed file gets a new key; concurrent opens of one key share one download; sign-out deletes that server's folder |
+| Thumbnail                | The app's cloud derivative cache (above) at the server's 512 px tier; Android 10/11 add a private PNG decoded by the core                    | Shares the app's 64 MiB `cacheDir/thumbnails` budget and its ETag revalidation                                                                                                                    |
+| Document metadata        | Document ID → size, mtime, kind and indexed state from the last listing (a stat refreshes size and mtime only; kind is always the listing's) | 4,096-entry LRU in memory; change rows evict their documents; a change-feed 409 or sign-out clears that server                                                                                    |
+| Completed folder listing | Folder document ID → every page of a listing whose later pages loaded in the background (`EXTRA_LOADING`)                                    | In memory, consumed by the next query of that folder, which it answers; cleared with that server on sign-out or a 409                                                                             |
+| Library roots            | Server → `GET /api/folders`                                                                                                                  | Refreshed on every server-root listing and when a change row names an unknown library                                                                                                             |
+| Change-feed cursor       | `changes.cursor.<server>` in the `maple-documents` preferences                                                                               | Advanced per page, reset to the server's `current` on 409, removed on sign-out                                                                                                                    |
+
+Pending uploads in `filesDir/documents-provider/uploads/` are not a cache: they
+hold bytes another app wrote until the server accepts them, keyed by account
+(server origin plus the signed-in user), so signing back in as the same user
+resumes them and another account never sends them.
+
 ## Windows
 
 `src/windows/Maple.WinUI/Services/ThumbnailService.cs` runs two tiers. The **512-px grid tier** writes the cross-app shared `.maple/thumbs/` cache via `ThumbCachePaths`, and reuses an entry only when it is newer than the original and its sidecar. A cold render develops a present sidecar through the Rust recipe renderer, including its selected film and restored lens profile; malformed XML or an unavailable LUT fails without publishing camera-original pixels. When the photo folder is unwritable (read-only media, a share without write permission), it falls back to a machine-local copy so thumbnails still work.

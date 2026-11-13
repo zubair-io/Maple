@@ -37,8 +37,8 @@
       "integration": [
         {
           "source": "sidecar_contract_apple",
-          "status": "stale_corpus",
-          "detail": "corpus changed since the record"
+          "status": "satisfied",
+          "detail": "satisfied"
         },
         {
           "source": "sidecar_contract_api",
@@ -136,8 +136,8 @@
       "integration": [
         {
           "source": "sidecar_contract_apple",
-          "status": "stale_corpus",
-          "detail": "corpus changed since the record"
+          "status": "satisfied",
+          "detail": "satisfied"
         },
         {
           "source": "sidecar_contract_api",
@@ -271,8 +271,8 @@
       "integration": [
         {
           "source": "sidecar_contract_apple",
-          "status": "stale_corpus",
-          "detail": "corpus changed since the record"
+          "status": "satisfied",
+          "detail": "satisfied"
         },
         {
           "source": "sidecar_contract_api",
@@ -374,8 +374,8 @@
       "integration": [
         {
           "source": "sidecar_contract_apple",
-          "status": "stale_corpus",
-          "detail": "corpus changed since the record"
+          "status": "satisfied",
+          "detail": "satisfied"
         },
         {
           "source": "sidecar_contract_api",
@@ -456,8 +456,8 @@
       "integration": [
         {
           "source": "sidecar_contract_apple",
-          "status": "stale_corpus",
-          "detail": "corpus changed since the record"
+          "status": "satisfied",
+          "detail": "satisfied"
         },
         {
           "source": "sidecar_contract_api",
@@ -519,8 +519,8 @@
       "integration": [
         {
           "source": "sidecar_contract_apple",
-          "status": "stale_corpus",
-          "detail": "corpus changed since the record"
+          "status": "satisfied",
+          "detail": "satisfied"
         },
         {
           "source": "sidecar_contract_api",
@@ -636,8 +636,8 @@
       "integration": [
         {
           "source": "sidecar_contract_apple",
-          "status": "stale_corpus",
-          "detail": "corpus changed since the record"
+          "status": "satisfied",
+          "detail": "satisfied"
         },
         {
           "source": "sidecar_contract_api",
@@ -688,8 +688,8 @@
       "integration": [
         {
           "source": "sidecar_contract_apple",
-          "status": "stale_corpus",
-          "detail": "corpus changed since the record"
+          "status": "satisfied",
+          "detail": "satisfied"
         },
         {
           "source": "sidecar_contract_api",
@@ -700,8 +700,8 @@
       "qualification": [
         {
           "source": "sidecar_contract_apple",
-          "status": "stale_corpus",
-          "detail": "corpus changed since the record"
+          "status": "satisfied",
+          "detail": "satisfied"
         },
         {
           "source": "sidecar_contract_api",
@@ -908,16 +908,16 @@
         "src/apple/Packages/MapleCore/Sources/MapleCore/XmpMetadata+Empty.swift"
       ],
       "corpus_hash": "blake3:8a69982ab6300770ad6eaa68489acecd1735b0ed6e898b0fb0698c5126fca825",
-      "status": "stale_corpus",
+      "status": "satisfied",
       "record": {
         "backend": "xctest-macos",
-        "corpus_hash": "blake3:439d40566ea68b5a95de7317edb2ce25252df03ebaefaf25dc767aab7cb11af0",
+        "corpus_hash": "blake3:8a69982ab6300770ad6eaa68489acecd1735b0ed6e898b0fb0698c5126fca825",
         "expected_cases": 12,
         "executed_cases": 12,
         "failed_cases": 0,
         "skipped_cases": 0,
-        "git_sha": "7b9c8fac3117c8df4f5c019581f0d60be2cbdf20",
-        "recorded_at": "2026-11-12T17:48:00Z",
+        "git_sha": "9f316e395cb25d809377b26a9e6abc938656316c",
+        "recorded_at": "2026-11-13T14:34:04Z",
         "command": "swift test --package-path src/apple/Packages/MapleCore --filter SidecarTransactionContract"
       }
     },
@@ -945,17 +945,17 @@
         "src/api/src/fs/xmp.ts",
         "src/api/src/fs/xmp-sidecar-path.ts"
       ],
-      "corpus_hash": "blake3:d98b16c0ed09b9271b7e03fca57498e25282540788ca787222576946c1e31556",
+      "corpus_hash": "blake3:971c69650922114138defe7c139c54d25751be7edf2552819fe8327e25ea804b",
       "status": "satisfied",
       "record": {
         "backend": "bun",
-        "corpus_hash": "blake3:d98b16c0ed09b9271b7e03fca57498e25282540788ca787222576946c1e31556",
+        "corpus_hash": "blake3:971c69650922114138defe7c139c54d25751be7edf2552819fe8327e25ea804b",
         "expected_cases": 4,
         "executed_cases": 4,
         "failed_cases": 0,
         "skipped_cases": 0,
-        "git_sha": "cb386cdcaae00640ff41ae99f6452ed3df6a7dfe",
-        "recorded_at": "2026-11-13T14:13:10Z",
+        "git_sha": "9f316e395cb25d809377b26a9e6abc938656316c",
+        "recorded_at": "2026-11-13T14:28:01Z",
         "command": "bash -c cd\\ src/api\\ \\&\\&\\ bun\\ test\\ src/routes/xmp.sidecar-contract.test.ts\\ --timeout\\ 30000"
       }
     },
