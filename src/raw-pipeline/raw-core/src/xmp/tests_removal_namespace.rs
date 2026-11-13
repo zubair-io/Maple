@@ -9,7 +9,6 @@ fn saved_removal_namespace_aliases_and_element_payloads_match_canonical_attribut
     for uri in [
         "http://ns.justmaple.app/photo/1.0/",
         "http://ns.justmaple.app/1.0/",
-        "https://maple.app/ns/1.0/",
     ] {
         let alias = XMP
             .replace("xmlns:papp=", "xmlns:m=")
@@ -67,6 +66,11 @@ fn namespaced_import_reads_removals_so_a_raster_source_refuses_them() {
         parse_namespaced(schema_two).unwrap().inpaint_removals.len(),
         1
     );
+    let secondary = r#"<r:RDF xmlns:r="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns:c="http://ns.adobe.com/camera-raw-settings/1.0/" xmlns:m="http://ns.justmaple.app/photo/1.0/"><r:Description r:about="" c:Exposure2012="1" c:Contrast2012="5"/><r:Description r:about="urn:other" m:InpaintRemovals="not JSON"/></r:RDF>"#;
+    assert!(parse_namespaced(secondary)
+        .unwrap()
+        .inpaint_removals
+        .is_empty());
     let plain = r#"<r:RDF xmlns:r="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns:c="http://ns.adobe.com/camera-raw-settings/1.0/"><r:Description c:Exposure2012="0.5"/></r:RDF>"#;
     assert!(parse_namespaced(plain).unwrap().inpaint_removals.is_empty());
 }

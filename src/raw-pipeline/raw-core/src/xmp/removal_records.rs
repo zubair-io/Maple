@@ -9,9 +9,7 @@ fn owned(namespace: ResolveResult<'_>) -> Result<bool> {
     match namespace {
         ResolveResult::Bound(uri) => Ok(matches!(
             uri.as_ref(),
-            b"http://ns.justmaple.app/photo/1.0/"
-                | b"http://ns.justmaple.app/1.0/"
-                | b"https://maple.app/ns/1.0/"
+            b"http://ns.justmaple.app/photo/1.0/" | b"http://ns.justmaple.app/1.0/"
         )),
         ResolveResult::Unbound => Ok(false),
         ResolveResult::Unknown(_) => Err(Error::Xmp(

@@ -337,9 +337,5 @@ pub fn parse_namespaced(xml: &str) -> Result<AdjustmentModel> {
     if xml.is_empty() {
         return Ok(AdjustmentModel::default());
     }
-    let model = parse_events(Import::new(xml), None)?;
-    Ok(AdjustmentModel {
-        inpaint_removals: super::removal_records::parse(xml)?,
-        ..model
-    })
+    parse_events(Import::new(xml), None)
 }

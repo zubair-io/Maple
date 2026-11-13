@@ -130,6 +130,7 @@ pub(super) fn parse_events<'a>(
                         &mut papp_seen,
                         &mut stamp,
                         &mut retouch_stamp,
+                        eligible.is_none(),
                     )?;
                 }
             }
@@ -167,6 +168,7 @@ pub(super) fn parse_events<'a>(
                         &mut papp_seen,
                         &mut stamp,
                         &mut retouch_stamp,
+                        eligible.is_none(),
                     )?;
                 }
             }
