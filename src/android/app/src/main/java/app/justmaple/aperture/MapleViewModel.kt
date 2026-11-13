@@ -139,19 +139,23 @@ internal constructor(
                 if (state.value.selected?.uri?.host != source.uri.host) return@launch
                 discardUnsavedEditsNow()
             }
-            val active = state.value.folder?.uri?.host == source.uri.host
-            if (active) {
+            val browsing = state.value.folder?.uri?.host == source.uri.host
+            // A search result opens a server's photo while another source is browsed.
+            val viewing = state.value.selected?.uri?.host == source.uri.host
+            if (browsing || viewing) {
                 ++generation
                 renderer.shutdown()
                 mutable.update {
-                    it.copy(
-                        mode = PhotoMode.Browse,
-                        folder = null,
-                        folderTrail = emptyList(),
-                        photos = emptyList(), previewOrder = null,
-                        folders = emptyList(),
-                        selected = null,
-                    )
+                    if (!browsing) it.copy(mode = PhotoMode.Browse, previewOrder = null, selected = null)
+                    else
+                        it.copy(
+                            mode = PhotoMode.Browse,
+                            folder = null,
+                            folderTrail = emptyList(),
+                            photos = emptyList(), previewOrder = null,
+                            folders = emptyList(),
+                            selected = null,
+                        )
                 }
             }
             try {
