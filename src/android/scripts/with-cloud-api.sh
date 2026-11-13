@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # Run a command against a real, disposable Maple API server (src/api) for Android device
 # tests. The server gets a fresh SQLite database and library, MAPLE_DEV_AUTH=1 for
-# passkey-free sign-in, and is reachable from the device at 127.0.0.1 through adb reverse.
+# passkey-free sign-in, its worker tier on a throwaway Temporal server (the same one the
+# API tests and fixture servers start), and is reachable from the device at 127.0.0.1
+# through adb reverse.
 # The command is run with the instrumentation arguments that name it appended:
 #   scripts/with-cloud-api.sh ./gradlew connectedDebugAndroidTest
 set -euo pipefail
@@ -16,11 +18,21 @@ origin="http://127.0.0.1:$port"
 work="$(cd "$(mktemp -d "${TMPDIR:-/tmp}/maple-android-api.XXXXXX")" && pwd -P)"
 library="$work/library"
 log="${MAPLE_API_FIXTURE_LOG:-$android/ci-artifacts/api-fixture.log}"
+temporal_log="$(dirname "$log")/temporal-fixture.log"
 mkdir -p "$library/2026" "$work/runtime" "$(dirname "$log")"
 server=''
+temporal=''
+
+stop() {
+	if [[ -n "$1" ]]; then
+		kill "$1" 2>/dev/null || true
+		wait "$1" 2>/dev/null || true
+	fi
+}
 
 cleanup() {
-	if [[ -n "$server" ]]; then kill "$server" 2>/dev/null || true; fi
+	stop "$server"
+	stop "$temporal"
 	adb reverse --remove "tcp:$port" >/dev/null 2>&1 || true
 	rm -rf "$work"
 }
@@ -45,10 +57,40 @@ if [[ ! -d "$api/node_modules" ]]; then (cd "$api" && bun install --frozen-lockf
 native=0
 if compgen -G "$api/native/libraw_ffi.*" >/dev/null; then native=1; fi
 
+# The worker tier runs every folder scan and pipeline stage on Temporal (docs/temporal.md),
+# so the fixture starts its own throwaway server and hands its address to the API. CI
+# fetches the server binary ahead of time with src/api/scripts/prewarm-temporal.ts.
+(
+	cd "$api"
+	MAPLE_TEMPORAL_ADDRESS_FILE="$work/runtime/temporal.address" exec bun -e '
+import { renameSync, writeFileSync } from "node:fs";
+import { startLocalTemporalServer } from "./src/temporal/local-temporal.test-helpers.ts";
+const env = await startLocalTemporalServer();
+const stop = () => void env.teardown().finally(() => process.exit(0));
+process.on("SIGTERM", stop);
+process.on("SIGINT", stop);
+const file = process.env.MAPLE_TEMPORAL_ADDRESS_FILE;
+writeFileSync(`${file}.tmp`, env.address);
+renameSync(`${file}.tmp`, file);
+setInterval(() => {}, 1 << 30);
+'
+) >"$temporal_log" 2>&1 &
+temporal=$!
+for ((attempt = 0; attempt < 600; attempt++)); do
+	if [[ -s "$work/runtime/temporal.address" ]] || ! kill -0 "$temporal" 2>/dev/null; then break; fi
+	sleep 0.5
+done
+if [[ ! -s "$work/runtime/temporal.address" ]]; then
+	cat "$temporal_log" >&2
+	echo 'The throwaway Temporal server did not start' >&2
+	exit 1
+fi
+
 (
 	cd "$api"
 	PORT="$port" MAPLE_DEV=0 MAPLE_DEV_AUTH=1 MAPLE_ROOTS="$library" \
-		MAPLE_SQLITE_PATH="$work/runtime/maple.sqlite" MAPLE_INDEXER_AUTOSTART=0 \
+		MAPLE_SQLITE_PATH="$work/runtime/maple.sqlite" \
+		MAPLE_TEMPORAL_ADDRESS="$(<"$work/runtime/temporal.address")" \
 		MAPLE_JWT_SECRET_FILE="$work/runtime/jwt.secret" MAPLE_BACKUP_TMP="$work/runtime/backup" \
 		exec bun src/index.ts
 ) >"$log" 2>&1 &

@@ -131,6 +131,7 @@ class AndroidWorkflowTests(unittest.TestCase):
             "sudo udevadm trigger --settle --name-match=kvm",
             "test -r /dev/kvm && test -w /dev/kvm",
             "bun install --frozen-lockfile",
+            "bun scripts/prewarm-temporal.ts",
         ):
             self.assertIn(gate, commands)
         reports = next(

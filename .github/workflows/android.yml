@@ -50,6 +50,12 @@ jobs:
       - name: Install the Maple API for provider device tests
         working-directory: src/api
         run: bun install --frozen-lockfile
+      # The provider fixture runs the API's worker tier on a throwaway Temporal server,
+      # whose binary is downloaded on first use; fetch it here, outside the fixture's
+      # start-up wait.
+      - name: Fetch the Temporal test server
+        working-directory: src/api
+        run: bun scripts/prewarm-temporal.ts
       - name: Install pinned Android SDK (bounded download recovery)
         run: bash src/android/scripts/install-ci-sdk.sh
       - name: Build arm64 and emulator APKs, JVM contracts and lint
