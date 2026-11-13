@@ -325,6 +325,25 @@ class CloudDocumentWritesTest {
     }
 
     @Test
+    fun aSaveDuringACreatedDocumentsFirstUploadReplacesThatDocument() {
+        api.page("2026")
+        val store = store()
+        val created = writes(store).create(folder, "text/plain", "notes.txt")
+        uploads.closed(uploads.opened(uploads.find(account("ann"), created)!!), clean = true)
+        api.status = {
+            // The app saves again after the first upload's bytes went out, before its answer.
+            api.status = { 201 }
+            uploads.closed(uploads.opened(uploads.find(account("ann"), created)!!), clean = true)
+            201
+        }
+        writes(store).schedule(server)
+        writes(store).schedule(server)
+        assertEquals(listOf("2026/notes.txt", "2026/notes.txt"), api.uploads)
+        assertEquals("The newer save replaces its own first publication", listOf("2026/notes.txt"), api.replaced)
+        assertTrue(uploads.all(account("ann")).isEmpty())
+    }
+
+    @Test
     fun anotherAccountSigningInMidDrainStopsItAndKeepsTheRest() {
         api.page("2026")
         ready("ann", "2026/first.txt", age = 2)
