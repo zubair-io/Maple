@@ -32,8 +32,9 @@ pub fn unknown<'a>(attrs: &'a [Attr], owned: &[&str]) -> Vec<&'a Attr> {
 
 /// Attribute lines for `attrs` at `indent`, under `context`; namespaces the
 /// context does not bind are declared on the same tag, renamed when a
-/// canonical prefix is already taken there.
-pub fn attribute_lines(attrs: &[&Attr], context: &Bindings, indent: &str) -> String {
+/// canonical prefix is already taken there. Also returns the bindings in
+/// scope below that tag, which its re-emitted descendants are written under.
+pub fn attribute_lines(attrs: &[&Attr], context: &Bindings, indent: &str) -> (String, Bindings) {
     let mut declared: BTreeMap<String, String> = BTreeMap::new();
     let mut lines = String::new();
     let mut declarations = String::new();
@@ -69,7 +70,13 @@ pub fn attribute_lines(attrs: &[&Attr], context: &Bindings, indent: &str) -> Str
         let quote = if attr.raw.contains('"') { '\'' } else { '"' };
         lines.push_str(&format!("\n{indent}{name}={quote}{}{quote}", attr.raw));
     }
-    declarations + &lines
+    let mut inner = context.clone();
+    inner.extend(
+        declared
+            .into_iter()
+            .map(|(prefix, uri)| (Some(prefix), uri)),
+    );
+    (declarations + &lines, inner)
 }
 
 /// `nodes` cut out of `text` (whose namespace `scopes` they were read in),

@@ -131,6 +131,12 @@ fn render(
     };
     let masks = format!(">\n{attrs}<crs:CorrectionMasks>");
     let masks_at = item.find(&masks).ok_or("Unexpected correction form")?;
+    // Declared on the correction's tag, so in scope for everything under it.
+    let (correction_attrs, inner) = attribute_lines(
+        &unknown(&origin.description.attrs, &CORRECTION_KEYS),
+        context,
+        &attrs,
+    );
     let leaf_indent = format!("{indent}        ");
     let leaf_starts: Vec<usize> = item[masks_at..]
         .match_indices("<rdf:li\n")
@@ -142,9 +148,9 @@ fn render(
         };
         let leaf = &origin.leaves[*source];
         let end = start + item[*start..].find("/>").ok_or("Unexpected mask leaf")?;
-        let extra = attribute_lines(
+        let (extra, leaf_context) = attribute_lines(
             &unknown(&leaf.attrs, &COMPONENT_KEYS),
-            context,
+            &inner,
             &format!("{leaf_indent}  "),
         );
         let children: Vec<&Element> = leaf.children.iter().collect();
@@ -157,7 +163,7 @@ fn render(
                     &origin.container.text,
                     &origin.container.scopes,
                     &children,
-                    context,
+                    &leaf_context,
                     &format!("{leaf_indent}  ")
                 )
             )
@@ -181,18 +187,11 @@ fn render(
             &origin.container.text,
             &origin.container.scopes,
             &nodes,
-            context,
+            &inner,
             &attrs,
         ),
     );
-    item.insert_str(
-        masks_at,
-        &attribute_lines(
-            &unknown(&origin.description.attrs, &CORRECTION_KEYS),
-            context,
-            &attrs,
-        ),
-    );
+    item.insert_str(masks_at, &correction_attrs);
     Ok(item)
 }
 
