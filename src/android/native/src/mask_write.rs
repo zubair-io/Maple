@@ -11,7 +11,7 @@ use crate::mask_model::{layer_from_json, AuthoredLayer};
 use crate::mask_order::{assign, container_rank, format_key};
 use crate::mask_stack;
 use crate::mask_xml::{self, Element};
-use crate::xml_carry::{attribute_lines, node_lines, unknown, with_prefixes};
+use crate::xml_carry::{attribute_lines, node_lines, placement, unknown, with_prefixes};
 use raw_core::types::{AdjustmentModel, Mask};
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, BTreeSet};
@@ -318,24 +318,7 @@ impl Plan<'_> {
         } else {
             (inside.clone(), String::new())
         };
-        // A canonical binding the container or its sequence declares differently cannot be
-        // declared again on that tag: it goes on each rendered correction instead.
-        let own = |prefix: &Option<String>| {
-            container
-                .root
-                .declarations
-                .iter()
-                .chain(&seq.declarations)
-                .any(|(declared, _)| declared == prefix)
-        };
-        let scoped = context
-            .iter()
-            .any(|(prefix, uri)| inside.get(prefix) != Some(uri) && own(prefix));
-        let (tag_additions, item_additions, kept) = if scoped {
-            (String::new(), additions, &inside)
-        } else {
-            (additions, String::new(), &context)
-        };
+        let placed = placement(&container.root, seq, &inside, &context, additions);
         let rendered = |layer: usize, indent: &str| -> Result<String, String> {
             let item = render(
                 &self.layers[layer],
@@ -346,8 +329,9 @@ impl Plan<'_> {
             )?;
             let open = "<rdf:li".len();
             Ok(format!(
-                "{}{item_additions}{}",
+                "{}{}{}",
                 &item[..open],
+                placed.entry,
                 &item[open..]
             ))
         };
@@ -355,8 +339,9 @@ impl Plan<'_> {
         let text = &container.text;
         let name_end = mask_xml::name_end(text, &container.root);
         let mut out = format!(
-            "{}{tag_additions}{}",
+            "{}{}{}",
             &text[container.root.span.start..name_end],
+            placed.tag,
             &text[name_end..seq.start.end]
         );
         let mut cursor = seq.start.end;
@@ -365,7 +350,7 @@ impl Plan<'_> {
             match fate {
                 Fate::Keep => {
                     let declarations =
-                        mask_xml::detached_declarations(item, &container.scopes, kept);
+                        mask_xml::detached_declarations(item, &container.scopes, placed.kept);
                     out.push_str(&text[cursor..item.span.start]);
                     let slot = slots[&item_index];
                     match self.kept_keys.get(&slot) {

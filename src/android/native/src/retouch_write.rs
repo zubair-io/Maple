@@ -13,7 +13,7 @@ use crate::mask_document::{parse_piece, Bindings};
 use crate::mask_xml::{self, Attr, Element, CRS, RDF};
 use crate::retouch_document::{spot_from_json, Container, Document, AREAS};
 use crate::retouch_legacy::retired;
-use crate::xml_carry::{attribute_lines, node_lines, unknown, with_prefixes};
+use crate::xml_carry::{attribute_lines, node_lines, placement, unknown, with_prefixes};
 use raw_core::types::{AdjustmentModel, RetouchSpot};
 use serde_json::{json, Value};
 
@@ -240,14 +240,26 @@ impl Plan<'_> {
         let (context, additions) = if replaced || !appended.is_empty() {
             with_prefixes(&inside, &PREFIXES)
         } else {
-            (inside, String::new())
+            (inside.clone(), String::new())
         };
+        let placed = placement(&container.root, seq, &inside, &context, additions);
         let indent = Self::item_indent(container, seq);
+        let rendered = |spot: &RetouchSpot, origin: Option<Origin>| -> Result<String, String> {
+            let item = render(spot, &indent, origin, &context)?;
+            let open = "<rdf:li".len();
+            Ok(format!(
+                "{}{}{}",
+                &item[..open],
+                placed.entry,
+                &item[open..]
+            ))
+        };
         let text = &container.text;
         let name_end = mask_xml::name_end(text, &container.root);
         let mut out = format!(
-            "{}{additions}{}",
+            "{}{}{}",
             &text[container.root.span.start..name_end],
+            placed.tag,
             &text[name_end..seq.start.end]
         );
         let mut cursor = seq.start.end;
@@ -256,7 +268,7 @@ impl Plan<'_> {
             match fate {
                 Fate::Keep => {
                     let declarations =
-                        mask_xml::detached_declarations(item, &container.scopes, &context);
+                        mask_xml::detached_declarations(item, &container.scopes, placed.kept);
                     out.push_str(&text[cursor..item.span.start]);
                     out.push_str(&mask_xml::detached(text, item, &declarations));
                     entries += 1;
@@ -271,7 +283,7 @@ impl Plan<'_> {
                         leaf,
                     };
                     out.push_str(&text[cursor..item.span.start]);
-                    out.push_str(&render(&spot, &indent, Some(origin), &context)?);
+                    out.push_str(&rendered(&spot, Some(origin))?);
                     entries += 1;
                 }
                 Fate::Remove => {
@@ -282,10 +294,7 @@ impl Plan<'_> {
             cursor = item.span.end;
         }
         for spot in &appended {
-            out.push_str(&format!(
-                "\n{indent}{}",
-                render(spot, &indent, None, &context)?
-            ));
+            out.push_str(&format!("\n{indent}{}", rendered(spot, None)?));
             entries += 1;
         }
         out.push_str(&text[cursor..container.root.span.end]);
