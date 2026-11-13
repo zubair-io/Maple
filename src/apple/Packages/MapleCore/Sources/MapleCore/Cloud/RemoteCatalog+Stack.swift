@@ -38,11 +38,15 @@ extension RemoteCatalog {
   }
 
   /// Rename the JPEG to the stem of its RAW's new name `primaryFilename`. The batch rename calls
-  /// this after the server has renamed the RAWs.
+  /// this after the server has renamed the RAWs. The JPEG is addressed by the location the listing
+  /// reported, so a JPEG the server holds at several locations renames that copy.
   public func renameCompanion(of stack: RawJpegStack, toMatch primaryFilename: String) async throws
   {
     let companionName = stack.companionFilename(forPrimaryFilename: primaryFilename)
-    switch try await renameAsset(assetID: companionID(of: stack), newFilename: companionName) {
+    switch try await renameAsset(
+      assetID: companionID(of: stack), newFilename: companionName,
+      sourceAddress: companionAddress(of: stack))
+    {
     case .ok:
       return
     case .skipped:
