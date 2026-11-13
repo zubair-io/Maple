@@ -10,6 +10,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { Elysia } from 'elysia';
 import { ObjectId } from '../../db/object-id.ts';
 import { reconcileRawJpegStacks } from '../../db/repos/assets.raw-jpeg-stacks.ts';
+import { RANKED_WINDOW_MAX } from '../../db/repos/search.ranked.ts';
 import { seedSearchAsset } from '../../db/repos/search.test-helpers.ts';
 import {
   createLiveTestDatabase,
@@ -311,14 +312,7 @@ describe('RAW+JPEG stacks in search and the timeline #5849', () => {
     const order = ['jpeg', ...lone.slice(0, 399), 'raw', ...lone.slice(399), 'lone'];
     setInProcessSearchForTests(fakeInProcessSearch(order));
 
-    const pages: Page[] = [];
-    for (let index = 0; index <= 5; index++) {
-      const pin = pages.at(-1)?.rankPin;
-      const pinned = pin === undefined ? '' : `&rankPin=${encodeURIComponent(pin)}`;
-      pages.push(await get<Page>(`/?placeQuery=harbour&stack=1&limit=100&page=${index}${pinned}`));
-    }
-
-    const served = pages.flatMap((page) => page.results.map((result) => result._id));
+    const { pages, served } = await servePinnedPages();
     expect(new Set(served).size).toBe(served.length);
     expect(served.filter((id) => id === raw || id === jpeg)).toEqual([jpeg]);
     expect(served).toHaveLength(500);
@@ -326,28 +320,42 @@ describe('RAW+JPEG stacks in search and the timeline #5849', () => {
   });
 
   it("a stack keeps its JPEG owner's shot, so a copy collapsed early stays collapsed", async () => {
-    // An uploaded JPEG and a re-upload of it share an owner; a library scan found the RAW for
-    // another. The copy ranks second, the RAW 401st, past the step that serves pages 0-2.
-    const [uploader, scanner] = [new ObjectId().toHexString(), new ObjectId().toHexString()];
-    for (const owner of [uploader, scanner]) {
-      run(
-        live.db,
-        `INSERT INTO users (id, email, email_key, role, created_at) VALUES (?, ?, ?, 'member', ?)`,
-        owner,
-        `${owner}@example.com`,
-        `${owner}@example.com`,
-        new Date().toISOString(),
-      );
-    }
-    const copy = seedSearchAsset(live.db, libraryId, {
-      mapleId: 'copy',
-      path: 'uploads',
-      filename: 'IMG_1(2).JPG',
-      capturedAt: '2024-06-01T10:00:01.000Z',
-      searchBlob: 'harbour copy',
+    // The copy ranks second, the RAW 401st, past the step that serves pages 0-2.
+    const { copy, lone } = seedOwnedCopy();
+    const order = ['jpeg', 'copy', ...lone.slice(0, 398), 'raw', ...lone.slice(398), 'lone'];
+    setInProcessSearchForTests(fakeInProcessSearch(order));
+
+    const { served } = await servePinnedPages();
+    expect(new Set(served).size).toBe(served.length);
+    expect(served).not.toContain(copy);
+    expect(served.filter((id) => id === raw || id === jpeg)).toEqual([jpeg]);
+    expect(served).toHaveLength(499);
+  });
+
+  it("a pinned stack keeps its JPEG owner's shot when a deeper step ranks the RAW first", async () => {
+    // The steps pages 0-2 pin rank the JPEG and its copy first and the RAW not at all; the
+    // 1,600-deep step page 4 widens to ranks the RAW ahead of both.
+    const { copy, lone } = seedOwnedCopy();
+    const narrow = fakeInProcessSearch(['jpeg', 'copy', ...lone, 'lone', 'raw']);
+    const deep = fakeInProcessSearch(['raw', 'jpeg', 'copy', ...lone, 'lone']);
+    setInProcessSearchForTests({
+      ...deep,
+      search: (query, k) => (k > 400 ? deep : narrow).search(query, k),
     });
-    const lone = Array.from({ length: 497 }, (_, index) => `many-${index}`);
-    for (const mapleId of lone) {
+
+    const { served } = await servePinnedPages();
+    expect(deep.queries.length).toBeGreaterThan(0);
+    expect(new Set(served).size).toBe(served.length);
+    expect(served).not.toContain(copy);
+    expect(served.filter((id) => id === raw || id === jpeg)).toEqual([jpeg]);
+    expect(served).toHaveLength(499);
+  });
+
+  it('is not capped by the JPEG of a stack it serves, and is capped by a new photograph', async () => {
+    // The stack and `lone` fill the window to the cap with these; the JPEG ranks just past it.
+    const fill = Array.from({ length: RANKED_WINDOW_MAX - 2 }, (_, index) => `cap-${index}`);
+    live.db.exec('BEGIN');
+    for (const mapleId of [...fill, 'cap-new']) {
       seedSearchAsset(live.db, libraryId, {
         mapleId,
         path: 'many',
@@ -355,22 +363,65 @@ describe('RAW+JPEG stacks in search and the timeline #5849', () => {
         searchBlob: `harbour ${mapleId}`,
       });
     }
-    run(live.db, `UPDATE assets SET owner_id = ? WHERE id IN (?, ?)`, uploader, jpeg, copy);
-    run(live.db, `UPDATE assets SET owner_id = ? WHERE id = ?`, scanner, raw);
-    const order = ['jpeg', 'copy', ...lone.slice(0, 398), 'raw', ...lone.slice(398), 'lone'];
-    setInProcessSearchForTests(fakeInProcessSearch(order));
+    live.db.exec('COMMIT');
+    const lastPage = `/?placeQuery=harbour&stack=1&limit=500&page=${RANKED_WINDOW_MAX / 500 - 1}`;
 
-    const pages: Page[] = [];
-    for (let index = 0; index <= 5; index++) {
-      const pin = pages.at(-1)?.rankPin;
-      const pinned = pin === undefined ? '' : `&rankPin=${encodeURIComponent(pin)}`;
-      pages.push(await get<Page>(`/?placeQuery=harbour&stack=1&limit=100&page=${index}${pinned}`));
-    }
+    setInProcessSearchForTests(fakeInProcessSearch(['raw', 'lone', ...fill, 'jpeg']));
+    const companionPast = await get<Page & { more: boolean; capped: boolean }>(lastPage);
+    _resetCacheForTests();
+    setInProcessSearchForTests(fakeInProcessSearch(['raw', 'lone', ...fill, 'cap-new']));
+    const newPast = await get<Page & { more: boolean; capped: boolean }>(lastPage);
 
-    const served = pages.flatMap((page) => page.results.map((result) => result._id));
-    expect(new Set(served).size).toBe(served.length);
-    expect(served).not.toContain(copy);
-    expect(served.filter((id) => id === raw || id === jpeg)).toEqual([jpeg]);
-    expect(served).toHaveLength(499);
+    const atCap = { total: RANKED_WINDOW_MAX, more: false };
+    expect(companionPast).toMatchObject({ ...atCap, capped: false });
+    expect(newPast).toMatchObject({ ...atCap, capped: true });
   });
 });
+
+/** Pages 0-5 of a stacked ranked search, each pinned by the page before it. */
+async function servePinnedPages(): Promise<{ pages: Page[]; served: string[] }> {
+  const pages: Page[] = [];
+  for (let index = 0; index <= 5; index++) {
+    const pin = pages.at(-1)?.rankPin;
+    const pinned = pin === undefined ? '' : `&rankPin=${encodeURIComponent(pin)}`;
+    pages.push(await get<Page>(`/?placeQuery=harbour&stack=1&limit=100&page=${index}${pinned}`));
+  }
+  return { pages, served: pages.flatMap((page) => page.results.map((result) => result._id)) };
+}
+
+/**
+ * An uploaded JPEG and a re-upload of it that share an owner, beside a RAW a library scan found
+ * for another, and 497 more results.
+ */
+function seedOwnedCopy(): { copy: string; lone: string[] } {
+  const [uploader, scanner] = [new ObjectId().toHexString(), new ObjectId().toHexString()];
+  for (const owner of [uploader, scanner]) {
+    run(
+      live.db,
+      `INSERT INTO users (id, email, email_key, role, created_at) VALUES (?, ?, ?, 'member', ?)`,
+      owner,
+      `${owner}@example.com`,
+      `${owner}@example.com`,
+      new Date().toISOString(),
+    );
+  }
+  const copy = seedSearchAsset(live.db, libraryId, {
+    mapleId: 'copy',
+    path: 'uploads',
+    filename: 'IMG_1(2).JPG',
+    capturedAt: '2024-06-01T10:00:01.000Z',
+    searchBlob: 'harbour copy',
+  });
+  const lone = Array.from({ length: 497 }, (_, index) => `many-${index}`);
+  for (const mapleId of lone) {
+    seedSearchAsset(live.db, libraryId, {
+      mapleId,
+      path: 'many',
+      filename: `${mapleId}.DNG`,
+      searchBlob: `harbour ${mapleId}`,
+    });
+  }
+  run(live.db, `UPDATE assets SET owner_id = ? WHERE id IN (?, ?)`, uploader, jpeg, copy);
+  run(live.db, `UPDATE assets SET owner_id = ? WHERE id = ?`, scanner, raw);
+  return { copy, lone };
+}

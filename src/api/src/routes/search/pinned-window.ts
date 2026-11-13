@@ -31,7 +31,7 @@ import {
   type WindowPass,
   type WindowRow,
 } from '../../db/repos/search.ranked.ts';
-import { collapseShots } from '../../db/repos/search.shots.ts';
+import { collapseShots, shotOwner } from '../../db/repos/search.shots.ts';
 import {
   engineRanker,
   firstEngine,
@@ -128,12 +128,14 @@ function merge(into: Merged, pass: WindowPass, foldStacks: boolean): Merged {
 
 /**
  * What a held row stands for once a deeper step served `row` for the same asset or stack: the
- * stack's RAW in place of the JPEG an earlier step served alone, keeping that JPEG's shot.
+ * stack's RAW in place of the JPEG an earlier step served alone, keeping that JPEG's shot (owner,
+ * capture time, kind, filename) whichever half the deeper step ranked first; its own `owner_id`
+ * stays the RAW's, the document it is served as.
  */
 function stackLeader(held: WindowRow, row: WindowRow): WindowRow {
   if (!held.stack_primary_id || row.id !== held.stack_primary_id) return held;
   const { captured_at, media_kind, filename } = held;
-  return { ...row, captured_at, media_kind, filename };
+  return { ...row, shot_owner_id: shotOwner(held), captured_at, media_kind, filename };
 }
 
 /**
