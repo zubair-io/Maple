@@ -44,6 +44,7 @@ import type { SearchWhere } from './search.where.ts';
 import { assetsDb, bulkLane, type SqliteDb } from './db-handle.ts';
 import { inGivenOrder } from './search.ranked.ts';
 import { collapseShots, type ShotFields } from './search.shots.ts';
+import { stackCompanionsOf, type StackCompanionRow } from './assets.raw-jpeg-stacks.ts';
 
 /** The narrow `assets` projection a search result is built from. */
 interface PageRow {
@@ -74,8 +75,15 @@ interface LinkRow {
   first_seen: string;
 }
 
-/** A search result row as `projectAsset` reads it: the document plus its owner, resolved with it. */
-export type SearchDoc = AssetDoc & { _id: ObjectId; owner: AssetOwnerSummary | null };
+/**
+ * A search result row as `projectAsset` reads it: the document plus its owner, resolved with it,
+ * and the JPEG folded into it when it is the RAW of a stack (#5849).
+ */
+export type SearchDoc = AssetDoc & {
+  _id: ObjectId;
+  owner: AssetOwnerSummary | null;
+  stackCompanion?: StackCompanionRow;
+};
 
 /** The cursor shape `routes/search/cursor.ts` decodes and validates. */
 export interface SeekPosition {
@@ -134,7 +142,7 @@ export async function searchPage(
   const seek = options.cursor ? seekPredicate(options.cursor) : undefined;
   const statement = pageSql(where, options.sort, options.limit, seek ? 0 : options.skip, seek);
   const rows = await db.read<PageRow>(statement.sql, statement.params);
-  return hydrate(db, rows);
+  return hydrate(db, rows, where.foldStacks === true);
 }
 
 /**
@@ -154,7 +162,7 @@ export async function searchByIds(
   const rows = await db.read<PageRow>(statement.sql, statement.params);
   const byId = new Map(rows.map((row) => [row.id, row] as const));
   const ordered = ids.map((id) => byId.get(id)).filter((row): row is PageRow => row !== undefined);
-  return hydrate(db, ordered);
+  return hydrate(db, ordered, where.foldStacks === true);
 }
 
 /**
@@ -167,12 +175,17 @@ export async function searchByIds(
  * every search (#4503). They go through the bulk lane, so a page's fan-out can
  * never hold every reader and stall a concurrent grid page (#4413).
  */
-async function hydrate(db: SqliteDb, rows: readonly PageRow[]): Promise<SearchDoc[]> {
+async function hydrate(
+  db: SqliteDb,
+  rows: readonly PageRow[],
+  foldStacks: boolean,
+): Promise<SearchDoc[]> {
   if (rows.length === 0) return [];
   const sides = await sideTables(
     bulkLane(db),
     rows.map((row) => row.id),
     rows.map(ownerKey),
+    foldStacks,
   );
   return rows.map((row) => toSearchDoc(row, sides));
 }
@@ -220,7 +233,7 @@ export async function windowDocs(
   const live = windowColumnsSql(where, ids);
   const [columns, sides] = await Promise.all([
     lane.read<PageRow>(live.sql, live.params),
-    sideTables(lane, ids, page.map(ownerKey)),
+    sideTables(lane, ids, page.map(ownerKey), where.foldStacks === true),
   ]);
   const ownerIds = new Map(page.map((row) => [row.id, row.owner_id] as const));
   return inGivenOrder(ids, columns, (row) => row.id).map((row) =>
@@ -233,31 +246,37 @@ interface SideTables {
   links: ReadonlyMap<string, LinkRow[]>;
   captions: ReadonlyMap<string, string | null>;
   owners: ReadonlyMap<string, AssetOwnerSummary>;
+  companions: ReadonlyMap<string, StackCompanionRow>;
 }
 
 async function sideTables(
   lane: SqliteDb,
   ids: readonly string[],
   ownerKeys: readonly (string | null)[],
+  foldStacks: boolean,
 ): Promise<SideTables> {
-  const [locations, descriptions, links, owners] = await Promise.all([
+  const [locations, descriptions, links, owners, companions] = await Promise.all([
     lane.read<LocationRow>(locationsByAssetIdsSql(ids.length), ids),
     lane.read<DescriptionRow>(descriptionsByAssetIdsSql(ids.length), ids),
     lane.read<LinkRow>(phassetLinksByAssetIdsSql(ids.length), ids),
     ownerSummariesForIds(ownerKeys, lane),
+    foldStacks ? stackCompanionsOf(ids, lane) : [],
   ]);
   return {
     locations: groupByAsset(locations),
     links: groupByAsset(links),
     captions: new Map(descriptions.map((row) => [row.asset_id, row.description] as const)),
     owners,
+    companions: new Map(companions.map((row) => [row.primary_id, row] as const)),
   };
 }
 
 function toSearchDoc(row: PageRow, sides: SideTables): SearchDoc {
+  const companion = sides.companions.get(row.id);
   return {
     ...toAssetDoc(row, sides.locations, sides.links, sides.captions),
     owner: sides.owners.get(ownerKey(row) ?? '') ?? null,
+    ...(companion ? { stackCompanion: companion } : {}),
   };
 }
 

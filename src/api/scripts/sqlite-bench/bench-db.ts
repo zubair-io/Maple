@@ -91,9 +91,16 @@ export async function openBenchDatabase(
   return db;
 }
 
-/** A fresh database at `path`, migrated and filled with `assetCount` assets. */
-export async function buildLibrary(path: string, assetCount: number): Promise<Database> {
-  const db = await openBenchDatabase(path);
+/**
+ * A fresh database at `path`, migrated and filled with `assetCount` assets. A
+ * script timing a migration passes the list before it.
+ */
+export async function buildLibrary(
+  path: string,
+  assetCount: number,
+  migrations: readonly Migration[] = ALL_MIGRATIONS,
+): Promise<Database> {
+  const db = await openBenchDatabase(path, migrations);
   generateLibrary(db, { assetCount });
   finishBulkLoad(db);
   return db;

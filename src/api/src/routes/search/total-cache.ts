@@ -117,7 +117,7 @@ export function _resetCacheForTests(): void {
  * the user scrolls.
  */
 export async function getCachedTotal(query: SearchQuery, where: SearchWhere): Promise<number> {
-  const cacheKey = makeTotalCacheKey(query);
+  const cacheKey = `${makeTotalCacheKey(query)}#${where.foldStacks === true}`;
   const nowMs = Date.now();
   const cached = totalCache.get(cacheKey);
   if (cached && cached.expiresMs > nowMs) return cached.total;

@@ -67,7 +67,7 @@ test('the asset row is untouched and still loads as a stage document without the
   const row = () => handle.db.query(`SELECT * FROM assets WHERE id = ?`).get(asset);
   const before = row();
 
-  await runMigrations(handle.migrationDb, ALL_MIGRATIONS);
+  await runMigrations(handle.migrationDb, THROUGH_THIS_MIGRATION);
 
   expect(row()).toEqual(before);
   expect(before).toMatchObject({ [COLUMN]: FINGERPRINT });

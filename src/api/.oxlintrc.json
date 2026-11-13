@@ -319,6 +319,8 @@
         // #5824: sweep-slice and discover-lane tests build temp library trees under os.tmpdir().
         "src/workers/discover/sweep-slice.test.ts",
         "src/temporal/discover-lane.integration.test.ts",
+        // #5849: RAW+JPEG pairing tests write and delete files in their own temp library only.
+        "src/workers/discover/sweeper.raw-jpeg-stacks.test.ts",
         "src/workers/discover/sweeper.ts",
         "src/workers/migration.test.ts",
         "src/workers/migration/backfill-video-exif.e2e.test.ts",

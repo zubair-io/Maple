@@ -18,7 +18,7 @@ import { describe, expect, test } from 'bun:test';
 import type { Database } from 'bun:sqlite';
 import { createTestDatabase } from '../sqlite/test-sqlite.test-helpers.ts';
 import { facetStatements } from './search.facets.sql.ts';
-import { countSql, pageSql } from './search.sql.ts';
+import { countSql, pageSql, timedBucketsSql } from './search.sql.ts';
 import { buildSearchWhere, type SearchWhere } from './search.where.ts';
 import { seedSearchLibrary, type SeededLibrary } from './search.test-helpers.ts';
 import type { SearchQuery } from '../../routes/search/query-schema.ts';
@@ -351,6 +351,63 @@ describe('qualifying the live predicate does not cost the partial indexes', () =
       );
       const qualified = planOf(db, countSql(translate({})).sql);
       expect(qualified).toBe(bare);
+    });
+  });
+});
+
+/**
+ * Whether a statement reads a column out of an `assets` row rather than out of an index. SQLite
+ * opens the table cursor either way, so the opens prove nothing; a `Column` on it is a row read.
+ */
+function readsAssetRows(db: Database, statement: { sql: string }): boolean {
+  const table = db
+    .query<{ rootpage: number }, []>("SELECT rootpage FROM sqlite_master WHERE name = 'assets'")
+    .get();
+  const ops = db.query(`EXPLAIN ${statement.sql}`).all() as Array<{
+    opcode: string;
+    p1: number;
+    p2: number;
+  }>;
+  const cursors = new Set(
+    ops.filter((op) => op.opcode === 'OpenRead' && op.p2 === table?.rootpage).map((op) => op.p1),
+  );
+  return ops.some((op) => op.opcode === 'Column' && cursors.has(op.p1));
+}
+
+describe('folding RAW+JPEG stacks keeps every plan (#5849)', () => {
+  const folded = (q: SearchQuery): SearchWhere => {
+    const built = buildSearchWhere(q, [], null, { stackRawJpeg: true });
+    if ('error' in built) throw new Error(built.error);
+    return built;
+  };
+
+  test('the count and the timeline histogram never read an asset row', async () => {
+    await withLibrary(async (db) => {
+      expect(planOf(db, countSql(folded({})).sql)).toContain(
+        'assets USING INDEX assets_live (live_location_count>?)',
+      );
+      expect(readsAssetRows(db, countSql(folded({})))).toBe(false);
+      expect(planOf(db, timedBucketsSql(folded({})).sql)).toContain('assets_live_captured_ym');
+      expect(readsAssetRows(db, timedBucketsSql(folded({})))).toBe(false);
+    });
+  });
+
+  test('a grid page still walks the ordered live index and stops at the limit', async () => {
+    await withLibrary(async (db) => {
+      const plan = planOf(db, pageSql(folded({}), 'captured_desc', 200, 0).sql);
+      expect(plan).toContain('assets USING INDEX assets_live_captured');
+      expect(plan).not.toContain('TEMP B-TREE FOR ORDER BY');
+    });
+  });
+
+  test('facet groups count files, so they keep their index-only shape', async () => {
+    await withLibrary(async (db) => {
+      const statements = facetStatements(folded({}));
+      expect(statements.cameras.sql).not.toContain('stack_primary_id');
+      expect(statements.total.sql).toContain('assets.stack_primary_id IS NULL');
+      expect(planOf(db, statements.cameras.sql)).toContain(
+        'SCAN assets USING INDEX assets_facet_camera',
+      );
     });
   });
 });
