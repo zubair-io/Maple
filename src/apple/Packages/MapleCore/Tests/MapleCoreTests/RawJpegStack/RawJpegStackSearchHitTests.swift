@@ -148,6 +148,11 @@ final class RawJpegStackSearchHitTests: XCTestCase {
             return #"{"id":"\#(self.jpegID)","folder_id":"f1","filename":"IMG_3.JPG","#
               + #""abs_path":"/l/Trip/IMG_3.JPG","fileinfo":[{"path":"Trip","filename":"#
               + #""IMG_3.JPG","library_id":"f1"}],"size":4,"mtime":0,"rating":0}"#
+          case "/api/assets/\(self.rawID)":
+            // So does the RAW.
+            return #"{"id":"\#(self.rawID)","folder_id":"f1","filename":"IMG_3.NEF","#
+              + #""abs_path":"/l/Trip/IMG_3.NEF","fileinfo":[{"path":"Trip","filename":"#
+              + #""IMG_3.NEF","library_id":"f1"}],"size":4,"mtime":0,"rating":0}"#
           default:
             return "{}"
           }

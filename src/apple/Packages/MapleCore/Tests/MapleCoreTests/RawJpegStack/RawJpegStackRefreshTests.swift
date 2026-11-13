@@ -139,4 +139,29 @@ final class RawJpegStackRefreshTests: XCTestCase {
     await vm.loadPage(year: 2024, month: 7)
     XCTAssertEqual(vm.pagesByBucket[july]?.map(\.filename), ["IMG_1.CR3", "IMG_1.JPG"])
   }
+
+  /// A Timeline no view model held when the setting changed (folder browsing drops them) kept its
+  /// folded pages on disk, and its next load painted them first. The change clears every page.
+  func testAStackingChangeClearsThePagesOfTimelinesNoViewModelHolds() async throws {
+    let stacking = Stacking()
+    let pagesCache = CloudPagesCache(baseDir: temporaryDirectory())
+    let vm = CloudTimelineViewModel(
+      server: server, libraryID: "lib1", searchClient: client(stacking),
+      bucketsCache: CloudBucketsCache(baseDir: temporaryDirectory()), pagesCache: pagesCache)
+    await vm.loadPage(year: 2024, month: 7)
+    let cached = await pagesCache.read(
+      host: server.cacheHostKey, libraryID: "lib1", year: 2024, month: 7, page: 0)
+    let other = try XCTUnwrap(cached)
+    await pagesCache.write(
+      host: "other:3000", libraryID: "lib2", year: 2024, month: 6, page: 0, other)
+
+    await pagesCache.clearAll()
+
+    let folded = await pagesCache.read(
+      host: server.cacheHostKey, libraryID: "lib1", year: 2024, month: 7, page: 0)
+    XCTAssertNil(folded)
+    let otherServer = await pagesCache.read(
+      host: "other:3000", libraryID: "lib2", year: 2024, month: 6, page: 0)
+    XCTAssertNil(otherServer)
+  }
 }

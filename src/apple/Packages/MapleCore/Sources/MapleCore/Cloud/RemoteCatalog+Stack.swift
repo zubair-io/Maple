@@ -224,18 +224,24 @@ extension RemoteCatalog {
   /// Replace displaced as soon as it commits, so a JPEG that then could not follow would lose that
   /// file even though the RAW is put back. Throws the companion's error when the JPEG has no server
   /// location yet, and `destinationExists` naming the JPEG's new name when a file or folder in the
-  /// library `libraryFolderID` holds it beside the JPEG.
+  /// library `libraryFolderID` holds it beside the JPEG. A hit's JPEG carries no address, so its
+  /// folder is the RAW's, from `primaryAddress`.
   public func requireCompanionRenameFree(
-    of stack: RawJpegStack, toMatch primaryFilename: String, libraryFolderID: String
+    of stack: RawJpegStack, toMatch primaryFilename: String, libraryFolderID: String,
+    primaryAddress: String?
   ) async throws {
     _ = try companionID(of: stack)
-    let name = stack.companionFilename(forPrimaryFilename: primaryFilename)
-    guard let current = companionAddress(of: stack).flatMap(Self.relativePath(ofAddress:)) else {
-      throw FileOperationError.sourceMissing(stack.companion.name)
+    guard let beside = (companionAddress(of: stack) ?? primaryAddress),
+      let besidePath = Self.relativePath(ofAddress: beside)
+    else {
+      throw FileOperationError.unsupportedSource(
+        "the server didn't say which folder \(stack.companion.name) is in")
     }
-    let directory = (current as NSString).deletingLastPathComponent
-    let path = directory.isEmpty ? name : "\(directory)/\(name)"
-    if path.caseInsensitiveCompare(current) == .orderedSame { return }
+    let directory = (besidePath as NSString).deletingLastPathComponent
+    func inDirectory(_ name: String) -> String { directory.isEmpty ? name : "\(directory)/\(name)" }
+    let name = stack.companionFilename(forPrimaryFilename: primaryFilename)
+    let path = inDirectory(name)
+    if path.caseInsensitiveCompare(inDirectory(stack.companion.name)) == .orderedSame { return }
     if try await occupant(folderID: libraryFolderID, relativePath: path) != .free {
       throw FileOperationError.destinationExists(name)
     }

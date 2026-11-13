@@ -149,4 +149,26 @@ extension RawJpegStackServerTests {
     }
     XCTAssertEqual(recorder.requests.filter { $0.method == "DELETE" }.count, 1)
   }
+
+  /// A Timeline hit's JPEG carries no address: its new name is looked up beside the RAW.
+  @MainActor
+  func testAReplaceBatchLooksUpAnUnaddressedJpegsNewNameBesideTheRaw() async throws {
+    let recorder = Recorder()
+    let unaddressed = RawJpegStack(
+      primary: .init(name: "IMG_1.CR3", size: 3), companion: .init(name: "IMG_1.JPG", size: 2),
+      location: .cloud(address: nil, path: "/srv/photos/Library/Trip/IMG_1.JPG", id: jpegID))
+    let vm = BatchRenameViewModel(
+      assets: [asset("IMG_1.CR3", id: rawID, stack: unaddressed)], routing: .cloud,
+      cloudCatalog: batchCatalog(
+        recorder, names: [rawID: "Beach_2.CR3"], folders: ["Trip/Beach_2.JPG"]))
+    vm.template = "Beach_{n}.{ext}"
+    vm.collision = .replace
+
+    await vm.apply()
+
+    XCTAssertFalse(recorder.requests.contains { $0.path == "/api/assets/batch-rename" })
+    XCTAssertEqual(
+      try XCTUnwrap(vm.applyResults).first?.outcome,
+      .skipped(reason: "Beach_2.JPG already exists, so this RAW and its JPEG kept their names."))
+  }
 }
