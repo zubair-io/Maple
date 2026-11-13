@@ -251,4 +251,27 @@ final class RawJpegStackFileOperationsTests: XCTestCase {
         relocatedPrimaryPath: "/b/IMG_1.CR3"),
       "img_1.jpg")
   }
+
+  /// #5050 review: on macOS the JPEG goes to the Trash first; a RAW the Trash then refused (a
+  /// locked file) left the JPEG there and the pair split. The JPEG now comes back first.
+  func testARawTheTrashRefusesBringsTheTrashedJpegBack() async throws {
+    let trash = root.appendingPathComponent("Trash", isDirectory: true)
+    try FileManager.default.createDirectory(at: trash, withIntermediateDirectories: true)
+    struct Locked: Error {}
+    do {
+      _ = try await LocalFileOperations.trashStack(raw, companion: jpeg) { url in
+        guard url.pathExtension == "JPG" else { throw Locked() }
+        let moved = trash.appendingPathComponent(url.lastPathComponent)
+        try FileManager.default.moveItem(at: url, to: moved)
+        return RelocateOutcome(
+          primaryPath: moved.path, sidecarPath: nil, renamedDueToCollision: false,
+          sidecarFollowed: false)
+      }
+      XCTFail("the RAW is locked")
+    } catch is Locked {}
+
+    XCTAssertEqual(names(in: source), ["IMG_1.CR3", "IMG_1.JPG", "IMG_1.xmp"])
+    XCTAssertEqual(names(in: trash), [])
+    XCTAssertEqual(FileOperationsTestSupport.contents(jpeg), "jpeg-bytes")
+  }
 }

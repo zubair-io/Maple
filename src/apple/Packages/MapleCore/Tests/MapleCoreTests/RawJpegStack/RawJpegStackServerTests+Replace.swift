@@ -94,4 +94,75 @@ extension RawJpegStackServerTests {
 
     XCTAssertFalse(recorder.requests.contains { $0.method == "DELETE" })
   }
+
+  /// #5050 review: `file-meta` answers 404 for a folder, so a folder named `IMG_1.JPG` read as a
+  /// free JPEG name; the RAW's Replace then committed and deleted what it displaced before the
+  /// JPEG met the folder. A folder now holds the name like a file does.
+  func testAFolderAtTheJpegsNameStopsTheMoveBeforeTheRawReplacesAnything() async throws {
+    let recorder = Recorder()
+    let catalog = catalog(recorder) { record, request in
+      if record.path == "/api/folders/f1/file-meta" {
+        return self.fileMeta(request, taken: ["Album/IMG_1.CR3"], folders: ["Album/IMG_1.JPG"])
+      }
+      return self.moved(request, path: "Album", filename: "IMG_1.CR3")
+    }
+
+    do {
+      _ = try await catalog.relocateAsset(
+        assetID: rawID, mode: .move, collision: .replace, destinationPath: "Album",
+        sourceAddress: "lib:Trip/IMG_1.CR3", stack: stack, libraryFolderID: "f1",
+        restore: ("Trip", "IMG_1.CR3"))
+      XCTFail("a folder holds the JPEG's name")
+    } catch FileOperationError.destinationExists(let name) {
+      XCTAssertEqual(name, "IMG_1.JPG")
+    }
+    XCTAssertEqual(recorder.requests.filter { $0.method != "GET" }.count, 0)
+  }
+
+  /// Replace chosen for the JPEG's name cannot replace a folder there: refused before anything
+  /// moves or goes to the Trash.
+  func testReplacingAFolderAtTheJpegsNameIsRefusedBeforeAnythingMoves() async throws {
+    let recorder = Recorder()
+    let catalog = catalog(recorder) { record, request in
+      if record.path == "/api/folders/f1/file-meta" {
+        return self.fileMeta(request, taken: [], folders: ["Album/IMG_1.JPG"])
+      }
+      return self.moved(request, path: "Album", filename: "IMG_1.CR3")
+    }
+
+    do {
+      _ = try await catalog.relocateAsset(
+        assetID: rawID, mode: .move, collision: .replace, destinationPath: "Album",
+        sourceAddress: "lib:Trip/IMG_1.CR3", stack: stack, libraryFolderID: "f1",
+        restore: ("Trip", "IMG_1.CR3"), companionCollision: .replace)
+      XCTFail("a folder holds the JPEG's name")
+    } catch FileOperationError.invalidDestination(let message) {
+      XCTAssertTrue(message.hasPrefix("IMG_1.JPG in the destination is a folder"), message)
+    }
+    XCTAssertEqual(recorder.requests.filter { $0.method != "GET" }.count, 0)
+  }
+
+  /// Keep Both skips a stem whose JPEG name a folder holds.
+  func testKeepBothSkipsAStemWhoseJpegNameIsAFolder() async throws {
+    let recorder = Recorder()
+    let catalog = catalog(recorder) { record, request in
+      if record.path == "/api/folders/f1/file-meta" {
+        return self.fileMeta(request, taken: [], folders: ["Album/IMG_1.JPG"])
+      }
+      let isJpeg = record.path.contains(self.jpegID)
+      let filename =
+        record.body["destination_filename"] as? String ?? (isJpeg ? "IMG_1.JPG" : "IMG_1.CR3")
+      return self.moved(request, path: "Album", filename: filename)
+    }
+
+    let result = try await catalog.relocateAsset(
+      assetID: rawID, mode: .move, collision: .autoSuffix, destinationPath: "Album",
+      sourceAddress: "lib:Trip/IMG_1.CR3", stack: stack, libraryFolderID: "f1",
+      restore: ("Trip", "IMG_1.CR3"))
+
+    guard case .ok(let moved) = result else { return XCTFail("expected a move, got \(result)") }
+    XCTAssertEqual(moved.newFilename, "IMG_1.1.CR3")
+    let relocations = recorder.requests.filter { $0.path.hasSuffix("/relocate") }
+    XCTAssertEqual(relocations.last?.body["destination_filename"] as? String, "IMG_1.1.JPG")
+  }
 }

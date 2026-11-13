@@ -129,7 +129,7 @@ extension RemoteCatalog {
   ) async throws {
     let name = stack.companion.name
     let path = destinationPath.isEmpty ? name : "\(destinationPath)/\(name)"
-    if try await statFile(folderID: libraryFolderID, relativePath: path) != nil {
+    if try await occupant(folderID: libraryFolderID, relativePath: path) != .free {
       throw FileOperationError.destinationExists(name)
     }
   }
@@ -151,7 +151,14 @@ extension RemoteCatalog {
     {
       return  // the JPEG itself
     }
-    guard try await statFile(folderID: libraryFolderID, relativePath: path) != nil else { return }
+    switch try await occupant(folderID: libraryFolderID, relativePath: path) {
+    case .free: return
+    case .notAFile:
+      throw FileOperationError.invalidDestination(
+        "\(name) in the destination is a folder, not a file, so the JPEG can't replace it. Rename"
+          + " or move that folder first.")
+    case .file: break
+    }
     if case .indexedAsset = try await deleteFile(folderID: libraryFolderID, relativePath: path) {
       throw FileOperationError.invalidDestination(
         "\(name) in the destination is a photo of its own on the server. Move or trash it there"
@@ -167,7 +174,7 @@ extension RemoteCatalog {
   ) async throws -> String {
     func taken(_ name: String) async throws -> Bool {
       let path = destinationPath.isEmpty ? name : "\(destinationPath)/\(name)"
-      return try await statFile(folderID: libraryFolderID, relativePath: path) != nil
+      return try await occupant(folderID: libraryFolderID, relativePath: path) != .free
     }
     return try await CollisionResolver.pickFreePath(stack.primary.name) { candidate in
       if try await taken(candidate) { return true }
@@ -239,7 +246,8 @@ extension RemoteCatalog {
     let trash = directory.isEmpty ? ".maple/trash" : ".maple/trash/\(directory)"
     let stem = (stack.primary.name as NSString).deletingPathExtension
     for name in [stack.primary.name, stack.companion.name, "\(stem).xmp"] {
-      guard try await statFile(folderID: libraryFolderID, relativePath: "\(trash)/\(name)") != nil
+      guard
+        try await occupant(folderID: libraryFolderID, relativePath: "\(trash)/\(name)") != .free
       else { continue }
       throw FileOperationError.destinationExists(
         "the server's Trash already holds \(name). Restore or delete it there first: this RAW and"
