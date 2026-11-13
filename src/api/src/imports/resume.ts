@@ -14,8 +14,15 @@ export type RecordFile = (
   state: ImportFileEntry['state'],
   error: string | null,
   destRel: string,
-  sidecarDests?: SidecarDest[],
+  withIt?: RecordedWithFile,
 ) => Promise<void>;
+
+/** What a primary's outcome writes in the same transaction as the outcome itself. */
+export interface RecordedWithFile {
+  sidecarDests?: SidecarDest[];
+  /** The row's publish marker from here on; left as it is when absent. */
+  publishingDest?: string | null;
+}
 
 export interface DuplicateProbeDeps {
   hashFileForId: (src: string) => Promise<{ maple_id: string; sha1_head: string }>;
@@ -100,7 +107,9 @@ export async function resumeLandedPrimary(args: {
   );
   const destOf = new Map(followers.map((sidecar) => [sidecar.index, sidecar.destRel]));
   if (!interrupted && toPlace.length > 0) await seams.markPublishing(primaryIndex, landedDest);
-  await record(primaryIndex, 'copied', null, landedDest, renamedSidecars(files, followers));
+  await record(primaryIndex, 'copied', null, landedDest, {
+    sidecarDests: renamedSidecars(files, followers),
+  });
 
   let newlyCopied = 0;
   for (const sIdx of sidecarIndexes) {

@@ -8,6 +8,7 @@
 
 import { expect, test } from 'bun:test';
 import fs from 'node:fs/promises';
+import path from 'node:path';
 import { createLiveTestDatabase } from '../db/sqlite/test-sqlite.test-helpers.ts';
 import { recordedAttempt } from '../temporal/recorded-attempt.test-helpers.ts';
 import * as repo from './repo.ts';
@@ -204,6 +205,103 @@ test('a sidecar recorded failed follows its renamed image, so a retry copies it 
   expect((await repo.getImport(imp.id))!.counts).toEqual({ copied: 2, skipped: 0, failed: 0 });
   expect(fourth.handed).toEqual([imp.landed('IMG-1.dng')]);
   expect(fourth.rearmed).toEqual(['IMG-1.dng']);
+});
+
+test('a publish that fails clears its marker, so the same photo arriving by another route stays a duplicate on retry', async () => {
+  using live = await createLiveTestDatabase();
+  const imp = await pendingImport(live.db, 'failed-publish', IMAGE_WITH_SIDECAR);
+  const folder = path.dirname(imp.landed('IMG.dng'));
+  await fs.mkdir(folder, { recursive: true });
+  await fs.chmod(folder, 0o555);
+
+  const first = observedRunner();
+  const run = await first.runner.run(imp.importId, recordedAttempt('first'));
+  await fs.chmod(folder, 0o755);
+
+  expect(run.outcome).toBe('failed');
+  expect(await states(imp.id)).toEqual(['failed', 'failed']);
+  expect(await marked(imp.id)).toEqual([]);
+  expect(await imp.landedNames()).toEqual([]);
+
+  await place(imp.landed('IMG.dng'), imp.bytes('IMG.dng'));
+  expect(await retryImport(imp.id)).toBe(true);
+  const second = await attemptThatFinishes(imp.importId, {
+    deps: { assetExistsForHash: async () => true },
+  });
+
+  expect(await imp.landedNames()).toEqual(['IMG.dng']);
+  expect(await states(imp.id)).toEqual(['skipped_duplicate', 'skipped_duplicate']);
+  expect((await repo.getImport(imp.id))!.counts).toEqual({ copied: 0, skipped: 2, failed: 0 });
+  expect(second.handed).toEqual([]);
+  expect(second.rearmed).toEqual([]);
+});
+
+test('an attempt killed straight after recording a failed image leaves no marker behind', async () => {
+  using live = await createLiveTestDatabase();
+  const imp = await pendingImport(live.db, 'failed-then-killed', IMAGE_WITH_SIDECAR);
+  const folder = path.dirname(imp.landed('IMG.dng'));
+  await fs.mkdir(folder, { recursive: true });
+  await fs.chmod(folder, 0o555);
+
+  await attemptKilledAfter(2, imp.importId);
+  await fs.chmod(folder, 0o755);
+
+  expect(await states(imp.id)).toEqual(['pending', 'failed']);
+  expect(await marked(imp.id)).toEqual([]);
+});
+
+test('a failed copy leaves the name an earlier attempt marked, so the copy that attempt then lands still gets its sidecar', async () => {
+  using live = await createLiveTestDatabase();
+  const imp = await pendingImport(live.db, 'earlier-still-landing', IMAGE_WITH_SIDECAR);
+  await earlierAttemptMarked(imp.id, 1, 'IMG.dng');
+  const folder = path.dirname(imp.landed('IMG.dng'));
+  await fs.mkdir(folder, { recursive: true });
+  await fs.chmod(folder, 0o555);
+
+  const second = observedRunner();
+  const run = await second.runner.run(imp.importId, recordedAttempt('second'));
+  await fs.chmod(folder, 0o755);
+
+  expect(run.outcome).toBe('failed');
+  expect(await states(imp.id)).toEqual(['failed', 'failed']);
+  expect(await marked(imp.id)).toEqual([[1, `${DIR}/IMG.dng`]]);
+
+  await place(imp.landed('IMG.dng'), imp.bytes('IMG.dng'));
+  expect(await retryImport(imp.id)).toBe(true);
+  const third = await attemptThatFinishes(imp.importId, {}, 'third');
+
+  expect(await imp.landedNames()).toEqual(['IMG.dng', 'IMG.xmp']);
+  expect(await fs.readFile(imp.landed('IMG.xmp'), 'utf8')).toBe(imp.bytes('IMG.xmp'));
+  expect(await states(imp.id)).toEqual(['copied', 'copied']);
+  expect(await marked(imp.id)).toEqual([]);
+  expect((await repo.getImport(imp.id))!.counts).toEqual({ copied: 2, skipped: 0, failed: 0 });
+  expect(third.handed).toEqual([imp.landed('IMG.dng')]);
+});
+
+test('a failed copy under a sibling name puts back the name the earlier attempt marked', async () => {
+  using live = await createLiveTestDatabase();
+  const imp = await pendingImport(live.db, 'sibling-then-earlier', IMAGE_WITH_SIDECAR);
+  await earlierAttemptMarked(imp.id, 1, 'IMG.dng');
+  await place(imp.landed('IMG.dng'), 'the earlier attempt has written this much');
+  const folder = path.dirname(imp.landed('IMG.dng'));
+  await fs.chmod(folder, 0o555);
+
+  const second = observedRunner();
+  const run = await second.runner.run(imp.importId, recordedAttempt('second'));
+  await fs.chmod(folder, 0o755);
+
+  expect(run.outcome).toBe('failed');
+  expect(await imp.landedNames()).toEqual(['IMG.dng']);
+  expect(await marked(imp.id)).toEqual([[1, `${DIR}/IMG.dng`]]);
+
+  await fs.writeFile(imp.landed('IMG.dng'), imp.bytes('IMG.dng'));
+  expect(await retryImport(imp.id)).toBe(true);
+  const third = await attemptThatFinishes(imp.importId, {}, 'third');
+
+  expect(await imp.landedNames()).toEqual(['IMG.dng', 'IMG.xmp']);
+  expect(await dests(imp.id)).toEqual([`${DIR}/IMG.xmp`, `${DIR}/IMG.dng`]);
+  expect((await repo.getImport(imp.id))!.counts).toEqual({ copied: 2, skipped: 0, failed: 0 });
+  expect(third.handed).toEqual([imp.landed('IMG.dng')]);
 });
 
 test('a sidecar that cannot be read where an earlier attempt left it fails that one file, and the import goes on', async () => {
