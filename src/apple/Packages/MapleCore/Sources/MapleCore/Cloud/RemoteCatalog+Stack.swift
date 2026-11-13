@@ -61,20 +61,30 @@ extension RemoteCatalog {
   /// Move or copy the RAW, then the JPEG under the RAW's final stem. `collision` is the RAW's
   /// policy; the JPEG uses `companionCollision` and throws `destinationExists` naming the JPEG when
   /// its name is taken, before either file moves. With `companionCollision: .replace` the file at
-  /// the JPEG's name goes to the server's Trash first (`trashDisplacedCompanion`). Keep Both asks
-  /// for a RAW name whose stem is free in `libraryFolderID`'s `destinationPath` for the RAW, the
-  /// JPEG and their sidecar: the server's own keep-both looks at the RAW alone. `restore` is where
-  /// a move puts the RAW back when the JPEG cannot follow; the RAW is addressed there by the
-  /// location the move gave it, not its old `sourceAddress`.
+  /// the JPEG's name goes to the server's Trash first (`trashDisplacedCompanion`), once a RAW with
+  /// the detect-only policy is known to have a free name: the server has no way to bring that file
+  /// back, so a RAW the server would skip must be asked about before it goes. Keep Both asks for a
+  /// RAW name whose stem is free in `libraryFolderID`'s `destinationPath` for the RAW, the JPEG
+  /// and their sidecar: the server's own keep-both looks at the RAW alone. `restore` is where a
+  /// move puts the RAW back when the JPEG cannot follow; the RAW is addressed there by the location
+  /// the move gave it, not its old `sourceAddress`.
   public func relocateAsset(
     assetID: String, mode: RelocateMode, collision: CollisionPolicy, destinationPath: String,
     sourceAddress: String?, stack: RawJpegStack, libraryFolderID: String,
     restore: (path: String, filename: String), companionCollision: CollisionPolicy = .fail
   ) async throws -> RelocateAssetResult {
     let companion = try companionID(of: stack)
+    var displaced: String?
     if collision != .autoSuffix {
       if companionCollision == .replace {
-        try await trashDisplacedCompanion(
+        if collision == .fail,
+          try await rawNameTaken(
+            stack, sourceAddress: sourceAddress, libraryFolderID: libraryFolderID,
+            destinationPath: destinationPath)
+        {
+          return .skipped(reason: "collision")
+        }
+        displaced = try await trashDisplacedCompanion(
           stack, libraryFolderID: libraryFolderID, destinationPath: destinationPath)
       } else {
         try await requireCompanionNameFree(
@@ -85,30 +95,31 @@ extension RemoteCatalog {
       collision == .autoSuffix
       ? try await stackFilenameFreeForBoth(
         stack, libraryFolderID: libraryFolderID, destinationPath: destinationPath) : nil
-    let primary = try await relocateAsset(
-      assetID: assetID, mode: mode, collision: collision, destinationPath: destinationPath,
-      destinationFilename: keepBothName == stack.primary.name ? nil : keepBothName,
-      sourceAddress: sourceAddress)
-    guard case .ok(let moved) = primary else { return primary }
+    let primary: RelocateAssetResult
+    do {
+      primary = try await relocateAsset(
+        assetID: assetID, mode: mode, collision: collision, destinationPath: destinationPath,
+        destinationFilename: keepBothName == stack.primary.name ? nil : keepBothName,
+        sourceAddress: sourceAddress)
+    } catch {
+      throw Self.noting(displaced, on: error)
+    }
+    guard case .ok(let moved) = primary else {
+      guard displaced != nil else { return primary }
+      throw Self.noting(displaced, on: Self.error(for: primary, name: stack.primary.name))
+    }
     let companionName =
       moved.newFilename == stack.primary.name
       ? nil : stack.companionFilename(forPrimaryFilename: moved.newFilename)
     do {
-      switch try await relocateAsset(
+      let result = try await relocateAsset(
         assetID: companion, mode: mode,
         collision: collision != .autoSuffix && companionCollision == .replace ? .replace : .fail,
         destinationPath: destinationPath, destinationFilename: companionName,
         sourceAddress: companionAddress(of: stack))
-      {
-      case .ok:
-        return primary
-      case .skipped:
-        throw FileOperationError.destinationExists(companionName ?? stack.companion.name)
-      case .invalid(let message):
-        throw FileOperationError.invalidDestination(message)
-      case .notFound:
-        throw FileOperationError.sourceMissing(stack.companion.name)
-      }
+      if case .ok = result { return primary }
+      if case .notFound = result { throw FileOperationError.sourceMissing(stack.companion.name) }
+      throw Self.error(for: result, name: companionName ?? stack.companion.name)
     } catch {
       if mode == .move {
         _ = try? await relocateAsset(
@@ -116,8 +127,49 @@ extension RemoteCatalog {
           destinationFilename: restore.filename,
           sourceAddress: sourceAddress.flatMap { Self.address($0, movedTo: moved) })
       }
-      throw error
+      throw Self.noting(displaced, on: error)
     }
+  }
+
+  /// The error a stack move reports for a relocate of the file `name` that did not land.
+  private static func error(for result: RelocateAssetResult, name: String) -> FileOperationError {
+    switch result {
+    case .ok, .skipped: return .destinationExists(name)
+    case .invalid(let message): return .invalidDestination(message)
+    case .notFound: return .sourceMissing(name)
+    }
+  }
+
+  /// `error`, saying where the file Replace sent to the server's Trash for the JPEG is when the
+  /// pair then did not land. The server cannot put a file it does not index back (its Trash route
+  /// for such a file has no restore, and its relocate refuses `.maple` paths), so it stays there
+  /// until the user restores it by hand (#5929).
+  private static func noting(_ displaced: String?, on error: Error) -> Error {
+    guard let displaced else { return error }
+    return FileOperationError.underlying(
+      "\(error.localizedDescription) \(displaced) had already gone to the server's Trash to make"
+        + " room for the JPEG; it is in the library's .maple/trash folder.")
+  }
+
+  /// Whether a file or folder other than the RAW itself holds the RAW's name in `destinationPath`.
+  private func rawNameTaken(
+    _ stack: RawJpegStack, sourceAddress: String?, libraryFolderID: String,
+    destinationPath: String
+  ) async throws -> Bool {
+    let name = stack.primary.name
+    let path = destinationPath.isEmpty ? name : "\(destinationPath)/\(name)"
+    if let sourceAddress,
+      Self.relativePath(ofAddress: sourceAddress)?.caseInsensitiveCompare(path) == .orderedSame
+    {
+      return false
+    }
+    return try await occupant(folderID: libraryFolderID, relativePath: path) != .free
+  }
+
+  /// The library-relative path in a `<library>:<relative path>` address.
+  private static func relativePath(ofAddress address: String) -> String? {
+    guard let colon = address.firstIndex(of: ":") else { return nil }
+    return String(address[address.index(after: colon)...])
   }
 
   /// Throws `destinationExists` naming the JPEG when another file holds its name in
@@ -135,24 +187,24 @@ extension RemoteCatalog {
   }
 
   /// Sends the file at the JPEG's name in `destinationPath`, which the JPEG's own prompt chose to
-  /// replace, to the server's Trash before the RAW moves. While it sits there it shares the
-  /// destination's sidecar stem, so the server will not let the RAW replace that sidecar
-  /// (`relocate-sidecar-plan.ts`, #4692) and the pair cannot land, and a sidecar the RAW's Replace
-  /// left behind would pass to the JPEG. In the Trash it stays recoverable, where a Replace would
-  /// delete it. A file the server indexes as a photo of its own is refused before anything moves:
-  /// trashing that asset would trash every copy of it.
+  /// replace, to the server's Trash before the RAW moves, and returns its name (nil when nothing
+  /// was there). While it sits there it shares the destination's sidecar stem, so the server will
+  /// not let the RAW replace that sidecar (`relocate-sidecar-plan.ts`, #4692) and the pair cannot
+  /// land, and a sidecar the RAW's Replace left behind would pass to the JPEG. In the Trash it stays
+  /// recoverable, where a Replace would delete it. A file the server indexes as a photo of its own
+  /// is refused before anything moves: trashing that asset would trash every copy of it.
   private func trashDisplacedCompanion(
     _ stack: RawJpegStack, libraryFolderID: String, destinationPath: String
-  ) async throws {
+  ) async throws -> String? {
     let name = stack.companion.name
     let path = destinationPath.isEmpty ? name : "\(destinationPath)/\(name)"
-    if let address = companionAddress(of: stack), let colon = address.firstIndex(of: ":"),
-      address[address.index(after: colon)...].caseInsensitiveCompare(path) == .orderedSame
+    if let address = companionAddress(of: stack),
+      Self.relativePath(ofAddress: address)?.caseInsensitiveCompare(path) == .orderedSame
     {
-      return  // the JPEG itself
+      return nil  // the JPEG itself
     }
     switch try await occupant(folderID: libraryFolderID, relativePath: path) {
-    case .free: return
+    case .free: return nil
     case .notAFile:
       throw FileOperationError.invalidDestination(
         "\(name) in the destination is a folder, not a file, so the JPEG can't replace it. Rename"
@@ -164,6 +216,28 @@ extension RemoteCatalog {
         "\(name) in the destination is a photo of its own on the server. Move or trash it there"
           + " first: replacing it along with the RAW would leave the RAW and that photo sharing one"
           + " sidecar.")
+    }
+    return name
+  }
+
+  /// Throws before a batch rename under Replace sends the RAW: the server deletes what the RAW's
+  /// Replace displaced as soon as it commits, so a JPEG that then could not follow would lose that
+  /// file even though the RAW is put back. Throws the companion's error when the JPEG has no server
+  /// location yet, and `destinationExists` naming the JPEG's new name when a file or folder in the
+  /// library `libraryFolderID` holds it beside the JPEG.
+  public func requireCompanionRenameFree(
+    of stack: RawJpegStack, toMatch primaryFilename: String, libraryFolderID: String
+  ) async throws {
+    _ = try companionID(of: stack)
+    let name = stack.companionFilename(forPrimaryFilename: primaryFilename)
+    guard let current = companionAddress(of: stack).flatMap(Self.relativePath(ofAddress:)) else {
+      throw FileOperationError.sourceMissing(stack.companion.name)
+    }
+    let directory = (current as NSString).deletingLastPathComponent
+    let path = directory.isEmpty ? name : "\(directory)/\(name)"
+    if path.caseInsensitiveCompare(current) == .orderedSame { return }
+    if try await occupant(folderID: libraryFolderID, relativePath: path) != .free {
+      throw FileOperationError.destinationExists(name)
     }
   }
 
