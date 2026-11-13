@@ -234,24 +234,24 @@ fun MapleViewModel.armMaskPick(armed: Boolean) {
 /**
  * Seeds the selected layer's colour range from raw-core's sample at the full-frame
  * point: one undo entry. A refused pick leaves the layer alone and replaces only the
- * panel's message line. A sample lands only on the layers it was taken from: any mask
- * edit meanwhile (a deleted or reordered layer moves what the selection addresses) drops it.
+ * panel's message line. A sample lands only on the edit it was developed under: any edit
+ * meanwhile (a global adjustment, or a deleted or reordered layer moving what the selection
+ * addresses) drops it.
  */
 fun MapleViewModel.sampleMaskRangeAt(x: Float, y: Float) {
     val current = state.value
     val selection = current.maskSelection ?: return
     if (!current.canEdit || current.maskSampling) return
     val token = editGeneration
-    val document = current.document
+    val xml = current.document.serialize()
     updateMaskState { it.copy(maskPicking = false, maskSampling = true, maskMessage = null) }
     viewModelScope.launch {
         try {
-            val result = JSONObject(renderer.sampleMaskRange(document.serialize(), x, y))
-            val sampled = maskLayers(document)
+            val result = JSONObject(renderer.sampleMaskRange(xml, x, y))
             if (token != editGeneration || state.value.maskSelection != selection) return@launch
-            // A save swaps in the reparsed document, so compare what the selection addresses: the layers.
-            if (maskLayers(state.value.document) != sampled) {
-                updateMaskState { it.copy(maskMessage = "The masks changed while sampling. Pick again.") }
+            // A save swaps in the reparsed document, which serializes to the same edit.
+            if (state.value.document.serialize() != xml) {
+                updateMaskState { it.copy(maskMessage = "The photo changed while sampling. Pick the colour again.") }
                 return@launch
             }
             val seed = result.optJSONObject("seed")
