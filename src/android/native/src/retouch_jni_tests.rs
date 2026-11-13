@@ -169,6 +169,37 @@ fn a_leaf_restoring_a_prefix_its_spot_shadows_keeps_its_namespace() {
 }
 
 #[test]
+fn unprefixed_nodes_under_a_default_namespace_reset_keep_no_namespace() {
+    // The sequence's default namespace is urn:seq; the first spot resets it.
+    let xml = fixture("lightroom-spots.xmp")
+        .xml
+        .replacen("<rdf:Seq>", "<rdf:Seq xmlns=\"urn:seq\">", 1)
+        .replacen(" vnd:Reviewed=", " xmlns=\"\" vnd:Reviewed=", 1)
+        .replacen(
+            "<vnd:SpotNote>dust on the sensor</vnd:SpotNote>",
+            "<Memo>dust on the sensor</Memo>",
+            1,
+        )
+        .replacen("B001\"/>", "B001\"><Mark>kept</Mark></rdf:li>", 1);
+    let source = through_file_of(&xml, &NAMES);
+    for local in ["Memo", "Mark"] {
+        assert_eq!(vendor_names(&source.xml, local), [""], "{local}");
+    }
+    let mut spots = read(&source);
+    spots[0].0.center = Point2::new(0.25, 0.5);
+    let saved = write(&source, &spots);
+    for local in ["Memo", "Mark"] {
+        assert_eq!(
+            vendor_names(&saved.xml, local),
+            [""],
+            "{local} in\n{}",
+            saved.xml
+        );
+    }
+    assert_eq!(read(&saved), spots);
+}
+
+#[test]
 fn deleting_and_adding_spots_keeps_the_unmodelled_entry_in_place() {
     let source = fixture("lightroom-spots.xmp");
     let spots = read(&source);
