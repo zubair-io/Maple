@@ -252,5 +252,42 @@ fn a_new_spot_applies_after_the_spots_of_a_later_kept_container() {
     );
 }
 
+#[test]
+fn rewritten_spots_bind_camera_raw_below_a_sequence_that_rebinds_its_prefix() {
+    const CRS: &str = "http://ns.adobe.com/camera-raw-settings/1.0/";
+    let first = new_spot(0.2, 0.2, 0.25);
+    let model = raw_core::types::AdjustmentModel {
+        retouch_spots: vec![first],
+        ..Default::default()
+    };
+    let block = raw_core::xmp::serialize_retouch_areas(&model, "   ");
+    let (head, tail) = block.split_once("<rdf:Seq>").unwrap();
+    // The sequence takes `crs` for a vendor; its entries name Camera Raw `c:`.
+    let tail = tail
+        .replace("crs:", "c:")
+        .replace("</c:RetouchAreas>", "</crs:RetouchAreas>");
+    for root in [
+        "<crs:RetouchAreas>",
+        &format!("<crs:RetouchAreas xmlns:crs=\"{CRS}\">"),
+    ] {
+        let areas = format!(
+            "{}<rdf:Seq xmlns:crs=\"urn:vendor\">{tail}",
+            head.replacen("<crs:RetouchAreas>", root, 1)
+        );
+        let xml = format!(
+            "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\">\n <rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">\n  <rdf:Description rdf:about=\"\" xmlns:crs=\"{CRS}\" xmlns:c=\"{CRS}\">\n{areas}\n  </rdf:Description>\n </rdf:RDF>\n</x:xmpmeta>\n"
+        );
+        let source = through_file_of(&xml, &NAMES);
+        let spots = read(&source);
+        assert_eq!(spots, vec![(first, Some(0))], "{xml}");
+        let mut moved = spots[0];
+        moved.0.center = Point2::new(0.4, 0.4);
+        let added = new_spot(0.8, 0.8, 0.85);
+        let saved = write(&source, &[moved, (added, None)]);
+        assert_eq!(rendered(&saved.xml), vec![moved.0, added], "{}", saved.xml);
+        assert_eq!(read(&saved), vec![(moved.0, Some(0)), (added, Some(1))]);
+    }
+}
+
 #[path = "retouch_frame_tests.rs"]
 mod frame;

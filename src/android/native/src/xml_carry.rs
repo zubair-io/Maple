@@ -21,6 +21,51 @@ pub fn with_prefixes(context: &Bindings, prefixes: &[(&str, &str)]) -> (Bindings
     (merged, declarations)
 }
 
+/// Where a container rewrite declares the `additions` binding `context` over
+/// `inside`, the scope of the container's `seq`.
+pub struct Placement<'a> {
+    /// Declarations for the container's own tag.
+    pub tag: String,
+    /// Declarations for each rendered entry's tag.
+    pub entry: String,
+    /// The scope kept entries are detached into.
+    pub kept: &'a Bindings,
+}
+
+/// On the container's tag, unless the container or its sequence declares one
+/// of the added prefixes itself: that tag cannot declare it again and the
+/// sequence's binding would shadow it, so they go on each rendered entry.
+pub fn placement<'a>(
+    root: &Element,
+    seq: &Element,
+    inside: &'a Bindings,
+    context: &'a Bindings,
+    additions: String,
+) -> Placement<'a> {
+    let own = |prefix: &Option<String>| {
+        root.declarations
+            .iter()
+            .chain(&seq.declarations)
+            .any(|(declared, _)| declared == prefix)
+    };
+    let scoped = context
+        .iter()
+        .any(|(prefix, uri)| inside.get(prefix) != Some(uri) && own(prefix));
+    if scoped {
+        Placement {
+            tag: String::new(),
+            entry: additions,
+            kept: inside,
+        }
+    } else {
+        Placement {
+            tag: additions,
+            entry: String::new(),
+            kept: context,
+        }
+    }
+}
+
 pub fn unknown<'a>(attrs: &'a [Attr], owned: &[&str]) -> Vec<&'a Attr> {
     attrs
         .iter()
