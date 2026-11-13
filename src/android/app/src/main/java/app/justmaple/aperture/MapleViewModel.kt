@@ -654,8 +654,11 @@ internal constructor(
                         .map { it.name }
                 else -> emptyList()
             }
-        // The Light group owns the point curves too: one reset, one undo entry.
-        val curves = if (group == EditorGroup.Light) PointCurve.entries else emptyList()
+        // The Light group owns the eight tone curves too: one reset, one undo entry. The
+        // colour curves (pasted, or authored elsewhere) are not Light's to clear.
+        val curves =
+            if (group == EditorGroup.Light) app.justmaple.aperture.ui.ToneCurveFamily.entries.flatMap { it.curves }
+            else emptyList()
         resetControls(group.fields.map { it.name } + extraNames, group.resetAttributes, curves)
     }
 
