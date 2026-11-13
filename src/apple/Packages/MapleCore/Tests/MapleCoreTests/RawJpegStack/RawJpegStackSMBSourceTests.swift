@@ -118,6 +118,33 @@ final class RawJpegStackSMBSourceTests: XCTestCase {
     XCTAssertEqual(names(pair.fixture.share), ["Album"])
   }
 
+  /// Replace on both used to lose the destination's RAW and sidecar when the JPEG could not land
+  /// (a folder holds its name): the RAW's relocation deleted the files it displaced as soon as the
+  /// RAW was in place, so moving the RAW back could not bring them back.
+  func testAJpegThatCannotLandPutsBackTheFilesTheRawDisplaced() async throws {
+    let pair = try await openPair(albumHolding: ["photo.dng": "old-raw", "photo.xmp": "<old/>"])
+    try FileManager.default.createDirectory(
+      at: pair.album.appendingPathComponent("photo.jpg"), withIntermediateDirectories: true)
+    let sourceRaw = try Data(contentsOf: pair.fixture.raw)
+    let sourceSidecar = try XCTUnwrap(text(pair.fixture.share, "photo.xmp"))
+
+    do {
+      _ = try await pair.fixture.source.relocateAsset(
+        pair.raw, companion: pair.jpeg, to: "/Album", mode: .move, collision: .replace,
+        companionCollision: .replace)
+      XCTFail("a folder holds the JPEG's name")
+    } catch FileOperationError.invalidDestination {}
+
+    let everything = try FileManager.default.contentsOfDirectory(atPath: pair.album.path).sorted()
+    XCTAssertEqual(everything, ["photo.dng", "photo.jpg", "photo.xmp"])
+    XCTAssertEqual(text(pair.album, "photo.dng"), "old-raw")
+    XCTAssertEqual(text(pair.album, "photo.xmp"), "<old/>")
+    XCTAssertEqual(names(pair.fixture.share), ["Album", "photo.dng", "photo.jpg", "photo.xmp"])
+    XCTAssertEqual(try Data(contentsOf: pair.fixture.raw), sourceRaw)
+    XCTAssertEqual(text(pair.fixture.share, "photo.jpg"), "jpeg-bytes")
+    XCTAssertEqual(text(pair.fixture.share, "photo.xmp"), sourceSidecar)
+  }
+
   /// A Keep Both copy used to copy the JPEG under its own name beside a suffixed RAW: only a move
   /// re-aligned the stems.
   func testKeepBothCopyGivesTheJpegTheRawsSuffixedStem() async throws {

@@ -324,7 +324,7 @@ public enum SMBFileOperations {
     }
   }
 
-  private static func stageVerifiedCopy(
+  static func stageVerifiedCopy(
     from source: String, to destination: String, transport: SMBFileTransport
   ) async throws -> String {
     let tmp = tempPath(for: destination)
@@ -400,7 +400,7 @@ public enum SMBFileOperations {
     return posixJoin(dir, ".maple-backup-\(UUID().uuidString)")
   }
 
-  private static func isDirectory(_ attrs: [URLResourceKey: Any]) -> Bool {
+  static func isDirectory(_ attrs: [URLResourceKey: Any]) -> Bool {
     if let flag = attrs[.isDirectoryKey] as? Bool { return flag }
     if let num = attrs[.isDirectoryKey] as? NSNumber { return num.boolValue }
     return false
