@@ -193,8 +193,36 @@ class MaskOverlayTest {
         compose.runOnIdle {
             assertFalse(model.state.value.maskSampling)
             assertNull(model.maskLayers().single().range)
-            assertEquals("The masks changed while sampling. Pick again.", model.state.value.maskMessage)
+            assertEquals("The photo changed while sampling. Pick the colour again.", model.state.value.maskMessage)
         }
+    }
+
+    @Test
+    fun aSampleLandsAcrossASaveButNeverAcrossAGlobalAdjustment() {
+        compose.runOnIdle { model.addMaskLayer(radial = true) }
+        val developing = CompletableDeferred<Unit>()
+        fixture.renderer.sampleGate = developing
+        compose.runOnIdle {
+            model.sampleMaskRangeAt(.5f, .5f)
+            // The sample was developed at the old exposure.
+            model.setField("exposure", 1.5f)
+            developing.complete(Unit)
+        }
+        assertNull(layer().range)
+        compose.runOnIdle {
+            assertEquals("The photo changed while sampling. Pick the colour again.", model.state.value.maskMessage)
+        }
+
+        val saving = CompletableDeferred<Unit>()
+        fixture.renderer.sampleGate = saving
+        compose.runOnIdle { model.sampleMaskRangeAt(.5f, .5f) }
+        // The save swaps in the reparsed document while the sample develops.
+        assertTrue(kotlinx.coroutines.runBlocking { model.flush() })
+        compose.runOnIdle {
+            assertFalse(model.state.value.dirty)
+            saving.complete(Unit)
+        }
+        assertEquals(40f, layer().range!!.getValue("hue_deg"), 1e-4f)
     }
 
     @Test
