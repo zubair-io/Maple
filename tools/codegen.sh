@@ -147,6 +147,7 @@ TS_TABLES_OUT="src/web/projects/maple-common/src/lib/generated/adjustment-tables
 "$BIN" --schema adjustment-transfer --target swift --out "src/apple/Packages/MapleCore/Sources/MapleCore/Generated/AdjustmentTransfer+Generated.swift"
 "$BIN" --schema adjustment-transfer --target ts --out "src/web/projects/maple-common/src/lib/generated/adjustment-transfer.generated.ts"
 "$BIN" --schema adjustment-transfer --target ts --out "src/api/src/generated/adjustment-transfer.generated.ts"
+"$BIN" --schema adjustment-transfer --target kotlin --out "src/android/app/src/main/java/app/justmaple/aperture/generated/AdjustmentTransfer.kt"
 # --- Sidecar workflow records (#4035, storage stage of #2437) ---------------
 "$BIN" --schema workflow --target swift --out "src/apple/Packages/MapleCore/Sources/MapleCore/Generated/Workflow+Generated.swift"
 "$BIN" --schema workflow --target ts --out "src/web/projects/maple-common/src/lib/generated/workflow.generated.ts"

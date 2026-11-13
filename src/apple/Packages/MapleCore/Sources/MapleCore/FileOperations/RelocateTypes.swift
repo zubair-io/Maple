@@ -106,14 +106,17 @@ public struct RelocateOutcome: Sendable, Equatable {
   public let sidecarPath: String?
   public let renamedDueToCollision: Bool
   public let sidecarFollowed: Bool
+  /// Where the stacked JPEG landed, when the relocation carried a RAW+JPEG companion (#5050).
+  public let companionPath: String?
 
   public init(
     primaryPath: String, sidecarPath: String?,
-    renamedDueToCollision: Bool, sidecarFollowed: Bool
+    renamedDueToCollision: Bool, sidecarFollowed: Bool, companionPath: String? = nil
   ) {
     self.primaryPath = primaryPath
     self.sidecarPath = sidecarPath
     self.renamedDueToCollision = renamedDueToCollision
     self.sidecarFollowed = sidecarFollowed
+    self.companionPath = companionPath
   }
 }

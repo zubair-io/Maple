@@ -96,7 +96,8 @@ extension AppShell {
         let accessing = libraryRoot.startAccessingSecurityScopedResource()
         defer { if accessing { libraryRoot.stopAccessingSecurityScopedResource() } }
         do {
-            _ = try await LocalFileOperations.trash(url, libraryRoot: libraryRoot)
+            _ = try await LocalFileOperations.trash(
+                url, libraryRoot: libraryRoot, companion: asset.stack?.localCompanionURL)
             #if os(macOS)
             return .trashed(destination: .osTrash)
             #else
@@ -116,7 +117,11 @@ extension AppShell {
             return .failed("SMB share is not connected")
         }
         do {
-            _ = try await source.trashAsset(ref)
+            if let companion = asset.stack?.smbCompanionRef {
+                _ = try await source.trashAsset(ref, companion: companion)
+            } else {
+                _ = try await source.trashAsset(ref)
+            }
             return .trashed(destination: .mapleTrash)
         } catch {
             return .failed(error.localizedDescription)
@@ -140,7 +145,15 @@ extension AppShell {
         let effectiveServer = LocalNetworkResolver.shared.effectiveURL(for: catalog.serverID)
         let remote = RemoteCatalog(http: httpClient, server: effectiveServer)
         do {
-            switch try await remote.deleteAsset(assetID: assetID, intent: .trash) {
+            let result: DeleteAssetResult
+            if let stack = asset.stack {
+                result = try await remote.deleteAsset(
+                    assetID: assetID, intent: .trash, stack: stack,
+                    libraryFolderID: catalog.folderID, primaryAbsPath: catalog.absPath)
+            } else {
+                result = try await remote.deleteAsset(assetID: assetID, intent: .trash)
+            }
+            switch result {
             case .ok:
                 await ForYouCache.shared.forgetAsset(
                     host: catalog.serverID.cacheHostKey, assetID: assetID, absPath: catalog.absPath)

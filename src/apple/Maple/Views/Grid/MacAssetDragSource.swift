@@ -67,7 +67,11 @@
             let payload, let assets = payload.resolveAssets?(), !assets.isEmpty
           else { return event }
           mouseDown = nil
-          items = assets.map { MacAssetDragItem(asset: $0) }
+          // A stacked tile hands Finder its JPEG too (#5050).
+          items = assets.flatMap { asset in
+            [MacAssetDragItem(asset: asset)]
+              + (asset.stackCompanionDragAsset.map { [MacAssetDragItem(asset: $0)] } ?? [])
+          }
           let image = dragImage(count: assets.count)
           let point = convert(down.locationInWindow, from: nil)
           let frame = NSRect(

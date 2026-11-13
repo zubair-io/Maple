@@ -1460,16 +1460,18 @@ public actor RemoteCatalog {
   /// caller is an inline text-field commit from a live user, and a name
   /// collision should surface as an inline error next to the field
   /// (`.skipped`) rather than the server silently auto-suffixing a name
-  /// the user didn't type.
-  public func renameAsset(assetID: String, newFilename: String) async throws -> RenameAssetResult {
+  /// the user didn't type. `sourceAddress` (`<library>:<relative path>`) names the location to
+  /// rename when the asset has several: the server refuses an ID-only rename of such an asset.
+  public func renameAsset(
+    assetID: String, newFilename: String, sourceAddress: String? = nil
+  ) async throws -> RenameAssetResult {
     try Self.validateAssetID(assetID)
     var req = URLRequest(url: server.appending(path: "/api/assets/\(assetID)/rename"))
     req.httpMethod = "POST"
     req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-    req.httpBody = try JSONSerialization.data(withJSONObject: [
-      "new_filename": newFilename,
-      "collision": "skip",
-    ])
+    var body: [String: Any] = ["new_filename": newFilename, "collision": "skip"]
+    if let sourceAddress { body["source_address"] = sourceAddress }
+    req.httpBody = try JSONSerialization.data(withJSONObject: body)
     let (data, resp) = try await http.data(for: req)
     let status = (resp as? HTTPURLResponse)?.statusCode ?? -1
     switch status {

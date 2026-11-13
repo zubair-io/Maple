@@ -17,19 +17,27 @@ import {
 } from '../db/sqlite/test-sqlite.test-helpers.ts';
 import { publishSidecarCas, publishSidecarIfAbsent } from './sidecar-cas.ts';
 
-const keepNothing = async () => async () => undefined;
+/** These sends never meet a shared sidecar or a kept send. */
+const noLedger = {
+  keepAside: async () => undefined,
+  sentFor: async () => [],
+  recordSent: async () => undefined,
+};
+const noBase = { kind: 'digest', sha256: null } as const;
+const edit = (label: string) =>
+  `<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description rdf:about="" xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/" crs:Version="${label}"/></rdf:RDF></x:xmpmeta>`;
 
 test('a precondition that no longer holds abandons the write', async () => {
   using library = await createTempLibrary('maple-cas-hooks-');
   const sidecar = path.join(library.root, 'IMG.xmp');
-  await fs.writeFile(sidecar, 'current');
+  await fs.writeFile(sidecar, edit('current'));
 
-  const outcome = await publishSidecarCas(sidecar, 'stale', null, keepNothing, library.root, {
+  const outcome = await publishSidecarCas(sidecar, edit('stale'), noBase, noLedger, library.root, {
     precondition: async () => false,
   });
 
   expect(outcome).toEqual({ kind: 'abandoned' });
-  expect(await fs.readFile(sidecar, 'utf8')).toBe('current');
+  expect(await fs.readFile(sidecar, 'utf8')).toBe(edit('current'));
 });
 
 test('the after-landing hook sees the published sidecar before the next publish runs', async () => {
@@ -37,16 +45,17 @@ test('the after-landing hook sees the published sidecar before the next publish 
   const sidecar = path.join(library.root, 'IMG.xmp');
   const seen: string[] = [];
 
-  const first = publishSidecarCas(sidecar, 'first', null, keepNothing, library.root, {
+  const first = publishSidecarCas(sidecar, edit('first'), noBase, noLedger, library.root, {
     afterLanded: async () => {
       await new Promise((resolve) => setTimeout(resolve, 50));
       seen.push(await fs.readFile(sidecar, 'utf8'));
     },
   });
-  const second = publishSidecarCas(sidecar, 'second', null, keepNothing, library.root);
+  const second = publishSidecarCas(sidecar, edit('second'), noBase, noLedger, library.root);
   await Promise.all([first, second]);
 
-  expect(seen).toEqual(['first']);
+  expect(seen).toHaveLength(1);
+  expect(seen[0]).toContain('crs:Version="first"');
 });
 
 test('a create-only publish whose precondition no longer holds writes nothing', async () => {
@@ -76,11 +85,19 @@ test('a sidecar published into a library reached through a symlinked root replic
     setMirrorRoots({ [linkedRoot]: [mirror] });
 
     const sidecar = path.join(linkedRoot, '2026', '10', 'x.xmp');
-    const outcome = await publishSidecarCas(sidecar, '<xmp/>', null, keepNothing, linkedRoot);
+    const outcome = await publishSidecarCas(
+      sidecar,
+      edit('mirrored'),
+      noBase,
+      noLedger,
+      linkedRoot,
+    );
     await fs.flushPendingMirrorOps();
 
-    expect(outcome).toEqual({ kind: 'written' });
-    expect(await fs.readFile(path.join(mirror, '2026', '10', 'x.xmp'), 'utf8')).toBe('<xmp/>');
+    expect(outcome.kind).toBe('written');
+    const mirrored = await fs.readFile(path.join(mirror, '2026', '10', 'x.xmp'), 'utf8');
+    expect(mirrored).toBe(await fs.readFile(sidecar, 'utf8'));
+    expect(mirrored).toContain('crs:Version="mirrored"');
   } finally {
     clearMirrorRoots();
     live.close();
@@ -109,9 +126,9 @@ test('a library root retargeted after the comparison fails closed instead of wri
 
     const outcome = await publishSidecarCas(
       path.join(linkedRoot, 'x.xmp'),
-      '<xmp/>',
-      null,
-      keepNothing,
+      edit('retargeted'),
+      noBase,
+      noLedger,
       linkedRoot,
       {
         beforeWrite: async () => {

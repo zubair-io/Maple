@@ -1,231 +1,125 @@
 /**
- * POST /api/libraries/:id/backup/sidecar with `X-Maple-Sidecar-Base` — the
- * compare-and-swap re-send of a newer local edit (#4719). The device names the
- * sidecar version its edit was based on; a matching base overwrites, and a
- * mismatch still lands the incoming edit while the displaced version is kept in
- * `sidecar_divergences` instead of being lost.
+ * POST /api/libraries/:id/backup/sidecar with `X-Maple-Sidecar-Head` or
+ * `X-Maple-Sidecar-Base` — the compare-and-swap re-send of a newer local edit
+ * (#4719). The device names the sidecar version its edit was based on; a matching
+ * base replaces the adjustments, and a mismatch is reconciled onto the stored
+ * sidecar through its edit history (#5796) instead of being parked aside.
  *
  * Real temp library files and a private SQLite database; each test writes its
  * own target path so the cases stay independent.
  */
-import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
+import { describe, test, expect } from 'bun:test';
 import { createHash } from 'node:crypto';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { ObjectId } from '../src/db/object-id.ts';
-import { authedHandle } from './helpers/authed-handle.ts';
-import {
-  createLiveTestDatabase,
-  type LiveTestDatabase,
-} from '../src/db/sqlite/test-sqlite.test-helpers.ts';
-import { seedBackupAsset, seedLibrary } from './helpers/sqlite-fixtures.ts';
-import { invalidateLibraryRoots } from '../src/indexer/libraries.cache.ts';
+import { seedBackupAsset } from './helpers/sqlite-fixtures.ts';
 import { serializeSidecarWrite } from '../src/fs/sidecar-write-order.ts';
 import { xmpSidecarPath } from '../src/fs/xmp.ts';
+import {
+  deviceId,
+  history,
+  labelOf,
+  sha256,
+  useSidecarLibrary,
+  xmp,
+} from './helpers/backup-sidecar-fixtures.ts';
 
-const deviceId = 'test-device-cas';
+const lib = useSidecarLibrary();
+const { seedUpload, post, onDisk, divergences, firstSend } = lib;
 
-let live: LiveTestDatabase;
-let libId: ObjectId;
-let tmpLib: string;
-
-interface DivergenceRow {
-  asset_id: string;
-  sidecar_rel_path: string;
-  device_id: string;
-  base_sha256: string | null;
-  displaced_sha256: string;
-  displaced_xmp: string;
-  incoming_sha256: string;
-}
-
-const sha256 = (text: string) => createHash('sha256').update(text, 'utf8').digest('hex');
-const xmp = (label: string) => `<x:xmpmeta xmlns:x="adobe:ns:meta/">${label}</x:xmpmeta>`;
-
-beforeAll(async () => {
-  tmpLib = await fs.mkdtemp(path.join(os.tmpdir(), 'maple-sidecar-cas-test-'));
-  live = await createLiveTestDatabase();
-  libId = seedLibrary(live.db, { path: tmpLib, label: 'sidecar-cas-test' });
-  invalidateLibraryRoots();
-});
-
-afterAll(async () => {
-  live.close();
-  invalidateLibraryRoots();
-  await fs.rm(tmpLib, { recursive: true, force: true });
-});
-
-/** Seed one previously uploaded original; returns its rel path and phasset id. */
-async function seedUpload(name: string): Promise<{ relPath: string; phid: string }> {
-  const relPath = `2024/CAS/${name}.HEIC`;
-  const phid = `CAS/${name}/L0/001`;
-  const abs = path.join(tmpLib, relPath);
-  await fs.mkdir(path.dirname(abs), { recursive: true });
-  await fs.writeFile(abs, Buffer.alloc(64, 1));
-  seedBackupAsset(live.db, {
-    mapleId: createHash('md5').update(name).digest('hex'),
-    size: 64,
-    locations: [{ libraryId: libId, relPath }],
-    links: [{ deviceId, phassetLocalId: phid }],
-  });
-  return { relPath, phid };
-}
-
-function post(
-  target: { relPath: string; phid: string },
-  body: string,
-  base: string | undefined,
-): Promise<Response> {
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/octet-stream',
-    'X-Maple-Device-Id': deviceId,
-    'X-Maple-Phasset-Id': target.phid,
-    'X-Maple-Target-Rel-Path': target.relPath,
-  };
-  if (base !== undefined) headers['X-Maple-Sidecar-Base'] = base;
-  return authedHandle(
-    new Request(`http://localhost/api/libraries/${libId.toHexString()}/backup/sidecar`, {
-      method: 'POST',
-      headers,
-      body,
-    }),
-  );
-}
-
-const onDisk = (relPath: string) => fs.readFile(path.join(tmpLib, xmpSidecarPath(relPath)), 'utf8');
-
-function divergences(relPath: string): DivergenceRow[] {
-  return live.db
-    .query(
-      `SELECT asset_id, sidecar_rel_path, device_id, base_sha256, displaced_sha256,
-              displaced_xmp, incoming_sha256
-         FROM sidecar_divergences WHERE sidecar_rel_path = ? ORDER BY rowid`,
-    )
-    .all(xmpSidecarPath(relPath)) as DivergenceRow[];
-}
-
-describe('backup sidecar compare-and-swap (#4719)', () => {
-  test('first send based on no prior version writes the sidecar', async () => {
+describe('backup sidecar compare-and-swap (#4719, #5796)', () => {
+  test('first send based on no prior version writes the sidecar with a one-entry history', async () => {
     const target = await seedUpload('first');
     const res = await post(target, xmp('v1'), 'none');
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ target_rel_path: xmpSidecarPath(target.relPath) });
-    expect(await onDisk(target.relPath)).toBe(xmp('v1'));
+    const reply = (await res.json()) as { target_rel_path: string; head: string };
+    expect(reply.target_rel_path).toBe(xmpSidecarPath(target.relPath));
+    const stored = await onDisk(target.relPath);
+    expect(labelOf(stored)).toBe('v1');
+    expect(stored).toContain('xmlns:test="https://example.test/ns/1.0/"');
+    const rows = await history(stored);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ id: reply.head, action: 'adjustment', writer: 'backup' });
     expect(divergences(target.relPath)).toEqual([]);
   });
 
-  test('a newer edit based on the current version overwrites it', async () => {
+  test('a newer edit based on the head replaces the adjustments and extends the history', async () => {
     const target = await seedUpload('newer');
-    expect((await post(target, xmp('v1'), 'none')).status).toBe(200);
-    const res = await post(target, xmp('v2'), sha256(xmp('v1')));
+    const first = await firstSend(target, xmp('v1'));
+    const res = await post(target, xmp('v2'), undefined, first.head);
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ target_rel_path: xmpSidecarPath(target.relPath) });
-    expect(await onDisk(target.relPath)).toBe(xmp('v2'));
+    const reply = (await res.json()) as Record<string, unknown>;
+    expect(Object.keys(reply).sort()).toEqual(['head', 'target_rel_path']);
+    const stored = await onDisk(target.relPath);
+    expect(labelOf(stored)).toBe('v2');
+    const rows = await history(stored);
+    expect(rows.map((row) => row.id)).toEqual([first.head, reply.head as string]);
+    expect(rows[1]?.parentId).toBe(first.head);
     expect(divergences(target.relPath)).toEqual([]);
   });
 
-  test('a stale base still lands the edit and records the displaced version', async () => {
-    const target = await seedUpload('stale');
-    expect((await post(target, xmp('v1'), 'none')).status).toBe(200);
-    expect((await post(target, xmp('other device'), sha256(xmp('v1')))).status).toBe(200);
-
+  test('a client that names only the digest of what it sent still replaces its own head', async () => {
+    const target = await seedUpload('digest-fresh');
+    await firstSend(target, xmp('v1'));
     const res = await post(target, xmp('v2'), sha256(xmp('v1')));
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({
-      target_rel_path: xmpSidecarPath(target.relPath),
-      diverged: true,
-    });
-    expect(await onDisk(target.relPath)).toBe(xmp('v2'));
-    const [row, ...rest] = divergences(target.relPath);
-    expect(rest).toEqual([]);
-    expect(row).toMatchObject({
-      sidecar_rel_path: xmpSidecarPath(target.relPath),
-      device_id: deviceId,
-      base_sha256: sha256(xmp('v1')),
-      displaced_sha256: sha256(xmp('other device')),
-      displaced_xmp: xmp('other device'),
-      incoming_sha256: sha256(xmp('v2')),
-    });
-    expect(row?.asset_id).toMatch(/^[0-9a-f]{24}$/);
-  });
-
-  test("a first send over another device's sidecar lands on top and keeps theirs", async () => {
-    const target = await seedUpload('dedup');
-    expect((await post(target, xmp('device A'), undefined)).status).toBe(200);
-
-    const res = await post(target, xmp('device B'), 'none');
-    expect(res.status).toBe(200);
-    expect((await res.json()).diverged).toBe(true);
-    expect(await onDisk(target.relPath)).toBe(xmp('device B'));
-    expect(divergences(target.relPath)).toMatchObject([
-      { base_sha256: null, displaced_xmp: xmp('device A') },
-    ]);
+    expect(Object.keys((await res.json()) as object).sort()).toEqual(['head', 'target_rel_path']);
+    expect(labelOf(await onDisk(target.relPath))).toBe('v2');
+    expect(divergences(target.relPath)).toEqual([]);
   });
 
   test('re-sending the version already on the server changes nothing', async () => {
     const target = await seedUpload('same');
-    expect((await post(target, xmp('v1'), 'none')).status).toBe(200);
-    const before = await fs.stat(path.join(tmpLib, xmpSidecarPath(target.relPath)));
+    const first = await firstSend(target, xmp('v1'));
+    const before = await fs.stat(path.join(lib.tmpLib, xmpSidecarPath(target.relPath)));
 
     const res = await post(target, xmp('v1'), 'none');
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({
       target_rel_path: xmpSidecarPath(target.relPath),
       unchanged: true,
+      head: first.head,
     });
-    const after = await fs.stat(path.join(tmpLib, xmpSidecarPath(target.relPath)));
+    const after = await fs.stat(path.join(lib.tmpLib, xmpSidecarPath(target.relPath)));
     expect(after.mtimeMs).toBe(before.mtimeMs);
-    expect(divergences(target.relPath)).toEqual([]);
   });
 
-  test('a client without the header keeps skip-if-exists (#698)', async () => {
+  test('a client without the headers keeps skip-if-exists (#698)', async () => {
     const target = await seedUpload('legacy');
     expect((await post(target, xmp('v1'), undefined)).status).toBe(200);
     const res = await post(target, xmp('v2'), undefined);
     expect(res.status).toBe(200);
-    expect((await res.json()).skipped).toBe(true);
+    expect(((await res.json()) as { skipped?: boolean }).skipped).toBe(true);
     expect(await onDisk(target.relPath)).toBe(xmp('v1'));
     expect(divergences(target.relPath)).toEqual([]);
   });
 
-  test('a malformed base is rejected without touching the sidecar', async () => {
+  test('a malformed base or head is rejected without touching the sidecar', async () => {
     const target = await seedUpload('malformed');
-    expect((await post(target, xmp('v1'), 'none')).status).toBe(200);
-    const res = await post(target, xmp('v2'), 'not-a-digest');
-    expect(res.status).toBe(400);
-    expect(await onDisk(target.relPath)).toBe(xmp('v1'));
+    const first = await firstSend(target, xmp('v1'));
+    expect((await post(target, xmp('v2'), 'not-a-digest')).status).toBe(400);
+    expect((await post(target, xmp('v2'), undefined, 'not-an-entry-id')).status).toBe(400);
+    expect(await onDisk(target.relPath)).toBe(first.stored);
   });
 
-  test('two edits racing on the same base never lose a version', async () => {
-    const target = await seedUpload('race');
-    expect((await post(target, xmp('v1'), 'none')).status).toBe(200);
-    const base = sha256(xmp('v1'));
-
-    const [a, b] = await Promise.all([
-      post(target, xmp('edit A'), base),
-      post(target, xmp('edit B'), base),
-    ]);
-    expect([a.status, b.status]).toEqual([200, 200]);
-    const outcomes = [(await a.json()).diverged === true, (await b.json()).diverged === true];
-    expect(outcomes.filter(Boolean)).toHaveLength(1);
-
-    const final = await onDisk(target.relPath);
-    const rows = divergences(target.relPath);
-    expect(rows).toHaveLength(1);
-    const displaced = final === xmp('edit B') ? xmp('edit A') : xmp('edit B');
-    expect([xmp('edit A'), xmp('edit B')]).toContain(final);
-    expect(rows[0]?.displaced_xmp).toBe(displaced);
+  test('a body that is not an XMP document is rejected without touching the sidecar', async () => {
+    const target = await seedUpload('not-xmp');
+    const first = await firstSend(target, xmp('v1'));
+    const res = await post(target, 'not xml at all', undefined, first.head);
+    expect(res.status).toBe(400);
+    expect(await onDisk(target.relPath)).toBe(first.stored);
   });
 
   test('a target path belonging to another asset is refused and its sidecar kept', async () => {
     const owner = await seedUpload('owner');
     const other = await seedUpload('other');
     expect((await post(other, xmp('theirs'), 'none')).status).toBe(200);
+    const theirs = await onDisk(other.relPath);
 
     const res = await post({ relPath: other.relPath, phid: owner.phid }, xmp('mine'), 'none');
     expect(res.status).toBe(404);
-    expect(await onDisk(other.relPath)).toBe(xmp('theirs'));
+    expect(await onDisk(other.relPath)).toBe(theirs);
     expect(divergences(other.relPath)).toEqual([]);
   });
 
@@ -234,14 +128,14 @@ describe('backup sidecar compare-and-swap (#4719)', () => {
     try {
       await fs.writeFile(path.join(outside, 'IMG.HEIC'), Buffer.alloc(64, 1));
       await fs.writeFile(path.join(outside, 'IMG.xmp'), xmp('outside secret'));
-      await fs.mkdir(path.join(tmpLib, '2024/CAS'), { recursive: true });
-      await fs.symlink(outside, path.join(tmpLib, '2024/CAS/linked'));
+      await fs.mkdir(path.join(lib.tmpLib, '2024/CAS'), { recursive: true });
+      await fs.symlink(outside, path.join(lib.tmpLib, '2024/CAS/linked'));
       const relPath = '2024/CAS/linked/IMG.HEIC';
       const phid = 'CAS/linked/L0/001';
-      seedBackupAsset(live.db, {
+      seedBackupAsset(lib.live.db, {
         mapleId: createHash('md5').update('linked').digest('hex'),
         size: 64,
-        locations: [{ libraryId: libId, relPath }],
+        locations: [{ libraryId: lib.libId, relPath }],
         links: [{ deviceId, phassetLocalId: phid }],
       });
 
@@ -256,7 +150,7 @@ describe('backup sidecar compare-and-swap (#4719)', () => {
 
   test('a location marked missing is not a valid target', async () => {
     const target = await seedUpload('missing');
-    live.db
+    lib.live.db
       .query(`UPDATE asset_locations SET missing_since = ? WHERE filename = ?`)
       .run(new Date().toISOString(), 'missing.HEIC');
 
@@ -267,7 +161,7 @@ describe('backup sidecar compare-and-swap (#4719)', () => {
 
   test('a legacy upload waits its turn on the sidecar write barrier', async () => {
     const target = await seedUpload('legacy-barrier');
-    const sidecar = path.join(tmpLib, xmpSidecarPath(target.relPath));
+    const sidecar = path.join(lib.tmpLib, xmpSidecarPath(target.relPath));
     let release!: () => void;
     const held = new Promise<void>((resolve) => (release = resolve));
     let entered!: () => void;
@@ -293,7 +187,7 @@ describe('backup sidecar compare-and-swap (#4719)', () => {
 
   test('a sibling that arrives while a send waits on the barrier still shares the sidecar (#4692)', async () => {
     const target = await seedUpload('late-sibling');
-    const sidecar = path.join(tmpLib, xmpSidecarPath(target.relPath));
+    const sidecar = path.join(lib.tmpLib, xmpSidecarPath(target.relPath));
     let release!: () => void;
     const held = new Promise<void>((resolve) => (release = resolve));
     let entered!: () => void;
@@ -301,7 +195,7 @@ describe('backup sidecar compare-and-swap (#4719)', () => {
     const holder = serializeSidecarWrite(sidecar, async () => {
       entered();
       await held;
-      await fs.writeFile(path.join(tmpLib, '2024/CAS/late-sibling.cr2'), Buffer.alloc(8));
+      await fs.writeFile(path.join(lib.tmpLib, '2024/CAS/late-sibling.cr2'), Buffer.alloc(8));
       await fs.writeFile(sidecar, xmp('sibling edit'));
     });
     await inside;
@@ -322,7 +216,7 @@ describe('backup sidecar compare-and-swap (#4719)', () => {
   for (const base of ['none', undefined] as const) {
     test(`a ${base ? 'compare-and-swap' : 'no-base'} send whose location goes away while it waits writes nothing`, async () => {
       const target = await seedUpload(`gone-while-queued-${base ?? 'legacy'}`);
-      const sidecar = path.join(tmpLib, xmpSidecarPath(target.relPath));
+      const sidecar = path.join(lib.tmpLib, xmpSidecarPath(target.relPath));
       let release!: () => void;
       const held = new Promise<void>((resolve) => (release = resolve));
       let entered!: () => void;
@@ -335,7 +229,7 @@ describe('backup sidecar compare-and-swap (#4719)', () => {
 
       const send = post(target, xmp('stale'), base);
       await new Promise((resolve) => setTimeout(resolve, 200));
-      live.db
+      lib.live.db
         .query(`UPDATE asset_locations SET deleted_at = ? WHERE path || '/' || filename = ?`)
         .run(new Date().toISOString(), target.relPath);
       release();
@@ -347,34 +241,35 @@ describe('backup sidecar compare-and-swap (#4719)', () => {
     });
   }
 
-  test('a publish that fails leaves no divergence row behind (#5023)', async () => {
+  test('a publish that fails leaves the sidecar and its history as they were (#5023)', async () => {
     const target = await seedUpload('failed-publish');
-    expect((await post(target, xmp('v1'), 'none')).status).toBe(200);
-    expect((await post(target, xmp('other device'), sha256(xmp('v1')))).status).toBe(200);
-    const dir = path.dirname(path.join(tmpLib, target.relPath));
+    const first = await firstSend(target, xmp('v1', { exposure: '0' }));
+    await post(target, xmp('other device', { exposure: '1' }), undefined, first.head);
+    const before = await onDisk(target.relPath);
+    const dir = path.dirname(path.join(lib.tmpLib, target.relPath));
     await fs.chmod(dir, 0o555);
     try {
-      const res = await post(target, xmp('v2'), sha256(xmp('v1')));
+      const res = await post(target, xmp('v2', { exposure: '2' }), undefined, first.head);
       expect(res.status).toBe(500);
     } finally {
       await fs.chmod(dir, 0o755);
     }
-    expect(await onDisk(target.relPath)).toBe(xmp('other device'));
+    expect(await onDisk(target.relPath)).toBe(before);
     expect(divergences(target.relPath)).toEqual([]);
   });
 
   test('a legacy upload through an outward symlink is a 400 and creates nothing outside (#5023)', async () => {
     const outside = await fs.mkdtemp(path.join(os.tmpdir(), 'maple-sidecar-legacy-outside-'));
     try {
-      await fs.mkdir(path.join(tmpLib, '2024/CAS'), { recursive: true });
-      await fs.symlink(outside, path.join(tmpLib, '2024/CAS/legacy-link'));
+      await fs.mkdir(path.join(lib.tmpLib, '2024/CAS'), { recursive: true });
+      await fs.symlink(outside, path.join(lib.tmpLib, '2024/CAS/legacy-link'));
       // Only the database row: writing the original would itself follow the link.
       const relPath = '2024/CAS/legacy-link/new/IMG.HEIC';
       const phid = 'CAS/legacy-link-owner/L0/001';
-      seedBackupAsset(live.db, {
+      seedBackupAsset(lib.live.db, {
         mapleId: createHash('md5').update('legacy-link-owner').digest('hex'),
         size: 64,
-        locations: [{ libraryId: libId, relPath }],
+        locations: [{ libraryId: lib.libId, relPath }],
         links: [{ deviceId, phassetLocalId: phid }],
       });
       const res = await post({ relPath, phid }, xmp('incoming'), undefined);
@@ -413,8 +308,8 @@ async function swapFolderWhileQueued(
   try {
     const target = await seedUpload(name);
     if (base !== undefined) await fs.writeFile(path.join(outside, 'IMG.xmp'), xmp('incoming'));
-    const folder = path.dirname(path.join(tmpLib, target.relPath));
-    const sidecar = path.join(tmpLib, xmpSidecarPath(target.relPath));
+    const folder = path.dirname(path.join(lib.tmpLib, target.relPath));
+    const sidecar = path.join(lib.tmpLib, xmpSidecarPath(target.relPath));
     const held = new Promise<void>((resolve) => (release = resolve));
     let entered!: () => void;
     const inside = new Promise<void>((resolve) => (entered = resolve));

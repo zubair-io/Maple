@@ -1,0 +1,287 @@
+import Foundation
+import os
+
+private let smbStackLog = Logger(subsystem: "app.justmaple.aperture", category: "SMBSource")
+
+/// A stacked RAW+JPEG tile on an SMB share (#5050): the RAW's rename, move and trash carry its
+/// JPEG, through the same engines a single file uses. The shared sidecar follows the ownership
+/// rule on its own: copied while the RAW's sibling still reads it, taken once the last one leaves.
+///
+/// One tile, two file operations: the RAW's collision choice never reaches the JPEG. Both names
+/// are decided before either file moves, the JPEG goes straight to the RAW's final stem, and a JPEG
+/// that cannot follow a move puts the RAW back under its original name.
+extension SMBSource {
+  /// Rename the RAW to `newFilename` and its JPEG to the same stem (keeping the JPEG's extension).
+  /// `collision` is the RAW's policy; `companionCollision` is the JPEG's own, `.replace` only after
+  /// a prompt that named the JPEG.
+  public func renameAsset(
+    _ ref: ImageRef, companion: ImageRef, to newFilename: String,
+    collision: CollisionPolicy = .fail, companionCollision: CollisionPolicy = .fail
+  ) async throws -> (primary: String, companion: String) {
+    let sourceDir = (try mutationPath(for: ref) as NSString).deletingLastPathComponent
+    let outcome = try await relocateStack(
+      ref, companion: companion, to: sourceDir, primaryName: newFilename, mode: .move,
+      collision: collision, companionCollision: companionCollision)
+    return (outcome.primary.primaryPath, outcome.companion.primaryPath)
+  }
+
+  /// Move or copy the RAW and its JPEG into `destinationDir` under one stem. `.autoSuffix` picks a
+  /// stem free for the RAW, the JPEG and their sidecar; `.fail` and `.replace` throw
+  /// `destinationExists` naming the JPEG when only its name is taken (unless `companionCollision`
+  /// is `.replace`). Anything a Replace displaces is kept under a hidden name in its folder until
+  /// both files are in place, and put back if the JPEG cannot follow. A move whose JPEG cannot
+  /// follow puts the RAW back under its original name; a copy that fails midway leaves the RAW's
+  /// copy behind (unless it replaced a file, which is put back), a duplicate rather than a loss.
+  public func relocateAsset(
+    _ ref: ImageRef, companion: ImageRef, to destinationDir: String, mode: RelocateMode,
+    collision: CollisionPolicy, companionCollision: CollisionPolicy = .fail
+  ) async throws -> (primary: RelocateOutcome, companion: RelocateOutcome) {
+    let primaryName = Self.lastComponent(try mutationPath(for: ref))
+    return try await relocateStack(
+      ref, companion: companion, to: destinationDir, primaryName: primaryName, mode: mode,
+      collision: collision, companionCollision: companionCollision)
+  }
+
+  /// Trash the RAW and the JPEG into `.maple/trash` under one stem free for the RAW, the JPEG and
+  /// their sidecar: trashed one call each, a JPEG could land beside an older trashed RAW that took
+  /// its stem. A JPEG that cannot follow puts the RAW back, so the tile is never left half trashed.
+  public func trashAsset(_ ref: ImageRef, companion: ImageRef) async throws -> RelocateOutcome {
+    let primaryPath = try mutationPath(for: ref)
+    let trashDir = try SMBFileOperations.trashDestinationDir(for: primaryPath, shareRoot: "/")
+    let outcome = try await relocateStack(
+      ref, companion: companion, to: trashDir, primaryName: Self.lastComponent(primaryPath),
+      mode: .move, collision: .autoSuffix, companionCollision: .fail)
+    let trashed = [outcome.primary.primaryPath, outcome.companion.primaryPath]
+    if let client {
+      for path in trashed {
+        await SMBFileOperations.removeTrashedMarker(forItemAt: path, transport: client)
+        await SMBFileOperations.writeTrashedMarker(forItemAt: path, transport: client)
+      }
+    }
+    forgetAssets(at: trashed)
+    return RelocateOutcome(
+      primaryPath: outcome.primary.primaryPath, sidecarPath: outcome.primary.sidecarPath,
+      renamedDueToCollision: outcome.primary.renamedDueToCollision,
+      sidecarFollowed: outcome.primary.sidecarFollowed,
+      companionPath: outcome.companion.primaryPath)
+  }
+
+  private func relocateStack(
+    _ ref: ImageRef, companion: ImageRef, to destinationDir: String, primaryName: String,
+    mode: RelocateMode, collision: CollisionPolicy, companionCollision: CollisionPolicy
+  ) async throws -> (primary: RelocateOutcome, companion: RelocateOutcome) {
+    guard let client else { throw SMBError.notConnected }
+    if !FilenameValidation.isValidPathComponent(primaryName) {
+      throw FileOperationError.invalidName(primaryName)
+    }
+    let pair = SMBStackPair(
+      primary: try mutationPath(for: ref), companion: try mutationPath(for: companion),
+      destination: destinationDir, primaryName: primaryName)
+    let companionReplaces = collision != .autoSuffix && companionCollision == .replace
+    let stem = try await Self.resolveStem(
+      pair, collision: collision, companionReplaces: companionReplaces, transport: client)
+    let primaryTarget = pair.primaryTarget(stem: stem.value)
+    let companionTarget = pair.companionTarget(stem: stem.value)
+
+    // The RAW's relocation deletes whatever it replaced as soon as the RAW lands, so every file a
+    // Replace would displace is copied aside first and dropped only once both files are in place.
+    let backups = try await Self.backUpOccupants(
+      collision == .replace || companionReplaces
+        ? [primaryTarget, companionTarget, SMBFileOperations.sidecarPath(for: primaryTarget)] : [],
+      excluding: [pair.primary, pair.companion, SMBFileOperations.sidecarPath(for: pair.primary)],
+      transport: client)
+    var primary: RelocateOutcome
+    do {
+      // A JPEG this operation replaces too no longer claims the destination's sidecar.
+      primary = try await relocateAsset(
+        ref, to: destinationDir, newBasename: Self.lastComponent(primaryTarget), mode: mode,
+        collision: collision == .replace ? .replace : .fail,
+        displacing: companionReplaces ? [companionTarget] : [])
+    } catch {
+      await Self.restore(backups, transport: client)
+      throw error
+    }
+    if stem.suffixed {
+      primary = RelocateOutcome(
+        primaryPath: primary.primaryPath, sidecarPath: primary.sidecarPath,
+        renamedDueToCollision: true, sidecarFollowed: primary.sidecarFollowed)
+    }
+    guard companionTarget != pair.companion else {
+      await Self.discard(backups, transport: client)
+      let unchanged = RelocateOutcome(
+        primaryPath: pair.companion, sidecarPath: nil, renamedDueToCollision: false,
+        sidecarFollowed: false)
+      return (primary, unchanged)
+    }
+    do {
+      let companionOutcome = try await relocateAsset(
+        companion, to: destinationDir, newBasename: Self.lastComponent(companionTarget),
+        mode: mode, collision: companionReplaces ? .replace : .fail)
+      await Self.discard(backups, transport: client)
+      return (primary, companionOutcome)
+    } catch {
+      // A copy left its source in place; a move must bring the RAW back before the displaced
+      // files take their names again, or the RAW's only copy would be overwritten.
+      var withdrawn = mode == .copy
+      if mode == .move {
+        withdrawn =
+          (try? await relocateAsset(
+            ref, to: (pair.primary as NSString).deletingLastPathComponent,
+            newBasename: Self.lastComponent(pair.primary), mode: .move, collision: .fail)) != nil
+      }
+      if withdrawn {
+        await Self.restore(backups, transport: client)
+      } else if !backups.isEmpty {
+        let kept = backups.map(\.backup).joined(separator: ", ")
+        smbStackLog.error(
+          "relocateStack: the RAW could not move back; displaced files kept at \(kept, privacy: .public)"
+        )
+      }
+      throw error
+    }
+  }
+
+  /// Verified copies, under hidden names in the same folder, of every regular file at `paths` a
+  /// Replace could displace, so a pair that fails halfway can put them back.
+  private static func backUpOccupants(
+    _ paths: [String], excluding sources: [String], transport: SMBFileTransport
+  ) async throws -> [(backup: String, original: String)] {
+    var backups: [(backup: String, original: String)] = []
+    for path in paths {
+      let isSource = sources.contains {
+        SMBFileOperations.classifySameFile(source: $0, target: path) != .different
+      }
+      guard !isSource, !backups.contains(where: { $0.original == path }),
+        let attrs = try? await transport.attributesOfItem(atPath: path),
+        !SMBFileOperations.isDirectory(attrs)
+      else { continue }
+      do {
+        let backup = try await SMBFileOperations.stageVerifiedCopy(
+          from: path, to: path, transport: transport)
+        backups.append((backup, path))
+      } catch {
+        await discard(backups, transport: transport)
+        throw error
+      }
+    }
+    return backups
+  }
+
+  /// Put each displaced file back under its own name. A backup that cannot be moved back stays on
+  /// the share under its hidden name rather than be lost.
+  private static func restore(
+    _ backups: [(backup: String, original: String)], transport: SMBFileTransport
+  ) async {
+    for item in backups {
+      if await SMBFileOperations.exists(item.original, transport: transport) {
+        try? await transport.removeItem(atPath: item.original)
+      }
+      do {
+        try await transport.moveItem(atPath: item.backup, toPath: item.original)
+      } catch {
+        smbStackLog.error(
+          "relocateStack: could not restore \(item.original, privacy: .public); kept at \(item.backup, privacy: .public): \(error.localizedDescription, privacy: .public)"
+        )
+      }
+    }
+  }
+
+  private static func discard(
+    _ backups: [(backup: String, original: String)], transport: SMBFileTransport
+  ) async {
+    for item in backups { try? await transport.removeItem(atPath: item.backup) }
+  }
+
+  /// The stem both files land under, decided before either moves.
+  private static func resolveStem(
+    _ pair: SMBStackPair, collision: CollisionPolicy, companionReplaces: Bool,
+    transport: SMBFileTransport
+  ) async throws -> (value: String, suffixed: Bool) {
+    let stem = pair.requestedStem
+    let primaryTarget = pair.primaryTarget(stem: stem)
+    let companionTarget = pair.companionTarget(stem: stem)
+    switch collision {
+    case .fail:
+      if await primaryOccupied(pair, at: primaryTarget, transport: transport) {
+        throw FileOperationError.destinationExists(primaryTarget)
+      }
+      if !companionReplaces,
+        await companionOccupied(pair, at: companionTarget, transport: transport)
+      {
+        throw FileOperationError.destinationExists(companionTarget)
+      }
+    case .replace:
+      if !companionReplaces,
+        await companionOccupied(pair, at: companionTarget, transport: transport)
+      {
+        throw FileOperationError.destinationExists(companionTarget)
+      }
+    case .autoSuffix:
+      let free = try await CollisionResolver.pickFreePath(primaryTarget) { candidate in
+        let candidateStem = ((lastComponent(candidate)) as NSString).deletingPathExtension
+        if await primaryOccupied(
+          pair, at: pair.primaryTarget(stem: candidateStem), transport: transport)
+        {
+          return true
+        }
+        return await companionOccupied(
+          pair, at: pair.companionTarget(stem: candidateStem), transport: transport)
+      }
+      let freeStem = (lastComponent(free) as NSString).deletingPathExtension
+      return (freeStem, freeStem != stem)
+    }
+    return (stem, false)
+  }
+
+  /// The RAW's name is taken: the file itself, or a sidecar that is not its own.
+  private static func primaryOccupied(
+    _ pair: SMBStackPair, at target: String, transport: SMBFileTransport
+  ) async -> Bool {
+    guard SMBFileOperations.classifySameFile(source: pair.primary, target: target) == .different
+    else { return false }
+    let ownSidecar = SMBFileOperations.sidecarPath(for: pair.primary)
+    let hasOwnSidecar = await SMBFileOperations.exists(ownSidecar, transport: transport)
+    return await SMBFileOperations.assetDestinationOccupied(
+      target, ownSidecar: hasOwnSidecar ? ownSidecar : nil, transport: transport)
+  }
+
+  /// The JPEG's name is taken by another file. The shared sidecar is the RAW's to resolve.
+  private static func companionOccupied(
+    _ pair: SMBStackPair, at target: String, transport: SMBFileTransport
+  ) async -> Bool {
+    guard SMBFileOperations.classifySameFile(source: pair.companion, target: target) == .different
+    else { return false }
+    return await SMBFileOperations.exists(target, transport: transport)
+  }
+
+  fileprivate static func lastComponent(_ path: String) -> String {
+    (path as NSString).lastPathComponent
+  }
+}
+
+/// The two share paths and where they are headed, named by a stem.
+private struct SMBStackPair {
+  let primary: String
+  let companion: String
+  let destination: String
+  let primaryName: String
+
+  var requestedStem: String { (primaryName as NSString).deletingPathExtension }
+
+  func primaryTarget(stem: String) -> String {
+    let ext = (primaryName as NSString).pathExtension
+    return SMBFileOperations.posixJoin(destination, ext.isEmpty ? stem : "\(stem).\(ext)")
+  }
+
+  /// The JPEG keeps its own name while the RAW's stem is unchanged, else takes the new stem.
+  func companionTarget(stem: String) -> String {
+    let companionName = (companion as NSString).lastPathComponent
+    let originalStem = ((primary as NSString).lastPathComponent as NSString)
+      .deletingPathExtension
+    guard stem != originalStem else {
+      return SMBFileOperations.posixJoin(destination, companionName)
+    }
+    let ext = (companionName as NSString).pathExtension
+    return SMBFileOperations.posixJoin(destination, ext.isEmpty ? stem : "\(stem).\(ext)")
+  }
+}

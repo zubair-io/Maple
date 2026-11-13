@@ -318,8 +318,30 @@ struct GeneralSettingsTab: View {
   @AppStorage(CanvasColorSpace.defaultsKey) private var canvasColorSpace = CanvasColorSpace.current
     .rawValue
 
+  // Default mirrors `RawJpegStackPreference.isEnabled` (ON) so the toggle reads correctly before
+  // the key is ever written. Covers local folders and SMB shares; each Self Hosted server keeps
+  // its own switch in the Cloud tab.
+  @AppStorage(RawJpegStackPreference.defaultsKey) private var stackRawJpeg = true
+
   var body: some View {
     Form {
+      Section("Library") {
+        Toggle(isOn: $stackRawJpeg) {
+          VStack(alignment: .leading, spacing: 2) {
+            Text("Show one image for RAW+JPEG pairs")
+            Text(
+              "A RAW and a JPEG with the same name in one folder show as one image, the RAW. Turn off to show both files as separate images. Applies to local folders and SMB shares."
+            )
+            .font(.caption)
+            .foregroundStyle(.secondary)
+          }
+        }
+        .onChange(of: stackRawJpeg) {
+          NotificationCenter.default.post(name: RawJpegStackPreference.didChange, object: nil)
+        }
+        .accessibilityIdentifier("general.settings.stackRawJpeg")
+      }
+      .listRowBackground(MapleTokens.surface)
       Section("Rendering") {
         Toggle(isOn: $useAmaze) {
           VStack(alignment: .leading, spacing: 2) {

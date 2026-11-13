@@ -239,6 +239,11 @@ struct EditorSurface: View {
       } else {
         RemovalExitButton(state: state, returnTool: removalReturnTool)
       }
+      #if os(iOS)
+        // Undo, Redo and one-tap edits confirm themselves with a haptic.
+        EditorHistoryHaptics(session: state.session)
+          .id(ObjectIdentifier(state.session))
+      #endif
 
     }
     .disabled(state.session.workflow.isBusy)

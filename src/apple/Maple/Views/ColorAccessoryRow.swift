@@ -68,7 +68,7 @@ struct ColorAccessoryRow: View {
         profilePicker
         blackWhiteToggle.toggleStyle(.button).frame(minHeight: 44)
       }
-      WhiteBalanceControls(state: state)
+      WhiteBalanceControls(state: state, showsPad: !compactStyle)
     }
     .frame(maxWidth: .infinity)
     .accessibilityElement(children: .contain)

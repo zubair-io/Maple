@@ -1,20 +1,22 @@
 /**
- * Compare-and-swap publish for a backup sidecar re-send (#4719).
+ * Compare-and-swap publish for a backup sidecar re-send (#4719, #5796).
  *
- * The device names the sidecar version its edit was based on (`base`, the
- * SHA-256 of the XMP it last delivered, or `null` for none). Under the shared
- * sidecar write barrier:
- *   - nothing on disk yet → create it;
- *   - the server already holds exactly this XMP → leave it alone;
- *   - the server still holds the base version → overwrite it;
- *   - anything else is a divergence → keep the displaced XMP (via `recordDisplaced`,
- *     before publishing, so a failed publish can never lose it) and land the
- *     incoming edit on top;
+ * The device names the version its edit was based on: the head entry id of the
+ * sidecar's edit history, or the SHA-256 of the XMP it last delivered (`none` for
+ * neither). Under the shared sidecar write barrier:
+ *   - nothing on disk yet → create it as sent, with the send's history entry on top;
+ *   - the server already holds exactly this edit → leave it alone, keeping in the
+ *     ledger (`recordSent`) where it was acknowledged, since the device's next send
+ *     names it by digest;
+ *   - the server still holds the base version → the send replaces the adjustments;
+ *   - anything else is reconciled onto the stored sidecar (`sidecar-history.ts`):
+ *     the send lands on top and what it displaced stays in the history; when the
+ *     result differs from what the device sent, the sent adjustments are kept in the
+ *     ledger (`recordSent`), since the device's next send is based on them;
  *   - except when a same-stem sibling shares the sidecar (#4692): then only the
  *     named base may be replaced, and any other incoming edit is kept aside
- *     instead, so one photo never overwrites the other's edits.
+ *     (`keepAside`) instead, so one photo never overwrites the other's edits.
  */
-import { createHash } from 'node:crypto';
 import {
   authorizeSidecarWrite,
   isMissingSidecar,
@@ -26,49 +28,61 @@ import { serializeSidecarWrite } from '../fs/sidecar-write-order.ts';
 // Mirror-aware drop-in, so the sidecar's directory replicates with it.
 import fs, { replicatePathUnder } from '../fs/mirrored.ts';
 import path from 'node:path';
+import {
+  firstBackupSidecar,
+  reconcileBackupSidecar,
+  sha256Hex,
+  type SentRecord,
+  type SentUpdate,
+  type SidecarBase,
+} from './sidecar-history.ts';
 
 type SidecarCasOutcome =
-  | { kind: 'written' }
-  | { kind: 'unchanged' }
-  | { kind: 'diverged' }
+  | { kind: 'written'; head: string }
+  | { kind: 'reconciled'; head: string }
+  | { kind: 'unchanged'; head: string | null }
   | { kind: 'shared' }
   | { kind: 'abandoned' }
   | { kind: 'refused'; error: string }
   | { kind: 'error'; error: string };
 
-interface DisplacedSidecar {
-  xmp: string;
-  sha256: string;
-  incomingSha256: string;
-}
-
 const SHA256_HEX = /^[0-9a-f]{64}$/;
+const ENTRY_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 /** A publish that threw, as an outcome the caller can report. */
 export function errorOutcome(error: unknown): { kind: 'error'; error: string } {
   return { kind: 'error', error: error instanceof Error ? error.message : String(error) };
 }
 
-/** `X-Maple-Sidecar-Base`: absent → `undefined` (legacy skip-if-exists),
- * `none` → `null`, a SHA-256 hex digest → itself, anything else → `'invalid'`. */
+/** `X-Maple-Sidecar-Head` (a history entry id or `none`) names the base by history and
+ * wins over `X-Maple-Sidecar-Base` (a SHA-256 hex digest or `none`). Neither present →
+ * `undefined` (legacy skip-if-exists); anything malformed → `'invalid'`. */
 export function parseSidecarBase(
-  header: string | undefined,
-): string | null | undefined | 'invalid' {
-  if (header === undefined) return undefined;
-  if (header === 'none') return null;
-  return SHA256_HEX.test(header) ? header : 'invalid';
+  head: string | undefined,
+  digest: string | undefined,
+): SidecarBase | undefined | 'invalid' {
+  if (head !== undefined) {
+    if (head === 'none') return { kind: 'head', head: null };
+    return ENTRY_ID.test(head) ? { kind: 'head', head } : 'invalid';
+  }
+  if (digest === undefined) return undefined;
+  if (digest === 'none') return { kind: 'digest', sha256: null };
+  return SHA256_HEX.test(digest) ? { kind: 'digest', sha256: digest } : 'invalid';
 }
 
 /** The destination stopped passing the library-root check after the
  * up-front one, e.g. a parent folder was swapped for a symlink. */
 class RefusedPath extends Error {}
 
-/** Keeps a displaced sidecar; the returned function drops that record again
- * when the publish it was made for fails. */
-type RecordDisplaced = (displaced: DisplacedSidecar) => Promise<() => Promise<void>>;
-
-const sidecarSha256 = (xmp: string): string =>
-  createHash('sha256').update(xmp, 'utf8').digest('hex');
+/** What a send keeps on the server beside the sidecar itself. */
+export interface SendLedger {
+  /** Keeps an edit a shared sidecar refused to take. */
+  keepAside(incoming: { xmp: string; sha256: string }): Promise<void>;
+  /** The kept sends with this digest, or kept for this history entry. */
+  sentFor(query: { sha256: string } | { entryId: string }): Promise<SentRecord[]>;
+  /** Runs before a send is acknowledged or its sidecar written over the stored one. */
+  recordSent(update: SentUpdate): Promise<void>;
+}
 
 async function readCurrent(destination: string): Promise<string | null> {
   try {
@@ -79,38 +93,41 @@ async function readCurrent(destination: string): Promise<string | null> {
   }
 }
 
-/** Publish over an existing sidecar: leave an identical one alone, overwrite
- * the named base, and keep anything else before landing the edit on top. */
+interface Publication {
+  xmp: string;
+  base: SidecarBase;
+  ledger: SendLedger;
+  shared: boolean;
+}
+
+/** Publish over an existing sidecar: place the send on its history, or keep it aside. */
 async function publishOver(
   destination: string,
   current: string,
-  xmp: string,
-  base: string | null,
-  recordDisplaced: RecordDisplaced,
-  shared: boolean,
+  send: Publication,
   beforeWrite: () => Promise<void>,
 ): Promise<SidecarCasOutcome> {
-  const incomingSha256 = sidecarSha256(xmp);
-  const currentSha256 = sidecarSha256(current);
-  if (currentSha256 === incomingSha256) return { kind: 'unchanged' };
-  const diverged = currentSha256 !== base;
-  if (diverged && shared) {
-    await recordDisplaced({ xmp, sha256: incomingSha256, incomingSha256 });
-    return { kind: 'shared' };
+  const applied = await reconcileBackupSidecar({
+    current,
+    incoming: send.xmp,
+    base: send.base,
+    shared: send.shared,
+    now: Date.now(),
+    sentFor: (query) => send.ledger.sentFor(query),
+  });
+  if (applied.kind === 'unchanged') {
+    if (applied.sends) await send.ledger.recordSent(applied.sends);
+    return { kind: 'unchanged', head: applied.head };
   }
+  if (applied.kind === 'shared') {
+    await send.ledger.keepAside({ xmp: send.xmp, sha256: sha256Hex(send.xmp) });
+    return applied;
+  }
+  await send.ledger.recordSent(applied.sends);
   await beforeWrite();
-  const forget = diverged
-    ? await recordDisplaced({ xmp: current, sha256: currentSha256, incomingSha256 })
-    : null;
-  const written = await writeSidecarAtomic(destination, xmp, 'sidecar write failed');
-  if (!written.ok) {
-    // Drop the record only while the displaced version is still on disk, so a
-    // retry doesn't pile up copies (#5023). A leftover row is harmless.
-    const stillThere = (await readCurrent(destination).catch(() => null)) === current;
-    if (stillThere) await forget?.().catch(() => undefined);
-    return { kind: 'error', error: written.error };
-  }
-  return { kind: diverged ? 'diverged' : 'written' };
+  const written = await writeSidecarAtomic(destination, applied.xmp, 'sidecar write failed');
+  if (!written.ok) return { kind: 'error', error: written.error };
+  return { kind: applied.reconciled ? 'reconciled' : 'written', head: applied.head };
 }
 
 /** Create the sidecar when none exists; `null` when one appeared first. */
@@ -119,9 +136,10 @@ async function createIfAbsent(
   xmp: string,
   beforeWrite: () => Promise<void>,
 ): Promise<SidecarCasOutcome | null> {
+  const first = await firstBackupSidecar(xmp, Date.now());
   await beforeWrite();
-  const created = await writeSidecarCreateOnly(destination, xmp, 'sidecar write failed');
-  if (created.ok) return { kind: 'written' };
+  const created = await writeSidecarCreateOnly(destination, first.xmp, 'sidecar write failed');
+  if (created.ok) return { kind: 'written', head: first.head };
   return 'exists' in created ? null : { kind: 'error', error: created.error };
 }
 
@@ -136,22 +154,19 @@ async function prepareDestination(destination: string): Promise<SidecarCasOutcom
 
 async function publishAt(
   target: string,
-  xmp: string,
-  base: string | null,
-  recordDisplaced: RecordDisplaced,
-  shared: boolean,
+  send: Publication,
   beforeWrite: () => Promise<void>,
 ): Promise<SidecarCasOutcome> {
   // Once only: a create that lost the race goes on to publish over the newcomer.
   const ahead = once(beforeWrite);
   const existing = await readCurrent(target);
-  const created = existing === null ? await createIfAbsent(target, xmp, ahead) : null;
+  const created = existing === null ? await createIfAbsent(target, send.xmp, ahead) : null;
   if (created) return created;
   // A writer outside the barrier can create the file between the read and
   // the create-only publish; compare against what is actually there.
   const current = existing ?? (await readCurrent(target));
   if (current === null) return { kind: 'error', error: 'sidecar vanished during write' };
-  return publishOver(target, current, xmp, base, recordDisplaced, shared, ahead);
+  return publishOver(target, current, send, ahead);
 }
 
 function once(run: () => Promise<void>): () => Promise<void> {
@@ -187,15 +202,15 @@ export interface SidecarCasOptions {
 const LANDED: ReadonlySet<SidecarCasOutcome['kind']> = new Set([
   'written',
   'unchanged',
-  'diverged',
+  'reconciled',
   'shared',
 ]);
 
 export async function publishSidecarCas(
   destination: string,
   xmp: string,
-  base: string | null,
-  recordDisplaced: RecordDisplaced,
+  base: SidecarBase,
+  ledger: SendLedger,
   admissionScope: string,
   options: SidecarCasOptions = {},
 ): Promise<SidecarCasOutcome> {
@@ -210,13 +225,10 @@ export async function publishSidecarCas(
       const shared = (await options.shared?.()) ?? false;
       const outcome = await publishAt(
         target,
-        xmp,
-        base,
-        recordDisplaced,
-        shared,
+        { xmp, base, ledger, shared },
         options.beforeWrite ?? (async () => undefined),
       );
-      const landed = outcome.kind === 'written' || outcome.kind === 'diverged';
+      const landed = outcome.kind === 'written' || outcome.kind === 'reconciled';
       // The write is pinned to the resolved target; mirrors are keyed by the configured root.
       // An unaliased path was already replicated by the mirrored write itself.
       if (landed && path.resolve(target) !== path.resolve(destination)) {

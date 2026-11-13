@@ -7,6 +7,7 @@ mod xml;
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::sync::{Mutex, MutexGuard, PoisonError};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use raw_core::types::adjustment::AdjustmentModel;
@@ -165,18 +166,30 @@ impl SidecarStore {
         }
         temporary.write_all(bytes.as_bytes())?;
         temporary.as_file().sync_all()?;
-        // Re-check after merge/write, immediately before atomic rename.
+        // Re-check after merge/write, immediately before atomic rename, under
+        // the lock every in-process writer of a sidecar compares under.
         reject_symlink(&self.path)?;
+        let publication = publication_lock();
         if read_optional(&self.path)?.as_deref() != expected {
             return Err(SidecarError::Conflict);
         }
         temporary.persist(&self.path).map_err(|error| error.error)?;
+        drop(publication);
         // Record the publication even if directory durability fails: the
         // next retry must compare against the bytes actually on disk.
         published(self);
         fs::File::open(parent)?.sync_all()?;
         Ok(())
     }
+}
+
+/// Held by every in-process writer of a sidecar (a local save, the cloud
+/// journal copying a merge into its private sidecar) across its final
+/// comparison and rename, so neither renames over bytes the other published
+/// after that comparison (#5864).
+pub fn publication_lock() -> MutexGuard<'static, ()> {
+    static PUBLICATION: Mutex<()> = Mutex::new(());
+    PUBLICATION.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
 /// A save that merged an outside change: `document` is what was published.
@@ -190,7 +203,14 @@ pub struct Merged {
 }
 
 impl Merged {
-    fn reconcile(base: Option<&str>, current: &str, incoming: &str) -> Result<Self, SidecarError> {
+    /// The shared merge of `incoming` (Maple's edit, based on `base`) onto
+    /// `current`, the file a save found or the server version a cloud upload
+    /// was refused against.
+    pub fn reconcile(
+        base: Option<&str>,
+        current: &str,
+        incoming: &str,
+    ) -> Result<Self, SidecarError> {
         let now_ms = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map_or(0, |elapsed| elapsed.as_millis() as u64);

@@ -2,6 +2,7 @@ package app.justmaple.aperture
 
 import app.justmaple.aperture.generated.AdjustmentFields
 import app.justmaple.aperture.ui.EditorGroup
+import app.justmaple.aperture.ui.ToneCurveFamily
 import android.net.Uri
 import android.view.Surface
 import app.justmaple.aperture.data.*
@@ -28,6 +29,7 @@ class OpeningComparisonTest {
         override fun invalidateModel() {}
         override suspend fun open(path: String, document: String, edge: Int, generation: Int) =
             mapOf("exposure" to (XmpDocument(document).attribute("crs:Exposure2012")?.toFloat() ?: 0f), "_raw" to 1f)
+        override suspend fun modelValues(document: String): Map<String, Float> = error("Settings paste is not exercised by this test")
         override suspend fun autoWhiteBalance(document: String): app.justmaple.aperture.WhiteBalanceRecommendation = error("White balance analysis is not expected in this test")
         override suspend fun nativeDimensions(photo: app.justmaple.aperture.data.Photo): app.justmaple.aperture.data.NativeImageSize? = null
         override suspend fun nativeDetail(request: app.justmaple.aperture.data.NativeDetailRequest): android.graphics.Bitmap = error("Native detail is not requested by this fixture")
@@ -44,7 +46,7 @@ class OpeningComparisonTest {
     }
 
     @Test
-    fun resettingLightClearsPointCurvesAndTheirModeInOneUndo() = runBlocking {
+    fun resettingLightClearsToneCurvesAndTheirModeInOneUndoAndKeepsColourCurves() = runBlocking {
         Dispatchers.setMain(UnconfinedTestDispatcher())
         val app = RuntimeEnvironment.getApplication()
         val raw = File.createTempFile("light-reset-", ".dng", app.cacheDir).apply { writeText("renderer seam") }
@@ -63,7 +65,12 @@ class OpeningComparisonTest {
             val curved = model.state.value.document.serialize()
             model.resetGroup(EditorGroup.Light)
             val reset = model.state.value.document
-            PointCurve.entries.forEach { assertTrue("$it is reset", reset.curve(it).isEmpty()) }
+            val tone = ToneCurveFamily.entries.flatMap { it.curves }
+            assertEquals(8, tone.size)
+            PointCurve.entries.forEach { curve ->
+                if (curve in tone) assertTrue("$curve is reset", reset.curve(curve).isEmpty())
+                else assertEquals("$curve is a colour curve, outside Light", knots, reset.curve(curve))
+            }
             assertNull(reset.attribute("papp:ToneCurveMode"))
             model.undo()
             assertEquals(curved, model.state.value.document.serialize())

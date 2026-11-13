@@ -36,6 +36,7 @@ struct GroupTabsView: View {
         .accessibilityLabel(group.displayName)
         .accessibilityIdentifier("editor-group-\(group.rawValue)")
         .accessibilityAddTraits(selected ? .isSelected : [])
+        .editorSelectionHaptic(isSelected: selected)
       }
     }
     .frame(width: axis == .vertical ? Self.tabThickness : nil)

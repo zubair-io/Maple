@@ -79,6 +79,12 @@ public final class BrowseViewModel {
   /// request cannot retain this view model after its screen is dismissed.
   @ObservationIgnored var retryLoader: (@MainActor () async -> Void)?
 
+  /// Whether a listing folds each RAW+JPEG pair into one tile: the Settings switch 'Show one image
+  /// for RAW+JPEG pairs' (#5050). Read at each load, so a change takes effect on the next reload.
+  @ObservationIgnored public var stacksRawJpegPairs: @Sendable () -> Bool = {
+    RawJpegStackPreference.isEnabled()
+  }
+
   public func retryLastLoad() async {
     guard !isLoading, let retryLoader else { return }
     await retryLoader()
@@ -141,7 +147,9 @@ public final class BrowseViewModel {
       // to each AssetRef so downstream FFI reads can re-claim scope
       // on the right URL.
       let scope = await source.scopedAncestor
-      let refs = fileAssets.map { AssetRef(url: $0.url, scopeParentURL: scope) }
+      let refs = RawJpegStacking.localRefs(
+        fileAssets.map(\.url), scopeParentURL: scope, livePhotoLinks: [:],
+        stacksPairs: stacksRawJpegPairs())
       guard gen == loadGeneration else { return }
 
       assets = refs
@@ -174,10 +182,15 @@ public final class BrowseViewModel {
     }
 
     do {
-      let refs = try await source.images()
+      let listed = try await source.images()
       guard gen == loadGeneration else { return }
       let livePhotoLinks = await (source as? SMBSource)?.livePhotoLinks() ?? [:]
+      let smbSizes = Dictionary(
+        (await (source as? SMBSource)?.assets ?? []).map { ($0.path, $0.size) },
+        uniquingKeysWith: { first, _ in first })
       guard gen == loadGeneration else { return }
+      let (refs, smbStacks) = RawJpegStacking.smbFold(
+        listed, sizes: smbSizes, stacksPairs: stacksRawJpegPairs())
 
       let assetRefs = refs.map { ref -> AssetRef in
         if let url = ref.url {
@@ -209,7 +222,10 @@ public final class BrowseViewModel {
           stableID: capturedRef.id,
           captureDate: capturedRef.captureDate,
           thumbnailProvenance: provenance,
-          livePhoto: capturedRef.smbPath.flatMap { livePhotoLinks[$0] },
+          livePhoto: RawJpegStacking.smbLivePhoto(
+            rawPath: capturedRef.smbPath,
+            stack: capturedRef.smbPath.flatMap { smbStacks[$0] }, links: livePhotoLinks),
+          stack: capturedRef.smbPath.flatMap { smbStacks[$0] },
           smbPath: capturedRef.smbPath,
           smbSourceID: capturedRef.smbSourceID,
           originalFileWriter: (capturedSource as? SMBSource).map { smb in
@@ -422,7 +438,10 @@ public final class BrowseViewModel {
 
     do {
       await source.navigate(to: absPath)
-      let listing = try await source.listDir(absPath: absPath)
+      // The grid is stack-aware: it asks the server to fold RAW+JPEG pairs when the user's
+      // per-server preference is on (#5050).
+      let stacksPairs = await source.stacksRawJpegPairs()
+      let listing = try await source.listDir(absPath: absPath, stackRawJpeg: stacksPairs)
       guard gen == loadGeneration else { return }
 
       let dirURLs = listing.dirs.map { URL(fileURLWithPath: $0.path) }
@@ -448,6 +467,7 @@ public final class BrowseViewModel {
             address: nil
           ),
           livePhoto: img.livePhoto,
+          stack: RawJpegStacking.cloudStack(for: img),
           originalFileWriter: { destination in
             try await capturedSource.writeOriginal(for: capturedRef, to: destination)
           },

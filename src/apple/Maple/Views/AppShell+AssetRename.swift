@@ -138,10 +138,18 @@ extension AppShell {
     defer { if accessing { scope.stopAccessingSecurityScopedResource() } }
     let destinationDir = url.deletingLastPathComponent()
     let outcome = try await LocalFileOperations.relocate(
-      url, to: destinationDir, newBasename: newFilename, mode: .move, collision: .fail)
+      url, to: destinationDir, newBasename: newFilename,
+      companion: asset.stack?.localCompanionURL, mode: .move, collision: .fail)
     let newURL = URL(fileURLWithPath: outcome.primaryPath)
+    let stack = outcome.companionPath.flatMap { path -> RawJpegStack? in
+      let companionURL = URL(fileURLWithPath: path)
+      return asset.stack?.relocated(
+        primaryName: newURL.lastPathComponent, companionName: companionURL.lastPathComponent,
+        location: .local(companionURL))
+    }
     return AssetRef(
-      url: newURL, scopeParentURL: asset.scopeParentURL, captureDate: asset.captureDate)
+      url: newURL, scopeParentURL: asset.scopeParentURL, captureDate: asset.captureDate,
+      stack: stack)
   }
 
   // MARK: - SMB
@@ -154,9 +162,20 @@ extension AppShell {
     else {
       throw FileOperationError.sourceMissing("SMB share is not connected")
     }
-    let path = try await source.renameAsset(ref, to: newFilename)
-    // Keep decode routing and bind drag-out to the confirmed new path.
-    return try asset.renamedSMB(to: newFilename, at: path, source: source)
+    guard let stack = asset.stack, let companionRef = stack.smbCompanionRef else {
+      let path = try await source.renameAsset(ref, to: newFilename)
+      // Keep decode routing and bind drag-out to the confirmed new path.
+      return try asset.renamedSMB(to: newFilename, at: path, source: source)
+    }
+    let paths = try await source.renameAsset(ref, companion: companionRef, to: newFilename)
+    let companionName = (paths.companion as NSString).lastPathComponent
+    let renamedCompanion = ImageRef(
+      id: companionRef.id, displayName: companionName, smbPath: paths.companion,
+      smbSourceID: companionRef.smbSourceID)
+    return try asset.renamedSMB(
+      to: newFilename, at: paths.primary, source: source,
+      stack: stack.relocated(
+        primaryName: newFilename, companionName: companionName, location: .smb(renamedCompanion)))
   }
 
   // MARK: - Cloud
@@ -173,14 +192,22 @@ extension AppShell {
     let httpClient = makeAuthenticatedHTTPClient(server: catalog.serverID)
     let effectiveServer = LocalNetworkResolver.shared.effectiveURL(for: catalog.serverID)
     let remote = RemoteCatalog(http: httpClient, server: effectiveServer)
-    let result = try await remote.renameAsset(assetID: assetID, newFilename: newFilename)
+    let result: RenameAssetResult
+    if let stack = asset.stack {
+      result = try await remote.renameAsset(
+        assetID: assetID, newFilename: newFilename, stack: stack)
+    } else {
+      result = try await remote.renameAsset(assetID: assetID, newFilename: newFilename)
+    }
     switch result {
     case .ok(let response):
       let source = CloudSource(
         server: effectiveServer, identity: catalog.serverID, folderID: catalog.folderID,
         libraryPath: "", httpClient: httpClient
       )
-      return try asset.renamedCloud(to: newFilename, at: response.newAbsPath, source: source)
+      return try asset.renamedCloud(
+        to: newFilename, at: response.newAbsPath, source: source,
+        stack: asset.stack?.relocatedCloud(afterRenameTo: response))
     case .skipped:
       throw FileOperationError.destinationExists(newFilename)
     case .invalid(let message):

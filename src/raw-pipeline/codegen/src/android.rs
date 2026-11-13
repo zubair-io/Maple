@@ -167,7 +167,14 @@ fn main() -> std::io::Result<()> {
             field.name
         ));
     }
-    fields.push_str("    )\n    val byName = all.associateBy { it.name }\n}\n");
+    let restricted = raster_restrictions
+        .iter()
+        .map(|name| format!("\"{name}\""))
+        .collect::<Vec<_>>()
+        .join(", ");
+    fields.push_str(&format!(
+        "    )\n    val byName = all.associateBy {{ it.name }}\n\n    /** Model fields, numeric or not, that raw-core rejects on a raster source. */\n    val rasterRestricted = setOf({restricted})\n}}\n"
+    ));
     native.push_str("        _ => None,\n    }\n}\n\n");
     setter.push_str("        _ => return Err(\"Adjustment is not numeric\".into()),\n    }\n    if index < 2 { model.temperature_seen = true; model.tint_seen = true; model.wb_source = raw_core::types::WbSource::Manual; model.wb_scale_version = raw_core::types::WbScaleVersion::default(); }\n    Ok(())\n}\n");
     native.push_str(&setter);

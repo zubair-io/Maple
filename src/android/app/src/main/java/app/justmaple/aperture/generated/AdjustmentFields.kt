@@ -113,4 +113,7 @@ object AdjustmentFields {
         AdjustmentField(126, "color_grade_highlight_edge", 0.564622f, 0.9f, 0.564622f, "papp:ColorGradeHighlightEdge", true),
     )
     val byName = all.associateBy { it.name }
+
+    /** Model fields, numeric or not, that raw-core rejects on a raster source. */
+    val rasterRestricted = setOf("auto_lateral_ca", "capture_sharpening_amount", "chroma_prefilter", "contrast", "deep_denoise", "demosaic", "hot_pixel_suppression", "inpaint_removals", "lens_correction_ca", "lens_correction_distortion", "lens_correction_vignetting", "lens_profile", "retouch_spots", "whites")
 }

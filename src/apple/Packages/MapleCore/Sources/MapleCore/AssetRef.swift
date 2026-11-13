@@ -177,6 +177,9 @@ public struct AssetRef: Identifiable, Sendable, Equatable, Hashable {
   /// Self Hosted listing (#5448), derived by `LivePhotoPairing` for local folders and SMB (#5544).
   public let livePhoto: LivePhotoLink?
 
+  /// The RAW+JPEG stack this tile stands for: the JPEG folded into this RAW's tile (#5050).
+  public let stack: RawJpegStack?
+
   /// The listed share-relative SMB location. Content ids are shared by
   /// byte-identical copies, so SMB mutations must name the file (#4705).
   public let smbPath: String?
@@ -361,7 +364,8 @@ public struct AssetRef: Identifiable, Sendable, Equatable, Hashable {
 
   public init(
     url: URL, scopeParentURL: URL? = nil, captureDate: Date? = nil,
-    livePhoto: LivePhotoLink? = nil
+    livePhoto: LivePhotoLink? = nil,
+    stack: RawJpegStack? = nil
   ) {
     self.id = UUID()
     self.primaryURL = url
@@ -377,6 +381,7 @@ public struct AssetRef: Identifiable, Sendable, Equatable, Hashable {
     self.thumbnailProvenance = nil
     self.catalog = nil
     self.livePhoto = livePhoto
+    self.stack = stack
     self.smbPath = nil
     self.smbSourceID = nil
   }
@@ -408,6 +413,7 @@ public struct AssetRef: Identifiable, Sendable, Equatable, Hashable {
     displayPreviewProvider: DisplayPreviewProvider? = nil,
     catalog: CatalogRef? = nil,
     livePhoto: LivePhotoLink? = nil,
+    stack: RawJpegStack? = nil,
     smbPath: String? = nil,
     smbSourceID: UUID? = nil,
     originalFileWriter: OriginalFileWriter? = nil,
@@ -427,6 +433,7 @@ public struct AssetRef: Identifiable, Sendable, Equatable, Hashable {
     self.thumbnailProvenance = thumbnailProvenance
     self.catalog = catalog
     self.livePhoto = livePhoto
+    self.stack = stack
     self.smbPath = smbPath
     self.smbSourceID = smbSourceID
   }

@@ -1,8 +1,10 @@
 /**
- * `sidecar_divergences` — the sidecar versions a compare-and-swap backup
- * re-send displaced (#4719). A device names the version its edit was based on;
- * when the server's copy has moved on, the incoming edit still lands and the
- * copy it replaced is kept here rather than overwritten into oblivion.
+ * `sidecar_divergences` — edits a backup sidecar write could not place on the
+ * sidecar itself, kept rather than lost (#4719): an edit a same-stem shared
+ * sidecar refused (#4692) and a pre-#5021 old-name sidecar the canonical one
+ * replaced (#5021). A stale re-send no longer lands here: the route reconciles
+ * it onto the sidecar's edit history (#5796), so rows written before that stay
+ * as they are.
  */
 
 import type { ObjectId } from '../object-id.ts';
@@ -45,10 +47,6 @@ export async function recordSidecarDivergence(
     ],
   );
   return id;
-}
-
-export async function forgetSidecarDivergence(id: string, dbOverride?: SqliteDb): Promise<void> {
-  await sqliteDb(dbOverride).write(`DELETE FROM sidecar_divergences WHERE id = ?`, [id]);
 }
 
 export async function hasSidecarDivergence(

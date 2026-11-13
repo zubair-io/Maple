@@ -18,6 +18,7 @@ import {
 } from '../src/db/sqlite/test-sqlite.test-helpers.ts';
 import { seedBackupAsset, seedLibrary } from './helpers/sqlite-fixtures.ts';
 import { invalidateLibraryRoots } from '../src/indexer/libraries.cache.ts';
+import { callNative, shutdownMaplePool } from 'maple';
 
 const deviceId = 'test-device-canonical';
 
@@ -26,7 +27,17 @@ let libId: ObjectId;
 let tmpLib: string;
 
 const sha256 = (text: string) => createHash('sha256').update(text, 'utf8').digest('hex');
-const xmp = (label: string) => `<x:xmpmeta xmlns:x="adobe:ns:meta/">${label}</x:xmpmeta>`;
+/** A real XMP document whose only content is an unknown `test:label` attribute. */
+const document = (label: string, namespaces = '') =>
+  `<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description rdf:about="" xmlns:test="https://example.test/ns/1.0/"${namespaces} test:label="${label}"/></rdf:RDF></x:xmpmeta>`;
+const xmp = (label: string) => document(label);
+const labelOf = (text: string | null) => /test:label="([^"]*)"/.exec(text ?? '')?.[1];
+const sent = { target_rel_path: expect.any(String), head: expect.any(String) };
+const history = async (text: string) => {
+  const result = await callNative('workflowReadXmp', [text]);
+  if (!result.ok) throw Error(result.error);
+  return JSON.parse(result.value).history as { action: string; adjustmentXmp: string }[];
+};
 
 beforeAll(async () => {
   tmpLib = await fs.mkdtemp(path.join(os.tmpdir(), 'maple-sidecar-canonical-test-'));
@@ -39,6 +50,7 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
+  shutdownMaplePool();
   live.close();
   invalidateLibraryRoots();
   await fs.rm(tmpLib, { recursive: true, force: true });
@@ -99,9 +111,7 @@ describe('backup sidecar canonical name (#5021)', () => {
     const res = await post(photo, xmp('device edit'), 'none');
 
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({
-      target_rel_path: '2024/03/15/IMG_1234.xmp',
-    });
+    expect(await res.json()).toEqual({ ...sent, target_rel_path: '2024/03/15/IMG_1234.xmp' });
     const served = await authedHandle(
       new Request(`http://localhost/api/assets/${photo.assetId.toHexString()}/xmp`),
     );
@@ -126,10 +136,8 @@ describe('backup sidecar canonical name (#5021)', () => {
 
     const res = await post(clip, xmp('clip edit'), 'none');
 
-    expect(await res.json()).toEqual({
-      target_rel_path: '2024/03/17/IMG_3000.MOV.xmp',
-    });
-    expect(await read('2024/03/17/IMG_3000.MOV.xmp')).toBe(xmp('clip edit'));
+    expect(await res.json()).toEqual({ ...sent, target_rel_path: '2024/03/17/IMG_3000.MOV.xmp' });
+    expect(labelOf(await read('2024/03/17/IMG_3000.MOV.xmp'))).toBe('clip edit');
   });
 });
 
@@ -146,7 +154,7 @@ describe('a same-stem pair shares one sidecar (#4692)', () => {
       target_rel_path: '2024/04/01/IMG_9.xmp',
       shared: true,
     });
-    expect(await read('2024/04/01/IMG_9.xmp')).toBe(xmp('jpeg edit'));
+    expect(labelOf(await read('2024/04/01/IMG_9.xmp'))).toBe('jpeg edit');
     expect(keptAside('2024/04/01/IMG_9.xmp')).toEqual([
       {
         displaced_xmp: xmp('raw edit'),
@@ -164,6 +172,7 @@ describe('a same-stem pair shares one sidecar (#4692)', () => {
     const res = await post(raw, xmp('pair edit'), 'none');
 
     expect(await res.json()).toEqual({
+      ...sent,
       target_rel_path: '2024/04/02/IMG_8.xmp',
       unchanged: true,
     });
@@ -177,10 +186,8 @@ describe('a same-stem pair shares one sidecar (#4692)', () => {
 
     const res = await post(jpeg, xmp('v2'), sha256(xmp('v1')));
 
-    expect(await res.json()).toEqual({
-      target_rel_path: '2024/04/03/IMG_7.xmp',
-    });
-    expect(await read('2024/04/03/IMG_7.xmp')).toBe(xmp('v2'));
+    expect(await res.json()).toEqual({ ...sent, target_rel_path: '2024/04/03/IMG_7.xmp' });
+    expect(labelOf(await read('2024/04/03/IMG_7.xmp'))).toBe('v2');
   });
 
   test('without a base the other photo cannot replace the shared sidecar either', async () => {
@@ -194,12 +201,12 @@ describe('a same-stem pair shares one sidecar (#4692)', () => {
       target_rel_path: '2024/04/04/IMG_6.xmp',
       skipped: true,
     });
-    expect(await read('2024/04/04/IMG_6.xmp')).toBe(xmp('jpeg edit'));
+    expect(labelOf(await read('2024/04/04/IMG_6.xmp'))).toBe('jpeg edit');
   });
 });
 
 const mapleXmp = (label: string) =>
-  `<x:xmpmeta xmlns:x="adobe:ns:meta/" xmlns:papp="http://ns.justmaple.app/photo/1.0/">${label}</x:xmpmeta>`;
+  document(label, ' xmlns:papp="http://ns.justmaple.app/photo/1.0/"');
 
 describe('a canonical send is a server-visible edit (#5021)', () => {
   test('it marks the asset edited and announces the change', async () => {
@@ -228,7 +235,7 @@ describe('a canonical send is a server-visible edit (#5021)', () => {
 
     await post(photo, mapleXmp('newer edit'), 'none');
 
-    expect(await read('2024/05/02/IMG_11.xmp')).toBe(mapleXmp('newer edit'));
+    expect(labelOf(await read('2024/05/02/IMG_11.xmp'))).toBe('newer edit');
     expect(await read('2024/05/02/IMG_11.HEIC.xmp')).toBeNull();
     expect(keptAside('2024/05/02/IMG_11.xmp')).toEqual([
       {
@@ -263,38 +270,33 @@ describe('a send without a base never buries an old-name edit (#698, #5021)', ()
   });
 });
 
-describe("the device's one-time re-send never loses a later web edit (#5021)", () => {
-  test('a web edit the re-send lands over is kept in sidecar_divergences', async () => {
+describe("the device's one-time re-send never loses a later web edit (#5021, #5796)", () => {
+  test('a web edit the re-send lands over is reconciled into the history, not set aside', async () => {
     const photo = await seedUpload('2024/07/01/IMG_30.HEIC');
     expect((await post(photo, mapleXmp('first backup'), 'none')).status).toBe(200);
-    const webEdit = mapleXmp('web edit');
     const saved = await authedHandle(
       new Request(`http://localhost/api/assets/${photo.assetId.toHexString()}/xmp`, {
         method: 'PUT',
         headers: { 'Content-Type': 'text/plain' },
-        body: webEdit,
+        body: mapleXmp('web edit'),
       }),
     );
     expect(saved.status).toBe(204);
-    const onDiskWebEdit = (await read('2024/07/01/IMG_30.xmp'))!;
-    expect(onDiskWebEdit).toContain('web edit');
+    expect(await read('2024/07/01/IMG_30.xmp')).toContain('web edit');
 
     const res = await post(photo, mapleXmp('re-sent device edit'), 'none');
 
-    expect(await res.json()).toEqual({ target_rel_path: '2024/07/01/IMG_30.xmp', diverged: true });
-    expect(await read('2024/07/01/IMG_30.xmp')).toBe(mapleXmp('re-sent device edit'));
-    expect(
-      live.db
-        .query(`SELECT asset_id, base_sha256 FROM sidecar_divergences WHERE sidecar_rel_path = ?`)
-        .all('2024/07/01/IMG_30.xmp'),
-    ).toEqual([{ asset_id: photo.assetId.toHexString(), base_sha256: null }]);
-    expect(keptAside('2024/07/01/IMG_30.xmp')).toEqual([
-      {
-        displaced_xmp: onDiskWebEdit,
-        displaced_sha256: sha256(onDiskWebEdit),
-        incoming_sha256: sha256(mapleXmp('re-sent device edit')),
-      },
-    ]);
+    expect(await res.json()).toEqual({
+      ...sent,
+      target_rel_path: '2024/07/01/IMG_30.xmp',
+      reconciled: true,
+    });
+    const stored = (await read('2024/07/01/IMG_30.xmp'))!;
+    expect(labelOf(stored)).toBe('re-sent device edit');
+    const rows = await history(stored);
+    expect(rows.map((row) => row.action)).toEqual(['adjustment', 'external', 'adjustment']);
+    expect(labelOf(rows[1]!.adjustmentXmp)).toBe('web edit');
+    expect(keptAside('2024/07/01/IMG_30.xmp')).toEqual([]);
   });
 });
 
@@ -305,7 +307,7 @@ describe('a target with no file extension (#5060)', () => {
     const res = await post(photo, mapleXmp('edit'), 'none');
 
     expect(res.status).toBe(200);
-    expect(await read('2024/08/01/IMG_40.xmp')).toBe(mapleXmp('edit'));
+    expect(labelOf(await read('2024/08/01/IMG_40.xmp'))).toBe('edit');
     expect(await read('.xmp')).toBeNull();
     expect(await read('2024/08/01/.xmp')).toBeNull();
   });
@@ -341,6 +343,7 @@ describe('a failed old-name retirement is retried, never left to replay (#5021)'
     const retried = await post(photo, mapleXmp('newer edit'), 'none');
 
     expect(await retried.json()).toEqual({
+      ...sent,
       target_rel_path: '2024/10/01/IMG_60.xmp',
       unchanged: true,
     });
@@ -362,8 +365,10 @@ describe('a retirement that keeps failing records its kept-aside edit once (#502
     async () => {
       const photo = await seedUpload('2024/10/02/IMG_61.HEIC');
       const dir = path.join(tmpLib, '2024/10/02');
+      // The device's edit is already on the canonical sidecar (with its history, as every
+      // send leaves it since #5796); its retries now meet a pre-#5021 old-name file.
+      expect((await post(photo, mapleXmp('newer edit'), 'none')).status).toBe(200);
       await fs.writeFile(path.join(dir, 'IMG_61.HEIC.xmp'), mapleXmp('older send'));
-      await fs.writeFile(path.join(dir, 'IMG_61.xmp'), mapleXmp('newer edit'));
       await fs.chmod(dir, 0o555);
       const statuses = await (async () => {
         try {
@@ -410,7 +415,7 @@ describe('a send only succeeds once the server has recorded the edit (#5021)', (
     const retried = await post(photo, mapleXmp('device edit'), 'none');
 
     expect(retried.status).toBe(200);
-    expect(await read('2024/12/01/IMG_80.xmp')).toBe(mapleXmp('device edit'));
+    expect(labelOf(await read('2024/12/01/IMG_80.xmp'))).toBe('device edit');
     expect(
       live.db.query(`SELECT has_xmp FROM assets WHERE id = ?`).get(photo.assetId.toHexString()),
     ).toEqual({ has_xmp: 1 });

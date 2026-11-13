@@ -191,36 +191,36 @@ extension AppShell {
     let accessingDest = destRoot.startAccessingSecurityScopedResource()
     defer { if accessingDest { destRoot.stopAccessingSecurityScopedResource() } }
 
-    do {
-      return try await runLocalRelocate(
-        url: url, folderURL: folderURL, mode: mode, collision: .fail)
-    } catch FileOperationError.destinationExists {
-      return await resolveLocalCollision(
-        url: url, folderURL: folderURL, mode: mode, displayName: asset.displayName)
-    } catch {
-      return .failed(error.localizedDescription)
+    let companion = asset.stack?.localCompanionURL
+    return await askingOnCollision(asset) { ask in
+      _ = try await LocalFileOperations.relocate(
+        url, to: folderURL, companion: companion, mode: mode, collision: ask.primary,
+        companionCollision: ask.companion)
+      return mode == .move ? .moved : .copied
     }
   }
 
-  private func resolveLocalCollision(
-    url: URL, folderURL: URL, mode: RelocateMode, displayName: String
+  /// Run `attempt` with "detect, touch nothing" policies first, then ask about each file whose
+  /// name is taken, by that file's name: a stacked tile's RAW and JPEG are asked about separately,
+  /// so Replace on the RAW never replaces an unrelated JPEG (#5050).
+  private func askingOnCollision(
+    _ asset: AssetRef,
+    _ attempt: (StackCollisionAsk) async throws -> AssetDropItemResult.Outcome
   ) async -> AssetDropItemResult.Outcome {
-    let choice = await requestCollisionChoice(displayName: displayName)
-    guard choice != .skip else { return .skipped(reason: "collision") }
-    do {
-      return try await runLocalRelocate(
-        url: url, folderURL: folderURL, mode: mode,
-        collision: choice == .replace ? .replace : .autoSuffix)
-    } catch {
-      return .failed(error.localizedDescription)
+    var ask = StackCollisionAsk(stack: asset.stack)
+    while true {
+      do {
+        return try await attempt(ask)
+      } catch FileOperationError.destinationExists(let path) {
+        guard let name = ask.promptName(for: path, tileName: asset.displayName) else {
+          return .failed(FileOperationError.destinationExists(path).localizedDescription)
+        }
+        let choice = await requestCollisionChoice(displayName: name)
+        guard ask.answer(choice, for: path) else { return .skipped(reason: "collision") }
+      } catch {
+        return .failed(error.localizedDescription)
+      }
     }
-  }
-
-  private func runLocalRelocate(
-    url: URL, folderURL: URL, mode: RelocateMode, collision: CollisionPolicy
-  ) async throws -> AssetDropItemResult.Outcome {
-    _ = try await LocalFileOperations.relocate(url, to: folderURL, mode: mode, collision: collision)
-    return mode == .move ? .moved : .copied
   }
 
   // MARK: - SMB
@@ -240,28 +240,17 @@ extension AppShell {
     guard let ref = asset.smbMutationRef else {
       return .failed("SMB share is not connected")
     }
-    do {
-      return try await runSMBRelocate(source: source, ref: ref, mode: mode, collision: .fail)
-    } catch FileOperationError.destinationExists {
-      let choice = await requestCollisionChoice(displayName: asset.displayName)
-      guard choice != .skip else { return .skipped(reason: "collision") }
-      do {
-        return try await runSMBRelocate(
-          source: source, ref: ref, mode: mode,
-          collision: choice == .replace ? .replace : .autoSuffix)
-      } catch {
-        return .failed(error.localizedDescription)
+    let companion = asset.stack?.smbCompanionRef
+    return await askingOnCollision(asset) { ask in
+      if let companion {
+        _ = try await source.relocateAsset(
+          ref, companion: companion, to: "/", mode: mode, collision: ask.primary,
+          companionCollision: ask.companion)
+      } else {
+        _ = try await source.relocateAsset(ref, to: "/", mode: mode, collision: ask.primary)
       }
-    } catch {
-      return .failed(error.localizedDescription)
+      return mode == .move ? .moved : .copied
     }
-  }
-
-  private func runSMBRelocate(
-    source: SMBSource, ref: ImageRef, mode: RelocateMode, collision: CollisionPolicy
-  ) async throws -> AssetDropItemResult.Outcome {
-    _ = try await source.relocateAsset(ref, to: "/", mode: mode, collision: collision)
-    return mode == .move ? .moved : .copied
   }
 
   // MARK: - Cloud
@@ -299,38 +288,45 @@ extension AppShell {
     let httpClient = makeAuthenticatedHTTPClient(server: catalog.serverID)
     let effectiveServer = LocalNetworkResolver.shared.effectiveURL(for: catalog.serverID)
     let remote = RemoteCatalog(http: httpClient, server: effectiveServer)
-    return await runCloudRelocate(
-      remote: remote, assetID: assetID, mode: mode, destRel: destRel,
-      displayName: asset.displayName, sourceAddress: catalog.address)
+    let stack = asset.stack.map {
+      CloudStackMove(
+        stack: $0,
+        restorePath: cloudRelativePath(
+          (catalog.absPath as NSString).deletingLastPathComponent, under: libraryRootPath) ?? "",
+        restoreFilename: asset.fullFilename)
+    }
+    return await askingOnCollision(asset) { ask in
+      let result = try await relocateCloud(
+        remote: remote, assetID: assetID, mode: mode, ask: ask, destRel: destRel,
+        libraryFolderID: libraryFolderID, sourceAddress: catalog.address, stack: stack)
+      if case .skipped = result, ask.primary == .fail {
+        // The RAW's own name is taken: ask about it by the tile's name.
+        throw FileOperationError.destinationExists(asset.fullFilename)
+      }
+      return cloudOutcome(for: result, mode: mode)
+    }
   }
 
-  private func runCloudRelocate(
-    remote: RemoteCatalog, assetID: String, mode: RelocateMode, destRel: String,
-    displayName: String, sourceAddress: String?
-  ) async -> AssetDropItemResult.Outcome {
-    do {
-      let result = try await remote.relocateAsset(
-        assetID: assetID, mode: mode, collision: .fail,
-        destinationPath: destRel, sourceAddress: sourceAddress)
-      switch result {
-      case .ok:
-        return mode == .move ? .moved : .copied
-      case .skipped:
-        let choice = await requestCollisionChoice(displayName: displayName)
-        guard choice != .skip else { return .skipped(reason: "collision") }
-        let retry = try await remote.relocateAsset(
-          assetID: assetID, mode: mode,
-          collision: choice == .replace ? .replace : .autoSuffix,
-          destinationPath: destRel, sourceAddress: sourceAddress)
-        return cloudOutcome(for: retry, mode: mode)
-      case .invalid(let message):
-        return .failed(message)
-      case .notFound:
-        return .failed("This photo no longer exists on the server")
-      }
-    } catch {
-      return .failed(error.localizedDescription)
+  /// A stacked RAW's JPEG, and where a move puts the RAW back if the JPEG cannot follow.
+  private struct CloudStackMove {
+    let stack: RawJpegStack
+    let restorePath: String
+    let restoreFilename: String
+  }
+
+  private func relocateCloud(
+    remote: RemoteCatalog, assetID: String, mode: RelocateMode, ask: StackCollisionAsk,
+    destRel: String, libraryFolderID: String, sourceAddress: String?, stack: CloudStackMove?
+  ) async throws -> RelocateAssetResult {
+    guard let stack else {
+      return try await remote.relocateAsset(
+        assetID: assetID, mode: mode, collision: ask.primary, destinationPath: destRel,
+        sourceAddress: sourceAddress)
     }
+    return try await remote.relocateAsset(
+      assetID: assetID, mode: mode, collision: ask.primary, destinationPath: destRel,
+      sourceAddress: sourceAddress, stack: stack.stack, libraryFolderID: libraryFolderID,
+      restore: (stack.restorePath, stack.restoreFilename), companionCollision: ask.companion)
   }
 
   private func cloudOutcome(for result: RelocateAssetResult, mode: RelocateMode)

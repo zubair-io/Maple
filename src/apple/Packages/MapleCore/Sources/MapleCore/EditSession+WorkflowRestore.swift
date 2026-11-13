@@ -20,7 +20,9 @@ extension EditSession {
       transactions.undoStack.removeFirst(transactions.undoStack.count - Self.undoStackCap)
     }
     transactions.redoStack.removeAll()
+    let outgoing = model
     applyConfirmedWorkflowState(restored)
+    settleHistoryRasters(leaving: outgoing)
     lastCommittedTransaction = tx
     announcer.announce(label)
   }
@@ -44,7 +46,9 @@ extension EditSession {
         transactions.undoStack.removeFirst(transactions.undoStack.count - Self.undoStackCap)
       }
     }
+    let outgoing = model
     applyConfirmedWorkflowState(restored)
+    settleHistoryRasters(leaving: outgoing)
     lastCommittedTransaction = transaction
     announcer.announce("\(undo ? "Undo" : "Redo") \(transaction.description)")
   }

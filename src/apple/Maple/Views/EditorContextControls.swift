@@ -25,6 +25,7 @@ struct EditorContextControls: View {
 
   private var hasArmedControl: Bool {
     includesDragBar || EditorToolPanel.replacesDragBar(state.armedTool)
+      || Self.showsWhiteBalancePad(state)
       || Self.showsSubParams(state)
   }
 
@@ -38,6 +39,11 @@ struct EditorContextControls: View {
 
   private static func showsSubParams(_ state: EditorState) -> Bool {
     state.armedTool != .hsl && state.armedSubParams.count > 1
+  }
+
+  /// Temp and Tint are the pad's two axes, so it joins either one's ruler.
+  private static func showsWhiteBalancePad(_ state: EditorState) -> Bool {
+    state.armedTool == .temp || state.armedTool == .tint
   }
 
   var body: some View {
@@ -68,6 +74,9 @@ struct EditorContextControls: View {
       EditorToolPanel(state: state)
     } else {
       VStack(spacing: 6) {
+        if Self.showsWhiteBalancePad(state) {
+          WhiteBalancePad(state: state).editorContextInsets()
+        }
         if Self.showsSubParams(state) {
           SubParamRow(state: state).editorContextInsets()
         }

@@ -20,6 +20,7 @@ extension AssetRef {
     thumbnailProvenance = asset.thumbnailProvenance
     catalog = asset.catalog
     livePhoto = asset.livePhoto
+    stack = asset.stack
     smbPath = asset.smbPath
     smbSourceID = asset.smbSourceID
     selectedSidecarURL = asset.selectedSidecarURL

@@ -354,15 +354,22 @@ extension EditSession {
     model.localAdjustments[index].mask = .brush(dabs: next, digest: nextDigest, rasterId: id)
   }
 
+  /// One undo entry (#5122). A brush raster is released here and registered
+  /// again from its dabs if Undo brings the layer back. A bitmap raster
+  /// cannot be rebuilt in step with an undo, so the history keeps it
+  /// registered until no snapshot can restore it (`HistoryRasters`).
   public func deleteMask(id: UUID) {
     guard let layer = model.localAdjustments.first(where: { $0.id == id }) else { return }
-    Set(layer.mask.registeredRasterIds).forEach(MaskRasterRegistry.release)
+    beginEdit(kind: .mask, description: "Delete mask")
+    Set(layer.mask.brushMasks.map(\.rasterId)).subtracting([0])
+      .forEach(MaskRasterRegistry.release)
     model.localAdjustments.removeAll { $0.id == id }
     disabledMaskIds.remove(id)
     if selectedMaskId == id {
       selectedMaskId = nil
       activeBrushStroke = nil
     }
+    endEdit()
   }
 
   /// Disabled = present-but-inert: the panel keeps the row (so the user can

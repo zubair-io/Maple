@@ -7,6 +7,7 @@ struct MaskGeometryHandles: View {
   let fullFrame: CGRect
   @State private var dragStart: LocalMask?
   @State private var dragAnchor: MaskPoint?
+  @State private var haptics = EditorHapticPulse()
   private var session: EditSession { state.session }
 
   var body: some View {
@@ -32,6 +33,7 @@ struct MaskGeometryHandles: View {
       .onDisappear { finishDrag() }
       .onChange(of: session.selectedMaskId) { _, _ in finishDrag() }
       .onChange(of: session.selectedMaskComponentIndex) { _, _ in finishDrag() }
+      .editorHaptics(haptics)
     }
   }
 
@@ -80,6 +82,7 @@ struct MaskGeometryHandles: View {
           dragStart = session.selectedMaskGeometry
           dragAnchor = normalized(value.startLocation)
           session.setMaskDragActive(true)
+          haptics.play(.grab)
         }
         guard let start = dragStart, let anchor = dragAnchor else { return }
         session.setMaskGeometry(

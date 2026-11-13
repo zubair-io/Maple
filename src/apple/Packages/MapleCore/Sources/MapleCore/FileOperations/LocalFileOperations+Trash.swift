@@ -17,13 +17,41 @@ import Foundation
 
 extension LocalFileOperations {
 
-  /// Trash a single asset (primary + sidecar).
-  public static func trash(_ primaryURL: URL, libraryRoot: URL) async throws -> RelocateOutcome {
+  /// Trash a single asset (primary + sidecar). A stacked RAW+JPEG tile passes its JPEG as
+  /// `companion`, which goes to the same Trash with it (#5050).
+  public static func trash(
+    _ primaryURL: URL, libraryRoot: URL, companion: URL? = nil
+  ) async throws -> RelocateOutcome {
     #if os(macOS)
-      return try await trashToOSTrash(primaryURL)
+      guard let companion else { return try await trashToOSTrash(primaryURL) }
+      return try await trashStack(primaryURL, companion: companion, trash: trashToOSTrash)
     #else
-      return try await trashToMapleFolder(primaryURL, libraryRoot: libraryRoot)
+      return try await trashToMapleFolder(
+        primaryURL, libraryRoot: libraryRoot, companion: companion)
     #endif
+  }
+
+  /// A stacked tile's trash on macOS (#5050), with `trash` the per-file Trash move. The JPEG goes
+  /// first, so a RAW that then fails is still whole, and the JPEG is moved back before the RAW's
+  /// error is reported, so the tile is never left half trashed. The JPEG is trashed while its RAW
+  /// still claims the stem, so only the JPEG itself moved: its sidecar got a copy.
+  static func trashStack(
+    _ primaryURL: URL, companion: URL, trash: (URL) async throws -> RelocateOutcome
+  ) async throws -> RelocateOutcome {
+    let companionOutcome = try await trash(companion)
+    let primary: RelocateOutcome
+    do {
+      primary = try await trash(primaryURL)
+    } catch {
+      try? FileManager.default.moveItem(
+        at: URL(fileURLWithPath: companionOutcome.primaryPath), to: companion)
+      throw error
+    }
+    return RelocateOutcome(
+      primaryPath: primary.primaryPath,
+      sidecarPath: primary.sidecarPath ?? companionOutcome.sidecarPath,
+      renamedDueToCollision: false, sidecarFollowed: primary.sidecarFollowed,
+      companionPath: companionOutcome.primaryPath)
   }
 
   #if os(macOS)
@@ -116,14 +144,17 @@ extension LocalFileOperations {
   /// `.maple/trash/<rel>` fallback. iOS/iPadOS routes here always; it has
   /// no `#if os` gate so it's also directly reachable (and testable) on
   /// macOS, where `trash(_:libraryRoot:)` itself never calls it.
-  static func trashToMapleFolder(_ primaryURL: URL, libraryRoot: URL) async throws
-    -> RelocateOutcome
-  {
+  static func trashToMapleFolder(
+    _ primaryURL: URL, libraryRoot: URL, companion: URL? = nil
+  ) async throws -> RelocateOutcome {
     let trashDir = try trashDestinationDir(for: primaryURL, libraryRoot: libraryRoot)
-    let outcome = try await relocate(primaryURL, to: trashDir, mode: .move, collision: .autoSuffix)
-    let trashed = URL(fileURLWithPath: outcome.primaryPath)
-    removeTrashedMarker(forItemAt: trashed)
-    writeTrashedMarker(forItemAt: trashed)
+    let outcome = try await relocate(
+      primaryURL, to: trashDir, companion: companion, mode: .move, collision: .autoSuffix)
+    for path in [outcome.primaryPath] + [outcome.companionPath].compactMap({ $0 }) {
+      let trashed = URL(fileURLWithPath: path)
+      removeTrashedMarker(forItemAt: trashed)
+      writeTrashedMarker(forItemAt: trashed)
+    }
     return outcome
   }
 

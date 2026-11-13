@@ -149,5 +149,6 @@ private struct ToolPillButton: View {
     .accessibilityLabel(tool.displayName)
     .accessibilityAddTraits(isSelected ? .isSelected : [])
     .accessibilityIdentifier("editor-tool-\(tool.rawValue)")
+    .editorSelectionHaptic(isSelected: isSelected)
   }
 }

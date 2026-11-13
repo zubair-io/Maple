@@ -53,7 +53,10 @@ extension EditSession {
     transactions.nextID &+= 1
     transactions.pending = PendingEdit(
       id: transactions.nextID, kind: kind, description: description, before: model)
-    transactions.redoStack.removeAll()
+    if !transactions.redoStack.isEmpty {
+      transactions.redoStack.removeAll()
+      settleHistoryRasters()
+    }
   }
 
   /// Close the open transaction. A no-op transaction (model unchanged)
@@ -96,7 +99,9 @@ extension EditSession {
     transactions.redoStack.append(tx)
     trim(&transactions.redoStack)
     transactions.nextID &+= 1
+    let outgoing = model
     model = rebindingBrushRasters(live: model, restored: tx.before)
+    settleHistoryRasters(leaving: outgoing)
     scheduleSemanticSidecarCommit(
       model: tx.before, culling: culling, action: "undo", label: "Undo \(tx.description)")
     lastCommittedTransaction = tx
@@ -119,7 +124,9 @@ extension EditSession {
     transactions.undoStack.append(tx)
     trim(&transactions.undoStack)
     transactions.nextID &+= 1
+    let outgoing = model
     model = rebindingBrushRasters(live: model, restored: tx.after)
+    settleHistoryRasters(leaving: outgoing)
     scheduleSemanticSidecarCommit(
       model: tx.after, culling: culling, action: "redo", label: "Redo \(tx.description)")
     lastCommittedTransaction = tx
@@ -140,6 +147,7 @@ extension EditSession {
   func record(_ tx: EditTransaction) {
     transactions.undoStack.append(tx)
     trim(&transactions.undoStack)
+    settleHistoryRasters(leaving: tx.before)
     lastCommittedTransaction = tx
   }
 
@@ -166,4 +174,6 @@ struct EditTransactionRing {
   var redoStack: [EditTransaction] = []
   var pending: PendingEdit?
   var nextID: UInt64 = 0
+  /// Bitmap rasters only these snapshots still reference (#5122).
+  var rasters = HistoryRasters()
 }
