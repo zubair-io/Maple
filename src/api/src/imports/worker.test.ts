@@ -95,8 +95,43 @@ describe('groupFiles', () => {
   });
 });
 
+describe('groupFiles pairs on the source', () => {
+  test('two images headed for one destination name each keep their own sidecar', () => {
+    const landedAs = (name: string, dest: string, kind: ImportFileEntry['kind']) => ({
+      ...mk(dest, kind),
+      src: `/inbox/${name}`,
+    });
+    const g = groupFiles([
+      landedAs('IMG.xmp', '2024/03/IMG-1.xmp', 'sidecar'),
+      landedAs('IMG.dng', '2024/03/IMG-1.dng', 'image'),
+      landedAs('IMG-1.xmp', '2024/03/IMG-1.xmp', 'sidecar'),
+      landedAs('IMG-1.dng', '2024/03/IMG-1.dng', 'image'),
+    ]);
+
+    expect(g.sidecars.get(1)).toEqual([0]);
+    expect(g.sidecars.get(3)).toEqual([2]);
+  });
+
+  test('the same filename in two source folders is two groups', () => {
+    const from = (folder: string, name: string, kind: ImportFileEntry['kind']) => ({
+      ...mk(`2024/misc/card/${name}`, kind),
+      src: `/inbox/${folder}/${name}`,
+    });
+    const g = groupFiles([
+      from('100MEDIA', 'IMG_0001.xmp', 'sidecar'),
+      from('100MEDIA', 'IMG_0001.dng', 'image'),
+      from('101MEDIA', 'IMG_0001.xmp', 'sidecar'),
+      from('101MEDIA', 'IMG_0001.dng', 'image'),
+    ]);
+
+    expect(g.sidecars.get(1)).toEqual([0]);
+    expect(g.sidecars.get(3)).toEqual([2]);
+  });
+});
+
 function mk(dest: string, kind: ImportFileEntry['kind']): ImportFileEntry {
-  return { src: '', dest, size: 1, mtime: 0, kind, state: 'pending', error: null };
+  const src = `/inbox/${path.posix.basename(dest)}`;
+  return { src, dest, size: 1, mtime: 0, kind, state: 'pending', error: null };
 }
 
 /** Stage source files in a fresh src dir; return their absolute paths. */

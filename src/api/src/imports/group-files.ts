@@ -1,6 +1,12 @@
 /**
  * Pairing of an import's flat file list into primaries (image/movie) and the
  * sidecars that follow each one.
+ *
+ * Paired on the SOURCE, the way the scan paired them, not on the destination.
+ * A source path never changes during an import, while a destination does: a
+ * collision renames `IMG.dng` to `IMG-1.dng`, which another image of the same
+ * import may also be headed for, and a later attempt regrouping on destinations
+ * would then hand one image the other's sidecar.
  */
 
 import path from 'node:path';
@@ -16,7 +22,7 @@ interface FileGroups {
 
 /**
  * Group a flat files[] by primary: each primary (image/movie) maps to its
- * sidecars, paired on destination directory + the key its sidecar resolves to
+ * sidecars, paired on source directory + the key its sidecar resolves to
  * (image stem for `IMG_1.xmp`, full video filename for `clip.mov.xmp`). Pure —
  * unit tested directly.
  */
@@ -33,17 +39,15 @@ export function groupFiles(files: ImportFileEntry[]): FileGroups {
     if (f.kind === 'sidecar') return;
     primaries.push(i);
     sidecars.set(i, []);
-    const dir = path.posix.dirname(f.dest);
-    const name = path.posix.basename(f.dest);
-    const base = f.kind === 'movie' ? name : path.posix.basename(name, path.posix.extname(name));
-    primaryByKey.set(`${dir}\0${base}`, i);
+    const name = path.basename(f.src);
+    const base = f.kind === 'movie' ? name : path.basename(name, path.extname(name));
+    primaryByKey.set(`${path.dirname(f.src)}\0${base}`, i);
   });
 
   files.forEach((f, i) => {
     if (f.kind !== 'sidecar') return;
-    const dir = path.posix.dirname(f.dest);
-    const base = canonicalBaseFromSidecarFilename(path.posix.basename(f.dest));
-    const parent = base ? primaryByKey.get(`${dir}\0${base}`) : undefined;
+    const base = canonicalBaseFromSidecarFilename(path.basename(f.src));
+    const parent = base ? primaryByKey.get(`${path.dirname(f.src)}\0${base}`) : undefined;
     // buildImportFiles only emits sidecars attached to a primary, so this is
     // defensive — an unattachable sidecar is dropped rather than copied.
     if (parent !== undefined) sidecars.get(parent)!.push(i);
