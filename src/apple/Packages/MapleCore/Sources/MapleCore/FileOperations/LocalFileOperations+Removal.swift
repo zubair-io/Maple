@@ -269,7 +269,7 @@ extension LocalFileOperations {
   public static func revertPlan(_ plan: RelocatePlan) {
     if let snapshot = plan.localSnapshot {
       do { try revertLocalSnapshot(plan, snapshot: snapshot) } catch {
-        fileOpsLog.error(
+        removalRelocationLog.error(
           "revertPlan: destination changed or rollback failed; backup retained: \(error.localizedDescription, privacy: .public)"
         )
       }

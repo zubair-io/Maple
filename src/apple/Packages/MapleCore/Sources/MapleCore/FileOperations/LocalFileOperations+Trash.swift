@@ -60,7 +60,10 @@ extension LocalFileOperations {
     /// that restore action (#5343).
     static func trashToOSTrash(_ primaryURL: URL) async throws -> RelocateOutcome {
       let fm = FileManager.default
-      if sidecarCarriesRemovals(SidecarPath.sidecarURL(for: primaryURL)) {
+      // A stacked JPEG shares the RAW's sidecar; the removal records are the RAW's alone.
+      if RawJpegPairing.isRaw(primaryURL.path),
+        sidecarCarriesRemovals(SidecarPath.sidecarURL(for: primaryURL))
+      {
         let source = try LocalRemovalRelocation.open(rawURL: primaryURL)
         if let records = source.records, !(try RemovalBridge.assetNames(records: records)).isEmpty {
           return try await trashAcceptedRemoval(source, raw: primaryURL)

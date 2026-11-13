@@ -229,6 +229,31 @@ final class LocalRemovalRelocateTests: XCTestCase {
       _ = try await LocalFileOperations.restoreRemovalTrashPackage(folder, libraryRoot: root)
       XCTAssertEqual(try Data(contentsOf: variant), variantBytes)
     }
+
+    func testOSTrashOfAStackedPairTakesTheJpegAndKeepsTheAcceptedEdit() async throws {
+      let (raw, records) = try await stage()
+      let root = raw.deletingLastPathComponent()
+      let jpeg = root.appendingPathComponent("photo.jpg")
+      let jpegBytes = Data("stacked jpeg \(UUID().uuidString)".utf8)
+      try jpegBytes.write(to: jpeg)
+      let trashed = try await LocalFileOperations.trash(raw, libraryRoot: root, companion: jpeg)
+      let primary = URL(fileURLWithPath: trashed.primaryPath)
+      let folder = primary.deletingLastPathComponent()
+      let companion = try XCTUnwrap(trashed.companionPath)
+      addTeardownBlock {
+        if folder.lastPathComponent.contains(" Recovery ") {
+          try? FileManager.default.removeItem(at: folder)
+        }
+        if (try? Data(contentsOf: URL(fileURLWithPath: companion))) == jpegBytes {
+          try? FileManager.default.removeItem(atPath: companion)
+        }
+      }
+      XCTAssertFalse(FileManager.default.fileExists(atPath: raw.path))
+      XCTAssertFalse(FileManager.default.fileExists(atPath: jpeg.path))
+      XCTAssertEqual(try Data(contentsOf: URL(fileURLWithPath: companion)), jpegBytes)
+      let assets = try await LocalRemovalAssetStore(rawURL: primary).readAssets(records: records)
+      XCTAssertEqual(assets.count, 2)
+    }
   #endif
 
   func testExtensionRenameKeepsSharedStemSidecarAndFinishesJournal() async throws {

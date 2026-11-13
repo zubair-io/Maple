@@ -96,6 +96,17 @@ final class RemovalHistoryTests: XCTestCase {
     await session.releaseTransientMemory()
   }
 
+  func testResetWithNothingLeftToResetStillDropsRedoLikeAnyNewEdit() throws {
+    let session = try stage()
+    session.beginEdit()
+    session.model.exposure += 0.5
+    session.endEdit()
+    session.undo()
+    XCTAssertTrue(session.canRedo)
+    session.resetToOriginal()
+    XCTAssertFalse(session.canRedo)
+  }
+
   func testFailedRedoRetainsHistoryAndModelUntilCompanionsAreRecovered() async throws {
     let session = try stage()
     try await keep(session)

@@ -83,7 +83,7 @@ extension EditSession {
   func commitModelSnapshot(
     _ target: AdjustmentModel, kind: EditTransaction.Kind, description: String
   ) {
-    guard !isSavingRemoval, model != target else { return }
+    guard !isSavingRemoval else { return }
     if target.inpaintRemovals != model.inpaintRemovals {
       startRemovalHistory(target: target, transition: .new(kind, description))
     } else {
