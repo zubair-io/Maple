@@ -35,6 +35,22 @@ extension RawJpegStackServerTests {
       json: #"{"error":"Companion not found beside the asset","missing":"companion"}"#)
   }
 
+  /// `GET /api/assets/<rawID>`: the RAW live at `places`.
+  private func rawAsset(_ request: URLRequest, places: [String] = ["Trip"]) -> (
+    Data, HTTPURLResponse
+  ) {
+    let locations = places.map {
+      #"{"path":"\#($0)","filename":"IMG_1.CR3","library_id":"f1","deleted_at":null}"#
+    }
+    return respond(
+      request,
+      json: """
+        {"id":"\(rawID)","folder_id":"f1","filename":"IMG_1.CR3",
+         "abs_path":"\(libPath)/\(places[0])/IMG_1.CR3",
+         "fileinfo":[\(locations.joined(separator: ","))],"size":2,"mtime":0,"rating":0}
+        """)
+  }
+
   private func move(
     _ catalog: RemoteCatalog, collision: CollisionPolicy = .replace,
     companionCollision: CollisionPolicy = .fail
@@ -117,7 +133,9 @@ extension RawJpegStackServerTests {
 
   func testAPairWhoseJpegIsGoneReportsTheJpegMissing() async throws {
     let recorder = Recorder()
-    let catalog = catalog(recorder, pairOps: true) { _, request in self.companionGone(request) }
+    let catalog = catalog(recorder, pairOps: true) { record, request in
+      record.method == "GET" ? self.rawAsset(request) : self.companionGone(request)
+    }
 
     for action in ["move", "rename", "trash"] {
       do {
@@ -251,8 +269,9 @@ extension RawJpegStackServerTests {
       ),
     ] {
       let recorder = Recorder()
-      let catalog = catalog(recorder, pairOps: true) { _, request in
-        self.respond(request, status: status, json: json)
+      let catalog = catalog(recorder, pairOps: true) { record, request in
+        record.method == "GET"
+          ? self.rawAsset(request) : self.respond(request, status: status, json: json)
       }
 
       let result = try await catalog.deleteAsset(
@@ -260,8 +279,38 @@ extension RawJpegStackServerTests {
         primaryAbsPath: rawAbsPath)
 
       XCTAssertEqual(result, expected)
-      XCTAssertEqual(calls(recorder), [probe, "DELETE /api/assets/\(rawID)"])
+      XCTAssertEqual(
+        calls(recorder),
+        [probe, "GET /api/assets/\(rawID)", "DELETE /api/assets/\(rawID)"],
+        "no file-meta lookups of the library's Trash")
       XCTAssertEqual(recorder.requests.last?.query, "intent=trash&companion=\(jpegID)")
+    }
+  }
+
+  /// Review of #5947: the server's pair trash takes no location and trashes the pair beside the
+  /// RAW copy it picks, so with the RAW in several places it could trash another folder's pair
+  /// and leave the listed one. That trash is refused before anything moves; a JPEG in several
+  /// places is not, since the server takes the one beside the RAW.
+  func testAPairServersTrashIsRefusedWhenTheRawIsInSeveralPlaces() async throws {
+    for (places, refused) in [(["Album", "Trip"], true), (["Trip"], false)] {
+      let recorder = Recorder()
+      let catalog = catalog(recorder, pairOps: true) { record, request in
+        if record.method == "GET" { return self.rawAsset(request, places: places) }
+        return self.respond(request, status: 204, json: "")
+      }
+
+      do {
+        let result = try await catalog.deleteAsset(
+          assetID: rawID, intent: .trash, stack: stack, libraryFolderID: "f1",
+          primaryAbsPath: rawAbsPath)
+        XCTAssertFalse(refused, "a RAW in \(places) must refuse the pair trash")
+        XCTAssertEqual(result, .ok)
+      } catch FileOperationError.unsupportedSource(let message) {
+        XCTAssertTrue(refused, message)
+        XCTAssertTrue(message.contains("IMG_1.CR3"), message)
+      }
+      XCTAssertEqual(
+        recorder.requests.filter { $0.method == "DELETE" }.count, refused ? 0 : 1, "\(places)")
     }
   }
 
