@@ -6,6 +6,7 @@ import { defaultAdjustmentModel } from '../models/adjustment-model';
 import {
   hydratePartialWhiteBalance,
   isUnresolvedAuto,
+  probeModelForImportedAuto,
   whiteBalanceAuthoredPatch,
   withResolvedImportedAuto,
 } from '../models/partial-white-balance';
@@ -22,6 +23,30 @@ function read(xml: string) {
 }
 
 describe('imported name-only Auto white balance (#4669)', () => {
+  it('probes the displayed frame: As Shot while unresolved, the pair once resolved', () => {
+    const firstFrame = hydratePartialWhiteBalance(read(nameOnly), 5520, 7.5, true);
+    const unresolved = serializer.serialize(probeModelForImportedAuto(firstFrame));
+    expect(unresolved).toBe(
+      serializer.serialize({
+        ...defaultAdjustmentModel(),
+        ...firstFrame,
+        partialWhiteBalance: null,
+        whiteBalancePreset: 'As Shot',
+      }),
+    );
+    expect(unresolved).not.toMatch(/crs:(WhiteBalance|Temperature|Tint)=/);
+    const explicit = {
+      ...firstFrame,
+      partialWhiteBalance: null,
+      whiteBalancePreset: 'Daylight' as const,
+    };
+    expect(probeModelForImportedAuto(explicit)).toBe(explicit);
+    const resolved = withResolvedImportedAuto(firstFrame, { temperature: 4013, tint: 16 });
+    expect(serializer.serialize(probeModelForImportedAuto(resolved))).toMatch(
+      /crs:Temperature="4013"/,
+    );
+  });
+
   it('keeps the intent through a real sidecar and an unrelated save', () => {
     const directory = mkdtempSync(join(tmpdir(), 'maple-auto-wb-'));
     try {

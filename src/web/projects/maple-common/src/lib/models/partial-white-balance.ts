@@ -87,6 +87,16 @@ export function renderModelForImportedAuto(model: AdjustmentModel): AdjustmentMo
   return model.partialWhiteBalance?.resolved ? { ...model, partialWhiteBalance: null } : model;
 }
 
+/** The model an interactive probe (eyedropper, range and curve samplers) develops: the
+ * frame the canvas shows. A resolved name-only Auto is its pair; an unresolved one is
+ * As Shot, since the core would otherwise resolve it to a different white balance than
+ * the displayed raster the click was normalised against (#4669). */
+export function probeModelForImportedAuto(model: AdjustmentModel): AdjustmentModel {
+  return isUnresolvedAuto(model.partialWhiteBalance)
+    ? { ...model, whiteBalancePreset: 'As Shot', partialWhiteBalance: null }
+    : renderModelForImportedAuto(model);
+}
+
 /** A user WB action supersedes imported intent. Complete undo snapshots explicitly
  * carry the state (including null), so replay restores it rather than authoring WB. */
 export function whiteBalanceAuthoredPatch(
