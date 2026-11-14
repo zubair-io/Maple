@@ -1,4 +1,5 @@
 using System;
+using System.Threading;
 using Maple.WinUI.Generated;
 using Maple.WinUI.Models;
 using Maple.WinUI.Native;
@@ -17,7 +18,11 @@ public static unsafe class ImportedWhiteBalanceResolver
     public static bool IsUnresolvedAuto(AdjustmentState model) =>
         model.ImportedWhiteBalance is { Temperature: null, Tint: null, Resolved: null };
 
-    public static void ResolveInPlace(string rawPath, AdjustmentState model)
+    /// <summary>A cancelled <paramref name="cancellation"/> stops a running estimate inside
+    /// the native call (#5922) and throws <see cref="OperationCanceledException"/> with the
+    /// model untouched.</summary>
+    public static void ResolveInPlace(
+        string rawPath, AdjustmentState model, CancellationToken cancellation = default)
     {
         if (model.ImportedWhiteBalance is not { } imported) return;
         if (imported.Resolved is not { } pair)
@@ -25,7 +30,8 @@ public static unsafe class ImportedWhiteBalanceResolver
             var xml = XmpWriter.Serialize(new XmpSidecarDocument { Adjustments = model });
             var values = stackalloc float[2];
             var source = WhiteBalanceSampler.IsRawPath(rawPath) ? rawPath : null;
-            var rc = RawFfi.maple_resolve_imported_white_balance_file(source, xml, values);
+            var rc = Resolve(source, xml, values, cancellation);
+            if (rc == CancelledReturnCode) throw new OperationCanceledException(cancellation);
             if (rc != 0)
                 throw new InvalidOperationException($"Imported white balance: {RawFfi.LastError()}");
             pair = new ResolvedWhiteBalance(values[0], values[1]);
@@ -38,6 +44,27 @@ public static unsafe class ImportedWhiteBalanceResolver
         {
             model.WbSource = WbSource.Auto;
             model.WbAlgorithmVersion = WhiteBalancePresets.AutoWhiteBalanceAlgorithmVersion;
+        }
+    }
+
+    /// <summary><c>maple_resolve_imported_white_balance_file</c>'s cancelled return code.</summary>
+    private const int CancelledReturnCode = 4;
+
+    /// <summary>The native flag lives for the whole call; the registration is disposed, which
+    /// waits out a running set, before the flag is freed.</summary>
+    private static int Resolve(string? source, string xml, float* values, CancellationToken cancellation)
+    {
+        if (!cancellation.CanBeCanceled)
+            return RawFfi.maple_resolve_imported_white_balance_file(source, xml, IntPtr.Zero, values);
+        var flag = RawFfi.maple_cancel_flag_new();
+        try
+        {
+            using (cancellation.Register(() => RawFfi.maple_cancel_flag_set(flag)))
+                return RawFfi.maple_resolve_imported_white_balance_file(source, xml, flag, values);
+        }
+        finally
+        {
+            RawFfi.maple_cancel_flag_free(flag);
         }
     }
 
