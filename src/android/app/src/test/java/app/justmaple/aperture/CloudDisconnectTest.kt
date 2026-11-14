@@ -32,6 +32,7 @@ class CloudDisconnectTest {
         override suspend fun open(path: String, document: String, edge: Int, generation: Int) = emptyMap<String, Float>()
         override suspend fun modelValues(document: String): Map<String, Float> = error("Not requested")
         override suspend fun autoWhiteBalance(document: String): WhiteBalanceRecommendation = error("Not requested")
+        override suspend fun sampleMaskRange(document: String, x: Float, y: Float): String = error("Not requested")
         override suspend fun nativeDimensions(photo: Photo): app.justmaple.aperture.data.NativeImageSize? = null
         override suspend fun nativeDetail(request: app.justmaple.aperture.data.NativeDetailRequest): android.graphics.Bitmap =
             error("Not requested")
