@@ -102,7 +102,7 @@ private constructor(
     }
 
     private fun maskTarget(last: DescriptionTag): Map<String, String> =
-        last.bindings + outputPrefixes(last.bindings).map { (canonical, prefix) -> prefix to NAMESPACES.getValue(canonical) }
+        last.scope + outputPrefixes(last.bindings).map { (canonical, prefix) -> prefix to NAMESPACES.getValue(canonical) }
 
     /** Restoring the loaded knots drops the change, so the saved bytes stay untouched. */
     fun withCurve(curve: PointCurve, knots: List<CurveKnot>): XmpDocument =
