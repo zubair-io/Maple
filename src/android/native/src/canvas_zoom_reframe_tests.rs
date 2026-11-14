@@ -541,3 +541,25 @@ fn settling_with_nothing_live_changes_nothing() {
     call(&mut state, OP_SETTLE, [0.0; 4], VIEWPORT, image);
     assert_eq!(state, before);
 }
+
+#[test]
+fn a_lowered_cap_keeps_a_resting_free_scale_across_a_resize_and_a_crop() {
+    let image = (300.0, 100.0);
+    let large = (2000.0, 1600.0);
+    let small = (1000.0, 800.0);
+    let mut state = [0.0; STATE_LEN];
+    for magnification in [1.0, 2.1] {
+        let args = [magnification, 1000.0, 800.0, 0.0];
+        call(&mut state, OP_PINCH_CHANGED, args, large, image);
+    }
+    let release = [2.1, 0.0, 0.0, 0.0];
+    call(&mut state, OP_PINCH_ENDED, release, large, image);
+    let before = effective_scale(&state, large, image);
+    assert_close(before, 14.0, "free scale above 800%");
+    call(&mut state, OP_RECLAMP, [0.0; 4], small, image);
+    assert_close(effective_scale(&state, small, image), before, "scale");
+    let crop = (299.0, 100.0);
+    let extent = [0.0, 0.0, 299.0, 100.0];
+    call(&mut state, OP_REFRAME_IMAGE, extent, small, crop);
+    assert_close(effective_scale(&state, small, crop), before, "cropped");
+}

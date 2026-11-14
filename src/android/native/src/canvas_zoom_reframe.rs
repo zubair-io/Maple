@@ -10,10 +10,11 @@ use super::*;
 /// image lies in the previous image's pixels (the whole previous image when
 /// only the viewport changed; the new crop's rectangle when a crop changed).
 /// 100% stays 1:1, fill re-resolves, and a free scale keeps the content's
-/// size on screen within the next floor and cap; a live pinch keeps the
-/// content's size on screen at any stop. The result is not yet clamped: the
-/// caller's `continued` re-resolves it at rest, or holds a live pinch only
-/// to the pinch's floor and cap and continues it.
+/// size on screen within the next floor and cap (a lowered cap never shrinks
+/// it); a live pinch keeps the content's size on screen at
+/// any stop. The result is not yet clamped: the caller's `continued`
+/// re-resolves it at rest, or holds a live pinch only to the pinch's floor
+/// and cap and continues it.
 pub(super) fn reframe(
     model: CanvasZoomModel,
     extent: Rect,
@@ -29,14 +30,18 @@ pub(super) fn reframe(
     let old_image = previous.native_image_size();
     let new_image = next.native_image_size();
     let start = previous.effective_scale(model.pixel_scale);
-    let kept_size = (start * extent.width / new_image.width).min(next.max_scale());
+    let content_size = start * extent.width / new_image.width;
+    let kept_size = content_size.min(next.max_scale());
+    // At rest a lowered cap never shrinks a free scale, as in the shared
+    // model's `geometry_changed`: the cap only stops it growing.
+    let resting_size = content_size.min(next.max_scale().max(start));
     let scale = if model.pinch_start_scale.is_some() {
         kept_size
     } else {
         match model.current_stop() {
             Some(ZoomStop::Fill) => next.fill_scale(),
             Some(ZoomStop::Fit | ZoomStop::ActualSize) => model.pixel_scale,
-            None => kept_size.max(next.min_scale()),
+            None => resting_size.max(next.min_scale()),
         }
     };
     let to_image = previous.display_scale() / start;
