@@ -122,8 +122,7 @@ type PrimaryRenameResult =
  * `performCaseOnlyRename` to keep that function's own complexity down
  * (#2704 fallow-audit). */
 async function renamePrimaryAndSidecars(req: RelocateRequest): Promise<PrimaryRenameResult> {
-  const sourceSidecars =
-    req.carrySidecars === false ? [] : await listPairedSidecars(req.sourceAbsPath);
+  const sourceSidecars = await listCaseOnlySidecars(req);
   try {
     await fs.rename(req.sourceAbsPath, req.destAbsPath);
   } catch (err) {
@@ -135,6 +134,19 @@ async function renamePrimaryAndSidecars(req: RelocateRequest): Promise<PrimaryRe
 
   const renamedSidecars = await renameSidecars(req.sourceAbsPath, req.destAbsPath, sourceSidecars);
   return { ok: true, renamedSidecars };
+}
+
+async function listCaseOnlySidecars(req: RelocateRequest): Promise<string[]> {
+  if (req.carrySidecars === false) return [];
+  const primary = await listPairedSidecars(req.sourceAbsPath);
+  const companionPath = req.stackCompanion?.sourceAbsPath;
+  if (!companionPath) return primary;
+  const companion = await listPairedSidecars(companionPath);
+  const known = new Set(primary.map((s) => path.resolve(s)));
+  const extraStem = companion.filter(
+    (s) => !isLegacyBackupSidecarOf(companionPath, s) && !known.has(path.resolve(s)),
+  );
+  return [...primary, ...extraStem];
 }
 
 async function renameSidecars(
