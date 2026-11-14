@@ -10,6 +10,7 @@ import { setInProcessSearchForTests } from '../src/search/search-pool.ts';
 import { fakeInProcessSearch } from '../src/search/search.test-helpers.ts';
 import {
   createServiceFixture,
+  placeDoc,
   search,
   serviceRequest,
   type ServiceFixture,
@@ -29,31 +30,6 @@ afterEach(() => {
 
 const ids = (body: { photos: Array<{ assetId: string }> }) =>
   body.photos.map((photo) => photo.assetId);
-
-function placeDoc(fields: {
-  locality: string | null;
-  region: string | null;
-  countryCode: string;
-  country: string;
-  displayName: string;
-  extra?: Record<string, string>;
-}) {
-  return {
-    source: 'nominatim',
-    geocoder_version: 3,
-    display_name: fields.displayName,
-    address: {
-      ...(fields.locality ? { town: fields.locality } : {}),
-      ...(fields.region ? { state: fields.region } : {}),
-      country: fields.country,
-      country_code: fields.countryCode,
-      ...fields.extra,
-    },
-    pois: [],
-    rollups: { locality: fields.locality, region: fields.region, country_code: fields.countryCode },
-    search_blob: '',
-  };
-}
 
 const WINDHAM = placeDoc({
   locality: 'Windham',
