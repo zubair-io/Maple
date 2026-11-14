@@ -2,30 +2,45 @@ import Foundation
 
 /// A stacked RAW+JPEG tile on a server library (#5050): the RAW's rename, move and trash carry the
 /// JPEG's asset with it, addressed by the `id` and `address` the folder listing reported for the
-/// companion (docs/api.md "RAW+JPEG stacks"). The server relocates one asset at a time, so the
-/// pair is two calls. The RAW's collision choice never reaches the JPEG: the JPEG replaces an
-/// occupant only when the caller passes `companionCollision: .replace` after a prompt that named
-/// it, and a JPEG that cannot follow puts the RAW back.
+/// companion (docs/api.md "RAW+JPEG stacks"). A server with `supportsStackPairOps()` does each in
+/// one request (`RemoteCatalog+StackPairOps.swift`); the rest of this file is the path for older
+/// servers, which relocate one asset at a time, so the pair is two calls. The RAW's collision
+/// choice never reaches the JPEG: the JPEG replaces an occupant only when the caller passes
+/// `companionCollision: .replace` after a prompt that named it, and a JPEG that cannot follow puts
+/// the RAW back.
 extension RemoteCatalog {
-  private func companionID(of stack: RawJpegStack) throws -> String {
-    guard case .cloud(_, _, let id?) = stack.location else {
-      throw FileOperationError.unsupportedSource(
-        "The JPEG in this stack hasn't finished indexing on the server yet — try again once it has."
-      )
-    }
-    return id
-  }
-
   private func companionAddress(of stack: RawJpegStack) -> String? {
     guard case .cloud(let address, _, _) = stack.location else { return nil }
     return address  // nil: the server resolves the asset by its id alone
+  }
+
+  /// `request`, a pair request on a server with `supportsStackPairOps()`, with the JPEG named in
+  /// its errors: `sourceMissing` when it is gone from beside the RAW, `destinationExists` when its
+  /// destination name is taken. Nothing moved in either case.
+  private func namingTheJpeg<Value>(
+    of stack: RawJpegStack, _ request: () async throws -> Value
+  ) async throws -> Value {
+    do {
+      return try await request()
+    } catch StackPairError.companionMissing {
+      throw FileOperationError.sourceMissing(stack.companion.name)
+    } catch StackPairError.companionNameTaken(let name) {
+      throw FileOperationError.destinationExists(name)
+    }
   }
 
   /// Rename the RAW to `newFilename` and the JPEG to the same stem.
   public func renameAsset(
     assetID: String, newFilename: String, stack: RawJpegStack
   ) async throws -> RenameAssetResult {
-    _ = try companionID(of: stack)
+    let companion = try stack.cloudCompanionID()
+    if await supportsStackPairOps() {
+      return try await namingTheJpeg(of: stack) {
+        try await renamePair(
+          assetID: assetID, companionID: companion, newFilename: newFilename,
+          companionName: stack.companionFilename(forPrimaryFilename: newFilename))
+      }
+    }
     let primary = try await renameAsset(assetID: assetID, newFilename: newFilename)
     guard case .ok(let renamed) = primary else { return primary }
     do {
@@ -38,13 +53,13 @@ extension RemoteCatalog {
   }
 
   /// Rename the JPEG to the stem of its RAW's new name `primaryFilename`. The batch rename calls
-  /// this after the server has renamed the RAWs. The JPEG is addressed by the location the listing
-  /// reported, so a JPEG the server holds at several locations renames that copy.
+  /// this after an older server has renamed the RAWs. The JPEG is addressed by the location the
+  /// listing reported, so a JPEG the server holds at several locations renames that copy.
   public func renameCompanion(of stack: RawJpegStack, toMatch primaryFilename: String) async throws
   {
     let companionName = stack.companionFilename(forPrimaryFilename: primaryFilename)
     switch try await renameAsset(
-      assetID: companionID(of: stack), newFilename: companionName,
+      assetID: stack.cloudCompanionID(), newFilename: companionName,
       sourceAddress: companionAddress(of: stack))
     {
     case .ok:
@@ -58,22 +73,32 @@ extension RemoteCatalog {
     }
   }
 
-  /// Move or copy the RAW, then the JPEG under the RAW's final stem. `collision` is the RAW's
-  /// policy; the JPEG uses `companionCollision` and throws `destinationExists` naming the JPEG when
-  /// its name is taken, before either file moves. With `companionCollision: .replace` the file at
-  /// the JPEG's name goes to the server's Trash first (`trashDisplacedCompanion`), once a RAW with
-  /// the detect-only policy is known to have a free name: the server has no way to bring that file
-  /// back, so a RAW the server would skip must be asked about before it goes. Keep Both asks for a
-  /// RAW name whose stem is free in `libraryFolderID`'s `destinationPath` for the RAW, the JPEG
-  /// and their sidecar: the server's own keep-both looks at the RAW alone. `restore` is where a
-  /// move puts the RAW back when the JPEG cannot follow; the RAW is addressed there by the location
-  /// the move gave it, not its old `sourceAddress`.
+  /// Move or copy the RAW, then the JPEG under the RAW's final stem; one request on a server with
+  /// `supportsStackPairOps()`, where the server guarantees both or neither. `collision` is the
+  /// RAW's policy; the JPEG uses `companionCollision` and throws `destinationExists` naming the
+  /// JPEG when its name is taken, before either file moves. On an older server, with
+  /// `companionCollision: .replace` the file at the JPEG's name goes to the server's Trash first
+  /// (`trashDisplacedCompanion`), once a RAW with the detect-only policy is known to have a free
+  /// name: the server has no way to bring that file back, so a RAW the server would skip must be
+  /// asked about before it goes. Keep Both asks for a RAW name whose stem is free in
+  /// `libraryFolderID`'s `destinationPath` for the RAW, the JPEG and their sidecar: the older
+  /// server's keep-both looks at the RAW alone. `restore` is where a move puts the RAW back when
+  /// the JPEG cannot follow; the RAW is addressed there by the location the move gave it, not its
+  /// old `sourceAddress`.
   public func relocateAsset(
     assetID: String, mode: RelocateMode, collision: CollisionPolicy, destinationPath: String,
     sourceAddress: String?, stack: RawJpegStack, libraryFolderID: String,
     restore: (path: String, filename: String), companionCollision: CollisionPolicy = .fail
   ) async throws -> RelocateAssetResult {
-    let companion = try companionID(of: stack)
+    let companion = try stack.cloudCompanionID()
+    if await supportsStackPairOps() {
+      return try await namingTheJpeg(of: stack) {
+        try await relocatePair(
+          assetID: assetID, companionID: companion, mode: mode, collision: collision,
+          companionCollision: companionCollision, destinationPath: destinationPath,
+          sourceAddress: sourceAddress, companionName: stack.companion.name)
+      }
+    }
     var displaced: String?
     if collision != .autoSuffix {
       if companionCollision == .replace {
@@ -213,25 +238,26 @@ extension RemoteCatalog {
       case .indexedAsset(let indexed) = try await deleteFile(
         folderID: libraryFolderID, relativePath: path)
     else { return name }
-    if try indexed == companionID(of: stack) { return nil }  // the JPEG itself
+    if try indexed == stack.cloudCompanionID() { return nil }  // the JPEG itself
     throw FileOperationError.invalidDestination(
       "\(name) in the destination is a photo of its own on the server. Move or trash it there"
         + " first: replacing it along with the RAW would leave the RAW and that photo sharing one"
         + " sidecar.")
   }
 
-  /// Throws before a batch rename under Replace sends the RAW: the server deletes what the RAW's
-  /// Replace displaced as soon as it commits, so a JPEG that then could not follow would lose that
-  /// file even though the RAW is put back. Throws the companion's error when the JPEG has no server
-  /// location yet, and `destinationExists` naming the JPEG's new name when a file or folder in the
-  /// library `libraryFolderID` holds it beside the JPEG. A hit's JPEG carries no address, so its
-  /// folder is the RAW's, from `primaryAddress`; a hit from a library with no slug carries neither,
-  /// so the folder comes from the JPEG's server path under the library's root.
+  /// Throws before a batch rename under Replace sends the RAW to an older server, which deletes
+  /// what the RAW's Replace displaced as soon as it commits, so a JPEG that then could not follow
+  /// would lose that file even though the RAW is put back. Throws the companion's error when the
+  /// JPEG has no server location yet, and `destinationExists` naming the JPEG's new name when a
+  /// file or folder in the library `libraryFolderID` holds it beside the JPEG. A hit's JPEG carries
+  /// no address, so its folder is the RAW's, from `primaryAddress`; a hit from a library with no
+  /// slug carries neither, so the folder comes from the JPEG's server path under the library's
+  /// root.
   public func requireCompanionRenameFree(
     of stack: RawJpegStack, toMatch primaryFilename: String, libraryFolderID: String,
     primaryAddress: String?
   ) async throws {
-    _ = try companionID(of: stack)
+    _ = try stack.cloudCompanionID()
     let directory = try await companionDirectory(
       of: stack, libraryFolderID: libraryFolderID, primaryAddress: primaryAddress)
     func inDirectory(_ name: String) -> String { directory.isEmpty ? name : "\(directory)/\(name)" }
@@ -279,20 +305,26 @@ extension RemoteCatalog {
     }
   }
 
-  /// Trash the RAW, then the JPEG. A RAW the server refuses leaves both untouched; a JPEG it then
-  /// refuses brings the trashed RAW back, so the tile is never left half trashed. The server picks
-  /// each asset's trash name on its own, so with a file of the pair's stem already in the Trash of
-  /// the library `libraryFolderID` the RAW and the JPEG would land under different stems and the
-  /// JPEG's sidecar beside the older photo: that trash is refused before anything moves, until the
-  /// server can trash a pair under one stem (#5930). The server's trash takes no location, so a
-  /// RAW or JPEG it holds in several places is refused too: it would trash whichever copy it picks.
-  /// `primaryAbsPath` is the RAW's server path.
+  /// Trash the RAW and the JPEG. A server with `supportsStackPairOps()` trashes both under one stem
+  /// in one request, both or neither. On an older server the RAW goes first: a RAW the server
+  /// refuses leaves both untouched; a JPEG it then refuses brings the trashed RAW back, so the tile
+  /// is never left half trashed. That server picks each asset's trash name on its own, so with a
+  /// file of the pair's stem already in the Trash of the library `libraryFolderID` the RAW and the
+  /// JPEG would land under different stems and the JPEG's sidecar beside the older photo: that
+  /// trash is refused before anything moves (#5930). The server's trash takes no location, so a RAW
+  /// or JPEG it holds in several places is refused too: it would trash whichever copy it picks.
+  /// `primaryAbsPath` is the RAW's server path. Purge stays one asset per request.
   public func deleteAsset(
     assetID: String, intent: DeleteAssetIntent, stack: RawJpegStack, libraryFolderID: String,
     primaryAbsPath: String
   ) async throws -> DeleteAssetResult {
-    let companion = try companionID(of: stack)
+    let companion = try stack.cloudCompanionID()
     if intent == .trash {
+      if await supportsStackPairOps() {
+        return try await namingTheJpeg(of: stack) {
+          try await trashPair(assetID: assetID, companionID: companion)
+        }
+      }
       try await requireTrashStemFree(
         stack, libraryFolderID: libraryFolderID, primaryAbsPath: primaryAbsPath)
       try await requireOneLocation(assetID: companion, name: stack.companion.name)
@@ -376,6 +408,16 @@ extension RemoteCatalog {
 }
 
 extension RawJpegStack {
+  /// The JPEG's server asset id; throws until the server has indexed the JPEG.
+  func cloudCompanionID() throws -> String {
+    guard case .cloud(_, _, let id?) = location else {
+      throw FileOperationError.unsupportedSource(
+        "The JPEG in this stack hasn't finished indexing on the server yet — try again once it has."
+      )
+    }
+    return id
+  }
+
   /// This stack after the server renamed its RAW: the JPEG sits beside the RAW under the same stem.
   /// A companion the listing carried no cloud location for (it cannot, here) stays as it was.
   public func relocatedCloud(afterRenameTo response: RenameAssetResponse) -> RawJpegStack {

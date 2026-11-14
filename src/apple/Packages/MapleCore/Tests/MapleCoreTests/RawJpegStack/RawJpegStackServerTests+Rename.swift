@@ -29,7 +29,8 @@ extension RawJpegStackServerTests {
 
     guard case .ok(let renamed) = result else { return XCTFail("rename failed: \(result)") }
     XCTAssertEqual(renamed.newFilename, "Beach.CR3")
-    XCTAssertEqual(recorder.requests.count, 2, "no rollback of the RAW")
+    XCTAssertEqual(
+      recorder.requests.filter { $0.path.hasSuffix("/rename") }.count, 2, "no rollback of the RAW")
     let jpeg = try XCTUnwrap(recorder.requests.last)
     XCTAssertEqual(jpeg.path, "/api/assets/\(jpegID)/rename")
     XCTAssertEqual(jpeg.body["new_filename"] as? String, "Beach.JPG")

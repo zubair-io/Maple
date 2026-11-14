@@ -510,36 +510,6 @@ private struct CloudBatchRenamePreviewResponse: Decodable {
   let items: [CloudBatchRenamePreviewItem]
 }
 
-/// One item of `POST /api/assets/batch-rename`'s response — `kind`
-/// discriminates the shape the other fields carry (mirrors
-/// `BatchRenameItemResult` in `batch-rename.ts`): `"relocated"` carries
-/// `newFilename`; `"skipped"` carries `reason`; `"invalid"`/`"error"` carry
-/// `error`; `"not-found"` carries neither.
-public struct CloudBatchRenameResultItem: Decodable, Equatable, Sendable {
-  public let id: String
-  public let kind: String
-  public let newFilename: String?
-  public let reason: String?
-  public let error: String?
-
-  enum CodingKeys: String, CodingKey {
-    case id, kind, reason, error
-    case newFilename = "new_filename"
-  }
-}
-
-public struct CloudBatchRenameSummary: Decodable, Equatable, Sendable {
-  public let total: Int
-  public let relocated: Int
-  public let skipped: Int
-  public let failed: Int
-}
-
-public struct CloudBatchRenameResponse: Decodable, Equatable, Sendable {
-  public let summary: CloudBatchRenameSummary
-  public let results: [CloudBatchRenameResultItem]
-}
-
 public enum XMPWriteResult: Equatable, Sendable {
   /// Write succeeded; the response's Last-Modified header is parsed
   /// into this Date and reflects the new on-disk mtime.
@@ -1541,7 +1511,7 @@ public actor RemoteCatalog {
   /// doc comment) — the server has no bare "fail" policy, so the probe
   /// is sent as `"skip"`, which has the identical "detect, touch
   /// nothing" effect.
-  private static func wireCollision(_ policy: CollisionPolicy) -> String {
+  static func wireCollision(_ policy: CollisionPolicy) -> String {
     switch policy {
     case .autoSuffix: return "keep-both"
     case .fail: return "skip"
@@ -1601,19 +1571,23 @@ public actor RemoteCatalog {
   /// item's already-applied result before starting the next). Partial
   /// failure is normal here — the summary/per-item `results` carry it,
   /// this call only throws on a transport-level failure (non-2xx).
+  /// `companionIDs`, parallel to `ids`, renames each RAW with its JPEG as
+  /// one pair; send it only to a server with `supportsStackPairOps()`.
   public func batchRename(
-    ids: [String], template: String, sequenceStart: Int, sequencePadWidth: Int, collision: String
+    ids: [String], companionIDs: [String?]? = nil, template: String, sequenceStart: Int,
+    sequencePadWidth: Int, collision: String
   ) async throws -> CloudBatchRenameResponse {
     var req = URLRequest(url: server.appending(path: "/api/assets/batch-rename"))
     req.httpMethod = "POST"
     req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-    req.httpBody = try JSONSerialization.data(withJSONObject: [
-      "ids": ids,
-      "template": template,
-      "sequence_start": sequenceStart,
-      "sequence_pad_width": sequencePadWidth,
-      "collision": collision,
-    ])
+    var body: [String: Any] = [
+      "ids": ids, "template": template, "sequence_start": sequenceStart,
+      "sequence_pad_width": sequencePadWidth, "collision": collision,
+    ]
+    if let companionIDs {
+      body["companion_ids"] = companionIDs.map { $0.map { $0 as Any } ?? NSNull() }
+    }
+    req.httpBody = try JSONSerialization.data(withJSONObject: body)
     let (data, resp) = try await http.data(for: req)
     try Self.check2xx(resp, data: data, url: req.url)
     return try decoder.decode(CloudBatchRenameResponse.self, from: data)
