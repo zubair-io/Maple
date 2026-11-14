@@ -51,6 +51,44 @@ final class ImportedAutoWhiteBalanceTests: XCTestCase {
     XCTAssertEqual(explicit.tint, 0)
   }
 
+  func testResolvedNameOnlyAutoKeepsItsCorrectionWhenCopiedRelatively() throws {
+    let imported = try XMPParser.parse(nameOnly).0
+    XCTAssertEqual(imported.wbSource, .asShot)
+    let resolved = imported.resolvingImportedWhiteBalance(
+      ResolvedWhiteBalance(temperature: 7200, tint: 25))
+    XCTAssertEqual(resolved.wbSource, .auto)
+    XCTAssertEqual(resolved.wbAlgorithmVersion, autoWhiteBalanceAlgorithmVersion)
+    let patch = try AdjustmentTransfer.prepare(
+      source: resolved, groups: [.whiteBalance], relativeWhiteBalance: true,
+      sourceBaseline: WhiteBalanceTransferBaseline(temperature: 6000, tint: 5),
+      targetBaseline: WhiteBalanceTransferBaseline(temperature: 5000, tint: -10))
+    XCTAssertEqual(patch.model.temperature, 6200)
+    XCTAssertEqual(patch.model.tint, 10)
+
+    let directory = try SidecarContractIO.makeTempDirectory(prefix: "imported-auto-provenance")
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let sidecar = directory.appendingPathComponent("source.xmp")
+    try XMPSerializer.serialize(model: resolved, culling: CullingState())
+      .write(to: sidecar, atomically: true, encoding: .utf8)
+    let saved = try String(contentsOf: sidecar, encoding: .utf8)
+    XCTAssertTrue(saved.contains(#"crs:WhiteBalance="Auto""#))
+    XCTAssertFalse(saved.contains("crs:Temperature="))
+    XCTAssertFalse(saved.contains("crs:Tint="))
+    XCTAssertEqual(try XMPParser.parse(saved).0.wbSource, .auto)
+  }
+
+  func testResolvingASingleImportedAxisDoesNotReplaceItsProvenance() throws {
+    var partial = try XMPParser.parse(
+      nameOnly.replacingOccurrences(
+        of: #"crs:WhiteBalance="Auto""#, with: #"crs:Temperature="6200""#)
+    ).0
+    partial.wbSource = .manual
+    let resolved = partial.resolvingImportedWhiteBalance(
+      ResolvedWhiteBalance(temperature: 6200, tint: 15))
+    XCTAssertEqual(resolved.wbSource, .manual)
+    XCTAssertEqual(resolved.wbAlgorithmVersion, 0)
+  }
+
   func testFinalOutputResolutionUsesTheSessionFileAndLeavesOriginalsUntouched() async throws {
     let (directory, raw) = try stagedRaw("imported-auto-wb-final")
     defer { try? FileManager.default.removeItem(at: directory) }

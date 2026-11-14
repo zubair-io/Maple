@@ -297,6 +297,8 @@ Normal export snapshots the live model before its full-quality decode, resolves 
 
 Serialization lives in the `XMPSerialization+*.swift` family, with `XMPPassthrough` preserving unknown XML byte-for-byte. The schema and canonical byte form are in [xmp-canonical-format](xmp-canonical-format.md).
 
+Resolving an imported name-only `crs:WhiteBalance="Auto"` gives the display model Auto provenance and the shared estimator's algorithm version, so relative white-balance copy/paste retains the estimated correction rather than treating it as As Shot. The sidecar still omits both numeric axes. Hydrating a single imported numeric axis does not replace its provenance. Web and Windows use the same rule; Android and Linux obtain it from the shared core's resolved render model.
+
 ## File Provider and Quick Look
 
 The macOS and iOS File Provider extensions are both three-line subclasses (`FileProviderExtension`, `FileProviderExtensionIOS`) whose entire behaviour is `MapleFileProviderCore.FileProviderExtensionCore`, an `NSFileProviderReplicatedExtension`. Configuration crosses the process boundary as JSON files in the App Group container at `~/Library/Group Containers/group.app.justmaple.aperture/FileProviderConfig/<domain>.json` — `UserDefaults(suiteName:)` was abandoned because CFPreferences rejects `kCFPreferencesAnyUser` with a container. Missing the App Group entitlement is survivable: the config falls back to the caches directory, logs an error, and the extension boots dormant.
