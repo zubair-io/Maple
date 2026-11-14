@@ -10,7 +10,7 @@ using System.Threading.Tasks;
 
 namespace Maple.WinUI.Services.CloudFiles
 {
-    internal sealed record PlaceholderEntry(string Name, string ServerPath, bool IsDirectory, long Size, DateTime MtimeUtc);
+internal sealed record PlaceholderEntry(string Name, string Address, bool IsDirectory, long Size, DateTime MtimeUtc);
 
     internal sealed record PlaceholderPage(IReadOnlyList<PlaceholderEntry> Entries, string? NextCursor);
 
