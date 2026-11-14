@@ -3,8 +3,8 @@ import { createApplication } from '@angular/platform-browser';
 import { RawPipelineService } from '../../projects/maple-common/src/lib/raw-pipeline/raw-pipeline.service';
 import { GPU_LIVE_RENDER_ENABLED } from '../../projects/maple-common/src/lib/raw-pipeline/gpu-live-render.token';
 
-// #5923: the production RawPipelineService and render worker in a real,
-// cross-origin-isolated Chrome. A slider render issued while the imported Auto
+// #5923: the production RawPipelineService and render worker in a real Chrome,
+// cross-origin isolated or not. A slider render issued while the imported Auto
 // WB estimate runs on the worker is timed against the uninterrupted estimate.
 const xmp = (exposure: number) =>
   `<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/" crs:WhiteBalance="Auto" crs:Exposure2012="${exposure}"/></rdf:RDF></x:xmpmeta>`;
@@ -45,7 +45,6 @@ async function tick(pipeline: RawPipelineService, exposure: number): Promise<num
 }
 
 export async function run(rawUrl: string, delaysMs: number[]) {
-  if (!crossOriginIsolated) throw new Error('The page must be cross-origin isolated.');
   if (!navigator.gpu) throw new Error('This measurement needs a WebGPU adapter.');
   const bytes = new Uint8Array(await (await fetch(rawUrl)).arrayBuffer());
   const app = await createApplication({
@@ -86,7 +85,7 @@ export async function run(rawUrl: string, delaysMs: number[]) {
       });
     }
     pipeline.closeLiveSession();
-    return { estimateMs, idleTicks, pair, trials };
+    return { isolated: crossOriginIsolated, estimateMs, idleTicks, pair, trials };
   } finally {
     app.destroy();
   }
