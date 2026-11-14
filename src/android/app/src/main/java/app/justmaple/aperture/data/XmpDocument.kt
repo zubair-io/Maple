@@ -52,10 +52,15 @@ private constructor(
         }
         /**
          * A Maple namespace is in scope on a primary description, so raw-core's import reads
-         * the document as Maple-authored; other subjects and opaque subtrees never count.
+         * the document as Maple-authored; the default namespace counts as raw-core's import walks
+         * every in-scope binding. Other subjects and opaque subtrees never count.
          */
         val pappPresent by lazy {
-            tags.any { (_, scope) -> scope.bindings.values.any { it == NAMESPACES.getValue("papp") || it in LEGACY_PAPP } }
+            tags.any { (_, scope) ->
+                (scope.bindings.values + listOfNotNull(scope.defaultNamespace)).any {
+                    it == NAMESPACES.getValue("papp") || it in LEGACY_PAPP
+                }
+            }
         }
         /**
          * raw-core reads the source's repair list as upright without a frame stamp, because
