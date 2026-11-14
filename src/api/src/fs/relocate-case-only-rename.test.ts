@@ -255,3 +255,31 @@ test('a case-only raw-sidecar rename leaves the photo conflict and workflow sibl
     ['PHOTO.xmp', path.basename(conflict), path.basename(variant)].sort(),
   );
 });
+
+test("a case-only stack rename carries the JPEG's UUID branch and legacy backup sidecar", async () => {
+  const raw = path.join(root, 'IMG.CR3');
+  const jpeg = path.join(root, 'img.JPG');
+  const variant = path.join(root, 'img.v123e4567-e89b-12d3-a456-426614174000.xmp');
+  const legacy = path.join(root, 'img.JPG.xmp');
+  const mapleEdit = '<x:xmpmeta xmlns:papp="http://ns.justmaple.app/photo/1.0/">edit</x:xmpmeta>';
+  await fs.writeFile(raw, 'raw');
+  await fs.writeFile(jpeg, 'jpeg');
+  await fs.writeFile(variant, '<variant/>');
+  await fs.writeFile(legacy, mapleEdit);
+
+  const outcome = await performCaseOnlyRename(
+    {
+      sourceAbsPath: raw,
+      destAbsPath: path.join(root, 'Img.CR3'),
+      mode: 'move',
+      collision: 'auto-suffix',
+      stackCompanion: { sourceAbsPath: jpeg, replace: false },
+    },
+    { from: jpeg, to: path.join(root, 'Img.JPG') },
+  );
+
+  expect(outcome.kind).toBe('relocated');
+  expect((await fs.readdir(root)).sort()).toEqual(
+    ['Img.CR3', 'Img.JPG', 'Img.JPG.xmp', 'Img.v123e4567-e89b-12d3-a456-426614174000.xmp'].sort(),
+  );
+});
