@@ -24,8 +24,8 @@ import org.robolectric.RuntimeEnvironment
  * The JNI renderer is the only seam in the mask tests. raw-core's mask codec sits
  * behind it, so this one keeps the layer JSON inside a single container element:
  * the real `XmpDocument` splice, history, ViewModel and sidecar writer carry it.
- * Weights are a constant full weight and the crop map is the identity (the tests
- * do not crop); the eyedropper answers with a fixed seed at the point it is given.
+ * Weights are a constant full weight and the frame map is the identity unless a test
+ * sets [frame]; the eyedropper answers with a fixed seed at the point it is given.
  */
 internal class MaskTestRenderer : PreviewRenderer {
     override val hasPresented = true
@@ -81,8 +81,15 @@ internal class MaskTestRenderer : PreviewRenderer {
         return ByteArray(width * height) { -1 }
     }
 
-    override fun maskFrame(size: NativeImageSize, crop: CropRect): DoubleArray =
-        doubleArrayOf(1.0, 0.0, 0.0, 0.0, 1.0, 0.0)
+    /** Every `(crop, geometry)` the overlay asked to map, in order. */
+    val frameRequests = mutableListOf<Pair<CropRect, List<Float>>>()
+    /** The presented → frame projection the native map would return; identity unless a test sets it. */
+    var frame: (CropRect, List<Float>) -> DoubleArray = { _, _ -> doubleArrayOf(1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0) }
+
+    override fun maskFrame(size: NativeImageSize, crop: CropRect, geometry: List<Float>): DoubleArray {
+        frameRequests += crop to geometry
+        return frame(crop, geometry)
+    }
 
     override suspend fun sampleMaskRange(document: String, x: Float, y: Float): String {
         samples += x to y

@@ -37,9 +37,13 @@ interface PreviewRenderer : Closeable {
     /** The layer's weight over the full frame from raw-core's evaluator, `0…255` per cell. */
     fun maskWeights(layer: String, width: Int, height: Int): ByteArray = NativeBridge.maskWeights(layer, width, height)
 
-    /** `[a, b, tx, c, d, ty]` from the cropped presentation onto the full frame masks live in. */
-    fun maskFrame(size: NativeImageSize, crop: app.justmaple.aperture.ui.CropRect): DoubleArray =
-        NativeBridge.maskFrame(size.width, size.height, crop.top, crop.left, crop.bottom, crop.right, crop.angle)
+    /**
+     * The row-major projective `[m0 … m8]` from the presented image (the [crop] and the
+     * seven manual-geometry sliders in `geometryFieldNames` order) onto the full frame masks live in.
+     */
+    fun maskFrame(size: NativeImageSize, crop: app.justmaple.aperture.ui.CropRect, geometry: List<Float>): DoubleArray =
+        NativeBridge.maskFrame(size.width, size.height, crop.top, crop.left, crop.bottom, crop.right, crop.angle,
+            geometry.toFloatArray())
 
     /** The colour-range seed (or refusal) at a full-frame point of the open RAW under [document]. */
     suspend fun sampleMaskRange(document: String, x: Float, y: Float): String

@@ -72,9 +72,11 @@ class MaskNativeRoundTripTest {
         val top = weights[0].toInt() and 0xFF
         val bottom = weights[255].toInt() and 0xFF
         assertNotEquals("A gradient weighs its two ends differently", top, bottom)
-        val frame = NativeBridge.maskFrame(4000, 3000, 0f, 0f, 1f, 1f, 0f)
-        doubleArrayOf(1.0, 0.0, 0.0, 0.0, 1.0, 0.0).forEachIndexed { i, expected ->
+        val frame = NativeBridge.maskFrame(4000, 3000, 0f, 0f, 1f, 1f, 0f, floatArrayOf(0f, 0f, 0f, 100f, 0f, 0f, 0f))
+        doubleArrayOf(1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0).forEachIndexed { i, expected ->
             assertEquals(expected, frame[i], 1e-6)
         }
+        val offset = NativeBridge.maskFrame(4000, 3000, 0f, 0f, 1f, 1f, 0f, floatArrayOf(0f, 0f, 0f, 100f, 0f, 50f, 0f))
+        assertEquals("An X offset of 50 shifts the frame a quarter width", -.25, offset[2], 1e-6)
     }
 }

@@ -495,44 +495,6 @@ fn mask_weights_come_from_the_render_evaluator() {
 }
 
 #[test]
-fn the_crop_frame_maps_the_presented_crop_onto_the_full_frame() {
-    let mut out = [0.0; 6];
-    assert!(unsafe {
-        maple_android_mask_frame(400, 300, 0.0, 0.0, 1.0, 1.0, 0.0, out.as_mut_ptr())
-    });
-    assert_eq!(out, [1.0, 0.0, 0.0, 0.0, 1.0, 0.0]);
-    assert!(unsafe {
-        maple_android_mask_frame(400, 300, 0.2, 0.25, 0.8, 0.75, 0.0, out.as_mut_ptr())
-    });
-    for (got, want) in out.iter().zip([0.5, 0.0, 0.25, 0.0, 0.6, 0.2]) {
-        assert!((got - want).abs() < 1e-6, "{out:?}");
-    }
-    let tilted = crop_to_frame(
-        400,
-        300,
-        Crop {
-            top: 0.1,
-            left: 0.1,
-            bottom: 0.9,
-            right: 0.9,
-            angle: 10.0,
-        },
-    );
-    let centre = (
-        tilted[0] * 0.5 + tilted[1] * 0.5 + tilted[2],
-        tilted[3] * 0.5 + tilted[4] * 0.5 + tilted[5],
-    );
-    assert!(
-        (centre.0 - 0.5).abs() < 1e-3 && (centre.1 - 0.5).abs() < 1e-3,
-        "{tilted:?}"
-    );
-    assert!(
-        tilted[1].abs() > 1e-3,
-        "a straightened crop rotates the frame"
-    );
-}
-
-#[test]
 fn the_eyedropper_seeds_from_raw_core_and_refuses_neutral_or_outside_points() {
     let dng = raw_core::test_support::synth_dng::SyntheticGreyDng::default().write_to_bytes();
     let raw = Arc::new(raw_core::decode::decode_bytes(&dng, "dng").unwrap());

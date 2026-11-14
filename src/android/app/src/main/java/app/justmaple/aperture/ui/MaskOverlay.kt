@@ -62,7 +62,7 @@ import kotlinx.coroutines.withContext
 private const val TINT_PEAK = .55f
 /** The tint's sampling grid along the frame's long edge; raw-core caps it at 1024. */
 private const val TINT_GRID = 192
-/** Long edge of the frame the crop map is built over; only its aspect matters. */
+/** Long edge of the frame the presented → frame map is built over; only its aspect matters. */
 private const val FRAME_EDGE = 4096
 private val GRAB_RADIUS = 14.dp
 private val PIN_RADIUS = 7.dp
@@ -92,10 +92,19 @@ private fun tintBitmap(model: MapleViewModel, layer: MaskLayer, aspect: Float): 
 }
 
 /**
+ * The seven manual-geometry sliders the canvas presents, in `geometryFieldNames` order;
+ * a slider the photo never set reads its default, as raw-core's model does.
+ */
+internal fun MapleState.presentedGeometry(): List<Float> =
+    geometryFields.map { values[it.name] ?: it.initial }
+
+/**
  * The selected layer's handles and weight tint over the canvas (`mask-overlay.md`).
  * It fills the presented image box, so canvas zoom reaches it through the parent's
  * graphics layer; [zoom] counter-scales the pins and grab radius so they keep their
- * on-screen size. Points cross the crop's affine map onto the full frame masks live in.
+ * on-screen size. Points cross one projective map (the crop, then the manual geometry,
+ * as the render samples) onto the full frame masks live in: handles, tint and the
+ * eyedropper's sample point all go through it or its inverse.
  * A handle press consumes its down, so the canvas zoom gesture yields to the drag;
  * while the colour-range eyedropper is armed every tap samples instead.
  */
@@ -106,9 +115,10 @@ internal fun MaskOverlay(model: MapleViewModel, state: MapleState, zoom: Float, 
     val shape = layer?.let(state::editedShape)
     val aspect = state.uncroppedAspect()
     val crop = remember(state.document, state.cropToolActive) { state.presentedCropRect() }
+    val geometry = state.presentedGeometry()
     val toFrame =
-        remember(crop, aspect) {
-            runCatching { MaskAffine(model.renderer.maskFrame(maskFrameSize(aspect), crop)) }.getOrNull()
+        remember(crop, aspect, geometry) {
+            runCatching { MaskProjection(model.renderer.maskFrame(maskFrameSize(aspect), crop, geometry)) }.getOrNull()
         }
     val fromFrame = remember(toFrame) { toFrame?.inverse() }
     val tint by
@@ -146,7 +156,8 @@ internal fun MaskOverlay(model: MapleViewModel, state: MapleState, zoom: Float, 
                         val up = waitForUpOrCancellation() ?: return@awaitEachGesture
                         up.consume()
                         val at = frameAt(up.position)
-                        model.sampleMaskRangeAt(at.x, at.y)
+                        // A keystone can put a presented corner past the frame's horizon.
+                        if (at.x.isFinite() && at.y.isFinite()) model.sampleMaskRangeAt(at.x, at.y)
                         return@awaitEachGesture
                     }
                     val start = currentShape ?: return@awaitEachGesture
@@ -204,29 +215,18 @@ internal fun MaskOverlay(model: MapleViewModel, state: MapleState, zoom: Float, 
 }
 
 /** The tint bitmap's cell centres sit on `i / (w − 1)` of the frame, as raw-core samples it. */
-private fun DrawScope.drawTint(bitmap: Bitmap, back: MaskAffine) {
-    val m = back.values
+private fun DrawScope.drawTint(bitmap: Bitmap, back: MaskProjection) {
     val matrix =
         Matrix().apply {
             setTranslate(-.5f, -.5f)
             postScale(1f / (bitmap.width - 1), 1f / (bitmap.height - 1))
-            postConcat(
-                Matrix().apply {
-                    setValues(
-                        floatArrayOf(
-                            m[0].toFloat(), m[1].toFloat(), m[2].toFloat(),
-                            m[3].toFloat(), m[4].toFloat(), m[5].toFloat(),
-                            0f, 0f, 1f,
-                        )
-                    )
-                }
-            )
+            postConcat(Matrix().apply { setValues(back.values.map(Double::toFloat).toFloatArray()) })
             postScale(size.width, size.height)
         }
     drawIntoCanvas { it.nativeCanvas.drawBitmap(bitmap, matrix, Paint(Paint.FILTER_BITMAP_FLAG)) }
 }
 
-private fun DrawScope.drawMaskShape(shape: MaskShape, back: MaskAffine, scale: Float) {
+private fun DrawScope.drawMaskShape(shape: MaskShape, back: MaskProjection, scale: Float) {
     fun px(point: MaskPoint) = back.apply(point).let { Offset(it.x * size.width, it.y * size.height) }
     val stroke = 1.5.dp.toPx() / scale
     val dash = PathEffect.dashPathEffect(floatArrayOf(6.dp.toPx() / scale, 4.dp.toPx() / scale))

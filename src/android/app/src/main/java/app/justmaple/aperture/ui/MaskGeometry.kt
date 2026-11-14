@@ -126,23 +126,42 @@ fun dragMaskHandle(start: MaskShape, handle: MaskHandle, point: MaskPoint, ancho
 /** The largest move toward [delta] that keeps the span `[lo, hi]` inside `[0, 1]`. */
 private fun clampDelta(delta: Float, lo: Float, hi: Float) = min(1 - hi, max(-lo, delta))
 
-/** The 2-D affine `p = M q + t` from `mask_frame`: `[a, b, tx, c, d, ty]`. */
-class MaskAffine(private val m: DoubleArray) {
-    fun apply(p: MaskPoint) =
-        MaskPoint((m[0] * p.x + m[1] * p.y + m[2]).toFloat(), (m[3] * p.x + m[4] * p.y + m[5]).toFloat())
-
-    fun inverse(): MaskAffine? {
-        val det = m[0] * m[4] - m[1] * m[3]
-        if (abs(det) < 1e-12) return null
-        val (a, b, c, d) = listOf(m[4] / det, -m[1] / det, -m[3] / det, m[0] / det)
-        return MaskAffine(doubleArrayOf(a, b, -(a * m[2] + b * m[5]), c, d, -(c * m[2] + d * m[5])))
+/**
+ * The row-major projective map `[m0 … m8]` from `mask_frame`: crop and manual
+ * geometry together, so a keystone's perspective divide is part of every point.
+ * A point on or behind the horizon maps to NaN, which hit tests and drags ignore.
+ */
+class MaskProjection(private val m: DoubleArray) {
+    init {
+        require(m.size == 9) { "A mask projection has nine entries" }
     }
 
-    /** `[a, b, tx, c, d, ty]`. */
+    fun apply(p: MaskPoint): MaskPoint {
+        val w = m[6] * p.x + m[7] * p.y + m[8]
+        if (abs(w) < 1e-9) return MaskPoint(Float.NaN, Float.NaN)
+        return MaskPoint(
+            ((m[0] * p.x + m[1] * p.y + m[2]) / w).toFloat(),
+            ((m[3] * p.x + m[4] * p.y + m[5]) / w).toFloat(),
+        )
+    }
+
+    /** The inverse via the adjugate, or null when the map is singular. */
+    fun inverse(): MaskProjection? {
+        val c0 = m[4] * m[8] - m[5] * m[7]
+        val c1 = m[5] * m[6] - m[3] * m[8]
+        val c2 = m[3] * m[7] - m[4] * m[6]
+        val det = m[0] * c0 + m[1] * c1 + m[2] * c2
+        if (!det.isFinite() || abs(det) < 1e-12) return null
+        return MaskProjection(
+            doubleArrayOf(
+                c0, m[2] * m[7] - m[1] * m[8], m[1] * m[5] - m[2] * m[4],
+                c1, m[0] * m[8] - m[2] * m[6], m[2] * m[3] - m[0] * m[5],
+                c2, m[1] * m[6] - m[0] * m[7], m[0] * m[4] - m[1] * m[3],
+            ).map { it / det }.toDoubleArray()
+        )
+    }
+
+    /** `[m0 … m8]`, row-major. */
     val values: DoubleArray
         get() = m.copyOf()
-
-    companion object {
-        val Identity = MaskAffine(doubleArrayOf(1.0, 0.0, 0.0, 0.0, 1.0, 0.0))
-    }
 }

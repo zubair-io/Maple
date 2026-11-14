@@ -99,8 +99,10 @@ layer's (or selected component's) handles: gradient start, end and body; radial 
 both radii and rotation. A handle press consumes its touch, so the canvas zoom gesture
 yields to the drag, and zoom stays live: the overlay sits in the zoomed image box and
 counter-scales its pins. The red weight tint (peak opacity 0.55) is raw-core's own
-evaluator over JNI, and handles and tint cross the crop's affine map (`mask_frame`), so a
-mask on a cropped or straightened photo is drawn where it renders. A drag is one undo
+evaluator over JNI. Handles, tint, drags and the eyedropper's sample point all cross one
+projective map (`mask_frame`): the crop's inverse, then the manual geometry's (offset,
+keystone, rotation, scale, aspect), as the preview samples the frame, so a mask on a
+cropped, straightened or Geometry-corrected photo is drawn and picked where it renders. A drag is one undo
 entry opened on its first movement; every panel command is one entry and selection adds
 none.
 
