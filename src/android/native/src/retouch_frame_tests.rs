@@ -61,6 +61,58 @@ fn converting_a_legacy_list_keeps_what_raw_core_does_not_decode() {
     let cleared = write(&saved, &[]);
     assert!(rendered(&cleared.xml).is_empty(), "{}", cleared.xml);
 }
+#[test]
+fn converting_a_legacy_list_keeps_unknown_metadata_on_its_entries() {
+    let xml = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../../test-fixtures/retouch/lightroom-legacy-info.xmp"),
+    )
+    .unwrap()
+    .replacen(
+        "<rdf:li>centerX = 0.250000",
+        "<rdf:li vnd:Reviewed=\"yes\">centerX = 0.250000",
+        1,
+    )
+    .replacen(
+        "<rdf:li>centerX = 0.600000",
+        "<rdf:li vnd:Reviewed=\"no\"><vnd:Note vnd:Flag=\"1\"/>centerX = 0.600000",
+        1,
+    );
+    let source = through_file_of(&xml, &NAMES);
+    let spots = read(&source);
+    assert_eq!(spots.len(), 2);
+    assert_eq!(
+        spots.iter().map(|(spot, _)| *spot).collect::<Vec<_>>(),
+        rendered(&source.xml)
+    );
+    // Edit the first spot, leave the second exactly as read: both keep the
+    // unknown metadata their legacy entries carried.
+    let mut edited = spots[0].0;
+    edited.center.x = 0.26;
+    edited.source.x = 0.31;
+    let written = vec![(edited, spots[0].1), spots[1]];
+    let saved = write(&source, &written);
+    assert_eq!(rendered(&saved.xml), vec![edited, spots[1].0]);
+    for kept in [
+        "vnd:Reviewed=\"yes\"",
+        "vnd:Reviewed=\"no\"",
+        "<vnd:Note vnd:Flag=\"1\"/>",
+    ] {
+        assert!(saved.xml.contains(kept), "{kept} lost: {}", saved.xml);
+    }
+    assert!(!saved.xml.contains("centerX"), "{}", saved.xml);
+    // The carried metadata is on the converted entries Android authors, so a
+    // later edit of the converted list keeps it too.
+    let reread = read(&saved);
+    let again = write(&saved, &reread);
+    for kept in [
+        "vnd:Reviewed=\"yes\"",
+        "vnd:Reviewed=\"no\"",
+        "vnd:Flag=\"1\"",
+    ] {
+        assert!(again.xml.contains(kept), "{kept} lost: {}", again.xml);
+    }
+}
 
 #[test]
 fn spots_remain_while_an_entry_android_keeps_still_renders() {

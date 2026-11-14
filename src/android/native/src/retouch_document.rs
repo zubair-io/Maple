@@ -99,6 +99,10 @@ pub struct Entry {
     pub spot: Option<RetouchSpot>,
     /// The description and circular leaf of an entry Android rewrites.
     pub authored: Option<(Element, Element)>,
+    /// A legacy `crs:RetouchInfo` entry: the `rdf:li` it was decoded from,
+    /// whose unknown attributes and children its converted entry carries.
+    /// `None` for a legacy spot read in a shape with no such element.
+    pub legacy_item: Option<Element>,
 }
 
 pub struct Document {
@@ -108,7 +112,6 @@ pub struct Document {
     pub any_areas: bool,
     /// The last structured container without a clean sequence that models a spot.
     pub last_opaque: Option<usize>,
-    legacy: Vec<RetouchSpot>,
     /// Legacy containers that decode to at least one spot.
     pub legacy_containers: Vec<usize>,
     pub target: Bindings,
@@ -150,7 +153,6 @@ impl Document {
             entries: Vec::new(),
             any_areas: false,
             last_opaque: None,
-            legacy: Vec::new(),
             legacy_containers: Vec::new(),
             target: bindings(input.get("target"))?,
             frame: SensorFrame::from_json(input.get("frame"))?,
@@ -185,19 +187,53 @@ impl Document {
                         item: item_index,
                         spot,
                         authored: spot.and_then(|_| authored_structure(item)),
+                        legacy_item: None,
                     });
                 }
             }
-            None => {
+            None if areas => {
                 let spots = parse_piece(&text[root.span.clone()], &scope)?.retouch_spots;
-                if areas {
-                    self.any_areas |= !spots.is_empty();
+                self.any_areas |= !spots.is_empty();
+                if !spots.is_empty() {
+                    self.last_opaque = Some(index);
+                }
+            }
+            None => {
+                let container = Container {
+                    text: text.clone(),
+                    root: root.clone(),
+                    scopes: scopes.clone(),
+                    scope: scope.clone(),
+                    seq: None,
+                };
+                let decoded = crate::retouch_legacy::decoded(&container)?;
+                if decoded.is_empty() {
+                    // A legacy list in a shape with no sequence of entries:
+                    // its spots are listed with nothing to carry metadata from.
+                    let spots = parse_piece(&text[root.span.clone()], &scope)?.retouch_spots;
                     if !spots.is_empty() {
-                        self.last_opaque = Some(index);
+                        self.legacy_containers.push(index);
                     }
-                } else if !spots.is_empty() {
-                    self.legacy.extend(spots);
+                    for (item, spot) in spots.into_iter().enumerate() {
+                        self.entries.push(Entry {
+                            container: index,
+                            item,
+                            spot: Some(spot),
+                            authored: None,
+                            legacy_item: None,
+                        });
+                    }
+                } else {
                     self.legacy_containers.push(index);
+                    for (item_index, (item, spot)) in decoded.into_iter().enumerate() {
+                        self.entries.push(Entry {
+                            container: index,
+                            item: item_index,
+                            spot: Some(spot),
+                            authored: None,
+                            legacy_item: Some(item),
+                        });
+                    }
                 }
             }
         }
@@ -217,9 +253,13 @@ impl Document {
         let upright = |spot: RetouchSpot| self.frame.map_or(spot, |frame| frame.upright(spot));
         if !self.any_areas {
             return self
-                .legacy
+                .entries
                 .iter()
-                .map(|spot| (upright(*spot), None))
+                .enumerate()
+                .filter_map(|(slot, entry)| {
+                    self.legacy(slot)?;
+                    Some((upright(entry.spot?), Some(slot)))
+                })
                 .collect();
         }
         self.entries
@@ -230,6 +270,13 @@ impl Document {
                 Some((upright(entry.spot?), Some(slot)))
             })
             .collect()
+    }
+
+    /// The legacy entry at `slot`, when the legacy strings are the ones
+    /// Android lists (no structured spot is modelled).
+    pub fn legacy(&self, slot: usize) -> Option<&Entry> {
+        let entry = self.entries.get(slot)?;
+        (entry.spot.is_some() && self.legacy_containers.contains(&entry.container)).then_some(entry)
     }
 
     /// The entry at `slot` with its description and leaf, when Android authors it.
