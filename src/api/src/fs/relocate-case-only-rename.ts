@@ -8,6 +8,7 @@
  */
 import * as path from 'node:path';
 import * as fs from './mirrored.ts';
+import { isLegacyBackupSidecarOf } from './legacy-backup-sidecar.ts';
 import { listPairedSidecars } from './xmp-conflict.ts';
 import { sidecarRenameTarget } from './sidecar-rename.ts';
 import { child as childLogger } from '../log.ts';
@@ -132,9 +133,18 @@ async function renamePrimaryAndSidecars(req: RelocateRequest): Promise<PrimaryRe
     };
   }
 
+  const renamedSidecars = await renameSidecars(req.sourceAbsPath, req.destAbsPath, sourceSidecars);
+  return { ok: true, renamedSidecars };
+}
+
+async function renameSidecars(
+  oldAbsPath: string,
+  newAbsPath: string,
+  sidecars: readonly string[],
+): Promise<SidecarRename[]> {
   const renamedSidecars: SidecarRename[] = [];
-  for (const sidecar of sourceSidecars) {
-    const dest = sidecarRenameTarget(req.sourceAbsPath, req.destAbsPath, sidecar);
+  for (const sidecar of sidecars) {
+    const dest = sidecarRenameTarget(oldAbsPath, newAbsPath, sidecar);
     if (!dest) continue; // defensive — mirrors copyPrimaryAndSidecars
     try {
       await fs.rename(sidecar, dest);
@@ -146,7 +156,18 @@ async function renamePrimaryAndSidecars(req: RelocateRequest): Promise<PrimaryRe
       );
     }
   }
-  return { ok: true, renamedSidecars };
+  return renamedSidecars;
+}
+
+async function renameCompanionLegacySidecars(
+  req: RelocateRequest,
+  companion: SidecarRename | null,
+): Promise<SidecarRename[]> {
+  if (!companion || req.carrySidecars === false) return [];
+  const legacy = (await listPairedSidecars(companion.from)).filter((s) =>
+    isLegacyBackupSidecarOf(companion.from, s),
+  );
+  return renameSidecars(companion.from, companion.to, legacy);
 }
 
 /** Renames the primary + every sidecar that DID rename back to their
@@ -218,7 +239,6 @@ export async function performCaseOnlyRename(
   const renamed = await renamePrimaryAndSidecars(req);
   if (!renamed.ok) return { kind: 'error', error: renamed.error };
   const followed = companion ? [companion] : [];
-  const renames = [...renamed.renamedSidecars, ...followed];
   try {
     if (companion) await fs.rename(companion.from, companion.to);
   } catch (err) {
@@ -228,12 +248,15 @@ export async function performCaseOnlyRename(
       error: `relocate: the stack's JPEG could not follow: ${err instanceof Error ? err.message : String(err)}`,
     };
   }
+  const companionSidecars = await renameCompanionLegacySidecars(req, companion);
+  const allSidecars = [...renamed.renamedSidecars, ...companionSidecars];
+  const renames = [...allSidecars, ...followed];
 
   if (req.onVerified) {
     try {
       await req.onVerified({
         newAbsPath: req.destAbsPath,
-        sidecarPaths: renamed.renamedSidecars.map((s) => s.to),
+        sidecarPaths: allSidecars.map((s) => s.to),
         companionPaths: followed.map((s) => s.to),
         companionSources: followed.map((s) => s.from),
       });
@@ -249,7 +272,7 @@ export async function performCaseOnlyRename(
   return {
     kind: 'relocated',
     newAbsPath: req.destAbsPath,
-    sidecarPaths: renamed.renamedSidecars.map((s) => s.to),
+    sidecarPaths: allSidecars.map((s) => s.to),
     companionPaths: followed.map((s) => s.to),
     renamedOnCollision: false,
   };

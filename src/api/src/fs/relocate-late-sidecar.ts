@@ -25,6 +25,9 @@ export interface LateCarry {
   finalDest: string;
   listed: readonly string[];
   movedCompanions: readonly string[];
+  /** The stack JPEG that moved with the primary (#5929), for its own late sidecars. */
+  movedStackCompanion?: { source: string; dest: string } | null;
+  companionListed?: readonly string[];
   /** The move's rollback list: a late publication is withdrawn with the rest. */
   publications: RelocatePublication[];
 }
@@ -78,6 +81,23 @@ async function publishLateSidecar(
  * exclusive way; one that can't be published stays at the source. Never
  * throws: the move has already been repointed. */
 export async function carryLateSidecars(carry: LateCarry): Promise<MovedSidecar[]> {
+  const primary = await carryOnePhotoNewcomers(carry);
+  if (!carry.movedStackCompanion) return primary;
+  const companion = await carryOnePhotoNewcomers({
+    sourceAbsPath: carry.movedStackCompanion.source,
+    finalDest: carry.movedStackCompanion.dest,
+    listed: [
+      ...carry.listed,
+      ...(carry.companionListed ?? []),
+      ...primary.map((moved) => moved.source),
+    ],
+    movedCompanions: [carry.sourceAbsPath, ...carry.movedCompanions],
+    publications: carry.publications,
+  });
+  return [...primary, ...companion];
+}
+
+async function carryOnePhotoNewcomers(carry: LateCarry): Promise<MovedSidecar[]> {
   return carryNewcomers(carry).catch((err: unknown) => {
     log.warn(
       { err: err instanceof Error ? err.message : err },

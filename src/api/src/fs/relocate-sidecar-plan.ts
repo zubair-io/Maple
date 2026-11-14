@@ -19,6 +19,12 @@ import {
   publishConflictBytes,
 } from './sidecar-ownership.ts';
 import { setAsideUntilCommit, type RelocatePublication } from './relocate-publish.ts';
+import {
+  CompanionCollisionError,
+  mergeCompanionStemSidecars,
+  type RelocateSidecars,
+  type StackCompanionRequest,
+} from './relocate-stack.ts';
 import { readSidecarBytes } from './sidecar-bytes.ts';
 import { serializeSidecarWrite } from './sidecar-write-order.ts';
 
@@ -31,6 +37,10 @@ export interface SidecarPlanEntry {
   replacesOccupant: boolean;
   /** A pre-#5021 old-name edit: one that fails to copy fails the move (#5063). */
   oldName: boolean;
+  /** Whether this sidecar's photo is replacing an occupant. */
+  replace?: boolean;
+  /** For the stack JPEG's sidecar, the JPEG destination a collision reports. */
+  companionDest?: string;
   /** The displaced old-name edit this one takes over, with the bytes the plan read. */
   takesOver: DisplacedEdit | null;
 }
@@ -53,6 +63,14 @@ export interface MovedSidecar {
   dest: string;
   snapshot: Buffer;
   keepSource: boolean;
+  oldName?: boolean;
+}
+
+export interface CompanionSidecarPlanRequest {
+  sourceAbsPath: string;
+  finalDest: string;
+  replace: boolean;
+  sourceSidecars: readonly string[];
 }
 
 export interface SidecarPlanRequest {
@@ -62,6 +80,9 @@ export interface SidecarPlanRequest {
   leavingWithPrimary: readonly string[];
   /** The stack JPEG's destination (#5929): it lands with the primary, so it never claims the stem. */
   arrivingWithPrimary?: readonly string[];
+  /** The stack JPEG relocating with the primary (#5929): its own pre-#5021
+   * `<name>.<ext>.xmp` is planned and carried under its own replace policy. */
+  companion?: CompanionSidecarPlanRequest;
   replace: boolean;
   sourceSidecars: readonly string[];
 }
@@ -98,6 +119,7 @@ type DestinationState = {
   claimedBySibling: boolean;
   /** Replace's displaced photo's old-name edit, as stored, with the bytes the plan read. */
   displaced: DisplacedEdit | null;
+  companionDest?: string;
 };
 
 type DisplacedEdit = { legacy: string; bytes: Buffer };
@@ -167,16 +189,30 @@ async function planEntry(
   const fate = oldName
     ? await oldNameFate(req, dest, state, destination)
     : sidecarFate(req, state, destination);
-  if (fate === 'collide') throw new SidecarCollisionError(dest);
+  if (fate === 'collide') {
+    throw destination.companionDest
+      ? new CompanionCollisionError(destination.companionDest)
+      : new SidecarCollisionError(dest);
+  }
   if (fate === 'stay') return null;
   const replacesOccupant = occupied && !joinsCarried;
   const takesOver = oldName && replacesOccupant ? destination.displaced : null;
-  return { source, dest, samePath, joinsCarried, replacesOccupant, oldName, takesOver };
+  return {
+    source,
+    dest,
+    samePath,
+    joinsCarried,
+    replacesOccupant,
+    oldName,
+    replace: req.replace,
+    companionDest: destination.companionDest,
+    takesOver,
+  };
 }
 
 /** The sidecars that travel with the photo, or `null` when its old-name edit
  * can't be read: moving without it would leave it behind with no photo. */
-export async function ownSidecarsOf(
+async function ownSidecarsOf(
   sourceAbsPath: string,
   mode: 'move' | 'copy',
   carrySidecars: boolean | undefined,
@@ -186,6 +222,25 @@ export async function ownSidecarsOf(
   // A copy leaves the source's edits where they are, so nothing is stranded.
   if (mode !== 'move') return listed;
   return (await oldNameEditUnlisted(sourceAbsPath, listed)) ? null : listed;
+}
+
+/** Sidecars for the primary and its stack JPEG, or `null` when either photo's
+ * old-name backup edit cannot be read. */
+export async function listRelocateSidecars(
+  sourceAbsPath: string,
+  stackCompanion: StackCompanionRequest | undefined,
+  mode: 'move' | 'copy',
+  carrySidecars: boolean | undefined,
+): Promise<RelocateSidecars | null> {
+  const primary = await ownSidecarsOf(sourceAbsPath, mode, carrySidecars);
+  if (primary === null) return null;
+  if (!stackCompanion) return { primary, companion: [] };
+  const companion = await ownSidecarsOf(stackCompanion.sourceAbsPath, mode, carrySidecars);
+  if (companion === null) return null;
+  return {
+    primary: mergeCompanionStemSidecars(primary, stackCompanion, companion),
+    companion,
+  };
 }
 
 /** Decide every sidecar's fate before any byte moves (#4692): a destination
@@ -212,18 +267,63 @@ export async function planSidecars(req: SidecarPlanRequest): Promise<SidecarPlan
     });
     if (entry) entries.push(entry);
   }
-  const incomingOldName = entries.find((entry) => entry.oldName);
-  const takenOver =
-    incomingOldName !== undefined &&
-    displacedOldName !== null &&
-    (await sameSidecarFile(displacedOldName.legacy, incomingOldName.dest));
+  const companionPlan = req.companion
+    ? await planCompanionOldNames(req.companion)
+    : { entries: [], staleDisplacedOldNames: [] };
+  const takenOver = await oldNameTakenOver(entries, displacedOldName);
   return {
-    entries,
+    entries: [...entries, ...companionPlan.entries],
     sourceClaimedBySibling,
     destinationClaimedBySibling,
     destinationHadPrimary,
-    staleDisplacedOldNames: takenOver ? displacedOldNames.slice(1) : displacedOldNames,
+    staleDisplacedOldNames: [
+      ...(takenOver ? displacedOldNames.slice(1) : displacedOldNames),
+      ...companionPlan.staleDisplacedOldNames,
+    ],
     replace: req.replace,
+  };
+}
+
+async function oldNameTakenOver(
+  entries: readonly SidecarPlanEntry[],
+  displaced: DisplacedEdit | null,
+): Promise<boolean> {
+  const incoming = entries.find((entry) => entry.oldName);
+  return (
+    incoming !== undefined &&
+    displaced !== null &&
+    (await sameSidecarFile(displaced.legacy, incoming.dest))
+  );
+}
+
+async function planCompanionOldNames(
+  companion: CompanionSidecarPlanRequest,
+): Promise<{ entries: SidecarPlanEntry[]; staleDisplacedOldNames: DisplacedEdit[] }> {
+  const req: SidecarPlanRequest = {
+    sourceAbsPath: companion.sourceAbsPath,
+    finalDest: companion.finalDest,
+    leavingWithPrimary: [],
+    replace: companion.replace,
+    sourceSidecars: companion.sourceSidecars.filter((s) =>
+      isLegacyBackupSidecarOf(companion.sourceAbsPath, s),
+    ),
+  };
+  const displacedOldNames =
+    req.replace && (await exists(req.finalDest)) ? await displacedOldNameEdits(req) : [];
+  const displaced = displacedOldNames[0] ?? null;
+  const entries: SidecarPlanEntry[] = [];
+  for (const source of req.sourceSidecars) {
+    const entry = await planEntry(req, source, {
+      claimedBySibling: false,
+      displaced,
+      companionDest: companion.finalDest,
+    });
+    if (entry) entries.push(entry);
+  }
+  const takenOver = await oldNameTakenOver(entries, displaced);
+  return {
+    entries,
+    staleDisplacedOldNames: takenOver ? displacedOldNames.slice(1) : displacedOldNames,
   };
 }
 
@@ -266,7 +366,10 @@ async function tryCopySidecar(
   try {
     return await publishSidecarSnapshot(sidecar, dest, createdPaths);
   } catch (err) {
-    if (err instanceof SidecarCollisionError || (await oldNameCopyFatal(entry, replace))) throw err;
+    if (err instanceof SidecarCollisionError) {
+      throw entry.companionDest ? new CompanionCollisionError(entry.companionDest) : err;
+    }
+    if (await oldNameCopyFatal(entry, entry.replace ?? replace)) throw err;
     log.warn(
       { sidecar, dest, err: err instanceof Error ? err.message : err },
       'relocate: sidecar copy failed — original left in place',
@@ -291,7 +394,7 @@ export async function carryPlannedSidecars(
     if (entry.joinsCarried) {
       copiedSidecars.push(entry.dest);
       const snapshot = await joinCarriedSidecar(entry.source, entry.dest);
-      carried.push({ source: entry.source, dest: entry.dest, snapshot });
+      carried.push({ source: entry.source, dest: entry.dest, snapshot, oldName: entry.oldName });
       continue;
     }
     if (entry.takesOver) {
@@ -302,7 +405,7 @@ export async function carryPlannedSidecars(
     const snapshot = await tryCopySidecar(entry, createdPaths, plan.replace);
     if (!snapshot) continue;
     copiedSidecars.push(entry.dest);
-    carried.push({ source: entry.source, dest: entry.dest, snapshot });
+    carried.push({ source: entry.source, dest: entry.dest, snapshot, oldName: entry.oldName });
   }
   return { copiedSidecars, carried };
 }
@@ -321,7 +424,7 @@ async function retireDisplaced(
     const now = await readSidecarBytes(legacy);
     if (now === null) return;
     const photo = legacy.slice(0, -'.xmp'.length);
-    if (!now.equals(bytes) && !(await publishConflictBytes(photo, now))) {
+    if (!now.equals(bytes) && !(await publishConflictBytes(photo, now, createdPaths))) {
       throw new Error(`relocate: no free conflict name beside ${photo}`);
     }
     await setAsideUntilCommit(legacy, createdPaths);

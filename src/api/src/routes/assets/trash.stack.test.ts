@@ -204,4 +204,24 @@ describe('a RAW+JPEG stack in the Trash #5930', () => {
     expect(await read('Trip/IMG_1.restored.xmp')).toBe('the jpeg edits');
     expect(await read('Trip/IMG_1.xmp')).toBe('someone else edits');
   });
+
+  it("trashes and restores the JPEG's pre-migration backup sidecar with the stack", async () => {
+    const mapleEdit =
+      '<x:xmpmeta xmlns:papp="http://ns.justmaple.app/photo/1.0/">jpeg backup</x:xmpmeta>';
+    const stack = await seedStack();
+    await put('Trip/IMG_1.JPG.xmp', mapleEdit);
+    await put('.maple/trash/Trip/IMG_1.JPG.xmp', mapleEdit + '-older');
+
+    const res = await trash(stack.raw, `intent=trash&companion=${stack.jpeg}`);
+
+    expect(res.status).toBe(204);
+    expect(await read('.maple/trash/Trip/IMG_1.1.JPG.xmp')).toBe(mapleEdit);
+    expect(await exists('Trip/IMG_1.JPG.xmp')).toBe(false);
+
+    expect((await restore(stack.raw)).status).toBe(200);
+    expect((await restore(stack.jpeg)).status).toBe(200);
+
+    expect(await read('Trip/IMG_1.JPG.xmp')).toBe(mapleEdit);
+    expect(await exists('.maple/trash/Trip/IMG_1.1.JPG.xmp')).toBe(false);
+  });
 });

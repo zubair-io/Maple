@@ -20,27 +20,42 @@ import { child as childLogger } from '../log.ts';
 
 const log = childLogger('fs/relocate');
 
+export interface DeleteOriginalsRequest {
+  sourceAbsPath: string;
+  movedTo: string;
+  carriesSidecars: boolean;
+  movedSidecars: MovedSidecar[];
+  movedCompanionSources: string[];
+  movedStackCompanion?: { source: string; dest: string } | null;
+  beforeSourceDelete?: () => Promise<void>;
+}
+
 /** Step 6, move mode only: delete the original primary + every sidecar that
  * was actually copied (one left in place on a copy failure keeps its
  * original, per `tryCopySidecar`'s best-effort contract). Best-effort —
  * a failure here leaves a harmless duplicate on disk, the accepted failure
  * direction, never data loss, so it's logged rather than thrown. */
-export async function deleteOriginals(
-  sourceAbsPath: string,
-  movedTo: string,
-  carriesSidecars: boolean,
-  movedSidecars: MovedSidecar[],
-  movedCompanionSources: string[],
-  beforeSourceDelete?: () => Promise<void>,
-): Promise<void> {
+export async function deleteOriginals(req: DeleteOriginalsRequest): Promise<void> {
+  const {
+    sourceAbsPath,
+    movedTo,
+    carriesSidecars,
+    movedSidecars,
+    movedCompanionSources,
+    movedStackCompanion,
+    beforeSourceDelete,
+  } = req;
   await beforeSourceDelete?.();
+  const extraCompanions = movedStackCompanion
+    ? movedCompanionSources.filter((src) => src !== movedStackCompanion.source)
+    : movedCompanionSources;
   const removals = [
     ...movedSidecars.map((moved) => ({
       src: moved.source,
       remove: () =>
         settleCarriedSidecar(moved.source, moved.dest, moved.snapshot, moved.keepSource, movedTo),
     })),
-    ...movedCompanionSources.map((src) => ({ src, remove: () => fs.unlink(src) })),
+    ...extraCompanions.map((src) => ({ src, remove: () => fs.unlink(src) })),
   ];
   for (const { src, remove } of removals) {
     await (async () => {
@@ -53,6 +68,23 @@ export async function deleteOriginals(
       );
     });
   }
+  await removeMovedPhoto(sourceAbsPath, movedTo, carriesSidecars, beforeSourceDelete);
+  if (movedStackCompanion) {
+    await removeMovedPhoto(
+      movedStackCompanion.source,
+      movedStackCompanion.dest,
+      carriesSidecars,
+      beforeSourceDelete,
+    );
+  }
+}
+
+async function removeMovedPhoto(
+  sourceAbsPath: string,
+  movedTo: string,
+  carriesSidecars: boolean,
+  beforeSourceDelete?: () => Promise<void>,
+): Promise<void> {
   // Sidecars have settled, so a lost lease keeps the original; throwing would revert their copies.
   if (!(await leaseStillHeld(sourceAbsPath, beforeSourceDelete))) return;
   // A move that carries no sidecars (`moveFileToTrash`) leaves every .xmp where
@@ -71,7 +103,6 @@ export async function deleteOriginals(
   if (!(await leaseStillHeld(sourceAbsPath, beforeSourceDelete))) return;
   await removePhotoUnlessOldNameEditStays(sourceAbsPath, 'relocate');
 }
-
 async function leaseStillHeld(
   sourceAbsPath: string,
   beforeSourceDelete?: () => Promise<void>,
