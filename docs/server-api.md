@@ -70,7 +70,7 @@ Handoff issuance (`native-code` and `lan-handoff`) also requires proof for the s
 | GET    | `/api/users`                         | owner          | Account roster: id, optional email, role, permissions                                                                                                                    |
 | PATCH  | `/api/users/:id`                     | owner          | Set `file_access` and/or `role`. Refuses to demote the last owner. Changes land only in newly minted tokens — an in-flight one keeps its old claims for up to 15 minutes |
 | GET    | `/api/admin/service-api-keys`        | owner          | List service keys (metadata only; the secret is shown once at creation)                                                                                                  |
-| POST   | `/api/admin/service-api-keys`        | owner +step-up | Mint a key. Body: `{ name, scopes?, expiresAt? }`; the only scope today is `assets:search`                                                                               |
+| POST   | `/api/admin/service-api-keys`        | owner +step-up | Mint a key owned by the caller. Body: `{ name, scopes?, expiresAt? }`; scopes: `assets:search` (default), `assets:read`, `people:read`                                   |
 | DELETE | `/api/admin/service-api-keys/:keyId` | owner +step-up | Revoke a key                                                                                                                                                             |
 
 ## Libraries and folders
@@ -279,6 +279,37 @@ Common search filters: `q` (filename substring), `placeQuery` (full-text over pl
 | POST   | `/api/people/assign`                       | bearer | Manual face-to-person override                                                                                                                                                                                                                  |
 | POST   | `/api/people/hide`                         | bearer | Hide a single face so clustering ignores it                                                                                                                                                                                                     |
 | POST   | `/api/admin/faces/purge-subthreshold`      | bearer | Audit (default) or, with `?apply=true`, remove faces below the configured minimum detection size. Preserves hidden faces always, and assigned faces unless `includeAssigned=true`. Removal is an atomic `$pull`, not a read-modify-write        |
+
+## Service photo API
+
+Read-only access to one person's photos for an external integration (for example a chat assistant), authenticated by a service key rather than a user session. In short:
+
+1. The owner mints a key in Settings → Workers → integration keys (`POST /api/admin/service-api-keys`), ticking the scopes it may use. The key belongs to the user who minted it.
+2. The integration sends `Authorization: Bearer maple_sk_…` on every request.
+3. Everything it can see is limited to that user's own photos: live (not trashed, file still present), not hidden, still images with a capture date. Hidden, excluded and merged-away people are never shown, and a photo showing an excluded person is left out, as everywhere else in the app.
+4. Asking for any other photo — someone else's, a hidden one, one that does not exist — answers the same 404.
+
+| Method | Path                                   | Scope           | Purpose                                                                                                  |
+| ------ | -------------------------------------- | --------------- | -------------------------------------------------------------------------------------------------------- |
+| GET    | `/api/service/people`                  | `people:read`   | `{ people: [{ id, name, autoNamed, photoCount, coverAssetId }] }` — the people in the owner's photos     |
+| POST   | `/api/service/photos/search`           | `assets:search` | `{ total, days, photos, nextCursor }` for a filtered search (below). Shares the per-key rate limit       |
+| GET    | `/api/service/photos/:assetId`         | `assets:read`   | One photo, in the same shape as a `photos[]` entry                                                       |
+| GET    | `/api/service/photos/:assetId/thumb`   | `assets:read`   | The thumbnail (AVIF), generated on first request and cached, exactly as `/api/thumb/:slug/*` serves it   |
+| GET    | `/api/service/photos/:assetId/preview` | `assets:read`   | The 1280px preview (AVIF), generated on first request and cached, exactly as `/api/preview/:slug/*` does |
+
+Errors are `{ error, message }`: 401 for a missing, unknown, expired or revoked key (`error` says which), 403 `insufficient_scope`, 400 `invalid_request` or `invalid_cursor`, 404 `not_found`, 429 `rate_limit_exceeded` with `Retry-After`. Images answer with `Cache-Control: private, max-age=0, must-revalidate` and an `ETag`, and honour `If-None-Match` with a 304.
+
+**People.** A person is listed when they appear in at least one of the owner's visible photos; `photoCount` counts those photos. `autoNamed` is true for the clustering job's placeholder names (`Person 12`). `coverAssetId` is the person's chosen cover when it is one of the owner's photos, otherwise their newest such photo, so it always works with the photo endpoints. Named people come first, then by photo count.
+
+**Search body.** `{ people?, place?, from?, to?, query?, limit?, cursor? }`; at least one of the first five is required, otherwise 400.
+
+- `people`: person ids; a photo must show **all** of them. An id that is unknown, hidden, excluded or merged away matches nothing (an empty result, not an error).
+- `place`: free text matched as whole words, ignoring case and accents, against the photo's locality, region, "locality, region" label, country (stored name, ISO code and English name), the geocoder's display name and every address part. "windham" finds Windham, NY; "france" finds every photo in France; "paris" does not find Parish Road.
+- `from` / `to`: an ISO 8601 date or date-time, inclusive at the precision given (`to: "2024-07-04"` includes that whole day). Capture time is the camera's wall-clock time from EXIF (`DateTimeOriginal`) as indexed, which Maple stores with a `Z` suffix but never shifts to UTC; a bound's offset is therefore ignored and its wall-clock time compared directly.
+- `query`: free text through the app's hybrid search (the in-process engine, or the database's full-text index while it is unavailable), with every other filter applied inside the ranking. A query answers from a ranked window of the best few hundred matches (widened further when the filters thin it), and `total` and `days` describe that window.
+- `limit`: 1–100, default 24. `cursor`: the previous page's `nextCursor`; a cursor from a different search is refused with 400 `invalid_cursor`.
+
+**Search response.** Photos are newest first (by capture time, then id), except a request with only `query`, which keeps relevance order. Each photo is `{ assetId, capturedAt, place, lat, lng, people }`: `capturedAt` is the stored capture time described above; `place` is `{ label, locality, region, countryCode }` or null when the photo has no geocoded place (`label` is "Windham, New York", or whichever half exists, or the country's English name); `lat`/`lng` are the EXIF GPS position or null; `people` lists the visible people in it. `days` covers every match, not just the page: one `{ date, count, place }` per capture day (the `YYYY-MM-DD` of the capture time), newest first, at most 366, with `place` the day's most common place label or null. A RAW+JPEG pair counts once, as its RAW.
 
 ## Geocoding
 
