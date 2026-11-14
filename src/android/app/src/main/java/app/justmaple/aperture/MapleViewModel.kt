@@ -566,7 +566,7 @@ internal constructor(
 
     fun surface(surface: Surface?, width: Int, height: Int, wideColor: Boolean = false) {
         cancelNativeDetail()
-        mutable.update { it.copy(nativeSurfaceRevision = it.nativeSurfaceRevision + 1) }
+        mutable.update { it.copy(nativeDetailRevision = it.nativeDetailRevision + 1) }
         val binding = renderer.recordSurface(surface, width, height, wideColor)
         val token = generation
         if (state.value.mode == PhotoMode.Edit) mutable.update { it.copy(rendering = true) }
@@ -593,7 +593,9 @@ internal constructor(
 
     // #4669: the renderer adopted this generation's name-only imported Auto pair and re-rendered
     // once. Every snapshot that still carries the request shows it, so the next draw neither
-    // pushes the As Shot sliders back nor records a spurious undo step.
+    // pushes the As Shot sliders back nor records a spurious undo step. A native detail patch
+    // developed before it shows As Shot under an unchanged document, so it is retired and
+    // PhotoCanvas asks for a replacement.
     private fun importedWhiteBalanceAdopted(epoch: Int, adopted: Result<Map<String, Float>>) {
         viewModelScope.launch {
             if (epoch != generation) return@launch
@@ -604,7 +606,11 @@ internal constructor(
                     val show = { snapshot: EditSnapshot -> snapshot.withImportedWhiteBalance(pair) }
                     openingEdit = openingEdit?.let(show)
                     history.rewrite(show)
-                    mutable.update { it.copy(values = show(EditSnapshot(it.values, it.document)).values) }
+                    cancelNativeDetail()
+                    mutable.update {
+                        it.copy(values = show(EditSnapshot(it.values, it.document)).values,
+                            nativeDetailRevision = it.nativeDetailRevision + 1)
+                    }
                 }
                 .onFailure { fail(it, "Could not render photo") }
         }

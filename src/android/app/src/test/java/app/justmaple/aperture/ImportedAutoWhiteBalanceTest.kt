@@ -41,8 +41,14 @@ class ImportedAutoWhiteBalanceTest {
         fun adopt(outcome: Result<Map<String, Float>> = Result.success(ESTIMATE)) =
             requireNotNull(listener)(generation, outcome)
         override suspend fun autoWhiteBalance(document: String): WhiteBalanceRecommendation = error("Not expected")
-        override suspend fun nativeDimensions(photo: Photo): NativeImageSize? = null
-        override suspend fun nativeDetail(request: NativeDetailRequest): android.graphics.Bitmap = error("Not expected")
+        override suspend fun modelValues(document: String): Map<String, Float> = error("Settings paste is not exercised by this test")
+        override suspend fun nativeDimensions(photo: Photo): NativeImageSize? = NativeImageSize(4000, 3000)
+        override fun presentationSize(size: NativeImageSize, crop: app.justmaple.aperture.ui.CropRect) = size
+        val detailRequests = mutableListOf<NativeDetailRequest>()
+        override suspend fun nativeDetail(request: NativeDetailRequest): android.graphics.Bitmap {
+            detailRequests += request
+            return android.graphics.Bitmap.createBitmap(10, 10, android.graphics.Bitmap.Config.ARGB_8888)
+        }
         override fun cancelNativeDetail() {}
         override fun recordSurface(next: Surface?, w: Int, h: Int, wideColor: Boolean) =
             EditorRenderer.SurfaceBinding(next, w, h, wideColor)
@@ -55,11 +61,13 @@ class ImportedAutoWhiteBalanceTest {
         override fun close() {}
     }
 
+    private val main = UnconfinedTestDispatcher()
+
     private suspend fun exercise(
         document: XmpDocument = XmpDocument().withAttribute("crs:WhiteBalance", "Auto"),
         body: suspend (MapleViewModel, AdoptingRenderer, PhotoLibrary, Photo) -> Unit,
     ) {
-        Dispatchers.setMain(UnconfinedTestDispatcher())
+        Dispatchers.setMain(main)
         val app = RuntimeEnvironment.getApplication()
         val raw = File.createTempFile("imported-auto-wb-", ".dng", app.cacheDir).apply { writeText("renderer seam") }
         val photo = Photo(Uri.fromFile(raw), raw.name, raw.length(), raw.lastModified(), null)
@@ -152,6 +160,27 @@ class ImportedAutoWhiteBalanceTest {
             model.undo()
             assertEquals(5100f to 9f, model.whiteBalance())
             assertNull(model.state.value.document.attribute("crs:Temperature"))
+        }
+    }
+
+    @Test
+    fun theLandedPairRetiresADetailPatchDevelopedBeforeIt() = runBlocking {
+        exercise { model, renderer, _, _ ->
+            model.prepareNativeDimensions()
+            withTimeout(10_000) { model.state.first { it.nativeImageSize != null } }
+            model.requestNativeDetail(NativeRegion(1000, 1000, 500, 400))
+            main.scheduler.advanceTimeBy(151)
+            main.scheduler.runCurrent()
+            val asShot = withTimeout(10_000) { model.state.first { it.nativeDetail != null } }.nativeDetail!!
+            val revision = model.state.value.nativeDetailRevision
+            renderer.adopt()
+            assertNull("The As Shot patch no longer covers the view", model.state.value.nativeDetail)
+            assertTrue(asShot.bitmap.isRecycled)
+            assertEquals("PhotoCanvas asks for a replacement", revision + 1, model.state.value.nativeDetailRevision)
+            model.requestNativeDetail(NativeRegion(1000, 1000, 500, 400))
+            main.scheduler.advanceTimeBy(151)
+            main.scheduler.runCurrent()
+            assertEquals("The same region renders again", 2, renderer.detailRequests.size)
         }
     }
 

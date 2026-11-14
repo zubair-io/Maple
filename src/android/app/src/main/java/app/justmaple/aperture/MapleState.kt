@@ -36,7 +36,9 @@ data class MapleState(
     val nativeDetailBusy: Boolean = false,
     val nativeDimensionsLoading: Boolean = false,
     val nativeDetailError: String? = null,
-    val nativeSurfaceRevision: Int = 0,
+    /** Bumped when native detail pixels go stale without a document change: a new display target,
+     *  or the imported Auto pair landing (#4669). PhotoCanvas asks for a replacement patch. */
+    val nativeDetailRevision: Int = 0,
     val cropToolActive: Boolean = false,
     val cropAspect: app.justmaple.aperture.ui.CropAspectId = app.justmaple.aperture.ui.CropAspectId.Free,
     val cropAspectSwapped: Boolean = false,

@@ -130,7 +130,7 @@ internal fun PhotoCanvas(
         CanvasZoomContinuity(zoomState, CanvasZoomScope(state.selected?.key, state.mode, showCropOverlay),
             state.nativeImageSize, presentedCrop, fallbackDims, viewportPxW, viewportPxH)
         LaunchedEffect(state.selected?.key, state.mode, state.document, state.comparingBefore,
-            state.nativeSurfaceRevision,
+            state.nativeDetailRevision,
             state.values.isEmpty(), adopted, state.nativeImageSize, showCropOverlay,
             zoomState.pixelScale, zoomState.panX, zoomState.panY, viewportPxW, viewportPxH) {
             if (!zoomState.isZoomed || showCropOverlay || zoomState.pixelScale < 1f) {
