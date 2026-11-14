@@ -254,4 +254,117 @@ describe('a RAW+JPEG stack relocated as one unit #5929', () => {
     expect(await read('a/IMG_1.JPG')).toBe('bytes of a/IMG_1.JPG');
     expect(await exists('b/IMG_1.xmp')).toBe(false);
   });
+
+  const maple = (label: string) =>
+    `<x:xmpmeta xmlns:papp="http://ns.justmaple.app/photo/1.0/">${label}</x:xmpmeta>`;
+  const darktable = '<x:xmpmeta xmlns:darktable="http://darktable.sf.net/"/>';
+
+  test("carries the JPEG's pre-migration backup sidecar on move and rename, even when a sibling keeps the stem", async () => {
+    const stack = await seedStack();
+    await put('a/IMG_1.JPG.xmp', maple('jpeg backup edit'));
+    await put('a/IMG_1.HEIC', 'staying sibling');
+
+    const moved = await moveStack(stack, {});
+
+    expect(moved.kind).toBe('relocated');
+    expect(await read('b/IMG_1.JPG.xmp')).toBe(maple('jpeg backup edit'));
+    expect(await exists('a/IMG_1.JPG.xmp')).toBe(false);
+    expect(await read('a/IMG_1.xmp')).toBe('the stack edits');
+
+    const renamed = await moveStack(stack, {
+      destinationPath: 'b',
+      destinationFilename: 'Trip.CR3',
+    });
+
+    expect(renamed.kind).toBe('relocated');
+    expect(await read('b/Trip.JPG.xmp')).toBe(maple('jpeg backup edit'));
+    expect(await exists('b/IMG_1.JPG.xmp')).toBe(false);
+  });
+
+  test('a taken or stranded JPEG old-name sidecar slot skips under Skip and suffixes under Keep Both', async () => {
+    const stack = await seedStack();
+    await put('a/IMG_1.JPG.xmp', maple('jpeg backup edit'));
+    await put('b/IMG_1.JPG.xmp', darktable);
+
+    const skipped = await moveStack(stack, { collision: 'replace', companionCollision: 'skip' });
+
+    expect(skipped).toEqual({
+      kind: 'skipped',
+      reason: 'collision',
+      collisionFilename: 'IMG_1.JPG',
+    });
+    expect(await read('a/IMG_1.JPG.xmp')).toBe(maple('jpeg backup edit'));
+
+    const suffixed = await moveStack(stack, { collision: 'keep-both' });
+
+    expect(suffixed).toMatchObject({
+      kind: 'relocated',
+      newFilename: 'IMG_1.1.CR3',
+      companion: { newFilename: 'IMG_1.1.JPG' },
+    });
+    expect(await read('b/IMG_1.1.JPG.xmp')).toBe(maple('jpeg backup edit'));
+    expect(await read('b/IMG_1.JPG.xmp')).toBe(darktable);
+    expect(await exists('a/IMG_1.JPG.xmp')).toBe(false);
+  });
+
+  test('Replace on the JPEG retires its displaced old-name edit and restores it on rollback', async () => {
+    const stack = await seedStack();
+    await put('a/IMG_1.JPG.xmp', maple('incoming jpeg edit'));
+    await put('b/IMG_1.CR3', 'unindexed raw');
+    await put('b/IMG_1.JPG', 'unindexed jpeg');
+    await put('b/IMG_1.JPG.xmp', maple('displaced jpeg edit'));
+
+    const failed = await relocateFile({
+      sourceAbsPath: at('a/IMG_1.CR3'),
+      destAbsPath: at('b/IMG_1.CR3'),
+      mode: 'move',
+      collision: 'replace',
+      stackCompanion: { sourceAbsPath: at('a/IMG_1.JPG'), replace: true },
+      onVerified: () => Promise.reject(new Error('db failed')),
+    });
+
+    expect(failed.kind).toBe('error');
+    expect(await read('b/IMG_1.JPG')).toBe('unindexed jpeg');
+    expect(await read('b/IMG_1.JPG.xmp')).toBe(maple('displaced jpeg edit'));
+    expect(await read('a/IMG_1.JPG.xmp')).toBe(maple('incoming jpeg edit'));
+
+    const moved = await moveStack(stack, { collision: 'replace', companionCollision: 'replace' });
+
+    expect(moved.kind).toBe('relocated');
+    expect(await read('b/IMG_1.JPG.xmp')).toBe(maple('incoming jpeg edit'));
+    expect(await exists('a/IMG_1.JPG.xmp')).toBe(false);
+  });
+
+  test("Replace on the JPEG keeps another tool's file at the old-name slot and carries the JPEG's edit as a conflict copy", async () => {
+    const stack = await seedStack();
+    await put('a/IMG_1.JPG.xmp', maple('incoming jpeg edit'));
+    await put('b/IMG_1.JPG', 'unindexed jpeg');
+    await put('b/IMG_1.JPG.xmp', darktable);
+
+    const moved = await moveStack(stack, { collision: 'replace', companionCollision: 'replace' });
+
+    expect(moved.kind).toBe('relocated');
+    expect(await read('b/IMG_1.JPG.xmp')).toBe(darktable);
+    expect(await read('b/IMG_1 (conflict from move).xmp')).toBe(maple('incoming jpeg edit'));
+    expect(await exists('a/IMG_1.JPG.xmp')).toBe(false);
+    expect(await exists('a/IMG_1.JPG')).toBe(false);
+  });
+
+  test('a late JPEG old-name backup edit arriving mid-move follows the stack', async () => {
+    await seedStack();
+
+    const outcome = await relocateFile({
+      sourceAbsPath: at('a/IMG_1.CR3'),
+      destAbsPath: at('b/IMG_1.CR3'),
+      mode: 'move',
+      collision: 'auto-suffix',
+      stackCompanion: { sourceAbsPath: at('a/IMG_1.JPG'), replace: false },
+      onVerified: () => put('a/IMG_1.JPG.xmp', maple('late jpeg edit')),
+    });
+
+    expect(outcome.kind).toBe('relocated');
+    expect(await read('b/IMG_1.JPG.xmp')).toBe(maple('late jpeg edit'));
+    expect(await exists('a/IMG_1.JPG.xmp')).toBe(false);
+    expect(await exists('a/IMG_1.JPG')).toBe(false);
+  });
 });

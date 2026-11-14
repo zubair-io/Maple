@@ -50,7 +50,6 @@
 import * as fs from './mirrored.ts';
 import * as path from 'node:path';
 import { withReplaceSidecarFence } from './relocate-replace-fence.ts';
-import { isLegacyBackupSidecarOf } from './legacy-backup-sidecar.ts';
 import {
   PublishCollisionError,
   copyVerifiedIntoPlace,
@@ -70,11 +69,11 @@ import {
 import {
   planSidecars,
   carryPlannedSidecars,
+  listRelocateSidecars,
   removeStaleDestinationSidecars,
   sourceSidecarStays,
   type MovedSidecar,
   type SidecarPlan,
-  ownSidecarsOf,
 } from './relocate-sidecar-plan.ts';
 import { carryLateSidecars } from './relocate-late-sidecar.ts';
 import { deleteOriginals } from './relocate-originals.ts';
@@ -82,8 +81,9 @@ import {
   CompanionCollisionError,
   carryStackCompanion,
   caseOnlyCompanionRename,
-  companionLeaving,
+  stackCompanionSidecarPlan,
   stackCompanionTarget,
+  type RelocateSidecars,
   type StackCompanionRequest,
 } from './relocate-stack.ts';
 
@@ -214,6 +214,7 @@ interface SidecarCopyResult {
   movedSidecars: MovedSidecar[];
   companionPaths: string[];
   movedCompanionSources: string[];
+  movedStackCompanion: { source: string; dest: string } | null;
 }
 
 /** Best-effort carry of every extra companion (#2667) alongside the primary,
@@ -222,7 +223,9 @@ async function carryCompanions(
   req: RelocateRequest,
   finalDest: string,
   createdPaths: RelocatePublication[],
-): Promise<Pick<SidecarCopyResult, 'companionPaths' | 'movedCompanionSources'>> {
+): Promise<
+  Pick<SidecarCopyResult, 'companionPaths' | 'movedCompanionSources' | 'movedStackCompanion'>
+> {
   const companionPaths: string[] = [];
   const movedCompanionSources: string[] = [];
   for (const companion of req.extraCompanionAbsPaths ?? []) {
@@ -233,11 +236,15 @@ async function carryCompanions(
     movedCompanionSources.push(companion);
   }
   const stackDest = await carryStackCompanion(req.stackCompanion, finalDest, createdPaths);
-  if (stackDest && req.stackCompanion) {
-    companionPaths.push(stackDest);
-    movedCompanionSources.push(req.stackCompanion.sourceAbsPath);
+  const movedStackCompanion =
+    stackDest && req.stackCompanion
+      ? { source: req.stackCompanion.sourceAbsPath, dest: stackDest }
+      : null;
+  if (movedStackCompanion) {
+    companionPaths.push(movedStackCompanion.dest);
+    movedCompanionSources.push(movedStackCompanion.source);
   }
-  return { companionPaths, movedCompanionSources };
+  return { companionPaths, movedCompanionSources, movedStackCompanion };
 }
 
 /** Steps 2-4: copy + verify + publish the primary, then carry every planned
@@ -262,7 +269,7 @@ async function copyPrimaryAndSidecars(
 
   const { copiedSidecars, carried } = await carryPlannedSidecars(plan, createdPaths);
 
-  const { companionPaths, movedCompanionSources } = await carryCompanions(
+  const { companionPaths, movedCompanionSources, movedStackCompanion } = await carryCompanions(
     req,
     finalDest,
     createdPaths,
@@ -289,9 +296,15 @@ async function copyPrimaryAndSidecars(
   );
   const movedSidecars = carried.map((entry) => ({
     ...entry,
-    keepSource: keepSource && !isLegacyBackupSidecarOf(req.sourceAbsPath, entry.source),
+    keepSource: keepSource && !entry.oldName,
   }));
-  return { copiedSidecars, movedSidecars, companionPaths, movedCompanionSources };
+  return {
+    copiedSidecars,
+    movedSidecars,
+    companionPaths,
+    movedCompanionSources,
+    movedStackCompanion,
+  };
 }
 
 /** Step 5: run the caller's identity-repoint hook (if any) between the
@@ -361,13 +374,18 @@ async function refuseSameFile(req: RelocateRequest): Promise<RelocateOutcome | n
 }
 
 async function relocateWithCollisionRetry(req: RelocateRequest): Promise<RelocateOutcome> {
-  const ownSidecars = await ownSidecarsOf(req.sourceAbsPath, req.mode, req.carrySidecars);
-  if (ownSidecars === null) {
+  const sidecars = await listRelocateSidecars(
+    req.sourceAbsPath,
+    req.stackCompanion,
+    req.mode,
+    req.carrySidecars,
+  );
+  if (sidecars === null) {
     return errorOutcome(new Error("relocate: the photo's old-name backup edit can't be read"));
   }
   for (let attempt = 0; ; attempt++) {
     try {
-      return await relocateOnce(req, ownSidecars);
+      return await relocateOnce(req, sidecars);
     } catch (err) {
       if (!(err instanceof PublishCollisionError)) return errorOutcome(err);
       if (isSuffixing(req.collision) && attempt < MAX_COLLISION_RETRIES) continue;
@@ -400,16 +418,16 @@ function skippedAt(req: RelocateRequest, collidedAt: string): RelocateOutcome {
  * name, so suffixing policies can retry the next free name. */
 async function relocateOnce(
   req: RelocateRequest,
-  ownSidecars: readonly string[],
+  sidecars: RelocateSidecars,
 ): Promise<RelocateOutcome> {
   // 1. Resolve the destination per the caller's collision policy.
-  const resolution = await resolveDestination(req, ownSidecars);
+  const resolution = await resolveDestination(req, sidecars);
   if (resolution.kind === 'skip') {
     return skippedAt(req, resolution.collidedAt);
   }
   const { finalDest } = resolution;
   await fs.mkdir(path.dirname(finalDest), { recursive: true });
-  const execute = () => relocateResolved(req, finalDest, ownSidecars);
+  const execute = () => relocateResolved(req, finalDest, sidecars);
   const companion = req.stackCompanion?.sourceAbsPath;
   return replacesOccupants(req) && req.carrySidecars !== false
     ? withReplaceSidecarFence(
@@ -425,25 +443,28 @@ async function relocateOnce(
 async function relocateResolved(
   req: RelocateRequest,
   finalDest: string,
-  ownSidecars: readonly string[],
+  sidecars: RelocateSidecars,
 ): Promise<RelocateOutcome> {
-  const companion = req.stackCompanion?.sourceAbsPath;
+  const stackPlan = await stackCompanionSidecarPlan(
+    req.stackCompanion,
+    finalDest,
+    sidecars.companion,
+    isSuffixing(req.collision),
+  );
   const plan = await planSidecars({
     sourceAbsPath: req.sourceAbsPath,
     finalDest,
-    leavingWithPrimary: [
-      ...(req.extraCompanionAbsPaths ?? []),
-      ...(await companionLeaving(req.stackCompanion, finalDest)),
-    ],
-    arrivingWithPrimary: companion ? [stackCompanionTarget(finalDest, companion)] : [],
-    replace: replacesOccupants(req),
-    sourceSidecars: ownSidecars,
+    leavingWithPrimary: [...(req.extraCompanionAbsPaths ?? []), ...stackPlan.leaving],
+    arrivingWithPrimary: stackPlan.arriving,
+    companion: stackPlan.companion,
+    replace: req.collision === 'replace',
+    sourceSidecars: sidecars.primary,
   });
 
   const createdPaths: RelocatePublication[] = [];
   const progress = { repointed: false };
   try {
-    return await copyRepointDelete(req, finalDest, ownSidecars, plan, createdPaths, progress);
+    return await copyRepointDelete(req, finalDest, sidecars, plan, createdPaths, progress);
   } catch (err) {
     if (!progress.repointed) await revertCreated(createdPaths);
     if (err instanceof PublishCollisionError && !progress.repointed) throw err;
@@ -460,7 +481,7 @@ async function relocateResolved(
 async function copyRepointDelete(
   req: RelocateRequest,
   finalDest: string,
-  ownSidecars: readonly string[],
+  sidecars: RelocateSidecars,
   plan: SidecarPlan,
   createdPaths: RelocatePublication[],
   progress: { repointed: boolean },
@@ -468,8 +489,13 @@ async function copyRepointDelete(
   await req.onDestinationPrepared?.(finalDest);
   // 2-4. Copy + verify the primary, then carry the sidecars + any extra
   // companions (#2667) alongside.
-  const { copiedSidecars, movedSidecars, companionPaths, movedCompanionSources } =
-    await copyPrimaryAndSidecars(req, finalDest, ownSidecars, plan, createdPaths);
+  const {
+    copiedSidecars,
+    movedSidecars,
+    companionPaths,
+    movedCompanionSources,
+    movedStackCompanion,
+  } = await copyPrimaryAndSidecars(req, finalDest, sidecars.primary, plan, createdPaths);
 
   // 5. Identity repoint, between verify and delete.
   await req.beforeSourceDelete?.();
@@ -495,18 +521,21 @@ async function copyRepointDelete(
         : await carryLateSidecars({
             sourceAbsPath: req.sourceAbsPath,
             finalDest,
-            listed: ownSidecars,
+            listed: sidecars.primary,
             movedCompanions: movedCompanionSources,
+            movedStackCompanion,
+            companionListed: sidecars.companion,
             publications: createdPaths,
           });
-    await deleteOriginals(
-      req.sourceAbsPath,
-      finalDest,
-      req.carrySidecars !== false,
-      [...movedSidecars, ...late],
+    await deleteOriginals({
+      sourceAbsPath: req.sourceAbsPath,
+      movedTo: finalDest,
+      carriesSidecars: req.carrySidecars !== false,
+      movedSidecars: [...movedSidecars, ...late],
       movedCompanionSources,
-      req.beforeSourceDelete,
-    );
+      movedStackCompanion,
+      beforeSourceDelete: req.beforeSourceDelete,
+    });
   }
 
   return {

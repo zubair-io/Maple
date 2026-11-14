@@ -8,13 +8,18 @@
 import * as path from 'node:path';
 import * as fs from './mirrored.ts';
 import { errnoCode } from './errno-code.ts';
+import {
+  isLegacyBackupSidecarOf,
+  locateLegacyBackupEdit,
+  oldNameSlotTaken,
+} from './legacy-backup-sidecar.ts';
 import { classifySameFile } from './relocate-case-only-rename.ts';
 import {
   PublishCollisionError,
   copyVerifiedIntoPlace,
   type RelocatePublication,
 } from './relocate-publish.ts';
-
+import { sameSidecarFile, sidecarAlreadyCarried } from './sidecar-ownership.ts';
 export interface StackCompanionRequest {
   sourceAbsPath: string;
   /** Replace a file holding the JPEG's destination name; otherwise that name is a collision. */
@@ -34,32 +39,98 @@ export class CompanionCollisionError extends PublishCollisionError {
   }
 }
 
-/** Whether a file other than the JPEG itself holds the JPEG's name beside `candidate`. */
+/** Sidecars listed at the RAW and its stack JPEG. */
+export interface RelocateSidecars {
+  primary: readonly string[];
+  companion: readonly string[];
+}
+
+/** Merge any stem-paired sidecar of the JPEG that the RAW's listing missed
+ * (a differently cased UUID branch) into the RAW's sidecar list. */
+export function mergeCompanionStemSidecars(
+  primarySidecars: readonly string[],
+  companion: StackCompanionRequest | undefined,
+  companionSidecars: readonly string[],
+): readonly string[] {
+  if (!companion || companionSidecars.length === 0) return primarySidecars;
+  const known = new Set(primarySidecars.map((s) => path.resolve(s)));
+  const extra = companionSidecars.filter(
+    (s) => !isLegacyBackupSidecarOf(companion.sourceAbsPath, s) && !known.has(path.resolve(s)),
+  );
+  return extra.length === 0 ? primarySidecars : [...primarySidecars, ...extra];
+}
+
+/** Whether a file other than the JPEG itself holds the JPEG's name or its
+ * old-name backup edit slot beside `candidate`. */
 export async function companionNameTaken(
   companion: StackCompanionRequest | undefined,
   candidate: string,
+  companionSidecars: readonly string[] = [],
+  carrySidecars = true,
 ): Promise<boolean> {
   if (!companion) return false;
   const target = stackCompanionTarget(candidate, companion.sourceAbsPath);
   if ((await classifySameFile(companion.sourceAbsPath, target)) !== 'different') return false;
-  return fs.lstat(target).then(
+  const present = await fs.lstat(target).then(
     () => true,
     (err: unknown) => errnoCode(err) !== 'ENOENT',
   );
+  if (present || !carrySidecars) return present;
+  return companionLegacySidecarTaken(companion.sourceAbsPath, target, companionSidecars);
 }
 
-/** The JPEG's source when it leaves its place with the RAW, for sidecar ownership. */
-export async function companionLeaving(
+async function companionLegacySidecarTaken(
+  sourceAbsPath: string,
+  target: string,
+  companionSidecars: readonly string[],
+): Promise<boolean> {
+  const ownLegacy = companionSidecars.find((s) => isLegacyBackupSidecarOf(sourceAbsPath, s));
+  const atTarget = await locateLegacyBackupEdit(target).catch(() => 'unreadable' as const);
+  if (atTarget === 'unreadable') return true;
+  if (atTarget !== null) {
+    if (ownLegacy && (await sameSidecarFile(ownLegacy, atTarget.legacy))) return false;
+    return !(ownLegacy && (await sidecarAlreadyCarried(ownLegacy, atTarget.legacy)));
+  }
+  return ownLegacy !== undefined && oldNameSlotTaken(target);
+}
+
+/** The JPEG's sidecar-plan inputs when it leaves its place with the RAW. */
+export async function stackCompanionSidecarPlan(
   companion: StackCompanionRequest | undefined,
   finalDest: string,
-): Promise<string[]> {
-  if (!companion) return [];
+  companionSidecars: readonly string[],
+  suffixing: boolean,
+): Promise<{
+  leaving: string[];
+  arriving: string[];
+  companion?: {
+    sourceAbsPath: string;
+    finalDest: string;
+    replace: boolean;
+    sourceSidecars: readonly string[];
+  };
+}> {
+  if (!companion) return { leaving: [], arriving: [] };
   const target = stackCompanionTarget(finalDest, companion.sourceAbsPath);
-  return (await classifySameFile(companion.sourceAbsPath, target)) === 'identical'
-    ? []
-    : [companion.sourceAbsPath];
+  const leaving =
+    (await classifySameFile(companion.sourceAbsPath, target)) === 'identical'
+      ? []
+      : [companion.sourceAbsPath];
+  return {
+    leaving,
+    arriving: [target],
+    ...(leaving.length > 0
+      ? {
+          companion: {
+            sourceAbsPath: companion.sourceAbsPath,
+            finalDest: target,
+            replace: !suffixing && companion.replace,
+            sourceSidecars: companionSidecars,
+          },
+        }
+      : {}),
+  };
 }
-
 /** Publish the JPEG beside the RAW's `finalDest`, recording it for a rollback.
  * `null` when it already sits there. Throws when it cannot land, which reverts
  * the relocate. */

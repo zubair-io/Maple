@@ -6,7 +6,11 @@ import * as fs from './mirrored.ts';
 import * as path from 'node:path';
 import { child as childLogger } from '../log.ts';
 import { assetDestinationOccupied } from './sidecar-ownership.ts';
-import { companionNameTaken, stackCompanionTarget } from './relocate-stack.ts';
+import {
+  companionNameTaken,
+  stackCompanionTarget,
+  type RelocateSidecars,
+} from './relocate-stack.ts';
 import type { CollisionPolicy, RelocateRequest } from './relocate.ts';
 
 const log = childLogger('fs/relocate');
@@ -71,23 +75,26 @@ type DestinationResolution =
  * the JPEG may replace it (#5929). */
 export async function resolveDestination(
   req: RelocateRequest,
-  ownSidecars: readonly string[],
+  sidecars: RelocateSidecars,
 ): Promise<DestinationResolution> {
+  const carry = req.carrySidecars !== false;
   const occupied = (candidate: string) =>
-    req.carrySidecars === false
+    !carry
       ? pathExists(candidate)
-      : assetDestinationOccupied(candidate, ownSidecars, req.sourceAbsPath);
+      : assetDestinationOccupied(candidate, sidecars.primary, req.sourceAbsPath);
   const companion = req.stackCompanion;
+  const companionTaken = (candidate: string) =>
+    companionNameTaken(companion, candidate, sidecars.companion, carry);
   if (isSuffixing(req.collision)) {
     const taken = async (candidate: string) =>
-      (await occupied(candidate)) || (await companionNameTaken(companion, candidate));
+      (await occupied(candidate)) || (await companionTaken(candidate));
     const finalDest = await pickFreePath(req.destAbsPath, req.callerTag ?? 'relocate', taken);
     return { kind: 'proceed', finalDest };
   }
   if (req.collision === 'skip' && (await occupied(req.destAbsPath))) {
     return { kind: 'skip', collidedAt: req.destAbsPath };
   }
-  if (companion && !companion.replace && (await companionNameTaken(companion, req.destAbsPath))) {
+  if (companion && !companion.replace && (await companionTaken(req.destAbsPath))) {
     return {
       kind: 'skip',
       collidedAt: stackCompanionTarget(req.destAbsPath, companion.sourceAbsPath),
