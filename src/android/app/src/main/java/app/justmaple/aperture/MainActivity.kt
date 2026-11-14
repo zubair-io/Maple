@@ -39,6 +39,9 @@ class MainActivity : ComponentActivity() {
     override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean =
         model.handlePhotoKey(event) || super.onKeyDown(keyCode, event)
 
+    override fun onKeyShortcut(keyCode: Int, event: KeyEvent): Boolean =
+        model.handlePhotoKey(event) || super.onKeyShortcut(keyCode, event)
+
     private fun openIntent(intent: Intent) {
         if (intent.action == Intent.ACTION_VIEW && intent.data?.scheme == "maple-app") {
             model.completeCloud(intent.data!!)

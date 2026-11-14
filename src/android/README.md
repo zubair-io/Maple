@@ -77,8 +77,9 @@ There is no Browse multi-select on Android yet, so paste applies to the open pho
 With a photo open in Preview or Edit, `0`–`5` (top row or numpad) set the star
 rating (`0` clears it), `P` picks, `X` rejects and `U` unflags, as on Apple, web and
 Windows. In the editor ⌘/Ctrl+Z undoes and ⌘/Ctrl+Shift+Z redoes. `MainActivity`
-receives only keys nothing in the window consumed, so focused text fields and sliders
-keep their input (`ui/PhotoKeyCommands.kt`, #5944). Browse has no keyboard target
+handles unconsumed keys through `onKeyDown` and modified shortcuts through
+`onKeyShortcut`, after focused views, so text fields and sliders keep their input
+(`ui/PhotoKeyCommands.kt`, #5944). Browse has no keyboard target
 until it has a selection. Keyboard zoom and Reset Visible Group are #5945.
 
 ## Build
