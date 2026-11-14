@@ -133,7 +133,9 @@ While the tool is armed the canvas snaps to fit and `HealOverlay` draws every de
 disc, plus the selected spot's dashed source disc and the line joining them. Spots cross
 the same projective frame map (crop, then the manual geometry's inverse, `mask_frame`) and
 zoomed image box as the mask overlay (`rememberFrameMaps`), because repairs, like masks, run
-ahead of the Geometry warp; a disc's radius is a fraction of the frame width, so it stays a circle. Tapping empty
+ahead of the Geometry warp; each disc is drawn and hit-tested as its frame-space boundary
+projected through that map, so under a non-uniform stretch or keystone the outline is the
+footprint that actually renders rather than a screen-space circle. Tapping empty
 canvas places a spot with the brush, its source 1.5 radii to the right; dragging on from
 that tap aims the source. A press on a spot selects it and drags it (the destination
 carries its source with it) or the selected spot's source alone. A second finger before
