@@ -149,7 +149,6 @@ impl CanvasZoomModel {
         match live {
             Some((scale, pan)) => {
                 let carried_scale = carried_scale(scale, previous, context, extent);
-                let carried_pan = carried_pan(pan, scale, carried_scale, previous, context, extent);
                 // A host that draws the committed frame during a pinch (it
                 // feeds every frame through `pinch_changed`) keeps drawing the
                 // carried live frame; a host that froze the committed frame
@@ -164,6 +163,15 @@ impl CanvasZoomModel {
                 } else {
                     held_pinch_scale(carried_scale, context.fit_scale(), context.fill_scale())
                 };
+                // The hold keeps the centred image point only while the pan
+                // range scales with it; across a crop the pan is kept as is.
+                let same_extent = previous.native_image_size() == context.native_image_size();
+                let pan_scale = if same_extent {
+                    held_scale
+                } else {
+                    carried_scale
+                };
+                let carried_pan = carried_pan(pan, scale, pan_scale, previous, context, extent);
                 let committed = if draws_committed {
                     Self {
                         // The drawn frame matches what the next frame shows.
