@@ -308,6 +308,15 @@ fn cancel_after(
 
 #[test]
 fn a_cancelled_estimate_returns_promptly_and_a_later_ask_gets_the_same_pair() {
+    // On the global pool a cancelled pass waits behind other tests' queued
+    // jobs, which times the test runner rather than the cancel.
+    rayon::ThreadPoolBuilder::new()
+        .build()
+        .unwrap()
+        .install(cancelled_estimate_returns_promptly);
+}
+
+fn cancelled_estimate_returns_promptly() {
     let raw = large_mosaic();
     let started = std::time::Instant::now();
     let pair = estimate(&raw, CancelToken::never()).unwrap();
