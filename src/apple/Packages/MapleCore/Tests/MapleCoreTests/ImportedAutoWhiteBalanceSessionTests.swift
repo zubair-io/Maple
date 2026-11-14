@@ -231,6 +231,41 @@ final class ImportedAutoWhiteBalanceSessionTests: XCTestCase {
     try assertNameOnly(raw)
   }
 
+  func testVariantSwitchWaitsForAutoWithoutTreatingHydrationAsAnEdit() async throws {
+    let gate = EstimateGate()
+    let (session, raw) = try await openEditor("imported-auto-variant", estimate: gated(gate))
+    try await waitUntil("the estimate to start") { await gate.entered == 1 }
+    let id = UUID().uuidString.lowercased()
+    let primary = SidecarPath.sidecarURL(for: raw)
+    let sibling = raw.deletingLastPathComponent().appendingPathComponent(
+      try WorkflowSidecarCore.variantFilename(
+        primaryName: primary.lastPathComponent, variantId: id))
+    var variant = try XMPParser.parse(nameOnly).0
+    variant.exposure = 1.25
+    let xml = try WorkflowSidecarCore.embed(
+      SidecarWorkflow(
+        schemaVersion: WorkflowContract.version, variantId: id, variantName: "Night",
+        snapshots: [], history: []),
+      in: XMPSerializer.serialize(model: variant, culling: CullingState()))
+    try xml.write(to: sibling, atomically: true, encoding: .utf8)
+    await session.workflow.reload(session: session)
+    let selection = Task { await session.workflow.selectVariant(id, session: session) }
+    try await waitUntil("variant persistence to join the estimate") {
+      session.workflow.previews.captureXML != nil
+    }
+    XCTAssertEqual(session.workflow.selectedVariantId, WorkflowContract.primaryVariantID)
+    await gate.release()
+    await selection.value
+    XCTAssertNil(session.workflow.errorText)
+    XCTAssertEqual(session.workflow.selectedVariantId, id)
+    XCTAssertEqual(session.asset.selectedSidecarURL, sibling)
+    XCTAssertEqual(session.model.exposure, 1.25)
+    assertShowsPair(session, try XCTUnwrap(session.importedAuto.target))
+    XCTAssertTrue(session.undoHistory.isEmpty)
+    XCTAssertEqual(try String(contentsOf: sibling, encoding: .utf8), xml)
+    try assertNameOnly(raw)
+  }
+
   func testLateEstimateAfterANumericWhiteBalanceEditKeepsTheEdit() async throws {
     let gate = EstimateGate()
     let (session, raw) = try await openEditor("imported-auto-late", estimate: gated(gate))

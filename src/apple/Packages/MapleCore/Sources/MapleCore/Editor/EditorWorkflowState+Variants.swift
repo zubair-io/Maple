@@ -105,10 +105,10 @@ extension EditorWorkflowState {
       await session.persistDisplayPreviewOnExit()
       if session.previewIsFullRender, !session.isFullQualityDecoding,
         let image = session.renderedPreview, let xml = previews.captureXML,
-        session.model == oldModel
+        session.model == oldModel.overlayingImportedAuto(session.importedAuto.target)
       {
         previews.store(
-          image, id: selectedVariantId, xml: xml, model: oldModel,
+          image, id: selectedVariantId, xml: xml, model: session.model,
           width: Int(session.previewSize.width))
       }
     }
@@ -127,7 +127,8 @@ extension EditorWorkflowState {
       )
     }
     let listed = try await root.listWorkflowVariants()
-    guard generation == current, !session.sidecarWritesDisabled, session.model == oldModel,
+    guard generation == current, !session.sidecarWritesDisabled,
+      session.model == oldModel.overlayingImportedAuto(session.importedAuto.target),
       session.transactions.nextID == editID
     else {
       releaseRasters(restored.0)
@@ -135,7 +136,8 @@ extension EditorWorkflowState {
     }
     await session.previewPersistence.cancelAndJoin()
     await session.renderActor.cancelAll()
-    guard generation == current, !session.sidecarWritesDisabled, session.model == oldModel,
+    guard generation == current, !session.sidecarWritesDisabled,
+      session.model == oldModel.overlayingImportedAuto(session.importedAuto.target),
       session.transactions.nextID == editID
     else {
       releaseRasters(restored.0)
