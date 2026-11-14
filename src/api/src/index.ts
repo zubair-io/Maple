@@ -68,6 +68,7 @@ import { cloudflareRoutes } from './routes/cloudflare.ts';
 import { usersRoutes } from './routes/users.ts';
 import { serviceApiKeyAdminRoutes } from './routes/service-api-keys.ts';
 import { serviceAssetSearchRoutes } from './routes/service-asset-search.ts';
+import { servicePhotosRoutes } from './routes/service-photos/index.ts';
 import { geocodeReverseRoutes } from './routes/geocode-reverse.ts';
 import { BACKUP_CHUNK_DIR, clearBackupChunkDir } from './backup/config.ts';
 import { uploadSessions } from './backup/upload-session.ts';
@@ -152,6 +153,7 @@ export function buildApp(_opts: { stageNames?: string[] } = {}): Elysia {
     // self-gates with a dedicated scoped API key rather than a user JWT.
     .use(serviceApiKeyAdminRoutes)
     .use(serviceAssetSearchRoutes)
+    .use(servicePhotosRoutes)
     // Native PKCE code redeem (public) — the Apple shell exchanges its one-time
     // code for tokens here; no bearer (this is how the app first gets tokens).
     .use(nativeCodeRedeemRoutes)

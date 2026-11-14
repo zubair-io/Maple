@@ -1368,7 +1368,7 @@ export interface InviteDoc {
 // Service API keys (Maple-owned machine-to-machine contracts)
 // ---------------------------------------------------------------------------
 
-export type ServiceApiScope = 'assets:search';
+export type ServiceApiScope = 'assets:search' | 'assets:read' | 'people:read';
 
 export interface ServiceApiKeyDoc {
   /** Public, non-secret lookup/audit identifier embedded in the key prefix. */
