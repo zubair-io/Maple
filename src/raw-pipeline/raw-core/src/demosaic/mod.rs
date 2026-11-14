@@ -23,7 +23,7 @@ pub use self::policy::{
     auto_algorithm, is_high_noise, mid_grey_sigma, resolve_algorithm, sensor_pixels,
     DUAL_MIN_PIXELS, LMMSE_ISO_FALLBACK, LMMSE_SIGMA_MID_GREY,
 };
-pub use self::rcd::{rcd, rcd_cancellable};
+pub use self::rcd::{rcd, rcd_cancellable, rcd_quad_half_cancellable};
 pub use self::vng4::{vng4, vng4_cancellable};
 pub use self::xtrans::{markesteijn, xtrans_bilinear};
 

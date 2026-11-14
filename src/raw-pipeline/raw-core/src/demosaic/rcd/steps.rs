@@ -24,10 +24,21 @@ const RATIO_MAX: f32 = 2.0;
 
 /// The shared, read-only view every step works against.
 pub(super) struct Frame<'a> {
-    /// Dense single-channel CFA plane (`demosaic::flatten_mosaic`).
+    /// Dense single-channel CFA plane (`demosaic::flatten_mosaic`), from
+    /// frame index `base` on: a band may hold only the rows it reads.
     pub c: &'a [f32],
+    /// Frame index (`y * w + x`) of `c[0]`.
+    pub base: usize,
     pub w: usize,
     pub cfa: CfaPattern,
+}
+
+impl Frame<'_> {
+    /// The CFA sample at frame index `i`.
+    #[inline]
+    fn at(&self, i: usize) -> f32 {
+        self.c[i - self.base]
+    }
 }
 
 /// Roughness of the CFA data along one axis, over the 7 taps at offsets
@@ -150,10 +161,11 @@ fn green_plane(f: &Frame<'_>, gy0: usize, gy1: usize, border: usize) -> Vec<f32>
         for x in (border - 2)..(w - border + 2) {
             let i = y * w + x;
             green[(y - gy0) * w + x] = if f.cfa.color_at(x as u32, y as u32) == 1 {
-                f.c[i]
+                f.at(i)
             } else {
-                let (w_v, w_h) = vh_weights(f.c, i, w);
-                w_v * green_along(f.c, i, w) + w_h * green_along(f.c, i, 1)
+                let ci = i - f.base;
+                let (w_v, w_h) = vh_weights(f.c, ci, w);
+                w_v * green_along(f.c, ci, w) + w_h * green_along(f.c, ci, 1)
             };
         }
     }
@@ -185,29 +197,29 @@ fn chroma_plane(
             let g_here = green[(y - gy0) * w + x];
             // Colour difference along each diagonal, blended by the
             // diagonal discrimination.
-            let e_back = diag_energy(f.c, i, d_back);
-            let e_fwd = diag_energy(f.c, i, d_fwd);
+            let e_back = diag_energy(f.c, i - f.base, d_back);
+            let e_fwd = diag_energy(f.c, i - f.base, d_fwd);
             let w_back = (e_fwd + DIR_EPS) / (e_back + e_fwd + 2.0 * DIR_EPS);
             let diff = |d: usize| -> f32 {
                 let g_at = |j: usize| green[j - gy0 * w];
-                0.5 * ((f.c[i - d] - g_at(i - d)) + (f.c[i + d] - g_at(i + d)))
+                0.5 * ((f.at(i - d) - g_at(i - d)) + (f.at(i + d) - g_at(i + d)))
             };
             let raw = g_here + w_back * diff(d_back) + (1.0 - w_back) * diff(d_fwd);
             let other = no_new_extrema(
                 raw,
                 [
-                    f.c[i - d_back],
-                    f.c[i + d_back],
-                    f.c[i - d_fwd],
-                    f.c[i + d_fwd],
+                    f.at(i - d_back),
+                    f.at(i + d_back),
+                    f.at(i - d_fwd),
+                    f.at(i + d_fwd),
                 ],
             );
             let cell = &mut chroma[(y - cy0) * w + x];
             // colour is 0 (R) or 2 (B); index 0 holds R, index 1 holds B.
             *cell = if colour == 0 {
-                [f.c[i], other]
+                [f.at(i), other]
             } else {
-                [other, f.c[i]]
+                [other, f.at(i)]
             };
         }
     }
@@ -241,7 +253,7 @@ fn assemble(
                 *out = [rb[0], g_here, rb[1]];
                 continue;
             }
-            let (w_v, w_h) = vh_weights(f.c, i, w);
+            let (w_v, w_h) = vh_weights(f.c, i - f.base, w);
             // `ch` indexes the chroma pair: 0 is red, 1 is blue.
             let diff = |j: usize, ch: usize| chroma[j - cy0 * w][ch] - green[j - gy0 * w];
             let est = |ch: usize| {
