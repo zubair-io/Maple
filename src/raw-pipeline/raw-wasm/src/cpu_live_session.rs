@@ -40,9 +40,10 @@ impl CpuLiveSession {
         })
     }
     /// Resolve a name-only imported Auto WB once, off the first frame (#4669):
-    /// returns `[temperature, tint]`. Later renders of that sidecar use it.
-    pub fn resolve_imported_white_balance(&mut self) -> Result<Vec<f32>, JsError> {
-        crate::open_metadata::resolve_imported(&mut self.imported_wb, &self.raw)
+    /// returns `[temperature, tint]`, or nothing when cancelled (#5923). Later
+    /// renders of that sidecar use it.
+    pub fn resolve_imported_white_balance(&mut self) -> Result<Option<Vec<f32>>, JsError> {
+        crate::imported_wb_cancel::resolve(&mut self.imported_wb, &self.raw)
     }
 
     pub fn render(
@@ -167,7 +168,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(first.rgb(), as_shot.rgb());
-        let pair = session.resolve_imported_white_balance().unwrap();
+        let pair = session.resolve_imported_white_balance().unwrap().unwrap();
         let explicit = format!(
             r#"<x crs:WhiteBalance="Auto" crs:Temperature="{}" crs:Tint="{}" papp:WbScaleVersion="5" papp:Profile="Neutral"/>"#,
             pair[0], pair[1]
@@ -183,7 +184,10 @@ mod tests {
         let one_shot =
             crate::render::render_bytes_sized(&bytes, "dng", Some(name_only), true, 24).unwrap();
         assert_eq!(one_shot.rgb(), expected.rgb());
-        assert_eq!(session.resolve_imported_white_balance().unwrap(), pair);
+        assert_eq!(
+            session.resolve_imported_white_balance().unwrap(),
+            Some(pair)
+        );
         assert_eq!(pointer, session.raw.raw_data.as_ptr());
     }
 
