@@ -222,6 +222,11 @@ final class ImportedAutoWhiteBalanceSessionTests: XCTestCase {
     let restored = try await session.workflow.restoredState(nameOnly, session: session)
     session.applyConfirmedWorkflowState(restored)
     assertShowsPair(session, target)
+    // A variant switch takes the pair on its reset and compare baseline too.
+    let variant = try await session.workflow.restoredState(nameOnly, session: session)
+    session.applyWorkflowVariant(variant)
+    assertShowsPair(session, target)
+    XCTAssertEqual(session.originalModel, session.model, "Switching variants is not an edit")
     await session.flushPendingSidecarWrite()
     try assertNameOnly(raw)
   }
