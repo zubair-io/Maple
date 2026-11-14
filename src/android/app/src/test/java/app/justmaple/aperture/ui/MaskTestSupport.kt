@@ -31,7 +31,8 @@ internal class MaskTestRenderer : PreviewRenderer {
     override val hasPresented = true
     override var revision = 0
     var latest: EditSnapshot? = null
-    var weightRequests = 0
+    /** Counted on the tint's background dispatcher, read from the test thread. */
+    @Volatile var weightRequests = 0
     val samples = mutableListOf<Pair<Float, Float>>()
     /** When set, a sample stays in flight until the test completes it. */
     var sampleGate: CompletableDeferred<Unit>? = null
