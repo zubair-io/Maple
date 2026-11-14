@@ -470,8 +470,8 @@ extension SMBSource: ImageSource {
   public func writeXMP(_ sidecar: Sidecar, for ref: ImageRef) async throws {
     guard let client else { throw SMBError.notConnected }
     let store = SMBSidecarStore(source: self, ref: ref)
-    // Adopt the published document first: the store's compare-and-swap
-    // publish refuses to replace a sidecar it has not read.
+    // Read the published document first: it is the base the store merges this
+    // save against; without one, every field of the save would override the share's.
     try await Self.retrySidecarWrite {
       try await self.confirmSidecarConnection(client)
       _ = try await store.loadIfPresent()

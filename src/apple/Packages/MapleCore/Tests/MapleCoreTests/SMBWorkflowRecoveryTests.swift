@@ -76,11 +76,11 @@ final class SMBWorkflowRecoveryTests: XCTestCase {
     try await exerciseLostAcknowledgement(concurrentSave: true)
   }
 
-  func testStaleFirstEditRefusesAnotherClientsConfirmedSave() async throws {
+  func testStaleFirstEditMergesAnotherClientsConfirmedSave() async throws {
     try await exerciseStaleSave(semantic: true)
   }
 
-  func testStaleOrdinarySaveRefusesAnotherClientsConfirmedSave() async throws {
+  func testStaleOrdinarySaveMergesAnotherClientsConfirmedSave() async throws {
     try await exerciseStaleSave(semantic: false)
   }
 
@@ -98,23 +98,30 @@ final class SMBWorkflowRecoveryTests: XCTestCase {
     let later = SMBSidecarStore(source: observer, ref: observedRef)
     let fresh = try await later.load()
     var freshModel = fresh.0
-    freshModel.exposure = 2.25
+    freshModel.contrast = 25
     try await later.commitSemantic(
       model: freshModel, culling: fresh.1, action: "adjustment", label: "Another client's save")
-    let expected = try await later.readWorkflowXML()
-    do {
-      if semantic {
-        try await stale.commitSemantic(
-          model: staleModel, culling: loaded.1, action: "adjustment", label: "Stale edit")
-      } else {
-        try await stale.writeConfirmed(model: staleModel, culling: loaded.1)
-      }
-      XCTFail("A stale editor must refresh before replacing another client's confirmed state")
-    } catch {
-      XCTAssertTrue(error.localizedDescription.lowercased().contains("refresh"))
+    let otherXML = try await later.readWorkflowXML()
+    let otherRecord = try WorkflowSidecarCore.read(xmp: XCTUnwrap(otherXML))
+    let otherEntry = try XCTUnwrap(otherRecord?.history.last)
+    if semantic {
+      try await stale.commitSemantic(
+        model: staleModel, culling: loaded.1, action: "adjustment", label: "Stale edit")
+    } else {
+      try await stale.writeConfirmed(model: staleModel, culling: loaded.1)
     }
-    let actual = try await later.readWorkflowXML()
-    XCTAssertEqual(actual, expected)
+    let actualXML = try await later.readWorkflowXML()
+    let actual = try XCTUnwrap(actualXML)
+    let merged = try XMPParser.parse(actual).0
+    XCTAssertEqual(merged.exposure, 1.5, accuracy: 1e-9)
+    XCTAssertEqual(merged.contrast, 25, accuracy: 1e-9, "the other client's save is kept")
+    let history = try XCTUnwrap(WorkflowSidecarCore.read(xmp: actual)).history
+    XCTAssertEqual(history.first, otherEntry)
+    XCTAssertEqual(
+      history.map(\.label), ["Another client's save"] + (semantic ? ["Stale edit"] : []))
+    XCTAssertFalse(history.contains { $0.action == "external" }, "a recorded save is not external")
+    XCTAssertEqual(XMPParser.parseMetadata(actual).caption, "Caption A")
+    XCTAssertTrue(actual.contains("<foreign:Audit"))
     await observer.disconnect()
     await fixture.close()
   }
@@ -236,17 +243,19 @@ final class SMBWorkflowRecoveryTests: XCTestCase {
     XCTAssertTrue(retried.contains("<foreign:Audit"))
     if concurrentSave {
       var next = model
-      next.exposure = 3
-      do {
-        try await store.commitSemantic(
-          model: next, culling: CullingState(), action: "adjustment", label: "Still stale")
-        XCTFail("Recognizing an accepted UUID must not adopt another client's model implicitly")
-      } catch {
-        XCTAssertTrue(error.localizedDescription.lowercased().contains("refresh"))
-      }
-      let unchanged = try await observer.readWorkflowSidecar(
+      next.contrast = 40
+      try await store.commitSemantic(
+        model: next, culling: CullingState(), action: "adjustment", label: "Still stale")
+      let mergedXML = try await observer.readWorkflowSidecar(
         for: observedRef, variantId: WorkflowContract.primaryVariantID)
-      XCTAssertEqual(unchanged, expected)
+      let merged = try XCTUnwrap(mergedXML)
+      XCTAssertEqual(try XMPParser.parse(merged).0.exposure, 2.25, accuracy: 1e-9)
+      XCTAssertEqual(try XMPParser.parse(merged).0.contrast, 40, accuracy: 1e-9)
+      let mergedHistory = try XCTUnwrap(WorkflowSidecarCore.read(xmp: merged)).history
+      XCTAssertEqual(
+        mergedHistory.map(\.label),
+        ["Captured exposure", "Another client's later save", "Still stale"])
+      XCTAssertEqual(Set(mergedHistory.map(\.id)).count, 3)
     }
     let remoteOriginal = try await observer.rawBytes(for: observedRef)
     XCTAssertEqual(remoteOriginal, fixture.original)
