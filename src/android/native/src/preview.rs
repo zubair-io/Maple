@@ -185,6 +185,19 @@ impl Session {
             (w, h)
         }
     }
+    /// The RAW's EXIF orientation code, `1` (normal) through `8`.
+    pub fn exif_orientation(&self) -> u16 {
+        match self.orientation() {
+            ExifOrientation::Normal => 1,
+            ExifOrientation::HorizontalFlip => 2,
+            ExifOrientation::Rotate180 => 3,
+            ExifOrientation::VerticalFlip => 4,
+            ExifOrientation::Transpose => 5,
+            ExifOrientation::Rotate90 => 6,
+            ExifOrientation::Transverse => 7,
+            ExifOrientation::Rotate270 => 8,
+        }
+    }
     pub fn uncropped_aspect(&self) -> f32 {
         let (w, h) = self.oriented_dims();
         w as f32 / h.max(1) as f32

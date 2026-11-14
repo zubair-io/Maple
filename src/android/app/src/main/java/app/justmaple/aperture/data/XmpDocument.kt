@@ -129,14 +129,23 @@ private constructor(
         return XmpDocument(source, withoutLegacy, curves, childOutput(ChildFamily.Masks, output))
     }
 
+    /**
+     * raw-core reads the repair list in the legacy sensor frame: no frame stamp under Maple
+     * markup (`docs/xmp-canonical-format.md` § "Frame stamp"). An unstamped list without Maple
+     * markup is upright, and a save stamps it before adding any.
+     */
+    val repairsInSensorFrame: Boolean
+        get() = attribute(RETOUCH_FRAME) == null && source.pappPresent
+
     /** `retouch_document.rs`'s input for the current repair containers. */
     fun repairInput(): JSONObject = childInput(ChildFamily.Repairs)
 
     /**
      * The document after `retouch_document.rs` replaced the containers [repairInput]
      * described. Every host authors spots over the upright image, so a written list is
-     * stamped `papp:RetouchFrameVersion="2"` (adopting an unstamped legacy list, as Apple
-     * and Web do) and an emptied one drops the stamp.
+     * stamped `papp:RetouchFrameVersion="2"` (a sensor-framed list was converted upright by
+     * the codec) while [hasSpots], the codec's answer whether the written containers still
+     * render a spot; otherwise the stamp goes.
      */
     fun withRepairOutput(output: JSONObject, hasSpots: Boolean): XmpDocument =
         XmpDocument(

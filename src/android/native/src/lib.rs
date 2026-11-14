@@ -18,6 +18,7 @@ mod point_curve;
 mod preview;
 mod retouch_document;
 mod retouch_jni;
+mod retouch_legacy;
 mod retouch_write;
 mod scopes;
 mod transfer;
@@ -151,6 +152,10 @@ pub unsafe extern "C" fn maple_android_values(handle: *mut c_void) -> *mut c_cha
             serde_json::json!(session.uncropped_aspect()),
         );
         values.insert("_aspect".into(), serde_json::json!(session.aspect()));
+        values.insert(
+            "_orientation".into(),
+            serde_json::json!(session.exif_orientation()),
+        );
         Ok(CString::new(serde_json::Value::Object(values).to_string())
             .map_err(|e| e.to_string())?
             .into_raw())

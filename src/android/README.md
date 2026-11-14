@@ -131,8 +131,9 @@ listed spot. Selecting a spot loads its shape into those controls.
 
 While the tool is armed the canvas snaps to fit and `HealOverlay` draws every destination
 disc, plus the selected spot's dashed source disc and the line joining them. Spots cross
-the same crop map and zoomed image box as the mask overlay (`rememberFrameMaps`), and a
-disc's radius is a fraction of the frame width, so it stays a circle. Tapping empty
+the same projective frame map (crop, then the manual geometry's inverse, `mask_frame`) and
+zoomed image box as the mask overlay (`rememberFrameMaps`), because repairs, like masks, run
+ahead of the Geometry warp; a disc's radius is a fraction of the frame width, so it stays a circle. Tapping empty
 canvas places a spot with the brush, its source 1.5 radii to the right; dragging on from
 that tap aims the source. A press on a spot selects it and drags it (the destination
 carries its source with it) or the selected spot's source alone. A second finger before
@@ -148,10 +149,17 @@ canonical entry (`serialize_retouch_areas`), carrying the unknown attributes and
 nodes of the entry it came from and Lightroom's own `crs:Seed`, `crs:MaskValue`,
 `crs:Flow` and `crs:CenterWeight`. Entries raw-core does not model (Lightroom brush heals)
 are not listed and stay in place. A list held only in Lightroom's legacy
-`crs:RetouchInfo` strings converts to `crs:RetouchAreas` on the first edit. A written list
-carries `papp:RetouchFrameVersion="2"`, and an unrelated save stamps an unstamped
-Lightroom list, because the Maple markup the save adds would otherwise make every reader
-treat it as the legacy sensor frame (`docs/xmp-canonical-format.md` § "Repair spots").
+`crs:RetouchInfo` strings converts to `crs:RetouchAreas` on the first edit, and any edit
+retires the entries raw-core decodes from a legacy list (`retouch_legacy.rs`), so they never
+render again once the structured list empties; its other content keeps its bytes. A written
+list carries `papp:RetouchFrameVersion="2"` while the codec reports that the written
+containers still render a spot, entries Android does not list included, and an unrelated
+save stamps an unstamped Lightroom list, because the Maple markup the save adds would
+otherwise make every reader treat it as the legacy sensor frame. An unstamped Maple list is
+that sensor frame: Android lists it upright, converted with the RAW's EXIF orientation as
+the inverse of raw-core's `orient_spots_to_sensor`, rewrites every listed entry upright on
+the first edit, and refuses the edit when the list holds spots it cannot rewrite
+(`docs/xmp-canonical-format.md` § "Repair spots").
 Repair runs in raw-core's decode product: a spot change reloads the native model, whose
 preparation re-decodes the capture. Copy / Paste settings never moves spots.
 

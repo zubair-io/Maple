@@ -9,6 +9,7 @@ import app.justmaple.aperture.data.XmpDocument
 import app.justmaple.aperture.data.parseRepairSpots
 import app.justmaple.aperture.data.toJson
 import app.justmaple.aperture.ui.defaultRepairSource
+import app.justmaple.aperture.ui.uncroppedAspect
 import org.json.JSONObject
 
 /*
@@ -33,9 +34,22 @@ data class RepairBrush(
 const val REPAIR_RADIUS_MIN = .002f
 const val REPAIR_RADIUS_MAX = .2f
 
-/** raw-core's repair spots for [document]'s repair containers. */
+/**
+ * [document]'s repair containers for the codec. A list raw-core reads in the legacy sensor
+ * frame carries the RAW's orientation, so the codec lists it upright and rewrites it upright
+ * under the stamp every write adds (`docs/xmp-canonical-format.md` § "Frame stamp").
+ */
+private fun MapleViewModel.repairInput(document: XmpDocument): JSONObject {
+    val input = document.repairInput()
+    if (!document.repairsInSensorFrame) return input
+    val current = state.value
+    val frame = JSONObject().put("orientation", current.values.getValue("_orientation").toInt())
+    return input.put("frame", frame.put("aspect", current.uncroppedAspect()))
+}
+
+/** raw-core's repair spots for [document]'s repair containers, over the upright image. */
 fun MapleViewModel.repairSpots(document: XmpDocument = state.value.document): List<RepairSpot> =
-    parseRepairSpots(renderer.readRepairs(document.repairInput().toString()))
+    parseRepairSpots(renderer.readRepairs(repairInput(document).toString()))
 
 /** The selected spot of [spots], if the selection still addresses one. */
 fun MapleState.selectedRepair(spots: List<RepairSpot>): RepairSpot? = healSelection?.let(spots::getOrNull)
@@ -52,8 +66,10 @@ private fun MapleViewModel.writeSpots(commit: Boolean, transform: (List<RepairSp
         try {
             val spots = repairSpots(document)
             val edited = transform(spots)?.takeIf { it != spots } ?: return false
-            val input = document.repairInput().put("spots", edited.toJson())
-            document.withRepairOutput(JSONObject(renderer.writeRepairs(input.toString())), edited.isNotEmpty())
+            val input = repairInput(document).put("spots", edited.toJson())
+            val output = JSONObject(renderer.writeRepairs(input.toString()))
+            // Spots Android does not list may still render: the stamp follows the written list.
+            document.withRepairOutput(output, output.getBoolean("spots"))
         } catch (failure: Exception) {
             updateMaskState { it.copy(healMessage = "Could not write repair spots: ${failure.message}") }
             return false

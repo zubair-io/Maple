@@ -5,10 +5,14 @@
 //! mask leaf it was read from, and Lightroom's own `crs:Seed`,
 //! `crs:MaskValue`, `crs:Flow` and `crs:CenterWeight` values. New spots apply
 //! after every spot that was read. Output: `{"containers": [replacement per
-//! input container, "" to remove it], "appended": [new containers]}`.
-use crate::mask_document::Bindings;
+//! input container, "" to remove it], "appended": [new containers], "spots":
+//! whether the written containers still render a spot}`. A sensor-framed list
+//! (`retouch_document::SensorFrame`) is written upright, and the legacy
+//! `crs:RetouchInfo` fallback is retired (`retouch_legacy`).
+use crate::mask_document::{parse_piece, Bindings};
 use crate::mask_xml::{self, Attr, Element, CRS, RDF};
 use crate::retouch_document::{spot_from_json, Container, Document, AREAS};
+use crate::retouch_legacy::retired;
 use crate::xml_carry::{attribute_lines, node_lines, unknown, with_prefixes};
 use raw_core::types::{AdjustmentModel, RetouchSpot};
 use serde_json::{json, Value};
@@ -185,7 +189,11 @@ impl Plan<'_> {
         };
         match self.spots.iter().find(|(_, s)| *s == slot) {
             None => Fate::Remove,
-            Some((spot, _)) if Some(*spot) == entry.spot => Fate::Keep,
+            // A sensor-framed entry is rewritten upright even when unchanged: the
+            // written list is stamped upright.
+            Some((spot, _)) if self.document.frame.is_none() && Some(*spot) == entry.spot => {
+                Fate::Keep
+            }
             Some((spot, _)) => Fate::Replace(*spot),
         }
     }
@@ -206,10 +214,6 @@ impl Plan<'_> {
         let document = self.document;
         let container = &document.containers[index];
         let verbatim = container.text[container.root.span.clone()].to_owned();
-        if !document.any_areas && document.legacy_containers.contains(&index) {
-            // The legacy list is converted to the structured container.
-            return Ok(String::new());
-        }
         let Some(seq) = &container.seq else {
             return Ok(verbatim);
         };
@@ -327,6 +331,19 @@ fn validate(document: &Document, spots: &[(RetouchSpot, Option<usize>)]) -> Resu
     Ok(())
 }
 
+/// Refuses an edit that would stamp a sensor-framed list upright while it
+/// still holds spots raw-core renders that Android cannot rewrite upright.
+fn convertible(document: &Document) -> Result<(), String> {
+    let kept = document
+        .entries
+        .iter()
+        .any(|entry| entry.spot.is_some() && entry.authored.is_none());
+    if document.frame.is_some() && (kept || document.opaque_areas) {
+        return Err("These repair spots predate the upright frame and include spots Android cannot convert; edit them in Maple on a Mac or iPad".into());
+    }
+    Ok(())
+}
+
 pub fn write(input: &Value) -> Result<Value, String> {
     let document = Document::read(input)?;
     let indent = input.get("indent").and_then(Value::as_str).unwrap_or("");
@@ -338,13 +355,32 @@ pub fn write(input: &Value) -> Result<Value, String> {
         .map(spot_from_json)
         .collect::<Result<Vec<_>, _>>()?;
     validate(&document, &spots)?;
+    convertible(&document)?;
     let plan = Plan {
         append_into: document.containers.iter().rposition(|c| c.seq.is_some()),
         document: &document,
         spots,
     };
-    let containers = (0..document.containers.len())
+    let mut containers = (0..document.containers.len())
         .map(|index| plan.container(index))
         .collect::<Result<Vec<_>, _>>()?;
-    Ok(json!({"containers": containers, "appended": plan.appended(indent)}))
+    let appended = plan.appended(indent);
+    // Authoring the structured list retires the legacy fallback raw-core would
+    // otherwise read again once no structured spot is left.
+    let edited = !appended.is_empty()
+        || containers
+            .iter()
+            .zip(&document.containers)
+            .any(|(out, c)| *out != c.text[c.root.span.clone()]);
+    if !document.any_areas || edited {
+        for index in &document.legacy_containers {
+            containers[*index] = retired(&document.containers[*index])?;
+        }
+    }
+    let mut spots = false;
+    for (out, container) in containers.iter().zip(&document.containers) {
+        spots |= !out.is_empty() && !parse_piece(out, &container.scope)?.retouch_spots.is_empty();
+    }
+    spots |= !plan.new_spots().is_empty();
+    Ok(json!({"containers": containers, "appended": appended, "spots": spots}))
 }

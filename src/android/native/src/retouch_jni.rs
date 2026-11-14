@@ -1,6 +1,7 @@
 //! Repair-spot entries for the Android bridge (#5904): read and write the
 //! sidecar's `crs:RetouchAreas` through `retouch_document`, with the same
-//! JSON-in/JSON-out contract as the mask entries.
+//! JSON-in/JSON-out contract as the mask entries. The Heal canvas places spots
+//! through the mask overlay's frame map (`mask_jni::presentation_to_frame`).
 use crate::mask_jni::json_call;
 use std::ffi::c_char;
 

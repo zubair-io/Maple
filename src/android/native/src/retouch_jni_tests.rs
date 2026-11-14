@@ -213,3 +213,6 @@ fn spots_must_name_authored_entries_in_their_read_order() {
         Some(0),
     )]);
 }
+
+#[path = "retouch_frame_tests.rs"]
+mod frame;

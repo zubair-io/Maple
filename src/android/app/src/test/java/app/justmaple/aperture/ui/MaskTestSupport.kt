@@ -38,13 +38,19 @@ internal class MaskTestRenderer(private val raw: Boolean = true) : PreviewRender
     val samples = mutableListOf<Pair<Float, Float>>()
     /** When set, a sample stays in flight until the test completes it. */
     var sampleGate: CompletableDeferred<Unit>? = null
+    /** The RAW's EXIF orientation code the session reports. */
+    var orientation = 1f
+    /** The codec's answer whether written repairs still render; by default, whether any spot was written. */
+    var repairsRemain: Boolean? = null
+    /** The last input the repair codec read. */
+    var repairRead: JSONObject? = null
 
     override fun invalidateDraws() = ++revision
     override fun invalidateModel() {
         invalidations++
     }
     override suspend fun open(path: String, document: String, edge: Int, generation: Int) =
-        mapOf("exposure" to 0f, "_raw" to if (raw) 1f else 0f, "_uncropped_aspect" to 1.5f)
+        mapOf("exposure" to 0f, "_raw" to if (raw) 1f else 0f, "_uncropped_aspect" to 1.5f, "_orientation" to orientation)
     override suspend fun modelValues(document: String): Map<String, Float> = error("Settings paste is not exercised by this test")
     override suspend fun autoWhiteBalance(document: String): app.justmaple.aperture.WhiteBalanceRecommendation =
         error("White balance analysis is not expected in this test")
@@ -69,12 +75,15 @@ internal class MaskTestRenderer(private val raw: Boolean = true) : PreviewRender
 
     /** Each stored spot reads back with its position as the entry it was read from. */
     override fun readRepairs(input: String): String {
+        repairRead = JSONObject(input)
         val spots = stored(input, REPAIRS) ?: JSONArray()
         for (index in 0 until spots.length()) spots.getJSONObject(index).put("slot", index)
         return JSONObject().put("spots", spots).toString()
     }
 
-    override fun writeRepairs(input: String): String = written(input, REPAIRS, "spots")
+    override fun writeRepairs(input: String): String =
+        JSONObject(written(input, REPAIRS, "spots"))
+            .put("spots", repairsRemain ?: (JSONObject(input).getJSONArray("spots").length() > 0)).toString()
 
     override fun maskWeights(layer: String, width: Int, height: Int): ByteArray {
         weightRequests++
@@ -127,8 +136,11 @@ internal class MaskTestRenderer(private val raw: Boolean = true) : PreviewRender
     }
 }
 
-/** A real ViewModel and PhotoLibrary over a temp photo, open for editing. */
-internal class MaskFixture(prefix: String, rawSource: Boolean = true) {
+/**
+ * A real ViewModel and PhotoLibrary over a temp photo, open for editing; [sidecar] is saved
+ * first and [orientation] is the EXIF orientation the session reports.
+ */
+internal class MaskFixture(prefix: String, rawSource: Boolean = true, sidecar: String? = null, orientation: Float = 1f) {
     val app = RuntimeEnvironment.getApplication()
     val raw: File = File.createTempFile(prefix, ".dng", app.cacheDir).apply { writeText("renderer seam") }
     val photo = Photo(Uri.fromFile(raw), raw.name, raw.length(), raw.lastModified(), null)
@@ -137,7 +149,9 @@ internal class MaskFixture(prefix: String, rawSource: Boolean = true) {
     val model = MapleViewModel(app, library, renderer)
 
     init {
+        renderer.orientation = orientation
         runBlocking {
+            sidecar?.let { library.save(photo, XmpDocument(it), null) }
             model.open(photo)
             withTimeout(10_000) { model.state.first { it.documentLoaded && !it.loading } }
             model.edit()
