@@ -320,6 +320,38 @@ fn a_geometry_change_mid_pinch_holds_the_capture_to_the_new_cap() {
 }
 
 #[test]
+fn a_resize_that_lowers_the_cap_mid_pinch_carries_the_live_pan_with_the_held_scale() {
+    let ctx = wide_small();
+    let off_centre = Point::new(300.0, 400.0);
+    let live = fit_model()
+        .pinch_changed(1.0, off_centre, &ctx)
+        .pinch_changed(2.1, off_centre, &ctx);
+    let (scale, pan) = live.shown_frame(&ctx);
+    assert_close(scale, 14.0, 1e-9);
+    assert!(pan.width.abs() > 1.0);
+    let smaller = context((500.0, 400.0), (300.0, 100.0));
+    assert_eq!(smaller.max_scale(), MAX_PIXEL_SCALE);
+    let (held_scale, held_pan) = live.geometry_changed(&ctx, &smaller).shown_frame(&smaller);
+    assert_close(held_scale, MAX_PIXEL_SCALE, 1e-9);
+    assert_close(held_pan.width, pan.width * MAX_PIXEL_SCALE / scale, 1e-9);
+}
+
+#[test]
+fn a_crop_that_raises_the_floor_mid_pinch_keeps_the_live_pan() {
+    let ctx = context((1000.0, 800.0), (4000.0, 3000.0));
+    let off_centre = Point::new(300.0, 400.0);
+    let live = fit_model()
+        .pinch_changed(1.0, off_centre, &ctx)
+        .pinch_changed(0.6, off_centre, &ctx);
+    let (_, pan) = live.shown_frame(&ctx);
+    assert!(pan.width.abs() > 1.0);
+    let cropped = tiny();
+    let (held_scale, held_pan) = live.geometry_changed(&ctx, &cropped).shown_frame(&cropped);
+    assert_close(held_scale, cropped.min_scale(), 1e-9);
+    assert_close(held_pan.width, pan.width, 1e-9);
+}
+
+#[test]
 fn a_geometry_change_mid_pinch_holds_the_capture_to_the_new_floor() {
     let ctx = context((1000.0, 800.0), (4000.0, 3000.0));
     let centre = Point::new(500.0, 400.0);
