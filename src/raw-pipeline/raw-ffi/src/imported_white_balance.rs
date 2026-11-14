@@ -1,5 +1,8 @@
 //! Cold client import hydration through the existing Rust WB resolver (#3434).
+use crate::cancel::{token_from_ptr, MapleCancelFlag, SendCancelPtr};
 use crate::error::{set_last_error, with_large_stack};
+use crate::scene_linear_f32::RC_CANCELLED;
+use raw_core::CancelToken;
 use std::ffi::{c_char, CStr};
 
 /// Resolve a partial sidecar against the actual RAW metadata/profile. This cold
@@ -8,15 +11,19 @@ use std::ffi::{c_char, CStr};
 /// develops the shared estimator's 1536 px probe (#4669): shells call it off
 /// the first frame and re-render once with the pair.
 /// It reuses existing resolution/calibration math without new model wire fields.
+/// A set `cancel` flag (#5922) returns 4 promptly with `out` untouched; the
+/// shell asks again later for the same pair.
 ///
 /// # Safety
 /// `xmp` is NUL-terminated UTF-8; `out` points to two writable f32s.
 /// `raw_path` is a NUL-terminated UTF-8 RAW path, or NULL for the existing
-/// post-DCP / SDR resolver (no camera frame).
+/// post-DCP / SDR resolver (no camera frame). `cancel` is NULL or a live flag
+/// from `maple_cancel_flag_new` that outlives the call.
 #[no_mangle]
 pub unsafe extern "C" fn maple_resolve_imported_white_balance_file(
     raw_path: *const c_char,
     xmp: *const c_char,
+    cancel: *const MapleCancelFlag,
     out: *mut f32,
 ) -> i32 {
     if xmp.is_null() || out.is_null() {
@@ -41,21 +48,26 @@ pub unsafe extern "C" fn maple_resolve_imported_white_balance_file(
     };
     let result = std::sync::Arc::new(std::sync::Mutex::new(None));
     let worker_result = result.clone();
+    let cancel = SendCancelPtr(cancel);
     let rc = with_large_stack(move || {
+        let cancel = cancel;
+        // SAFETY: the worker is joined before the FFI call returns and the
+        // host keeps the flag alive across the call (see cancel.rs).
+        let token = match unsafe { token_from_ptr(cancel.0) } {
+            Some(flag) => CancelToken::new(unsafe { flag.as_ref() }),
+            None => CancelToken::never(),
+        };
         let resolved = raw_core::xmp::parse(&xml).and_then(|model| {
             let Some(path) = path else {
                 return Ok(raw_core::stages::white_balance::resolve_wb(&model));
             };
             crate::scene_linear_f32::file_decode::decode_file_shared(
                 std::path::Path::new(&path),
-                raw_core::cancel::CancelToken::never(),
+                token,
             )
             .and_then(|raw| {
                 if raw_core::stages::imported_auto_wb::needs_resolution(&model) {
-                    return raw_core::stages::imported_auto_wb::estimate(
-                        &raw,
-                        raw_core::cancel::CancelToken::never(),
-                    );
+                    return raw_core::stages::imported_auto_wb::estimate(&raw, token);
                 }
                 let (profile, source) = raw_core::color::dcp::profile_for_with_source(&raw)?;
                 let fallback =
@@ -85,6 +97,7 @@ pub unsafe extern "C" fn maple_resolve_imported_white_balance_file(
                 set_last_error("Imported WB: non-finite target".into());
                 3
             }
+            Err(raw_core::Error::Cancelled) => RC_CANCELLED,
             Err(error) => {
                 set_last_error(format!("Imported WB: {error}"));
                 3
@@ -132,6 +145,7 @@ mod tests {
                     maple_resolve_imported_white_balance_file(
                         c_path.as_ptr(),
                         text.as_ptr(),
+                        std::ptr::null(),
                         output.as_mut_ptr(),
                     )
                 },
@@ -151,6 +165,7 @@ mod tests {
                 maple_resolve_imported_white_balance_file(
                     path.as_ptr(),
                     std::ptr::null(),
+                    std::ptr::null(),
                     output.as_mut_ptr(),
                 )
             },
@@ -161,6 +176,7 @@ mod tests {
                 maple_resolve_imported_white_balance_file(
                     path.as_ptr(),
                     xml.as_ptr(),
+                    std::ptr::null(),
                     output.as_mut_ptr(),
                 )
             },
@@ -188,6 +204,7 @@ mod tests {
                         maple_resolve_imported_white_balance_file(
                             std::ptr::null(),
                             text.as_ptr(),
+                            std::ptr::null(),
                             output.as_mut_ptr(),
                         )
                     },
@@ -207,6 +224,7 @@ mod tests {
                 maple_resolve_imported_white_balance_file(
                     std::ptr::null(),
                     invalid_utf8.as_ptr().cast(),
+                    std::ptr::null(),
                     output.as_mut_ptr(),
                 )
             },
@@ -218,6 +236,7 @@ mod tests {
                 maple_resolve_imported_white_balance_file(
                     std::ptr::null(),
                     invalid.as_ptr(),
+                    std::ptr::null(),
                     output.as_mut_ptr(),
                 )
             },
@@ -229,6 +248,7 @@ mod tests {
                 maple_resolve_imported_white_balance_file(
                     std::ptr::null(),
                     invalid.as_ptr(),
+                    std::ptr::null(),
                     std::ptr::null_mut(),
                 )
             },
@@ -274,6 +294,7 @@ mod tests {
                             maple_resolve_imported_white_balance_file(
                                 c_path.as_ptr(),
                                 c_xml.as_ptr(),
+                                std::ptr::null(),
                                 actual.as_mut_ptr(),
                             )
                         },
@@ -283,5 +304,35 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn a_set_cancel_flag_returns_cancelled_and_a_later_ask_gets_the_pair() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../../test-fixtures/batch-transfer/source.dng");
+        let c_path = std::ffi::CString::new(path.to_str().unwrap()).unwrap();
+        let xml = std::ffi::CString::new(r#"<x crs:WhiteBalance="Auto"/>"#).unwrap();
+        let resolve = |cancel: *const MapleCancelFlag| {
+            let mut output = [123.0; 2];
+            let rc = unsafe {
+                maple_resolve_imported_white_balance_file(
+                    c_path.as_ptr(),
+                    xml.as_ptr(),
+                    cancel,
+                    output.as_mut_ptr(),
+                )
+            };
+            (rc, output)
+        };
+        let flag = crate::cancel::maple_cancel_flag_new();
+        unsafe { crate::cancel::maple_cancel_flag_set(flag) };
+        assert_eq!(resolve(flag), (RC_CANCELLED, [123.0; 2]));
+        unsafe { crate::cancel::maple_cancel_flag_free(flag) };
+        let (rc, pair) = resolve(std::ptr::null());
+        assert_eq!(rc, 0);
+        let raw = raw_core::decode::decode(&path).unwrap();
+        let expected =
+            raw_core::stages::imported_auto_wb::estimate(&raw, CancelToken::never()).unwrap();
+        assert_eq!(pair, [expected.0, expected.1]);
     }
 }

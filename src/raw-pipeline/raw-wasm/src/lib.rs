@@ -75,6 +75,7 @@ pub mod export;
 pub mod filename;
 pub mod guided_geometry;
 pub mod id;
+mod imported_wb_cancel;
 /// Imported LCP profiles on the render worker (#3479): register / resolve /
 /// clear bindings plus the sidecar-selection accessor the worker restores
 /// against before a decode.

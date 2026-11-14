@@ -322,11 +322,11 @@ impl WebLiveSession {
         self.render_model(&model).await
     }
 
-    /// Resolve a name-only imported Auto WB once, off the first frame (#4669),
-    /// as `[temperature, tint]`; later [`WebLiveSession::render`] calls use it.
+    /// Resolve a name-only imported Auto WB once, off the first frame (#4669), as
+    /// `[temperature, tint]` (nothing when cancelled, #5923); renders then use it.
     #[wasm_bindgen]
-    pub fn resolve_imported_white_balance(&mut self) -> Result<Vec<f32>, JsError> {
-        crate::open_metadata::resolve_imported(&mut self.imported_wb, &self.raw_img)
+    pub fn resolve_imported_white_balance(&mut self) -> Result<Option<Vec<f32>>, JsError> {
+        crate::imported_wb_cancel::resolve(&mut self.imported_wb, &self.raw_img)
     }
 
     /// Re-render the live canvas with a flat parameters array (avoiding XML parsing on hot path).

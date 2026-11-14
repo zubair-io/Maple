@@ -138,7 +138,7 @@ fn imported_auto_tile_is_as_shot_until_resolved_then_matches_the_authored_pair()
     let first = tile(&mut session, name_only.clone());
     let mut as_shot = NativeDetailSession::new(&bytes, "dng").unwrap();
     assert_eq!(first, tile(&mut as_shot, wrap("")));
-    let pair = session.resolve_imported_white_balance().unwrap();
+    let pair = session.resolve_imported_white_balance().unwrap().unwrap();
     let resolved = tile(&mut session, name_only);
     let mut authored = NativeDetailSession::new(&bytes, "dng").unwrap();
     let explicit = wrap(&format!(
