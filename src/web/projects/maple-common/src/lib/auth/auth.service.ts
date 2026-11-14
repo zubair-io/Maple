@@ -7,6 +7,7 @@ import {
   parseNativeHandoffSearch,
   scrubNativeHandoffUrl,
 } from './native-handoff';
+import type { CreatedServiceApiKey, ServiceApiKey, ServiceApiScope } from './service-api-key.types';
 
 export interface AuthUser {
   id: string;
@@ -26,28 +27,7 @@ export interface DeviceSession {
   last_used_at: string;
 }
 
-/** Metadata for a least-privilege integration key. The plaintext secret is never listed. */
-export interface ServiceApiKey {
-  keyId: string;
-  prefix: string;
-  name: string;
-  scopes: 'assets:search'[];
-  createdAt: string;
-  expiresAt: string | null;
-  revokedAt: string | null;
-  lastUsedAt: string | null;
-}
-
-/** A newly minted integration key. `key` is returned by Maple exactly once. */
-export interface CreatedServiceApiKey {
-  key: string;
-  keyId: string;
-  prefix: string;
-  name: string;
-  scopes: 'assets:search'[];
-  createdAt: string;
-  expiresAt: string | null;
-}
+export type { CreatedServiceApiKey, ServiceApiKey, ServiceApiScope } from './service-api-key.types';
 
 /**
  * Outcome of a refresh attempt.
@@ -416,13 +396,17 @@ export class AuthService {
       .pipe(map((r) => r.keys));
   }
 
-  /** Create a search-only integration key after a fresh owner passkey check. */
-  async createServiceApiKey(name: string, expiresAt: string | null): Promise<CreatedServiceApiKey> {
+  /** Create a scoped integration key after a fresh owner passkey check. */
+  async createServiceApiKey(
+    name: string,
+    expiresAt: string | null,
+    scopes: ServiceApiScope[] = ['assets:search'],
+  ): Promise<CreatedServiceApiKey> {
     const stepUp = await this.stepUp();
     return firstValueFrom(
       this.http.post<CreatedServiceApiKey>(
         '/api/admin/service-api-keys',
-        { name, scopes: ['assets:search'], expiresAt },
+        { name, scopes, expiresAt },
         { headers: { 'X-Step-Up': stepUp } },
       ),
     );
