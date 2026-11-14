@@ -115,6 +115,11 @@ class AndroidWorkflowTests(unittest.TestCase):
         self.assertEqual(inputs["profile"], "pixel_tablet")
         self.assertIn("-gpu swiftshader", inputs["emulator-options"])
         self.assertNotIn("-Vulkan", inputs["emulator-options"])
+        # #4984: the panel boots at the tested size instead of being resized after boot.
+        panel = inputs["pre-emulator-launch-script"]
+        for entry in ("hw.lcd.width=1280", "hw.lcd.height=800", "hw.lcd.density=160"):
+            self.assertIn(entry, panel)
+        self.assertIn('"$ANDROID_AVD_HOME/test.avd/config.ini"', panel)
         self.assertEqual(
             inputs["script"],
             "bash src/android/scripts/test-device-ci.sh x86_64 arm64-v8a,x86_64",
@@ -144,8 +149,8 @@ class AndroidWorkflowTests(unittest.TestCase):
         runner = (SCRIPTS / "test-device-ci.sh").read_text()
         for contract in (
             "trap collect EXIT",
-            "wm size 1280x800",
-            "wm density 160",
+            "test \"$(adb shell wm size | tr -d '\\r')\" = 'Physical size: 1280x800'",
+            "test \"$(adb shell wm density | tr -d '\\r')\" = 'Physical density: 160'",
             "connectedDebugAndroidTest",
             "vulkan.level",
             "logcat -d",
@@ -154,6 +159,8 @@ class AndroidWorkflowTests(unittest.TestCase):
         ):
             self.assertIn(contract, runner)
         self.assertNotIn("connectedDebugAndroidTest ||", runner)
+        self.assertNotIn("wm size 1280x800", runner)
+        self.assertNotIn("wm density 160", runner)
 
     def test_result_rejects_failed_cancelled_and_skipped_selected_android(self):
         for result in ("failure", "cancelled", "skipped"):
@@ -297,6 +304,12 @@ class AndroidBootServiceTests(unittest.TestCase):
 
     def test_starting_keyguard_cannot_report_a_healthy_boot(self):
         services = "  * ServiceRecord{123 u0 com.android.systemui/.keyguard.KeyguardService}\n    executeNesting=1 executeFg=true\n"
+        result = self.run_boot_health(services)
+        self.assertEqual(result.returncode, 1, result.stderr)
+
+    def test_starting_systemui_service_cannot_report_a_healthy_boot(self):
+        # #4984: SystemUIService was still executing when the guard passed; it ANRed 3 s later.
+        services = "  * ServiceRecord{7e9 u0 com.android.systemui/.SystemUIService c:android}\n    executeNesting=1 executeFg=true\n"
         result = self.run_boot_health(services)
         self.assertEqual(result.returncode, 1, result.stderr)
 
