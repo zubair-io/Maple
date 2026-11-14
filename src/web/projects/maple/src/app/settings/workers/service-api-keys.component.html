@@ -8,8 +8,8 @@
         SugarMaple integration
       </div>
       <p class="max-w-[680px] m-0 mb-3.5 text-[var(--s-text-muted)] text-[12.5px] leading-[1.55]">
-        Create a dedicated key for SugarMaple to search this library. It cannot change photos or use
-        other Maple APIs.
+        Create a dedicated key for SugarMaple or another integration, limited to what you allow
+        below. It only sees your own photos, and it cannot change photos or use other Maple APIs.
       </p>
     </div>
   </div>
@@ -71,7 +71,7 @@
     <mui-button
       variant="primary"
       size="sm"
-      [disabled]="!name.trim()"
+      [disabled]="!name.trim() || scopes().size === 0"
       [loading]="busy()"
       (pressed)="create()"
     >
@@ -79,6 +79,23 @@
       Generate key
     </mui-button>
   </form>
+  <fieldset class="scopes m-0 mt-3 p-0 border-0 flex flex-wrap gap-x-5 gap-y-2">
+    <legend class="field-label mb-1.5 p-0 text-[var(--s-text-muted)] text-[11px]">Allow</legend>
+    @for (option of scopeOptions; track option.scope) {
+      <label class="scope flex items-start gap-1.5 text-[var(--s-text)] text-[12px] cursor-pointer">
+        <input
+          type="checkbox"
+          class="mt-0.5 accent-[var(--s-accent)]"
+          [checked]="scopes().has(option.scope)"
+          (change)="toggleScope(option.scope, $any($event.target).checked)"
+        />
+        <span>
+          {{ option.label }}
+          <span class="block text-[var(--s-text-dim)] text-[11px]">{{ option.hint }}</span>
+        </span>
+      </label>
+    }
+  </fieldset>
   <p class="form-hint mt-1.5 mb-0 text-[var(--s-text-dim)] text-[11.5px]">
     You will be asked to confirm with an owner passkey.
   </p>
@@ -165,7 +182,8 @@
               <div
                 class="key-meta mono mt-[3px] text-[var(--s-text-muted)] text-[10.5px] leading-[1.45] [overflow-wrap:anywhere]"
               >
-                {{ key.prefix }}… · created {{ key.createdAt | date: 'mediumDate' }}
+                {{ key.prefix }}… · {{ scopeLabels(key) }} · created
+                {{ key.createdAt | date: 'mediumDate' }}
                 @if (key.lastUsedAt) {
                   · last used {{ key.lastUsedAt | date: 'medium' }}
                 } @else {

@@ -86,6 +86,42 @@ describe('ServiceApiKeysComponent', () => {
     expect(element().textContent).not.toContain('test-service-key-once-only');
   });
 
+  it('mints a key with the scopes the owner ticks, and shows them on the list', async () => {
+    const createServiceApiKey = vi.fn().mockResolvedValue(created());
+    const listServiceApiKeys = vi
+      .fn()
+      .mockReturnValueOnce(of([]))
+      .mockReturnValueOnce(of([key({ scopes: ['assets:search', 'people:read'] })]));
+    await setup({ listServiceApiKeys, createServiceApiKey });
+    fixture.detectChanges();
+
+    const boxes = Array.from(
+      element().querySelectorAll<HTMLInputElement>('.scopes input[type="checkbox"]'),
+    );
+    expect(boxes.map((box) => box.checked)).toEqual([true, false, false]);
+    boxes[2]!.click();
+    fixture.detectChanges();
+    element().querySelector<HTMLButtonElement>('form mui-button button')!.click();
+    await settle();
+
+    expect(createServiceApiKey.mock.calls[0]![2]).toEqual(['assets:search', 'people:read']);
+    expect(element().textContent).toContain('search photos, list people');
+  });
+
+  it('will not mint a key with no scope ticked', async () => {
+    const createServiceApiKey = vi.fn().mockResolvedValue(created());
+    await setup({ listServiceApiKeys: () => of([]), createServiceApiKey });
+    fixture.detectChanges();
+
+    element().querySelector<HTMLInputElement>('.scopes input[type="checkbox"]')!.click();
+    fixture.detectChanges();
+    const form = element().querySelector<HTMLFormElement>('form')!;
+    form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    await settle();
+
+    expect(createServiceApiKey).not.toHaveBeenCalled();
+  });
+
   it('ignores repeated form submissions while passkey step-up is pending', async () => {
     let resolveCreate!: (value: CreatedServiceApiKey) => void;
     const pendingCreate = new Promise<CreatedServiceApiKey>((resolve) => {

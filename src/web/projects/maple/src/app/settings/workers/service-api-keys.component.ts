@@ -7,11 +7,28 @@ import {
   MuiInputComponent,
   type CreatedServiceApiKey,
   type ServiceApiKey,
+  type ServiceApiScope,
 } from '@maple-common';
 import { SettingsIconComponent } from '../settings-icon.component';
 
 type ExpiryChoice = '30' | '90' | '365' | 'never';
 type CopiedValue = 'endpoint' | 'key' | null;
+
+interface ScopeOption {
+  scope: ServiceApiScope;
+  label: string;
+  hint: string;
+}
+
+const SCOPE_OPTIONS: readonly ScopeOption[] = [
+  {
+    scope: 'assets:search',
+    label: 'Search photos',
+    hint: 'Find photos by text, people, place or date',
+  },
+  { scope: 'assets:read', label: 'Read photos', hint: 'Photo details, thumbnails and previews' },
+  { scope: 'people:read', label: 'List people', hint: 'Names of the people in your photos' },
+];
 
 @Component({
   selector: 'maple-service-api-keys',
@@ -31,6 +48,8 @@ export class ServiceApiKeysComponent {
   protected name = 'SugarMaple';
   protected expiry: ExpiryChoice = '90';
   protected readonly endpoint = `${globalThis.location?.origin ?? ''}/api/search/assets`;
+  protected readonly scopeOptions = SCOPE_OPTIONS;
+  protected readonly scopes = signal<ReadonlySet<ServiceApiScope>>(new Set(['assets:search']));
   protected readonly keys = signal<ServiceApiKey[] | null>(null);
   protected readonly freshKey = signal<CreatedServiceApiKey | null>(null);
   protected readonly busy = signal(false);
@@ -54,14 +73,17 @@ export class ServiceApiKeysComponent {
   protected async create(): Promise<void> {
     if (this.busy()) return;
     const name = this.name.trim();
-    if (!name) return;
+    const scopes = SCOPE_OPTIONS.map((option) => option.scope).filter((scope) =>
+      this.scopes().has(scope),
+    );
+    if (!name || scopes.length === 0) return;
 
     this.copied.set(null);
     this.clearCopyResetTimer();
     this.busy.set(true);
     this.error.set(null);
     try {
-      const created = await this.auth.createServiceApiKey(name, this.expirationDate());
+      const created = await this.auth.createServiceApiKey(name, this.expirationDate(), scopes);
       this.freshKey.set(created);
       this.name = 'SugarMaple';
       await this.refreshAfterMutation();
@@ -70,6 +92,19 @@ export class ServiceApiKeysComponent {
     } finally {
       this.busy.set(false);
     }
+  }
+
+  protected toggleScope(scope: ServiceApiScope, checked: boolean): void {
+    const next = new Set(this.scopes());
+    if (checked) next.add(scope);
+    else next.delete(scope);
+    this.scopes.set(next);
+  }
+
+  protected scopeLabels(key: ServiceApiKey): string {
+    return SCOPE_OPTIONS.filter((option) => key.scopes.includes(option.scope))
+      .map((option) => option.label.toLowerCase())
+      .join(', ');
   }
 
   protected dismissFreshKey(): void {
