@@ -212,8 +212,8 @@ Built from molecules. Apple splits these across `Organisms/` and `OrganismsB/`; 
 | Library Picker Modal   |  ✓  |   ✓   |    ✓    |
 | List View              |  ✓  |   ✓   |    ✓    |
 | Map Surface            |  ✓  |   ✓   |    ✓    |
-| Mask Overlay           |  ✓  |   —   |    —    |
-| Mask Panel             |  ✓  |   —   |    —    |
+| Mask Overlay           |  ✓  |   —   |    ✓    |
+| Mask Panel             |  ✓  |   —   |    ✓    |
 | Mobile Control Bar     |  ✓  |   ✓   |    ✓    |
 | Move To Modal          |  ✓  |   ✓   |    ✓    |
 | Notification Feed      |  ✓  |   ✓   |    ✓    |
@@ -242,7 +242,7 @@ Built from molecules. Apple splits these across `Organisms/` and `OrganismsB/`; 
 | Version History Panel  |  ✓  |   ✓   |    ✓    |
 | Whiteboard Canvas      |  ✓  |   ✓   |    ✓    |
 
-57 elements; 55 complete on all three platforms. Mask Overlay and Mask Panel (the local-adjustment surfaces, `docs/design/maple-ui/components/mask-overlay.md` / `mask-panel.md`) shipped on the web first (#1541); the Apple twins land with #3291 (#3275) and Windows has no masking UI in M3 (`docs/strategy/milestones/m3-local-adjustments.md` § 7).
+57 elements; 55 complete on all three platforms. Mask Overlay and Mask Panel (the local-adjustment surfaces, `docs/design/maple-ui/components/mask-overlay.md` / `mask-panel.md`) shipped on the web first (#1541); Windows ships them in the design system as `MuiMaskOverlay` / `MuiMaskPanel`, wired to the production Mask tool (`MainWindow.Mask.cs`), and the Apple product surfaces live in the app target (`Views/Masks/MaskOverlay.swift`, `MaskPanel.swift`) rather than the MapleUI package, which is what the Apple `—` above records.
 
 ## 6. Pages
 
