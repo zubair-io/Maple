@@ -314,7 +314,8 @@ class EditorRenderer(library: PhotoLibrary, private val onPresented: (Int) -> Un
         if (!importedWhiteBalanceCheckPending) return
         importedWhiteBalanceCheckPending = false
         val openEpoch = epoch
-        importedWhiteBalance.start(handle, { openEpoch == epoch && handle != 0L }) { work ->
+        val openHandle = handle
+        importedWhiteBalance.start(openHandle, { openEpoch == epoch && openHandle == handle }) { work ->
             val adopted = runCatching {
                 NativeBridge.adoptImportedAutoWhiteBalance(handle, work)
                 val json = NativeBridge.values(handle)
