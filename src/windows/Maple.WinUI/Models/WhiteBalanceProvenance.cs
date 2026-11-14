@@ -33,6 +33,11 @@ namespace Maple.WinUI.Models
 {
     public static class WhiteBalanceProvenance
     {
+        /// <summary>Imported coordinates cannot be edited until both axes have
+        /// resolved in the current slider frame, including name-only Auto.</summary>
+        public static bool CanEdit(AdjustmentState state) =>
+            state.ImportedWhiteBalance is not { Resolved: null };
+
         /// <summary>A manual temperature write: the pair is now the user's
         /// own, so any sampled/preset/auto provenance is cleared with it.</summary>
         public static void SetManualTemperature(AdjustmentState state, double temperature)

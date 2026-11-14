@@ -182,12 +182,13 @@ namespace Maple.WinUI
             var selected = Array.IndexOf(WhiteBalancePresets.Names, ViewModel.SelectedWhiteBalancePreset);
             if (_wbPresetBox.SelectedIndex != selected)
                 _wbPresetBox.SelectedIndex = selected;
-            _wbPresetBox.IsEnabled = hasPhoto && !busy;
+            _wbPresetBox.IsEnabled = hasPhoto && !busy && ViewModel.CanEditWhiteBalance;
             _wbPickButton.Selected = _wbPickArmed;
-            _wbPickButton.IsEnabled = hasPhoto && !busy;
+            _wbPickButton.IsEnabled = hasPhoto && !busy && ViewModel.CanEditWhiteBalance;
             _wbProvenance.Text = ViewModel.WhiteBalanceProvenanceText;
             var message = busy
                 ? "Sampling white balance…"
+                : !ViewModel.CanEditWhiteBalance && hasPhoto ? "Resolving imported white balance…"
                 : ViewModel.WhiteBalanceMessage
                     ?? (_wbPickArmed ? "Click a neutral grey or white area in the photo. Esc cancels." : null);
             _wbMessage.Text = message ?? string.Empty;

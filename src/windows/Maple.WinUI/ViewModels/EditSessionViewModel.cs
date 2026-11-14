@@ -396,7 +396,11 @@ namespace Maple.WinUI.ViewModels
         private void SyncSlidersFromModel()
         {
             foreach (var slider in Sections.SelectMany(s => s.Sliders))
+            {
+                if (slider.Label is "Temp" or "Tint")
+                    slider.IsEnabled = CanEditWhiteBalance;
                 slider.SyncFromModel();
+            }
             foreach (var band in HslBands)
             {
                 band.Hue.SyncFromModel();

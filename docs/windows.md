@@ -167,6 +167,13 @@ The Grade panel (`MainWindow.Grade.cs`, `MainWindow.ToneAndGrade.cs`) carries `B
 
 `Services/SidecarWatcher.cs` watches `*.xmp` in the open folder so external edits refresh the UI.
 
+Imported white-balance coordinates remain read-only until hydration publishes both
+axes in the current slider frame. This includes external single-axis sidecar
+reloads on a retained decoded base and name-only Auto estimates. Temperature/Tint
+input, reset and deferred commits are rejected while disabled; preset and sample
+actions share the same guard. Hydration synchronizes the sliders and re-enables
+editing without authoring the imported intent.
+
 ## File operations
 
 `Services/FileOperations/` holds the relocate primitive and everything built on it, all WinUI-free by construction so the test project can link the sources directly:

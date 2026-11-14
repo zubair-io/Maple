@@ -3,6 +3,7 @@ using Maple.WinUI.Models;
 using Maple.WinUI.Native;
 using Maple.WinUI.Services;
 using Maple.WinUI.Services.Xmp;
+using Maple.WinUI.ViewModels;
 using Xunit;
 
 namespace Maple.WinUI.Tests;
@@ -11,6 +12,75 @@ public sealed class ImportedWhiteBalanceTests
 {
     private static string Xml(string attributes) =>
         "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\"><rdf:Description xmlns:crs=\"http://ns.adobe.com/camera-raw-settings/1.0/\" crs:WhiteBalance=\"Auto\" " + attributes + "/></rdf:RDF></x:xmpmeta>";
+
+    [ImportedWhiteBalanceNativeFact]
+    public async Task PendingPartialHydrationRejectsSliderWritesResetsAndCommits()
+    {
+        System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(typeof(RawFfiLayoutTests).TypeHandle);
+        var raw = Path.Combine(AppContext.BaseDirectory, "Fixtures", "source.dng");
+        var sidecar = Path.Combine(Path.GetTempPath(), $"maple-pending-wb-{Guid.NewGuid():N}.xmp");
+        try
+        {
+            foreach (var version in new[] { 1, 2, 3, 4, 5 })
+            foreach (var temperature in new[] { true, false })
+            foreach (var deferred in new[] { true, false })
+            {
+                File.WriteAllText(sidecar, Xml((temperature ? "crs:Tint=\"12\"" : "crs:Temperature=\"5700\"")
+                    + $" xmlns:papp=\"http://ns.justmaple.app/photo/1.0/\" papp:WbScaleVersion=\"{version}\""));
+                var document = XmpParser.Parse(File.ReadAllText(sidecar))!;
+                var session = new EditSessionViewModel();
+                var slider = new AdjustmentSliderViewModel(session, temperature ? "Temp" : "Tint",
+                    temperature ? 2000 : -150, temperature ? 12000 : 150, 1,
+                    temperature ? m => m.Temperature : m => m.Tint,
+                    temperature ? WhiteBalanceProvenance.SetManualTemperature : WhiteBalanceProvenance.SetManualTint,
+                    commitOnRelease: deferred);
+                // A sidecar reload can interrupt a parked gesture on the prior model.
+                if (deferred) slider.Value = temperature ? 6200 : 20;
+                session.Adjustments = document.Adjustments;
+                slider.IsEnabled = WhiteBalanceProvenance.CanEdit(session.Adjustments);
+                slider.SyncFromModel();
+                Assert.False(slider.IsEnabled);
+                var untouched = XmpWriter.Serialize(document);
+                using var running = new SemaphoreSlim(0);
+                using var release = new ManualResetEventSlim(false);
+                var estimates = new ImportedAutoEstimates((path, model) =>
+                {
+                    running.Release();
+                    release.Wait();
+                    ImportedWhiteBalanceResolver.ResolveInPlace(path, model);
+                });
+                estimates.Focus(raw);
+                var pending = estimates.ResolveAsync(raw, session.Adjustments);
+                try
+                {
+                    Assert.True(await running.WaitAsync(TimeSpan.FromSeconds(10)));
+                    slider.Value = temperature ? 7000 : 30;
+                    slider.CommitDeferred();
+                    slider.Reset();
+                    Assert.Equal(0, session.Commits);
+                    Assert.Equal(untouched, XmpWriter.Serialize(document));
+                    Assert.False(WhiteBalanceProvenance.CanEdit(session.Adjustments));
+                }
+                finally { release.Set(); await pending; }
+                Assert.True(ImportedWhiteBalanceResolver.ApplyResolved(session.Adjustments, (await pending)!));
+                slider.IsEnabled = WhiteBalanceProvenance.CanEdit(session.Adjustments);
+                slider.SyncFromModel();
+                Assert.True(slider.IsEnabled);
+                var otherAxis = temperature ? session.Adjustments.Tint : session.Adjustments.Temperature;
+                slider.Value += temperature ? 100 : 1;
+                slider.CommitDeferred();
+                Assert.Equal(1, session.Commits);
+                Assert.Null(session.Adjustments.ImportedWhiteBalance);
+                Assert.Equal(5, session.Adjustments.WhiteBalanceScaleVersion);
+                Assert.Equal(otherAxis, temperature ? session.Adjustments.Tint : session.Adjustments.Temperature);
+                File.WriteAllText(sidecar, XmpWriter.Serialize(document));
+                var saved = XmpParser.Parse(File.ReadAllText(sidecar))!.Adjustments;
+                Assert.InRange(Math.Abs(session.Adjustments.Temperature - saved.Temperature), 0, 0.005);
+                Assert.InRange(Math.Abs(session.Adjustments.Tint - saved.Tint), 0, 0.005);
+            }
+        }
+        finally { File.Delete(sidecar); }
+    }
 
     [ImportedWhiteBalanceNativeFact]
     public async Task ExternalSingleAxisSidecarReloadResolvesWithoutRedecodingTheBase()
