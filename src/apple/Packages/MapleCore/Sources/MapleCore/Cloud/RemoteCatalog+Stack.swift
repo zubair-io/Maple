@@ -311,8 +311,9 @@ extension RemoteCatalog {
   /// is never left half trashed. That server picks each asset's trash name on its own, so with a
   /// file of the pair's stem already in the Trash of the library `libraryFolderID` the RAW and the
   /// JPEG would land under different stems and the JPEG's sidecar beside the older photo: that
-  /// trash is refused before anything moves (#5930). The server's trash takes no location, so a RAW
-  /// or JPEG it holds in several places is refused too: it would trash whichever copy it picks.
+  /// trash is refused before anything moves (#5930). Neither server's trash takes a location, so a
+  /// RAW it holds in several places is refused too: it would trash whichever copy it picks (with
+  /// the JPEG beside it, on a pair server), and an older server does the same for the JPEG.
   /// `primaryAbsPath` is the RAW's server path. Purge stays one asset per request.
   public func deleteAsset(
     assetID: String, intent: DeleteAssetIntent, stack: RawJpegStack, libraryFolderID: String,
@@ -321,6 +322,7 @@ extension RemoteCatalog {
     let companion = try stack.cloudCompanionID()
     if intent == .trash {
       if await supportsStackPairOps() {
+        try await requireOneLocation(assetID: assetID, name: stack.primary.name)
         return try await namingTheJpeg(of: stack) {
           try await trashPair(assetID: assetID, companionID: companion)
         }
