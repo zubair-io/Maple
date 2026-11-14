@@ -36,17 +36,14 @@ enum ImportedWhiteBalanceResolver {
     return model.resolvingImportedWhiteBalance(target)
   }
 
-  #if DEBUG
-    /// FFI resolves per RAW path, so tests can count the estimates for a photo.
-    static let ffiCalls = OSAllocatedUnfairLock<[String: Int]>(initialState: [:])
-  #endif
+  /// FFI resolves per RAW path, so tests can count the estimates for a photo.
+  /// Unconditional: the release-configuration regression gate reads it too.
+  static let ffiCalls = OSAllocatedUnfairLock<[String: Int]>(initialState: [:])
 
   private static func resolve(path: UnsafePointer<CChar>?, xml: String) throws
     -> ResolvedWhiteBalance
   {
-    #if DEBUG
-      if let path { ffiCalls.withLock { $0[String(cString: path), default: 0] += 1 } }
-    #endif
+    if let path { ffiCalls.withLock { $0[String(cString: path), default: 0] += 1 } }
     var pair: (Float, Float) = (0, 0)
     let rc = xml.withCString { text in
       withUnsafeMutablePointer(to: &pair) { pointer in

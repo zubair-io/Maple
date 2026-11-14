@@ -142,6 +142,21 @@ final class ImportedAutoWhiteBalanceSessionTests: XCTestCase {
     XCTAssertEqual(ffiCalls(raw), 1, "Copy and export join the session's estimate")
   }
 
+  func testCopyBeforeTheFirstFrameStartsTheSessionEstimateOnce() async throws {
+    let directory = try SidecarContractIO.makeTempDirectory(prefix: "imported-auto-copy-early")
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let raw = directory.appendingPathComponent("source.dng")
+    try FileManager.default.copyItem(
+      at: try PartialWhiteBalanceFixture.root().appendingPathComponent("source.dng"), to: raw)
+    try nameOnly.write(to: SidecarPath.sidecarURL(for: raw), atomically: true, encoding: .utf8)
+    let session = EditSession(asset: AssetRef(url: raw))
+    await session.loadSidecar()
+    let copied = try await liveLibrary(session, raw).readModel(for: AssetRef(url: raw))
+    let target = try XCTUnwrap(session.importedAuto.target)
+    XCTAssertEqual(copied.partialWhiteBalance?.resolvedTarget, target)
+    XCTAssertEqual(ffiCalls(raw), 1)
+  }
+
   func testCopyAfterAFailedEstimateResolvesInsteadOfAuthoringAsShot() async throws {
     let (session, raw) = try await openEditor(
       "imported-auto-copy-failed", estimate: { _, _, _ in throw EstimateFailed() })
