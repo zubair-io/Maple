@@ -5,6 +5,7 @@
 //! bounded native tiles (#4288).
 
 use super::cubic;
+use crate::cancel::CancelToken;
 use crate::image::Image;
 use crate::pipeline::pano::opcodes::{ActiveAreaRect, WarpPlaneParams, WarpRectilinearOpcode};
 use rayon::prelude::*;
@@ -85,6 +86,26 @@ pub fn apply_warp_rectilinear_windowed(
     ca: f32,
     origin: (u32, u32),
 ) {
+    warp_windowed(
+        image,
+        warp,
+        aa,
+        (distortion, ca),
+        origin,
+        CancelToken::never(),
+    );
+}
+
+/// [`apply_warp_rectilinear_windowed`] that skips the remaining rows once
+/// `cancel` fires; the caller checks the token and discards the image.
+pub(super) fn warp_windowed(
+    image: &mut Image,
+    warp: &WarpRectilinearOpcode,
+    aa: ActiveAreaRect,
+    (distortion, ca): (f32, f32),
+    origin: (u32, u32),
+    cancel: CancelToken<'_>,
+) {
     if distortion == 0.0 && ca == 0.0 {
         return;
     }
@@ -129,7 +150,7 @@ pub fn apply_warp_rectilinear_windowed(
         .enumerate()
         .for_each(|(row_idx, row_px)| {
             let gy = oy + row_idx as i32;
-            if gy < aa_top || gy >= aa_bottom {
+            if gy < aa_top || gy >= aa_bottom || cancel.is_cancelled() {
                 return;
             }
             let row = (gy - aa_top) as f64;

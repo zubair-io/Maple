@@ -429,7 +429,7 @@ fn describe(raw: &RawImage, model: &AdjustmentModel) {
         [a[0] + p[0] as f64, a[1] + p[1] as f64, a[2] + p[2] as f64]
     });
     let mean = mean.map(|v| (v / n) as f32);
-    let neutral = estimate_neutral(&probe, &space);
+    let neutral = estimate_neutral(&probe, &space, crate::cancel::CancelToken::never());
     println!(
         "source={source:?} scene_white={:?} cm={:?} scene_cct={} ceilings={:?} prior={:?} \
          probe mean={mean:?} in space={:?} px[0]={:?} px[last]={:?} neutral={neutral:?} \
@@ -511,9 +511,13 @@ fn calibrated_scene_under_another_light_solves_that_light_in_the_slider_frame() 
             .unwrap();
     let space = ProbeSpace::resolve(&raw, &probe_model);
     let solved = space
-        .temp_tint(estimate_neutral(&probe, &space).unwrap())
+        .temp_tint(estimate_neutral(&probe, &space, crate::cancel::CancelToken::never()).unwrap())
         .unwrap();
     assert_recommends(solved, want, "tungsten scene (solve)");
+    // #5923: a cancelled pass admits nothing, so a cancelled solve finds no neutral.
+    let cancelled = std::sync::atomic::AtomicBool::new(true);
+    let token = crate::cancel::CancelToken::new(&cancelled);
+    assert_eq!(estimate_neutral(&probe, &space, token), None);
 
     // The recommendation: the same answer, clamped to the as-shot band.
     let as_shot = dcp::estimate_as_shot_cct_tint(&raw).unwrap();

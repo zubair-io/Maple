@@ -9,7 +9,7 @@ mod resolve;
 mod xml;
 pub use resolve::{LensQuery, Resolution, SampleWeight, Source};
 mod apply;
-pub use apply::{apply, apply_windowed, reach_px};
+pub use apply::{apply, apply_windowed, apply_windowed_cancellable, reach_px};
 mod auto;
 pub mod lensfun;
 pub(crate) mod metadata;
@@ -19,8 +19,8 @@ pub use auto::{
 };
 mod registry;
 pub use registry::{
-    apply_for_raw, apply_for_raw_windowed, clear_cache, has_capacity, parse_reference, profile_id,
-    reach_for_raw, register, resolve_for_raw, ProfileRef,
+    apply_for_raw, apply_for_raw_cancellable, apply_for_raw_windowed, clear_cache, has_capacity,
+    parse_reference, profile_id, reach_for_raw, register, resolve_for_raw, ProfileRef,
 };
 
 pub fn corrections_enabled(model: &crate::AdjustmentModel) -> bool {

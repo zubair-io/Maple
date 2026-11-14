@@ -1,3 +1,4 @@
+use crate::cancel::CancelToken;
 use crate::image::{CfaPattern, ColorSpace, Image, RawImage};
 use rayon::prelude::*;
 
@@ -36,7 +37,13 @@ use rayon::prelude::*;
 /// future fixture ever combines `RawImageData::Float` with a present
 /// `LinearizationTable`, revisit here.
 pub fn sensor_linearize(raw: &RawImage) -> Image {
-    sensor_linearize_region(raw, 0, 0, raw.width, raw.height)
+    sensor_linearize_cancellable(raw, CancelToken::never())
+}
+
+/// [`sensor_linearize`] that skips the remaining rows once `cancel` fires;
+/// the caller checks the token and discards the partial mosaic.
+pub fn sensor_linearize_cancellable(raw: &RawImage, cancel: CancelToken<'_>) -> Image {
+    linearize_rect(raw, (0, 0, raw.width, raw.height), cancel)
 }
 
 /// Linearize a single rectangular region of the sensor. Output is an
@@ -57,6 +64,14 @@ pub fn sensor_linearize_region(
     rect_y: u32,
     rect_w: u32,
     rect_h: u32,
+) -> Image {
+    linearize_rect(raw, (rect_x, rect_y, rect_w, rect_h), CancelToken::never())
+}
+
+fn linearize_rect(
+    raw: &RawImage,
+    (rect_x, rect_y, rect_w, rect_h): (u32, u32, u32, u32),
+    cancel: CancelToken<'_>,
 ) -> Image {
     debug_assert_ne!(
         raw.cfa,
@@ -97,6 +112,9 @@ pub fn sensor_linearize_region(
         .par_chunks_mut(rw)
         .enumerate()
         .for_each(|(local_y, row)| {
+            if cancel.is_cancelled() {
+                return;
+            }
             let abs_y = rect_y as usize + local_y;
             let raw_row = &raw.raw_data[abs_y * sensor_w..(abs_y + 1) * sensor_w];
             for (local_x, px) in row.iter_mut().enumerate() {
@@ -154,7 +172,15 @@ pub fn sensor_linearize_region(
 /// already 3-channel RGB. Caller dispatches on
 /// `raw.cfa == CfaPattern::LinearRgb`. See ticket #07.
 pub fn linearraw_to_camera_rgb(raw: &RawImage) -> crate::Result<Image> {
-    linearraw_region(raw, 0, 0, raw.width, raw.height)
+    linearraw_to_camera_rgb_cancellable(raw, CancelToken::never())
+}
+
+/// [`linearraw_to_camera_rgb`], checked once per row.
+pub fn linearraw_to_camera_rgb_cancellable(
+    raw: &RawImage,
+    cancel: CancelToken<'_>,
+) -> crate::Result<Image> {
+    linearraw_region_cancellable(raw, 0, 0, raw.width, raw.height, cancel)
 }
 
 /// [`linearraw_to_camera_rgb`] over one rectangle of the frame, so a sampler
@@ -165,6 +191,18 @@ pub fn linearraw_region(
     rect_y: u32,
     rect_w: u32,
     rect_h: u32,
+) -> crate::Result<Image> {
+    linearraw_region_cancellable(raw, rect_x, rect_y, rect_w, rect_h, CancelToken::never())
+}
+
+/// [`linearraw_region`], checked once per row.
+pub fn linearraw_region_cancellable(
+    raw: &RawImage,
+    rect_x: u32,
+    rect_y: u32,
+    rect_w: u32,
+    rect_h: u32,
+    cancel: CancelToken<'_>,
 ) -> crate::Result<Image> {
     debug_assert_eq!(raw.cfa, CfaPattern::LinearRgb);
     debug_assert!(rect_x + rect_w <= raw.width && rect_y + rect_h <= raw.height);
@@ -203,27 +241,38 @@ pub fn linearraw_region(
     let corrections = raw.sensor_gain_maps.as_ref();
 
     let mut img = Image::new(rect_w, rect_h, ColorSpace::CameraNativeLinearRgb);
-    let rw = rect_w as usize;
-    img.pixels.par_iter_mut().enumerate().for_each(|(idx, px)| {
-        let (x, y) = (rect_x + (idx % rw) as u32, rect_y + (idx / rw) as u32);
-        let off = (y as usize * w + x as usize) * 3;
-        let encoded = [
-            ((raw.raw_data[off] as f32 - bl_r) / denom_r).clamp(0.0, 1.0),
-            ((raw.raw_data[off + 1] as f32 - bl_g) / denom_g).clamp(0.0, 1.0),
-            ((raw.raw_data[off + 2] as f32 - bl_b) / denom_b).clamp(0.0, 1.0),
-        ];
-        *px = std::array::from_fn(|plane| {
-            let value = encoded[plane];
-            // 8-bit lossy LinearRaw is gamma-encoded: invert the DNG
-            // Converter's usual gamma 2.4, even where the file declares its
-            // own OpcodeList2 transfer (`transfers_apply`, #5081). WB stays
-            // baked; DCP derives `scene_white_xyz` from
-            // `inv(CM) · AsShotNeutral` (legacy path), which matched the
-            // reference better than `wb_already_baked = true`.
-            let decoded = if lossy_8bit { value.powf(2.4) } else { value };
-            corrections.map_or(decoded, |c| c.apply(x, y, plane as u32, decoded, transfers))
+    img.pixels
+        .par_chunks_mut((rect_w as usize).max(1))
+        .enumerate()
+        .for_each(|(row_index, row)| {
+            if cancel.is_cancelled() {
+                return;
+            }
+            let y = rect_y + row_index as u32;
+            for (column, px) in row.iter_mut().enumerate() {
+                let x = rect_x + column as u32;
+                let off = (y as usize * w + x as usize) * 3;
+                let encoded = [
+                    ((raw.raw_data[off] as f32 - bl_r) / denom_r).clamp(0.0, 1.0),
+                    ((raw.raw_data[off + 1] as f32 - bl_g) / denom_g).clamp(0.0, 1.0),
+                    ((raw.raw_data[off + 2] as f32 - bl_b) / denom_b).clamp(0.0, 1.0),
+                ];
+                *px = std::array::from_fn(|plane| {
+                    let value = encoded[plane];
+                    // 8-bit lossy LinearRaw is gamma-encoded: invert the DNG
+                    // Converter's usual gamma 2.4, even where the file declares its
+                    // own OpcodeList2 transfer (`transfers_apply`, #5081). WB stays
+                    // baked; DCP derives `scene_white_xyz` from
+                    // `inv(CM) · AsShotNeutral` (legacy path), which matched the
+                    // reference better than `wb_already_baked = true`.
+                    let decoded = if lossy_8bit { value.powf(2.4) } else { value };
+                    corrections.map_or(decoded, |c| c.apply(x, y, plane as u32, decoded, transfers))
+                });
+            }
         });
-    });
+    if cancel.is_cancelled() {
+        return Err(crate::Error::Cancelled);
+    }
     Ok(img)
 }
 
