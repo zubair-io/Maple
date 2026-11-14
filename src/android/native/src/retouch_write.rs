@@ -83,11 +83,15 @@ struct Origin<'a> {
 }
 
 /// raw-core's canonical entry for `spot`, its first line unindented and every
-/// other line under `indent`, carrying `origin`'s metadata.
+/// other line under `indent`, carrying `origin`'s metadata. A converted
+/// legacy entry (`legacy`: its source `rdf:li` and container) instead
+/// carries that entry's unknown attributes and child nodes on its
+/// description, so the entry itself stays in the authored shape.
 fn render(
     spot: &RetouchSpot,
     indent: &str,
     origin: Option<Origin>,
+    legacy: Option<(&Container, &Element)>,
     context: &Bindings,
 ) -> Result<String, String> {
     let model = AdjustmentModel {
@@ -103,6 +107,22 @@ fn render(
         .map(|line| line.strip_prefix("    ").unwrap_or(line))
         .collect::<Vec<_>>()
         .join(&format!("\n{indent}"));
+    if let Some((container, source)) = legacy {
+        let attrs = format!("{indent}    ");
+        let (spot_attrs, inner) = attribute_lines(&unknown(&source.attrs, &[]), context, &attrs);
+        let masks_close = format!("{attrs}</crs:Masks>\n");
+        let after_masks = item.find(&masks_close).ok_or_else(unexpected)? + masks_close.len();
+        let nodes: Vec<&Element> = source.children.iter().collect();
+        item.insert_str(
+            after_masks,
+            &node_lines(&container.text, &container.scopes, &nodes, &inner, &attrs),
+        );
+        let masks_at = item
+            .find(&format!(">\n{attrs}<crs:Masks>"))
+            .ok_or_else(unexpected)?;
+        item.insert_str(masks_at, &spot_attrs);
+        return Ok(item);
+    }
     let Some(origin) = origin else {
         return Ok(item);
     };
@@ -175,12 +195,27 @@ struct Plan<'a> {
 }
 
 impl Plan<'_> {
-    fn new_spots(&self) -> Vec<RetouchSpot> {
+    /// Spots written into a structured container as new entries: truly new
+    /// spots and, when the legacy strings are the ones read, the converted
+    /// legacy spots (with the slot of the entry each was decoded from).
+    fn append_list(&self) -> Vec<(RetouchSpot, Option<usize>)> {
         self.spots
             .iter()
-            .filter(|(_, slot)| slot.is_none())
-            .map(|(spot, _)| *spot)
+            .filter(|(_, slot)| {
+                slot.is_none()
+                    || slot.is_some_and(|slot| {
+                        !self.document.any_areas && self.document.legacy(slot).is_some()
+                    })
+            })
+            .copied()
             .collect()
+    }
+
+    /// The source `rdf:li` and container of the legacy entry at `slot`.
+    fn legacy_origin(&self, slot: Option<usize>) -> Option<(&Container, &Element)> {
+        let entry = self.document.legacy(slot?)?;
+        let item = entry.legacy_item.as_ref()?;
+        Some((&self.document.containers[entry.container], item))
     }
 
     fn fate(&self, slot: Option<usize>) -> Fate {
@@ -227,7 +262,7 @@ impl Plan<'_> {
             .map(|item| self.fate(slot_of(item)))
             .collect();
         let appended = if self.append_into == Some(index) {
-            self.new_spots()
+            self.append_list()
         } else {
             Vec::new()
         };
@@ -243,8 +278,11 @@ impl Plan<'_> {
         };
         let placed = placement(&container.root, seq, &inside, &context, additions);
         let indent = Self::item_indent(container, seq);
-        let rendered = |spot: &RetouchSpot, origin: Option<Origin>| -> Result<String, String> {
-            let item = render(spot, &indent, origin, &context)?;
+        let rendered = |spot: &RetouchSpot,
+                        origin: Option<Origin>,
+                        legacy: Option<(&Container, &Element)>|
+         -> Result<String, String> {
+            let item = render(spot, &indent, origin, legacy, &context)?;
             let open = "<rdf:li".len();
             Ok(format!(
                 "{}{}{}",
@@ -282,7 +320,7 @@ impl Plan<'_> {
                         leaf,
                     };
                     out.push_str(&text[cursor..item.span.start]);
-                    out.push_str(&rendered(&spot, Some(origin))?);
+                    out.push_str(&rendered(&spot, Some(origin), None)?);
                     entries += 1;
                 }
                 Fate::Remove => {
@@ -292,29 +330,58 @@ impl Plan<'_> {
             }
             cursor = item.span.end;
         }
-        for spot in &appended {
-            out.push_str(&format!("\n{indent}{}", rendered(spot, None)?));
+        for (spot, slot) in &appended {
+            let legacy = self.legacy_origin(*slot);
+            out.push_str(&format!("\n{indent}{}", rendered(spot, None, legacy)?));
             entries += 1;
         }
         out.push_str(&text[cursor..container.root.span.end]);
         Ok(if entries == 0 { String::new() } else { out })
     }
 
-    /// A new structured container for the new spots when the sidecar has none
-    /// to append to, starting at its tag; later lines sit under `indent`.
-    fn appended(&self, indent: &str) -> Vec<String> {
-        let spots = self.new_spots();
+    /// A new structured container for the spots written as new entries when
+    /// the sidecar has none to append to, starting at its tag; later lines
+    /// sit under `indent`.
+    fn appended(&self, indent: &str) -> Result<Vec<String>, String> {
+        let spots = self.append_list();
         if self.append_into.is_some() || spots.is_empty() {
-            return Vec::new();
+            return Ok(Vec::new());
         }
-        let (_, additions) = with_prefixes(&self.document.target, &PREFIXES);
-        let model = AdjustmentModel {
-            retouch_spots: spots,
-            ..Default::default()
-        };
-        let block = raw_core::xmp::serialize_retouch_areas(&model, indent);
-        let block = block.strip_prefix(indent).unwrap_or(&block);
-        vec![block.replacen(&format!("<{AREAS}>"), &format!("<{AREAS}{additions}>"), 1)]
+        let (context, additions) = with_prefixes(&self.document.target, &PREFIXES);
+        if spots
+            .iter()
+            .all(|(_, slot)| self.legacy_origin(*slot).is_none())
+        {
+            let model = AdjustmentModel {
+                retouch_spots: spots.iter().map(|(spot, _)| *spot).collect(),
+                ..Default::default()
+            };
+            let block = raw_core::xmp::serialize_retouch_areas(&model, indent);
+            let block = block.strip_prefix(indent).unwrap_or(&block);
+            return Ok(vec![block.replacen(
+                &format!("<{AREAS}>"),
+                &format!("<{AREAS}{additions}>"),
+                1,
+            )]);
+        }
+        let item_indent = format!("{indent}    ");
+        let items = spots
+            .iter()
+            .map(|(spot, slot)| {
+                render(
+                    spot,
+                    &item_indent,
+                    None,
+                    self.legacy_origin(*slot),
+                    &context,
+                )
+                .map(|item| format!("{item_indent}{item}"))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(vec![format!(
+            "<{AREAS}{additions}>\n{indent}  <rdf:Seq>\n{}\n{indent}  </rdf:Seq>\n{indent}</{AREAS}>",
+            items.join("\n")
+        )])
     }
 }
 
@@ -329,7 +396,12 @@ fn validate(document: &Document, spots: &[(RetouchSpot, Option<usize>)]) -> Resu
         if new_seen {
             return Err("New repair spots follow the spots that were read".into());
         }
-        if !document.any_areas || document.authored(slot).is_none() {
+        let authored = if document.any_areas {
+            document.authored(slot).is_some()
+        } else {
+            document.legacy(slot).is_some()
+        };
+        if !authored {
             return Err("Repair spot names an entry Android does not author".into());
         }
         if last.is_some_and(|last| last >= slot) {
@@ -343,10 +415,9 @@ fn validate(document: &Document, spots: &[(RetouchSpot, Option<usize>)]) -> Resu
 /// Refuses an edit that would stamp a sensor-framed list upright while it
 /// still holds spots raw-core renders that Android cannot rewrite upright.
 fn convertible(document: &Document) -> Result<(), String> {
-    let kept = document
-        .entries
-        .iter()
-        .any(|entry| entry.spot.is_some() && entry.authored.is_none());
+    let kept = document.entries.iter().enumerate().any(|(slot, entry)| {
+        entry.spot.is_some() && entry.authored.is_none() && document.legacy(slot).is_none()
+    });
     if document.frame.is_some() && (kept || document.last_opaque.is_some()) {
         return Err("These repair spots predate the upright frame and include spots Android cannot convert; edit them in Maple on a Mac or iPad".into());
     }
@@ -377,7 +448,7 @@ pub fn write(input: &Value) -> Result<Value, String> {
     let mut containers = (0..document.containers.len())
         .map(|index| plan.container(index))
         .collect::<Result<Vec<_>, _>>()?;
-    let appended = plan.appended(indent);
+    let appended = plan.appended(indent)?;
     // Authoring the structured list retires the legacy fallback raw-core would
     // otherwise read again once no structured spot is left.
     let edited = !appended.is_empty()
@@ -394,6 +465,6 @@ pub fn write(input: &Value) -> Result<Value, String> {
     for (out, container) in containers.iter().zip(&document.containers) {
         spots |= !out.is_empty() && !parse_piece(out, &container.scope)?.retouch_spots.is_empty();
     }
-    spots |= !plan.new_spots().is_empty();
+    spots |= !plan.append_list().is_empty();
     Ok(json!({"containers": containers, "appended": appended, "spots": spots}))
 }

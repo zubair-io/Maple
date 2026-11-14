@@ -247,7 +247,10 @@ fn a_sidecar_without_repairs_gains_one_canonical_container() {
 fn an_edited_legacy_list_converts_to_the_structured_container() {
     let source = fixture("lightroom-legacy-info.xmp");
     let spots = read(&source);
-    assert!(spots.iter().all(|(_, slot)| slot.is_none()));
+    assert_eq!(
+        spots.iter().map(|(_, slot)| *slot).collect::<Vec<_>>(),
+        vec![Some(0), Some(1)]
+    );
     assert_eq!(
         spots.iter().map(|(spot, _)| *spot).collect::<Vec<_>>(),
         rendered(&source.xml)

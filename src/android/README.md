@@ -149,7 +149,9 @@ canonical entry (`serialize_retouch_areas`), carrying the unknown attributes and
 nodes of the entry it came from and Lightroom's own `crs:Seed`, `crs:MaskValue`,
 `crs:Flow` and `crs:CenterWeight`. Entries raw-core does not model (Lightroom brush heals)
 are not listed and stay in place. A list held only in Lightroom's legacy
-`crs:RetouchInfo` strings converts to `crs:RetouchAreas` on the first edit, and any edit
+`crs:RetouchInfo` strings converts to `crs:RetouchAreas` on the first edit; each converted
+entry carries the unknown attributes and child nodes of the legacy `rdf:li` it was decoded
+from, on its description. Any edit
 retires the entries raw-core decodes from a legacy list (`retouch_legacy.rs`), so they never
 render again once the structured list empties; its other content keeps its bytes. A written
 list carries `papp:RetouchFrameVersion="2"` while the codec reports that the written
