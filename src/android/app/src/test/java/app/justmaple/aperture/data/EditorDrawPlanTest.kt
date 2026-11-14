@@ -64,6 +64,36 @@ class EditorDrawPlanTest {
     }
 
     @Test
+    fun pastingAutoAfterTheFirstFrameStartsItsEstimateWithoutRepeatingPresentation() {
+        var hasAutoIntent = false
+        var started = false
+        var presentations = 0
+        var estimates = 0
+        fun present(firstFrame: Boolean) =
+            EditorDrawPlan.afterPresentation(
+                firstFrame,
+                notifyFirstFrame = { presentations++ },
+                resolveImportedWhiteBalance = {
+                    if (hasAutoIntent && !started) {
+                        started = true
+                        estimates++
+                    }
+                },
+            )
+        present(firstFrame = true)
+        assertEquals(1, presentations)
+        assertEquals(0, estimates)
+        // Paste/undo/history replacement reuses the decoded session and changes its model.
+        hasAutoIntent = true
+        present(firstFrame = false)
+        assertEquals(1, presentations)
+        assertEquals(1, estimates)
+        present(firstFrame = false)
+        assertEquals(1, presentations)
+        assertEquals(1, estimates)
+    }
+
+    @Test
     fun fieldOrderIsComputedOnce() {
         assertSame(EditorDrawPlan.orderedFields, EditorDrawPlan.orderedFields)
         assertEquals(listOf("temperature", "tint"), EditorDrawPlan.orderedFields.take(2).map { it.name })

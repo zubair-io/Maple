@@ -22,6 +22,16 @@ internal object EditorDrawPlan {
     fun needsReload(xml: String, modelXml: String, invalidations: Int, reloadedInvalidation: Int): Boolean =
         xml != modelXml || invalidations != reloadedInvalidation
 
+    /** Presentation notification is once per surface; imported intent can become active later. */
+    inline fun afterPresentation(
+        firstFrame: Boolean,
+        notifyFirstFrame: () -> Unit,
+        resolveImportedWhiteBalance: () -> Unit,
+    ) {
+        if (firstFrame) notifyFirstFrame()
+        resolveImportedWhiteBalance()
+    }
+
     /**
      * Visits the fields to push after any reload, against the values the native model now holds.
      * While the native model renders an adopted name-only imported Auto pair (#4669), its WB is not

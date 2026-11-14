@@ -42,6 +42,7 @@ class EditorRenderer(library: PhotoLibrary, private val onPresented: (Int) -> Un
     // The native model renders an adopted name-only imported Auto pair (#4669):
     // its WB is not authored, so the view model's WB values are display-only.
     private var importedWhiteBalanceAdopted = false
+    private var importedWhiteBalanceCheckPending = true
     private var handle = 0L
     private var renderer = 0L
     private val drawLock = Any()
@@ -121,6 +122,7 @@ class EditorRenderer(library: PhotoLibrary, private val onPresented: (Int) -> Un
             modelXml = document
             reloadedInvalidation = invalidations
             values = readValues()
+            importedWhiteBalanceCheckPending = true
             values
         }
 
@@ -170,12 +172,16 @@ class EditorRenderer(library: PhotoLibrary, private val onPresented: (Int) -> Un
             if (
                 presented &&
                     expectedRevision == revision &&
-                    binding === currentSurface &&
-                    !hasPresented
+                    binding === currentSurface
             ) {
-                hasPresented = true
-                onPresented(epoch)
-                startImportedAutoWhiteBalance()
+                EditorDrawPlan.afterPresentation(
+                    firstFrame = !hasPresented,
+                    notifyFirstFrame = {
+                        hasPresented = true
+                        onPresented(epoch)
+                    },
+                    resolveImportedWhiteBalance = { startImportedAutoWhiteBalance() },
+                )
             }
         } catch (failure: Exception) {
             if (expectedRevision == revision && binding === currentSurface) throw failure
@@ -191,6 +197,7 @@ class EditorRenderer(library: PhotoLibrary, private val onPresented: (Int) -> Un
             if (handle == 0L || expectedRevision != revision) return@withContext
             val seenInvalidation = invalidations
             if (EditorDrawPlan.needsReload(xml, modelXml, seenInvalidation, reloadedInvalidation)) {
+                importedWhiteBalanceCheckPending = true
                 NativeBridge.setModel(handle, xml)
                 modelXml = xml
                 reloadedInvalidation = seenInvalidation
@@ -286,6 +293,8 @@ class EditorRenderer(library: PhotoLibrary, private val onPresented: (Int) -> Un
      * retries.
      */
     private fun startImportedAutoWhiteBalance() {
+        if (!importedWhiteBalanceCheckPending) return
+        importedWhiteBalanceCheckPending = false
         val openEpoch = epoch
         importedWhiteBalance.start(handle, { openEpoch == epoch && handle != 0L }) { work ->
             val adopted = runCatching {
@@ -337,6 +346,7 @@ class EditorRenderer(library: PhotoLibrary, private val onPresented: (Int) -> Un
     private fun release() {
         importedWhiteBalance.cancel()
         importedWhiteBalanceAdopted = false
+        importedWhiteBalanceCheckPending = true
         nativeDetail.clear()
         if (handle != 0L) NativeBridge.close(handle)
         handle = 0L
