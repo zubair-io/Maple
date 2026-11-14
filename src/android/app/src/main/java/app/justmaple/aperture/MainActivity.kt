@@ -3,6 +3,7 @@ package app.justmaple.aperture
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
+import android.view.KeyEvent
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
@@ -10,6 +11,7 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
 import app.justmaple.aperture.ui.MapleShell
 import app.justmaple.aperture.ui.MapleTheme
+import app.justmaple.aperture.ui.handlePhotoKey
 
 class MainActivity : ComponentActivity() {
     private val model: MapleViewModel by viewModels()
@@ -33,6 +35,9 @@ class MainActivity : ComponentActivity() {
         setIntent(intent)
         openIntent(intent)
     }
+
+    override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean =
+        model.handlePhotoKey(event) || super.onKeyDown(keyCode, event)
 
     private fun openIntent(intent: Intent) {
         if (intent.action == Intent.ACTION_VIEW && intent.data?.scheme == "maple-app") {

@@ -72,6 +72,15 @@ After a paste the slider values come from the native model for the pasted XMP
 (`PreviewRenderer.modelValues`), so white balance reads on the target camera's scale.
 There is no Browse multi-select on Android yet, so paste applies to the open photo only.
 
+## Hardware keyboard
+
+With a photo open in Preview or Edit, `0`–`5` (top row or numpad) set the star
+rating (`0` clears it), `P` picks, `X` rejects and `U` unflags, as on Apple, web and
+Windows. In the editor ⌘/Ctrl+Z undoes and ⌘/Ctrl+Shift+Z redoes. `MainActivity`
+receives only keys nothing in the window consumed, so focused text fields and sliders
+keep their input (`ui/PhotoKeyCommands.kt`, #5944). Browse has no keyboard target
+until it has a selection. Keyboard zoom and Reset Visible Group are #5945.
+
 ## Build
 
 Requires JDK 21, Rust stable, Android SDK 36, Build Tools 36.0.0, NDK
