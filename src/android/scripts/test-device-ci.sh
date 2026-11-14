@@ -16,10 +16,9 @@ collect() {
 	adb pull /sdcard/Android/data/app.justmaple.aperture/files "$artifacts/app-files" || true
 }
 trap collect EXIT
-# 1280x800 dp exercises the inspector/group reset and full sources column.
+# 1280x800 dp exercises the inspector/group reset and full sources column. The AVD
+# boots at that panel size (android.yml); a runtime `wm size` resize is not a substitute.
 configure_display() {
-	adb shell wm size 1280x800
-	adb shell wm density 160
 	adb shell settings put system accelerometer_rotation 0
 	adb shell settings put system user_rotation 0
 	adb shell input keyevent KEYCODE_WAKEUP
@@ -28,12 +27,15 @@ configure_display
 adb shell getprop >"$artifacts/device-properties.txt"
 test "$(adb shell getprop ro.build.version.sdk | tr -d '\r')" = 36
 adb shell getprop ro.product.cpu.abilist | tr -d '\r' | tr ',' '\n' | grep -Fx "$abi"
+test "$(adb shell wm size | tr -d '\r')" = 'Physical size: 1280x800'
+test "$(adb shell wm density | tr -d '\r')" = 'Physical density: 160'
 adb shell am get-config | tee "$artifacts/configuration.txt" | grep -E 'sw[6-9][0-9]{2}dp.*w1[0-9]{3}dp'
 adb shell pm list features | tee "$artifacts/features.txt" | grep -F android.hardware.vulkan.level
 
 # A cold API 36 boot can leave an ANR dialog over DocumentsUI. In #4878 the
 # SystemUI KeyguardService ANR began before instrumentation and stayed focused
-# through all three real folder-picker tests. Qualify the device before tests.
+# through all three real folder-picker tests; in #4984 SystemUIService was still
+# starting when Keyguard looked idle. Qualify the device before tests.
 boot_ui_health() {
 	local focus services busy sample ready=0
 	for ((sample = 0; sample < 45; sample++)); do
@@ -45,10 +47,10 @@ boot_ui_health() {
 		services="$(adb shell dumpsys activity services)"
 		busy="$(printf '%s\n' "$services" | awk '
 			/^[[:space:]]*\* ServiceRecord\{/ {
-				keyguard = /com\.android\.systemui\/\.keyguard\.KeyguardService([[:space:]}]|$)/
+				systemui = /com\.android\.systemui\//
 				next
 			}
-			keyguard && /executeNesting=[1-9]/ { print; exit }
+			systemui && /executeNesting=[1-9]/ { print; exit }
 		')"
 		if [[ "$focus" == *'com.google.android.apps.nexuslauncher/'*'NexusLauncherActivity'* ]] &&
 			[[ -z "$busy" ]] && [[ -n "$(adb shell pidof com.android.systemui)" ]]; then
