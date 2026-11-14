@@ -2,7 +2,6 @@ package app.justmaple.aperture
 
 import android.net.Uri
 import androidx.compose.ui.test.*
-import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.lifecycle.ViewModelProvider
 import androidx.test.platform.app.InstrumentationRegistry
 import app.justmaple.aperture.data.XmpDocument
@@ -13,7 +12,7 @@ import org.junit.Rule
 import org.junit.Test
 
 class FailedSidecarLoadTest {
-    @get:Rule val compose = createAndroidComposeRule<MainActivity>()
+    @get:Rule val compose = mainThreadComposeRule<MainActivity>()
 
     @Test
     fun failedLoadsCannotReuseAnotherPhotosMatchingBaseline() {

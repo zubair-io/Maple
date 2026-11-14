@@ -209,6 +209,11 @@ truncate/write through that same descriptor. Providers without regular seekable
 descriptors are rejected before writing; JPEG rendering finishes before the
 export destination is touched. See Android’s [file-descriptor API](<https://developer.android.com/reference/android/content/ContentResolver#openFileDescriptor(android.net.Uri,%20java.lang.String)>).
 Editor screenshots are written to `Download/MapleVerification` on the test device.
+Compose device tests create their rule with `mainThreadComposeRule`, which queues
+effect resumptions on the test clock (`StandardTestDispatcher`). The rule's default
+unconfined dispatcher would continue an effect on the worker that finished its
+`withContext` and recompose and lay out there while the UI thread draws (#4975);
+`ComposeMainThreadTest` keeps effects, composition and measurement on the main thread.
 Device color tests compare every OS-decoded channel and its source color profile to the staged float TIFF,
 including wide-gamut and 10-bit AVIF fixtures. Cloud persistence tests retain a
 late edit through model teardown and round-trip a 17 MiB opaque sidecar.

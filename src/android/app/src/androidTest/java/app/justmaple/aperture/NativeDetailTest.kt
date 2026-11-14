@@ -5,7 +5,6 @@ import android.graphics.Color
 import android.graphics.ColorSpace
 import android.net.Uri
 import androidx.compose.ui.test.*
-import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.lifecycle.ViewModelProvider
 import androidx.test.platform.app.InstrumentationRegistry
 import app.justmaple.aperture.data.NativeBridge
@@ -16,7 +15,7 @@ import org.junit.Rule
 import org.junit.Test
 
 class NativeDetailTest {
-    @get:Rule val compose = createAndroidComposeRule<MainActivity>()
+    @get:Rule val compose = mainThreadComposeRule<MainActivity>()
 
     @Test fun sourcePixelsReplaceTheEnlargedPreviewAtOneToOneInPreviewAndEdit() {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
