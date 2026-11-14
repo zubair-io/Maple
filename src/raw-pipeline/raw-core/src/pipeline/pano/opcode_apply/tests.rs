@@ -527,3 +527,35 @@ fn apply_list3_runs_in_list_order_and_reports_labels() {
         "gain ran before warp"
     );
 }
+
+/// #5923: a set token stops the list before its next opcode and each opcode's
+/// kernel before its next row; the caller discards the image.
+#[test]
+fn a_cancelled_opcode_list_skips_its_opcodes_and_rows() {
+    let (w, h) = (8u32, 8u32);
+    let aa = ActiveAreaRect::full(w, h);
+    let cancelled = std::sync::atomic::AtomicBool::new(true);
+    let token = CancelToken::new(&cancelled);
+    let gain = gm(2, 2, 1, vec![2.0; 4], (w, h));
+    let list = OpcodeList3 {
+        opcodes: vec![PanoOpcode::GainMap(gain.clone())],
+        skipped: Vec::new(),
+    };
+    let flat = flat_image(w, h, [0.25; 3]);
+    let mut img = flat.clone();
+    assert!(
+        apply_opcode_list3_cancellable(&mut img, &list, aa, LensCorrectionScales::FULL, token)
+            .is_empty()
+    );
+    apply_gain_map_windowed(&mut img, &gain, aa, 1.0, 0, token);
+    let mut warp = identity_warp();
+    warp.planes[0].kr = [0.9, 0.1, 0.0, 0.0];
+    warp::warp_windowed(&mut img, &warp, aa, (1.0, 1.0), (0, 0), token);
+    let vignette = FixVignetteRadialOpcode {
+        k: [1.0, 0.0, 0.0, 0.0, 0.0],
+        center_x: 0.5,
+        center_y: 0.5,
+    };
+    apply_fix_vignette_radial_windowed(&mut img, &vignette, aa, 1.0, 0, token);
+    assert_eq!(img.pixels, flat.pixels);
+}

@@ -75,6 +75,16 @@ impl<'a> CancelToken<'a> {
             None => false,
         }
     }
+
+    /// `Err(Cancelled)` once the host has requested cancellation: the
+    /// checkpoint between stages whose kernels skip work under a cancel.
+    #[inline]
+    pub fn check(&self) -> crate::Result<()> {
+        if self.is_cancelled() {
+            return Err(crate::Error::Cancelled);
+        }
+        Ok(())
+    }
 }
 
 impl Default for CancelToken<'_> {

@@ -18,7 +18,7 @@ use crate::{
     pipeline::{develop_scene_linear_sized_from_raw_with_quality_cancellable, RenderQuality},
     types::{WbScaleVersion, WbSource},
     xmp::AdjustmentModel,
-    Error, Result,
+    Result,
 };
 
 pub fn needs_resolution(model: &AdjustmentModel) -> bool {
@@ -31,11 +31,11 @@ pub const PROBE_LONG_EDGE: u32 = 1536;
 
 /// The shared AUTO WB estimator on a fresh image's proxy probe, without
 /// computing or applying its exposure/tone recommendations. The neutral probe
-/// model clears unresolved intent, so analysis never recurses.
+/// model clears unresolved intent, so analysis never recurses. A cancelled
+/// estimate returns `Err(Cancelled)` within one row or pass of the host's
+/// request and keeps nothing: asked again later, it returns the same pair.
 pub fn estimate(raw: &RawImage, cancel: CancelToken<'_>) -> Result<(f32, f32)> {
-    if cancel.is_cancelled() {
-        return Err(Error::Cancelled);
-    }
+    cancel.check()?;
     let probe_model = super::auto_adjustments::probe_model(&AdjustmentModel::default());
     let probe = develop_scene_linear_sized_from_raw_with_quality_cancellable(
         raw,
@@ -44,14 +44,11 @@ pub fn estimate(raw: &RawImage, cancel: CancelToken<'_>) -> Result<(f32, f32)> {
         PROBE_LONG_EDGE,
         cancel,
     )?;
-    if cancel.is_cancelled() {
-        return Err(Error::Cancelled);
-    }
-    Ok(super::auto_adjustments_awb::compute_awb(
-        &probe,
-        raw,
-        &probe_model,
-    ))
+    cancel.check()?;
+    let pair =
+        super::auto_adjustments_awb::compute_awb_cancellable(&probe, raw, &probe_model, cancel);
+    cancel.check()?;
+    Ok(pair)
 }
 
 /// The pair one session resolved for its decoded RAW. Recreate with the

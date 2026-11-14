@@ -25,7 +25,7 @@ pub use self::policy::{
 };
 pub use self::rcd::{rcd, rcd_cancellable};
 pub use self::vng4::{vng4, vng4_cancellable};
-pub use self::xtrans::{markesteijn, xtrans_bilinear};
+pub use self::xtrans::{markesteijn, xtrans_bilinear, xtrans_bilinear_cancellable};
 
 use crate::image::{CfaPattern, Image};
 use rayon::prelude::*;

@@ -357,3 +357,26 @@ fn linearraw_to_camera_rgb_rejects_wrong_buffer_length() {
         other => panic!("expected Error::Decode, got {:?}", other),
     }
 }
+
+/// #5923: a set token skips every remaining row; the caller discards the image.
+#[test]
+fn a_cancelled_linearize_skips_its_rows() {
+    let cancelled = std::sync::atomic::AtomicBool::new(true);
+    let raw = tiny_raw(vec![512; 16], 4, 4);
+    assert!(sensor_linearize(&raw)
+        .pixels
+        .iter()
+        .any(|p| p.iter().any(|&v| v > 0.0)));
+    let skipped = sensor_linearize_cancellable(&raw, CancelToken::new(&cancelled));
+    assert!(skipped.pixels.iter().all(|p| *p == [0.0; 3]));
+    let linear = RawImage {
+        cfa: CfaPattern::LinearRgb,
+        ..tiny_raw(vec![512; 48], 4, 4)
+    };
+    let token = CancelToken::new(&cancelled);
+    assert!(linearraw_to_camera_rgb(&linear).is_ok());
+    assert!(matches!(
+        linearraw_to_camera_rgb_cancellable(&linear, token),
+        Err(crate::Error::Cancelled)
+    ));
+}

@@ -3,6 +3,7 @@
 
 use super::model::{Calibration, Vignette};
 use crate::{
+    cancel::CancelToken,
     pipeline::pano::{opcode_apply::LensCorrectionScales, opcodes::ActiveAreaRect},
     Image,
 };
@@ -25,6 +26,26 @@ pub fn apply_windowed(
     scales: LensCorrectionScales,
     origin: (u32, u32),
     full_dims: (u32, u32),
+) -> Result<(), String> {
+    apply_windowed_cancellable(
+        image,
+        calibration,
+        area,
+        scales,
+        (origin, full_dims),
+        CancelToken::never(),
+    )
+}
+
+/// [`apply_windowed`] checked once per row of each pass. A cancelled call
+/// leaves `image` partly corrected; the caller checks the token.
+pub fn apply_windowed_cancellable(
+    image: &mut Image,
+    calibration: &Calibration,
+    area: ActiveAreaRect,
+    scales: LensCorrectionScales,
+    (origin, full_dims): ((u32, u32), (u32, u32)),
+    cancel: CancelToken<'_>,
 ) -> Result<(), String> {
     if area.width == 0
         || area.height == 0
@@ -85,6 +106,9 @@ pub fn apply_windowed(
             .take(row_end - row_start)
             .enumerate()
             .for_each(|(i, row)| {
+                if cancel.is_cancelled() {
+                    return;
+                }
                 let y = (oy + row_start + i) - aa_top;
                 for col in col_start..col_end {
                     let x = (ox + col) - aa_left;
@@ -98,7 +122,7 @@ pub fn apply_windowed(
                 }
             });
     }
-    if !warp {
+    if !warp || cancel.is_cancelled() {
         return Ok(());
     }
     let input = image.pixels.clone();
@@ -117,6 +141,9 @@ pub fn apply_windowed(
         .take(row_end - row_start)
         .enumerate()
         .for_each(|(i, row)| {
+            if cancel.is_cancelled() {
+                return;
+            }
             let y = (oy + row_start + i) - aa_top;
             for col in col_start..col_end {
                 let x = (ox + col) - aa_left;
