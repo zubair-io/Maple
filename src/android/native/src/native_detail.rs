@@ -80,8 +80,12 @@ fn read_admitted_source(mut file: std::fs::File, length: u64) -> Result<Vec<u8>,
 
 pub struct DetailSource {
     raw: Option<Arc<RawImage>>,
-    /// The session's name-only imported Auto pair, As Shot until adopted (#4669).
+    /// The name-only imported Auto pair (#4669). An editor-lent source renders
+    /// As Shot until the session adopts its background estimate.
     pub(crate) imported_wb: raw_core::stages::imported_auto_wb::CachedEstimate,
+    /// An independently opened source (Preview mode) has no session to adopt
+    /// from, so it estimates the pair itself, once, on the detail worker.
+    estimates_imported_wb: bool,
     bytes: Arc<Vec<u8>>,
     ext: String,
     raster: Option<RasterDetailImage>,
@@ -96,14 +100,23 @@ pub type SharedDetail = Arc<Mutex<DetailSource>>;
 
 impl DetailSource {
     pub fn new(raw: Option<Arc<RawImage>>, bytes: Arc<Vec<u8>>, ext: String) -> SharedDetail {
-        Arc::new(Mutex::new(Self {
+        Arc::new(Mutex::new(Self::source(raw, bytes, ext, false)))
+    }
+    fn source(
+        raw: Option<Arc<RawImage>>,
+        bytes: Arc<Vec<u8>>,
+        ext: String,
+        estimates_imported_wb: bool,
+    ) -> Self {
+        Self {
             raw,
             imported_wb: Default::default(),
+            estimates_imported_wb,
             bytes,
             ext,
             raster: None,
             prepared: None,
-        }))
+        }
     }
     fn open(path: &str) -> Result<SharedDetail, String> {
         let ext = Path::new(path)
@@ -137,7 +150,7 @@ impl DetailSource {
         } else {
             None
         };
-        Ok(Self::new(raw, bytes, ext))
+        Ok(Arc::new(Mutex::new(Self::source(raw, bytes, ext, true))))
     }
     fn render(
         &mut self,
@@ -150,6 +163,13 @@ impl DetailSource {
             return Err("Native detail cancelled".into());
         }
         let mut model = crate::xmp::parse(xml)?;
+        if let (true, Some(raw)) = (self.estimates_imported_wb, &self.raw) {
+            if raw_core::stages::imported_auto_wb::needs_resolution(&model) {
+                self.imported_wb
+                    .resolve(raw, cancel)
+                    .map_err(|e| e.to_string())?;
+            }
+        }
         self.imported_wb.apply(&mut model);
         let film = crate::film::resolve(&model.film_look)?;
         if !model.film_look.is_empty() && film.is_none() {
@@ -468,5 +488,45 @@ mod tests {
     fn detail_source_can_cross_threads_without_gpu_custody() {
         fn check<T: Send + Sync>() {}
         check::<SharedDetail>();
+    }
+
+    #[test]
+    fn an_independently_opened_raw_resolves_name_only_auto_for_its_detail() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../../test-fixtures/batch-transfer/source.dng");
+        let xml = r#"<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/" crs:WhiteBalance="Auto" /></rdf:RDF></x:xmpmeta>"#;
+        let rect = TileRect {
+            src_x: 0,
+            src_y: 0,
+            src_w: 32,
+            src_h: 32,
+            out_w: 32,
+            out_h: 32,
+        };
+        let raw = raw_core::decode::decode(&path).unwrap();
+        let expected =
+            raw_core::stages::imported_auto_wb::estimate(&raw, raw_core::CancelToken::never())
+                .unwrap();
+        let render = |source: &SharedDetail| {
+            let mut source = source.lock().unwrap();
+            source
+                .render(
+                    xml,
+                    rect,
+                    TargetPrimaries::Srgb,
+                    raw_core::CancelToken::never(),
+                )
+                .unwrap();
+            let model = &source.prepared.as_ref().unwrap().model;
+            (source.imported_wb.pair(), (model.temperature, model.tint))
+        };
+        // Preview mode: no editor session will adopt a pair, so the source estimates it.
+        let independent = DetailSource::open(path.to_str().unwrap()).unwrap();
+        assert_eq!(render(&independent), (Some(expected), expected));
+        // An editor-lent source waits for the session's adopted pair instead.
+        let bytes = Arc::new(std::fs::read(&path).unwrap());
+        let lent = DetailSource::new(Some(Arc::new(raw)), bytes, "dng".into());
+        let (pair, _) = render(&lent);
+        assert_eq!(pair, None);
     }
 }
