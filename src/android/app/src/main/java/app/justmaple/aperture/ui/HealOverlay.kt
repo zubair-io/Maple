@@ -15,6 +15,7 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
@@ -35,7 +36,6 @@ import app.justmaple.aperture.placeRepair
 import app.justmaple.aperture.repairSpots
 import app.justmaple.aperture.selectRepair
 import app.justmaple.aperture.setRepairSpot
-import kotlin.math.hypot
 import kotlin.math.max
 import kotlin.math.roundToInt
 
@@ -55,7 +55,9 @@ internal fun healOverlayValue(count: Int): String =
  * destination disc, and the selected spot's source disc joined to it by a line. It fills the
  * presented image box like [MaskOverlay], so canvas zoom reaches it through the parent's
  * graphics layer, and points cross the same crop and manual-geometry map onto the full frame
- * spots live in (repairs, like masks, run ahead of the Geometry warp);
+ * spots live in (repairs, like masks, run ahead of the Geometry warp); each disc is drawn
+ * and hit-tested as its boundary projected through that map, so a stretch or keystone
+ * shows the footprint that actually renders, not a screen circle;
  * [zoom] counter-scales the strokes and grab radius. A press on a spot selects it and drags
  * its handle; a press on empty canvas places a spot with the brush once it is released or
  * moves past the touch slop, and that drag then aims the new spot's source. A second finger
@@ -72,6 +74,7 @@ internal fun HealOverlay(model: MapleViewModel, state: MapleState, zoom: Float, 
     val currentToFrame by rememberUpdatedState(toFrame)
     val currentFromFrame by rememberUpdatedState(fromFrame)
     val currentGrab by rememberUpdatedState(grab)
+    val currentAspect by rememberUpdatedState(state.uncroppedAspect())
     BoxWithConstraints(
         modifier
             .fillMaxSize()
@@ -92,7 +95,9 @@ internal fun HealOverlay(model: MapleViewModel, state: MapleState, zoom: Float, 
                     val spots = currentSpots
                     val hit =
                         hitRepair(spots, currentSelection, MaskPoint(down.position.x, down.position.y), currentGrab,
-                            ::screen) { repairRadiusOnScreen(it, back, w, h) }
+                            ::screen) { center, spot ->
+                            repairFootprint(center, spot.radius, currentAspect) { screen(it) }
+                        }
                     var start: RepairSpot? = null
                     var handle = RepairHandle.Source
                     var anchor = frameAt(down.position)
@@ -130,31 +135,46 @@ internal fun HealOverlay(model: MapleViewModel, state: MapleState, zoom: Float, 
     ) {
         fromFrame?.let { back ->
             HealMarks(spots, state.healSelection?.takeIf { it in spots.indices }, back, scale,
-                constraints.maxWidth.toFloat(), constraints.maxHeight.toFloat())
+                constraints.maxWidth.toFloat(), constraints.maxHeight.toFloat(), state.uncroppedAspect())
         }
     }
 }
 
 /** The discs, the selected spot's source link, and one labelled handle per grabbable point. */
 @Composable
-private fun HealMarks(spots: List<RepairSpot>, selected: Int?, back: MaskProjection, scale: Float, w: Float, h: Float) {
+private fun HealMarks(
+    spots: List<RepairSpot>,
+    selected: Int?,
+    back: MaskProjection,
+    scale: Float,
+    w: Float,
+    h: Float,
+    aspect: Float,
+) {
     fun px(point: MaskPoint) = back.apply(point).let { Offset(it.x * w, it.y * h) }
+    fun footprintPath(center: MaskPoint, spot: RepairSpot): Path {
+        val points = repairFootprint(center, spot.radius, aspect) { back.apply(it).let { p -> MaskPoint(p.x * w, p.y * h) } }
+        return Path().apply {
+            points.firstOrNull()?.let { moveTo(it.x, it.y) }
+            points.drop(1).forEach { lineTo(it.x, it.y) }
+            close()
+        }
+    }
     // Decorative: the discs and link carry no semantics; the handles below do.
     Canvas(Modifier.fillMaxSize()) {
         val stroke = 1.5.dp.toPx() / scale
         val outline = Stroke(max(1f, stroke * 2.5f))
         spots.forEachIndexed { index, spot ->
-            val radius = repairRadiusOnScreen(spot, back, w, h)
             val color = if (index == selected) MapleColors.primary else Color.White.copy(alpha = .9f)
-            drawCircle(Color.Black.copy(alpha = .45f), radius, px(spot.center), style = outline)
-            drawCircle(color, radius, px(spot.center), style = Stroke(stroke))
+            drawPath(footprintPath(spot.center, spot), Color.Black.copy(alpha = .45f), style = outline)
+            drawPath(footprintPath(spot.center, spot), color, style = Stroke(stroke))
         }
         selected?.let { spots[it] }?.let { spot ->
-            val radius = repairRadiusOnScreen(spot, back, w, h)
             val dash = PathEffect.dashPathEffect(floatArrayOf(6.dp.toPx() / scale, 4.dp.toPx() / scale))
             drawLine(Color.White.copy(alpha = .9f), px(spot.center), px(spot.source), stroke, pathEffect = dash)
-            drawCircle(Color.Black.copy(alpha = .45f), radius, px(spot.source), style = outline)
-            drawCircle(Color.White.copy(alpha = .9f), radius, px(spot.source), style = Stroke(stroke, pathEffect = dash))
+            drawPath(footprintPath(spot.source, spot), Color.Black.copy(alpha = .45f), style = outline)
+            drawPath(footprintPath(spot.source, spot), Color.White.copy(alpha = .9f),
+                style = Stroke(stroke, pathEffect = dash))
         }
     }
     spots.forEachIndexed { index, spot ->
@@ -181,9 +201,3 @@ private fun HealHandle(at: Offset, scale: Float, tag: String, label: String, act
     )
 }
 
-/** A spot's disc radius in overlay pixels: [RepairSpot.radius] is a fraction of the frame width. */
-internal fun repairRadiusOnScreen(spot: RepairSpot, back: MaskProjection, w: Float, h: Float): Float {
-    val center = back.apply(spot.center)
-    val edge = back.apply(MaskPoint(spot.center.x + spot.radius, spot.center.y))
-    return hypot((edge.x - center.x) * w, (edge.y - center.y) * h)
-}
