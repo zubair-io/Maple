@@ -173,6 +173,10 @@ reloads on a retained decoded base and name-only Auto estimates. Temperature/Tin
 input, reset and deferred commits are rejected while disabled; preset and sample
 actions share the same guard. Hydration synchronizes the sliders and re-enables
 editing without authoring the imported intent.
+The render scheduler also rejects every unresolved partial-import snapshot, so
+Exposure and other unrelated edits remain on the live model without sending
+legacy or missing-axis coordinates to either render path. Publishing the pair
+submits that latest model with the retained edits.
 
 ## File operations
 

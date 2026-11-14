@@ -14,6 +14,60 @@ public sealed class ImportedWhiteBalanceTests
         "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\"><rdf:Description xmlns:crs=\"http://ns.adobe.com/camera-raw-settings/1.0/\" crs:WhiteBalance=\"Auto\" " + attributes + "/></rdf:RDF></x:xmpmeta>";
 
     [ImportedWhiteBalanceNativeFact]
+    public async Task UnrelatedEditsWaitForPartialHydrationBeforeCentralRenderSubmission()
+    {
+        System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(typeof(RawFfiLayoutTests).TypeHandle);
+        var raw = Path.Combine(AppContext.BaseDirectory, "Fixtures", "source.dng");
+        var sidecar = Path.Combine(Path.GetTempPath(), $"maple-pending-render-{Guid.NewGuid():N}.xmp");
+        try
+        {
+            foreach (var version in new[] { 1, 2, 3, 4, 5 })
+            foreach (var axis in new[] { "crs:Temperature=\"5700\"", "crs:Tint=\"12\"" })
+            {
+                File.WriteAllText(sidecar, Xml(axis
+                    + $" xmlns:papp=\"http://ns.justmaple.app/photo/1.0/\" papp:WbScaleVersion=\"{version}\""));
+                var model = XmpParser.Parse(File.ReadAllText(sidecar))!.Adjustments;
+                var scheduler = new RenderScheduler();
+                scheduler.RequestRender(new AdjustmentState());
+                var previous = scheduler.Pending;
+                using var running = new SemaphoreSlim(0);
+                using var release = new ManualResetEventSlim(false);
+                var estimates = new ImportedAutoEstimates((path, snapshot) =>
+                {
+                    running.Release();
+                    release.Wait();
+                    ImportedWhiteBalanceResolver.ResolveInPlace(path, snapshot);
+                });
+                estimates.Focus(raw);
+                var pending = estimates.ResolveAsync(raw, model);
+                try
+                {
+                    Assert.True(await running.WaitAsync(TimeSpan.FromSeconds(10)));
+                    model.Exposure = 1.25;
+                    scheduler.RequestRender(model.Clone());
+                    model.Contrast = 17;
+                    scheduler.RequestRender(model.Clone());
+                    Assert.Same(previous, scheduler.Pending);
+                    Assert.Equal(1, scheduler.DetailInvalidations);
+                }
+                finally { release.Set(); await pending; }
+                Assert.True(ImportedWhiteBalanceResolver.ApplyResolved(model, (await pending)!));
+                scheduler.RequestRender(model.Clone());
+                Assert.Equal(1.25, scheduler.Pending!.Exposure);
+                Assert.Equal(17, scheduler.Pending.Contrast);
+                Assert.Equal(5, scheduler.Pending.WhiteBalanceScaleVersion);
+                Assert.NotNull(scheduler.Pending.ImportedWhiteBalance!.Resolved);
+                Assert.Equal(2, scheduler.DetailInvalidations);
+            }
+            // Name-only Auto still presents its As Shot first frame.
+            var auto = new RenderScheduler();
+            auto.RequestRender(XmpParser.Parse(Xml(""))!.Adjustments);
+            Assert.NotNull(auto.Pending);
+        }
+        finally { File.Delete(sidecar); }
+    }
+
+    [ImportedWhiteBalanceNativeFact]
     public async Task PendingPartialHydrationRejectsSliderWritesResetsAndCommits()
     {
         System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(typeof(RawFfiLayoutTests).TypeHandle);
