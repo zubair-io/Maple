@@ -5,11 +5,17 @@ import {
   createServiceApiKey,
   listServiceApiKeys,
   revokeServiceApiKey,
+  SERVICE_API_SCOPES,
 } from '../auth/service-api-keys.ts';
 
 const CreateBody = t.Object({
   name: t.String({ minLength: 1, maxLength: 200 }),
-  scopes: t.Optional(t.Array(t.Literal('assets:search'), { minItems: 1, maxItems: 1 })),
+  scopes: t.Optional(
+    t.Array(t.Union(SERVICE_API_SCOPES.map((scope) => t.Literal(scope))), {
+      minItems: 1,
+      maxItems: SERVICE_API_SCOPES.length,
+    }),
+  ),
   expiresAt: t.Optional(t.Union([t.String({ format: 'date-time' }), t.Null()])),
 });
 

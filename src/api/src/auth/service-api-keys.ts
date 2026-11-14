@@ -30,7 +30,11 @@ const SECRET_BYTES = 32;
 const KEY_PATTERN = /^maple_sk_([a-f0-9]{16})_([A-Za-z0-9_-]{43})$/;
 const DUMMY_HASH = '0'.repeat(64);
 
-const SERVICE_API_SCOPES = ['assets:search'] as const satisfies readonly ServiceApiScope[];
+export const SERVICE_API_SCOPES = [
+  'assets:search',
+  'assets:read',
+  'people:read',
+] as const satisfies readonly ServiceApiScope[];
 
 function sha256(value: string): string {
   return createHash('sha256').update(value, 'utf8').digest('hex');
@@ -99,6 +103,8 @@ export interface ServiceApiIdentity {
   prefix: string;
   name: string;
   scopes: ServiceApiScope[];
+  /** Hex id of the user who minted the key; every service read is limited to their assets. */
+  ownerId: string;
 }
 
 export type ServiceApiAuthResult =
@@ -149,6 +155,7 @@ export async function authenticateServiceApiKey(
       prefix: `${KEY_PREFIX}_${doc.key_id}`,
       name: doc.name,
       scopes: doc.scopes,
+      ownerId: doc.created_by.toHexString(),
     },
   };
 }
