@@ -24,11 +24,15 @@ struct ImportedAutoWhiteBalance {
 extension EditSession {
   /// Cold resolution for a model this session will display. A RAW's name-only
   /// Auto is left to `resolveImportedAutoWhiteBalance`, so it never delays a
-  /// frame; any other source resolves it without the estimator.
+  /// frame; once that pair landed it goes on the model here, so a restored
+  /// state's reset and compare baseline (`originalModel`) shows it too. Any
+  /// other source resolves it without the estimator.
   func resolvingImportedWhiteBalanceForDisplay(_ model: AdjustmentModel) async throws
     -> AdjustmentModel
   {
-    guard !model.awaitsImportedAutoPair || !asset.isRaw else { return model }
+    guard !model.awaitsImportedAutoPair || !asset.isRaw else {
+      return model.overlayingImportedAuto(importedAuto.target)
+    }
     return try await ImportedWhiteBalanceResolver.resolve(asset: asset, model: model)
   }
 
