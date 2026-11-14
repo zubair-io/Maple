@@ -68,9 +68,10 @@ impl NativeDetailSession {
     }
 
     /// Resolve a name-only imported Auto WB once, off the first frame (#4669):
-    /// returns `[temperature, tint]`. The next tile re-prepares with it.
-    pub fn resolve_imported_white_balance(&mut self) -> Result<Vec<f32>, JsError> {
-        crate::open_metadata::resolve_imported(&mut self.imported_wb, &self.raw)
+    /// returns `[temperature, tint]`, or nothing when cancelled (#5923). The
+    /// next tile re-prepares with it.
+    pub fn resolve_imported_white_balance(&mut self) -> Result<Option<Vec<f32>>, JsError> {
+        crate::imported_wb_cancel::resolve(&mut self.imported_wb, &self.raw)
     }
 
     /// `rect` = x,y,width,height in oriented DefaultCrop-relative pixels.
