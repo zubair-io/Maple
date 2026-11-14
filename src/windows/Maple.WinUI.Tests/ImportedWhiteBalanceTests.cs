@@ -32,11 +32,11 @@ public sealed class ImportedWhiteBalanceTests
                 var previous = scheduler.Pending;
                 using var running = new SemaphoreSlim(0);
                 using var release = new ManualResetEventSlim(false);
-                var estimates = new ImportedAutoEstimates((path, snapshot) =>
+                var estimates = new ImportedAutoEstimates((path, snapshot, cancellation) =>
                 {
                     running.Release();
-                    release.Wait();
-                    ImportedWhiteBalanceResolver.ResolveInPlace(path, snapshot);
+                    release.Wait(cancellation);
+                    ImportedWhiteBalanceResolver.ResolveInPlace(path, snapshot, cancellation);
                 });
                 estimates.Focus(raw);
                 var pending = estimates.ResolveAsync(raw, model);
@@ -97,11 +97,11 @@ public sealed class ImportedWhiteBalanceTests
                 var untouched = XmpWriter.Serialize(document);
                 using var running = new SemaphoreSlim(0);
                 using var release = new ManualResetEventSlim(false);
-                var estimates = new ImportedAutoEstimates((path, model) =>
+                var estimates = new ImportedAutoEstimates((path, model, cancellation) =>
                 {
                     running.Release();
-                    release.Wait();
-                    ImportedWhiteBalanceResolver.ResolveInPlace(path, model);
+                    release.Wait(cancellation);
+                    ImportedWhiteBalanceResolver.ResolveInPlace(path, model, cancellation);
                 });
                 estimates.Focus(raw);
                 var pending = estimates.ResolveAsync(raw, session.Adjustments);
