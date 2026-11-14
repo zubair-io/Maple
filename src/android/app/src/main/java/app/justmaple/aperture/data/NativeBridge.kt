@@ -65,9 +65,12 @@ object NativeBridge {
     /** `width × height` weights (`0…255`) of a JSON layer's mask over the full frame. */
     external fun maskWeights(layer: String, width: Int, height: Int): ByteArray
 
-    /** `[a, b, tx, c, d, ty]` taking a point on the cropped presentation to the full frame. */
+    /**
+     * Row-major projective `[m0 … m8]` taking a point on the presented image (crop, then the
+     * seven manual-geometry sliders in [geometry]) to the full frame masks live in.
+     */
     external fun maskFrame(width: Int, height: Int, top: Float, left: Float, bottom: Float,
-        right: Float, angle: Float): DoubleArray
+        right: Float, angle: Float, geometry: FloatArray): DoubleArray
 
     external fun createMaskRange(handle: Long, xml: String): Long
     external fun runMaskRange(work: Long, x: Float, y: Float): String

@@ -60,7 +60,7 @@ int maple_android_stage_bitmap(const uint8_t *, uint32_t, uint32_t, size_t, uint
 char *maple_android_masks_read(const char *);
 char *maple_android_masks_write(const char *);
 bool maple_android_mask_weights(const char *, uint32_t, uint32_t, uint8_t *);
-bool maple_android_mask_frame(uint32_t, uint32_t, float, float, float, float, float, double *);
+bool maple_android_mask_frame(uint32_t, uint32_t, float, float, float, float, float, const float *, double *);
 void *maple_android_mask_range_new(void *, const char *);
 char *maple_android_mask_range_run(const void *, float, float);
 void maple_android_mask_range_free(void *);
@@ -382,14 +382,20 @@ extern "C" JNIEXPORT jbyteArray JNICALL Java_app_justmaple_aperture_data_NativeB
     if (result) env->SetByteArrayRegion(result, 0, static_cast<jsize>(weights.size()), reinterpret_cast<const jbyte *>(weights.data()));
     return result;
 }
-extern "C" JNIEXPORT jdoubleArray JNICALL Java_app_justmaple_aperture_data_NativeBridge_maskFrame(JNIEnv *env, jobject, jint width, jint height, jfloat top, jfloat left, jfloat bottom, jfloat right, jfloat angle) {
-    double affine[6];
-    if (width <= 0 || height <= 0 || !maple_android_mask_frame(static_cast<uint32_t>(width), static_cast<uint32_t>(height), top, left, bottom, right, angle, affine)) {
+extern "C" JNIEXPORT jdoubleArray JNICALL Java_app_justmaple_aperture_data_NativeBridge_maskFrame(JNIEnv *env, jobject, jint width, jint height, jfloat top, jfloat left, jfloat bottom, jfloat right, jfloat angle, jfloatArray geometry) {
+    if (!geometry || env->GetArrayLength(geometry) != 7) {
+        env->ThrowNew(env->FindClass("java/lang/IllegalArgumentException"), "Manual geometry needs seven sliders");
+        return nullptr;
+    }
+    float sliders[7];
+    env->GetFloatArrayRegion(geometry, 0, 7, sliders);
+    double projection[9];
+    if (width <= 0 || height <= 0 || !maple_android_mask_frame(static_cast<uint32_t>(width), static_cast<uint32_t>(height), top, left, bottom, right, angle, sliders, projection)) {
         check(env, -1);
         return nullptr;
     }
-    jdoubleArray result = env->NewDoubleArray(6);
-    if (result) env->SetDoubleArrayRegion(result, 0, 6, affine);
+    jdoubleArray result = env->NewDoubleArray(9);
+    if (result) env->SetDoubleArrayRegion(result, 0, 9, projection);
     return result;
 }
 extern "C" JNIEXPORT jlong JNICALL Java_app_justmaple_aperture_data_NativeBridge_createMaskRange(JNIEnv *env, jobject, jlong handle, jstring xml) {

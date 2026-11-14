@@ -1,12 +1,14 @@
 //! Mask authoring entries for the Android bridge: read and write the
 //! sidecar's mask containers (`mask_document` / `mask_write`), the selected
-//! layer's weight from raw-core's evaluator, the crop's map onto the full
-//! frame masks live in, and the colour-range eyedropper.
+//! layer's weight from raw-core's evaluator, the presentation's map (crop and
+//! manual geometry) onto the full frame masks live in, and the colour-range
+//! eyedropper.
 use crate::preview::Session;
 use crate::{guarded, text};
 use raw_core::stages::crop::CropPresentation;
 use raw_core::stages::local_adjustments::mask::evaluate;
 use raw_core::stages::mask_range_sample::{sample_mask_range, RangeSampleError, RangeSeed};
+use raw_core::stages::perspective::{aspect_ratio, Perspective};
 use raw_core::types::{AdjustmentModel, Crop};
 use raw_core::RawImage;
 use std::ffi::{c_char, c_void, CString};
@@ -64,24 +66,34 @@ pub unsafe extern "C" fn maple_android_mask_weights(
     })
 }
 
-/// The affine `[a, b, tx, c, d, ty]` taking a point normalised over the
-/// cropped presentation to the full display frame masks are evaluated in.
-pub fn crop_to_frame(width: u32, height: u32, crop: Crop) -> [f64; 6] {
-    let h = CropPresentation::new(&crop, width, height)
-        .inverse
+/// The row-major projective map `[m0 … m8]` taking a point normalised over
+/// the presented image to the full display frame masks are evaluated in: the
+/// crop's inverse, then the manual geometry's inverse — the composition
+/// `preview::present_geometry` samples the frame through, so a mask drawn
+/// through it lands where the render puts its weight. A keystone makes it
+/// projective, so callers divide by the third row.
+pub fn presentation_to_frame(
+    width: u32,
+    height: u32,
+    crop: Crop,
+    perspective: Perspective,
+) -> [f64; 9] {
+    let h = perspective
+        .inverse_matrix(aspect_ratio(width, height))
+        .mul(&CropPresentation::new(&crop, width, height).inverse)
         .0
         .map(f64::from);
-    // The presentation maps centred [-1, 1] coordinates; re-base on [0, 1].
-    [
-        h[0],
-        h[1],
-        (h[2] - h[0] - h[1] + 1.0) / 2.0,
-        h[3],
-        h[4],
-        (h[5] - h[3] - h[4] + 1.0) / 2.0,
-    ]
+    // Both maps work in centred [-1, 1] coordinates; re-base on [0, 1] as
+    // `B⁻¹ · H · B` with `B(p) = 2p − 1`.
+    let (row, w) = ([h[6], h[7], h[8]], h[8] - h[6] - h[7]);
+    let rebase = |r: [f64; 3]| [r[0] + row[0], r[1] + row[1], (r[2] - r[0] - r[1] + w) / 2.0];
+    let [a, b, c] = rebase([h[0], h[1], h[2]]);
+    let [d, e, f] = rebase([h[3], h[4], h[5]]);
+    [a, b, c, d, e, f, 2.0 * row[0], 2.0 * row[1], w]
 }
 
+/// Writes [`presentation_to_frame`] for the crop and the seven manual-geometry
+/// sliders (`geometry`: vertical, horizontal, rotate, scale, aspect, x, y).
 #[no_mangle]
 #[allow(clippy::too_many_arguments)]
 pub unsafe extern "C" fn maple_android_mask_frame(
@@ -92,10 +104,11 @@ pub unsafe extern "C" fn maple_android_mask_frame(
     bottom: f32,
     right: f32,
     angle: f32,
+    geometry: *const f32,
     out: *mut f64,
 ) -> bool {
     guarded(false, || {
-        if out.is_null() {
+        if out.is_null() || geometry.is_null() {
             return Err("Invalid mask frame request".into());
         }
         let crop = Crop {
@@ -105,7 +118,22 @@ pub unsafe extern "C" fn maple_android_mask_frame(
             right,
             angle,
         };
-        slice::from_raw_parts_mut(out, 6).copy_from_slice(&crop_to_frame(width, height, crop));
+        let g = slice::from_raw_parts(geometry, 7);
+        let perspective = Perspective {
+            vertical: g[0],
+            horizontal: g[1],
+            rotate: g[2],
+            scale: g[3],
+            aspect: g[4],
+            x: g[5],
+            y: g[6],
+        };
+        slice::from_raw_parts_mut(out, 9).copy_from_slice(&presentation_to_frame(
+            width,
+            height,
+            crop,
+            perspective,
+        ));
         Ok(true)
     })
 }
@@ -197,3 +225,7 @@ pub unsafe extern "C" fn maple_android_mask_range_free(work: *mut c_void) {
 #[cfg(test)]
 #[path = "mask_jni_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "mask_frame_tests.rs"]
+mod frame_tests;
