@@ -13,6 +13,45 @@ public sealed class ImportedWhiteBalanceTests
         "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\"><rdf:Description xmlns:crs=\"http://ns.adobe.com/camera-raw-settings/1.0/\" crs:WhiteBalance=\"Auto\" " + attributes + "/></rdf:RDF></x:xmpmeta>";
 
     [ImportedWhiteBalanceNativeFact]
+    public async Task ExternalSingleAxisSidecarReloadResolvesWithoutRedecodingTheBase()
+    {
+        System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(typeof(RawFfiLayoutTests).TypeHandle);
+        var raw = Path.Combine(AppContext.BaseDirectory, "Fixtures", "source.dng");
+        var sidecar = Path.Combine(Path.GetTempPath(), $"maple-reload-wb-{Guid.NewGuid():N}.xmp");
+        try
+        {
+            foreach (var version in new[] { 1, 2, 3, 4, 5 })
+            foreach (var axis in new[] { "crs:Temperature=\"5700\"", "crs:Tint=\"12\"" })
+            {
+                File.WriteAllText(sidecar, Xml(axis + $" xmlns:papp=\"http://ns.justmaple.app/photo/1.0/\" papp:WbScaleVersion=\"{version}\""));
+                var document = XmpParser.Parse(File.ReadAllText(sidecar))!;
+                var model = document.Adjustments;
+                var intent = model.ImportedWhiteBalance;
+                var before = model.Clone();
+                before.ImportedWhiteBalance = null;
+                before.Temperature = 4800;
+                before.Tint = 3;
+                Assert.False(RenderEngine.DecodeInputsChanged(before, model));
+                Assert.True(ImportedAutoEstimates.StartsWithoutDecode(before, model));
+                var expected = model.Clone();
+                ImportedWhiteBalanceResolver.ResolveInPlace(raw, expected);
+                var estimates = new ImportedAutoEstimates(ImportedWhiteBalanceResolver.ResolveInPlace);
+                estimates.Focus(raw);
+                var resolved = await estimates.ResolveAsync(raw, model);
+                Assert.NotNull(resolved);
+                Assert.True(ImportedWhiteBalanceResolver.ApplyResolved(model, resolved!));
+                Assert.Equal((expected.Temperature, expected.Tint), (model.Temperature, model.Tint));
+                Assert.Equal(5, model.WhiteBalanceScaleVersion);
+                Assert.False(ImportedAutoEstimates.StartsWithoutDecode(before, model));
+                model.Exposure = 1.25;
+                File.WriteAllText(sidecar, XmpWriter.Serialize(document));
+                Assert.Equal(intent, XmpParser.Parse(File.ReadAllText(sidecar))!.Adjustments.ImportedWhiteBalance);
+            }
+        }
+        finally { File.Delete(sidecar); }
+    }
+
+    [ImportedWhiteBalanceNativeFact]
     public void NativeColdResolverMatchesTheSharedEstimatorAndCachesThePair()
     {
         System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(typeof(RawFfiLayoutTests).TypeHandle);

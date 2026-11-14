@@ -65,10 +65,10 @@ namespace Maple.WinUI.ViewModels
             _importedAuto.Focus(decoding);
         }
 
-        /// <summary>After the first frame is published, or when a paste, undo/redo or sidecar
-        /// reload makes unresolved Auto active on the decoded photo: the focused photo's one
-        /// estimate, then one re-render with the pair. A re-decode or a repeated request joins
-        /// the estimate in flight. Failure leaves As Shot on screen; the next open retries (#4669).</summary>
+        /// <summary>After the first frame, or when a paste, undo/redo or sidecar reload
+        /// activates imported WB on the decoded photo: resolve once and render its pair.
+        /// A re-decode or repeated request joins the resolve in flight. Failure preserves
+        /// the previous canvas; the next open retries (#4669).</summary>
         private async Task ResolveImportedAutoAsync(int generation, PhotoItem photo, AdjustmentState model)
         {
             var resolved = await _importedAuto.ResolveAsync(photo.EditPath, model).ConfigureAwait(false);
@@ -77,7 +77,10 @@ namespace Maple.WinUI.ViewModels
             {
                 if (_disposed || generation != _decodeGeneration) return;
                 PublishImportedWhiteBalance(resolved);
-                Renderer.RequestRender(Adjustments.Clone());
+                if (Adjustments.LocalAdjustments.Any(layer => layer.Mask is BrushMask))
+                    RehydrateCurrentBrushRasters(Adjustments, () => Renderer.RequestRender(Adjustments.Clone()));
+                else
+                    Renderer.RequestRender(Adjustments.Clone());
             });
         }
 
