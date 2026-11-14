@@ -27,7 +27,7 @@ export const assetsLog = childLogger('routes:assets');
  * `if (!result.ok) { set.status = ...; return ...; }`) is what keeps this
  * from being flagged as a clone by fallow-audit. Callers narrow with
  * `instanceof ObjectId`. */
-export function resolveAssetIdOrRespond(
+function resolveAssetIdOrRespond(
   idParam: string,
   set: { status?: number | string },
 ): ObjectId | { error: string } {
@@ -43,16 +43,22 @@ export const StackCompanionBodyFields = {
   companion_collision: t.Optional(t.Union([t.Literal('skip'), t.Literal('replace')])),
 };
 
-/** The stack JPEG a request names, `undefined` when none, or the 400 body it gets. */
-export function stackCompanionOrRespond(
+/** A relocate-shaped route's `:id` and the stack JPEG its body names (#5929),
+ * or the 400 body it gets. */
+export function assetAndCompanionOrRespond(
+  idParam: string,
   body: { companion_id?: string; companion_collision?: 'skip' | 'replace' },
-  id: ObjectId,
   set: { status?: number | string },
-): StackCompanionInput | undefined | { error: string } {
-  if (body.companion_id === undefined) return undefined;
+): { id: ObjectId; stackCompanion?: StackCompanionInput } | { error: string } {
+  const id = resolveAssetIdOrRespond(idParam, set);
+  if ('error' in id) return id;
+  if (body.companion_id === undefined) return { id };
   const companionId = parseAssetId(body.companion_id);
   if (companionId && !companionId.equals(id)) {
-    return { id: companionId, collision: body.companion_collision ?? 'skip' };
+    return {
+      id,
+      stackCompanion: { id: companionId, collision: body.companion_collision ?? 'skip' },
+    };
   }
   set.status = 400;
   return { error: 'companion_id must be the id of another asset' };

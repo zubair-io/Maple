@@ -429,14 +429,23 @@ export async function relocateAsset(input: RelocateAssetInput): Promise<Relocate
 
   const plan = await resolveDestinationPlan(input, primary);
   if ('kind' in plan) return plan;
-  const { destLibraryId, destLibRoot, sourceAbsPath, destAbsPath } = plan;
+  const { sourceAbsPath, destAbsPath } = plan;
 
   if (sourceAbsPath === destAbsPath) {
     return { kind: 'skipped', reason: 'already at destination' };
   }
   const companion = await stackCompanionOf(input, primary, sourceAbsPath);
   if (companion === null) return { kind: 'companion-missing' };
+  return relocatePlanned(input, primary, plan, companion ?? null);
+}
 
+async function relocatePlanned(
+  input: RelocateAssetInput,
+  primary: FileInfo,
+  plan: DestinationPlan,
+  companion: ResolvedStackCompanion | null,
+): Promise<RelocateAssetResult> {
+  const { destLibraryId, destLibRoot, sourceAbsPath, destAbsPath } = plan;
   // #2843: `'replace'` is the one collision policy that overwrites whatever
   // sits at the destination — `fs/relocate.ts`'s `copyVerifiedIntoPlace` is
   // deliberately DB-unaware and will happily publish over ANY file there,
@@ -444,7 +453,7 @@ export async function relocateAsset(input: RelocateAssetInput): Promise<Relocate
   // alongside it. `'auto-suffix'` / `'keep-both'` never reach an occupied
   // path (they suffix around it) and `'skip'` is a no-op, so this check is
   // scoped to `'replace'` alone — see `occupiedResultIfReplaceBlocked`.
-  const occupied = await occupiedResult(input, plan, companion ?? null);
+  const occupied = await occupiedResult(input, plan, companion);
   if (occupied) return occupied;
 
   // The DB repoint below is a MOVE-only concern: a copy leaves the source
@@ -459,7 +468,7 @@ export async function relocateAsset(input: RelocateAssetInput): Promise<Relocate
     primary,
     destLibraryId,
     destLibRoot,
-    companion ?? null,
+    companion,
   );
 
   const outcome = await relocateFile({
@@ -484,15 +493,13 @@ export async function relocateAsset(input: RelocateAssetInput): Promise<Relocate
     case 'relocated':
       return relocatedResult(input, primary, plan, outcome.newAbsPath, {
         renamedOnCollision: outcome.renamedOnCollision,
-        companion: companion ?? null,
+        companion,
       });
     case 'skipped':
       return {
         kind: 'skipped',
         reason: outcome.reason,
-        ...(companion && outcome.collidedAt
-          ? { collisionFilename: path.basename(outcome.collidedAt) }
-          : {}),
+        ...(outcome.collidedAt ? { collisionFilename: path.basename(outcome.collidedAt) } : {}),
       };
     case 'error':
       return { kind: 'error', error: outcome.error };

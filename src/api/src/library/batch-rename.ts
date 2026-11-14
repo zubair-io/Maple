@@ -237,34 +237,32 @@ export async function batchRenameAssets(input: BatchRenameInput): Promise<BatchR
   return results;
 }
 
+/** Refusals a batch item reports as a plain error. */
+const REFUSAL_ERRORS = {
+  occupied: 'destination is occupied by another asset',
+  'companion-missing': 'Companion not found beside the asset',
+} as const;
+
 function itemResult(id: string, outcome: RelocateAssetResult): BatchRenameItemResult {
-  switch (outcome.kind) {
-    case 'relocated':
-      return {
-        id,
-        kind: 'relocated',
-        oldFilename: outcome.oldFilename,
-        newFilename: outcome.newFilename,
-        newPath: outcome.newPath,
-        renamedOnCollision: outcome.renamedOnCollision,
-        extensionChanged: extensionChanged(outcome.oldFilename, outcome.newFilename),
-        ...(outcome.companion ? { companionNewFilename: outcome.companion.newFilename } : {}),
-      };
-    case 'skipped':
-      return {
-        id,
-        kind: 'skipped',
-        reason: outcome.reason,
-        ...(outcome.collisionFilename ? { collisionFilename: outcome.collisionFilename } : {}),
-      };
-    case 'not-found':
-      return { id, kind: 'not-found' };
-    case 'invalid':
-    case 'error':
-      return { id, kind: outcome.kind, error: outcome.error };
-    case 'occupied':
-      return { id, kind: 'error', error: 'destination is occupied by another asset' };
-    case 'companion-missing':
-      return { id, kind: 'error', error: 'Companion not found beside the asset' };
+  if (outcome.kind === 'relocated') {
+    return {
+      id,
+      kind: 'relocated',
+      oldFilename: outcome.oldFilename,
+      newFilename: outcome.newFilename,
+      newPath: outcome.newPath,
+      renamedOnCollision: outcome.renamedOnCollision,
+      extensionChanged: extensionChanged(outcome.oldFilename, outcome.newFilename),
+      ...(outcome.companion ? { companionNewFilename: outcome.companion.newFilename } : {}),
+    };
   }
+  if (outcome.kind === 'skipped') {
+    const { reason, collisionFilename } = outcome;
+    return { id, kind: 'skipped', reason, ...(collisionFilename ? { collisionFilename } : {}) };
+  }
+  if (outcome.kind === 'not-found') return { id, kind: 'not-found' };
+  if (outcome.kind === 'invalid' || outcome.kind === 'error') {
+    return { id, kind: outcome.kind, error: outcome.error };
+  }
+  return { id, kind: 'error', error: REFUSAL_ERRORS[outcome.kind] };
 }
