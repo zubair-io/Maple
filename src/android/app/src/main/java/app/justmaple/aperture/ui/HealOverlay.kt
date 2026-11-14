@@ -54,7 +54,8 @@ internal fun healOverlayValue(count: Int): String =
  * The repair spots over the canvas (`docs/features.md` § Clone / heal brush): every
  * destination disc, and the selected spot's source disc joined to it by a line. It fills the
  * presented image box like [MaskOverlay], so canvas zoom reaches it through the parent's
- * graphics layer, and points cross the same crop map onto the full frame spots live in;
+ * graphics layer, and points cross the same crop and manual-geometry map onto the full frame
+ * spots live in (repairs, like masks, run ahead of the Geometry warp);
  * [zoom] counter-scales the strokes and grab radius. A press on a spot selects it and drags
  * its handle; a press on empty canvas places a spot with the brush once it is released or
  * moves past the touch slop, and that drag then aims the new spot's source. A second finger
@@ -182,6 +183,7 @@ private fun HealHandle(at: Offset, scale: Float, tag: String, label: String, act
 
 /** A spot's disc radius in overlay pixels: [RepairSpot.radius] is a fraction of the frame width. */
 internal fun repairRadiusOnScreen(spot: RepairSpot, back: MaskProjection, w: Float, h: Float): Float {
-    val m = back.values
-    return spot.radius * hypot(m[0].toFloat() * w, m[3].toFloat() * h)
+    val center = back.apply(spot.center)
+    val edge = back.apply(MaskPoint(spot.center.x + spot.radius, spot.center.y))
+    return hypot((edge.x - center.x) * w, (edge.y - center.y) * h)
 }

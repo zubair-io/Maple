@@ -19,6 +19,8 @@ use crate::mask_document::{
     bindings, clean_sequence, parse_container, parse_piece, single_item, Bindings,
 };
 use crate::mask_xml::{Element, Scopes};
+use raw_core::image::ExifOrientation;
+use raw_core::pipeline::mask::display_to_sensor_norm;
 use raw_core::types::{Point2, RetouchKind, RetouchSpot};
 use serde_json::{json, Value};
 
@@ -29,8 +31,66 @@ pub struct Container {
     pub text: String,
     pub root: Element,
     pub scopes: Scopes,
+    /// The namespaces in force where the container sits.
+    pub scope: Bindings,
     /// The `rdf:Seq` of a structured container holding nothing else.
     pub seq: Option<Element>,
+}
+
+/// An unstamped Maple list raw-core reads in the legacy sensor frame
+/// (`docs/xmp-canonical-format.md` § "Frame stamp") on a RAW whose EXIF
+/// orientation moves it: Android lists and writes its spots upright.
+#[derive(Clone, Copy)]
+pub struct SensorFrame {
+    orientation: ExifOrientation,
+    /// Upright `width / height`.
+    aspect: f32,
+}
+
+impl SensorFrame {
+    fn from_json(value: Option<&Value>) -> Result<Option<Self>, String> {
+        let Some(value) = value.filter(|v| !v.is_null()) else {
+            return Ok(None);
+        };
+        let code = value
+            .get("orientation")
+            .and_then(Value::as_u64)
+            .and_then(|code| u16::try_from(code).ok())
+            .ok_or("The repair frame needs an EXIF orientation")?;
+        let aspect = number(value.get("aspect").unwrap_or(&Value::Null), "aspect")?;
+        if aspect <= 0.0 {
+            return Err("The repair frame needs a positive aspect".into());
+        }
+        let orientation = ExifOrientation::from_u16(code);
+        Ok((orientation != ExifOrientation::Normal).then_some(Self {
+            orientation,
+            aspect,
+        }))
+    }
+
+    /// `spot` read in the sensor frame, re-expressed over the upright image:
+    /// the inverse of raw-core's `orient_spots_to_sensor`, so it renders on
+    /// the same pixels once the list is stamped upright.
+    pub fn upright(self, spot: RetouchSpot) -> RetouchSpot {
+        let inverse = match self.orientation {
+            ExifOrientation::Rotate90 => ExifOrientation::Rotate270,
+            ExifOrientation::Rotate270 => ExifOrientation::Rotate90,
+            other => other,
+        };
+        // The radius is a fraction of the width: the sensor width is the upright height when
+        // the orientation swaps the axes.
+        let scale = if self.orientation.swaps_wh() {
+            1.0 / self.aspect
+        } else {
+            1.0
+        };
+        RetouchSpot {
+            center: display_to_sensor_norm(spot.center, inverse),
+            source: display_to_sensor_norm(spot.source, inverse),
+            radius: spot.radius * scale,
+            ..spot
+        }
+    }
 }
 
 pub struct Entry {
@@ -46,10 +106,13 @@ pub struct Document {
     pub entries: Vec<Entry>,
     /// raw-core models a structured spot, so the legacy strings are ignored.
     pub any_areas: bool,
+    /// A structured container without a clean sequence models a spot.
+    pub opaque_areas: bool,
     legacy: Vec<RetouchSpot>,
     /// Legacy containers that decode to at least one spot.
     pub legacy_containers: Vec<usize>,
     pub target: Bindings,
+    pub frame: Option<SensorFrame>,
 }
 
 fn authored_structure(item: &Element) -> Option<(Element, Element)> {
@@ -86,9 +149,11 @@ impl Document {
             containers: Vec::new(),
             entries: Vec::new(),
             any_areas: false,
+            opaque_areas: false,
             legacy: Vec::new(),
             legacy_containers: Vec::new(),
             target: bindings(input.get("target"))?,
+            frame: SensorFrame::from_json(input.get("frame"))?,
         };
         let sources = match input.get("containers") {
             None | Some(Value::Null) => &[][..],
@@ -127,6 +192,7 @@ impl Document {
                 let spots = parse_piece(&text[root.span.clone()], &scope)?.retouch_spots;
                 if areas {
                     self.any_areas |= !spots.is_empty();
+                    self.opaque_areas |= !spots.is_empty();
                 } else if !spots.is_empty() {
                     self.legacy.extend(spots);
                     self.legacy_containers.push(index);
@@ -137,22 +203,29 @@ impl Document {
             text,
             root,
             scopes,
+            scope,
             seq,
         });
         Ok(())
     }
 
-    /// The spots Android lists, in raw-core's order, with the entry each was read from.
+    /// The spots Android lists, in raw-core's order and over the upright image,
+    /// with the entry each was read from.
     pub fn spots(&self) -> Vec<(RetouchSpot, Option<usize>)> {
+        let upright = |spot: RetouchSpot| self.frame.map_or(spot, |frame| frame.upright(spot));
         if !self.any_areas {
-            return self.legacy.iter().map(|spot| (*spot, None)).collect();
+            return self
+                .legacy
+                .iter()
+                .map(|spot| (upright(*spot), None))
+                .collect();
         }
         self.entries
             .iter()
             .enumerate()
             .filter_map(|(slot, entry)| {
                 entry.authored.as_ref()?;
-                Some((entry.spot?, Some(slot)))
+                Some((upright(entry.spot?), Some(slot)))
             })
             .collect()
     }
