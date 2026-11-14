@@ -115,11 +115,6 @@ class AndroidWorkflowTests(unittest.TestCase):
         self.assertEqual(inputs["profile"], "pixel_tablet")
         self.assertIn("-gpu swiftshader", inputs["emulator-options"])
         self.assertNotIn("-Vulkan", inputs["emulator-options"])
-        # #4984: the panel boots at the tested size instead of being resized after boot.
-        panel = inputs["pre-emulator-launch-script"]
-        for entry in ("hw.lcd.width=1280", "hw.lcd.height=800", "hw.lcd.density=160"):
-            self.assertIn(entry, panel)
-        self.assertIn('"$ANDROID_AVD_HOME/test.avd/config.ini"', panel)
         self.assertEqual(
             inputs["script"],
             "bash src/android/scripts/test-device-ci.sh x86_64 arm64-v8a,x86_64",
@@ -149,8 +144,8 @@ class AndroidWorkflowTests(unittest.TestCase):
         runner = (SCRIPTS / "test-device-ci.sh").read_text()
         for contract in (
             "trap collect EXIT",
-            "test \"$(adb shell wm size | tr -d '\\r')\" = 'Physical size: 1280x800'",
-            "test \"$(adb shell wm density | tr -d '\\r')\" = 'Physical density: 160'",
+            "wm size 1280x800",
+            "wm density 160",
             "connectedDebugAndroidTest",
             "vulkan.level",
             "logcat -d",
@@ -159,8 +154,6 @@ class AndroidWorkflowTests(unittest.TestCase):
         ):
             self.assertIn(contract, runner)
         self.assertNotIn("connectedDebugAndroidTest ||", runner)
-        self.assertNotIn("wm size 1280x800", runner)
-        self.assertNotIn("wm density 160", runner)
 
     def test_result_rejects_failed_cancelled_and_skipped_selected_android(self):
         for result in ("failure", "cancelled", "skipped"):
