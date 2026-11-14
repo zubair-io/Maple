@@ -101,14 +101,44 @@ export async function findLiveOccupantAssetId(
  * succeeded. Zero is still unambiguous: no row matched, so no trigger ran.
  */
 export async function repointAssetLocation(
-  args: {
-    id: ObjectId;
-    from: LocationAddress;
-    to: LocationAddress;
-    appleCompanions?: Partial<Record<AppleCompanionSlot, string>>;
-  },
+  args: RepointArgs,
   dbOverride?: SqliteDb,
 ): Promise<boolean> {
+  const results = await sqliteDb(dbOverride).transaction(repointStatements(args, []));
+  // Index 1, not 0 — the dead-claim DELETE is the batch's first statement and
+  // reports its own row count, which is 0 on the ordinary path.
+  return changesAt(results, 1) > 0;
+}
+
+/**
+ * {@link repointAssetLocation} for both halves of a RAW+JPEG stack in one
+ * transaction (#5929): either both rows follow their files or neither does.
+ * Throws, having written nothing, when either entry changed underneath the
+ * caller. `changes()` counts only the statement's own rows, not a trigger's.
+ */
+export async function repointStackLocations(
+  moves: readonly RepointArgs[],
+  dbOverride?: SqliteDb,
+): Promise<void> {
+  const moved: SqlStatement = {
+    sql: `INSERT INTO stack_repoint_assert(moved) SELECT changes() > 0`,
+  };
+  await sqliteDb(dbOverride).transaction([
+    { sql: `CREATE TEMP TABLE stack_repoint_assert(moved INTEGER NOT NULL CHECK(moved = 1))` },
+    ...moves.flatMap((move) => repointStatements(move, [moved])),
+    { sql: `DROP TABLE stack_repoint_assert` },
+  ]);
+}
+
+export interface RepointArgs {
+  id: ObjectId;
+  from: LocationAddress;
+  to: LocationAddress;
+  appleCompanions?: Partial<Record<AppleCompanionSlot, string>>;
+}
+
+/** The repoint batch; `afterMove` runs right after the location `UPDATE`. */
+function repointStatements(args: RepointArgs, afterMove: SqlStatement[]): SqlStatement[] {
   const hex = toHex(args.id);
   const companion: SqlStatement[] = APPLE_COMPANION_SLOTS.flatMap((slot) => {
     const moved = args.appleCompanions?.[slot];
@@ -116,8 +146,9 @@ export async function repointAssetLocation(
       ? []
       : [{ sql: `UPDATE assets SET ${slot} = ? WHERE id = ?`, params: [moved, hex] }];
   });
-
-  const results = await sqliteDb(dbOverride).transaction([
+  const from = [toHex(args.from.libraryId), args.from.path, args.from.filename];
+  const to = [toHex(args.to.libraryId), args.to.path, args.to.filename];
+  return [
     {
       // Dead address claims still reserve the unique index; retain their asset history (#3788).
       sql: `DELETE FROM asset_locations
@@ -131,19 +162,7 @@ export async function repointAssetLocation(
                             WHERE source.asset_id = ? AND source.library_id = ?
                               AND source.path = ? AND source.filename = ?
                               AND source.deleted_at IS NULL)`,
-      params: [
-        toHex(args.to.libraryId),
-        args.to.path,
-        args.to.filename,
-        hex,
-        toHex(args.from.libraryId),
-        args.from.path,
-        args.from.filename,
-        hex,
-        toHex(args.from.libraryId),
-        args.from.path,
-        args.from.filename,
-      ],
+      params: [...to, hex, ...from, hex, ...from],
     },
     {
       sql: `UPDATE asset_locations
@@ -151,23 +170,13 @@ export async function repointAssetLocation(
                    missing_since = NULL, missing_reason = NULL
              WHERE asset_id = ? AND library_id = ? AND path = ? AND filename = ?
                AND deleted_at IS NULL`,
-      params: [
-        toHex(args.to.libraryId),
-        args.to.path,
-        args.to.filename,
-        hex,
-        toHex(args.from.libraryId),
-        args.from.path,
-        args.from.filename,
-      ],
+      params: [...to, hex, ...from],
     },
+    ...afterMove,
     ...companion,
     ...searchRearmStatements(hex),
     ...relocateCacheRearmStatements(hex),
-  ]);
-  // Index 1, not 0 — the dead-claim DELETE above is the batch's first
-  // statement and reports its own row count, which is 0 on the ordinary path.
-  return changesAt(results, 1) > 0;
+  ];
 }
 
 /**

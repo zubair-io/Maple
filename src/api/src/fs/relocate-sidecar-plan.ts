@@ -60,6 +60,8 @@ export interface SidecarPlanRequest {
   finalDest: string;
   /** Companions relocating with the primary — they stop claiming its stem. */
   leavingWithPrimary: readonly string[];
+  /** The stack JPEG's destination (#5929): it lands with the primary, so it never claims the stem. */
+  arrivingWithPrimary?: readonly string[];
   replace: boolean;
   sourceSidecars: readonly string[];
 }
@@ -196,6 +198,7 @@ export async function planSidecars(req: SidecarPlanRequest): Promise<SidecarPlan
   ]);
   const destinationClaimedBySibling = await sidecarStemClaimedBySibling(req.finalDest, [
     req.sourceAbsPath,
+    ...(req.arrivingWithPrimary ?? []),
   ]);
   const destinationHadPrimary = await exists(req.finalDest);
   const displacedOldNames =

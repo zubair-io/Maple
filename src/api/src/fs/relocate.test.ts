@@ -14,7 +14,8 @@ import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { relocateFile, pickFreePath, sidecarRenameTarget } from './relocate.ts';
+import { relocateFile, sidecarRenameTarget } from './relocate.ts';
+import { pickFreePath } from './relocate-destination.ts';
 
 let root: string;
 

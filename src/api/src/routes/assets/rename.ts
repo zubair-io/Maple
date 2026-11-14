@@ -34,6 +34,9 @@
  *   new_filename: string             — full desired filename, with extension
  *   source_address?: string          — selected file location for deduplicated assets
  *   collision: 'auto-suffix' | 'skip' | 'replace' | 'keep-both'
+ *   companion_id?: string            — #5929: the JPEG of the RAW+JPEG stack this
+ *                                      asset heads; it takes the new stem with it
+ *   companion_collision?: 'skip' | 'replace' — what a file at the JPEG's new name does
  */
 
 import { Elysia, t } from 'elysia';
@@ -50,7 +53,12 @@ import {
 import { isSafeFilename } from '../../backup/path-formatter.ts';
 import { tryGetRawFfi } from '../../ffi/raw_ffi.ts';
 import { extensionChanged } from '../../library/filename-template.ts';
-import { resolveAssetIdOrRespond, relocateResultResponse } from './_shared.ts';
+import {
+  StackCompanionBodyFields,
+  resolveAssetIdOrRespond,
+  relocateResultResponse,
+  stackCompanionOrRespond,
+} from './_shared.ts';
 import { requireFileAccessBeforeHandle } from '../../auth/middleware.ts';
 
 const RenameBodySchema = t.Object({
@@ -62,6 +70,7 @@ const RenameBodySchema = t.Object({
     t.Literal('replace'),
     t.Literal('keep-both'),
   ]),
+  ...StackCompanionBodyFields,
 });
 
 /** Validate `new_filename` before touching the database or the filesystem. Returns
@@ -88,6 +97,8 @@ export const renameRoutes = new Elysia().post(
   async ({ params, body, set }) => {
     const id = resolveAssetIdOrRespond(params.id, set);
     if (!(id instanceof ObjectId)) return id;
+    const stackCompanion = stackCompanionOrRespond(body, id, set);
+    if (stackCompanion && 'error' in stackCompanion) return stackCompanion;
 
     const validation = validateNewFilename(body.new_filename);
     if (validation) {
@@ -145,6 +156,7 @@ export const renameRoutes = new Elysia().post(
       collision: body.collision,
       destinationFilename: body.new_filename,
       ...(source ? { activeFileInfoOverride: source } : {}),
+      ...(stackCompanion ? { stackCompanion } : {}),
     });
 
     const { status, body: responseBody } = relocateResultResponse(result, (r) => ({

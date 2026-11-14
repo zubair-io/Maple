@@ -61,7 +61,12 @@ import {
 import { child as childLogger } from '../log.ts';
 import { sidecarRenameTarget, companionRenameTarget } from './sidecar-rename.ts';
 import { classifySameFile, performCaseOnlyRename } from './relocate-case-only-rename.ts';
-import { assetDestinationOccupied } from './sidecar-ownership.ts';
+import {
+  isSuffixing,
+  pickFreePath,
+  replacesOccupants,
+  resolveDestination,
+} from './relocate-destination.ts';
 import {
   planSidecars,
   carryPlannedSidecars,
@@ -73,6 +78,14 @@ import {
 } from './relocate-sidecar-plan.ts';
 import { carryLateSidecars } from './relocate-late-sidecar.ts';
 import { deleteOriginals } from './relocate-originals.ts';
+import {
+  CompanionCollisionError,
+  carryStackCompanion,
+  caseOnlyCompanionRename,
+  companionLeaving,
+  stackCompanionTarget,
+  type StackCompanionRequest,
+} from './relocate-stack.ts';
 
 export { sidecarRenameTarget };
 
@@ -124,6 +137,9 @@ export interface RelocateRequest {
    * best-effort (a companion that fails to copy is logged and left at its
    * original location, same as a sidecar), deleted on `mode: 'move'`. */
   extraCompanionAbsPaths?: string[];
+  /** A RAW+JPEG stack's JPEG (#5929): moves under the primary's final stem or
+   * the whole relocate reverts; its name counts for the collision policy. */
+  stackCompanion?: StackCompanionRequest;
   /** Carry the paired `.xmp` sidecars along (default). `false` moves the
    * primary alone — for a plain file that merely shares its stem with a photo
    * (`photo.txt` beside `photo.dng` + `photo.xmp`), whose sidecars belong to
@@ -150,59 +166,9 @@ export type RelocateOutcome =
        * `'auto-suffix'` / `'keep-both'`. */
       renamedOnCollision: boolean;
     }
-  | { kind: 'skipped'; reason: 'collision' }
+  /** `collidedAt`, for a stack relocate: the destination name that was taken. */
+  | { kind: 'skipped'; reason: 'collision'; collidedAt?: string }
   | { kind: 'error'; error: string };
-
-// ---------------------------------------------------------------------------
-// Collision resolution
-// ---------------------------------------------------------------------------
-
-/** Append `.N.<ext>` until the path is free. Bounded to 1000 attempts.
- *
- * Pass `caller` so the warn log identifies which code path triggered the
- * collision (e.g. `'moveToTrash'`, `'moveToDuplicates'`, `'migration:primary'`).
- * A collision means the destination already held a file with that name — the
- * returned suffixed path is what actually ends up on disk and in the DB, which
- * is how `_MG_4226.1.ARW`-style names are created.
- *
- * Throws after exhausting all candidates rather than returning the last
- * (occupied) one — the prior behaviour would have let the subsequent
- * `fs.rename` overwrite an existing file, causing data loss.
- *
- * Extensionless-input edge case: `path.extname("/x/foo")` returns `""`, and
- * `basePath.slice(0, -0)` is `""` — naively building `${stem}.${n}${ext}`
- * would produce `.1` (a root-level dotfile), losing the basename entirely.
- * Guard the slice on a non-empty ext so an extensionless input simply gets
- * the suffix appended (`/x/foo` → `/x/foo.1`). */
-export async function pickFreePath(
-  basePath: string,
-  caller?: string,
-  occupied: (candidate: string) => Promise<boolean> = pathExists,
-): Promise<string> {
-  if (!(await occupied(basePath))) return basePath;
-  const ext = path.extname(basePath);
-  const stem = ext ? basePath.slice(0, -ext.length) : basePath;
-  for (let n = 1; n <= 1000; n++) {
-    const cand = `${stem}.${n}${ext}`;
-    if (!(await occupied(cand))) {
-      log.warn(
-        { caller: caller ?? 'unknown', collision: basePath, chosen: cand },
-        'pickFreePath: destination occupied — suffixed path chosen (this creates a .N. filename)',
-      );
-      return cand;
-    }
-  }
-  throw new Error(`pickFreePath: collision — exceeded 1000 candidate paths for ${basePath}`);
-}
-
-async function pathExists(p: string): Promise<boolean> {
-  try {
-    await fs.stat(p);
-    return true;
-  } catch {
-    return false;
-  }
-}
 
 // ---------------------------------------------------------------------------
 // The primitive — decomposed along the 8-step contract's natural seams so
@@ -210,31 +176,6 @@ async function pathExists(p: string): Promise<boolean> {
 // is independently readable and testable, and the crash-safety ordering
 // between them stays obvious at the `relocateFile` call-site below.
 // ---------------------------------------------------------------------------
-
-type DestinationResolution = { kind: 'proceed'; finalDest: string } | { kind: 'skip' };
-
-/** Step 1: resolve the destination per the caller's collision policy.
- * `'auto-suffix'` / `'keep-both'` pick the next free `.N` sibling;
- * `'skip'` declines outright when the destination is occupied; `'replace'`
- * (and a `'skip'` that finds nothing occupying the destination) proceeds
- * with `destAbsPath` exactly as given. */
-async function resolveDestination(
-  req: RelocateRequest,
-  ownSidecars: readonly string[],
-): Promise<DestinationResolution> {
-  const occupied = (candidate: string) =>
-    req.carrySidecars === false
-      ? pathExists(candidate)
-      : assetDestinationOccupied(candidate, ownSidecars, req.sourceAbsPath);
-  if (isSuffixing(req.collision)) {
-    const finalDest = await pickFreePath(req.destAbsPath, req.callerTag ?? 'relocate', occupied);
-    return { kind: 'proceed', finalDest };
-  }
-  if (req.collision === 'skip' && (await occupied(req.destAbsPath))) {
-    return { kind: 'skip' };
-  }
-  return { kind: 'proceed', finalDest: req.destAbsPath };
-}
 
 /** Best-effort copy of one non-sidecar companion — same contract as a
  * sidecar (`carryPlannedSidecars`, #2667). Its destination is never
@@ -275,7 +216,8 @@ interface SidecarCopyResult {
   movedCompanionSources: string[];
 }
 
-/** Best-effort carry of every extra companion (#2667) alongside the primary. */
+/** Best-effort carry of every extra companion (#2667) alongside the primary,
+ * then the stack's JPEG, which must land (#5929). */
 async function carryCompanions(
   req: RelocateRequest,
   finalDest: string,
@@ -289,6 +231,11 @@ async function carryCompanions(
     if (!dest) continue;
     companionPaths.push(dest);
     movedCompanionSources.push(companion);
+  }
+  const stackDest = await carryStackCompanion(req.stackCompanion, finalDest, createdPaths);
+  if (stackDest && req.stackCompanion) {
+    companionPaths.push(stackDest);
+    movedCompanionSources.push(req.stackCompanion.sourceAbsPath);
   }
   return { companionPaths, movedCompanionSources };
 }
@@ -320,7 +267,7 @@ async function copyPrimaryAndSidecars(
     finalDest,
     createdPaths,
   );
-  const replacing = req.carrySidecars !== false && req.collision === 'replace';
+  const replacing = req.carrySidecars !== false && replacesOccupants(req);
   await removeStaleDestinationSidecars(
     finalDest,
     plan,
@@ -329,11 +276,15 @@ async function copyPrimaryAndSidecars(
     createdPaths,
   );
 
+  const stackSource = req.stackCompanion?.sourceAbsPath;
   const keepSource = await sourceSidecarStays(
     req.sourceAbsPath,
     finalDest,
     plan,
-    req.extraCompanionAbsPaths ?? [],
+    [
+      ...(req.extraCompanionAbsPaths ?? []),
+      ...movedCompanionSources.filter((source) => source === stackSource),
+    ],
     movedCompanionSources,
   );
   const movedSidecars = carried.map((entry) => ({
@@ -401,7 +352,10 @@ async function refuseSameFile(req: RelocateRequest): Promise<RelocateOutcome | n
           'relocate: case-only rename target is the same file as the source on a case-insensitive filesystem — copy is not meaningful',
       };
     }
-    return performCaseOnlyRename(req);
+    return caseOnlyCompanionRename(req.stackCompanion, req.destAbsPath).then(
+      (companion) => performCaseOnlyRename(req, companion),
+      errorOutcome,
+    );
   }
   return null;
 }
@@ -417,8 +371,10 @@ async function relocateWithCollisionRetry(req: RelocateRequest): Promise<Relocat
     } catch (err) {
       if (!(err instanceof PublishCollisionError)) return errorOutcome(err);
       if (isSuffixing(req.collision) && attempt < MAX_COLLISION_RETRIES) continue;
-      return req.collision === 'skip'
-        ? { kind: 'skipped', reason: 'collision' }
+      const companionSkips =
+        err instanceof CompanionCollisionError && req.stackCompanion?.replace === false;
+      return req.collision === 'skip' || companionSkips
+        ? skippedAt(req, err.destination)
         : errorOutcome(err);
     }
   }
@@ -430,8 +386,8 @@ function errorOutcome(err: unknown): RelocateOutcome {
   return { kind: 'error', error: err instanceof Error ? err.message : String(err) };
 }
 
-function isSuffixing(collision: CollisionPolicy): boolean {
-  return collision === 'auto-suffix' || collision === 'keep-both';
+function skippedAt(req: RelocateRequest, collidedAt: string): RelocateOutcome {
+  return { kind: 'skipped', reason: 'collision', ...(req.stackCompanion ? { collidedAt } : {}) };
 }
 
 /** One resolution + copy + delete pass. Throws `PublishCollisionError`
@@ -444,13 +400,20 @@ async function relocateOnce(
   // 1. Resolve the destination per the caller's collision policy.
   const resolution = await resolveDestination(req, ownSidecars);
   if (resolution.kind === 'skip') {
-    return { kind: 'skipped', reason: 'collision' };
+    return skippedAt(req, resolution.collidedAt);
   }
   const { finalDest } = resolution;
   await fs.mkdir(path.dirname(finalDest), { recursive: true });
   const execute = () => relocateResolved(req, finalDest, ownSidecars);
-  return req.collision === 'replace' && req.carrySidecars !== false
-    ? withReplaceSidecarFence(req.sourceAbsPath, finalDest, req.mode, execute)
+  const companion = req.stackCompanion?.sourceAbsPath;
+  return replacesOccupants(req) && req.carrySidecars !== false
+    ? withReplaceSidecarFence(
+        req.sourceAbsPath,
+        finalDest,
+        req.mode,
+        execute,
+        companion ? [companion, stackCompanionTarget(finalDest, companion)] : [],
+      )
     : execute();
 }
 
@@ -459,11 +422,16 @@ async function relocateResolved(
   finalDest: string,
   ownSidecars: readonly string[],
 ): Promise<RelocateOutcome> {
+  const companion = req.stackCompanion?.sourceAbsPath;
   const plan = await planSidecars({
     sourceAbsPath: req.sourceAbsPath,
     finalDest,
-    leavingWithPrimary: req.extraCompanionAbsPaths ?? [],
-    replace: req.collision === 'replace',
+    leavingWithPrimary: [
+      ...(req.extraCompanionAbsPaths ?? []),
+      ...(await companionLeaving(req.stackCompanion, finalDest)),
+    ],
+    arrivingWithPrimary: companion ? [stackCompanionTarget(finalDest, companion)] : [],
+    replace: replacesOccupants(req),
     sourceSidecars: ownSidecars,
   });
 

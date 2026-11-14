@@ -4,15 +4,20 @@ import { listPairedSidecars } from './xmp-conflict.ts';
 import { xmpSidecarPath } from './xmp.ts';
 import { serializeSidecarWrites } from './sidecar-write-order.ts';
 
+/** `companion` is a stack JPEG's `[source, destination]` relocating with the photo (#5929). */
 export async function withReplaceSidecarFence<T>(
   source: string,
   destination: string,
   mode: 'move' | 'copy',
   operation: () => Promise<T>,
+  companion: readonly [string, string] | readonly [] = [],
 ): Promise<T> {
+  const [companionSource, companionDestination] = companion;
+  const destinations = companionDestination ? [destination, companionDestination] : [destination];
+  const sources = companionSource ? [source, companionSource] : [source];
   return withPrimarySidecarFence(
-    [source, destination],
-    mode === 'move' ? [source, destination] : [destination],
+    [...sources, ...destinations],
+    mode === 'move' ? [...sources, ...destinations] : destinations,
     operation,
   );
 }

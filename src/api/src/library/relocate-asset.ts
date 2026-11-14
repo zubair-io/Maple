@@ -38,7 +38,12 @@ import * as path from 'node:path';
 import type { ObjectId } from '../db/object-id.ts';
 import type { AppleCompanionSlot } from '../db/apple-companions.ts';
 import { loadAssetLocationView } from '../db/repos/assets.locations.repo.ts';
-import { findLiveOccupantAssetId, repointAssetLocation } from '../db/repos/assets.relocate.repo.ts';
+import {
+  findLiveOccupantAssetId,
+  repointAssetLocation,
+  repointStackLocations,
+  type RepointArgs,
+} from '../db/repos/assets.relocate.repo.ts';
 import { reconcileStacksAfterMove } from '../db/repos/assets.raw-jpeg-stacks.ts';
 import { loadLibraryRoots } from '../indexer/libraries.cache.ts';
 import {
@@ -47,6 +52,13 @@ import {
   type RelocateMode,
   type RelocateVerifiedInfo,
 } from '../fs/relocate.ts';
+import { isSuffixing } from '../fs/relocate-destination.ts';
+import { stackCompanionTarget } from '../fs/relocate-stack.ts';
+import {
+  resolveStackCompanion,
+  type ResolvedStackCompanion,
+  type StackCompanionInput,
+} from './relocate-stack-companion.ts';
 import { resolveRelPathUnderRoot } from './address.ts';
 import { isSafeFilename } from '../backup/path-formatter.ts';
 import { child as childLogger } from '../log.ts';
@@ -98,6 +110,18 @@ export interface RelocateAssetInput {
    * would silently relocate the WRONG location (found in review on #2667).
    * Omit for the default (and historically only) behavior. */
   activeFileInfoOverride?: FileInfo;
+  /** The JPEG of the RAW+JPEG stack this asset heads (#5929): found beside the
+   * asset's location, it moves under the asset's final stem in the same
+   * relocate, and both rows repoint together or not at all. */
+  stackCompanion?: StackCompanionInput;
+}
+
+/** Where a stack's JPEG landed with its RAW. */
+export interface RelocatedCompanion {
+  id: ObjectId;
+  newAbsPath: string;
+  newPath: string;
+  newFilename: string;
 }
 
 export type RelocateAssetResult =
@@ -111,9 +135,13 @@ export type RelocateAssetResult =
        * a caller (e.g. `routes/assets/rename.ts`) detect an extension
        * change without a separate lookup. */
       oldFilename: string;
+      companion?: RelocatedCompanion;
     }
-  | { kind: 'skipped'; reason: string }
+  /** `collisionFilename`: for a stack, the destination name that was taken. */
+  | { kind: 'skipped'; reason: string; collisionFilename?: string }
   | { kind: 'not-found' }
+  /** `stackCompanion` names no live JPEG beside the asset. */
+  | { kind: 'companion-missing' }
   /** `destinationPath` / `destinationFilename` failed validation — a
    * client-error (400-shaped), distinct from `'error'`'s internal-failure
    * (500-shaped) so callers like `routes/assets/relocate.ts` can map it
@@ -129,7 +157,7 @@ export type RelocateAssetResult =
    * else's pixels). 409-shaped so the caller's collision prompt (Skip /
    * Replace / Keep Both) can re-ask with the occupant identified, rather
    * than the client having to guess why a normally-200 request failed. */
-  | { kind: 'occupied'; occupiedByAssetId: string }
+  | { kind: 'occupied'; occupiedByAssetId: string; occupiedFilename: string }
   | { kind: 'error'; error: string };
 
 /** Canonical live fileinfo entry. Prefers a non-deleted entry that is NOT
@@ -147,30 +175,31 @@ export function activeFileInfo(asset: Pick<AssetDoc, 'fileinfo'>): FileInfo | nu
 }
 
 /** #2843: the `'occupied'` result to short-circuit `relocateAsset` with, or
- * `null` when the relocate may proceed as normal — either the collision
- * policy isn't `'replace'` (the only policy that overwrites the
- * destination; see the call site's comment), or `'replace'`'s destination
- * turned out free/untracked (the legitimate case). Split out of
- * `relocateAsset` itself to keep that function's branching flat — this
- * whole check is one self-contained early-exit. */
+ * `null` when the relocate may proceed as normal — either the file isn't
+ * being allowed to replace an occupant (only Replace overwrites the
+ * destination; see the call site's comment), or the destination turned out
+ * free/untracked (the legitimate case). Split out of `relocateAsset` itself
+ * to keep that function's branching flat — this whole check is one
+ * self-contained early-exit. */
 async function occupiedResultIfReplaceBlocked(
-  input: RelocateAssetInput,
+  id: ObjectId,
+  replaces: boolean,
   destLibraryId: ObjectId,
   destLibRoot: string,
   destAbsPath: string,
 ): Promise<Extract<RelocateAssetResult, { kind: 'occupied' }> | null> {
-  if (input.collision !== 'replace') return null;
+  if (!replaces) return null;
   const destSplit = splitRelPath(destLibRoot, destAbsPath);
   const occupiedByAssetId = await findLiveOccupantAssetId(
     { libraryId: destLibraryId, path: destSplit.relPath, filename: destSplit.filename },
-    input.id,
+    id,
   );
   if (!occupiedByAssetId) return null;
   log.warn(
-    { id: input.id.toHexString(), occupiedByAssetId, destAbsPath },
+    { id: id.toHexString(), occupiedByAssetId, destAbsPath },
     'relocateAsset: replace refused — destination occupied by a different live asset',
   );
-  return { kind: 'occupied', occupiedByAssetId };
+  return { kind: 'occupied', occupiedByAssetId, occupiedFilename: destSplit.filename };
 }
 
 /** Split an absolute path back into the `(path, filename)` shape
@@ -288,12 +317,14 @@ async function resolveDestinationPlan(
  *
  * The old address goes into the repoint's own `WHERE`, which is what makes a
  * row count of zero mean "the entry changed underneath us" rather than "the
- * write did nothing". See `db/repos/assets.relocate.repo.ts`. */
+ * write did nothing". See `db/repos/assets.relocate.repo.ts`. A stack's JPEG
+ * that moved repoints in the same transaction (#5929). */
 function buildRepointHook(
   input: RelocateAssetInput,
   primary: FileInfo,
   destLibraryId: ObjectId,
   destLibRoot: string,
+  companion: ResolvedStackCompanion | null,
 ): (info: RelocateVerifiedInfo) => Promise<void> {
   return async ({ newAbsPath, companionPaths, companionSources }) => {
     const split = splitRelPath(destLibRoot, newAbsPath);
@@ -312,7 +343,7 @@ function buildRepointHook(
       }),
     ) as Partial<Record<AppleCompanionSlot, string>>;
 
-    const repointed = await repointAssetLocation({
+    const primaryMove: RepointArgs = {
       id: input.id,
       from: {
         libraryId: primary.library_id,
@@ -324,11 +355,65 @@ function buildRepointHook(
       // bytes now live under the new one.
       to: { libraryId: destLibraryId, path: split.relPath, filename: split.filename },
       appleCompanions,
-    });
-    if (!repointed) {
+    };
+    const companionDest = companion ? movedTo.get(companion.sourceAbsPath) : undefined;
+    if (companion && companionDest !== undefined) {
+      const to = splitRelPath(destLibRoot, companionDest);
+      const { library_id, path: from, filename } = companion.location;
+      await repointStackLocations([
+        primaryMove,
+        {
+          id: companion.id,
+          from: { libraryId: library_id, path: from, filename },
+          to: { libraryId: destLibraryId, path: to.relPath, filename: to.filename },
+        },
+      ]);
+      return;
+    }
+    if (!(await repointAssetLocation(primaryMove))) {
       throw new Error('asset fileinfo entry changed concurrently — aborting relocate');
     }
   };
+}
+
+/** #2843 for both names of a stack: the JPEG may replace an occupant only when
+ * its own policy says so and the RAW's policy doesn't suffix around one. */
+async function occupiedResult(
+  input: RelocateAssetInput,
+  plan: DestinationPlan,
+  companion: ResolvedStackCompanion | null,
+): Promise<Extract<RelocateAssetResult, { kind: 'occupied' }> | null> {
+  const { destLibraryId, destLibRoot, destAbsPath } = plan;
+  const primary = await occupiedResultIfReplaceBlocked(
+    input.id,
+    input.collision === 'replace',
+    destLibraryId,
+    destLibRoot,
+    destAbsPath,
+  );
+  if (primary || !companion) return primary;
+  return occupiedResultIfReplaceBlocked(
+    companion.id,
+    companionReplaces(input),
+    destLibraryId,
+    destLibRoot,
+    stackCompanionTarget(destAbsPath, companion.sourceAbsPath),
+  );
+}
+
+function companionReplaces(input: RelocateAssetInput): boolean {
+  return input.stackCompanion?.collision === 'replace' && !isSuffixing(input.collision);
+}
+
+/** The stack's JPEG for `input`: `undefined` when there is none to move, `null`
+ * when the one named is not beside the asset. */
+async function stackCompanionOf(
+  input: RelocateAssetInput,
+  primary: FileInfo,
+  sourceAbsPath: string,
+): Promise<ResolvedStackCompanion | null | undefined> {
+  if (!input.stackCompanion) return undefined;
+  return resolveStackCompanion(input.stackCompanion.id, primary, sourceAbsPath);
 }
 
 export async function relocateAsset(input: RelocateAssetInput): Promise<RelocateAssetResult> {
@@ -349,6 +434,8 @@ export async function relocateAsset(input: RelocateAssetInput): Promise<Relocate
   if (sourceAbsPath === destAbsPath) {
     return { kind: 'skipped', reason: 'already at destination' };
   }
+  const companion = await stackCompanionOf(input, primary, sourceAbsPath);
+  if (companion === null) return { kind: 'companion-missing' };
 
   // #2843: `'replace'` is the one collision policy that overwrites whatever
   // sits at the destination — `fs/relocate.ts`'s `copyVerifiedIntoPlace` is
@@ -357,12 +444,7 @@ export async function relocateAsset(input: RelocateAssetInput): Promise<Relocate
   // alongside it. `'auto-suffix'` / `'keep-both'` never reach an occupied
   // path (they suffix around it) and `'skip'` is a no-op, so this check is
   // scoped to `'replace'` alone — see `occupiedResultIfReplaceBlocked`.
-  const occupied = await occupiedResultIfReplaceBlocked(
-    input,
-    destLibraryId,
-    destLibRoot,
-    destAbsPath,
-  );
+  const occupied = await occupiedResult(input, plan, companion ?? null);
   if (occupied) return occupied;
 
   // The DB repoint below is a MOVE-only concern: a copy leaves the source
@@ -372,7 +454,13 @@ export async function relocateAsset(input: RelocateAssetInput): Promise<Relocate
   // is a cache of it. Wiring the repoint unconditionally would re-address
   // the ORIGINAL asset doc at the copy's location and catalog-orphan the
   // untouched source file.
-  const repointToNewLocation = buildRepointHook(input, primary, destLibraryId, destLibRoot);
+  const repointToNewLocation = buildRepointHook(
+    input,
+    primary,
+    destLibraryId,
+    destLibRoot,
+    companion ?? null,
+  );
 
   const outcome = await relocateFile({
     sourceAbsPath,
@@ -381,38 +469,75 @@ export async function relocateAsset(input: RelocateAssetInput): Promise<Relocate
     collision: input.collision,
     callerTag: 'relocateAsset',
     extraCompanionAbsPaths: Object.values(input.appleCompanionAbsPaths ?? {}),
+    ...(companion
+      ? {
+          stackCompanion: {
+            sourceAbsPath: companion.sourceAbsPath,
+            replace: companionReplaces(input),
+          },
+        }
+      : {}),
     ...(input.mode === 'move' ? { onVerified: repointToNewLocation } : {}),
   });
 
   switch (outcome.kind) {
-    case 'relocated': {
-      const split = splitRelPath(destLibRoot, outcome.newAbsPath);
-      if (input.mode === 'move') {
-        await reconcileStacksAfterMove([
-          { libraryId: destLibraryId, relPath: split.relPath },
-          { libraryId: primary.library_id, relPath: primary.path },
-        ]);
-      }
-      log.info(
-        {
-          id: input.id.toHexString(),
-          newAbsPath: outcome.newAbsPath,
-          mode: input.mode,
-        },
-        'relocateAsset: relocated',
-      );
-      return {
-        kind: 'relocated',
-        newAbsPath: outcome.newAbsPath,
-        newPath: split.relPath,
-        newFilename: split.filename,
+    case 'relocated':
+      return relocatedResult(input, primary, plan, outcome.newAbsPath, {
         renamedOnCollision: outcome.renamedOnCollision,
-        oldFilename: primary.filename,
-      };
-    }
+        companion: companion ?? null,
+      });
     case 'skipped':
-      return { kind: 'skipped', reason: outcome.reason };
+      return {
+        kind: 'skipped',
+        reason: outcome.reason,
+        ...(companion && outcome.collidedAt
+          ? { collisionFilename: path.basename(outcome.collidedAt) }
+          : {}),
+      };
     case 'error':
       return { kind: 'error', error: outcome.error };
   }
+}
+
+async function relocatedResult(
+  input: RelocateAssetInput,
+  primary: FileInfo,
+  plan: DestinationPlan,
+  newAbsPath: string,
+  landed: { renamedOnCollision: boolean; companion: ResolvedStackCompanion | null },
+): Promise<Extract<RelocateAssetResult, { kind: 'relocated' }>> {
+  const { destLibraryId, destLibRoot } = plan;
+  const split = splitRelPath(destLibRoot, newAbsPath);
+  if (input.mode === 'move') {
+    await reconcileStacksAfterMove([
+      { libraryId: destLibraryId, relPath: split.relPath },
+      { libraryId: primary.library_id, relPath: primary.path },
+    ]);
+  }
+  log.info(
+    { id: input.id.toHexString(), newAbsPath, mode: input.mode },
+    'relocateAsset: relocated',
+  );
+  const companionAbsPath = landed.companion
+    ? stackCompanionTarget(newAbsPath, landed.companion.sourceAbsPath)
+    : null;
+  const companionSplit = companionAbsPath ? splitRelPath(destLibRoot, companionAbsPath) : null;
+  return {
+    kind: 'relocated',
+    newAbsPath,
+    newPath: split.relPath,
+    newFilename: split.filename,
+    renamedOnCollision: landed.renamedOnCollision,
+    oldFilename: primary.filename,
+    ...(landed.companion && companionAbsPath && companionSplit
+      ? {
+          companion: {
+            id: landed.companion.id,
+            newAbsPath: companionAbsPath,
+            newPath: companionSplit.relPath,
+            newFilename: companionSplit.filename,
+          },
+        }
+      : {}),
+  };
 }

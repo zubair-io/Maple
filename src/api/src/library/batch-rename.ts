@@ -24,8 +24,12 @@
 import type { ObjectId } from '../db/object-id.ts';
 import type { FileInfo } from '../db/schema.ts';
 import * as path from 'node:path';
+import {
+  relocateAsset,
+  type RelocateAssetInput,
+  type RelocateAssetResult,
+} from './relocate-asset.ts';
 import { loadAssetLocationView } from '../db/repos/assets.locations.repo.ts';
-import { relocateAsset, type RelocateAssetInput } from './relocate-asset.ts';
 import { parseAddressString, resolveAddressString } from './address.ts';
 import { isSafeFilename } from '../backup/path-formatter.ts';
 import { extensionChanged, renderTemplatedName, splitStemExt } from './filename-template.ts';
@@ -40,6 +44,9 @@ export interface BatchRenameTemplateInput {
 
 export interface BatchRenameInput extends BatchRenameTemplateInput {
   collision: RelocateAssetInput['collision'];
+  /** Parallel to `ids`: the JPEG of the RAW+JPEG stack an item heads (#5929),
+   * renamed with it as one unit. A taken JPEG name skips the pair. */
+  companionIds?: (ObjectId | null)[];
 }
 
 export type BatchRenameItemResult =
@@ -51,8 +58,9 @@ export type BatchRenameItemResult =
       newPath: string;
       renamedOnCollision: boolean;
       extensionChanged: boolean;
+      companionNewFilename?: string;
     }
-  | { id: string; kind: 'skipped'; reason: string }
+  | { id: string; kind: 'skipped'; reason: string; collisionFilename?: string }
   | { id: string; kind: 'not-found' }
   | { id: string; kind: 'invalid'; error: string }
   | { id: string; kind: 'error'; error: string };
@@ -215,39 +223,48 @@ export async function batchRenameAssets(input: BatchRenameInput): Promise<BatchR
       continue;
     }
 
+    const companionId = input.companionIds?.[i];
     const outcome = await relocateAsset({
       id,
       mode: 'move',
       collision: input.collision,
       destinationFilename: rendered.newFilename,
       activeFileInfoOverride: rendered.source,
+      ...(companionId ? { stackCompanion: { id: companionId, collision: 'skip' as const } } : {}),
     });
-
-    switch (outcome.kind) {
-      case 'relocated':
-        results.push({
-          id: idStr,
-          kind: 'relocated',
-          oldFilename: outcome.oldFilename,
-          newFilename: outcome.newFilename,
-          newPath: outcome.newPath,
-          renamedOnCollision: outcome.renamedOnCollision,
-          extensionChanged: extensionChanged(outcome.oldFilename, outcome.newFilename),
-        });
-        break;
-      case 'skipped':
-        results.push({ id: idStr, kind: 'skipped', reason: outcome.reason });
-        break;
-      case 'not-found':
-        results.push({ id: idStr, kind: 'not-found' });
-        break;
-      case 'invalid':
-        results.push({ id: idStr, kind: 'invalid', error: outcome.error });
-        break;
-      case 'error':
-        results.push({ id: idStr, kind: 'error', error: outcome.error });
-        break;
-    }
+    results.push(itemResult(idStr, outcome));
   }
   return results;
+}
+
+function itemResult(id: string, outcome: RelocateAssetResult): BatchRenameItemResult {
+  switch (outcome.kind) {
+    case 'relocated':
+      return {
+        id,
+        kind: 'relocated',
+        oldFilename: outcome.oldFilename,
+        newFilename: outcome.newFilename,
+        newPath: outcome.newPath,
+        renamedOnCollision: outcome.renamedOnCollision,
+        extensionChanged: extensionChanged(outcome.oldFilename, outcome.newFilename),
+        ...(outcome.companion ? { companionNewFilename: outcome.companion.newFilename } : {}),
+      };
+    case 'skipped':
+      return {
+        id,
+        kind: 'skipped',
+        reason: outcome.reason,
+        ...(outcome.collisionFilename ? { collisionFilename: outcome.collisionFilename } : {}),
+      };
+    case 'not-found':
+      return { id, kind: 'not-found' };
+    case 'invalid':
+    case 'error':
+      return { id, kind: outcome.kind, error: outcome.error };
+    case 'occupied':
+      return { id, kind: 'error', error: 'destination is occupied by another asset' };
+    case 'companion-missing':
+      return { id, kind: 'error', error: 'Companion not found beside the asset' };
+  }
 }

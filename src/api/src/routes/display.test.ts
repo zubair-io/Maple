@@ -37,6 +37,12 @@ describe('/api/display/config', () => {
     expect(body.stack_raw_jpeg).toBe(true);
   });
 
+  it('GET advertises that a RAW+JPEG stack moves, renames and trashes as one unit', async () => {
+    const res = await app().handle(new Request('http://localhost/api/display/config'));
+    const body = (await res.json()) as { stack_pair_ops_supported?: boolean };
+    expect(body.stack_pair_ops_supported).toBe(true);
+  });
+
   it('PUT stores the RAW+JPEG stacking choice without touching the other setting', async () => {
     const put = (body: object) =>
       app().handle(
@@ -50,7 +56,11 @@ describe('/api/display/config', () => {
     expect((await put({ stack_raw_jpeg: false })).status).toBe(200);
 
     const res = await app().handle(new Request('http://localhost/api/display/config'));
-    expect(await res.json()).toEqual({ show_hidden_images: true, stack_raw_jpeg: false });
+    expect(await res.json()).toEqual({
+      show_hidden_images: true,
+      stack_raw_jpeg: false,
+      stack_pair_ops_supported: true,
+    });
   });
 
   it('PUT /api/display/config updates config', async () => {

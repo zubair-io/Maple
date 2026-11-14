@@ -7,12 +7,14 @@
  * `routes/assets.ts` shim that re-exports it).
  */
 
+import { t } from 'elysia';
 import { child as childLogger } from '../../log.ts';
 import type { ObjectId } from '../../db/object-id.ts';
 import { findCoreInfoById, parseAssetId, type AssetCoreInfo } from '../../db/assets.repo.ts';
 import { assetAbsPath } from '../../indexer/images.repo.ts';
 import { loadLibraryRoots } from '../../indexer/libraries.cache.ts';
 import type { RelocateAssetResult } from '../../library/relocate-asset.ts';
+import type { StackCompanionInput } from '../../library/relocate-stack-companion.ts';
 
 /** Shared logger for every `/api/assets` sub-router. */
 export const assetsLog = childLogger('routes:assets');
@@ -33,6 +35,27 @@ export function resolveAssetIdOrRespond(
   if (id) return id;
   set.status = 400;
   return { error: 'Invalid asset id' };
+}
+
+/** Body fields of a relocate or rename that moves a RAW+JPEG stack as one unit (#5929). */
+export const StackCompanionBodyFields = {
+  companion_id: t.Optional(t.String()),
+  companion_collision: t.Optional(t.Union([t.Literal('skip'), t.Literal('replace')])),
+};
+
+/** The stack JPEG a request names, `undefined` when none, or the 400 body it gets. */
+export function stackCompanionOrRespond(
+  body: { companion_id?: string; companion_collision?: 'skip' | 'replace' },
+  id: ObjectId,
+  set: { status?: number | string },
+): StackCompanionInput | undefined | { error: string } {
+  if (body.companion_id === undefined) return undefined;
+  const companionId = parseAssetId(body.companion_id);
+  if (companionId && !companionId.equals(id)) {
+    return { id: companionId, collision: body.companion_collision ?? 'skip' };
+  }
+  set.status = 400;
+  return { error: 'companion_id must be the id of another asset' };
 }
 
 /** An `:id` param resolved to its catalog row. */
@@ -130,13 +153,31 @@ export function relocateResultResponse(
           new_path: result.newPath,
           new_filename: result.newFilename,
           renamed_on_collision: result.renamedOnCollision,
+          ...(result.companion
+            ? {
+                companion: {
+                  new_abs_path: result.companion.newAbsPath,
+                  new_path: result.companion.newPath,
+                  new_filename: result.companion.newFilename,
+                },
+              }
+            : {}),
           ...(extraOnRelocated ? extraOnRelocated(result) : {}),
         },
       };
     case 'skipped':
-      return { status: 200, body: { skipped: true, reason: result.reason } };
+      return {
+        status: 200,
+        body: {
+          skipped: true,
+          reason: result.reason,
+          ...(result.collisionFilename ? { collision_filename: result.collisionFilename } : {}),
+        },
+      };
     case 'not-found':
       return { status: 404, body: { error: 'Asset not found' } };
+    case 'companion-missing':
+      return { status: 404, body: COMPANION_MISSING };
     case 'invalid':
       return { status: 400, body: { error: result.error } };
     case 'occupied':
@@ -145,9 +186,16 @@ export function relocateResultResponse(
         body: {
           error: 'destination is occupied by another asset',
           occupied_by_asset_id: result.occupiedByAssetId,
+          occupied_filename: result.occupiedFilename,
         },
       };
     case 'error':
       return { status: 500, body: { error: result.error } };
   }
 }
+
+/** A stack's JPEG (#5929, #5930) is gone, trashed, or no longer beside its RAW. */
+export const COMPANION_MISSING = {
+  error: 'Companion not found beside the asset',
+  missing: 'companion',
+} as const;

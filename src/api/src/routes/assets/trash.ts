@@ -7,6 +7,8 @@
  *       • deleted_at != null → permanent purge (unlink files, delete
  *         asset doc), 204. This is the "user emptied this single item
  *         from Trash" signal from the File Provider extension.
+ *       • `?companion=<jpegId>` (#5930) trashes a RAW+JPEG stack under one
+ *         trash stem, both rows or neither; never with a purge.
  *   POST   /api/assets/:id/restore   — move file out of trash and clear
  *                                      deleted_at; returns the restored
  *                                      filename / size / mtime so the
@@ -34,6 +36,7 @@ import type { ObjectId } from '../../db/object-id.ts';
 import { oldNameEditUnreadable } from '../../fs/legacy-backup-sidecar.ts';
 import { recordAndPublishAssetChange } from '../../db/changes.repo.ts';
 import { trashAssetById, restoreAssetById } from '../../library/asset-trash.ts';
+import { trashStackById, type TrashStackOutcome } from '../../library/asset-trash-stack.ts';
 import {
   holdsTrashPurge,
   prepareTrashPurge,
@@ -58,7 +61,7 @@ import type { RestoreAssetOutcome } from '../../library/asset-trash.ts';
 import { findCoreInfoById, parseAssetId } from '../../db/assets.repo.ts';
 import { hardDeleteAdmittedPurge } from '../../db/repos/assets.trash.ts';
 import { requireFileAccessBeforeHandle } from '../../auth/middleware.ts';
-import { assetsLog } from './_shared.ts';
+import { COMPANION_MISSING, assetsLog } from './_shared.ts';
 
 /** Map a `restoreAssetById` outcome to its HTTP status + body. Split out of
  * the route handler below purely to keep that handler's own cyclomatic
@@ -297,6 +300,58 @@ async function admitTrashPurge(
   return lease;
 }
 
+/** The `companion` a stack trash names (#5930): `undefined` when none, or the 400 body. */
+function trashCompanionOrRespond(
+  raw: string | undefined,
+  id: ObjectId,
+  intent: string | undefined,
+  set: { status?: number | string },
+): ObjectId | undefined | { error: string } {
+  if (raw === undefined) return undefined;
+  const companion = parseAssetId(raw);
+  const error =
+    !companion || companion.equals(id)
+      ? 'companion must be the id of another asset'
+      : intent === 'purge'
+        ? 'companion applies only to a trash'
+        : null;
+  if (companion && error === null) return companion;
+  set.status = 400;
+  return { error: error ?? 'companion must be the id of another asset' };
+}
+
+function trashOutcomeResponse(
+  outcome: TrashStackOutcome,
+  stacked: boolean,
+  set: { status?: number | string },
+): { error: string; state?: string } | typeof COMPANION_MISSING | undefined {
+  switch (outcome.kind) {
+    case 'ok':
+      set.status = 204;
+      return;
+    case 'not-found':
+      set.status = 404;
+      return { error: 'Asset not found' };
+    case 'companion-missing':
+      set.status = 404;
+      return COMPANION_MISSING;
+    case 'already-trashed':
+      // Raced with a concurrent trash of the same asset — nothing left to do,
+      // report success. A stack is not whole in the trash, so it says so.
+      set.status = stacked ? 409 : 204;
+      return stacked ? { error: 'Asset is already trashed', state: 'trashed' } : undefined;
+    case 'no-location':
+      set.status = 404;
+      return { error: 'Asset has no resolvable location' };
+    case 'no-folder':
+      set.status = 500;
+      return { error: "Asset's folder is missing — refusing to trash" };
+    case 'error':
+      set.status = 500;
+      return { error: outcome.error };
+  }
+}
+
 // Trash/restore move files on disk — file-access-gated (#2893).
 export const trashRoutes = new Elysia()
   .delete(
@@ -327,6 +382,8 @@ export const trashRoutes = new Elysia()
         set.status = 400;
         return { error: "intent must be 'trash' or 'purge' when provided" };
       }
+      const companion = trashCompanionOrRespond(query.companion, id, intent, set);
+      if (companion && 'error' in companion) return companion;
 
       const info = await findCoreInfoById(id);
       if (!info) {
@@ -349,32 +406,15 @@ export const trashRoutes = new Elysia()
       }
 
       if (info.deleted_at) {
+        if (companion) {
+          set.status = 400;
+          return { error: 'companion applies only to a trash' };
+        }
         return await purgeTrashedAsset(id, info, set);
       }
 
-      const outcome = await trashAssetById(id);
-      switch (outcome.kind) {
-        case 'ok':
-          set.status = 204;
-          return;
-        case 'not-found':
-          set.status = 404;
-          return { error: 'Asset not found' };
-        case 'already-trashed':
-          // Raced with a concurrent trash of the same asset — nothing left
-          // to do, report success.
-          set.status = 204;
-          return;
-        case 'no-location':
-          set.status = 404;
-          return { error: 'Asset has no resolvable location' };
-        case 'no-folder':
-          set.status = 500;
-          return { error: "Asset's folder is missing — refusing to trash" };
-        case 'error':
-          set.status = 500;
-          return { error: outcome.error };
-      }
+      const outcome = companion ? await trashStackById(id, companion) : await trashAssetById(id);
+      return trashOutcomeResponse(outcome, companion !== undefined, set);
     },
     { beforeHandle: requireFileAccessBeforeHandle },
   )
