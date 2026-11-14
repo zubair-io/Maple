@@ -1,4 +1,5 @@
 using System;
+using Maple.WinUI.Generated;
 using Maple.WinUI.Models;
 using Maple.WinUI.Native;
 using Maple.WinUI.Services.Xmp;
@@ -33,6 +34,11 @@ public static unsafe class ImportedWhiteBalanceResolver
         model.Temperature = pair.Temperature;
         model.Tint = pair.Tint;
         model.WhiteBalanceScaleVersion = 5;
+        if (imported is { Temperature: null, Tint: null })
+        {
+            model.WbSource = WbSource.Auto;
+            model.WbAlgorithmVersion = WhiteBalancePresets.AutoWhiteBalanceAlgorithmVersion;
+        }
     }
 
     /// <summary>Hydrate only the same imported intent. A manual WB edit made
@@ -48,6 +54,11 @@ public static unsafe class ImportedWhiteBalanceResolver
         target.Temperature = pair.Temperature;
         target.Tint = pair.Tint;
         target.WhiteBalanceScaleVersion = 5;
+        if (resolved is { Temperature: null, Tint: null })
+        {
+            target.WbSource = WbSource.Auto;
+            target.WbAlgorithmVersion = WhiteBalancePresets.AutoWhiteBalanceAlgorithmVersion;
+        }
         return current.Resolved != pair;
     }
 

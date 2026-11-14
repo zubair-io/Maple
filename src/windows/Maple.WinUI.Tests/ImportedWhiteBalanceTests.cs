@@ -1,3 +1,4 @@
+using Maple.WinUI.Generated;
 using Maple.WinUI.Models;
 using Maple.WinUI.Native;
 using Maple.WinUI.Services;
@@ -33,6 +34,8 @@ public sealed class ImportedWhiteBalanceTests
             // agree within the estimator's fixed-point tolerance (raw-core's corpus cell).
             Assert.InRange(Math.Abs(Math.Log2(temperature / auto.temperature)), 0, 0.03);
             Assert.InRange(Math.Abs(tint - auto.tint), 0, 1.5);
+            Assert.Equal(WbSource.Auto, doc.Adjustments.WbSource);
+            Assert.Equal(WhiteBalancePresets.AutoWhiteBalanceAlgorithmVersion, doc.Adjustments.WbAlgorithmVersion);
             Assert.Equal(0, doc.Adjustments.Exposure);
             Assert.Equal(bytes, File.ReadAllBytes(raw));
             Assert.Equal(Xml(""), File.ReadAllText(sidecar));
@@ -60,8 +63,13 @@ public sealed class ImportedWhiteBalanceTests
             File.WriteAllText(path, Xml(attributes));
             var doc = XmpParser.Parse(File.ReadAllText(path))!;
             var original = Assert.IsType<ImportedWhiteBalance>(doc.Adjustments.ImportedWhiteBalance);
+            var source = doc.Adjustments.WbSource;
+            var algorithm = doc.Adjustments.WbAlgorithmVersion;
             doc.Adjustments.ImportedWhiteBalance = original with { Resolved = new(5520, -43.79) };
             ImportedWhiteBalanceResolver.ResolveInPlace("/no-analysis-required.dng", doc.Adjustments);
+            Assert.Equal(attributes.Length == 0 ? WbSource.Auto : source, doc.Adjustments.WbSource);
+            Assert.Equal(attributes.Length == 0 ? WhiteBalancePresets.AutoWhiteBalanceAlgorithmVersion : algorithm,
+                doc.Adjustments.WbAlgorithmVersion);
             doc.Adjustments.Exposure = 1.25;
             File.WriteAllText(path, XmpWriter.Serialize(doc));
             var saved = File.ReadAllText(path);
@@ -142,6 +150,8 @@ public sealed class ImportedWhiteBalanceTests
         Assert.True(ImportedWhiteBalanceResolver.ApplyResolved(undo, resolved));
         Assert.Equal((5300, 17), (undo.Temperature, undo.Tint));
         Assert.NotNull(undo.ImportedWhiteBalance);
+        Assert.Equal(WbSource.Auto, undo.WbSource);
+        Assert.Equal(WhiteBalancePresets.AutoWhiteBalanceAlgorithmVersion, undo.WbAlgorithmVersion);
         // Publishing again changes nothing, so it must not invalidate a Before view twice.
         Assert.False(ImportedWhiteBalanceResolver.ApplyResolved(undo, resolved));
         WhiteBalanceProvenance.SetManualTemperature(original, 4500);
@@ -220,6 +230,54 @@ public sealed class ImportedWhiteBalanceTests
         var pasted = XmpWriter.Serialize(partial);
         Assert.Contains("crs:Temperature=\"5000\"", pasted);
         Assert.Contains("crs:Tint=\"10\"", pasted);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void ResolvedNameOnlyAutoTransfersItsEstimatedDeltaRelativeToEachCamera(bool publishCached)
+    {
+        var source = XmpParser.Parse(Xml(""))!.Adjustments;
+        var resolved = source.Clone();
+        resolved.ImportedWhiteBalance = resolved.ImportedWhiteBalance! with { Resolved = new(5300, 17) };
+        if (publishCached)
+            Assert.True(ImportedWhiteBalanceResolver.ApplyResolved(source, resolved));
+        else
+        {
+            source = resolved;
+            ImportedWhiteBalanceResolver.ResolveInPlace("/no-analysis-required.dng", source);
+        }
+        Assert.Equal(WbSource.Auto, source.WbSource);
+        Assert.Equal(WhiteBalancePresets.AutoWhiteBalanceAlgorithmVersion, source.WbAlgorithmVersion);
+        var clipboard = new AdjustmentTransferSource(source, 5, new(4800, 6));
+        Assert.Equal(new WhiteBalanceBaseline(500, 11), AdjustmentTransfer.Correction(clipboard));
+        var target = new XmpSidecarDocument();
+        AdjustmentTransfer.Apply(target,
+            AdjustmentTransfer.Build(clipboard, new[] { "white_balance" }, true, new(6000, -4)));
+        Assert.Equal((6500, 7), (target.Adjustments.Temperature, target.Adjustments.Tint));
+        Assert.Equal(WbSource.Manual, target.Adjustments.WbSource);
+        var saved = XmpWriter.Serialize(new XmpSidecarDocument { Adjustments = source });
+        Assert.Contains("crs:WhiteBalance=\"Auto\"", saved);
+        Assert.DoesNotContain("crs:Temperature=", saved);
+        Assert.DoesNotContain("crs:Tint=", saved);
+    }
+
+    [Theory]
+    [InlineData("crs:Temperature=\"5700\"")]
+    [InlineData("crs:Tint=\"12\"")]
+    public void CachedSingleAxisHydrationPreservesExistingProvenance(string attributes)
+    {
+        var source = XmpParser.Parse(Xml(attributes))!.Adjustments;
+        source.WbSource = WbSource.Manual;
+        source.WbAlgorithmVersion = 2;
+        var resolved = source.Clone();
+        resolved.ImportedWhiteBalance = resolved.ImportedWhiteBalance! with { Resolved = new(5300, 17) };
+        Assert.True(ImportedWhiteBalanceResolver.ApplyResolved(source, resolved));
+        Assert.Equal(WbSource.Manual, source.WbSource);
+        Assert.Equal(2, source.WbAlgorithmVersion);
+        ImportedWhiteBalanceResolver.ResolveInPlace("/no-analysis-required.dng", source);
+        Assert.Equal(WbSource.Manual, source.WbSource);
+        Assert.Equal(2, source.WbAlgorithmVersion);
     }
 }
 

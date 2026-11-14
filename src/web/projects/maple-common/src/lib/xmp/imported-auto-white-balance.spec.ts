@@ -3,6 +3,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { defaultAdjustmentModel } from '../models/adjustment-model';
+import { AUTO_WB_ALGORITHM_VERSION } from '../generated/white-balance-presets.generated';
+import { buildTransferPatch } from '../editor/copy-paste/adjustment-transfer';
 import {
   hydratePartialWhiteBalance,
   isUnresolvedAuto,
@@ -57,6 +59,8 @@ describe('imported name-only Auto white balance (#4669)', () => {
 
     const resolved = withResolvedImportedAuto(firstFrame, { temperature: 4013, tint: 16 });
     expect([resolved.temperature, resolved.tint, resolved.wbScaleVersion]).toEqual([4013, 16, 5]);
+    expect(resolved.wbSource).toBe('Auto');
+    expect(resolved.wbAlgorithmVersion).toBe(AUTO_WB_ALGORITHM_VERSION);
     expect(withResolvedImportedAuto(resolved, { temperature: 1, tint: 2 })).toBe(resolved);
     // A later camera re-seed keeps the resolved pair.
     expect(hydratePartialWhiteBalance(resolved, 5520, 7.5, true).temperature).toBe(4013);
@@ -72,5 +76,40 @@ describe('imported name-only Auto white balance (#4669)', () => {
     const authored = { ...resolved, ...whiteBalanceAuthoredPatch({ temperature: 5300 }) };
     expect(authored.partialWhiteBalance).toBeNull();
     expect(withResolvedImportedAuto(authored, { temperature: 1, tint: 2 })).toBe(authored);
+  });
+
+  it('transfers the resolved Auto delta relative to each camera instead of treating it as As Shot', () => {
+    const source = withResolvedImportedAuto(read(nameOnly), { temperature: 5300, tint: 17 });
+    const patch = buildTransferPatch(
+      {
+        source,
+        groups: ['white_balance'],
+        relativeWhiteBalance: true,
+        sourceBaseline: { temperature: 4800, tint: 6 },
+      },
+      { temperature: 6000, tint: -4 },
+    );
+    expect(patch).toMatchObject({
+      temperature: 6500,
+      tint: 7,
+      wbSource: 'Manual',
+      whiteBalancePreset: 'Custom',
+    });
+    expect(serializer.serialize(source)).not.toMatch(/crs:(Temperature|Tint)=/);
+  });
+
+  it('keeps single-axis import provenance unchanged when hydrating or publishing Auto', () => {
+    for (const axis of ['Temperature="5700"', 'Tint="12"']) {
+      const imported = read(
+        nameOnly.replace('WhiteBalance="Auto"', `WhiteBalance="Auto" crs:${axis}`),
+      );
+      const source = imported.wbSource;
+      const version = imported.wbAlgorithmVersion;
+      const hydrated = hydratePartialWhiteBalance(imported, 4800, 6, true);
+      expect(hydrated.wbSource).toBe(source);
+      expect(hydrated.wbAlgorithmVersion).toBe(version);
+      expect(withResolvedImportedAuto(hydrated, { temperature: 5300, tint: 17 })).toBe(hydrated);
+      expect(serializer.serialize(hydrated)).toContain(`crs:${axis}`);
+    }
   });
 });

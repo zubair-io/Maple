@@ -1,5 +1,6 @@
 import type { AdjustmentModel } from './adjustment-model';
 import { authoredPairToV5, authoredTintToV4 } from '../xmp/xmp-wb-scale';
+import { AUTO_WB_ALGORITHM_VERSION } from '../generated/white-balance-presets.generated';
 
 /** Internal import intent (#3434), carried by undo snapshots, never a new XMP field.
  * Raw legacy coordinates stay intact until a camera frame can supply the absent axis.
@@ -63,7 +64,12 @@ export function withResolvedImportedAuto(
   const imported = model.partialWhiteBalance;
   if (!imported || !isUnresolvedAuto(imported)) return model;
   return hydratePartialWhiteBalance(
-    { ...model, partialWhiteBalance: { ...imported, resolved: { ...pair } } },
+    {
+      ...model,
+      wbSource: 'Auto',
+      wbAlgorithmVersion: AUTO_WB_ALGORITHM_VERSION,
+      partialWhiteBalance: { ...imported, resolved: { ...pair } },
+    },
     pair.temperature,
     pair.tint,
     true,

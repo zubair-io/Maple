@@ -150,17 +150,19 @@ fn update_inputs(
 
 impl Session {
     pub fn detail_source(&self) -> crate::native_detail::SharedDetail {
-        Arc::clone(self.detail.get_or_init(|| {
-            let detail = crate::native_detail::DetailSource::new(
+        let detail = self.detail.get_or_init(|| {
+            crate::native_detail::DetailSource::new(
                 self.raw.clone(),
                 Arc::clone(&self.bytes),
                 self.ext.clone(),
-            );
-            if let Ok(mut source) = detail.lock() {
-                source.imported_wb = self.imported_wb;
-            }
-            detail
-        }))
+            )
+        });
+        // Each request re-borrows after the previous render released the source.
+        // Refresh here if that render prevented adoption from updating it.
+        if let Ok(mut source) = detail.lock() {
+            source.imported_wb = self.imported_wb;
+        }
+        Arc::clone(detail)
     }
     /// Replace the render model; name-only imported Auto takes the adopted
     /// pair, As Shot until then. No estimation here (#4669).
@@ -186,11 +188,11 @@ impl Session {
     pub fn renders_imported_auto_pair(&self) -> bool {
         self.imported_auto && self.imported_wb.pair().is_some()
     }
-    /// Adopt a finished estimate: the current model and native detail re-render
-    /// with the pair once. A WB edit made meanwhile has cleared the request.
+    /// Adopt without waiting for native detail's long render lock; a busy source
+    /// takes the cached pair when next borrowed. A WB edit has cleared the request.
     pub fn adopt_imported_auto_white_balance(&mut self, work: &ImportedAutoWhiteBalanceWork) {
         self.imported_wb = work.estimate;
-        if let Some(Ok(mut detail)) = self.detail.get().map(|d| d.lock()) {
+        if let Some(Ok(mut detail)) = self.detail.get().map(|d| d.try_lock()) {
             detail.imported_wb = work.estimate;
         }
         if self.imported_auto && !self.model.temperature_seen && !self.model.tint_seen {

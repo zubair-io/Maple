@@ -408,6 +408,52 @@ fn imported_auto_white_balance_renders_as_shot_until_the_background_estimate_is_
 }
 
 #[test]
+fn imported_auto_adoption_never_waits_for_a_busy_native_detail_source() {
+    use std::sync::mpsc;
+    use std::time::Duration;
+
+    let path = imported_auto_fixture();
+    let mut session = Session::open(path.to_str().unwrap(), IMPORTED_AUTO_XMP, 64).unwrap();
+    let mut work = session.prepare_imported_auto_white_balance().unwrap();
+    work.run(&CancelToken::new()).unwrap();
+    let expected = work.estimate.pair().unwrap();
+    let detail = session.detail_source();
+    assert!(detail.lock().unwrap().imported_wb.pair().is_none());
+    let rendering = Arc::clone(&detail);
+    let (held_tx, held_rx) = mpsc::channel();
+    let (release_tx, release_rx) = mpsc::channel();
+    let holder = std::thread::spawn(move || {
+        let _render = rendering.lock().unwrap();
+        held_tx.send(()).unwrap();
+        // Release even if adoption blocks, so the old implementation fails without hanging.
+        release_rx.recv_timeout(Duration::from_secs(2)).is_ok()
+    });
+    held_rx.recv().unwrap();
+
+    session.adopt_imported_auto_white_balance(&work);
+    let _ = release_tx.send(());
+    let adopted_while_rendering = holder.join().unwrap();
+    assert!(
+        adopted_while_rendering,
+        "Imported Auto adoption waited for the native-detail render mutex"
+    );
+    assert_eq!((session.model.temperature, session.model.tint), expected);
+
+    // Every editor detail request re-borrows the retained source after the last render.
+    let reused = session.detail_source();
+    assert!(Arc::ptr_eq(&detail, &reused));
+    let mut model = crate::xmp::parse(IMPORTED_AUTO_XMP).unwrap();
+    let cached = reused.lock().unwrap().imported_wb;
+    assert_eq!(cached.pair(), Some(expected));
+    cached.apply(&mut model);
+    assert_eq!(
+        (model.temperature, model.tint),
+        expected,
+        "A reused native-detail source must resolve the request with the adopted pair"
+    );
+}
+
+#[test]
 fn a_cancelled_imported_auto_estimate_unwinds_and_releases_its_raw() {
     let path = imported_auto_fixture();
     let mut session = Session::open(path.to_str().unwrap(), IMPORTED_AUTO_XMP, 64).unwrap();

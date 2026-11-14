@@ -395,6 +395,10 @@ uses the cropped presentation coordinates and the current sRGB/P3 target;
 stale edits or navigation cannot publish a completed window. A bounded pan
 margin avoids rendering again for small movements. The GPU worker continues
 ordinary preview rendering independently.
+Name-only imported Auto white balance adopts its background estimate without
+waiting for an in-flight native-detail render's mutex. Each later editor detail
+request re-borrows the retained source after the previous render and refreshes
+its cached pair before use, so deferred adoption cannot leave it rendering As Shot.
 
 Native windows admit at most 8 megapixels of working pixels. Raster decoding
 reserves encoded bytes plus 44 bytes per pixel for the simultaneous RGB-f32 and
