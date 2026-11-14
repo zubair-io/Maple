@@ -113,7 +113,8 @@ class MaskOverlayTest {
         compose.onNodeWithTag("editor-mask-overlay")
             .assert(SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, "Linear gradient mask"))
         compose.onNodeWithContentDescription("Mask handle: gradient end").assertExists()
-        compose.runOnIdle { assertTrue("The tint reads raw-core's weights", fixture.renderer.weightRequests > 0) }
+        // The tint is built on Dispatchers.Default, which Compose's idling does not track.
+        compose.waitUntil(10_000) { fixture.renderer.weightRequests > 0 }
         val size = size()
         val initial = layer().shape as LinearMask
 
