@@ -265,6 +265,39 @@ fn an_edited_legacy_list_converts_to_the_structured_container() {
 }
 
 #[test]
+fn self_closing_empty_legacy_containers_read_as_empty_lists() {
+    let legacy = fixture("lightroom-legacy-info.xmp").xml;
+    let (head, tail) = legacy.split_once("   <crs:RetouchInfo>").unwrap();
+    let tail = tail.split_once("</crs:RetouchInfo>").unwrap().1;
+    for container in [
+        "<crs:RetouchInfo/>",
+        "<crs:RetouchInfo />",
+        "<crs:RetouchInfo vnd:Tag=\"kept\"/>",
+        "<crs:RetouchInfo>\n    </crs:RetouchInfo>",
+        "<crs:RetouchInfo><rdf:Seq/></crs:RetouchInfo>",
+        "<crs:RetouchInfo><rdf:Seq /></crs:RetouchInfo>",
+    ] {
+        let xml = format!("{head}   {container}{tail}");
+        let source = through_file_of(&xml, &NAMES);
+        assert!(rendered(&source.xml).is_empty(), "{container}");
+        assert!(read(&source).is_empty(), "{container}");
+        let spot = new_spot(0.3, 0.3, 0.35);
+        let saved = write(&source, &[(spot, None)]);
+        assert_eq!(rendered(&saved.xml), vec![spot], "{container}");
+        assert_eq!(read(&saved), vec![(spot, Some(0))], "{container}");
+    }
+    // Alongside a structured list, an empty self-closing legacy container
+    // must not stop the structured spots from being read or written.
+    let xml = fixture("lightroom-spots.xmp")
+        .xml
+        .replace("   <vnd:Keep>", "   <crs:RetouchInfo/>\n   <vnd:Keep>");
+    let source = through_file_of(&xml, &NAMES);
+    let spots = read(&source);
+    assert_eq!(spots.len(), 2);
+    assert_eq!(read(&write(&source, &spots)), spots);
+}
+
+#[test]
 fn spots_must_name_authored_entries_in_their_read_order() {
     let source = fixture("lightroom-spots.xmp");
     let spots = read(&source);

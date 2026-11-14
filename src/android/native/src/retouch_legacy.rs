@@ -17,6 +17,9 @@ use std::ops::Range;
 pub fn decoded(container: &Container) -> Result<Vec<(Element, RetouchSpot)>, String> {
     let text = &container.text;
     let root = &container.root;
+    if root.self_closing() {
+        return Ok(Vec::new());
+    }
     let root_close = text[..root.span.end]
         .rfind("</")
         .ok_or("Malformed legacy repair list")?;
@@ -53,6 +56,15 @@ pub fn decoded(container: &Container) -> Result<Vec<(Element, RetouchSpot)>, Str
 pub fn retired(container: &Container) -> Result<String, String> {
     let text = &container.text;
     let root = &container.root;
+    if root.self_closing() {
+        // An empty list: nothing to retire, so it goes unless its own
+        // attributes are bytes to keep.
+        return Ok(if root.has_attributes() {
+            text[root.span.clone()].to_owned()
+        } else {
+            String::new()
+        });
+    }
     let root_close = text[..root.span.end]
         .rfind("</")
         .ok_or("Malformed legacy repair list")?;
