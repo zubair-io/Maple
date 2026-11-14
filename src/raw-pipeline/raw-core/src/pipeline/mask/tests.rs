@@ -143,6 +143,7 @@ fn make_grey_raw(width: u32, height: u32, orientation: ExifOrientation) -> RawIm
         unique_camera_model: None,
         color_matrices: std::collections::HashMap::new(),
         forward_matrices: std::collections::HashMap::new(),
+        individual_calibrations: std::collections::HashMap::new(),
         orientation,
         baseline_exposure: 0.0,
         hsm_data: std::collections::HashMap::new(),

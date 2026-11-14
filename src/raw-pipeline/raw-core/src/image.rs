@@ -240,6 +240,12 @@ pub struct RawImage {
     /// omits the tags (most non-Apple bodies). Indexed by the same illuminants
     /// as `color_matrices` so the dual-CM CCT lerp can pair them up.
     pub forward_matrices: HashMap<Illuminant, Matrix3>,
+    /// This unit's `AnalogBalance · CameraCalibrationN` per calibration
+    /// illuminant (#5093): the reference→individual correction
+    /// `forward_matrices` is a reference matrix for. Missing ⇒ identity. Kept
+    /// apart so the ForwardMatrix can be resolved at the render white
+    /// (`dcp::resolve_forward_matrix`) rather than only the as-shot one.
+    pub individual_calibrations: HashMap<Illuminant, Matrix3>,
     /// EXIF orientation (TIFF tag 0x0112) as captured by the camera. Applied
     /// as a final rotation/flip pass on the rendered RGB buffer to match the
     /// reference viewer's display orientation. `Normal` when metadata is

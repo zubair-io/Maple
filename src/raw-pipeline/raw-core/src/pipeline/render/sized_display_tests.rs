@@ -27,6 +27,7 @@ fn raw_with(w: u32, h: u32, orientation: ExifOrientation, crop_rect: Option<Crop
         unique_camera_model: None,
         color_matrices: std::collections::HashMap::new(),
         forward_matrices: std::collections::HashMap::new(),
+        individual_calibrations: std::collections::HashMap::new(),
         orientation,
         baseline_exposure: 0.0,
         hsm_data: std::collections::HashMap::new(),

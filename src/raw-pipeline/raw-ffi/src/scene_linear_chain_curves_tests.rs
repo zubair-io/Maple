@@ -268,6 +268,8 @@ unsafe fn windows_path_png(
     p.wb_frame_render_cct_warm = buf.wb_frame_render_cct_warm;
     p.wb_frame_render_fm_cold = buf.wb_frame_render_fm_cold;
     p.wb_frame_render_fm_warm = buf.wb_frame_render_fm_warm;
+    p.wb_frame_render_individual_cold = buf.wb_frame_render_individual_cold;
+    p.wb_frame_render_individual_warm = buf.wb_frame_render_individual_warm;
     maple_free_scene_linear_buffer_f32(&mut buf);
 
     let luma = flatten(&model.tone_curve_luma, knot_scale);

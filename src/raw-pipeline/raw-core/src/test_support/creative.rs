@@ -39,6 +39,34 @@ pub enum Tables {
     DualHueSatMap { srgb: bool },
     /// Dual HueSatMaps plus a LookTable.
     DualHueSatMapAndLook,
+    /// ForwardMatrix only, from a unit with its own non-diagonal
+    /// `CameraCalibration` per illuminant and an `AnalogBalance` (#5093), so
+    /// a white balance retarget resolves the ForwardMatrix at its own white.
+    DualUnitCalibration,
+    /// ForwardMatrix only, from the same unit with a single D65 calibration
+    /// (#5093), so the retargeted ForwardMatrix comes from the profile's
+    /// `ForwardReference` rather than its endpoints.
+    SingleUnitCalibration,
+}
+
+/// `AnalogBalance · CameraCalibrationN` of the synthetic calibrated unit:
+/// a Canon-witness analog balance behind a clearly non-diagonal correction.
+pub const UNIT_ANALOG_BALANCE: [f32; 3] = [1.983, 1.0, 1.477];
+pub fn unit_calibration(illuminant: Illuminant) -> Matrix3 {
+    let correction = match illuminant {
+        Illuminant::StdA => Matrix3([
+            [1.004, 0.045, -0.030],
+            [0.020, 1.0, 0.060],
+            [-0.035, 0.050, 0.992],
+        ]),
+        _ => Matrix3([
+            [0.998, -0.030, 0.040],
+            [-0.025, 1.0, -0.045],
+            [0.030, -0.040, 1.008],
+        ]),
+    };
+    let [r, g, b] = UNIT_ANALOG_BALANCE;
+    Matrix3([[r, 0.0, 0.0], [0.0, g, 0.0], [0.0, 0.0, b]]).mul_mat(&correction)
 }
 
 /// A smooth table whose hue deltas cross +-180 degrees between neighbouring
@@ -73,7 +101,9 @@ fn raw(tables: Tables) -> RawImage {
     };
     let dims = [8, 4, 5];
     let hue_sat_maps = match tables {
-        Tables::None => HashMap::new(),
+        Tables::None | Tables::DualUnitCalibration | Tables::SingleUnitCalibration => {
+            HashMap::new()
+        }
         Tables::SingleHueSatMap => {
             HashMap::from([(Illuminant::D65, table(dims, encoding, 0.4, 7.0))])
         }
@@ -82,7 +112,17 @@ fn raw(tables: Tables) -> RawImage {
             (Illuminant::D65, table(dims, encoding, 1.1, -7.0)),
         ]),
     };
-    let forward = |m: Matrix3| m.inverse().expect("calibration inverts");
+    let calibrated = |illuminant: Illuminant| match illuminant {
+        Illuminant::StdA => COLOR_MATRIX_STD_A,
+        _ => COLOR_MATRIX_D65,
+    };
+    let illuminants = match tables {
+        Tables::SingleUnitCalibration => vec![Illuminant::D65],
+        _ => vec![Illuminant::StdA, Illuminant::D65],
+    };
+    let per_illuminant = |m: &dyn Fn(Illuminant) -> Matrix3| -> HashMap<Illuminant, Matrix3> {
+        illuminants.iter().map(|&i| (i, m(i))).collect()
+    };
     RawImage {
         width: 1,
         height: 1,
@@ -95,14 +135,16 @@ fn raw(tables: Tables) -> RawImage {
         camera_make: "Test".into(),
         camera_model: "Creative".into(),
         unique_camera_model: None,
-        color_matrices: HashMap::from([
-            (Illuminant::StdA, COLOR_MATRIX_STD_A),
-            (Illuminant::D65, COLOR_MATRIX_D65),
-        ]),
-        forward_matrices: HashMap::from([
-            (Illuminant::StdA, forward(COLOR_MATRIX_STD_A)),
-            (Illuminant::D65, forward(COLOR_MATRIX_D65)),
-        ]),
+        color_matrices: per_illuminant(&calibrated),
+        forward_matrices: per_illuminant(&|i| {
+            calibrated(i).inverse().expect("calibration inverts")
+        }),
+        individual_calibrations: match tables {
+            Tables::DualUnitCalibration | Tables::SingleUnitCalibration => {
+                per_illuminant(&unit_calibration)
+            }
+            _ => HashMap::new(),
+        },
         orientation: ExifOrientation::Normal,
         baseline_exposure: 0.0,
         hsm_data: hue_sat_maps,

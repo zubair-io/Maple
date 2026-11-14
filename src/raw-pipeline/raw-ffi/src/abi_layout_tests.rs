@@ -67,10 +67,13 @@ fn exported_layouts_are_ordered_and_bounded() {
     }
     let (size, fields) = parse(&describe("MapleAdjustmentParams").unwrap());
     assert_eq!(
-        size, 728,
-        "RawFfi.VerifyAbi pins MapleAdjustmentParams at 728 bytes (#5040 appended 3 f32s, #5377 creative_ptr, #5431 dropped the HueSatMap tail)"
+        size, 800,
+        "RawFfi.VerifyAbi pins MapleAdjustmentParams at 800 bytes (#5040 appended 3 f32s, #5377 creative_ptr, #5431 dropped the HueSatMap tail, #5093 appended the render individual calibrations)"
     );
-    assert_eq!(fields.last().map(|f| f.0.as_str()), Some("creative_ptr"));
+    assert_eq!(
+        fields.last().map(|f| f.0.as_str()),
+        Some("wb_frame_render_individual_warm")
+    );
     let (_, curve_fields) = parse(&describe("MapleToneCurves").unwrap());
     assert_eq!(
         curve_fields.last().map(|f| f.0.as_str()),

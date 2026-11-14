@@ -281,6 +281,8 @@ pub(super) fn make_params(
         wb_frame_render_cct_warm: 0.0,
         wb_frame_render_fm_cold: [0.0; 9],
         wb_frame_render_fm_warm: [0.0; 9],
+        wb_frame_render_individual_cold: [0.0; 9],
+        wb_frame_render_individual_warm: [0.0; 9],
         // Black & white mix (#276) — pass through from the model.
         bw_active: f32::from(u8::from(
             model.black_white == raw_core::types::BlackWhiteMode::On,

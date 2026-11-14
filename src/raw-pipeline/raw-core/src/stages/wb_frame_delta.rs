@@ -73,7 +73,7 @@
 
 use crate::{
     color::{
-        dcp::{self, CmEndpoints, DcpProfile},
+        dcp::{self, CmEndpoints, DcpProfile, ForwardReference},
         illuminant::Illuminant,
         matrices::{bradford_adapt, m_pro_to_rec2020, M_PRO_TO_XYZ_D50, XYZ_D50},
     },
@@ -152,9 +152,19 @@ pub struct SliderFrameExport {
     pub render_cm_warm: Matrix3,
     pub render_cct_warm: f32,
     /// `profile.cm_endpoints.fm_cold/fm_warm` — FM is optional per side in
-    /// the DNG spec. All-zero ⇒ that side's FM is absent.
+    /// the DNG spec. All-zero ⇒ that side's FM is absent. Without render
+    /// endpoints, `render_fm_cold` is a single-illuminant profile's
+    /// `forward_reference.matrix` (#5093).
     pub render_fm_cold: Matrix3,
     pub render_fm_warm: Matrix3,
+    /// `profile.cm_endpoints.individual_cold/warm` — the unit's
+    /// `AnalogBalance · CameraCalibrationN` the render ForwardMatrices are
+    /// reference matrices for (#5093); without render endpoints,
+    /// `render_individual_cold` is `forward_reference.individual`. All-zero
+    /// ⇒ identity (an export that predates #5093, or a file with no
+    /// calibration).
+    pub render_individual_cold: Matrix3,
+    pub render_individual_warm: Matrix3,
 }
 
 impl SliderFrameExport {
@@ -177,6 +187,8 @@ impl SliderFrameExport {
         render_cct_warm: 0.0,
         render_fm_cold: Matrix3([[0.0; 3]; 3]),
         render_fm_warm: Matrix3([[0.0; 3]; 3]),
+        render_individual_cold: Matrix3([[0.0; 3]; 3]),
+        render_individual_warm: Matrix3([[0.0; 3]; 3]),
     };
 
     /// Resolve the export for a source: [`SliderFrame::resolve`] plus the
@@ -203,15 +215,19 @@ impl SliderFrameExport {
                 Some(e) => (e.m_cold, e.cct_cold, e.m_warm, e.cct_warm),
                 None => (Matrix3([[0.0; 3]; 3]), 0.0, Matrix3([[0.0; 3]; 3]), 0.0),
             };
-        let render_fm_cold = profile
-            .cm_endpoints
-            .and_then(|e| e.fm_cold)
-            .unwrap_or(Matrix3([[0.0; 3]; 3]));
-        let render_fm_warm = profile
-            .cm_endpoints
-            .and_then(|e| e.fm_warm)
-            .unwrap_or(Matrix3([[0.0; 3]; 3]));
         let render_scene_white_xyz = profile.scene_white_xyz;
+        let zero = Matrix3([[0.0; 3]; 3]);
+        let (render_fm_cold, render_fm_warm, render_individual_cold, render_individual_warm) =
+            match (profile.cm_endpoints, profile.forward_reference) {
+                (Some(e), _) => (
+                    e.fm_cold.unwrap_or(zero),
+                    e.fm_warm.unwrap_or(zero),
+                    e.individual_cold,
+                    e.individual_warm,
+                ),
+                (None, Some(r)) => (r.matrix, zero, r.individual, zero),
+                (None, None) => (zero, zero, zero, zero),
+            };
         match frame.endpoints {
             Some((m_cold, cct_cold, m_warm, cct_warm)) => SliderFrameExport {
                 m_cold,
@@ -230,6 +246,8 @@ impl SliderFrameExport {
                 render_cct_warm,
                 render_fm_cold,
                 render_fm_warm,
+                render_individual_cold,
+                render_individual_warm,
             },
             None => SliderFrameExport {
                 m_cold: frame.cm_as_shot,
@@ -248,6 +266,8 @@ impl SliderFrameExport {
                 render_cct_warm,
                 render_fm_cold,
                 render_fm_warm,
+                render_individual_cold,
+                render_individual_warm,
             },
         }
     }
@@ -311,7 +331,8 @@ impl SliderFrameExport {
     /// Reconstruct a minimal [`DcpProfile`] shell carrying only the fields
     /// [`retargeted_render_profile`] and [`dcp::camera_to_rec2020_matrix`]
     /// read (`color_matrix`, `forward_matrix`, `scene_white_xyz`,
-    /// `wb_already_baked`, `cm_endpoints`) — `illuminant`/`scene_cct`/
+    /// `wb_already_baked`, `cm_endpoints`, `forward_reference`) —
+    /// `illuminant`/`scene_cct`/
     /// `hsm`/`look_table`/`tone_curve` are irrelevant to that linear-core
     /// computation (neither function reads them) and get harmless
     /// placeholders.
@@ -324,15 +345,21 @@ impl SliderFrameExport {
             .all(|v| *v == 0.0);
         let fm_cold_present = !self.render_fm_cold.0.iter().flatten().all(|v| *v == 0.0);
         let fm_warm_present = !self.render_fm_warm.0.iter().flatten().all(|v| *v == 0.0);
-        let cm_endpoints =
-            ((self.render_cct_warm - self.render_cct_cold).abs() >= 1.0).then(|| CmEndpoints {
-                m_cold: self.render_cm_cold,
-                cct_cold: self.render_cct_cold,
-                m_warm: self.render_cm_warm,
-                cct_warm: self.render_cct_warm,
-                fm_cold: fm_cold_present.then_some(self.render_fm_cold),
-                fm_warm: fm_warm_present.then_some(self.render_fm_warm),
-            });
+        let endpoints_present = (self.render_cct_warm - self.render_cct_cold).abs() >= 1.0;
+        let cm_endpoints = endpoints_present.then(|| CmEndpoints {
+            m_cold: self.render_cm_cold,
+            cct_cold: self.render_cct_cold,
+            m_warm: self.render_cm_warm,
+            cct_warm: self.render_cct_warm,
+            fm_cold: fm_cold_present.then_some(self.render_fm_cold),
+            fm_warm: fm_warm_present.then_some(self.render_fm_warm),
+            individual_cold: self.render_individual_cold.identity_if_zero(),
+            individual_warm: self.render_individual_warm.identity_if_zero(),
+        });
+        let forward_reference = (!endpoints_present && fm_cold_present).then(|| ForwardReference {
+            matrix: self.render_fm_cold,
+            individual: self.render_individual_cold.identity_if_zero(),
+        });
         DcpProfile {
             illuminant: Illuminant::D65,
             color_matrix: self.render_cm,
@@ -345,6 +372,7 @@ impl SliderFrameExport {
             tone_curve: None,
             cm_endpoints,
             hsm_endpoints: None,
+            forward_reference,
         }
     }
 

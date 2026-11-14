@@ -201,6 +201,8 @@ fn creative_stage_matches_the_cpu_oracle_on_signed_and_hdr_input() {
         ("dual linear", Tables::DualHueSatMap { srgb: false }),
         ("dual sRGB", Tables::DualHueSatMap { srgb: true }),
         ("dual + look", Tables::DualHueSatMapAndLook),
+        ("dual + unit calibration", Tables::DualUnitCalibration),
+        ("single + unit calibration", Tables::SingleUnitCalibration),
     ] {
         assert_parity(&ctx, label, &creative_stage(tables, 1.7), &rgba, 64);
     }

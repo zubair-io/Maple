@@ -8,7 +8,7 @@ use super::creative_plan::{plan, AsShotTable, PlanInputs, TableLayout, TableSpan
 use super::{CreativeAnchors, CreativePlan, CreativeStage, CreativeWire};
 use crate::{
     color::{
-        dcp::{self, CmEndpoints, DcpProfile, HsmEndpoints},
+        dcp::{self, CmEndpoints, DcpProfile, ForwardReference, HsmEndpoints},
         hsm::HsmTable,
         illuminant::Illuminant,
     },
@@ -33,6 +33,7 @@ pub struct ProfileCore {
     pub scene_white_xyz: [f32; 3],
     pub wb_already_baked: bool,
     pub cm_endpoints: Option<CmEndpoints>,
+    pub forward_reference: Option<ForwardReference>,
 }
 
 impl ProfileCore {
@@ -45,6 +46,7 @@ impl ProfileCore {
             scene_white_xyz: profile.scene_white_xyz,
             wb_already_baked: profile.wb_already_baked,
             cm_endpoints: profile.cm_endpoints,
+            forward_reference: profile.forward_reference,
         }
     }
 
@@ -62,6 +64,7 @@ impl ProfileCore {
             tone_curve: None,
             cm_endpoints: self.cm_endpoints,
             hsm_endpoints: None,
+            forward_reference: self.forward_reference,
         }
     }
 }

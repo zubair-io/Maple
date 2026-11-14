@@ -133,6 +133,7 @@ fn fake_raw_with_opcodes(
         unique_camera_model: None,
         color_matrices: HashMap::new(),
         forward_matrices: HashMap::new(),
+        individual_calibrations: HashMap::new(),
         orientation: ExifOrientation::Normal,
         baseline_exposure: 0.0,
         hsm_data: HashMap::new(),

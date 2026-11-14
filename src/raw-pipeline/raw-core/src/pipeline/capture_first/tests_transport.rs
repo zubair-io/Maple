@@ -16,12 +16,14 @@ use crate::test_support::creative::{creative_stage, fallback_stage, Tables};
 use crate::types::WbMethod;
 use crate::xmp::HighlightRecoveryMode;
 
-const SHAPES: [Tables; 5] = [
+const SHAPES: [Tables; 7] = [
     Tables::None,
     Tables::SingleHueSatMap,
     Tables::DualHueSatMap { srgb: false },
     Tables::DualHueSatMap { srgb: true },
     Tables::DualHueSatMapAndLook,
+    Tables::DualUnitCalibration,
+    Tables::SingleUnitCalibration,
 ];
 
 fn stages() -> Vec<CreativeStage> {

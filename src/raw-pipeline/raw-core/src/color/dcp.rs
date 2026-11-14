@@ -37,13 +37,13 @@ pub struct DcpProfile {
     /// and `dng_color_spec.cpp:444-446` builds the full transform as
     /// `forwardMatrix × Invert(refCameraWhite.AsDiagonal()) ×
     /// individualToReference`, where `individualToReference =
-    /// inv(AnalogBalance × CameraCalibration)`. Decode resolves that whole
-    /// product for Maple's AsShotNeutral pre-gained buffer (see
+    /// inv(AnalogBalance × CameraCalibration)`. The profile builder resolves
+    /// that whole product for Maple's AsShotNeutral pre-gained buffer (see
     /// `pipeline::develop` step 4) into this field
-    /// (`color::forward_calibration`, #4646): exactly the raw ForwardMatrix
-    /// for any diagonal calibration, the common case, so DCP just needs
-    /// `cam_to_pro = inv(M_pro_to_xyz_d50) × FM` and emphatically does NOT
-    /// compose FM with `inv(CM)`.
+    /// (`color::forward_calibration`, #4646 / #5093): exactly the raw
+    /// ForwardMatrix for any diagonal calibration, the common case, so DCP
+    /// just needs `cam_to_pro = inv(M_pro_to_xyz_d50) × FM` and emphatically
+    /// does NOT compose FM with `inv(CM)`.
     ///
     /// Optional per DNG spec. When present and `wb_already_baked = true`,
     /// the FM path runs. When absent OR `wb_already_baked = false` (the
@@ -98,6 +98,12 @@ pub struct DcpProfile {
     /// balance retarget resolves the table at the same CCT as the
     /// ForwardMatrix (#4633). `None` unless both tables are present.
     pub hsm_endpoints: Option<std::sync::Arc<HsmEndpoints>>,
+    /// A single-illuminant profile's reference ForwardMatrix and unit
+    /// calibration, kept so a white-balance retarget resolves the
+    /// ForwardMatrix at the target's own white (#5093); dual-illuminant
+    /// profiles carry both in [`CmEndpoints`]. `None` for dual-illuminant
+    /// profiles, profiles without a ForwardMatrix and the bundled tiers.
+    pub forward_reference: Option<ForwardReference>,
 }
 
 /// The cold- and warm-illuminant HueSatMaps of a dual-illuminant profile,
@@ -127,6 +133,63 @@ pub struct CmEndpoints {
     pub fm_cold: Option<Matrix3>,
     /// ForwardMatrix paired with the warm-side CM, when present.
     pub fm_warm: Option<Matrix3>,
+    /// This unit's `AnalogBalance · CameraCalibrationN` for the cold side
+    /// (identity when the file carries none); `fm_cold` is the reference
+    /// matrix it corrects (#5093).
+    pub individual_cold: Matrix3,
+    /// The warm side's `AnalogBalance · CameraCalibrationN`.
+    pub individual_warm: Matrix3,
+}
+
+/// A reference ForwardMatrix and the unit's `AnalogBalance ·
+/// CameraCalibration` it is a reference matrix for (#5093).
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub struct ForwardReference {
+    pub matrix: Matrix3,
+    pub individual: Matrix3,
+}
+
+impl ForwardReference {
+    /// The ForwardMatrix for a buffer divided by `camera_white`
+    /// (`forward_calibration::balanced_forward_matrix`).
+    pub fn resolve(&self, camera_white: crate::math::Vec3) -> Matrix3 {
+        crate::color::forward_calibration::balanced_forward_matrix(
+            self.matrix,
+            self.individual,
+            camera_white,
+        )
+    }
+}
+
+/// The ForwardMatrix for a buffer divided by `camera_white`, at `cct`
+/// (dng_sdk `SetWhiteXY`, #4646 / #5093): the reference matrices and the
+/// individual calibrations are reciprocal-CCT-lerped with the SAME weight
+/// (both sides → lerp, one side → as-is, no reference matrix → `None`), then
+/// `FM · diag(R·w)⁻¹ · R · diag(w)` is formed from the interpolated `R`
+/// (`forward_calibration::balanced_forward_matrix`).
+pub(crate) fn resolve_forward_matrix(
+    e: &CmEndpoints,
+    cct: f32,
+    camera_white: crate::math::Vec3,
+) -> Option<Matrix3> {
+    let reference = match (e.fm_cold, e.fm_warm) {
+        (Some(fc), Some(fw)) => interpolate_cm(fc, e.cct_cold, fw, e.cct_warm, cct),
+        (Some(fc), None) => fc,
+        (None, Some(fw)) => fw,
+        (None, None) => return None,
+    };
+    let individual = interpolate_cm(
+        e.individual_cold,
+        e.cct_cold,
+        e.individual_warm,
+        e.cct_warm,
+        cct,
+    );
+    Some(crate::color::forward_calibration::balanced_forward_matrix(
+        reference,
+        individual,
+        camera_white,
+    ))
 }
 
 impl DcpProfile {
@@ -162,6 +225,7 @@ impl DcpProfile {
             tone_curve: None,
             cm_endpoints: None,
             hsm_endpoints: None,
+            forward_reference: None,
         }
     }
 
@@ -180,19 +244,15 @@ impl DcpProfile {
         }
     }
 
-    /// ForwardMatrix re-interpolated at an arbitrary CCT, mirroring
-    /// [`interpolated_profile`]'s single-side dispatch: both sides present →
-    /// reciprocal-CCT lerp, one side → that side as-is, neither → `None`.
-    /// Profiles without retained endpoints return `forward_matrix` unchanged.
-    pub fn forward_matrix_for_cct(&self, cct: f32) -> Option<Matrix3> {
-        let Some(e) = self.cm_endpoints else {
-            return self.forward_matrix;
-        };
-        match (e.fm_cold, e.fm_warm) {
-            (Some(fc), Some(fw)) => Some(interpolate_cm(fc, e.cct_cold, fw, e.cct_warm, cct)),
-            (Some(fc), None) => Some(fc),
-            (None, Some(fw)) => Some(fw),
-            (None, None) => None,
+    /// ForwardMatrix for a buffer divided by `camera_white`, re-interpolated
+    /// at `cct` (see [`resolve_forward_matrix`]). A single-illuminant profile
+    /// resolves its [`ForwardReference`] at `camera_white` (no CCT to
+    /// interpolate); profiles with neither return `forward_matrix` unchanged.
+    pub fn forward_matrix_at(&self, cct: f32, camera_white: crate::math::Vec3) -> Option<Matrix3> {
+        match (&self.cm_endpoints, self.forward_reference) {
+            (Some(e), _) => resolve_forward_matrix(e, cct, camera_white),
+            (None, Some(r)) => Some(r.resolve(camera_white)),
+            (None, None) => self.forward_matrix,
         }
     }
 }
@@ -567,19 +627,57 @@ pub fn interpolated_profile(
     look_table: Option<HsmTable>,
     tone_curve: Option<ProfileToneCurve>,
 ) -> DcpProfile {
+    interpolated_profile_calibrated(
+        m_cold,
+        illum_cold,
+        m_warm,
+        illum_warm,
+        wb_neutral,
+        wb_already_baked,
+        (hsm_cold, hsm_warm),
+        (fm_cold, fm_warm),
+        (Matrix3::IDENTITY, Matrix3::IDENTITY),
+        look_table,
+        tone_curve,
+    )
+}
+
+/// [`interpolated_profile`] for a unit with its own calibration (#5093):
+/// `individual` is the cold/warm `AnalogBalance · CameraCalibrationN`, and
+/// `fm_*` the reference ForwardMatrices it corrects. The profile's
+/// ForwardMatrix is resolved at the as-shot white; the endpoints keep both so
+/// a white-balance retarget resolves it again at its own white.
+pub(crate) fn interpolated_profile_calibrated(
+    m_cold: Matrix3,
+    illum_cold: Illuminant,
+    m_warm: Matrix3,
+    illum_warm: Illuminant,
+    wb_neutral: [f32; 3],
+    wb_already_baked: bool,
+    (hsm_cold, hsm_warm): (Option<&HsmTable>, Option<&HsmTable>),
+    (fm_cold, fm_warm): (Option<Matrix3>, Option<Matrix3>),
+    (individual_cold, individual_warm): (Matrix3, Matrix3),
+    look_table: Option<HsmTable>,
+    tone_curve: Option<ProfileToneCurve>,
+) -> DcpProfile {
     let cct_cold = illum_cold.cct();
     let cct_warm = illum_warm.cct();
     let as_shot_cct = compute_as_shot_cct(wb_neutral, m_cold, cct_cold, m_warm, cct_warm);
     let cm = interpolate_cm(m_cold, cct_cold, m_warm, cct_warm, as_shot_cct);
-    // Forward matrix: lerp by the same `t` parameter used for CM. When only
-    // one of fm_cold/fm_warm is present, use it directly. When neither is
-    // present, result is None and DCP falls back to Bradford CA.
-    let forward_matrix = match (fm_cold, fm_warm) {
-        (Some(fc), Some(fw)) => Some(interpolate_cm(fc, cct_cold, fw, cct_warm, as_shot_cct)),
-        (Some(fc), None) => Some(fc),
-        (None, Some(fw)) => Some(fw),
-        (None, None) => None,
+    let endpoints = CmEndpoints {
+        m_cold,
+        cct_cold,
+        m_warm,
+        cct_warm,
+        fm_cold,
+        fm_warm,
+        individual_cold,
+        individual_warm,
     };
+    // Forward matrix: lerp by the same `t` parameter used for CM, resolved at
+    // the as-shot white. When neither side ships one, result is None and DCP
+    // falls back to Bradford CA.
+    let forward_matrix = resolve_forward_matrix(&endpoints, as_shot_cct, wb_neutral);
     // Historical no-pre-gain branch: this path is exercised when WB pre-gain
     // was skipped upstream (currently only the 8-bit lossy LinearRaw
     // `wb_already_baked = true` route — see develop.rs). The non-LinearRaw
@@ -615,20 +713,14 @@ pub fn interpolated_profile(
         hsm,
         look_table,
         tone_curve,
-        cm_endpoints: Some(CmEndpoints {
-            m_cold,
-            cct_cold,
-            m_warm,
-            cct_warm,
-            fm_cold,
-            fm_warm,
-        }),
+        cm_endpoints: Some(endpoints),
         hsm_endpoints: hsm_cold.zip(hsm_warm).map(|(cold, warm)| {
             std::sync::Arc::new(HsmEndpoints {
                 cold: cold.clone(),
                 warm: warm.clone(),
             })
         }),
+        forward_reference: None,
     }
 }
 
@@ -980,6 +1072,7 @@ pub fn profile_for_with_source(raw: &RawImage) -> crate::Result<(DcpProfile, Pro
             tone_curve: raw.profile_tone_curve.clone(),
             cm_endpoints: None,
             hsm_endpoints: None,
+            forward_reference: None,
         },
         ProfileSource::RawlerFallback,
     ))
@@ -1059,17 +1152,22 @@ fn profile_from_embedded(
         // still get the correct table per side.
         let hsm_cold = raw.hsm_data.get(&il_cold);
         let hsm_warm = raw.hsm_data.get(&il_warm);
-        let profile = interpolated_profile(
+        let individual = |illum| {
+            raw.individual_calibrations
+                .get(illum)
+                .copied()
+                .unwrap_or(Matrix3::IDENTITY)
+        };
+        let profile = interpolated_profile_calibrated(
             m_cold,
             il_cold,
             m_warm,
             il_warm,
             raw.as_shot_neutral,
             wb_already_baked,
-            hsm_cold,
-            hsm_warm,
-            fm_cold,
-            fm_warm,
+            (hsm_cold, hsm_warm),
+            (fm_cold, fm_warm),
+            (individual(&il_cold), individual(&il_warm)),
             None, // PLT wiring to DNG source deferred (#1691 Phase 2)
             raw.profile_tone_curve.clone(),
         );
@@ -1079,7 +1177,19 @@ fn profile_from_embedded(
 
     // Single-illuminant: prefer the entry we already sorted to the front.
     let (illum, cm) = entries[0];
-    let fm = raw.forward_matrices.get(&illum).copied();
+    // The reference FM and this unit's calibration, kept for a retarget and
+    // resolved at the as-shot white for the profile itself (#5093).
+    let reference = raw
+        .forward_matrices
+        .get(&illum)
+        .map(|&matrix| ForwardReference {
+            matrix,
+            individual: raw
+                .individual_calibrations
+                .get(&illum)
+                .copied()
+                .unwrap_or(Matrix3::IDENTITY),
+        });
     // Prefer the HSM keyed to this CM's illuminant; fall back to any HSM
     // present (some DNGs ship only one HSM alongside a single CM). The
     // fallback picks the lowest-CCT ("coldest") HSM rather than
@@ -1098,16 +1208,19 @@ fn profile_from_embedded(
             })
             .map(|(_, table)| table.clone())
     });
-    let profile = single_illuminant_profile(
-        cm,
-        illum,
-        fm,
-        hsm,
-        raw.as_shot_neutral,
-        wb_already_baked,
-        None, // PLT wiring to DNG source deferred (#1691 Phase 2)
-        raw.profile_tone_curve.clone(),
-    );
+    let profile = DcpProfile {
+        forward_reference: reference,
+        ..single_illuminant_profile(
+            cm,
+            illum,
+            reference.map(|r| r.resolve(raw.as_shot_neutral)),
+            hsm,
+            raw.as_shot_neutral,
+            wb_already_baked,
+            None, // PLT wiring to DNG source deferred (#1691 Phase 2)
+            raw.profile_tone_curve.clone(),
+        )
+    };
     Some((profile, illum))
 }
 
@@ -1238,6 +1351,7 @@ pub(crate) fn single_illuminant_profile(
         tone_curve,
         cm_endpoints: None,
         hsm_endpoints: None,
+        forward_reference: None,
     }
 }
 
@@ -1320,6 +1434,7 @@ mod tests {
             unique_camera_model: None,
             color_matrices: cms,
             forward_matrices: std::collections::HashMap::new(),
+            individual_calibrations: std::collections::HashMap::new(),
             orientation: crate::image::ExifOrientation::Normal,
             baseline_exposure: 0.0,
             hsm_data: std::collections::HashMap::new(),
@@ -1410,6 +1525,7 @@ mod tests {
             unique_camera_model: None,
             color_matrices: cms,
             forward_matrices: std::collections::HashMap::new(),
+            individual_calibrations: std::collections::HashMap::new(),
             orientation: crate::image::ExifOrientation::Normal,
             baseline_exposure: 0.0,
             hsm_data,
@@ -1478,6 +1594,7 @@ mod tests {
             tone_curve: None,
             cm_endpoints: None,
             hsm_endpoints: None,
+            forward_reference: None,
         };
         let mut img = Image::new(2, 2, ColorSpace::CameraNativeLinearRgb);
         for p in &mut img.pixels {
@@ -1692,6 +1809,7 @@ mod tests {
             tone_curve: None,
             cm_endpoints: None,
             hsm_endpoints: None,
+            forward_reference: None,
         };
 
         // Run a neutral 0.18 mid-gray camera-RGB patch through both.
@@ -1993,6 +2111,7 @@ mod tests {
             unique_camera_model: None,
             color_matrices: std::collections::HashMap::new(),
             forward_matrices: std::collections::HashMap::new(),
+            individual_calibrations: std::collections::HashMap::new(),
             orientation: crate::image::ExifOrientation::Normal,
             baseline_exposure: 0.0,
             hsm_data: std::collections::HashMap::new(),
@@ -2369,6 +2488,7 @@ mod tests {
             unique_camera_model: Some(ucm.into()),
             color_matrices: cms,
             forward_matrices: fms,
+            individual_calibrations: Default::default(),
             orientation: crate::image::ExifOrientation::Normal,
             baseline_exposure: 0.0,
             hsm_data,
@@ -2987,6 +3107,7 @@ mod tests {
             tone_curve: None,
             cm_endpoints: None,
             hsm_endpoints: None,
+            forward_reference: None,
         };
         // Profile B: wb_already_baked=true + FM present → takes FM path.
         let profile_wb_true = DcpProfile {

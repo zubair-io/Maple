@@ -27,6 +27,7 @@ pub(crate) const TAG_BLACK_LEVEL: u16 = 50714;
 pub(crate) const TAG_WHITE_LEVEL: u16 = 50717;
 pub(crate) const TAG_COLOR_MATRIX_1: u16 = 50721;
 pub(crate) const TAG_CAMERA_CALIBRATION_1: u16 = 50723;
+pub(crate) const TAG_CAMERA_CALIBRATION_2: u16 = 50724;
 pub(crate) const TAG_ANALOG_BALANCE: u16 = 50727;
 pub(crate) const TAG_AS_SHOT_NEUTRAL: u16 = 50728;
 pub(crate) const TAG_BASELINE_EXPOSURE: u16 = 50730;
@@ -89,6 +90,10 @@ pub struct SyntheticGreyDng {
     /// native. Defaults to identity — set a non-identity value to exercise the
     /// per-unit-calibration fold (#1947).
     pub camera_calibration_1_override: Option<[[f32; 3]; 3]>,
+    /// `CameraCalibration2` (tag 50724), paired with `CalibrationIlluminant2`:
+    /// written only when set, so a dual-illuminant unit can carry a different
+    /// correction per illuminant (#5093).
+    pub camera_calibration_2: Option<[[f32; 3]; 3]>,
     /// `AnalogBalance` (tag 50727): per-channel gain baked into the raw values.
     /// Defaults to `[1, 1, 1]` — set it to exercise the per-unit fold (#1947).
     pub analog_balance_override: Option<[f32; 3]>,
@@ -158,6 +163,7 @@ impl Default for SyntheticGreyDng {
             profile_tone_curve: None,
             as_shot_neutral_override: None,
             camera_calibration_1_override: None,
+            camera_calibration_2: None,
             analog_balance_override: None,
             linearization_table: None,
             encoded_value_override: None,
@@ -320,6 +326,9 @@ impl SyntheticGreyDng {
         // Phase 1 optional fields.
         if let Some(cm2) = self.color_matrix_2 {
             ifd.add_srationals(TAG_COLOR_MATRIX_2, matrix_to_srationals(cm2));
+        }
+        if let Some(cc2) = self.camera_calibration_2 {
+            ifd.add_srationals(TAG_CAMERA_CALIBRATION_2, matrix_to_srationals(cc2));
         }
         if let Some(illum2) = self.calibration_illuminant_2 {
             ifd.add_short(TAG_CALIBRATION_ILLUMINANT_2, illum2);

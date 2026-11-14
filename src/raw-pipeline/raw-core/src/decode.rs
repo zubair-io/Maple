@@ -569,29 +569,31 @@ pub fn decode_bytes(bytes: &[u8], ext: &str) -> Result<RawImage> {
                     let illum = exif_illuminant_to_core(illum_code);
                     Some((illum, m))
                 };
-            // ForwardMatrix maps *reference* white-balanced camera RGB →
-            // XYZ-D50; resolve this unit's calibration for the as-shot
-            // pre-gained buffer DCP receives (#4646, `forward_calibration`).
-            let fold_i2r = |illum: CoreIlluminant, fm: Matrix3| -> Matrix3 {
-                crate::color::forward_calibration::balanced_forward_matrix(
-                    fm,
-                    individual_correction(illum),
-                    as_shot_neutral,
-                )
-            };
             if let Some((illum, m)) =
                 read_fm(DngTag::ForwardMatrix1, DngTag::CalibrationIlluminant1)
             {
-                map.insert(illum, fold_i2r(illum, m));
+                map.insert(illum, m);
             }
             if let Some((illum, m)) =
                 read_fm(DngTag::ForwardMatrix2, DngTag::CalibrationIlluminant2)
             {
-                map.insert(illum, fold_i2r(illum, m));
+                map.insert(illum, m);
             }
         }
         map
     };
+
+    // The unit's `AnalogBalance · CameraCalibrationN` per calibration
+    // illuminant, kept beside the reference ForwardMatrix: `dcp` resolves
+    // them together at the render white (dng_sdk `SetWhiteXY`, #5093). Keyed
+    // on every calibration illuminant, not only those with a ForwardMatrix:
+    // a dual profile with one ForwardMatrix still interpolates the
+    // calibration between both `CameraCalibrationN`.
+    let individual_calibrations: HashMap<CoreIlluminant, Matrix3> = color_matrices
+        .keys()
+        .chain(forward_matrices.keys())
+        .map(|illum| (*illum, individual_correction(*illum)))
+        .collect();
 
     // ── 9. HSM / PLT (DNG § 6.6 / § 6.7) ──────────────────────────────────
     // Same pattern as BaselineExposure (§ 1b): rawler stores these tags
@@ -695,6 +697,7 @@ pub fn decode_bytes(bytes: &[u8], ext: &str) -> Result<RawImage> {
         unique_camera_model,
         color_matrices,
         forward_matrices,
+        individual_calibrations,
         orientation,
         baseline_exposure: 0.0,
         hsm_data,
@@ -2363,13 +2366,25 @@ mod tests {
         // Tags round-trip through 1e-6 rationals; allow a loose fp tolerance.
         assert_matrix_close(got_cm, &want_cm, 1e-3, "folded ColorMatrix");
 
-        // #4646: dng_sdk maps unbalanced RGB `p` with `FM · diag(R·w)⁻¹ · R`,
-        // R = correction⁻¹; DCP receives `p / w`, so a neutral (`p = w`) must
-        // land on FM's own white and a coloured sample on the SDK's XYZ.
+        // #5093: the ForwardMatrix stays the reference matrix, and the unit's
+        // `AnalogBalance · CameraCalibrationN` rides beside it, so the SDK's
+        // `FM · diag(R·w)⁻¹ · R` can be formed at whichever white renders.
         let got_fm = raw
             .forward_matrices
             .get(&CoreIlluminant::D65)
             .expect("D65 forward matrix present");
+        assert_matrix_close(got_fm, &fm, 1e-3, "reference ForwardMatrix");
+        let got_correction = raw
+            .individual_calibrations
+            .get(&CoreIlluminant::D65)
+            .expect("D65 individual calibration present");
+        assert_matrix_close(got_correction, &correction, 1e-3, "individual calibration");
+
+        // #4646: dng_sdk maps unbalanced RGB `p` with `FM · diag(R·w)⁻¹ · R`,
+        // R = correction⁻¹; DCP receives `p / w`, so a neutral (`p = w`) must
+        // land on FM's own white and a coloured sample on the SDK's XYZ.
+        let (profile, _) = crate::color::dcp::profile_for_with_source(&raw).unwrap();
+        let balanced_fm = profile.forward_matrix.expect("as-shot ForwardMatrix");
         let white = raw.as_shot_neutral;
         let to_reference = correction.inverse().expect("correction invertible");
         let reference_white = to_reference.mul_vec(white);
@@ -2378,7 +2393,7 @@ mod tests {
             fm.mul_vec(std::array::from_fn(|c| reference[c] / reference_white[c]))
         };
         for p in [white, [0.3, 0.6, 0.1], [0.7, 0.2, 0.5]] {
-            let balanced = got_fm.mul_vec(std::array::from_fn(|c| p[c] / white[c]));
+            let balanced = balanced_fm.mul_vec(std::array::from_fn(|c| p[c] / white[c]));
             let want = sdk(p);
             assert!(
                 balanced
