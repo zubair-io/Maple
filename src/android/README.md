@@ -81,6 +81,7 @@ handles unconsumed keys through `onKeyDown` and modified shortcuts through
 `onKeyShortcut`, after focused views, so text fields and sliders keep their input
 (`ui/PhotoKeyCommands.kt`, #5944). Browse has no keyboard target
 until it has a selection. Keyboard zoom and Reset Visible Group are #5945.
+
 ## Masks
 
 Detail → Mask authors linear and radial local adjustments
