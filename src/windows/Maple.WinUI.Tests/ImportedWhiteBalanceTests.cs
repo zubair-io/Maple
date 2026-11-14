@@ -57,6 +57,7 @@ public sealed class ImportedWhiteBalanceTests
                     slider.Value = temperature ? 7000 : 30;
                     slider.CommitDeferred();
                     slider.Reset();
+                    slider.ResetModelValue(session.Adjustments);
                     Assert.Equal(0, session.Commits);
                     Assert.Equal(untouched, XmpWriter.Serialize(document));
                     Assert.False(WhiteBalanceProvenance.CanEdit(session.Adjustments));

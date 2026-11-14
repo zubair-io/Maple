@@ -172,6 +172,9 @@ namespace Maple.WinUI.ViewModels
             CommitDeferred();
         }
 
-        internal void ResetModelValue(AdjustmentState model) => _set(model, DefaultValue);
+        internal void ResetModelValue(AdjustmentState model)
+        {
+            if (IsEnabled) _set(model, DefaultValue);
+        }
     }
 }
