@@ -301,3 +301,16 @@ fn empty_xtrans_mosaics_are_safe() {
         }
     }
 }
+
+/// #5923: a set token skips every remaining row; the caller discards the image.
+#[test]
+fn a_cancelled_xtrans_bilinear_skips_its_rows() {
+    let (mosaic, cfa) = xtrans_uniform(12, 12, 0.3, 0.5, 0.7);
+    let cancelled = std::sync::atomic::AtomicBool::new(true);
+    let skipped = xtrans_bilinear_cancellable(&mosaic, cfa, CancelToken::new(&cancelled));
+    assert!(skipped.pixels.iter().all(|p| *p == [0.0; 3]));
+    assert!(xtrans_bilinear(&mosaic, cfa)
+        .pixels
+        .iter()
+        .all(|p| p[1] > 0.0));
+}

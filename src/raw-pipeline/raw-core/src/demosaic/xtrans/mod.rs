@@ -30,6 +30,7 @@
 //!   * Handle the image border by mirror-reflecting reads — same policy
 //!     as `bilinear.rs`.
 
+use crate::cancel::CancelToken;
 use crate::image::{CfaPattern, ColorSpace, Image};
 use rayon::prelude::*;
 
@@ -61,6 +62,16 @@ fn xtrans_color(pat: &[u8; 36], x: i32, y: i32) -> usize {
 /// Mirror-reflects out-of-range reads. Single-pass, embarrassingly
 /// parallel. This is the X-Trans equivalent of `bilinear::bilinear`.
 pub fn xtrans_bilinear(mosaic: &Image, cfa: CfaPattern) -> Image {
+    xtrans_bilinear_cancellable(mosaic, cfa, CancelToken::never())
+}
+
+/// [`xtrans_bilinear`] that skips the remaining rows once `cancel` fires;
+/// the caller checks the token and discards the partial image.
+pub fn xtrans_bilinear_cancellable(
+    mosaic: &Image,
+    cfa: CfaPattern,
+    cancel: CancelToken<'_>,
+) -> Image {
     mosaic.assert_space(ColorSpace::CameraNativeMosaic);
     let pat = match cfa {
         CfaPattern::XTrans(p) => p,
@@ -109,6 +120,9 @@ pub fn xtrans_bilinear(mosaic: &Image, cfa: CfaPattern) -> Image {
         .par_chunks_mut(w_us)
         .enumerate()
         .for_each(|(y_idx, row)| {
+            if cancel.is_cancelled() {
+                return;
+            }
             let y = y_idx as i32;
             for (x_idx, px) in row.iter_mut().enumerate() {
                 let x = x_idx as i32;

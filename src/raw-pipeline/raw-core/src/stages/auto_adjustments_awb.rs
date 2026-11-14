@@ -76,6 +76,7 @@
 //! neutral is made resistant to a minority of admitted colored surfaces.
 //! The white-patch eligibility, mean, blend and camera-prior bounds are retained.
 
+use crate::cancel::CancelToken;
 use crate::color::dcp::{self, ProfileSource};
 use crate::image::{CfaPattern, ColorSpace, Image, RawImage};
 use crate::math::Matrix3;
@@ -381,7 +382,15 @@ fn within_gate(c: [f32; 3], center: [f32; 3], gate: f32) -> bool {
 
 /// One pass over the probe: luma window, sensor-clip exclusion, chroma gate
 /// against `center`, then the gray-world and white-patch accumulators.
-fn accumulate(probe: &Image, space: &ProbeSpace, center: [f32; 3], gate: f32) -> Population {
+fn accumulate(
+    probe: &Image,
+    space: &ProbeSpace,
+    (center, gate): ([f32; 3], f32),
+    cancel: CancelToken<'_>,
+) -> Population {
+    if cancel.is_cancelled() {
+        return Population::default();
+    }
     let white_min = WHITE_PATCH_FRACTION * space.neutral_clip;
     probe.pixels.iter().fold(Population::default(), |acc, p| {
         let Some((c, y)) = space.admit(*p, center, gate) else {
@@ -404,9 +413,12 @@ fn accumulate(probe: &Image, space: &ProbeSpace, center: [f32; 3], gate: f32) ->
 fn final_neutral(
     probe: &Image,
     space: &ProbeSpace,
-    center: [f32; 3],
-    gate: f32,
+    (center, gate): ([f32; 3], f32),
+    cancel: CancelToken<'_>,
 ) -> Option<[f32; 3]> {
+    if cancel.is_cancelled() {
+        return None;
+    }
     let mut r = RatioMedian::new(center[0] / center[1].max(1e-6));
     let mut b = RatioMedian::new(center[2] / center[1].max(1e-6));
     let mut white = Sum::default();
@@ -438,15 +450,26 @@ fn final_neutral(
 
 /// The estimated scene neutral (G-normalised, in the judging space), or
 /// `None` when too few pixels survive the gates.
-fn estimate_neutral(probe: &Image, space: &ProbeSpace) -> Option<[f32; 3]> {
+/// A cancelled pass admits nothing, so the caller checks the token before
+/// reading `None` as too few pixels.
+fn estimate_neutral(
+    probe: &Image,
+    space: &ProbeSpace,
+    cancel: CancelToken<'_>,
+) -> Option<[f32; 3]> {
     let admitted = |pop: Population| (pop.gray.n >= MIN_PIXELS).then_some(pop);
     let (last, means) = GATE_SCHEDULE.split_last()?;
     let (first, rest) = means.split_first()?;
-    let seed = admitted(accumulate(probe, space, space.prior, *first))?;
+    let seed = admitted(accumulate(probe, space, (space.prior, *first), cancel))?;
     let pop = rest.iter().try_fold(seed, |prev, &gate| {
-        admitted(accumulate(probe, space, prev.gray.chromaticity(), gate))
+        admitted(accumulate(
+            probe,
+            space,
+            (prev.gray.chromaticity(), gate),
+            cancel,
+        ))
     })?;
-    final_neutral(probe, space, pop.gray.chromaticity(), *last)
+    final_neutral(probe, space, (pop.gray.chromaticity(), *last), cancel)
 }
 
 /// Clamp `estimate` to within [`MAX_MIRED_MOVE`] / [`MAX_TINT_MOVE`] of the
@@ -506,10 +529,22 @@ pub(crate) fn compute_awb(
     raw: &RawImage,
     probe_model: &AdjustmentModel,
 ) -> (f32, f32) {
+    compute_awb_cancellable(probe, raw, probe_model, CancelToken::never())
+}
+
+/// [`compute_awb`] that skips its remaining passes over the probe once
+/// `cancel` fires. The caller checks the token: a cancelled pair is the
+/// fallback, not an estimate.
+pub(crate) fn compute_awb_cancellable(
+    probe: &Image,
+    raw: &RawImage,
+    probe_model: &AdjustmentModel,
+    cancel: CancelToken<'_>,
+) -> (f32, f32) {
     probe.assert_space(ColorSpace::SceneLinearRec2020);
     let space = ProbeSpace::resolve(raw, probe_model);
     let as_shot = dcp::estimate_as_shot_cct_tint(raw).unwrap_or((6500.0, 0.0));
-    let recommendation = estimate_neutral(probe, &space)
+    let recommendation = estimate_neutral(probe, &space, cancel)
         .and_then(|neutral| space.temp_tint(neutral))
         .map(|estimate| bounded_by_prior(estimate, as_shot))
         .unwrap_or(as_shot);

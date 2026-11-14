@@ -5,6 +5,7 @@
 //! scale-expanded support and clamped borders. The buffer is straight
 //! scene-linear RGB with no alpha channel.
 
+use crate::cancel::CancelToken;
 use rayon::prelude::*;
 
 /// Downsample an `Image`'s f32 RGB pixel buffer with a Mitchell filter to fit within
@@ -20,6 +21,16 @@ use rayon::prelude::*;
 /// Mutates `image` in place; updates `image.width` and `image.height` to
 /// the new dimensions.
 pub fn downsample_image_area(image: &mut crate::image::Image, max_long_edge: u32) {
+    downsample_image_area_cancellable(image, max_long_edge, CancelToken::never());
+}
+
+/// [`downsample_image_area`] checked once per row of each pass. A cancelled
+/// call leaves `image` untouched; the caller checks the token.
+pub fn downsample_image_area_cancellable(
+    image: &mut crate::image::Image,
+    max_long_edge: u32,
+    cancel: CancelToken<'_>,
+) {
     let (sw, sh) = (image.width, image.height);
     let long_edge = sw.max(sh);
     if long_edge <= max_long_edge {
@@ -78,6 +89,9 @@ pub fn downsample_image_area(image: &mut crate::image::Image, max_long_edge: u32
         .par_chunks_mut(dw_u)
         .enumerate()
         .for_each(|(y, row_out)| {
+            if cancel.is_cancelled() {
+                return;
+            }
             let row_in = &src[y * sw_u..y * sw_u + sw_u];
             for (x, out_px) in row_out.iter_mut().enumerate() {
                 let x_src = (x as f32 + 0.5) * scale_x - 0.5;
@@ -105,11 +119,17 @@ pub fn downsample_image_area(image: &mut crate::image::Image, max_long_edge: u32
     //
     // Also row-parallel: `horiz` is read-only here and each destination row
     // owns its own output slice, so the same bit-identity argument holds.
+    if cancel.is_cancelled() {
+        return;
+    }
     let mut out = vec![[0.0f32; 3]; dw_u * dh_u];
     let radius_y = 2.0 * scale_y;
     out.par_chunks_mut(dw_u)
         .enumerate()
         .for_each(|(y, row_out)| {
+            if cancel.is_cancelled() {
+                return;
+            }
             let y_src = (y as f32 + 0.5) * scale_y - 0.5;
             let y0 = (y_src - radius_y).floor() as isize;
             let y1 = (y_src + radius_y).ceil() as isize;
@@ -132,6 +152,9 @@ pub fn downsample_image_area(image: &mut crate::image::Image, max_long_edge: u32
             }
         });
 
+    if cancel.is_cancelled() {
+        return;
+    }
     image.nr_sampling_scale *= dw.max(dh) as f32 / long_edge as f32;
     image.pixels = out;
     image.width = dw;
@@ -233,6 +256,17 @@ mod tests {
                 "{w}x{h} -> cap {cap} must be byte-identical across thread counts"
             );
         }
+    }
+
+    /// #5923: a cancelled downsample leaves the image as it was.
+    #[test]
+    fn a_cancelled_downsample_leaves_the_image() {
+        let base = detailed(129, 97);
+        let cancelled = std::sync::atomic::AtomicBool::new(true);
+        let mut img = base.clone();
+        let token = crate::cancel::CancelToken::new(&cancelled);
+        super::downsample_image_area_cancellable(&mut img, 64, token);
+        assert_eq!((img.width, img.height, img.pixels), (129, 97, base.pixels));
     }
 
     /// The long-edge cap never upscales, and the aspect ratio survives.
