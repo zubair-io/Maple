@@ -11,6 +11,7 @@ import type { ImageCanvasComponent } from './image-canvas.component';
 import { imageDataToBitmap } from '../../raw-pipeline/image-utils';
 import { defaultAdjustmentModel, type AdjustmentModel } from '../../models/adjustment-model';
 import { isUnresolvedAuto } from '../../models/partial-white-balance';
+import { comparisonModelForImportedAuto } from './image-canvas.imported-auto-wb';
 import type { LibraryStore } from '../../state/library-store.service';
 import type { XmpAdjustmentRestoreService } from '../../xmp/xmp-adjustment-restore.service';
 import type {
@@ -102,7 +103,9 @@ export class ImageCanvasComparison {
           });
           return;
         }
-        const model = this.library.hydrateAdjustment(asset.id, { ...baseline, crop: crop()! });
+        const model = comparisonModelForImportedAuto(
+          this.library.hydrateAdjustment(asset.id, { ...baseline, crop: crop()! }),
+        );
         const xmp = this.host.serializeForRender(model);
         const key = JSON.stringify([xmp, target, colorSpace, retry]);
         untracked(() => this.request(key, model, xmp, target, colorSpace));

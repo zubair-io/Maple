@@ -22,13 +22,31 @@ internal object EditorDrawPlan {
     fun needsReload(xml: String, modelXml: String, invalidations: Int, reloadedInvalidation: Int): Boolean =
         xml != modelXml || invalidations != reloadedInvalidation
 
-    /** Visits the fields to push after any reload, against the values the native model now holds. */
+    /** Presentation notification is once per surface; imported intent can become active later. */
+    inline fun afterPresentation(
+        firstFrame: Boolean,
+        notifyFirstFrame: () -> Unit,
+        resolveImportedWhiteBalance: () -> Unit,
+    ) {
+        if (firstFrame) notifyFirstFrame()
+        resolveImportedWhiteBalance()
+    }
+
+    /**
+     * Visits the fields to push after any reload, against the values the native model now holds.
+     * While the native model renders an adopted name-only imported Auto pair (#4669), its WB is not
+     * authored: every WB edit rewrites the XML and reloads, so the view model's WB values are
+     * display-only and pushing a stale As Shot pair would author it over the estimate.
+     */
     inline fun forEachFieldToApply(
         applied: Map<String, Float>,
         next: Map<String, Float>,
+        importedWhiteBalance: Boolean,
         push: (AdjustmentField, Float) -> Unit,
     ) {
-        val pushWhiteBalance = applied["temperature"] != next["temperature"] || applied["tint"] != next["tint"]
+        val pushWhiteBalance =
+            !importedWhiteBalance &&
+                (applied["temperature"] != next["temperature"] || applied["tint"] != next["tint"])
         for (field in orderedFields) {
             val value = next[field.name] ?: continue
             val whiteBalance = field.name == "temperature" || field.name == "tint"

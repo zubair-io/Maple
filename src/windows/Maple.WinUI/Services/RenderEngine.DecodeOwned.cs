@@ -39,6 +39,7 @@ namespace Maple.WinUI.Services
             m.WbSampleX = d.WbSampleX;
             m.WbSampleY = d.WbSampleY;
             m.WbAlgorithmVersion = d.WbAlgorithmVersion;
+            m.ImportedWhiteBalance = null;
             m.Exposure = 0; m.Brightness = 0; m.Contrast = 0;
             m.Highlights = 0; m.Shadows = 0; m.Whites = 0; m.Blacks = 0;
             m.ParametricHighlights = 0; m.ParametricLights = 0;

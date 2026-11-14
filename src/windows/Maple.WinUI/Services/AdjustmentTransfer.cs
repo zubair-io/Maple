@@ -68,6 +68,12 @@ public static class AdjustmentTransfer
             fields["wb_sample_x"] = JsonSerializer.SerializeToElement(0);
             fields["wb_sample_y"] = JsonSerializer.SerializeToElement(0);
             fields["wb_algorithm_version"] = JsonSerializer.SerializeToElement(0);
+            // A name-only Auto source has no numbers to copy: each target resolves its own (#4669).
+            if (ImportedWhiteBalanceResolver.IsUnresolvedAuto(source))
+            {
+                fields.Remove("temperature");
+                fields.Remove("tint");
+            }
             if (relativeWhiteBalance)
             {
                 var correction = Correction(clipboard);
@@ -93,6 +99,8 @@ public static class AdjustmentTransfer
         if (clipboard.Baseline is not { IsValid: true } baseline)
             throw new InvalidDataException("Cannot read source camera As Shot white balance. Use absolute white balance or retry.");
         var source = clipboard.Snapshot();
+        if (ImportedWhiteBalanceResolver.IsUnresolvedAuto(source))
+            throw new InvalidDataException("This photo's Auto white balance is resolved per photo and has no offset to copy. Use absolute white balance.");
         if (source.WbSource == WbSource.AsShot || source.WhiteBalancePreset == WhiteBalancePresets.AsShot) return new(0, 0);
         var correction = new WhiteBalanceBaseline(source.Temperature - baseline.Temperature, source.Tint - baseline.Tint);
         if (!double.IsFinite(correction.Temperature) || !double.IsFinite(correction.Tint))
@@ -138,6 +146,11 @@ public static class AdjustmentTransfer
         }
         if (patch.WhiteBalanceScaleVersion is { } scale && scale != 1 && scale != AdjustmentFields.CurrentWhiteBalanceScaleVersion)
             throw new InvalidDataException("Unsupported white balance scale.");
+        // Pasted WB replaces any import on the target; a name-only Auto source pastes its request.
+        if (patch.WhiteBalanceScaleVersion is { } pasted)
+            state.ImportedWhiteBalance = state.WhiteBalancePreset == WhiteBalancePresets.Auto
+                && !patch.Fields.ContainsKey("temperature") && !patch.Fields.ContainsKey("tint")
+                ? new ImportedWhiteBalance(null, null, pasted) : null;
         target.Adjustments = state;
         if (patch.WhiteBalanceScaleVersion is { } version) target.WbScaleVersion = version;
     }

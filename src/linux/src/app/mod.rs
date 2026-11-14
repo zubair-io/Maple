@@ -54,6 +54,8 @@ pub struct MapleApp {
     launch_photo: Option<PathBuf>,
     document: Option<SidecarDocument>,
     white_balance: Option<crate::white_balance::WhiteBalance>,
+    /// The open session's resolved name-only imported Auto pair (#4669).
+    imported_auto: Option<(f32, f32)>,
     auto_fit: Option<raw_core::view::auto_profile::AutoFitOutcome>,
     texture: Option<egui::TextureHandle>,
     gpu_texture: Option<crate::gpu_texture::NativeTexture>,
@@ -135,6 +137,7 @@ impl MapleApp {
             launch_photo: None,
             document: None,
             white_balance: None,
+            imported_auto: None,
             auto_fit: None,
             texture: None,
             gpu_texture: None,
@@ -280,6 +283,22 @@ impl MapleApp {
         self.browse = false;
     }
 
+    /// The model a renderer consumes: name-only imported Auto takes the
+    /// session's resolved pair once it lands (#4669); the document is unchanged.
+    fn render_model(
+        &self,
+        model: &raw_core::types::AdjustmentModel,
+    ) -> raw_core::types::AdjustmentModel {
+        let mut rendered = model.clone();
+        if let Some(pair) = self
+            .imported_auto
+            .filter(|_| raw_core::stages::imported_auto_wb::needs_resolution(model))
+        {
+            raw_core::stages::imported_auto_wb::apply_pair(&mut rendered, pair);
+        }
+        rendered
+    }
+
     fn render(&mut self) {
         self.zoom.invalidate();
         if self.comparing {
@@ -288,11 +307,9 @@ impl MapleApp {
         if let Some(document) = &self.document {
             self.generation += 1;
             self.busy = true;
-            self.worker.send(Command::Render(
-                self.session,
-                self.generation,
-                document.model.clone(),
-            ));
+            let model = self.render_model(&document.model);
+            self.worker
+                .send(Command::Render(self.session, self.generation, model));
         }
     }
 
@@ -404,6 +421,8 @@ impl eframe::App for MapleApp {
 
 #[cfg(test)]
 mod film_tests;
+#[cfg(test)]
+mod imported_auto_tests;
 
 #[cfg(test)]
 mod zoom_crop_tests;

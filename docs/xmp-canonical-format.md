@@ -317,6 +317,8 @@ Complete V2, V3 and V4 pairs **load-normalize to V5**: the pair converts jointly
 
 Apple and Web preserve a partial imported pair independently from its numerical display values (#3434). Missing Temperature or Tint is distinct from an explicit `6500` or `0`. Current-scale calibrated imports fill the absent axis from the actual decoded camera frame; V2–V4 imports fill it before joint conversion. V1 and uncalibrated/SDR imports retain the core's established resolver behavior. Apple resolves the cold imported live pair through Rust once, including V1; Web's full-XMP WASM render preserves the original presence and scale; the GPU binding resolves that model through a camera calibration cached at session open and applies the same frame delta as Apple. This adds no XMP field or new color math.
 
+Windows also resolves single-axis imports when an external sidecar reload reuses the decoded base. Until the shared resolver supplies the current-scale pair, the previous canvas remains visible; unresolved legacy coordinates never enter the live chain.
+
 Unrelated saves emit only the originally present axis with its original scale (including V2–V4). Actual WB authors replace that intent with their authoritative values; an explicit complete Custom pair writes both axes even at their defaults. Undo snapshots restore the original intent. Ordinary complete-pair writers stamp `1` or `5`; partial imports retain their valid original `1`–`5` stamp.
 
 Implementations: `authored_pair_to_v5` in raw-core's white-balance stage, `xmp-wb-scale.ts` (Web), `WbDngTemperature.authoredPairToV5` (Swift), `XmpWbScaleVersionTests.cs` pins the Windows half.

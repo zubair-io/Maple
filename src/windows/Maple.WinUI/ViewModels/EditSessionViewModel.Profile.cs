@@ -101,6 +101,14 @@ namespace Maple.WinUI.ViewModels
                 DecodeCurrent(photo, preserveCurrentBase: RenderEngine.OnlyRepairDecodeInputsChanged(before, Adjustments));
                 return;
             }
+            // Reusing the base bypasses decode-time hydration, including partial imports.
+            if (photo != null && ImportedAutoEstimates.StartsWithoutDecode(before, Adjustments))
+            {
+                _ = ResolveImportedAutoAsync(_decodeGeneration, photo, Adjustments);
+                // Partial coordinates are not renderable until their missing axis and
+                // legacy scale resolve. Keep the previous canvas, never render defaults.
+                if (!ImportedWhiteBalanceResolver.IsUnresolvedAuto(Adjustments)) return;
+            }
             if (Adjustments.LocalAdjustments.Any(layer => layer.Mask is BrushMask))
             {
                 RehydrateCurrentBrushRasters(Adjustments, () => Renderer.RequestRender(Adjustments.Clone()));

@@ -3,6 +3,7 @@ use crate::{
     controls::{Control, Group},
     library::MediaKind,
 };
+use raw_core::stages::imported_auto_wb::{apply_pair, needs_resolution};
 
 /// Shown when Auto is selected but the core found no embedded camera preview
 /// to fit against (#5458); the same copy every Maple client uses.
@@ -132,8 +133,13 @@ impl MapleApp {
                                     self.white_balance
                                         .as_ref()
                                         .map(|reference| {
-                                            let (temperature, tint) =
-                                                reference.values(&document.model);
+                                            // The session's resolved name-only Auto pair (#4669).
+                                            let (temperature, tint) = self
+                                                .imported_auto
+                                                .filter(|_| needs_resolution(&document.model))
+                                                .unwrap_or_else(|| {
+                                                    reference.values(&document.model)
+                                                });
                                             if control == Control::Temperature {
                                                 temperature
                                             } else {
@@ -174,6 +180,12 @@ impl MapleApp {
                                 });
                                 if response.changed() {
                                     let result = if wb {
+                                        if let Some(pair) = self
+                                            .imported_auto
+                                            .filter(|_| needs_resolution(&document.model))
+                                        {
+                                            apply_pair(&mut document.model, pair);
+                                        }
                                         self.white_balance
                                             .as_ref()
                                             .expect("enabled WB reference")

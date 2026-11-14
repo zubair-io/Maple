@@ -116,13 +116,13 @@ class NativeDetailPublicationTest {
             main.scheduler.advanceTimeBy(200)
             assertEquals("Pan within retained margin must reuse source pixels", 2, renderer.calls.size)
             val reader = model.state.value.nativeDetail!!.retain()!!
-            val surfaceRevision = model.state.value.nativeSurfaceRevision
+            val surfaceRevision = model.state.value.nativeDetailRevision
             model.surface(null, 1000, 750, wideColor = true)
             assertNull("A display target change retires the previous native frame", model.state.value.nativeDetail)
             assertFalse("An old composed frame still owns its bitmap", fresh.isRecycled)
             reader.close()
             assertTrue("Superseded pixels are freed when their last composed reader leaves", fresh.isRecycled)
-            assertEquals(surfaceRevision + 1, model.state.value.nativeSurfaceRevision)
+            assertEquals(surfaceRevision + 1, model.state.value.nativeDetailRevision)
             begin()
             assertEquals("Same region needs fresh pixels for the new display target", 3, renderer.calls.size)
             renderer.calls[2].second.complete(Bitmap.createBitmap(10, 10, Bitmap.Config.ARGB_8888))

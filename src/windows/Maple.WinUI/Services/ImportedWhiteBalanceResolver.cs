@@ -1,0 +1,77 @@
+using System;
+using Maple.WinUI.Generated;
+using Maple.WinUI.Models;
+using Maple.WinUI.Native;
+using Maple.WinUI.Services.Xmp;
+
+namespace Maple.WinUI.Services;
+
+/// <summary>Cold import hydration through the shared Rust resolver (#3434/#4669).
+/// Partial pairs resolve before the first decode; name-only Auto resolves after the
+/// As Shot first frame. The owning open generation guards publication; ticks reuse
+/// the resolved pair.</summary>
+public static unsafe class ImportedWhiteBalanceResolver
+{
+    /// <summary>Name-only imported Auto that the opened RAW has not resolved yet:
+    /// it renders As Shot until the background estimate lands (#4669).</summary>
+    public static bool IsUnresolvedAuto(AdjustmentState model) =>
+        model.ImportedWhiteBalance is { Temperature: null, Tint: null, Resolved: null };
+
+    public static void ResolveInPlace(string rawPath, AdjustmentState model)
+    {
+        if (model.ImportedWhiteBalance is not { } imported) return;
+        if (imported.Resolved is not { } pair)
+        {
+            var xml = XmpWriter.Serialize(new XmpSidecarDocument { Adjustments = model });
+            var values = stackalloc float[2];
+            var source = WhiteBalanceSampler.IsRawPath(rawPath) ? rawPath : null;
+            var rc = RawFfi.maple_resolve_imported_white_balance_file(source, xml, values);
+            if (rc != 0)
+                throw new InvalidOperationException($"Imported white balance: {RawFfi.LastError()}");
+            pair = new ResolvedWhiteBalance(values[0], values[1]);
+            model.ImportedWhiteBalance = imported with { Resolved = pair };
+        }
+        model.Temperature = pair.Temperature;
+        model.Tint = pair.Tint;
+        model.WhiteBalanceScaleVersion = 5;
+        if (imported is { Temperature: null, Tint: null })
+        {
+            model.WbSource = WbSource.Auto;
+            model.WbAlgorithmVersion = WhiteBalancePresets.AutoWhiteBalanceAlgorithmVersion;
+        }
+    }
+
+    /// <summary>Hydrate only the same imported intent. A manual WB edit made
+    /// while the decode ran has cleared that intent and remains authoritative.
+    /// True when <paramref name="target"/> took a pair it did not hold yet.</summary>
+    public static bool ApplyResolved(AdjustmentState target, AdjustmentState source)
+    {
+        if (target.ImportedWhiteBalance is not { } current
+            || source.ImportedWhiteBalance is not { Resolved: { } pair } resolved
+            || current.Temperature != resolved.Temperature || current.Tint != resolved.Tint
+            || current.Version != resolved.Version) return false;
+        target.ImportedWhiteBalance = resolved;
+        target.Temperature = pair.Temperature;
+        target.Tint = pair.Tint;
+        target.WhiteBalanceScaleVersion = 5;
+        if (resolved is { Temperature: null, Tint: null })
+        {
+            target.WbSource = WbSource.Auto;
+            target.WbAlgorithmVersion = WhiteBalancePresets.AutoWhiteBalanceAlgorithmVersion;
+        }
+        return current.Resolved != pair;
+    }
+
+    /// <summary>A final derivative (sidecar thumbnail, persisted preview) has no first
+    /// frame to protect: imported WB resolves on its RAW, never As Shot (#4669), and
+    /// only an untouched model takes the decode's As Shot pair.</summary>
+    public static void PrepareDerivative(string rawPath, AdjustmentState model, DecodedImage image)
+    {
+        ResolveInPlace(rawPath, model);
+        if (model.Temperature == 6500 && model.Tint == 0 && image.DecodedTemperature > 0)
+        {
+            model.Temperature = image.DecodedTemperature;
+            model.Tint = image.DecodedTint;
+        }
+    }
+}

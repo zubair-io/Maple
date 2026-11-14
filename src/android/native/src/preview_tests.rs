@@ -345,3 +345,179 @@ fn a_repair_spot_reload_re_decodes_the_capture() {
         .count();
     assert!(changed > 0, "The cloned disc changes the rendered photo");
 }
+
+const IMPORTED_AUTO_XMP: &str = r#"<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/" xmlns:papp="http://ns.justmaple.app/photo/1.0/" crs:WhiteBalance="Auto" papp:Profile="Neutral" /></rdf:RDF></x:xmpmeta>"#;
+
+fn imported_auto_fixture() -> std::path::PathBuf {
+    std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../../test-fixtures/batch-transfer/source.dng")
+}
+
+/// The values JSON the Kotlin renderer reads through the values FFI.
+fn values_json(session: &mut Session) -> serde_json::Value {
+    unsafe {
+        let json = crate::maple_android_values((session as *mut Session).cast());
+        let text = std::ffi::CStr::from_ptr(json).to_str().unwrap().to_owned();
+        crate::maple_android_free_string(json);
+        serde_json::from_str(&text).unwrap()
+    }
+}
+
+fn imported_wb_flag(session: &mut Session) -> f64 {
+    values_json(session)["_imported_wb"].as_f64().unwrap()
+}
+
+/// The slider pair under `keys` in the values JSON.
+fn slider_pair(values: &serde_json::Value, keys: [&str; 2]) -> (f64, f64) {
+    (
+        values[keys[0]].as_f64().unwrap(),
+        values[keys[1]].as_f64().unwrap(),
+    )
+}
+
+#[test]
+fn the_published_estimate_is_the_pair_even_when_a_wb_edit_lands_first() {
+    let path = imported_auto_fixture();
+    let open = || Session::open(path.to_str().unwrap(), IMPORTED_AUTO_XMP, 64).unwrap();
+    let mut untouched = open();
+    let mut work = untouched.prepare_imported_auto_white_balance().unwrap();
+    work.run(&CancelToken::new()).unwrap();
+    untouched.adopt_imported_auto_white_balance(&work);
+    let untouched_values = values_json(&mut untouched);
+    let estimate = slider_pair(&untouched_values, ["temperature", "tint"]);
+    assert_eq!(
+        slider_pair(
+            &untouched_values,
+            ["_imported_temperature", "_imported_tint"]
+        ),
+        estimate
+    );
+
+    let mut edited = open();
+    let mut work = edited.prepare_imported_auto_white_balance().unwrap();
+    work.run(&CancelToken::new()).unwrap();
+    // The user sets white balance while the estimate is still running.
+    edited.set_model(
+        crate::xmp::parse(&IMPORTED_AUTO_XMP.replace(
+            r#"crs:WhiteBalance="Auto""#,
+            r#"crs:WhiteBalance="Custom" crs:Temperature="3000" crs:Tint="40""#,
+        ))
+        .unwrap(),
+    );
+    edited.adopt_imported_auto_white_balance(&work);
+    let edited_values = values_json(&mut edited);
+    assert_ne!(
+        slider_pair(&edited_values, ["temperature", "tint"]),
+        estimate
+    );
+    assert_eq!(
+        slider_pair(&edited_values, ["_imported_temperature", "_imported_tint"]),
+        estimate
+    );
+}
+
+#[test]
+fn imported_auto_white_balance_renders_as_shot_until_the_background_estimate_is_adopted() {
+    let path = imported_auto_fixture();
+    let raw = raw_core::decode::decode(&path).unwrap();
+    let expected =
+        raw_core::stages::imported_auto_wb::estimate(&raw, raw_core::CancelToken::never()).unwrap();
+    let xml = IMPORTED_AUTO_XMP;
+    let mut session = Session::open(path.to_str().unwrap(), xml, 64).unwrap();
+    // The first frame renders As Shot: nothing was estimated on open.
+    assert!(!session.model.unresolved_auto_wb);
+    assert!(!session.model.temperature_seen && !session.model.tint_seen);
+    assert_eq!(imported_wb_flag(&mut session), 0.0);
+    let mut work = session.prepare_imported_auto_white_balance().unwrap();
+    // One estimate per session: a surface recreated before it lands starts none.
+    assert!(session.prepare_imported_auto_white_balance().is_none());
+    work.run(&CancelToken::new()).unwrap();
+    session.adopt_imported_auto_white_balance(&work);
+    assert_eq!((session.model.temperature, session.model.tint), expected);
+    // The host's WB values are display-only now, so it never pushes them back.
+    assert_eq!(imported_wb_flag(&mut session), 1.0);
+    assert!(session.prepare_imported_auto_white_balance().is_none());
+    // Later models reuse the adopted pair without analysis.
+    let mut edited = crate::xmp::parse(xml).unwrap();
+    edited.exposure = 1.0;
+    session.set_model(edited);
+    assert_eq!((session.model.temperature, session.model.tint), expected);
+    assert_eq!(session.model.exposure, 1.0);
+    assert_eq!(imported_wb_flag(&mut session), 1.0);
+    // A numeric WB edit is authored and never replaced.
+    let authored = crate::xmp::parse(&xml.replace(
+        r#"crs:WhiteBalance="Auto""#,
+        r#"crs:WhiteBalance="Auto" crs:Temperature="5300" crs:Tint="17""#,
+    ))
+    .unwrap();
+    session.set_model(authored);
+    assert_eq!(
+        (session.model.temperature, session.model.tint),
+        (5300., 17.)
+    );
+    assert_eq!(imported_wb_flag(&mut session), 0.0);
+}
+
+#[test]
+fn imported_auto_adoption_never_waits_for_a_busy_native_detail_source() {
+    use std::sync::mpsc;
+    use std::time::Duration;
+
+    let path = imported_auto_fixture();
+    let mut session = Session::open(path.to_str().unwrap(), IMPORTED_AUTO_XMP, 64).unwrap();
+    let mut work = session.prepare_imported_auto_white_balance().unwrap();
+    work.run(&CancelToken::new()).unwrap();
+    let expected = work.estimate.pair().unwrap();
+    let detail = session.detail_source();
+    assert!(detail.lock().unwrap().imported_wb.pair().is_none());
+    let rendering = Arc::clone(&detail);
+    let (held_tx, held_rx) = mpsc::channel();
+    let (release_tx, release_rx) = mpsc::channel();
+    let holder = std::thread::spawn(move || {
+        let _render = rendering.lock().unwrap();
+        held_tx.send(()).unwrap();
+        // Release even if adoption blocks, so the old implementation fails without hanging.
+        release_rx.recv_timeout(Duration::from_secs(2)).is_ok()
+    });
+    held_rx.recv().unwrap();
+
+    session.adopt_imported_auto_white_balance(&work);
+    let _ = release_tx.send(());
+    let adopted_while_rendering = holder.join().unwrap();
+    assert!(
+        adopted_while_rendering,
+        "Imported Auto adoption waited for the native-detail render mutex"
+    );
+    assert_eq!((session.model.temperature, session.model.tint), expected);
+
+    // Every editor detail request re-borrows the retained source after the last render.
+    let reused = session.detail_source();
+    assert!(Arc::ptr_eq(&detail, &reused));
+    let mut model = crate::xmp::parse(IMPORTED_AUTO_XMP).unwrap();
+    let cached = reused.lock().unwrap().imported_wb;
+    assert_eq!(cached.pair(), Some(expected));
+    cached.apply(&mut model);
+    assert_eq!(
+        (model.temperature, model.tint),
+        expected,
+        "A reused native-detail source must resolve the request with the adopted pair"
+    );
+}
+
+#[test]
+fn a_cancelled_imported_auto_estimate_unwinds_and_releases_its_raw() {
+    let path = imported_auto_fixture();
+    let mut session = Session::open(path.to_str().unwrap(), IMPORTED_AUTO_XMP, 64).unwrap();
+    let mut work = session.prepare_imported_auto_white_balance().unwrap();
+    let raw = session.raw.clone().unwrap();
+    let cancel = CancelToken::new();
+    // Navigation or close flips the renderer's flag while the estimate runs.
+    cancel.cancel();
+    assert!(work.run(&cancel).is_err());
+    assert!(work.estimate.pair().is_none());
+    // Freeing the cancelled work drops its RAW reference with it.
+    let held = Arc::strong_count(&raw);
+    drop(work);
+    assert_eq!(Arc::strong_count(&raw), held - 1);
+    drop(session);
+}

@@ -90,6 +90,7 @@ namespace Maple.WinUI.ViewModels
                     return;
                 }
                 ApplyBrushRasters(Adjustments, registered);
+                PublishImportedWhiteBalance(model);
                 _decodedImageSize = (decoded.Width, decoded.Height);
                 ApplyDecodedState(generation, photo, decoded);
                 ScheduleAmazeUpgrade(generation, photo, model, decoded);
