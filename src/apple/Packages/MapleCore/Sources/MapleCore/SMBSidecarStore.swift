@@ -6,7 +6,10 @@ public actor SMBSidecarStore: WorkflowVariantSidecarStoreProtocol {
   private let ref: ImageRef
   private let variantId: String
   private let renderSidecar = WorkflowRenderSidecar()
+  /// The document the editor's model represents: the merge base of its next save (#5828).
   private var adoptedXML: String?
+  private var stagedAdoption: StagedAdoption?
+  private let reconciliationHub = SidecarReconciliationHub()
   private var cached: (AdjustmentModel, CullingState)?
   private var pendingTask: Task<Void, Never>?
   private var writeTail: Task<Void, Error>?
@@ -35,6 +38,7 @@ public actor SMBSidecarStore: WorkflowVariantSidecarStoreProtocol {
     if pendingModel != nil, let cached { return cached }
     let xml = try await readWorkflowXML()
     adoptedXML = xml
+    stagedAdoption = nil
     return try xml.map { try XMPParser.parse($0) }
   }
   public func update(model: AdjustmentModel, culling: CullingState) {
@@ -123,17 +127,32 @@ public actor SMBSidecarStore: WorkflowVariantSidecarStoreProtocol {
     for edit in edits {
       // A preceding queued task may already have acknowledged this publication.
       guard pendingEdits.contains(where: { $0.id == edit.id }) else { continue }
-      let expected = adoptedXML
+      let base = adoptedXML
       let xml = try await source.mutateWorkflowSidecar(for: ref, variantId: variantId) {
-        try edit.output(current: $0, expected: expected, variantId: self.variantId)
+        try edit.output(current: $0, base: base, variantId: self.variantId)
       }
-      // The server can return a newer document when recognizing a lost reply.
-      // That document was not the model adopted by this editor: subsequent stale
-      // edits must still fail rather than silently replacing the other client.
-      adoptedXML = edit.publishedDocument
       pendingEdits.removeAll { $0.id == edit.id }
+      observe(xml, publishedBy: edit)
       try renderSidecar.write(xml)
     }
+  }
+
+  /// A published document that is not the one `edit`'s model represents (a merge, or
+  /// another client's later save recognized after a lost acknowledgement) is offered
+  /// to the editor; until it confirms, later saves keep merging against the document
+  /// its model represents, so the stale model never reverts the merge.
+  private func observe(_ published: String, publishedBy edit: SMBModelPublication) {
+    guard let represented = edit.representedDocument,
+      (try? WorkflowSidecarCore.holdSameAdjustments(published, represented)) != true
+    else {
+      adoptedXML = published
+      stagedAdoption = nil
+      return
+    }
+    let document = ReconciledSidecar(xml: published, model: edit.model, culling: edit.culling)
+    adoptedXML = represented
+    stagedAdoption = StagedAdoption(published: published, document: document)
+    reconciliationHub.publish(document)
   }
   private func writePending() async {
     do { try await settlePending() } catch {
@@ -163,7 +182,10 @@ public actor SMBSidecarStore: WorkflowVariantSidecarStoreProtocol {
       } else {
         xml = try await self.source.readWorkflowSidecar(for: self.ref, variantId: self.variantId)
       }
-      if command != nil { self.adoptedXML = xml }
+      if command != nil {
+        self.adoptedXML = xml
+        self.stagedAdoption = nil
+      }
       if let xml {
         if self.pendingModel == nil { self.cached = try XMPParser.parse(xml) }
         try self.renderSidecar.write(xml)
@@ -189,5 +211,24 @@ public actor SMBSidecarStore: WorkflowVariantSidecarStoreProtocol {
     let selected = SMBSidecarStore(source: source, ref: ref, variantId: variantId)
     _ = try await selected.loadIfPresent()
     return WorkflowVariantBinding(writer: selected, sidecarURL: selected.renderSidecar.url)
+  }
+}
+
+extension SMBSidecarStore: ReconcilingSidecarStoreProtocol {
+  public func reconciliations() -> AsyncStream<ReconciledSidecar> {
+    reconciliationHub.subscribe()
+  }
+
+  public func confirmAdoption(of xml: String) {
+    guard let staged = stagedAdoption, staged.published == xml else { return }
+    adoptedXML = xml
+    stagedAdoption = nil
+    if pendingModel == staged.document.model, pendingCulling == staged.document.culling {
+      pendingTask?.cancel()
+      pendingTask = nil
+      pendingModel = nil
+      pendingCulling = nil
+    }
+    if let adopted = try? XMPParser.parse(xml) { cached = adopted }
   }
 }

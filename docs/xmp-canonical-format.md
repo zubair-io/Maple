@@ -831,9 +831,11 @@ way a confirmed restore does (no save scheduled, Undo/Redo rebuilt from the new
 history), and until it does the store keeps merging later saves against the document
 the editor's model still represents, so a stale model never reverts the merge. A
 file that disappeared, or a merge that fails, still refuses and keeps the pending
-edit queued (`externalConflict`). Explicit snapshot, restore and Undo/Redo
-publications and the SMB writer keep their whole-text compare-and-swap; SMB
-qualification stays under #2437. Apple primary snapshot/history controls (#4062)
+edit queued (`externalConflict`). The SMB writer (#5828) runs the same
+reconciliation inside the transform of its exclusive-handle publication, with the
+document the editor's model represents as `base`; a sidecar that disappeared from
+the share still refuses. Explicit snapshot, restore and Undo/Redo publications
+keep their whole-text compare-and-swap. Apple primary snapshot/history controls (#4062)
 read and publish through the actual
 filesystem, PhotoKit App Support and authenticated API writers. The More menu
 opens named snapshots, portable history, explicit restore confirmation, and Refresh.

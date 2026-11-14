@@ -58,11 +58,14 @@ writes a unique sibling temporary file, flushes it, then requests replacing
 rename through the same connection. The persistent lock file has no ownership
 by itself: the open handle owns publication and disconnect releases it. A lost
 acknowledgement retries the same semantic UUID and checkpoint; an already
-accepted action preserves any later confirmed document. First publication must
-match the full document adopted when the editor loaded the sidecar. Subsequent
-queued saves advance this expectation through their own confirmed publications;
-recognizing an accepted UUID does not implicitly adopt another client's newer
-model. Ordinary saves retry their identical full document. Named variants bind a
+accepted action preserves any later confirmed document. A publication whose share
+no longer holds the document the editor's model represents is merged by
+`reconcile_xmp` inside the same exclusive-handle transform, with an `external`
+entry for an unrecorded outside state (#5828); the merge is published for the
+live editor to adopt, and until it does later saves keep merging against the
+document its model represents. A retry after a lost acknowledgement re-merges
+only when its UUID is absent. Ordinary saves retry their identical full document
+while the share is unchanged. Named variants bind a
 writer to one immutable variant UUID and a session-owned confirmed XMP file for
 render/export. This temporary render file is refreshed only after confirmed
 publication or reads and is removed with its owner (#4065).
