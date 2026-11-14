@@ -8,7 +8,6 @@ import {
   renderModelForImportedAuto,
   withResolvedImportedAuto,
 } from '../../models/partial-white-balance';
-import { importedAutoBackgroundEstimate } from './image-canvas.imported-auto-wb';
 import { XmpSerializerService } from '../../xmp/xmp-serializer.service';
 import type { LibraryStore } from '../../state/library-store.service';
 import type { XmpAdjustmentRestoreService } from '../../xmp/xmp-adjustment-restore.service';
@@ -115,7 +114,6 @@ beforeEach(() => {
   );
 });
 afterEach(() => {
-  importedAutoBackgroundEstimate.enabled = false;
   cleanup?.();
   cleanup = undefined;
   vi.useRealTimers();
@@ -294,7 +292,7 @@ describe('session-open comparison ownership (#4073)', () => {
     expect(s.comparison.bitmap()).toBeNull();
     expect(s.comparison.loading()).toBe(false);
   });
-  it('keeps name-only Auto WB aligned with the staged live canvas and updates when resolved (#4669)', async () => {
+  it('re-renders name-only Auto WB with the live canvas pair once resolved (#4669)', async () => {
     const auto: Partial<AdjustmentModel> = {
       whiteBalancePreset: 'Auto',
       temperature: 5400,
@@ -307,9 +305,8 @@ describe('session-open comparison ownership (#4073)', () => {
     s.split.set(0.5);
     await settle(150);
     expect(s.exportImage).toHaveBeenCalledTimes(1);
-    expect(s.exportImage.mock.calls[0]?.[3]).not.toContain('crs:WhiteBalance="Auto"');
+    expect(s.exportImage.mock.calls[0]?.[3]).toContain('crs:WhiteBalance="Auto"');
 
-    importedAutoBackgroundEstimate.enabled = true;
     s.model.update((value) => withResolvedImportedAuto(value, { temperature: 4800, tint: 6 }));
     await settle(150);
     expect(s.exportImage).toHaveBeenCalledTimes(2);
@@ -319,19 +316,17 @@ describe('session-open comparison ownership (#4073)', () => {
     const cpu = setup(false, auto);
     s.cleanup();
     cleanup = cpu.cleanup;
-    importedAutoBackgroundEstimate.enabled = false;
     await settle();
     cpu.split.set(0.5);
     await settle(150);
     expect(cpu.decode).toHaveBeenCalledTimes(1);
-    expect(cpu.decode.mock.calls[0]?.[2]).not.toContain('crs:WhiteBalance="Auto"');
-    expect(cpu.decode.mock.calls[0]?.[6]).toBe(true);
+    expect(cpu.decode.mock.calls[0]?.[2]).toContain('crs:WhiteBalance="Auto"');
+    expect(cpu.decode.mock.calls[0]?.[6]).toBe(false);
 
-    importedAutoBackgroundEstimate.enabled = true;
-    cpu.comparison.retry();
+    cpu.model.update((value) => withResolvedImportedAuto(value, { temperature: 4800, tint: 6 }));
     await settle(150);
     expect(cpu.decode).toHaveBeenCalledTimes(2);
-    expect(cpu.decode.mock.calls[1]?.[2]).toContain('crs:WhiteBalance="Auto"');
-    expect(cpu.decode.mock.calls[1]?.[6]).toBe(false);
+    expect(cpu.decode.mock.calls[1]?.[2]).toContain('crs:Temperature="4800"');
+    expect(cpu.decode.mock.calls[1]?.[6]).toBe(true);
   });
 });

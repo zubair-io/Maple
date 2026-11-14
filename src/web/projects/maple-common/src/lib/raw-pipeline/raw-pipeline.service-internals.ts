@@ -135,7 +135,8 @@ export type PendingHandler =
     }
   | {
       kind: 'resolve-imported-wb';
-      resolve: (pair: { temperature: number; tint: number }) => void;
+      /** null: the estimate was cancelled (#5923). */
+      resolve: (pair: { temperature: number; tint: number } | null) => void;
       reject: (err: Error) => void;
     }
   | {

@@ -17,6 +17,10 @@ type Listener = (event: { data: unknown }) => void;
 export interface InProcessRawWorker {
   /** Every request the service posted, in order. */
   readonly requests: WorkerRequest[];
+  /** Runs synchronously as the service posts a request, before the worker sees it. */
+  onPost: ((request: WorkerRequest) => void) | null;
+  /** Deliver `message` to the service as if the worker had posted it. */
+  emit(message: WorkerResponse): void;
   restore(): void;
 }
 
@@ -49,6 +53,12 @@ export async function installInProcessRawWorker(): Promise<InProcessRawWorker> {
   const registered = workerListener as Listener | null;
   if (!registered) throw new Error('raw-pipeline.worker did not register its listener');
   const deliver: Listener = registered;
+  const harness: InProcessRawWorker = {
+    requests,
+    onPost: null,
+    emit: (message) => mainListeners.forEach((listener) => listener({ data: message })),
+    restore: () => vi.unstubAllGlobals(),
+  };
   class InProcessWorker {
     addEventListener(type: string, listener: Listener): void {
       if (type === 'message') mainListeners.push(listener);
@@ -57,11 +67,12 @@ export async function installInProcessRawWorker(): Promise<InProcessRawWorker> {
     terminate(): void {}
     postMessage(message: WorkerRequest): void {
       requests.push(message);
+      harness.onPost?.(message);
       setTimeout(() => deliver({ data: message }), 0);
     }
   }
   vi.stubGlobal('Worker', InProcessWorker);
-  return { requests, restore: () => vi.unstubAllGlobals() };
+  return harness;
 }
 
 /** A committed fixture RAW (test-fixtures/batch-transfer). */
