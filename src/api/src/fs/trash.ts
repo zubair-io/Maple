@@ -8,7 +8,7 @@
  * exclusively, retrying collisions. Both copy and verify before deleting
  * originals. Restore requires the complete pair to preserve edits (#3998).
  *
- * `pickFreePath` now lives in `fs/relocate.ts` (the collision-resolution
+ * `pickFreePath` lives in `fs/relocate-destination.ts` (the collision-resolution
  * half of the generic primitive) and is re-exported here so existing
  * importers of `fs/trash.ts` keep working unchanged.
  *
@@ -21,7 +21,8 @@ import * as path from 'node:path';
 import { listPairedSidecars } from './xmp-conflict.ts';
 import { isLegacyBackupSidecarOf, oldNameSlotTaken } from './legacy-backup-sidecar.ts';
 import { child as childLogger } from '../log.ts';
-import { relocateFile, pickFreePath, sidecarRenameTarget } from './relocate.ts';
+import { relocateFile, sidecarRenameTarget } from './relocate.ts';
+import { pickFreePath } from './relocate-destination.ts';
 import { classifySameFile } from './relocate-case-only-rename.ts';
 import {
   carriesOldNameEdit,
@@ -158,6 +159,10 @@ function toMoveResult(outcome: Awaited<ReturnType<typeof relocateFile>>): MoveRe
  * The trashed sidecar's name follows the same base-replacement applied to
  * the RAW (so `IMG_1 (conflict from Mac).xmp` follows `IMG_1.ARW` →
  * `IMG_1.1.ARW` to `IMG_1.1 (conflict from Mac).xmp`).
+ *
+ * `stackCompanionAbsPath` is the JPEG of a RAW+JPEG stack (#5930): it lands
+ * under the RAW's trash stem, which is picked free for the RAW, the JPEG and
+ * their sidecar, or nothing moves.
  */
 export async function moveToTrash(
   absPath: string,
@@ -165,6 +170,7 @@ export async function moveToTrash(
   onDestinationPrepared?: (destination: string) => Promise<void>,
   beforeSourceDelete?: () => Promise<void>,
   onVerified?: (destination: string) => Promise<void>,
+  stackCompanionAbsPath?: string,
 ): Promise<MoveResult> {
   const trashTarget = computeTrashPath(absPath, folderRoot);
   const outcome = await relocateFile({
@@ -176,6 +182,9 @@ export async function moveToTrash(
     onDestinationPrepared,
     beforeSourceDelete,
     onVerified: onVerified ? (info) => onVerified(info.newAbsPath) : undefined,
+    ...(stackCompanionAbsPath
+      ? { stackCompanion: { sourceAbsPath: stackCompanionAbsPath, replace: false } }
+      : {}),
   });
   return toMoveResult(outcome);
 }
@@ -220,7 +229,7 @@ export async function moveOutOfTrash(
     const carriesOldName = await carriesOldNameEdit(trashAbsPath);
     for (let attempt = 0; attempt < 1002; attempt++) {
       const occupied = async (candidate: string) =>
-        (await restoreDestinationOccupied(candidate)) ||
+        (await restoreDestinationOccupied(candidate, trashAbsPath)) ||
         (carriesOldName && (await oldNameSlotTaken(candidate))) ||
         (await additionalDestinationOccupied?.(candidate)) === true;
       const freeTarget = (await occupied(targetAbsPath))

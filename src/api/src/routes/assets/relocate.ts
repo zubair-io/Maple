@@ -27,6 +27,11 @@
  *                                           asset's OWN library root.
  *   source_address?: string               — selected file location when an
  *                                           asset has identical-content copies
+ *   companion_id?: string                 — #5929: the JPEG of the RAW+JPEG
+ *                                           stack this asset heads; it moves
+ *                                           with the RAW as one unit
+ *   companion_collision?: 'skip' | 'replace' — what a file at the JPEG's
+ *                                           destination name does (default skip)
  */
 
 import { Elysia, t } from 'elysia';
@@ -41,7 +46,12 @@ import {
   validateRelPathShape,
 } from '../../library/address.ts';
 import { isSafeFilename } from '../../backup/path-formatter.ts';
-import { resolveAssetIdOrRespond, relocateResultResponse } from './_shared.ts';
+import {
+  StackCompanionBodyFields,
+  resolveAssetIdOrRespond,
+  relocateResultResponse,
+  stackCompanionOrRespond,
+} from './_shared.ts';
 import { requireFileAccessBeforeHandle } from '../../auth/middleware.ts';
 
 const RelocateBodySchema = t.Object({
@@ -56,6 +66,7 @@ const RelocateBodySchema = t.Object({
   destination_filename: t.Optional(t.String()),
   destination_library_id: t.Optional(t.String()),
   source_address: t.Optional(t.String()),
+  ...StackCompanionBodyFields,
 });
 
 /** Fast, I/O-free rejection of an obviously-hostile `destination_path` /
@@ -124,6 +135,8 @@ export const relocateRoutes = new Elysia().post(
   async ({ params, body, set }) => {
     const id = resolveAssetIdOrRespond(params.id, set);
     if (!(id instanceof ObjectId)) return id;
+    const stackCompanion = stackCompanionOrRespond(body, id, set);
+    if (stackCompanion && 'error' in stackCompanion) return stackCompanion;
 
     const shapeError = validateDestinationShape(body);
     if (shapeError) {
@@ -160,6 +173,7 @@ export const relocateRoutes = new Elysia().post(
       destinationFilename: body.destination_filename,
       destinationLibraryId,
       ...(sourceResult.source ? { activeFileInfoOverride: sourceResult.source } : {}),
+      ...(stackCompanion ? { stackCompanion } : {}),
     });
 
     const { status, body: responseBody } = relocateResultResponse(result);

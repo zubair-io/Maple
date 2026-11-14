@@ -163,7 +163,7 @@ export interface TrashAssetOptions {
 /** The entry a trash call acts on and its library, or the outcome to return
  * instead. Unless `allowExcluded`, the entry's directory is checked on disk
  * for a `.mapleignore` chain right before anything moves (#5398). */
-async function trashTarget(
+export async function trashTarget(
   fileinfo: FileInfo[] | undefined,
   opts: TrashAssetOptions,
 ): Promise<{ entrySpec: AssetLocationEntry; folder: FolderWithId } | TrashAssetOutcome> {

@@ -140,7 +140,7 @@ async function lstatUnlessGone(target: string) {
 
 /** The photo's own sidecar that would land on `sidecar`; same-file aware, so a
  * case-folding volume matches `IMG.xmp` to an existing `img.xmp`. */
-async function incomingSidecarFor(
+export async function incomingSidecarFor(
   sourceAbsPath: string,
   candidate: string,
   ownSidecars: readonly string[],

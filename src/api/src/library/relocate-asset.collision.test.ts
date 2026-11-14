@@ -173,7 +173,11 @@ describe('relocateAsset — replace collision guard (#2843)', () => {
       destinationFilename: 'occupant.dng',
     });
 
-    expect(result).toEqual({ kind: 'occupied', occupiedByAssetId: occupantId.toHexString() });
+    expect(result).toEqual({
+      kind: 'occupied',
+      occupiedByAssetId: occupantId.toHexString(),
+      occupiedFilename: 'occupant.dng',
+    });
 
     // Neither file's bytes moved.
     expect(await read('a/incoming.dng')).toBe('incoming-pixels');

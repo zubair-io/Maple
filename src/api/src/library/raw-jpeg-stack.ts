@@ -12,6 +12,15 @@ function stackStem(filename: string): string {
   return path.parse(filename).name.normalize('NFC').toLowerCase();
 }
 
+/** Whether `jpeg` is the JPEG half of the stack whose RAW is `raw`, both in one folder. */
+export function pairsAsStack(raw: string, jpeg: string): boolean {
+  return (
+    RAW_EXTENSIONS.has(extensionOf(raw)) &&
+    JPEG_EXTENSIONS.has(extensionOf(jpeg)) &&
+    stackStem(raw) === stackStem(jpeg)
+  );
+}
+
 /**
  * The RAW+JPEG pairs among one folder's file names: a stem that holds exactly
  * one RAW and exactly one JPEG. Any other group (two JPEGs, two RAWs) is

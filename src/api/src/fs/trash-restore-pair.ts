@@ -20,9 +20,14 @@ import { sidecarRenameTarget } from './sidecar-rename.ts';
 import { child as childLogger } from '../log.ts';
 import { serializeSidecarWrite } from './sidecar-write-order.ts';
 import {
+  SidecarCollisionError,
   carryAsConflictCopy,
+  incomingSidecarFor,
+  joinCarriedSidecar,
   requireSidecarBytes,
+  sameSidecarFile,
   settleCarriedSidecar,
+  sidecarAlreadyCarried,
   sidecarStemClaimedBySibling,
 } from './sidecar-ownership.ts';
 
@@ -45,8 +50,15 @@ async function listPairedSidecars(source: string): Promise<string[]> {
 
 /** A sidecar without a primary still owns its stem. Restoring an unedited
  * photo there would silently apply someone else's edits. ENOENT alone means
- * absence; dangling symlinks and lookup errors must not become free paths. */
-export async function restoreDestinationOccupied(candidate: string): Promise<boolean> {
+ * absence; dangling symlinks and lookup errors must not become free paths.
+ * With `source`, a stem whose every sidecar already holds exactly the bytes
+ * that photo carries there is free to join: no one's edits change, the rule
+ * moves follow (`assetDestinationOccupied`), and it is what lets the second
+ * half of a RAW+JPEG stack come back beside the first (#5930). */
+export async function restoreDestinationOccupied(
+  candidate: string,
+  source?: string,
+): Promise<boolean> {
   try {
     await fs.lstat(candidate);
     return true;
@@ -54,11 +66,26 @@ export async function restoreDestinationOccupied(candidate: string): Promise<boo
     if ((error as NodeJS.ErrnoException)?.code !== 'ENOENT') throw error;
   }
   try {
-    return (await listPairedSidecars(candidate)).length > 0;
+    const present = await listPairedSidecars(candidate);
+    if (present.length === 0) return false;
+    return source === undefined || !(await joinsIdenticalSidecars(source, candidate, present));
   } catch (error) {
     if ((error as NodeJS.ErrnoException)?.code === 'ENOENT') return false;
     throw error;
   }
+}
+
+async function joinsIdenticalSidecars(
+  source: string,
+  candidate: string,
+  present: readonly string[],
+): Promise<boolean> {
+  const own = await listPairedSidecars(source);
+  for (const sidecar of present) {
+    const incoming = await incomingSidecarFor(source, candidate, own, sidecar);
+    if (!incoming || !(await sidecarAlreadyCarried(incoming, sidecar))) return false;
+  }
+  return true;
 }
 
 interface StagedFile {
@@ -100,21 +127,60 @@ function planPair(source: string, destination: string, sidecars: string[]): Stag
 }
 
 /** Claim every staged file exclusively, recording each published path. A
- * losing claim, or an orphan sidecar appearing at the stem, returns false. */
+ * sidecar already holding its exact bytes is joined, not published. A losing
+ * claim, or an orphan sidecar appearing at the stem, returns false. */
 async function publishPair(
   staged: StagedFile[],
   destination: string,
   published: string[],
 ): Promise<boolean> {
+  const [primary, ...sidecars] = staged as [StagedFile, ...StagedFile[]];
   // Recheck orphan sidecars after the potentially long RAW copy. Each
   // publish is still exclusive, so the check is never overwrite permission.
-  if (await restoreDestinationOccupied(destination)) return false;
-  for (const [index, entry] of staged.entries()) {
+  if (await restoreDestinationOccupied(destination, primary.source)) return false;
+  const joins = await Promise.all(sidecars.map((entry) => pathPresent(entry.destination)));
+  if (!(await moveNoClobber(primary.temporary, primary.destination))) return false;
+  published.push(primary.destination);
+  const joined = sidecars.filter((_, index) => joins[index]);
+  if (!(await onlySidecarsJoined(destination, joined))) return false;
+  for (const [index, entry] of sidecars.entries()) {
+    if (joins[index]) {
+      if (!(await joinIdentical(entry))) return false;
+      continue;
+    }
     if (!(await moveNoClobber(entry.temporary, entry.destination))) return false;
     published.push(entry.destination);
-    if (index === 0 && (await listPairedSidecars(destination)).length > 0) return false;
   }
   return true;
+}
+
+async function pathPresent(target: string): Promise<boolean> {
+  return fs.lstat(target).then(
+    () => true,
+    () => false,
+  );
+}
+
+/** Whether every sidecar at the restored photo's stem is one it joins. */
+async function onlySidecarsJoined(
+  destination: string,
+  joined: readonly StagedFile[],
+): Promise<boolean> {
+  for (const sidecar of await listPairedSidecars(destination)) {
+    const expected = await Array.fromAsync(joined, (entry) =>
+      sameSidecarFile(entry.destination, sidecar),
+    );
+    if (!expected.some(Boolean)) return false;
+  }
+  return true;
+}
+
+/** A save that changed the joined sidecar since the check makes it a collision. */
+async function joinIdentical(entry: StagedFile): Promise<boolean> {
+  return joinCarriedSidecar(entry.source, entry.destination).then(
+    () => true,
+    (err: unknown) => (err instanceof SidecarCollisionError ? false : Promise.reject(err)),
+  );
 }
 
 /** After any source was removed, retain published copies even if a later

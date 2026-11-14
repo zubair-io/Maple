@@ -196,7 +196,31 @@ function moveTailStatements(
  * trash destination. `originalAbsPath` is preserved in `original_path` so the
  * restore workflow can put the file back.
  */
-export async function markSoftDeleted(args: {
+export async function markSoftDeleted(args: SoftDeleteArgs): Promise<UpdateOutcome> {
+  const db = sqliteDb(args.dbOverride);
+  const results = await db.transaction(softDeleteStatements(args, []));
+  return updateOutcome(matchedOne(changesAt(results, lifecycleCommitGuard(args.lifecycle).length)));
+}
+
+/**
+ * {@link markSoftDeleted} for both halves of a RAW+JPEG stack trashed under one
+ * stem (#5930), in one transaction: both rows are trashed or neither is. Throws,
+ * having written nothing, when either moved location changed underneath the
+ * caller. `changes()` counts only the statement's own rows, not a trigger's.
+ */
+export async function markStackSoftDeleted(
+  halves: readonly SoftDeleteArgs[],
+  dbOverride?: SqliteDb,
+): Promise<void> {
+  const moved: SqlStatement = { sql: `INSERT INTO stack_trash_assert(moved) SELECT changes() > 0` };
+  await sqliteDb(dbOverride).transaction([
+    { sql: `CREATE TEMP TABLE stack_trash_assert(moved INTEGER NOT NULL CHECK(moved = 1))` },
+    ...halves.flatMap((half) => softDeleteStatements(half, [moved])),
+    { sql: `DROP TABLE stack_trash_assert` },
+  ]);
+}
+
+export interface SoftDeleteArgs {
   id: ObjectId;
   /** The library root that owns this asset, so the destination can be made
    * relative to it. */
@@ -209,18 +233,22 @@ export async function markSoftDeleted(args: {
   source?: LocationSource;
   lifecycle?: LifecycleCommit;
   dbOverride?: SqliteDb;
-}): Promise<UpdateOutcome> {
-  const db = sqliteDb(args.dbOverride);
+}
+
+/** The soft-delete batch; `afterMove` runs right after the location rewrite. */
+function softDeleteStatements(args: SoftDeleteArgs, afterMove: SqlStatement[]): SqlStatement[] {
   const destination = resolveDestination('markSoftDeleted', args);
   const hex = args.id.toHexString();
-  const guard = lifecycleCommitGuard(args.lifecycle);
-  const results = await db.transaction([
-    ...guard,
+  return [
+    ...lifecycleCommitGuard(args.lifecycle),
     {
       sql: `UPDATE assets SET deleted_at = ?, original_path = ? WHERE id = ?`,
       params: [new Date().toISOString(), args.originalAbsPath, hex],
     },
-    ...moveTailStatements(hex, destination, args.source),
+    ...locationStatements(hex, destination, args.source),
+    ...afterMove,
+    ...searchRearmStatements(hex),
+    ...relocateCacheRearmStatements(hex),
     ...committedLifecycleStatements(
       hex,
       destination.libraryId,
@@ -229,8 +257,7 @@ export async function markSoftDeleted(args: {
       'trash',
       args.lifecycle,
     ),
-  ]);
-  return updateOutcome(matchedOne(changesAt(results, guard.length)));
+  ];
 }
 
 /**

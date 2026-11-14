@@ -13,11 +13,20 @@
  *   sequence_start?: number       — default 0
  *   sequence_pad_width?: number   — default 0 (no padding)
  *   collision (apply only): 'auto-suffix' | 'skip' | 'replace' | 'keep-both'
+ *   companion_ids? (apply only): (string | null)[] — #5929: parallel to ids, the
+ *                                 JPEG of the RAW+JPEG stack each item heads; the
+ *                                 pair renames as one unit, and a taken JPEG
+ *                                 name skips it
  */
 
 import { Elysia, t } from 'elysia';
 import { ObjectId } from '../../db/object-id.ts';
-import { batchRenameAssets, previewBatchRename } from '../../library/batch-rename.ts';
+import { parseAssetId } from '../../db/assets.repo.ts';
+import {
+  batchRenameAssets,
+  previewBatchRename,
+  type BatchRenameItemResult,
+} from '../../library/batch-rename.ts';
 import { requireFileAccessBeforeHandle } from '../../auth/middleware.ts';
 
 const TemplateFieldsSchema = {
@@ -38,6 +47,7 @@ const BatchRenameBodySchema = t.Object({
     t.Literal('replace'),
     t.Literal('keep-both'),
   ]),
+  companion_ids: t.Optional(t.Array(t.Union([t.String(), t.Null()]))),
 });
 
 /** Parse every id, returning `null` at the first malformed one so the route
@@ -65,6 +75,49 @@ function parseSelection(body: {
     return { kind: 'error', error: 'source_addresses must match ids length' };
   }
   return { kind: 'ok', ids };
+}
+
+/** `companion_ids` parsed, parallel to `ids`, or the 400 message. */
+function parseCompanionIds(
+  companionIds: (string | null)[] | undefined,
+  ids: readonly ObjectId[],
+): (ObjectId | null)[] | undefined | string {
+  if (companionIds === undefined) return undefined;
+  if (companionIds.length !== ids.length) return 'companion_ids must match ids length';
+  const parsed = companionIds.map((raw) => (raw === null ? null : parseAssetId(raw)));
+  const invalid = companionIds.some((raw, index) => {
+    const id = parsed[index];
+    return raw !== null && (!id || id.equals(ids[index]!));
+  });
+  return invalid ? 'companion_ids must hold null or the id of another asset' : parsed;
+}
+
+function itemBody(r: BatchRenameItemResult) {
+  switch (r.kind) {
+    case 'relocated':
+      return {
+        id: r.id,
+        kind: r.kind,
+        old_filename: r.oldFilename,
+        new_filename: r.newFilename,
+        new_path: r.newPath,
+        renamed_on_collision: r.renamedOnCollision,
+        extension_changed: r.extensionChanged,
+        ...(r.companionNewFilename ? { companion_new_filename: r.companionNewFilename } : {}),
+      };
+    case 'skipped':
+      return {
+        id: r.id,
+        kind: r.kind,
+        reason: r.reason,
+        ...(r.collisionFilename ? { collision_filename: r.collisionFilename } : {}),
+      };
+    case 'not-found':
+      return { id: r.id, kind: r.kind };
+    case 'invalid':
+    case 'error':
+      return { id: r.id, kind: r.kind, error: r.error };
+  }
 }
 
 export const batchRenameRoutes = new Elysia()
@@ -111,6 +164,11 @@ export const batchRenameRoutes = new Elysia()
         set.status = 400;
         return { error: selection.error };
       }
+      const companionIds = parseCompanionIds(body.companion_ids, selection.ids);
+      if (typeof companionIds === 'string') {
+        set.status = 400;
+        return { error: companionIds };
+      }
       const results = await batchRenameAssets({
         ids: selection.ids,
         sourceAddresses: body.source_addresses,
@@ -118,6 +176,7 @@ export const batchRenameRoutes = new Elysia()
         sequenceStart: body.sequence_start ?? 0,
         sequencePadWidth: body.sequence_pad_width ?? 0,
         collision: body.collision,
+        ...(companionIds ? { companionIds } : {}),
       });
       const summary = {
         total: results.length,
@@ -128,30 +187,7 @@ export const batchRenameRoutes = new Elysia()
         ).length,
       };
       set.status = 200;
-      return {
-        summary,
-        results: results.map((r) => {
-          switch (r.kind) {
-            case 'relocated':
-              return {
-                id: r.id,
-                kind: r.kind,
-                old_filename: r.oldFilename,
-                new_filename: r.newFilename,
-                new_path: r.newPath,
-                renamed_on_collision: r.renamedOnCollision,
-                extension_changed: r.extensionChanged,
-              };
-            case 'skipped':
-              return { id: r.id, kind: r.kind, reason: r.reason };
-            case 'not-found':
-              return { id: r.id, kind: r.kind };
-            case 'invalid':
-            case 'error':
-              return { id: r.id, kind: r.kind, error: r.error };
-          }
-        }),
-      };
+      return { summary, results: results.map(itemBody) };
     },
     {
       beforeHandle: requireFileAccessBeforeHandle,

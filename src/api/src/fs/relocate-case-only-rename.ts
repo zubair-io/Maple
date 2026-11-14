@@ -192,8 +192,12 @@ async function revertCaseOnlyRename(
  * `onVerified` still runs — there IS an identity to repoint, same shape as
  * any other move — after the primary + sidecar renames (`renamePrimaryAndSidecars`);
  * a repoint failure reverts them (`revertCaseOnlyRename`) before returning
- * the error. */
-export async function performCaseOnlyRename(req: RelocateRequest): Promise<RelocateOutcome> {
+ * the error. A stack's JPEG (`companion`, #5929) changes case with the RAW,
+ * and the RAW is put back when it can't. */
+export async function performCaseOnlyRename(
+  req: RelocateRequest,
+  companion: SidecarRename | null = null,
+): Promise<RelocateOutcome> {
   // #2667: case-only rename has no companion-carry implementation — unlike
   // the copy-verify-delete path above, `renamePrimaryAndSidecars` below only
   // knows about sidecars. Silently reporting `companionPaths: []` would drop
@@ -213,17 +217,28 @@ export async function performCaseOnlyRename(req: RelocateRequest): Promise<Reloc
 
   const renamed = await renamePrimaryAndSidecars(req);
   if (!renamed.ok) return { kind: 'error', error: renamed.error };
+  const followed = companion ? [companion] : [];
+  const renames = [...renamed.renamedSidecars, ...followed];
+  try {
+    if (companion) await fs.rename(companion.from, companion.to);
+  } catch (err) {
+    await revertCaseOnlyRename(req, renamed.renamedSidecars);
+    return {
+      kind: 'error',
+      error: `relocate: the stack's JPEG could not follow: ${err instanceof Error ? err.message : String(err)}`,
+    };
+  }
 
   if (req.onVerified) {
     try {
       await req.onVerified({
         newAbsPath: req.destAbsPath,
         sidecarPaths: renamed.renamedSidecars.map((s) => s.to),
-        companionPaths: [],
-        companionSources: [],
+        companionPaths: followed.map((s) => s.to),
+        companionSources: followed.map((s) => s.from),
       });
     } catch (err) {
-      await revertCaseOnlyRename(req, renamed.renamedSidecars);
+      await revertCaseOnlyRename(req, renames);
       return {
         kind: 'error',
         error: `identity repoint failed: ${err instanceof Error ? err.message : String(err)}`,
@@ -235,7 +250,7 @@ export async function performCaseOnlyRename(req: RelocateRequest): Promise<Reloc
     kind: 'relocated',
     newAbsPath: req.destAbsPath,
     sidecarPaths: renamed.renamedSidecars.map((s) => s.to),
-    companionPaths: [],
+    companionPaths: followed.map((s) => s.to),
     renamedOnCollision: false,
   };
 }
