@@ -50,7 +50,8 @@ enum RawProbeStaging {
     _ body: @escaping @Sendable (_ rawURL: URL, _ xmpURL: URL) throws -> T
   ) async throws -> T {
     // The caller's cancellation reaches the staging (a closed editor's
-    // estimate stops before the FFI call); the FFI call itself runs to the end.
+    // estimate stops before the FFI call). Inside the FFI call only a body
+    // that passes a cancel flag (the imported WB resolver, #5922) stops early.
     let staging = Task.detached(priority: .userInitiated) {
       let directory = FileManager.default.temporaryDirectory
         .appendingPathComponent("maple-probe-\(UUID().uuidString)", isDirectory: true)
