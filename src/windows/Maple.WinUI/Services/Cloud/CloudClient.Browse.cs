@@ -55,6 +55,19 @@ namespace Maple.WinUI.Services.Cloud
             }
         }
 
+        /// <summary>One cursor-paged directory from the unified Cloud Files
+        /// address route. Omitting stack keeps RAW+JPEG companions visible as
+        /// separate filesystem entries.</summary>
+        public Task<CloudFolderListing?> ListFolderAddressAsync(
+            string address, string? cursor, int limit, CancellationToken ct)
+        {
+            if (limit is < 1 or > 2000) throw new ArgumentOutOfRangeException(nameof(limit));
+            var query = $"api/folder/{EncodeAddress(address)}?limit={limit}";
+            if (!string.IsNullOrEmpty(cursor))
+                query += $"&cursor={Uri.EscapeDataString(cursor)}";
+            return GetJsonAsync<CloudFolderListing>(query, ct);
+        }
+
         // --- Images (AVIF, disk-cached) ---
 
         /// <summary>Fetch a thumb (512px) or preview (1280px) AVIF into the
