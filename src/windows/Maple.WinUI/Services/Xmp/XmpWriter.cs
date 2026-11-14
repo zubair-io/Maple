@@ -66,6 +66,9 @@ namespace Maple.WinUI.Services.Xmp
         private static HashSet<string> AppendNumericFields(List<string> parts, AdjustmentState state)
         {
             var emitted = new HashSet<string>();
+            var wbPairAuthored = XmpSchema.NumericFields
+                .Where(field => field.Key is "crs:Temperature" or "crs:Tint")
+                .Any(field => XmpSchema.FormatNumber(field.Get(state)) != XmpSchema.FormatNumber(field.Get(XmpSchema.Defaults)));
             foreach (var field in XmpSchema.NumericFields)
             {
                 var wbAxis = field.Key is "crs:Temperature" or "crs:Tint";
@@ -76,7 +79,7 @@ namespace Maple.WinUI.Services.Xmp
                 if (value == null) continue;
                 var wire = XmpSchema.FormatNumber(value.Value);
                 var defaultWire = XmpSchema.FormatNumber(field.Get(XmpSchema.Defaults));
-                var authoredAxis = wbAxis && (imported != null || state.WhiteBalancePreset == "Auto");
+                var authoredAxis = wbAxis && (imported != null || state.WhiteBalancePreset == "Auto" || wbPairAuthored);
                 if (wire == defaultWire && !authoredAxis) continue;
                 parts.Add($"{field.Key}=\"{wire}\"");
                 emitted.Add(field.Key);

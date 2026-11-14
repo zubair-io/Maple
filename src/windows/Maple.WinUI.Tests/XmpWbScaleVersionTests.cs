@@ -133,6 +133,17 @@ namespace Maple.WinUI.Tests
         }
 
         [Fact]
+        public void AnAuthoredPairWithADefaultTintIsWrittenAsAPairAndReloadsAuthored()
+        {
+            var doc = XmpParser.Parse(
+                MapleSidecar("crs:Temperature=\"5700\" crs:Tint=\"0\" papp:WbScaleVersion=\"5\""))!;
+            Assert.Null(doc.Adjustments.ImportedWhiteBalance);
+            var saved = XmpWriter.Serialize(doc);
+            Assert.Contains("crs:Tint=\"0\"", saved);
+            Assert.Null(XmpParser.Parse(saved)!.Adjustments.ImportedWhiteBalance);
+        }
+
+        [Fact]
         public void V2AuthoredPairConvertsJointlyIntoV5OnLoad()
         {
             // The V2 scale's tint axis was inverted vs ACR at the legacy
