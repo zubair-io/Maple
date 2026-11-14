@@ -1,12 +1,15 @@
 // One name-only Auto WB resolve per worker session (#4669, #5882 review): a
 // later ask on the same open photo joins the session's request, a failed
-// estimate is not re-run on every edit, and a new session asks again.
+// estimate is not re-run on every edit, and a new session asks again. The
+// estimate waits for an idle editor, and any other request cancels it through
+// the worker's shared flag; it asks again at the next idle moment (#5923).
 import { TestBed } from '@angular/core/testing';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { RawPipelineService } from './raw-pipeline.service';
 import { installWorkerStub, WorkerStub } from './raw-pipeline.service.test-helpers';
 import type { DecodeRequest, DecodeSuccess } from './raw-pipeline.types';
 import type { ResolveImportedWbRequest } from './raw-pipeline.imported-wb.types';
+import { IMPORTED_WB_IDLE_MS } from './raw-pipeline.imported-wb-request';
 
 describe('RawPipelineService.resolveImportedWhiteBalance', () => {
   let worker: WorkerStub;
@@ -38,10 +41,12 @@ describe('RawPipelineService.resolveImportedWhiteBalance', () => {
       .map(([message]) => message as T)
       .filter((message) => message.type === type);
 
-  /** Open `bytes` as the retained CPU source, as the 2D canvas does. */
+  /** Open `bytes` as the retained CPU source, as the 2D canvas does; later
+   *  calls render it again, as a slider tick does. */
   async function open(service: RawPipelineService, bytes: Uint8Array): Promise<void> {
+    const before = posted<DecodeRequest>('decode').length;
     const decoded = service.decode(bytes, 'dng', undefined, 80, true);
-    await expect.poll(() => posted<DecodeRequest>('decode').length).toBeGreaterThan(0);
+    await expect.poll(() => posted<DecodeRequest>('decode').length).toBe(before + 1);
     const request = posted<DecodeRequest>('decode').at(-1)!;
     const reply: DecodeSuccess = {
       id: request.id,
@@ -67,8 +72,8 @@ describe('RawPipelineService.resolveImportedWhiteBalance', () => {
 
     const first = service.resolveImportedWhiteBalance(bytes);
     const later = service.resolveImportedWhiteBalance(bytes);
+    await expect.poll(() => posted('resolve-imported-wb').length).toBe(1);
     const requests = posted<ResolveImportedWbRequest>('resolve-imported-wb');
-    expect(requests).toHaveLength(1);
     worker.reply({ id: requests[0].id, type: 'session-error', message: 'estimate failed' });
     await expect(first).rejects.toThrow('estimate failed');
     await expect(later).rejects.toThrow('estimate failed');
@@ -81,8 +86,8 @@ describe('RawPipelineService.resolveImportedWhiteBalance', () => {
     const reopened = new Uint8Array([4, 5, 6]);
     await open(service, reopened);
     const pair = service.resolveImportedWhiteBalance(reopened);
+    await expect.poll(() => posted('resolve-imported-wb').length).toBe(2);
     const next = posted<ResolveImportedWbRequest>('resolve-imported-wb');
-    expect(next).toHaveLength(2);
     expect(next[1].session.token).not.toBe(requests[0].session.token);
     worker.reply({
       id: next[1].id,
@@ -91,5 +96,60 @@ describe('RawPipelineService.resolveImportedWhiteBalance', () => {
       tint: 6,
     });
     await expect(pair).resolves.toEqual({ temperature: 4800, tint: 6 });
+  });
+
+  /** Hand the service the worker's cancel byte, as the worker's status does. */
+  function shareCancelFlag(): Uint8Array {
+    const flag = new Uint8Array(new SharedArrayBuffer(1));
+    worker.reply({ id: 0, type: 'status', threaded: true, threads: 8, importedWbCancel: flag });
+    return flag;
+  }
+
+  it('cancels a running estimate before any other request and asks again once idle', async () => {
+    const service = TestBed.inject(RawPipelineService);
+    const bytes = new Uint8Array([1, 2, 3]);
+    await open(service, bytes);
+    const flag = shareCancelFlag();
+
+    const asked = performance.now();
+    const pair = service.resolveImportedWhiteBalance(bytes);
+    await expect.poll(() => posted('resolve-imported-wb').length).toBe(1);
+    expect(performance.now() - asked).toBeGreaterThanOrEqual(IMPORTED_WB_IDLE_MS - 1);
+    expect(Atomics.load(flag, 0)).toBe(0);
+
+    // A slider tick while the estimate runs: the flag is up before it is posted.
+    await open(service, bytes);
+    expect(Atomics.load(flag, 0)).toBe(1);
+    const [cancelled] = posted<ResolveImportedWbRequest>('resolve-imported-wb');
+    worker.reply({ id: cancelled.id, type: 'resolve-imported-wb-cancelled' });
+    const tickAt = performance.now();
+
+    await expect
+      .poll(() => posted('resolve-imported-wb').length, { timeout: 4 * IMPORTED_WB_IDLE_MS })
+      .toBe(2);
+    expect(performance.now() - tickAt).toBeGreaterThanOrEqual(IMPORTED_WB_IDLE_MS - 1);
+    expect(Atomics.load(flag, 0)).toBe(0);
+    const retry = posted<ResolveImportedWbRequest>('resolve-imported-wb')[1];
+    expect(retry.session).toEqual(cancelled.session);
+    worker.reply({ id: retry.id, type: 'resolve-imported-wb-success', temperature: 5100, tint: 4 });
+    await expect(pair).resolves.toEqual({ temperature: 5100, tint: 4 });
+
+    // With no estimate running, requests leave the flag alone.
+    await open(service, bytes);
+    expect(Atomics.load(flag, 0)).toBe(0);
+  });
+
+  it('drops a cancelled estimate once another photo holds the worker', async () => {
+    const service = TestBed.inject(RawPipelineService);
+    const bytes = new Uint8Array([1, 2, 3]);
+    await open(service, bytes);
+    shareCancelFlag();
+    const pair = service.resolveImportedWhiteBalance(bytes);
+    await expect.poll(() => posted('resolve-imported-wb').length).toBe(1);
+    await open(service, new Uint8Array([7, 8, 9]));
+    const [cancelled] = posted<ResolveImportedWbRequest>('resolve-imported-wb');
+    worker.reply({ id: cancelled.id, type: 'resolve-imported-wb-cancelled' });
+    await expect(pair).rejects.toThrow('no longer open');
+    expect(posted('resolve-imported-wb')).toHaveLength(1);
   });
 });

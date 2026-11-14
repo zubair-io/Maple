@@ -60,7 +60,7 @@ function oneShot(bytes: Uint8Array, xmp: string, edge: number, preview: boolean)
 function estimate(bytes: Uint8Array): Pair {
   const session = CpuLiveSession.open(bytes, 'dng');
   try {
-    const [temperature, tint] = session.resolve_imported_white_balance();
+    const [temperature, tint] = session.resolve_imported_white_balance()!;
     return { temperature, tint };
   } finally {
     session.free();

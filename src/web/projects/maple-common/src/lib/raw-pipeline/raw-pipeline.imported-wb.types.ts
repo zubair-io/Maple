@@ -15,6 +15,12 @@ export interface ResolveImportedWbRequest {
   session: ImportedWbSession;
 }
 
+/** The main thread interrupted the estimate (#5923); the session keeps no pair. */
+export interface ResolveImportedWbCancelled {
+  id: number;
+  type: 'resolve-imported-wb-cancelled';
+}
+
 export interface ResolveImportedWbSuccess {
   id: number;
   type: 'resolve-imported-wb-success';

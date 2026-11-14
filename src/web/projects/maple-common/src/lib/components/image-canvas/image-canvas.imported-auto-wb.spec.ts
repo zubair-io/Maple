@@ -5,7 +5,6 @@ import { Injector, computed, signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ImageCanvasAdjustmentEffect } from './image-canvas.adjustment-effect';
-import { importedAutoBackgroundEstimate } from './image-canvas.imported-auto-wb';
 import type { ImageCanvasComponent } from './image-canvas.component';
 import { MaskSessionService } from '../mask-overlay/mask-session.service';
 import { defaultAdjustmentModel, type AdjustmentModel } from '../../models/adjustment-model';
@@ -68,7 +67,6 @@ function setup() {
 
 let cleanup: (() => void) | undefined;
 beforeEach(() => {
-  importedAutoBackgroundEstimate.enabled = true;
   TestBed.configureTestingModule({
     providers: [
       { provide: MaskSessionService, useValue: { brush: { rasterRevision: signal(0) } } },
@@ -76,7 +74,6 @@ beforeEach(() => {
   });
 });
 afterEach(() => {
-  importedAutoBackgroundEstimate.enabled = false;
   cleanup?.();
   cleanup = undefined;
   TestBed.resetTestingModule();
@@ -106,16 +103,6 @@ describe('imported Auto WB introduced after the cold open', () => {
     const t = setup();
     cleanup = t.cleanup;
     t.model.set({ ...numeric, exposure: 1 });
-    TestBed.tick();
-    expect(t.resolveImportedWhiteBalance).not.toHaveBeenCalled();
-    expect(t.scheduleRerender).toHaveBeenCalled();
-  });
-
-  it('asks nothing while the background estimate is staged off (#5923)', () => {
-    importedAutoBackgroundEstimate.enabled = false;
-    const t = setup();
-    cleanup = t.cleanup;
-    t.model.set(nameOnlyAuto);
     TestBed.tick();
     expect(t.resolveImportedWhiteBalance).not.toHaveBeenCalled();
     expect(t.scheduleRerender).toHaveBeenCalled();

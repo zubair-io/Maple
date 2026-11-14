@@ -20,6 +20,7 @@ import type { WritableSignal } from '@angular/core';
 import type { DecodedImage, ScopeSnapshot, WorkerResponse } from './raw-pipeline.types';
 import type { LensProfileFetch, LensProfileStatus } from '../lens/lens-profile.types';
 import type { PendingHandler } from './raw-pipeline.service-internals';
+import type { ImportedWbRequests } from './raw-pipeline.imported-wb-request';
 import { WbSampleRejected } from './raw-pipeline.sample-wb.types';
 import { ColorCurveSampleRejected, RangeSampleRejected } from './raw-pipeline.sample-range.types';
 
@@ -155,6 +156,10 @@ const settleSetFilmLut: Settler<'set-film-lut'> = (msg, handler) => {
 const settleResolveImportedWb: Settler<'resolve-imported-wb'> = (msg, handler) => {
   if (msg.type === 'resolve-imported-wb-success') {
     handler.resolve({ temperature: msg.temperature, tint: msg.tint });
+    return true;
+  }
+  if (msg.type === 'resolve-imported-wb-cancelled') {
+    handler.resolve(null);
     return true;
   }
   if (msg.type !== 'session-error') return false;
@@ -380,6 +385,8 @@ export interface WorkerDispatchContext {
   /** The worker's IndexedDB copy of a named profile is missing — the host
    *  restores what it can and then answers `lens-profile-restored`. */
   restoreLensProfile: (request: LensProfileFetch) => void;
+  /** Takes the worker's imported Auto WB cancel flag (#5923). */
+  importedWb: Pick<ImportedWbRequests, 'adoptCancelFlag'>;
 }
 
 /**
@@ -399,6 +406,7 @@ export function handleWorkerMessage(msg: WorkerResponse, ctx: WorkerDispatchCont
   if (msg.type === 'status') {
     ctx.threadedSubject.next(msg.threaded);
     ctx.threadCountSubject.next(msg.threads);
+    if (msg.importedWbCancel) ctx.importedWb.adoptCancelFlag(msg.importedWbCancel);
     return;
   }
   if (msg.type === 'scope-sample') {
