@@ -157,4 +157,21 @@ class XmpMaskSpliceTest {
         val scope = document.maskInput().getJSONArray("containers").getJSONObject(1).getJSONObject("scope")
         assertEquals(crs, scope.getString(""))
     }
+
+    @Test
+    fun appendedContainersAreWrittenInTheLastDescriptionsDefaultNamespace() {
+        // A carried unprefixed node that resets the default must still undeclare it inside a new group.
+        val source =
+            """<x:xmpmeta xmlns:x="adobe:ns:meta/">
+              | <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+              |  <rdf:Description rdf:about="" xmlns="urn:default">
+              |   <Other/>
+              |  </rdf:Description>
+              | </rdf:RDF>
+              |</x:xmpmeta>
+              |""".trimMargin()
+        val target = throughFile(source).maskInput().getJSONObject("target")
+        assertEquals("urn:default", target.getString(""))
+        assertEquals("http://ns.adobe.com/camera-raw-settings/1.0/", target.getString("crs"))
+    }
 }
