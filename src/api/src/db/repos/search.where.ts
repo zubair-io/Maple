@@ -414,7 +414,7 @@ export function monthNarrowing(where: SearchWhere): BoundPredicate | null {
  *
  * The default visibility filter is not applied to the RAW: a hidden RAW hides its stack.
  */
-function stackFold(where: SearchWhere): BoundPredicate | null {
+export function stackFold(where: SearchWhere): BoundPredicate | null {
   if (where.foldStacks !== true || where.match.kind !== 'none') return null;
   if (where.clauses.length === 0 && where.hidden !== 1) {
     return { sql: '+assets.stack_primary_id IS NULL', params: [] };

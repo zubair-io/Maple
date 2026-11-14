@@ -135,7 +135,9 @@ export async function searchPhotos(
   ]);
   if (visible.size < request.personIds.length) return EMPTY;
 
-  const scope = ownerPhotoWhere(identity.ownerId, dropped);
+  // Every place a photo has, a stack's JPEG included: the fold below keeps that JPEG when its RAW
+  // lacks the place, so discovering keys from folded rows would miss it.
+  const scope: SearchWhere = { ...ownerPhotoWhere(identity.ownerId, dropped), foldStacks: false };
   const placeKeys = request.place === null ? null : await matchingPlaceKeys(scope, request.place);
   if (placeKeys !== null && placeKeys.length === 0) return EMPTY;
 

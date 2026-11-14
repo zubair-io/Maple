@@ -81,6 +81,32 @@ export async function createServiceFixture(options: { libraryRoot?: string } = {
   return fixture;
 }
 
+/** A Nominatim-shaped `assets.place` document with its rollups. */
+export function placeDoc(fields: {
+  locality: string | null;
+  region: string | null;
+  countryCode: string;
+  country: string;
+  displayName: string;
+  extra?: Record<string, string>;
+}) {
+  return {
+    source: 'nominatim',
+    geocoder_version: 3,
+    display_name: fields.displayName,
+    address: {
+      ...(fields.locality ? { town: fields.locality } : {}),
+      ...(fields.region ? { state: fields.region } : {}),
+      country: fields.country,
+      country_code: fields.countryCode,
+      ...fields.extra,
+    },
+    pois: [],
+    rollups: { locality: fields.locality, region: fields.region, country_code: fields.countryCode },
+    search_blob: '',
+  };
+}
+
 const app = new Elysia().use(servicePhotosRoutes);
 
 export function serviceRequest(
