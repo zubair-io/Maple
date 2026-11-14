@@ -20,8 +20,6 @@ pub(crate) struct ColourInput<'a> {
     pub model: &'a AdjustmentModel,
     pub profile: DcpProfile,
     pub profile_source: dcp::ProfileSource,
-    /// 8-bit lossy LinearRaw, whose WB stays baked (see `develop`).
-    pub skip_pre_gain: bool,
     pub whites_anchor_ev: f32,
     pub chain: Chain,
     pub cancel: CancelToken<'a>,
@@ -33,7 +31,6 @@ pub(crate) struct CameraReady {
     pub camera_rgb: Image,
     pub profile: DcpProfile,
     pub profile_source: dcp::ProfileSource,
-    pub skip_pre_gain: bool,
     pub whites_anchor_ev: f32,
 }
 
@@ -52,7 +49,6 @@ impl CameraReady {
                 model,
                 profile: self.profile,
                 profile_source: self.profile_source,
-                skip_pre_gain: self.skip_pre_gain,
                 whites_anchor_ev: self.whites_anchor_ev,
                 chain,
                 cancel,
@@ -131,13 +127,14 @@ fn creative_of(input: ColourInput<'_>) -> (CreativeStage, Rest<'_>) {
         model,
         profile,
         profile_source,
-        skip_pre_gain,
         whites_anchor_ev,
         chain,
         cancel,
     } = input;
-    let calibrated =
-        !skip_pre_gain && !matches!(profile_source, dcp::ProfileSource::RawlerFallback);
+    // `RawlerFallback` and 8-bit lossy LinearRaw keep the post-DCP CAT16
+    // white balance (`RawImage::keeps_post_dcp_white_balance`).
+    let calibrated = !raw.keeps_post_dcp_white_balance()
+        && !matches!(profile_source, dcp::ProfileSource::RawlerFallback);
     let frame = calibrated.then(|| wb_camera::SliderFrame::resolve(raw, &profile));
     (
         CreativeStage {

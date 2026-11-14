@@ -1,6 +1,6 @@
 //! #4629: a LinearRaw DNG's declared OpcodeList2 transfer reaches the GPU
-//! through the shared CPU preparation, at neutral and extreme WB — both where
-//! it executes (high bit depth) and where 8-bit lossy holds it back (#5081).
+//! through the shared CPU preparation, at neutral and extreme WB — for both
+//! high bit depth and 8-bit lossy sources (#5081).
 use super::{assert_gpu_matches_cpu, gpu_available};
 use raw_core::{
     test_support::{
@@ -41,13 +41,11 @@ fn declared_transfer_matches_cpu_at_neutral_and_extreme_white_balance() {
             .collect();
         raw
     });
-    let held_back = cases
-        .each_ref()
-        .map(|raw| raw.skipped_required_opcodes().len());
-    assert_eq!(
-        held_back,
-        [3, 0],
-        "8-bit holds the transfer back; 12-bit runs it"
+    assert!(
+        cases
+            .iter()
+            .all(|raw| raw.skipped_required_opcodes().is_empty()),
+        "8-bit lossy and 12-bit both run the declared transfer"
     );
     for (raw, (temperature, tint)) in cases
         .iter()
@@ -88,10 +86,13 @@ fn physical_lossy_dng_matches_cpu_at_white_balance_extremes() {
     let bytes = std::fs::read(&path)
         .unwrap_or_else(|error| panic!("lossy DNG parity requires {}: {error}", path.display()));
     let raw = raw_core::decode::decode_bytes(&bytes, "dng").expect("decode test_0006");
-    assert_eq!(
-        raw.skipped_required_opcodes().len(),
-        3,
-        "test_0006 declares one required MapPolynomial per plane, held back (#5081)"
+    assert!(
+        raw.skipped_required_opcodes().is_empty(),
+        "test_0006 declares one required MapPolynomial per plane, all executed (#5081)"
+    );
+    assert!(
+        raw.sensor_gain_maps.is_some(),
+        "test_0006 carries its OpcodeList2 transfers"
     );
     for (temperature, tint, seen) in [
         (6500., 0., false),

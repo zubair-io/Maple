@@ -92,7 +92,6 @@ pub fn sensor_linearize_region(
     // `black_level` is per 2×2 position for Bayer and per CFA colour for
     // X-Trans — see `RawImage::black_level`.
     let black_by_colour = raw.cfa.is_xtrans();
-    let transfers = crate::sensor_gain_maps::transfers_apply(raw);
     img.pixels
         .par_chunks_mut(rw)
         .enumerate()
@@ -111,9 +110,10 @@ pub fn sensor_linearize_region(
                 let denom = (wl - bl).max(1.0);
                 let raw_v = raw_row[abs_x] as f32;
                 let v = ((raw_v - bl) / denom).clamp(0.0, 1.0);
-                px[color] = raw.sensor_gain_maps.as_ref().map_or(v, |maps| {
-                    maps.apply(abs_x as u32, abs_y as u32, 0, v, transfers)
-                });
+                px[color] = raw
+                    .sensor_gain_maps
+                    .as_ref()
+                    .map_or(v, |maps| maps.apply(abs_x as u32, abs_y as u32, 0, v));
             }
         });
     img
@@ -121,34 +121,32 @@ pub fn sensor_linearize_region(
 
 /// LinearRaw decode entry. Reshape interleaved `[R₀ G₀ B₀ R₁ G₁ B₁ …]`
 /// `raw.raw_data` into a `CameraNativeLinearRgb` `Image`, normalizing
-/// per-channel by `(white_level - black_level)` and (for 8-bit lossy
-/// LinearRaw) undoing the DNG Converter's implicit gamma encoding.
+/// per-channel by `(white_level - black_level)` and running the file's own
+/// OpcodeList2 steps (`sensor_gain_maps`).
 ///
-/// **Two flavors of LinearRaw exist in the wild:**
+/// Every LinearRaw source — Canon sRaw, iPhone, 8-bit lossy DNG Converter
+/// output — is **camera-RGB**: a neutral patch reads as
+/// `(K × asn_r, K, K × asn_b)`, the same shape the Bayer pipeline produces
+/// post-demosaic. The 8-bit lossy DNG Converter output is encoded through
+/// the required `MapPolynomial` it declares per plane (red/blue
+/// `0.0625·x + 0.9375·x³`); that transfer, not a guessed gamma, is what
+/// linearizes it (#5081). Downstream pre-gain in `pipeline/develop.rs`
+/// divides by AsShotNeutral so neutrals enter DCP as `(1, 1, 1)` and
+/// `dcp::apply` handles it identically to Bayer.
 ///
-/// 1. **8-bit lossy linear DNG** (`Compression = LossyJPEG`,
-///    `BitsPerSample = 8 8 8`, no `LinearizationTable`): the DNG
-///    Converter writes data with WB pre-applied AND a perceptually-
-///    uniform gamma curve (~2.4) before JPEG compression. We detect
-///    via `white_level <= 255` and invert: `linear = encoded^2.4`. The
-///    data stays WB-baked; DCP handles via `wb_already_baked = false`
-///    (legacy `inv(CM) · AsShotNeutral` path — see lossy_8bit comment).
+/// An 8-bit plane that no declared transfer covers (no OpcodeList2, or its
+/// required `MapPolynomial` skipped as malformed/unsupported and surfaced on
+/// `RawImage::skipped_required_opcodes`) keeps the legacy gamma 2.4 decode
+/// rather than passing the encoded value through: 8 bits hold no usable
+/// linear range, so such a plane is the converter's perceptual encoding
+/// with its transfer missing. High-bit-depth planes without a transfer are
+/// linear, as the DNG spec says.
 ///
-/// 2. **High-bit-depth linear DNG / Canon sRaw / iPhone LinearRaw**:
-///    data is in **camera-RGB space** — a neutral patch reads as
-///    `(K × asn_r, K, K × asn_b)`, the same shape the Bayer pipeline
-///    produces post-demosaic. We just black-normalize; downstream
-///    pre-gain in `pipeline/develop.rs` divides by AsShotNeutral so
-///    neutrals enter DCP as `(1, 1, 1)`. `dcp::apply` handles it
-///    identically to Bayer.
-///
-///    Verified by `examples/sraw_probe` (ticket #373): center-patch
-///    R/G ≈ AsShotNeutral_R for Canon sRaw (5DM4) and iPhone 12 Pro —
-///    camera-RGB, NOT pre-baked WB. The pre-#373 multiply by
-///    AsShotNeutral cancelled with pre-gain (leaving camera-RGB into
-///    DCP) but `dcp::profile_for` set `wb_already_baked = true`, so
-///    Bradford used `inv(CM) · (1,1,1)` instead of
-///    `inv(CM) · AsShotNeutral` — crushing R on Canon sRaw neutrals.
+/// Verified by `examples/sraw_probe` (ticket #373): center-patch R/G ≈
+/// AsShotNeutral_R for Canon sRaw (5DM4) and iPhone 12 Pro; by the
+/// whole-frame mean of the lossy `test_0006.DNG` (R/G 0.83, B/G 0.33 on a
+/// warm scene against AsShotNeutral 0.61 / 0.46, where a pre-balanced
+/// frame would read R ≥ G).
 ///
 /// Skips both `sensor_linearize` and `demosaic::*` because the data is
 /// already 3-channel RGB. Caller dispatches on
@@ -180,14 +178,10 @@ pub fn linearraw_to_camera_rgb(raw: &RawImage) -> crate::Result<Image> {
     let denom_g = (wl - bl_g).max(1.0);
     let denom_b = (wl - bl_b).max(1.0);
 
-    // Distinguish 8-bit lossy (gamma-encoded) from high-bit-depth (linear).
-    // 8-bit white_level == 255 is the unambiguous signal: any DNG-Converter lossy
-    // linear DNG without a LinearizationTable lands here. High-bit-depth
-    // lossy DNGs go through rawler's `apply_linearization` and arrive
-    // already linearized at white_level = 65535 (or similar).
-    let lossy_8bit = raw.white_level <= 255;
-    let transfers = crate::sensor_gain_maps::transfers_apply(raw);
     let corrections = raw.sensor_gain_maps.as_ref();
+    let gamma_fallback: [bool; 3] = std::array::from_fn(|plane| {
+        raw.white_level <= 255 && !corrections.is_some_and(|c| c.has_transfer_for(plane as u32))
+    });
 
     let mut img = Image::new(raw.width, raw.height, ColorSpace::CameraNativeLinearRgb);
     img.pixels.par_iter_mut().enumerate().for_each(|(idx, px)| {
@@ -199,15 +193,14 @@ pub fn linearraw_to_camera_rgb(raw: &RawImage) -> crate::Result<Image> {
             ((raw.raw_data[off + 2] as f32 - bl_b) / denom_b).clamp(0.0, 1.0),
         ];
         *px = std::array::from_fn(|plane| {
-            let value = encoded[plane];
-            // 8-bit lossy LinearRaw is gamma-encoded: invert the DNG
-            // Converter's usual gamma 2.4, even where the file declares its
-            // own OpcodeList2 transfer (`transfers_apply`, #5081). WB stays
-            // baked; DCP derives `scene_white_xyz` from
-            // `inv(CM) · AsShotNeutral` (legacy path), which matched the
-            // reference better than `wb_already_baked = true`.
-            let decoded = if lossy_8bit { value.powf(2.4) } else { value };
-            corrections.map_or(decoded, |c| c.apply(x, y, plane as u32, decoded, transfers))
+            let value = if gamma_fallback[plane] {
+                encoded[plane].powf(2.4)
+            } else {
+                encoded[plane]
+            };
+            // The file's own OpcodeList2 steps decode it (DNG spec): the
+            // MapPolynomial transfer of a lossy 8-bit LinearRaw, any gain map.
+            corrections.map_or(value, |c| c.apply(x, y, plane as u32, value))
         });
     });
     Ok(img)

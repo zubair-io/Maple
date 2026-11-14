@@ -23,9 +23,7 @@ impl WhiteBalance {
     pub fn from_raw(raw: &RawImage) -> Result<Self, String> {
         let (profile, source) = dcp::profile_for_with_source(raw).map_err(|e| e.to_string())?;
         // Match the develop entry's camera-space versus post-DCP WB dispatch.
-        let baked =
-            matches!(raw.cfa, raw_core::image::CfaPattern::LinearRgb) && raw.white_level <= 255;
-        if baked || matches!(source, ProfileSource::RawlerFallback) {
+        if raw.keeps_post_dcp_white_balance() || matches!(source, ProfileSource::RawlerFallback) {
             return Ok(Self::Display);
         }
         Ok(Self::Camera(Box::new(CameraReference {

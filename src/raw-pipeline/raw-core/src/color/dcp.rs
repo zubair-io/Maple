@@ -337,13 +337,13 @@ pub(crate) fn camera_to_prophoto_with_forward(
             //
             // Two reasons to reach here:
             //   1. `forward_matrix` is `None` — no FM in the profile.
-            //   2. `wb_already_baked = false` — the 8-bit lossy LinearRaw
-            //      escape hatch (see `is_lossy_linearraw`): the converter
-            //      baked WB through gamma decode, so AsShotNeutral was NOT
-            //      pre-applied by the pipeline's `apply_pre_gain`. Applying
-            //      FM here would assume the buffer is WB-divided (FM's
-            //      contract per DNG SDK), which it is not — so we Bradford
-            //      instead of touching FM.
+            //   2. `wb_already_baked = false` — a profile whose buffer the
+            //      pipeline did NOT pre-gain by AsShotNeutral. Applying FM
+            //      there would assume a WB-divided buffer (FM's contract
+            //      per DNG SDK), which it is not — so we Bradford instead
+            //      of touching FM. `profile_for_with_source` always sets
+            //      `true`; only hand-built profiles reach this arm. Removing
+            //      the flag and its FFI plumbing is tracked in #5925.
             let cam_to_xyz = profile.color_matrix.inverse().ok_or_else(|| {
                 crate::Error::Dcp("ColorMatrix is singular, cannot invert to camera→XYZ".into())
             })?;
@@ -920,7 +920,7 @@ pub fn estimate_as_shot_cct_tint_with_source(
 /// banned rawler's substituted matrices, not the matrices that ship
 /// inside the DNG file itself.
 pub fn profile_for_with_source(raw: &RawImage) -> crate::Result<(DcpProfile, ProfileSource)> {
-    let wb_already_baked = !is_lossy_linearraw(raw);
+    let wb_already_baked = true;
 
     // ── 1. Embedded full profile (CM + FM + HSM) ──────────────────────────
     // Camera vendor's own complete calibration; beats the bundle because
@@ -983,17 +983,6 @@ pub fn profile_for_with_source(raw: &RawImage) -> crate::Result<(DcpProfile, Pro
         },
         ProfileSource::RawlerFallback,
     ))
-}
-
-/// Maple's pipeline pre-gains by `AsShotNeutral` upstream of DCP for every
-/// path EXCEPT the 8-bit lossy LinearRaw escape hatch
-/// (`pipeline::develop::develop_scene_linear_from_raw_with_quality` —
-/// gamma-decoded camera RGB whose white_level fits in 8 bits).
-/// `wb_already_baked` mirrors that pre-gain decision so DCP's Bradford /
-/// FM dispatch picks the right neutral source.
-#[inline]
-fn is_lossy_linearraw(raw: &RawImage) -> bool {
-    matches!(raw.cfa, crate::image::CfaPattern::LinearRgb) && raw.white_level <= 255
 }
 
 /// Build a DcpProfile from whatever calibration matrices the source DNG
@@ -1958,23 +1947,19 @@ mod tests {
         );
     }
 
-    /// `wb_already_baked` derivation is a property of `cfa` +
-    /// `white_level`, independent of which profile-source path runs.
-    /// Under #424/#460 a synthetic raw without a UCM AND no embedded matrices
-    /// goes through the `RawlerFallback` path, which still carries
-    /// `wb_already_baked` derived from the same cfa/white_level rules
-    /// as the original linearraw / Bayer dispatch — this regression
+    /// `wb_already_baked` holds for every `cfa` and `white_level`: the
+    /// pipeline pre-gains by `AsShotNeutral` for all of them, independent of
+    /// which profile-source path runs. Under #424/#460 a synthetic raw
+    /// without a UCM AND no embedded matrices goes through the
+    /// `RawlerFallback` path, which carries the same flag — this regression
     /// test confirms that property survives the never-identity refactor.
     ///
-    /// Under #373 (Canon non-Bayer decode fix), high-bit-depth
-    /// LinearRgb now passes camera-RGB through unchanged in
-    /// `linearize::linearraw_to_camera_rgb`; downstream pre-gain still
-    /// runs and `wb_already_baked` stays `true` for that path. The
-    /// 8-bit lossy LinearRgb branch (`white_level <= 255`) keeps
-    /// `wb_already_baked = false` and the legacy
-    /// `inv(CM) · AsShotNeutral` Bradford source — same as before.
+    /// Under #373 (Canon non-Bayer decode fix), LinearRgb passes
+    /// camera-RGB through unchanged in `linearize::linearraw_to_camera_rgb`;
+    /// downstream pre-gain still runs. The 8-bit lossy DNG Converter output
+    /// is the same shape once its declared transfer is applied (#5081).
     #[test]
-    fn generic_profile_wb_already_baked_follows_cfa_and_white_level() {
+    fn generic_profile_wb_already_baked_holds_for_every_cfa_and_white_level() {
         let warm_wb: [f32; 3] = [1.65, 1.0, 2.16];
 
         // 16-bit LinearRgb (white_level > 255): pipeline.rs pre-gains,
@@ -2022,14 +2007,14 @@ mod tests {
         let (prof_bayer, _) = profile_for_with_source(&raw_bayer).unwrap();
         assert!(prof_bayer.wb_already_baked);
 
-        // 8-bit lossy LinearRgb (white_level <= 255): no pre-gain,
-        // wb_already_baked stays false.
+        // 8-bit lossy LinearRgb decodes through its declared OpcodeList2
+        // transfer and is pre-gained like every other source (#5081).
         let mut raw_lossy = raw_linear.clone();
         raw_lossy.white_level = 255;
         let (prof_lossy, _) = profile_for_with_source(&raw_lossy).unwrap();
         assert!(
-            !prof_lossy.wb_already_baked,
-            "8-bit lossy LinearRgb must keep wb_already_baked=false"
+            prof_lossy.wb_already_baked,
+            "8-bit lossy LinearRgb is pre-gained: wb_already_baked=true"
         );
     }
 

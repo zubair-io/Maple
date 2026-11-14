@@ -33,19 +33,16 @@ fn render_at(
             p[2] *= be;
         }
     }
-    let skip_pre_gain = is_linear_rgb && raw.white_level <= 255;
-    if !skip_pre_gain {
-        let asn = raw.as_shot_neutral;
-        for p in &mut camera_rgb.pixels {
-            if asn[0] > 1e-6 {
-                p[0] /= asn[0];
-            }
-            if asn[1] > 1e-6 {
-                p[1] /= asn[1];
-            }
-            if asn[2] > 1e-6 {
-                p[2] /= asn[2];
-            }
+    let asn = raw.as_shot_neutral;
+    for p in &mut camera_rgb.pixels {
+        if asn[0] > 1e-6 {
+            p[0] /= asn[0];
+        }
+        if asn[1] > 1e-6 {
+            p[1] /= asn[1];
+        }
+        if asn[2] > 1e-6 {
+            p[2] /= asn[2];
         }
     }
 
@@ -56,7 +53,8 @@ fn render_at(
         profile.scene_cct
     );
 
-    if !skip_pre_gain && !matches!(source, dcp::ProfileSource::RawlerFallback) {
+    if !raw.keeps_post_dcp_white_balance() && !matches!(source, dcp::ProfileSource::RawlerFallback)
+    {
         let frame = wb_camera::SliderFrame::resolve(raw, &profile);
         println!(
             "  scene_cct (as-shot, slider frame): {:.1} K",

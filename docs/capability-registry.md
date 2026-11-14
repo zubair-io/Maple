@@ -31,7 +31,7 @@ Generated from `src/raw-pipeline/raw-core/src/capability_registry/` (the registr
   - `grey_dcp` — satisfied
   - `color_chart` — satisfied
   - `color_harness` — 92 failed
-  - `gpu_chain_parity_metal` — corpus changed since the record
+  - `gpu_chain_parity_metal` — satisfied
   - `apple_canvas_golden` — no record
 
 ### `tone` — Tone (exposure, contrast, parametric and point curves)
@@ -54,7 +54,7 @@ Generated from `src/raw-pipeline/raw-core/src/capability_registry/` (the registr
   - `grey_dcp` — satisfied
   - `color_chart` — satisfied
   - `color_harness` — 92 failed
-  - `gpu_chain_parity_metal` — corpus changed since the record
+  - `gpu_chain_parity_metal` — satisfied
   - `apple_canvas_golden` — no record
 
 ### `color` — Color (HSL, B&W mixer, color grading, profile and look)
@@ -77,7 +77,7 @@ Generated from `src/raw-pipeline/raw-core/src/capability_registry/` (the registr
   - `grey_dcp` — satisfied
   - `color_chart` — satisfied
   - `color_harness` — 92 failed
-  - `gpu_chain_parity_metal` — corpus changed since the record
+  - `gpu_chain_parity_metal` — satisfied
   - `apple_canvas_golden` — no record
 
 ### `detail` — Detail (sharpening, noise reduction, presence, dehaze, lens)
@@ -100,7 +100,7 @@ Generated from `src/raw-pipeline/raw-core/src/capability_registry/` (the registr
   - `grey_dcp` — satisfied
   - `color_chart` — satisfied
   - `color_harness` — 92 failed
-  - `gpu_chain_parity_metal` — corpus changed since the record
+  - `gpu_chain_parity_metal` — satisfied
   - `apple_canvas_golden` — no record
 
 ### `effects` — Effects (vignette, grain, film looks)
@@ -119,7 +119,7 @@ Generated from `src/raw-pipeline/raw-core/src/capability_registry/` (the registr
   - `gpu_chain_parity_lavapipe` — no record
 - Qualification evidence:
   - `grey_adjustments` — satisfied
-  - `gpu_chain_parity_metal` — corpus changed since the record
+  - `gpu_chain_parity_metal` — satisfied
   - `apple_canvas_golden` — no record
 
 ### `geometry` — Crop and straighten
@@ -331,7 +331,7 @@ Generated from `src/raw-pipeline/raw-core/src/capability_registry/` (the registr
 - Accepted backends: `metal`
 - Expected cases: 28
 - Corpus: `src/raw-pipeline/raw-wasm/src/gpu_render.rs`, `src/raw-pipeline/raw-wasm/src/gpu_render`, `src/apple/MapleUITests/Fixtures/synthetic/grey-l018-rggb.dng`
-- Record: corpus changed since the record — 28 of 28 executed, 0 failed, 0 skipped, on `metal`, commit `b5ede2948dabbe960a9949ae75558ae7c094027f`, recorded 2026-10-26T23:19:17Z
+- Record: satisfied — 28 of 28 executed, 0 failed, 0 skipped, on `metal`, commit `f230cd90283a8160620a42d3783a389c44889072`, recorded 2026-11-12T13:36:22Z
 
 ### `apple_canvas_golden`
 

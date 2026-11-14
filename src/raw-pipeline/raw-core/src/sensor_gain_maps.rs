@@ -1,9 +1,9 @@
-use crate::image::{CfaPattern, RawImage};
+use crate::image::RawImage;
 use crate::pipeline::pano::{
     opcode_apply::sample_lattice,
     opcodes::{
         self, ActiveAreaRect, GainMapOpcode, MapPolynomialOpcode, OpcodeList3, PanoOpcode,
-        SkipReason, SkippedOpcode,
+        SkippedOpcode,
     },
 };
 
@@ -70,36 +70,12 @@ pub(crate) fn read(
     }
 }
 
-/// Whether declared OpcodeList2 transfers execute on this image. 8-bit lossy
-/// LinearRaw keeps its gamma 2.4 guess instead: the downstream lossy white
-/// balance and exposure were tuned to it, and the declared transfer
-/// regresses the embedded-JPEG gate until they are re-derived (#5081).
-pub(crate) fn transfers_apply(raw: &RawImage) -> bool {
-    !(raw.cfa == CfaPattern::LinearRgb && raw.white_level <= 255)
-}
-
-/// Every required opcode the render does not execute: the parse-time skips
-/// plus any declared transfer held back by [`transfers_apply`].
+/// Every required opcode the render does not execute: the parse-time skips.
 pub(crate) fn skipped_required(raw: &RawImage) -> Vec<SkippedOpcode> {
-    let held_back = raw
-        .sensor_gain_maps
-        .iter()
-        .filter(|_| !transfers_apply(raw))
-        .flat_map(|maps| &maps.steps)
-        .filter_map(|step| match step {
-            SensorStep::Transfer(p) if p.required => Some(SkippedOpcode {
-                list: opcodes::OpcodeListKind::List2,
-                id: Some(opcodes::OPCODE_ID_MAP_POLYNOMIAL),
-                required: true,
-                reason: SkipReason::NotApplied,
-            }),
-            _ => None,
-        });
     raw.opcode_skips
         .iter()
         .copied()
         .filter(|skip| skip.required)
-        .chain(held_back)
         .collect()
 }
 
@@ -135,7 +111,7 @@ impl SensorGainMaps {
     /// `value` normalised to [0, 1], put through every step covering the site
     /// in list order. Consecutive gains are multiplied together before they
     /// meet the value, so a list without transfers is `value × Π gains`.
-    pub(crate) fn apply(&self, x: u32, y: u32, plane: u32, value: f32, transfers: bool) -> f32 {
+    pub(crate) fn apply(&self, x: u32, y: u32, plane: u32, value: f32) -> f32 {
         let Some((x, y)) = self.site(x, y) else {
             return value;
         };
@@ -146,9 +122,7 @@ impl SensorGainMaps {
                 SensorStep::Gain(map) if covers_gain(map, x, y, plane) => {
                     (v, g * self.lattice_gain(map, x, y, plane))
                 }
-                SensorStep::Transfer(p) if transfers && p.covers(x, y, plane) => {
-                    (p.evaluate(v * g), 1.)
-                }
+                SensorStep::Transfer(p) if p.covers(x, y, plane) => (p.evaluate(v * g), 1.),
                 _ => (v, g),
             });
         value * gain
@@ -157,7 +131,7 @@ impl SensorGainMaps {
     /// A lower bound on every site's saturation level (`apply` of an encoded
     /// 1), tracked as an interval through the steps; a site a step does not
     /// cover keeps its value, so each step widens rather than replaces it.
-    pub(crate) fn saturation_floor(&self, transfers: bool) -> f32 {
+    pub(crate) fn saturation_floor(&self) -> f32 {
         let (floor, _) = self
             .steps
             .iter()
@@ -173,11 +147,10 @@ impl SensorGainMaps {
                         products.into_iter().fold(f32::NEG_INFINITY, f32::max),
                     )
                 }
-                SensorStep::Transfer(p) if transfers => {
+                SensorStep::Transfer(p) => {
                     let (min, max) = p.range_over(low, high);
                     (low.min(min), high.max(max))
                 }
-                SensorStep::Transfer(_) => (low, high),
             });
         floor
     }
@@ -190,6 +163,14 @@ impl SensorGainMaps {
         self.steps
             .iter()
             .any(|s| matches!(s, SensorStep::Transfer(_)))
+    }
+
+    /// Whether a declared transfer covers `plane` anywhere in the image.
+    pub(crate) fn has_transfer_for(&self, plane: u32) -> bool {
+        self.steps.iter().any(|s| match s {
+            SensorStep::Transfer(p) => plane >= p.plane && plane - p.plane < p.planes,
+            SensorStep::Gain(_) => false,
+        })
     }
 
     /// A masked-margin sample carries the data of the nearest same-phase
@@ -243,7 +224,7 @@ mod tests {
 
     impl SensorGainMaps {
         fn saturation(&self, x: u32, y: u32, plane: u32) -> f32 {
-            self.apply(x, y, plane, 1., true)
+            self.apply(x, y, plane, 1.)
         }
     }
 

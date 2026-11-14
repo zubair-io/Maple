@@ -205,22 +205,10 @@ pub(crate) fn develop_camera(
     // gated this step was removed in #370. (The follow-up global Look LUT
     // #371 was retired in #443.) See
     // .archived-plans/specs/2026-04-30-color-convergence-design.md.
-    //
-    // Skipped for 8-bit lossy LinearRaw DNGs (DNG Converter's
-    // perceptually-encoded output) where WB stays baked through the linearize
-    // step and DCP must derive scene_white_xyz from `inv(CM) · AsShotNeutral`
-    // as the empirical (legacy) path. See linearize::linearraw_to_camera_rgb
-    // and dcp::profile_for for the matching wb_already_baked decision.
-    let skip_pre_gain =
-        matches!(raw.cfa, crate::image::CfaPattern::LinearRgb) && raw.white_level <= 255;
-    if !skip_pre_gain {
-        stage("white_balance::apply_pre_gain", || {
-            white_balance::apply_pre_gain(&mut camera_rgb, raw.as_shot_neutral)
-        });
-    }
+    stage("white_balance::apply_pre_gain", || {
+        white_balance::apply_pre_gain(&mut camera_rgb, raw.as_shot_neutral)
+    });
     // After WB pre-gain, highlight ceilings are 2^BE / AsShotNeutral.
-    // Use identity neutral (1,1,1) when pre-gain was skipped (8-bit lossy
-    // LinearRaw); otherwise the detector misses R/B clips and trips on G.
     stage("highlight_recovery", || {
         super::tile::recover_full_frame(
             &mut camera_rgb,
@@ -296,7 +284,6 @@ pub(crate) fn develop_camera(
         camera_rgb,
         profile,
         profile_source,
-        skip_pre_gain,
         whites_anchor_ev,
     })
 }
@@ -422,5 +409,7 @@ mod tests_vignette_opcode;
 mod tests_defringe;
 #[cfg(test)]
 mod tests_highlight_bounds;
+#[cfg(test)]
+mod tests_lossy_wb_tier;
 #[cfg(test)]
 mod tests_sized_lateral_ca;

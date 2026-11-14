@@ -299,14 +299,10 @@ fn develop_scene_linear_for_pano(
     }
     dump_after("pano_00a_baseline_exposure", &camera_rgb);
 
-    // DNG WB pre-gain (spec § 1.4.4.5 step 4) — skipped for 8-bit lossy
-    // LinearRaw exactly as in develop (WB stays baked there).
-    let skip_pre_gain = matches!(raw.cfa, CfaPattern::LinearRgb) && raw.white_level <= 255;
-    if !skip_pre_gain {
-        stage("pano_white_balance::apply_pre_gain", || {
-            white_balance::apply_pre_gain(&mut camera_rgb, raw.as_shot_neutral)
-        });
-    }
+    // DNG WB pre-gain (spec § 1.4.4.5 step 4), as in develop.
+    stage("pano_white_balance::apply_pre_gain", || {
+        white_balance::apply_pre_gain(&mut camera_rgb, raw.as_shot_neutral)
+    });
     // Clipped-channel reconstruction with the canonical default mode. The
     // per-channel ceilings mirror develop's hr_neutral selection.
     stage("pano_highlight_recovery", || {

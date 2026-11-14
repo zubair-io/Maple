@@ -429,21 +429,17 @@ pub unsafe extern "C" fn maple_render_bytes_scene_linear_sized_f32(
 /// `wb_camera::SliderFrame` data + in-frame as-shot `(scene_cct, tint)`, so
 /// the host can derive per-tick WB deltas in the develop chain's own
 /// calibration frame. Gated on EXACTLY the tiers `pipeline::develop` gates
-/// `wb_camera` on (real calibration, pre-gained Bayer/full-LinearRaw
-/// source); everything else exports `SliderFrameExport::ABSENT`, matching
-/// the develop chain's own post-DCP CAT16 fallback.
+/// `wb_camera` on (real calibration, pre-gained Bayer/LinearRaw source);
+/// everything else exports `SliderFrameExport::ABSENT`, matching the develop
+/// chain's own post-DCP CAT16 fallback.
 pub(crate) fn wb_frame_export(
     raw: &raw_core::RawImage,
 ) -> raw_core::stages::wb_camera::SliderFrameExport {
     use raw_core::stages::wb_camera::SliderFrameExport;
-    let skip_pre_gain =
-        matches!(raw.cfa, raw_core::image::CfaPattern::LinearRgb) && raw.white_level <= 255;
-    if skip_pre_gain {
-        return SliderFrameExport::ABSENT;
-    }
     match raw_core::color::dcp::profile_for_with_source(raw) {
         Ok((profile, source))
-            if !matches!(source, raw_core::color::dcp::ProfileSource::RawlerFallback) =>
+            if !raw.keeps_post_dcp_white_balance()
+                && !matches!(source, raw_core::color::dcp::ProfileSource::RawlerFallback) =>
         {
             SliderFrameExport::resolve(raw, &profile)
         }

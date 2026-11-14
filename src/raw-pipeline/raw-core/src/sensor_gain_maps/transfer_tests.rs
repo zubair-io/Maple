@@ -2,7 +2,7 @@ use super::*;
 use crate::{
     decode::decode_bytes,
     linearize::{linearraw_to_camera_rgb, sensor_linearize},
-    pipeline::pano::opcodes::{parse_opcode_list, OpcodeListKind},
+    pipeline::pano::opcodes::{parse_opcode_list, OpcodeListKind, SkipReason},
     test_support::{
         gain_map::{entry, gain_entry, map, opcode_list, polynomial_entry},
         synth_dng::SyntheticGreyDng,
@@ -38,15 +38,6 @@ fn as_linear_raw(mut raw: RawImage, white_level: u32) -> RawImage {
     raw.white_level = white_level;
     raw.raw_data = vec![(white_level + 1) as u16 / 2; raw.width as usize * raw.height as usize * 3];
     raw
-}
-
-fn held_back(required: bool) -> SkippedOpcode {
-    SkippedOpcode {
-        list: OpcodeListKind::List2,
-        id: Some(8),
-        required,
-        reason: SkipReason::NotApplied,
-    }
 }
 
 #[test]
@@ -122,11 +113,10 @@ fn malformed_map_polynomials_are_skipped_without_dropping_their_neighbours() {
     assert_eq!(malformed(&[0., 1.], [0, 0, 0, 64]), expected, "empty area");
 }
 
-/// The staging in `transfers_apply` (#5081): 8-bit lossy LinearRaw keeps
-/// the gamma guess, byte-for-byte what it rendered before the transfer was
-/// parsed, and reports every required transfer it held back.
+/// #5081: 8-bit lossy LinearRaw is decoded by its own declared transfers —
+/// not a guessed gamma — and nothing it declares is left unexecuted.
 #[test]
-fn lossy_linear_raw_keeps_the_gamma_guess_and_reports_the_held_back_transfer() {
+fn lossy_linear_raw_is_decoded_by_its_declared_transfers() {
     let declared = [
         polynomial_entry([0, 0, 64, 64], 0, 1, &RED_BLUE),
         polynomial_entry([0, 0, 64, 64], 1, 1, &GREEN),
@@ -136,20 +126,52 @@ fn lossy_linear_raw_keeps_the_gamma_guess_and_reports_the_held_back_transfer() {
             &polynomial_entry([0, 0, 64, 64], 2, 1, &RED_BLUE)[16..],
         ),
     ];
-    let raw = as_linear_raw(decode_with_list2(&declared), 254);
-    let mut undeclared = raw.clone();
-    undeclared.sensor_gain_maps = None;
-    assert_eq!(
-        linearraw_to_camera_rgb(&raw).unwrap().pixels,
-        linearraw_to_camera_rgb(&undeclared).unwrap().pixels
+    let raw = as_linear_raw(decode_with_list2(&declared), 255);
+    let encoded = 128f32 / 255.;
+    let image = linearraw_to_camera_rgb(&raw).unwrap();
+    let expected = [
+        polynomial(&RED_BLUE).evaluate(encoded),
+        polynomial(&GREEN).evaluate(encoded),
+        polynomial(&RED_BLUE).evaluate(encoded),
+    ];
+    assert!(image.pixels.iter().all(|pixel| *pixel == expected));
+    assert!(
+        expected[0] < encoded.powf(2.4) * 0.9,
+        "the declared transfer, not the gamma 2.4 guess"
     );
-    assert!(linearraw_to_camera_rgb(&raw).unwrap().pixels[0] == [0.5f32.powf(2.4); 3]);
-    assert_eq!(
-        raw.skipped_required_opcodes(),
-        [held_back(true), held_back(true)],
-        "the optional blue transfer is not reported"
-    );
-    assert!(ClipGainContext::new(&raw, (0, 0), 1).is_none());
+    assert!(raw.skipped_required_opcodes().is_empty());
+    assert!(ClipGainContext::new(&raw, (0, 0), 1).is_some());
+}
+
+/// An 8-bit LinearRaw plane no declared transfer covers keeps the legacy
+/// gamma 2.4 decode instead of rendering un-linearized: with no OpcodeList2,
+/// and on the plane whose required transfer was skipped as malformed (the
+/// other planes still run theirs). High-bit-depth data without a transfer is
+/// linear (DNG spec) and passes through.
+#[test]
+fn an_8bit_plane_without_an_executed_transfer_keeps_the_gamma_fallback() {
+    let encoded = 128f32 / 255.;
+    let bare = linearraw_to_camera_rgb(&as_linear_raw(decode_with_list2(&[]), 255)).unwrap();
+    assert!(bare.pixels.iter().all(|p| *p == [encoded.powf(2.4); 3]));
+
+    let malformed_red = [
+        polynomial_entry([0, 0, 64, 64], 0, 1, &[0.; 10]),
+        polynomial_entry([0, 0, 64, 64], 1, 1, &GREEN),
+        polynomial_entry([0, 0, 64, 64], 2, 1, &RED_BLUE),
+    ];
+    let raw = as_linear_raw(decode_with_list2(&malformed_red), 255);
+    assert_eq!(raw.skipped_required_opcodes().len(), 1);
+    let image = linearraw_to_camera_rgb(&raw).unwrap();
+    let expected = [
+        encoded.powf(2.4),
+        polynomial(&GREEN).evaluate(encoded),
+        polynomial(&RED_BLUE).evaluate(encoded),
+    ];
+    assert!(image.pixels.iter().all(|p| *p == expected));
+
+    let high_bit = linearraw_to_camera_rgb(&as_linear_raw(decode_with_list2(&[]), 4095)).unwrap();
+    let linear = 2048f32 / 4095.;
+    assert!(high_bit.pixels.iter().all(|p| *p == [linear; 3]));
 }
 
 #[test]
