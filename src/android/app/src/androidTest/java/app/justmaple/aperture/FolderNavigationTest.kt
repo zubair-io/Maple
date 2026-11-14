@@ -7,7 +7,6 @@ import android.provider.MediaStore
 import android.view.accessibility.AccessibilityNodeInfo
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.ui.test.*
-import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.lifecycle.ViewModelProvider
 import androidx.test.platform.app.InstrumentationRegistry
 import java.util.UUID
@@ -17,7 +16,7 @@ import org.junit.Test
 
 /** Real SAF folders exercise both the Browse tiles and the independent navigation tree. */
 class FolderNavigationTest {
-    @get:Rule val compose = createAndroidComposeRule<MainActivity>()
+    @get:Rule val compose = mainThreadComposeRule<MainActivity>()
 
     @Test
     fun folderTilesAndNavigationShareTheSelectedHierarchy() {

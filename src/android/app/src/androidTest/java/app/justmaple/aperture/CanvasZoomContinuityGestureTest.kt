@@ -1,5 +1,6 @@
 package app.justmaple.aperture
 
+import androidx.activity.ComponentActivity
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.size
 import androidx.compose.ui.Modifier
@@ -7,7 +8,6 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.click
 import androidx.compose.ui.test.junit4.StateRestorationTester
-import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.unit.dp
@@ -24,7 +24,7 @@ import org.junit.Test
 
 /** Rotation, fold posture and crop undo keep the zoom, through the real JNI binding (#5748). */
 class CanvasZoomContinuityGestureTest {
-    @get:Rule val compose = createComposeRule()
+    @get:Rule val compose = mainThreadComposeRule<ComponentActivity>()
 
     private val photo = "content://photos/a.dng:100:1"
 

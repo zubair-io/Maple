@@ -1,5 +1,6 @@
 package app.justmaple.aperture
 
+import androidx.activity.ComponentActivity
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
@@ -9,7 +10,6 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.toPixelMap
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.*
-import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.unit.dp
 import app.justmaple.aperture.generated.AdjustmentFields
 import app.justmaple.aperture.ui.*
@@ -18,7 +18,7 @@ import org.junit.Rule
 import org.junit.Test
 
 class AdjustmentSliderTest {
-    @get:Rule val compose = createComposeRule()
+    @get:Rule val compose = mainThreadComposeRule<ComponentActivity>()
 
     @Test
     fun verticalSwipeAcrossSlidersScrollsWithoutEditing() {

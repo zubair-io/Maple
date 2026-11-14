@@ -10,7 +10,6 @@ import android.provider.DocumentsContract
 import android.provider.MediaStore
 import android.view.accessibility.AccessibilityNodeInfo
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.test.platform.app.InstrumentationRegistry
 import app.justmaple.aperture.data.*
 import java.io.File
@@ -21,7 +20,7 @@ import org.junit.Rule
 import org.junit.Test
 
 class SharedFolderCacheTest {
-    @get:Rule val compose = createAndroidComposeRule<MainActivity>()
+    @get:Rule val compose = mainThreadComposeRule<MainActivity>()
     private val instrumentation
         get() = InstrumentationRegistry.getInstrumentation()
 
