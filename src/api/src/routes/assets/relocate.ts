@@ -48,9 +48,8 @@ import {
 import { isSafeFilename } from '../../backup/path-formatter.ts';
 import {
   StackCompanionBodyFields,
-  resolveAssetIdOrRespond,
+  assetAndCompanionOrRespond,
   relocateResultResponse,
-  stackCompanionOrRespond,
 } from './_shared.ts';
 import { requireFileAccessBeforeHandle } from '../../auth/middleware.ts';
 
@@ -133,10 +132,9 @@ async function resolveSourceFileInfo(
 export const relocateRoutes = new Elysia().post(
   '/:id/relocate',
   async ({ params, body, set }) => {
-    const id = resolveAssetIdOrRespond(params.id, set);
-    if (!(id instanceof ObjectId)) return id;
-    const stackCompanion = stackCompanionOrRespond(body, id, set);
-    if (stackCompanion && 'error' in stackCompanion) return stackCompanion;
+    const target = assetAndCompanionOrRespond(params.id, body, set);
+    if ('error' in target) return target;
+    const { id, stackCompanion } = target;
 
     const shapeError = validateDestinationShape(body);
     if (shapeError) {
@@ -173,7 +171,7 @@ export const relocateRoutes = new Elysia().post(
       destinationFilename: body.destination_filename,
       destinationLibraryId,
       ...(sourceResult.source ? { activeFileInfoOverride: sourceResult.source } : {}),
-      ...(stackCompanion ? { stackCompanion } : {}),
+      stackCompanion,
     });
 
     const { status, body: responseBody } = relocateResultResponse(result);

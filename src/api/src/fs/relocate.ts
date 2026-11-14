@@ -371,11 +371,7 @@ async function relocateWithCollisionRetry(req: RelocateRequest): Promise<Relocat
     } catch (err) {
       if (!(err instanceof PublishCollisionError)) return errorOutcome(err);
       if (isSuffixing(req.collision) && attempt < MAX_COLLISION_RETRIES) continue;
-      const companionSkips =
-        err instanceof CompanionCollisionError && req.stackCompanion?.replace === false;
-      return req.collision === 'skip' || companionSkips
-        ? skippedAt(req, err.destination)
-        : errorOutcome(err);
+      return collisionOutcome(req, err);
     }
   }
 }
@@ -384,6 +380,15 @@ const MAX_COLLISION_RETRIES = 8;
 
 function errorOutcome(err: unknown): RelocateOutcome {
   return { kind: 'error', error: err instanceof Error ? err.message : String(err) };
+}
+
+/** A name taken mid-publish: a skip under `'skip'`, or for a stack JPEG that may not replace. */
+function collisionOutcome(req: RelocateRequest, err: PublishCollisionError): RelocateOutcome {
+  const companionSkips =
+    err instanceof CompanionCollisionError && req.stackCompanion?.replace === false;
+  return req.collision === 'skip' || companionSkips
+    ? skippedAt(req, err.destination)
+    : errorOutcome(err);
 }
 
 function skippedAt(req: RelocateRequest, collidedAt: string): RelocateOutcome {

@@ -320,36 +320,36 @@ function trashCompanionOrRespond(
   return { error: error ?? 'companion must be the id of another asset' };
 }
 
+/** Refusals that answer the same whatever was asked. */
+const TRASH_REFUSALS = {
+  'not-found': { status: 404, body: { error: 'Asset not found' } },
+  'companion-missing': { status: 404, body: COMPANION_MISSING },
+  'no-location': { status: 404, body: { error: 'Asset has no resolvable location' } },
+  'no-folder': { status: 500, body: { error: "Asset's folder is missing — refusing to trash" } },
+} as const;
+
 function trashOutcomeResponse(
   outcome: TrashStackOutcome,
   stacked: boolean,
   set: { status?: number | string },
 ): { error: string; state?: string } | typeof COMPANION_MISSING | undefined {
-  switch (outcome.kind) {
-    case 'ok':
-      set.status = 204;
-      return;
-    case 'not-found':
-      set.status = 404;
-      return { error: 'Asset not found' };
-    case 'companion-missing':
-      set.status = 404;
-      return COMPANION_MISSING;
-    case 'already-trashed':
-      // Raced with a concurrent trash of the same asset — nothing left to do,
-      // report success. A stack is not whole in the trash, so it says so.
-      set.status = stacked ? 409 : 204;
-      return stacked ? { error: 'Asset is already trashed', state: 'trashed' } : undefined;
-    case 'no-location':
-      set.status = 404;
-      return { error: 'Asset has no resolvable location' };
-    case 'no-folder':
-      set.status = 500;
-      return { error: "Asset's folder is missing — refusing to trash" };
-    case 'error':
-      set.status = 500;
-      return { error: outcome.error };
+  if (outcome.kind === 'ok') {
+    set.status = 204;
+    return;
   }
+  if (outcome.kind === 'error') {
+    set.status = 500;
+    return { error: outcome.error };
+  }
+  if (outcome.kind === 'already-trashed') {
+    // Raced with a concurrent trash of the same asset — nothing left to do,
+    // report success. A stack is not whole in the trash, so it says so.
+    set.status = stacked ? 409 : 204;
+    return stacked ? { error: 'Asset is already trashed', state: 'trashed' } : undefined;
+  }
+  const refusal = TRASH_REFUSALS[outcome.kind];
+  set.status = refusal.status;
+  return refusal.body;
 }
 
 // Trash/restore move files on disk — file-access-gated (#2893).

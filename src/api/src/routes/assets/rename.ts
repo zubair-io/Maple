@@ -41,7 +41,6 @@
 
 import { Elysia, t } from 'elysia';
 import * as path from 'node:path';
-import { ObjectId } from '../../db/object-id.ts';
 import type { FileInfo } from '../../db/schema.ts';
 import { loadAssetLocationView } from '../../db/repos/assets.locations.repo.ts';
 import { relocateAsset } from '../../library/relocate-asset.ts';
@@ -55,9 +54,8 @@ import { tryGetRawFfi } from '../../ffi/raw_ffi.ts';
 import { extensionChanged } from '../../library/filename-template.ts';
 import {
   StackCompanionBodyFields,
-  resolveAssetIdOrRespond,
+  assetAndCompanionOrRespond,
   relocateResultResponse,
-  stackCompanionOrRespond,
 } from './_shared.ts';
 import { requireFileAccessBeforeHandle } from '../../auth/middleware.ts';
 
@@ -95,16 +93,14 @@ function validateNewFilename(name: string): { status: number; error: string } | 
 export const renameRoutes = new Elysia().post(
   '/:id/rename',
   async ({ params, body, set }) => {
-    const id = resolveAssetIdOrRespond(params.id, set);
-    if (!(id instanceof ObjectId)) return id;
-    const stackCompanion = stackCompanionOrRespond(body, id, set);
-    if (stackCompanion && 'error' in stackCompanion) return stackCompanion;
-
     const validation = validateNewFilename(body.new_filename);
     if (validation) {
       set.status = validation.status;
       return { error: validation.error };
     }
+    const target = assetAndCompanionOrRespond(params.id, body, set);
+    if ('error' in target) return target;
+    const { id, stackCompanion } = target;
 
     const view = await loadAssetLocationView(id);
     if (!view) {
@@ -156,7 +152,7 @@ export const renameRoutes = new Elysia().post(
       collision: body.collision,
       destinationFilename: body.new_filename,
       ...(source ? { activeFileInfoOverride: source } : {}),
-      ...(stackCompanion ? { stackCompanion } : {}),
+      stackCompanion,
     });
 
     const { status, body: responseBody } = relocateResultResponse(result, (r) => ({
