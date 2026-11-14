@@ -163,6 +163,34 @@ describe('imported Auto pair landing in the real EditorStateService (#4669)', ()
     expect(authoredTemperature(sampled[0])).toBeCloseTo(pair.temperature, 0);
   });
 
+  it('samples WB against the As Shot frame while the pair is unresolved', async () => {
+    sampled.length = 0;
+    await editor.sampleWhiteBalanceAt(ID, 0.5, 0.5);
+    expect(sampled[0]).not.toMatch(/crs:(WhiteBalance|Temperature|Tint)=/);
+  });
+
+  it('samples a mask colour range against the As Shot frame while unresolved', async () => {
+    const xmps: string[] = [];
+    await sampleMaskRangeInto(
+      {
+        focusedAssetId: () => ID,
+        currentAdjustment: () => opened(),
+        assetExtension: () => 'dng',
+        bytes: async () => new Uint8Array(),
+        serialize: (model) => serializer.serialize(model),
+        sampleMaskRange: async (_b, _e, xmp) => {
+          xmps.push(xmp);
+          return {} as MaskRangeSeed;
+        },
+        applySeed: vi.fn(),
+        setMessage: vi.fn(),
+      },
+      0.5,
+      0.5,
+    );
+    expect(xmps[0]).not.toMatch(/crs:(WhiteBalance|Temperature|Tint)=/);
+  });
+
   it('samples a mask colour range against the resolved pair', async () => {
     const xmps: string[] = [];
     await sampleMaskRangeInto(

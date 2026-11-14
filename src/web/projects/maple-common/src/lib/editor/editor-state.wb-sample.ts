@@ -10,7 +10,7 @@
 import type { WritableSignal } from '@angular/core';
 import type { AssetId } from '../models/asset';
 import type { AdjustmentModel } from '../models/adjustment-model';
-import { renderModelForImportedAuto } from '../models/partial-white-balance';
+import { probeModelForImportedAuto } from '../models/partial-white-balance';
 import type { WbSampleResult } from '../raw-pipeline/raw-pipeline.sample-wb.types';
 import { WbSampleRejected } from '../raw-pipeline/raw-pipeline.sample-wb.types';
 import { eyedropperUnavailableForFile, fileExtension } from '../state/raw-extensions';
@@ -152,7 +152,7 @@ export async function sampleWhiteBalanceInto(
     // the PAINTED raster, and a crop makes that a different raster than the
     // full frame (#3309). A resolved imported Auto renders as its pair (#4669).
     const model = host.currentAdjustment();
-    const xmp = model ? host.serializer.serialize(renderModelForImportedAuto(model)) : undefined;
+    const xmp = model ? host.serializer.serialize(probeModelForImportedAuto(model)) : undefined;
     const sample = await host.pipeline.sampleWhiteBalance(bytes, ext, xmp, nx, ny);
     if (host.imageId() !== id) return false;
     host.commit();
