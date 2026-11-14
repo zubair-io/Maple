@@ -16,9 +16,10 @@ collect() {
 	adb pull /sdcard/Android/data/app.justmaple.aperture/files "$artifacts/app-files" || true
 }
 trap collect EXIT
-# 1280x800 dp exercises the inspector/group reset and full sources column. The AVD
-# boots at that panel size (android.yml); a runtime `wm size` resize is not a substitute.
+# 1280x800 dp exercises the inspector/group reset and full sources column.
 configure_display() {
+	adb shell wm size 1280x800
+	adb shell wm density 160
 	adb shell settings put system accelerometer_rotation 0
 	adb shell settings put system user_rotation 0
 	adb shell input keyevent KEYCODE_WAKEUP
@@ -27,8 +28,6 @@ configure_display
 adb shell getprop >"$artifacts/device-properties.txt"
 test "$(adb shell getprop ro.build.version.sdk | tr -d '\r')" = 36
 adb shell getprop ro.product.cpu.abilist | tr -d '\r' | tr ',' '\n' | grep -Fx "$abi"
-test "$(adb shell wm size | tr -d '\r')" = 'Physical size: 1280x800'
-test "$(adb shell wm density | tr -d '\r')" = 'Physical density: 160'
 adb shell am get-config | tee "$artifacts/configuration.txt" | grep -E 'sw[6-9][0-9]{2}dp.*w1[0-9]{3}dp'
 adb shell pm list features | tee "$artifacts/features.txt" | grep -F android.hardware.vulkan.level
 

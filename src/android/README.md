@@ -247,6 +247,12 @@ downloads have bounded retries; failing tests remain failures. The committed
 Software rendering proves functional correctness, not physical GPU or frame-time
 qualification, which remains under #4623.
 
+Before instrumentation, CI requires launcher focus, a running SystemUI process and
+five consecutive samples without an executing SystemUI service. An observed
+pre-test ANR permits one recovery reboot; other unhealthy boots fail the job.
+Watching every SystemUI service closes the Keyguard-only guard gap (#4984), but
+the guard does not prevent an Android service ANR.
+
 Device tests open a committed RAW and a real raster, render with Vulkan,
 change exposure/white balance, save and undo actual XMP files, recreate the
 activity, export JPEG, and check that original bytes are unchanged. They also
