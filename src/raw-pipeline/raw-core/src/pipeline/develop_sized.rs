@@ -30,7 +30,7 @@ use super::{
     develop::{
         crop_to_default, develop_colour, effective_quality_divisor, lateral_ca, CameraReady,
     },
-    downsample::downsample_image_area,
+    downsample::downsample_image_area_cancellable,
     dump_after, stage, RenderQuality,
 };
 
@@ -247,25 +247,33 @@ pub(crate) fn develop_sized_camera(
     let mut crop_divisor = effective_quality_divisor(quality, raw.cfa);
     let mut camera_rgb = match raw.cfa {
         crate::image::CfaPattern::LinearRgb => stage("sized_linearraw_decode", || {
-            linearize::linearraw_to_camera_rgb(raw)
+            linearize::linearraw_to_camera_rgb_cancellable(raw, cancel)
         })?,
         crate::image::CfaPattern::XTrans(_) => {
             // X-Trans dispatch — see `develop.rs` for the rationale.
-            let mut mosaic = stage("sized_linearize", || linearize::sensor_linearize(raw));
+            let mut mosaic = stage("sized_linearize", || {
+                linearize::sensor_linearize_cancellable(raw, cancel)
+            });
+            cancel.check()?;
             // Hot/dead-pixel suppression (#1106) — see the unsized variant.
             stage("sized_hot_pixel", || {
                 hot_pixel::apply(&mut mosaic, raw.cfa, model.hot_pixel_suppression)
             });
             lateral_ca(&mut mosaic, raw, model, cancel)?;
             stage("sized_demosaic_xtrans", || match quality {
-                RenderQuality::Preview => demosaic::xtrans_bilinear(&mosaic, raw.cfa),
+                RenderQuality::Preview => {
+                    demosaic::xtrans_bilinear_cancellable(&mosaic, raw.cfa, cancel)
+                }
                 RenderQuality::Full | RenderQuality::Amaze | RenderQuality::Auto => {
                     demosaic::markesteijn(&mosaic, raw.cfa)
                 }
             })
         }
         _ => {
-            let mut mosaic = stage("sized_linearize", || linearize::sensor_linearize(raw));
+            let mut mosaic = stage("sized_linearize", || {
+                linearize::sensor_linearize_cancellable(raw, cancel)
+            });
+            cancel.check()?;
             // Hot/dead-pixel suppression (#1106) — see the unsized variant.
             stage("sized_hot_pixel", || {
                 hot_pixel::apply(&mut mosaic, raw.cfa, model.hot_pixel_suppression)
@@ -308,9 +316,7 @@ pub(crate) fn develop_sized_camera(
             })
         }
     };
-    if cancel.is_cancelled() {
-        return Err(Error::Cancelled);
-    }
+    cancel.check()?;
 
     // Match full develop: reconstruct sensor clipping before lens gain,
     // warp, or downsampling mixes the clipped channels (#3633).
@@ -325,6 +331,7 @@ pub(crate) fn develop_sized_camera(
         });
     }
     dump_after("00a_baseline_exposure", &camera_rgb);
+    cancel.check()?;
 
     // WB pre-gain (mirrors the unsized variant — see comment there).
     let skip_pre_gain =
@@ -351,20 +358,28 @@ pub(crate) fn develop_sized_camera(
                 camera_rgb.width,
                 camera_rgb.height,
             );
-            crate::pipeline::pano::opcode_apply::apply_opcode_list3(
+            crate::pipeline::pano::opcode_apply::apply_opcode_list3_cancellable(
                 &mut camera_rgb,
                 list,
                 scaled_aa,
                 crate::pipeline::pano::opcode_apply::LensCorrectionScales::from_model(model),
+                cancel,
             );
         });
         dump_after("01a_opcode_list3", &camera_rgb);
     } else if crate::lens_profile::applies(raw, model) {
         let scale = camera_rgb.width as f32 / raw.width as f32;
         stage("sized_lcp_correction", || {
-            crate::lens_profile::apply_for_raw(raw, model, &mut camera_rgb, scale)
+            crate::lens_profile::apply_for_raw_cancellable(
+                raw,
+                model,
+                &mut camera_rgb,
+                scale,
+                cancel,
+            )
         })?;
     }
+    cancel.check()?;
 
     // DefaultCrop BEFORE downsample — `crop_rect` is in raw-sensor coords
     // (or half of them for Preview). Applying after the downsample would
@@ -388,8 +403,9 @@ pub(crate) fn develop_sized_camera(
     // the half-res sensor buffer. `downsample_image_area` is a no-op
     // when the source long edge is already <= `max_long_edge`.
     stage("sized_downsample_area_f32", || {
-        downsample_image_area(&mut camera_rgb, max_long_edge)
+        downsample_image_area_cancellable(&mut camera_rgb, max_long_edge, cancel)
     });
+    cancel.check()?;
 
     let (profile, profile_source) = stage("sized_dcp_profile_for", || {
         dcp::profile_for_with_source(raw)

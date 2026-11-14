@@ -157,6 +157,10 @@ const settleResolveImportedWb: Settler<'resolve-imported-wb'> = (msg, handler) =
     handler.resolve({ temperature: msg.temperature, tint: msg.tint });
     return true;
   }
+  if (msg.type === 'resolve-imported-wb-cancelled') {
+    handler.resolve(null);
+    return true;
+  }
   if (msg.type !== 'session-error') return false;
   handler.reject(new Error(msg.message));
   return true;
@@ -380,6 +384,8 @@ export interface WorkerDispatchContext {
   /** The worker's IndexedDB copy of a named profile is missing — the host
    *  restores what it can and then answers `lens-profile-restored`. */
   restoreLensProfile: (request: LensProfileFetch) => void;
+  /** Takes the worker's imported Auto WB cancel flag (#5923). */
+  adoptImportedWbCancel: (flag: Uint8Array) => void;
 }
 
 /**
@@ -399,6 +405,7 @@ export function handleWorkerMessage(msg: WorkerResponse, ctx: WorkerDispatchCont
   if (msg.type === 'status') {
     ctx.threadedSubject.next(msg.threaded);
     ctx.threadCountSubject.next(msg.threads);
+    if (msg.importedWbCancel) ctx.adoptImportedWbCancel(msg.importedWbCancel);
     return;
   }
   if (msg.type === 'scope-sample') {

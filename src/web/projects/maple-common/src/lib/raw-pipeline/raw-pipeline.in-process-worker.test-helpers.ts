@@ -14,9 +14,19 @@ import type { WorkerRequest, WorkerResponse } from './raw-pipeline.types';
 
 type Listener = (event: { data: unknown }) => void;
 
+/**
+ * The worker module registers its listener once, at its first import. Specs
+ * share one module graph (`isolate: false`), so a later install reuses it.
+ */
+let workerListener: Listener | null = null;
+
 export interface InProcessRawWorker {
   /** Every request the service posted, in order. */
   readonly requests: WorkerRequest[];
+  /** Runs synchronously as the service posts a request, before the worker sees it. */
+  onPost: ((request: WorkerRequest) => void) | null;
+  /** Deliver `message` to the service as if the worker had posted it. */
+  emit(message: WorkerResponse): void;
   restore(): void;
 }
 
@@ -28,7 +38,6 @@ export async function installInProcessRawWorker(): Promise<InProcessRawWorker> {
     ),
   });
   const mainListeners: Listener[] = [];
-  let workerListener: Listener | null = null;
   const requests: WorkerRequest[] = [];
   vi.stubGlobal('self', {
     location: globalThis.location,
@@ -46,9 +55,15 @@ export async function installInProcessRawWorker(): Promise<InProcessRawWorker> {
   // forwarding) must run after the stubs above, which a static import precedes.
   await import('./raw-pipeline.worker');
   Object.assign(globalThis.console, { log, warn, error });
-  const registered = workerListener as Listener | null;
+  const registered = workerListener;
   if (!registered) throw new Error('raw-pipeline.worker did not register its listener');
   const deliver: Listener = registered;
+  const harness: InProcessRawWorker = {
+    requests,
+    onPost: null,
+    emit: (message) => mainListeners.forEach((listener) => listener({ data: message })),
+    restore: () => vi.unstubAllGlobals(),
+  };
   class InProcessWorker {
     addEventListener(type: string, listener: Listener): void {
       if (type === 'message') mainListeners.push(listener);
@@ -57,11 +72,12 @@ export async function installInProcessRawWorker(): Promise<InProcessRawWorker> {
     terminate(): void {}
     postMessage(message: WorkerRequest): void {
       requests.push(message);
+      harness.onPost?.(message);
       setTimeout(() => deliver({ data: message }), 0);
     }
   }
   vi.stubGlobal('Worker', InProcessWorker);
-  return { requests, restore: () => vi.unstubAllGlobals() };
+  return harness;
 }
 
 /** A committed fixture RAW (test-fixtures/batch-transfer). */

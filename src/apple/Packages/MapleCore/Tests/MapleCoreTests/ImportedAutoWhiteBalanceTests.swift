@@ -89,6 +89,24 @@ final class ImportedAutoWhiteBalanceTests: XCTestCase {
     XCTAssertEqual(resolved.wbAlgorithmVersion, 0)
   }
 
+  /// #5922: the resolver hands its cancel flag to the core estimate, so a set
+  /// flag stops the estimate inside the FFI call and resolves nothing.
+  func testASetCancelFlagStopsTheEstimateInsideTheFFICall() throws {
+    let (directory, raw) = try stagedRaw("imported-auto-wb-cancel")
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let cancelled = CancelFlag()
+    cancelled.requestCancel()
+    XCTAssertThrowsError(
+      try raw.path.withCString {
+        try ImportedWhiteBalanceResolver.resolve(path: $0, xml: nameOnly, cancel: cancelled)
+      }
+    ) { XCTAssertTrue($0 is CancellationError, "\($0)") }
+    let pair = try raw.path.withCString {
+      try ImportedWhiteBalanceResolver.resolve(path: $0, xml: nameOnly, cancel: CancelFlag())
+    }
+    XCTAssertTrue(pair.temperature.isFinite && pair.tint.isFinite)
+  }
+
   func testFinalOutputResolutionUsesTheSessionFileAndLeavesOriginalsUntouched() async throws {
     let (directory, raw) = try stagedRaw("imported-auto-wb-final")
     defer { try? FileManager.default.removeItem(at: directory) }

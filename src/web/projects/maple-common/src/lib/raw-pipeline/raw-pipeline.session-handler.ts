@@ -330,11 +330,14 @@ export async function handleSetFilmLut(req: SetFilmLutRequest): Promise<void> {
   });
 }
 
-/** The named session's pair, or null when it is no longer the open one (#4669). */
-function importedWbPair({ kind, token }: ImportedWbSession): Float32Array | null {
-  if (kind === 'cpu') return resolveRetainedCpuImportedWb(token);
-  const session = liveSessionId === token ? liveSession : null;
-  return session ? session.resolve_imported_white_balance() : null;
+/** The named session's pair; `cancelled` when the main thread interrupted the
+ *  estimate (#5923), `closed` when the session is no longer the open one (#4669). */
+function importedWbPair({ kind, token }: ImportedWbSession): Float32Array | 'cancelled' | 'closed' {
+  const live = liveSessionId === token ? liveSession : null;
+  const pair =
+    kind === 'cpu' ? resolveRetainedCpuImportedWb(token) : live?.resolve_imported_white_balance();
+  if (pair === null || (kind === 'live' && !live)) return 'closed';
+  return pair ?? 'cancelled';
 }
 
 /**
@@ -342,23 +345,28 @@ function importedWbPair({ kind, token }: ImportedWbSession): Float32Array | null
  * the first frame's render on `sessionChain`, so it never delays that frame; the
  * session keeps the pair, and the caller re-renders once with it. A session that
  * is no longer the one the caller named (another photo opened or replaced the
- * retained source since) is refused before any estimate runs.
+ * retained source since) is refused before any estimate runs. The estimate is
+ * synchronous: work the main thread posts meanwhile interrupts it through the
+ * shared cancel flag (#5923), and the reply says so, so the caller asks again.
  */
 export async function handleResolveImportedWb(req: ResolveImportedWbRequest): Promise<void> {
   await enqueueSessionOp(async () => {
     try {
       const pair = importedWbPair(req.session);
       const { kind, token } = req.session;
-      if (!pair) {
+      if (pair === 'closed') {
         postSessionError(req.id, `resolve-imported-wb: ${kind} session ${token} is not open`);
         return;
       }
-      const response: WorkerResponse = {
-        id: req.id,
-        type: 'resolve-imported-wb-success',
-        temperature: pair[0],
-        tint: pair[1],
-      };
+      const response: WorkerResponse =
+        pair === 'cancelled'
+          ? { id: req.id, type: 'resolve-imported-wb-cancelled' }
+          : {
+              id: req.id,
+              type: 'resolve-imported-wb-success',
+              temperature: pair[0],
+              tint: pair[1],
+            };
       (self as unknown as Worker).postMessage(response);
     } catch (e) {
       postSessionError(req.id, e instanceof Error ? e.message : String(e));

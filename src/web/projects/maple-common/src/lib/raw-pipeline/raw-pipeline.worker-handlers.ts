@@ -43,6 +43,15 @@ function installDeepDenoiseProgress(): void {
 
 let readyPromise: Promise<RawWasmInitResult> | null = null;
 
+/** The imported Auto WB estimate's cancel byte (#5923), shareable with the main
+ *  thread only where the page is cross-origin isolated: elsewhere posting the
+ *  module's shared memory throws, and the estimate is not interruptible. */
+function importedWbCancelFlag(): Uint8Array | undefined {
+  const flag = Reflect.get(wasm as object, 'imported_wb_cancel_flag');
+  const isolated = typeof crossOriginIsolated !== 'undefined' && crossOriginIsolated;
+  return isolated && typeof flag === 'function' ? (flag as () => Uint8Array)() : undefined;
+}
+
 /** Ensure the WASM module is initialised, broadcasting the thread-pool status
  *  once. Shared by every handler (legacy decode, scene-linear decode,
  *  session, auto-adjust) so init is kicked off eagerly and awaited lazily —
@@ -58,6 +67,7 @@ export function ensureReady(): Promise<RawWasmInitResult> {
         type: 'status',
         threaded: result.threaded,
         threads: result.threads,
+        importedWbCancel: importedWbCancelFlag(),
       };
       (self as unknown as Worker).postMessage(statusMsg);
       return result;
@@ -84,8 +94,9 @@ export interface WebLiveSessionInstance {
    * `render_with_params` tick.
    */
   set_film_lut(bytes: Uint8Array, lookKey: number): void;
-  /** Name-only imported Auto WB pair `[temperature, tint]`, estimated once (#4669). */
-  resolve_imported_white_balance(): Float32Array;
+  /** Name-only imported Auto WB pair `[temperature, tint]`, estimated once (#4669);
+   *  undefined when the main thread cancelled the estimate (#5923). */
+  resolve_imported_white_balance(): Float32Array | undefined;
   /** Drop the session's film-look LUT — the next tick renders with none. */
   clear_film_lut(): void;
   /** Developed (viewport-sized per #1080) dims == the canvas dims. */
@@ -140,7 +151,7 @@ export interface WebLiveSessionCtor {
 // the scopes render their pseudo fallback, i.e. exactly today's flag-on behaviour.
 
 /** The transferred editor `OffscreenCanvas` for the open session — the readback source. */
-export let liveCanvas: OffscreenCanvas | null = null;
+let liveCanvas: OffscreenCanvas | null = null;
 
 /** Long-edge cap for the scope readback. Scopes are ~100–250px wide; a 512px long
  *  edge oversamples them comfortably while keeping the readback + transfer trivial. */

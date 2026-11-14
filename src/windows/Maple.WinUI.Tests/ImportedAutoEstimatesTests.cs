@@ -7,7 +7,8 @@ using Xunit;
 namespace Maple.WinUI.Tests;
 
 /// <summary>The editor's imported Auto estimates (#4669) on real threads: the native resolve is
-/// replaced by a recorder that blocks until released, as an uncancellable estimate does.</summary>
+/// replaced by a recorder that blocks until released or cancelled, as the native estimate
+/// does with its cancel flag (#5922).</summary>
 public sealed class ImportedAutoEstimatesTests
 {
     private sealed class Recorder
@@ -16,11 +17,16 @@ public sealed class ImportedAutoEstimatesTests
         public readonly SemaphoreSlim Running = new(0);
         public readonly ManualResetEventSlim Release = new(false);
 
-        public void Resolve(string path, AdjustmentState model)
+        public void Resolve(string path, AdjustmentState model, CancellationToken cancellation)
         {
             Started.Enqueue(path);
             Running.Release();
-            Assert.True(Release.Wait(TimeSpan.FromSeconds(10)));
+            var signalled = WaitHandle.WaitAny(
+                new[] { Release.WaitHandle, cancellation.WaitHandle }, TimeSpan.FromSeconds(10));
+            Assert.NotEqual(WaitHandle.WaitTimeout, signalled);
+            // A native call past its last cancel check ends normally.
+            if (!path.StartsWith("finishing")) cancellation.ThrowIfCancellationRequested();
+            Assert.True(Release.Wait(TimeSpan.FromSeconds(10)) || cancellation.IsCancellationRequested);
             if (path.EndsWith("broken.dng")) throw new InvalidOperationException("estimate failed");
             model.ImportedWhiteBalance = model.ImportedWhiteBalance! with { Resolved = new(5100, 9) };
             model.Temperature = 5100;
@@ -53,25 +59,44 @@ public sealed class ImportedAutoEstimatesTests
     }
 
     [Fact]
-    public async Task OneEstimateRunsAtATimeAndNavigationDropsAQueuedOneBeforeItStarts()
+    public async Task NavigationCancelsTheRunningEstimateAndDropsAQueuedOneBeforeItStarts()
     {
         var recorder = new Recorder();
         var estimates = new ImportedAutoEstimates(recorder.Resolve);
         estimates.Focus("a.dng");
         var a = estimates.ResolveAsync("a.dng", NameOnly());
         Assert.True(await recorder.Running.WaitAsync(TimeSpan.FromSeconds(10)));
+        // Leaving A stops its running estimate: no pair, and the next photo starts at once.
+        estimates.Focus("b.dng");
+        Assert.Null(await a);
+        var b = estimates.ResolveAsync("b.dng", NameOnly());
+        Assert.True(await recorder.Running.WaitAsync(TimeSpan.FromSeconds(10)));
+        // Closing the editor stops B the same way.
+        estimates.Focus(null);
+        Assert.Null(await b);
+        Assert.Equal(new[] { "a.dng", "b.dng" }, recorder.Started.ToArray());
+        // A photo that lost focus never starts or shares an estimate.
+        Assert.Null(await estimates.ResolveAsync("a.dng", NameOnly()));
+        Assert.Equal(new[] { "a.dng", "b.dng" }, recorder.Started.ToArray());
+    }
+
+    [Fact]
+    public async Task AQueuedEstimateForAPhotoLeftBehindNeverStarts()
+    {
+        var recorder = new Recorder();
+        var estimates = new ImportedAutoEstimates(recorder.Resolve);
+        estimates.Focus("finishing.dng");
+        var finishing = estimates.ResolveAsync("finishing.dng", NameOnly());
+        Assert.True(await recorder.Running.WaitAsync(TimeSpan.FromSeconds(10)));
         estimates.Focus("b.dng");
         var b = estimates.ResolveAsync("b.dng", NameOnly());
-        // B waits behind A's uncancellable estimate instead of decoding a second RAW.
+        // B waits behind the estimate still finishing instead of decoding a second RAW.
         Assert.False(await recorder.Running.WaitAsync(TimeSpan.FromMilliseconds(200)));
         estimates.Focus("c.dng");
         recorder.Release.Set();
-        Assert.NotNull(await a);
+        await finishing;
         Assert.Null(await b);
-        Assert.Equal(new[] { "a.dng" }, recorder.Started.ToArray());
-        // A photo that lost focus never starts or shares an estimate.
-        Assert.Null(await estimates.ResolveAsync("a.dng", NameOnly()));
-        Assert.Equal(new[] { "a.dng" }, recorder.Started.ToArray());
+        Assert.Equal(new[] { "finishing.dng" }, recorder.Started.ToArray());
     }
 
     [Fact]

@@ -7,20 +7,20 @@ namespace Maple.WinUI.Services;
 
 /// <summary>The editor's imported WB resolves (name-only Auto and single-axis reloads).
 /// At most one runs at a time; a re-decode joins the estimate already in flight, and
-/// navigation drops a queued estimate before it decodes anything. A request that becomes
-/// active on an already-decoded photo (paste, undo/redo, sidecar reload) joins the same
-/// estimate, or reuses the pair it already landed for the same request. The native estimate cannot
-/// be cancelled yet (#5922): one that already started runs to its end and the editor's
-/// generation guard ignores its result.</summary>
+/// navigation or close cancels the focused photo's estimate (#5922): a queued one never
+/// starts, a running one stops inside the native call and releases its decoded RAW. A
+/// request that becomes active on an already-decoded photo (paste, undo/redo, sidecar
+/// reload) joins the same estimate, or reuses the pair it already landed for the same
+/// request; a different request cancels the one it replaces.</summary>
 public sealed class ImportedAutoEstimates
 {
     private readonly object _lock = new();
     private readonly SemaphoreSlim _running = new(1, 1);
-    private readonly Action<string, AdjustmentState> _resolve;
+    private readonly Action<string, AdjustmentState, CancellationToken> _resolve;
     private string? _focus;
-    private (string Path, ImportedWhiteBalance Request, Task<AdjustmentState?> Estimate)? _current;
+    private (string Path, ImportedWhiteBalance Request, Task<AdjustmentState?> Estimate, CancellationTokenSource Cancel)? _current;
 
-    public ImportedAutoEstimates(Action<string, AdjustmentState> resolve) => _resolve = resolve;
+    public ImportedAutoEstimates(Action<string, AdjustmentState, CancellationToken> resolve) => _resolve = resolve;
 
     /// <summary>True when a model change that re-decodes nothing makes an unresolved
     /// imported WB active: the decode path never sees it, so the editor starts or joins
@@ -36,6 +36,7 @@ public sealed class ImportedAutoEstimates
         {
             if (_focus == path) return;
             _focus = path;
+            _current?.Cancel.Cancel();
             _current = null;
         }
     }
@@ -51,28 +52,27 @@ public sealed class ImportedAutoEstimates
             if (_current is { } current && current.Path == path && current.Request == request)
                 return current.Estimate;
             if (_focus != path) return Task.FromResult<AdjustmentState?>(null);
+            _current?.Cancel.Cancel();
             var resolved = model.Clone();
-            var estimate = Task.Run(() => RunAsync(path, resolved));
-            _current = (path, request, estimate);
+            var cancel = new CancellationTokenSource();
+            var estimate = Task.Run(() => RunAsync(path, resolved, cancel.Token));
+            _current = (path, request, estimate, cancel);
             return estimate;
         }
     }
 
-    private async Task<AdjustmentState?> RunAsync(string path, AdjustmentState model)
+    private async Task<AdjustmentState?> RunAsync(string path, AdjustmentState model, CancellationToken cancellation)
     {
         await _running.WaitAsync().ConfigureAwait(false);
         try
         {
-            lock (_lock)
-            {
-                if (_focus != path) return null;
-            }
-            _resolve(path, model);
+            if (cancellation.IsCancellationRequested) return null;
+            _resolve(path, model, cancellation);
             return model;
         }
         catch (Exception)
         {
-            // Failure keeps As Shot on screen; the next open retries.
+            // Failure or cancellation keeps As Shot on screen; the next open retries.
             return null;
         }
         finally

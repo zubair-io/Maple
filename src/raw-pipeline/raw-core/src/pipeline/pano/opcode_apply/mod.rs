@@ -54,6 +54,7 @@ pub use warp::{
 
 use rayon::prelude::*;
 
+use crate::cancel::CancelToken;
 use crate::image::Image;
 use crate::types::adjustment::{AdjustmentModel, LensProfileEnable};
 
@@ -176,6 +177,19 @@ pub fn apply_opcode_list3(
     apply_opcode_list3_windowed(image, list, aa, scales, 0)
 }
 
+/// [`apply_opcode_list3`] checked between opcodes and once per row. A
+/// cancelled call leaves `image` partly corrected; the caller checks the token
+/// and discards it.
+pub fn apply_opcode_list3_cancellable(
+    image: &mut Image,
+    list: &OpcodeList3,
+    aa: ActiveAreaRect,
+    scales: LensCorrectionScales,
+    cancel: CancelToken<'_>,
+) -> Vec<String> {
+    apply_list(image, list, aa, scales, 0, cancel)
+}
+
 /// [`apply_opcode_list3`] on a full-width row band whose top row sits at
 /// absolute row `origin_y` (#5552). A `WarpRectilinear` reads rows past the
 /// band, so the caller supplies enough halo for its reach.
@@ -186,29 +200,50 @@ pub fn apply_opcode_list3_windowed(
     scales: LensCorrectionScales,
     origin_y: u32,
 ) -> Vec<String> {
+    apply_list(image, list, aa, scales, origin_y, CancelToken::never())
+}
+
+fn apply_list(
+    image: &mut Image,
+    list: &OpcodeList3,
+    aa: ActiveAreaRect,
+    scales: LensCorrectionScales,
+    origin_y: u32,
+    cancel: CancelToken<'_>,
+) -> Vec<String> {
     let mut applied = Vec::with_capacity(list.opcodes.len());
     for op in &list.opcodes {
+        if cancel.is_cancelled() {
+            break;
+        }
         match op {
             PanoOpcode::GainMap(gm) if scales.vignetting != 0.0 => {
-                apply_gain_map_windowed(image, gm, aa, scales.vignetting, origin_y);
+                apply_gain_map_windowed(image, gm, aa, scales.vignetting, origin_y, cancel);
                 applied.push(format!(
                     "GainMap({}x{}x{})",
                     gm.points_v, gm.points_h, gm.map_planes
                 ));
             }
             PanoOpcode::WarpRectilinear(w) if scales.distortion != 0.0 || scales.ca != 0.0 => {
-                apply_warp_rectilinear_windowed(
+                warp::warp_windowed(
                     image,
                     w,
                     aa,
-                    scales.distortion,
-                    scales.ca,
+                    (scales.distortion, scales.ca),
                     (0, origin_y),
+                    cancel,
                 );
                 applied.push(format!("WarpRectilinear({} planes)", w.planes.len()));
             }
             PanoOpcode::FixVignetteRadial(v) if scales.vignetting != 0.0 => {
-                apply_fix_vignette_radial_windowed(image, v, aa, scales.vignetting, origin_y);
+                apply_fix_vignette_radial_windowed(
+                    image,
+                    v,
+                    aa,
+                    scales.vignetting,
+                    origin_y,
+                    cancel,
+                );
                 applied.push("FixVignetteRadial".to_string());
             }
             // Scaled to zero — the correction is exactly the identity, so
@@ -226,7 +261,7 @@ pub fn apply_opcode_list3_windowed(
 /// exactly 1.0). Bilinear lattice interpolation is affine, so blending the
 /// interpolated gain is identical to blending the lattice up front.
 pub fn apply_gain_map(image: &mut Image, gm: &GainMapOpcode, aa: ActiveAreaRect, vignetting: f32) {
-    apply_gain_map_windowed(image, gm, aa, vignetting, 0);
+    apply_gain_map_windowed(image, gm, aa, vignetting, 0, CancelToken::never());
 }
 
 fn apply_gain_map_windowed(
@@ -235,6 +270,7 @@ fn apply_gain_map_windowed(
     aa: ActiveAreaRect,
     vignetting: f32,
     origin_y: u32,
+    cancel: CancelToken<'_>,
 ) {
     let width = image.width as usize;
     // Area rect ∩ active area, in ActiveArea-relative coordinates.
@@ -271,7 +307,7 @@ fn apply_gain_map_windowed(
         .enumerate()
         .for_each(|(i, row_px)| {
             let row = first_row + i; // ActiveArea-relative row index
-            if (row - row_start) % row_pitch != 0 {
+            if (row - row_start) % row_pitch != 0 || cancel.is_cancelled() {
                 return;
             }
             let map_v = (row as f64 + 0.5) * inv_h;
@@ -340,7 +376,7 @@ pub fn apply_fix_vignette_radial(
     aa: ActiveAreaRect,
     vignetting: f32,
 ) {
-    apply_fix_vignette_radial_windowed(image, op, aa, vignetting, 0);
+    apply_fix_vignette_radial_windowed(image, op, aa, vignetting, 0, CancelToken::never());
 }
 
 fn apply_fix_vignette_radial_windowed(
@@ -349,6 +385,7 @@ fn apply_fix_vignette_radial_windowed(
     aa: ActiveAreaRect,
     vignetting: f32,
     origin_y: u32,
+    cancel: CancelToken<'_>,
 ) {
     if vignetting == 0.0 {
         return;
@@ -384,6 +421,9 @@ fn apply_fix_vignette_radial_windowed(
         .take(rows)
         .enumerate()
         .for_each(|(i, row_px)| {
+            if cancel.is_cancelled() {
+                return;
+            }
             let row = first_row + i;
             let dy = row as f64 - cy;
             let dy2 = dy * dy;

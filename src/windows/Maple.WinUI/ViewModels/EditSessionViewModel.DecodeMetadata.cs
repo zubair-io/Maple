@@ -55,9 +55,9 @@ namespace Maple.WinUI.ViewModels
         private readonly ImportedAutoEstimates _importedAuto = new(ImportedWhiteBalanceResolver.ResolveInPlace);
 
         /// <summary>Every navigation, close and re-decode cancels the decodes in flight and
-        /// focuses the imported Auto estimate on the photo now decoding, or none: a queued
-        /// estimate for a photo left behind never starts, while a re-decode of the same photo
-        /// joins the one in flight.</summary>
+        /// focuses the imported Auto estimate on the photo now decoding, or none: an estimate
+        /// for a photo left behind never starts or stops where it is (#5922), while a
+        /// re-decode of the same photo joins the one in flight.</summary>
         private void CancelActiveDecode(string? decoding = null)
         {
             _decodeCancel.Cancel();

@@ -3,6 +3,7 @@
 
 use super::{LensProfile, Resolution};
 use crate::{
+    cancel::CancelToken,
     pipeline::pano::opcode_apply::{scale_active_area, LensCorrectionScales},
     pipeline::pano::opcodes::ActiveAreaRect,
     AdjustmentModel, Image, RawImage,
@@ -170,8 +171,19 @@ pub fn apply_for_raw(
     image: &mut Image,
     sensor_scale: f32,
 ) -> crate::Result<()> {
+    apply_for_raw_cancellable(raw, model, image, sensor_scale, CancelToken::never())
+}
+
+/// [`apply_for_raw`] checked once per row; the caller checks the token.
+pub fn apply_for_raw_cancellable(
+    raw: &RawImage,
+    model: &AdjustmentModel,
+    image: &mut Image,
+    sensor_scale: f32,
+    cancel: CancelToken<'_>,
+) -> crate::Result<()> {
     let full_dims = (image.width, image.height);
-    apply_for_raw_windowed(raw, model, image, sensor_scale, (0, 0), full_dims)
+    apply_for_raw_window(raw, model, image, sensor_scale, ((0, 0), full_dims), cancel)
 }
 
 /// Windowed counterpart to [`apply_for_raw`] for native-detail tiles (#4729).
@@ -184,6 +196,25 @@ pub fn apply_for_raw_windowed(
     sensor_scale: f32,
     origin: (u32, u32),
     full_dims: (u32, u32),
+) -> crate::Result<()> {
+    let window = (origin, full_dims);
+    apply_for_raw_window(
+        raw,
+        model,
+        image,
+        sensor_scale,
+        window,
+        CancelToken::never(),
+    )
+}
+
+fn apply_for_raw_window(
+    raw: &RawImage,
+    model: &AdjustmentModel,
+    image: &mut Image,
+    sensor_scale: f32,
+    (origin, full_dims): ((u32, u32), (u32, u32)),
+    cancel: CancelToken<'_>,
 ) -> crate::Result<()> {
     let scales = LensCorrectionScales::from_model(model);
     if scales == LensCorrectionScales::NONE {
@@ -205,13 +236,13 @@ pub fn apply_for_raw_windowed(
         .active_area
         .unwrap_or(ActiveAreaRect::full(raw.width, raw.height));
     let scaled = scale_active_area(area, sensor_scale, full_dims.0, full_dims.1);
-    super::apply_windowed(
+    super::apply_windowed_cancellable(
         image,
         &resolution.calibration,
         scaled,
         scales,
-        origin,
-        full_dims,
+        (origin, full_dims),
+        cancel,
     )
     .map_err(crate::Error::Pipeline)
 }

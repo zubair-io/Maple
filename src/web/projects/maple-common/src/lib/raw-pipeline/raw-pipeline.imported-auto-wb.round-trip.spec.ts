@@ -3,7 +3,7 @@
 // in-process channel in `raw-pipeline.in-process-worker.test-helpers.ts`.
 import { TestBed } from '@angular/core/testing';
 import { of } from 'rxjs';
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { CpuLiveSession, render_bytes_sized } from './pkg/raw_wasm';
 import { RawPipelineService } from './raw-pipeline.service';
 import type { DecodedImage } from './raw-pipeline.types';
@@ -17,10 +17,7 @@ import {
   renderModelForImportedAuto,
   withResolvedImportedAuto,
 } from '../models/partial-white-balance';
-import {
-  importedAutoBackgroundEstimate,
-  resolveImportedAutoAfterFirstFrame,
-} from '../components/image-canvas/image-canvas.imported-auto-wb';
+import { resolveImportedAutoAfterFirstFrame } from '../components/image-canvas/image-canvas.imported-auto-wb';
 import { EditPreviewPersistService } from '../state/edit-preview-persist.service';
 import { HostedRawSidecarService } from '../state/hosted-raw-sidecar.service';
 import { LibraryStore } from '../state/library-store.service';
@@ -60,7 +57,7 @@ function oneShot(bytes: Uint8Array, xmp: string, edge: number, preview: boolean)
 function estimate(bytes: Uint8Array): Pair {
   const session = CpuLiveSession.open(bytes, 'dng');
   try {
-    const [temperature, tint] = session.resolve_imported_white_balance();
+    const [temperature, tint] = session.resolve_imported_white_balance()!;
     return { temperature, tint };
   } finally {
     session.free();
@@ -89,7 +86,6 @@ describe('imported name-only Auto WB through the real render worker (#4669)', ()
   let model: AdjustmentModel;
   const writePreview = vi.fn(() => of(undefined));
   beforeEach(() => {
-    importedAutoBackgroundEstimate.enabled = true;
     TestBed.resetTestingModule();
     TestBed.configureTestingModule({
       providers: [
@@ -119,9 +115,6 @@ describe('imported name-only Auto WB through the real render worker (#4669)', ()
         pipeline,
         bytes,
       );
-  });
-  afterEach(() => {
-    importedAutoBackgroundEstimate.enabled = false;
   });
   let editorBytes = fixtureRaw('source');
 

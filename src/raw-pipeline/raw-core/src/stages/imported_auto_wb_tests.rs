@@ -1,5 +1,5 @@
 use super::*;
-use crate::{pipeline, xmp, xmp::AutoExposureMode};
+use crate::{pipeline, xmp, xmp::AutoExposureMode, Error};
 
 fn raw() -> RawImage {
     crate::decode::decode(
@@ -264,4 +264,97 @@ fn resolved_session_renders_equal_the_numerically_authored_pair() {
     assert_eq!(tile(&resolved), tile(&explicit));
     // A final-output scene tile of the name-only sidecar resolves itself.
     assert_eq!(tile(&imported), tile(&explicit));
+}
+
+/// A 24 MP mosaic on the fixture's calibration, so the full-resolution
+/// stages (linearize, demosaic, downsample) dominate the estimate.
+fn large_mosaic() -> RawImage {
+    let raw = raw();
+    let (width, height) = (6000, 4000);
+    let (black, span) = (raw.black_level[0], raw.white_level - raw.black_level[0]);
+    RawImage {
+        width,
+        height,
+        raw_data: (0..width * height)
+            .map(|i| (black + (i % width * 31 + i / width * 17) % span) as u16)
+            .collect(),
+        crop_rect: None,
+        sensor_gain_maps: None,
+        opcode_list3: None,
+        lens_metadata: Default::default(),
+        ..raw
+    }
+}
+
+/// Cancel `estimate` `after` into its run; returns its result and how long it
+/// kept running once the flag was set.
+fn cancel_after(
+    raw: &RawImage,
+    after: std::time::Duration,
+) -> (Result<(f32, f32)>, std::time::Duration) {
+    let flag = std::sync::atomic::AtomicBool::new(false);
+    std::thread::scope(|scope| {
+        let setter = scope.spawn(|| {
+            std::thread::sleep(after);
+            flag.store(true, std::sync::atomic::Ordering::Relaxed);
+            std::time::Instant::now()
+        });
+        let result = estimate(raw, CancelToken::new(&flag));
+        let returned = std::time::Instant::now();
+        let set = setter.join().unwrap();
+        (result, returned.saturating_duration_since(set))
+    })
+}
+
+#[test]
+fn a_cancelled_estimate_returns_promptly_and_a_later_ask_gets_the_same_pair() {
+    // On the global pool a cancelled pass waits behind other tests' queued
+    // jobs, which times the test runner rather than the cancel.
+    rayon::ThreadPoolBuilder::new()
+        .build()
+        .unwrap()
+        .install(cancelled_estimate_returns_promptly);
+}
+
+fn cancelled_estimate_returns_promptly() {
+    let raw = large_mosaic();
+    let started = std::time::Instant::now();
+    let pair = estimate(&raw, CancelToken::never()).unwrap();
+    let full = started.elapsed();
+    let latencies: Vec<_> = (0..7)
+        .filter_map(|eighth| match cancel_after(&raw, full * eighth / 8) {
+            (Err(Error::Cancelled), latency) => Some(latency),
+            (Err(error), _) => panic!("{error}"),
+            (Ok(_), _) => None,
+        })
+        .collect();
+    eprintln!("estimate {full:?}; cancelled runs returned after {latencies:?}");
+    assert!(
+        latencies.len() >= 4,
+        "only {} of 7 runs were cancelled",
+        latencies.len()
+    );
+    let slowest = latencies.iter().max().unwrap();
+    assert!(
+        *slowest * 4 < full,
+        "a cancelled run kept going {slowest:?} of {full:?}"
+    );
+    // Linearize is the estimate's first full-resolution pass: a cancel a
+    // quarter of the way into it returns within a few rows, not at its end.
+    let started = std::time::Instant::now();
+    crate::linearize::sensor_linearize(&raw);
+    let linearize = started.elapsed();
+    let (result, latency) = cancel_after(&raw, linearize / 4);
+    eprintln!("linearize {linearize:?}; cancelled inside it, returned after {latency:?}");
+    assert!(matches!(result, Err(Error::Cancelled)));
+    assert!(
+        latency * 4 < linearize,
+        "cancelled inside linearize, it still ran {latency:?} of {linearize:?}"
+    );
+    let unset = std::sync::atomic::AtomicBool::new(false);
+    let retried = estimate(&raw, CancelToken::new(&unset)).unwrap();
+    assert_eq!(
+        (retried.0.to_bits(), retried.1.to_bits()),
+        (pair.0.to_bits(), pair.1.to_bits())
+    );
 }

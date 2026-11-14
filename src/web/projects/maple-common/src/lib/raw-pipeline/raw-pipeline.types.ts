@@ -191,10 +191,11 @@ export interface SetFilmLutSuccess {
 }
 
 import type {
+  ResolveImportedWbCancelled,
   ResolveImportedWbRequest,
   ResolveImportedWbSuccess,
 } from './raw-pipeline.imported-wb.types';
-export type { ResolveImportedWbRequest, ResolveImportedWbSuccess };
+export type { ResolveImportedWbCancelled, ResolveImportedWbRequest, ResolveImportedWbSuccess };
 
 /**
  * A small, downsampled RGB snapshot of the GPU-presented frame, read back on the
@@ -280,6 +281,9 @@ export interface WorkerStatus {
   type: 'status';
   threaded: boolean;
   threads: number;
+  /** One byte of the worker's shared wasm memory that cancels an imported Auto
+   *  WB estimate (#5923); absent where the page is not cross-origin isolated. */
+  importedWbCancel?: Uint8Array;
 }
 
 /** Worker-side console output forwarded to the main thread (esp. for panic-hook errors). */
@@ -349,6 +353,7 @@ export type WorkerResponse =
   | SessionError
   | SetFilmLutSuccess
   | ResolveImportedWbSuccess
+  | ResolveImportedWbCancelled
   | WorkerStatus
   | WorkerLog
   | DeepDenoiseProgress

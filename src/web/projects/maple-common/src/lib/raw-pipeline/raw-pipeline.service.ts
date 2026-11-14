@@ -131,7 +131,7 @@ export class RawPipelineService implements OnDestroy {
   readonly lensProfileStatus = signal<LensProfileStatus | null>(null);
 
   private ensureWorker(): Worker {
-    if (this.worker) return this.worker;
+    if (this.worker) return this.importedWb.preempt(this.worker);
     try {
       this.worker = new Worker(new URL('./raw-pipeline.worker', import.meta.url), {
         type: 'module',
@@ -152,6 +152,7 @@ export class RawPipelineService implements OnDestroy {
           deepDenoiseProgress: this.deepDenoiseProgress,
           scopeSample: this.scopeSample,
           lensProfileStatus: this.lensProfileStatus,
+          adoptImportedWbCancel: (flag) => this.importedWb.adoptCancelFlag(flag),
           restoreLensProfile: (request) =>
             restoreRequestedLensProfile(
               worker,
@@ -169,7 +170,7 @@ export class RawPipelineService implements OnDestroy {
       console.error('Failed to create RawPipelineWorker:', err);
       throw err;
     }
-    return this.worker;
+    return this.importedWb.preempt(this.worker);
   }
 
   private retireWorker(worker: Worker, message: string): void {
@@ -335,7 +336,6 @@ export class RawPipelineService implements OnDestroy {
     );
   }
 
-  // fallow-ignore-next-line unused-class-member
   renderLiveSession(xmp?: string, params?: Float32Array): Promise<RenderedLiveSession> {
     let worker: Worker;
     try {
@@ -352,10 +352,9 @@ export class RawPipelineService implements OnDestroy {
     );
   }
 
-  // fallow-ignore-next-line unused-class-member
   closeLiveSession(): void {
     if (!this.worker) return;
-    closeLiveSessionRequest(this.worker, this.nextId++);
+    closeLiveSessionRequest(this.importedWb.preempt(this.worker), this.nextId++);
   }
 
   /**
@@ -396,17 +395,16 @@ export class RawPipelineService implements OnDestroy {
     );
   }
 
-  /** Name-only imported Auto WB of the session holding `bytes`, asked once per session (#4669). */
+  /** Name-only imported Auto WB of the session holding `bytes`, once per session (#4669, #5923). */
   resolveImportedWhiteBalance(bytes: Uint8Array): Promise<ImportedWhiteBalancePair> {
-    return this.dispatchNow((w, id, register) =>
-      this.importedWb.request(w, id, register, this.cpuSource.sessionFor(bytes, w)),
-    );
+    const current = () => this.worker && this.cpuSource.sessionFor(bytes, this.worker);
+    return this.importedWb.request(current, this.dispatchNow);
   }
 
   /** Forget a raster registered by `registerMaskRaster`. Fire-and-forget. */
   releaseMaskRaster(rasterId: number): void {
     if (!this.worker) return;
-    releaseMaskRasterRequest(this.worker, this.nextId++, rasterId);
+    releaseMaskRasterRequest(this.importedWb.preempt(this.worker), this.nextId++, rasterId);
   }
 
   /**
