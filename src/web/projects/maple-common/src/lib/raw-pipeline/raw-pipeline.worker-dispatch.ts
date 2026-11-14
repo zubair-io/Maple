@@ -20,7 +20,6 @@ import type { WritableSignal } from '@angular/core';
 import type { DecodedImage, ScopeSnapshot, WorkerResponse } from './raw-pipeline.types';
 import type { LensProfileFetch, LensProfileStatus } from '../lens/lens-profile.types';
 import type { PendingHandler } from './raw-pipeline.service-internals';
-import type { ImportedWbRequests } from './raw-pipeline.imported-wb-request';
 import { WbSampleRejected } from './raw-pipeline.sample-wb.types';
 import { ColorCurveSampleRejected, RangeSampleRejected } from './raw-pipeline.sample-range.types';
 
@@ -386,7 +385,7 @@ export interface WorkerDispatchContext {
    *  restores what it can and then answers `lens-profile-restored`. */
   restoreLensProfile: (request: LensProfileFetch) => void;
   /** Takes the worker's imported Auto WB cancel flag (#5923). */
-  importedWb: Pick<ImportedWbRequests, 'adoptCancelFlag'>;
+  adoptImportedWbCancel: (flag: Uint8Array) => void;
 }
 
 /**
@@ -406,7 +405,7 @@ export function handleWorkerMessage(msg: WorkerResponse, ctx: WorkerDispatchCont
   if (msg.type === 'status') {
     ctx.threadedSubject.next(msg.threaded);
     ctx.threadCountSubject.next(msg.threads);
-    if (msg.importedWbCancel) ctx.importedWb.adoptCancelFlag(msg.importedWbCancel);
+    if (msg.importedWbCancel) ctx.adoptImportedWbCancel(msg.importedWbCancel);
     return;
   }
   if (msg.type === 'scope-sample') {

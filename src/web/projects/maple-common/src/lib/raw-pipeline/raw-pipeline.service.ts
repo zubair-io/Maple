@@ -152,7 +152,7 @@ export class RawPipelineService implements OnDestroy {
           deepDenoiseProgress: this.deepDenoiseProgress,
           scopeSample: this.scopeSample,
           lensProfileStatus: this.lensProfileStatus,
-          importedWb: this.importedWb,
+          adoptImportedWbCancel: (flag) => this.importedWb.adoptCancelFlag(flag),
           restoreLensProfile: (request) =>
             restoreRequestedLensProfile(
               worker,
@@ -170,7 +170,7 @@ export class RawPipelineService implements OnDestroy {
       console.error('Failed to create RawPipelineWorker:', err);
       throw err;
     }
-    return this.worker;
+    return this.importedWb.preempt(this.worker);
   }
 
   private retireWorker(worker: Worker, message: string): void {
@@ -336,7 +336,6 @@ export class RawPipelineService implements OnDestroy {
     );
   }
 
-  // fallow-ignore-next-line unused-class-member
   renderLiveSession(xmp?: string, params?: Float32Array): Promise<RenderedLiveSession> {
     let worker: Worker;
     try {
@@ -353,7 +352,6 @@ export class RawPipelineService implements OnDestroy {
     );
   }
 
-  // fallow-ignore-next-line unused-class-member
   closeLiveSession(): void {
     if (!this.worker) return;
     closeLiveSessionRequest(this.importedWb.preempt(this.worker), this.nextId++);
@@ -406,7 +404,7 @@ export class RawPipelineService implements OnDestroy {
   /** Forget a raster registered by `registerMaskRaster`. Fire-and-forget. */
   releaseMaskRaster(rasterId: number): void {
     if (!this.worker) return;
-    releaseMaskRasterRequest(this.worker, this.nextId++, rasterId);
+    releaseMaskRasterRequest(this.importedWb.preempt(this.worker), this.nextId++, rasterId);
   }
 
   /**

@@ -13,9 +13,12 @@ import { IMPORTED_WB_IDLE_MS } from './raw-pipeline.imported-wb-request';
 
 describe('RawPipelineService.resolveImportedWhiteBalance', () => {
   let worker: WorkerStub;
+  let sentAt: number[];
   let restore: () => void;
   beforeEach(() => {
     worker = new WorkerStub();
+    sentAt = [];
+    worker.postMessage.mockImplementation(() => void sentAt.push(performance.now()));
     restore = installWorkerStub(worker).restore;
     vi.stubGlobal(
       'createImageBitmap',
@@ -40,6 +43,13 @@ describe('RawPipelineService.resolveImportedWhiteBalance', () => {
     worker.postMessage.mock.calls
       .map(([message]) => message as T)
       .filter((message) => message.type === type);
+
+  /** How long the worker had been sent nothing when the `nth` `type` message went out. */
+  const quietBefore = (type: string, nth: number): number => {
+    const message = posted(type)[nth];
+    const at = worker.postMessage.mock.calls.findIndex(([sent]) => sent === message);
+    return sentAt[at] - sentAt[at - 1];
+  };
 
   /** Open `bytes` as the retained CPU source, as the 2D canvas does; later
    *  calls render it again, as a slider tick does. */
@@ -111,10 +121,9 @@ describe('RawPipelineService.resolveImportedWhiteBalance', () => {
     await open(service, bytes);
     const flag = shareCancelFlag();
 
-    const asked = performance.now();
     const pair = service.resolveImportedWhiteBalance(bytes);
     await expect.poll(() => posted('resolve-imported-wb').length).toBe(1);
-    expect(performance.now() - asked).toBeGreaterThanOrEqual(IMPORTED_WB_IDLE_MS - 1);
+    expect(quietBefore('resolve-imported-wb', 0)).toBeGreaterThanOrEqual(IMPORTED_WB_IDLE_MS - 1);
     expect(Atomics.load(flag, 0)).toBe(0);
 
     // A slider tick while the estimate runs: the flag is up before it is posted.
@@ -122,12 +131,11 @@ describe('RawPipelineService.resolveImportedWhiteBalance', () => {
     expect(Atomics.load(flag, 0)).toBe(1);
     const [cancelled] = posted<ResolveImportedWbRequest>('resolve-imported-wb');
     worker.reply({ id: cancelled.id, type: 'resolve-imported-wb-cancelled' });
-    const tickAt = performance.now();
 
     await expect
       .poll(() => posted('resolve-imported-wb').length, { timeout: 4 * IMPORTED_WB_IDLE_MS })
       .toBe(2);
-    expect(performance.now() - tickAt).toBeGreaterThanOrEqual(IMPORTED_WB_IDLE_MS - 1);
+    expect(quietBefore('resolve-imported-wb', 1)).toBeGreaterThanOrEqual(IMPORTED_WB_IDLE_MS - 1);
     expect(Atomics.load(flag, 0)).toBe(0);
     const retry = posted<ResolveImportedWbRequest>('resolve-imported-wb')[1];
     expect(retry.session).toEqual(cancelled.session);
