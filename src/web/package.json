@@ -45,7 +45,8 @@
     "check:export-recipe-storage": "bun scripts/verify-export-recipe-storage.ts",
     "check:export-recipe-memory": "bun scripts/verify-export-recipe-memory.ts",
     "e2e:batch-transfer": "playwright test --config playwright.batch-transfer.config.ts && playwright test --config playwright.batch-transfer-ui.config.ts",
-    "e2e:batch-library": "playwright test --config playwright.batch-library.config.ts"
+    "e2e:batch-library": "playwright test --config playwright.batch-library.config.ts",
+    "e2e:imported-auto-wb-cancel": "MAPLE_PERF=1 playwright test --config playwright.imported-auto-wb-cancel.config.ts"
   },
   "private": true,
   "packageManager": "npm@11.12.1",
