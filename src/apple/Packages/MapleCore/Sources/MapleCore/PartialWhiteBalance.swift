@@ -51,6 +51,10 @@ extension AdjustmentModel {
     resolved.temperature = target.temperature
     resolved.tint = target.tint
     resolved.wbScaleVersion = 5
+    if intent.isUnresolvedAuto {
+      resolved.wbSource = .auto
+      resolved.wbAlgorithmVersion = autoWhiteBalanceAlgorithmVersion
+    }
     intent.resolvedTarget = target
     resolved.partialWhiteBalance = intent
     return resolved
