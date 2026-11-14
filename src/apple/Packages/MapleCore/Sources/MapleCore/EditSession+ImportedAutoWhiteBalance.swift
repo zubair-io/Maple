@@ -81,16 +81,15 @@ extension EditSession {
   }
 
   /// `model` as a final output (Copy, export) must render it: never As Shot.
-  /// It joins this session's estimate when one is running, so an output
-  /// shortly after open does not start a second one; the resolver estimates
-  /// on its own only when this session has no pair (failed or not started).
+  /// It joins this session's estimate, starting it when none has begun, so an
+  /// output shortly after open never runs a second one; the resolver estimates
+  /// on its own only when this session has no pair (failed or not a RAW).
   func resolvedForOutput(_ model: AdjustmentModel, isRawOverride: Bool? = nil) async throws
     -> AdjustmentModel
   {
-    if model.awaitsImportedAutoPair, importedAuto.target == nil,
-      let request = importedAuto.request
-    {
-      await request.value
+    if model.awaitsImportedAutoPair, importedAuto.target == nil {
+      resolveImportedAutoWhiteBalance()
+      await importedAuto.request?.value
     }
     let (asset, source) = (asset, renderActor.rawRenderSource)
     return try await ImportedWhiteBalanceResolver.resolve(
