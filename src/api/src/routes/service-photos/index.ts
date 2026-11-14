@@ -43,9 +43,14 @@ async function ownerScope(identity: ServiceApiIdentity) {
   return ownerPhotoWhere(identity.ownerId, await personIdsToDrop(undefined));
 }
 
+/** One photo by id: a search can serve a stack's JPEG on its own, so it stays addressable. */
+async function photoScope(identity: ServiceApiIdentity) {
+  return { ...(await ownerScope(identity)), foldStacks: false };
+}
+
 async function isVisiblePhoto(identity: ServiceApiIdentity, assetId: string): Promise<boolean> {
   if (!ASSET_ID.test(assetId)) return false;
-  return (await countPhotos(await ownerScope(identity), assetIdsPredicate([assetId]))) === 1;
+  return (await countPhotos(await photoScope(identity), assetIdsPredicate([assetId]))) === 1;
 }
 
 async function derivative(
@@ -114,7 +119,7 @@ export const servicePhotosRoutes = new Elysia({
     const identity = await authorize(request, 'assets:read', set);
     if (isServiceError(identity)) return identity;
     if (!ASSET_ID.test(params.assetId)) return notFound(set);
-    const [photo] = await hydratePhotos(await ownerScope(identity), [params.assetId]);
+    const [photo] = await hydratePhotos(await photoScope(identity), [params.assetId]);
     return photo ?? notFound(set);
   })
   .get('/photos/:assetId/thumb', ({ params, request, set }) =>

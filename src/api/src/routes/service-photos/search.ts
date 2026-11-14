@@ -102,9 +102,12 @@ async function rankedSearch(
   const ordered = rows.map((row) => row.id);
   const offset = cursor?.offset ?? 0;
   const pageIds = ordered.slice(offset, offset + request.limit);
+  // The window has already folded its stacks, keeping a JPEG whose RAW did not match the text;
+  // folding again without the text would drop that survivor from the page and the days.
+  const windowRows: SearchWhere = { ...where, foldStacks: false };
   const [days, photos] = await Promise.all([
-    ordered.length === 0 ? Promise.resolve([]) : photoDays(where, assetIdsPredicate(ordered)),
-    hydratePhotos(where, pageIds),
+    ordered.length === 0 ? Promise.resolve([]) : photoDays(windowRows, assetIdsPredicate(ordered)),
+    hydratePhotos(windowRows, pageIds),
   ]);
   const nextOffset = offset + request.limit;
   return {
