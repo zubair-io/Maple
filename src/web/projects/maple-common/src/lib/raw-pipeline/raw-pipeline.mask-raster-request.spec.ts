@@ -107,6 +107,7 @@ describe('dispatchRegisterMaskRaster (#3300)', () => {
         scopeSample: signal<DecodedImage | null>(null),
         lensProfileStatus: signal(null),
         restoreLensProfile: vi.fn(),
+        adoptImportedWbCancel: vi.fn(),
       },
     );
     await expect(promise).resolves.toBe(42);
@@ -135,6 +136,7 @@ describe('dispatchRegisterMaskRaster (#3300)', () => {
         scopeSample: signal<DecodedImage | null>(null),
         lensProfileStatus: signal(null),
         restoreLensProfile: vi.fn(),
+        adoptImportedWbCancel: vi.fn(),
       },
     );
     await expect(promise).rejects.toThrow('digest must be 16 lowercase hex chars');
