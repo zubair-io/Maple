@@ -106,8 +106,7 @@ public sealed partial class ThumbnailService
             var rasterIds = RegisterBrushRasters(model, image.Width, image.Height);
             try
             {
-                if (model.Temperature == 6500 && model.Tint == 0 && image.DecodedTemperature > 0)
-                { model.Temperature = image.DecodedTemperature; model.Tint = image.DecodedTint; }
+                ImportedWhiteBalanceResolver.PrepareDerivative(path, model, image);
                 var pixels = new byte[checked(image.Width * image.Height * 4)];
                 float[]? scratch = null;
                 RenderEngine.RenderTick(image, model, ref scratch, pixels, film);

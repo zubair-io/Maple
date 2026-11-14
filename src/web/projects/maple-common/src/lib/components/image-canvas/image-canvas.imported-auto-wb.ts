@@ -1,8 +1,8 @@
+import type { AdjustmentModel } from '../../models/adjustment-model';
 import type { AssetId } from '../../models/asset';
 import { isUnresolvedAuto } from '../../models/partial-white-balance';
 import type { RawPipelineService } from '../../raw-pipeline/raw-pipeline.service';
 import type { LibraryStateService } from '../../state/library-state.service';
-
 /**
  * Staged off until #5954 (#5923) lands: the estimate is one synchronous wasm
  * call on the render worker, so slider renders queued behind it wait 1-2 s.
@@ -11,6 +11,11 @@ import type { LibraryStateService } from '../../state/library-state.service';
  * core. Specs that exercise the background resolve turn it on.
  */
 export const importedAutoBackgroundEstimate = { enabled: false };
+export function comparisonModelForImportedAuto(model: AdjustmentModel): AdjustmentModel {
+  return !importedAutoBackgroundEstimate.enabled && isUnresolvedAuto(model.partialWhiteBalance)
+    ? { ...model, whiteBalancePreset: 'As Shot', partialWhiteBalance: null }
+    : model;
+}
 
 /**
  * After the As Shot first frame, resolve a name-only imported Auto WB on the

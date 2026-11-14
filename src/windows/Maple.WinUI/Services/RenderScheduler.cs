@@ -152,21 +152,6 @@ namespace Maple.WinUI.Services
             ScopeInvalidated?.Invoke();
         }
 
-        public void RequestRender(AdjustmentState snapshot)
-        {
-            var requestedAt = System.Diagnostics.Stopwatch.GetTimestamp();
-            lock (_gate)
-            {
-                if (_stopping) return;
-                _pending = snapshot;
-                _requestStarted = requestedAt;
-                _pendingHistogram = null;
-                _scopes.Invalidate();
-            }
-            InvalidateDetail();
-            ScopeInvalidated?.Invoke();
-            try { _signal.Release(); } catch (SemaphoreFullException) { }
-        }
 
         private unsafe void OpenGpuSessionLocked(DecodedImage image)
         {

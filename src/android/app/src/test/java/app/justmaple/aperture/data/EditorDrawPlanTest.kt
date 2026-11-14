@@ -9,8 +9,14 @@ class EditorDrawPlanTest {
     private val asShot = mapOf("temperature" to 7400f, "tint" to 22f, "exposure" to 0f)
     private val dragged = asShot + mapOf("temperature" to 4000f)
 
-    private fun pushed(applied: Map<String, Float>, next: Map<String, Float>): List<String> =
-        buildList { EditorDrawPlan.forEachFieldToApply(applied, next) { field, _ -> add(field.name) } }
+    private fun pushed(
+        applied: Map<String, Float>,
+        next: Map<String, Float>,
+        importedWhiteBalance: Boolean = false,
+    ): List<String> =
+        buildList {
+            EditorDrawPlan.forEachFieldToApply(applied, next, importedWhiteBalance) { field, _ -> add(field.name) }
+        }
 
     @Test
     fun restoreToIdenticalXmlAfterAFieldPush_reloadsTheModel() {
@@ -47,6 +53,44 @@ class EditorDrawPlanTest {
         assertEquals(listOf("temperature", "tint"), pushed(asShot, dragged))
         assertEquals(listOf("exposure"), pushed(asShot, asShot + mapOf("exposure" to 0.5f)))
         assertEquals(listOf("temperature", "tint", "exposure"), pushed(asShot, dragged + mapOf("exposure" to 0.5f)))
+    }
+
+    @Test
+    fun anAdoptedImportedAutoPairIsNeverReplacedByStaleViewModelWhiteBalance() {
+        // #4669: the reloaded model renders the estimate; a draw queued before the
+        // view model learned the pair still carries the As Shot sliders.
+        val estimate = asShot + mapOf("temperature" to 5100f, "tint" to 9f)
+        assertEquals(listOf("exposure"), pushed(estimate, asShot + mapOf("exposure" to 0.5f), importedWhiteBalance = true))
+    }
+
+    @Test
+    fun pastingAutoAfterTheFirstFrameStartsItsEstimateWithoutRepeatingPresentation() {
+        var hasAutoIntent = false
+        var started = false
+        var presentations = 0
+        var estimates = 0
+        fun present(firstFrame: Boolean) =
+            EditorDrawPlan.afterPresentation(
+                firstFrame,
+                notifyFirstFrame = { presentations++ },
+                resolveImportedWhiteBalance = {
+                    if (hasAutoIntent && !started) {
+                        started = true
+                        estimates++
+                    }
+                },
+            )
+        present(firstFrame = true)
+        assertEquals(1, presentations)
+        assertEquals(0, estimates)
+        // Paste/undo/history replacement reuses the decoded session and changes its model.
+        hasAutoIntent = true
+        present(firstFrame = false)
+        assertEquals(1, presentations)
+        assertEquals(1, estimates)
+        present(firstFrame = false)
+        assertEquals(1, presentations)
+        assertEquals(1, estimates)
     }
 
     @Test

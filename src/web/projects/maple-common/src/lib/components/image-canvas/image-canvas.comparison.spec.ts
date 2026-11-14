@@ -3,7 +3,12 @@ import { TestBed } from '@angular/core/testing';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ImageCanvasComparison } from './image-canvas.comparison';
 import type { ImageCanvasComponent } from './image-canvas.component';
-import { defaultAdjustmentModel } from '../../models/adjustment-model';
+import { defaultAdjustmentModel, type AdjustmentModel } from '../../models/adjustment-model';
+import {
+  renderModelForImportedAuto,
+  withResolvedImportedAuto,
+} from '../../models/partial-white-balance';
+import { importedAutoBackgroundEstimate } from './image-canvas.imported-auto-wb';
 import { XmpSerializerService } from '../../xmp/xmp-serializer.service';
 import type { LibraryStore } from '../../state/library-store.service';
 import type { XmpAdjustmentRestoreService } from '../../xmp/xmp-adjustment-restore.service';
@@ -16,9 +21,9 @@ function deferred<T>() {
   });
   return { promise, resolve };
 }
-function setup(gpu = false) {
+function setup(gpu = false, initial: Partial<AdjustmentModel> = { exposure: 1 }) {
   const focused = signal({ id: 'a', filename: 'a.dng' });
-  const model = signal({ ...defaultAdjustmentModel(), exposure: 1 });
+  const model = signal({ ...defaultAdjustmentModel(), ...initial });
   const split = signal<number | null>(null);
   const active = signal(gpu);
   const color = signal('display-p3');
@@ -46,8 +51,8 @@ function setup(gpu = false) {
     currentBytes: bytes,
     currentExt: 'dng',
     fastTargetPx: () => width(),
-    serializeForRender: (value: ReturnType<typeof defaultAdjustmentModel>) =>
-      TestBed.inject(XmpSerializerService).serialize(value),
+    serializeForRender: (value: AdjustmentModel) =>
+      TestBed.inject(XmpSerializerService).serialize(renderModelForImportedAuto(value)),
     pipeline: { decode, exportImage },
     filmLut: { getLattice },
   } as unknown as ImageCanvasComponent;
@@ -55,7 +60,10 @@ function setup(gpu = false) {
     host,
     {
       backend: 'hosted',
-      hydrateAdjustment: (_id: string, value: unknown) => value,
+      hydrateAdjustment: (_id: string, value: AdjustmentModel) => {
+        const pair = model().partialWhiteBalance?.resolved;
+        return pair ? withResolvedImportedAuto(value, pair) : value;
+      },
     } as unknown as LibraryStore,
     {} as XmpAdjustmentRestoreService,
     {
@@ -107,6 +115,7 @@ beforeEach(() => {
   );
 });
 afterEach(() => {
+  importedAutoBackgroundEstimate.enabled = false;
   cleanup?.();
   cleanup = undefined;
   vi.useRealTimers();
@@ -284,5 +293,45 @@ describe('session-open comparison ownership (#4073)', () => {
     await settle();
     expect(s.comparison.bitmap()).toBeNull();
     expect(s.comparison.loading()).toBe(false);
+  });
+  it('keeps name-only Auto WB aligned with the staged live canvas and updates when resolved (#4669)', async () => {
+    const auto: Partial<AdjustmentModel> = {
+      whiteBalancePreset: 'Auto',
+      temperature: 5400,
+      tint: 8,
+      partialWhiteBalance: { version: 5 },
+    };
+    const s = setup(true, auto);
+    cleanup = s.cleanup;
+    await settle();
+    s.split.set(0.5);
+    await settle(150);
+    expect(s.exportImage).toHaveBeenCalledTimes(1);
+    expect(s.exportImage.mock.calls[0]?.[3]).not.toContain('crs:WhiteBalance="Auto"');
+
+    importedAutoBackgroundEstimate.enabled = true;
+    s.model.update((value) => withResolvedImportedAuto(value, { temperature: 4800, tint: 6 }));
+    await settle(150);
+    expect(s.exportImage).toHaveBeenCalledTimes(2);
+    expect(s.exportImage.mock.calls[1]?.[3]).toContain('crs:Temperature="4800"');
+    expect(s.exportImage.mock.calls[1]?.[3]).toContain('crs:Tint="6"');
+
+    const cpu = setup(false, auto);
+    s.cleanup();
+    cleanup = cpu.cleanup;
+    importedAutoBackgroundEstimate.enabled = false;
+    await settle();
+    cpu.split.set(0.5);
+    await settle(150);
+    expect(cpu.decode).toHaveBeenCalledTimes(1);
+    expect(cpu.decode.mock.calls[0]?.[2]).not.toContain('crs:WhiteBalance="Auto"');
+    expect(cpu.decode.mock.calls[0]?.[6]).toBe(true);
+
+    importedAutoBackgroundEstimate.enabled = true;
+    cpu.comparison.retry();
+    await settle(150);
+    expect(cpu.decode).toHaveBeenCalledTimes(2);
+    expect(cpu.decode.mock.calls[1]?.[2]).toContain('crs:WhiteBalance="Auto"');
+    expect(cpu.decode.mock.calls[1]?.[6]).toBe(false);
   });
 });

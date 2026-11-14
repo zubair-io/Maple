@@ -24,6 +24,15 @@ interface PreviewRenderer : Closeable {
     suspend fun nativeDetail(request: NativeDetailRequest): android.graphics.Bitmap
     fun cancelNativeDetail()
 
+    /**
+     * Receives each adoption of a session's name-only imported Auto pair (#4669) off the main
+     * thread: the slider values the renderer now draws for [generation], or the failure of its one
+     * re-render. A renderer that never resolves imported Auto has nothing to report.
+     */
+    fun observeImportedWhiteBalance(
+        listener: (generation: Int, values: Result<Map<String, Float>>) -> Unit
+    ) {}
+
     fun presentationSize(size: NativeImageSize, crop: app.justmaple.aperture.ui.CropRect): NativeImageSize =
         NativeImageSize.unpack(NativeBridge.presentationDimensions(size.width, size.height,
             crop.top, crop.left, crop.bottom, crop.right, crop.angle))

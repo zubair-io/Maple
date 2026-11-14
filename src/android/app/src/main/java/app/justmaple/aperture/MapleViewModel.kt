@@ -65,8 +65,11 @@ internal constructor(
     private val history = EditHistory()
     private val draws = Channel<DrawRequest>(Channel.CONFLATED)
     private var refineJob: Job? = null
+    // Only meaningful for its own generation (#4669).
+    private var importedWhiteBalance: ImportedWhiteBalance? = null
 
     init {
+        renderer.observeImportedWhiteBalance(::importedWhiteBalanceAdopted)
         viewModelScope.launch {
             for (request in draws) {
                 if (request.generation != generation) continue
@@ -327,11 +330,15 @@ internal constructor(
         }
         try {
             renderXml = presentedXml(snapshot.document)
-            val values =
+            val opened =
                 library.withPreview(photo, 2048) { input ->
                     renderer.open(input.absolutePath, renderXml, 2048, token)
                 }
             if (token == generation) {
+                // A pair adopted before this continuation ran is shown at once (#4669).
+                val values = importedWhiteBalance?.takeIf { it.generation == token }
+                    ?.let { EditSnapshot(opened, snapshot.document).withImportedWhiteBalance(it).values }
+                    ?: opened
                 if (openingEdit == null) openingEdit = EditSnapshot(values, snapshot.document)
                 mutable.update { it.copy(values = values, rendering = !renderer.hasPresented) }
                 scheduleRefine(DrawRequest(token, renderer.revision, values, renderXml))
@@ -561,7 +568,7 @@ internal constructor(
 
     fun surface(surface: Surface?, width: Int, height: Int, wideColor: Boolean = false) {
         cancelNativeDetail()
-        mutable.update { it.copy(nativeSurfaceRevision = it.nativeSurfaceRevision + 1) }
+        mutable.update { it.copy(nativeDetailRevision = it.nativeDetailRevision + 1) }
         val binding = renderer.recordSurface(surface, width, height, wideColor)
         val token = generation
         if (state.value.mode == PhotoMode.Edit) mutable.update { it.copy(rendering = true) }
@@ -583,6 +590,31 @@ internal constructor(
         viewModelScope.launch {
             if (epoch == generation && state.value.values.isNotEmpty())
                 mutable.update { it.copy(rendering = false) }
+        }
+    }
+
+    // #4669: the renderer adopted this generation's name-only imported Auto pair and re-rendered
+    // once. Every snapshot that still carries the request shows it, so the next draw neither
+    // pushes the As Shot sliders back nor records a spurious undo step. A native detail patch
+    // developed before it shows As Shot under an unchanged document, so it is retired and
+    // PhotoCanvas asks for a replacement.
+    private fun importedWhiteBalanceAdopted(epoch: Int, adopted: Result<Map<String, Float>>) {
+        viewModelScope.launch {
+            if (epoch != generation) return@launch
+            adopted
+                .onSuccess { values ->
+                    val pair = ImportedWhiteBalance(epoch, values.getValue("temperature"), values.getValue("tint"))
+                    importedWhiteBalance = pair
+                    val show = { snapshot: EditSnapshot -> snapshot.withImportedWhiteBalance(pair) }
+                    openingEdit = openingEdit?.let(show)
+                    history.rewrite(show)
+                    cancelNativeDetail()
+                    mutable.update {
+                        it.copy(values = show(EditSnapshot(it.values, it.document)).values,
+                            nativeDetailRevision = it.nativeDetailRevision + 1)
+                    }
+                }
+                .onFailure { fail(it, "Could not render photo") }
         }
     }
 

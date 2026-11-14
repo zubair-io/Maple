@@ -39,6 +39,8 @@ namespace Maple.WinUI.ViewModels
 
         public string SelectedWhiteBalancePreset => WhiteBalanceProvenance.SelectedPresetName(Adjustments);
 
+        public bool CanEditWhiteBalance => AdjustmentsReady && WhiteBalanceProvenance.CanEdit(Adjustments);
+
         /// <summary>The eyedropper needs the RAW original; a rendered
         /// JPEG/TIFF has no scene-linear neutral to solve.</summary>
         public bool CanSampleWhiteBalance =>
@@ -49,7 +51,7 @@ namespace Maple.WinUI.ViewModels
         public void SampleWhiteBalance(double nx, double ny)
         {
             var photo = SelectedPhoto;
-            if (photo == null || IsWhiteBalanceSampling)
+            if (photo == null || IsWhiteBalanceSampling || !CanEditWhiteBalance)
                 return;
             if (!WhiteBalanceSampler.IsRawPath(photo.EditPath))
             {
@@ -106,7 +108,7 @@ namespace Maple.WinUI.ViewModels
         public void ApplyWhiteBalancePreset(string name)
         {
             var photo = SelectedPhoto;
-            if (photo == null)
+            if (photo == null || !CanEditWhiteBalance)
                 return;
             CancelWhiteBalanceSample();
             if (name == WhiteBalancePresets.Auto)
@@ -212,6 +214,7 @@ namespace Maple.WinUI.ViewModels
         private void ApplyWhiteBalanceEdit(
             Action<AdjustmentState> edit, Func<AdjustmentState, AdjustmentState>? normalizeBefore = null)
         {
+            if (!CanEditWhiteBalance) return;
             var before = Adjustments.Clone();
             var beforeText = ModelText(before);
             var candidate = before.Clone();

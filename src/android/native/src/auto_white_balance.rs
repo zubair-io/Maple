@@ -28,11 +28,29 @@ impl AutoWhiteBalanceWork {
     }
 }
 
+/// The shared estimator for a session's name-only imported Auto WB (#4669),
+/// run off the GPU thread after the As Shot first frame, then adopted by the
+/// session on its render thread. Navigation or close cancels it, so the
+/// estimate unwinds and its RAW reference drops promptly.
+pub struct ImportedAutoWhiteBalanceWork {
+    pub(crate) raw: Arc<RawImage>,
+    pub(crate) estimate: raw_core::stages::imported_auto_wb::CachedEstimate,
+}
+impl ImportedAutoWhiteBalanceWork {
+    pub fn run(&mut self, cancel: &raw_gpu::CancelToken) -> Result<(), String> {
+        self.estimate
+            .resolve(&self.raw, raw_core::CancelToken::new(cancel.flag()))
+            .map(|_| ())
+            .map_err(|error| error.to_string())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     #[test]
     fn work_can_cross_the_gpu_thread_boundary() {
         fn send_sync<T: Send + Sync>() {}
         send_sync::<super::AutoWhiteBalanceWork>();
+        send_sync::<super::ImportedAutoWhiteBalanceWork>();
     }
 }

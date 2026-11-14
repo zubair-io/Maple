@@ -1,3 +1,5 @@
+use crate::auto_white_balance::ImportedAutoWhiteBalanceWork;
+use raw_core::stages::imported_auto_wb::{apply_pair, needs_resolution, CachedEstimate};
 use raw_core::{
     gpu_host::{
         capture::{develop_capture_prefix_rgba_cancellable, LiveCreative},
@@ -21,6 +23,13 @@ pub struct Session {
     pub ctx: Rc<GpuContext>,
     pub model: AdjustmentModel,
     raw: Option<Arc<RawImage>>,
+    /// Name-only imported Auto (#4669): renders As Shot until the background
+    /// estimate is adopted; `imported_auto` remembers the request and
+    /// `imported_auto_started` allows one estimate per session, so a surface
+    /// recreation never starts a second one.
+    imported_wb: CachedEstimate,
+    imported_auto: bool,
+    imported_auto_started: bool,
     bytes: Arc<Vec<u8>>,
     ext: String,
     detail: std::sync::OnceLock<crate::native_detail::SharedDetail>,
@@ -141,13 +150,55 @@ fn update_inputs(
 
 impl Session {
     pub fn detail_source(&self) -> crate::native_detail::SharedDetail {
-        Arc::clone(self.detail.get_or_init(|| {
+        let detail = self.detail.get_or_init(|| {
             crate::native_detail::DetailSource::new(
                 self.raw.clone(),
                 Arc::clone(&self.bytes),
                 self.ext.clone(),
             )
-        }))
+        });
+        // Each request re-borrows after the previous render released the source.
+        // Refresh here if that render prevented adoption from updating it.
+        if let Ok(mut source) = detail.lock() {
+            source.imported_wb = self.imported_wb;
+        }
+        Arc::clone(detail)
+    }
+    /// Replace the render model; name-only imported Auto takes the adopted
+    /// pair, As Shot until then. No estimation here (#4669).
+    pub fn set_model(&mut self, mut model: AdjustmentModel) {
+        self.imported_auto = needs_resolution(&model);
+        self.imported_wb.apply(&mut model);
+        self.model = model;
+    }
+    /// Off-thread work for the session's one imported Auto estimate, if any.
+    pub fn prepare_imported_auto_white_balance(&mut self) -> Option<ImportedAutoWhiteBalanceWork> {
+        if self.imported_auto_started || !self.imported_auto || self.imported_wb.pair().is_some() {
+            return None;
+        }
+        let raw = self.raw.clone()?;
+        self.imported_auto_started = true;
+        Some(ImportedAutoWhiteBalanceWork {
+            raw,
+            estimate: self.imported_wb,
+        })
+    }
+    /// The model renders an adopted imported pair rather than authored WB, so
+    /// the host's WB slider values are display-only and never pushed back.
+    pub fn renders_imported_auto_pair(&self) -> bool {
+        self.imported_auto && self.imported_wb.pair().is_some()
+    }
+    /// Adopt without waiting for native detail's long render lock; a busy source
+    /// takes the cached pair when next borrowed. A WB edit has cleared the request.
+    pub fn adopt_imported_auto_white_balance(&mut self, work: &ImportedAutoWhiteBalanceWork) {
+        self.imported_wb = work.estimate;
+        if let Some(Ok(mut detail)) = self.detail.get().map(|d| d.try_lock()) {
+            detail.imported_wb = work.estimate;
+        }
+        if self.imported_auto && !self.model.temperature_seen && !self.model.tint_seen {
+            self.model.unresolved_auto_wb = true;
+            self.imported_wb.apply(&mut self.model);
+        }
     }
     pub fn source_is_raw(&self) -> bool {
         self.raw.is_some()
@@ -171,6 +222,19 @@ impl Session {
             .map_or((as_shot.temperature, as_shot.tint), |creative| {
                 slider_values(creative, &as_shot)
             })
+    }
+    /// The slider pair of the adopted estimate itself, whatever the current
+    /// model renders: a WB edit made while it ran must not be published as the
+    /// resolved Auto pair.
+    pub fn imported_auto_white_balance_values(&self) -> Option<(f32, f32)> {
+        let pair = self.imported_wb.pair()?;
+        let mut resolved = self.model.clone();
+        apply_pair(&mut resolved, pair);
+        Some(
+            self.creative
+                .as_ref()
+                .map_or(pair, |creative| slider_values(creative, &resolved)),
+        )
     }
     fn orientation(&self) -> ExifOrientation {
         self.raw
@@ -229,7 +293,9 @@ impl Session {
         xml: &str,
         edge: u32,
     ) -> Result<Self, String> {
-        let model = crate::xmp::parse(xml)?;
+        let mut model = crate::xmp::parse(xml)?;
+        let imported_auto = needs_resolution(&model);
+        CachedEstimate::default().apply(&mut model);
         let bytes = Arc::new(std::fs::read(path).map_err(|e| e.to_string())?);
         let ext = std::path::Path::new(path)
             .extension()
@@ -311,6 +377,9 @@ impl Session {
             ctx,
             model,
             raw,
+            imported_wb: CachedEstimate::default(),
+            imported_auto,
+            imported_auto_started: false,
             bytes,
             ext,
             prefix,

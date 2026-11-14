@@ -373,7 +373,7 @@ impl MapleApp {
                         self.worker.send(Command::Detail(
                             self.session,
                             self.zoom.generation,
-                            document.model.clone(),
+                            self.render_model(&document.model),
                             rect,
                         ));
                         self.zoom.detail_requested = true;

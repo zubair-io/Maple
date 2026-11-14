@@ -75,6 +75,13 @@ internal class EditHistory {
         return redo.removeLast()
     }
 
+    /** Rewrites every retained snapshot, e.g. to show a pair resolved after it was taken (#4669). */
+    fun rewrite(transform: (EditSnapshot) -> EditSnapshot) {
+        gesture = gesture?.let(transform)
+        for (index in undo.indices) undo[index] = transform(undo[index])
+        for (index in redo.indices) redo[index] = transform(redo[index])
+    }
+
     fun clear() {
         undo.clear()
         redo.clear()
