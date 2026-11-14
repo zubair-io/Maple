@@ -120,10 +120,14 @@ fn histogram_4359_host_and_gpu_phase_probe() {
         assert_eq!(bins[..256].iter().sum::<u32>(), 236 * 236);
         assert_eq!(&bins[..256], &bins[256..512]);
         assert_eq!(&bins[..256], &bins[512..]);
+        // The wall total also carries host scheduling and the command-buffer
+        // completion round trip (#4359: a kernel-free control shows the same
+        // tail), so this diagnostic bounds the GPU kernel it can attribute;
+        // the acceptance test keeps the 50 ms wall-clock gate.
         if iteration > 0 {
             assert!(
-                total < std::time::Duration::from_millis(50),
-                "diagnostic warmed original50ms budget: {total:?}"
+                gpu_ms < 50.0,
+                "diagnostic warmed kernel budget: {gpu_ms:.3} ms (wall total {total:?})"
             );
         }
     }
