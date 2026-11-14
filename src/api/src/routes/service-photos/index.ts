@@ -31,6 +31,12 @@ const ASSET_ID = /^[a-f0-9]{24}$/;
 
 const INVALID_JSON = Symbol('invalid-json');
 
+const CURSOR_REFUSALS = {
+  invalid_cursor: 'The cursor does not belong to this search.',
+  ranking_changed:
+    'The ranking this cursor continues is no longer available; repeat the search without a cursor.',
+} as const;
+
 async function readJson(request: Request): Promise<unknown> {
   try {
     return JSON.parse(await request.text());
@@ -92,13 +98,8 @@ export const servicePhotosRoutes = new Elysia({
         return serviceError(set, 429, 'rate_limit_exceeded', 'Too many searches; retry later.');
       }
       const outcome = await searchPhotos(identity, parsed.request);
-      if (outcome === 'invalid_cursor') {
-        return serviceError(
-          set,
-          400,
-          'invalid_cursor',
-          'The cursor does not belong to this search.',
-        );
+      if (typeof outcome === 'string') {
+        return serviceError(set, 400, 'invalid_cursor', CURSOR_REFUSALS[outcome]);
       }
       log.info(
         {

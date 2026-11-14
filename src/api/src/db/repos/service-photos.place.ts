@@ -63,8 +63,8 @@ function placeKeyMatches(key: PlaceKey, needle: string): boolean {
 }
 
 /**
- * The distinct place keys among the photos `scope` admits that match `query`. Empty when nothing
- * matches, including when the query folds to nothing at all.
+ * The distinct place keys among the photos `scope` admits that match `query`, sorted. Empty when
+ * nothing matches, including when the query folds to nothing at all.
  */
 export async function matchingPlaceKeys(
   scope: SearchWhere,
@@ -81,5 +81,6 @@ export async function matchingPlaceKeys(
   );
   return rows
     .filter((row) => placeKeyMatches(JSON.parse(row.place_key) as PlaceKey, needle))
-    .map((row) => row.place_key);
+    .map((row) => row.place_key)
+    .sort();
 }
