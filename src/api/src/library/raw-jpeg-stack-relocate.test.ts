@@ -19,7 +19,7 @@ import {
   type LiveTestDatabase,
 } from '../db/sqlite/test-sqlite.test-helpers.ts';
 import { invalidateLibraryRoots } from '../indexer/libraries.cache.ts';
-import { relocateFile } from '../fs/relocate.ts';
+import { relocateFile, sidecarRenameTarget } from '../fs/relocate.ts';
 import { relocateAsset, type RelocateAssetInput } from './relocate-asset.ts';
 
 let live: LiveTestDatabase;
@@ -366,5 +366,23 @@ describe('a RAW+JPEG stack relocated as one unit #5929', () => {
     expect(await read('b/IMG_1.JPG.xmp')).toBe(maple('late jpeg edit'));
     expect(await exists('a/IMG_1.JPG.xmp')).toBe(false);
     expect(await exists('a/IMG_1.JPG')).toBe(false);
+  });
+
+  test("carries a sidecar whose stem uses the JPEG's NFD spelling when the RAW's stem is NFC", async () => {
+    const nfcRaw = 'a/caf\u00e9.CR3';
+    const nfdJpeg = 'a/cafe\u0301.JPG';
+    const nfdSidecar = 'a/cafe\u0301 (conflict from Mac).xmp';
+    expect(sidecarRenameTarget(at(nfcRaw), at('b/Trip.CR3'), at(nfdSidecar))).toBe(
+      at('b/Trip (conflict from Mac).xmp'),
+    );
+    const stack = { raw: await indexed(nfcRaw), jpeg: await indexed(nfdJpeg) };
+    await put(nfdSidecar, 'nfd conflict edit');
+    await reconcileRawJpegStacks(new ObjectId(libraryId), 'a');
+
+    const moved = await moveStack(stack, { destinationFilename: 'Trip.CR3' });
+
+    expect(moved.kind).toBe('relocated');
+    expect(await read('b/Trip (conflict from Mac).xmp')).toBe('nfd conflict edit');
+    expect(await exists(nfdSidecar)).toBe(false);
   });
 });

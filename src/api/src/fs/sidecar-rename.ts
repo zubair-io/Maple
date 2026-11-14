@@ -59,10 +59,25 @@ function swapBase(
   newBase: string,
 ): string | null {
   const sidecarName = path.basename(sidecarAbsPath);
-  const prefix = sidecarName.slice(0, oldBase.length);
-  if (prefix.length !== oldBase.length || prefix.toLowerCase() !== oldBase.toLowerCase()) {
-    return null;
-  }
-  const renamed = newBase + sidecarName.slice(oldBase.length);
+  const prefixLen = matchingBaseLength(sidecarName, oldBase);
+  if (prefixLen === null) return null;
+  const renamed = newBase + sidecarName.slice(prefixLen);
   return path.join(path.dirname(newAbsPath), renamed);
+}
+
+function matchingBaseLength(sidecarName: string, oldBase: string): number | null {
+  const prefix = sidecarName.slice(0, oldBase.length);
+  if (
+    prefix.length === oldBase.length &&
+    prefix.toLowerCase() === oldBase.toLowerCase() &&
+    !/^\p{M}/u.test(sidecarName.slice(oldBase.length))
+  ) {
+    return oldBase.length;
+  }
+  const target = oldBase.normalize('NFC').toLowerCase();
+  for (let len = 1; len <= sidecarName.length; len++) {
+    if (/^\p{M}/u.test(sidecarName.slice(len))) continue;
+    if (sidecarName.slice(0, len).normalize('NFC').toLowerCase() === target) return len;
+  }
+  return null;
 }
