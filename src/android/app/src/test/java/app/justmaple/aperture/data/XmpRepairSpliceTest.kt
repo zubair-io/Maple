@@ -136,6 +136,28 @@ class XmpRepairSpliceTest {
     }
 
     @Test
+    fun aDefaultMapleNamespaceInScopeIsMapleMarkup() {
+        val source = fixture("lightroom-spots.xmp")
+        val maple = "xmlns=\"http://ns.justmaple.app/photo/1.0/\""
+        // raw-core's import reads every in-scope namespace of the description, the default one included.
+        for (legacy in listOf(maple, "xmlns=\"http://ns.justmaple.app/1.0/\"")) {
+            assertTrue(throughFile(source.replace("xmlns:vnd=", "$legacy\n    xmlns:vnd=")).repairsInSensorFrame)
+        }
+        assertTrue(throughFile(source.replace(" <rdf:RDF", " <rdf:RDF $maple")).repairsInSensorFrame)
+        val foreign = throughFile(source.replace("xmlns:vnd=", "xmlns=\"urn:example:vendor\"\n    xmlns:vnd="))
+        assertFalse("A foreign default namespace is not Maple markup", foreign.repairsInSensorFrame)
+        val reset = throughFile(source.replace(" <rdf:RDF", " <rdf:RDF $maple").replace("xmlns:vnd=", "xmlns=\"\"\n    xmlns:vnd="))
+        assertFalse("A reset default namespace leaves no Maple namespace in scope", reset.repairsInSensorFrame)
+
+        // The legacy list then stays unstamped through an unrelated edit, as raw-core reads it.
+        val exposure = AdjustmentFields.byName.getValue("exposure")
+        val described = source.replace("xmlns:vnd=", "$maple\n    xmlns:vnd=")
+        val saved = throughFile(throughFile(described).withField(exposure, .5f).serialize())
+        assertNull(saved.attribute("papp:RetouchFrameVersion"))
+        assertTrue(saved.repairsInSensorFrame)
+    }
+
+    @Test
     fun anUnchangedOutputIsNoEditAndAppendedContainersFollowTheMasks() {
         val source = fixture("lightroom-spots.xmp")
         val document = throughFile(source)
