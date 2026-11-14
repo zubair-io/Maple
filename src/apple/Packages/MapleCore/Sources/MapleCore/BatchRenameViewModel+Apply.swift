@@ -188,9 +188,11 @@ extension BatchRenameViewModel {
 
   /// One HTTP call for the whole batch — the server already applies
   /// sequentially (`batch-rename.ts`), so there is no per-asset loop here.
-  /// A stack `refusedReplaceStacks` keeps out splits the batch around it,
-  /// each part numbered from its first item's position so `{n}` matches
-  /// the preview.
+  /// A server with `supportsStackPairOps()` renames each stack's JPEG with
+  /// its RAW (`companion_ids`). On an older server a stack
+  /// `refusedReplaceStacks` keeps out splits the batch around it, each part
+  /// numbered from its first item's position so `{n}` matches the preview,
+  /// and `renamedWithCompanion` renames the JPEGs afterwards.
   func applyCloud() async -> [BatchRenameApplyResult] {
     guard let cloudCatalog else {
       return assets.map {
@@ -207,27 +209,34 @@ extension BatchRenameViewModel {
           outcome: .failed("This photo hasn't finished indexing on the server yet."))
       }
     }
-    let refused = await refusedReplaceStacks(cloudCatalog)
-    let sent = zip(assets, ids).compactMap { asset, id in id.map { ($0, refused[asset.id] == nil) }
+    let pairs =
+      assets.contains { $0.stack != nil } ? await cloudCatalog.supportsStackPairOps() : false
+    let refused = pairs ? unindexedCompanionStacks() : await refusedReplaceStacks(cloudCatalog)
+    let sent = zip(assets, ids).compactMap { asset, id in
+      id.map {
+        let companion = try? asset.stack?.cloudCompanionID()
+        return (id: $0, companion: companion, included: refused[asset.id] == nil)
+      }
     }
     var items: [CloudBatchRenameResultItem] = []
     var failures: [String: String] = [:]
     var position = 0
     while position < sent.count {
-      guard sent[position].1 else {
+      guard sent[position].included else {
         position += 1
         continue
       }
       let start = position
-      while position < sent.count, sent[position].1 { position += 1 }
-      let run = sent[start..<position].map(\.0)
+      while position < sent.count, sent[position].included { position += 1 }
+      let run = sent[start..<position]
       do {
         items += try await cloudCatalog.batchRename(
-          ids: run, template: template, sequenceStart: sequenceStart + start,
-          sequencePadWidth: sequencePadWidth, collision: collision.apiValue
+          ids: run.map(\.id), companionIDs: pairs ? run.map(\.companion) : nil, template: template,
+          sequenceStart: sequenceStart + start, sequencePadWidth: sequencePadWidth,
+          collision: collision.apiValue
         ).results
       } catch {
-        for id in run { failures[id] = error.localizedDescription }
+        for item in run { failures[item.id] = error.localizedDescription }
       }
     }
     let byID = indexByIDTolerantOfDuplicates(items, id: \.id)
@@ -258,14 +267,22 @@ extension BatchRenameViewModel {
         continue
       }
       switch item.kind {
+      case "relocated" where pairs:
+        results.append(
+          BatchRenameApplyResult(
+            id: asset.id, oldFilename: old,
+            outcome: .renamed(newFilename: item.newFilename ?? old)))
       case "relocated":
         results.append(
           await renamedWithCompanion(asset, as: item.newFilename ?? old, catalog: cloudCatalog))
       case "skipped":
+        let taken = item.collisionFilename ?? ""
         results.append(
-          BatchRenameApplyResult(
-            id: asset.id, oldFilename: old,
-            outcome: .skipped(reason: item.reason ?? "collision")))
+          StackCollisionAsk(stack: asset.stack).namesCompanion(taken)
+            ? Self.companionTaken(asset, oldFilename: old, path: taken)
+            : BatchRenameApplyResult(
+              id: asset.id, oldFilename: old, outcome: .skipped(reason: item.reason ?? "collision")
+            ))
       default:
         results.append(
           BatchRenameApplyResult(
@@ -276,8 +293,25 @@ extension BatchRenameViewModel {
     return results
   }
 
-  /// Under Replace the server overwrites an unindexed file at a RAW's new name and deletes it as
-  /// soon as that RAW commits, so a JPEG that then could not follow would lose that file even
+  /// A server renaming pairs takes each stack's JPEG by its id, so a stack whose JPEG it has not
+  /// indexed yet stays out of the batch rather than renaming its RAW alone.
+  private func unindexedCompanionStacks() -> [AssetRef.ID: BatchRenameApplyResult] {
+    var refused: [AssetRef.ID: BatchRenameApplyResult] = [:]
+    for (asset, item) in zip(assets, preview) where item.newFilename != asset.fullFilename {
+      do {
+        _ = try asset.stack?.cloudCompanionID()
+      } catch {
+        refused[asset.id] = BatchRenameApplyResult(
+          id: asset.id, oldFilename: asset.fullFilename,
+          outcome: .skipped(
+            reason: "\(Self.companionFailureReason(error)) Both files keep their names."))
+      }
+    }
+    return refused
+  }
+
+  /// Under Replace an older server overwrites an unindexed file at a RAW's new name and deletes it
+  /// as soon as that RAW commits, so a JPEG that then could not follow would lose that file even
   /// though the RAW is put back. A stack goes into a Replace batch only when its JPEG's new name
   /// is free on the server and no other item in this batch takes it; any other stack is reported
   /// here, by asset, with both files left as they were.
@@ -326,8 +360,8 @@ extension BatchRenameViewModel {
     return refused
   }
 
-  /// A stacked RAW's JPEG follows the batch: the server renamed the RAW, so the JPEG takes its new
-  /// stem here (#5050). A JPEG that cannot follow puts the RAW back under its old name, so the
+  /// A stacked RAW's JPEG follows the batch: an older server renamed the RAW, so the JPEG takes its
+  /// new stem here (#5050). A JPEG that cannot follow puts the RAW back under its old name, so the
   /// result reports what is on disk.
   private func renamedWithCompanion(
     _ asset: AssetRef, as newFilename: String, catalog: RemoteCatalog

@@ -39,8 +39,11 @@ final class RawJpegStackServerTests: XCTestCase {
     return (Data(json.utf8), response)
   }
 
+  /// A catalog whose server answers `answer`. Its `/api/display/config` is an older server's,
+  /// without `stack_pair_ops_supported`, unless `pairOps` (#5929).
   func catalog(
-    _ recorder: Recorder, _ answer: @escaping (Request, URLRequest) -> (Data, HTTPURLResponse)
+    _ recorder: Recorder, pairOps: Bool = false,
+    _ answer: @escaping (Request, URLRequest) -> (Data, HTTPURLResponse)
   ) -> RemoteCatalog {
     let session = URLSession.stubbedSequence { request in
       let bodyData = URLProtocolStub.capturedBodies[request.url?.absoluteString ?? ""] ?? Data()
@@ -49,6 +52,11 @@ final class RawJpegStackServerTests: XCTestCase {
         method: request.httpMethod ?? "GET", path: request.url?.path ?? "",
         query: request.url?.query, body: body)
       recorder.requests.append(record)
+      if record.path == "/api/display/config" {
+        let flag = pairOps ? #","stack_pair_ops_supported":true"# : ""
+        return self.respond(
+          request, json: #"{"show_hidden_images":false,"stack_raw_jpeg":true\#(flag)}"#)
+      }
       return answer(record, request)
     }
     return RemoteCatalog(

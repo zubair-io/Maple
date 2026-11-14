@@ -9,10 +9,15 @@ public struct DisplayConfig: Decodable, Equatable, Sendable {
   /// On when the server omits it: a server older than the RAW+JPEG stack feature has no setting,
   /// and the preference defaults to on (#5050).
   public let stackRawJpeg: Bool
+  /// Whether the server moves, renames and trashes a RAW+JPEG stack in one request (#5929,
+  /// #5930). Off when the server omits it: an older server ignores the pair fields and would
+  /// act on the RAW alone.
+  public let stackPairOpsSupported: Bool
 
-  public init(showHiddenImages: Bool, stackRawJpeg: Bool) {
+  public init(showHiddenImages: Bool, stackRawJpeg: Bool, stackPairOpsSupported: Bool = false) {
     self.showHiddenImages = showHiddenImages
     self.stackRawJpeg = stackRawJpeg
+    self.stackPairOpsSupported = stackPairOpsSupported
   }
 
   public init(from decoder: Decoder) throws {
@@ -20,11 +25,14 @@ public struct DisplayConfig: Decodable, Equatable, Sendable {
     showHiddenImages =
       try container.decodeIfPresent(Bool.self, forKey: .showHiddenImages) ?? false
     stackRawJpeg = try container.decodeIfPresent(Bool.self, forKey: .stackRawJpeg) ?? true
+    stackPairOpsSupported =
+      try container.decodeIfPresent(Bool.self, forKey: .stackPairOpsSupported) ?? false
   }
 
   private enum CodingKeys: String, CodingKey {
     case showHiddenImages = "show_hidden_images"
     case stackRawJpeg = "stack_raw_jpeg"
+    case stackPairOpsSupported = "stack_pair_ops_supported"
   }
 }
 

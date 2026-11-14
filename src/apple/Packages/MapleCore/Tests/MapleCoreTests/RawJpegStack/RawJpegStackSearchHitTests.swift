@@ -92,7 +92,9 @@ final class RawJpegStackSearchHitTests: XCTestCase {
       let response = HTTPURLResponse(
         url: request.url!, statusCode: path.hasSuffix("/file-meta") ? 404 : 200,
         httpVersion: "HTTP/1.1", headerFields: ["Content-Type": "application/json"])!
-      return (Data(json(path).utf8), response)
+      // An older server: no `stack_pair_ops_supported`, so stacks take the two-call path (#5929).
+      let older = #"{"show_hidden_images":false,"stack_raw_jpeg":true}"#
+      return (Data((path == "/api/display/config" ? older : json(path)).utf8), response)
     }
   }
 
@@ -122,14 +124,15 @@ final class RawJpegStackSearchHitTests: XCTestCase {
       restore: ("", "IMG_3.NEF"))
 
     guard case .ok = result else { return XCTFail("expected the pair to move, got \(result)") }
+    let calls = recorder.requests.filter { $0.path != "/api/display/config" }
     XCTAssertEqual(
-      recorder.requests.map(\.path),
+      calls.map(\.path),
       [
         "/api/folders/f1/file-meta", "/api/assets/\(rawID)/relocate",
         "/api/assets/\(jpegID)/relocate",
       ])
-    XCTAssertEqual(recorder.requests[1].body["source_address"] as? String, "lib:IMG_3.NEF")
-    XCTAssertNil(recorder.requests[2].body["source_address"], "the JPEG is addressed by id")
+    XCTAssertEqual(calls[1].body["source_address"] as? String, "lib:IMG_3.NEF")
+    XCTAssertNil(calls[2].body["source_address"], "the JPEG is addressed by id")
   }
 
   /// The trash first asks the library's Trash about the pair's names (#5930), found from the RAW's
