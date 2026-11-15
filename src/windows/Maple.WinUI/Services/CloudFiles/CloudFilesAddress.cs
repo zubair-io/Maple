@@ -25,7 +25,8 @@ internal static partial class CloudFilesAddress
         if (string.IsNullOrWhiteSpace(identity)) return false;
 
         var colon = identity.IndexOf(':');
-        if (colon > 0 && SlugPattern.IsMatch(identity[..colon]))
+        var isDriveQualifiedPath = IsDriveQualifiedAbsolutePath(identity);
+        if (!isDriveQualifiedPath && colon > 0 && SlugPattern.IsMatch(identity[..colon]))
         {
             var slug = identity[..colon];
             var relative = identity[(colon + 1)..];
@@ -36,8 +37,12 @@ internal static partial class CloudFilesAddress
         }
 
         // Previous Cloud Files builds stored absolute server paths. Normalize
-        // separators only; path case is server-owned and must remain exact.
+        // separators; server-owned path case stays exact, while drive-qualified
+        // Windows paths use the platform's case-insensitive matching rules.
         var candidate = NormalizeServerPath(identity);
+        var pathComparison = IsDriveQualifiedAbsolutePath(identity)
+            ? StringComparison.OrdinalIgnoreCase
+            : StringComparison.Ordinal;
         CloudFolder? bestFolder = null;
         string? bestRelative = null;
         var bestRootLength = -1;
@@ -46,11 +51,11 @@ internal static partial class CloudFilesAddress
             var root = NormalizeServerPath(folder.Path);
             var trimmedRoot = root.Length > 1 ? root.TrimEnd('/') : root;
             string? relative = null;
-            if (string.Equals(candidate, trimmedRoot, StringComparison.Ordinal))
+            if (string.Equals(candidate, trimmedRoot, pathComparison))
                 relative = string.Empty;
             else if (trimmedRoot == "/" && candidate.StartsWith("/", StringComparison.Ordinal))
                 relative = candidate.TrimStart('/');
-            else if (candidate.StartsWith(trimmedRoot + "/", StringComparison.Ordinal))
+            else if (candidate.StartsWith(trimmedRoot + "/", pathComparison))
                 relative = candidate[(trimmedRoot.Length + 1)..];
 
             if (relative == null || trimmedRoot.Length <= bestRootLength || !IsSafeRelativePath(relative))
@@ -98,6 +103,10 @@ internal static partial class CloudFilesAddress
     }
 
     private static string NormalizeServerPath(string path) => path.Replace('\\', '/');
+
+    private static bool IsDriveQualifiedAbsolutePath(string path) =>
+        path.Length >= 3 && char.IsAsciiLetter(path[0]) && path[1] == ':' &&
+        (path[2] == '\\' || path[2] == '/');
 
     private static bool IsSafeRelativePath(string relativePath) =>
         relativePath.Length == 0 ||

@@ -43,6 +43,9 @@ public sealed class CloudFilesAddressTests
         Assert.True(CloudFilesAddress.TryResolve("C:\\Media\\Photos\\2026\\one.mp4", folders, out var nested));
         Assert.Equal("camera-roll:2026/one.mp4", nested.Address);
         Assert.Equal("2026/one.mp4", nested.RelativePath);
+        Assert.True(CloudFilesAddress.TryResolve("c:\\Media\\Photos\\2026\\one.mp4", folders, out var lowercaseDrive));
+        Assert.Equal("camera-roll:2026/one.mp4", lowercaseDrive.Address);
+        Assert.Equal("2026/one.mp4", lowercaseDrive.RelativePath);
         Assert.True(CloudFilesAddress.TryResolve("C:\\Media\\Photos", folders, out var root));
         Assert.Equal("camera-roll:", root.Address);
     }
