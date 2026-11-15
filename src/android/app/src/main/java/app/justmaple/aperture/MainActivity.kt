@@ -9,12 +9,16 @@ import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
+import androidx.compose.runtime.CompositionLocalProvider
+import app.justmaple.aperture.ui.LocalPhotoKeyTargets
 import app.justmaple.aperture.ui.MapleShell
 import app.justmaple.aperture.ui.MapleTheme
+import app.justmaple.aperture.ui.PhotoKeyTargets
 import app.justmaple.aperture.ui.handlePhotoKey
 
 class MainActivity : ComponentActivity() {
     private val model: MapleViewModel by viewModels()
+    private val keyTargets = PhotoKeyTargets()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -22,7 +26,11 @@ class MainActivity : ComponentActivity() {
             statusBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
             navigationBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
         )
-        setContent { MapleTheme { MapleShell(model) } }
+        setContent {
+            CompositionLocalProvider(LocalPhotoKeyTargets provides keyTargets) {
+                MapleTheme { MapleShell(model) }
+            }
+        }
         // A retained model already handled this intent; a restored process has
         // a fresh model even when Android supplies saved activity state.
         val firstIntent = !model.initialIntentHandled
@@ -37,10 +45,10 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean =
-        model.handlePhotoKey(event) || super.onKeyDown(keyCode, event)
+        model.handlePhotoKey(event, keyTargets) || super.onKeyDown(keyCode, event)
 
     override fun onKeyShortcut(keyCode: Int, event: KeyEvent): Boolean =
-        model.handlePhotoKey(event) || super.onKeyShortcut(keyCode, event)
+        model.handlePhotoKey(event, keyTargets) || super.onKeyShortcut(keyCode, event)
 
     private fun openIntent(intent: Intent) {
         if (intent.action == Intent.ACTION_VIEW && intent.data?.scheme == "maple-app") {

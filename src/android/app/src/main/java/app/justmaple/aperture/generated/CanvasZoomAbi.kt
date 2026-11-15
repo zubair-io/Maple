@@ -15,6 +15,10 @@ object CanvasZoomAbi {
     const val OP_REBASE_PINCH = 9
     const val OP_REFRAME_IMAGE = 10
     const val OP_SETTLE = 11
+    const val OP_ZOOM_TO_FIT = 12
+    const val OP_ZOOM_TO_SCALE = 13
+    const val OP_STEP_ZOOM_IN = 14
+    const val OP_STEP_ZOOM_OUT = 15
     const val QUERY_EFFECTIVE_SCALE = 0
     const val QUERY_FIT_SCALE = 1
     const val QUERY_NEXT_STOP = 2

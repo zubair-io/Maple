@@ -54,6 +54,7 @@ fun PhotoSurface(
     val field = if (cropActive) null else AdjustmentFields.byName[armed]?.takeIf(state::supportsField)
     val value = field?.let { state.values[it.name] ?: it.initial } ?: 0f
     if (state.selected == null) return
+    VisibleGroupKeys(group.takeIf { editing })
     val selectGroup: (EditorGroup) -> Unit = {
         group = it
         subTool = subToolsFor(it, raw = state.values["_raw"] == 1f).first().id

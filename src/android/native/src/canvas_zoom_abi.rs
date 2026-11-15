@@ -20,6 +20,10 @@ pub(crate) const OP_ADOPT_IMAGE: u32 = 8;
 pub(crate) const OP_REBASE_PINCH: u32 = 9;
 pub(crate) const OP_REFRAME_IMAGE: u32 = 10;
 pub(crate) const OP_SETTLE: u32 = 11;
+pub(crate) const OP_ZOOM_TO_FIT: u32 = 12;
+pub(crate) const OP_ZOOM_TO_SCALE: u32 = 13;
+pub(crate) const OP_STEP_ZOOM_IN: u32 = 14;
+pub(crate) const OP_STEP_ZOOM_OUT: u32 = 15;
 
 pub(crate) const QUERY_EFFECTIVE_SCALE: u32 = 0;
 pub(crate) const QUERY_FIT_SCALE: u32 = 1;

@@ -168,6 +168,10 @@ fn apply(
             continued(reframed, &context)
         }
         OP_SETTLE => settle(model, &context),
+        OP_ZOOM_TO_FIT => model.reset_to_fit(&context),
+        OP_ZOOM_TO_SCALE => model.zoom_to_scale(a, &context),
+        OP_STEP_ZOOM_IN => model.step_zoom_in(&context),
+        OP_STEP_ZOOM_OUT => model.step_zoom_out(&context),
         _ => return None,
     };
     Some((transitioned, true))
@@ -287,3 +291,7 @@ mod rebase_tests;
 #[cfg(test)]
 #[path = "canvas_zoom_reframe_tests.rs"]
 mod reframe_tests;
+
+#[cfg(test)]
+#[path = "canvas_zoom_command_tests.rs"]
+mod command_tests;
