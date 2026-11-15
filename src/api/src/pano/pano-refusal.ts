@@ -8,11 +8,13 @@
  * dialog and the Apple merge sheet show as it is.
  */
 
-export interface PanoRefusal {
+interface PanoResourceRefusal {
   reason: 'memory' | 'scratch_space';
   neededBytes: number;
   availableBytes: number;
 }
+
+export type PanoRefusal = PanoResourceRefusal | { reason: 'seam_constraints'; message: string };
 
 const isByteCount = (value: unknown): value is number =>
   typeof value === 'number' && Number.isFinite(value) && value >= 0;
@@ -26,6 +28,14 @@ function refusedBlock(report: unknown): object | null {
 export function parseRefusal(report: unknown): PanoRefusal | null {
   const block = refusedBlock(report);
   if (block === null) return null;
+  if (
+    'resource' in block &&
+    block.resource === 'seam_constraints' &&
+    'message' in block &&
+    typeof block.message === 'string'
+  ) {
+    return { reason: 'seam_constraints', message: block.message };
+  }
   if (!('reason' in block) || !('needed_bytes' in block) || !('available_bytes' in block)) {
     return null;
   }
@@ -47,6 +57,7 @@ const TENTH_OF_A_GB = 1e8;
 // What is needed rounds up and what there is rounds down, so the two never
 // print as the same figure.
 export function refusalMessage(refusal: PanoRefusal): string {
+  if (refusal.reason === 'seam_constraints') return `invalid_seam_constraints: ${refusal.message}`;
   const needed = `${(Math.ceil(refusal.neededBytes / TENTH_OF_A_GB) / 10).toFixed(1)} GB`;
   const available = `${(Math.floor(refusal.availableBytes / TENTH_OF_A_GB) / 10).toFixed(1)} GB`;
   return refusal.reason === 'memory'

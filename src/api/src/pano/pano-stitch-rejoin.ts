@@ -8,6 +8,7 @@
  * it never learnt the id. Any other request still meets the one-stitch limit.
  */
 import type { JobWithId } from '../db/schema.ts';
+import { seamConstraintsHash, type SeamConstraintsRequest } from './pano-seam-constraints.ts';
 
 export interface StitchIdentity {
   assetIds: readonly string[];
@@ -17,6 +18,7 @@ export interface StitchIdentity {
   strategy: string | null;
   boundaryWarp: number;
   autoCrop: boolean;
+  seamConstraints?: SeamConstraintsRequest;
 }
 
 const sortedKey = (ids: readonly unknown[]): string => JSON.stringify([...ids].map(String).sort());
@@ -32,6 +34,7 @@ export function repeatsRunningStitch(active: JobWithId, next: StitchIdentity): b
     (running.strategy ?? null) === next.strategy &&
     // A payload queued before the edge options existed means no warp and no crop.
     (running.boundaryWarp ?? 0) === next.boundaryWarp &&
-    (running.autoCrop ?? false) === next.autoCrop
+    (running.autoCrop ?? false) === next.autoCrop &&
+    seamConstraintsHash(running.seamConstraints) === seamConstraintsHash(next.seamConstraints)
   );
 }

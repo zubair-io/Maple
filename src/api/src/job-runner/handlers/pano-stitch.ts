@@ -62,6 +62,11 @@ import { panoOutputLocation, type PanoOutputLocation } from '../../pano/pano-out
 import { ownedPreviewDir, removePreviewDir, sweepStalePreviews } from '../../pano/pano-previews.ts';
 import type { JobHandler, JobHandlerContext, JobHandlerResult } from './index.ts';
 import {
+  parseSeamConstraints,
+  seamConstraintsResult,
+  type SeamConstraintsRequest,
+} from '../../pano/pano-seam-constraints.ts';
+import {
   cliFailure,
   panoOptionArgs,
   PROGRESS_PER_STAGE,
@@ -94,6 +99,8 @@ export interface PanoStitchPayload {
   autoCrop: boolean;
   /** The binary takes `--memory-limit-bytes`; false for a job queued before #5835. */
   memoryLimitSupported: boolean;
+  seamConstraints?: SeamConstraintsRequest;
+  seamConstraintsSupported?: boolean;
 }
 
 /** The report's `alignment` block; null from a binary that predates #4578. */
@@ -115,6 +122,7 @@ interface PanoStitchResult extends PanoMatcherUsed {
   stagesCompleted: number;
   alignment: PanoAlignmentVerdict | null;
   error: string | null;
+  seamConstraints?: SeamConstraintsRequest;
 }
 
 /** A null engine is a pre-#4523 binary, which only runs ML. */
@@ -221,6 +229,8 @@ export function parsePayload(raw: Record<string, unknown>): PanoStitchPayload {
     alignmentIn: parseAlignmentIn(raw.alignmentIn),
     ...parseEdges(raw),
     memoryLimitSupported: raw.memoryLimitSupported === true,
+    seamConstraints: parseSeamConstraints(raw.seamConstraints, ids.length) ?? undefined,
+    seamConstraintsSupported: raw.seamConstraintsSupported === true,
   };
 }
 
@@ -356,6 +366,7 @@ export const panoStitchHandler: JobHandler = {
           matcher: matcherUsed(payload).matcher,
           boundaryWarp: payload.boundaryWarp,
           autoCrop: payload.autoCrop,
+          seamConstraints: payload.seamConstraints,
         }),
       );
       if (await alreadyMade(location.absPath)) {
@@ -369,6 +380,7 @@ export const panoStitchHandler: JobHandler = {
           edges: null,
           error: null,
           ...matcherUsed(payload),
+          ...seamConstraintsResult(payload.seamConstraints),
         };
         return { kind: 'done', result: result as unknown as Record<string, unknown> };
       }
@@ -450,6 +462,7 @@ export const panoStitchHandler: JobHandler = {
         edges,
         error: null,
         ...matcherUsed(payload),
+        ...seamConstraintsResult(payload.seamConstraints),
       };
       if (payload.alignmentIn) await removePreviewDir(path.dirname(payload.alignmentIn));
       return {

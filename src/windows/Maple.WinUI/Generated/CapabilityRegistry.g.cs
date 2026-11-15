@@ -224,6 +224,19 @@ namespace Maple.WinUI.Generated
                 new CapabilityEvidenceSource[] {  },
                 new CapabilityEvidenceSource[] {  },
                 CapabilityReleaseState.Core),
+            new(
+                "pano_seam_constraints",
+                "Panorama include/exclude seam regions",
+                "zubair-io",
+                new CapabilitySurface[] { CapabilitySurface.Web },
+                new CapabilityStorageAdapter[] { CapabilityStorageAdapter.Filesystem },
+                new CapabilityAssetClass[] { CapabilityAssetClass.Raw },
+                new CapabilityPreviewPath[] { CapabilityPreviewPath.CpuReference },
+                new CapabilityExportPath[] { CapabilityExportPath.MapleCli, CapabilityExportPath.AppleFfi },
+                new string[] {  },
+                new CapabilityEvidenceSource[] {  },
+                new CapabilityEvidenceSource[] {  },
+                CapabilityReleaseState.Core),
         };
     }
 }

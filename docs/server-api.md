@@ -410,6 +410,24 @@ Recovery bodies are `{ targetPath, includeTrash, entryId?, sequence? }`; `entryI
 
 A pano job the server cannot hold fails instead of running out of memory or disk (#5835): `maple-cli` is given the decode memory budget as its limit, and `GET /api/pano/jobs/:id` then reports `status: "failed"` with an `error` sentence that says how much memory, or temporary disk space, the panorama needs and how much the server has. See [pano](pano.md#server-self-hosted).
 
+Both `POST /api/pano/preview` and `POST /api/pano/stitch` accept optional top-level `seamConstraints` (not an `options` field):
+
+```json
+{
+  "version": 1,
+  "canvas": { "width": 2047, "height": 722 },
+  "regions": [{ "kind": "include", "frame": 0, "x": 20, "y": 30, "width": 40, "height": 50 }]
+}
+```
+
+The version and object fields are strict. Canvas dimensions and rectangle sizes are positive `u32` integers; coordinates are nonnegative `u32` integers, rectangles must fit wholly inside the reference canvas, and `frame` must name a selected input. Finished preview results include `frames: [{assetId, path}]`, sorted by actual absolute CLI input paths using Rust `PathBuf` component ordering (UTF-8 bytes within each component); a region's zero-based `frame` indexes that array. This includes both originally selected asset IDs and assets resolved from selected paths. The preview's width and height define the reference canvas. Core maps each rectangle to the final un-cropped Boundary-Warp canvas using floor-start/ceil-end scaling.
+
+Invalid requests and explicit tile strategy return 422 `invalid_seam_constraints`. The config response exposes `seamConstraintsSupported`; a binary without version-1 support returns 409 `pano_seam_constraints_unsupported`. Constrained preview and stitch jobs select graph-cut automatically, write the request to a job-owned temporary JSON file, pass it to the CLI before the input separator, and remove it in `finally`. Auto strategy also refuses if it chooses tile. A CLI report refusal `{ "refused": { "resource": "seam_constraints", "message": "…" } }` fails the job with a named `invalid_seam_constraints` error rather than the generic CLI failure. The successful CLI report's `seam_constraints` contains the original request. Normalized constraints participate in running-job and output identities, without invalidating reusable preview alignment or changing unconstrained output names. Implemented in `src/api/src/pano/pano-seam-constraints.ts` and the pano routes and job handlers.
+
+Successful preview and stitch job results echo `seamConstraints` in its original
+reference coordinates when supplied; unconstrained results omit it. The CLI
+stitch/preview report records the same request as `seam_constraints`.
+
 ## Change feed
 
 | Method | Path                     | Auth   | Purpose                                                                                                                                                                              |

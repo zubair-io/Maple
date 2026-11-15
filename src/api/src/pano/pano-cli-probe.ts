@@ -23,6 +23,7 @@ export interface PanoCliCapabilities {
   edges: boolean;
   /** `--memory-limit-bytes` (#5835). A binary without it stitches unchecked. */
   memoryLimit: boolean;
+  seamConstraints: boolean;
 }
 
 const NO_CAPABILITIES: PanoCliCapabilities = {
@@ -31,6 +32,7 @@ const NO_CAPABILITIES: PanoCliCapabilities = {
   preview: false,
   edges: false,
   memoryLimit: false,
+  seamConstraints: false,
 };
 
 let cached: { key: string; capabilities: PanoCliCapabilities } | null = null;
@@ -72,6 +74,10 @@ export async function probePanoCli(cliPath: string): Promise<PanoCliCapabilities
       preview: help.includes('--preview-out') && help.includes('--alignment-in'),
       edges: help.includes('--boundary-warp') && help.includes('--auto-crop'),
       memoryLimit: help.includes('--memory-limit-bytes'),
+      seamConstraints:
+        help.includes('--seam-constraints') &&
+        help.includes('--seam-strategy') &&
+        /SeamConstraintsRequest\s+v1/.test(help),
     }))
     .catch(() => NO_CAPABILITIES);
   cached = { key, capabilities };

@@ -11,6 +11,7 @@
  */
 import { createHash } from 'node:crypto';
 import path from 'node:path';
+import { seamConstraintsHash, type SeamConstraintsRequest } from './pano-seam-constraints.ts';
 
 export interface PanoOutputLocation {
   absPath: string;
@@ -30,6 +31,7 @@ export interface PanoOutputIdentity {
   /** Percent; 0 is the unwarped default. */
   boundaryWarp: number;
   autoCrop: boolean;
+  seamConstraints?: SeamConstraintsRequest | null;
 }
 
 function identityKey(identity: PanoOutputIdentity): string {
@@ -43,6 +45,7 @@ function identityKey(identity: PanoOutputIdentity): string {
     identity.matcher,
     // Appended only when chosen, so a panorama made without edge options keeps its name.
     ...(edgesChosen ? [identity.boundaryWarp, identity.autoCrop] : []),
+    ...(identity.seamConstraints ? [seamConstraintsHash(identity.seamConstraints)] : []),
   ]);
   return createHash('sha256').update(canonical).digest('hex').slice(0, 8);
 }

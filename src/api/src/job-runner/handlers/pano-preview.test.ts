@@ -137,6 +137,10 @@ describe('panoPreviewHandler', () => {
       seconds: 1.5,
       matcher: 'ml',
       matcherNote: null,
+      frames: [
+        { assetId: assetIds[1], path: path.join(tmpDir, 'lib', 'a.dng') },
+        { assetId: assetIds[0], path: path.join(tmpDir, 'lib', 'b.dng') },
+      ],
     });
     expect(await exists(path.join(dir, PREVIEW_FILES.image))).toBe(true);
     expect(await exists(path.join(dir, PREVIEW_FILES.alignment))).toBe(true);

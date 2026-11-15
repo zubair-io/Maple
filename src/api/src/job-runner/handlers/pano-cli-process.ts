@@ -11,7 +11,8 @@
  */
 
 import path from 'node:path';
-import { realpath } from '../../fs/mirrored.ts';
+import { InvalidSeamConstraints } from '../../pano/pano-seam-constraints.ts';
+import { realpath, rm, writeFile } from '../../fs/mirrored.ts';
 import { isWithinRoot, resolveRealPathThroughAncestors } from '../../fs/root.ts';
 import { ObjectId } from '../../db/object-id.ts';
 import { loadAssetLocationViews } from '../../db/repos/assets.locations.repo.ts';
@@ -54,7 +55,9 @@ async function containedRealPath(id: string, p: string, realRoots: string[]): Pr
 }
 
 /** Real paths of the selected assets, sorted by name (= capture order). */
-export async function resolveInputPaths(assetIds: readonly string[]): Promise<string[]> {
+export async function resolveInputFrames(
+  assetIds: readonly string[],
+): Promise<Array<{ assetId: string; path: string }>> {
   const invalid = assetIds.find((id) => !ObjectId.isValid(id));
   if (invalid !== undefined) throw new Error(`pano: invalid asset id: ${invalid}`);
   const [libs, viewsById] = await Promise.all([
@@ -65,15 +68,32 @@ export async function resolveInputPaths(assetIds: readonly string[]): Promise<st
     [...libs.values()].map((root) => resolveRealPathThroughAncestors(root)),
   );
   const paths = await Promise.all(
-    assetIds.map((id) => {
+    assetIds.map(async (id) => {
       const view = viewsById.get(id);
       if (!view) throw new Error(`pano: asset not found: ${id}`);
       const p = assetAbsPath(view, libs);
       if (!p) throw new Error(`pano: asset has no resolvable path: ${id}`);
-      return containedRealPath(id, p, realRoots);
+      const real = await containedRealPath(id, p, realRoots);
+      return {
+        assetId: id,
+        path: real,
+        sortKey: real.split(path.sep).map((part) => Buffer.from(part)),
+      };
     }),
   );
-  return paths.sort();
+  return paths
+    .sort((a, b) => {
+      for (let i = 0; i < Math.min(a.sortKey.length, b.sortKey.length); i++) {
+        const order = Buffer.compare(a.sortKey[i]!, b.sortKey[i]!);
+        if (order !== 0) return order;
+      }
+      return a.sortKey.length - b.sortKey.length;
+    })
+    .map(({ assetId, path: inputPath }) => ({ assetId, path: inputPath }));
+}
+
+export async function resolveInputPaths(assetIds: readonly string[]): Promise<string[]> {
+  return (await resolveInputFrames(assetIds)).map((frame) => frame.path);
 }
 
 /**
@@ -219,13 +239,39 @@ export async function runPanoCli(
   // in-flight decode has released (#5467), and that budget is the limit the
   // CLI refuses an oversized panorama against (#5835).
   const release = await decodeMemoryBudget().acquireAll();
+  const constraintsFile = path.join(payload.outputDir, 'seam-constraints.json');
+  let constraintsWritten = false;
   try {
     if (await ctx.shouldCancel()) {
       return { exitCode: 0, cancelled: true, stderrLines: [], progress: 0 };
     }
-    return await spawnPanoCli(executables, withMemoryLimit(payload, args), ctx);
+    let constrainedArgs = args;
+    if (payload.seamConstraints !== undefined) {
+      if (!payload.seamConstraintsSupported || payload.strategy === 'tile') {
+        throw new InvalidSeamConstraints(
+          'This binary or strategy does not support seam constraints.',
+        );
+      }
+      await writeFile(constraintsFile, JSON.stringify(payload.seamConstraints), {
+        flag: 'wx',
+        mode: 0o600,
+      });
+      constraintsWritten = true;
+      const separator = args.indexOf('--');
+      const optionsEnd = separator === -1 ? args.length : separator;
+      constrainedArgs = [
+        ...args.slice(0, optionsEnd),
+        '--seam-constraints',
+        constraintsFile,
+        '--seam-strategy',
+        'graph-cut',
+        ...args.slice(optionsEnd),
+      ];
+    }
+    return await spawnPanoCli(executables, withMemoryLimit(payload, constrainedArgs), ctx);
   } finally {
     release();
+    if (constraintsWritten) await rm(constraintsFile, { force: true });
   }
 }
 
@@ -279,7 +325,9 @@ export async function cliFailure(run: PanoCliRun, outputDir: string): Promise<Er
     'maple-cli pano failed',
   );
   const refusal = await readRefusal(reportPath(outputDir));
-  return new Error(refusal === null ? PANO_CLI_FAILURE_MESSAGE : refusalMessage(refusal));
+  return refusal?.reason === 'seam_constraints'
+    ? new InvalidSeamConstraints(refusal.message)
+    : new Error(refusal === null ? PANO_CLI_FAILURE_MESSAGE : refusalMessage(refusal));
 }
 
 export function reportPath(outputDir: string): string {

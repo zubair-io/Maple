@@ -60,7 +60,7 @@ export const panoPreviewRoutes = new Elysia({ prefix: '/api/pano' })
         set.status = 409;
         return panoJobRunning(stitching._id);
       }
-      const inputs = await resolveStitchInputs(body);
+      const inputs = await resolveStitchInputs(body, stitchPlan.capabilities.seamConstraints);
       if ('rejection' in inputs) {
         set.status = inputs.status;
         return inputs.rejection;
