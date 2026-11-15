@@ -118,18 +118,7 @@ jobs:
           disable-animations: true
           # SwiftShader supplies Vulkan as well as GLES. Do not disable Vulkan.
           emulator-options: -no-window -no-snapshot -gpu swiftshader -noaudio -no-boot-anim -camera-back none -camera-front none
-          pre-emulator-launch-script: |
-            artifacts=src/android/ci-artifacts
-            mkdir -p "$artifacts"
-            {
-              date -u +'%Y-%m-%dT%H:%M:%SZ'
-              uptime
-              nproc
-              for resource in cpu memory io; do
-                printf '\n/proc/pressure/%s\n' "$resource"
-                cat "/proc/pressure/$resource"
-              done
-            } >"$artifacts/host-before-emulator.txt" 2>&1 || true
+          pre-emulator-launch-script: bash src/android/scripts/host-pressure-snapshot.sh src/android/ci-artifacts/host-before-emulator.txt || true
           script: bash src/android/scripts/test-device-ci.sh x86_64 arm64-v8a,x86_64
       - name: Require complete device and JVM reports
         run: python3 tools/android_test_reports.py
