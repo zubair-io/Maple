@@ -104,7 +104,7 @@ internal object CloudSearchWire {
             row.optLong("size"),
             row.optLong("mtime"),
             CloudLibrary.address(serverId, folderAddress, path.substringBeforeLast('/')),
-            assetId = CloudBrowseWire.assetId(row),
+            assetId = row.optString("_id").takeIf { it.isNotEmpty() && it != "null" },
             companion = if (fold) CloudBrowseWire.companion(serverId, row) else null,
         )
     }

@@ -13,7 +13,7 @@ class CloudPhotoIdentityTest {
     @Test
     fun searchRetainsServerAssetIdentityForPairOperations() {
         val photo = CloudSearchWire.photo("server", JSONObject("""{
-            "id":"raw-id", "address":"lib:photo.dng", "abs_path":"/photos/photo.dng",
+            "_id":"raw-id", "id":"fs:/photos/photo.dng", "address":"lib:photo.dng", "abs_path":"/photos/photo.dng",
             "filename":"photo.dng", "size":2048, "mtime":1700000000000
         }"""))!!
         val getter = photo.javaClass.methods.find { it.name == "getAssetId" }
