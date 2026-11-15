@@ -140,7 +140,7 @@
       >Clear regions</mui-button
     >
     <mui-button
-      [disabled]="disabled() || regions().length === 0"
+      [disabled]="disabled()"
       [ariaDescribedby]="disabledReason() ? reasonId : null"
       (pressed)="previewRequested.emit()"
       >Preview regions</mui-button

@@ -416,6 +416,8 @@ authoring until a current preview arrives; superseded preview responses cannot
 become current during debounce. Tile authoring is refused, and failed constrained
 previews leave the regions editable for correction. No native client authoring
 is implied by this Web surface.
+The preview action remains available with zero regions to restore unconstrained
+seams after clearing or removing the final region.
 
 The merge dialog cancels a stitch it stops watching (#5517, #5641): "Cancel job", the host hiding the dialog, and the dialog being destroyed each send `DELETE /api/pano/jobs/:id` while the job is queued or running, using the id from the create response (so it works before the first status poll, and a create response that lands after the dialog went away is cancelled on arrival); a job that already finished, failed or was cancelled gets no request, and neither does one whose status poll failed.
 
