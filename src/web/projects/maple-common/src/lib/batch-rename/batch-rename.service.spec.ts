@@ -223,7 +223,14 @@ describe('BatchRenameService', () => {
       companion: { address: 'lib1:IMG_1.JPG', filename: 'IMG_1.JPG' },
     };
 
+    function flushOldServer() {
+      http
+        .expectOne('/api/display/config')
+        .flush({ show_hidden_images: false, stack_pair_ops_supported: false });
+    }
+
     function flushRawRename(newFilename: string) {
+      flushOldServer();
       http.expectOne('/api/assets/batch-rename').flush({
         summary: { total: 1, relocated: 1, skipped: 0, failed: 0 },
         results: [
@@ -246,6 +253,7 @@ describe('BatchRenameService', () => {
           { address: stacked.address, filename: stacked.filename, companion: stacked.companion },
         ])
         .subscribe((r) => (out = r));
+      flushOldServer();
       http.expectOne(`/api/assets/by-address?address=${stacked.address}`).flush(detail('id-raw'));
       expect(out).toEqual([
         {
@@ -380,12 +388,86 @@ describe('BatchRenameService', () => {
     it('leaves the JPEG alone when its RAW was skipped', () => {
       let out: BatchRenameApplyResult | undefined;
       svc.apply([stacked], options, 'skip').subscribe((r) => (out = r));
+      flushOldServer();
       http.expectOne('/api/assets/batch-rename').flush({
         summary: { total: 1, relocated: 0, skipped: 1, failed: 0 },
         results: [{ id: 'id-raw', kind: 'skipped', reason: 'collision' }],
       });
-
       expect(out?.summary).toEqual({ total: 1, relocated: 0, skipped: 1, failed: 0 });
+    });
+
+    it('pair server: resolveIds resolves the JPEG id and apply sends companion_ids once', () => {
+      let resolved: unknown;
+      svc
+        .resolveIds([
+          { address: stacked.address, filename: stacked.filename, companion: stacked.companion },
+        ])
+        .subscribe((r) => (resolved = r));
+      http
+        .expectOne('/api/display/config')
+        .flush({ show_hidden_images: false, stack_pair_ops_supported: true });
+      http.expectOne(`/api/assets/by-address?address=${stacked.address}`).flush(detail('id-raw'));
+      http
+        .expectOne(`/api/assets/by-address?address=${stacked.companion.address}`)
+        .flush(detail('id-jpg'));
+      expect(resolved).toEqual([
+        {
+          address: stacked.address,
+          filename: stacked.filename,
+          id: 'id-raw',
+          companion: { ...stacked.companion, id: 'id-jpg' },
+        },
+      ]);
+
+      let out: BatchRenameApplyResult | undefined;
+      const pairRow = {
+        ...stacked,
+        companion: { ...stacked.companion, id: 'id-jpg' },
+      };
+      svc.apply([pairRow], options, 'replace').subscribe((r) => (out = r));
+      const call = http.expectOne('/api/assets/batch-rename');
+      expect(call.request.body).toMatchObject({ ids: ['id-raw'], companion_ids: ['id-jpg'] });
+      call.flush({
+        summary: { total: 1, relocated: 1, skipped: 0, failed: 0 },
+        results: [
+          {
+            id: 'id-raw',
+            kind: 'relocated',
+            old_filename: 'IMG_1.CR3',
+            new_filename: 'Trip-01.CR3',
+            companion_new_filename: 'Trip-01.JPG',
+            renamed_on_collision: false,
+            extension_changed: false,
+          },
+        ],
+      });
+      expect(out?.summary).toEqual({ total: 1, relocated: 1, skipped: 0, failed: 0 });
+      expect(out?.results.at(-1)).toMatchObject({
+        address: 'lib1:IMG_1.JPG',
+        kind: 'relocated',
+        newFilename: 'Trip-01.JPG',
+      });
+    });
+
+    it('pair server: a taken JPEG name skips the pair and names the JPEG', () => {
+      let out: BatchRenameApplyResult | undefined;
+      const pairRow = { ...stacked, companion: { ...stacked.companion, id: 'id-jpg' } };
+      svc.apply([pairRow], options, 'replace').subscribe((r) => (out = r));
+      http
+        .expectOne('/api/display/config')
+        .flush({ show_hidden_images: false, stack_pair_ops_supported: true });
+      http.expectOne('/api/assets/batch-rename').flush({
+        summary: { total: 1, relocated: 0, skipped: 1, failed: 0 },
+        results: [
+          { id: 'id-raw', kind: 'skipped', reason: 'collision', collision_filename: 'Trip-01.JPG' },
+        ],
+      });
+      expect(out?.summary).toEqual({ total: 1, relocated: 0, skipped: 1, failed: 0 });
+      expect(out?.results.at(-1)).toEqual({
+        address: 'lib1:IMG_1.JPG',
+        kind: 'skipped',
+        reason: 'Trip-01.JPG already exists, so IMG_1.JPG kept its name',
+      });
     });
   });
 });

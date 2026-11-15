@@ -47,6 +47,19 @@ describe('TrashApiService', () => {
       expect(outcome).toEqual({ kind: 'ok' });
     });
 
+    it('sends companion on a stack trash and never on a purge', () => {
+      svc.deleteAsset('asset-1', 'trash', 'asset-2').subscribe();
+      const trash = http.expectOne((r) => r.url === '/api/assets/asset-1');
+      expect(trash.request.params.get('intent')).toBe('trash');
+      expect(trash.request.params.get('companion')).toBe('asset-2');
+      trash.flush(null, { status: 204, statusText: 'No Content' });
+
+      svc.deleteAsset('asset-1', 'purge', 'asset-2').subscribe();
+      const purge = http.expectOne((r) => r.url === '/api/assets/asset-1');
+      expect(purge.request.params.get('companion')).toBeNull();
+      purge.flush(null, { status: 204, statusText: 'No Content' });
+    });
+
     // #2841 — this is the direct regression test for the bug: the caller
     // (`TrashService`) is responsible for resolving a grid `slug:relPath`
     // address to a server id BEFORE calling `deleteAsset`, but this method

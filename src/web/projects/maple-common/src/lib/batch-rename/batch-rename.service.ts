@@ -26,6 +26,7 @@ import { API_BASE_URL } from '../api/api-base-url.token';
 import { BunApiBackendService } from '../api/bun-api-backend.service';
 import { renameCompanions, withCompanionPreview } from './batch-rename-companions';
 import { FolderOccupancyService } from '../stack/folder-occupancy.service';
+import { StackPairOpsService } from '../stack/stack-pair-ops.service';
 import type {
   BatchRenameApplyResult,
   BatchRenameCollisionPolicy,
@@ -54,6 +55,8 @@ interface RawApplyResult {
   kind: 'relocated' | 'skipped' | 'not-found' | 'invalid' | 'error';
   old_filename?: string;
   new_filename?: string;
+  companion_new_filename?: string;
+  collision_filename?: string;
   renamed_on_collision?: boolean;
   extension_changed?: boolean;
   reason?: string;
@@ -133,24 +136,53 @@ export class BatchRenameService {
   private readonly base = inject(API_BASE_URL);
   private readonly api = inject(BunApiBackendService);
   private readonly occupancy = inject(FolderOccupancyService);
+  private readonly pairOps = inject(StackPairOpsService);
 
   /** Resolve every `address` to its server asset id, in the caller's order. Never
    * errors as a whole — a single address's resolution failure becomes
    * `id: null` on its row instead of failing the other rows. */
   resolveIds(selections: BatchRenameSelection[]): Observable<ResolvedBatchRenameId[]> {
     if (selections.length === 0) return of([]);
+    if (!selections.some((selection) => selection.companion)) {
+      return this.resolveRows(selections, false);
+    }
+    return this.pairOps
+      .supported()
+      .pipe(switchMap((supported) => this.resolveRows(selections, supported)));
+  }
+
+  private resolveRows(
+    selections: BatchRenameSelection[],
+    resolveCompanion: boolean,
+  ): Observable<ResolvedBatchRenameId[]> {
     return forkJoin(
       selections.map((selection) =>
-        this.api.getAssetDetailsByAddress(selection.address).pipe(
-          map((detail) => ({
+        forkJoin({
+          id: this.api.getAssetDetailsByAddress(selection.address).pipe(
+            map((detail) => detail.id),
+            catchError(() => of<string | null>(null)),
+          ),
+          companionId:
+            resolveCompanion && selection.companion
+              ? this.api.getAssetDetailsByAddress(selection.companion.address).pipe(
+                  map((detail) => detail.id),
+                  catchError(() => of<string | null>(null)),
+                )
+              : of<string | null | undefined>(undefined),
+        }).pipe(
+          map(({ id, companionId }) => ({
             address: selection.address,
             filename: selection.filename,
-            id: detail.id,
-            ...(selection.companion ? { companion: selection.companion } : {}),
+            id,
+            ...(selection.companion
+              ? {
+                  companion: {
+                    ...selection.companion,
+                    ...(companionId !== undefined ? { id: companionId } : {}),
+                  },
+                }
+              : {}),
           })),
-          catchError(() =>
-            of({ address: selection.address, filename: selection.filename, id: null }),
-          ),
         ),
       ),
     );
@@ -209,50 +241,93 @@ export class BatchRenameService {
       (row): row is ResolvedBatchRenameId & { id: string } => row.id !== null,
     );
     const unresolvedResults = resolved.filter((row) => row.id === null).map(unresolvedApplyResult);
-
-    if (withIds.length === 0) {
-      return of({
-        summary: {
-          total: unresolvedResults.length,
-          relocated: 0,
-          skipped: 0,
-          failed: unresolvedResults.length,
-        },
-        results: unresolvedResults,
-      });
-    }
-
-    return this.http
-      .post<RawApplyResponse>(`${this.base}/assets/batch-rename`, {
-        ids: withIds.map((row) => row.id),
-        source_addresses: withIds.map((row) => row.address),
-        template: options.template,
-        sequence_start: options.sequenceStart,
-        sequence_pad_width: options.sequencePadWidth,
-        collision,
-      })
-      .pipe(
-        map((res) => {
-          const resolvedResults = withIds.map((row, i) =>
-            mapApplyResult(row.address, res.results[i]!),
-          );
-          const results = [...resolvedResults, ...unresolvedResults];
-          const summary: BatchRenameSummary = {
-            total: res.summary.total + unresolvedResults.length,
-            relocated: res.summary.relocated,
-            skipped: res.summary.skipped,
-            failed: res.summary.failed + unresolvedResults.length,
-          };
-          return { summary, results };
-        }),
-        switchMap((applied) =>
-          renameCompanions(
-            { api: this.api, occupancy: this.occupancy },
-            withIds,
-            applied,
+    const supported$ = withIds.some((row) => row.companion) ? this.pairOps.supported() : of(false);
+    return supported$.pipe(
+      switchMap((pairSupported) => {
+        const refused = pairSupported
+          ? withIds.filter((row) => row.companion && !row.companion.id)
+          : [];
+        const sent = withIds.filter((row) => !refused.includes(row));
+        const refusedResults: BatchRenameItemResult[] = refused.map((row) => ({
+          address: row.address,
+          kind: 'skipped',
+          reason: `Could not resolve its JPEG ${row.companion!.filename}, so both files kept their names`,
+        }));
+        if (sent.length === 0) {
+          return of({
+            summary: {
+              total: unresolvedResults.length + refusedResults.length,
+              relocated: 0,
+              skipped: refusedResults.length,
+              failed: unresolvedResults.length,
+            },
+            results: [...refusedResults, ...unresolvedResults],
+          });
+        }
+        return this.http
+          .post<RawApplyResponse>(`${this.base}/assets/batch-rename`, {
+            ids: sent.map((row) => row.id),
+            source_addresses: sent.map((row) => row.address),
+            template: options.template,
+            sequence_start: options.sequenceStart,
+            sequence_pad_width: options.sequencePadWidth,
             collision,
-          ),
-        ),
-      );
+            ...(pairSupported
+              ? { companion_ids: sent.map((row) => row.companion?.id ?? null) }
+              : {}),
+          })
+          .pipe(
+            map((res) => {
+              const resolvedResults = sent.flatMap((row, i) => {
+                const raw = res.results[i]!;
+                const mapped = mapApplyResult(row.address, raw);
+                if (!pairSupported || !row.companion) return [mapped];
+                if (mapped.kind === 'relocated' && raw.companion_new_filename) {
+                  return [
+                    mapped,
+                    {
+                      address: row.companion.address,
+                      kind: 'relocated',
+                      oldFilename: row.companion.filename,
+                      newFilename: raw.companion_new_filename,
+                      renamedOnCollision: false,
+                      extensionChanged: false,
+                    } as BatchRenameItemResult,
+                  ];
+                }
+                if (mapped.kind === 'skipped' && raw.collision_filename) {
+                  return [
+                    mapped,
+                    {
+                      address: row.companion.address,
+                      kind: 'skipped',
+                      reason: `${raw.collision_filename} already exists, so ${row.companion.filename} kept its name`,
+                    } as BatchRenameItemResult,
+                  ];
+                }
+                return [mapped];
+              });
+              const results = [...resolvedResults, ...refusedResults, ...unresolvedResults];
+              const summary: BatchRenameSummary = {
+                total: res.summary.total + unresolvedResults.length + refusedResults.length,
+                relocated: res.summary.relocated,
+                skipped: res.summary.skipped + refusedResults.length,
+                failed: res.summary.failed + unresolvedResults.length,
+              };
+              return { summary, results };
+            }),
+            switchMap((applied) =>
+              pairSupported
+                ? of(applied)
+                : renameCompanions(
+                    { api: this.api, occupancy: this.occupancy },
+                    sent,
+                    applied,
+                    collision,
+                  ),
+            ),
+          );
+      }),
+    );
   }
 }
