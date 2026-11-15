@@ -205,7 +205,7 @@ pub struct TileStitchOutcome {
     pub refined_matches: usize,
     /// Number of correspondences that fell back to proxy accuracy.
     pub fallback_matches: usize,
-    /// Summary of the rotation-path reverification step (always 0/0 for tile).
+    /// Summary of the full-resolution grid closure check (zero without a grid).
     pub reverify: crate::graph::ReverifySummary,
     /// Candidate pairs, verified edges and rejections of the tile match graph.
     pub match_graph: crate::graph::GraphSummary,
