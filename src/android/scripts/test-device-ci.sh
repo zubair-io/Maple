@@ -100,6 +100,15 @@ else
 	fi
 	echo 'Android boot UI healthy after one recovery boot'
 fi
+{
+	date -u +'%Y-%m-%dT%H:%M:%SZ'
+	uptime
+	nproc
+	for resource in cpu memory io; do
+		printf '\n/proc/pressure/%s\n' "$resource"
+		cat "/proc/pressure/$resource"
+	done
+} >"$artifacts/host-after-boot-guard.txt" 2>&1 || true
 adb logcat -c
 # The documents-provider tests talk to a real, disposable Maple API (#5836).
 MAPLE_API_FIXTURE_LOG="$artifacts/api-fixture.log" \
