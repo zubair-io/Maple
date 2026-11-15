@@ -168,8 +168,8 @@ pub struct StitchOutcome {
     pub reverify: crate::graph::ReverifySummary,
     /// Candidate pairs, verified edges and rejections of the match graph.
     pub match_graph: crate::graph::GraphSummary,
-    /// Whether the BA solution was roll-leveled.
-    pub leveled: bool,
+    /// Which leveling correction the BA solution received, if any.
+    pub leveling: Option<crate::leveling::Leveling>,
     /// Horizon tilt in degrees when leveling was applied.
     pub horizon_tilt_deg: Option<f64>,
     pub horizon_tilt_rms_deg: Option<f64>,

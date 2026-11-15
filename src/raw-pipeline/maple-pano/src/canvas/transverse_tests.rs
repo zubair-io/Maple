@@ -224,3 +224,51 @@ fn transverse_wrap_footprint_matches_camera_mapping() {
         assert!(out.validity.count_valid() > 0);
     }
 }
+
+/// Sweeps centred on or past the zenith (#5958), where the optical axes'
+/// horizontal mean cancels or points behind the photographer, at any
+/// heading: every frame stands upright with the frames in sweep order,
+/// and the column through the zenith steps by exactly `dv` across every
+/// row, the zenith row included — no pole, no seam.
+#[test]
+fn zenith_crossing_sweeps_stay_upright_and_continuous() {
+    let zenith = Vec3::new(0.0, -1.0, 0.0);
+    let sweeps = [
+        (5, 90.0, Projection::TransverseSpherical),
+        (3, 90.0, Projection::TransverseCylindrical),
+        (4, 100.0, Projection::TransverseCylindrical),
+    ];
+    for (count, pitch, projection) in sweeps {
+        for heading in [0.0, 120.0, -150.0] {
+            let label = format!("{count} frames at {pitch}°, heading {heading}°");
+            let cams = yawed(&pitch_column(count, 60.0, 0.35, pitch), heading);
+            let c = auto(&cams);
+            assert_eq!(c.projection, projection, "{label}");
+            let row =
+                |cam: &Camera, y: f64| c.dir_to_pixel(cam.pixel_to_world_dir(96.0, y).unwrap());
+            let centres: Vec<f64> = cams
+                .iter()
+                .map(|cam| {
+                    let (_, centre) = row(cam, 72.0).unwrap();
+                    let (_, top) = row(cam, 36.0).unwrap();
+                    assert!(top < centre, "{label}: frame upside down");
+                    centre
+                })
+                .collect();
+            assert!(
+                centres.windows(2).all(|w| w[0] < w[1]),
+                "{label}: frames out of sweep order {centres:?}"
+            );
+            let (zx, zy) = c.dir_to_pixel(zenith).unwrap();
+            assert!((c.pixel_to_dir(zx, zy).unwrap() - zenith).norm() < 1e-10);
+            let worst = (0..c.height - 1)
+                .map(|y| {
+                    let a = c.pixel_to_dir(zx, y as f64 + 0.5).unwrap();
+                    let b = c.pixel_to_dir(zx, y as f64 + 1.5).unwrap();
+                    (a.dot(b).clamp(-1.0, 1.0).acos() - c.dv.abs()).abs()
+                })
+                .fold(0.0_f64, f64::max);
+            assert!(worst < 1e-9, "{label}: row step deviates by {worst}");
+        }
+    }
+}

@@ -302,14 +302,14 @@ fn stitch_set(
         StitchSuccess::Rotation(outcome) => {
             eprintln!(
                 "pano: solve — mean {:.3}px max {:.3}px over {} rounds ({} LM iters), \
-                 focal {:.1}px, dropped {:?}, leveled={}",
+                 focal {:.1}px, dropped {:?}, leveling={}",
                 outcome.solution.mean_reproj_px,
                 outcome.solution.max_reproj_px,
                 outcome.solution.solve_rounds,
                 outcome.solution.lm_iterations,
                 outcome.solution.shared_focal_px,
                 outcome.solution.dropped,
-                outcome.leveled,
+                outcome.leveling.map_or("none", |l| l.label()),
             );
             if !outcome.solution.motion_affected.is_empty() {
                 eprintln!(
@@ -360,7 +360,7 @@ fn stitch_set(
                 fallback_matches: outcome.fallback_matches,
                 reverify: &outcome.reverify,
                 match_graph: &outcome.match_graph,
-                leveled: outcome.leveled,
+                leveling: outcome.leveling,
                 horizon_tilt_deg: outcome.horizon_tilt_deg,
                 horizon_tilt_rms_deg: outcome.horizon_tilt_rms_deg,
                 gate_budgets,

@@ -215,10 +215,11 @@ jobs:
       # needs no ORT, models or fixtures, so its synthetic two-view gate and
       # the `pano-classical` CLI build run on every runner. So does the
       # stitch's memory limit (#5835), on frames `pano-gen-fixture` writes
-      # into a temp dir.
+      # into a temp dir, and roll-only leveling through bundle adjustment
+      # on a leaned zenith-crossing sweep (#5958), on synthetic matches.
       - name: cargo test -p maple-pano classical-features (no ORT)
         working-directory: src/raw-pipeline
-        run: cargo test -p maple-pano --no-default-features --features classical-features,testkit --lib --test classical_gates --test memory_limit_gates
+        run: cargo test -p maple-pano --no-default-features --features classical-features,testkit --lib --test classical_gates --test memory_limit_gates --test roll_leveling_gates
       - name: cargo build --bin maple-cli --features pano-classical (compile gate)
         working-directory: src/raw-pipeline
         run: cargo build --bin maple-cli --features pano-classical

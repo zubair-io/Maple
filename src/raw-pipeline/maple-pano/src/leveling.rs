@@ -22,6 +22,26 @@
 //! so the world frame inherits the y-down convention (the same one the
 //! ground-truth renderer's yaw/pitch pattern is built in).
 //!
+//! # Roll only (#5958)
+//!
+//! The plane fit needs x-axes that point in clearly different
+//! directions. A vertical pitch sweep has none: every camera pivots
+//! about the same horizontal axis, so the x-axes are parallel, their
+//! scatter is rank one, and any plane through that axis fits. Small
+//! yaw jitter makes the fit numerically possible but meaningless — a
+//! per-camera roll of σ tilts the fitted normal by about σ divided by
+//! the x-axes' spread — so below [`MIN_HORIZON_SPREAD_DEG`] only the
+//! roll is levelled: the mean x-axis `n = normalize(Σ x̂ᵢ)` is rotated
+//! minimally onto its horizontal projection. That rotation's axis is
+//! `n × n_h`, the horizontal direction perpendicular to `n`, i.e. the
+//! sweep's forward axis: a pure roll. It keeps the heading of `n` (yaw)
+//! and commutes with every camera's rotation about `n` (pitch); the
+//! set's absolute pitch is unobservable from geometry and stays at the
+//! solve's gauge (gimbal priors when present). Per-camera roll noise
+//! averages down by `√N`, yaw jitter does not lift a level x-axis out of
+//! the horizontal at all, and the angle is bounded by
+//! [`MAX_ROLL_DEG`].
+//!
 //! Gauge only: [`BaSolution::apply_global_rotation`] rotates every
 //! camera by the same `g`, so relative geometry and every residual
 //! statistic are untouched.
@@ -40,16 +60,47 @@ const WORLD_UP: Vec3 = Vec3 {
 
 /// Minimum relative gap between the two smallest eigenvalues of the
 /// x-axis scatter for the horizontal plane to count as observable.
-/// Below this (e.g. two cameras with parallel x-axes) the normal
-/// direction is arbitrary within a subspace and leveling must not
-/// invent one.
+/// Below this the x-axes fill a cone rather than a plane and the normal
+/// direction is arbitrary within a subspace; leveling must not invent
+/// one.
 const MIN_RELATIVE_EIGEN_GAP: f64 = 1e-9;
 
-/// The leveling rotation for a solved camera set, or `None` when it is
-/// unobservable (fewer than two solved cameras, or degenerate x-axis
-/// scatter — see [`MIN_RELATIVE_EIGEN_GAP`]).
-pub fn leveling_rotation(solution: &BaSolution) -> Option<Mat3> {
+/// RMS spread of the solved x-axes about their mean below which the
+/// plane they span is not trusted and only the roll is levelled (see
+/// module docs). 10° is two frames 20° apart in yaw, or a uniform yaw
+/// sweep of about 35°.
+const MIN_HORIZON_SPREAD_DEG: f64 = 10.0;
+
+/// Largest roll the roll-only level removes. Past 45° the mean x-axis is
+/// closer to vertical than horizontal, which a rolled landscape set and
+/// a portrait set explain equally well, so the set is left as solved.
+const MAX_ROLL_DEG: f64 = 45.0;
+
+/// Which correction [`apply`] made.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Leveling {
+    /// The plane of the solved x-axes was made horizontal.
+    Horizon,
+    /// Only the mean x-axis was rotated into the horizontal plane.
+    Roll,
+}
+
+impl Leveling {
+    pub fn label(self) -> &'static str {
+        match self {
+            Leveling::Horizon => "horizon",
+            Leveling::Roll => "roll",
+        }
+    }
+}
+
+/// The leveling rotation for a solved camera set and which correction it
+/// is, or `None` when neither is observable (fewer than two solved
+/// cameras, x-axes in a cone rather than a plane, or a roll past
+/// [`MAX_ROLL_DEG`]).
+pub fn leveling_rotation(solution: &BaSolution) -> Option<(Leveling, Mat3)> {
     let mut scatter = [[0.0_f64; 3]; 3];
+    let mut x_sum = Vec3::new(0.0, 0.0, 0.0);
     let mut up_sum = Vec3 {
         x: 0.0,
         y: 0.0,
@@ -80,6 +131,7 @@ pub fn leveling_rotation(solution: &BaSolution) -> Option<Mat3> {
             y: up_sum.y + up.y,
             z: up_sum.z + up.z,
         };
+        x_sum = x_sum + x;
         count += 1;
     }
     if count < 2 {
@@ -87,7 +139,13 @@ pub fn leveling_rotation(solution: &BaSolution) -> Option<Mat3> {
     }
 
     let (vals, vecs) = eigen_symmetric(&scatter); // descending
-    if vals[0] <= 0.0 || (vals[1] - vals[2]) / vals[0] < MIN_RELATIVE_EIGEN_GAP {
+    if vals[0] <= 0.0 {
+        return None;
+    }
+    if vals[1] < vals[0] * MIN_HORIZON_SPREAD_DEG.to_radians().tan().powi(2) {
+        return roll_rotation(x_sum).map(|g| (Leveling::Roll, g));
+    }
+    if (vals[1] - vals[2]) / vals[0] < MIN_RELATIVE_EIGEN_GAP {
         return None;
     }
     let mut normal = Vec3 {
@@ -98,19 +156,24 @@ pub fn leveling_rotation(solution: &BaSolution) -> Option<Mat3> {
     if normal.dot(up_sum) < 0.0 {
         normal = normal.scale(-1.0);
     }
-    Some(rotation_between(normal, WORLD_UP))
+    Some((Leveling::Horizon, rotation_between(normal, WORLD_UP)))
 }
 
-/// Solve and apply the leveling rotation in place. Returns `false`
-/// (solution untouched) when leveling is unobservable.
-pub fn apply(solution: &mut BaSolution) -> bool {
-    match leveling_rotation(solution) {
-        Some(g) => {
-            solution.apply_global_rotation(&g);
-            true
-        }
-        None => false,
-    }
+/// The pure roll taking the mean x-axis onto its horizontal projection,
+/// or `None` past [`MAX_ROLL_DEG`].
+fn roll_rotation(x_sum: Vec3) -> Option<Mat3> {
+    let mean = x_sum.normalized()?;
+    let level = (mean - WORLD_UP.scale(mean.dot(WORLD_UP))).normalized()?;
+    (mean.dot(level) >= MAX_ROLL_DEG.to_radians().cos()).then(|| rotation_between(mean, level))
+}
+
+/// Solve and apply the leveling rotation in place. Returns the
+/// correction made, or `None` (solution untouched) when leveling is
+/// unobservable.
+pub fn apply(solution: &mut BaSolution) -> Option<Leveling> {
+    let (leveling, g) = leveling_rotation(solution)?;
+    solution.apply_global_rotation(&g);
+    Some(leveling)
 }
 
 fn camera_tilt_deg(cam: &Camera) -> f64 {
@@ -255,7 +318,8 @@ mod tests {
             .collect();
         let solution = solution_from_rotations(&rots);
         assert!(horizon_tilt_deg(&solution) < 1e-9);
-        let g = leveling_rotation(&solution).expect("observable");
+        let (kind, g) = leveling_rotation(&solution).expect("observable");
+        assert_eq!(kind, Leveling::Horizon);
         assert!(g.max_abs_diff(&Mat3::identity()) < 1e-9);
     }
 
@@ -283,7 +347,7 @@ mod tests {
             .collect();
         let mut solution = solution_from_rotations(&rots);
         assert!(horizon_tilt_deg(&solution) > 3.0);
-        assert!(apply(&mut solution));
+        assert_eq!(apply(&mut solution), Some(Leveling::Horizon));
         assert!(
             horizon_tilt_deg(&solution) < 1e-6,
             "residual tilt {}°",
@@ -291,13 +355,97 @@ mod tests {
         );
     }
 
-    /// Two cameras sharing a yaw axis: x-axes parallel, plane
-    /// unobservable — leveling must decline, not invent.
+    /// Two cameras sharing a pitch axis: x-axes parallel, the plane is
+    /// unobservable but the roll is not — and it is already zero.
     #[test]
-    fn parallel_x_axes_decline() {
+    fn parallel_level_x_axes_get_an_identity_roll() {
         let rots = vec![Mat3::identity(), Mat3::rotation_x(0.3)];
         let solution = solution_from_rotations(&rots);
-        assert!(leveling_rotation(&solution).is_none());
+        let (kind, g) = leveling_rotation(&solution).expect("roll observable");
+        assert_eq!(kind, Leveling::Roll);
+        assert!(g.max_abs_diff(&Mat3::identity()) < 1e-12);
+    }
+
+    /// `Ry(ψ)·Rz(ρ)·Rx(θᵢ)`: a pitch sweep heading `ψ`, leaned by `ρ`
+    /// about its horizontal forward axis, with per-camera yaw jitter and
+    /// roll noise.
+    fn leaned_sweep(
+        heading_deg: f64,
+        lean_deg: f64,
+        pitches_deg: &[f64],
+        noise: bool,
+    ) -> Vec<Mat3> {
+        let lean = Mat3::rotation_y(heading_deg.to_radians())
+            .mul_mat(&Mat3::rotation_z(lean_deg.to_radians()))
+            .mul_mat(&Mat3::rotation_y(-heading_deg.to_radians()));
+        pitches_deg
+            .iter()
+            .enumerate()
+            .map(|(i, pitch)| {
+                let sign = if i % 2 == 0 { 1.0 } else { -1.0 };
+                let (yaw_jitter, roll) = if noise {
+                    (2.0 * sign, -0.3 * sign)
+                } else {
+                    (0.0, 0.0)
+                };
+                lean.mul_mat(&Mat3::rotation_y((heading_deg + yaw_jitter).to_radians()))
+                    .mul_mat(&Mat3::rotation_x(pitch.to_radians()))
+                    .mul_mat(&Mat3::rotation_z(roll.to_radians()))
+            })
+            .collect()
+    }
+
+    fn angle_deg(r: &Mat3) -> f64 {
+        let w = matrix_to_axis_angle(r);
+        (w[0] * w[0] + w[1] * w[1] + w[2] * w[2])
+            .sqrt()
+            .to_degrees()
+    }
+
+    const OVER_THE_ZENITH: [f64; 6] = [-10.0, 30.0, 70.0, 110.0, 150.0, 190.0];
+
+    /// A pitch sweep over the zenith, leaned 7°: the roll-only level
+    /// returns exactly the un-leaned poses, so yaw and every pitch are
+    /// untouched, and levelling again is the identity.
+    #[test]
+    fn zenith_sweep_levels_only_its_roll() {
+        let truth = leaned_sweep(35.0, 0.0, &OVER_THE_ZENITH, false);
+        let mut solution =
+            solution_from_rotations(&leaned_sweep(35.0, 7.0, &OVER_THE_ZENITH, false));
+        assert!(horizon_tilt_deg(&solution) > 6.9);
+        let (kind, g) = leveling_rotation(&solution).expect("roll observable");
+        assert_eq!(kind, Leveling::Roll);
+        assert!(
+            (angle_deg(&g) - 7.0).abs() < 1e-9,
+            "roll {}°",
+            angle_deg(&g)
+        );
+        assert_eq!(apply(&mut solution), Some(Leveling::Roll));
+        for (cam, want) in solution.cameras.iter().flatten().zip(&truth) {
+            assert!(cam.rotation.max_abs_diff(want) < 1e-9);
+        }
+        let (_, again) = leveling_rotation(&solution).expect("still observable");
+        assert!(again.max_abs_diff(&Mat3::identity()) < 1e-12);
+    }
+
+    /// Yaw jitter of ±2° and roll noise of ±0.3° keep the x-axes far
+    /// below the plane-fit spread; the recovered lean stays within 0.1°.
+    #[test]
+    fn noisy_pitch_sweep_recovers_its_lean() {
+        let lean = Mat3::rotation_y(-20f64.to_radians())
+            .mul_mat(&Mat3::rotation_z(5f64.to_radians()))
+            .mul_mat(&Mat3::rotation_y(20f64.to_radians()));
+        let rots = leaned_sweep(-20.0, 5.0, &OVER_THE_ZENITH, true);
+        let (kind, g) = leveling_rotation(&solution_from_rotations(&rots)).expect("observable");
+        assert_eq!(kind, Leveling::Roll);
+        let residual = angle_deg(&g.mul_mat(&lean));
+        assert!(residual < 0.1, "residual lean {residual}°");
+    }
+
+    #[test]
+    fn roll_past_the_bound_is_refused() {
+        let rots = leaned_sweep(0.0, 60.0, &OVER_THE_ZENITH, false);
+        assert!(leveling_rotation(&solution_from_rotations(&rots)).is_none());
     }
 
     /// Roll that is uncorrelated with yaw cancels out of the plane
@@ -316,7 +464,8 @@ mod tests {
             })
             .collect();
         let solution = solution_from_rotations(&rots);
-        let g = leveling_rotation(&solution).expect("observable");
+        let (kind, g) = leveling_rotation(&solution).expect("observable");
+        assert_eq!(kind, Leveling::Horizon);
         let residual = g.mul_mat(&tilt);
         let omega = matrix_to_axis_angle(&residual);
         let angle_deg = (omega[0] * omega[0] + omega[1] * omega[1] + omega[2] * omega[2])
