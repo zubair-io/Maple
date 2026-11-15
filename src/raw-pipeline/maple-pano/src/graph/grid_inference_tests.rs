@@ -35,6 +35,20 @@ fn infers_dimensions_and_both_capture_orders_with_gps_jitter() {
 }
 
 #[test]
+fn infers_two_row_grids_with_a_short_final_pass() {
+    for order in [GridOrder::Raster, GridOrder::Serpentine] {
+        let layout = GridLayout {
+            rows: 2,
+            cols: 4,
+            order,
+            diagonals: false,
+        };
+        assert_eq!(infer_grid(&captures(layout, 6, 0.0)), Some(layout));
+        assert_eq!(infer_grid(&captures(layout, 6, 0.8)), Some(layout));
+    }
+}
+
+#[test]
 fn refuses_missing_stationary_collinear_and_irregular_metadata() {
     assert_eq!(infer_grid(&vec![FramePriors::default(); 12]), None);
     let layout = GridLayout {
@@ -88,6 +102,10 @@ fn infers_pose_grid_across_yaw_wrap_but_not_nadir_yaw_noise() {
             }
         })
         .collect();
+    assert_eq!(infer_grid(&priors), Some(layout));
+    for p in &mut priors {
+        p.gps = priors_first_fix();
+    }
     assert_eq!(infer_grid(&priors), Some(layout));
     for p in &mut priors {
         p.gimbal.as_mut().unwrap().pitch_deg = -90.0;

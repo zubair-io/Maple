@@ -8,7 +8,7 @@ pub fn infer_grid(priors: &[FramePriors]) -> Option<GridLayout> {
     }
     let (points, minimum_step) = coordinates(priors)?;
     let mut accepted = None;
-    for cols in 2..=priors.len() / 2 {
+    for cols in 2..=priors.len() - 2 {
         let rows = priors.len().div_ceil(cols);
         if priors.len() % cols == 1 {
             continue;
@@ -49,7 +49,9 @@ fn coordinates(priors: &[FramePriors]) -> Option<(Vec<[f64; 2]>, f64)> {
                 ])
             })
             .collect::<Option<Vec<_>>>()?;
-        return Some((points, 5.0));
+        if points.iter().any(|p| p[0].hypot(p[1]) >= 5.0) {
+            return Some((points, 5.0));
+        }
     }
     let origin = priors[0].gimbal?;
     let points = priors
