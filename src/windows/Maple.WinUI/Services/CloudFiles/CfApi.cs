@@ -29,7 +29,7 @@ namespace Maple.WinUI.Services.CloudFiles
 
         // --- policies ---
         internal const ushort CF_HYDRATION_POLICY_FULL = 2;
-        internal const ushort CF_POPULATION_POLICY_PARTIAL = 0;
+        internal const ushort CF_POPULATION_POLICY_FULL = 2;
         internal const uint CF_INSYNC_POLICY_NONE = 0;
         internal const uint CF_HARDLINK_POLICY_NONE = 0;
 

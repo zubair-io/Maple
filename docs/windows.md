@@ -244,10 +244,11 @@ This compares the File Explorer sync root with the Apple File Provider hardening
 
 These cldapi findings fall outside the Apple checklist and are filed with the paging row in #5855:
 
-- The sync root registers `CF_POPULATION_POLICY_PARTIAL` (`W/CloudFilesSyncRoot.cs:129`), which Microsoft documents as ["not currently supported by the platform"](https://learn.microsoft.com/windows/win32/api/cfapi/ne-cfapi-cf_population_policy_primary). `FULL` describes what the callback already does.
-- Two server names that differ only in case, or that `SanitizeName` maps to the same name, can keep a directory from being marked fully populated. The flag is honoured only when every placeholder in the call is created.
+- The sync root registers the documented `CF_POPULATION_POLICY_FULL` (`W/CloudFilesSyncRoot.cs`), which matches its full-directory listing behavior. `FETCH_PLACEHOLDERS` now transfers each cursor page as it arrives to refresh callback timers; only after every page and placeholder succeeds does a zero-entry transfer set `DISABLE_ON_DEMAND_POPULATION` (`W/CloudFilesListing.cs`, `W/CloudFilesSyncRoot.cs`).
+- Names that collide case-insensitively after sanitization receive a stable suffix derived from their unchanged server identity (`W/CloudFilesListing.cs`). This preserves both items under distinct Explorer names and allows the directory to complete when all placeholders succeed.
+- The opt-in NTFS probe registers a fresh root with `FULL`, reads the policy back, and creates the suffixed case-collision names through Cloud Files; per-entry create results succeeded. It does not invoke the production `FETCH_PLACEHOLDERS` callback, so page-timeout behavior, callback retry after a partial transfer and Explorer enumeration remain unqualified. Focused unit coverage and the Windows x64 app build pass; keep #5855 open for those gates.
 
-Rows filed against #5853, #5854 and #5855 need a Windows machine. Each mutates or depends on runtime behaviour of a live NTFS sync root (`CfCreatePlaceholders`, `CfUpdatePlaceholder`, `ACK_DELETE`/`ACK_RENAME`, the callback timeout), and none of it can be exercised on macOS.
+Rows filed against #5853, #5854 and #5855 need Windows qualification. Each mutates or depends on runtime behaviour of a live NTFS sync root (`CfCreatePlaceholders`, `CfUpdatePlaceholder`, `ACK_DELETE`/`ACK_RENAME`, the callback timeout), and none of it can be exercised on macOS.
 
 ## Settings, registration, diagnostics
 

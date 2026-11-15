@@ -70,6 +70,73 @@ namespace Maple.WinUI.Tests
         }
 
         [Fact]
+        public async Task StreamPages_TransfersEachPageBeforeFetchingTheNext()
+        {
+            var calls = new List<string>();
+            var result = await CloudFilesListing.StreamPagesAsync(cursor =>
+            {
+                calls.Add($"fetch:{cursor ?? "first"}");
+                return Task.FromResult<PlaceholderPage?>(cursor == null
+                    ? new PlaceholderPage(new[] { Entry("a") }, "next")
+                    : new PlaceholderPage(new[] { Entry("b") }, null));
+            }, (entries, totalCount) =>
+            {
+                calls.Add($"transfer:{entries[0].Name}:{totalCount}");
+                return true;
+            });
+
+            Assert.True(result.Complete);
+            Assert.Equal(2, result.TransferredCount);
+            Assert.Equal(new[]
+            {
+                "fetch:first", "transfer:a:1", "fetch:next", "transfer:b:2",
+            }, calls);
+        }
+
+        [Fact]
+        public async Task StreamPages_FailedLaterPageKeepsEarlierPageRetryable()
+        {
+            var transferred = new List<string>();
+            var result = await CloudFilesListing.StreamPagesAsync(cursor =>
+                Task.FromResult<PlaceholderPage?>(cursor == null
+                    ? new PlaceholderPage(new[] { Entry("a") }, "next")
+                    : null), (entries, _) =>
+            {
+                transferred.AddRange(entries.Select(e => e.Name));
+                return true;
+            });
+
+            Assert.False(result.Complete);
+            Assert.Equal(1, result.TransferredCount);
+            Assert.Equal(new[] { "a" }, transferred);
+        }
+
+        [Fact]
+        public void NameCollision_IsDisambiguatedWithoutChangingServerIdentity()
+        {
+            var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var entries = new[]
+            {
+                new PlaceholderEntry("IMG.JPG", "folder:IMG.JPG", false, 1, DateTime.UnixEpoch),
+                new PlaceholderEntry("img.jpg", "folder:img.jpg", false, 1, DateTime.UnixEpoch),
+            };
+
+            var unique = CloudFilesListing.WithUniqueWindowsNames(entries, names);
+
+            Assert.Equal("IMG.JPG", unique[0].Name);
+            Assert.StartsWith("img (", unique[1].Name);
+            Assert.EndsWith(").jpg", unique[1].Name, StringComparison.OrdinalIgnoreCase);
+            Assert.Equal(new[] { "folder:IMG.JPG", "folder:img.jpg" }, unique.Select(e => e.Address));
+            Assert.Equal(2, names.Count);
+        }
+
+        [Fact]
+        public void PopulationPolicyFull_IsTheDocumentedValue()
+        {
+            Assert.Equal((ushort)2, CfApi.CF_POPULATION_POLICY_FULL);
+        }
+
+        [Fact]
         public void CompleteListing_DisablesOnDemandPopulationWithSuccess()
         {
             var completion = CloudFilesListing.Completion(CloudFilesListing.Succeeded(new[] { Entry("a") }));

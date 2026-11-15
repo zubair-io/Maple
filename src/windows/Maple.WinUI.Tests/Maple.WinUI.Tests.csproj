@@ -443,6 +443,7 @@
     <Compile Include="..\Maple.WinUI\Services\CloudFiles\CloudFilesHydration.cs" LinkBase="Services\CloudFiles" />
     <Compile Include="..\Maple.WinUI\Services\CloudFiles\CloudFilesSyncRootCleanup.cs" LinkBase="Services\CloudFiles" />
     <Compile Include="..\Maple.WinUI\Services\CloudFiles\CloudFilesListing.cs" LinkBase="Services\CloudFiles" />
+    <Compile Include="..\Maple.WinUI\Services\CloudFiles\CloudFilesPlaceholderTransfer.cs" LinkBase="Services\CloudFiles" />
     <Compile Include="..\Maple.WinUI\Services\CloudFiles\CloudFilesAddress.cs" LinkBase="Services\CloudFiles" />
     <Compile Include="..\Maple.WinUI\Services\CloudFiles\CloudChangeFeed.cs" LinkBase="Services\CloudFiles" />
     <Compile Include="..\Maple.WinUI\Services\CloudFiles\CloudFilesChangeApply.cs" LinkBase="Services\CloudFiles" />
