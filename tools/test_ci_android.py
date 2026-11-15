@@ -98,6 +98,28 @@ class AndroidSelectionTests(unittest.TestCase):
 
 
 class AndroidHostPressureTests(unittest.TestCase):
+    def test_pre_launch_hook_is_one_nonfatal_shell_invocation(self):
+        job = workflow("android")["jobs"]["android-build"]
+        emulator = next(
+            s for s in job["steps"] if "emulator-runner@" in s.get("uses", "")
+        )
+        hook = emulator["with"]["pre-emulator-launch-script"]
+        self.assertEqual(len(hook.strip().splitlines()), 1)
+        self.assertEqual(
+            hook,
+            "bash src/android/scripts/host-pressure-snapshot.sh "
+            "src/android/ci-artifacts/host-before-emulator.txt || true",
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            result = subprocess.run(
+                ["sh", "-c", hook],
+                cwd=temporary,
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+        self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_host_snapshots_bracket_boot_and_remain_best_effort(self):
         job = workflow("android")["jobs"]["android-build"]
         emulator = next(
@@ -105,10 +127,11 @@ class AndroidHostPressureTests(unittest.TestCase):
         )
         before = emulator["with"]["pre-emulator-launch-script"]
         runner = (SCRIPTS / "test-device-ci.sh").read_text()
-        start = runner.index("\n{\n", runner.index("healthy after one recovery boot"))
-        end = runner.index("\nadb logcat -c", start)
-        after = runner[start:end]
-        self.assertLess(end, runner.index("connectedDebugAndroidTest"))
+        start = runner.index("bash scripts/host-pressure-snapshot.sh ")
+        after = runner[start : runner.index("\n", start)]
+        self.assertGreater(start, runner.index("healthy after one recovery boot"))
+        self.assertLess(start, runner.index("\nadb logcat -c"))
+        self.assertLess(start, runner.index("connectedDebugAndroidTest"))
         for script, filename in (
             (before, "host-before-emulator.txt"),
             (after, "host-after-boot-guard.txt"),
@@ -120,7 +143,12 @@ class AndroidHostPressureTests(unittest.TestCase):
                         binary = root / "bin"
                         binary.mkdir()
                         artifacts = root / "src/android/ci-artifacts"
-                        artifacts.mkdir(parents=True)
+                        for directory in ("src/android/scripts", "scripts"):
+                            helper = root / directory / "host-pressure-snapshot.sh"
+                            helper.parent.mkdir(parents=True)
+                            helper.write_text(
+                                (SCRIPTS / "host-pressure-snapshot.sh").read_text()
+                            )
                         for command in ("date", "uptime", "nproc", "cat"):
                             executable = binary / command
                             executable.write_text(
@@ -149,6 +177,22 @@ class AndroidHostPressureTests(unittest.TestCase):
                             *[f"cat /proc/pressure/{r}" for r in ("cpu", "memory", "io")],
                         ):
                             self.assertIn(value, snapshot)
+
+    def test_snapshot_directory_failure_remains_nonfatal(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            blocker = Path(temporary) / "not-a-directory"
+            blocker.touch()
+            result = subprocess.run(
+                [
+                    "bash",
+                    str(SCRIPTS / "host-pressure-snapshot.sh"),
+                    str(blocker / "snapshot.txt"),
+                ],
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+        self.assertEqual(result.returncode, 0, result.stderr)
 
 
 class AndroidWorkflowTests(unittest.TestCase):
