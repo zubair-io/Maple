@@ -332,8 +332,6 @@ public final class PanoMergeSession {
     _ preview: PanoPreview, of assets: [AssetRef], solvedFor options: PanoOptions,
     space: PanoFreeSpace?
   ) throws {
-    alignment = preview.alignment
-    alignmentFrames = assets.map(\.id)
     let staleAlignment: Bool
     if case .stale = preview.alignmentOutcome {
       staleAlignment = true
@@ -350,6 +348,8 @@ public final class PanoMergeSession {
       memoryFitOptions = nil
       throw PanoStitcherError.staleSeamGeometry
     }
+    alignment = preview.alignment
+    alignmentFrames = assets.map(\.id)
     lastPreview = preview
     previewBoundaryWarp = options.boundaryWarp
     memoryFit = preview.stitchSizes.flatMap {
@@ -446,6 +446,11 @@ public final class PanoMergeSession {
       defer { pause?.release() }
       guard runGeneration == gen else { return }
       do {
+        if capturedOptions.seamConstraints != nil,
+          capturedOptions.seamConstraints != options.seamConstraints
+        {
+          throw PanoStitcherError.staleSeamGeometry
+        }
         if pause?.stoppedRunningWork == true { refreshMemoryFit() }
         if needsFreshFit(for: capturedOptions) {
           stitchIncludesAlignment = true
