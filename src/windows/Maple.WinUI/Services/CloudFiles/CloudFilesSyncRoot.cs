@@ -23,11 +23,12 @@
 // Hydration still uses the FULL policy and refuses nonzero-offset requests.
 //
 // The root also consumes the server change journal and reconciles already
-// populated directories. Explorer-initiated deletes, renames and writes
-// are still not propagated to the server (no NOTIFY_* callbacks are
-// registered); write-back is a separate feature. The corollary
-// (#4756) is that the folder can hold the only copy of a user's file, so
-// disabling the integration removes nothing but in-sync placeholders
+// populated directories. Explorer deletes route to Maple Trash and renames
+// are refused with a Cloud Files acknowledgement. Local file creation has
+// no CFAPI notification in this provider, so newly copied files remain
+// local; the settings UI states this explicitly. The corollary (#4756) is
+// that the folder can hold the only copy of a user's file, so disabling
+// the integration removes nothing but in-sync placeholders
 // (CloudFilesSyncRootCleanup.cs) and enabling it never adopts a non-empty
 // folder that is not already a registered sync root.
 //
@@ -56,6 +57,7 @@ namespace Maple.WinUI.Services.CloudFiles
         internal const string ProviderName = "Maple";
 
         private readonly Func<CloudClient?> _client;
+        private readonly string _syncRootPath;
         private readonly object _gate = new();
         private readonly ConcurrentDictionary<long, CancellationTokenSource> _fetches = new();
 
@@ -64,6 +66,8 @@ namespace Maple.WinUI.Services.CloudFiles
         private readonly CfApi.CfCallback _fetchPlaceholders;
         private readonly CfApi.CfCallback _fetchData;
         private readonly CfApi.CfCallback _cancelFetchData;
+        private readonly CfApi.CfCallback _notifyDelete;
+        private readonly CfApi.CfCallback _notifyRename;
 
         private long _connectionKey;
         private bool _connected;
@@ -74,11 +78,22 @@ namespace Maple.WinUI.Services.CloudFiles
             Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Maple Cloud");
 
         public CloudFilesSyncRoot(Func<CloudClient?> client)
+            : this(client, SyncRootPath)
+        {
+        }
+
+        // Internal override allows the opt-in CFAPI integration probe to
+        // register a unique disposable NTFS root without touching the user's
+        // production Maple Cloud directory.
+        internal CloudFilesSyncRoot(Func<CloudClient?> client, string syncRootPath)
         {
             _client = client;
+            _syncRootPath = Path.GetFullPath(syncRootPath);
             _fetchPlaceholders = OnFetchPlaceholders;
             _fetchData = OnFetchData;
             _cancelFetchData = OnCancelFetchData;
+            _notifyDelete = OnNotifyDelete;
+            _notifyRename = OnNotifyRename;
         }
 
         public bool IsRunning
@@ -98,10 +113,10 @@ namespace Maple.WinUI.Services.CloudFiles
                 try
                 {
                     var refusal = CloudFilesSyncRootCleanup.AdoptionRefusal(
-                        SyncRootPath, CloudFilesPlaceholderProbe.IsMapleSyncRoot(SyncRootPath));
+                        _syncRootPath, CloudFilesPlaceholderProbe.IsMapleSyncRoot(_syncRootPath));
                     if (refusal != null)
                         return refusal;
-                    Directory.CreateDirectory(SyncRootPath);
+                    Directory.CreateDirectory(_syncRootPath);
 
                     var name = Marshal.StringToHGlobalUni(ProviderName);
                     var version = Marshal.StringToHGlobalUni("1.0");
@@ -123,7 +138,7 @@ namespace Maple.WinUI.Services.CloudFiles
                             HardLink = CfApi.CF_HARDLINK_POLICY_NONE,
                         };
                         var hr = CfApi.CfRegisterSyncRoot(
-                            SyncRootPath, ref registration, ref policies, CfApi.CF_REGISTER_FLAG_UPDATE);
+                            _syncRootPath, ref registration, ref policies, CfApi.CF_REGISTER_FLAG_UPDATE);
                         if (hr != 0)
                             return $"Sync root registration failed (0x{hr:X8}).";
                     }
@@ -137,11 +152,6 @@ namespace Maple.WinUI.Services.CloudFiles
                     {
                         new CfApi.CF_CALLBACK_REGISTRATION
                         {
-                            Type = CfApi.CF_CALLBACK_TYPE_FETCH_PLACEHOLDERS,
-                            Callback = Marshal.GetFunctionPointerForDelegate(_fetchPlaceholders),
-                        },
-                        new CfApi.CF_CALLBACK_REGISTRATION
-                        {
                             Type = CfApi.CF_CALLBACK_TYPE_FETCH_DATA,
                             Callback = Marshal.GetFunctionPointerForDelegate(_fetchData),
                         },
@@ -150,17 +160,34 @@ namespace Maple.WinUI.Services.CloudFiles
                             Type = CfApi.CF_CALLBACK_TYPE_CANCEL_FETCH_DATA,
                             Callback = Marshal.GetFunctionPointerForDelegate(_cancelFetchData),
                         },
+                        new CfApi.CF_CALLBACK_REGISTRATION
+                        {
+                            Type = CfApi.CF_CALLBACK_TYPE_FETCH_PLACEHOLDERS,
+                            Callback = Marshal.GetFunctionPointerForDelegate(_fetchPlaceholders),
+                        },
+                        new CfApi.CF_CALLBACK_REGISTRATION
+                        {
+                            Type = CfApi.CF_CALLBACK_TYPE_NOTIFY_DELETE,
+                            Callback = Marshal.GetFunctionPointerForDelegate(_notifyDelete),
+                        },
+                        new CfApi.CF_CALLBACK_REGISTRATION
+                        {
+                            Type = CfApi.CF_CALLBACK_TYPE_NOTIFY_RENAME,
+                            Callback = Marshal.GetFunctionPointerForDelegate(_notifyRename),
+                        },
                         new CfApi.CF_CALLBACK_REGISTRATION { Type = CfApi.CF_CALLBACK_TYPE_NONE },
                     };
+                    CallbackTypesForTest = table.Select(registration => registration.Type).ToArray();
                     var hrConnect = CfApi.CfConnectSyncRoot(
-                        SyncRootPath, table, IntPtr.Zero,
-                        CfApi.CF_CONNECT_FLAG_REQUIRE_FULL_FILE_PATH, out _connectionKey);
+                        _syncRootPath, table, IntPtr.Zero,
+                        CfApi.CF_CONNECT_FLAG_REQUIRE_FULL_FILE_PATH | CfApi.CF_CONNECT_FLAG_REQUIRE_PROCESS_INFO,
+                        out _connectionKey);
                     if (hrConnect != 0)
                     {
                         // Roll the registration back (best-effort) so a
                         // failed enable strands nothing — the same
                         // no-lying-state invariant the settings toggle keeps.
-                        try { CfApi.CfUnregisterSyncRoot(SyncRootPath); } catch { /* best effort */ }
+                        try { CfApi.CfUnregisterSyncRoot(_syncRootPath); } catch { /* best effort */ }
                         return $"Sync root connection failed (0x{hrConnect:X8}).";
                     }
 
@@ -168,7 +195,7 @@ namespace Maple.WinUI.Services.CloudFiles
                     _changeFeedCancellation = new CancellationTokenSource();
                     var feedToken = _changeFeedCancellation.Token;
                     _changeFeedTask = Task.Run(() => RunChangeFeedAsync(feedToken));
-                    DiagLog.Write($"[cloudfiles] connected sync root at {SyncRootPath}");
+                    DiagLog.Write($"[cloudfiles] connected sync root at {_syncRootPath}");
                     return null;
                 }
                 catch (DllNotFoundException)
@@ -216,7 +243,7 @@ namespace Maple.WinUI.Services.CloudFiles
                 {
                     try
                     {
-                        var hr = CfApi.CfUnregisterSyncRoot(SyncRootPath);
+                        var hr = CfApi.CfUnregisterSyncRoot(_syncRootPath);
                         DiagLog.Write($"[cloudfiles] unregistered sync root (0x{hr:X8})");
                     }
                     catch (Exception ex)
@@ -227,11 +254,11 @@ namespace Maple.WinUI.Services.CloudFiles
             }
         }
 
-        private static void SweepSafely()
+        private void SweepSafely()
         {
             try
             {
-                var swept = CloudFilesSyncRootCleanup.Sweep(SyncRootPath, CloudFilesPlaceholderProbe.Probes);
+                var swept = CloudFilesSyncRootCleanup.Sweep(_syncRootPath, CloudFilesPlaceholderProbe.Probes);
                 DiagLog.Write(
                     $"[cloudfiles] swept sync root: removed {swept.Removed} placeholders, kept {swept.Preserved} local items");
             }
@@ -247,6 +274,7 @@ namespace Maple.WinUI.Services.CloudFiles
 
         private void OnFetchPlaceholders(IntPtr infoPtr, IntPtr paramsPtr)
         {
+            NotifyEnteredForTest?.Invoke(CfApi.CF_CALLBACK_TYPE_FETCH_PLACEHOLDERS);
             var info = Marshal.PtrToStructure<CfApi.CF_CALLBACK_INFO>(infoPtr);
             var listing = ReconcileWithExistingPlaceholders(
                 info, ListEntriesAsync(ReadIdentity(info)).GetAwaiter().GetResult());
@@ -357,6 +385,7 @@ namespace Maple.WinUI.Services.CloudFiles
 
         private void OnFetchData(IntPtr infoPtr, IntPtr paramsPtr)
         {
+            NotifyEnteredForTest?.Invoke(CfApi.CF_CALLBACK_TYPE_FETCH_DATA);
             var info = Marshal.PtrToStructure<CfApi.CF_CALLBACK_INFO>(infoPtr);
             var fetch = Marshal.PtrToStructure<CfApi.CF_CALLBACK_PARAMETERS_FETCH_DATA>(paramsPtr);
             var cts = new CancellationTokenSource();

@@ -448,6 +448,9 @@
     <Compile Include="..\Maple.WinUI\Services\CloudFiles\CloudFilesChangeApply.cs" LinkBase="Services\CloudFiles" />
     <Compile Include="..\Maple.WinUI\Services\CloudFiles\CloudFilesPlaceholderProbe.cs" LinkBase="Services\CloudFiles" />
     <Compile Include="..\Maple.WinUI\Services\CloudFiles\CfApi.cs" LinkBase="Services\CloudFiles" />
+    <Compile Include="..\Maple.WinUI\Services\CloudFiles\CloudFilesSyncRoot.cs" LinkBase="Services\CloudFiles" />
+    <Compile Include="..\Maple.WinUI\Services\CloudFiles\CloudFilesSyncRoot.ChangeFeed.cs" LinkBase="Services\CloudFiles" />
+    <Compile Include="..\Maple.WinUI\Services\CloudFiles\CloudFilesSyncRoot.FileOperations.cs" LinkBase="Services\CloudFiles" />
     <Compile Remove="CloudFilesRegistrationProbeTests.cs" />
     <Compile Include="CloudFilesRegistrationProbeTests.cs" Condition="'$(MapleRunCloudFilesIntegration)' == 'true'" />
   </ItemGroup>

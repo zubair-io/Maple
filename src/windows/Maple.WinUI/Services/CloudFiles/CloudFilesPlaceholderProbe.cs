@@ -139,7 +139,7 @@ namespace Maple.WinUI.Services.CloudFiles
             return Win32.MarkForDeletion(handle) ? RemovalOutcome.Removed : RemovalOutcome.Failed;
         }
 
-        private static class Win32
+        internal static class Win32
         {
             private const uint FILE_READ_ATTRIBUTES = 0x80;
             private const uint DELETE = 0x00010000;

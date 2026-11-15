@@ -249,7 +249,7 @@ namespace Maple.WinUI
                         "Sign-in happens in your browser via the server's passkey flow; the app stores only a device refresh token, protected with Windows DPAPI.",
                         connect, StartExpanded: true),
                     new MuiSettingsSectionRow("explorer", "File Explorer", "folder",
-                        "Adds a \"Maple Cloud\" folder to your user profile with placeholder files that download on demand. Right-click a file for \"Always keep on this device\".",
+                        "Adds a \"Maple Cloud\" folder to your user profile with placeholder files that download on demand. Right-click a file for \"Always keep on this device\". Deleting a cloud item moves it to Maple Cloud Trash. Renaming cloud items is disabled. Files copied into this folder stay local and do not upload; import them in Maple.",
                         explorerContent, StartExpanded: true),
                 },
             });
