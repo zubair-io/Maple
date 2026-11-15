@@ -9,6 +9,7 @@ import android.graphics.Shader
 import android.net.Uri
 import android.view.KeyEvent
 import android.view.ViewGroup
+import android.view.WindowManager
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -78,7 +79,7 @@ class CanvasKeyCommandsTest {
             awaitBadge("⌘0") { it == fit }
 
             // A text field keeps F and Z as text: F typed at 100% must not fit, Z typed at fit
-            // must not zoom (the soft keyboard may resize the viewport, so fit's percentage moves).
+            // must not zoom.
             press(KeyEvent.KEYCODE_Z)
             awaitBadge("Z before typing") { it == 100 }
             typeIntoAFocusedTextField(KeyEvent.KEYCODE_F, "f")
@@ -128,10 +129,19 @@ class CanvasKeyCommandsTest {
         }
     }
 
+    /**
+     * Types [code] into a focused text field with the window opted out of input methods, so the
+     * key reaches the field and the window's routing as a hardware key does. An IME sees keys
+     * first and decodes them for the editor connection it last served: one pressed while it
+     * rebinds after the field gains or loses focus is committed to a stale connection and lost,
+     * as CI's busy tablet IME lost the next F and then the typed Z (#5967).
+     */
     private fun typeIntoAFocusedTextField(code: Int, typed: String) {
         var text by mutableStateOf("")
         val field = ComposeView(compose.activity)
+        val window = compose.activity.window
         compose.runOnIdle {
+            window.addFlags(WindowManager.LayoutParams.FLAG_ALT_FOCUSABLE_IM)
             field.setContent {
                 BasicTextField(text, { text = it }, Modifier.testTag("key-test-field"), singleLine = true)
             }
@@ -144,7 +154,10 @@ class CanvasKeyCommandsTest {
             compose.waitUntil(10_000) { text == typed }
             compose.waitForIdle()
         } finally {
-            compose.runOnIdle { (field.parent as ViewGroup).removeView(field) }
+            compose.runOnIdle {
+                (field.parent as ViewGroup).removeView(field)
+                window.clearFlags(WindowManager.LayoutParams.FLAG_ALT_FOCUSABLE_IM)
+            }
         }
     }
 
