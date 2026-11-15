@@ -44,4 +44,20 @@ final class MaskCoveragePreviewTests: XCTestCase {
     XCTAssertEqual(image.height, 384)
     XCTAssertNil(MaskCoveragePreview.image(mask: .everywhere, imageSize: .zero, rasters: [:]))
   }
+  func testPresentedTintSamplesTheMaskThroughGeometryOffset() throws {
+    let mask = LocalMask.radial(
+      center: MaskPoint(x: 0.25, y: 0.5), radii: MaskPoint(x: 0.1, y: 0.1),
+      angle: 0, feather: 0, invert: false)
+    let projection = MaskProjection.presentationToFrame(
+      crop: .identity, perspective: Perspective(x: 50),
+      nativeSize: CGSize(width: 400, height: 300))
+    let image = try XCTUnwrap(
+      MaskCoveragePreview.image(
+        mask: mask, imageSize: CGSize(width: 5, height: 5), rasters: [:],
+        projection: projection))
+    let data = try XCTUnwrap(image.dataProvider?.data) as Data
+    let centre = (2 * 5 + 2) * 4
+    XCTAssertEqual(data[centre], 255)
+    XCTAssertEqual(data[0], 0)
+  }
 }

@@ -5,7 +5,8 @@ import Foundation
 /// resolved once by the caller, outside the pixel loop. Runs off the main actor.
 public enum MaskCoveragePreview {
   public static func image(
-    mask: LocalMask, imageSize: CGSize, rasters: [UInt32: MaskRasterStore.Raster]
+    mask: LocalMask, imageSize: CGSize, rasters: [UInt32: MaskRasterStore.Raster],
+    projection: MaskProjection = .identity
   ) -> CGImage? {
     guard imageSize.width.isFinite, imageSize.height.isFinite,
       imageSize.width > 0, imageSize.height > 0
@@ -17,9 +18,13 @@ public enum MaskCoveragePreview {
     for y in 0..<height {
       guard !Task.isCancelled else { return nil }
       for x in 0..<width {
+        let presented = MaskPoint(
+          x: Double(x) / Double(max(1, width - 1)),
+          y: Double(y) / Double(max(1, height - 1)))
+        let frame = projection.apply(presented) ?? MaskPoint(x: -1, y: -1)
         let weight = MaskWeight.evaluate(
-          mask, x: Double(x) / Double(max(1, width - 1)),
-          y: Double(y) / Double(max(1, height - 1)), rasters: rasters)
+          mask, x: frame.x,
+          y: frame.y, rasters: rasters)
         let alpha = weight.isFinite ? UInt8((min(1, max(0, weight)) * 255).rounded()) : 0
         let offset = (y * width + x) * 4
         for channel in 0..<4 { rgba[offset + channel] = alpha }
@@ -57,8 +62,13 @@ extension EditSession {
     }
     let resolved = rasters
     let size = nativeImageSize
+    let model = self.model
+    let presentedSize = CropImageStage.croppedSize(model.crop, nativeSize: size)
+    let projection = MaskProjection.presentationToFrame(
+      crop: model.crop, perspective: model.perspective, nativeSize: size)
     let task = Task.detached(priority: .userInitiated) {
-      MaskCoveragePreview.image(mask: mask, imageSize: size, rasters: resolved)
+      MaskCoveragePreview.image(
+        mask: mask, imageSize: presentedSize, rasters: resolved, projection: projection)
     }
     return await withTaskCancellationHandler {
       await task.value

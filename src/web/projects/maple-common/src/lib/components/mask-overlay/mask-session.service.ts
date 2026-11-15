@@ -44,7 +44,13 @@ import type {
   RangeRefinement,
 } from '../../models/local-adjustment';
 import type { MaskRangeSeed } from '../../raw-pipeline/raw-pipeline.sample-range.types';
-import { defaultLinearMask, defaultRadialMask, withMaskFeather } from './mask-geometry';
+import {
+  defaultLinearMask,
+  defaultRadialMask,
+  perspectiveGeometryOf,
+  presentedToFullFrame,
+  withMaskFeather,
+} from './mask-geometry';
 import { removeAt } from '../../editor/list-selection';
 import { defaultRangeRefinement, withRangeField, type RangeFieldId } from './mask-range';
 import { sampleMaskRangeInto, seededLayer } from './mask-range-sample';
@@ -506,7 +512,19 @@ export class MaskSessionService {
     if (this.rangeSampleInFlight() || this.selected() === null) return false;
     this.rangeSampleInFlight.set(true);
     try {
-      return await sampleMaskRangeInto(this.rangeSampleHost(), nx, ny);
+      const asset = this.library.focusedAsset();
+      const model = asset ? this.library.adjustmentFor(asset.id)() : null;
+      const full =
+        asset && model
+          ? presentedToFullFrame(
+              { x: nx, y: ny },
+              model.crop,
+              perspectiveGeometryOf(model),
+              asset.width ?? 1,
+              asset.height ?? 1,
+            )
+          : { x: nx, y: ny };
+      return await sampleMaskRangeInto(this.rangeSampleHost(), full.x, full.y);
     } finally {
       this.rangeSampleInFlight.set(false);
     }

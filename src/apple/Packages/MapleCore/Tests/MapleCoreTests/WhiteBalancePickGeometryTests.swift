@@ -54,4 +54,14 @@ final class WhiteBalancePickGeometryTests: XCTestCase {
           crop: Crop(top: 0, left: 0, bottom: 1, right: 1, angle: 30)))
     }
   }
+  func testPickMapsThroughGeometryOffset() throws {
+    let point = try XCTUnwrap(
+      WhiteBalancePickGeometry.imagePoint(
+        at: CGPoint(x: 150, y: 100), viewport: CGSize(width: 300, height: 200),
+        displayFrame: CGSize(width: 300, height: 200), pan: .zero,
+        nativeSize: CGSize(width: 400, height: 300), crop: .identity,
+        perspective: Perspective(x: 50)))
+    XCTAssertEqual(point.x, 0.25, accuracy: 1e-9)
+    XCTAssertEqual(point.y, 0.5, accuracy: 1e-9)
+  }
 }

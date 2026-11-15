@@ -48,4 +48,25 @@ public enum MaskOverlayGeometry {
             width: fullW,
             height: fullH)
     }
+
+    public static func screenPoint(
+        _ point: MaskPoint, displayRect: CGRect, projection: MaskProjection
+    ) -> CGPoint? {
+        guard let frameToPresented = projection.inverted(),
+            let presented = frameToPresented.apply(point)
+        else { return nil }
+        return CGPoint(
+            x: displayRect.minX + CGFloat(presented.x) * displayRect.width,
+            y: displayRect.minY + CGFloat(presented.y) * displayRect.height)
+    }
+
+    public static func normalizedPoint(
+        _ screen: CGPoint, displayRect: CGRect, projection: MaskProjection
+    ) -> MaskPoint? {
+        guard displayRect.width > 0, displayRect.height > 0 else { return nil }
+        let presented = MaskPoint(
+            x: Double((screen.x - displayRect.minX) / displayRect.width),
+            y: Double((screen.y - displayRect.minY) / displayRect.height))
+        return projection.apply(presented)
+    }
 }

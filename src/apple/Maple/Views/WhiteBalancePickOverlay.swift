@@ -23,7 +23,8 @@ struct WhiteBalancePickOverlay: View {
           let shown = state.zoom.presentedGeometry(at: Date())
           let point = WhiteBalancePickGeometry.imagePoint(
             at: location, viewport: geometry.size, displayFrame: shown?.displayFrame ?? .zero,
-            pan: shown?.panOffset ?? .zero, nativeSize: nativeSize, crop: crop)
+            pan: shown?.panOffset ?? .zero, nativeSize: nativeSize, crop: crop,
+            perspective: state.session.model.perspective)
           sampleTask = Task { await picker.pick(at: point) }
         }
         .accessibilityLabel("White balance sampling canvas")

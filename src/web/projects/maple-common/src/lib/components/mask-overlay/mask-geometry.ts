@@ -17,7 +17,6 @@
 //     (`crop-geometry.ts`'s `fitFootprint`; the mask tool forces fit).
 
 import type { Crop } from '../../models/adjustment-model';
-import { isCropRectValid, isIdentityCrop } from '../../models/adjustment-model';
 import {
   isGeometricMask,
   type LinearMask,
@@ -28,6 +27,34 @@ import {
   type RadialMask,
 } from '../../models/local-adjustment';
 import type { Footprint } from '../crop-overlay/crop-geometry';
+import {
+  applyAffine,
+  applyProjection,
+  cropToFullFrameAffine,
+  IDENTITY_AFFINE,
+  IDENTITY_PERSPECTIVE,
+  IDENTITY_PROJECTION,
+  invertAffine,
+  invertProjection,
+  isIdentityPerspective,
+  presentationToFrameProjection,
+  type MaskAffine,
+  type PerspectiveGeometry,
+} from './mask-frame';
+export {
+  applyAffine,
+  applyProjection,
+  cropToFullFrameAffine,
+  IDENTITY_PERSPECTIVE,
+  invertAffine,
+  invertProjection,
+  isIdentityPerspective,
+  perspectiveGeometryOf,
+  presentationToFrameProjection,
+  presentedToFullFrame,
+  type MaskAffine,
+  type PerspectiveGeometry,
+} from './mask-frame';
 
 // ── Weight ────────────────────────────────────────────────────────────────
 
@@ -111,79 +138,17 @@ function evaluateGroupWeight(mask: MaskGroup, x: number, y: number): number {
   return Math.min(1, Math.max(0, coverage)) * Math.min(1, Math.max(0, mask.opacity));
 }
 
-// ── Affine map (crop-normalized ↔ full-frame normalized) ──────────────────
-
-/** `p = M p' + o`, `M = [[a, c], [b, d]]` (CSS matrix member convention). */
-export interface MaskAffine {
-  a: number;
-  b: number;
-  c: number;
-  d: number;
-  tx: number;
-  ty: number;
-}
-
-const IDENTITY_AFFINE: MaskAffine = Object.freeze({ a: 1, b: 0, c: 0, d: 1, tx: 0, ty: 0 });
-
-export const applyAffine = (m: MaskAffine, p: MaskPoint): MaskPoint => ({
-  x: m.a * p.x + m.c * p.y + m.tx,
-  y: m.b * p.x + m.d * p.y + m.ty,
-});
-
-export function invertAffine(m: MaskAffine): MaskAffine | null {
-  const det = m.a * m.d - m.b * m.c;
-  if (Math.abs(det) < 1e-12) return null;
-  const a = m.d / det;
-  const b = -m.b / det;
-  const c = -m.c / det;
-  const d = m.a / det;
-  return { a, b, c, d, tx: -(a * m.tx + c * m.ty), ty: -(b * m.tx + d * m.ty) };
-}
-
-/**
- * The map from the cropped output's normalized coordinates to the full
- * frame's, for `crop` on an image `imgW × imgH` px — identity when the crop
- * doesn't apply. Derived by pushing the crop-space origin and unit vectors
- * through the renderer's geometry ("rotate the frame clockwise about its
- * center by the straighten angle, then cut the axis-aligned rect"), so the
- * pixel-space rotation — anisotropic in normalized space on a non-square
- * image — is captured exactly.
- */
-export function cropToFullFrameAffine(crop: Crop, imgW: number, imgH: number): MaskAffine {
-  if (isIdentityCrop(crop) || !isCropRectValid(crop) || !(imgW > 0) || !(imgH > 0)) {
-    return IDENTITY_AFFINE;
-  }
-  const cw = crop.right - crop.left;
-  const ch = crop.bottom - crop.top;
-  const theta = (crop.angle * Math.PI) / 180;
-  const cosT = Math.cos(theta);
-  const sinT = Math.sin(theta);
-  const map = (u: number, v: number): MaskPoint => {
-    const rx = (crop.left + u * cw) * imgW - imgW / 2;
-    const ry = (crop.top + v * ch) * imgH - imgH / 2;
-    return {
-      x: (cosT * rx + sinT * ry + imgW / 2) / imgW,
-      y: (-sinT * rx + cosT * ry + imgH / 2) / imgH,
-    };
-  };
-  const origin = map(0, 0);
-  const unitX = map(1, 0);
-  const unitY = map(0, 1);
-  return {
-    a: unitX.x - origin.x,
-    b: unitX.y - origin.y,
-    c: unitY.x - origin.x,
-    d: unitY.y - origin.y,
-    tx: origin.x,
-    ty: origin.y,
-  };
-}
-
 /** Full-frame normalized ↔ canvas px through the footprint and the crop map. */
 export interface MaskCanvasMap {
   footprint: Footprint;
   cropToFull: MaskAffine;
   fullToCrop: MaskAffine;
+  /** Presented → full frame: the crop's inverse, then the geometry's. */
+  presentedToFrame: number[];
+  /** Full frame → presented, the inverse of `presentedToFrame`. */
+  frameToPresented: number[];
+  /** True when a manual-geometry slider moves the presented frame. */
+  hasGeometry: boolean;
   /** Full-frame width / height in pixels — normalized units are not isotropic. */
   imageAspect: number;
 }
@@ -193,19 +158,24 @@ export function makeMaskCanvasMap(
   crop: Crop,
   imgW: number,
   imgH: number,
+  perspective: PerspectiveGeometry = IDENTITY_PERSPECTIVE,
 ): MaskCanvasMap {
   const cropToFull = cropToFullFrameAffine(crop, imgW, imgH);
   const imageAspect = imgW > 0 && imgH > 0 ? imgW / imgH : 1;
+  const presentedToFrame = presentationToFrameProjection(crop, perspective, imgW, imgH);
   return {
     footprint,
     cropToFull,
     fullToCrop: invertAffine(cropToFull) ?? IDENTITY_AFFINE,
+    presentedToFrame,
+    frameToPresented: invertProjection(presentedToFrame) ?? [...IDENTITY_PROJECTION],
+    hasGeometry: !isIdentityPerspective(perspective),
     imageAspect,
   };
 }
 
 export function maskToScreen(map: MaskCanvasMap, p: MaskPoint): { x: number; y: number } {
-  const q = applyAffine(map.fullToCrop, p);
+  const q = applyProjection(map.frameToPresented, p);
   return {
     x: map.footprint.left + q.x * map.footprint.width,
     y: map.footprint.top + q.y * map.footprint.height,
@@ -217,7 +187,11 @@ export function maskFromScreen(map: MaskCanvasMap, px: number, py: number): Mask
   const fp = map.footprint;
   const u = fp.width > 0 ? (px - fp.left) / fp.width : 0;
   const v = fp.height > 0 ? (py - fp.top) / fp.height : 0;
-  const p = applyAffine(map.cropToFull, { x: u, y: v });
+  const projected = applyProjection(map.presentedToFrame, { x: u, y: v });
+  const p =
+    Number.isFinite(projected.x) && Number.isFinite(projected.y)
+      ? projected
+      : applyAffine(map.cropToFull, { x: u, y: v });
   return { x: Math.min(1, Math.max(0, p.x)), y: Math.min(1, Math.max(0, p.y)) };
 }
 

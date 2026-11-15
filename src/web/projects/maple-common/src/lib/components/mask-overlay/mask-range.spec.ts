@@ -151,6 +151,19 @@ describe('MaskSessionService colour range (#362)', () => {
     expect(layer0()).toEqual(before);
   });
 
+  it('the eyedropper samples the frame point under a geometry offset', async () => {
+    session.addRadial();
+    lib.updateAdjustment('asset-1', { perspectiveX: 50 });
+    await expect(session.sampleRangeAt(0.5, 0.5)).resolves.toBe(true);
+    expect(sampleMaskRange).toHaveBeenCalledWith(
+      expect.any(Uint8Array),
+      'dng',
+      expect.stringContaining('<x:xmpmeta'),
+      0.25,
+      0.5,
+    );
+  });
+
   it('a rejected pick leaves the model untouched and explains why', async () => {
     session.addLinear();
     session.setRangeEnabled(true);

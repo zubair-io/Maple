@@ -31,6 +31,7 @@ import { MuiSelectComponent } from '../../ui/select/mui-select.component';
 import { WHITE_BALANCE_PRESETS } from '../../generated/white-balance-presets.generated';
 import { eyedropperUnavailableForFile, isSupportedRaw } from '../../state/raw-extensions';
 import { ADJUSTMENT_RANGES } from '../../generated/adjustment-tables.generated';
+import { perspectiveGeometryOf, presentedToFullFrame } from '../mask-overlay/mask-geometry';
 
 const [TEMP_MIN, TEMP_MAX] = ADJUSTMENT_RANGES.temperature;
 const [TINT_MIN, TINT_MAX] = ADJUSTMENT_RANGES.tint;
@@ -203,7 +204,16 @@ export class WbPadComponent {
     try {
       const point = await this.pick.arm();
       if (!point) return;
-      await this.editor.sampleWhiteBalanceAt(id, point.nx, point.ny);
+      const asset = this.library.assets().find((item) => item.id === id);
+      const model = this.library.adjustmentFor(id)();
+      const full = presentedToFullFrame(
+        { x: point.nx, y: point.ny },
+        model.crop,
+        perspectiveGeometryOf(model),
+        asset?.width ?? 1,
+        asset?.height ?? 1,
+      );
+      await this.editor.sampleWhiteBalanceAt(id, full.x, full.y);
     } finally {
       this.eyedropperActive.set(false);
     }

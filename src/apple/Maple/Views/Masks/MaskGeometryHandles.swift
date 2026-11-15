@@ -4,7 +4,8 @@ import SwiftUI
 /// Only the selected leaf owns handles; the separate tint shows the whole group.
 struct MaskGeometryHandles: View {
   @Bindable var state: EditorState
-  let fullFrame: CGRect
+  let displayRect: CGRect
+  let projection: MaskProjection
   @State private var dragStart: LocalMask?
   @State private var dragAnchor: MaskPoint?
   @State private var haptics = EditorHapticPulse()
@@ -68,12 +69,15 @@ struct MaskGeometryHandles: View {
   }
 
   private func screen(_ point: MaskPoint) -> CGPoint {
-    MaskHandleGeometry.screenPoint(
-      point, fullFrame: fullFrame, angleDegrees: session.model.crop.angle)
+    MaskOverlayGeometry.screenPoint(point, displayRect: displayRect, projection: projection)
+      ?? CGPoint(x: -10_000, y: -10_000)
   }
   private func normalized(_ point: CGPoint) -> MaskPoint {
-    MaskHandleGeometry.normalizedPoint(
-      point, fullFrame: fullFrame, angleDegrees: session.model.crop.angle)
+    guard
+      let p = MaskOverlayGeometry.normalizedPoint(
+        point, displayRect: displayRect, projection: projection)
+    else { return MaskPoint(x: 0.5, y: 0.5) }
+    return MaskPoint(x: min(1, max(0, p.x)), y: min(1, max(0, p.y)))
   }
   private func drag(_ handle: MaskHandle) -> some Gesture {
     DragGesture(minimumDistance: 0, coordinateSpace: .named("maskGeometryCanvas"))
