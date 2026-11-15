@@ -42,7 +42,9 @@ trap cleanup EXIT
 # cannot render thumbnails, so a fresh shared-cache AVIF is staged beside the originals.
 cp "$repo/test-fixtures/batch-transfer/source.dng" "$library/2026/raw.dng"
 cp "$repo/test-fixtures/raster-metadata/progressive-444.jpg" "$library/2026/photo.jpg"
-python3 - "$library/2026/photo.jpg" <<'PY'
+mkdir -p "$library/timeline"
+cp "$library/2026/photo.jpg" "$library/timeline/timeline-unowned.jpg"
+python3 - "$library/timeline/timeline-unowned.jpg" <<'PY'
 import pathlib
 import struct
 import sys
@@ -64,11 +66,12 @@ printf 'Maple provider fixture\n' >"$library/notes.txt"
 # Large enough to cancel mid-transfer; sparse, so it costs no host disk.
 mkdir -p "$library/large"
 python3 -c 'import sys; open(sys.argv[1], "wb").truncate(512 << 20)' "$library/large/large.bin"
-mkdir -p "$library/2026/.maple/thumbs"
+mkdir -p "$library/2026/.maple/thumbs" "$library/timeline/.maple/thumbs"
 sleep 1
 for name in raw.dng photo.jpg; do
 	cp "$repo/test-fixtures/raster-metadata/avif-validation/srgb-rgb.avif" "$library/2026/.maple/thumbs/$name.avif"
 done
+cp "$repo/test-fixtures/raster-metadata/avif-validation/srgb-rgb.avif" "$library/timeline/.maple/thumbs/timeline-unowned.jpg.avif"
 
 if [[ ! -d "$api/node_modules" ]]; then (cd "$api" && bun install --frozen-lockfile); fi
 native=0
@@ -132,7 +135,7 @@ curl -fsS -X POST -H "Authorization: Bearer $token" "$origin/api/folders/$folder
 bun -e '
 import { Database } from "bun:sqlite";
 const db = new Database(process.argv[1]);
-const result = db.query("UPDATE assets SET owner_id = NULL WHERE id IN (SELECT asset_id FROM asset_locations WHERE path = ? AND filename = ?)").run("2026", "photo.jpg");
+const result = db.query("UPDATE assets SET owner_id = NULL WHERE id IN (SELECT asset_id FROM asset_locations WHERE path = ? AND filename = ?)").run("timeline", "timeline-unowned.jpg");
 if (result.changes !== 1) throw new Error("Unassigned Timeline fixture was not found");
 db.close();
 ' "$work/runtime/maple.sqlite"

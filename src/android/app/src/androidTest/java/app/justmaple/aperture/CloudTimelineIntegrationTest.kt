@@ -23,7 +23,7 @@ class CloudTimelineIntegrationTest {
     private val suffix = UUID.randomUUID().toString().take(8)
     private val newest = "timeline-march-$suffix.jpg"
     private val older = "timeline-february-$suffix.jpg"
-    private val unowned = "photo.jpg"
+    private val unowned = "timeline-unowned.jpg"
     private val compose = mainThreadComposeRule<MainActivity>()
     private val session = object : ExternalResource() {
         override fun before() {
