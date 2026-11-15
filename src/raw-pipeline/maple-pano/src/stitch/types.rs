@@ -81,7 +81,7 @@ pub struct StitchOptions {
     /// [`crate::seam::SeamStrategy::GraphCut`] and the rotation strategy;
     /// anything the composite cannot honour is a
     /// [`StitchError::SeamConstraint`], never silently dropped.
-    pub seam_constraints: Vec<crate::seam::SeamConstraint>,
+    pub seam_constraints: Option<crate::seam::SeamConstraintsRequest>,
     /// Declared capture grid for drone surveys / camera arrays (#4519).
     /// `Some` replaces capture-order, gimbal and descriptor top-k
     /// nomination with [`crate::graph::GridPriorProvider`] and gates
@@ -129,7 +129,7 @@ impl Default for StitchOptions {
             canvas_tile_rows: None,
             use_coreml: false,
             seam_strategy: crate::seam::SeamStrategy::Voronoi,
-            seam_constraints: Vec::new(),
+            seam_constraints: None,
             grid: None,
             infer_grid: false,
             feature_engine: super::FeatureEngine::default(),
@@ -357,7 +357,7 @@ impl std::fmt::Display for StitchError {
                 write!(f, "degenerate rotation geometry: {msg}")
             }
             Self::Cancelled => write!(f, "cancelled by caller"),
-            Self::SeamConstraint(e) => write!(f, "seam constraints: {e}"),
+            Self::SeamConstraint(e) => write!(f, "invalid_seam_constraints: {e}"),
             Self::InsufficientScratchSpace {
                 path,
                 needed,

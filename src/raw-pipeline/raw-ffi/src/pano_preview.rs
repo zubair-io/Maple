@@ -293,7 +293,51 @@ pub unsafe extern "C" fn maple_pano_stitch_aligned(
     cb_user: *mut c_void,
     cancel: *const MapleCancelFlag,
 ) -> i32 {
-    const NAME: &str = "maple_pano_stitch_aligned";
+    maple_pano_stitch_constrained(
+        raw_paths,
+        count,
+        out_png_path,
+        alignment_in_path,
+        max_canvas_px,
+        edges,
+        out_edges,
+        retention,
+        local_align,
+        strategy,
+        engine,
+        std::ptr::null(),
+        progress_cb,
+        cb_user,
+        cancel,
+    )
+}
+
+/// Stitch with a versioned seam-constraint JSON request. Null leaves seams unconstrained.
+/// Invalid requests return −11 (`invalid_seam_constraints`) before decode.
+///
+/// # Safety
+/// Same pointer contract as `maple_pano_stitch_aligned`; `seam_constraints_json`
+/// must be null or a valid UTF-8 C string for the synchronous call.
+#[no_mangle]
+#[allow(clippy::too_many_arguments)]
+pub unsafe extern "C" fn maple_pano_stitch_constrained(
+    raw_paths: *const *const c_char,
+    count: usize,
+    out_png_path: *const c_char,
+    alignment_in_path: *const c_char,
+    max_canvas_px: u64,
+    edges: MaplePanoEdges,
+    out_edges: *mut MaplePanoEdgesReport,
+    retention: MaplePanoRetention,
+    local_align: MaplePanoLocalAlign,
+    strategy: MaplePanoStrategy,
+    engine: MaplePanoFeatureEngine,
+    seam_constraints_json: *const c_char,
+    progress_cb: MaplePanoProgressFn,
+    cb_user: *mut c_void,
+    cancel: *const MapleCancelFlag,
+) -> i32 {
+    const NAME: &str = "maple_pano_stitch_constrained";
     let parsed = owned_paths(NAME, raw_paths, count).and_then(|paths| {
         Ok((
             paths,
@@ -305,6 +349,30 @@ pub unsafe extern "C" fn maple_pano_stitch_aligned(
         Ok(p) => p,
         Err(rc) => return rc,
     };
+    let request = if seam_constraints_json.is_null() {
+        None
+    } else {
+        let parsed = CStr::from_ptr(seam_constraints_json)
+            .to_str()
+            .map_err(|e| e.to_string())
+            .and_then(|json| {
+                maple_pano::seam::SeamConstraintsRequest::parse(json, count)
+                    .map_err(|e| e.to_string())
+            });
+        match parsed {
+            Ok(request) if !matches!(strategy, MaplePanoStrategy::Tile) => Some(request),
+            Ok(_) => {
+                set_last_error(format!(
+                    "{NAME}: invalid_seam_constraints: constraints require rotation"
+                ));
+                return -11;
+            }
+            Err(e) => {
+                set_last_error(format!("{NAME}: invalid_seam_constraints: {e}"));
+                return -11;
+            }
+        }
+    };
     let cb = SendProgressCallback {
         f: progress_cb,
         user: cb_user,
@@ -313,7 +381,7 @@ pub unsafe extern "C" fn maple_pano_stitch_aligned(
 
     #[cfg(any(target_os = "macos", target_os = "ios"))]
     {
-        let opts = match super::pano_edges::with_edges(
+        let mut opts = match super::pano_edges::with_edges(
             NAME,
             with_canvas_cap(
                 super::pano_apple::stitch_options(retention, local_align, strategy, engine),
@@ -324,6 +392,10 @@ pub unsafe extern "C" fn maple_pano_stitch_aligned(
             Ok(opts) => opts,
             Err(rc) => return rc,
         };
+        if request.is_some() {
+            opts.seam_strategy = maple_pano::seam::SeamStrategy::GraphCut;
+            opts.seam_constraints = request;
+        }
         let reported = std::sync::Arc::new(std::sync::OnceLock::new());
         let worker_reported = std::sync::Arc::clone(&reported);
         let rc = with_large_stack(move || {
@@ -352,6 +424,7 @@ pub unsafe extern "C" fn maple_pano_stitch_aligned(
             paths,
             out_png,
             alignment_in,
+            request,
             max_canvas_px,
             edges,
             out_edges,

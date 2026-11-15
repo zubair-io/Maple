@@ -100,11 +100,11 @@ pub struct StitchArgs {
     #[arg(long, value_enum, default_value_t = SeamStrategyArg::Voronoi)]
     pub(super) seam_strategy: SeamStrategyArg,
     /// User seam constraints (#4520; single-set mode, needs
-    /// `--seam-strategy graph-cut`): a JSON array of `include` / `exclude`
-    /// rectangles in output-canvas pixels, each naming a frame by its index
-    /// in the sorted input list. An include keeps that frame's content (one
-    /// instance of a moving subject); an exclude keeps it out (a passer-by).
-    /// Contradictory constraints fail the stitch with the conflict location.
+    /// `--seam-strategy graph-cut`): a SeamConstraintsRequest v1 JSON object.
+    /// Its canvas dimensions define reference pixels; include/exclude regions
+    /// scale proportionally onto the solved, uncropped output canvas.
+    /// Frames name indices in the sorted input list. Invalid regions and
+    /// contradictory constraints refuse the stitch.
     #[arg(long, conflicts_with = "manifest")]
     pub(super) seam_constraints: Option<PathBuf>,
     /// Declared capture grid `ROWSxCOLS` for drone surveys / camera

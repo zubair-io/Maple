@@ -98,7 +98,56 @@ Seam placement is one of two strategies (`seam::SeamStrategy`, #1179), chosen pe
 - **Voronoi** (default) is by source-border distance: each covered canvas pixel belongs to the frame whose projection of it sits deepest inside that frame. Deterministic and content-blind.
 - **Graph-cut** (`--seam-strategy graph-cut`) is content-aware: `seam::pairwise::cut` builds a Boykov–Kolmogorov max-flow/min-cut (`seam::bk`, ported from the closed PR #17 prototype) over a pair of overlapping frames, with a data term that's the gradient of the two frames' _difference_ image (near-zero on a well-aligned region even under a residual exposure mismatch, spiking wherever content is misaligned or moving) and a smoothness term that discounts cost in areas of high local contrast (a handoff there blends into existing detail; the same handoff in a flat sky or wall is what a viewer's eye catches). `seam::labels` resolves the N-frame case by repeatedly applying that pairwise cut as an alpha-expansion move over every overlapping pair until the labelling converges, then feathers the result by one blend-band width. Because content-aware seam finding needs overlapping frames' actual pixels together — something the tiled path's "one frame resident at a time" streaming can't provide — `seam::masks` runs the whole label solve once on a cheap downsampled "seam canvas" (capped at 1 MP total, so any one pairwise overlap stays well under the spec's ~2 MP) and hands the tiled composite a bilinear lookup ([`SeamMasks::weight`]) instead of full-canvas-sized masks, keeping the #1254 memory bound intact. `seam::bk` follows Kolmogorov's tree conventions and is checked against a dense Edmonds–Karp reference on random heterogeneous-capacity grids, so every completed solve is an exact minimum cut. `seam::pairwise` bounds each solve at a fixed `MAX_ITER` augmenting iterations as a runtime guard; a cut that reaches it is returned as unsolved, never read as a minimum cut. The run then falls back to the Voronoi seam and `CompositeReport::seam_strategy` (the report's `seam_strategy`) says `voronoi`; with seam constraints, which Voronoi cannot honour, it fails with `SeamConstraintError::Unsolved` instead. `COST_SCALE` stays at `1e3` (a `1e6` scale once took minutes on a real pano_01 overlap; `seam::pairwise::tests::perf_probe_realistic_textured_overlap` guards that). Voronoi stays the default: every `pano-budgets.json` ratchet is measured against it, and graph-cut is opt-in until a follow-up re-baselines those budgets with it as the default.
 
-Graph-cut seams also take **user constraints** (`seam::SeamConstraint`, #4520), for intent the cut cannot infer: `ForceInclude(frame, rect)` keeps that frame's content across a rectangle (one instance of a moving subject), `ForceExclude(frame, rect)` keeps it out (a passer-by). Rectangles are output-canvas pixels. `seam::constraints::rasterize` maps each onto the seam canvas as every seam pixel the rectangle touches, plus a halo of the feather radius and one pixel, so after feathering and bilinear upsampling the full-resolution rectangle shows exactly the included frame, or none of the excluded one. The halo is best-effort and gives way wherever it would contradict another constraint; the core never does. Contradictions in the core are typed `SeamConstraintError`s, never silently resolved: two includes for different frames on one pixel, an include outside its frame's footprint, a frame both included and excluded, or excludes that leave a covered pixel with no frame to show. During the label solve each pixel's candidate frames are restricted by its pins, and every pairwise expansion move wires a pinned pixel to its terminal at infinite capacity, so the cut routes around the region along the cheapest contour instead. With no constraints the solve is bit-identical to before (golden hashes in `seam/tests.rs`). `StitchOptions::seam_constraints` names frames by input index and the stitch renumbers them past any frames bundle adjustment dropped: an exclude on a dropped frame already holds, an include on one is an error. Constraints need graph-cut on the rotation strategy, and anything else is rejected rather than ignored. On the CLI, `maple-cli pano stitch --seam-strategy graph-cut --seam-constraints constraints.json` takes a JSON array of `{ "kind": "include" | "exclude", "frame", "x", "y", "width", "height" }`, with `frame` indexing the sorted input list.
+Graph-cut seams also take **user constraints** (`seam::SeamConstraint`): `ForceInclude(frame, rect)` keeps that frame's content across a rectangle (one instance of a moving subject); `ForceExclude(frame, rect)` keeps it out. `seam::constraints::rasterize` pins every seam pixel touched by the rectangle, plus a best-effort feathering halo, so the full-resolution rectangle shows exactly the included frame or none of the excluded one. Contradictory core pins, includes outside their source footprint or on a dropped frame, and excludes leaving no source are typed errors, never silently ignored. Excludes on dropped frames already hold. With no constraints the solve retains its golden hashes.
+
+### User-constrained seam requests
+
+`maple_pano::seam::SeamConstraintsRequest` is the shared versioned schema for
+`StitchOptions::seam_constraints`, CLI `--seam-constraints <file>`, and
+`maple_pano_stitch_constrained`:
+
+```json
+{
+  "version": 1,
+  "canvas": { "width": 2048, "height": 1024 },
+  "regions": [
+    { "kind": "include", "frame": 1, "x": 100, "y": 200, "width": 80, "height": 60 },
+    { "kind": "exclude", "frame": 2, "x": 700, "y": 300, "width": 40, "height": 50 }
+  ]
+}
+```
+
+Frame indices identify original input order (the CLI sorts absolute paths
+lexicographically), not compacted retained-frame order. The declared canvas
+is a reference coordinate space, normally the preview's uncropped dimensions.
+Both preview and final stitch map rectangle edges proportionally onto their
+solved, uncropped Boundary Warp output canvas: starts round down and ends round
+up, using integer arithmetic. This preserves relative position when refinement
+or the output cap changes dimensions; it does not claim pixel-exact alignment
+between proxy and refined solves. Auto Crop is applied afterward.
+
+Version 1 rejects unknown fields/kinds, noninteger or negative coordinates,
+zero-size canvases/rectangles, overflowing coordinates, rectangles not wholly
+inside the declared canvas, and unknown frames. Constraints require graph-cut
+and rotation; Auto selecting Tile refuses rather than ignoring them. The CLI
+requires `--seam-strategy graph-cut`; the constrained FFI selects it automatically.
+
+Stitch and preview JSON reports echo `seam_constraints` in original reference
+coordinates (`null` when absent). Failures are named `invalid_seam_constraints`;
+CLI refusal reports use
+`{"refused":{"resource":"seam_constraints","message":"…"}}`.
+The C ABI adds `maple_pano_stitch_constrained`, with the same arguments as
+`maple_pano_stitch_aligned` plus optional UTF-8
+`const char *seam_constraints_json` immediately before the progress callback.
+It returns −11 for invalid requests or unsatisfiable ROIs. Existing C entries
+remain unconstrained and retain their ABI.
+
+`maple-pano/src/seam/request_tests.rs` reads both tracked
+`test-fixtures/pano-motion-rois/pano_01.json` wave rectangles and exercises
+the real graph-cut pin/label solve on deterministic synthetic layers, without
+requiring the untracked RAW corpus.
+
+### Blending
 
 `blend.rs` is Burt–Adelson multi-band Laplacian blending with the separable `[1,4,6,4,1]` binomial kernel, validity-weighted at every pyramid level so masked regions never bleed value in; band count is `log2(minimum overlap width)`, capped.
 

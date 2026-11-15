@@ -22,6 +22,10 @@ fn refused(e: &StitchError) -> Option<Value> {
             "needed_bytes": needed,
             "available_bytes": available,
         })),
+        StitchError::SeamConstraint(error) => Some(json!({
+            "resource": "seam_constraints",
+            "message": error.to_string(),
+        })),
         _ => None,
     }
 }

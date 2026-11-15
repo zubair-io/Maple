@@ -399,6 +399,11 @@ fn stitch_set(
         "edges",
         edges_block,
     );
+    let report = edges::with_block(
+        report,
+        "seam_constraints",
+        serde_json::json!(opts.seam_constraints),
+    );
     if let Some(path) = &outs.report {
         let pretty = serde_json::to_string_pretty(&report).expect("report serializes");
         std::fs::write(path, &pretty).map_err(|e| format!("{}: {e}", path.display()))?;

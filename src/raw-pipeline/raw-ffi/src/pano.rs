@@ -51,6 +51,7 @@
 //!      (detail, with the bytes needed and available, in last_error)
 //! −10  an edge option is out of range (`maple_pano_preview` /
 //!      `maple_pano_stitch_aligned`: `edges.boundary_warp` outside 0–100)
+//! −11  invalid_seam_constraints: invalid schema, ROI, frame, or contradictory pins
 //! ```
 
 use crate::cancel::SendCancelPtr;
@@ -376,4 +377,7 @@ pub use pano_edges::{MaplePanoBoundaryWarpStatus, MaplePanoEdges, MaplePanoEdges
 // Quick preview + alignment-reusing stitch entries (#4578).
 #[path = "pano_preview.rs"]
 mod pano_preview;
-pub use pano_preview::{maple_pano_preview, maple_pano_stitch_aligned, MaplePanoPreviewSizes};
+pub use pano_preview::{
+    maple_pano_preview, maple_pano_stitch_aligned, maple_pano_stitch_constrained,
+    MaplePanoPreviewSizes,
+};
