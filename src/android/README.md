@@ -94,11 +94,16 @@ so visible previews reload the saved sidecar without leaving the folder.
 
 With a photo open in Preview or Edit, `0`–`5` (top row or numpad) set the star
 rating (`0` clears it), `P` picks, `X` rejects and `U` unflags, as on Apple, web and
-Windows. In the editor ⌘/Ctrl+Z undoes and ⌘/Ctrl+Shift+Z redoes. `MainActivity`
-handles unconsumed keys through `onKeyDown` and modified shortcuts through
-`onKeyShortcut`, after focused views, so text fields and sliders keep their input
-(`ui/PhotoKeyCommands.kt`, #5944). Browse selections do not route these editor
-keyboard commands. Keyboard zoom and Reset Visible Group are #5945.
+Windows. `F` or ⌘/Ctrl+0 zooms the canvas to fit, `Z` or ⌘/Ctrl+1 to 100%, and
+⌘/Ctrl+= (or +) and ⌘/Ctrl+- step the zoom in and out through the shared zoom model
+(`docs/zoom.md`, #5945); the crop tool holds the canvas at fit and ignores them. In the
+editor ⌘/Ctrl+Z undoes, ⌘/Ctrl+Shift+Z redoes, and `R` or ⌘/Ctrl+Shift+R resets the
+visible group as one undo step, as Apple's Reset Visible Group and web's `R` do. `MainActivity` handles
+unconsumed keys through `onKeyDown` and modified shortcuts through `onKeyShortcut`,
+after focused views, so text fields and sliders keep their input
+(`ui/PhotoKeyCommands.kt`, #5944). The canvas and the editor offer their zoom and
+visible group through the activity's `PhotoKeyTargets`. Browse selections do not route
+these editor keyboard commands.
 
 ## Masks
 
@@ -210,88 +215,10 @@ credentials are committed.
 
 ## Signing and distribution
 
-Android reads the canonical product version from `src/maple/package.json`.
-Release packaging requires the upload keystore and an explicit positive
-`-PmapleVersionCode`; an unsigned release fails. `android-distribution.yml`
-uses its own monotonically increasing workflow run number plus one for every
-signed build, across main, tags and manual runs. Code 1 belongs to the initial
-Console upload; CI starts at code 2. Keep this workflow/counter when
-changing delivery, so Play version codes never restart.
-Distribution uses GitHub's [`queue: max`](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/control-workflow-concurrency)
-to keep pending builds instead of cancelling a pending release when another
-main build arrives. Publication remains serialized.
+Version codes, signing, Play internal testing, tag releases and the Play API
+identity are documented in [DISTRIBUTION.md](DISTRIBUTION.md).
 
-After the **Android** push workflow succeeds on main, distribution builds
-the exact tested SHA, verifies signatures, runs release lint, and uploads its
-AAB to **internal testing**. A delayed run checks current main before publishing;
-the publisher also refuses to replace a higher internal version code. Rerunning
-a failed publication reuses the signed artifact and verifies Google's returned
-version code and SHA-256. Permission, upload, review and commit errors fail the
-job. Existing Play reviews are never automatically cancelled.
-
-Tags `v<product-version>` build signed APK/AAB files and attach them, their
-SHA-256 checksums and the public upload certificate to the coordinated GitHub
-release. The release coordinator waits for Android alongside Mac and Windows and fails
-promptly if the tag's Android distribution run fails or is cancelled.
-Prerelease tags (for example `v1.2.3-rc.1`) skip Android signing and assets;
-the coordinator requires only Mac and Windows for those releases.
-Tags do not promote a public Play production release. Manual dispatch on `main` creates
-verified signed artifacts only, including the first bundle needed to create
-the initial Play release in Console.
-
-The GitHub `android-signing` environment permits only the `main` branch and
-`v*` tags through deployment branch/tag policies. Its environment secrets are
-`ANDROID_UPLOAD_KEYSTORE_BASE64`,
-`ANDROID_UPLOAD_STORE_PASSWORD`, `ANDROID_UPLOAD_KEY_ALIAS` and
-`ANDROID_UPLOAD_KEY_PASSWORD`. `scripts/package-release.sh` materializes the
-key in a private temporary directory and removes it on exit. Keep these secrets
-out of repository-wide secrets so feature-branch workflows cannot read them.
-The active [Signed release tags ruleset](https://github.com/zubair-io/Maple/rules/25216697)
-restricts creation, updates and deletion of `v*` tags to repository owner
-`zubair-io`; the existing version-sync automation uses that owner's token.
-The public
-certificate is `signing/maple-upload.pem` (RSA 4096, expires March 2054,
-SHA-256 `1C:B8:8A:BE:91:9C:0E:2D:92:6B:58:8C:2C:08:16:D6:28:60:DE:E2:39:38:C1:95:D6:E4:79:90:78:04:3D:F7`).
-Keep the encrypted original and its password in the owner's secure backup;
-neither belongs in git. Google Play holds its separate app-signing key. Direct
-APK installs use the upload certificate, so they cannot update a Play-installed
-copy signed by Google's different app key (or an existing debug install).
-
-Play API authentication uses Google Workload Identity Federation, with no
-exported service-account JSON key. Repository variables
-`GOOGLE_PLAY_IDENTITY_PROVIDER` (the full provider resource name) and
-`GOOGLE_PLAY_SERVICE_ACCOUNT` select the configured identity. The provider
-must accept GitHub's issuer `https://token.actions.githubusercontent.com`, map
-`google.subject=assertion.sub`, and restrict its attribute condition to:
-
-```text
-assertion.repository_id == '1219479764' &&
-assertion.repository_owner_id == '140374' &&
-assertion.workflow_ref == 'zubair-io/Maple/.github/workflows/android-distribution.yml@refs/heads/main' &&
-assertion.event_name == 'workflow_run' && assertion.ref == 'refs/heads/main'
-```
-
-Grant that federated subject `roles/iam.workloadIdentityUser` on the dedicated
-publisher service account. Enable the Android Publisher API in its Cloud
-project. In Play Console grant that service account **Maple only**, with view
-app information and release-to-testing permissions; production, financial,
-user-management and account-wide admin access are unnecessary. Authentication
-runs after the build with an `androidpublisher` scoped, short-lived token.
-The initial Play listing/release and this Cloud/Play access setup are tracked
-in [#4651](https://github.com/zubair-io/Maple/issues/4651).
-
-The configured Cloud project is `just-maple` (`82234956625`), with provider
-`projects/82234956625/locations/global/workloadIdentityPools/maple-play-ci/providers/maple-main`
-and publisher `maple-play-publisher@just-maple.iam.gserviceaccount.com`. The
-service-account binding accepts subject
-`repo:zubair-io/Maple:ref:refs/heads/main`; the provider condition above further
-restricts the workflow and event. Its Play grant is limited to Maple app
-information, inherited app-quality viewing and release-to-testing access.
-The first signed bundle, version `0.1.5` / code `1`, was published through
-Console to bootstrap the app. The owner is on the selected **Maple Internal**
-tester list; join at [the internal test link](https://play.google.com/apps/internaltest/4701614480911697756)
-using `zubair@justmaple.app`. Play shows its temporary package-based name until
-store setup and review are complete.
+## Tests and CI
 
 ```sh
 ./gradlew testDebugUnitTest lintDebug

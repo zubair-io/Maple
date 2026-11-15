@@ -40,6 +40,10 @@ import app.justmaple.aperture.generated.CanvasZoomAbi.OP_REBASE_PINCH
 import app.justmaple.aperture.generated.CanvasZoomAbi.OP_RECLAMP
 import app.justmaple.aperture.generated.CanvasZoomAbi.OP_REFRAME_IMAGE
 import app.justmaple.aperture.generated.CanvasZoomAbi.OP_SETTLE
+import app.justmaple.aperture.generated.CanvasZoomAbi.OP_STEP_ZOOM_IN
+import app.justmaple.aperture.generated.CanvasZoomAbi.OP_STEP_ZOOM_OUT
+import app.justmaple.aperture.generated.CanvasZoomAbi.OP_ZOOM_TO_FIT
+import app.justmaple.aperture.generated.CanvasZoomAbi.OP_ZOOM_TO_SCALE
 import app.justmaple.aperture.generated.CanvasZoomAbi.QUERY_EFFECTIVE_SCALE
 import app.justmaple.aperture.generated.CanvasZoomAbi.QUERY_FIT_SCALE
 import app.justmaple.aperture.generated.CanvasZoomAbi.QUERY_NEXT_STOP
@@ -251,6 +255,24 @@ class CanvasZoomState internal constructor(private val native: CanvasZoomNative)
     }
 
     /**
+     * A keyboard zoom (fit, 100%, a step in or out) about the viewport centre; a live pinch or
+     * drag continues from its result.
+     */
+    fun command(command: CanvasZoomCommand, imageWidth: Int, imageHeight: Int, viewportWidth: Float,
+        viewportHeight: Float) {
+        anchorX = viewportWidth / 2f
+        anchorY = viewportHeight / 2f
+        val op = when (command) {
+            CanvasZoomCommand.Fit -> OP_ZOOM_TO_FIT
+            CanvasZoomCommand.ActualSize -> OP_ZOOM_TO_SCALE
+            CanvasZoomCommand.ZoomIn -> OP_STEP_ZOOM_IN
+            CanvasZoomCommand.ZoomOut -> OP_STEP_ZOOM_OUT
+        }
+        transition(op, imageWidth, imageHeight, viewportWidth, viewportHeight,
+            if (command == CanvasZoomCommand.ActualSize) 1.0 else 0.0)
+    }
+
+    /**
      * The canvas now shows [next]. Only a different photo, mode or crop tool returns to fit: a new
      * canvas instance for a rotation or fold posture keeps the zoom (#5748).
      */
@@ -363,6 +385,8 @@ class CanvasZoomState internal constructor(private val native: CanvasZoomNative)
         const val SWIPE_PAGE_THRESHOLD_PX = 96f
     }
 }
+
+enum class CanvasZoomCommand { Fit, ActualSize, ZoomIn, ZoomOut }
 
 @Composable
 internal fun CanvasZoomBadge(

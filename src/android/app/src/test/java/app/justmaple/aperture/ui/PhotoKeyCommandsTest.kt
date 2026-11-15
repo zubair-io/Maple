@@ -23,7 +23,8 @@ class PhotoKeyCommandsTest {
         assertEquals(PhotoKeyCommand.Flag(null), key(KeyEvent.KEYCODE_U))
         assertNull(key(KeyEvent.KEYCODE_6))
         assertNull(key(KeyEvent.KEYCODE_NUMPAD_6))
-        assertNull(key(KeyEvent.KEYCODE_R))
+        assertNull(key(KeyEvent.KEYCODE_R, KeyEvent.META_SHIFT_ON or KeyEvent.META_SHIFT_LEFT_ON))
+        assertNull(key(KeyEvent.KEYCODE_F, KeyEvent.META_SHIFT_ON or KeyEvent.META_SHIFT_LEFT_ON))
         assertNull(key(KeyEvent.KEYCODE_P, KeyEvent.META_SHIFT_ON or KeyEvent.META_SHIFT_LEFT_ON))
         assertNull(key(KeyEvent.KEYCODE_3, KeyEvent.META_ALT_ON or KeyEvent.META_ALT_LEFT_ON))
         assertNull(key(KeyEvent.KEYCODE_P, KeyEvent.META_CTRL_ON or KeyEvent.META_CTRL_LEFT_ON))
@@ -39,8 +40,38 @@ class PhotoKeyCommandsTest {
             assertEquals(PhotoKeyCommand.Undo, key(KeyEvent.KEYCODE_Z, modifier))
             assertEquals(PhotoKeyCommand.Redo, key(KeyEvent.KEYCODE_Z, modifier or shift))
         }
-        assertNull(key(KeyEvent.KEYCODE_Z))
+        assertNull(key(KeyEvent.KEYCODE_Z, shift))
         assertNull(key(KeyEvent.KEYCODE_Y, ctrl))
         assertNull(key(KeyEvent.KEYCODE_Z, ctrl or KeyEvent.META_ALT_ON or KeyEvent.META_ALT_LEFT_ON))
+    }
+
+    @Test
+    fun zoomKeysAndResetVisibleGroupMatchTheOtherPlatforms() {
+        val ctrl = KeyEvent.META_CTRL_ON or KeyEvent.META_CTRL_LEFT_ON
+        val meta = KeyEvent.META_META_ON or KeyEvent.META_META_LEFT_ON
+        val shift = KeyEvent.META_SHIFT_ON or KeyEvent.META_SHIFT_LEFT_ON
+        val alt = KeyEvent.META_ALT_ON or KeyEvent.META_ALT_LEFT_ON
+        fun zoom(command: CanvasZoomCommand) = PhotoKeyCommand.Zoom(command)
+        assertEquals(zoom(CanvasZoomCommand.Fit), key(KeyEvent.KEYCODE_F))
+        assertEquals(zoom(CanvasZoomCommand.ActualSize), key(KeyEvent.KEYCODE_Z))
+        assertNull(key(KeyEvent.KEYCODE_F, alt))
+        assertEquals(PhotoKeyCommand.ResetVisibleGroup, key(KeyEvent.KEYCODE_R))
+        for (modifier in listOf(ctrl, meta)) {
+            assertEquals(zoom(CanvasZoomCommand.Fit), key(KeyEvent.KEYCODE_0, modifier))
+            assertEquals(zoom(CanvasZoomCommand.Fit), key(KeyEvent.KEYCODE_NUMPAD_0, modifier))
+            assertEquals(zoom(CanvasZoomCommand.ActualSize), key(KeyEvent.KEYCODE_1, modifier))
+            assertEquals(zoom(CanvasZoomCommand.ActualSize), key(KeyEvent.KEYCODE_NUMPAD_1, modifier))
+            for (plus in listOf(KeyEvent.KEYCODE_EQUALS, KeyEvent.KEYCODE_PLUS, KeyEvent.KEYCODE_NUMPAD_ADD)) {
+                assertEquals(zoom(CanvasZoomCommand.ZoomIn), key(plus, modifier))
+            }
+            assertEquals(zoom(CanvasZoomCommand.ZoomIn), key(KeyEvent.KEYCODE_EQUALS, modifier or shift))
+            assertEquals(zoom(CanvasZoomCommand.ZoomOut), key(KeyEvent.KEYCODE_MINUS, modifier))
+            assertEquals(zoom(CanvasZoomCommand.ZoomOut), key(KeyEvent.KEYCODE_NUMPAD_SUBTRACT, modifier))
+            assertEquals(PhotoKeyCommand.ResetVisibleGroup, key(KeyEvent.KEYCODE_R, modifier or shift))
+            assertNull(key(KeyEvent.KEYCODE_R, modifier))
+            assertNull(key(KeyEvent.KEYCODE_0, modifier or shift))
+            assertNull(key(KeyEvent.KEYCODE_F, modifier))
+            assertNull(key(KeyEvent.KEYCODE_0, modifier or alt))
+        }
     }
 }

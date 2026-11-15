@@ -129,6 +129,9 @@ internal fun PhotoCanvas(
         val viewportPxH = constraints.maxHeight.toFloat().coerceAtLeast(1f)
         CanvasZoomContinuity(zoomState, CanvasZoomScope(state.selected?.key, state.mode, showCropOverlay),
             state.nativeImageSize, presentedCrop, fallbackDims, viewportPxW, viewportPxH)
+        CanvasZoomKeys(zoomState, locked = showCropOverlay, imageDimensions = {
+            zoomState.frameFor(currentPhotoKey)?.let { it.width to it.height } ?: currentFallbackDims
+        }, viewportWidth = viewportPxW, viewportHeight = viewportPxH)
         LaunchedEffect(state.selected?.key, state.mode, state.document, state.comparingBefore,
             state.nativeDetailRevision,
             state.values.isEmpty(), adopted, state.nativeImageSize, showCropOverlay,

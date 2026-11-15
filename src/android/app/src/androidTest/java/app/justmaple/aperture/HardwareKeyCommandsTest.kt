@@ -1,7 +1,6 @@
 package app.justmaple.aperture
 
 import android.net.Uri
-import android.os.SystemClock
 import android.view.KeyEvent
 import androidx.lifecycle.ViewModelProvider
 import androidx.test.platform.app.InstrumentationRegistry
@@ -64,10 +63,9 @@ class HardwareKeyCommandsTest {
                 fun exposureIs(value: Float) = { s: MapleState -> abs(s.values.getValue("exposure") - value) < .001f }
                 compose.waitForIdle()
                 model.await("edited frame ready") { it.canEdit && it.canUndo }
-                val ctrl = KeyEvent.META_CTRL_ON or KeyEvent.META_CTRL_LEFT_ON
-                press(KeyEvent.KEYCODE_Z, ctrl)
+                press(KeyEvent.KEYCODE_Z, CTRL)
                 model.await("undo") { it.canEdit && exposureIs(before)(it) && it.canRedo }
-                press(KeyEvent.KEYCODE_Z, ctrl or KeyEvent.META_SHIFT_ON or KeyEvent.META_SHIFT_LEFT_ON)
+                press(KeyEvent.KEYCODE_Z, CTRL or SHIFT)
                 model.await("redo") { it.canEdit && exposureIs(before + .7f)(it) && !it.canRedo }
                 model.await("saved") { !it.dirty && !it.saving }
 
@@ -83,24 +81,7 @@ class HardwareKeyCommandsTest {
         }
     }
 
-    private fun press(code: Int, meta: Int = 0) {
-        val modifiers = buildList {
-            if (meta and KeyEvent.META_CTRL_ON != 0) add(KeyEvent.KEYCODE_CTRL_LEFT)
-            if (meta and KeyEvent.META_META_ON != 0) add(KeyEvent.KEYCODE_META_LEFT)
-            if (meta and KeyEvent.META_SHIFT_ON != 0) add(KeyEvent.KEYCODE_SHIFT_LEFT)
-        }
-        modifiers.forEach { instrumentation.sendKeySync(KeyEvent(KeyEvent.ACTION_DOWN, it)) }
-        try {
-            val now = SystemClock.uptimeMillis()
-            instrumentation.sendKeySync(KeyEvent(now, now, KeyEvent.ACTION_DOWN, code, 0, meta))
-            instrumentation.sendKeySync(KeyEvent(now, now, KeyEvent.ACTION_UP, code, 0, meta))
-        } finally {
-            modifiers.asReversed().forEach {
-                instrumentation.sendKeySync(KeyEvent(KeyEvent.ACTION_UP, it))
-            }
-        }
-        instrumentation.waitForIdleSync()
-    }
+    private fun press(code: Int, meta: Int = 0) = instrumentation.press(code, meta)
 
     private fun MapleViewModel.await(what: String, condition: (MapleState) -> Boolean) {
         compose.waitUntil(120_000) {
