@@ -43,7 +43,8 @@ class CloudStackQueriesTest {
     private fun raw() = entry("photo.dng", "raw-id").put("stack", JSONObject().put("companion",
         entry("photo.JPG", "jpeg-id").put("stack", JSONObject().put("companion", entry("nested.jpg", "nested-id")))))
 
-    private fun searchRow() = raw().put("filename", "photo.dng").put("abs_path", "/photos/2026/photo.dng")
+    private fun searchRow() = raw().put("_id", "raw-id").put("id", "fs:/photos/2026/photo.dng")
+        .put("filename", "photo.dng").put("abs_path", "/photos/2026/photo.dng")
         .put("mtime", 1_773_144_000_000).put("captured_at", "2026-03-10T12:00:00Z")
 
     private fun page(next: String? = null) = JSONObject().put("results", JSONArray().put(searchRow()))
@@ -122,6 +123,7 @@ class CloudStackQueriesTest {
             assertEquals(1, decisions)
             requests.forEach { assertEquals(if (expected) "1" else null, stack(it)) }
             assertEquals(expected, model.state.value.photos.single().companion != null)
+            assertEquals("raw-id", model.state.value.photos.single().assetId)
             assertEquals(1, model.state.value.months.single().count)
             model.setOwner("me")
             advanceUntilIdle()
