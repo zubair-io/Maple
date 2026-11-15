@@ -156,7 +156,8 @@ impl MapleApp {
                     self.busy = false;
                     let launch_path = self.launch_photo.take();
                     match result {
-                        Ok(folder) => {
+                        Ok(mut folder) => {
+                            folder.sort_photos(self.photo_sort, self.sort_descending);
                             self.status = format!("{} images", folder.photos.len());
                             self.error =
                                 (!folder.errors.is_empty()).then(|| folder.errors.join("\n"));

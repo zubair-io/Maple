@@ -192,6 +192,12 @@ interaction qualification remains open.
 The current shell opens local folders, discovers child folders, shows a
 virtualized thumbnail grid, opens a fitted preview, navigates a filmstrip and
 exposes the initial Light, Color, Effects and Detail sliders.
+Browse's **Sort by** selector orders the local grid and filmstrip by filename,
+modification time or file size, with a **Descending** toggle. Equal times/sizes
+use filename and path tie-breaks. The order stays selected across folder
+navigation and reloads during the session; sorting does not reopen the selected
+photo, change edits or invalidate path-keyed thumbnails. Cloud order remains
+server-owned.
 
 The desktop editor follows mapleeditor.com's floating top bar, right-hand tool
 rail and single adjustment card. Selecting Light, Color, Effects, Detail or Film

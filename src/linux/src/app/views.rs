@@ -324,6 +324,9 @@ impl MapleApp {
                 ui.separator();
                 ui.selectable_value(&mut self.browse, true, "Browse");
                 ui.selectable_value(&mut self.browse, false, "Full image");
+                if self.browse && !self.cloud.active && self.cloud_editor.is_none() {
+                    self.sort_controls(ui);
+                }
                 if ui.add_enabled(
                     !self.cloud.active && !self.cloud.downloading && self.auto_pending.is_none()
                         && self.before_edit.is_none()
