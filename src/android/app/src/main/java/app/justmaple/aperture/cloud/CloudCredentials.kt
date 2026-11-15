@@ -24,9 +24,12 @@ internal data class CloudServer(
     val access: String,
     val refresh: String,
 ) {
+    val userId: String
+        get() = subject(access)
+
     /** The signed-in user on this server: tokens rotate, the user they name does not. */
     val account: String
-        get() = "$origin#${subject(access)}"
+        get() = "$origin#$userId"
 
     private fun subject(access: String): String =
         runCatching {

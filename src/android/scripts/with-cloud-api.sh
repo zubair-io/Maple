@@ -42,6 +42,23 @@ trap cleanup EXIT
 # cannot render thumbnails, so a fresh shared-cache AVIF is staged beside the originals.
 cp "$repo/test-fixtures/batch-transfer/source.dng" "$library/2026/raw.dng"
 cp "$repo/test-fixtures/raster-metadata/progressive-444.jpg" "$library/2026/photo.jpg"
+python3 - "$library/2026/photo.jpg" <<'PY'
+import pathlib
+import struct
+import sys
+
+path = pathlib.Path(sys.argv[1])
+date = b"2099:01:15 12:00:00\0"
+tiff = (
+    b"II\x2a\0" + struct.pack("<I", 8)
+    + struct.pack("<HHHIII", 1, 0x8769, 4, 1, 26, 0)
+    + struct.pack("<HHHIII", 1, 0x9003, 2, len(date), 44, 0)
+    + date
+)
+exif = b"Exif\0\0" + tiff
+jpeg = path.read_bytes()
+path.write_bytes(jpeg[:2] + b"\xff\xe1" + struct.pack(">H", len(exif) + 2) + exif + jpeg[2:])
+PY
 printf '%s' '<x:xmpmeta xmlns:x="adobe:ns:meta/"/>' >"$library/2026/raw.xmp"
 printf 'Maple provider fixture\n' >"$library/notes.txt"
 # Large enough to cancel mid-transfer; sparse, so it costs no host disk.
@@ -111,6 +128,14 @@ token="$(curl -fsS -X POST -H 'Content-Type: application/json' -d '{}' "$origin/
 folder="$(curl -fsS -X POST -H "Authorization: Bearer $token" -H 'Content-Type: application/json' \
 	-d "{\"path\":\"$library\",\"label\":\"Android provider fixture\"}" "$origin/api/folders" | json "['id']")"
 curl -fsS -X POST -H "Authorization: Bearer $token" "$origin/api/folders/$folder/scan" >/dev/null
+# Scans assign the server owner; retain one legacy unassigned asset for owner-filter coverage.
+bun -e '
+import { Database } from "bun:sqlite";
+const db = new Database(process.argv[1]);
+const result = db.query("UPDATE assets SET owner_id = NULL WHERE id IN (SELECT asset_id FROM asset_locations WHERE path = ? AND filename = ?)").run("2026", "photo.jpg");
+if (result.changes !== 1) throw new Error("Unassigned Timeline fixture was not found");
+db.close();
+' "$work/runtime/maple.sqlite"
 adb reverse "tcp:$port" "tcp:$port"
 echo "Maple API fixture: $origin (native engine: $native)"
 

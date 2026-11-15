@@ -12,13 +12,13 @@ The adjustment inspector lists the existing iOS controls explicitly; loose
 parametric curve and per-band HSL rows are excluded (#4662).
 Slider and phone drag-bar palettes are generated from the
 same Rust catalog as iOS; vertical swipes over tracks scroll the inspector.
-Phone navigation is Library / Search / Settings with a sources drawer. Tablets
-use a sources column, image area, and controls or Info inspector, with a vertical
-filmstrip. With a connected server, Search queries that server (see Cloud
-connections); without one it filters names in the open folder. Maple Cloud/self-hosted
-connections support the iPad server-domain sign-in flow, registered libraries,
-nested folders, remote previews, and editing with conditional XMP saves. Device-library
-backup, server timeline/map/admin, brush and person masks, and the other remaining
+Phone navigation is Library / Timeline / Search / Settings with a sources drawer.
+Tablets use a sources column, image area, and controls or Info inspector, with a vertical
+filmstrip. Connected Timeline and Search query the selected server (see Cloud
+connections); without a server Search filters names in the open folder.
+Maple Cloud/self-hosted connections support the iPad server-domain sign-in flow,
+registered libraries, nested folders, remote previews, and conditional XMP saves.
+Device-library backup, server map/admin, brush and person masks, and remaining
 specialized editor surfaces are not implemented; the per-surface status is
 the audit on #4623, which remains open. Android delegates
 SMB access to OS document providers through the existing folder picker; a direct
@@ -525,26 +525,26 @@ paths, real XMP saves/conflicts, and original-byte
 preservation against a temporary fixture server. Live account/passkey-provider
 and physical-device qualification remains outstanding.
 
-**Search** queries the selected connected server (a server row appears when more
-than one is connected) through `GET /api/search` and `/api/search/facets`:
-free text as `placeQuery` (the natural-language, ranked field Apple's search box
-uses; `q` would only match filenames), the Today / Last 7 days / Last 30 days /
-This year presets with the same from/to strings as iPad, and multi-select People
-and Places facets (count order; a selected value missing from the facets stays
-removable). Typing waits 350 ms; filters search at once. Results keep the
-server's order (relevance or capture time; the sort chip offers Search order,
-Name, Rating). The count is open-ended ("5,000+ photos") for a ranked text
-window and leaves out rows this client cannot open. **Show more** follows
-`nextCursor` for capture-time sorts or the next `page` with the server's
-`rankPin`; a `409 rank_engine_changed` restarts from page 0 without the pin.
-While the first page loads, or when the search fails, the results area says so
-instead of showing the empty-library state; a failed new search clears the
-previous query's results, and a failed facets fetch keeps the page that arrived.
-Rows without a registered library address are not openable and are left out, as
-are non-photo files. Search never sends `stack=1`: a RAW+JPEG pair is two results
-and `stack.companion` is ignored. A result opens into Preview and Edit with the
-result list as its filmstrip and saves through the conditional cloud XMP path
-above (`CloudSearch.kt`, `CloudSearchPanel.kt`).
+**Search** queries the selected server through `/api/search` and `/api/search/facets`.
+Free text uses `placeQuery`, Apple's natural-language ranked field; `q` only matches
+filenames. Today / Last 7 days / Last 30 days / This year use iPad's date ranges;
+People and Places are multi-select facets, retaining removable missing selections.
+Typing debounces 350 ms; filters run immediately. Results retain server order,
+with Search order / Name / Rating choices and open-ended ranked counts ("5,000+").
+**Show more** follows `nextCursor` or `page` with `rankPin`; `409 rank_engine_changed`
+restarts without the pin. Loading/error states replace empty-library chrome.
+A failed new search clears old results; facet failures retain the page.
+Unaddressable and non-photo rows are omitted (`CloudSearch.kt`, `CloudSearchPanel.kt`).
+**Timeline** lists dated photos newest first, grouped under month/year headers with
+server bucket counts (`/api/search/buckets`). Show more pages to the end.
+Its owner menu offers All owners, Only my uploads and server owner facets; failed
+facets have Retry owners. Refresh reloads the active owner; Retry preserves loaded pages.
+A dedicated `CloudTimelineViewModel` clears stale results on account/server changes
+and sign-out. Loading, empty and error states remain distinct (`CloudTimelinePanel.kt`).
+Both tabs open Preview/Edit with their loaded results as the filmstrip and save via
+conditional cloud XMP writes above. Like Android Search, Timeline never sends `stack=1`:
+RAW+JPEG pairs remain two results until Android has companion-write support.
+`CloudTimelineIntegrationTest` runs against the real API through `scripts/with-cloud-api.sh`.
 
 Connected servers also appear in the system Files app and every app's document
 picker as **Maple Cloud** (`MapleDocumentsProvider`): browse, on-demand

@@ -19,6 +19,7 @@ internal fun LibraryHeader(
     tablet: Boolean,
     onSources: () -> Unit,
     onSearch: () -> Unit,
+    onTimeline: () -> Unit,
     onSettings: () -> Unit,
     onFolder: () -> Unit,
 ) {
@@ -34,6 +35,7 @@ internal fun LibraryHeader(
             MapleGlass(shape = CircleShape) {
                 Row(Modifier.padding(horizontal = 4.dp)) {
                     if (tablet) MuiIconButton("Search", Icons.Outlined.Search, onClick = onSearch)
+                    if (tablet) MuiIconButton("Timeline", Icons.Outlined.CalendarMonth, onClick = onTimeline)
                     MuiIconButton("Open folder", Icons.Outlined.CreateNewFolder, onClick = onFolder)
                     if (tablet)
                         MuiIconButton("Settings", Icons.Outlined.Settings, onClick = onSettings)
