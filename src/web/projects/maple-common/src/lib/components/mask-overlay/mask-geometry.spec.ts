@@ -20,10 +20,12 @@ import {
   maskToScreen,
   MIN_RADIUS,
   presentationToFrameProjection,
+  sampleRasterProjected,
   ROTATE_HANDLE_FACTOR,
   withMaskFeather,
   type PerspectiveGeometry,
 } from './mask-geometry';
+import { stampBrushDabs } from './mask-brush';
 
 const footprint = { left: 100, top: 50, width: 600, height: 400 };
 const identityCrop = { top: 0, left: 0, bottom: 1, right: 1, angle: 0 };
@@ -219,6 +221,23 @@ describe('presentation projection through manual geometry (#5950)', () => {
     const back = maskFromScreen(map, px.x, px.y);
     expect(back.x).toBeCloseTo(0.25, 9);
     expect(back.y).toBeCloseTo(0.5, 9);
+  });
+
+  it('samples a frame-space brush raster through the geometry warp', () => {
+    const map = makeMaskCanvasMap(footprint, identityCrop, 400, 400, {
+      ...identityPerspective,
+      aspect: 100,
+    });
+    const acc = new Float32Array(101 * 101);
+    stampBrushDabs(
+      acc,
+      [{ center: { x: 0.5, y: 0.5 }, radius: 0.2, feather: 0, weight: 1, erase: false }],
+      101,
+      101,
+    );
+    expect(sampleRasterProjected(acc, 101, 101, map, 0.5, 0.5)).toBeGreaterThan(0.9);
+    expect(sampleRasterProjected(acc, 101, 101, map, 0.5, 0.69)).toBe(0);
+    expect(sampleRasterProjected(acc, 101, 101, map, 0.69, 0.5)).toBeGreaterThan(0.9);
   });
 });
 

@@ -378,10 +378,11 @@ struct ColorCurvePickOverlay: View {
           guard !state.session.isRendering, !picker.isSampling else { return }
           // Where the photo is drawn at the tap, mid-settle included.
           let shown = state.zoom.presentedGeometry(at: Date())
+          // Crop only: raw-core's colour-curve sampler undoes the perspective
+          // itself, so undoing it here would double it.
           let point = WhiteBalancePickGeometry.imagePoint(
             at: location, viewport: geometry.size, displayFrame: shown?.displayFrame ?? .zero,
-            pan: shown?.panOffset ?? .zero, nativeSize: nativeSize, crop: crop,
-            perspective: state.session.model.perspective)
+            pan: shown?.panOffset ?? .zero, nativeSize: nativeSize, crop: crop)
           sampleTask = Task { await picker.pick(at: point) }
         }
         .accessibilityLabel("Color curve sampling canvas")

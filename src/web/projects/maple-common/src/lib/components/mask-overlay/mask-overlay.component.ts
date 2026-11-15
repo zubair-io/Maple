@@ -57,6 +57,7 @@ import {
   maskFromScreen,
   maskHandles,
   maskToScreen,
+  sampleRasterProjected,
 } from './mask-geometry';
 import {
   StrokeSmoother,
@@ -385,24 +386,57 @@ function fillBrushTint(
   cache?: BrushTintCache | null,
 ): void {
   const { data, width, height } = image;
+  if (map.hasGeometry) {
+    const long = Math.max(width, height);
+    const frameW = map.imageAspect >= 1 ? long : Math.max(1, Math.round(long * map.imageAspect));
+    const frameH = map.imageAspect >= 1 ? Math.max(1, Math.round(long / map.imageAspect)) : long;
+    const mappingKey = `frame:${map.presentedToFrame.join(',')},${map.imageAspect}`;
+    let acc: Float32Array;
+    if (
+      cache &&
+      cache.width === frameW &&
+      cache.height === frameH &&
+      cache.mappingKey === mappingKey &&
+      cache.stampedCount <= dabs.length
+    ) {
+      acc = cache.acc;
+      if (cache.stampedCount < dabs.length) {
+        stampBrushDabs(acc, dabs.slice(cache.stampedCount), frameW, frameH);
+        cache.stampedCount = dabs.length;
+      }
+    } else {
+      acc = new Float32Array(frameW * frameH);
+      stampBrushDabs(acc, dabs, frameW, frameH);
+      if (cache) {
+        cache.width = frameW;
+        cache.height = frameH;
+        cache.acc = acc;
+        cache.mappingKey = mappingKey;
+        cache.stampedCount = dabs.length;
+      }
+    }
+    for (let j = 0; j < height; j++) {
+      for (let i = 0; i < width; i++) {
+        const w = sampleRasterProjected(
+          acc,
+          frameW,
+          frameH,
+          map,
+          (i + 0.5) / width,
+          (j + 0.5) / height,
+        );
+        const base = (j * width + i) * 4;
+        data[base] = TINT_RGB[0];
+        data[base + 1] = TINT_RGB[1];
+        data[base + 2] = TINT_RGB[2];
+        data[base + 3] = Math.round(Math.min(1, Math.max(0, w)) * TINT_PEAK_ALPHA * 255);
+      }
+    }
+    return;
+  }
   const cropWidth = Math.hypot(map.cropToFull.a, map.cropToFull.b / map.imageAspect);
   const radiusScale = cropWidth > 1e-9 ? 1 / cropWidth : 1;
-  const mappingKey = map.hasGeometry
-    ? `proj:${map.frameToPresented.join(',')},${map.imageAspect}`
-    : `${map.fullToCrop.a},${map.fullToCrop.b},${map.fullToCrop.c},${map.fullToCrop.d},${map.fullToCrop.tx},${map.fullToCrop.ty},${map.imageAspect}`;
-  const mapDabs = (series: readonly BrushDab[]): BrushDab[] =>
-    map.hasGeometry
-      ? series.map((d) => {
-          const center = applyProjection(map.frameToPresented, d.center);
-          const edge = applyProjection(map.frameToPresented, {
-            x: d.center.x + d.radius,
-            y: d.center.y,
-          });
-          const radius =
-            Math.hypot((edge.x - center.x) * width, (edge.y - center.y) * height) / width;
-          return { ...d, center, radius: Number.isFinite(radius) ? radius : d.radius };
-        })
-      : mapDabsToCrop(series, map.fullToCrop, radiusScale);
+  const mappingKey = `${map.fullToCrop.a},${map.fullToCrop.b},${map.fullToCrop.c},${map.fullToCrop.d},${map.fullToCrop.tx},${map.fullToCrop.ty},${map.imageAspect}`;
 
   let acc: Float32Array;
   if (
@@ -415,12 +449,14 @@ function fillBrushTint(
     acc = cache.acc;
     if (cache.stampedCount < dabs.length) {
       const newDabs = dabs.slice(cache.stampedCount);
-      stampBrushDabs(acc, mapDabs(newDabs), width, height);
+      const mapped = mapDabsToCrop(newDabs, map.fullToCrop, radiusScale);
+      stampBrushDabs(acc, mapped, width, height);
       cache.stampedCount = dabs.length;
     }
   } else {
     acc = new Float32Array(width * height);
-    stampBrushDabs(acc, mapDabs(dabs), width, height);
+    const mapped = mapDabsToCrop(dabs, map.fullToCrop, radiusScale);
+    stampBrushDabs(acc, mapped, width, height);
     if (cache) {
       cache.width = width;
       cache.height = height;

@@ -119,6 +119,17 @@ describe('color-curve asynchronous picks and visible knot drags', () => {
     await sampling;
   });
 
+  it('leaves the perspective to the sampler, which undoes it itself', async () => {
+    library.model.update((model) => ({ ...model, perspectiveX: 50 }));
+    const sampling = panel.onEyedropperClick();
+    pick.resolve({ nx: 0.5, ny: 0.5 });
+    await Promise.resolve();
+    expect(sampleColorCurve.mock.calls[0][3]).toBeCloseTo(0.5);
+    expect(sampleColorCurve.mock.calls[0][4]).toBeCloseTo(0.5);
+    result.resolve(sample);
+    await sampling;
+  });
+
   for (const ending of ['pointerup', 'pointercancel']) {
     it(`keeps knot drag ownership through unrelated pointers until owner ${ending}`, () => {
       panel.selectCurve('hueVsSat');

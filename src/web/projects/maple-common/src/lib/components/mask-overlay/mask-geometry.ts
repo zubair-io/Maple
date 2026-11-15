@@ -195,6 +195,37 @@ export function maskFromScreen(map: MaskCanvasMap, px: number, py: number): Mask
   return { x: Math.min(1, Math.max(0, p.x)), y: Math.min(1, Math.max(0, p.y)) };
 }
 
+/**
+ * Bilinear sample of a full-frame raster (row-major, frame-normalised axes)
+ * at the presented point (`u`, `v`): the presented → frame projection first,
+ * so a brush dab's tint follows the geometry warp instead of a circular
+ * stamp approximation. Zero outside the frame or on the horizon.
+ */
+export function sampleRasterProjected(
+  acc: Float32Array,
+  frameW: number,
+  frameH: number,
+  map: MaskCanvasMap,
+  u: number,
+  v: number,
+): number {
+  if (frameW <= 0 || frameH <= 0 || acc.length < frameW * frameH) return 0;
+  const frame = applyProjection(map.presentedToFrame, { x: u, y: v });
+  if (!Number.isFinite(frame.x) || !Number.isFinite(frame.y)) return 0;
+  if (frame.x < 0 || frame.x > 1 || frame.y < 0 || frame.y > 1) return 0;
+  const gx = frame.x * (frameW - 1);
+  const gy = frame.y * (frameH - 1);
+  const x0 = Math.floor(gx);
+  const y0 = Math.floor(gy);
+  const x1 = Math.min(frameW - 1, x0 + 1);
+  const y1 = Math.min(frameH - 1, y0 + 1);
+  const fx = gx - x0;
+  const fy = gy - y0;
+  const top = acc[y0 * frameW + x0] * (1 - fx) + acc[y0 * frameW + x1] * fx;
+  const bottom = acc[y1 * frameW + x0] * (1 - fx) + acc[y1 * frameW + x1] * fx;
+  return top * (1 - fy) + bottom * fy;
+}
+
 // ── Handles ───────────────────────────────────────────────────────────────
 
 export type MaskHandle =
