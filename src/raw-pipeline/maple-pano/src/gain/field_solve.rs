@@ -12,12 +12,11 @@ use super::field::{
 
 /// Scene-linear luminance below which a log difference is noise.
 const LUMA_FLOOR: f32 = 1e-4;
-/// Samples a (pair, node) residual needs before its median is trusted.
 const MIN_NODE_SAMPLES: usize = 8;
 /// Lattice density aimed for on the largest view footprint; the hard cap
 /// is [`MAX_NODES_PER_VIEW`], which leaves room for the corridor margin.
 const NODE_TARGET_PER_VIEW: f64 = 1024.0;
-/// Smoothness and shrinkage weights relative to the mean data weight.
+/// Smoothness and shrinkage weights relative to the mean sample count.
 const SMOOTHNESS: f64 = 1.0;
 const SHRINKAGE: f64 = 1e-2;
 /// ±1 EV: a residual larger than this is content, not exposure.
@@ -33,6 +32,7 @@ pub(super) struct LumaLayer {
     w: usize,
     h: usize,
     ln_luma: Vec<f32>,
+    rgb: Vec<[f32; 3]>,
 }
 
 impl LumaLayer {
@@ -61,11 +61,18 @@ impl LumaLayer {
                 w: 0,
                 h: 0,
                 ln_luma: Vec::new(),
+                rgb: Vec::new(),
             };
         };
         let (bw, bh) = (x1 - x0 + 1, y1 - y0 + 1);
         let ln_luma = (0..bw * bh)
             .map(|j| ln_at((y0 + j / bw) * w + x0 + j % bw).unwrap_or(f32::NAN))
+            .collect();
+        let rgb = (0..bw * bh)
+            .map(|j| {
+                let i = (y0 + j / bw) * w + x0 + j % bw;
+                [img.r[i], img.g[i], img.b[i]].map(|c| c.max(LUMA_FLOOR))
+            })
             .collect();
         Self {
             x0,
@@ -73,6 +80,7 @@ impl LumaLayer {
             w: bw,
             h: bh,
             ln_luma,
+            rgb,
         }
     }
 
@@ -83,13 +91,36 @@ impl LumaLayer {
             .filter(|v| v.is_finite())
     }
 
+    fn rgb_at(&self, x: usize, y: usize) -> Option<[f32; 3]> {
+        self.at(x, y)?;
+        Some(self.rgb[(y - self.y0) * self.w + x - self.x0])
+    }
+
+    fn gradients_at(&self, x: usize, y: usize) -> [[f32; 3]; 2] {
+        let here = self.rgb_at(x, y).unwrap();
+        [
+            (x + 1, y, x.wrapping_sub(1), y),
+            (x, y + 1, x, y.wrapping_sub(1)),
+        ]
+        .map(|(nx, ny, px, py)| {
+            let (a, b) = self.rgb_at(nx, ny).map_or_else(
+                || (self.rgb_at(px, py).unwrap_or(here), here),
+                |next| (here, next),
+            );
+            std::array::from_fn(|c| b[c] - a[c])
+        })
+    }
+
     fn usable_px(&self) -> usize {
         self.ln_luma.iter().filter(|v| v.is_finite()).count()
     }
 }
 
-/// `(view a, view b, node)` → weight and median of `ln L_b − ln L_a`.
-type Residuals = BTreeMap<(usize, usize, usize), (f64, f64)>;
+pub(super) fn mismatch_weight(mismatch: f64, chroma: f64) -> f64 {
+    (-chroma).exp() / (1.0 + 16.0 * mismatch.min(0.5)).powi(9)
+}
+
+type Residuals = BTreeMap<(usize, usize, usize), (f64, f64, usize)>;
 
 /// Solve over warped layers on a `sw × sh` seam canvas whose `u` / `v`
 /// axes wrap per `periodic`.
@@ -130,37 +161,50 @@ fn lattice(cell: f64, sw: usize, sh: usize, (periodic_x, periodic_y): (bool, boo
 }
 
 fn residuals(layers: &[LumaLayer], grid: NodeGrid, sw: usize, sh: usize) -> Residuals {
-    let mut samples: BTreeMap<(usize, usize, usize), Vec<f32>> = BTreeMap::new();
-    let mut present: Vec<(usize, f32)> = Vec::with_capacity(layers.len());
+    let mut samples: Residuals = BTreeMap::new();
+    let mut present = Vec::with_capacity(layers.len());
     for y in 0..sh {
         let v = (y as f64 + 0.5) / sh as f64;
         for x in 0..sw {
             present.clear();
-            present.extend(
-                layers
-                    .iter()
-                    .enumerate()
-                    .filter_map(|(i, layer)| layer.at(x, y).map(|l| (i, l))),
-            );
-            if present.len() < 2 {
-                continue;
-            }
+            present.extend(layers.iter().enumerate().filter_map(|(i, layer)| {
+                layer
+                    .at(x, y)
+                    .map(|l| (i, l, layer.rgb_at(x, y).unwrap(), layer.gradients_at(x, y)))
+            }));
             let node = grid.nearest((x as f64 + 0.5) / sw as f64, v);
-            for (n, &(a, la)) in present.iter().enumerate() {
-                for &(b, lb) in &present[n + 1..] {
-                    samples.entry((a, b, node)).or_default().push(lb - la);
+            for (n, &(a, la, ca, ga)) in present.iter().enumerate() {
+                for &(b, lb, cb, gb) in &present[n + 1..] {
+                    let m = ga
+                        .iter()
+                        .flatten()
+                        .zip(gb.iter().flatten())
+                        .fold(0.0_f32, |m, (a, b)| m.max((a - b).abs()));
+                    let t = [0, 2].into_iter().fold(0.0_f64, |t, c| {
+                        let ratio = (ca[c] as f64 * cb[1] as f64) / (ca[1] as f64 * cb[c] as f64);
+                        t.max(ratio.ln().abs())
+                    });
+                    let w = mismatch_weight(m as f64, t);
+                    let entry = samples.entry((a, b, node)).or_default();
+                    entry.0 += w;
+                    entry.1 += w * (lb - la) as f64;
+                    entry.2 += 1;
                 }
             }
         }
     }
     samples
         .into_iter()
-        .filter(|(_, s)| s.len() >= MIN_NODE_SAMPLES)
-        .map(|(key, mut s)| {
-            let mid = s.len() / 2;
-            let (_, median, _) = s.select_nth_unstable_by(mid, f32::total_cmp);
-            let d = (*median as f64).clamp(-MAX_LOG_CORRECTION, MAX_LOG_CORRECTION);
-            (key, (s.len() as f64, d))
+        .filter(|(_, (w, _, n))| *n >= MIN_NODE_SAMPLES && *w > 0.0)
+        .map(|(key, (w, sum, n))| {
+            (
+                key,
+                (
+                    w,
+                    (sum / w).clamp(-MAX_LOG_CORRECTION, MAX_LOG_CORRECTION),
+                    n,
+                ),
+            )
         })
         .collect()
 }
@@ -194,7 +238,7 @@ fn solve(grid: NodeGrid, residuals: &Residuals, corridors: &[BTreeSet<usize>]) -
         .collect();
     let data: Vec<DiffTerm> = residuals
         .iter()
-        .map(|(&(a, b, node), &(w, d))| DiffTerm {
+        .map(|(&(a, b, node), &(w, d, _))| DiffTerm {
             a: index[&(a, node)],
             b: index[&(b, node)],
             w,
@@ -218,7 +262,7 @@ fn solve(grid: NodeGrid, residuals: &Residuals, corridors: &[BTreeSet<usize>]) -
     let w_mean = if data.is_empty() {
         1.0
     } else {
-        w_sum / data.len() as f64
+        residuals.values().map(|r| r.2 as f64).sum::<f64>() / data.len() as f64
     };
     let x: Vec<f64> = ScreenedSystem {
         unknowns: index.len(),
