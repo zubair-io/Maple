@@ -43,6 +43,7 @@ import {
   PanoStrategy,
   PanoJobView,
   PanoStitchRequest,
+  SeamConstraintsRequest,
 } from '../api/pano.service';
 import { PanoPreviewStore } from './pano-preview.store';
 import { panoPreviewCrop } from './pano-preview-crop';
@@ -52,6 +53,8 @@ import { viewRouteCommands } from '../addressing/route-address';
 import { MuiButtonComponent } from '../ui/button/mui-button.component';
 import { MuiPanoramaEdgesComponent } from '../ui/panorama-edges/mui-panorama-edges.component';
 import { panoBoundaryWarpReason } from '../ui/panorama-edges/pano-edges-reason';
+import { PanoSeamEditorComponent } from './seam-editor/pano-seam-editor.component';
+import { validSeamCanvas } from './pano-seam-geometry';
 
 type DialogPhase =
   | 'idle'
@@ -82,7 +85,12 @@ function stitchErrorMessage(err: HttpErrorResponse, code: string): string {
 @Component({
   selector: 'app-pano-dialog',
   standalone: true,
-  imports: [NgTemplateOutlet, MuiButtonComponent, MuiPanoramaEdgesComponent],
+  imports: [
+    NgTemplateOutlet,
+    MuiButtonComponent,
+    MuiPanoramaEdgesComponent,
+    PanoSeamEditorComponent,
+  ],
   providers: [PanoPreviewStore],
   templateUrl: './pano-dialog.component.html',
   styleUrl: './pano-dialog.component.scss',
@@ -124,6 +132,32 @@ export class PanoDialogComponent implements OnDestroy {
   readonly boundaryWarp = signal(0);
   readonly committedWarp = signal(0);
   readonly autoCrop = signal(false);
+  readonly seamConstraints = signal<SeamConstraintsRequest | null>(null);
+  private readonly seamPreviewJob = signal<string | null>(null);
+  readonly seamConstraintsSupported = computed(
+    () => this.config()?.seamConstraintsSupported ?? false,
+  );
+  readonly seamAuthoring = computed(() => {
+    if (!this.seamConstraintsSupported()) return null;
+    const image = this.preview.image();
+    if (image === null || image.result === null) return null;
+    const { width, height, frames } = image.result;
+    if (width === null || height === null || !frames || frames.length === 0) return null;
+    const canvas = { width, height };
+    return validSeamCanvas(canvas) ? { canvas, frames } : null;
+  });
+  readonly seamDisabledReason = computed(() => {
+    if (this.strategy() === 'tile') {
+      return 'Seam regions are not supported for Tile. Choose Rotation, or Auto for a rotation panorama.';
+    }
+    if (
+      this.preview.run().kind === 'running' ||
+      this.seamPreviewJob() !== this.preview.image()?.jobId ||
+      this.boundaryWarp() !== this.committedWarp()
+    )
+      return 'Wait for a current preview before authoring or submitting seam regions.';
+    return null;
+  });
 
   readonly strategySupported = computed(() => this.config()?.strategy_supported ?? false);
   readonly previewSupported = computed(() => this.config()?.preview_supported ?? false);
@@ -203,6 +237,8 @@ export class PanoDialogComponent implements OnDestroy {
         this.boundaryWarp.set(0);
         this.committedWarp.set(0);
         this.autoCrop.set(false);
+        this.seamConstraints.set(null);
+        this.seamPreviewJob.set(null);
       }
     });
 
@@ -210,10 +246,22 @@ export class PanoDialogComponent implements OnDestroy {
     effect(() => {
       if (this.phase() !== 'options' || !this.previewSupported()) return;
       const options = this.options();
+      this.assetIds();
       untracked(() => {
+        this.seamConstraints.set(null);
+        this.seamPreviewJob.set(null);
         const built = this.buildRequest(options);
         if ('request' in built) this.preview.request(built.request);
       });
+    });
+
+    effect(() => {
+      const image = this.preview.image();
+      if (image) this.seamPreviewJob.set(image.jobId);
+    });
+    effect(() => {
+      this.boundaryWarp();
+      untracked(() => this.seamConstraints.set(null));
     });
   }
 
@@ -300,8 +348,17 @@ export class PanoDialogComponent implements OnDestroy {
     };
   }
 
+  onPreviewSeams(): void {
+    const seamConstraints = this.seamConstraints();
+    if (!seamConstraints || this.seamDisabledReason() || this.stitching()) return;
+    const built = this.buildRequest(this.options());
+    if ('request' in built) this.preview.request({ ...built.request, seamConstraints });
+  }
+
   onSubmit(): void {
     if (this.assetIds().length < 2) return;
+    const seamConstraints = this.seamConstraints();
+    if (seamConstraints && (this.seamDisabledReason() || !this.seamConstraintsSupported())) return;
     const built = this.buildRequest(this.options());
     if (!('request' in built)) {
       this.errorCode.set(built.errorCode);
@@ -314,25 +371,31 @@ export class PanoDialogComponent implements OnDestroy {
     this.preview.cancel();
     this.phase.set('submitting');
     const generation = this.submitGeneration;
-    this.pano.stitch({ ...built.request, ...(alignmentFrom ? { alignmentFrom } : {}) }).subscribe({
-      next: ({ id }) => {
-        if (generation !== this.submitGeneration) {
-          this.pano.cancelJob(id).subscribe();
-          return;
-        }
-        this.errorMessage.set('');
-        this.phase.set('polling');
-        this.stitchJobId = id;
-        this._startPolling(id);
-      },
-      error: (err: HttpErrorResponse) => {
-        if (generation !== this.submitGeneration) return;
-        const code: string = err.error?.error ?? '';
-        this.errorCode.set(code);
-        this.errorMessage.set(stitchErrorMessage(err, code));
-        this.phase.set('error');
-      },
-    });
+    this.pano
+      .stitch({
+        ...built.request,
+        ...(seamConstraints ? { seamConstraints } : {}),
+        ...(alignmentFrom ? { alignmentFrom } : {}),
+      })
+      .subscribe({
+        next: ({ id }) => {
+          if (generation !== this.submitGeneration) {
+            this.pano.cancelJob(id).subscribe();
+            return;
+          }
+          this.errorMessage.set('');
+          this.phase.set('polling');
+          this.stitchJobId = id;
+          this._startPolling(id);
+        },
+        error: (err: HttpErrorResponse) => {
+          if (generation !== this.submitGeneration) return;
+          const code: string = err.error?.error ?? '';
+          this.errorCode.set(code);
+          this.errorMessage.set(stitchErrorMessage(err, code));
+          this.phase.set('error');
+        },
+      });
   }
 
   onCancel(): void {

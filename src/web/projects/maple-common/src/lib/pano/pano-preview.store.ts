@@ -78,8 +78,9 @@ export class PanoPreviewStore implements OnDestroy {
 
   /** Preview this request once the options stop changing. */
   request(req: PanoStitchRequest): void {
-    this.run.set({ kind: 'running', progress: null });
     this.generation += 1;
+    this.cancels.next();
+    this.run.set({ kind: 'running', progress: null });
     this.requests.next({ req, generation: this.generation });
   }
 

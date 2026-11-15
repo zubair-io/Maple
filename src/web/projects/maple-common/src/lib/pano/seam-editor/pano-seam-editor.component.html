@@ -1,0 +1,168 @@
+<section class="flex flex-col gap-2 text-[12px] text-text-main" aria-label="Seam regions">
+  <div
+    class="relative mx-auto overflow-hidden rounded-lg bg-image-canvas select-none"
+    data-testid="pano-seam-canvas"
+    [style.aspect-ratio]="aspect()"
+    [style.width]="frameWidth()"
+    [style.touch-action]="disabled() ? 'auto' : 'none'"
+    [attr.aria-disabled]="disabled()"
+    (pointerdown)="pointerDown($event)"
+    (pointermove)="pointerMove($event)"
+    (pointerup)="pointerUp($event)"
+    (pointercancel)="cancelDrag()"
+    (lostpointercapture)="cancelDrag()"
+  >
+    <img
+      class="block h-full w-full"
+      [src]="imageUrl()"
+      alt="Panorama preview, full canvas for seam regions"
+      draggable="false"
+    />
+    @for (region of regions(); track $index) {
+      <div
+        class="pointer-events-none absolute border-2 text-[11px] font-semibold"
+        [class.border-primary]="region.kind === 'include'"
+        [class.border-warn]="region.kind === 'exclude'"
+        [style.left.%]="(region.x / canvas().width) * 100"
+        [style.top.%]="(region.y / canvas().height) * 100"
+        [style.width.%]="(region.width / canvas().width) * 100"
+        [style.height.%]="(region.height / canvas().height) * 100"
+        aria-hidden="true"
+      >
+        <span class="bg-surface px-1 text-text-main"
+          >{{ $index + 1 }} {{ region.kind === 'include' ? '+' : '−' }}</span
+        >
+      </div>
+    }
+    @if (draft(); as rect) {
+      <div
+        class="pointer-events-none absolute border-2 border-dashed border-primary"
+        [style.left.%]="(rect.x / canvas().width) * 100"
+        [style.top.%]="(rect.y / canvas().height) * 100"
+        [style.width.%]="(rect.width / canvas().width) * 100"
+        [style.height.%]="(rect.height / canvas().height) * 100"
+        aria-hidden="true"
+      ></div>
+    }
+  </div>
+  <h3 class="m-0 text-[12px] font-semibold">Seam regions</h3>
+  <p class="m-0 text-[11px] text-text-muted">
+    Choose a source frame, then drag a rectangle or enter coordinates below. Include uses that
+    frame; exclude avoids it. Reference canvas: {{ canvas().width }} × {{ canvas().height }} pixels,
+    before Auto Crop. Regions use graph-cut seams. Auto projection may refuse tile mosaics; choose
+    Rotation in that case. Geometry changes clear regions.
+  </p>
+  @if (disabledReason(); as reason) {
+    <p class="m-0 text-[11px] text-warn" [id]="reasonId" role="status">{{ reason }}</p>
+  }
+  <div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
+    <div>
+      <span>Source frame</span
+      ><mui-select
+        ariaLabel="Seam source frame"
+        [value]="frame()"
+        [options]="frameOptions()"
+        [disabled]="disabled()"
+        (valueChange)="frame.set($event)"
+      />
+    </div>
+    <div>
+      <span>Region mode</span
+      ><mui-select
+        ariaLabel="Seam region mode"
+        [value]="kind()"
+        [options]="modeOptions"
+        [disabled]="disabled()"
+        (valueChange)="setKind($event)"
+      />
+    </div>
+  </div>
+  <div class="grid grid-cols-2 gap-2 sm:grid-cols-4" (keydown.enter)="onNumericEnter($event)">
+    <div>
+      <span>X</span
+      ><mui-input
+        variant="numeric"
+        ariaLabel="Seam region X"
+        [(value)]="x"
+        [min]="0"
+        [max]="canvas().width - 1"
+        [disabled]="disabled()"
+      />
+    </div>
+    <div>
+      <span>Y</span
+      ><mui-input
+        variant="numeric"
+        ariaLabel="Seam region Y"
+        [(value)]="y"
+        [min]="0"
+        [max]="canvas().height - 1"
+        [disabled]="disabled()"
+      />
+    </div>
+    <div>
+      <span>Width</span
+      ><mui-input
+        variant="numeric"
+        ariaLabel="Seam region width"
+        [(value)]="width"
+        [min]="1"
+        [max]="canvas().width"
+        [disabled]="disabled()"
+      />
+    </div>
+    <div>
+      <span>Height</span
+      ><mui-input
+        variant="numeric"
+        ariaLabel="Seam region height"
+        [(value)]="height"
+        [min]="1"
+        [max]="canvas().height"
+        [disabled]="disabled()"
+      />
+    </div>
+  </div>
+  @if (error(); as message) {
+    <p class="m-0 text-[11px] text-error-text" role="alert">{{ message }}</p>
+  }
+  <div class="flex flex-wrap gap-2">
+    <mui-button
+      [disabled]="disabled()"
+      [ariaDescribedby]="disabledReason() ? reasonId : null"
+      (pressed)="addNumeric()"
+      >Add region</mui-button
+    >
+    <mui-button
+      variant="ghost"
+      [disabled]="readOnly() || regions().length === 0"
+      (pressed)="clear()"
+      >Clear regions</mui-button
+    >
+    <mui-button
+      [disabled]="disabled() || regions().length === 0"
+      [ariaDescribedby]="disabledReason() ? reasonId : null"
+      (pressed)="previewRequested.emit()"
+      >Preview regions</mui-button
+    >
+  </div>
+  <p class="m-0 text-[11px] text-text-muted" role="status">{{ regions().length }} seam regions</p>
+  <ol class="m-0 flex list-none flex-col gap-1 p-0" aria-label="Authored seam regions">
+    @for (region of regions(); track $index) {
+      <li class="flex items-center justify-between gap-2">
+        <span
+          >{{ $index + 1 }}. {{ region.kind === 'include' ? 'Include' : 'Exclude' }} frame
+          {{ region.frame + 1 }}: X {{ region.x }}, Y {{ region.y }}, {{ region.width }} ×
+          {{ region.height }}</span
+        >
+        <mui-button
+          variant="ghost"
+          [ariaLabel]="'Remove seam region ' + ($index + 1)"
+          [disabled]="readOnly()"
+          (pressed)="remove($index)"
+          >Remove</mui-button
+        >
+      </li>
+    }
+  </ol>
+</section>

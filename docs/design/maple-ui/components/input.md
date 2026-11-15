@@ -14,6 +14,8 @@ one of the two highest-frequency atoms (with Button) in that surface.
 - **Default** — single-line text.
 - **Search** — same visual treatment plus a leading search icon and, when non-empty, a trailing
   clear ("×") affordance.
+- **Numeric (Web)** — whole or fractional number text entry with increment/decrement steppers.
+  Used by panorama seam-region X/Y/Width/Height fields as the nonpointer authoring alternative.
 
 There is no separate "multiline" variant — a multiline text area is a distinct atom (out of scope
 for this initial set; add it when a real screen needs it, per the design spec's YAGNI stance).
@@ -42,11 +44,13 @@ for this initial set; add it when a real screen needs it, per the design spec's 
 
 ## Props
 
-- `variant`: `default | search` (default `default`).
+- `variant`: `default | search | numeric` (default `default`; numeric is Web).
 - `value`: string (two-way bound).
 - `placeholder`: string.
 - Web `size`: `sm | md | lg`; `lg` gives the native entry control a 44px minimum height for standalone forms.
 - Web native form attributes: `name`, `required`, `minLength`, `maxLength`, `autocomplete`, `autocapitalize`, and `spellcheck` reach the inner input. Join uses these to preserve browser invite-code validation and entry hints.
+- Web numeric `min`, `max`, `step`: stepper bounds and increment (default step `1`).
+  The parent validates the complete value and relationships between fields on commit.
 - `disabled`: boolean.
 - `error`: optional string — presence triggers the Error state and is displayed as helper text.
 - `onChange` / `onCommit`: platform-native value-changed and enter/blur-commit callbacks.

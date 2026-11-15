@@ -225,6 +225,41 @@ describe('PanoPreviewStore', () => {
     http.expectOne('/api/pano/jobs/new').flush(job('new', { status: 'cancelled' }));
   });
 
+  it('stops an old poll immediately while replacement geometry is still debouncing', () => {
+    store.request(REQUEST);
+    startPreview('old');
+    const oldPoll = http.expectOne('/api/pano/jobs/old');
+    store.request({ ...REQUEST, options: { ...REQUEST.options, strategy: 'rotation' } });
+    expect(oldPoll.cancelled).toBe(true);
+    vi.advanceTimersByTime(PREVIEW_DEBOUNCE_MS - 1);
+    http.expectNone('/api/pano/preview');
+    expect(store.image()).toBeNull();
+    expect(store.run().kind).toBe('running');
+    vi.advanceTimersByTime(1);
+    http.expectOne('/api/pano/preview').flush({ id: 'current' });
+    vi.advanceTimersByTime(0);
+    http.expectOne('/api/pano/jobs/current').flush(job('current', { status: 'done' }));
+    http.expectOne('/api/pano/jobs/current/preview').flush(new Blob([new Uint8Array([1])]));
+    expect(store.image()?.jobId).toBe('current');
+    expect(store.run().kind).toBe('idle');
+  });
+
+  it('cancels an old image download before the replacement debounce expires', () => {
+    store.request(REQUEST);
+    startPreview('old');
+    http.expectOne('/api/pano/jobs/old').flush(job('old', { status: 'done' }));
+    const oldImage = http.expectOne('/api/pano/jobs/old/preview');
+    store.request({ ...REQUEST, options: { ...REQUEST.options, boundaryWarp: 20 } });
+    expect(oldImage.cancelled).toBe(true);
+    vi.advanceTimersByTime(PREVIEW_DEBOUNCE_MS - 1);
+    expect(store.image()).toBeNull();
+    expect(store.run().kind).toBe('running');
+    expect(URL.createObjectURL).not.toHaveBeenCalled();
+    store.cancel();
+    vi.advanceTimersByTime(1);
+    http.expectNone('/api/pano/preview');
+  });
+
   it('stops polling as soon as the preview is cancelled', () => {
     store.request(REQUEST);
     startPreview('p1');
