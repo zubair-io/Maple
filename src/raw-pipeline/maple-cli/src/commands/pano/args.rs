@@ -114,6 +114,8 @@ pub struct StitchArgs {
     /// triangle rotation consistency. Single-set mode only.
     #[arg(long, value_parser = parse_grid, conflicts_with = "manifest")]
     pub(super) grid: Option<(usize, usize)>,
+    #[arg(long, conflicts_with_all = ["grid", "manifest"], help = "Infer a unique capture grid from GPS or gimbal poses; refuse ambiguous metadata")]
+    pub(super) infer_grid: bool,
     /// Pass direction for --grid: `raster` (every pass the same way) or
     /// `serpentine` (alternate passes reversed).
     #[arg(long, value_enum, default_value_t = GridOrderArg::Serpentine, requires = "grid")]
@@ -315,5 +317,24 @@ mod tests {
         assert!(parse_grid("4").is_err());
         assert!(parse_grid("0x3").is_err());
         assert!(parse_grid("ax3").is_err());
+    }
+
+    #[test]
+    fn inference_is_opt_in_and_excludes_declared_layouts() {
+        use clap::Parser;
+        #[derive(Parser)]
+        struct Cli {
+            #[command(flatten)]
+            args: super::StitchArgs,
+        }
+        assert!(!Cli::try_parse_from(["pano"]).unwrap().args.infer_grid);
+        assert!(
+            Cli::try_parse_from(["pano", "--infer-grid"])
+                .unwrap()
+                .args
+                .infer_grid
+        );
+        assert!(Cli::try_parse_from(["pano", "--infer-grid", "--grid", "3x4"]).is_err());
+        assert!(Cli::try_parse_from(["pano", "--infer-grid", "--manifest", "sets.json"]).is_err());
     }
 }

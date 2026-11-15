@@ -85,6 +85,7 @@ pub struct LoopClosureGate<'a> {
     pub layout: GridLayout,
     pub check: LoopClosureCheck,
     pub ground: &'a [Option<GroundFootprint>],
+    pub gps: &'a [Option<crate::ingest::GpsPrior>],
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -247,6 +248,24 @@ impl MatchGraph {
         self.components = connected_components(self.image_count, &self.edges);
         self.orphans = orphans_of(&self.components);
         rejected_count
+    }
+}
+
+impl MatchGraph {
+    pub fn reverify_grid(
+        &mut self,
+        images: &[GraphImage],
+        opts: &crate::robust::RobustOptions,
+        gate: Option<&LoopClosureGate<'_>>,
+    ) -> Result<super::ReverifySummary, crate::error::PanoError> {
+        let mut summary = self.reverify(images, opts)?;
+        if let Some(gate) = gate {
+            let matches_before: usize = self.edges.iter().map(|e| e.inlier_count).sum();
+            summary.edges_dropped += self.admit_grid_loop_closures(images, gate);
+            let matches_after: usize = self.edges.iter().map(|e| e.inlier_count).sum();
+            summary.matches_dropped += matches_before - matches_after;
+        }
+        Ok(summary)
     }
 }
 

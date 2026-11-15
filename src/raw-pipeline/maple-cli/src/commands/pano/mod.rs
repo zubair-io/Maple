@@ -247,6 +247,7 @@ fn stitch_options(args: &StitchArgs, gate_budgets: (f64, f64)) -> Result<StitchO
         seam_strategy: args.seam_strategy.to_strategy(),
         seam_constraints: seam_constraints::load(args.seam_constraints.as_deref())?,
         grid: args.grid_layout(),
+        infer_grid: args.infer_grid,
         feature_engine: args.features_engine.to_engine(),
         capture_owner: true,
         boundary_warp: args.boundary_warp / 100.0,

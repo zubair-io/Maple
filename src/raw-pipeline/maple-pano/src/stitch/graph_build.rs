@@ -30,6 +30,44 @@ pub(super) fn validate_grid(opts: &StitchOptions, frame_count: usize) -> Result<
         .map_err(StitchError::InvalidGrid)
 }
 
+pub(super) fn effective_grid(
+    opts: &StitchOptions,
+    priors: &[FramePriors],
+) -> Result<Option<crate::graph::GridLayout>, StitchError> {
+    if opts.infer_grid {
+        if opts.grid.is_some() {
+            return Err(StitchError::InvalidGrid(
+                "declared and inferred grids are mutually exclusive".into(),
+            ));
+        }
+        crate::graph::infer_grid(priors).map(Some).ok_or_else(|| {
+            StitchError::InvalidGrid(
+                "capture metadata does not identify an unambiguous grid".into(),
+            )
+        })
+    } else {
+        Ok(opts.grid)
+    }
+}
+
+pub(super) fn grid_summary(
+    graph: &MatchGraph,
+    gate: Option<&LoopClosureGate<'_>>,
+    inferred: bool,
+) -> crate::graph::GraphSummary {
+    let mut summary = graph.summary();
+    if let Some(gate) = gate {
+        summary.grid = Some(gate.layout);
+        summary.grid_inferred = inferred;
+        summary.gps_candidates = crate::graph::GpsPriorProvider {
+            fixes: gate.gps,
+            ground: gate.ground,
+        }
+        .nominations(graph.image_count);
+    }
+    summary
+}
+
 /// Per-frame ground footprint from the DJI GPS fix, height above
 /// take-off and EXIF focal: the frame diagonal projected to the ground
 /// at nadir, `altitude · diagonal_px / focal_px`. `None` when any input
@@ -65,9 +103,15 @@ pub(super) fn build_stitch_graph(
         Some(gate) => {
             let mut graph = build_match_graph(
                 images,
-                &[&GridPriorProvider {
-                    layout: gate.layout,
-                }],
+                &[
+                    &GridPriorProvider {
+                        layout: gate.layout,
+                    },
+                    &crate::graph::GpsPriorProvider {
+                        fixes: gate.gps,
+                        ground: gate.ground,
+                    },
+                ],
                 fetch,
                 &opts,
             );
@@ -167,6 +211,7 @@ mod tests {
             layout,
             check: LoopClosureCheck::Rotation,
             ground: &[],
+            gps: &[],
         };
         let mut requested = Vec::new();
         let mut fetch = fetcher(&cams);

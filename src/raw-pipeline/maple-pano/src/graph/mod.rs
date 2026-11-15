@@ -40,7 +40,9 @@
 // (`stitch::*`); the crate builds bare without it (#3236).
 #[cfg(any(feature = "ml", feature = "ml-static", feature = "classical-features"))]
 pub mod descriptor_topk;
+pub mod gps_prior;
 pub mod grid_gate;
+pub mod grid_inference;
 pub mod grid_prior;
 
 use std::collections::BTreeSet;
@@ -53,10 +55,12 @@ use crate::twoview::PixelCorrespondence;
 
 #[cfg(any(feature = "ml", feature = "ml-static", feature = "classical-features"))]
 pub use descriptor_topk::DescriptorTopKProvider;
+pub use gps_prior::{GpsNomination, GpsPriorProvider, GPS_MAX_NEIGHBOURS};
 pub use grid_gate::{
     GroundFootprint, LoopClosureCheck, LoopClosureGate, LOOP_CLOSURE_MAX_CELLS,
     LOOP_CLOSURE_MAX_PLACEMENT_ERROR_FRAC, LOOP_CLOSURE_MAX_ROTATION_ERROR_DEG,
 };
+pub use grid_inference::infer_grid;
 pub use grid_prior::{GridLayout, GridOrder, GridPriorProvider};
 
 /// One image entering the graph build.
@@ -209,19 +213,19 @@ pub struct ReverifySummary {
     /// Edges that no longer verified (estimator failure or fewer than
     /// `min_inliers` surviving matches) and were removed.
     pub edges_dropped: usize,
-    /// Matches shed from surviving edges by the re-estimated inlier
-    /// masks.
+    /// Matches shed by verification or closure demotion.
     pub matches_dropped: usize,
 }
 
-/// The match graph as nominated and gated, before any full-resolution
-/// reverification — surfaced in the stitch report so dropped candidate
-/// pairs are visible, never silent.
+/// Final graph diagnostics, including full-resolution rejections.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct GraphSummary {
     pub candidate_pairs: usize,
     pub verified_edges: usize,
     pub rejected: Vec<RejectedPair>,
+    pub grid: Option<GridLayout>,
+    pub grid_inferred: bool,
+    pub gps_candidates: Vec<GpsNomination>,
 }
 
 impl MatchGraph {
@@ -230,6 +234,7 @@ impl MatchGraph {
             candidate_pairs: self.edges.len() + self.rejected.len(),
             verified_edges: self.edges.len(),
             rejected: self.rejected.clone(),
+            ..Default::default()
         }
     }
 

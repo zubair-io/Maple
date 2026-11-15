@@ -87,6 +87,7 @@ pub struct StitchOptions {
     /// nomination with [`crate::graph::GridPriorProvider`] and gates
     /// loop closures on grid footprint + triangle rotation consistency.
     pub grid: Option<crate::graph::GridLayout>,
+    pub infer_grid: bool,
     /// Detector/matcher for the proxy match graph (#4523). Defaults to
     /// ALIKED + LightGlue when `ml`/`ml-static` is built in, else to the
     /// classical Harris + gradient-histogram path.
@@ -130,6 +131,7 @@ impl Default for StitchOptions {
             seam_strategy: crate::seam::SeamStrategy::Voronoi,
             seam_constraints: Vec::new(),
             grid: None,
+            infer_grid: false,
             feature_engine: super::FeatureEngine::default(),
             capture_owner: false,
             boundary_warp: 0.0,

@@ -170,6 +170,7 @@ fn closure_without_a_verified_triangle_is_unconfirmed() {
         layout,
         check: crate::graph::LoopClosureCheck::Rotation,
         ground: &[],
+        gps: &[],
     };
     assert_eq!(graph.admit_grid_loop_closures(&images(3), &gate), 1);
     assert_eq!(
@@ -180,4 +181,133 @@ fn closure_without_a_verified_triangle_is_unconfirmed() {
     );
     assert_eq!(graph.components, vec![vec![0, 1], vec![2]]);
     assert_eq!(graph.orphans, vec![2]);
+}
+
+#[test]
+fn refined_rotation_closure_is_demoted_even_when_each_pair_reverifies() {
+    let imgs = images(3);
+    let edge = |a: usize, b: usize, degrees: f64| {
+        let rotation = Mat3::rotation_y(degrees.to_radians());
+        let mut inlier_matches = Vec::new();
+        for y in 0..8 {
+            for x in 0..10 {
+                let pixel = (80.0 + x as f64 * 45.0, 60.0 + y as f64 * 40.0);
+                let ray = imgs[a]
+                    .camera
+                    .pixel_to_camera_dir(pixel.0, pixel.1)
+                    .unwrap();
+                let target = imgs[b]
+                    .camera
+                    .world_dir_to_pixel(rotation.mul_vec(ray))
+                    .unwrap();
+                inlier_matches.push(crate::twoview::PixelCorrespondence {
+                    a: pixel,
+                    b: target,
+                });
+            }
+        }
+        VerifiedEdge {
+            a,
+            b,
+            rotation: Mat3::identity(),
+            inlier_count: inlier_matches.len(),
+            mean_residual_rad: 0.0,
+            inlier_matches,
+        }
+    };
+    let mut graph = MatchGraph {
+        image_count: 3,
+        edges: vec![edge(0, 1, 0.0), edge(0, 2, 8.0), edge(1, 2, 0.0)],
+        rejected: Vec::new(),
+        components: vec![vec![0, 1, 2]],
+        orphans: Vec::new(),
+    };
+    let gate = crate::graph::LoopClosureGate {
+        layout: grid(1, 3, GridOrder::Raster),
+        check: crate::graph::LoopClosureCheck::Rotation,
+        ground: &[],
+        gps: &[],
+    };
+    let mut ungated = graph.clone();
+    let ungated_result = ungated
+        .reverify_grid(&imgs, &crate::robust::RobustOptions::default(), None)
+        .unwrap();
+    assert_eq!(ungated_result.edges_dropped, 0);
+    assert_eq!(ungated.edges.len(), 3);
+    let mut lost_support = graph.clone();
+    lost_support.edges[2].inlier_matches.clear();
+    assert_eq!(graph.admit_grid_loop_closures(&imgs, &gate), 0);
+    let result = graph
+        .reverify_grid(&imgs, &crate::robust::RobustOptions::default(), Some(&gate))
+        .unwrap();
+    assert_eq!(result.edges_dropped, 1);
+    assert_eq!(result.matches_dropped, 80);
+    assert_eq!(
+        graph.edges.iter().map(|e| (e.a, e.b)).collect::<Vec<_>>(),
+        vec![(0, 1), (1, 2)]
+    );
+    assert!(matches!(
+        graph.rejected[0].reason,
+        VerifyFailure::LoopClosureUnconfirmed { .. }
+    ));
+    let lost = lost_support
+        .reverify_grid(&imgs, &crate::robust::RobustOptions::default(), Some(&gate))
+        .unwrap();
+    assert_eq!(lost.edges_dropped, 2);
+    assert_eq!(lost_support.components, vec![vec![0, 1], vec![2]]);
+    assert_eq!(lost_support.orphans, vec![2]);
+    assert!(lost_support.rejected.iter().any(|e| matches!(
+        e.reason,
+        VerifyFailure::LoopClosureUnconfirmed {
+            best_triangle_error_deg: None
+        }
+    )));
+}
+
+#[test]
+fn planar_closure_is_rechecked_after_correspondences_move() {
+    let imgs = images(3);
+    let edge = |a, b, shift| {
+        let inlier_matches: Vec<_> = (0..80)
+            .map(|i| {
+                let point = (50.0 + (i % 10) as f64 * 40.0, 50.0 + (i / 10) as f64 * 40.0);
+                crate::twoview::PixelCorrespondence {
+                    a: point,
+                    b: (point.0 + shift, point.1),
+                }
+            })
+            .collect();
+        VerifiedEdge {
+            a,
+            b,
+            rotation: Mat3::identity(),
+            inlier_count: inlier_matches.len(),
+            mean_residual_rad: 0.0,
+            inlier_matches,
+        }
+    };
+    let mut graph = MatchGraph {
+        image_count: 3,
+        edges: vec![edge(0, 1, 10.0), edge(0, 2, 20.0), edge(1, 2, 10.0)],
+        rejected: Vec::new(),
+        components: vec![vec![0, 1, 2]],
+        orphans: Vec::new(),
+    };
+    let gate = crate::graph::LoopClosureGate {
+        layout: grid(1, 3, GridOrder::Raster),
+        check: crate::graph::LoopClosureCheck::Planar,
+        ground: &[],
+        gps: &[],
+    };
+    assert_eq!(graph.admit_grid_loop_closures(&imgs, &gate), 0);
+    graph.edges[1]
+        .inlier_matches
+        .iter_mut()
+        .for_each(|m| m.b.0 += 40.0);
+    assert_eq!(graph.admit_grid_loop_closures(&imgs, &gate), 1);
+    assert_eq!(graph.edges.len(), 2);
+    assert!(matches!(
+        graph.rejected[0].reason,
+        VerifyFailure::LoopClosurePlacementUnconfirmed { .. }
+    ));
 }

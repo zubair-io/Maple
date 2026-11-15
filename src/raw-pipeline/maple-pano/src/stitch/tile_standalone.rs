@@ -74,6 +74,7 @@ pub fn stitch_tile(
     let applied_opcodes: Vec<Vec<String>> =
         metas.iter().map(|m| m.applied_opcodes.clone()).collect();
     let priors: Vec<FramePriors> = metas.iter().map(|m| m.priors.clone()).collect();
+    let grid = super::graph_build::effective_grid(opts, &priors)?;
     let full_dims: Vec<(u32, u32)> = metas
         .iter()
         .map(|m| (m.full_width, m.full_height))
@@ -125,10 +126,12 @@ pub fn stitch_tile(
     // motivating scenario.
     let descriptor_topk = DescriptorTopKProvider::new(&feature_sets);
     let ground = super::graph_build::ground_footprints(&priors, &full_dims);
-    let planar_gate = opts.grid.map(|layout| LoopClosureGate {
+    let gps: Vec<_> = priors.iter().map(|p| p.gps).collect();
+    let planar_gate = grid.map(|layout| LoopClosureGate {
         layout,
         check: LoopClosureCheck::Planar,
         ground: &ground,
+        gps: &gps,
     });
     let graph: MatchGraph = super::graph_build::build_stitch_graph(
         &proxy_images,
