@@ -49,6 +49,14 @@ namespace Maple.WinUI.Services.CloudFiles
         internal const uint CF_PLACEHOLDER_STATE_IN_SYNC = 8;
         internal const uint CF_PLACEHOLDER_STATE_PARTIAL = 0x10;
         internal const uint CF_PLACEHOLDER_STATE_INVALID = 0xFFFFFFFF;
+        internal const uint CF_OPEN_FILE_FLAG_EXCLUSIVE = 1;
+        internal const uint CF_UPDATE_FLAG_VERIFY_IN_SYNC = 1;
+        internal const uint CF_UPDATE_FLAG_MARK_IN_SYNC = 2;
+        internal const uint CF_UPDATE_FLAG_DEHYDRATE = 4;
+        internal const uint CF_UPDATE_FLAG_ENABLE_ON_DEMAND_POPULATION = 0x08;
+        internal const int CF_PLACEHOLDER_INFO_BASIC = 0;
+        internal const uint CF_PIN_STATE_PINNED = 1;
+        internal const uint CF_IN_SYNC_STATE_IN_SYNC = 1;
 
         // --- CF_SYNC_ROOT_INFO_CLASS / CF_SYNC_ROOT_PROVIDER_INFO ---
         // { CF_SYNC_PROVIDER_STATUS ProviderStatus; WCHAR ProviderName[256];
@@ -200,6 +208,17 @@ namespace Maple.WinUI.Services.CloudFiles
         }
 
         [StructLayout(LayoutKind.Sequential, Pack = 8)]
+        internal struct CF_PLACEHOLDER_BASIC_INFO
+        {
+            public uint PinState;
+            public uint InSyncState;
+            public long FileId;
+            public long SyncRootFileId;
+            public uint FileIdentityLength;
+            public byte FileIdentity;
+        }
+
+        [StructLayout(LayoutKind.Sequential, Pack = 8)]
         internal struct CF_PLACEHOLDER_CREATE_INFO
         {
             public IntPtr RelativeFileName;   // PCWSTR
@@ -233,6 +252,28 @@ namespace Maple.WinUI.Services.CloudFiles
 
         [DllImport(Dll, ExactSpelling = true)]
         internal static extern uint CfGetPlaceholderStateFromAttributeTag(uint fileAttributes, uint reparseTag);
+
+        [DllImport(Dll, CharSet = CharSet.Unicode, ExactSpelling = true)]
+        internal static extern int CfOpenFileWithOplock(string filePath, uint flags, out IntPtr protectedHandle);
+
+        [DllImport(Dll, ExactSpelling = true)]
+        internal static extern int CfCloseHandle(IntPtr protectedHandle);
+
+        [DllImport(Dll, ExactSpelling = true)]
+        internal static extern int CfGetPlaceholderInfo(
+            Microsoft.Win32.SafeHandles.SafeFileHandle fileHandle, int infoClass,
+            IntPtr infoBuffer, uint infoBufferLength, out uint returnedLength);
+
+        [DllImport(Dll, ExactSpelling = true)]
+        internal static extern int CfUpdatePlaceholder(
+            IntPtr fileHandle, IntPtr fsMetadata, IntPtr fileIdentity, uint fileIdentityLength,
+            IntPtr dehydrateRangeArray, uint dehydrateRangeCount, uint updateFlags,
+            IntPtr updateUsn, IntPtr overlapped);
+
+        [DllImport(Dll, CharSet = CharSet.Unicode, ExactSpelling = true)]
+        internal static extern int CfCreatePlaceholders(
+            string baseDirectoryPath, [In, Out] CF_PLACEHOLDER_CREATE_INFO[] placeholderArray,
+            uint placeholderCount, uint createFlags, out uint entriesProcessed);
 
         [DllImport(Dll, CharSet = CharSet.Unicode, ExactSpelling = true)]
         internal static extern int CfConnectSyncRoot(

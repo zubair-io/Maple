@@ -30,7 +30,7 @@ namespace Maple.WinUI.Services.CloudFiles
                 return false;
             var name = Encoding.Unicode.GetString(
                 info, CfApi.CF_SYNC_ROOT_PROVIDER_INFO_NAME_OFFSET, CfApi.CF_SYNC_ROOT_PROVIDER_INFO_NAME_BYTES);
-            return name.Split('\0')[0] == CloudFilesSyncRoot.ProviderName;
+            return name.Split('\0')[0] == "Maple";
         }
 
         /// <summary>A placeholder the platform still marks in-sync — Maple
@@ -40,6 +40,52 @@ namespace Maple.WinUI.Services.CloudFiles
         /// eligible. Applies to files and to empty directories alike.</summary>
         internal static RemovalOutcome TryRemoveUnmodifiedPlaceholder(string path) =>
             RemoveIfState(path, CfApi.CF_PLACEHOLDER_STATE_PLACEHOLDER | CfApi.CF_PLACEHOLDER_STATE_IN_SYNC);
+
+        internal static bool IsInSyncPlaceholder(string path)
+        {
+            try
+            {
+                using var handle = Win32.OpenReparsePoint(path, exclusive: false);
+                var (attributes, reparseTag) = Win32.ReadAttributeTag(handle, path);
+                var state = CfApi.CfGetPlaceholderStateFromAttributeTag(attributes, reparseTag);
+                return (state & (CfApi.CF_PLACEHOLDER_STATE_PLACEHOLDER | CfApi.CF_PLACEHOLDER_STATE_IN_SYNC)) ==
+                    (CfApi.CF_PLACEHOLDER_STATE_PLACEHOLDER | CfApi.CF_PLACEHOLDER_STATE_IN_SYNC);
+            }
+            catch { return false; }
+        }
+
+        internal static bool IsPlaceholder(string path)
+        {
+            try
+            {
+                using var handle = Win32.OpenReparsePoint(path, exclusive: false);
+                var (attributes, reparseTag) = Win32.ReadAttributeTag(handle, path);
+                return (CfApi.CfGetPlaceholderStateFromAttributeTag(attributes, reparseTag) &
+                    CfApi.CF_PLACEHOLDER_STATE_PLACEHOLDER) != 0;
+            }
+            catch { return false; }
+        }
+
+        internal static bool CanSafelyMutate(string path)
+        {
+            try
+            {
+                using var handle = Win32.OpenReparsePoint(path);
+                var size = Marshal.SizeOf<CfApi.CF_PLACEHOLDER_BASIC_INFO>() + 4096;
+                var buffer = Marshal.AllocHGlobal(size);
+                try
+                {
+                    var infoHr = CfApi.CfGetPlaceholderInfo(handle, CfApi.CF_PLACEHOLDER_INFO_BASIC,
+                        buffer, (uint)size, out _);
+                    if (infoHr != 0) return false;
+                    var info = Marshal.PtrToStructure<CfApi.CF_PLACEHOLDER_BASIC_INFO>(buffer);
+                    return info.InSyncState == CfApi.CF_IN_SYNC_STATE_IN_SYNC &&
+                        info.PinState != CfApi.CF_PIN_STATE_PINNED;
+                }
+                finally { Marshal.FreeHGlobal(buffer); }
+            }
+            catch { return false; }
+        }
 
         /// <summary>A directory placeholder Explorer never opened: still
         /// partial, so nothing local exists beneath it. Removing it outright
@@ -60,6 +106,21 @@ namespace Maple.WinUI.Services.CloudFiles
             var state = CfApi.CfGetPlaceholderStateFromAttributeTag(attributes, reparseTag);
             if (state == CfApi.CF_PLACEHOLDER_STATE_INVALID || (state & required) != required)
                 return RemovalOutcome.NotEligible;
+            if ((required & CfApi.CF_PLACEHOLDER_STATE_IN_SYNC) != 0)
+            {
+                var size = Marshal.SizeOf<CfApi.CF_PLACEHOLDER_BASIC_INFO>() + 4096;
+                var buffer = Marshal.AllocHGlobal(size);
+                try
+                {
+                    if (CfApi.CfGetPlaceholderInfo(handle, CfApi.CF_PLACEHOLDER_INFO_BASIC,
+                            buffer, (uint)size, out _) != 0)
+                        return RemovalOutcome.NotEligible;
+                    var info = Marshal.PtrToStructure<CfApi.CF_PLACEHOLDER_BASIC_INFO>(buffer);
+                    if (info.InSyncState != CfApi.CF_IN_SYNC_STATE_IN_SYNC || info.PinState == CfApi.CF_PIN_STATE_PINNED)
+                        return RemovalOutcome.NotEligible;
+                }
+                finally { Marshal.FreeHGlobal(buffer); }
+            }
             return Win32.MarkForDeletion(handle) ? RemovalOutcome.Removed : RemovalOutcome.Failed;
         }
 
@@ -67,6 +128,7 @@ namespace Maple.WinUI.Services.CloudFiles
         {
             private const uint FILE_READ_ATTRIBUTES = 0x80;
             private const uint DELETE = 0x00010000;
+            private const uint FILE_SHARE_NONE = 0;
             private const uint FILE_SHARE_ALL = 0x7;
             private const uint OPEN_EXISTING = 3;
             private const uint FILE_FLAG_BACKUP_SEMANTICS = 0x02000000;
@@ -105,10 +167,10 @@ namespace Maple.WinUI.Services.CloudFiles
             /// <summary>Opens the reparse point itself (never the
             /// placeholder's data, so nothing hydrates) with just enough
             /// access to read its tag and mark it for deletion.</summary>
-            internal static Microsoft.Win32.SafeHandles.SafeFileHandle OpenReparsePoint(string path)
+            internal static Microsoft.Win32.SafeHandles.SafeFileHandle OpenReparsePoint(string path, bool exclusive = true)
             {
                 var handle = CreateFileW(
-                    path, FILE_READ_ATTRIBUTES | DELETE, FILE_SHARE_ALL, IntPtr.Zero, OPEN_EXISTING,
+                    path, FILE_READ_ATTRIBUTES | DELETE, exclusive ? FILE_SHARE_NONE : FILE_SHARE_ALL, IntPtr.Zero, OPEN_EXISTING,
                     FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, IntPtr.Zero);
                 if (handle.IsInvalid)
                     throw new IOException($"CreateFileW failed ({Marshal.GetLastWin32Error()}) for {path}");
