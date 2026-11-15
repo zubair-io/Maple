@@ -428,6 +428,12 @@ Successful preview and stitch job results echo `seamConstraints` in its original
 reference coordinates when supplied; unconstrained results omit it. The CLI
 stitch/preview report records the same request as `seam_constraints`.
 
+Constrained output keys also bind the CLI-ordered frame asset IDs, so renaming
+non-first inputs cannot reuse a panorama targeting a different frame. Each
+activity attempt creates a fresh, exclusive constraint filename inside its
+job directory and removes only that attempt's file; a worker restart can recover
+without colliding with an abandoned prior attempt.
+
 ## Change feed
 
 | Method | Path                     | Auth   | Purpose                                                                                                                                                                              |

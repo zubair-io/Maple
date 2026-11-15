@@ -62,4 +62,20 @@ describe('panoOutputLocation (#5488)', () => {
       .slice(0, 8);
     expect(place(['/lib/a.dng']).filename).toBe(`a-pano-${legacy}.png`);
   });
+  test('constrained frame indices bind the CLI-ordered asset identities', () => {
+    const seamConstraints = {
+      version: 1 as const,
+      canvas: { width: 100, height: 80 },
+      regions: [{ kind: 'exclude' as const, frame: 1, x: 1, y: 1, width: 2, height: 2 }],
+    };
+    const inputs = ['/lib/a.dng', '/lib/b.dng', '/lib/c.dng'];
+    const first = {
+      ...identity,
+      assetIds: ['a', 'b', 'c'],
+      inputStamps: ['1:1', '2:2', '3:3'],
+      seamConstraints,
+    };
+    const exchanged = { ...first, assetIds: ['a', 'c', 'b'], inputStamps: ['1:1', '3:3', '2:2'] };
+    expect(place(inputs, exchanged).filename).not.toBe(place(inputs, first).filename);
+  });
 });

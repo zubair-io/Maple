@@ -21,6 +21,7 @@ export interface PanoOutputLocation {
 }
 
 export interface PanoOutputIdentity {
+  /** CLI frame order, so index-based seam intent remains bound to the same assets. */
   assetIds: readonly string[];
   /** Size and mtime of each source file, so a replaced original never reuses a stale result. */
   inputStamps: readonly string[];
@@ -45,7 +46,9 @@ function identityKey(identity: PanoOutputIdentity): string {
     identity.matcher,
     // Appended only when chosen, so a panorama made without edge options keeps its name.
     ...(edgesChosen ? [identity.boundaryWarp, identity.autoCrop] : []),
-    ...(identity.seamConstraints ? [seamConstraintsHash(identity.seamConstraints)] : []),
+    ...(identity.seamConstraints
+      ? [seamConstraintsHash(identity.seamConstraints), identity.assetIds]
+      : []),
   ]);
   return createHash('sha256').update(canonical).digest('hex').slice(0, 8);
 }
@@ -56,7 +59,7 @@ function isInside(root: string, candidate: string): boolean {
   return rel === '' || (!escapes && !path.isAbsolute(rel));
 }
 
-/** `sortedInputPaths` as `resolveInputPaths` returns them; the first names the result. */
+/** Input paths in `resolveInputFrames` order; the first names the result. */
 export function panoOutputLocation(
   libraryRoot: string,
   sortedInputPaths: readonly string[],
