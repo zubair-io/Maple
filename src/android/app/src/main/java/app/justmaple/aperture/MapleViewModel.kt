@@ -22,7 +22,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 
-/** Incremental Android parity work is tracked by #4623. No simulated sources. */
 class MapleViewModel
 internal constructor(
     application: Application,
@@ -30,10 +29,11 @@ internal constructor(
     rendererOverride: PreviewRenderer?,
 ) : AndroidViewModel(application) {
     constructor(application: Application) : this(application, PhotoLibrary(application), null)
-
     // The one seam the recovery tests (#4765) substitute — the JNI renderer;
     // the sidecar layer is always the real one (CLAUDE.md: no mocks there).
     val renderer: PreviewRenderer = rendererOverride ?: EditorRenderer(library, ::framePresented)
+    val browseSelection = app.justmaple.aperture.ui.BrowseSelection()
+    val batchSettings = BatchSettingsTransfer(application, library)
     internal val search =
         app.justmaple.aperture.cloud.CloudSearchModel(viewModelScope) { server, path ->
             withContext(Dispatchers.IO) { library.cloud.http.request(server, path) }

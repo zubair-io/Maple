@@ -18,6 +18,8 @@ import app.justmaple.aperture.data.CopiedSettings
 import app.justmaple.aperture.data.XmpDocument
 import app.justmaple.aperture.data.transferDifferences
 import app.justmaple.aperture.generated.AdjustmentTransfer
+import app.justmaple.aperture.data.TransferDifference
+import app.justmaple.aperture.data.transferredFields
 import app.justmaple.aperture.generated.AdjustmentTransferGroup
 
 /** Pick the groups to paste after reviewing each one's current → incoming values on this photo. */
@@ -28,11 +30,26 @@ fun PasteSettingsDialog(
     raw: Boolean,
     onPaste: (List<AdjustmentTransferGroup>) -> Unit,
     onDismiss: () -> Unit,
+    targets: List<Pair<XmpDocument, Boolean>> = listOf(target to raw),
+    reviewMessage: String? = null,
 ) {
     var selected by remember { mutableStateOf(AdjustmentTransfer.groups.map { it.id }.toSet()) }
     val differences =
-        remember(target, copied, raw) {
-            AdjustmentTransfer.groups.associate { it.id to transferDifferences(target, copied, it, raw) }
+        remember(targets, copied) {
+            AdjustmentTransfer.groups.associate { group ->
+                val perTarget = targets.map { (document, isRaw) ->
+                    transferDifferences(document, copied, group, isRaw).associateBy { it.field }
+                }
+                val rows = perTarget.flatMap { it.values }.distinctBy { it.field }.map { row ->
+                    val eligible = targets.indices.filter { row.field in group.transferredFields(targets[it].second) }
+                    val incoming = eligible.map { perTarget[it][row.field]?.incoming ?: row.incoming }.distinct()
+                    val current = eligible.map { perTarget[it][row.field]?.current ?: row.incoming }.distinct()
+                    TransferDifference(row.field, row.label,
+                        current.singleOrNull() ?: "Mixed",
+                        incoming.singleOrNull() ?: "Mixed")
+                }
+                group.id to rows
+            }
         }
     AlertDialog(
         modifier = Modifier.testTag("paste-settings-dialog"),
@@ -44,6 +61,9 @@ fun PasteSettingsDialog(
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 Text("From ${copied.sourceName}", color = MapleColors.muted, fontSize = 13.sp)
+                if (targets.size > 1) Text("${targets.size} selected photos · absolute copy", fontSize = 13.sp)
+                reviewMessage?.let { Text("Current values unavailable; these photos will be attempted on paste:\n$it",
+                    color = MaterialTheme.colorScheme.error, fontSize = 12.sp) }
                 for (group in AdjustmentTransfer.groups) {
                     val checked = group.id in selected
                     Row(

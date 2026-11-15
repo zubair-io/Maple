@@ -55,6 +55,7 @@ cloud editor, build/package commands and current qualification limits.
 | [temporal.md](temporal.md)                                     | How the worker tier runs its background work on Temporal: the lanes, what the Temporal UI shows, outages, crash recovery, one namespace per server, configuration and running a server.       |
 | [windows.md](windows.md)                                       | The WinUI 3 shell, its P/Invoke surface onto the Rust core, File Explorer integration, tests, and CI.                                                                                         |
 | [android-documents-provider.md](android-documents-provider.md) | Maple Cloud in the Android Files app and pickers: roots and document IDs, downloads, thumbnails, write rules, trash, change notification, auth, and its real-API tests.                       |
+| [Android](../src/android/README.md)                            | The native Compose phone/tablet app, JNI pipeline, sources, non-destructive sidecars, Browse selection and recoverable batch paste, builds and device qualification.                          |
 
 ## Operations and CI
 

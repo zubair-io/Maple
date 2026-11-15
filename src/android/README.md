@@ -18,9 +18,8 @@ filmstrip. With a connected server, Search queries that server (see Cloud
 connections); without one it filters names in the open folder. Maple Cloud/self-hosted
 connections support the iPad server-domain sign-in flow, registered libraries,
 nested folders, remote previews, and editing with conditional XMP saves. Device-library
-backup, server timeline/map/admin, brush and person masks, Browse multi-select (and with it
-paste onto a selection) and the other remaining specialized editor surfaces are not
-implemented; the per-surface status is
+backup, server timeline/map/admin, brush and person masks, and the other remaining
+specialized editor surfaces are not implemented; the per-surface status is
 the audit on #4623, which remains open. Android delegates
 SMB access to OS document providers through the existing folder picker; a direct
 SMB client and credential manager are outside the Android scope.
@@ -70,7 +69,22 @@ element, foreign bytes included, is kept. On a JPEG/PNG/TIFF/WebP target the RAW
 fields raw-core rejects for rasters (`AdjustmentFields.rasterRestricted`) are skipped.
 After a paste the slider values come from the native model for the pasted XMP
 (`PreviewRenderer.modelValues`), so white balance reads on the target camera's scale.
-There is no Browse multi-select on Android yet, so paste applies to the open photo only.
+Browse supports long-press selection on phones and tablets, tap-to-toggle, Select all
+of the filtered photos, Clear, and Cancel. Its selection bar offers Paste settings
+when settings have been copied in the editor. The same group picker reviews the
+selection's current → incoming values, marking mixed values explicitly. Selection
+survives layout changes, excludes photos hidden by filters, and resets on a folder
+change. Back cancels selection without opening a photo.
+
+Batch paste uses `BatchSettingsTransfer` and the same conditional `PhotoLibrary.save`
+sidecar path as the editor. Its durable per-photo ledger stores the exact selected-field
+patch and prior values before writing; a resumed write recognizes its already-written
+result, preserves unrelated changes, and refuses to replace a newer selected-field edit.
+Progress counts confirmed writes and lists named per-photo failures. Cancel stops after the in-flight write; Resume
+continues pending photos and Retry failed touches only failures. The ledger survives
+activity/process recreation and is visible in Browse independently of selection.
+Dismiss batch explicitly abandons unfinished entries after confirmation, without
+undoing confirmed saves. Original photo bytes are never modified.
 
 ## Hardware keyboard
 
@@ -79,8 +93,8 @@ rating (`0` clears it), `P` picks, `X` rejects and `U` unflags, as on Apple, web
 Windows. In the editor ⌘/Ctrl+Z undoes and ⌘/Ctrl+Shift+Z redoes. `MainActivity`
 handles unconsumed keys through `onKeyDown` and modified shortcuts through
 `onKeyShortcut`, after focused views, so text fields and sliders keep their input
-(`ui/PhotoKeyCommands.kt`, #5944). Browse has no keyboard target
-until it has a selection. Keyboard zoom and Reset Visible Group are #5945.
+(`ui/PhotoKeyCommands.kt`, #5944). Browse selections do not route these editor
+keyboard commands. Keyboard zoom and Reset Visible Group are #5945.
 
 ## Masks
 
