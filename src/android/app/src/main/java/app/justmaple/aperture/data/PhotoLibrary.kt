@@ -25,6 +25,8 @@ data class Photo(
     val modified: Long,
     val parent: Uri?,
     val contentDigest: String? = null,
+    val assetId: String? = null,
+    val companion: Photo? = null,
 ) {
     val extension
         get() = name.substringAfterLast('.', "").lowercase()

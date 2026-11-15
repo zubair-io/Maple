@@ -42,6 +42,12 @@ trap cleanup EXIT
 # cannot render thumbnails, so a fresh shared-cache AVIF is staged beside the originals.
 cp "$repo/test-fixtures/batch-transfer/source.dng" "$library/2026/raw.dng"
 cp "$repo/test-fixtures/raster-metadata/progressive-444.jpg" "$library/2026/photo.jpg"
+mkdir -p "$library/stack-pair"
+cp "$repo/test-fixtures/batch-transfer/source.dng" "$library/stack-pair/capture.dng"
+cp "$repo/test-fixtures/raster-metadata/progressive-444.jpg" "$library/stack-pair/capture.jpg"
+# Distinct hashes prevent pair trash from choosing another fixture's deduplicated location.
+printf '\nAndroid stack RAW fixture %s\n' "$work" >>"$library/stack-pair/capture.dng"
+printf '\nAndroid stack JPEG fixture %s\n' "$work" >>"$library/stack-pair/capture.jpg"
 mkdir -p "$library/timeline"
 cp "$library/2026/photo.jpg" "$library/timeline/timeline-unowned.jpg"
 python3 - "$library/timeline/timeline-unowned.jpg" <<'PY'
@@ -72,6 +78,10 @@ for name in raw.dng photo.jpg; do
 	cp "$repo/test-fixtures/raster-metadata/avif-validation/srgb-rgb.avif" "$library/2026/.maple/thumbs/$name.avif"
 done
 cp "$repo/test-fixtures/raster-metadata/avif-validation/srgb-rgb.avif" "$library/timeline/.maple/thumbs/timeline-unowned.jpg.avif"
+mkdir -p "$library/stack-pair/.maple/thumbs"
+for name in capture.dng capture.jpg; do
+	cp "$repo/test-fixtures/raster-metadata/avif-validation/srgb-rgb.avif" "$library/stack-pair/.maple/thumbs/$name.avif"
+done
 
 if [[ ! -d "$api/node_modules" ]]; then (cd "$api" && bun install --frozen-lockfile); fi
 native=0

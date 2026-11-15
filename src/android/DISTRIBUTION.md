@@ -1,6 +1,29 @@
-# Maple for Android: signing and distribution
+# Android build and distribution
 
-Split from [README.md](README.md), which covers the app, its build and its tests.
+Return to the [Android guide](README.md).
+
+## Build
+
+Requires JDK 21, Rust stable, Android SDK 36, Build Tools 36.0.0, NDK
+28.2.13676358, and CMake 3.22.1. Set `ANDROID_HOME` to the SDK directory. Install
+the Rust target once:
+
+```sh
+rustup target add aarch64-linux-android
+cd src/android
+./gradlew assembleDebug
+```
+
+Gradle builds the release Rust static library before linking the JNI library.
+The APK is `app/build/outputs/apk/debug/app-debug.apk`. Current packaging targets
+arm64 devices/emulators on Android 10 or later. CI additionally builds x86_64
+with `-PmapleAbis=arm64-v8a,x86_64` and installs that native ABI on an Ubuntu
+KVM emulator; it does not depend on ARM translation. Install the
+`x86_64-linux-android` Rust target when building that ABI. The live editor requires a
+compatible Vulkan GPU; initialization failures are reported in the app. No signing
+credentials are committed.
+
+## Signing and distribution
 
 Android reads the canonical product version from `src/maple/package.json`.
 Release packaging requires the upload keystore and an explicit positive
@@ -84,3 +107,31 @@ Console to bootstrap the app. The owner is on the selected **Maple Internal**
 tester list; join at [the internal test link](https://play.google.com/apps/internaltest/4701614480911697756)
 using `zubair@justmaple.app`. Play shows its temporary package-based name until
 store setup and review are complete.
+
+```sh
+./gradlew testDebugUnitTest lintDebug
+scripts/with-cloud-api.sh ./gradlew connectedDebugAndroidTest   # running emulator/device; boots src/api
+cargo test --manifest-path native/Cargo.toml --lib
+```
+
+Android CI uses the central conservative dependency selector, including shared
+Rust/codegen, LUTs, fixtures and the Apple layout/font/icon inputs. The stable
+**Android result** check rejects failed, cancelled or unexpectedly skipped work.
+The complete device suite runs on API 36 with a 1280×800 dp tablet layout and
+SwiftShader Vulkan, exercising the inspector/group resets and HEIF/AVIF cases.
+Reports must contain at least 46 device and 28 JVM passes with no skips. The
+22 native CPU/GPU/cache contract tests and the shared presentation/cache/scRGB tests run against
+Mesa lavapipe, alongside APK assembly and lint. Reports, native output, logcat,
+device configuration, screenshots and walkthrough captures are uploaded even
+after a test failure. Only SDK setup
+downloads have bounded retries; failing tests remain failures. The committed
+48 MP HEIF fixture works on Linux; its regeneration script requires macOS.
+Software rendering proves functional correctness, not physical GPU or frame-time
+qualification, which remains under #4623.
+
+The RAW+JPEG pair device round trip also requires the API's host native library:
+`POST /api/assets/:id/rename` fails closed without its filename validator.
+Android CI builds only the default host `raw-ffi` library (no GPU, panorama or
+search features), reusing the existing Android Rust cache, and stages it into
+`src/api/native/` before starting the fixture API. For local API setup, run
+`src/api/scripts/build-raw-ffi.sh` from the repository root before the device command.

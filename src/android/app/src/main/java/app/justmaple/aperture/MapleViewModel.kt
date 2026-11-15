@@ -34,9 +34,9 @@ internal constructor(
     val browseSelection = app.justmaple.aperture.ui.BrowseSelection()
     val batchSettings = batchOverride ?: BatchSettingsTransfer(application, library)
     internal val search =
-        app.justmaple.aperture.cloud.CloudSearchModel(viewModelScope) { server, path ->
-            withContext(Dispatchers.IO) { library.cloud.http.request(server, path) }
-        }
+        app.justmaple.aperture.cloud.CloudSearchModel(viewModelScope,
+            fold = { server -> withContext(Dispatchers.IO) { library.cloud.stackPolicy.config(server).fold } },
+        ) { server, path -> withContext(Dispatchers.IO) { library.cloud.http.request(server, path) } }
     private val preferences = application.getSharedPreferences("maple-ui", 0)
     private val mutable =
         MutableStateFlow(

@@ -98,6 +98,12 @@ jobs:
           grep -q deviceName ci-artifacts/vulkaninfo.txt
           cargo test --locked --manifest-path native/Cargo.toml --lib 2>&1 | tee ci-artifacts/native-tests.txt
           cargo test --locked --manifest-path ../raw-pipeline/Cargo.toml -p raw-gpu --lib present_chain_pipeline::tests -- --test-threads=1 2>&1 | tee ci-artifacts/presentation-tests.txt
+      - name: Build host filename engine for pair device tests
+        env:
+          CARGO_TARGET_DIR: ${{ github.workspace }}/src/android/native/target
+        run: |
+          cargo build --locked --manifest-path src/raw-pipeline/Cargo.toml -p raw-ffi --lib
+          cp "$CARGO_TARGET_DIR/debug/libraw_ffi.so" src/api/native/
       - name: Enable KVM
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules

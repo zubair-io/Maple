@@ -192,54 +192,19 @@ the first edit, and refuses the edit when the list holds spots it cannot rewrite
 Repair runs in raw-core's decode product: a spot change reloads the native model, whose
 preparation re-decodes the capture. Copy / Paste settings never moves spots.
 
-## Build
+## Build and verification
 
-Requires JDK 21, Rust stable, Android SDK 36, Build Tools 36.0.0, NDK
-28.2.13676358, and CMake 3.22.1. Set `ANDROID_HOME` to the SDK directory. Install
-the Rust target once:
-
-```sh
-rustup target add aarch64-linux-android
-cd src/android
-./gradlew assembleDebug
-```
-
-Gradle builds the release Rust static library before linking the JNI library.
-The APK is `app/build/outputs/apk/debug/app-debug.apk`. Current packaging targets
-arm64 devices/emulators on Android 10 or later. CI additionally builds x86_64
-with `-PmapleAbis=arm64-v8a,x86_64` and installs that native ABI on an Ubuntu
-KVM emulator; it does not depend on ARM translation. Install the
-`x86_64-linux-android` Rust target when building that ABI. The live editor requires a
-compatible Vulkan GPU; initialization failures are reported in the app. No signing
-credentials are committed.
-
-## Signing and distribution
-
-Version codes, signing, Play internal testing, tag releases and the Play API
-identity are documented in [DISTRIBUTION.md](DISTRIBUTION.md).
-
-## Tests and CI
+Requires JDK 21, Android SDK 36, Build Tools 36.0.0, NDK 28.2.13676358,
+CMake 3.22.1 and Rust's `aarch64-linux-android` target. Set `ANDROID_HOME`.
 
 ```sh
-./gradlew testDebugUnitTest lintDebug
-scripts/with-cloud-api.sh ./gradlew connectedDebugAndroidTest   # running emulator/device; boots src/api
+./gradlew --no-daemon -PmapleAbis=arm64-v8a assembleDebug assembleDebugAndroidTest testDebugUnitTest lintDebug
+scripts/with-cloud-api.sh ./gradlew --no-daemon connectedDebugAndroidTest
 cargo test --manifest-path native/Cargo.toml --lib
 ```
 
-Android CI uses the central conservative dependency selector, including shared
-Rust/codegen, LUTs, fixtures and the Apple layout/font/icon inputs. The stable
-**Android result** check rejects failed, cancelled or unexpectedly skipped work.
-The complete device suite runs on API 36 with a 1280×800 dp tablet layout and
-SwiftShader Vulkan, exercising the inspector/group resets and HEIF/AVIF cases.
-Reports must contain at least 46 device and 28 JVM passes with no skips. The
-22 native CPU/GPU/cache contract tests and the shared presentation/cache/scRGB tests run against
-Mesa lavapipe, alongside APK assembly and lint. Reports, native output, logcat,
-device configuration, screenshots and walkthrough captures are uploaded even
-after a test failure. Only SDK setup
-downloads have bounded retries; failing tests remain failures. The committed
-48 MP HEIF fixture works on Linux; its regeneration script requires macOS.
-Software rendering proves functional correctness, not physical GPU or frame-time
-qualification, which remains under #4623.
+See [build and distribution](DISTRIBUTION.md) for ABI packaging, signing,
+Play publication, CI device configuration and release qualification boundaries.
 
 Before instrumentation, CI requires launcher focus, a running SystemUI process and
 five consecutive samples without an executing SystemUI service. An observed
@@ -469,9 +434,36 @@ facets have Retry owners. Refresh reloads the active owner; Retry preserves load
 A dedicated `CloudTimelineViewModel` clears stale results on account/server changes
 and sign-out. Loading, empty and error states remain distinct (`CloudTimelinePanel.kt`).
 Both tabs open Preview/Edit with their loaded results as the filmstrip and save via
-conditional cloud XMP writes above. Like Android Search, Timeline never sends `stack=1`:
-RAW+JPEG pairs remain two results until Android has companion-write support.
-`CloudTimelineIntegrationTest` runs against the real API through `scripts/with-cloud-api.sh`.
+conditional cloud XMP writes above. `CloudTimelineIntegrationTest` runs against the
+real API through `scripts/with-cloud-api.sh`.
+
+### RAW+JPEG pairs
+
+Browse, Timeline and Search send `stack=1` only when `/api/display/config` advertises
+`stack_pair_ops_supported: true` and the user's `stack_raw_jpeg` display setting is on
+(default on). `CloudStackPolicy` caches the config per server for 30 seconds and clears
+it on sign-in/disconnect. Older servers keep two tiles. A folded `Photo` retains the
+RAW and JPEG's server IDs and locations; its thumbnail shows `RAW+JPEG`, without a
+filename caption. Accessible names still identify the photo.
+
+Write-path audit:
+
+- `CloudPairOperations` renames, moves, copies or trashes a folded photo with one
+  server request carrying `companion_id` or `companion`; collisions skip both files.
+  Missing capability or an unindexed/missing member refuses the operation with a
+  clear message instead of changing only the RAW. The app currently has no
+  original-file rename/move/copy/trash controls.
+- Editor saves, ratings/picks and batch Paste settings use the shared stem's one
+  conditional XMP sidecar. A folded batch selection therefore writes it once.
+- Photo export renders the RAW only; XMP export copies the shared sidecar. Neither
+  changes either original. Incoming share/open intents retain their single-file behavior.
+- The system DocumentsProvider is a file-system view, not a photo grid: it never
+  folds, keeps both names occupied for create/upload, and renames/trashes only the
+  explicitly selected document. It never silently changes a hidden companion.
+
+`CloudStackPairIntegrationTest` proves one real-API tile, pair rename and pair trash,
+checking both originals' hashes before trash. Run it through `scripts/with-cloud-api.sh`
+with a built API native library and `-Pandroid.testInstrumentationRunnerArguments.class=app.justmaple.aperture.CloudStackPairIntegrationTest`.
 
 Connected servers also appear in the system Files app and every app's document
 picker as **Maple Cloud** (`MapleDocumentsProvider`): browse, on-demand

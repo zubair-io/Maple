@@ -5,7 +5,6 @@ import android.net.Uri
 import app.justmaple.aperture.data.*
 import app.justmaple.aperture.documents.MapleDocumentsProvider
 import java.io.OutputStream
-import java.time.Instant
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
@@ -18,6 +17,8 @@ internal class CloudDerivativePending(val retryMillis: Long) : Exception("Cloud 
 class CloudLibrary(private val context: Context) {
     internal val credentials = CloudCredentials(context)
     internal val http = CloudHttp(credentials)
+    internal val stackPolicy = CloudStackPolicy(fetch = { server, path -> http.request(server, path) })
+    internal val pairOperations = CloudPairOperations(http, stackPolicy)
     private val signIn = CloudSignIn(credentials)
     val signingIn: Boolean
         get() = signIn.pending
@@ -31,6 +32,7 @@ class CloudLibrary(private val context: Context) {
 
     suspend fun complete(callback: Uri): Folder =
         source(signIn.complete(callback)).also {
+            stackPolicy.invalidate(it.uri.host!!)
             MapleDocumentsProvider.connectionsChanged(context)
         }
 
@@ -43,6 +45,7 @@ class CloudLibrary(private val context: Context) {
             try {
                 http.disconnect(id)
             } finally {
+                stackPolicy.invalidate(id)
                 // Only this server's provider caches go; other connections keep theirs.
                 MapleDocumentsProvider.connectionsChanged(context, removed = id)
             }
@@ -79,9 +82,10 @@ class CloudLibrary(private val context: Context) {
         val seen = mutableSetOf<String>()
         var parent: Folder? = null
         var cursor: String? = null
+        val fold = stackPolicy.config(id).fold
         do {
             currentCoroutineContext().ensureActive()
-            val query = "?limit=500" + (cursor?.let { "&cursor=${Uri.encode(it)}" } ?: "")
+            val query = CloudBrowseWire.query(fold, cursor)
             val page =
                 JSONObject(
                     http.request(id, mediaPath("folder", uri) + query).requireSuccess().text()
@@ -107,15 +111,7 @@ class CloudLibrary(private val context: Context) {
                         value.getString("name").substringAfterLast('.', "").lowercase() in
                             PhotoLibrary.EXTENSIONS
                     }
-                    .map { value ->
-                        Photo(
-                            entry(value),
-                            value.getString("name"),
-                            value.getLong("size"),
-                            Instant.parse(value.getString("mtime")).toEpochMilli(),
-                            uri,
-                        )
-                    }
+                    .map { value -> CloudBrowseWire.photo(id, value, uri, fold) }
             // Discard the page's ordinary files/sidecars before requesting another.
             val next = page.optString("next_cursor").takeIf { it.isNotEmpty() && it != "null" }
             check(next == null || seen.add(next)) { "Cloud folder returned a repeated page cursor" }
