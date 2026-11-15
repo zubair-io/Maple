@@ -442,7 +442,7 @@ function fillBrushTint(
     const long = Math.max(width, height);
     const frameW = map.imageAspect >= 1 ? long : Math.max(1, Math.round(long * map.imageAspect));
     const frameH = map.imageAspect >= 1 ? Math.max(1, Math.round(long / map.imageAspect)) : long;
-    const mappingKey = `frame:${map.presentedToFrame.join(',')},${map.imageAspect}`;
+    const mappingKey = `frame:${map.presentedToFrame.matrix.join(',')},${map.imageAspect}`;
     const acc = brushTintRaster(dabs, frameW, frameH, mappingKey, cache);
     for (let j = 0; j < height; j++) {
       for (let i = 0; i < width; i++) {

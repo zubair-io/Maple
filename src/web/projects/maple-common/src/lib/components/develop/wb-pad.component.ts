@@ -223,7 +223,7 @@ export class WbPadComponent {
       asset?.width ?? 1,
       asset?.height ?? 1,
     );
-    await this.editor.sampleWhiteBalanceAt(id, full.x, full.y);
+    if (full) await this.editor.sampleWhiteBalanceAt(id, full.x, full.y);
   }
 
   // ── Keyboard ────────────────────────────────────────────────────────────────

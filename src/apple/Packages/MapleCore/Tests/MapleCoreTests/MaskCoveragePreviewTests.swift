@@ -75,4 +75,22 @@ final class MaskCoveragePreviewTests: XCTestCase {
     XCTAssertEqual(data[0], 0)
     XCTAssertEqual(data[(2 * 5 + 4) * 4], 255)
   }
+  func testStraightenedCropCornerStaysClearWhenGeometryScalesUp() throws {
+    let crop = Crop(top: 0, left: 0, bottom: 1, right: 1, angle: 10)
+    let size = CGSize(width: 400, height: 400)
+    let point = MaskPoint(x: 0.01, y: 0.01)
+    let intermediate = MaskAffine.cropToFullFrame(crop, nativeSize: size).apply(point)
+    XCTAssertEqual(intermediate.x, -0.068, accuracy: 0.001)
+    XCTAssertEqual(intermediate.y, 0.103, accuracy: 0.001)
+    let projection = MaskProjection.presentationToFrame(
+      crop: crop, perspective: Perspective(scale: 150), nativeSize: size)
+    XCTAssertNil(projection.apply(point))
+    let image = try XCTUnwrap(
+      MaskCoveragePreview.image(
+        mask: .everywhere, imageSize: CGSize(width: 51, height: 51),
+        rasters: [:], projection: projection))
+    let data = try XCTUnwrap(image.dataProvider?.data) as Data
+    XCTAssertEqual(data[0], 0)
+    XCTAssertEqual(data[(25 * 51 + 25) * 4], 255)
+  }
 }

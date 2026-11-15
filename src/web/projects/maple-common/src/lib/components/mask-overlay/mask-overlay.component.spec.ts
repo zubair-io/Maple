@@ -130,4 +130,20 @@ describe('MaskOverlayComponent tint gate (#1541)', () => {
     expect(alphaAt(geometry.outside)).toBe(0);
     expect(alphaAt(geometry.inside)).toBe(Math.round(0.55 * 255));
   });
+
+  it('keeps straightened crop corners clear when geometry scales the source up', () => {
+    session.add({ kind: 'everywhere' });
+    lib.focusedAsset.set({ id: 'asset-1', width: 400, height: 400 });
+    lib.updateAdjustment('asset-1', {
+      crop: { top: 0, left: 0, bottom: 1, right: 1, angle: 10 },
+      perspectiveScale: 150,
+    });
+    editor.armTool('mask');
+    const fixture = TestBed.createComponent(MaskOverlayComponent);
+    fixture.detectChanges();
+    const image = putImageData.mock.lastCall![0] as ImageData;
+    expect(image.data[3]).toBe(0);
+    const centre = Math.floor(image.height / 2) * image.width + Math.floor(image.width / 2);
+    expect(image.data[centre * 4 + 3]).toBe(Math.round(0.55 * 255));
+  });
 });

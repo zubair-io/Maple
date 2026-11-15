@@ -524,6 +524,7 @@ export class MaskSessionService {
               asset.height ?? 1,
             )
           : { x: nx, y: ny };
+      if (!full) return false;
       return await sampleMaskRangeInto(this.rangeSampleHost(), full.x, full.y);
     } finally {
       this.rangeSampleInFlight.set(false);

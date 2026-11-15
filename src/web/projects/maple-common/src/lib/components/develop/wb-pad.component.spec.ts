@@ -13,13 +13,15 @@
 
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
 import { signal, type Signal } from '@angular/core';
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 
 import { WbPadComponent } from './wb-pad.component';
 import { LibraryStateService } from '../../state/library-state.service';
 import { defaultAdjustmentModel, type AdjustmentModel } from '../../models/adjustment-model';
 import { ADJUSTMENT_RANGES } from '../../generated/adjustment-tables.generated';
 import { XmpParserService } from '../../xmp/xmp-parser.service';
+import { CanvasPickService } from '../image-canvas/canvas-pick.service';
+import { EditorStateService } from '../../editor/editor-state.service';
 
 const ID = 'asset-wb-1';
 const [TEMP_MIN, TEMP_MAX] = ADJUSTMENT_RANGES.temperature;
@@ -62,6 +64,21 @@ describe('WbPadComponent preset display and keyboard stepping', () => {
     fixture = TestBed.createComponent(WbPadComponent);
     pad = fixture.componentInstance;
     fixture.detectChanges();
+  });
+
+  it('does not sample white balance from an empty straightened crop corner', async () => {
+    lib.model.update((model) => ({
+      ...model,
+      crop: { top: 0, left: 0, bottom: 1, right: 1, angle: 10 },
+      perspectiveScale: 150,
+    }));
+    vi.spyOn(TestBed.inject(CanvasPickService), 'arm').mockResolvedValue({ nx: 0.01, ny: 0.01 });
+    const sample = vi
+      .spyOn(TestBed.inject(EditorStateService), 'sampleWhiteBalanceAt')
+      .mockResolvedValue(false);
+    await pad.onEyedropperClick();
+    expect(sample).not.toHaveBeenCalled();
+    expect(pad.eyedropperActive()).toBe(false);
   });
 
   it('shows As Shot for legacy Maple Custom sidecars without changing their stored pair', () => {

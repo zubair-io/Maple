@@ -64,4 +64,12 @@ final class WhiteBalancePickGeometryTests: XCTestCase {
     XCTAssertEqual(point.x, 0.25, accuracy: 1e-9)
     XCTAssertEqual(point.y, 0.5, accuracy: 1e-9)
   }
+  func testScaledGeometryDoesNotRestoreAnEmptyStraightenedCropCorner() {
+    let size = CGSize(width: 400, height: 400)
+    XCTAssertNil(
+      WhiteBalancePickGeometry.imagePoint(
+        at: CGPoint(x: 4, y: 4), viewport: size, displayFrame: size, pan: .zero,
+        nativeSize: size, crop: Crop(top: 0, left: 0, bottom: 1, right: 1, angle: 10),
+        perspective: Perspective(scale: 150)))
+  }
 }
