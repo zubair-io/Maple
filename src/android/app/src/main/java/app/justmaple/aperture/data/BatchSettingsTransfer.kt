@@ -28,7 +28,7 @@ enum class BatchPasteStatus { Pending, Prepared, Applied, Failed }
 
 data class BatchPasteEntry(val photo: Photo, val status: BatchPasteStatus, val error: String? = null)
 
-data class BatchPasteState(val running: Boolean = false, val entries: List<BatchPasteEntry> = emptyList()) {
+data class BatchPasteState(val running: Boolean = false, val entries: List<BatchPasteEntry> = emptyList(), val jobId: String? = null) {
     val completed: Int = entries.count { it.status == BatchPasteStatus.Applied }
     val pending: Int = entries.count { it.status == BatchPasteStatus.Pending || it.status == BatchPasteStatus.Prepared }
     val failed: Int = entries.count { it.status == BatchPasteStatus.Failed }
@@ -206,7 +206,7 @@ class BatchSettingsTransfer internal constructor(
     }
 
     private fun view(running: Boolean = false) = BatchPasteState(
-        running, ledger?.entries.orEmpty().map { BatchPasteEntry(it.photo, it.status, it.error) },
+        running, ledger?.entries.orEmpty().map { BatchPasteEntry(it.photo, it.status, it.error) }, ledger?.id,
     )
 
     private data class Ledger(

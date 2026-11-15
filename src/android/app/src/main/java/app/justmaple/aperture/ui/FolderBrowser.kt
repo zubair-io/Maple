@@ -71,6 +71,18 @@ internal fun BrowseGrid(
     }
     val pinchColumns = Modifier.gridPinch(gridState, columns) { columns = it }
     val selection by model.browseSelection.state.collectAsState()
+    val batch by model.batchSettings.state.collectAsState()
+    val pastedRevisions = remember(batch.jobId, batch.completed) {
+        buildMap<String, String> {
+            val jobId = batch.jobId
+            if (jobId != null) {
+                for (entry in batch.entries) {
+                    if (entry.status == app.justmaple.aperture.data.BatchPasteStatus.Applied)
+                        put(entry.photo.uri.toString(), jobId)
+                }
+            }
+        }
+    }
     val cullingReady = photos.all { it.uri.toString() in culling }
     LaunchedEffect(state.folder?.uri, visible, cullingReady) {
         model.browseSelection.reconcile(state.folder?.uri?.toString(), if (cullingReady) visible else photos)
@@ -154,6 +166,11 @@ internal fun BrowseGrid(
                 items(visible, key = { "photo:${it.uri}" }) { photo ->
                     val marks = culling[photo.uri.toString()] ?: PhotoCulling()
                     val checked = photo.uri.toString() in selection.ids
+                    val editorRevision = state.document.original.takeIf { photo == state.selected }
+                    val batchRevision = pastedRevisions[photo.uri.toString()]
+                    val thumbnailRevision = remember(editorRevision, batchRevision) {
+                        if (batchRevision == null) editorRevision else "$batchRevision:${editorRevision.orEmpty()}"
+                    }
                     Box(
                         Modifier.aspectRatio(1f)
                             .combinedClickable(
@@ -178,7 +195,7 @@ internal fun BrowseGrid(
                             photo,
                             model.library,
                             Modifier.fillMaxSize(),
-                            revision = state.document.original.takeIf { photo == state.selected },
+                            revision = thumbnailRevision,
                             pick = marks.pick,
                             rating = marks.rating,
                         )

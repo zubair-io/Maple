@@ -56,13 +56,13 @@ class BrowseSelectionTest {
             """<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description rdf:about="" xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/" xmlns:papp="http://ns.justmaple.app/photo/1.0/" $attributes>$children</rdf:Description></rdf:RDF></x:xmpmeta>"""
         val source = photo("source", packet("crs:Exposure2012=\"1.25\" crs:Saturation=\"-30\""))
         val targets = listOf("first", "second").map { name ->
-            photo(name, packet("crs:Exposure2012=\"-0.5\" crs:Contrast2012=\"17\" crs:Saturation=\"10\" papp:Flag=\"pick\"", foreign + unsupported))
+            photo(name, packet("crs:Exposure2012=\"-0.5\" crs:Contrast2012=\"17\" crs:Highlights2012=\"19\" crs:Saturation=\"10\" papp:Flag=\"pick\"", foreign + unsupported))
         }
         val excluded = photo("excluded", packet("crs:Exposure2012=\"-2\" crs:Saturation=\"22\""))
         val originals = (listOf(source, excluded) + targets).associateWith { File(it.uri.path!!).readBytes() }
         val before = (listOf(source, excluded) + targets).associateWith { sidecar(it).readBytes() }
+        val model = ViewModelProvider(compose.activity)[MapleViewModel::class.java]
         try {
-            val model = ViewModelProvider(compose.activity)[MapleViewModel::class.java]
             val copied = runBlocking { CopiedSettings(source.name, model.library.loadSidecar(source).document) }
             val photos = targets + excluded
             var narrow by mutableStateOf(false)
@@ -124,7 +124,8 @@ class BrowseSelectionTest {
                 val xml = sidecar(target).readText()
                 val saved = XmpDocument(xml)
                 assertEquals("1.25", saved.attribute("crs:Exposure2012"))
-                assertNull("An omitted source Tone field must be removed", saved.attribute("crs:Contrast2012"))
+                assertNull("An omitted supported Tone field must be removed", saved.attribute("crs:Highlights2012"))
+                assertEquals("RAW-only contrast must stay on a raster target", "17", saved.attribute("crs:Contrast2012"))
                 assertEquals("10", saved.attribute("crs:Saturation"))
                 assertEquals("pick", saved.attribute("papp:Flag"))
                 assertTrue("Foreign XML must retain its bytes", xml.contains(foreign))
@@ -137,6 +138,9 @@ class BrowseSelectionTest {
                 assertArrayEquals("Original photo ${photo.name}", original, File(photo.uri.path!!).readBytes())
             }
         } finally {
+            model.batchSettings.cancel()
+            compose.waitUntil(30_000) { !model.batchSettings.state.value.running }
+            runBlocking { model.batchSettings.discard() }
             compose.activityRule.scenario.close()
             sidecars.forEach { it.delete() }
             directory.deleteRecursively()
