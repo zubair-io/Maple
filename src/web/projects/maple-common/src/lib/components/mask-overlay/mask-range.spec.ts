@@ -164,6 +164,20 @@ describe('MaskSessionService colour range (#362)', () => {
     );
   });
 
+  it('refuses a straightened crop corner even when inverse geometry maps it inside the source', async () => {
+    session.addRadial();
+    lib.focusedAsset.set({ id: 'asset-1', width: 400, height: 400 });
+    lib.updateAdjustment('asset-1', {
+      crop: { top: 0, left: 0, bottom: 1, right: 1, angle: 10 },
+      perspectiveScale: 150,
+    });
+    const before = layer0();
+    await expect(session.sampleRangeAt(0.01, 0.01)).resolves.toBe(false);
+    expect(sampleMaskRange).not.toHaveBeenCalled();
+    expect(layer0()).toEqual(before);
+    expect(session.rangeSampleInFlight()).toBe(false);
+  });
+
   it('a rejected pick leaves the model untouched and explains why', async () => {
     session.addLinear();
     session.setRangeEnabled(true);

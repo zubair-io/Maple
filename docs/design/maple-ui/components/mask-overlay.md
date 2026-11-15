@@ -34,9 +34,10 @@ Only the selected layer renders; unselected layers show nothing (their list rows
 - **Cropped image** — handles and tint are placed through the crop's affine map, so a mask on a
   cropped or straightened image is drawn where the render actually applies it.
 - **Geometry-corrected image** — with a manual Geometry adjustment (offset, keystone, rotate,
-  scale, aspect), handles, tint and the eyedropper's sample point cross one projective map —
-  the crop's inverse, then the geometry's inverse, as the render samples the frame — so they
-  land where the rendered mask lands (#5950).
+  scale, aspect), handles, tint and the eyedropper's sample point cross the crop's inverse
+  and then the geometry's inverse, as the render samples the frame. The crop-only point
+  must remain inside the intermediate display frame before inverse geometry is applied:
+  scaling up cannot restore coverage or permit sampling in an empty straightened corner (#5950).
 
 ## Tokens used
 

@@ -3,6 +3,7 @@ import Foundation
 
 public struct MaskProjection: Equatable, Sendable {
   public var values: [Double]
+  private var cropBounds: MaskAffine?
 
   public init(values: [Double]) {
     precondition(values.count == 9, "A mask projection has nine entries")
@@ -12,6 +13,12 @@ public struct MaskProjection: Equatable, Sendable {
   public static let identity = MaskProjection(values: [1, 0, 0, 0, 1, 0, 0, 0, 1])
 
   public func apply(_ p: MaskPoint) -> MaskPoint? {
+    if let cropBounds {
+      let intermediate = cropBounds.apply(p)
+      guard (0...1).contains(intermediate.x), (0...1).contains(intermediate.y) else {
+        return nil
+      }
+    }
     let m = values
     let w = m[6] * p.x + m[7] * p.y + m[8]
     guard w.isFinite, abs(w) >= 1e-9 else { return nil }
@@ -50,7 +57,9 @@ public struct MaskProjection: Equatable, Sendable {
       nativeSize.height > 0 && nativeSize.width.isFinite && nativeSize.height.isFinite
       ? Double(nativeSize.width / nativeSize.height) : 1
     let geometry = Self.rebased(Self.inverted(Self.perspectiveMatrix(perspective, aspect: aspect)))
-    return MaskProjection(values: Self.multiply(geometry, cropMatrix))
+    var projection = MaskProjection(values: Self.multiply(geometry, cropMatrix))
+    projection.cropBounds = cropAffine
+    return projection
   }
 
   private static func perspectiveMatrix(_ p: Perspective, aspect: Double) -> [Double] {

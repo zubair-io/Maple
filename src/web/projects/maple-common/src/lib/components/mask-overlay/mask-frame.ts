@@ -134,6 +134,11 @@ export function isIdentityPerspective(p: PerspectiveGeometry): boolean {
 
 type Matrix3 = [number, number, number, number, number, number, number, number, number];
 
+export interface MaskProjection {
+  matrix: number[];
+  cropBounds: MaskAffine;
+}
+
 export const IDENTITY_PROJECTION: Matrix3 = [1, 0, 0, 0, 1, 0, 0, 0, 1];
 
 function multiply3(a: Matrix3, b: Matrix3): Matrix3 {
@@ -148,7 +153,16 @@ function multiply3(a: Matrix3, b: Matrix3): Matrix3 {
 }
 
 /** Apply a row-major projective map; a point on the horizon maps to NaN. */
-export function applyProjection(m: readonly number[], p: MaskPoint): MaskPoint {
+export function applyProjection(m: readonly number[] | MaskProjection, p: MaskPoint): MaskPoint {
+  if ('matrix' in m) {
+    const intermediate = applyAffine(m.cropBounds, p);
+    if (
+      !(intermediate.x >= 0 && intermediate.x <= 1 && intermediate.y >= 0 && intermediate.y <= 1)
+    ) {
+      return { x: NaN, y: NaN };
+    }
+    m = m.matrix;
+  }
   const w = m[6] * p.x + m[7] * p.y + m[8];
   if (!Number.isFinite(w) || Math.abs(w) < 1e-9) return { x: NaN, y: NaN };
   return { x: (m[0] * p.x + m[1] * p.y + m[2]) / w, y: (m[3] * p.x + m[4] * p.y + m[5]) / w };
@@ -215,7 +229,7 @@ export function presentationToFrameProjection(
   perspective: PerspectiveGeometry,
   imgW: number,
   imgH: number,
-): number[] {
+): MaskProjection {
   const affine = cropToFullFrameAffine(crop, imgW, imgH);
   const cropMatrix: Matrix3 = [
     affine.a,
@@ -231,7 +245,7 @@ export function presentationToFrameProjection(
   const aspect = imgW > 0 && imgH > 0 ? imgW / imgH : 1;
   const inverse = invertProjection(perspectiveMatrix(perspective, aspect));
   const geometry = inverse ? rebased(inverse as Matrix3) : IDENTITY_PROJECTION;
-  return multiply3(geometry, cropMatrix);
+  return { matrix: multiply3(geometry, cropMatrix), cropBounds: affine };
 }
 
 /** A presented normalised point in the full frame (crop, then geometry). */
@@ -241,6 +255,7 @@ export function presentedToFullFrame(
   perspective: PerspectiveGeometry,
   imgW: number,
   imgH: number,
-): MaskPoint {
-  return applyProjection(presentationToFrameProjection(crop, perspective, imgW, imgH), p);
+): MaskPoint | null {
+  const frame = applyProjection(presentationToFrameProjection(crop, perspective, imgW, imgH), p);
+  return frame.x >= 0 && frame.x <= 1 && frame.y >= 0 && frame.y <= 1 ? frame : null;
 }

@@ -39,6 +39,7 @@ import {
   isIdentityPerspective,
   presentationToFrameProjection,
   type MaskAffine,
+  type MaskProjection,
   type PerspectiveGeometry,
 } from './mask-frame';
 export {
@@ -141,7 +142,7 @@ export interface MaskCanvasMap {
   cropToFull: MaskAffine;
   fullToCrop: MaskAffine;
   /** Presented → full frame: the crop's inverse, then the geometry's. */
-  presentedToFrame: number[];
+  presentedToFrame: MaskProjection;
   /** Full frame → presented, the inverse of `presentedToFrame`. */
   frameToPresented: number[];
   /** True when a manual-geometry slider moves the presented frame. */
@@ -165,7 +166,7 @@ export function makeMaskCanvasMap(
     cropToFull,
     fullToCrop: invertAffine(cropToFull) ?? IDENTITY_AFFINE,
     presentedToFrame,
-    frameToPresented: invertProjection(presentedToFrame) ?? [...IDENTITY_PROJECTION],
+    frameToPresented: invertProjection(presentedToFrame.matrix) ?? [...IDENTITY_PROJECTION],
     hasGeometry: !isIdentityPerspective(perspective),
     imageAspect,
   };

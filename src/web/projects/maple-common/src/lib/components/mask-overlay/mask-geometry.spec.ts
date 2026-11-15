@@ -239,6 +239,25 @@ describe('presentation projection through manual geometry (#5950)', () => {
     expect(sampleRasterProjected(acc, 101, 101, map, 0.5, 0.69)).toBe(0);
     expect(sampleRasterProjected(acc, 101, 101, map, 0.69, 0.5)).toBeGreaterThan(0.9);
   });
+
+  it('rejects a straightened crop corner before inverse geometry brings it inside the source', () => {
+    const crop = { ...identityCrop, angle: 10 };
+    const point = { x: 0.01, y: 0.01 };
+    const intermediate = applyAffine(cropToFullFrameAffine(crop, 400, 400), point);
+    expect(intermediate.x).toBeCloseTo(-0.068, 3);
+    expect(intermediate.y).toBeCloseTo(0.103, 3);
+    const map = makeMaskCanvasMap(footprint, crop, 400, 400, {
+      ...identityPerspective,
+      scale: 150,
+    });
+    const unclipped = applyProjection(map.presentedToFrame.matrix, point);
+    expect(unclipped.x).toBeCloseTo(0.122, 3);
+    expect(unclipped.y).toBeCloseTo(0.235, 3);
+    const frame = applyProjection(map.presentedToFrame, point);
+    expect(Number.isNaN(frame.x)).toBe(true);
+    expect(sampleRasterProjected(new Float32Array(4).fill(1), 2, 2, map, point.x, point.y)).toBe(0);
+    expect(sampleRasterProjected(new Float32Array(4).fill(1), 2, 2, map, 0.5, 0.5)).toBe(1);
+  });
 });
 
 describe('handles', () => {
