@@ -39,7 +39,7 @@
 import { Injectable, inject, signal } from '@angular/core';
 import { Router } from '@angular/router';
 import { Asset, AssetId } from '../models/asset';
-import type { StackFile } from '../models/asset-stack';
+import type { StackCompanion, StackFile } from '../models/asset-stack';
 import { companionFilenameFor, freePairFilename } from '../stack/stack-pair-names';
 import { FolderOccupancyService } from '../stack/folder-occupancy.service';
 import { StackPairOpsService } from '../stack/stack-pair-ops.service';
@@ -168,15 +168,7 @@ export class AssetRenameService implements AssetRenameCapability {
       return;
     }
     if (pending.companion) {
-      if (policy !== 'replace') return;
-      this.collision.set(null);
-      if (this.pendingPair) {
-        const pair = this.pendingPair;
-        this.pendingPair = null;
-        this._send(asset, pair.filename, pair.collision, 'replace');
-        return;
-      }
-      this._renameCompanion(asset, pending.companion, 'replace');
+      this._resolveCompanionCollision(asset, pending.companion, policy);
       return;
     }
     this.collision.set(null);
@@ -185,6 +177,22 @@ export class AssetRenameService implements AssetRenameCapability {
       return;
     }
     this._send(asset, pending.filename, policy);
+  }
+
+  private _resolveCompanionCollision(
+    asset: Asset,
+    companion: StackFile,
+    policy: Exclude<ApiCollisionPolicy, 'auto-suffix' | 'skip'>,
+  ): void {
+    if (policy !== 'replace') return;
+    this.collision.set(null);
+    const pair = this.pendingPair;
+    if (pair) {
+      this.pendingPair = null;
+      this._send(asset, pair.filename, pair.collision, 'replace');
+      return;
+    }
+    this._renameCompanion(asset, companion, 'replace');
   }
 
   /** Bumped on every `_send` call; a request's callbacks only apply their
@@ -220,43 +228,11 @@ export class AssetRenameService implements AssetRenameCapability {
           if (generation !== this._requestGeneration) return;
           this.busy.set(false);
           if (outcome.kind === 'skipped') {
-            if (outcome.reason === 'collision') {
-              const taken =
-                'collisionFilename' in outcome && typeof outcome.collisionFilename === 'string'
-                  ? outcome.collisionFilename
-                  : undefined;
-              const companionTarget = companion
-                ? companionFilenameFor(companion.name, filename)
-                : undefined;
-              if (companion && taken && taken.toLowerCase() === companionTarget?.toLowerCase()) {
-                this.pendingPair = { filename, collision };
-                this.collision.set({
-                  assetId: asset.id,
-                  filename: taken,
-                  companion: { id: companion.id, filename: companion.name },
-                  pairAtomic: true,
-                });
-                return;
-              }
-              this.collision.set({ assetId: asset.id, filename });
-              return;
-            }
-            this.cancel();
+            this._onSendSkipped(asset, outcome, filename, collision, companion);
             return;
           }
           const renamed = this._applyRenamed(asset, outcome, wasFocused, currentUrl);
-          if (!asset.stack) {
-            this.cancel();
-            return;
-          }
-          if (companion) {
-            this.state.refreshFolderListing(this.state.selectedSourceId());
-            this.cancel();
-            return;
-          }
-          this.editingAssetId.set(renamed.id);
-          const follow = { id: asset.stack.companion.id, filename: asset.stack.companion.name };
-          this._renameCompanion(renamed, follow, 'skip');
+          this._afterRename(asset, renamed, companion !== undefined);
         },
         error: (err) => {
           if (generation !== this._requestGeneration) return;
@@ -265,6 +241,47 @@ export class AssetRenameService implements AssetRenameCapability {
         },
       });
     });
+  }
+
+  private _onSendSkipped(
+    asset: Asset,
+    outcome: { reason: string; collisionFilename?: string },
+    filename: string,
+    collision: ApiCollisionPolicy,
+    companion: StackCompanion | undefined,
+  ): void {
+    if (outcome.reason !== 'collision') {
+      this.cancel();
+      return;
+    }
+    const taken = outcome.collisionFilename;
+    const companionTarget = companion ? companionFilenameFor(companion.name, filename) : undefined;
+    if (companion && taken && taken.toLowerCase() === companionTarget?.toLowerCase()) {
+      this.pendingPair = { filename, collision };
+      this.collision.set({
+        assetId: asset.id,
+        filename: taken,
+        companion: { id: companion.id, filename: companion.name },
+        pairAtomic: true,
+      });
+      return;
+    }
+    this.collision.set({ assetId: asset.id, filename });
+  }
+
+  private _afterRename(
+    asset: Asset,
+    renamed: Pick<Asset, 'id' | 'filename'>,
+    pairRenamed: boolean,
+  ): void {
+    if (!asset.stack || pairRenamed) {
+      if (pairRenamed) this.state.refreshFolderListing(this.state.selectedSourceId());
+      this.cancel();
+      return;
+    }
+    this.editingAssetId.set(renamed.id);
+    const follow = { id: asset.stack.companion.id, filename: asset.stack.companion.name };
+    this._renameCompanion(renamed, follow, 'skip');
   }
 
   /** Keep Both for a stack: one name free for the RAW, the JPEG and their

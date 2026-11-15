@@ -47,6 +47,25 @@ function companionOf(raw: PairResponseRaw): ApiStackCompanionResult | undefined 
     : undefined;
 }
 
+function skippedOf(raw: PairResponseRaw): ApiRenameSkippedResult & { collisionFilename?: string } {
+  return {
+    kind: 'skipped',
+    reason: raw.reason ?? 'skipped',
+    ...(raw.collision_filename ? { collisionFilename: raw.collision_filename } : {}),
+  };
+}
+
+function movedOf(raw: PairResponseRaw, fallbackFilename: string) {
+  const companion = companionOf(raw);
+  return {
+    newAbsPath: raw.new_abs_path ?? '',
+    newPath: raw.new_path ?? '',
+    newFilename: raw.new_filename ?? fallbackFilename,
+    renamedOnCollision: raw.renamed_on_collision ?? false,
+    ...(companion ? { companion } : {}),
+  };
+}
+
 @Injectable({ providedIn: 'root' })
 export class StackPairOpsService {
   private readonly api = inject(BunApiBackendService);
@@ -91,19 +110,11 @@ export class StackPairOpsService {
       map(
         (r): StackPairRenameOutcome =>
           r.skipped
-            ? {
-                kind: 'skipped',
-                reason: r.reason ?? 'skipped',
-                ...(r.collision_filename ? { collisionFilename: r.collision_filename } : {}),
-              }
+            ? skippedOf(r)
             : {
                 kind: 'renamed',
-                newAbsPath: r.new_abs_path ?? '',
-                newPath: r.new_path ?? '',
-                newFilename: r.new_filename ?? newFilename,
-                renamedOnCollision: r.renamed_on_collision ?? false,
+                ...movedOf(r, newFilename),
                 extensionChanged: r.extension_changed ?? false,
-                ...(companionOf(r) ? { companion: companionOf(r) } : {}),
               },
       ),
     );
@@ -128,19 +139,8 @@ export class StackPairOpsService {
       map(
         (r): StackPairRelocateOutcome =>
           r.skipped
-            ? {
-                kind: 'skipped',
-                reason: r.reason ?? 'skipped',
-                ...(r.collision_filename ? { collisionFilename: r.collision_filename } : {}),
-              }
-            : {
-                kind: 'relocated',
-                newAbsPath: r.new_abs_path ?? '',
-                newPath: r.new_path ?? '',
-                newFilename: r.new_filename ?? destinationFilename ?? '',
-                renamedOnCollision: r.renamed_on_collision ?? false,
-                ...(companionOf(r) ? { companion: companionOf(r) } : {}),
-              },
+            ? skippedOf(r)
+            : { kind: 'relocated', ...movedOf(r, destinationFilename ?? '') },
       ),
     );
   }
