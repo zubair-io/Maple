@@ -244,7 +244,12 @@ export class AssetRenameService implements AssetRenameCapability {
             return;
           }
           const renamed = this._applyRenamed(asset, outcome, wasFocused, currentUrl);
-          if (!asset.stack || companion) {
+          if (!asset.stack) {
+            this.cancel();
+            return;
+          }
+          if (companion) {
+            this.state.refreshFolderListing(this.state.selectedSourceId());
             this.cancel();
             return;
           }
