@@ -506,5 +506,48 @@ describe('BatchRenameService', () => {
       expect(out?.summary).toEqual({ total: 2, relocated: 1, skipped: 1, failed: 0 });
       expect(out?.results[0]).toMatchObject({ address: 'lib1:IMG_1.CR3', kind: 'relocated' });
     });
+
+    it('pair server: a later run failure keeps the completed runs results', () => {
+      let out: BatchRenameApplyResult | undefined;
+      const first = { ...stacked, companion: { ...stacked.companion, id: 'id-jpg' } };
+      const refusedRow = {
+        address: 'lib1:IMG_0.CR3',
+        filename: 'IMG_0.CR3',
+        id: 'id-raw-0',
+        companion: { address: 'lib1:IMG_0.JPG', filename: 'IMG_0.JPG', id: null },
+      };
+      const later = {
+        address: 'lib1:IMG_2.CR3',
+        filename: 'IMG_2.CR3',
+        id: 'id-raw-2',
+        companion: { address: 'lib1:IMG_2.JPG', filename: 'IMG_2.JPG', id: 'id-jpg-2' },
+      };
+      svc.apply([first, refusedRow, later], options, 'skip').subscribe((r) => (out = r));
+      http
+        .expectOne('/api/display/config')
+        .flush({ show_hidden_images: false, stack_pair_ops_supported: true });
+      http.expectOne('/api/assets/batch-rename').flush({
+        summary: { total: 1, relocated: 1, skipped: 0, failed: 0 },
+        results: [
+          {
+            id: 'id-raw',
+            kind: 'relocated',
+            old_filename: 'IMG_1.CR3',
+            new_filename: 'Trip-01.CR3',
+            companion_new_filename: 'Trip-01.JPG',
+            renamed_on_collision: false,
+            extension_changed: false,
+          },
+        ],
+      });
+      http
+        .expectOne('/api/assets/batch-rename')
+        .flush({ error: 'boom' }, { status: 500, statusText: 'Server Error' });
+      expect(out?.summary).toEqual({ total: 3, relocated: 1, skipped: 1, failed: 1 });
+      expect(out?.results[0]).toMatchObject({ address: 'lib1:IMG_1.CR3', kind: 'relocated' });
+      expect(out?.results).toContainEqual(
+        expect.objectContaining({ address: 'lib1:IMG_2.CR3', kind: 'error' }),
+      );
+    });
   });
 });

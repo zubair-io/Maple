@@ -27,6 +27,7 @@ import { BunApiBackendService } from '../api/bun-api-backend.service';
 import { renameCompanions, withCompanionPreview } from './batch-rename-companions';
 import { FolderOccupancyService } from '../stack/folder-occupancy.service';
 import { StackPairOpsService } from '../stack/stack-pair-ops.service';
+import { errorMessage } from '../util/errors';
 import type {
   BatchRenameApplyResult,
   BatchRenameCollisionPolicy,
@@ -284,54 +285,72 @@ export class BatchRenameService {
                 ? { companion_ids: run.rows.map((row) => row.companion?.id ?? null) }
                 : {}),
             })
-            .pipe(map((res) => ({ run, res }))),
+            .pipe(
+              map((res) => ({ run, res, error: null as string | null })),
+              catchError((err: unknown) =>
+                of({ run, res: null as RawApplyResponse | null, error: errorMessage(err) }),
+              ),
+            ),
         );
         return concat(...requests).pipe(
           toArray(),
           map((parts) => {
-            const resolvedResults = parts.flatMap(({ run, res }) =>
-              run.rows.flatMap((row, i) => {
-                const raw = res.results[i]!;
-                const mapped = mapApplyResult(row.address, raw);
-                if (!pairSupported || !row.companion) return [mapped];
-                if (mapped.kind === 'relocated' && raw.companion_new_filename) {
-                  return [
-                    mapped,
-                    {
-                      address: row.companion.address,
-                      kind: 'relocated',
-                      oldFilename: row.companion.filename,
-                      newFilename: raw.companion_new_filename,
-                      renamedOnCollision: false,
-                      extensionChanged: false,
-                    } as BatchRenameItemResult,
-                  ];
-                }
-                if (mapped.kind === 'skipped' && raw.collision_filename) {
-                  return [
-                    mapped,
-                    {
-                      address: row.companion.address,
-                      kind: 'skipped',
-                      reason: `${raw.collision_filename} already exists, so ${row.companion.filename} kept its name`,
-                    } as BatchRenameItemResult,
-                  ];
-                }
-                return [mapped];
-              }),
+            const resolvedResults = parts.flatMap(({ run, res, error }) =>
+              !res
+                ? run.rows.map(
+                    (row): BatchRenameItemResult => ({
+                      address: row.address,
+                      kind: 'error',
+                      error: error ?? 'unknown error',
+                    }),
+                  )
+                : run.rows.flatMap((row, i) => {
+                    const raw = res.results[i]!;
+                    const mapped = mapApplyResult(row.address, raw);
+                    if (!pairSupported || !row.companion) return [mapped];
+                    if (mapped.kind === 'relocated' && raw.companion_new_filename) {
+                      return [
+                        mapped,
+                        {
+                          address: row.companion.address,
+                          kind: 'relocated',
+                          oldFilename: row.companion.filename,
+                          newFilename: raw.companion_new_filename,
+                          renamedOnCollision: false,
+                          extensionChanged: false,
+                        } as BatchRenameItemResult,
+                      ];
+                    }
+                    if (mapped.kind === 'skipped' && raw.collision_filename) {
+                      return [
+                        mapped,
+                        {
+                          address: row.companion.address,
+                          kind: 'skipped',
+                          reason: `${raw.collision_filename} already exists, so ${row.companion.filename} kept its name`,
+                        } as BatchRenameItemResult,
+                      ];
+                    }
+                    return [mapped];
+                  }),
             );
             const results = [...resolvedResults, ...refusedResults, ...unresolvedResults];
+            const failedRuns = parts.filter((part) => !part.res);
             const summary: BatchRenameSummary = {
               total:
-                parts.reduce((sum, part) => sum + part.res.summary.total, 0) +
+                parts.reduce(
+                  (sum, part) => sum + (part.res?.summary.total ?? part.run.rows.length),
+                  0,
+                ) +
                 unresolvedResults.length +
                 refusedResults.length,
-              relocated: parts.reduce((sum, part) => sum + part.res.summary.relocated, 0),
+              relocated: parts.reduce((sum, part) => sum + (part.res?.summary.relocated ?? 0), 0),
               skipped:
-                parts.reduce((sum, part) => sum + part.res.summary.skipped, 0) +
+                parts.reduce((sum, part) => sum + (part.res?.summary.skipped ?? 0), 0) +
                 refusedResults.length,
               failed:
-                parts.reduce((sum, part) => sum + part.res.summary.failed, 0) +
+                parts.reduce((sum, part) => sum + (part.res?.summary.failed ?? 0), 0) +
+                failedRuns.reduce((sum, part) => sum + part.run.rows.length, 0) +
                 unresolvedResults.length,
             };
             return { summary, results };
