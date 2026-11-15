@@ -274,6 +274,10 @@ pub(super) fn error_rc(fn_name: &str, e: StitchError) -> i32 {
             set_last_error(format!("{fn_name}: {e}"));
             -9
         }
+        StitchError::SeamConstraint(e) => {
+            set_last_error(format!("{fn_name}: invalid_seam_constraints: {e}"));
+            -11
+        }
         e => {
             set_last_error(format!("{fn_name}: {e}"));
             -7

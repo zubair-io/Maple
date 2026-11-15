@@ -11,28 +11,27 @@ use crate::strategy::StrategyRequest;
 use super::types::{StitchError, StitchOptions};
 
 pub(super) fn validate(opts: &StitchOptions, n_inputs: usize) -> Result<(), StitchError> {
-    if opts.seam_constraints.is_empty() {
+    let Some(request) = &opts.seam_constraints else {
+        return Ok(());
+    };
+    request.validate(n_inputs)?;
+    if request.regions.is_empty() {
         return Ok(());
     }
     if opts.seam_strategy != SeamStrategy::GraphCut || opts.strategy == StrategyRequest::Tile {
         return Err(SeamConstraintError::RequiresGraphCut.into());
     }
-    opts.seam_constraints
-        .iter()
-        .find(|c| c.frame() >= n_inputs)
-        .map_or(Ok(()), |c| {
-            Err(SeamConstraintError::UnknownFrame {
-                frame: c.frame(),
-                frames: n_inputs,
-            }
-            .into())
-        })
+    Ok(())
 }
 
 /// The tile tail has no graph-cut seam, so an `Auto` run that lands there
 /// cannot honour constraints.
 pub(super) fn reject_on_tile(opts: &StitchOptions) -> Result<(), StitchError> {
-    if opts.seam_constraints.is_empty() {
+    if opts
+        .seam_constraints
+        .as_ref()
+        .is_none_or(|r| r.regions.is_empty())
+    {
         Ok(())
     } else {
         Err(SeamConstraintError::RequiresGraphCut.into())
@@ -42,18 +41,18 @@ pub(super) fn reject_on_tile(opts: &StitchOptions) -> Result<(), StitchError> {
 /// Renumber constraints from input order into composite order. An exclude
 /// on a dropped frame already holds; an include on one cannot.
 pub(super) fn for_kept_frames(
-    constraints: &[SeamConstraint],
+    constraints: impl IntoIterator<Item = SeamConstraint>,
     kept_inputs: &[usize],
 ) -> Result<Vec<SeamConstraint>, StitchError> {
     constraints
-        .iter()
+        .into_iter()
         .filter_map(|c| {
             let kept = kept_inputs.iter().position(|&i| i == c.frame());
             match (kept, c) {
                 (Some(k), _) => Some(Ok(c.with_frame(k))),
                 (None, SeamConstraint::ForceExclude(..)) => None,
                 (None, SeamConstraint::ForceInclude(f, _)) => Some(Err(
-                    SeamConstraintError::IncludeDroppedFrame { frame: *f }.into(),
+                    SeamConstraintError::IncludeDroppedFrame { frame: f }.into(),
                 )),
             }
         })
@@ -82,7 +81,13 @@ mod tests {
 
     fn opts(constraints: Vec<SeamConstraint>, seam_strategy: SeamStrategy) -> StitchOptions {
         StitchOptions {
-            seam_constraints: constraints,
+            seam_constraints: Some(crate::seam::SeamConstraintsRequest::from_constraints(
+                &constraints,
+                crate::seam::SeamConstraintCanvas {
+                    width: 100,
+                    height: 100,
+                },
+            )),
             seam_strategy,
             ..StitchOptions::default()
         }
@@ -114,7 +119,7 @@ mod tests {
     fn constraints_follow_frames_through_drops() {
         let kept = [0, 2, 3];
         let renumbered = for_kept_frames(
-            &[
+            [
                 SeamConstraint::ForceInclude(3, R),
                 SeamConstraint::ForceExclude(1, R),
                 SeamConstraint::ForceExclude(2, R),
@@ -130,7 +135,7 @@ mod tests {
             ]
         );
         assert!(matches!(
-            for_kept_frames(&[SeamConstraint::ForceInclude(1, R)], &kept),
+            for_kept_frames([SeamConstraint::ForceInclude(1, R)], &kept),
             Err(StitchError::SeamConstraint(
                 SeamConstraintError::IncludeDroppedFrame { frame: 1 }
             ))

@@ -13,8 +13,8 @@
 //! The solve here consumes proxy-accuracy matches, so the residual budgets
 //! apply in proxy pixels — a preview keeps frames a strict full stitch
 //! might drop; the full stitch re-solves on refined matches regardless.
-//! User seam constraints are drawn in full-stitch canvas pixels, which the
-//! preview canvas does not share, so the preview seams are unconstrained.
+//! User constraints scale from their declared reference canvas onto the
+//! uncropped preview canvas, just as they do for the full stitch.
 
 use std::path::PathBuf;
 use std::time::Instant;
@@ -143,6 +143,7 @@ pub fn preview(
         edges,
     } = match &alignment.tile_graph {
         Some(tile_graph) => {
+            super::seam_gate::reject_on_tile(opts)?;
             let frames = InMemory(&proxies);
             let mut collector = CanvasCollector::default();
             let mut natural = (0, 0);
@@ -371,6 +372,11 @@ fn rotation_preview(
             boundary::rotation_footprint(&cameras, &local, &canvas)
         });
     let mut collector = CanvasCollector::default();
+    let requested = opts
+        .seam_constraints
+        .iter()
+        .flat_map(|r| r.for_canvas(output_canvas.width, output_canvas.height));
+    let constraints = super::seam_gate::for_kept_frames(requested, &kept_inputs)?;
     let report = composite_tiled(
         &InMemory(&frames),
         &cameras,
@@ -380,11 +386,11 @@ fn rotation_preview(
         &output_canvas,
         opts.canvas_tile_rows.unwrap_or(512),
         opts.seam_strategy,
-        &[],
+        &constraints,
         opts.auto_crop,
         &mut collector,
     )
-    .map_err(to_err)?;
+    .map_err(super::seam_gate::composite_error)?;
     progress(5, 1.0);
     Ok(Composited {
         image: collector.into_image(),

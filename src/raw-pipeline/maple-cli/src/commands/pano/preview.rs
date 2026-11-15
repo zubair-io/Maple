@@ -101,6 +101,7 @@ pub(super) fn run_preview(
         "height": preview.height,
         "alignment": alignment_report(&verdict(preview.reuse, unreadable)),
         "edges": super::edges::edges_report(args.boundary_warp, args.auto_crop, &preview.edges),
+        "seam_constraints": opts.seam_constraints,
         "timings_s": {
             "decode": decode,
             "features": features,

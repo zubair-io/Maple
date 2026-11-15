@@ -420,3 +420,33 @@ fn tiled_graph_cut_composite_shows_only_the_force_included_frame() {
         }
     }
 }
+
+#[test]
+fn request_roi_must_fit_wholly_inside_canvas() {
+    let canvas = Ring::new().canvas;
+    for rect in [
+        CanvasRect {
+            x: canvas.width - 1,
+            y: 0,
+            width: 2,
+            height: 1,
+        },
+        CanvasRect {
+            x: 1,
+            y: 0,
+            width: u32::MAX,
+            height: 1,
+        },
+        CanvasRect {
+            x: 0,
+            y: canvas.height - 1,
+            width: 1,
+            height: 2,
+        },
+    ] {
+        assert!(matches!(
+            validate(&[SeamConstraint::ForceInclude(0, rect)], 2, &canvas),
+            Err(SeamConstraintError::EmptyRegion { .. })
+        ));
+    }
+}

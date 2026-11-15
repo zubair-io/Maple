@@ -8,7 +8,6 @@ use crate::composite::{composite_tiled, CanvasSink, CompositeReport};
 use crate::frame_store::FrameRows;
 use crate::gain::{solve_exposure_field_observed, FramePhotometry};
 use crate::local_align::LocalCorrection;
-use crate::seam::SeamConstraint;
 
 use super::composite_progress::{CompositeProgress, EXPOSURE_FIELD};
 use super::{boundary, seam_gate, StitchError, StitchOptions};
@@ -25,7 +24,7 @@ pub(super) fn composite(
     local_corrections: &[Option<LocalCorrection>],
     canvas: &CanvasSpec,
     opts: &StitchOptions,
-    seam_constraints: &[SeamConstraint],
+    kept_inputs: &[usize],
     progress: &CompositeProgress,
     sink: &mut dyn CanvasSink,
 ) -> Result<CompositeReport, StitchError> {
@@ -42,6 +41,11 @@ pub(super) fn composite(
         boundary::warped_canvas(canvas, opts.boundary_warp, || {
             boundary::rotation_footprint(cameras, local_corrections, canvas)
         });
+    let requested = opts
+        .seam_constraints
+        .iter()
+        .flat_map(|r| r.for_canvas(output_canvas.width, output_canvas.height));
+    let seam_constraints = seam_gate::for_kept_frames(requested, kept_inputs)?;
     let mut report = composite_tiled(
         frames,
         cameras,
@@ -51,7 +55,7 @@ pub(super) fn composite(
         &output_canvas,
         opts.canvas_tile_rows.unwrap_or(DEFAULT_TILE_ROWS),
         opts.seam_strategy,
-        seam_constraints,
+        &seam_constraints,
         opts.auto_crop,
         sink,
     )

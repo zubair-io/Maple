@@ -38,11 +38,13 @@ pub mod constraints;
 pub mod labels;
 pub mod masks;
 pub mod pairwise;
+pub mod request;
 #[cfg(test)]
 mod tests;
 
 pub use constraints::{CanvasRect, SeamConstraint, SeamConstraintError};
 pub use masks::SeamMasks;
+pub use request::{SeamConstraintCanvas, SeamConstraintsRequest, SeamRegion, SeamRegionKind};
 
 /// Which seam-placement algorithm a composite pass used.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]

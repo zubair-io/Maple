@@ -72,6 +72,10 @@ impl SeamConstraint {
 /// found).
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum SeamConstraintError {
+    #[error("invalid_seam_constraints: {0}")]
+    InvalidRequest(String),
+    #[error("invalid_seam_constraints: unsupported schema version {0}")]
+    UnsupportedVersion(u32),
     #[error("seam constraints need the graph-cut seam strategy on the rotation path")]
     RequiresGraphCut,
     #[error("seam constraint names frame {frame}, but there are only {frames} frame(s)")]
@@ -157,8 +161,14 @@ pub fn validate(
                 frames: n_frames,
             });
         }
-        let empty =
-            r.width == 0 || r.height == 0 || r.x >= full_canvas.width || r.y >= full_canvas.height;
+        let empty = r.width == 0
+            || r.height == 0
+            || r.x
+                .checked_add(r.width)
+                .is_none_or(|right| right > full_canvas.width)
+            || r.y
+                .checked_add(r.height)
+                .is_none_or(|bottom| bottom > full_canvas.height);
         if empty {
             return Err(SeamConstraintError::EmptyRegion {
                 frame: c.frame(),

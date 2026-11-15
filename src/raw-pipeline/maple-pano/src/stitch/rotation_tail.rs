@@ -23,8 +23,8 @@ use super::composite_progress::{CompositeProgress, PHOTOMETRY};
 use super::degenerate::reject_degenerate_canvas;
 use super::photometry::solve_kept_photometry;
 use super::refine_pass::refine_edges;
+use super::rotation_composite;
 use super::types::{StitchError, StitchOptions, StitchOutcome};
-use super::{rotation_composite, seam_gate};
 
 /// Run stages 3–5 of the rotation strategy from a solved alignment.
 /// `head_timings` are the stage 0–2 wall times to report (zero when the
@@ -164,7 +164,6 @@ pub(super) fn rotation_tail(
             &mut stage.observer(PHOTOMETRY),
         )?;
 
-        let seam_constraints = seam_gate::for_kept_frames(&opts.seam_constraints, &kept_inputs)?;
         let on_advance = |phase, fraction| stage.report_phase(phase, fraction);
         let tiled_report = rotation_composite::composite(
             &kept_frames,
@@ -173,7 +172,7 @@ pub(super) fn rotation_tail(
             &kept_local,
             &canvas,
             opts,
-            &seam_constraints,
+            &kept_inputs,
             &stage,
             &mut CancellableSink::with_progress(sink, is_cancelled, &on_advance),
         )?;

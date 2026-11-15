@@ -73,15 +73,21 @@ fn composite_only_options_keep_the_alignment_valid() {
         },
         StitchOptions {
             seam_strategy: SeamStrategy::GraphCut,
-            seam_constraints: vec![crate::seam::SeamConstraint::ForceExclude(
-                1,
-                crate::seam::CanvasRect {
-                    x: 0,
-                    y: 0,
-                    width: 8,
-                    height: 8,
+            seam_constraints: Some(crate::seam::SeamConstraintsRequest::from_constraints(
+                &[crate::seam::SeamConstraint::ForceExclude(
+                    1,
+                    crate::seam::CanvasRect {
+                        x: 0,
+                        y: 0,
+                        width: 8,
+                        height: 8,
+                    },
+                )],
+                crate::seam::SeamConstraintCanvas {
+                    width: 100,
+                    height: 100,
                 },
-            )],
+            )),
             ..base.clone()
         },
     ];
