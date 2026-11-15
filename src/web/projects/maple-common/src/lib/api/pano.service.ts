@@ -29,6 +29,21 @@ export interface PanoStitchOptions {
   autoCrop?: boolean;
 }
 
+export interface SeamConstraintRegion {
+  kind: 'include' | 'exclude';
+  frame: number;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+export interface SeamConstraintsRequest {
+  version: 1;
+  canvas: { width: number; height: number };
+  regions: SeamConstraintRegion[];
+}
+
 export interface PanoStitchRequest {
   /** Server asset id hex strings, sent ONLY for selected assets the client
    *  cannot reference by absolute path (e.g. cloud-hosted assets with no local
@@ -47,6 +62,7 @@ export interface PanoStitchRequest {
    *  matching is not repeated (#4580). Ignored by the server when the preview
    *  is unknown or unfinished. */
   alignmentFrom?: string;
+  seamConstraints?: SeamConstraintsRequest;
 }
 
 export interface PanoStitchResponse {
@@ -107,6 +123,7 @@ export interface PanoJobResult extends PanoMatcherUsed {
   /** Null from a binary that predates Boundary Warp and Auto Crop. */
   edges?: PanoEdgesReport | null;
   error: string | null;
+  seamConstraints?: SeamConstraintsRequest;
 }
 
 /** `result` of a finished `pano_preview` job. */
@@ -116,6 +133,8 @@ export interface PanoPreviewResult extends PanoMatcherUsed {
   width: number | null;
   height: number | null;
   seconds: number | null;
+  frames?: Array<{ assetId: string; path: string }>;
+  seamConstraints?: SeamConstraintsRequest;
 }
 
 export interface PanoJobView {
@@ -147,6 +166,7 @@ export interface PanoConfig {
   preview_supported: boolean;
   /** Whether the binary supports Boundary Warp and Auto Crop (`--boundary-warp`). */
   edges_supported: boolean;
+  seamConstraintsSupported?: boolean;
   source: {
     maple_cli_path: ConfigSource;
     models_dir: ConfigSource;

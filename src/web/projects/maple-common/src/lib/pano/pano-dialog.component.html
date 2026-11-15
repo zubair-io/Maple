@@ -48,13 +48,25 @@
           <!-- Quick preview (#4580) -->
           @if (previewSupported()) {
             <div
-              class="sticky -top-4 z-10 -mx-4 -mt-3 flex flex-col gap-1.5 bg-surface px-4 pt-4 pb-2"
+              class="-top-4 z-10 -mx-4 -mt-3 flex flex-col gap-1.5 bg-surface px-4 pt-4 pb-2"
+              [class.sticky]="!seamAuthoring()"
               data-testid="pano-preview"
             >
               @let image = preview.image();
               @let run = preview.run();
+              @let crop = previewCrop();
               @if (image) {
-                @if (previewCrop(); as crop) {
+                @if (seamAuthoring(); as authoring) {
+                  <app-pano-seam-editor
+                    [imageUrl]="image.url"
+                    [previewCanvas]="authoring.canvas"
+                    [frames]="authoring.frames"
+                    [disabledReason]="seamDisabledReason()"
+                    [readOnly]="stitching()"
+                    [(constraints)]="seamConstraints"
+                    (previewRequested)="onPreviewSeams()"
+                  />
+                } @else if (crop) {
                   <div
                     class="relative mx-auto overflow-hidden rounded-[5px] bg-black transition-opacity duration-200"
                     data-testid="pano-preview-crop"
@@ -214,6 +226,12 @@
                 (warpCommit)="committedWarp.set($event)"
               />
             }
+            @if (!seamConstraintsSupported()) {
+              <p class="m-0 text-[11px] text-text-muted">
+                Seam region authoring requires a server panorama binary with seam constraints
+                support.
+              </p>
+            }
           </div>
         </div>
 
@@ -223,8 +241,21 @@
           @if (stitching()) {
             <mui-button variant="ghost" (pressed)="onCancel()">Cancel job</mui-button>
           } @else {
+            @if (seamConstraints() && seamDisabledReason()) {
+              <p id="pano-seam-submit-reason" class="m-0 text-[11px] text-warn" role="status">
+                {{ seamDisabledReason() }}
+              </p>
+            }
             <mui-button variant="ghost" (pressed)="onCancel()">Cancel</mui-button>
-            <mui-button variant="primary" (pressed)="onSubmit()">Create panorama</mui-button>
+            <mui-button
+              variant="primary"
+              [disabled]="seamConstraints() !== null && seamDisabledReason() !== null"
+              [ariaDescribedby]="
+                seamConstraints() && seamDisabledReason() ? 'pano-seam-submit-reason' : null
+              "
+              (pressed)="onSubmit()"
+              >Create panorama</mui-button
+            >
           }
         </div>
       }

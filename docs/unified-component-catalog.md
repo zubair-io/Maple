@@ -244,6 +244,35 @@ Built from molecules. Apple splits these across `Organisms/` and `OrganismsB/`; 
 
 57 elements; 55 complete on all three platforms. Mask Overlay and Mask Panel (the local-adjustment surfaces, `docs/design/maple-ui/components/mask-overlay.md` / `mask-panel.md`) shipped on the web first (#1541); Windows ships them in the design system as `MuiMaskOverlay` / `MuiMaskPanel`, wired to the production Mask tool (`MainWindow.Mask.cs`), and the Apple product surfaces live in the app target (`Views/Masks/MaskOverlay.swift`, `MaskPanel.swift`) rather than the MapleUI package, which is what the Apple `—` above records.
 
+### Panorama Merge Modal: Web seam regions
+
+The Self Hosted merge dialog (`pano/pano-dialog.component.*`) composes the existing preview with
+`pano/seam-editor/pano-seam-editor.component.*`. This app-specific authoring surface uses Maple
+Button, Select and numeric Input atoms and the surface, text, primary, border and warning tokens.
+It is available when `/pano/config` advertises `seamConstraintsSupported` and the preview supplies
+positive dimensions plus `frames: [{assetId, path}]` in sorted absolute input-path order.
+
+- Source selection follows that exact order; displayed frame numbers start at one, while submitted
+  frame indices start at zero. Include and Exclude modes describe which frame must supply, or must
+  not supply, pixels in a region.
+- Pointer drag creates a bounded whole-pixel rectangle, rounding starts down and ends up. Labeled
+  X, Y, Width and Height numeric inputs plus Add region (also Enter in a text field) provide the
+  equivalent keyboard/nonpointer workflow. Enter on a numeric stepper only steps its value.
+  The numbered region list names the mode, frame and coordinates;
+  each region can be removed, and Clear regions removes all. Color is never the only identifier.
+- Authoring always shows the full pre-crop preview canvas, including when Auto Crop is enabled.
+  A version-1 `seamConstraints` request carries that preview's dimensions and regions at the
+  request top level, separate from geometry options. Core maps this reference canvas to the final
+  Boundary-Warp canvas. Explicit Preview regions and Create panorama preserve the original
+  reference dimensions; drawing alone never requests another preview. Alignment remains reusable.
+- Geometry or selected-input changes clear regions. Pending or stale previews disable authoring.
+  Enqueuing a replacement preview immediately stops older polling and image downloads, before
+  the debounce expires. A failed constrained preview leaves the last valid geometry available
+  for correcting regions and retrying; a failed geometry replacement does not revive stale geometry.
+  Tile disables authoring with an actionable Rotation/Auto message; Auto may itself refuse a
+  tile mosaic. Constraints select graph-cut on the server. Unsupported binaries show an upgrade
+  requirement rather than an authoring control.
+
 ## 6. Pages
 
 A template plus organisms. Apple: `Pages/MuiPage*.swift`. Windows: `MapleUI/Pages/MuiPage*.cs`, each paired with a pure `Mui*PageReducer.cs` that holds the page's state transitions so they can be unit-tested. Web: `lib/ui/pages/<name>/`.
