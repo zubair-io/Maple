@@ -344,6 +344,7 @@ export class DragMoveService implements DragMoveCapability {
                   pairAtomic: true,
                 });
               } else {
+                this.queue[0] = { ...item, pairCompanionPrompt: undefined };
                 this.collisionPrompt.set({ filename });
               }
               return;
@@ -358,6 +359,8 @@ export class DragMoveService implements DragMoveCapability {
         error: (err: unknown) => {
           const effective = companionCollision === 'replace' ? companionCollision : collision;
           if (replaceRefused(effective, err)) {
+            if (companionCollision !== 'replace')
+              this.queue[0] = { ...item, pairCompanionPrompt: undefined };
             this.collisionPrompt.set(
               companionCollision === 'replace'
                 ? {

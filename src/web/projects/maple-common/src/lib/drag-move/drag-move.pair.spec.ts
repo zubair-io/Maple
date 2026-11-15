@@ -30,10 +30,12 @@ const TARGET_NODE: SidebarEntry = {
 describe('DragMoveService stack pair ops (#5949)', () => {
   let relocateAssetSpy: ReturnType<typeof vi.fn>;
   let relocatePairSpy: ReturnType<typeof vi.fn>;
+  let occupiedSpy: ReturnType<typeof vi.fn>;
   let service: DragMoveService;
 
   function setup(pairOutcome: unknown, supported = true) {
     relocateAssetSpy = vi.fn();
+    occupiedSpy = vi.fn().mockReturnValue(of(new Set<string>()));
     relocatePairSpy = vi.fn().mockReturnValue(of(pairOutcome));
     TestBed.resetTestingModule();
     TestBed.configureTestingModule({
@@ -45,7 +47,7 @@ describe('DragMoveService stack pair ops (#5949)', () => {
           provide: StackPairOpsService,
           useValue: { supported: () => of(supported), relocatePair: relocatePairSpy },
         },
-        { provide: FolderOccupancyService, useValue: { occupiedNames: vi.fn() } },
+        { provide: FolderOccupancyService, useValue: { occupiedNames: occupiedSpy } },
         {
           provide: LibraryStateService,
           useValue: {
@@ -121,5 +123,31 @@ describe('DragMoveService stack pair ops (#5949)', () => {
     service.beginMove([STACKED_RAW.id], SOURCE_FOLDER_ID, TARGET_NODE, 'move');
     service.resolveCollision('skip');
     expect(service.resultSummary()).toMatchObject({ total: 1, moved: 0, skipped: 1, failed: [] });
+  });
+
+  it('a RAW collision on the JPEG retry clears the JPEG prompt state', () => {
+    setup({ kind: 'skipped', reason: 'collision', collisionFilename: 'IMG_0003.JPG' });
+    service.beginMove([STACKED_RAW.id], SOURCE_FOLDER_ID, TARGET_NODE, 'move');
+    relocatePairSpy.mockReturnValue(
+      of({ kind: 'skipped', reason: 'collision', collisionFilename: 'IMG_0003.CR3' }),
+    );
+    service.resolveCollision('replace');
+    expect(service.collisionPrompt()).toEqual({ filename: 'IMG_0003.CR3' });
+
+    relocatePairSpy.mockReturnValue(
+      of({ kind: 'relocated', newPath: '2026/France', newFilename: 'IMG_0003.1.CR3' }),
+    );
+    service.resolveCollision('keep-both');
+    expect(relocatePairSpy).toHaveBeenLastCalledWith(
+      STACKED_RAW.id,
+      'library:2026/IMG_0003.JPG',
+      'move',
+      'skip',
+      'skip',
+      '2026/France',
+      'IMG_0003.1.CR3',
+    );
+    expect(service.busy()).toBe(false);
+    expect(service.resultSummary()).toMatchObject({ total: 1, moved: 1, failed: [] });
   });
 });
