@@ -27,13 +27,12 @@ internal constructor(
     application: Application,
     val library: PhotoLibrary,
     rendererOverride: PreviewRenderer?,
+    batchOverride: BatchSettingsTransfer? = null,
 ) : AndroidViewModel(application) {
     constructor(application: Application) : this(application, PhotoLibrary(application), null)
-    // The one seam the recovery tests (#4765) substitute — the JNI renderer;
-    // the sidecar layer is always the real one (CLAUDE.md: no mocks there).
     val renderer: PreviewRenderer = rendererOverride ?: EditorRenderer(library, ::framePresented)
     val browseSelection = app.justmaple.aperture.ui.BrowseSelection()
-    val batchSettings = BatchSettingsTransfer(application, library)
+    val batchSettings = batchOverride ?: BatchSettingsTransfer(application, library)
     internal val search =
         app.justmaple.aperture.cloud.CloudSearchModel(viewModelScope) { server, path ->
             withContext(Dispatchers.IO) { library.cloud.http.request(server, path) }
@@ -248,6 +247,7 @@ internal constructor(
 
     private suspend fun open(photo: Photo, single: Boolean, visibleOrder: List<Photo>? = null) {
         if (!flush()) return
+        if (batchSettings.state.value.running) return report(IllegalStateException("Wait for the batch paste to finish or cancel it before opening a photo."))
         cancelNativeDetail()
         nativeDimensionsJob?.cancel()
         val nextMode = if (state.value.mode == PhotoMode.Edit) PhotoMode.Edit else PhotoMode.Preview
