@@ -7,7 +7,7 @@
  */
 
 import type { Database } from 'bun:sqlite';
-import { afterEach, describe, expect, it } from 'bun:test';
+import { afterEach, describe, expect, it, spyOn } from 'bun:test';
 import { WorkerConfigRepo } from '../db/repos/worker-config.repo.ts';
 import { seedClaimableAsset, stageRow } from '../db/repos/stage-runtime.test-helpers.ts';
 import { createLiveTestDatabase } from '../db/sqlite/test-sqlite.test-helpers.ts';
@@ -119,31 +119,42 @@ describe('runSlice', () => {
     expect(await slice).toEqual({ claimed: 1, drained: false });
   });
 
-  it('ends within about two seconds of a pause written by the API process', async () => {
+  it('reads an API pause at the two-second config boundary before claiming another batch', async () => {
     using live = await createLiveTestDatabase();
-    const assets = seed(live.db, 200);
-    const stage = await boot(
-      testStage(async () => {
-        await Bun.sleep(10);
-        return { skip: 'slow' };
-      }),
-      { sliceMs: 10_000 },
-    );
-
-    const slice = stage.runSlice();
-    await until(
-      () => assets.filter((id) => stageRow(live.db, id, STAGE)?.version === 1).length,
-      (done) => done > 0,
-    );
-    const pausedAt = Date.now();
-    await new WorkerConfigRepo().patch(STAGE, { paused: true });
-
-    expect((await slice).drained).toBe(true);
-    expect(Date.now() - pausedAt).toBeLessThan(2_500);
-    expect(stage.paused).toBe(true);
-    const handled = assets.filter((id) => stageRow(live.db, id, STAGE)?.version === 1).length;
-    expect(handled).toBeLessThan(assets.length);
-  }, 15_000);
+    const assets = seed(live.db, 15);
+    const startedAt = 1_000_000;
+    const clock = spyOn(Date, 'now').mockReturnValue(startedAt);
+    try {
+      let batches = 0;
+      const stage = await boot(
+        testStage(skip, {
+          onProgress: async () => {
+            batches += 1;
+            if (batches === 1) {
+              await new WorkerConfigRepo().patch(STAGE, { paused: true });
+              clock.mockReturnValue(startedAt + 1_999);
+            } else {
+              clock.mockReturnValue(startedAt + 2_000);
+            }
+          },
+        }),
+        { sliceMs: 10_000 },
+      );
+      const configReads = spyOn(WorkerConfigRepo.prototype, 'load');
+      try {
+        expect(await stage.runSlice()).toEqual({ claimed: 10, drained: true });
+        expect(configReads).toHaveBeenCalledTimes(2);
+        expect(batches).toBe(2);
+        expect(stage.paused).toBe(true);
+        expect(assets.filter((id) => stageRow(live.db, id, STAGE)?.version === 1)).toHaveLength(10);
+        expect(assets.filter((id) => stageRow(live.db, id, STAGE)?.version === 0)).toHaveLength(5);
+      } finally {
+        configReads.mockRestore();
+      }
+    } finally {
+      clock.mockRestore();
+    }
+  });
 
   it('gives way after its time is up, but only between batches', async () => {
     using live = await createLiveTestDatabase();
