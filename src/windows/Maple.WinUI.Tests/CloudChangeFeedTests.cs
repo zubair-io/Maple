@@ -64,6 +64,8 @@ public sealed class CloudChangeFeedTests
     public void PathGuardAcceptsDescendantsAndRejectsSiblingPrefix()
     {
         var root = Path.Combine(Path.GetTempPath(), "Maple Cloud");
+        Assert.True(CloudFilesChangeApply.IsWithin(root, root));
+        Assert.True(CloudFilesChangeApply.IsWithin(root, root + Path.DirectorySeparatorChar));
         Assert.True(CloudFilesChangeApply.IsWithin(root, Path.Combine(root, "library", "a.dng")));
         Assert.False(CloudFilesChangeApply.IsWithin(root, root + "-backup"));
     }

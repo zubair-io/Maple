@@ -13,8 +13,11 @@ internal static class CloudFilesChangeApply
 {
     internal static bool IsWithin(string root, string path)
     {
-        var fullRoot = Path.GetFullPath(root).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
+        var normalizedRoot = Path.GetFullPath(root).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
         var fullPath = Path.GetFullPath(path);
+        if (string.Equals(fullPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
+                normalizedRoot, StringComparison.OrdinalIgnoreCase)) return true;
+        var fullRoot = normalizedRoot + Path.DirectorySeparatorChar;
         return fullPath.StartsWith(fullRoot, StringComparison.OrdinalIgnoreCase);
     }
 
