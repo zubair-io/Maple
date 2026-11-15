@@ -388,4 +388,20 @@ class BatchSettingsTransferTest {
         batch.run()
         assertEquals(1, batch.state.value.completed)
     }
+
+    @Test fun completedPhotoRevisionIsStableAcrossRecoveryAndChangesForANewBatch() = runBlocking {
+        val target = photo("revision.dng")
+        seed(target)
+        val batch = queue()
+        batch.prepare(listOf(target), copied, listOf(tone))
+        val first = batch.state.value.jobId
+        assertNotNull(first)
+        batch.run()
+        assertEquals(first, batch.state.value.jobId)
+        assertEquals(first, queue().state.value.jobId)
+        batch.prepare(listOf(target), CopiedSettings("next.dng", document("crs:Exposure2012" to "2")), listOf(tone))
+        assertNotEquals(first, batch.state.value.jobId)
+        batch.run()
+        assertEquals("2", attribute(target, "crs:Exposure2012"))
+    }
 }

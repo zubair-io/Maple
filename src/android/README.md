@@ -87,6 +87,8 @@ Dismiss batch explicitly abandons unfinished entries after confirmation, without
 undoing confirmed saves. Original photo bytes are never modified.
 Photos cannot be opened until a running batch finishes or is cancelled, so an editor
 cannot retain the pre-paste document and an obsolete conditional-save baseline.
+Each confirmed photo write also changes that photo's Browse thumbnail revision,
+so visible previews reload the saved sidecar without leaving the folder.
 
 ## Hardware keyboard
 
