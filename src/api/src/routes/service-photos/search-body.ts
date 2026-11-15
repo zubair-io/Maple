@@ -48,21 +48,42 @@ function parseCaptureBound(value: string, edge: Edge): string | null {
   const hour = fill(h, 0, 23);
   const minute = fill(mi, 0, 59);
   const second = fill(s, 0, 59);
-  const millis =
-    fraction === undefined ? fill(undefined, 0, 999) : Number(fraction.padEnd(3, '0').slice(0, 3));
-  const date = new Date(
-    Date.UTC(Number(y), Number(mo) - 1, Number(d), hour, minute, second, millis),
-  );
-  const valid =
+  const millis = fraction === undefined ? fill(undefined, 0, 999) : fractionMillis(fraction, edge);
+  const date = new Date(Date.UTC(Number(y), Number(mo) - 1, Number(d), hour, minute, second));
+  if (!isRealTime(date, [Number(y), Number(mo), Number(d)], [hour, minute, second])) return null;
+  // A start rounded up past .999 carries into the next second (or later), which still sorts right.
+  return millis < 1000
+    ? `${y}-${mo}-${d}T${pad(hour, 2)}:${pad(minute, 2)}:${pad(second, 2)}.${pad(millis, 3)}Z`
+    : new Date(date.getTime() + millis).toISOString();
+}
+
+/** Whether the parts name a real wall-clock time (no 31 June, no 24:00, no :60). */
+function isRealTime(
+  date: Date,
+  [year, month, day]: [number, number, number],
+  [hour, minute, second]: [number, number, number],
+): boolean {
+  return (
     hour <= 23 &&
     minute <= 59 &&
     second <= 59 &&
-    date.getUTCFullYear() === Number(y) &&
-    date.getUTCMonth() === Number(mo) - 1 &&
-    date.getUTCDate() === Number(d);
-  return valid
-    ? `${y}-${mo}-${d}T${pad(hour, 2)}:${pad(minute, 2)}:${pad(second, 2)}.${pad(millis, 3)}Z`
-    : null;
+    date.getUTCFullYear() === year &&
+    date.getUTCMonth() === month - 1 &&
+    date.getUTCDate() === day
+  );
+}
+
+/**
+ * The stored millisecond a fraction reaches at `edge` of its precision. Capture times keep whole
+ * milliseconds, so `end` covers the given precision's last one (`.1` → 199) and drops digits past
+ * the third (`.1009` → 100); `start` pads with zeroes (`.1` → 100) and rounds a sub-millisecond
+ * remainder up (`.1001` → 101), so no earlier capture is let in.
+ */
+function fractionMillis(fraction: string, edge: Edge): number {
+  if (fraction.length <= 3) return Number(fraction.padEnd(3, edge === 'start' ? '0' : '9'));
+  const whole = Number(fraction.slice(0, 3));
+  const rest = /[1-9]/.test(fraction.slice(3));
+  return edge === 'start' && rest ? whole + 1 : whole;
 }
 
 function optionalText(value: unknown, max: number, field: string): string | null | Error {
