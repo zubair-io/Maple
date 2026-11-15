@@ -13,8 +13,11 @@
 //! there once, with its photometry applied, one frame at a time and in
 //! strips from the source rows each strip taps (#5566), and wherever two
 //! views overlap their log-luminance difference is a data sample at the
-//! nearest lattice node. Per (pair, node) the median sample
-//! is the residual `d`, and
+//! nearest lattice node. Samples use the RFC #4501 weight
+//! `w = exp(-t) / (1 + 16 min(m, 0.5))^9`, with `m` the maximum
+//! per-channel scene-linear gradient mismatch and `t` the maximum log-chroma
+//! mismatch. Per (pair, node), summed weights and weighted residual means
+//! preserve that data energy without retaining individual samples, and
 //!
 //! ```text
 //!   Σ w · (δ_i − δ_j − d)²  +  λ · smoothness  +  μ Σ δ²

@@ -3,7 +3,7 @@ use crate::ingest::{PlanarImage, ValidityMask};
 use super::field::{
     periodic_axes, ExposureField, ExposureFieldSummary, NodeGrid, MAX_NODES_PER_VIEW,
 };
-use super::field_solve::{solve_layers, LumaLayer};
+use super::field_solve::{mismatch_weight, solve_layers, LumaLayer};
 
 fn field(grid: NodeGrid, values: Vec<f32>) -> ExposureField {
     ExposureField {
@@ -155,4 +155,81 @@ fn sparse_footprints_coarsen_the_lattice_under_the_node_cap() {
     assert!(solved.summary.max_unknowns_per_view <= MAX_NODES_PER_VIEW);
     assert!(solved.summary.max_unknowns_per_view > MAX_NODES_PER_VIEW / 2);
     assert!(solved.summary.step_rms_after < 0.2 * solved.summary.step_rms_before);
+}
+
+#[test]
+fn mismatched_texture_node_does_not_drive_the_field() {
+    let (w, h) = (256_u32, 256_u32);
+    let checker = |x: u32, y: u32, invert: bool| {
+        let hi = ((x + y) % 2 == 0) != invert;
+        if hi {
+            0.8
+        } else {
+            0.2
+        }
+    };
+    let a = image(w, h, |x, y| {
+        Some(if x < w / 2 { 0.5 } else { checker(x, y, false) })
+    });
+    let b = image(w, h, |x, y| {
+        Some(if x < w / 2 {
+            0.5
+        } else {
+            checker(x, y, true) * 0.6_f32.exp()
+        })
+    });
+    let layers = [LumaLayer::from_warped(&a), LumaLayer::from_warped(&b)];
+    let solved = solve_layers(&layers, (w as usize, h as usize), (false, false));
+    for view in 0..2 {
+        let c = solved.log_correction(view, 0.75, 0.5);
+        assert!(
+            c.abs() < 0.05,
+            "view {view} correction {c} driven by mismatch"
+        );
+    }
+}
+
+#[test]
+fn aligned_texture_offset_still_fits() {
+    let (w, h) = (256_u32, 256_u32);
+    let scene = |x: u32, _y: u32| 0.4 + 0.3 * (x as f32 / w as f32);
+    let layers = [
+        LumaLayer::from_warped(&image(w, h, |x, y| Some(scene(x, y)))),
+        LumaLayer::from_warped(&image(w, h, |x, y| Some(scene(x, y) * 0.4_f32.exp()))),
+    ];
+    let solved = solve_layers(&layers, (w as usize, h as usize), (false, false));
+    let split = solved.log_correction(1, 0.5, 0.5) - solved.log_correction(0, 0.5, 0.5);
+    assert!(split < -0.25, "aligned offset not fitted: split {split}");
+}
+
+#[test]
+fn mismatch_weight_follows_the_rfc_form() {
+    assert_eq!(mismatch_weight(0.0, 0.0), 1.0);
+    assert!((mismatch_weight(0.5, 0.0) - 1.0 / 9.0_f64.powi(9)).abs() < 1e-12);
+    assert_eq!(mismatch_weight(2.0, 0.0), mismatch_weight(0.5, 0.0));
+    assert!(mismatch_weight(0.1, 0.0) < mismatch_weight(0.01, 0.0));
+    assert!((mismatch_weight(0.0, 2.0) - (-2.0_f64).exp()).abs() < 1e-12);
+}
+
+#[test]
+fn chroma_mismatch_does_not_masquerade_as_exposure() {
+    let (w, h) = (128, 128);
+    let a = image(w, h, |_, _| Some(0.5));
+    let mut b = a.clone();
+    b.r.fill(0.0001);
+    b.g.fill(0.0001);
+    b.b.fill(2.5);
+    let layers = [LumaLayer::from_warped(&a), LumaLayer::from_warped(&b)];
+    let solved = solve_layers(&layers, (w as usize, h as usize), (false, false));
+    assert!(solved.summary.max_abs_log < 0.01, "{:?}", solved.summary);
+}
+
+#[test]
+fn mismatched_outliers_within_each_node_are_downweighted() {
+    let (w, h) = (256, 256);
+    let a = image(w, h, |_, _| Some(0.5));
+    let b = image(w, h, |x, y| Some(if (x + y) % 2 == 0 { 1.0 } else { 0.5 }));
+    let layers = [LumaLayer::from_warped(&a), LumaLayer::from_warped(&b)];
+    let solved = solve_layers(&layers, (w as usize, h as usize), (false, false));
+    assert!(solved.summary.max_abs_log < 0.01, "{:?}", solved.summary);
 }
