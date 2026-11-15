@@ -12,6 +12,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontFamily
@@ -138,6 +139,16 @@ fun PhotoThumbnail(
                 Modifier.size(16.dp),
                 strokeWidth = 1.dp,
                 color = MapleColors.muted,
+            )
+        if (!fit && photo.companion != null)
+            Text(
+                "RAW+JPEG",
+                Modifier.align(Alignment.TopEnd).padding(4.dp)
+                    .background(MapleColors.primaryDim, RoundedCornerShape(UiTokens.radius_full.dp))
+                    .padding(4.dp).semantics { contentDescription = "RAW+JPEG" },
+                color = MapleColors.text,
+                fontSize = 8.sp,
+                maxLines = 1,
             )
         val marksPick = pick
         val marksRating = rating

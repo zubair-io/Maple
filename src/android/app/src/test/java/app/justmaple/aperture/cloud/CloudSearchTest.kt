@@ -48,7 +48,7 @@ class CloudSearchTest {
         val first = params(CloudSearchWire.searchPath(query, today, null))
         assertEquals("The search box reaches the ranked natural-language path", "red barn", first["placeQuery"])
         assertNull("`q` is only a filename substring", first["q"])
-        assertNull("Android never asks the server to fold RAW+JPEG pairs", first["stack"])
+        assertNull("Search defaults to unfolded without a policy opt-in", first["stack"])
         assertEquals("2026-03-04", first["from"])
         assertEquals("2026-03-10", first["to"])
         assertEquals("Ann,Zoe", first["people"])
@@ -91,7 +91,7 @@ class CloudSearchTest {
                     .put("nextCursor", "next"),
                 0,
             )
-        assertEquals("A folded row's companion is ignored, never invented", listOf("a.dng", "top.jpg"), page.photos.map { it.name })
+        assertEquals("Unflagged rows never invent a companion", listOf("a.dng", "top.jpg"), page.photos.map { it.name })
         assertEquals(2, page.dropped)
         val photo = page.photos.first()
         assertEquals("server-1", photo.uri.host)

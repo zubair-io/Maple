@@ -36,25 +36,25 @@ internal data class TimelinePage(val rows: List<Pair<Photo, YearMonth>>, val nex
 internal object CloudTimelineWire {
     private fun owner(owner: String?) = listOfNotNull(owner?.let { "owner" to it })
 
-    fun pagePath(owner: String?, from: SearchContinuation?): String =
+    fun pagePath(owner: String?, from: SearchContinuation?, fold: Boolean = false): String =
         CloudSearchWire.path(
             "/api/search",
             listOf(
                 "sort" to "captured_desc",
                 "hasCapturedAt" to "true",
                 "limit" to CloudSearchWire.LIMIT.toString(),
-            ) + owner(owner) + when {
+            ) + owner(owner) + CloudSearchWire.stack(fold) + when {
                 from == null -> emptyList()
                 from.cursor != null -> listOf("cursor" to from.cursor)
                 else -> listOf("page" to from.page.toString())
             },
         )
 
-    fun bucketsPath(owner: String?): String =
-        CloudSearchWire.path("/api/search/buckets", listOf("hasCapturedAt" to "true") + owner(owner))
+    fun bucketsPath(owner: String?, fold: Boolean = false): String =
+        CloudSearchWire.path("/api/search/buckets", listOf("hasCapturedAt" to "true") + owner(owner) + CloudSearchWire.stack(fold))
 
-    fun ownersPath(): String =
-        CloudSearchWire.path("/api/search/facets", listOf("hasCapturedAt" to "true", "limit" to "200"))
+    fun ownersPath(fold: Boolean = false): String =
+        CloudSearchWire.path("/api/search/facets", listOf("hasCapturedAt" to "true", "limit" to "200") + CloudSearchWire.stack(fold))
 
     // Capture buckets use UTC, not the phone's timezone or the timestamp's original offset.
     fun captureMonth(value: String): YearMonth? =
@@ -62,13 +62,13 @@ internal object CloudTimelineWire {
             .recoverCatching { YearMonth.from(LocalDateTime.parse(value)) }
             .getOrNull()
 
-    fun parsePage(serverId: String, json: JSONObject, page: Int = 0): TimelinePage {
+    fun parsePage(serverId: String, json: JSONObject, page: Int = 0, fold: Boolean = false): TimelinePage {
         val rows = json.optJSONArray("results")
         val count = rows?.length() ?: 0
         val photos = (0 until count).mapNotNull { index ->
             val row = rows!!.getJSONObject(index)
             val month = captureMonth(row.optString("captured_at"))
-            val photo = CloudSearchWire.photo(serverId, row)
+            val photo = CloudSearchWire.photo(serverId, row, fold)
             if (month == null || photo == null) null else photo to month
         }
         val next = CloudSearchWire.continuation(json, page, count)
@@ -102,6 +102,7 @@ internal object CloudTimelineWire {
 internal class CloudTimelineModel(
     private val scope: CoroutineScope,
     private val userId: (server: String) -> String?,
+    private val fold: suspend (server: String) -> Boolean = { false },
     private val fetch: suspend (server: String, path: String) -> CloudResponse,
 ) {
     private val mutable = MutableStateFlow(CloudTimelineState())
@@ -111,6 +112,7 @@ internal class CloudTimelineModel(
     private var rows: List<Pair<Photo, YearMonth>> = emptyList()
     private var counts: Map<YearMonth, Int> = emptyMap()
     private var next: SearchContinuation? = null
+    private var folded = false
 
     fun selectServer(server: Folder?) {
         if (server?.uri != mutable.value.server?.uri) start(server, null)
@@ -158,10 +160,11 @@ internal class CloudTimelineModel(
         mutable.update { it.copy(loading = true, error = null) }
         job = scope.launch {
             try {
+                if (from == null) folded = fold(serverId)
                 val page = CloudTimelineWire.parsePage(serverId,
-                    JSONObject(fetch(serverId, CloudTimelineWire.pagePath(owner, from)).requireSuccess().text()), from?.page ?: 0)
-                val buckets = if (from == null) optional(serverId, CloudTimelineWire.bucketsPath(owner)) else null
-                val owners = if (from == null) optional(serverId, CloudTimelineWire.ownersPath()) else null
+                    JSONObject(fetch(serverId, CloudTimelineWire.pagePath(owner, from, folded)).requireSuccess().text()), from?.page ?: 0, folded)
+                val buckets = if (from == null) optional(serverId, CloudTimelineWire.bucketsPath(owner, folded)) else null
+                val owners = if (from == null) optional(serverId, CloudTimelineWire.ownersPath(folded)) else null
                 if (request != generation) return@launch
                 if (from == null) counts = buckets?.let(CloudTimelineWire::parseBuckets).orEmpty()
                 rows = (rows + page.rows).distinctBy { it.first.uri }

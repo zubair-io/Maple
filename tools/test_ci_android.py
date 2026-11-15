@@ -253,6 +253,30 @@ class AndroidWorkflowTests(unittest.TestCase):
             self.assertIn(contract, runner)
         self.assertNotIn("connectedDebugAndroidTest ||", runner)
 
+    def test_pair_device_rename_requires_cached_host_filename_engine(self):
+        steps = workflow("android")["jobs"]["android-build"]["steps"]
+        native = next(
+            step
+            for step in steps
+            if step.get("name") == "Build host filename engine for pair device tests"
+        )
+        self.assertEqual(
+            native["env"]["CARGO_TARGET_DIR"],
+            "${{ github.workspace }}/src/android/native/target",
+        )
+        self.assertIn(
+            "cargo build --locked --manifest-path src/raw-pipeline/Cargo.toml -p raw-ffi --lib",
+            native["run"],
+        )
+        self.assertNotIn("--features", native["run"])
+        self.assertIn(
+            'cp "$CARGO_TARGET_DIR/debug/libraw_ffi.so" src/api/native/', native["run"]
+        )
+        emulator = next(
+            step for step in steps if "emulator-runner@" in step.get("uses", "")
+        )
+        self.assertLess(steps.index(native), steps.index(emulator))
+
     def test_result_rejects_failed_cancelled_and_skipped_selected_android(self):
         for result in ("failure", "cancelled", "skipped"):
             needs = {

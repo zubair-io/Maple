@@ -52,10 +52,6 @@ internal data class CloudSearchPage(
     val next: SearchContinuation?,
 )
 
-/**
- * Never sends `stack=1`: the server answers unfolded, so a RAW+JPEG pair is two
- * results here and a row's `stack.companion` (present only on folded answers) is ignored.
- */
 internal object CloudSearchWire {
     const val LIMIT = 200
 
@@ -75,10 +71,10 @@ internal object CloudSearchWire {
     fun path(route: String, params: List<Pair<String, String>>) =
         route + params.joinToString("&", "?") { (key, value) -> "$key=${Uri.encode(value)}" }
 
-    fun searchPath(query: CloudSearchQuery, today: LocalDate, from: SearchContinuation?): String =
+    fun searchPath(query: CloudSearchQuery, today: LocalDate, from: SearchContinuation?, fold: Boolean = false): String =
         path(
             "/api/search",
-            filters(query, today) +
+            filters(query, today) + stack(fold) +
                 ("limit" to LIMIT.toString()) +
                 when {
                     from == null -> emptyList()
@@ -87,11 +83,13 @@ internal object CloudSearchWire {
                 },
         )
 
-    fun facetsPath(query: CloudSearchQuery, today: LocalDate): String =
-        path("/api/search/facets", filters(query, today) + ("limit" to LIMIT.toString()))
+    fun facetsPath(query: CloudSearchQuery, today: LocalDate, fold: Boolean = false): String =
+        path("/api/search/facets", filters(query, today) + stack(fold) + ("limit" to LIMIT.toString()))
+
+    fun stack(fold: Boolean): List<Pair<String, String>> = if (fold) listOf("stack" to "1") else emptyList()
 
     /** A row without a registered library address cannot be opened: `null`, as for a non-photo. */
-    fun photo(serverId: String, row: JSONObject): Photo? {
+    fun photo(serverId: String, row: JSONObject, fold: Boolean = false): Photo? {
         val address = row.optString("address").takeIf { it.isNotEmpty() && it != "null" && ':' in it }
         val name = row.optString("filename")
         val path = row.optString("abs_path")
@@ -106,13 +104,15 @@ internal object CloudSearchWire {
             row.optLong("size"),
             row.optLong("mtime"),
             CloudLibrary.address(serverId, folderAddress, path.substringBeforeLast('/')),
+            assetId = CloudBrowseWire.assetId(row),
+            companion = if (fold) CloudBrowseWire.companion(serverId, row) else null,
         )
     }
 
-    fun parsePage(serverId: String, json: JSONObject, page: Int): CloudSearchPage {
+    fun parsePage(serverId: String, json: JSONObject, page: Int, fold: Boolean = false): CloudSearchPage {
         val rows = json.optJSONArray("results")
         val count = rows?.length() ?: 0
-        val photos = (0 until count).mapNotNull { index -> photo(serverId, rows!!.getJSONObject(index)) }
+        val photos = (0 until count).mapNotNull { index -> photo(serverId, rows!!.getJSONObject(index), fold) }
         return CloudSearchPage(photos, json.optInt("total"), count - photos.size,
             json.optString("rankPin").let { it.isNotEmpty() && it != "null" } && (json.optBoolean("more") || json.optBoolean("capped")),
             continuation(json, page, count))
@@ -163,6 +163,7 @@ data class CloudSearchState(
 internal class CloudSearchModel(
     private val scope: CoroutineScope,
     private val today: () -> LocalDate = LocalDate::now,
+    private val fold: suspend (server: String) -> Boolean = { false },
     private val fetch: suspend (server: String, path: String) -> CloudResponse,
 ) {
     private val mutable = MutableStateFlow(CloudSearchState())
@@ -170,6 +171,7 @@ internal class CloudSearchModel(
     private var job: Job? = null
     private var next: SearchContinuation? = null
     private var dropped = 0
+    private var folded = false
 
     fun selectServer(server: Folder?) {
         if (server?.uri != mutable.value.server?.uri) start(server)
@@ -231,7 +233,8 @@ internal class CloudSearchModel(
             mutable.update { it.copy(loading = true, error = null) }
             val query = mutable.value.query
             try {
-                val response = fetch(serverId, CloudSearchWire.searchPath(query, today(), from))
+                if (from == null) folded = fold(serverId)
+                val response = fetch(serverId, CloudSearchWire.searchPath(query, today(), from, folded))
                 if (from?.rankPin != null && response.status == 409 &&
                     JSONObject(response.text()).optString("code") == "rank_engine_changed"
                 ) {
@@ -241,7 +244,7 @@ internal class CloudSearchModel(
                     run(null, 0)
                     return@launch
                 }
-                val page = CloudSearchWire.parsePage(serverId, JSONObject(response.requireSuccess().text()), from?.page ?: 0)
+                val page = CloudSearchWire.parsePage(serverId, JSONObject(response.requireSuccess().text()), from?.page ?: 0, folded)
                 val facets = if (from == null) facets(serverId, query) else null
                 next = page.next
                 dropped = (if (from == null) 0 else dropped) + page.dropped
@@ -275,7 +278,7 @@ internal class CloudSearchModel(
     /** Facets only decorate the filters: their failure never discards a page that arrived. */
     private suspend fun facets(serverId: String, query: CloudSearchQuery): JSONObject? =
         try {
-            JSONObject(fetch(serverId, CloudSearchWire.facetsPath(query, today())).requireSuccess().text())
+            JSONObject(fetch(serverId, CloudSearchWire.facetsPath(query, today(), folded)).requireSuccess().text())
         } catch (failure: Exception) {
             if (failure is CancellationException) throw failure
             null

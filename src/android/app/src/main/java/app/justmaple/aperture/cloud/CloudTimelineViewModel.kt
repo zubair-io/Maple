@@ -10,6 +10,7 @@ internal class CloudTimelineViewModel(cloud: CloudLibrary) : ViewModel() {
     val timeline = CloudTimelineModel(
         viewModelScope,
         userId = { server -> cloud.credentials.servers().find { it.id == server }?.userId },
+        fold = { server -> withContext(Dispatchers.IO) { cloud.stackPolicy.config(server).fold } },
         fetch = { server, path -> withContext(Dispatchers.IO) { cloud.http.request(server, path) } },
     )
     private var connectionsVersion: Int? = null
