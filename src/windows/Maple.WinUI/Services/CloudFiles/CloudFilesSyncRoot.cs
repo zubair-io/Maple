@@ -44,7 +44,6 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
-using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Maple.WinUI.Services.Cloud;
@@ -133,7 +132,7 @@ namespace Maple.WinUI.Services.CloudFiles
                         {
                             StructSize = (uint)Marshal.SizeOf<CfApi.CF_SYNC_POLICIES>(),
                             HydrationPrimary = CfApi.CF_HYDRATION_POLICY_FULL,
-                            PopulationPrimary = CfApi.CF_POPULATION_POLICY_PARTIAL,
+                            PopulationPrimary = CfApi.CF_POPULATION_POLICY_FULL,
                             InSync = CfApi.CF_INSYNC_POLICY_NONE,
                             HardLink = CfApi.CF_HARDLINK_POLICY_NONE,
                         };
@@ -276,82 +275,30 @@ namespace Maple.WinUI.Services.CloudFiles
         {
             NotifyEnteredForTest?.Invoke(CfApi.CF_CALLBACK_TYPE_FETCH_PLACEHOLDERS);
             var info = Marshal.PtrToStructure<CfApi.CF_CALLBACK_INFO>(infoPtr);
-            var listing = ReconcileWithExistingPlaceholders(
-                info, ListEntriesAsync(ReadIdentity(info)).GetAwaiter().GetResult());
-            var entries = listing.Entries;
-            var completion = CloudFilesListing.Completion(listing);
-
-            var pins = new List<GCHandle>();
-            var infos = new CfApi.CF_PLACEHOLDER_CREATE_INFO[Math.Max(1, entries.Count)];
-            try
+            var reconciler = ExistingPlaceholderReconciler(info);
+            var stream = ListEntriesAsync(ReadIdentity(info), (entries, totalCount) =>
             {
-                for (var i = 0; i < entries.Count; i++)
-                {
-                    var e = entries[i];
-                    var nameHandle = GCHandle.Alloc(
-                        Encoding.Unicode.GetBytes(e.Name + "\0"), GCHandleType.Pinned);
-                    var identityBytes = Encoding.Unicode.GetBytes(e.Address);
-                    var idHandle = GCHandle.Alloc(identityBytes, GCHandleType.Pinned);
-                    pins.Add(nameHandle);
-                    pins.Add(idHandle);
-                    var time = e.MtimeUtc.ToFileTimeUtc();
-                    infos[i] = new CfApi.CF_PLACEHOLDER_CREATE_INFO
-                    {
-                        RelativeFileName = nameHandle.AddrOfPinnedObject(),
-                        FileIdentity = idHandle.AddrOfPinnedObject(),
-                        FileIdentityLength = (uint)identityBytes.Length,
-                        Flags = CfApi.CF_PLACEHOLDER_CREATE_FLAG_MARK_IN_SYNC,
-                        FsMetadata = new CfApi.CF_FS_METADATA
-                        {
-                            FileSize = e.IsDirectory ? 0 : e.Size,
-                            BasicInfo = new CfApi.FILE_BASIC_INFO
-                            {
-                                CreationTime = time,
-                                LastAccessTime = time,
-                                LastWriteTime = time,
-                                ChangeTime = time,
-                                FileAttributes = e.IsDirectory
-                                    ? 0x10u /* FILE_ATTRIBUTE_DIRECTORY */
-                                    : 0x80u /* FILE_ATTRIBUTE_NORMAL */,
-                            },
-                        },
-                    };
-                }
-
-                var arrayHandle = GCHandle.Alloc(infos, GCHandleType.Pinned);
-                pins.Add(arrayHandle);
-                var opInfo = OperationInfo(info, CfApi.CF_OPERATION_TYPE_TRANSFER_PLACEHOLDERS);
-                var opParams = new CfApi.CF_OPERATION_PARAMETERS_TRANSFER_PLACEHOLDERS
-                {
-                    ParamSize = (uint)Marshal.SizeOf<CfApi.CF_OPERATION_PARAMETERS_TRANSFER_PLACEHOLDERS>(),
-                    Flags = completion.Flags,
-                    CompletionStatus = completion.Status,
-                    PlaceholderTotalCount = entries.Count,
-                    PlaceholderArray = entries.Count == 0 ? IntPtr.Zero : arrayHandle.AddrOfPinnedObject(),
-                    PlaceholderCount = (uint)entries.Count,
-                };
-                var hr = CfApi.CfExecuteTransferPlaceholders(ref opInfo, ref opParams);
-                if (hr != 0)
-                    DiagLog.Write($"[cloudfiles] TRANSFER_PLACEHOLDERS 0x{hr:X8} ({entries.Count} entries)");
-            }
-            finally
-            {
-                foreach (var pin in pins)
-                    pin.Free();
-            }
+                var missing = reconciler == null ? entries : reconciler.MissingFrom(entries);
+                return missing != null && CloudFilesPlaceholderTransfer.TransferPage(info, missing, totalCount);
+            }).GetAwaiter().GetResult();
+            var complete = stream.Complete && (reconciler == null || reconciler.TryRemoveUnlisted());
+            var hr = CloudFilesPlaceholderTransfer.CompleteListing(info, stream.TransferredCount, complete);
+            if (hr != 0)
+                DiagLog.Write($"[cloudfiles] TRANSFER_PLACEHOLDERS completion 0x{hr:X8}");
         }
 
         /// <summary>Directory listing behind a placeholder identity: the sync
         /// root itself (empty identity) lists registered libraries; nested
         /// identities resolve to slug:relPath and use the enriched folder route.</summary>
-        private async Task<PlaceholderListing> ListEntriesAsync(string identity)
+        private async Task<PlaceholderStreamResult> ListEntriesAsync(
+            string identity, Func<IReadOnlyList<PlaceholderEntry>, int, bool> transferPage)
         {
             var client = _client();
             if (client is not { IsAuthenticated: true })
-                return CloudFilesListing.Failed;
+                return new(false, 0);
 
             if (identity.Length == 0)
-                return await CloudFilesListing.PageAllAsync(async _ =>
+                return await CloudFilesListing.StreamPagesAsync(async _ =>
                 {
                     var folders = await client.GetFoldersAsync(CancellationToken.None).ConfigureAwait(false);
                     return folders == null
@@ -360,14 +307,14 @@ namespace Maple.WinUI.Services.CloudFiles
                             folders.Select(folder => new PlaceholderEntry(
                                 SanitizeName(folder.DisplayName), folder.Slug + ":", true, 0, DateTime.UnixEpoch)).ToList(),
                             null);
-                }).ConfigureAwait(false);
+                }, transferPage).ConfigureAwait(false);
 
             var registered = await client.GetFoldersAsync(CancellationToken.None).ConfigureAwait(false);
             if (registered == null ||
                 !CloudFilesAddress.TryResolve(identity, registered, out var address))
-                return CloudFilesListing.Failed;
+                return new(false, 0);
 
-            return await CloudFilesListing.PageAllAsync(async cursor =>
+            return await CloudFilesListing.StreamPagesAsync(async cursor =>
             {
                 var page = await client.ListFolderAddressAsync(address.Address, cursor, 500, CancellationToken.None)
                     .ConfigureAwait(false);
@@ -378,7 +325,7 @@ namespace Maple.WinUI.Services.CloudFiles
                     .Select(entry => entry with { Name = SanitizeName(entry.Name) })
                     .ToList();
                 return new PlaceholderPage(entries, page.NextCursor);
-            }).ConfigureAwait(false);
+            }, transferPage).ConfigureAwait(false);
         }
 
         // --- FETCH_DATA ---

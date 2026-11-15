@@ -197,30 +197,15 @@ namespace Maple.WinUI.Services.CloudFiles
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { return true; }
         }
 
-        /// <summary>A re-enabled directory already holds placeholders, and
-        /// TRANSFER_PLACEHOLDERS rejects names that exist. Brings the existing
-        /// ones in line with the listing and returns only the missing entries;
-        /// anything that cannot be reconciled yet fails the listing so Windows
-        /// asks again.</summary>
-        private PlaceholderListing ReconcileWithExistingPlaceholders(
-            CfApi.CF_CALLBACK_INFO info, PlaceholderListing listing)
+        /// <summary>A re-enabled or half-transferred directory already
+        /// holds placeholders, and TRANSFER_PLACEHOLDERS rejects names that
+        /// exist. Null when the callback names no directory to compare with.</summary>
+        private ListedDirectoryReconciler? ExistingPlaceholderReconciler(CfApi.CF_CALLBACK_INFO info)
         {
-            if (!listing.Complete || info.NormalizedPath == IntPtr.Zero || info.VolumeDosName == IntPtr.Zero)
-                return listing;
-            try
-            {
-                // NormalizedPath starts at the volume root and carries no drive.
-                var directory = Marshal.PtrToStringUni(info.VolumeDosName) + Marshal.PtrToStringUni(info.NormalizedPath);
-                if (!CloudFilesChangeApply.IsWithin(_syncRootPath, directory)) return listing;
-                return TryReconcileListedDirectory(directory, listing.Entries, out var missing)
-                    ? CloudFilesListing.Succeeded(missing)
-                    : CloudFilesListing.Failed;
-            }
-            catch (Exception ex)
-            {
-                DiagLog.Write($"[cloudfiles] placeholder reconcile failed: {ex.Message}");
-                return CloudFilesListing.Failed;
-            }
+            if (info.NormalizedPath == IntPtr.Zero || info.VolumeDosName == IntPtr.Zero) return null;
+            // NormalizedPath starts at the volume root and carries no drive.
+            var directory = Marshal.PtrToStringUni(info.VolumeDosName) + Marshal.PtrToStringUni(info.NormalizedPath);
+            return CloudFilesChangeApply.IsWithin(_syncRootPath, directory) ? new ListedDirectoryReconciler(directory) : null;
         }
 
         /// <summary>True when the existing item stays and covers the entry,
@@ -247,28 +232,67 @@ namespace Maple.WinUI.Services.CloudFiles
                     !CloudFilesPlaceholderProbe.IsInSyncPlaceholder(path),
             };
 
-        private static bool TryReconcileListedDirectory(
-            string directory, IReadOnlyList<PlaceholderEntry> entries, out IReadOnlyList<PlaceholderEntry> toCreate)
+        /// <summary>Brings a directory's existing placeholders in line with
+        /// a listing as its pages arrive. Anything that cannot be reconciled
+        /// yet fails the listing, so Windows asks again.</summary>
+        private sealed class ListedDirectoryReconciler
         {
-            toCreate = entries;
-            if (!Directory.Exists(directory)) return true;
-            var byName = new Dictionary<string, PlaceholderEntry>(StringComparer.OrdinalIgnoreCase);
-            foreach (var entry in entries) byName.TryAdd(entry.Name, entry);
-            var existing = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            foreach (var path in Directory.EnumerateFileSystemEntries(directory))
+            private readonly string _directory;
+            private readonly HashSet<string> _listed = new(StringComparer.OrdinalIgnoreCase);
+            private Dictionary<string, string>? _existing;
+
+            internal ListedDirectoryReconciler(string directory) => _directory = directory;
+
+            /// <summary>The page's entries that still need a placeholder, or
+            /// null when an existing one could not be refreshed.</summary>
+            internal IReadOnlyList<PlaceholderEntry>? MissingFrom(IReadOnlyList<PlaceholderEntry> page)
             {
-                var name = Path.GetFileName(path);
-                existing.Add(name);
-                if (byName.TryGetValue(name, out var entry))
+                var existing = _existing ??= Existing();
+                var missing = new List<PlaceholderEntry>(page.Count);
+                foreach (var entry in page)
                 {
+                    _listed.Add(entry.Name);
+                    if (!existing.TryGetValue(entry.Name, out var path))
+                    {
+                        missing.Add(entry);
+                        continue;
+                    }
                     var kept = ReconcileExisting(path, entry);
-                    if (kept == null) return false;
-                    if (kept == false) existing.Remove(name);
+                    if (kept == null) return null;
+                    if (kept == false)
+                    {
+                        existing.Remove(entry.Name);
+                        missing.Add(entry);
+                    }
                 }
-                else if (!TryRemoveStalePlaceholder(path)) return false;
+                return missing;
             }
-            toCreate = entries.Where(e => !existing.Contains(e.Name)).ToArray();
-            return true;
+
+            /// <summary>Removes in-sync placeholders the finished listing no
+            /// longer names. Local, modified and pinned items stay.</summary>
+            internal bool TryRemoveUnlisted()
+            {
+                try
+                {
+                    return (_existing ??= Existing())
+                        .Where(item => !_listed.Contains(item.Key))
+                        .All(item => TryRemoveStalePlaceholder(item.Value));
+                }
+                catch (Exception ex)
+                {
+                    DiagLog.Write($"[cloudfiles] placeholder reconcile failed: {ex.Message}");
+                    return false;
+                }
+            }
+
+            private Dictionary<string, string> Existing()
+            {
+                var existing = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                if (!Directory.Exists(_directory)) return existing;
+                foreach (var path in Directory.EnumerateFileSystemEntries(_directory))
+                    existing.TryAdd(Path.GetFileName(path), path);
+                return existing;
+            }
         }
     }
 }
