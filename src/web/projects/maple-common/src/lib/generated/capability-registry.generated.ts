@@ -520,4 +520,18 @@ export const CAPABILITY_REGISTRY: readonly CapabilityRecord[] = [
     qualification: [],
     releaseState: 'core',
   },
+  {
+    id: 'pano_seam_constraints',
+    title: 'Panorama include/exclude seam regions',
+    owner: 'zubair-io',
+    surfaces: ['web'],
+    storageAdapters: ['filesystem'],
+    assetClasses: ['raw'],
+    previewPaths: ['cpu_reference'],
+    exportPaths: ['maple_cli', 'apple_ffi'],
+    fields: [],
+    integration: [],
+    qualification: [],
+    releaseState: 'core',
+  },
 ];

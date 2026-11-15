@@ -7,7 +7,7 @@ Generated from `src/raw-pipeline/raw-core/src/capability_registry/` (the registr
 ## Build
 
 - Sidecar schema version: 5
-- Capabilities: 14 (0 released, 0 integrated, 14 core)
+- Capabilities: 15 (0 released, 0 integrated, 15 core)
 
 ## Capabilities
 
@@ -246,6 +246,19 @@ Generated from `src/raw-pipeline/raw-core/src/capability_registry/` (the registr
 - Asset classes: `raw`, `non_raw`
 - Preview paths: none
 - Export paths: `maple_cli`, `apple_ffi`, `wasm`, `api_ffi`, `windows_dll`
+- Fields: none
+- Integration evidence: none declared
+- Qualification evidence: none declared
+
+### `pano_seam_constraints` — Panorama include/exclude seam regions
+
+- State: **core**
+- Owner: `zubair-io`
+- Surfaces: `web`
+- Storage adapters: `filesystem`
+- Asset classes: `raw`
+- Preview paths: `cpu_reference`
+- Export paths: `maple_cli`, `apple_ffi`
 - Fields: none
 - Integration evidence: none declared
 - Qualification evidence: none declared

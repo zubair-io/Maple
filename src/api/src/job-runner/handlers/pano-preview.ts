@@ -23,10 +23,14 @@ import {
   panoOptionArgs,
   PROGRESS_TOTAL,
   reportPath,
-  resolveInputPaths,
+  resolveInputFrames,
   runPanoCli,
 } from './pano-cli-process.ts';
 import { readEdgesReport, type PanoEdgesReport } from '../../pano/pano-edges.ts';
+import {
+  seamConstraintsResult,
+  type SeamConstraintsRequest,
+} from '../../pano/pano-seam-constraints.ts';
 import {
   alignmentDir,
   matcherUsed,
@@ -44,6 +48,8 @@ interface PanoPreviewResult extends PanoMatcherUsed {
   width: number | null;
   height: number | null;
   seconds: number | null;
+  frames: Array<{ assetId: string; path: string }>;
+  seamConstraints?: SeamConstraintsRequest;
 }
 
 interface PreviewReport {
@@ -75,7 +81,8 @@ export const panoPreviewHandler: JobHandler = {
     }
     await sweepStalePreviews(alignmentDir(payload));
     try {
-      const inputPaths = await resolveInputPaths(payload.assetIds);
+      const frames = await resolveInputFrames(payload.assetIds);
+      const inputPaths = frames.map((frame) => frame.path);
       await mkdir(payload.outputDir, { recursive: true });
       await ctx.reportProgress(0, PROGRESS_TOTAL);
       const args = [
@@ -109,10 +116,12 @@ export const panoPreviewHandler: JobHandler = {
       const result: PanoPreviewResult = {
         alignment,
         edges,
+        frames,
         width: report.width ?? null,
         height: report.height ?? null,
         seconds: report.timings_s?.total ?? null,
         ...matcherUsed(payload),
+        ...seamConstraintsResult(payload.seamConstraints),
       };
       log.info({ jobId: ctx.jobId.toHexString(), ...result }, 'pano preview complete');
       return { kind: 'done', result: { ...result } };

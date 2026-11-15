@@ -545,5 +545,19 @@ public enum CapabilityRegistry {
       qualification: [],
       releaseState: .core
     ),
+    CapabilityRecord(
+      id: "pano_seam_constraints",
+      title: "Panorama include/exclude seam regions",
+      owner: "zubair-io",
+      surfaces: [.web],
+      storageAdapters: [.filesystem],
+      assetClasses: [.raw],
+      previewPaths: [.cpuReference],
+      exportPaths: [.mapleCli, .appleFfi],
+      fields: [],
+      integration: [],
+      qualification: [],
+      releaseState: .core
+    ),
   ]
 }

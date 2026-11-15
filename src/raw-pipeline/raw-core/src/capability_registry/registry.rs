@@ -285,4 +285,18 @@ pub const CAPABILITY_REGISTRY: &[Capability] = &[
         integration: &[],
         qualification: &[],
     },
+    Capability {
+        id: "pano_seam_constraints",
+        title: "Panorama include/exclude seam regions",
+        owner: OWNER,
+        surfaces: &[Surface::Web],
+        storage_adapters: &[StorageAdapter::Filesystem],
+        asset_classes: &[AssetClass::Raw],
+        preview_paths: &[PreviewPath::CpuReference],
+        export_paths: &[ExportPath::MapleCli, ExportPath::AppleFfi],
+        groups: &[],
+        fields: &[],
+        integration: &[],
+        qualification: &[],
+    },
 ];

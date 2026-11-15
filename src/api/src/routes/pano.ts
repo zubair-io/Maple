@@ -52,6 +52,7 @@ import { ownedPreviewDir, PREVIEW_FILES } from '../pano/pano-previews.ts';
 import type { JobWithId } from '../db/schema.ts';
 import { admitPanoStitch, panoJobRunning } from '../pano/pano-admission.ts';
 import { resolveAssetPaths } from '../pano/pano-path-inputs.ts';
+import { parseSeamConstraints, seamConstraintsRefusal } from '../pano/pano-seam-constraints.ts';
 
 const log = childLogger('pano:routes');
 
@@ -77,6 +78,7 @@ export const StitchBody = t.Object({
     autoCrop: t.Optional(t.Boolean()),
   }),
   alignmentFrom: t.Optional(t.String()),
+  seamConstraints: t.Optional(t.Unknown()),
 });
 
 export type StitchRequest = typeof StitchBody.static;
@@ -92,13 +94,21 @@ const ConfigBody = t.Object({
 async function withProbedFlags(cfg: PanoConfigResolution) {
   const capabilities = cfg.maple_cli_path
     ? await probePanoCli(cfg.maple_cli_path)
-    : { strategy: false, featuresEngine: false, preview: false, edges: false, memoryLimit: false };
+    : {
+        strategy: false,
+        featuresEngine: false,
+        preview: false,
+        edges: false,
+        memoryLimit: false,
+        seamConstraints: false,
+      };
   return {
     ...cfg,
     strategy_supported: capabilities.strategy,
     features_engine_supported: capabilities.featuresEngine,
     preview_supported: capabilities.preview,
     edges_supported: capabilities.edges,
+    seamConstraintsSupported: capabilities.seamConstraints,
   };
 }
 
@@ -203,10 +213,10 @@ async function resolvePathInputs(
  * jailed to the library roots) and unioned with the ids, so a mixed selection
  * stitches every asset instead of dropping one set.
  */
-export async function resolveStitchInputs(body: {
-  assetIds?: string[];
-  assetPaths?: string[];
-}): Promise<StitchInputs> {
+export async function resolveStitchInputs(
+  body: StitchRequest,
+  seamConstraintsSupported: boolean,
+): Promise<StitchInputs> {
   const fromPaths = await resolvePathInputs(body.assetPaths);
   if ('rejection' in fromPaths) return fromPaths;
   const assetIds = body.assetIds ?? [];
@@ -220,15 +230,24 @@ export async function resolveStitchInputs(body: {
   // A path and an id can resolve to the same deduplicated asset (identical
   // content shares one id); the stitcher must not receive one input twice.
   const uniqueIds = [...new Set([...fromPaths.resolvedIds, ...assetIds])];
-  return uniqueIds.length < 2
-    ? {
-        status: 422,
-        rejection: {
-          error: 'insufficient_assets',
-          message:
-            'At least 2 valid images (via assetPaths or assetIds) are required to create a panorama.',
-        },
-      }
+  if (uniqueIds.length < 2) {
+    return {
+      status: 422,
+      rejection: {
+        error: 'insufficient_assets',
+        message:
+          'At least 2 valid images (via assetPaths or assetIds) are required to create a panorama.',
+      },
+    };
+  }
+  const refused = seamConstraintsRefusal(
+    body.seamConstraints,
+    uniqueIds.length,
+    body.options.strategy,
+    seamConstraintsSupported,
+  );
+  return refused
+    ? { status: refused.status, rejection: refused.body }
     : { uniqueIds, indexedCount: fromPaths.indexedCount };
 }
 
@@ -253,6 +272,7 @@ export async function panoJobPayload(
   assetIds: string[],
   outputDir: string,
 ) {
+  const seamConstraints = parseSeamConstraints(request.seamConstraints, assetIds.length);
   return {
     assetIds,
     libraryId: request.libraryId,
@@ -270,6 +290,8 @@ export async function panoJobPayload(
     autoCrop: request.options.autoCrop ?? false,
     alignmentIn: capabilities.preview ? await previewAlignment(request.alignmentFrom) : null,
     memoryLimitSupported: capabilities.memoryLimit,
+    ...(seamConstraints === null ? {} : { seamConstraints }),
+    seamConstraintsSupported: capabilities.seamConstraints,
   };
 }
 
@@ -314,7 +336,7 @@ export const panoRoutes = new Elysia({ prefix: '/api/pano' })
         };
       }
 
-      const inputs = await resolveStitchInputs(body);
+      const inputs = await resolveStitchInputs(body, stitchPlan.capabilities.seamConstraints);
       if ('rejection' in inputs) {
         set.status = inputs.status;
         return inputs.rejection;

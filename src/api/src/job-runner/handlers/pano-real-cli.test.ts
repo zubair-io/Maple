@@ -34,6 +34,7 @@ import { probePanoCli } from '../../pano/pano-cli-probe.ts';
 import type { JobHandlerContext } from './index.ts';
 import { panoStitchHandler } from './pano-stitch.ts';
 
+import type { SeamConstraintsRequest } from '../../pano/pano-seam-constraints.ts';
 const realCli = process.env.MAPLE_PANO_REAL_CLI ?? '';
 const fixtureGen = process.env.MAPLE_PANO_FIXTURE_GEN ?? '';
 
@@ -111,7 +112,7 @@ describe.skipIf(realCli === '' || fixtureGen === '')(
       return { path: libPath, folderId, assetIds };
     }
 
-    function stitch(lib: Library) {
+    function stitch(lib: Library, seamConstraints?: SeamConstraintsRequest) {
       const reported: number[] = [];
       const ctx: JobHandlerContext = {
         jobId: new ObjectId(),
@@ -127,13 +128,14 @@ describe.skipIf(realCli === '' || fixtureGen === '')(
           outputDir: path.join(tmpDir, `out-${path.basename(lib.path)}`),
           retention: 'keep',
           localAlign: 'mesh',
-          strategy: null,
-          strategySupported: false,
+          strategy: seamConstraints ? 'rotation' : null,
+          strategySupported: seamConstraints !== undefined,
           mapleCli: realCli,
           featuresEngine: 'classical',
           modelsDir: null,
           ortDylibPath: null,
           memoryLimitSupported,
+          ...(seamConstraints ? { seamConstraints, seamConstraintsSupported: true } : {}),
         },
         ctx,
       );
@@ -196,6 +198,28 @@ describe.skipIf(realCli === '' || fixtureGen === '')(
         expect(bytes.subarray(0, 8).equals(PNG_SIGNATURE)).toBe(true);
         expect(bytes.readUInt32BE(16)).toBeGreaterThan(FRAME_WIDTH);
         expect(bytes.equals(await fs.readFile(uncappedPng ?? ''))).toBe(true);
+      },
+      STITCH_TIMEOUT_MS,
+    );
+    it(
+      'round-trips seam regions through SQLite-backed jobs and refuses contradictory pins',
+      async () => {
+        const lib = await library('seam-regions');
+        const request: SeamConstraintsRequest = {
+          version: 1,
+          canvas: { width: 100, height: 100 },
+          regions: [{ kind: 'include', frame: 1, x: 49, y: 49, width: 2, height: 2 }],
+        };
+        const outcome = await stitch(lib, request).run;
+        expect(outcome.kind).toBe('done');
+        expect(outcome.result).toMatchObject({ seamConstraints: request });
+        expect(await panoramas(lib)).toHaveLength(1);
+        const contradictory: SeamConstraintsRequest = {
+          ...request,
+          regions: [...request.regions, { ...request.regions[0]!, kind: 'exclude' }],
+        };
+        await expect(stitch(lib, contradictory).run).rejects.toThrow('invalid_seam_constraints');
+        expect(await panoramas(lib)).toHaveLength(1);
       },
       STITCH_TIMEOUT_MS,
     );

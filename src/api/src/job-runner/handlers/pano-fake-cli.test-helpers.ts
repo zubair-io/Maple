@@ -23,8 +23,32 @@ export interface FakeCliOptions {
   exitCode?: number;
   /** Whether `--help` lists `--memory-limit-bytes`. */
   memoryLimit?: boolean;
+  seamConstraints?: boolean;
   /** Refuse every run for this reason: 3.2 GB needed, 2.0 GB available. */
-  refuses?: 'memory' | 'scratch_space';
+  refuses?: 'memory' | 'scratch_space' | 'seam_constraints';
+}
+
+function fakePanoHelp(opts: FakeCliOptions): string {
+  const flags = opts.preview
+    ? '--strategy --features-engine <E> --preview-out <PNG> --alignment-in <JSON> --alignment-out <JSON>'
+    : '--strategy --features-engine <E>';
+  return [
+    flags,
+    ...(opts.edges ? ['--boundary-warp <PCT> --auto-crop'] : []),
+    ...(opts.memoryLimit ? ['--memory-limit-bytes <N>'] : []),
+    ...(opts.seamConstraints
+      ? ['--seam-constraints <JSON> --seam-strategy <S> SeamConstraintsRequest v1']
+      : []),
+  ].join(' ');
+}
+
+function fakePanoRefusal(reason: FakeCliOptions['refuses']): string {
+  if (reason === 'seam_constraints') {
+    return `[ -n "$REPORT" ] && echo '{"refused":{"resource":"seam_constraints","message":"Conflicting regions"}}' > "$REPORT"; exit 1`;
+  }
+  return reason
+    ? `[ -n "$REPORT" ] && echo '{"refused":{"reason":"${reason}","needed_bytes":3200000000,"available_bytes":2000000000}}' > "$REPORT"; echo "error: refused" >&2; exit 1`
+    : '';
 }
 
 export async function writeFakePanoCli(dir: string, opts: FakeCliOptions): Promise<string> {
@@ -32,21 +56,13 @@ export async function writeFakePanoCli(dir: string, opts: FakeCliOptions): Promi
     opts.preview ? 'preview' : 'legacy',
     ...(opts.edges ? ['edges'] : []),
     ...(opts.memoryLimit ? ['limit'] : []),
+    ...(opts.seamConstraints ? ['seams'] : []),
     ...(opts.refuses ? [opts.refuses] : []),
     String(opts.exitCode ?? 0),
   ].join('-');
   const cli = path.join(dir, `fake-maple-cli-${variant}`);
-  const helpFlags = opts.preview
-    ? '--strategy --features-engine <E> --preview-out <PNG> --alignment-in <JSON> --alignment-out <JSON>'
-    : '--strategy --features-engine <E>';
-  const help = [
-    helpFlags,
-    ...(opts.edges ? ['--boundary-warp <PCT> --auto-crop'] : []),
-    ...(opts.memoryLimit ? ['--memory-limit-bytes <N>'] : []),
-  ].join(' ');
-  const refusal = opts.refuses
-    ? `[ -n "$REPORT" ] && echo '{"refused":{"reason":"${opts.refuses}","needed_bytes":3200000000,"available_bytes":2000000000}}' > "$REPORT"; echo "error: refused" >&2; exit 1`
-    : '';
+  const help = fakePanoHelp(opts);
+  const refusal = fakePanoRefusal(opts.refuses);
   await fs.writeFile(
     cli,
     `#!/bin/sh
@@ -62,6 +78,8 @@ while [ $# -gt 0 ]; do
     --report) shift; REPORT="$1";;
     --boundary-warp) shift; WARP="$1";;
     --auto-crop) CROP=true;;
+    --seam-constraints) shift; cp "$1" "$0.seams";;
+    --) shift; printf '%s\\n' "$@" > "$0.inputs"; break;;
   esac
   shift
 done
