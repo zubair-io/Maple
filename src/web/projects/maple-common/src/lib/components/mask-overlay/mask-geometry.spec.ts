@@ -131,13 +131,13 @@ describe('canvas map', () => {
     const px = maskToScreen(map, { x: 0.25, y: 0.75 });
     expect(px).toEqual({ x: 250, y: 350 });
     const back = maskFromScreen(map, px.x, px.y);
-    expect(back.x).toBeCloseTo(0.25, 12);
-    expect(back.y).toBeCloseTo(0.75, 12);
+    expect(back?.x).toBeCloseTo(0.25, 12);
+    expect(back?.y).toBeCloseTo(0.75, 12);
   });
 
-  it('clamps screen points to the frame', () => {
+  it('rejects screen points outside the presented frame', () => {
     const map = makeMaskCanvasMap(footprint, identityCrop, 6000, 4000);
-    expect(maskFromScreen(map, -500, 9000)).toEqual({ x: 0, y: 1 });
+    expect(maskFromScreen(map, -500, 9000)).toBeNull();
   });
 
   it('places a full-frame point relative to an applied crop', () => {
@@ -151,8 +151,8 @@ describe('canvas map', () => {
     expect(px.x).toBeCloseTo(100, 9);
     expect(px.y).toBeCloseTo(50, 9);
     const back = maskFromScreen(map, 700, 450);
-    expect(back.x).toBeCloseTo(1, 9);
-    expect(back.y).toBeCloseTo(0.75, 9);
+    expect(back?.x).toBeCloseTo(1, 9);
+    expect(back?.y).toBeCloseTo(0.75, 9);
   });
 });
 
@@ -219,8 +219,8 @@ describe('presentation projection through manual geometry (#5950)', () => {
     expect(px.x).toBeCloseTo(400, 9);
     expect(px.y).toBeCloseTo(250, 9);
     const back = maskFromScreen(map, px.x, px.y);
-    expect(back.x).toBeCloseTo(0.25, 9);
-    expect(back.y).toBeCloseTo(0.5, 9);
+    expect(back?.x).toBeCloseTo(0.25, 9);
+    expect(back?.y).toBeCloseTo(0.5, 9);
   });
 
   it('samples a frame-space brush raster through the geometry warp', () => {

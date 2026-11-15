@@ -38,6 +38,9 @@ Only the selected layer renders; unselected layers show nothing (their list rows
   and then the geometry's inverse, as the render samples the frame. The crop-only point
   must remain inside the intermediate display frame before inverse geometry is applied:
   scaling up cannot restore coverage or permit sampling in an empty straightened corner (#5950).
+- **Pointer outside the photo** — rejected projections produce no dab and never move a handle.
+  A brush stroke breaks at the rejected sample, including on release; re-entering starts a
+  new segment without interpolating across the empty region, within the same undo gesture.
 
 ## Tokens used
 

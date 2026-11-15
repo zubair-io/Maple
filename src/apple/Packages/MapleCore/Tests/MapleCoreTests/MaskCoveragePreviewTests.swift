@@ -93,4 +93,41 @@ final class MaskCoveragePreviewTests: XCTestCase {
     XCTAssertEqual(data[0], 0)
     XCTAssertEqual(data[(25 * 51 + 25) * 4], 255)
   }
+  func testBrushSkipsRejectedTapAndReleaseSamples() {
+    let size = CGSize(width: 400, height: 400)
+    let projection = MaskProjection.presentationToFrame(
+      crop: Crop(top: 0, left: 0, bottom: 1, right: 1, angle: 10),
+      perspective: Perspective(), nativeSize: size)
+    let rejected = MaskOverlayGeometry.normalizedPoint(
+      CGPoint(x: 4, y: 4), displayRect: CGRect(origin: .zero, size: size),
+      projection: projection)
+    XCTAssertNil(rejected)
+    let smoother = StrokeSmoother()
+    XCTAssertNil(smoother.segment(to: rejected))
+    XCTAssertNil(smoother.segment(to: rejected, finishing: true))
+  }
+
+  func testBrushBreaksAtRejectedSamplesInsteadOfBridgingTheGap() throws {
+    let size = CGSize(width: 400, height: 400)
+    let projection = MaskProjection.presentationToFrame(
+      crop: Crop(top: 0, left: 0, bottom: 1, right: 1, angle: 10),
+      perspective: Perspective(), nativeSize: size)
+    let rejected = projection.apply(MaskPoint(x: 0.01, y: 0.01))
+    let start = try XCTUnwrap(projection.apply(MaskPoint(x: 0.2, y: 0.2)))
+    let end = try XCTUnwrap(projection.apply(MaskPoint(x: 0.8, y: 0.8)))
+    for finishing in [false, true] {
+      let smoother = StrokeSmoother()
+      _ = smoother.segment(to: start)
+      XCTAssertNil(smoother.segment(to: rejected))
+      let resumed = try XCTUnwrap(smoother.segment(to: end, finishing: finishing))
+      XCTAssertEqual(resumed.from, end)
+      XCTAssertEqual(resumed.to, end)
+      let dabs = BrushRaster.interpolateDabs(
+        from: resumed.from, to: resumed.to, aspect: 1,
+        radius: 0.05, feather: 0, weight: 1, erase: false)
+      XCTAssertEqual(dabs.count, 1)
+      XCTAssertEqual(dabs.first?.center, end)
+      XCTAssertNil(smoother.segment(to: rejected, finishing: true))
+    }
+  }
 }

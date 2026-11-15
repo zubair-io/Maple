@@ -86,11 +86,6 @@ interface DragState {
   anchor: MaskPoint;
 }
 
-interface StrokeState {
-  smoother: StrokeSmoother;
-  last: MaskPoint;
-}
-
 interface HandleView {
   handle: MaskHandle;
   x: number;
@@ -120,7 +115,7 @@ export class MaskOverlayComponent implements AfterViewInit, OnDestroy {
 
   private readonly tintCanvas = viewChild<ElementRef<HTMLCanvasElement>>('tint');
   private readonly drag = new OverlayDrag<DragState>();
-  private readonly stroke = new OverlayDrag<StrokeState>();
+  private readonly stroke = new OverlayDrag<StrokeSmoother>();
 
   /** Host size, applied crop, fit footprint and the full-frame ↔ screen map
    *  — shared with every other canvas overlay (`overlay-host.ts`). */
@@ -223,25 +218,26 @@ export class MaskOverlayComponent implements AfterViewInit, OnDestroy {
     if (!mask) return;
     const { px, py } = this.localPoint(ev);
     if (mask.kind === 'brush') {
-      const fp = this.map().footprint;
-      // A press on letterbox padding is not on the photo: paint nothing.
-      if (px < fp.left || py < fp.top || px > fp.left + fp.width || py > fp.top + fp.height) return;
+      const at = maskFromScreen(this.map(), px, py);
+      if (!at) return;
       // One undo entry per stroke — opened before the first dab lands.
       this.session.beginGesture();
       const smoother = new StrokeSmoother();
-      const at = smoother.reset(maskFromScreen(this.map(), px, py));
-      this.stroke.begin(ev, { smoother, last: at });
+      smoother.reset(at);
+      this.stroke.begin(ev, smoother);
       this.stampStrokeSegment(mask, at, at, penPressure(ev));
       return;
     }
     const handle = hitTestMaskHandle(px, py, mask, this.map(), HANDLE_TOLERANCE);
     if (!handle) return;
+    const anchor = maskFromScreen(this.map(), px, py);
+    if (!anchor) return;
     // One undo entry per gesture — opened before the first mutation lands.
     this.session.beginGesture();
     this.drag.begin(ev, {
       handle,
       startMask: mask,
-      anchor: maskFromScreen(this.map(), px, py),
+      anchor,
     });
   }
 
@@ -251,9 +247,10 @@ export class MaskOverlayComponent implements AfterViewInit, OnDestroy {
       const mask = this.mask();
       if (mask?.kind !== 'brush') return;
       const { px, py } = this.localPoint(ev);
-      const at = stroking.smoother.next(maskFromScreen(this.map(), px, py));
-      this.stampStrokeSegment(mask, stroking.last, at, penPressure(ev));
-      stroking.last = at;
+      const segment = stroking.segment(maskFromScreen(this.map(), px, py));
+      if (segment) {
+        this.stampStrokeSegment(mask, segment.from, segment.to, penPressure(ev));
+      }
       ev.preventDefault();
       return;
     }
@@ -261,6 +258,7 @@ export class MaskOverlayComponent implements AfterViewInit, OnDestroy {
     if (!drag) return;
     const { px, py } = this.localPoint(ev);
     const point = maskFromScreen(this.map(), px, py);
+    if (!point) return;
     this.session.setShape(dragMaskHandle(drag.startMask, drag.handle, point, drag.anchor));
     ev.preventDefault();
   }
@@ -299,9 +297,9 @@ export class MaskOverlayComponent implements AfterViewInit, OnDestroy {
     if (stroking && mask?.kind === 'brush') {
       // The smoother trails the pointer; land the stroke where it was released.
       const { px, py } = this.localPoint(ev);
-      const at = maskFromScreen(this.map(), px, py);
-      if (at.x !== stroking.last.x || at.y !== stroking.last.y) {
-        this.stampStrokeSegment(mask, stroking.last, at, penPressure(ev));
+      const segment = stroking.segment(maskFromScreen(this.map(), px, py), true);
+      if (segment) {
+        this.stampStrokeSegment(mask, segment.from, segment.to, penPressure(ev));
       }
     }
     this.stroke.end(ev, this.session);
