@@ -33,6 +33,7 @@
           [collision]="pendingCollision() !== null"
           [collisionFilename]="pendingCollision()?.filename ?? null"
           [keepBothAvailable]="!pendingCollision()?.companion"
+          [pairAtomic]="pendingCollision()?.pairAtomic ?? false"
           (committed)="onCommit($event)"
           (cancelled)="renameSvc.cancel()"
           (collisionResolved)="onCollisionResolved($event)"

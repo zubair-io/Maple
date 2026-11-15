@@ -5,7 +5,11 @@
     </p>
     @if (!keepBothAvailable()) {
       <p class="m-0 break-words text-[11px] text-text-muted" data-testid="companion-collision">
-        Skip keeps the JPEG under its current name, apart from the RAW.
+        @if (pairAtomic()) {
+          Skip keeps both files under their current names.
+        } @else {
+          Skip keeps the JPEG under its current name, apart from the RAW.
+        }
       </p>
     }
     <div class="flex flex-wrap gap-1">

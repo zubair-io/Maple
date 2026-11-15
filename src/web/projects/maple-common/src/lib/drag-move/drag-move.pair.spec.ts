@@ -95,6 +95,7 @@ describe('DragMoveService stack pair ops (#5949)', () => {
     expect(service.collisionPrompt()).toMatchObject({
       filename: 'IMG_0003.JPG',
       companionOf: 'IMG_0003.CR3',
+      pairAtomic: true,
     });
 
     relocatePairSpy.mockReturnValue(
