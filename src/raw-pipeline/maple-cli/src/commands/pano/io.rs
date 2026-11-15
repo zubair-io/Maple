@@ -7,6 +7,7 @@ use std::path::PathBuf;
 use maple_pano::ba::BaSolution;
 use maple_pano::composite::CompositeReport;
 use maple_pano::graph::{GraphSummary, ReverifySummary};
+use maple_pano::leveling::Leveling;
 use maple_pano::strategy::StrategyReport;
 use maple_pano::tile::TileCompositeReport;
 
@@ -20,7 +21,7 @@ pub(super) struct ReportContext<'a> {
     pub fallback_matches: usize,
     pub reverify: &'a ReverifySummary,
     pub match_graph: &'a GraphSummary,
-    pub leveled: bool,
+    pub leveling: Option<Leveling>,
     pub horizon_tilt_deg: Option<f64>,
     pub horizon_tilt_rms_deg: Option<f64>,
     /// `(mean_budget_px, max_budget_px)` the §5.3 gate ran at.
@@ -190,7 +191,7 @@ pub(super) fn stitch_report(ctx: &ReportContext) -> serde_json::Value {
             "median_px": s.median_px,
             "blocks": s.blocks,
         }))).collect::<Vec<_>>(),
-        "leveled": ctx.leveled,
+        "leveled": ctx.leveling.is_some(),
         "horizon_tilt_deg": ctx.horizon_tilt_deg,
         "gate_mean_budget_px": ctx.gate_budgets.0,
         "gate_max_budget_px": ctx.gate_budgets.1,
@@ -208,6 +209,10 @@ pub(super) fn stitch_report(ctx: &ReportContext) -> serde_json::Value {
         obj.insert(
             "horizon_tilt_rms_deg".into(),
             serde_json::json!(ctx.horizon_tilt_rms_deg),
+        );
+        obj.insert(
+            "leveling".into(),
+            serde_json::json!(ctx.leveling.map(Leveling::label)),
         );
     }
     report
@@ -267,7 +272,7 @@ fn match_graph_json(summary: &GraphSummary) -> serde_json::Value {
 /// Absent keys vs rotation report: `cameras`, `mean_reproj_error_px`,
 /// `max_reproj_error_px`, `mean_reproj_before_local_px`,
 /// `max_reproj_before_local_px`, `shared_focal_px`, `k1`, `k2`, `dropped_images`, `pruned_matches`,
-/// `motion_affected`, `motion_pruned_matches`, `placed_by_prior`, `leveled`,
+/// `motion_affected`, `motion_pruned_matches`, `placed_by_prior`, `leveled`, `leveling`,
 /// `horizon_tilt_deg`, `gate_mean_budget_px`, `gate_max_budget_px`,
 /// `projection`.
 ///

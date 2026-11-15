@@ -4,8 +4,8 @@
 //!
 //! The camera optical axes are measured in a gravity-aligned basis whose
 //! +X is the horizontal pitch axis that best fits the sweep (the minor
-//! axis of the axes' horizontal scatter) and whose +Z faces the sweep's
-//! horizontal mean. In that basis the pitch extent is the circular span
+//! axis of the axes' horizontal scatter), signed so the frames stand
+//! upright. In that basis the pitch extent is the circular span
 //! of `atan2(−y, z)` — the transverse `v`, which stays continuous over
 //! the zenith — and the yaw extent is the span of `asin(x)` across the
 //! sweep. A set is a pitch sweep when the pitch extent exceeds 55° and
@@ -25,6 +25,18 @@
 //! angular-canvas policy on cameras re-posed into that rolled frame, then
 //! transposing the window: columns carry `u`, rows carry the periodic
 //! `v` (wrap seam between the top and bottom rows).
+//!
+//! # Over the zenith (#5958)
+//!
+//! `v` is the angle around the pitch axis, so a sweep that climbs past
+//! the zenith keeps climbing the canvas: the zenith is the ordinary row
+//! `v = π/2` (the nadir `v = −π/2`), with no pole and no seam there.
+//! The surface's poles are ±pitch axis, out to the sides of the sweep
+//! where no frame looks. Frames past the zenith are upside down in the
+//! world but upright on the canvas, which follows the sweep rather than
+//! gravity. Roll is removed before the canvas is built
+//! ([`crate::leveling`]), so the fitted horizontal pitch axis is the one
+//! the cameras pivoted about.
 
 use std::f64::consts::{FRAC_PI_2, TAU};
 
@@ -49,10 +61,9 @@ pub(super) fn choose_projection(
     mode: ProjectionMode,
 ) -> (Projection, Mat3) {
     match mode {
-        ProjectionMode::Force(p) if p.is_transverse() => (
-            p,
-            pitch_basis(&optical_axes(cameras)).unwrap_or(Mat3::identity()),
-        ),
+        ProjectionMode::Force(p) if p.is_transverse() => {
+            (p, pitch_basis(cameras).unwrap_or(Mat3::identity()))
+        }
         ProjectionMode::Force(p) => (p, Mat3::identity()),
         ProjectionMode::Auto => detect_pitch_sweep(cameras)
             .unwrap_or_else(|| (select_projection(extent_deg_of(samples)), Mat3::identity())),
@@ -69,7 +80,7 @@ pub(super) struct SweepExtents {
 
 pub(super) fn sweep_extents(cameras: &[Camera]) -> Option<(SweepExtents, Mat3)> {
     let axes = optical_axes(cameras);
-    let basis = pitch_basis(&axes)?;
+    let basis = pitch_basis(cameras)?;
     let to_basis = basis.transpose();
     let local: Vec<Vec3> = axes.iter().map(|a| to_basis.mul_vec(*a)).collect();
     let pitch_points: Vec<(f64, f64)> = local
@@ -123,10 +134,18 @@ fn optical_axes(cameras: &[Camera]) -> Vec<Vec3> {
         .collect()
 }
 
-/// `Ry(ψ)` whose +X is the horizontal pitch axis of the sweep and whose
-/// +Z faces the axes' horizontal mean. `None` when the axes have no
+/// `Ry(ψ)` whose +X is the horizontal pitch axis of the sweep, signed so
+/// the frames stand upright on the canvas. `None` when the axes have no
 /// horizontal component to fit (every camera at a pole).
-fn pitch_basis(axes: &[Vec3]) -> Option<Mat3> {
+///
+/// A frame is upright when its x-axis runs along the basis +X, the same
+/// test whatever side of the zenith it looks at; that term decides every
+/// sweep that reaches the zenith, where the optical axes' horizontal
+/// mean cancels or points behind the photographer (#5958). The facing
+/// term — the axes' horizontal mean along +Z — decides frames rolled
+/// onto their side, whose x-axes carry no sign along the pitch axis.
+fn pitch_basis(cameras: &[Camera]) -> Option<Mat3> {
+    let axes = optical_axes(cameras);
     let (sxx, sxz, szz) = axes.iter().fold((0.0, 0.0, 0.0), |(xx, xz, zz), a| {
         (xx + a.x * a.x, xz + a.x * a.z, zz + a.z * a.z)
     });
@@ -135,8 +154,19 @@ fn pitch_basis(axes: &[Vec3]) -> Option<Mat3> {
         return None;
     }
     let [hx, hz] = vectors[0];
-    let facing: f64 = axes.iter().map(|a| a.x * hx + a.z * hz).sum();
-    let (hx, hz) = if facing < 0.0 { (-hx, -hz) } else { (hx, hz) };
+    let orientation: f64 = cameras
+        .iter()
+        .zip(&axes)
+        .map(|(cam, a)| {
+            let right = cam.rotation.mul_vec(Vec3::new(1.0, 0.0, 0.0));
+            right.x * hz - right.z * hx + a.x * hx + a.z * hz
+        })
+        .sum();
+    let (hx, hz) = if orientation < 0.0 {
+        (-hx, -hz)
+    } else {
+        (hx, hz)
+    };
     Some(Mat3::rotation_y(hx.atan2(hz)))
 }
 

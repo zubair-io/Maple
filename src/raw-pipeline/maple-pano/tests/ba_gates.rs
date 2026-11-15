@@ -219,9 +219,10 @@ fn gate_tilted_ring_levels() {
     let mut solution = solve(&images, &graph, &BaOptions::default()).expect("solve");
     assert!(solution.dropped.is_empty());
 
-    assert!(
+    assert_eq!(
         leveling::apply(&mut solution),
-        "leveling must be observable"
+        Some(leveling::Leveling::Horizon),
+        "the ring's horizon must be observable"
     );
     let tilt_deg = leveling::horizon_tilt_deg(&solution);
     println!("tilted ring: post-leveling horizon tilt {tilt_deg:.4}°");
