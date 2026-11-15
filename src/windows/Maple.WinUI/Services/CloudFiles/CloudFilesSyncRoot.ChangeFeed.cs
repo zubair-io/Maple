@@ -72,7 +72,7 @@ namespace Maple.WinUI.Services.CloudFiles
             // A library the server no longer lists has nothing left to refresh;
             // waiting on it would hold the cursor behind this row forever.
             if (folder == null) return true;
-            var safeRoot = Path.Combine(SyncRootPath, SanitizeName(folder.DisplayName));
+            var safeRoot = Path.Combine(_syncRootPath, SanitizeName(folder.DisplayName));
             // Placeholders carry sanitized names, so the server path is mapped the same way.
             var item = Path.GetFullPath(Path.Combine(
                 action.RelativePath.Split('/').Select(SanitizeName).Prepend(safeRoot).ToArray()));
@@ -91,7 +91,7 @@ namespace Maple.WinUI.Services.CloudFiles
             {
                 // The library has no folder here yet, so the list of libraries is
                 // what is stale. Best effort: a failure must not hold the cursor.
-                CloudFilesChangeApply.EnableOnDemandPopulation(SyncRootPath);
+                CloudFilesChangeApply.EnableOnDemandPopulation(_syncRootPath);
                 return true;
             }
             // Nothing populated yet: the first FETCH_PLACEHOLDERS reads the current server state.
@@ -122,12 +122,12 @@ namespace Maple.WinUI.Services.CloudFiles
             var folders = await client.GetFoldersAsync(ct).ConfigureAwait(false);
             if (folders == null) return false;
             // Best effort, so a library added meanwhile is listed too.
-            CloudFilesChangeApply.EnableOnDemandPopulation(SyncRootPath);
+            CloudFilesChangeApply.EnableOnDemandPopulation(_syncRootPath);
             var succeeded = true;
             foreach (var folder in folders)
             {
                 ct.ThrowIfCancellationRequested();
-                var root = Path.Combine(SyncRootPath, SanitizeName(folder.DisplayName));
+                var root = Path.Combine(_syncRootPath, SanitizeName(folder.DisplayName));
                 if (!Directory.Exists(root)) continue;
                 foreach (var directory in EnumerateDirectoriesNoLinks(root))
                 {
@@ -202,7 +202,7 @@ namespace Maple.WinUI.Services.CloudFiles
         /// ones in line with the listing and returns only the missing entries;
         /// anything that cannot be reconciled yet fails the listing so Windows
         /// asks again.</summary>
-        private static PlaceholderListing ReconcileWithExistingPlaceholders(
+        private PlaceholderListing ReconcileWithExistingPlaceholders(
             CfApi.CF_CALLBACK_INFO info, PlaceholderListing listing)
         {
             if (!listing.Complete || info.NormalizedPath == IntPtr.Zero || info.VolumeDosName == IntPtr.Zero)
@@ -211,7 +211,7 @@ namespace Maple.WinUI.Services.CloudFiles
             {
                 // NormalizedPath starts at the volume root and carries no drive.
                 var directory = Marshal.PtrToStringUni(info.VolumeDosName) + Marshal.PtrToStringUni(info.NormalizedPath);
-                if (!CloudFilesChangeApply.IsWithin(SyncRootPath, directory)) return listing;
+                if (!CloudFilesChangeApply.IsWithin(_syncRootPath, directory)) return listing;
                 return TryReconcileListedDirectory(directory, listing.Entries, out var missing)
                     ? CloudFilesListing.Succeeded(missing)
                     : CloudFilesListing.Failed;

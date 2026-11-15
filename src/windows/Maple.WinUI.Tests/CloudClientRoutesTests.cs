@@ -327,5 +327,36 @@ namespace Maple.WinUI.Tests
             Assert.Equal(first, second);
             Assert.Single(handler.Requests);
         }
+
+        [Theory]
+        [InlineData("{\"error\":\"Asset is already trashed\",\"state\":\"trashed\"}", true)]
+        [InlineData("{\"error\":\"Asset is not trashed\"}", false)]
+        public async Task TrashAssetAsync_UsesTrashIntent_AndOnlyAcceptsAlreadyTrashedConflict(string body, bool expected)
+        {
+            var handler = new FakeHandler().Then(HttpStatusCode.Conflict, Json(body), "application/json");
+            using var client = Client(handler);
+
+            var result = await client.TrashAssetAsync("asset/one", CancellationToken.None);
+
+            Assert.Equal(expected, result);
+            Assert.Equal("DELETE", Assert.Single(handler.Requests).Method.Method);
+            Assert.Equal("/api/assets/asset%2Fone?intent=trash", handler.Requests[0].RequestUri!.PathAndQuery);
+        }
+
+        [Fact]
+        public async Task TrashCloudFolderAsync_UsesLibraryRelativeTargetHeader()
+        {
+            var handler = new FakeHandler().Then(HttpStatusCode.OK, Json("{}"), "application/json");
+            using var client = Client(handler);
+
+            Assert.True(await client.TrashCloudFolderAsync("folder-id", "2026/été 100%", CancellationToken.None));
+
+            var request = Assert.Single(handler.Requests);
+            Assert.Equal("POST", request.Method.Method);
+            Assert.Equal("/api/folders/folder-id/trash-folder", request.RequestUri!.PathAndQuery);
+            var header = Assert.Single(request.Headers.GetValues("X-Maple-Target-Path"));
+            Assert.Equal("2026%2F%C3%A9t%C3%A9%20100%25", header);
+            Assert.Equal("2026/été 100%", Uri.UnescapeDataString(header));
+        }
     }
 }

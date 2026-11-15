@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Net;
 using System.Net.Http;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -74,8 +75,42 @@ namespace Maple.WinUI.Services.Cloud
             using var response = await SendAsync(
                 () => new HttpRequestMessage(
                     HttpMethod.Delete, $"api/assets/{Uri.EscapeDataString(assetId)}?intent=trash"), ct);
+            if (response.StatusCode == HttpStatusCode.Conflict)
+            {
+                var body = await response.Content.ReadAsStringAsync(ct);
+                try
+                {
+                    using var json = JsonDocument.Parse(body);
+                    if (json.RootElement.TryGetProperty("state", out var state)
+                        && state.GetString() == "trashed") return true;
+                }
+                catch (JsonException) { }
+            }
             if (!response.IsSuccessStatusCode)
                 DiagLog.Write($"[cloud] DELETE assets/{assetId} → {(int)response.StatusCode}");
+            return response.IsSuccessStatusCode;
+        }
+
+        public Task<CloudAssetRef?> ResolveAssetAddressAsync(string address, CancellationToken ct) =>
+            GetJsonAsync<CloudAssetRef>($"api/assets/by-address?address={Uri.EscapeDataString(address)}", ct);
+
+        public async Task<bool> TrashCloudFileAsync(string folderId, string relativePath, CancellationToken ct)
+        {
+            using var response = await SendAsync(() => new HttpRequestMessage(
+                HttpMethod.Delete, $"api/folders/{Uri.EscapeDataString(folderId)}/file?path={Uri.EscapeDataString(relativePath)}"), ct);
+            return response.IsSuccessStatusCode || response.StatusCode == HttpStatusCode.NotFound;
+        }
+
+        public async Task<bool> TrashCloudFolderAsync(string folderId, string relativePath, CancellationToken ct)
+        {
+            using var response = await SendAsync(() =>
+            {
+                var request = new HttpRequestMessage(HttpMethod.Post,
+                    $"api/folders/{Uri.EscapeDataString(folderId)}/trash-folder");
+                request.Headers.TryAddWithoutValidation("X-Maple-Target-Path", Uri.EscapeDataString(relativePath));
+                request.Content = JsonContent(new { });
+                return request;
+            }, ct);
             return response.IsSuccessStatusCode;
         }
 

@@ -23,6 +23,8 @@ namespace Maple.WinUI.Services.CloudFiles
         internal const int CF_CALLBACK_TYPE_FETCH_DATA = 0;
         internal const int CF_CALLBACK_TYPE_CANCEL_FETCH_DATA = 2;
         internal const int CF_CALLBACK_TYPE_FETCH_PLACEHOLDERS = 3;
+        internal const int CF_CALLBACK_TYPE_NOTIFY_DELETE = 9;
+        internal const int CF_CALLBACK_TYPE_NOTIFY_RENAME = 11;
         internal const int CF_CALLBACK_TYPE_NONE = unchecked((int)0xFFFFFFFF);
 
         // --- policies ---
@@ -32,11 +34,20 @@ namespace Maple.WinUI.Services.CloudFiles
         internal const uint CF_HARDLINK_POLICY_NONE = 0;
 
         internal const uint CF_REGISTER_FLAG_UPDATE = 1;
-        internal const uint CF_CONNECT_FLAG_REQUIRE_FULL_FILE_PATH = 2;
+        internal const uint CF_CONNECT_FLAG_REQUIRE_PROCESS_INFO = 2;
+        internal const uint CF_CONNECT_FLAG_REQUIRE_FULL_FILE_PATH = 4;
+        internal const uint CF_CALLBACK_DELETE_FLAG_IS_DIRECTORY = 1;
+
+        /// <summary>CF_PROCESS_INFO is { DWORD StructSize; DWORD ProcessId; … }.</summary>
+        internal const int CF_PROCESS_INFO_PROCESS_ID_OFFSET = 4;
+        /// <summary>The callback parameter union starts after ULONG ParamSize + padding.</summary>
+        internal const int CF_CALLBACK_PARAMETERS_FLAGS_OFFSET = 8;
 
         // --- CF_OPERATION_TYPE ---
         internal const int CF_OPERATION_TYPE_TRANSFER_DATA = 0;
         internal const int CF_OPERATION_TYPE_TRANSFER_PLACEHOLDERS = 4;
+        internal const int CF_OPERATION_TYPE_ACK_DELETE = 6;
+        internal const int CF_OPERATION_TYPE_ACK_RENAME = 7;
 
         internal const uint CF_OPERATION_TRANSFER_PLACEHOLDERS_FLAG_DISABLE_ON_DEMAND_POPULATION = 2;
 
@@ -69,6 +80,7 @@ namespace Maple.WinUI.Services.CloudFiles
 
         internal const int STATUS_SUCCESS = 0;
         internal const int STATUS_UNSUCCESSFUL = unchecked((int)0xC0000001);
+        internal const int STATUS_CLOUD_FILE_ACCESS_DENIED = unchecked((int)0xC000CF18);
 
         /// <summary>Both served callbacks and the ranges CfExecute buffers
         /// must land on this boundary (except at end of file).</summary>
@@ -155,6 +167,16 @@ namespace Maple.WinUI.Services.CloudFiles
         }
 
         [StructLayout(LayoutKind.Sequential, Pack = 8)]
+        internal struct CF_CALLBACK_PARAMETERS_NOTIFY
+        {
+            public uint ParamSize;
+            private uint _pad;
+            public uint Flags;
+            private uint _pad2;
+            public IntPtr TargetPath;
+        }
+
+        [StructLayout(LayoutKind.Sequential, Pack = 8)]
         internal struct CF_OPERATION_INFO
         {
             public uint StructSize;
@@ -189,6 +211,15 @@ namespace Maple.WinUI.Services.CloudFiles
             public IntPtr PlaceholderArray;   // CF_PLACEHOLDER_CREATE_INFO*
             public uint PlaceholderCount;
             public uint EntriesProcessed;
+        }
+
+        [StructLayout(LayoutKind.Sequential, Pack = 8)]
+        internal struct CF_OPERATION_PARAMETERS_ACK
+        {
+            public uint ParamSize;
+            private uint _pad;
+            public uint Flags;
+            public int CompletionStatus;
         }
 
         [StructLayout(LayoutKind.Sequential, Pack = 8)]
@@ -296,5 +327,8 @@ namespace Maple.WinUI.Services.CloudFiles
         internal static extern int CfExecuteTransferPlaceholders(
             ref CF_OPERATION_INFO opInfo,
             ref CF_OPERATION_PARAMETERS_TRANSFER_PLACEHOLDERS opParams);
+
+        [DllImport(Dll, EntryPoint = "CfExecute", ExactSpelling = true)]
+        internal static extern int CfExecuteAck(ref CF_OPERATION_INFO opInfo, ref CF_OPERATION_PARAMETERS_ACK opParams);
     }
 }
