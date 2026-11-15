@@ -34,7 +34,6 @@ internal fun photoKeyCommand(event: KeyEvent): PhotoKeyCommand? {
     }
 }
 
-/** Applies [event] to the open photo; Browse has no keyboard target until it has a selection. */
 internal fun MapleViewModel.handlePhotoKey(event: KeyEvent): Boolean {
     val command = photoKeyCommand(event) ?: return false
     if (state.value.mode == PhotoMode.Browse || state.value.selected == null) return false

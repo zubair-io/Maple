@@ -33,6 +33,7 @@ import app.justmaple.aperture.R
 import app.justmaple.aperture.data.Folder
 import app.justmaple.aperture.data.Photo
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 internal fun BrowseGrid(
     model: MapleViewModel,
@@ -69,6 +70,11 @@ internal fun BrowseGrid(
         applyBrowseCulling(photos, culling, filter, sort)
     }
     val pinchColumns = Modifier.gridPinch(gridState, columns) { columns = it }
+    val selection by model.browseSelection.state.collectAsState()
+    val cullingReady = photos.all { it.uri.toString() in culling }
+    LaunchedEffect(state.folder?.uri, visible, cullingReady) {
+        model.browseSelection.reconcile(state.folder?.uri?.toString(), if (cullingReady) visible else photos)
+    }
     if (state.loading) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             CircularProgressIndicator(color = MapleColors.primary)
@@ -98,6 +104,10 @@ internal fun BrowseGrid(
                 fontFamily = FolderFont,
                 fontSize = 14.sp,
             )
+            if (!selection.active && visible.isNotEmpty()) {
+                TextButton(onClick = { model.browseSelection.selectAll(emptyList()) },
+                    modifier = Modifier.testTag("browse-selection-enter")) { Text("Select") }
+            }
             MuiIconButton("Larger thumbnails", Icons.Outlined.Add, enabled = columns > 1) {
                 columns--
             }
@@ -106,6 +116,7 @@ internal fun BrowseGrid(
             }
         }
         BrowseFilterBar(filter, { filter = it }, sort, { sort = it }, sorts = sorts)
+        BrowseSelectionControls(model, state, visible)
         if (photos.isEmpty() && directories.isEmpty()) {
             MuiEmptyState(
                 if (state.folder == null) "Your library, in Maple" else "No photos here",
@@ -142,14 +153,41 @@ internal fun BrowseGrid(
                 }
                 items(visible, key = { "photo:${it.uri}" }) { photo ->
                     val marks = culling[photo.uri.toString()] ?: PhotoCulling()
-                    PhotoThumbnail(
-                        photo,
-                        model.library,
-                        Modifier.aspectRatio(1f).clickable { model.openFromBrowse(photo, visible) },
-                        revision = state.document.original.takeIf { photo == state.selected },
-                        pick = marks.pick,
-                        rating = marks.rating,
-                    )
+                    val checked = photo.uri.toString() in selection.ids
+                    Box(
+                        Modifier.aspectRatio(1f)
+                            .combinedClickable(
+                                onClick = {
+                                    if (selection.active) model.browseSelection.toggle(photo)
+                                    else model.openFromBrowse(photo, visible)
+                                },
+                                onLongClickLabel = "Select ${photo.name}",
+                                onLongClick = { model.browseSelection.toggle(photo) },
+                            )
+                            .testTag("browse-photo-${photo.name}")
+                            .semantics {
+                                contentDescription = photo.name
+                                if (selection.active) {
+                                    selected = checked
+                                    role = Role.Checkbox
+                                    toggleableState = if (checked) androidx.compose.ui.state.ToggleableState.On else androidx.compose.ui.state.ToggleableState.Off
+                                }
+                            }
+                    ) {
+                        PhotoThumbnail(
+                            photo,
+                            model.library,
+                            Modifier.fillMaxSize(),
+                            revision = state.document.original.takeIf { photo == state.selected },
+                            pick = marks.pick,
+                            rating = marks.rating,
+                        )
+                        if (selection.active) {
+                            if (checked) Box(Modifier.fillMaxSize().border(3.dp, MapleColors.primary))
+                            Checkbox(checked, onCheckedChange = null,
+                                modifier = Modifier.align(Alignment.TopEnd))
+                        }
+                    }
                 }
             }
         }
