@@ -2,7 +2,7 @@
 // image and the full frame masks are evaluated in (#5950): the crop's affine
 // inverse, and the projective composition with the manual geometry's inverse
 // that raw-core's preview samples through. Split out of `mask-geometry.ts`
-// for the file-size budget; that module re-exports every name here.
+// for the file-size budget.
 
 import type { Crop } from '../../models/adjustment-model';
 import { isCropRectValid, isIdentityCrop } from '../../models/adjustment-model';

@@ -98,4 +98,36 @@ describe('MaskOverlayComponent tint gate (#1541)', () => {
     fixture.detectChanges();
     expect(putImageData).toHaveBeenCalled();
   });
+
+  it.each([
+    { perspectiveX: 50, axis: 'x', outside: 0.125, inside: 0.375 },
+    { perspectiveX: -50, axis: 'x', outside: 0.875, inside: 0.625 },
+    { perspectiveY: 50, axis: 'y', outside: 0.125, inside: 0.375 },
+    { perspectiveY: -50, axis: 'y', outside: 0.875, inside: 0.625 },
+  ])('keeps the projected surround clear for $perspectiveX/$perspectiveY', (geometry) => {
+    session.addRadial();
+    session.setShape({
+      kind: 'radial',
+      center: { x: 0.5, y: 0.5 },
+      radii: { x: 0.01, y: 0.01 },
+      angle: 0,
+      feather: 0,
+      invert: true,
+    });
+    lib.updateAdjustment('asset-1', {
+      perspectiveX: geometry.perspectiveX ?? 0,
+      perspectiveY: geometry.perspectiveY ?? 0,
+    });
+    editor.armTool('mask');
+    const fixture = TestBed.createComponent(MaskOverlayComponent);
+    fixture.detectChanges();
+    const image = putImageData.mock.lastCall![0] as ImageData;
+    const alphaAt = (position: number): number => {
+      const x = Math.floor((geometry.axis === 'x' ? position : 0.5) * image.width);
+      const y = Math.floor((geometry.axis === 'y' ? position : 0.5) * image.height);
+      return image.data[(y * image.width + x) * 4 + 3];
+    };
+    expect(alphaAt(geometry.outside)).toBe(0);
+    expect(alphaAt(geometry.inside)).toBe(Math.round(0.55 * 255));
+  });
 });
