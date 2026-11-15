@@ -72,7 +72,7 @@ internal object CloudSearchWire {
             if (query.places.isNotEmpty()) add("place" to query.places.sorted().joinToString("|"))
         }
 
-    private fun path(route: String, params: List<Pair<String, String>>) =
+    fun path(route: String, params: List<Pair<String, String>>) =
         route + params.joinToString("&", "?") { (key, value) -> "$key=${Uri.encode(value)}" }
 
     fun searchPath(query: CloudSearchQuery, today: LocalDate, from: SearchContinuation?): String =
@@ -90,29 +90,35 @@ internal object CloudSearchWire {
     fun facetsPath(query: CloudSearchQuery, today: LocalDate): String =
         path("/api/search/facets", filters(query, today) + ("limit" to LIMIT.toString()))
 
-    /** Rows without a registered library address cannot be opened and are dropped. */
+    /** A row without a registered library address cannot be opened: `null`, as for a non-photo. */
+    fun photo(serverId: String, row: JSONObject): Photo? {
+        val address = row.optString("address").takeIf { it.isNotEmpty() && it != "null" && ':' in it }
+        val name = row.optString("filename")
+        val path = row.optString("abs_path")
+        if (address == null || path.isEmpty() ||
+            name.substringAfterLast('.', "").lowercase() !in PhotoLibrary.EXTENSIONS
+        ) return null
+        val folderAddress =
+            address.substringBeforeLast('/', "").ifEmpty { address.substringBefore(':') + ":" }
+        return Photo(
+            CloudLibrary.address(serverId, address, path),
+            name,
+            row.optLong("size"),
+            row.optLong("mtime"),
+            CloudLibrary.address(serverId, folderAddress, path.substringBeforeLast('/')),
+        )
+    }
+
     fun parsePage(serverId: String, json: JSONObject, page: Int): CloudSearchPage {
         val rows = json.optJSONArray("results")
         val count = rows?.length() ?: 0
-        val photos =
-            (0 until count).mapNotNull { index ->
-                val row = rows!!.getJSONObject(index)
-                val address = row.optString("address").takeIf { it.isNotEmpty() && it != "null" && ':' in it }
-                val name = row.optString("filename")
-                val path = row.optString("abs_path")
-                if (address == null || path.isEmpty() ||
-                    name.substringAfterLast('.', "").lowercase() !in PhotoLibrary.EXTENSIONS
-                ) return@mapNotNull null
-                val folderAddress =
-                    address.substringBeforeLast('/', "").ifEmpty { address.substringBefore(':') + ":" }
-                Photo(
-                    CloudLibrary.address(serverId, address, path),
-                    name,
-                    row.optLong("size"),
-                    row.optLong("mtime"),
-                    CloudLibrary.address(serverId, folderAddress, path.substringBeforeLast('/')),
-                )
-            }
+        val photos = (0 until count).mapNotNull { index -> photo(serverId, rows!!.getJSONObject(index)) }
+        return CloudSearchPage(photos, json.optInt("total"), count - photos.size,
+            json.optString("rankPin").let { it.isNotEmpty() && it != "null" } && (json.optBoolean("more") || json.optBoolean("capped")),
+            continuation(json, page, count))
+    }
+
+    fun continuation(json: JSONObject, page: Int, count: Int): SearchContinuation? {
         val cursorPaging = json.optBoolean("cursorPaging")
         val cursor = json.optString("nextCursor").takeIf { it.isNotEmpty() && it != "null" }
         val more = json.optBoolean("more") || json.optBoolean("capped")
@@ -124,7 +130,7 @@ internal object CloudSearchWire {
                 (page + 1) * LIMIT < total || more -> SearchContinuation(null, page + 1, ranked)
                 else -> null
             }
-        return CloudSearchPage(photos, total, count - photos.size, ranked != null && more, next?.takeIf { count > 0 })
+        return next?.takeIf { count > 0 }
     }
 
     fun parseFacets(json: JSONObject, key: String): List<SearchFacet> {

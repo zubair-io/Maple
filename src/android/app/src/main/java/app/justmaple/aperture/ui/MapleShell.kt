@@ -16,6 +16,10 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.lifecycle.viewmodel.initializer
+import androidx.lifecycle.viewmodel.viewModelFactory
+import app.justmaple.aperture.cloud.CloudTimelineViewModel
 import app.justmaple.aperture.*
 import app.justmaple.aperture.data.PhotoExifMetadata
 import app.justmaple.aperture.cloud.CloudLibrary
@@ -28,6 +32,14 @@ import kotlinx.coroutines.withContext
 fun MapleShell(model: MapleViewModel) {
     val state by model.state.collectAsStateWithLifecycle()
     var tab by rememberSaveable { mutableStateOf("Library") }
+    val timelineViewModel: CloudTimelineViewModel = viewModel(factory = viewModelFactory {
+        initializer { CloudTimelineViewModel(model.library.cloud) }
+    })
+    val timeline by timelineViewModel.timeline.state.collectAsStateWithLifecycle()
+    val timelineServers = state.sources.filter { CloudLibrary.isCloud(it.uri) }
+    LaunchedEffect(timelineServers, state.cloudConnectionsVersion, tab) {
+        timelineViewModel.sync(timelineServers, state.cloudConnectionsVersion, tab == "Timeline")
+    }
     var query by rememberSaveable { mutableStateOf("") }
     var recovery by rememberSaveable { mutableStateOf<String?>(null) }
     var cloudDialog by rememberSaveable { mutableStateOf(false) }
@@ -154,10 +166,15 @@ fun MapleShell(model: MapleViewModel) {
                                 else scope.launch { drawer.open() }
                             },
                             onSearch = { tab = "Search" },
+                            onTimeline = { tab = "Timeline" },
                             onSettings = { settingsOpen = true },
                             onFolder = { folderPicker.launch(null) },
                         )
                         when (tab) {
+                            "Timeline" -> CloudTimelinePanel(
+                                timelineViewModel.timeline, timeline, timelineServers, model, state,
+                                onConnect = { cloudDialog = true },
+                            )
                             "Search" -> {
                                 val servers = state.sources.filter { CloudLibrary.isCloud(it.uri) }
                                 if (servers.isNotEmpty()) {
@@ -250,6 +267,7 @@ fun MapleShell(model: MapleViewModel) {
                     for ((label, icon) in
                         listOf(
                             "Library" to Icons.Outlined.PhotoLibrary,
+                            "Timeline" to Icons.Outlined.CalendarMonth,
                             "Search" to Icons.Outlined.Search,
                             "Settings" to Icons.Outlined.Settings,
                         )) {
