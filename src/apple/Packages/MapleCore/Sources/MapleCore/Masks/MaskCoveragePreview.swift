@@ -21,10 +21,14 @@ public enum MaskCoveragePreview {
         let presented = MaskPoint(
           x: Double(x) / Double(max(1, width - 1)),
           y: Double(y) / Double(max(1, height - 1)))
-        let frame = projection.apply(presented) ?? MaskPoint(x: -1, y: -1)
-        let weight = MaskWeight.evaluate(
-          mask, x: frame.x,
-          y: frame.y, rasters: rasters)
+        let weight: Double
+        if let frame = projection.apply(presented),
+          (0...1).contains(frame.x), (0...1).contains(frame.y)
+        {
+          weight = MaskWeight.evaluate(mask, x: frame.x, y: frame.y, rasters: rasters)
+        } else {
+          weight = 0
+        }
         let alpha = weight.isFinite ? UInt8((min(1, max(0, weight)) * 255).rounded()) : 0
         let offset = (y * width + x) * 4
         for channel in 0..<4 { rgba[offset + channel] = alpha }

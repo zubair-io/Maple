@@ -60,4 +60,19 @@ final class MaskCoveragePreviewTests: XCTestCase {
     XCTAssertEqual(data[centre], 255)
     XCTAssertEqual(data[0], 0)
   }
+  func testPresentedTintClearsCoverageOutsideTheProjectedFrame() throws {
+    let recipe = BitmapRecipe(
+      person: 0, facialSkin: true, bodySkin: true, model: "vision", digest: "0123456789abcdef")
+    let mask = LocalMask.bitmap(recipe: recipe, rasterId: 7)
+    let projection = MaskProjection.presentationToFrame(
+      crop: .identity, perspective: Perspective(x: 50),
+      nativeSize: CGSize(width: 400, height: 300))
+    let image = try XCTUnwrap(
+      MaskCoveragePreview.image(
+        mask: mask, imageSize: CGSize(width: 5, height: 5), rasters: [7: (1, 1, [255])],
+        projection: projection))
+    let data = try XCTUnwrap(image.dataProvider?.data) as Data
+    XCTAssertEqual(data[0], 0)
+    XCTAssertEqual(data[(2 * 5 + 4) * 4], 255)
+  }
 }
