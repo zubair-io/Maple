@@ -76,8 +76,8 @@ object NativeBridge {
     external fun maskWeights(layer: String, width: Int, height: Int): ByteArray
 
     /**
-     * Row-major projective `[m0 … m8]` taking a point on the presented image (crop, then the
-     * seven manual-geometry sliders in [geometry]) to the full frame masks live in.
+     * Two row-major 3×3 maps: presented → full frame, then presented → intermediate crop
+     * frame. The second preserves the crop's bounds before the seven sliders in [geometry].
      */
     external fun maskFrame(width: Int, height: Int, top: Float, left: Float, bottom: Float,
         right: Float, angle: Float, geometry: FloatArray): DoubleArray

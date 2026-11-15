@@ -53,8 +53,8 @@ interface PreviewRenderer : Closeable {
     fun maskWeights(layer: String, width: Int, height: Int): ByteArray = NativeBridge.maskWeights(layer, width, height)
 
     /**
-     * The row-major projective `[m0 … m8]` from the presented image (the [crop] and the
-     * seven manual-geometry sliders in `geometryFieldNames` order) onto the full frame masks live in.
+     * The presented → full frame map, followed by its crop-only intermediate bounds map.
+     * The seven manual-geometry sliders use `geometryFieldNames` order.
      */
     fun maskFrame(size: NativeImageSize, crop: app.justmaple.aperture.ui.CropRect, geometry: List<Float>): DoubleArray =
         NativeBridge.maskFrame(size.width, size.height, crop.top, crop.left, crop.bottom, crop.right, crop.angle,

@@ -162,6 +162,7 @@ internal fun MaskOverlay(model: MapleViewModel, state: MapleState, zoom: Float, 
                     val forward = currentToFrame ?: return@awaitEachGesture
                     val back = currentFromFrame ?: return@awaitEachGesture
                     fun frameAt(position: Offset) = forward.apply(MaskPoint(position.x / w, position.y / h))
+                    if (!frameAt(down.position).x.isFinite()) return@awaitEachGesture
                     if (currentPicking) {
                         down.consume()
                         val up = waitForUpOrCancellation() ?: return@awaitEachGesture
@@ -202,13 +203,16 @@ internal fun MaskOverlay(model: MapleViewModel, state: MapleState, zoom: Float, 
         // Decorative: the tint and strokes carry no semantics; the handles below do.
         Canvas(Modifier.fillMaxSize()) {
             if (back == null) return@Canvas
-            clipRect { tint?.let { drawTint(it, back) } }
-            shape?.let { drawMaskShape(it, back, scale) }
+            withMaskFrameBounds(toFrame) {
+                clipRect { tint?.let { drawTint(it, back) } }
+                shape?.let { drawMaskShape(it, back, scale) }
+            }
         }
         if (shape != null && back != null) {
             val box = GRAB_RADIUS * 2 / scale
             for ((handle, point) in maskHandles(shape)) {
                 val at = back.apply(point)
+                if (toFrame?.apply(at)?.x?.isFinite() == false) continue
                 Box(
                     Modifier.offset {
                             IntOffset(
@@ -235,6 +239,32 @@ private fun DrawScope.drawTint(bitmap: Bitmap, back: MaskProjection) {
             postScale(size.width, size.height)
         }
     drawIntoCanvas { it.nativeCanvas.drawBitmap(bitmap, matrix, Paint(Paint.FILTER_BITMAP_FLAG)) }
+}
+
+internal fun DrawScope.withMaskFrameBounds(forward: MaskProjection?, draw: DrawScope.() -> Unit) {
+    drawIntoCanvas {
+        val canvas = it.nativeCanvas
+        val saved = canvas.save()
+        try {
+            val values = forward?.values
+            if (values != null && values.size == 18) {
+                val cropBack = MaskProjection(values.copyOfRange(9, 18)).inverse()
+                if (cropBack != null) {
+                    val clip = android.graphics.Path()
+                    listOf(MaskPoint(0f, 0f), MaskPoint(1f, 0f), MaskPoint(1f, 1f), MaskPoint(0f, 1f))
+                        .map(cropBack::apply).forEachIndexed { index, point ->
+                            if (index == 0) clip.moveTo(point.x * size.width, point.y * size.height)
+                            else clip.lineTo(point.x * size.width, point.y * size.height)
+                        }
+                    clip.close()
+                    canvas.clipPath(clip)
+                }
+            }
+            draw()
+        } finally {
+            canvas.restoreToCount(saved)
+        }
+    }
 }
 
 private fun DrawScope.drawMaskShape(shape: MaskShape, back: MaskProjection, scale: Float) {

@@ -50,7 +50,7 @@ fn assert_matches_render(m: &[f64; 9], crop: Crop, perspective: Perspective, wha
 
 #[test]
 fn the_crop_frame_maps_the_presented_crop_onto_the_full_frame() {
-    let mut out = [0.0; 9];
+    let mut out = [0.0; 18];
     let geometry = [0.0, 0.0, 0.0, 100.0, 0.0, 0.0, 0.0];
     assert!(unsafe {
         maple_android_mask_frame(
@@ -65,7 +65,7 @@ fn the_crop_frame_maps_the_presented_crop_onto_the_full_frame() {
             out.as_mut_ptr(),
         )
     });
-    assert_eq!(out, [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]);
+    assert_eq!(out[..9], [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]);
     assert!(unsafe {
         maple_android_mask_frame(
             400,
@@ -145,4 +145,32 @@ fn the_frame_map_carries_the_manual_geometry_the_render_applies() {
         (a.0 - b.0).abs() > 1e-3 || (a.1 - b.1).abs() > 1e-3,
         "the geometry rotation moves the frame point"
     );
+}
+
+#[test]
+fn straightened_crop_bounds_survive_geometry_scaling() {
+    let mut out = [0.0; 18];
+    let geometry = [0.0, 0.0, 0.0, 150.0, 0.0, 0.0, 0.0];
+    assert!(unsafe {
+        maple_android_mask_frame(
+            400,
+            400,
+            0.0,
+            0.0,
+            1.0,
+            1.0,
+            10.0,
+            geometry.as_ptr(),
+            out.as_mut_ptr(),
+        )
+    });
+    let intermediate = project(out[9..].try_into().unwrap(), 0.01, 0.01);
+    close(
+        intermediate,
+        (-0.0676434, 0.1025318),
+        "intermediate crop frame",
+    );
+    assert!(intermediate.0 < 0.0);
+    let source = project(out[..9].try_into().unwrap(), 0.01, 0.01);
+    assert!((0.0..=1.0).contains(&source.0) && (0.0..=1.0).contains(&source.1));
 }

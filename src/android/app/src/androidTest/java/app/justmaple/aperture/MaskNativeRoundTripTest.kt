@@ -78,5 +78,11 @@ class MaskNativeRoundTripTest {
         }
         val offset = NativeBridge.maskFrame(4000, 3000, 0f, 0f, 1f, 1f, 0f, floatArrayOf(0f, 0f, 0f, 100f, 0f, 50f, 0f))
         assertEquals("An X offset of 50 shifts the frame a quarter width", -.25, offset[2], 1e-6)
+        val straightened = NativeBridge.maskFrame(400, 400, 0f, 0f, 1f, 1f, 10f,
+            floatArrayOf(0f, 0f, 0f, 150f, 0f, 0f, 0f))
+        assertEquals(18, straightened.size)
+        val projection = app.justmaple.aperture.ui.MaskProjection(straightened)
+        assertTrue(projection.apply(app.justmaple.aperture.data.MaskPoint(.01f, .01f)).x.isNaN())
+        assertEquals(.5f, projection.apply(app.justmaple.aperture.data.MaskPoint(.5f, .5f)).x, 1e-6f)
     }
 }

@@ -103,7 +103,9 @@ counter-scales its pins. The red weight tint (peak opacity 0.55) is raw-core's o
 evaluator over JNI. Handles, tint, drags and the eyedropper's sample point all cross one
 projective map (`mask_frame`): the crop's inverse, then the manual geometry's (offset,
 keystone, rotation, scale, aspect), as the preview samples the frame, so a mask on a
-cropped, straightened or Geometry-corrected photo is drawn and picked where it renders. A drag is one undo
+cropped, straightened or Geometry-corrected photo is drawn and picked where it renders.
+The map retains the crop-only intermediate frame bounds: empty straightened corners stay
+unpickable and untinted even when inverse Geometry maps them inside the source. A drag is one undo
 entry opened on its first movement; every panel command is one entry and selection adds
 none.
 
