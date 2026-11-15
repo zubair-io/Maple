@@ -246,6 +246,10 @@ five consecutive samples without an executing SystemUI service. An observed
 pre-test ANR permits one recovery reboot; other unhealthy boots fail the job.
 Watching every SystemUI service closes the Keyguard-only guard gap (#4984), but
 the guard does not prevent an Android service ANR.
+Timestamped host uptime, CPU count and CPU/memory/I/O pressure snapshots are retained
+in `ci-artifacts/host-before-emulator.txt` and `host-after-boot-guard.txt` to compare
+runner contention with boot ANR evidence. Collection is best-effort and does not
+change boot qualification, recovery or test gates.
 
 Device tests open a committed RAW and a real raster, render with Vulkan,
 change exposure/white balance, save and undo actual XMP files, recreate the

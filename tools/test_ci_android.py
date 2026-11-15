@@ -97,6 +97,60 @@ class AndroidSelectionTests(unittest.TestCase):
         self.assertEqual(dependencies("test-fixtures/new-corpus/photo.dng"), BUILDS)
 
 
+class AndroidHostPressureTests(unittest.TestCase):
+    def test_host_snapshots_bracket_boot_and_remain_best_effort(self):
+        job = workflow("android")["jobs"]["android-build"]
+        emulator = next(
+            s for s in job["steps"] if "emulator-runner@" in s.get("uses", "")
+        )
+        before = emulator["with"]["pre-emulator-launch-script"]
+        runner = (SCRIPTS / "test-device-ci.sh").read_text()
+        start = runner.index("\n{\n", runner.index("healthy after one recovery boot"))
+        end = runner.index("\nadb logcat -c", start)
+        after = runner[start:end]
+        self.assertLess(end, runner.index("connectedDebugAndroidTest"))
+        for script, filename in (
+            (before, "host-before-emulator.txt"),
+            (after, "host-after-boot-guard.txt"),
+        ):
+            for failing in (False, True):
+                with self.subTest(filename=filename, failing=failing):
+                    with tempfile.TemporaryDirectory() as temporary:
+                        root = Path(temporary)
+                        binary = root / "bin"
+                        binary.mkdir()
+                        artifacts = root / "src/android/ci-artifacts"
+                        artifacts.mkdir(parents=True)
+                        for command in ("date", "uptime", "nproc", "cat"):
+                            executable = binary / command
+                            executable.write_text(
+                                f'#!/bin/sh\necho "{command} $*"\n'
+                                f"exit {int(failing)}\n"
+                            )
+                            executable.chmod(0o755)
+                        result = subprocess.run(
+                            ["bash", "-e", "-c", script],
+                            cwd=root,
+                            env={
+                                **os.environ,
+                                "PATH": f"{binary}:{os.environ['PATH']}",
+                                "artifacts": str(artifacts),
+                            },
+                            capture_output=True,
+                            text=True,
+                            timeout=10,
+                        )
+                        self.assertEqual(result.returncode, 0, result.stderr)
+                        snapshot = (artifacts / filename).read_text()
+                        for value in (
+                            "date -u +%Y-%m-%dT%H:%M:%SZ",
+                            "uptime",
+                            "nproc",
+                            *[f"cat /proc/pressure/{r}" for r in ("cpu", "memory", "io")],
+                        ):
+                            self.assertIn(value, snapshot)
+
+
 class AndroidWorkflowTests(unittest.TestCase):
     def test_emulator_and_existing_gates_are_required(self):
         config = workflow("android")
