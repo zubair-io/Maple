@@ -11,6 +11,7 @@
  */
 
 import path from 'node:path';
+import { randomUUID } from 'node:crypto';
 import { InvalidSeamConstraints } from '../../pano/pano-seam-constraints.ts';
 import { realpath, rm, writeFile } from '../../fs/mirrored.ts';
 import { isWithinRoot, resolveRealPathThroughAncestors } from '../../fs/root.ts';
@@ -90,10 +91,6 @@ export async function resolveInputFrames(
       return a.sortKey.length - b.sortKey.length;
     })
     .map(({ assetId, path: inputPath }) => ({ assetId, path: inputPath }));
-}
-
-export async function resolveInputPaths(assetIds: readonly string[]): Promise<string[]> {
-  return (await resolveInputFrames(assetIds)).map((frame) => frame.path);
 }
 
 /**
@@ -239,8 +236,7 @@ export async function runPanoCli(
   // in-flight decode has released (#5467), and that budget is the limit the
   // CLI refuses an oversized panorama against (#5835).
   const release = await decodeMemoryBudget().acquireAll();
-  const constraintsFile = path.join(payload.outputDir, 'seam-constraints.json');
-  let constraintsWritten = false;
+  let constraintsFile: string | undefined;
   try {
     if (await ctx.shouldCancel()) {
       return { exitCode: 0, cancelled: true, stderrLines: [], progress: 0 };
@@ -252,17 +248,18 @@ export async function runPanoCli(
           'This binary or strategy does not support seam constraints.',
         );
       }
-      await writeFile(constraintsFile, JSON.stringify(payload.seamConstraints), {
+      const attemptFile = path.join(payload.outputDir, `seam-constraints-${randomUUID()}.json`);
+      await writeFile(attemptFile, JSON.stringify(payload.seamConstraints), {
         flag: 'wx',
         mode: 0o600,
       });
-      constraintsWritten = true;
+      constraintsFile = attemptFile;
       const separator = args.indexOf('--');
       const optionsEnd = separator === -1 ? args.length : separator;
       constrainedArgs = [
         ...args.slice(0, optionsEnd),
         '--seam-constraints',
-        constraintsFile,
+        attemptFile,
         '--seam-strategy',
         'graph-cut',
         ...args.slice(optionsEnd),
@@ -271,7 +268,7 @@ export async function runPanoCli(
     return await spawnPanoCli(executables, withMemoryLimit(payload, constrainedArgs), ctx);
   } finally {
     release();
-    if (constraintsWritten) await rm(constraintsFile, { force: true });
+    if (constraintsFile !== undefined) await rm(constraintsFile, { force: true });
   }
 }
 

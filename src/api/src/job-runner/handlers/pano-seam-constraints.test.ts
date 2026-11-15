@@ -95,11 +95,12 @@ describe('constrained CLI jobs', () => {
       expect(outcome.kind).toBe('done');
       expect(outcome.result).toMatchObject({ seamConstraints: constraints() });
       const [args] = await fakeCliRuns(binary);
-      expect(args).toContain(
-        `--seam-constraints ${path.join(outputDir, 'seam-constraints.json')} --seam-strategy graph-cut -- `,
-      );
+      const file = args?.match(/--seam-constraints (\S+) --seam-strategy graph-cut -- /)?.[1];
+      expect(file).toBeDefined();
+      expect(path.dirname(file!)).toBe(outputDir);
+      expect(path.basename(file!)).toMatch(/^seam-constraints-[a-f0-9-]+\.json$/);
       expect(await Bun.file(`${binary}.seams`).json()).toEqual(constraints());
-      expect(await exists(path.join(outputDir, 'seam-constraints.json'))).toBe(false);
+      expect(await exists(file!)).toBe(false);
       expect((await fs.readFile(`${binary}.inputs`, 'utf8')).trim().split('\n')).toEqual([
         path.join(root, 'a.dng'),
         path.join(root, 'b.dng'),
@@ -134,6 +135,18 @@ describe('constrained CLI jobs', () => {
       });
       expect(await exists(outputDir)).toBe(false);
     });
+    it(`recovers a prior attempt's constraint file for ${kind}`, async () => {
+      const binary = await cli();
+      const outputDir = kind === 'preview' ? newPreviewDir() : path.join(dir, 'out');
+      previewDirs.push(outputDir);
+      await fs.mkdir(outputDir, { recursive: true });
+      await fs.writeFile(path.join(outputDir, 'seam-constraints.json'), '{"stale":true}');
+      const handler = kind === 'preview' ? panoPreviewHandler : panoStitchHandler;
+      const outcome = await handler.run(payload(binary, outputDir, constraints()), context());
+      expect(outcome.kind).toBe('done');
+      expect(outcome.result).toMatchObject({ seamConstraints: constraints() });
+      expect(await Bun.file(`${binary}.seams`).json()).toEqual(constraints());
+    });
   }
   it('never reuses an unconstrained output, but reuses the identical constrained output', async () => {
     const binary = await cli();
@@ -157,6 +170,37 @@ describe('constrained CLI jobs', () => {
     expect(again.result).toMatchObject({ seamConstraints: constraints() });
     expect(different.result.outputPath).not.toBe(constrained.result.outputPath);
     expect(await fakeCliRuns(binary)).toHaveLength(3);
+  });
+  it('invalidates a constrained output when renamed non-first frames exchange positions', async () => {
+    const thirdId = insertAsset(live.db);
+    insertLocation(live.db, { assetId: thirdId, libraryId, path: '', filename: 'c.dng' });
+    await fs.writeFile(path.join(root, 'c.dng'), Buffer.from(TINY_PNG_B64, 'base64'));
+    assetIds.push(thirdId);
+    const binary = await cli();
+    const request = constraints();
+    request.regions[0]!.frame = 1;
+    const before = await panoStitchHandler.run(
+      payload(binary, path.join(dir, 'before'), request),
+      context(),
+    );
+    await fs.rename(path.join(root, 'b.dng'), path.join(root, 'swap.dng'));
+    await fs.rename(path.join(root, 'c.dng'), path.join(root, 'b.dng'));
+    await fs.rename(path.join(root, 'swap.dng'), path.join(root, 'c.dng'));
+    live.db.run('UPDATE asset_locations SET filename = ? WHERE asset_id = ?', [
+      'swap.dng',
+      assetIds[0]!,
+    ]);
+    live.db.run('UPDATE asset_locations SET filename = ? WHERE asset_id = ?', ['b.dng', thirdId]);
+    live.db.run('UPDATE asset_locations SET filename = ? WHERE asset_id = ?', [
+      'c.dng',
+      assetIds[0]!,
+    ]);
+    const after = await panoStitchHandler.run(
+      payload(binary, path.join(dir, 'after'), request),
+      context(),
+    );
+    expect(after.result.outputPath).not.toBe(before.result.outputPath);
+    expect(await fakeCliRuns(binary)).toHaveLength(2);
   });
   it('preserves preview alignment reuse when constraints are added', async () => {
     const binary = await cli();

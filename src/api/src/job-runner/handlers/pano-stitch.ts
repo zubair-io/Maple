@@ -72,7 +72,7 @@ import {
   PROGRESS_PER_STAGE,
   PROGRESS_TOTAL,
   reportPath,
-  resolveInputPaths,
+  resolveInputFrames,
   runPanoCli,
 } from './pano-cli-process.ts';
 
@@ -350,7 +350,8 @@ export const panoStitchHandler: JobHandler = {
     // be cleaned up in a finally block regardless of success or failure.
 
     try {
-      const inputPaths = await resolveInputPaths(payload.assetIds);
+      const inputFrames = await resolveInputFrames(payload.assetIds);
+      const inputPaths = inputFrames.map((frame) => frame.path);
       const libPath = (await loadLibraryRoots()).get(payload.libraryId);
       if (!libPath) throw new Error(`pano_stitch: library ${payload.libraryId} not found`);
       const realRoot = await resolveRealPathThroughAncestors(libPath);
@@ -358,7 +359,7 @@ export const panoStitchHandler: JobHandler = {
       const location = await containedLocation(
         realRoot,
         panoOutputLocation(realRoot, inputPaths, {
-          assetIds: payload.assetIds,
+          assetIds: inputFrames.map((frame) => frame.assetId),
           inputStamps: await Promise.all(inputPaths.map(fileStamp)),
           retention: payload.retention,
           localAlign: payload.localAlign,
