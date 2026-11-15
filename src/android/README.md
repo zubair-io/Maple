@@ -85,6 +85,8 @@ continues pending photos and Retry failed touches only failures. The ledger surv
 activity/process recreation and is visible in Browse independently of selection.
 Dismiss batch explicitly abandons unfinished entries after confirmation, without
 undoing confirmed saves. Original photo bytes are never modified.
+Photos cannot be opened until a running batch finishes or is cancelled, so an editor
+cannot retain the pre-paste document and an obsolete conditional-save baseline.
 
 ## Hardware keyboard
 

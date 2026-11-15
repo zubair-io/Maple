@@ -3,6 +3,14 @@ package app.justmaple.aperture
 import android.net.Uri
 import androidx.activity.ComponentActivity
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.width
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.test.*
 import androidx.lifecycle.ViewModelProvider
 import androidx.test.platform.app.InstrumentationRegistry
@@ -57,15 +65,18 @@ class BrowseSelectionTest {
             val model = ViewModelProvider(compose.activity)[MapleViewModel::class.java]
             val copied = runBlocking { CopiedSettings(source.name, model.library.loadSidecar(source).document) }
             val photos = targets + excluded
+            var narrow by mutableStateOf(false)
             compose.setContent {
                 MaterialTheme {
-                    BrowseGrid(
-                        model = model,
-                        state = MapleState(folder = Folder(parent, "Selection test"), photos = photos, copiedSettings = copied),
-                        photos = photos,
-                        folders = emptyList(),
-                        folderPicker = {},
-                    )
+                    Box(Modifier.width(if (narrow) 360.dp else 1280.dp).fillMaxHeight()) {
+                        BrowseGrid(
+                            model = model,
+                            state = MapleState(folder = Folder(parent, "Selection test"), photos = photos, copiedSettings = copied),
+                            photos = photos,
+                            folders = emptyList(),
+                            folderPicker = {},
+                        )
+                    }
                 }
             }
             fun tile(photo: Photo) = compose.onNodeWithTag("browse-photo-${photo.name}")
@@ -75,7 +86,11 @@ class BrowseSelectionTest {
             select(targets.first())
             compose.onNodeWithTag("browse-selection-bar").assertExists()
             compose.onNodeWithText("1 selected").assertExists()
+            compose.runOnIdle { narrow = true }
+            compose.onNodeWithText("1 selected").assertExists()
             tile(targets.last()).performClick()
+            compose.onNodeWithText("2 selected").assertExists()
+            compose.runOnIdle { narrow = false }
             compose.onNodeWithText("2 selected").assertExists()
             tile(targets.first()).performClick()
             compose.onNodeWithText("1 selected").assertExists()
