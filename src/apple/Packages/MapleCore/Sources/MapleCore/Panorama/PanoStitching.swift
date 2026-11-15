@@ -13,73 +13,79 @@ import Foundation
 /// Mirrors the CLI's --retention / --local-align / --strategy flags so the
 /// real FFI impl (M4) can pass these through without field mapping.
 public struct PanoOptions: Sendable, Equatable {
-    /// How aggressively to retain overlapping regions in the composite.
-    public enum Retention: String, Sendable, CaseIterable {
-        /// Prefer coverage — include a frame even when its overlap quality is
-        /// marginal. Best for wide, thin-overlap sequences.
-        case keep
-        /// Exclude frames whose overlap quality falls below the solver threshold.
-        /// Produces cleaner seams on high-overlap sequences.
-        case strict
-    }
+  /// How aggressively to retain overlapping regions in the composite.
+  public enum Retention: String, Sendable, CaseIterable {
+    /// Prefer coverage — include a frame even when its overlap quality is
+    /// marginal. Best for wide, thin-overlap sequences.
+    case keep
+    /// Exclude frames whose overlap quality falls below the solver threshold.
+    /// Produces cleaner seams on high-overlap sequences.
+    case strict
+  }
 
-    /// Local mesh-alignment pass after global bundle adjustment.
-    public enum LocalAlign: String, Sendable, CaseIterable {
-        /// Run the mesh warp pass (default). Corrects residual lens-roll and
-        /// perspective drift that the global rotation solver doesn't capture.
-        case mesh
-        /// Skip mesh alignment. Faster; fine for sequences with negligible lens
-        /// distortion or when the mesh pass artifacts (rare edge case).
-        case off
-    }
+  /// Local mesh-alignment pass after global bundle adjustment.
+  public enum LocalAlign: String, Sendable, CaseIterable {
+    /// Run the mesh warp pass (default). Corrects residual lens-roll and
+    /// perspective drift that the global rotation solver doesn't capture.
+    case mesh
+    /// Skip mesh alignment. Faster; fine for sequences with negligible lens
+    /// distortion or when the mesh pass artifacts (rare edge case).
+    case off
+  }
 
-    /// Which geometry model to apply to the global bundle-adjustment pass.
-    public enum Strategy: String, Sendable, CaseIterable {
-        /// Let the solver pick based on feature graph topology (recommended).
-        case auto
-        /// Force pure rotation (no translation). Best for handheld pans taken
-        /// from a fixed pivot point.
-        case rotation
-        /// Force flat-plane tiling. Best for copy-stand / flat-art sequences.
-        case tile
-    }
+  /// Which geometry model to apply to the global bundle-adjustment pass.
+  public enum Strategy: String, Sendable, CaseIterable {
+    /// Let the solver pick based on feature graph topology (recommended).
+    case auto
+    /// Force pure rotation (no translation). Best for handheld pans taken
+    /// from a fixed pivot point.
+    case rotation
+    /// Force flat-plane tiling. Best for copy-stand / flat-art sequences.
+    case tile
+  }
 
-    public var retention: Retention = .keep
-    public var localAlign: LocalAlign = .mesh
-    public var strategy: Strategy = .auto
-    /// Boundary Warp strength in percent, 0 to 100 (the slider's own scale,
-    /// the same on the CLI, FFI and report). 0 leaves the edges as stitched.
-    /// Not part of the alignment key: changing it re-composites only.
-    public var boundaryWarp: Double = 0
-    /// Trim the output to the largest rectangle with no empty edges. Not part
-    /// of the alignment key.
-    public var autoCrop: Bool = false
+  public var retention: Retention = .keep
+  public var localAlign: LocalAlign = .mesh
+  public var strategy: Strategy = .auto
+  /// Boundary Warp strength in percent, 0 to 100 (the slider's own scale,
+  /// the same on the CLI, FFI and report). 0 leaves the edges as stitched.
+  /// Not part of the alignment key: changing it re-composites only.
+  public var boundaryWarp: Double = 0
+  /// Trim the output to the largest rectangle with no empty edges. Not part
+  /// of the alignment key.
+  public var autoCrop: Bool = false
 
-    public init(retention: Retention = .keep,
-                localAlign: LocalAlign = .mesh,
-                strategy: Strategy = .auto,
-                boundaryWarp: Double = 0,
-                autoCrop: Bool = false) {
-        self.retention = retention
-        self.localAlign = localAlign
-        self.strategy = strategy
-        self.boundaryWarp = boundaryWarp
-        self.autoCrop = autoCrop
-    }
+  public var seamConstraints: SeamConstraintsRequest? = nil
+  public init(
+    retention: Retention = .keep,
+    localAlign: LocalAlign = .mesh,
+    strategy: Strategy = .auto,
+    boundaryWarp: Double = 0,
+    autoCrop: Bool = false,
+    seamConstraints: SeamConstraintsRequest? = nil
+  ) {
+    self.retention = retention
+    self.localAlign = localAlign
+    self.strategy = strategy
+    self.boundaryWarp = boundaryWarp
+    self.autoCrop = autoCrop
+    self.seamConstraints = seamConstraints
+  }
 
-    /// These options with the edge settings back at their defaults. The edge
-    /// settings change neither the alignment nor the uncropped canvas, so
-    /// anything keyed on the solved geometry compares this.
-    public var withoutEdges: PanoOptions {
-        var copy = self
-        copy.boundaryWarp = 0
-        copy.autoCrop = false
-        return copy
-    }
+  /// These options with the edge settings back at their defaults. The edge
+  /// settings change neither the alignment nor the uncropped canvas, so
+  /// anything keyed on the solved geometry compares this.
+  public var withoutEdges: PanoOptions {
+    var copy = self
+    copy.boundaryWarp = 0
+    copy.autoCrop = false
+    copy.seamConstraints = nil
+    return copy
+  }
 
-    public var hasEdgeSettings: Bool { boundaryWarp != 0 || autoCrop }
+  public var hasEdgeSettings: Bool { boundaryWarp != 0 || autoCrop }
 
-    public static let `default` = PanoOptions()
+  public static let `default` = PanoOptions()
 }
 
 // MARK: - PanoFeatureEngine
@@ -88,15 +94,15 @@ public struct PanoOptions: Sendable, Equatable {
 /// is the default and needs no download; ML (ALIKED + LightGlue) is the
 /// opt-in engine from Settings → Pano.
 public enum PanoFeatureEngine: String, Sendable, CaseIterable {
-    case classical
-    case ml
+  case classical
+  case ml
 
-    public var displayName: String {
-        switch self {
-        case .classical: return "classical matcher"
-        case .ml: return "ML matcher (ALIKED + LightGlue)"
-        }
+  public var displayName: String {
+    switch self {
+    case .classical: return "classical matcher"
+    case .ml: return "ML matcher (ALIKED + LightGlue)"
     }
+  }
 }
 
 // MARK: - PanoMatcherOutcome
@@ -105,29 +111,29 @@ public enum PanoFeatureEngine: String, Sendable, CaseIterable {
 /// (models or ONNX Runtime missing, or rejected) falls back to classical
 /// rather than failing the merge, and the merge sheet says so.
 public enum PanoMatcherOutcome: Sendable, Equatable {
-    case used(PanoFeatureEngine)
-    /// `reason` is the core's detail, for the log and tests only; it can
-    /// name environment variables and entry points, so it is never shown.
-    case classicalFallback(reason: String)
-    /// The server ran classical and said why, in words written for the user.
-    case serverClassicalFallback(note: String)
+  case used(PanoFeatureEngine)
+  /// `reason` is the core's detail, for the log and tests only; it can
+  /// name environment variables and entry points, so it is never shown.
+  case classicalFallback(reason: String)
+  /// The server ran classical and said why, in words written for the user.
+  case serverClassicalFallback(note: String)
 
-    public var engine: PanoFeatureEngine {
-        switch self {
-        case .used(let engine): return engine
-        case .classicalFallback, .serverClassicalFallback: return .classical
-        }
+  public var engine: PanoFeatureEngine {
+    switch self {
+    case .used(let engine): return engine
+    case .classicalFallback, .serverClassicalFallback: return .classical
     }
+  }
 
-    /// One line for the merge sheet; `nil` when the selected matcher ran.
-    public var note: String? {
-        switch self {
-        case .used: return nil
-        case .classicalFallback:
-            return "Used the classical matcher because the ML matcher couldn’t be loaded on this device."
-        case .serverClassicalFallback(let note): return note
-        }
+  /// One line for the merge sheet; `nil` when the selected matcher ran.
+  public var note: String? {
+    switch self {
+    case .used: return nil
+    case .classicalFallback:
+      return "Used the classical matcher because the ML matcher couldn’t be loaded on this device."
+    case .serverClassicalFallback(let note): return note
     }
+  }
 }
 
 // MARK: - PanoStage
@@ -135,72 +141,72 @@ public enum PanoMatcherOutcome: Sendable, Equatable {
 /// Processing stages emitted during a stitch run, in order. Names match the
 /// maple-cli `pano:` stage log prefix so the real FFI impl can map cleanly.
 public enum PanoStage: String, Sendable, CaseIterable {
-    /// Reading and decoding input RAW frames.
-    case decoding
-    /// Extracting and matching features across frame pairs.
-    case matching
-    /// Building the frame-overlap graph.
-    case graph
-    /// Global bundle-adjustment / rotation solving.
-    case solving
-    /// Local mesh warp (only when `PanoOptions.localAlign == .mesh`).
-    case localAlign
-    /// Stitching and blending the final panorama composite.
-    case compositing
-    /// Writing the output file.
-    case writing
+  /// Reading and decoding input RAW frames.
+  case decoding
+  /// Extracting and matching features across frame pairs.
+  case matching
+  /// Building the frame-overlap graph.
+  case graph
+  /// Global bundle-adjustment / rotation solving.
+  case solving
+  /// Local mesh warp (only when `PanoOptions.localAlign == .mesh`).
+  case localAlign
+  /// Stitching and blending the final panorama composite.
+  case compositing
+  /// Writing the output file.
+  case writing
 
-    /// Human-readable label shown in the progress view.
-    public var displayName: String {
-        switch self {
-        case .decoding:     return "Decoding frames"
-        case .matching:     return "Matching features"
-        case .graph:        return "Building overlap graph"
-        case .solving:      return "Solving geometry"
-        case .localAlign:   return "Mesh alignment"
-        case .compositing:  return "Compositing"
-        case .writing:      return "Writing output"
-        }
+  /// Human-readable label shown in the progress view.
+  public var displayName: String {
+    switch self {
+    case .decoding: return "Decoding frames"
+    case .matching: return "Matching features"
+    case .graph: return "Building overlap graph"
+    case .solving: return "Solving geometry"
+    case .localAlign: return "Mesh alignment"
+    case .compositing: return "Compositing"
+    case .writing: return "Writing output"
     }
+  }
 }
 
 // MARK: - PanoResult
 
 /// Outcome of a successful stitch run.
 public struct PanoResult: Sendable {
-    /// File URL of the written panorama (TIFF or DNG).
-    public let outputURL: URL
-    /// One-paragraph human-readable summary produced by the stitcher.
-    public let reportSummary: String
-    /// Whether the run started from an offered preview alignment.
-    public let alignmentOutcome: PanoAlignmentOutcome
-    public let matcher: PanoMatcherOutcome
-    /// What the engine did with the edge settings; `nil` when it did not say.
-    public let edges: PanoEdgesReport?
-    /// Set when the server stitched it (#5488): `outputURL` is then a path on
-    /// the server, and the panorama is this asset in the server's library.
-    public let serverAssetID: String?
-    /// The panorama is in a server library (stitched there, or uploaded
-    /// after a stitch from downloaded frames, #5489), not a local file.
-    public let storedOnServer: Bool
+  /// File URL of the written panorama (TIFF or DNG).
+  public let outputURL: URL
+  /// One-paragraph human-readable summary produced by the stitcher.
+  public let reportSummary: String
+  /// Whether the run started from an offered preview alignment.
+  public let alignmentOutcome: PanoAlignmentOutcome
+  public let matcher: PanoMatcherOutcome
+  /// What the engine did with the edge settings; `nil` when it did not say.
+  public let edges: PanoEdgesReport?
+  /// Set when the server stitched it (#5488): `outputURL` is then a path on
+  /// the server, and the panorama is this asset in the server's library.
+  public let serverAssetID: String?
+  /// The panorama is in a server library (stitched there, or uploaded
+  /// after a stitch from downloaded frames, #5489), not a local file.
+  public let storedOnServer: Bool
 
-    public init(
-        outputURL: URL,
-        reportSummary: String,
-        alignmentOutcome: PanoAlignmentOutcome = .solved,
-        matcher: PanoMatcherOutcome = .used(.classical),
-        edges: PanoEdgesReport? = nil,
-        serverAssetID: String? = nil,
-        storedOnServer: Bool? = nil
-    ) {
-        self.outputURL = outputURL
-        self.reportSummary = reportSummary
-        self.alignmentOutcome = alignmentOutcome
-        self.matcher = matcher
-        self.edges = edges
-        self.serverAssetID = serverAssetID
-        self.storedOnServer = storedOnServer ?? (serverAssetID != nil)
-    }
+  public init(
+    outputURL: URL,
+    reportSummary: String,
+    alignmentOutcome: PanoAlignmentOutcome = .solved,
+    matcher: PanoMatcherOutcome = .used(.classical),
+    edges: PanoEdgesReport? = nil,
+    serverAssetID: String? = nil,
+    storedOnServer: Bool? = nil
+  ) {
+    self.outputURL = outputURL
+    self.reportSummary = reportSummary
+    self.alignmentOutcome = alignmentOutcome
+    self.matcher = matcher
+    self.edges = edges
+    self.serverAssetID = serverAssetID
+    self.storedOnServer = storedOnServer ?? (serverAssetID != nil)
+  }
 }
 
 // MARK: - PanoStitching
@@ -217,63 +223,63 @@ public struct PanoResult: Sendable {
 /// Implementations MAY hop to a background executor internally, but must not
 /// publish progress or throw from a non-sendable context.
 public protocol PanoStitching: AnyObject, Sendable {
-    /// Run a stitch.
-    ///
-    /// - Parameters:
-    ///   - assets: Input frames in the order they should be stitched.
-    ///     Minimum 2; the caller gates on `selectedIDs.count >= 2`.
-    ///   - options: Tunable parameters for this run.
-    ///   - progress: Called on the @MainActor as each stage starts / advances.
-    ///     First argument is the current stage; second is 0–1 within that stage.
-    ///     The caller is responsible for mapping stage completion to overall
-    ///     progress if needed.
-    /// - Returns: A `PanoResult` describing the output file and run summary.
-    /// - Throws: Any error from the stitching pipeline.
-    ///   - alignment: A preview's solved alignment. Reused when it still
-    ///     matches the inputs and geometry options, so matching is skipped;
-    ///     otherwise the stitch re-solves and reports `.stale`.
-    ///   - maxCanvasPixels: Output canvas pixel cap; a larger canvas is
-    ///     shrunk uniformly to fit. `nil` keeps the core's default cap.
-    func stitch(
-        assets: [AssetRef],
-        options: PanoOptions,
-        alignment: PanoAlignment?,
-        maxCanvasPixels: Int?,
-        progress: @escaping @MainActor (PanoStage, Double) -> Void
-    ) async throws -> PanoResult
+  /// Run a stitch.
+  ///
+  /// - Parameters:
+  ///   - assets: Input frames in the order they should be stitched.
+  ///     Minimum 2; the caller gates on `selectedIDs.count >= 2`.
+  ///   - options: Tunable parameters for this run.
+  ///   - progress: Called on the @MainActor as each stage starts / advances.
+  ///     First argument is the current stage; second is 0–1 within that stage.
+  ///     The caller is responsible for mapping stage completion to overall
+  ///     progress if needed.
+  /// - Returns: A `PanoResult` describing the output file and run summary.
+  /// - Throws: Any error from the stitching pipeline.
+  ///   - alignment: A preview's solved alignment. Reused when it still
+  ///     matches the inputs and geometry options, so matching is skipped;
+  ///     otherwise the stitch re-solves and reports `.stale`.
+  ///   - maxCanvasPixels: Output canvas pixel cap; a larger canvas is
+  ///     shrunk uniformly to fit. `nil` keeps the core's default cap.
+  func stitch(
+    assets: [AssetRef],
+    options: PanoOptions,
+    alignment: PanoAlignment?,
+    maxCanvasPixels: Int?,
+    progress: @escaping @MainActor (PanoStage, Double) -> Void
+  ) async throws -> PanoResult
 
-    /// Build a quick low-resolution preview (~2048 px long edge) and the
-    /// solved alignment the full stitch can start from. Cancelling the
-    /// calling task stops the run and throws `CancellationError`.
-    func preview(
-        assets: [AssetRef],
-        options: PanoOptions,
-        alignment: PanoAlignment?,
-        progress: @escaping @MainActor (PanoStage, Double) -> Void
-    ) async throws -> PanoPreview
+  /// Build a quick low-resolution preview (~2048 px long edge) and the
+  /// solved alignment the full stitch can start from. Cancelling the
+  /// calling task stops the run and throws `CancellationError`.
+  func preview(
+    assets: [AssetRef],
+    options: PanoOptions,
+    alignment: PanoAlignment?,
+    progress: @escaping @MainActor (PanoStage, Double) -> Void
+  ) async throws -> PanoPreview
 
-    /// Request cancellation of the in-progress stitch. The running `stitch`
-    /// call should throw `CancellationError` as soon as possible after this.
-    /// Safe to call multiple times or when idle.
-    func cancel()
+  /// Request cancellation of the in-progress stitch. The running `stitch`
+  /// call should throw `CancellationError` as soon as possible after this.
+  /// Safe to call multiple times or when idle.
+  func cancel()
 
-    /// Whether the stitch runs in this process, so its output must be sized
-    /// to this device's memory from a preview's fit. A server stitch is not.
-    var runsInDeviceMemory: Bool { get }
+  /// Whether the stitch runs in this process, so its output must be sized
+  /// to this device's memory from a preview's fit. A server stitch is not.
+  var runsInDeviceMemory: Bool { get }
 
-    /// Whether this stitcher applies Boundary Warp and Auto Crop. The merge
-    /// sheet shows the Edges section only when it does.
-    var supportsEdges: Bool { get }
+  /// Whether this stitcher applies Boundary Warp and Auto Crop. The merge
+  /// sheet shows the Edges section only when it does.
+  var supportsEdges: Bool { get }
 
-    /// Free space where a stitch of `assets` would write, or `nil` when it
-    /// writes nothing on this device or the space cannot be read.
-    func freeSpace(for assets: [AssetRef]) -> PanoFreeSpace?
+  /// Free space where a stitch of `assets` would write, or `nil` when it
+  /// writes nothing on this device or the space cannot be read.
+  func freeSpace(for assets: [AssetRef]) -> PanoFreeSpace?
 }
 
 extension PanoStitching {
-    public var runsInDeviceMemory: Bool { true }
+  public var runsInDeviceMemory: Bool { true }
 
-    public var supportsEdges: Bool { true }
+  public var supportsEdges: Bool { true }
 
-    public func freeSpace(for assets: [AssetRef]) -> PanoFreeSpace? { nil }
+  public func freeSpace(for assets: [AssetRef]) -> PanoFreeSpace? { nil }
 }

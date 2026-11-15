@@ -50,6 +50,31 @@ The app's entitlements (`Maple/Maple.entitlements`) request the sandbox, the App
 
 `WhiteBalancePad.swift` is the temperature × tint pad, composed from MapleUI's `MuiPad2D` and mapped by `WhiteBalancePadMath` (MapleCore, tested against the web pad's positions). It writes through `ToolValueMapping.apply`, the sliders' path, inside one `commit()` … `endGesture()` pair per drag or held arrow key. The tone-curve plot's drag is `precisionDrag` (`PrecisionDragGesture.swift`): on iOS a UIKit recognizer that reports each touch's type, on the Mac a `DragGesture`. `PrecisionInputKind.curveHitRadius` turns that type into the grab radius and `ToneCurveEditing.press` decides between grabbing a point and adding one; the hover preview (`ToneCurveHoverPreview`, and `MuiPad2D`'s own ghost puck) runs the same rule from `onContinuousHover`, which a hovering Apple Pencil drives on iPad.
 
+## Panorama seam regions
+
+The merge preview's **Edit Seam Regions** opens `PanoSeamEditor`, a scrollable editor using MapleUI
+Select, Input and Button controls. Its reference image is always the complete uncropped preview,
+even with Auto Crop enabled. Source frame numbers follow the session's execution order; the picker
+shows one-based numbers and source paths, while requests use zero-based indices.
+
+Choose Include (use this frame) or Exclude (avoid it), then drag a rectangle or enter whole-pixel
+X, Y, Width and Height and choose Add Region. Numbered, labeled overlays and the coordinate list
+identify regions without relying on color. Each region can be removed, and Clear Regions removes
+the draft. Invalid coordinates and constrained-preview failures remain visible and accessible.
+
+Edits only update `PanoMergeSession.options.seamConstraints`. **Preview Regions** explicitly
+re-renders; closing the editor and choosing **Create Panorama** submits the same draft through the
+selected device or server stitcher. `SeamConstraintsRequest` retains version, reference canvas
+dimensions and regions; Rust scales that canvas to the output, not Swift. Geometry, input or
+execution-route changes invalidate authoring. Pending or stale geometry, Tile and Boundary Warp
+show why authoring is unavailable. An unsupported server returns an explicit constrained-preview
+or submission error instead of ignoring constraints.
+
+`PanoSeamEditorUITests` exercises the real merge sheet and accessibility controls on macOS and iOS
+with the first three `test-fixtures/raws/pano_01` frames. Missing default fixtures skip; an explicitly
+configured missing fixture root fails. Run it with the Maple scheme on macOS and an iPhone/iPad
+simulator, alongside MapleCore's seam request, merge-session and local/server stitcher tests.
+
 ## Local packages
 
 ### MapleCore

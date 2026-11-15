@@ -520,6 +520,14 @@ PanoOutputDestinationTests
 # sidecar in a temp dir; no FFI, no network.
 PanoServerUploadRemovalTests
 
+# Panorama seam requests (#5990): exact shared Codable schema, request builders,
+# server HTTP bodies, native pre-decode rejection and named refusals; no network or private fixtures.
+SeamConstraintsRequestTests
+ServerPanoSeamRequestTests
+PanoServerSeamClientTests
+PanoSeamExecutionTests
+PanoSeamSessionTests
+
 # RGB bias precision (#4667): generated large images, no external fixtures.
 CIEDE2000BiasTests
 

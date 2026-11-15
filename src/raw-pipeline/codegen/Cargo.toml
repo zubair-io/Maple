@@ -21,6 +21,7 @@ path = "src/android.rs"
 
 [dependencies]
 raw-core = { path = "../raw-core" }
+maple-pano = { path = "../maple-pano" }
 clap.workspace = true
 serde_json.workspace = true
 syn = { version = "2", features = ["full", "visit"] }

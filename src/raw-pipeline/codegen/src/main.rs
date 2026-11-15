@@ -54,6 +54,7 @@ mod pano_memory;
 mod ranked_window;
 mod raster_recipe;
 mod scope_targets;
+mod seam_constraints;
 mod support_evidence;
 mod support_tiers;
 mod support_tiers_cs;
@@ -142,6 +143,7 @@ enum Schema {
     RankedWindow,
     /// The panorama stitch's memory model (#5835).
     PanoMemory,
+    SeamConstraints,
     /// raw-ffi develop statuses the API acts on (#5499).
     FfiStatus,
     /// Per-field batch transfer decisions (#3311).
@@ -241,6 +243,11 @@ fn main() {
         (Schema::PanoMemory, Target::Swift) => pano_memory::emit_swift(),
         (Schema::PanoMemory, _) => {
             eprintln!("pano-memory supports swift");
+            std::process::exit(2);
+        }
+        (Schema::SeamConstraints, Target::Swift) => seam_constraints::emit_swift(),
+        (Schema::SeamConstraints, _) => {
+            eprintln!("seam-constraints supports swift");
             std::process::exit(2);
         }
         (Schema::Filename, target) => filename::emit(target),
