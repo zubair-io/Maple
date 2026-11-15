@@ -245,7 +245,8 @@ fn stitch_options(args: &StitchArgs, gate_budgets: (f64, f64)) -> Result<StitchO
         // iOS-FFI-only path (M6-C, #1253). See StitchOptions::use_coreml.
         use_coreml: false,
         seam_strategy: args.seam_strategy.to_strategy(),
-        seam_constraints: seam_constraints::load(args.seam_constraints.as_deref())?,
+        seam_constraints: seam_constraints::load(args.seam_constraints.as_deref())
+            .map_err(|e| refusal::describe(e.into(), args.report.as_deref()))?,
         grid: args.grid_layout(),
         infer_grid: args.infer_grid,
         feature_engine: args.features_engine.to_engine(),
