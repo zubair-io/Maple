@@ -34,6 +34,7 @@ export interface RenameCollision {
   readonly assetId: AssetId;
   readonly filename: string;
   readonly companion?: StackFile;
+  readonly pairAtomic?: boolean;
 }
 
 export interface AssetRenameCapability {

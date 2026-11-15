@@ -338,7 +338,11 @@ export class DragMoveService implements DragMoveCapability {
               const companionTarget = companionFilenameFor(companion.filename, filename);
               if (taken && taken.toLowerCase() === companionTarget.toLowerCase()) {
                 this.queue[0] = { ...item, pairCompanionPrompt: true, rawCollision: collision };
-                this.collisionPrompt.set({ filename: taken, companionOf: filename });
+                this.collisionPrompt.set({
+                  filename: taken,
+                  companionOf: filename,
+                  pairAtomic: true,
+                });
               } else {
                 this.collisionPrompt.set({ filename });
               }
@@ -360,6 +364,7 @@ export class DragMoveService implements DragMoveCapability {
                     filename: companionFilenameFor(companion.filename, filename),
                     companionOf: filename,
                     replaceUnavailable: true,
+                    pairAtomic: true,
                   }
                 : { filename, replaceUnavailable: true },
             );

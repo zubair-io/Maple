@@ -63,6 +63,16 @@ describe('DragMoveCollisionDialogComponent', () => {
     expect(resolved).toEqual(['skip']);
   });
 
+  it('pairAtomic companion prompt says neither file has moved', () => {
+    const fixture = render();
+    fixture.componentRef.setInput('companionOf', 'photo.dng');
+    fixture.componentRef.setInput('pairAtomic', true);
+    fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).toContain('has not moved yet');
+    expect(fixture.nativeElement.textContent).toContain('Skip keeps both files where they are');
+    expect(fixture.nativeElement.textContent).not.toContain('apart from the RAW');
+  });
+
   it('focuses the Skip button once the view is up', async () => {
     const fixture = render();
     await new Promise((resolve) => queueMicrotask(() => resolve(undefined)));

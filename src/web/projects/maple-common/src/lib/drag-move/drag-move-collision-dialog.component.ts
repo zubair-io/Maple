@@ -38,6 +38,8 @@ export class DragMoveCollisionDialogComponent implements AfterViewInit {
   readonly replaceUnavailable = input(false);
   /** Set on a RAW+JPEG stack's JPEG prompt: the RAW's name at the destination. */
   readonly companionOf = input<string | null>(null);
+  /** Pair-capable server: neither file has moved, so Skip keeps both in place. */
+  readonly pairAtomic = input(false);
 
   readonly resolve = output<DragMoveCollisionPolicy>();
 

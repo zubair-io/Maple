@@ -95,6 +95,7 @@ describe('AssetRenameService stack pair ops (#5949)', () => {
       assetId: STACKED.id,
       filename: 'Trip.JPG',
       companion: { filename: 'IMG_0001.JPG' },
+      pairAtomic: true,
     });
 
     renamePairSpy.mockReturnValue(

@@ -68,6 +68,8 @@ export class InlineRenameFieldComponent {
 
   /** False for a stack's JPEG prompt: Keep Both would split the pair's stem. */
   readonly keepBothAvailable = input<boolean>(true);
+  /** Pair-capable server: neither file was renamed, so Skip keeps both names. */
+  readonly pairAtomic = input<boolean>(false);
 
   readonly committed = output<string>();
   readonly cancelled = output<void>();

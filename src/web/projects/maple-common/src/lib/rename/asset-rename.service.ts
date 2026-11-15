@@ -234,6 +234,7 @@ export class AssetRenameService implements AssetRenameCapability {
                   assetId: asset.id,
                   filename: taken,
                   companion: { id: companion.id, filename: companion.name },
+                  pairAtomic: true,
                 });
                 return;
               }

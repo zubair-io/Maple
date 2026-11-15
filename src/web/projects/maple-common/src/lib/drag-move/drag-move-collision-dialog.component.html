@@ -24,7 +24,11 @@
       </p>
       @if (companionOf(); as raw) {
         <p class="m-0 mt-2 text-[12px] leading-[1.4] text-text-muted" data-testid="dmc-companion">
-          "{{ raw }}" is already there. Skip leaves its JPEG where it was, apart from the RAW.
+          @if (pairAtomic()) {
+            "{{ raw }}" has not moved yet. Skip keeps both files where they are.
+          } @else {
+            "{{ raw }}" is already there. Skip leaves its JPEG where it was, apart from the RAW.
+          }
         </p>
       }
     </div>

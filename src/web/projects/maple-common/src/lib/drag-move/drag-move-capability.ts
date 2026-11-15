@@ -33,6 +33,9 @@ export interface DragMoveCollisionPrompt {
    * The prompt offers Skip or Replace for the JPEG only; Keep Both is not
    * offered because it would put the pair on two stems. */
   companionOf?: string;
+  /** On a pair-capable server the pair has not moved yet: Skip keeps both
+   * files where they are, unlike the older path where the RAW already landed. */
+  pairAtomic?: boolean;
 }
 
 export interface DragMoveCapability {
