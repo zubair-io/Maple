@@ -18,11 +18,21 @@ struct PanoPreviewSection: View {
   let onRetry: () -> Void
   var onOpenPanoSettings: (() -> Void)? = nil
 
+  @State private var showsSeamEditor = false
+
   var body: some View {
     VStack(alignment: .leading, spacing: 8) {
       if let preview = session.lastPreview {
         previewImage(preview)
         PanoMatcherNote(matcher: preview.matcher, onOpenPanoSettings: onOpenPanoSettings)
+        MuiButton(
+          label: "Edit Seam Regions", variant: .secondary, size: .sm,
+          disabled: stitchProgress != nil || session.isRunning
+        ) {
+          showsSeamEditor = true
+        }
+        .accessibilityLabel("Edit panorama include and exclude seam regions")
+        .accessibilityIdentifier("pano-seam-editor")
       }
       if let stitchProgress {
         stitchStatus(stitchProgress)
@@ -40,6 +50,9 @@ struct PanoPreviewSection: View {
     .padding(.vertical, 8)
     .background(.bar)
     .overlay(alignment: .bottom) { Divider() }
+    .sheet(isPresented: $showsSeamEditor) {
+      PanoSeamEditor(session: session)
+    }
   }
 
   private func previewImage(_ preview: PanoPreview) -> some View {

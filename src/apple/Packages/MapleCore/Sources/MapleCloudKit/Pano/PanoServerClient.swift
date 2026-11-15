@@ -24,14 +24,17 @@ public struct PanoServerRequest: Codable, Sendable, Equatable {
   public let options: PanoServerOptions
   /// A finished preview job whose alignment the run starts from.
   public let alignmentFrom: String?
+  public let seamConstraints: SeamConstraintsRequest?
 
   public init(
-    assetPaths: [String], libraryId: String, options: PanoServerOptions, alignmentFrom: String?
+    assetPaths: [String], libraryId: String, options: PanoServerOptions, alignmentFrom: String?,
+    seamConstraints: SeamConstraintsRequest? = nil
   ) {
     self.assetPaths = assetPaths
     self.libraryId = libraryId
     self.options = options
     self.alignmentFrom = alignmentFrom
+    self.seamConstraints = seamConstraints
   }
 }
 
@@ -131,7 +134,12 @@ public struct PanoServerError: Error, LocalizedError, Equatable, Sendable {
     self.message = message
   }
 
-  public var errorDescription: String? { message }
+  public var errorDescription: String? {
+    if code == "invalid_seam_constraints", !message.contains("invalid_seam_constraints") {
+      return "invalid_seam_constraints: \(message)"
+    }
+    return message
+  }
 
   private struct Envelope: Decodable {
     let error: String?
@@ -143,7 +151,8 @@ public struct PanoServerError: Error, LocalizedError, Equatable, Sendable {
       return nil
     }
     let envelope = try? JSONDecoder().decode(Envelope.self, from: data)
-    let message = envelope?.message ?? envelope?.error
+    let message =
+      envelope?.message ?? envelope?.error
       ?? "The server couldn’t make the panorama (status \(http.statusCode))."
     return PanoServerError(statusCode: http.statusCode, code: envelope?.error, message: message)
   }
@@ -200,7 +209,8 @@ public actor PanoServerClient: PanoServerJobs {
 
   private func create(_ path: String, _ body: PanoServerRequest) async throws -> String {
     struct Created: Decodable { let id: String }
-    let created: Created = try await decoded(path, method: "POST", body: try JSONEncoder().encode(body))
+    let created: Created = try await decoded(
+      path, method: "POST", body: try JSONEncoder().encode(body))
     return created.id
   }
 
@@ -212,7 +222,8 @@ public actor PanoServerClient: PanoServerJobs {
 
   /// A LAN address that has gone away (the device left home) falls back to
   /// the identity URL, so Try Again can reach the server from anywhere.
-  private func send(_ path: String, method: String = "GET", body: Data? = nil) async throws -> Data {
+  private func send(_ path: String, method: String = "GET", body: Data? = nil) async throws -> Data
+  {
     let identity = server
     let effective = await MainActor.run { LocalNetworkResolver.shared.effectiveURL(for: identity) }
     do {

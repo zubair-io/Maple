@@ -36,6 +36,8 @@ pub struct SeamRegion {
 }
 
 impl SeamConstraintsRequest {
+    pub const VERSION: u32 = 1;
+
     pub fn parse(json: &str, frames: usize) -> Result<Self, SeamConstraintError> {
         let request: Self = serde_json::from_str(json)
             .map_err(|e| SeamConstraintError::InvalidRequest(e.to_string()))?;
@@ -44,7 +46,7 @@ impl SeamConstraintsRequest {
     }
 
     pub fn validate(&self, frames: usize) -> Result<(), SeamConstraintError> {
-        if self.version != 1 {
+        if self.version != Self::VERSION {
             return Err(SeamConstraintError::UnsupportedVersion(self.version));
         }
         if self.canvas.width == 0 || self.canvas.height == 0 {

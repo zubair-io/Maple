@@ -88,7 +88,7 @@ cargo build --release \
 	--manifest-path src/raw-pipeline/Cargo.toml \
 	-p codegen
 
-BIN="src/raw-pipeline/target/release/codegen"
+BIN="${CARGO_TARGET_DIR:-src/raw-pipeline/target}/release/codegen"
 
 cargo run --release --manifest-path src/raw-pipeline/Cargo.toml -p codegen --bin android-codegen
 rustfmt --edition 2021 src/android/native/src/fields.rs
@@ -130,6 +130,7 @@ TS_TABLES_OUT="src/web/projects/maple-common/src/lib/generated/adjustment-tables
 "$BIN" --schema ranked-window --target swift --out "src/apple/Packages/MapleCore/Sources/MapleCloudKit/Generated/RankedWindow+Generated.swift"
 # Panorama stitch memory model (#5835): maple-pano refuses on it, the Apple merge sheet sizes the output with it.
 "$BIN" --schema pano-memory --target swift --out "src/apple/Packages/MapleCore/Sources/MapleCore/Generated/PanoMemory+Generated.swift"
+"$BIN" --schema seam-constraints --target swift --out "src/apple/Packages/MapleCore/Sources/MapleCloudKit/Generated/SeamConstraints+Generated.swift"
 # raw-ffi develop statuses the API defers on (#5499).
 "$BIN" --schema ffi-status --target ts --out "src/api/src/generated/ffi-status.generated.ts"
 "$BIN" --schema maple-id --target swift --out "src/apple/Packages/MapleCore/Sources/MapleCore/Generated/MapleIdDerivationVersion+Generated.swift"
