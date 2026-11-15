@@ -91,6 +91,7 @@ internal fun HealOverlay(model: MapleViewModel, state: MapleState, zoom: Float, 
                     val forward = currentToFrame ?: return@awaitEachGesture
                     val back = currentFromFrame ?: return@awaitEachGesture
                     fun frameAt(position: Offset) = forward.apply(MaskPoint(position.x / w, position.y / h))
+                    if (!frameAt(down.position).x.isFinite()) return@awaitEachGesture
                     fun screen(point: MaskPoint) = back.apply(point).let { MaskPoint(it.x * w, it.y * h) }
                     val spots = currentSpots
                     val hit =
@@ -134,7 +135,7 @@ internal fun HealOverlay(model: MapleViewModel, state: MapleState, zoom: Float, 
             }
     ) {
         fromFrame?.let { back ->
-            HealMarks(spots, state.healSelection?.takeIf { it in spots.indices }, back, scale,
+            HealMarks(spots, state.healSelection?.takeIf { it in spots.indices }, back, toFrame, scale,
                 constraints.maxWidth.toFloat(), constraints.maxHeight.toFloat(), state.uncroppedAspect())
         }
     }
@@ -146,6 +147,7 @@ private fun HealMarks(
     spots: List<RepairSpot>,
     selected: Int?,
     back: MaskProjection,
+    forward: MaskProjection?,
     scale: Float,
     w: Float,
     h: Float,
@@ -162,26 +164,30 @@ private fun HealMarks(
     }
     // Decorative: the discs and link carry no semantics; the handles below do.
     Canvas(Modifier.fillMaxSize()) {
-        val stroke = 1.5.dp.toPx() / scale
-        val outline = Stroke(max(1f, stroke * 2.5f))
-        spots.forEachIndexed { index, spot ->
-            val color = if (index == selected) MapleColors.primary else Color.White.copy(alpha = .9f)
-            drawPath(footprintPath(spot.center, spot), Color.Black.copy(alpha = .45f), style = outline)
-            drawPath(footprintPath(spot.center, spot), color, style = Stroke(stroke))
-        }
-        selected?.let { spots[it] }?.let { spot ->
-            val dash = PathEffect.dashPathEffect(floatArrayOf(6.dp.toPx() / scale, 4.dp.toPx() / scale))
-            drawLine(Color.White.copy(alpha = .9f), px(spot.center), px(spot.source), stroke, pathEffect = dash)
-            drawPath(footprintPath(spot.source, spot), Color.Black.copy(alpha = .45f), style = outline)
-            drawPath(footprintPath(spot.source, spot), Color.White.copy(alpha = .9f),
-                style = Stroke(stroke, pathEffect = dash))
+        withMaskFrameBounds(forward) {
+            val stroke = 1.5.dp.toPx() / scale
+            val outline = Stroke(max(1f, stroke * 2.5f))
+            spots.forEachIndexed { index, spot ->
+                val color = if (index == selected) MapleColors.primary else Color.White.copy(alpha = .9f)
+                drawPath(footprintPath(spot.center, spot), Color.Black.copy(alpha = .45f), style = outline)
+                drawPath(footprintPath(spot.center, spot), color, style = Stroke(stroke))
+            }
+            selected?.let { spots[it] }?.let { spot ->
+                val dash = PathEffect.dashPathEffect(floatArrayOf(6.dp.toPx() / scale, 4.dp.toPx() / scale))
+                drawLine(Color.White.copy(alpha = .9f), px(spot.center), px(spot.source), stroke, pathEffect = dash)
+                drawPath(footprintPath(spot.source, spot), Color.Black.copy(alpha = .45f), style = outline)
+                drawPath(footprintPath(spot.source, spot), Color.White.copy(alpha = .9f),
+                    style = Stroke(stroke, pathEffect = dash))
+            }
         }
     }
     spots.forEachIndexed { index, spot ->
+        if (forward?.apply(back.apply(spot.center))?.x?.isFinite() == false) return@forEachIndexed
         HealHandle(px(spot.center), scale, "editor-heal-spot-$index",
             "Repair spot ${repairSpotName(spot, index)}: destination", index == selected)
     }
     selected?.let { index ->
+        if (forward?.apply(back.apply(spots[index].source))?.x?.isFinite() == false) return@let
         HealHandle(px(spots[index].source), scale, "editor-heal-source",
             "Repair spot ${repairSpotName(spots[index], index)}: source", true)
     }

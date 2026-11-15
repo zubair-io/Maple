@@ -127,22 +127,29 @@ fun dragMaskHandle(start: MaskShape, handle: MaskHandle, point: MaskPoint, ancho
 private fun clampDelta(delta: Float, lo: Float, hi: Float) = min(1 - hi, max(-lo, delta))
 
 /**
- * The row-major projective map `[m0 … m8]` from `mask_frame`: crop and manual
- * geometry together, so a keystone's perspective divide is part of every point.
- * A point on or behind the horizon maps to NaN, which hit tests and drags ignore.
+ * The row-major projective map from `mask_frame`, followed by the crop-only map.
+ * Intermediate crop bounds must be checked before inverse geometry can bring an empty
+ * straightened corner back inside the source. Rejected points map to NaN.
  */
 class MaskProjection(private val m: DoubleArray) {
     init {
-        require(m.size == 9) { "A mask projection has nine entries" }
+        require(m.size == 9 || m.size == 18) { "A mask projection has nine or eighteen entries" }
     }
 
     fun apply(p: MaskPoint): MaskPoint {
+        if (m.size == 18) {
+            val w = m[15] * p.x + m[16] * p.y + m[17]
+            val x = (m[9] * p.x + m[10] * p.y + m[11]) / w
+            val y = (m[12] * p.x + m[13] * p.y + m[14]) / w
+            if (x !in 0.0..1.0 || y !in 0.0..1.0) return MaskPoint(Float.NaN, Float.NaN)
+        }
         val w = m[6] * p.x + m[7] * p.y + m[8]
         if (abs(w) < 1e-9) return MaskPoint(Float.NaN, Float.NaN)
-        return MaskPoint(
+        val result = MaskPoint(
             ((m[0] * p.x + m[1] * p.y + m[2]) / w).toFloat(),
             ((m[3] * p.x + m[4] * p.y + m[5]) / w).toFloat(),
         )
+        return result
     }
 
     /** The inverse via the adjugate, or null when the map is singular. */

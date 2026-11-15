@@ -92,8 +92,8 @@ pub fn presentation_to_frame(
     [a, b, c, d, e, f, 2.0 * row[0], 2.0 * row[1], w]
 }
 
-/// Writes [`presentation_to_frame`] for the crop and the seven manual-geometry
-/// sliders (`geometry`: vertical, horizontal, rotate, scale, aspect, x, y).
+/// Writes the nine entries of [`presentation_to_frame`], then nine crop-only entries
+/// retaining the intermediate bounds before the seven manual-geometry sliders.
 #[no_mangle]
 #[allow(clippy::too_many_arguments)]
 pub unsafe extern "C" fn maple_android_mask_frame(
@@ -128,11 +128,13 @@ pub unsafe extern "C" fn maple_android_mask_frame(
             x: g[5],
             y: g[6],
         };
-        slice::from_raw_parts_mut(out, 9).copy_from_slice(&presentation_to_frame(
+        let out = slice::from_raw_parts_mut(out, 18);
+        out[..9].copy_from_slice(&presentation_to_frame(width, height, crop, perspective));
+        out[9..].copy_from_slice(&presentation_to_frame(
             width,
             height,
             crop,
-            perspective,
+            Perspective::IDENTITY,
         ));
         Ok(true)
     })

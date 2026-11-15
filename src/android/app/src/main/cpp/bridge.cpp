@@ -405,13 +405,13 @@ extern "C" JNIEXPORT jdoubleArray JNICALL Java_app_justmaple_aperture_data_Nativ
     }
     float sliders[7];
     env->GetFloatArrayRegion(geometry, 0, 7, sliders);
-    double projection[9];
+    double projection[18];
     if (width <= 0 || height <= 0 || !maple_android_mask_frame(static_cast<uint32_t>(width), static_cast<uint32_t>(height), top, left, bottom, right, angle, sliders, projection)) {
         check(env, -1);
         return nullptr;
     }
-    jdoubleArray result = env->NewDoubleArray(9);
-    if (result) env->SetDoubleArrayRegion(result, 0, 9, projection);
+    jdoubleArray result = env->NewDoubleArray(18);
+    if (result) env->SetDoubleArrayRegion(result, 0, 18, projection);
     return result;
 }
 extern "C" JNIEXPORT jlong JNICALL Java_app_justmaple_aperture_data_NativeBridge_createMaskRange(JNIEnv *env, jobject, jlong handle, jstring xml) {
