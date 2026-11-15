@@ -6,6 +6,7 @@ import { describe, expect, it } from 'vitest';
 import type { LocalMask } from '../../models/local-adjustment';
 import {
   applyAffine,
+  applyProjection,
   cropToFullFrameAffine,
   defaultRadialMask,
   dragMaskHandle,
@@ -18,8 +19,10 @@ import {
   maskHandles,
   maskToScreen,
   MIN_RADIUS,
+  presentationToFrameProjection,
   ROTATE_HANDLE_FACTOR,
   withMaskFeather,
+  type PerspectiveGeometry,
 } from './mask-geometry';
 
 const footprint = { left: 100, top: 50, width: 600, height: 400 };
@@ -148,6 +151,74 @@ describe('canvas map', () => {
     const back = maskFromScreen(map, 700, 450);
     expect(back.x).toBeCloseTo(1, 9);
     expect(back.y).toBeCloseTo(0.75, 9);
+  });
+});
+
+describe('presentation projection through manual geometry (#5950)', () => {
+  const identityPerspective: PerspectiveGeometry = {
+    vertical: 0,
+    horizontal: 0,
+    rotate: 0,
+    scale: 100,
+    aspect: 0,
+    x: 0,
+    y: 0,
+  };
+
+  it('maps the presented centre through an X offset', () => {
+    const m = presentationToFrameProjection(
+      identityCrop,
+      { ...identityPerspective, x: 50 },
+      400,
+      300,
+    );
+    const p = applyProjection(m, { x: 0.5, y: 0.5 });
+    expect(p.x).toBeCloseTo(0.25, 9);
+    expect(p.y).toBeCloseTo(0.5, 9);
+  });
+
+  it('maps presented points through a keystone projectively', () => {
+    const m = presentationToFrameProjection(
+      identityCrop,
+      { ...identityPerspective, vertical: 40 },
+      400,
+      300,
+    );
+    const p = applyProjection(m, { x: 0.1, y: 0.2 });
+    expect(p.x).toBeCloseTo(0.1428571429, 9);
+    expect(p.y).toBeCloseTo(0.2321428571, 9);
+    const q = applyProjection(m, { x: 0.3, y: 0.85 });
+    expect(q.x).toBeCloseTo(0.2674418605, 9);
+    expect(q.y).toBeCloseTo(0.9069767442, 9);
+  });
+
+  it('maps presented points through a geometry rotation over a crop', () => {
+    const crop = { top: 0.1, left: 0.2, bottom: 0.9, right: 0.7, angle: 5 };
+    const m = presentationToFrameProjection(
+      crop,
+      { ...identityPerspective, rotate: 10 },
+      6000,
+      4000,
+    );
+    const p = applyProjection(m, { x: 0.1, y: 0.2 });
+    expect(p.x).toBeCloseTo(0.2171074962, 9);
+    expect(p.y).toBeCloseTo(0.3652349436, 9);
+    const cropOnly = presentationToFrameProjection(crop, identityPerspective, 6000, 4000);
+    const c = applyProjection(cropOnly, { x: 0.1, y: 0.2 });
+    expect(Math.abs(p.x - c.x) + Math.abs(p.y - c.y)).toBeGreaterThan(0.05);
+  });
+
+  it('places handles and samples through the geometry the canvas renders', () => {
+    const map = makeMaskCanvasMap(footprint, identityCrop, 400, 300, {
+      ...identityPerspective,
+      x: 50,
+    });
+    const px = maskToScreen(map, { x: 0.25, y: 0.5 });
+    expect(px.x).toBeCloseTo(400, 9);
+    expect(px.y).toBeCloseTo(250, 9);
+    const back = maskFromScreen(map, px.x, px.y);
+    expect(back.x).toBeCloseTo(0.25, 9);
+    expect(back.y).toBeCloseTo(0.5, 9);
   });
 });
 

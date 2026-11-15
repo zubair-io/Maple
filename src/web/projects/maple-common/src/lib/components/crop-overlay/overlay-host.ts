@@ -10,7 +10,11 @@ import { computed, signal, type Signal, type WritableSignal } from '@angular/cor
 import type { LibraryStateService } from '../../state/library-state.service';
 import { defaultCrop, type Crop } from '../../models/adjustment-model';
 import { fitFootprint, type Footprint } from './crop-geometry';
-import { makeMaskCanvasMap, type MaskCanvasMap } from '../mask-overlay/mask-geometry';
+import {
+  makeMaskCanvasMap,
+  perspectiveGeometryOf,
+  type MaskCanvasMap,
+} from '../mask-overlay/mask-geometry';
 
 /** Seed `wrapW`/`wrapH` from `el` and keep them in step with its content box.
  *  The caller disconnects the returned observer on destroy. */
@@ -101,7 +105,9 @@ export class OverlayPlacement {
     });
     this.map = computed(() => {
       const { w, h } = imgDims();
-      return makeMaskCanvasMap(this.footprint(), this.crop(), w, h);
+      const a = library.focusedAsset();
+      const perspective = a ? perspectiveGeometryOf(library.adjustmentFor(a.id)()) : undefined;
+      return makeMaskCanvasMap(this.footprint(), this.crop(), w, h, perspective);
     });
   }
 

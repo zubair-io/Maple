@@ -33,6 +33,10 @@ Only the selected layer renders; unselected layers show nothing (their list rows
 - **No selection** — the overlay mounts empty (nothing drawn); the panel's list is the affordance.
 - **Cropped image** — handles and tint are placed through the crop's affine map, so a mask on a
   cropped or straightened image is drawn where the render actually applies it.
+- **Geometry-corrected image** — with a manual Geometry adjustment (offset, keystone, rotate,
+  scale, aspect), handles, tint and the eyedropper's sample point cross one projective map —
+  the crop's inverse, then the geometry's inverse, as the render samples the frame — so they
+  land where the rendered mask lands (#5950).
 
 ## Tokens used
 

@@ -18,12 +18,15 @@ struct MaskOverlay: View {
     let mask: LocalMask?
     let width: Double
     let height: Double
+    let crop: Crop
+    let perspective: Perspective
     let adjusting: Bool
   }
   private var request: CoverageRequest {
     CoverageRequest(
       mask: state.session.selectedMaskLayer?.mask,
       width: state.session.nativeImageSize.width, height: state.session.nativeImageSize.height,
+      crop: state.session.model.crop, perspective: state.session.model.perspective,
       adjusting: state.session.isAdjustingMask)
   }
 
@@ -32,12 +35,14 @@ struct MaskOverlay: View {
       // The photo as shown — a live pinch or a settle included — so the
       // tint and handles move with it in the same frame (#5744).
       CanvasPresentedReader(controller: state.zoom) { presented in
-        if let presented,
-          let full = MaskOverlayGeometry.fullFrameRect(
+        if let presented {
+          let display = MaskOverlayGeometry.displayRect(
             containerSize: geo.size, displayFrame: presented.displayFrame,
-            panOffset: presented.panOffset, crop: state.session.model.crop)
-        {
-          overlay(in: geo.size, presented: presented, full: full)
+            panOffset: presented.panOffset)
+          let projection = MaskProjection.presentationToFrame(
+            crop: state.session.model.crop, perspective: state.session.model.perspective,
+            nativeSize: state.session.nativeImageSize)
+          overlay(in: geo.size, display: display, projection: projection)
         }
       }
     }
@@ -45,41 +50,30 @@ struct MaskOverlay: View {
   }
 
   private func overlay(
-    in size: CGSize, presented: CanvasPresentedGeometry, full: CGRect
+    in size: CGSize, display: CGRect, projection: MaskProjection
   ) -> some View {
     ZStack {
       if let previewImage {
         let shown = state.session.showsMaskOverlay
-        let display = MaskOverlayGeometry.displayRect(
-          containerSize: size, displayFrame: presented.displayFrame,
-          panOffset: presented.panOffset)
-        ZStack {
-          Image(decorative: previewImage, scale: 1)
-            .resizable()
-            .renderingMode(.template)
-            .foregroundStyle(.red.opacity(0.45))
-            .frame(width: full.width, height: full.height)
-            .rotationEffect(.degrees(state.session.model.crop.angle))
-            .position(x: full.midX, y: full.midY)
-            .opacity(shown ? 1 : 0)
-            .animation(.easeInOut(duration: 0.12), value: shown)
-        }
-        .frame(width: size.width, height: size.height)
-        .mask {
-          Rectangle().frame(width: display.width, height: display.height)
-            .position(x: display.midX, y: display.midY)
-        }
-        .allowsHitTesting(false)
-        .accessibilityHidden(true)
+        Image(decorative: previewImage, scale: 1)
+          .resizable()
+          .renderingMode(.template)
+          .foregroundStyle(.red.opacity(0.45))
+          .frame(width: display.width, height: display.height)
+          .position(x: display.midX, y: display.midY)
+          .opacity(shown ? 1 : 0)
+          .animation(.easeInOut(duration: 0.12), value: shown)
+          .allowsHitTesting(false)
+          .accessibilityHidden(true)
       }
-      MaskGeometryHandles(state: state, fullFrame: full)
+      MaskGeometryHandles(state: state, displayRect: display, projection: projection)
       if case .brush = state.session.selectedMaskGeometry, !state.session.showingOriginal {
         Rectangle()
           .fill(.clear)
           .contentShape(Rectangle())
-          .frame(width: full.width, height: full.height)
-          .position(x: full.midX, y: full.midY)
-          .gesture(strokeGesture(fullFrame: full))
+          .frame(width: display.width, height: display.height)
+          .position(x: display.midX, y: display.midY)
+          .gesture(strokeGesture(displayRect: display, projection: projection))
           .accessibilityIdentifier("editor-mask-brush-canvas")
           .accessibilityLabel("Brush canvas")
       }
@@ -91,17 +85,21 @@ struct MaskOverlay: View {
     .onChange(of: state.session.selectedMaskId) { _, _ in finishStroke() }
   }
 
-  private func normalized(_ point: CGPoint, fullFrame: CGRect) -> MaskPoint {
-    let p = MaskHandleGeometry.normalizedPoint(
-      point, fullFrame: fullFrame, angleDegrees: state.session.model.crop.angle)
+  private func normalized(
+    _ point: CGPoint, displayRect: CGRect, projection: MaskProjection
+  ) -> MaskPoint {
+    guard
+      let p = MaskOverlayGeometry.normalizedPoint(
+        point, displayRect: displayRect, projection: projection)
+    else { return MaskPoint(x: 0.5, y: 0.5) }
     return MaskPoint(x: min(1, max(0, p.x)), y: min(1, max(0, p.y)))
   }
 
-  private func strokeGesture(fullFrame: CGRect) -> some Gesture {
+  private func strokeGesture(displayRect: CGRect, projection: MaskProjection) -> some Gesture {
     DragGesture(minimumDistance: 0, coordinateSpace: .named("maskBrushCanvas"))
       .onChanged { value in
         guard case .brush = state.session.selectedMaskGeometry else { return }
-        let at = normalized(value.location, fullFrame: fullFrame)
+        let at = normalized(value.location, displayRect: displayRect, projection: projection)
         if strokeSmoother == nil {
           let smoother = StrokeSmoother()
           strokeSmoother = smoother
@@ -117,7 +115,7 @@ struct MaskOverlay: View {
       }
       .onEnded { value in
         // The smoother trails the pointer; land the stroke where it was released.
-        let at = normalized(value.location, fullFrame: fullFrame)
+        let at = normalized(value.location, displayRect: displayRect, projection: projection)
         if let last = strokeLast, last != at { stampStroke(from: last, to: at) }
         finishStroke()
       }

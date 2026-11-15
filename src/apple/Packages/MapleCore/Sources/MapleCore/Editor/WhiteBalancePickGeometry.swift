@@ -7,7 +7,7 @@ import Foundation
 public enum WhiteBalancePickGeometry {
   public static func imagePoint(
     at location: CGPoint, viewport: CGSize, displayFrame: CGSize,
-    pan: CGSize, nativeSize: CGSize, crop: Crop
+    pan: CGSize, nativeSize: CGSize, crop: Crop, perspective: Perspective = .identity
   ) -> CGPoint? {
     guard displayFrame.width > 0, displayFrame.height > 0,
       nativeSize.width > 0, nativeSize.height > 0
@@ -17,11 +17,13 @@ public enum WhiteBalancePickGeometry {
     let x = (location.x - left) / displayFrame.width
     let y = (location.y - top) / displayFrame.height
     guard contains(x, y) else { return nil }
-    let p = uncroppedPoint(x: x, y: y, nativeSize: nativeSize, crop: crop)
+    let projection = MaskProjection.presentationToFrame(
+      crop: crop, perspective: perspective, nativeSize: nativeSize)
+    guard let p = projection.apply(MaskPoint(x: Double(x), y: Double(y))) else { return nil }
     // A rotated frame can expose empty corners inside the crop. Never
     // clamp those to a real edge pixel and silently sample the wrong area.
-    guard contains(p.x, p.y) else { return nil }
-    return p
+    guard contains(CGFloat(p.x), CGFloat(p.y)) else { return nil }
+    return CGPoint(x: p.x, y: p.y)
   }
 
   /// The full-frame normalized point that `crop` places at the CROPPED

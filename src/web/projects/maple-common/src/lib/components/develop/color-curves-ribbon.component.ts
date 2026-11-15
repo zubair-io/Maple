@@ -15,7 +15,7 @@ import { EditorStateService } from '../../editor/editor-state.service';
 import { RawPipelineService } from '../../raw-pipeline/raw-pipeline.service';
 import { XmpSerializerService } from '../../xmp/xmp-serializer.service';
 import { probeModelForImportedAuto } from '../../models/partial-white-balance';
-import { applyAffine, cropToFullFrameAffine } from '../mask-overlay/mask-geometry';
+import { perspectiveGeometryOf, presentedToFullFrame } from '../mask-overlay/mask-geometry';
 import { CanvasPickService } from '../image-canvas/canvas-pick.service';
 import {
   isIdentityToneCurve,
@@ -395,10 +395,13 @@ export class ColorCurvesRibbonComponent {
     // The sampler develops what the canvas painted (`sampleIsCurrent` checked the
     // model above): a resolved imported Auto as its pair (#4669).
     const xmp = this.serializer.serialize(probeModelForImportedAuto(this.adj()!));
-    const full = applyAffine(cropToFullFrameAffine(a.crop, asset?.width ?? 1, asset?.height ?? 1), {
-      x: pt.nx,
-      y: pt.ny,
-    });
+    const full = presentedToFullFrame(
+      { x: pt.nx, y: pt.ny },
+      a.crop,
+      perspectiveGeometryOf(a),
+      asset?.width ?? 1,
+      asset?.height ?? 1,
+    );
     const sample = await this.pipeline.sampleColorCurve(rawBytes, ext, xmp, full.x, full.y);
     if (!this.sampleIsCurrent(request)) return;
     const x = sampleXForCurve(desc, sample);

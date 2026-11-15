@@ -49,7 +49,7 @@ import {
   MASK_HANDLE_NAME,
   type MaskCanvasMap,
   type MaskHandle,
-  applyAffine,
+  applyProjection,
   dragMaskHandle,
   ellipseOutline,
   evaluateMaskWeight,
@@ -364,7 +364,7 @@ function fillTint(
   for (let j = 0; j < height; j++) {
     const v = (j + 0.5) / height;
     for (let i = 0; i < width; i++) {
-      const p = applyAffine(map.cropToFull, { x: (i + 0.5) / width, y: v });
+      const p = applyProjection(map.presentedToFrame, { x: (i + 0.5) / width, y: v });
       const w = Math.min(1, Math.max(0, evaluateMaskWeight(mask, p.x, p.y)));
       const base = (j * width + i) * 4;
       data[base] = TINT_RGB[0];
@@ -387,7 +387,22 @@ function fillBrushTint(
   const { data, width, height } = image;
   const cropWidth = Math.hypot(map.cropToFull.a, map.cropToFull.b / map.imageAspect);
   const radiusScale = cropWidth > 1e-9 ? 1 / cropWidth : 1;
-  const mappingKey = `${map.fullToCrop.a},${map.fullToCrop.b},${map.fullToCrop.c},${map.fullToCrop.d},${map.fullToCrop.tx},${map.fullToCrop.ty},${map.imageAspect}`;
+  const mappingKey = map.hasGeometry
+    ? `proj:${map.frameToPresented.join(',')},${map.imageAspect}`
+    : `${map.fullToCrop.a},${map.fullToCrop.b},${map.fullToCrop.c},${map.fullToCrop.d},${map.fullToCrop.tx},${map.fullToCrop.ty},${map.imageAspect}`;
+  const mapDabs = (series: readonly BrushDab[]): BrushDab[] =>
+    map.hasGeometry
+      ? series.map((d) => {
+          const center = applyProjection(map.frameToPresented, d.center);
+          const edge = applyProjection(map.frameToPresented, {
+            x: d.center.x + d.radius,
+            y: d.center.y,
+          });
+          const radius =
+            Math.hypot((edge.x - center.x) * width, (edge.y - center.y) * height) / width;
+          return { ...d, center, radius: Number.isFinite(radius) ? radius : d.radius };
+        })
+      : mapDabsToCrop(series, map.fullToCrop, radiusScale);
 
   let acc: Float32Array;
   if (
@@ -400,14 +415,12 @@ function fillBrushTint(
     acc = cache.acc;
     if (cache.stampedCount < dabs.length) {
       const newDabs = dabs.slice(cache.stampedCount);
-      const mapped = mapDabsToCrop(newDabs, map.fullToCrop, radiusScale);
-      stampBrushDabs(acc, mapped, width, height);
+      stampBrushDabs(acc, mapDabs(newDabs), width, height);
       cache.stampedCount = dabs.length;
     }
   } else {
     acc = new Float32Array(width * height);
-    const mapped = mapDabsToCrop(dabs, map.fullToCrop, radiusScale);
-    stampBrushDabs(acc, mapped, width, height);
+    stampBrushDabs(acc, mapDabs(dabs), width, height);
     if (cache) {
       cache.width = width;
       cache.height = height;
