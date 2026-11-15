@@ -103,6 +103,8 @@ Mask overlays use the same inverse crop/manual-geometry projection as the presen
 
 Mask and retouch pointer edits also reject these empty regions. A brush stroke skips the rejected sample, resets its segment history, and starts a new segment on re-entry rather than painting across the gap; a rejected release adds no dab.
 
+Shared overlay placement defaults to crop-only mapping into the post-perspective frame. Masks and retouch explicitly opt into source-frame mapping, which also undoes manual geometry. Guided geometry keeps post-perspective/pre-crop endpoints because its Rust solver undoes the current perspective itself; color-curve sampling follows the same crop-only caller contract, while white-balance and mask-range picks require source-frame coordinates.
+
 The **one-shot decode** path serves everything else, and `raw-pipeline.decode-route.ts` picks between four WASM entries in a fixed precedence:
 
 | Route   | Entry                    | When                                                            |
