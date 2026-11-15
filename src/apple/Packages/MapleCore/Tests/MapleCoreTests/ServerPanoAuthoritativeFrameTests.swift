@@ -180,4 +180,71 @@ final class ServerPanoAuthoritativeFrameTests: XCTestCase {
       return XCTFail("Changed source indices must invalidate the constrained preview")
     }
   }
+
+  @MainActor
+  func testWaitingStitchAbortsWhenConstrainedPreviewInvalidatesItsDraft() async throws {
+    let original = [
+      PanoSourceFrame(assetId: "b", path: "/real/b.dng"),
+      PanoSourceFrame(assetId: "a", path: "/real/a.dng"),
+    ]
+    let initial = PanoServerJob.Result(alignment: .init(status: "reused"), frames: original)
+    let invalidated: [PanoServerJob.Result] = [
+      .init(alignment: .init(status: "reused"), frames: Array(original.reversed())),
+      .init(alignment: .init(status: "stale", staleReason: "changed geometry"), frames: original),
+      .init(alignment: .init(status: "reused")),
+    ]
+    for result in invalidated {
+      let jobs = FakePanoJobs([job(.done, result: initial)], previewPNG: previewPNG)
+      let session = PanoMergeSession(stitcher: stitcher(jobs), previewDebounce: .zero)
+      session.preview(assets: frames)
+      try await waitForPreview(session)
+      let acceptedAlignment = session.alignment
+      session.setSeamConstraints(constraints)
+      jobs.script([job(.done, result: result)])
+      session.previewSeamConstraints()
+      session.start(assets: frames)
+      guard case .finishingAlignment = session.state else {
+        return XCTFail("Create must wait for the running constrained preview")
+      }
+      for _ in 0..<200 where session.isRunning {
+        try await Task.sleep(for: .milliseconds(5))
+      }
+      XCTAssertFalse(session.isRunning)
+      XCTAssertNil(session.options.seamConstraints)
+      XCTAssertTrue(jobs.stitchRequests.isEmpty)
+      XCTAssertEqual(session.alignment, acceptedAlignment)
+      XCTAssertEqual(session.lastPreview?.sourceFrames, original)
+      guard case .error(let error) = session.state else {
+        return XCTFail("Invalidated seam intent must fail before submitting the stitch")
+      }
+      XCTAssertTrue(error.message.contains("invalid_seam_constraints"))
+    }
+  }
+
+  @MainActor
+  func testWaitingStitchKeepsDraftWhenServerPreviewPreservesFrames() async throws {
+    let completed = try previewJob(
+      framesJSON: """
+        [{"assetId":"b","path":"/real/b.dng"},{"assetId":"a","path":"/real/a.dng"}]
+        """)
+    let jobs = FakePanoJobs([.job(completed)], previewPNG: previewPNG)
+    let session = PanoMergeSession(stitcher: stitcher(jobs), previewDebounce: .zero)
+    session.preview(assets: frames)
+    try await waitForPreview(session)
+    session.setSeamConstraints(constraints)
+    jobs.script([
+      .job(completed),
+      job(.done, result: .init(outputAssetId: "output", outputPath: "/p.png")),
+    ])
+    session.previewSeamConstraints()
+    session.start(assets: frames)
+    for _ in 0..<200 where session.isRunning {
+      try await Task.sleep(for: .milliseconds(5))
+    }
+    guard case .done = session.state else {
+      return XCTFail("An unchanged constrained preview must allow the waiting stitch")
+    }
+    XCTAssertEqual(jobs.stitchRequests.count, 1)
+    XCTAssertEqual(jobs.stitchRequests.first?.seamConstraints, constraints)
+  }
 }

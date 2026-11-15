@@ -60,6 +60,8 @@ Server source labels and indices come directly from the preview job's `result.fr
 resolved primary paths rather than selected aliases. No client-side server sorting is applied.
 Servers missing a nonempty frame list matching the input count can preview and stitch, but cannot
 author seam regions. A constrained preview that changes this frame order invalidates the draft.
+If Create Panorama is waiting for that preview, invalidation also fails the waiting stitch before
+any constrained request is submitted; the rejected preview's alignment is not adopted.
 
 Choose Include (use this frame) or Exclude (avoid it), then drag a rectangle or enter whole-pixel
 X, Y, Width and Height and choose Add Region. Numbered, labeled overlays and the coordinate list
