@@ -92,4 +92,39 @@ describe('TrashService stack pair ops (#5949)', () => {
     expect(deleteAssetSpy).toHaveBeenNthCalledWith(1, IDS[STACKED.id], 'trash');
     expect(deleteAssetSpy).toHaveBeenNthCalledWith(2, IDS['photos:IMG_0004.JPG'], 'trash');
   });
+
+  function conflictWhileTrashed(trashed: ReadonlySet<string>) {
+    deleteAssetSpy.mockImplementation((id: string, _intent: string, companionId?: string) =>
+      of(
+        trashed.has(id) || (companionId !== undefined && trashed.has(companionId))
+          ? { kind: 'conflict', state: 'trashed' }
+          : { kind: 'ok' },
+      ),
+    );
+  }
+
+  it('trashes the live RAW when another client trashed only its JPEG', async () => {
+    conflictWhileTrashed(new Set([IDS['photos:IMG_0004.JPG']!]));
+    service.trashAssets([STACKED.id], 'photos:');
+    await vi.waitFor(() => expect(service.busy()).toBe(false));
+    expect(deleteAssetSpy).toHaveBeenNthCalledWith(2, IDS[STACKED.id], 'trash');
+    expect(service.resultSummary()).toMatchObject({ total: 1, trashed: 1, failed: [] });
+  });
+
+  it('trashes the live JPEG when another client trashed only its RAW', async () => {
+    conflictWhileTrashed(new Set([IDS[STACKED.id]!]));
+    service.trashAssets([STACKED.id], 'photos:');
+    await vi.waitFor(() => expect(service.busy()).toBe(false));
+    expect(deleteAssetSpy).toHaveBeenCalledWith(IDS['photos:IMG_0004.JPG'], 'trash');
+    expect(deleteAssetSpy).toHaveBeenCalledTimes(3);
+  });
+
+  it('reports a pair already wholly in Trash as already trashed', async () => {
+    conflictWhileTrashed(new Set(Object.values(IDS)));
+    service.trashAssets([STACKED.id], 'photos:');
+    await vi.waitFor(() => expect(service.busy()).toBe(false));
+    expect(service.resultSummary()?.failed).toEqual([
+      expect.objectContaining({ assetId: STACKED.id, alreadyTrashed: true }),
+    ]);
+  });
 });

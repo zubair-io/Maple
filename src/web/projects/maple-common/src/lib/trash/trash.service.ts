@@ -256,13 +256,22 @@ export class TrashService implements TrashCapability {
     this.state.selectedFolderIds.update((prev) => prune(prev, folderIds));
   }
 
-  /** Trash one tile: one pair request when the server supports it, else the
-   * RAW, then its JPEG only if the RAW left the folder. */
+  /** Trash one tile: one pair request when the server supports it. A pair
+   * 409 does not say which half is already in Trash, so it falls back to
+   * per-member trashes, which finish whichever half is still live. */
   private async trashOneTile(tile: StackTile): Promise<TrashItemFailure | null> {
     if (tile.companion) {
       const supported = await firstValueFrom(this.pairOps.supported()).catch(() => false);
-      if (supported) return this.trashOneAsset(tile.id, tile.filename, tile.companion.id);
+      if (supported) {
+        const pair = await this.trashOneAsset(tile.id, tile.filename, tile.companion.id);
+        if (!pair?.alreadyTrashed) return pair;
+      }
     }
+    return this.trashTileMembers(tile);
+  }
+
+  /** The RAW, then its JPEG only if the RAW left the folder. */
+  private async trashTileMembers(tile: StackTile): Promise<TrashItemFailure | null> {
     const failure = await this.trashOneAsset(tile.id, tile.filename);
     if (!tile.companion || (failure && !failure.alreadyTrashed)) return failure;
     const companion = await this.trashOneAsset(tile.companion.id, tile.companion.filename);
