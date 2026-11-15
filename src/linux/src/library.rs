@@ -18,6 +18,24 @@ pub struct Photo {
     pub size: u64,
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum PhotoSort {
+    #[default]
+    Filename,
+    Modified,
+    Size,
+}
+
+impl PhotoSort {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Filename => "Filename",
+            Self::Modified => "Modified time",
+            Self::Size => "File size",
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct Folder {
     pub path: PathBuf,
@@ -77,10 +95,25 @@ impl Folder {
         folder
             .folders
             .sort_by_key(|path| path.file_name().map(|name| name.to_os_string()));
-        folder
-            .photos
-            .sort_by(|a, b| a.path.file_name().cmp(&b.path.file_name()));
+        folder.sort_photos(PhotoSort::default(), false);
         Ok(folder)
+    }
+
+    pub fn sort_photos(&mut self, sort: PhotoSort, descending: bool) {
+        self.photos.sort_unstable_by(|a, b| {
+            let order = match sort {
+                PhotoSort::Filename => a.path.file_name().cmp(&b.path.file_name()),
+                PhotoSort::Modified => a.modified.cmp(&b.modified),
+                PhotoSort::Size => a.size.cmp(&b.size),
+            }
+            .then_with(|| a.path.file_name().cmp(&b.path.file_name()))
+            .then_with(|| a.path.cmp(&b.path));
+            if descending {
+                order.reverse()
+            } else {
+                order
+            }
+        });
     }
 }
 

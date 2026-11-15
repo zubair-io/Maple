@@ -55,3 +55,49 @@ fn follows_browsable_symlinks_and_reports_broken_entries() {
     );
     assert_eq!(folder.errors.len(), 1);
 }
+
+#[test]
+fn sort_modes_use_filename_ties_and_reverse_the_complete_order() {
+    use maple_linux::library::PhotoSort;
+    use std::time::{Duration, SystemTime};
+
+    let temp = TempDir::new().unwrap();
+    for (name, size, modified) in [
+        ("a.jpg", 2, 30),
+        ("b.jpg", 2, 30),
+        ("c.jpg", 1, 20),
+        ("d.jpg", 3, 10),
+    ] {
+        let path = temp.path().join(name);
+        fs::write(&path, vec![0; size]).unwrap();
+        fs::File::options()
+            .write(true)
+            .open(&path)
+            .unwrap()
+            .set_times(
+                fs::FileTimes::new()
+                    .set_modified(SystemTime::UNIX_EPOCH + Duration::from_secs(modified)),
+            )
+            .unwrap();
+    }
+    let mut folder = Folder::scan(temp.path()).unwrap();
+    for (sort, expected) in [
+        (PhotoSort::Filename, ["a.jpg", "b.jpg", "c.jpg", "d.jpg"]),
+        (PhotoSort::Modified, ["d.jpg", "c.jpg", "a.jpg", "b.jpg"]),
+        (PhotoSort::Size, ["c.jpg", "a.jpg", "b.jpg", "d.jpg"]),
+    ] {
+        for descending in [true, false, true] {
+            folder.sort_photos(sort, descending);
+            let actual: Vec<_> = folder
+                .photos
+                .iter()
+                .map(|photo| photo.path.file_name().unwrap().to_str().unwrap())
+                .collect();
+            let mut expected = expected;
+            if descending {
+                expected.reverse();
+            }
+            assert_eq!(actual, expected, "{sort:?}, descending={descending}");
+        }
+    }
+}

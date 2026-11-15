@@ -6,6 +6,7 @@ mod events;
 mod export_dialog;
 mod film_controls;
 mod inspector;
+mod sorting;
 mod style;
 #[cfg(test)]
 mod tests;
@@ -50,6 +51,8 @@ pub struct MapleApp {
     thumbnail_epoch: u64,
     thumbnail_order: std::collections::VecDeque<PathBuf>,
     folder: Option<Folder>,
+    photo_sort: crate::library::PhotoSort,
+    sort_descending: bool,
     selected: Option<Photo>,
     launch_photo: Option<PathBuf>,
     document: Option<SidecarDocument>,
@@ -133,6 +136,8 @@ impl MapleApp {
             thumbnail_order: Default::default(),
             thumbnail_epoch: 0,
             folder: None,
+            photo_sort: Default::default(),
+            sort_descending: false,
             selected: None,
             launch_photo: None,
             document: None,
@@ -438,3 +443,6 @@ mod keyboard;
 
 #[cfg(test)]
 mod keyboard_tests;
+
+#[cfg(test)]
+mod sorting_tests;
