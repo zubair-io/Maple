@@ -378,6 +378,6 @@ pub use pano_edges::{MaplePanoBoundaryWarpStatus, MaplePanoEdges, MaplePanoEdges
 #[path = "pano_preview.rs"]
 mod pano_preview;
 pub use pano_preview::{
-    maple_pano_preview, maple_pano_stitch_aligned, maple_pano_stitch_constrained,
-    MaplePanoPreviewSizes,
+    maple_pano_preview, maple_pano_preview_constrained, maple_pano_stitch_aligned,
+    maple_pano_stitch_constrained, MaplePanoPreviewSizes,
 };

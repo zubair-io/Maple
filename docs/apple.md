@@ -56,6 +56,10 @@ The merge preview's **Edit Seam Regions** opens `PanoSeamEditor`, a scrollable e
 Select, Input and Button controls. Its reference image is always the complete uncropped preview,
 even with Auto Crop enabled. Source frame numbers follow the session's execution order; the picker
 shows one-based numbers and source paths, while requests use zero-based indices.
+Server source labels and indices come directly from the preview job's `result.frames`, including
+resolved primary paths rather than selected aliases. No client-side server sorting is applied.
+Servers missing a nonempty frame list matching the input count can preview and stitch, but cannot
+author seam regions. A constrained preview that changes this frame order invalidates the draft.
 
 Choose Include (use this frame) or Exclude (avoid it), then drag a rectangle or enter whole-pixel
 X, Y, Width and Height and choose Add Region. Numbered, labeled overlays and the coordinate list
@@ -63,7 +67,9 @@ identify regions without relying on color. Each region can be removed, and Clear
 the draft. Invalid coordinates and constrained-preview failures remain visible and accessible.
 
 Edits only update `PanoMergeSession.options.seamConstraints`. **Preview Regions** explicitly
-re-renders; closing the editor and choosing **Create Panorama** submits the same draft through the
+re-renders through `maple_pano_preview_constrained` on device, retaining the proxy-only preview's
+resource requirements rather than developing/refining full-resolution frames. Closing the editor
+and choosing **Create Panorama** submits the same draft through the
 selected device or server stitcher. `SeamConstraintsRequest` retains version, reference canvas
 dimensions and regions; Rust scales that canvas to the output, not Swift. Geometry, input or
 execution-route changes invalidate authoring. Pending or stale geometry, Tile and Boundary Warp

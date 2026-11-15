@@ -106,7 +106,7 @@ struct PanoSeamEditor: View {
           .init(
             value: String(index),
             label:
-              "\(index + 1): \(asset.catalog?.absPath ?? asset.primaryURL?.path ?? asset.displayName)"
+              "\(index + 1): \(asset.path)"
           )
         },
         accessibilityLabel: "Seam source frame",

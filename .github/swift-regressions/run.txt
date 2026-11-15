@@ -525,6 +525,7 @@ PanoServerUploadRemovalTests
 SeamConstraintsRequestTests
 ServerPanoSeamRequestTests
 PanoServerSeamClientTests
+ServerPanoAuthoritativeFrameTests
 PanoSeamExecutionTests
 PanoSeamSessionTests
 

@@ -129,7 +129,8 @@ public final class ServerPanoStitcher: PanoStitching {
       image: image,
       alignment: PanoAlignment(json: Data(), serverPreviewJobID: jobID),
       alignmentOutcome: Self.alignmentOutcome(job.result?.alignment),
-      matcher: Self.matcher(job.result)
+      matcher: Self.matcher(job.result),
+      sourceFrames: job.result?.frames
     )
   }
 

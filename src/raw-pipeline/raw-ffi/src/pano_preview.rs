@@ -177,6 +177,54 @@ pub unsafe extern "C" fn maple_pano_preview(
     cb_user: *mut c_void,
     cancel: *const MapleCancelFlag,
 ) -> i32 {
+    maple_pano_preview_constrained(
+        raw_paths,
+        count,
+        out_preview_png_path,
+        alignment_in_path,
+        alignment_out_path,
+        out_sizes,
+        edges,
+        out_edges,
+        retention,
+        local_align,
+        strategy,
+        engine,
+        std::ptr::null(),
+        progress_cb,
+        cb_user,
+        cancel,
+    )
+}
+
+/// Build a proxy-only preview with a versioned seam-constraint JSON request.
+/// Null leaves seams unconstrained. Invalid requests return −11
+/// (`invalid_seam_constraints`) before decode. Alignment reuse and stale
+/// geometry reporting are identical to [`maple_pano_preview`].
+///
+/// # Safety
+/// Same pointer contract as [`maple_pano_preview`]; `seam_constraints_json`
+/// must be null or a valid UTF-8 C string for the synchronous call.
+#[no_mangle]
+#[allow(clippy::too_many_arguments)]
+pub unsafe extern "C" fn maple_pano_preview_constrained(
+    raw_paths: *const *const c_char,
+    count: usize,
+    out_preview_png_path: *const c_char,
+    alignment_in_path: *const c_char,
+    alignment_out_path: *const c_char,
+    out_sizes: *mut MaplePanoPreviewSizes,
+    edges: MaplePanoEdges,
+    out_edges: *mut MaplePanoEdgesReport,
+    retention: MaplePanoRetention,
+    local_align: MaplePanoLocalAlign,
+    strategy: MaplePanoStrategy,
+    engine: MaplePanoFeatureEngine,
+    seam_constraints_json: *const c_char,
+    progress_cb: MaplePanoProgressFn,
+    cb_user: *mut c_void,
+    cancel: *const MapleCancelFlag,
+) -> i32 {
     const NAME: &str = "maple_pano_preview";
     let parsed = owned_paths(NAME, raw_paths, count).and_then(|paths| {
         Ok((
@@ -190,6 +238,10 @@ pub unsafe extern "C" fn maple_pano_preview(
         Ok(p) => p,
         Err(rc) => return rc,
     };
+    let request = match seam_request(NAME, seam_constraints_json, count, strategy) {
+        Ok(request) => request,
+        Err(rc) => return rc,
+    };
     let cb = SendProgressCallback {
         f: progress_cb,
         user: cb_user,
@@ -198,7 +250,7 @@ pub unsafe extern "C" fn maple_pano_preview(
 
     #[cfg(any(target_os = "macos", target_os = "ios"))]
     {
-        let opts = match super::pano_edges::with_edges(
+        let mut opts = match super::pano_edges::with_edges(
             NAME,
             super::pano_apple::stitch_options(retention, local_align, strategy, engine),
             edges,
@@ -206,6 +258,10 @@ pub unsafe extern "C" fn maple_pano_preview(
             Ok(opts) => opts,
             Err(rc) => return rc,
         };
+        if request.is_some() {
+            opts.seam_strategy = maple_pano::seam::SeamStrategy::GraphCut;
+            opts.seam_constraints = request;
+        }
         let full = std::sync::Arc::new(std::sync::OnceLock::new());
         let worker_full = std::sync::Arc::clone(&full);
         let rc = with_large_stack(move || {
@@ -242,6 +298,7 @@ pub unsafe extern "C" fn maple_pano_preview(
             alignment_in,
             alignment_out,
             out_sizes,
+            request,
             edges,
             out_edges,
             retention,
@@ -349,29 +406,9 @@ pub unsafe extern "C" fn maple_pano_stitch_constrained(
         Ok(p) => p,
         Err(rc) => return rc,
     };
-    let request = if seam_constraints_json.is_null() {
-        None
-    } else {
-        let parsed = CStr::from_ptr(seam_constraints_json)
-            .to_str()
-            .map_err(|e| e.to_string())
-            .and_then(|json| {
-                maple_pano::seam::SeamConstraintsRequest::parse(json, count)
-                    .map_err(|e| e.to_string())
-            });
-        match parsed {
-            Ok(request) if !matches!(strategy, MaplePanoStrategy::Tile) => Some(request),
-            Ok(_) => {
-                set_last_error(format!(
-                    "{NAME}: invalid_seam_constraints: constraints require rotation"
-                ));
-                return -11;
-            }
-            Err(e) => {
-                set_last_error(format!("{NAME}: invalid_seam_constraints: {e}"));
-                return -11;
-            }
-        }
+    let request = match seam_request(NAME, seam_constraints_json, count, strategy) {
+        Ok(request) => request,
+        Err(rc) => return rc,
     };
     let cb = SendProgressCallback {
         f: progress_cb,
@@ -442,6 +479,37 @@ pub unsafe extern "C" fn maple_pano_stitch_constrained(
     }
 }
 
+/// Parse the shared request before either native pipeline can decode inputs.
+///
+/// # Safety
+/// `json` must be null or a valid C string for the call.
+unsafe fn seam_request(
+    name: &str,
+    json: *const c_char,
+    count: usize,
+    strategy: MaplePanoStrategy,
+) -> Result<Option<maple_pano::seam::SeamConstraintsRequest>, i32> {
+    if json.is_null() {
+        return Ok(None);
+    }
+    let parsed = CStr::from_ptr(json)
+        .to_str()
+        .map_err(|e| e.to_string())
+        .and_then(|json| {
+            maple_pano::seam::SeamConstraintsRequest::parse(json, count).map_err(|e| e.to_string())
+        });
+    match parsed {
+        Ok(request) if !matches!(strategy, MaplePanoStrategy::Tile) => Ok(Some(request)),
+        result => {
+            let reason = result
+                .err()
+                .unwrap_or_else(|| "constraints require rotation".into());
+            set_last_error(format!("{name}: invalid_seam_constraints: {reason}"));
+            Err(-11)
+        }
+    }
+}
+
 /// `opts` with its canvas cap replaced by `max_canvas_px` (0 keeps it).
 #[cfg_attr(not(any(target_os = "macos", target_os = "ios")), allow(dead_code))]
 fn with_canvas_cap(
@@ -458,81 +526,5 @@ fn with_canvas_cap(
 }
 
 #[cfg(any(target_os = "macos", target_os = "ios"))]
-mod apple {
-    use std::path::{Path, PathBuf};
-
-    use maple_pano::render::{write_frame_png, PngMetadata};
-    use maple_pano::stitch::{preview, StitchOptions};
-
-    use crate::cancel::SendCancelPtr;
-    use crate::error::set_last_error;
-
-    use super::super::pano_apple::{
-        cancel_adapter, error_rc, progress_adapter, read_alignment, reuse_rc,
-    };
-    use super::super::SendProgressCallback;
-
-    const NAME: &str = "maple_pano_preview";
-
-    pub(super) fn run_preview(
-        input_paths: Vec<String>,
-        out_png: String,
-        alignment_in: Option<String>,
-        alignment_out: Option<String>,
-        opts: StitchOptions,
-        cb: SendProgressCallback,
-        send_cancel: SendCancelPtr,
-    ) -> (
-        i32,
-        Option<(super::MaplePanoPreviewSizes, super::MaplePanoEdgesReport)>,
-    ) {
-        let inputs: Vec<PathBuf> = input_paths.iter().map(PathBuf::from).collect();
-        let (offered, unreadable) = read_alignment(alignment_in.as_deref());
-        let result = preview(
-            &inputs,
-            &opts,
-            offered.as_ref(),
-            progress_adapter(cb),
-            cancel_adapter(send_cancel),
-        );
-        let pv = match result {
-            Ok(pv) => pv,
-            Err(e) => return (error_rc(NAME, e), None),
-        };
-        let written = write_frame_png(
-            Path::new(&out_png),
-            pv.width,
-            pv.height,
-            &pv.display_rgb16,
-            &PngMetadata {
-                exif_blob: None,
-                tag_srgb: true,
-            },
-        )
-        .map_err(|e| format!("write preview PNG: {e}"))
-        .and_then(|()| {
-            alignment_out.map_or(Ok(()), |p| {
-                std::fs::write(&p, pv.alignment.to_json())
-                    .map_err(|e| format!("write alignment {p}: {e}"))
-            })
-        });
-        match written {
-            Ok(()) => (
-                reuse_rc(NAME, &pv.reuse, unreadable),
-                Some((
-                    super::MaplePanoPreviewSizes {
-                        full_width: pv.full_canvas_estimate.0,
-                        full_height: pv.full_canvas_estimate.1,
-                        largest_frame_px: pv.largest_frame_px,
-                        scratch_bytes: pv.scratch_bytes,
-                    },
-                    super::MaplePanoEdgesReport::from(&pv.edges),
-                )),
-            ),
-            Err(msg) => {
-                set_last_error(format!("{NAME}: {msg}"));
-                (-7, None)
-            }
-        }
-    }
-}
+#[path = "pano_preview_apple.rs"]
+mod apple;
