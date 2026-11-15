@@ -350,9 +350,14 @@ export class PanoDialogComponent implements OnDestroy {
 
   onPreviewSeams(): void {
     const seamConstraints = this.seamConstraints();
-    if (!seamConstraints || this.seamDisabledReason() || this.stitching()) return;
+    if (!this.seamAuthoring() || this.seamDisabledReason() || this.stitching()) return;
     const built = this.buildRequest(this.options());
-    if ('request' in built) this.preview.request({ ...built.request, seamConstraints });
+    if ('request' in built) {
+      this.preview.request({
+        ...built.request,
+        ...(seamConstraints ? { seamConstraints } : {}),
+      });
+    }
   }
 
   onSubmit(): void {

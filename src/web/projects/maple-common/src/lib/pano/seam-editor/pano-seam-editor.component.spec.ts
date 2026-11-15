@@ -121,6 +121,20 @@ describe('panorama seam editor', () => {
     expect(editor.regions()).toHaveLength(1);
   });
 
+  it('allows previewing the removal of the final region', () => {
+    editor.addNumeric();
+    editor.clear();
+    fixture.detectChanges();
+    const preview = Array.from(root.querySelectorAll('button')).find((button) =>
+      button.textContent?.includes('Preview regions'),
+    )!;
+    expect(preview.disabled).toBe(false);
+    const requested = vi.fn();
+    editor.previewRequested.subscribe(requested);
+    preview.click();
+    expect(requested).toHaveBeenCalledOnce();
+  });
+
   it('disables authoring for tile or stale geometry while still allowing regions to be cleared', () => {
     editor.addNumeric();
     fixture.componentRef.setInput('disabledReason', 'Choose Rotation instead of Tile.');

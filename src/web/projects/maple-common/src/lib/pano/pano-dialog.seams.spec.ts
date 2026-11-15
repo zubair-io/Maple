@@ -134,6 +134,20 @@ describe('panorama dialog seam constraints', () => {
     call.flush({ id: 'stitch-1' });
   });
 
+  it('explicitly refreshes unconstrained seams after clearing the last region', () => {
+    open();
+    const dialog = fixture.componentInstance;
+    dialog.seamConstraints.set(constraints);
+    dialog.onPreviewSeams();
+    image.set({ ...image()!, jobId: 'constrained-preview' });
+    fixture.detectChanges();
+    const count = preview.request.mock.calls.length;
+    dialog.seamConstraints.set(null);
+    dialog.onPreviewSeams();
+    expect(preview.request).toHaveBeenCalledTimes(count + 1);
+    expect(preview.request.mock.lastCall![0]).not.toHaveProperty('seamConstraints');
+  });
+
   it('clears regions and disables stale geometry until a new preview arrives', () => {
     open();
     const dialog = fixture.componentInstance;
