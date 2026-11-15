@@ -94,16 +94,19 @@ public struct PanoServerJob: Decodable, Sendable, Equatable {
     public let alignment: Alignment?
     public let matcher: String?
     public let matcherNote: String?
+    /// Authoritative engine order after server-side primary-path resolution.
+    public let frames: [PanoSourceFrame]?
 
     public init(
       outputAssetId: String? = nil, outputPath: String? = nil, alignment: Alignment? = nil,
-      matcher: String? = nil, matcherNote: String? = nil
+      matcher: String? = nil, matcherNote: String? = nil, frames: [PanoSourceFrame]? = nil
     ) {
       self.outputAssetId = outputAssetId
       self.outputPath = outputPath
       self.alignment = alignment
       self.matcher = matcher
       self.matcherNote = matcherNote
+      self.frames = frames
     }
   }
 

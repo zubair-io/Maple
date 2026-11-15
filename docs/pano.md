@@ -137,10 +137,22 @@ coordinates (`null` when absent). Failures are named `invalid_seam_constraints`;
 CLI refusal reports use
 `{"refused":{"resource":"seam_constraints","message":"…"}}`.
 The C ABI adds `maple_pano_stitch_constrained`, with the same arguments as
-`maple_pano_stitch_aligned` plus optional UTF-8
-`const char *seam_constraints_json` immediately before the progress callback.
-It returns −11 for invalid requests or unsatisfiable ROIs. Existing C entries
-remain unconstrained and retain their ABI.
+`maple_pano_stitch_aligned`, and `maple_pano_preview_constrained`, with the same
+arguments as `maple_pano_preview`. Each adds optional UTF-8
+`const char *seam_constraints_json` between `engine` and `progress_cb`.
+Both select the shared GraphCut seam implementation when a request is present.
+Malformed JSON, unsupported versions, invalid regions/frame indices, and explicit
+Tile requests return −11 (`invalid_seam_constraints`) before decode; unsatisfiable
+ROIs also return −11. Existing C entries remain unconstrained ABI wrappers passing
+null, with unchanged signatures.
+
+Constrained native previews call the same proxy-only `stitch::preview` pipeline
+as ordinary previews: no full-resolution refinement or decoded-frame scratch
+store is created merely to preview regions. They return the same uncropped
+preview, edge/size reports, alignment output and progress contract. Constraints
+are not geometry keys: matching can reuse a compatible offered alignment.
+Stale/unreadable alignments still re-solve and return the named soft code `1`;
+constraint errors remain hard errors rather than silently discarding intent.
 
 `maple-pano/src/seam/request_tests.rs` reads both tracked
 `test-fixtures/pano-motion-rois/pano_01.json` wave rectangles and exercises
@@ -286,6 +298,7 @@ int32_t maple_pano_stitch(
 | −8   | degenerate rotation geometry; retry with Auto or Tile                                           |
 | −9   | not enough free space on the temp volume for the decoded frames; a smaller output does not help |
 | −10  | an edge option is out of range: `edges.boundary_warp` outside 0–100 (preview pair only)         |
+| −11  | invalid_seam_constraints: invalid request, unsupported strategy, or unsatisfiable ROI           |
 
 The quick-preview pair (#4578, `pano_preview.rs`) shares those conventions and codes:
 
@@ -300,6 +313,16 @@ int32_t maple_pano_preview(
     MaplePanoEdgesReport *out_edges,    // nullable: what the edge options did
     MaplePanoRetention retention, MaplePanoLocalAlign local_align, MaplePanoStrategy strategy,
     MaplePanoFeatureEngine engine,
+    MaplePanoProgressFn progress_cb, void *cb_user, const MapleCancelFlag *cancel);
+
+int32_t maple_pano_preview_constrained(
+    const char *const *raw_paths, size_t count,
+    const char *out_preview_png_path,
+    const char *alignment_in_path, const char *alignment_out_path,
+    MaplePanoPreviewSizes *out_sizes,
+    MaplePanoEdges edges, MaplePanoEdgesReport *out_edges,
+    MaplePanoRetention retention, MaplePanoLocalAlign local_align, MaplePanoStrategy strategy,
+    MaplePanoFeatureEngine engine, const char *seam_constraints_json,
     MaplePanoProgressFn progress_cb, void *cb_user, const MapleCancelFlag *cancel);
 
 int32_t maple_pano_stitch_aligned(
@@ -324,11 +347,19 @@ The progress callback is `void(*)(uint32_t stage, float frac, void *user)`, invo
 
 `pano_preview_ffi_gates` drives the preview pair through the C ABI on three pano_01 frames: composite-only changes reuse the alignment, a geometry change does not, and a stitch from the preview's alignment is pixel-identical to a fresh `maple_pano_stitch`. A second, classical-engine case runs wherever the fixture is present. It checks five things: the reported canvas size is within 6 % of the stitched one; the largest frame is exactly pano_01's 5272 × 3948; the reported store size is exactly what the frame store will claim; a stitch capped at a quarter of that area comes out between 90 % and 100 % of the cap; and a cap at a sixteenth, past the guard's 8× ratio, still stitches. `pano_ffi_gates` (`src/raw-pipeline/raw-ffi/tests/pano_ffi_gates.rs`) is the end-to-end parity gate: it calls the actual C entry point, paths in and PNG out, and diffs the result against the reference by peak-normalized RMSE, tolerating up to 2% dimension difference from canvas rounding. It skip-passes when fixtures, `MAPLE_PANO_MODELS`, or `ORT_DYLIB_PATH` are absent.
 
+`pano_seam_constraints_ffi` is a fixture-free macOS/classical-engine gate:
+both constrained entries reject malformed/version/ROI/Tile requests before
+decoding nonexistent paths. Its synthetic DNG identity alignment exercises the
+real constrained proxy composite, checks that refinement stage 3 never starts,
+checks alignment handoff and the preview size cap, and requires an unsatisfiable
+two-frame exclusion to return the named −11 error. It uses a planted solve, not
+feature matching or photographic seam-quality validation.
+
 ## Apple
 
 `src/apple/Packages/MapleCore/Sources/MapleCore/Panorama/`.
 
-`PanoStitching.swift` is the protocol seam plus the option types (`Retention`, `LocalAlign`, `Strategy`) and the `PanoStage` enum whose raw values match the CLI's stage log prefixes; it has a `stitch` and a `preview`, both taking an optional `PanoAlignment`. `MockPanoStitcher` satisfies it for previews and tests. `RustPanoStitcher.swift` is the real conformance over `maple_pano_stitch_aligned` and `maple_pano_preview` (argument marshalling in `PanoFFICall.swift`), running off the main actor because both calls block for minutes.
+`PanoStitching.swift` is the protocol seam plus the option types (`Retention`, `LocalAlign`, `Strategy`) and the `PanoStage` enum whose raw values match the CLI's stage log prefixes; it has a `stitch` and a `preview`, both taking an optional `PanoAlignment`. `MockPanoStitcher` satisfies it for previews and tests. `RustPanoStitcher.swift` is the real conformance over `maple_pano_stitch_constrained` and `maple_pano_preview_constrained` (argument marshalling in `PanoFFICall.swift`), passing null seam intent for unconstrained operations and running off the main actor because both calls block.
 
 Progress bridging is the interesting part. The C trampoline can fire from several rayon worker threads at once, so its hot path does exactly one thing: reconstruct a heap-allocated atom from the opaque `cb_user` pointer, take an `os_unfair_lock` for a two-word store, release. No task allocation, no main-actor hop. A timer polls that atom about 20× a second on the main run loop and publishes only when the value changed. Lifetime is a retain before the call and an unconditional release after, safe because the FFI joins its workers before returning. `cancel()` flips a Rust-allocated cancel flag, the same pattern the scene-linear render path uses.
 

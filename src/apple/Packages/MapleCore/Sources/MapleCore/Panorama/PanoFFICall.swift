@@ -82,7 +82,6 @@ enum PanoFFICall {
     atom: PanoProgressAtom,
     cancelFlag: CancelFlag
   ) throws -> PanoPreview {
-    _ = try seamConstraintsJSON(options, frameCount: inputURLs.count)
     let scratch = try ScratchDirectory()
     defer { scratch.remove() }
     let alignmentIn = try alignment.map { try scratch.write($0.json, named: "alignment-in.json") }
@@ -99,29 +98,23 @@ enum PanoFFICall {
       try withCString(previewPNG) { pngPath in
         try withOptionalCString(alignmentIn) { alignmentInPath in
           try withCString(alignmentOut) { alignmentOutPath in
-            maple_pano_preview(
-              paths.baseAddress, UInt(paths.count), pngPath,
-              alignmentInPath, alignmentOutPath, &sizes,
-              enums.edges, &edgesReport,
-              enums.retention, enums.localAlign, enums.strategy, enums.featureEngine,
-              panoProgressTrampoline, ctx, cancelFlag.pointer
-            )
+            try withSeamConstraints(options, frameCount: inputURLs.count) { constraints in
+              maple_pano_preview_constrained(
+                paths.baseAddress, UInt(paths.count), pngPath,
+                alignmentInPath, alignmentOutPath, &sizes,
+                enums.edges, &edgesReport,
+                enums.retention, enums.localAlign, enums.strategy, enums.featureEngine,
+                constraints, panoProgressTrampoline, ctx, cancelFlag.pointer
+              )
+            }
           }
         }
       }
     }
     let outcome = try outcome(rc: rc, call: "maple_pano_preview", offered: alignment != nil)
-    var image = try decodeImage(at: previewPNG)
-    if options.seamConstraints != nil {
-      if case .stale = outcome {
-        throw PanoStitcherError.staleSeamGeometry
-      }
-      let constrainedPNG = scratch.url.appendingPathComponent("constrained.png")
-      _ = try stitch(
-        inputURLs: inputURLs, outputURL: constrainedPNG, options: options, engine: engine,
-        alignment: PanoAlignment(json: try Data(contentsOf: alignmentOut)),
-        maxCanvasPixels: image.width * image.height, atom: atom, cancelFlag: cancelFlag)
-      image = try decodeImage(at: constrainedPNG)
+    let image = try decodeImage(at: previewPNG)
+    if options.seamConstraints != nil, case .stale = outcome {
+      throw PanoStitcherError.staleSeamGeometry
     }
     let solved = PanoAlignment(json: try Data(contentsOf: alignmentOut))
     let stitchSizes = PanoStitchSizes(

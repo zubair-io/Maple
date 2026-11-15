@@ -52,24 +52,33 @@ final class PanoSeamExecutionTests: XCTestCase {
     XCTAssertTrue(String(cString: maple_last_error()).contains("invalid_seam_constraints"))
   }
 
-  func testSourcePickerMatchesLocalAndServerOrder() {
+  func testNativeConstrainedProxyPreviewRejectsIntentBeforeOpeningInputs() {
+    let json = #"{"version":2,"canvas":{"width":800,"height":400},"regions":[]}"#
+    let code = "/missing/a.dng".withCString { first in
+      "/missing/b.dng".withCString { second in
+        "/missing/preview.png".withCString { output in
+          json.withCString { constraints in
+            let paths: [UnsafePointer<CChar>?] = [first, second]
+            return paths.withUnsafeBufferPointer {
+              maple_pano_preview_constrained(
+                $0.baseAddress, 2, output, nil, nil, nil, MaplePanoEdges(), nil,
+                Keep, Mesh, Auto, Classical, constraints, nil, nil, nil)
+            }
+          }
+        }
+      }
+    }
+    XCTAssertEqual(code, -11)
+    XCTAssertTrue(String(cString: maple_last_error()).contains("invalid_seam_constraints"))
+  }
+
+  func testSourcePickerMatchesLocalExecutionOrder() {
     let local = ["b.dng", "a.dng"].map { AssetRef(url: URL(fileURLWithPath: "/tmp/\($0)")) }
     XCTAssertEqual(
-      PanoSourceOrder.frames(local, onServer: false).compactMap {
+      PanoSourceOrder.frames(local).compactMap {
         $0.primaryURL?.lastPathComponent
       },
       ["a.dng", "b.dng"])
-    let server = URL(string: "https://example.test")!
-    let paths = ["/raw/a.dng", "/raw/a/one.dng", "/raw/é.dng", "/raw/z.dng"]
-    let assets = paths.map { path in
-      AssetRef(
-        displayName: path, hintExtension: "dng",
-        catalog: CatalogRef(serverID: server, folderID: "library", absPath: path, address: nil),
-        bytesProvider: { Data() })
-    }
-    XCTAssertEqual(
-      PanoSourceOrder.frames(assets, onServer: true).compactMap { $0.catalog?.absPath },
-      ["/raw/a/one.dng", "/raw/a.dng", "/raw/z.dng", "/raw/é.dng"])
   }
 }
 

@@ -280,7 +280,7 @@ public final class RustPanoStitcher: PanoStitching {
   // The painter's zero-based frame index must identify the same source at the FFI.
   private func collectInputURLs(from assets: [AssetRef]) throws -> [URL] {
     var urls: [URL] = []
-    for asset in PanoSourceOrder.frames(assets, onServer: false) {
+    for asset in PanoSourceOrder.frames(assets) {
       guard let url = asset.primaryURL else {
         // M6: a bytes-backed FFI entry would be needed here (PhotoKit
         // / cloud assets don't expose a filesystem URL). For now,

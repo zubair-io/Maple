@@ -9,7 +9,7 @@ import os
 @testable import MapleCore
 
 /// Scripted pano API: each `job(_:)` call answers with the next scripted reply.
-private final class FakePanoJobs: PanoServerJobs {
+final class FakePanoJobs: PanoServerJobs {
   enum Reply {
     case job(PanoServerJob)
     case offline
@@ -28,14 +28,16 @@ private final class FakePanoJobs: PanoServerJobs {
   /// Runs while a job is being created, before its id comes back.
   private let whileCreating: @Sendable () -> Void
   private let previewSupported: Bool
+  private let previewPNG: Data
 
   init(
     _ replies: [Reply], previewSupported: Bool = true,
-    whileCreating: @escaping @Sendable () -> Void = {}
+    whileCreating: @escaping @Sendable () -> Void = {}, previewPNG: Data = Data()
   ) {
     calls = OSAllocatedUnfairLock(initialState: Calls(replies: replies))
     self.previewSupported = previewSupported
     self.whileCreating = whileCreating
+    self.previewPNG = previewPNG
   }
 
   var stitchRequests: [PanoServerRequest] { calls.withLock { $0.stitchRequests } }
@@ -78,10 +80,10 @@ private final class FakePanoJobs: PanoServerJobs {
 
   func cancel(_ id: String) async throws { calls.withLock { $0.cancelled.append(id) } }
 
-  func previewImage(_ id: String) async throws -> Data { Data() }
+  func previewImage(_ id: String) async throws -> Data { previewPNG }
 }
 
-private func job(
+func job(
   _ status: PanoServerJob.Status, progress: Int = 0, result: PanoServerJob.Result? = nil
 ) -> FakePanoJobs.Reply {
   .job(
@@ -92,7 +94,7 @@ private func job(
 
 private let server = URL(string: "https://maple.example")!
 
-private func cloudFrame(_ name: String, server: URL = server) -> AssetRef {
+func cloudFrame(_ name: String, server: URL = server) -> AssetRef {
   AssetRef(
     displayName: name, hintExtension: "dng",
     catalog: CatalogRef(
@@ -100,9 +102,9 @@ private func cloudFrame(_ name: String, server: URL = server) -> AssetRef {
     bytesProvider: { Data() })
 }
 
-private let frames = [cloudFrame("a.dng"), cloudFrame("b.dng")]
+let frames = [cloudFrame("a.dng"), cloudFrame("b.dng")]
 
-private func stitcher(_ jobs: FakePanoJobs) -> ServerPanoStitcher {
+func stitcher(_ jobs: FakePanoJobs) -> ServerPanoStitcher {
   ServerPanoStitcher(jobs: jobs, pollInterval: .milliseconds(1), pollAttempts: 3)
 }
 

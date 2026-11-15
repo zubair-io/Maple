@@ -22,43 +22,6 @@ import Foundation
 public final class PanoMergeSession {
   // MARK: - State machine
 
-  /// Sendable error carrier for the `.error` / `.failed` states.
-  ///
-  /// `Error` is not guaranteed `Sendable`, so the enum cannot store an
-  /// arbitrary `Error` and correctly claim `Sendable` conformance. Views
-  /// only need the message text.
-  public struct StitchError: Sendable {
-    /// The `localizedDescription` of the underlying error.
-    public let message: String
-
-    public init(underlying: any Error) {
-      self.message = underlying.localizedDescription
-    }
-
-    init(message: String) {
-      self.message = message
-    }
-  }
-
-  public enum RunState: Sendable {
-    case idle
-    /// Create Panorama was pressed while a preview was matching; the
-    /// stitch starts from that preview's alignment once it lands.
-    case finishingAlignment
-    case running(stage: PanoStage, stageFraction: Double, overallFraction: Double)
-    case done(result: PanoResult)
-    case error(StitchError)
-  }
-
-  public enum PreviewState: Sendable {
-    case idle
-    /// Waiting out the debounce after an option change.
-    case scheduled
-    case running(stage: PanoStage, overallFraction: Double)
-    case ready
-    case failed(StitchError)
-  }
-
   public private(set) var state: RunState = .idle
   public private(set) var previewState: PreviewState = .idle
   /// Alignment progress of the stitch's own re-alignment, which runs when
@@ -264,8 +227,11 @@ public final class PanoMergeSession {
     schedulePreview(after: .zero)
   }
 
-  public var seamFrames: [AssetRef] {
-    PanoSourceOrder.frames(previewAssets, onServer: !stitcher.runsInDeviceMemory)
+  public var seamFrames: [PanoSourceFrame] {
+    if !stitcher.runsInDeviceMemory { return lastPreview?.sourceFrames ?? [] }
+    return PanoSourceOrder.frames(previewAssets).map {
+      PanoSourceFrame(assetId: $0.id.uuidString, path: $0.primaryURL?.path ?? $0.displayName)
+    }
   }
 
   public var seamAuthoringDisabledReason: String? {
@@ -277,6 +243,11 @@ public final class PanoMergeSession {
     guard lastPreview != nil, memoryFitOptions == options.withoutEdges, previewBoundaryWarp == 0
     else {
       return "Wait for a preview of the current frames and geometry."
+    }
+    if !stitcher.runsInDeviceMemory,
+      seamFrames.isEmpty || seamFrames.count != previewAssets.count
+    {
+      return "This server must report every preview source frame before seam regions can be edited."
     }
     return nil
   }
@@ -363,7 +334,18 @@ public final class PanoMergeSession {
   ) throws {
     alignment = preview.alignment
     alignmentFrames = assets.map(\.id)
-    if options.seamConstraints != nil, case .stale = preview.alignmentOutcome {
+    let staleAlignment: Bool
+    if case .stale = preview.alignmentOutcome {
+      staleAlignment = true
+    } else {
+      staleAlignment = false
+    }
+    if options.seamConstraints != nil,
+      staleAlignment
+        || (!stitcher.runsInDeviceMemory
+          && (preview.sourceFrames != lastPreview?.sourceFrames
+            || preview.sourceFrames?.count != assets.count))
+    {
       self.options.seamConstraints = nil
       memoryFitOptions = nil
       throw PanoStitcherError.staleSeamGeometry
