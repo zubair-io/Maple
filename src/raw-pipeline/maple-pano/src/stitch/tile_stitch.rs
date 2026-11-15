@@ -138,10 +138,12 @@ pub(super) fn build_tile_graph(
     // candidate topology consistent with the rotation path's.
     let descriptor_topk = DescriptorTopKProvider::new(feature_sets);
     let ground = super::graph_build::ground_footprints(priors, full_dims);
+    let gps: Vec<_> = priors.iter().map(|p| p.gps).collect();
     let planar_gate = grid.map(|layout| LoopClosureGate {
         layout,
         check: LoopClosureCheck::Planar,
         ground: &ground,
+        gps: &gps,
     });
     let tile_graph = super::graph_build::build_stitch_graph(
         &unit_proxy_images,
@@ -210,7 +212,15 @@ pub(super) fn tile_tail(
         frames,
         lenses,
     } = state;
-    let match_graph = graph.summary();
+    let grid = super::graph_build::effective_grid(opts, &priors)?;
+    let ground = super::graph_build::ground_footprints(&priors, &full_dims);
+    let gps: Vec<_> = priors.iter().map(|p| p.gps).collect();
+    let gate = grid.map(|layout| LoopClosureGate {
+        layout,
+        check: LoopClosureCheck::Planar,
+        ground: &ground,
+        gps: &gps,
+    });
 
     // ── stage 3: full-resolution NCC refinement ───────────────────────────
     // No rotation geometry for the tile path; otherwise the same banded
@@ -243,10 +253,24 @@ pub(super) fn tile_tail(
         &is_cancelled,
     )?;
     // No full-resolution rotation reverification for tile.
-    let reverify = ReverifySummary {
+    let mut reverify = ReverifySummary {
         edges_dropped: 0,
         matches_dropped: 0,
     };
+    if let Some(gate) = &gate {
+        let images: Vec<_> = full_dims
+            .iter()
+            .map(|&(w, h)| GraphImage {
+                camera: Camera::new([0.0; 3], 1.0, 0.0, 0.0, w, h),
+                prior_rotation: None,
+            })
+            .collect();
+        let before: usize = graph.edges.iter().map(|e| e.inlier_count).sum();
+        reverify.edges_dropped = graph.admit_grid_loop_closures(&images, gate);
+        reverify.matches_dropped =
+            before - graph.edges.iter().map(|e| e.inlier_count).sum::<usize>();
+    }
+    let match_graph = super::graph_build::grid_summary(&graph, gate.as_ref(), opts.infer_grid);
     let refine_s = t3.elapsed().as_secs_f64();
     progress(3, 1.0);
 

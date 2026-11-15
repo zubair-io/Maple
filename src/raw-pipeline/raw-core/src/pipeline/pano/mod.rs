@@ -68,14 +68,12 @@
 
 pub mod banded;
 pub mod falloff;
+mod metadata;
 pub mod opcode_apply;
 pub mod opcodes;
+use metadata::read_pano_metadata_from_parts;
 
 pub use falloff::FalloffCorrection;
-
-use rawler::decoders::{RawDecodeParams, WellKnownIFD};
-use rawler::rawsource::RawSource;
-use rawler::tags::{ExifTag, TiffCommonTag};
 
 use crate::{
     cancel::CancelToken,
@@ -142,6 +140,7 @@ pub struct PanoSourceMetadata {
     /// (`drone-dji:Gimbal{Yaw,Pitch,Roll}Degree` attributes); parsing is
     /// `maple_pano::ingest`'s job — raw-core stays vendor-namespace-free.
     pub xmp_packet: Option<Vec<u8>>,
+    pub gps: Option<(f64, f64)>,
 }
 
 /// A decoded, normalized pano source frame: scene-linear Rec.2020 D65 f32
@@ -429,138 +428,6 @@ fn orient_scene_linear(image: Image, orient: ExifOrientation) -> Image {
         }
     }
     out
-}
-
-/// Assemble [`PanoSourceMetadata`] from the source bytes + the decoded
-/// [`RawImage`]. Best-effort: a metadata read failure degrades the
-/// affected `Option` field to `None`, never the whole decode.
-///
-/// Runs its own rawler metadata pass (same pattern as
-/// [`crate::api::read_exif`] — cheap relative to a develop): `decode_bytes`
-/// doesn't surface the EXIF focal tags or the XMP packet, and re-using its
-/// internal decoder would mean threading rawler types through `RawImage`.
-fn read_pano_metadata_from_parts(bytes: &[u8], ext: &str, raw: &RawImage) -> PanoSourceMetadata {
-    let hint_path = format!("rawfile.{}", ext);
-    let source = RawSource::new_from_slice(bytes).with_path(std::path::Path::new(&hint_path));
-    let params = RawDecodeParams::default();
-    let decoder = rawler::get_decoder(&source).ok();
-
-    // EXIF FocalLength via rawler's metadata pass (Rational → f32).
-    let focal_mm = decoder
-        .as_ref()
-        .and_then(|dec| dec.raw_metadata(&source, &params).ok())
-        .and_then(|md| md.exif.focal_length)
-        .map(|r| {
-            if r.d == 0 {
-                0.0
-            } else {
-                r.n as f32 / r.d as f32
-            }
-        })
-        .filter(|v| *v > 0.0);
-
-    // EXIF FocalLengthIn35mmFormat (0xA405) — rawler's `Exif` struct does
-    // not carry it, so read the tag from the Exif IFD (falling back to a
-    // recursive Root-IFD search for containers that inline it).
-    let root_ifd = decoder
-        .as_ref()
-        .and_then(|dec| dec.ifd(WellKnownIFD::Root).ok().flatten());
-    let exif_ifd = decoder
-        .as_ref()
-        .and_then(|dec| dec.ifd(WellKnownIFD::Exif).ok().flatten());
-    let focal_35mm_equiv = exif_ifd
-        .as_ref()
-        .and_then(|ifd| ifd.get_entry(ExifTag::FocalLengthIn35mmFormat))
-        .or_else(|| {
-            root_ifd
-                .as_ref()
-                .and_then(|ifd| ifd.get_entry_recursive(ExifTag::FocalLengthIn35mmFormat))
-        })
-        .map(|e| e.value.force_f32(0))
-        // is_finite() guards a rational tag with a zero denominator
-        // (some firmware writes 0/0) from surfacing as `inf`, which
-        // would otherwise skip maple-pano's sensor-geometry fallback
-        // (Some(inf) short-circuits the `.or_else`) and later propagate
-        // into focal_px (Copilot review on #3122).
-        .filter(|v| v.is_finite() && *v > 0.0);
-
-    // EXIF FocalPlaneXResolution (0x920E) + FocalPlaneResolutionUnit
-    // (0x9210) — same IFD lookup pattern as FocalLengthIn35mmFormat
-    // above, also falling back to the "*2" tag IDs (0xA20E / 0xA210)
-    // some camera firmware writes instead of the primary ones (Copilot
-    // review on #3122). Sensor-geometry fallback for bodies that omit
-    // the 35mm-equivalent tag (#2700); the derivation itself lives in
-    // `maple_pano::ingest::priors`, this is just the raw EXIF read.
-    let focal_plane_x_resolution = exif_ifd
-        .as_ref()
-        .and_then(|ifd| ifd.get_entry(ExifTag::FocalPlaneXResolution))
-        .or_else(|| {
-            root_ifd
-                .as_ref()
-                .and_then(|ifd| ifd.get_entry_recursive(ExifTag::FocalPlaneXResolution))
-        })
-        .or_else(|| {
-            exif_ifd
-                .as_ref()
-                .and_then(|ifd| ifd.get_entry(ExifTag::FocalPlaneXResolution2))
-        })
-        .or_else(|| {
-            root_ifd
-                .as_ref()
-                .and_then(|ifd| ifd.get_entry_recursive(ExifTag::FocalPlaneXResolution2))
-        })
-        .map(|e| e.value.force_f32(0))
-        // Same is_finite() guard as focal_35mm_equiv above — belt and
-        // braces, `derive_focal_35mm_equiv` also validates this input.
-        .filter(|v| v.is_finite() && *v > 0.0);
-    let focal_plane_resolution_unit = exif_ifd
-        .as_ref()
-        .and_then(|ifd| ifd.get_entry(ExifTag::FocalPlaneResolutionUnit))
-        .or_else(|| {
-            root_ifd
-                .as_ref()
-                .and_then(|ifd| ifd.get_entry_recursive(ExifTag::FocalPlaneResolutionUnit))
-        })
-        .or_else(|| {
-            exif_ifd
-                .as_ref()
-                .and_then(|ifd| ifd.get_entry(ExifTag::FocalPlaneResolutionUnit2))
-        })
-        .or_else(|| {
-            root_ifd
-                .as_ref()
-                .and_then(|ifd| ifd.get_entry_recursive(ExifTag::FocalPlaneResolutionUnit2))
-        })
-        .map(|e| e.value.force_u16(0));
-
-    // XMP packet (TIFF tag 700). DJI bodies write it in IFD0; the
-    // recursive lookup is belt-and-braces for SubIFD placements. Stored
-    // verbatim — namespace-aware parsing happens in maple-pano.
-    let xmp_packet = root_ifd
-        .as_ref()
-        .and_then(|ifd| ifd.get_entry_recursive(TiffCommonTag::Xmp))
-        .and_then(|e| match &e.value {
-            rawler::formats::tiff::Value::Byte(v) => Some(v.clone()),
-            rawler::formats::tiff::Value::Undefined(v) => Some(v.clone()),
-            rawler::formats::tiff::Value::Ascii(s) => {
-                s.strings().first().map(|s| s.as_bytes().to_vec())
-            }
-            _ => None,
-        })
-        .filter(|v| !v.is_empty());
-
-    PanoSourceMetadata {
-        camera_make: raw.camera_make.clone(),
-        camera_model: raw.camera_model.clone(),
-        unique_camera_model: raw.unique_camera_model.clone(),
-        focal_mm,
-        focal_35mm_equiv,
-        focal_plane_x_resolution,
-        focal_plane_resolution_unit,
-        orientation: raw.orientation,
-        output_dims: native_render_dims(raw),
-        xmp_packet,
-    }
 }
 
 #[cfg(test)]

@@ -33,7 +33,7 @@ use super::types::{StitchError, StitchOptions};
 
 /// Bumped whenever the serialized layout or the meaning of a stored field
 /// changes; a file written under another version is treated as stale.
-pub const ALIGNMENT_FORMAT_VERSION: u32 = 1;
+pub const ALIGNMENT_FORMAT_VERSION: u32 = 2;
 
 /// Seed for the strategy selector's similarity RANSAC. Shared by the
 /// fresh solve and the decode path so a reloaded alignment re-derives the
@@ -106,7 +106,11 @@ impl AlignmentKey {
             strategy: opts.strategy.as_str().to_string(),
             proxy_long_edge: opts.proxy_long_edge,
             feature_engine: opts.feature_engine.as_str().to_string(),
-            grid: opts.grid.as_ref().map(grid_label),
+            grid: if opts.infer_grid {
+                Some("infer".to_string())
+            } else {
+                opts.grid.as_ref().map(grid_label)
+            },
             models_dir: opts.models_dir.clone(),
             use_coreml: opts.use_coreml,
         })

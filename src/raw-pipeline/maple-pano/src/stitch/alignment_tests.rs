@@ -121,6 +121,10 @@ fn geometry_options_invalidate_the_alignment() {
             }),
             ..base.clone()
         },
+        StitchOptions {
+            infer_grid: true,
+            ..base.clone()
+        },
     ];
     for opts in &geometry {
         let reason = stored

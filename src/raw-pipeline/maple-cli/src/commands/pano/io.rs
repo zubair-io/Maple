@@ -241,6 +241,19 @@ fn match_graph_json(summary: &GraphSummary) -> serde_json::Value {
     serde_json::json!({
         "candidate_pairs": summary.candidate_pairs,
         "verified_edges": summary.verified_edges,
+        "grid": summary.grid.map(|g| serde_json::json!({
+            "rows": g.rows, "cols": g.cols,
+            "order": match g.order {
+                maple_pano::graph::GridOrder::Raster => "raster",
+                maple_pano::graph::GridOrder::Serpentine => "serpentine",
+            },
+            "diagonals": g.diagonals,
+            "source": if summary.grid_inferred { "inferred" } else { "declared" },
+        })),
+        "gps_candidates": summary.gps_candidates.iter().map(|n| serde_json::json!({
+            "a": n.a, "b": n.b, "provider": "gps-proximity",
+            "distance_m": n.distance_m, "limit_m": n.limit_m,
+        })).collect::<Vec<_>>(),
         "rejected": summary.rejected.iter().map(|r| serde_json::json!({
             "a": r.a,
             "b": r.b,

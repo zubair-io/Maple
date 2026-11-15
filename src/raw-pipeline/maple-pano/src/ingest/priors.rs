@@ -82,8 +82,7 @@ pub struct GimbalPrior {
     pub roll_deg: f64,
 }
 
-/// DJI aircraft GPS fix from the XMP packet (#4519). Advisory: it only
-/// gates structured-grid loop closures by ground distance.
+/// Advisory capture location from DJI XMP or standard EXIF GPS.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct GpsPrior {
     pub lat_deg: f64,
@@ -109,7 +108,7 @@ pub struct FramePriors {
     /// DJI gimbal attitude, when the source carries a `drone-dji` XMP
     /// packet with all three angles.
     pub gimbal: Option<GimbalPrior>,
-    /// DJI aircraft GPS fix, when the XMP packet carries one.
+    /// Capture location, when metadata contains a valid fix.
     pub gps: Option<GpsPrior>,
 }
 
@@ -142,7 +141,18 @@ impl FramePriors {
             focal_35mm_equiv,
             focal_px: focal_px_from_exif(focal_35mm_equiv, w, h),
             gimbal: md.xmp_packet.as_deref().and_then(parse_dji_gimbal),
-            gps: md.xmp_packet.as_deref().and_then(parse_dji_gps),
+            gps: md
+                .xmp_packet
+                .as_deref()
+                .and_then(parse_dji_gps)
+                .or_else(|| {
+                    let (lat_deg, lon_deg) = md.gps?;
+                    Some(GpsPrior {
+                        lat_deg,
+                        lon_deg,
+                        relative_altitude_m: None,
+                    })
+                }),
         }
     }
 }

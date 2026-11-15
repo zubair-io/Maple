@@ -232,6 +232,7 @@ pub(super) fn solve_alignment(
     use std::time::Instant;
 
     let priors: Vec<crate::ingest::FramePriors> = metas.iter().map(|m| m.priors.clone()).collect();
+    let grid = graph_build::effective_grid(opts, &priors)?;
 
     // ── stage 1: ML load + proxy feature extraction ───────────────────────
     let t1 = Instant::now();
@@ -285,10 +286,12 @@ pub(super) fn solve_alignment(
         .map(|m| (m.full_width, m.full_height))
         .collect();
     let ground = ground_footprints(&priors, &full_dims);
-    let rotation_gate = opts.grid.map(|layout| LoopClosureGate {
+    let gps: Vec<_> = priors.iter().map(|p| p.gps).collect();
+    let rotation_gate = grid.map(|layout| LoopClosureGate {
         layout,
         check: LoopClosureCheck::Rotation,
         ground: &ground,
+        gps: &gps,
     });
     let mut graph = build_stitch_graph(
         &proxy_images,
@@ -369,7 +372,7 @@ pub(super) fn solve_alignment(
                 raw_matches_cache,
                 &proxy_dims,
                 &feature_sets,
-                opts.grid,
+                grid,
                 &priors,
                 &full_dims,
             )

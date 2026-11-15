@@ -139,6 +139,7 @@ fn gate_serpentine_grid_rejects_false_loop_closures_and_keeps_neighbours() {
             layout,
             check: LoopClosureCheck::Rotation,
             ground: &[],
+            gps: &[],
         },
     );
 
@@ -335,6 +336,7 @@ fn gate_translation_grid_planar_check_keeps_true_closures_and_rejects_false_ones
             layout,
             check: LoopClosureCheck::Planar,
             ground: &footprints,
+            gps: &[],
         },
     );
 
@@ -412,6 +414,7 @@ fn translation_grid_without_gps_falls_back_to_grid_cells() {
             layout,
             check: LoopClosureCheck::Planar,
             ground: &[],
+            gps: &[],
         },
     );
     let far = graph

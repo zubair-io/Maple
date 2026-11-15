@@ -40,10 +40,20 @@ pub(super) fn rotation_tail(
     is_cancelled: &dyn Fn() -> bool,
 ) -> Result<StitchOutcome, StitchError> {
     let mut graph = alignment.graph.clone();
-    let match_graph = graph.summary();
     let full_images = alignment.full_images();
     let proxy_scales = alignment.proxy_scales();
     let strategy_report = alignment.strategy_report.clone();
+    let priors = alignment.priors();
+    let dims: Vec<_> = alignment.frames.iter().map(|f| f.full_dims).collect();
+    let grid = super::graph_build::effective_grid(opts, &priors)?;
+    let ground = super::graph_build::ground_footprints(&priors, &dims);
+    let gps: Vec<_> = priors.iter().map(|p| p.gps).collect();
+    let gate = grid.map(|layout| crate::graph::LoopClosureGate {
+        layout,
+        check: crate::graph::LoopClosureCheck::Rotation,
+        ground: &ground,
+        gps: &gps,
+    });
 
     // ── stage 3: full-resolution NCC refinement + reverification ──────────
     let t3 = Instant::now();
@@ -66,8 +76,9 @@ pub(super) fn rotation_tail(
     );
 
     let reverify = graph
-        .reverify(&full_images, &RobustOptions::default())
+        .reverify_grid(&full_images, &RobustOptions::default(), gate.as_ref())
         .map_err(|e| StitchError::Reverify(e.to_string()))?;
+    let match_graph = super::graph_build::grid_summary(&graph, gate.as_ref(), opts.infer_grid);
     let t_refine = t3.elapsed().as_secs_f64();
     progress(3, 1.0);
 
@@ -183,7 +194,7 @@ pub(super) fn rotation_tail(
         strategy_report,
         focal_seed_source: alignment.focal_seed_source,
         applied_opcodes: alignment.applied_opcodes(),
-        priors: alignment.priors(),
+        priors,
         refined_matches,
         fallback_matches,
         reverify,

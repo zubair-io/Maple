@@ -302,6 +302,7 @@ fn from_metadata_derives_focal_px_for_synthetic_frame_lacking_35mm_exif() {
         orientation: raw_core::ExifOrientation::Normal,
         output_dims: (width_px, height_px),
         xmp_packet: None,
+        gps: None,
     };
     let priors = FramePriors::from_metadata(&md);
     let f35 = priors
@@ -332,6 +333,7 @@ fn from_metadata_leaves_focal_px_none_without_any_focal_source() {
         orientation: raw_core::ExifOrientation::Normal,
         output_dims: (6000, 4000),
         xmp_packet: None,
+        gps: None,
     };
     let priors = FramePriors::from_metadata(&md);
     assert_eq!(priors.focal_35mm_equiv, None);
@@ -380,4 +382,35 @@ fn accepts_the_longtitude_misspelling_and_rejects_no_fix() {
     let out_of_range = gps_packet(r#"drone-dji:GpsLatitude="95" drone-dji:GpsLongitude="2""#);
     assert_eq!(parse_dji_gps(out_of_range.as_bytes()), None);
     assert_eq!(parse_dji_gps(DJI_MAVIC3_XMP.as_bytes()), None);
+}
+
+#[test]
+fn standard_exif_gps_supplies_location_without_inventing_ground_altitude() {
+    let mut md = PanoSourceMetadata {
+        camera_make: "Test".into(),
+        camera_model: "GPS camera".into(),
+        unique_camera_model: None,
+        focal_mm: None,
+        focal_35mm_equiv: None,
+        focal_plane_x_resolution: None,
+        focal_plane_resolution_unit: None,
+        orientation: raw_core::ExifOrientation::Normal,
+        output_dims: (640, 480),
+        xmp_packet: None,
+        gps: Some((-21.5, -156.25)),
+    };
+    assert_eq!(
+        FramePriors::from_metadata(&md).gps,
+        Some(GpsPrior {
+            lat_deg: -21.5,
+            lon_deg: -156.25,
+            relative_altitude_m: None,
+        })
+    );
+    md.xmp_packet = Some(gps_packet(
+        r#"drone-dji:GpsLatitude="48.1" drone-dji:GpsLongitude="2.1" drone-dji:RelativeAltitude="120""#,
+    ).into_bytes());
+    let gps = FramePriors::from_metadata(&md).gps.unwrap();
+    assert_eq!(gps.lat_deg, 48.1);
+    assert_eq!(gps.relative_altitude_m, Some(120.0));
 }
