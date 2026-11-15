@@ -204,19 +204,26 @@ export class WbPadComponent {
     try {
       const point = await this.pick.arm();
       if (!point) return;
-      const asset = this.library.assets().find((item) => item.id === id);
-      const model = this.library.adjustmentFor(id)();
-      const full = presentedToFullFrame(
-        { x: point.nx, y: point.ny },
-        model.crop,
-        perspectiveGeometryOf(model),
-        asset?.width ?? 1,
-        asset?.height ?? 1,
-      );
-      await this.editor.sampleWhiteBalanceAt(id, full.x, full.y);
+      await this.applyEyedropperSample(id, point);
     } finally {
       this.eyedropperActive.set(false);
     }
+  }
+
+  private async applyEyedropperSample(
+    id: string,
+    point: { nx: number; ny: number },
+  ): Promise<void> {
+    const asset = this.library.assets().find((item) => item.id === id);
+    const model = this.library.adjustmentFor(id)();
+    const full = presentedToFullFrame(
+      { x: point.nx, y: point.ny },
+      model.crop,
+      perspectiveGeometryOf(model),
+      asset?.width ?? 1,
+      asset?.height ?? 1,
+    );
+    await this.editor.sampleWhiteBalanceAt(id, full.x, full.y);
   }
 
   // ── Keyboard ────────────────────────────────────────────────────────────────

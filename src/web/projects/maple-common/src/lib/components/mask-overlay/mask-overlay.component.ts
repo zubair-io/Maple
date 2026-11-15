@@ -65,7 +65,6 @@ import {
   applyPressure,
   interpolateDabs,
   mapDabsToCrop,
-  rasterizeBrushDabs,
   stampBrushDabs,
 } from './mask-brush';
 
@@ -366,14 +365,67 @@ function fillTint(
     const v = (j + 0.5) / height;
     for (let i = 0; i < width; i++) {
       const p = applyProjection(map.presentedToFrame, { x: (i + 0.5) / width, y: v });
-      const w = Math.min(1, Math.max(0, evaluateMaskWeight(mask, p.x, p.y)));
-      const base = (j * width + i) * 4;
-      data[base] = TINT_RGB[0];
-      data[base + 1] = TINT_RGB[1];
-      data[base + 2] = TINT_RGB[2];
-      data[base + 3] = Math.round(w * TINT_PEAK_ALPHA * 255);
+      const w =
+        p.x >= 0 && p.x <= 1 && p.y >= 0 && p.y <= 1 ? evaluateMaskWeight(mask, p.x, p.y) : 0;
+      setTintPixel(data, j * width + i, w);
     }
   }
+}
+
+function setTintPixel(data: Uint8ClampedArray, index: number, weight: number): void {
+  const base = index * 4;
+  data[base] = TINT_RGB[0];
+  data[base + 1] = TINT_RGB[1];
+  data[base + 2] = TINT_RGB[2];
+  data[base + 3] = Math.round(Math.min(1, Math.max(0, weight)) * TINT_PEAK_ALPHA * 255);
+}
+
+function stampTintDabs(
+  acc: Float32Array,
+  dabs: readonly BrushDab[],
+  width: number,
+  height: number,
+  map?: MaskCanvasMap,
+): void {
+  if (map) {
+    const cropWidth = Math.hypot(map.cropToFull.a, map.cropToFull.b / map.imageAspect);
+    const radiusScale = cropWidth > 1e-9 ? 1 / cropWidth : 1;
+    dabs = mapDabsToCrop(dabs, map.fullToCrop, radiusScale);
+  }
+  stampBrushDabs(acc, dabs, width, height);
+}
+
+function brushTintRaster(
+  dabs: readonly BrushDab[],
+  width: number,
+  height: number,
+  mappingKey: string,
+  cache?: BrushTintCache | null,
+  map?: MaskCanvasMap,
+): Float32Array {
+  if (
+    cache &&
+    cache.width === width &&
+    cache.height === height &&
+    cache.mappingKey === mappingKey &&
+    cache.stampedCount <= dabs.length
+  ) {
+    if (cache.stampedCount < dabs.length) {
+      stampTintDabs(cache.acc, dabs.slice(cache.stampedCount), width, height, map);
+      cache.stampedCount = dabs.length;
+    }
+    return cache.acc;
+  }
+  const acc = new Float32Array(width * height);
+  stampTintDabs(acc, dabs, width, height, map);
+  if (cache) {
+    cache.width = width;
+    cache.height = height;
+    cache.acc = acc;
+    cache.mappingKey = mappingKey;
+    cache.stampedCount = dabs.length;
+  }
+  return acc;
 }
 
 /** Tint a brush layer: map the dab series into crop space and stamp it at
@@ -391,30 +443,7 @@ function fillBrushTint(
     const frameW = map.imageAspect >= 1 ? long : Math.max(1, Math.round(long * map.imageAspect));
     const frameH = map.imageAspect >= 1 ? Math.max(1, Math.round(long / map.imageAspect)) : long;
     const mappingKey = `frame:${map.presentedToFrame.join(',')},${map.imageAspect}`;
-    let acc: Float32Array;
-    if (
-      cache &&
-      cache.width === frameW &&
-      cache.height === frameH &&
-      cache.mappingKey === mappingKey &&
-      cache.stampedCount <= dabs.length
-    ) {
-      acc = cache.acc;
-      if (cache.stampedCount < dabs.length) {
-        stampBrushDabs(acc, dabs.slice(cache.stampedCount), frameW, frameH);
-        cache.stampedCount = dabs.length;
-      }
-    } else {
-      acc = new Float32Array(frameW * frameH);
-      stampBrushDabs(acc, dabs, frameW, frameH);
-      if (cache) {
-        cache.width = frameW;
-        cache.height = frameH;
-        cache.acc = acc;
-        cache.mappingKey = mappingKey;
-        cache.stampedCount = dabs.length;
-      }
-    }
+    const acc = brushTintRaster(dabs, frameW, frameH, mappingKey, cache);
     for (let j = 0; j < height; j++) {
       for (let i = 0; i < width; i++) {
         const w = sampleRasterProjected(
@@ -425,53 +454,17 @@ function fillBrushTint(
           (i + 0.5) / width,
           (j + 0.5) / height,
         );
-        const base = (j * width + i) * 4;
-        data[base] = TINT_RGB[0];
-        data[base + 1] = TINT_RGB[1];
-        data[base + 2] = TINT_RGB[2];
-        data[base + 3] = Math.round(Math.min(1, Math.max(0, w)) * TINT_PEAK_ALPHA * 255);
+        setTintPixel(data, j * width + i, w);
       }
     }
     return;
   }
-  const cropWidth = Math.hypot(map.cropToFull.a, map.cropToFull.b / map.imageAspect);
-  const radiusScale = cropWidth > 1e-9 ? 1 / cropWidth : 1;
   const mappingKey = `${map.fullToCrop.a},${map.fullToCrop.b},${map.fullToCrop.c},${map.fullToCrop.d},${map.fullToCrop.tx},${map.fullToCrop.ty},${map.imageAspect}`;
 
-  let acc: Float32Array;
-  if (
-    cache &&
-    cache.width === width &&
-    cache.height === height &&
-    cache.mappingKey === mappingKey &&
-    cache.stampedCount <= dabs.length
-  ) {
-    acc = cache.acc;
-    if (cache.stampedCount < dabs.length) {
-      const newDabs = dabs.slice(cache.stampedCount);
-      const mapped = mapDabsToCrop(newDabs, map.fullToCrop, radiusScale);
-      stampBrushDabs(acc, mapped, width, height);
-      cache.stampedCount = dabs.length;
-    }
-  } else {
-    acc = new Float32Array(width * height);
-    const mapped = mapDabsToCrop(dabs, map.fullToCrop, radiusScale);
-    stampBrushDabs(acc, mapped, width, height);
-    if (cache) {
-      cache.width = width;
-      cache.height = height;
-      cache.acc = acc;
-      cache.mappingKey = mappingKey;
-      cache.stampedCount = dabs.length;
-    }
-  }
+  const acc = brushTintRaster(dabs, width, height, mappingKey, cache, map);
 
   for (let i = 0; i < acc.length; i++) {
-    const base = i * 4;
-    data[base] = TINT_RGB[0];
-    data[base + 1] = TINT_RGB[1];
-    data[base + 2] = TINT_RGB[2];
-    data[base + 3] = Math.round(Math.min(1, Math.max(0, acc[i])) * TINT_PEAK_ALPHA * 255);
+    setTintPixel(data, i, acc[i]);
   }
 }
 
