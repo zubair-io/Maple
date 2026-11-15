@@ -63,7 +63,14 @@ describe('MaskOverlayComponent tint gate (#1541)', () => {
     TestBed.configureTestingModule({
       providers: [
         { provide: LibraryStateService, useValue: lib },
-        { provide: RawPipelineService, useValue: {} },
+        {
+          provide: RawPipelineService,
+          useValue: {
+            currentWorkerEpoch: () => 0,
+            registerBrushRaster: vi.fn().mockResolvedValue(1),
+            releaseMaskRaster: vi.fn(),
+          },
+        },
         { provide: ImageCanvasService, useValue: { zoomToFit: vi.fn() } },
       ],
     });
@@ -145,5 +152,62 @@ describe('MaskOverlayComponent tint gate (#1541)', () => {
     expect(image.data[3]).toBe(0);
     const centre = Math.floor(image.height / 2) * image.width + Math.floor(image.width / 2);
     expect(image.data[centre * 4 + 3]).toBe(Math.round(0.55 * 255));
+  });
+
+  function mountBrush() {
+    lib.focusedAsset.set({ id: 'asset-1', width: 400, height: 400 });
+    lib.updateAdjustment('asset-1', {
+      crop: { top: 0, left: 0, bottom: 1, right: 1, angle: 10 },
+    });
+    session.brush.add();
+    editor.armTool('mask');
+    const fixture = TestBed.createComponent(MaskOverlayComponent);
+    Object.defineProperties(fixture.nativeElement, {
+      clientWidth: { value: 400 },
+      clientHeight: { value: 400 },
+    });
+    fixture.detectChanges();
+    const surface = fixture.nativeElement.querySelector('[data-testid="mask-overlay"]') as Element;
+    return {
+      send: (type: string, x: number, y: number) =>
+        surface.dispatchEvent(
+          new MouseEvent(type, { clientX: x * 400, clientY: y * 400, bubbles: true }),
+        ),
+      dabs: () => {
+        const mask = session.selectedMask();
+        if (mask?.kind !== 'brush') throw new Error('Expected a selected brush');
+        return mask.dabs;
+      },
+    };
+  }
+
+  it('does not start a brush stroke in a rejected straightened crop corner', () => {
+    const brush = mountBrush();
+    const begin = vi.spyOn(session, 'beginGesture');
+    brush.send('pointerdown', 0.01, 0.01);
+    brush.send('pointerup', 0.01, 0.01);
+    expect(brush.dabs()).toEqual([]);
+    expect(begin).not.toHaveBeenCalled();
+  });
+
+  it('breaks a brush segment at rejected points and restarts without bridging the gap', () => {
+    const brush = mountBrush();
+    brush.send('pointerdown', 0.2, 0.2);
+    const count = brush.dabs().length;
+    brush.send('pointermove', 0.01, 0.01);
+    expect(brush.dabs()).toHaveLength(count);
+    brush.send('pointermove', 0.8, 0.8);
+    expect(brush.dabs()).toHaveLength(count + 1);
+    brush.send('pointerup', 0.01, 0.01);
+    expect(brush.dabs()).toHaveLength(count + 1);
+  });
+
+  it('stamps only the valid release point when a brush re-enters after a gap', () => {
+    const brush = mountBrush();
+    brush.send('pointerdown', 0.2, 0.2);
+    const count = brush.dabs().length;
+    brush.send('pointermove', 0.01, 0.01);
+    brush.send('pointerup', 0.8, 0.8);
+    expect(brush.dabs()).toHaveLength(count + 1);
   });
 });

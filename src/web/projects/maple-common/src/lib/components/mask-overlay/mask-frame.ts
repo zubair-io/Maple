@@ -152,13 +152,15 @@ function multiply3(a: Matrix3, b: Matrix3): Matrix3 {
   return out;
 }
 
+export function isMaskFramePoint(p: MaskPoint): boolean {
+  return p.x >= 0 && p.x <= 1 && p.y >= 0 && p.y <= 1;
+}
+
 /** Apply a row-major projective map; a point on the horizon maps to NaN. */
 export function applyProjection(m: readonly number[] | MaskProjection, p: MaskPoint): MaskPoint {
   if ('matrix' in m) {
     const intermediate = applyAffine(m.cropBounds, p);
-    if (
-      !(intermediate.x >= 0 && intermediate.x <= 1 && intermediate.y >= 0 && intermediate.y <= 1)
-    ) {
+    if (!isMaskFramePoint(intermediate)) {
       return { x: NaN, y: NaN };
     }
     m = m.matrix;
@@ -257,5 +259,5 @@ export function presentedToFullFrame(
   imgH: number,
 ): MaskPoint | null {
   const frame = applyProjection(presentationToFrameProjection(crop, perspective, imgW, imgH), p);
-  return frame.x >= 0 && frame.x <= 1 && frame.y >= 0 && frame.y <= 1 ? frame : null;
+  return isMaskFramePoint(frame) ? frame : null;
 }

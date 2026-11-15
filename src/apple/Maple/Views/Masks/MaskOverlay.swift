@@ -12,7 +12,6 @@ struct MaskOverlay: View {
   @State private var previewImage: CGImage?
   @State private var previewGeneration: UInt64 = 0
   @State private var strokeSmoother: StrokeSmoother?
-  @State private var strokeLast: MaskPoint?
 
   private struct CoverageRequest: Hashable {
     let mask: LocalMask?
@@ -87,12 +86,9 @@ struct MaskOverlay: View {
 
   private func normalized(
     _ point: CGPoint, displayRect: CGRect, projection: MaskProjection
-  ) -> MaskPoint {
-    guard
-      let p = MaskOverlayGeometry.normalizedPoint(
-        point, displayRect: displayRect, projection: projection)
-    else { return MaskPoint(x: 0.5, y: 0.5) }
-    return MaskPoint(x: min(1, max(0, p.x)), y: min(1, max(0, p.y)))
+  ) -> MaskPoint? {
+    MaskOverlayGeometry.normalizedPoint(
+      point, displayRect: displayRect, projection: projection)
   }
 
   private func strokeGesture(displayRect: CGRect, projection: MaskProjection) -> some Gesture {
@@ -101,22 +97,20 @@ struct MaskOverlay: View {
         guard case .brush = state.session.selectedMaskGeometry else { return }
         let at = normalized(value.location, displayRect: displayRect, projection: projection)
         if strokeSmoother == nil {
-          let smoother = StrokeSmoother()
-          strokeSmoother = smoother
-          let start = smoother.reset(at)
-          strokeLast = start
+          guard at != nil else { return }
+          strokeSmoother = StrokeSmoother()
           state.session.beginBrushStroke()
-          stampStroke(from: start, to: start)
-        } else if let last = strokeLast {
-          let next = strokeSmoother?.next(at) ?? at
-          strokeLast = next
-          stampStroke(from: last, to: next)
+        }
+        if let segment = strokeSmoother?.segment(to: at) {
+          stampStroke(from: segment.from, to: segment.to)
         }
       }
       .onEnded { value in
         // The smoother trails the pointer; land the stroke where it was released.
         let at = normalized(value.location, displayRect: displayRect, projection: projection)
-        if let last = strokeLast, last != at { stampStroke(from: last, to: at) }
+        if let segment = strokeSmoother?.segment(to: at, finishing: true) {
+          stampStroke(from: segment.from, to: segment.to)
+        }
         finishStroke()
       }
   }
@@ -139,7 +133,6 @@ struct MaskOverlay: View {
   private func finishStroke() {
     guard strokeSmoother != nil else { return }
     strokeSmoother = nil
-    strokeLast = nil
     state.session.endBrushStroke()
   }
 

@@ -72,26 +72,25 @@ struct MaskGeometryHandles: View {
     MaskOverlayGeometry.screenPoint(point, displayRect: displayRect, projection: projection)
       ?? CGPoint(x: -10_000, y: -10_000)
   }
-  private func normalized(_ point: CGPoint) -> MaskPoint {
-    guard
-      let p = MaskOverlayGeometry.normalizedPoint(
-        point, displayRect: displayRect, projection: projection)
-    else { return MaskPoint(x: 0.5, y: 0.5) }
-    return MaskPoint(x: min(1, max(0, p.x)), y: min(1, max(0, p.y)))
+  private func normalized(_ point: CGPoint) -> MaskPoint? {
+    MaskOverlayGeometry.normalizedPoint(
+      point, displayRect: displayRect, projection: projection)
   }
   private func drag(_ handle: MaskHandle) -> some Gesture {
     DragGesture(minimumDistance: 0, coordinateSpace: .named("maskGeometryCanvas"))
       .onChanged { value in
+        guard let point = normalized(value.location) else { return }
         if dragStart == nil {
+          guard let anchor = normalized(value.startLocation) else { return }
           dragStart = session.selectedMaskGeometry
-          dragAnchor = normalized(value.startLocation)
+          dragAnchor = anchor
           session.setMaskDragActive(true)
           haptics.play(.grab)
         }
         guard let start = dragStart, let anchor = dragAnchor else { return }
         session.setMaskGeometry(
           MaskHandleGeometry.drag(
-            start, handle: handle, to: normalized(value.location), anchor: anchor))
+            start, handle: handle, to: point, anchor: anchor))
       }
       .onEnded { _ in finishDrag() }
   }

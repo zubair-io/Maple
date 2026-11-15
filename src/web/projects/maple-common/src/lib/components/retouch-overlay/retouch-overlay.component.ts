@@ -157,6 +157,7 @@ export class RetouchOverlayComponent implements AfterViewInit, OnDestroy {
 
   protected onPointerDown(ev: PointerEvent): void {
     const point = this.imagePoint(ev);
+    if (!point) return;
     const hit = this.hitTest(point);
     if (hit) {
       this.session.select(hit.index);
@@ -169,7 +170,8 @@ export class RetouchOverlayComponent implements AfterViewInit, OnDestroy {
     }
     // Empty canvas: place a new spot and immediately begin dragging its
     // source, so one press-drag-release both places and aims the repair.
-    const placed = this.session.spots()[this.session.place(point)];
+    const index = this.session.place(point);
+    const placed = this.session.spots()[index];
     this.drag.begin(ev, { handle: 'source', startSpot: placed, anchor: placed.source });
   }
 
@@ -179,9 +181,9 @@ export class RetouchOverlayComponent implements AfterViewInit, OnDestroy {
       this.onHover(ev);
       return;
     }
-    this.session.setShape(
-      dragRetouchHandle(drag.startSpot, drag.handle, this.imagePoint(ev), drag.anchor),
-    );
+    const point = this.imagePoint(ev);
+    if (!point) return;
+    this.session.setShape(dragRetouchHandle(drag.startSpot, drag.handle, point, drag.anchor));
     ev.preventDefault();
   }
 
@@ -190,7 +192,8 @@ export class RetouchOverlayComponent implements AfterViewInit, OnDestroy {
   }
 
   private onHover(ev: PointerEvent): void {
-    this.cursor.set(this.hitTest(this.imagePoint(ev)) === null ? 'crosshair' : 'move');
+    const point = this.imagePoint(ev);
+    this.cursor.set(point && this.hitTest(point) !== null ? 'move' : 'crosshair');
   }
 
   /**
@@ -221,7 +224,7 @@ export class RetouchOverlayComponent implements AfterViewInit, OnDestroy {
   }
 
   /** The pointer's position in full-frame normalised coordinates. */
-  private imagePoint(ev: PointerEvent): RetouchPoint {
+  private imagePoint(ev: PointerEvent): RetouchPoint | null {
     const { px, py } = this.placement.localPoint(ev);
     return maskFromScreen(this.placement.map(), px, py);
   }

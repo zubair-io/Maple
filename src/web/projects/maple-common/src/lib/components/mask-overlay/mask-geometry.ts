@@ -28,7 +28,6 @@ import {
 } from '../../models/local-adjustment';
 import type { Footprint } from '../crop-overlay/crop-geometry';
 import {
-  applyAffine,
   applyProjection,
   cropToFullFrameAffine,
   IDENTITY_AFFINE,
@@ -37,6 +36,7 @@ import {
   invertAffine,
   invertProjection,
   isIdentityPerspective,
+  isMaskFramePoint,
   presentationToFrameProjection,
   type MaskAffine,
   type MaskProjection,
@@ -180,17 +180,14 @@ export function maskToScreen(map: MaskCanvasMap, p: MaskPoint): { x: number; y: 
   };
 }
 
-/** Canvas px → full-frame normalized, clamped to the frame. */
-export function maskFromScreen(map: MaskCanvasMap, px: number, py: number): MaskPoint {
+/** Canvas px → full-frame normalized, or null outside the presented photo. */
+export function maskFromScreen(map: MaskCanvasMap, px: number, py: number): MaskPoint | null {
   const fp = map.footprint;
-  const u = fp.width > 0 ? (px - fp.left) / fp.width : 0;
-  const v = fp.height > 0 ? (py - fp.top) / fp.height : 0;
-  const projected = applyProjection(map.presentedToFrame, { x: u, y: v });
-  const p =
-    Number.isFinite(projected.x) && Number.isFinite(projected.y)
-      ? projected
-      : applyAffine(map.cropToFull, { x: u, y: v });
-  return { x: Math.min(1, Math.max(0, p.x)), y: Math.min(1, Math.max(0, p.y)) };
+  if (fp.width <= 0 || fp.height <= 0) return null;
+  const presented = { x: (px - fp.left) / fp.width, y: (py - fp.top) / fp.height };
+  if (!isMaskFramePoint(presented)) return null;
+  const frame = applyProjection(map.presentedToFrame, presented);
+  return isMaskFramePoint(frame) ? frame : null;
 }
 
 /**

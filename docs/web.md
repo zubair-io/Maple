@@ -101,6 +101,8 @@ The **persistent GPU live session** is the fast path. `open-session` transfers a
 
 Mask overlays use the same inverse crop/manual-geometry projection as the presented frame. Their weight tint stays transparent wherever either the crop-only point leaves the intermediate display frame or the final projection leaves the source image. Eyedroppers reject these empty regions rather than sampling a source pixel that inverse geometry happens to bring back inside the frame.
 
+Mask and retouch pointer edits also reject these empty regions. A brush stroke skips the rejected sample, resets its segment history, and starts a new segment on re-entry rather than painting across the gap; a rejected release adds no dab.
+
 The **one-shot decode** path serves everything else, and `raw-pipeline.decode-route.ts` picks between four WASM entries in a fixed precedence:
 
 | Route   | Entry                    | When                                                            |

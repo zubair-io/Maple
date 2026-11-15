@@ -198,6 +198,17 @@ export class StrokeSmoother {
     this.point = q;
     return q;
   }
+
+  segment(sample: MaskPoint | null, finishing = false): { from: MaskPoint; to: MaskPoint } | null {
+    if (!sample) {
+      this.point = null;
+      return null;
+    }
+    const previous = this.point;
+    const target = finishing ? this.reset(sample) : this.next(sample);
+    if (finishing && previous?.x === target.x && previous.y === target.y) return null;
+    return { from: previous ?? target, to: target };
+  }
 }
 
 /**

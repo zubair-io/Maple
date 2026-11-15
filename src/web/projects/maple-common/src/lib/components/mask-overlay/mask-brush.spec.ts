@@ -179,6 +179,21 @@ describe('stroke capture', () => {
     expect(held.x).toBeCloseTo(1, 6);
   });
 
+  it.each([false, true])(
+    'restarts after rejected samples without bridging on release=%s',
+    (finishing) => {
+      const smoother = new StrokeSmoother();
+      const start = { x: 0.2, y: 0.2 };
+      const end = { x: 0.8, y: 0.8 };
+      expect(smoother.segment(null)).toBeNull();
+      expect(smoother.segment(start)).toEqual({ from: start, to: start });
+      expect(smoother.segment(null)).toBeNull();
+      expect(smoother.segment(end, finishing)).toEqual({ from: end, to: end });
+      expect(smoother.segment(end, true)).toBeNull();
+      expect(smoother.segment(null, true)).toBeNull();
+    },
+  );
+
   it('maps pressure onto radius and weight, with 0 reading as full', () => {
     expect(applyPressure(0.1, 0.8, 1)).toEqual({ radius: 0.1, weight: 0.8 });
     expect(applyPressure(0.1, 0.8, 0)).toEqual({ radius: 0.1, weight: 0.8 });

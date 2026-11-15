@@ -14,59 +14,63 @@ import CoreGraphics
 import Foundation
 
 public enum MaskOverlayGeometry {
-    /// The on-screen rect (points, container coordinates) of the CROPPED
-    /// image — exactly where the canvas paints it.
-    public static func displayRect(
-        containerSize: CGSize, displayFrame: CGSize, panOffset: CGSize
-    ) -> CGRect {
-        CGRect(
-            x: (containerSize.width - displayFrame.width) / 2 + panOffset.width,
-            y: (containerSize.height - displayFrame.height) / 2 + panOffset.height,
-            width: displayFrame.width,
-            height: displayFrame.height)
-    }
+  /// The on-screen rect (points, container coordinates) of the CROPPED
+  /// image — exactly where the canvas paints it.
+  public static func displayRect(
+    containerSize: CGSize, displayFrame: CGSize, panOffset: CGSize
+  ) -> CGRect {
+    CGRect(
+      x: (containerSize.width - displayFrame.width) / 2 + panOffset.width,
+      y: (containerSize.height - displayFrame.height) / 2 + panOffset.height,
+      width: displayFrame.width,
+      height: displayFrame.height)
+  }
 
-    /// The on-screen rect of the FULL frame the raster covers. With an
-    /// identity crop this is `displayRect` itself; with a crop it is the
-    /// larger rect whose `crop` sub-rect lands on `displayRect`. Returns
-    /// `nil` for a degenerate crop, which the renderer treats as identity
-    /// anyway (`Crop.rectIsValid`).
-    public static func fullFrameRect(
-        containerSize: CGSize, displayFrame: CGSize, panOffset: CGSize, crop: Crop
-    ) -> CGRect? {
-        let shown = displayRect(
-            containerSize: containerSize, displayFrame: displayFrame, panOffset: panOffset)
-        let c = crop.rectIsValid ? crop : .identity
-        let w = c.right - c.left
-        let h = c.bottom - c.top
-        guard w > 0, h > 0 else { return nil }
-        let fullW = shown.width / w
-        let fullH = shown.height / h
-        return CGRect(
-            x: shown.minX - c.left * fullW,
-            y: shown.minY - c.top * fullH,
-            width: fullW,
-            height: fullH)
-    }
+  /// The on-screen rect of the FULL frame the raster covers. With an
+  /// identity crop this is `displayRect` itself; with a crop it is the
+  /// larger rect whose `crop` sub-rect lands on `displayRect`. Returns
+  /// `nil` for a degenerate crop, which the renderer treats as identity
+  /// anyway (`Crop.rectIsValid`).
+  public static func fullFrameRect(
+    containerSize: CGSize, displayFrame: CGSize, panOffset: CGSize, crop: Crop
+  ) -> CGRect? {
+    let shown = displayRect(
+      containerSize: containerSize, displayFrame: displayFrame, panOffset: panOffset)
+    let c = crop.rectIsValid ? crop : .identity
+    let w = c.right - c.left
+    let h = c.bottom - c.top
+    guard w > 0, h > 0 else { return nil }
+    let fullW = shown.width / w
+    let fullH = shown.height / h
+    return CGRect(
+      x: shown.minX - c.left * fullW,
+      y: shown.minY - c.top * fullH,
+      width: fullW,
+      height: fullH)
+  }
 
-    public static func screenPoint(
-        _ point: MaskPoint, displayRect: CGRect, projection: MaskProjection
-    ) -> CGPoint? {
-        guard let frameToPresented = projection.inverted(),
-            let presented = frameToPresented.apply(point)
-        else { return nil }
-        return CGPoint(
-            x: displayRect.minX + CGFloat(presented.x) * displayRect.width,
-            y: displayRect.minY + CGFloat(presented.y) * displayRect.height)
-    }
+  public static func screenPoint(
+    _ point: MaskPoint, displayRect: CGRect, projection: MaskProjection
+  ) -> CGPoint? {
+    guard let frameToPresented = projection.inverted(),
+      let presented = frameToPresented.apply(point)
+    else { return nil }
+    return CGPoint(
+      x: displayRect.minX + CGFloat(presented.x) * displayRect.width,
+      y: displayRect.minY + CGFloat(presented.y) * displayRect.height)
+  }
 
-    public static func normalizedPoint(
-        _ screen: CGPoint, displayRect: CGRect, projection: MaskProjection
-    ) -> MaskPoint? {
-        guard displayRect.width > 0, displayRect.height > 0 else { return nil }
-        let presented = MaskPoint(
-            x: Double((screen.x - displayRect.minX) / displayRect.width),
-            y: Double((screen.y - displayRect.minY) / displayRect.height))
-        return projection.apply(presented)
-    }
+  public static func normalizedPoint(
+    _ screen: CGPoint, displayRect: CGRect, projection: MaskProjection
+  ) -> MaskPoint? {
+    guard displayRect.width > 0, displayRect.height > 0 else { return nil }
+    let presented = MaskPoint(
+      x: Double((screen.x - displayRect.minX) / displayRect.width),
+      y: Double((screen.y - displayRect.minY) / displayRect.height))
+    guard (0...1).contains(presented.x), (0...1).contains(presented.y),
+      let frame = projection.apply(presented),
+      (0...1).contains(frame.x), (0...1).contains(frame.y)
+    else { return nil }
+    return frame
+  }
 }

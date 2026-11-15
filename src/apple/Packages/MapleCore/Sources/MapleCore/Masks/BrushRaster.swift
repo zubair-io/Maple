@@ -272,4 +272,17 @@ public final class StrokeSmoother: @unchecked Sendable {
     point = q
     return q
   }
+
+  public func segment(
+    to sample: MaskPoint?, finishing: Bool = false
+  ) -> (from: MaskPoint, to: MaskPoint)? {
+    guard let sample else {
+      point = nil
+      return nil
+    }
+    let previous = point
+    let target = finishing ? reset(sample) : next(sample)
+    if finishing, previous == target { return nil }
+    return (previous ?? target, target)
+  }
 }
