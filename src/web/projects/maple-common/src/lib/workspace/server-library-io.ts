@@ -23,6 +23,7 @@ export interface ApiDisplayConfig {
   /** The user's RAW+JPEG stacking preference (#5050): stack-aware clients send
    * `stack=1` when it is on. Older servers omit it; treat that as on. */
   stack_raw_jpeg?: boolean;
+  stack_pair_ops_supported?: boolean;
 }
 
 export interface ApiHistogram {

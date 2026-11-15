@@ -162,10 +162,14 @@ export class TrashApiService {
    * so every caller handles it as a first-class per-item outcome rather
    * than a generic HTTP failure. Any other error (network, 404, 500)
    * still propagates through the returned observable's error channel. */
-  deleteAsset(assetId: AssetId, intent: 'trash' | 'purge'): Observable<TrashDeleteOutcome> {
+  deleteAsset(
+    assetId: AssetId,
+    intent: 'trash' | 'purge',
+    companionId?: string,
+  ): Observable<TrashDeleteOutcome> {
     return this.http
       .delete<KeptCopyBody | null>(`${this.base}/assets/${encodeURIComponent(assetId)}`, {
-        params: { intent },
+        params: companionId && intent === 'trash' ? { intent, companion: companionId } : { intent },
       })
       .pipe(
         map(

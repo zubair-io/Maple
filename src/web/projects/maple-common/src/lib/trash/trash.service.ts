@@ -18,7 +18,7 @@
 // fails keeps its whole tile in place.
 
 import { Injectable, inject, signal } from '@angular/core';
-import { Observable, map, of, switchMap } from 'rxjs';
+import { Observable, firstValueFrom, map, of, switchMap } from 'rxjs';
 import { BunApiBackendService } from '../api/bun-api-backend.service';
 import { FolderCrudService } from '../api/folder-crud.service';
 import { TrashApiService } from '../api/trash-api.service';
@@ -26,6 +26,7 @@ import { parseAddress } from '../addressing/maple-address';
 import { LibraryStateService } from '../state/library-state.service';
 import type { AssetId } from '../models/asset';
 import { stackTiles, type StackTile } from '../models/asset-stack';
+import { StackPairOpsService } from '../stack/stack-pair-ops.service';
 import { errorMessage } from '../util/errors';
 import type { TrashCapability } from './trash-capability';
 import type {
@@ -54,6 +55,7 @@ export class TrashService implements TrashCapability {
   // `/assets/by-address` route into Hosted's bundle the way adding it to
   // the always-eager `TrashApiService` could.
   private readonly bunApi = inject(BunApiBackendService);
+  private readonly pairOps = inject(StackPairOpsService);
   private readonly folderCrud = inject(FolderCrudService);
   private readonly state = inject(LibraryStateService);
 
@@ -174,13 +176,22 @@ export class TrashService implements TrashCapability {
   private async trashOneAsset(
     assetId: AssetId,
     filename: string,
+    companionId?: AssetId,
   ): Promise<TrashItemFailure | null> {
     try {
-      const outcome = await new Promise<TrashDeleteOutcome>((resolve, reject) => {
-        this.resolveApiAssetId(assetId)
-          .pipe(switchMap((apiId) => this.api.deleteAsset(apiId, 'trash')))
-          .subscribe({ next: resolve, error: reject });
-      });
+      const outcome = await firstValueFrom(
+        this.resolveApiAssetId(assetId).pipe(
+          switchMap((apiId) =>
+            companionId
+              ? this.resolveApiAssetId(companionId).pipe(
+                  switchMap((companionApiId) =>
+                    this.api.deleteAsset(apiId, 'trash', companionApiId),
+                  ),
+                )
+              : this.api.deleteAsset(apiId, 'trash'),
+          ),
+        ),
+      );
       if (outcome.kind === 'ok') return null;
       return {
         assetId,
@@ -245,8 +256,13 @@ export class TrashService implements TrashCapability {
     this.state.selectedFolderIds.update((prev) => prune(prev, folderIds));
   }
 
-  /** Trash one tile: the RAW, then its JPEG only if the RAW left the folder. */
+  /** Trash one tile: one pair request when the server supports it, else the
+   * RAW, then its JPEG only if the RAW left the folder. */
   private async trashOneTile(tile: StackTile): Promise<TrashItemFailure | null> {
+    if (tile.companion) {
+      const supported = await firstValueFrom(this.pairOps.supported()).catch(() => false);
+      if (supported) return this.trashOneAsset(tile.id, tile.filename, tile.companion.id);
+    }
     const failure = await this.trashOneAsset(tile.id, tile.filename);
     if (!tile.companion || (failure && !failure.alreadyTrashed)) return failure;
     const companion = await this.trashOneAsset(tile.companion.id, tile.companion.filename);

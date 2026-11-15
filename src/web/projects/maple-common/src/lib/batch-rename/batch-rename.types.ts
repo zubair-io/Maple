@@ -34,7 +34,7 @@ export interface ResolvedBatchRenameId {
   address: string;
   filename: string;
   id: string | null;
-  companion?: { address: string; filename: string };
+  companion?: { address: string; filename: string; id?: string | null };
 }
 
 /** One row of the live before→after preview list. */

@@ -42,6 +42,7 @@ import { Asset, AssetId } from '../models/asset';
 import type { StackFile } from '../models/asset-stack';
 import { companionFilenameFor, freePairFilename } from '../stack/stack-pair-names';
 import { FolderOccupancyService } from '../stack/folder-occupancy.service';
+import { StackPairOpsService } from '../stack/stack-pair-ops.service';
 import {
   BunApiBackendService,
   ApiCollisionPolicy,
@@ -56,6 +57,8 @@ import type { AssetRenameCapability, RenameCollision } from './asset-rename-capa
 @Injectable({ providedIn: 'root' })
 export class AssetRenameService implements AssetRenameCapability {
   private readonly api = inject(BunApiBackendService);
+  private readonly pairOps = inject(StackPairOpsService);
+  private pendingPair: { filename: string; collision: ApiCollisionPolicy } | null = null;
   private readonly occupancy = inject(FolderOccupancyService);
   private readonly state = inject(LibraryStateService);
   private readonly router = inject(Router);
@@ -124,7 +127,9 @@ export class AssetRenameService implements AssetRenameCapability {
    * from a JPEG's prompt leaves the pair on two stems, so the listing is
    * re-pulled to show the two files as they now are. */
   cancel(): void {
-    if (this.collision()?.companion) this.state.refreshFolderListing(this.state.selectedSourceId());
+    if (this.collision()?.companion && !this.pendingPair)
+      this.state.refreshFolderListing(this.state.selectedSourceId());
+    this.pendingPair = null;
     this._requestGeneration++;
     this.editingAssetId.set(null);
     this.error.set(null);
@@ -165,6 +170,12 @@ export class AssetRenameService implements AssetRenameCapability {
     if (pending.companion) {
       if (policy !== 'replace') return;
       this.collision.set(null);
+      if (this.pendingPair) {
+        const pair = this.pendingPair;
+        this.pendingPair = null;
+        this._send(asset, pair.filename, pair.collision, 'replace');
+        return;
+      }
       this._renameCompanion(asset, pending.companion, 'replace');
       return;
     }
@@ -187,39 +198,66 @@ export class AssetRenameService implements AssetRenameCapability {
    * request's later response mutate the new field's state. */
   private _requestGeneration = 0;
 
-  private _send(asset: Asset, filename: string, collision: ApiCollisionPolicy): void {
+  private _send(
+    asset: Asset,
+    filename: string,
+    collision: ApiCollisionPolicy,
+    companionCollision: 'skip' | 'replace' = 'skip',
+  ): void {
     const generation = ++this._requestGeneration;
     this.busy.set(true);
     this.error.set(null);
     const wasFocused = this.state.focusedAssetId() === asset.id;
     const currentUrl = this.router.url;
-    this.api.renameAsset(asset.id, filename, collision).subscribe({
-      next: (outcome) => {
-        if (generation !== this._requestGeneration) return;
-        this.busy.set(false);
-        if (outcome.kind === 'skipped') {
-          if (outcome.reason === 'collision') {
-            this.collision.set({ assetId: asset.id, filename });
+    this.pairOps.supported().subscribe((supported) => {
+      if (generation !== this._requestGeneration) return;
+      const companion = supported ? asset.stack?.companion : undefined;
+      const request = companion
+        ? this.pairOps.renamePair(asset.id, companion.id, filename, collision, companionCollision)
+        : this.api.renameAsset(asset.id, filename, collision);
+      request.subscribe({
+        next: (outcome) => {
+          if (generation !== this._requestGeneration) return;
+          this.busy.set(false);
+          if (outcome.kind === 'skipped') {
+            if (outcome.reason === 'collision') {
+              const taken =
+                'collisionFilename' in outcome && typeof outcome.collisionFilename === 'string'
+                  ? outcome.collisionFilename
+                  : undefined;
+              const companionTarget = companion
+                ? companionFilenameFor(companion.name, filename)
+                : undefined;
+              if (companion && taken && taken.toLowerCase() === companionTarget?.toLowerCase()) {
+                this.pendingPair = { filename, collision };
+                this.collision.set({
+                  assetId: asset.id,
+                  filename: taken,
+                  companion: { id: companion.id, filename: companion.name },
+                });
+                return;
+              }
+              this.collision.set({ assetId: asset.id, filename });
+              return;
+            }
+            this.cancel();
             return;
           }
-          // Any other skip (e.g. "already at destination") is a no-op.
-          this.cancel();
-          return;
-        }
-        const renamed = this._applyRenamed(asset, outcome, wasFocused, currentUrl);
-        if (!asset.stack) {
-          this.cancel();
-          return;
-        }
-        this.editingAssetId.set(renamed.id);
-        const companion = { id: asset.stack.companion.id, filename: asset.stack.companion.name };
-        this._renameCompanion(renamed, companion, 'skip');
-      },
-      error: (err) => {
-        if (generation !== this._requestGeneration) return;
-        this.busy.set(false);
-        this.error.set(errorMessage(err));
-      },
+          const renamed = this._applyRenamed(asset, outcome, wasFocused, currentUrl);
+          if (!asset.stack || companion) {
+            this.cancel();
+            return;
+          }
+          this.editingAssetId.set(renamed.id);
+          const follow = { id: asset.stack.companion.id, filename: asset.stack.companion.name };
+          this._renameCompanion(renamed, follow, 'skip');
+        },
+        error: (err) => {
+          if (generation !== this._requestGeneration) return;
+          this.busy.set(false);
+          this.error.set(errorMessage(err));
+        },
+      });
     });
   }
 

@@ -42,6 +42,7 @@ import type { AssetId } from '../models/asset';
 import { stackTiles, type StackFile } from '../models/asset-stack';
 import { companionFilenameFor, freePairFilename } from '../stack/stack-pair-names';
 import { FolderOccupancyService } from '../stack/folder-occupancy.service';
+import { StackPairOpsService } from '../stack/stack-pair-ops.service';
 import type { SidebarEntry } from '../models/folder';
 import { childAddress, parseAddress } from '../addressing/maple-address';
 import { errorMessage } from '../util/errors';
@@ -64,6 +65,8 @@ type QueueItem =
       companion?: StackFile;
       /** Keep Both for a stack: the free name chosen for the RAW. */
       targetFilename?: string;
+      pairCompanionPrompt?: boolean;
+      rawCollision?: ApiCollisionPolicy;
     }
   | { kind: 'companion'; rawFilename: string; companion: StackFile }
   | { kind: 'folder'; folderId: string; name: string; sourceRelPath: string };
@@ -96,6 +99,8 @@ export class DragMoveService implements DragMoveCapability {
   private readonly api = inject(BunApiBackendService);
   private readonly folderCrud = inject(FolderCrudService);
   private readonly occupancy = inject(FolderOccupancyService);
+  private readonly pairOps = inject(StackPairOpsService);
+  private pairSupported = false;
   private readonly state = inject(LibraryStateService);
 
   readonly available = computed(() => this.state.backend === 'self-hosted');
@@ -204,15 +209,26 @@ export class DragMoveService implements DragMoveCapability {
     this.busy.set(true);
     this.collisionPrompt.set(null);
     this.resultSummary.set(null);
-    this._processHead('skip');
+    this.pairOps.supported().subscribe((supported) => {
+      this.pairSupported = supported;
+      this._processHead('skip');
+    });
   }
 
   resolveCollision(policy: DragMoveCollisionPolicy): void {
     const prompt = this.collisionPrompt();
     if (!prompt || !collisionChoiceOffered(prompt, policy)) return;
     this.collisionPrompt.set(null);
-    if (policy === 'skip') this._skipHead(prompt.filename);
-    else this._processHead(policy);
+    if (policy === 'skip') {
+      this._skipHead(prompt.filename);
+      return;
+    }
+    const head = this.queue[0];
+    if (head?.kind === 'asset' && head.pairCompanionPrompt) {
+      if (policy === 'replace') this._processPairHead(head, head.rawCollision ?? 'skip', 'replace');
+      return;
+    }
+    this._processHead(policy);
   }
 
   /** Skip on a RAW's prompt skips the whole tile; on a JPEG's prompt the RAW
@@ -259,6 +275,10 @@ export class DragMoveService implements DragMoveCapability {
   }
 
   private _processAssetHead(item: AssetItem, collision: ApiCollisionPolicy): void {
+    if (item.companion && this.pairSupported) {
+      this._processPairHead(item, collision, 'skip');
+      return;
+    }
     const filename = item.targetFilename ?? item.filename;
     const rename: [] | [string] = item.targetFilename ? [item.targetFilename] : [];
     this.api
@@ -287,6 +307,62 @@ export class DragMoveService implements DragMoveCapability {
         error: (err: unknown) => {
           if (replaceRefused(collision, err)) {
             this.collisionPrompt.set({ filename, replaceUnavailable: true });
+            return;
+          }
+          this._fail(item.assetId, item.filename, errorMessage(err));
+        },
+      });
+  }
+  private _processPairHead(
+    item: AssetItem,
+    collision: ApiCollisionPolicy,
+    companionCollision: 'skip' | 'replace',
+  ): void {
+    const companion = item.companion!;
+    const filename = item.targetFilename ?? item.filename;
+    this.pairOps
+      .relocatePair(
+        item.assetId,
+        companion.id,
+        this.mode,
+        collision,
+        companionCollision,
+        this.destinationRelPath,
+        item.targetFilename,
+      )
+      .subscribe({
+        next: (outcome) => {
+          if (outcome.kind === 'skipped') {
+            if (outcome.reason === 'collision') {
+              const taken = outcome.collisionFilename;
+              const companionTarget = companionFilenameFor(companion.filename, filename);
+              if (taken && taken.toLowerCase() === companionTarget.toLowerCase()) {
+                this.queue[0] = { ...item, pairCompanionPrompt: true, rawCollision: collision };
+                this.collisionPrompt.set({ filename: taken, companionOf: filename });
+              } else {
+                this.collisionPrompt.set({ filename });
+              }
+              return;
+            }
+            this.skipped++;
+            this._next();
+            return;
+          }
+          this.moved++;
+          this._next();
+        },
+        error: (err: unknown) => {
+          const effective = companionCollision === 'replace' ? companionCollision : collision;
+          if (replaceRefused(effective, err)) {
+            this.collisionPrompt.set(
+              companionCollision === 'replace'
+                ? {
+                    filename: companionFilenameFor(companion.filename, filename),
+                    companionOf: filename,
+                    replaceUnavailable: true,
+                  }
+                : { filename, replaceUnavailable: true },
+            );
             return;
           }
           this._fail(item.assetId, item.filename, errorMessage(err));
