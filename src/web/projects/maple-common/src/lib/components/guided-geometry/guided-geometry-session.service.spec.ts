@@ -1,7 +1,8 @@
 import { signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { GuidedGeometrySessionService } from './guided-geometry-session.service';
+import { GuidedGeometryOverlayComponent } from './guided-geometry-overlay.component';
 import { LibraryStateService } from '../../state/library-state.service';
 import { EditorStateService } from '../../editor/editor-state.service';
 import { RawPipelineService } from '../../raw-pipeline/raw-pipeline.service';
@@ -37,7 +38,12 @@ function harness() {
     providers: [
       {
         provide: LibraryStateService,
-        useValue: { focusedAssetId: id, adjustmentFor: () => model, updateAdjustment },
+        useValue: {
+          focusedAssetId: id,
+          focusedAsset: signal({ id: 'asset-1', width: 6000, height: 4000 }),
+          adjustmentFor: () => model,
+          updateAdjustment,
+        },
       },
       { provide: EditorStateService, useValue: { armedTool: tool, commit, endEdit } },
       { provide: RawPipelineService, useValue: { solveGuidedGeometry: solve } },
@@ -58,6 +64,65 @@ function harness() {
 
 describe('Guided geometry session', () => {
   beforeEach(() => TestBed.resetTestingModule());
+  afterEach(() => vi.unstubAllGlobals());
+
+  it.each([
+    { name: 'offset', geometry: { perspectiveX: 50 }, cropped: false },
+    { name: 'rotation', geometry: { perspectiveRotate: 10 }, cropped: false },
+    { name: 'keystone and crop', geometry: { perspectiveVertical: 30 }, cropped: true },
+  ])(
+    'passes post-perspective guide endpoints to the solver under $name',
+    async ({ geometry, cropped }) => {
+      vi.stubGlobal(
+        'ResizeObserver',
+        class {
+          observe(): void {}
+          disconnect(): void {}
+        },
+      );
+      const h = harness();
+      const crop = cropped
+        ? { left: 0.2, top: 0.1, right: 0.8, bottom: 0.9, angle: 0 }
+        : defaultAdjustmentModel().crop;
+      h.model.set({ ...h.model(), perspectiveScale: 100, ...geometry, crop });
+      h.session.start('vertical');
+      const fixture = TestBed.createComponent(GuidedGeometryOverlayComponent);
+      const width = cropped ? 360 : 600;
+      const height = cropped ? 320 : 400;
+      Object.defineProperties(fixture.nativeElement, {
+        clientWidth: { value: width },
+        clientHeight: { value: height },
+      });
+      fixture.detectChanges();
+      const surface = fixture.nativeElement.querySelector('svg') as SVGElement;
+      surface.setPointerCapture = vi.fn();
+      surface.releasePointerCapture = vi.fn();
+      const send = (type: string, x: number, y: number) => {
+        const event = new MouseEvent(type, {
+          clientX: x * width,
+          clientY: y * height,
+          bubbles: true,
+          cancelable: true,
+        });
+        Object.defineProperty(event, 'pointerId', { value: 1 });
+        surface.dispatchEvent(event);
+      };
+      for (const x of [0.3, 0.7]) {
+        send('pointerdown', x, 0.2);
+        send('pointerup', x, 0.8);
+      }
+      const expected = cropped
+        ? [0.38, 0.26, 0.38, 0.74, 0.62, 0.26, 0.62, 0.74]
+        : [0.3, 0.2, 0.3, 0.8, 0.7, 0.2, 0.7, 0.8];
+      expect(h.session.lines()).toHaveLength(2);
+      expect(h.session.lines()[0].start.x).toBeCloseTo(expected[0], 9);
+      await h.session.apply();
+      expect(h.solve).toHaveBeenCalledOnce();
+      h.solve.mock.calls[0][0].points.forEach((value, index) =>
+        expect(value).toBeCloseTo(expected[index], 9),
+      );
+    },
+  );
   it('applies exactly one real edit transaction and preserves other settings', async () => {
     const h = harness();
     h.session.start('vertical');

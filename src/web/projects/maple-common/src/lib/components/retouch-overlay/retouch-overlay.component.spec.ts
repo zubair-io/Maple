@@ -27,6 +27,7 @@ describe('RetouchOverlayComponent projected pointer bounds', () => {
     });
     library.updateAdjustment('asset-1', {
       crop: { top: 0, left: 0, bottom: 1, right: 1, angle: 10 },
+      perspectiveX: 50,
     });
     TestBed.configureTestingModule({
       providers: [
@@ -67,6 +68,14 @@ describe('RetouchOverlayComponent projected pointer bounds', () => {
     send('pointerdown', 0.01, 0.01);
     send('pointerup', 0.01, 0.01);
     expect(session.spots()).toEqual([]);
+  });
+
+  it('keeps repair coordinates in the source frame under existing manual geometry', () => {
+    send('pointerdown', 0.5, 0.5);
+    send('pointerup', 0.5, 0.5);
+    expect(session.spots()).toHaveLength(1);
+    expect(session.spots()[0].center.x).toBeCloseTo(0.25, 9);
+    expect(session.spots()[0].center.y).toBeCloseTo(0.5, 9);
   });
 
   it('skips rejected drag and release samples without moving the repair', () => {

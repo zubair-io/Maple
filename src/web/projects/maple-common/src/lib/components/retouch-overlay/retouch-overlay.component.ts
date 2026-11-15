@@ -80,7 +80,11 @@ export class RetouchOverlayComponent implements AfterViewInit, OnDestroy {
 
   /** Host size, applied crop, fit footprint and the full-frame ↔ screen map
    *  — shared with every other canvas overlay (`overlay-host.ts`). */
-  private readonly placement = new OverlayPlacement(() => this.host.nativeElement, this.library);
+  private readonly placement = new OverlayPlacement(
+    () => this.host.nativeElement,
+    this.library,
+    'source-frame',
+  );
   protected readonly map = this.placement.map;
 
   /** Every spot's destination disc, in screen space. */

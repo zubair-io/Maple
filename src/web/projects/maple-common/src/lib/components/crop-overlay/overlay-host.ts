@@ -77,7 +77,7 @@ export class OverlayPlacement {
   readonly crop: Signal<Crop>;
   /** The fit rect of the displayed image inside the host, in CSS px. */
   readonly footprint: Signal<Footprint>;
-  /** Full-frame normalised ↔ screen, with the crop and straighten folded in. */
+  /** Normalised target frame ↔ screen; source-frame mapping explicitly undoes perspective. */
   readonly map: Signal<MaskCanvasMap>;
 
   private ro?: ResizeObserver;
@@ -85,6 +85,7 @@ export class OverlayPlacement {
   constructor(
     private readonly hostEl: () => HTMLElement,
     library: OverlayLibrary,
+    coordinateSpace: 'post-perspective' | 'source-frame' = 'post-perspective',
   ) {
     const imgDims = focusedImageDims(library);
     this.crop = computed(() => {
@@ -106,7 +107,10 @@ export class OverlayPlacement {
     this.map = computed(() => {
       const { w, h } = imgDims();
       const a = library.focusedAsset();
-      const perspective = a ? perspectiveGeometryOf(library.adjustmentFor(a.id)()) : undefined;
+      const perspective =
+        coordinateSpace === 'source-frame' && a
+          ? perspectiveGeometryOf(library.adjustmentFor(a.id)())
+          : undefined;
       return makeMaskCanvasMap(this.footprint(), this.crop(), w, h, perspective);
     });
   }
