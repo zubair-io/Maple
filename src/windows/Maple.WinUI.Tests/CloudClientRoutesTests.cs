@@ -1,15 +1,8 @@
-// CloudClientRoutesTests — the routes the Windows Maple Cloud client speaks
-// after the #1325 cutover, pinned against a fake HttpMessageHandler through
-// CloudClient's internal transport constructor (no server, no network).
-//
-// What moved: thumbnails and previews are fetched by `slug:relPath` address
-// (GET /api/thumb/:slug/*, /api/preview/:slug/*), the unified routes the web
-// grid reads. What deliberately stayed path-addressed, and why, is in the
-// per-method comments in Services/Cloud/CloudClient.*.cs: the directory
-// listing (GET /api/fs/dir — the unified listing carries no size/mtime/EXIF
-// and no absolute path) and the original bytes (GET /api/fs/raw — the only
-// route with the #926 mirror read-failover). These tests pin both halves so
-// a future route swap is a deliberate test change, not a silent one.
+// CloudClientRoutesTests — the routes the Windows Maple Cloud client speaks,
+// pinned against a fake HttpMessageHandler through CloudClient's internal
+// transport constructor (no server, no network). Browse keeps its legacy
+// path-addressed routes where needed; File Explorer uses the unified folder
+// and image routes, falling back to the library file route on HTTP 415.
 
 using System;
 using System.Collections.Generic;
@@ -183,7 +176,7 @@ namespace Maple.WinUI.Tests
                 Assert.Equal($"{Server}/api/preview/lib/fresh.dng", r.RequestUri!.AbsoluteUri));
         }
 
-        // --- Directory listing: stays on /api/fs/dir (size/mtime/EXIF + absolute paths) ---
+        // --- File Explorer listing: unified address route ---
 
         [Fact]
         public async Task ListDirAsync_StaysOnFsDir_WithLimitAndCursor()
@@ -210,6 +203,27 @@ namespace Maple.WinUI.Tests
         }
 
         [Fact]
+        public async Task ListFolderAddressAsync_UsesUnifiedRouteAndDeserializesEveryEntryKind()
+        {
+            var handler = new FakeHandler().Then(HttpStatusCode.OK, Json(
+                "{\"folders\":[{\"name\":\"Trip A\",\"address\":\"lib:Trip A\",\"path\":\"/srv/lib/Trip A\",\"mtime\":\"2026-01-02T03:04:05Z\"}]," +
+                "\"images\":[{\"name\":\"a.CR2\",\"address\":\"lib:Trip A/a.CR2\",\"size\":123,\"mtime\":\"2026-01-02T03:04:05Z\"}]," +
+                "\"files\":[{\"name\":\"clip.mov\",\"address\":\"lib:Trip A/clip.mov\",\"size\":456}]," +
+                "\"sidecars\":[{\"name\":\"a.CR2.xmp\",\"address\":\"lib:Trip A/a.CR2.xmp\",\"size\":64}],\"next_cursor\":\"c2\"}"), "application/json");
+            using var client = Client(handler);
+
+            var listing = await client.ListFolderAddressAsync("lib:Trip A", "next + page", 500, CancellationToken.None);
+
+            Assert.Equal($"{Server}/api/folder/lib/Trip%20A?limit=500&cursor=next%20%2B%20page",
+                Assert.Single(handler.Requests).RequestUri!.AbsoluteUri);
+            Assert.Equal("c2", listing!.NextCursor);
+            Assert.Single(listing.Folders);
+            Assert.Single(listing.Images);
+            Assert.Single(listing.Files);
+            Assert.Single(listing.Sidecars);
+        }
+
+        [Fact]
         public async Task ListDirAsync_TransportFailureIsNull_NotAThrow()
         {
             // Browsing runs from async-void UI handlers; an escaped
@@ -227,20 +241,20 @@ namespace Maple.WinUI.Tests
                 throw new HttpRequestException("connection refused");
         }
 
-        // --- Original bytes: stay on /api/fs/raw (#926 mirror failover) ---
+        // --- File Explorer hydration: unified image route and file fallback ---
 
         [Fact]
-        public async Task OpenOriginalAsync_StaysOnFsRaw_ReturnsStreamableBody()
+        public async Task OpenOriginalAsync_UsesUnifiedImageRoute_ReturnsStreamableBody()
         {
             var body = new byte[10_000];
             new Random(1).NextBytes(body);
             var handler = new FakeHandler().Then(HttpStatusCode.OK, body, "application/octet-stream");
             using var client = Client(handler);
 
-            using var response = await client.OpenOriginalAsync("/srv/lib/2024/a b.CR2", CancellationToken.None);
+            using var response = await client.OpenOriginalAsync("lib:2024/a b.CR2", "folder1", "2024/a b.CR2", CancellationToken.None);
 
             var request = Assert.Single(handler.Requests);
-            Assert.Equal($"{Server}/api/fs/raw?path=%2Fsrv%2Flib%2F2024%2Fa%20b.CR2", request.RequestUri!.AbsoluteUri);
+            Assert.Equal($"{Server}/api/image/lib/2024/a%20b.CR2", request.RequestUri!.AbsoluteUri);
             // No Range header: hydration asks for the whole file from 0 —
             // neither /api/fs/raw nor /api/image honours one.
             Assert.Null(request.Headers.Range);
@@ -258,7 +272,23 @@ namespace Maple.WinUI.Tests
             var handler = new FakeHandler().Then(HttpStatusCode.NotFound, Json("{\"error\":\"no readable copy\"}"), "application/json");
             using var client = Client(handler);
 
-            Assert.Null(await client.OpenOriginalAsync("/srv/lib/gone.CR2", CancellationToken.None));
+            Assert.Null(await client.OpenOriginalAsync("lib:gone.CR2", "folder1", "gone.CR2", CancellationToken.None));
+            Assert.Single(handler.Requests);
+        }
+
+        [Fact]
+        public async Task OpenOriginalAsync_UnsupportedMediaFallsBackToLibraryFileRoute()
+        {
+            var handler = new FakeHandler()
+                .Then(HttpStatusCode.UnsupportedMediaType)
+                .Then(HttpStatusCode.OK, new byte[] { 1, 2, 3 }, "application/octet-stream");
+            using var client = Client(handler);
+
+            using var response = await client.OpenOriginalAsync("lib:Trip A/clip.mov", "folder 1", "Trip A/clip.mov", CancellationToken.None);
+
+            Assert.Equal($"{Server}/api/image/lib/Trip%20A/clip.mov", handler.Requests[0].RequestUri!.AbsoluteUri);
+            Assert.Equal($"{Server}/api/folders/folder%201/file?path=Trip%20A%2Fclip.mov", handler.Requests[1].RequestUri!.AbsoluteUri);
+            Assert.Equal(new byte[] { 1, 2, 3 }, await response!.Content.ReadAsByteArrayAsync());
         }
 
         [Fact]

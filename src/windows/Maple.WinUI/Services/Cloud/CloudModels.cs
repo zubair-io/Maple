@@ -51,6 +51,29 @@ namespace Maple.WinUI.Services.Cloud
         [JsonPropertyName("next_cursor")] public string? NextCursor { get; set; }
     }
 
+    /// <summary>Cursor-paged unified library folder response from
+    /// GET /api/folder/:slug/*.</summary>
+    public sealed class CloudFolderListing
+    {
+        [JsonPropertyName("folders")] public CloudFolderEntry[] Folders { get; set; } = Array.Empty<CloudFolderEntry>();
+        [JsonPropertyName("images")] public CloudFolderEntry[] Images { get; set; } = Array.Empty<CloudFolderEntry>();
+        [JsonPropertyName("files")] public CloudFolderEntry[] Files { get; set; } = Array.Empty<CloudFolderEntry>();
+        [JsonPropertyName("sidecars")] public CloudFolderEntry[] Sidecars { get; set; } = Array.Empty<CloudFolderEntry>();
+        [JsonPropertyName("next_cursor")] public string? NextCursor { get; set; }
+    }
+
+    /// <summary>A filesystem entry returned by the unified folder route.
+    /// Address is stable across clients; Path is retained only for resolving
+    /// absolute identities written by older Cloud Files builds.</summary>
+    public class CloudFolderEntry
+    {
+        [JsonPropertyName("name")] public string Name { get; set; } = string.Empty;
+        [JsonPropertyName("address")] public string Address { get; set; } = string.Empty;
+        [JsonPropertyName("path")] public string Path { get; set; } = string.Empty;
+        [JsonPropertyName("size")] public long Size { get; set; }
+        [JsonPropertyName("mtime")] public string? Mtime { get; set; }
+    }
+
     public class CloudDirChild
     {
         [JsonPropertyName("name")] public string Name { get; set; } = string.Empty;

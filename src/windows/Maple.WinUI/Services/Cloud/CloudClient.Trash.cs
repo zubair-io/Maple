@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Net;
 using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
@@ -107,29 +108,35 @@ namespace Maple.WinUI.Services.Cloud
 
         // --- Original bytes as a stream (#2589) ---
 
-        /// <summary>Opens GET /api/fs/raw as a headers-read response for
-        /// streaming consumers (the Cloud Files hydration callback) that
-        /// must not spool the whole RAW to disk first. The caller owns the
-        /// response and must dispose it — the content stream dies with it.
-        /// Null on any non-success status.
-        ///
-        /// Stays on /api/fs/raw rather than /api/image/:slug/* for the same
-        /// reason as <see cref="DownloadOriginalAsync"/>: the #926 mirror
-        /// failover lives only on the legacy route, and the placeholder
-        /// identity Explorer hands back is the absolute server path the
-        /// /api/fs/dir listing named the file by. Neither route honours a
-        /// Range header — the sync root's FULL hydration policy asks for the
-        /// whole file from offset 0, which is what the body stream is.</summary>
+        /// <summary>Opens the unified original route as a headers-read
+        /// response for Cloud Files hydration. The caller owns the response
+        /// and must dispose it. Non-image files and formats refused by the
+        /// image route fall back to the library-relative file route.</summary>
         public async Task<HttpResponseMessage?> OpenOriginalAsync(
-            string serverAbsPath, CancellationToken ct)
+            string address, string folderId, string relativePath, CancellationToken ct)
         {
-            var route = $"api/fs/raw?path={Uri.EscapeDataString(serverAbsPath)}";
-            var response = await SendStreamAsync(
-                () => new HttpRequestMessage(HttpMethod.Get, route), ct);
+            if (string.IsNullOrWhiteSpace(folderId)) throw new ArgumentException("Folder id is required.", nameof(folderId));
+            if (string.IsNullOrWhiteSpace(relativePath)) throw new ArgumentException("A file path is required.", nameof(relativePath));
+
+            var route = $"api/image/{EncodeAddress(address)}";
+            var response = await SendStreamAsync(() => new HttpRequestMessage(HttpMethod.Get, route), ct);
             if (response.IsSuccessStatusCode)
                 return response;
-            DiagLog.Write($"[cloud] raw open {(int)response.StatusCode} for {serverAbsPath}");
+            var status = response.StatusCode;
             response.Dispose();
+            if (status != HttpStatusCode.UnsupportedMediaType)
+            {
+                DiagLog.Write($"[cloud] image open {(int)status} for {address}");
+                return null;
+            }
+
+            var fileRoute = $"api/folders/{Uri.EscapeDataString(folderId)}/file?path={Uri.EscapeDataString(relativePath)}";
+            var fallback = await SendStreamAsync(
+                () => new HttpRequestMessage(HttpMethod.Get, fileRoute), ct);
+            if (fallback.IsSuccessStatusCode)
+                return fallback;
+            DiagLog.Write($"[cloud] folder file open {(int)fallback.StatusCode} for {address}");
+            fallback.Dispose();
             return null;
         }
     }
