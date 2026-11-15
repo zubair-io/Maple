@@ -21,7 +21,7 @@
 
 import { Injectable, inject } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
-import { Observable, forkJoin, map, of, catchError, switchMap } from 'rxjs';
+import { Observable, concat, forkJoin, map, of, catchError, switchMap, toArray } from 'rxjs';
 import { API_BASE_URL } from '../api/api-base-url.token';
 import { BunApiBackendService } from '../api/bun-api-backend.service';
 import { renameCompanions, withCompanionPreview } from './batch-rename-companions';
@@ -264,21 +264,33 @@ export class BatchRenameService {
             results: [...refusedResults, ...unresolvedResults],
           });
         }
-        return this.http
-          .post<RawApplyResponse>(`${this.base}/assets/batch-rename`, {
-            ids: sent.map((row) => row.id),
-            source_addresses: sent.map((row) => row.address),
-            template: options.template,
-            sequence_start: options.sequenceStart,
-            sequence_pad_width: options.sequencePadWidth,
-            collision,
-            ...(pairSupported
-              ? { companion_ids: sent.map((row) => row.companion?.id ?? null) }
-              : {}),
-          })
-          .pipe(
-            map((res) => {
-              const resolvedResults = sent.flatMap((row, i) => {
+        const runs: { start: number; rows: typeof sent }[] = [];
+        sent.forEach((row) => {
+          const index = withIds.indexOf(row);
+          const last = runs.at(-1);
+          if (last && last.start + last.rows.length === index) last.rows.push(row);
+          else runs.push({ start: index, rows: [row] });
+        });
+        const requests = runs.map((run) =>
+          this.http
+            .post<RawApplyResponse>(`${this.base}/assets/batch-rename`, {
+              ids: run.rows.map((row) => row.id),
+              source_addresses: run.rows.map((row) => row.address),
+              template: options.template,
+              sequence_start: options.sequenceStart + run.start,
+              sequence_pad_width: options.sequencePadWidth,
+              collision,
+              ...(pairSupported
+                ? { companion_ids: run.rows.map((row) => row.companion?.id ?? null) }
+                : {}),
+            })
+            .pipe(map((res) => ({ run, res }))),
+        );
+        return concat(...requests).pipe(
+          toArray(),
+          map((parts) => {
+            const resolvedResults = parts.flatMap(({ run, res }) =>
+              run.rows.flatMap((row, i) => {
                 const raw = res.results[i]!;
                 const mapped = mapApplyResult(row.address, raw);
                 if (!pairSupported || !row.companion) return [mapped];
@@ -306,27 +318,35 @@ export class BatchRenameService {
                   ];
                 }
                 return [mapped];
-              });
-              const results = [...resolvedResults, ...refusedResults, ...unresolvedResults];
-              const summary: BatchRenameSummary = {
-                total: res.summary.total + unresolvedResults.length + refusedResults.length,
-                relocated: res.summary.relocated,
-                skipped: res.summary.skipped + refusedResults.length,
-                failed: res.summary.failed + unresolvedResults.length,
-              };
-              return { summary, results };
-            }),
-            switchMap((applied) =>
-              pairSupported
-                ? of(applied)
-                : renameCompanions(
-                    { api: this.api, occupancy: this.occupancy },
-                    sent,
-                    applied,
-                    collision,
-                  ),
-            ),
-          );
+              }),
+            );
+            const results = [...resolvedResults, ...refusedResults, ...unresolvedResults];
+            const summary: BatchRenameSummary = {
+              total:
+                parts.reduce((sum, part) => sum + part.res.summary.total, 0) +
+                unresolvedResults.length +
+                refusedResults.length,
+              relocated: parts.reduce((sum, part) => sum + part.res.summary.relocated, 0),
+              skipped:
+                parts.reduce((sum, part) => sum + part.res.summary.skipped, 0) +
+                refusedResults.length,
+              failed:
+                parts.reduce((sum, part) => sum + part.res.summary.failed, 0) +
+                unresolvedResults.length,
+            };
+            return { summary, results };
+          }),
+          switchMap((applied) =>
+            pairSupported
+              ? of(applied)
+              : renameCompanions(
+                  { api: this.api, occupancy: this.occupancy },
+                  sent,
+                  applied,
+                  collision,
+                ),
+          ),
+        );
       }),
     );
   }

@@ -27,10 +27,12 @@ const STACKED = {
 describe('AssetRenameService stack pair ops (#5949)', () => {
   let renameAssetSpy: ReturnType<typeof vi.fn>;
   let renamePairSpy: ReturnType<typeof vi.fn>;
+  let refreshSpy: ReturnType<typeof vi.fn>;
   let service: AssetRenameService;
 
   function setup(pairOutcome: unknown, supported = true) {
     renameAssetSpy = vi.fn();
+    refreshSpy = vi.fn();
     renamePairSpy = vi.fn().mockReturnValue(of(pairOutcome));
     TestBed.resetTestingModule();
     TestBed.configureTestingModule({
@@ -50,7 +52,7 @@ describe('AssetRenameService stack pair ops (#5949)', () => {
             focusedAssetId: () => null,
             renameAsset: vi.fn(),
             selectedSourceId: () => 'library:2026',
-            refreshFolderListing: vi.fn(),
+            refreshFolderListing: refreshSpy,
           },
         },
       ],
@@ -82,6 +84,7 @@ describe('AssetRenameService stack pair ops (#5949)', () => {
     );
     expect(renameAssetSpy).not.toHaveBeenCalled();
     expect(service.busy()).toBe(false);
+    expect(refreshSpy).toHaveBeenCalledWith('library:2026');
     expect(service.collision()).toBeNull();
   });
 

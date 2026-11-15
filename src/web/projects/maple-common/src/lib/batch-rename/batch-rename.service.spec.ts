@@ -469,5 +469,42 @@ describe('BatchRenameService', () => {
         reason: 'Trip-01.JPG already exists, so IMG_1.JPG kept its name',
       });
     });
+
+    it('pair server: a refused pair keeps later sequence numbers aligned with the preview', () => {
+      let out: BatchRenameApplyResult | undefined;
+      const refusedRow = {
+        address: 'lib1:IMG_0.CR3',
+        filename: 'IMG_0.CR3',
+        id: 'id-raw-0',
+        companion: { address: 'lib1:IMG_0.JPG', filename: 'IMG_0.JPG', id: null },
+      };
+      const pairRow = { ...stacked, companion: { ...stacked.companion, id: 'id-jpg' } };
+      svc.apply([refusedRow, pairRow], options, 'skip').subscribe((r) => (out = r));
+      http
+        .expectOne('/api/display/config')
+        .flush({ show_hidden_images: false, stack_pair_ops_supported: true });
+      const call = http.expectOne('/api/assets/batch-rename');
+      expect(call.request.body).toMatchObject({
+        ids: ['id-raw'],
+        companion_ids: ['id-jpg'],
+        sequence_start: options.sequenceStart + 1,
+      });
+      call.flush({
+        summary: { total: 1, relocated: 1, skipped: 0, failed: 0 },
+        results: [
+          {
+            id: 'id-raw',
+            kind: 'relocated',
+            old_filename: 'IMG_1.CR3',
+            new_filename: 'Trip-02.CR3',
+            companion_new_filename: 'Trip-02.JPG',
+            renamed_on_collision: false,
+            extension_changed: false,
+          },
+        ],
+      });
+      expect(out?.summary).toEqual({ total: 2, relocated: 1, skipped: 1, failed: 0 });
+      expect(out?.results[0]).toMatchObject({ address: 'lib1:IMG_1.CR3', kind: 'relocated' });
+    });
   });
 });
