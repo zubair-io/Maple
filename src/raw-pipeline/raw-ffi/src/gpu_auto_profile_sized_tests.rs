@@ -131,7 +131,7 @@ fn sized_ffi_matches_core_with_cold_warm_and_edited_callers() {
             "Auto 2 requires a real residual and no separate curve stage"
         );
         let pair = actual.pair();
-        let expected = fit_auto_profile_from_raw_at_cap(
+        let expected = raw_core::pipeline::fit_auto_profile_from_raw_at_cap(
             &raw,
             &default_model,
             RenderQuality::Preview,
