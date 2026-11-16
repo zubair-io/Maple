@@ -1,6 +1,6 @@
 use super::super::model::{
-    apply_model, ciede2000, srgb_linear_to_lab, HueChromaField, CHROMA_BINS, FIELD_N, HUE_BINS,
-    LUMA_BINS,
+    CHROMA_BINS, FIELD_N, HUE_BINS, HueChromaField, LUMA_BINS, apply_model, ciede2000,
+    srgb_linear_to_lab,
 };
 use super::*;
 
@@ -65,11 +65,21 @@ fn parallel_rms_matches_original_serial_order_across_chunks_and_threads() {
             let reference_ms = reference_started.elapsed().as_secs_f64() * 1000.0;
             let parallel_started = std::time::Instant::now();
             let actual = pool
-                .install(|| compute_fit_rms_de_from_pairs(input, &model.tonescale, &model.field));
+                .install(|| {
+                    compute_fit_rms_de_from_pairs(
+                        input,
+                        &model.tonescale,
+                        &model.field,
+                        CancelToken::never(),
+                    )
+                })
+                .unwrap();
             let parallel_ms = parallel_started.elapsed().as_secs_f64() * 1000.0;
             if count == 131_079 {
                 // Single ordered diagnostic sample; correctness, not speed, is gated.
-                eprintln!("rms pairs={count} threads={threads} serial_ms={reference_ms:.4} parallel_ms={parallel_ms:.4}");
+                eprintln!(
+                    "rms pairs={count} threads={threads} serial_ms={reference_ms:.4} parallel_ms={parallel_ms:.4}"
+                );
             }
             assert_eq!(
                 actual.to_bits(),

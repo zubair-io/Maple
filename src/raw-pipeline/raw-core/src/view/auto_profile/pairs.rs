@@ -107,7 +107,7 @@ pub fn sample_display_pairs_cancellable(
     let crop_w = crop_x_end - crop_x_start;
     let crop_h = crop_y_end - crop_y_start;
     if crop_w == 0 || crop_h == 0 {
-        return Vec::new();
+        return Ok(Vec::new());
     }
 
     // 10% border skip, matching #550 (the gate ignores the outer 10% frame to
