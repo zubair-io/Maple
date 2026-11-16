@@ -186,9 +186,13 @@ unsafe fn fit_auto_profile(
     let curve_present_addr = curve_present as usize;
     let lut_out_addr = lut_out as usize;
     let lut_size_addr = lut_size as usize;
+    // Keep the opaque host-owned pointer as an integer across the worker
+    // boundary; raw-pointer field capture is not `Send`.
+    let cancel_addr = cancel.0 as usize;
 
     with_large_stack(move || {
-        let cancel_token = match unsafe { token_from_ptr(cancel.0) } {
+        let cancel_ptr = cancel_addr as *const MapleCancelFlag;
+        let cancel_token = match unsafe { token_from_ptr(cancel_ptr) } {
             Some(flag) => raw_core::CancelToken::new(unsafe { flag.as_ref() }),
             None => raw_core::CancelToken::never(),
         };
@@ -274,7 +278,7 @@ unsafe fn fit_auto_profile(
                         }
                     }
                 };
-                raw_core::pipeline::render::fit_auto_profile_from_raw_at_cap_cancellable(
+                raw_core::pipeline::fit_auto_profile_from_raw_at_cap_cancellable(
                     &raw_img,
                     &model,
                     quality,
