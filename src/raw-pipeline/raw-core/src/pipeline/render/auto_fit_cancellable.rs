@@ -1,4 +1,5 @@
 use super::*;
+use crate::error::Error;
 
 /// Cancellable variant of [`fit_auto_profile_from_raw_at_cap`]. Existing
 /// callers retain their ABI and non-cancellable behavior through the wrapper.

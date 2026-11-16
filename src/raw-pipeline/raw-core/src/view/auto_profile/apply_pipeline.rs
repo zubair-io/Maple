@@ -228,7 +228,7 @@ fn fit_via_acr2(
     })?;
     cancel.check()?;
     let model = match crate::pipeline::stage("auto_acr_solve", || {
-        acr_fit::solve_acr_model_from_display_pairs_cancellable(&pairs, cancel)
+        acr_fit::from_pairs::solve_acr_model_from_display_pairs_cancellable(&pairs, cancel)
     }) {
         Ok(m) => m,
         Err(acr_fit::from_pairs::AcrFitError::Cancelled) => return Err(crate::Error::Cancelled),
