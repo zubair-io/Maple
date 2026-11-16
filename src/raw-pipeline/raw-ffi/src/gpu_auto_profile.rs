@@ -22,15 +22,14 @@
 //! Gated behind the `gpu` feature with the rest of the gpu FFI, so it (and the
 //! `MapleGpuLiveParams` it feeds) is absent from the default xcframework.
 
+use crate::cancel::{MapleCancelFlag, SendCancelPtr, token_from_ptr};
 use crate::error::{set_last_error, with_large_stack};
-use crate::model::{load_xmp_model_owned, LoadModel};
+use crate::model::{LoadModel, load_xmp_model_owned};
 use raw_core::decode::decode_bytes;
-use raw_core::decode_cache::{decode_bytes_cached, CacheKey};
-use raw_core::pipeline::{
-    cached_auto_profile_fit, fit_auto_profile_from_raw_at_cap, FitCap, RawInput,
-};
+use raw_core::decode_cache::{CacheKey, decode_bytes_cached};
+use raw_core::pipeline::{FitCap, RawInput, cached_auto_profile_fit};
 use raw_core::view::auto_profile::cache::CacheKey as AutoCacheKey;
-use std::ffi::{c_char, CStr};
+use std::ffi::{CStr, c_char};
 
 /// The flat-`f32` length of a serialized `ProfileCurve` — the size the host must
 /// allocate for `maple_gpu_fit_auto_profile`'s `curve_out` (and the
@@ -125,6 +124,7 @@ pub unsafe extern "C" fn maple_gpu_fit_auto_profile(
         lut_capacity_floats,
         lut_size,
         FitCap::Proxy,
+        SendCancelPtr(std::ptr::null()),
     )
 }
 
@@ -138,6 +138,7 @@ unsafe fn fit_auto_profile(
     lut_capacity_floats: usize,
     lut_size: *mut u32,
     cap: FitCap,
+    cancel: SendCancelPtr,
 ) -> i32 {
     use raw_core::view::auto_profile::PROFILE_CURVE_FLAT_LEN;
 
@@ -187,6 +188,13 @@ unsafe fn fit_auto_profile(
     let lut_size_addr = lut_size as usize;
 
     with_large_stack(move || {
+        let cancel_token = match unsafe { token_from_ptr(cancel.0) } {
+            Some(flag) => raw_core::CancelToken::new(unsafe { flag.as_ref() }),
+            None => raw_core::CancelToken::never(),
+        };
+        if cancel_token.is_cancelled() {
+            return crate::auto_profile::MAPLE_AUTO_FIT_CANCELLED;
+        }
         let raw_path = std::path::Path::new(&raw_path_str);
         let model = match load_xmp_model_owned(xmp_path_str.as_deref()) {
             LoadModel::Ok(m) => m,
@@ -266,17 +274,21 @@ unsafe fn fit_auto_profile(
                         }
                     }
                 };
-                fit_auto_profile_from_raw_at_cap(
+                raw_core::pipeline::render::fit_auto_profile_from_raw_at_cap_cancellable(
                     &raw_img,
                     &model,
                     quality,
                     RawInput::Path(raw_path),
                     cap,
+                    cancel_token,
                 )
             }
         };
         let (curve_opt, residual_opt) = match fit_result {
             Ok(pair) => pair,
+            Err(raw_core::view::auto_profile::AutoFitOutcome::Cancelled) => {
+                return crate::auto_profile::MAPLE_AUTO_FIT_CANCELLED;
+            }
             Err(outcome) => return crate::auto_profile::no_tail_rc(outcome),
         };
 

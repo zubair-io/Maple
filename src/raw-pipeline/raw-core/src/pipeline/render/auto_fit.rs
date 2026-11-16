@@ -14,26 +14,27 @@
 //! renders can't depend on cache state or fit order, and a cold fit under an
 //! edited model can no longer learn (and partially cancel) the user's edits.
 
-use crate::error::Result;
+use crate::cancel::CancelToken;
+use crate::error::{Error, Result};
 use crate::image::{ColorSpace, Image, RawImage};
-use crate::pipeline::develop::develop_scene_linear_from_raw_with_quality;
-use crate::pipeline::develop_sized::develop_scene_linear_sized_from_raw_with_quality;
-use crate::pipeline::{stage, RenderQuality};
+use crate::pipeline::develop::develop_scene_linear_from_raw_with_quality_cancellable;
+use crate::pipeline::develop_sized::develop_scene_linear_sized_from_raw_with_quality_cancellable;
+use crate::pipeline::{RenderQuality, stage};
 use crate::stages::{color_grade, grain};
 use crate::types::adjustment::Profile;
+use crate::view::auto_profile::AutoFitOutcome;
 use crate::view::auto_profile::apply_pipeline::render_curve;
 use crate::view::auto_profile::cache::{CacheKey, FitOrigin};
 use crate::view::auto_profile::curve::ProfileCurve;
 use crate::view::auto_profile::lut::ColorLut;
 use crate::view::auto_profile::preview::ExtractedPreview;
-use crate::view::auto_profile::AutoFitOutcome;
 use crate::view::{agx, auto_profile, encode};
 use crate::xmp::AdjustmentModel;
 
+use super::RawInput;
 #[cfg(doc)]
 use super::auto_fit_model::fit_develop_model_for;
 use super::auto_fit_model::{fit_model_and_preview, uses_pinned_fit_pixels};
-use super::RawInput;
 
 /// Develop a RAW through the EXACT (pinned) Auto Profile fit prefix and return
 /// the `DisplayEncodedSrgb` buffer the curve / residual LUT fits sample
@@ -63,12 +64,31 @@ pub(super) fn develop_display_for_auto_fit(
     quality: RenderQuality,
     max_long_edge: Option<u32>,
 ) -> Result<Image> {
+    develop_display_for_auto_fit_cancellable(
+        raw,
+        auto_model,
+        quality,
+        max_long_edge,
+        CancelToken::never(),
+    )
+}
+
+pub(super) fn develop_display_for_auto_fit_cancellable(
+    raw: &RawImage,
+    auto_model: &AdjustmentModel,
+    quality: RenderQuality,
+    max_long_edge: Option<u32>,
+    cancel: CancelToken<'_>,
+) -> Result<Image> {
     let mut scene = match max_long_edge {
-        Some(mle) => {
-            develop_scene_linear_sized_from_raw_with_quality(raw, auto_model, quality, mle)?
-        }
-        None => develop_scene_linear_from_raw_with_quality(raw, auto_model, quality)?,
+        Some(mle) => develop_scene_linear_sized_from_raw_with_quality_cancellable(
+            raw, auto_model, quality, mle, cancel,
+        )?,
+        None => develop_scene_linear_from_raw_with_quality_cancellable(
+            raw, auto_model, quality, cancel,
+        )?,
     };
+    cancel.check()?;
     stage("agx", || {
         agx::apply(&mut scene, auto_model.contrast, auto_model.whites)
     });
@@ -287,6 +307,27 @@ pub fn fit_auto_profile_from_raw_at_cap(
     raw_source: RawInput<'_>,
     cap: FitCap,
 ) -> std::result::Result<FitArtifacts, AutoFitOutcome> {
+    fit_auto_profile_from_raw_at_cap_cancellable(
+        raw,
+        model,
+        quality,
+        raw_source,
+        cap,
+        CancelToken::never(),
+    )
+}
+
+pub fn fit_auto_profile_from_raw_at_cap_cancellable(
+    raw: &RawImage,
+    model: &AdjustmentModel,
+    quality: RenderQuality,
+    raw_source: RawInput<'_>,
+    cap: FitCap,
+    cancel: CancelToken<'_>,
+) -> std::result::Result<FitArtifacts, AutoFitOutcome> {
+    if cancel.is_cancelled() {
+        return Err(AutoFitOutcome::Cancelled);
+    }
     if model.profile != Profile::Auto || cap == FitCap::Render(0) {
         return Err(AutoFitOutcome::Unfitted);
     }
@@ -337,11 +378,21 @@ pub fn fit_auto_profile_from_raw_at_cap(
             // Only the standalone proxy shrinks the JPEG (#3510).
             let shrink_to = mle.filter(|_| cap == FitCap::Proxy);
             let (pinned, preview) = fit_model_and_preview(model, raw, preview, shrink_to);
-            let mut scene = develop_display_for_auto_fit(raw, &pinned, quality, mle)
-                .map_err(|_| AutoFitOutcome::Unfitted)?;
+            let mut scene =
+                develop_display_for_auto_fit_cancellable(raw, &pinned, quality, mle, cancel)
+                    .map_err(|e| {
+                        if matches!(e, Error::Cancelled) {
+                            AutoFitOutcome::Cancelled
+                        } else {
+                            AutoFitOutcome::Unfitted
+                        }
+                    })?;
+            if cancel.is_cancelled() {
+                return Err(AutoFitOutcome::Cancelled);
+            }
             let (w, h) = (scene.width as usize, scene.height as usize);
             let pixels: &mut [f32] = bytemuck::cast_slice_mut(&mut scene.pixels);
-            auto_profile::apply_pipeline::fit_auto_profile_artifacts(
+            auto_profile::apply_pipeline::fit_auto_profile_artifacts_cancellable(
                 pixels,
                 w,
                 h,
@@ -350,7 +401,15 @@ pub fn fit_auto_profile_from_raw_at_cap(
                 auto_cache_key.as_ref(),
                 cached_curve,
                 cached_lut,
+                cancel,
             )
+            .map_err(|e| {
+                if matches!(e, Error::Cancelled) {
+                    AutoFitOutcome::Cancelled
+                } else {
+                    AutoFitOutcome::Unfitted
+                }
+            })?
         }
     };
 

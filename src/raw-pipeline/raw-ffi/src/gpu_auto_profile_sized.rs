@@ -2,6 +2,7 @@
 //! Windows host adoption is a separate delivery under #4120; this entry does
 //! not change existing hosts' standalone calibration or decode policy.
 use super::*;
+use crate::cancel::MapleCancelFlag;
 
 /// Fit Auto Profile for the native renderer's explicitly sized develop.
 /// `max_long_edge` must be nonzero and is interpreted identically to
@@ -44,6 +45,39 @@ pub unsafe extern "C" fn maple_gpu_fit_auto_profile_at_render_size(
         lut_capacity_floats,
         lut_size,
         FitCap::Render(max_long_edge),
+        crate::cancel::SendCancelPtr(std::ptr::null()),
+    )
+}
+
+/// Cancellable sized fit. Return code 11 means the host cancelled; the flag
+/// must remain live until this synchronous call returns.
+#[no_mangle]
+pub unsafe extern "C" fn maple_gpu_fit_auto_profile_at_render_size_cancellable(
+    raw_path: *const c_char,
+    xmp_path: *const c_char,
+    quality_preview: i32,
+    max_long_edge: u32,
+    curve_out: *mut f32,
+    curve_present: *mut i32,
+    lut_out: *mut f32,
+    lut_capacity_floats: usize,
+    lut_size: *mut u32,
+    cancel: *const MapleCancelFlag,
+) -> i32 {
+    if max_long_edge == 0 {
+        return -1;
+    }
+    fit_auto_profile(
+        raw_path,
+        xmp_path,
+        quality_preview,
+        curve_out,
+        curve_present,
+        lut_out,
+        lut_capacity_floats,
+        lut_size,
+        FitCap::Render(max_long_edge),
+        crate::cancel::SendCancelPtr(cancel),
     )
 }
 

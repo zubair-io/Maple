@@ -9,4 +9,6 @@ public static class AutoFitCodes
     /// <summary>Auto was selected but no embedded camera preview could be
     /// extracted; out-params match rc 1 and the host renders Neutral.</summary>
     public const int NoPreview = 10;
+    /// <summary>The host cancelled a cancellable native fit.</summary>
+    public const int Cancelled = 11;
 }

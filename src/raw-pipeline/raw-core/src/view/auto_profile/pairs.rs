@@ -14,6 +14,7 @@
 //! `fit_display::orient_rgb_f32_to_display`, so neither the decode formula nor
 //! the orientation mapping can drift from #550.
 
+use crate::CancelToken;
 use crate::image::ExifOrientation;
 
 use super::fit_display::orient_rgb_f32_to_display;
@@ -50,6 +51,28 @@ pub fn sample_display_pairs(
     cs: JpegColorSpace,
     orientation: ExifOrientation,
 ) -> Vec<DisplayPair> {
+    sample_display_pairs_cancellable(
+        source_rgb,
+        source_w,
+        source_h,
+        preview,
+        cs,
+        orientation,
+        CancelToken::never(),
+    )
+    .unwrap_or_default()
+}
+
+pub fn sample_display_pairs_cancellable(
+    source_rgb: &[f32],
+    source_w: usize,
+    source_h: usize,
+    preview: image::DynamicImage,
+    cs: JpegColorSpace,
+    orientation: ExifOrientation,
+    cancel: CancelToken<'_>,
+) -> crate::Result<Vec<DisplayPair>> {
+    cancel.check()?;
     // Orient the embedded JPEG into the DISPLAY frame, matching #550 (the source
     // buffer arrives sensor-oriented and the render applies orientation AFTER
     // this stage, so both must be rotated into display before pairing).
@@ -94,6 +117,7 @@ pub fn sample_display_pairs(
 
     let mut pairs = Vec::new();
     for oy in 0..target_h_px {
+        cancel.check()?;
         if oy < border_h || oy >= target_h_px - border_h {
             continue;
         }
@@ -154,7 +178,7 @@ pub fn sample_display_pairs(
             pairs.push(DisplayPair { maple, jpeg });
         }
     }
-    pairs
+    Ok(pairs)
 }
 
 #[cfg(test)]

@@ -30,7 +30,7 @@ mod auto_fit;
 mod auto_fit_model;
 pub use auto_fit::{
     cached_auto_profile_fit, fit_auto_profile_from_raw, fit_auto_profile_from_raw_at_cap,
-    fit_profile_curve_from_raw, FitArtifacts, FitCap,
+    fit_auto_profile_from_raw_at_cap_cancellable, fit_profile_curve_from_raw, FitArtifacts, FitCap,
 };
 pub use auto_fit_model::fit_develop_model_for;
 

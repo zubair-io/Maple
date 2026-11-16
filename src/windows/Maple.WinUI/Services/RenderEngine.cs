@@ -158,7 +158,7 @@ namespace Maple.WinUI.Services
                             ReuseAutoProfile(decoded, reuseAutoProfileFrom!);
                         else
                         {
-                            var fitRc = FitAutoProfile(decoded, rawPath, tempXmpPath, fit);
+                            var fitRc = FitAutoProfile(decoded, rawPath, tempXmpPath, fit, cancelFlag);
                             decoded.AutoProfileOutcome = AutoProfileStatus.Classify(fitRc);
                             if (fitRc is 0 or 1 or AutoFitCodes.NoPreview)
                             {
@@ -372,7 +372,7 @@ namespace Maple.WinUI.Services
         /// fallback. Returns the fit's return code: rc 1 (no tail) and
         /// <see cref="AutoFitCodes.NoPreview"/> render plain AgX but
         /// still qualify source and fit ownership for reuse.</summary>
-        private static int FitAutoProfile(DecodedImage decoded, string rawPath, string xmpPath, ProfileFitContext fit)
+        private static int FitAutoProfile(DecodedImage decoded, string rawPath, string xmpPath, ProfileFitContext fit, IntPtr cancelFlag)
         {
             const int curveLen = 220;                 // MAPLE_PROFILE_CURVE_FLAT_LEN
             const int lutCapacityEdge = 33;
@@ -384,9 +384,10 @@ namespace Maple.WinUI.Services
             fixed (float* curvePtr = curve)
             fixed (float* lutPtr = residual)
             {
-                rc = RawFfi.maple_gpu_fit_auto_profile_at_render_size(
+                rc = RawFfi.maple_gpu_fit_auto_profile_at_render_size_cancellable(
                     rawPath, xmpPath, fit.Quality, fit.LongEdge, curvePtr, &curvePresent,
-                    lutPtr, (nuint)residual.Length, &lutSize);
+                    lutPtr, (nuint)residual.Length, &lutSize, cancelFlag);
+                if (rc == AutoFitCodes.Cancelled) throw new OperationCanceledException();
                 if (rc == -2 && lutSize > 0)
                 {
                     // Residual larger than the default capacity — reallocate to
@@ -394,9 +395,10 @@ namespace Maple.WinUI.Services
                     residual = new float[(int)lutSize * (int)lutSize * (int)lutSize * 3];
                     fixed (float* lutPtr2 = residual)
                     {
-                        rc = RawFfi.maple_gpu_fit_auto_profile_at_render_size(
+                        rc = RawFfi.maple_gpu_fit_auto_profile_at_render_size_cancellable(
                             rawPath, xmpPath, fit.Quality, fit.LongEdge, curvePtr, &curvePresent,
-                            lutPtr2, (nuint)residual.Length, &lutSize);
+                            lutPtr2, (nuint)residual.Length, &lutSize, cancelFlag);
+                        if (rc == AutoFitCodes.Cancelled) throw new OperationCanceledException();
                     }
                 }
             }
