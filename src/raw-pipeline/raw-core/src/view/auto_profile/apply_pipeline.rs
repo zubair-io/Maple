@@ -17,13 +17,14 @@
 //! cold-open case) pass it directly; everyone else develops a separate pinned
 //! buffer (see `auto_fit::run_auto_profile_stage`).
 
+use crate::CancelToken;
 use crate::image::ExifOrientation;
 use crate::view::acr_fit;
 
 use super::cache::{self, CacheKey};
 use super::curve::ProfileCurve;
 use super::lut::{self, ColorLut};
-use super::pairs::sample_display_pairs;
+use super::pairs::sample_display_pairs_cancellable;
 use super::preview::ExtractedPreview;
 use super::{apply_curve, fit_display};
 
@@ -88,6 +89,32 @@ pub fn fit_auto_profile_artifacts(
     cached_curve: Option<ProfileCurve>,
     cached_lut: Option<ColorLut>,
 ) -> (Option<ProfileCurve>, Option<ColorLut>) {
+    fit_auto_profile_artifacts_cancellable(
+        pixels,
+        w,
+        h,
+        orientation,
+        preview,
+        cache_key,
+        cached_curve,
+        cached_lut,
+        CancelToken::never(),
+    )
+    .unwrap_or((None, None))
+}
+
+pub fn fit_auto_profile_artifacts_cancellable(
+    pixels: &mut [f32],
+    w: usize,
+    h: usize,
+    orientation: ExifOrientation,
+    preview: Option<&ExtractedPreview>,
+    cache_key: Option<&CacheKey>,
+    cached_curve: Option<ProfileCurve>,
+    cached_lut: Option<ColorLut>,
+    cancel: CancelToken<'_>,
+) -> crate::Result<(Option<ProfileCurve>, Option<ColorLut>)> {
+    cancel.check()?;
     // #1740 M2: Auto 2.0's structured solver is the DEFAULT fit;
     // `MAPLE_AUTO1=1` restores the Auto 1.0 curve/LUT logic below. The
     // dispatch runs FIRST (and the default returns early) so the two
@@ -107,6 +134,7 @@ pub fn fit_auto_profile_artifacts(
             cache_key,
             cached_curve,
             cached_lut,
+            cancel,
         );
     }
 
@@ -127,13 +155,14 @@ pub fn fit_auto_profile_artifacts(
         }
         fitted
     });
+    cancel.check()?;
     if let Some(c) = &curve {
         apply_curve(pixels, c);
     }
 
     // 2. residual 3D LUT — fit on the buffer as step 1 left it.
     if lut::lut_disabled_by_env() {
-        return (curve, None);
+        return Ok((curve, None));
     }
     let residual = cached_lut.or_else(|| {
         let fitted = preview.and_then(|p| {
@@ -144,7 +173,8 @@ pub fn fit_auto_profile_artifacts(
         }
         fitted
     });
-    (curve, residual)
+    cancel.check()?;
+    Ok((curve, residual))
 }
 
 /// Auto 2.0 — the DEFAULT fit since the #1740 M2 flip (`MAPLE_AUTO1=1`
@@ -176,25 +206,37 @@ fn fit_via_acr2(
     cache_key: Option<&CacheKey>,
     cached_curve: Option<ProfileCurve>,
     cached_lut: Option<ColorLut>,
-) -> (Option<ProfileCurve>, Option<ColorLut>) {
+    cancel: CancelToken<'_>,
+) -> crate::Result<(Option<ProfileCurve>, Option<ColorLut>)> {
+    cancel.check()?;
     if let (Some(_), Some(l)) = (&cached_curve, &cached_lut) {
-        return (None, Some(l.clone()));
+        return Ok((None, Some(l.clone())));
     }
     let Some(p) = preview else {
-        return (None, None);
+        return Ok((None, None));
     };
     let pairs = crate::pipeline::stage("auto_pairs", || {
-        sample_display_pairs(pixels, w, h, p.image.clone(), p.color_space, orientation)
-    });
+        sample_display_pairs_cancellable(
+            pixels,
+            w,
+            h,
+            p.image.clone(),
+            p.color_space,
+            orientation,
+            cancel,
+        )
+    })?;
+    cancel.check()?;
     let model = match crate::pipeline::stage("auto_acr_solve", || {
         acr_fit::solve_acr_model_from_display_pairs(&pairs)
     }) {
         Ok(m) => m,
         Err(e) => {
             eprintln!("[auto2] structured fit failed, no Auto Profile tail: {e}");
-            return (None, None);
+            return Ok((None, None));
         }
     };
+    cancel.check()?;
     let (curve, mut residual) = crate::pipeline::stage("auto_bake", || {
         acr_fit::acr_model_as_profile_artifacts(
             &model,
@@ -216,6 +258,7 @@ fn fit_via_acr2(
             residual = Some(candidate);
         }
     }
+    cancel.check()?;
     if let Some(lut) = residual.as_mut() {
         super::toe::soften_black_toe(lut);
     }
@@ -223,7 +266,7 @@ fn fit_via_acr2(
         cache::insert(key.clone(), c.clone());
         cache::insert_lut(key.clone(), l.clone());
     }
-    (None, residual)
+    Ok((None, residual))
 }
 
 /// Apply the FULL Auto Profile tail in place to `pixels` — the CPU render
@@ -252,5 +295,30 @@ pub fn apply_auto_profile(
     );
     if let Some(l) = residual {
         l.apply_with_strength(pixels, lut::lut_strength_from_env());
+    }
+}
+
+#[cfg(test)]
+mod cancellation_tests {
+    use super::*;
+    use std::sync::atomic::AtomicBool;
+
+    #[test]
+    fn tiny_fit_buffer_is_untouched_when_cancelled_before_sampling() {
+        let flag = AtomicBool::new(true);
+        let mut pixels = [0.25, 0.5, 0.75];
+        let result = fit_auto_profile_artifacts_cancellable(
+            &mut pixels,
+            1,
+            1,
+            ExifOrientation::Normal,
+            None,
+            None,
+            None,
+            None,
+            CancelToken::new(&flag),
+        );
+        assert!(matches!(result, Err(crate::Error::Cancelled)));
+        assert_eq!(pixels, [0.25, 0.5, 0.75]);
     }
 }

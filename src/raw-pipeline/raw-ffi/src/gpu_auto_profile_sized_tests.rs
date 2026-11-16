@@ -1,6 +1,6 @@
 use super::*;
 use raw_core::pipeline::RenderQuality;
-use raw_core::view::auto_profile::{lut::ColorLut, ProfileCurve};
+use raw_core::view::auto_profile::{ProfileCurve, lut::ColorLut};
 use std::{ffi::CString, path::Path, ptr};
 
 struct Artifacts {
@@ -52,11 +52,13 @@ fn sized_ffi_rejects_zero_edge_and_preserves_buffers() {
     assert_eq!(unsafe { artifacts.call(&raw, ptr::null(), 0) }, -1);
     assert_eq!(artifacts.present, -1);
     assert_eq!(artifacts.size, 999);
-    assert!(artifacts
-        .curve
-        .iter()
-        .chain(&artifacts.lut)
-        .all(|v| *v == 0.));
+    assert!(
+        artifacts
+            .curve
+            .iter()
+            .chain(&artifacts.lut)
+            .all(|v| *v == 0.)
+    );
 }
 
 #[test]
@@ -66,6 +68,31 @@ fn sized_ffi_reports_missing_raw_and_initializes_presence() {
     let mut artifacts = Artifacts::new();
     assert_eq!(unsafe { artifacts.call(&raw, ptr::null(), 1600) }, 6);
     assert_eq!((artifacts.present, artifacts.size), (0, 0));
+}
+
+#[test]
+fn sized_ffi_observes_host_cancellation_before_reading_raw() {
+    let raw = CString::new("absent.dng").unwrap();
+    let mut artifacts = Artifacts::new();
+    let flag = crate::cancel::maple_cancel_flag_new();
+    unsafe {
+        crate::cancel::maple_cancel_flag_set(flag);
+        let rc = maple_gpu_fit_auto_profile_at_render_size_cancellable(
+            raw.as_ptr(),
+            ptr::null(),
+            1,
+            1600,
+            artifacts.curve.as_mut_ptr(),
+            &mut artifacts.present,
+            artifacts.lut.as_mut_ptr(),
+            artifacts.lut.len(),
+            &mut artifacts.size,
+            flag,
+        );
+        assert_eq!(rc, crate::auto_profile::MAPLE_AUTO_FIT_CANCELLED);
+        assert_eq!((artifacts.present, artifacts.size), (0, 0));
+        crate::cancel::maple_cancel_flag_free(flag);
+    }
 }
 
 #[test]

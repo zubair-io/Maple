@@ -4,28 +4,31 @@
 //! unchanged (cbindgen scans every module, so the C ABI is identical).
 
 use crate::error::{set_last_error, with_large_stack};
-use crate::model::{load_xmp_model_owned, LoadModel};
+use crate::model::{LoadModel, load_xmp_model_owned};
 use raw_core::decode::decode_bytes;
-use raw_core::decode_cache::{decode_bytes_cached, CacheKey};
+use raw_core::decode_cache::{CacheKey, decode_bytes_cached};
 use raw_core::pipeline::{
-    cached_auto_profile_fit, fit_auto_profile_from_raw, fit_profile_curve_from_raw, RawInput,
-    RenderQuality,
+    RawInput, RenderQuality, cached_auto_profile_fit, fit_auto_profile_from_raw,
+    fit_profile_curve_from_raw,
 };
-use raw_core::view::auto_profile::cache::CacheKey as AutoCacheKey;
 use raw_core::view::auto_profile::AutoFitOutcome;
-use std::ffi::{c_char, CStr};
+use raw_core::view::auto_profile::cache::CacheKey as AutoCacheKey;
+use std::ffi::{CStr, c_char};
 
 /// Auto Profile fit return code: Auto was selected but no embedded camera
 /// preview could be extracted, so the host renders Neutral (#5458). A literal
 /// because cbindgen drops a constant defined by another crate's path.
 pub const MAPLE_AUTO_FIT_NO_PREVIEW: i32 = 10;
 const _: () = assert!(MAPLE_AUTO_FIT_NO_PREVIEW == AutoFitOutcome::NO_PREVIEW_FFI_CODE);
+pub const MAPLE_AUTO_FIT_CANCELLED: i32 = 11;
+const _: () = assert!(MAPLE_AUTO_FIT_CANCELLED == AutoFitOutcome::CANCELLED_FFI_CODE);
 
 /// The return code an Auto fit with no applicable tail reports.
 pub(crate) fn no_tail_rc(outcome: AutoFitOutcome) -> i32 {
     match outcome {
         AutoFitOutcome::NoPreview => MAPLE_AUTO_FIT_NO_PREVIEW,
         AutoFitOutcome::Applied | AutoFitOutcome::Unfitted => 1,
+        AutoFitOutcome::Cancelled => MAPLE_AUTO_FIT_CANCELLED,
     }
 }
 
@@ -82,7 +85,7 @@ pub unsafe extern "C" fn maple_compute_profile_lut(
 ) -> i32 {
     crate::error::catch_panic_rc("maple_compute_profile_lut", || {
         use raw_core::view::auto_profile::{
-            bake_profile_lut, ProfileCurve, MAX_LUT_SIZE, PROFILE_CURVE_FLAT_LEN,
+            MAX_LUT_SIZE, PROFILE_CURVE_FLAT_LEN, ProfileCurve, bake_profile_lut,
         };
         if curve.is_null() || out.is_null() {
             return -1;
@@ -331,7 +334,7 @@ pub unsafe extern "C" fn maple_compute_auto_profile_lut(
     n: u32,
     out: *mut f32,
 ) -> i32 {
-    use raw_core::view::auto_profile::{bake_auto_profile_lut, bake_profile_lut, MAX_LUT_SIZE};
+    use raw_core::view::auto_profile::{MAX_LUT_SIZE, bake_auto_profile_lut, bake_profile_lut};
     if raw_path.is_null() || out.is_null() {
         return -1;
     }
