@@ -10,7 +10,8 @@
 //! — here simplified to nearest-bin assignment with a final 2-pass
 //! neighbour-smoothing sweep for continuity).
 
-use super::model::{HueChromaField, Tonescale, CHROMA_BINS, FIELD_N, HUE_BINS, LUMA_BINS};
+use super::model::{CHROMA_BINS, FIELD_N, HUE_BINS, HueChromaField, LUMA_BINS, Tonescale};
+use crate::CancelToken;
 use crate::color::oklab::rec2020_to_oklab;
 
 /// Per-sample chroma-ratio bounds (#1740 M1 calibration). `s = C_meas /
@@ -57,6 +58,25 @@ pub fn fit_field(
     ts: &Tonescale,
     shrink_k: f32,
 ) -> (HueChromaField, usize, usize) {
+    fit_field_cancellable(samples, ts, shrink_k, CancelToken::never())
+        .expect("never-cancelled fit cannot be cancelled")
+}
+
+pub fn fit_field_cancellable(
+    samples: &[SweepSample],
+    ts: &Tonescale,
+    shrink_k: f32,
+    cancel: CancelToken<'_>,
+) -> crate::Result<(HueChromaField, usize, usize)> {
+    fit_field_with_cancellation(samples, ts, shrink_k, || cancel.is_cancelled())
+}
+
+fn fit_field_with_cancellation(
+    samples: &[SweepSample],
+    ts: &Tonescale,
+    shrink_k: f32,
+    mut is_cancelled: impl FnMut() -> bool,
+) -> crate::Result<(HueChromaField, usize, usize)> {
     use crate::color::matrices::M_REC2020_TO_SRGB;
     let m_srgb_to_rec2020 = M_REC2020_TO_SRGB
         .inverse()
@@ -71,6 +91,9 @@ pub fn fit_field(
     use rayon::prelude::*;
     let mut observations = vec![None; samples.len().min(OBSERVATION_CHUNK)];
     for chunk in samples.chunks(OBSERVATION_CHUNK) {
+        if is_cancelled() {
+            return Err(crate::Error::Cancelled);
+        }
         let observations = &mut observations[..chunk.len()];
         if chunk.len() >= 512 {
             observations
@@ -125,7 +148,10 @@ pub fn fit_field(
         delta_h_deg: dh_field,
         sat_scale: ss_field,
     };
-    (field, patches_used, patches_clipped)
+    if is_cancelled() {
+        return Err(crate::Error::Cancelled);
+    }
+    Ok((field, patches_used, patches_clipped))
 }
 
 // #4379: bounded observation scratch; arithmetic within an observation and
@@ -254,6 +280,24 @@ mod tests {
         let mut data = vec![1.0f32; FIELD_N];
         smooth_field(&mut data);
         assert_eq!(data.len(), FIELD_N);
+    }
+
+    #[test]
+    fn field_fit_observes_cancellation_between_bounded_pair_chunks() {
+        let samples: Vec<_> = (0..OBSERVATION_CHUNK + 1)
+            .map(|_| SweepSample {
+                scene_rec2020: [0.4, 0.1, 0.1],
+                display_srgb: [0.38, 0.14, 0.08],
+            })
+            .collect();
+        let mut checks = 0;
+        let result =
+            fit_field_with_cancellation(&samples, &flat_tonescale(), PAIRS_SHRINK_K, || {
+                checks += 1;
+                checks > 1
+            });
+        assert!(matches!(result, Err(crate::Error::Cancelled)));
+        assert_eq!(checks, 2, "cancellation should be checked before chunk two");
     }
 
     fn one_sample(scene: [f32; 3], display: [f32; 3]) -> Vec<SweepSample> {

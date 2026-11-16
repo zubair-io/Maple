@@ -33,9 +33,10 @@
 //!   uses every pair (its own confidence-by-count handles sparse hue/chroma
 //!   cells, and cells with no support already default to identity).
 
-use super::field::{fit_field, SweepSample, PAIRS_SHRINK_K};
+use super::field::{PAIRS_SHRINK_K, SweepSample};
 use super::model::{AcrModel, FitStats, Tonescale};
-use super::tonescale::{fit_tonescale_with_range, KnotRange, NeutralSample};
+use super::tonescale::{KnotRange, NeutralSample, fit_tonescale_with_range};
+use crate::CancelToken;
 use crate::color::matrices::M_REC2020_TO_SRGB;
 use crate::color::oklab::rec2020_to_oklab;
 use crate::view::agx_inverse::srgb_gamma_inv;
@@ -195,6 +196,44 @@ pub fn sweep_samples_from_pairs(pairs: &[DisplayPair]) -> Vec<SweepSample> {
     }
 }
 
+const CANCEL_SCAN_CHUNK: usize = 8192;
+
+fn collect_neutral_samples_cancellable(
+    pairs: &[DisplayPair],
+    cancel: CancelToken<'_>,
+) -> Result<Vec<NeutralSample>, AcrFitError> {
+    let mut samples = Vec::new();
+    for chunk in pairs.chunks(CANCEL_SCAN_CHUNK) {
+        cancel.check().map_err(|_| AcrFitError::Cancelled)?;
+        samples.extend(neutral_samples_from_pairs(chunk));
+    }
+    Ok(samples)
+}
+
+fn collect_scene_luminances_cancellable(
+    pairs: &[DisplayPair],
+    cancel: CancelToken<'_>,
+) -> Result<Vec<f32>, AcrFitError> {
+    let mut samples = Vec::with_capacity(pairs.len());
+    for chunk in pairs.chunks(CANCEL_SCAN_CHUNK) {
+        cancel.check().map_err(|_| AcrFitError::Cancelled)?;
+        samples.extend(all_pairs_scene_luminances(chunk));
+    }
+    Ok(samples)
+}
+
+fn collect_sweep_samples_cancellable(
+    pairs: &[DisplayPair],
+    cancel: CancelToken<'_>,
+) -> Result<Vec<SweepSample>, AcrFitError> {
+    let mut samples = Vec::with_capacity(pairs.len());
+    for chunk in pairs.chunks(CANCEL_SCAN_CHUNK) {
+        cancel.check().map_err(|_| AcrFitError::Cancelled)?;
+        samples.extend(sweep_samples_from_pairs(chunk));
+    }
+    Ok(samples)
+}
+
 /// Fit a structured [`AcrModel`] (tonescale + hue/chroma field) directly from
 /// scattered display-space `(maple, jpeg)` pairs — the JPEG-pair front-end
 /// for Auto 2.0 M0 (#1740). Mirrors `solve_acr_model_multi`'s stages 1, 2 and
@@ -223,21 +262,44 @@ pub fn sweep_samples_from_pairs(pairs: &[DisplayPair]) -> Vec<SweepSample> {
 /// solver's own design: the synthetic neutral ramp is deliberately built to
 /// span the same range as the sweep patches it's evaluated against.
 pub fn solve_acr_model_from_display_pairs(pairs: &[DisplayPair]) -> Result<AcrModel, String> {
-    let neutral = neutral_samples_from_pairs(pairs);
-    let knot_range = KnotRange::from_scene_luminances(&all_pairs_scene_luminances(pairs));
+    solve_acr_model_from_display_pairs_cancellable(pairs, CancelToken::never()).map_err(|error| {
+        match error {
+            AcrFitError::Cancelled => "Auto Profile fit cancelled".to_owned(),
+            AcrFitError::Failed(message) => message,
+        }
+    })
+}
+
+#[derive(Debug)]
+pub enum AcrFitError {
+    Cancelled,
+    Failed(String),
+}
+
+pub fn solve_acr_model_from_display_pairs_cancellable(
+    pairs: &[DisplayPair],
+    cancel: CancelToken<'_>,
+) -> Result<AcrModel, AcrFitError> {
+    cancel.check().map_err(|_| AcrFitError::Cancelled)?;
+    let neutral = collect_neutral_samples_cancellable(pairs, cancel)?;
+    let luminances = collect_scene_luminances_cancellable(pairs, cancel)?;
+    let knot_range = KnotRange::from_scene_luminances(&luminances);
     let mut ts = fit_tonescale_with_range(&neutral, knot_range).ok_or_else(|| {
-        format!(
+        AcrFitError::Failed(format!(
             "tonescale fit failed: {} usable tone samples out of {} total (need >= 2)",
             neutral.len(),
             pairs.len()
-        )
+        ))
     })?;
     shape_tonescale_for_display_domain(&mut ts);
 
-    let sweep = sweep_samples_from_pairs(pairs);
-    let (field, patches_used, patches_clipped) = fit_field(&sweep, &ts, PAIRS_SHRINK_K);
+    let sweep = collect_sweep_samples_cancellable(pairs, cancel)?;
+    let (field, patches_used, patches_clipped) =
+        super::field::fit_field_cancellable(&sweep, &ts, PAIRS_SHRINK_K, cancel)
+            .map_err(|_| AcrFitError::Cancelled)?;
 
-    let fit_rms_de = compute_fit_rms_de_from_pairs(pairs, &ts, &field);
+    let fit_rms_de = compute_fit_rms_de_from_pairs(pairs, &ts, &field, cancel)
+        .map_err(|_| AcrFitError::Cancelled)?;
 
     Ok(AcrModel {
         tonescale: ts,
@@ -327,7 +389,8 @@ fn compute_fit_rms_de_from_pairs(
     pairs: &[DisplayPair],
     ts: &Tonescale,
     field: &super::model::HueChromaField,
-) -> f32 {
+    cancel: CancelToken<'_>,
+) -> crate::Result<f32> {
     use super::model::{apply_model, ciede2000, srgb_linear_to_lab};
     use rayon::prelude::*;
     let m_srgb_to_rec2020 = M_REC2020_TO_SRGB
@@ -362,14 +425,18 @@ fn compute_fit_rms_de_from_pairs(
     };
     let mut total_de = 0.0f64;
     if pairs.len() <= 4096 || rayon::current_num_threads() == 1 {
-        for p in pairs {
+        for (index, p) in pairs.iter().enumerate() {
+            if index % 1024 == 0 {
+                cancel.check()?;
+            }
             total_de += squared_error(p);
         }
     } else {
         // #4360: parallelize independent evaluations, never their reduction.
         // At most 512 KiB scratch; retain the original pair/addition order.
-        let mut errors = vec![0.0f64; pairs.len().min(65_536)];
+        let mut errors = vec![0.0f64; pairs.len().min(CANCEL_SCAN_CHUNK)];
         for chunk in pairs.chunks(errors.len()) {
+            cancel.check()?;
             let output = &mut errors[..chunk.len()];
             output
                 .par_iter_mut()
@@ -384,9 +451,9 @@ fn compute_fit_rms_de_from_pairs(
     }
     let n = pairs.len();
     if n == 0 {
-        0.0
+        Ok(0.0)
     } else {
-        (total_de / n as f64).sqrt() as f32
+        Ok((total_de / n as f64).sqrt() as f32)
     }
 }
 
