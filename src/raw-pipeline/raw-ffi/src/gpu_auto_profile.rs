@@ -22,14 +22,14 @@
 //! Gated behind the `gpu` feature with the rest of the gpu FFI, so it (and the
 //! `MapleGpuLiveParams` it feeds) is absent from the default xcframework.
 
-use crate::cancel::{MapleCancelFlag, SendCancelPtr, token_from_ptr};
+use crate::cancel::{token_from_ptr, MapleCancelFlag, SendCancelPtr};
 use crate::error::{set_last_error, with_large_stack};
-use crate::model::{LoadModel, load_xmp_model_owned};
+use crate::model::{load_xmp_model_owned, LoadModel};
 use raw_core::decode::decode_bytes;
-use raw_core::decode_cache::{CacheKey, decode_bytes_cached};
-use raw_core::pipeline::{FitCap, RawInput, cached_auto_profile_fit};
+use raw_core::decode_cache::{decode_bytes_cached, CacheKey};
+use raw_core::pipeline::{cached_auto_profile_fit, FitCap, RawInput};
 use raw_core::view::auto_profile::cache::CacheKey as AutoCacheKey;
-use std::ffi::{CStr, c_char};
+use std::ffi::{c_char, CStr};
 
 /// The flat-`f32` length of a serialized `ProfileCurve` — the size the host must
 /// allocate for `maple_gpu_fit_auto_profile`'s `curve_out` (and the
