@@ -228,10 +228,11 @@ fn fit_via_acr2(
     })?;
     cancel.check()?;
     let model = match crate::pipeline::stage("auto_acr_solve", || {
-        acr_fit::solve_acr_model_from_display_pairs(&pairs)
+        acr_fit::solve_acr_model_from_display_pairs_cancellable(&pairs, cancel)
     }) {
         Ok(m) => m,
-        Err(e) => {
+        Err(acr_fit::from_pairs::AcrFitError::Cancelled) => return Err(crate::Error::Cancelled),
+        Err(acr_fit::from_pairs::AcrFitError::Failed(e)) => {
             eprintln!("[auto2] structured fit failed, no Auto Profile tail: {e}");
             return Ok((None, None));
         }
