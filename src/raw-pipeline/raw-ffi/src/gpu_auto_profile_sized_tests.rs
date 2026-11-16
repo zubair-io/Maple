@@ -1,6 +1,6 @@
 use super::*;
 use raw_core::pipeline::RenderQuality;
-use raw_core::view::auto_profile::{ProfileCurve, lut::ColorLut};
+use raw_core::view::auto_profile::{lut::ColorLut, ProfileCurve};
 use std::{ffi::CString, path::Path, ptr};
 
 struct Artifacts {
@@ -52,13 +52,11 @@ fn sized_ffi_rejects_zero_edge_and_preserves_buffers() {
     assert_eq!(unsafe { artifacts.call(&raw, ptr::null(), 0) }, -1);
     assert_eq!(artifacts.present, -1);
     assert_eq!(artifacts.size, 999);
-    assert!(
-        artifacts
-            .curve
-            .iter()
-            .chain(&artifacts.lut)
-            .all(|v| *v == 0.)
-    );
+    assert!(artifacts
+        .curve
+        .iter()
+        .chain(&artifacts.lut)
+        .all(|v| *v == 0.));
 }
 
 #[test]
