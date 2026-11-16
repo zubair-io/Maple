@@ -66,6 +66,7 @@ pub use pano::banded::{develop_banded_for_pano, PanoBandScratch, PanoBandedInges
 pub use pano::{
     decode_for_pano, read_pano_metadata, FalloffCorrection, PanoIngest, PanoSourceMetadata,
 };
+pub use render::fit_auto_profile_from_raw_at_cap_cancellable;
 pub use render::{
     cached_auto_profile_fit, decode_raster_base, finish_capture_refine, fit_auto_profile_from_raw,
     fit_auto_profile_from_raw_at_cap, fit_develop_model_for, fit_profile_curve_from_raw,
