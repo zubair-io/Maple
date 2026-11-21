@@ -14,6 +14,9 @@ pub enum AutoFitOutcome {
 }
 
 impl AutoFitOutcome {
+    /// The outcomes a completed fit reports, in wire order (codegen emits these
+    /// to the web host). `Cancelled` is deliberately absent: it is not a fit
+    /// result, only the signal that a cancellable native entry was abandoned.
     pub const ALL: [Self; 3] = [Self::Applied, Self::NoPreview, Self::Unfitted];
 
     /// The C-FFI fit return code for [`Self::NoPreview`], emitted to C# by
@@ -45,11 +48,9 @@ mod tests {
             AutoFitOutcome::Unfitted => 2,
             AutoFitOutcome::Cancelled => 3,
         };
-        assert!(
-            AutoFitOutcome::ALL
-                .iter()
-                .enumerate()
-                .all(|(index, &outcome)| position(outcome) == index)
-        );
+        assert!(AutoFitOutcome::ALL
+            .iter()
+            .enumerate()
+            .all(|(index, &outcome)| position(outcome) == index));
     }
 }

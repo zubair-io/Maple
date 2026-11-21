@@ -19,22 +19,22 @@ use crate::error::Result;
 use crate::image::{ColorSpace, Image, RawImage};
 use crate::pipeline::develop::develop_scene_linear_from_raw_with_quality_cancellable;
 use crate::pipeline::develop_sized::develop_scene_linear_sized_from_raw_with_quality_cancellable;
-use crate::pipeline::{RenderQuality, stage};
+use crate::pipeline::{stage, RenderQuality};
 use crate::stages::{color_grade, grain};
 use crate::types::adjustment::Profile;
-use crate::view::auto_profile::AutoFitOutcome;
 use crate::view::auto_profile::apply_pipeline::render_curve;
 use crate::view::auto_profile::cache::{CacheKey, FitOrigin};
 use crate::view::auto_profile::curve::ProfileCurve;
 use crate::view::auto_profile::lut::ColorLut;
 use crate::view::auto_profile::preview::ExtractedPreview;
+use crate::view::auto_profile::AutoFitOutcome;
 use crate::view::{agx, auto_profile, encode};
 use crate::xmp::AdjustmentModel;
 
-use super::RawInput;
 #[cfg(doc)]
 use super::auto_fit_model::fit_develop_model_for;
 use super::auto_fit_model::{fit_model_and_preview, uses_pinned_fit_pixels};
+use super::RawInput;
 
 /// Develop a RAW through the EXACT (pinned) Auto Profile fit prefix and return
 /// the `DisplayEncodedSrgb` buffer the curve / residual LUT fits sample

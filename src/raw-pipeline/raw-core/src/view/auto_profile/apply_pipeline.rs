@@ -17,9 +17,9 @@
 //! cold-open case) pass it directly; everyone else develops a separate pinned
 //! buffer (see `auto_fit::run_auto_profile_stage`).
 
-use crate::CancelToken;
 use crate::image::ExifOrientation;
 use crate::view::acr_fit;
+use crate::CancelToken;
 
 use super::cache::{self, CacheKey};
 use super::curve::ProfileCurve;

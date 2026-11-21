@@ -33,14 +33,14 @@
 //!   uses every pair (its own confidence-by-count handles sparse hue/chroma
 //!   cells, and cells with no support already default to identity).
 
-use super::field::{PAIRS_SHRINK_K, SweepSample};
+use super::field::{SweepSample, PAIRS_SHRINK_K};
 use super::model::{AcrModel, FitStats, Tonescale};
-use super::tonescale::{KnotRange, NeutralSample, fit_tonescale_with_range};
-use crate::CancelToken;
+use super::tonescale::{fit_tonescale_with_range, KnotRange, NeutralSample};
 use crate::color::matrices::M_REC2020_TO_SRGB;
 use crate::color::oklab::rec2020_to_oklab;
 use crate::view::agx_inverse::srgb_gamma_inv;
 use crate::view::auto_profile::pairs::DisplayPair;
+use crate::CancelToken;
 
 /// Oklab chroma ceiling (same units as `field.rs`'s `c_pred`, normalised
 /// against the field's own `0.30` chroma span) below which a pair is treated
@@ -433,7 +433,7 @@ fn compute_fit_rms_de_from_pairs(
         }
     } else {
         // #4360: parallelize independent evaluations, never their reduction.
-        // At most 512 KiB scratch; retain the original pair/addition order.
+        // At most 64 KiB scratch per cancel check; retain the original pair/addition order.
         let mut errors = vec![0.0f64; pairs.len().min(CANCEL_SCAN_CHUNK)];
         for chunk in pairs.chunks(errors.len()) {
             cancel.check()?;
