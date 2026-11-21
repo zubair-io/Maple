@@ -73,24 +73,30 @@ namespace Maple.WinUI.Services.CloudFiles
             // waiting on it would hold the cursor behind this row forever.
             if (folder == null) return true;
             var safeRoot = Path.Combine(SyncRootPath, SanitizeName(folder.DisplayName));
-            var parentRelative = Path.GetDirectoryName(action.RelativePath.Replace('/', Path.DirectorySeparatorChar));
-            var parent = string.IsNullOrEmpty(parentRelative) ? safeRoot : Path.GetFullPath(Path.Combine(safeRoot, parentRelative));
-            if (!CloudFilesChangeApply.IsWithin(safeRoot, parent)) return false;
-            // An unopened directory has not been populated yet; its normal
-            // first FETCH_PLACEHOLDERS will see the latest server snapshot.
-            if (!Directory.Exists(parent)) return true;
-            if (!CloudFilesPlaceholderProbe.IsPlaceholder(parent)) return true;
+            // Placeholders carry sanitized names, so the server path is mapped the same way.
+            var item = Path.GetFullPath(Path.Combine(
+                action.RelativePath.Split('/').Select(SanitizeName).Prepend(safeRoot).ToArray()));
+            if (!CloudFilesChangeApply.IsWithin(safeRoot, item)) return true;
+            if (action.Kind == CloudChangeActionKind.DeleteIfInSync &&
+                (File.Exists(item) || Directory.Exists(item)) && !TryRemoveStalePlaceholder(item)) return false;
 
-            if (action.Kind == CloudChangeActionKind.DeleteIfInSync)
-            {
-                var item = Path.GetFullPath(Path.Combine(safeRoot, action.RelativePath.Replace('/', Path.DirectorySeparatorChar)));
-                if (!CloudFilesChangeApply.IsWithin(safeRoot, item)) return false;
-                if ((File.Exists(item) || Directory.Exists(item)) && !TryRemoveStalePlaceholder(item)) return false;
-                // Refresh siblings as well: a server-side RAW delete may have
-                // a paired XMP entry that must disappear from the listing.
-                return CloudFilesChangeApply.EnableOnDemandPopulation(parent);
-            }
-            return CloudFilesChangeApply.EnableOnDemandPopulation(parent);
+            // The feed reports files, never the folders created around them, so
+            // a change under a folder this PC has not seen refreshes the nearest
+            // ancestor that exists. Siblings refresh too: a deleted RAW takes its
+            // paired sidecar with it.
+            var listed = NearestExistingDirectory(Path.GetDirectoryName(item)!, safeRoot);
+            // Nothing populated yet: the first FETCH_PLACEHOLDERS reads the current server state.
+            if (listed == null || !CloudFilesPlaceholderProbe.IsPlaceholder(listed)) return true;
+            return CloudFilesChangeApply.EnableOnDemandPopulation(listed);
+        }
+
+        private static string? NearestExistingDirectory(string directory, string root)
+        {
+            for (var current = directory;
+                 current != null && CloudFilesChangeApply.IsWithin(root, current);
+                 current = Path.GetDirectoryName(current))
+                if (Directory.Exists(current)) return current;
+            return null;
         }
 
         private async Task<bool> ReenablePopulatedDirectoriesAsync(CloudClient client, CancellationToken ct)
