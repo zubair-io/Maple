@@ -77,6 +77,8 @@ namespace Maple.WinUI.Services.CloudFiles
             var item = Path.GetFullPath(Path.Combine(
                 action.RelativePath.Split('/').Select(SanitizeName).Prepend(safeRoot).ToArray()));
             if (!CloudFilesChangeApply.IsWithin(safeRoot, item)) return true;
+            // A junction inside the library leads somewhere Maple does not own.
+            if (HasLinkedAncestor(item, safeRoot)) return true;
             if (action.Kind == CloudChangeActionKind.DeleteIfInSync &&
                 (File.Exists(item) || Directory.Exists(item)) && !TryRemoveStalePlaceholder(item)) return false;
 
@@ -88,6 +90,15 @@ namespace Maple.WinUI.Services.CloudFiles
             // Nothing populated yet: the first FETCH_PLACEHOLDERS reads the current server state.
             if (listed == null || !CloudFilesPlaceholderProbe.IsPlaceholder(listed)) return true;
             return CloudFilesChangeApply.EnableOnDemandPopulation(listed);
+        }
+
+        private static bool HasLinkedAncestor(string path, string root)
+        {
+            for (var current = Path.GetDirectoryName(path);
+                 current != null && CloudFilesChangeApply.IsWithin(root, current);
+                 current = Path.GetDirectoryName(current))
+                if (Directory.Exists(current) && new DirectoryInfo(current).LinkTarget != null) return true;
+            return false;
         }
 
         private static string? NearestExistingDirectory(string directory, string root)
@@ -158,7 +169,21 @@ namespace Maple.WinUI.Services.CloudFiles
             }
             catch (IOException) { }
             CloudFilesSyncRootCleanup.Sweep(path, CloudFilesPlaceholderProbe.Probes);
-            return true;
+            // What the sweep kept is the user's, unless it only kept a
+            // placeholder because something had it open; that one is retried.
+            return !Directory.Exists(path) || !HoldsBusyPlaceholder(path);
+        }
+
+        private static bool HoldsBusyPlaceholder(string directory)
+        {
+            try
+            {
+                return EnumerateDirectoriesNoLinks(directory)
+                    .SelectMany(Directory.EnumerateFiles)
+                    .Any(file => CloudFilesPlaceholderProbe.IsInSyncPlaceholder(file) &&
+                        CloudFilesPlaceholderProbe.Mutability(file) == PlaceholderMutability.Busy);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { return true; }
         }
 
         /// <summary>A re-enabled directory already holds placeholders, and
