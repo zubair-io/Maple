@@ -49,6 +49,7 @@ namespace Maple.WinUI.Services.CloudFiles
         internal const uint CF_PLACEHOLDER_STATE_IN_SYNC = 8;
         internal const uint CF_PLACEHOLDER_STATE_PARTIAL = 0x10;
         internal const uint CF_PLACEHOLDER_STATE_INVALID = 0xFFFFFFFF;
+        internal const uint CF_OPEN_FILE_FLAG_NONE = 0;
         internal const uint CF_OPEN_FILE_FLAG_EXCLUSIVE = 1;
         internal const uint CF_UPDATE_FLAG_VERIFY_IN_SYNC = 1;
         internal const uint CF_UPDATE_FLAG_MARK_IN_SYNC = 2;
@@ -257,7 +258,7 @@ namespace Maple.WinUI.Services.CloudFiles
         internal static extern int CfOpenFileWithOplock(string filePath, uint flags, out IntPtr protectedHandle);
 
         [DllImport(Dll, ExactSpelling = true)]
-        internal static extern int CfCloseHandle(IntPtr protectedHandle);
+        internal static extern void CfCloseHandle(IntPtr protectedHandle);
 
         [DllImport(Dll, ExactSpelling = true)]
         internal static extern int CfGetPlaceholderInfo(

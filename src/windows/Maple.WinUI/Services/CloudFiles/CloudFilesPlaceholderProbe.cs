@@ -66,25 +66,40 @@ namespace Maple.WinUI.Services.CloudFiles
             catch { return false; }
         }
 
-        internal static bool CanSafelyMutate(string path)
+        /// <summary>Whether Maple may rewrite or remove an in-sync
+        /// placeholder. A pinned or locally modified item is the user's to
+        /// keep; one another process holds open can be retried later.</summary>
+        internal static PlaceholderMutability Mutability(string path)
         {
             try
             {
                 using var handle = Win32.OpenReparsePoint(path);
-                var size = Marshal.SizeOf<CfApi.CF_PLACEHOLDER_BASIC_INFO>() + 4096;
-                var buffer = Marshal.AllocHGlobal(size);
-                try
+                return IsUnpinnedInSync(handle) switch
                 {
-                    var infoHr = CfApi.CfGetPlaceholderInfo(handle, CfApi.CF_PLACEHOLDER_INFO_BASIC,
-                        buffer, (uint)size, out _);
-                    if (infoHr != 0) return false;
-                    var info = Marshal.PtrToStructure<CfApi.CF_PLACEHOLDER_BASIC_INFO>(buffer);
-                    return info.InSyncState == CfApi.CF_IN_SYNC_STATE_IN_SYNC &&
-                        info.PinState != CfApi.CF_PIN_STATE_PINNED;
-                }
-                finally { Marshal.FreeHGlobal(buffer); }
+                    true => PlaceholderMutability.Mutable,
+                    false => PlaceholderMutability.Preserved,
+                    null => PlaceholderMutability.Busy,
+                };
             }
-            catch { return false; }
+            catch { return PlaceholderMutability.Busy; }
+        }
+
+        internal static bool CanSafelyMutate(string path) => Mutability(path) == PlaceholderMutability.Mutable;
+
+        private static bool? IsUnpinnedInSync(Microsoft.Win32.SafeHandles.SafeFileHandle handle)
+        {
+            var size = Marshal.SizeOf<CfApi.CF_PLACEHOLDER_BASIC_INFO>() + 4096;
+            var buffer = Marshal.AllocHGlobal(size);
+            try
+            {
+                if (CfApi.CfGetPlaceholderInfo(handle, CfApi.CF_PLACEHOLDER_INFO_BASIC,
+                        buffer, (uint)size, out _) != 0)
+                    return null;
+                var info = Marshal.PtrToStructure<CfApi.CF_PLACEHOLDER_BASIC_INFO>(buffer);
+                return info.InSyncState == CfApi.CF_IN_SYNC_STATE_IN_SYNC &&
+                    info.PinState != CfApi.CF_PIN_STATE_PINNED;
+            }
+            finally { Marshal.FreeHGlobal(buffer); }
         }
 
         /// <summary>A directory placeholder Explorer never opened: still
@@ -106,21 +121,8 @@ namespace Maple.WinUI.Services.CloudFiles
             var state = CfApi.CfGetPlaceholderStateFromAttributeTag(attributes, reparseTag);
             if (state == CfApi.CF_PLACEHOLDER_STATE_INVALID || (state & required) != required)
                 return RemovalOutcome.NotEligible;
-            if ((required & CfApi.CF_PLACEHOLDER_STATE_IN_SYNC) != 0)
-            {
-                var size = Marshal.SizeOf<CfApi.CF_PLACEHOLDER_BASIC_INFO>() + 4096;
-                var buffer = Marshal.AllocHGlobal(size);
-                try
-                {
-                    if (CfApi.CfGetPlaceholderInfo(handle, CfApi.CF_PLACEHOLDER_INFO_BASIC,
-                            buffer, (uint)size, out _) != 0)
-                        return RemovalOutcome.NotEligible;
-                    var info = Marshal.PtrToStructure<CfApi.CF_PLACEHOLDER_BASIC_INFO>(buffer);
-                    if (info.InSyncState != CfApi.CF_IN_SYNC_STATE_IN_SYNC || info.PinState == CfApi.CF_PIN_STATE_PINNED)
-                        return RemovalOutcome.NotEligible;
-                }
-                finally { Marshal.FreeHGlobal(buffer); }
-            }
+            if ((required & CfApi.CF_PLACEHOLDER_STATE_IN_SYNC) != 0 && IsUnpinnedInSync(handle) != true)
+                return RemovalOutcome.NotEligible;
             return Win32.MarkForDeletion(handle) ? RemovalOutcome.Removed : RemovalOutcome.Failed;
         }
 

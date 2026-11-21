@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 using Maple.WinUI.Services.Cloud;
@@ -10,10 +11,13 @@ namespace Maple.WinUI.Services.CloudFiles
 {
     public sealed partial class CloudFilesSyncRoot
     {
+        private const int ChangePageLimit = 250;
+
         private async Task RunChangeFeedAsync(CancellationToken ct)
         {
             while (!ct.IsCancellationRequested)
             {
+                var backlogRemains = false;
                 try
                 {
                     var client = _client();
@@ -22,7 +26,7 @@ namespace Maple.WinUI.Services.CloudFiles
                         var store = new CloudChangeCursorStore(client.ServerUrl, client.CurrentUserId);
                         var since = store.Read();
                         CloudChangePage? page;
-                        try { page = await client.ListChangesAsync(since, 250, ct).ConfigureAwait(false); }
+                        try { page = await client.ListChangesAsync(since, ChangePageLimit, ct).ConfigureAwait(false); }
                         catch (CloudChangeCursorExpiredException ex)
                         {
                             if (!await ReenablePopulatedDirectoriesAsync(client, ct).ConfigureAwait(false))
@@ -38,18 +42,23 @@ namespace Maple.WinUI.Services.CloudFiles
                             if (actions.Count != page.Changes.Count &&
                                 !await ReenablePopulatedDirectoriesAsync(client, ct).ConfigureAwait(false))
                                 throw new IOException("Could not re-enable folders for an incomplete change page.");
-                            var applied = true;
                             var folders = actions.Count == 0 ? Array.Empty<CloudFolder>() :
-                                await client.GetFoldersAsync(ct).ConfigureAwait(false) ?? Array.Empty<CloudFolder>();
+                                await client.GetFoldersAsync(ct).ConfigureAwait(false);
+                            var applied = folders != null;
                             foreach (var action in actions)
-                                applied &= ApplyChangeAction(folders, action, ct);
+                                applied = applied && ApplyChangeAction(folders!, action, ct);
                             var next = page.NextCursor ?? (page.Changes.Count == 0 ? since : page.Changes[^1].Cursor);
-                            if (applied && next >= since) store.Write(next);
+                            if (applied && next > since)
+                            {
+                                store.Write(next);
+                                backlogRemains = page.Changes.Count >= ChangePageLimit;
+                            }
                         }
                     }
                 }
                 catch (OperationCanceledException) when (ct.IsCancellationRequested) { break; }
                 catch (Exception ex) { DiagLog.Write($"[cloudfiles] change-feed poll failed: {ex.Message}"); }
+                if (backlogRemains) continue;
                 try { await Task.Delay(TimeSpan.FromSeconds(5), ct).ConfigureAwait(false); }
                 catch (OperationCanceledException) when (ct.IsCancellationRequested) { break; }
             }
@@ -60,7 +69,9 @@ namespace Maple.WinUI.Services.CloudFiles
         {
             ct.ThrowIfCancellationRequested();
             var folder = folders.FirstOrDefault(item => item.Id == action.FolderId);
-            if (folder == null) return false;
+            // A library the server no longer lists has nothing left to refresh;
+            // waiting on it would hold the cursor behind this row forever.
+            if (folder == null) return true;
             var safeRoot = Path.Combine(SyncRootPath, SanitizeName(folder.DisplayName));
             var parentRelative = Path.GetDirectoryName(action.RelativePath.Replace('/', Path.DirectorySeparatorChar));
             var parent = string.IsNullOrEmpty(parentRelative) ? safeRoot : Path.GetFullPath(Path.Combine(safeRoot, parentRelative));
@@ -74,18 +85,7 @@ namespace Maple.WinUI.Services.CloudFiles
             {
                 var item = Path.GetFullPath(Path.Combine(safeRoot, action.RelativePath.Replace('/', Path.DirectorySeparatorChar)));
                 if (!CloudFilesChangeApply.IsWithin(safeRoot, item)) return false;
-                if (File.Exists(item) || Directory.Exists(item))
-                {
-                    if (CloudFilesPlaceholderProbe.IsInSyncPlaceholder(item))
-                    {
-                        if (!CloudFilesPlaceholderProbe.CanSafelyMutate(item)) return false;
-                        var outcome = CloudFilesPlaceholderProbe.TryRemoveUnmodifiedPlaceholder(item);
-                        if (outcome == RemovalOutcome.Failed) return false;
-                        if (outcome == RemovalOutcome.NotEligible &&
-                            (File.Exists(item) || Directory.Exists(item)) &&
-                            CloudFilesPlaceholderProbe.IsInSyncPlaceholder(item)) return false;
-                    }
-                }
+                if ((File.Exists(item) || Directory.Exists(item)) && !TryRemoveStalePlaceholder(item)) return false;
                 // Refresh siblings as well: a server-side RAW delete may have
                 // a paired XMP entry that must disappear from the listing.
                 return CloudFilesChangeApply.EnableOnDemandPopulation(parent);
@@ -126,6 +126,70 @@ namespace Maple.WinUI.Services.CloudFiles
             }
         }
 
+        /// <summary>False only when the item is still Maple's to remove and
+        /// could not be removed yet. Pinned, modified and plain local items
+        /// are kept and count as done.</summary>
+        private static bool TryRemoveStalePlaceholder(string path)
+        {
+            if (!CloudFilesPlaceholderProbe.IsInSyncPlaceholder(path)) return true;
+            if (Directory.Exists(path)) return RemoveStaleDirectory(path);
+            var mutability = CloudFilesPlaceholderProbe.Mutability(path);
+            if (mutability != PlaceholderMutability.Mutable) return mutability == PlaceholderMutability.Preserved;
+            try { return CloudFilesPlaceholderProbe.TryRemoveUnmodifiedPlaceholder(path) == RemovalOutcome.Removed; }
+            catch (IOException) { return false; }
+        }
+
+        /// <summary>A populated directory cannot be deleted in one step, so
+        /// it goes through the disable sweep: in-sync placeholders leave and
+        /// the directory stays only while it still holds something kept.</summary>
+        private static bool RemoveStaleDirectory(string path)
+        {
+            try
+            {
+                if (new DirectoryInfo(path).LinkTarget != null) return true;
+                if (CloudFilesPlaceholderProbe.TryRemoveUnpopulatedPlaceholderDirectory(path) == RemovalOutcome.Removed)
+                    return true;
+            }
+            catch (IOException) { }
+            CloudFilesSyncRootCleanup.Sweep(path, CloudFilesPlaceholderProbe.Probes);
+            return true;
+        }
+
+        /// <summary>A re-enabled directory already holds placeholders, and
+        /// TRANSFER_PLACEHOLDERS rejects names that exist. Brings the existing
+        /// ones in line with the listing and returns only the missing entries;
+        /// anything that cannot be reconciled yet fails the listing so Windows
+        /// asks again.</summary>
+        private static PlaceholderListing ReconcileWithExistingPlaceholders(
+            CfApi.CF_CALLBACK_INFO info, PlaceholderListing listing)
+        {
+            if (!listing.Complete || info.NormalizedPath == IntPtr.Zero || info.VolumeDosName == IntPtr.Zero)
+                return listing;
+            try
+            {
+                // NormalizedPath starts at the volume root and carries no drive.
+                var directory = Marshal.PtrToStringUni(info.VolumeDosName) + Marshal.PtrToStringUni(info.NormalizedPath);
+                if (!CloudFilesChangeApply.IsWithin(SyncRootPath, directory)) return listing;
+                return TryReconcileListedDirectory(directory, listing.Entries, out var missing)
+                    ? CloudFilesListing.Succeeded(missing)
+                    : CloudFilesListing.Failed;
+            }
+            catch (Exception ex)
+            {
+                DiagLog.Write($"[cloudfiles] placeholder reconcile failed: {ex.Message}");
+                return CloudFilesListing.Failed;
+            }
+        }
+
+        private static bool TryRefreshPlaceholder(string path, PlaceholderEntry entry) =>
+            CloudFilesPlaceholderProbe.Mutability(path) switch
+            {
+                PlaceholderMutability.Preserved => true,
+                PlaceholderMutability.Busy => false,
+                _ => CloudFilesChangeApply.UpdatePlaceholder(path, entry) ||
+                    !CloudFilesPlaceholderProbe.IsInSyncPlaceholder(path),
+            };
+
         private static bool TryReconcileListedDirectory(
             string directory, IReadOnlyList<PlaceholderEntry> entries, out IReadOnlyList<PlaceholderEntry> toCreate)
         {
@@ -140,23 +204,13 @@ namespace Maple.WinUI.Services.CloudFiles
                 existing.Add(name);
                 if (byName.TryGetValue(name, out var entry))
                 {
-                    if (CloudFilesPlaceholderProbe.IsInSyncPlaceholder(path))
-                    {
-                        if (!CloudFilesChangeApply.MetadataMatches(path, entry) &&
-                            !CloudFilesChangeApply.UpdatePlaceholder(path, entry) &&
-                            CloudFilesPlaceholderProbe.IsInSyncPlaceholder(path))
-                            return false;
-                    }
+                    if (CloudFilesPlaceholderProbe.IsInSyncPlaceholder(path) &&
+                        !CloudFilesChangeApply.MetadataMatches(path, entry) &&
+                        !TryRefreshPlaceholder(path, entry))
+                        return false;
                     byName.Remove(name);
                 }
-                else if (CloudFilesPlaceholderProbe.IsInSyncPlaceholder(path))
-                {
-                    if (!CloudFilesPlaceholderProbe.CanSafelyMutate(path)) return false;
-                    var outcome = CloudFilesPlaceholderProbe.TryRemoveUnmodifiedPlaceholder(path);
-                    if (outcome == RemovalOutcome.Failed ||
-                        (outcome == RemovalOutcome.NotEligible &&
-                         CloudFilesPlaceholderProbe.IsInSyncPlaceholder(path))) return false;
-                }
+                else if (!TryRemoveStalePlaceholder(path)) return false;
             }
             toCreate = entries.Where(e => !existing.Contains(e.Name)).ToArray();
             return true;
