@@ -161,6 +161,16 @@ namespace Maple.WinUI.Services.Cloud
         [JsonPropertyName("id")] public string Id { get; set; } = string.Empty;
         [JsonPropertyName("folder_id")] public string FolderId { get; set; } = string.Empty;
         [JsonPropertyName("filename")] public string Filename { get; set; } = string.Empty;
+        [JsonPropertyName("fileinfo")] public List<CloudAssetLocation> Locations { get; set; } = new();
+
+        /// <summary>The single-asset trash route picks the location itself,
+        /// so it is only safe to call for an asset stored in one place.</summary>
+        public bool HasSingleLiveLocation => Locations.Count(location => location.DeletedAt == null) <= 1;
+    }
+
+    public sealed class CloudAssetLocation
+    {
+        [JsonPropertyName("deleted_at")] public string? DeletedAt { get; set; }
     }
 
     /// <summary>One trashed asset from GET /api/folders/:id/trash

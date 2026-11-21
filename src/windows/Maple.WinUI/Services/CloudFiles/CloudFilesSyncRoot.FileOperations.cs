@@ -40,7 +40,8 @@ namespace Maple.WinUI.Services.CloudFiles
                     {
                         var asset = client.ResolveAssetAddressAsync(resolved.Address, CancellationToken.None).GetAwaiter().GetResult();
                         allowed = asset != null
-                            ? client.TrashAssetAsync(asset.Id, CancellationToken.None).GetAwaiter().GetResult()
+                            ? asset.HasSingleLiveLocation &&
+                                client.TrashAssetAsync(asset.Id, CancellationToken.None).GetAwaiter().GetResult()
                             : client.TrashCloudFileAsync(resolved.FolderId, resolved.RelativePath, CancellationToken.None).GetAwaiter().GetResult();
                     }
                 }
