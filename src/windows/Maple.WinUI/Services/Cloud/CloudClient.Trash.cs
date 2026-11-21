@@ -111,7 +111,15 @@ namespace Maple.WinUI.Services.Cloud
                 request.Content = JsonContent(new { });
                 return request;
             }, ct);
-            return response.IsSuccessStatusCode;
+            if (!response.IsSuccessStatusCode) return false;
+            // The route answers 200 with a per-asset summary even when assets failed.
+            try
+            {
+                using var summary = JsonDocument.Parse(await response.Content.ReadAsStringAsync(ct));
+                return summary.RootElement.TryGetProperty("failed", out var failed)
+                    && failed.TryGetInt32(out var count) && count == 0;
+            }
+            catch (JsonException) { return false; }
         }
 
         /// <summary>Restores one trashed asset to its original server

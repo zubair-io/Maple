@@ -343,10 +343,34 @@ namespace Maple.WinUI.Tests
             Assert.Equal("/api/assets/asset%2Fone?intent=trash", handler.Requests[0].RequestUri!.PathAndQuery);
         }
 
+        [Theory]
+        [InlineData("{\"total\":2,\"succeeded\":1,\"failed\":1,\"items\":[]}")]
+        [InlineData("{}")]
+        public async Task TrashCloudFolderAsync_RefusesAPartialOrUnreadableBatch(string body)
+        {
+            var handler = new FakeHandler().Then(HttpStatusCode.OK, Json(body), "application/json");
+            using var client = Client(handler);
+
+            Assert.False(await client.TrashCloudFolderAsync("folder-id", "2026", CancellationToken.None));
+        }
+
+        [Fact]
+        public async Task ResolveAssetAddressAsync_ReportsWhetherTheAssetLivesInOnePlace()
+        {
+            var handler = new FakeHandler()
+                .Then(HttpStatusCode.OK, Json("{\"id\":\"a\",\"fileinfo\":[{\"path\":\"\",\"filename\":\"a.dng\"},{\"path\":\"old\",\"filename\":\"a.dng\",\"deleted_at\":\"2026-01-01T00:00:00Z\"}]}"), "application/json")
+                .Then(HttpStatusCode.OK, Json("{\"id\":\"b\",\"fileinfo\":[{\"path\":\"\",\"filename\":\"b.dng\"},{\"path\":\"copy\",\"filename\":\"b.dng\"}]}"), "application/json");
+            using var client = Client(handler);
+
+            Assert.True((await client.ResolveAssetAddressAsync("lib:a.dng", CancellationToken.None))!.HasSingleLiveLocation);
+            Assert.False((await client.ResolveAssetAddressAsync("lib:copy/b.dng", CancellationToken.None))!.HasSingleLiveLocation);
+        }
+
         [Fact]
         public async Task TrashCloudFolderAsync_UsesLibraryRelativeTargetHeader()
         {
-            var handler = new FakeHandler().Then(HttpStatusCode.OK, Json("{}"), "application/json");
+            var handler = new FakeHandler().Then(
+                HttpStatusCode.OK, Json("{\"total\":2,\"succeeded\":2,\"failed\":0,\"items\":[]}"), "application/json");
             using var client = Client(handler);
 
             Assert.True(await client.TrashCloudFolderAsync("folder-id", "2026/été 100%", CancellationToken.None));
