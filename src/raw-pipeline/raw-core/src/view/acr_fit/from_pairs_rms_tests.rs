@@ -1,6 +1,6 @@
 use super::super::model::{
-    CHROMA_BINS, FIELD_N, HUE_BINS, HueChromaField, LUMA_BINS, apply_model, ciede2000,
-    srgb_linear_to_lab,
+    apply_model, ciede2000, srgb_linear_to_lab, HueChromaField, CHROMA_BINS, FIELD_N, HUE_BINS,
+    LUMA_BINS,
 };
 use super::*;
 

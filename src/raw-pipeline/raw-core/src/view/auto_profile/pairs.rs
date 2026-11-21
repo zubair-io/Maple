@@ -14,8 +14,8 @@
 //! `fit_display::orient_rgb_f32_to_display`, so neither the decode formula nor
 //! the orientation mapping can drift from #550.
 
-use crate::CancelToken;
 use crate::image::ExifOrientation;
+use crate::CancelToken;
 
 use super::fit_display::orient_rgb_f32_to_display;
 use super::preview::{self, JpegColorSpace};

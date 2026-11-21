@@ -10,9 +10,9 @@
 //! — here simplified to nearest-bin assignment with a final 2-pass
 //! neighbour-smoothing sweep for continuity).
 
-use super::model::{CHROMA_BINS, FIELD_N, HUE_BINS, HueChromaField, LUMA_BINS, Tonescale};
-use crate::CancelToken;
+use super::model::{HueChromaField, Tonescale, CHROMA_BINS, FIELD_N, HUE_BINS, LUMA_BINS};
 use crate::color::oklab::rec2020_to_oklab;
+use crate::CancelToken;
 
 /// Per-sample chroma-ratio bounds (#1740 M1 calibration). `s = C_meas /
 /// C_pred` is a ratio of two chroma magnitudes; when the prediction sits

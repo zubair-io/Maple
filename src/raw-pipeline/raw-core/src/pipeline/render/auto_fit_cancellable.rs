@@ -43,16 +43,25 @@ pub fn fit_auto_profile_from_raw_at_cap_cancellable(
             .and_then(auto_profile::cache::get_lut)
     };
 
+    // A cached curve with no cached LUT still needs the develop to fit the
+    // residual (a legitimately-`None` residual can't be distinguished from
+    // "never fit" via the cache, but the host caches the baked artifacts, so
+    // this re-fits at most once per image).
     let preview = preview_for_fit(&raw_source, auto_cache_key.as_ref());
     let missing_preview = preview.as_ref().err().copied();
     let (curve, residual) = match preview {
+        // No embedded preview: nothing beyond the cache can be fit.
         Err(_) => (cached_curve, cached_lut),
         Ok(preview) => {
+            // Proxy develop + matching JPEG shrink (#3510) — or, for the
+            // evidence harness only, the pre-#3510 native develop.
             let mle = match cap {
                 FitCap::Proxy => Some(auto_fit_max_long_edge(&preview)),
                 FitCap::Native => None,
                 FitCap::Render(edge) => Some(edge),
             };
+            // The native render fits against the original embedded preview.
+            // Only the standalone proxy shrinks the JPEG (#3510).
             let shrink_to = mle.filter(|_| cap == FitCap::Proxy);
             let (pinned, preview) = fit_model_and_preview(model, raw, preview, shrink_to);
             let mut scene =
