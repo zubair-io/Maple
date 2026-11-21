@@ -121,6 +121,8 @@ namespace Maple.WinUI.Services.CloudFiles
         {
             var folders = await client.GetFoldersAsync(ct).ConfigureAwait(false);
             if (folders == null) return false;
+            // Best effort, so a library added meanwhile is listed too.
+            CloudFilesChangeApply.EnableOnDemandPopulation(SyncRootPath);
             var succeeded = true;
             foreach (var folder in folders)
             {
@@ -171,6 +173,8 @@ namespace Maple.WinUI.Services.CloudFiles
             try
             {
                 if (new DirectoryInfo(path).LinkTarget != null) return true;
+                // The sweep deletes an emptied root outright, pinned or not.
+                if (CloudFilesPlaceholderProbe.IsPinned(path)) return true;
                 if (CloudFilesPlaceholderProbe.TryRemoveUnpopulatedPlaceholderDirectory(path) == RemovalOutcome.Removed)
                     return true;
             }

@@ -86,18 +86,31 @@ namespace Maple.WinUI.Services.CloudFiles
 
         internal static bool CanSafelyMutate(string path) => Mutability(path) == PlaceholderMutability.Mutable;
 
-        private static bool? IsUnpinnedInSync(Microsoft.Win32.SafeHandles.SafeFileHandle handle)
+        internal static bool IsPinned(string path)
+        {
+            try
+            {
+                using var handle = Win32.OpenReparsePoint(path, exclusive: false);
+                return ReadBasicInfo(handle)?.PinState == CfApi.CF_PIN_STATE_PINNED;
+            }
+            catch { return false; }
+        }
+
+        private static bool? IsUnpinnedInSync(Microsoft.Win32.SafeHandles.SafeFileHandle handle) =>
+            ReadBasicInfo(handle) is { } info
+                ? info.InSyncState == CfApi.CF_IN_SYNC_STATE_IN_SYNC && info.PinState != CfApi.CF_PIN_STATE_PINNED
+                : null;
+
+        private static CfApi.CF_PLACEHOLDER_BASIC_INFO? ReadBasicInfo(Microsoft.Win32.SafeHandles.SafeFileHandle handle)
         {
             var size = Marshal.SizeOf<CfApi.CF_PLACEHOLDER_BASIC_INFO>() + 4096;
             var buffer = Marshal.AllocHGlobal(size);
             try
             {
-                if (CfApi.CfGetPlaceholderInfo(handle, CfApi.CF_PLACEHOLDER_INFO_BASIC,
-                        buffer, (uint)size, out _) != 0)
-                    return null;
-                var info = Marshal.PtrToStructure<CfApi.CF_PLACEHOLDER_BASIC_INFO>(buffer);
-                return info.InSyncState == CfApi.CF_IN_SYNC_STATE_IN_SYNC &&
-                    info.PinState != CfApi.CF_PIN_STATE_PINNED;
+                return CfApi.CfGetPlaceholderInfo(handle, CfApi.CF_PLACEHOLDER_INFO_BASIC,
+                    buffer, (uint)size, out _) == 0
+                    ? Marshal.PtrToStructure<CfApi.CF_PLACEHOLDER_BASIC_INFO>(buffer)
+                    : null;
             }
             finally { Marshal.FreeHGlobal(buffer); }
         }
