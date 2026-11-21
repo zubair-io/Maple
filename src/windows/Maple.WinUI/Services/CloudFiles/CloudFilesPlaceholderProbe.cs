@@ -171,8 +171,11 @@ namespace Maple.WinUI.Services.CloudFiles
             /// access to read its tag and mark it for deletion.</summary>
             internal static Microsoft.Win32.SafeHandles.SafeFileHandle OpenReparsePoint(string path, bool exclusive = true)
             {
+                // A state-only probe asks for no DELETE access, so an item another
+                // process holds open without delete sharing can still be read.
                 var handle = CreateFileW(
-                    path, FILE_READ_ATTRIBUTES | DELETE, exclusive ? FILE_SHARE_NONE : FILE_SHARE_ALL, IntPtr.Zero, OPEN_EXISTING,
+                    path, exclusive ? FILE_READ_ATTRIBUTES | DELETE : FILE_READ_ATTRIBUTES,
+                    exclusive ? FILE_SHARE_NONE : FILE_SHARE_ALL, IntPtr.Zero, OPEN_EXISTING,
                     FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, IntPtr.Zero);
                 if (handle.IsInvalid)
                     throw new IOException($"CreateFileW failed ({Marshal.GetLastWin32Error()}) for {path}");
