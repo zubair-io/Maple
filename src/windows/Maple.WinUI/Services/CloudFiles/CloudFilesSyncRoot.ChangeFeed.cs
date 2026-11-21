@@ -72,21 +72,14 @@ namespace Maple.WinUI.Services.CloudFiles
             // A library the server no longer lists has nothing left to refresh;
             // waiting on it would hold the cursor behind this row forever.
             if (folder == null) return true;
-            var safeRoot = Path.Combine(_syncRootPath, SanitizeName(folder.DisplayName));
-            // Placeholders carry sanitized names, so the server path is mapped the same way.
-            var item = Path.GetFullPath(Path.Combine(
-                action.RelativePath.Split('/').Select(SanitizeName).Prepend(safeRoot).ToArray()));
-            if (!CloudFilesChangeApply.IsWithin(safeRoot, item)) return true;
-            // A junction inside the library leads somewhere Maple does not own.
-            if (HasLinkedAncestor(item, safeRoot)) return true;
+            var item = LocalItem(folder, action.RelativePath, out var listed);
             if (action.Kind == CloudChangeActionKind.DeleteIfInSync &&
-                (File.Exists(item) || Directory.Exists(item)) && !TryRemoveStalePlaceholder(item)) return false;
+                item != null && !TryRemoveStalePlaceholder(item)) return false;
 
             // The feed reports files, never the folders created around them, so
             // a change under a folder this PC has not seen refreshes the nearest
             // ancestor that exists. Siblings refresh too: a deleted RAW takes its
             // paired sidecar with it.
-            var listed = NearestExistingDirectory(Path.GetDirectoryName(item)!, safeRoot);
             if (listed == null)
             {
                 // The library has no folder here yet, so the list of libraries is
@@ -99,22 +92,40 @@ namespace Maple.WinUI.Services.CloudFiles
             return CloudFilesChangeApply.EnableOnDemandPopulation(listed);
         }
 
-        private static bool HasLinkedAncestor(string path, string root)
+        /// <summary>Walks a server path down the local tree by placeholder
+        /// identity, since a colliding or sanitized name differs from the
+        /// server's. Returns the item when it exists and reports the deepest
+        /// directory reached; a junction on the way ends the walk with neither.</summary>
+        private string? LocalItem(CloudFolder folder, string relativePath, out string? deepestDirectory)
         {
-            for (var current = Path.GetDirectoryName(path);
-                 current != null && CloudFilesChangeApply.IsWithin(root, current);
-                 current = Path.GetDirectoryName(current))
-                if (Directory.Exists(current) && new DirectoryInfo(current).LinkTarget != null) return true;
-            return false;
+            deepestDirectory = null;
+            var current = LocalChild(_syncRootPath, folder.Slug + ":", SanitizeName(folder.DisplayName));
+            var segments = relativePath.Split('/');
+            for (var depth = 0; depth < segments.Length; depth++)
+            {
+                if (current == null || !Directory.Exists(current)) return null;
+                if (new DirectoryInfo(current).LinkTarget != null)
+                {
+                    deepestDirectory = null;
+                    return null;
+                }
+                deepestDirectory = current;
+                current = LocalChild(
+                    current, $"{folder.Slug}:{string.Join('/', segments.Take(depth + 1))}", SanitizeName(segments[depth]));
+            }
+            return current;
         }
 
-        private static string? NearestExistingDirectory(string directory, string root)
+        private static string? LocalChild(string directory, string address, string expectedName)
         {
-            for (var current = directory;
-                 current != null && CloudFilesChangeApply.IsWithin(root, current);
-                 current = Path.GetDirectoryName(current))
-                if (Directory.Exists(current)) return current;
-            return null;
+            var expected = Path.Combine(directory, expectedName);
+            if (File.Exists(expected) || Directory.Exists(expected))
+            {
+                var identity = CloudFilesPlaceholderProbe.ReadIdentity(expected);
+                if (identity == null || identity == address || !CloudFilesAddress.IsAddress(identity)) return expected;
+            }
+            return Directory.EnumerateFileSystemEntries(directory)
+                .FirstOrDefault(path => CloudFilesPlaceholderProbe.ReadIdentity(path) == address);
         }
 
         private async Task<bool> ReenablePopulatedDirectoriesAsync(CloudClient client, CancellationToken ct)
@@ -124,17 +135,12 @@ namespace Maple.WinUI.Services.CloudFiles
             // Best effort, so a library added meanwhile is listed too.
             CloudFilesChangeApply.EnableOnDemandPopulation(_syncRootPath);
             var succeeded = true;
-            foreach (var folder in folders)
+            // Every directory under the root, since a library's local name can carry a collision suffix.
+            foreach (var directory in EnumerateDirectoriesNoLinks(_syncRootPath).Skip(1))
             {
                 ct.ThrowIfCancellationRequested();
-                var root = Path.Combine(_syncRootPath, SanitizeName(folder.DisplayName));
-                if (!Directory.Exists(root)) continue;
-                foreach (var directory in EnumerateDirectoriesNoLinks(root))
-                {
-                    ct.ThrowIfCancellationRequested();
-                    if (CloudFilesPlaceholderProbe.IsPlaceholder(directory))
-                        succeeded &= CloudFilesChangeApply.EnableOnDemandPopulation(directory);
-                }
+                if (CloudFilesPlaceholderProbe.IsPlaceholder(directory))
+                    succeeded &= CloudFilesChangeApply.EnableOnDemandPopulation(directory);
             }
             return succeeded;
         }
@@ -214,7 +220,7 @@ namespace Maple.WinUI.Services.CloudFiles
         /// be reconciled yet.</summary>
         private static bool? ReconcileExisting(string path, PlaceholderEntry entry)
         {
-            if (entry.IsDirectory != Directory.Exists(path))
+            if (entry.IsDirectory != Directory.Exists(path) || HoldsAnotherAddress(path, entry))
                 return TryRemoveStalePlaceholder(path) ? File.Exists(path) || Directory.Exists(path) : null;
             if (CloudFilesPlaceholderProbe.IsInSyncPlaceholder(path) &&
                 !CloudFilesChangeApply.MetadataMatches(path, entry) &&
@@ -222,6 +228,13 @@ namespace Maple.WinUI.Services.CloudFiles
                 return null;
             return true;
         }
+
+        /// <summary>A name can pass from one server item to another when a
+        /// case collision resolves. Identities from older builds are absolute
+        /// paths and still resolve, so they are left alone.</summary>
+        private static bool HoldsAnotherAddress(string path, PlaceholderEntry entry) =>
+            CloudFilesPlaceholderProbe.ReadIdentity(path) is { } identity &&
+            CloudFilesAddress.IsAddress(identity) && identity != entry.Address;
 
         private static bool TryRefreshPlaceholder(string path, PlaceholderEntry entry) =>
             CloudFilesPlaceholderProbe.Mutability(path) switch

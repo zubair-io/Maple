@@ -84,4 +84,15 @@ public sealed class CloudFilesAddressTests
 
     private static CloudFolderEntry Entry(string name, string address, long size, string mtime) =>
         new() { Name = name, Address = address, Path = "/srv/photos/" + name, Size = size, Mtime = mtime };
+
+    [Theory]
+    [InlineData("library:2026/a.dng", true)]
+    [InlineData("library:", true)]
+    [InlineData("/srv/photos/a.dng", false)]
+    [InlineData("C:\\photos\\a.dng", false)]
+    [InlineData("c:/photos/a.dng", false)]
+    public void IsAddress_SeparatesStableAddressesFromLegacyServerPaths(string identity, bool expected)
+    {
+        Assert.Equal(expected, CloudFilesAddress.IsAddress(identity));
+    }
 }

@@ -25,8 +25,7 @@ internal static partial class CloudFilesAddress
         if (string.IsNullOrWhiteSpace(identity)) return false;
 
         var colon = identity.IndexOf(':');
-        var isDriveQualifiedPath = IsDriveQualifiedAbsolutePath(identity);
-        if (!isDriveQualifiedPath && colon > 0 && SlugPattern.IsMatch(identity[..colon]))
+        if (IsAddress(identity))
         {
             var slug = identity[..colon];
             var relative = identity[(colon + 1)..];
@@ -69,6 +68,14 @@ internal static partial class CloudFilesAddress
         resolved = new ResolvedCloudFilesAddress(
             bestFolder.Slug + ":" + bestRelative, bestFolder.Id, bestRelative);
         return true;
+    }
+
+    /// <summary>True for a slug:relPath identity, false for the absolute
+    /// server path an older build stored.</summary>
+    internal static bool IsAddress(string identity)
+    {
+        var colon = identity.IndexOf(':');
+        return colon > 0 && !IsDriveQualifiedAbsolutePath(identity) && SlugPattern.IsMatch(identity[..colon]);
     }
 
     internal static IReadOnlyList<PlaceholderEntry> MapListing(CloudFolderListing listing)

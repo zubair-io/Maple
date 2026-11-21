@@ -96,6 +96,32 @@ namespace Maple.WinUI.Services.CloudFiles
             catch { return false; }
         }
 
+        /// <summary>The FileIdentity Maple stamped on a placeholder, or null
+        /// when the item is not a readable placeholder.</summary>
+        internal static string? ReadIdentity(string path)
+        {
+            try
+            {
+                using var handle = Win32.OpenReparsePoint(path, exclusive: false);
+                var size = Marshal.SizeOf<CfApi.CF_PLACEHOLDER_BASIC_INFO>() + 4096;
+                var buffer = Marshal.AllocHGlobal(size);
+                try
+                {
+                    if (CfApi.CfGetPlaceholderInfo(handle, CfApi.CF_PLACEHOLDER_INFO_BASIC,
+                            buffer, (uint)size, out _) != 0)
+                        return null;
+                    var identityOffset = (int)Marshal.OffsetOf<CfApi.CF_PLACEHOLDER_BASIC_INFO>(
+                        nameof(CfApi.CF_PLACEHOLDER_BASIC_INFO.FileIdentity));
+                    var length = (int)Marshal.PtrToStructure<CfApi.CF_PLACEHOLDER_BASIC_INFO>(buffer).FileIdentityLength;
+                    return length > 0 && length <= size - identityOffset
+                        ? Marshal.PtrToStringUni(buffer + identityOffset, length / 2)
+                        : null;
+                }
+                finally { Marshal.FreeHGlobal(buffer); }
+            }
+            catch { return null; }
+        }
+
         private static bool? IsUnpinnedInSync(Microsoft.Win32.SafeHandles.SafeFileHandle handle) =>
             ReadBasicInfo(handle) is { } info
                 ? info.InSyncState == CfApi.CF_IN_SYNC_STATE_IN_SYNC && info.PinState != CfApi.CF_PIN_STATE_PINNED
