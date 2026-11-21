@@ -6,6 +6,8 @@ using System.Text;
 
 namespace Maple.WinUI.Services.CloudFiles;
 
+internal enum PlaceholderMutability { Mutable, Preserved, Busy }
+
 /// <summary>Small cldapi surface used by the change-feed applier. Kept
 /// separate so containment and action planning are testable without a sync
 /// root, while the actual directory invalidation always goes through cldapi.</summary>
@@ -27,7 +29,9 @@ internal static class CloudFilesChangeApply
         {
             var info = new FileInfo(path);
             if (entry.IsDirectory != Directory.Exists(path)) return false;
-            if (!entry.IsDirectory && info.Length != entry.Size) return false;
+            // NTFS rewrites a directory's own mtime whenever a child placeholder lands in it.
+            if (entry.IsDirectory) return true;
+            if (info.Length != entry.Size) return false;
             return Math.Abs((info.LastWriteTimeUtc - entry.MtimeUtc).TotalMilliseconds) < 1;
         }
         catch (IOException) { return false; }
@@ -36,7 +40,9 @@ internal static class CloudFilesChangeApply
 
     internal static bool EnableOnDemandPopulation(string directory)
     {
-        var hr = CfApi.CfOpenFileWithOplock(directory, CfApi.CF_OPEN_FILE_FLAG_EXCLUSIVE, out var handle);
+        // Share-all: Explorer keeps a handle on every folder it shows, and an
+        // exclusive open would fail for exactly the folder the user is viewing.
+        var hr = CfApi.CfOpenFileWithOplock(directory, CfApi.CF_OPEN_FILE_FLAG_NONE, out var handle);
         if (hr != 0 || handle == IntPtr.Zero)
         {
             DiagLog.Write($"[cloudfiles] directory refresh open 0x{hr:X8}: {directory}");
@@ -65,7 +71,8 @@ internal static class CloudFilesChangeApply
     {
         result = unchecked((int)0x80004005);
         if (!CloudFilesPlaceholderProbe.CanSafelyMutate(path)) return false;
-        var hr = CfApi.CfOpenFileWithOplock(path, CfApi.CF_OPEN_FILE_FLAG_EXCLUSIVE, out var handle);
+        var hr = CfApi.CfOpenFileWithOplock(
+            path, entry.IsDirectory ? CfApi.CF_OPEN_FILE_FLAG_NONE : CfApi.CF_OPEN_FILE_FLAG_EXCLUSIVE, out var handle);
         if (hr != 0 || handle == IntPtr.Zero) { result = hr; return false; }
         var identity = Encoding.Unicode.GetBytes(entry.Address);
         var idHandle = GCHandle.Alloc(identity, GCHandleType.Pinned);

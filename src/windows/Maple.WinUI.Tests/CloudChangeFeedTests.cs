@@ -85,6 +85,17 @@ public sealed class CloudChangeFeedTests
     }
 
     [Fact]
+    public void PopulatedDirectoryMatchesWhateverItsLocalMtime()
+    {
+        using var temp = new TempDirectory();
+        var path = System.IO.Path.Combine(temp.Path, "2026");
+        Directory.CreateDirectory(path);
+        var entry = new PlaceholderEntry("2026", "folder:2026", true, 0, new DateTime(2020, 1, 1, 0, 0, 0, DateTimeKind.Utc));
+        Assert.True(CloudFilesChangeApply.MetadataMatches(path, entry));
+        Assert.False(CloudFilesChangeApply.MetadataMatches(path, entry with { IsDirectory = false }));
+    }
+
+    [Fact]
     public async Task ClientReadsChangePageFromServerContract()
     {
         using var temp = new TempDirectory();
