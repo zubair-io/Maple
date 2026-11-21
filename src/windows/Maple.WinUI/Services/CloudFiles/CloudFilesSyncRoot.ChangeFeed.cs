@@ -87,8 +87,15 @@ namespace Maple.WinUI.Services.CloudFiles
             // ancestor that exists. Siblings refresh too: a deleted RAW takes its
             // paired sidecar with it.
             var listed = NearestExistingDirectory(Path.GetDirectoryName(item)!, safeRoot);
+            if (listed == null)
+            {
+                // The library has no folder here yet, so the list of libraries is
+                // what is stale. Best effort: a failure must not hold the cursor.
+                CloudFilesChangeApply.EnableOnDemandPopulation(SyncRootPath);
+                return true;
+            }
             // Nothing populated yet: the first FETCH_PLACEHOLDERS reads the current server state.
-            if (listed == null || !CloudFilesPlaceholderProbe.IsPlaceholder(listed)) return true;
+            if (!CloudFilesPlaceholderProbe.IsPlaceholder(listed)) return true;
             return CloudFilesChangeApply.EnableOnDemandPopulation(listed);
         }
 
@@ -212,6 +219,21 @@ namespace Maple.WinUI.Services.CloudFiles
             }
         }
 
+        /// <summary>True when the existing item stays and covers the entry,
+        /// false when it was removed and the entry needs a new placeholder
+        /// (a file that became a folder, or the reverse), null when it cannot
+        /// be reconciled yet.</summary>
+        private static bool? ReconcileExisting(string path, PlaceholderEntry entry)
+        {
+            if (entry.IsDirectory != Directory.Exists(path))
+                return TryRemoveStalePlaceholder(path) ? File.Exists(path) || Directory.Exists(path) : null;
+            if (CloudFilesPlaceholderProbe.IsInSyncPlaceholder(path) &&
+                !CloudFilesChangeApply.MetadataMatches(path, entry) &&
+                !TryRefreshPlaceholder(path, entry))
+                return null;
+            return true;
+        }
+
         private static bool TryRefreshPlaceholder(string path, PlaceholderEntry entry) =>
             CloudFilesPlaceholderProbe.Mutability(path) switch
             {
@@ -235,11 +257,9 @@ namespace Maple.WinUI.Services.CloudFiles
                 existing.Add(name);
                 if (byName.TryGetValue(name, out var entry))
                 {
-                    if (CloudFilesPlaceholderProbe.IsInSyncPlaceholder(path) &&
-                        !CloudFilesChangeApply.MetadataMatches(path, entry) &&
-                        !TryRefreshPlaceholder(path, entry))
-                        return false;
-                    byName.Remove(name);
+                    var kept = ReconcileExisting(path, entry);
+                    if (kept == null) return false;
+                    if (kept == false) existing.Remove(name);
                 }
                 else if (!TryRemoveStalePlaceholder(path)) return false;
             }
