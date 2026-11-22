@@ -285,7 +285,6 @@ pub(crate) unsafe fn chain_inputs_from_params(
         render_cm: &p.wb_frame_render_cm,
         render_forward_matrix: &p.wb_frame_render_forward_matrix,
         render_scene_white_xyz: &p.wb_frame_render_scene_white_xyz,
-        render_wb_already_baked: p.wb_frame_render_wb_already_baked,
         render_cm_cold: &p.wb_frame_render_cm_cold,
         render_cct_cold: p.wb_frame_render_cct_cold,
         render_cm_warm: &p.wb_frame_render_cm_warm,

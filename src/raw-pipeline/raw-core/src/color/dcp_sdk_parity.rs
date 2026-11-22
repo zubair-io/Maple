@@ -57,11 +57,11 @@ use crate::{
 ///
 /// `cm` is the camera-XYZ matrix at the scene illuminant (XYZ → camera).
 /// `fm` is the forward matrix (white-balanced camera RGB → XYZ-D50).
-/// Pre-gain has already run, so the test feeds (1,1,1) directly and sets
-/// `wb_already_baked = true` — same as the Bayer fast path post-#354.
+/// Pre-gain has already run, so the test feeds (1,1,1) directly — same as
+/// the Bayer fast path post-#354.
 fn fm_test_profile(cm: Matrix3, fm: Matrix3) -> DcpProfile {
     // scene_white_xyz is unused on the FM path but profile_for fills it
-    // in via inv(CM) · (1,1,1) when wb_already_baked, so mirror that.
+    // in via inv(CM) · (1,1,1), so mirror that.
     let inv = cm.inverse().expect("CM invertible in this test");
     let xyz = inv.mul_vec([1.0, 1.0, 1.0]);
     let s = if xyz[1].abs() > 1e-8 {
@@ -75,7 +75,6 @@ fn fm_test_profile(cm: Matrix3, fm: Matrix3) -> DcpProfile {
         forward_matrix: Some(fm),
         scene_cct: Illuminant::D65.cct(),
         scene_white_xyz: [xyz[0] * s, 1.0, xyz[2] * s],
-        wb_already_baked: true,
         hsm: None,
         look_table: None,
         tone_curve: None,

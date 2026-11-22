@@ -28,7 +28,6 @@ pub(crate) struct WbFrameFlat<'a> {
     /// fields for the exact semantics each of these mirrors.
     pub render_forward_matrix: &'a [f32; 9],
     pub render_scene_white_xyz: &'a [f32; 3],
-    pub render_wb_already_baked: f32,
     pub render_cm_cold: &'a [f32; 9],
     pub render_cct_cold: f32,
     pub render_cm_warm: &'a [f32; 9],
@@ -64,7 +63,6 @@ pub(crate) fn wb_frame_from_flat(
         render_cm: mat(f.render_cm),
         render_forward_matrix: mat(f.render_forward_matrix),
         render_scene_white_xyz: *f.render_scene_white_xyz,
-        render_wb_already_baked: f.render_wb_already_baked,
         render_cm_cold: mat(f.render_cm_cold),
         render_cct_cold: f.render_cct_cold,
         render_cm_warm: mat(f.render_cm_warm),

@@ -40,7 +40,7 @@
 //! a real develop's DCP stage does against the render-profile detail this
 //! export now carries (`render_forward_matrix`/`render_cm_cold`/
 //! `render_cm_warm`/`render_fm_cold`/`render_fm_warm`/
-//! `render_scene_white_xyz`/`render_wb_already_baked`). This matches a
+//! `render_scene_white_xyz`). This matches a
 //! fresh develop to floating-point precision (not an approximation) for
 //! any render-profile shape — FM-dual, FM-single, non-FM/Bradford, or
 //! dual-CM-only — because those two functions already dispatch correctly
@@ -139,8 +139,6 @@ pub struct SliderFrameExport {
     /// chromaticity (the Bradford source `camera_to_prophoto_matrix` uses
     /// on the non-FM path), Y-normalized.
     pub render_scene_white_xyz: Vec3,
-    /// `profile.wb_already_baked` as a 0.0/1.0 flag (the FM-path gate).
-    pub render_wb_already_baked: f32,
     /// `profile.cm_endpoints.m_cold/cct_cold` — the render profile's OWN
     /// dual-illuminant CM pair (distinct from `m_cold`/`cct_cold` above,
     /// which are the VALUE frame's). `|render_cct_warm - render_cct_cold| <
@@ -180,7 +178,6 @@ impl SliderFrameExport {
         render_cm: Matrix3([[0.0; 3]; 3]),
         render_forward_matrix: Matrix3([[0.0; 3]; 3]),
         render_scene_white_xyz: [0.0; 3],
-        render_wb_already_baked: 0.0,
         render_cm_cold: Matrix3([[0.0; 3]; 3]),
         render_cct_cold: 0.0,
         render_cm_warm: Matrix3([[0.0; 3]; 3]),
@@ -209,7 +206,6 @@ impl SliderFrameExport {
         // #1967: the render profile's linear-core detail, independent of
         // which VALUE-frame arm `SliderFrame::resolve` took above.
         let render_forward_matrix = profile.forward_matrix.unwrap_or(Matrix3([[0.0; 3]; 3]));
-        let render_wb_already_baked = if profile.wb_already_baked { 1.0 } else { 0.0 };
         let (render_cm_cold, render_cct_cold, render_cm_warm, render_cct_warm) =
             match profile.cm_endpoints {
                 Some(e) => (e.m_cold, e.cct_cold, e.m_warm, e.cct_warm),
@@ -239,7 +235,6 @@ impl SliderFrameExport {
                 render_cm: frame.render_cm,
                 render_forward_matrix,
                 render_scene_white_xyz,
-                render_wb_already_baked,
                 render_cm_cold,
                 render_cct_cold,
                 render_cm_warm,
@@ -259,7 +254,6 @@ impl SliderFrameExport {
                 render_cm: frame.render_cm,
                 render_forward_matrix,
                 render_scene_white_xyz,
-                render_wb_already_baked,
                 render_cm_cold,
                 render_cct_cold,
                 render_cm_warm,
@@ -331,7 +325,7 @@ impl SliderFrameExport {
     /// Reconstruct a minimal [`DcpProfile`] shell carrying only the fields
     /// [`retargeted_render_profile`] and [`dcp::camera_to_rec2020_matrix`]
     /// read (`color_matrix`, `forward_matrix`, `scene_white_xyz`,
-    /// `wb_already_baked`, `cm_endpoints`, `forward_reference`) —
+    /// `cm_endpoints`, `forward_reference`) —
     /// `illuminant`/`scene_cct`/
     /// `hsm`/`look_table`/`tone_curve` are irrelevant to that linear-core
     /// computation (neither function reads them) and get harmless
@@ -366,7 +360,6 @@ impl SliderFrameExport {
             forward_matrix: fm_present.then_some(self.render_forward_matrix),
             scene_cct: self.scene_cct,
             scene_white_xyz: self.render_scene_white_xyz,
-            wb_already_baked: self.render_wb_already_baked != 0.0,
             hsm: None,
             look_table: None,
             tone_curve: None,

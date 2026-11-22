@@ -261,7 +261,6 @@ unsafe fn windows_path_png(
     p.wb_frame_render_cm = buf.wb_frame_render_cm;
     p.wb_frame_render_forward_matrix = buf.wb_frame_render_forward_matrix;
     p.wb_frame_render_scene_white_xyz = buf.wb_frame_render_scene_white_xyz;
-    p.wb_frame_render_wb_already_baked = buf.wb_frame_render_wb_already_baked;
     p.wb_frame_render_cm_cold = buf.wb_frame_render_cm_cold;
     p.wb_frame_render_cct_cold = buf.wb_frame_render_cct_cold;
     p.wb_frame_render_cm_warm = buf.wb_frame_render_cm_warm;

@@ -207,9 +207,7 @@ pub fn decode_bytes(bytes: &[u8], ext: &str) -> Result<RawImage> {
             // DNG PhotometricInterpretation = LinearRaw (34892): the file
             // already carries demosaiced, white-balanced 3-channel RGB.
             // Emit the LinearRgb cfa variant; pipeline.rs routes through
-            // linearize::linearraw_to_camera_rgb instead of the mosaic path,
-            // and dcp::profile_for sets wb_already_baked so AsShotNeutral
-            // is not re-applied. See ticket #07.
+            // linearize::linearraw_to_camera_rgb instead of the mosaic path.
             CfaPattern::LinearRgb
         }
         RawPhotometricInterpretation::BlackIsZero => {

@@ -194,8 +194,6 @@ pub struct MapleAdjustmentParams {
     pub wb_frame_render_forward_matrix: [f32; 9],
     /// `profile.scene_white_xyz`, Y-normalized.
     pub wb_frame_render_scene_white_xyz: [f32; 3],
-    /// `profile.wb_already_baked` as a 0.0/1.0 flag.
-    pub wb_frame_render_wb_already_baked: f32,
     /// Render profile's own dual-illuminant CM pair (distinct from
     /// `wb_frame_m_cold`/`wb_frame_m_warm` above, which are the VALUE
     /// frame's). `wb_frame_render_cct_warm - wb_frame_render_cct_cold <
