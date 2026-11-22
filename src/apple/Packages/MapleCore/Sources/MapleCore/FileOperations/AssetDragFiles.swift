@@ -5,7 +5,9 @@ public actor AssetDragFiles {
   public static let shared = AssetDragFiles()
 
   public static func fileName(for asset: AssetRef) -> String {
-    let name = asset.primaryURL?.lastPathComponent ?? asset.displayName
+    let name =
+      asset.primaryURL?.lastPathComponent ?? photoKitLocalID(of: asset).flatMap(
+        PhotoKitOriginalFile.fileName(localID:)) ?? asset.displayName
     let basename = (name as NSString).lastPathComponent
     let safeName =
       basename.isEmpty || basename == "." || basename == ".." ? asset.id.uuidString : basename
@@ -25,7 +27,11 @@ public actor AssetDragFiles {
       try publish(to: destination) { try FileManager.default.copyItem(at: source, to: $0) }
       return
     }
-    guard let writer = asset.originalFileWriter else {
+    let photoKitID = Self.photoKitLocalID(of: asset)
+    let photoKitWriter: AssetRef.OriginalFileWriter? = photoKitID.map { localID in
+      { try await PhotoKitOriginalFile.write(localID: localID, to: $0) }
+    }
+    guard let writer = asset.originalFileWriter ?? photoKitWriter else {
       throw ImageSourceError.notFound(asset.displayName)
     }
     let staging = FileManager.default.temporaryDirectory.appendingPathComponent(
@@ -36,6 +42,11 @@ public actor AssetDragFiles {
     try await writer(temporary)
     try Task.checkCancellation()
     try publish(to: destination) { try FileManager.default.moveItem(at: temporary, to: $0) }
+  }
+
+  /// A Photos Library tile's `stableID` is its `PHAsset.localIdentifier`.
+  private static func photoKitLocalID(of asset: AssetRef) -> String? {
+    asset.thumbnailProvenance == .photoKit && asset.primaryURL == nil ? asset.stableID : nil
   }
 
   /// File-promise destinations can be presented by iCloud / File Provider.

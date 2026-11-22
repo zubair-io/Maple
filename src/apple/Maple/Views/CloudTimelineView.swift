@@ -33,6 +33,7 @@ struct CloudTimelineView: View {
   /// no `SearchAsset` to route through `onSelectAsset`. AppShell opens them
   /// from the `ImageRef` (`openLocalTimelineAsset`).
   let onSelectLocalAsset: (ImageRef) -> Void
+  let fileActions: TimelineFileActions?
 
   /// Shared provider wired to the cloud thumb infrastructure, created once
   /// and reused across all sections so the underlying cache is shared.
@@ -44,7 +45,8 @@ struct CloudTimelineView: View {
     thumbCache: CloudThumbCache,
     displayMode: GridDisplayMode,
     onSelectAsset: @escaping (SearchAsset) -> Void,
-    onSelectLocalAsset: @escaping (ImageRef) -> Void
+    onSelectLocalAsset: @escaping (ImageRef) -> Void,
+    fileActions: TimelineFileActions? = nil
   ) {
     self.vm = vm
     self.thumbClient = thumbClient
@@ -52,6 +54,7 @@ struct CloudTimelineView: View {
     self.displayMode = displayMode
     self.onSelectAsset = onSelectAsset
     self.onSelectLocalAsset = onSelectLocalAsset
+    self.fileActions = fileActions
     self._provider = State(
       initialValue: ThumbnailProvider(
         thumbClient: thumbClient, thumbCache: thumbCache))
@@ -108,10 +111,12 @@ struct CloudTimelineView: View {
             hasLoaded: vm.pagesByBucket[bucketKey] != nil
               || vm.mergedPagesByBucket[bucketKey] != nil,
             host: vm.server.cacheHostKey,
+            server: vm.server,
             displayMode: displayMode,
             provider: provider,
             onSelectAsset: onSelectAsset,
-            onSelectLocalAsset: onSelectLocalAsset
+            onSelectLocalAsset: onSelectLocalAsset,
+            fileActions: fileActions
           )
           // .task(id:) instead of .onAppear so the page-load fires
           // reliably for newly-rendered sections (LazyVStack is fussy
@@ -168,10 +173,12 @@ struct CloudTimelineMonthSection: View {
   /// `results: []`.
   let hasLoaded: Bool
   let host: String
+  let server: URL
   let displayMode: GridDisplayMode
   let provider: ThumbnailProvider
   let onSelectAsset: (SearchAsset) -> Void
   let onSelectLocalAsset: (ImageRef) -> Void
+  var fileActions: TimelineFileActions? = nil
 
   /// The content to display is whichever of merged / raw is available.
   /// Delegates to the pure VM helper so the predicate is unit-testable.
@@ -233,6 +240,7 @@ struct CloudTimelineMonthSection: View {
         PhotoGridItem(cloud: asset, host: host, style: .cloud)
       }
     )
+    .timelineFileActions(fileActions, server: server)
   }
 
   // MARK: - Merged grid (PhotoKit + Cloud)
@@ -274,6 +282,7 @@ struct CloudTimelineMonthSection: View {
         PhotoGridItem(merged: cell, host: host, sync: syncBadge(for: cell), style: .desktop)
       }
     )
+    .timelineFileActions(fileActions, absPathMap: absPathToAsset) { [server] _ in server }
   }
 
   // MARK: - Helpers

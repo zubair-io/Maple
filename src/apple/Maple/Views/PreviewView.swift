@@ -179,6 +179,7 @@ struct PreviewView: View {
       // swipe / pager.
       ZStack {
         imageBody
+          .copyPhotoContextMenu(asset, identifier: "preview-copy")
           .overlay {
             if playsMotionClip {
               MotionClipPlayerView {
