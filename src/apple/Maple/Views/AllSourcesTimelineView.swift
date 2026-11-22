@@ -35,6 +35,7 @@ struct AllSourcesTimelineView: View {
   let displayMode: GridDisplayMode
   let onSelectAsset: (SearchAsset, URL) -> Void
   let onSelectLocalAsset: (ImageRef) -> Void
+  let fileActions: TimelineFileActions?
 
   /// Multi-host provider — one `CloudThumbClient` per connected server,
   /// keyed by cache-host, so a single grid can fetch thumbs across
@@ -46,13 +47,15 @@ struct AllSourcesTimelineView: View {
     thumbCache: CloudThumbCache,
     displayMode: GridDisplayMode,
     onSelectAsset: @escaping (SearchAsset, URL) -> Void,
-    onSelectLocalAsset: @escaping (ImageRef) -> Void
+    onSelectLocalAsset: @escaping (ImageRef) -> Void,
+    fileActions: TimelineFileActions? = nil
   ) {
     self.vm = vm
     self.thumbCache = thumbCache
     self.displayMode = displayMode
     self.onSelectAsset = onSelectAsset
     self.onSelectLocalAsset = onSelectLocalAsset
+    self.fileActions = fileActions
     self._provider = State(
       initialValue: ThumbnailProvider(
         thumbClientsByHost: vm.thumbClientsByHost, thumbCache: thumbCache))
@@ -91,7 +94,9 @@ struct AllSourcesTimelineView: View {
             onSelectLocalAsset: { asset in
               vm.scrollBucketID = sectionTaskID
               onSelectLocalAsset(asset)
-            }
+            },
+            server: { vm.server(for: $0) },
+            fileActions: fileActions
           )
           .id(sectionTaskID)
           // `stackingRevision`: a RAW+JPEG stacking change reloads the months on screen (#5050).
@@ -143,6 +148,8 @@ struct AllSourcesTimelineMonthSection: View {
   let hostResolver: (MergedTimelineCell) -> String
   let onSelectAsset: (SearchAsset) -> Void
   let onSelectLocalAsset: (ImageRef) -> Void
+  let server: @MainActor (SearchAsset) -> URL?
+  var fileActions: TimelineFileActions? = nil
 
   private var hasContent: Bool {
     CloudTimelineViewVM.hasContent(assets: assets, mergedCells: mergedCells)
@@ -200,6 +207,7 @@ struct AllSourcesTimelineMonthSection: View {
           merged: cell, host: hostResolver(cell), sync: syncBadge(for: cell), style: .desktop)
       }
     )
+    .timelineFileActions(fileActions, absPathMap: absPathToAsset, server: server)
   }
 
   private var monthLabel: String {

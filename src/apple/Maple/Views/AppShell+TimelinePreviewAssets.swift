@@ -110,6 +110,19 @@ extension AppShell {
     return spliced
   }
 
+  /// The same lazy refs back a Timeline tile's drag-out and Copy (#6002).
+  func timelineFileActions() -> TimelineFileActions {
+    TimelineFileActions(
+      cloudAsset: { asset, server in
+        var sources: [URL: CloudSource] = [:]
+        return cloudAssetRef(asset, server: server, cloudSourcesByServer: &sources)
+      },
+      localAsset: { ref in
+        var photoKitSource: PhotoKitSource?
+        return AssetRef(fileBacked: ref) ?? photoKitAssetRef(ref, photoKitSource: &photoKitSource)
+      })
+  }
+
   // MARK: - Per-VM builders
 
   /// Unified cross-source Timeline: cells can belong to any connected
@@ -189,7 +202,7 @@ extension AppShell {
   /// absolute path straight from `ref.id`), so one `CloudSource` per
   /// server serves every asset on it regardless of which library/folder
   /// the asset actually lives in.
-  private func cloudAssetRef(
+  func cloudAssetRef(
     _ asset: SearchAsset, server: URL, cloudSourcesByServer: inout [URL: CloudSource]
   ) -> AssetRef {
     let source: CloudSource
@@ -237,7 +250,7 @@ extension AppShell {
   /// access has been revoked between the grid showing this cell and the
   /// tap that built this list, in which case the cell is dropped rather
   /// than crash on a throwing init.
-  private func photoKitAssetRef(_ ref: ImageRef, photoKitSource: inout PhotoKitSource?) -> AssetRef?
+  func photoKitAssetRef(_ ref: ImageRef, photoKitSource: inout PhotoKitSource?) -> AssetRef?
   {
     if photoKitSource == nil {
       // Don't build a source that can't do anything. `PhotoKitSource.init`

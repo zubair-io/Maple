@@ -407,10 +407,11 @@ struct BrowseGrid: View {
           ? { asset in
             vm.selectedIDs.contains(asset.id)
           } : nil,
-        // Drag-onto-source-tree (#2646). PhotoKit is neither a drag
-        // source nor a drop target (design doc) — no user-writable
-        // path to relocate. Every other current-grid asset (local,
-        // SMB, Cloud) is draggable; if the dragged tile is part of a
+        // Drag-onto-source-tree (#2646). PhotoKit has no user-writable
+        // path to relocate, so on iOS it is not a drag source; on macOS
+        // it drags out to Finder as its exported original (#6002) and a
+        // sidebar drop reports that it can't move. Every other asset
+        // (local, SMB, Cloud) is draggable; if the dragged tile is part of a
         // larger active selection, the WHOLE selection rides along
         // ("multi-select drag carries the whole selection if the
         // dragged item is part of it").
@@ -425,9 +426,10 @@ struct BrowseGrid: View {
         // the drag starts (#4632). Internal drop routing likewise
         // restores grid order once in `performAssetDrop`.
         dragPayload: { asset in
-          guard asset.thumbnailProvenance != .photoKit, !(vm.currentSource is PhotoKitSource) else {
-            return nil
-          }
+          #if os(iOS)
+            guard asset.thumbnailProvenance != .photoKit, !(vm.currentSource is PhotoKitSource)
+            else { return nil }
+          #endif
           let active =
             vm.isSelecting
             ? vm.selectedIDs.intersection(visibleIDs)
@@ -450,12 +452,19 @@ struct BrowseGrid: View {
           // on-disk `primaryURL`.
           #if os(macOS)
             let showReveal = revealEligible(asset)
+            let showCopy = true
           #else
             let showReveal = false
+            let showCopy = false
           #endif
-          guard onTrashAssets != nil || showReveal || assetRename != nil else { return nil }
+          guard onTrashAssets != nil || showReveal || showCopy || assetRename != nil else {
+            return nil
+          }
           return AnyView(
             Group {
+              #if os(macOS)
+                copyMenuItem(for: asset)
+              #endif
               if let assetRename {
                 renameMenuItem(for: asset, renameCtx: assetRename)
               }
@@ -622,6 +631,15 @@ struct BrowseGrid: View {
         }
       }
       .accessibilityIdentifier("browseGrid.revealInFinder.\(asset.displayName)")
+    }
+
+    /// Copies the whole active selection when the right-clicked tile is in it.
+    private func copyMenuItem(for asset: AssetRef) -> some View {
+      CopyPhotosMenuItem(identifier: "browseGrid.copy.\(asset.displayName)") {
+        let active = activeSelectionIDs()
+        let ids = Set(active.contains(asset.id) && active.count > 1 ? active : [asset.id])
+        return vm.assets.filter { ids.contains($0.id) }
+      }
     }
   #endif
 

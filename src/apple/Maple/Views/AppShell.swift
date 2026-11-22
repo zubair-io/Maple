@@ -1056,7 +1056,8 @@ struct AppShell: View {
       // #2653: grid Delete-key/context-menu trash.
       onTrashAssets: { ids in trashSelectedAssets(ids: Set(ids)) },
       // #944 copy/paste/sync adjustments.
-      clipboard: adjustmentClipboard
+      clipboard: adjustmentClipboard,
+      timelineFileActions: timelineFileActions()
     )
     #if os(macOS)
       .sheet(item: $nativeExportSelection) { selection in
