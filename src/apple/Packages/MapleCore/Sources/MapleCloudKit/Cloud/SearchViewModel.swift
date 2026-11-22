@@ -100,8 +100,6 @@ public final class SearchViewModel {
   /// The ranking the pages held came from (#4542); sent with each further page.
   private var rankPin: String?
   private var facetCache: [FacetKey: SearchFacets] = [:]
-  /// Window facet fetches in flight, so pages that land inside one step
-  /// before its facets do share a single request instead of each firing one.
   private var facetWindowLoads: [FacetKey: Task<SearchFacets?, Never>] = [:]
 
   private struct PageKey: Hashable {
@@ -380,13 +378,12 @@ public final class SearchViewModel {
       facets = cached
       return
     }
-    let load =
-      facetWindowLoads[key]
-      ?? Task { try? await self.searchClient.facets(requested, page: windowPage, limit: self.limit) }
+    let load = facetWindowLoads[key] ?? Task {
+      try? await self.searchClient.facets(requested, page: windowPage, limit: self.limit)
+    }
     facetWindowLoads[key] = load
-    let loaded = await load.value
-    if facetWindowLoads[key] == load { facetWindowLoads[key] = nil }
-    guard let loaded, g == generation else { return }
+    defer { if facetWindowLoads[key] == load { facetWindowLoads[key] = nil } }
+    guard let loaded = await load.value, g == generation else { return }
     facetCache[key] = loaded
     facets = loaded
   }
