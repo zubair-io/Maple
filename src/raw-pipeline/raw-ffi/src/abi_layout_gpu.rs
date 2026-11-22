@@ -98,7 +98,6 @@ pub(super) fn describe(name: &str) -> Option<String> {
             wb_frame_render_cm,
             wb_frame_render_forward_matrix,
             wb_frame_render_scene_white_xyz,
-            wb_frame_render_wb_already_baked,
             wb_frame_render_cm_cold,
             wb_frame_render_cct_cold,
             wb_frame_render_cm_warm,

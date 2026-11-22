@@ -65,7 +65,7 @@
 //! #1727 slice and regressed the non-FM body: test_0000 temperature_min
 //! 8.80 → 19.14, wb_tungsten 11.82 → 14.52 mean ΔE. Hence FM-only.)
 //!
-//! `color_matrix` and `wb_already_baked` are likewise left untouched —
+//! `color_matrix` is likewise left untouched —
 //! the non-FM camera→working colorimetric transform depends only on the
 //! TRUE as-shot illuminant and the sensor's calibration, never on where
 //! the user points the WB sliders.

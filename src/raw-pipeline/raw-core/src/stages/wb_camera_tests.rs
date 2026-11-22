@@ -46,7 +46,6 @@ fn test_profile(scene_cct: f32, cm: [[f32; 3]; 3], as_shot_neutral: [f32; 3]) ->
         forward_matrix: None,
         scene_cct,
         scene_white_xyz,
-        wb_already_baked: true,
         hsm: None,
         look_table: None,
         tone_curve: None,

@@ -104,7 +104,6 @@ pub unsafe extern "C" fn maple_scene_linear_chain_haze_key(
                 p.wb_frame_cct_warm,
                 p.wb_frame_scene_cct,
                 p.wb_frame_as_shot_tint,
-                p.wb_frame_render_wb_already_baked,
                 p.wb_frame_render_cct_cold,
                 p.wb_frame_render_cct_warm,
                 p.bw_active,

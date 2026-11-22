@@ -164,7 +164,6 @@ pub struct MapleSceneLinearBufferF32 {
     //     semantics; this is the decode-side export of the same data. ---
     pub wb_frame_render_forward_matrix: [f32; 9],
     pub wb_frame_render_scene_white_xyz: [f32; 3],
-    pub wb_frame_render_wb_already_baked: f32,
     pub wb_frame_render_cm_cold: [f32; 9],
     pub wb_frame_render_cct_cold: f32,
     pub wb_frame_render_cm_warm: [f32; 9],
@@ -238,7 +237,6 @@ impl MapleSceneLinearBufferF32 {
             wb_frame_render_cm: [0.0; 9],
             wb_frame_render_forward_matrix: [0.0; 9],
             wb_frame_render_scene_white_xyz: [0.0; 3],
-            wb_frame_render_wb_already_baked: 0.0,
             wb_frame_render_cm_cold: [0.0; 9],
             wb_frame_render_cct_cold: 0.0,
             wb_frame_render_cm_warm: [0.0; 9],

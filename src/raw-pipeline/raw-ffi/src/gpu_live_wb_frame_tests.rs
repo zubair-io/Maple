@@ -49,7 +49,6 @@ fn synthetic_frame() -> SliderFrameExport {
         render_cm: raw_core::math::Matrix3([[0.0; 3]; 3]),
         render_forward_matrix: raw_core::math::Matrix3([[0.0; 3]; 3]),
         render_scene_white_xyz: [0.0; 3],
-        render_wb_already_baked: 0.0,
         render_cm_cold: raw_core::math::Matrix3([[0.0; 3]; 3]),
         render_cct_cold: 0.0,
         render_cm_warm: raw_core::math::Matrix3([[0.0; 3]; 3]),
@@ -84,7 +83,6 @@ pub(super) fn synthetic_frame_with_render_profile() -> SliderFrameExport {
             [-0.01, -0.05, 1.06],
         ]),
         render_scene_white_xyz: [0.9505, 1.0, 1.0888],
-        render_wb_already_baked: 1.0,
         render_cm_cold,
         render_cct_cold: 2856.0,
         render_cm_warm,
@@ -119,7 +117,6 @@ pub(super) fn set_frame(p: &mut MapleGpuLiveParams, frame: &SliderFrameExport) {
     p.wb_frame_render_cm = flat(frame.render_cm);
     p.wb_frame_render_forward_matrix = flat(frame.render_forward_matrix);
     p.wb_frame_render_scene_white_xyz = frame.render_scene_white_xyz;
-    p.wb_frame_render_wb_already_baked = frame.render_wb_already_baked;
     p.wb_frame_render_cm_cold = flat(frame.render_cm_cold);
     p.wb_frame_render_cct_cold = frame.render_cct_cold;
     p.wb_frame_render_cm_warm = flat(frame.render_cm_warm);

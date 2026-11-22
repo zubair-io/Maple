@@ -31,7 +31,6 @@ pub struct ProfileCore {
     pub forward_matrix: Option<Matrix3>,
     pub scene_cct: f32,
     pub scene_white_xyz: [f32; 3],
-    pub wb_already_baked: bool,
     pub cm_endpoints: Option<CmEndpoints>,
     pub forward_reference: Option<ForwardReference>,
 }
@@ -44,7 +43,6 @@ impl ProfileCore {
             forward_matrix: profile.forward_matrix,
             scene_cct: profile.scene_cct,
             scene_white_xyz: profile.scene_white_xyz,
-            wb_already_baked: profile.wb_already_baked,
             cm_endpoints: profile.cm_endpoints,
             forward_reference: profile.forward_reference,
         }
@@ -58,7 +56,6 @@ impl ProfileCore {
             forward_matrix: self.forward_matrix,
             scene_cct: self.scene_cct,
             scene_white_xyz: self.scene_white_xyz,
-            wb_already_baked: self.wb_already_baked,
             hsm: None,
             look_table: None,
             tone_curve: None,

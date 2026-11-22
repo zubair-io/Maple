@@ -354,10 +354,9 @@ pub fn apply(img: &mut Image, temperature: f32, tint: f32, method: WbMethod) {
 /// is already `(1, 1, 1)` (e.g. wb-baked LinearRaw paths after
 /// `linearize::linearraw_to_camera_rgb` undid the bake).
 ///
-/// This is the canonical pre-DCP white-balance step. After this call, the
-/// downstream DCP path MUST run with `wb_already_baked=true` so the
-/// scene_white_xyz derivation uses `inv(CM) · (1, 1, 1)` instead of
-/// `inv(CM) · AsShotNeutral` (otherwise it double-applies WB).
+/// This is the canonical pre-DCP white-balance step: DCP's scene_white_xyz
+/// derivation, `inv(CM) · (1, 1, 1)`, assumes it ran (otherwise WB would be
+/// double-applied).
 ///
 /// Per spec, AsShotNeutral has G normalized to 1.0, so dividing by it gives
 /// gain = (1/n_r, 1.0, 1/n_b). For typical daylight `AsShotNeutral ≈

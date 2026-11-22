@@ -34,7 +34,6 @@ fn synthetic_frame() -> SliderFrameExport {
         render_cm: Matrix3([[0.0; 3]; 3]),
         render_forward_matrix: Matrix3([[0.0; 3]; 3]),
         render_scene_white_xyz: [0.0; 3],
-        render_wb_already_baked: 0.0,
         render_cm_cold: Matrix3([[0.0; 3]; 3]),
         render_cct_cold: 0.0,
         render_cm_warm: Matrix3([[0.0; 3]; 3]),
@@ -48,8 +47,7 @@ fn synthetic_frame() -> SliderFrameExport {
 
 /// [`synthetic_frame`] plus a plausible dual-illuminant RENDER PROFILE
 /// (distinct matrices from the value frame's, and a ForwardMatrix pair —
-/// the shape that exercises the #1967 exact-`C` path). `wb_already_baked`
-/// = true (the common FM-shipping-body case).
+/// the shape that exercises the #1967 exact-`C` path).
 fn synthetic_frame_with_render_profile() -> SliderFrameExport {
     let render_cm_cold = Matrix3([
         [0.7513, -0.0870, 0.1180],
@@ -69,7 +67,6 @@ fn synthetic_frame_with_render_profile() -> SliderFrameExport {
             [-0.01, -0.05, 1.06],
         ]),
         render_scene_white_xyz: [0.9505, 1.0, 1.0888], // D65
-        render_wb_already_baked: 1.0,
         render_cm_cold,
         render_cct_cold: 2856.0,
         render_cm_warm,
@@ -167,7 +164,6 @@ fn singular_frame_falls_back_to_generic_cat16_delta() {
         render_cm: Matrix3([[0.0; 3]; 3]),
         render_forward_matrix: Matrix3([[0.0; 3]; 3]),
         render_scene_white_xyz: [0.0; 3],
-        render_wb_already_baked: 0.0,
         render_cm_cold: Matrix3([[0.0; 3]; 3]),
         render_cct_cold: 0.0,
         render_cm_warm: Matrix3([[0.0; 3]; 3]),
