@@ -295,10 +295,6 @@ pub fn camera_key_for(raw: &RawImage) -> CameraKey {
 /// bundled profile is in use, since PTC/PLT were calibrated against the
 /// vendor's own matrices.
 pub fn to_dcp_profile(profile: &MapleProfile, raw: &RawImage) -> Option<DcpProfile> {
-    // The pipeline pre-gains every source, so a neutral patch maps cleanly
-    // to (1,1,1) going into DCP (Phase 1.2 pre-gain semantics).
-    let wb_already_baked = true;
-
     let cold = profile.illum1.and_then(|i| profile.cm1.map(|m| (i, m)));
     let warm = profile.illum2.and_then(|i| profile.cm2.map(|m| (i, m)));
 
@@ -321,7 +317,6 @@ pub fn to_dcp_profile(profile: &MapleProfile, raw: &RawImage) -> Option<DcpProfi
                 m_warm,
                 il_warm,
                 raw.as_shot_neutral,
-                wb_already_baked,
                 hsm_cold,
                 hsm_warm,
                 profile.fm1,
@@ -362,7 +357,6 @@ pub fn to_dcp_profile(profile: &MapleProfile, raw: &RawImage) -> Option<DcpProfi
         fm,
         single_hsm,
         raw.as_shot_neutral,
-        wb_already_baked,
         None, // PLT wiring to DNG source deferred (#1691 Phase 2)
         None, // PTC is suppressed for BundleConfident
     ))

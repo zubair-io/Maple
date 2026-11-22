@@ -79,7 +79,6 @@ namespace Maple.WinUI.Native
         public fixed float wb_frame_render_cm[9];
         public fixed float wb_frame_render_forward_matrix[9];
         public fixed float wb_frame_render_scene_white_xyz[3];
-        public float wb_frame_render_wb_already_baked;
         public fixed float wb_frame_render_cm_cold[9];
         public float wb_frame_render_cct_cold;
         public fixed float wb_frame_render_cm_warm[9];

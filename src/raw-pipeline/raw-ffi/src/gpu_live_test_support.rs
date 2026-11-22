@@ -274,7 +274,6 @@ pub(super) fn make_params(
         wb_frame_render_cm: [0.0; 9],
         wb_frame_render_forward_matrix: [0.0; 9],
         wb_frame_render_scene_white_xyz: [0.0; 3],
-        wb_frame_render_wb_already_baked: 0.0,
         wb_frame_render_cm_cold: [0.0; 9],
         wb_frame_render_cct_cold: 0.0,
         wb_frame_render_cm_warm: [0.0; 9],

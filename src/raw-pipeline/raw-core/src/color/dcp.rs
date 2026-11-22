@@ -45,11 +45,9 @@ pub struct DcpProfile {
     /// just needs `cam_to_pro = inv(M_pro_to_xyz_d50) × FM` and emphatically
     /// does NOT compose FM with `inv(CM)`.
     ///
-    /// Optional per DNG spec. When present and `wb_already_baked = true`,
-    /// the FM path runs. When absent OR `wb_already_baked = false` (the
-    /// 8-bit lossy LinearRaw escape hatch), we Bradford from
-    /// `scene_white_xyz` to D50 and fall back to the inverse of
-    /// `M_PRO_TO_XYZ_D50`.
+    /// Optional per DNG spec. When present the FM path runs; when absent we
+    /// Bradford from `scene_white_xyz` to D50 and fall back to the inverse
+    /// of `M_PRO_TO_XYZ_D50`.
     pub forward_matrix: Option<Matrix3>,
     /// Correlated color temperature of the scene illuminant in Kelvin, derived
     /// iteratively from AsShotNeutral + calibration matrices. Not itself used
@@ -62,12 +60,6 @@ pub struct DcpProfile {
     /// camera reading passed through `apply` renders exactly neutral in D50,
     /// avoiding the McCamy↔Hernández polynomial round-trip residual.
     pub scene_white_xyz: crate::math::Vec3,
-    /// True when the source image already has its white balance baked in by
-    /// the converter (e.g. LinearRaw DNGs, where AsShotNeutral was applied
-    /// at write-time). When set, `scene_white_xyz` is derived from
-    /// `inv(CM) · (1, 1, 1)` instead of `inv(CM) · as_shot_neutral`,
-    /// preventing a double WB application. See ticket #07.
-    pub wb_already_baked: bool,
     /// Per-illuminant ProfileHueSatMap, already lerped to `scene_cct` when
     /// the source DNG ships both `ProfileHueSatMapData1` and
     /// `ProfileHueSatMapData2` (DNG 1.6 § 6.6.5). When only one is present,
@@ -214,10 +206,6 @@ impl DcpProfile {
             forward_matrix: None,
             scene_cct: Illuminant::D65.cct(),
             scene_white_xyz,
-            // Embedded-CM constructors don't know whether the source is
-            // LinearRaw; default to false (the Bayer / vendor-RAW case).
-            // `profile_for` overrides this for actual LinearRaw inputs.
-            wb_already_baked: false,
             // No HSM available from a bare embedded CM; profile_for fills
             // this in for real DNGs that ship the tags.
             hsm: None,
@@ -296,17 +284,16 @@ fn normalize_to_y1(xyz: crate::math::Vec3) -> crate::math::Vec3 {
 ///
 /// Two paths inside `apply_colorimetry_in_place`:
 ///
-/// * **FM path** — when `profile.forward_matrix` is `Some` AND
-///   `profile.wb_already_baked` is `true` (i.e. the pipeline's
-///   `white_balance::apply_pre_gain` ran upstream). The buffer arriving
+/// * **FM path** — when `profile.forward_matrix` is `Some` (the
+///   pipeline's `white_balance::apply_pre_gain` runs upstream for every
+///   source). The buffer arriving
 ///   here is `camera_raw / AsShotNeutral`, which is the white-balanced
 ///   camera RGB FM's contract specifies; multiply by FM to get XYZ-D50,
 ///   then by `inv(M_pro_to_xyz_d50)` to land in linear ProPhoto D50.
 ///   No runtime Bradford on this path — FM is the calibrated camera-WB
 ///   → XYZ-D50 mapping. See the `forward_matrix` field docstring for
 ///   the DNG SDK citations.
-/// * **Bradford fallback** — when FM is absent OR pre-gain was skipped
-///   (the 8-bit lossy LinearRaw escape hatch). Invert CM, Bradford
+/// * **Bradford fallback** — when FM is absent. Invert CM, Bradford
 ///   from `scene_white_xyz` to D50, then `inv(M_pro_to_xyz_d50)` to
 ///   reach ProPhoto D50. `scene_white_xyz` is the scene illuminant's
 ///   white point derived from the as-shot neutral, NOT the nearer
@@ -387,23 +374,11 @@ pub(crate) fn camera_to_prophoto_with_forward(
     let inv_pro = M_PRO_TO_XYZ_D50
         .inverse()
         .expect("ProPhoto matrix is invertible");
-    match (forward_matrix, profile.wb_already_baked) {
-        (Some(fm), true) => Ok(inv_pro.mul_mat(&fm)),
-        _ => {
-            // Non-FM / pre-gain-skipped path: invert CM here (lazily — the
-            // FM path doesn't need it and skipping the inversion saves a 3x3
-            // matrix inverse per image). CM is XYZ→camera per the DNG spec;
-            // we want the forward direction.
-            //
-            // Two reasons to reach here:
-            //   1. `forward_matrix` is `None` — no FM in the profile.
-            //   2. `wb_already_baked = false` — a profile whose buffer the
-            //      pipeline did NOT pre-gain by AsShotNeutral. Applying FM
-            //      there would assume a WB-divided buffer (FM's contract
-            //      per DNG SDK), which it is not — so we Bradford instead
-            //      of touching FM. `profile_for_with_source` always sets
-            //      `true`; only hand-built profiles reach this arm. Removing
-            //      the flag and its FFI plumbing is tracked in #5925.
+    match forward_matrix {
+        Some(fm) => Ok(inv_pro.mul_mat(&fm)),
+        None => {
+            // CM is XYZ→camera per the DNG spec; inverted lazily because
+            // the FM path never needs it.
             let cam_to_xyz = profile.color_matrix.inverse().ok_or_else(|| {
                 crate::Error::Dcp("ColorMatrix is singular, cannot invert to camera→XYZ".into())
             })?;
@@ -449,8 +424,9 @@ pub fn apply_colorimetry_in_place(image: &mut Image, profile: &DcpProfile) -> cr
 
     // Camera RGB → ProPhoto D50.
     //
-    // Two paths, dispatched on `wb_already_baked` (whether
-    // `pipeline::develop` ran `white_balance::apply_pre_gain` before us):
+    // Two paths, dispatched on whether the profile carries a ForwardMatrix
+    // (`pipeline::develop` always runs `white_balance::apply_pre_gain`
+    // before us):
     //
     //   * **FM path (post-#354).** Per DNG SDK
     //     `dng_color_spec.cpp:444-446` the SDK builds `fCameraToPCS =
@@ -466,13 +442,9 @@ pub fn apply_colorimetry_in_place(image: &mut Image, profile: &DcpProfile) -> cr
     //     rotates an already-white-balanced buffer and was the pre-#354 bug
     //     that regressed bundle-canonical FM application). See the field
     //     docstring on `forward_matrix` for the full citation.
-    //   * **Non-FM / pre-gain-skipped path.** Either the profile has no
-    //     FM (Bradford fallback per spec § 3.4 step 2) OR pre-gain was
-    //     skipped because the source is 8-bit lossy LinearRaw (see
-    //     `pipeline::develop::develop_scene_linear_from_raw_with_quality`
-    //     comment block; that path leaves WB baked through gamma decode).
-    //     In both cases we invert CM, Bradford-adapt from the scene white
-    //     to D50, then inverse-ProPhoto to enter ProPhoto D50.
+    //   * **Non-FM path.** The profile has no FM (Bradford fallback per
+    //     spec § 3.4 step 2): invert CM, Bradford-adapt from the scene
+    //     white to D50, then inverse-ProPhoto to enter ProPhoto D50.
     let cam_to_pro = camera_to_prophoto_matrix(profile)?;
 
     if profile.hsm.is_some() || profile.look_table.is_some() {
@@ -601,12 +573,9 @@ pub(crate) fn compute_as_shot_cct(
 /// Also exposed for the dcp.rs unit tests, which exercise the math
 /// directly without going through the dispatcher.
 ///
-/// `wb_already_baked = true` for LinearRaw DNGs whose converter pre-applied
-/// AsShotNeutral. In that case `scene_white_xyz` derives from
-/// `inv(CM) · (1, 1, 1)` instead of `inv(CM) · wb_neutral`, preventing the
-/// `dcp::apply` Bradford from re-applying WB on top of the bake. The CCT
-/// estimate still uses `wb_neutral` because the ShotNeutral metadata still
-/// records the scene illuminant correctly. See ticket #07.
+/// The pipeline pre-gains every buffer by AsShotNeutral, so
+/// `scene_white_xyz` derives from `inv(CM) · (1, 1, 1)`; the CCT estimate
+/// still uses `wb_neutral`, which records the scene illuminant.
 ///
 /// `hsm_cold` / `hsm_warm` are the corresponding ProfileHueSatMapData1/2
 /// tables. When both are present and shape-compatible, they're lerped per
@@ -619,7 +588,6 @@ pub fn interpolated_profile(
     m_warm: Matrix3,
     illum_warm: Illuminant,
     wb_neutral: [f32; 3],
-    wb_already_baked: bool,
     hsm_cold: Option<&HsmTable>,
     hsm_warm: Option<&HsmTable>,
     fm_cold: Option<Matrix3>,
@@ -633,7 +601,6 @@ pub fn interpolated_profile(
         m_warm,
         illum_warm,
         wb_neutral,
-        wb_already_baked,
         (hsm_cold, hsm_warm),
         (fm_cold, fm_warm),
         (Matrix3::IDENTITY, Matrix3::IDENTITY),
@@ -653,7 +620,6 @@ pub(crate) fn interpolated_profile_calibrated(
     m_warm: Matrix3,
     illum_warm: Illuminant,
     wb_neutral: [f32; 3],
-    wb_already_baked: bool,
     (hsm_cold, hsm_warm): (Option<&HsmTable>, Option<&HsmTable>),
     (fm_cold, fm_warm): (Option<Matrix3>, Option<Matrix3>),
     (individual_cold, individual_warm): (Matrix3, Matrix3),
@@ -678,25 +644,10 @@ pub(crate) fn interpolated_profile_calibrated(
     // the as-shot white. When neither side ships one, result is None and DCP
     // falls back to Bradford CA.
     let forward_matrix = resolve_forward_matrix(&endpoints, as_shot_cct, wb_neutral);
-    // Historical no-pre-gain branch: this path is exercised when WB pre-gain
-    // was skipped upstream (currently only the 8-bit lossy LinearRaw
-    // `wb_already_baked = true` route — see develop.rs). The non-LinearRaw
-    // path pre-gains by AsShotNeutral so a neutral patch enters inv(CM) as
-    // (1, 1, 1); without pre-gain, a neutral patch enters inv(CM) as
-    // AsShotNeutral.
-    // In the no-pre-gain world, a neutral scene patch enters inv(CM) as
-    // AsShotNeutral, so the self-consistent Bradford source is
-    // `inv(CM_interp) * AsShotNeutral`, normalized to Y=1. For LinearRaw
-    // sources (wb_already_baked = true) the converter pre-applied WB, so a
-    // neutral patch enters inv(CM) as (1, 1, 1) instead.
-    let neutral_for_white = if wb_already_baked {
-        [1.0, 1.0, 1.0]
-    } else {
-        wb_neutral
-    };
+    // The AsShotNeutral pre-gain lands a neutral patch in inv(CM) as (1, 1, 1).
     let scene_white_xyz = cm
         .inverse()
-        .map(|inv| normalize_to_y1(inv.mul_vec(neutral_for_white)))
+        .map(|inv| normalize_to_y1(inv.mul_vec([1.0, 1.0, 1.0])))
         .unwrap_or(crate::color::matrices::XYZ_D65);
     let hsm = lerp_hsm_for_cct(hsm_cold, hsm_warm, cct_cold, cct_warm, as_shot_cct);
     DcpProfile {
@@ -709,7 +660,6 @@ pub(crate) fn interpolated_profile_calibrated(
         forward_matrix,
         scene_cct: as_shot_cct,
         scene_white_xyz,
-        wb_already_baked,
         hsm,
         look_table,
         tone_curve,
@@ -914,8 +864,8 @@ pub fn profile_for(raw: &RawImage) -> crate::Result<DcpProfile> {
 /// what ACR would display for this same scene illuminant, rather than a
 /// CCT from one curve fit paired with a tint from another. This is
 /// deliberately **not** `profile.scene_white_xyz` — that field is
-/// `inv(color_matrix) · (1,1,1)` whenever `wb_already_baked` (true for
-/// every non-LinearRaw Bayer source), which represents where a
+/// `inv(color_matrix) · (1,1,1)` (the AsShotNeutral pre-gain runs for
+/// every source), which represents where a
 /// pipeline-pre-gained NEUTRAL PATCH lands in XYZ post-DCP, not the scene
 /// illuminant's own chromaticity — a completely different quantity
 /// (measured on test_0000.DNG through its pre-#4661 aliased profile:
@@ -1012,13 +962,11 @@ pub fn estimate_as_shot_cct_tint_with_source(
 /// banned rawler's substituted matrices, not the matrices that ship
 /// inside the DNG file itself.
 pub fn profile_for_with_source(raw: &RawImage) -> crate::Result<(DcpProfile, ProfileSource)> {
-    let wb_already_baked = true;
-
     // ── 1. Embedded full profile (CM + FM + HSM) ──────────────────────────
     // Camera vendor's own complete calibration; beats the bundle because
     // the embedded triad is internally consistent (FM matched to CM, HSM
     // tuned for FM). This is the new behavior under ticket #460.
-    if let Some((profile, illuminant)) = profile_from_embedded_full(raw, wb_already_baked) {
+    if let Some((profile, illuminant)) = profile_from_embedded_full(raw) {
         return Ok((profile, ProfileSource::EmbeddedFull { illuminant }));
     }
 
@@ -1039,7 +987,7 @@ pub fn profile_for_with_source(raw: &RawImage) -> crate::Result<(DcpProfile, Pro
     // CM/FM pair — internally consistent with the sensor, and better than the
     // synthetic D65 fallback (§4). Two CMs → interpolated profile. One CM →
     // single-illuminant profile.
-    if let Some((profile, illuminant)) = profile_from_embedded_cm_only(raw, wb_already_baked) {
+    if let Some((profile, illuminant)) = profile_from_embedded_cm_only(raw) {
         return Ok((profile, ProfileSource::EmbeddedCmOnly { illuminant }));
     }
 
@@ -1066,7 +1014,6 @@ pub fn profile_for_with_source(raw: &RawImage) -> crate::Result<(DcpProfile, Pro
             forward_matrix: None,
             scene_cct: Illuminant::D65.cct(),
             scene_white_xyz: crate::color::matrices::XYZ_D65,
-            wb_already_baked,
             hsm: None,
             look_table: None, // PLT wiring to DNG source deferred (#1691 Phase 2)
             tone_curve: raw.profile_tone_curve.clone(),
@@ -1101,10 +1048,7 @@ pub fn profile_for_with_source(raw: &RawImage) -> crate::Result<(DcpProfile, Pro
 /// (gated on FM + HSM presence) and [`profile_from_embedded_cm_only`]
 /// (no HSM gate). The math is identical; only the resolver's tier
 /// classification differs.
-fn profile_from_embedded(
-    raw: &RawImage,
-    wb_already_baked: bool,
-) -> Option<(DcpProfile, Illuminant)> {
+fn profile_from_embedded(raw: &RawImage) -> Option<(DcpProfile, Illuminant)> {
     let cms = &raw.color_matrices;
     if cms.is_empty() {
         return None;
@@ -1153,7 +1097,6 @@ fn profile_from_embedded(
             m_warm,
             il_warm,
             raw.as_shot_neutral,
-            wb_already_baked,
             (hsm_cold, hsm_warm),
             (fm_cold, fm_warm),
             (individual(&il_cold), individual(&il_warm)),
@@ -1205,7 +1148,6 @@ fn profile_from_embedded(
             reference.map(|r| r.resolve(raw.as_shot_neutral)),
             hsm,
             raw.as_shot_neutral,
-            wb_already_baked,
             None, // PLT wiring to DNG source deferred (#1691 Phase 2)
             raw.profile_tone_curve.clone(),
         )
@@ -1238,14 +1180,11 @@ fn profile_from_embedded(
 /// Returns `None` if any of the three input gates miss or the
 /// post-synth FM/HSM check fails; the caller (the resolver) then falls
 /// through to the bundle / cm-only / fallback path.
-fn profile_from_embedded_full(
-    raw: &RawImage,
-    wb_already_baked: bool,
-) -> Option<(DcpProfile, Illuminant)> {
+fn profile_from_embedded_full(raw: &RawImage) -> Option<(DcpProfile, Illuminant)> {
     if raw.color_matrices.is_empty() || raw.forward_matrices.is_empty() || raw.hsm_data.is_empty() {
         return None;
     }
-    let (profile, illuminant) = profile_from_embedded(raw, wb_already_baked)?;
+    let (profile, illuminant) = profile_from_embedded(raw)?;
     // Defend the CM + FM + HSM invariant against illuminant-key
     // mismatches. The input gate is necessary but not sufficient — a
     // non-empty `forward_matrices` whose keys don't include the CMs'
@@ -1273,11 +1212,8 @@ fn profile_from_embedded_full(
 /// to `profile_from_embedded`. This guarantees `EmbeddedCmOnly`
 /// profiles never carry an HSM table regardless of what
 /// `raw.hsm_data` looked like.
-fn profile_from_embedded_cm_only(
-    raw: &RawImage,
-    wb_already_baked: bool,
-) -> Option<(DcpProfile, Illuminant)> {
-    let (mut profile, illuminant) = profile_from_embedded(raw, wb_already_baked)?;
+fn profile_from_embedded_cm_only(raw: &RawImage) -> Option<(DcpProfile, Illuminant)> {
+    let (mut profile, illuminant) = profile_from_embedded(raw)?;
     // Enforce the tier's "no HSM" contract — see fn-level doc — including
     // the endpoints a white-balance retarget would re-lerp (#4633).
     profile.hsm = None;
@@ -1314,18 +1250,12 @@ pub(crate) fn single_illuminant_profile(
     forward_matrix: Option<Matrix3>,
     hsm: Option<HsmTable>,
     as_shot_neutral: [f32; 3],
-    wb_already_baked: bool,
     look_table: Option<HsmTable>,
     tone_curve: Option<ProfileToneCurve>,
 ) -> DcpProfile {
-    let neutral_for_white: [f32; 3] = if wb_already_baked {
-        [1.0, 1.0, 1.0]
-    } else {
-        as_shot_neutral
-    };
     let scene_white_xyz = cm
         .inverse()
-        .map(|inv| normalize_to_y1(inv.mul_vec(neutral_for_white)))
+        .map(|inv| normalize_to_y1(inv.mul_vec([1.0, 1.0, 1.0])))
         .unwrap_or(crate::color::matrices::XYZ_D65);
     let scene_cct = compute_scene_cct_single(cm, as_shot_neutral, illum.cct());
     DcpProfile {
@@ -1334,7 +1264,6 @@ pub(crate) fn single_illuminant_profile(
         forward_matrix,
         scene_cct,
         scene_white_xyz,
-        wb_already_baked,
         hsm,
         look_table,
         tone_curve,
@@ -1535,7 +1464,7 @@ mod tests {
         // Drive the embedded path directly so we don't depend on bundle
         // hits for fixture cameras.
         let (profile, _illum) =
-            profile_from_embedded(&raw, true).expect("two CMs + two HSMs should produce a profile");
+            profile_from_embedded(&raw).expect("two CMs + two HSMs should produce a profile");
 
         // The interpolated profile's `hsm` is a lerp of cold + warm. For
         // any reciprocal-CCT `t ∈ [0,1]`, the result's hueDelta sits
@@ -1577,7 +1506,6 @@ mod tests {
             forward_matrix: None,
             scene_cct: Illuminant::D65.cct(),
             scene_white_xyz: crate::color::matrices::XYZ_D65,
-            wb_already_baked: false,
             hsm: None,
             look_table: None,
             tone_curve: None,
@@ -1792,7 +1720,6 @@ mod tests {
             forward_matrix: None,
             scene_cct: Illuminant::D65.cct(),
             scene_white_xyz: crate::color::matrices::XYZ_D65,
-            wb_already_baked: prof_embedded.wb_already_baked,
             hsm: None,
             look_table: None,
             tone_curve: None,
@@ -1932,7 +1859,6 @@ mod tests {
             m_warm,
             Illuminant::D65,
             [1.0, 1.0, 1.0],
-            /* wb_already_baked */ true,
             None,
             None,
             None,
@@ -1967,16 +1893,8 @@ mod tests {
             [-0.4287, 1.2460, 0.2028],
             [-0.0908, 0.2162, 0.5668],
         ]);
-        let profile = single_illuminant_profile(
-            cm,
-            Illuminant::D65,
-            None,
-            None,
-            [0.5, 1.0, 0.6],
-            /* wb_already_baked */ true,
-            None,
-            None,
-        );
+        let profile =
+            single_illuminant_profile(cm, Illuminant::D65, None, None, [0.5, 1.0, 0.6], None, None);
         assert!(profile.cm_endpoints.is_none());
         for cct in [2000.0_f32, 6504.0, 15000.0] {
             assert_eq!(profile.color_matrix_for_cct(cct).0, cm.0);
@@ -2029,15 +1947,13 @@ mod tests {
         let as_shot_neutral = cm_interp.mul_vec(xyz_scene);
 
         // Build the dual-illuminant profile directly via
-        // `interpolated_profile`. wb_already_baked = true matches the
-        // production Bayer post-pre-gain contract.
+        // `interpolated_profile`.
         let profile = interpolated_profile(
             cm_a,
             Illuminant::StdA,
             cm_d,
             Illuminant::D65,
             as_shot_neutral,
-            /* wb_already_baked */ true,
             None,
             None,
             None,
@@ -2045,7 +1961,6 @@ mod tests {
             None,
             None,
         );
-        assert!(profile.wb_already_baked);
 
         let mut img = Image::new(1, 1, ColorSpace::CameraNativeLinearRgb);
         img.pixels[0] = [1.0, 1.0, 1.0];
@@ -2065,78 +1980,6 @@ mod tests {
         );
     }
 
-    /// `wb_already_baked` holds for every `cfa` and `white_level`: the
-    /// pipeline pre-gains by `AsShotNeutral` for all of them, independent of
-    /// which profile-source path runs. Under #424/#460 a synthetic raw
-    /// without a UCM AND no embedded matrices goes through the
-    /// `RawlerFallback` path, which carries the same flag — this regression
-    /// test confirms that property survives the never-identity refactor.
-    ///
-    /// Under #373 (Canon non-Bayer decode fix), LinearRgb passes
-    /// camera-RGB through unchanged in `linearize::linearraw_to_camera_rgb`;
-    /// downstream pre-gain still runs. The 8-bit lossy DNG Converter output
-    /// is the same shape once its declared transfer is applied (#5081).
-    #[test]
-    fn generic_profile_wb_already_baked_holds_for_every_cfa_and_white_level() {
-        let warm_wb: [f32; 3] = [1.65, 1.0, 2.16];
-
-        // 16-bit LinearRgb (white_level > 255): pipeline.rs pre-gains,
-        // so wb_already_baked = true.
-        let raw_linear = RawImage {
-            width: 1,
-            height: 1,
-            cfa: crate::image::CfaPattern::LinearRgb,
-            black_level: [0; 4],
-            white_level: 65535,
-            raw_data: vec![0; 3],
-            as_shot_neutral: warm_wb,
-            as_shot_cct: None,
-            camera_make: "Test".into(),
-            camera_model: "Test".into(),
-            unique_camera_model: None,
-            color_matrices: std::collections::HashMap::new(),
-            forward_matrices: std::collections::HashMap::new(),
-            individual_calibrations: std::collections::HashMap::new(),
-            orientation: crate::image::ExifOrientation::Normal,
-            baseline_exposure: 0.0,
-            hsm_data: std::collections::HashMap::new(),
-            plt: None,
-            profile_tone_curve: None,
-            profile_gain_table_map: None,
-            crop_rect: None,
-            iso: 100,
-            noise_profile: None,
-            sensor_gain_maps: None,
-            opcode_list3: None,
-            opcode_skips: Vec::new(),
-            aperture: None,
-            focal_length: None,
-            lens_metadata: Default::default(),
-        };
-        let (prof_linear, src_linear) = profile_for_with_source(&raw_linear).unwrap();
-        // No embedded matrices on this synthetic raw → RawlerFallback.
-        assert_eq!(src_linear, ProfileSource::RawlerFallback);
-        assert!(
-            prof_linear.wb_already_baked,
-            "16-bit LinearRgb must get wb_already_baked=true after Phase 1.2"
-        );
-
-        let mut raw_bayer = raw_linear.clone();
-        raw_bayer.cfa = crate::image::CfaPattern::Rggb;
-        let (prof_bayer, _) = profile_for_with_source(&raw_bayer).unwrap();
-        assert!(prof_bayer.wb_already_baked);
-
-        // 8-bit lossy LinearRgb decodes through its declared OpcodeList2
-        // transfer and is pre-gained like every other source (#5081).
-        let mut raw_lossy = raw_linear.clone();
-        raw_lossy.white_level = 255;
-        let (prof_lossy, _) = profile_for_with_source(&raw_lossy).unwrap();
-        assert!(
-            prof_lossy.wb_already_baked,
-            "8-bit lossy LinearRgb is pre-gained: wb_already_baked=true"
-        );
-    }
-
     /// `interpolated_profile` produces a CM between the two endpoints
     /// when scene CCT lands between the calibration CCTs. This used to
     /// be tested via `profile_for(synthetic_raw)`; under #345 the
@@ -2152,7 +1995,6 @@ mod tests {
             m_warm,
             Illuminant::D65,
             /* as_shot_neutral */ [1.0, 1.0, 1.0],
-            /* wb_already_baked */ false,
             None,
             None,
             None,
@@ -2328,7 +2170,6 @@ mod tests {
             m_d,
             Illuminant::D65,
             /* as_shot_neutral */ [1.5, 1.0, 1.7],
-            /* wb_already_baked */ false,
             Some(&h1),
             Some(&h2),
             None,
@@ -3048,92 +2889,6 @@ mod tests {
         assert!((h_new - expected_h).abs() < 1.0e-3);
         assert!((s_new - expected_s).abs() < 1.0e-3);
         assert!((v_new - expected_v).abs() < 1.0e-3);
-    }
-
-    /// PR #1709 review finding: the match that dispatches FM vs Bradford was
-    /// collapsed to check only `forward_matrix`, dropping the `wb_already_baked`
-    /// guard. For 8-bit lossy LinearRaw DNGs (`wb_already_baked = false`) the
-    /// pipeline does NOT pre-divide by AsShotNeutral, so the FM contract (FM
-    /// expects a WB-divided buffer) is violated. The fix restores the two-arm
-    /// match `(Some(fm), true) => FM path, _ => Bradford path`.
-    ///
-    /// This test constructs a profile with `forward_matrix = Some(...)` but
-    /// `wb_already_baked = false` and asserts that the Bradford path runs —
-    /// i.e. the output matches what we get when `forward_matrix = None`
-    /// (which unambiguously takes Bradford) and differs from what we get when
-    /// `wb_already_baked = true` (which would run the FM path).
-    #[test]
-    fn wb_not_baked_takes_bradford_even_when_forward_matrix_present() {
-        // Plausible camera matrix: XYZ → camera at D65.
-        let cm = Matrix3([
-            [0.7501, -0.1234, -0.0712],
-            [-0.3801, 1.2001, 0.1899],
-            [-0.0488, 0.1801, 0.6011],
-        ]);
-        // Plausible forward matrix: WB-divided camera RGB → XYZ-D50.
-        let fm = Matrix3([
-            [0.5309, 0.2555, 0.1711],
-            [0.2034, 0.7981, -0.0015],
-            [0.0149, -0.0710, 0.7736],
-        ]);
-        // Common scene white derived from inv(CM) * [1,1,1] (identity ASN).
-        let scene_white_xyz = crate::color::matrices::XYZ_D65;
-
-        // Profile A: wb_already_baked=false + FM present → must take Bradford.
-        let profile_wb_false = DcpProfile {
-            illuminant: Illuminant::D65,
-            color_matrix: cm,
-            forward_matrix: Some(fm),
-            scene_cct: Illuminant::D65.cct(),
-            scene_white_xyz,
-            wb_already_baked: false,
-            hsm: None,
-            look_table: None,
-            tone_curve: None,
-            cm_endpoints: None,
-            hsm_endpoints: None,
-            forward_reference: None,
-        };
-        // Profile B: wb_already_baked=true + FM present → takes FM path.
-        let profile_wb_true = DcpProfile {
-            wb_already_baked: true,
-            ..profile_wb_false.clone()
-        };
-        // Profile C: forward_matrix=None (unambiguous Bradford reference).
-        let profile_no_fm = DcpProfile {
-            forward_matrix: None,
-            wb_already_baked: false,
-            ..profile_wb_false.clone()
-        };
-
-        let mut img = Image::new(1, 1, ColorSpace::CameraNativeLinearRgb);
-        img.pixels[0] = [0.5, 0.48, 0.52];
-
-        let out_wb_false = apply(&img, &profile_wb_false).expect("wb_false + FM: should succeed");
-        let out_wb_true = apply(&img, &profile_wb_true).expect("wb_true + FM: should succeed");
-        let out_no_fm = apply(&img, &profile_no_fm).expect("no FM: should succeed");
-
-        // wb_already_baked=false must produce the same result as no-FM (Bradford)
-        // and must differ from wb_already_baked=true (FM path).
-        for ch in 0..3 {
-            assert!(
-                (out_wb_false.pixels[0][ch] - out_no_fm.pixels[0][ch]).abs() < 1e-5,
-                "ch={ch}: wb_false path ({}) must equal Bradford-only path ({})",
-                out_wb_false.pixels[0][ch],
-                out_no_fm.pixels[0][ch]
-            );
-            // FM path and Bradford path must differ — guards against a
-            // degenerate case where the matrices happen to produce the same
-            // output.
-            let fm_vs_bradford_diff = (out_wb_true.pixels[0][ch] - out_no_fm.pixels[0][ch]).abs();
-            assert!(
-                fm_vs_bradford_diff > 1e-3,
-                "ch={ch}: FM path ({}) and Bradford path ({}) must differ \
-                 for this test to be meaningful (diff={fm_vs_bradford_diff:.6})",
-                out_wb_true.pixels[0][ch],
-                out_no_fm.pixels[0][ch]
-            );
-        }
     }
 }
 

@@ -83,7 +83,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     let profile = dcp::profile_for(&raw)?;
-    println!("wb_already_baked: {}", profile.wb_already_baked);
     println!("scene_cct: {:.0} K", profile.scene_cct);
     println!(
         "scene_white_xyz (Y=1 normalized): {:?}",

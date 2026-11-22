@@ -85,7 +85,6 @@ fn main() -> Result<(), Box<dyn Error>> {
     );
     assert_eq!(before.scene_cct, after.scene_cct);
     assert_eq!(before.scene_white_xyz, after.scene_white_xyz);
-    assert_eq!(before.wb_already_baked, after.wb_already_baked);
     assert_eq!(raw.as_shot_neutral, wb);
     assert_eq!(raw.baseline_exposure, be);
     assert!(after.hsm.is_some());
