@@ -119,6 +119,7 @@ struct AppShellMacLayout<SidebarContent: View, ToolbarContentT: ToolbarContent>:
   /// #944: app-level copy/paste/sync-adjustments clipboard, forwarded
   /// through to BrowseGrid.
   var clipboard: AdjustmentClipboard? = nil
+  var timelineFileActions: TimelineFileActions? = nil
 
   var body: some View {
     // In Browse mode the detail panel is suppressed entirely — the
@@ -268,7 +269,8 @@ struct AppShellMacLayout<SidebarContent: View, ToolbarContentT: ToolbarContent>:
       onExportRecipes: onExportRecipes,
       browseHeader: browseHeader,
       onTrashAssets: onTrashAssets,
-      clipboard: clipboard
+      clipboard: clipboard,
+      timelineFileActions: timelineFileActions
     )
   }
 }

@@ -164,6 +164,8 @@ struct AppShellCenterColumn: View {
   /// selection bar's paste/sync buttons and disables the ⌘C/⌘V shortcuts
   /// (e.g. previews).
   var clipboard: AdjustmentClipboard? = nil
+  /// Timeline drag-out to Finder and the tile "Copy" item (#6002).
+  var timelineFileActions: TimelineFileActions? = nil
 
   var body: some View {
     // The center column switches between the explorer grid (browse
@@ -264,7 +266,8 @@ struct AppShellCenterColumn: View {
           thumbCache: thumbCache,
           displayMode: browseDisplayMode,
           onSelectAsset: onSelectCloudAsset,
-          onSelectLocalAsset: onSelectLocalAsset
+          onSelectLocalAsset: onSelectLocalAsset,
+          fileActions: timelineFileActions
         )
         .modifier(FloatingBrowseHeader(model: browseHeader))
       } else if let vm = cloudTimelineVM,
@@ -277,7 +280,8 @@ struct AppShellCenterColumn: View {
           thumbCache: thumbCache,
           displayMode: browseDisplayMode,
           onSelectAsset: { asset in onSelectCloudAsset(asset, vm.server) },
-          onSelectLocalAsset: onSelectLocalAsset
+          onSelectLocalAsset: onSelectLocalAsset,
+          fileActions: timelineFileActions
         )
         .modifier(FloatingBrowseHeader(model: browseHeader))
       } else {
