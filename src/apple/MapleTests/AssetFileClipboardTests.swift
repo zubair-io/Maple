@@ -39,15 +39,19 @@
     }
 
     @MainActor
-    func testNewCopyReplacesThePreviousStagedFiles() async throws {
-      let staging = root.appendingPathComponent("staging")
+    func testEarlierCopyStaysUntilItsReplacementIsPublished() async throws {
+      let earlierBatch = root.appendingPathComponent("earlier")
+      let laterBatch = root.appendingPathComponent("later")
       let earlier = try await AssetFileClipboard.stage(
-        [remoteAsset(name: "old.jpg", bytes: Data([1]))], in: staging)
+        [remoteAsset(name: "IMG.jpg", bytes: Data([1]))], in: earlierBatch)
+      let later = try await AssetFileClipboard.stage(
+        [remoteAsset(name: "IMG.jpg", bytes: Data([2]))], in: laterBatch)
 
-      _ = try await AssetFileClipboard.stage(
-        [remoteAsset(name: "new.jpg", bytes: Data([2]))], in: staging)
+      XCTAssertEqual(try Data(contentsOf: earlier[0]), Data([1]))
+      AssetFileClipboard.removeStagedCopies(in: root, except: laterBatch)
 
       XCTAssertFalse(FileManager.default.fileExists(atPath: earlier[0].path))
+      XCTAssertEqual(try Data(contentsOf: later[0]), Data([2]))
     }
 
     @MainActor

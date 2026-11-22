@@ -21,13 +21,15 @@ import SwiftUI
       copyTask?.cancel()
       let files = Self.files(for: assets)
       guard !files.isEmpty else { return }
+      let batch = stagingRoot.appendingPathComponent(UUID().uuidString, isDirectory: true)
       copyTask = Task { [stagingRoot] in
         do {
-          let urls = try await Self.stage(files, in: stagingRoot)
+          let urls = try await Self.stage(files, in: batch)
           try Task.checkCancellation()
           Self.publish(urls, scopes: files.compactMap { $0.scopeParentURL ?? $0.primaryURL })
+          Self.removeStagedCopies(in: stagingRoot, except: batch)
         } catch {
-          // A newer Copy replaced this one and cleared its staging folder.
+          try? FileManager.default.removeItem(at: batch)
           guard !Task.isCancelled, !(error is CancellationError) else { return }
           NSApp.presentError(error)
         }
@@ -41,21 +43,31 @@ import SwiftUI
 
     /// Each fetched file gets its own folder, so two originals that share a name
     /// both reach the pasteboard.
-    static func stage(_ files: [AssetRef], in root: URL) async throws -> [URL] {
-      try? FileManager.default.removeItem(at: root)
+    static func stage(_ files: [AssetRef], in batch: URL) async throws -> [URL] {
       var urls: [URL] = []
       for (index, asset) in files.enumerated() {
         if let url = asset.primaryURL, url.isFileURL {
           urls.append(url)
           continue
         }
-        let folder = root.appendingPathComponent(String(index), isDirectory: true)
+        let folder = batch.appendingPathComponent(String(index), isDirectory: true)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         let destination = folder.appendingPathComponent(AssetDragFiles.fileName(for: asset))
         try await AssetDragFiles.shared.writeOriginal(asset, to: destination)
         urls.append(destination)
       }
       return urls
+    }
+
+    /// The clipboard's current files stay until a replacement has been published,
+    /// so a paste during a slow or failed fetch still finds them.
+    static func removeStagedCopies(in root: URL, except batch: URL) {
+      let staged =
+        (try? FileManager.default.contentsOfDirectory(
+          at: root, includingPropertiesForKeys: nil)) ?? []
+      staged.filter { $0.standardizedFileURL != batch.standardizedFileURL }.forEach {
+        try? FileManager.default.removeItem(at: $0)
+      }
     }
 
     /// Writing while the security scopes are open lets the pasteboard hand
