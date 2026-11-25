@@ -322,10 +322,7 @@ pub fn wb_cat16_matrix(temperature: f32, tint: f32) -> Matrix3 {
 }
 
 fn apply_matrix_inplace(img: &mut Image, m: &Matrix3) {
-    img.pixels.par_iter_mut().for_each(|p| {
-        let out = m.mul_vec(*p);
-        *p = out;
-    });
+    img.pixels.par_iter_mut().for_each(|p| *p = m.mul_vec(*p));
 }
 
 pub fn apply(img: &mut Image, temperature: f32, tint: f32, method: WbMethod) {
