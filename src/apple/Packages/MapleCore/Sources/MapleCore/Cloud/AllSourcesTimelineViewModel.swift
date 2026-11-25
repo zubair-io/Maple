@@ -484,12 +484,14 @@ public final class AllSourcesTimelineViewModel {
   private func applyMergedPage(key: BucketKey, perSource: [(host: String, assets: [SearchAsset])]) {
     var allAssets: [SearchAsset] = []
     var cloudStreams: [[ImageRef]] = []
+    var pageHosts: [String: String] = [:]
     allAssets.reserveCapacity(perSource.reduce(0) { $0 + $1.assets.count })
     for (host, assets) in perSource {
-      for asset in assets { hostByAbsPath[asset.abs_path] = host }
+      for asset in assets { pageHosts[asset.abs_path] = host }
       allAssets.append(contentsOf: assets)
       cloudStreams.append(assets.map { CloudTimelineViewModel.searchAssetToImageRef($0) })
     }
+    hostByAbsPath.merge(pageHosts) { _, pageHost in pageHost }
     pagesByBucket[key] = allAssets
     cloudStreamsByBucket[key] = cloudStreams
     mergedPagesByBucket[key] = MergedTimelineSource.merge(

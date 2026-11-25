@@ -213,6 +213,7 @@ struct PhotoThumbnailCell: View {
       // Warm scroll-back already has pixels for this saved revision. Reuse
       // them without re-entering the byte loader or publishing a nil bitmap.
       if let cached = ThumbnailDecoder.cachedImage(forKey: key) {
+        LaunchTimeline.shared.mark(.firstThumbnail)
         decoded = cached
         decodedRevision = key
         return
@@ -244,6 +245,7 @@ struct PhotoThumbnailCell: View {
       }
       guard !Task.isCancelled else { return }
       if let image {
+        LaunchTimeline.shared.mark(.firstThumbnail)
         decoded = image
         decodedRevision = key
       }

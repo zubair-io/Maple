@@ -210,10 +210,23 @@ public final class BackupProgressViewModel {
   }
 
   public func setPendingPhotoIDs(_ ids: Set<String>) {
-    pendingPhotoIDs = ids.subtracting(completedPhotoIDs)
+    let pending = ids.subtracting(completedPhotoIDs)
+    if pending != pendingPhotoIDs { pendingPhotoIDs = pending }
   }
 
-  public func removePendingPhotoIDs(_ ids: Set<String>) { pendingPhotoIDs.subtract(ids) }
+  public func removePendingPhotoIDs(_ ids: Set<String>) {
+    if !pendingPhotoIDs.isDisjoint(with: ids) { pendingPhotoIDs.subtract(ids) }
+  }
+
+  // Every visible grid cell reads this set, so a write that changes nothing
+  // must not reach the observation registrar and re-render them all.
+  private func markPending(_ photoID: String) {
+    if !pendingPhotoIDs.contains(photoID) { pendingPhotoIDs.insert(photoID) }
+  }
+
+  private func markNotPending(_ photoID: String) {
+    if pendingPhotoIDs.contains(photoID) { pendingPhotoIDs.remove(photoID) }
+  }
 
   private var seenEnqueued: Set<BackupTaskID> = []
   /// Rolling-window throughput accumulator (#702). Lives in MapleBackup so the
@@ -426,7 +439,7 @@ public final class BackupProgressViewModel {
         now: Date().timeIntervalSinceReferenceDate)
       republishThroughput()
     case .completed(let id, let mapleId):
-      pendingPhotoIDs.remove(id.phassetLocalId)
+      markNotPending(id.phassetLocalId)
       if libraryPhotoIDs?.contains(id.phassetLocalId) == true {
         backedUpPhotoIDs.insert(id.phassetLocalId)
       }
@@ -471,14 +484,14 @@ public final class BackupProgressViewModel {
 
   private func recordEnqueued(_ task: BackupTask) {
     libraryPhotoIDs?.insert(task.id.phassetLocalId)
-    pendingPhotoIDs.insert(task.id.phassetLocalId)
+    markPending(task.id.phassetLocalId)
     if seenEnqueued.insert(task.id).inserted {
       totalEnqueued += 1
     }
   }
 
   private func recordCancelled(_ id: BackupTaskID) {
-    pendingPhotoIDs.remove(id.phassetLocalId)
+    markNotPending(id.phassetLocalId)
     inFlight.removeAll { $0.id == id }
     if seenEnqueued.remove(id) != nil { totalEnqueued -= 1 }
   }

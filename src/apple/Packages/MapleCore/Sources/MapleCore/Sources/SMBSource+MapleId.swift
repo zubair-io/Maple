@@ -33,7 +33,7 @@ extension SMBSource {
       return cached
     }
     guard let derived = await deriveMapleId(for: asset, client: client) else { return nil }
-    await idCache.record(
+    await idCache.stage(
       path: asset.path, mapleId: derived,
       size: asset.size, mtime: asset.mtime.timeIntervalSince1970)
     return derived
