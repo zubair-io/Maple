@@ -141,8 +141,7 @@ unsafe fn render_thumbnail_to_file(
                 }
             };
 
-        let resized = raw_core::preview::resize_long_edge(dyn_img, max_px);
-        let rgb_img = resized.to_rgb8();
+        let rgb_img = raw_core::preview::resize_long_edge(dyn_img, max_px);
         let (rw, rh) = rgb_img.dimensions();
         // Bake EXIF orientation into the pixels — rawler hands back the
         // embedded preview in its native (usually sensor) orientation and the

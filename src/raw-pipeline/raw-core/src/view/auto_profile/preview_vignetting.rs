@@ -246,10 +246,10 @@ impl Field {
         let long = self.width.max(self.height) as f64;
         let (w, h) = (preview.image.width(), preview.image.height());
         let ratio = (long / f64::from(w.max(h))).min(1.0);
-        let small = preview.image.resize_exact(
+        let small = crate::preview::resize_exact_triangle(
+            &preview.image,
             ((f64::from(w) * ratio).round() as u32).max(1),
             ((f64::from(h) * ratio).round() as u32).max(1),
-            image::imageops::FilterType::Triangle,
         );
         sample_display_pairs(
             &self.carrier,

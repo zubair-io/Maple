@@ -29,8 +29,6 @@ pub fn dng_with_preview_sub_ifd(
     declared_width: u32,
     declared_height: u32,
 ) -> Vec<u8> {
-    let grey = SyntheticGreyDng::default();
-    let raw_len = grey.width * grey.height * 2;
     let preview_data = match strip {
         PreviewStrip::Uncompressed | PreviewStrip::SignedSamples => {
             vec![0x80; (declared_width * declared_height * 3) as usize]
@@ -43,6 +41,39 @@ pub fn dng_with_preview_sub_ifd(
         }
         PreviewStrip::Jpeg => (COMPRESSION_JPEG, PHOTOMETRIC_YCBCR),
     };
+    assemble(
+        &preview_data,
+        compression,
+        photometric,
+        matches!(strip, PreviewStrip::SignedSamples),
+        declared_width,
+        declared_height,
+    )
+}
+
+/// A DNG whose SubIFD preview is the caller's own baseline JPEG — a
+/// camera-sized preview for benchmarking the thumbnail tier.
+pub fn dng_with_jpeg_preview(jpeg: &[u8], width: u32, height: u32) -> Vec<u8> {
+    assemble(
+        jpeg,
+        COMPRESSION_JPEG,
+        PHOTOMETRIC_YCBCR,
+        false,
+        width,
+        height,
+    )
+}
+
+fn assemble(
+    preview_data: &[u8],
+    compression: u16,
+    photometric: u16,
+    signed_samples: bool,
+    declared_width: u32,
+    declared_height: u32,
+) -> Vec<u8> {
+    let grey = SyntheticGreyDng::default();
+    let raw_len = grey.width * grey.height * 2;
 
     let ifd0 = |raw_at: u32, sub_ifd_at: u32| {
         let mut ifd = grey.build_ifd0(raw_at);
@@ -58,7 +89,7 @@ pub fn dng_with_preview_sub_ifd(
         ifd.add_short(TAG_COMPRESSION, compression);
         ifd.add_short(TAG_PHOTOMETRIC, photometric);
         ifd.add_long(TAG_STRIP_OFFSETS, strips_at);
-        if matches!(strip, PreviewStrip::SignedSamples) {
+        if signed_samples {
             ifd.add_short(TAG_SAMPLE_FORMAT, SAMPLE_FORMAT_INT);
         }
         ifd.add_short(TAG_SAMPLES_PER_PIXEL, 3);
@@ -80,7 +111,7 @@ pub fn dng_with_preview_sub_ifd(
     ifd0(raw_at, sub_ifd_at).serialise_into(&mut bytes, IFD0_AT);
     bytes.extend_from_slice(&grey.build_strip());
     preview(preview_at).serialise_into(&mut bytes, sub_ifd_at);
-    bytes.extend_from_slice(&preview_data);
+    bytes.extend_from_slice(preview_data);
     bytes
 }
 

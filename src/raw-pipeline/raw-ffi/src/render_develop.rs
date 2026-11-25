@@ -144,9 +144,8 @@ pub unsafe extern "C" fn maple_render_develop_jpeg_to_file(
                 return 10;
             }
         };
-        let resized =
+        let rgb_img =
             raw_core::preview::resize_long_edge(image::DynamicImage::ImageRgb8(rgb), max_px);
-        let rgb_img = resized.to_rgb8();
         let (rw, rh) = rgb_img.dimensions();
         let jpeg = match raw_core::jpeg::encode(rw, rh, rgb_img.as_raw(), q) {
             Ok(b) => b,

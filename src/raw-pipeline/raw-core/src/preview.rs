@@ -220,21 +220,62 @@ fn ifd_display_image(
         .map(image::DynamicImage::ImageRgb8)
 }
 
-/// Resize `img` so the long edge is at most `max_px`, preserving aspect
-/// ratio, never upscaling. Triangle filter: cheap and visually fine at
-/// thumbnail/preview resolutions; Lanczos would be sharper but ~3× slower
-/// with no perceptible win at these sizes.
-pub fn resize_long_edge(img: image::DynamicImage, max_px: u32) -> image::DynamicImage {
-    use image::GenericImageView;
-    let (w, h) = img.dimensions();
+/// Resize `img` to 8-bit RGB with the long edge at most `max_px`, preserving
+/// aspect ratio, never upscaling. A triangle (bilinear) convolution through
+/// `fast_image_resize`'s fixed-point SIMD path: the same filter `image`'s
+/// `FilterType::Triangle` applies, within one code value, at a small fraction
+/// of the cost on a camera-sized preview.
+pub fn resize_long_edge(img: image::DynamicImage, max_px: u32) -> image::RgbImage {
+    let rgb = img.into_rgb8();
+    let (w, h) = rgb.dimensions();
     let long_edge = w.max(h);
     if long_edge <= max_px {
-        return img;
+        return rgb;
     }
     let scale = max_px as f32 / long_edge as f32;
     let new_w = ((w as f32) * scale).round().max(1.0) as u32;
     let new_h = ((h as f32) * scale).round().max(1.0) as u32;
-    img.resize_exact(new_w, new_h, image::imageops::FilterType::Triangle)
+    let mut resized = image::RgbImage::new(new_w, new_h);
+    fast_image_resize::Resizer::new()
+        .resize(&rgb, &mut resized, &triangle_options())
+        .expect("both buffers are non-empty RgbImages, so the pixel types match");
+    resized
+}
+
+/// `image`'s `resize_exact(.., FilterType::Triangle)`, through
+/// `fast_image_resize` for the 8- and 16-bit RGB previews cameras embed
+/// (within one 8-bit or two 16-bit code values of `image`'s float path); any
+/// other layout takes
+/// `image`'s own resize. `width` and `height` must be non-zero.
+pub fn resize_exact_triangle(
+    img: &image::DynamicImage,
+    width: u32,
+    height: u32,
+) -> image::DynamicImage {
+    use image::DynamicImage;
+    match img {
+        DynamicImage::ImageRgb8(rgb) => {
+            let mut resized = image::RgbImage::new(width, height);
+            fast_image_resize::Resizer::new()
+                .resize(rgb, &mut resized, &triangle_options())
+                .expect("both buffers are RgbImages, so the pixel types match");
+            DynamicImage::ImageRgb8(resized)
+        }
+        DynamicImage::ImageRgb16(rgb) => {
+            let mut resized = image::ImageBuffer::new(width, height);
+            fast_image_resize::Resizer::new()
+                .resize(rgb, &mut resized, &triangle_options())
+                .expect("both buffers are Rgb16 images, so the pixel types match");
+            DynamicImage::ImageRgb16(resized)
+        }
+        other => other.resize_exact(width, height, image::imageops::FilterType::Triangle),
+    }
+}
+
+fn triangle_options() -> fast_image_resize::ResizeOptions {
+    fast_image_resize::ResizeOptions::new().resize_alg(fast_image_resize::ResizeAlg::Convolution(
+        fast_image_resize::FilterType::Bilinear,
+    ))
 }
 
 #[cfg(test)]
@@ -256,6 +297,19 @@ mod tests {
             ),
             other => panic!("expected Error::Preview, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn dng_jpeg_preview_decodes_to_the_jpeg_pixels() {
+        let (w, h) = (96, 64);
+        let rgb = image::RgbImage::from_fn(w, h, |x, y| image::Rgb([x as u8 * 2, y as u8 * 3, 90]));
+        let jpeg = crate::jpeg::encode(w, h, rgb.as_raw(), 90).unwrap();
+        let dng = crate::test_support::synth_dng_preview::dng_with_jpeg_preview(&jpeg, w, h);
+        let (img, _) = extract_embedded_preview(&dng, "dng").unwrap();
+        let expected = image::load_from_memory_with_format(&jpeg, image::ImageFormat::Jpeg)
+            .unwrap()
+            .into_rgb8();
+        assert_eq!(img.into_rgb8(), expected);
     }
 
     #[test]
@@ -310,15 +364,54 @@ mod tests {
     fn resize_long_edge_never_upscales() {
         let img = image::DynamicImage::new_rgb8(10, 20);
         let resized = resize_long_edge(img, 1000);
-        use image::GenericImageView;
         assert_eq!(resized.dimensions(), (10, 20));
+    }
+
+    #[test]
+    fn triangle_resizes_match_the_image_crate_filter() {
+        let (w, h) = (1501, 997);
+        let rgb = image::RgbImage::from_fn(w, h, |x, y| {
+            let ripple = ((x as f32 * 0.37).sin() * (y as f32 * 0.21).cos() * 60.0) as i32;
+            image::Rgb(
+                [
+                    (x * 255 / w) as i32 + ripple,
+                    (y * 255 / h) as i32 - ripple,
+                    ((x ^ y) & 0xff) as i32,
+                ]
+                .map(|v| v.clamp(0, 255) as u8),
+            )
+        });
+        let source = image::DynamicImage::ImageRgb8(rgb);
+        let reference = source
+            .resize_exact(512, 340, image::imageops::FilterType::Triangle)
+            .into_rgb8();
+        let resized = resize_long_edge(source.clone(), 512);
+        assert_eq!(resized.dimensions(), reference.dimensions());
+        assert!(max_difference(resized.as_raw(), reference.as_raw()) <= 1);
+        let exact = resize_exact_triangle(&source, 512, 340).into_rgb8();
+        assert!(max_difference(exact.as_raw(), reference.as_raw()) <= 1);
+
+        let wide = image::DynamicImage::ImageRgb16(source.to_rgb16());
+        let reference16 = wide
+            .resize_exact(700, 465, image::imageops::FilterType::Triangle)
+            .into_rgb16();
+        let resized16 = resize_exact_triangle(&wide, 700, 465).into_rgb16();
+        assert!(max_difference(resized16.as_raw(), reference16.as_raw()) <= 2);
+    }
+
+    fn max_difference<T: Copy + Into<i32>>(a: &[T], b: &[T]) -> i32 {
+        assert_eq!(a.len(), b.len());
+        a.iter()
+            .zip(b)
+            .map(|(&a, &b)| (a.into() - b.into()).abs())
+            .max()
+            .unwrap_or(0)
     }
 
     #[test]
     fn resize_long_edge_caps_and_preserves_aspect() {
         let img = image::DynamicImage::new_rgb8(2000, 1000);
         let resized = resize_long_edge(img, 500);
-        use image::GenericImageView;
         let (w, h) = resized.dimensions();
         assert_eq!(w, 500);
         assert_eq!(h, 250);
