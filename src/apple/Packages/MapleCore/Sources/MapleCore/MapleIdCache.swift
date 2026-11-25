@@ -211,6 +211,7 @@ public actor MapleIdCacheStore {
     private var unionCache: [String: MapleIdCacheEntry]?
 
     private var pendingWriteCount = 0
+    private var scheduledFlush: Task<Void, Never>?
 
     /// `writer` names this producer's own file — `"apple"` for the Apple
     /// app, producing `id-cache-apple.json`. Not hardcoded so tests can
@@ -251,8 +252,8 @@ public actor MapleIdCacheStore {
     /// Records `path` in memory only, so a listing that derives hundreds of ids
     /// rewrites this producer's file once per batch rather than once per id
     /// (each rewrite re-encodes every row, so per-id writes grow quadratically).
-    /// The batch reaches storage at `flush()`, or as soon as `stageFlushThreshold`
-    /// rows are pending, so an interrupted first browse keeps most of its work.
+    /// The batch reaches storage at `flush()`, as soon as `stageFlushThreshold`
+    /// rows are pending, or `stageFlushDelay` after the first unflushed row.
     public func stage(path: String, mapleId: String, size: Int64, mtime: Double) async {
         var own = await currentOwnEntries()
         let entry = MapleIdCacheEntry(path: path, mapleId: mapleId, size: size, mtime: mtime)
@@ -267,17 +268,29 @@ public actor MapleIdCacheStore {
         }
         if pendingWriteCount >= Self.stageFlushThreshold {
             await flush()
+        } else if scheduledFlush == nil {
+            scheduledFlush = Task {
+                try? await Task.sleep(for: Self.stageFlushDelay)
+                await self.writePending()
+            }
         }
     }
 
     /// Writes this producer's file if any staged row has not reached storage.
     public func flush() async {
+        scheduledFlush?.cancel()
+        await writePending()
+    }
+
+    private func writePending() async {
+        scheduledFlush = nil
         guard pendingWriteCount > 0, let ownEntries else { return }
         pendingWriteCount = 0
         await saveOwn(ownEntries)
     }
 
     static let stageFlushThreshold = 128
+    static let stageFlushDelay: Duration = .milliseconds(500)
 
     // MARK: - Private
 
@@ -292,7 +305,12 @@ public actor MapleIdCacheStore {
     private func currentUnion() async -> [String: MapleIdCacheEntry] {
         if let unionCache { return unionCache }
         await storage.ensureDirectory()
-        let union = await loadUnionFromStorage()
+        let stored = await loadUnionFromStorage()
+        // Rows staged before the first lookup are not on disk yet.
+        let union = (ownEntries ?? [:]).values.reduce(into: stored) { merged, entry in
+            if let existing = merged[entry.path], existing.mtime > entry.mtime { return }
+            merged[entry.path] = entry
+        }
         unionCache = union
         return union
     }

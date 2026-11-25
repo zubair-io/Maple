@@ -328,7 +328,6 @@ extension FilesystemSource: ImageSource {
         // enough not to bother caching further), so this stays correct
         // across concurrent writers without adding a second cache layer.
         let index = try? await libraryIndexStore?.load()
-        let listingIdCache = idCache
         var refs: [ImageRef] = []
         refs.reserveCapacity(_assets.count)
         for fa in _assets {
@@ -344,7 +343,6 @@ extension FilesystemSource: ImageSource {
                 captureDate: captureDate
             ))
         }
-        await listingIdCache?.flush()
         return refs
     }
 

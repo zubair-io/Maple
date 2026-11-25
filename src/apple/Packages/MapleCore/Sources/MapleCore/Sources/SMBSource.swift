@@ -448,7 +448,6 @@ extension SMBSource: ImageSource {
       freshPathByMapleId[id] = a.path
       refs.append(ImageRef(id: id, displayName: a.name, smbPath: a.path, smbSourceID: identity))
     }
-    await idCache?.flush()
     guard identity == listingID else { throw CancellationError() }
     pathByMapleId = freshPathByMapleId
     ambiguousMapleIds = freshAmbiguousIds

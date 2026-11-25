@@ -49,6 +49,24 @@ final class MapleIdCacheBatchWriteTests: XCTestCase {
         XCTAssertEqual(hit, "01\(last)")
     }
 
+    func testStagedRowReachesDiskAfterTheFlushDelay() async throws {
+        let store = MapleIdCacheStore(folderURL: tmpDir, writer: "apple")
+        await store.stage(path: "a.dng", mapleId: "01aa", size: 1, mtime: 1)
+        try await Task.sleep(for: MapleIdCacheStore.stageFlushDelay * 4)
+
+        let reopened = MapleIdCacheStore(folderURL: tmpDir, writer: "apple")
+        let hit = await reopened.lookup(path: "a.dng", size: 1, mtime: 1)
+        XCTAssertEqual(hit, "01aa")
+    }
+
+    func testRowStagedBeforeFirstLookupStaysVisibleAfterFlush() async {
+        let store = MapleIdCacheStore(folderURL: tmpDir, writer: "apple")
+        await store.stage(path: "a.dng", mapleId: "01aa", size: 1, mtime: 1)
+        await store.flush()
+        let hit = await store.lookup(path: "a.dng", size: 1, mtime: 1)
+        XCTAssertEqual(hit, "01aa")
+    }
+
     func testFlushWithNothingStagedWritesNothing() async {
         let store = MapleIdCacheStore(folderURL: tmpDir, writer: "apple")
         await store.flush()
