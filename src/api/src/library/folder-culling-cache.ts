@@ -7,7 +7,10 @@ const MAX_ENTRIES = 20_000;
 interface Remembered {
   identity: string;
   culling: FolderCulling;
+  mtimeMs: number;
 }
+
+export type SidecarCulling = Pick<Remembered, 'culling' | 'mtimeMs'>;
 
 const remembered = new Map<string, Remembered>();
 
@@ -27,18 +30,23 @@ function remember(sidecar: string, entry: Remembered): void {
 /** Culling for an authorized sidecar path, parsed only when the file changed since the last
  * listing. Opens without following a final symlink, like `readSidecarNoFollow`, and identifies
  * the file through the open handle so a swap between stat and read cannot pin stale culling. */
-export async function readFolderCulling(sidecar: string): Promise<FolderCulling> {
+export async function readFolderCulling(sidecar: string): Promise<SidecarCulling> {
   const handle = await fs.open(sidecar, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
   try {
-    const identity = identityOf(await handle.stat());
+    const stat = await handle.stat();
+    const identity = identityOf(stat);
     const known = remembered.get(sidecar);
     if (known?.identity === identity) {
       remember(sidecar, known);
-      return known.culling;
+      return known;
     }
-    const culling = parseFolderCulling(await handle.readFile('utf8'));
-    remember(sidecar, { identity, culling });
-    return culling;
+    const entry = {
+      identity,
+      culling: parseFolderCulling(await handle.readFile('utf8')),
+      mtimeMs: stat.mtimeMs,
+    };
+    remember(sidecar, entry);
+    return entry;
   } finally {
     await handle.close();
   }

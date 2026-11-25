@@ -71,9 +71,10 @@ export class HttpLibrarySource implements LibrarySource {
     );
   }
 
-  async thumbBlob(a: MapleAddress): Promise<Blob | null> {
+  async thumbBlob(a: MapleAddress, thumbVersion?: string): Promise<Blob | null> {
+    const version = thumbVersion ? `?v=${encodeURIComponent(thumbVersion)}` : '';
     const res = await firstValueFrom(
-      this.http.get(`${this.base}/thumb/${toApiPath(a)}`, {
+      this.http.get(`${this.base}/thumb/${toApiPath(a)}${version}`, {
         responseType: 'blob',
         observe: 'response',
       }),

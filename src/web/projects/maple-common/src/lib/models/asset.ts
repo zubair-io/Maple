@@ -90,6 +90,8 @@ export interface Asset {
   size?: number;
   /** Last-modified time (ISO 8601 string). */
   mtime?: string;
+  /** Self-Hosted folder listing's version of the on-disk thumb (`ImageEntry.thumbVersion`). */
+  thumbVersion?: string;
 
   /** True when the asset is a video file. Batch-metadata path is unchanged
    *  (server detects extension); this field is for UI badges. */

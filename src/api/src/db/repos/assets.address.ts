@@ -225,6 +225,8 @@ export interface DirectoryAsset {
   exif: AssetExif | null;
   motion_photo: boolean;
   live_content_id: string | null;
+  /** This location is the asset's first live one, the one its thumbnail is rendered beside. */
+  primary_here: boolean;
 }
 
 /**
@@ -243,9 +245,10 @@ export async function listDirectoryAssets(
   dbOverride?: SqliteDb,
 ): Promise<DirectoryAsset[]> {
   const rows = await sqliteDb(dbOverride).read<
-    Omit<DirectoryAsset, 'exif' | 'motion_photo'> & {
+    Omit<DirectoryAsset, 'exif' | 'motion_photo' | 'primary_here'> & {
       exif: string | null;
       motion_photo: number;
+      primary_here: number;
     }
   >(
     `SELECT a.id AS id, l.filename AS filename, a.maple_id AS maple_id,
@@ -254,7 +257,10 @@ export async function listDirectoryAssets(
             json_extract(a.exif, '$.height') AS height,
             a.size AS size, a.mtime AS mtime, a.exif AS exif,
             a.motion_video_length IS NOT NULL AS motion_photo,
-            a.live_content_id AS live_content_id
+            a.live_content_id AS live_content_id,
+            NOT EXISTS (SELECT 1 FROM asset_locations p
+                         WHERE p.asset_id = l.asset_id AND p.ordinal < l.ordinal
+                           AND p.deleted_at IS NULL AND p.missing_since IS NULL) AS primary_here
        FROM asset_locations l
        JOIN assets a ON a.id = l.asset_id
       WHERE l.library_id = ? AND l.path = ? AND ${LIVE_ENTRY} AND a.deleted_at IS NULL`,
@@ -264,6 +270,7 @@ export async function listDirectoryAssets(
     ...row,
     exif: parseJson<AssetExif | null>(row.exif, null),
     motion_photo: row.motion_photo === 1,
+    primary_here: row.primary_here === 1,
   }));
 }
 

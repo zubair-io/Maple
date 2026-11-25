@@ -11,6 +11,9 @@
  *   2. Derive the R2 key from the URL alone (no DB access here — see r2.ts).
  *   3. R2 hit  -> stream back with revalidating (`private, no-cache`) headers;
  *      R2 keys are path-keyed, so the bytes behind a key change on edit.
+ *      A `?v=` request (#6016) is a hit only when the object's recorded
+ *      thumb version matches; it is then immutable for the client. Any other
+ *      versioned request goes to the origin and refreshes the object.
  *   4. R2 miss -> forward to the origin with the same bearer token (and any
  *      conditional-request headers), stream the response to the client, and
  *      asynchronously populate R2 for next time (only for a confirmed 200
@@ -23,6 +26,10 @@ import { maybeConvertAvifToJpeg } from './image-format';
 import { parseThumbPath, thumbR2Key } from './r2';
 
 const REVALIDATE_CACHE = 'private, no-cache';
+const VERSIONED_CACHE = 'private, max-age=31536000, immutable';
+const THUMB_VERSION_HEADER = 'x-maple-thumb-version';
+/** R2 custom-metadata key; the origin's cf-thumb-sync upload writes the same one. */
+const THUMB_VERSION_METADATA = 'thumb-version';
 const EDGE_CACHEABLE_HEADER = 'x-maple-cacheable';
 const FALLBACK_CONTENT_TYPE = 'image/avif';
 
@@ -96,14 +103,22 @@ export default {
 			onlyIf: ifNoneMatch ? { etagDoesNotMatch: ifNoneMatch } : undefined,
 		});
 
-		if (object === null) {
+		const requestedVersion = url.searchParams.get('v');
+		if (object === null) return await fetchFromOriginAndCache(request, env, ctx, key);
+		if (
+			requestedVersion !== null &&
+			object.customMetadata?.[THUMB_VERSION_METADATA] !== requestedVersion
+		) {
+			// An unread R2 body holds its stream open until the request ends.
+			if ('body' in object) await object.body?.cancel();
 			return await fetchFromOriginAndCache(request, env, ctx, key);
 		}
+		const cacheControl = requestedVersion === null ? REVALIDATE_CACHE : VERSIONED_CACHE;
 
 		if (!('body' in object) || object.body === undefined) {
 			return new Response(null, {
 				status: 304,
-				headers: { etag: object.httpEtag, 'cache-control': REVALIDATE_CACHE },
+				headers: { etag: object.httpEtag, 'cache-control': cacheControl },
 			});
 		}
 
@@ -114,7 +129,7 @@ export default {
 		object.writeHttpMetadata(headers);
 		if (!headers.has('content-type')) headers.set('content-type', FALLBACK_CONTENT_TYPE);
 		headers.set('etag', object.httpEtag);
-		headers.set('cache-control', REVALIDATE_CACHE);
+		headers.set('cache-control', cacheControl);
 
 		return maybeConvertAvifToJpeg(new Response(object.body, { status: 200, headers }), url);
 	},
@@ -168,11 +183,13 @@ async function fetchFromOriginAndCache(
 	}
 
 	const [toClient, toCache] = originResponse.body.tee();
+	const thumbVersion = originResponse.headers.get(THUMB_VERSION_HEADER);
 	ctx.waitUntil(
 		env.THUMBS_BUCKET.put(key, toCache, {
 			httpMetadata: {
 				contentType: originResponse.headers.get('content-type') ?? FALLBACK_CONTENT_TYPE,
 			},
+			...(thumbVersion ? { customMetadata: { [THUMB_VERSION_METADATA]: thumbVersion } } : {}),
 		}).catch(() => undefined),
 	);
 

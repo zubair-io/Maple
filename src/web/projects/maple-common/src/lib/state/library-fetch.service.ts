@@ -80,6 +80,7 @@ const ASSET_RENDER_KEYS: readonly (keyof Asset)[] = [
   'thumbnailGradient',
   'size',
   'mtime',
+  'thumbVersion',
   'width',
   'height',
   'camera',
@@ -124,6 +125,7 @@ export function selfHostedAssetFromImage(img: ImageEntry, sourceId: string): Ass
         }
       : {}),
     ...(img.size != null ? { size: img.size } : {}),
+    ...(img.thumbVersion ? { thumbVersion: img.thumbVersion } : {}),
     ...stackFromWire(img.stack),
     ...selfHostedCameraFields(img.exif),
     ...selfHostedExposureFields(img.exif),
