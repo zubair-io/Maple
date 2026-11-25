@@ -90,7 +90,7 @@ const ESBUILD_HASHED = /^(?:media\/)?[\w.-]+-[A-Z2-7]{8}\.[a-z0-9]+$/;
 const WEBPACK_HASHED = /\.[a-f0-9]{8,}\.(js|css|wasm)$/;
 const IMMUTABLE = 'public, max-age=31536000, immutable';
 
-export function isContentHashed(uiRelPath: string): boolean {
+function isContentHashed(uiRelPath: string): boolean {
   const relative = uiRelPath.replace(/^\/+/, '');
   return ESBUILD_HASHED.test(relative) || WEBPACK_HASHED.test(path.basename(relative));
 }
