@@ -45,23 +45,38 @@ public actor CloudThumbCache {
     return CloudThumbCache(baseDir: tmp, maxBytes: 64 * 1024 * 1024)
   }
 
-  public func get(host: String, absPath: String) -> Data? {
+  /// Nonisolated: a hit is one file read on the caller's executor, never a
+  /// wait behind another cell's write or the eviction walk (#6017).
+  public nonisolated func get(host: String, absPath: String) -> Data? {
     let url = path(host: host, absPath: absPath)
-    guard FileManager.default.fileExists(atPath: url.path) else { return nil }
-    // Touch mtime so LRU sees the access.
-    try? FileManager.default.setAttributes([.modificationDate: Date()],
-                                           ofItemAtPath: url.path)
-    return try? Data(contentsOf: url)
+    guard let data = try? Data(contentsOf: url) else { return nil }
+    Self.touchForLRU(url)
+    return data
   }
 
-  public func put(host: String, absPath: String, _ avif: Data) {
+  // LRU only needs coarse recency; rewriting the mtime on every hit doubled
+  // the metadata I/O of a scroll.
+  private nonisolated static func touchForLRU(_ url: URL) {
+    let fm = FileManager.default
+    let modified = (try? fm.attributesOfItem(atPath: url.path))?[.modificationDate] as? Date
+    guard let modified, Date().timeIntervalSince(modified) > lruTouchInterval else { return }
+    try? fm.setAttributes([.modificationDate: Date()], ofItemAtPath: url.path)
+  }
+
+  static let lruTouchInterval: TimeInterval = 60 * 60
+
+  public nonisolated func put(host: String, absPath: String, _ avif: Data) async {
     let url = path(host: host, absPath: absPath)
     try? FileManager.default.createDirectory(
       at: url.deletingLastPathComponent(),
       withIntermediateDirectories: true)
     try? avif.write(to: url, options: .atomic)
+    await account(writtenBytes: Int64(avif.count))
+  }
+
+  private func account(writtenBytes: Int64) {
     seedTotalIfNeeded()
-    approxTotal += Int64(avif.count)
+    approxTotal += writtenBytes
     // Only schedule eviction when the running total has crossed the
     // cap AND no eviction is already in flight. A scrolling Timeline
     // can fire hundreds of put()s in quick succession; previously each
@@ -114,23 +129,40 @@ public actor CloudThumbCache {
 
   /// Seed `approxTotal` from disk on the first put after process start
   /// — without this, a warm cache from a previous launch would
-  /// underestimate until the first eviction. Cheap (one directory walk
-  /// for sizes only, no sort).
+  /// underestimate until the first eviction. The walk covers up to the
+  /// whole 2 GB cache, so it runs detached and adds its total when done
+  /// rather than holding every get/put behind it (#6017).
   private func seedTotalIfNeeded() {
     guard !seededTotal else { return }
     seededTotal = true
-    let fm = FileManager.default
-    guard let enumerator = fm.enumerator(
+    let baseDir = baseDir
+    Task.detached(priority: .utility) { [weak self] in
+      let total = Self.onDiskTotal(of: baseDir)
+      await self?.addSeededTotal(total)
+    }
+  }
+
+  private func addSeededTotal(_ total: Int64) {
+    approxTotal += total
+    if approxTotal > maxBytes, evictionTask == nil {
+      evictionTask = Task { [weak self] in
+        await self?.runEviction()
+      }
+    }
+  }
+
+  private nonisolated static func onDiskTotal(of baseDir: URL) -> Int64 {
+    guard let enumerator = FileManager.default.enumerator(
       at: baseDir,
       includingPropertiesForKeys: [.fileSizeKey],
       options: [.skipsHiddenFiles])
-    else { return }
+    else { return 0 }
     var total: Int64 = 0
     for case let url as URL in enumerator {
       let v = try? url.resourceValues(forKeys: [.fileSizeKey])
       total += Int64(v?.fileSize ?? 0)
     }
-    approxTotal = total
+    return total
   }
 
   /// Body of the coalesced eviction Task — runs the walk, then clears
@@ -141,7 +173,7 @@ public actor CloudThumbCache {
     evictionTask = nil
   }
 
-  private func path(host: String, absPath: String) -> URL {
+  private nonisolated func path(host: String, absPath: String) -> URL {
     let digest = SHA256.hash(data: Data(absPath.utf8))
       .map { String(format: "%02x", $0) }.joined()
     return baseDir
