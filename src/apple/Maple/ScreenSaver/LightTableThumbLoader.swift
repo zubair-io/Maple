@@ -34,7 +34,8 @@
     func prefetch(_ asset: SearchAsset) async {
       guard image(for: asset) == nil else { return }
       let thumb = await fetchCloudThumbBytes(
-        host: server.cacheHostKey, absPath: asset.abs_path, cache: cache, client: client)
+        host: server.cacheHostKey, absPath: asset.abs_path, version: asset.thumb_version,
+        cache: cache, client: client)
       let bytes = if let thumb { thumb } else { try? await client.preview(absPath: asset.abs_path) }
       guard let bytes, !Task.isCancelled, let image = await Self.decode(bytes), !Task.isCancelled
       else { return }

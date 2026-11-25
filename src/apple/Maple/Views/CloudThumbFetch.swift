@@ -15,15 +15,16 @@ import MapleCore
 func fetchCloudThumbBytes(
     host: String,
     absPath: String,
+    version: String? = nil,
     cache: CloudThumbCache,
     client: CloudThumbClient
 ) async -> Data? {
-    if let cached = await cache.get(host: host, absPath: absPath) {
+    if let cached = await cache.get(host: host, absPath: absPath, version: version) {
         return cached
     }
     do {
-        let bytes = try await client.thumb(absPath: absPath)
-        await cache.put(host: host, absPath: absPath, bytes)
+        let bytes = try await client.thumb(absPath: absPath, version: version)
+        await cache.put(host: host, absPath: absPath, version: version, bytes)
         return bytes
     } catch {
         return nil

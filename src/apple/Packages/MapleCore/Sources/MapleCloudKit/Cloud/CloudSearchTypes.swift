@@ -159,6 +159,10 @@ public struct SearchAsset: Codable, Equatable, Sendable, Identifiable {
   public let place: SearchAssetPlace?
   /// The JPEG this RAW hit stands for, when the server folded a RAW+JPEG pair (#5849).
   public let stack: SearchAssetStack?
+  /// Version of the server's thumbnail file, when it is fresh (#6017). Sent
+  /// back as `?v=` so the thumb can be served `immutable`.
+  // swift-format-ignore: AlwaysUseLowerCamelCase
+  public let thumb_version: String?
 
   /// Whether this search result names a recognised video container.
   public var isVideo: Bool {
@@ -194,7 +198,8 @@ public struct SearchAsset: Codable, Equatable, Sendable, Identifiable {
     place: SearchAssetPlace? = nil,
     owner_id: String? = nil,
     owner: CloudAssetOwner? = nil,
-    stack: SearchAssetStack? = nil
+    stack: SearchAssetStack? = nil,
+    thumb_version: String? = nil
   ) {
     self.id = id
     self._id = _id
@@ -221,6 +226,7 @@ public struct SearchAsset: Codable, Equatable, Sendable, Identifiable {
     self.owner_id = owner_id
     self.owner = owner
     self.stack = stack
+    self.thumb_version = thumb_version
   }
 }
 

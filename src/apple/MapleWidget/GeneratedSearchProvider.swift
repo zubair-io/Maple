@@ -132,7 +132,10 @@ struct GeneratedSearchProvider: TimelineProvider {
         // would make the timeline look populated and take the 4-hour refresh
         // — returning [] instead gets the 30-minute retry the empty path
         // already schedules.
-        guard let data = try? await context.thumbs.thumb(absPath: asset.abs_path) else {
+        guard
+          let data = try? await context.thumbs.thumb(
+            absPath: asset.abs_path, version: asset.thumb_version)
+        else {
           continue
         }
         entries.append(

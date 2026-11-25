@@ -39,7 +39,8 @@ public enum ThumbnailSource: Sendable {
     /// Local filesystem asset — routes through `ThumbnailLoader.shared`.
     case local(AssetRef, source: ImageSourceBox?)
     /// Cloud-only asset — routes through `CloudThumbClient` + `CloudThumbCache`.
-    case cloud(absPath: String, host: String)
+    /// `thumbVersion` is the server's `thumb_version`, when it sent one (#6017).
+    case cloud(absPath: String, host: String, thumbVersion: String? = nil)
     /// PhotoKit asset — routes through `PHImageManager` fast path.
     case photoKit(localID: String)
     /// Merged PhotoKit + Cloud cell — resolved to `photoKit` or `cloud`
@@ -212,7 +213,8 @@ extension PhotoGridItem {
         self.init(
             id: asset.id,
             displayName: asset.filename,
-            thumbnailSource: .cloud(absPath: asset.abs_path, host: host),
+            thumbnailSource: .cloud(
+                absPath: asset.abs_path, host: host, thumbVersion: asset.thumb_version),
             overlays: overlays
         )
     }
@@ -256,15 +258,15 @@ extension ThumbnailSource {
     /// the provider; this helper is testable without Photos or network.
     public enum Backend: Sendable, Equatable {
         case thumbnailLoader(AssetRef, source: ImageSourceBox?)
-        case cloudThumb(absPath: String, host: String)
+        case cloudThumb(absPath: String, host: String, thumbVersion: String? = nil)
         case photoKit(localID: String)
 
         public static func == (lhs: Backend, rhs: Backend) -> Bool {
             switch (lhs, rhs) {
             case (.thumbnailLoader(let la, _), .thumbnailLoader(let ra, _)):
                 return la == ra
-            case (.cloudThumb(let lp, let lh), .cloudThumb(let rp, let rh)):
-                return lp == rp && lh == rh
+            case (.cloudThumb(let lp, let lh, let lv), .cloudThumb(let rp, let rh, let rv)):
+                return lp == rp && lh == rh && lv == rv
             case (.photoKit(let lid), .photoKit(let rid)):
                 return lid == rid
             default:
@@ -286,8 +288,8 @@ extension ThumbnailSource {
         switch self {
         case .local(let ref, let box):
             return .thumbnailLoader(ref, source: box)
-        case .cloud(let absPath, let host):
-            return .cloudThumb(absPath: absPath, host: host)
+        case .cloud(let absPath, let host, let thumbVersion):
+            return .cloudThumb(absPath: absPath, host: host, thumbVersion: thumbVersion)
         case .photoKit(let localID):
             return .photoKit(localID: localID)
         case .merged(let cell, let host):

@@ -48,8 +48,12 @@ public actor CloudThumbCache {
   /// Nonisolated async, so the read runs on the global executor: never on
   /// the caller's main thread, and never behind another cell's write or the
   /// eviction walk (#6017).
-  public nonisolated func get(host: String, absPath: String) async -> Data? {
-    let url = path(host: host, absPath: absPath)
+  ///
+  /// A `version` (the server's `thumb_version`) names one rendering of the
+  /// thumbnail, so an edit made elsewhere reads as a miss instead of serving
+  /// the old pixels forever. `nil` keeps the unversioned entry.
+  public nonisolated func get(host: String, absPath: String, version: String? = nil) async -> Data? {
+    let url = path(host: host, absPath: absPath, version: version)
     guard let data = try? Data(contentsOf: url) else { return nil }
     Self.touchForLRU(url)
     return data
@@ -66,8 +70,10 @@ public actor CloudThumbCache {
 
   static let lruTouchInterval: TimeInterval = 60 * 60
 
-  public nonisolated func put(host: String, absPath: String, _ avif: Data) async {
-    let url = path(host: host, absPath: absPath)
+  public nonisolated func put(
+    host: String, absPath: String, version: String? = nil, _ avif: Data
+  ) async {
+    let url = path(host: host, absPath: absPath, version: version)
     try? FileManager.default.createDirectory(
       at: url.deletingLastPathComponent(),
       withIntermediateDirectories: true)
@@ -174,8 +180,9 @@ public actor CloudThumbCache {
     evictionTask = nil
   }
 
-  private nonisolated func path(host: String, absPath: String) -> URL {
-    let digest = SHA256.hash(data: Data(absPath.utf8))
+  private nonisolated func path(host: String, absPath: String, version: String?) -> URL {
+    let identity = version.map { absPath + "\u{0}v=" + $0 } ?? absPath
+    let digest = SHA256.hash(data: Data(identity.utf8))
       .map { String(format: "%02x", $0) }.joined()
     return baseDir
       .appendingPathComponent(host, isDirectory: true)
