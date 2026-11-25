@@ -183,6 +183,12 @@ public protocol ImageSource: Actor {
   /// nothing to hand back yet (e.g. Indexer hasn't rendered `.maple/thumbs/`).
   func thumb(for ref: ImageRef) async throws -> Data?
 
+  /// True when `thumb(for:)` is a few-KB network read whose cost is
+  /// round-trip latency, so `ThumbnailLoader` may run many at once (#6008).
+  /// False (the default) keeps it on the decode gate: a PhotoKit thumb is a
+  /// CPU-bound render and encode, and SMB reads share one NAS connection.
+  nonisolated var thumbnailsAreLatencyBound: Bool { get }
+
   /// Best-effort write-back for a freshly rendered thumbnail (#2690) —
   /// called by `ThumbnailLoader`'s sourceless render-from-bytes fallback
   /// right after it produces AVIF bytes for `ref`, so a source that owns a
@@ -227,6 +233,8 @@ extension ImageSource {
   /// Default no-op — see the protocol requirement's doc comment. Only
   /// `SMBSource` overrides this today.
   public func writeThumb(_ data: Data, for ref: ImageRef) async {}
+
+  public nonisolated var thumbnailsAreLatencyBound: Bool { false }
 
   public func previewOutcome(for ref: ImageRef) async -> PreviewFetchOutcome {
     do {

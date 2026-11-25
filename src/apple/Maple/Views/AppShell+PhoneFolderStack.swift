@@ -306,6 +306,7 @@
             model.isLoading = false
             return
           }
+          _ = await LocalNetworkResolver.shared.settledEffectiveURL(for: serverID)
           // Each ancestor gets its own source: `CloudSource` tracks one
           // current path, which the top level's actions rely on.
           await model.loadCloudDir(

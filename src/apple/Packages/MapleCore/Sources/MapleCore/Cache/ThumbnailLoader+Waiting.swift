@@ -16,18 +16,19 @@ extension ThumbnailLoader {
 
   func startLocalProducer(
     key: String,
+    gate: ProducerGate = .decode,
     operation: @escaping @Sendable () async -> Data?
   ) -> Task<Data?, Never> {
     let producerID = UUID()
     let task = Task.detached(priority: .utility) { () -> Data? in
       do {
-        try await self.beginActiveProducer(producerID)
+        try await self.beginActiveProducer(producerID, gate: gate)
       } catch {
         await self.cleanupLocalProducer(producerID, key: key)
         return nil
       }
       let result = await operation()
-      await self.endActiveProducer(producerID, key: key)
+      await self.endActiveProducer(producerID, key: key, gate: gate)
       return result
     }
     taskProducerIDs[task] = producerID
@@ -37,10 +38,10 @@ extension ThumbnailLoader {
 
   /// Serialized against `finishWaiting` by the actor: a producer is either
   /// marked active (and kept) or abandoned before its work begins.
-  private func beginActiveProducer(_ id: UUID) async throws {
-    try await acquireDecodeSlot()
+  private func beginActiveProducer(_ id: UUID, gate: ProducerGate) async throws {
+    try await slots(for: gate).acquire()
     guard !Task.isCancelled else {
-      await releaseDecodeSlot()
+      await slots(for: gate).release()
       throw CancellationError()
     }
     activeProducers.insert(id)
@@ -60,9 +61,9 @@ extension ThumbnailLoader {
     taskProducerIDs = taskProducerIDs.filter { $0.value != id }
   }
 
-  private func endActiveProducer(_ id: UUID, key: String) async {
+  private func endActiveProducer(_ id: UUID, key: String, gate: ProducerGate) async {
     cleanupLocalProducer(id, key: key)
-    await releaseDecodeSlot()
+    await slots(for: gate).release()
   }
 
   private func isProducerActive(_ task: Task<Data?, Never>) -> Bool {

@@ -10,6 +10,16 @@
 import Foundation
 import MapleCore
 
+/// One session for every authenticated cloud client. `URLSession.shared`
+/// allows only a few connections per host on iOS, and the LAN listener
+/// speaks HTTP/1.1, so a grid of thumbnail requests queued behind those few
+/// connections however wide the app's own fetch gate was (#6008).
+private let cloudURLSession: URLSession = {
+    let configuration = URLSessionConfiguration.default
+    configuration.httpMaximumConnectionsPerHost = ThumbnailLoader.maxConcurrentSourceFetches
+    return URLSession(configuration: configuration)
+}()
+
 /// Builds an `AuthenticatedHTTPClient` for `server`, wired to the shared
 /// Keychain token store and to `session` for terminal-refresh handling.
 ///
@@ -20,7 +30,7 @@ import MapleCore
 func makeCloudHTTPClient(server: URL, session: AuthSession) -> AuthenticatedHTTPClient {
     AuthenticatedHTTPClient(
         server: server,
-        urlSession: .shared,
+        urlSession: cloudURLSession,
         tokensProvider: { try? TokenStore.load(server: server) },
         // Save AND mirror to the File Provider extension's shared store on
         // every rotation, so a background extension never refreshes with a

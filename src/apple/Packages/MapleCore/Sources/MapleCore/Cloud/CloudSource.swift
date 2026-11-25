@@ -78,6 +78,8 @@ public actor CloudSource {
 }
 
 extension CloudSource: ImageSource {
+  public nonisolated var thumbnailsAreLatencyBound: Bool { true }
+
   /// Returns the IMMEDIATE image children of `currentPath`. Subfolders
   /// are not included in the returned list — they're surfaced via the
   /// listing's `dirs` separately. Single round-trip; no auto-pagination.
