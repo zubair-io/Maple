@@ -130,8 +130,7 @@ pub fn extract_embedded_preview(
 
     let (img, orientation) = raw_core::preview::extract_embedded_preview(raw, ext)
         .map_err(|e| JsError::new(&e.to_string()))?;
-    let resized = raw_core::preview::resize_long_edge(img, max_long_edge);
-    let rgb_img = resized.to_rgb8();
+    let rgb_img = raw_core::preview::resize_long_edge(img, max_long_edge);
     let (w, h) = rgb_img.dimensions();
     let (ow, oh, oriented) =
         raw_core::image::apply_orientation(rgb_img.as_raw(), w, h, orientation);
@@ -213,8 +212,7 @@ mod tests {
 
         let (img, orientation) =
             raw_core::preview::extract_embedded_preview(&bytes, "dng").expect("core ok");
-        let resized = raw_core::preview::resize_long_edge(img, 512);
-        let rgb_img = resized.to_rgb8();
+        let rgb_img = raw_core::preview::resize_long_edge(img, 512);
         let (w, h) = rgb_img.dimensions();
         let (ow, oh, oriented) =
             raw_core::image::apply_orientation(rgb_img.as_raw(), w, h, orientation);

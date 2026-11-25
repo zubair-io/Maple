@@ -514,6 +514,9 @@ pub(crate) fn dynamic_image_from_ifd(ifd: &IFD, rawsource: &RawSource) -> Result
   let tiff_height = fetch_tiff_tag!(ifd, TiffCommonTag::ImageLength).force_usize(0);
   let cpp = fetch_tiff_tag!(ifd, TiffCommonTag::SamplesPerPixel).force_usize(0);
   let bits = fetch_tiff_tag!(ifd, TiffCommonTag::BitsPerSample).force_u32(0);
+  if let Some(image) = single_strip_rgb8_jpeg(ifd, rawsource, tiff_width, tiff_height, cpp, bits) {
+    return Ok(image);
+  }
   let image = plain_image_from_ifd(ifd, rawsource)?;
   match image {
     RawImageData::Integer(samples) => match bits {
@@ -559,6 +562,31 @@ pub(crate) fn dynamic_image_from_ifd(ifd: &IFD, rawsource: &RawSource) -> Result
       )),
       _ => unimplemented!(),
     },
+  }
+}
+
+/// Maple: an 8-bit, 3-sample, single-strip baseline JPEG preview (the DNG
+/// `NewSubFileType=1` SubIFD) decodes straight to RGB8. The generic path below
+/// widens every sample to u16 and narrows it back, which costs more than the
+/// JPEG decode itself on a camera-sized preview; the pixels are identical.
+fn single_strip_rgb8_jpeg(ifd: &IFD, rawsource: &RawSource, width: usize, height: usize, cpp: usize, bits: u32) -> Option<DynamicImage> {
+  let photometric = PhotometricInterpretation::extract(ifd).ok()?.unwrap_or(PhotometricInterpretation::BlackIsZero);
+  let is_lossy_jpeg = match CompressionMethod::extract(ifd).ok()?? {
+    CompressionMethod::ModernJPEG => photometric == PhotometricInterpretation::YCbCr,
+    CompressionMethod::LossyJPEG => true,
+    _ => false,
+  };
+  let sample_format = SampleFormat::extract(ifd).ok()?.unwrap_or(SampleFormat::Uint);
+  let reshaped = ifd.get_entry(TiffCommonTag::Linearization).is_some()
+    || ifd.get_entry(DngTag::ColumnInterleaveFactor).is_some()
+    || ifd.get_entry(DngTag::RowInterleaveFactor).is_some();
+  if !is_lossy_jpeg || sample_format != SampleFormat::Uint || cpp != 3 || bits != 8 || reshaped || !ifd.contains_singlestrip_image() {
+    return None;
+  }
+  let strip = ifd.singlestrip_data_rawsource(rawsource).ok()?;
+  match image::load_from_memory_with_format(strip, ImageFormat::Jpeg).ok()? {
+    image @ DynamicImage::ImageRgb8(_) if (image.width() as usize, image.height() as usize) == (width, height) => Some(image),
+    _ => None,
   }
 }
 
