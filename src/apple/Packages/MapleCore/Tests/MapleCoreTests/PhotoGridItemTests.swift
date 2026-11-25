@@ -305,7 +305,7 @@ final class PhotoGridItemTests: XCTestCase {
 
     func testBackendRoutingCloud() {
         let source = ThumbnailSource.cloud(absPath: "/a/b.dng", host: "server")
-        guard case .cloudThumb(let absPath, let host) = source.resolvedBackend() else {
+        guard case .cloudThumb(let absPath, let host, _) = source.resolvedBackend() else {
             XCTFail("Expected .cloudThumb backend"); return
         }
         XCTAssertEqual(absPath, "/a/b.dng")
@@ -377,7 +377,7 @@ final class PhotoGridItemTests: XCTestCase {
         let cloudRef = ImageRef(id: "fs:/photos/img.dng", displayName: "img.dng")
         let cell = MergedTimelineCell.cloudOnly(cloudRef)
         let source = ThumbnailSource.merged(cell, host: "myserver")
-        guard case .cloudThumb(let absPath, let host) = source.resolvedBackend() else {
+        guard case .cloudThumb(let absPath, let host, _) = source.resolvedBackend() else {
             XCTFail("Expected .cloudThumb for .cloudOnly merged cell"); return
         }
         XCTAssertEqual(absPath, "/photos/img.dng")
@@ -389,7 +389,7 @@ final class PhotoGridItemTests: XCTestCase {
         let cloudRef = ImageRef(id: "/direct/path.dng", displayName: "path.dng")
         let cell = MergedTimelineCell.cloudOnly(cloudRef)
         let source = ThumbnailSource.merged(cell, host: "srv")
-        guard case .cloudThumb(let absPath, _) = source.resolvedBackend() else {
+        guard case .cloudThumb(let absPath, _, _) = source.resolvedBackend() else {
             XCTFail("Expected .cloudThumb backend"); return
         }
         XCTAssertEqual(absPath, "/direct/path.dng")

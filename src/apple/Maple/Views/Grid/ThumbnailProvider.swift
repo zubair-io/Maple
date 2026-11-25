@@ -148,14 +148,17 @@ actor ThumbnailProvider {
       guard !Task.isCancelled else { return nil }
       return await ThumbnailLoader.shared.load(for: ref, from: box?.source)
 
-    case .cloudThumb(let absPath, let host):
+    case .cloudThumb(let absPath, let host, let thumbVersion):
       guard let cache = thumbCache, let client = resolvedThumbClient(for: host) else { return nil }
       // A disk hit must not queue behind the gate's network fetches (#6017).
-      if let cached = await cache.get(host: host, absPath: absPath) { return cached }
-      return await cloudGate.fetch(key: "\(host)|\(absPath)") {
+      if let cached = await cache.get(host: host, absPath: absPath, version: thumbVersion) {
+        return cached
+      }
+      return await cloudGate.fetch(key: "\(host)|\(absPath)|\(thumbVersion ?? "")") {
         await Self.fetchCloudThumb(
           host: host,
           absPath: absPath,
+          version: thumbVersion,
           cache: cache,
           client: client
         )
@@ -223,7 +226,7 @@ actor ThumbnailProvider {
         scopeParentURL: ref.scopeParentURL
       )
       return await imageSource.previewOutcome(for: imageRef)
-    case .cloudThumb(let absPath, let host):
+    case .cloudThumb(let absPath, let host, _):
       guard let client = resolvedThumbClient(for: host) else {
         return .notFound(reason: "no client for host")
       }
@@ -279,15 +282,16 @@ extension ThumbnailProvider {
   fileprivate static func fetchCloudThumb(
     host: String,
     absPath: String,
+    version: String?,
     cache: CloudThumbCache,
     client: CloudThumbClient
   ) async -> Data? {
-    if let cached = await cache.get(host: host, absPath: absPath) {
+    if let cached = await cache.get(host: host, absPath: absPath, version: version) {
       return cached
     }
     do {
-      let bytes = try await client.thumb(absPath: absPath)
-      await cache.put(host: host, absPath: absPath, bytes)
+      let bytes = try await client.thumb(absPath: absPath, version: version)
+      await cache.put(host: host, absPath: absPath, version: version, bytes)
       return bytes
     } catch {
       return nil
