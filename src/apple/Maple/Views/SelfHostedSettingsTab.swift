@@ -95,7 +95,7 @@ struct SelfHostedSettingsTab: View {
       // rendered flat against the page `bg`, breaking parity with
       // Backup/About on the phone shell.
       Group {
-        let label = Text("Maple Cloud Servers").font(.headline)
+        let label = header
         if isPhoneShell {
           // Padding insets the text FIRST, then the frame
           // stretches that already-padded content to the full
@@ -140,82 +140,18 @@ struct SelfHostedSettingsTab: View {
             emptyState
           }
         }
+        Spacer()
       } else {
         List {
           ForEach(registry.servers, id: \.self) { url in
-            HStack {
-              MuiIcon(name: "dns", size: .sm)
-                .foregroundStyle(.secondary)
-              VStack(alignment: .leading, spacing: 2) {
-                Text(url.host ?? url.absoluteString)
-                Text(url.absoluteString)
-                  .font(.caption)
-                  .foregroundStyle(.secondary)
-                localAddressStatus(for: url)
-                if signedIn[url] == true {
-                  ServerStackToggle(server: url, session: sessionFor(url))
-                }
-              }
-              Spacer()
-              // Signed out (token cleared by a failed refresh, or
-              // a server signed out) — offer a way back in (#1381).
-              if signedIn[url] == false {
-                Button("Sign In") {
-                  sheetTarget = .prefilled(CloudHost.signInPrefill(for: url))
-                }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.small)
-              }
-              // Per-server administration (#2766). Enabled only
-              // when definitively signed in: `signedIn[url]` is
-              // nil until the Keychain check in `.task` runs, and
-              // `== false` would treat that pending state as
-              // signed-in and let a tokenless admin window open.
-              // Note the Sign In button above deliberately keeps
-              // `== false` — it must NOT flash during the same
-              // pending window, so the two guards are asymmetric
-              // on purpose.
-              Button("Manage…") {
-                #if os(macOS)
-                  openWindow(id: "server-admin", value: url)
-                #else
-                  adminTarget = AdminSheetTarget(server: url)
-                #endif
-              }
-              .controlSize(.small)
-              .disabled(signedIn[url] != true)
-              .accessibilityIdentifier("cloud.manage.\(url.host ?? url.absoluteString)")
-              Button(role: .destructive) {
-                registry.remove(url)
-              } label: {
-                MuiIcon(name: "delete", size: .sm)
-              }
-              .buttonStyle(.plain)
-              .foregroundStyle(.red)
-            }
-            .padding(.vertical, 2)
-            .listRowBackground(MapleTokens.surface)
+            serverRow(url)
+              .padding(.vertical, 4)
+              .listRowBackground(MapleTokens.surface)
           }
         }
         .listStyle(.inset)
         .mapleSettingsBackground()
         .frame(minHeight: 120)
-      }
-
-      Spacer()
-
-      HStack {
-        Spacer()
-        #if os(iOS)
-          if WatchPhonePairing.isEntryEnabled, WCSession.isSupported() {
-            Button("Connect Apple Watch…") { showsWatchPairing = true }
-              .accessibilityLabel("Connect Apple Watch")
-          }
-          Button("Pair Apple TV…") { pairSheetTarget = .pairing(PairAppleTVViewModel()) }
-            .accessibilityLabel("Pair Apple TV")
-        #endif
-        Button("Add Server…") { sheetTarget = .fresh }
-          .keyboardShortcut("n", modifiers: .command)
       }
     }
     #if os(macOS)
@@ -276,17 +212,125 @@ struct SelfHostedSettingsTab: View {
     #endif
   }
 
+  /// Title plus the add/pair actions, so the actions sit with the list
+  /// they act on instead of pinned to the bottom of the pane. Falls back to
+  /// a stacked layout when the row is too narrow (iPhone).
+  private var header: some View {
+    ViewThatFits(in: .horizontal) {
+      HStack(alignment: .firstTextBaseline, spacing: 12) {
+        headerTitle
+        Spacer(minLength: 12)
+        headerActions
+      }
+      VStack(alignment: .leading, spacing: 8) {
+        headerTitle
+        HStack(spacing: 12) { headerActions }
+      }
+    }
+  }
+
+  private var headerTitle: some View {
+    Text("Maple Cloud Servers")
+      .font(.headline)
+      .lineLimit(1)
+      .fixedSize()
+  }
+
+  @ViewBuilder
+  private var headerActions: some View {
+    #if os(iOS)
+      if WatchPhonePairing.isEntryEnabled, WCSession.isSupported() {
+        Button("Connect Apple Watch…") { showsWatchPairing = true }
+          .accessibilityLabel("Connect Apple Watch")
+          .fixedSize()
+      }
+      Button("Pair Apple TV…") { pairSheetTarget = .pairing(PairAppleTVViewModel()) }
+        .accessibilityLabel("Pair Apple TV")
+        .fixedSize()
+    #endif
+    Button("Add Server…") { sheetTarget = .fresh }
+      .keyboardShortcut("n", modifiers: .command)
+      .fixedSize()
+  }
+
+  /// Name, addresses and actions share the server name's baseline; the
+  /// per-server toggle spans the full row so its switch lines up with the
+  /// row's trailing edge rather than floating mid-row.
+  private func serverRow(_ url: URL) -> some View {
+    VStack(alignment: .leading, spacing: 8) {
+      HStack(alignment: .firstTextBaseline, spacing: 10) {
+        MuiIcon(name: "dns", size: .sm)
+          .foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: 2) {
+          Text(url.host ?? url.absoluteString)
+          Text(url.absoluteString)
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .lineLimit(1)
+            .truncationMode(.middle)
+          localAddressStatus(for: url)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        serverActions(url)
+      }
+      if signedIn[url] == true {
+        ServerStackToggle(server: url, session: sessionFor(url))
+      }
+    }
+  }
+
+  @ViewBuilder
+  private func serverActions(_ url: URL) -> some View {
+    // Signed out (token cleared by a failed refresh, or a server signed
+    // out) — offer a way back in (#1381).
+    if signedIn[url] == false {
+      Button("Sign In") {
+        sheetTarget = .prefilled(CloudHost.signInPrefill(for: url))
+      }
+      .buttonStyle(.borderedProminent)
+      .controlSize(.small)
+      .fixedSize()
+    }
+    // Per-server administration (#2766). Enabled only when definitively
+    // signed in: `signedIn[url]` is nil until the Keychain check in `.task`
+    // runs, and `!= true` keeps a tokenless admin window from opening in
+    // that pending state. Sign In above deliberately uses `== false` so it
+    // doesn't flash during the same window — the asymmetry is on purpose.
+    Button("Manage…") {
+      #if os(macOS)
+        openWindow(id: "server-admin", value: url)
+      #else
+        adminTarget = AdminSheetTarget(server: url)
+      #endif
+    }
+    .controlSize(.small)
+    .fixedSize()
+    .disabled(signedIn[url] != true)
+    .accessibilityIdentifier("cloud.manage.\(url.host ?? url.absoluteString)")
+    Button(role: .destructive) {
+      registry.remove(url)
+    } label: {
+      MuiIcon(name: "delete", size: .sm)
+    }
+    .buttonStyle(.plain)
+    .foregroundStyle(.red)
+    .accessibilityLabel("Remove \(url.host ?? url.absoluteString)")
+  }
+
   @ViewBuilder
   private func localAddressStatus(for server: URL) -> some View {
     if let status = localNetwork.status(for: server) {
-      HStack(spacing: 5) {
+      HStack(alignment: .firstTextBaseline, spacing: 5) {
         Circle()
           .fill(status.isConnectedLocally ? Color.green : Color.secondary)
           .frame(width: 7, height: 7)
+          .alignmentGuide(.firstTextBaseline) { $0[.bottom] }
         if let localURL = status.localURL {
           Text(
-            "\(localURL.absoluteString) · \(status.isConnectedLocally ? "Connected locally" : "Not connected locally")"
+            "\(status.isConnectedLocally ? "Connected locally" : "Not connected locally") · \(localURL.absoluteString)"
           )
+          .lineLimit(1)
+          .truncationMode(.middle)
         } else {
           Text("No local address available")
         }

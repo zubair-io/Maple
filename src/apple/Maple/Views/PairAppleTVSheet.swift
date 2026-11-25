@@ -27,7 +27,7 @@
         content
       }
       .padding(24)
-      .frame(minHeight: 380)
+      .frame(maxWidth: .infinity, minHeight: 380, maxHeight: .infinity, alignment: .top)
     }
 
     private var header: some View {
