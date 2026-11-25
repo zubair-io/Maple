@@ -47,6 +47,7 @@
 //! identity.
 
 use crate::image::{ColorSpace, Image};
+use rayon::prelude::*;
 
 /// Fixed mask midpoint: the radius where the transition is centred.
 pub const VIGNETTE_M0: f32 = 0.7;
@@ -114,25 +115,28 @@ pub fn apply_windowed(
     let inv_half_h = 2.0 / full.1 as f32;
 
     let w = img.width as usize;
-    for (row_idx, row) in img.pixels.chunks_exact_mut(w).enumerate() {
-        let py = origin.1 + row_idx as i32;
-        let ny = (py as f32 + 0.5) * inv_half_h - 1.0;
-        let ny2 = ny * ny;
-        for (col_idx, p) in row.iter_mut().enumerate() {
-            let px = origin.0 + col_idx as i32;
-            let nx = (px as f32 + 0.5) * inv_half_w - 1.0;
-            let r = (nx * nx + ny2).sqrt();
-            let m = smoothstep(e0, e1, r);
-            // m = 0 (inside the e0 radius) ⇒ gain = exp2(±0) = 1.0 exactly;
-            // ×1.0 is bit-exact identity in IEEE f32, so the centre region
-            // is untouched without needing a branch (the WGSL port relies
-            // on the same property).
-            let gain = (ev * m).exp2();
-            p[0] *= gain;
-            p[1] *= gain;
-            p[2] *= gain;
-        }
-    }
+    img.pixels
+        .par_chunks_exact_mut(w)
+        .enumerate()
+        .for_each(|(row_idx, row)| {
+            let py = origin.1 + row_idx as i32;
+            let ny = (py as f32 + 0.5) * inv_half_h - 1.0;
+            let ny2 = ny * ny;
+            for (col_idx, p) in row.iter_mut().enumerate() {
+                let px = origin.0 + col_idx as i32;
+                let nx = (px as f32 + 0.5) * inv_half_w - 1.0;
+                let r = (nx * nx + ny2).sqrt();
+                let m = smoothstep(e0, e1, r);
+                // m = 0 (inside the e0 radius) ⇒ gain = exp2(±0) = 1.0 exactly;
+                // ×1.0 is bit-exact identity in IEEE f32, so the centre region
+                // is untouched without needing a branch (the WGSL port relies
+                // on the same property).
+                let gain = (ev * m).exp2();
+                p[0] *= gain;
+                p[1] *= gain;
+                p[2] *= gain;
+            }
+        });
 }
 
 /// Apply the vignette anchored to the buffer's own extent — the develop /

@@ -39,6 +39,7 @@
 //! stable (no swimming grain).
 
 use crate::image::{ColorSpace, Image};
+use rayon::prelude::*;
 
 /// Fixed lattice seed ("MAPL"). Identical in `grain.wgsl`.
 pub const GRAIN_SEED: u32 = 0x4D41_504C;
@@ -143,20 +144,23 @@ pub fn apply_windowed(
     let (k, inv_pitch, rho) = grain_params(amount, size, roughness, long_edge);
 
     let w = img.width as usize;
-    for (row_idx, row) in img.pixels.chunks_exact_mut(w).enumerate() {
-        let py = origin.1 + row_idx as u32;
-        for (col_idx, p) in row.iter_mut().enumerate() {
-            let px = origin.0 + col_idx as u32;
-            let n = grain_noise(px, py, inv_pitch, rho);
-            let yd = (LUMA_REC2020[0] * p[0] + LUMA_REC2020[1] * p[1] + LUMA_REC2020[2] * p[2])
-                .clamp(0.0, 1.0);
-            let wl = (4.0 * yd * (1.0 - yd)).clamp(0.0, 1.0);
-            let delta = k * wl * n;
-            p[0] += delta;
-            p[1] += delta;
-            p[2] += delta;
-        }
-    }
+    img.pixels
+        .par_chunks_exact_mut(w)
+        .enumerate()
+        .for_each(|(row_idx, row)| {
+            let py = origin.1 + row_idx as u32;
+            for (col_idx, p) in row.iter_mut().enumerate() {
+                let px = origin.0 + col_idx as u32;
+                let n = grain_noise(px, py, inv_pitch, rho);
+                let yd = (LUMA_REC2020[0] * p[0] + LUMA_REC2020[1] * p[1] + LUMA_REC2020[2] * p[2])
+                    .clamp(0.0, 1.0);
+                let wl = (4.0 * yd * (1.0 - yd)).clamp(0.0, 1.0);
+                let delta = k * wl * n;
+                p[0] += delta;
+                p[1] += delta;
+                p[2] += delta;
+            }
+        });
 }
 
 /// Apply grain anchored to the buffer's own extent — the render-tail

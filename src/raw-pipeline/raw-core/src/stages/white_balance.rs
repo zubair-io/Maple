@@ -4,6 +4,7 @@ use crate::{
     math::{Matrix3, Vec3},
     types::WbMethod,
 };
+use rayon::prelude::*;
 use std::sync::OnceLock;
 
 /// Scale factor (uv units per tint unit) for the perpendicular-to-locus
@@ -321,10 +322,10 @@ pub fn wb_cat16_matrix(temperature: f32, tint: f32) -> Matrix3 {
 }
 
 fn apply_matrix_inplace(img: &mut Image, m: &Matrix3) {
-    for p in &mut img.pixels {
+    img.pixels.par_iter_mut().for_each(|p| {
         let out = m.mul_vec(*p);
         *p = out;
-    }
+    });
 }
 
 pub fn apply(img: &mut Image, temperature: f32, tint: f32, method: WbMethod) {
@@ -339,11 +340,11 @@ pub fn apply(img: &mut Image, temperature: f32, tint: f32, method: WbMethod) {
         }
         WbMethod::DiagonalRec2020 => {
             let g = wb_gains(temperature, tint);
-            for p in &mut img.pixels {
+            img.pixels.par_iter_mut().for_each(|p| {
                 p[0] *= g[0];
                 p[1] *= g[1];
                 p[2] *= g[2];
-            }
+            });
         }
     }
 }
@@ -377,11 +378,11 @@ pub fn apply_pre_gain(img: &mut Image, neutral: [f32; 3]) {
         if n[1].abs() > 1e-6 { 1.0 / n[1] } else { 1.0 },
         if n[2].abs() > 1e-6 { 1.0 / n[2] } else { 1.0 },
     ];
-    for p in &mut img.pixels {
+    img.pixels.par_iter_mut().for_each(|p| {
         p[0] *= g[0];
         p[1] *= g[1];
         p[2] *= g[2];
-    }
+    });
 }
 
 /// Apply only the **delta** between the live WB and the WB the cached
@@ -431,11 +432,11 @@ pub fn apply_delta(
                 g_live[1] / g_decoded[1].max(1e-6),
                 g_live[2] / g_decoded[2].max(1e-6),
             ];
-            for p in &mut img.pixels {
+            img.pixels.par_iter_mut().for_each(|p| {
                 p[0] *= ratio[0];
                 p[1] *= ratio[1];
                 p[2] *= ratio[2];
-            }
+            });
         }
     }
 }

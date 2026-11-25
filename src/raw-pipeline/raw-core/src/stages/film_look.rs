@@ -51,6 +51,7 @@ use crate::color::matrices::{M_REC2020_TO_SRGB, M_SRGB_TO_REC2020};
 use crate::film::{tetra_sample, FilmLut};
 use crate::image::{ColorSpace, Image};
 use crate::view::encode::{srgb_degamma, srgb_gamma};
+use rayon::prelude::*;
 
 /// Apply a baked film-print LUT to a `DisplayLinearRec2020` buffer,
 /// blending toward the film result by `strength` (0..100 nominal; values
@@ -62,9 +63,9 @@ pub fn apply(img: &mut Image, lut: &FilmLut, strength: f32) {
         return;
     }
     let t = (strength / 100.0).clamp(0.0, 1.0);
-    for p in &mut img.pixels {
+    img.pixels.par_iter_mut().for_each(|p| {
         *p = apply_pixel(*p, lut, t);
-    }
+    });
 }
 
 /// The per-pixel chain documented in the module doc above. Pulled out of

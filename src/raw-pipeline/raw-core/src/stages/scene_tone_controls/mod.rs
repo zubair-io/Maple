@@ -3,6 +3,7 @@ use crate::{
     stages::blur::gaussian_blur_plane,
     xmp::AdjustmentModel,
 };
+use rayon::prelude::*;
 
 pub(crate) const LUMA_REC2020: [f32; 3] = [0.2627, 0.6780, 0.0593];
 
@@ -233,7 +234,7 @@ pub(crate) fn blacks_lift_delta(y: f32, b_add_pos: f32) -> f32 {
 ///
 /// `radius` is the caller's — [`apply_with_mask_anchor`] derives it from the
 /// full frame's long edge, never from this buffer's (#2476).
-fn masked_multiplier_pass(img: &mut Image, radius: usize, mult_of_y: impl Fn(f32) -> f32) {
+fn masked_multiplier_pass(img: &mut Image, radius: usize, mult_of_y: impl Fn(f32) -> f32 + Sync) {
     let w = img.width as usize;
     let h = img.height as usize;
     let luma_plane: Vec<f32> = img
@@ -243,7 +244,7 @@ fn masked_multiplier_pass(img: &mut Image, radius: usize, mult_of_y: impl Fn(f32
         .collect();
     let yb = gaussian_blur_plane(&luma_plane, w, h, radius);
 
-    for (i, p) in img.pixels.iter_mut().enumerate() {
+    img.pixels.par_iter_mut().enumerate().for_each(|(i, p)| {
         let y = luma_plane[i];
         let ybi = yb[i];
         let edge = (y.max(0.0).sqrt() - ybi.max(0.0).sqrt()).abs();
@@ -254,7 +255,7 @@ fn masked_multiplier_pass(img: &mut Image, radius: usize, mult_of_y: impl Fn(f32
         p[0] *= mult;
         p[1] *= mult;
         p[2] *= mult;
-    }
+    });
 }
 
 /// Apply scene-referred tone controls per spec § 3.6 + tone/zoom design
@@ -333,7 +334,7 @@ pub fn apply_with_mask_anchor(img: &mut Image, model: &AdjustmentModel, mask_lon
 
     // 1 + 1b. Exposure, then brightness — point ops.
     if apply_exposure || apply_brightness {
-        for p in &mut img.pixels {
+        img.pixels.par_iter_mut().for_each(|p| {
             // 1. Exposure.
             if apply_exposure {
                 p[0] *= exp_gain;
@@ -359,7 +360,7 @@ pub fn apply_with_mask_anchor(img: &mut Image, model: &AdjustmentModel, mask_lon
                 p[1] *= gain;
                 p[2] *= gain;
             }
-        }
+        });
     }
 
     // 2. Highlights — masked pass (#1103). The luma the multiplier (and its
@@ -377,7 +378,7 @@ pub fn apply_with_mask_anchor(img: &mut Image, model: &AdjustmentModel, mask_lon
     // the AgX view transform (#2441, view::agx_whites) — this stage no
     // longer touches it.
     if apply_blacks {
-        for p in &mut img.pixels {
+        img.pixels.par_iter_mut().for_each(|p| {
             // 5. Blacks — smoothstep-weighted toe curve.
             //
             // Pre-fix (#268): additive shift `p += blacks/400` clamped at
@@ -436,7 +437,7 @@ pub fn apply_with_mask_anchor(img: &mut Image, model: &AdjustmentModel, mask_lon
                     }
                 }
             }
-        }
+        });
     }
 }
 

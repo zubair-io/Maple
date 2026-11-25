@@ -51,6 +51,7 @@
 
 use crate::color::oklab::{oklab_to_rec2020, rec2020_to_oklab};
 use crate::image::{ColorSpace, Image};
+use rayon::prelude::*;
 
 // ── Band centers ─────────────────────────────────────────────────────────────
 
@@ -496,9 +497,9 @@ pub fn apply(
     if p.is_identity {
         return;
     }
-    for px in &mut img.pixels {
+    img.pixels.par_iter_mut().for_each(|px| {
         *px = apply_pixel(*px, &p);
-    }
+    });
 }
 
 /// Convenience wrapper reading the six band groups straight off the model.

@@ -49,6 +49,7 @@ use crate::{
     stages::tone_curves::{eval_curve_unit, prepare_curve, PreparedCurve},
     xmp::AdjustmentModel,
 };
+use rayon::prelude::*;
 
 /// Apply the display-referred point curves. Must run POST-AgX — the stage
 /// asserts `DisplayLinearRec2020` (AgX's own output tag), matching
@@ -81,11 +82,11 @@ pub fn apply(img: &mut Image, model: &AdjustmentModel) {
     let green = prepare_curve(&model.display_tone_curve_green);
     let blue = prepare_curve(&model.display_tone_curve_blue);
 
-    for p in &mut img.pixels {
+    img.pixels.par_iter_mut().for_each(|p| {
         p[0] = eval_channel(&master, &red, p[0]);
         p[1] = eval_channel(&master, &green, p[1]);
         p[2] = eval_channel(&master, &blue, p[2]);
-    }
+    });
 }
 
 /// One channel lane: the master curve, then this channel's own curve, both
