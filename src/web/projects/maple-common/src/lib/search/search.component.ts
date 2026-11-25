@@ -399,7 +399,7 @@ export class SearchComponent implements OnInit, AfterViewInit {
       const next = this.thumbQueue.shift()!;
       this.thumbActive += 1;
       void this.fs
-        .getThumbBlobUrl(next.abs_path)
+        .getThumbBlobUrl(next.abs_path, next.thumb_version)
         .then((url) => {
           this.thumbCache.set(next.id, url);
           this.publishThumbs();

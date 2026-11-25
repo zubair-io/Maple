@@ -150,6 +150,8 @@ export interface SearchResult {
    * chip (#628). Missing on legacy docs — readers coerce to `false`. */
   has_xmp?: boolean;
   hidden?: boolean;
+  /** Present while the server's thumb is fresh; a thumb URL carrying it is cached immutably. */
+  thumb_version?: string;
   owner_id?: string | null;
   /** RAW hits only, when the server folds RAW+JPEG stacks (#5849): the JPEG it stands for. */
   stack?: SearchStackWire;

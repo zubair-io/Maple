@@ -26,6 +26,6 @@ export async function storedPage(
   return {
     snapshot: true as const,
     total: doc.result_count,
-    results: projectAssets(docs, libs, idToSlug),
+    results: await projectAssets(docs, libs, idToSlug),
   };
 }

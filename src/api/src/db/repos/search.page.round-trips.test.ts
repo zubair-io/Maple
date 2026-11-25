@@ -148,7 +148,7 @@ describe('search page round trips', () => {
     const window = await mapleIdWindow(where(), ['three', 'two', 'one'], handle);
     const ranked = await windowDocs(where(), window, handle);
     const paged = await searchPage(where(), { sort: 'captured_desc', limit: 10, skip: 0 }, handle);
-    const results = projectAssets(paged, new Map(), new Map());
+    const results = await projectAssets(paged, new Map(), new Map());
 
     expect(ranked.map((doc) => doc.owner?.id ?? null)).toEqual([null, null, OWNER]);
     expect(ranked.map((doc) => doc.owner_id)).toEqual(['not-an-object-id', '', expect.anything()]);
@@ -204,7 +204,7 @@ describe('search page round trips', () => {
       .all() as Array<{ id: string }>;
 
     const docs = await searchByIds(where(), [one!.id, 'f'.repeat(24), four!.id], recorded.handle);
-    const results = projectAssets(docs, new Map(), new Map());
+    const results = await projectAssets(docs, new Map(), new Map());
 
     expect(results.map((result) => [result.filename, result.owner])).toEqual([
       ['one.dng', { id: OWNER, email: 'owner@maple.local' }],

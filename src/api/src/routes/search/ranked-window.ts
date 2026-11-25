@@ -190,7 +190,7 @@ export async function windowPage(
     const unchanged =
       rows.length === ranked.length && rows.every((row, index) => row === ranked[index]);
     const docs = unchanged ? rankedDocs : await windowDocs(page.where, rows);
-    return { total: survivors.length, rows, results: projectAssets(docs, libs, idToSlug) };
+    return { total: survivors.length, rows, results: await projectAssets(docs, libs, idToSlug) };
   };
   const { total, rows, results } = page.timing
     ? await page.timing.time('rows', hydrate)
