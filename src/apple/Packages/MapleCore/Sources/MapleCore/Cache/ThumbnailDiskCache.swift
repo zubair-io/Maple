@@ -38,12 +38,22 @@ import Foundation
 
 // MARK: - ThumbnailDiskCache
 
+/// One URL-keyed thumbnail cache hit. `memoryKey` ties a later
+/// `markDecodable` to the exact entry that was read.
+public struct CachedThumbnail: Sendable {
+  public let data: Data
+  public let isKnownDecodable: Bool
+  let memoryKey: String
+}
+
 public actor ThumbnailDiskCache {
   public static let shared = ThumbnailDiskCache()
 
   private let fm = FileManager.default
   private var memCache: [String: CIImage] = [:]  // hot in-memory cache
   private var dataMemCache: [String: Data] = [:]  // hot AVIF-bytes cache (for UI cells)
+  /// `dataMemCache` keys whose current bytes a caller has seen decode.
+  private var decodableDataKeys: Set<String> = []
   private let maxMemEntries = 100
 
   /// On-disk store for SOURCELESS thumbnails (PhotoKit, Self-Hosted browse
@@ -118,16 +128,31 @@ public actor ThumbnailDiskCache {
   /// wrong for a URL-backed local asset, whose thumbnail lives in its own
   /// folder's `.maple/thumbs/`.
   public func thumbnailData(for assetURL: URL) -> Data? {
-    let key = Self.memoryKey(for: assetURL)
-    if let d = dataMemCache[key] { return d }
+    cachedThumbnail(for: assetURL)?.data
+  }
+
+  /// `thumbnailData(for:)` plus whether a caller already proved these exact
+  /// bytes decode (`markDecodable`), so a warm grid cell is not re-decoded
+  /// just to be checked on every load (#6010).
+  public func cachedThumbnail(for assetURL: URL) -> CachedThumbnail? {
+    let signature = LocalDerivativeSourceStamp.signature(for: assetURL)
+    let key = Self.memoryKey(for: assetURL, sourceSignature: signature)
+    if let d = dataMemCache[key] {
+      return CachedThumbnail(
+        data: d, isKnownDecodable: decodableDataKeys.contains(key), memoryKey: key)
+    }
     let fileURL = thumbFileURL(for: assetURL)
-    guard LocalDerivativeSourceStamp.isFresh(fileURL, for: assetURL),
+    guard LocalDerivativeSourceStamp.isFresh(fileURL, signature: signature),
       let data = readThumb(at: fileURL, legacyKey: cacheKey(for: assetURL))
     else { return nil }
-    evictIfNeeded()
-    dataMemCache[key] = data
-    syncPeekCache.setObject(data as NSData, forKey: key as NSString)
-    return data
+    rememberData(data, forMemoryKey: key)
+    return CachedThumbnail(data: data, isKnownDecodable: false, memoryKey: key)
+  }
+
+  /// Record that `hit`'s bytes decoded, unless the entry was replaced since.
+  public func markDecodable(_ hit: CachedThumbnail) {
+    guard dataMemCache[hit.memoryKey] == hit.data else { return }
+    decodableDataKeys.insert(hit.memoryKey)
   }
 
   /// Evict an unreadable URL-backed thumbnail so `ThumbnailLoader` can
@@ -136,6 +161,7 @@ public actor ThumbnailDiskCache {
     let key = Self.memoryKey(for: assetURL)
     memCache.removeValue(forKey: key)
     dataMemCache.removeValue(forKey: key)
+    decodableDataKeys.remove(key)
     syncPeekCache.removeObject(forKey: key as NSString)
     LocalDerivativeSourceStamp.remove(thumbFileURL(for: assetURL))
     MapleSidecarPaths.removeDerivative(
@@ -155,9 +181,7 @@ public actor ThumbnailDiskCache {
     let fileURL = sourcelessCacheDir.appendingPathComponent(
       MapleThumbCacheKey.thumbFilename(forKey: hashed))
     guard let data = readThumb(at: fileURL, legacyKey: hashed) else { return nil }
-    evictIfNeeded()
-    dataMemCache[hashed] = data
-    syncPeekCache.setObject(data as NSData, forKey: hashed as NSString)
+    rememberData(data, forMemoryKey: hashed)
     return data
   }
 
@@ -194,8 +218,7 @@ public actor ThumbnailDiskCache {
     let fileURL = thumbFileURL(for: assetURL, creatingDirectory: true)
     let ctx = CIContext()
     guard let data = ThumbnailEncoder.encode(image, ctx: ctx) else { return }
-    dataMemCache[key] = data
-    syncPeekCache.setObject(data as NSData, forKey: key as NSString)
+    rememberData(data, forMemoryKey: key)
     if (try? data.write(to: fileURL, options: .atomic)) != nil {
       LocalDerivativeSourceStamp.record(fileURL, for: assetURL)
     }
@@ -209,9 +232,7 @@ public actor ThumbnailDiskCache {
   /// directories.
   public func storeThumbnailData(_ data: Data, for assetURL: URL) {
     let key = Self.memoryKey(for: assetURL)
-    evictIfNeeded()
-    dataMemCache[key] = data
-    syncPeekCache.setObject(data as NSData, forKey: key as NSString)
+    rememberData(data, forMemoryKey: key)
     let fileURL = thumbFileURL(for: assetURL, creatingDirectory: true)
     if (try? data.write(to: fileURL, options: .atomic)) != nil {
       LocalDerivativeSourceStamp.record(fileURL, for: assetURL)
@@ -239,9 +260,7 @@ public actor ThumbnailDiskCache {
     }
     // Cache persistence is optional; a current render is still usable now.
     guard LocalDerivativeSourceStamp.matches(sourceSignature, for: assetURL) else { return false }
-    evictIfNeeded()
-    dataMemCache[key] = data
-    syncPeekCache.setObject(data as NSData, forKey: key as NSString)
+    rememberData(data, forMemoryKey: key)
     return true
   }
 
@@ -249,9 +268,7 @@ public actor ThumbnailDiskCache {
   /// URL-keyed overload — used for sourceless assets keyed by `AssetRef.id`.
   public func storeThumbnailData(_ data: Data, forKey key: String) {
     let hashed = hashKey(key)
-    evictIfNeeded()
-    dataMemCache[hashed] = data
-    syncPeekCache.setObject(data as NSData, forKey: hashed as NSString)
+    rememberData(data, forMemoryKey: hashed)
     let fileURL = sourcelessCacheDir.appendingPathComponent(
       MapleThumbCacheKey.thumbFilename(forKey: hashed))
     try? data.write(to: fileURL, options: .atomic)
@@ -317,7 +334,7 @@ public actor ThumbnailDiskCache {
       if let key = memCache.keys.first { memCache.removeValue(forKey: key) }
     }
     while dataMemCache.count > keep {
-      if let key = dataMemCache.keys.first { dataMemCache.removeValue(forKey: key) }
+      if let key = dataMemCache.keys.first { forgetData(forMemoryKey: key) }
     }
   }
 
@@ -329,7 +346,20 @@ public actor ThumbnailDiskCache {
       if let key = memCache.keys.first { memCache.removeValue(forKey: key) }
     }
     if dataMemCache.count >= maxMemEntries {
-      if let key = dataMemCache.keys.first { dataMemCache.removeValue(forKey: key) }
+      if let key = dataMemCache.keys.first { forgetData(forMemoryKey: key) }
     }
+  }
+
+  /// Every write replaces the bytes, so any earlier decode proof is void.
+  private func rememberData(_ data: Data, forMemoryKey key: String) {
+    evictIfNeeded()
+    dataMemCache[key] = data
+    decodableDataKeys.remove(key)
+    syncPeekCache.setObject(data as NSData, forKey: key as NSString)
+  }
+
+  private func forgetData(forMemoryKey key: String) {
+    dataMemCache.removeValue(forKey: key)
+    decodableDataKeys.remove(key)
   }
 }

@@ -443,6 +443,7 @@ AgentScopeColorTests # #4104: paired ROI and canonical range coverage
 BrowseCancellationOwnershipTests
 ThumbnailFetchGateWaiterTests
 ThumbnailLoaderSourcelessProducerTests
+ThumbnailLoaderSourceFetchTests
 ThumbnailRetryTests
 
 AgentHTTPIntegrationTests
@@ -535,6 +536,9 @@ CIEDE2000BiasTests
 # Thumbnail cache keys and locations (#5033): hash vectors and small writes
 # into a temp dir, no render or decode; was mis-tagged slow in excluded.txt.
 ThumbnailDiskCacheKeyTests
+
+# Warm thumbnail decode proof (#6010): small JPEG writes into a temp dir.
+ThumbnailCacheDecodeProofTests
 
 # Server URL parsing and the sign-in prefill round trip (#5033): pure string
 # work; was mis-tagged as talking to a host service in excluded.txt.

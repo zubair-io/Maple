@@ -12,9 +12,15 @@ enum LocalDerivativeSourceStamp {
   }
 
   static func isFresh(_ derivativeURL: URL, for assetURL: URL) -> Bool {
+    isFresh(derivativeURL, signature: signature(for: assetURL))
+  }
+
+  /// For a caller that already sampled the asset's signature, so a cache read
+  /// stats the original and its XMP once instead of twice.
+  static func isFresh(_ derivativeURL: URL, signature: String) -> Bool {
     guard let stored = try? String(contentsOf: stampURL(for: derivativeURL), encoding: .utf8)
     else { return false }
-    return stored == signature(for: assetURL)
+    return stored == signature
   }
 
   static func record(_ derivativeURL: URL, for assetURL: URL) {

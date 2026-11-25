@@ -49,7 +49,9 @@ extension BrowseViewModel {
     let checkpoint = folderEnumerationCheckpoint
     let slots = folderEnumerationSlots
     let stacksPairs = stacksRawJpegPairs()
-    let task = Task.detached(priority: .utility) { () throws -> ([AssetRef], [URL]) in
+    // The user is looking at an empty grid until this returns: utility QoS
+    // would put the walk on efficiency cores with throttled I/O (#6010).
+    let task = Task.detached(priority: .userInitiated) { () throws -> ([AssetRef], [URL]) in
       try await slots.acquire()
       do {
         try Task.checkCancellation()

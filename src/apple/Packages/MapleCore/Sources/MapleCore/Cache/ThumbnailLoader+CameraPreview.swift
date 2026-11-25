@@ -53,15 +53,17 @@ extension ThumbnailLoader {
   /// First pixels for a cold RAW, before reading or developing its sidecar.
   /// This temporary camera rendering never enters the edited derivative caches.
   /// Grid and Preview share the same extraction and in-flight request.
-  public func loadCameraPreview(for asset: AssetRef) async -> Data? {
+  ///
+  /// Nonisolated for the same reason as `load(for:scopeParentURL:)`: every
+  /// RAW cell asks this first, and a warm thumbnail answers it off the actor.
+  public nonisolated func loadCameraPreview(for asset: AssetRef) async -> Data? {
     guard !Task.isCancelled, let url = asset.primaryURL, asset.isRaw else { return nil }
-    if let cached = await ThumbnailDiskCache.shared.thumbnailData(for: url),
-      Self.isUsableImageData(cached)
-    {
-      return nil
-    }
-
+    if await Self.decodableCachedThumbnail(for: url) != nil { return nil }
     guard !Task.isCancelled else { return nil }
+    return await joinCameraPreview(for: asset, url: url)
+  }
+
+  private func joinCameraPreview(for asset: AssetRef, url: URL) async -> Data? {
     let cacheKey = ThumbnailDiskCache.memoryKey(for: url) as NSString
     if let cached = cameraPreviewCache.object(forKey: cacheKey) as Data? {
       return cached
