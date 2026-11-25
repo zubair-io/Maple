@@ -31,6 +31,7 @@ struct MapleApp: App {
   @Environment(\.scenePhase) private var scenePhase
 
   init() {
+    LaunchTimeline.shared.mark(.appInit)
     Self.registerBundledFonts()
     Self.installMemoryPressureObserver()
     // #5489, #5555: panorama frames and scratch a killed run left behind.
