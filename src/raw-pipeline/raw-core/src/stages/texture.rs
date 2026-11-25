@@ -2,6 +2,7 @@ use crate::{
     image::{ColorSpace, Image},
     stages::blur::{guided_filter, GuidedOptions},
 };
+use rayon::prelude::*;
 
 /// Guided-filter window radius for the fine-detail base/detail
 /// decomposition. Effective stencil reach is `2r = 4` px per side —
@@ -81,14 +82,14 @@ pub fn apply(img: &mut Image, texture: f32) {
         },
     );
 
-    for (i, p) in img.pixels.iter_mut().enumerate() {
+    img.pixels.par_iter_mut().enumerate().for_each(|(i, p)| {
         let luma = luma_plane[i];
         // Identity at/below the luma floor (#1088) — identical guard to
         // `stages::clarity::apply` (texture IS clarity at radius 2).
         // Above the floor, dividing by `luma` is bit-identical to the
         // old `luma.max(LUMA_FLOOR)` divisor.
         if luma <= LUMA_FLOOR {
-            continue;
+            return;
         }
         let detail = luma - base[i];
         let boost = luma + detail * amount;
@@ -96,7 +97,7 @@ pub fn apply(img: &mut Image, texture: f32) {
         p[0] *= scale;
         p[1] *= scale;
         p[2] *= scale;
-    }
+    });
 }
 
 #[cfg(test)]

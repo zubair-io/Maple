@@ -28,6 +28,7 @@ use crate::color::oklab::{oklab_to_rec2020, rec2020_to_oklab};
 use crate::image::{ColorSpace, Image};
 use crate::stages::hsl::{hsl_soft_compress, CHROMA_GATE_C0, HSL_GAMUT_KNEE_FRACTION};
 use crate::types::adjustment::{AdjustmentModel, ToneCurve};
+use rayon::prelude::*;
 
 /// Shared authoring limits emitted to the platform editors; no per-pixel work.
 pub const EDITOR_ANCHOR_SPREAD: f64 = 0.08;
@@ -292,9 +293,9 @@ pub fn apply(
     if params.is_identity {
         return;
     }
-    for px in &mut img.pixels {
+    img.pixels.par_iter_mut().for_each(|px| {
         *px = apply_pixel(*px, &params);
-    }
+    });
 }
 
 /// Convenience wrapper reading the six `color_curve_*` fields off [`AdjustmentModel`].

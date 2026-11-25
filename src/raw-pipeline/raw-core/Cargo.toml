@@ -105,6 +105,13 @@ name = "synth-grey"
 required-features = ["test-support"]
 
 [[example]]
+name = "perf-audit"
+
+[[example]]
+name = "perf-audit-dng"
+required-features = ["test-support"]
+
+[[example]]
 name = "thumbnail-bench"
 required-features = ["test-support", "avif"]
 

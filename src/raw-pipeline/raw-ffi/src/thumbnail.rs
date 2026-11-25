@@ -19,9 +19,9 @@
 //! uses bounded memory (preview JPEG → decoded RGB → resized RGB →
 //! re-encoded output; ~tens of MB peak on a 100MP DNG).
 //!
-//! File-output only (no bytes-returning sibling): Rust writes the resulting
-//! image directly to `out_path` (atomic via exclusive staging + rename), so no
-//! Rust-allocated memory crosses the FFI boundary as a buffer. Bun 1.3.x's
+//! The file-output externs write the resulting image directly to `out_path`
+//! (atomic via exclusive staging + rename), so no Rust-allocated memory
+//! crosses the FFI boundary as a buffer. Bun 1.3.x's
 //! `bun:ffi` `toBuffer(ptr, 0, len)` returns a Node Buffer backed by external
 //! memory; when the Buffer becomes unreachable JSC's GC sweep tries to free
 //! the underlying ArrayBuffer using its own allocator, but the memory was
@@ -30,6 +30,12 @@
 //! File-output sidesteps the issue: Rust owns its allocations end-to-end and
 //! JS just reads the resulting file. The cost is one extra fs read, which is
 //! negligible (the route writes-through to the same cache file anyway).
+//!
+//! `maple_render_thumbnail_preview_jpeg_buf` is the in-memory sibling for
+//! Apple (#6018): it copies into a caller-owned buffer, so it keeps the same
+//! no-Rust-allocation-crosses rule while skipping the temp file and its
+//! `fsync`. rc 100 means the buffer was too small and `*out_len` holds the
+//! size needed; a null `out_buf` is a size probe.
 //!
 //! The actual extraction (rawler preview/full/thumbnail-slot hunt) lives in
 //! `raw_core::preview::extract_embedded_preview` — shared with `raw-wasm`'s
@@ -42,14 +48,93 @@ use std::ffi::{c_char, CStr};
 #[path = "thumbnail_raster.rs"]
 mod raster;
 
-/// Shared core for both externs below: extract the embedded preview,
-/// downsample to `max_px` on the long edge, bake in EXIF orientation, encode
-/// via `encode` (either `raw_core::avif::encode` or `raw_core::jpeg::encode`
-/// — same `(width, height, rgb, quality) -> Result<Vec<u8>>` shape), and
-/// atomic-write the result to `out_path` (exclusive staging + rename).
+/// Shared core for every extern below: extract the embedded preview,
+/// downsample to `max_px` on the long edge, bake in EXIF orientation and
+/// encode via `encode` (`raw_core::avif::encode` or `raw_core::jpeg::encode`).
 ///
 /// `quality` is on the target codec's own scale, [1, 100]; pass 0 to use
 /// `default_quality`. Values > 100 are rejected (rc 14).
+///
+/// `Err` carries the extern return code; the message is already set.
+unsafe fn render_thumbnail_bytes(
+    raw_path: &std::path::Path,
+    max_px: u32,
+    quality: u8,
+    default_quality: u8,
+    encode: fn(u32, u32, &[u8], u8) -> raw_core::error::Result<Vec<u8>>,
+    encode_err_label: &str,
+) -> Result<Vec<u8>, i32> {
+    if max_px == 0 {
+        set_last_error("max_px must be > 0".into());
+        return Err(9);
+    }
+    if quality > 100 {
+        set_last_error(format!("quality must be in [1, 100] (got {})", quality));
+        return Err(14);
+    }
+    let q = if quality == 0 {
+        default_quality
+    } else {
+        quality
+    };
+    let raw_bytes = std::fs::read(raw_path).map_err(|e| {
+        set_last_error(format!("raw read: {}", e));
+        6
+    })?;
+
+    // Extension hint for rawler's format detection — same derivation as
+    // `raw_core::decode::decode`'s path→bytes delegation to `decode_bytes`.
+    let ext = raw_path
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(str::to_ascii_lowercase)
+        .unwrap_or_default();
+    let (ow, oh, oriented) = if raster::is_raster(&raw_bytes, &ext) {
+        raster::pixels(&raw_bytes, max_px).map_err(|error| {
+            set_last_error(error.to_string());
+            8
+        })?
+    } else {
+        let (dyn_img, orientation) = raw_core::preview::extract_embedded_preview(&raw_bytes, &ext)
+            .map_err(|e| match e {
+                raw_core::Error::Preview(msg) => {
+                    let panicked = msg.contains("panicked");
+                    set_last_error(msg);
+                    if panicked {
+                        11
+                    } else {
+                        8
+                    }
+                }
+                other => {
+                    set_last_error(other.to_string());
+                    8
+                }
+            })?;
+        let rgb_img = raw_core::preview::resize_long_edge(dyn_img, max_px);
+        let (rw, rh) = rgb_img.dimensions();
+        // The re-encode carries no EXIF, so rotating here is the only chance
+        // to land an upright thumbnail.
+        raw_core::image::apply_orientation(rgb_img.as_raw(), rw, rh, orientation)
+    };
+    encode(ow, oh, &oriented, q).map_err(|e| {
+        set_last_error(format!("{} encode: {}", encode_err_label, e));
+        10
+    })
+}
+
+unsafe fn utf8_path(ptr: *const c_char, label: &str, rc: i32) -> Result<std::path::PathBuf, i32> {
+    CStr::from_ptr(ptr)
+        .to_str()
+        .map(std::path::PathBuf::from)
+        .map_err(|e| {
+            set_last_error(format!("{label} not UTF-8: {e}"));
+            rc
+        })
+}
+
+/// File-output wrapper around [`render_thumbnail_bytes`]: atomic-writes the
+/// result to `out_path` (exclusive staging + rename).
 ///
 /// Returns 0 on success; non-zero on error (call `maple_last_error`).
 unsafe fn render_thumbnail_to_file(
@@ -65,99 +150,29 @@ unsafe fn render_thumbnail_to_file(
         set_last_error("null pointer argument".into());
         return 1;
     }
-    if max_px == 0 {
-        set_last_error("max_px must be > 0".into());
-        return 9;
-    }
-    if quality > 100 {
-        set_last_error(format!("quality must be in [1, 100] (got {})", quality));
-        return 14;
-    }
-    let raw_path_str = match CStr::from_ptr(raw_path).to_str() {
-        Ok(s) => s.to_owned(),
-        Err(e) => {
-            set_last_error(format!("raw_path not UTF-8: {}", e));
-            return 2;
-        }
+    let paths = utf8_path(raw_path, "raw_path", 2)
+        .and_then(|raw| utf8_path(out_path, "out_path", 3).map(|out| (raw, out)));
+    let (raw_path, out_path) = match paths {
+        Ok(pair) => pair,
+        Err(rc) => return rc,
     };
-    let out_path_str = match CStr::from_ptr(out_path).to_str() {
-        Ok(s) => s.to_owned(),
-        Err(e) => {
-            set_last_error(format!("out_path not UTF-8: {}", e));
-            return 3;
-        }
-    };
-    let q = if quality == 0 {
-        default_quality
-    } else {
-        quality
-    };
-
-    let raw_path = std::path::Path::new(&raw_path_str);
-    let out_path = std::path::Path::new(&out_path_str);
-    let inputs = [raw_path];
-    if let Err(e) = raw_core::output_file::validate_destination(out_path, &inputs) {
+    let inputs = [raw_path.as_path()];
+    if let Err(e) = raw_core::output_file::validate_destination(&out_path, &inputs) {
         set_last_error(format!("output: {e}"));
         return 12;
     }
-    let raw_bytes = match std::fs::read(raw_path) {
-        Ok(b) => b,
-        Err(e) => {
-            set_last_error(format!("raw read: {}", e));
-            return 6;
-        }
+    let encoded = match render_thumbnail_bytes(
+        &raw_path,
+        max_px,
+        quality,
+        default_quality,
+        encode,
+        encode_err_label,
+    ) {
+        Ok(bytes) => bytes,
+        Err(rc) => return rc,
     };
-
-    // Extension hint for rawler's format detection — same derivation as
-    // `raw_core::decode::decode`'s path→bytes delegation to `decode_bytes`.
-    let ext = raw_path
-        .extension()
-        .and_then(|e| e.to_str())
-        .map(str::to_ascii_lowercase)
-        .unwrap_or_default();
-    let (ow, oh, oriented) = if raster::is_raster(&raw_bytes, &ext) {
-        match raster::pixels(&raw_bytes, max_px) {
-            Ok(pixels) => pixels,
-            Err(error) => {
-                set_last_error(error.to_string());
-                return 8;
-            }
-        }
-    } else {
-        let (dyn_img, orientation) =
-            match raw_core::preview::extract_embedded_preview(&raw_bytes, &ext) {
-                Ok(pair) => pair,
-                Err(raw_core::Error::Preview(msg)) => {
-                    let panicked = msg.contains("panicked");
-                    set_last_error(msg);
-                    return if panicked { 11 } else { 8 };
-                }
-                Err(e) => {
-                    // Unreachable in practice — `extract_embedded_preview` only ever
-                    // returns `Error::Preview` — but handled defensively so a future
-                    // change to that contract can't silently drop the message here.
-                    set_last_error(e.to_string());
-                    return 8;
-                }
-            };
-
-        let rgb_img = raw_core::preview::resize_long_edge(dyn_img, max_px);
-        let (rw, rh) = rgb_img.dimensions();
-        // Bake EXIF orientation into the pixels — rawler hands back the
-        // embedded preview in its native (usually sensor) orientation and the
-        // re-encode below carries no EXIF, so rotating here is the only chance
-        // to land an upright thumb on disk.
-        raw_core::image::apply_orientation(rgb_img.as_raw(), rw, rh, orientation)
-    };
-    let encoded = match encode(ow, oh, &oriented, q) {
-        Ok(b) => b,
-        Err(e) => {
-            set_last_error(format!("{} encode: {}", encode_err_label, e));
-            return 10;
-        }
-    };
-
-    if let Err(e) = raw_core::output_file::write_derived(out_path, &inputs, &encoded) {
+    if let Err(e) = raw_core::output_file::write_derived(&out_path, &inputs, &encoded) {
         set_last_error(format!("output write: {e}"));
         return 12;
     }
@@ -219,5 +234,45 @@ pub unsafe extern "C" fn maple_render_thumbnail_preview_jpeg_to_file(
             raw_core::jpeg::encode,
             "jpeg",
         )
+    })
+}
+
+const NEED_LARGER_BUFFER: i32 = 100;
+
+/// In-memory sibling of [`maple_render_thumbnail_preview_jpeg_to_file`]:
+/// the same 1280px-tier JPEG, copied into `out_buf` instead of a file.
+///
+/// Returns 0 on success, 100 when `out_cap` is too small (`*out_len` holds
+/// the size needed), and otherwise the file extern's codes.
+///
+/// # Safety
+/// `raw_path` must be a NUL-terminated string and `out_len` non-null. A
+/// non-null `out_buf` must hold `out_cap` bytes.
+#[no_mangle]
+pub unsafe extern "C" fn maple_render_thumbnail_preview_jpeg_buf(
+    raw_path: *const c_char,
+    max_px: u32,
+    quality: u8,
+    out_buf: *mut u8,
+    out_cap: usize,
+    out_len: *mut usize,
+) -> i32 {
+    crate::error::catch_panic_rc("maple_render_thumbnail_preview_jpeg_buf", || {
+        if raw_path.is_null() || out_len.is_null() {
+            set_last_error("null pointer argument".into());
+            return 1;
+        }
+        let encoded = match utf8_path(raw_path, "raw_path", 2).and_then(|path| {
+            render_thumbnail_bytes(&path, max_px, quality, 85, raw_core::jpeg::encode, "jpeg")
+        }) {
+            Ok(bytes) => bytes,
+            Err(rc) => return rc,
+        };
+        *out_len = encoded.len();
+        if out_buf.is_null() || out_cap < encoded.len() {
+            return NEED_LARGER_BUFFER;
+        }
+        std::ptr::copy_nonoverlapping(encoded.as_ptr(), out_buf, encoded.len());
+        0
     })
 }
