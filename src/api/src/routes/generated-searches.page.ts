@@ -100,5 +100,5 @@ async function structuredCollectionPage(input: CollectionPageInput): Promise<Col
     searchCount(where, lane),
     libraryMaps(),
   ]);
-  return { total, results: projectAssets(docs, libs, idToSlug) };
+  return { total, results: await projectAssets(docs, libs, idToSlug) };
 }

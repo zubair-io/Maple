@@ -126,8 +126,22 @@ describe('LibraryCache — M2 slug:relPath thumbnail path', () => {
     svc.ensureThumbnailUrl({ id: 'lib:2026/a.jpg', filename: 'a.jpg' } as unknown as Asset);
     await settle();
 
-    expect(thumbBlob).toHaveBeenCalledWith({ slug: 'lib', relPath: '2026/a.jpg' });
+    expect(thumbBlob).toHaveBeenCalledWith({ slug: 'lib', relPath: '2026/a.jpg' }, undefined);
     expect(svc.thumbnailUrlFor('lib:2026/a.jpg' as AssetId)).toBe('blob:m2-thumb');
+  });
+
+  it('passes the listing thumb version through so the thumb is cached immutably', async () => {
+    const thumbBlob = vi.fn(async () => new Blob(['x'], { type: 'image/avif' }));
+    const svc = setup({ thumbBlob });
+
+    svc.ensureThumbnailUrl({
+      id: 'lib:2026/v.jpg',
+      filename: 'v.jpg',
+      thumbVersion: 'abc-1',
+    } as unknown as Asset);
+    await settle();
+
+    expect(thumbBlob).toHaveBeenCalledWith({ slug: 'lib', relPath: '2026/v.jpg' }, 'abc-1');
   });
 
   it('does NOT route a legacy fs:<absPath> id through LibrarySource (regression)', async () => {

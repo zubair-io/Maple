@@ -1,6 +1,6 @@
 import * as path from 'node:path';
-import { lstat } from '../fs/mirrored.ts';
-import { resolveThumbPath } from '../fs/xmp.ts';
+import { lstat, stat } from '../fs/mirrored.ts';
+import { resolveThumbPath, xmpSidecarPath } from '../fs/xmp.ts';
 import { assertDerivativeCacheDirectory } from '../indexer/derivative-cache.ts';
 
 /** A thumbnail is replaced by rename, so a re-render always changes this token; µs keeps two
@@ -57,4 +57,42 @@ export async function readVersionedThumb<T>(
   const data = await read(thumbPath);
   const after = await currentThumbVersion(thumbPath);
   return { data, version: before !== null && before === after ? before : null };
+}
+
+function statUnlessMissing(file: string) {
+  return stat(file).catch((error: NodeJS.ErrnoException) => {
+    if (error.code === 'ENOENT') return null;
+    throw error;
+  });
+}
+
+/** For a caller holding only an asset's primary path (search, timeline): the same freshness
+ * check the thumb route runs, without its legacy-name adoption, which writes. */
+export async function primaryThumbVersion(
+  absPath: string,
+  directorySafe: (directory: string) => Promise<boolean>,
+): Promise<string | null> {
+  try {
+    const [safe, thumb, source, sidecar] = await Promise.all([
+      directorySafe(path.dirname(absPath)),
+      listingThumbStat(absPath),
+      statUnlessMissing(absPath),
+      statUnlessMissing(xmpSidecarPath(absPath)),
+    ]);
+    return safe && source?.isFile()
+      ? freshThumbVersion(thumb, source.mtimeMs, sidecar?.mtimeMs ?? 0)
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+/** One `thumbsDirectorySafe` probe per directory for a page of results. */
+export function memoizedDirectorySafety(): (directory: string) => Promise<boolean> {
+  const known = new Map<string, Promise<boolean>>();
+  return (directory) => {
+    const cached = known.get(directory) ?? thumbsDirectorySafe(directory);
+    known.set(directory, cached);
+    return cached;
+  };
 }
