@@ -172,7 +172,7 @@ final class PhotoGridItemTests: XCTestCase {
         XCTAssertEqual(item.displayName, "a.dng")
         XCTAssertEqual(item.overlays.rating, 4)
         XCTAssertEqual(item.overlays.flag, .pick)
-        if case .cloud(let absPath, let host) = item.thumbnailSource {
+        if case .cloud(let absPath, let host, _) = item.thumbnailSource {
             XCTAssertEqual(absPath, "/photos/a.dng")
             XCTAssertEqual(host, "myserver")
         } else {
