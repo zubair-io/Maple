@@ -77,6 +77,7 @@ struct FolderTreeRow: View {
   @State private var expanded = false
   @State private var children: [URL] = []
   @State private var didEnumerate = false
+  @State private var enumerationGeneration = 0
   @State private var showNewFolderAlert = false
   @State private var newFolderDraft = ""
   @State private var showRenameAlert = false
@@ -329,10 +330,15 @@ struct FolderTreeRow: View {
   private func enumerateChildren() {
     let url = url
     let rootBookmark = rootBookmark
+    enumerationGeneration &+= 1
+    let generation = enumerationGeneration
     Task {
       let found = await Task.detached(priority: .userInitiated) {
         Self.childFolders(of: url, rootBookmark: rootBookmark)
       }.value
+      // A refresh started after this one owns the listing; a slow, older
+      // walk must not overwrite it.
+      guard generation == enumerationGeneration else { return }
       children = found
       didEnumerate = true
     }
