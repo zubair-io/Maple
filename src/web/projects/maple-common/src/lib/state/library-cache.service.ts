@@ -495,7 +495,7 @@ export class LibraryCache {
     // 0. Self-Hosted M2 slug:relPath asset → /api/thumb via the authed
     //    LibrarySource (HttpClient attaches the bearer).
     if (isM2Asset(asset.id)) {
-      const blob = await this.librarySource.thumbBlob(parseAddress(asset.id));
+      const blob = await this.librarySource.thumbBlob(parseAddress(asset.id), asset.thumbVersion);
       if (blob) {
         this.cacheThumbnailUrl(asset.id, URL.createObjectURL(blob));
         return;

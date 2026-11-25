@@ -60,6 +60,16 @@ describe('uploadThumbToR2', () => {
     expect(methods()).toEqual(['PUT']);
   });
 
+  it('records the thumb version as R2 custom metadata', async () => {
+    let sent: Headers | null = null;
+    globalThis.fetch = (async (input: unknown, init?: RequestInit) => {
+      sent = input instanceof Request ? input.headers : new Headers(init?.headers);
+      return new Response(null, { status: 200 });
+    }) as typeof fetch;
+    await uploadThumbToR2(CONFIG, 'thumbs/x', new Uint8Array([1]), 'image/avif', 'abc-1');
+    expect(sent!.get('x-amz-meta-thumb-version')).toBe('abc-1');
+  });
+
   it('throws on a non-2xx', async () => {
     stubFetch([403]);
     await expect(

@@ -51,13 +51,18 @@ export async function uploadThumbToR2(
   key: string,
   bytes: Uint8Array,
   contentType: string,
+  thumbVersion: string | null = null,
   signal?: AbortSignal,
 ): Promise<void> {
   const client = r2Client(config);
   const res = await client.fetch(r2Endpoint(config, key), {
     method: 'PUT',
     body: bytes as BodyInit,
-    headers: { 'Content-Type': contentType },
+    headers: {
+      'Content-Type': contentType,
+      // R2 stores x-amz-meta-* as custom metadata, which the Worker matches `?v=` against.
+      ...(thumbVersion ? { 'x-amz-meta-thumb-version': thumbVersion } : {}),
+    },
     signal,
   });
   if (!res.ok) {
