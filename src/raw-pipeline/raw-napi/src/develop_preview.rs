@@ -76,8 +76,7 @@ fn render_thumbnail_to_file(
         .unwrap_or_default();
     let (dyn_img, orientation) =
         raw_core::preview::extract_embedded_preview(&raw_bytes, &ext).map_err(|e| e.to_string())?;
-    let resized = raw_core::preview::resize_long_edge(dyn_img, max_px);
-    let rgb_img = resized.to_rgb8();
+    let rgb_img = raw_core::preview::resize_long_edge(dyn_img, max_px);
     let (rw, rh) = rgb_img.dimensions();
     // Bake EXIF orientation into the pixels — the re-encode below carries no
     // EXIF of its own, so rotating here is the only chance to land an
@@ -296,9 +295,8 @@ impl RenderDevelopJpegToFileTask {
             // JPEG-encode.
             let rgb = image::RgbImage::from_raw(w, h, bytes)
                 .ok_or_else(|| "develop buffer size mismatch".to_string())?;
-            let resized =
+            let rgb_img =
                 raw_core::preview::resize_long_edge(image::DynamicImage::ImageRgb8(rgb), max_px);
-            let rgb_img = resized.to_rgb8();
             let (rw, rh) = rgb_img.dimensions();
             let jpeg = raw_core::jpeg::encode(rw, rh, rgb_img.as_raw(), q)
                 .map_err(|e| format!("jpeg encode: {e}"))?;
