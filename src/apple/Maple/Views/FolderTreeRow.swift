@@ -323,15 +323,29 @@ struct FolderTreeRow: View {
     }
   }
 
-  /// List immediate sub-folders inside `url`. Re-resolves the root
-  /// bookmark and claims security scope at every depth; ancestor rows
-  /// may have been torn down by SwiftUI so we can't assume scope is
-  /// already open.
+  /// List immediate sub-folders inside `url`, off the main actor: bookmark
+  /// resolution and a NAS directory listing can each take seconds, and the
+  /// restored folder's ancestors all run this at launch (#6010).
   private func enumerateChildren() {
+    let url = url
+    let rootBookmark = rootBookmark
+    Task {
+      let found = await Task.detached(priority: .userInitiated) {
+        Self.childFolders(of: url, rootBookmark: rootBookmark)
+      }.value
+      children = found
+      didEnumerate = true
+    }
+  }
+
+  /// Re-resolves the root bookmark and claims security scope at every depth;
+  /// ancestor rows may have been torn down by SwiftUI so we can't assume
+  /// scope is already open.
+  private nonisolated static func childFolders(of url: URL, rootBookmark: Data) -> [URL] {
     var isStale = false
     let resolvedRoot = try? URL(
       resolvingBookmarkData: rootBookmark,
-      options: Self.bookmarkResolutionOptions,
+      options: bookmarkResolutionOptions,
       relativeTo: nil,
       bookmarkDataIsStale: &isStale
     )
@@ -339,21 +353,19 @@ struct FolderTreeRow: View {
     defer {
       if accessing { resolvedRoot?.stopAccessingSecurityScopedResource() }
     }
-    let fm = FileManager.default
     let contents =
-      (try? fm.contentsOfDirectory(
+      (try? FileManager.default.contentsOfDirectory(
         at: url,
         includingPropertiesForKeys: [.isDirectoryKey],
         options: [.skipsHiddenFiles]
       )) ?? []
-    children = contents.filter {
+    return contents.filter {
       !$0.lastPathComponent.hasPrefix(".")
         && ((try? $0.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true)
     }.sorted { $0.lastPathComponent < $1.lastPathComponent }
-    didEnumerate = true
   }
 
-  private static var bookmarkResolutionOptions: URL.BookmarkResolutionOptions {
+  private nonisolated static var bookmarkResolutionOptions: URL.BookmarkResolutionOptions {
     #if os(macOS)
       return .withSecurityScope
     #else

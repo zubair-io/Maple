@@ -836,13 +836,6 @@ struct AppShell: View {
           return
         }
       #endif
-      // Tear down File Provider domains for servers that are no longer
-      // connected. Without this, a server removed in a prior session
-      // (or one whose teardown was interrupted) leaves an orphaned
-      // domain whose extension keeps polling the gone/rebuilt server —
-      // an unrecoverable "bad signature" 401 loop with no UI to clear it.
-      await FileProviderDomainController().reconcile(
-        validServerURLs: CloudServerRegistry.shared.servers)
       // Restore last-used source on cold start.
       await restoreLastSource()
       guard !Task.isCancelled else { return }
@@ -864,6 +857,15 @@ struct AppShell: View {
       // launch-time cadence (`docs/spec/08-io.md` § "Deletion sweep").
       // Implementation: AppShell+Trash.swift.
       sweepExpiredMapleTrashIfDue()
+      // Tear down File Provider domains for servers that are no longer
+      // connected. Without this, a server removed in a prior session
+      // (or one whose teardown was interrupted) leaves an orphaned
+      // domain whose extension keeps polling the gone/rebuilt server —
+      // an unrecoverable "bad signature" 401 loop with no UI to clear it.
+      // Runs after the restore: it is fileproviderd round trips the first
+      // grid never depends on (#6010).
+      await FileProviderDomainController().reconcile(
+        validServerURLs: CloudServerRegistry.shared.servers)
     }
     // Warm-launch delivery. An `.onOpenURL` while the app is
     // already foregrounded sets `pendingDestination`; we observe
