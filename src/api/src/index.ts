@@ -44,6 +44,7 @@ import { ensureJwtSecret } from './auth/jwt-bootstrap.ts';
 import { backfillOwnershipClaim } from './auth/server_claim.ts';
 import { requestContext } from './middleware/request-context.ts';
 import { bodyLimit } from './middleware/body-limit.ts';
+import { responseCompression } from './middleware/compression.ts';
 import { healthRoutes } from './routes/health.ts';
 import { networkPublicRoutes } from './routes/network.ts';
 import { managedHttpsRoutes } from './routes/managed-https.ts';
@@ -111,6 +112,9 @@ const log = childLogger('server');
 
 export function buildApp(_opts: { stageNames?: string[] } = {}): Elysia {
   const app = new Elysia()
+    // JSON body compression. Mounted ahead of requestContext so its mapResponse
+    // sees the handler's value first; it declines everything but 200 JSON.
+    .use(responseCompression)
     // Request-id + uniform error envelope. Mounted first so its onRequest
     // / derive / onError / mapResponse hooks see every downstream request
     // (including the authedApi sub-tree and the staticUiPlugin catch-all).

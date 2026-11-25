@@ -17,6 +17,13 @@ import * as path from 'node:path';
 import * as fs from 'node:fs/promises';
 import { Elysia, type Context } from 'elysia';
 import { child as childLogger } from '../log.ts';
+import {
+  compressBytes,
+  MIN_COMPRESSIBLE_BYTES,
+  negotiateEncoding,
+  type ContentEncoding,
+} from '../middleware/compression.ts';
+import { ifNoneMatchEqual } from '../runtime/http-etag.ts';
 
 const log = childLogger('static');
 
@@ -75,11 +82,50 @@ function mimeFor(filePath: string): string {
   return MIME[ext] ?? 'application/octet-stream';
 }
 
+/** Angular's esbuild output (`main-HASH.js`, `chunk-HASH.js`, `media/font-HASH.woff2`) carries
+ * an 8-character base32 content hash; webpack-era `name.hexhash.js` is kept for older bundles.
+ * Only the dist root and `media/` hold hashed output — `/pkg`, `/film-luts` and `/assets` are
+ * copied verbatim and must revalidate. */
+const ESBUILD_HASHED = /^(?:media\/)?[\w.-]+-[A-Z2-7]{8}\.[a-z0-9]+$/;
+const WEBPACK_HASHED = /\.[a-f0-9]{8,}\.(js|css|wasm)$/;
+const IMMUTABLE = 'public, max-age=31536000, immutable';
+
+export function isContentHashed(uiRelPath: string): boolean {
+  const relative = uiRelPath.replace(/^\/+/, '');
+  return ESBUILD_HASHED.test(relative) || WEBPACK_HASHED.test(path.basename(relative));
+}
+
+const COMPRESSIBLE = /^(text\/|application\/(javascript|json|wasm|manifest\+json)|image\/svg\+xml)/;
+/** Compressed bundle bytes, keyed by path + validator + encoding; the bundle only changes on deploy. */
+const compressedCache = new Map<string, Promise<Uint8Array>>();
+const COMPRESSED_CACHE_ENTRIES = 256;
+
+function compressedBundleFile(
+  filePath: string,
+  etag: string,
+  encoding: ContentEncoding,
+): Promise<Uint8Array> {
+  const key = `${encoding}\0${etag}\0${filePath}`;
+  const cached = compressedCache.get(key);
+  if (cached) return cached;
+  // Quality 9: computed once per deploy, ~10% smaller than q4 on JS and WASM.
+  const pending = Bun.file(filePath)
+    .bytes()
+    .then((bytes) => compressBytes(bytes, encoding, 9));
+  pending.catch(() => compressedCache.delete(key));
+  compressedCache.set(key, pending);
+  if (compressedCache.size > COMPRESSED_CACHE_ENTRIES) {
+    const oldest = compressedCache.keys().next().value;
+    if (oldest !== undefined) compressedCache.delete(oldest);
+  }
+  return pending;
+}
+
 /**
  * Serve a static file from the UI dist directory.
  * Returns null if the file doesn't exist.
  */
-async function serveStatic(uiRelPath: string): Promise<Response | null> {
+async function serveStatic(uiRelPath: string, request: Request): Promise<Response | null> {
   const root = uiDist();
   const filePath = path.join(root, uiRelPath);
 
@@ -88,30 +134,42 @@ async function serveStatic(uiRelPath: string): Promise<Response | null> {
     return new Response('Forbidden', { status: 403 });
   }
 
-  try {
-    const data = await fs.readFile(filePath);
-    const ct = mimeFor(filePath);
-    const headers: Record<string, string> = { 'Content-Type': ct };
+  const stat = await fs.stat(filePath).catch(() => null);
+  if (!stat?.isFile()) return null;
 
-    // Long-lived cache for hashed assets; no-cache for HTML.
-    if (ct.includes('html')) {
-      headers['Cache-Control'] = 'no-cache';
-    } else if (path.basename(filePath).match(/\.[a-f0-9]{8,}\.(js|css|wasm)$/)) {
-      headers['Cache-Control'] = 'public, max-age=31536000, immutable';
-    }
-
+  const ct = mimeFor(filePath);
+  const etag = `"${stat.mtimeMs.toString(36)}-${stat.size.toString(36)}"`;
+  const compressible = COMPRESSIBLE.test(ct) && stat.size >= MIN_COMPRESSIBLE_BYTES;
+  const headers: Record<string, string> = {
+    'Content-Type': ct,
+    ETag: etag,
+    'Last-Modified': stat.mtime.toUTCString(),
+    // HTML and verbatim-copied assets (the WASM core, LUTs) revalidate against the ETag;
+    // only content-hashed build output may be cached forever.
+    'Cache-Control': isContentHashed(uiRelPath) ? IMMUTABLE : 'no-cache',
     // T10: static UI responses must carry COOP/COEP so the page becomes
     // cross-origin-isolated and the WASM rayon thread pool can spin up.
     // Elysia's `onBeforeHandle` sets these on `set.headers` but when we
     // return a raw `Response` it doesn't always merge — set them directly
     // here so every file response has them.
-    headers['Cross-Origin-Opener-Policy'] = 'same-origin';
-    headers['Cross-Origin-Embedder-Policy'] = 'require-corp';
+    'Cross-Origin-Opener-Policy': 'same-origin',
+    'Cross-Origin-Embedder-Policy': 'require-corp',
+    ...(compressible ? { Vary: 'Accept-Encoding' } : {}),
+  };
 
-    return new Response(data, { status: 200, headers });
-  } catch {
-    return null;
+  if (ifNoneMatchEqual(request.headers.get('if-none-match') ?? undefined, etag)) {
+    return new Response(null, { status: 304, headers });
   }
+  const encoding = compressible ? negotiateEncoding(request.headers.get('accept-encoding')) : null;
+  if (!encoding || request.method === 'HEAD') {
+    return new Response(Bun.file(filePath), { status: 200, headers });
+  }
+  const compressed = await compressedBundleFile(filePath, etag, encoding).catch(() => null);
+  if (!compressed) return new Response(Bun.file(filePath), { status: 200, headers });
+  return new Response(compressed as unknown as BodyInit, {
+    status: 200,
+    headers: { ...headers, 'Content-Encoding': encoding },
+  });
 }
 
 async function proxyDevelopmentUi(
@@ -179,7 +237,7 @@ export const staticUiPlugin = new Elysia().get('/*', async ({ request, set }) =>
   }
 
   // Try to serve the exact path first.
-  const exact = await serveStatic(uiPath);
+  const exact = await serveStatic(uiPath, request);
   if (exact) return exact;
 
   // #2408: a request under the WASM bundle's `/pkg` prefix that missed above
@@ -205,7 +263,7 @@ export const staticUiPlugin = new Elysia().get('/*', async ({ request, set }) =>
   }
 
   // SPA fallback: serve index.html for any unmatched app route.
-  const indexHtml = await serveStatic('/index.html');
+  const indexHtml = await serveStatic('/index.html', request);
   if (indexHtml) return indexHtml;
 
   set.status = 404;
