@@ -5,6 +5,7 @@
 // identity URL) and `LocalNetworkResolver`'s default-state / cache behavior.
 
 import XCTest
+import os
 
 @testable import MapleCore
 
@@ -153,6 +154,71 @@ final class LocalNetworkResolverTests: XCTestCase {
     let identity = URL(string: "http://public.example.com")!
     let resolver = LocalNetworkResolver()
     await resolver.resolve(identity: identity, session: session)
+    XCTAssertEqual(resolver.effectiveURL(for: identity), URL(string: "http://10.0.0.5:3000")!)
+  }
+
+  /// #6008 — a folder opened while the launch probe is still running must
+  /// wait for it, not lock in the public address.
+  @MainActor
+  func test_settledEffectiveURL_waitsForTheProbeInFlight() async {
+    let (started, startedSignal) = AsyncStream<Void>.makeStream()
+    let session = URLSession.stubbedSequence(
+      delay: .milliseconds(200), onRequestStart: { startedSignal.yield() }
+    ) { req in
+      let body = #"{"available":true,"ip":"10.0.0.5","port":3000,"scheme":"http"}"#
+      return (Data(body.utf8), Self.okResponse(for: req))
+    }
+    let identity = URL(string: "http://public.example.com")!
+    let resolver = LocalNetworkResolver()
+    let probe = Task { await resolver.resolve(identity: identity, session: session) }
+    for await _ in started { break }
+    XCTAssertEqual(resolver.effectiveURL(for: identity), identity)
+    let settled = await resolver.settledEffectiveURL(for: identity, waitingAtMost: .seconds(10))
+    XCTAssertEqual(settled, URL(string: "http://10.0.0.5:3000")!)
+    await probe.value
+  }
+
+  @MainActor
+  func test_settledEffectiveURL_givesUpOnASlowProbe() async {
+    let (started, startedSignal) = AsyncStream<Void>.makeStream()
+    let session = URLSession.stubbedSequence(
+      delay: .seconds(2), onRequestStart: { startedSignal.yield() }
+    ) { req in
+      let body = #"{"available":true,"ip":"10.0.0.5","port":3000,"scheme":"http"}"#
+      return (Data(body.utf8), Self.okResponse(for: req))
+    }
+    let identity = URL(string: "http://public.example.com")!
+    let resolver = LocalNetworkResolver()
+    let probe = Task { await resolver.resolve(identity: identity, session: session) }
+    for await _ in started { break }
+    let begin = ContinuousClock.now
+    let settled = await resolver.settledEffectiveURL(for: identity, waitingAtMost: .milliseconds(50))
+    XCTAssertEqual(settled, identity, "a folder open keeps the current address rather than stall")
+    XCTAssertLessThan(ContinuousClock.now - begin, .seconds(1))
+    await probe.value
+  }
+
+  @MainActor
+  func test_settledEffectiveURL_withNoProbe_returnsIdentityImmediately() async {
+    let resolver = LocalNetworkResolver()
+    let settled = await resolver.settledEffectiveURL(for: identity)
+    XCTAssertEqual(settled, identity)
+  }
+
+  @MainActor
+  func test_resolve_joinsAProbeAlreadyRunning() async {
+    let reportFetches = OSAllocatedUnfairLock(initialState: 0)
+    let session = URLSession.stubbedSequence(delay: .milliseconds(100)) { req in
+      if req.url?.host == "public.example.com" { reportFetches.withLock { $0 += 1 } }
+      let body = #"{"available":true,"ip":"10.0.0.5","port":3000,"scheme":"http"}"#
+      return (Data(body.utf8), Self.okResponse(for: req))
+    }
+    let identity = URL(string: "http://public.example.com")!
+    let resolver = LocalNetworkResolver()
+    async let first: Void = resolver.resolve(identity: identity, session: session)
+    async let second: Void = resolver.resolve(identity: identity, session: session)
+    _ = await (first, second)
+    XCTAssertEqual(reportFetches.withLock { $0 }, 1, "concurrent resolves share one probe")
     XCTAssertEqual(resolver.effectiveURL(for: identity), URL(string: "http://10.0.0.5:3000")!)
   }
 
