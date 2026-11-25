@@ -150,6 +150,8 @@ actor ThumbnailProvider {
 
     case .cloudThumb(let absPath, let host):
       guard let cache = thumbCache, let client = resolvedThumbClient(for: host) else { return nil }
+      // A disk hit must not queue behind the gate's network fetches (#6017).
+      if let cached = await cache.get(host: host, absPath: absPath) { return cached }
       return await cloudGate.fetch(key: "\(host)|\(absPath)") {
         await Self.fetchCloudThumb(
           host: host,
