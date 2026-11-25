@@ -24,7 +24,11 @@ import { API_BASE_URL } from './api-base-url.token';
 import { LIBRARY_SOURCE } from '../addressing/library-source';
 import type { MapleAddress } from '../addressing/maple-address';
 import { LibraryStore } from '../state/library-store.service';
-import { SERVER_LIBRARY_IO, type ApiFolder } from '../workspace/server-library-io';
+import {
+  SERVER_LIBRARY_IO,
+  adoptFoldersIfUnset,
+  type ApiFolder,
+} from '../workspace/server-library-io';
 
 /**
  * Download progress for a byte fetch. `total` is the known size in bytes
@@ -208,12 +212,7 @@ export class FilesystemBrowseService {
     if (!this.serverLibrary) return Promise.resolve();
     if (this.foldersLoad) return this.foldersLoad;
     const load = firstValueFrom(this.serverLibrary.listFolders())
-      .then((folders) => {
-        // Don't stomp a richer list a concurrent loadFolderTree() landed.
-        if (this.store.registeredFolders().length === 0) {
-          this.store.registeredFolders.set(folders);
-        }
-      })
+      .then((folders) => adoptFoldersIfUnset(this.store.registeredFolders, folders))
       .finally(() => {
         this.foldersLoad = null;
       });
