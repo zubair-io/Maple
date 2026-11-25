@@ -134,7 +134,7 @@ export const listRoute = new Elysia().get(
 
     const results = await timing.time('project', async () => {
       const { libs, idToSlug } = await libraryMaps();
-      return projectAssets(docs, libs, idToSlug);
+      return await projectAssets(docs, libs, idToSlug);
     });
     // A short page is the last page: no cursor, so the client stops. A full
     // page always mints one, even if the next fetch turns out empty — knowing

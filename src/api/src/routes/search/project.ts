@@ -12,6 +12,7 @@ import type { AssetOwnerSummary } from '../../db/assets.transform.ts';
 import type { AssetDoc, FileInfo, Place } from '../../db/schema.ts';
 import type { SearchDoc } from '../../db/repos/search.repo.ts';
 import { assetAbsPath, assetPrimaryFileInfo } from '../../indexer/images.repo.ts';
+import { memoizedDirectorySafety, primaryThumbVersion } from '../../library/thumb-version.ts';
 
 export interface SearchResultPHLink {
   phasset_local_id: string;
@@ -64,6 +65,9 @@ export interface SearchResult {
   owner: AssetOwnerSummary | null;
   /** RAW results only, when the request folded RAW+JPEG stacks: the JPEG it stands for. */
   stack?: { companion: SearchStackCompanion };
+  /** Present only while the primary location's thumb is fresh; `?v=` it on `/api/thumb` to cache
+   * the thumb as immutable (#6016). */
+  thumb_version?: string;
 }
 
 /**
@@ -181,15 +185,25 @@ function stackCompanion(
 }
 
 /** A page of search documents, each already carrying the owner its hydration resolved. */
-export function projectAssets(
+export async function projectAssets(
   docs: readonly SearchDoc[],
   libraries: ReadonlyMap<string, string>,
   idToSlug: ReadonlyMap<string, string>,
-): SearchResult[] {
-  return docs.map((doc) => {
-    const result = projectAsset(doc, libraries, idToSlug, doc.owner);
-    return doc.stackCompanion
-      ? { ...result, stack: { companion: stackCompanion(doc.stackCompanion, libraries, idToSlug) } }
-      : result;
-  });
+): Promise<SearchResult[]> {
+  const directorySafe = memoizedDirectorySafety();
+  return Promise.all(
+    docs.map(async (doc) => {
+      const result = projectAsset(doc, libraries, idToSlug, doc.owner);
+      const thumbVersion = result.abs_path
+        ? await primaryThumbVersion(result.abs_path, directorySafe)
+        : null;
+      return {
+        ...result,
+        ...(doc.stackCompanion
+          ? { stack: { companion: stackCompanion(doc.stackCompanion, libraries, idToSlug) } }
+          : {}),
+        ...(thumbVersion ? { thumb_version: thumbVersion } : {}),
+      };
+    }),
+  );
 }

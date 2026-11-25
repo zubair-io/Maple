@@ -130,8 +130,9 @@ export class TimelineViewComponent implements AfterViewInit, OnDestroy {
   // Every thumb request goes through this queue, which bounds the number in
   // flight (#2219). Unbounded, a 200-row page saturated the browser's
   // HTTP/1.1 connection pool and starved every other /api/* call.
+  private readonly thumbVersions = new Map<string, string>();
   private readonly thumbs = new TimelineThumbLoader(
-    (absPath) => this.fsBrowse.getThumbBlobUrl(absPath),
+    (absPath) => this.fsBrowse.getThumbBlobUrl(absPath, this.thumbVersions.get(absPath)),
     (absPath, url) => this._years.update((years) => this._withThumbUrl(years, absPath, url)),
   );
 
@@ -424,6 +425,7 @@ export class TimelineViewComponent implements AfterViewInit, OnDestroy {
       // Enqueue the whole page — the queue decides how many actually go out,
       // and `dropMonth` reclaims the rest as sections scroll away.
       for (const row of r.results) {
+        if (row.thumb_version) this.thumbVersions.set(row.abs_path, row.thumb_version);
         const key = monthKeyForCapturedAt(row.captured_at);
         if (key) void this.thumbs.load(row.abs_path, key);
       }

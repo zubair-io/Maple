@@ -111,12 +111,12 @@ export class FilesystemBrowseService {
    * (a `202` while the discover scan indexes the file). Callers keep their
    * placeholder in both cases.
    */
-  getThumbBlobUrl(absPath: string): Promise<string> {
+  getThumbBlobUrl(absPath: string, thumbVersion?: string): Promise<string> {
     const cached = this.thumbBlobCache.get(absPath);
     if (cached) return cached;
 
     const promise = this.resolveAddress(absPath).then(async (address) => {
-      const blob = await this.librarySource.thumbBlob(address);
+      const blob = await this.librarySource.thumbBlob(address, thumbVersion);
       if (!blob) throw new Error(`getThumbBlobUrl: thumbnail not ready for ${absPath}`);
       return URL.createObjectURL(blob);
     });
