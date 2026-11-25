@@ -67,9 +67,43 @@ final class MapleIdCacheBatchWriteTests: XCTestCase {
         XCTAssertEqual(hit, "01aa")
     }
 
+    func testOverlappingFlushesNeverLetAnOlderSnapshotWinOnSlowStorage() async {
+        let storage = FirstWriteIsSlowStorage()
+        let store = MapleIdCacheStore(storage: storage, writer: "apple")
+        await store.stage(path: "a.dng", mapleId: "01aa", size: 1, mtime: 1)
+        async let firstFlush: Void = store.flush()
+        try? await Task.sleep(for: .milliseconds(50))
+        await store.stage(path: "b.dng", mapleId: "01bb", size: 2, mtime: 2)
+        await store.flush()
+        await firstFlush
+
+        let reopened = MapleIdCacheStore(storage: storage, writer: "apple")
+        let a = await reopened.lookup(path: "a.dng", size: 1, mtime: 1)
+        let b = await reopened.lookup(path: "b.dng", size: 2, mtime: 2)
+        XCTAssertEqual(a, "01aa")
+        XCTAssertEqual(b, "01bb")
+    }
+
     func testFlushWithNothingStagedWritesNothing() async {
         let store = MapleIdCacheStore(folderURL: tmpDir, writer: "apple")
         await store.flush()
         XCTAssertFalse(FileManager.default.fileExists(atPath: ownFile.path))
+    }
+}
+
+private actor FirstWriteIsSlowStorage: MapleIdCacheStorage {
+    private var files: [String: Data] = [:]
+    private var writes = 0
+
+    func ensureDirectory() async {}
+
+    func listIdCacheFileNames() async -> [String] { Array(files.keys) }
+
+    func readIdCacheFile(name: String) async -> Data? { files[name] }
+
+    func writeIdCacheFile(name: String, data: Data) async {
+        writes += 1
+        if writes == 1 { try? await Task.sleep(for: .milliseconds(300)) }
+        files[name] = data
     }
 }
