@@ -143,6 +143,7 @@ public final class LocalNetworkResolver {
 
   private var resolved: [String: URL] = [:]
   private var statuses: [String: LocalNetworkStatus] = [:]
+  private var probes: [String: Task<Void, Never>] = [:]
 
   public init() {}
 
@@ -158,12 +159,65 @@ public final class LocalNetworkResolver {
     statuses[identity.absoluteString]
   }
 
+  /// Like ``effectiveURL(for:)``, but first waits up to `limit` for a probe
+  /// of `identity` that is already running, so a folder opened while the
+  /// launch probe is still in flight gets the LAN address instead of keeping
+  /// the public one for its whole life (#6008). Bounded because a probe away
+  /// from home can take seconds to time out on a private LAN address, and a
+  /// folder open must not stall on it. Never starts a probe of its own.
+  public func settledEffectiveURL(
+    for identity: URL, waitingAtMost limit: Duration = .milliseconds(500)
+  ) async -> URL {
+    if let probe = probes[identity.absoluteString] {
+      await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+        let firstFinisher = ResumeOnce(continuation)
+        let deadline = Task {
+          try? await Task.sleep(for: limit)
+          firstFinisher.resume()
+        }
+        Task {
+          await probe.value
+          deadline.cancel()
+          firstFinisher.resume()
+        }
+      }
+    }
+    return effectiveURL(for: identity)
+  }
+
   /// Runs the resolution for `identity` and caches the result. Safe to call
-  /// repeatedly (e.g. on every app launch) — each call re-probes fresh.
-  /// `session` defaults to `.shared`; tests inject a stubbed session.
+  /// repeatedly (e.g. on every app launch or foreground): a call made while
+  /// a probe of the same server is running joins it rather than starting a
+  /// second one. `session` defaults to `.shared`; tests inject a stubbed one.
   public func resolve(identity: URL, session: URLSession = .shared) async {
-    let result = await LocalNetworkResolving.resolveStatus(identity: identity, session: session)
-    resolved[identity.absoluteString] = result.effectiveURL
-    statuses[identity.absoluteString] = result.status
+    let key = identity.absoluteString
+    if let running = probes[key] {
+      await running.value
+      return
+    }
+    let probe = Task {
+      let result = await LocalNetworkResolving.resolveStatus(identity: identity, session: session)
+      resolved[key] = result.effectiveURL
+      statuses[key] = result.status
+    }
+    probes[key] = probe
+    await probe.value
+    probes[key] = nil
+  }
+}
+
+/// Resumes its continuation for whichever caller gets there first, so a race
+/// between a probe and its deadline resumes exactly once.
+@MainActor
+private final class ResumeOnce {
+  private var continuation: CheckedContinuation<Void, Never>?
+
+  init(_ continuation: CheckedContinuation<Void, Never>) {
+    self.continuation = continuation
+  }
+
+  func resume() {
+    continuation?.resume()
+    continuation = nil
   }
 }

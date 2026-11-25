@@ -187,6 +187,9 @@ extension AppShell {
         return
       }
 
+      // A folder keeps the address it is built with, so let a LAN probe
+      // that is still running at launch finish first (#6008).
+      _ = await LocalNetworkResolver.shared.settledEffectiveURL(for: serverID)
       let viewMode = CloudServerRegistry.shared.viewMode(for: serverID)
       switch viewMode {
       case .folder:
