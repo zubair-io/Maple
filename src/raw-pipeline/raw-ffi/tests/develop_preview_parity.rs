@@ -32,7 +32,7 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use image::{DynamicImage, GenericImageView};
+use image::DynamicImage;
 use raw_core::decode::decode_bytes;
 use raw_core::pipeline::{render_from_raw_with_quality_and_source, RawInput, RenderQuality};
 use raw_ffi::maple_render_develop_jpeg_to_file;
@@ -116,20 +116,6 @@ fn python_diff_available(script: &Path) -> bool {
         .unwrap_or(false)
 }
 
-/// Replicate `raw-ffi`'s `resize_long_edge` exactly (triangle filter, no
-/// upscale) so the reference and the extern downscale identically.
-fn resize_long_edge(img: DynamicImage, max_px: u32) -> DynamicImage {
-    let (w, h) = img.dimensions();
-    let long_edge = w.max(h);
-    if long_edge <= max_px {
-        return img;
-    }
-    let scale = max_px as f32 / long_edge as f32;
-    let new_w = ((w as f32) * scale).round().max(1.0) as u32;
-    let new_h = ((h as f32) * scale).round().max(1.0) as u32;
-    img.resize_exact(new_w, new_h, image::imageops::FilterType::Triangle)
-}
-
 /// Reference develop: the exact `raw-core` path `maple-cli batch` runs (AMaZE,
 /// path-sourced so `Profile::Auto` can read the embedded JPEG), downscaled to
 /// `LONG_EDGE_PX`. No JPEG round-trip.
@@ -149,8 +135,9 @@ fn reference_png(raw: &Path, xmp: Option<&str>, out: &Path) {
     )
     .expect("reference develop");
     let rgb = image::RgbImage::from_raw(w, h, px).expect("reference buffer size");
-    let resized = resize_long_edge(DynamicImage::ImageRgb8(rgb), LONG_EDGE_PX);
-    resized.to_rgb8().save(out).expect("write reference png");
+    raw_core::preview::resize_long_edge(DynamicImage::ImageRgb8(rgb), LONG_EDGE_PX)
+        .save(out)
+        .expect("write reference png");
 }
 
 /// Candidate: the extern's JPEG output (RAW + XMP → develop → resize → JPEG),
