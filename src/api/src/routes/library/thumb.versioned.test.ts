@@ -33,10 +33,10 @@ async function photoWithThumb(name: string, thumbTime = later): Promise<string> 
   const source = join(root, name);
   await fs.writeFile(source, Buffer.from([0xff, 0xd8, 0xff, 0xd9]));
   await fs.utimes(source, past, past);
-  const thumb = resolveThumbPath(source);
-  await fs.mkdir(dirname(thumb), { recursive: true });
-  await fs.writeFile(thumb, Buffer.from([1, 2, 3, 4, 5]));
-  await fs.utimes(thumb, thumbTime, thumbTime);
+  const thumbFile = resolveThumbPath(source);
+  await fs.mkdir(dirname(thumbFile), { recursive: true });
+  await fs.writeFile(thumbFile, Buffer.from([1, 2, 3, 4, 5]));
+  await fs.utimes(thumbFile, thumbTime, thumbTime);
   return source;
 }
 
