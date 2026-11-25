@@ -29,12 +29,14 @@ final class ThumbnailCacheDecodeProofTests: XCTestCase {
     try writeFreshDerivative(jpeg, for: asset)
     let cache = ThumbnailDiskCache.shared
 
-    let first = try XCTUnwrap(await cache.cachedThumbnail(for: asset))
+    let firstHit = await cache.cachedThumbnail(for: asset)
+    let first = try XCTUnwrap(firstHit)
     XCTAssertEqual(first.data, jpeg)
     XCTAssertFalse(first.isKnownDecodable, "bytes read from disk carry no decode proof")
 
     await cache.markDecodable(first)
-    let second = try XCTUnwrap(await cache.cachedThumbnail(for: asset))
+    let secondHit = await cache.cachedThumbnail(for: asset)
+    let second = try XCTUnwrap(secondHit)
     XCTAssertTrue(second.isKnownDecodable, "a proven memory entry is served without a decode")
   }
 
@@ -42,17 +44,20 @@ final class ThumbnailCacheDecodeProofTests: XCTestCase {
     let asset = try writeAsset(named: "replaced.png")
     try writeFreshDerivative(try Self.jpegBytes(width: 64, height: 48), for: asset)
     let cache = ThumbnailDiskCache.shared
-    let hit = try XCTUnwrap(await cache.cachedThumbnail(for: asset))
+    let hitHit = await cache.cachedThumbnail(for: asset)
+    let hit = try XCTUnwrap(hitHit)
     await cache.markDecodable(hit)
 
     let replacement = try Self.jpegBytes(width: 32, height: 32)
     await cache.storeThumbnailData(replacement, for: asset)
-    let afterStore = try XCTUnwrap(await cache.cachedThumbnail(for: asset))
+    let afterStoreHit = await cache.cachedThumbnail(for: asset)
+    let afterStore = try XCTUnwrap(afterStoreHit)
     XCTAssertEqual(afterStore.data, replacement)
     XCTAssertFalse(afterStore.isKnownDecodable)
 
     await cache.markDecodable(hit)
-    let stale = try XCTUnwrap(await cache.cachedThumbnail(for: asset))
+    let staleHit = await cache.cachedThumbnail(for: asset)
+    let stale = try XCTUnwrap(staleHit)
     XCTAssertFalse(stale.isKnownDecodable, "a proof for the old bytes must not attach to new ones")
   }
 
