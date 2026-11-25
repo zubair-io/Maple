@@ -25,7 +25,8 @@ final class CloudThumbCacheAccessTests: XCTestCase {
     let recent = Date().addingTimeInterval(-60)
     try setMtime(recent, absPath: "/a")
 
-    XCTAssertEqual(cache.get(host: "x", absPath: "/a"), Data([1, 2, 3]))
+    let hit = await cache.get(host: "x", absPath: "/a")
+    XCTAssertEqual(hit, Data([1, 2, 3]))
     let after = try mtime(absPath: "/a")
     XCTAssertEqual(after.timeIntervalSince1970, recent.timeIntervalSince1970, accuracy: 1)
   }
@@ -35,14 +36,16 @@ final class CloudThumbCacheAccessTests: XCTestCase {
     await cache.put(host: "x", absPath: "/a", Data([1]))
     try setMtime(Date().addingTimeInterval(-2 * CloudThumbCache.lruTouchInterval), absPath: "/a")
 
-    XCTAssertNotNil(cache.get(host: "x", absPath: "/a"))
+    let hit = await cache.get(host: "x", absPath: "/a")
+    XCTAssertNotNil(hit)
     let refreshed = try mtime(absPath: "/a")
     XCTAssertLessThan(Date().timeIntervalSince(refreshed), 60)
   }
 
-  func testMissReturnsNil() {
+  func testMissReturnsNil() async {
     let cache = CloudThumbCache(baseDir: dir, maxBytes: 1024 * 1024)
-    XCTAssertNil(cache.get(host: "x", absPath: "/missing"))
+    let miss = await cache.get(host: "x", absPath: "/missing")
+    XCTAssertNil(miss)
   }
 
   private func fileURL(absPath: String) -> URL {

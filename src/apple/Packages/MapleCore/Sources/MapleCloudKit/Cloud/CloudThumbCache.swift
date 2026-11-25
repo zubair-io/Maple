@@ -45,9 +45,10 @@ public actor CloudThumbCache {
     return CloudThumbCache(baseDir: tmp, maxBytes: 64 * 1024 * 1024)
   }
 
-  /// Nonisolated: a hit is one file read on the caller's executor, never a
-  /// wait behind another cell's write or the eviction walk (#6017).
-  public nonisolated func get(host: String, absPath: String) -> Data? {
+  /// Nonisolated async, so the read runs on the global executor: never on
+  /// the caller's main thread, and never behind another cell's write or the
+  /// eviction walk (#6017).
+  public nonisolated func get(host: String, absPath: String) async -> Data? {
     let url = path(host: host, absPath: absPath)
     guard let data = try? Data(contentsOf: url) else { return nil }
     Self.touchForLRU(url)
