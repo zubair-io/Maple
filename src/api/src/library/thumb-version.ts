@@ -5,14 +5,14 @@ import { assertDerivativeCacheDirectory } from '../indexer/derivative-cache.ts';
 
 /** A thumbnail is replaced by rename, so a re-render always changes this token; µs keeps two
  * renders inside one millisecond apart. Clients cache a URL carrying it as immutable. */
-function thumbVersionToken(stat: { mtimeMs: number; size: number }): string {
-  return `${Math.round(stat.mtimeMs * 1000).toString(36)}-${stat.size.toString(36)}`;
+function thumbVersionToken(thumb: { mtimeMs: number; size: number }): string {
+  return `${Math.round(thumb.mtimeMs * 1000).toString(36)}-${thumb.size.toString(36)}`;
 }
 
 /** The current thumb file's token, or null when it is missing or empty. */
 async function currentThumbVersion(thumbPath: string): Promise<string | null> {
-  const stat = await lstat(thumbPath).catch(() => null);
-  return stat?.isFile() && stat.size > 0 ? thumbVersionToken(stat) : null;
+  const thumb = await lstat(thumbPath).catch(() => null);
+  return thumb?.isFile() && thumb.size > 0 ? thumbVersionToken(thumb) : null;
 }
 
 interface ThumbStat {
@@ -23,8 +23,8 @@ interface ThumbStat {
 /** The thumb an unindexed or primary-here image is served from (`resolveThumbPath`). Stat it
  * alongside the sidecar read; `freshThumbVersion` decides once both are known. */
 export async function listingThumbStat(imagePath: string): Promise<ThumbStat | null> {
-  const stat = await lstat(resolveThumbPath(imagePath)).catch(() => null);
-  return stat?.isFile() && stat.size > 0 ? stat : null;
+  const thumb = await lstat(resolveThumbPath(imagePath)).catch(() => null);
+  return thumb?.isFile() && thumb.size > 0 ? thumb : null;
 }
 
 /** Mirrors `isDerivativeCacheFresh`: a version is only offered for a thumb at least as new as
