@@ -80,12 +80,31 @@ extension ThumbnailLoader {
   /// Returns nil when no tier is available (failed sidecar develop, RAW without
   /// an embedded preview, video/stub/audio) — the caller keeps showing the
   /// thumbnail, which is never wrong, just lower-res.
-  public func loadDisplayPreview(for asset: AssetRef) async -> Data? {
+  ///
+  /// A fresh preview already on disk is served before any decode slot is
+  /// taken, so opening Preview never queues behind grid thumbnail decodes (#6017).
+  public nonisolated func loadDisplayPreview(for asset: AssetRef) async -> Data? {
     guard let url = asset.primaryURL, !asset.isVideo else { return nil }
     let ext = url.pathExtension.lowercased()
     if StubExtensions.all.contains(ext) || AudioExtensions.all.contains(ext) {
       return nil
     }
+    let scope = asset.scopeParentURL ?? url.deletingLastPathComponent()
+    if let cached = Self.scopedFreshDisplayPreviewData(assetURL: url, scope: scope) {
+      return cached
+    }
+    guard !Task.isCancelled else { return nil }
+    return await joinDisplayPreviewProducer(for: asset, url: url, scope: scope)
+  }
+
+  private nonisolated static func scopedFreshDisplayPreviewData(assetURL: URL, scope: URL) -> Data? {
+    let accessing = scope.startAccessingSecurityScopedResource()
+    defer { if accessing { scope.stopAccessingSecurityScopedResource() } }
+    return freshDisplayPreviewData(
+      previewURL: MapleSidecarPaths.previewURL(for: assetURL), assetURL: assetURL)
+  }
+
+  private func joinDisplayPreviewProducer(for asset: AssetRef, url: URL, scope: URL) async -> Data? {
 
     // Coalesce duplicate requests (a pager scrub can ask for the same
     // page twice) under a namespaced key so it never collides with the
@@ -100,7 +119,6 @@ extension ThumbnailLoader {
       return await awaitThumbnail(existing)
     }
 
-    let scope = asset.scopeParentURL ?? url.deletingLastPathComponent()
     let isRaw = asset.isRaw
     let task = startLocalProducer(key: coalescingKey) {
       await Self.produceDisplayPreview(url: url, scope: scope, isRaw: isRaw)

@@ -13,7 +13,7 @@
 // Memory key: `memoryKey(for:)`, a hash of the full path, for the same reason;
 // the basename hash (`cacheKey(for:)`) only names the frozen legacy file.
 //
-// Bounds: 100 image + 100 data entries in memory (FIFO), plus a 2000-entry
+// Bounds: 100 image + 600 data entries in memory (FIFO), plus a 2000-entry
 // `NSCache` for the sync peek; disk is not evicted.
 //
 // Migration note: pre-2026-05 builds keyed thumbs by `MD5(url.path)`
@@ -55,6 +55,9 @@ public actor ThumbnailDiskCache {
   /// `dataMemCache` keys whose current bytes a caller has seen decode.
   private var decodableDataKeys: Set<String> = []
   private let maxMemEntries = 100
+  // Bytes are ~20-60 KB, so 600 is ~12-36 MB: enough for a full screen of a
+  // dense 5K grid plus scroll-back, where 100 evicted visible cells (#6017).
+  private let maxDataEntries = 600
 
   /// On-disk store for SOURCELESS thumbnails (PhotoKit, Self-Hosted browse
   /// without a local mirror) — #2763. A sourceless asset has no folder, so its
@@ -127,24 +130,35 @@ public actor ThumbnailDiskCache {
   /// reads from `sourcelessCacheDir`, right for a sourceless stable id and
   /// wrong for a URL-backed local asset, whose thumbnail lives in its own
   /// folder's `.maple/thumbs/`.
-  public func thumbnailData(for assetURL: URL) -> Data? {
-    cachedThumbnail(for: assetURL)?.data
+  public nonisolated func thumbnailData(for assetURL: URL) async -> Data? {
+    await cachedThumbnail(for: assetURL)?.data
   }
 
   /// `thumbnailData(for:)` plus whether a caller already proved these exact
   /// bytes decode (`markDecodable`), so a warm grid cell is not re-decoded
-  /// just to be checked on every load (#6010).
-  public func cachedThumbnail(for assetURL: URL) -> CachedThumbnail? {
+  /// just to be checked on every load (#6010). The stats and the disk read
+  /// run off the actor, so on a NAS one cell's round trips do not hold up
+  /// every other cell's memory hit (#6017).
+  public nonisolated func cachedThumbnail(for assetURL: URL) async -> CachedThumbnail? {
     let signature = LocalDerivativeSourceStamp.signature(for: assetURL)
     let key = Self.memoryKey(for: assetURL, sourceSignature: signature)
-    if let d = dataMemCache[key] {
-      return CachedThumbnail(
-        data: d, isKnownDecodable: decodableDataKeys.contains(key), memoryKey: key)
-    }
-    let fileURL = thumbFileURL(for: assetURL)
+    if let hit = await rememberedThumbnail(forMemoryKey: key) { return hit }
+    let fileURL = MapleSidecarPaths.thumbURL(for: assetURL)
     guard LocalDerivativeSourceStamp.isFresh(fileURL, signature: signature),
-      let data = readThumb(at: fileURL, legacyKey: cacheKey(for: assetURL))
+      let data = Self.readThumb(at: fileURL, legacyKey: Self.cacheKey(for: assetURL))
     else { return nil }
+    return await rememberReadThumbnail(data, forMemoryKey: key)
+  }
+
+  private func rememberedThumbnail(forMemoryKey key: String) -> CachedThumbnail? {
+    dataMemCache[key].map {
+      CachedThumbnail(data: $0, isKnownDecodable: decodableDataKeys.contains(key), memoryKey: key)
+    }
+  }
+
+  // A store that landed while the disk read was in flight wins over the read.
+  private func rememberReadThumbnail(_ data: Data, forMemoryKey key: String) -> CachedThumbnail {
+    if let current = rememberedThumbnail(forMemoryKey: key) { return current }
     rememberData(data, forMemoryKey: key)
     return CachedThumbnail(data: data, isKnownDecodable: false, memoryKey: key)
   }
@@ -175,14 +189,13 @@ public actor ThumbnailDiskCache {
   /// Note: pre-2026-05 this overload used MD5 of the key; it now uses
   /// `sha256Prefix16`, so any pre-existing entries at the old MD5 path are
   /// orphans.
-  public func thumbnailData(forKey key: String) -> Data? {
-    let hashed = hashKey(key)
-    if let d = dataMemCache[hashed] { return d }
+  public nonisolated func thumbnailData(forKey key: String) async -> Data? {
+    let hashed = MapleThumbCacheKey.sha256Prefix16(key)
+    if let remembered = await rememberedThumbnail(forMemoryKey: hashed) { return remembered.data }
     let fileURL = sourcelessCacheDir.appendingPathComponent(
       MapleThumbCacheKey.thumbFilename(forKey: hashed))
-    guard let data = readThumb(at: fileURL, legacyKey: hashed) else { return nil }
-    rememberData(data, forMemoryKey: hashed)
-    return data
+    guard let data = Self.readThumb(at: fileURL, legacyKey: hashed) else { return nil }
+    return await rememberReadThumbnail(data, forMemoryKey: hashed).data
   }
 
   // MARK: - Nonisolated synchronous memory peek
@@ -288,11 +301,15 @@ public actor ThumbnailDiskCache {
   /// One read on a hit. A source-stamped canonical hit is eligible for reuse;
   /// an unstamped legacy sibling cannot pass the freshness gate above.
   private func readThumb(at fileURL: URL, legacyKey: String) -> Data? {
+    Self.readThumb(at: fileURL, legacyKey: legacyKey)
+  }
+
+  private nonisolated static func readThumb(at fileURL: URL, legacyKey: String) -> Data? {
     MapleSidecarPaths.readDerivative(
       at: fileURL,
       legacy: fileURL.deletingLastPathComponent()
         .appendingPathComponent(MapleThumbCacheKey.legacyThumbFilename(forKey: legacyKey)),
-      fileManager: fm)
+      fileManager: .default)
   }
 
   // MARK: - Cache key
@@ -333,7 +350,8 @@ public actor ThumbnailDiskCache {
     while memCache.count > keep {
       if let key = memCache.keys.first { memCache.removeValue(forKey: key) }
     }
-    while dataMemCache.count > keep {
+    let keepData = max(1, (maxDataEntries * max(0, min(100, percent))) / 100)
+    while dataMemCache.count > keepData {
       if let key = dataMemCache.keys.first { forgetData(forMemoryKey: key) }
     }
   }
@@ -345,7 +363,7 @@ public actor ThumbnailDiskCache {
       // Simple FIFO eviction — remove oldest (random) entry.
       if let key = memCache.keys.first { memCache.removeValue(forKey: key) }
     }
-    if dataMemCache.count >= maxMemEntries {
+    if dataMemCache.count >= maxDataEntries {
       if let key = dataMemCache.keys.first { forgetData(forMemoryKey: key) }
     }
   }
