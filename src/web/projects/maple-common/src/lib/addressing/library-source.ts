@@ -51,6 +51,8 @@ export interface ImageEntry {
   livePhoto?: { role: 'still' | 'clip'; partner: string };
   /** RAW primary only: the same-stem JPEG the API folded into this entry. */
   stack?: StackWire;
+  /** Self-Hosted: names the current on-disk thumb; a thumb URL carrying it is cached immutably. */
+  thumbVersion?: string;
 }
 
 export interface FolderListing {
@@ -78,7 +80,7 @@ export interface LibrarySource {
    * bearer token is attached (the /api/thumb|preview routes are bearer-only;
    * a bare <img src> would 401).
    */
-  thumbBlob(a: MapleAddress): Promise<Blob | null>;
+  thumbBlob(a: MapleAddress, thumbVersion?: string): Promise<Blob | null>;
   previewBlob(a: MapleAddress): Promise<Blob | null>;
 }
 

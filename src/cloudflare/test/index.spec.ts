@@ -320,4 +320,77 @@ describe('thumbnail-cache Worker', () => {
 		expect(response.status).toBe(202);
 		expect(await env.THUMBS_BUCKET.get(`thumbs/main/pending.jpg/v25`)).toBeNull();
 	});
+
+	describe('versioned thumb URLs (#6016)', () => {
+		async function get(path: string): Promise<Response> {
+			const ctx = createExecutionContext();
+			const response = await worker.fetch(
+				new IncomingRequest(`https://example.com${path}`, {
+					headers: { authorization: `Bearer ${await bearerToken()}` },
+				}),
+				env,
+				ctx,
+			);
+			await waitOnExecutionContext(ctx);
+			return response;
+		}
+
+		it('serves a matching version from R2 as immutable', async () => {
+			await env.THUMBS_BUCKET.put('thumbs/main/v-hit.jpg/v25', new Uint8Array([4]), {
+				httpMetadata: { contentType: 'image/avif' },
+				customMetadata: { 'thumb-version': 'abc-1' },
+			});
+			const response = await get('/api/thumb/main/v-hit.jpg?v=abc-1');
+			expect(response.status).toBe(200);
+			expect(response.headers.get('cache-control')).toBe('private, max-age=31536000, immutable');
+			expect([...new Uint8Array(await response.arrayBuffer())]).toEqual([4]);
+		});
+
+		it('keeps revalidating an unversioned request for the same object', async () => {
+			await env.THUMBS_BUCKET.put('thumbs/main/v-plain.jpg/v25', new Uint8Array([4]), {
+				customMetadata: { 'thumb-version': 'abc-1' },
+			});
+			const response = await get('/api/thumb/main/v-plain.jpg');
+			expect(response.headers.get('cache-control')).toBe('private, no-cache');
+			await response.arrayBuffer();
+		});
+
+		it('refreshes R2 from the origin when the stored version differs', async () => {
+			await env.THUMBS_BUCKET.put('thumbs/main/v-stale.jpg/v25', new Uint8Array([1]), {
+				customMetadata: { 'thumb-version': 'old' },
+			});
+			fetchMock
+				.get(env.ORIGIN_API_BASE_URL)
+				.intercept({ path: '/api/thumb/main/v-stale.jpg?v=new', method: 'GET' })
+				.reply(200, new Uint8Array([2]), {
+					headers: {
+						'content-type': 'image/avif',
+						'cache-control': 'private, max-age=31536000, immutable',
+						'x-maple-thumb-version': 'new',
+					},
+				});
+			const response = await get('/api/thumb/main/v-stale.jpg?v=new');
+			expect(response.status).toBe(200);
+			expect([...new Uint8Array(await response.arrayBuffer())]).toEqual([2]);
+			const cached = await env.THUMBS_BUCKET.get('thumbs/main/v-stale.jpg/v25');
+			expect(cached!.customMetadata).toEqual({ 'thumb-version': 'new' });
+			expect([...new Uint8Array(await cached!.arrayBuffer())]).toEqual([2]);
+
+			const hit = await get('/api/thumb/main/v-stale.jpg?v=new');
+			expect(hit.headers.get('cache-control')).toBe('private, max-age=31536000, immutable');
+			expect([...new Uint8Array(await hit.arrayBuffer())]).toEqual([2]);
+		});
+
+		it('goes to the origin for a versioned request when R2 holds no version', async () => {
+			await env.THUMBS_BUCKET.put('thumbs/main/v-none.jpg/v25', new Uint8Array([1]));
+			fetchMock
+				.get(env.ORIGIN_API_BASE_URL)
+				.intercept({ path: '/api/thumb/main/v-none.jpg?v=x', method: 'GET' })
+				.reply(200, new Uint8Array([3]), {
+					headers: { 'content-type': 'image/avif', 'x-maple-thumb-version': 'x' },
+				});
+			const response = await get('/api/thumb/main/v-none.jpg?v=x');
+			expect([...new Uint8Array(await response.arrayBuffer())]).toEqual([3]);
+		});
+	});
 });

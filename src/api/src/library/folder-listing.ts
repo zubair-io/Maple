@@ -26,8 +26,9 @@ import { xmpSidecarPath } from '../fs/xmp-sidecar-path.ts';
 import { authorizeSidecarRead, readSidecarNoFollow } from '../fs/sidecar-io.ts';
 import { readFileWithFailover } from '../fs/mirror-read.ts';
 import { errnoCode } from '../fs/relocate-publish.ts';
-import { parseFolderCulling } from './folder-culling.ts';
+import { parseFolderCulling, type FolderCulling } from './folder-culling.ts';
 import { readFolderCulling } from './folder-culling-cache.ts';
+import { freshThumbVersion, listingThumbStat, thumbsDirectorySafe } from './thumb-version.ts';
 import { pairLivePhotos, type LivePhotoLink } from './live-photo-pairs.ts';
 import { pairRawJpegStacks } from './raw-jpeg-stack.ts';
 
@@ -97,6 +98,8 @@ interface ImageEntry extends Entry {
   rating?: number;
   flag?: 'pick' | 'reject';
   colorLabel?: string;
+  /** Present only while the on-disk thumb is fresh; `?v=` it to cache the thumb as immutable. */
+  thumbVersion?: string;
 }
 /** The JPEG folded into its RAW's tile: the second file the Info pane lists. */
 interface StackCompanion extends Entry {
@@ -227,11 +230,12 @@ function sidecarCandidates(rows: readonly DirectoryAsset[]): Map<string, Directo
 }
 
 async function directoryState(resolved: ResolvedAddress, relPath: string, stack: boolean) {
-  const [rows, trashed, names, realRoot] = await Promise.all([
+  const [rows, trashed, names, realRoot, thumbsSafe] = await Promise.all([
     listDirectoryAssets(resolved.libraryId, relPath),
     listTrashedDirectoryFilenames(resolved.libraryId, relPath),
     diskNames(resolved.absPath),
     fs.realpath(resolved.libraryRoot).catch(() => resolved.libraryRoot),
+    thumbsDirectorySafe(resolved.absPath),
   ]);
   const resolveChild = childResolver(resolved.absPath, realRoot);
   const hidden = new Set(trashed);
@@ -245,7 +249,16 @@ async function directoryState(resolved: ResolvedAddress, relPath: string, stack:
   const stackCompanionOf = stack ? pairRawJpegStacks(visibleNames) : new Map<string, string>();
   const companions = new Set(stackCompanionOf.values());
   const allNames = visibleNames.filter((name) => !companions.has(name));
-  return { allNames, byName, byBase, livePairs, onDisk, resolveChild, stackCompanionOf };
+  return {
+    allNames,
+    byName,
+    byBase,
+    livePairs,
+    onDisk,
+    resolveChild,
+    stackCompanionOf,
+    thumbsSafe,
+  };
 }
 type FolderState = Awaited<ReturnType<typeof directoryState>>;
 interface FolderEntries {
@@ -256,27 +269,46 @@ interface FolderEntries {
 }
 
 type ImageCulling = Partial<Pick<ImageEntry, 'edited' | 'rating' | 'flag' | 'colorLabel'>>;
+/** `sidecarMtimeMs` is 0 with no sidecar and null when one exists but could not be read. */
+interface SidecarState {
+  culling: ImageCulling;
+  sidecarMtimeMs: number | null;
+}
+const UNREADABLE_SIDECAR: SidecarState = { culling: {}, sidecarMtimeMs: null };
+type ImageFields = ImageCulling & Pick<ImageEntry, 'thumbVersion'>;
+
+function cullingFields(parsed: FolderCulling): ImageCulling {
+  return {
+    edited: true,
+    ...(parsed.rating !== undefined ? { rating: parsed.rating } : {}),
+    ...(parsed.flag !== undefined ? { flag: parsed.flag } : {}),
+    ...(parsed.colorLabel !== undefined ? { colorLabel: parsed.colorLabel } : {}),
+  };
+}
+
+/** A mirror failover read has no handle stat, so its mtime is unknown. */
+async function readAuthorizedCulling(sidecar: string): Promise<SidecarState> {
+  const { culling, mtimeMs } = await readFolderCulling(sidecar).catch(async () => ({
+    culling: parseFolderCulling(await readFileWithFailover(sidecar, readSidecarNoFollow)),
+    mtimeMs: null,
+  }));
+  return { culling: cullingFields(culling), sidecarMtimeMs: mtimeMs };
+}
 
 /** Read the canonical sidecar during the folder walk. The catalog can lag behind
  * a newly registered directory, and filters must work before Preview hydrates
  * each photo individually. Avoid I/O for the common sidecar-free case. */
-async function imageCulling(child: Scanned, state: FolderState): Promise<ImageCulling> {
+async function imageCulling(child: Scanned, state: FolderState): Promise<SidecarState> {
   const sidecar = xmpSidecarPath(child.entry.path);
   try {
     const name = path.basename(sidecar);
-    const checked = state.onDisk.has(name) ? await state.resolveChild(name) : null;
-    if (!checked || path.extname(checked).toLowerCase() !== '.xmp') return {};
+    if (!state.onDisk.has(name)) return { culling: {}, sidecarMtimeMs: 0 };
+    const checked = await state.resolveChild(name);
+    if (!checked || path.extname(checked).toLowerCase() !== '.xmp') return UNREADABLE_SIDECAR;
     const allowed = await authorizeSidecarRead(sidecar);
-    if (!allowed.ok || !allowed.data) return {};
-    const parsed = await readFolderCulling(allowed.data).catch(async () =>
-      parseFolderCulling(await readFileWithFailover(allowed.data!, readSidecarNoFollow)),
-    );
-    return {
-      edited: true,
-      ...(parsed.rating !== undefined ? { rating: parsed.rating } : {}),
-      ...(parsed.flag !== undefined ? { flag: parsed.flag } : {}),
-      ...(parsed.colorLabel !== undefined ? { colorLabel: parsed.colorLabel } : {}),
-    };
+    return allowed.ok && allowed.data
+      ? await readAuthorizedCulling(allowed.data)
+      : UNREADABLE_SIDECAR;
   } catch (error) {
     if (errnoCode(error) !== 'ENOENT' && errnoCode(error) !== 'ELOOP') {
       log.warn(
@@ -284,15 +316,34 @@ async function imageCulling(child: Scanned, state: FolderState): Promise<ImageCu
         'could not read sidecar culling for folder listing',
       );
     }
-    return {};
+    return UNREADABLE_SIDECAR;
   }
+}
+
+/** The thumb route renders beside the primary location only, so another location's thumb
+ * would version bytes the route never serves for this address. */
+function thumbServedHere(child: Scanned, state: FolderState): boolean {
+  const servedHere = !child.catalog?.maple_id || child.catalog.primary_here;
+  return state.thumbsSafe && servedHere && child.stat?.isFile() === true;
+}
+
+async function imageSidecarFields(child: Scanned, state: FolderState): Promise<ImageFields> {
+  const [{ culling, sidecarMtimeMs }, thumb] = await Promise.all([
+    imageCulling(child, state),
+    thumbServedHere(child, state) ? listingThumbStat(child.entry.path) : null,
+  ]);
+  const version =
+    sidecarMtimeMs === null
+      ? null
+      : freshThumbVersion(thumb, child.stat?.mtimeMs ?? 0, sidecarMtimeMs);
+  return { ...culling, ...(version ? { thumbVersion: version } : {}) };
 }
 
 async function appendEntry(
   child: Scanned,
   entries: FolderEntries,
   state: FolderState,
-  culling: ImageCulling,
+  culling: ImageFields,
   companion: Scanned | null,
 ) {
   if (child.stat?.isDirectory()) {
@@ -365,15 +416,15 @@ async function scanPage(
           .map((name) => scanUnits(name, slug, relPath, resolved, state)),
       )
     ).flat();
-    const culling = await Promise.all(
+    const sidecars = await Promise.all(
       units.map(({ child }) =>
         isMedia(child.entry.name) || child.catalog
-          ? imageCulling(child, state)
+          ? imageSidecarFields(child, state)
           : Promise.resolve({}),
       ),
     );
     for (const [index, unit] of units.entries()) {
-      await appendEntry(unit.child, entries, state, culling[index] ?? {}, unit.companion);
+      await appendEntry(unit.child, entries, state, sidecars[index] ?? {}, unit.companion);
     }
   }
   return entries;

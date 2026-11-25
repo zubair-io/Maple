@@ -54,6 +54,7 @@ import {
 import { uploadThumbToR2 } from '../../cloudflare/r2-client.ts';
 import { isTransientNetworkError } from '../../cloudflare/r2-network-error.ts';
 import { thumbR2Key } from '../../cloudflare/thumb-key.ts';
+import { readVersionedThumb } from '../../library/thumb-version.ts';
 import { cleanupR2ThumbForHiddenAsset } from '../../cloudflare/hidden-cleanup.ts';
 import { cfThumbSyncedStatements } from '../../db/repos/assets.stage-patches.ts';
 import { defineStage, runStage, type RunStageHandle, type StageResult } from '../run-stage.ts';
@@ -113,8 +114,12 @@ const cfThumbSyncStage = defineStage({
     }
 
     let bytes: Uint8Array;
+    let thumbVersion: string | null;
     try {
-      bytes = await readDerivative(thumbPath);
+      ({ data: bytes, version: thumbVersion } = await readVersionedThumb(
+        thumbPath,
+        readDerivative,
+      ));
     } catch (err) {
       // Video assets, and anything else `thumb.ts` marked done without ever
       // writing a file (e.g. its own no-resolvable-location skip) — there's
@@ -131,6 +136,7 @@ const cfThumbSyncStage = defineStage({
         key,
         bytes,
         'image/avif',
+        thumbVersion,
         AbortSignal.timeout(CF_UPLOAD_TIMEOUT_MS),
       );
     } catch (err) {

@@ -101,6 +101,13 @@ describe('HttpLibrarySource.thumbBlob / previewBlob status handling', () => {
     expect(await p).toBe(blob);
   });
 
+  it('thumbBlob carries the listing thumb version so the response is cached immutably', async () => {
+    const blob = new Blob([new Uint8Array([4])], { type: 'image/avif' });
+    const p = src.thumbBlob({ slug: 'lib', relPath: 'a.dng' }, 'abc-1');
+    http.expectOne(`/api/thumb/lib/a.dng?v=abc-1`).flush(blob, { status: 200, statusText: 'OK' });
+    expect(await p).toBe(blob);
+  });
+
   it('thumbBlob returns null on 202 (indexing) so the caller keeps the gradient', async () => {
     const p = src.thumbBlob({ slug: 'lib', relPath: 'b.dng' });
     // 202 body is JSON (`{status:"indexing"}`) — must NOT become a broken <img>.

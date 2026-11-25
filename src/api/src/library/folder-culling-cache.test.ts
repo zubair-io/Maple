@@ -27,8 +27,8 @@ describe('readFolderCulling', () => {
     await writeFile(path, sidecar(3));
     const parse = spyOn(culling, 'parseFolderCulling');
     try {
-      expect(await readFolderCulling(path)).toMatchObject({ rating: 3 });
-      expect(await readFolderCulling(path)).toMatchObject({ rating: 3 });
+      expect((await readFolderCulling(path)).culling).toMatchObject({ rating: 3 });
+      expect((await readFolderCulling(path)).culling).toMatchObject({ rating: 3 });
       expect(parse).toHaveBeenCalledTimes(1);
     } finally {
       parse.mockRestore();
@@ -39,19 +39,19 @@ describe('readFolderCulling', () => {
     const path = join(dir, 'a.xmp');
     await writeFile(path, sidecar(3));
     const before = await stat(path);
-    expect(await readFolderCulling(path)).toMatchObject({ rating: 3 });
+    expect((await readFolderCulling(path)).culling).toMatchObject({ rating: 3 });
     await writeFile(path, sidecar(5));
     await utimes(path, before.atime, before.mtime);
-    expect(await readFolderCulling(path)).toMatchObject({ rating: 5 });
+    expect((await readFolderCulling(path)).culling).toMatchObject({ rating: 5 });
   });
 
   it('re-reads a sidecar replaced by rename', async () => {
     const path = join(dir, 'a.xmp');
     await writeFile(path, sidecar(1));
-    expect(await readFolderCulling(path)).toMatchObject({ rating: 1 });
+    expect((await readFolderCulling(path)).culling).toMatchObject({ rating: 1 });
     await writeFile(join(dir, 'tmp.xmp'), sidecar(4));
     await Bun.$`mv ${join(dir, 'tmp.xmp')} ${path}`.quiet();
-    expect(await readFolderCulling(path)).toMatchObject({ rating: 4 });
+    expect((await readFolderCulling(path)).culling).toMatchObject({ rating: 4 });
   });
 
   it('refuses to follow a final-component symlink', async () => {
