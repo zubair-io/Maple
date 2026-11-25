@@ -250,6 +250,12 @@ struct MapleApp: App {
           // coalesced by the system — this does not burn the
           // widget's own refresh budget.
           WidgetCenter.shared.reloadAllTimelines()
+          // Coming back to the app is when the network has most likely
+          // changed (left home, came home): re-check each server's LAN
+          // address so new folder loads take the faster route (#6008).
+          for server in CloudServerRegistry.shared.servers {
+            Task { await LocalNetworkResolver.shared.resolve(identity: server) }
+          }
         }
         #if os(iOS)
           if newPhase == .active {
