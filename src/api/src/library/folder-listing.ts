@@ -27,6 +27,7 @@ import { authorizeSidecarRead, readSidecarNoFollow } from '../fs/sidecar-io.ts';
 import { readFileWithFailover } from '../fs/mirror-read.ts';
 import { errnoCode } from '../fs/relocate-publish.ts';
 import { parseFolderCulling } from './folder-culling.ts';
+import { readFolderCulling } from './folder-culling-cache.ts';
 import { pairLivePhotos, type LivePhotoLink } from './live-photo-pairs.ts';
 import { pairRawJpegStacks } from './raw-jpeg-stack.ts';
 
@@ -267,8 +268,8 @@ async function imageCulling(child: Scanned, state: FolderState): Promise<ImageCu
     if (!checked || path.extname(checked).toLowerCase() !== '.xmp') return {};
     const allowed = await authorizeSidecarRead(sidecar);
     if (!allowed.ok || !allowed.data) return {};
-    const parsed = parseFolderCulling(
-      await readFileWithFailover(allowed.data, readSidecarNoFollow),
+    const parsed = await readFolderCulling(allowed.data).catch(async () =>
+      parseFolderCulling(await readFileWithFailover(allowed.data!, readSidecarNoFollow)),
     );
     return {
       edited: true,

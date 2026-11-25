@@ -20,6 +20,7 @@ import { afterAll, describe, expect, it } from 'bun:test';
 import { Elysia } from 'elysia';
 import os from 'node:os';
 import path from 'node:path';
+import { brotliDecompressSync, gunzipSync } from 'node:zlib';
 
 const PRIOR_UI_DIST = process.env.MAPLE_UI_DIST;
 const PRIOR_DEV = process.env.MAPLE_DEV;
@@ -81,6 +82,63 @@ describe('static_ui production serving', () => {
     expect(asset.headers.get('cache-control')).toBe('public, max-age=31536000, immutable');
     const html = await get('/');
     expect(html.headers.get('cache-control')).toBe('no-cache');
+  });
+
+  it("caches Angular's esbuild-hashed output forever, verbatim copies only with revalidation", async () => {
+    await Bun.write(path.join(distDir, 'chunk-ZQ7X2ABC.js'), 'export {};');
+    await Bun.write(path.join(distDir, 'media', 'inter-4KQ2LMNO.woff2'), 'font');
+    await Bun.write(path.join(distDir, 'pkg', 'raw_wasm_bg.wasm'), 'wasm');
+    await Bun.write(path.join(distDir, 'film-luts', 'KODAK-PORTRA40.cube'), 'lut');
+    for (const hashed of ['/chunk-ZQ7X2ABC.js', '/media/inter-4KQ2LMNO.woff2']) {
+      expect((await get(hashed)).headers.get('cache-control')).toBe(
+        'public, max-age=31536000, immutable',
+      );
+    }
+    for (const verbatim of [
+      '/pkg/raw_wasm_bg.wasm',
+      '/film-luts/KODAK-PORTRA40.cube',
+      '/assets/logo.png',
+    ]) {
+      expect((await get(verbatim)).headers.get('cache-control')).toBe('no-cache');
+    }
+  });
+
+  it('answers a matching If-None-Match with 304 and no body', async () => {
+    const first = await get('/assets/logo.png');
+    const etag = first.headers.get('etag');
+    expect(etag).toMatch(/^".+"$/);
+    expect(first.headers.get('last-modified')).toBeTruthy();
+    const again = await app.handle(
+      new Request('http://localhost/assets/logo.png', { headers: { 'if-none-match': etag! } }),
+    );
+    expect(again.status).toBe(304);
+    expect(await again.text()).toBe('');
+    expect(again.headers.get('cross-origin-embedder-policy')).toBe('require-corp');
+  });
+
+  it('compresses text and WASM for clients that accept it, keyed by the same ETag', async () => {
+    const source = 'export const answer = 42;\n'.repeat(400);
+    await Bun.write(path.join(distDir, 'main-AB2CD3EF.js'), source);
+    const plain = await get('/main-AB2CD3EF.js');
+    expect(plain.headers.get('content-encoding')).toBeNull();
+    expect(await plain.text()).toBe(source);
+    for (const [accept, encoding] of [
+      ['gzip, deflate, br', 'br'],
+      ['gzip', 'gzip'],
+    ] as const) {
+      const res = await app.handle(
+        new Request('http://localhost/main-AB2CD3EF.js', {
+          headers: { 'accept-encoding': accept },
+        }),
+      );
+      expect(res.headers.get('content-encoding')).toBe(encoding);
+      expect(res.headers.get('vary')).toBe('Accept-Encoding');
+      expect(res.headers.get('etag')).toBe(plain.headers.get('etag'));
+      const bytes = new Uint8Array(await res.arrayBuffer());
+      expect(bytes.byteLength).toBeLessThan(source.length / 10);
+      const decoded = encoding === 'br' ? brotliDecompressSync(bytes) : gunzipSync(bytes);
+      expect(decoded.toString()).toBe(source);
+    }
   });
 
   it('sets cross-origin isolation headers on file responses', async () => {

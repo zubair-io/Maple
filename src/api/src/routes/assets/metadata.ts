@@ -18,7 +18,7 @@ import { stat } from 'node:fs/promises';
 import * as path from 'node:path';
 import { resolveAddressString } from '../../library/address.ts';
 import { resolveThumbPathForAsset, xmpSidecarPath } from '../../fs/xmp.ts';
-import { safeReadFile } from '../../fs/root.ts';
+import { checkAllowed, safeReadFile } from '../../fs/root.ts';
 import { mostSpecificRoot } from '../../fs/root-match.ts';
 import { ifNoneMatchEqual } from '../../runtime/http-etag.ts';
 import { buildContentDispositionAttachment } from '../../runtime/http-content-disposition.ts';
@@ -94,6 +94,23 @@ async function withSidecarStat<T extends { abs_path: string }>(
 async function withBackupMirrors<T extends { id: string }>(dto: T) {
   const mirrors = await backupEngine.repo.mirrorsForAssets([dto.id]);
   return { ...dto, mirrors: mirrors.get(dto.id) ?? [] };
+}
+
+/** Jail-checked original as a lazily streamed `BunFile`, sized up front for Content-Length. */
+async function openJailedOriginal(
+  absPath: string,
+): Promise<
+  { ok: true; file: ReturnType<typeof Bun.file>; size: number } | { ok: false; error: string }
+> {
+  const check = await checkAllowed(absPath);
+  if (!check.ok) return { ok: false, error: check.error ?? `Cannot read "${absPath}"` };
+  const real = check.data!;
+  const st = await stat(real).catch((err: unknown) => err as Error);
+  if (st instanceof Error || !st.isFile()) {
+    const reason = st instanceof Error ? st.message : 'not a regular file';
+    return { ok: false, error: `Cannot read "${absPath}": ${reason}` };
+  }
+  return { ok: true, file: Bun.file(real), size: st.size };
 }
 
 export const metadataRoutes = new Elysia()
@@ -227,10 +244,12 @@ export const metadataRoutes = new Elysia()
     if ('error' in resolved) return resolved;
     const { info, absPath } = resolved;
 
-    const result = await safeReadFile(absPath);
-    if (!result.ok) {
+    // Streamed, never buffered: a 100MP RAW or a multi-GB video would otherwise sit
+    // whole in memory before the first byte left the server.
+    const original = await openJailedOriginal(absPath);
+    if (!original.ok) {
       set.status = 403;
-      return { error: result.error };
+      return { error: original.error };
     }
 
     set.headers['Content-Type'] = 'application/octet-stream';
@@ -238,8 +257,8 @@ export const metadataRoutes = new Elysia()
     // UTF-8 form. Guards against header injection from filenames that
     // contain `"`, CR/LF, NUL, or non-ASCII bytes. See #167.
     set.headers['Content-Disposition'] = buildContentDispositionAttachment(info.filename);
-    set.headers['Content-Length'] = String(result.data!.byteLength);
-    return result.data;
+    set.headers['Content-Length'] = String(original.size);
+    return original.file;
   })
 
   // Serve thumbnail from .maple/ cache
