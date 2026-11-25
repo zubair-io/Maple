@@ -1,4 +1,4 @@
-import { InjectionToken } from '@angular/core';
+import { InjectionToken, type WritableSignal } from '@angular/core';
 import type { Observable } from 'rxjs';
 import type { DownloadProgress } from '../api/filesystem-browse.service';
 
@@ -15,6 +15,14 @@ export interface ApiFolder {
    * pre-upgrade servers — treat missing as connected.
    */
   connected?: boolean;
+}
+
+/** Lazy loaders call this so a richer list a concurrent `loadFolderTree()` landed is kept. */
+export function adoptFoldersIfUnset(
+  registered: WritableSignal<ApiFolder[]>,
+  folders: ApiFolder[],
+): void {
+  if (registered().length === 0) registered.set(folders);
 }
 
 /** `GET/PUT /api/display/config`; a PUT carries only the fields it changes. */

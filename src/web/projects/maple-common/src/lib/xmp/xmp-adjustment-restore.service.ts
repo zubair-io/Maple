@@ -27,7 +27,7 @@ import { HttpErrorResponse } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
 
 import { SERVER_WORKSPACE_PERSISTENCE } from '../workspace/workspace-persistence';
-import { SERVER_LIBRARY_IO } from '../workspace/server-library-io';
+import { SERVER_LIBRARY_IO, adoptFoldersIfUnset } from '../workspace/server-library-io';
 import type { AssetId } from '../models/asset';
 import type { AdjustmentModel } from '../models/adjustment-model';
 import { LibraryStore } from '../state/library-store.service';
@@ -222,12 +222,7 @@ export class XmpAdjustmentRestoreService {
     if (this.store.registeredFolders().length > 0) return Promise.resolve();
     if (!this.serverLibrary) return Promise.resolve();
     this._foldersLoad ??= firstValueFrom(this.serverLibrary.listFolders())
-      .then((folders) => {
-        // Don't stomp a richer list a concurrent loadFolderTree() landed.
-        if (this.store.registeredFolders().length === 0) {
-          this.store.registeredFolders.set(folders);
-        }
-      })
+      .then((folders) => adoptFoldersIfUnset(this.store.registeredFolders, folders))
       .catch((err: unknown) => {
         this._foldersLoad = null; // allow a later restore to retry
         throw err;

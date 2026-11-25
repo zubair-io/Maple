@@ -422,18 +422,22 @@ export class TimelineViewComponent implements AfterViewInit, OnDestroy {
       this._years.update((years) => foldPage(years, r.results, prefix, this.thumbs.urls));
       this._markMonthsVisible(r.results);
       this._nextPage.set(page + 1);
-      // Enqueue the whole page — the queue decides how many actually go out,
-      // and `dropMonth` reclaims the rest as sections scroll away.
-      for (const row of r.results) {
-        if (row.thumb_version) this.thumbVersions.set(row.abs_path, row.thumb_version);
-        const key = monthKeyForCapturedAt(row.captured_at);
-        if (key) void this.thumbs.load(row.abs_path, key);
-      }
+      this._enqueuePageThumbs(r.results);
     } catch (err) {
       if (gen !== this.fetchGen) return;
       this.pageError.set(errorMessage(err));
     } finally {
       if (gen === this.fetchGen) this.pageLoading.set(false);
+    }
+  }
+
+  /** Enqueue the whole page — the queue decides how many actually go out,
+   * and `dropMonth` reclaims the rest as sections scroll away. */
+  private _enqueuePageThumbs(results: SearchResult[]): void {
+    for (const row of results) {
+      if (row.thumb_version) this.thumbVersions.set(row.abs_path, row.thumb_version);
+      const key = monthKeyForCapturedAt(row.captured_at);
+      if (key) void this.thumbs.load(row.abs_path, key);
     }
   }
 
