@@ -46,11 +46,12 @@ public final class DevelopedImageRevision {
   }
 
   /// Resolve the same decoded key as `decodedKey(for:source:)` after the view
-  /// starts its load, with filesystem metadata work on a utility executor.
+  /// starts its load, with filesystem metadata work off the main actor. A
+  /// visible cell waits on it, so it runs at user-initiated QoS (#6010).
   public func decodedKeyAsync(for id: String, source: ThumbnailSource) async -> String {
     let base = reloadKey(for: id, source: source)
     guard let url = source.localAssetURL, url.isFileURL else { return base }
-    let sourceStamp = await Task.detached(priority: .utility) { () -> String? in
+    let sourceStamp = await Task.detached(priority: .userInitiated) { () -> String? in
       guard FileManager.default.fileExists(atPath: url.path) else { return nil }
       return LocalDerivativeSourceStamp.signature(for: url)
     }.value

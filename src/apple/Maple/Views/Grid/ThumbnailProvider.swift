@@ -18,6 +18,7 @@ import ImageIO
 import MapleCore
 import Photos
 import SwiftUI
+import UniformTypeIdentifiers
 
 #if canImport(AppKit)
   import AppKit
@@ -343,7 +344,7 @@ extension ThumbnailProvider {
           cont.resume(returning: nil)
           return
         }
-        cont.resume(returning: avifBytes(from: image))
+        cont.resume(returning: gridBytes(from: image))
       }
     }
   }
@@ -405,7 +406,7 @@ extension ThumbnailProvider {
   }
 
   /// Platform-specific CGImage extraction, shared by both encoders below
-  /// (the thumbnail tier's AVIF encode and the preview tier's JPEG encode).
+  /// (the grid tier's JPEG encode and the preview tier's AVIF encode).
   fileprivate static func cgImage(from image: PlatformImage) -> CGImage? {
     #if canImport(AppKit)
       var rect = CGRect(origin: .zero, size: image.size)
@@ -415,15 +416,20 @@ extension ThumbnailProvider {
     #endif
   }
 
-  /// Encode a platform image to AVIF bytes via the shared `ThumbnailEncoder`
-  /// — the 256px thumbnail tier only (the display-preview tier below stays
-  /// JPEG and has its own independent encoder). This is the same encoder
-  /// `ThumbnailDiskCache`/`ThumbnailLoader` and `PhotoKitSource` use; ≥2
-  /// real callers wanting identical AVIF-encode behavior is exactly the
-  /// trigger for sharing it instead of duplicating the encode boilerplate.
-  fileprivate static func avifBytes(from image: PlatformImage) -> Data? {
+  /// Encode a grid-tier PhotoKit image as JPEG. These bytes are never
+  /// persisted: the cell decodes them straight back, and Photos keeps its own
+  /// cache. A software AVIF encode here cost far more than the Photos fetch
+  /// itself on every tile of a cold Photos grid (#6010).
+  fileprivate static func gridBytes(from image: PlatformImage) -> Data? {
     guard let cg = cgImage(from: image) else { return nil }
-    return ThumbnailEncoder.encode(cg)
+    let out = NSMutableData()
+    guard
+      let dest = CGImageDestinationCreateWithData(out, UTType.jpeg.identifier as CFString, 1, nil)
+    else { return nil }
+    CGImageDestinationAddImage(
+      dest, cg, [kCGImageDestinationLossyCompressionQuality: 0.85] as CFDictionary)
+    guard CGImageDestinationFinalize(dest) else { return nil }
+    return out as Data
   }
 
   /// Encode a platform image to AVIF bytes for the display-preview tier, at

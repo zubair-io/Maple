@@ -124,19 +124,37 @@ public actor ThumbnailLoader {
   /// reconstructed `assetURL.deletingLastPathComponent()` is a silent
   /// no-op because that URL carries no scope token, so the Rust FFI read
   /// fails with EPERM under the sandbox.
-  public func load(for assetURL: URL, scopeParentURL: URL?) async -> Data? {
+  ///
+  /// Nonisolated so a warm cache hit never queues behind other cells on this
+  /// actor; only a miss enters it to coalesce and start a producer (#6010).
+  public nonisolated func load(for assetURL: URL, scopeParentURL: URL?) async -> Data? {
     guard !Task.isCancelled else { return nil }
     // 1. Fast path: cached AVIF bytes.
-    if let cached = await ThumbnailDiskCache.shared.thumbnailData(for: assetURL) {
-      if Self.isUsableImageData(cached) { return cached }
-      logger.warning(
-        "discarding unreadable cached thumbnail for \(assetURL.lastPathComponent, privacy: .public)"
-      )
-      await ThumbnailDiskCache.shared.removeThumbnail(for: assetURL)
-    }
-
+    if let cached = await Self.decodableCachedThumbnail(for: assetURL) { return cached }
     guard !Task.isCancelled else { return nil }
+    return await joinOrStartProducer(for: assetURL, scopeParentURL: scopeParentURL)
+  }
 
+  /// Cached bytes ImageIO can decode. Bytes read from disk are decoded once,
+  /// off every actor, and the proof is kept with the memory entry, so repeat
+  /// hits from the grid, the camera-seed probe and Preview cost no decode.
+  /// An undecodable derivative is removed so the producer can rebuild it.
+  nonisolated static func decodableCachedThumbnail(for assetURL: URL) async -> Data? {
+    let cache = ThumbnailDiskCache.shared
+    guard let hit = await cache.cachedThumbnail(for: assetURL) else { return nil }
+    if hit.isKnownDecodable { return hit.data }
+    if isUsableImageData(hit.data) {
+      await cache.markDecodable(hit)
+      return hit.data
+    }
+    logger.warning(
+      "discarding unreadable cached thumbnail for \(assetURL.lastPathComponent, privacy: .public)"
+    )
+    await cache.removeThumbnail(for: assetURL)
+    return nil
+  }
+
+  private func joinOrStartProducer(for assetURL: URL, scopeParentURL: URL?) async -> Data? {
     // 2. Coalesce duplicate requests. If a prior call for the same URL
     //    is still in-flight, await its Task instead of starting a new
     //    one. Eliminates the ~30% wasted CPU during grid scroll+layout
@@ -199,13 +217,10 @@ public actor ThumbnailLoader {
     // Retry under the claimed scope, using the same original/XMP freshness
     // gate as step 1. A raw derivative read here would re-stamp stale bytes
     // after an external sidecar change (#5346).
-    if let data = await ThumbnailDiskCache.shared.thumbnailData(for: assetURL) {
-      if Self.isUsableImageData(data) {
-        guard !Task.isCancelled else { return nil }
-        return data
-      }
-      // A broken shared derivative should trigger source-based regeneration.
-      await ThumbnailDiskCache.shared.removeThumbnail(for: assetURL)
+    // A broken shared derivative is removed here, so the source regenerates it.
+    if let data = await decodableCachedThumbnail(for: assetURL) {
+      guard !Task.isCancelled else { return nil }
+      return data
     }
 
     // VIDEO PATH — extract a poster frame via AVFoundation (#1642).
