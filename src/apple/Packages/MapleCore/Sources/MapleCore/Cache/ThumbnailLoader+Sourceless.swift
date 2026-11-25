@@ -15,7 +15,9 @@ extension ThumbnailLoader {
   ///
   /// Returns `nil` when no path produced bytes (network down + no fallback,
   /// renderer failure, etc.).
-  public func load(
+  ///
+  /// Nonisolated so a cache hit never queues behind the loader actor (#6017).
+  public nonisolated func load(
     for asset: AssetRef,
     from source: (any ImageSource)?
   ) async -> Data? {
@@ -33,6 +35,12 @@ extension ThumbnailLoader {
     }
 
     guard !Task.isCancelled else { return nil }
+    return await joinSourcelessProducer(for: asset, key: key, from: source)
+  }
+
+  private func joinSourcelessProducer(
+    for asset: AssetRef, key: String, from source: (any ImageSource)?
+  ) async -> Data? {
 
     // 2. Coalesce duplicate requests, same no-await-between-check-and-
     //    insert contract as the URL-keyed overload above (this path

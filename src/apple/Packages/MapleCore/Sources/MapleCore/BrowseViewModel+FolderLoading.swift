@@ -62,7 +62,7 @@ extension BrowseViewModel {
         do {
           contents = try fm.contentsOfDirectory(
             at: url,
-            includingPropertiesForKeys: [.isRegularFileKey, .isDirectoryKey],
+            includingPropertiesForKeys: [.isRegularFileKey, .isDirectoryKey, .fileSizeKey],
             options: [.skipsHiddenFiles]
           )
         } catch {
@@ -126,6 +126,7 @@ extension BrowseViewModel {
       try Task.checkCancellation()
       guard gen == loadGeneration else { return }
       assets = refs
+      LaunchTimeline.shared.mark(.gridPublished)
       subfolders = subs
       // Don't auto-select the first image — the user should see the whole
       // folder contents first. Selection (highlight) happens on click; the

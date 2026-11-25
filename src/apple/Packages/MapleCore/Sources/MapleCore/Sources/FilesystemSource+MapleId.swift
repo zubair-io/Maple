@@ -38,7 +38,7 @@ extension FilesystemSource {
             return cached
         }
         guard let derived = await deriveMapleId(for: asset, filesize: sizeI64) else { return nil }
-        await idCache.record(path: cacheKey, mapleId: derived, size: sizeI64, mtime: mtime)
+        await idCache.stage(path: cacheKey, mapleId: derived, size: sizeI64, mtime: mtime)
         return derived
     }
 

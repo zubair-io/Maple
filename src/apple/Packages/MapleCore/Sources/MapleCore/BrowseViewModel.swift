@@ -479,6 +479,7 @@ public final class BrowseViewModel {
       guard gen == loadGeneration else { return }
 
       assets = imageRefs
+      LaunchTimeline.shared.mark(.gridPublished)
       subfolders = dirURLs
       selectedID = nil
       currentSource = source

@@ -821,6 +821,7 @@ struct AppShell: View {
     }
     .task { await PanoContinuedProcessing.shared.observe(panoMergeSession) }
     .task {
+      LaunchTimeline.shared.mark(.shellAppeared)
       configureAgentBrowseAdapter()
       guard !hasRestoredInitialSource else { return }
       // UITest harness fast path lives in AppShell+UITestFixture
@@ -838,6 +839,7 @@ struct AppShell: View {
       #endif
       // Restore last-used source on cold start.
       await restoreLastSource()
+      LaunchTimeline.shared.mark(.folderRestored)
       guard !Task.isCancelled else { return }
       hasRestoredInitialSource = true
       // Cold-start deep link wins over the restored source. The

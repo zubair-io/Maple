@@ -210,6 +210,8 @@ public actor MapleIdCacheStore {
     /// directory scan + JSON parses exactly once, not once per asset.
     private var unionCache: [String: MapleIdCacheEntry]?
 
+    private var pendingWriteCount = 0
+
     /// `writer` names this producer's own file — `"apple"` for the Apple
     /// app, producing `id-cache-apple.json`. Not hardcoded so tests can
     /// construct a second store with a different `writer` over the same
@@ -242,18 +244,40 @@ public actor MapleIdCacheStore {
     /// own file (read-modify-write of a file no other process ever writes)
     /// — never touches another producer's `id-cache-*.json`.
     public func record(path: String, mapleId: String, size: Int64, mtime: Double) async {
+        await stage(path: path, mapleId: mapleId, size: size, mtime: mtime)
+        await flush()
+    }
+
+    /// Records `path` in memory only, so a listing that derives hundreds of ids
+    /// rewrites this producer's file once per batch rather than once per id
+    /// (each rewrite re-encodes every row, so per-id writes grow quadratically).
+    /// The batch reaches storage at `flush()`, or as soon as `stageFlushThreshold`
+    /// rows are pending, so an interrupted first browse keeps most of its work.
+    public func stage(path: String, mapleId: String, size: Int64, mtime: Double) async {
         var own = await currentOwnEntries()
         let entry = MapleIdCacheEntry(path: path, mapleId: mapleId, size: size, mtime: mtime)
         own[path] = entry
         ownEntries = own
-        await saveOwn(own)
+        pendingWriteCount += 1
         // Keep the in-memory union current so a `record` immediately
         // followed by a `lookup` in the same session (common: derive, then
         // re-list) sees the fresh entry without forcing a storage re-scan.
         if unionCache != nil {
             unionCache?[path] = entry
         }
+        if pendingWriteCount >= Self.stageFlushThreshold {
+            await flush()
+        }
     }
+
+    /// Writes this producer's file if any staged row has not reached storage.
+    public func flush() async {
+        guard pendingWriteCount > 0, let ownEntries else { return }
+        pendingWriteCount = 0
+        await saveOwn(ownEntries)
+    }
+
+    static let stageFlushThreshold = 128
 
     // MARK: - Private
 
