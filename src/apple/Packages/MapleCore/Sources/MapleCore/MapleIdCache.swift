@@ -212,6 +212,7 @@ public actor MapleIdCacheStore {
 
     private var pendingWriteCount = 0
     private var scheduledFlush: Task<Void, Never>?
+    private var inFlightWrite: Task<Void, Never>?
 
     /// `writer` names this producer's own file — `"apple"` for the Apple
     /// app, producing `id-cache-apple.json`. Not hardcoded so tests can
@@ -282,11 +283,20 @@ public actor MapleIdCacheStore {
         await writePending()
     }
 
+    // One write at a time: storage writes suspend, and an older snapshot that
+    // finished last would replace a newer one and drop its rows.
     private func writePending() async {
         scheduledFlush = nil
-        guard pendingWriteCount > 0, let ownEntries else { return }
+        while let running = inFlightWrite {
+            await running.value
+            if inFlightWrite == running { inFlightWrite = nil }
+        }
+        guard pendingWriteCount > 0, let snapshot = ownEntries else { return }
         pendingWriteCount = 0
-        await saveOwn(ownEntries)
+        let write = Task { await self.saveOwn(snapshot) }
+        inFlightWrite = write
+        await write.value
+        if inFlightWrite == write { inFlightWrite = nil }
     }
 
     static let stageFlushThreshold = 128
