@@ -62,7 +62,7 @@ public final class DevelopedImageRevision {
   private func cacheIdentity(for id: String, source: ThumbnailSource) -> String {
     let host: String?
     switch source.resolvedBackend() {
-    case .cloudThumb(_, let cloudHost): host = cloudHost
+    case .cloudThumb(_, let cloudHost, _): host = cloudHost
     case .thumbnailLoader(let asset, _):
       if let catalog = asset.catalog {
         host = catalog.serverID.cacheHostKey

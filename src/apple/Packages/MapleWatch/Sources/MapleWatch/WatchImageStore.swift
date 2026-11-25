@@ -89,7 +89,7 @@ actor WatchImageStore {
 
   private func fetchImage(for asset: SearchAsset, tier: Tier) async throws -> CGImage {
     do {
-      let data = try await client.thumb(absPath: asset.abs_path)
+      let data = try await client.thumb(absPath: asset.abs_path, version: asset.thumb_version)
       try Task.checkCancellation()
       guard active else { throw CancellationError() }
       return try decode(data, tier: tier)

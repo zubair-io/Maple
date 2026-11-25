@@ -30,8 +30,21 @@ public actor CloudThumbClient {
   /// Throws on anything but a 200 (caller surfaces the error or shows a
   /// placeholder cell), including `CloudAddressError` when `absPath` is
   /// under no registered library on this server.
-  public func thumb(absPath: String) async throws -> Data {
-    try await fetch(addresses.url(route: "thumb", absPath: absPath))
+  ///
+  /// `version` is the listing's `thumb_version`. Sent as `?v=`, it lets the
+  /// server and the Cloudflare Worker answer `immutable` instead of making
+  /// every view revalidate (#6017).
+  public func thumb(absPath: String, version: String? = nil) async throws -> Data {
+    let url = try await addresses.url(route: "thumb", absPath: absPath)
+    return try await fetch(version.map { Self.versioned(url, $0) } ?? url)
+  }
+
+  static func versioned(_ url: URL, _ version: String) -> URL {
+    guard var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
+      return url
+    }
+    components.queryItems = (components.queryItems ?? []) + [URLQueryItem(name: "v", value: version)]
+    return components.url ?? url
   }
 
   /// Returns AVIF bytes for the display-resolution (1280 px long-edge)

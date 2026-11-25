@@ -1,5 +1,5 @@
 // CloudThumbCacheAccessTests.swift — cloud thumbnail hits read off the actor
-// and refresh LRU recency at most once per interval (#6017).
+// and refresh LRU recency at most once per interval; versioned thumbs (#6017).
 
 import CryptoKit
 import XCTest
@@ -40,6 +40,24 @@ final class CloudThumbCacheAccessTests: XCTestCase {
     XCTAssertNotNil(hit)
     let refreshed = try mtime(absPath: "/a")
     XCTAssertLessThan(Date().timeIntervalSince(refreshed), 60)
+  }
+
+  func testVersionedEntriesAreSeparateFromEachOtherAndFromTheUnversionedOne() async {
+    let cache = CloudThumbCache(baseDir: dir, maxBytes: 1024 * 1024)
+    await cache.put(host: "x", absPath: "/a", version: "v1", Data([1]))
+
+    let sameVersion = await cache.get(host: "x", absPath: "/a", version: "v1")
+    let editedElsewhere = await cache.get(host: "x", absPath: "/a", version: "v2")
+    let unversioned = await cache.get(host: "x", absPath: "/a")
+    XCTAssertEqual(sameVersion, Data([1]))
+    XCTAssertNil(editedElsewhere)
+    XCTAssertNil(unversioned)
+  }
+
+  func testThumbURLCarriesTheVersionAsAQueryItem() throws {
+    let base = try XCTUnwrap(URL(string: "https://maple.example/api/thumb/photos/2024/a%231.dng"))
+    let versioned = CloudThumbClient.versioned(base, "k3j9")
+    XCTAssertEqual(versioned.absoluteString, "https://maple.example/api/thumb/photos/2024/a%231.dng?v=k3j9")
   }
 
   func testMissReturnsNil() async {
