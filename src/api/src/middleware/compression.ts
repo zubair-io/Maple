@@ -89,14 +89,11 @@ function statusOf(status: unknown): number {
 
 async function encodedResponse(
   body: string | Uint8Array,
-  encoding: ContentEncoding | null,
+  encoding: ContentEncoding,
   headers: Headers,
 ): Promise<Response> {
   headers.set('Vary', withVaryAcceptEncoding(headers.get('Vary')));
   headers.delete('Content-Length');
-  if (!encoding || Buffer.byteLength(body) < MIN_COMPRESSIBLE_BYTES) {
-    return new Response(body as BodyInit, { status: 200, headers });
-  }
   headers.set('Content-Encoding', encoding);
   return new Response((await compressBytes(body, encoding)) as unknown as BodyInit, {
     status: 200,
@@ -104,38 +101,52 @@ async function encodedResponse(
   });
 }
 
+function isCompressibleRouteResponse(response: Response): boolean {
+  if (response.status !== 200 || !response.body) return false;
+  if (!isJsonType(response.headers.get('content-type'))) return false;
+  if (response.headers.has('content-encoding')) return false;
+  const declared = Number(response.headers.get('content-length') ?? NaN);
+  return !(declared > MAX_BUFFERED_JSON_BYTES || declared < MIN_COMPRESSIBLE_BYTES);
+}
+
+async function compressRouteResponse(
+  response: Response,
+  encoding: ContentEncoding,
+): Promise<Response | undefined> {
+  if (!isCompressibleRouteResponse(response)) return undefined;
+  const body = new Uint8Array(await response.arrayBuffer());
+  return body.byteLength < MIN_COMPRESSIBLE_BYTES
+    ? new Response(body as BodyInit, response)
+    : encodedResponse(body, encoding, new Headers(response.headers));
+}
+
+type MutableSet = { status?: unknown; headers: Record<string, string | number | undefined> };
+
+async function compressSerializedValue(
+  value: unknown,
+  set: MutableSet,
+  encoding: ContentEncoding,
+): Promise<Response | undefined> {
+  if (statusOf(set.status) !== 200 || !isPlainJsonValue(value)) return undefined;
+  const declaredType = set.headers['content-type'] ?? set.headers['Content-Type'];
+  if (declaredType !== undefined && !isJsonType(String(declaredType))) return undefined;
+  const body = JSON.stringify(value);
+  if (body.length < MIN_COMPRESSIBLE_BYTES) return undefined;
+  const contentType = String(declaredType ?? 'application/json;charset=utf-8');
+  return encodedResponse(body, encoding, new Headers({ 'Content-Type': contentType }));
+}
+
 async function compressedJsonResponse(
   request: Request,
   response: unknown,
-  set: { status?: unknown; headers: Record<string, string | number | undefined> },
+  set: MutableSet,
 ): Promise<Response | undefined> {
   if (request.method !== 'GET' && request.method !== 'POST') return undefined;
   const encoding = negotiateEncoding(request.headers.get('accept-encoding'));
-
-  if (response instanceof Response) {
-    if (response.status !== 200 || !response.body) return undefined;
-    if (!isJsonType(response.headers.get('content-type'))) return undefined;
-    if (response.headers.has('content-encoding')) return undefined;
-    const declared = Number(response.headers.get('content-length') ?? NaN);
-    if (declared > MAX_BUFFERED_JSON_BYTES) return undefined;
-    if (!encoding || declared < MIN_COMPRESSIBLE_BYTES) return undefined;
-    return encodedResponse(
-      new Uint8Array(await response.arrayBuffer()),
-      encoding,
-      new Headers(response.headers),
-    );
-  }
-
-  if (statusOf(set.status) !== 200 || !isPlainJsonValue(response)) return undefined;
-  const declaredType = set.headers['content-type'] ?? set.headers['Content-Type'];
-  if (declaredType !== undefined && !isJsonType(String(declaredType))) return undefined;
-  const body = JSON.stringify(response);
-  if (!encoding || body.length < MIN_COMPRESSIBLE_BYTES) return undefined;
-  return encodedResponse(
-    body,
-    encoding,
-    new Headers({ 'Content-Type': String(declaredType ?? 'application/json;charset=utf-8') }),
-  );
+  if (!encoding) return undefined;
+  return response instanceof Response
+    ? compressRouteResponse(response, encoding)
+    : compressSerializedValue(response, set, encoding);
 }
 
 export const responseCompression = new Elysia({ name: 'response-compression' })
