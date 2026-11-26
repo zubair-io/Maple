@@ -274,6 +274,35 @@ namespace Maple.WinUI
                 sidebarToggle.CheckedState = !AppSettings.Load().LeftPanelHidden;
             };
 
+            var stacksToggle = new MuiCheckbox
+            {
+                Label = "Show one image for RAW+JPEG pairs",
+                IsThreeState = false,
+                CheckedState = settings.ShowRawJpegStacks,
+            };
+            var stacksStatus = new MuiStatusText { State = MuiStatusTextState.Idle };
+            stacksToggle.Click += (_, _) =>
+            {
+                var shown = stacksToggle.CheckedState == true;
+                try
+                {
+                    AppSettings.Update(s => s.ShowRawJpegStacks = shown);
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    stacksToggle.CheckedState = AppSettings.Load().ShowRawJpegStacks;
+                    stacksStatus.State = MuiStatusTextState.Error;
+                    stacksStatus.Text = $"Couldn't save: {ex.Message}";
+                    return;
+                }
+                stacksStatus.State = MuiStatusTextState.Idle;
+                stacksStatus.Text = string.Empty;
+                _viewModel.SetLocalRawJpegStacks(shown);
+            };
+            var stacksContent = new StackPanel { Orientation = Orientation.Vertical, Spacing = 6 };
+            stacksContent.Children.Add(stacksToggle);
+            stacksContent.Children.Add(stacksStatus);
+
             _paneHost.Children.Add(new MuiSettingsSection
             {
                 Title = "INTERFACE",
@@ -282,6 +311,9 @@ namespace Maple.WinUI
                     new MuiSettingsSectionRow("sidebar", "Sidebar", "sidebar",
                         "Show the folders sidebar in wide Browse windows; the choice persists across launches.",
                         sidebarToggle, StartExpanded: true),
+                    new MuiSettingsSectionRow("raw-jpeg-stacks", "RAW+JPEG pairs", null,
+                        "Applies to local folders; each Maple Cloud server keeps its own setting.",
+                        stacksContent, StartExpanded: true),
                 },
             });
         }
