@@ -212,6 +212,8 @@ namespace Maple.WinUI
                     await EditSessionViewModel.VerifyCloudSearchAsync(output);
                     RecordSmokeStage(output, "cloud-map");
                     await VerifyCloudMapAsync(output);
+                    RecordSmokeStage(output, "demosaic-choice");
+                    await VerifyDemosaicChoiceAsync(raw, output);
                     RecordSmokeStage(output, "shutdown");
                 }
 
@@ -282,7 +284,8 @@ namespace Maple.WinUI
                     responsiveDesign = expectedPath != "empty",
                     browseSelectionAndSort = expectedPath != "empty",
                     browseScrolling = expectedPath != "empty",
-                    immediateUndo = expectedPath != "empty"
+                    immediateUndo = expectedPath != "empty",
+                    demosaicChoice = _demosaicChoiceVerified
                 }));
             }
             catch (Exception error)
