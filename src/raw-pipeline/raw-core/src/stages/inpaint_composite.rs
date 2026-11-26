@@ -79,12 +79,12 @@ pub fn apply(img: &mut Image, patches: &[InpaintPatch]) {
                 }
                 let pu = ((u - ox) / ex).clamp(0.0, 1.0) * pw as f32 - 0.5;
                 let cov = sample_cov(&patch.coverage, pw, ph, pu, pv).clamp(0.0, 1.0);
-                if cov <= 0.0 {
-                    continue;
+                // NaN coverage fails this comparison and leaves the scene pixel untouched.
+                if cov > 0.0 {
+                    let pp = sample_rgb(&patch.pixels, pw, ph, pu, pv);
+                    let idx = (y * iw + x) as usize;
+                    img.pixels[idx] = lerp3(img.pixels[idx], pp, cov);
                 }
-                let pp = sample_rgb(&patch.pixels, pw, ph, pu, pv);
-                let idx = (y * iw + x) as usize;
-                img.pixels[idx] = lerp3(img.pixels[idx], pp, cov);
             }
         }
     }
@@ -168,6 +168,46 @@ mod tests {
         };
         apply(&mut img, &[bad]);
         assert_eq!(img.pixels, before);
+    }
+
+    #[test]
+    fn non_finite_or_out_of_frame_placement_is_skipped() {
+        for (origin, extent) in [
+            ([f32::NAN, 0.0], [1.0, 1.0]),
+            ([0.0, 0.0], [f32::INFINITY, 1.0]),
+            ([0.0, f32::NEG_INFINITY], [1.0, 1.0]),
+            ([-0.5, 0.0], [1.0, 1.0]),
+            ([0.5, 0.0], [1.0, 1.0]),
+        ] {
+            let mut img = solid(4, 4, [0.1, 0.1, 0.1]);
+            let before = img.pixels.clone();
+            let patch = InpaintPatch {
+                origin,
+                extent,
+                ..full_patch(4, 4, [0.9, 0.9, 0.9], 1.0)
+            };
+            apply(&mut img, &[patch]);
+            assert_eq!(img.pixels, before, "origin {origin:?} extent {extent:?}");
+        }
+    }
+
+    #[test]
+    fn nan_coverage_never_reaches_the_scene() {
+        let mut patch = full_patch(4, 4, [0.9, 0.9, 0.9], 1.0);
+        patch.coverage[5] = f32::NAN;
+        let mut img = solid(4, 4, [0.1, 0.1, 0.1]);
+        apply(&mut img, &[patch]);
+        assert!(
+            img.pixels.iter().flatten().all(|lane| lane.is_finite()),
+            "a NaN coverage sample leaked into {:?}",
+            img.pixels
+        );
+        assert_eq!(img.pixels[5], [0.1, 0.1, 0.1]);
+        assert!(
+            (img.pixels[15][0] - 0.9).abs() < 1e-6,
+            "samples away from the NaN still blend, got {:?}",
+            img.pixels[15]
+        );
     }
 
     #[test]

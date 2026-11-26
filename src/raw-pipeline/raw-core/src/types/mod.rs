@@ -20,7 +20,7 @@ pub use adjustment::{
     TransferMode, WbMethod, WbScaleVersion, WbSource, WhiteBalancePreset, ADJUSTMENT_SCHEMA,
     NON_COPYABLE_FIELDS,
 };
-pub use inpaint::{BakeGrade, InpaintPatch, Removal};
+pub use inpaint::{BakeGrade, InpaintPatch, InpaintPatchError, Removal, RemovalRecordError};
 pub use local_adjustment::{
     brush_raster_dims, layers_from_flat, layers_to_flat, rasterize_brush, with_brush_rasters,
     BitmapRecipe, BrushDab, LocalAdjustment, Mask, MaskCombine, MaskComponent, MaskGroup,

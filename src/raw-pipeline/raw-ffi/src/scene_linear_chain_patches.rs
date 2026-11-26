@@ -28,7 +28,7 @@ unsafe fn patches_from_ffi(
         return Err("patches pointer is null but patches_len > 0".to_string());
     }
     let blob = std::slice::from_raw_parts(ptr, len);
-    raw_core::pipeline::patches_from_blob(blob)
+    raw_core::pipeline::patches_from_blob(blob).map_err(|e| e.to_string())
 }
 
 /// Shared guard/decode preamble for both entries. Returns the lane count and
