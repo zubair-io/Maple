@@ -12,10 +12,10 @@
 //!
 //! Mechanism (mirrors `apple_render_diff.py`'s "measured path vs reference"):
 //!   candidate = the EXTERN's JPEG output, decoded to RGB.
-//!   reference = `render_sized_from_raw_with_quality_and_source` at Full
-//!               quality and the target long edge (the sized develop the
-//!               editor's fit view runs, #6018) + the same `resize_long_edge`
-//!               the extern uses — i.e. the develop without the JPEG round-trip.
+//!   reference = the develop the extern runs (the sized develop at Full
+//!               quality without a sidecar, #6018; the full AMaZE develop
+//!               with one) + the same `resize_long_edge` the extern uses —
+//!               i.e. the develop without the JPEG round-trip.
 //! Both are written as PNGs and diffed with the ONE diff implementation
 //! (`src/scripts/compare_images.py`, CIEDE2000 + per-channel bias). The only
 //! expected non-zero contributor is JPEG q82 quantization, so the budget is
@@ -35,7 +35,10 @@ use std::process::Command;
 
 use image::DynamicImage;
 use raw_core::decode::decode_bytes;
-use raw_core::pipeline::{render_sized_from_raw_with_quality_and_source, RawInput, RenderQuality};
+use raw_core::pipeline::{
+    render_from_raw_with_quality_and_source, render_sized_from_raw_with_quality_and_source,
+    RawInput, RenderQuality,
+};
 use raw_ffi::maple_render_develop_jpeg_to_file;
 
 const LONG_EDGE_PX: u32 = 1280;
@@ -117,8 +120,8 @@ fn python_diff_available(script: &Path) -> bool {
         .unwrap_or(false)
 }
 
-/// Reference develop: the sized `raw-core` develop at Full quality (#6018,
-/// path-sourced so `Profile::Auto` can read the embedded JPEG), downscaled to
+/// Reference develop: the sized `raw-core` develop at Full quality without a
+/// sidecar (#6018), the full AMaZE develop with one (path-sourced so `Profile::Auto` can read the embedded JPEG), downscaled to
 /// `LONG_EDGE_PX`. No JPEG round-trip.
 fn reference_png(raw: &Path, xmp: Option<&str>, out: &Path) {
     let model = match xmp {
@@ -128,13 +131,19 @@ fn reference_png(raw: &Path, xmp: Option<&str>, out: &Path) {
     let raw_bytes = std::fs::read(raw).expect("read raw");
     let ext = raw.extension().and_then(|e| e.to_str()).unwrap_or("");
     let raw_img = decode_bytes(&raw_bytes, ext).expect("decode raw");
-    let (w, h, px) = render_sized_from_raw_with_quality_and_source(
-        &raw_img,
-        &model,
-        RenderQuality::Full,
-        Some(RawInput::Path(raw)),
-        LONG_EDGE_PX,
-    )
+    let source = Some(RawInput::Path(raw));
+    let (w, h, px) = match xmp {
+        None => render_sized_from_raw_with_quality_and_source(
+            &raw_img,
+            &model,
+            RenderQuality::Full,
+            source,
+            LONG_EDGE_PX,
+        ),
+        Some(_) => {
+            render_from_raw_with_quality_and_source(&raw_img, &model, RenderQuality::Amaze, source)
+        }
+    }
     .expect("reference develop");
     let rgb = image::RgbImage::from_raw(w, h, px).expect("reference buffer size");
     raw_core::preview::resize_long_edge(DynamicImage::ImageRgb8(rgb), LONG_EDGE_PX)
