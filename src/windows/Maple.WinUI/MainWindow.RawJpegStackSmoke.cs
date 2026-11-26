@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Runtime.ExceptionServices;
 using System.Security.Cryptography;
+using System.Text.Json;
 using System.Threading.Tasks;
 using Maple.UI;
 using Maple.WinUI.Services;
@@ -43,9 +44,12 @@ public sealed partial class MainWindow
         const string jpegName = "Stack-1.jpg";
         var (rawCopy, jpegCopy) = (Path.Combine(folder, rawName), Path.Combine(folder, jpegName));
         var originals = new[] { raw, rawCopy, jpegCopy };
-        var selected = ViewModel.SelectedPhoto;
+        var previousPrimaryPath = ViewModel.SelectedPhoto?.FilePath;
+        var previousSelectionPaths = ViewModel.SelectedPhotos.Select(photo => photo.FilePath).ToArray();
+        var hadDecodedImage = ViewModel.Renderer.DetailSource != null;
         var (previousFolder, previousMode, previousSwitch) =
             (ViewModel.CurrentFolderPath, _mode, AppSettings.Load().ShowRawJpegStacks);
+        var evidence = new Dictionary<string, object?>();
         var root = (FrameworkElement)Content;
         Exception? failure = null;
         try
@@ -85,12 +89,14 @@ public sealed partial class MainWindow
             if (captions.Any(text => text == rawName || text == jpegName))
                 throw new InvalidOperationException("The stacked tile still carries a filename caption.");
             var expectedName = $"{rawName} and {jpegName}";
+            evidence["badgeAndCaptions"] = captions;
             var accessibleNames = visuals.OfType<FrameworkElement>().Append(container!)
                 .Select(AutomationProperties.GetName).Where(name => name.Length > 0).ToList();
             if (!accessibleNames.Contains(expectedName))
                 throw new InvalidOperationException(
                     $"No tile element is named \"{expectedName}\" (names: {string.Join(" | ", accessibleNames)}).");
 
+            evidence["accessibleName"] = expectedName;
             ViewModel.SelectedPhoto = tile;
             RefreshPhotoInfo();
             var infoRows = FileRows.Children.OfType<MuiLabelValueGrid>()
@@ -99,13 +105,16 @@ public sealed partial class MainWindow
                 throw new InvalidOperationException(
                     $"Info does not list the JPEG (rows: {string.Join(" | ", infoRows.Select(row => row.Label + "=" + row.Value))}).");
 
+            evidence["infoRows"] = infoRows.Select(row => row.Label + "=" + row.Value).ToList();
             SetRawJpegStackSwitch(false);
             await WaitForRawJpegStackSmokeAsync(
                 () => ViewModel.Photos.Count == 2 && ViewModel.AllPhotos.All(photo => photo.StackCompanion == null && photo.StackPrimary == null),
                 $"turning the switch off did not split the pair (tiles={ViewModel.Photos.Count})");
+            evidence["tilesWithSwitchOff"] = ViewModel.Photos.Count;
             SetRawJpegStackSwitch(true);
             await WaitForRawJpegStackSmokeAsync(
                 () => ViewModel.Photos.Count == 1, "turning the switch back on did not fold the pair");
+            evidence["tilesWithSwitchOn"] = ViewModel.Photos.Count;
 
             var hashesAfter = await Task.Run(() => originals.Select(HashRawJpegStackSmokeFile).ToArray());
             if (!hashesBefore.SequenceEqual(hashesAfter))
@@ -121,8 +130,11 @@ public sealed partial class MainWindow
             SetRawJpegStackSwitch(previousSwitch);
             if (!string.IsNullOrEmpty(previousFolder) && Directory.Exists(previousFolder))
                 await ViewModel.LoadDirectoryAsync(previousFolder).WaitAsync(RawJpegStackSmokeWait);
-            ViewModel.SelectedPhoto = selected;
             SetMode(previousMode);
+            await RestoreRawJpegStackSelectionAsync(previousSelectionPaths, previousPrimaryPath, hadDecodedImage);
+            evidence["restoredFolder"] = ViewModel.CurrentFolderPath;
+            evidence["restoredSelection"] = ViewModel.SelectedPhoto?.FilePath;
+            evidence["restoredDecodedImage"] = ViewModel.Renderer.DetailSource != null;
         }
         catch (Exception cleanup) when (failure == null)
         {
@@ -132,8 +144,39 @@ public sealed partial class MainWindow
         {
             // The assertion that failed first is the one to report.
         }
+        if (failure == null)
+            await File.WriteAllTextAsync(
+                Path.Combine(output, "raw-jpeg-stack.json"),
+                JsonSerializer.Serialize(new { passed = true, observed = evidence }));
         if (failure != null)
             ExceptionDispatchInfo.Capture(failure).Throw();
+    }
+
+    // OpenForEditing clears the renderer's image and only EnsureDecoded brings
+    // one back, so a restored selection leaves nothing to present until its
+    // decode lands; the shutdown present check needs that image.
+    private async Task RestoreRawJpegStackSelectionAsync(
+        IReadOnlyList<string> selectedPaths, string? primaryPath, bool hadDecodedImage)
+    {
+        PhotoItem? Find(string path) => ViewModel.Photos.FirstOrDefault(
+            photo => string.Equals(photo.FilePath, path, StringComparison.OrdinalIgnoreCase));
+        var primary = primaryPath == null ? null : Find(primaryPath);
+        if (primaryPath != null && primary == null)
+            throw new InvalidOperationException(
+                $"RAW+JPEG stack: the originally selected photo {primaryPath} is not in the restored folder.");
+        RestoreBrowseSelection(selectedPaths.Select(Find).OfType<PhotoItem>().ToArray(), primary);
+        if (primary == null || !hadDecodedImage) return;
+
+        ViewModel.EnsureDecoded();
+        var deadline = Environment.TickCount64 + (long)RawJpegStackSmokeWait.TotalMilliseconds;
+        while (ViewModel.IsDecoding || ViewModel.Renderer.DetailSource == null || !ReferenceEquals(ViewModel.SelectedPhoto, primary))
+        {
+            if (ViewModel.HasDecodeError || Environment.TickCount64 >= deadline)
+                throw new TimeoutException(
+                    $"RAW+JPEG stack: {primaryPath} did not come back decoded (selected={ViewModel.SelectedPhoto?.FilePath}, "
+                    + $"decoding={ViewModel.IsDecoding}, image={ViewModel.Renderer.DetailSource != null}, status={ViewModel.DecodeStatus}).");
+            await Task.Delay(20);
+        }
     }
 
     private void SetRawJpegStackSwitch(bool shown)
