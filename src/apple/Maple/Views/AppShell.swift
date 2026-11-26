@@ -250,8 +250,7 @@ struct AppShell: View {
     @State var libraryPath: [LibraryDestination] = []
     /// The folder stack's root level while a subfolder is pushed (#5674).
     @State var phoneFolderRoot: PhoneFolderRoot?
-    @State var phoneBatchExportAssets: [AssetRef] = []
-    @State var showsPhoneBatchExport = false
+    @State var phoneBatchExport: PhoneBatchExportRequest?
     @State var phoneMoveRequest: PhoneAssetMoveRequest?
   #endif
 
@@ -1477,8 +1476,8 @@ struct AppShell: View {
       .sheet(item: $batchRenameVM) { vm in
         BatchRenameSheet(vm: vm, onDismiss: { batchRenameVM = nil })
       }
-      .sheet(isPresented: $showsPhoneBatchExport) {
-        BatchExportPanel(assets: phoneBatchExportAssets) { asset in
+      .sheet(item: $phoneBatchExport) { request in
+        BatchExportPanel(assets: request.assets) { asset in
           ensureSession(for: asset)
           guard let session = sessions[asset.id] else {
             throw FileOperationError.unsupportedSource("Could not prepare this photo for export.")

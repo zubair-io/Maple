@@ -8,6 +8,17 @@
     let source: PhoneAssetMoveSource
   }
 
+  // Item-based so the sheet content is built from the photos themselves, never a stale list (#6085).
+  struct PhoneBatchExportRequest: Identifiable {
+    let id = UUID()
+    let assets: [AssetRef]
+
+    init?(assets: [AssetRef]) {
+      guard !assets.isEmpty else { return nil }
+      self.assets = assets
+    }
+  }
+
   @MainActor
   extension AppShell {
     var canOfferPhoneMove: Bool {
@@ -39,9 +50,7 @@
     }
 
     func beginPhoneBatchExport(_ assets: [AssetRef]) {
-      guard !assets.isEmpty else { return }
-      phoneBatchExportAssets = assets
-      showsPhoneBatchExport = true
+      phoneBatchExport = PhoneBatchExportRequest(assets: assets)
     }
 
     func beginPhoneAssetMove(_ ids: [AssetRef.ID]) {
