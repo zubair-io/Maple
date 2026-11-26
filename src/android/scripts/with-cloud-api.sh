@@ -88,8 +88,13 @@ done
 # device test is skipped.
 pano=0
 if [[ -n "${MAPLE_ANDROID_PANO_CLI:-}" || -n "${MAPLE_ANDROID_PANO_FIXTURES:-}" ]]; then
-	test -x "${MAPLE_ANDROID_PANO_CLI:?Set MAPLE_ANDROID_PANO_CLI to a maple-cli built with pano-classical}"
-	test -x "${MAPLE_ANDROID_PANO_FIXTURES:?Set MAPLE_ANDROID_PANO_FIXTURES to pano-gen-fixture}"
+	for tool in "${MAPLE_ANDROID_PANO_CLI:?Set MAPLE_ANDROID_PANO_CLI to a maple-cli built with pano-classical}" \
+		"${MAPLE_ANDROID_PANO_FIXTURES:?Set MAPLE_ANDROID_PANO_FIXTURES to pano-gen-fixture}"; do
+		[[ -x "$tool" ]] || {
+			echo "Not an executable file: $tool" >&2
+			exit 1
+		}
+	done
 	mkdir -p "$library/pano"
 	"$MAPLE_ANDROID_PANO_FIXTURES" --out-dir "$library/pano" --cameras 3 --width 640 --height 480 \
 		--source-width 2048 >/dev/null
