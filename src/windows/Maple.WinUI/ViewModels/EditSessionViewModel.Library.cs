@@ -278,12 +278,7 @@ namespace Maple.WinUI.ViewModels
 
         // --- Filtering ---
 
-        partial void OnFormatFilterChanged(string value)
-        {
-            ApplyFilters();
-            if (_selectedCloudFolder != null && _libraryCts is { } cts)
-                HydrateNewCloudTiles(cts.Token);
-        }
+        partial void OnFormatFilterChanged(string value) => ApplyFilters();
         partial void OnMinRatingFilterChanged(int value) => ApplyFilters();
         partial void OnFlagFilterChanged(string value) => ApplyFilters();
         partial void OnSearchTextChanged(string value) => ApplyFilters();
@@ -374,6 +369,8 @@ namespace Maple.WinUI.ViewModels
                     Photos.Add(item);
             }
             HasPhotos = Photos.Count > 0;
+            if (_selectedCloudFolder != null && !_isCloudTimeline && _libraryCts is { } cts)
+                HydrateNewCloudTiles(cts.Token);
         }
 
         private PhotoDayGroup BuildFlatGroup(IEnumerable<PhotoItem> query)
