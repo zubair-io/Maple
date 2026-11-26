@@ -59,8 +59,8 @@ struct MemoriesScreen: View {
         cacheHost: server.cacheHostKey,
         coverWarmer: { cover in
           await TVRemoteImage.prefetchThumb(
-            server: server, absPath: cover.abs_path, thumbClient: thumbClient,
-            thumbCache: thumbCache)
+            server: server, absPath: cover.abs_path, thumbVersion: cover.thumb_version,
+            thumbClient: thumbClient, thumbCache: thumbCache)
           return await TVRemoteImage.cachedImage(
             server: server, absPath: cover.abs_path, kind: .thumb) != nil
         }
@@ -299,6 +299,7 @@ private struct MemoryCard: View {
         kind: .thumb,
         thumbClient: session.thumbClient,
         thumbCache: session.thumbCache,
+        thumbVersion: cover.thumb_version,
         contentMode: .fill,
         accessibilityLabel: collection.title
       )

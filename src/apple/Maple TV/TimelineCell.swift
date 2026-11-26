@@ -77,6 +77,7 @@ private struct TimelineCellCard: View {
         kind: .thumb,
         thumbClient: thumbClient,
         thumbCache: thumbCache,
+        thumbVersion: asset.thumb_version,
         contentMode: .fill,
         accessibilityLabel: asset.filename
       )
