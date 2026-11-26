@@ -101,7 +101,8 @@ fn a_real_patch_blob_round_trips_and_changes_the_output() {
         coverage: vec![1.0; n],
     };
     assert!(patch.is_valid(), "test patch must be well-formed");
-    let blob = raw_core::pipeline::patches_to_blob(std::slice::from_ref(&patch));
+    let blob =
+        raw_core::pipeline::patches_to_blob(std::slice::from_ref(&patch)).expect("blob encodes");
 
     // The codec must survive the round trip before we trust the render delta.
     let decoded = raw_core::pipeline::patches_from_blob(&blob).expect("blob decodes");
@@ -151,6 +152,46 @@ fn malformed_blob_returns_rc_10() {
         )
     };
     assert_eq!(rc, 10, "malformed patch blob must return rc 10");
+}
+
+#[test]
+fn nan_coverage_blob_returns_rc_10_and_the_plain_entry_still_renders() {
+    let p = default_params();
+    let input = f32_input();
+    let patch = InpaintPatch {
+        width: 1,
+        height: 1,
+        origin: [0.0, 0.0],
+        extent: [1.0, 1.0],
+        pixels: vec![[0.9, 0.1, 0.1]],
+        coverage: vec![1.0],
+    };
+    let valid =
+        raw_core::pipeline::patches_to_blob(std::slice::from_ref(&patch)).expect("blob encodes");
+    let quiet_nan_half = 0x7e00u16.to_le_bytes();
+    let corrupt: Vec<u8> = valid[..valid.len() - 2]
+        .iter()
+        .copied()
+        .chain(quiet_nan_half)
+        .collect();
+    let mut refused = vec![0f32; LANES];
+    let mut plain = vec![0f32; LANES];
+    let rc_refused = unsafe {
+        maple_apply_scene_linear_chain_f32_with_patches(
+            input.as_ptr(),
+            W,
+            H,
+            &p,
+            corrupt.as_ptr(),
+            corrupt.len(),
+            refused.as_mut_ptr(),
+        )
+    };
+    let rc_plain =
+        unsafe { maple_apply_scene_linear_chain_f32(input.as_ptr(), W, H, &p, plain.as_mut_ptr()) };
+    assert_eq!(rc_refused, 10, "a NaN coverage sample must refuse the blob");
+    assert_eq!(rc_plain, 0, "the photo still renders without the edit");
+    assert!(plain.iter().all(|lane| lane.is_finite()));
 }
 
 #[test]
