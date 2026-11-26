@@ -39,10 +39,9 @@
 # --screen-check cross-checks the app's counter instead of measuring: one
 # 500-photo Mac launch is recorded by the system's screen-capture stream
 # (grid_scroll_screen_capture.swift, needs Screen Recording permission), and
-# the refreshes on which the window's picture changed are printed next to the
-# app's count for the cached pass. The first pass is not compared: loading
-# placeholders animate on their own, so the picture changes there even when
-# the scroll did not advance.
+# for each pass the refreshes on which the grid actually moved on screen are
+# printed next to the app's count. A picture that changed without the grid
+# moving (a thumbnail arriving) does not count as a scroll step.
 #
 # --build-only / --skip-build split the build from the timing so each can run
 # in its own slot on a busy machine.
@@ -272,32 +271,57 @@ try:
     report = json.load(open(sys.argv[1]))
 except (OSError, ValueError):
     untrusted("the run wrote no report")
-lines = open(sys.argv[2]).read().split()
 if report.get("error") or not report.get("framesVisible"):
     untrusted(report.get("error") or "the frames were not visible")
-cached = next((p for p in report["passes"] if p["name"] == "cached"), None)
-if not cached or len(cached["frames"]) < 2 or len(lines) < 2:
-    untrusted("no cached pass or no capture")
-capture_start, capture_stop = float(lines[0]), float(lines[-1])
-changed = [float(line) for line in lines[1:-1]]
-frames = cached["frames"]
-shown = [f["timestamp"] + (max(0, math.floor((f["committed"] - f["timestamp"]) / f["period"])) + 1) * f["period"]
-         for f in frames]
-period = statistics.median(f["period"] for f in frames)
-# The first frame of a pass does not move the grid, so n frames are n - 1
-# refreshes on which the picture should change. The window server shows a
-# committed frame a refresh or two later, and the grid stands still before
-# and after the pass, so the window is widened at its end only.
-refreshes = round((shown[-1] - shown[0]) / period)
-first, last = shown[0] + period / 2, shown[-1] + 3.5 * period
-if not (capture_start < shown[0] - period and capture_stop > last):
-    untrusted("the capture did not cover the whole cached pass")
-on_screen = sum(1 for t in changed if first < t <= last)
-if on_screen > refreshes:
-    untrusted(f"the window changed on {on_screen} refreshes, more than the {refreshes} the scroll spans, so something else was animating")
-print(f"cached pass, {refreshes} display refreshes at {1 / period:.0f} Hz")
-print(f"  app's counter:   {cached['stats']['framesDropped']} dropped")
-print(f"  screen capture:  the window's picture changed on {on_screen}, so {refreshes - on_screen} dropped")
+lines = open(sys.argv[2]).read().splitlines()
+if len(lines) < 4 or not lines[0].startswith("start ") or not lines[-1].startswith("stop "):
+    untrusted("the capture recorded nothing")
+capture_start, capture_stop = float(lines[0].split()[1]), float(lines[-1].split()[1])
+samples = [(float(time), [int(v) for v in profile.split(",")])
+           for time, profile in (line.split(" ", 1) for line in lines[1:-1])]
+
+# Rows that never change are the letterbox around the window and its
+# toolbar; the grid is the band of rows that does.
+height = len(samples[0][1])
+spread = [max(p[row] for _, p in samples) - min(p[row] for _, p in samples) for row in range(height)]
+live = [row for row in range(height) if spread[row] > max(spread) * 0.05]
+top, bottom = live[0] + 30, live[-1] - 5
+
+def centred(profile):
+    band = profile[top:bottom]
+    mean = sum(band) / len(band)
+    return [v - mean for v in band]
+
+def moved(before, after):
+    """True when `after` is `before` scrolled up: some shift matches better than none."""
+    def match(shift):
+        a, b = before[shift:], after[:len(after) - shift]
+        norm = math.sqrt(sum(v * v for v in a) * sum(v * v for v in b))
+        return sum(x * y for x, y in zip(a, b)) / norm if norm else 0
+    best = max(range(0, min(120, len(before) - 80)), key=match)
+    return best > 2
+
+profiles = [(time, centred(profile)) for time, profile in samples]
+worst = 0
+for scroll in report["passes"]:
+    frames = scroll["frames"]
+    period = statistics.median(f["period"] for f in frames)
+    # The first frame of a pass does not move the grid, so n frames span
+    # n - 1 refreshes on which it should move. The window server shows a
+    # committed frame a few refreshes after its display-link timestamp.
+    refreshes = round((frames[-1]["timestamp"] - frames[0]["timestamp"]) / period)
+    first, last = frames[0]["timestamp"], frames[-1]["timestamp"] + 4 * period
+    if capture_start > first:
+        print(f"{scroll['name']} pass: not compared, the capture started after it began")
+        continue
+    inside = [i for i, (time, _) in enumerate(profiles) if first <= time <= last and i > 0]
+    steps = sum(1 for i in inside if moved(profiles[i - 1][1], profiles[i][1]))
+    app = scroll["stats"]["framesDropped"]
+    print(f"{scroll['name']} pass, {refreshes} display refreshes at {1 / period:.0f} Hz")
+    print(f"  app's counter:   {app} dropped")
+    print(f"  screen capture:  the grid moved on {steps}, so {refreshes - steps} dropped")
+    worst = max(worst, abs(refreshes - steps - app))
+print(f"largest disagreement: {worst} frames")
 PY
 }
 

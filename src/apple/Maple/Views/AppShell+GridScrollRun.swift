@@ -99,7 +99,9 @@ extension AppShell {
     _ request: GridScrollRunRequest, into report: inout ScrollRunReport
   ) async throws {
     #if os(macOS)
-      GridScrollEnvironment.fillScreen()
+      try await waitUntil("the window was on the primary display", timeout: .seconds(20)) {
+        GridScrollEnvironment.fillPrimaryScreen()
+      }
     #endif
     let staged = try await Task.detached(priority: .userInitiated) {
       try ScrollRunFolder.stage(seed: request.seed, count: request.count, reuse: request.reuse)
@@ -226,12 +228,17 @@ enum GridScrollEnvironment {
   }
 
   #if os(macOS)
-    static func fillScreen() {
+    /// Every run is measured full-size on the primary display; a window that
+    /// opened elsewhere (a second or virtual display runs at its own rate and
+    /// size) is moved there. False until the window is up and has arrived.
+    static func fillPrimaryScreen() -> Bool {
       NSApp.activate(ignoringOtherApps: true)
-      guard let window = NSApp.windows.first(where: \.isVisible), let screen = window.screen
-      else { return }
+      guard let window = NSApp.windows.first(where: \.isVisible),
+        let screen = NSScreen.screens.first
+      else { return false }
       window.setFrame(screen.visibleFrame, display: true)
       window.makeKeyAndOrderFront(nil)
+      return window.screen == screen
     }
   #endif
 

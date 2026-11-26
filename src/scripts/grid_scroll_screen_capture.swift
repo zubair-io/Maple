@@ -1,6 +1,6 @@
-// grid_scroll_screen_capture.swift — an independent count of the frames a
-// window actually showed, for cross-checking the app's own dropped-frame
-// counter (#6048). Used by measure_grid_scroll.sh --screen-check.
+// grid_scroll_screen_capture.swift — an independent record of what a window
+// actually showed, for cross-checking the app's own dropped-frame counter
+// (#6048). Used by measure_grid_scroll.sh --screen-check.
 //
 // usage: grid_scroll_screen_capture <bundle id> <longest seconds> <output file>
 //
@@ -8,8 +8,14 @@
 // stream for that window alone until the window goes away. The stream
 // delivers one sample per display refresh on which the window's picture
 // changed, stamped with the refresh time on the clock the app's report uses.
-// The output is one time in seconds per line: when capture started, each
-// changed refresh, and when capture stopped. Needs Screen Recording
+//
+// A changed picture is not a scroll step: a thumbnail arriving changes it
+// too. So each sample is reduced to a profile of its rows (the summed green
+// channel across the middle of each row), from which the script works out
+// whether the grid moved since the previous sample.
+//
+// Output, one line each: `start <seconds>`, then `<seconds> <row profile>`
+// per changed refresh, then `stop <seconds>`. Needs Screen Recording
 // permission for the terminal that runs it.
 
 import AppKit
@@ -20,7 +26,7 @@ func now() -> Double { CACurrentMediaTime() }
 
 final class ChangedFrames: NSObject, SCStreamOutput, SCStreamDelegate {
   private let lock = NSLock()
-  private var times: [Double] = []
+  private var samples: [String] = []
   private var stopped: Double?
   private let secondsPerTick: Double = {
     var timebase = mach_timebase_info_data_t()
@@ -38,7 +44,23 @@ final class ChangedFrames: NSObject, SCStreamOutput, SCStreamDelegate {
       info[.status] as? Int == SCFrameStatus.complete.rawValue,
       let displayTime = info[.displayTime] as? UInt64
     else { return }
-    lock.withLock { times.append(Double(displayTime) * secondsPerTick) }
+    guard let profile = rowProfile(of: buffer) else { return }
+    let line = "\(Double(displayTime) * secondsPerTick) \(profile)"
+    lock.withLock { samples.append(line) }
+  }
+
+  private func rowProfile(of buffer: CMSampleBuffer) -> String? {
+    guard let pixels = CMSampleBufferGetImageBuffer(buffer) else { return nil }
+    CVPixelBufferLockBaseAddress(pixels, .readOnly)
+    defer { CVPixelBufferUnlockBaseAddress(pixels, .readOnly) }
+    guard let base = CVPixelBufferGetBaseAddress(pixels)?.assumingMemoryBound(to: UInt8.self)
+    else { return nil }
+    let width = CVPixelBufferGetWidth(pixels)
+    let bytesPerRow = CVPixelBufferGetBytesPerRow(pixels)
+    let columns = stride(from: width * 3 / 10, to: width * 7 / 10, by: 2)
+    return (0..<CVPixelBufferGetHeight(pixels)).map { row in
+      String(columns.reduce(0) { $0 + Int(base[row * bytesPerRow + $1 * 4 + 1]) })
+    }.joined(separator: ",")
   }
 
   /// The window closing ends the stream; that is the normal way out.
@@ -51,7 +73,9 @@ final class ChangedFrames: NSObject, SCStreamOutput, SCStreamDelegate {
   var hasStopped: Bool { lock.withLock { stopped != nil } }
 
   func lines(startedAt start: Double) -> String {
-    lock.withLock { ([start] + times + [stopped ?? now()]).map { "\($0)" }.joined(separator: "\n") }
+    lock.withLock {
+      (["start \(start)"] + samples + ["stop \(stopped ?? now())"]).joined(separator: "\n")
+    }
   }
 }
 
@@ -88,7 +112,8 @@ Task {
     }
     let configuration = SCStreamConfiguration()
     configuration.width = 640
-    configuration.height = 360
+    configuration.height = 720
+    configuration.pixelFormat = kCVPixelFormatType_32BGRA
     configuration.minimumFrameInterval = CMTime(value: 1, timescale: 240)
     configuration.showsCursor = false
     let stream = SCStream(
