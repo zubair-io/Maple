@@ -616,3 +616,8 @@ EditHistoryEventTests
 BrowseNavigationTicketTests
 CloudSourceThumbVersionTests
 ThumbnailCameraPreviewReuseTests
+# Grid scroll measurement (#6048): the dropped-frame classifier at 60 and
+# 120 Hz, and staging the throwaway folder from a seed. Pure arithmetic and
+# temp-directory files.
+ScrollFrameClassifierTests
+ScrollRunFolderTests

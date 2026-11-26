@@ -823,6 +823,7 @@ struct AppShell: View {
       LaunchTimeline.shared.mark(.shellAppeared)
       configureAgentBrowseAdapter()
       guard !hasRestoredInitialSource else { return }
+      if await runGridScrollMeasurementIfRequested() { return }
       // UITest harness fast path lives in AppShell+UITestFixture
       // (#if DEBUG). Returns true if a fixture URL was consumed —
       // we then skip restoreLastSource() so the harness gets a
