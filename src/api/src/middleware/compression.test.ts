@@ -106,4 +106,49 @@ describe('responseCompression', () => {
     expect(body.code).toBeTruthy();
     expect(body.requestId).toBeTruthy();
   });
+
+  it('keeps the error envelope of a request no route matched', async () => {
+    const withoutCompression = new Elysia().use(requestContext);
+    for (const method of ['GET', 'POST', 'DELETE']) {
+      const request = () =>
+        new Request('http://localhost/no-such-route', {
+          method,
+          headers: { 'accept-encoding': 'br' },
+        });
+      const expected = (await (await withoutCompression.handle(request())).json()) as {
+        error: string;
+        code: string;
+      };
+      const res = await app.handle(request());
+      expect(res.status).toBe(404);
+      const body = (await res.json()) as { error: string; code: string };
+      expect({ error: body.error, code: body.code }).toEqual({
+        error: expected.error,
+        code: expected.code,
+      });
+      expect(body.error).toBe('NOT_FOUND');
+    }
+  });
+
+  it('leaves an error that brought its own response for the envelope to wrap', async () => {
+    class Refusal extends Error {
+      toResponse(): Response {
+        return new Response('refused in plain text', { status: 418 });
+      }
+    }
+    const refuse = (): never => {
+      throw new Refusal();
+    };
+    const answer = async (server: { handle(request: Request): Promise<Response> }) => {
+      const res = await server.handle(new Request('http://localhost/anything'));
+      const body = (await res.json()) as { error: string; code: string };
+      return { status: res.status, error: body.error, code: body.code };
+    };
+
+    const expected = await answer(new Elysia().use(requestContext).onRequest(refuse));
+    expect(expected.error).toBe('refused in plain text');
+    expect(
+      await answer(new Elysia().use(responseCompression).use(requestContext).onRequest(refuse)),
+    ).toEqual(expected);
+  });
 });

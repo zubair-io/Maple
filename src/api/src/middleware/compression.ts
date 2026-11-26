@@ -9,7 +9,7 @@
  * object/array (Elysia would serialize it) or an `application/json` Response.
  * Everything else — streamed originals, SSE, images, XMP, errors — passes
  * through untouched, and the request-context envelope hook still runs for
- * them because this hook returns `undefined`. ETags are left byte-for-byte as
+ * them. ETags are left byte-for-byte as
  * the route set them: clients pin exact ETag shapes (the XMP `If-Match`
  * precondition) and every route here validates against the unencoded body.
  *
@@ -150,9 +150,15 @@ async function compressedJsonResponse(
 }
 
 export const responseCompression = new Elysia({ name: 'response-compression' })
-  // Returning undefined hands the response, untouched, to the next mapResponse
-  // hook (request-context's envelope); set.headers are merged into what we return.
+  // Declining returns undefined, which hands the handler's value to the next
+  // mapResponse hook (request-context's envelope). After an error it returns the
+  // envelope instead: for a request no route matched, Elysia assigns each hook's
+  // return unconditionally, so undefined would blank the envelope's message. An
+  // error that brought its own Response is still left for request-context to wrap.
+  // set.headers are merged into what we return.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  .mapResponse((async (ctx: any) =>
-    compressedJsonResponse(ctx.request, ctx.response, ctx.set)) as any)
+  .mapResponse((async (ctx: any) => {
+    if (ctx.error !== undefined && !(ctx.response instanceof Response)) return ctx.response;
+    return compressedJsonResponse(ctx.request, ctx.response, ctx.set);
+  }) as any)
   .as('global');
