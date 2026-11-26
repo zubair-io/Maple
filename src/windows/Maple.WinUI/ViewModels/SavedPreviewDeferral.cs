@@ -47,6 +47,9 @@ namespace Maple.WinUI.ViewModels
                 ? this with { Owed = Owed.Where(owed => !ReferenceEquals(owed, photo)).ToArray() }
                 : Owe(photo);
 
+        public static bool MaySettle(object? rendered, object? latestAcknowledged) =>
+            latestAcknowledged == null || ReferenceEquals(latestAcknowledged, rendered);
+
         public static SavedPreviewReleaseAction ClassifyUnselected(bool listed, bool cloud, bool cloudRefreshable) =>
             !listed || (cloud && !cloudRefreshable)
                 ? SavedPreviewReleaseAction.Drop
