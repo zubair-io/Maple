@@ -17,10 +17,10 @@
 // real scroll moves it, and the same callbacks are the frame record: what the
 // display link delivered, and when each frame's layout and commit finished.
 // A report only counts if the display was awake, unlocked and showing the
-// window, which it records.
+// window around every pass, which it records as `framesVisible`.
 // `MAPLE_SCROLL_RUN_REUSE=1` keeps the folder and its thumbnails from the
-// previous run, so "first" becomes the reopened-folder case. Paths may be
-// absolute or relative to the app's home directory (its container on iOS).
+// previous run, so "first" becomes the reopened-folder case. Paths are
+// absolute, or relative to the app's home directory (its container on iOS).
 // `src/scripts/measure_grid_scroll.sh` drives all of it.
 
 import MapleCore
@@ -30,8 +30,6 @@ import os
 
 #if os(macOS)
   import AppKit
-#else
-  import UIKit
 #endif
 
 private let scrollRunLog = Logger(subsystem: "app.justmaple.aperture", category: "scrollrun")
@@ -42,17 +40,18 @@ struct GridScrollRunRequest {
   let report: URL
   let reuse: Bool
 
+  /// A count that does not parse is kept as zero so the run fails with a
+  /// report instead of turning into a normal launch that never quits.
   static let current: GridScrollRunRequest? = {
     let environment = ProcessInfo.processInfo.environment
-    guard let seed = environment["MAPLE_SCROLL_RUN_SEED"], !seed.isEmpty,
-      let count = environment["MAPLE_SCROLL_RUN_COUNT"].flatMap(Int.init)
-    else { return nil }
+    guard let seed = environment["MAPLE_SCROLL_RUN_SEED"], !seed.isEmpty else { return nil }
     let report =
-      environment["MAPLE_SCROLL_RUN_REPORT"].map(resolve)
+      environment["MAPLE_SCROLL_RUN_REPORT"].flatMap { $0.isEmpty ? nil : resolve($0) }
       ?? FileManager.default.temporaryDirectory.appendingPathComponent("maple-scroll-run.json")
     return GridScrollRunRequest(
-      seed: resolve(seed), count: count, report: report,
-      reuse: environment["MAPLE_SCROLL_RUN_REUSE"] == "1")
+      seed: resolve(seed),
+      count: environment["MAPLE_SCROLL_RUN_COUNT"].flatMap(Int.init) ?? 0,
+      report: report, reuse: environment["MAPLE_SCROLL_RUN_REUSE"] == "1")
   }()
 
   private static func resolve(_ path: String) -> URL {
@@ -70,10 +69,12 @@ private struct GridScrollRunFailure: Error {
 extension AppShell {
   static let scrollRunPointsPerSecond = 3000.0
 
-  /// Returns `false` at once on a normal launch. A requested run never
-  /// returns: it ends the process when the report is written.
+  /// `false` on a normal launch, and in every window after the first of a
+  /// requested run. The run itself ends the process when its report is written.
   func runGridScrollMeasurementIfRequested() async -> Bool {
-    guard let request = GridScrollRunRequest.current else { return false }
+    guard let request = GridScrollRunRequest.current, GridScrollEnvironment.claimRun() else {
+      return false
+    }
     hasRestoredInitialSource = true
     var report = ScrollRunReport()
     report.photoCount = request.count
@@ -97,7 +98,9 @@ extension AppShell {
   private func measureGridScroll(
     _ request: GridScrollRunRequest, into report: inout ScrollRunReport
   ) async throws {
-    GridScrollEnvironment.bringToFront()
+    #if os(macOS)
+      GridScrollEnvironment.fillScreen()
+    #endif
     let staged = try await Task.detached(priority: .userInitiated) {
       try ScrollRunFolder.stage(seed: request.seed, count: request.count, reuse: request.reuse)
     }.value
@@ -106,37 +109,42 @@ extension AppShell {
     try await waitUntil("the folder listing published", timeout: .seconds(120)) {
       browseVM.assets.count >= request.count
     }
-    var grid: GridScrollTarget?
+    var found: GridScrollTarget?
     try await waitUntil("the grid became scrollable", timeout: .seconds(30)) {
-      grid = GridScrollTarget.find()
-      return grid != nil
+      found = GridScrollTarget.find()
+      return found != nil
     }
-    guard let grid else { throw GridScrollRunFailure(reason: "no grid scroll view") }
+    guard let grid = found else { throw GridScrollRunFailure(reason: "no grid scroll view") }
     report.displayMaximumHz = grid.displayMaximumHz
     report.viewportWidth = grid.viewport.width
     report.viewportHeight = grid.viewport.height
 
-    report.passes.append(await measuredPass("first", on: grid))
+    try await measurePass("first", on: grid, into: &report)
     let primeStart = CACurrentMediaTime()
     try await cacheEveryThumbnail(on: grid)
     report.primeSeconds = CACurrentMediaTime() - primeStart
-    report.passes.append(await measuredPass("cached", on: grid))
-
-    report.displayAwake = GridScrollEnvironment.displayAwake
-    report.screenLocked = GridScrollEnvironment.screenLocked
-    report.windowVisible = grid.windowVisible
+    try await measurePass("cached", on: grid, into: &report)
   }
 
-  private func measuredPass(_ name: String, on grid: GridScrollTarget) async -> ScrollPassReport {
+  private func measurePass(
+    _ name: String, on grid: GridScrollTarget, into report: inout ScrollRunReport
+  ) async throws {
     grid.offset = grid.minimumOffset
     let inFlight = await ThumbnailLoader.shared.inFlightLoadCount
     let start = grid.offset
-    let frames = await GridScrollDriver(
-      grid: grid, pointsPerSecond: Self.scrollRunPointsPerSecond
-    ).scrollToBottom()
-    return ScrollPassReport(
-      name: name, frames: frames, distancePoints: grid.offset - start,
-      thumbnailLoadsInFlightAtStart: inFlight)
+    let visibleBefore = grid.framesVisible
+    let expectedSeconds = (grid.maximumOffset - start) / Self.scrollRunPointsPerSecond
+    let pass = await GridScrollDriver(grid: grid, pointsPerSecond: Self.scrollRunPointsPerSecond)
+      .scrollToBottom(givingUpAfter: .seconds(60 + 4 * expectedSeconds))
+    report.framesVisible = (report.framesVisible ?? true) && visibleBefore && grid.framesVisible
+    report.passes.append(
+      ScrollPassReport(
+        name: name, frames: pass.frames, distancePoints: grid.offset - start,
+        thumbnailLoadsInFlightAtStart: inFlight))
+    guard pass.reachedBottom else {
+      throw GridScrollRunFailure(
+        reason: "pass \(name) stopped before the bottom: the display link stopped calling back")
+    }
   }
 
   private func cacheEveryThumbnail(on grid: GridScrollTarget) async throws {
@@ -171,162 +179,16 @@ extension AppShell {
   }
 }
 
-/// The scroll view behind the Browse grid: the one with the most to scroll.
-@MainActor
-struct GridScrollTarget {
-  #if os(macOS)
-    let view: NSScrollView
-
-    static func find() -> GridScrollTarget? {
-      NSApp.windows
-        .compactMap(\.contentView)
-        .flatMap { descendants(of: $0) }
-        .compactMap { $0 as? NSScrollView }
-        .filter { $0.documentView?.isFlipped == true }
-        .map(GridScrollTarget.init)
-        .filter { $0.maximumOffset - $0.minimumOffset > $0.viewport.height }
-        .max { $0.maximumOffset < $1.maximumOffset }
-    }
-
-    private static func descendants(of view: NSView) -> [NSView] {
-      view.subviews.flatMap { [$0] + descendants(of: $0) }
-    }
-
-    var viewport: CGSize { view.contentView.bounds.size }
-    var minimumOffset: Double { -view.contentInsets.top }
-    var maximumOffset: Double {
-      (view.documentView?.frame.maxY ?? 0) - viewport.height + view.contentInsets.bottom
-    }
-    var offset: Double {
-      get { view.contentView.bounds.origin.y }
-      nonmutating set {
-        view.contentView.scroll(to: NSPoint(x: view.contentView.bounds.origin.x, y: newValue))
-        view.reflectScrolledClipView(view.contentView)
-      }
-    }
-    var displayMaximumHz: Int { view.window?.screen?.maximumFramesPerSecond ?? 0 }
-    var windowVisible: Bool { view.window?.occlusionState.contains(.visible) ?? false }
-
-    func makeDisplayLink(target: Any, selector: Selector) -> CADisplayLink {
-      view.displayLink(target: target, selector: selector)
-    }
-  #else
-    let view: UIScrollView
-
-    static func find() -> GridScrollTarget? {
-      UIApplication.shared.connectedScenes
-        .compactMap { $0 as? UIWindowScene }
-        .flatMap(\.windows)
-        .flatMap { descendants(of: $0) }
-        .compactMap { $0 as? UIScrollView }
-        .map(GridScrollTarget.init)
-        .filter { $0.maximumOffset - $0.minimumOffset > $0.viewport.height }
-        .max { $0.maximumOffset < $1.maximumOffset }
-    }
-
-    private static func descendants(of view: UIView) -> [UIView] {
-      view.subviews.flatMap { [$0] + descendants(of: $0) }
-    }
-
-    var viewport: CGSize { view.bounds.size }
-    var minimumOffset: Double { -view.adjustedContentInset.top }
-    var maximumOffset: Double {
-      view.contentSize.height - viewport.height + view.adjustedContentInset.bottom
-    }
-    var offset: Double {
-      get { view.contentOffset.y }
-      nonmutating set {
-        view.setContentOffset(CGPoint(x: view.contentOffset.x, y: newValue), animated: false)
-      }
-    }
-    var displayMaximumHz: Int { view.window?.windowScene?.screen.maximumFramesPerSecond ?? 0 }
-    var windowVisible: Bool {
-      view.window?.isHidden == false && UIApplication.shared.applicationState == .active
-    }
-
-    func makeDisplayLink(target: Any, selector: Selector) -> CADisplayLink {
-      let link = CADisplayLink(target: target, selector: selector)
-      let maximum = Float(displayMaximumHz)
-      // A scroll asks a ProMotion display for its full rate; so does this.
-      if maximum > 60 {
-        link.preferredFrameRateRange = CAFrameRateRange(
-          minimum: 80, maximum: maximum, preferred: maximum)
-      }
-      return link
-    }
-  #endif
-}
-
-/// Moves the grid at a constant speed from display-link callbacks and records
-/// each callback's refresh time, refresh period and commit time.
-@MainActor
-final class GridScrollDriver: NSObject {
-  private let grid: GridScrollTarget
-  private let pointsPerSecond: Double
-  private var frames: [DisplayFrame] = []
-  private var pending: (timestamp: Double, period: Double)?
-  private var origin: (timestamp: Double, offset: Double)?
-  private var reachedBottom = false
-  private var link: CADisplayLink?
-  private var commitObserver: CFRunLoopObserver?
-  private var continuation: CheckedContinuation<[DisplayFrame], Never>?
-
-  init(grid: GridScrollTarget, pointsPerSecond: Double) {
-    self.grid = grid
-    self.pointsPerSecond = pointsPerSecond
-  }
-
-  func scrollToBottom() async -> [DisplayFrame] {
-    frames.reserveCapacity(16_384)
-    return await withCheckedContinuation { continuation in
-      self.continuation = continuation
-      // Core Animation commits the frame from its own before-waiting
-      // observer; running after it is how the commit's end is seen.
-      let observer = CFRunLoopObserverCreateWithHandler(
-        nil, CFRunLoopActivity.beforeWaiting.rawValue | CFRunLoopActivity.exit.rawValue, true,
-        CFIndex.max
-      ) { [weak self] _, _ in
-        MainActor.assumeIsolated { self?.frameCommitted() }
-      }
-      CFRunLoopAddObserver(CFRunLoopGetMain(), observer, .commonModes)
-      commitObserver = observer
-      let link = grid.makeDisplayLink(target: self, selector: #selector(tick(_:)))
-      link.add(to: .main, forMode: .common)
-      self.link = link
-    }
-  }
-
-  @objc private func tick(_ link: CADisplayLink) {
-    let period = link.targetTimestamp - link.timestamp
-    pending = (link.timestamp, period > 0 ? period : link.duration)
-    let origin = self.origin ?? (link.timestamp, grid.offset)
-    self.origin = origin
-    let wanted = origin.offset + (link.timestamp - origin.timestamp) * pointsPerSecond
-    let bottom = grid.maximumOffset
-    grid.offset = min(wanted, bottom)
-    reachedBottom = wanted >= bottom
-  }
-
-  private func frameCommitted() {
-    guard let pending else { return }
-    self.pending = nil
-    frames.append(
-      DisplayFrame(
-        timestamp: pending.timestamp, period: pending.period, committed: CACurrentMediaTime()))
-    guard reachedBottom else { return }
-    link?.invalidate()
-    link = nil
-    if let commitObserver {
-      CFRunLoopRemoveObserver(CFRunLoopGetMain(), commitObserver, .commonModes)
-    }
-    commitObserver = nil
-    continuation?.resume(returning: frames)
-    continuation = nil
-  }
-}
-
 @MainActor
 enum GridScrollEnvironment {
+  private static var runClaimed = false
+
+  static func claimRun() -> Bool {
+    guard !runClaimed else { return false }
+    runClaimed = true
+    return true
+  }
+
   static var configuration: String {
     #if DEBUG
       "Debug"
@@ -357,31 +219,20 @@ enum GridScrollEnvironment {
       let name = "hw.machine"
     #endif
     var size = 0
-    sysctlbyname(name, nil, &size, nil, 0)
-    var value = [CChar](repeating: 0, count: size)
-    sysctlbyname(name, &value, &size, nil, 0)
-    return String(cString: value)
+    guard sysctlbyname(name, nil, &size, nil, 0) == 0, size > 0 else { return "" }
+    var value = [UInt8](repeating: 0, count: size)
+    guard sysctlbyname(name, &value, &size, nil, 0) == 0 else { return "" }
+    return String(decoding: value.prefix { $0 != 0 }, as: UTF8.self)
   }
 
   #if os(macOS)
-    static func bringToFront() {
+    static func fillScreen() {
       NSApp.activate(ignoringOtherApps: true)
       guard let window = NSApp.windows.first(where: \.isVisible), let screen = window.screen
       else { return }
       window.setFrame(screen.visibleFrame, display: true)
       window.makeKeyAndOrderFront(nil)
     }
-
-    static var displayAwake: Bool { CGDisplayIsAsleep(CGMainDisplayID()) == 0 }
-    static var screenLocked: Bool {
-      let session = CGSessionCopyCurrentDictionary() as? [String: Any]
-      return session?["CGSSessionScreenIsLocked"] as? Bool ?? false
-    }
-  #else
-    static func bringToFront() {}
-
-    static var displayAwake: Bool { true }
-    static var screenLocked: Bool { !UIApplication.shared.isProtectedDataAvailable }
   #endif
 
   static func finish(_ report: ScrollRunReport, at url: URL) -> Never {
