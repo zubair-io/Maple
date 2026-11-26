@@ -7,7 +7,8 @@ import XCTest
 final class LaunchTimelineTests: XCTestCase {
 
   func testMilestoneRecordsOnlyItsFirstArrival() {
-    let start = Date(timeIntervalSince1970: 1_000)
+    // Date is a Double from 2001; at 1970 its step is ~1e-7 s, coarser than the 1e-9 tolerance.
+    let start = Date(timeIntervalSinceReferenceDate: 0)
     let timeline = LaunchTimeline(processStart: start)
 
     let first = timeline.mark(.gridPublished, at: start.addingTimeInterval(0.4))
