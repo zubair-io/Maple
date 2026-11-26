@@ -78,6 +78,11 @@ test('picker and drop files use the same direct-to-editor intake', async ({ page
   });
   await expect(page).toHaveURL(/\/edit\/[^/]+$/);
 
+  // Leaving the editor as soon as its URL appears can cut off its canvas module download (#6044).
+  testInfo.annotations.push({
+    type: 'expected-request-failure',
+    description: `GET ${new URL('/pkg/canvas/raw_wasm_canvas_bg.wasm', page.url()).href} net::ERR_ABORTED`,
+  });
   await page.goto('/');
   await page.waitForLoadState('networkidle');
   await page.locator('section').evaluate((section, bytes) => {
