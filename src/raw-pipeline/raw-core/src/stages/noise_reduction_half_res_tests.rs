@@ -70,16 +70,21 @@ fn odd_sizes_and_origins_stay_finite() {
     }
 }
 
-/// A window cut from the frame at an odd origin, denoised on its own,
-/// matches the whole-frame result once the reach band is discarded.
+/// A window cut from the frame at an odd or an even origin, denoised on its
+/// own, matches the whole-frame result once the reach band is discarded.
 #[test]
 fn window_matches_the_frame_inside_the_reach() {
     let (fw, fh) = (96u32, 80u32);
     let mut frame = noisy(fw, fh, 4);
     let source = frame.clone();
     run(&mut frame, 40.0, (0, 0));
+    for origin in [(21, 15), (20, 14)] {
+        window_matches_at(&source, &frame, fw, origin);
+    }
+}
 
-    let (ox, oy, ww, wh) = (21u32, 15u32, 50u32, 44u32);
+fn window_matches_at(source: &Image, frame: &Image, fw: u32, (ox, oy): (u32, u32)) {
+    let (ww, wh) = (50u32, 44u32);
     let mut window = Image::new(ww, wh, ColorSpace::SceneLinearRec2020);
     for r in 0..wh {
         for c in 0..ww {
@@ -97,7 +102,7 @@ fn window_matches_the_frame_inside_the_reach() {
             let got = window.pixels[(r * ww + c) as usize];
             let want = frame.pixels[((r + oy) * fw + c + ox) as usize];
             if inside(c, r) {
-                assert_eq!(got, want, "pixel ({c}, {r})");
+                assert_eq!(got, want, "origin ({ox}, {oy}): pixel ({c}, {r})");
             } else {
                 band_differs |= got != want;
             }
@@ -105,7 +110,7 @@ fn window_matches_the_frame_inside_the_reach() {
     }
     assert!(
         band_differs,
-        "the edge band never differs, so the reach is untested"
+        "origin ({ox}, {oy}): the edge band never differs, so the reach is untested"
     );
 }
 
@@ -143,32 +148,55 @@ fn an_isolated_hot_pixel_leaves_no_colour_spike_at_the_default_amount() {
 }
 
 /// The clamp ramps in with the amount, so the slider has no step anywhere
-/// between identity at 0 and full half-resolution chroma at 100. The half-res
-/// NLM's own steepest change on this frame is about 0.018 per half step (near
-/// amount 1–2, with or without the clamp); a clamp applied in full from the
-/// first tick jumps 0.04 between 0 and 0.5.
+/// between identity at 0 and full half-resolution chroma at 100. Two
+/// measures: the whole render never moves a pixel by 0.025 per half step
+/// (the half-res NLM's own steepest change here is about 0.018, near amount
+/// 1–2), and the clamp's own share of the render (clamped minus unclamped)
+/// changes by under 0.003 per half step. A clamp applied in full from the
+/// first tick jumps 0.04; one ramping in by amount 2.5 instead of 25 steps
+/// about ten times further per tick than this ramp does.
 #[test]
 fn the_hot_pixel_fades_without_a_step_across_the_slider() {
     let source = flat_with_hot_pixel(32, 24, (13, 9));
-    let render = |amount: f32| {
+    let render = |amount: f32, despeckle: bool| {
         let mut img = source.clone();
-        run(&mut img, amount, (0, 0));
+        if despeckle {
+            run(&mut img, amount, (0, 0));
+        } else {
+            apply_color_half_res_without_despeckle(&mut img, amount, None, 100);
+        }
         img.pixels
     };
-    let steps: Vec<f32> = (0..=200).map(|k| k as f32 * 0.5).collect();
-    let largest_step = steps
+    let largest_step = |a: &[[f32; 3]], b: &[[f32; 3]]| {
+        a.iter()
+            .zip(b)
+            .flat_map(|(p, q)| p.iter().zip(q).map(|(u, v)| (u - v).abs()))
+            .fold(0.0f32, f32::max)
+    };
+    let clamp_share = |amount: f32| -> Vec<[f32; 3]> {
+        render(amount, true)
+            .iter()
+            .zip(&render(amount, false))
+            .map(|(p, q)| [p[0] - q[0], p[1] - q[1], p[2] - q[2]])
+            .collect()
+    };
+    let amounts: Vec<f32> = (0..=200).map(|k| k as f32 * 0.5).collect();
+    let (render_step, clamp_step) = amounts
         .windows(2)
         .map(|pair| {
-            render(pair[0])
-                .iter()
-                .zip(&render(pair[1]))
-                .flat_map(|(a, b)| a.iter().zip(b).map(|(u, v)| (u - v).abs()))
-                .fold(0.0f32, f32::max)
+            (
+                largest_step(&render(pair[0], true), &render(pair[1], true)),
+                largest_step(&clamp_share(pair[0]), &clamp_share(pair[1])),
+            )
         })
-        .fold(0.0f32, f32::max);
+        .fold((0.0f32, 0.0f32), |(r, c), (dr, dc)| (r.max(dr), c.max(dc)));
     assert!(
-        largest_step < 0.025,
-        "a 0.5 slider step moved a pixel by {largest_step:.4}"
+        render_step < 0.025,
+        "a 0.5 slider step moved a pixel by {render_step:.4}"
+    );
+    assert!(
+        clamp_step < 0.003,
+        "a 0.5 slider step moved the clamp's share by {clamp_step:.4}"
     );
 }
 
@@ -179,13 +207,51 @@ fn the_clamp_leaves_values_within_the_margin_alone() {
     let range = (0.010, 0.020);
     let inside_margin = range.1 + 0.8 * DESPECKLE_MARGIN;
     let close = |got: f32, want: f32| assert!((got - want).abs() < 1e-7, "{got} != {want}");
-    assert_eq!(despeckle(inside_margin, range, 1.0), inside_margin);
+    assert_eq!(despeckle(inside_margin, Some(range), 1.0), inside_margin);
     close(
-        despeckle(range.0 - 0.1, range, 1.0),
+        despeckle(range.0 - 0.1, Some(range), 1.0),
         range.0 - DESPECKLE_MARGIN,
     );
     close(
-        despeckle(range.1 + 0.1, range, 0.5),
+        despeckle(range.1 + 0.1, Some(range), 0.5),
         0.5 * (range.1 + 0.1) + 0.5 * (range.1 + DESPECKLE_MARGIN),
     );
+}
+
+fn flat_with(w: u32, h: u32, at: (u32, u32), bad: f32) -> Image {
+    let mut img = Image::new(w, h, ColorSpace::SceneLinearRec2020);
+    img.pixels.fill([0.18, 0.16, 0.20]);
+    img.pixels[(at.1 * w + at.0) as usize] = [bad, 0.16, 0.20];
+    img
+}
+
+/// A NaN or infinite sensel poisons its block's chroma and every bilinear
+/// tap and NLM patch that reads it (the full-resolution filter before #6018
+/// spread one over 7×7 pixels; this one over 12×12, with or without the
+/// clamp). The clamp must leave such a neighbourhood alone rather than clamp
+/// against an inverted range, which panics; the damage stays inside the
+/// reach, and everything beyond it matches the clean frame.
+#[test]
+fn a_non_finite_pixel_neither_panics_nor_spreads_past_the_reach() {
+    let (w, h, at) = (40u32, 40u32, (19u32, 20u32));
+    let reach = HALF_RES_CHROMA_REACH_PX as u32;
+    let mut clean = flat_with(w, h, at, 0.18);
+    run(&mut clean, 25.0, (0, 0));
+    for bad in [f32::NAN, f32::INFINITY] {
+        let mut img = flat_with(w, h, at, bad);
+        run(&mut img, 25.0, (0, 0));
+        for r in 0..h {
+            for c in 0..w {
+                let i = (r * w + c) as usize;
+                if c.abs_diff(at.0) > reach || r.abs_diff(at.1) > reach {
+                    assert_eq!(img.pixels[i], clean.pixels[i], "{bad}: pixel ({c}, {r})");
+                } else if !img.pixels[i].iter().all(|v| v.is_finite()) {
+                    assert!(
+                        c.abs_diff(at.0) < reach && r.abs_diff(at.1) < reach,
+                        "{bad}: non-finite at ({c}, {r})"
+                    );
+                }
+            }
+        }
+    }
 }

@@ -492,3 +492,7 @@ mod tests_profile;
 #[cfg(all(test, not(target_arch = "wasm32")))]
 #[path = "noise_reduction/tests_sampling.rs"]
 mod tests_sampling;
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+#[path = "noise_reduction/tests_despeckle.rs"]
+mod tests_despeckle;

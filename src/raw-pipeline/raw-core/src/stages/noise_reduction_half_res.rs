@@ -116,19 +116,28 @@ fn sample(plane: &[f32], stride: usize, x: Axis, y: Axis, c: usize, r: usize) ->
 }
 
 /// `value` pulled `strength` of the way into `range` widened by
-/// [`DESPECKLE_MARGIN`].
-fn despeckle(value: f32, (lo, hi): (f32, f32), strength: f32) -> f32 {
-    value + strength * (value.clamp(lo - DESPECKLE_MARGIN, hi + DESPECKLE_MARGIN) - value)
+/// [`DESPECKLE_MARGIN`]. A non-finite value, or a neighbourhood with no
+/// finite sample (a NaN or infinite sensel nearby), is left alone for the
+/// endcap scrub, exactly as before the clamp existed.
+fn despeckle(value: f32, range: Option<(f32, f32)>, strength: f32) -> f32 {
+    match range {
+        Some((lo, hi)) if value.is_finite() => {
+            value + strength * (value.clamp(lo - DESPECKLE_MARGIN, hi + DESPECKLE_MARGIN) - value)
+        }
+        _ => value,
+    }
 }
 
-/// Range of the three-row window `lines` (each `w` long) over columns
-/// `c - 1 ..= c + 1`, edge-replicated.
-fn range_3x3(lines: &[f32], w: usize, c: usize) -> (f32, f32) {
+/// Range of the finite samples of the three-row window `lines` (each `w`
+/// long) over columns `c - 1 ..= c + 1`, edge-replicated.
+fn range_3x3(lines: &[f32], w: usize, c: usize) -> Option<(f32, f32)> {
     let cols = [c.saturating_sub(1), c, (c + 1).min(w - 1)];
     (0..9)
         .map(|k| lines[(k / 3) * w + cols[k % 3]])
-        .fold((f32::INFINITY, f32::NEG_INFINITY), |(lo, hi), v| {
-            (lo.min(v), hi.max(v))
+        .filter(|v| v.is_finite())
+        .fold(None, |range, v| match range {
+            None => Some((v, v)),
+            Some((lo, hi)) => Some((f32::min(lo, v), f32::max(hi, v))),
         })
 }
 
@@ -142,6 +151,39 @@ pub(super) fn apply_color_half_res_cancellable(
     iso: u32,
     origin: (i32, i32),
 ) {
+    let strength = (amount / DESPECKLE_FULL_AMOUNT).clamp(0.0, 1.0);
+    denoise(img, amount, cancel, noise_profile, iso, origin, strength);
+}
+
+/// The same filter with the despeckle clamp switched off: the reference the
+/// GPU parity gates use to prove the clamp actually moved their input.
+#[cfg(any(test, feature = "test-support"))]
+pub(super) fn apply_color_half_res_without_despeckle(
+    img: &mut Image,
+    amount: f32,
+    noise_profile: Option<&[f32]>,
+    iso: u32,
+) {
+    denoise(
+        img,
+        amount,
+        CancelToken::never(),
+        noise_profile,
+        iso,
+        (0, 0),
+        0.0,
+    );
+}
+
+fn denoise(
+    img: &mut Image,
+    amount: f32,
+    cancel: CancelToken<'_>,
+    noise_profile: Option<&[f32]>,
+    iso: u32,
+    origin: (i32, i32),
+    strength: f32,
+) {
     img.assert_space(ColorSpace::SceneLinearRec2020);
     let (w, h) = (img.width as usize, img.height as usize);
     if amount.abs() < 1e-3 || w == 0 || h == 0 {
@@ -152,7 +194,6 @@ pub(super) fn apply_color_half_res_cancellable(
         ..chroma_params(amount)
     };
     let residual_weight = 1.0 - (amount / 100.0).clamp(0.0, 1.0);
-    let strength = (amount / DESPECKLE_FULL_AMOUNT).clamp(0.0, 1.0);
     let (x, y) = (Axis::new(w, origin.0), Axis::new(h, origin.1));
     let (l_plane, a_plane, b_plane) = oklab_planes(&img.pixels);
     let (half_l, half_a, half_b) = (
