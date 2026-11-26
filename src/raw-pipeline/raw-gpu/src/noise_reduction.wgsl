@@ -285,7 +285,9 @@ fn writeback_color(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_w
 // `despeckle_strength` of the way into the range of the upsampled denoised
 // plane over the pixel's 3×3 neighbourhood (edge-replicated) widened by
 // `despeckle_margin`, so an isolated chroma spike does not survive the
-// add-back. Summation order and the tap weights follow the CPU exactly.
+// add-back. Non-finite samples are left out of the range, and a non-finite
+// value or a range with no finite sample is left alone, as on the CPU.
+// Summation order and the tap weights follow the CPU exactly.
 struct HalfParams {
     width: u32,
     height: u32,
@@ -363,13 +365,24 @@ fn upsample_residual(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num
         + up_params.residual_weight * (up_native[i] - half_sample_noisy(xt, yt));
     let cols = vec3<u32>(select(c - 1u, 0u, c == 0u), c, min(c + 1u, up_params.width - 1u));
     let rows = vec3<u32>(select(r - 1u, 0u, r == 0u), r, min(r + 1u, up_params.height - 1u));
-    var lo = 3.4e38;
-    var hi = -3.4e38;
+    var lo = 0.0;
+    var hi = 0.0;
+    var any_finite = false;
     for (var k = 0u; k < 9u; k = k + 1u) {
         let d = half_sample_denoised(cols[k % 3u], rows[k / 3u]);
-        lo = min(lo, d);
-        hi = max(hi, d);
+        if (is_finite_f32(d)) {
+            lo = select(d, min(lo, d), any_finite);
+            hi = select(d, max(hi, d), any_finite);
+            any_finite = true;
+        }
     }
     let margin = up_params.despeckle_margin;
-    up_out[i] = value + up_params.despeckle_strength * (clamp(value, lo - margin, hi + margin) - value);
+    let clamped = value + up_params.despeckle_strength * (clamp(value, lo - margin, hi + margin) - value);
+    up_out[i] = select(value, clamped, any_finite && is_finite_f32(value));
+}
+
+// Bit-pattern test: shader compilers may assume NaN and infinity never occur
+// and fold float comparisons that would detect them.
+fn is_finite_f32(v: f32) -> bool {
+    return (bitcast<u32>(v) & 0x7f800000u) != 0x7f800000u;
 }

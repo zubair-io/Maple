@@ -66,6 +66,17 @@ mod half_res;
 use half_res::apply_color_half_res_cancellable;
 pub use half_res::HALF_RES_CHROMA_REACH_PX;
 
+/// Native-density chroma NR with the despeckle clamp off (GPU parity gates).
+#[cfg(any(test, feature = "test-support"))]
+pub fn apply_color_without_despeckle(
+    img: &mut Image,
+    amount: f32,
+    noise_profile: Option<&[f32]>,
+    iso: u32,
+) {
+    half_res::apply_color_half_res_without_despeckle(img, amount, noise_profile, iso);
+}
+
 /// NLM parameters at amount = 100 for the luma channel. P = 2 (5×5
 /// patch) + S = 2 (5×5 search = 24 offsets) lands the slider tick at
 /// roughly 40 ms on 2 MP — over budget, but small enough that a
