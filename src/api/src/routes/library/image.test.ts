@@ -91,6 +91,29 @@ describe('GET /image/:slug/*', () => {
     expect(await stale.text()).toBe('conditional-dng');
   });
 
+  test('a 304 carries the streamed-file cross-origin headers, and a ranged read keeps its 206', async () => {
+    await writeFile(path.join(tmpDir, 'ranged.dng'), Buffer.from('ranged-dng'));
+    const first = await app.handle(new Request('http://localhost/image/imglib/ranged.dng'));
+    const etag = first.headers.get('ETag')!;
+    const unchanged = await app.handle(
+      new Request('http://localhost/image/imglib/ranged.dng', {
+        headers: { 'If-None-Match': etag },
+      }),
+    );
+    expect(unchanged.status).toBe(304);
+    expect(unchanged.headers.get('Access-Control-Allow-Origin')).toBe(
+      first.headers.get('Access-Control-Allow-Origin'),
+    );
+    expect(unchanged.headers.get('Cross-Origin-Resource-Policy')).toBe('cross-origin');
+    const ranged = await app.handle(
+      new Request('http://localhost/image/imglib/ranged.dng', {
+        headers: { 'If-None-Match': etag, Range: 'bytes=0-0' },
+      }),
+    );
+    expect(ranged.status).toBe(206);
+    expect(ranged.headers.get('Content-Range')).toBe('bytes 0-0/10');
+  });
+
   test('rejects path traversal attempt', async () => {
     const res = await app.handle(
       new Request('http://localhost/image/imglib/..%2F..%2Fetc%2Fpasswd'),

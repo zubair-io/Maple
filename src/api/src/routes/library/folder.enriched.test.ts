@@ -1,4 +1,4 @@
-import { beforeEach, afterEach, describe, expect, test } from 'bun:test';
+import { beforeEach, afterEach, describe, expect, spyOn, test } from 'bun:test';
 import { Elysia } from 'elysia';
 import * as fs from '../../fs/mirrored.ts';
 import * as path from 'node:path';
@@ -417,6 +417,42 @@ describe('unified enriched folder listing #4001', () => {
       expect(byName.get('b.jpg')).toMatchObject({ edited: true, rating: 2 });
       expect(byName.get('c.jpg')).toMatchObject({ edited: true, rating: 4 });
     } finally {
+      await fs.rm(outside, { recursive: true, force: true });
+    }
+  });
+  test('refuses a listing whose folder was relinked outside the library while it was read', async () => {
+    const outside = await fs.mkdtemp(path.join(tmpdir(), 'maple-relinked-'));
+    const folder = path.join(root, 'sub');
+    const xmp = (rating: number) =>
+      `<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description rdf:about="" xmlns:xmp="http://ns.adobe.com/xap/1.0/" xmp:Rating="${rating}"/></rdf:RDF></x:xmpmeta>`;
+    await fs.mkdir(folder);
+    for (const [directory, rating] of [
+      [folder, 2],
+      [outside, 5],
+    ] as const) {
+      for (const stem of ['x', 'y']) {
+        await fs.writeFile(path.join(directory, `${stem}.jpg`), stem);
+        await fs.writeFile(path.join(directory, `${stem}.xmp`), xmp(rating));
+      }
+    }
+    const lstat = fs.lstat;
+    const relinked = { done: false };
+    const spy = spyOn(fs, 'lstat').mockImplementation((async (
+      ...args: Parameters<typeof fs.lstat>
+    ) => {
+      if (!relinked.done && String(args[0]).endsWith('y.xmp')) {
+        relinked.done = true;
+        await fs.rename(folder, `${folder}-moved`);
+        await fs.symlink(outside, folder);
+      }
+      return lstat(...args);
+    }) as typeof fs.lstat);
+    try {
+      const response = await app.handle(new Request('http://localhost/folder/photos/sub'));
+      expect(relinked.done).toBe(true);
+      expect(response.status).toBe(409);
+    } finally {
+      spy.mockRestore();
       await fs.rm(outside, { recursive: true, force: true });
     }
   });

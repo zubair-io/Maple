@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from '../fs/mirrored.ts';
-import { childInspector } from './folder-child.ts';
+import { chmod, mkdir, mkdtemp, realpath, rm, symlink, writeFile } from '../fs/mirrored.ts';
+import { childInspector, sharedGrant } from './folder-child.ts';
 
 describe('childInspector', () => {
   let base = '';
@@ -54,5 +54,53 @@ describe('childInspector', () => {
   it('shares one answer per name', async () => {
     const inspect = childInspector(library, library, library);
     expect(inspect('a.jpg')).toBe(inspect('a.jpg'));
+  });
+
+  it.skipIf(process.platform !== 'darwin' || process.getuid?.() === 0)(
+    'leaves out a plain child this process cannot open, as realpath did on macOS',
+    async () => {
+      await writeFile(join(library, 'locked.jpg'), 'l');
+      await chmod(join(library, 'locked.jpg'), 0o000);
+      await mkdir(join(library, 'sealed'));
+      await chmod(join(library, 'sealed'), 0o311);
+      const inspect = childInspector(library, library, library);
+      try {
+        expect(await inspect('locked.jpg')).toBeNull();
+        expect(await inspect('sealed')).toBeNull();
+        expect(await inspect('a.jpg')).not.toBeNull();
+      } finally {
+        await chmod(join(library, 'sealed'), 0o755);
+      }
+    },
+  );
+});
+
+describe('sharedGrant', () => {
+  it('asks once while the answer is a grant', async () => {
+    const asked: string[] = [];
+    const granted = sharedGrant(async (name: string) => {
+      asked.push(name);
+      return true;
+    });
+    expect(await Promise.all([granted('a'), granted('b'), granted('c')])).toEqual([
+      true,
+      true,
+      true,
+    ]);
+    expect(asked).toEqual(['a']);
+  });
+
+  it('never shares a refusal or a failure: each caller is asked about its own argument', async () => {
+    const asked: string[] = [];
+    const granted = sharedGrant(async (name: string) => {
+      asked.push(name);
+      if (name === 'broken') throw new Error('roots unavailable');
+      return name !== 'refused';
+    });
+    expect(await granted('refused')).toBe(false);
+    await expect(granted('broken')).rejects.toThrow('roots unavailable');
+    expect(await granted('b')).toBe(true);
+    expect(await granted('c')).toBe(true);
+    expect(asked).toEqual(['refused', 'refused', 'broken', 'broken', 'b']);
   });
 });
