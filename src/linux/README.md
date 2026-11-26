@@ -406,7 +406,8 @@ Reverse-proxy path prefixes are retained. HTTP redirects are refused.
 The client restores/rotates saved credentials and retries one bearer request
 after a 401. Transient refresh errors retain the credential; only origin 400/401
 rejection deletes it. Cloud browsing uses unified address routes, 500-entry
-cursor pages, a bounded media queue and a 128-entry session thumbnail cache.
+cursor pages, a bounded media queue and a session thumbnail cache of 128 entries,
+or the tiles on screen when there are more; a tile on screen is never evicted.
 AVIF derivatives decode through raw-core's patched native decoder. Full-image
 previews, retry, parent/child navigation and explicit credential deletion are
 wired. “Edit original” downloads a photograph into the native editor, with the same

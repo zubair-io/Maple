@@ -107,6 +107,8 @@ impl CloudState {
                         155.0,
                         folder.images.len().div_ceil(columns),
                         |ui, range| {
+                            self.laid_out = range.start * columns
+                                ..(range.end * columns).min(folder.images.len());
                             for row in range {
                                 ui.horizontal(|ui| {
                                     for entry in
