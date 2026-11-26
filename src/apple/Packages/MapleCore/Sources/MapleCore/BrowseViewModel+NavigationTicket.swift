@@ -1,21 +1,22 @@
 import Foundation
 
 public struct BrowseNavigationTicket: Equatable, Sendable {
+  fileprivate let navigation: UInt64
   fileprivate let generation: UInt64
 }
 
 extension BrowseViewModel {
-  /// Claims the grid for a navigation that suspends before its load starts,
-  /// such as a cloud folder waiting on sign-in or LAN discovery. Any later
-  /// navigation on this model makes the ticket stale. A load it supersedes
-  /// can no longer clear the spinner itself, so that happens here.
+  /// Marks a navigation that suspends before its load starts, such as a
+  /// cloud folder waiting on sign-in or LAN discovery. A later ticket, or
+  /// any load that starts on this model meanwhile, makes it stale. The load
+  /// already running is left alone: it keeps the grid if this navigation
+  /// never starts (sign-in dismissed).
   public func beginNavigation() -> BrowseNavigationTicket {
-    loadGeneration &+= 1
-    if isLoading { isLoading = false }
-    return BrowseNavigationTicket(generation: loadGeneration)
+    pendingNavigation &+= 1
+    return BrowseNavigationTicket(navigation: pendingNavigation, generation: loadGeneration)
   }
 
   public func isCurrent(_ ticket: BrowseNavigationTicket) -> Bool {
-    ticket.generation == loadGeneration
+    ticket.navigation == pendingNavigation && ticket.generation == loadGeneration
   }
 }
