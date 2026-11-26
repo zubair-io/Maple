@@ -156,8 +156,6 @@ internal sealed class PanoSeamOverlay
             StrokeThickness = 2,
             IsHitTestVisible = false,
         };
-        // Exclude is dashed as well as tinted, so the two kinds differ by
-        // more than colour.
         if (dashed)
             outline.StrokeDashArray = new DoubleCollection { 4, 3 };
         Place(outline, x, y);
@@ -170,7 +168,6 @@ internal sealed class PanoSeamOverlay
             FontWeight = FontWeights.SemiBold,
             Foreground = Themed("MapleTextMain"),
         };
-        // The numbered list under the options says the same to a screen reader.
         AutomationProperties.SetAccessibilityView(label, AccessibilityView.Raw);
         Place(new Border
         {
