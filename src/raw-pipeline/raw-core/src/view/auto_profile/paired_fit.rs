@@ -288,42 +288,50 @@ pub(super) fn fit(
             let registration = crate::pipeline::stage("pf_register", || {
                 super::fit_registration::estimate(&geometry)
             });
-            let aligned = crate::pipeline::stage("pf_aligned_rows", || {
-                registration.as_ref().and_then(|r| {
-                    paired_observations::build_aligned(
-                        pixels,
-                        width,
-                        height,
-                        orientation,
-                        preview,
-                        current,
-                        r.warp,
-                    )
-                })
-            });
-            let matched_native = crate::pipeline::stage("pf_matched_rows", || {
-                registration.as_ref().and_then(|r| {
-                    if !correspondence::supported_both_directions(r.warp) {
-                        return None;
-                    }
-                    let matched = paired_observations::build_native_aligned(
-                        pixels,
-                        width,
-                        height,
-                        orientation,
-                        preview,
-                        current,
-                        r.warp,
-                    )?;
-                    (correspondence::retains_population(&observations, &matched)
-                        && aligned.as_ref().is_some_and(|set| {
-                            correspondence::retains_population(
-                                display.as_ref().unwrap_or(&observations),
-                                set,
+            let (aligned, matched) = rayon::join(
+                || {
+                    crate::pipeline::stage("pf_aligned_rows", || {
+                        registration.as_ref().and_then(|r| {
+                            paired_observations::build_aligned(
+                                pixels,
+                                width,
+                                height,
+                                orientation,
+                                preview,
+                                current,
+                                r.warp,
                             )
-                        }))
-                    .then_some(matched)
-                })
+                        })
+                    })
+                },
+                || {
+                    crate::pipeline::stage("pf_matched_rows", || {
+                        registration.as_ref().and_then(|r| {
+                            correspondence::supported_both_directions(r.warp)
+                                .then(|| {
+                                    paired_observations::build_native_aligned(
+                                        pixels,
+                                        width,
+                                        height,
+                                        orientation,
+                                        preview,
+                                        current,
+                                        r.warp,
+                                    )
+                                })
+                                .flatten()
+                        })
+                    })
+                },
+            );
+            let matched_native = matched.filter(|matched| {
+                correspondence::retains_population(&observations, matched)
+                    && aligned.as_ref().is_some_and(|set| {
+                        correspondence::retains_population(
+                            display.as_ref().unwrap_or(&observations),
+                            set,
+                        )
+                    })
             });
             let matched_native_rows = matched_native.as_ref().map_or(native_rows, |s| &s.rows);
             let matched_display_rows = if matched_native.is_some() {
