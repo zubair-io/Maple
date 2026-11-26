@@ -349,6 +349,9 @@
          "rail shows in both viewer modes, a cell tap never changes mode"
          contract is testable here without a live Window. -->
     <Compile Include="..\Maple.WinUI\ShellMode.cs" />
+    <!-- SavedPreviewDeferral.cs (#4374): which saved-preview work may run
+         while the shell is in Edit, and what is owed on the way out. -->
+    <Compile Include="..\Maple.WinUI\ViewModels\SavedPreviewDeferral.cs" LinkBase="ViewModels" />
     <Compile Include="..\Maple.WinUI\ComparisonGesture.cs" />
     <Compile Include="..\Maple.WinUI\ViewModels\BrowseSortLogic.cs" />
     <Compile Include="..\Maple.WinUI\Services\Metadata\InspectorMetadata.cs" />

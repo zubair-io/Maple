@@ -216,6 +216,7 @@ namespace Maple.WinUI
             if (_mode != mode) ResetComparison();
             if (_mode == ShellMode.Preview) _previewRailCompact = FilmstripRail.IsCollapsed;
             _mode = mode;
+            ViewModel.SetShellMode(mode);
             ClearNativeDetailSource();
             UpdateInfoPane();
             var browse = mode == ShellMode.Browse;
