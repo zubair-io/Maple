@@ -13,7 +13,9 @@ use std::path::{Path, PathBuf};
 use crate::error::PanoError;
 use crate::ingest::{FrameMeta, FramePriors, ProxySink};
 
-use super::{create_file, io, FileScratch, BYTES_PER_PIXEL, DIR_PREFIX, SCRATCH_RESERVE_EIGHTHS};
+use super::{
+    create_file, io, FileScratch, DIR_PREFIX, SCRATCH_BYTES_PER_PIXEL, SCRATCH_RESERVE_EIGHTHS,
+};
 
 /// Develops one frame at a time into its proxy.
 pub struct ProxyDevelop {
@@ -31,7 +33,7 @@ impl ProxyDevelop {
         super::FrameStore::sweep_orphans(parent);
         let needed = largest_dims.0 as u64
             * largest_dims.1 as u64
-            * BYTES_PER_PIXEL
+            * SCRATCH_BYTES_PER_PIXEL
             * SCRATCH_RESERVE_EIGHTHS
             / 8;
         let available = io::available_bytes(parent).map_err(|e| PanoError::io(parent, e))?;
