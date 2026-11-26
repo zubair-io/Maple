@@ -54,14 +54,11 @@ namespace Maple.WinUI.Tests
 
         private const string IncomingReason =
             "#2847: a trashed photo's conflict and workflow copies stay in the original folder and are not moved back with it";
-        private const string HiddenNameReason =
-            "Windows refuses relocating a name that starts with a dot (ValidateBareFileName), so a hidden photo cannot be restored at all";
 
         private static readonly Dictionary<string, string> ExpectedDifferences = new()
         {
             ["case-folded incoming XMP"] = IncomingReason,
             ["case-folded incoming workflow XMP"] = IncomingReason,
-            ["hidden extensionless"] = HiddenNameReason,
         };
 
         public static IEnumerable<object[]> CaseNames() => LoadCorpus().Cases.Select(c => new object[] { c.Name });
@@ -90,16 +87,6 @@ namespace Maple.WinUI.Tests
             var folderBefore = FolderNames();
             var oldStem = SidecarBase(item.Base);
             var newStem = SidecarBase(item.Expected);
-
-            if (item.Name == "hidden extensionless")
-            {
-                var refused = await Assert.ThrowsAsync<FileOperationException>(
-                    () => LocalFileOperations.RestoreFromMapleTrashAsync(trashedPath, _root));
-                Assert.Equal(FileOperationErrorKind.InvalidDestination, refused.Kind);
-                Assert.Equal(original, File.ReadAllText(trashedPath));
-                Assert.Equal(folderBefore, FolderNames());
-                return;
-            }
 
             var restored = await LocalFileOperations.RestoreFromMapleTrashAsync(trashedPath, _root);
 

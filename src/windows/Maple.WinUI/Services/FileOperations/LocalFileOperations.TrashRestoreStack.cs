@@ -44,11 +44,13 @@ namespace Maple.WinUI.Services.FileOperations
             var rawTarget = ResolveRestoreTargetPath(ComputeOriginalRelativePath(rawTrash, libraryRoot), libraryRoot);
             var jpegTarget = ResolveRestoreTargetPath(ComputeOriginalRelativePath(jpegTrash, libraryRoot), libraryRoot);
             var destinationDir = Path.GetDirectoryName(rawTarget) ?? libraryRoot;
+            ValidateBareFileName(Path.GetFileName(rawTarget), restoredName: true);
+            ValidateBareFileName(Path.GetFileName(jpegTarget), restoredName: true);
             var rawName = PickFreeRestoredStackBasename(
                 destinationDir, Path.GetFileName(rawTarget), Path.GetFileName(jpegTarget));
 
             var outcome = await RelocateStackAsync(
-                rawTrash, jpegTrash, destinationDir, rawName, RelocateMode.Move, CollisionPolicy.Fail)
+                rawTrash, jpegTrash, destinationDir, rawName, RelocateMode.Move, CollisionPolicy.Fail, restoredName: true)
                 .ConfigureAwait(false);
             TryDelete(OriginalPathMarkerFor(rawTrash));
             TryDelete(OriginalPathMarkerFor(jpegTrash));
