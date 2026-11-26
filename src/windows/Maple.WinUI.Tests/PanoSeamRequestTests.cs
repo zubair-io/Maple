@@ -73,45 +73,6 @@ public class PanoSeamRequestTests
     }
 }
 
-public class PanoFrameOrderTests
-{
-    [Fact]
-    public void UppercaseNamesComeFirstAsInTheCliSort() =>
-        Assert.Equal(
-            new[] { @"C:\p\IMG_2.DNG", @"C:\p\Zed.dng", @"C:\p\img_1.dng" },
-            PanoFrameOrder.Sort(new[] { @"C:\p\img_1.dng", @"C:\p\Zed.dng", @"C:\p\IMG_2.DNG" }));
-
-    [Fact]
-    public void FoldersCompareComponentByComponent() =>
-        Assert.Equal(
-            new[] { @"C:\p\a\z.dng", @"C:\p\a-b\c.dng", @"C:\p\a.dng" },
-            PanoFrameOrder.Sort(new[] { @"C:\p\a.dng", @"C:\p\a-b\c.dng", @"C:\p\a\z.dng" }));
-
-    [Fact]
-    public void AShorterPathPrecedesTheOnesInsideIt() =>
-        Assert.Equal(
-            new[] { @"C:\p\a.dng", @"C:\p\a.dng\b.dng" },
-            PanoFrameOrder.Sort(new[] { @"C:\p\a.dng\b.dng", @"C:\p\a.dng" }));
-
-    [Fact]
-    public void DriveLettersIgnoreCaseAndSharesPrecedeDrives() =>
-        Assert.Equal(
-            new[] { @"\\nas\photos\b.dng", @"c:\p\a.dng", @"D:\p\a.dng" },
-            PanoFrameOrder.Sort(new[] { @"D:\p\a.dng", @"c:\p\a.dng", @"\\nas\photos\b.dng" }));
-
-    [Fact]
-    public void NamesCompareAsUtf8BytesNotUtf16Units() =>
-        Assert.Equal(
-            new[] { "C:\\p\\\uFF21.dng", "C:\\p\\\U0001F600.dng" },
-            PanoFrameOrder.Sort(new[] { "C:\\p\\\U0001F600.dng", "C:\\p\\\uFF21.dng" }));
-
-    [Fact]
-    public void EitherSeparatorSplitsComponents() =>
-        Assert.Equal(
-            new[] { "C:/p/a/z.dng", @"C:\p\a-b\c.dng" },
-            PanoFrameOrder.Sort(new[] { @"C:\p\a-b\c.dng", "C:/p/a/z.dng" }));
-}
-
 public class PanoSeamGeometryTests
 {
     private static readonly PanoSeamCanvas Canvas = new(2048, 1024);

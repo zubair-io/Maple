@@ -11,10 +11,11 @@ public class PanoSeamAuthoringTests
     private static readonly PanoSeamRect Rect = new(100, 200, 80, 60);
 
     private static PanoPreviewCompletion Done(
-        PanoSeamRequest? seams = null, string alignment = "solved", PanoSeamCanvas? canvas = null) =>
+        PanoSeamRequest? seams = null, string alignment = "solved", PanoSeamCanvas? canvas = null,
+        IReadOnlyList<string>? inputs = null) =>
         new(new PanoPreviewRun(new PanoPreviewOptions("keep", "mesh", "auto"), Files, null, seams),
             new PanoPreviewOutcome(true, false, null,
-                new PanoPreviewReport(canvas ?? Canvas, "rotation", alignment, seams)));
+                new PanoPreviewReport(canvas ?? Canvas, "rotation", alignment, inputs ?? Frames, seams)));
 
     private static PanoPreviewCompletion Failed(PanoSeamRequest? seams, string error) =>
         new(new PanoPreviewRun(new PanoPreviewOptions("keep", "mesh", "auto"), Files, null, seams),
@@ -22,7 +23,7 @@ public class PanoSeamAuthoringTests
 
     private static PanoSeamAuthoring WithCurrentPreview(string strategy = "auto")
     {
-        var authoring = new PanoSeamAuthoring(Frames);
+        var authoring = new PanoSeamAuthoring();
         authoring.GeometryChanged(strategy);
         authoring.PreviewRequested();
         authoring.PreviewCompleted(Done(), isLatest: true);
@@ -32,7 +33,7 @@ public class PanoSeamAuthoringTests
     [Fact]
     public void AuthoringIsClosedUntilAPreviewOfTheCurrentGeometryArrives()
     {
-        var authoring = new PanoSeamAuthoring(Frames);
+        var authoring = new PanoSeamAuthoring();
         Assert.Equal(PanoSeamAuthoring.WaitReason, authoring.DisabledReason);
         Assert.Equal(PanoSeamAuthoring.WaitReason, authoring.Add(PanoSeamKind.Include, 0, Rect));
 
@@ -45,6 +46,38 @@ public class PanoSeamAuthoringTests
         Assert.Null(authoring.DisabledReason);
         Assert.Equal(Canvas, authoring.Canvas);
         Assert.Null(authoring.Request);
+        Assert.True(authoring.CanSubmit);
+    }
+
+    [Fact]
+    public void FramesComeFromThePreviewReportAndAreEmptyBeforeOne()
+    {
+        var authoring = new PanoSeamAuthoring();
+        Assert.Empty(authoring.Frames);
+
+        authoring.GeometryChanged("auto");
+        authoring.PreviewRequested();
+        authoring.PreviewCompleted(Done(inputs: new[] { @"C:\p\z.dng", @"C:\p\y.dng" }), isLatest: true);
+
+        Assert.Equal(new[] { @"C:\p\z.dng", @"C:\p\y.dng" }, authoring.Frames);
+        Assert.Null(authoring.Add(PanoSeamKind.Include, 1, Rect));
+        Assert.Equal(PanoSeamAuthoring.InvalidRegion, authoring.Add(PanoSeamKind.Include, 2, Rect));
+    }
+
+    [Fact]
+    public void APreviewThatDoesNotListItsFramesKeepsAuthoringClosedWithThatReason()
+    {
+        var authoring = new PanoSeamAuthoring();
+        authoring.GeometryChanged("auto");
+        authoring.PreviewRequested();
+        authoring.PreviewCompleted(new PanoPreviewCompletion(
+            new PanoPreviewRun(new PanoPreviewOptions("keep", "mesh", "auto"), Files, null),
+            new PanoPreviewOutcome(true, false, null,
+                new PanoPreviewReport(Canvas, "rotation", "solved", null, null))), isLatest: true);
+
+        Assert.Equal(PanoSeamAuthoring.FramesNotListedReason, authoring.DisabledReason);
+        Assert.Equal(PanoSeamAuthoring.FramesNotListedReason, authoring.Add(PanoSeamKind.Include, 0, Rect));
+        Assert.False(authoring.CanAuthor);
         Assert.True(authoring.CanSubmit);
     }
 
@@ -180,7 +213,7 @@ public class PanoSeamAuthoringTests
     [Fact]
     public void AFailedGeometryPreviewKeepsAuthoringClosedAndSaysNothingAboutRegions()
     {
-        var authoring = new PanoSeamAuthoring(Frames);
+        var authoring = new PanoSeamAuthoring();
         authoring.GeometryChanged("auto");
         authoring.PreviewRequested();
 
@@ -213,7 +246,7 @@ public class PanoSeamAuthoringTests
     [Fact]
     public void AnUnconstrainedPreviewThatReSolvedIsSimplyTheNewGeometry()
     {
-        var authoring = new PanoSeamAuthoring(Frames);
+        var authoring = new PanoSeamAuthoring();
         authoring.GeometryChanged("auto");
         authoring.PreviewRequested();
 
@@ -226,7 +259,7 @@ public class PanoSeamAuthoringTests
     [Fact]
     public void AResultOvertakenByANewerRequestNeverBecomesCurrent()
     {
-        var authoring = new PanoSeamAuthoring(Frames);
+        var authoring = new PanoSeamAuthoring();
         authoring.GeometryChanged("auto");
         authoring.PreviewRequested();
         authoring.GeometryChanged("rotation");
@@ -242,7 +275,7 @@ public class PanoSeamAuthoringTests
     [Fact]
     public void EveryStateChangeIsAnnounced()
     {
-        var authoring = new PanoSeamAuthoring(Frames);
+        var authoring = new PanoSeamAuthoring();
         var changes = 0;
         authoring.Changed += () => changes++;
 

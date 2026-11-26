@@ -136,6 +136,10 @@ Stitch and preview JSON reports echo `seam_constraints` in original reference
 coordinates (`null` when absent). Failures are named `invalid_seam_constraints`;
 CLI refusal reports use
 `{"refused":{"resource":"seam_constraints","message":"…"}}`.
+Stitch and preview reports both list `inputs`: the frame paths in the order
+`maple-cli` sorted them into, which is the order a region's `frame` index
+counts in. A client that authors regions reads the numbering from a preview
+report instead of sorting paths itself.
 The C ABI adds `maple_pano_stitch_constrained`, with the same arguments as
 `maple_pano_stitch_aligned`, and `maple_pano_preview_constrained`, with the same
 arguments as `maple_pano_preview`. Each adds optional UTF-8

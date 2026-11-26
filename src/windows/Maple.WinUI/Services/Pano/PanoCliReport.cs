@@ -1,11 +1,17 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Text.Json;
 
 namespace Maple.WinUI.Services.Pano;
 
+/// <summary>`Inputs` is the frame list in the order the CLI sorted it into,
+/// which a region's frame index counts in; null when an older CLI did not
+/// list it.</summary>
 public sealed record PanoPreviewReport(
-    PanoSeamCanvas Canvas, string Strategy, string AlignmentStatus, PanoSeamRequest? SeamConstraints);
+    PanoSeamCanvas Canvas, string Strategy, string AlignmentStatus,
+    IReadOnlyList<string>? Inputs, PanoSeamRequest? SeamConstraints);
 
 /// <summary>A run maple-cli refused by name (#5992). The text is shown to
 /// the user as it is, led by the refusal's name.</summary>
@@ -37,7 +43,7 @@ public static class PanoCliReport
             || !root.TryGetProperty("alignment", out var alignment) || alignment.ValueKind != JsonValueKind.Object
             || Text(alignment, "status") is not { } status)
             return null;
-        return new PanoPreviewReport(new PanoSeamCanvas(width, height), strategy, status, SeamEcho(root));
+        return new PanoPreviewReport(new PanoSeamCanvas(width, height), strategy, status, Inputs(root), SeamEcho(root));
     }
 
     public static PanoSeamRequest? SeamEcho(string json) => Root(json) is { } root ? SeamEcho(root) : null;
@@ -61,6 +67,13 @@ public static class PanoCliReport
         (reportPath is null ? null : Read(reportPath)) is { } json && Refusal(json) is { } refusal
             ? refusal.Text
             : $"maple-cli exited {exit.ExitCode}:\n{exit.StderrTail}";
+
+    private static IReadOnlyList<string>? Inputs(JsonElement root) =>
+        root.TryGetProperty("inputs", out var listed) && listed.ValueKind == JsonValueKind.Array
+        && listed.EnumerateArray().All(item => item.ValueKind == JsonValueKind.String)
+        && listed.GetArrayLength() > 0
+            ? listed.EnumerateArray().Select(item => item.GetString()!).ToList()
+            : null;
 
     private static PanoSeamRequest? SeamEcho(JsonElement root) =>
         root.TryGetProperty("seam_constraints", out var echo) ? PanoSeamRequest.Parse(echo) : null;
