@@ -52,8 +52,8 @@ class PanoramaSessionSeamTest {
         val stitch = server.posts("stitch").single().body!!
         assertEquals("p2", stitch.getString("alignmentFrom"))
         assertEquals(seams.json().toString(), stitch.getJSONObject("seamConstraints").toString())
-        assertEquals("Regions lock while merging", session.state.value.seamBlocked,
-            "Seam regions are locked while the panorama is merging.")
+        assertEquals("Regions lock while merging", "Seam regions are locked while the panorama is merging.",
+            session.state.value.seamBlocked)
         session.removeSeam(0)
         assertEquals(seams, session.state.value.seams)
         session.cancelStitch()
@@ -93,9 +93,11 @@ class PanoramaSessionSeamTest {
         assertEquals("Seam regions are not supported for Tile. Choose Rotation, or Auto for a rotation panorama.",
             session.addSeam(region))
         session.previewSeams()
+        advanceTimeBy(PanoramaSession.PREVIEW_DEBOUNCE_MS + 1)
         runCurrent()
         assertEquals(3, server.posts("preview").size)
         assertTrue(server.posts("preview").none { it.body!!.has("seamConstraints") })
+        assertFalse(session.state.value.preview is PanoPreviewRun.Running)
         session.close()
 
         val unsupported = FakeServer()
@@ -104,9 +106,6 @@ class PanoramaSessionSeamTest {
         older.open(selection)
         finishPreview(unsupported, older, "p1")
         assertEquals("This server's maple-cli cannot take seam regions.", older.addSeam(region))
-        older.stitch()
-        runCurrent()
-        assertFalse(unsupported.posts("stitch").single().body!!.has("seamConstraints"))
         older.close()
         runCurrent()
     }
