@@ -7,6 +7,7 @@ using Xunit.Abstractions;
 
 namespace Maple.WinUI.Tests;
 
+[Collection(Bench.CollectionName)]
 public sealed class DisplayImageCacheConcurrencyTests(ITestOutputHelper output)
 {
     private const int Tiles = 48;
@@ -43,7 +44,7 @@ public sealed class DisplayImageCacheConcurrencyTests(ITestOutputHelper output)
         finally { Directory.Delete(root, recursive: true); }
     }
 
-    private static string WriteAvifTile(string root, int seed)
+    internal static string WriteAvifTile(string root, int seed)
     {
         const int width = 640, height = 427;
         var tiff = Path.Combine(root, $"tile-{seed}.tif");

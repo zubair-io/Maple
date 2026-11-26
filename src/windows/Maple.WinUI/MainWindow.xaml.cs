@@ -29,8 +29,8 @@ namespace Maple.WinUI
         {
             // Explicit fixture qualification must not race a restored user's
             // library/cloud selection while its first frame is being checked.
-            var fixtureSmoke = Array.IndexOf(Environment.GetCommandLineArgs(), "--lifecycle-smoke") >= 0;
-            ViewModel = new EditSessionViewModel(restoreSources: !fixtureSmoke);
+            ViewModel = new EditSessionViewModel(restoreSources: SmokeRestoresSources(Environment.GetCommandLineArgs()));
+            LaunchTimeline.Mark("view-model-constructed");
             this.InitializeComponent();
 
             // #3079: fold the menu row into the frame's title-bar strip —
@@ -46,6 +46,7 @@ namespace Maple.WinUI
             if (Services.AppSettings.Load().CloudFilesEnabled)
             {
                 var startError = _cloudFiles.Start();
+                LaunchTimeline.Mark(startError == null ? "sync-root-started" : "sync-root-start-failed");
                 if (startError != null)
                 {
                     // Keep the persisted flag aligned with reality — a
@@ -55,6 +56,7 @@ namespace Maple.WinUI
                     Services.DiagLog.Write($"[cloudfiles] startup: {startError} — setting disabled");
                 }
             }
+            LaunchTimeline.Mark("cloud-files-block-done");
 
             if (this.Content is FrameworkElement root)
             {

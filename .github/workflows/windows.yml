@@ -112,6 +112,26 @@ jobs:
         shell: pwsh
         run: ./src/windows/scripts/test-window-lifecycle.ps1 -AppPath "src/windows/Maple.WinUI/bin/Release/${{ matrix.target }}/Maple.WinUI.exe"
 
+      # The labels are read when the job runs, not from the event that started it, so
+      # labelling a pull request and re-running this job is enough to get the numbers.
+      - name: Is this pull request labelled perf-timing
+        id: timing
+        if: github.event_name == 'pull_request'
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          $labels = Invoke-RestMethod -Headers @{ Authorization = "Bearer ${{ github.token }}"; Accept = 'application/vnd.github+json' } -Uri "https://api.github.com/repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/labels"
+          if (@($labels | ForEach-Object { $_.name }) -contains 'perf-timing') { 'run=true' >> $env:GITHUB_OUTPUT }
+
+      - name: Windows timing evidence (recorded, never a gate)
+        if: steps.timing.outputs.run == 'true'
+        shell: pwsh
+        continue-on-error: true
+        timeout-minutes: 30
+        env:
+          MAPLE_RAW_FFI_DLL: ${{ github.workspace }}\src\raw-pipeline\target\${{ matrix.target }}\release\raw_ffi.dll
+        run: ./src/windows/scripts/measure-windows-timings.ps1 -AppPath "src/windows/Maple.WinUI/bin/Release/${{ matrix.target }}/Maple.WinUI.exe" -OutDirectory "${{ runner.temp }}/maple-window-lifecycle/timings"
+
       - name: Upload WinUI lifecycle evidence
         if: always()
         uses: actions/upload-artifact@v7

@@ -147,13 +147,18 @@ namespace Maple.WinUI
 
         protected override void OnLaunched(LaunchActivatedEventArgs args)
         {
+            Maple.WinUI.Services.LaunchTimeline.Mark("on-launched");
             RawFfi.VerifyAbi();
             Maple.UI.MuiToneCurveMath.VerifyParity();
+            Maple.WinUI.Services.LaunchTimeline.Mark("abi-and-parity-checks-done");
             Maple.WinUI.Services.ProtocolRegistrar.EnsureRegistered();
             Maple.WinUI.Services.FileTypeRegistrar.EnsureRegistered();
+            Maple.WinUI.Services.LaunchTimeline.Mark("registrars-done");
             MainDispatcherQueue = DispatcherQueue.GetForCurrentThread();
             _window = new MainWindow();
+            Maple.WinUI.Services.LaunchTimeline.Mark("window-constructed");
             _window.Activate();
+            Maple.WinUI.Services.LaunchTimeline.Mark("activated");
             ((MainWindow)_window).MaybeStartLifecycleSmoke();
             // Cold-start activations latched before the window existed (#2797):
             // a sign-in callback that launched the app, and/or an Explorer
