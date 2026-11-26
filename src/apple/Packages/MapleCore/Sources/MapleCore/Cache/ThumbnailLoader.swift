@@ -17,7 +17,7 @@ import Foundation
 import ImageIO
 import os
 
-private let logger = Logger(subsystem: "app.justmaple.aperture", category: "ThumbnailLoader")
+let thumbnailLoaderLogger = Logger(subsystem: "app.justmaple.aperture", category: "ThumbnailLoader")
 
 // MARK: - ThumbnailLoader
 
@@ -43,14 +43,16 @@ public actor ThumbnailLoader {
   /// ThumbnailAtIndex` is ~5–50 ms per image and mostly IO-bound, so it
   /// can run much wider. Sized to the machine: half of the logical cores,
   /// minimum 4, maximum 12. On an M4 Max (16 cores) that's 8; on a base
-  /// M1 (8 cores) it's 4. The Rust fallback slow path piggy-backs on the
-  /// same gate but runs rarely enough (only for RAWs without embedded
-  /// previews) that it doesn't need a separate cap.
+  /// M1 (8 cores) it's 4. Full develops use the lanes below instead.
   static let maxConcurrentDecodes: Int = {
     let cores = ProcessInfo.processInfo.activeProcessorCount
     return max(4, min(12, cores / 2))
   }()
   let decodeSlots = BoundedAsyncSemaphore(value: maxConcurrentDecodes)
+  // One grid develop at a time, plus one permit reserved so a photo being opened never waits behind the grid.
+  let gridDevelopLane = BoundedAsyncSemaphore(value: 1)
+  let interactiveDevelopLane = BoundedAsyncSemaphore(value: 1)
+  var slotlessProducers: Set<UUID> = []
 
   /// Cap on concurrent fetches from a source whose thumbnails are
   /// latency-bound network reads (`ImageSource.thumbnailsAreLatencyBound`,
@@ -149,7 +151,7 @@ public actor ThumbnailLoader {
       await cache.markDecodable(hit)
       return hit.data
     }
-    logger.warning(
+    thumbnailLoaderLogger.warning(
       "discarding unreadable cached thumbnail for \(assetURL.lastPathComponent, privacy: .public)"
     )
     await cache.removeThumbnail(for: assetURL)
@@ -178,8 +180,8 @@ public actor ThumbnailLoader {
     //    span of the FFI call so the mmap inside `std::fs::read` sees
     //    an active scope.
     let scope = scopeParentURL ?? assetURL.deletingLastPathComponent()
-    let task = startLocalProducer(key: coalescingKey) {
-      await Self.produceThumbnail(assetURL: assetURL, scope: scope)
+    let task = startLocalProducer(key: coalescingKey) { [self] in
+      await Self.produceThumbnail(loader: self, assetURL: assetURL, scope: scope)
     }
     return await awaitThumbnail(task)
   }
@@ -205,147 +207,6 @@ public actor ThumbnailLoader {
       kCGImageSourceShouldCacheImmediately: true,
     ]
     return CGImageSourceCreateThumbnailAtIndex(source, 0, decodeOptions as CFDictionary) != nil
-  }
-
-  /// The produce path behind the URL-keyed `load`: asset-relative
-  /// `.maple/thumbs`, video poster, stub/audio bail, embedded-preview fast
-  /// path, Rust-develop slow path. Runs on a detached task under the
-  /// decode-slot gate, with the security scope claimed for its full span.
-  private nonisolated static func produceThumbnail(assetURL: URL, scope: URL) async -> Data? {
-    guard !Task.isCancelled else { return nil }
-    let accessing = scope.startAccessingSecurityScopedResource()
-    defer { if accessing { scope.stopAccessingSecurityScopedResource() } }
-
-    // Retry under the claimed scope, using the same original/XMP freshness
-    // gate as step 1. A raw derivative read here would re-stamp stale bytes
-    // after an external sidecar change (#5346).
-    // A broken shared derivative is removed here, so the source regenerates it.
-    if let data = await decodableCachedThumbnail(for: assetURL) {
-      guard !Task.isCancelled else { return nil }
-      return data
-    }
-
-    // VIDEO PATH — extract a poster frame via AVFoundation (#1642).
-    // Checked AFTER the .maple/thumbs cache lookup above so a pre-written
-    // poster is served from disk without touching AVFoundation again.
-    // Short-circuits BEFORE CGImageSourceCreateThumbnailAtIndex so video
-    // container bytes are never fed to ImageIO or libraw.
-    if SidecarPath.isVideo(assetURL) {
-      guard let data = await posterAVIF(at: assetURL) else {
-        logger.warning(
-          "video poster extraction failed for \(assetURL.lastPathComponent, privacy: .public)")
-        return nil
-      }
-      logger.debug(
-        "video poster extracted for \(assetURL.lastPathComponent, privacy: .public)")
-      guard !Task.isCancelled else { return nil }
-      await ThumbnailDiskCache.shared.storeThumbnailData(data, for: assetURL)
-      return data
-    }
-
-    // STUB / AUDIO PATH — metadata-only formats with no decode path
-    // at all (eip/braw/afphoto/ai stub images, mp3/wav/m4a/aac audio;
-    // #1835). No thumbnail is generated — the grid shows filename/
-    // size/date with a generic stub badge instead. Short-circuits
-    // BEFORE the embedded-preview / Rust-develop paths below so these
-    // never reach ImageIO or libraw.
-    let ext = assetURL.pathExtension.lowercased()
-    if StubExtensions.all.contains(ext) || AudioExtensions.all.contains(ext) {
-      return nil
-    }
-
-    // A sidecar on either RAW or non-RAW sources is authoritative. Rebuild
-    // authored pixels before trying a camera-original thumbnail (#3973/#5346).
-    let sourceSignature = LocalDerivativeSourceStamp.signature(for: assetURL)
-    if NonRawImageExtensions.all.contains(ext) {
-      do {
-        if let data = try await renderNonRawSidecarDerivative(
-          at: assetURL,
-          targetLongEdge: CGFloat(MapleThumbCacheKey.onShareThumbLongEdgePx),
-          quality: MapleThumbCacheKey.onShareThumbAVIFQuality
-        ) {
-          return await ThumbnailDiskCache.shared.storeThumbnailDataIfCurrent(
-            data, for: assetURL, sourceSignature: sourceSignature) ? data : nil
-        }
-      } catch {
-        logger.error(
-          "non-RAW sidecar thumbnail failed for \(assetURL.lastPathComponent, privacy: .public): \(error.localizedDescription, privacy: .public)"
-        )
-        return nil
-      }
-    } else {
-      do {
-        if let data = try renderRawSidecarDerivative(
-          at: assetURL,
-          targetLongEdge: CGFloat(MapleThumbCacheKey.onShareThumbLongEdgePx),
-          quality: MapleThumbCacheKey.onShareThumbAVIFQuality
-        ) {
-          return await ThumbnailDiskCache.shared.storeThumbnailDataIfCurrent(
-            data, for: assetURL, sourceSignature: sourceSignature) ? data : nil
-        }
-      } catch {
-        logger.error(
-          "RAW sidecar thumbnail failed for \(assetURL.lastPathComponent, privacy: .public): \(error.localizedDescription, privacy: .public)"
-        )
-        return nil
-      }
-    }
-    guard LocalDerivativeSourceStamp.matches(sourceSignature, for: assetURL) else { return nil }
-
-    // FAST PATH — the shared Rust extractor reads the camera JPEG for
-    // RAWs; ImageIO handles ordinary bitmaps. Neither synthesizes an
-    // Apple RAW develop. The sidecar gate above preserves authored edits.
-    let t0 = Date()
-    if let data = embeddedPreviewAVIF(at: assetURL) {
-      let ms = Int(Date().timeIntervalSince(t0) * 1000)
-      logger.debug("thumb fast-path \(assetURL.lastPathComponent, privacy: .public) \(ms)ms")
-      guard !Task.isCancelled else { return nil }
-      await ThumbnailDiskCache.shared.storeThumbnailData(data, for: assetURL)
-      return data
-    }
-    logger.warning(
-      "thumb fast-path MISS for \(assetURL.lastPathComponent, privacy: .public) — falling through to slow path"
-    )
-
-    // SLOW PATH — no embedded preview. Non-RAW bitmaps (imported JPEG/
-    // PNG/HEIF, stitched pano PNGs) already carry demosaiced sRGB /
-    // Display-P3 pixels, so they decode via ImageIO directly instead of
-    // the RAW developer — `PipelineRenderer.render(rawPath:)` only
-    // understands camera RAW containers and throws on these, which used
-    // to surface as a blank grey grid tile (#1366). Everything else
-    // (the actual `RAWExtensions.all` set, plus unrecognised
-    // extensions — same "assume RAW" default as `AssetRef.isRaw`) keeps
-    // the full develop + downscale path.
-    if NonRawImageExtensions.all.contains(ext) {
-      guard let data = nonRawSlowPathAVIF(at: assetURL) else {
-        logger.warning(
-          "non-RAW slow-path decode failed for \(assetURL.lastPathComponent, privacy: .public)")
-        return nil
-      }
-      let ms = Int(Date().timeIntervalSince(t0) * 1000)
-      logger.debug(
-        "thumb non-RAW slow-path \(assetURL.lastPathComponent, privacy: .public) \(ms)ms")
-      guard !Task.isCancelled else { return nil }
-      await ThumbnailDiskCache.shared.storeThumbnailData(data, for: assetURL)
-      return data
-    }
-
-    do {
-      let image = try PipelineRenderer.render(rawPath: assetURL, quality: .preview)
-      guard let data = encodeThumbnail(image, ctx: staticEncodeCIContext) else {
-        logger.warning(
-          "AVIF encode failed for \(assetURL.lastPathComponent, privacy: .public)")
-        return nil
-      }
-      guard !Task.isCancelled else { return nil }
-      await ThumbnailDiskCache.shared.storeThumbnailData(data, for: assetURL)
-      return data
-    } catch {
-      logger.error(
-        "pipeline render failed for \(assetURL.lastPathComponent, privacy: .public): \(error.localizedDescription, privacy: .public)"
-      )
-      return nil
-    }
   }
 
   /// Cancel every in-flight thumbnail load. Called by `AppShell` on folder
@@ -401,7 +262,7 @@ public actor ThumbnailLoader {
   /// while it decodes. Generating several posters at once (grid scroll) on the
   /// synchronous API would block multiple cooperative-pool threads and starve
   /// the pool. The async API suspends instead, freeing the thread for other work.
-  private static func posterAVIF(at url: URL) async -> Data? {
+  static func posterAVIF(at url: URL) async -> Data? {
     let asset = AVAsset(url: url)
     let generator = AVAssetImageGenerator(asset: asset)
     // Apply the track's preferred display transform so portrait clips
