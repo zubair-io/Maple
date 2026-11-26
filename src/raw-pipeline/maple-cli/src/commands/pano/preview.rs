@@ -96,6 +96,7 @@ pub(super) fn run_preview(
     let report = json!({
         "mode": "preview",
         "frames": inputs.len(),
+        "inputs": super::io::input_paths(inputs),
         "strategy": preview.strategy.as_str(),
         "width": preview.width,
         "height": preview.height,
