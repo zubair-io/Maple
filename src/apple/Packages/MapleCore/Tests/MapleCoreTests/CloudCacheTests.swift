@@ -122,15 +122,14 @@ final class CloudCacheTests: XCTestCase {
     let c = Data(repeating: 0x03, count: 256)
     await cache.put(host: "x", absPath: "/a", a)
     await cache.put(host: "x", absPath: "/b", b)
-    await cache.put(host: "x", absPath: "/c", c)
-    // Set explicit mtimes so LRU ordering is deterministic — the
-    // previous version slept 50ms between puts hoping the file system
-    // would assign distinct timestamps, which on slow CI / coarse
-    // mtime resolution made the assertion flaky.
+    // Explicit mtimes make the LRU order deterministic. They are set while
+    // the cache is still under its cap: the put that crosses it starts an
+    // eviction of its own, which would otherwise read these files halfway
+    // through being re-dated and could pick `/b`.
     let now = Date()
     setMtime(at: dir, host: "x", absPath: "/a", mtime: now.addingTimeInterval(-30))
     setMtime(at: dir, host: "x", absPath: "/b", mtime: now.addingTimeInterval(-20))
-    setMtime(at: dir, host: "x", absPath: "/c", mtime: now.addingTimeInterval(-10))
+    await cache.put(host: "x", absPath: "/c", c)
     await cache.evictIfNeeded()
 
     let aBytes = await cache.get(host: "x", absPath: "/a")
