@@ -638,3 +638,5 @@ ScrollRunFolderTests
 # Lazy Browse edit sessions (#6130): the per-photo observed buffer that holds
 # scrolled-past cells' sessions outside the shared dictionary. Pure in-memory.
 BrowseSessionBufferTests
+# LAN candidates probed concurrently (#6036): injected probes, no network.
+LocalNetworkConcurrentProbeTests
