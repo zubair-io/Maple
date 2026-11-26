@@ -23,6 +23,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Threading.Tasks;
 using Maple.WinUI.Generated;
 using Maple.WinUI.Services;
@@ -58,13 +59,17 @@ namespace Maple.WinUI.Services.FileOperations
         /// exception is a case-only rename (see
         /// <see cref="ClassifySameFile"/>), performed directly here as an
         /// atomic move — there is no meaningful "staged copy" for it.
+        /// <paramref name="alsoLeaving"/> names same-stem siblings that leave
+        /// in the same operation (a stacked RAW+JPEG pair, #5050), so they do
+        /// not hold the shared sidecar back.
         /// </summary>
         public static async Task<RelocatePlan> PlanRelocateAsync(
             string sourcePrimaryPath,
             string destinationDir,
             string? newBasename,
             RelocateMode mode,
-            CollisionPolicy collision = CollisionPolicy.AutoSuffix)
+            CollisionPolicy collision = CollisionPolicy.AutoSuffix,
+            params string[] alsoLeaving)
         {
             if (!File.Exists(sourcePrimaryPath))
                 throw new FileOperationException(FileOperationErrorKind.SourceMissing, sourcePrimaryPath);
@@ -83,7 +88,7 @@ namespace Maple.WinUI.Services.FileOperations
                         throw new FileOperationException(FileOperationErrorKind.SameFile,
                             "case-only rename target is the same file as the source on a case-insensitive "
                             + $"filesystem — copy is not meaningful: {sourcePrimaryPath}");
-                    return PerformCaseOnlyRename(sourcePrimaryPath, targetPath);
+                    return PerformCaseOnlyRename(sourcePrimaryPath, targetPath, alsoLeaving);
             }
 
             Directory.CreateDirectory(destinationDir);
@@ -107,7 +112,8 @@ namespace Maple.WinUI.Services.FileOperations
                 throw new FileOperationException(FileOperationErrorKind.DestinationExists,
                     $"destination sidecar belongs to another photo: {sidecarTargetPath}");
             var sourceSidecarStays = sidecarMapsOntoItself
-                || (hasSourceSidecar && SidecarStemClaimedBySibling(sourcePrimaryPath, resolvedTargetPath));
+                || (hasSourceSidecar
+                    && SidecarStemClaimedBySibling(sourcePrimaryPath, alsoLeaving.Append(resolvedTargetPath).ToArray()));
 
             var createdPaths = new List<string>();
             CopyVerified(sourcePrimaryPath, resolvedTargetPath);

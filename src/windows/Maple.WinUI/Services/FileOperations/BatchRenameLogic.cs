@@ -114,7 +114,9 @@ namespace Maple.WinUI.Services.FileOperations
             Action<int, int>? onItemDone = null)
         {
             var claimedThisBatch = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            var pendingPaths = new HashSet<string>(items.Select(item => item.CurrentPath), StringComparer.OrdinalIgnoreCase);
+            var pendingPaths = new HashSet<string>(
+                items.SelectMany(item => new[] { item.CurrentPath, item.CompanionPath }).OfType<string>(),
+                StringComparer.OrdinalIgnoreCase);
             var outcomes = new List<BatchRenameItemOutcome>(items.Count);
             for (var i = 0; i < items.Count; i++)
             {
@@ -126,6 +128,8 @@ namespace Maple.WinUI.Services.FileOperations
                 if (outcome.Kind == BatchRenameOutcomeKind.Relocated)
                 {
                     claimedThisBatch.Add(Path.Combine(item.Directory, outcome.NewFileName!));
+                    if (outcome.CompanionNewPath != null)
+                        claimedThisBatch.Add(outcome.CompanionNewPath);
                     pendingPaths.Remove(Path.Combine(item.Directory, outcome.NewFileName!));
                 }
                 else
@@ -174,13 +178,18 @@ namespace Maple.WinUI.Services.FileOperations
 
             try
             {
-                var outcome = await LocalFileOperations
-                    .RelocateAsync(item.CurrentPath, item.Directory, newName, RelocateMode.Move, effectiveCollision)
+                var outcome = await (item.CompanionPath == null
+                    ? LocalFileOperations.RelocateAsync(
+                        item.CurrentPath, item.Directory, newName, RelocateMode.Move, effectiveCollision)
+                    : LocalFileOperations.RelocateStackAsync(
+                        item.CurrentPath, item.CompanionPath, item.Directory, newName, RelocateMode.Move,
+                        effectiveCollision))
                     .ConfigureAwait(false);
                 var appliedName = Path.GetFileName(outcome.PrimaryPath);
                 return new BatchRenameItemOutcome(item.Key, BatchRenameOutcomeKind.Relocated,
                     item.CurrentFileName, appliedName, outcome.PrimaryPath, outcome.RenamedDueToCollision,
-                    RenameLogic.ExtensionChanged(item.CurrentFileName, appliedName));
+                    RenameLogic.ExtensionChanged(item.CurrentFileName, appliedName),
+                    CompanionNewPath: outcome.CompanionPath);
             }
             catch (FileOperationException ex)
             {

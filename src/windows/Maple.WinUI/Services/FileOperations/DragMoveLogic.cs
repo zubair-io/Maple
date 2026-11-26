@@ -107,11 +107,15 @@ namespace Maple.WinUI.Services.FileOperations
             {
                 if (IsAlreadyInDestination(item, destinationDir))
                     continue;
-                if (AssetOccupies(item, Path.Combine(destinationDir, item.CurrentFileName), pathExists, sidecarAlreadyCarried))
+                if (AssetOccupies(item, Path.Combine(destinationDir, item.CurrentFileName), pathExists, sidecarAlreadyCarried)
+                    || (CompanionCandidate(item, destinationDir) is { } companion && pathExists(companion)))
                     colliding.Add(item.Key);
             }
             return colliding;
         }
+
+        private static string? CompanionCandidate(DragMoveSourceItem item, string destinationDir) =>
+            item.CompanionPath == null ? null : Path.Combine(destinationDir, Path.GetFileName(item.CompanionPath));
 
         private static bool AssetOccupies(
             DragMoveSourceItem item,
@@ -233,10 +237,14 @@ namespace Maple.WinUI.Services.FileOperations
                     item.CurrentFileName, Error: "Already in this folder.");
 
             var candidatePath = Path.Combine(destinationDir, item.CurrentFileName);
-            var claimedBySibling = claimedThisBatch.Contains(candidatePath);
+            var companionCandidate = CompanionCandidate(item, destinationDir);
+            var claimedBySibling = claimedThisBatch.Contains(candidatePath)
+                || (companionCandidate != null && claimedThisBatch.Contains(companionCandidate));
             var collidesNow = !claimedBySibling
-                && AssetOccupies(item, candidatePath, p => File.Exists(p) || Directory.Exists(p),
-                    LocalFileOperations.SidecarAlreadyCarried);
+                && (AssetOccupies(item, candidatePath, p => File.Exists(p) || Directory.Exists(p),
+                        LocalFileOperations.SidecarAlreadyCarried)
+                    || (companionCandidate != null
+                        && (File.Exists(companionCandidate) || Directory.Exists(companionCandidate))));
             // OrdinalIgnoreCase: Key is a FilePath (Windows paths are
             // case-insensitive-but-case-preserving), matching how callers
             // treat the same keys elsewhere (e.g. EditSessionViewModel.
@@ -262,15 +270,20 @@ namespace Maple.WinUI.Services.FileOperations
 
             try
             {
-                var outcome = await LocalFileOperations
-                    .RelocateAsync(item.CurrentPath, destinationDir, newBasename: null, mode, policy)
+                var outcome = await (item.CompanionPath == null
+                    ? LocalFileOperations.RelocateAsync(item.CurrentPath, destinationDir, newBasename: null, mode, policy)
+                    : LocalFileOperations.RelocateStackAsync(
+                        item.CurrentPath, item.CompanionPath, destinationDir, newBasename: null, mode, policy))
                     .ConfigureAwait(false);
                 claimedThisBatch.Add(candidatePath);
+                if (companionCandidate != null)
+                    claimedThisBatch.Add(companionCandidate);
                 var note = forcedAutoSuffix && outcome.RenamedDueToCollision
                     ? "Renamed to avoid overwriting an item from this same drop."
                     : null;
                 return new DragMoveItemOutcome(item.Key, DragMoveOutcomeKind.Relocated,
-                    item.CurrentFileName, outcome.PrimaryPath, Note: note);
+                    item.CurrentFileName, outcome.PrimaryPath, Note: note,
+                    CompanionNewPath: outcome.CompanionPath);
             }
             catch (FileOperationException ex)
             {

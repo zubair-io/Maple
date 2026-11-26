@@ -17,12 +17,15 @@ namespace Maple.WinUI.Services.FileOperations
     /// DragMoveLogic needs. <paramref name="Key"/> is the caller's stable
     /// identifier (Windows uses the photo's pre-operation FilePath) —
     /// carried through to <see cref="DragMoveItemOutcome"/> so the caller can
-    /// map an outcome back to its PhotoItem.</summary>
+    /// map an outcome back to its PhotoItem. <paramref name="CompanionPath"/>
+    /// is a stacked tile's same-stem JPEG (#5050), which moves or copies
+    /// with the RAW.</summary>
     public sealed record DragMoveSourceItem(
         string Key,
         string Directory,
         string CurrentFileName,
-        string CurrentPath);
+        string CurrentPath,
+        string? CompanionPath = null);
 
     /// <summary>How a collision at the destination should be resolved — the
     /// three choices the design doc's drag-and-drop collision dialog offers
@@ -69,5 +72,6 @@ namespace Maple.WinUI.Services.FileOperations
         string? FileName = null,
         string? NewPath = null,
         string? Error = null,
-        string? Note = null);
+        string? Note = null,
+        string? CompanionNewPath = null);
 }

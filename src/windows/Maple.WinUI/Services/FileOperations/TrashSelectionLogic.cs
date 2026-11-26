@@ -69,7 +69,10 @@ namespace Maple.WinUI.Services.FileOperations
 
             try
             {
-                var outcome = await LocalFileOperations.TrashAsync(item.PrimaryPath, libraryRoot, recycleBin)
+                var outcome = await (item.CompanionPath == null
+                    ? LocalFileOperations.TrashAsync(item.PrimaryPath, libraryRoot, recycleBin)
+                    : LocalFileOperations.TrashStackAsync(
+                        item.PrimaryPath, item.CompanionPath, libraryRoot, recycleBin))
                     .ConfigureAwait(false);
                 // The Recycle Bin branch returns the ORIGINAL path
                 // unchanged — see LocalFileOperations.Trash.cs's own doc
@@ -98,6 +101,9 @@ namespace Maple.WinUI.Services.FileOperations
                     // review fix) for the full story.
                     var originalRelativePath = Path.GetRelativePath(libraryRoot, item.PrimaryPath);
                     LocalFileOperations.TryWriteOriginalPathMarker(outcome.PrimaryPath, originalRelativePath);
+                    if (item.CompanionPath != null && outcome.CompanionPath != null)
+                        LocalFileOperations.TryWriteOriginalPathMarker(
+                            outcome.CompanionPath, Path.GetRelativePath(libraryRoot, item.CompanionPath));
                 }
 
                 return new TrashItemOutcome(item.Key, item.FileName, TrashOutcomeKind.Trashed, destination);
