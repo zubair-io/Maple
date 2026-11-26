@@ -30,14 +30,17 @@ import XCTest
           at: folder.appendingPathComponent(".maple/thumbs", isDirectory: true))
       }
       let started = ContinuousClock.now
+      let cpuStarted = Self.processCPUNanoseconds()
       await ThumbnailDiskCache.shared.configure(folderURL: folder)
       let browse = BrowseViewModel()
       await browse.loadFolder(url: folder)
       let listed = ContinuousClock.now
-      let decoded = await Self.thumbnailAll(browse.assets, source: nil)
+      let pass = await Self.thumbnailAll(browse.assets, source: nil)
       report(
-        route: "local", count: browse.assets.count, decoded: decoded,
-        listing: listed - started, total: ContinuousClock.now - started)
+        route: "local", count: browse.assets.count, pass: pass,
+        listing: listed - started, bytes: pass.lastBytes - started,
+        total: ContinuousClock.now - started,
+        cpuNanoseconds: Self.processCPUNanoseconds() - cpuStarted)
     }
 
     func testCloudFolderIsFullyThumbnailedOverLAN() async throws {
@@ -65,24 +68,40 @@ import XCTest
         for asset in browse.assets { Self.removeSourcelessThumb(forKey: asset.stableID) }
       }
       let thumbsStarted = ContinuousClock.now
-      let decoded = await Self.thumbnailAll(browse.assets, source: source)
+      let cpuStarted = Self.processCPUNanoseconds()
+      let pass = await Self.thumbnailAll(browse.assets, source: source)
       let finished = ContinuousClock.now
       report(
-        route: "cloud-lan", count: browse.assets.count, decoded: decoded,
-        listing: listed - started, total: (listed - started) + (finished - thumbsStarted))
+        route: "cloud-lan", count: browse.assets.count, pass: pass,
+        listing: listed - started, bytes: (listed - started) + (pass.lastBytes - thumbsStarted),
+        total: (listed - started) + (finished - thumbsStarted),
+        cpuNanoseconds: Self.processCPUNanoseconds() - cpuStarted)
     }
 
-    private static func thumbnailAll(_ assets: [AssetRef], source: (any ImageSource)?) async -> Int {
-      await withTaskGroup(of: Bool.self) { group in
+    private struct Pass {
+      let decoded: Int
+      let lastBytes: ContinuousClock.Instant
+    }
+
+    /// Every photo through the grid cell's calls. `lastBytes` is when the last
+    /// thumbnail's bytes were on the device, before its decode.
+    private static func thumbnailAll(_ assets: [AssetRef], source: (any ImageSource)?) async
+      -> Pass
+    {
+      await withTaskGroup(of: (ContinuousClock.Instant, Bool).self) { group in
         for asset in assets {
           group.addTask {
             // A grid cell shows the camera seed of a cold RAW before its thumbnail.
             _ = await ThumbnailLoader.shared.loadCameraPreview(for: asset)
             let data = await ThumbnailLoader.shared.load(for: asset, from: source)
-            return await ThumbnailDecoder.image(for: data, key: asset.id.description) != nil
+            let bytesAt = ContinuousClock.now
+            let image = await ThumbnailDecoder.image(for: data, key: asset.id.description)
+            return (bytesAt, image != nil)
           }
         }
-        return await group.reduce(0) { $1 ? $0 + 1 : $0 }
+        return await group.reduce(Pass(decoded: 0, lastBytes: .now)) { pass, tile in
+          Pass(decoded: pass.decoded + (tile.1 ? 1 : 0), lastBytes: max(pass.lastBytes, tile.0))
+        }
       }
     }
 
@@ -95,12 +114,22 @@ import XCTest
       try? FileManager.default.removeItem(at: file)
     }
 
-    private func report(route: String, count: Int, decoded: Int, listing: Duration, total: Duration) {
-      let pass = environment["MAPLE_PERF_PASS"] ?? "warm"
+    private func report(
+      route: String, count: Int, pass: Pass, listing: Duration, bytes: Duration, total: Duration,
+      cpuNanoseconds: UInt64
+    ) {
+      let label = environment["MAPLE_PERF_PASS"] ?? "warm"
       print(
-        "THROUGHPUT route=\(route) pass=\(pass) photos=\(count) decoded=\(decoded) "
-          + "listing_ms=\(Self.milliseconds(listing)) total_ms=\(Self.milliseconds(total))")
-      XCTAssertEqual(decoded, count)
+        "THROUGHPUT route=\(route) pass=\(label) photos=\(count) decoded=\(pass.decoded) "
+          + "listing_ms=\(Self.milliseconds(listing)) bytes_ms=\(Self.milliseconds(bytes)) "
+          + "total_ms=\(Self.milliseconds(total)) cpu_ms=\(cpuNanoseconds / 1_000_000)")
+      XCTAssertEqual(pass.decoded, count)
+    }
+
+    /// CPU time of the whole test process, every thread, so work hidden behind a
+    /// gate still counts.
+    private static func processCPUNanoseconds() -> UInt64 {
+      clock_gettime_nsec_np(CLOCK_PROCESS_CPUTIME_ID)
     }
 
     private static func milliseconds(_ duration: Duration) -> Int {
