@@ -131,6 +131,7 @@ TS_TABLES_OUT="src/web/projects/maple-common/src/lib/generated/adjustment-tables
 # Panorama stitch memory model (#5835): maple-pano refuses on it, the Apple merge sheet sizes the output with it.
 "$BIN" --schema pano-memory --target swift --out "src/apple/Packages/MapleCore/Sources/MapleCore/Generated/PanoMemory+Generated.swift"
 "$BIN" --schema seam-constraints --target swift --out "src/apple/Packages/MapleCore/Sources/MapleCloudKit/Generated/SeamConstraints+Generated.swift"
+"$BIN" --schema seam-constraints --target kotlin --out "src/android/app/src/main/java/app/justmaple/aperture/generated/SeamConstraintsSchema.kt"
 # raw-ffi develop statuses the API defers on (#5499).
 "$BIN" --schema ffi-status --target ts --out "src/api/src/generated/ffi-status.generated.ts"
 "$BIN" --schema maple-id --target swift --out "src/apple/Packages/MapleCore/Sources/MapleCore/Generated/MapleIdDerivationVersion+Generated.swift"

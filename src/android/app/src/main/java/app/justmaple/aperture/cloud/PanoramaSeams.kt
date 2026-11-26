@@ -1,5 +1,6 @@
 package app.justmaple.aperture.cloud
 
+import app.justmaple.aperture.generated.SeamConstraintsSchema
 import kotlin.math.ceil
 import kotlin.math.floor
 import org.json.JSONArray
@@ -32,7 +33,7 @@ data class PanoSeamConstraints(val width: Int, val height: Int, val regions: Lis
 
     fun json(): JSONObject =
         JSONObject()
-            .put("version", 1)
+            .put("version", SeamConstraintsSchema.VERSION)
             .put("canvas", JSONObject().put("width", width).put("height", height))
             .put(
                 "regions",
@@ -54,7 +55,7 @@ data class PanoSeamConstraints(val width: Int, val height: Int, val regions: Lis
 
         /** The constraints a finished job echoes in its result, or null when it had none. */
         fun parse(json: JSONObject?): PanoSeamConstraints? {
-            if (json == null || json.optInt("version") != 1) return null
+            if (json == null || json.optInt("version") != SeamConstraintsSchema.VERSION) return null
             val canvas = json.optJSONObject("canvas") ?: return null
             val regions = json.optJSONArray("regions") ?: return null
             return PanoSeamConstraints(
