@@ -99,6 +99,7 @@ data class PanoJob(
     val outputPath: String? = null,
     val matcherNote: String? = null,
     val alignment: String? = null,
+    val seamConstraints: PanoSeamConstraints? = null,
 )
 
 /** One registered library of `GET /api/folders`. */
@@ -110,6 +111,7 @@ data class PanoRequest(
     val options: PanoOptions,
     val capabilities: PanoCapabilities,
     val alignmentFrom: String? = null,
+    val seamConstraints: PanoSeamConstraints? = null,
 )
 
 /** A refusal the server named (`{ error, message }`), such as `pano_not_provisioned`. */
@@ -153,6 +155,7 @@ internal object PanoramaWire {
                 .put("libraryId", request.libraryId)
                 .put("options", wire)
         request.alignmentFrom?.let { body.put("alignmentFrom", it) }
+        request.seamConstraints?.takeIf { request.capabilities.seamConstraints }?.let { body.put("seamConstraints", it.json()) }
         return body.toString()
     }
 
@@ -186,6 +189,7 @@ internal object PanoramaWire {
             outputPath = result?.text("outputPath"),
             matcherNote = result?.text("matcherNote"),
             alignment = result?.optJSONObject("alignment")?.text("status"),
+            seamConstraints = PanoSeamConstraints.parse(result?.optJSONObject("seamConstraints")),
         )
     }
 
@@ -204,6 +208,12 @@ internal object PanoramaWire {
             .filter { path == it.path || path.startsWith(it.path.trimEnd('/') + "/") }
             .maxByOrNull { it.path.length }
 
+    /** A failed job's named code and message; the CLI's seam refusal arrives as its prefix. */
+    fun failure(error: String?, fallback: String): Pair<String, String> =
+        if (error != null && error.startsWith(PanoSeamConstraints.INVALID))
+            PanoSeamConstraints.INVALID to PanoSeamConstraints.refusalMessage(error)
+        else "" to (error ?: fallback)
+
     fun refusal(response: CloudResponse): PanoRefusal? {
         if (response.status in 200..299) return null
         val body = runCatching { JSONObject(response.text()) }.getOrNull()
@@ -213,6 +223,7 @@ internal object PanoramaWire {
                 response.status == 409 && code == "pano_job_running" ->
                     "A panorama is already being merged on this server. Wait for it to finish, then try again."
                 response.status == 401 -> "Cloud session expired. Reconnect this server in Settings."
+                code == PanoSeamConstraints.INVALID -> PanoSeamConstraints.refusalMessage(body?.text("message").orEmpty())
                 else -> body?.text("message") ?: "Panorama request failed (HTTP ${response.status})."
             }
         return PanoRefusal(response.status, code, message)

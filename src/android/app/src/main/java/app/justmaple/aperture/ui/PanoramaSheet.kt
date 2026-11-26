@@ -72,7 +72,7 @@ internal fun PanoramaSheet(
                     } else {
                         val retained = (state.stitch as? PanoStitchRun.Failed)?.jobId != null
                         if (state.stitch !is PanoStitchRun.Done && !retained)
-                            Button(onClick = session::stitch, enabled = state.capabilities?.ready == true,
+                            Button(onClick = session::stitch, enabled = state.capabilities?.ready == true && (state.seams == null || state.seamBlocked == null),
                                 modifier = Modifier.testTag("pano-create")) { Text("Create panorama") }
                     }
                 }
@@ -113,11 +113,11 @@ private fun Ready(state: PanoramaState, session: PanoramaSession, capabilities: 
     if (!capabilities.preview)
         Text("This server's maple-cli has no quick preview. Create panorama still merges the photos.",
             color = MapleColors.muted, modifier = Modifier.testTag("pano-preview-unsupported"))
-    else Preview(state, session)
+    else Preview(state, session, capabilities.seamConstraints)
 }
 
 @Composable
-private fun Preview(state: PanoramaState, session: PanoramaSession) {
+private fun Preview(state: PanoramaState, session: PanoramaSession, seams: Boolean) {
     when (val run = state.preview) {
         is PanoPreviewRun.Running -> Busy(if (state.image == null) "Preparing preview · ${run.progress?.label ?: "Starting…"}"
             else "Updating preview · ${run.progress?.label ?: "Starting…"}", run.progress?.fraction, "pano-preview-progress")
@@ -135,11 +135,13 @@ private fun Preview(state: PanoramaState, session: PanoramaSession) {
         }
     }
     val current = state.previewCurrent
+    val brush = remember(image.inputs) { SeamBrush() }
     Box(Modifier.fillMaxWidth().aspectRatio(image.width.toFloat() / image.height).background(MapleColors.canvas)) {
         bitmap?.let {
             Image(it, "Panorama preview, ${image.width} by ${image.height} pixels" + if (current) "" else ", out of date",
                 Modifier.fillMaxSize().testTag("pano-preview-image"), contentScale = ContentScale.Fit)
         }
+        if (seams) SeamOverlay(state, session, brush)
     }
     Text("Uncropped preview · ${image.width} × ${image.height} px" + if (current) "" else " · out of date",
         color = MapleColors.muted, modifier = Modifier.testTag("pano-preview-size"))
@@ -148,6 +150,7 @@ private fun Preview(state: PanoramaState, session: PanoramaSession) {
     image.frames.forEachIndexed { index, frame ->
         Text("${index + 1}. ${frame.name}", Modifier.testTag("pano-frame-$index"))
     }
+    if (seams) SeamEditor(state, session, brush)
 }
 
 @Composable
