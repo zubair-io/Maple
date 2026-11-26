@@ -48,8 +48,8 @@ import type { ImportFileEntry, ImportFileKind } from '../db/schema.ts';
 
 const log = childLogger('import-scan');
 
-/** Movie extensions copied (but not indexed — the watcher is image-only). */
-export const MOVIE_EXTS = new Set<string>([
+/** Movie extensions an import copies; the discover sweep indexes them afterwards. */
+const MOVIE_EXTS = new Set<string>([
   '.mov',
   '.mp4',
   '.m4v',
