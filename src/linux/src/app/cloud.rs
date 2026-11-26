@@ -31,6 +31,7 @@ pub(super) struct CloudState {
     cache: HashMap<String, Result<egui::TextureHandle, String>>,
     pending: HashSet<String>,
     order: VecDeque<String>,
+    laid_out: std::ops::Range<usize>,
     sign_in: Option<String>,
     sign_in_code: String,
     claim_inflight: bool,
@@ -62,6 +63,7 @@ impl CloudState {
             cache: HashMap::new(),
             pending: HashSet::new(),
             order: VecDeque::new(),
+            laid_out: 0..0,
             sign_in: None,
             sign_in_code: String::new(),
             claim_inflight: false,
@@ -216,9 +218,23 @@ impl CloudState {
                         self.pending.remove(&address);
                         self.cache.insert(address.clone(), image);
                         self.order.push_back(address);
-                        while self.order.len() > 128 {
-                            if let Some(address) = self.order.pop_front() {
-                                self.cache.remove(&address);
+                        // Evicting a tile still on screen re-requests it without end.
+                        let on_screen = self
+                            .folder
+                            .as_ref()
+                            .and_then(|folder| folder.images.get(self.laid_out.clone()))
+                            .unwrap_or_default();
+                        let capacity = on_screen.len().max(128);
+                        let mut spared = 0;
+                        while self.order.len() > capacity && spared < self.order.len() {
+                            let Some(oldest) = self.order.pop_front() else {
+                                break;
+                            };
+                            if on_screen.iter().any(|entry| entry.address == oldest) {
+                                self.order.push_back(oldest);
+                                spared += 1;
+                            } else {
+                                self.cache.remove(&oldest);
                             }
                         }
                     }
@@ -273,3 +289,7 @@ impl CloudState {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "cloud_tests.rs"]
+mod tests;
