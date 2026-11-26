@@ -452,6 +452,23 @@ seams after clearing or removing the final region.
 
 The merge dialog cancels a stitch it stops watching (#5517, #5641): "Cancel job", the host hiding the dialog, and the dialog being destroyed each send `DELETE /api/pano/jobs/:id` while the job is queued or running, using the id from the create response (so it works before the first status poll, and a create response that lands after the dialog went away is cancelled on arrival); a job that already finished, failed or was cancelled gets no request, and neither does one whose status poll failed.
 
+### Android client (#5994)
+
+Browse a connected server's folder, choose **Select**, check two or more photos and choose **Merge to
+panorama…**. The server stitches; Android never does (`PanoramaSession.kt`, `PanoramaSheet.kt`). The
+sheet reads `GET /api/pano/config`, explains an unprovisioned server, and offers only the options its
+binary supports: retention, local alignment, projection, Boundary Warp and Auto Crop. Selected photos
+are sent by server path with the library holding the first one. A debounced `pano_preview` job shows
+the uncropped preview PNG with its dimensions and the server's ordered frames; changing an option
+marks it out of date and requests another, which a newer request supersedes. **Create panorama**
+queues the stitch with the last preview's job as `alignmentFrom`, follows progress, and cancels with
+`DELETE` until the server reports the job cancelled. Named refusals such as `pano_job_running` are
+shown with Try again. The view model owns the session, so recreation keeps following the same jobs;
+closing the sheet cancels a queued or running stitch, and an account change drops it without
+publishing. **View panorama** opens the output from its `Panoramas/` folder in Preview.
+`src/android/.../PanoramaIntegrationTest.kt` runs a real classical stitch when `src/android/scripts/with-cloud-api.sh` is given
+`MAPLE_ANDROID_PANO_CLI` and `MAPLE_ANDROID_PANO_FIXTURES`, as CI does. Seam regions are #5991.
+
 ## Fixtures, harness, and gates
 
 Fixture sets live at `test-fixtures/raws/pano_<NN>/` (gitignored, ≥ 2 `.dng` frames each) with references at `test-fixtures/references/<set>/<set>.png`. The tracked ratchet is `test-fixtures/pano-budgets.json`.

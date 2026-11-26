@@ -62,6 +62,16 @@ internal interface CloudTransport {
         headers: Map<String, String> = emptyMap(),
     ): CloudResponse
 
+    /** Carried only by [account]'s session, including after a token refresh. */
+    fun request(
+        id: String,
+        path: String,
+        method: String,
+        body: String?,
+        headers: Map<String, String>,
+        account: String,
+    ): CloudResponse = throw UnsupportedOperationException("Account-bound requests are not served here")
+
     fun download(id: String, path: String, output: OutputStream, signal: CancellationSignal? = null)
 
     /** Carried only by [account]'s session, including after a token refresh. */
@@ -79,6 +89,15 @@ internal class CloudHttp(private val credentials: CloudSessions) : CloudTranspor
         authenticated(id, path, method, body, headers) { connection ->
             read(connection, if (path.substringBefore('?') == "/api/xmp") 128 else 16)
         }
+
+    override fun request(
+        id: String,
+        path: String,
+        method: String,
+        body: String?,
+        headers: Map<String, String>,
+        account: String,
+    ): CloudResponse = authenticated(id, path, method, body, headers, account = account) { read(it) }
 
     /** Streams the body; cancelling the signal aborts the socket mid-transfer. */
     override fun download(id: String, path: String, output: OutputStream, signal: CancellationSignal?) {
