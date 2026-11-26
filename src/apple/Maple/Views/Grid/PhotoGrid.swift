@@ -192,24 +192,30 @@ private struct PhotoGridCell<Element: Identifiable>: View {
     // Map to a PhotoGridItem here, inside the LazyVGrid's ForEach, so
     // only realized (visible) cells build their item + derive overlays.
     let item = grid.makeItem(element)
-    PhotoThumbnailCell(
-      item: item,
-      provider: grid.provider,
-      displayMode: grid.displayMode,
-      isSelected: grid.selection.contains(element.id),
-      multiSelectChecked: grid.multiSelectChecked?(element),
-      dragPayload: grid.dragPayload?(element),
-      onTap: { frame in grid.onTap(element, frame) },
-      onFrameChange: grid.selection.contains(element.id) ? grid.onSelectedFrameChange : nil,
-      onAppear: grid.onAppearItem.map { cb in { cb(element) } },
-      onLoad: grid.onLoadItem.map { cb in { await cb(element) } },
-      contextMenuItems: grid.contextMenuItems?(element)
-    )
-    .overlay(alignment: .bottom) {
-      grid.renameOverlay?(element)
+    // One container per element. The cell's optional tap, drag and context-menu
+    // modifiers each branch at its root, and a ForEach row that branches there
+    // makes the lazy grid evaluate every element in the folder to lay out the
+    // few on screen (#6048).
+    ZStack {
+      PhotoThumbnailCell(
+        item: item,
+        provider: grid.provider,
+        displayMode: grid.displayMode,
+        isSelected: grid.selection.contains(element.id),
+        multiSelectChecked: grid.multiSelectChecked?(element),
+        dragPayload: grid.dragPayload?(element),
+        onTap: { frame in grid.onTap(element, frame) },
+        onFrameChange: grid.selection.contains(element.id) ? grid.onSelectedFrameChange : nil,
+        onAppear: grid.onAppearItem.map { cb in { cb(element) } },
+        onLoad: grid.onLoadItem.map { cb in { await cb(element) } },
+        contextMenuItems: grid.contextMenuItems?(element)
+      )
+      .overlay(alignment: .bottom) {
+        grid.renameOverlay?(element)
+      }
+      .overlay { LivePhotoClipOverlay(item: item).clipped() }
+      .opacity(grid.isHidden?(element) == true ? 0 : 1)
     }
-    .overlay { LivePhotoClipOverlay(item: item).clipped() }
-    .opacity(grid.isHidden?(element) == true ? 0 : 1)
     // Tag each photo cell so ScrollViewReader.scrollTo can target it.
     .id(element.id)
   }
