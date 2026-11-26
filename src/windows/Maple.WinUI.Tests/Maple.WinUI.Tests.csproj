@@ -360,6 +360,7 @@
     <Compile Include="..\Maple.WinUI\ViewerFilmstripLogic.cs" />
     <Compile Include="..\Maple.WinUI\Services\FileOperations\*.cs" LinkBase="FileOperations" />
     <Compile Include="..\Maple.WinUI\Services\DiagLog.cs" LinkBase="Services" />
+    <Compile Include="..\Maple.WinUI\Services\LibraryWatcher.cs" LinkBase="Services" />
     <Compile Include="..\Maple.WinUI\Services\SingleFlightGate.cs" LinkBase="Services" />
     <Compile Include="..\Maple.WinUI\Services\AppSettings.cs" LinkBase="Services" />
     <Compile Include="..\Maple.WinUI\Services\StorageReport.cs" LinkBase="Services" />
