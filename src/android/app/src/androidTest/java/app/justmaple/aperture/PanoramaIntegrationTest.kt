@@ -207,18 +207,23 @@ class PanoramaIntegrationTest {
         tap("pano-seam-mode-Include")
         enterRegion(centerX - 8, centerY - 8, 16, 16)
         compose.onNodeWithTag("pano-seam-region-0").assertTextContains("Include frame 2", substring = true)
-        compose.onNodeWithTag("pano-seam-canvas").performScrollTo().performTouchInput {
+        val canvas = compose.onNodeWithTag("pano-seam-canvas").performScrollTo()
+        canvas.performTouchInput {
             swipe(Offset(width * 0.45f, height * 0.45f), Offset(width * 0.55f, height * 0.55f), 400)
         }
         compose.waitUntil(5_000) { panorama.state.value.seams?.regions?.size == 2 }
         val dragged = panorama.state.value.seams!!.regions[1]
         assertEquals(1, dragged.frame)
-        fun assertNear(label: String, fraction: Double, actual: Int, canvas: Int) =
-            assertEquals("Dragged $label", fraction * canvas, actual.toDouble(), canvas * 0.01)
-        assertNear("x", 0.45, dragged.x, preview.width)
-        assertNear("y", 0.45, dragged.y, preview.height)
-        assertNear("width", 0.10, dragged.width, preview.width)
-        assertNear("height", 0.10, dragged.height, preview.height)
+        // Touch injection measures from the node's clipped bounds, so a canvas partly scrolled out is offset by its hidden part.
+        val node = canvas.fetchSemanticsNode()
+        val shown = node.boundsInRoot
+        fun assertNear(label: String, start: Float, fraction: Double, span: Float, full: Int, actual: Int, canvasPixels: Int) =
+            assertEquals("Dragged $label", (start + fraction * span) / full * canvasPixels, actual.toDouble(), canvasPixels * 0.01)
+        val (hiddenLeft, hiddenTop) = shown.left - node.positionInRoot.x to shown.top - node.positionInRoot.y
+        assertNear("x", hiddenLeft, 0.45, shown.width, node.size.width, dragged.x, preview.width)
+        assertNear("y", hiddenTop, 0.45, shown.height, node.size.height, dragged.y, preview.height)
+        assertNear("width", 0f, 0.10, shown.width, node.size.width, dragged.width, preview.width)
+        assertNear("height", 0f, 0.10, shown.height, node.size.height, dragged.height, preview.height)
         tap("pano-seam-remove-1")
         compose.onNodeWithTag("pano-seam-region-1").assertDoesNotExist()
         val authored = panorama.state.value.seams!!
