@@ -175,8 +175,7 @@ struct PanoMergeView: View {
               session.start(assets: assets)
             }
             .disabled(
-              assets.count < 2 || !serverChecked || awaitingDownload || blockedByPhotosFrames
-                || session.stitchBlockedReason != nil)
+              assets.count < 2 || !serverChecked || awaitingDownload || blockedByPhotosFrames)
             .accessibilityLabel(
               session.alignment == nil
                 ? "Create the full panorama from \(assets.count) selected frames"

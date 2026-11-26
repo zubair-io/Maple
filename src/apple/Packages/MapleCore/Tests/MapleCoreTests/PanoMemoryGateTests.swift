@@ -34,9 +34,14 @@ final class PanoMemoryGateTests: XCTestCase {
         guard case .tooLarge = session.memoryFit else {
             return XCTFail("expected tooLarge, got \(String(describing: session.memoryFit))")
         }
-        XCTAssertEqual(session.stitchBlockedReason, PanoStitcherError.insufficientMemory.errorDescription)
+        XCTAssertTrue(session.stitchBlockedByMemory)
 
         session.start(assets: assets)
+        let deadline = ContinuousClock.now + .seconds(5)
+        while ContinuousClock.now < deadline {
+            if case .error = session.state { break }
+            try? await Task.sleep(for: .milliseconds(5))
+        }
         guard case .error(let error) = session.state else {
             return XCTFail("expected the start to be refused, got \(session.state)")
         }
@@ -48,13 +53,13 @@ final class PanoMemoryGateTests: XCTestCase {
     func testFramesThatFitDoNotBlock() async {
         let (session, _) = await session(available: Int.max / 4)
         XCTAssertNotNil(session.memoryFit)
-        XCTAssertNil(session.stitchBlockedReason)
+        XCTAssertFalse(session.stitchBlockedByMemory)
     }
 
     func testNoMemoryLimitNeverBlocks() async {
         let (session, _) = await session(available: nil)
         XCTAssertNil(session.memoryFit)
-        XCTAssertNil(session.stitchBlockedReason)
+        XCTAssertFalse(session.stitchBlockedByMemory)
     }
 
     func testMemoryPressureStopsARunningPreviewWithAMessage() async {

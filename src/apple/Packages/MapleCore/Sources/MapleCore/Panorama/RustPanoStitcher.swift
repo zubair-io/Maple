@@ -226,7 +226,9 @@ public final class RustPanoStitcher: PanoStitching {
   ) async throws -> (T, PanoMatcherOutcome) {
     let planned = plannedMatcher()
     let (value, matcher) = try await Self.withMLFallback(planned, body: body)
-    if planned == .used(.ml), case .classicalFallback(let reason) = matcher {
+    if planned == .used(.ml), case .classicalFallback(let reason) = matcher,
+      reason != Self.mlMemoryFallbackReason
+    {
       rememberMLLoadFailure(reason)
     }
     return (value, matcher)
@@ -262,8 +264,14 @@ public final class RustPanoStitcher: PanoStitching {
     return .classicalFallback(reason: reason)
   }
 
-  /// Runs `body` with the planned engine; an ML run the core cannot load
-  /// (`modelsNotInstalled`) re-runs once with the classical matcher.
+  static let mlMemoryFallbackReason =
+    "The ML matcher needs more memory than this device can give Maple."
+
+  /// Runs `body` with the planned engine. An ML run the core cannot load
+  /// (`modelsNotInstalled`), or whose runtime alone does not fit the
+  /// device's memory (`insufficientMemory`), re-runs once with the
+  /// classical matcher, which has no such floor. Only a load failure is
+  /// remembered: the memory on offer changes from run to run.
   static func withMLFallback<T>(
     _ planned: PanoMatcherOutcome,
     body: (PanoFeatureEngine) async throws -> T
@@ -273,6 +281,8 @@ public final class RustPanoStitcher: PanoStitching {
       return (try await body(.ml), planned)
     } catch PanoStitcherError.modelsNotInstalled(let reason) {
       return (try await body(.classical), fallback(reason: reason))
+    } catch PanoStitcherError.insufficientMemory {
+      return (try await body(.classical), fallback(reason: mlMemoryFallbackReason))
     }
   }
 

@@ -286,4 +286,30 @@ final class PanoBackgroundPauseTests: XCTestCase {
 
         XCTAssertEqual(stitcher.caps, [fittedPixels])
     }
+    func testFramesThatFitOnceTheBackupStopsAreNoLongerBlocked() async {
+        let available = OSAllocatedUnfairLock(initialState: PanoMemoryModel().headBytes(pano01) / 2)
+        let pauser = CountingPauser()
+        let stitcher = ScriptedStitcher(ending: .succeed, sizes: pano01)
+        let session = await settledPhoneSession(pauser: pauser, available: available, stitcher: stitcher)
+        XCTAssertTrue(session.stitchBlockedByMemory)
+
+        available.withLock { $0 = fullPeakOverSeventyPercent * 2 }
+        session.start(assets: assets)
+        await eventually { self.isDone(session) }
+
+        XCTAssertEqual(stitcher.caps, [nil])
+    }
+
+    func testFramesThatStillCannotFitOnceTheBackupStopsAreRefused() async {
+        let available = OSAllocatedUnfairLock(initialState: PanoMemoryModel().headBytes(pano01) / 2)
+        let pauser = CountingPauser()
+        let stitcher = ScriptedStitcher(ending: .succeed, sizes: pano01)
+        let session = await settledPhoneSession(pauser: pauser, available: available, stitcher: stitcher)
+
+        session.start(assets: assets)
+        await eventually { self.hasFailed(session) }
+
+        XCTAssertEqual(stitcher.stitchCount, 0)
+        await eventually { await pauser.active == 0 }
+    }
 }
