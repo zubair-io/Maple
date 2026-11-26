@@ -98,13 +98,14 @@ class AndroidSelectionTests(unittest.TestCase):
 
 
 class AndroidHostPressureTests(unittest.TestCase):
-    def test_pre_launch_hook_is_one_nonfatal_shell_invocation(self):
+    def test_pre_launch_hook_sets_the_panel_then_snapshots_nonfatally(self):
         job = workflow("android")["jobs"]["android-build"]
         emulator = next(
             s for s in job["steps"] if "emulator-runner@" in s.get("uses", "")
         )
-        hook = emulator["with"]["pre-emulator-launch-script"]
-        self.assertEqual(len(hook.strip().splitlines()), 1)
+        self.assertEqual(emulator["with"]["avd-name"], "test")
+        panel, hook = emulator["with"]["pre-emulator-launch-script"].strip().splitlines()
+        self.assertEqual(panel, "bash src/android/scripts/configure-ci-panel.sh test")
         self.assertEqual(
             hook,
             "bash src/android/scripts/host-pressure-snapshot.sh "
@@ -125,7 +126,7 @@ class AndroidHostPressureTests(unittest.TestCase):
         emulator = next(
             s for s in job["steps"] if "emulator-runner@" in s.get("uses", "")
         )
-        before = emulator["with"]["pre-emulator-launch-script"]
+        before = emulator["with"]["pre-emulator-launch-script"].strip().splitlines()[-1]
         runner = (SCRIPTS / "test-device-ci.sh").read_text()
         start = runner.index("bash scripts/host-pressure-snapshot.sh ")
         after = runner[start : runner.index("\n", start)]
@@ -242,8 +243,9 @@ class AndroidWorkflowTests(unittest.TestCase):
         runner = (SCRIPTS / "test-device-ci.sh").read_text()
         for contract in (
             "trap collect EXIT",
-            "wm size 1280x800",
-            "wm density 160",
+            "require_native_panel",
+            "'Physical size: 1280x800'",
+            "'Physical density: 160'",
             "connectedDebugAndroidTest",
             "vulkan.level",
             "logcat -d",
@@ -252,6 +254,42 @@ class AndroidWorkflowTests(unittest.TestCase):
         ):
             self.assertIn(contract, runner)
         self.assertNotIn("connectedDebugAndroidTest ||", runner)
+        # #4984: a runtime override makes SurfaceFlinger scale every frame.
+        self.assertNotIn("wm size 1280x800", runner)
+        self.assertNotIn("wm density 160", runner)
+
+
+class AndroidPanelTests(unittest.TestCase):
+    def configure(self, config):
+        with tempfile.TemporaryDirectory() as temporary:
+            avd = Path(temporary) / "test.avd"
+            avd.mkdir()
+            if config is not None:
+                (avd / "config.ini").write_text(config)
+            result = subprocess.run(
+                ["bash", str(SCRIPTS / "configure-ci-panel.sh"), "test"],
+                env={**os.environ, "ANDROID_AVD_HOME": temporary},
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+            written = (avd / "config.ini").read_text() if config is not None else ""
+        return result, written
+
+    def test_pixel_tablet_panel_is_replaced_by_the_tested_layout(self):
+        result, written = self.configure(
+            "hw.lcd.density = 320\nhw.lcd.height=1600\nhw.lcd.width=2560\nhw.ramSize=4096M\n"
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        lcd = [line for line in written.splitlines() if line.startswith("hw.lcd.")]
+        self.assertEqual(
+            lcd, ["hw.lcd.width=1280", "hw.lcd.height=800", "hw.lcd.density=160"]
+        )
+        self.assertIn("hw.ramSize=4096M", written)
+
+    def test_missing_avd_config_fails_before_boot(self):
+        result, _ = self.configure(None)
+        self.assertNotEqual(result.returncode, 0)
 
     def test_pair_device_rename_requires_cached_host_filename_engine(self):
         steps = workflow("android")["jobs"]["android-build"]["steps"]
