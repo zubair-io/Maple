@@ -22,6 +22,11 @@ PHOTO = (
 TEST_TOOLS = ["xvfb", "xauth", "x11-utils", "weston"]
 APPIMAGE_RUNTIME = [*DEB_RUNTIME_DEPENDS, "mesa-vulkan-drivers"]
 FLATPAK_TOOLS = ["flatpak", "ostree", "dbus"]
+# The archive has answered 404 for a current package in the middle of a long install (#6039).
+FETCH_FAILURES = ("Failed to fetch", "Unable to fetch some archives")
+FETCH_RETRY_DELAYS = (15, 60, 180)
+# The container image's hook deletes every downloaded package after an index refresh.
+DISCARD_DOWNLOADS_HOOK = Path("/etc/apt/apt.conf.d/docker-clean")
 
 
 def run(*command: str, env: dict | None = None, cwd: Path | None = None) -> str:
@@ -35,14 +40,33 @@ def run(*command: str, env: dict | None = None, cwd: Path | None = None) -> str:
     return result.stdout
 
 
+def fetch_failed(output: str) -> bool:
+    return any(marker in output for marker in FETCH_FAILURES)
+
+
 def apt(*arguments: str, cwd: Path | None = None) -> None:
-    run(
-        "apt-get",
-        "-y",
-        *arguments,
-        env={**os.environ, "DEBIAN_FRONTEND": "noninteractive"},
-        cwd=cwd,
-    )
+    command = ["apt-get", "-y", *arguments]
+    env = {**os.environ, "DEBIAN_FRONTEND": "noninteractive"}
+    for delay in (*FETCH_RETRY_DELAYS, None):
+        print("+", " ".join(command), flush=True)
+        result = subprocess.run(
+            command,
+            env=env,
+            cwd=cwd,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            check=False,
+        )
+        print(result.stdout, end="", flush=True)
+        if result.returncode == 0:
+            return
+        if delay is None or not fetch_failed(result.stdout):
+            raise RuntimeError(f"apt-get exited with {result.returncode}")
+        print(f"A download failed; refreshing the index in {delay} s", flush=True)
+        time.sleep(delay)
+        DISCARD_DOWNLOADS_HOOK.unlink(missing_ok=True)
+        run("apt-get", "update", env=env)
 
 
 def headless(env: dict) -> dict:
@@ -318,8 +342,8 @@ def check_rollback(
     chmod = shims / "chmod"
     chmod.write_text(
         "#!/bin/sh\n"
-        'for last; do :; done\n'
-        'case $last in */applications/.maple.*) exit 1 ;; esac\n'
+        "for last; do :; done\n"
+        "case $last in */applications/.maple.*) exit 1 ;; esac\n"
         'exec /usr/bin/chmod "$@"\n'
     )
     chmod.chmod(0o755)
