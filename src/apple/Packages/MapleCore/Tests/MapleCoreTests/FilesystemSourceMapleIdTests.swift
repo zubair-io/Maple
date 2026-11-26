@@ -74,8 +74,6 @@ final class FilesystemSourceMapleIdTests: XCTestCase {
         let source = FilesystemSource()
         try await source.open(folderURL: tmpDir)
         let refs = try await source.images()
-        // A listing stages its rows and writes them in one debounced batch (#6017).
-        await source.idCache?.flush()
 
         let cacheURL = tmpDir.appendingPathComponent(".maple/id-cache-apple.json")
         XCTAssertTrue(FileManager.default.fileExists(atPath: cacheURL.path))
