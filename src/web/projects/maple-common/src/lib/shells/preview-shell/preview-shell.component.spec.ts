@@ -491,6 +491,33 @@ describe('PreviewShellComponent', () => {
     expect(setFlag).toHaveBeenCalledWith('library:2026/a.jpg', 'unflagged');
   });
 
+  it('leaves culling, rating and arrow keys to the browser while Cmd, Ctrl or Alt is held (#5626)', () => {
+    const { comp, focusNext, focusPrev, setRating, setFlag } = setup({
+      slug: 'library',
+      segments: ['2026', 'a.jpg'],
+      assets: [{ id: 'library:2026/a.jpg', filename: '2026/a.jpg' }],
+      focusedAssetId: 'library:2026/a.jpg',
+    });
+    for (const chord of [{ metaKey: true }, { ctrlKey: true }, { altKey: true }]) {
+      for (const key of ['x', 'P', 'u', '3', '0', 'ArrowRight', 'ArrowLeft']) {
+        const evt = new KeyboardEvent('keydown', { key, cancelable: true, ...chord });
+        Object.defineProperty(evt, 'target', { value: document.body });
+        comp.onKeydown(evt);
+        expect(evt.defaultPrevented).toBe(false);
+      }
+    }
+    expect(setFlag).not.toHaveBeenCalled();
+    expect(setRating).not.toHaveBeenCalled();
+    expect(focusNext).not.toHaveBeenCalled();
+    expect(focusPrev).not.toHaveBeenCalled();
+
+    const plain = new KeyboardEvent('keydown', { key: 'x', cancelable: true });
+    Object.defineProperty(plain, 'target', { value: document.body });
+    comp.onKeydown(plain);
+    expect(plain.defaultPrevented).toBe(true);
+    expect(setFlag).toHaveBeenCalledWith('library:2026/a.jpg', 'reject');
+  });
+
   it('skips keydown handling when focus is in an input element', () => {
     const { comp, focusNext, setRating } = setup({
       slug: 'library',
