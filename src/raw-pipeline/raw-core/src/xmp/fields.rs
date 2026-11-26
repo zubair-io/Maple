@@ -230,10 +230,22 @@ pub(super) fn set_field(
         // Baked AI removals (#1486). Compact-JSON array of removal metadata
         // (region + patch_ref + bake snapshot); patch pixels live out-of-band in
         // `.maple/inpaint/`. Tolerant reader — unknown element kinds skip, only a
-        // corrupt removal errors.
+        // corrupt removal still fails the parse. A record refused only by a
+        // check added in #3933 is not applied but never fails the parse:
+        // whether it should is an open owner decision (#3936).
         "papp:InpaintRemovals" => {
-            m.inpaint_removals = crate::types::inpaint::decode_removals(value)
-                .map_err(|e| Error::Xmp(format!("InpaintRemovals: {e}")))?;
+            let decoded = crate::types::inpaint::decode_removals_tolerant(value);
+            if let Some(cause) = decoded
+                .refused
+                .iter()
+                .find(|cause| cause.was_refused_before_3933())
+            {
+                return Err(Error::Xmp(format!("InpaintRemovals: {cause}")));
+            }
+            for cause in &decoded.refused {
+                eprintln!("[raw-core] xmp: papp:InpaintRemovals: removal not applied: {cause}");
+            }
+            m.inpaint_removals = decoded.removals;
         }
         "papp:HighlightRecoveryMode" => {
             m.highlight_recovery = match value {
