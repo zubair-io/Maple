@@ -1,8 +1,8 @@
 //! Thumbnail extraction + RAW-develop-preview bindings (#3509 Task 6):
 //! `render_thumbnail_avif_to_file` / `render_thumbnail_preview_jpeg_to_file`
 //! / `render_develop_jpeg_to_file`, mirroring `raw-ffi/src/thumbnail.rs`'s
-//! `maple_render_thumbnail_avif_to_file` (line 171) /
-//! `maple_render_thumbnail_preview_jpeg_to_file` (line 198) and
+//! `maple_render_thumbnail_avif_to_file` /
+//! `maple_render_thumbnail_preview_jpeg_to_file` and
 //! `raw-ffi/src/render_develop.rs`'s `maple_render_develop_jpeg_to_file`
 //! (line 42). Split from the sibling `develop_export.rs` purely to stay
 //! inside the repo's file-size budget — same rationale as Task 4's
