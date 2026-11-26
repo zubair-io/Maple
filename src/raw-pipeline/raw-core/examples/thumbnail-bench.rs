@@ -60,14 +60,6 @@ fn main() {
     let (img, orientation) = time("extract_embedded_preview", runs, || {
         raw_core::preview::extract_embedded_preview(&dng, "dng").unwrap()
     });
-    println!("-- Auto-profile fit downsample to 1536");
-    let (fit_w, fit_h) = (1536, (1536 * height + width / 2) / width);
-    time("  image crate Triangle (previous)", runs, || {
-        img.resize_exact(fit_w, fit_h, image::imageops::FilterType::Triangle)
-    });
-    time("  resize_exact_triangle", runs, || {
-        raw_core::preview::resize_exact_triangle(&img, fit_w, fit_h)
-    });
     for (label, max_px, avif) in [
         ("grid thumb 512 AVIF q55", 512u32, true),
         ("describe preview 1280 JPEG q85", 1280, false),
