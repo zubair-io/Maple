@@ -65,6 +65,8 @@ pub mod export;
 pub mod export_recipe;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod output_file;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod paged_file;
 pub mod workflow;
 
 /// Embedded-preview extraction shared by raw-ffi (native, file-based) and

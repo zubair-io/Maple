@@ -28,6 +28,8 @@
 
 use std::panic::AssertUnwindSafe;
 
+use rawler::rawsource::RawSource;
+
 use crate::error::Error;
 use crate::image::ExifOrientation;
 use crate::Result;
@@ -70,6 +72,29 @@ pub fn extract_embedded_preview(
     raw_bytes: &[u8],
     ext: &str,
 ) -> Result<(image::DynamicImage, ExifOrientation)> {
+    extract_embedded_preview_from(RawSource::new_from_borrowed_slice(raw_bytes), ext)
+}
+
+/// [`extract_embedded_preview`] over any rawler source; a lazy one that failed to fetch is [`Error::Io`].
+pub fn extract_embedded_preview_from(
+    source: RawSource<'_>,
+    ext: &str,
+) -> Result<(image::DynamicImage, ExifOrientation)> {
+    let source = source.with_path(format!("rawfile.{}", ext));
+    let extracted = extract_from(&source, ext);
+    match source.failure() {
+        Some(failure) => Err(Error::Io {
+            path: source.path().to_owned(),
+            source: failure,
+        }),
+        None => extracted,
+    }
+}
+
+fn extract_from(
+    source: &RawSource<'_>,
+    ext: &str,
+) -> Result<(image::DynamicImage, ExifOrientation)> {
     // The X3F decoder's metadata implementation is a `todo!()` in rawler
     // 0.7. Native unwind builds can catch that panic, but Maple's production
     // WASM uses `panic_abort`, where invoking it terminates the extraction
@@ -77,18 +102,15 @@ pub fn extract_embedded_preview(
     // a camera-rendered JPEG, so take the same bounded scan directly and never
     // enter the incomplete decoder. Full Foveon sensor decode remains #417.
     if ext.eq_ignore_ascii_case("x3f") {
-        return crate::view::auto_profile::preview::largest_embedded_jpeg(raw_bytes)
+        return crate::view::auto_profile::preview::largest_embedded_jpeg(source.buf())
             .map(|image| (image, ExifOrientation::Normal))
             .ok_or_else(|| Error::Preview("no embedded preview / thumbnail in X3F".into()));
     }
-    let hint_path = format!("rawfile.{}", ext);
     let extract = std::panic::catch_unwind(AssertUnwindSafe(|| {
-        let source = rawler::rawsource::RawSource::new_from_slice(raw_bytes)
-            .with_path(std::path::Path::new(&hint_path));
-        let decoder = match rawler::get_decoder(&source) {
+        let decoder = match rawler::get_decoder(source) {
             Ok(decoder) => decoder,
             Err(e) => {
-                return decoder_free_preview(raw_bytes)
+                return decoder_free_preview(source)
                     .ok_or_else(|| Error::Preview(format!("get_decoder: {}", e)))
             }
         };
@@ -107,7 +129,7 @@ pub fn extract_embedded_preview(
         // fail the whole preview extraction — the embedded JPEG preview is
         // still perfectly extractable even when metadata isn't.
         let orientation = std::panic::catch_unwind(AssertUnwindSafe(|| {
-            decoder.raw_metadata(&source, &params).ok()
+            decoder.raw_metadata(source, &params).ok()
         }))
         .ok()
         .flatten()
@@ -126,15 +148,17 @@ pub fn extract_embedded_preview(
                 Ok(None) | Err(_) => None,
             }
         };
-        let img = try_slot(decoder.preview_image(&source, &params))
-            .or_else(|| try_slot(decoder.full_image(&source, &params)))
-            .or_else(|| try_slot(decoder.thumbnail_image(&source, &params)))
+        let img = try_slot(decoder.preview_image(source, &params))
+            .or_else(|| try_slot(decoder.full_image(source, &params)))
+            .or_else(|| try_slot(decoder.thumbnail_image(source, &params)))
             .or_else(|| {
                 // Last-resort byte scan, non-TIFF containers only — see the
                 // doc comment above and `is_tiff_container`'s own doc for
                 // why this can never go circular on a TIFF-based RAW.
-                (!crate::view::auto_profile::preview::is_tiff_container(raw_bytes))
-                    .then(|| crate::view::auto_profile::preview::largest_embedded_jpeg(raw_bytes))
+                (!is_tiff_container(source))
+                    .then(|| {
+                        crate::view::auto_profile::preview::largest_embedded_jpeg(source.buf())
+                    })
                     .flatten()
             });
         match img {
@@ -165,25 +189,24 @@ pub fn extract_embedded_preview(
 /// Other containers take the existing byte scan.
 const MIN_FALLBACK_LONG_EDGE: u32 = 256;
 
-fn decoder_free_preview(raw_bytes: &[u8]) -> Option<(image::DynamicImage, ExifOrientation)> {
-    if !crate::view::auto_profile::preview::is_tiff_container(raw_bytes) {
-        return crate::view::auto_profile::preview::largest_embedded_jpeg(raw_bytes)
+fn decoder_free_preview(source: &RawSource<'_>) -> Option<(image::DynamicImage, ExifOrientation)> {
+    if !is_tiff_container(source) {
+        return crate::view::auto_profile::preview::largest_embedded_jpeg(source.buf())
             .map(|image| (image, ExifOrientation::Normal));
     }
     use rawler::formats::tiff::reader::TiffReader;
     use rawler::tags::TiffCommonTag;
-    let tiff =
-        rawler::formats::tiff::GenericTiffReader::new_with_buffer(raw_bytes, 0, 0, None).ok()?;
+    let tiff = rawler::formats::tiff::GenericTiffReader::new(&mut source.reader(), 0, 0, None, &[])
+        .ok()?;
     let orientation = tiff
         .root_ifd()
         .get_entry(TiffCommonTag::Orientation)
         .map(|entry| ExifOrientation::from_u16(entry.force_u16(0)))
         .unwrap_or(ExifOrientation::Normal);
-    let source = rawler::rawsource::RawSource::new_from_slice(raw_bytes);
     let mut ranked = tiff
         .find_ifds_with_filter(|_| true)
         .into_iter()
-        .filter_map(|ifd| ifd_display_strip(ifd, &source))
+        .filter_map(|ifd| ifd_display_strip(ifd, source))
         .enumerate()
         .collect::<Vec<_>>();
     ranked.sort_unstable_by_key(|(order, strip)| {
@@ -197,6 +220,12 @@ fn decoder_free_preview(raw_bytes: &[u8]) -> Option<(image::DynamicImage, ExifOr
         .find_map(|(_, strip)| strip.decode())
         .filter(|image| image.width().max(image.height()) >= MIN_FALLBACK_LONG_EDGE)
         .map(|image| (image, orientation))
+}
+
+fn is_tiff_container(source: &RawSource<'_>) -> bool {
+    source
+        .subview(0, 4)
+        .is_ok_and(crate::view::auto_profile::preview::is_tiff_container)
 }
 
 enum StripEncoding {
@@ -286,6 +315,10 @@ pub fn resize_long_edge(img: image::DynamicImage, max_px: u32) -> image::Dynamic
 #[cfg(test)]
 #[path = "preview_headers_first_tests.rs"]
 mod headers_first_tests;
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+#[path = "preview_paged_tests.rs"]
+mod paged_tests;
 
 #[cfg(test)]
 mod tests {

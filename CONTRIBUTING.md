@@ -135,7 +135,7 @@ Patched crates are committed under `src/raw-pipeline/third_party/`:
 **`rav1d`**, **`zune-jpeg`**, **`avif-parse`**, **`ravif`**,
 **`avif-serialize`** and **`rawler`**. Each directory documents its changes in `MAPLE-PATCH.md`.
 
-The `rawler` patch adds a lifetime-bound borrowed source and a file metadata source that avoids whole-file prefetch. Pixel decode constructors keep their existing behavior. See `third_party/rawler/MAPLE-PATCH.md`.
+The `rawler` patch adds a lifetime-bound borrowed source, a file metadata source that avoids whole-file prefetch, and a lazy source that fetches only the ranges a reader asks for. Pixel decode constructors keep their existing behavior. See `third_party/rawler/MAPLE-PATCH.md`.
 
 The `rav1d` patch declares its nine `dav1d_*` C shims `extern "C-unwind"`
 so a decoder panic on a corrupt AVIF unwinds into our `catch_unwind` instead

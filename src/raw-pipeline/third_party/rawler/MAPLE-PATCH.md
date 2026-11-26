@@ -10,6 +10,10 @@ padded sensor-strip construction, retaining the existing geometry/crop branches;
 `plain_image_from_ifd` returns `DecoderFailed` for a zero width, height, samples-per-pixel or tile size
 instead of reaching a zero chunk size in the strip and tile readers (#5580); an embedded-preview IFD
 declaring width 0 had made the develop worker panic.
+`RawSource::new_lazy` takes a `LazyBytes` source that fetches ranges on demand (#6033): `subview*` and the
+`reader()` (now a `SourceReader`, which wraps the same `Cursor` for every other source) fetch only what they
+touch, an inherent `len()` answers without fetching, whole-buffer access fetches everything, and `failure()`
+reports a fetch error so a caller can discard what was decoded after it. No decoder changed.
 `data/cameras/hasselblad/h2d.toml` adds the Hasselblad H2D 3FR body (#5499), which upstream lacks:
 black 0 and white 65535 as measured on the files, crop from their DefaultCrop tags, and the
 ColorMatrix1 every H2D 3FR embeds. All other camera and lens data are unchanged.
