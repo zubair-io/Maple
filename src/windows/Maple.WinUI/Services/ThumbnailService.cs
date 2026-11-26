@@ -22,7 +22,7 @@ namespace Maple.WinUI.Services
         /// screen displays instantly, before/without a scene-linear decode.</summary>
         public const int PreviewMaxPx = 2560;
         private const int LocalSweepDays = 30;
-        private static readonly SemaphoreSlim Gate = new(4);
+        private static readonly SemaphoreSlim Gate = RenderGate.Slots;
         private readonly string _localCacheDir;
 
         public ThumbnailService()

@@ -47,11 +47,10 @@ namespace Maple.WinUI.ViewModels
         /// returning them, so a caller that then loads per-file sidecar
         /// state (LoadDirectory) already sees a relocated sidecar in
         /// place.</summary>
-        private static FolderListing EnumerateAndReconcile(string folderPath)
+        private static PhotoFolderListing EnumerateAndReconcile(string folderPath)
         {
             var listing = EnumerateImageFiles(folderPath);
-            ReconcileExternalRenames(folderPath, listing.Images);
-            return listing;
+            return ReconcileExternalRenames(folderPath, listing.Images) ? EnumerateImageFiles(folderPath) : listing;
         }
 
         /// <summary>Runs on the folder-scan background thread, BEFORE the
@@ -61,11 +60,11 @@ namespace Maple.WinUI.ViewModels
         /// candidates, and only once at least one previously-known file has
         /// actually gone missing (RenameReconciliationLogic.Reconcile
         /// short-circuits on both counts).</summary>
-        private static void ReconcileExternalRenames(string folderPath, IReadOnlyList<string> currentFilePaths)
+        private static bool ReconcileExternalRenames(string folderPath, IReadOnlyList<string> currentFilePaths)
         {
             var previousSnapshot = RenameIndexStore.Load(RenameIndexCacheDir, folderPath);
             if (previousSnapshot.Count == 0)
-                return;    // nothing to diff against — e.g. this folder's first-ever scan
+                return false;    // nothing to diff against — e.g. this folder's first-ever scan
 
             var currentFileNames = currentFilePaths
                 .Select(Path.GetFileName)
@@ -81,6 +80,7 @@ namespace Maple.WinUI.ViewModels
 
             foreach (var reconciliation in reconciliations)
                 ApplyReconciledRename(folderPath, reconciliation);
+            return reconciliations.Count > 0;
         }
 
         /// <summary>Moves the vanished file's sidecar onto the file that

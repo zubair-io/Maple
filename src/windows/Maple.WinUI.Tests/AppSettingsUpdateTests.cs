@@ -22,6 +22,7 @@ using Xunit;
 
 namespace Maple.WinUI.Tests
 {
+    [Collection("AppSettingsFile")]
     public sealed class AppSettingsUpdateTests : IDisposable
     {
         private static string SettingsPath => Path.Combine(

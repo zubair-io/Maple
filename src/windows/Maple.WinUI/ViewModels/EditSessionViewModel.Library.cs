@@ -33,6 +33,7 @@ namespace Maple.WinUI.ViewModels
         private HashSet<string> _localPairInventory = new(StringComparer.Ordinal);
         private bool _localFolderFoldsCase;
         private LibraryWatcher? _libraryWatcher;
+        private readonly ScanRemovals _scanRemovals = new();
 
         [ObservableProperty] private string _currentFolderPath = string.Empty;
         [ObservableProperty] private string _activeSectionName = "All Photos";
@@ -118,6 +119,8 @@ namespace Maple.WinUI.ViewModels
             var cts = new CancellationTokenSource();
             _libraryCts = cts;
 
+            var removals = _scanRemovals.Begin();
+            cts.Token.Register(removals.End);
             BeginBrowse(local: folderPath);
             CurrentFolderPath = folderPath;
             ActiveSectionName = Path.GetFileName(folderPath) is { Length: > 0 } name ? name : folderPath;
@@ -140,52 +143,12 @@ namespace Maple.WinUI.ViewModels
                     }
                     // #2657 closed-app rename fallback lives in EnumerateAndReconcile.
                     var listing = EnumerateAndReconcile(folderPath);
-                    var filePaths = listing.Images;
                     // Finder contract (docs/spec/13-windows-shell.md): the
                     // grid shows this folder's subfolders as tiles above its
                     // images — same enumeration the sidebar tree uses.
                     var subfolderNodes = EnumerateChildFolderNodes(folderPath);
 
-                    // Per-item try/catch (#2754), mirroring EditSessionViewModel.
-                    // Watcher.cs's ChangesReady handler: one unreadable file
-                    // (a transient FileInfo failure, a sidecar SidecarStore.Load
-                    // doesn't already swallow) skips that file rather than
-                    // aborting the whole folder's load — the outer try/catch
-                    // around this Task.Run body still exists as the backstop
-                    // for anything NOT scoped to a single file.
-                    var items = filePaths
-                        .TakeWhile(_ => !cts.Token.IsCancellationRequested)
-                        .Select(filePath =>
-                        {
-                            try
-                            {
-                                var info = new FileInfo(filePath);
-                                var item = new PhotoItem
-                                {
-                                    FilePath = filePath,
-                                    FileName = info.Name,
-                                    Format = info.Extension.TrimStart('.').ToUpperInvariant(),
-                                    FileSizeBytes = info.Length,
-                                    FileModifiedUtc = info.LastWriteTimeUtc,
-                                };
-                                var sidecar = SidecarStore.Load(filePath);
-                                if (sidecar != null)
-                                {
-                                    item.Rating = sidecar.Rating ?? 0;
-                                    item.FlagStatus = sidecar.Flag ?? "none";
-                                    item.ColorLabel = sidecar.ColorLabel;
-                                }
-                                return item;
-                            }
-                            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-                            {
-                                DiagLog.Write($"[library] skipped unreadable file: {filePath}: {ex.Message}");
-                                return null;
-                            }
-                        })
-                        .Where(item => item != null)
-                        .Select(item => item!)
-                        .ToList();
+                    var items = LocalFolderScan.Default.Scan(listing, cts.Token);
                     if (cts.Token.IsCancellationRequested)
                     {
                         onReady?.Invoke();
@@ -211,8 +174,10 @@ namespace Maple.WinUI.ViewModels
                                 onReady?.Invoke();
                                 return;
                             }
+                            var kept = removals.Surviving(items);
+                            removals.End();
                             AllPhotos.Clear();
-                            foreach (var item in items)
+                            foreach (var item in kept)
                                 AllPhotos.Add(item);
                             AdoptPairInventory(listing);
                             BrowseFolders.Clear();
@@ -222,7 +187,7 @@ namespace Maple.WinUI.ViewModels
                             FinishBrowse(cts, string.Empty);
                             Timeline.GroupPhotosByDate(AllPhotos);
                             onReady?.Invoke();
-                            _ = Task.Run(() => HydrateLibraryAsync(items, folderPath, cts.Token), cts.Token);
+                            _ = Task.Run(() => HydrateLibraryAsync(kept, folderPath, cts.Token), cts.Token);
                         }
                         catch (Exception ex)
                         {
@@ -265,28 +230,11 @@ namespace Maple.WinUI.ViewModels
         /// <summary>A folder shows its OWN images only — subfolders are reached
         /// through the tree. No recursion: a click on a huge library root must
         /// never trigger a full subtree walk.</summary>
-        /// <summary><see cref="FolderListing.PairInventory"/> keeps every RAW and
-        /// JPEG name from the same listing, including RAW formats the grid does
-        /// not open, so the pair rule sees the whole directory.</summary>
-        private static FolderListing EnumerateImageFiles(string folderPath)
-        {
-            try
-            {
-                var all = Directory.EnumerateFiles(folderPath, "*.*", SearchOption.TopDirectoryOnly).ToList();
-                return new FolderListing(
-                    all.Where(f => SupportedExtensions.Contains(Path.GetExtension(f)))
-                        .OrderBy(f => f, StringComparer.OrdinalIgnoreCase)
-                        .ToList(),
-                    all.Where(RawJpegPairing.IsPairCandidate).ToList(), Complete: true,
-                    FoldsCase: LocalFileOperations.FolderFoldsCase(all.Where(RawJpegPairing.IsPairCandidate).ToList()));
-            }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-            {
-                return new FolderListing(new List<string>(), new List<string>(), Complete: false, FoldsCase: false);
-            }
-        }
-
-        private sealed record FolderListing(List<string> Images, List<string> PairInventory, bool Complete, bool FoldsCase);
+        /// <summary>The pair inventory keeps every RAW and JPEG name from the same
+        /// listing, including RAW formats the grid does not open, so the pair rule
+        /// sees the whole directory.</summary>
+        private static PhotoFolderListing EnumerateImageFiles(string folderPath) =>
+            PhotoFolderListing.Read(folderPath, SupportedExtensions);
 
         // --- Filtering ---
 

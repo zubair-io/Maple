@@ -87,13 +87,20 @@ namespace Maple.WinUI.Services
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             "Maple", "settings.json");
 
+        private static readonly FileStampCache<AppSettings> Parsed = new(settings => settings.Copy());
+
+        private AppSettings Copy()
+        {
+            var copy = (AppSettings)MemberwiseClone();
+            copy.LibraryFolders = new List<string>(LibraryFolders);
+            return copy;
+        }
+
         public static AppSettings Load()
         {
             try
             {
-                if (!File.Exists(SettingsPath))
-                    return new AppSettings();
-                return JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(SettingsPath))
+                return Parsed.Get(SettingsPath, path => JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(path)))
                     ?? new AppSettings();
             }
             catch (Exception ex) when (ex is IOException or JsonException)
@@ -106,8 +113,15 @@ namespace Maple.WinUI.Services
         {
             var dir = Path.GetDirectoryName(SettingsPath)!;
             Directory.CreateDirectory(dir);
-            File.WriteAllText(SettingsPath,
-                JsonSerializer.Serialize(this, new JsonSerializerOptions { WriteIndented = true }));
+            try
+            {
+                File.WriteAllText(SettingsPath,
+                    JsonSerializer.Serialize(this, new JsonSerializerOptions { WriteIndented = true }));
+            }
+            finally
+            {
+                Parsed.Invalidate();
+            }
         }
 
         /// <summary>The sanctioned way to persist a partial settings change
