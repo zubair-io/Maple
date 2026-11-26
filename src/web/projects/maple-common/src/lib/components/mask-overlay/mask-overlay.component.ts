@@ -190,7 +190,9 @@ export class MaskOverlayComponent implements AfterViewInit, OnDestroy {
     // Mask editing is fit-zoom-only (M3): the footprint maps 1:1 onto the
     // painted image only at fit + zero pan, so arming the tool snaps there.
     effect(() => {
-      if (this.session.active()) this.canvasSvc.zoomToFit();
+      const active = this.session.active();
+      this.canvasSvc.setFitFootprintOverlay('mask', active);
+      if (active) this.canvasSvc.zoomToFit();
     });
     // Redraw the weight tint whenever the selected mask or the geometry
     // moves — but only while the tool is armed. The overlay stays mounted and
@@ -212,6 +214,7 @@ export class MaskOverlayComponent implements AfterViewInit, OnDestroy {
   }
 
   ngOnDestroy(): void {
+    this.canvasSvc.setFitFootprintOverlay('mask', false);
     this.placement.destroy();
   }
 

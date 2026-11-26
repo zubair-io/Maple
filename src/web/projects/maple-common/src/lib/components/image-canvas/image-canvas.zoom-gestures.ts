@@ -49,6 +49,8 @@ export interface ZoomGestureHost {
   pan(): { x: number; y: number };
   /** Commit a pixelScale (0 = fit) and pan the model already clamped. */
   commitView(pixelScale: number, pan: { x: number; y: number }): void;
+  /** True while a fit-footprint overlay holds the canvas at fit: no user zoom or pan. */
+  holdsAtFit(): boolean;
   /** Before/after divider position update (the drag rides the wrap's pointer stream). */
   moveDivider(clientX: number): void;
 }
@@ -127,7 +129,7 @@ export class CanvasZoomGestures {
   private readonly revision = signal(0);
   private readonly editsAtZoom = computed(() => {
     this.revision();
-    const engine = this.engine();
+    const engine = this.modelEngine();
     if (!engine) return this.host.pixelScale() === 0;
     return engine.wheelIntent(false) === engine.glue.CanvasWheelIntent.Editing;
   });
@@ -219,6 +221,7 @@ export class CanvasZoomGestures {
     const shortcut = enabled ? zoomShortcut(e) : null;
     if (!shortcut) return;
     e.preventDefault();
+    if (this.host.holdsAtFit()) return;
     const engine = this.engine();
     if (!engine) {
       this.host.commitView(shortcut === 'fit' ? 0 : 1, { x: 0, y: 0 });
@@ -238,7 +241,7 @@ export class CanvasZoomGestures {
   zoomPercent(): string {
     const pixelScale = this.host.pixelScale();
     const native = this.host.nativeSize();
-    const engine = this.engine();
+    const engine = this.modelEngine();
     if (pixelScale === 0 && (!native || !engine)) return 'Fit';
     if (!engine) return `${Math.round(pixelScale * 100)}%`;
     return `${Math.round(engine.effectiveScale() * 100)}%`;
@@ -247,7 +250,7 @@ export class CanvasZoomGestures {
   /** The stop a badge click moves to, for its accessible label; null until loaded. */
   nextBadgeStop(): CanvasZoomStop | null {
     this.revision();
-    const engine = this.engine();
+    const engine = this.modelEngine();
     return engine ? engine.nextBadgeStop() : null;
   }
 
@@ -260,9 +263,19 @@ export class CanvasZoomGestures {
     return this.editsAtZoom();
   }
 
+  /** Drop any pinch or drag in flight so the model holds no gesture state across a hold. */
+  endLiveGestures(): void {
+    this.pinchPair = null;
+    this.dragOrigin = null;
+    this.pointers.clear();
+    const engine = this.modelEngine();
+    if (engine?.pinchCaptured) engine.releasePinchCapture();
+    if (engine?.dragTracked) engine.dragEnded();
+  }
+
   /** Re-resolve against the current viewport/native size (resize, image landing). */
   reclamp(): void {
-    const engine = this.engine();
+    const engine = this.modelEngine();
     if (!engine) return;
     engine.reclampPan();
     this.commit(engine);
@@ -446,9 +459,14 @@ export class CanvasZoomGestures {
   /**
    * The engine primed with the current geometry and the host's committed
    * zoom (adopting any zoom written outside the model); null until the
-   * shared model has loaded.
+   * shared model has loaded, and while a fit-footprint overlay holds the
+   * canvas at fit — the one gate every user zoom and pan path goes through.
    */
   private engine(): CanvasZoomEngine | null {
+    return this.host.holdsAtFit() ? null : this.modelEngine();
+  }
+
+  private modelEngine(): CanvasZoomEngine | null {
     const module = canvasZoomModule();
     if (!module) {
       void loadCanvasZoomWasm();

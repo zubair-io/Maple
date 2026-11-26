@@ -71,7 +71,10 @@ describe('MaskOverlayComponent tint gate (#1541)', () => {
             releaseMaskRaster: vi.fn(),
           },
         },
-        { provide: ImageCanvasService, useValue: { zoomToFit: vi.fn() } },
+        {
+          provide: ImageCanvasService,
+          useValue: { zoomToFit: vi.fn(), setFitFootprintOverlay: vi.fn() },
+        },
       ],
     });
     editor = TestBed.inject(EditorStateService);

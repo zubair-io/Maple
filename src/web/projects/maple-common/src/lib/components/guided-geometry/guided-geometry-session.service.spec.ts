@@ -63,6 +63,17 @@ function harness() {
 }
 
 describe('Guided geometry session', () => {
+  it('holds the canvas at fit while a guide session is open (#5743)', () => {
+    const { session, canvas } = harness();
+    expect(canvas.holdsAtFit()).toBe(false);
+    session.start('vertical');
+    TestBed.tick();
+    expect(canvas.holdsAtFit()).toBe(true);
+    session.cancel();
+    TestBed.tick();
+    expect(canvas.holdsAtFit()).toBe(false);
+  });
+
   beforeEach(() => TestBed.resetTestingModule());
   afterEach(() => vi.unstubAllGlobals());
 
