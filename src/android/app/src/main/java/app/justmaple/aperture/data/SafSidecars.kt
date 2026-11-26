@@ -20,6 +20,8 @@ internal class SafSidecars(private val context: Context, private val documents: 
         )
 
     fun read(photo: Photo, fresh: Boolean = false): String? {
+        // A folded RAW shares its sidecar with the hidden JPEG, whose journal is keyed by the JPEG.
+        photo.companion?.let(::recover)
         recover(photo)
         val folder = photo.parent ?: error("Missing sidecar folder")
         val uri = find(documents.list(folder, fresh), photo.sidecarName)?.uri ?: return null
