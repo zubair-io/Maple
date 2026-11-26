@@ -17,11 +17,14 @@ collect() {
 }
 trap collect EXIT
 # 1280x800 dp exercises the inspector/group reset and full sources column.
-# configure-ci-panel.sh boots that panel natively; a runtime wm override made
-# SurfaceFlinger scale every frame and starved first-boot SystemUI (#4984).
 require_native_panel() {
-	test "$(adb shell wm size | tr -d '\r')" = 'Physical size: 1280x800'
-	test "$(adb shell wm density | tr -d '\r')" = 'Physical density: 160'
+	local size density
+	size="$(adb shell wm size | tr -d '\r')"
+	density="$(adb shell wm density | tr -d '\r')"
+	if [[ "$size" != 'Physical size: 1280x800' || "$density" != 'Physical density: 160' ]]; then
+		printf 'Expected a native 1280x800 mdpi panel, got:\n%s\n%s\n' "$size" "$density" >&2
+		return 1
+	fi
 }
 configure_display() {
 	require_native_panel
