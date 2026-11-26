@@ -6,12 +6,7 @@ import {
   type DirectoryAsset,
 } from '../db/repos/assets.address.ts';
 import type { ResolvedAddress } from './address.ts';
-import {
-  canonicalBaseFromSidecarFilename,
-  decodeCursor,
-  encodeCursor,
-  isUnderRoot,
-} from '../fs/browse.ts';
+import { canonicalBaseFromSidecarFilename, decodeCursor, encodeCursor } from '../fs/browse.ts';
 import {
   RAW_EXTENSIONS,
   BITMAP_EXTENSIONS,
@@ -28,6 +23,12 @@ import { readFileWithFailover } from '../fs/mirror-read.ts';
 import { errnoCode } from '../fs/relocate-publish.ts';
 import { parseFolderCulling, type FolderCulling } from './folder-culling.ts';
 import { readFolderCulling } from './folder-culling-cache.ts';
+import {
+  childInspector,
+  type ChildFacts,
+  type ChildInspector,
+  type ChildStat,
+} from './folder-child.ts';
 import { freshThumbVersion, listingThumbStat, thumbsDirectorySafe } from './thumb-version.ts';
 import { pairLivePhotos, type LivePhotoLink } from './live-photo-pairs.ts';
 import { pairRawJpegStacks } from './raw-jpeg-stack.ts';
@@ -110,30 +111,9 @@ interface SidecarEntry extends Entry {
 }
 interface Scanned {
   entry: Entry;
-  stat: {
-    size: number;
-    mtimeMs: number;
-    isFile(): boolean;
-    isDirectory(): boolean;
-  } | null;
+  stat: ChildStat | null;
   catalog?: DirectoryAsset;
   realPath: string;
-}
-
-/** A request shares one resolved root and each child's checked realpath.
- * The image and its canonical/conflict XMPs must not redo that same I/O. */
-function childResolver(directory: string, realRoot: string) {
-  const paths = new Map<string, Promise<string | null>>();
-  return (name: string): Promise<string | null> => {
-    const cached = paths.get(name);
-    if (cached) return cached;
-    const pending = fs
-      .realpath(path.join(directory, name))
-      .then((real) => (isUnderRoot(real, realRoot) ? real : null))
-      .catch(() => null);
-    paths.set(name, pending);
-    return pending;
-  };
 }
 
 /** Only the selected page needs stat I/O. Every disk child is independently
@@ -147,11 +127,10 @@ async function scanEntry(
 ): Promise<Scanned | null> {
   const onDisk = state.onDisk.has(name);
   const catalog = state.byName.get(name);
-  const checked = onDisk ? await state.resolveChild(name) : null;
-  if (onDisk && checked === null) return null;
-  const real = checked ?? path.join(resolved.absPath, name);
-  const stat = onDisk ? await fs.stat(real).catch(() => null) : null;
-  if (onDisk && !stat) return null;
+  const facts = onDisk ? await state.inspectChild(name) : null;
+  if (onDisk && facts === null) return null;
+  const real = facts?.real ?? path.join(resolved.absPath, name);
+  const stat = facts?.stat ?? null;
   if (!stat && !catalog) return null;
   if (stat && !stat.isFile() && !stat.isDirectory()) return null;
   return {
@@ -202,7 +181,7 @@ async function pairedAsset(
   name: string,
   byBase: ReadonlyMap<string, readonly DirectoryAsset[]>,
   names: ReadonlySet<string>,
-  resolveChild: (name: string) => Promise<string | null>,
+  inspectChild: ChildInspector,
 ): Promise<string | null> {
   const base = canonicalBaseFromSidecarFilename(name);
   if (!base) return null;
@@ -210,7 +189,7 @@ async function pairedAsset(
   for (const row of candidates) {
     // Catalog-only entries keep their identity when their original is absent.
     if (!names.has(row.filename)) return row.id;
-    if (await resolveChild(row.filename)) return row.id;
+    if (await inspectChild(row.filename)) return row.id;
   }
   return null;
 }
@@ -229,15 +208,25 @@ function sidecarCandidates(rows: readonly DirectoryAsset[]): Map<string, Directo
   return byBase;
 }
 
+/** The first call's answer serves every later call. */
+function firstCallOnly<Arg, Result>(compute: (arg: Arg) => Promise<Result>) {
+  const memo: { answer?: Promise<Result> } = {};
+  return (arg: Arg): Promise<Result> => (memo.answer ??= compute(arg));
+}
+
 async function directoryState(resolved: ResolvedAddress, relPath: string, stack: boolean) {
-  const [rows, trashed, names, realRoot, thumbsSafe] = await Promise.all([
+  const [rows, trashed, names, realRoot, realDirectory, thumbsSafe] = await Promise.all([
     listDirectoryAssets(resolved.libraryId, relPath),
     listTrashedDirectoryFilenames(resolved.libraryId, relPath),
     diskNames(resolved.absPath),
     fs.realpath(resolved.libraryRoot).catch(() => resolved.libraryRoot),
+    fs.realpath(resolved.absPath).catch(() => null),
     thumbsDirectorySafe(resolved.absPath),
   ]);
-  const resolveChild = childResolver(resolved.absPath, realRoot);
+  const inspectChild = childInspector(resolved.absPath, realDirectory, realRoot);
+  const authorizeDirectSidecars = firstCallOnly(
+    async (sidecar: string) => (await authorizedSidecar(sidecar)) !== null,
+  );
   const hidden = new Set(trashed);
   const byName = new Map(rows.map((row) => [row.filename, row]));
   const byBase = sidecarCandidates(rows);
@@ -255,7 +244,9 @@ async function directoryState(resolved: ResolvedAddress, relPath: string, stack:
     byBase,
     livePairs,
     onDisk,
-    resolveChild,
+    inspectChild,
+    authorizeDirectSidecars,
+    realDirectory,
     stackCompanionOf,
     thumbsSafe,
   };
@@ -287,12 +278,34 @@ function cullingFields(parsed: FolderCulling): ImageCulling {
 }
 
 /** A mirror failover read has no handle stat, so its mtime is unknown. */
-async function readAuthorizedCulling(sidecar: string): Promise<SidecarState> {
-  const { culling, mtimeMs } = await readFolderCulling(sidecar).catch(async () => ({
+async function readAuthorizedCulling(sidecar: string, listed?: ChildStat): Promise<SidecarState> {
+  const { culling, mtimeMs } = await readFolderCulling(sidecar, listed).catch(async () => ({
     culling: parseFolderCulling(await readFileWithFailover(sidecar, readSidecarNoFollow)),
     mtimeMs: null,
   }));
   return { culling: cullingFields(culling), sidecarMtimeMs: mtimeMs };
+}
+
+async function authorizedSidecar(sidecar: string): Promise<string | null> {
+  const allowed = await authorizeSidecarRead(sidecar);
+  return allowed.ok && allowed.data ? allowed.data : null;
+}
+
+/** A sidecar that is a plain file of this directory resolves to the directory's real path plus
+ * its name, so one authorization of the directory's first such sidecar answers for all of them.
+ * Anything else (a symlinked sidecar) is authorized on its own. */
+async function authorizedCulling(
+  sidecar: string,
+  facts: ChildFacts,
+  state: FolderState,
+): Promise<SidecarState> {
+  if (!facts.direct || !facts.stat.isFile()) {
+    const allowed = await authorizedSidecar(sidecar);
+    return allowed === null ? UNREADABLE_SIDECAR : readAuthorizedCulling(allowed);
+  }
+  return (await state.authorizeDirectSidecars(sidecar))
+    ? readAuthorizedCulling(facts.real, facts.stat)
+    : UNREADABLE_SIDECAR;
 }
 
 /** Read the canonical sidecar during the folder walk. The catalog can lag behind
@@ -303,12 +316,9 @@ async function imageCulling(child: Scanned, state: FolderState): Promise<Sidecar
   try {
     const name = path.basename(sidecar);
     if (!state.onDisk.has(name)) return { culling: {}, sidecarMtimeMs: 0 };
-    const checked = await state.resolveChild(name);
-    if (!checked || path.extname(checked).toLowerCase() !== '.xmp') return UNREADABLE_SIDECAR;
-    const allowed = await authorizeSidecarRead(sidecar);
-    return allowed.ok && allowed.data
-      ? await readAuthorizedCulling(allowed.data)
-      : UNREADABLE_SIDECAR;
+    const facts = await state.inspectChild(name);
+    if (!facts || path.extname(facts.real).toLowerCase() !== '.xmp') return UNREADABLE_SIDECAR;
+    return await authorizedCulling(sidecar, facts, state);
   } catch (error) {
     if (errnoCode(error) !== 'ENOENT' && errnoCode(error) !== 'ELOOP') {
       log.warn(
@@ -367,7 +377,7 @@ async function appendEntry(
     child.entry.name,
     state.byBase,
     state.onDisk,
-    state.resolveChild,
+    state.inspectChild,
   );
   if (assetId) entries.sidecars.push({ ...child.entry, asset_id: assetId });
 }
@@ -456,7 +466,7 @@ export async function listUnifiedFolder(
     parent: relPath === '' ? null : addressOf(slug, parentRel === '.' ? '' : parentRel),
     path: resolved.absPath,
     // Recursive consumers use physical identity to stop in-library symlink cycles.
-    realPath: await fs.realpath(resolved.absPath).catch(() => null),
+    realPath: state.realDirectory,
     parentPath: relPath === '' ? null : path.dirname(resolved.absPath),
     ...entries,
     ...(paged && offset + limit < state.allNames.length
