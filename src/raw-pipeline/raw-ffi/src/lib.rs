@@ -355,6 +355,8 @@ mod scene_linear_tests;
 #[path = "thumbnail_buf_tests.rs"]
 mod thumbnail_buf_tests;
 #[cfg(test)]
+mod thumbnail_paged_tests;
+#[cfg(test)]
 #[path = "thumbnail_tests.rs"]
 mod thumbnail_tests;
 #[cfg(test)]

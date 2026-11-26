@@ -3,9 +3,13 @@ use raw_core::{
     image::{ColorSpace, Image},
     view::encode::{self, TargetPrimaries},
 };
+use rawler::rawsource::RawSource;
 
-pub(super) fn is_raster(bytes: &[u8], ext: &str) -> bool {
-    if bytes.starts_with(&[0xff, 0xd8, 0xff]) {
+pub(super) fn is_raster(source: &RawSource<'_>, ext: &str) -> bool {
+    if source
+        .subview(0, 3)
+        .is_ok_and(|head| head == [0xff, 0xd8, 0xff])
+    {
         return true;
     }
     if !matches!(ext, "tif" | "tiff") {
@@ -14,13 +18,12 @@ pub(super) fn is_raster(bytes: &[u8], ext: &str) -> bool {
     // A RAW stored in TIFF must retain the camera-preview path, even when
     // no embedded preview exists. Format probing avoids a full sensor decode.
     let hint = format!("source.{ext}");
-    let source =
-        rawler::rawsource::RawSource::new_from_slice(bytes).with_path(std::path::Path::new(&hint));
+    let probe =
+        RawSource::new_from_borrowed_slice(source.buf()).with_path(std::path::Path::new(&hint));
     matches!(
-        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| rawler::get_decoder(
-            &source
-        )
-        .is_err())),
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(
+            || rawler::get_decoder(&probe).is_err()
+        )),
         Ok(true)
     )
 }

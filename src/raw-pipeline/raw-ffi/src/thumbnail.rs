@@ -41,7 +41,10 @@
 //! is the native, file-based, dual-format (AVIF/JPEG) wrapper around it.
 
 use crate::error::set_last_error;
+use raw_core::paged_file::PagedFile;
+use rawler::rawsource::RawSource;
 use std::ffi::{c_char, CStr};
+use std::io::Read;
 
 #[path = "thumbnail_raster.rs"]
 mod raster;
@@ -67,11 +70,26 @@ fn render_thumbnail_bytes(
     } else {
         quality
     };
-    let raw_bytes = std::fs::read(raw_path).map_err(|e| {
-        set_last_error(format!("raw read: {}", e));
-        6
-    })?;
+    let (ow, oh, oriented) = upright_pixels(raw_path, max_px, false)?;
+    encode(ow, oh, &oriented, q).map_err(|e| {
+        set_last_error(format!("{} encode: {}", encode_err_label, e));
+        10
+    })
+}
 
+/// A JPEG or TIFF is decoded from every byte and an X3F preview is found by
+/// scanning the container, so paging those would only add a read.
+fn reads_whole_file(ext: &str) -> bool {
+    matches!(ext, "jpg" | "jpeg" | "tif" | "tiff" | "x3f")
+}
+
+/// `whole_file` reads the file in one piece, as the formats above and anything
+/// that cannot be paged get regardless; it is the tests' oracle for the paged read.
+pub(crate) fn upright_pixels(
+    raw_path: &std::path::Path,
+    max_px: u32,
+    whole_file: bool,
+) -> Result<(u32, u32, Vec<u8>), i32> {
     // Extension hint for rawler's format detection — same derivation as
     // `raw_core::decode::decode`'s path→bytes delegation to `decode_bytes`.
     let ext = raw_path
@@ -79,38 +97,69 @@ fn render_thumbnail_bytes(
         .and_then(|e| e.to_str())
         .map(str::to_ascii_lowercase)
         .unwrap_or_default();
-    let (ow, oh, oriented) = if raster::is_raster(&raw_bytes, &ext) {
-        raster::pixels(&raw_bytes, max_px).map_err(|error| {
-            set_last_error(error.to_string());
-            8
-        })?
+    let file = std::fs::File::open(raw_path).map_err(read_error)?;
+    let paged = if whole_file || reads_whole_file(&ext) {
+        Err(file)
     } else {
-        let (dyn_img, orientation) = raw_core::preview::extract_embedded_preview(&raw_bytes, &ext)
-            .map_err(|e| match e {
-                raw_core::Error::Preview(msg) => {
-                    let panicked = msg.contains("panicked");
-                    set_last_error(msg);
-                    if panicked {
-                        11
-                    } else {
-                        8
-                    }
-                }
-                other => {
-                    set_last_error(other.to_string());
+        PagedFile::new(file)
+    };
+    match paged {
+        Ok(paged) => oriented_pixels(RawSource::new_lazy(&paged), &ext, max_px),
+        Err(mut file) => {
+            let mut raw_bytes = Vec::new();
+            file.read_to_end(&mut raw_bytes).map_err(read_error)?;
+            oriented_pixels(RawSource::new_from_borrowed_slice(&raw_bytes), &ext, max_px)
+        }
+    }
+}
+
+fn read_error(error: std::io::Error) -> i32 {
+    set_last_error(format!("raw read: {}", error));
+    6
+}
+
+fn oriented_pixels(
+    source: RawSource<'_>,
+    ext: &str,
+    max_px: u32,
+) -> Result<(u32, u32, Vec<u8>), i32> {
+    if raster::is_raster(&source, ext) {
+        let pixels = raster::pixels(source.buf(), max_px);
+        return match source.failure() {
+            Some(failure) => Err(read_error(failure)),
+            None => pixels.map_err(|error| {
+                set_last_error(error.to_string());
+                8
+            }),
+        };
+    }
+    let (dyn_img, orientation) = raw_core::preview::extract_embedded_preview_from(source, ext)
+        .map_err(|e| match e {
+            raw_core::Error::Io { source, .. } => read_error(source),
+            raw_core::Error::Preview(msg) => {
+                let panicked = msg.contains("panicked");
+                set_last_error(msg);
+                if panicked {
+                    11
+                } else {
                     8
                 }
-            })?;
-        let rgb_img = raw_core::preview::resize_long_edge(dyn_img, max_px).to_rgb8();
-        let (rw, rh) = rgb_img.dimensions();
-        // The re-encode carries no EXIF, so rotating here is the only chance
-        // to land an upright thumbnail.
-        raw_core::image::apply_orientation(rgb_img.as_raw(), rw, rh, orientation)
-    };
-    encode(ow, oh, &oriented, q).map_err(|e| {
-        set_last_error(format!("{} encode: {}", encode_err_label, e));
-        10
-    })
+            }
+            other => {
+                set_last_error(other.to_string());
+                8
+            }
+        })?;
+    let rgb_img = raw_core::preview::resize_long_edge(dyn_img, max_px).to_rgb8();
+    let (rw, rh) = rgb_img.dimensions();
+    // The re-encode carries no EXIF, so rotating here is the only chance
+    // to land an upright thumbnail.
+    Ok(raw_core::image::apply_orientation(
+        rgb_img.as_raw(),
+        rw,
+        rh,
+        orientation,
+    ))
 }
 
 fn check_size_and_quality(max_px: u32, quality: u8) -> Result<(), i32> {
