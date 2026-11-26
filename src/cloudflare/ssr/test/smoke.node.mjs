@@ -131,6 +131,32 @@ test('CLI rejects wrong font MIME, missing assets masked as 200, and root errors
 	assert.match(result.output, /\/ returned 503/);
 });
 
+for (const cache of [
+	'max-age=14400',
+	'public, max-age=14400',
+	'no-cache, max-age=14400',
+	'no-cache, s-maxage=60',
+	'public, s-maxage=60',
+	undefined,
+]) {
+	test(`CLI rejects a missing asset 404 that is storable (${cache ?? 'no cache-control'})`, async () => {
+		const result = await runSmoke((path, response) => {
+			if (!path.endsWith('smoke-check.js')) return;
+			if (cache === undefined) delete response.headers['cache-control'];
+			else response.headers['cache-control'] = cache;
+		});
+		assert.equal(result.code, 1, result.output);
+		assert.match(result.output, /real-404: .*must not be storable/);
+	});
+}
+
+test('CLI accepts a no-store missing asset 404', async () => {
+	const result = await runSmoke((path, response) => {
+		if (path.endsWith('smoke-check.js')) response.headers['cache-control'] = 'no-store';
+	});
+	assert.equal(result.code, 0, result.output);
+});
+
 test('CLI rejects an unavailable origin rather than certifying edge bytes', async () => {
 	const result = await runSmoke(
 		() => {},
