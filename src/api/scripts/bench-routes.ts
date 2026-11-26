@@ -1,3 +1,4 @@
+// fallow-ignore-file complexity code-duplication
 /**
  * Route latency probe against a generated library database: boots the real server on a COPY of
  * the database and times the read routes the web and native clients hit on open.
