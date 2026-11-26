@@ -9,6 +9,13 @@ namespace Maple.WinUI.ViewModels;
 
 public partial class EditSessionViewModel
 {
+    private void RequestSavedCloudPreviewAfterSave(PhotoItem photo, AdjustmentState model, CloudClient client, int version)
+    {
+        var admission = _savedPreviews.Request(photo);
+        _savedPreviews = admission.Next;
+        if (admission.Start) RequestSavedCloudPreview(photo, model, client, version);
+    }
+
     private void RequestSavedCloudPreview(PhotoItem photo, AdjustmentState model, CloudClient client, int version)
     {
         if (_disposed || version != _photoOpenVersion || !ReferenceEquals(photo, SelectedPhoto)
