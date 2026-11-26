@@ -130,6 +130,24 @@ namespace Maple.WinUI.Tests
         }
 
         [Fact]
+        public async Task RecycleBin_FailingAfterTheRawWasRecycled_ReportsWhatWasRecycledAndWhatRemains()
+        {
+            var (raw, jpeg, _) = WritePair();
+            var fake = new FakeRecycleBinService { RecyclesFirstPathThenFails = true };
+
+            var failure = await Assert.ThrowsAsync<FileOperationException>(
+                () => LocalFileOperations.TrashStackAsync(raw, jpeg, _root, fake));
+
+            Assert.Contains("IMG_1.CR3", failure.Message);
+            Assert.Contains("Recycle Bin", failure.Message);
+            Assert.Contains("IMG_1.JPG", failure.Message);
+            Assert.Contains("IMG_1.xmp", failure.Message);
+            Assert.DoesNotContain("no longer exists", failure.Message);
+            Assert.Equal(new[] { "IMG_1.JPG", "IMG_1.xmp" }, Names("Album"));
+            Assert.Empty(Names(".maple", "trash", "Album"));
+        }
+
+        [Fact]
         public async Task ATileDelete_ThroughTheRecycleBin_ReportsTheRecycleBin()
         {
             var (raw, jpeg, sidecar) = WritePair();

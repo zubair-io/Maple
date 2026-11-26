@@ -87,15 +87,33 @@ namespace Maple.WinUI.Services.FileOperations
             var recycled = hasSidecar
                 ? new[] { primaryPath, companionPath, sidecarPath }
                 : new[] { primaryPath, companionPath };
-            if (IsOnLocalFixedDrive(primaryPath)
-                && (recycleBin ?? RecycleBinService.Instance).TrySendToRecycleBin(recycled))
-                return new RelocateOutcome(
-                    primaryPath, hasSidecar ? sidecarPath : null, false, hasSidecar, companionPath);
+            if (IsOnLocalFixedDrive(primaryPath))
+            {
+                if ((recycleBin ?? RecycleBinService.Instance).TrySendToRecycleBin(recycled))
+                    return new RelocateOutcome(
+                        primaryPath, hasSidecar ? sidecarPath : null, false, hasSidecar, companionPath);
+                ThrowIfPartlyRecycled(recycled);
+            }
 
             var trashDir = TrashPaths.TrashDestinationDir(primaryPath, libraryRoot);
             return await RelocateStackAsync(
                 primaryPath, companionPath, trashDir, null, RelocateMode.Move, CollisionPolicy.AutoSuffix)
                 .ConfigureAwait(false);
+        }
+
+        // The shell call can recycle some of the files and then fail on a
+        // locked one; falling back to `.maple/trash` would then plan against
+        // sources that are already gone.
+        private static void ThrowIfPartlyRecycled(string[] sent)
+        {
+            var recycled = sent.Where(path => !File.Exists(path)).Select(Path.GetFileName).ToArray();
+            if (recycled.Length == 0) return;
+            var remaining = sent.Where(File.Exists).Select(Path.GetFileName).ToArray();
+            throw new FileOperationException(
+                FileOperationErrorKind.Underlying,
+                $"Only part of this RAW+JPEG pair reached the Recycle Bin. In the Recycle Bin: "
+                + $"{string.Join(", ", recycled)}. Still in place: "
+                + $"{(remaining.Length == 0 ? "nothing" : string.Join(", ", remaining))}.");
         }
 
         private sealed record StackPair(string Primary, string Companion, string DestinationDir, string RequestedName)
