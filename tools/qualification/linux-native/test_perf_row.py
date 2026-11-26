@@ -21,6 +21,7 @@ SPEC.loader.exec_module(perf_table)
 def ticks(p50, p95, maximum, over16, over50, published, sent=120):
     return {
         "firstTickMs": p50 * 3,
+        "submittedMs": {"p50Ms": p50 / 2, "p95Ms": p95 / 2, "maxMs": maximum / 2},
         "publishedRatio": published / sent,
         "worstGapMs": maximum * 2,
         "p50Ms": p50,
@@ -40,6 +41,7 @@ def path(cold_open, exposure, contrast, cancellation, peak, renderer):
         "viewportWidth": 1600,
         "viewportHeight": 1200,
         "coldOpenUncachedMs": cold_open,
+        "coldOpenSubmittedMs": cold_open / 4,
         "coldOpenDecodeMs": cold_open / 2,
         "tickExposure": exposure,
         "tickContrast": contrast,
@@ -114,7 +116,8 @@ class LinuxSectionTest(unittest.TestCase):
             "worst gap with no frame 102.0 ms | 20 frames and half the ticks, to qualify |",
             "commit `0123456789ab`",
             "[`perf/linux/x.json`](../perf/linux/x.json)",
-            "| Cold open, uncached | 900.0 ms | 250–1000 ms |",
+            "| Cold open, uncached | 900.0 ms (worker event at 225.0 ms) | 250–1000 ms |",
+            "| Exposure tick p50 / p95 / max at worker submission | 2.5 ms / 4.5 ms / 6.2 ms | not a measure of rendered frames",
             "| Exposure tick p50 / p95 / max | 5.0 ms / 9.0 ms / 12.5 ms | 16 ms / 50 ms (hard) |",
             "| Contrast ticks over 16 ms | 2 of 118 published | 0 |",
             "| Contrast ticks over 50 ms | 1 of 118 published (120 sent) | 0 |",
@@ -123,7 +126,7 @@ class LinuxSectionTest(unittest.TestCase):
             "the switch takes 400.0 ms uninterrupted) |",
             "| CPU fallback contrast frames published | 4 of 120 ticks (3%); first tick 2,130.0 ms; "
             "worst gap with no frame 1,580.0 ms | no fixed target — tracked for regression |",
-            "| CPU fallback cold open, uncached | 2,400.0 ms | 250–1000 ms |",
+            "| CPU fallback cold open, uncached | 2,400.0 ms (worker event at 600.0 ms) | 250–1000 ms |",
             "| CPU fallback exposure tick p50 / p95 / max | 700.0 ms / 800.0 ms / 810.0 ms |",
             "| CPU fallback contrast ticks over 50 ms | 4 of 4 published (120 sent) | 0 |",
             "| CPU fallback profile-switch cancellation p50 / p95 / max | — "
@@ -135,7 +138,7 @@ class LinuxSectionTest(unittest.TestCase):
 
     def test_a_row_missing_its_measurements_renders_dashes_not_numbers(self) -> None:
         section = perf_table.render_row_section({"platform": "linux", "fixture": "reference.dng"})
-        self.assertIn("| Cold open, uncached | — | 250–1000 ms |", section)
+        self.assertIn("| Cold open, uncached | — (worker event at —) | 250–1000 ms |", section)
         self.assertIn("| Exposure ticks over 50 ms | — of — published (— sent) | 0 |", section)
         self.assertIn("| CPU fallback profile-switch cancellation p50 / p95 / max | — (— of — profile", section)
         self.assertIn("| — / — | no fixed target", section)
