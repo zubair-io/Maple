@@ -86,10 +86,13 @@ public enum LocalNetworkResolving {
       .effectiveURL
   }
 
+  typealias CandidateProbe = @Sendable (LocalHttpsEndpoint) async -> Bool
+
   static func resolveStatus(
     identity: URL,
     probeTimeout: TimeInterval = 1.5,
-    session: URLSession = .shared
+    session: URLSession = .shared,
+    probe: CandidateProbe? = nil
   ) async -> (effectiveURL: URL, status: LocalNetworkStatus) {
     guard
       let report = await fetchReport(
@@ -102,22 +105,46 @@ public enum LocalNetworkResolving {
     // the bearer and photo bytes stay under TLS (#4720). An HTTP identity
     // has nothing to downgrade from and keeps the legacy ip:port path.
     let identityIsHTTPS = identity.scheme?.lowercased() == "https"
-    let candidates = report.candidates.filter { !identityIsHTTPS || $0.scheme.lowercased() == "https" }
-    for endpoint in candidates {
-      guard let candidate = endpoint.url else { continue }
-      // Hostname TLS is validated normally by URLSession; a hostname's
-      // certificate is never reused or trusted for the IP fallback.
-      guard
-        let confirmed = await fetchReport(
-          url: candidate.appending(path: "/api/network/local-address"), session: session,
-          timeout: probeTimeout
-        ), confirmed.candidates.contains(endpoint)
-      else { continue }
-      return (candidate, LocalNetworkStatus(localURL: candidate, isConnectedLocally: true))
+    let candidates = report.candidates.filter {
+      !identityIsHTTPS || $0.scheme.lowercased() == "https"
     }
-    return (
-      identity, LocalNetworkStatus(localURL: candidates.first?.url, isConnectedLocally: false)
-    )
+    // Hostname TLS is validated normally by URLSession; a hostname's
+    // certificate is never reused or trusted for the IP fallback.
+    let probeCandidate: CandidateProbe =
+      probe ?? { endpoint in
+        guard let candidate = endpoint.url,
+          let confirmed = await fetchReport(
+            url: candidate.appending(path: "/api/network/local-address"), session: session,
+            timeout: probeTimeout)
+        else { return false }
+        return confirmed.candidates.contains(endpoint)
+      }
+    guard
+      let winner = await firstPreferredSuccess(of: candidates, probe: probeCandidate),
+      let url = winner.url
+    else {
+      return (
+        identity, LocalNetworkStatus(localURL: candidates.first?.url, isConnectedLocally: false)
+      )
+    }
+    return (url, LocalNetworkStatus(localURL: url, isConnectedLocally: true))
+  }
+
+  // Preference order wins even when a later candidate answers sooner, so the
+  // chosen route is the one a probe-one-then-the-next loop would pick.
+  static func firstPreferredSuccess(
+    of endpoints: [LocalHttpsEndpoint], probe: @escaping CandidateProbe
+  ) async -> LocalHttpsEndpoint? {
+    let attempts = endpoints.map { endpoint in Task { await probe(endpoint) } }
+    return await withTaskCancellationHandler {
+      for (endpoint, attempt) in zip(endpoints, attempts) where await attempt.value {
+        for other in attempts { other.cancel() }
+        return endpoint
+      }
+      return nil
+    } onCancel: {
+      for attempt in attempts { attempt.cancel() }
+    }
   }
 
   private static func fetchReport(

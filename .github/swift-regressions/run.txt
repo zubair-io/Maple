@@ -613,3 +613,5 @@ EditHistoryEventTests
 BrowseNavigationTicketTests
 CloudSourceThumbVersionTests
 ThumbnailCameraPreviewReuseTests
+# LAN candidates probed concurrently (#6036): injected probes, no network.
+LocalNetworkConcurrentProbeTests
