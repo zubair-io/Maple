@@ -4,7 +4,12 @@ using System.Threading;
 
 namespace Maple.WinUI.Services.Pano;
 
-public sealed record PanoPreviewFiles(string PreviewPng, string AlignmentJson);
+public sealed record PanoPreviewFiles(string PreviewPng, string AlignmentJson)
+{
+    public string ReportJson => Path.ChangeExtension(PreviewPng, ".report.json");
+
+    public string SeamConstraintsJson => Path.ChangeExtension(PreviewPng, ".seams.json");
+}
 
 /// <summary>One stitch dialog's temp folder (#4581) under
 /// %TEMP%\Maple\Pano: preview PNGs and alignment files live here and go
@@ -40,6 +45,13 @@ public sealed class PanoScratch : IDisposable
             Path.Combine(Directory, $"preview-{run}.png"),
             Path.Combine(Directory, $"alignment-{run}.json"));
     }
+
+    // maple-cli writes a full-size owner map beside a report named
+    // `*.report.json`; that name keeps the map inside this folder.
+    public PanoSeamStitch SeamStitch(PanoSeamRequest request) => new(
+        request,
+        Path.Combine(Directory, "stitch.seams.json"),
+        Path.Combine(Directory, "stitch.report.json"));
 
     public void Dispose() => TryDelete(Directory);
 
