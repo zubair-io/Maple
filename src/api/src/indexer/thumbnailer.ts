@@ -37,6 +37,7 @@ import { renderImageThumbToFileViaPool, throwIfSourceRejected } from '../thumbs/
 import { extractVideoPosterJpeg } from '../thumbs/video-poster.ts';
 import { THUMB_AVIF_QUALITY, THUMB_LONG_EDGE_PX } from '../thumbs/render.ts';
 import { finalizeAvifRender } from '../thumbs/validate-avif.ts';
+import { renderEmbeddedOrDeveloped } from '../thumbs/embedded-preview.ts';
 import { renderRawSidecarDerivative } from '../thumbs/raw-sidecar-render.ts';
 import { assertDerivativeCacheDirectory, isDerivativeCacheFresh } from './derivative-cache.ts';
 import { child as childLogger } from '../log.ts';
@@ -218,23 +219,18 @@ async function renderRawThumbToFile(rawPath: string, outPath: string): Promise<b
   // Extraction failure REJECTS rather than returning false — the pool
   // marshals the child's error across the process boundary as a throw, and
   // the underlying rc (8 = "no embedded preview / thumbnail in RAW") does
-  // not survive that trip. So both branches fall through to the demosaic,
-  // which therefore triggers on ANY extraction failure rather than
-  // detecting the no-preview case specifically; an unreadable RAW fails the
-  // decode too and still returns false.
-  let extractError: string | null = null;
-  try {
-    if (
-      await pool.renderThumbnailAvifToFile(rawPath, outPath, THUMB_LONG_EDGE_PX, THUMB_AVIF_QUALITY)
-    ) {
-      return true;
-    }
-    extractError = 'extraction returned false';
-  } catch (e) {
-    extractError = e instanceof Error ? e.message : String(e);
-  }
-  log.debug({ rawPath, extractError }, 'thumb extraction failed — trying demosaic fallback');
-  return await developRawThumbToFile(rawPath, outPath, extractError);
+  // not survive that trip. So any extraction failure falls through to the
+  // demosaic; an unreadable RAW fails the decode too and still returns false.
+  return await renderEmbeddedOrDeveloped(
+    rawPath,
+    outPath,
+    THUMB_LONG_EDGE_PX,
+    THUMB_AVIF_QUALITY,
+    (extractError) => {
+      log.debug({ rawPath, extractError }, 'thumb embedded preview unusable — trying demosaic');
+      return developRawThumbToFile(rawPath, outPath, extractError);
+    },
+  );
   // Note: FFI path bakes orientation into pixels and emits a bare AVIF with
   // no EXIF. Bitmap paths (via the FFI child pool) call Maple's .rotate() at
   // decode time. No inline orientation post-process needed — keeping the

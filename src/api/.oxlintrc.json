@@ -304,6 +304,8 @@
         "src/routes/xmp.sidecar-contract.test.ts",
         "src/thumbs/render.test.ts",
         "src/thumbs/render.ts",
+        // #5511: moves a private temp derivative aside during the develop attempt; never a library file.
+        "src/thumbs/embedded-preview.ts",
         "src/thumbs/validate-avif.test.ts",
         "src/thumbs/validate-avif.ts",
         "src/thumbs/video-poster.ts",

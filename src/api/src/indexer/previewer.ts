@@ -25,7 +25,7 @@
  * 256px grid-thumbnail tier uses, just called with a larger `maxPx`). If the
  * embedded preview is smaller than 1280 the FFI hands back whatever the
  * camera embedded — acceptable for the VLM, which gracefully handles
- * smaller inputs.
+ * smaller inputs. Below 512 px the RAW is developed first (#5511).
  *
  * For non-RAW files: same FFI child pool (Maple) pipeline as the thumb path,
  * AVIF-encoded. PSD/PSB/HDR route through the same `ag-psd`/`hdr` decode +
@@ -52,6 +52,7 @@ import { isUndecodableFilename, isVideoFilename } from './media-types.ts';
 import { renderImageThumbToFileViaPool, throwIfSourceRejected } from '../thumbs/bitmap-pool.ts';
 import { extractVideoPosterJpeg } from '../thumbs/video-poster.ts';
 import { finalizeAvifRender } from '../thumbs/validate-avif.ts';
+import { renderEmbeddedOrDeveloped } from '../thumbs/embedded-preview.ts';
 import { renderRawSidecarDerivative } from '../thumbs/raw-sidecar-render.ts';
 import { assertDerivativeCacheDirectory, isDerivativeCacheFresh } from './derivative-cache.ts';
 import { child as childLogger } from '../log.ts';
@@ -263,22 +264,20 @@ async function renderRawPreviewToFile(rawPath: string, outPath: string): Promise
   // marshals the child's error across the process boundary as a throw, and
   // the underlying rc (8 = "no embedded preview / thumbnail in RAW") does
   // not survive that trip — the message is a generic "render-failed (see
-  // child stderr)". So both branches fall through to the demosaic, and the
-  // fallback deliberately triggers on ANY extraction failure rather than
-  // trying to detect the no-preview case specifically. That is not a
-  // shortcut: a genuinely unreadable RAW fails the decode too and still
-  // returns false, one log line later.
-  let extractError: string | null = null;
-  try {
-    if (await pool.renderThumbnailAvifToFile(rawPath, outPath, PREVIEW_LONG_EDGE_PX, 70)) {
-      return true;
-    }
-    extractError = 'extraction returned false';
-  } catch (e) {
-    extractError = e instanceof Error ? e.message : String(e);
-  }
-  log.debug({ rawPath, extractError }, 'preview extraction failed — trying demosaic fallback');
-  return await developRawPreviewToFile(rawPath, outPath, extractError);
+  // child stderr)". So the fallback to the demosaic triggers on ANY
+  // extraction failure rather than trying to detect the no-preview case
+  // specifically.
+  // A genuinely unreadable RAW fails the decode too and still returns false.
+  return await renderEmbeddedOrDeveloped(
+    rawPath,
+    outPath,
+    PREVIEW_LONG_EDGE_PX,
+    70,
+    (extractError) => {
+      log.debug({ rawPath, extractError }, 'preview embedded preview unusable — trying demosaic');
+      return developRawPreviewToFile(rawPath, outPath, extractError);
+    },
+  );
   // Note: FFI path bakes orientation into pixels and emits a bare AVIF with
   // no EXIF. Bitmap paths (via the FFI child pool) call Maple's .rotate() at
   // decode time. No inline orientation post-process needed — keeping the
