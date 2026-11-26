@@ -278,7 +278,7 @@ actor ThumbnailProvider {
 // MARK: - Cloud thumb fetch + cache
 
 extension ThumbnailProvider {
-  /// Cloud thumb fetch with cache. Exact behaviour from `CloudTimelineCell.fetchThumbBytes`.
+  /// Cloud thumb fetch with cache (`CloudThumbCache.bytes`).
   fileprivate static func fetchCloudThumb(
     host: String,
     absPath: String,
@@ -286,15 +286,8 @@ extension ThumbnailProvider {
     cache: CloudThumbCache,
     client: CloudThumbClient
   ) async -> Data? {
-    if let cached = await cache.get(host: host, absPath: absPath, version: version) {
-      return cached
-    }
-    do {
-      let bytes = try await client.thumb(absPath: absPath, version: version)
-      await cache.put(host: host, absPath: absPath, version: version, bytes)
-      return bytes
-    } catch {
-      return nil
+    await cache.bytes(host: host, absPath: absPath, version: version) {
+      try await client.thumb(absPath: absPath, version: version)
     }
   }
 }

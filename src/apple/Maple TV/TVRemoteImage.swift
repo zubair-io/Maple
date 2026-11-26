@@ -203,16 +203,10 @@ struct TVRemoteImage: View {
     let host = server.cacheHostKey
     switch kind {
     case .thumb:
-      if let cached = await thumbCache.get(host: host, absPath: absPath, version: thumbVersion) {
-        return cached
+      return await thumbCache.bytes(host: host, absPath: absPath, version: thumbVersion) {
+        [thumbClient, absPath, thumbVersion] in
+        try await thumbClient.thumb(absPath: absPath, version: thumbVersion)
       }
-      guard let bytes = try? await thumbClient.thumb(absPath: absPath, version: thumbVersion)
-      else {
-        return nil
-      }
-      guard !Task.isCancelled else { return nil }
-      await thumbCache.put(host: host, absPath: absPath, version: thumbVersion, bytes)
-      return bytes
 
     case .preview:
       return try? await thumbClient.preview(absPath: absPath)
@@ -314,12 +308,8 @@ extension TVRemoteImage {
     guard TVDecodedImageCache.shared.image(forKey: key) == nil else { return }
     let host = server.cacheHostKey
 
-    var thumbBytes = await thumbCache.get(host: host, absPath: absPath, version: thumbVersion)
-    if thumbBytes == nil,
-      let bytes = try? await thumbClient.thumb(absPath: absPath, version: thumbVersion)
-    {
-      await thumbCache.put(host: host, absPath: absPath, version: thumbVersion, bytes)
-      thumbBytes = bytes
+    let thumbBytes = await thumbCache.bytes(host: host, absPath: absPath, version: thumbVersion) {
+      try await thumbClient.thumb(absPath: absPath, version: thumbVersion)
     }
     // Both branches re-check cancellation after the `await decode(...)`
     // call, not just before it (Copilot review on #2116): a task

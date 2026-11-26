@@ -82,6 +82,77 @@ final class CloudThumbCacheAccessTests: XCTestCase {
     XCTAssertEqual(anyRendering, Data([2]))
   }
 
+  func testFailedFetchFallsBackToTheStoredRendering() async {
+    let cache = CloudThumbCache(baseDir: dir, maxBytes: 1024 * 1024)
+    await cache.put(host: "x", absPath: "/a", Data([1]))
+
+    let offline = await cache.bytes(host: "x", absPath: "/a", version: "v2") {
+      throw URLError(.notConnectedToInternet)
+    }
+    let neverStored = await cache.bytes(host: "x", absPath: "/b", version: "v2") {
+      throw URLError(.notConnectedToInternet)
+    }
+    XCTAssertEqual(offline, Data([1]), "an older thumbnail beats a placeholder")
+    XCTAssertNil(neverStored)
+  }
+
+  func testServerErrorStaysAMissSoTheCallerRetries() async {
+    let cache = CloudThumbCache(baseDir: dir, maxBytes: 1024 * 1024)
+    await cache.put(host: "x", absPath: "/a", Data([1]))
+
+    let serverError = await cache.bytes(host: "x", absPath: "/a", version: "v2") {
+      throw URLError(.badServerResponse)
+    }
+    let cancelled = await cache.bytes(host: "x", absPath: "/a", version: "v2") {
+      throw CancellationError()
+    }
+    XCTAssertNil(serverError, "the stored rendering would hide the new one for the session")
+    XCTAssertNil(cancelled)
+  }
+
+  func testFetchedBytesAreStoredUnderTheRequestedVersion() async {
+    let cache = CloudThumbCache(baseDir: dir, maxBytes: 1024 * 1024)
+    await cache.put(host: "x", absPath: "/a", version: "v1", Data([1]))
+    let fetches = FetchCount()
+
+    let fetched = await cache.bytes(host: "x", absPath: "/a", version: "v2") {
+      await fetches.record()
+      return Data([2])
+    }
+    let again = await cache.bytes(host: "x", absPath: "/a", version: "v2") {
+      await fetches.record()
+      return Data([3])
+    }
+    let count = await fetches.count
+    XCTAssertEqual(fetched, Data([2]))
+    XCTAssertEqual(again, Data([2]), "the second view is a cache hit")
+    XCTAssertEqual(count, 1)
+  }
+
+  func testAVersionTooLongToRecordIsServedLikeNoVersion() async {
+    let cache = CloudThumbCache(baseDir: dir, maxBytes: 1024 * 1024)
+    let unstorable = String(repeating: "v", count: 200)
+    await cache.put(host: "x", absPath: "/a", version: unstorable, Data([1]))
+
+    let hit = await cache.get(host: "x", absPath: "/a", version: unstorable)
+    XCTAssertEqual(hit, Data([1]), "a miss here would fetch the thumbnail on every view")
+  }
+
+  func testReplacingAnEntryCountsOnlyTheBytesItAdds() async throws {
+    let cache = CloudThumbCache(baseDir: dir, maxBytes: 1024 * 1024)
+    // Measuring the empty cache first settles the running total, so the
+    // launch-time scan does not run concurrently with the writes below.
+    try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+    await cache.evictIfNeeded()
+
+    for round in 0..<10 {
+      await cache.put(host: "x", absPath: "/a", version: "v\(round)", Data(count: 400))
+    }
+
+    let tracked = await cache.approxTotal
+    XCTAssertEqual(tracked, 400, "ten renderings of one path leave one 400-byte entry")
+  }
+
   func testThumbURLCarriesTheVersionAsAQueryItem() throws {
     let base = try XCTUnwrap(URL(string: "https://maple.example/api/thumb/photos/2024/a%231.dng"))
     let versioned = CloudThumbClient.versioned(base, "k3j9")
@@ -92,6 +163,11 @@ final class CloudThumbCacheAccessTests: XCTestCase {
     let cache = CloudThumbCache(baseDir: dir, maxBytes: 1024 * 1024)
     let miss = await cache.get(host: "x", absPath: "/missing")
     XCTAssertNil(miss)
+  }
+
+  private actor FetchCount {
+    private(set) var count = 0
+    func record() { count += 1 }
   }
 
   private func fileURL(absPath: String) -> URL {

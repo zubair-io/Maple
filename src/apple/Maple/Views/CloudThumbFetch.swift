@@ -9,9 +9,10 @@
 import Foundation
 import MapleCore
 
-/// Fetch JPEG thumb bytes: cache first, then the network client (populating
-/// the cache on a hit). Returns nil on any error so the caller renders the
-/// placeholder. Mirrors `CloudTimelineCell.fetchThumbBytes`.
+/// Thumb bytes for a cloud photo: the cache first, then the network client,
+/// whose answer is stored. Nil when neither has it, so the caller renders the
+/// placeholder; while the server is unreachable a stored older rendering is
+/// returned instead (`CloudThumbCache.bytes`).
 func fetchCloudThumbBytes(
     host: String,
     absPath: String,
@@ -19,14 +20,7 @@ func fetchCloudThumbBytes(
     cache: CloudThumbCache,
     client: CloudThumbClient
 ) async -> Data? {
-    if let cached = await cache.get(host: host, absPath: absPath, version: version) {
-        return cached
-    }
-    do {
-        let bytes = try await client.thumb(absPath: absPath, version: version)
-        await cache.put(host: host, absPath: absPath, version: version, bytes)
-        return bytes
-    } catch {
-        return nil
+    await cache.bytes(host: host, absPath: absPath, version: version) {
+        try await client.thumb(absPath: absPath, version: version)
     }
 }
