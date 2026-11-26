@@ -34,6 +34,7 @@ public sealed class PanoSeamAuthoring
     private IReadOnlyList<string> _frames = Array.Empty<string>();
     private bool _pending;
     private bool _resolvedTile;
+    private (long Sequence, PanoPreviewReport Report)? _awaitingImage;
     private string _strategy = "auto";
 
     public event Action? Changed;
@@ -69,6 +70,7 @@ public sealed class PanoSeamAuthoring
     {
         _strategy = strategy;
         _resolvedTile = false;
+        _awaitingImage = null;
         DropGeometry();
         Changed?.Invoke();
     }
@@ -76,6 +78,7 @@ public sealed class PanoSeamAuthoring
     public void PreviewRequested()
     {
         _pending = true;
+        _awaitingImage = null;
         Changed?.Invoke();
     }
 
@@ -87,6 +90,30 @@ public sealed class PanoSeamAuthoring
         var verdict = Adopt(completion);
         Changed?.Invoke();
         return verdict;
+    }
+
+    // A report only opens authoring once the image of that same run is on
+    // screen: the overlay maps pointer positions with the report's canvas.
+    public void ImageShown(long sequence)
+    {
+        if (_awaitingImage is not { } waiting || waiting.Sequence != sequence)
+            return;
+        _awaitingImage = null;
+        _pending = false;
+        _preview = waiting.Report.Canvas;
+        _resolvedTile = waiting.Report.Strategy == "tile";
+        _frames = waiting.Report.Inputs ?? Array.Empty<string>();
+        Changed?.Invoke();
+    }
+
+    public void ImageFailed(long sequence)
+    {
+        if (_awaitingImage is not { } waiting || waiting.Sequence != sequence)
+            return;
+        _awaitingImage = null;
+        _pending = false;
+        _preview = null;
+        Changed?.Invoke();
     }
 
     public string? Add(PanoSeamKind kind, int frame, PanoSeamRect rect)
@@ -133,9 +160,8 @@ public sealed class PanoSeamAuthoring
             DropGeometry();
             return new PanoSeamVerdict(StaleGeometry, true);
         }
-        _preview = report.Canvas;
-        _resolvedTile = report.Strategy == "tile";
-        _frames = report.Inputs ?? Array.Empty<string>();
+        _pending = true;
+        _awaitingImage = (completion.Run.Sequence, report);
         return new PanoSeamVerdict(null, false);
     }
 

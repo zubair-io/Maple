@@ -154,7 +154,6 @@ namespace Maple.WinUI
                     line => OnUiThread(() => previewPane.Report(line)), ct),
                 PanoPreviewSession.DefaultDebounce);
             preview.Started += _ => OnUiThread(previewPane.Started);
-            preview.Succeeded += run => OnUiThread(() => _ = previewPane.ShowAsync(run.Files.PreviewPng));
             preview.Failed += error => OnUiThread(() => previewPane.Failed(error));
 
             var dialogClosed = false;
@@ -165,14 +164,26 @@ namespace Maple.WinUI
                 seams.PreviewRequested();
                 preview.Request(SelectedOptions(), regions);
             }
-            preview.Completed += completion => OnUiThread(() =>
+            async Task OnPreviewCompletedAsync(PanoPreviewCompletion completion)
             {
-                var verdict = seams.PreviewCompleted(completion, completion.Run.Sequence == preview.LatestSequence);
+                var sequence = completion.Run.Sequence;
+                var isLatest = sequence == preview.LatestSequence;
+                var verdict = seams.PreviewCompleted(completion, isLatest);
                 if (verdict.Message is not null)
                     seamEditor.ShowMessage(verdict.Message);
                 if (verdict.PreviewAgain)
                     RequestPreview(null);
-            });
+                if (!completion.Outcome.Ok || !isLatest || verdict.PreviewAgain)
+                    return;
+                var shown = await previewPane.ShowAsync(completion.Run.Files.PreviewPng);
+                if (dialogClosed)
+                    return;
+                if (shown)
+                    seams.ImageShown(sequence);
+                else
+                    seams.ImageFailed(sequence);
+            }
+            preview.Completed += completion => OnUiThread(() => _ = OnPreviewCompletedAsync(completion));
             seams.Changed += () => dialog.IsPrimaryButtonEnabled = seams.CanSubmit;
             dialog.PrimaryButtonClick += (_, args) => args.Cancel = seamEditor.OwnsFocus(dialog.XamlRoot);
 

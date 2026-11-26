@@ -75,6 +75,7 @@ public sealed partial class MainWindow
                     new PanoPreviewFiles(System.IO.Path.Combine(folder, "planted.png"), System.IO.Path.Combine(folder, "planted.json")), null),
                 new PanoPreviewOutcome(true, false, null,
                     new PanoPreviewReport(new PanoSeamCanvas(2048, 1024), resolved, "solved", frames, null))), isLatest: true);
+            authoring.ImageShown(0);
         }
 
         try

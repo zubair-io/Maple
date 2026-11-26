@@ -89,7 +89,7 @@ namespace Maple.WinUI
                 _shown = null;
             }
 
-            public async Task ShowAsync(string previewPng)
+            public async Task<bool> ShowAsync(string previewPng)
             {
                 try
                 {
@@ -100,10 +100,12 @@ namespace Maple.WinUI
                     _pixels = pixels;
                     FitImage();
                     _progress.Finish("Preview ready. Changing an option refreshes it.");
+                    return true;
                 }
                 catch (Exception ex)
                 {
                     _progress.Finish($"Preview could not be shown: {ex.Message}");
+                    return false;
                 }
             }
 
