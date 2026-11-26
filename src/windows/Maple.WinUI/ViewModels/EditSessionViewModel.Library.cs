@@ -276,15 +276,15 @@ namespace Maple.WinUI.ViewModels
                     all.Where(f => SupportedExtensions.Contains(Path.GetExtension(f)))
                         .OrderBy(f => f, StringComparer.OrdinalIgnoreCase)
                         .ToList(),
-                    all.Where(RawJpegPairing.IsPairCandidate).ToList());
+                    all.Where(RawJpegPairing.IsPairCandidate).ToList(), Complete: true);
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
-                return new FolderListing(new List<string>(), new List<string>());
+                return new FolderListing(new List<string>(), new List<string>(), Complete: false);
             }
         }
 
-        private sealed record FolderListing(List<string> Images, List<string> PairInventory);
+        private sealed record FolderListing(List<string> Images, List<string> PairInventory, bool Complete);
 
         // --- Filtering ---
 

@@ -19,12 +19,13 @@ namespace Maple.WinUI.ViewModels
     public partial class EditSessionViewModel
     {
         private bool _cloudFoldsRawJpegStacks;
+        private bool _cloudListingComplete;
 
         private bool _localFoldsRawJpegStacks = AppSettings.Load().ShowRawJpegStacks;
 
         private bool FoldsRawJpegStacks => RawJpegStackFold.ShouldFold(
             _selectedLocalFolder != null, _localFoldsRawJpegStacks,
-            _selectedCloudFolder != null, _cloudFoldsRawJpegStacks,
+            _selectedCloudFolder != null, _cloudFoldsRawJpegStacks, _cloudListingComplete,
             RawJpegStackFold.IsFormatFilterActive(FormatFilter));
 
         public void SetLocalRawJpegStacks(bool folds)
