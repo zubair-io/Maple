@@ -54,6 +54,8 @@ while (($#)); do
 done
 if [[ "${package:-}" == maple-cli ]]; then
   stage=cli; output=maple-cli.exe
+  mkdir -p "$target_dir/$target/release"
+  [[ "${OMIT_OUTPUT:-}" == fixture ]] || printf binary > "$target_dir/$target/release/pano-gen-fixture.exe"
 elif [[ "$target_dir" == src/raw-pipeline/target ]]; then
   stage=ffi; output=raw_ffi.dll
 else
@@ -153,6 +155,23 @@ exit 0""",
                     result.stdout,
                 )
 
+    def test_fixture_generator_is_built_for_the_target_beside_the_cli(self):
+        result, calls = self.run_wrapper()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        cli = next(call for call in calls if "|-p|maple-cli|" in call)
+        self.assertIn(f"|--target|{X64}|--target-dir|src/raw-pipeline/target|", cli)
+        self.assertIn("|-p|maple-pano|", cli)
+        self.assertIn("|--bin|pano-gen-fixture|", cli)
+        self.assertTrue(cli.endswith("|--bin|maple-cli"))
+        release = self.root / f"src/raw-pipeline/target/{X64}/release"
+        self.assertTrue((release / "maple-cli.exe").is_file())
+        self.assertTrue((release / "pano-gen-fixture.exe").is_file())
+
+    def test_a_missing_fixture_generator_fails_the_build(self):
+        result, _ = self.run_wrapper(OMIT_OUTPUT="fixture")
+        self.assert_failed(result, "missing native output")
+        self.assertIn("pano-gen-fixture.exe", result.stderr)
+
     def test_arm_host_defaults_to_native_target(self):
         result, calls = self.run_wrapper(FAKE_HOST=ARM64)
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -205,6 +224,7 @@ exit 0""",
         for output in (
             "ffi",
             "cli",
+            "fixture",
             "host",
             "Maple.WinUI.exe",
             "raw_ffi.dll",
