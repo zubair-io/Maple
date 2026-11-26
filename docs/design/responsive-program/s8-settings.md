@@ -52,7 +52,7 @@ Use `MapleTokens.surfaceAlt` for the row background; 1pt `border` separators bet
 
 ### Tablet / Desktop
 
-`SettingsView()` modal (existing TabView with General / Backup / Self Hosted / Files) — unchanged. Triggered by the existing `showSettings` flag on Mac/iPad. No tab bar exists at these breakpoints.
+`SettingsView()` modal (existing TabView with General / Backup / Self Hosted / Files) — unchanged. Triggered by the single `settingsRequest` value on Mac/iPad (#6093). No tab bar exists at these breakpoints.
 
 The phone push-detail screens (e.g., `BackupSettingsView`) are the SAME views as the desktop modal's tab content. Reuse via shared components.
 
@@ -128,7 +128,7 @@ The phone push-detail screens (e.g., `BackupSettingsView`) are the SAME views as
 
 ### Tablet/Desktop unchanged
 
-Pane shell continues to invoke `SettingsView()` as a modal via `showSettings`. No code change.
+Pane shell continues to invoke `SettingsView()` as a modal via `settingsRequest`. No code change.
 
 ---
 

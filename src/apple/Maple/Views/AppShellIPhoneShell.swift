@@ -10,7 +10,7 @@
 //
 // Responsive-program S1a (#597): Settings used to be a modal sheet
 // presented from this shell. Settings is now a top-level tab in
-// `PhoneTabShell`, so the `showSettings` binding + `.sheet` wiring
+// `PhoneTabShell`, so the Settings sheet wiring
 // have been removed. This struct is also no longer mounted from
 // `AppShell.body` directly — `PhoneLibraryView` (the Library tab's
 // content) wraps it. We keep the standalone struct so the drawer-+-
