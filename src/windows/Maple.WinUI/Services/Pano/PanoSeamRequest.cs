@@ -21,8 +21,8 @@ public sealed record PanoSeamRegion(PanoSeamKind Kind, int Frame, PanoSeamRect R
 
 /// <summary>SeamConstraintsRequest v1 (#5992; docs/pano.md § User-constrained
 /// seam requests), the file `maple-cli pano stitch --seam-constraints` reads.
-/// `Frame` indexes the inputs in the order maple-cli sorts them
-/// (<see cref="PanoFrameOrder"/>). Validation and the mapping from this
+/// `Frame` indexes the inputs in the order maple-cli sorts them, which its
+/// preview report lists. Validation and the mapping from this
 /// reference canvas onto the output stay in the shared Rust core.</summary>
 public sealed record PanoSeamRequest(PanoSeamCanvas Canvas, IReadOnlyList<PanoSeamRegion> Regions)
 {

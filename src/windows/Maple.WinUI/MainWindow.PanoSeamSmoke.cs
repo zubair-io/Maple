@@ -29,8 +29,8 @@ public sealed partial class MainWindow
         var folder = Directory.CreateDirectory(System.IO.Path.Combine(output, "pano-seams")).FullName;
         var second = System.IO.Path.Combine(folder, "frame-b.dng");
         File.Copy(raw, second, overwrite: true);
-        var frames = PanoFrameOrder.Sort(new[] { raw, second });
-        var authoring = new PanoSeamAuthoring(frames);
+        var frames = new[] { raw, second };
+        var authoring = new PanoSeamAuthoring();
         var editor = new PanoSeamEditor(authoring);
         var box = new Grid { Width = 460, Height = 200 };
         box.Children.Add(editor.Overlay.Root);
@@ -74,7 +74,7 @@ public sealed partial class MainWindow
                 new PanoPreviewRun(new PanoPreviewOptions("keep", "mesh", strategy),
                     new PanoPreviewFiles(System.IO.Path.Combine(folder, "planted.png"), System.IO.Path.Combine(folder, "planted.json")), null),
                 new PanoPreviewOutcome(true, false, null,
-                    new PanoPreviewReport(new PanoSeamCanvas(2048, 1024), "rotation", "solved", null))), isLatest: true);
+                    new PanoPreviewReport(new PanoSeamCanvas(2048, 1024), "rotation", "solved", frames, null))), isLatest: true);
         }
 
         try

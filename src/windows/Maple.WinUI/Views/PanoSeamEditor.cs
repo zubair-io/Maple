@@ -40,9 +40,6 @@ internal sealed class PanoSeamEditor
     {
         _authoring = authoring;
         Overlay = new PanoSeamOverlay(authoring);
-        foreach (var label in PanoSeamText.FrameLabels(authoring.Frames))
-            _frame.Items.Add(label);
-        _frame.SelectedIndex = 0;
         _kind.Items.Add(PanoSeamText.Include);
         _kind.Items.Add(PanoSeamText.Exclude);
         _kind.SelectedIndex = 0;
@@ -113,6 +110,7 @@ internal sealed class PanoSeamEditor
     private void Refresh()
     {
         var reason = _authoring.DisabledReason;
+        ListFrames();
         _guide.Text = PanoSeamText.Guide(_authoring.Canvas);
         SetStatus(_reason, reason);
         foreach (var control in new Control[] { _frame, _kind, _x, _y, _width, _height, _add, _preview })
@@ -122,6 +120,17 @@ internal sealed class PanoSeamEditor
         _list.Children.Clear();
         foreach (var (region, index) in _authoring.Regions.Select((region, index) => (region, index)))
             _list.Children.Add(Row(region, index));
+    }
+
+    private void ListFrames()
+    {
+        var labels = PanoSeamText.FrameLabels(_authoring.Frames);
+        if (_frame.Items.Cast<string>().SequenceEqual(labels))
+            return;
+        _frame.Items.Clear();
+        foreach (var label in labels)
+            _frame.Items.Add(label);
+        _frame.SelectedIndex = labels.Count > 0 ? 0 : -1;
     }
 
     private Grid Row(PanoSeamRegion region, int index)

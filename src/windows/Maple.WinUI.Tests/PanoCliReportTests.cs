@@ -21,8 +21,8 @@ public sealed class PanoCliReportTests : IDisposable
 
     public void Dispose() => Directory.Delete(_root, recursive: true);
 
-    private static string PreviewReport(string alignment, string seams) =>
-        "{\"mode\":\"preview\",\"frames\":3,\"strategy\":\"rotation\",\"width\":2048,\"height\":1024,"
+    private static string PreviewReport(string alignment, string seams, string inputs = "[\"C:\\\\p\\\\a.dng\",\"C:\\\\p\\\\b.dng\",\"C:\\\\p\\\\c.dng\"]") =>
+        "{\"mode\":\"preview\",\"frames\":3,\"inputs\":" + inputs + ",\"strategy\":\"rotation\",\"width\":2048,\"height\":1024,"
         + "\"alignment\":{\"status\":\"" + alignment + "\",\"stale_reason\":null},"
         + "\"edges\":{},\"seam_constraints\":" + seams + ",\"timings_s\":{\"total\":1.5}}";
 
@@ -95,6 +95,26 @@ public sealed class PanoCliReportTests : IDisposable
         Assert.Equal("reused", report.AlignmentStatus);
         Assert.True(Request.Matches(report.SeamConstraints));
         Assert.Null(PanoCliReport.Preview(PreviewReport("solved", "null"))!.SeamConstraints);
+    }
+
+    [Fact]
+    public void APreviewReportListsItsFramesInTheOrderTheCliNumbersThem() =>
+        Assert.Equal(new[] { @"C:\p\a.dng", @"C:\p\b.dng", @"C:\p\c.dng" },
+            PanoCliReport.Preview(PreviewReport("solved", "null"))!.Inputs);
+
+    [Theory]
+    [InlineData("null")]
+    [InlineData("[]")]
+    [InlineData("\"a.dng\"")]
+    [InlineData("[\"a.dng\",7]")]
+    public void APreviewReportWithoutAUsableFrameListHasNoInputs(string inputs) =>
+        Assert.Null(PanoCliReport.Preview(PreviewReport("solved", "null", inputs))!.Inputs);
+
+    [Fact]
+    public void APreviewReportFromACliThatDoesNotListFramesHasNoInputs()
+    {
+        var older = PreviewReport("solved", "null").Replace("\"inputs\":[", "\"unlisted\":[");
+        Assert.Null(PanoCliReport.Preview(older)!.Inputs);
     }
 
     [Theory]
@@ -200,7 +220,7 @@ public sealed class PanoSeamPreviewSessionTests : IDisposable
     private static readonly PanoSeamRequest Request = new(
         new PanoSeamCanvas(2048, 1024),
         new[] { new PanoSeamRegion(PanoSeamKind.Include, 0, new PanoSeamRect(1, 2, 3, 4)) });
-    private static readonly PanoPreviewReport Report = new(new PanoSeamCanvas(2048, 1024), "rotation", "reused", null);
+    private static readonly PanoPreviewReport Report = new(new PanoSeamCanvas(2048, 1024), "rotation", "reused", new[] { "a.dng" }, null);
 
     private readonly string _root = Path.Combine(Path.GetTempPath(), "maple-pano-seam-session-test-" + Guid.NewGuid().ToString("N"));
     private readonly PanoScratch _scratch;

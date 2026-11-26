@@ -66,7 +66,7 @@ namespace Maple.WinUI
                      + " matcher. This can take several minutes.",
                 Variant = MuiTextVariant.Body,
             });
-            var seams = new PanoSeamAuthoring(PanoFrameOrder.Sort(frames));
+            var seams = new PanoSeamAuthoring();
             var seamEditor = new PanoSeamEditor(seams);
             var previewPane = new PanoPreviewPane(DispatcherQueue, seamEditor.Overlay.Root);
             panel.Children.Add(previewPane.Root);
