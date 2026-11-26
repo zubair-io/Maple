@@ -432,11 +432,11 @@ pub fn apply_colorimetry_in_place(image: &mut Image, profile: &DcpProfile) -> cr
     //     `dng_color_spec.cpp:444-446` the SDK builds `fCameraToPCS =
     //     forwardMatrix * Invert(refCameraWhite.AsDiagonal()) *
     //     individualToReference` where `individualToReference =
-    //     inv(AnalogBalance × CameraCalibration)`. Decode resolves that
-    //     product for the AsShotNeutral pre-gained buffer into
-    //     `profile.forward_matrix` (`color::forward_calibration`, #4646) —
-    //     the raw FM for any diagonal calibration — so DCP just multiplies
-    //     by FM (yielding XYZ-D50) and then by
+    //     inv(AnalogBalance × CameraCalibration)`. The profile resolves
+    //     that product at the white the buffer was divided by into
+    //     `profile.forward_matrix` (`color::forward_calibration`, #4646 /
+    //     #5093) — the raw FM for any diagonal calibration — so DCP just
+    //     multiplies by FM (yielding XYZ-D50) and then by
     //     `inv(M_pro_to_xyz_d50)` to land in linear-ProPhoto-D50.
     //     Critically: FM is NOT composed with `inv(CM)` (that double-
     //     rotates an already-white-balanced buffer and was the pre-#354 bug
