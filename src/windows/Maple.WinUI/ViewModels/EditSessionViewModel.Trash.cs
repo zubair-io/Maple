@@ -54,7 +54,8 @@ namespace Maple.WinUI.ViewModels
         /// <paramref name="photos"/>, keyed by each photo's current
         /// FilePath.</summary>
         public static IReadOnlyList<TrashSourceItem> BuildTrashSources(IReadOnlyList<PhotoItem> photos) =>
-            photos.Select(p => new TrashSourceItem(p.FilePath, p.FilePath, p.FileName)).ToList();
+            photos.Select(p => new TrashSourceItem(
+                p.FilePath, p.FilePath, p.FileName, p.StackCompanion?.FilePath)).ToList();
 
         /// <summary>Longest-matching open library root containing
         /// <paramref name="filePath"/>, or null if none does (shouldn't
@@ -192,6 +193,8 @@ namespace Maple.WinUI.ViewModels
                 return new CloudTrashOutcome(photo, false, "Not signed in to Maple Cloud.");
             try
             {
+                if (photo.StackCompanion is { } companion)
+                    return await CloudTrashStackAsync(cloud, photo, companion).ConfigureAwait(false);
                 var asset = await cloud.ResolveAssetAsync(photo.FilePath, CancellationToken.None)
                     .ConfigureAwait(false);
                 // IsNullOrEmpty, not .Length: a server payload of {"id": null}
@@ -220,7 +223,7 @@ namespace Maple.WinUI.ViewModels
         {
             if (photos.Count == 0)
                 return;
-            var doomed = new HashSet<PhotoItem>(photos);
+            var doomed = new HashSet<PhotoItem>(RawJpegStackFold.WithCompanions(photos));
             AllPhotos.RemoveAll(doomed.Contains);
             ApplyFilters();
             Timeline.GroupPhotosByDate(AllPhotos);

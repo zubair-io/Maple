@@ -10,10 +10,10 @@
 //
 // The rename TARGET follows the same "sole selection, else the resolved
 // primary target" rule Enter/double-tap already use for opening a photo
-// (SelectionLogic.ResolvePrimaryTarget, #2634) — F2/double-click-the-
-// filename reuses it rather than inventing a second rule, matching this
+// (SelectionLogic.ResolvePrimaryTarget, #2634) — F2 and the grid context
+// menu's Rename reuse it rather than inventing a second rule, matching this
 // ticket's explicit instruction. Multi-select batch rename is #2642, not
-// this ticket.
+// this ticket. A stacked RAW+JPEG tile renames both files (#5848).
 
 using System;
 using System.IO;
@@ -26,13 +26,15 @@ namespace Maple.WinUI.ViewModels
 {
     public partial class EditSessionViewModel
     {
-        /// <summary>The photo an F2 press or a filename double-click should
+        /// <summary>The photo an F2 press or the context menu's Rename should
         /// rename: the sole selection, else the resolved primary target
         /// (SelectionLogic.ResolvePrimaryTarget) — null when there is no
         /// well-defined single target (empty library, nothing ever
-        /// selected).</summary>
+        /// selected). A folded JPEG resolves to the tile that shows it.</summary>
         public PhotoItem? ResolveRenameTarget() =>
-            ResolvePrimaryTarget(SelectedPhotos, SelectedPhoto, AllPhotos);
+            ResolvePrimaryTarget(SelectedPhotos, SelectedPhoto, AllPhotos) is { } target
+                ? RawJpegStackFold.TileOf(target)
+                : null;
 
         /// <summary>Enters inline-rename UI state for <paramref
         /// name="photo"/>: seeds the edit field with the current filename
@@ -102,8 +104,11 @@ namespace Maple.WinUI.ViewModels
                 // name already in use should be told so in plain language
                 // (this ticket's acceptance criteria), not silently
                 // redirected to a name the user never asked for.
-                outcome = await LocalFileOperations
-                    .RelocateAsync(photo.FilePath, directory, newName, RelocateMode.Move, CollisionPolicy.Fail);
+                outcome = await (photo.StackCompanion is { } companion
+                    ? LocalFileOperations.RelocateStackAsync(
+                        photo.FilePath, companion.FilePath, directory, newName, RelocateMode.Move, CollisionPolicy.Fail)
+                    : LocalFileOperations.RelocateAsync(
+                        photo.FilePath, directory, newName, RelocateMode.Move, CollisionPolicy.Fail));
             }
             catch (FileOperationException ex)
             {
@@ -116,7 +121,8 @@ namespace Maple.WinUI.ViewModels
                 return false;
             }
 
-            ApplyRenameOutcome(photo, outcome.PrimaryPath);
+            ApplyStackRelocation(photo, outcome.PrimaryPath, outcome.CompanionPath);
+            RefoldRawJpegStacks();
             photo.IsRenaming = false;
             photo.RenameError = null;
             return true;

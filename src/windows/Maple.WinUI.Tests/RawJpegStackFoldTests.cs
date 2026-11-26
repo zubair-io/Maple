@@ -1,0 +1,136 @@
+// RawJpegStackFoldTests — one Browse tile per RAW+JPEG pair (#5848): the
+// JPEG keeps its PhotoItem but loses its tile, and the fold follows the files
+// as they come and go.
+
+using System.Collections.Generic;
+using System.Linq;
+using Maple.WinUI.ViewModels;
+using Xunit;
+
+namespace Maple.WinUI.Tests
+{
+    public class RawJpegStackFoldTests
+    {
+        private static PhotoItem Photo(string path) => new()
+        {
+            FilePath = path,
+            FileName = path[(path.LastIndexOf('/') + 1)..],
+            Format = path[(path.LastIndexOf('.') + 1)..].ToUpperInvariant(),
+        };
+
+        private static List<PhotoItem> Folder(params string[] names) =>
+            names.Select(name => Photo("/shoot/" + name)).ToList();
+
+        [Fact]
+        public void APairIsOneTile_TheRawCarryingTheJpeg()
+        {
+            var photos = Folder("IMG_1.CR3", "IMG_1.JPG", "IMG_2.CR3", "IMG_3.jpg");
+
+            var tiles = RawJpegStackFold.Apply(photos, stacksPairs: true);
+
+            Assert.Equal(new[] { "IMG_1.CR3", "IMG_2.CR3", "IMG_3.jpg" }, tiles.Select(t => t.FileName));
+            Assert.Same(photos[1], photos[0].StackCompanion);
+            Assert.Same(photos[0], photos[1].StackPrimary);
+            Assert.Equal("RAW+JPEG", photos[0].FormatBadge);
+            Assert.Equal("CR3", photos[2].FormatBadge);
+            Assert.Equal("JPG", photos[3].FormatBadge);
+            Assert.Null(photos[2].StackCompanion);
+            Assert.Null(photos[3].StackPrimary);
+        }
+
+        [Fact]
+        public void WithStackingOff_EveryFileIsItsOwnTile()
+        {
+            var photos = Folder("IMG_1.CR3", "IMG_1.JPG");
+            RawJpegStackFold.Apply(photos, stacksPairs: true);
+
+            var tiles = RawJpegStackFold.Apply(photos, stacksPairs: false);
+
+            Assert.Equal(2, tiles.Count);
+            Assert.All(photos, photo =>
+            {
+                Assert.Null(photo.StackCompanion);
+                Assert.Null(photo.StackPrimary);
+            });
+        }
+
+        [Fact]
+        public void WhenTheRawLeaves_TheJpegGetsItsTileBack()
+        {
+            var photos = Folder("IMG_1.CR3", "IMG_1.JPG");
+            RawJpegStackFold.Apply(photos, stacksPairs: true);
+            var jpeg = photos[1];
+            photos.RemoveAt(0);
+
+            var tiles = RawJpegStackFold.Apply(photos, stacksPairs: true);
+
+            Assert.Same(jpeg, Assert.Single(tiles));
+            Assert.Null(jpeg.StackPrimary);
+        }
+
+        [Fact]
+        public void WhenTheJpegLeaves_TheRawLosesItsBadge()
+        {
+            var photos = Folder("IMG_1.CR3", "IMG_1.JPG");
+            RawJpegStackFold.Apply(photos, stacksPairs: true);
+            var raw = photos[0];
+            photos.RemoveAt(1);
+
+            RawJpegStackFold.Apply(photos, stacksPairs: true);
+
+            Assert.Null(raw.StackCompanion);
+            Assert.Equal("CR3", raw.FormatBadge);
+        }
+
+        [Fact]
+        public void ASecondJpegOnTheStem_UnfoldsThePair()
+        {
+            var photos = Folder("IMG_1.CR3", "IMG_1.JPG");
+            RawJpegStackFold.Apply(photos, stacksPairs: true);
+            photos.Add(Photo("/shoot/IMG_1.jpeg"));
+
+            var tiles = RawJpegStackFold.Apply(photos, stacksPairs: true);
+
+            Assert.Equal(3, tiles.Count);
+            Assert.Null(photos[0].StackCompanion);
+        }
+
+        [Fact]
+        public void TheBadgeChangeIsAnnounced()
+        {
+            var photos = Folder("IMG_1.CR3", "IMG_1.JPG");
+            var changed = new List<string?>();
+            photos[0].PropertyChanged += (_, e) => changed.Add(e.PropertyName);
+
+            RawJpegStackFold.Apply(photos, stacksPairs: true);
+
+            Assert.Contains(nameof(PhotoItem.FormatBadge), changed);
+        }
+
+        [Fact]
+        public void AnActionOnATileReachesTheFoldedJpeg()
+        {
+            var photos = Folder("IMG_1.CR3", "IMG_1.JPG", "IMG_2.CR3");
+            var tiles = RawJpegStackFold.Apply(photos, stacksPairs: true);
+
+            Assert.Equal(photos, RawJpegStackFold.WithCompanions(tiles));
+            Assert.Same(photos[0], RawJpegStackFold.TileOf(photos[1]));
+            Assert.Same(photos[2], RawJpegStackFold.TileOf(photos[2]));
+            Assert.Equal(tiles, RawJpegStackFold.Tiles(photos));
+        }
+
+        [Fact]
+        public void TheTileFooterShowsOnlyForARatingOrARename()
+        {
+            var photo = Photo("/shoot/IMG_1.CR3");
+            Assert.False(photo.ShowsTileFooter);
+
+            photo.Rating = 3;
+            Assert.True(photo.ShowsTileFooter);
+
+            photo.Rating = 0;
+            photo.IsRenaming = true;
+            Assert.True(photo.ShowsTileFooter);
+        }
+    }
+}
