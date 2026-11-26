@@ -124,10 +124,20 @@ namespace Maple.WinUI.Services.Xmp
         public static XmpSidecarDocument? Load(string rawPath)
         {
             var sidecarPath = SidecarPathFor(rawPath);
+            return File.Exists(sidecarPath) ? ReadAndParse(sidecarPath) : null;
+        }
+
+        /// <summary>Load for a caller that already knows from a directory listing
+        /// that the sidecar exists, so it skips the existence probe. A sidecar
+        /// that has vanished since reads as absent, exactly as in <see cref="Load"/>.</summary>
+        public static XmpSidecarDocument? LoadWhenPresent(string rawPath) =>
+            ReadAndParse(SidecarPathFor(rawPath));
+
+        private static XmpSidecarDocument? ReadAndParse(string sidecarPath)
+        {
             string xml;
             try
             {
-                if (!File.Exists(sidecarPath)) return null;
                 xml = File.ReadAllText(sidecarPath, Encoding.UTF8);
             }
             catch (Exception e) when (e is IOException or UnauthorizedAccessException)

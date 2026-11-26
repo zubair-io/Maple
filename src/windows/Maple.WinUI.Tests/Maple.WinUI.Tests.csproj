@@ -468,4 +468,8 @@
     <Compile Remove="CloudFilesRegistrationProbeTests.cs" />
     <Compile Include="CloudFilesRegistrationProbeTests.cs" Condition="'$(MapleRunCloudFilesIntegration)' == 'true'" />
   </ItemGroup>
+  <ItemGroup>
+    <Compile Include="..\Maple.WinUI\Services\FileStampCache.cs" LinkBase="Services" />
+    <Compile Include="..\Maple.WinUI\Services\Library\*.cs" LinkBase="Services\Library" />
+  </ItemGroup>
 </Project>

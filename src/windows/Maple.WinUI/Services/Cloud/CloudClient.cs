@@ -135,13 +135,13 @@ namespace Maple.WinUI.Services.Cloud
             }
         }
 
-        private static async Task<T?> ReadJsonAsync<T>(
+        internal static async Task<T?> ReadJsonAsync<T>(
             HttpResponseMessage response, CancellationToken ct) where T : class
         {
-            var text = await response.Content.ReadAsStringAsync(ct);
             try
             {
-                return JsonSerializer.Deserialize<T>(text, Json);
+                await using var body = await response.Content.ReadAsStreamAsync(ct);
+                return await JsonSerializer.DeserializeAsync<T>(body, Json, ct);
             }
             catch (JsonException ex)
             {
