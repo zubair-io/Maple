@@ -57,10 +57,9 @@ class CacheTrimTest {
         val survivors = entries.filter { pair -> pair.all { it.isFile } }
         assertTrue(oldest.all { it.isFile })
         assertTrue(newest.all { it.isFile })
-        assertTrue(survivors.size in 4..6)
+        assertEquals(5, survivors.size)
         assertTrue(entries.none { pair -> pair.count { it.isFile } == 1 })
         assertFalse(entries[10].any { it.isFile })
-        assertEquals(entries.size, entries.count { pair -> pair.all { it.isFile } || pair.none { it.isFile } })
     }
 
     @Test
@@ -70,7 +69,7 @@ class CacheTrimTest {
         val staged = File(folder, "cloud-x.tmp").apply { writeBytes(ByteArray(5000)) }
         val entries = (0 until 5).map { cloudEntry(folder, it, 1000, it.toLong()) }
 
-        trimCache(folder, 1_000_000, emptySet())
+        trimCache(folder, 6_000, emptySet())
         assertTrue(partial.isFile && staged.isFile && entries.flatten().all { it.isFile })
 
         trimCache(folder, 0, emptySet())
