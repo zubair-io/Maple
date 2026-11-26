@@ -1,35 +1,137 @@
 use super::tests::aggressive_case;
 use super::tests_resume_cut::{
     assert_late_ticks_resume_and_match_fresh, assert_same, clone_inputs, edited, engaged, fresh,
-    image, render, H, W,
+    image, open, render, H, W,
 };
 use super::*;
 use crate::{CancelToken, GpuContext, GpuMaskRaster, ScopeRequest};
 use raw_core::types::{LocalAdjustment, Mask, PartialAdjustments};
 
 #[test]
-fn the_second_identical_render_allocates_the_plane_and_the_third_resumes() {
+fn the_second_identical_render_stores_and_the_third_resumes() {
     let ctx = GpuContext::new_blocking().expect("gpu context");
     let base = engaged(aggressive_case());
     let reference = fresh(&ctx, &base);
-    let mut session = LiveSession::new(&ctx, &image(), W, H).expect("session");
+    let mut session = open(&ctx);
     for expected in [(0, 0), (1, 0), (1, 1)] {
         assert_same(&render(&session, &ctx, &base), &reference, "a redraw");
         assert_eq!(
-            (session.cut.allocated(), session.cut.resumed()),
+            (session.cut.stored(), session.cut.resumed()),
             expected,
-            "(allocated, resumed) after a redraw"
+            "(stored, resumed) after a redraw"
         );
     }
     session.update_image(&ctx, &image());
-    for expected in [(1, 1), (1, 1), (1, 2)] {
+    assert!(
+        session.resume_cut_reserved(),
+        "a new source keeps the reserved plane"
+    );
+    for expected in [(1, 1), (2, 1), (2, 2)] {
         assert_same(&render(&session, &ctx, &base), &reference, "a new source");
         assert_eq!(
-            (session.cut.allocated(), session.cut.resumed()),
+            (session.cut.stored(), session.cut.resumed()),
             expected,
-            "(allocated, resumed): a new source keeps the plane and stores into it again"
+            "(stored, resumed): a new source forgets the stored image and stores again"
         );
     }
+}
+
+#[test]
+fn reserving_allocates_one_plane_once() {
+    let ctx = GpuContext::new_blocking().expect("gpu context");
+    let session = LiveSession::new(&ctx, &image(), W, H).expect("session");
+    let unreserved = session.pool_alloc_count(&ctx);
+    assert!(!session.resume_cut_reserved());
+    session.reserve_resume_cut(&ctx);
+    assert!(session.resume_cut_reserved());
+    assert_eq!(session.pool_alloc_count(&ctx), unreserved + 1);
+    session.reserve_resume_cut(&ctx);
+    assert_eq!(
+        session.pool_alloc_count(&ctx),
+        unreserved + 1,
+        "a second reservation keeps the plane it has"
+    );
+}
+
+fn contrast_drag(base: &FullChainInputs<'static>) -> Vec<FullChainInputs<'static>> {
+    [-30.0f32, 12.0, 45.0, -8.0, 27.0]
+        .into_iter()
+        .map(|contrast| FullChainInputs {
+            contrast,
+            ..clone_inputs(base)
+        })
+        .collect()
+}
+
+#[test]
+fn no_tick_of_a_late_drag_allocates_once_reserved() {
+    let ctx = GpuContext::new_blocking().expect("gpu context");
+    let base = engaged(aggressive_case());
+    let session = open(&ctx);
+    render(&session, &ctx, &base);
+    let steps = [(1, 0), (1, 1), (1, 2), (1, 3), (1, 4)];
+    for (tick, expected) in contrast_drag(&base).iter().zip(steps) {
+        let allocations = session.pool_alloc_count(&ctx);
+        let out = render(&session, &ctx, tick);
+        assert_eq!(
+            session.pool_alloc_count(&ctx),
+            allocations,
+            "(stored, resumed) = {expected:?}: a tick must not allocate"
+        );
+        assert_eq!((session.cut.stored(), session.cut.resumed()), expected);
+        assert_same(&out, &fresh(&ctx, tick), "a late tick");
+    }
+}
+
+#[test]
+fn a_session_that_never_reserved_runs_every_tick_in_full() {
+    let ctx = GpuContext::new_blocking().expect("gpu context");
+    let base = engaged(aggressive_case());
+    let session = LiveSession::new(&ctx, &image(), W, H).expect("session");
+    assert_same(&render(&session, &ctx, &base), &fresh(&ctx, &base), "warm");
+    assert_same(
+        &render(&session, &ctx, &base),
+        &fresh(&ctx, &base),
+        "redraw",
+    );
+    for tick in contrast_drag(&base) {
+        let allocations = session.pool_alloc_count(&ctx);
+        let out = render(&session, &ctx, &tick);
+        assert_eq!(session.pool_alloc_count(&ctx), allocations);
+        assert_same(&out, &fresh(&ctx, &tick), "an unreserved late tick");
+    }
+    assert_eq!(
+        (session.cut.stored(), session.cut.resumed()),
+        (0, 0),
+        "without a reserved plane nothing is stored or resumed"
+    );
+}
+
+#[test]
+fn a_failed_reservation_leaves_the_session_rendering_full_ticks() {
+    let ctx = GpuContext::new_blocking().expect("gpu context");
+    let base = engaged(aggressive_case());
+    let session = LiveSession::new(&ctx, &image(), W, H).expect("session");
+    let over_the_device_limit = ctx.device.limits().max_buffer_size.saturating_add(16);
+    pollster::block_on(session.cut.reserve(&ctx, over_the_device_limit));
+    assert!(
+        !session.resume_cut_reserved(),
+        "a plane the device refused is not kept"
+    );
+    render(&session, &ctx, &base);
+    for tick in contrast_drag(&base) {
+        assert_same(
+            &render(&session, &ctx, &tick),
+            &fresh(&ctx, &tick),
+            "a late tick after a failed reservation",
+        );
+    }
+    assert_eq!((session.cut.stored(), session.cut.resumed()), (0, 0));
+    session.reserve_resume_cut(&ctx);
+    assert!(
+        session.resume_cut_reserved(),
+        "the refused plane left the device able to create the real one"
+    );
 }
 
 #[test]
@@ -42,11 +144,11 @@ fn a_dropped_preparation_frame_never_leaves_a_resumable_store() {
     let prepare = |session: &LiveSession| {
         session.prepare_exposure_activation(&ctx, &mut clone_inputs(&neutral), &CancelToken::new())
     };
-    let session = LiveSession::new(&ctx, &image(), W, H).expect("session");
+    let session = open(&ctx);
     render(&session, &ctx, &activated);
     assert_eq!(prepare(&session), Ok(true));
     assert_eq!(
-        session.cut.allocated(),
+        session.cut.stored(),
         1,
         "the preparation frame repeated the prefix, so it encoded a store"
     );
@@ -92,7 +194,7 @@ fn a_dropped_preparation_frame_never_leaves_a_resumable_store() {
 fn a_cancelled_repeat_of_the_prefix_encodes_no_store() {
     let ctx = GpuContext::new_blocking().expect("gpu context");
     let base = engaged(aggressive_case());
-    let session = LiveSession::new(&ctx, &image(), W, H).expect("session");
+    let session = open(&ctx);
     render(&session, &ctx, &base);
     let cancelled = CancelToken::new();
     cancelled.cancel();
@@ -101,7 +203,7 @@ fn a_cancelled_repeat_of_the_prefix_encodes_no_store() {
         .expect("render ok");
     assert!(none.is_none(), "a cancelled token abandons the frame");
     assert_eq!(
-        session.cut.allocated(),
+        session.cut.stored(),
         0,
         "a frame cancelled before its first pass encodes no store"
     );
@@ -154,7 +256,7 @@ fn a_repainted_bitmap_mask_reruns_the_chain() {
         .map(|texel| texel as f32 / (texels - 1) as f32)
         .collect();
     let repainted: Vec<f32> = ramp.iter().map(|weight| 1.0 - weight).collect();
-    let session = LiveSession::new(&ctx, &image(), W, H).expect("session");
+    let session = open(&ctx);
     let warm = bitmap_masked(&base, &ramp, base.contrast);
     render(&session, &ctx, &warm);
     render(&session, &ctx, &warm);
@@ -200,7 +302,7 @@ fn a_resumed_frame_gives_the_scope_what_a_fresh_one_does() {
     let ctx = GpuContext::new_blocking().expect("gpu context");
     assert_late_ticks_resume_and_match_fresh(&ctx, &scoped(0, 35.0));
 
-    let session = LiveSession::new(&ctx, &image(), W, H).expect("session");
+    let session = open(&ctx);
     scope_bytes(&session, &ctx, &scoped(-1, 35.0));
     scope_bytes(&session, &ctx, &scoped(-1, 35.0));
     let steps = [

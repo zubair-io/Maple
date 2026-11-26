@@ -64,6 +64,15 @@ pub(super) fn fresh(ctx: &GpuContext, inputs: &FullChainInputs<'_>) -> Vec<u8> {
     render(&session, ctx, inputs)
 }
 
+pub(super) fn reserved(ctx: &GpuContext, session: LiveSession) -> LiveSession {
+    session.reserve_resume_cut(ctx);
+    session
+}
+
+pub(super) fn open(ctx: &GpuContext) -> LiveSession {
+    reserved(ctx, LiveSession::new(ctx, &image(), W, H).expect("session"))
+}
+
 pub(super) fn edited(base: &FullChainInputs<'static>, edit: Edit) -> FullChainInputs<'static> {
     let mut inputs = clone_inputs(base);
     edit(&mut inputs);
@@ -127,7 +136,7 @@ pub(super) fn assert_late_ticks_resume_and_match_fresh(
     ctx: &GpuContext,
     base: &FullChainInputs<'static>,
 ) {
-    let session = LiveSession::new(ctx, &image(), W, H).expect("session");
+    let session = open(ctx);
     assert_same(&render(&session, ctx, base), &fresh(ctx, base), "base");
     assert_same(&render(&session, ctx, base), &fresh(ctx, base), "stored");
     let mut current = clone_inputs(base);
@@ -198,7 +207,7 @@ fn an_upstream_edit_reruns_the_chain() {
         ("sampling scale", |i| i.nr_sampling_scale = 0.5),
     ];
     for (name, edit) in upstream {
-        let session = LiveSession::new(&ctx, &image(), W, H).expect("session");
+        let session = open(&ctx);
         render(&session, &ctx, &base);
         render(&session, &ctx, &base);
         render(&session, &ctx, &edited(&base, |i| i.contrast = 5.0));
@@ -301,10 +310,10 @@ const IGNORED: [(&str, Edit); 30] = [
 ];
 
 fn render_and_read_cut(ctx: &GpuContext, inputs: &FullChainInputs<'_>) -> (Vec<u8>, Vec<u32>) {
-    let session = LiveSession::new(ctx, &image(), W, H).expect("session");
+    let session = open(ctx);
     render(&session, ctx, inputs);
     let out = render(&session, ctx, inputs);
-    assert_eq!(session.cut.allocated(), 1, "a repeated prefix stores");
+    assert_eq!(session.cut.stored(), 1, "a repeated prefix stores");
     (out, read_cut(&session, ctx))
 }
 
@@ -353,7 +362,7 @@ fn every_ignored_field_leaves_the_prefix_output_unchanged() {
 fn a_new_source_or_a_cancelled_frame_never_resumes_a_stale_cut() {
     let ctx = GpuContext::new_blocking().expect("gpu context");
     let base = engaged(aggressive_case());
-    let mut session = LiveSession::new(&ctx, &image(), W, H).expect("session");
+    let mut session = open(&ctx);
     render(&session, &ctx, &base);
     render(&session, &ctx, &base);
     let darker: Vec<f32> = image().iter().map(|v| v * 0.8).collect();
@@ -375,7 +384,10 @@ fn a_new_source_or_a_cancelled_frame_never_resumes_a_stale_cut() {
     assert_eq!(session.cut.resumed(), 0, "a cancelled frame stores nothing");
     assert_same(&after, &render(&reference, &ctx, &late), "after a cancel");
 
-    let other = LiveSession::new(&ctx, &scene_linear_rgba(64, 48), 64, 48).expect("session");
+    let other = reserved(
+        &ctx,
+        LiveSession::new(&ctx, &scene_linear_rgba(64, 48), 64, 48).expect("session"),
+    );
     let small = scene_linear_rgba(64, 48);
     let small_inputs = FullChainInputs {
         whites_anchor_ev: crate::full_chain::oracle::frame_whites_anchor(&small),
@@ -398,7 +410,7 @@ fn a_new_source_or_a_cancelled_frame_never_resumes_a_stale_cut() {
 fn alternating_upstream_and_late_ticks_allocate_nothing_once_warm() {
     let ctx = GpuContext::new_blocking().expect("gpu context");
     let base = engaged(aggressive_case());
-    let session = LiveSession::new(&ctx, &image(), W, H).expect("session");
+    let session = open(&ctx);
     let tick = |n: usize| {
         let mut inputs = clone_inputs(&base);
         inputs.tone[0] = 0.2 + 0.1 * (n / 3) as f32;
@@ -408,14 +420,16 @@ fn alternating_upstream_and_late_ticks_allocate_nothing_once_warm() {
     (0..6).for_each(|n| {
         render(&session, &ctx, &tick(n));
     });
-    assert_eq!(session.cut.allocated(), 1);
     let allocations = session.pool_alloc_count(&ctx);
     let resumed = session.cut.resumed();
     for n in 6..15 {
         render(&session, &ctx, &tick(n));
     }
-    assert_eq!(session.pool_alloc_count(&ctx), allocations);
-    assert_eq!(session.cut.allocated(), 1, "the resident image is reused");
+    assert_eq!(
+        session.pool_alloc_count(&ctx),
+        allocations,
+        "the reserved plane is reused"
+    );
     assert_eq!(
         session.cut.resumed(),
         resumed + 3,
@@ -427,12 +441,15 @@ fn alternating_upstream_and_late_ticks_allocate_nothing_once_warm() {
 fn the_readback_airlight_fallback_never_resumes_with_dehaze() {
     let ctx = GpuContext::new_blocking().expect("gpu context");
     let base = engaged(aggressive_case());
-    let session = LiveSession::new_with_airlight_readback(&ctx, &image(), W, H).expect("session");
+    let session = reserved(
+        &ctx,
+        LiveSession::new_with_airlight_readback(&ctx, &image(), W, H).expect("session"),
+    );
     render(&session, &ctx, &base);
     render(&session, &ctx, &base);
     render(&session, &ctx, &edited(&base, |i| i.contrast = 3.0));
     assert_eq!(session.cut.resumed(), 0);
-    assert_eq!(session.cut.allocated(), 0);
+    assert_eq!(session.cut.stored(), 0);
 }
 
 #[test]

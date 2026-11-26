@@ -122,7 +122,7 @@ impl LiveSession {
         cancel: Option<&CancelToken>,
     ) -> (CutFrame, Option<usize>) {
         let f32_byte_len = self.image.byte_len();
-        let (frame, plan) = self.cut.plan(ctx, inputs, f32_byte_len);
+        let (frame, plan) = self.cut.plan(ctx, inputs);
         if matches!(plan, CutPlan::Run { .. }) {
             encoder.copy_buffer_to_buffer(
                 &self.image.buffer,
