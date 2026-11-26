@@ -177,6 +177,7 @@ namespace Maple.WinUI.ViewModels
             BrowseFolders.Clear();
 
             _cloudFoldsRawJpegStacks = false;
+            _cloudListingComplete = false;
             var foldsStacks = CloudFoldsRawJpegStacksAsync(_cloud, cts.Token);
             var truncated = false;
             var failed = false;
@@ -228,6 +229,8 @@ namespace Maple.WinUI.ViewModels
                 if (_libraryCts != cts)
                     return;
                 _cloudFoldsRawJpegStacks = folds;
+                _cloudListingComplete = RawJpegStackFold.IsCloudListingComplete(
+                    truncated, failed, cts.Token.IsCancellationRequested, cursor);
             }
             catch (OperationCanceledException)
             {
