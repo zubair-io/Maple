@@ -16,6 +16,8 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { maple } from 'maple';
 import { ffiPool } from '../ffi/ffi-pool.ts';
+import { filmLutDirectory } from '../ffi/film-lut-directory.ts';
+import { DEFAULT_EXPORT_RECIPE } from '../generated/export-recipe.generated.ts';
 import { cachePathFor, resolveThumbPath, xmpSidecarPath } from '../fs/xmp.ts';
 import { mergeMetadataIntoXmp } from '../xmp/metadata-serializer.ts';
 import { thumbRoutes } from '../routes/library/thumb.ts';
@@ -224,12 +226,12 @@ describe('RAW sidecars without authored adjustments render as sidecarless (#5231
         const oracle = join(directory, 'oracle.avif');
         const quality = tier.route === 'thumb' ? 55 : 70;
         expect(
-          await ffiPool().renderDevelopJpegToFile(
+          await ffiPool().exportRecipeToFile(
             rawPath,
-            xmpSidecarPath(rawPath),
+            EDITED_XMP,
+            JSON.stringify({ ...DEFAULT_EXPORT_RECIPE, quality: 90, maxLongEdge: tier.maxPx }),
+            await filmLutDirectory(),
             jpeg,
-            tier.maxPx,
-            90,
           ),
         ).toBe(true);
         expect(
