@@ -47,6 +47,22 @@ impl GpuPreview {
         long_edge: u32,
         cancel: &CancelToken,
     ) -> Result<Option<Self>, String> {
+        let opened = Self::unreserved(ctx, raw, bytes, ext, model, long_edge, cancel)?;
+        if let Some(preview) = &opened {
+            preview.session.reserve_resume_cut(ctx);
+        }
+        Ok(opened)
+    }
+
+    fn unreserved(
+        ctx: &GpuContext,
+        raw: &RawImage,
+        bytes: &[u8],
+        ext: &str,
+        model: &AdjustmentModel,
+        long_edge: u32,
+        cancel: &CancelToken,
+    ) -> Result<Option<Self>, String> {
         let result = Self::prepare(ctx, raw, bytes, ext, model, long_edge, cancel);
         if cancel.is_cancelled() {
             return Ok(None);
@@ -83,8 +99,6 @@ impl GpuPreview {
         }
         let (width, height) = (capture.width, capture.height);
         let session = LiveSession::new(ctx, &capture.rgba, width, height)?;
-        // Reserved alongside the session's own buffers, so no render that keeps a session allocates it.
-        session.reserve_resume_cut(ctx);
         let film = crate::film::resolve(&model.film_look)?;
         let display_dims = if raw.orientation.swaps_wh() {
             (height, width)
@@ -178,10 +192,14 @@ impl GpuPreview {
         if !prefix_matches(model, &self.prefix, ae) {
             // Prepare replacement resources before dropping the last valid frame.
             let Some(replacement) =
-                Self::open_cancellable(ctx, raw, bytes, ext, model, self.long_edge, cancel)?
+                Self::unreserved(ctx, raw, bytes, ext, model, self.long_edge, cancel)?
             else {
                 return Ok(false);
             };
+            // The replaced session's plane moves to its replacement, so a prefix drag creates none.
+            if !replacement.session.adopt_resume_cut(&self.session) {
+                replacement.session.reserve_resume_cut(ctx);
+            }
             let uploads = self.uploads + 1;
             *self = replacement;
             self.uploads = uploads;

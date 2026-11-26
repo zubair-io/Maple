@@ -151,6 +151,7 @@ fn set_and_clear_film_lut_round_trips_through_the_same_session() {
     let whites_anchor_ev = prefix.whites_anchor_ev;
     let session =
         LiveSession::new(&ctx, &prefix.rgba, prefix.width, prefix.height).expect("session upload");
+    session.reserve_resume_cut(&ctx);
     let inputs_for = |film: Option<&raw_core::film::FilmLut>, key: u32| {
         let (mut inputs, _) = super::chain_inputs_with_status(
             &raw_img,
