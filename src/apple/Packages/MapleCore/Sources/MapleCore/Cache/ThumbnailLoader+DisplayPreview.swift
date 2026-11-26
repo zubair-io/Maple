@@ -122,8 +122,8 @@ extension ThumbnailLoader {
     }
 
     let isRaw = asset.isRaw
-    let task = startLocalProducer(key: coalescingKey, slotPriority: .interactive) {
-      await Self.produceDisplayPreview(url: url, scope: scope, isRaw: isRaw)
+    let task = startLocalProducer(key: coalescingKey, slotPriority: .interactive) { [self] in
+      await Self.produceDisplayPreview(loader: self, url: url, scope: scope, isRaw: isRaw)
     }
     return await awaitThumbnail(task)
   }
@@ -132,7 +132,7 @@ extension ThumbnailLoader {
   /// sidecar if present, otherwise generate from the embedded preview and persist.
   /// Runs on a detached task under the decode-slot gate.
   private nonisolated static func produceDisplayPreview(
-    url: URL, scope: URL, isRaw: Bool
+    loader: ThumbnailLoader, url: URL, scope: URL, isRaw: Bool
   ) async -> Data? {
     let accessing = scope.startAccessingSecurityScopedResource()
     defer { if accessing { scope.stopAccessingSecurityScopedResource() } }
@@ -145,15 +145,19 @@ extension ThumbnailLoader {
     let developed: Data?
     do {
       if isRaw {
-        developed = try renderRawSidecarDerivative(
-          at: url, targetLongEdge: displayPreviewLongEdge,
-          quality: displayPreviewAvifQuality
-        )
+        developed =
+          try await Self.hasRawSidecar(at: url)
+          ? loader.developRawSidecar(
+            at: url, targetLongEdge: displayPreviewLongEdge,
+            quality: displayPreviewAvifQuality, priority: .interactive)
+          : nil
       } else {
         developed = try await renderNonRawSidecarDerivative(
           at: url, targetLongEdge: displayPreviewLongEdge,
           quality: displayPreviewAvifQuality)
       }
+    } catch is CancellationError {
+      return nil
     } catch {
       displayPreviewLogger.error(
         "sidecar preview failed for \(url.lastPathComponent, privacy: .public): \(error.localizedDescription, privacy: .public)"

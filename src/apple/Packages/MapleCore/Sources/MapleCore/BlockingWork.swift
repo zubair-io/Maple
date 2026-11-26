@@ -29,13 +29,14 @@ public enum BlockingWork {
   /// therefore still pays for the bake; what it buys is that the caller
   /// stops waiting on it and discards the result.
   public static func run<T: Sendable>(
+    qos: DispatchQoS.QoSClass = .userInitiated,
     _ work: @escaping @Sendable () throws -> T
   ) async throws -> T {
     let cancelled = CancellationFlag()
     return try await withTaskCancellationHandler {
       try await withCheckedThrowingContinuation {
         (continuation: CheckedContinuation<T, Error>) in
-        DispatchQueue.global(qos: .userInitiated).async {
+        DispatchQueue.global(qos: qos).async {
           guard !cancelled.isSet else {
             continuation.resume(throwing: CancellationError())
             return
