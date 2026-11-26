@@ -67,11 +67,12 @@ impl LiveSession {
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some("exposure-resource-preparation"),
             });
-        let result = self.encode_live_chain(ctx, &mut encoder, inputs, Some(cancel));
+        let (cut_frame, result) = self.encode_live_chain(ctx, &mut encoder, inputs, Some(cancel));
         ctx.frame_pool.borrow_mut().end_frame();
         inputs.tone = original_tone;
         drop(encoder);
         self.haze.abandoned();
+        self.cut.abandoned(cut_frame);
         result
             .map(|_| true)
             .ok_or_else(|| "Exposure preparation cancelled".into())

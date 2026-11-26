@@ -1,0 +1,23 @@
+load_start:  1:17  up 30 days,  8:29, 18 users, load averages: 19.75 37.22 41.70
+image=1920x1280 ticks_per_drag=120 adapter=Metal
+model=default drag=exposure p50_ms=4.74 p95_ms=4.80 max_ms=4.84 over_16ms=0 warm_gpu_pool_allocations=0
+model=default drag=contrast p50_ms=6.29 p95_ms=7.38 max_ms=7.84 over_16ms=0 warm_gpu_pool_allocations=0
+model=default drag=whites p50_ms=6.30 p95_ms=7.82 max_ms=8.07 over_16ms=0 warm_gpu_pool_allocations=0
+model=default drag=grade_midtone_saturation p50_ms=6.39 p95_ms=9.60 max_ms=17.34 over_16ms=2 warm_gpu_pool_allocations=0
+model=default drag=grain_amount p50_ms=6.37 p95_ms=9.36 max_ms=17.61 over_16ms=1 warm_gpu_pool_allocations=0
+model=default sequence=exposure_then_contrast exposure_p50_ms=4.77 first_late_p50_ms=4.76 first_late_p95_ms=6.28
+model=engaged drag=exposure p50_ms=20.55 p95_ms=21.20 max_ms=37.25 over_16ms=120 warm_gpu_pool_allocations=0
+model=engaged drag=contrast p50_ms=9.93 p95_ms=14.53 max_ms=19.46 over_16ms=3 warm_gpu_pool_allocations=0
+model=engaged drag=whites p50_ms=10.03 p95_ms=11.96 max_ms=14.18 over_16ms=0 warm_gpu_pool_allocations=0
+model=engaged drag=grade_midtone_saturation p50_ms=9.90 p95_ms=10.19 max_ms=11.36 over_16ms=0 warm_gpu_pool_allocations=0
+model=engaged drag=grain_amount p50_ms=9.78 p95_ms=10.09 max_ms=16.50 over_16ms=1 warm_gpu_pool_allocations=0
+model=engaged sequence=exposure_then_contrast exposure_p50_ms=20.99 first_late_p50_ms=9.66 first_late_p95_ms=13.79
+model=engaged_creative drag=exposure p50_ms=23.61 p95_ms=34.59 max_ms=45.77 over_16ms=120 warm_gpu_pool_allocations=0
+model=engaged_creative drag=contrast p50_ms=10.27 p95_ms=12.40 max_ms=14.69 over_16ms=0 warm_gpu_pool_allocations=0
+model=engaged_creative drag=whites p50_ms=10.11 p95_ms=11.48 max_ms=23.81 over_16ms=1 warm_gpu_pool_allocations=0
+model=engaged_creative drag=grade_midtone_saturation p50_ms=9.96 p95_ms=11.53 max_ms=13.45 over_16ms=0 warm_gpu_pool_allocations=0
+model=engaged_creative drag=grain_amount p50_ms=9.93 p95_ms=13.52 max_ms=23.38 over_16ms=2 warm_gpu_pool_allocations=0
+model=engaged_creative sequence=exposure_then_contrast exposure_p50_ms=21.96 first_late_p50_ms=9.80 first_late_p95_ms=12.94
+copy bytes=39321600 copy_submit_p50_ms=1.531 empty_submit_p50_ms=1.517 net_copy_ms=0.015
+exit: 0
+load_end:  1:18  up 30 days,  8:29, 18 users, load averages: 18.81 35.28 40.83

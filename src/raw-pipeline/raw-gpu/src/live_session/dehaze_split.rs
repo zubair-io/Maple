@@ -151,7 +151,7 @@ impl LiveSession {
             &self.dither_out,
             dims,
         );
-        let (out, submission) = self.submit_and_read_surface(ctx, enc2).await?;
+        let (out, submission) = self.submit_and_read_surface(ctx, enc2, None).await?;
         if inputs.scope.enabled {
             self.scope_after_submit(submission);
         }

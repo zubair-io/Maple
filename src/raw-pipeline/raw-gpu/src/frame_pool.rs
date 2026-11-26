@@ -553,6 +553,9 @@ pub(crate) fn pool_dispatch(
     PooledDispatch { bind_group }
 }
 
+#[path = "frame_pool_resume.rs"]
+mod resume;
+pub(crate) use resume::FramePosition;
 #[cfg(all(test, not(target_arch = "wasm32")))]
 #[path = "frame_pool_tests.rs"]
 mod frame_pool_tests;
