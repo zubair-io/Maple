@@ -213,7 +213,12 @@ class PanoramaIntegrationTest {
         compose.waitUntil(5_000) { panorama.state.value.seams?.regions?.size == 2 }
         val dragged = panorama.state.value.seams!!.regions[1]
         assertEquals(1, dragged.frame)
-        assertTrue(dragged.width > 0 && dragged.height > 0)
+        fun assertNear(label: String, fraction: Double, actual: Int, canvas: Int) =
+            assertEquals("Dragged $label", fraction * canvas, actual.toDouble(), canvas * 0.01)
+        assertNear("x", 0.45, dragged.x, preview.width)
+        assertNear("y", 0.45, dragged.y, preview.height)
+        assertNear("width", 0.10, dragged.width, preview.width)
+        assertNear("height", 0.10, dragged.height, preview.height)
         tap("pano-seam-remove-1")
         compose.onNodeWithTag("pano-seam-region-1").assertDoesNotExist()
         val authored = panorama.state.value.seams!!
