@@ -167,7 +167,6 @@ internal class PanoramaSession(
 
     fun retryPreview() = requestPreview()
 
-    /** Adds a region drawn on the current preview, or says why it cannot be added. */
     fun addSeam(region: PanoSeamRegion): String? {
         val current = state.value
         current.seamBlocked?.let { return it }
