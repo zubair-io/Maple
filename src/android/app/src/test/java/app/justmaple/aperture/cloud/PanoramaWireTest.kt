@@ -68,4 +68,30 @@ class PanoramaWireTest {
         assertEquals("3", PanoramaWire.libraryHolding(libraries, "/srv/library/a.png")?.id)
         assertNull(PanoramaWire.libraryHolding(libraries, "/tmp/a.png"))
     }
+
+    @Test
+    fun seamDragsSnapToWholePixelsInsideTheCanvasAndDecodeFromResults() {
+        assertEquals(PanoSeamRegion(PanoSeamKind.Exclude, 2, 9, 0, 12, 6),
+            PanoSeamConstraints.dragRegion(20.4f, 5.2f, 9.7f, -3f, 100, 50, PanoSeamKind.Exclude, 2))
+        assertEquals(PanoSeamRegion(PanoSeamKind.Include, 0, 90, 40, 10, 10),
+            PanoSeamConstraints.dragRegion(90f, 40f, 140f, 80f, 100, 50, PanoSeamKind.Include, 0))
+        assertNull(PanoSeamConstraints.dragRegion(5f, 5f, 5f, 30f, 100, 50, PanoSeamKind.Include, 0))
+        val canvas = PanoSeamConstraints(100, 50, emptyList())
+        assertFalse(canvas.fits(PanoSeamRegion(PanoSeamKind.Include, 0, Int.MAX_VALUE, 0, Int.MAX_VALUE, 1)))
+        val job = PanoramaWire.job(JSONObject("""
+            {"id":"s","kind":"pano_stitch","status":"done","result":{"outputPath":"/srv/lib/Panoramas/a.png",
+             "seamConstraints":{"version":1,"canvas":{"width":100,"height":50},
+               "regions":[{"kind":"exclude","frame":1,"x":2,"y":3,"width":4,"height":5}]}}}"""))
+        assertEquals(PanoSeamConstraints(100, 50, listOf(PanoSeamRegion(PanoSeamKind.Exclude, 1, 2, 3, 4, 5))),
+            job.seamConstraints)
+        assertNull(PanoSeamConstraints.parse(JSONObject("""{"version":2,"canvas":{},"regions":[]}""")))
+        assertNull(PanoSeamConstraints.parse(JSONObject(
+            """{"version":1,"canvas":{"width":1,"height":1},"regions":[{"kind":"blend"}]}""")))
+        val refused = PanoramaWire.refusal(response(422,
+            """{"error":"invalid_seam_constraints","message":"invalid_seam_constraints: regions must be an array."}"""))!!
+        assertEquals("The server refused these seam regions: regions must be an array.", refused.message)
+        assertEquals("invalid_seam_constraints" to "The server refused these seam regions: Conflicting regions",
+            PanoramaWire.failure("invalid_seam_constraints: Conflicting regions", "x"))
+        assertEquals("" to "Not enough overlap", PanoramaWire.failure("Not enough overlap", "x"))
+    }
 }

@@ -44,6 +44,7 @@ class PanoPreviewImage(
     val inputs: PanoInputs,
     val options: PanoOptions,
     val matcherNote: String?,
+    val seams: PanoSeamConstraints?,
 )
 
 sealed interface PanoStitchRun {
@@ -66,6 +67,7 @@ data class PanoramaState(
     val image: PanoPreviewImage? = null,
     val stitch: PanoStitchRun = PanoStitchRun.Idle,
     val outputError: String? = null,
+    val seams: PanoSeamConstraints? = null,
 ) {
     val open: Boolean
         get() = inputs != null
@@ -88,6 +90,21 @@ data class PanoramaState(
     val previewCurrent: Boolean
         get() = image != null && image.inputs == inputs && image.options == options &&
             preview !is PanoPreviewRun.Running
+
+    /** The canvas new regions are drawn on: the authored one, else the shown preview's. */
+    val seamCanvas: Pair<Int, Int>?
+        get() = seams?.let { it.width to it.height } ?: image?.let { it.width to it.height }
+
+    /** Why seam regions cannot be authored or sent now, or null when they can (#5991). */
+    val seamBlocked: String?
+        get() = when {
+            capabilities?.seamConstraints != true -> "This server's maple-cli cannot take seam regions."
+            options.strategy == PanoStrategy.Tile ->
+                "Seam regions are not supported for Tile. Choose Rotation, or Auto for a rotation panorama."
+            stitching -> "Seam regions are locked while the panorama is merging."
+            !previewCurrent -> "Wait for a current preview before authoring or submitting seam regions."
+            else -> null
+        }
 }
 
 /**
@@ -144,11 +161,40 @@ internal class PanoramaSession(
 
     fun setOptions(options: PanoOptions) {
         if (!state.value.open || state.value.stitching || options == state.value.options) return
-        mutable.value = state.value.copy(options = options)
+        mutable.value = state.value.copy(options = options, seams = null)
         requestPreview()
     }
 
     fun retryPreview() = requestPreview()
+
+    /** Adds a region drawn on the current preview, or says why it cannot be added. */
+    fun addSeam(region: PanoSeamRegion): String? {
+        val current = state.value
+        current.seamBlocked?.let { return it }
+        val (width, height) = current.seamCanvas ?: return "Wait for a preview before adding seam regions."
+        val authored = current.seams ?: PanoSeamConstraints(width, height, emptyList())
+        if (region.frame !in current.image?.frames.orEmpty().indices || !authored.fits(region))
+            return "Choose a frame and a positive whole-pixel rectangle wholly inside the ${width} × ${height} preview."
+        mutable.value = current.copy(seams = authored.copy(regions = authored.regions + region))
+        return null
+    }
+
+    fun removeSeam(index: Int) {
+        val current = state.value
+        val authored = current.seams ?: return
+        if (current.stitching || index !in authored.regions.indices) return
+        val regions = authored.regions.filterIndexed { i, _ -> i != index }
+        mutable.value = current.copy(seams = if (regions.isEmpty()) null else authored.copy(regions = regions))
+    }
+
+    fun clearSeams() {
+        if (!state.value.stitching) mutable.value = state.value.copy(seams = null)
+    }
+
+    /** Previews the authored regions on the server, reusing the shown preview's alignment. */
+    fun previewSeams() {
+        if (state.value.seamBlocked == null) requestPreview()
+    }
 
     /** Stops the running preview, server job included; a finished preview stays shown. */
     fun cancelPreview() {
@@ -167,12 +213,13 @@ internal class PanoramaSession(
         val ready = current.config as? PanoConfigState.Ready ?: return
         if (!ready.capabilities.ready || current.stitching) return
         if ((current.stitch as? PanoStitchRun.Failed)?.jobId != null) return retryStitch()
+        if (current.seams != null && current.seamBlocked != null) return
         val alignmentFrom = current.image?.takeIf { it.inputs == inputs }?.jobId
         cancelPreview()
         val generation = ++stitchGeneration
         val opened = session
         mutable.value = state.value.copy(stitch = PanoStitchRun.Submitting(), outputError = null)
-        val request = PanoRequest(inputs.paths, ready.libraryId, current.options, ready.capabilities, alignmentFrom)
+        val request = PanoRequest(inputs.paths, ready.libraryId, current.options, ready.capabilities, alignmentFrom, current.seams)
         stitchJob = scope.launch {
             val id =
                 try {
@@ -321,7 +368,7 @@ internal class PanoramaSession(
             delay(PREVIEW_DEBOUNCE_MS)
             val shown = state.value
             val alignmentFrom = shown.image?.takeIf { it.inputs == inputs }?.jobId
-            val request = PanoRequest(inputs.paths, ready.libraryId, shown.options, ready.capabilities, alignmentFrom)
+            val request = PanoRequest(inputs.paths, ready.libraryId, shown.options, ready.capabilities, alignmentFrom, shown.seams)
             try {
                 val id = postPreview(inputs, request, generation, opened) ?: return@launch
                 followPreview(inputs, id, shown.options, generation, opened)
@@ -370,7 +417,7 @@ internal class PanoramaSession(
                     val height = job.height
                     val image =
                         if (width == null || height == null || width <= 0 || height <= 0) null
-                        else PanoPreviewImage(id, png, width, height, job.frames, inputs, options, job.matcherNote)
+                        else PanoPreviewImage(id, png, width, height, job.frames, inputs, options, job.matcherNote, job.seamConstraints)
                     if (generation == previewGeneration)
                         publish(opened) {
                             if (image == null)
@@ -381,7 +428,8 @@ internal class PanoramaSession(
                 }
                 PanoJobStatus.Failed -> {
                     previewInFlight = null
-                    publish(opened) { it.copy(preview = PanoPreviewRun.Failed("", job.error ?: "Preview failed.")) }
+                    val (code, message) = PanoramaWire.failure(job.error, "Preview failed.")
+                    publish(opened) { it.copy(preview = PanoPreviewRun.Failed(code, message)) }
                     return
                 }
                 PanoJobStatus.Cancelled -> {
@@ -420,7 +468,8 @@ internal class PanoramaSession(
                             PanoStitchRun.Running(id, job.progress, job.cancelRequested || shown?.cancelRequested == true)
                         }
                         PanoJobStatus.Done -> PanoStitchRun.Done(job)
-                        PanoJobStatus.Failed -> PanoStitchRun.Failed("", job.error ?: "Panorama job failed.")
+                        PanoJobStatus.Failed ->
+                            PanoramaWire.failure(job.error, "Panorama job failed.").let { (code, message) -> PanoStitchRun.Failed(code, message) }
                         PanoJobStatus.Cancelled -> PanoStitchRun.Cancelled
                     }
                 publish(opened) { it.copy(stitch = next) }

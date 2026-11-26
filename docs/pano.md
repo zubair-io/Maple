@@ -473,7 +473,20 @@ publishing. **View panorama** opens the output from its `Panoramas/` folder in P
 `src/android/.../PanoramaIntegrationTest.kt` runs a real classical stitch when `src/android/scripts/with-cloud-api.sh` is given
 `MAPLE_ANDROID_PANO_CLI` and `MAPLE_ANDROID_PANO_FIXTURES`, as CI does. A cancel the server has not
 confirmed (a job still queued behind another) does not hold the sheet: **Close** stays available.
-Seam regions are #5991; the Boundary Warp "applied less" helper line the Web dialog shows is #6046.
+The Boundary Warp "applied less" helper line the Web dialog shows is #6046.
+
+**Seam regions (#5991).** Where `seamConstraintsSupported` is set, the sheet authors
+SeamConstraintsRequest v1 on the shown preview (`PanoramaSeams.kt`, `PanoramaSeamEditor.kt`). Pick a
+source frame from the server's ordered list (shown 1-based, sent 0-based) and Include or Exclude,
+then drag a rectangle on the preview or type X, Y, width and height in preview pixels. Regions keep
+the uncropped canvas they were drawn on; the server and Rust map them onto the full stitch. Regions
+can be removed or cleared; **Preview regions** requests a constrained preview with the shown
+preview's `alignmentFrom`, and **Create panorama** sends the same regions. Authoring and sending are
+refused for Tile, while a preview is running or out of date, while merging, and on binaries without
+support; changing an option clears the regions. A route 422 or a CLI refusal surfaces as
+`invalid_seam_constraints` with the server's reason, and a finished job's `result.seamConstraints`
+is read back. The second `PanoramaIntegrationTest` case authors, refuses a contradiction, and
+stitches with regions against the real server.
 
 ## Fixtures, harness, and gates
 

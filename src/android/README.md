@@ -433,7 +433,8 @@ loaded results as the filmstrip and save via conditional cloud XMP writes above.
 ### Panoramas
 
 Select two or more photos in a connected server's folder and choose **Merge to panorama…**: the
-server previews and stitches, Android follows the jobs and opens the output in Preview. See
+server previews and stitches, Android follows the jobs and opens the output in Preview. Include and
+Exclude seam regions can be drawn or typed on the preview where the server supports them. See
 [pano.md § Android client](../../docs/pano.md#android-client-5994) and `PanoramaIntegrationTest`.
 
 ### RAW+JPEG pairs
