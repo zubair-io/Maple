@@ -19,11 +19,13 @@
 //! owning process is gone. Source RAWs and sidecars are only ever read.
 
 mod io;
+mod proxy_develop;
 mod rows;
 #[cfg(test)]
 mod tests;
 mod window;
 
+pub use proxy_develop::ProxyDevelop;
 pub use rows::{FrameRect, FrameRows, InMemory, Subset};
 pub(crate) use window::{SourceView, SourceWindow, WINDOW_BYTES_PER_PX};
 

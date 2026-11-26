@@ -73,6 +73,11 @@ public final class RustPanoStitcher: PanoStitching {
   private let mlLoadFailure = OSAllocatedUnfairLock<(environment: String, reason: String)?>(
     initialState: nil)
 
+  /// Each frame's preview proxy, kept between previews so an option change
+  /// re-previews without developing every RAW again. Named like the per-call
+  /// scratch, so a launch sweeps what a terminated run left.
+  private let previewCache = OSAllocatedUnfairLock<ScratchDirectory?>(initialState: nil)
+
   // MARK: - Init
 
   /// Creates a stitcher backed by the given provisioning resolver.
@@ -84,6 +89,10 @@ public final class RustPanoStitcher: PanoStitching {
   public init(provisioning: PanoProvisioning = PanoProvisioning(), outputDirectory: URL? = nil) {
     self.provisioning = provisioning
     self.outputDirectory = outputDirectory
+  }
+
+  deinit {
+    discardPreviewCache()
   }
 
   /// Where every panorama goes instead of beside its first frame — the
@@ -111,6 +120,28 @@ public final class RustPanoStitcher: PanoStitching {
     for run in activeRuns.withLock({ $0 }) { run.request() }
   }
 
+  public func discardPreviewCache() {
+    previewCache.withLock { cache in
+      cache?.remove()
+      cache = nil
+    }
+  }
+
+  private func previewCacheDirectory() -> URL? {
+    previewCache.withLock { cache in
+      if cache == nil { cache = try? ScratchDirectory() }
+      return cache?.url
+    }
+  }
+
+  /// What the core may plan a run against: the memory the OS still grants
+  /// this process, less the model's headroom; 0 (no limit) where the OS
+  /// sets none (macOS). Read as each run starts, after any earlier run has
+  /// released its memory.
+  static func memoryLimitBytes() -> UInt64 {
+    PanoAvailableMemory.current().map { UInt64(Double($0) / PanoMemoryModel.safetyFactor) } ?? 0
+  }
+
   public func stitch(
     assets: [AssetRef],
     options: PanoOptions,
@@ -130,6 +161,7 @@ public final class RustPanoStitcher: PanoStitching {
           engine: engine,
           alignment: alignment,
           maxCanvasPixels: maxCanvasPixels,
+          memoryLimitBytes: Self.memoryLimitBytes(),
           atom: atom,
           cancelFlag: flag
         )
@@ -171,6 +203,7 @@ public final class RustPanoStitcher: PanoStitching {
     progress: @escaping @MainActor (PanoStage, Double) -> Void
   ) async throws -> PanoPreview {
     let inputURLs = try collectInputURLs(from: assets)
+    let cacheDirectory = previewCacheDirectory()
     let (preview, matcher) = try await runWithFallback { engine in
       try await self.runOffMain(progress: progress) { atom, flag in
         try PanoFFICall.preview(
@@ -178,6 +211,8 @@ public final class RustPanoStitcher: PanoStitching {
           options: options,
           engine: engine,
           alignment: alignment,
+          memoryLimitBytes: Self.memoryLimitBytes(),
+          proxyCacheDirectory: cacheDirectory,
           atom: atom,
           cancelFlag: flag
         )
@@ -384,6 +419,12 @@ public enum PanoStitcherError: Error, LocalizedError {
   case modelsNotInstalled(String)
   /// The decoded frames do not fit the free space on this device.
   case insufficientStorage
+  /// The frames need more memory than this device grants the app, so the
+  /// core refused the run before developing them.
+  case insufficientMemory
+  /// The system warned that memory was low, so the run was stopped before
+  /// the app could be terminated.
+  case stoppedForMemory
   case unsupportedPlatform
   case stitchFailed(code: Int, message: String)
   case previewUndecodable
@@ -401,6 +442,12 @@ public enum PanoStitcherError: Error, LocalizedError {
       return "There isn’t enough free storage to merge these frames. Free up space, "
         + "or merge fewer frames. A smaller output does not help: the frames "
         + "themselves need the space."
+    case .insufficientMemory:
+      return "These frames need more memory than this device can give Maple. "
+        + "Merge fewer frames, or merge them on a Mac."
+    case .stoppedForMemory:
+      return "Maple stopped the merge because the device was running low on memory. "
+        + "Close other apps and try again, choose a smaller output, or merge fewer frames."
     case .unsupportedPlatform:
       return "Panorama merging isn’t available on this device."
     case .stitchFailed(_, let message):

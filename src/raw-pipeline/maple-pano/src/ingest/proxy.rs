@@ -67,7 +67,7 @@ pub fn proxy_from_row_windows<E>(
 }
 
 /// `None` when the frame is already inside the cap (never upscale).
-fn proxy_dims(sw: u32, sh: u32, max_long_edge: u32) -> Option<(u32, u32)> {
+pub(super) fn proxy_dims(sw: u32, sh: u32, max_long_edge: u32) -> Option<(u32, u32)> {
     let max_long_edge = max_long_edge.max(1);
     if sw.max(sh) <= max_long_edge {
         return None;
@@ -83,15 +83,15 @@ fn proxy_dims(sw: u32, sh: u32, max_long_edge: u32) -> Option<(u32, u32)> {
 
 /// Source span `[⌊i·s/d⌋, ⌊(i+1)·s/d⌋)` of destination index `i`, forced
 /// non-empty and clamped to the frame.
-fn source_span(i: u32, s: u32, d: u32) -> (usize, usize) {
+pub(super) fn source_span(i: u32, s: u32, d: u32) -> (usize, usize) {
     let lo = (i as u64 * s as u64 / d as u64) as usize;
     let hi = ((i as u64 + 1) * s as u64 / d as u64).max(lo as u64 + 1) as usize;
     (lo, hi.min(s as usize))
 }
 
-struct Proxy {
-    dw: u32,
-    dh: u32,
+pub(super) struct Proxy {
+    pub(super) dw: u32,
+    pub(super) dh: u32,
     r: Vec<f32>,
     g: Vec<f32>,
     b: Vec<f32>,
@@ -99,7 +99,7 @@ struct Proxy {
 }
 
 impl Proxy {
-    fn new(dw: u32, dh: u32) -> Self {
+    pub(super) fn new(dw: u32, dh: u32) -> Self {
         let n = dw as usize * dh as usize;
         Self {
             dw,
@@ -131,18 +131,23 @@ impl Proxy {
                     all_valid &= window.validity.get(sx as u32, wy as u32);
                 }
             }
-            let nf = n.max(1) as f64;
-            let di = y as usize * self.dw as usize + x;
-            self.r[di] = (sr / nf) as f32;
-            self.g[di] = (sg / nf) as f32;
-            self.b[di] = (sb / nf) as f32;
+            self.set(x as u32, y, sr, sg, sb, n);
             if !all_valid {
                 self.validity.set(x as u32, y, false);
             }
         }
     }
 
-    fn finish(self) -> PlanarImage {
+    /// Pixel `(x, y)` as the mean of `n` source pixels summing to `(sr, sg, sb)`.
+    pub(super) fn set(&mut self, x: u32, y: u32, sr: f64, sg: f64, sb: f64, n: u32) {
+        let nf = n.max(1) as f64;
+        let di = y as usize * self.dw as usize + x as usize;
+        self.r[di] = (sr / nf) as f32;
+        self.g[di] = (sg / nf) as f32;
+        self.b[di] = (sb / nf) as f32;
+    }
+
+    pub(super) fn finish(self) -> PlanarImage {
         PlanarImage::from_planes(self.dw, self.dh, self.r, self.g, self.b, self.validity)
     }
 }

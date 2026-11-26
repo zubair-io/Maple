@@ -80,6 +80,7 @@ pub(super) fn stitch_options(
         // unvalidated — pending M6-E.
         #[cfg(target_os = "ios")]
         use_coreml: true,
+        memory_profile: raw_core::pano_memory::PanoMemoryProfile::Apple,
         ..StitchOptions::default()
     }
 }
@@ -273,6 +274,13 @@ pub(super) fn error_rc(fn_name: &str, e: StitchError) -> i32 {
         e @ StitchError::InsufficientScratchSpace { .. } => {
             set_last_error(format!("{fn_name}: {e}"));
             -9
+        }
+        // rc -12: refused before the phase the memory model puts over the
+        // caller's limit. Distinct so Swift can say "too large for this
+        // device" instead of a generic failure.
+        e @ StitchError::InsufficientMemory { .. } => {
+            set_last_error(format!("{fn_name}: {e}"));
+            -12
         }
         StitchError::SeamConstraint(e) => {
             set_last_error(format!("{fn_name}: invalid_seam_constraints: {e}"));

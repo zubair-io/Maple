@@ -1,13 +1,15 @@
 //! A stitch's memory limit (#5835): the run is refused, not attempted, when
 //! the [`raw_core::pano_memory`] model puts a phase above
-//! [`StitchOptions::memory_limit_bytes`], costed with the server's calibration
-//! (#5891): only the server sets a limit. The head is checked from the
-//! inputs' headers before any frame is decoded; the composite is checked
-//! once the canvas is solved, since its cost depends on the canvas width.
+//! [`StitchOptions::memory_limit_bytes`], costed with
+//! [`StitchOptions::memory_profile`]'s calibration: the server's (#5891), or
+//! the Apple devices' that the merge sheet sizes outputs with. The head and
+//! the preview are checked from the inputs' headers before any frame is
+//! decoded; the composite is checked once the canvas is solved, since its
+//! cost depends on the canvas width.
 
 use std::path::PathBuf;
 
-use raw_core::pano_memory::{PanoMemoryProfile, PanoStitchLoad};
+use raw_core::pano_memory::PanoStitchLoad;
 
 use super::{frames, StitchError, StitchOptions};
 
@@ -18,6 +20,18 @@ pub(super) fn admit_head(inputs: &[PathBuf], opts: &StitchOptions) -> Result<(),
         return Ok(());
     };
     within(load(frames::input_dims(inputs)?, opts).head_bytes(), limit)
+}
+
+/// Refuse when previewing `inputs` would exceed the limit. Reads headers
+/// only, and nothing at all without a limit.
+pub(super) fn admit_preview(inputs: &[PathBuf], opts: &StitchOptions) -> Result<(), StitchError> {
+    let Some(limit) = opts.memory_limit_bytes else {
+        return Ok(());
+    };
+    within(
+        load(frames::input_dims(inputs)?, opts).preview_bytes(),
+        limit,
+    )
 }
 
 /// Refuse when compositing frames of `full_dims` onto a canvas
@@ -48,7 +62,7 @@ fn load(full_dims: impl IntoIterator<Item = (u32, u32)>, opts: &StitchOptions) -
         largest_frame_px,
         proxy_long_edge: u64::from(opts.proxy_long_edge),
         ml_matcher: opts.feature_engine.is_ml(),
-        profile: PanoMemoryProfile::Server,
+        profile: opts.memory_profile,
     }
 }
 
@@ -125,9 +139,26 @@ mod tests {
     }
 
     #[test]
+    fn the_apple_profile_costs_with_the_apple_calibration() {
+        use raw_core::pano_memory::PanoMemoryProfile;
+        let apple = StitchOptions {
+            memory_profile: PanoMemoryProfile::Apple,
+            ..StitchOptions::default()
+        };
+        let (server, device) = (
+            load(PANO_01, &StitchOptions::default()),
+            load(PANO_01, &apple),
+        );
+        assert_eq!(server.profile, PanoMemoryProfile::Server);
+        assert_eq!(device.profile, PanoMemoryProfile::Apple);
+        assert_ne!(server.head_bytes(), device.head_bytes());
+    }
+
+    #[test]
     fn no_limit_admits_without_reading_any_input() {
         let missing = [PathBuf::from("/nonexistent/a.dng")];
         assert!(admit_head(&missing, &StitchOptions::default()).is_ok());
+        assert!(admit_preview(&missing, &StitchOptions::default()).is_ok());
         assert!(admit_composite(PANO_01, u32::MAX, &StitchOptions::default()).is_ok());
     }
 
@@ -136,6 +167,10 @@ mod tests {
         let missing = [PathBuf::from("/nonexistent/a.dng")];
         assert!(matches!(
             admit_head(&missing, &limited(u64::MAX)),
+            Err(StitchError::Decode { .. })
+        ));
+        assert!(matches!(
+            admit_preview(&missing, &limited(u64::MAX)),
             Err(StitchError::Decode { .. })
         ));
     }

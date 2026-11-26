@@ -98,6 +98,8 @@ mod io;
 mod memory;
 mod photometry;
 mod preview;
+mod preview_frames;
+mod proxy_cache;
 mod refine_pass;
 mod rotation_composite;
 mod rotation_tail;
@@ -129,7 +131,7 @@ use std::path::PathBuf;
 use crate::composite::CanvasSink;
 use crate::gain::LensGroups;
 use crate::graph::{DescriptorTopKProvider, LoopClosureCheck, LoopClosureGate};
-use crate::ingest::{ingest_file_proxy, FrameMeta};
+use crate::ingest::FrameMeta;
 use crate::strategy::Strategy;
 use crate::twoview::PixelCorrespondence;
 use graph_build::{build_stitch_graph, ground_footprints, validate_grid};
@@ -179,35 +181,6 @@ pub(super) fn validate_request(
     }
     seam_gate::validate(opts, inputs.len())?;
     validate_grid(opts, inputs.len())
-}
-
-/// Stage 0 for the preview, which needs no full-resolution frames: decode
-/// every frame to its long-edge proxy + priors.
-///
-/// #1254: `ingest_file_proxy` allocates the full-res buffer internally for
-/// the downscale, then drops it before returning — only the lightweight
-/// `FrameMeta` (proxy planes + metadata) survives.
-pub(super) fn decode_proxies(
-    inputs: &[PathBuf],
-    proxy_long_edge: u32,
-    progress: &mut dyn FnMut(u32, f32),
-    is_cancelled: &dyn Fn() -> bool,
-) -> Result<Vec<FrameMeta>, StitchError> {
-    progress(0, 0.0);
-    let mut metas: Vec<FrameMeta> = Vec::with_capacity(inputs.len());
-    for (i, path) in inputs.iter().enumerate() {
-        if is_cancelled() {
-            return Err(StitchError::Cancelled);
-        }
-        metas.push(
-            ingest_file_proxy(path, proxy_long_edge).map_err(|e| StitchError::Decode {
-                path: path.clone(),
-                cause: e.to_string(),
-            })?,
-        );
-        progress(0, (i + 1) as f32 / inputs.len() as f32);
-    }
-    Ok(metas)
 }
 
 /// What stages 0–2 hand on: the reusable alignment, the decoded proxies
