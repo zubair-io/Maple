@@ -47,6 +47,7 @@
 use crate::color::oklab::{oklab_to_rec2020, rec2020_to_oklab};
 use crate::image::{ColorSpace, Image};
 use crate::types::AdjustmentModel;
+use rayon::prelude::*;
 
 /// Oklab chroma shift at full saturation and unit zone weight. Inherited
 /// verbatim from the split-toning calibration (spec § 10.3) so existing
@@ -316,9 +317,9 @@ pub fn apply(img: &mut Image, sliders: &ColorGradeSliders) {
     if p.is_identity {
         return;
     }
-    for px in &mut img.pixels {
+    img.pixels.par_iter_mut().for_each(|px| {
         *px = apply_pixel(*px, &p);
-    }
+    });
 }
 
 /// Convenience wrapper for the render chains, which carry the model.
