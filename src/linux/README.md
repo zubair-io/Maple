@@ -392,12 +392,18 @@ once with the GPU and once on the CPU fallback, and writes one perf row: cold
 open, Exposure and Contrast tick latency at 60 ticks a second with how many
 ticks were answered and the longest stretch without a frame, the time to
 abandon a profile switch superseded by a render for a closed session, and peak
-resident memory (host memory only).
+resident memory (host memory only). The worker publishes a GPU frame when its
+commands are submitted, not when the GPU has run them, so the harness stops
+each latency when a work-done callback on the worker's own queue reports the
+frame finished, and records the submission-time latency beside it
+(`submittedMs`). The finished time is an upper bound, since the callback also
+covers a later tick's submission if one was already made.
 
 The row lists what it covers and what it excludes. It does not measure the
 debounced quiet-refine and detail pass, frame presentation after the worker
 event, saves on the worker thread, input dispatch and the egui frame loop, GPU
-memory, or the cancellation of a tick superseded by the next tick. The row
+memory, exact per-frame GPU completion, or the cancellation of a tick
+superseded by the next tick. The row
 marks itself `timingQualifies: false` on a software adapter or any adapter that
 is not a discrete or integrated GPU, in a debug build, off Linux, in a dirty
 working tree, for a RAW other than the reference `dji-mavic3pro-100mp.dng`, or

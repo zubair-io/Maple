@@ -3,12 +3,18 @@
 //! mailbox, and a profile switch superseded while in flight. It only observes
 //! the events the worker publishes; the worker's scheduling is untouched.
 //!
-//! Covered: worker open to first published frame, tick-to-frame latency of an
-//! Exposure and a Contrast drag, how many ticks were answered and the longest
-//! stretch with no frame, the time to abandon a superseded profile switch, and
-//! the process's peak resident memory. Not covered: the debounced quiet-refine
-//! and detail pass, frame presentation after the worker event, saves on the
-//! worker thread, input dispatch, and GPU memory.
+//! A frame counts as rendered when the GPU has finished it: the worker's
+//! `GpuRendered` event fires on submission, so `CompletionWatch` supplies the
+//! completion time, and the submission time is recorded beside it. The CPU
+//! renderer's event already follows the pixel computation.
+//!
+//! Covered: worker open to first finished frame, tick-to-finished-frame latency
+//! of an Exposure and a Contrast drag, how many ticks were answered and the
+//! longest stretch with no finished frame, the time to abandon a superseded
+//! profile switch, and the process's peak resident memory. Not covered: the
+//! debounced quiet-refine and detail pass, frame presentation after the worker
+//! event, saves on the worker thread, input dispatch, and GPU memory.
+use crate::completion::CompletionWatch;
 use eframe::egui;
 use maple_linux::controls::Control;
 use maple_linux::jobs::{Command, Event, Worker};
@@ -89,16 +95,29 @@ impl Percentiles {
     }
 }
 
-/// One slider drag. `published_ratio` and `worst_gap_ms` say how well the
-/// worker kept up: every tick supersedes the render in flight, so a path slower
-/// than a display interval answers few ticks and its percentiles describe few
-/// frames. The first published frame is reported apart as `first_tick_ms` and
-/// left out of the percentiles and counts, as it can carry one-off work.
+/// A published tick frame: the tick it answers, when the worker published it
+/// (submitted) and when the GPU had finished it. On the CPU path the two are
+/// the same instant.
+#[derive(Clone, Copy, Debug)]
+pub struct Frame {
+    pub tick: usize,
+    pub submitted: Instant,
+    pub completed: Instant,
+}
+
+/// One slider drag, timed to finished frames. `published_ratio` and
+/// `worst_gap_ms` say how well the worker kept up: every tick supersedes the
+/// render in flight, so a path slower than a display interval answers few ticks
+/// and its percentiles describe few frames. The first frame is reported apart
+/// as `first_tick_ms` and left out of the percentiles and counts, as it can
+/// carry one-off work. `submitted_ms` is the same latency stopped at the
+/// worker's event, before the GPU finished.
 #[derive(Clone, Copy, Debug, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TickStats {
     #[serde(flatten)]
     pub latency: Option<Percentiles>,
+    pub submitted_ms: Option<Percentiles>,
     pub first_tick_ms: f64,
     pub over16: u32,
     pub over50: u32,
@@ -109,23 +128,26 @@ pub struct TickStats {
 }
 
 impl TickStats {
-    /// `frames` are the published frames in arrival order, each with the index
-    /// of the tick it answers; `None` when no frame was published.
-    pub fn from_timeline(sent: &[Instant], frames: &[(usize, Instant)]) -> Option<Self> {
-        let (&(first_tick, first_arrival), rest) = frames.split_first()?;
-        let latencies: Vec<f64> = rest
-            .iter()
-            .map(|&(tick, arrival)| millis(arrival.duration_since(sent[tick])))
-            .collect();
+    /// `frames` are the published frames in publication order; `None` when no
+    /// frame was published.
+    pub fn from_timeline(sent: &[Instant], frames: &[Frame]) -> Option<Self> {
+        let (first, rest) = frames.split_first()?;
+        let since = |frame: &Frame, at: fn(&Frame) -> Instant| {
+            millis(at(frame).duration_since(sent[frame.tick]))
+        };
+        let latencies: Vec<f64> = rest.iter().map(|f| since(f, |f| f.completed)).collect();
+        let submissions: Vec<f64> = rest.iter().map(|f| since(f, |f| f.submitted)).collect();
         let over = |limit: f64| latencies.iter().filter(|&&ms| ms > limit).count() as u32;
-        let arrivals = frames.iter().map(|&(_, arrival)| arrival);
+        let mut finished: Vec<Instant> = frames.iter().map(|f| f.completed).collect();
+        finished.sort();
         let gaps = std::iter::once(sent[0])
-            .chain(arrivals.clone())
-            .zip(arrivals)
+            .chain(finished.iter().copied())
+            .zip(finished.iter().copied())
             .map(|(before, after)| millis(after.duration_since(before)));
         Some(Self {
             latency: Percentiles::of(&latencies),
-            first_tick_ms: millis(first_arrival.duration_since(sent[first_tick])),
+            submitted_ms: Percentiles::of(&submissions),
+            first_tick_ms: since(first, |f| f.completed),
             over16: over(TICK_TARGET_MS),
             over50: over(TICK_CEILING_MS),
             published: frames.len() as u32,
@@ -165,6 +187,7 @@ pub struct PathMeasurement {
     pub viewport_width: u32,
     pub viewport_height: u32,
     pub cold_open_uncached_ms: f64,
+    pub cold_open_submitted_ms: f64,
     pub cold_open_decode_ms: f64,
     pub tick_exposure: TickStats,
     pub tick_contrast: TickStats,
@@ -175,6 +198,12 @@ pub struct PathMeasurement {
     /// The decoded image's width and height the worker reports, not the preview's.
     #[serde(skip)]
     pub native: (u32, u32),
+}
+
+struct Published {
+    sent: Instant,
+    submitted: Instant,
+    completed: Instant,
 }
 
 enum Signal {
@@ -189,6 +218,7 @@ struct Driver {
     dims: (u32, u32),
     native: Option<(u32, u32)>,
     fallback_reason: Option<String>,
+    watch: Option<CompletionWatch>,
 }
 
 /// Why a receive failed: the worker is gone, or published nothing in time.
@@ -213,6 +243,9 @@ impl Driver {
             match event {
                 Event::GpuRendered(SESSION, generation, frame) => {
                     self.dims = frame.dims;
+                    if let Some(watch) = &mut self.watch {
+                        watch.expect(generation);
+                    }
                     return Ok(Some(Signal::Frame(generation)));
                 }
                 Event::Rendered(SESSION, generation, Ok(image), _) => {
@@ -238,15 +271,31 @@ impl Driver {
         self.generation
     }
 
-    fn publish(&mut self, model: &AdjustmentModel) -> Result<Duration, String> {
+    /// Sends a render and waits until its frame is published and, with a GPU,
+    /// finished.
+    fn publish(&mut self, model: &AdjustmentModel) -> Result<Published, String> {
         let sent = Instant::now();
         let generation = self.request(SESSION, model);
         loop {
             if let Some(Signal::Frame(published)) = self.poll(None)? {
                 if published == generation {
-                    return Ok(sent.elapsed());
+                    let submitted = Instant::now();
+                    return Ok(Published {
+                        sent,
+                        submitted,
+                        completed: self.completion(generation, submitted)?,
+                    });
                 }
             }
+        }
+    }
+
+    fn completion(&mut self, generation: u64, submitted: Instant) -> Result<Instant, String> {
+        match &mut self.watch {
+            Some(watch) => Ok(watch
+                .completed(generation, PUBLISH_TIMEOUT)?
+                .map_or(submitted, |completed| completed.max(submitted))),
+            None => Ok(submitted),
         }
     }
 
@@ -256,13 +305,13 @@ impl Driver {
         &mut self,
         deadline: Option<Instant>,
         first: u64,
-        frames: &mut Vec<(usize, Instant)>,
+        frames: &mut Vec<(usize, u64, Instant)>,
     ) -> Result<(), String> {
         loop {
             match self.poll(deadline)? {
                 None => return Ok(()),
                 Some(Signal::Frame(generation)) if generation >= first => {
-                    frames.push(((generation - first) as usize, Instant::now()));
+                    frames.push(((generation - first) as usize, generation, Instant::now()));
                     if deadline.is_none() && generation == self.generation {
                         return Ok(());
                     }
@@ -298,7 +347,18 @@ impl Driver {
             self.request(SESSION, &model);
         }
         self.observe(None, first, &mut frames)?;
-        TickStats::from_timeline(&sent, &frames)
+        let finished = frames
+            .into_iter()
+            .map(|(tick, generation, submitted)| {
+                self.completion(generation, submitted)
+                    .map(|completed| Frame {
+                        tick,
+                        submitted,
+                        completed,
+                    })
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        TickStats::from_timeline(&sent, &finished)
             .ok_or_else(|| "The worker published no frame for the drag".to_owned())
     }
 
@@ -314,7 +374,8 @@ impl Driver {
             },
             ..resident.clone()
         };
-        let in_flight = self.publish(&switched)?;
+        let switch = self.publish(&switched)?;
+        let in_flight = switch.submitted.duration_since(switch.sent);
         self.publish(resident)?;
         let mut latencies = Vec::with_capacity(samples as usize);
         for sample in 0..samples {
@@ -382,6 +443,7 @@ pub fn measure_path(
     options: Options,
 ) -> Result<PathMeasurement, String> {
     let options = options.check()?;
+    let watch = gpu.as_ref().map(CompletionWatch::new);
     let worker = Worker::with_gpu(egui::Context::default(), gpu);
     let started = Instant::now();
     worker.send(Command::Open(SESSION, photo));
@@ -395,9 +457,9 @@ pub fn measure_path(
         dims: (0, 0),
         native: None,
         fallback_reason: None,
+        watch,
     };
-    driver.publish(&resident)?;
-    let first_frame = started.elapsed();
+    let first_frame = driver.publish(&resident)?;
     let native = loop {
         if let Some(size) = driver.native {
             break size;
@@ -425,7 +487,8 @@ pub fn measure_path(
         },
         viewport_width: driver.dims.0,
         viewport_height: driver.dims.1,
-        cold_open_uncached_ms: millis(first_frame),
+        cold_open_uncached_ms: millis(first_frame.completed.duration_since(started)),
+        cold_open_submitted_ms: millis(first_frame.submitted.duration_since(started)),
         cold_open_decode_ms: millis(decoded),
         tick_exposure,
         tick_contrast,

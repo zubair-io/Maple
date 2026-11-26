@@ -4,6 +4,7 @@
 //! on the CPU fallback, and peak resident memory. Frame presentation and input
 //! dispatch are outside it. The row qualifies as a timing measurement only
 //! under the conditions `record::disqualifiers` lists.
+mod completion;
 mod drive;
 mod record;
 

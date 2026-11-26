@@ -35,13 +35,19 @@ RECORDING_SECTION = [
     "without it (the CPU renderer the application falls back to). For each it",
     "records:",
     "",
-    "- **Cold open** — from the open request to the first published frame",
-    "  (`coldOpenDecodeMs` is the decode share). The harness has just hashed and",
-    "  copied the file, so its bytes are in the OS page cache; nothing of the",
-    "  application is warm.",
+    "- **Cold open** — from the open request until the GPU has finished the",
+    "  first frame (`coldOpenSubmittedMs` stops at the worker's event, before",
+    "  the GPU finished; `coldOpenDecodeMs` is the decode share). The harness",
+    "  has just hashed and copied the file, so its bytes are in the OS page",
+    "  cache; nothing of the application is warm.",
     "- **Slider ticks** — an Exposure drag and a Contrast drag, one tick every",
     "  1/60 s whether or not the previous frame has arrived, as a real drag",
-    "  does. Latency runs from sending a tick to its frame being published. Every",
+    "  does. The worker publishes a frame when its GPU commands are submitted,",
+    "  not when the GPU has run them, so latency runs from sending a tick until",
+    "  the GPU has finished that frame (a work-done callback on the worker's own",
+    "  queue); `submittedMs` is the same latency stopped at the worker's event.",
+    "  The finished time is an upper bound: the callback also covers a later",
+    "  tick's submission if the worker already made one. Every",
     "  tick supersedes the render in flight, so a path slower than 16.7 ms per",
     "  frame answers only some ticks: the row records how many were published",
     "  (`published`, `publishedRatio`) and the longest stretch with no frame at",
@@ -62,8 +68,9 @@ RECORDING_SECTION = [
     "The row lists what it measures (`coverage`) and what it does not",
     "(`excludes`): the debounced quiet-refine and detail pass, frame",
     "presentation after the worker event, saves on the worker thread, input",
-    "dispatch and the egui frame loop, GPU memory, and cancellation of a tick",
-    "superseded by the next tick.",
+    "dispatch and the egui frame loop, GPU memory, cancellation of a tick",
+    "superseded by the next tick, and exact per-frame GPU completion (the",
+    "finished-frame time is an upper bound).",
     "",
     "The harness prints whether the row qualifies as a timing measurement. It",
     "qualifies only from a release build with a clean working tree, on a",
@@ -131,6 +138,16 @@ def hard_limit_row(label: str, tick: dict[str, Any] | None) -> str:
     )
 
 
+def submitted_row(label: str, tick: dict[str, Any] | None) -> str:
+    submitted = (tick or {}).get("submittedMs") or {}
+    latency = " / ".join(ms(submitted.get(key)) for key in ("p50Ms", "p95Ms", "maxMs"))
+    return (
+        f"| {label} tick p50 / p95 / max at worker submission | "
+        f"{'—' if submitted.get('p50Ms') is None else latency} | "
+        "not a measure of rendered frames: the GPU may not have run them |"
+    )
+
+
 def answered_row(label: str, tick: dict[str, Any] | None, qualifying: bool) -> str:
     tick = tick or {}
     ratio = tick.get("publishedRatio")
@@ -171,13 +188,16 @@ def path_rows(
         return f"{label} {text.lower()}" if label else text
 
     return [
-        f"| {named('Cold open, uncached')} | {ms(path.get('coldOpenUncachedMs'))} | {OPEN_TARGET} |",
+        f"| {named('Cold open, uncached')} | {ms(path.get('coldOpenUncachedMs'))} "
+        f"(worker event at {ms(path.get('coldOpenSubmittedMs'))}) | {OPEN_TARGET} |",
         *tick_rows(named("Exposure"), path.get("tickExposure")),
         hard_limit_row(named("Exposure"), path.get("tickExposure")),
         answered_row(named("Exposure"), path.get("tickExposure"), not label),
+        submitted_row(named("Exposure"), path.get("tickExposure")),
         *tick_rows(named("Contrast"), path.get("tickContrast")),
         hard_limit_row(named("Contrast"), path.get("tickContrast")),
         answered_row(named("Contrast"), path.get("tickContrast"), not label),
+        submitted_row(named("Contrast"), path.get("tickContrast")),
         cancellation_row(label or "Resident GPU", path.get("profileSwitchCancellation")),
     ]
 
