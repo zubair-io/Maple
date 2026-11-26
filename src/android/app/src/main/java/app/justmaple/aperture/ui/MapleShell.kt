@@ -201,23 +201,9 @@ fun MapleShell(model: MapleViewModel) {
                                         )
                                     }
                                 } else {
-                                    OutlinedTextField(
-                                        query,
-                                        { query = it },
-                                        Modifier.fillMaxWidth().padding(16.dp),
-                                        placeholder = { Text("Search photos in this folder") },
-                                        singleLine = true,
-                                        leadingIcon = { Icon(Icons.Outlined.Search, null) },
-                                    )
-                                    BrowseGrid(
-                                        model,
-                                        state,
-                                        state.photos.filter {
-                                            it.name.contains(query, ignoreCase = true)
-                                        },
-                                        emptyList(),
-                                        folderPicker = { folderPicker.launch(null) },
-                                    )
+                                    LocalFolderSearch(query, { query = it }, model, state) {
+                                        folderPicker.launch(null)
+                                    }
                                 }
                             }
                             else ->

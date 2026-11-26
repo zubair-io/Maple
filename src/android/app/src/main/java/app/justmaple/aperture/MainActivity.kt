@@ -68,6 +68,11 @@ class MainActivity : ComponentActivity() {
         if (uri != null && uri.scheme in setOf("content", "file")) model.openSingle(uri)
     }
 
+    override fun onTrimMemory(level: Int) {
+        super.onTrimMemory(level)
+        model.library.tiles.cache.onTrimMemory(level)
+    }
+
     override fun onStop() {
         model.saveOnStop()
         super.onStop()

@@ -49,23 +49,9 @@ internal fun BrowseGrid(
     LaunchedEffect(columns) { gridPreferences.edit().putInt("columns", columns).apply() }
     var filter by rememberSaveable { mutableStateOf(BrowseFilter.All) }
     var sort by rememberSaveable { mutableStateOf(sorts.first()) }
-    var culling by remember { mutableStateOf(emptyMap<String, PhotoCulling>()) }
     val gridState = rememberFolderGridState(state.folder?.uri)
     val directories = folders.filter { it.name != ".." }
-    LaunchedEffect(photos, state.selected?.uri, state.document, state.documentLoaded) {
-        culling =
-            withContext(Dispatchers.IO) {
-                val loaded = model.library.loadSidecars(photos)
-                photos.associate { photo ->
-                    val marks =
-                        if (state.documentLoaded && photo.uri == state.selected?.uri)
-                            cullingOf(state.document)
-                        else
-                            loaded[photo.uri.toString()]?.let { cullingOf(it.document) } ?: PhotoCulling()
-                    photo.uri.toString() to marks
-                }
-            }
-    }
+    val culling = rememberBrowseCulling(model.browseCulling, photos, state.selected, state.document, state.documentLoaded)
     val visible = remember(photos, culling, filter, sort) {
         applyBrowseCulling(photos, culling, filter, sort)
     }
@@ -130,6 +116,7 @@ internal fun BrowseGrid(
         BrowseFilterBar(filter, { filter = it }, sort, { sort = it }, sorts = sorts)
         BrowseSelectionControls(model, state, visible)
         if (photos.isEmpty() && directories.isEmpty()) {
+            if (state.sourcesPending) return@Column
             MuiEmptyState(
                 if (state.folder == null) "Your library, in Maple" else "No photos here",
                 "Open a folder of photos to browse, rate, and develop.",

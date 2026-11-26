@@ -19,6 +19,17 @@ internal class SafSidecars(private val context: Context, private val documents: 
             PhotoLibrary.digest(photo.uri.toString()) + ".json",
         )
 
+    fun recoveryPending(photo: Photo): Boolean =
+        journal(photo).exists() || photo.companion?.let { journal(it).exists() } == true
+
+    // A missing date, or one within 3 s of now (volumes with 2 s timestamps), could hide a same-length rewrite: never reused.
+    fun stamp(photo: Photo, entries: List<LocalDocument>, savedHere: Int, now: Long): SidecarStamp? {
+        if (recoveryPending(photo)) return null
+        val sidecar = runCatching { find(entries, photo.sidecarName) }.getOrElse { return null }
+        if (sidecar != null && (sidecar.modified <= 0 || now - sidecar.modified < COARSE_TIMESTAMP_MILLIS)) return null
+        return SidecarStamp(sidecar?.uri, sidecar?.size ?: 0, sidecar?.modified ?: 0, savedHere)
+    }
+
     fun read(photo: Photo, fresh: Boolean = false): String? {
         // A folded RAW shares its sidecar with the hidden JPEG, whose journal is keyed by the JPEG.
         photo.companion?.let(::recover)
@@ -185,5 +196,9 @@ internal class SafSidecars(private val context: Context, private val documents: 
         check(DocumentsContract.deleteDocument(resolver, uri)) {
             "Could not remove a temporary sidecar"
         }
+    }
+
+    private companion object {
+        const val COARSE_TIMESTAMP_MILLIS = 3_000L
     }
 }

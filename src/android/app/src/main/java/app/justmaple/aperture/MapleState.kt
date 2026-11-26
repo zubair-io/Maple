@@ -10,6 +10,8 @@ enum class PhotoMode {
 
 data class MapleState(
     val sources: List<Folder> = emptyList(),
+    /** Launch only: the saved sources are still being read, so "no folders" is not yet true. */
+    val sourcesPending: Boolean = false,
     val folder: Folder? = null,
     val folderTrail: List<Folder> = emptyList(),
     val folders: List<Folder> = emptyList(),
@@ -101,6 +103,9 @@ internal fun MapleState.trailTo(folder: Folder, ancestors: List<Folder>?): List<
     val parent = ancestors ?: if (folders.any { it.uri == folder.uri }) folderTrail else emptyList()
     return parent + folder
 }
+
+internal fun MapleState.withSources(sources: List<Folder>): MapleState =
+    copy(sources = sources, sourcesPending = false)
 
 internal fun MapleState.failed(failure: Throwable, operation: String): MapleState =
     copy(

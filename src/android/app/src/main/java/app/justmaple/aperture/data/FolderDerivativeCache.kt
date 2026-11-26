@@ -33,6 +33,7 @@ internal class FolderDerivativeCache(private val context: Context) {
         repeat(2) {
             currentCoroutineContext().ensureActive()
             val source = snapshot()
+            currentCoroutineContext().ensureActive()
             val entries = optional {
                 documents.directory(source.photo.parent!!, tier, false)?.let { directory ->
                     val listed = documents.entries(directory)
@@ -50,6 +51,7 @@ internal class FolderDerivativeCache(private val context: Context) {
                 else emptyList()
             var shared: SharedLease? = null
             for (candidate in candidates) {
+                currentCoroutineContext().ensureActive()
                 val document = candidate.document
                 shared = optional {
                     openShared(source, tier, document.uri, document.size, candidate.format)
@@ -67,6 +69,7 @@ internal class FolderDerivativeCache(private val context: Context) {
                 if (unchanged) return display(shared.image, false, shared.format, shared.identity)
                 shared.image.close()
             }
+            currentCoroutineContext().ensureActive()
             val key = "folder-${source.identity}-${tier.edge}"
             val ready = privateFile(key) { temporary -> render(source, temporary, tier) }
             val rendered = ready.image.file!!
