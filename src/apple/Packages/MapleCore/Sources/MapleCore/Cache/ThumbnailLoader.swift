@@ -104,7 +104,9 @@ public actor ThumbnailLoader {
   var thumbnailWaiters: [Task<Data?, Never>: Set<UUID>] = [:]
   var activeProducers: Set<UUID> = []
   var taskProducerIDs: [Task<Data?, Never>: UUID] = [:]
-  let cameraPreviewCache: NSCache<NSString, NSData> = {
+  /// Keyed by path plus original/sidecar signature, so every loader can
+  /// share one extraction: a grid cell's seed is reused by the AVIF tiers.
+  static let cameraPreviewCache: NSCache<NSString, NSData> = {
     let cache = NSCache<NSString, NSData>()
     cache.countLimit = 128
     return cache
