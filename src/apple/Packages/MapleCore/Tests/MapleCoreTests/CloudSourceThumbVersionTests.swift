@@ -89,6 +89,21 @@ final class CloudSourceThumbVersionTests: XCTestCase {
     XCTAssertNil(recorder.thumbURLs.last?.query)
   }
 
+  func testMapEmptiedAtItsLimitLeavesAnOlderFolderOnTheUnversionedURL() async throws {
+    let recorder = Recorder()
+    let cloud = source(listingImages: image("a.dng", version: "m1k-2s"), recorder: recorder)
+    _ = try await cloud.images()
+    recorder.listingImages = (0..<CloudSource.thumbVersionLimit)
+      .map { image("n\($0).dng", version: "v\($0)") }
+      .joined(separator: ",")
+    _ = try await cloud.images()
+
+    _ = try await cloud.thumb(for: ImageRef(id: "fs:\(libPath)/a.dng", displayName: "a.dng"))
+    XCTAssertNil(recorder.thumbURLs.last?.query)
+    _ = try await cloud.thumb(for: ImageRef(id: "fs:\(libPath)/n7.dng", displayName: "n7.dng"))
+    XCTAssertEqual(recorder.thumbURLs.last?.query, "v=v7")
+  }
+
   func testThumbBeforeAnyListingKeepsTheUnversionedURL() async throws {
     let recorder = Recorder()
     let cloud = source(listingImages: image("a.dng", version: "m1k-2s"), recorder: recorder)

@@ -146,7 +146,15 @@ extension CloudSource: ImageSource {
     return try await getOrNilWhenUnavailable(versioned ?? thumbURL)
   }
 
+  /// One source serves a whole server, so the map is emptied once it holds
+  /// this many paths. A dropped path asks for its thumb unversioned (the
+  /// server revalidates it) until its folder is listed again.
+  static let thumbVersionLimit = 20_000
+
   private func recordThumbVersions(of listing: FsDirListing) {
+    if thumbVersions.count + listing.images.count > Self.thumbVersionLimit {
+      thumbVersions.removeAll(keepingCapacity: true)
+    }
     for image in listing.images {
       thumbVersions[image.path] = image.thumbVersion
     }

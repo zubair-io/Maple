@@ -21,11 +21,14 @@ final class BrowseNavigationTicketTests: XCTestCase {
     XCTAssertFalse(vm.isCurrent(cloudTicket))
   }
 
-  func testNavigationClearsTheSpinnerOfTheLoadItSupersedes() {
+  func testNavigationLeavesTheLoadAlreadyRunningInCharge() {
     let vm = BrowseViewModel()
     vm.beginLoadingFilesystemFolder()
-    _ = vm.beginNavigation()
-    XCTAssertFalse(vm.isLoading)
+    let running = vm.loadGeneration
+    let ticket = vm.beginNavigation()
+    XCTAssertTrue(vm.isLoading)
+    XCTAssertEqual(vm.loadGeneration, running)
+    XCTAssertTrue(vm.isCurrent(ticket))
   }
 
   func testLaterNavigationWinsOverAnEarlierOne() {
