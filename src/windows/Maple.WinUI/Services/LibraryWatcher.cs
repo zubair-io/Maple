@@ -105,7 +105,7 @@ namespace Maple.WinUI.Services
             RearmDebounce();
         }
 
-        private void QueueAdded(string path)
+        internal void QueueAdded(string path)
         {
             if (!_isImageFile(path))
             {
@@ -116,7 +116,7 @@ namespace Maple.WinUI.Services
             RearmDebounce();
         }
 
-        private void QueueRemoved(string path)
+        internal void QueueRemoved(string path)
         {
             if (!_isImageFile(path))
             {
@@ -131,7 +131,7 @@ namespace Maple.WinUI.Services
         /// will ever see) one of the two names, so the net effect collapses
         /// to a plain arrival or departure rather than a rename to
         /// reconcile.</summary>
-        private void QueueRenamed(string oldPath, string newPath)
+        internal void QueueRenamed(string oldPath, string newPath)
         {
             var oldIsImage = _isImageFile(oldPath);
             var newIsImage = _isImageFile(newPath);
@@ -170,7 +170,7 @@ namespace Maple.WinUI.Services
             }
         }
 
-        private void Flush()
+        internal void Flush()
         {
             var drained = _queue.Drain();
 
