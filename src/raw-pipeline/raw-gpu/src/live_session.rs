@@ -249,6 +249,26 @@ impl LiveSession {
         self.cut.clear();
     }
 
+    /// Called once when an interactive host opens the session, so no tick allocates the resume-cut plane (#6021).
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn reserve_resume_cut(&self, ctx: &GpuContext) {
+        if self.cut.claim(self.image.byte_len()) {
+            pollster::block_on(self.cut.reserve(ctx, self.image.byte_len()));
+        }
+    }
+
+    /// The async core of [`Self::reserve_resume_cut`], for the wasm host.
+    pub async fn reserve_resume_cut_async(&self, ctx: &GpuContext) {
+        if self.cut.claim(self.image.byte_len()) {
+            self.cut.reserve(ctx, self.image.byte_len()).await;
+        }
+    }
+
+    /// Whether the resume-cut plane is reserved; without it every tick renders in full.
+    pub fn resume_cut_reserved(&self) -> bool {
+        self.cut.reserved()
+    }
+
     /// Cumulative pool allocation count (the honest zero-alloc hook): the number
     /// of actual `create_buffer` / `create_bind_group` calls the pool has made
     /// (misses). Snapshot it across a same-signature re-render — the delta must be

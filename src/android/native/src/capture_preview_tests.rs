@@ -84,6 +84,19 @@ fn capture_sharpening_refines_into_the_decode_and_is_never_reapplied() {
 }
 
 #[test]
+fn an_opened_and_a_refined_session_both_hold_the_resume_plane() {
+    let (path, _) = chart("capture-reserve");
+    let mut session = Session::open(path.to_str().unwrap(), NEUTRAL, 2048).unwrap();
+    assert!(session.live.resume_cut_reserved(), "the opened session");
+    session.model.capture_sharpening_amount = 80.;
+    assert!(session.needs_preparation());
+    session.update().unwrap();
+    assert!(!session.needs_preparation());
+    assert!(session.live.resume_cut_reserved(), "the refined session");
+    std::fs::remove_file(path).unwrap();
+}
+
+#[test]
 fn a_white_balance_drag_runs_the_creative_stage_without_redecoding_or_allocating() {
     let (path, bytes) = chart("capture-wb");
     let mut session = Session::open(path.to_str().unwrap(), NEUTRAL, 2048).unwrap();

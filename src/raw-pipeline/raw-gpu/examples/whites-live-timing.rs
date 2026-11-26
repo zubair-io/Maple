@@ -113,6 +113,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .collect();
     let ctx = GpuContext::new_blocking()?;
     let session = LiveSession::new(&ctx, &rgba, scene.width, scene.height)?;
+    session.reserve_resume_cut(&ctx);
     let mut inputs = bench_inputs(anchor, scene.nr_sampling_scale);
     let cancel = CancelToken::new();
     println!("image={}x{} anchor_ev={anchor}", scene.width, scene.height);

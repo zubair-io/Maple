@@ -77,6 +77,7 @@ impl Session {
         self.creative = Some(prepared.creative);
         self.auto_fit = prepared.auto_fit;
         self.profile = self.model.profile;
+        self.live.reserve_resume_cut(&self.ctx);
         Ok(true)
     }
 }

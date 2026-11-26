@@ -196,6 +196,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let ctx = GpuContext::new_blocking()?;
     let session = LiveSession::new(&ctx, &rgba, scene.width, scene.height)?;
     let capture_session = LiveSession::new(&ctx, &capture.rgba, capture.width, capture.height)?;
+    session.reserve_resume_cut(&ctx);
+    capture_session.reserve_resume_cut(&ctx);
     let cancel = CancelToken::new();
     let engaged_model = AdjustmentModel {
         nr_luminance: 40.0,
