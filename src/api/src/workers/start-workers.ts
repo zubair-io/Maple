@@ -29,7 +29,7 @@ import { sweepOrphanedCaches } from './cache-gc.ts';
 import { bootstrapFfiPool, stopFfiPoolConfigRefresh } from '../ffi/ffi-pool-bootstrap.ts';
 import { decodeMemoryBudget } from '../ffi/decode-memory-budget.ts';
 import { ffiPool } from '../ffi/ffi-pool.ts';
-import { startGeocodeWorker, stopGeocodeWorker } from '../enrichment/bootstrap.ts';
+import { probeGeocoderAtBoot } from '../enrichment/bootstrap.ts';
 import { startFaceWorker, stopFaceWorker } from '../enrichment/face-bootstrap.ts';
 import { getFaceModelsStatus } from '../enrichment/face-models.ts';
 import { startDescribeWorker, stopDescribeWorker } from '../enrichment/describe-bootstrap.ts';
@@ -132,9 +132,9 @@ export async function startWorkers(): Promise<void> {
   await Promise.all([
     (async () => {
       try {
-        await startGeocodeWorker();
+        await probeGeocoderAtBoot();
       } catch (err) {
-        log.error({ err }, 'geocode worker failed to start; fix via /settings/enrichment');
+        log.warn({ err }, 'geocoder status check could not read the enrichment config');
       }
     })(),
     (async () => {
@@ -255,13 +255,6 @@ export async function stopWorkers(): Promise<void> {
   }
 
   await Promise.all([
-    (async () => {
-      try {
-        await stopGeocodeWorker();
-      } catch (e) {
-        log.warn({ err: e }, 'error stopping geocode worker');
-      }
-    })(),
     (async () => {
       try {
         await stopFaceWorker();
