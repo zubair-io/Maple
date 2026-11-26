@@ -92,11 +92,22 @@ public partial class EditSessionViewModel
                 "the thumbnail of the photo edited earlier is not its saved develop");
 
             setMode(ShellMode.Edit);
+            SelectedPhoto = edited;
+            var beforeCancelledRelease = edited.ThumbnailPath;
+            Save(1.5);
+            setMode(ShellMode.Preview);
+            Require(_previewRequest != null, "leaving Edit did not start the refresh of the photo just edited");
+            SelectedPhoto = next;
+            await Wait(() => _owedThumbnails == null && edited.ThumbnailPath != beforeCancelledRelease,
+                "a refresh cancelled by moving the selection was never retried");
+            Require(!_savedPreviews.Owed.Contains(edited), "a confirmed refresh left its photo owed");
+
+            setMode(ShellMode.Edit);
             SelectedPhoto = bare;
             Require(_previewRequest != null, "a photo without a sidecar was not given its embedded placeholder in Edit");
             await Wait(() => _previewRequest == null, "the embedded placeholder request did not finish in Edit");
 
-            Require(Math.Abs(SavedAdjustments(editedPath).Exposure - .25) < 1e-6,
+            Require(Math.Abs(SavedAdjustments(editedPath).Exposure - 1.5) < 1e-6,
                 "autosave was changed by deferring the saved preview");
             Require(new[] { editedPath, nextPath, barePath, raw }.All(path =>
                     sourceHash.SequenceEqual(SHA256.HashData(File.ReadAllBytes(path)))),

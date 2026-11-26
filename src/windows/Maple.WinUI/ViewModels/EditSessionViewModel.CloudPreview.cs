@@ -41,6 +41,7 @@ public partial class EditSessionViewModel
                 request.Dispose();
                 if (_disposed || cancelled || !current || version != _photoOpenVersion
                     || !ReferenceEquals(client, _cloud) || !ReferenceEquals(photo, SelectedPhoto)) return;
+                if (preview != null && thumbnail != null) _savedPreviews = _savedPreviews.Settle(photo, SavedPreviewRefreshOutcome.Refreshed);
                 if (preview != null) photo.PreviewPath = new Uri(preview).AbsoluteUri;
                 if (thumbnail != null) photo.ThumbnailPath = new Uri(thumbnail).AbsoluteUri;
             });
