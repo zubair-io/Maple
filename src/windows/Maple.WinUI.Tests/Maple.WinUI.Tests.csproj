@@ -429,6 +429,7 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="..\Maple.WinUI\ViewModels\PhotoItem.cs" LinkBase="ViewModels" />
+    <Compile Include="..\Maple.WinUI\ViewModels\RawJpegStackFold.cs" LinkBase="ViewModels" />
     <Compile Include="..\Maple.WinUI\ViewModels\CloudFolderNode.cs" LinkBase="ViewModels" />
     <Compile Include="..\Maple.WinUI\ViewModels\FolderNavigation.cs" LinkBase="ViewModels" />
     <!-- The whole Maple Cloud client (#1325 cutover audit): CloudClient's

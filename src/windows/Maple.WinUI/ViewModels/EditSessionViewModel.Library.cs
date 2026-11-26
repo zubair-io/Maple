@@ -294,7 +294,7 @@ namespace Maple.WinUI.ViewModels
         public void ApplyFilters()
         {
             if (RestartTimelineForChangedFilters()) return;
-            var query = AllPhotos.AsEnumerable();
+            var query = RawJpegStackFold.Apply(AllPhotos, FoldsRawJpegStacks).AsEnumerable();
             if (!_isCloudTimeline)
             {
                 if (FormatFilter != "All")
@@ -315,6 +315,7 @@ namespace Maple.WinUI.ViewModels
                     var needle = SearchText.Trim();
                     query = query.Where(p =>
                         p.FileName.Contains(needle, StringComparison.OrdinalIgnoreCase)
+                        || p.StackCompanion?.FileName.Contains(needle, StringComparison.OrdinalIgnoreCase) == true
                         || p.CameraModel.Contains(needle, StringComparison.OrdinalIgnoreCase)
                         || p.LensInfo.Contains(needle, StringComparison.OrdinalIgnoreCase));
                 }

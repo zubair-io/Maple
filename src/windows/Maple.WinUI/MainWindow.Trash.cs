@@ -108,7 +108,9 @@ namespace Maple.WinUI
 
             var (recycleBinCount, mapleTrashCount) = await ComputeTrashDestinationCountsAsync(eligible);
 
-            if (!await ConfirmDeleteAsync(total, recycleBinCount, mapleTrashCount, cloudEligible.Count, skippedCloud))
+            var pairCount = eligible.Concat(cloudEligible).Count(p => p.StackCompanion != null);
+            if (!await ConfirmDeleteAsync(
+                    total, recycleBinCount, mapleTrashCount, cloudEligible.Count, skippedCloud, pairCount))
                 return;
 
             var sources = EditSessionViewModel.BuildTrashSources(eligible);
@@ -190,9 +192,13 @@ namespace Maple.WinUI
         /// "Move to Maple Trash" for a same-destination batch, and a plain
         /// "Delete N Photos" for a mixed one.</summary>
         private async Task<bool> ConfirmDeleteAsync(
-            int total, int recycleBinCount, int mapleTrashCount, int cloudCount, int skippedCloud)
+            int total, int recycleBinCount, int mapleTrashCount, int cloudCount, int skippedCloud, int pairCount)
         {
             var lines = new List<string>();
+            if (pairCount > 0)
+                lines.Add(pairCount == 1
+                    ? "1 RAW+JPEG pair: both of its files are deleted."
+                    : $"{pairCount} RAW+JPEG pairs: both files of each pair are deleted.");
             if (recycleBinCount > 0)
             {
                 lines.Add(recycleBinCount == total

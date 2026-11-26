@@ -45,8 +45,8 @@ namespace Maple.WinUI.ViewModels
 
         // --- Inline rename (#2639) ---
 
-        /// <summary>True while the grid cell's filename TextBlock is swapped
-        /// for an editable TextBox (F2 or double-click the filename).</summary>
+        /// <summary>True while the grid cell shows its rename TextBox (F2 or
+        /// the context menu's Rename).</summary>
         [ObservableProperty] private bool _isRenaming;
         /// <summary>The rename field's live text, two-way bound to the
         /// TextBox — seeded with the current FileName on entry, committed
@@ -68,6 +68,17 @@ namespace Maple.WinUI.ViewModels
         /// <summary>The path decode/develop/export should read: the local cache
         /// for a downloaded cloud asset, the file itself otherwise.</summary>
         public string EditPath => LocalCachePath ?? FilePath;
+        /// <summary>The same-stem JPEG folded into this RAW's tile (#5050):
+        /// move, rename and trash carry it with the RAW.</summary>
+        [ObservableProperty]
+        [NotifyPropertyChangedFor(nameof(FormatBadge))]
+        private PhotoItem? _stackCompanion;
+        /// <summary>Set on the folded JPEG, which then has no tile of its own.</summary>
+        public PhotoItem? StackPrimary { get; set; }
+        public string FormatBadge => StackCompanion == null ? Format : "RAW+JPEG";
+        public bool ShowsTileFooter => IsRenaming || Rating > 0;
+        partial void OnIsRenamingChanged(bool value) => OnPropertyChanged(nameof(ShowsTileFooter));
+
         [ObservableProperty] private int _rating;
         [ObservableProperty] private string _flagStatus = "none";   // pick | reject | none
         [ObservableProperty] private string? _colorLabel;
@@ -107,6 +118,7 @@ namespace Maple.WinUI.ViewModels
         partial void OnRatingChanged(int value)
         {
             OnPropertyChanged(nameof(RatingStars));
+            OnPropertyChanged(nameof(ShowsTileFooter));
             OnPropertyChanged(nameof(BrowseSummary));
             OnPropertyChanged(nameof(DetailSummary));
         }

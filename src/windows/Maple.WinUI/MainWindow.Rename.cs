@@ -1,7 +1,8 @@
 // MainWindow.Rename.cs — inline single-asset rename UI wiring (#2639).
 // Entry points: F2 on the resolved rename target (OnRootKeyDown,
-// MainWindow.xaml.cs) and double-clicking the filename TextBlock in a grid
-// cell (OnFileNameDoubleTapped, wired in MainWindow.xaml). Both call
+// MainWindow.xaml.cs) and the grid context menu's Rename item
+// (OnRenameSelectedPhoto, wired in MainWindow.xaml). The grid tile carries no
+// filename caption (#5848), so there is no caption to double-click. Both call
 // StartRename, which flips the cell into edit mode via
 // EditSessionViewModel.BeginRename and focuses the field once the grid's
 // virtualized container has laid it out. All validation/relocate logic
@@ -32,12 +33,10 @@ namespace Maple.WinUI
         /// call CommitRenameAsync concurrently for the same photo.</summary>
         private readonly HashSet<PhotoItem> _renameCommitInFlight = new();
 
-        private void OnFileNameDoubleTapped(object sender, DoubleTappedRoutedEventArgs e)
+        private void OnRenameSelectedPhoto(object sender, RoutedEventArgs e)
         {
-            if (sender is not FrameworkElement { DataContext: PhotoItem photo })
-                return;
-            e.Handled = true;
-            StartRename(photo);
+            if (ViewModel.ResolveRenameTarget() is { } target)
+                StartRename(target);
         }
 
         private void OnRenameTextBoxDoubleTapped(object sender, DoubleTappedRoutedEventArgs e) =>

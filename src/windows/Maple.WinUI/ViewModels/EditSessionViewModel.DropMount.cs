@@ -88,7 +88,8 @@ namespace Maple.WinUI.ViewModels
                 .Select(fp => AllPhotos.FirstOrDefault(
                     p => string.Equals(p.FilePath, fp, StringComparison.OrdinalIgnoreCase)))
                 .Where(p => p != null)
-                .Select(p => p!)
+                .Select(p => RawJpegStackFold.TileOf(p!))
+                .Distinct()
                 .ToList();
     }
 }

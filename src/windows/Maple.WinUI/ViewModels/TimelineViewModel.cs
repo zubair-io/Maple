@@ -27,7 +27,7 @@ namespace Maple.WinUI.ViewModels
 
         public void GroupPhotosByDate(IEnumerable<PhotoItem> photos)
         {
-            var months = photos
+            var months = RawJpegStackFold.Tiles(photos)
                 .GroupBy(p => CaptureDay(p) is var d ? new DateTime(d.Year, d.Month, 1) : default)
                 .OrderByDescending(g => g.Key)
                 .Select(monthGroup =>
