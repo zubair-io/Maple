@@ -62,8 +62,14 @@ impl Worker {
             let mut journal: Option<super::EditJournal> = None;
             let mut pending: Option<PendingSignIn> = None;
             let mut resume_due = false;
+            let mut media_pending = false;
             while !stopped.load(Ordering::Acquire) {
-                let command = match commands.recv_timeout(std::time::Duration::from_millis(30)) {
+                let idle_wait = if media_pending {
+                    std::time::Duration::ZERO
+                } else {
+                    std::time::Duration::from_millis(30)
+                };
+                let command = match commands.recv_timeout(idle_wait) {
                     Ok(command) => Some(command),
                     Err(mpsc::RecvTimeoutError::Timeout) => None,
                     Err(mpsc::RecvTimeoutError::Disconnected) => break,
@@ -230,7 +236,9 @@ impl Worker {
                             resumed.unsynchronized,
                         )));
                     }
+                    media_pending = false;
                     if let Ok((epoch, entry, preview)) = images.try_recv() {
+                        media_pending = true;
                         let image = client
                             .as_mut()
                             .ok_or_else(|| "Cloud session is disconnected".to_owned())
@@ -309,3 +317,7 @@ fn photo_at(path: std::path::PathBuf) -> Result<crate::library::Photo, String> {
         size: metadata.len(),
     })
 }
+
+#[cfg(test)]
+#[path = "worker_tests.rs"]
+mod worker_tests;
