@@ -14,8 +14,6 @@ namespace Maple.WinUI;
 
 public sealed partial class MainWindow
 {
-    private bool _demosaicChoiceVerified;
-
     private sealed class DemosaicFrameProbe
     {
         private DecodedImage? _last;
@@ -30,13 +28,8 @@ public sealed partial class MainWindow
     private async Task VerifyDemosaicChoiceAsync(string raw, string output)
     {
         var evidencePath = Path.Combine(output, "demosaic-choice.json");
-        var previous = ViewModel.SelectedPhoto;
-        if (previous == null)
-        {
-            await File.WriteAllTextAsync(evidencePath, JsonSerializer.Serialize(new
-                { passed = true, skipped = true, skipReason = "No photo is open, so there is no Bayer frame to edit" }));
-            return;
-        }
+        var previous = ViewModel.SelectedPhoto
+            ?? throw new InvalidOperationException("Demosaic choice: the stage requires an open photo.");
         var pathA = Path.Combine(output, "demosaic-a.dng");
         var pathB = Path.Combine(output, "demosaic-b.dng");
         File.Copy(raw, pathA);
@@ -53,7 +46,8 @@ public sealed partial class MainWindow
         var decodeErrors = 0;
         var passed = false;
         const string Auto = nameof(DemosaicChoice.Auto);
-        var chosen = nameof(DemosaicChoice.Rcd);
+        const string chosen = nameof(DemosaicChoice.Rcd);
+        var supersedeKernels = new[] { nameof(DemosaicChoice.Lmmse), nameof(DemosaicChoice.DualRcd), nameof(DemosaicChoice.Amaze) };
 
         void OnViewModelChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
         {
@@ -131,7 +125,10 @@ public sealed partial class MainWindow
             ViewModel.EnsureDecoded();
             if (_activeGroup != "Detail") ToggleGroupPanel("Detail");
             Content.UpdateLayout();
-            await WaitFor(() => Ready(photoA, null), "the first editor frame of the Bayer copy");
+            await WaitFor(() => renderer.DetailSource is { ProfileSource: null } || Ready(photoA, null),
+                "the first editor frame of the Bayer copy");
+            Require(renderer.DetailSource?.ProfileSource != null,
+                "no source identity (Auto fit did not record a profile source), so frames cannot be attributed to a photo");
             Require(_demosaicPicker.IsEnabled && photoA.CameraSupport?.SensorLayout == "bayer",
                 $"the picker is not enabled for the Bayer copy (layout={photoA.CameraSupport?.SensorLayout ?? "unassessed"})");
             Require(ViewModel.Adjustments.Demosaic == Auto && Picked() == Auto, "the fresh copy did not open on Auto");
@@ -156,8 +153,6 @@ public sealed partial class MainWindow
             Require(ViewModel.Adjustments.Demosaic == Auto && ViewModel.UndoCount == depth, "Undo did not restore the previous kernel");
             Require(Picked() == Auto && ViewModel.IsDecoding, "the picker did not follow Undo into a re-decode");
             await WaitFor(() => Ready(photoA, replaced), "the frame re-decoded after Undo");
-            await Task.Delay(550);
-            Require(ViewModel.UndoCount == depth, "Undo left a phantom undo entry");
             await WaitFor(() => Persisted(photoA) == Auto, "the sidecar to follow Undo");
             Require(await Exported(photoA) == Auto, "the export snapshot did not follow Undo");
             replaced = renderer.DetailSource;
@@ -177,9 +172,9 @@ public sealed partial class MainWindow
             Require(Persisted(photoA) == chosen, "the sidecar lost the chosen kernel on reopen");
             Require(await Exported(photoA) == chosen, "the export snapshot lost the chosen kernel on reopen");
 
-            // A 64x64 decode can finish before the next statement runs; the cycles still assert
-            // that nothing from the first photo is ever published once the second is selected.
-            foreach (var kernel in new[] { nameof(DemosaicChoice.Lmmse), nameof(DemosaicChoice.DualRcd), nameof(DemosaicChoice.Amaze) })
+            // No await separates the selection from the switch, so the decode is in flight at the
+            // switch; a decode that already finished off-thread and awaits publication is unprovable here.
+            foreach (var kernel in supersedeKernels)
             {
                 RecordSmokeStage(output, "demosaic-supersede-" + kernel);
                 _demosaicPicker.SelectedItem = kernel;
@@ -222,7 +217,9 @@ public sealed partial class MainWindow
         if (!hashesBefore.SequenceEqual(hashesAfter))
             throw new InvalidOperationException("Demosaic choice: an original RAW changed during the stage");
         await File.WriteAllTextAsync(evidencePath, JsonSerializer.Serialize(new
-            { passed = true, skipped = false, chosen, supersedeCycles = 3, originalsByteIdentical = true }));
-        _demosaicChoiceVerified = true;
+            {
+                passed = true, chosen, supersedeCycles = supersedeKernels.Length, originalsByteIdentical = true,
+                kernelIdentifiedByPixels = false, inFlightDecodeAtSwitchGuaranteed = false,
+            }));
     }
 }

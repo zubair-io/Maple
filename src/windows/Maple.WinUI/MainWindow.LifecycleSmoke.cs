@@ -285,7 +285,7 @@ namespace Maple.WinUI
                     browseSelectionAndSort = expectedPath != "empty",
                     browseScrolling = expectedPath != "empty",
                     immediateUndo = expectedPath != "empty",
-                    demosaicChoice = _demosaicChoiceVerified
+                    demosaicChoice = expectedPath != "empty"
                 }));
             }
             catch (Exception error)
