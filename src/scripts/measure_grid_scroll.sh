@@ -126,15 +126,20 @@ stage_seed() {
 }
 
 # The scheme gathers test coverage, which instruments every build made through
-# it, Release included; the shipped archive is not instrumented, so neither is
-# the measured app.
+# it, Release included; the shipped archive is not instrumented, so the
+# measured app must not be either.
 build() {
   local destination="$1" derived="$2" log
   shift 2
   log="$OUT/logs/build-$(basename "$derived").log"
   xcodebuild -project "$PROJECT" -scheme Maple -configuration Release \
-    -destination "$destination" -derivedDataPath "$derived" -enableCodeCoverage NO "$@" build \
+    -destination "$destination" -derivedDataPath "$derived" CLANG_COVERAGE_MAPPING=NO "$@" build \
     > "$log" 2>&1 || { tail -40 "$log" >&2; blocker "the build failed (see $log)"; }
+  if nm "$derived"/Build/Products/Release*/Maple.app/Maple \
+    "$derived"/Build/Products/Release*/Maple.app/Contents/MacOS/Maple 2>/dev/null \
+    | grep -q '___llvm_profile_runtime'; then
+    blocker "the built app carries coverage instrumentation, so its timings would not be the shipped app's"
+  fi
 }
 
 package_mac() {
