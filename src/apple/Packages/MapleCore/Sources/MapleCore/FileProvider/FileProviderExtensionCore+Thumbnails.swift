@@ -16,17 +16,26 @@ extension FileProviderExtensionCore: NSFileProviderThumbnailing {
             return progress
         }
         let task = Task {
-            for identifier in itemIdentifiers {
-                guard !Task.isCancelled else { break }
-                let (data, error) = await Self.thumbnail(for: identifier, catalog: catalog)
-                perThumbnailCompletionHandler(identifier, data, error)
-                progress.completedUnitCount += 1
+            await withTaskGroup(of: Void.self) { group in
+                for (index, identifier) in itemIdentifiers.enumerated() {
+                    if index >= Self.concurrentThumbnailFetches { await group.next() }
+                    guard !Task.isCancelled else { break }
+                    group.addTask {
+                        let (data, error) = await Self.thumbnail(for: identifier, catalog: catalog)
+                        perThumbnailCompletionHandler(identifier, data, error)
+                        progress.completedUnitCount += 1
+                    }
+                }
             }
             completionHandler(Task.isCancelled ? Self.userCancelledError() : nil)
         }
         progress.cancellationHandler = { task.cancel() }
         return progress
     }
+
+    /// A Finder window asks for a screenful at once; one download at a time
+    /// left each icon waiting on every round trip before it.
+    static let concurrentThumbnailFetches = 4
 
     /// Streams the thumbnail to a temporary file first, so the ETag cache
     /// never holds image bytes.

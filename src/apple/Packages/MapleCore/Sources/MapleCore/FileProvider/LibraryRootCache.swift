@@ -212,8 +212,11 @@ public actor LibraryRootCache {
 
     private func applyRevalidation(fresh: [LibraryRoot],
                                    primed: [LibraryRoot]?) {
+        // The memory copy always mirrors the disk one, and every enumeration
+        // revalidates, so an unchanged list is not rewritten.
+        let unchanged = memoryCache == fresh
         memoryCache = fresh
-        if let data = try? JSONEncoder().encode(fresh) {
+        if !unchanged, let data = try? JSONEncoder().encode(fresh) {
             defaults.set(data, forKey: diskKey)
         }
         let drifted: Bool
