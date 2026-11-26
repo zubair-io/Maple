@@ -155,7 +155,7 @@ pub fn apply_cancellable(
     // blurring RGB and dot-producting at every output pixel.
     let luma: Vec<f32> = img
         .pixels
-        .iter()
+        .par_iter()
         .map(|p| LUMA_R * p[0] + LUMA_G * p[1] + LUMA_B * p[2])
         .collect();
     let luma_blur = gaussian_blur_plane_sigma(&luma, w_usize, h_usize, sigma);
