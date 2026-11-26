@@ -11,7 +11,7 @@ namespace Maple.WinUI.ViewModels;
 
 public partial class EditSessionViewModel
 {
-    private sealed record OwedThumbnails(CancellationTokenSource Cancel, IReadOnlyList<PhotoItem> Photos);
+    private sealed record OwedThumbnails(CancellationTokenSource Cancellation, IReadOnlyList<PhotoItem> Photos);
 
     [ObservableProperty] private bool _hasDecodeError;
     private CancellationTokenSource? _previewRequest;
@@ -26,7 +26,7 @@ public partial class EditSessionViewModel
 
     private void CancelOwedThumbnails()
     {
-        _owedThumbnails?.Cancel.Cancel();
+        _owedThumbnails?.Cancellation.Cancel();
         _owedThumbnails = null;
     }
 
@@ -66,20 +66,38 @@ public partial class EditSessionViewModel
     {
         var batch = new OwedThumbnails(new CancellationTokenSource(), photos);
         _owedThumbnails = batch;
-        var cancellation = batch.Cancel.Token;
+        var cancellation = batch.Cancellation.Token;
         _ = Task.Run(async () =>
         {
+            var outcomes = new List<(PhotoItem Photo, SavedPreviewRefreshOutcome Outcome)>();
             foreach (var photo in photos)
             {
-                if (_disposed || cancellation.IsCancellationRequested) break;
-                try { await RefreshLocalThumbnailAsync(photo, cancellation); }
-                catch (OperationCanceledException) { }
-                catch (Exception error) { DiagLog.Write($"[preview] owed thumbnail: {error.Message}"); }
+                if (_disposed || cancellation.IsCancellationRequested)
+                {
+                    outcomes.Add((photo, SavedPreviewRefreshOutcome.Cancelled));
+                    continue;
+                }
+                try
+                {
+                    await RefreshLocalThumbnailAsync(photo, cancellation);
+                    outcomes.Add((photo, SavedPreviewRefreshOutcome.Refreshed));
+                }
+                catch (OperationCanceledException) { outcomes.Add((photo, SavedPreviewRefreshOutcome.Cancelled)); }
+                catch (Exception error)
+                {
+                    DiagLog.Write($"[preview] owed thumbnail: {error.Message}");
+                    outcomes.Add((photo, SavedPreviewRefreshOutcome.Failed));
+                }
             }
             OnUi(() =>
             {
-                if (ReferenceEquals(_owedThumbnails, batch)) _owedThumbnails = null;
-                batch.Cancel.Dispose();
+                // A batch cancelled by entering Edit was already re-owed in full by that change.
+                if (ReferenceEquals(_owedThumbnails, batch))
+                {
+                    _owedThumbnails = null;
+                    foreach (var (photo, outcome) in outcomes) _savedPreviews = _savedPreviews.Settle(photo, outcome);
+                }
+                batch.Cancellation.Dispose();
             });
         });
     }
@@ -146,6 +164,7 @@ public partial class EditSessionViewModel
                 var cancelled = request.IsCancellationRequested;
                 request.Dispose();
                 if (_disposed || cancelled || !current || version != _photoOpenVersion || !ReferenceEquals(photo, SelectedPhoto)) return;
+                if (hasSidecar && path != null) _savedPreviews = _savedPreviews.Settle(photo, SavedPreviewRefreshOutcome.Refreshed);
                 photo.PreviewPath = path == null ? null : new Uri(path).AbsoluteUri;
                 if (thumbnail != null) photo.ThumbnailPath = new Uri(thumbnail).AbsoluteUri;
                 if (path == null) EnsureDecoded();
