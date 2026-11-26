@@ -26,6 +26,16 @@ extension SMBSource {
   func mapleId(
     for asset: SMBAsset, client: SMB2Manager?, idCache: MapleIdCacheStore?
   ) async -> String? {
+    let id = await resolveMapleId(for: asset, client: client, idCache: idCache)
+    // `images()` asks in listing order, so the last asset ends the batch and
+    // its staged rows reach the share before the listing returns (#6017).
+    if asset.id == assets.last?.id { await idCache?.flush() }
+    return id
+  }
+
+  private func resolveMapleId(
+    for asset: SMBAsset, client: SMB2Manager?, idCache: MapleIdCacheStore?
+  ) async -> String? {
     guard let client, let idCache else { return nil }
     if let cached = await idCache.lookup(
       path: asset.path, size: asset.size, mtime: asset.mtime.timeIntervalSince1970)

@@ -14,6 +14,14 @@ extension FilesystemSource {
     /// Returns `nil` when the file's attributes can't be read or derivation
     /// itself fails; `images()` falls back to the file path in that case.
     func mapleId(for asset: FileAsset) async -> String? {
+        let id = await resolveMapleId(for: asset)
+        // `images()` asks in listing order, so the last asset ends the batch
+        // and its staged rows reach disk before the listing returns (#6017).
+        if asset.id == assets.last?.id { await idCache?.flush() }
+        return id
+    }
+
+    private func resolveMapleId(for asset: FileAsset) async -> String? {
         guard let idCache else { return nil }
         // `FileManager.attributesOfItem(atPath:)`, NOT `URL.resourceValues
         // (forKeys:)` — `URL` caches fetched resource values on the URL
