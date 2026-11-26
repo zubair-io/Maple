@@ -62,14 +62,17 @@ namespace Maple.WinUI.Services.FileOperations
         string? CapturedAtWire,
         string? CompanionPath = null);
 
-    /// <summary>One row of the live before/after preview list.</summary>
+    /// <summary>One row of the live before/after preview list.
+    /// <paramref name="CompanionNote"/> warns about the stacked JPEG's new
+    /// name (taken, or repeated within the batch).</summary>
     public sealed record BatchRenamePreviewRow(
         string Key,
         string OldFileName,
         string? NewFileName,
         string? Error,
         bool IsDuplicateWithinBatch,
-        bool ExtensionChanged)
+        bool ExtensionChanged,
+        string? CompanionNote = null)
     {
         /// <summary>True when this row would actually be attempted at apply
         /// time — a rendered name with no error. A duplicate row still
