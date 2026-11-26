@@ -206,6 +206,8 @@ namespace Maple.WinUI
                         ViewModel.Adjustments.Clone());
                     RecordSmokeStage(output, "preview-recovery");
                     await VerifyPreviewRecoveryAsync(raw, output);
+                    RecordSmokeStage(output, "editor-preview-priority");
+                    await ViewModel.VerifyEditorPreviewPriorityAsync(raw, output, SetMode);
                     RecordSmokeStage(output, "cloud-opening");
                     await EditSessionViewModel.VerifyCloudOpeningAsync(raw, output);
                     RecordSmokeStage(output, "cloud-search");
@@ -268,6 +270,7 @@ namespace Maple.WinUI
                     droppedClosingPresents = renderer.DroppedClosingPresents,
                     viewerDesignNavigation = expectedPath != "empty",
                     localSaveFailureRecovery = expectedPath != "empty",
+                    editorPreviewPriority = expectedPath != "empty",
                     nativeDetailActualSize = expectedPath != "empty",
                     presetUndoRedoAndReset = expectedPath != "empty",
                     adjustmentGestureUndoRedo = expectedPath != "empty",
