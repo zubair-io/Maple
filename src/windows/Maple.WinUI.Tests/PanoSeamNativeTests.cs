@@ -144,13 +144,15 @@ public sealed class PanoSeamNativeTests(ITestOutputHelper output) : IDisposable
             output.WriteLine("SKIP-PASS: MAPLE_PANO_TEST_RAWS is not set; no constrained preview was composited.");
             return;
         }
-        var frames = PanoFrameOrder.Sort(Directory.EnumerateFiles(folder).Where(path =>
-            Path.GetExtension(path).ToLowerInvariant() is ".dng" or ".cr2" or ".cr3" or ".nef" or ".arw" or ".raf"));
-        Assert.True(frames.Count >= 2, $"MAPLE_PANO_TEST_RAWS needs two or more overlapping RAW frames: {folder}");
+        var listed = Directory.EnumerateFiles(folder).Where(path =>
+            Path.GetExtension(path).ToLowerInvariant() is ".dng" or ".cr2" or ".cr3" or ".nef" or ".arw" or ".raf").ToList();
+        Assert.True(listed.Count >= 2, $"MAPLE_PANO_TEST_RAWS needs two or more overlapping RAW frames: {folder}");
 
         var plain = Run("rotation", null);
-        var first = await PreviewAsync(host, frames, plain);
+        var first = await PreviewAsync(host, listed, plain);
         Assert.True(first.Ok, first.Error);
+        var frames = first.Report!.Inputs!;
+        Assert.Equal(listed.Count, frames.Count);
         Assert.Null(first.Report!.SeamConstraints);
         var canvas = first.Report.Canvas;
         var centre = new PanoSeamRect(canvas.Width / 2 - 8, canvas.Height / 2 - 8, 16, 16);

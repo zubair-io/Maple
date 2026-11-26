@@ -19,6 +19,8 @@ public sealed class PanoSeamAuthoring
 {
     public const string TileReason =
         "Seam regions are not supported for Tile. Choose Rotation, or Auto for a rotation panorama.";
+    public const string FramesNotListedReason =
+        "Seam regions are unavailable: the preview did not list its frames, so their numbers cannot be trusted.";
     public const string WaitReason = "Wait for a current preview before authoring or submitting seam regions.";
     public const string StaleGeometry =
         PanoCliReport.InvalidSeamConstraints + ": preview geometry changed; repaint the regions.";
@@ -31,14 +33,15 @@ public sealed class PanoSeamAuthoring
     private IReadOnlyList<PanoSeamRegion> _regions = NoRegions;
     private PanoSeamCanvas? _preview;
     private PanoSeamCanvas? _reference;
+    private IReadOnlyList<string> _frames = Array.Empty<string>();
     private bool _pending;
     private string _strategy = "auto";
 
-    public PanoSeamAuthoring(IReadOnlyList<string> frames) => Frames = frames;
-
     public event Action? Changed;
 
-    public IReadOnlyList<string> Frames { get; }
+    /// <summary>The frames in the order the CLI numbers them, as its preview
+    /// report listed them; empty until a preview has.</summary>
+    public IReadOnlyList<string> Frames => _frames;
 
     public IReadOnlyList<PanoSeamRegion> Regions => _regions;
 
@@ -49,6 +52,7 @@ public sealed class PanoSeamAuthoring
     public string? DisabledReason =>
         _strategy == "tile" ? TileReason
         : _pending || _preview is null ? WaitReason
+        : _frames.Count == 0 ? FramesNotListedReason
         : null;
 
     public bool CanAuthor => DisabledReason is null;
@@ -129,6 +133,7 @@ public sealed class PanoSeamAuthoring
             return new PanoSeamVerdict(StaleGeometry, true);
         }
         _preview = report.Canvas;
+        _frames = report.Inputs ?? Array.Empty<string>();
         return new PanoSeamVerdict(null, false);
     }
 
