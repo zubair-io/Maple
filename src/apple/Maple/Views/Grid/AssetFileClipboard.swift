@@ -13,25 +13,40 @@ import SwiftUI
   final class AssetFileClipboard {
     static let shared = AssetFileClipboard()
 
-    private let stagingRoot = FileManager.default.temporaryDirectory
-      .appendingPathComponent("Maple Clipboard", isDirectory: true)
-    private var copyTask: Task<Void, Never>?
+    private let stagingRoot: URL
+    private let publish: @MainActor (_ urls: [URL], _ scopes: [URL]) -> Bool
+    private let report: @MainActor (Error) -> Void
+    private(set) var copyTask: Task<Void, Never>?
+
+    init(
+      stagingRoot: URL = FileManager.default.temporaryDirectory
+        .appendingPathComponent("Maple Clipboard", isDirectory: true),
+      publish: @escaping @MainActor (_ urls: [URL], _ scopes: [URL]) -> Bool =
+        AssetFileClipboard.writeToGeneralPasteboard,
+      report: @escaping @MainActor (Error) -> Void = { NSApp.presentError($0) }
+    ) {
+      self.stagingRoot = stagingRoot
+      self.publish = publish
+      self.report = report
+    }
 
     func copy(_ assets: [AssetRef]) {
-      copyTask?.cancel()
       let files = Self.files(for: assets)
       guard !files.isEmpty else { return }
+      copyTask?.cancel()
       let batch = stagingRoot.appendingPathComponent(UUID().uuidString, isDirectory: true)
-      copyTask = Task { [stagingRoot] in
+      copyTask = Task { [stagingRoot, publish, report] in
         do {
           let urls = try await Self.stage(files, in: batch)
           try Task.checkCancellation()
-          Self.publish(urls, scopes: files.compactMap { $0.scopeParentURL ?? $0.primaryURL })
+          guard publish(urls, files.compactMap { $0.scopeParentURL ?? $0.primaryURL }) else {
+            throw CocoaError(.fileWriteUnknown)
+          }
           Self.removeStagedCopies(in: stagingRoot, except: batch)
         } catch {
           try? FileManager.default.removeItem(at: batch)
           guard !Task.isCancelled, !(error is CancellationError) else { return }
-          NSApp.presentError(error)
+          report(error)
         }
       }
     }
@@ -72,12 +87,12 @@ import SwiftUI
 
     /// Writing while the security scopes are open lets the pasteboard hand
     /// sandboxed receivers access to the user's own files.
-    private static func publish(_ urls: [URL], scopes: [URL]) {
+    static func writeToGeneralPasteboard(_ urls: [URL], scopes: [URL]) -> Bool {
       let opened = scopes.filter { $0.startAccessingSecurityScopedResource() }
       defer { opened.forEach { $0.stopAccessingSecurityScopedResource() } }
       let pasteboard = NSPasteboard.general
       pasteboard.clearContents()
-      pasteboard.writeObjects(urls.map { $0 as NSURL })
+      return pasteboard.writeObjects(urls.map { $0 as NSURL })
     }
   }
 
