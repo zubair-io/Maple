@@ -2,6 +2,7 @@ use crate::{
     color::oklab::{oklab_to_rec2020, rec2020_to_oklab},
     image::{ColorSpace, Image},
 };
+use rayon::prelude::*;
 
 fn smoothstep(e0: f32, e1: f32, x: f32) -> f32 {
     let t = ((x - e0) / (e1 - e0)).clamp(0.0, 1.0);
@@ -21,9 +22,9 @@ pub fn apply(img: &mut Image, vibrance: f32) {
     }
     let amount = vibrance / 100.0;
 
-    for p in &mut img.pixels {
+    img.pixels.par_iter_mut().for_each(|p| {
         *p = apply_pixel(*p, amount);
-    }
+    });
 }
 
 pub(crate) fn apply_pixel(rgb: [f32; 3], amount: f32) -> [f32; 3] {
