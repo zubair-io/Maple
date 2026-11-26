@@ -121,7 +121,11 @@ pub(crate) fn validate_curve_capacity(inputs: &FullChainInputs<'_>) -> Result<()
 
 mod noop;
 pub use noop::scene_tone_is_noop;
+mod resume_key;
 use noop::*;
+pub(crate) use resume_key::PrefixKey;
+#[cfg(test)]
+pub(crate) use resume_key::VIEW_TAIL_FIELDS;
 
 // `active_mask` lives in a sibling file to keep this module inside the
 // file-size budget (same split shape as `noop` / `signature` / `tests`).

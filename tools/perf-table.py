@@ -5,19 +5,23 @@ docs/performance.md (#3421).
 Every row this script reads was written by a real harness run — Apple's
 `EditorWorkflowPerfTests` (see `PerfRecordWriter.swift`,
 `MAPLE_PERF_RECORD=<path>`) today, with the same JSON shape open to other
-platforms' harnesses later. This script only formats; it computes no new
-numbers and fabricates none — a platform with no committed row gets no
-section, not a placeholder.
+platforms' harnesses later. The engine-only GPU live-chain section is read
+from the raw stdout of `raw-gpu/examples/detail-live-timing.rs` committed under
+test-fixtures/perf/gpu-live-engine/<device>/. This script only formats and
+takes medians and differences of those committed numbers; it fabricates none
+— a platform with no committed row gets no section, not a placeholder.
 
 Usage:
     python3 tools/perf-table.py
 
-Reads every test-fixtures/perf/<platform>/*.json, writes docs/performance.md.
+Reads every test-fixtures/perf/<platform>/*.json and
+test-fixtures/perf/gpu-live-engine/<device>/, writes docs/performance.md.
 """
 
 from __future__ import annotations
 
 import json
+import re
 import sys
 from pathlib import Path
 from typing import Any
@@ -25,6 +29,7 @@ from typing import Any
 REPO_ROOT = Path(__file__).resolve().parent.parent
 PERF_DIR = REPO_ROOT / "test-fixtures" / "perf"
 OUTPUT = REPO_ROOT / "docs" / "performance.md"
+ENGINE_DIR_NAME = "gpu-live-engine"
 
 # CLAUDE.md "Performance invariants" / SliderTickPerfHarness spec constants —
 # duplicated here as plain numbers (not imported) because this script has no
@@ -52,7 +57,7 @@ def load_rows() -> dict[str, list[dict[str, Any]]]:
     if not PERF_DIR.is_dir():
         return rows_by_platform
     for platform_dir in sorted(PERF_DIR.iterdir()):
-        if not platform_dir.is_dir():
+        if not platform_dir.is_dir() or platform_dir.name == ENGINE_DIR_NAME:
             continue
         platform_rows: list[dict[str, Any]] = []
         for json_path in sorted(platform_dir.glob("*.json")):
@@ -274,8 +279,210 @@ def render(rows_by_platform: dict[str, list[dict[str, Any]]]) -> str:
             parts.append(render_row_section(row))
             parts.append("")
 
+    parts.extend(render_engine_sections())
     parts.append(GAPS_SECTION)
     return "\n".join(parts).rstrip() + "\n"
+
+
+LOAD_RE = re.compile(r"load averages?: ([0-9.]+)")
+FIELD_RE = re.compile(r"(\w+)=(\S+)")
+
+
+def parse_engine_run(path: Path) -> dict[str, Any]:
+    """One `detail-live-timing` stdout, framed by the recording script's
+    `load_start:` / `load_end:` lines (the 1-minute load average)."""
+    run: dict[str, Any] = {"drags": {}, "sequences": {}}
+    for line in path.read_text().splitlines():
+        load = LOAD_RE.search(line)
+        if line.startswith("load_start:") and load:
+            run["load_start"] = float(load.group(1))
+        elif line.startswith("load_end:") and load:
+            run["load_end"] = float(load.group(1))
+        fields = dict(FIELD_RE.findall(line))
+        if "image" in fields:
+            run["image"] = fields["image"]
+            run["ticks"] = int(fields["ticks_per_drag"])
+            run["adapter"] = fields["adapter"]
+        elif "drag" in fields:
+            run["drags"][(fields["model"], fields["drag"])] = fields
+        elif "sequence" in fields:
+            run["sequences"][fields["model"]] = fields
+        elif line.startswith("copy "):
+            run["copy"] = fields
+    return run
+
+
+def pad_table(rows: list[list[str]]) -> list[str]:
+    widths = [max(len(row[i]) for row in rows) for i in range(len(rows[0]))]
+
+    def cells(row: list[str]) -> str:
+        return "| " + " | ".join(c.ljust(w) for c, w in zip(row, widths)) + " |"
+
+    rule = "| " + " | ".join("-" * w for w in widths) + " |"
+    return [cells(rows[0]), rule, *(cells(row) for row in rows[1:])]
+
+
+def triple(fields: dict[str, str] | None) -> str:
+    if not fields:
+        return "—"
+    return f"{float(fields['p50_ms']):.1f} / {float(fields['p95_ms']):.1f} / {float(fields['max_ms']):.1f}"
+
+
+ENGINE_MODELS = {
+    "default": "default",
+    "engaged": "engaged",
+    "engaged_creative": "engaged + creative stage",
+}
+ENGINE_DRAGS = {
+    "exposure": "exposure (moves the prefix)",
+    "contrast": "contrast",
+    "whites": "whites",
+    "grade_midtone_saturation": "colour grade saturation",
+    "grain_amount": "grain amount",
+}
+
+
+def render_engine_device(device_dir: Path) -> str:
+    meta = json.loads((device_dir / "run.json").read_text())
+    runs = {
+        path.stem: parse_engine_run(path)
+        for path in sorted(device_dir.glob("round*-*-*.txt"))
+    }
+    rounds = sorted({stem.split("-")[0] for stem in runs})
+    edges = sorted({int(stem.split("-")[2]) for stem in runs})
+
+    def run(r: str, binary: str, edge: int) -> dict[str, Any]:
+        return runs.get(f"{r}-{binary}-{edge}", {})
+
+    def viewport(edge: int) -> str:
+        images = (
+            run(r, b, edge).get("image") for r in rounds for b in ("before", "after")
+        )
+        return next((image.replace("x", "×") for image in images if image), str(edge))
+
+    lines = [
+        f"### {meta['device']} — {meta['fixture']} — resume cut (#6021)",
+        "",
+        meta["method"],
+        "",
+    ]
+    header = ["Viewport", "Model", "Drag"] + [
+        f"{label} {r.removeprefix('round')} {binary} p50 / p95 / max (ms)"
+        for r in rounds
+        for binary, label in (("before", "Round"), ("after", "Round"))
+    ]
+    table = [header]
+    for edge in edges:
+        for model, model_label in ENGINE_MODELS.items():
+            for drag, drag_label in ENGINE_DRAGS.items():
+                table.append(
+                    [viewport(edge), model_label, drag_label]
+                    + [
+                        triple(run(r, binary, edge).get("drags", {}).get((model, drag)))
+                        for r in rounds
+                        for binary in ("before", "after")
+                    ]
+                )
+    lines += pad_table(table)
+    lines += ["", meta["first_late_note"], ""]
+    first = [
+        [
+            "Viewport",
+            "Model",
+            "Round",
+            "Build",
+            "Exposure tick p50 (ms)",
+            "First late tick p50 / p95 (ms)",
+        ]
+    ]
+    for edge in edges:
+        for model, model_label in ENGINE_MODELS.items():
+            for r in rounds:
+                for binary in ("before", "after"):
+                    seq = run(r, binary, edge).get("sequences", {}).get(model)
+                    if seq:
+                        first.append(
+                            [
+                                viewport(edge),
+                                model_label,
+                                r.removeprefix("round"),
+                                binary,
+                                f"{float(seq['exposure_p50_ms']):.1f}",
+                                f"{float(seq['first_late_p50_ms']):.1f} / {float(seq['first_late_p95_ms']):.1f}",
+                            ]
+                        )
+    lines += pad_table(first)
+    lines += ["", meta["copy_note"], ""]
+    copies = [
+        [
+            "Viewport",
+            "Plane",
+            "Round",
+            "Build",
+            "Copy + submit p50 (ms)",
+            "Empty submit p50 (ms)",
+            "Copy alone (ms)",
+        ]
+    ]
+    for edge in edges:
+        for r in rounds:
+            for binary in ("before", "after"):
+                copy = run(r, binary, edge).get("copy")
+                if copy:
+                    copies.append(
+                        [
+                            viewport(edge),
+                            f"{int(copy['bytes']) / 1e6:.1f} MB",
+                            r.removeprefix("round"),
+                            binary,
+                            copy["copy_submit_p50_ms"],
+                            copy["empty_submit_p50_ms"],
+                            copy["net_copy_ms"],
+                        ]
+                    )
+    lines += pad_table(copies)
+    lines += [
+        "",
+        "Recording load (1-minute load average at the start and end of each run):",
+        "",
+    ]
+    loads = [
+        ["Round", "Viewport", "Build", "Load at start", "Load at end", "Ticks per drag"]
+    ]
+    for r in rounds:
+        for edge in edges:
+            for binary in ("before", "after"):
+                one = run(r, binary, edge)
+                if one:
+                    loads.append(
+                        [
+                            r.removeprefix("round"),
+                            viewport(edge),
+                            binary,
+                            f"{one.get('load_start', 0):.1f}",
+                            f"{one.get('load_end', 0):.1f}",
+                            str(one.get("ticks", "—")),
+                        ]
+                    )
+    lines += pad_table(loads)
+    lines += ["", meta["caveat"], ""]
+    return "\n".join(lines)
+
+
+def render_engine_sections() -> list[str]:
+    engine_dir = PERF_DIR / ENGINE_DIR_NAME
+    devices = (
+        sorted(d for d in engine_dir.iterdir() if (d / "run.json").is_file())
+        if engine_dir.is_dir()
+        else []
+    )
+    if not devices:
+        return []
+    return [
+        "## GPU live chain, engine only (macOS)",
+        "",
+        *(render_engine_device(d) for d in devices),
+    ]
 
 
 # Hand-maintained (not derived from the committed rows) — every platform the
@@ -293,18 +500,17 @@ GAPS_SECTION = """## Platforms without a committed row yet
 - **Windows.** No WinUI tick-qualification harness (#2587) writes this JSON
   row shape yet. `docs/windows.md` documents the existing Windows test setup;
   wiring its output into this format is separate follow-up work.
-- **Web (Chrome), on the 100 MP reference specifically.** The production
-  Chrome audit harness (`src/web/e2e/production/raw-performance.spec.ts`,
-  from #2457) measures real slider-tick and cold-open numbers, but not
-  against `dji-mavic3pro-100mp.dng`: its own comment on `OVER_BUDGET_RAW`
-  records why — "The 100 MP reference fixture reproduces the same abort but
-  its 129 MB payload crashes the renderer inside the folder-picker shim's
-  base64 CDP bridge, so the e2e uses the largest canonical fixture the
-  bridge can carry" (`test_0003.CR2`, 52.7 MP). The harness's own slider-tick
-  budget test (`raw-gpu-performance`) runs against the smaller `test_0006.DNG`
-  fixture instead. A web row on the 100 MP reference needs either a bridge
-  fix for the picker shim's base64 payload size or a non-picker file-intake
-  path for the e2e harness — tracked as follow-up, not fabricated here.
+- **Web (Chrome), on the 100 MP reference specifically.** The bounded folder-picker
+  bridge and `src/web/e2e/production/raw-100mp.spec.ts` now exercise the exact
+  `dji-mavic3pro-100mp.dng` through the production editor (#3669), validating its
+  complete byte count and SHA-256 before opening. The smaller DNG slider and
+  Canon CPU-fallback tests remain intact. The test attaches intake, host/browser/GPU,
+  editor-open and worker-render evidence, including the failure stage if it fails;
+  a missing canonical fixture is an explicit skip, never a smaller-file substitution.
+  See [the recorded qualification](../test-fixtures/qualification/browser-100mp-3669.md).
+  This is not a committed quiet-machine performance row: the initial recording had
+  background sync activity, and worker `maple:session-render` intervals on a viewport
+  are distinct from input-to-display latency or a full-resolution 100 MP frame.
 """
 
 
