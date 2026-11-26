@@ -52,6 +52,8 @@
     {
       "files": [
         "scripts/ffi-contention.ts",
+        // #6012: folder listing benchmark builds a disposable library and database under the OS temp dir.
+        "scripts/bench-folder-listing.ts",
         // #4755: operator audit harness; reads a query file and writes its own report outside any library.
         "scripts/search-audit.ts",
         // #3780: disposable coverage artifacts and isolated test scratch files, never library writes.

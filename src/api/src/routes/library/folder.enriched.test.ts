@@ -400,6 +400,26 @@ describe('unified enriched folder listing #4001', () => {
       await fs.rm(outside, { recursive: true, force: true });
     }
   });
+  test('reads plain sidecars but still refuses a linked one that leaves the library', async () => {
+    const outside = await fs.mkdtemp(path.join(tmpdir(), 'maple-sidecar-mixed-'));
+    const xmp = (rating: number) =>
+      `<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description rdf:about="" xmlns:xmp="http://ns.adobe.com/xap/1.0/" xmp:Rating="${rating}"/></rdf:RDF></x:xmpmeta>`;
+    try {
+      await fs.writeFile(path.join(outside, 'secret.xmp'), xmp(5));
+      await Promise.all(
+        ['a', 'b', 'c'].map((stem) => fs.writeFile(path.join(root, `${stem}.jpg`), stem)),
+      );
+      await fs.symlink(path.join(outside, 'secret.xmp'), path.join(root, 'a.xmp'));
+      await fs.writeFile(path.join(root, 'b.xmp'), xmp(2));
+      await fs.writeFile(path.join(root, 'c.xmp'), xmp(4));
+      const byName = new Map((await listing()).images.map((entry) => [entry.name, entry]));
+      expect(byName.get('a.jpg')).not.toHaveProperty('rating');
+      expect(byName.get('b.jpg')).toMatchObject({ edited: true, rating: 2 });
+      expect(byName.get('c.jpg')).toMatchObject({ edited: true, rating: 4 });
+    } finally {
+      await fs.rm(outside, { recursive: true, force: true });
+    }
+  });
   test('enriched identity remains specific to this library and location', async () => {
     const id = seed('photo.dng');
     const other = insertFolder(live.db, { path: path.join(root, 'other'), slug: 'other' });

@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, spyOn } from 'bun:test';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { mkdtemp, rm, stat, symlink, utimes, writeFile } from '../fs/mirrored.ts';
+import { lstat, mkdtemp, rm, stat, symlink, utimes, writeFile } from '../fs/mirrored.ts';
 import * as culling from './folder-culling.ts';
 import { forgetFolderCullingForTests, readFolderCulling } from './folder-culling-cache.ts';
 
@@ -58,5 +58,23 @@ describe('readFolderCulling', () => {
     await writeFile(join(dir, 'real.xmp'), sidecar(2));
     await symlink(join(dir, 'real.xmp'), join(dir, 'link.xmp'));
     expect(readFolderCulling(join(dir, 'link.xmp'))).rejects.toThrow();
+  });
+
+  it('answers from a listing lstat without opening the file while it is unchanged', async () => {
+    const path = join(dir, 'a.xmp');
+    await writeFile(path, sidecar(3));
+    await readFolderCulling(path);
+    const listed = await lstat(path);
+    await rm(path);
+    expect(await readFolderCulling(path, listed)).toMatchObject({ culling: { rating: 3 } });
+  });
+
+  it('opens and re-reads when the listing lstat shows a rewrite', async () => {
+    const path = join(dir, 'a.xmp');
+    await writeFile(path, sidecar(3));
+    await readFolderCulling(path, await lstat(path));
+    await writeFile(path, sidecar(5));
+    await utimes(path, new Date(0), new Date(0));
+    expect((await readFolderCulling(path, await lstat(path))).culling).toMatchObject({ rating: 5 });
   });
 });
