@@ -12,7 +12,12 @@ import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 import { mkdtempSync, rmSync, writeFileSync, chmodSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { resolveTlsConfig, listenOptions, MAX_REQUEST_BODY_BYTES } from './tls-config.ts';
+import {
+  resolveTlsConfig,
+  listenOptions,
+  LISTENER_IDLE_TIMEOUT_SECONDS,
+  MAX_REQUEST_BODY_BYTES,
+} from './tls-config.ts';
 
 let dir: string;
 
@@ -114,7 +119,13 @@ describe('listenOptions', () => {
     expect(listenOptions(4321)).toEqual({
       port: 4321,
       maxRequestBodySize: MAX_REQUEST_BODY_BYTES,
+      idleTimeout: LISTENER_IDLE_TIMEOUT_SECONDS,
     });
+  });
+
+  it('keeps a connection open long enough for a queued native render, within Bun limit of 255 s', () => {
+    expect(LISTENER_IDLE_TIMEOUT_SECONDS).toBeGreaterThan(60);
+    expect(LISTENER_IDLE_TIMEOUT_SECONDS).toBeLessThanOrEqual(255);
   });
 
   it('sets the body cap well above the Bun 128MB default', () => {

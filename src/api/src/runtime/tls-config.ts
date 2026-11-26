@@ -98,6 +98,11 @@ export const TLS_ENABLED = TLS_CONFIG !== null;
  * while still bounding a runaway request. */
 export const MAX_REQUEST_BODY_BYTES = 64 * 1024 * 1024 * 1024;
 
+/** Seconds a connection may stay silent before Bun closes it. Bun's default is 10, but a request
+ * that waits for a native render (an edited RAW develops in 1-40 s, queued behind the decode
+ * pool) sends nothing meanwhile, so the client saw a connection reset instead of its thumbnail. */
+export const LISTENER_IDLE_TIMEOUT_SECONDS = 120;
+
 /** `Elysia#listen()` options: always the Bun.serve options-object shape so
  * `maxRequestBodySize` is explicit (a bare port number would reinstate Bun's
  * 128MB default), plus `tls` when configured. Lives here (not index.ts) so
@@ -105,12 +110,20 @@ export const MAX_REQUEST_BODY_BYTES = 64 * 1024 * 1024 * 1024;
 export function listenOptions(port: number): {
   port: number;
   maxRequestBodySize: number;
+  idleTimeout: number;
   tls?: { cert: Buffer; key: Buffer };
 } {
-  if (TLS_CONFIG === null) return { port, maxRequestBodySize: MAX_REQUEST_BODY_BYTES };
+  if (TLS_CONFIG === null) {
+    return {
+      port,
+      maxRequestBodySize: MAX_REQUEST_BODY_BYTES,
+      idleTimeout: LISTENER_IDLE_TIMEOUT_SECONDS,
+    };
+  }
   return {
     port,
     maxRequestBodySize: MAX_REQUEST_BODY_BYTES,
+    idleTimeout: LISTENER_IDLE_TIMEOUT_SECONDS,
     tls: {
       cert: readFileSync(TLS_CONFIG.certPath),
       key: readFileSync(TLS_CONFIG.keyPath),
