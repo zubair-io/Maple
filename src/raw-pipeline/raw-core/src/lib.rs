@@ -80,6 +80,7 @@ pub use raster::{
 /// (#3507, Task G2) — the piece `avif-parse` doesn't provide. Compiles
 /// unconditionally; only its real-encoder tests need the `avif` feature.
 pub mod avif_boxes;
+mod jpeg_frame;
 mod metadata_source;
 pub mod raster_alpha;
 /// `maple_raster_analyze_buf`'s read-only half of the raster surface
@@ -143,10 +144,10 @@ pub mod canvas_placeholder;
 /// scope pass — see `raw-gpu/src/scope.rs` and `scope_vectorscope.wgsl`.
 pub mod scope;
 
-/// The ranked search window's ladder (#4514), emitted to the API and Apple by `tools/codegen.sh`.
-pub mod ranked_window;
 /// What a panorama stitch costs in memory (#5835), read by maple-pano and emitted to Apple by `tools/codegen.sh`.
 pub mod pano_memory;
+/// The ranked search window's ladder (#4514), emitted to the API and Apple by `tools/codegen.sh`.
+pub mod ranked_window;
 pub mod types;
 pub use types::{
     AdjustmentModel, FieldKind, FieldSpec, HighlightRecoveryMode, LocalAdjustment, Mask,

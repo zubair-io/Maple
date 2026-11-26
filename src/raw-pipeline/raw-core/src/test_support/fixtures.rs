@@ -98,3 +98,45 @@ pub fn decode_raw(name: &str) -> crate::image::RawImage {
         .unwrap_or_default();
     crate::decode::decode_bytes(&bytes, &ext).unwrap_or_else(|e| panic!("decode {name}: {e}"))
 }
+
+/// RAW candidates under `test-fixtures/raws/`, skipping symlinks, dot-directories and stray backups.
+pub fn raw_files() -> Vec<PathBuf> {
+    fn walk(dir: &std::path::Path) -> Vec<PathBuf> {
+        let mut entries = std::fs::read_dir(dir)
+            .map(|rd| {
+                rd.filter_map(|e| e.ok())
+                    .map(|e| e.path())
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        entries.sort();
+        entries
+            .into_iter()
+            .filter(|path| {
+                !path.file_name().is_some_and(|n| {
+                    let n = n.to_string_lossy();
+                    n.starts_with('.') || n.contains("stray")
+                })
+            })
+            .filter_map(|path| {
+                std::fs::symlink_metadata(&path)
+                    .ok()
+                    .map(|meta| (path, meta))
+            })
+            .flat_map(|(path, meta)| match (meta.is_dir(), meta.is_file()) {
+                (true, _) => walk(&path),
+                (_, true) => vec![path],
+                _ => Vec::new(),
+            })
+            .collect()
+    }
+    let is_raw_candidate = |path: &PathBuf| {
+        let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+        let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+        !name.contains("stray") && !matches!(ext, "xmp" | "json" | "md" | "txt")
+    };
+    walk(&require(raws_root()))
+        .into_iter()
+        .filter(is_raw_candidate)
+        .collect()
+}
