@@ -31,6 +31,7 @@ namespace Maple.WinUI.ViewModels
         private CancellationTokenSource? _libraryCts;
         private readonly HashSet<PhotoItem> _cloudThumbnailRequests = new();
         private HashSet<string> _localPairInventory = new(StringComparer.Ordinal);
+        private bool _localFolderFoldsCase;
         private LibraryWatcher? _libraryWatcher;
 
         [ObservableProperty] private string _currentFolderPath = string.Empty;
@@ -213,7 +214,7 @@ namespace Maple.WinUI.ViewModels
                             AllPhotos.Clear();
                             foreach (var item in items)
                                 AllPhotos.Add(item);
-                            _localPairInventory = listing.PairInventory.ToHashSet(StringComparer.Ordinal);
+                            AdoptPairInventory(listing);
                             BrowseFolders.Clear();
                             foreach (var sub in subfolderNodes)
                                 BrowseFolders.Add(sub);
@@ -276,15 +277,16 @@ namespace Maple.WinUI.ViewModels
                     all.Where(f => SupportedExtensions.Contains(Path.GetExtension(f)))
                         .OrderBy(f => f, StringComparer.OrdinalIgnoreCase)
                         .ToList(),
-                    all.Where(RawJpegPairing.IsPairCandidate).ToList(), Complete: true);
+                    all.Where(RawJpegPairing.IsPairCandidate).ToList(), Complete: true,
+                    FoldsCase: LocalFileOperations.FolderFoldsCase(all.Where(RawJpegPairing.IsPairCandidate).ToList()));
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
-                return new FolderListing(new List<string>(), new List<string>(), Complete: false);
+                return new FolderListing(new List<string>(), new List<string>(), Complete: false, FoldsCase: false);
             }
         }
 
-        private sealed record FolderListing(List<string> Images, List<string> PairInventory, bool Complete);
+        private sealed record FolderListing(List<string> Images, List<string> PairInventory, bool Complete, bool FoldsCase);
 
         // --- Filtering ---
 
