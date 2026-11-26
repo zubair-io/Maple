@@ -58,8 +58,8 @@
 // it back.
 //
 // Each waiter therefore gets a stable id, and the whole state machine is
-// the FIFO `waiters` array: a waiter is cancellable exactly while it is
-// still queued there. `cancelWaiter` for an id NOT in the queue is a
+// the two FIFO waiter lanes: a waiter is cancellable exactly while it is
+// still queued in one of them. `cancelWaiter` for an id NOT in the queue is a
 // deliberate no-op, which is safe because only two things ever remove a
 // waiter:
 //   - `release()` handed it the permit. The waiter's own task — not
@@ -80,6 +80,13 @@
 // set leaked an entry whenever the resumed task cleared its id before
 // `cancelWaiter` ran — flagged in review of #2218.)
 //
+// Priority lanes (#6019): `release()` hands a permit to the oldest
+// `.interactive` waiter before the oldest `.standard` one, so a surface the
+// user is looking at does not queue behind a backlog of background work.
+// Once `interactiveBurstLimit` interactive hand-offs in a row have passed
+// over queued standard waiters, the next permit goes to a standard waiter,
+// so a steady interactive stream slows the standard lane but never stalls it.
+//
 // Foundation-only (portability guard — see `MapleCloudKitPortabilityTests`):
 // the Maple TV target links MapleCloudKit without MapleCore or
 // RawPipeline, so this file must not pull in any platform UI framework.
@@ -90,12 +97,23 @@
 import Foundation
 
 public actor BoundedAsyncSemaphore {
+  public enum Priority: Sendable {
+    case interactive
+    case standard
+  }
+
+  private typealias Waiter = (id: UInt64, continuation: CheckedContinuation<Void, Error>)
+
+  package static let interactiveBurstLimit = 4
+
   private let value: Int
   private var current: Int = 0
 
-  private var waiters: [(id: UInt64, continuation: CheckedContinuation<Void, Error>)] = []
+  private var interactiveWaiters: [Waiter] = []
+  private var standardWaiters: [Waiter] = []
+  private var interactiveHandoffsPastStandard = 0
   private var waiterIDCounter: UInt64 = 0
-  package var queuedCount: Int { waiters.count }
+  package var queuedCount: Int { interactiveWaiters.count + standardWaiters.count }
 
   private var queueObservers:
     [(id: UInt64, target: Int, continuation: CheckedContinuation<Bool, Never>)] = []
@@ -108,7 +126,7 @@ public actor BoundedAsyncSemaphore {
     self.value = max(1, value)
   }
 
-  public func acquire() async throws {
+  public func acquire(priority: Priority = .standard) async throws {
     try Task.checkCancellation()
 
     if current < value {
@@ -129,7 +147,10 @@ public actor BoundedAsyncSemaphore {
         // Runs synchronously, still on the actor — no `await` separates
         // allocating `id` from this registration, so `cancelWaiter`
         // (which must hop onto the actor) can never observe `id` first.
-        waiters.append((id: id, continuation: cont))
+        switch priority {
+        case .interactive: interactiveWaiters.append((id: id, continuation: cont))
+        case .standard: standardWaiters.append((id: id, continuation: cont))
+        }
         notifyQueueObservers()
       }
     } onCancel: {
@@ -148,12 +169,23 @@ public actor BoundedAsyncSemaphore {
   }
 
   public func release() {
-    guard !waiters.isEmpty else {
+    guard let waiter = dequeueNextWaiter() else {
       current -= 1  // No waiter: free the permit.
       return
     }
-    let waiter = waiters.removeFirst()
     waiter.continuation.resume()  // Transfer this permit directly; `current` unchanged.
+  }
+
+  private func dequeueNextWaiter() -> Waiter? {
+    let standardIsDue =
+      !standardWaiters.isEmpty && interactiveHandoffsPastStandard >= Self.interactiveBurstLimit
+    guard interactiveWaiters.isEmpty || standardIsDue else {
+      interactiveHandoffsPastStandard =
+        standardWaiters.isEmpty ? 0 : interactiveHandoffsPastStandard + 1
+      return interactiveWaiters.removeFirst()
+    }
+    interactiveHandoffsPastStandard = 0
+    return standardWaiters.isEmpty ? nil : standardWaiters.removeFirst()
   }
 
   /// Invoked (via an unstructured `Task`) from `acquire()`'s `onCancel`
@@ -165,8 +197,11 @@ public actor BoundedAsyncSemaphore {
   /// precedes this call (see the header comment), so "not queued" never
   /// means "not registered yet".
   private func cancelWaiter(id: UInt64) {
-    guard let index = waiters.firstIndex(where: { $0.id == id }) else { return }
-    waiters.remove(at: index).continuation.resume(throwing: CancellationError())
+    if let index = interactiveWaiters.firstIndex(where: { $0.id == id }) {
+      interactiveWaiters.remove(at: index).continuation.resume(throwing: CancellationError())
+    } else if let index = standardWaiters.firstIndex(where: { $0.id == id }) {
+      standardWaiters.remove(at: index).continuation.resume(throwing: CancellationError())
+    }
   }
 
   /// Positive observation of actual queue registration with a bounded
@@ -178,7 +213,7 @@ public actor BoundedAsyncSemaphore {
     timeout: Duration = .seconds(5)
   ) async -> Bool {
     if Task.isCancelled { return false }
-    if waiters.count >= minimum { return true }
+    if queuedCount >= minimum { return true }
     return await withTaskGroup(of: Bool.self) { group in
       group.addTask { [self] in
         await self.observeQueueRegistration(atLeast: minimum)
@@ -200,7 +235,7 @@ public actor BoundedAsyncSemaphore {
 
   private func observeQueueRegistration(atLeast minimum: Int) async -> Bool {
     if Task.isCancelled { return false }
-    if waiters.count >= minimum { return true }
+    if queuedCount >= minimum { return true }
     queueObserverIDCounter &+= 1
     let id = queueObserverIDCounter
     let registered = await withTaskCancellationHandler {
@@ -223,7 +258,7 @@ public actor BoundedAsyncSemaphore {
     guard !queueObservers.isEmpty else { return }
     var remaining: [(id: UInt64, target: Int, continuation: CheckedContinuation<Bool, Never>)] = []
     for observer in queueObservers {
-      if waiters.count >= observer.target {
+      if queuedCount >= observer.target {
         observer.continuation.resume(returning: true)
       } else {
         remaining.append(observer)

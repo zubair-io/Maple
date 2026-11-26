@@ -45,18 +45,38 @@ public final class DevelopedImageRevision {
     return revision == 0 ? identity : "\(identity):developed:\(revision)"
   }
 
+  static let sourceStampLookupWidth = 16
+  static let sourceStampSlots = BoundedAsyncSemaphore(value: sourceStampLookupWidth)
+
   /// Resolve the same decoded key as `decodedKey(for:source:)` after the view
   /// starts its load, with filesystem metadata work off the main actor. A
   /// visible cell waits on it, so it runs at user-initiated QoS (#6010).
+  /// A caller cancelled before its lookup starts gets the stamp-less key.
   public func decodedKeyAsync(for id: String, source: ThumbnailSource) async -> String {
+    await decodedKeyAsync(for: id, source: source, sourceStamp: Self.localSourceStamp)
+  }
+
+  func decodedKeyAsync(
+    for id: String, source: ThumbnailSource,
+    sourceStamp: @escaping @Sendable (URL) async -> String?
+  ) async -> String {
     let base = reloadKey(for: id, source: source)
     guard let url = source.localAssetURL, url.isFileURL else { return base }
-    let sourceStamp = await Task.detached(priority: .userInitiated) { () -> String? in
-      guard FileManager.default.fileExists(atPath: url.path) else { return nil }
-      return LocalDerivativeSourceStamp.signature(for: url)
-    }.value
-    guard let sourceStamp else { return base }
-    return "\(base):source:\(MapleThumbCacheKey.sha256Prefix16(sourceStamp))"
+    do { try await Self.sourceStampSlots.acquire() } catch { return base }
+    guard !Task.isCancelled else {
+      await Self.sourceStampSlots.release()
+      return base
+    }
+    // Detached so the file-system lookup can never inherit the main actor.
+    let stamp = await Task.detached(priority: .userInitiated) { await sourceStamp(url) }.value
+    await Self.sourceStampSlots.release()
+    guard let stamp else { return base }
+    return "\(base):source:\(MapleThumbCacheKey.sha256Prefix16(stamp))"
+  }
+
+  nonisolated static func localSourceStamp(_ url: URL) -> String? {
+    guard FileManager.default.fileExists(atPath: url.path) else { return nil }
+    return LocalDerivativeSourceStamp.signature(for: url)
   }
 
   private func cacheIdentity(for id: String, source: ThumbnailSource) -> String {
