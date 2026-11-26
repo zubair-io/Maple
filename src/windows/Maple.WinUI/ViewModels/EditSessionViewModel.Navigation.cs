@@ -45,6 +45,7 @@ namespace Maple.WinUI.ViewModels
         {
             _selectedLocalFolder = local;
             _selectedCloudFolder = cloud;
+            _cloudThumbnailRequests.Clear();
             _isCloudTimeline = timeline;
             SearchFacets = null;
             OwnerFacets = null;

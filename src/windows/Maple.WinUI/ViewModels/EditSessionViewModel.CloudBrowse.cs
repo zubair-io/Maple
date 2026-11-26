@@ -254,7 +254,16 @@ namespace Maple.WinUI.ViewModels
 
             FinishBrowse(cts, failed ? "Could not load this folder. Select it to retry." : string.Empty);
             Timeline.GroupPhotosByDate(AllPhotos);
-            _ = Task.Run(() => HydrateCloudThumbnailsAsync(photos, cts.Token), cts.Token);
+            HydrateNewCloudTiles(cts.Token);
+        }
+
+        // Hydration asks only for tiles on screen, so a JPEG folded behind its
+        // RAW costs nothing until a filter unfolds it.
+        private void HydrateNewCloudTiles(CancellationToken ct)
+        {
+            var needing = RawJpegStackFold.NeedingCloudThumbnails(Photos, _cloudThumbnailRequests);
+            if (needing.Count > 0)
+                _ = Task.Run(() => HydrateCloudThumbnailsAsync(needing, ct), ct);
         }
 
         /// <summary>`slug:relPath` — the addressing scheme the culling route
