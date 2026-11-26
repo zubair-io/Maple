@@ -180,20 +180,57 @@ fn decoder_free_preview(raw_bytes: &[u8]) -> Option<(image::DynamicImage, ExifOr
         .map(|entry| ExifOrientation::from_u16(entry.force_u16(0)))
         .unwrap_or(ExifOrientation::Normal);
     let source = rawler::rawsource::RawSource::new_from_slice(raw_bytes);
-    tiff.find_ifds_with_filter(|_| true)
+    let mut ranked = tiff
+        .find_ifds_with_filter(|_| true)
         .into_iter()
-        .filter_map(|ifd| ifd_display_image(ifd, &source))
-        .max_by_key(|image| u64::from(image.width()) * u64::from(image.height()))
+        .filter_map(|ifd| ifd_display_strip(ifd, &source))
+        .enumerate()
+        .collect::<Vec<_>>();
+    ranked.sort_unstable_by_key(|(order, strip)| {
+        (
+            std::cmp::Reverse(u64::from(strip.width) * u64::from(strip.height)),
+            std::cmp::Reverse(*order),
+        )
+    });
+    ranked
+        .into_iter()
+        .find_map(|(_, strip)| strip.decode())
         .filter(|image| image.width().max(image.height()) >= MIN_FALLBACK_LONG_EDGE)
         .map(|image| (image, orientation))
 }
 
-/// Decode one IFD when it holds a display image: a single strip of 3-sample
-/// RGB/YCbCr, either uncompressed 8-bit or baseline JPEG.
-fn ifd_display_image(
+enum StripEncoding {
+    Jpeg,
+    Rgb8,
+}
+
+struct DisplayStrip<'a> {
+    bytes: &'a [u8],
+    encoding: StripEncoding,
+    width: u32,
+    height: u32,
+}
+
+impl DisplayStrip<'_> {
+    fn decode(&self) -> Option<image::DynamicImage> {
+        match self.encoding {
+            StripEncoding::Jpeg => {
+                image::load_from_memory_with_format(self.bytes, image::ImageFormat::Jpeg).ok()
+            }
+            StripEncoding::Rgb8 => {
+                let len =
+                    usize::try_from(u64::from(self.width) * u64::from(self.height) * 3).ok()?;
+                image::RgbImage::from_raw(self.width, self.height, self.bytes[..len].to_vec())
+                    .map(image::DynamicImage::ImageRgb8)
+            }
+        }
+    }
+}
+
+fn ifd_display_strip<'a>(
     ifd: &rawler::formats::tiff::IFD,
-    source: &rawler::rawsource::RawSource<'_>,
-) -> Option<image::DynamicImage> {
+    source: &'a rawler::rawsource::RawSource<'_>,
+) -> Option<DisplayStrip<'a>> {
     use rawler::tags::TiffCommonTag;
     const PHOTOMETRIC_RGB: u16 = 2;
     const PHOTOMETRIC_YCBCR: u16 = 6;
@@ -206,18 +243,26 @@ fn ifd_display_image(
     if !displayable {
         return None;
     }
-    let strip = ifd.singlestrip_data_rawsource(source).ok()?;
+    let bytes = ifd.singlestrip_data_rawsource(source).ok()?;
     if tag(TiffCommonTag::Compression).map_or(UNCOMPRESSED, |c| c as u16) != UNCOMPRESSED {
-        return image::load_from_memory_with_format(strip, image::ImageFormat::Jpeg).ok();
+        let frame = crate::jpeg_frame::jpeg_frame(bytes)?;
+        return Some(DisplayStrip {
+            bytes,
+            encoding: StripEncoding::Jpeg,
+            width: frame.width,
+            height: frame.height,
+        });
     }
     let width = tag(TiffCommonTag::ImageWidth)?;
     let height = tag(TiffCommonTag::ImageLength)?;
     let len = usize::try_from(u64::from(width) * u64::from(height) * 3).ok()?;
     let eight_bit = tag(TiffCommonTag::BitsPerSample) == Some(8);
-    (photometric == PHOTOMETRIC_RGB && eight_bit && strip.len() >= len)
-        .then(|| image::RgbImage::from_raw(width, height, strip[..len].to_vec()))
-        .flatten()
-        .map(image::DynamicImage::ImageRgb8)
+    (photometric == PHOTOMETRIC_RGB && eight_bit && bytes.len() >= len).then_some(DisplayStrip {
+        bytes,
+        encoding: StripEncoding::Rgb8,
+        width,
+        height,
+    })
 }
 
 /// Resize `img` so the long edge is at most `max_px`, preserving aspect
@@ -236,6 +281,10 @@ pub fn resize_long_edge(img: image::DynamicImage, max_px: u32) -> image::Dynamic
     let new_h = ((h as f32) * scale).round().max(1.0) as u32;
     img.resize_exact(new_w, new_h, image::imageops::FilterType::Triangle)
 }
+
+#[cfg(test)]
+#[path = "preview_headers_first_tests.rs"]
+mod headers_first_tests;
 
 #[cfg(test)]
 mod tests {
