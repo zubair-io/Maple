@@ -13,7 +13,7 @@
 // Memory key: `memoryKey(for:)`, a hash of the full path, for the same reason;
 // the basename hash (`cacheKey(for:)`) only names the frozen legacy file.
 //
-// Bounds: 100 image entries (FIFO) + 600 data entries (least recently used)
+// Bounds: 100 image entries (arbitrary eviction) + 600 data entries (least recently used)
 // in memory, plus a 2000-entry `NSCache` for the sync peek; disk is not evicted.
 //
 // Migration note: pre-2026-05 builds keyed thumbs by `MD5(url.path)`
