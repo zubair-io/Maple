@@ -7,6 +7,8 @@ namespace Maple.WinUI.ViewModels
     public sealed record SavedPreviewModeChange(
         SavedPreviewDeferral Next, bool Cancel, IReadOnlyList<PhotoItem> Release);
 
+    public enum SavedPreviewReleaseAction { RefreshThumbnail, Drop }
+
     public enum SavedPreviewRefreshOutcome { Refreshed, Failed, Cancelled }
 
     /// <summary>
@@ -44,6 +46,11 @@ namespace Maple.WinUI.ViewModels
             outcome == SavedPreviewRefreshOutcome.Refreshed
                 ? this with { Owed = Owed.Where(owed => !ReferenceEquals(owed, photo)).ToArray() }
                 : Owe(photo);
+
+        public static SavedPreviewReleaseAction ClassifyUnselected(bool listed, bool cloud, bool cloudRefreshable) =>
+            !listed || (cloud && !cloudRefreshable)
+                ? SavedPreviewReleaseAction.Drop
+                : SavedPreviewReleaseAction.RefreshThumbnail;
 
         private SavedPreviewDeferral Owe(PhotoItem photo) =>
             Owed.Contains(photo) ? this : this with { Owed = Owed.Append(photo).ToArray() };
