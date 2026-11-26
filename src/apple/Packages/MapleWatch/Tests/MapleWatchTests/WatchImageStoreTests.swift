@@ -14,6 +14,27 @@ final class WatchImageStoreTests: XCTestCase {
     XCTAssertEqual(StubDerivatives.requests(host: host), ["thumb"])
   }
 
+  func testMemoryHitDoesNotWaitBehindBusyDownloads() async throws {
+    let (store, host) = makeStore(thumbStatus: 200)
+    let warm = try asset()
+    _ = try await store.image(for: warm, tier: .row)
+    let stalled = try ["stalled-1.dng", "stalled-2.dng"].map { name in
+      let pending = try asset(named: name)
+      return Task { try await store.image(for: pending, tier: .row) }
+    }
+    defer { stalled.forEach { $0.cancel() } }
+    let deadline = ContinuousClock.now.advanced(by: .seconds(5))
+    while StubDerivatives.requests(host: host).count < 3, ContinuousClock.now < deadline {
+      try await Task.sleep(for: .milliseconds(10))
+    }
+    XCTAssertEqual(StubDerivatives.requests(host: host).count, 3)
+
+    let hit = try await store.image(for: warm, tier: .row)
+
+    XCTAssertGreaterThan(hit.width, 0)
+    XCTAssertEqual(StubDerivatives.requests(host: host).count, 3)
+  }
+
   func testFailedThumbnailFallsBackToPreview() async throws {
     let (store, host) = makeStore(thumbStatus: 404)
     let image = try await store.image(for: try asset(), tier: .photo)
@@ -58,18 +79,18 @@ final class WatchImageStoreTests: XCTestCase {
     return (store, host)
   }
 
-  private func asset() throws -> SearchAsset {
+  private func asset(named name: String = "a.dng") throws -> SearchAsset {
     try JSONDecoder().decode(
       SearchAsset.self,
       from: Data(
-        #"{"id":"a1","folder_id":"f1","abs_path":"/srv/photos/a.dng","filename":"a.dng","mtime":1}"#
+        #"{"id":"\#(name)","folder_id":"f1","abs_path":"/srv/photos/\#(name)","filename":"\#(name)","mtime":1}"#
           .utf8))
   }
 }
 
 /// A server with one library at /srv/photos whose derivative routes return a
-/// small PNG, except a thumbnail status chosen per host. Records each
-/// derivative request per host.
+/// small PNG, except a thumbnail status chosen per host. Thumbnails of
+/// `stalled-*` files never answer. Records each derivative request per host.
 private final class StubDerivatives: URLProtocol {
   private static let lock = NSLock()
   nonisolated(unsafe) private static var thumbStatus: [String: Int] = [:]
@@ -107,6 +128,7 @@ private final class StubDerivatives: URLProtocol {
       Self.log[host, default: []].append(route)
       return route == "thumb" ? Self.thumbStatus[host] ?? 200 : 200
     }
+    if route == "thumb", url.lastPathComponent.hasPrefix("stalled-") { return }
     respond(url: url, status: status, body: status == 200 ? Self.png : Data())
   }
 
