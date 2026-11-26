@@ -191,13 +191,7 @@ namespace Maple.WinUI
                     RecordSmokeStage(output, "browse-grouped-scrolling");
                     await VerifyBrowseScrollingAsync(grouped: true);
                     RecordSmokeStage(output, "browse-restore-decode");
-                    ViewModel.EnsureDecoded();
-                    var browseDecodeDeadline = Environment.TickCount64 + 30000;
-                    while ((ViewModel.IsDecoding || renderer.DetailSource == null) &&
-                        !ViewModel.HasDecodeError && Environment.TickCount64 < browseDecodeDeadline)
-                        await Task.Delay(20);
-                    if (ViewModel.IsDecoding || ViewModel.HasDecodeError || renderer.DetailSource == null)
-                        throw new InvalidOperationException($"Browse did not restore its decoded photo: {ViewModel.DecodeStatus}");
+                    await EnsureSelectedPhotoDecodedAsync("Browse did not restore its decoded photo");
                     RecordSmokeStage(output, "immediate-undo");
                     await VerifyImmediateUndoAsync();
                     RecordSmokeStage(output, "histogram-image-replacement");
@@ -486,15 +480,35 @@ namespace Maple.WinUI
             }
             finally
             {
-                ViewModel.AllPhotos.Clear();
-                foreach (var item in originalPhotos) ViewModel.AllPhotos.Add(item);
-                if (!ViewModel.AllPhotos.Contains(photo)) ViewModel.AllPhotos.Add(photo);
-                _syncingBrowseSelection = true;
-                try { ViewModel.PhotoSort = originalSort; ViewModel.ApplyFilters(); }
-                finally { _syncingBrowseSelection = false; }
-                RestoreBrowseSelection(new[] { photo }, photo);
+                RestoreSmokeLibrary(originalPhotos, originalSort, new[] { photo }, photo);
                 SetMode(ShellMode.Edit);
             }
+        }
+
+        // Puts the grid's photo list, sort and selection back exactly as a stage found them.
+        private void RestoreSmokeLibrary(PhotoItem[] photos, BrowseSort sort, PhotoItem[] selected, PhotoItem primary)
+        {
+            ViewModel.AllPhotos.Clear();
+            foreach (var item in photos) ViewModel.AllPhotos.Add(item);
+            if (!ViewModel.AllPhotos.Contains(primary)) ViewModel.AllPhotos.Add(primary);
+            _syncingBrowseSelection = true;
+            try { ViewModel.PhotoSort = sort; ViewModel.ApplyFilters(); }
+            finally { _syncingBrowseSelection = false; }
+            RestoreBrowseSelection(selected, primary);
+        }
+
+        // Selecting a photo clears the renderer's image; only this brings its decode back.
+        private async Task EnsureSelectedPhotoDecodedAsync(string failure, int timeoutMs = 30000)
+        {
+            ViewModel.EnsureDecoded();
+            var deadline = Environment.TickCount64 + timeoutMs;
+            while ((ViewModel.IsDecoding || ViewModel.Renderer.DetailSource == null) &&
+                !ViewModel.HasDecodeError && Environment.TickCount64 < deadline)
+                await Task.Delay(20);
+            if (ViewModel.IsDecoding || ViewModel.HasDecodeError || ViewModel.Renderer.DetailSource == null)
+                throw new InvalidOperationException(
+                    $"{failure}: selected={ViewModel.SelectedPhoto?.FilePath}, decoding={ViewModel.IsDecoding}, "
+                    + $"image={ViewModel.Renderer.DetailSource != null}, status={ViewModel.DecodeStatus}");
         }
 
         private async Task VerifyImmediateUndoAsync()
