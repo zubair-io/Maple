@@ -48,23 +48,28 @@ namespace Maple.WinUI.Services.FileOperations
             string template,
             ulong sequenceStart,
             int sequencePadWidth,
-            RenderFilenameTemplateFunc render)
+            RenderFilenameTemplateFunc render,
+            Func<string, bool>? pathExists = null)
         {
             var rows = new List<BatchRenamePreviewRow>(items.Count);
             var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var leaving = new HashSet<string>(
+                items.SelectMany(item => new[] { item.CurrentPath, item.CompanionPath }).OfType<string>(),
+                StringComparer.OrdinalIgnoreCase);
             for (var i = 0; i < items.Count; i++)
             {
                 var item = items[i];
                 var rendered = render(
                     template, item.OriginalStem, item.Ext, item.CapturedAtWire,
                     sequenceStart, (ulong)i, sequencePadWidth);
-                rows.Add(BuildRow(item, rendered, seen));
+                rows.Add(BuildRow(item, rendered, seen, pathExists, leaving));
             }
             return rows;
         }
 
         private static BatchRenamePreviewRow BuildRow(
-            BatchRenameSourceItem item, FilenameRenderOutcome rendered, HashSet<string> seenInBatch)
+            BatchRenameSourceItem item, FilenameRenderOutcome rendered, HashSet<string> seenInBatch,
+            Func<string, bool>? pathExists, HashSet<string> leavingPaths)
         {
             if (!rendered.Ok)
             {
@@ -75,7 +80,7 @@ namespace Maple.WinUI.Services.FileOperations
 
             var newName = rendered.Name!;
             var extensionChanged = RenameLogic.ExtensionChanged(item.CurrentFileName, newName);
-            var pathLengthError = MaxPathError(item.Directory, newName);
+            var pathLengthError = MaxPathError(item.Directory, newName) ?? CompanionMaxPathError(item, newName);
             if (pathLengthError != null)
                 return new BatchRenamePreviewRow(
                     item.Key, item.CurrentFileName, newName, pathLengthError, false, extensionChanged);
@@ -91,9 +96,37 @@ namespace Maple.WinUI.Services.FileOperations
             // rows that can't be attempted at all (a template that failed to
             // render, or a MAX_PATH violation).
             var duplicate = !seenInBatch.Add(DuplicateKey(item.Directory, newName));
+            var companionName = CompanionNameFor(item, newName);
+            var companionDuplicate = companionName != null
+                && !seenInBatch.Add(DuplicateKey(item.Directory, companionName));
+            var companionNote = companionName == null ? null
+                : companionDuplicate ? $"The JPEG would also be named {companionName}, as another row's file."
+                : CompanionTaken(item, companionName, pathExists, leavingPaths)
+                    ? $"{companionName} already exists in this folder — Replace and Stop skip this pair."
+                    : null;
             return new BatchRenamePreviewRow(
-                item.Key, item.CurrentFileName, newName, null, duplicate, extensionChanged);
+                item.Key, item.CurrentFileName, newName, null, duplicate || companionDuplicate,
+                extensionChanged, companionNote);
         }
+
+        private static string? CompanionNameFor(BatchRenameSourceItem item, string newName) =>
+            item.CompanionPath == null
+                ? null
+                : RawJpegPairing.CompanionFileName(
+                    Path.GetFileName(item.CompanionPath), item.CurrentFileName, newName);
+
+        private static bool CompanionTaken(
+            BatchRenameSourceItem item, string companionName, Func<string, bool>? pathExists,
+            HashSet<string> leavingPaths)
+        {
+            var target = Path.Combine(item.Directory, companionName);
+            return pathExists != null && pathExists(target) && !leavingPaths.Contains(target);
+        }
+
+        private static string? CompanionMaxPathError(BatchRenameSourceItem item, string newName) =>
+            CompanionNameFor(item, newName) is { } companionName && MaxPathError(item.Directory, companionName) is { } error
+                ? $"{companionName} (the JPEG): {error}"
+                : null;
 
         /// <summary>Render + relocate every item, sequentially, awaiting
         /// each <see cref="LocalFileOperations.RelocateAsync"/> call before
@@ -155,7 +188,7 @@ namespace Maple.WinUI.Services.FileOperations
                     item.CurrentFileName, Error: rendered.Error ?? "Template rendering failed.");
 
             var newName = rendered.Name!;
-            var pathLengthError = MaxPathError(item.Directory, newName);
+            var pathLengthError = MaxPathError(item.Directory, newName) ?? CompanionMaxPathError(item, newName);
             if (pathLengthError != null)
                 return new BatchRenameItemOutcome(item.Key, BatchRenameOutcomeKind.Invalid,
                     item.CurrentFileName, Error: pathLengthError);
