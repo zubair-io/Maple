@@ -80,6 +80,8 @@ namespace Maple.WinUI.Services
         public double DetailPanelWidth { get; set; } = 320;
         public string BrowseSort { get; set; } = "Name";
         public int ThumbnailSize { get; set; } = 180;
+        /// <summary>Show a same-stem RAW+JPEG pair of a local folder as one tile (#5848).</summary>
+        public bool ShowRawJpegStacks { get; set; } = true;
 
         private static string SettingsPath => Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),

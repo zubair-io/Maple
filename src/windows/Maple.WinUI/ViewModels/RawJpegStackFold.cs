@@ -43,6 +43,18 @@ namespace Maple.WinUI.ViewModels
                 .ToDictionary(pair => byPath[pair.Key], pair => byPath[pair.Value]);
         }
 
+        /// <summary>Whether a listing folds pairs. A local folder follows the
+        /// device-local Settings switch; a cloud folder only its server's flag;
+        /// an active format filter turns folding off for both, as the server
+        /// does while an extension filter is active, so a JPG filter still
+        /// lists the JPEG of a pair.</summary>
+        public static bool ShouldFold(
+            bool inLocalFolder, bool localSwitchOn, bool inCloudFolder, bool serverFoldsPairs,
+            bool formatFilterActive) =>
+            !formatFilterActive && ((inLocalFolder && localSwitchOn) || (inCloudFolder && serverFoldsPairs));
+
+        public static bool IsFormatFilterActive(string formatFilter) => formatFilter != "All";
+
         public static IEnumerable<PhotoItem> Tiles(IEnumerable<PhotoItem> photos) =>
             photos.Where(photo => photo.StackPrimary == null);
 

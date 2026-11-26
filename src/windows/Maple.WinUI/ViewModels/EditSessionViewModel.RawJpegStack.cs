@@ -1,6 +1,6 @@
 // EditSessionViewModel.RawJpegStack.cs — one tile for a same-stem RAW+JPEG
-// pair in the Browse grid (#5050, #5848). Local folders always fold. A Maple
-// Cloud folder is listed through GET /api/fs/dir, which never folds, so the
+// pair in the Browse grid (#5050, #5848). Local folders fold while the
+// device-local Settings switch is on. A Maple Cloud folder is listed through GET /api/fs/dir, which never folds, so the
 // same name rule (Services/FileOperations/RawJpegPairing.cs) is applied here
 // when the server's display config allows it (CloudDisplayConfig). The cloud
 // Timeline and search results are catalog rows and stay unfolded.
@@ -11,6 +11,7 @@ using System.Linq;
 using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
+using Maple.WinUI.Services;
 using Maple.WinUI.Services.Cloud;
 
 namespace Maple.WinUI.ViewModels
@@ -19,8 +20,20 @@ namespace Maple.WinUI.ViewModels
     {
         private bool _cloudFoldsRawJpegStacks;
 
-        private bool FoldsRawJpegStacks =>
-            _selectedLocalFolder != null || (_selectedCloudFolder != null && _cloudFoldsRawJpegStacks);
+        private bool _localFoldsRawJpegStacks = AppSettings.Load().ShowRawJpegStacks;
+
+        private bool FoldsRawJpegStacks => RawJpegStackFold.ShouldFold(
+            _selectedLocalFolder != null, _localFoldsRawJpegStacks,
+            _selectedCloudFolder != null, _cloudFoldsRawJpegStacks,
+            RawJpegStackFold.IsFormatFilterActive(FormatFilter));
+
+        /// <summary>Applies the device-local Settings switch to the folder
+        /// already on screen.</summary>
+        public void SetLocalRawJpegStacks(bool folds)
+        {
+            _localFoldsRawJpegStacks = folds;
+            RefoldRawJpegStacks();
+        }
 
         private IReadOnlyList<PhotoItem> FoldPhotos() =>
             RawJpegStackFold.Apply(AllPhotos, FoldsRawJpegStacks, requireSharedSidecar: _selectedLocalFolder != null);
