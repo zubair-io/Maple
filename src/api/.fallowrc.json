@@ -10,6 +10,8 @@
     "src/temporal/workflows.ts",
     // Run by CI to fetch the Temporal test server ahead of the fixture servers.
     "scripts/prewarm-temporal.ts",
+    // #6020: run by hand to measure on-demand preview latency against a RAW thumbnail backlog.
+    "scripts/render-priority-bench.ts",
     "src/ffi/raw_ffi.child.ts",
     "src/thumbs/hdr-decode.child.ts",
     "src/enrichment/face-pool.child.ts",
