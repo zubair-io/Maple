@@ -15,7 +15,7 @@ public partial class EditSessionViewModel
 
     [ObservableProperty] private bool _hasDecodeError;
     private CancellationTokenSource? _previewRequest;
-    private SavedPreviewDeferral<PhotoItem> _savedPreviews = SavedPreviewDeferral<PhotoItem>.Idle;
+    private SavedPreviewDeferral _savedPreviews = SavedPreviewDeferral.Idle;
     private OwedThumbnails? _owedThumbnails;
 
     private void CancelPreviewRequest()

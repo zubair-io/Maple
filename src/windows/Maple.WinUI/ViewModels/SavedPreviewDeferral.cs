@@ -4,59 +4,47 @@ using System.Linq;
 
 namespace Maple.WinUI.ViewModels
 {
-    /// <summary>What a shell mode change asks of the saved-preview owner:
-    /// signal the work still running (<see cref="Cancel"/>) and refresh every
-    /// photo in <see cref="Release"/>.</summary>
-    public sealed record SavedPreviewModeChange<T>(
-        SavedPreviewDeferral<T> Next, bool Cancel, IReadOnlyList<T> Release) where T : class;
+    public sealed record SavedPreviewModeChange(
+        SavedPreviewDeferral Next, bool Cancel, IReadOnlyList<PhotoItem> Release);
 
     public enum SavedPreviewRefreshOutcome { Refreshed, Failed, Cancelled }
 
     /// <summary>
-    /// Pure, WinUI-free rule for when the Browse/Preview derivative of a
+    /// Pure, WinUI-free rule for when the saved Browse/Preview derivative of a
     /// photo may be developed (#4374). In Edit the editor's own decode and
     /// Auto fit must not share the machine with a second develop of the same
-    /// photo at another size, so a request there is not started: the photo is
-    /// owed instead, and every owed photo is released when the shell returns
-    /// to Preview or Browse. Generic over the photo type so it links into
-    /// Maple.WinUI.Tests with a plain <c>string</c> stand-in.
+    /// photo at another size, so the develop is not started: the photo is owed
+    /// instead, and every owed photo is released when the shell returns to
+    /// Preview or Browse.
     /// </summary>
-    public sealed record SavedPreviewDeferral<T>(bool Editing, IReadOnlyList<T> Owed) where T : class
+    public sealed record SavedPreviewDeferral(bool Editing, IReadOnlyList<PhotoItem> Owed)
     {
-        public static SavedPreviewDeferral<T> Idle { get; } = new(false, Array.Empty<T>());
+        public static SavedPreviewDeferral Idle { get; } = new(false, Array.Empty<PhotoItem>());
 
-        /// <summary>A refresh of <paramref name="photo"/>'s saved preview is
-        /// wanted; <c>Start</c> says whether it may run now.</summary>
-        public (SavedPreviewDeferral<T> Next, bool Start) Request(T photo) =>
+        public (SavedPreviewDeferral Next, bool Start) Request(PhotoItem photo) =>
             Editing ? (Owe(photo), false) : (this, true);
 
-        /// <summary>A sidecar write was scheduled for <paramref name="photo"/>.
-        /// Recorded at edit time, not save time: the debounced save can land
-        /// after the selection has already moved to another photo.</summary>
-        public SavedPreviewDeferral<T> Edited(T photo) => Editing ? Owe(photo) : this;
+        // Recorded at edit time, not save time: the debounced save can land after the selection has moved on.
+        public SavedPreviewDeferral Edited(PhotoItem photo) => Editing ? Owe(photo) : this;
 
-        /// <summary>The shell is now in <paramref name="mode"/>;
-        /// <paramref name="inFlight"/> lists the photos whose refresh has
-        /// started but not finished.</summary>
-        public SavedPreviewModeChange<T> Enter(ShellMode mode, IReadOnlyList<T> inFlight)
+        public SavedPreviewModeChange Enter(ShellMode mode, IReadOnlyList<PhotoItem> inFlight)
         {
             var editing = mode == ShellMode.Edit;
             if (editing == Editing)
-                return new SavedPreviewModeChange<T>(this, false, Array.Empty<T>());
+                return new SavedPreviewModeChange(this, false, Array.Empty<PhotoItem>());
             return editing
-                ? new SavedPreviewModeChange<T>(
-                    new SavedPreviewDeferral<T>(true, Owed.Concat(inFlight).Distinct().ToArray()), inFlight.Count > 0, Array.Empty<T>())
-                : new SavedPreviewModeChange<T>(Idle, false, Owed);
+                ? new SavedPreviewModeChange(
+                    new SavedPreviewDeferral(true, Owed.Concat(inFlight).Distinct().ToArray()),
+                    inFlight.Count > 0, Array.Empty<PhotoItem>())
+                : new SavedPreviewModeChange(Idle, false, Owed);
         }
 
-        /// <summary>A refresh that did not finish stays owed so the next
-        /// leave-Edit or save retries it; one that finished is paid off.</summary>
-        public SavedPreviewDeferral<T> Settle(T photo, SavedPreviewRefreshOutcome outcome) =>
+        public SavedPreviewDeferral Settle(PhotoItem photo, SavedPreviewRefreshOutcome outcome) =>
             outcome == SavedPreviewRefreshOutcome.Refreshed
-                ? this with { Owed = Owed.Where(owed => !EqualityComparer<T>.Default.Equals(owed, photo)).ToArray() }
+                ? this with { Owed = Owed.Where(owed => !ReferenceEquals(owed, photo)).ToArray() }
                 : Owe(photo);
 
-        private SavedPreviewDeferral<T> Owe(T photo) =>
+        private SavedPreviewDeferral Owe(PhotoItem photo) =>
             Owed.Contains(photo) ? this : this with { Owed = Owed.Append(photo).ToArray() };
     }
 }
