@@ -238,5 +238,27 @@ namespace Maple.WinUI.Tests
         {
             Assert.Equal(expected, SavedPreviewDeferral.ClassifyUnselected(listed, cloud, cloudRefreshable));
         }
+
+        [Fact]
+        public void MaySettle_OlderRenderWithNewerAcknowledgement_KeepsTheDebt()
+        {
+            Assert.False(SavedPreviewDeferral.MaySettle(new object(), new object()));
+            Assert.False(SavedPreviewDeferral.MaySettle(null, new object()));
+        }
+
+        [Fact]
+        public void MaySettle_MatchingRender_Settles()
+        {
+            var save = new object();
+
+            Assert.True(SavedPreviewDeferral.MaySettle(save, save));
+        }
+
+        [Fact]
+        public void MaySettle_NoAcknowledgedSnapshot_SettlesAsBefore()
+        {
+            Assert.True(SavedPreviewDeferral.MaySettle(null, null));
+            Assert.True(SavedPreviewDeferral.MaySettle(new object(), null));
+        }
     }
 }

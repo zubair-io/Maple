@@ -34,12 +34,13 @@ public partial class EditSessionViewModel
         var published = false;
         await OnUiAcknowledgedAsync(() =>
         {
-            published = !_disposed && !ct.IsCancellationRequested && ReferenceEquals(saved.Client, _cloud)
-                && AllPhotos.Contains(photo);
-            if (!published) return;
+            if (_disposed || ct.IsCancellationRequested || !ReferenceEquals(saved.Client, _cloud)
+                || !AllPhotos.Contains(photo)) return;
             photo.PreviewPath = new Uri(preview).AbsoluteUri;
             photo.ThumbnailPath = new Uri(thumbnail).AbsoluteUri;
-            _ackedCloudSaves.TryRemove(photo, out _);
+            _ackedCloudSaves.TryGetValue(photo, out var latest);
+            published = SavedPreviewDeferral.MaySettle(saved, latest);
+            if (published) _ackedCloudSaves.TryRemove(photo, out _);
         });
         return published;
     }
@@ -49,6 +50,7 @@ public partial class EditSessionViewModel
         if (_disposed || version != _photoOpenVersion || !ReferenceEquals(photo, SelectedPhoto)
             || !ReferenceEquals(client, _cloud) || photo.LocalCachePath is not { } original) return;
         CancelPreviewRequest();
+        _ackedCloudSaves.TryGetValue(photo, out var rendered);
         var request = new CancellationTokenSource();
         _previewRequest = request;
         _ = Task.Run(async () =>
@@ -70,7 +72,8 @@ public partial class EditSessionViewModel
                 if (cancelled && !_disposed) RetryOwedAfterSelectionMoved(photo);
                 if (_disposed || cancelled || !current || version != _photoOpenVersion
                     || !ReferenceEquals(client, _cloud) || !ReferenceEquals(photo, SelectedPhoto)) return;
-                if (preview != null && thumbnail != null)
+                _ackedCloudSaves.TryGetValue(photo, out var latest);
+                if (preview != null && thumbnail != null && SavedPreviewDeferral.MaySettle(rendered, latest))
                 {
                     _savedPreviews = _savedPreviews.Settle(photo, SavedPreviewRefreshOutcome.Refreshed);
                     _ackedCloudSaves.TryRemove(photo, out _);
