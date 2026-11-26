@@ -222,6 +222,47 @@ fn frame_params_derive_frame_delta_matrix_and_gate() {
     }
 }
 
+/// A calibrated unit's frame (#5093) reaches the delta through the params.
+#[test]
+fn calibrated_unit_frame_params_derive_the_exports_delta() {
+    use raw_core::test_support::creative::{frame_export, largest_gap, Tables};
+
+    let curve = ProfileCurve::identity();
+    let lut = ColorLut::identity(2);
+    for tables in [Tables::DualUnitCalibration, Tables::SingleUnitCalibration] {
+        let frame = frame_export(tables);
+        let decoded = (frame.scene_cct, frame.as_shot_tint);
+        let target = (decoded.0 + 900.0, decoded.1 + 14.0);
+        let model = AdjustmentModel {
+            temperature: target.0,
+            tint: target.1,
+            ..AdjustmentModel::default()
+        };
+        let arr = owned_arrays(&model, &curve, &lut);
+        let mut p = make_params(&[], &model, WbMethod::Cat16, 2, &arr);
+        p.decoded_temperature = decoded.0;
+        p.decoded_tint = decoded.1;
+        set_frame(&mut p, &frame);
+        let inputs = unsafe { params::inputs_from_params(&p) }.unwrap();
+        assert_eq!(
+            inputs.wb_matrix,
+            frame.rec2020_delta_matrix(target, decoded).0,
+            "{tables:?}"
+        );
+        let swapped = SliderFrameExport {
+            render_individual_cold: frame.render_individual_warm,
+            render_individual_warm: frame.render_individual_cold,
+            ..frame
+        };
+        let swapped_delta = swapped.rec2020_delta_matrix(target, decoded);
+        let gap = largest_gap(
+            inputs.wb_matrix.as_flattened(),
+            swapped_delta.0.as_flattened(),
+        );
+        assert!(gap > 1e-3, "{tables:?}: a swap must be visible");
+    }
+}
+
 /// The CPU reference for the WB-only live chain: the SAME shared raw-core
 /// frame-delta WB (`apply_delta_rec2020`) + the always-on view tail
 /// (identity Auto artifacts collapse it to plain AgX → sRGB encode) +

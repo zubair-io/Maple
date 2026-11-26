@@ -359,6 +359,8 @@ mod thumbnail_buf_tests;
 mod thumbnail_tests;
 #[cfg(test)]
 mod unsupported_camera_tests;
+#[cfg(test)]
+mod wb_frame_calibration_tests;
 
 #[cfg(test)]
 mod scope_inspection_tests;
