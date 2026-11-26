@@ -544,6 +544,10 @@ ThumbnailDiskCacheKeyTests
 # Warm thumbnail decode proof (#6010): small JPEG writes into a temp dir.
 ThumbnailCacheDecodeProofTests
 
+# Least-recently-used thumbnail bytes tier (#6037): in-memory traces plus 1200 tiny temp-dir writes.
+RecencyOrderedStoreTests
+ThumbnailBytesTierTraceTests
+
 # Launch milestones and batched id-cache writes (#6017): in-memory and temp-dir only.
 LaunchTimelineTests
 MapleIdCacheBatchWriteTests
