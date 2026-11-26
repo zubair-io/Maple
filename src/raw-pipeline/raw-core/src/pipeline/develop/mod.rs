@@ -41,6 +41,7 @@ use crate::{
     },
     xmp::AdjustmentModel,
 };
+use rayon::prelude::*;
 
 use super::{dump_after, stage, RenderQuality};
 
@@ -190,11 +191,11 @@ pub(crate) fn develop_camera(
     if raw.baseline_exposure.abs() > 1e-4 {
         stage("baseline_exposure", || {
             let be_gain = raw.baseline_exposure.exp2();
-            for p in &mut camera_rgb.pixels {
+            camera_rgb.pixels.par_iter_mut().for_each(|p| {
                 p[0] *= be_gain;
                 p[1] *= be_gain;
                 p[2] *= be_gain;
-            }
+            });
         });
     }
     dump_after("00a_baseline_exposure", &camera_rgb);
