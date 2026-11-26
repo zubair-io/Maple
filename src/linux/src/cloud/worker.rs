@@ -236,9 +236,9 @@ impl Worker {
                             resumed.unsynchronized,
                         )));
                     }
-                    media_pending = false;
-                    if let Ok((epoch, entry, preview)) = images.try_recv() {
-                        media_pending = true;
+                    let queued = images.try_recv().ok();
+                    media_pending = queued.is_some();
+                    if let Some((epoch, entry, preview)) = queued {
                         let image = client
                             .as_mut()
                             .ok_or_else(|| "Cloud session is disconnected".to_owned())
