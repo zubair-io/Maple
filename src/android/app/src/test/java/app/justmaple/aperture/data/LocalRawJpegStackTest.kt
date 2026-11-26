@@ -146,6 +146,22 @@ class LocalRawJpegStackTest {
     }
 
     @Test
+    fun aPairFoldsOnlyWhenBothFilesReadTheSameSidecar() {
+        fun photo(name: String) =
+            Photo(Uri.parse("content://$AUTHORITY/document/$name"), name, 1, 2, folder)
+        val decomposedRaw = photo("Cafe\u0301.CR3")
+        val composedJpeg = photo("Caf\u00e9.jpg")
+        val caseRaw = photo("IMG_9.CR3")
+        val caseJpeg = photo("img_9.JPG")
+
+        val tiles = RawJpegPairing.fold(listOf(decomposedRaw, composedJpeg, caseRaw, caseJpeg))
+
+        assertEquals(listOf(decomposedRaw, composedJpeg, caseRaw.copy(companion = caseJpeg)), tiles)
+        assertEquals("Cafe\u0301.xmp", tiles[0].sidecarName)
+        assertEquals("Caf\u00e9.xmp", tiles[1].sidecarName)
+    }
+
+    @Test
     fun onlyAnOpenLocalFolderRelistsWhenTheSwitchFlips() {
         val local = Folder(folder, "Trip")
         val cloud = Folder(Uri.parse("maple-cloud://server/library"), "Library")

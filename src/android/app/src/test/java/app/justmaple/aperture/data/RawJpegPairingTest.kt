@@ -23,11 +23,8 @@ class RawJpegPairingTest {
     }
 
     @Test
-    fun theStemIsNfcNormalised() {
-        val decomposed = "Café.CR3"
-        val composed = "Café.jpg"
-
-        assertEquals(mapOf(decomposed to composed), RawJpegPairing.pairs(listOf(decomposed, composed)))
+    fun differentUnicodeFormsOfOneStemStayIndependentBecauseTheirSidecarsDiffer() {
+        assertTrue(RawJpegPairing.pairs(listOf("Cafe\u0301.CR3", "Caf\u00e9.jpg")).isEmpty())
     }
 
     @Test
