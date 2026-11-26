@@ -26,6 +26,7 @@ import { parseFolderCulling, type FolderCulling } from './folder-culling.ts';
 import { readFolderCulling } from './folder-culling-cache.ts';
 import {
   childInspector,
+  sharedGrant,
   type ChildFacts,
   type ChildInspector,
   type ChildStat,
@@ -236,12 +237,6 @@ function sidecarCandidates(rows: readonly DirectoryAsset[]): Map<string, Directo
   return byBase;
 }
 
-/** The first call's answer serves every later call. */
-function firstCallOnly<Arg, Result>(compute: (arg: Arg) => Promise<Result>) {
-  const memo: { answer?: Promise<Result> } = {};
-  return (arg: Arg): Promise<Result> => (memo.answer ??= compute(arg));
-}
-
 async function directoryState(resolved: ResolvedAddress, relPath: string, stack: boolean) {
   const [rows, trashed, names, realRoot, realDirectory, thumbsSafe] = await Promise.all([
     listDirectoryAssets(resolved.libraryId, relPath),
@@ -252,7 +247,7 @@ async function directoryState(resolved: ResolvedAddress, relPath: string, stack:
     thumbsDirectorySafe(resolved.absPath),
   ]);
   const inspectChild = childInspector(resolved.absPath, realDirectory, realRoot);
-  const authorizeDirectSidecars = firstCallOnly(
+  const authorizeDirectSidecars = sharedGrant(
     async (sidecar: string) => (await authorizedSidecar(sidecar)) !== null,
   );
   const hidden = new Set(trashed);
@@ -468,6 +463,16 @@ async function scanPage(
   return entries;
 }
 
+/** Children were read under the real path resolved when the request began. A folder renamed or
+ * relinked meanwhile could have answered for another place, so that listing is not returned. */
+async function requireSameDirectory(directory: string, realAtStart: string | null): Promise<void> {
+  const realNow = await fs.realpath(directory).catch(() => null);
+  if (realNow === realAtStart) return;
+  throw Object.assign(new Error('Folder changed while it was being listed; retry.'), {
+    status: 409,
+  });
+}
+
 export interface FolderPageOptions {
   cursor?: string;
   limit?: number;
@@ -488,6 +493,7 @@ export async function listUnifiedFolder(
   const state = await directoryState(resolved, relPath, options.stack === true);
   const page = paged ? state.allNames.slice(offset, offset + limit) : state.allNames;
   const entries = await scanPage(slug, relPath, resolved, page, state);
+  await requireSameDirectory(resolved.absPath, state.realDirectory);
   const parentRel = path.posix.dirname(relPath);
   return {
     address: addressOf(slug, relPath),
