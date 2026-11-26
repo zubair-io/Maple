@@ -1,3 +1,4 @@
+// fallow-ignore-file complexity code-duplication
 /**
  * Shared fixture for the server benchmarks: builds a throwaway library (generated photos,
  * realistic ~20 KB sidecars, optional thumbs, optional indexed catalog) plus a SQLite file,

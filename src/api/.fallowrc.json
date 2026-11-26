@@ -50,6 +50,13 @@
     // its own line for the same reason those are.
     "scripts/sqlite-bench/reader-pool.ts",
 
+    // #6012 — the server benchmarks (folder listing, thumb serving, derivative render, route probe)
+    // and the fixture they share. Run by hand with Bun.
+    "scripts/bench-folder-listing.ts",
+    "scripts/bench-thumb-serving.ts",
+    "scripts/bench-derivative-render.ts",
+    "scripts/bench-routes.ts",
+
     // #4514 — the For You load reproduction and the caption library it runs on.
     "scripts/sqlite-bench/caption-library.ts",
     "scripts/sqlite-bench/generated-search-load.ts",

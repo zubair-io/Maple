@@ -1,6 +1,6 @@
 import { adobeLabelColor, VALID_COLOR_LABELS, type ColorLabel } from '../xmp/color-label.ts';
 import { parseXmpMetadata } from '../xmp/metadata-parser.ts';
-import { SaxesParser, type SaxesAttributeNS } from 'saxes';
+import { SaxesParser, type SaxesAttributeNS, type SaxesTagNS } from 'saxes';
 
 const RDF = 'http://www.w3.org/1999/02/22-rdf-syntax-ns#';
 const XML = 'http://www.w3.org/XML/1998/namespace';
@@ -28,6 +28,19 @@ interface OpenElement {
   block?: DescriptionBlock;
 }
 
+function openElement(tag: SaxesTagNS, parent: OpenElement | undefined): OpenElement {
+  const inRdfNamespace = tag.uri === RDF;
+  const rdf = inRdfNamespace && tag.local === 'RDF';
+  const insideRdf = parent !== undefined && (parent.insideRdf || parent.rdf);
+  const isReadDescription = inRdfNamespace && tag.local === 'Description' && parent?.readableRdf;
+  return {
+    rdf,
+    readableRdf: rdf && !insideRdf,
+    insideRdf,
+    block: isReadDescription ? { attributes: tag.attributes, childCount: 0 } : undefined,
+  };
+}
+
 /** The `rdf:Description` children of every outermost `rdf:RDF`, in document order. The whole
  * document is still parsed, so a malformed sidecar throws exactly as a full span walk would, but
  * no span, namespace map or text offset is built for the (large) nested adjustment data. */
@@ -40,16 +53,10 @@ function descriptionBlocks(xml: string): DescriptionBlock[] {
   });
   parser.on('opentag', (tag) => {
     const parent = open.at(-1);
-    const inRdfNamespace = tag.uri === RDF;
-    const rdf = inRdfNamespace && tag.local === 'RDF';
-    const insideRdf = parent !== undefined && (parent.insideRdf || parent.rdf);
     if (parent?.block) parent.block.childCount += 1;
-    const block =
-      inRdfNamespace && tag.local === 'Description' && parent?.readableRdf
-        ? { attributes: tag.attributes, childCount: 0 }
-        : undefined;
-    if (block) blocks.push(block);
-    open.push({ rdf, readableRdf: rdf && !insideRdf, insideRdf, block });
+    const element = openElement(tag, parent);
+    if (element.block) blocks.push(element.block);
+    open.push(element);
   });
   parser.on('closetag', () => {
     open.pop();

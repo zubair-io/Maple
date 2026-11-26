@@ -1,3 +1,4 @@
+// fallow-ignore-file complexity code-duplication
 /**
  * Folder listing benchmark: boots the real server against a generated library and times
  * `GET /api/folder/<slug>`.
