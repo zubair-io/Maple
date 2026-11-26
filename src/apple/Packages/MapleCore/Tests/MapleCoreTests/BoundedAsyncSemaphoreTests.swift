@@ -337,19 +337,6 @@ final class BoundedAsyncSemaphoreTests: XCTestCase {
 
     await semaphore.release()
   }
-
-  private func waitForCondition(
-    timeout: Duration = .seconds(2),
-    condition: @Sendable () async -> Bool
-  ) async -> Bool {
-    let clock = ContinuousClock()
-    let deadline = clock.now + timeout
-    while clock.now < deadline {
-      if await condition() { return true }
-      await Task.yield()
-    }
-    return await condition()
-  }
 }
 
 /// Deterministic single-shot signal, so cancellation tests don't rely on
