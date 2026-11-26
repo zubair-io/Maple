@@ -16,7 +16,7 @@ public actor CloudThumbCache {
   /// this counter crosses `maxBytes`. Seeded lazily on the first put
   /// after process start (via `seedTotalIfNeeded`) so a warm cache on
   /// disk doesn't underestimate.
-  private var approxTotal: Int64 = 0
+  private(set) var approxTotal: Int64 = 0
   private var seededTotal: Bool = false
 
   /// In-flight eviction task. While non-nil, additional `put()` calls
@@ -62,7 +62,7 @@ public actor CloudThumbCache {
     // The version and the bytes are read from the one open file, so a `put`
     // that replaces the entry in between cannot pair old bytes with the new
     // version.
-    if let version, Self.storedVersion(of: file) != version { return nil }
+    if let version = Self.storable(version), Self.storedVersion(of: file) != version { return nil }
     guard let data = try? file.readToEnd() else { return nil }
     Self.touchForLRU(url)
     return data
@@ -78,10 +78,43 @@ public actor CloudThumbCache {
     return String(decoding: buffer.prefix(length), as: UTF8.self)
   }
 
+  /// A version the file cannot record would miss on every read and fetch
+  /// the thumbnail again each time, so it counts as no version at all.
+  private nonisolated static func storable(_ version: String?) -> String? {
+    version.flatMap { $0.isEmpty || $0.utf8.count > longestStoredVersion ? nil : $0 }
+  }
+
   private nonisolated static func store(version: String, on url: URL) {
     let bytes = Array(version.utf8)
-    guard bytes.count <= longestStoredVersion else { return }
     _ = setxattr(url.path, versionAttribute, bytes, bytes.count, 0, 0)
+  }
+
+  /// The stored thumbnail for `version`, else a fresh fetch stored under it.
+  /// When the server cannot be reached, whichever rendering is stored:
+  /// offline, an older thumbnail beats a placeholder. Any other failure
+  /// stays a miss, so the caller's retry can still bring the new rendering.
+  public nonisolated func bytes(
+    host: String, absPath: String, version: String?,
+    fetch: @Sendable () async throws -> Data
+  ) async -> Data? {
+    if let cached = await get(host: host, absPath: absPath, version: version) { return cached }
+    do {
+      let fetched = try await fetch()
+      await put(host: host, absPath: absPath, version: version, fetched)
+      return fetched
+    } catch {
+      guard version != nil, Self.isUnreachable(error) else { return nil }
+      return await get(host: host, absPath: absPath)
+    }
+  }
+
+  private nonisolated static func isUnreachable(_ error: Error) -> Bool {
+    switch (error as? URLError)?.code {
+    case .notConnectedToInternet, .networkConnectionLost, .cannotConnectToHost, .cannotFindHost,
+      .dnsLookupFailed, .timedOut, .dataNotAllowed:
+      true
+    default: false
+    }
   }
 
   // LRU only needs coarse recency; rewriting the mtime on every hit doubled
@@ -106,13 +139,19 @@ public actor CloudThumbCache {
     // Staged beside the entry and renamed over it, so the version is already
     // on the file when a reader first sees the new bytes.
     let staged = url.appendingPathExtension("\(UUID().uuidString).part")
-    guard (try? avif.write(to: staged)) != nil else { return }
-    if let version { Self.store(version: version, on: staged) }
+    guard (try? avif.write(to: staged)) != nil else {
+      try? fm.removeItem(at: staged)
+      return
+    }
+    if let version = Self.storable(version) { Self.store(version: version, on: staged) }
+    // A replaced entry frees its own bytes; counting the whole write would
+    // push the running total past the cap with the disk nowhere near it.
+    let replaced = ((try? fm.attributesOfItem(atPath: url.path))?[.size] as? NSNumber)?.int64Value
     guard rename(staged.path, url.path) == 0 else {
       try? fm.removeItem(at: staged)
       return
     }
-    await account(writtenBytes: Int64(avif.count))
+    await account(writtenBytes: Int64(avif.count) - (replaced ?? 0))
   }
 
   private func account(writtenBytes: Int64) {
@@ -152,6 +191,11 @@ public actor CloudThumbCache {
       entries.append(Entry(url: url, size: size, mtime: mtime))
       total += size
     }
+    // The walk just measured the cache, so the running total takes its
+    // answer even when nothing needs evicting; otherwise a total that
+    // drifted past the cap would start a walk on every put.
+    approxTotal = total
+    seededTotal = true
     guard total > maxBytes else { return }
 
     entries.sort { $0.mtime < $1.mtime }
