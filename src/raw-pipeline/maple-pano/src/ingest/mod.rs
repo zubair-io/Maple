@@ -20,12 +20,14 @@
 
 pub mod priors;
 pub mod proxy;
+mod proxy_sink;
 
 use std::path::Path;
 
 use crate::error::PanoError;
 pub use priors::{FramePriors, GimbalPrior, GpsPrior};
 pub use proxy::proxy_to_long_edge;
+pub use proxy_sink::ProxySink;
 
 /// 1 bit/px validity mask, row-major, bit index `y * width + x` packed
 /// into `u64` words. A pixel is either fully valid or fully ignored —

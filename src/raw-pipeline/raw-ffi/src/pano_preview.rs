@@ -16,6 +16,8 @@
 //!      matching re-ran; `maple_last_error()` names the reason
 //! −5   an output or alignment path is not valid UTF-8
 //! −10  `edges.boundary_warp` is not a percent from 0 to 100
+//! −12  the memory model puts the run over `memory_limit_bytes` (the
+//!      `_constrained` entries); nothing was developed past the check
 //! ```
 //!
 //! Both take Boundary Warp and Auto Crop as [`MaplePanoEdges`] and report
@@ -191,6 +193,8 @@ pub unsafe extern "C" fn maple_pano_preview(
         strategy,
         engine,
         std::ptr::null(),
+        0,
+        std::ptr::null(),
         progress_cb,
         cb_user,
         cancel,
@@ -201,6 +205,14 @@ pub unsafe extern "C" fn maple_pano_preview(
 /// Null leaves seams unconstrained. Invalid requests return −11
 /// (`invalid_seam_constraints`) before decode. Alignment reuse and stale
 /// geometry reporting are identical to [`maple_pano_preview`].
+///
+/// `memory_limit_bytes` — refuse with −12, before any frame is developed,
+///   when the Apple memory model puts the preview over this many bytes;
+///   0 = no limit.
+/// `proxy_cache_dir` — optional (null = none); a directory the caller owns
+///   where each frame's proxy is kept between calls, so a re-preview of the
+///   same frames reads them back instead of developing every RAW again.
+///   Holds at most the latest call's frames.
 ///
 /// # Safety
 /// Same pointer contract as [`maple_pano_preview`]; `seam_constraints_json`
@@ -221,6 +233,8 @@ pub unsafe extern "C" fn maple_pano_preview_constrained(
     strategy: MaplePanoStrategy,
     engine: MaplePanoFeatureEngine,
     seam_constraints_json: *const c_char,
+    memory_limit_bytes: u64,
+    proxy_cache_dir: *const c_char,
     progress_cb: MaplePanoProgressFn,
     cb_user: *mut c_void,
     cancel: *const MapleCancelFlag,
@@ -232,9 +246,10 @@ pub unsafe extern "C" fn maple_pano_preview_constrained(
             required_path(NAME, "out_preview_png_path", out_preview_png_path)?,
             optional_path(NAME, "alignment_in_path", alignment_in_path)?,
             optional_path(NAME, "alignment_out_path", alignment_out_path)?,
+            optional_path(NAME, "proxy_cache_dir", proxy_cache_dir)?,
         ))
     });
-    let (paths, out_png, alignment_in, alignment_out) = match parsed {
+    let (paths, out_png, alignment_in, alignment_out, cache_dir) = match parsed {
         Ok(p) => p,
         Err(rc) => return rc,
     };
@@ -258,6 +273,8 @@ pub unsafe extern "C" fn maple_pano_preview_constrained(
             Ok(opts) => opts,
             Err(rc) => return rc,
         };
+        opts.memory_limit_bytes = (memory_limit_bytes > 0).then_some(memory_limit_bytes);
+        opts.proxy_cache_dir = cache_dir.map(std::path::PathBuf::from);
         if request.is_some() {
             opts.seam_strategy = maple_pano::seam::SeamStrategy::GraphCut;
             opts.seam_constraints = request;
@@ -299,6 +316,8 @@ pub unsafe extern "C" fn maple_pano_preview_constrained(
             alignment_out,
             out_sizes,
             request,
+            memory_limit_bytes,
+            cache_dir,
             edges,
             out_edges,
             retention,
@@ -363,6 +382,7 @@ pub unsafe extern "C" fn maple_pano_stitch_aligned(
         strategy,
         engine,
         std::ptr::null(),
+        0,
         progress_cb,
         cb_user,
         cancel,
@@ -371,6 +391,8 @@ pub unsafe extern "C" fn maple_pano_stitch_aligned(
 
 /// Stitch with a versioned seam-constraint JSON request. Null leaves seams unconstrained.
 /// Invalid requests return −11 (`invalid_seam_constraints`) before decode.
+/// `memory_limit_bytes` — refuse with −12 when the Apple memory model puts the decode,
+/// matching or composite over this many bytes, before that phase starts; 0 = no limit.
 ///
 /// # Safety
 /// Same pointer contract as `maple_pano_stitch_aligned`; `seam_constraints_json`
@@ -390,6 +412,7 @@ pub unsafe extern "C" fn maple_pano_stitch_constrained(
     strategy: MaplePanoStrategy,
     engine: MaplePanoFeatureEngine,
     seam_constraints_json: *const c_char,
+    memory_limit_bytes: u64,
     progress_cb: MaplePanoProgressFn,
     cb_user: *mut c_void,
     cancel: *const MapleCancelFlag,
@@ -429,6 +452,7 @@ pub unsafe extern "C" fn maple_pano_stitch_constrained(
             Ok(opts) => opts,
             Err(rc) => return rc,
         };
+        opts.memory_limit_bytes = (memory_limit_bytes > 0).then_some(memory_limit_bytes);
         if request.is_some() {
             opts.seam_strategy = maple_pano::seam::SeamStrategy::GraphCut;
             opts.seam_constraints = request;
@@ -462,6 +486,7 @@ pub unsafe extern "C" fn maple_pano_stitch_constrained(
             out_png,
             alignment_in,
             request,
+            memory_limit_bytes,
             max_canvas_px,
             edges,
             out_edges,

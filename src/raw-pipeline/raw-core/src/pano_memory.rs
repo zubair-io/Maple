@@ -188,6 +188,13 @@ impl PanoStitchLoad {
         )
     }
 
+    /// Peak of a preview. It holds what the head holds through matching (every frame's proxy
+    /// and features, and one frame's banded develop at a time), then composites those same
+    /// proxies onto a canvas of about 2 MP and never refines, so the head's terms bound it.
+    pub fn preview_bytes(&self) -> u64 {
+        self.head_bytes()
+    }
+
     /// Peak of the composite onto a canvas `canvas_width` pixels wide.
     pub fn composite_bytes(&self, canvas_width: u64) -> u64 {
         let c = self.profile.calibration();

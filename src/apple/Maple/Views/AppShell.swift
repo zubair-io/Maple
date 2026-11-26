@@ -890,6 +890,7 @@ struct AppShell: View {
     // `releaseTransientMemoryForInactiveSessions()`.
     .onChange(of: memoryPressureSignal.pressureEventCount) { _, _ in
       releaseTransientMemoryForInactiveSessions()
+      panoMergeSession.handleMemoryPressure()
     }
     .onDisappear {
       if AgentEditService.shared.browseDelegate === agentBrowseAdapter {

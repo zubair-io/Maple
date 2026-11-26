@@ -33,6 +33,8 @@ fn call(json: &str, strategy: MaplePanoStrategy, preview: bool) -> (i32, String)
                 strategy,
                 MaplePanoFeatureEngine::Classical,
                 request.as_ptr(),
+                0,
+                std::ptr::null(),
                 None,
                 std::ptr::null_mut(),
                 std::ptr::null(),
@@ -51,6 +53,7 @@ fn call(json: &str, strategy: MaplePanoStrategy, preview: bool) -> (i32, String)
                 strategy,
                 MaplePanoFeatureEngine::Classical,
                 request.as_ptr(),
+                0,
                 None,
                 std::ptr::null_mut(),
                 std::ptr::null(),
@@ -257,6 +260,8 @@ fn constrained_preview_skips_full_refinement_and_honors_pins() {
                 MaplePanoStrategy::Rotation,
                 MaplePanoFeatureEngine::Classical,
                 request.as_ptr(),
+                0,
+                std::ptr::null(),
                 Some(progress),
                 (&stages as *const std::sync::Mutex<Vec<f32>>)
                     .cast_mut()

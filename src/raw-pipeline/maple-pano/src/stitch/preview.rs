@@ -5,7 +5,9 @@
 //! skips full-resolution refinement entirely: the solve and the composite
 //! run on the proxies already in memory, in the proxies' own pixel plane,
 //! onto a canvas whose long edge is about [`PREVIEW_LONG_EDGE_PX`]. No
-//! full-resolution frame is ever decoded. The scene-linear composite is
+//! full-resolution frame is ever resident: each frame is developed band by
+//! band straight into its proxy, or read back from the proxy cache. The
+//! scene-linear composite is
 //! developed through the same AgX → sRGB view tail the full stitch's
 //! display PNG uses, and the solved alignment comes back with it so the
 //! full stitch can start from it.
@@ -84,14 +86,14 @@ pub fn preview(
     is_cancelled: impl Fn() -> bool,
 ) -> Result<PanoPreview, StitchError> {
     super::validate_request(inputs, opts)?;
-    super::memory::admit_head(inputs, opts)?;
+    super::memory::admit_preview(inputs, opts)?;
     let key = AlignmentKey::for_run(inputs, opts)?;
     let (reusable, reuse) = usable(offered, &key);
     let (alignment, metas, head_timings) = match reusable {
         Some(stored) => {
             let t0 = Instant::now();
             let metas =
-                super::decode_proxies(inputs, opts.proxy_long_edge, &mut progress, &is_cancelled)?;
+                super::preview_frames::decode_proxies(inputs, opts, &mut progress, &is_cancelled)?;
             (1..=2).for_each(|stage| progress(stage, 1.0));
             (
                 stored.clone(),
@@ -102,7 +104,7 @@ pub fn preview(
         None => {
             let t0 = Instant::now();
             let metas =
-                super::decode_proxies(inputs, opts.proxy_long_edge, &mut progress, &is_cancelled)?;
+                super::preview_frames::decode_proxies(inputs, opts, &mut progress, &is_cancelled)?;
             let head = super::solve_alignment(
                 metas,
                 t0.elapsed().as_secs_f64(),

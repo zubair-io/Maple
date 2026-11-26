@@ -293,7 +293,13 @@ final class RecordingStitcher: PanoStitching, @unchecked Sendable {
         PanoAlignment(json: Data(options.strategy.rawValue.utf8))
     }
 
+    @MainActor var discardedPreviewCaches = 0
+
     func cancel() {}
+
+    func discardPreviewCache() {
+        MainActor.assumeIsolated { discardedPreviewCaches += 1 }
+    }
 
     func preview(
         assets: [AssetRef],

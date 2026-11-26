@@ -106,6 +106,13 @@ pub struct StitchOptions {
     /// [`raw_core::pano_memory`] model puts its peak above this many bytes
     /// (#5835). `None` runs whatever the size.
     pub memory_limit_bytes: Option<u64>,
+    /// Which calibration of that model the limit is checked with: the
+    /// server's, or the Apple devices' the merge sheet sizes outputs with.
+    pub memory_profile: raw_core::pano_memory::PanoMemoryProfile,
+    /// A directory the preview keeps each frame's proxy in between calls,
+    /// so a re-preview of the same frames skips their develop. `None`
+    /// develops every frame on every preview.
+    pub proxy_cache_dir: Option<PathBuf>,
 }
 
 impl Default for StitchOptions {
@@ -137,6 +144,8 @@ impl Default for StitchOptions {
             boundary_warp: 0.0,
             auto_crop: false,
             memory_limit_bytes: None,
+            memory_profile: raw_core::pano_memory::PanoMemoryProfile::Server,
+            proxy_cache_dir: None,
         }
     }
 }
