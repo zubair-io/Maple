@@ -50,8 +50,7 @@ namespace Maple.WinUI.Services.Cloud
         {
         }
 
-        // The server compresses JSON listings (brotli, else gzip); an
-        // HttpClientHandler sends no Accept-Encoding unless told to decode.
+        // HttpClientHandler sends no Accept-Encoding unless AutomaticDecompression is set.
         internal static HttpClientHandler CreateHandler() => new()
         {
             CookieContainer = new CookieContainer(),
