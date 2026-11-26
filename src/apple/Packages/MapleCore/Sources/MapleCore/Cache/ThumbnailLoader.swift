@@ -91,8 +91,8 @@ public actor ThumbnailLoader {
 
   /// Cancellation-aware permits with atomic handoff. Never reset the held
   /// count on folder switches: already-running decodes still owe a release.
-  func acquireDecodeSlot(priority: BoundedAsyncSemaphore.Priority = .standard) async throws {
-    try await decodeSlots.acquire(priority: priority)
+  func acquireDecodeSlot() async throws {
+    try await decodeSlots.acquire()
   }
 
   func releaseDecodeSlot() async {

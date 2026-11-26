@@ -52,17 +52,25 @@ public final class DevelopedImageRevision {
   /// starts its load, with filesystem metadata work off the main actor. A
   /// visible cell waits on it, so it runs at user-initiated QoS (#6010).
   /// A caller cancelled before its lookup starts gets the stamp-less key.
-  public func decodedKeyAsync(for id: String, source: ThumbnailSource) async -> String {
-    await decodedKeyAsync(for: id, source: source, sourceStamp: Self.localSourceStamp)
+  /// Preview pages, the phone hero seed and the editor seed pass
+  /// `.interactive`, so their lookup is not queued behind a screenful of
+  /// grid cells.
+  public func decodedKeyAsync(
+    for id: String, source: ThumbnailSource,
+    priority: BoundedAsyncSemaphore.Priority = .standard
+  ) async -> String {
+    await decodedKeyAsync(
+      for: id, source: source, priority: priority, sourceStamp: Self.localSourceStamp)
   }
 
   func decodedKeyAsync(
     for id: String, source: ThumbnailSource,
+    priority: BoundedAsyncSemaphore.Priority = .standard,
     sourceStamp: @escaping @Sendable (URL) async -> String?
   ) async -> String {
     let base = reloadKey(for: id, source: source)
     guard let url = source.localAssetURL, url.isFileURL else { return base }
-    do { try await Self.sourceStampSlots.acquire() } catch { return base }
+    do { try await Self.sourceStampSlots.acquire(priority: priority) } catch { return base }
     guard !Task.isCancelled else {
       await Self.sourceStampSlots.release()
       return base

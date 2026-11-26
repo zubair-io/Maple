@@ -13,6 +13,24 @@ final class BoundedAsyncSemaphorePriorityTests: XCTestCase {
     }
   }
 
+  private actor Hold {
+    private(set) var isHeld = false
+    private var isReleased = false
+    private var waiter: CheckedContinuation<Void, Never>?
+
+    func wait() async {
+      isHeld = true
+      guard !isReleased else { return }
+      await withCheckedContinuation { waiter = $0 }
+    }
+
+    func release() {
+      isReleased = true
+      waiter?.resume()
+      waiter = nil
+    }
+  }
+
   /// Queues one waiter and returns once the semaphore has registered it, so
   /// the queue order inside each lane is exactly the call order.
   private func enqueue(
@@ -128,5 +146,41 @@ final class BoundedAsyncSemaphorePriorityTests: XCTestCase {
     XCTAssertEqual(
       labels,
       ["I0", "I1", "I2", "I3", "S0", "I4", "I5", "I6", "I7", "S1", "I8", "I9"])
+  }
+
+  func test_interactiveHandoffsWithNoStandardWaiterDoNotCountTowardTheBurst() async throws {
+    let semaphore = BoundedAsyncSemaphore(value: 1)
+    let log = GrantLog()
+    let hold = Hold()
+    try await semaphore.acquire()
+
+    var waiters: [Task<Void, Error>] = []
+    for index in 0...BoundedAsyncSemaphore.interactiveBurstLimit {
+      waiters.append(await enqueue("I\(index)", priority: .interactive, on: semaphore, log: log))
+    }
+    let queuedBeforeHolder = await semaphore.queuedCount
+    let holder = Task {
+      try await semaphore.acquire(priority: .interactive)
+      await log.record("H")
+      await hold.wait()
+      await semaphore.release()
+    }
+    let holderQueued = await semaphore.waitForQueue(
+      atLeast: queuedBeforeHolder + 1, timeout: .seconds(20))
+    XCTAssertTrue(holderQueued)
+
+    await semaphore.release()
+    let holding = await waitForCondition(timeout: .seconds(20)) { await hold.isHeld }
+    XCTAssertTrue(holding, "precondition: the streak ended with the permit still held")
+    let standard = await enqueue("S", priority: .standard, on: semaphore, log: log)
+    let interactive = await enqueue("I", priority: .interactive, on: semaphore, log: log)
+
+    await hold.release()
+    for waiter in waiters + [holder, interactive, standard] { try await waiter.value }
+
+    let labels = await log.labels
+    XCTAssertEqual(
+      Array(labels.suffix(3)), ["H", "I", "S"],
+      "a streak that passed over no standard waiter owes the standard lane nothing")
   }
 }
