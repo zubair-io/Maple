@@ -11,14 +11,15 @@ namespace Maple.WinUI.Services.FileOperations
     {
         /// <summary>The other half of a RAW+JPEG pair still sitting in
         /// `.maple/trash` beside <paramref name="trashPath"/>, or null. The
-        /// two must also have come from the same folder under the same stem,
-        /// so a JPEG trashed elsewhere is never taken for this RAW's.</summary>
+        /// two must read one sidecar (the fold's pairing decision) and have
+        /// come from the same folder under the same stem, so a JPEG trashed
+        /// elsewhere is never taken for this RAW's.</summary>
         public static string? TrashedCompanionOf(string trashPath, string libraryRoot)
         {
             var dir = Path.GetDirectoryName(trashPath);
             var name = Path.GetFileName(trashPath);
             if (dir == null || !Directory.Exists(dir)) return null;
-            var pairs = RawJpegPairing.Pairs(Directory.EnumerateFiles(dir));
+            var pairs = RawJpegPairing.LocalPairs(Directory.EnumerateFiles(dir));
             var companion = RawJpegPairing.IsRaw(trashPath)
                 ? pairs.FirstOrDefault(pair => Path.GetFileName(pair.Key) == name).Value
                 : pairs.FirstOrDefault(pair => Path.GetFileName(pair.Value) == name).Key;

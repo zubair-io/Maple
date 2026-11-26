@@ -59,5 +59,6 @@ namespace Maple.WinUI.Services.FileOperations
         string? FileName,
         bool Ok,
         string? NewPath,
-        string? Error);
+        string? Error,
+        string? CompanionNewPath = null);
 }

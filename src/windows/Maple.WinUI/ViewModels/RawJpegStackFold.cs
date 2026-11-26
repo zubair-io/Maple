@@ -33,8 +33,7 @@ namespace Maple.WinUI.ViewModels
             var byPath = photos
                 .GroupBy(photo => photo.FilePath, StringComparer.Ordinal)
                 .ToDictionary(group => group.Key, group => group.First(), StringComparer.Ordinal);
-            return RawJpegPairing.Pairs(byPath.Keys)
-                .Where(pair => !requireSharedSidecar || LocalFileOperations.SharesOneSidecar(pair.Key, pair.Value))
+            return (requireSharedSidecar ? RawJpegPairing.LocalPairs(byPath.Keys) : RawJpegPairing.Pairs(byPath.Keys))
                 .ToDictionary(pair => byPath[pair.Key], pair => byPath[pair.Value]);
         }
 

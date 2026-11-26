@@ -55,6 +55,11 @@ namespace Maple.WinUI.Services.FileOperations
                 .Where(members => members.Raws.Count == 1 && members.Jpegs.Count == 1)
                 .ToDictionary(members => members.Raws[0], members => members.Jpegs[0], StringComparer.Ordinal);
 
+        public static IReadOnlyDictionary<string, string> LocalPairs(IEnumerable<string> paths) =>
+            Pairs(paths)
+                .Where(pair => LocalFileOperations.SharesOneSidecar(pair.Key, pair.Value))
+                .ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.Ordinal);
+
         /// <summary>The JPEG's name once the RAW is named
         /// <paramref name="primaryFileName"/>: its own name while the RAW's
         /// stem is unchanged, else the RAW's new stem with the JPEG's own
