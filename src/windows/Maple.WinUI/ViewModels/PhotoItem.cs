@@ -78,7 +78,6 @@ namespace Maple.WinUI.ViewModels
         [NotifyPropertyChangedFor(nameof(FormatBadge))]
         [NotifyPropertyChangedFor(nameof(TileAccessibleName))]
         private PhotoItem? _stackCompanion;
-        /// <summary>Set on the folded JPEG, which then has no tile of its own.</summary>
         public PhotoItem? StackPrimary { get; set; }
         /// <summary>The tile carries no filename caption, so a screen reader
         /// gets both file names of a stack from here.</summary>

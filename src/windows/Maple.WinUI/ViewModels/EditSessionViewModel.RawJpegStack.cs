@@ -27,8 +27,6 @@ namespace Maple.WinUI.ViewModels
             _selectedCloudFolder != null, _cloudFoldsRawJpegStacks,
             RawJpegStackFold.IsFormatFilterActive(FormatFilter));
 
-        /// <summary>Applies the device-local Settings switch to the folder
-        /// already on screen.</summary>
         public void SetLocalRawJpegStacks(bool folds)
         {
             _localFoldsRawJpegStacks = folds;
@@ -52,8 +50,6 @@ namespace Maple.WinUI.ViewModels
             }
         }
 
-        /// <summary>Re-points a tile, and the JPEG folded into it, after a
-        /// rename or move put its files at new paths.</summary>
         private void ApplyStackRelocation(PhotoItem photo, string newPrimaryPath, string? newCompanionPath)
         {
             var companion = photo.StackCompanion;
@@ -64,8 +60,6 @@ namespace Maple.WinUI.ViewModels
             photo.RefreshTileAccessibleName();
         }
 
-        /// <summary>Recomputes the pairs after names changed in place, and
-        /// rebuilds the grid only when a file gained or lost its tile.</summary>
         private void RefoldRawJpegStacks()
         {
             var foldedBefore = AllPhotos.Where(photo => photo.StackPrimary != null).ToHashSet();
