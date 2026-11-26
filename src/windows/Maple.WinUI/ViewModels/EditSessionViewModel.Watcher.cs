@@ -122,16 +122,20 @@ namespace Maple.WinUI.ViewModels
 
         // The folder's RAW and JPEG names, shown or not, re-read after a change: the
         // watcher reports RAW formats the grid does not open only as "something changed".
-        private static HashSet<string>? ReadPairInventory(string? folder) =>
-            folder == null ? null
-            : EnumerateImageFiles(folder) is { Complete: true } listing ? listing.PairInventory.ToHashSet(StringComparer.Ordinal)
-            : null;
+        private static FolderListing? ReadPairInventory(string? folder) =>
+            folder == null ? null : EnumerateImageFiles(folder) is { Complete: true } listing ? listing : null;
 
-        private bool AdoptPairInventory(HashSet<string>? inventory)
+        // The pair decision reads only this inventory and case behaviour, so a filter or search
+        // change refolds without file access; only a folder load or watcher change refreshes them.
+        private bool AdoptPairInventory(FolderListing? listing)
         {
-            if (inventory == null || inventory.SetEquals(_localPairInventory))
+            if (listing == null)
                 return false;
-            _localPairInventory = inventory;
+            var names = listing.PairInventory.ToHashSet(StringComparer.Ordinal);
+            if (names.SetEquals(_localPairInventory) && listing.FoldsCase == _localFolderFoldsCase)
+                return false;
+            _localPairInventory = names;
+            _localFolderFoldsCase = listing.FoldsCase;
             return true;
         }
 

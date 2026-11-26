@@ -19,10 +19,10 @@ namespace Maple.WinUI.ViewModels
         /// the grid does not list (`IMG.MEF`) is ambiguous and stays unpaired.</summary>
         public static IReadOnlyList<PhotoItem> Apply(
             IReadOnlyList<PhotoItem> photos, bool stacksPairs, bool requireSharedSidecar = false,
-            IEnumerable<string>? inventory = null)
+            IEnumerable<string>? inventory = null, bool? folderFoldsCase = null)
         {
             var companionOf = stacksPairs
-                ? Pair(photos, requireSharedSidecar, inventory)
+                ? Pair(photos, requireSharedSidecar, inventory, folderFoldsCase)
                 : new Dictionary<PhotoItem, PhotoItem>();
             var primaryOf = companionOf.ToDictionary(pair => pair.Value, pair => pair.Key);
             foreach (var photo in photos)
@@ -34,13 +34,16 @@ namespace Maple.WinUI.ViewModels
         }
 
         private static Dictionary<PhotoItem, PhotoItem> Pair(
-            IReadOnlyList<PhotoItem> photos, bool requireSharedSidecar, IEnumerable<string>? inventory)
+            IReadOnlyList<PhotoItem> photos, bool requireSharedSidecar, IEnumerable<string>? inventory, bool? folderFoldsCase)
         {
             var byPath = photos
                 .GroupBy(photo => photo.FilePath, StringComparer.Ordinal)
                 .ToDictionary(group => group.Key, group => group.First(), StringComparer.Ordinal);
             var names = byPath.Keys.Concat(inventory ?? Enumerable.Empty<string>()).Distinct(StringComparer.Ordinal).ToList();
-            return (requireSharedSidecar ? RawJpegPairing.LocalPairs(names) : RawJpegPairing.Pairs(names))
+            var pairs = !requireSharedSidecar ? RawJpegPairing.Pairs(names)
+                : folderFoldsCase is { } folds ? RawJpegPairing.LocalPairs(names, folds)
+                : RawJpegPairing.LocalPairs(names);
+            return pairs
                 .Where(pair => byPath.ContainsKey(pair.Key) && byPath.ContainsKey(pair.Value))
                 .ToDictionary(pair => byPath[pair.Key], pair => byPath[pair.Value]);
         }
