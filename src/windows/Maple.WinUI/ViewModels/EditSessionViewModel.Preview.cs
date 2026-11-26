@@ -49,16 +49,24 @@ public partial class EditSessionViewModel
             CancelOwedThumbnails();
         }
         if (selected != null && change.Release.Contains(selected)) RefreshSelectedSavedPreview(selected);
-        // Nothing can refresh a photo that is cloud-only or no longer listed; keeping it owed would never end.
-        foreach (var gone in change.Release.Where(photo =>
-                     !ReferenceEquals(photo, selected) && (photo.IsCloud || !AllPhotos.Contains(photo))))
-            _savedPreviews = _savedPreviews.Settle(gone, SavedPreviewRefreshOutcome.Refreshed);
-        var unselected = change.Release
-            .Where(photo => !photo.IsCloud && !ReferenceEquals(photo, selected) && AllPhotos.Contains(photo))
-            .ToArray();
-        // The old preview shows a superseded edit; the thumbnail stands in until reselection.
-        foreach (var photo in unselected) photo.PreviewPath = null;
-        if (unselected.Length > 0) RefreshOwedThumbnails(unselected);
+        var unselected = new List<PhotoItem>();
+        foreach (var photo in change.Release.Where(owed => !ReferenceEquals(owed, selected)))
+        {
+            var listed = AllPhotos.Contains(photo);
+            var action = SavedPreviewDeferral.ClassifyUnselected(listed, photo.IsCloud, photo.IsCloud && CanRefreshCloudThumbnail(photo));
+            if (action == SavedPreviewReleaseAction.RefreshThumbnail)
+            {
+                // The old preview shows a superseded edit; the thumbnail stands in until reselection.
+                photo.PreviewPath = null;
+                unselected.Add(photo);
+                continue;
+            }
+            // A cloud original that was never cached is not downloaded just for a thumbnail.
+            if (listed) DiagLog.Write($"[preview] cloud thumbnail not refreshed, no client or cached original: {photo.FileName}");
+            _ackedCloudSaves.TryRemove(photo, out _);
+            _savedPreviews = _savedPreviews.Settle(photo, SavedPreviewRefreshOutcome.Refreshed);
+        }
+        if (unselected.Count > 0) RefreshOwedThumbnails(unselected);
     }
 
     private void MarkSavedPreviewStale()
@@ -85,7 +93,9 @@ public partial class EditSessionViewModel
                 }
                 try
                 {
-                    var published = await RefreshLocalThumbnailAsync(photo, cancellation);
+                    var published = photo.IsCloud
+                        ? await RefreshCloudThumbnailAsync(photo, cancellation)
+                        : await RefreshLocalThumbnailAsync(photo, cancellation);
                     outcomes.Add((photo, cancellation.IsCancellationRequested ? SavedPreviewRefreshOutcome.Cancelled
                         : published ? SavedPreviewRefreshOutcome.Refreshed : SavedPreviewRefreshOutcome.Failed));
                 }
@@ -112,7 +122,8 @@ public partial class EditSessionViewModel
     private void RetryOwedAfterSelectionMoved(PhotoItem photo)
     {
         if (_savedPreviews.Editing || ReferenceEquals(photo, SelectedPhoto)
-            || !_savedPreviews.Owed.Contains(photo) || !AllPhotos.Contains(photo)) return;
+            || !_savedPreviews.Owed.Contains(photo) || !AllPhotos.Contains(photo)
+            || (photo.IsCloud && !CanRefreshCloudThumbnail(photo))) return;
         photo.PreviewPath = null;
         RefreshOwedThumbnails(new[] { photo });
     }
