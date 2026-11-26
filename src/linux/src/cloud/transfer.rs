@@ -14,6 +14,16 @@ pub struct RemoteXmp {
     pub supports_preconditions: bool,
 }
 
+// A compressing proxy rewrites the strong tag as W/"…"; the server's If-Match accepts only the strong form.
+fn strong_etag(response: &reqwest::blocking::Response) -> Option<String> {
+    response
+        .headers()
+        .get("ETag")
+        .and_then(|h| h.to_str().ok())
+        .map(str::trim)
+        .map(|tag| tag.strip_prefix("W/").unwrap_or(tag).to_owned())
+}
+
 /// Owns the private downloaded original until the editing session releases it.
 pub struct DownloadedPhoto {
     pub directory: tempfile::TempDir,
@@ -31,11 +41,7 @@ impl CloudClient {
             .get("X-Maple-Xmp-Preconditions")
             .and_then(|h| h.to_str().ok())
             == Some("content-etag-v1");
-        let etag = response
-            .headers()
-            .get("ETag")
-            .and_then(|h| h.to_str().ok())
-            .map(str::to_owned);
+        let etag = strong_etag(&response);
         let xml = if response.status().as_u16() == 404 {
             None
         } else {
@@ -83,16 +89,11 @@ impl CloudClient {
         if !response.status().is_success() {
             return Err(CloudError::Http(response.status().as_u16()));
         }
-        let etag = response
-            .headers()
-            .get("ETag")
-            .and_then(|h| h.to_str().ok())
-            .map(str::to_owned)
-            .ok_or_else(|| {
-                CloudError::Protocol(
-                    "Server omitted the saved XMP version; reload before retrying.".into(),
-                )
-            })?;
+        let etag = strong_etag(&response).ok_or_else(|| {
+            CloudError::Protocol(
+                "Server omitted the saved XMP version; reload before retrying.".into(),
+            )
+        })?;
         let xml = String::from_utf8(bytes(response, 4 * 1024 * 1024)?)
             .map_err(|_| CloudError::Protocol("Saved XMP is not UTF-8".into()))?;
         SidecarDocument::parse(&xml).map_err(|e| CloudError::Protocol(e.to_string()))?;

@@ -59,3 +59,45 @@ fn compressed_listings_are_requested_and_decoded() {
         "{accepted}"
     );
 }
+
+#[test]
+fn a_sidecar_tag_weakened_by_a_compressing_proxy_is_sent_back_strong() {
+    let xml = format!(
+        "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\">{}</x:xmpmeta>",
+        " ".repeat(2048)
+    );
+    let mut encoder = GzEncoder::new(Vec::new(), Compression::fast());
+    encoder.write_all(xml.as_bytes()).unwrap();
+    let compressed = encoder.finish().unwrap();
+    let strong = format!("\"{}\"", "a1".repeat(20));
+
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let url = Server::parse(&format!("http://{}", listener.local_addr().unwrap())).unwrap();
+    let served = strong.clone();
+    let server = thread::spawn(move || {
+        let (mut socket, _) = listener.accept().unwrap();
+        let mut request = Vec::new();
+        while !request.windows(4).any(|window| window == b"\r\n\r\n") {
+            let mut chunk = [0; 2048];
+            let length = socket.read(&mut chunk).unwrap();
+            assert!(length > 0);
+            request.extend_from_slice(&chunk[..length]);
+        }
+        write!(
+            socket,
+            "HTTP/1.1 200 OK\r\nContent-Type: application/xml\r\nContent-Encoding: gzip\r\nETag: W/{served}\r\nX-Maple-Xmp-Preconditions: content-etag-v1\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+            compressed.len()
+        )
+        .unwrap();
+        socket.write_all(&compressed).unwrap();
+    });
+
+    keyring::set_default_credential_builder(keyring::mock::default_credential_builder());
+    let mut client = CloudClient::new(url).unwrap();
+    let remote = client.read_versioned_xmp("photos/a.dng").unwrap();
+    server.join().unwrap();
+
+    assert_eq!(remote.xml.as_deref(), Some(xml.as_str()));
+    assert!(remote.supports_preconditions);
+    assert_eq!(remote.etag, Some(strong));
+}
