@@ -226,5 +226,17 @@ namespace Maple.WinUI.Tests
 
             Assert.Empty(again.Release);
         }
+
+        [Theory]
+        [InlineData(true, false, false, SavedPreviewReleaseAction.RefreshThumbnail)]
+        [InlineData(true, true, true, SavedPreviewReleaseAction.RefreshThumbnail)]
+        [InlineData(true, true, false, SavedPreviewReleaseAction.Drop)]
+        [InlineData(false, false, false, SavedPreviewReleaseAction.Drop)]
+        [InlineData(false, true, true, SavedPreviewReleaseAction.Drop)]
+        public void ClassifyUnselected_RefreshesOnlyWhatCanBeRefreshed(
+            bool listed, bool cloud, bool cloudRefreshable, SavedPreviewReleaseAction expected)
+        {
+            Assert.Equal(expected, SavedPreviewDeferral.ClassifyUnselected(listed, cloud, cloudRefreshable));
+        }
     }
 }
