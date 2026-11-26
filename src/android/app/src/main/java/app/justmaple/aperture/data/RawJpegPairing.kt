@@ -1,11 +1,11 @@
 package app.justmaple.aperture.data
 
 import app.justmaple.aperture.cloud.CloudLibrary
-import java.text.Normalizer
 
 /**
  * The server's name rule (`library/raw-jpeg-stack.ts`) for folders that list plain files: a stem
- * pairs only when it holds exactly one RAW and exactly one `.jpg`/`.jpeg`.
+ * pairs only when it holds exactly one RAW and exactly one `.jpg`/`.jpeg`. A local pair also needs
+ * both files to read one sidecar, so stems compare the way [SafSidecars] finds a sidecar.
  */
 internal object RawJpegPairing {
     val RAW_EXTENSIONS =
@@ -35,14 +35,15 @@ internal object RawJpegPairing {
 
     fun extension(name: String): String = name.substring(extensionStart(name)).drop(1).lowercase()
 
-    fun stem(name: String): String =
-        Normalizer.normalize(name.substring(0, extensionStart(name)), Normalizer.Form.NFC)
-            .lowercase()
+    fun stem(name: String): String = name.substring(0, extensionStart(name))
+
+    fun sidecarKey(name: String): String =
+        name.map { it.uppercaseChar().lowercaseChar() }.joinToString("")
 
     /** The pairs among one folder's file names, keyed by the RAW's name. */
     fun pairs(names: List<String>): Map<String, String> =
         names
-            .groupBy(::stem)
+            .groupBy { sidecarKey(stem(it)) }
             .values
             .mapNotNull { members ->
                 val raws = members.filter { extension(it) in RAW_EXTENSIONS }
