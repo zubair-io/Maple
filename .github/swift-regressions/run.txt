@@ -449,6 +449,7 @@ ThumbnailFetchGateWaiterTests
 ThumbnailLoaderSourcelessProducerTests
 ThumbnailLoaderSourceFetchTests
 ThumbnailLoaderSlotPriorityTests
+ThumbnailLoaderDevelopLaneTests
 ThumbnailRetryTests
 
 AgentHTTPIntegrationTests

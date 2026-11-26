@@ -28,7 +28,9 @@ extension ThumbnailLoader {
         await self.cleanupLocalProducer(producerID, key: key)
         return nil
       }
-      let result = await operation()
+      let result = await Self.$producerID.withValue(producerID) {
+        await Self.$producerGate.withValue(gate) { await operation() }
+      }
       await self.endActiveProducer(producerID, key: key, gate: gate)
       return result
     }
@@ -56,8 +58,13 @@ extension ThumbnailLoader {
     inFlight[key].map { thumbnailWaiters[$0]?.count ?? 0 } ?? 0
   }
 
+  func setProducerActive(_ id: UUID, _ isActive: Bool) {
+    if isActive { activeProducers.insert(id) } else { activeProducers.remove(id) }
+  }
+
   private func cleanupLocalProducer(_ id: UUID, key: String) {
     activeProducers.remove(id)
+    slotlessProducers.remove(id)
     if let task = inFlight[key], taskProducerIDs[task] == id {
       inFlight.removeValue(forKey: key)
     }
@@ -65,8 +72,9 @@ extension ThumbnailLoader {
   }
 
   private func endActiveProducer(_ id: UUID, key: String, gate: ProducerGate) async {
+    let holdsSlot = !slotlessProducers.contains(id)
     cleanupLocalProducer(id, key: key)
-    await slots(for: gate).release()
+    if holdsSlot { await slots(for: gate).release() }
   }
 
   private func isProducerActive(_ task: Task<Data?, Never>) -> Bool {

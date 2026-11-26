@@ -155,6 +155,8 @@ Apple never writes the canonical `<filename>.avif` preview per slider tick. `Edi
 
 On read, freshness is checked rather than keyed (`ThumbnailLoader+DisplayPreview.swift`): the preview must be at least as new as the original file, and it is rejected as superseded when the sidecar is more than **10 seconds** newer than it _and_ the sidecar parses to visual (non-white-balance) edits. An unparseable sidecar counts as edited — serving camera-original pixels over an unknown edit state is exactly what that gate prevents.
 
+Full RAW develops for thumbnails and display previews do not use the shared decode slots. A develop gives its slot back, waits in its own lane and runs off Swift's shared thread pool: grid develops run one at a time, and one more permit is reserved for a photo being opened, so cheap thumbnails and the opened photo never queue behind edited RAWs (#6079).
+
 On a cold Files-backed RAW, Browse and Preview first display an embedded camera JPEG through the shared Rust extractor, before sidecar parsing or develop. This seed is transient: it is never stored under an edited thumbnail or preview revision. A successful authored render replaces it; a sidecar failure retains the camera seed and logs the failure. Seed extraction has a separate two-request gate so multi-second RAW develops cannot block first pixels. The extracted JPEG stays in a small in-memory cache (`ThumbnailLoader.cameraPreviewCache`, keyed like the thumbnail memory tier on path and source stamp, 128 entries), and the unedited RAW's AVIF thumbnail is encoded from that copy instead of extracting it again. Persisted unedited RAW thumbnails and display previews use that same extractor and the canonical AVIF tier sizes and qualities.
 
 ### Memory pressure
