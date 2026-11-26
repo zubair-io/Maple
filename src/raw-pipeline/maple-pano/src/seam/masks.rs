@@ -299,7 +299,10 @@ mod tests {
             }
         }
         let cropped = CroppedPlane::new(&dense, w);
-        assert!(cropped.width <= 9 && cropped.height <= 7, "cropped to the non-zero block");
+        assert!(
+            cropped.width <= 9 && cropped.height <= 7,
+            "cropped to the non-zero block"
+        );
         let full = CroppedPlane {
             x0: 0,
             y0: 0,

@@ -200,16 +200,15 @@ pub(super) fn banded(
     band_rows: u32,
 ) -> (Image, BandedDevelop) {
     let mut sink = MemSink::default();
-    let developed =
-        develop_raw_banded(
-            raw,
-            list3,
-            band_rows,
-            &mut MemScratch::default(),
-            &mut sink,
-            &|| false,
-        )
-        .expect("banded develop");
+    let developed = develop_raw_banded(
+        raw,
+        list3,
+        band_rows,
+        &mut MemScratch::default(),
+        &mut sink,
+        &|| false,
+    )
+    .expect("banded develop");
     (sink.into_complete(), developed)
 }
 

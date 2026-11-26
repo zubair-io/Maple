@@ -140,9 +140,8 @@ fn survey_row(
             .filter(|&fi| footprints[fi].as_ref().is_some_and(|f| f.covers(x as u32)));
         let mut dir = None;
         for fi in candidates {
-            let d = *dir.get_or_insert_with(|| {
-                canvas.output_pixel_to_dir(x as f64 + 0.5, y as f64 + 0.5)
-            });
+            let d = *dir
+                .get_or_insert_with(|| canvas.output_pixel_to_dir(x as f64 + 0.5, y as f64 + 0.5));
             let Some(d) = d else { break };
             let la = local_corrections.get(fi).and_then(Option::as_ref);
             if let Some(depth) = depth_at(&cameras[fi], la, d) {
@@ -165,9 +164,7 @@ fn survey_row(
             }
         }
         if let (Some(crop), Some(weight)) = (crop.as_mut(), crop_weight) {
-            crop[x] = here
-                .iter()
-                .any(|&(fi, _)| weight(fi, x, y as usize) > 0.0);
+            crop[x] = here.iter().any(|&(fi, _)| weight(fi, x, y as usize) > 0.0);
         }
     }
     let overlaps = pair_px
@@ -205,7 +202,11 @@ pub(super) fn survey(
         .iter()
         .zip(&local_corrections)
         .map(|(cam, la)| {
-            let margin = if la.is_some() { 4.0 + MAX_CORRECTION_PX } else { 4.0 };
+            let margin = if la.is_some() {
+                4.0 + MAX_CORRECTION_PX
+            } else {
+                4.0
+            };
             frame_output_bbox(cam, canvas, margin).map(|bbox| Footprint {
                 rows: bbox.y0..bbox.y1,
                 x_spans: bbox.x_spans,
@@ -228,7 +229,16 @@ pub(super) fn survey(
         let pass_y1 = (pass_y0 + pass_rows).min(canvas.height);
         let rows: Vec<SurveyRow> = (pass_y0..pass_y1)
             .into_par_iter()
-            .map(|y| survey_row(cameras, &local_corrections, &footprints, canvas, y, crop_weight))
+            .map(|y| {
+                survey_row(
+                    cameras,
+                    &local_corrections,
+                    &footprints,
+                    canvas,
+                    y,
+                    crop_weight,
+                )
+            })
             .collect();
         for (y, row) in (pass_y0..).zip(rows) {
             for &fi in &row.covering {
@@ -302,7 +312,11 @@ pub(super) fn blend_strips(
         let wy0 = ty0.saturating_sub(halo) / grid * grid;
         let wy1 = (ty1 + halo).min(ch);
         let strip_n = (ty1 - ty0) * cw;
-        let mut planes = [vec![0.0_f32; strip_n], vec![0.0; strip_n], vec![0.0; strip_n]];
+        let mut planes = [
+            vec![0.0_f32; strip_n],
+            vec![0.0; strip_n],
+            vec![0.0; strip_n],
+        ];
         let mut covered = vec![false; strip_n];
 
         for (ti, tx0) in (0..cw).step_by(tile_cols).enumerate() {
@@ -357,7 +371,8 @@ pub(super) fn blend_strips(
                 for (plane, window) in planes.iter_mut().zip(&collapsed) {
                     plane[dst..dst + tx1 - tx0].copy_from_slice(&window[src..src + tx1 - tx0]);
                 }
-                covered[dst..dst + tx1 - tx0].copy_from_slice(&tile_covered[tile..tile + tx1 - tx0]);
+                covered[dst..dst + tx1 - tx0]
+                    .copy_from_slice(&tile_covered[tile..tile + tx1 - tx0]);
             }
         }
 

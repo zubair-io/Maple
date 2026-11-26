@@ -330,7 +330,14 @@ mod tests {
                 .collect()
         };
         let b = FeatureSet {
-            keypoints: vec![Keypoint { x: 0.0, y: 0.0, score: 1.0 }; 37],
+            keypoints: vec![
+                Keypoint {
+                    x: 0.0,
+                    y: 0.0,
+                    score: 1.0
+                };
+                37
+            ],
             descriptors: descriptors(37, &mut rng),
             descriptor_dim: dim,
             norm_keypoints: Vec::new(),
@@ -355,27 +362,47 @@ mod tests {
 
     /// The scalar matcher this module replaced (#6057), kept as the
     /// reference: one dot product per pair, three passes per row.
-    fn reference_match(a: &FeatureSet, b: &FeatureSet, distinct_sq: f32, ratio: f32) -> Vec<MlMatch> {
+    fn reference_match(
+        a: &FeatureSet,
+        b: &FeatureSet,
+        distinct_sq: f32,
+        ratio: f32,
+    ) -> Vec<MlMatch> {
         let sims: Vec<Vec<f32>> = (0..a.len())
             .map(|i| {
                 (0..b.len())
-                    .map(|j| a.descriptor(i).iter().zip(b.descriptor(j)).map(|(x, y)| x * y).sum())
+                    .map(|j| {
+                        a.descriptor(i)
+                            .iter()
+                            .zip(b.descriptor(j))
+                            .map(|(x, y)| x * y)
+                            .sum()
+                    })
                     .collect()
             })
             .collect();
         let column_best: Vec<usize> = (0..b.len())
             .map(|j| {
-                (0..a.len()).fold((f32::NEG_INFINITY, usize::MAX), |acc, i| {
-                    if sims[i][j] > acc.0 { (sims[i][j], i) } else { acc }
-                }).1
+                (0..a.len())
+                    .fold((f32::NEG_INFINITY, usize::MAX), |acc, i| {
+                        if sims[i][j] > acc.0 {
+                            (sims[i][j], i)
+                        } else {
+                            acc
+                        }
+                    })
+                    .1
             })
             .collect();
         let mut out: Vec<(usize, MlMatch)> = (0..a.len())
             .filter_map(|i| {
-                let (j, best) = sims[i].iter().enumerate().fold(None, |acc: Option<(usize, f32)>, (j, &v)| match acc {
-                    Some((_, bv)) if bv >= v => acc,
-                    _ => Some((j, v)),
-                })?;
+                let (j, best) = sims[i].iter().enumerate().fold(
+                    None,
+                    |acc: Option<(usize, f32)>, (j, &v)| match acc {
+                        Some((_, bv)) if bv >= v => acc,
+                        _ => Some((j, v)),
+                    },
+                )?;
                 let kb = b.keypoints[j];
                 let second = sims[i]
                     .iter()
@@ -386,7 +413,16 @@ mod tests {
                 let (d1, d2) = (unit_distance(best), unit_distance(second));
                 (column_best[j] == i && d1 < ratio * d2).then(|| {
                     let (ka, kb) = (a.keypoints[i], b.keypoints[j]);
-                    (i, MlMatch { x0: ka.x, y0: ka.y, x1: kb.x, y1: kb.y, score: 1.0 - d1 / d2 })
+                    (
+                        i,
+                        MlMatch {
+                            x0: ka.x,
+                            y0: ka.y,
+                            x1: kb.x,
+                            y1: kb.y,
+                            score: 1.0 - d1 / d2,
+                        },
+                    )
                 })
             })
             .collect();
@@ -410,21 +446,40 @@ mod tests {
             .map(|_| unit((0..dim).map(|_| rng.next_range(0.0, 1.0) as f32).collect()))
             .collect();
         let a_kp: Vec<(f32, f32)> = (0..n)
-            .map(|_| (rng.next_range(0.0, 1600.0) as f32, rng.next_range(0.0, 1200.0) as f32))
+            .map(|_| {
+                (
+                    rng.next_range(0.0, 1600.0) as f32,
+                    rng.next_range(0.0, 1200.0) as f32,
+                )
+            })
             .collect();
         let mut b_desc = Vec::new();
         let mut b_kp = Vec::new();
         for i in 0..n {
-            let copies = match i % 10 { 0 => 0, 1 => 2, _ => 1 };
+            let copies = match i % 10 {
+                0 => 0,
+                1 => 2,
+                _ => 1,
+            };
             for c in 0..copies {
                 let noise = if i % 7 == 0 { 0.6 } else { 0.08 };
-                b_desc.push(unit(a_desc[i].iter().map(|&x| x + noise * rng.next_range(-0.1, 0.1) as f32).collect()));
+                b_desc.push(unit(
+                    a_desc[i]
+                        .iter()
+                        .map(|&x| x + noise * rng.next_range(-0.1, 0.1) as f32)
+                        .collect(),
+                ));
                 b_kp.push((a_kp[i].0 + 40.0 + c as f32 * 1.5, a_kp[i].1 - 25.0));
             }
         }
         for _ in 0..77 {
-            b_desc.push(unit((0..dim).map(|_| rng.next_range(0.0, 1.0) as f32).collect()));
-            b_kp.push((rng.next_range(0.0, 1600.0) as f32, rng.next_range(0.0, 1200.0) as f32));
+            b_desc.push(unit(
+                (0..dim).map(|_| rng.next_range(0.0, 1.0) as f32).collect(),
+            ));
+            b_kp.push((
+                rng.next_range(0.0, 1600.0) as f32,
+                rng.next_range(0.0, 1200.0) as f32,
+            ));
         }
         let order: Vec<usize> = {
             let mut o: Vec<usize> = (0..b_desc.len()).collect();
@@ -434,7 +489,10 @@ mod tests {
             o
         };
         let to_set = |kp: Vec<(f32, f32)>, desc: Vec<Vec<f32>>| FeatureSet {
-            keypoints: kp.into_iter().map(|(x, y)| Keypoint { x, y, score: 1.0 }).collect(),
+            keypoints: kp
+                .into_iter()
+                .map(|(x, y)| Keypoint { x, y, score: 1.0 })
+                .collect(),
             descriptors: desc.concat(),
             descriptor_dim: dim,
             norm_keypoints: Vec::new(),
@@ -466,4 +524,3 @@ mod tests {
         assert_eq!((m[0].x1, m[0].y1), (10.0, 10.0));
     }
 }
-
