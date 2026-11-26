@@ -91,6 +91,21 @@ final class EditorCanvasSeedTests: XCTestCase {
     XCTAssertEqual(bytes, timelineThumb)
   }
 
+  /// The Timeline and Search grids store a thumb under the listing's version
+  /// (#6017); the seed knows no version and must still find it.
+  func testTimelineThumbnailStoredUnderAVersionStillSeeds() async {
+    let (asset, catalog) = folderBrowseAsset()
+    let cloudThumbs = CloudThumbCache(baseDir: cloudThumbsDir)
+    let timelineThumb = Data([0x0A, 0x0B])
+    await cloudThumbs.put(
+      host: server.cacheHostKey, absPath: absPath, version: "k3j9-1a", timelineThumb)
+
+    let bytes = await EditorCanvasSeed.cloudThumbnailBytes(
+      asset: asset, catalog: catalog, server: nil, cloudThumbs: cloudThumbs)
+
+    XCTAssertEqual(bytes, timelineThumb)
+  }
+
   func testUncachedThumbnailIsFetchedFromTheServerAndKeptForTheGrid() async {
     let (asset, catalog) = folderBrowseAsset()
     let serverThumb = Data([0x0C, 0x0D, 0x0E])

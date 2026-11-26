@@ -49,14 +49,39 @@ public actor CloudThumbCache {
   /// the caller's main thread, and never behind another cell's write or the
   /// eviction walk (#6017).
   ///
-  /// A `version` (the server's `thumb_version`) names one rendering of the
-  /// thumbnail, so an edit made elsewhere reads as a miss instead of serving
-  /// the old pixels forever. `nil` keeps the unversioned entry.
+  /// One entry per path. `version` (the server's `thumb_version`) names the
+  /// rendering a caller wants: an entry stored under another version, or
+  /// under none, is a miss, so an edit made elsewhere is fetched again
+  /// rather than served from the old pixels. A caller with no version (the
+  /// editor seed, a listing from a server that names none) takes whichever
+  /// rendering is stored.
   public nonisolated func get(host: String, absPath: String, version: String? = nil) async -> Data? {
-    let url = path(host: host, absPath: absPath, version: version)
-    guard let data = try? Data(contentsOf: url) else { return nil }
+    let url = path(host: host, absPath: absPath)
+    guard let file = try? FileHandle(forReadingFrom: url) else { return nil }
+    defer { try? file.close() }
+    // The version and the bytes are read from the one open file, so a `put`
+    // that replaces the entry in between cannot pair old bytes with the new
+    // version.
+    if let version, Self.storedVersion(of: file) != version { return nil }
+    guard let data = try? file.readToEnd() else { return nil }
     Self.touchForLRU(url)
     return data
+  }
+
+  private static let versionAttribute = "app.justmaple.thumb-version"
+  private static let longestStoredVersion = 128
+
+  private nonisolated static func storedVersion(of file: FileHandle) -> String? {
+    var buffer = [UInt8](repeating: 0, count: longestStoredVersion)
+    let length = fgetxattr(file.fileDescriptor, versionAttribute, &buffer, buffer.count, 0, 0)
+    guard length > 0 else { return nil }
+    return String(decoding: buffer.prefix(length), as: UTF8.self)
+  }
+
+  private nonisolated static func store(version: String, on url: URL) {
+    let bytes = Array(version.utf8)
+    guard bytes.count <= longestStoredVersion else { return }
+    _ = setxattr(url.path, versionAttribute, bytes, bytes.count, 0, 0)
   }
 
   // LRU only needs coarse recency; rewriting the mtime on every hit doubled
@@ -73,11 +98,20 @@ public actor CloudThumbCache {
   public nonisolated func put(
     host: String, absPath: String, version: String? = nil, _ avif: Data
   ) async {
-    let url = path(host: host, absPath: absPath, version: version)
-    try? FileManager.default.createDirectory(
+    let url = path(host: host, absPath: absPath)
+    let fm = FileManager.default
+    try? fm.createDirectory(
       at: url.deletingLastPathComponent(),
       withIntermediateDirectories: true)
-    try? avif.write(to: url, options: .atomic)
+    // Staged beside the entry and renamed over it, so the version is already
+    // on the file when a reader first sees the new bytes.
+    let staged = url.appendingPathExtension("\(UUID().uuidString).part")
+    guard (try? avif.write(to: staged)) != nil else { return }
+    if let version { Self.store(version: version, on: staged) }
+    guard rename(staged.path, url.path) == 0 else {
+      try? fm.removeItem(at: staged)
+      return
+    }
     await account(writtenBytes: Int64(avif.count))
   }
 
@@ -180,9 +214,8 @@ public actor CloudThumbCache {
     evictionTask = nil
   }
 
-  private nonisolated func path(host: String, absPath: String, version: String?) -> URL {
-    let identity = version.map { absPath + "\u{0}v=" + $0 } ?? absPath
-    let digest = SHA256.hash(data: Data(identity.utf8))
+  private nonisolated func path(host: String, absPath: String) -> URL {
+    let digest = SHA256.hash(data: Data(absPath.utf8))
       .map { String(format: "%02x", $0) }.joined()
     return baseDir
       .appendingPathComponent(host, isDirectory: true)
