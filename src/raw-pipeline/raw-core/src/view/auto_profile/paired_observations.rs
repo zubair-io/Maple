@@ -3,10 +3,11 @@ use super::{
     fit_display::orient_rgb_f32_to_display,
     fit_registration::Warp,
     lut::ColorLut,
-    paired_fit::{corners, corners_at},
+    paired_fit::{corners, corners_at, CELLS},
     preview::{self, ExtractedPreview},
 };
 use crate::image::ExifOrientation;
+use rayon::prelude::*;
 
 #[cfg_attr(feature = "stage-dump", derive(serde::Serialize))]
 pub(super) struct Observation {
@@ -219,7 +220,7 @@ fn build_at_scale(
     if width == 0 || height == 0 || pixels.len() != width.checked_mul(height)?.checked_mul(3)? {
         return None;
     }
-    if pixels.iter().any(|v| !v.is_finite()) {
+    if pixels.par_iter().any(|v| !v.is_finite()) {
         return None;
     }
     let (width, height, source) = orient_rgb_f32_to_display(pixels, width, height, orientation);
@@ -252,122 +253,138 @@ fn build_at_scale(
     let target_xs = spans(original_w, tw);
     let target_ys = spans(original_h, th);
     let (nx, ny) = (tw.min(256), th.min(256));
-    let mut observations = Vec::with_capacity(nx * ny);
-    let mut weights = [0.; super::paired_fit::CELLS];
-    let mut active = Vec::new();
-    let mut artifact_weights = vec![0.; baseline.size.pow(3)];
-    let mut artifact_active = Vec::new();
-    for gy in 0..ny {
-        for gx in 0..nx {
-            let seed = mix((gx as u64 + 1).wrapping_mul(0x9e3779b97f4a7c15) ^ (gy as u64 + 1));
-            let (x0, x1) = (gx * tw / nx, (gx + 1) * tw / nx);
-            let (y0, y1) = (gy * th / ny, (gy + 1) * th / ny);
-            let (x, y) = match sampling {
-                Sampling::Geometry => ((x0 + x1) / 2, (y0 + y1) / 2),
-                _ => (within(seed, x0, x1), within(seed >> 32, y0, y1)),
-            };
-            let ((sx0, sx1), (sy0, sy1)) = if let Sampling::Aligned(warp) = sampling {
-                let (u, v) = ((x as f64 + 0.5) / tw as f64, (y as f64 + 0.5) / th as f64);
-                let center = warp.map(u, v);
-                let support = warp.support(cw, ch, tw, th, u, v);
-                let Some(sx) = transformed_span(center[0] * cw as f64, support[0], cw) else {
-                    continue;
-                };
-                let Some(sy) = transformed_span(center[1] * ch as f64, support[1], ch) else {
-                    continue;
-                };
-                (sx, sy)
-            } else {
-                (xs[x], ys[y])
-            };
-            let count = ((sx1 - sx0) * (sy1 - sy0)) as f64;
-            let mut base = [0.; 3];
-            for sy in sy0..sy1 {
-                for sx in sx0..sx1 {
-                    let i = ((oy + sy) * width + ox + sx) * 3;
-                    let rgb = [
-                        source[i].clamp(0., 1.),
-                        source[i + 1].clamp(0., 1.),
-                        source[i + 2].clamp(0., 1.),
-                    ];
-                    for (j, w) in corners(rgb) {
-                        if w > 0. {
-                            if weights[j] == 0. {
-                                active.push(j);
+    // Scratch is reset after every cell, so rows build independently and concatenate in serial order.
+    let rows: Vec<Vec<Observation>> = (0..ny)
+        .into_par_iter()
+        .map_init(
+            || {
+                (
+                    [0.; CELLS],
+                    Vec::new(),
+                    vec![0.; baseline.size.pow(3)],
+                    Vec::new(),
+                )
+            },
+            |(weights, active, artifact_weights, artifact_active), gy| {
+                let mut observations = Vec::with_capacity(nx);
+                for gx in 0..nx {
+                    let seed =
+                        mix((gx as u64 + 1).wrapping_mul(0x9e3779b97f4a7c15) ^ (gy as u64 + 1));
+                    let (x0, x1) = (gx * tw / nx, (gx + 1) * tw / nx);
+                    let (y0, y1) = (gy * th / ny, (gy + 1) * th / ny);
+                    let (x, y) = match sampling {
+                        Sampling::Geometry => ((x0 + x1) / 2, (y0 + y1) / 2),
+                        _ => (within(seed, x0, x1), within(seed >> 32, y0, y1)),
+                    };
+                    let ((sx0, sx1), (sy0, sy1)) = if let Sampling::Aligned(warp) = sampling {
+                        let (u, v) = ((x as f64 + 0.5) / tw as f64, (y as f64 + 0.5) / th as f64);
+                        let center = warp.map(u, v);
+                        let support = warp.support(cw, ch, tw, th, u, v);
+                        let Some(sx) = transformed_span(center[0] * cw as f64, support[0], cw)
+                        else {
+                            continue;
+                        };
+                        let Some(sy) = transformed_span(center[1] * ch as f64, support[1], ch)
+                        else {
+                            continue;
+                        };
+                        (sx, sy)
+                    } else {
+                        (xs[x], ys[y])
+                    };
+                    let count = ((sx1 - sx0) * (sy1 - sy0)) as f64;
+                    let mut base = [0.; 3];
+                    for sy in sy0..sy1 {
+                        for sx in sx0..sx1 {
+                            let i = ((oy + sy) * width + ox + sx) * 3;
+                            let rgb = [
+                                source[i].clamp(0., 1.),
+                                source[i + 1].clamp(0., 1.),
+                                source[i + 2].clamp(0., 1.),
+                            ];
+                            for (j, w) in corners(rgb) {
+                                if w > 0. {
+                                    if weights[j] == 0. {
+                                        active.push(j);
+                                    }
+                                    weights[j] += w / count;
+                                }
                             }
-                            weights[j] += w / count;
+                            for (j, w) in corners_at(rgb, baseline.size) {
+                                if w > 0. {
+                                    if artifact_weights[j] == 0. {
+                                        artifact_active.push(j);
+                                    }
+                                    artifact_weights[j] += w / count;
+                                }
+                            }
                         }
                     }
-                    for (j, w) in corners_at(rgb, baseline.size) {
-                        if w > 0. {
-                            if artifact_weights[j] == 0. {
-                                artifact_active.push(j);
+                    let ((tx0, tx1), (ty0, ty1)) = (target_xs[x], target_ys[y]);
+                    let mut average = [0.; 3];
+                    for ty in ty0..ty1 {
+                        let mut horizontal = [0.; 3];
+                        for tx in tx0..tx1 {
+                            let rgb = target
+                                .get_pixel(tx as u32, ty as u32)
+                                .0
+                                .map(|v| v as f32 / 255.);
+                            let normalized =
+                                preview::decode_jpeg_pixel_to_srgb(rgb, preview.color_space);
+                            for c in 0..3 {
+                                horizontal[c] +=
+                                    f64::from((normalized[c] * 255.).round().clamp(0., 255.));
                             }
-                            artifact_weights[j] += w / count;
+                        }
+                        for c in 0..3 {
+                            average[c] += box_byte(horizontal[c], tx1 - tx0);
                         }
                     }
-                }
-            }
-            let ((tx0, tx1), (ty0, ty1)) = (target_xs[x], target_ys[y]);
-            let mut average = [0.; 3];
-            for ty in ty0..ty1 {
-                let mut horizontal = [0.; 3];
-                for tx in tx0..tx1 {
-                    let rgb = target
-                        .get_pixel(tx as u32, ty as u32)
-                        .0
-                        .map(|v| v as f32 / 255.);
-                    let normalized = preview::decode_jpeg_pixel_to_srgb(rgb, preview.color_space);
-                    for c in 0..3 {
-                        horizontal[c] += f64::from((normalized[c] * 255.).round().clamp(0., 255.));
+                    let target = average.map(|v| box_byte(v, ty1 - ty0) / 255.);
+                    let mut row = Vec::with_capacity(active.len());
+                    let mut identity = [0.; 3];
+                    for &j in active.iter() {
+                        let w = weights[j];
+                        row.push((j, w));
+                        weights[j] = 0.;
+                        let rgb = [
+                            j % super::paired_fit::GRID,
+                            (j / super::paired_fit::GRID) % super::paired_fit::GRID,
+                            j / (super::paired_fit::GRID * super::paired_fit::GRID),
+                        ];
+                        for c in 0..3 {
+                            identity[c] += w * rgb[c] as f64 / (super::paired_fit::GRID - 1) as f64;
+                        }
                     }
+                    active.clear();
+                    let mut artifact_row = Vec::with_capacity(artifact_active.len());
+                    for &j in artifact_active.iter() {
+                        let w = artifact_weights[j];
+                        artifact_row.push((j, w));
+                        artifact_weights[j] = 0.;
+                        for c in 0..3 {
+                            base[c] += w * f64::from(baseline.data[j * 3 + c]);
+                        }
+                    }
+                    artifact_active.clear();
+                    observations.push(Observation {
+                        weights: row,
+                        artifact_weights: artifact_row,
+                        source: identity,
+                        target,
+                        baseline: base,
+                        population: (x1 - x0) * (y1 - y0),
+                        validation: mix(seed ^ 0x517cc1b727220a95) % 4 == 0,
+                        in_bias_region: in_bias_region(x, y, tw, th),
+                        region: (y * 8 / th) * 8 + x * 8 / tw,
+                    });
                 }
-                for c in 0..3 {
-                    average[c] += box_byte(horizontal[c], tx1 - tx0);
-                }
-            }
-            let target = average.map(|v| box_byte(v, ty1 - ty0) / 255.);
-            let mut row = Vec::with_capacity(active.len());
-            let mut identity = [0.; 3];
-            for &j in &active {
-                let w = weights[j];
-                row.push((j, w));
-                weights[j] = 0.;
-                let rgb = [
-                    j % super::paired_fit::GRID,
-                    (j / super::paired_fit::GRID) % super::paired_fit::GRID,
-                    j / (super::paired_fit::GRID * super::paired_fit::GRID),
-                ];
-                for c in 0..3 {
-                    identity[c] += w * rgb[c] as f64 / (super::paired_fit::GRID - 1) as f64;
-                }
-            }
-            active.clear();
-            let mut artifact_row = Vec::with_capacity(artifact_active.len());
-            for &j in &artifact_active {
-                let w = artifact_weights[j];
-                artifact_row.push((j, w));
-                artifact_weights[j] = 0.;
-                for c in 0..3 {
-                    base[c] += w * f64::from(baseline.data[j * 3 + c]);
-                }
-            }
-            artifact_active.clear();
-            observations.push(Observation {
-                weights: row,
-                artifact_weights: artifact_row,
-                source: identity,
-                target,
-                baseline: base,
-                population: (x1 - x0) * (y1 - y0),
-                validation: mix(seed ^ 0x517cc1b727220a95) % 4 == 0,
-                in_bias_region: in_bias_region(x, y, tw, th),
-                region: (y * 8 / th) * 8 + x * 8 / tw,
-            });
-        }
-    }
+                observations
+            },
+        )
+        .collect();
     Some(ObservationSet {
-        rows: observations,
+        rows: rows.into_iter().flatten().collect(),
         grid_width: nx,
         grid_height: ny,
         frame: [tw, th],
@@ -375,182 +392,8 @@ fn build_at_scale(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn aligned_training_samples_corresponding_pixels_without_changing_identity_observations() {
-        let image = image::RgbImage::from_fn(64, 64, |x, y| {
-            image::Rgb([(x * 3) as u8, (y * 3) as u8, 64])
-        });
-        let pixels: Vec<_> = image.as_raw().iter().map(|v| *v as f32 / 255.).collect();
-        let target = image::RgbImage::from_fn(64, 64, |x, y| *image.get_pixel((x + 3).min(63), y));
-        let preview = ExtractedPreview {
-            image: image::DynamicImage::ImageRgb8(target),
-            color_space: preview::JpegColorSpace::SRgb,
-        };
-        let prior = ColorLut::identity(33);
-        let plain = build(&pixels, 64, 64, ExifOrientation::Normal, &preview, &prior).unwrap();
-        let identity = build_aligned(
-            &pixels,
-            64,
-            64,
-            ExifOrientation::Normal,
-            &preview,
-            &prior,
-            Warp::IDENTITY,
-        )
-        .unwrap();
-        for (a, b) in plain.rows.iter().zip(&identity.rows) {
-            assert_eq!(a.weights, b.weights);
-            assert_eq!(a.artifact_weights, b.artifact_weights);
-            assert_eq!(a.baseline, b.baseline);
-            assert_eq!(a.target, b.target);
-        }
-        let aligned = build_aligned(
-            &pixels,
-            64,
-            64,
-            ExifOrientation::Normal,
-            &preview,
-            &prior,
-            Warp {
-                coefficients: [1., 0., 3. / 64., 0., 1., 0.],
-                ..Warp::IDENTITY
-            },
-        )
-        .unwrap();
-        assert_eq!(aligned.rows.len(), 61 * 64);
-        for row in aligned.rows {
-            for c in 0..3 {
-                assert!((row.source[c] - row.target[c]).abs() < 1e-6);
-            }
-        }
-    }
-
-    #[test]
-    fn legacy_bias_window_uses_exact_native_pixel_bounds_and_ties_even() {
-        for (width, height, bx, by) in [(1616, 1080, 162, 108), (25, 35, 2, 4), (35, 25, 4, 2)] {
-            assert!(in_bias_region(bx, by, width, height));
-            assert!(in_bias_region(
-                width - bx - 1,
-                height - by - 1,
-                width,
-                height
-            ));
-            assert!(!in_bias_region(bx - 1, by, width, height));
-            assert!(!in_bias_region(width - bx, by, width, height));
-            assert!(!in_bias_region(bx, by - 1, width, height));
-            assert!(!in_bias_region(bx, height - by, width, height));
-        }
-    }
-
-    #[test]
-    fn display_target_matches_pillow_box_after_srgb_quantization() {
-        let examples: [(usize, usize, usize, &[u8]); 3] = [
-            (
-                128,
-                64,
-                32,
-                include_bytes!(concat!(
-                    env!("CARGO_MANIFEST_DIR"),
-                    "/../../../test-fixtures/auto-jpeg-quality/box-target-32x16.png"
-                )),
-            ),
-            (
-                128,
-                64,
-                57,
-                include_bytes!(concat!(
-                    env!("CARGO_MANIFEST_DIR"),
-                    "/../../../test-fixtures/auto-jpeg-quality/box-target-57x28.png"
-                )),
-            ),
-            (
-                384,
-                192,
-                32,
-                include_bytes!(concat!(
-                    env!("CARGO_MANIFEST_DIR"),
-                    "/../../../test-fixtures/auto-jpeg-quality/box-target-32x16-factor12.png"
-                )),
-            ),
-        ];
-        for (width, height, edge, png) in examples {
-            let image = image::RgbImage::from_fn(width as u32, height as u32, |x, y| {
-                image::Rgb([
-                    ((13 * x + 11 * y) % 256) as u8,
-                    ((7 * x + 5 * y) % 256) as u8,
-                    ((x * x + 3 * y) % 256) as u8,
-                ])
-            });
-            let preview = ExtractedPreview {
-                image: image::DynamicImage::ImageRgb8(image),
-                color_space: preview::JpegColorSpace::SRgb,
-            };
-            let pixels = vec![0.5; width * height * 3];
-            let expected = image::load_from_memory(png).unwrap().to_rgb8();
-            let rows = build_at_scale(
-                &pixels,
-                width,
-                height,
-                ExifOrientation::Normal,
-                &preview,
-                &ColorLut::identity(33),
-                Some(edge),
-                Sampling::Jittered,
-            )
-            .unwrap()
-            .rows;
-            assert_eq!(rows.len(), (expected.width() * expected.height()) as usize);
-            for (row, pixel) in rows.iter().zip(expected.pixels()) {
-                for c in 0..3 {
-                    assert_eq!(row.target[c], f64::from(pixel.0[c]) / 255.);
-                }
-            }
-        }
-    }
-    #[test]
-    fn aspect_crop_rounds_half_to_even_like_the_comparator() {
-        let image = image::RgbImage::from_fn(17, 16, |x, y| image::Rgb([x as u8, y as u8, 0]));
-        let preview = ExtractedPreview {
-            image: image::DynamicImage::ImageRgb8(image),
-            color_space: preview::JpegColorSpace::SRgb,
-        };
-        let mut pixels = vec![0.; 44 * 40 * 3];
-        for y in 0..40 {
-            for x in 0..44 {
-                pixels[(y * 44 + x) * 3] = x as f32 / 43.;
-            }
-        }
-        let rows = build(
-            &pixels,
-            44,
-            40,
-            ExifOrientation::Normal,
-            &preview,
-            &ColorLut::identity(33),
-        )
-        .unwrap()
-        .rows;
-        let bounds = spans(42, 17);
-        for row in rows {
-            let x = (row.target[0] * 255.).round() as usize;
-            let (lo, hi) = bounds[x];
-            let expected = (1. + (lo + hi - 1) as f64 * 0.5) / 43.;
-            assert!((row.source[0] - expected).abs() < 1e-6);
-        }
-    }
-    #[test]
-    fn sample_coordinates_do_not_depend_on_pointer_width() {
-        assert_eq!(within(0xfedcba9876543210, 10, 58), 10);
-        assert_eq!(within(0xfedcba9876543210u64 as u32 as u64, 10, 58), 26);
-    }
-    #[test]
-    fn box_spans_follow_pixel_centers_for_resize_in_both_directions() {
-        assert_eq!(spans(5, 3), vec![(0, 2), (2, 3), (3, 5)]);
-        assert_eq!(spans(3, 5), vec![(0, 1), (0, 1), (1, 2), (2, 3), (2, 3)]);
-    }
-}
+#[path = "paired_observations_tests.rs"]
+mod tests;
 
 #[cfg(test)]
 #[path = "paired_observations_geometry_tests.rs"]
