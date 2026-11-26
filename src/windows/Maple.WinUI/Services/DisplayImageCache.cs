@@ -13,7 +13,7 @@ namespace Maple.WinUI.Services;
 /// of worker threads per live image (#3875). Never hand those files to XAML.</summary>
 internal static class DisplayImageCache
 {
-    private static readonly SemaphoreSlim Gate = new(1);
+    private static readonly SemaphoreSlim Gate = new(Math.Clamp(Environment.ProcessorCount / 2, 1, 4));
 
     internal static async Task<string?> PrepareAsync(string? source, int maxPixels,
         CancellationToken cancellation, string? cacheDirectory = null)
@@ -43,7 +43,8 @@ internal static class DisplayImageCache
                 if (result != 0) throw new InvalidDataException(RawFfi.LastError() ?? "Display image decode failed.");
             }, cancellation).ConfigureAwait(false);
             cancellation.ThrowIfCancellationRequested();
-            File.Move(temporary, target, overwrite: true);
+            try { File.Move(temporary, target, overwrite: false); }
+            catch (IOException) when (File.Exists(target)) { }
             return target;
         }
         catch (Exception error) when (error is IOException or UnauthorizedAccessException or InvalidDataException)
