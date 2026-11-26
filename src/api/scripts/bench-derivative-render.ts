@@ -11,7 +11,7 @@
  */
 import { Database } from 'bun:sqlite';
 import { readdirSync } from 'node:fs';
-import { mkdir, rm, writeFile } from 'node:fs/promises';
+import { constants, copyFile, mkdir, rm, writeFile } from 'node:fs/promises';
 import { basename, extname, join } from 'node:path';
 import {
   FOLDER_ID,
@@ -65,8 +65,11 @@ async function main() {
   const picks: Pick[] = names.map((name, i) => ({ name, edited: i % 2 === 1 }));
   await mkdir(work.library, { recursive: true });
   for (const pick of picks) {
-    await Bun.spawn(['cp', '-c', join(fixtureDir, pick.name), join(work.library, pick.name)])
-      .exited;
+    await copyFile(
+      join(fixtureDir, pick.name),
+      join(work.library, pick.name),
+      constants.COPYFILE_FICLONE,
+    );
     if (pick.edited) {
       const stem = basename(pick.name, extname(pick.name));
       await writeFile(join(work.library, `${stem}.xmp`), EDITED_SIDECAR);
