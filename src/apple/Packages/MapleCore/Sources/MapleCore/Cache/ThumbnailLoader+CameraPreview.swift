@@ -40,7 +40,9 @@ extension ThumbnailLoader {
   nonisolated static func embeddedCameraAVIF(
     at url: URL, targetLongEdge: CGFloat, quality: CGFloat
   ) -> Data? {
-    guard let bytes = embeddedCameraJPEG(at: url),
+    let seeded = cameraPreviewCache.object(
+      forKey: ThumbnailDiskCache.memoryKey(for: url) as NSString) as Data?
+    guard let bytes = seeded ?? embeddedCameraJPEG(at: url),
       let source = CGImageSourceCreateWithData(bytes as CFData, nil),
       let image = CGImageSourceCreateImageAtIndex(source, 0, nil)
     else { return nil }
@@ -65,7 +67,7 @@ extension ThumbnailLoader {
 
   private func joinCameraPreview(for asset: AssetRef, url: URL) async -> Data? {
     let cacheKey = ThumbnailDiskCache.memoryKey(for: url) as NSString
-    if let cached = cameraPreviewCache.object(forKey: cacheKey) as Data? {
+    if let cached = Self.cameraPreviewCache.object(forKey: cacheKey) as Data? {
       return cached
     }
     let key = "camera-preview:" + url.absoluteString
@@ -87,7 +89,7 @@ extension ThumbnailLoader {
   ) -> Task<Data?, Never> {
     if let existing = inFlight[key], !existing.isCancelled { return existing }
     let gate = cameraPreviewGate
-    let cache = cameraPreviewCache
+    let cache = Self.cameraPreviewCache
     let task = Task.detached(priority: .userInitiated) { () -> Data? in
       do { try await gate.acquire() } catch { return nil }
       let accessing = scope.startAccessingSecurityScopedResource()
