@@ -7,7 +7,6 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Threading.Tasks;
 using Maple.WinUI.Services;
 using Maple.WinUI.Services.FileOperations;
 using Maple.WinUI.ViewModels;
@@ -42,43 +41,63 @@ namespace Maple.WinUI.Tests
             return watcher;
         }
 
-        private static async Task<bool> UntilAsync(Func<bool> condition)
-        {
-            var deadline = Environment.TickCount64 + 8000;
-            while (!condition() && Environment.TickCount64 < deadline) await Task.Delay(50);
-            return condition();
-        }
-
         [Fact]
-        public async Task AMefArrivingRemainingAndLeaving_ReachesTheInventoryButNeverTheGrid()
+        public void AMefArrivingRemainingAndLeaving_ReachesTheInventoryButNeverTheGrid()
         {
             var shown = new List<string>();
             using var watcher = Watcher(shown, out var events);
-            watcher.Watch(_dir);
             var mef = Path.Combine(_dir, "IMG.MEF");
+            var renamed = Path.Combine(_dir, "IMG2.MEF");
 
             File.WriteAllText(mef, "raw");
-            Assert.True(await UntilAsync(() => events() >= 1));
-            var afterAdd = events();
-            File.Move(mef, Path.Combine(_dir, "IMG2.MEF"));
-            Assert.True(await UntilAsync(() => events() > afterAdd));
-            var afterRename = events();
-            File.Delete(Path.Combine(_dir, "IMG2.MEF"));
-            Assert.True(await UntilAsync(() => events() > afterRename));
+            watcher.QueueAdded(mef);
+            watcher.Flush();
+            Assert.Equal(1, events());
 
+            File.Move(mef, renamed);
+            watcher.QueueRenamed(mef, renamed);
+            watcher.Flush();
+            Assert.Equal(2, events());
+
+            File.Delete(renamed);
+            watcher.QueueRemoved(renamed);
+            watcher.Flush();
+            Assert.Equal(3, events());
             Assert.Empty(shown);
         }
 
         [Fact]
-        public async Task ADisplayedFile_StillArrivesAsATile()
+        public void ADisplayedFile_StillArrivesAsATile_WithoutAnInventoryEvent()
         {
             var shown = new List<string>();
-            using var watcher = Watcher(shown, out _);
-            watcher.Watch(_dir);
+            using var watcher = Watcher(shown, out var events);
+            var raw = Path.Combine(_dir, "IMG.CR3");
 
-            File.WriteAllText(Path.Combine(_dir, "IMG.CR3"), "raw");
+            File.WriteAllText(raw, "raw");
+            watcher.QueueAdded(raw);
+            watcher.Flush();
 
-            Assert.True(await UntilAsync(() => { lock (shown) return shown.Count == 1; }));
+            Assert.Equal(new[] { raw }, shown);
+            Assert.Equal(0, events());
+        }
+
+        [Fact]
+        public void ADisplayedRawRenamedToAMef_LeavesTheGridAndReachesTheInventory()
+        {
+            var shown = new List<string>();
+            var removed = new List<string>();
+            using var watcher = Watcher(shown, out var events);
+            watcher.ChangesReady += (_, gone) => removed.AddRange(gone);
+            var cr3 = Path.Combine(_dir, "IMG.CR3");
+            var mef = Path.Combine(_dir, "IMG.MEF");
+            File.WriteAllText(mef, "raw");
+
+            watcher.QueueRenamed(cr3, mef);
+            watcher.Flush();
+
+            Assert.Equal(new[] { cr3 }, removed);
+            Assert.Empty(shown);
+            Assert.Equal(1, events());
         }
 
         private static PhotoItem Photo(string path) => new()
