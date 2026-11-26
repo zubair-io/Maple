@@ -83,6 +83,8 @@ impl GpuPreview {
         }
         let (width, height) = (capture.width, capture.height);
         let session = LiveSession::new(ctx, &capture.rgba, width, height)?;
+        // Reserved alongside the session's own buffers, so no render that keeps a session allocates it.
+        session.reserve_resume_cut(ctx);
         let film = crate::film::resolve(&model.film_look)?;
         let display_dims = if raw.orientation.swaps_wh() {
             (height, width)
@@ -183,9 +185,6 @@ impl GpuPreview {
             let uploads = self.uploads + 1;
             *self = replacement;
             self.uploads = uploads;
-        } else {
-            // A prefix drag replaces the session every tick, so only one that survives a render reserves.
-            self.session.reserve_resume_cut(ctx);
         }
         self.profile.update(model);
         let film = crate::film::resolve(&model.film_look)?;
