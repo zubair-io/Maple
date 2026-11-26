@@ -9,6 +9,7 @@
 import { Elysia } from 'elysia';
 import * as path from 'node:path';
 import { resolveOriginalAddressRead } from '../../library/original-read.ts';
+import { ifNoneMatchEqual } from '../../runtime/http-etag.ts';
 import {
   mimeForExt,
   streamFileRange,
@@ -56,9 +57,16 @@ export const imageRoutes = new Elysia().get(
       return { error: 'File not found' };
     }
 
+    const etag = `"${Math.floor(source.stat.mtimeMs)}-${source.stat.size}"`;
+    if (ifNoneMatchEqual(headers['if-none-match'], etag)) {
+      return new Response(null, {
+        status: 304,
+        headers: { ETag: etag, 'Cache-Control': 'private, max-age=0, must-revalidate' },
+      });
+    }
     const contentType = mimeForExt(ext);
     const resp = streamFileRange(source.path, contentType, source.stat.size, headers.range);
-    resp.headers.set('ETag', `"${Math.floor(source.stat.mtimeMs)}-${source.stat.size}"`);
+    resp.headers.set('ETag', etag);
     return resp;
   },
   {

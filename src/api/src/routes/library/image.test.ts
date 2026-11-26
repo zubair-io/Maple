@@ -72,6 +72,25 @@ describe('GET /image/:slug/*', () => {
     expect(res.headers.get('Content-Type')).toBe('image/dng');
   });
 
+  test('answers a matching If-None-Match with 304 and no body, and a stale one with the file', async () => {
+    await writeFile(path.join(tmpDir, 'cond.dng'), Buffer.from('conditional-dng'));
+    const first = await app.handle(new Request('http://localhost/image/imglib/cond.dng'));
+    const etag = first.headers.get('ETag')!;
+    const unchanged = await app.handle(
+      new Request('http://localhost/image/imglib/cond.dng', { headers: { 'If-None-Match': etag } }),
+    );
+    expect(unchanged.status).toBe(304);
+    expect(unchanged.headers.get('ETag')).toBe(etag);
+    expect(await unchanged.text()).toBe('');
+    const stale = await app.handle(
+      new Request('http://localhost/image/imglib/cond.dng', {
+        headers: { 'If-None-Match': '"0-0"' },
+      }),
+    );
+    expect(stale.status).toBe(200);
+    expect(await stale.text()).toBe('conditional-dng');
+  });
+
   test('rejects path traversal attempt', async () => {
     const res = await app.handle(
       new Request('http://localhost/image/imglib/..%2F..%2Fetc%2Fpasswd'),
