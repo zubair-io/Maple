@@ -26,6 +26,7 @@ describe('coerceFfiRequest', () => {
       [
         'asShot',
         'exportRecipe',
+        'exportRecipePair',
         'histogram',
         'registerLensProfile',
         'renderBitmap',

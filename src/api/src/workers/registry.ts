@@ -138,6 +138,12 @@ class StageRegistry {
     return [...this.entries.keys()];
   }
 
+  /** True while the named stage is started and not paused. */
+  isAccepting(name: string): boolean {
+    const entry = this.entries.get(name);
+    return entry !== undefined && !entry.getPaused();
+  }
+
   statuses(): Record<string, StageStatusSnapshot> {
     const out: Record<string, StageStatusSnapshot> = {};
     // First emit any pre-registered stage whose live entry hasn't arrived

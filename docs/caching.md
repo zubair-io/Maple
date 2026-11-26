@@ -34,6 +34,8 @@ Because an existing `.maple/thumbs/` entry is served as-is by every other client
 
 Previews have their own agreed parameters: **1280 px long edge, AVIF quality ~0.7** (`PREVIEW_LONG_EDGE_PX` / quality `70` in `src/api/src/indexer/previewer.ts`; `displayPreviewLongEdge` / `displayPreviewAvifQuality` in `src/apple/Packages/MapleCore/Sources/MapleCore/Cache/ThumbnailLoader+DisplayPreview.swift`).
 
+On the server, the `thumb` stage's develop of an edited RAW also writes that asset's preview from the same decode while the `preview` stage is running (#6034). The file is byte-for-byte what the `preview` stage writes, under the same name and the same freshness rule, and that stage still checks it; see [indexer-enrichment](indexer-enrichment.md).
+
 ## No pipeline version
 
 There is no pipeline output version. The monotonic counter that once answered "the pipeline now produces different pixels for the same RAW + sidecar — how does every derived artifact know it's stale?" was retired in #5007: shared derivatives had already been decoupled from it in #4793, and its remaining consumers (evidence records, generated mirrors) cost more in re-recording and PR serialisation than they returned. Derivatives are refreshed only when the original or its sidecar changes; a colour-only pipeline change deliberately does not invalidate a shared thumb or preview until that asset is next edited or regenerated. What remains is the state #4793 established, and it must not be re-coupled:

@@ -59,15 +59,75 @@ function wellFormedSidecar(xml: string, xmpPath: string): string {
   }
 }
 
+/** A second size the same develop may also write, at its own private path. */
+export interface CompanionDerivative {
+  outPath: string;
+  maxPx: number;
+  quality: number;
+}
+
+function recipeJson(maxPx: number): string {
+  return JSON.stringify({ ...DEFAULT_EXPORT_RECIPE, quality: 90, maxLongEdge: maxPx });
+}
+
+/** Develop both sizes from one read and one decode of the RAW (#6034). Null
+ * when the paired render is unavailable or fails, so the caller develops the
+ * requested size exactly as it would with no companion. */
+async function developPair(
+  rawPath: string,
+  xml: string,
+  first: { maxPx: number; jpegPath: string },
+  second: { maxPx: number; jpegPath: string },
+): Promise<{ second: boolean } | null> {
+  try {
+    return await ffiPool().exportRecipePairToFiles(
+      rawPath,
+      xml,
+      await filmLutDirectory(),
+      { recipeJson: recipeJson(first.maxPx), outPath: first.jpegPath },
+      { recipeJson: recipeJson(second.maxPx), outPath: second.jpegPath },
+    );
+  } catch (error) {
+    await Promise.all([rm(first.jpegPath, { force: true }), rm(second.jpegPath, { force: true })]);
+    log.debug(
+      { rawPath, err: error instanceof Error ? error.message : error },
+      'paired sidecar develop failed; developing one size',
+    );
+    return null;
+  }
+}
+
+async function encodeCompanion(
+  rawPath: string,
+  jpegPath: string,
+  companion: CompanionDerivative,
+): Promise<void> {
+  const encoded = await renderImageThumbToFileViaPool(
+    jpegPath,
+    companion.outPath,
+    companion.maxPx,
+    companion.quality,
+    'jpg',
+  ).catch((error: unknown) => ({ ok: false, error: String(error) }));
+  if (encoded.ok) return;
+  await rm(companion.outPath, { force: true }).catch(() => undefined);
+  log.warn({ rawPath, err: encoded.error }, 'companion derivative encode failed');
+}
+
 /** Cold-cache RAW regeneration. Null means there is no sidecar, or one whose
  * adjustments are all default (a 0-byte file, empty RDF or metadata only), so
  * the caller renders exactly as for a sidecarless RAW. A sidecar with authored
- * adjustments must develop, with no fallthrough to camera-original pixels. */
+ * adjustments must develop, with no fallthrough to camera-original pixels.
+ *
+ * `companion` is asked for only once the RAW is known to develop. A file at
+ * its `outPath` afterwards is a complete second size; its absence, for any
+ * reason, never changes this call's result. */
 export async function renderRawSidecarDerivative(
   rawPath: string,
   outPath: string,
   maxPx: number,
   quality: number,
+  companion?: () => Promise<CompanionDerivative | null>,
 ): Promise<true | null> {
   const xmpPath = xmpSidecarPath(rawPath);
   const source = await readFile(xmpPath, 'utf8').catch((error: unknown) => {
@@ -84,18 +144,31 @@ export async function renderRawSidecarDerivative(
   if (!(await ffiPool().sidecarHasRenderAdjustments(xml))) return null;
   const snapshotPath = `${outPath}.tmp.develop.${randomUUID()}`;
   const jpegPath = `${snapshotPath}.jpg`;
+  const companionJpegPath = `${snapshotPath}.companion.jpg`;
   try {
-    const recipe = { ...DEFAULT_EXPORT_RECIPE, quality: 90, maxLongEdge: maxPx };
-    const developed = await ffiPool()
-      .exportRecipeToFile(rawPath, xml, JSON.stringify(recipe), await filmLutDirectory(), jpegPath)
-      .catch((error: unknown) => {
-        throw isUnsupportedSource(error) ? new AuthoredSidecarRenderError(rawPath, error) : error;
-      });
-    if (!developed) throw new Error(`RAW sidecar develop failed: ${rawPath}`);
+    const second = (await companion?.().catch(() => null)) ?? null;
+    const paired =
+      second &&
+      (await developPair(
+        rawPath,
+        xml,
+        { maxPx, jpegPath },
+        { maxPx: second.maxPx, jpegPath: companionJpegPath },
+      ));
+    if (!paired) {
+      const developed = await ffiPool()
+        .exportRecipeToFile(rawPath, xml, recipeJson(maxPx), await filmLutDirectory(), jpegPath)
+        .catch((error: unknown) => {
+          throw isUnsupportedSource(error) ? new AuthoredSidecarRenderError(rawPath, error) : error;
+        });
+      if (!developed) throw new Error(`RAW sidecar develop failed: ${rawPath}`);
+    }
     const encoded = await renderImageThumbToFileViaPool(jpegPath, outPath, maxPx, quality, 'jpg');
     if (!encoded.ok) throw new Error(`RAW sidecar AVIF encode failed: ${encoded.error ?? rawPath}`);
+    if (second && paired && paired.second)
+      await encodeCompanion(rawPath, companionJpegPath, second);
     return true;
   } finally {
-    await rm(jpegPath, { force: true });
+    await Promise.all([rm(jpegPath, { force: true }), rm(companionJpegPath, { force: true })]);
   }
 }

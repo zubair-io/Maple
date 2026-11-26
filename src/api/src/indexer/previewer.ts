@@ -87,6 +87,13 @@ const RAW_EXTS = new Set([
  * photos at the cost of ~10 s/image on phoebe. */
 export const PREVIEW_LONG_EDGE_PX = 1280;
 
+/** AVIF quality of the preview tier. This tier is both the client-facing "swap
+ * in over the thumbnail" preview and (after describe.ts's in-memory JPEG
+ * re-encode) the VLM's input, so it needs materially more fidelity than the
+ * grid-thumbnail tier's quality-55 AVIF, but AVIF's efficiency means it doesn't
+ * need JPEG-equivalent-looking quality numbers to get there. */
+export const PREVIEW_AVIF_QUALITY = 70;
+
 /** Extension suffix for `cachePathFor`/`cachePathForAsset`'s previews branch.
  * The preview is a single, unversioned AVIF per asset — no size token, no
  * version token — so the suffix is just the bare `avif` extension. Every
@@ -250,15 +257,9 @@ async function renderRawPreviewToFile(rawPath: string, outPath: string): Promise
     rawPath,
     outPath,
     PREVIEW_LONG_EDGE_PX,
-    70,
+    PREVIEW_AVIF_QUALITY,
   );
   if (sidecarRender !== null) return sidecarRender;
-  // quality 70 — this tier is both the client-facing "swap in over the
-  // thumbnail" preview and (after describe.ts's in-memory JPEG re-encode)
-  // the VLM's input, so it needs materially more fidelity than the 256px
-  // grid-thumbnail tier's quality-55 AVIF, but AVIF's efficiency means it
-  // doesn't need JPEG-equivalent-looking quality numbers to get there.
-  //
   // Extraction failure REJECTS here rather than returning false: the pool
   // marshals the child's error across the process boundary as a throw, and
   // the underlying rc (8 = "no embedded preview / thumbnail in RAW") does
@@ -270,7 +271,14 @@ async function renderRawPreviewToFile(rawPath: string, outPath: string): Promise
   // returns false, one log line later.
   let extractError: string | null = null;
   try {
-    if (await pool.renderThumbnailAvifToFile(rawPath, outPath, PREVIEW_LONG_EDGE_PX, 70)) {
+    if (
+      await pool.renderThumbnailAvifToFile(
+        rawPath,
+        outPath,
+        PREVIEW_LONG_EDGE_PX,
+        PREVIEW_AVIF_QUALITY,
+      )
+    ) {
       return true;
     }
     extractError = 'extraction returned false';
@@ -377,12 +385,11 @@ async function renderBitmapPreviewToFile(
   ext: string,
   isOriginal = false,
 ): Promise<boolean> {
-  // AVIF, quality 70 — matches the RAW path's rationale above.
   const result = await renderImageThumbToFileViaPool(
     srcPath,
     outPath,
     PREVIEW_LONG_EDGE_PX,
-    70,
+    PREVIEW_AVIF_QUALITY,
     ext,
     isOriginal,
   ).catch((e: unknown) => logRenderFailure({ srcPath }, e, 'FFI pool threw'));

@@ -54,6 +54,11 @@ function yieldRemainingMs(): number {
   return interactiveSince === null ? 0 : interactiveSince + MAX_YIELD_MS - Date.now();
 }
 
+/** True while background preview renders hold back for an on-demand request. */
+export function backgroundPreviewsYielding(): boolean {
+  return yieldRemainingMs() > 0;
+}
+
 /** Worker boot: listen for the API process's interactive state, then ask for
  * it — a message sent before this listener existed was dropped. */
 export function installWorkerPreviewPriority(): void {

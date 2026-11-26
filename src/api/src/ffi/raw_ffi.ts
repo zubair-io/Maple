@@ -24,6 +24,7 @@ import {
 } from 'maple';
 import { child as childLogger } from '../log.ts';
 import { developRenderSucceeded } from './unsupported-camera.ts';
+import { bindRecipePairExport, type RecipePairExport } from './recipe-pair-ffi.ts';
 import type { HistogramBins } from '../thumbs/histogram.ts';
 import type * as BunFfi from 'bun:ffi';
 
@@ -84,6 +85,9 @@ export interface RawFfi {
     filmPath: string | null,
     outPath: string,
   ): string | null;
+  /** Two recipe renders from one read and one decode (#6034). Absent on a
+   * dylib built before it; callers then render each recipe separately. */
+  exportRecipePairToFiles?: RecipePairExport;
   /** Whether a sidecar document parses, exactly as the recipe renderer parses
    * it, to anything other than the default model. Absent on a dylib built
    * before #5231; callers then treat the sidecar as authored. */
@@ -280,8 +284,10 @@ function loadFfi(): RawFfi | null {
     });
 
     const xmpHasRenderAdjustments = bindSidecarAdjustmentCheck(libPath);
+    const exportRecipePairToFiles = bindRecipePairExport(libPath);
     return {
       ...(xmpHasRenderAdjustments ? { xmpHasRenderAdjustments } : {}),
+      ...(exportRecipePairToFiles ? { exportRecipePairToFiles } : {}),
       asShotWhiteBalance(rawAbsPath) {
         const raw = Buffer.from(rawAbsPath + '\0');
         const pair = Buffer.alloc(8);

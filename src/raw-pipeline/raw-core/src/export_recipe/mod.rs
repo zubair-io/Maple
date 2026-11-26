@@ -241,8 +241,70 @@ pub fn export_with_recipe(
         .map_err(|e| e.to_string())
 }
 
-/// Dispatch original bytes without treating an ordinary JPEG/TIFF as a sensor
-/// mosaic. RAW-in-TIFF containers retain the existing RAW decoder and renderer.
+/// Original bytes opened once for any number of recipe exports. A camera RAW
+/// keeps its sensor decode, so every export after the first skips it; each
+/// export's bytes equal a separate [`export_bytes_with_recipe`] call's.
+pub struct RecipeSource<'a> {
+    bytes: &'a [u8],
+    ext: &'a str,
+    raw: Option<RawImage>,
+}
+
+impl<'a> RecipeSource<'a> {
+    /// Dispatch original bytes without treating an ordinary JPEG/TIFF as a sensor
+    /// mosaic. RAW-in-TIFF containers retain the existing RAW decoder and renderer.
+    pub fn open(bytes: &'a [u8], ext: &'a str) -> Result<Self, String> {
+        // JPEG, PNG and WebP use the existing raster develop chain. TIFF remains
+        // ambiguous because camera RAWs also use it; try the RAW decoder first.
+        let baked_container = bytes.starts_with(&[0xff, 0xd8])
+            || bytes.starts_with(b"\x89PNG\r\n\x1a\n")
+            || (bytes.starts_with(b"RIFF") && bytes.get(8..12) == Some(b"WEBP"));
+        let raw = if baked_container {
+            None
+        } else {
+            match crate::decode::decode_bytes(bytes, ext) {
+                Ok(raw) => Some(raw),
+                Err(error) if !matches!(ext.to_ascii_lowercase().as_str(), "tif" | "tiff") => {
+                    return Err(error.to_string())
+                }
+                Err(_) => None,
+            }
+        };
+        Ok(Self { bytes, ext, raw })
+    }
+
+    pub fn export(
+        &self,
+        model: &AdjustmentModel,
+        recipe: &ExportRecipe,
+        film: Option<&FilmLut>,
+    ) -> Result<ExportedImage, String> {
+        let options = recipe.options()?;
+        if let Some(raw) = &self.raw {
+            let source = RawInput::Bytes {
+                bytes: self.bytes,
+                ext: self.ext,
+            };
+            return export_with_recipe(raw, model, Some(source), recipe, film);
+        }
+        let depth = if recipe.bit_depth == 16 {
+            crate::pipeline::ExportDepth::Sixteen
+        } else {
+            crate::pipeline::ExportDepth::Eight
+        };
+        let (width, height, pixels) = crate::pipeline::render_export_raster(
+            self.bytes,
+            model,
+            options.max_long_edge,
+            options.target,
+            depth,
+            film,
+        )
+        .map_err(|e| e.to_string())?;
+        crate::export::encode_pixels(width, height, pixels, &options).map_err(|e| e.to_string())
+    }
+}
+
 pub fn export_bytes_with_recipe(
     bytes: &[u8],
     ext: &str,
@@ -250,44 +312,8 @@ pub fn export_bytes_with_recipe(
     recipe: &ExportRecipe,
     film: Option<&FilmLut>,
 ) -> Result<ExportedImage, String> {
-    let options = recipe.options()?;
-    // JPEG, PNG and WebP use the existing raster develop chain. TIFF remains
-    // ambiguous because camera RAWs also use it; try the RAW decoder first.
-    let baked_container = bytes.starts_with(&[0xff, 0xd8])
-        || bytes.starts_with(b"\x89PNG\r\n\x1a\n")
-        || (bytes.starts_with(b"RIFF") && bytes.get(8..12) == Some(b"WEBP"));
-    if !baked_container {
-        match crate::decode::decode_bytes(bytes, ext) {
-            Ok(raw) => {
-                return export_with_recipe(
-                    &raw,
-                    model,
-                    Some(RawInput::Bytes { bytes, ext }),
-                    recipe,
-                    film,
-                )
-            }
-            Err(error) if !matches!(ext.to_ascii_lowercase().as_str(), "tif" | "tiff") => {
-                return Err(error.to_string())
-            }
-            Err(_) => {}
-        }
-    }
-    let depth = if recipe.bit_depth == 16 {
-        crate::pipeline::ExportDepth::Sixteen
-    } else {
-        crate::pipeline::ExportDepth::Eight
-    };
-    let (width, height, pixels) = crate::pipeline::render_export_raster(
-        bytes,
-        model,
-        options.max_long_edge,
-        options.target,
-        depth,
-        film,
-    )
-    .map_err(|e| e.to_string())?;
-    crate::export::encode_pixels(width, height, pixels, &options).map_err(|e| e.to_string())
+    recipe.options()?;
+    RecipeSource::open(bytes, ext)?.export(model, recipe, film)
 }
 
 #[cfg(test)]

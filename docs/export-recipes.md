@@ -76,7 +76,7 @@ maple-cli export-recipe /photos/IMG_0001.dng --recipe recipe.json --params /phot
 
 `POST /api/jobs` accepts `kind: "batch_recipe_export"`, a caller-generated 24-character hexadecimal `requestId`, and `payload: { recipe, targets }`. Each target supplies `id`, absolute `path`, immutable `xmp`, zero-based `index`, and nullable `capturedAt`. Requests are limited to 2,000 targets and a 12 MB snapshot payload; larger exports have to be split into batches. `GET /api/jobs/:id?summary=1`, `POST /:id/cancel`, `POST /:id/resume`, and `POST /:id/retry-failed` use the existing authenticated job routes. Reusing a request ID with different content returns 409.
 
-The C ABI exposes `maple_validate_export_recipe`, `maple_export_recipe_filename_buf`, and `maple_export_recipe_to_file`. The render call creates an exclusive staging file; the host owns final publication and the durable ledger. Validation and filename calls are cheap synchronous preflights and return same-thread last-error text on failure.
+The C ABI exposes `maple_validate_export_recipe`, `maple_export_recipe_filename_buf`, and `maple_export_recipe_to_file`. The render call creates an exclusive staging file; the host owns final publication and the durable ledger. `maple_export_recipe_pair_to_files` renders two recipes of one source from a single read and decode (#6034), writing the same bytes as two separate calls; the server uses it for an edited RAW's thumbnail and preview. Validation and filename calls are cheap synchronous preflights and return same-thread last-error text on failure.
 
 ## Verification
 

@@ -225,3 +225,48 @@ fn unresolved_film_is_an_error_instead_of_an_unrequested_different_render() {
             .contains("film LUT unavailable")
     );
 }
+
+#[test]
+fn one_opened_source_exports_the_bytes_of_separate_exports() {
+    let bytes = fixture();
+    let model = AdjustmentModel {
+        exposure: 0.7,
+        contrast: 12.0,
+        ..Default::default()
+    };
+    let source = RecipeSource::open(&bytes, "dng").unwrap();
+    let exports: Vec<_> = [16, 32]
+        .into_iter()
+        .map(|max_long_edge| {
+            let recipe = ExportRecipe {
+                max_long_edge: Some(max_long_edge),
+                ..Default::default()
+            };
+            let shared = source.export(&model, &recipe, None).unwrap();
+            let separate = export_bytes_with_recipe(&bytes, "dng", &model, &recipe, None).unwrap();
+            assert_eq!(shared.bytes, separate.bytes);
+            assert_eq!(shared.width.max(shared.height), max_long_edge);
+            shared.bytes
+        })
+        .collect();
+    assert_ne!(exports[0], exports[1]);
+}
+
+#[test]
+fn an_unreadable_source_fails_to_open_and_an_invalid_recipe_fails_before_the_decode() {
+    assert!(RecipeSource::open(b"not an image", "dng").is_err());
+    let invalid = ExportRecipe {
+        format: "gif".into(),
+        ..Default::default()
+    };
+    let error = export_bytes_with_recipe(
+        b"not an image",
+        "dng",
+        &AdjustmentModel::default(),
+        &invalid,
+        None,
+    )
+    .err()
+    .unwrap();
+    assert_eq!(error, invalid.options().err().unwrap());
+}

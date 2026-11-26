@@ -52,6 +52,7 @@ import {
   type DecodeWeight,
 } from './decode-memory-budget.ts';
 import type { PendingRequest, PoolWorker, WorkerFactory } from './ffi-pool-slots.ts';
+import type { RecipeStaging } from './raw_ffi-protocol.ts';
 
 /** The worker plumbing's public types are re-exported here: `ffi-pool.ts`
  * stays the single import site for consumers (`ffi-child-worker.ts`, the
@@ -223,6 +224,38 @@ class FfiWorkerPool {
       recipeJson,
       filmPath,
       outPath,
+    });
+  }
+
+  /** Render two recipes of one RAW from a single read and decode (#6034),
+   * each staging file as `exportRecipeToFile` would write it. Resolves once
+   * the first file is written, with whether the second was too; REJECTS when
+   * the first render fails or on an infra error. */
+  async exportRecipePairToFiles(
+    rawPath: string,
+    xmp: string,
+    filmPath: string | null,
+    first: RecipeStaging,
+    second: RecipeStaging,
+  ): Promise<{ second: boolean }> {
+    const id = this.requestId();
+    return new Promise((resolve, reject) => {
+      this.enqueue(
+        {
+          id,
+          post: (w) =>
+            w.postMessage({ type: 'exportRecipePair', id, rawPath, xmp, filmPath, first, second }),
+          onResponse: (msg) => {
+            if (msg.type !== 'exportRecipePair') return false;
+            if (msg.ok) resolve({ second: msg.second === true });
+            else reject(new Error(msg.error ?? 'paired recipe render failed'));
+            return true;
+          },
+          onError: reject,
+        },
+        'raw',
+        { weight: 'develop', sourcePath: rawPath },
+      );
     });
   }
 

@@ -184,6 +184,7 @@ pub use scene_linear_chain_haze::MapleHazeMap;
 // raw_core::export (JPEG / 16-bit TIFF / PNG, ICC-tagged, long-edge cap).
 mod export_file;
 mod export_recipe;
+mod export_recipe_pair;
 mod raster_develop;
 mod scene_linear_f32;
 mod scene_linear_f32_buffer;
@@ -300,6 +301,8 @@ mod allocation_counter;
 mod auto_tone_tests;
 #[cfg(test)]
 mod degenerate_preview_tests;
+#[cfg(test)]
+mod export_recipe_pair_tests;
 #[cfg(test)]
 #[path = "filename_tests.rs"]
 mod filename_tests;

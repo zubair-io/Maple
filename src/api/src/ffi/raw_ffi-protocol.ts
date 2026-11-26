@@ -7,8 +7,8 @@
  * would pull the `Bun.spawn`-ing manager into the child).
  *
  * Only small values cross the IPC boundary: a request carries paths + ints; a
- * response carries `ok`/`error` (renderThumb/renderDevelop/exportRecipe
- * write straight to disk inside the child) or the 3×256 histogram bins
+ * response carries `ok`/`error` (renderThumb/renderDevelop/exportRecipe/
+ * exportRecipePair write straight to disk inside the child) or the 3×256 histogram bins
  * (~3 KB). The heavy buffers (the decoded RGB plane, the rendered image)
  * never leave the child.
  */
@@ -97,6 +97,31 @@ export interface ExportRecipeRequest {
   filmPath: string | null;
   outPath: string;
 }
+/** One staging file of a paired recipe render: the recipe and where it lands. */
+export interface RecipeStaging {
+  recipeJson: string;
+  outPath: string;
+}
+/** Render two recipes of one source from a single read and decode (#6034).
+ *  Each staging file holds the bytes `exportRecipe` writes for that recipe. */
+export interface ExportRecipePairRequest {
+  type: 'exportRecipePair';
+  id: number;
+  rawPath: string;
+  xmp: string;
+  filmPath: string | null;
+  first: RecipeStaging;
+  second: RecipeStaging;
+}
+/** `ok` reports the first staging file; `second` whether the second one was
+ *  written as well. A failed second render never clears `ok`. */
+export interface ExportRecipePairResponse {
+  type: 'exportRecipePair';
+  id: number;
+  ok: boolean;
+  second?: boolean;
+  error?: string;
+}
 /** Ask whether a sidecar document carries render adjustments (#5231). */
 export interface SidecarAdjustmentsRequest {
   type: 'sidecarAdjustments';
@@ -127,6 +152,7 @@ export type FfiRequest =
   | AsShotRequest
   | SidecarAdjustmentsRequest
   | ExportRecipeRequest
+  | ExportRecipePairRequest
   | RegisterLensProfileRequest
   | RenderThumbRequest
   | HistogramRequest
@@ -140,6 +166,7 @@ const requestTypes = {
   asShot: true,
   sidecarAdjustments: true,
   exportRecipe: true,
+  exportRecipePair: true,
   registerLensProfile: true,
   renderThumb: true,
   histogram: true,
@@ -207,6 +234,7 @@ export interface ValidateAvifResponse {
 
 export type FfiResponse =
   | { type: 'exportRecipe'; id: number; ok: boolean; error?: string }
+  | ExportRecipePairResponse
   | AsShotResponse
   | SidecarAdjustmentsResponse
   | RegisterLensProfileResponse

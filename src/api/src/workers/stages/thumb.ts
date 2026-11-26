@@ -22,6 +22,10 @@
  *     migration; discover writes sha1_head + maple_id inline at insert so
  *     the new cache-key dependency is satisfied before this stage runs.
  *
+ * An edited RAW's develop also writes the asset's preview from the same decode
+ * while the `preview` stage is rendering (`preview-companion.ts`, #6034). That
+ * stage still owns the preview: it finds the file fresh, or renders it.
+ *
  * Mirroring the written thumbnail to Cloudflare R2 is NOT done here — it's
  * the independent `cf-thumb-sync` stage (`stages/cf-thumb-sync.ts`), which
  * depends on this one. Every rewrite here resets that stage's own version
@@ -53,6 +57,7 @@ import { isUndecodableFilename, isVideoFilename } from '../../indexer/media-type
 import { ffmpegBinary } from '../../thumbs/video-poster.ts';
 import { loadLibraryRootsForAsset } from '../../indexer/libraries.cache.ts';
 import { noResolvableLocation } from './no-resolvable-location.ts';
+import { renderThumbWithPreview } from './preview-companion.ts';
 import {
   defineStage,
   runStage,
@@ -160,7 +165,9 @@ const thumbStage = defineStage({
     // — this stage sets `tagsMissingOnEnoent` — for the missing-reaper.
     const decoderMissing = deferWhileDecoderMissing();
     if (decoderMissing) return decoderMissing;
-    const rendered = await generateThumb(absPath, thumbPath).catch(
+    const rendered = await renderThumbWithPreview(image as never, libs, absPath, (companion) =>
+      generateThumb(absPath, thumbPath, companion),
+    ).catch(
       (err: unknown) =>
         noVideoStreamOutcome(err) ??
         memoryBudgetDeferral(err, absPath) ??

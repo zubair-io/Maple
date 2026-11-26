@@ -60,6 +60,19 @@ export async function handleFfiRequest(
       error: error ?? undefined,
     };
   }
+  if (req.type === 'exportRecipePair') {
+    await restoreLensProfile(req.rawPath, req.xmp || null);
+    const outcome = ffi.exportRecipePairToFiles?.(
+      req.rawPath,
+      req.xmp,
+      req.filmPath,
+      req.first,
+      req.second,
+    ) ?? { error: 'Rebuild raw-ffi: paired recipe render unavailable' };
+    return 'error' in outcome
+      ? { type: req.type, id: req.id, ok: false, error: outcome.error }
+      : { type: req.type, id: req.id, ok: true, second: outcome.written === 'both' };
+  }
   if (req.type === 'sidecarAdjustments') {
     // A dylib that predates the check cannot tell, so it develops every
     // sidecar exactly as it did before #5231.

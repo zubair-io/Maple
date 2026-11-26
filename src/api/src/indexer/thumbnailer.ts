@@ -37,7 +37,10 @@ import { renderImageThumbToFileViaPool, throwIfSourceRejected } from '../thumbs/
 import { extractVideoPosterJpeg } from '../thumbs/video-poster.ts';
 import { THUMB_AVIF_QUALITY, THUMB_LONG_EDGE_PX } from '../thumbs/render.ts';
 import { finalizeAvifRender } from '../thumbs/validate-avif.ts';
-import { renderRawSidecarDerivative } from '../thumbs/raw-sidecar-render.ts';
+import {
+  renderRawSidecarDerivative,
+  type CompanionDerivative,
+} from '../thumbs/raw-sidecar-render.ts';
 import { assertDerivativeCacheDirectory, isDerivativeCacheFresh } from './derivative-cache.ts';
 import { child as childLogger } from '../log.ts';
 import { throttledWarn } from '../log-throttle.ts';
@@ -79,13 +82,21 @@ let _failed = 0;
  * `resolveThumbPath(absPath)` — both are the one path-keyed name every reader
  * computes, so the two agree by construction.
  *
+ * `companion` lets the background `thumb` stage have an edited RAW's develop
+ * also write a second size from the same decode (#6034); see
+ * `renderRawSidecarDerivative`. On-demand callers pass none.
+ *
  * Resolves true when a fresh thumb is on disk (already cached or just
  * published). Throws `SourceDecodeError` when the decoder rejects the
  * original, and `UnsupportedCameraError` when a RAW has no embedded preview
  * and its camera body is unknown to the decoder; every other failure resolves
  * false.
  */
-export async function generateThumb(absPath: string, thumbPathOverride?: string): Promise<boolean> {
+export async function generateThumb(
+  absPath: string,
+  thumbPathOverride?: string,
+  companion?: () => Promise<CompanionDerivative | null>,
+): Promise<boolean> {
   const ext = path.extname(absPath).toLowerCase();
   const extNoDot = ext.startsWith('.') ? ext.slice(1) : ext;
   const thumbPath = thumbPathOverride ?? resolveThumbPath(absPath);
@@ -129,7 +140,7 @@ export async function generateThumb(absPath: string, thumbPathOverride?: string)
   // on any failure the temp file is removed, never `thumbPath`.
   const tmpPath = `${thumbPath}.tmp.${process.pid}.${randomBytes(8).toString('hex')}`;
 
-  const renderOk = await renderByFormat(absPath, ext, extNoDot, tmpPath).catch(
+  const renderOk = await renderByFormat(absPath, ext, extNoDot, tmpPath, companion).catch(
     async (e: unknown) => {
       _failed++;
       await fs.rm(tmpPath, { force: true });
@@ -173,8 +184,9 @@ async function renderByFormat(
   ext: string,
   extNoDot: string,
   tmpPath: string,
+  companion?: () => Promise<CompanionDerivative | null>,
 ): Promise<boolean> {
-  if (RAW_EXTS.has(ext)) return renderRawThumbToFile(absPath, tmpPath);
+  if (RAW_EXTS.has(ext)) return renderRawThumbToFile(absPath, tmpPath, companion);
   if (isVideoFilename(absPath)) return renderVideoThumbToFile(absPath, tmpPath);
   if (BITMAP_EXTENSIONS.has(extNoDot) || PSD_HDR_EXTENSIONS.has(extNoDot)) {
     return renderBitmapThumbToFile(absPath, tmpPath, extNoDot, true);
@@ -200,7 +212,11 @@ function logTotals(): void {
  * stays responsive during indexer bursts. `outPath` is the caller's private
  * temp path, not the final cache path — `generateThumb` validates and
  * renames into place. See its doc comment. */
-async function renderRawThumbToFile(rawPath: string, outPath: string): Promise<boolean> {
+async function renderRawThumbToFile(
+  rawPath: string,
+  outPath: string,
+  companion?: () => Promise<CompanionDerivative | null>,
+): Promise<boolean> {
   const pool = ffiPool();
   if (!pool.available()) {
     log.warn(
@@ -213,6 +229,7 @@ async function renderRawThumbToFile(rawPath: string, outPath: string): Promise<b
     outPath,
     THUMB_LONG_EDGE_PX,
     THUMB_AVIF_QUALITY,
+    companion,
   );
   if (sidecarRender !== null) return sidecarRender;
   // Extraction failure REJECTS rather than returning false — the pool
