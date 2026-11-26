@@ -203,6 +203,83 @@ describe('BrowseShellComponent capability boundary', () => {
     expect(navigate).toHaveBeenCalledWith(['/view', 'library', 'one.dng']);
   });
 
+  describe('modifier chords (#5626)', () => {
+    const focusedAsset: Asset = {
+      id: 'library:2026/IMG_0001.CR3',
+      filename: 'IMG_0001.CR3',
+      folderId: 'library:2026',
+      rating: 0,
+      flag: 'unflagged',
+      colorLabel: null,
+      thumbnailGradient: '',
+      aspectRatio: 1.5,
+    };
+
+    function focusedShell() {
+      const fixture = TestBed.createComponent(BrowseShellComponent);
+      fixture.detectChanges();
+      const state = fixture.componentInstance.state;
+      vi.spyOn(state, 'focusedAssetId').mockReturnValue(focusedAsset.id as never);
+      vi.spyOn(state, 'focusedAsset').mockReturnValue(focusedAsset);
+      return {
+        fixture,
+        setFlag: vi.spyOn(state, 'setFlag').mockImplementation(() => undefined),
+        setRating: vi.spyOn(state, 'setRating').mockImplementation(() => undefined),
+        focusNext: vi.spyOn(state, 'focusNext').mockImplementation(() => undefined),
+      };
+    }
+
+    function press(init: KeyboardEventInit): KeyboardEvent {
+      const event = new KeyboardEvent('keydown', { bubbles: true, cancelable: true, ...init });
+      document.dispatchEvent(event);
+      return event;
+    }
+
+    const chords = [{ metaKey: true }, { ctrlKey: true }, { altKey: true }];
+
+    for (const chord of chords) {
+      const label = Object.keys(chord)[0];
+      it(`leaves X, P, U, a rating and arrows to the browser with ${label} held`, () => {
+        const { setFlag, setRating, focusNext } = focusedShell();
+        for (const key of ['x', 'X', 'p', 'u', '3', '0', 'ArrowRight']) {
+          expect(press({ key, ...chord }).defaultPrevented).toBe(false);
+        }
+        expect(setFlag).not.toHaveBeenCalled();
+        expect(setRating).not.toHaveBeenCalled();
+        expect(focusNext).not.toHaveBeenCalled();
+      });
+    }
+
+    it('still applies the unmodified culling keys', () => {
+      const { setFlag, setRating } = focusedShell();
+      expect(press({ key: 'x' }).defaultPrevented).toBe(true);
+      expect(setFlag).toHaveBeenCalledWith(focusedAsset.id, 'reject');
+      expect(press({ key: 'P', shiftKey: true }).defaultPrevented).toBe(true);
+      expect(setFlag).toHaveBeenCalledWith(focusedAsset.id, 'pick');
+      expect(press({ key: '4' }).defaultPrevented).toBe(true);
+      expect(setRating).toHaveBeenCalledWith(focusedAsset.id, 4);
+    });
+
+    it('keeps the modifier-defined shortcuts: copy, paste, selective paste, sidebar', () => {
+      const fixture = TestBed.createComponent(BrowseShellComponent);
+      fixture.detectChanges();
+      const shell = fixture.componentInstance;
+      const copy = vi.spyOn(shell, 'onCopySettings').mockResolvedValue();
+      const paste = vi.spyOn(shell, 'onPasteSettings').mockImplementation(() => undefined);
+      const dialog = vi.spyOn(shell, 'onOpenPasteDialog').mockResolvedValue();
+      const sidebar = vi.spyOn(shell.state, 'toggleSidebar').mockImplementation(() => undefined);
+
+      expect(press({ key: 'c', metaKey: true }).defaultPrevented).toBe(true);
+      expect(press({ key: 'v', ctrlKey: true }).defaultPrevented).toBe(true);
+      expect(press({ key: 'V', metaKey: true, shiftKey: true }).defaultPrevented).toBe(true);
+      expect(press({ key: 's', metaKey: true, altKey: true }).defaultPrevented).toBe(true);
+      expect(copy).toHaveBeenCalledTimes(1);
+      expect(paste).toHaveBeenCalledTimes(1);
+      expect(dialog).toHaveBeenCalledTimes(1);
+      expect(sidebar).toHaveBeenCalledTimes(1);
+    });
+  });
+
   it('F2 opens the inline-rename field for the focused asset (#2637)', async () => {
     // Provides a local fake for ASSET_RENAME_CAPABILITY rather than spying
     // on the shared NOOP_CAPABILITY singleton the token's default factory

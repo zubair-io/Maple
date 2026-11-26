@@ -282,6 +282,8 @@ export class PreviewShellComponent implements OnDestroy {
     )
       return;
 
+    if (e.metaKey || e.ctrlKey || e.altKey) return;
+
     const action = previewKeyAction(e.key);
     if (!action) return;
 

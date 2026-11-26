@@ -372,6 +372,38 @@ export class BrowseShellComponent {
     )
       return;
 
+    // ⌘⌥S / Ctrl+Alt+S — toggle sidebar
+    if ((e.metaKey || e.ctrlKey) && e.altKey && (e.key === 's' || e.key === 'S')) {
+      this.state.toggleSidebar();
+      e.preventDefault();
+      return;
+    }
+
+    // Copy / paste / selective-paste develop settings (#944). Checked in
+    // this order so ⌘⇧V (selective) doesn't also fire the bare ⌘V branch.
+    // Suppressed while the selective-paste dialog is up so ⌘V can't fire a
+    // full paste behind the open dialog.
+    const meta = (e.metaKey || e.ctrlKey) && !this.pasteDialogVisible();
+    if (meta && !e.altKey && (e.key === 'c' || e.key === 'C')) {
+      this.onCopySettings();
+      e.preventDefault();
+      return;
+    }
+    if (meta && e.shiftKey && (e.key === 'v' || e.key === 'V')) {
+      this.onOpenPasteDialog();
+      e.preventDefault();
+      return;
+    }
+    if (meta && !e.shiftKey && !e.altKey && (e.key === 'v' || e.key === 'V')) {
+      this.onPasteSettings();
+      e.preventDefault();
+      return;
+    }
+
+    // Chords owned by the browser (⌘X cut, ⌘P print, Ctrl+U view-source,
+    // ⌘← back) must not double as bare-key culling or navigation (#5626).
+    if (e.metaKey || e.ctrlKey || e.altKey) return;
+
     // Escape: exit Select mode without touching the selection (#2404) — the
     // batch-metadata / pano / paste pills stay enabled off selectedCount(),
     // so this only leaves the toggle-on-click behaviour, not the selection.
@@ -442,34 +474,6 @@ export class BrowseShellComponent {
     }
     if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
       this.state.focusPrev();
-      e.preventDefault();
-      return;
-    }
-
-    // ⌘⌥S / Ctrl+Alt+S — toggle sidebar
-    if ((e.metaKey || e.ctrlKey) && e.altKey && (e.key === 's' || e.key === 'S')) {
-      this.state.toggleSidebar();
-      e.preventDefault();
-      return;
-    }
-
-    // Copy / paste / selective-paste develop settings (#944). Checked in
-    // this order so ⌘⇧V (selective) doesn't also fire the bare ⌘V branch.
-    // Suppressed while the selective-paste dialog is up so ⌘V can't fire a
-    // full paste behind the open dialog.
-    const meta = (e.metaKey || e.ctrlKey) && !this.pasteDialogVisible();
-    if (meta && !e.altKey && (e.key === 'c' || e.key === 'C')) {
-      this.onCopySettings();
-      e.preventDefault();
-      return;
-    }
-    if (meta && e.shiftKey && (e.key === 'v' || e.key === 'V')) {
-      this.onOpenPasteDialog();
-      e.preventDefault();
-      return;
-    }
-    if (meta && !e.shiftKey && !e.altKey && (e.key === 'v' || e.key === 'V')) {
-      this.onPasteSettings();
       e.preventDefault();
       return;
     }
