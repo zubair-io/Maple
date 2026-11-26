@@ -1,5 +1,6 @@
 package app.justmaple.aperture.data
 
+import app.justmaple.aperture.cloud.CloudLibrary
 import java.text.Normalizer
 
 /**
@@ -50,7 +51,6 @@ internal object RawJpegPairing {
             }
             .toMap()
 
-    /** One folder's photos with each pair's JPEG carried on its RAW instead of listed. */
     fun fold(photos: List<Photo>): List<Photo> {
         val pairs = pairs(photos.map { it.name })
         val jpegs = pairs.values.toSet()
@@ -61,4 +61,6 @@ internal object RawJpegPairing {
                 pairs[photo.name]?.let(byName::get)?.let { photo.copy(companion = it) } ?: photo
             }
     }
+
+    fun folderToRelist(open: Folder?): Folder? = open?.takeUnless { CloudLibrary.isCloud(it.uri) }
 }
