@@ -168,7 +168,9 @@ internal class SafSidecars(private val context: Context, private val documents: 
             ?: error("Cannot read sidecar")
 
     private fun find(entries: List<LocalDocument>, name: String): LocalDocument? {
-        val matches = entries.filter { !it.directory && it.name.equals(name, ignoreCase = true) }
+        val key = RawJpegPairing.sidecarKey(name)
+        val matches =
+            entries.filter { !it.directory && RawJpegPairing.sidecarKey(it.name) == key }
         check(matches.size <= 1) {
             "Multiple sidecars match $name; resolve the duplicate files before editing"
         }
