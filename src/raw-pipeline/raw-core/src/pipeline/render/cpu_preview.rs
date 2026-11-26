@@ -11,19 +11,23 @@ use crate::{
     view::{auto_profile, encode},
     xmp::AdjustmentModel,
 };
+use resume::{detail_amounts, develop_key, exchange_late_inputs, DetailPlan, DetailedScene};
+
+#[path = "cpu_preview_resume.rs"]
+mod resume;
 
 pub type PreviewFrame = (u32, u32, Vec<u8>, Option<auto_profile::AutoFitOutcome>);
 
 pub struct CpuPreview {
     prefix: Image,
     working: Image,
+    detailed: DetailedScene,
     context: DetailContext,
     key: AdjustmentModel,
     quality: RenderQuality,
     cap: u32,
     film: Option<FilmLut>,
     source: SourceIdentity,
-    uncurved_details: Option<(f32, f32, f32)>,
 }
 impl CpuPreview {
     pub fn open(
@@ -45,32 +49,16 @@ impl CpuPreview {
             CancelToken::never(),
             true,
         )?;
-        // Auto2's canonical pinned route applies only its baked LUT; edited
-        // models and engaged film LUTs replay the curve, including identity
-        // rounding. The route is the one the render that built this preview
-        // took, from the fit model it measured (#5791), derived once.
-        let uncurved_details = context
-            .fit_model
-            .as_ref()
-            .filter(|pinned| {
-                !auto_profile::apply_pipeline::auto1_enabled_by_env()
-                    && super::auto_fit_model::uses_pinned_fit_pixels(
-                        &upstream_key(context.active_model.clone()),
-                        upstream_key((*pinned).clone()),
-                        film,
-                    )
-            })
-            .map(|pinned| (pinned.sharpen_amount, pinned.nr_luminance, pinned.nr_color));
         let mut session = Self {
             prefix: prefix.expect("capture requested"),
             working,
+            detailed: DetailedScene::opened(detail_amounts(&model)),
             context,
-            key: upstream_key(model),
+            key: develop_key(model),
             quality,
             cap,
             film: film.cloned(),
             source: SourceIdentity::new(raw, source),
-            uncurved_details,
         };
         let (w, h, pixels, fit) = session.pack(raw);
         Ok((session, (w, h, pixels, fit)))
@@ -88,8 +76,7 @@ impl CpuPreview {
         if cancel.is_cancelled() {
             return Err(Error::Cancelled);
         }
-        let amounts = (model.sharpen_amount, model.nr_luminance, model.nr_color);
-        let key = upstream_key(model);
+        let (key, late) = exchange_late_inputs(model, AdjustmentModel::default());
         if !self.source.matches(raw, source)
             || key != self.key
             || quality != self.quality
@@ -97,25 +84,34 @@ impl CpuPreview {
             || film != self.film.as_ref()
             || self.prefix.pixels.is_empty()
         {
-            // This prefix is invalid for the requested model. Release its
-            // allocations before a full sensor develop; a failed rebuild is
-            // explicitly empty and the next request must prepare again.
+            // Released before the develop so old and new scenes never coexist; a failed rebuild leaves the session empty, which the next request detects.
             self.prefix.pixels = Vec::new();
             self.working.pixels = Vec::new();
-            let (replacement, frame) =
-                Self::open(raw, source, with_amounts(key, amounts), quality, cap, film)?;
+            self.detailed = DetailedScene::default();
+            let (model, _) = exchange_late_inputs(key, late);
+            let (replacement, frame) = Self::open(raw, source, model, quality, cap, film)?;
             if cancel.is_cancelled() {
                 return Err(Error::Cancelled);
             }
             *self = replacement;
             return Ok(frame);
         }
-        let model = with_amounts(key, amounts);
-        self.working.pixels.copy_from_slice(&self.prefix.pixels);
-        self.working.space = self.prefix.space;
-        self.working.whites_anchor_ev = self.prefix.whites_anchor_ev;
-        self.working.nr_sampling_scale = self.prefix.nr_sampling_scale;
-        super::super::sized_detail::apply(&mut self.working, raw, &model, cancel)?;
+        let (model, _) = exchange_late_inputs(key, late);
+        let scene_bytes = std::mem::size_of_val(self.prefix.pixels.as_slice());
+        let keep = match self.detailed.plan(detail_amounts(&model), scene_bytes) {
+            DetailPlan::Resume(kept) => {
+                resume::restore(&mut self.working, kept);
+                false
+            }
+            DetailPlan::Run { keep } => {
+                resume::restore(&mut self.working, &self.prefix);
+                super::super::sized_detail::apply(&mut self.working, raw, &model, cancel)?;
+                keep
+            }
+        };
+        if keep {
+            self.detailed.keep(&self.working);
+        }
         let full = (self.working.width, self.working.height);
         display_prefix::apply_retained(
             &mut self.working,
@@ -125,10 +121,9 @@ impl CpuPreview {
             ((0, 0), full),
         );
         let pixels = bytemuck::cast_slice_mut(&mut self.working.pixels);
-        if self.uncurved_details != Some(amounts) {
-            if let Some(curve) = &self.context.profile_curve {
-                auto_profile::apply_curve(pixels, curve);
-            }
+        // Only the legacy Auto fit returns a curve, and a fresh render replays it on every route.
+        if let Some(curve) = &self.context.profile_curve {
+            auto_profile::apply_curve(pixels, curve);
         }
         if let Some(lut) = &self.context.profile_lut {
             lut.apply_with_strength(pixels, auto_profile::lut::lut_strength_from_env());
@@ -159,22 +154,6 @@ impl CpuPreview {
         (w, h, pixels, fit)
     }
 }
-fn upstream_key(model: AdjustmentModel) -> AdjustmentModel {
-    AdjustmentModel {
-        sharpen_amount: 0.0,
-        nr_luminance: 0.0,
-        nr_color: 0.0,
-        ..model
-    }
-}
-fn with_amounts(model: AdjustmentModel, amounts: (f32, f32, f32)) -> AdjustmentModel {
-    AdjustmentModel {
-        sharpen_amount: amounts.0,
-        nr_luminance: amounts.1,
-        nr_color: amounts.2,
-        ..model
-    }
-}
 
 #[cfg(all(test, feature = "test-support"))]
 #[path = "cpu_preview_tests.rs"]
@@ -183,6 +162,14 @@ mod tests;
 #[cfg(all(test, feature = "test-support"))]
 #[path = "cpu_preview_film_tests.rs"]
 mod film_tests;
+
+#[cfg(all(test, feature = "test-support"))]
+#[path = "cpu_preview_resume_tests.rs"]
+mod resume_tests;
+
+#[cfg(all(test, feature = "test-support"))]
+#[path = "cpu_preview_kept_tests.rs"]
+mod kept_tests;
 
 // Source bytes and decoded metadata are immutable in the owning WASM session.
 // These identities reject accidentally borrowing another decoded source; no

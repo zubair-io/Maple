@@ -443,9 +443,8 @@ fn render_display_scene_with_context_cancellable(
         return Err(crate::error::Error::Cancelled);
     }
     let mut artifacts = (None, None);
-    let mut fit_model = None;
     if model.profile == Profile::Auto && raw_source.is_some() {
-        let pinned = stage("auto_profile", || {
+        stage("auto_profile", || {
             let pinned = auto_fit_model::fit_develop_model_for(model, raw, preview.as_ref());
             artifacts = if wide_gamut_auto {
                 auto_fit::fit_artifacts_from_pinned_develop(
@@ -474,9 +473,7 @@ fn render_display_scene_with_context_cancellable(
                     cached_lut,
                 )
             };
-            pinned
         });
-        fit_model = Some(pinned);
         if cancel.is_cancelled() {
             return Err(crate::error::Error::Cancelled);
         }
@@ -523,7 +520,6 @@ fn render_display_scene_with_context_cancellable(
             profile_curve: artifacts.0,
             profile_lut: artifacts.1,
             auto_guard: model.profile == Profile::Auto && raw_source.is_some(),
-            fit_model,
         },
         prefix,
     ))

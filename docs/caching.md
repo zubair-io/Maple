@@ -213,21 +213,34 @@ before it render once without retaining. No original bytes are transferred again
 for a tick on the same source.
 
 `CpuPreview` retains the existing sized scene **after vignette and before global
-sharpening, luminance NR and colour NR**. Its key is the complete adjustment model
-with only those three global amounts removed, plus requested quality, viewport
-cap, Film LUT contents and source identity. All upstream edits, local masks and
-resolved rasters therefore invalidate the prefix, and so does any lens-profile
-registration or cache clear in the worker. The retained image carries the
-original AE/Whites anchors, colour-space tag and sampling density. Ticks restore
-the reusable scene buffer, execute the unchanged three kernels and canonical
+sharpening, luminance NR and colour NR**. Its key is the adjustment model with
+those three global amounts and the view-tail controls removed (Contrast, Whites,
+display tone curves, colour grading, film look and strength, grain), plus
+requested quality, viewport cap, Film LUT contents and source identity. All
+upstream edits, local masks and resolved rasters therefore invalidate the prefix,
+and so does any lens-profile registration or cache clear in the worker. Every
+model field is classified in one exhaustive list (`cpu_preview_resume.rs`), so a
+new field fails to compile until it is placed, and one placed upstream rebuilds
+rather than going stale. The retained image carries the original AE/Whites
+anchors, colour-space tag and sampling density. Ticks restore the reusable scene
+buffer, execute the unchanged three kernels and canonical
 Film/Auto/display/dither/geometry tail. Output and existing kernel scratch buffers
-still have their ordinary costs; retaining two scene buffers is not a claim that
-the whole tick allocates nothing.
+still have their ordinary costs; retaining scene buffers is not a claim that the
+whole tick allocates nothing.
+
+A second scene, **after those three kernels**, is kept for ticks that leave the
+three amounts alone (#6032): a view-tail drag then runs only the tail. It is
+allocated by the second consecutive such tick, only while an amount is non-zero
+and the scene is at most 96 MiB (12 bytes per preview pixel: 34 MB at 2048×1365),
+and it is skipped when that allocation cannot be reserved. A changed amount
+releases it, and whatever invalidates the prefix releases both. The preview
+therefore holds up to three scene buffers: the prefix, the working buffer and this
+optional one.
 
 The fast phase retains its Preview-density prefix. Refine uses the same decoded
 RAW through the canonical AMaZE sized renderer and does not replace the warm fast
-prefix. An invalid prefix is released before rebuilding, so old and replacement
-full develops do not coexist. The existing CPU sensor/viewport memory clamp still
+prefix. An invalid prefix and the kept scene are released before rebuilding, so
+old and replacement full develops do not coexist. The existing CPU sensor/viewport memory clamp still
 applies; native allocator witnesses alone do not establish browser heap capacity
 or the 16/50 ms input-to-publication gates.
 
