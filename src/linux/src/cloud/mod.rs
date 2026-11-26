@@ -134,3 +134,7 @@ fn json<T: DeserializeOwned>(response: Response) -> Result<T, CloudError> {
 }
 
 pub mod worker;
+
+#[cfg(test)]
+#[path = "compression_tests.rs"]
+mod compression_tests;
