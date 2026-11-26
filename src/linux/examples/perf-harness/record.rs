@@ -53,21 +53,23 @@ fn is_software(info: &wgpu::AdapterInfo) -> bool {
 pub const REFERENCE_SHA256: &str =
     "f4b60b3672bdf7ff7f4376fba9da1b1d22c925ebc3e16baa5fd4a64fa1045aa5";
 
-pub const COVERAGE: [&str; 5] = [
-    "worker open to first published frame",
-    "tick-to-frame latency of an Exposure and a Contrast drag at 60 Hz",
-    "ticks answered and the longest stretch without a frame",
+pub const COVERAGE: &[&str] = &[
+    "worker open to first frame finished on the GPU",
+    "tick-to-finished-frame latency of an Exposure and a Contrast drag at 60 Hz",
+    "the same latency stopped at the worker's submission event (submittedMs)",
+    "ticks answered and the longest stretch without a finished frame",
     "time to abandon a profile switch superseded by a render for a closed session",
     "process peak resident memory",
 ];
 
-pub const EXCLUDES: [&str; 6] = [
+pub const EXCLUDES: &[&str] = &[
     "the debounced quiet-refine and detail pass",
     "frame presentation after the worker event",
     "saves on the worker thread",
     "input dispatch and the egui frame loop",
     "GPU memory",
     "cancellation of a slider tick superseded by the next tick",
+    "exact per-frame GPU completion: the work-done callback covers every submission made before it, so finished-frame latency is an upper bound",
 ];
 
 /// What a run is measured on; `disqualifiers` turns it into reasons.
@@ -275,8 +277,8 @@ pub struct Record {
     pub sensor_width: u32,
     pub sensor_height: u32,
     pub sensor_megapixels: f64,
-    pub coverage: [&'static str; 5],
-    pub excludes: [&'static str; 6],
+    pub coverage: &'static [&'static str],
+    pub excludes: &'static [&'static str],
     pub cache_state: &'static str,
     pub tick_rate_hz: u32,
     pub ticks_per_slider: u32,
