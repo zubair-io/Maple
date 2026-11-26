@@ -1,21 +1,13 @@
 /**
- * Geocode enrichment bootstrap.
+ * Geocode enrichment boot probe and settings-UI health check.
  *
- * NOTE (Plan 3): The bespoke `GeocodeWorker` has been retired. Reverse
- * geocoding is now handled by the unified stage-controller runtime at
- * `src/api/src/workers/stages/geocode.ts`. This file is retained because
- * it owns the enrichment-config health-check wiring used by the settings UI
- * (`applyEnrichmentConfig`) and the API route that tests the Nominatim URL.
- *
- * The worker lifecycle functions (`startGeocodeWorker`, `stopGeocodeWorker`)
- * are kept as no-ops so existing call sites in `src/index.ts` compile until
- * they are removed in the Task 6 supervisor refactor.
+ * Reverse geocoding itself runs as the stage `workers/stages/geocode.ts`,
+ * started by the stage machinery; nothing here starts or stops it.
  *
  * Spec: `docs/indexer-enrichment.md` §4.2 (boot health check), §6 (wiring).
  */
 
 import { child as childLogger } from '../log.ts';
-import type { CircuitBreakerConfig } from './circuit-breaker.ts';
 import { NominatimClient } from './nominatim-client.ts';
 import { loadEnrichmentConfig } from './enrichment-config.repo.ts';
 import {
@@ -25,28 +17,89 @@ import {
 
 const log = childLogger('geocode');
 
-export interface GeocodeBootstrapOptions {
-  /** Override for tests. */
-  breakerConfig?: CircuitBreakerConfig;
+export interface GeocoderProbeLogger {
+  info(fields: Record<string, unknown>, message: string): void;
+  warn(fields: Record<string, unknown>, message: string): void;
 }
 
-/**
- * No-op stub. In Plan 3+, the geocode stage is started by the stage-controller
- * supervisor. Retained so `src/index.ts` compiles until Task 6 removes the call.
- */
-export async function startGeocodeWorker(_opts: GeocodeBootstrapOptions = {}): Promise<null> {
-  const dbConfig = await loadEnrichmentConfig();
-  const resolved = resolveEnrichmentConfig(dbConfig);
-  if (resolved.geocode_worker_enabled && resolved.nominatim_url) {
-    const client = new NominatimClient({
-      baseUrl: resolved.nominatim_url,
-      rateLimitPerSec: resolved.nominatim_rate_limit_per_sec,
-    });
-    log.info({ url: resolved.nominatim_url }, 'checking Nominatim status');
-    await client.health();
-    log.info('Nominatim healthy');
+export type GeocoderProbeResult = 'skipped' | 'healthy' | 'unreachable';
+
+const UNPARSEABLE_URL = '<unparseable url>';
+
+function decodedOrSelf(part: string): string {
+  try {
+    return decodeURIComponent(part);
+  } catch {
+    return part;
   }
-  return null;
+}
+
+function urlRedactor(rawUrl: string): { url: string; scrub: (text: string) => string } {
+  const parsed = URL.canParse(rawUrl) ? new URL(rawUrl) : null;
+  if (!parsed)
+    return { url: UNPARSEABLE_URL, scrub: (text) => text.replaceAll(rawUrl, UNPARSEABLE_URL) };
+  const { username, password } = parsed;
+  parsed.username = '';
+  parsed.password = '';
+  const url = parsed.href.replace(/\/$/, '');
+  const rawAuthority = /^[a-z][a-z0-9+.-]*:\/\/([^/?#]*)@/i.exec(rawUrl)?.[1];
+  const secrets = [
+    rawUrl,
+    rawUrl.replace(/\/+$/, ''),
+    rawAuthority ? `${rawAuthority}@` : '',
+    `${username}:${password}@`,
+    `${decodedOrSelf(username)}:${decodedOrSelf(password)}@`,
+    username ? `${username}@` : '',
+    password,
+    decodedOrSelf(password),
+  ]
+    .filter((secret) => secret.length > 0)
+    .sort((left, right) => right.length - left.length);
+  const userinfoReplacements = new Set([rawUrl, rawUrl.replace(/\/+$/, '')]);
+  return {
+    url,
+    scrub: (text) =>
+      secrets.reduce(
+        (scrubbed, secret) =>
+          scrubbed.replaceAll(
+            secret,
+            userinfoReplacements.has(secret) ? url : secret.endsWith('@') ? '' : '<redacted>',
+          ),
+        text,
+      ),
+  };
+}
+
+export async function checkGeocoderStatus(
+  resolved: ResolvedEnrichmentConfig,
+  deps: { fetchImpl?: typeof fetch; logger?: GeocoderProbeLogger } = {},
+): Promise<GeocoderProbeResult> {
+  if (!resolved.geocode_worker_enabled || !resolved.nominatim_url) return 'skipped';
+  const logger = deps.logger ?? log;
+  const { url, scrub } = urlRedactor(resolved.nominatim_url);
+  const client = new NominatimClient({
+    baseUrl: resolved.nominatim_url,
+    rateLimitPerSec: resolved.nominatim_rate_limit_per_sec,
+    fetchImpl: deps.fetchImpl,
+  });
+  logger.info({ url }, 'checking Nominatim status');
+  try {
+    await client.health();
+  } catch (err) {
+    const reason = scrub(err instanceof Error ? err.message : String(err));
+    logger.warn(
+      { url, reason },
+      `Nominatim status check failed at ${url} (${reason}); this check starts and stops nothing. While the geocode stage runs, a photo whose lookup fails is retried with backoff and then set aside, so fix the URL at /settings/enrichment`,
+    );
+    return 'unreachable';
+  }
+  logger.info({ url }, 'Nominatim healthy');
+  return 'healthy';
+}
+
+export async function probeGeocoderAtBoot(): Promise<GeocoderProbeResult> {
+  const resolved = resolveEnrichmentConfig(await loadEnrichmentConfig());
+  return checkGeocoderStatus(resolved);
 }
 
 /**
@@ -62,12 +115,7 @@ export async function applyEnrichmentConfig(resolved: ResolvedEnrichmentConfig):
     baseUrl: resolved.nominatim_url,
     rateLimitPerSec: resolved.nominatim_rate_limit_per_sec,
   });
-  log.info({ url: resolved.nominatim_url }, 'checking Nominatim status');
+  log.info({ url: urlRedactor(resolved.nominatim_url).url }, 'checking Nominatim status');
   await client.health();
   log.info('Nominatim healthy');
-}
-
-/** No-op stub — worker lifecycle is owned by the stage-controller runtime. */
-export async function stopGeocodeWorker(): Promise<void> {
-  // No-op: the stage-controller runtime handles graceful shutdown.
 }
