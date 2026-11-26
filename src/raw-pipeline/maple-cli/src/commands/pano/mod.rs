@@ -254,6 +254,8 @@ fn stitch_options(args: &StitchArgs, gate_budgets: (f64, f64)) -> Result<StitchO
         boundary_warp: args.boundary_warp / 100.0,
         auto_crop: args.auto_crop,
         memory_limit_bytes: args.memory_limit_bytes,
+        memory_profile: raw_core::pano_memory::PanoMemoryProfile::Server,
+        proxy_cache_dir: None,
     })
 }
 
