@@ -55,6 +55,7 @@ enum EditorSeedVM {
   /// entry.
   @MainActor static func decodeKey(for asset: AssetRef) async -> String {
     await DevelopedImageRevision.shared.decodedKeyAsync(
-      for: asset.stableID ?? asset.id.uuidString, source: .local(asset, source: nil))
+      for: asset.stableID ?? asset.id.uuidString, source: .local(asset, source: nil),
+      priority: .interactive)
   }
 }

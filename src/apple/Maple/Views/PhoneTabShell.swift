@@ -509,7 +509,7 @@
       heroSeedTask = Task {
         let key = await DevelopedImageRevision.shared.decodedKeyAsync(
           for: asset.stableID ?? asset.id.uuidString,
-          source: .local(asset, source: nil))
+          source: .local(asset, source: nil), priority: .interactive)
         guard !Task.isCancelled, hero?.asset.id == asset.id,
           let image = ThumbnailDecoder.cachedImage(forKey: key)
         else { return }
