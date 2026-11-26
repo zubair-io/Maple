@@ -44,11 +44,12 @@ public sealed partial class MainWindow
         const string jpegName = "Stack-1.jpg";
         var (rawCopy, jpegCopy) = (Path.Combine(folder, rawName), Path.Combine(folder, jpegName));
         var originals = new[] { raw, rawCopy, jpegCopy };
-        var previousPrimaryPath = ViewModel.SelectedPhoto?.FilePath;
-        var previousSelectionPaths = ViewModel.SelectedPhotos.Select(photo => photo.FilePath).ToArray();
+        var previousPhotos = ViewModel.AllPhotos.ToArray();
+        var previousSelection = ViewModel.SelectedPhotos.ToArray();
+        var previousPrimary = ViewModel.SelectedPhoto;
+        var previousSort = ViewModel.PhotoSort;
         var hadDecodedImage = ViewModel.Renderer.DetailSource != null;
-        var (previousFolder, previousMode, previousSwitch) =
-            (ViewModel.CurrentFolderPath, _mode, AppSettings.Load().ShowRawJpegStacks);
+        var (previousMode, previousSwitch) = (_mode, AppSettings.Load().ShowRawJpegStacks);
         var evidence = new Dictionary<string, object?>();
         var root = (FrameworkElement)Content;
         Exception? failure = null;
@@ -135,10 +136,19 @@ public sealed partial class MainWindow
         try
         {
             SetRawJpegStackSwitch(previousSwitch);
-            if (!string.IsNullOrEmpty(previousFolder) && Directory.Exists(previousFolder))
-                await ViewModel.LoadDirectoryAsync(previousFolder).WaitAsync(RawJpegStackSmokeWait);
-            SetMode(previousMode);
-            await RestoreRawJpegStackSelectionAsync(previousSelectionPaths, previousPrimaryPath, hadDecodedImage);
+            if (previousPrimary != null)
+            {
+                // The lifecycle smoke opens its photo as a standalone item, not from a folder
+                // listing, so the original session is put back from the same instances.
+                RestoreSmokeLibrary(previousPhotos, previousSort, previousSelection, previousPrimary);
+                SetMode(previousMode);
+                if (hadDecodedImage)
+                    await EnsureSelectedPhotoDecodedAsync("RAW+JPEG stack: the original photo did not come back decoded", 20000);
+            }
+            else
+            {
+                SetMode(previousMode);
+            }
             evidence["restoredFolder"] = ViewModel.CurrentFolderPath;
             evidence["restoredSelection"] = ViewModel.SelectedPhoto?.FilePath;
             evidence["restoredDecodedImage"] = ViewModel.Renderer.DetailSource != null;
@@ -157,33 +167,6 @@ public sealed partial class MainWindow
                 JsonSerializer.Serialize(new { passed = true, observed = evidence }));
         if (failure != null)
             ExceptionDispatchInfo.Capture(failure).Throw();
-    }
-
-    // OpenForEditing clears the renderer's image and only EnsureDecoded brings
-    // one back, so a restored selection leaves nothing to present until its
-    // decode lands; the shutdown present check needs that image.
-    private async Task RestoreRawJpegStackSelectionAsync(
-        IReadOnlyList<string> selectedPaths, string? primaryPath, bool hadDecodedImage)
-    {
-        PhotoItem? Find(string path) => ViewModel.Photos.FirstOrDefault(
-            photo => string.Equals(photo.FilePath, path, StringComparison.OrdinalIgnoreCase));
-        var primary = primaryPath == null ? null : Find(primaryPath);
-        if (primaryPath != null && primary == null)
-            throw new InvalidOperationException(
-                $"RAW+JPEG stack: the originally selected photo {primaryPath} is not in the restored folder.");
-        RestoreBrowseSelection(selectedPaths.Select(Find).OfType<PhotoItem>().ToArray(), primary);
-        if (primary == null || !hadDecodedImage) return;
-
-        ViewModel.EnsureDecoded();
-        var deadline = Environment.TickCount64 + (long)RawJpegStackSmokeWait.TotalMilliseconds;
-        while (ViewModel.IsDecoding || ViewModel.Renderer.DetailSource == null || !ReferenceEquals(ViewModel.SelectedPhoto, primary))
-        {
-            if (ViewModel.HasDecodeError || Environment.TickCount64 >= deadline)
-                throw new TimeoutException(
-                    $"RAW+JPEG stack: {primaryPath} did not come back decoded (selected={ViewModel.SelectedPhoto?.FilePath}, "
-                    + $"decoding={ViewModel.IsDecoding}, image={ViewModel.Renderer.DetailSource != null}, status={ViewModel.DecodeStatus}).");
-            await Task.Delay(20);
-        }
     }
 
     private void SetRawJpegStackSwitch(bool shown)
