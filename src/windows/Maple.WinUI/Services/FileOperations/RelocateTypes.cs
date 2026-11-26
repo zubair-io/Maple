@@ -84,9 +84,12 @@ namespace Maple.WinUI.Services.FileOperations
         public bool IsNoop => CreatedPaths.Count == 0;
     }
 
+    /// <param name="CompanionPath">Where the stacked JPEG landed, when the
+    /// relocation carried a RAW+JPEG pair (#5050).</param>
     public sealed record RelocateOutcome(
         string PrimaryPath,
         string? SidecarPath,
         bool RenamedDueToCollision,
-        bool SidecarFollowed);
+        bool SidecarFollowed,
+        string? CompanionPath = null);
 }
