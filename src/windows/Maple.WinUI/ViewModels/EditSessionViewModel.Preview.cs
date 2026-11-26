@@ -45,7 +45,7 @@ public partial class EditSessionViewModel
         _savedPreviews = change.Next;
         if (change.Cancel)
         {
-            CancelPreviewRequest();
+            if (requested.Length > 0) CancelPreviewRequest();
             CancelOwedThumbnails();
         }
         if (selected != null && change.Release.Contains(selected)) RefreshLocalPreview();
