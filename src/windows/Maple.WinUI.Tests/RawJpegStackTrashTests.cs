@@ -137,13 +137,28 @@ namespace Maple.WinUI.Tests
             var failure = await Assert.ThrowsAsync<FileOperationException>(
                 () => LocalFileOperations.TrashStackAsync(raw, jpeg, _root, fake));
 
-            Assert.Contains("IMG_1.CR3", failure.Message);
-            Assert.Contains("Recycle Bin", failure.Message);
-            Assert.Contains("IMG_1.JPG", failure.Message);
-            Assert.Contains("IMG_1.xmp", failure.Message);
+            Assert.Contains("No longer in the folder, probably in the Recycle Bin: IMG_1.CR3", failure.Message);
+            Assert.Contains("Still in the folder: IMG_1.JPG, IMG_1.xmp", failure.Message);
             Assert.DoesNotContain("no longer exists", failure.Message);
             Assert.Equal(new[] { "IMG_1.JPG", "IMG_1.xmp" }, Names("Album"));
             Assert.Empty(Names(".maple", "trash", "Album"));
+        }
+
+        [Fact]
+        public async Task RecycleBin_FailingAfterEveryFileWasRemoved_SaysSoWithoutClaimingWhatRemains()
+        {
+            var (raw, jpeg, _) = WritePair();
+            var fake = new FakeRecycleBinService { RecyclesEverythingThenFails = true };
+
+            var failure = await Assert.ThrowsAsync<FileOperationException>(
+                () => LocalFileOperations.TrashStackAsync(raw, jpeg, _root, fake));
+
+            Assert.Contains("reported an error", failure.Message);
+            Assert.Contains("Check the Recycle Bin", failure.Message);
+            Assert.Contains("IMG_1.CR3, IMG_1.JPG, IMG_1.xmp", failure.Message);
+            Assert.DoesNotContain("Still in", failure.Message);
+            Assert.DoesNotContain("nothing", failure.Message);
+            Assert.Empty(Names("Album"));
         }
 
         [Fact]

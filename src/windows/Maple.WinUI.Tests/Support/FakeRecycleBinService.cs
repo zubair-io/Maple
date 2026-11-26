@@ -38,8 +38,16 @@ namespace Maple.WinUI.Tests.Support
         /// path is already gone.</summary>
         public bool RecyclesFirstPathThenFails { get; set; }
 
+        /// <summary>The shell removed every path, then reported failure.</summary>
+        public bool RecyclesEverythingThenFails { get; set; }
+
         public bool TrySendToRecycleBin(params string[] paths)
         {
+            if (RecyclesEverythingThenFails)
+            {
+                foreach (var path in paths) System.IO.File.Delete(path);
+                return false;
+            }
             if (RecyclesFirstPathThenFails)
             {
                 System.IO.File.Delete(paths[0]);
