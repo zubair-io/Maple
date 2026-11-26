@@ -91,7 +91,12 @@ impl ResumeCut {
     }
 
     pub(super) fn encode_resume(&self, encoder: &mut wgpu::CommandEncoder, dst: &wgpu::Buffer) {
-        if let Some(resident) = self.lock().resident.as_ref() {
+        let state = self.lock();
+        debug_assert!(
+            state.resident.is_some(),
+            "plan resumes only with a resident image"
+        );
+        if let Some(resident) = state.resident.as_ref() {
             encoder.copy_buffer_to_buffer(resident, 0, dst, 0, dst.size());
         }
     }
