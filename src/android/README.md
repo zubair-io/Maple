@@ -255,55 +255,45 @@ XMP attribute names, and Rust scalar access from the canonical Rust schemas.
 `bun src/android/scripts/sync-tool-glyphs.ts` copies the exact Apple/Web tool
 paths into Android vectors. The launcher icon is the existing Maple artwork.
 
-Original URIs are opened for reading only. Folder grants persist through the
-Storage Access Framework. Folder edits use adjacent stem-swapped XMP files;
-single-file/share intents use private sidecars with an explicit XMP export.
-Single-file opens stream a fresh read into an atomic cache snapshot and SHA-256
-digest before choosing pixels or edits, with import progress and cancellation checks.
-Private sidecars include that digest, the source URI, size and modification time in
-their identity, so a reused URI with different bytes gets separate edits even when
-provider metadata is absent or unchanged. Rendering uses the hashed snapshot; if
-it is evicted, the user must reopen instead of reading new bytes under an old identity.
-Earlier URI/metadata-only private sidecars are retained and are not automatically assigned
-to a photo whose identity cannot be verified. Folder-adjacent sidecars are unaffected.
-The XMP writer patches owned attributes in the original XML, retaining untouched
-foreign bytes, resolves RDF and owned attributes by namespace, and rejects
-external-write conflicts. Legacy Maple namespace aliases are read and owned edits
-remove their older spelling. If a canonical prefix belongs to a foreign
-namespace, writes reuse an owned alias or declare a nonconflicting prefix without
-rebinding the foreign XML. A shared-core namespace-aware event reader feeds every
-native preview/editor/validation/export entry without a DOM or full-document
-normalization copy; persisted XML remains lexical. Opaque subtrees are validated
-as a borrowed stream and never retained by the adjustment reader.
-Loading validates the immutable source and its RDF description without
-serializing a throwaway document; serialization occurs only for a real consumer.
-Each immutable source is parsed once, and scalar/metadata revisions share its
-namespace-resolved attributes, so UI lookups do not scan opaque XML on slider ticks.
-Unstamped imported temperature/tint keep their foreign or legacy Maple scale
-when unrelated edits add Maple metadata, so rating or picking cannot change color.
-Local sidecar reads detect BOM/XML-declared encodings, retain the source byte
-order on save/recovery/XMP export, and reject malformed or unrepresentable
-metadata before publication. The byte order is made explicit in the XML
-declaration; unknown child text stays verbatim. Cloud responses are decoded
-by their XML encoding and cloud writes follow the server’s UTF-8 text API.
-Existing servers still require stored sidecars to be UTF-8. See the
-[XML encoding detection rules](https://www.w3.org/TR/xml/#sec-guessing).
-Cloud folder browsing follows bounded cursor pages, including empty media pages,
-filters before retaining entries, deduplicates returned addresses and rejects
-repeated cursors.
-Cloud derivatives use persistent identity/edge/pipeline indexes and conditional
-ETag validation; unchanged loads reuse their image body, and missing cache files
-are rebuilt. Back clears a pending open’s loading state before returning to Browse.
-The stop-time flush remains active through ViewModel teardown, including waits
-behind an earlier save. Cloud XMP responses use the server’s 128 MiB body limit;
-other JSON responses remain bounded at 16 MiB. UTF-8 validation uses a fixed-size
-scratch buffer. Incoming Open/Share navigation changes only after pending edits
-save successfully; a conflict retains the current folder, filmstrip and document.
-HTTP responses transfer their bounded byte buffer without cloning it; XML, JSON,
-hashing and derivative publication consume only its received range. Oversized
-declared lengths fail before body allocation.
-Requests count UTF-8 bytes before streaming through a bounded character encoder,
-including supplementary characters split across encoder buffers.
+Original URIs are opened for reading only. Folder grants persist through the Storage Access
+Framework. Folder edits use adjacent stem-swapped XMP files; single-file/share intents use private
+sidecars with an explicit XMP export. Single-file opens stream a fresh read into an atomic cache
+snapshot and SHA-256 digest before choosing pixels or edits, with import progress and cancellation
+checks. Private sidecars include that digest, the source URI, size and modification time in their
+identity, so a reused URI with different bytes gets separate edits even when provider metadata is
+absent or unchanged. Rendering uses the hashed snapshot; if it is evicted, the user must reopen
+instead of reading new bytes under an old identity. Earlier URI/metadata-only private sidecars are
+retained and are not automatically assigned to a photo whose identity cannot be verified.
+Folder-adjacent sidecars are unaffected. The XMP writer patches owned attributes in the original
+XML, retaining untouched foreign bytes, resolves RDF and owned attributes by namespace, and rejects
+external-write conflicts. Legacy Maple namespace aliases are read and owned edits remove their older
+spelling. If a canonical prefix belongs to a foreign namespace, writes reuse an owned alias or
+declare a nonconflicting prefix without rebinding the foreign XML. A shared-core namespace-aware
+event reader feeds every native preview/editor/validation/export entry without a DOM or
+full-document normalization copy; persisted XML remains lexical. Opaque subtrees are validated as a
+borrowed stream and never retained by the adjustment reader. Loading validates the immutable source
+and its RDF description without serializing a throwaway document; serialization occurs only for a
+real consumer. Each immutable source is parsed once, and scalar/metadata revisions share its
+namespace-resolved attributes, so UI lookups do not scan opaque XML on slider ticks. Unstamped
+imported temperature/tint keep their foreign or legacy Maple scale when unrelated edits add Maple
+metadata, so rating or picking cannot change color. Local sidecar reads detect BOM/XML-declared
+encodings, retain the source byte order on save/recovery/XMP export, and reject malformed or
+unrepresentable metadata before publication. The byte order is made explicit in the XML declaration;
+unknown child text stays verbatim. Cloud responses are decoded by their XML encoding and cloud
+writes follow the server’s UTF-8 text API. Existing servers still require stored sidecars to be
+UTF-8. See the [XML encoding detection rules](https://www.w3.org/TR/xml/#sec-guessing). Cloud folder
+browsing follows bounded cursor pages, including empty media pages, filters before retaining
+entries, deduplicates returned addresses and rejects repeated cursors. Cloud derivatives use
+persistent identity/edge/pipeline indexes and conditional ETag validation; unchanged loads reuse
+their image body, and missing cache files are rebuilt. Back clears a pending open’s loading state
+before returning to Browse. The stop-time flush remains active through ViewModel teardown, including
+waits behind an earlier save. Cloud XMP responses use the server’s 128 MiB body limit; other JSON
+responses remain bounded at 16 MiB. UTF-8 validation uses a fixed-size scratch buffer. Incoming
+Open/Share navigation changes only after pending edits save successfully; a conflict retains the
+current folder, filmstrip and document. HTTP responses transfer their bounded byte buffer without
+cloning it; XML, JSON, hashing and derivative publication consume only its received range. Oversized
+declared lengths fail before body allocation. Requests count UTF-8 bytes before streaming through a
+bounded character encoder, including supplementary characters split across encoder buffers.
 
 RAW white-balance resets omit the authored pair and provenance and restore the
 camera's as-shot controls from the shared core, as one Undo entry. Group resets
@@ -404,56 +394,56 @@ written into the user's photo folder.
 
 ## Cloud connections
 
-Use **Add Maple Cloud server** in Sources or Settings → Cloud for hosted and
-self-hosted servers; they use the same connection protocol. Maple opens the
-server’s HTTPS domain in the system browser for passkey sign-in. Choose **Open
-Maple** on the browser confirmation page if it blocks the automatic callback.
-Android does not poll with state and verifier alone. A one-time PKCE code returns through `maple-app://auth-success`; tokens never appear in
-callback URLs. Access/refresh tokens and pending verifier/state are encrypted
-with an Android Keystore key, and expired access tokens refresh once before
-retrying. Loopback HTTP is supported for development. Disconnect revokes the
-server session when reachable and always removes this device’s credentials.
+Use **Add Maple Cloud server** in Sources or Settings → Cloud for hosted and self-hosted servers;
+they use the same connection protocol. Maple opens the server’s HTTPS domain in the system browser
+for passkey sign-in. Choose **Open Maple** on the browser confirmation page if it blocks the
+automatic callback. Android does not poll with state and verifier alone. A one-time PKCE code
+returns through `maple-app://auth-success`; tokens never appear in callback URLs. Access/refresh
+tokens and pending verifier/state are encrypted with an Android Keystore key, and expired access
+tokens refresh once before retrying. Loopback HTTP is supported for development. Disconnect revokes
+the server session when reachable and always removes this device’s credentials.
 
-Library reads use the unified folder/image/thumb/preview routes. Server
-derivatives are freshness-checked by the server; Android 10/11 use the shared
-original-based thumbnail path because the OS has no AVIF decoder. XMP writes
-require `content-etag-v1`, a strong `If-Match` or create-only `If-None-Match: *`.
-A conflict retains unsaved edits; **Reload saved edits** asks before discarding
-them. Older servers without conditional saves must be upgraded before editing.
-The cloud device test exercises real HTTP, Keystore persistence, PKCE/state
-checks, cancellation during redemption, refresh/disconnect ordering, nested Unicode
-paths, real XMP saves/conflicts, and original-byte
-preservation against a temporary fixture server. Live account/passkey-provider
-and physical-device qualification remains outstanding.
+Library reads use the unified folder/image/thumb/preview routes. Server derivatives are
+freshness-checked by the server; Android 10/11 use the shared original-based thumbnail path because
+the OS has no AVIF decoder. XMP writes require `content-etag-v1`, a strong `If-Match` or create-only
+`If-None-Match: *`. A conflict retains unsaved edits; **Reload saved edits** asks before discarding
+them. Older servers without conditional saves must be upgraded before editing. The cloud device test
+exercises real HTTP, Keystore persistence, PKCE/state checks, cancellation during redemption,
+refresh/disconnect ordering, nested Unicode paths, real XMP saves/conflicts, and original-byte
+preservation against a temporary fixture server. Live account/passkey-provider and physical-device
+qualification remains outstanding.
 
-**Search** queries the selected server through `/api/search` and `/api/search/facets`.
-Free text uses `placeQuery`, Apple's natural-language ranked field; `q` only matches
-filenames. Today / Last 7 days / Last 30 days / This year use iPad's date ranges;
-People and Places are multi-select facets, retaining removable missing selections.
-Typing debounces 350 ms; filters run immediately. Results retain server order,
-with Search order / Name / Rating choices and open-ended ranked counts ("5,000+").
-**Show more** follows `nextCursor` or `page` with `rankPin`; `409 rank_engine_changed`
-restarts without the pin. Loading/error states replace empty-library chrome.
-A failed new search clears old results; facet failures retain the page.
-Unaddressable and non-photo rows are omitted (`CloudSearch.kt`, `CloudSearchPanel.kt`).
-**Timeline** lists dated photos newest first, grouped under month/year headers with
-server bucket counts (`/api/search/buckets`). Show more pages to the end.
-Its owner menu offers All owners, Only my uploads and server owner facets; failed
-facets have Retry owners. Refresh reloads the active owner; Retry preserves loaded pages.
-A dedicated `CloudTimelineViewModel` clears stale results on account/server changes
-and sign-out. Loading, empty and error states remain distinct (`CloudTimelinePanel.kt`).
-Both tabs open Preview/Edit with their loaded results as the filmstrip and save via
-conditional cloud XMP writes above. `CloudTimelineIntegrationTest` runs against the
-real API through `scripts/with-cloud-api.sh`.
+**Search** queries the selected server through `/api/search` and `/api/search/facets`. Free text
+uses `placeQuery`, Apple's natural-language ranked field; `q` only matches filenames. Today / Last 7
+days / Last 30 days / This year use iPad's date ranges; People and Places are multi-select facets,
+retaining removable missing selections. Typing debounces 350 ms; filters run immediately. Results
+retain server order, with Search order / Name / Rating choices and open-ended ranked counts
+("5,000+"). **Show more** follows `nextCursor` or `page` with `rankPin`; `409 rank_engine_changed`
+restarts without the pin. Loading/error states replace empty-library chrome. A failed new search
+clears old results; facet failures retain the page. Unaddressable and non-photo rows are omitted
+(`CloudSearch.kt`, `CloudSearchPanel.kt`). **Timeline** lists dated photos newest first, grouped
+under month/year headers with server bucket counts (`/api/search/buckets`). Show more pages to the
+end. Its owner menu offers All owners, Only my uploads and server owner facets; failed facets have
+Retry owners. Refresh reloads the active owner; Retry preserves loaded pages. A dedicated
+`CloudTimelineViewModel` clears stale results on account/server changes and sign-out. Loading, empty
+and error states remain distinct (`CloudTimelinePanel.kt`). Both tabs open Preview/Edit with their
+loaded results as the filmstrip and save via conditional cloud XMP writes above.
+`CloudTimelineIntegrationTest` runs against the real API through `scripts/with-cloud-api.sh`.
+
+### Panoramas
+
+Select two or more photos in a connected server's folder and choose **Merge to panorama…**: the
+server previews and stitches, Android follows the jobs and opens the output in Preview. See
+[pano.md § Android client](../../docs/pano.md#android-client-5994) and `PanoramaIntegrationTest`.
 
 ### RAW+JPEG pairs
 
 Browse, Timeline and Search send `stack=1` only when `/api/display/config` advertises
-`stack_pair_ops_supported: true` and the user's `stack_raw_jpeg` display setting is on
-(default on). `CloudStackPolicy` caches the config per server for 30 seconds and clears
-it on sign-in/disconnect. Older servers keep two tiles. A folded `Photo` retains the
-RAW and JPEG's server IDs and locations; its thumbnail shows `RAW+JPEG`, without a
-filename caption. Accessible names still identify the photo.
+`stack_pair_ops_supported: true` and the user's `stack_raw_jpeg` display setting is on (default on).
+`CloudStackPolicy` caches the config per server for 30 seconds and clears it on sign-in/disconnect.
+Older servers keep two tiles. A folded `Photo` retains the RAW and JPEG's server IDs and locations;
+its thumbnail shows `RAW+JPEG`, without a filename caption. Accessible names still identify the
+photo.
 
 Write-path audit:
 
@@ -482,30 +472,28 @@ read-only there. See [Android documents provider](../../docs/android-documents-p
 Its device tests need a real Maple API: run them through
 `scripts/with-cloud-api.sh ./gradlew connectedDebugAndroidTest`.
 
-Numeric raster availability is generated from the Rust raster validator and
-cross-checked by the native test. RAW-only sliders are hidden for raster inputs
-and rejected by the native boundary. **Reset RAW-only sliders** recovers an
-incompatible numeric sidecar from the initial build after confirmation, only
-when the shared Rust validator accepts the full candidate. Sidecars with
-unsupported structured or enum edits keep their original XMP and error; numeric
-recovery is unavailable rather than saving a partial reset. AVIF
-originals are converted through the OS decoder on Android 12+; older versions
-do not advertise AVIF originals. HEIC/HEIF use the same staging path: the OS
-retains the source gamut and native RGBA8, packed 10-bit or F16 output. JNI
-transports those channels into a float32 TIFF with a matching input ICC profile,
-without a forced sRGB or 8-bit conversion. Profile colorants and parametric
-transfer curves come from the [OS RGB color-space metadata](https://developer.android.com/reference/android/graphics/ColorSpace.Rgb). The shared core converts it to scene-linear Rec.2020. Non-parametric HDR transfer
-curves fail explicitly rather than being reinterpreted as SDR.
-Older PNG stages are excluded by the versioned stage identity.
+Numeric raster availability is generated from the Rust raster validator and cross-checked by the
+native test. RAW-only sliders are hidden for raster inputs and rejected by the native boundary.
+**Reset RAW-only sliders** recovers an incompatible numeric sidecar from the initial build after
+confirmation, only when the shared Rust validator accepts the full candidate. Sidecars with
+unsupported structured or enum edits keep their original XMP and error; numeric recovery is
+unavailable rather than saving a partial reset. AVIF originals are converted through the OS decoder
+on Android 12+; older versions do not advertise AVIF originals. HEIC/HEIF use the same staging path:
+the OS retains the source gamut and native RGBA8, packed 10-bit or F16 output. JNI transports those
+channels into a float32 TIFF with a matching input ICC profile, without a forced sRGB or 8-bit
+conversion. Profile colorants and parametric transfer curves come from the [OS RGB color-space
+metadata](https://developer.android.com/reference/android/graphics/ColorSpace.Rgb). The shared core
+converts it to scene-linear Rec.2020. Non-parametric HDR transfer curves fail explicitly rather than
+being reinterpreted as SDR. Older PNG stages are excluded by the versioned stage identity.
 
-Tablet editing now uses a floating capsule header, centered collapsible filmstrip,
-a translucent trailing inspector and tool dock over a bounded full canvas. Phone
-controls use the compact bottom surface; the same editor state survives panel
-changes and activity recreation. The header RGB histogram samples the presented
-surface after 300 ms idle through Android PixelCopy, with one reusable 256×128
-bitmap, outside the Rust render loop. See [PixelCopy](https://developer.android.com/reference/android/view/PixelCopy).
-The inspector can be hidden, and resetting its current slider group creates one
-undo step. Auto/Neutral profiles remain available under More photo actions.
+Tablet editing now uses a floating capsule header, centered collapsible filmstrip, a translucent
+trailing inspector and tool dock over a bounded full canvas. Phone controls use the compact bottom
+surface; the same editor state survives panel changes and activity recreation. The header RGB
+histogram samples the presented surface after 300 ms idle through Android PixelCopy, with one
+reusable 256×128 bitmap, outside the Rust render loop. See
+[PixelCopy](https://developer.android.com/reference/android/view/PixelCopy). The inspector can be
+hidden, and resetting its current slider group creates one undo step. Auto/Neutral profiles remain
+available under More photo actions.
 
 Library uses floating source/action controls and a page title. Folder browsing
 matches Maple’s 180×64 tiles (4 dp radius, Maple’s rounded primary folder glyph, 14 dp
@@ -541,44 +529,39 @@ photo. Each of the eight handles is an accessible element placed at raw-core's
 `crop_handle_centers`. The native test checks the Android entry against the shared
 reference bytes.
 
-Portrait canvases fit both viewport axes, including when error banners change
-the available height. `PortraitCanvasTest` checks the real oriented RAW surface
-bounds and captures its frames. `SafSidecarTest` grants access through the system
-folder picker, creates/replaces adjacent XMP, replays interruption before/after
-publication through a fresh library instance, rejects stale baselines and verifies
-original RAW bytes. A synced app-private transaction journal records the staged,
-backup and canonical names before any replacement rename. Recovery restores old
-edits or adopts the completed publication, preserving provider-assigned names and
-changed document IDs. Providers must support create, rename and delete.
-Failures identify the operation and exception and retain a stack trace in logcat.
-Sidecar reads, recovery and saves share one persistence mutex across library
-instances in the app process. `SafRecoveryConcurrencyTest` pauses a real provider
-read at each recovery boundary and verifies that a second library waits, keeps
-the original bytes, and rejects a later external sidecar edit (#4771).
+Portrait canvases fit both viewport axes, including when error banners change the available height.
+`PortraitCanvasTest` checks the real oriented RAW surface bounds and captures its frames.
+`SafSidecarTest` grants access through the system folder picker, creates/replaces adjacent XMP,
+replays interruption before/after publication through a fresh library instance, rejects stale
+baselines and verifies original RAW bytes. A synced app-private transaction journal records the
+staged, backup and canonical names before any replacement rename. Recovery restores old edits or
+adopts the completed publication, preserving provider-assigned names and changed document IDs.
+Providers must support create, rename and delete. Failures identify the operation and exception and
+retain a stack trace in logcat. Sidecar reads, recovery and saves share one persistence mutex across
+library instances in the app process. `SafRecoveryConcurrencyTest` pauses a real provider read at
+each recovery boundary and verifies that a second library waits, keeps the original bytes, and
+rejects a later external sidecar edit (#4771).
 
-A single batched folder query populates local names/URIs/metadata. Thumbnail
-sidecar lookups reuse that snapshot; open/save/list/recovery refresh or invalidate
-it, while XMP contents are always read fresh. Metadata-only RAW sidecars keep the
-embedded-preview fast path. The local thumbnail cache key includes Android
-thumbnail version 2 to retire earlier unnecessarily developed culling previews.
-Incoming Open/Share MIME filters advertise supported formats only, with an
-Android 12+ AVIF alias; file-picker inputs are validated before opening.
+A single batched folder query populates local names/URIs/metadata. Thumbnail sidecar lookups reuse
+that snapshot; open/save/list/recovery refresh or invalidate it, while XMP contents are always read
+fresh. Metadata-only RAW sidecars keep the embedded-preview fast path. The local thumbnail cache key
+includes Android thumbnail version 2 to retire earlier unnecessarily developed culling previews.
+Incoming Open/Share MIME filters advertise supported formats only, with an Android 12+ AVIF alias;
+file-picker inputs are validated before opening.
 
 ## Shared folder caches
 
-Folder libraries reuse and populate the portable `.maple/` cache through Android
-document providers. Thumbnails use `.maple/thumbs/<filename.ext>.avif`
-at 512 pixels / quality 55; previews use `.maple/previews/<filename.ext>.avif`
-at 1280 pixels / quality 70. Neither name carries a pipeline version (#4793, #5007). Warm
-shared reads do not stage or develop the original. Hosted preview descriptors
-allow JPEG/WebP/PNG reuse, with newer canonical AVIFs taking precedence.
+Folder libraries reuse and populate the portable `.maple/` cache through Android document providers.
+Thumbnails use `.maple/thumbs/<filename.ext>.avif` at 512 pixels / quality 55; previews use
+`.maple/previews/<filename.ext>.avif` at 1280 pixels / quality 70. Neither name carries a pipeline
+version (#4793, #5007). Warm shared reads do not stage or develop the original. Hosted preview
+descriptors allow JPEG/WebP/PNG reuse, with newer canonical AVIFs taking precedence.
 
-Reads validate actual format, dimensions, original/XMP freshness and source
-identity. Writes use complete synced siblings and safe provider rename, with
-original/sidecar descriptor checks and source revalidation. Transparent raster
-inputs retain the core's explicit rejection before any derivative is created;
-they cannot publish opaque substitutes into the shared cache. Private read-through
-copies remain bounded by the 64 MiB derivative budget. Read-only or unsupported
-providers fall back privately; single-file imports and authenticated cloud caches
-retain their existing behavior. Android 10/11 decode shared AVIFs to private lossless PNGs for
-display; shared files always remain AVIF. See [caching](../../docs/caching.md).
+Reads validate actual format, dimensions, original/XMP freshness and source identity. Writes use
+complete synced siblings and safe provider rename, with original/sidecar descriptor checks and
+source revalidation. Transparent raster inputs retain the core's explicit rejection before any
+derivative is created; they cannot publish opaque substitutes into the shared cache. Private
+read-through copies remain bounded by the 64 MiB derivative budget. Read-only or unsupported
+providers fall back privately; single-file imports and authenticated cloud caches retain their
+existing behavior. Android 10/11 decode shared AVIFs to private lossless PNGs for display; shared
+files always remain AVIF. See [caching](../../docs/caching.md).

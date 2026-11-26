@@ -11,6 +11,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import app.justmaple.aperture.*
+import app.justmaple.aperture.cloud.CloudLibrary
+import app.justmaple.aperture.cloud.PanoStitchRun
 import app.justmaple.aperture.data.*
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
@@ -20,6 +22,7 @@ import kotlinx.coroutines.launch
 internal fun BrowseSelectionControls(model: MapleViewModel, state: MapleState, visible: List<Photo>) {
     val selection by model.browseSelection.state.collectAsState()
     val batch by model.batchSettings.state.collectAsState()
+    val panorama by model.panorama.state.collectAsState()
     val selected = visible.filter { it.uri.toString() in selection.ids }
     val scope = rememberCoroutineScope()
     var reviewing by remember { mutableStateOf(false) }
@@ -68,6 +71,10 @@ internal fun BrowseSelectionControls(model: MapleViewModel, state: MapleState, v
                     }, enabled = selected.isNotEmpty() && state.copiedSettings != null && !preparing &&
                         !batch.running && batch.pending == 0 && batch.failed == 0,
                         modifier = Modifier.testTag("browse-paste-settings")) { Text(if (preparing) "Reading…" else "Paste settings…") }
+                    if (state.folder?.uri?.let(CloudLibrary::isCloud) == true)
+                        TextButton(onClick = { reviewError = model.panorama.open(selected) },
+                            enabled = selected.size >= 2 && !panorama.open,
+                            modifier = Modifier.testTag("browse-merge-panorama")) { Text("Merge to panorama…") }
                     TextButton(onClick = { model.browseSelection.cancel() },
                         modifier = Modifier.testTag("browse-selection-cancel")) { Text("Cancel") }
                 }
@@ -75,6 +82,20 @@ internal fun BrowseSelectionControls(model: MapleViewModel, state: MapleState, v
             }
         }
     }
+    if (panorama.open)
+        PanoramaSheet(panorama, model.panorama, onViewResult = {
+            scope.launch {
+                val (photo, order) = model.panorama.output() ?: return@launch
+                model.panorama.close()
+                model.browseSelection.cancel()
+                model.openFromBrowse(photo, order)
+                model.refreshFolders()
+            }
+        }, onClose = {
+            val made = panorama.stitch is PanoStitchRun.Done
+            model.panorama.close()
+            if (made) state.folder?.let(model::browse)
+        })
     val copied = state.copiedSettings
     if (reviewing && copied != null && targets.isNotEmpty()) {
         PasteSettingsDialog(targets.first().first, copied, targets.first().second,

@@ -83,6 +83,19 @@ for name in capture.dng capture.jpg; do
 	cp "$repo/test-fixtures/raster-metadata/avif-validation/srgb-rgb.avif" "$library/stack-pair/.maple/thumbs/$name.avif"
 done
 
+# Panorama merge (#5994): given a classical maple-cli and pano-gen-fixture, the server merges
+# three overlapping synthetic frames. CI builds both (android.yml); without them the merge
+# device test is skipped.
+pano=0
+if [[ -n "${MAPLE_ANDROID_PANO_CLI:-}" || -n "${MAPLE_ANDROID_PANO_FIXTURES:-}" ]]; then
+	test -x "${MAPLE_ANDROID_PANO_CLI:?Set MAPLE_ANDROID_PANO_CLI to a maple-cli built with pano-classical}"
+	test -x "${MAPLE_ANDROID_PANO_FIXTURES:?Set MAPLE_ANDROID_PANO_FIXTURES to pano-gen-fixture}"
+	mkdir -p "$library/pano"
+	"$MAPLE_ANDROID_PANO_FIXTURES" --out-dir "$library/pano" --cameras 3 --width 640 --height 480 \
+		--source-width 2048 >/dev/null
+	pano=1
+fi
+
 if [[ ! -d "$api/node_modules" ]]; then (cd "$api" && bun install --frozen-lockfile); fi
 native=0
 if compgen -G "$api/native/libraw_ffi.*" >/dev/null; then native=1; fi
@@ -118,6 +131,7 @@ fi
 
 (
 	cd "$api"
+	if ((pano)); then export MAPLE_PANO_CLI="$MAPLE_ANDROID_PANO_CLI"; fi
 	PORT="$port" MAPLE_DEV=0 MAPLE_DEV_AUTH=1 MAPLE_ROOTS="$library" \
 		MAPLE_SQLITE_PATH="$work/runtime/maple.sqlite" \
 		MAPLE_TEMPORAL_ADDRESS="$(<"$work/runtime/temporal.address")" \
@@ -150,8 +164,9 @@ if (result.changes !== 1) throw new Error("Unassigned Timeline fixture was not f
 db.close();
 ' "$work/runtime/maple.sqlite"
 adb reverse "tcp:$port" "tcp:$port"
-echo "Maple API fixture: $origin (native engine: $native)"
+echo "Maple API fixture: $origin (native engine: $native, panorama: $pano)"
 
 "$@" \
 	"-Pandroid.testInstrumentationRunnerArguments.mapleApiOrigin=$origin" \
-	"-Pandroid.testInstrumentationRunnerArguments.mapleApiNative=$native"
+	"-Pandroid.testInstrumentationRunnerArguments.mapleApiNative=$native" \
+	"-Pandroid.testInstrumentationRunnerArguments.mapleApiPano=$pano"

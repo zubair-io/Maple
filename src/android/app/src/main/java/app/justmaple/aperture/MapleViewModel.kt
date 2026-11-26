@@ -37,6 +37,12 @@ internal constructor(
         app.justmaple.aperture.cloud.CloudSearchModel(viewModelScope,
             fold = { server -> withContext(Dispatchers.IO) { library.cloud.stackPolicy.config(server).fold } },
         ) { server, path -> withContext(Dispatchers.IO) { library.cloud.http.request(server, path) } }
+    internal val panorama =
+        app.justmaple.aperture.cloud.PanoramaSession(viewModelScope,
+            app.justmaple.aperture.cloud.PanoramaClient(library.cloud.http),
+            account = { server -> library.cloud.credentials.servers().find { it.id == server }?.account },
+            listFolder = { folder -> library.list(folder) },
+        )
     private val preferences = application.getSharedPreferences("maple-ui", 0)
     private val mutable =
         MutableStateFlow(
@@ -124,6 +130,7 @@ internal constructor(
                     )
                 }
                 search.signedIn(source)
+                panorama.connectionsChanged()
                 browse(source)
             } catch (failure: Exception) {
                 if (failure is CancellationException) return@launch
@@ -166,6 +173,7 @@ internal constructor(
             } catch (failure: Exception) {
                 fail(failure)
             } finally {
+                panorama.connectionsChanged()
                 mutable.update { it.copy(sources = library.sources) }
             }
         }
@@ -233,6 +241,19 @@ internal constructor(
 
     fun openFromBrowse(photo: Photo, visibleOrder: List<Photo>) = viewModelScope.launch {
         open(photo, single = false, visibleOrder = visibleOrder.toList())
+    }
+
+    /** Relists the Browse folder's subfolders in place, such as the `Panoramas/` a server merge just made. */
+    fun refreshFolders() = viewModelScope.launch {
+        val folder = state.value.folder ?: return@launch
+        val listing =
+            try {
+                library.list(folder.uri)
+            } catch (failure: Exception) {
+                if (failure is CancellationException) throw failure
+                return@launch report(failure)
+            }
+        mutable.update { if (it.folder == folder) it.copy(folders = listing.folders) else it }
     }
 
     fun openAdjacent(delta: Int): Boolean {
