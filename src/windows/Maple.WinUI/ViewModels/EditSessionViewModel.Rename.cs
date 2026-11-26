@@ -149,7 +149,7 @@ namespace Maple.WinUI.ViewModels
                 RequestEmbeddedPreview(photo);
         }
 
-        private async Task RefreshLocalThumbnailAsync(PhotoItem photo, CancellationToken ct)
+        private async Task<bool> RefreshLocalThumbnailAsync(PhotoItem photo, CancellationToken ct)
         {
             var originalPath = photo.FilePath;
             var originalThumbnail = photo.ThumbnailPath;
@@ -159,13 +159,15 @@ namespace Maple.WinUI.ViewModels
             var effectiveThumb = thumb
                 ?? (photo.Format is "JPG" or "JPEG" ? photo.FilePath : null);
             if (effectiveThumb == null)
-                return;
+                return false;
             var uri = new Uri(effectiveThumb).AbsoluteUri;
+            var published = false;
             await OnUiAcknowledgedAsync(() =>
             {
-                if (!_disposed && !ct.IsCancellationRequested && photo.FilePath == originalPath && photo.ThumbnailPath == originalThumbnail)
-                    photo.ThumbnailPath = uri;
+                published = !_disposed && !ct.IsCancellationRequested && photo.FilePath == originalPath && photo.ThumbnailPath == originalThumbnail;
+                if (published) photo.ThumbnailPath = uri;
             });
+            return published;
         }
     }
 }
