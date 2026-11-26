@@ -135,7 +135,8 @@ namespace Maple.WinUI.Tests
         [Fact]
         public void PickFreeRestoredBasename_NoCollision_ReturnsRestoredSuffixUnnumbered()
         {
-            var basename = LocalFileOperations.PickFreeRestoredBasename(_dir, "photo.dng");
+            var basename = LocalFileOperations.PickFreeRestoredBasename(
+                Path.Combine(_dir, ".maple", "trash", "photo.dng"), _dir, LocalFileOperations.FolderNames(_dir), "photo.dng");
             Assert.Equal("photo.restored.dng", basename);
         }
     }

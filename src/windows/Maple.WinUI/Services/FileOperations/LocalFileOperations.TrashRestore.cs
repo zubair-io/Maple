@@ -13,9 +13,12 @@
 // established server-side — rather than the generic `.N` CollisionResolver
 // uses elsewhere in this module.
 //
-// Staged behind #2847: only that naming is shared. Paired conflict/UUID/video
-// sidecars (the API/Apple restore-collisions corpus) and Apple's copy-only
-// SMB restore with its `.restored-` trash marker are not ported here yet.
+// Shared with the API/Apple corpus (#6105): the `.restored[.N]` naming, and a
+// name counts as taken while an edit file the photo would adopt (canonical,
+// full-name video, conflict or workflow copy) sits at the destination.
+// Not ported (#2847): moving a trashed photo's conflict and workflow copies
+// back with it, and Apple's copy-only SMB restore with its `.restored-`
+// marker. Restore never overwrites or deletes a file it did not bring back.
 //
 // #2743 review fix: the ORIGINAL relative path is no longer recovered by
 // inverting `TrashPaths.TrashDestinationDir`'s path math alone. That
@@ -35,6 +38,7 @@
 // marker in the first place.
 
 using System;
+using System.Collections.Generic;
 using Maple.WinUI.Generated;
 using System.IO;
 using System.Threading.Tasks;
@@ -72,17 +76,18 @@ namespace Maple.WinUI.Services.FileOperations
             var destinationDir = Path.GetDirectoryName(targetPath) ?? libraryRoot;
             var basename = Path.GetFileName(targetPath);
 
-            var occupied = File.Exists(targetPath) || Directory.Exists(targetPath);
-            var finalBasename = occupied ? PickFreeRestoredBasename(destinationDir, basename) : basename;
+            var finalBasename = ResolveRestoredBasename(trashPrimaryPath, destinationDir, basename);
+            return await MoveToRestoredNameAsync(trashPrimaryPath, destinationDir, finalBasename).ConfigureAwait(false);
+        }
 
-            // finalBasename is already guaranteed free (either it was free
-            // to begin with, or PickFreeRestoredBasename found a free
-            // `.restored[.N]` variant) — CollisionPolicy.Replace tells
-            // RelocateAsync to use it as-is rather than re-running its own
-            // (differently-named) auto-suffix logic on top of a name this
-            // method already resolved.
+        /// <summary>Fail, not Replace: restore never removes or overwrites a
+        /// file it did not bring back, even one that appeared after the name
+        /// was resolved.</summary>
+        internal static async Task<RelocateOutcome> MoveToRestoredNameAsync(
+            string trashPrimaryPath, string destinationDir, string finalBasename)
+        {
             var outcome = await RelocateAsync(trashPrimaryPath, destinationDir, finalBasename,
-                RelocateMode.Move, CollisionPolicy.Replace).ConfigureAwait(false);
+                RelocateMode.Move, CollisionPolicy.Fail).ConfigureAwait(false);
             TryDelete(OriginalPathMarkerFor(trashPrimaryPath));
             return outcome;
         }
@@ -193,28 +198,30 @@ namespace Maple.WinUI.Services.FileOperations
         /// `pickFreeRestoredPath` naming exactly, bounded the same way
         /// <see cref="CollisionResolver"/> bounds the generic `.N`
         /// scheme.</summary>
-        internal static string PickFreeRestoredBasename(string destinationDir, string basename)
+        internal static string ResolveRestoredBasename(string trashPrimaryPath, string destinationDir, string basename)
         {
-            var ext = Path.GetExtension(basename);
-            var stem = ext.Length > 0 ? basename[..^ext.Length] : basename;
+            var names = FolderNames(destinationDir);
+            return RestoreNameTaken(destinationDir, names, trashPrimaryPath, basename)
+                ? PickFreeRestoredBasename(trashPrimaryPath, destinationDir, names, basename)
+                : basename;
+        }
+
+        internal static string PickFreeRestoredBasename(
+            string trashPrimaryPath, string destinationDir, IReadOnlyList<string> names, string basename)
+        {
+            var (stem, ext) = SplitRestoredName(basename);
 
             var first = $"{stem}{FilenameVocabulary.RestoreCollisionSuffix}{ext}";
-            if (!Occupied(destinationDir, first)) return first;
+            if (!RestoreNameTaken(destinationDir, names, trashPrimaryPath, first)) return first;
 
             for (var n = 1; n <= CollisionResolver.MaxAttempts; n++)
             {
                 var candidate = $"{stem}{FilenameVocabulary.RestoreCollisionSuffix}.{n}{ext}";
-                if (!Occupied(destinationDir, candidate)) return candidate;
+                if (!RestoreNameTaken(destinationDir, names, trashPrimaryPath, candidate)) return candidate;
             }
 
             throw new FileOperationException(FileOperationErrorKind.Underlying,
                 $"pickFreeRestoredBasename: exceeded {CollisionResolver.MaxAttempts} candidate paths for {basename}");
-        }
-
-        private static bool Occupied(string dir, string basename)
-        {
-            var candidate = Path.Combine(dir, basename);
-            return File.Exists(candidate) || Directory.Exists(candidate);
         }
     }
 }

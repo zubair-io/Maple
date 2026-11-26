@@ -59,8 +59,8 @@ namespace Maple.WinUI.Services.FileOperations
 
         private static string PickFreeRestoredStackBasename(string destinationDir, string rawName, string jpegName)
         {
-            var extension = Path.GetExtension(rawName);
-            var stem = rawName[..^extension.Length];
+            var (stem, extension) = SplitRestoredName(rawName);
+            var names = FolderNames(destinationDir);
 
             bool Free(string candidateRawName)
             {
@@ -68,7 +68,7 @@ namespace Maple.WinUI.Services.FileOperations
                 var raw = Path.Combine(destinationDir, candidateRawName);
                 return !PathOccupied(raw)
                     && !PathOccupied(Path.Combine(destinationDir, candidateJpegName))
-                    && !PathOccupied(SidecarStore.SidecarPathFor(raw));
+                    && !PairedSidecarNames(names, candidateRawName).Any();
             }
 
             if (Free(rawName)) return rawName;
