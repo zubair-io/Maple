@@ -52,8 +52,15 @@ namespace Maple.WinUI.ViewModels
         /// lists the JPEG of a pair.</summary>
         public static bool ShouldFold(
             bool inLocalFolder, bool localSwitchOn, bool inCloudFolder, bool serverFoldsPairs,
-            bool formatFilterActive) =>
-            !formatFilterActive && ((inLocalFolder && localSwitchOn) || (inCloudFolder && serverFoldsPairs));
+            bool cloudListingComplete, bool formatFilterActive) =>
+            !formatFilterActive
+            && ((inLocalFolder && localSwitchOn) || (inCloudFolder && serverFoldsPairs && cloudListingComplete));
+
+        /// <summary>A cloud listing is complete only when every page arrived
+        /// and none was cut off: a pair is judged against the whole stem, and a
+        /// second RAW past the cap or behind a failed page would be missed.</summary>
+        public static bool IsCloudListingComplete(bool hitImageCap, bool pageFailed, bool cancelled, string? nextCursor) =>
+            !hitImageCap && !pageFailed && !cancelled && string.IsNullOrEmpty(nextCursor);
 
         /// <summary>The cloud tiles that still need a thumbnail request: a
         /// file hidden behind a RAW at load is never requested, so it joins
