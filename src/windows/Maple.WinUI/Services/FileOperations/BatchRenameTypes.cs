@@ -50,7 +50,8 @@ namespace Maple.WinUI.Services.FileOperations
     /// item (Windows uses the photo's pre-batch FilePath) — carried through
     /// to <see cref="BatchRenamePreviewRow"/> / <see
     /// cref="BatchRenameItemOutcome"/> so the caller can map a row/outcome
-    /// back to its PhotoItem.</summary>
+    /// back to its PhotoItem. <paramref name="CompanionPath"/> is a stacked
+    /// tile's same-stem JPEG (#5050), renamed to the RAW's new stem.</summary>
     public sealed record BatchRenameSourceItem(
         string Key,
         string Directory,
@@ -58,7 +59,8 @@ namespace Maple.WinUI.Services.FileOperations
         string CurrentPath,
         string OriginalStem,
         string Ext,
-        string? CapturedAtWire);
+        string? CapturedAtWire,
+        string? CompanionPath = null);
 
     /// <summary>One row of the live before/after preview list.</summary>
     public sealed record BatchRenamePreviewRow(
@@ -103,5 +105,6 @@ namespace Maple.WinUI.Services.FileOperations
         string? NewPath = null,
         bool RenamedOnCollision = false,
         bool ExtensionChanged = false,
-        string? Error = null);
+        string? Error = null,
+        string? CompanionNewPath = null);
 }

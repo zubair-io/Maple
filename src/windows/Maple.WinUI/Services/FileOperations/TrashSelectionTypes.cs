@@ -10,11 +10,13 @@ namespace Maple.WinUI.Services.FileOperations
     /// <summary>One asset going into a Delete — the pure input
     /// TrashSelectionLogic needs. <paramref name="Key"/> is the caller's
     /// stable identifier (Windows uses the photo's pre-operation
-    /// FilePath).</summary>
+    /// FilePath). <paramref name="CompanionPath"/> is a stacked tile's
+    /// same-stem JPEG (#5050), trashed with the RAW.</summary>
     public sealed record TrashSourceItem(
         string Key,
         string PrimaryPath,
-        string FileName);
+        string FileName,
+        string? CompanionPath = null);
 
     /// <summary>Which destination a trash actually used (or, before the
     /// operation runs, is predicted to use — see

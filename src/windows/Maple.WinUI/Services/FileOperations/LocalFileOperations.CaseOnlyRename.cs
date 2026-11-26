@@ -10,6 +10,7 @@
 // "occupying" its own destination.
 
 using System.IO;
+using System.Linq;
 using Maple.WinUI.Services;
 using Maple.WinUI.Services.Xmp;
 
@@ -25,12 +26,13 @@ namespace Maple.WinUI.Services.FileOperations
         /// sharing violation; a failed rename is a genuine failure the
         /// caller must see, not a silent no-op.
         /// </summary>
-        private static RelocatePlan PerformCaseOnlyRename(string source, string target)
+        private static RelocatePlan PerformCaseOnlyRename(string source, string target, string[] alsoLeaving)
         {
             var sourceSidecarPath = SidecarStore.SidecarPathFor(source);
             var hadSidecar = File.Exists(sourceSidecarPath);
             var targetSidecarPath = SidecarStore.SidecarPathFor(target);
-            var sidecarSharedWithSibling = hadSidecar && SidecarStemClaimedBySibling(source, target);
+            var sidecarSharedWithSibling = hadSidecar
+                && SidecarStemClaimedBySibling(source, alsoLeaving.Append(target).ToArray());
 
             File.Move(source, target);
 
