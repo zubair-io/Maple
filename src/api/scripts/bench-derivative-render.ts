@@ -25,7 +25,7 @@ import {
 } from './bench-library-server.ts';
 
 const RAW_EXT = new Set(['.dng', '.cr2', '.cr3', '.nef', '.arw', '.raf', '.fff', '.raw', '.x3f']);
-const fixtureDir = flag('fixtures', '/Users/riabuz/Projects/_Maple/test-fixtures/raws');
+const fixtureDir = flag('fixtures', join(import.meta.dir, '../../../test-fixtures/raws'));
 const fileCount = Number(flag('files', '8'));
 const EDITED_SIDECAR = `<?xpacket begin="" id="W5M0MpCehiHzreSzNTczkc9d"?>
 <x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">

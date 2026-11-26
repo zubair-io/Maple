@@ -7,6 +7,7 @@
  * `--api-root` points at another checkout's `src/api` (with `node_modules` and `native` present)
  * so a baseline tree and HEAD run the identical harness.
  */
+import { suffix } from 'bun:ffi';
 import { Database } from 'bun:sqlite';
 import { mkdir, mkdtemp, symlink, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -226,7 +227,7 @@ export async function bootServer(work: Workspace) {
         ...process.env,
         PORT: String(PORT),
         MAPLE_SQLITE_PATH: work.sqlitePath,
-        MAPLE_NATIVE_LIB: join(apiRoot, 'native', 'libraw_ffi.dylib'),
+        MAPLE_NATIVE_LIB: join(apiRoot, 'native', `libraw_ffi.${suffix}`),
         MAPLE_DEV_AUTH: '1',
         MAPLE_INDEXER_AUTOSTART: '0',
         MAPLE_JWT_SECRET: 'bench-secret-bench-secret-1234',
