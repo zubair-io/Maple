@@ -239,7 +239,7 @@ fn masked_multiplier_pass(img: &mut Image, radius: usize, mult_of_y: impl Fn(f32
     let h = img.height as usize;
     let luma_plane: Vec<f32> = img
         .pixels
-        .iter()
+        .par_iter()
         .map(|p| LUMA_REC2020[0] * p[0] + LUMA_REC2020[1] * p[1] + LUMA_REC2020[2] * p[2])
         .collect();
     let yb = gaussian_blur_plane(&luma_plane, w, h, radius);
