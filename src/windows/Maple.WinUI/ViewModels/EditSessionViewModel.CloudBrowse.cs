@@ -254,11 +254,11 @@ namespace Maple.WinUI.ViewModels
 
             FinishBrowse(cts, failed ? "Could not load this folder. Select it to retry." : string.Empty);
             Timeline.GroupPhotosByDate(AllPhotos);
-            HydrateNewCloudTiles(cts.Token);
         }
 
-        // Hydration asks only for tiles on screen, so a JPEG folded behind its
-        // RAW costs nothing until a filter unfolds it.
+        // Called from ApplyFilters, the one place every filter, search and fold
+        // change passes through: a tile hidden at load costs nothing until it
+        // becomes visible, and each tile is requested once.
         private void HydrateNewCloudTiles(CancellationToken ct)
         {
             var needing = RawJpegStackFold.NeedingCloudThumbnails(Photos, _cloudThumbnailRequests);

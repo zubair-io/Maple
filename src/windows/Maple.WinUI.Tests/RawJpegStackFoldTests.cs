@@ -190,5 +190,20 @@ namespace Maple.WinUI.Tests
 
             Assert.Empty(RawJpegStackFold.NeedingCloudThumbnails(new[] { withThumb, local }, new HashSet<PhotoItem>()));
         }
+
+        [Fact]
+        public void ATileHiddenByAFilterAtLoad_IsRequestedWhenTheFilterIsCleared_AndEachKeystrokeOnlyAsksForNewTiles()
+        {
+            var tiles = new[] { CloudPhoto("A.CR3"), CloudPhoto("B.CR3"), CloudPhoto("C.CR3") };
+            var requested = new HashSet<PhotoItem>();
+
+            var searchedA = RawJpegStackFold.NeedingCloudThumbnails(tiles.Where(t => t.FileName.StartsWith("A")), requested);
+            var searchedAgain = RawJpegStackFold.NeedingCloudThumbnails(tiles.Where(t => t.FileName.StartsWith("A")), requested);
+            var cleared = RawJpegStackFold.NeedingCloudThumbnails(tiles, requested);
+
+            Assert.Equal(new[] { "A.CR3" }, searchedA.Select(t => t.FileName));
+            Assert.Empty(searchedAgain);
+            Assert.Equal(new[] { "B.CR3", "C.CR3" }, cleared.Select(t => t.FileName));
+        }
     }
 }
