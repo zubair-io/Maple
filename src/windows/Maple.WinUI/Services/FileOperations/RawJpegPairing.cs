@@ -46,8 +46,6 @@ namespace Maple.WinUI.Services.FileOperations
             }
         }
 
-        /// <summary>The pairs among <paramref name="paths"/>, keyed by the
-        /// RAW's path with the JPEG's path as the value.</summary>
         public static IReadOnlyDictionary<string, string> Pairs(IEnumerable<string> paths) =>
             paths
                 .GroupBy(path => (DirectoryOf(path), Stem(path)))
