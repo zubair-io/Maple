@@ -50,7 +50,7 @@
 
 # The run_* and *_pid functions are passed by name.
 # shellcheck disable=SC2329
-set -euo pipefail
+set -eEuo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
 RAW_DIR="${RAW_DIR:-$REPO/test-fixtures/raws}"
@@ -83,6 +83,7 @@ trap 'blocker "a step failed at line $LINENO"' ERR
 trap 'blocker "interrupted"' INT TERM
 positive_integers() {
   local value
+  [[ $# -gt 0 ]] || return 1
   for value in "$@"; do [[ "$value" =~ ^[1-9][0-9]*$ ]] || return 1; done
 }
 
@@ -107,7 +108,7 @@ while [[ $# -gt 0 ]]; do
   shift
 done
 # shellcheck disable=SC2086
-positive_integers $COUNTS && [[ -n "${COUNTS// /}" ]] || usage
+positive_integers $COUNTS || usage
 positive_integers "$RUNS" || usage
 [[ $BUILD == 1 || $MEASURE == 1 ]] || usage
 [[ $SCREEN_CHECK == 0 || ( -z "$IPAD" && -z "$SIMULATOR" ) ]] || usage
@@ -115,8 +116,8 @@ positive_integers "$RUNS" || usage
 
 # Everything below removes and rebuilds folders inside OUT, so OUT must be
 # new, empty, or one an earlier run of this script marked as its own.
-if [[ -d "$OUT" && ! -f "$OUT/.maple-grid-scroll" && -n "$(ls -A "$OUT")" ]]; then
-  blocker "$OUT exists and is not a folder this script made; choose another --out"
+if [[ -d "$OUT" && ! -f "$OUT/.maple-grid-scroll" && -n "$(ls -A "$OUT" 2>/dev/null)" ]]; then
+  blocker "$OUT exists and is not a folder this script made; choose another --out (or, if it is this script's from an older version: touch '$OUT/.maple-grid-scroll')"
 fi
 mkdir -p "$OUT/reports" "$OUT/logs"
 touch "$OUT/.maple-grid-scroll"
@@ -129,7 +130,6 @@ MAC_APP="$OUT/mac/Maple.app"
 PROJECT="$REPO/src/apple/Maple.xcodeproj"
 TARGETS=""
 RUN_ID="$(date +%s)-$$"
-BUILD_SHA="$(git -C "$REPO" rev-parse --short=12 HEAD)"
 
 stage_seed() {
   rm -rf "$SEED"; mkdir -p "$SEED"
@@ -240,6 +240,10 @@ run_ipad() {
   xcrun devicectl device copy from --device "$udid" --domain-type appDataContainer \
     --domain-identifier "$IOS_BUNDLE_ID" --source "$remote" --destination "$report" \
     >> "$OUT/logs/ipad-launch.log" 2>&1 || true
+  # A launch with no report is one failed run, unless the device has locked,
+  # in which case every remaining launch would wait out its timeout.
+  [[ -f "$report" ]] || ipad_unlocked \
+    || blocker "'$IPAD' locked or went out of reach during the run. Unlock it and run again with --skip-build."
 }
 
 simulator_app_pid() {
@@ -260,11 +264,16 @@ run_simulator() {
   cp "$SIM_HOME/$remote" "$report" 2>/dev/null || true
 }
 
+# `measure <target> <built app's Info.plist> <runner...>`. The plist's build
+# stamp is what every report must carry, so a report from another build of
+# the app (an older install, another checkout's copy) is refused.
 measure() {
-  local target="$1" count run kind
-  shift
+  local target="$1" plist="$2" count run kind
+  shift 2
   TARGETS="$TARGETS $target"
   rm -f "$OUT"/reports/"$target"-*.json
+  /usr/libexec/PlistBuddy -c "Print :MapleBuildGitSHA" "$plist" > "$OUT/reports/$target.build" 2>/dev/null \
+    || blocker "no built app for $target; run without --skip-build first"
   for count in $COUNTS; do
     for run in $(seq 1 "$RUNS"); do
       for kind in fresh reopen; do
@@ -392,7 +401,7 @@ if [[ $MAC == 1 ]]; then
       screen_check || exit $?
       exit 0
     fi
-    measure mac run_mac
+    measure mac "$MAC_APP/Contents/Info.plist" run_mac
   fi
 fi
 
@@ -404,14 +413,14 @@ if [[ -n "$IPAD" ]]; then
       || blocker "could not install on '$IPAD' (see $OUT/logs/ipad-install.log)"
   fi
   if [[ $MEASURE == 1 ]]; then
-    ipad_unlocked || blocker "'$IPAD' locked while the app was building. Unlock it and run again with --skip-build."
+    ipad_unlocked || blocker "'$IPAD' has locked. Unlock it and run again with --skip-build."
     for name in "${SEED_FILES[@]}"; do
       xcrun devicectl device copy to --device "$UDID" --domain-type appDataContainer \
         --domain-identifier "$IOS_BUNDLE_ID" --source "$SEED/$name" \
         --destination "$DEVICE_SEED/$name" >> "$OUT/logs/ipad-seed.log" 2>&1 \
         || blocker "could not copy the seed photos to '$IPAD' (see $OUT/logs/ipad-seed.log)"
     done
-    measure ipad run_ipad "$UDID"
+    measure ipad "$OUT/dd-ipad/Build/Products/Release-iphoneos/Maple.app/Info.plist" run_ipad "$UDID"
   fi
 fi
 
@@ -428,7 +437,8 @@ if [[ -n "$SIMULATOR" ]]; then
     [[ -n "$SIM_HOME" ]] || blocker "the app is not installed on the simulator; run without --skip-build first"
     rm -rf "${SIM_HOME:?}/$DEVICE_SEED"; mkdir -p "$SIM_HOME/$(dirname "$DEVICE_SEED")"
     cp -R "$SEED" "$SIM_HOME/$DEVICE_SEED"
-    measure simulator run_simulator
+    measure simulator "$OUT/dd-simulator/Build/Products/Release-iphonesimulator/Maple.app/Info.plist" \
+      run_simulator
   fi
 fi
 
@@ -436,14 +446,14 @@ fi
 
 status=0
 # shellcheck disable=SC2086
-python3 - "$OUT" "$RUNS" "$COUNTS" "$BUILD_SHA" $TARGETS <<'PY' || status=$?
+python3 - "$OUT" "$RUNS" "$COUNTS" $TARGETS <<'PY' || status=$?
 import json, os, statistics, sys
 
-out, runs, counts, build, targets = sys.argv[1], int(sys.argv[2]), sys.argv[3].split(), sys.argv[4], sys.argv[5:]
+out, runs, counts, targets = sys.argv[1], int(sys.argv[2]), sys.argv[3].split(), sys.argv[4:]
 cases = {"fresh": [("first", "cold"), ("cached", "warm")], "reopen": [("first", "reopened")]}
 rows, untrusted = {}, []
 
-def distrust(report, count, kind):
+def distrust(report, count, kind, build):
     if report.get("error"):
         return report["error"]
     if report.get("framesVisible") is not True:
@@ -453,7 +463,7 @@ def distrust(report, count, kind):
     if report["reusedFolder"] != (kind == "reopen"):
         return "the folder was not reused" if kind == "reopen" else "the folder was not rebuilt"
     if report["build"] != f"{build} Release":
-        return f"measured build '{report['build']}', not this checkout's Release build {build}"
+        return f"measured build '{report['build']}', not the Release build {build} this script made"
     if report["lowPowerMode"]:
         return "low-power mode was on"
     if report["thermalState"] in ("serious", "critical"):
@@ -466,6 +476,7 @@ def distrust(report, count, kind):
     return None
 
 for target in targets:
+    build = open(os.path.join(out, "reports", f"{target}.build")).read().strip()
     for count in counts:
         for kind, passes in cases.items():
             samples = []
@@ -476,7 +487,7 @@ for target in targets:
                 except (OSError, ValueError):
                     untrusted.append(f"{name}: no report")
                     continue
-                reason = distrust(report, int(count), kind)
+                reason = distrust(report, int(count), kind, build)
                 if reason:
                     untrusted.append(f"{name}: {reason}")
                 else:

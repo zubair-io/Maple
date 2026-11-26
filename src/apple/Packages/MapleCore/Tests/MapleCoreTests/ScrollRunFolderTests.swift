@@ -16,6 +16,7 @@ final class ScrollRunFolderTests: XCTestCase {
     try Data("hidden".utf8).write(to: seed.appendingPathComponent(".hidden.jpg"))
     try Data("sidecar".utf8).write(to: seed.appendingPathComponent("a.xmp"))
     try Data("notes".utf8).write(to: seed.appendingPathComponent("notes.txt"))
+    try Data("clip".utf8).write(to: seed.appendingPathComponent("clip.mov"))
     try fm.createDirectory(
       at: seed.appendingPathComponent("album.dng"), withIntermediateDirectories: true)
   }
@@ -122,12 +123,14 @@ final class ScrollRunFolderTests: XCTestCase {
 
   func test_aSeedInsideTheStagedFolderIsRefused() throws {
     let staged = try ScrollRunFolder.stage(seed: seed, count: 2, reuse: false, root: root)
-    for inside in [staged.url, staged.url.appendingPathComponent("nested")] {
+    let nested = staged.url.appendingPathComponent("nested")
+    try fm.createDirectory(at: nested, withIntermediateDirectories: true)
+    for inside in [staged.url, nested] {
       XCTAssertThrowsError(
         try ScrollRunFolder.stage(seed: inside, count: 2, reuse: false, root: root)
       ) { XCTAssertEqual($0 as? ScrollRunFolder.StagingError, .seedInsideStagedFolder) }
     }
-    XCTAssertEqual(try names(in: staged.url).count, 2)
+    XCTAssertEqual(try names(in: staged.url), ["IMG_00000.jpg", "IMG_00001.dng", "nested"])
   }
 
   func test_aPhotoThatCannotBeClonedStopsTheRun() throws {
