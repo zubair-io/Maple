@@ -32,12 +32,15 @@
  *      request (deliberately not the original request's headers — see
  *      `spaFallback`'s doc comment for why) and serve it with status 200.
  *   3. Origin 404 + not a navigation (a missing JS chunk, a stale asset
- *      path, ...) -> pass the real 404 through untouched.
- *   4. Any other status -> pass it through untouched, with the origin's own
- *      `Content-Type` and cache freshness preserved, with no-transform
- *      added to HTML to prevent edge injection. Successful WASM/WOFF2
- *      responses use `application/wasm` / `font/woff2` when Azure uploads
- *      octet-stream. Origin error response types are preserved.
+ *      path, ...) -> pass the real 404 through with its body and status.
+ *   4. Any other status -> pass it through with the origin's own
+ *      `Content-Type`; successes also keep the origin's cache freshness.
+ *      HTML gets no-transform added to prevent edge injection. Successful
+ *      WASM/WOFF2 responses use `application/wasm` / `font/woff2` when
+ *      Azure uploads octet-stream. Origin error response types are
+ *      preserved. Every status >= 400 (this step, step 3 and a failed
+ *      `index.html` fallback) is stamped `Cache-Control: no-store`, and
+ *      the origin fetch asks the edge not to store 400-599 responses.
  *   5. Every response gets the production security headers.
  */
 
@@ -55,6 +58,8 @@ const STRIPPED_REQUEST_HEADERS = [
 	'cf-ipcountry',
 	'cf-ray',
 ];
+
+const UNCACHED_ERRORS = { cf: { cacheTtlByStatus: { '400-599': -1 } } } as const;
 
 function isNavigationRequest(request: Request): boolean {
 	if (request.headers.get('sec-fetch-mode') === 'navigate') return true;
@@ -81,7 +86,14 @@ async function fetchOrigin(originBaseUrl: string, request: Request, pathname: st
 	const target = originTarget(originBaseUrl, pathname);
 	const originRequest = new Request(target.toString(), request);
 	for (const name of STRIPPED_REQUEST_HEADERS) originRequest.headers.delete(name);
-	return fetch(originRequest);
+	return fetch(originRequest, UNCACHED_ERRORS);
+}
+
+function withErrorCachePolicy(headers: Headers, status: number): Headers {
+	// A missing file is usually one the next deploy uploads; a stored error
+	// would shadow it. Applies to every status the origin reports as an error.
+	if (status >= 400) headers.set('Cache-Control', 'no-store');
+	return headers;
 }
 
 function withAssetContentType(headers: Headers, pathname: string, status: number): Headers {
@@ -129,14 +141,14 @@ function withHtmlIntegrity(headers: Headers): Headers {
  */
 async function spaFallback(originBaseUrl: string, connectionPage = false): Promise<Response> {
 	const target = originTarget(originBaseUrl, '/index.html');
-	const indexResponse = await fetch(target.toString());
+	const indexResponse = await fetch(target.toString(), UNCACHED_ERRORS);
 	const headers = buildResponseHeaders(indexResponse.headers);
 
 	if (indexResponse.status !== 200) {
 		return new Response(indexResponse.body, {
 			status: indexResponse.status,
 			statusText: indexResponse.statusText,
-			headers,
+			headers: withErrorCachePolicy(headers, indexResponse.status),
 		});
 	}
 
@@ -200,9 +212,12 @@ export default {
 			return spaFallback(env.ORIGIN_BASE_URL);
 		}
 
-		const headers = withAssetContentType(
-			buildResponseHeaders(originResponse.headers),
-			url.pathname,
+		const headers = withErrorCachePolicy(
+			withAssetContentType(
+				buildResponseHeaders(originResponse.headers),
+				url.pathname,
+				originResponse.status,
+			),
 			originResponse.status,
 		);
 		return new Response(originResponse.body, {
