@@ -274,5 +274,24 @@ namespace Maple.WinUI.Tests
 
             Assert.Equal("Restored 1 photo.", TrashSelectionLogic.DescribeRestore(one));
         }
+
+        [Fact]
+        public async Task ATrashedStemWithTwoRaws_IsRestoredFileByFile()
+        {
+            foreach (var name in new[] { "IMG.CR3", "IMG.MEF", "IMG.JPG" })
+            {
+                var trashed = Write(name, ".maple", "trash", "Album", name);
+                File.WriteAllText(trashed + ".origpath", Path.Combine("Album", name));
+            }
+
+            Assert.Null(LocalFileOperations.TrashedCompanionOf(TrashPath("IMG.CR3"), _root));
+            Assert.Null(LocalFileOperations.TrashedCompanionOf(TrashPath("IMG.JPG"), _root));
+
+            var outcome = await LocalFileOperations.RestoreFromMapleTrashAsync(TrashPath("IMG.CR3"), _root);
+
+            Assert.Null(outcome.CompanionPath);
+            Assert.Equal(new[] { "IMG.CR3" }, Names("Album"));
+            Assert.Equal(new[] { "IMG.JPG", "IMG.MEF" }, Names(".maple", "trash", "Album"));
+        }
     }
 }

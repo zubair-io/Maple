@@ -30,6 +30,7 @@ namespace Maple.WinUI.ViewModels
         private readonly ThumbnailService _thumbnails = new();
         private CancellationTokenSource? _libraryCts;
         private readonly HashSet<PhotoItem> _cloudThumbnailRequests = new();
+        private HashSet<string> _localPairInventory = new(StringComparer.Ordinal);
         private LibraryWatcher? _libraryWatcher;
 
         [ObservableProperty] private string _currentFolderPath = string.Empty;
@@ -137,7 +138,8 @@ namespace Maple.WinUI.ViewModels
                         return;
                     }
                     // #2657 closed-app rename fallback lives in EnumerateAndReconcile.
-                    var filePaths = EnumerateAndReconcile(folderPath);
+                    var listing = EnumerateAndReconcile(folderPath);
+                    var filePaths = listing.Images;
                     // Finder contract (docs/spec/13-windows-shell.md): the
                     // grid shows this folder's subfolders as tiles above its
                     // images — same enumeration the sidebar tree uses.
@@ -211,6 +213,7 @@ namespace Maple.WinUI.ViewModels
                             AllPhotos.Clear();
                             foreach (var item in items)
                                 AllPhotos.Add(item);
+                            _localPairInventory = listing.PairInventory.ToHashSet(StringComparer.Ordinal);
                             BrowseFolders.Clear();
                             foreach (var sub in subfolderNodes)
                                 BrowseFolders.Add(sub);
@@ -261,20 +264,27 @@ namespace Maple.WinUI.ViewModels
         /// <summary>A folder shows its OWN images only — subfolders are reached
         /// through the tree. No recursion: a click on a huge library root must
         /// never trigger a full subtree walk.</summary>
-        private static IEnumerable<string> EnumerateImageFiles(string folderPath)
+        /// <summary><see cref="FolderListing.PairInventory"/> keeps every RAW and
+        /// JPEG name from the same listing, including RAW formats the grid does
+        /// not open, so the pair rule sees the whole directory.</summary>
+        private static FolderListing EnumerateImageFiles(string folderPath)
         {
             try
             {
-                return Directory.EnumerateFiles(folderPath, "*.*", SearchOption.TopDirectoryOnly)
-                    .Where(f => SupportedExtensions.Contains(Path.GetExtension(f)))
-                    .OrderBy(f => f, StringComparer.OrdinalIgnoreCase)
-                    .ToList();
+                var all = Directory.EnumerateFiles(folderPath, "*.*", SearchOption.TopDirectoryOnly).ToList();
+                return new FolderListing(
+                    all.Where(f => SupportedExtensions.Contains(Path.GetExtension(f)))
+                        .OrderBy(f => f, StringComparer.OrdinalIgnoreCase)
+                        .ToList(),
+                    all.Where(RawJpegPairing.IsPairCandidate).ToList());
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
-                return Enumerable.Empty<string>();
+                return new FolderListing(new List<string>(), new List<string>());
             }
         }
+
+        private sealed record FolderListing(List<string> Images, List<string> PairInventory);
 
         // --- Filtering ---
 

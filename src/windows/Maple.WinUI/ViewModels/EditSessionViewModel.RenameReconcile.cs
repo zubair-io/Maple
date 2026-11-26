@@ -47,11 +47,11 @@ namespace Maple.WinUI.ViewModels
         /// returning them, so a caller that then loads per-file sidecar
         /// state (LoadDirectory) already sees a relocated sidecar in
         /// place.</summary>
-        private static List<string> EnumerateAndReconcile(string folderPath)
+        private static FolderListing EnumerateAndReconcile(string folderPath)
         {
-            var filePaths = EnumerateImageFiles(folderPath).ToList();
-            ReconcileExternalRenames(folderPath, filePaths);
-            return filePaths;
+            var listing = EnumerateImageFiles(folderPath);
+            ReconcileExternalRenames(folderPath, listing.Images);
+            return listing;
         }
 
         /// <summary>Runs on the folder-scan background thread, BEFORE the

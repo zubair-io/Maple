@@ -92,5 +92,40 @@ namespace Maple.WinUI.Tests
 
             Assert.Equal(VolumeFoldsCase() ? 1 : 2, tiles.Count);
         }
+
+        private string[] Inventory() => Directory.EnumerateFiles(_dir).ToArray();
+
+        [Fact]
+        public void ASecondRawTheGridDoesNotList_KeepsTheStemUnpaired()
+        {
+            var photos = new[] { PhotoOnDisk("IMG.CR3"), PhotoOnDisk("IMG.JPG") };
+            File.WriteAllText(Path.Combine(_dir, "IMG.MEF"), "another raw");
+
+            var tiles = RawJpegStackFold.Apply(photos, stacksPairs: true, requireSharedSidecar: true, inventory: Inventory());
+
+            Assert.Equal(2, tiles.Count);
+            Assert.All(photos, photo => Assert.Null(photo.StackCompanion));
+            Assert.All(photos, photo => Assert.Null(photo.StackPrimary));
+        }
+
+        [Fact]
+        public void AnUnrelatedMefInTheFolder_DoesNotStopAnotherStemFolding()
+        {
+            var photos = new[] { PhotoOnDisk("IMG.CR3"), PhotoOnDisk("IMG.JPG") };
+            File.WriteAllText(Path.Combine(_dir, "OTHER.MEF"), "unrelated");
+
+            var tiles = RawJpegStackFold.Apply(photos, stacksPairs: true, requireSharedSidecar: true, inventory: Inventory());
+
+            Assert.Single(tiles);
+            Assert.Same(photos[1], photos[0].StackCompanion);
+        }
+
+        [Fact]
+        public void WithoutAnInventory_TheDisplayedFilesDecideAsBefore()
+        {
+            var photos = new[] { PhotoOnDisk("IMG.CR3"), PhotoOnDisk("IMG.JPG") };
+
+            Assert.Single(RawJpegStackFold.Apply(photos, stacksPairs: true, requireSharedSidecar: true));
+        }
     }
 }
