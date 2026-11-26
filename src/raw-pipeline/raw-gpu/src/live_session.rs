@@ -111,6 +111,7 @@ pub struct LiveSession {
     /// The dehaze map kept across renders (#3287), so a dehaze-slider tick
     /// runs only the recovery. Cleared when the source image changes.
     haze: std::sync::Arc<crate::dehaze::HazeResidency>,
+    cut: resume_cut::ResumeCut,
     /// The P3 Auto headroom holder (#4741), reused by every tick's split/restore.
     pub(crate) p3_auto_headroom: crate::p3_auto::HeadroomPlane,
     /// The vectorscope scope-pass histogram, the RGB8 snapshot (#3251) and
@@ -217,6 +218,7 @@ impl LiveSession {
             session_id,
             pool_owner: std::sync::Arc::new(()),
             haze: Default::default(),
+            cut: Default::default(),
             p3_auto_headroom: Default::default(),
             scope: scope::ScopeBuffers::new(ctx, (width, height)),
         })
@@ -244,6 +246,7 @@ impl LiveSession {
         ctx.queue
             .write_buffer(&self.image.buffer, 0, bytemuck::cast_slice(pixels));
         self.haze.clear();
+        self.cut.clear();
     }
 
     /// Cumulative pool allocation count (the honest zero-alloc hook): the number
@@ -323,18 +326,15 @@ impl LiveSession {
         cancel: Option<&CancelToken>,
     ) -> Result<Option<Vec<u8>>, String> {
         let dims = self.image.dims();
-        let f32_byte_len = self.image.byte_len();
 
         let mut encoder = ctx
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some("live-session-encoder"),
             });
-        // Seed ping-pong A from the immutable image, run the chain, dither.
-        encoder.copy_buffer_to_buffer(&self.image.buffer, 0, &self.ping_pong[0], 0, f32_byte_len);
-        let final_idx = match self.encode_live_chain(ctx, &mut encoder, inputs, cancel) {
-            Some(idx) => idx,
-            None => return Ok(None), // cancelled mid-encode
+        let (cut_frame, final_idx) = self.encode_live_chain(ctx, &mut encoder, inputs, cancel);
+        let Some(final_idx) = final_idx else {
+            return Ok(None);
         };
         // Scope pass (#3272): reads the chain's final buffer, same as the
         // present/chain-only sibling `encode_chain_f32_single` — before
@@ -355,7 +355,9 @@ impl LiveSession {
             &self.dither_out,
             dims,
         );
-        let (out, submission) = self.submit_and_read_surface(ctx, encoder).await?;
+        let (out, submission) = self
+            .submit_and_read_surface(ctx, encoder, Some(cut_frame))
+            .await?;
         if inputs.scope.enabled {
             self.scope_after_submit(submission);
         }
@@ -431,15 +433,13 @@ impl LiveSession {
         inputs: &FullChainInputs<'_>,
         cancel: Option<&CancelToken>,
     ) -> Option<usize> {
-        let f32_byte_len = self.image.byte_len();
-
         let mut encoder = ctx
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some("live-present-chain-encoder"),
             });
-        encoder.copy_buffer_to_buffer(&self.image.buffer, 0, &self.ping_pong[0], 0, f32_byte_len);
-        let final_idx = self.encode_live_chain(ctx, &mut encoder, inputs, cancel)?;
+        let (cut_frame, final_idx) = self.encode_live_chain(ctx, &mut encoder, inputs, cancel);
+        let final_idx = final_idx?;
         // Scope pass (#3272): encoded into this SAME submit, reading the
         // chain's final buffer — no extra submit, no stall.
         if inputs.scope.enabled {
@@ -452,6 +452,7 @@ impl LiveSession {
         }
         let submission = ctx.queue.submit(Some(encoder.finish()));
         self.haze.submitted();
+        self.cut.submitted(cut_frame);
         if inputs.scope.enabled {
             self.scope_after_submit(submission);
         }
@@ -482,6 +483,7 @@ mod preparation;
 // budget; see that file's own header.
 mod dehaze_split;
 pub(crate) mod limits;
+mod resume_cut;
 // The vectorscope scope-pass buffers + `take_scope_stats` (#3272) — split
 // out purely for the file-size budget; see that file's own header.
 mod inspection;
@@ -509,6 +511,12 @@ mod tests_haze;
 #[cfg(all(test, not(target_arch = "wasm32")))]
 #[path = "live_session/tests_p3_timing.rs"]
 mod tests_p3_timing;
+#[cfg(all(test, not(target_arch = "wasm32")))]
+#[path = "live_session/tests_resume_cut.rs"]
+mod tests_resume_cut;
+#[cfg(all(test, not(target_arch = "wasm32")))]
+#[path = "live_session/tests_resume_cut_store.rs"]
+mod tests_resume_cut_store;
 #[cfg(all(test, not(target_arch = "wasm32")))]
 #[path = "live_session/tests_scope.rs"]
 mod tests_scope;

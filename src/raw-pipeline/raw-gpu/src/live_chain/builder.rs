@@ -7,6 +7,7 @@ pub(crate) trait LivePassSink<'a> {
     /// The boxed fallback separates prefix/suffix; a single-submit encoder
     /// deliberately continues its existing ping-pong sequence across this point.
     fn start_suffix(&mut self) {}
+    fn enter_view_tail(&mut self) {}
     /// The P3 Auto headroom holder for this chain (#4741). A session-backed sink
     /// returns its resident holder so a tick does not allocate one.
     fn p3_auto_headroom(&self) -> HeadroomPlane {
@@ -310,6 +311,7 @@ pub(crate) fn visit_live_chain<'a>(
     // View tail: AgX for every profile (the AcrMatch branch was retired in
     // #2312). Non-RAW shapes (display-referred) skip the tone-map entirely
     // (#1513).
+    sink.enter_view_tail();
     if is_raw_shape {
         sink.push(AgxPass {
             contrast: inputs.contrast,
