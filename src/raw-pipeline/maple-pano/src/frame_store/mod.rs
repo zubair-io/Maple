@@ -18,26 +18,34 @@
 //! swept by the next [`FrameStore::create`] in the same parent once its
 //! owning process is gone. Source RAWs and sidecars are only ever read.
 
+mod half_rows;
 mod io;
+mod mip;
 mod proxy_develop;
 mod rows;
+mod sinks;
 #[cfg(test)]
 mod tests;
 mod window;
 
+pub(crate) use mip::{MipGeometry, MIP_FACTOR};
 pub use proxy_develop::ProxyDevelop;
 pub use rows::{FrameRect, FrameRows, InMemory, Subset};
+use sinks::{FileScratch, FileSink};
 pub(crate) use window::{SourceView, SourceWindow, WINDOW_BYTES_PER_PX};
 
 use std::fs::{File, OpenOptions};
 use std::path::{Path, PathBuf};
 
-use raw_core::{PanoBandScratch, PanoBandedIngest, PanoBlockSink};
+use raw_core::PanoBandedIngest;
 
 use crate::error::PanoError;
 use crate::ingest::{PlanarImage, ValidityMask};
 
-const BYTES_PER_PIXEL: u64 = 12;
+use half_rows::STORED_BYTES_PER_PIXEL;
+
+/// The pass-1 scratch keeps `f32` RGB: pass 2 reads it back as develop input.
+const SCRATCH_BYTES_PER_PIXEL: u64 = 12;
 const READ_CHUNK_BYTES: u64 = 8 << 20;
 const DIR_PREFIX: &str = "maple-pano-frames-";
 
@@ -52,6 +60,7 @@ pub struct FrameStore {
     dir: PathBuf,
     planned: Vec<(u32, u32)>,
     frames: Vec<Option<File>>,
+    mips: Vec<Option<File>>,
     scratch: Option<File>,
     scratch_path: PathBuf,
     needed_bytes: u64,
@@ -98,6 +107,7 @@ impl FrameStore {
             dir,
             planned: frame_dims.to_vec(),
             frames: frame_dims.iter().map(|_| None).collect(),
+            mips: frame_dims.iter().map(|_| None).collect(),
             scratch: Some(scratch),
             scratch_path,
             needed_bytes,
@@ -111,7 +121,10 @@ impl FrameStore {
         let frames: u128 = frame_dims.iter().map(pixels).sum();
         let largest = frame_dims.iter().map(pixels).max().unwrap_or(0);
         let reserve = largest * SCRATCH_RESERVE_EIGHTHS as u128 / 8;
-        u64::try_from((frames + reserve) * BYTES_PER_PIXEL as u128).ok()
+        let mip_area = (MIP_FACTOR * MIP_FACTOR) as u128;
+        let bytes = frames * STORED_BYTES_PER_PIXEL as u128
+            + (frames / mip_area + reserve) * SCRATCH_BYTES_PER_PIXEL as u128;
+        u64::try_from(bytes).ok()
     }
 
     /// Remove the stores under `parent` whose owning process has exited.
@@ -208,14 +221,20 @@ impl FrameStore {
             context,
             is_cancelled,
         );
-        match developed {
-            Ok(developed) => {
+        let stored = developed.and_then(|(ingest, mip)| {
+            let mip = mip.map(|pixels| self.write_mip(idx, &pixels)).transpose()?;
+            Ok((ingest, mip))
+        });
+        match stored {
+            Ok((ingest, mip)) => {
                 self.frames[idx] = Some(file);
-                Ok(developed)
+                self.mips[idx] = mip;
+                Ok(ingest)
             }
             Err(e) => {
                 drop(file);
                 let _ = std::fs::remove_file(&path);
+                let _ = std::fs::remove_file(self.mip_path(idx));
                 Err(e)
             }
         }
@@ -231,7 +250,7 @@ impl FrameStore {
         band_rows: u32,
         context: &str,
         is_cancelled: &dyn Fn() -> bool,
-    ) -> Result<PanoBandedIngest, PanoError> {
+    ) -> Result<(PanoBandedIngest, Option<Vec<[f32; 3]>>), PanoError> {
         let scratch_file = self.scratch.as_ref().expect("scratch lives until drop");
         let mut scratch = FileScratch {
             file: scratch_file,
@@ -244,6 +263,7 @@ impl FrameStore {
             planned,
             developed: None,
             width: 0,
+            mip: mip::MipBuilder::new(planned.0, planned.1),
         };
         let result = raw_core::develop_banded_for_pano(
             bytes,
@@ -259,7 +279,37 @@ impl FrameStore {
                 "frame store: {context} developed to {developed_dims:?}, planned {planned:?}"
             )));
         }
-        result.map_err(|source| self.decode_error(context, source))
+        let ingest = result.map_err(|source| self.decode_error(context, source))?;
+        Ok((ingest, sink.mip.map(mip::MipBuilder::finish)))
+    }
+
+    fn write_mip(&self, idx: usize, pixels: &[[f32; 3]]) -> Result<File, PanoError> {
+        let path = self.mip_path(idx);
+        let file = create_file(&path)?;
+        io::write_all_at(&file, io::pixels_as_bytes(pixels), 0)
+            .map_err(|e| PanoError::io(&path, e))?;
+        Ok(file)
+    }
+
+    /// Frame `idx`'s mip (see [`MipGeometry`]), `None` for a frame too
+    /// small to have one.
+    pub fn read_mip(&self, idx: usize) -> Result<Option<PlanarImage>, PanoError> {
+        let (_, (w, h)) = self.stored(idx)?;
+        let (Some(file), Some(g)) = (&self.mips[idx], MipGeometry::of(w, h)) else {
+            return Ok(None);
+        };
+        let mut pixels = vec![[0.0f32; 3]; g.width as usize * g.height as usize];
+        io::read_exact_at(file, io::pixels_as_bytes_mut(&mut pixels), 0)
+            .map_err(|e| PanoError::io(&self.mip_path(idx), e))?;
+        let plane = |c: usize| pixels.iter().map(|p| p[c]).collect();
+        Ok(Some(PlanarImage::from_planes(
+            g.width,
+            g.height,
+            plane(0),
+            plane(1),
+            plane(2),
+            ValidityMask::new_filled(g.width, g.height, true),
+        )))
     }
 
     fn decode_error(&self, context: &str, source: raw_core::Error) -> PanoError {
@@ -293,9 +343,12 @@ impl FrameStore {
                 out.len(),
             )));
         }
-        let offset = y0 as u64 * width as u64 * BYTES_PER_PIXEL;
-        io::read_exact_at(file, io::pixels_as_bytes_mut(out), offset)
-            .map_err(|e| PanoError::io(&self.frame_path(idx), e))
+        let offset = y0 as u64 * width as u64 * STORED_BYTES_PER_PIXEL;
+        let mut bytes = vec![0u8; out.len() * STORED_BYTES_PER_PIXEL as usize];
+        io::read_exact_at(file, &mut bytes, offset)
+            .map_err(|e| PanoError::io(&self.frame_path(idx), e))?;
+        half_rows::decode_into(&bytes, out);
+        Ok(())
     }
 
     /// Frame `idx`'s rows `y0..y0 + rows` as a planar window with an
@@ -333,7 +386,7 @@ impl FrameStore {
             Vec::with_capacity(n),
             Vec::with_capacity(n),
         );
-        let chunk_rows = (chunk_bytes / (row_px as u64 * BYTES_PER_PIXEL).max(1))
+        let chunk_rows = (chunk_bytes / (row_px as u64 * STORED_BYTES_PER_PIXEL).max(1))
             .clamp(1, rows.max(1) as u64) as u32;
         let mut chunk = vec![[0.0f32; 3]; row_px * chunk_rows as usize];
         for start in (y0..end).step_by(chunk_rows as usize) {
@@ -374,10 +427,12 @@ impl FrameStore {
             Vec::with_capacity(n),
         );
         let mut row = vec![[0.0f32; 3]; row_px];
+        let mut bytes = vec![0u8; row_px * STORED_BYTES_PER_PIXEL as usize];
         for y in rect.y0..rect.y0 + rect.height {
-            let offset = (y as u64 * width as u64 + rect.x0 as u64) * BYTES_PER_PIXEL;
-            io::read_exact_at(file, io::pixels_as_bytes_mut(&mut row), offset)
+            let offset = (y as u64 * width as u64 + rect.x0 as u64) * STORED_BYTES_PER_PIXEL;
+            io::read_exact_at(file, &mut bytes, offset)
                 .map_err(|e| PanoError::io(&self.frame_path(idx), e))?;
+            half_rows::decode_into(&bytes, &mut row);
             r.extend(row.iter().map(|p| p[0]));
             g.extend(row.iter().map(|p| p[1]));
             b.extend(row.iter().map(|p| p[2]));
@@ -403,7 +458,11 @@ impl FrameStore {
     }
 
     fn frame_path(&self, idx: usize) -> PathBuf {
-        self.dir.join(format!("frame-{idx:04}.rgbf32"))
+        self.dir.join(format!("frame-{idx:04}.rgbf16"))
+    }
+
+    fn mip_path(&self, idx: usize) -> PathBuf {
+        self.dir.join(format!("frame-{idx:04}.mip.rgbf32"))
     }
 }
 
@@ -412,6 +471,7 @@ impl Drop for FrameStore {
         // Windows can't remove a directory whose files are still open
         // (outside NTFS POSIX-delete semantics), so close them first.
         self.frames.clear();
+        self.mips.clear();
         self.scratch = None;
         let _ = std::fs::remove_dir_all(&self.dir);
     }
@@ -430,77 +490,5 @@ fn raw_io(path: &Path, source: std::io::Error) -> raw_core::Error {
     raw_core::Error::Io {
         path: path.to_path_buf(),
         source,
-    }
-}
-
-struct FileScratch<'a> {
-    file: &'a File,
-    path: &'a Path,
-    width: u64,
-}
-
-impl PanoBandScratch for FileScratch<'_> {
-    fn begin(&mut self, width: u32, _height: u32) -> raw_core::Result<()> {
-        self.width = width as u64;
-        Ok(())
-    }
-
-    fn put_rows(&mut self, y0: u32, rows: &[[f32; 3]]) -> raw_core::Result<()> {
-        let offset = y0 as u64 * self.width * BYTES_PER_PIXEL;
-        io::write_all_at(self.file, io::pixels_as_bytes(rows), offset)
-            .map_err(|e| raw_io(self.path, e))
-    }
-
-    fn read_rows(&mut self, y0: u32, out: &mut [[f32; 3]]) -> raw_core::Result<()> {
-        let offset = y0 as u64 * self.width * BYTES_PER_PIXEL;
-        io::read_exact_at(self.file, io::pixels_as_bytes_mut(out), offset)
-            .map_err(|e| raw_io(self.path, e))
-    }
-}
-
-struct FileSink<'a> {
-    file: &'a File,
-    path: &'a Path,
-    planned: (u32, u32),
-    developed: Option<(u32, u32)>,
-    width: u64,
-}
-
-impl PanoBlockSink for FileSink<'_> {
-    fn begin(&mut self, width: u32, height: u32) -> raw_core::Result<()> {
-        self.developed = Some((width, height));
-        if (width, height) != self.planned {
-            return Err(raw_io(
-                self.path,
-                std::io::Error::new(
-                    std::io::ErrorKind::InvalidData,
-                    format!("frame is {width}x{height}, planned {:?}", self.planned),
-                ),
-            ));
-        }
-        self.width = width as u64;
-        Ok(())
-    }
-
-    fn put_block(
-        &mut self,
-        x0: u32,
-        y0: u32,
-        width: u32,
-        pixels: &[[f32; 3]],
-    ) -> raw_core::Result<()> {
-        if width as u64 == self.width && x0 == 0 {
-            let offset = y0 as u64 * self.width * BYTES_PER_PIXEL;
-            return io::write_all_at(self.file, io::pixels_as_bytes(pixels), offset)
-                .map_err(|e| raw_io(self.path, e));
-        }
-        pixels
-            .chunks(width as usize)
-            .enumerate()
-            .try_for_each(|(k, row)| {
-                let offset = ((y0 as u64 + k as u64) * self.width + x0 as u64) * BYTES_PER_PIXEL;
-                io::write_all_at(self.file, io::pixels_as_bytes(row), offset)
-            })
-            .map_err(|e| raw_io(self.path, e))
     }
 }

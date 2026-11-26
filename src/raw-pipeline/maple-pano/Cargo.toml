@@ -125,6 +125,8 @@ raw-core = { path = "../raw-core", features = ["avif"] }
 # matching). Already a workspace dependency via raw-core's sidecar layer.
 quick-xml.workspace = true
 rayon.workspace = true
+# The frame store encodes pixels as binary16 (#6057).
+half.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true

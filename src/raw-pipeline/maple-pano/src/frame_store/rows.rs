@@ -42,6 +42,12 @@ pub trait FrameRows: Sync {
         let (_, height) = self.frame_dims(idx)?;
         self.read_rows(idx, 0, height)
     }
+
+    /// Frame `idx`'s box-filtered mip (see [`super::MipGeometry`]), when
+    /// the source keeps one.
+    fn mip(&self, _idx: usize) -> Result<Option<PlanarImage>, PanoError> {
+        Ok(None)
+    }
 }
 
 impl FrameRows for FrameStore {
@@ -59,6 +65,10 @@ impl FrameRows for FrameStore {
 
     fn read_rect(&self, idx: usize, rect: FrameRect) -> Result<PlanarImage, PanoError> {
         self.read_planar_rect(idx, rect)
+    }
+
+    fn mip(&self, idx: usize) -> Result<Option<PlanarImage>, PanoError> {
+        self.read_mip(idx)
     }
 }
 
@@ -176,6 +186,10 @@ impl FrameRows for Subset<'_> {
 
     fn read_frame(&self, idx: usize) -> Result<PlanarImage, PanoError> {
         self.inner.read_frame(self.inner_index(idx)?)
+    }
+
+    fn mip(&self, idx: usize) -> Result<Option<PlanarImage>, PanoError> {
+        self.inner.mip(self.inner_index(idx)?)
     }
 }
 
