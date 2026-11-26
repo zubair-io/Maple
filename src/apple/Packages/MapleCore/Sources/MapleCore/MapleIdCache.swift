@@ -271,7 +271,7 @@ public actor MapleIdCacheStore {
             await flush()
         } else if scheduledFlush == nil {
             scheduledFlush = Task {
-                try? await Task.sleep(for: Self.stageFlushDelay)
+                guard (try? await Task.sleep(for: Self.stageFlushDelay)) != nil else { return }
                 await self.writePending()
             }
         }
