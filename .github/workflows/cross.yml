@@ -743,6 +743,12 @@ jobs:
       - name: Build native RAW library for measured API tests
         run: bash src/api/scripts/build-raw-ffi.sh
 
+      # Fetch here so a slow download is this step, not a timed-out 120 s test hook (#6041).
+      - name: Fetch the Temporal test server
+        working-directory: src/api
+        timeout-minutes: 10
+        run: bun scripts/prewarm-temporal.ts
+
       # `fallow audit` scopes dead-code/complexity/dupes analysis to files
       # changed vs the merge base and gates (exit 1) only on findings the
       # changeset itself introduces — pre-existing issues are reported but
