@@ -88,24 +88,16 @@ fn chart_neutrals_stay_neutral() {
     }
 }
 
-/// Each patch interior must be spatially flat (single solid color) — guards the
-/// demosaic + the patch-sampling region against bleed from patch edges.
-#[test]
-fn chart_patches_are_flat() {
-    let (chart, scene) = develop(&AdjustmentModel::default());
-    // The sampler skips a 4px border on every side, so the interior is
-    // `patch_size - 8`; assert the precondition rather than underflow-panic.
-    assert!(
-        chart.patch_size >= 16,
-        "patch sampling needs patch_size >= 16 (got {})",
-        chart.patch_size
-    );
+/// Widest per-channel spread over every patch interior, skipping `border`
+/// pixels on each side.
+fn worst_patch_spread(chart: &SyntheticColorChart, scene: &Image, border: usize) -> f32 {
     let stride = (chart.patch_size + chart.guard) as usize;
-    let inner = chart.patch_size as usize - 8;
+    let inner = chart.patch_size as usize - 2 * border;
     let w = scene.width as usize;
+    let mut worst = 0.0f32;
     for row in 0..4 {
         for col in 0..6 {
-            let (x0, y0) = (col * stride + 4, row * stride + 4);
+            let (x0, y0) = (col * stride + border, row * stride + border);
             let mut mn = [f32::INFINITY; 3];
             let mut mx = [f32::NEG_INFINITY; 3];
             for dy in 0..inner {
@@ -118,14 +110,47 @@ fn chart_patches_are_flat() {
                 }
             }
             for c in 0..3 {
-                assert!(
-                    mx[c] - mn[c] <= EPS_FLAT,
-                    "patch ({col},{row}) chan {c} not flat: spread {} > {EPS_FLAT}",
-                    mx[c] - mn[c]
-                );
+                worst = worst.max(mx[c] - mn[c]);
             }
         }
     }
+    worst
+}
+
+/// Each patch interior must be spatially flat (single solid color) — guards the
+/// demosaic + the patch-sampling region against bleed from patch edges.
+#[test]
+fn chart_patches_are_flat() {
+    // The sampler skips a 4px border on every side, so the interior is
+    // `patch_size - 8`; assert the precondition rather than underflow-panic.
+    let chart = SyntheticColorChart::default();
+    assert!(
+        chart.patch_size >= 16,
+        "patch sampling needs patch_size >= 16 (got {})",
+        chart.patch_size
+    );
+    let (chart, scene) = develop(&AdjustmentModel {
+        nr_color: 0.0,
+        ..AdjustmentModel::default()
+    });
+    let spread = worst_patch_spread(&chart, &scene, 4);
+    assert!(
+        spread <= EPS_FLAT,
+        "demosaic bleed: spread {spread} > {EPS_FLAT}"
+    );
+}
+
+/// Default chroma NR runs on a half-resolution grid at native density
+/// (#6018), so its edge reach is wider than the demosaic's: measured flat
+/// (< 1e-5) from 7 px, 1.2e-3 at 6 px, 9.6e-3 at 4 px.
+#[test]
+fn default_chroma_nr_bleed_stays_within_seven_pixels() {
+    let (chart, scene) = develop(&AdjustmentModel::default());
+    let spread = worst_patch_spread(&chart, &scene, 7);
+    assert!(
+        spread <= EPS_FLAT,
+        "chroma NR bleed past 7 px: spread {spread} > {EPS_FLAT}"
+    );
 }
 
 /// Saturation slider moves chroma on COLOR patches (which the neutral grey card

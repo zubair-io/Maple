@@ -73,17 +73,23 @@ describe('RAW derivatives preserve real XMP edits (#3971)', () => {
   });
 
   async function expectedPixels(maxPx: number, quality: number, xmp: string | null) {
-    const jpeg = join(directory, `oracle-${maxPx}-${xmp ? 'edited' : 'default'}.jpg`);
+    if (xmp !== null)
+      return await recipeExpectedPixels(maxPx, quality, await readFile(xmp, 'utf8'));
+    const jpeg = join(directory, `oracle-${maxPx}-default.jpg`);
     const avif = jpeg + '.avif';
-    expect(await ffiPool().renderDevelopJpegToFile(rawPath, xmp, jpeg, maxPx, 90)).toBe(true);
+    expect(await ffiPool().renderDevelopJpegToFile(rawPath, null, jpeg, maxPx, 90)).toBe(true);
     expect(await ffiPool().renderBitmapThumbToFile(jpeg, avif, maxPx, quality, 'jpg')).toEqual({
       ok: true,
     });
     return (await maple(avif).toRaw()).data;
   }
 
-  async function filmExpectedPixels(maxPx: number, quality: number, xml: string) {
-    const jpeg = join(directory, `film-oracle-${maxPx}.jpg`);
+  let oracleRenders = 0;
+
+  // The authored-edit oracle is the export-recipe render that
+  // `renderRawSidecarDerivative` runs, not the default develop preview.
+  async function recipeExpectedPixels(maxPx: number, quality: number, xml: string) {
+    const jpeg = join(directory, `recipe-oracle-${maxPx}-${(oracleRenders += 1)}.jpg`);
     const avif = jpeg + '.avif';
     expect(
       await ffiPool().exportRecipeToFile(
@@ -114,7 +120,7 @@ describe('RAW derivatives preserve real XMP edits (#3971)', () => {
         const xml = withFilmLook('color_negative_kodak_portra_400');
         await writeFile(xmpSidecarPath(rawPath), xml);
         const original = await readFile(rawPath);
-        const expected = await filmExpectedPixels(tier.maxPx, tier.quality, xml);
+        const expected = await recipeExpectedPixels(tier.maxPx, tier.quality, xml);
         const output =
           tier.name === 'thumbnail'
             ? resolveThumbPath(rawPath)
@@ -158,8 +164,8 @@ describe('RAW derivatives preserve real XMP edits (#3971)', () => {
         const xmp = xmpSidecarPath(rawPath);
         await writeFile(xmp, xml);
         const original = await readFile(rawPath);
-        const expected = await filmExpectedPixels(tier.maxPx, tier.quality, xml);
-        const withoutFilm = await expectedPixels(tier.maxPx, tier.quality, xmp);
+        const expected = await recipeExpectedPixels(tier.maxPx, tier.quality, xml);
+        const withoutFilm = await recipeExpectedPixels(tier.maxPx, tier.quality, editedXmp);
         expect(expected).not.toEqual(withoutFilm);
         const output = join(directory, `${tier.name}.avif`);
         await tier.generate(rawPath, output);
@@ -277,7 +283,7 @@ describe('RAW derivatives preserve real XMP edits (#3971)', () => {
     async () => {
       const xml = withFilmLook('color_negative_kodak_portra_400');
       await writeFile(xmpSidecarPath(rawPath), xml);
-      const expected = await filmExpectedPixels(512, 55, xml);
+      const expected = await recipeExpectedPixels(512, 55, xml);
       const response = await getThumb();
       expect(response.status).toBe(200);
       const bytes = Buffer.from(await response.arrayBuffer());
