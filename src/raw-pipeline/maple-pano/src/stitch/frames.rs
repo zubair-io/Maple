@@ -16,7 +16,7 @@ use crate::ingest::{FrameMeta, FramePriors};
 use super::StitchError;
 
 /// Develop band height: ~150 MB of working set on a 100 MP frame.
-const BAND_ROWS: u32 = 1024;
+pub(super) const BAND_ROWS: u32 = 1024;
 
 /// Develop every input into a new store and build each frame's proxy and
 /// metadata from it.

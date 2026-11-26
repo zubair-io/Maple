@@ -1,6 +1,6 @@
 // PanoFFICall.swift — Synchronous calls into the raw-ffi pano entries
-// (`maple_pano_stitch_aligned`, `maple_pano_preview`). Run off the MainActor
-// by `RustPanoStitcher`.
+// (`maple_pano_stitch_constrained`, `maple_pano_preview_constrained`). Run off
+// the MainActor by `RustPanoStitcher`.
 //
 // The solved alignment lives in memory (`PanoAlignment`); the FFI takes file
 // paths, so each call stages it in a private temp directory that is removed
@@ -37,6 +37,7 @@ enum PanoFFICall {
     engine: PanoFeatureEngine,
     alignment: PanoAlignment?,
     maxCanvasPixels: Int?,
+    memoryLimitBytes: UInt64,
     atom: PanoProgressAtom,
     cancelFlag: CancelFlag
   ) throws -> (outcome: PanoAlignmentOutcome, edges: PanoEdgesReport?) {
@@ -48,7 +49,7 @@ enum PanoFFICall {
 
     let canvasCap = UInt64(max(maxCanvasPixels ?? 0, 0))
     panoFFILog.notice(
-      "maple_pano_stitch_aligned START: \(inputURLs.count) frames, \(engine.rawValue, privacy: .public) engine → \(outputURL.lastPathComponent, privacy: .public), alignment offered: \(alignment != nil), canvas cap: \(canvasCap) px"
+      "maple_pano_stitch_aligned START: \(inputURLs.count) frames, \(engine.rawValue, privacy: .public) engine → \(outputURL.lastPathComponent, privacy: .public), alignment offered: \(alignment != nil), canvas cap: \(canvasCap) px, memory limit: \(memoryLimitBytes) B"
     )
     let rc = try withInputs(inputURLs, atom: atom) { paths, ctx in
       try withCString(outputURL) { outPath in
@@ -58,7 +59,7 @@ enum PanoFFICall {
               paths.baseAddress, UInt(paths.count), outPath, alignmentInPath, canvasCap,
               enums.edges, &edgesReport,
               enums.retention, enums.localAlign, enums.strategy, enums.featureEngine,
-              constraints, panoProgressTrampoline, ctx, cancelFlag.pointer
+              constraints, memoryLimitBytes, panoProgressTrampoline, ctx, cancelFlag.pointer
             )
           }
         }
@@ -79,6 +80,8 @@ enum PanoFFICall {
     options: PanoOptions,
     engine: PanoFeatureEngine,
     alignment: PanoAlignment?,
+    memoryLimitBytes: UInt64,
+    proxyCacheDirectory: URL?,
     atom: PanoProgressAtom,
     cancelFlag: CancelFlag
   ) throws -> PanoPreview {
@@ -99,13 +102,16 @@ enum PanoFFICall {
         try withOptionalCString(alignmentIn) { alignmentInPath in
           try withCString(alignmentOut) { alignmentOutPath in
             try withSeamConstraints(options, frameCount: inputURLs.count) { constraints in
-              maple_pano_preview_constrained(
-                paths.baseAddress, UInt(paths.count), pngPath,
-                alignmentInPath, alignmentOutPath, &sizes,
-                enums.edges, &edgesReport,
-                enums.retention, enums.localAlign, enums.strategy, enums.featureEngine,
-                constraints, panoProgressTrampoline, ctx, cancelFlag.pointer
-              )
+              try withOptionalCString(proxyCacheDirectory) { cachePath in
+                maple_pano_preview_constrained(
+                  paths.baseAddress, UInt(paths.count), pngPath,
+                  alignmentInPath, alignmentOutPath, &sizes,
+                  enums.edges, &edgesReport,
+                  enums.retention, enums.localAlign, enums.strategy, enums.featureEngine,
+                  constraints, memoryLimitBytes, cachePath,
+                  panoProgressTrampoline, ctx, cancelFlag.pointer
+                )
+              }
             }
           }
         }
@@ -167,6 +173,7 @@ enum PanoFFICall {
       case -3: throw PanoStitcherError.unsupportedPlatform
       case -6: throw PanoStitcherError.modelsNotInstalled(message)
       case -9: throw PanoStitcherError.insufficientStorage
+      case -12: throw PanoStitcherError.insufficientMemory
       default: throw PanoStitcherError.stitchFailed(code: Int(rc), message: message)
       }
     }

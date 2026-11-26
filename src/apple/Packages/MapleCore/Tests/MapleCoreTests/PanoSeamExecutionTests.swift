@@ -42,7 +42,7 @@ final class PanoSeamExecutionTests: XCTestCase {
             return paths.withUnsafeBufferPointer {
               maple_pano_stitch_constrained(
                 $0.baseAddress, 2, output, nil, 0, MaplePanoEdges(), nil,
-                Keep, Mesh, Auto, Classical, constraints, nil, nil, nil)
+                Keep, Mesh, Auto, Classical, constraints, 0, nil, nil, nil)
             }
           }
         }
@@ -62,7 +62,7 @@ final class PanoSeamExecutionTests: XCTestCase {
             return paths.withUnsafeBufferPointer {
               maple_pano_preview_constrained(
                 $0.baseAddress, 2, output, nil, nil, nil, MaplePanoEdges(), nil,
-                Keep, Mesh, Auto, Classical, constraints, nil, nil, nil)
+                Keep, Mesh, Auto, Classical, constraints, 0, nil, nil, nil, nil)
             }
           }
         }

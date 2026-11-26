@@ -52,6 +52,8 @@
 //! −10  an edge option is out of range (`maple_pano_preview` /
 //!      `maple_pano_stitch_aligned`: `edges.boundary_warp` outside 0–100)
 //! −11  invalid_seam_constraints: invalid schema, ROI, frame, or contradictory pins
+//! −12  the memory model puts the run over the caller's `memory_limit_bytes`
+//!      (`maple_pano_preview_constrained` / `maple_pano_stitch_constrained`)
 //! ```
 
 use crate::cancel::SendCancelPtr;

@@ -274,9 +274,15 @@ public protocol PanoStitching: AnyObject, Sendable {
   /// Free space where a stitch of `assets` would write, or `nil` when it
   /// writes nothing on this device or the space cannot be read.
   func freeSpace(for assets: [AssetRef]) -> PanoFreeSpace?
+
+  /// Drop whatever this stitcher kept to make the next preview of the same
+  /// frames faster. Called when the merge sheet closes.
+  func discardPreviewCache()
 }
 
 extension PanoStitching {
+  public func discardPreviewCache() {}
+
   public var runsInDeviceMemory: Bool { true }
 
   public var supportsEdges: Bool { true }

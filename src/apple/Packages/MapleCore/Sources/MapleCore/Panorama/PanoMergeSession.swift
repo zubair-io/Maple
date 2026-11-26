@@ -122,18 +122,6 @@ public final class PanoMergeSession {
     set { chosenOutputSize = newValue }
   }
 
-  /// The smaller output on offer: the tighter of what memory and storage
-  /// allow. `nil` when full resolution fits both, or when either says no
-  /// output size helps.
-  public var fittedOutput: PanoFittedCanvas? {
-    if case .tooLarge = memoryFit { return nil }
-    if case .tooLarge = diskFit { return nil }
-    let memory: PanoFittedCanvas? =
-      if case .fitted(_, let canvas) = memoryFit { canvas } else { nil }
-    let disk: PanoFittedCanvas? = if case .fitted(let canvas) = diskFit { canvas } else { nil }
-    return [memory, disk].compactMap { $0 }.min { $0.pixels < $1.pixels }
-  }
-
   /// How the full stitch of the latest preview fits this device's memory,
   /// read once when that preview lands so the sheet and the stitch agree;
   /// `nil` before a preview, or where the platform has no per-process
@@ -148,12 +136,6 @@ public final class PanoMergeSession {
   /// this device, read with `memoryFit`; `nil` before a preview or when
   /// the stitch runs elsewhere.
   public private(set) var diskFit: PanoDiskFit?
-
-  /// The canvas cap the next stitch will run with, `nil` for the default.
-  public var outputCanvasCap: Int? {
-    guard outputSize == .fitted else { return nil }
-    return fittedOutput?.pixels
-  }
 
   // MARK: - Private
 
@@ -417,6 +399,10 @@ public final class PanoMergeSession {
   /// never run at once.
   public func start(assets: [AssetRef]) {
     guard assets.count >= 2 else { return }
+    if let reason = stitchBlockedReason {
+      state = .error(StitchError(message: reason))
+      return
+    }
 
     let awaitedPreview = previewWorthAwaiting
     rePreviewWhenCurrentFinishes = false
@@ -529,6 +515,7 @@ public final class PanoMergeSession {
     options.seamConstraints = nil
     diskFit = nil
     cancelPreview()
+    stitcher.discardPreviewCache()
   }
 
   /// Stop the in-flight work and surface `message` as the run's failure, for
@@ -542,6 +529,20 @@ public final class PanoMergeSession {
     cancelPreview()
     state = .error(StitchError(message: message))
     return true
+  }
+
+  /// The system warned that memory is low (#2037). Where the OS ends a
+  /// process over its memory limit, a stitch or preview running here stops
+  /// with a message instead of the app being terminated mid-run.
+  public func handleMemoryPressure() {
+    guard stitcher.runsInDeviceMemory, availableMemory() != nil else { return }
+    let stopped = StitchError(underlying: PanoStitcherError.stoppedForMemory)
+    if isRunning {
+      abort(because: stopped.message)
+    } else if isPreviewing {
+      cancelPreview()
+      previewState = .failed(stopped)
+    }
   }
 
   /// Reset to idle after a done/error state so the user can adjust options
