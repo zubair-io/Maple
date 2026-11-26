@@ -12,10 +12,6 @@ namespace Maple.WinUI.ViewModels;
 
 public partial class EditSessionViewModel
 {
-    /// <summary>Real-window proof of #4374, driven through the shell's own
-    /// mode switch: Edit starts no saved preview on open, save or selection,
-    /// cancels the one it finds running, and every owed derivative is
-    /// published after the shell leaves Edit.</summary>
     internal async Task VerifyEditorPreviewPriorityAsync(string raw, string output, Action<ShellMode> setMode)
     {
         var originalPhoto = SelectedPhoto
@@ -23,15 +19,20 @@ public partial class EditSessionViewModel
         var directory = Directory.CreateDirectory(Path.Combine(output, "editor-priority")).FullName;
         var editedPath = Path.Combine(directory, "edited.dng");
         var nextPath = Path.Combine(directory, "next.dng");
+        var barePath = Path.Combine(directory, "bare.dng");
         File.Copy(raw, editedPath);
         File.Copy(raw, nextPath);
+        File.Copy(raw, barePath);
         var sourceHash = SHA256.HashData(File.ReadAllBytes(raw));
         File.WriteAllText(SidecarStore.SidecarPathFor(editedPath), XmpWriter.Serialize(new XmpSidecarDocument
             { Adjustments = new AdjustmentState { Profile = ProfileMode.Neutral, Exposure = 2 } }));
         var edited = new PhotoItem { FilePath = editedPath, FileName = "edited.dng", Format = "DNG" };
         var next = new PhotoItem { FilePath = nextPath, FileName = "next.dng", Format = "DNG" };
+        var bare = new PhotoItem { FilePath = barePath, FileName = "bare.dng", Format = "DNG" };
         AllPhotos.Add(edited);
         AllPhotos.Add(next);
+        AllPhotos.Add(bare);
+        var completed = false;
         try
         {
             setMode(ShellMode.Edit);
@@ -90,19 +91,28 @@ public partial class EditSessionViewModel
             Require(savedThumbnail != null && edited.ThumbnailPath == new Uri(savedThumbnail).AbsoluteUri,
                 "the thumbnail of the photo edited earlier is not its saved develop");
 
+            setMode(ShellMode.Edit);
+            SelectedPhoto = bare;
+            Require(_previewRequest != null, "a photo without a sidecar was not given its embedded placeholder in Edit");
+            await Wait(() => _previewRequest == null, "the embedded placeholder request did not finish in Edit");
+
             Require(Math.Abs(SavedAdjustments(editedPath).Exposure - .25) < 1e-6,
                 "autosave was changed by deferring the saved preview");
-            Require(new[] { editedPath, nextPath, raw }.All(path =>
+            Require(new[] { editedPath, nextPath, barePath, raw }.All(path =>
                     sourceHash.SequenceEqual(SHA256.HashData(File.ReadAllBytes(path)))),
                 "an original was modified");
+            completed = true;
         }
         finally
         {
             AllPhotos.Remove(edited);
             AllPhotos.Remove(next);
+            AllPhotos.Remove(bare);
             setMode(ShellMode.Edit);
             SelectedPhoto = originalPhoto;
-            await EditorReady(originalPhoto);
+            // After a failed stage the restore must not replace the assertion that failed.
+            try { await EditorReady(originalPhoto); }
+            catch (InvalidOperationException) when (!completed) { }
         }
 
         void Save(double exposure)
@@ -133,7 +143,7 @@ public partial class EditSessionViewModel
         static async Task Wait(Func<bool> ready, string failure)
         {
             var timer = Stopwatch.StartNew();
-            while (!ready() && timer.Elapsed < TimeSpan.FromSeconds(60)) await Task.Delay(20);
+            while (!ready() && timer.Elapsed < TimeSpan.FromSeconds(20)) await Task.Delay(20);
             Require(ready(), failure);
         }
     }
