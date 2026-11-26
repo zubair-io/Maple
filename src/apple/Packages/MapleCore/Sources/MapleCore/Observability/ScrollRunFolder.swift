@@ -25,6 +25,9 @@ public enum ScrollRunFolder {
 
   public static let countRange = 1...20_000
   static let markerName = ".maple-scroll-run"
+  /// Formats the grid makes a thumbnail for; a video or audio file in the
+  /// seed would leave the "every thumbnail cached" count short for ever.
+  static let photoExtensions = RAWExtensions.all.union(NonRawImageExtensions.all)
 
   public static func stage(
     seed: URL, count: Int, reuse: Bool,
@@ -46,7 +49,7 @@ public enum ScrollRunFolder {
       at: seed, includingPropertiesForKeys: [.isRegularFileKey], options: [.skipsHiddenFiles]
     )
     .filter { (try? $0.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true }
-    .filter { SupportedImageExtensions.all.contains($0.pathExtension.lowercased()) }
+    .filter { photoExtensions.contains($0.pathExtension.lowercased()) }
     .sorted { $0.lastPathComponent < $1.lastPathComponent }
     guard !sources.isEmpty else { throw StagingError.seedHasNoPhotos }
     if fm.fileExists(atPath: folder.path) {
@@ -59,10 +62,10 @@ public enum ScrollRunFolder {
     try Data().write(to: marker)
     for index in 0..<count {
       let source = sources[index % sources.count]
-      let name = String(format: "IMG_%05d.%@", index, source.pathExtension)
-      guard clonefile(source.path, folder.appendingPathComponent(name).path, 0) == 0 else {
-        throw StagingError.cloneFailed(errno: errno)
-      }
+      let name = String(format: "IMG_%05ld.%@", index, source.pathExtension)
+      let cloned = clonefile(source.path, folder.appendingPathComponent(name).path, 0)
+      let failure = cloned == 0 ? 0 : errno
+      guard failure == 0 else { throw StagingError.cloneFailed(errno: failure) }
     }
     return Staged(url: folder, reused: false)
   }

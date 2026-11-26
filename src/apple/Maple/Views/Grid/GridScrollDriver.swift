@@ -102,7 +102,9 @@ struct GridScrollTarget {
 }
 
 extension GridScrollTarget {
-  fileprivate var rank: (Double, Double) { (viewport.width, maximumOffset - minimumOffset) }
+  fileprivate var rank: (Double, Double) {
+    (Double(viewport.width), maximumOffset - minimumOffset)
+  }
 }
 
 @MainActor
