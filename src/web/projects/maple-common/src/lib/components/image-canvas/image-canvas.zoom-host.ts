@@ -51,6 +51,7 @@ export class ImageCanvasZoomHost {
       devicePixelRatio: () => this.dpr(),
       pixelScale: () => this.host.canvasSvc.pixelScale(),
       pan: () => this.host.canvasSvc.pan(),
+      holdsAtFit: () => this.host.canvasSvc.holdsAtFit(),
       commitView: (pixelScale, pan) => {
         this.host.canvasSvc.pixelScale.set(pixelScale);
         this.host.canvasSvc.pan.set(pan);
@@ -76,6 +77,9 @@ export class ImageCanvasZoomHost {
       this.nativeSize();
       if (!canvasZoomModule()) return;
       untracked(() => this.gestures.reclamp());
+    });
+    effect(() => {
+      if (this.host.canvasSvc.holdsAtFit()) untracked(() => this.gestures.endLiveGestures());
     });
     effect(() => this.host.canvasSvc.pointerEditsAtZoom.set(this.gestures.pointerEditsAtZoom()));
     // Keyboard ⌘= / ⌘- (#2450): the shell's command router posts a bounded

@@ -33,7 +33,10 @@ describe('RetouchOverlayComponent projected pointer bounds', () => {
       providers: [
         { provide: LibraryStateService, useValue: library },
         { provide: RawPipelineService, useValue: {} },
-        { provide: ImageCanvasService, useValue: { zoomToFit: vi.fn() } },
+        {
+          provide: ImageCanvasService,
+          useValue: { zoomToFit: vi.fn(), setFitFootprintOverlay: vi.fn() },
+        },
       ],
     });
     const editor = TestBed.inject(EditorStateService);

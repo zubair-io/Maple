@@ -145,7 +145,9 @@ export class RetouchOverlayComponent implements AfterViewInit, OnDestroy {
     // Repair editing is fit-zoom-only, like masking: the footprint maps 1:1
     // onto the painted image only at fit + zero pan.
     effect(() => {
-      if (this.session.active()) this.canvasSvc.zoomToFit();
+      const active = this.session.active();
+      this.canvasSvc.setFitFootprintOverlay('heal', active);
+      if (active) this.canvasSvc.zoomToFit();
     });
   }
 
@@ -154,6 +156,7 @@ export class RetouchOverlayComponent implements AfterViewInit, OnDestroy {
   }
 
   ngOnDestroy(): void {
+    this.canvasSvc.setFitFootprintOverlay('heal', false);
     this.placement.destroy();
   }
 

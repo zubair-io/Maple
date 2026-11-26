@@ -136,10 +136,12 @@ export class CropOverlayComponent implements AfterViewInit, OnDestroy {
     this.ro = observeHostSize(this.host.nativeElement, this.wrapW, this.wrapH);
     // Crop edits assume fit + zero pan so the footprint maps 1:1 onto the
     // painted image; entering crop snaps the view there (matches Lightroom).
+    this.canvasSvc.setFitFootprintOverlay('crop', true);
     this.canvasSvc.zoomToFit();
   }
 
   ngOnDestroy(): void {
+    this.canvasSvc.setFitFootprintOverlay('crop', false);
     this.ro?.disconnect();
   }
 

@@ -61,6 +61,7 @@ export class GuidedGeometrySessionService {
       if (!s) return;
       if (!this.isCurrent(s)) this.cancel();
     });
+    effect(() => this.canvas.setFitFootprintOverlay('guide', this.active()));
   }
 
   start(family: GuideFamily): void {
