@@ -106,13 +106,19 @@ public partial class EditSessionViewModel
     }
 
     /// <summary>Develop saved local adjustments for Browse and Preview; use
-    /// embedded pixels only for a photo without a sidecar.</summary>
+    /// embedded pixels only for a photo without a sidecar. Only the develop
+    /// waits for Edit to end: the embedded placeholder is cheap and is still
+    /// extracted there.</summary>
     private void RequestEmbeddedPreview(PhotoItem photo)
     {
         CancelPreviewRequest();
-        var admission = _savedPreviews.Request(photo);
-        _savedPreviews = admission.Next;
-        if (!admission.Start) return;
+        var hasSidecar = System.IO.File.Exists(SidecarStore.SidecarPathFor(photo.FilePath));
+        if (hasSidecar)
+        {
+            var admission = _savedPreviews.Request(photo);
+            _savedPreviews = admission.Next;
+            if (!admission.Start) return;
+        }
         var request = new CancellationTokenSource();
         _previewRequest = request;
         var model = Adjustments.Clone();
@@ -123,7 +129,6 @@ public partial class EditSessionViewModel
             string? thumbnail = null;
             try
             {
-                var hasSidecar = System.IO.File.Exists(SidecarStore.SidecarPathFor(photo.FilePath));
                 path = hasSidecar
                     ? await _thumbnails.GetOrCreateAdjustedPreviewAsync(photo.FilePath, model, request.Token)
                     : await _thumbnails.GetOrCreateAsync(photo.FilePath, request.Token, ThumbnailService.PreviewMaxPx);
