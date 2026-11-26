@@ -1,9 +1,3 @@
-// SavedPreviewDeferralTests — the WinUI-free rule behind #4374: while the
-// shell is in Edit the editor's own decode owns the machine, so a saved
-// preview is never started there; it is cancelled on entry, remembered, and
-// run when the shell returns to Preview or Browse. Photos are plain strings,
-// the same stand-in ViewerFilmstripLogicTests uses.
-
 using Maple.WinUI;
 using Maple.WinUI.ViewModels;
 using Xunit;
@@ -12,19 +6,23 @@ namespace Maple.WinUI.Tests
 {
     public class SavedPreviewDeferralTests
     {
-        private static readonly string[] Nothing = Array.Empty<string>();
+        private static readonly PhotoItem A = new() { FileName = "a" };
+        private static readonly PhotoItem B = new() { FileName = "b" };
+        private static readonly PhotoItem C = new() { FileName = "c" };
+        private static readonly PhotoItem Cloud = new() { FileName = "cloud" };
+        private static readonly PhotoItem[] Nothing = Array.Empty<PhotoItem>();
 
-        private static SavedPreviewDeferral<string> Editing(params string[] inFlight) =>
-            SavedPreviewDeferral<string>.Idle.Enter(ShellMode.Edit, inFlight).Next;
+        private static SavedPreviewDeferral Editing(params PhotoItem[] inFlight) =>
+            SavedPreviewDeferral.Idle.Enter(ShellMode.Edit, inFlight).Next;
 
         [Theory]
         [InlineData(ShellMode.Browse)]
         [InlineData(ShellMode.Preview)]
         public void Request_OutsideEdit_StartsAndOwesNothing(ShellMode mode)
         {
-            var state = SavedPreviewDeferral<string>.Idle.Enter(mode, Nothing).Next;
+            var state = SavedPreviewDeferral.Idle.Enter(mode, Nothing).Next;
 
-            var (next, start) = state.Request("a");
+            var (next, start) = state.Request(A);
 
             Assert.True(start);
             Assert.False(next.Editing);
@@ -34,58 +32,58 @@ namespace Maple.WinUI.Tests
         [Fact]
         public void Request_InEdit_IsDeferredAndOwed()
         {
-            var (next, start) = Editing().Request("a");
+            var (next, start) = Editing().Request(A);
 
             Assert.False(start);
-            Assert.Equal(new[] { "a" }, next.Owed);
+            Assert.Equal(new[] { A }, next.Owed);
         }
 
         [Fact]
         public void Request_InEdit_RepeatedSaves_OweThePhotoOnce()
         {
-            var state = Editing().Request("a").Next.Edited("a").Request("a").Next;
+            var state = Editing().Request(A).Next.Edited(A).Request(A).Next;
 
-            Assert.Equal(new[] { "a" }, state.Owed);
+            Assert.Equal(new[] { A }, state.Owed);
         }
 
         [Fact]
         public void Request_InEdit_AfterAnAcknowledgedAutosave_IsOwedUntilEditIsLeft()
         {
-            var (inEdit, start) = Editing("a").Request("cloud");
+            var (inEdit, start) = Editing(A).Request(Cloud);
             var left = inEdit.Enter(ShellMode.Preview, Nothing);
 
             Assert.False(start);
-            Assert.Equal(new[] { "a", "cloud" }, left.Release);
-            Assert.True(left.Next.Request("cloud").Start);
+            Assert.Equal(new[] { A, Cloud }, left.Release);
+            Assert.True(left.Next.Request(Cloud).Start);
         }
 
         [Fact]
         public void Edited_InEdit_OwesThePhotoBeforeItsSaveLands()
         {
-            Assert.Equal(new[] { "a" }, Editing().Edited("a").Owed);
+            Assert.Equal(new[] { A }, Editing().Edited(A).Owed);
         }
 
         [Fact]
         public void Edited_OutsideEdit_OwesNothing()
         {
-            Assert.Empty(SavedPreviewDeferral<string>.Idle.Edited("a").Owed);
+            Assert.Empty(SavedPreviewDeferral.Idle.Edited(A).Owed);
         }
 
         [Fact]
         public void EnterEdit_WithRunningRefreshes_CancelsThemAndOwesTheirPhotos()
         {
-            var change = SavedPreviewDeferral<string>.Idle.Enter(ShellMode.Edit, new[] { "a", "b", "a" });
+            var change = SavedPreviewDeferral.Idle.Enter(ShellMode.Edit, new[] { A, B, A });
 
             Assert.True(change.Cancel);
             Assert.True(change.Next.Editing);
-            Assert.Equal(new[] { "a", "b" }, change.Next.Owed);
+            Assert.Equal(new[] { A, B }, change.Next.Owed);
             Assert.Empty(change.Release);
         }
 
         [Fact]
         public void EnterEdit_WhenIdle_CancelsNothing()
         {
-            var change = SavedPreviewDeferral<string>.Idle.Enter(ShellMode.Edit, Nothing);
+            var change = SavedPreviewDeferral.Idle.Enter(ShellMode.Edit, Nothing);
 
             Assert.False(change.Cancel);
             Assert.True(change.Next.Editing);
@@ -97,11 +95,11 @@ namespace Maple.WinUI.Tests
         [InlineData(ShellMode.Preview)]
         public void LeaveEdit_ReleasesEveryOwedPhotoInTheOrderOwed(ShellMode mode)
         {
-            var state = Editing("a").Request("b").Next.Edited("c");
+            var state = Editing(A).Request(B).Next.Edited(C);
 
             var change = state.Enter(mode, Nothing);
 
-            Assert.Equal(new[] { "a", "b", "c" }, change.Release);
+            Assert.Equal(new[] { A, B, C }, change.Release);
             Assert.False(change.Cancel);
             Assert.False(change.Next.Editing);
             Assert.Empty(change.Next.Owed);
@@ -116,7 +114,7 @@ namespace Maple.WinUI.Tests
         [Fact]
         public void StayingInEdit_KeepsTheDebtAndCancelsNothing()
         {
-            var state = Editing().Request("a").Next;
+            var state = Editing().Request(A).Next;
 
             var change = state.Enter(ShellMode.Edit, Nothing);
 
@@ -128,7 +126,7 @@ namespace Maple.WinUI.Tests
         [Fact]
         public void MovingBetweenBrowseAndPreview_NeverCancelsARunningRequest()
         {
-            var change = SavedPreviewDeferral<string>.Idle.Enter(ShellMode.Preview, new[] { "a" });
+            var change = SavedPreviewDeferral.Idle.Enter(ShellMode.Preview, new[] { A });
 
             Assert.False(change.Cancel);
             Assert.Empty(change.Release);
@@ -138,65 +136,65 @@ namespace Maple.WinUI.Tests
         [Fact]
         public void SelectionChangeInEdit_KeepsTheEarlierPhotoOwed()
         {
-            var state = Editing().Edited("a").Request("b").Next;
+            var state = Editing().Edited(A).Request(B).Next;
 
-            Assert.Equal(new[] { "a", "b" }, state.Enter(ShellMode.Browse, Nothing).Release);
+            Assert.Equal(new[] { A, B }, state.Enter(ShellMode.Browse, Nothing).Release);
         }
 
         [Fact]
         public void Settle_AFailedRefreshStaysOwedAndIsRetriedOnTheNextLeaveOfEdit()
         {
-            var state = SavedPreviewDeferral<string>.Idle.Settle("a", SavedPreviewRefreshOutcome.Failed);
+            var state = SavedPreviewDeferral.Idle.Settle(A, SavedPreviewRefreshOutcome.Failed);
 
             var retry = state.Enter(ShellMode.Edit, Nothing).Next.Enter(ShellMode.Preview, Nothing);
 
-            Assert.Equal(new[] { "a" }, state.Owed);
-            Assert.Equal(new[] { "a" }, retry.Release);
+            Assert.Equal(new[] { A }, state.Owed);
+            Assert.Equal(new[] { A }, retry.Release);
         }
 
         [Fact]
         public void Settle_ACancelledRefreshStaysOwed()
         {
-            var state = SavedPreviewDeferral<string>.Idle.Settle("a", SavedPreviewRefreshOutcome.Cancelled);
+            var state = SavedPreviewDeferral.Idle.Settle(A, SavedPreviewRefreshOutcome.Cancelled);
 
-            Assert.Equal(new[] { "a" }, state.Owed);
+            Assert.Equal(new[] { A }, state.Owed);
         }
 
         [Fact]
         public void Settle_ARefreshedPhotoIsClearedAndOthersStayOwed()
         {
-            var state = SavedPreviewDeferral<string>.Idle
-                .Settle("a", SavedPreviewRefreshOutcome.Failed)
-                .Settle("b", SavedPreviewRefreshOutcome.Failed)
-                .Settle("a", SavedPreviewRefreshOutcome.Refreshed);
+            var state = SavedPreviewDeferral.Idle
+                .Settle(A, SavedPreviewRefreshOutcome.Failed)
+                .Settle(B, SavedPreviewRefreshOutcome.Failed)
+                .Settle(A, SavedPreviewRefreshOutcome.Refreshed);
 
-            Assert.Equal(new[] { "b" }, state.Owed);
+            Assert.Equal(new[] { B }, state.Owed);
         }
 
         [Fact]
         public void Settle_FailureIsOwedOnceHoweverOftenItRepeats()
         {
-            var state = SavedPreviewDeferral<string>.Idle
-                .Settle("a", SavedPreviewRefreshOutcome.Failed)
-                .Settle("a", SavedPreviewRefreshOutcome.Failed);
+            var state = SavedPreviewDeferral.Idle
+                .Settle(A, SavedPreviewRefreshOutcome.Failed)
+                .Settle(A, SavedPreviewRefreshOutcome.Failed);
 
-            Assert.Equal(new[] { "a" }, state.Owed);
+            Assert.Equal(new[] { A }, state.Owed);
         }
 
         [Fact]
         public void EnterEdit_KeepsPhotosStillOwedFromAnEarlierFailure()
         {
-            var failed = SavedPreviewDeferral<string>.Idle.Settle("a", SavedPreviewRefreshOutcome.Failed);
+            var failed = SavedPreviewDeferral.Idle.Settle(A, SavedPreviewRefreshOutcome.Failed);
 
-            var change = failed.Enter(ShellMode.Edit, new[] { "b" });
+            var change = failed.Enter(ShellMode.Edit, new[] { B });
 
-            Assert.Equal(new[] { "a", "b" }, change.Next.Owed);
+            Assert.Equal(new[] { A, B }, change.Next.Owed);
         }
 
         [Fact]
         public void ReleasedDebt_IsNotReleasedAgainOnTheNextEditSession()
         {
-            var left = Editing().Request("a").Next.Enter(ShellMode.Preview, Nothing).Next;
+            var left = Editing().Request(A).Next.Enter(ShellMode.Preview, Nothing).Next;
 
             var again = left.Enter(ShellMode.Edit, Nothing).Next.Enter(ShellMode.Preview, Nothing);
 
