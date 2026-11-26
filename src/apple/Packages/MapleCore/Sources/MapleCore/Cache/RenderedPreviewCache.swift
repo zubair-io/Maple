@@ -198,9 +198,7 @@ public actor RenderedPreviewCache {
   /// Millisecond mtime of the file at `path`, or `"0"` when it doesn't
   /// exist / is unreadable (a missing sidecar is the common `"0"` case).
   private func mtimeString(forPath path: String) -> String {
-    guard let attrs = try? fm.attributesOfItem(atPath: path),
-      let mtime = attrs[.modificationDate] as? Date
-    else { return "0" }
+    guard let mtime = PlainFileStat.modificationDate(atPath: path) else { return "0" }
     return String(Int64(mtime.timeIntervalSince1970 * 1000))
   }
 

@@ -613,3 +613,4 @@ EditHistoryEventTests
 BrowseNavigationTicketTests
 CloudSourceThumbVersionTests
 ThumbnailCameraPreviewReuseTests
+PlainFileStatParityTests
