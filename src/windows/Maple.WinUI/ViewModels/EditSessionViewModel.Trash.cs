@@ -121,21 +121,31 @@ namespace Maple.WinUI.ViewModels
             IReadOnlyList<TrashListItem> items, Action<int, int>? onItemDone = null)
         {
             var outcomes = new List<RestoreItemOutcome>(items.Count);
+            var restoredWithTheirPair = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             for (var i = 0; i < items.Count; i++)
             {
-                outcomes.Add(await RestoreOneAsync(items[i]).ConfigureAwait(false));
+                var item = items[i];
+                outcomes.Add(restoredWithTheirPair.TryGetValue(item.TrashPrimaryPath, out var restoredPath)
+                    ? new RestoreItemOutcome(item.TrashPrimaryPath, item.FileName, true, restoredPath, null)
+                    : await RestoreOneAsync(item, restoredWithTheirPair).ConfigureAwait(false));
                 onItemDone?.Invoke(i + 1, items.Count);
             }
             return outcomes;
         }
 
-        private static async Task<RestoreItemOutcome> RestoreOneAsync(TrashListItem item)
+        // Restoring one half of a trashed RAW+JPEG pair brings the other back
+        // with it, so a selection naming both halves restores them once.
+        private static async Task<RestoreItemOutcome> RestoreOneAsync(
+            TrashListItem item, Dictionary<string, string> restoredWithTheirPair)
         {
             try
             {
+                var companionTrashPath = LocalFileOperations.TrashedCompanionOf(item.TrashPrimaryPath, item.LibraryRoot);
                 var outcome = await LocalFileOperations
                     .RestoreFromMapleTrashAsync(item.TrashPrimaryPath, item.LibraryRoot)
                     .ConfigureAwait(false);
+                if (companionTrashPath != null && outcome.CompanionPath != null)
+                    restoredWithTheirPair[companionTrashPath] = outcome.CompanionPath;
                 return new RestoreItemOutcome(item.TrashPrimaryPath, item.FileName, true, outcome.PrimaryPath, null);
             }
             catch (FileOperationException ex)

@@ -57,10 +57,16 @@ namespace Maple.WinUI.Services.FileOperations
         /// (kind <see cref="FileOperationErrorKind.InvalidDestination"/>)
         /// without touching anything on disk if the recorded original path
         /// would resolve outside <paramref name="libraryRoot"/> — see
-        /// <see cref="ResolveRestoreTargetPath"/>.</summary>
+        /// <see cref="ResolveRestoreTargetPath"/>. A RAW+JPEG pair trashed
+        /// together comes back together under one name, whichever half is
+        /// named here (<see cref="RestoreStackFromMapleTrashAsync"/>).</summary>
         public static async Task<RelocateOutcome> RestoreFromMapleTrashAsync(
             string trashPrimaryPath, string libraryRoot)
         {
+            if (TrashedCompanionOf(trashPrimaryPath, libraryRoot) is { } companion)
+                return await RestoreStackFromMapleTrashAsync(trashPrimaryPath, companion, libraryRoot)
+                    .ConfigureAwait(false);
+
             var relativePath = ComputeOriginalRelativePath(trashPrimaryPath, libraryRoot);
             var targetPath = ResolveRestoreTargetPath(relativePath, libraryRoot);
             var destinationDir = Path.GetDirectoryName(targetPath) ?? libraryRoot;
