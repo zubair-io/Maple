@@ -16,6 +16,7 @@ internal fun trimCache(folder: File, limit: Long, keep: Set<File>) =
             folder.listFiles().orEmpty().filter {
                 it.isFile && !it.name.endsWith(".tmp") && !it.name.startsWith("thumb-")
             }
+        if (files.sumOf { it.length() } <= limit) return@synchronized
         val indexed =
             files
                 .mapNotNull { file ->
