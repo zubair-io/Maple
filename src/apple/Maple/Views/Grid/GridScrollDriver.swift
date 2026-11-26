@@ -12,9 +12,10 @@ import SwiftUI
   import UIKit
 #endif
 
-/// The scroll view behind the Browse grid. The grid is the widest pane, so it
-/// is the widest vertically scrollable view; a long sidebar or inspector is
-/// taller on some libraries but never wider.
+/// The scroll view behind the Browse grid. On a Mac and an iPad the grid is the
+/// widest pane, so it is the widest vertically scrollable view; a long sidebar
+/// or inspector is taller on some libraries but never wider. Where panes are
+/// equally wide, the one with the most to scroll is the 500-photo grid.
 @MainActor
 struct GridScrollTarget {
   #if os(macOS)
@@ -28,7 +29,7 @@ struct GridScrollTarget {
         .filter { $0.documentView?.isFlipped == true }
         .map(GridScrollTarget.init)
         .filter { $0.maximumOffset - $0.minimumOffset > $0.viewport.height }
-        .max { $0.viewport.width < $1.viewport.width }
+        .max { $0.rank < $1.rank }
     }
 
     private static func descendants(of view: NSView) -> [NSView] {
@@ -69,7 +70,7 @@ struct GridScrollTarget {
         .compactMap { $0 as? UIScrollView }
         .map(GridScrollTarget.init)
         .filter { $0.maximumOffset - $0.minimumOffset > $0.viewport.height }
-        .max { $0.viewport.width < $1.viewport.width }
+        .max { $0.rank < $1.rank }
     }
 
     private static func descendants(of view: UIView) -> [UIView] {
@@ -98,6 +99,10 @@ struct GridScrollTarget {
       CADisplayLink(target: target, selector: selector)
     }
   #endif
+}
+
+extension GridScrollTarget {
+  fileprivate var rank: (Double, Double) { (viewport.width, maximumOffset - minimumOffset) }
 }
 
 @MainActor

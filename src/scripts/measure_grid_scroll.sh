@@ -32,7 +32,9 @@
 #     preferences and caches. The iPad and simulator runs use the real bundle
 #     identifier: the build is installed over the app already on the device
 #     (its data is kept, and the throwaway folder never becomes a recent
-#     folder), and a running copy is terminated.
+#     folder), and a running copy is terminated. The seed photos and the
+#     reports stay in that app's Library/Caches and the cloned folders in its
+#     tmp; the system reclaims both when it needs the space.
 #   * Like every build of the app, the build removes *.xmp sidecars and .maple
 #     folders under this checkout's test-fixtures/raws.
 #
@@ -46,6 +48,8 @@
 # --build-only / --skip-build split the build from the timing so each can run
 # in its own slot on a busy machine.
 
+# The run_* and *_pid functions are passed by name.
+# shellcheck disable=SC2329
 set -euo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
@@ -67,8 +71,16 @@ IOS_BUNDLE_ID="app.justmaple.aperture"
 DEVICE_SEED="Library/Caches/maple-scroll-seed"
 LAUNCH_TIMEOUT=1800
 
+APP_PID=""
+CAPTURE_PID=""
+stop_children() {
+  [[ -z "$APP_PID" ]] || kill "$APP_PID" 2>/dev/null || true
+  [[ -z "$CAPTURE_PID" ]] || kill "$CAPTURE_PID" 2>/dev/null || true
+}
 usage() { sed -n '2,/^$/p' "${BASH_SOURCE[0]}" >&2; exit 64; }
-blocker() { echo "BLOCKED: $*" >&2; exit 2; }
+blocker() { echo "BLOCKED: $*" >&2; stop_children; exit 2; }
+trap 'blocker "a step failed at line $LINENO"' ERR
+trap 'blocker "interrupted"' INT TERM
 positive_integers() {
   local value
   for value in "$@"; do [[ "$value" =~ ^[1-9][0-9]*$ ]] || return 1; done
@@ -95,13 +107,19 @@ while [[ $# -gt 0 ]]; do
   shift
 done
 # shellcheck disable=SC2086
-positive_integers $COUNTS && [[ -n "$COUNTS" ]] || usage
+positive_integers $COUNTS && [[ -n "${COUNTS// /}" ]] || usage
 positive_integers "$RUNS" || usage
 [[ $BUILD == 1 || $MEASURE == 1 ]] || usage
 [[ $SCREEN_CHECK == 0 || ( -z "$IPAD" && -z "$SIMULATOR" ) ]] || usage
 [[ $MAC == 0 && -z "$IPAD" && -z "$SIMULATOR" ]] && MAC=1
 
+# Everything below removes and rebuilds folders inside OUT, so OUT must be
+# new, empty, or one an earlier run of this script marked as its own.
+if [[ -d "$OUT" && ! -f "$OUT/.maple-grid-scroll" && -n "$(ls -A "$OUT")" ]]; then
+  blocker "$OUT exists and is not a folder this script made; choose another --out"
+fi
 mkdir -p "$OUT/reports" "$OUT/logs"
+touch "$OUT/.maple-grid-scroll"
 OUT="$(cd "$OUT" && pwd -P)"
 [[ -d "$RAW_DIR" ]] || blocker "no RAW fixtures at $RAW_DIR (set RAW_DIR)"
 RAW_DIR="$(cd "$RAW_DIR" && pwd -P)"
@@ -110,6 +128,8 @@ SEED="$OUT/seed"
 MAC_APP="$OUT/mac/Maple.app"
 PROJECT="$REPO/src/apple/Maple.xcodeproj"
 TARGETS=""
+RUN_ID="$(date +%s)-$$"
+BUILD_SHA="$(git -C "$REPO" rev-parse --short=12 HEAD)"
 
 stage_seed() {
   rm -rf "$SEED"; mkdir -p "$SEED"
@@ -134,11 +154,14 @@ build() {
   xcodebuild -project "$PROJECT" -scheme Maple -configuration Release \
     -destination "$destination" -derivedDataPath "$derived" CLANG_COVERAGE_MAPPING=NO "$@" build \
     > "$log" 2>&1 || { tail -40 "$log" >&2; blocker "the build failed (see $log)"; }
-  if nm "$derived"/Build/Products/Release*/Maple.app/Maple \
-    "$derived"/Build/Products/Release*/Maple.app/Contents/MacOS/Maple 2>/dev/null \
-    | grep -q '___llvm_profile_runtime'; then
-    blocker "the built app carries coverage instrumentation, so its timings would not be the shipped app's"
-  fi
+  local binary
+  for binary in "$derived"/Build/Products/Release*/Maple.app/Maple \
+    "$derived"/Build/Products/Release*/Maple.app/Contents/MacOS/Maple; do
+    [[ -f "$binary" ]] || continue
+    if (nm "$binary" 2>/dev/null || true) | grep -q '___llvm_profile_runtime'; then
+      blocker "the built app carries coverage instrumentation, so its timings would not be the shipped app's"
+    fi
+  done
 }
 
 package_mac() {
@@ -167,23 +190,25 @@ sys.exit(0 if console and not any(user.get("CGSSessionScreenIsLocked") for user 
 }
 
 mac_app_pid() {
-  ps -axo pid=,command= | awk -v binary="$MAC_APP/Contents/MacOS/Maple" \
-    'index($0, binary) { print $1; exit }'
+  ps -axo pid=,comm= | awk -v binary="$MAC_APP/Contents/MacOS/Maple" \
+    '{ pid = $1; sub(/^ *[0-9]+ /, ""); if ($0 == binary) { print pid; exit } }'
 }
 
-# Waits for `waiter` to exit, and after LAUNCH_TIMEOUT seconds stops the app
-# whose process id `find_pid` prints.
+# Waits for `waiter` to exit. A launch that is still running after
+# LAUNCH_TIMEOUT seconds would be repeated by every remaining case, so the
+# app whose process id `find_pid` prints is stopped and the whole run ends.
 wait_or_stop() {
-  local waiter="$1" find_pid="$2" waited=0 app
+  local waiter="$1" find_pid="$2" waited=0
   while kill -0 "$waiter" 2>/dev/null && (( waited < LAUNCH_TIMEOUT )); do
     sleep 1; waited=$((waited + 1))
+    [[ -n "$APP_PID" ]] || APP_PID="$($find_pid || true)"
   done
   if kill -0 "$waiter" 2>/dev/null; then
-    app="$($find_pid || true)"
-    [[ -z "$app" ]] || kill "$app" 2>/dev/null || true
     kill "$waiter" 2>/dev/null || true
+    blocker "a launch did not finish within $LAUNCH_TIMEOUT seconds"
   fi
   wait "$waiter" 2>/dev/null || true
+  APP_PID=""
 }
 
 run_mac() {
@@ -205,7 +230,7 @@ physical_device_id() {
 
 run_ipad() {
   local udid="$1" count="$2" kind="$3" run="$4" report="$5" reuse=0
-  local remote="Library/Caches/maple-scroll-run-$count-$kind-$run.json"
+  local remote="Library/Caches/maple-scroll-run-$RUN_ID-$count-$kind-$run.json"
   [[ $kind == reopen ]] && reuse=1
   rm -f "$report"
   xcrun devicectl device process launch --device "$udid" --console --terminate-existing \
@@ -224,7 +249,7 @@ simulator_app_pid() {
 
 run_simulator() {
   local count="$1" kind="$2" run="$3" report="$4" reuse=0
-  local remote="Library/Caches/maple-scroll-run-$count-$kind-$run.json"
+  local remote="Library/Caches/maple-scroll-run-$RUN_ID-$count-$kind-$run.json"
   [[ $kind == reopen ]] && reuse=1
   rm -f "$report"
   SIMCTL_CHILD_MAPLE_SCROLL_RUN_SEED="$DEVICE_SEED" SIMCTL_CHILD_MAPLE_SCROLL_RUN_COUNT="$count" \
@@ -258,9 +283,12 @@ screen_check() {
   rm -f "$frames"
   "$OUT/screen_capture" "$MAC_BUNDLE_ID" "$LAUNCH_TIMEOUT" "$frames" 2> "$OUT/logs/screen-capture.log" &
   capture=$!
+  CAPTURE_PID=$capture
   run_mac 500 fresh 1 "$report"
-  wait $capture || blocker "screen capture failed: $(tail -1 "$OUT/logs/screen-capture.log"). The terminal needs Screen Recording permission."
-  python3 - "$report" "$frames" <<'PY'
+  wait $capture || blocker "screen capture failed: $(tail -1 "$OUT/logs/screen-capture.log")"
+  CAPTURE_PID=""
+  local status=0
+  python3 - "$report" "$frames" <<'PY' || status=$?
 import json, math, statistics, sys
 
 def untrusted(reason):
@@ -280,11 +308,17 @@ capture_start, capture_stop = float(lines[0].split()[1]), float(lines[-1].split(
 samples = [(float(time), [int(v) for v in profile.split(",")])
            for time, profile in (line.split(" ", 1) for line in lines[1:-1])]
 
-# Rows that never change are the letterbox around the window and its
-# toolbar; the grid is the band of rows that does.
-height = len(samples[0][1])
-spread = [max(p[row] for _, p in samples) - min(p[row] for _, p in samples) for row in range(height)]
+# Rows that never change during the passes are the letterbox around the
+# window and its toolbar; the grid is the band of rows that does.
+begun = min(scroll["frames"][0]["timestamp"] for scroll in report["passes"])
+during = [profile for time, profile in samples if time >= begun]
+if len(during) < 2:
+    untrusted("the capture recorded nothing during the passes")
+height = len(during[0])
+spread = [max(p[row] for p in during) - min(p[row] for p in during) for row in range(height)]
 live = [row for row in range(height) if spread[row] > max(spread) * 0.05]
+if not live or live[-1] - live[0] < 200:
+    untrusted("the captured window is too small to follow the grid")
 top, bottom = live[0] + 30, live[-1] - 5
 
 def centred(profile):
@@ -311,7 +345,9 @@ for scroll in report["passes"]:
     # committed frame a few refreshes after its display-link timestamp.
     refreshes = round((frames[-1]["timestamp"] - frames[0]["timestamp"]) / period)
     first, last = frames[0]["timestamp"], frames[-1]["timestamp"] + 4 * period
-    if capture_start > first:
+    if capture_start > first or capture_stop < frames[-1]["timestamp"]:
+        if scroll["name"] == "cached":
+            untrusted("the capture did not cover the cached pass")
         print(f"{scroll['name']} pass: not compared, the capture started after it began")
         continue
     inside = [i for i, (time, _) in enumerate(profiles) if first <= time <= last and i > 0]
@@ -323,7 +359,27 @@ for scroll in report["passes"]:
     worst = max(worst, abs(refreshes - steps - app))
 print(f"largest disagreement: {worst} frames")
 PY
+  return $status
 }
+
+ipad_unlocked() {
+  xcrun devicectl device info lockState --device "$UDID" > "$OUT/logs/ipad-lock.log" 2>&1
+}
+
+# Every target is resolved before the first build, so a missing device does
+# not surface after another target's twenty-minute measurement.
+UDID=""
+SIM_UDID=""
+if [[ -n "$IPAD" ]]; then
+  UDID="$(physical_device_id "$IPAD" || true)"
+  [[ -n "$UDID" ]] || blocker "no paired physical device named '$IPAD' in: xcrun devicectl list devices"
+  ipad_unlocked || blocker "'$IPAD' is locked or unreachable. Unlock it, keep it awake on this network, and run again."
+fi
+if [[ -n "$SIMULATOR" ]]; then
+  SIM_UDID="$(xcrun simctl list devices available \
+    | awk -v name="    $SIMULATOR (" 'index($0, name) == 1 { print }' | grep -oE '[0-9A-F-]{36}' | head -1 || true)"
+  [[ -n "$SIM_UDID" ]] || blocker "no available simulator named '$SIMULATOR'"
+fi
 
 stage_seed
 
@@ -333,18 +389,14 @@ if [[ $MAC == 1 ]]; then
     [[ -d "$MAC_APP" ]] || blocker "no built Mac app at $MAC_APP; run without --skip-build first"
     mac_screen_unlocked || blocker "this Mac's screen is locked, so no frame is presented. Unlock it and run again."
     if [[ $SCREEN_CHECK == 1 ]]; then
-      screen_check
-      exit
+      screen_check || exit $?
+      exit 0
     fi
     measure mac run_mac
   fi
 fi
 
 if [[ -n "$IPAD" ]]; then
-  UDID="$(physical_device_id "$IPAD" || true)"
-  [[ -n "$UDID" ]] || blocker "no paired physical device named '$IPAD' in: xcrun devicectl list devices"
-  xcrun devicectl device info lockState --device "$UDID" > "$OUT/logs/ipad-lock.log" 2>&1 \
-    || blocker "'$IPAD' is locked or unreachable. Unlock it, keep it awake on this network, and run again."
   if [[ $BUILD == 1 ]]; then
     build "platform=iOS,id=$UDID" "$OUT/dd-ipad" -allowProvisioningUpdates
     xcrun devicectl device install app --device "$UDID" \
@@ -352,6 +404,7 @@ if [[ -n "$IPAD" ]]; then
       || blocker "could not install on '$IPAD' (see $OUT/logs/ipad-install.log)"
   fi
   if [[ $MEASURE == 1 ]]; then
+    ipad_unlocked || blocker "'$IPAD' locked while the app was building. Unlock it and run again with --skip-build."
     for name in "${SEED_FILES[@]}"; do
       xcrun devicectl device copy to --device "$UDID" --domain-type appDataContainer \
         --domain-identifier "$IOS_BUNDLE_ID" --source "$SEED/$name" \
@@ -363,9 +416,6 @@ if [[ -n "$IPAD" ]]; then
 fi
 
 if [[ -n "$SIMULATOR" ]]; then
-  SIM_UDID="$(xcrun simctl list devices available \
-    | awk -v name="$SIMULATOR (" 'index($0, name) { print }' | grep -oE '[0-9A-F-]{36}' | head -1 || true)"
-  [[ -n "$SIM_UDID" ]] || blocker "no available simulator named '$SIMULATOR'"
   xcrun simctl bootstatus "$SIM_UDID" -b > "$OUT/logs/simulator-boot.log" 2>&1 \
     || blocker "the simulator did not boot (see $OUT/logs/simulator-boot.log)"
   if [[ $BUILD == 1 ]]; then
@@ -384,11 +434,12 @@ fi
 
 [[ $MEASURE == 1 ]] || exit 0
 
+status=0
 # shellcheck disable=SC2086
-python3 - "$OUT" "$RUNS" "$COUNTS" $TARGETS <<'PY'
+python3 - "$OUT" "$RUNS" "$COUNTS" "$BUILD_SHA" $TARGETS <<'PY' || status=$?
 import json, os, statistics, sys
 
-out, runs, counts, targets = sys.argv[1], int(sys.argv[2]), sys.argv[3].split(), sys.argv[4:]
+out, runs, counts, build, targets = sys.argv[1], int(sys.argv[2]), sys.argv[3].split(), sys.argv[4], sys.argv[5:]
 cases = {"fresh": [("first", "cold"), ("cached", "warm")], "reopen": [("first", "reopened")]}
 rows, untrusted = {}, []
 
@@ -401,11 +452,17 @@ def distrust(report, count, kind):
         return "the report belongs to another run"
     if report["reusedFolder"] != (kind == "reopen"):
         return "the folder was not reused" if kind == "reopen" else "the folder was not rebuilt"
+    if report["build"] != f"{build} Release":
+        return f"measured build '{report['build']}', not this checkout's Release build {build}"
     if report["lowPowerMode"]:
         return "low-power mode was on"
+    if report["thermalState"] in ("serious", "critical"):
+        return f"the device was throttling (thermal state {report['thermalState']})"
     slowest = min(p["stats"]["refreshHz"] for p in report["passes"])
-    if slowest < 0.95 * report["displayMaximumHz"]:
+    if not report["displayMaximumHz"] or slowest < 0.95 * report["displayMaximumHz"]:
         return f"ran at {slowest:.0f} Hz on a {report['displayMaximumHz']} Hz display"
+    if kind == "fresh" and report["cachedThumbnails"] < count:
+        return f"only {report['cachedThumbnails']} of {count} thumbnails were cached before the warm pass"
     return None
 
 for target in targets:
@@ -446,3 +503,4 @@ for line in untrusted:
     print("UNTRUSTED:", line)
 sys.exit(2 if untrusted else 1 if over else 0)
 PY
+exit $status

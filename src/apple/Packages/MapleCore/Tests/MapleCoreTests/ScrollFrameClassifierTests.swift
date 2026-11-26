@@ -212,6 +212,7 @@ final class ScrollFrameClassifierTests: XCTestCase {
         "error", "passes", "photoCount", "reusedFolder", "device", "system", "build",
         "displayMaximumHz", "viewportWidth", "viewportHeight", "framesVisible",
         "loadAverageAtStart", "loadAverageAtEnd", "thermalState", "lowPowerMode", "primeSeconds",
+        "cachedThumbnails",
       ])
     let pass = try XCTUnwrap((json["passes"] as? [[String: Any]])?.first)
     XCTAssertEqual(

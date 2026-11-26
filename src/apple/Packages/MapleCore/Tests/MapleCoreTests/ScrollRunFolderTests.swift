@@ -64,6 +64,30 @@ final class ScrollRunFolderTests: XCTestCase {
     XCTAssertTrue(fm.fileExists(atPath: thumbs.path))
   }
 
+  func test_aFolderWithoutItsMarkerIsNotReused() throws {
+    let squatter = root.appendingPathComponent("maple-scroll-run-2")
+    try fm.createDirectory(at: squatter, withIntermediateDirectories: true)
+    for name in ["IMG_00000.jpg", "IMG_00001.dng"] {
+      try Data("someone else's".utf8).write(to: squatter.appendingPathComponent(name))
+    }
+    XCTAssertThrowsError(
+      try ScrollRunFolder.stage(seed: seed, count: 2, reuse: true, root: root)
+    ) { XCTAssertEqual($0 as? ScrollRunFolder.StagingError, .folderNotStagedByScrollRun) }
+  }
+
+  func test_cachedThumbnailsAreCountedForTheStagedPhotosOnly() throws {
+    let staged = try ScrollRunFolder.stage(seed: seed, count: 3, reuse: false, root: root)
+    XCTAssertEqual(ScrollRunFolder.cachedThumbnailCount(in: staged.url), 0)
+    let thumbs = staged.url.appendingPathComponent(".maple/thumbs")
+    try fm.createDirectory(at: thumbs, withIntermediateDirectories: true)
+    for name in [
+      "IMG_00000.jpg.avif", "IMG_00000.jpg.avif.source", "IMG_00001.dng.avif", "other.jpg.avif",
+    ] {
+      try Data().write(to: thumbs.appendingPathComponent(name))
+    }
+    XCTAssertEqual(ScrollRunFolder.cachedThumbnailCount(in: staged.url), 2)
+  }
+
   func test_reuseWithNothingStagedBuildsTheFolder() throws {
     let staged = try ScrollRunFolder.stage(seed: seed, count: 2, reuse: true, root: root)
     XCTAssertFalse(staged.reused)
