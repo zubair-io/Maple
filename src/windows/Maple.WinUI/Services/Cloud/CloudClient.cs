@@ -98,9 +98,10 @@ namespace Maple.WinUI.Services.Cloud
 
         private async Task<T?> GetJsonAsync<T>(
             string route, CancellationToken ct, bool authenticated = true,
-            bool reportTransportFailureAsNull = true) where T : class
+            bool reportTransportFailureAsNull = true, bool retryOnConflict = false) where T : class
         {
-            using var response = await GetResponseAsync(route, ct, authenticated, reportTransportFailureAsNull);
+            using var response = await GetResponseAsync(
+                route, ct, authenticated, reportTransportFailureAsNull, retryOnConflict);
             if (response == null)
                 return null;
             if (!response.IsSuccessStatusCode)
@@ -112,13 +113,19 @@ namespace Maple.WinUI.Services.Cloud
         }
 
         private async Task<HttpResponseMessage?> GetResponseAsync(
-            string route, CancellationToken ct, bool authenticated, bool reportTransportFailureAsNull)
+            string route, CancellationToken ct, bool authenticated, bool reportTransportFailureAsNull,
+            bool retryOnConflict = false)
         {
+            Task<HttpResponseMessage> GetOnce() => authenticated
+                ? SendAsync(() => new HttpRequestMessage(HttpMethod.Get, route), ct)
+                : _http.GetAsync(route, ct);
             try
             {
-                return authenticated
-                    ? await SendAsync(() => new HttpRequestMessage(HttpMethod.Get, route), ct)
-                    : await _http.GetAsync(route, ct);
+                var response = await GetOnce();
+                if (!retryOnConflict || response.StatusCode != HttpStatusCode.Conflict)
+                    return response;
+                response.Dispose();
+                return await GetOnce();
             }
             catch (Exception ex) when (reportTransportFailureAsNull && (
                 ex is HttpRequestException || (ex is TaskCanceledException && !ct.IsCancellationRequested)))
