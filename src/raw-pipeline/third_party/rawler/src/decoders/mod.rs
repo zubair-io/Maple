@@ -514,7 +514,7 @@ pub(crate) fn dynamic_image_from_ifd(ifd: &IFD, rawsource: &RawSource) -> Result
   let tiff_height = fetch_tiff_tag!(ifd, TiffCommonTag::ImageLength).force_usize(0);
   let cpp = fetch_tiff_tag!(ifd, TiffCommonTag::SamplesPerPixel).force_usize(0);
   let bits = fetch_tiff_tag!(ifd, TiffCommonTag::BitsPerSample).force_u32(0);
-  if let Some(image) = single_strip_rgb8_jpeg(ifd, rawsource, tiff_width, tiff_height, cpp, bits) {
+  if let Some(image) = single_strip_rgb8_jpeg(ifd, rawsource) {
     return Ok(image);
   }
   let image = plain_image_from_ifd(ifd, rawsource)?;
@@ -569,7 +569,11 @@ pub(crate) fn dynamic_image_from_ifd(ifd: &IFD, rawsource: &RawSource) -> Result
 /// `NewSubFileType=1` SubIFD) decodes straight to RGB8. The generic path below
 /// widens every sample to u16 and narrows it back, which costs more than the
 /// JPEG decode itself on a camera-sized preview; the pixels are identical.
-fn single_strip_rgb8_jpeg(ifd: &IFD, rawsource: &RawSource, width: usize, height: usize, cpp: usize, bits: u32) -> Option<DynamicImage> {
+pub fn single_strip_rgb8_jpeg(ifd: &IFD, rawsource: &RawSource) -> Option<DynamicImage> {
+  let width = ifd.get_entry(TiffCommonTag::ImageWidth)?.value.force_usize(0);
+  let height = ifd.get_entry(TiffCommonTag::ImageLength)?.value.force_usize(0);
+  let cpp = ifd.get_entry(TiffCommonTag::SamplesPerPixel)?.value.force_usize(0);
+  let bits = ifd.get_entry(TiffCommonTag::BitsPerSample)?.value.force_u32(0);
   let photometric = PhotometricInterpretation::extract(ifd).ok()?.unwrap_or(PhotometricInterpretation::BlackIsZero);
   let is_lossy_jpeg = match CompressionMethod::extract(ifd).ok()?? {
     CompressionMethod::ModernJPEG => photometric == PhotometricInterpretation::YCbCr,
@@ -580,10 +584,16 @@ fn single_strip_rgb8_jpeg(ifd: &IFD, rawsource: &RawSource, width: usize, height
   let reshaped = ifd.get_entry(TiffCommonTag::Linearization).is_some()
     || ifd.get_entry(DngTag::ColumnInterleaveFactor).is_some()
     || ifd.get_entry(DngTag::RowInterleaveFactor).is_some();
-  if !is_lossy_jpeg || sample_format != SampleFormat::Uint || cpp != 3 || bits != 8 || reshaped || !ifd.contains_singlestrip_image() {
+  let tiled = ifd.get_entry(TiffCommonTag::TileOffsets).is_some() || ifd.get_entry(TiffCommonTag::TileWidth).is_some();
+  if !is_lossy_jpeg || sample_format != SampleFormat::Uint || cpp != 3 || bits != 8 || reshaped || tiled {
     return None;
   }
-  let strip = ifd.singlestrip_data_rawsource(rawsource).ok()?;
+  // `strip_data` accepts only LONG strip tags, as the generic path does, so a
+  // preview that path rejects is rejected here too.
+  let (strips, _) = ifd.strip_data(rawsource).ok()?;
+  let [strip] = strips.as_slice() else {
+    return None;
+  };
   match image::load_from_memory_with_format(strip, ImageFormat::Jpeg).ok()? {
     image @ DynamicImage::ImageRgb8(_) if (image.width() as usize, image.height() as usize) == (width, height) => Some(image),
     _ => None,
