@@ -30,7 +30,7 @@ namespace Maple.WinUI.ViewModels
         private LibraryWatcher CreateLibraryWatcher()
         {
             var watcher = new LibraryWatcher(
-                path => SupportedExtensions.Contains(Path.GetExtension(path)));
+                path => SupportedExtensions.Contains(Path.GetExtension(path)), RawJpegPairing.IsPairCandidate);
             watcher.ChangesReady += (added, removed) =>
             {
                 // Build the new items off the watcher thread (FileInfo + sidecar
@@ -68,20 +68,13 @@ namespace Maple.WinUI.ViewModels
                     .Where(item => item != null)
                     .Select(item => item!)
                     .ToList();
-                // The watcher never reports formats the grid does not open (IMG.MEF), so a
-                // batch re-reads the folder's pair inventory instead of patching it.
-                var inventory = folder == null ? null : EnumerateImageFiles(folder).PairInventory.ToHashSet(StringComparer.Ordinal);
+                var inventory = ReadPairInventory(folder);
 
                 App.MainDispatcherQueue?.TryEnqueue(() =>
                 {
                     if (!string.Equals(CurrentFolderPath, folder, StringComparison.OrdinalIgnoreCase))
                         return;    // user navigated away while the batch settled
-                    var changed = false;
-                    if (inventory != null && !inventory.SetEquals(_localPairInventory))
-                    {
-                        _localPairInventory = inventory;
-                        changed = true;
-                    }
+                    var changed = AdoptPairInventory(inventory);
                     foreach (var path in removed)
                     {
                         var victim = AllPhotos.FirstOrDefault(p =>
@@ -111,7 +104,33 @@ namespace Maple.WinUI.ViewModels
                 });
             };
             watcher.RenamesReady += ApplyLiveRenames;
+            watcher.PairInventoryChanged += () =>
+            {
+                var folder = CurrentFolderPath;
+                var inventory = ReadPairInventory(folder);
+                App.MainDispatcherQueue?.TryEnqueue(() =>
+                {
+                    if (!string.Equals(CurrentFolderPath, folder, StringComparison.OrdinalIgnoreCase)
+                        || !AdoptPairInventory(inventory))
+                        return;
+                    ApplyFilters();
+                    Timeline.GroupPhotosByDate(AllPhotos);
+                });
+            };
             return watcher;
+        }
+
+        // The folder's RAW and JPEG names, shown or not, re-read after a change: the
+        // watcher reports RAW formats the grid does not open only as "something changed".
+        private static HashSet<string>? ReadPairInventory(string? folder) =>
+            folder == null ? null : EnumerateImageFiles(folder).PairInventory.ToHashSet(StringComparer.Ordinal);
+
+        private bool AdoptPairInventory(HashSet<string>? inventory)
+        {
+            if (inventory == null || inventory.SetEquals(_localPairInventory))
+                return false;
+            _localPairInventory = inventory;
+            return true;
         }
 
         /// <summary>
@@ -144,6 +163,7 @@ namespace Maple.WinUI.ViewModels
             var followed = LocalFileOperations.FollowExternalRenames(reconciled);
             if (reconciled.Count == 0)
                 return;
+            var inventory = ReadPairInventory(folder);
 
             App.MainDispatcherQueue?.TryEnqueue(() =>
             {
@@ -156,7 +176,7 @@ namespace Maple.WinUI.ViewModels
                         string.Equals(p.FilePath, f.OldPath, StringComparison.OrdinalIgnoreCase)), Result: f))
                     .Where(x => x.Photo != null)    // watcher fired before the item ever loaded — nothing to reconcile
                     .ToList();
-                var changed = renamedPhotos.Count > 0;
+                var changed = AdoptPairInventory(inventory) | (renamedPhotos.Count > 0);
                 // A photo that will read a different sidecar must not autosave
                 // its old values under the new path, so its unsaved state goes
                 // BEFORE any path changes; a photo that keeps its own sidecar
