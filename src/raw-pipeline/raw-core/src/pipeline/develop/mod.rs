@@ -385,12 +385,13 @@ fn develop_after_colour(
     // and this post-stage check turns a partial-then-cancelled pass into a
     // clean Err so the half-denoised buffer is never packed into a result.
     stage("nr_color", || {
-        noise_reduction::apply_color_cancellable(
+        noise_reduction::apply_color_half_res_cancellable(
             &mut scene,
             model.nr_color,
             cancel,
             raw.noise_profile.as_deref(),
             raw.iso,
+            (0, 0),
         )
     });
     dump_after("15_nr_color", &scene);

@@ -120,7 +120,7 @@ pub(super) fn tail_reach_px(model: &AdjustmentModel) -> usize {
         model.sharpen_amount,
         sharpen::stencil_reach_px(model.sharpen_radius),
     ) + engaged(model.nr_luminance, noise_reduction::LUMA_REACH_PX)
-        + engaged(model.nr_color, noise_reduction::CHROMA_REACH_PX)
+        + engaged(model.nr_color, noise_reduction::HALF_RES_CHROMA_REACH_PX)
 }
 
 /// A stage's reach counts only when its slider engages it — the same
@@ -140,10 +140,10 @@ mod tests {
     #[test]
     fn guided_default_counts_complete_cell_support() {
         let model = AdjustmentModel::default();
-        assert_eq!(tile_overlap_px(None, &model, 6000, 1), 8 + 47 + 2 + 4 + 5);
+        assert_eq!(tile_overlap_px(None, &model, 6000, 1), 8 + 47 + 2 + 4 + 12);
         assert_eq!(
             tile_overlap_px(None, &model, 3000, 2),
-            2 * (8 + 47 + 2 + 4 + 5)
+            2 * (8 + 47 + 2 + 4 + 12)
         );
         let off = AdjustmentModel {
             highlight_recovery: crate::xmp::HighlightRecoveryMode::Off,
@@ -225,7 +225,7 @@ mod tests {
 
         // Every spatial slider engaged on a 6000-px frame at 100%: pre 8 +
         // capture 96 + S/H (2 × 135) + clarity 40 + texture 4 + sharpen (⌈3·3⌉
-        // + 1) + nr luma 4 + nr chroma 5.
+        // + 1) + nr luma 4 + half-res nr chroma 12.
         let everything = AdjustmentModel {
             highlights: -30.0,
             shadows: 30.0,
@@ -239,13 +239,13 @@ mod tests {
         };
         assert_eq!(
             tile_overlap_px(None, &everything, 6000, 1),
-            8 + 96 + 2 * 135 + 40 + 4 + 10 + 4 + 5
+            8 + 96 + 2 * 135 + 40 + 4 + 10 + 4 + 12
         );
         // A half-res develop measures the same reaches in developed pixels,
         // so the mosaic pad doubles.
         assert_eq!(
             tile_overlap_px(None, &everything, 3000, 2),
-            2 * (8 + 96 + 2 * 68 + 40 + 4 + 10 + 4 + 5)
+            2 * (8 + 96 + 2 * 68 + 40 + 4 + 10 + 4 + 12)
         );
     }
 }

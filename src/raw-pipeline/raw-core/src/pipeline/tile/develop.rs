@@ -371,6 +371,7 @@ pub(super) fn develop_scene_linear_from_padded_mosaic(
     let y = inner.1.saturating_sub(reach);
     let right = (inner.0 + inner.2 + reach).min(scene.width);
     let bottom = (inner.1 + inner.3 + reach).min(scene.height);
+    let scene_origin = (window.origin.0 + x as i32, window.origin.1 + y as i32);
     if x != 0 || y != 0 || right != scene.width || bottom != scene.height {
         scene = stage("tile_trim_consumed_overlap", || {
             trim_image_to_inner(&scene, x, y, right - x, bottom - y)
@@ -396,11 +397,13 @@ pub(super) fn develop_scene_linear_from_padded_mosaic(
         )
     });
     stage("tile_nr_color", || {
-        noise_reduction::apply_color(
+        noise_reduction::apply_color_half_res_cancellable(
             &mut scene,
             model.nr_color,
+            cancel,
             raw.noise_profile.as_deref(),
             raw.iso,
+            scene_origin,
         )
     });
     Ok(DevelopedTile {

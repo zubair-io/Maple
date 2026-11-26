@@ -73,7 +73,7 @@ DNG `OpcodeList3` (tag 51022) is parsed at decode time by `raw-core/src/pipeline
 | 28  | `vignette`                                  | `stages/vignette.rs`                                           | scene-linear Rec.2020                                                          |
 | 29  | `sharpen`                                   | `stages/sharpen.rs`                                            | scene-linear Rec.2020, luma-only USM                                           |
 | 30  | `nr_luminance`                              | `stages/noise_reduction.rs` → `stages/nlm.rs`                  | Oklab L plane                                                                  |
-| 31  | `nr_color`                                  | same                                                           | Oklab a/b planes                                                               |
+| 31  | `nr_color`                                  | `stages/noise_reduction_half_res.rs` (full develop, tiles)     | Oklab a/b planes; NLM on a 2×2 frame-anchored grid at full res (#6018)         |
 
 Stages 9a–9d form the **capture half** and stages 10–12 and 16–17 the **creative half** of the capture-first split ([below](#capture-first-the-capture-and-creative-halves-5213)).
 
