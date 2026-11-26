@@ -515,6 +515,9 @@ mod tests_p3_timing;
 #[path = "live_session/tests_resume_cut.rs"]
 mod tests_resume_cut;
 #[cfg(all(test, not(target_arch = "wasm32")))]
+#[path = "live_session/tests_resume_cut_lifecycle.rs"]
+mod tests_resume_cut_lifecycle;
+#[cfg(all(test, not(target_arch = "wasm32")))]
 #[path = "live_session/tests_resume_cut_store.rs"]
 mod tests_resume_cut_store;
 #[cfg(all(test, not(target_arch = "wasm32")))]
