@@ -12,7 +12,7 @@ use crate::{
     image::{CfaPattern, ExifOrientation, RawImage},
     math::Matrix3,
     pipeline::{CreativeAnchors, CreativeStage},
-    stages::wb_camera::SliderFrame,
+    stages::wb_camera::{SliderFrame, SliderFrameExport},
 };
 use std::collections::HashMap;
 
@@ -188,6 +188,21 @@ pub fn creative_stage(tables: Tables, ae_gain: f32) -> CreativeStage {
             decoded_wb: None,
         },
     }
+}
+
+/// The largest element-wise absolute difference between two equally long slices.
+pub fn largest_gap(a: &[f32], b: &[f32]) -> f32 {
+    assert_eq!(a.len(), b.len());
+    a.iter()
+        .zip(b)
+        .map(|(x, y)| (x - y).abs())
+        .fold(0., f32::max)
+}
+
+/// The frame export a decode of the synthetic camera hands its host.
+pub fn frame_export(tables: Tables) -> SliderFrameExport {
+    let raw = raw(tables);
+    SliderFrameExport::resolve(&raw, &profile(&raw, tables))
 }
 
 /// The same camera taken through the uncalibrated tiers: no slider frame, so

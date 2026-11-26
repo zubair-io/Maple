@@ -345,3 +345,6 @@ fn one_forward_matrix_still_interpolates_both_calibrations() {
         assert!(close(got, want, 1e-3), "{p:?}: {got:?} vs {want:?}");
     }
 }
+
+#[path = "forward_calibration_white_pin_tests.rs"]
+mod pins;

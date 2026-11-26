@@ -8,7 +8,23 @@ use crate::{
     math::{Matrix3, Vec3},
 };
 
-use super::{camera_neutral_for, is_as_shot_target, SliderFrame};
+use super::{camera_neutral_raw, g_normalize, is_as_shot_target, SliderFrame};
+
+/// The target's G-normalised camera neutral, or `None` when degenerate (the as-shot white stays).
+pub(super) fn target_camera_neutral(
+    frame: &SliderFrame,
+    temperature: f32,
+    tint: f32,
+) -> Option<Vec3> {
+    // The target xy projects through the frame's CM re-interpolated at the target's own CCT (#1727), not the as-shot CM.
+    let cm = frame.cm_for_cct(temperature);
+    // A non-finite or non-positive component means the CM carries no usable calibration; the gain ratios would explode.
+    let raw_neutral = camera_neutral_raw(cm, temperature, tint);
+    raw_neutral
+        .iter()
+        .all(|c| c.is_finite() && *c > 1e-6)
+        .then(|| g_normalize(raw_neutral))
+}
 
 /// What a white-balance retarget re-resolves in the render profile.
 pub(crate) struct RenderRetarget {
@@ -23,10 +39,10 @@ pub(crate) struct RenderRetarget {
     pub forward_matrix: Option<Matrix3>,
 }
 
-/// `None` at the as-shot target, where the render profile passes through
-/// untouched, and for a profile with neither calibration endpoints nor a
-/// single-illuminant [`dcp::ForwardReference`] (nothing depends on the
-/// white).
+/// `None` where the render profile passes through untouched: at the as-shot
+/// target, at a degenerate target white ([`target_camera_neutral`]), and for
+/// a profile with neither calibration endpoints nor a single-illuminant
+/// [`dcp::ForwardReference`] (nothing depends on the white).
 pub(crate) fn render_retarget(
     frame: &SliderFrame,
     profile: &DcpProfile,
@@ -39,7 +55,7 @@ pub(crate) fn render_retarget(
     if is_as_shot_target(frame, temperature, tint) {
         return None;
     }
-    let camera_white = camera_neutral_for(frame.cm_for_cct(temperature), temperature, tint);
+    let camera_white = target_camera_neutral(frame, temperature, tint)?;
     let cct = profile.cm_endpoints.map_or(profile.scene_cct, |e| {
         dcp::compute_as_shot_cct(camera_white, e.m_cold, e.cct_cold, e.m_warm, e.cct_warm)
     });
