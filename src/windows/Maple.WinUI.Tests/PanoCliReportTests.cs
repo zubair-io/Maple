@@ -183,17 +183,51 @@ public sealed class PanoCliReportTests : IDisposable
         Assert.True(PanoCliRuns.PreviewOutcome(new PanoCliExit(true, -1, "cancelled"), PreviewRun(null, null)).Cancelled);
     }
 
+    private static string StitchReport(string? alignment, string seams) =>
+        "{\"inputs\":[\"a.dng\",\"b.dng\"],\"frames\":2,"
+        + (alignment is null ? string.Empty : "\"alignment\":{\"status\":\"" + alignment + "\",\"stale_reason\":null},")
+        + "\"seam_constraints\":" + seams + "}";
+
+    [Theory]
+    [InlineData("reused")]
+    [InlineData("solved")]
+    public void AConstrainedStitchSucceedsWhenItsReportEchoesTheRequestOnAConfirmedAlignment(string status) =>
+        Assert.Equal(new PanoStitchOutcome(true, false, null, status),
+            PanoCliRuns.StitchOutcome(Succeeded, StitchRun(Request, StitchReport(status, Request.ToJson()))));
+
+    [Fact]
+    public void AConstrainedStitchThatReSolvedItsAlignmentIsRefusedAsStale() =>
+        Assert.Equal(new PanoStitchOutcome(false, false, PanoSeamAuthoring.StaleGeometry, "stale"),
+            PanoCliRuns.StitchOutcome(Succeeded, StitchRun(Request, StitchReport("stale", Request.ToJson()))));
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("matched")]
+    public void AConstrainedStitchWhoseReportHasNoKnownAlignmentStatusIsUnconfirmed(string? status)
+    {
+        var outcome = PanoCliRuns.StitchOutcome(Succeeded, StitchRun(Request, StitchReport(status, Request.ToJson())));
+        Assert.False(outcome.Ok);
+        Assert.Equal(PanoSeamAuthoring.StaleGeometry, outcome.Error);
+    }
+
     [Fact]
     public void AConstrainedStitchSucceedsOnlyWhenItsReportEchoesTheRequest()
     {
-        var echoed = "{\"frames\":2,\"seam_constraints\":" + Request.ToJson() + "}";
-        Assert.Equal(new PanoStitchOutcome(true, false, null),
-            PanoCliRuns.StitchOutcome(Succeeded, StitchRun(Request, echoed)));
         Assert.Equal(new PanoStitchOutcome(false, false, PanoCliRuns.UnconfirmedSeams),
-            PanoCliRuns.StitchOutcome(Succeeded, StitchRun(Request, "{\"frames\":2,\"seam_constraints\":null}")));
+            PanoCliRuns.StitchOutcome(Succeeded, StitchRun(Request, StitchReport("reused", "null"))));
         Assert.Equal(new PanoStitchOutcome(false, false, PanoCliRuns.UnconfirmedSeams),
             PanoCliRuns.StitchOutcome(Succeeded, StitchRun(Request, null)));
     }
+
+    [Theory]
+    [InlineData("{\"alignment\":{\"status\":\"stale\"}}", "stale")]
+    [InlineData("{\"alignment\":{\"stale_reason\":null}}", null)]
+    [InlineData("{\"alignment\":\"reused\"}", null)]
+    [InlineData("{}", null)]
+    [InlineData("{", null)]
+    public void TheAlignmentStatusIsReadFromTheReportsAlignmentBlock(string json, string? status) =>
+        Assert.Equal(status, PanoCliReport.AlignmentStatus(json));
 
     [Fact]
     public void ARefusedConstrainedStitchFailsByNameAndAnUnconstrainedOneKeepsItsOldMessage()

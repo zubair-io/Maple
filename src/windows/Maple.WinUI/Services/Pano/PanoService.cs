@@ -15,7 +15,8 @@ namespace Maple.WinUI.Services.Pano
     /// </summary>
     public sealed partial class PanoService
     {
-        public sealed record StitchResult(bool Ok, string? Error, string OutPath, string DisplayPath);
+        public sealed record StitchResult(
+            bool Ok, string? Error, string OutPath, string DisplayPath, string? AlignmentStatus = null);
 
         /// <summary>Run one stitch. `inputs` are the RAW frame paths (the CLI
         /// re-sorts by filename = capture order). Writes the scene-linear
@@ -38,7 +39,7 @@ namespace Maple.WinUI.Services.Pano
                 new PanoCliHost(cli, engine, provisioner.ModelsDir, provisioner.OrtDylibPath),
                 new PanoStitchRun(inputs, outPath, displayPath, retention, localAlign, strategy, alignmentIn, seams),
                 progress, ct);
-            return new StitchResult(outcome.Ok, outcome.Error, outPath, displayPath);
+            return new StitchResult(outcome.Ok, outcome.Error, outPath, displayPath, outcome.AlignmentStatus);
         }
     }
 }
