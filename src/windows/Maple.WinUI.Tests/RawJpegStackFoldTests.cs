@@ -162,5 +162,33 @@ namespace Maple.WinUI.Tests
             RawJpegStackFold.Apply(photos, stacksPairs: false);
             Assert.Equal("Trip.CR3", photos[0].TileAccessibleName);
         }
+
+        private static PhotoItem CloudPhoto(string name) =>
+            new() { FilePath = "/shoot/" + name, FileName = name, Format = name[(name.LastIndexOf('.') + 1)..].ToUpperInvariant(), CloudAddress = "lib:" + name };
+
+        [Fact]
+        public void AJpegUnfoldedByAFormatFilter_NeedsItsThumbnailAndIsAskedForOnce()
+        {
+            var photos = new List<PhotoItem> { CloudPhoto("IMG_1.CR3"), CloudPhoto("IMG_1.JPG") };
+            var requested = new HashSet<PhotoItem>();
+
+            var atLoad = RawJpegStackFold.NeedingCloudThumbnails(RawJpegStackFold.Apply(photos, stacksPairs: true), requested);
+            var afterJpgFilter = RawJpegStackFold.NeedingCloudThumbnails(RawJpegStackFold.Apply(photos, stacksPairs: false), requested);
+            var again = RawJpegStackFold.NeedingCloudThumbnails(RawJpegStackFold.Apply(photos, stacksPairs: false), requested);
+
+            Assert.Equal(new[] { "IMG_1.CR3" }, atLoad.Select(p => p.FileName));
+            Assert.Equal(new[] { "IMG_1.JPG" }, afterJpgFilter.Select(p => p.FileName));
+            Assert.Empty(again);
+        }
+
+        [Fact]
+        public void ATileThatAlreadyHasAThumbnail_OrNoCloudAddress_NeedsNoRequest()
+        {
+            var withThumb = CloudPhoto("A.CR3");
+            withThumb.ThumbnailPath = "file:///a.jpg";
+            var local = Photo("/shoot/B.CR3");
+
+            Assert.Empty(RawJpegStackFold.NeedingCloudThumbnails(new[] { withThumb, local }, new HashSet<PhotoItem>()));
+        }
     }
 }

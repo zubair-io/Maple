@@ -29,6 +29,7 @@ namespace Maple.WinUI.ViewModels
 
         private readonly ThumbnailService _thumbnails = new();
         private CancellationTokenSource? _libraryCts;
+        private readonly HashSet<PhotoItem> _cloudThumbnailRequests = new();
         private LibraryWatcher? _libraryWatcher;
 
         [ObservableProperty] private string _currentFolderPath = string.Empty;
@@ -277,7 +278,12 @@ namespace Maple.WinUI.ViewModels
 
         // --- Filtering ---
 
-        partial void OnFormatFilterChanged(string value) => ApplyFilters();
+        partial void OnFormatFilterChanged(string value)
+        {
+            ApplyFilters();
+            if (_selectedCloudFolder != null && _libraryCts is { } cts)
+                HydrateNewCloudTiles(cts.Token);
+        }
         partial void OnMinRatingFilterChanged(int value) => ApplyFilters();
         partial void OnFlagFilterChanged(string value) => ApplyFilters();
         partial void OnSearchTextChanged(string value) => ApplyFilters();
