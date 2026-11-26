@@ -5,7 +5,7 @@
 // usage: grid_scroll_screen_capture <bundle id> <longest seconds> <output file>
 //
 // Waits for the app's main window, then asks the system's screen-capture
-// stream for that window alone until the window goes away. The stream
+// stream for that window alone until the app has gone. The stream
 // delivers one sample per display refresh on which the window's picture
 // changed, stamped with the refresh time on the clock the app's report uses.
 //
@@ -108,7 +108,7 @@ let frames = ChangedFrames()
 Task {
   do {
     guard let window = try await mainWindow(of: CommandLine.arguments[1]) else {
-      fail("the app's window did not appear within 30 seconds")
+      fail("the app's window never appeared")
     }
     let configuration = SCStreamConfiguration()
     configuration.width = 640
@@ -116,6 +116,8 @@ Task {
     configuration.pixelFormat = kCVPixelFormatType_32BGRA
     configuration.minimumFrameInterval = CMTime(value: 1, timescale: 240)
     configuration.showsCursor = false
+    // The default queue of three drops samples while a row profile is read.
+    configuration.queueDepth = 8
     let stream = SCStream(
       filter: SCContentFilter(desktopIndependentWindow: window), configuration: configuration,
       delegate: frames)
@@ -123,7 +125,10 @@ Task {
       frames, type: .screen, sampleHandlerQueue: DispatchQueue(label: "changed-frames"))
     try await stream.startCapture()
     let started = now()
-    while !frames.hasStopped, now() - started < longest {
+    let bundleID = CommandLine.arguments[1]
+    while !frames.hasStopped, now() - started < longest,
+      !NSRunningApplication.runningApplications(withBundleIdentifier: bundleID).isEmpty
+    {
       try await Task.sleep(for: .milliseconds(50))
     }
     if !frames.hasStopped {

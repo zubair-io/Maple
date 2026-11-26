@@ -30,6 +30,8 @@ import os
 
 #if os(macOS)
   import AppKit
+#else
+  import UIKit
 #endif
 
 private let scrollRunLog = Logger(subsystem: "app.justmaple.aperture", category: "scrollrun")
@@ -69,13 +71,13 @@ private struct GridScrollRunFailure: Error {
 extension AppShell {
   static let scrollRunPointsPerSecond = 3000.0
 
-  /// `false` on a normal launch, and in every window after the first of a
-  /// requested run. The run itself ends the process when its report is written.
+  /// `false` on a normal launch. In a requested run the first window measures
+  /// and ends the process; any other window stays empty, because a restored
+  /// folder there would load thumbnails into the measurement.
   func runGridScrollMeasurementIfRequested() async -> Bool {
-    guard let request = GridScrollRunRequest.current, GridScrollEnvironment.claimRun() else {
-      return false
-    }
+    guard let request = GridScrollRunRequest.current else { return false }
     hasRestoredInitialSource = true
+    guard GridScrollEnvironment.claimRun() else { return true }
     var report = ScrollRunReport()
     report.photoCount = request.count
     report.device = GridScrollEnvironment.device
@@ -102,6 +104,9 @@ extension AppShell {
       try await waitUntil("the window was on the primary display", timeout: .seconds(20)) {
         GridScrollEnvironment.fillPrimaryScreen()
       }
+    #else
+      // An untouched iPad would dim and lock partway through a long run.
+      UIApplication.shared.isIdleTimerDisabled = true
     #endif
     let staged = try await Task.detached(priority: .userInitiated) {
       try ScrollRunFolder.stage(seed: request.seed, count: request.count, reuse: request.reuse)
@@ -125,6 +130,7 @@ extension AppShell {
     let primeStart = CACurrentMediaTime()
     try await cacheEveryThumbnail(on: grid)
     report.primeSeconds = CACurrentMediaTime() - primeStart
+    report.cachedThumbnails = ScrollRunFolder.cachedThumbnailCount(in: staged.url)
     try await measurePass("cached", on: grid, into: &report)
   }
 

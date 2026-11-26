@@ -53,13 +53,13 @@ public enum ScrollFrameClassifier {
 
   /// Refreshes that showed no new frame between two that did, `interval`
   /// apart: none until the interval reaches one and a half periods.
-  public static func skippedRefreshes(interval: Double, period: Double) -> Int {
+  static func skippedRefreshes(interval: Double, period: Double) -> Int {
     guard period > 0 else { return 0 }
     return max(0, Int((interval / period).rounded()) - 1)
   }
 
   /// The refresh a frame lands on: the first one after its commit finished.
-  public static func presentedAt(_ frame: DisplayFrame) -> Double {
+  static func presentedAt(_ frame: DisplayFrame) -> Double {
     guard frame.period > 0 else { return frame.timestamp }
     let refreshesLate = max(0, ((frame.committed - frame.timestamp) / frame.period).rounded(.down))
     return frame.timestamp + (refreshesLate + 1) * frame.period
@@ -145,6 +145,7 @@ public struct ScrollRunReport: Codable, Sendable {
   public var thermalState = ""
   public var lowPowerMode = false
   public var primeSeconds = 0.0
+  public var cachedThumbnails = 0
 
   public init() {}
 }
