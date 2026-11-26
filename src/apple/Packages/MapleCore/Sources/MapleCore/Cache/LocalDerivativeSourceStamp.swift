@@ -5,9 +5,8 @@ import Foundation
 /// than the original, so comparing file mtimes alone cannot prove freshness.
 enum LocalDerivativeSourceStamp {
   static func signature(for assetURL: URL) -> String {
-    let fileManager = FileManager.default
-    let original = fileStamp(at: assetURL, fileManager: fileManager)
-    let sidecar = fileStamp(at: SidecarPath.sidecarURL(for: assetURL), fileManager: fileManager)
+    let original = fileStamp(at: assetURL)
+    let sidecar = fileStamp(at: SidecarPath.sidecarURL(for: assetURL))
     return "source-v1|\(original)|\(sidecar)"
   }
 
@@ -45,15 +44,9 @@ enum LocalDerivativeSourceStamp {
     derivativeURL.appendingPathExtension("source")
   }
 
-  private static func fileStamp(at url: URL, fileManager: FileManager) -> String {
-    guard let attributes = try? fileManager.attributesOfItem(atPath: url.path) else {
-      return "absent"
-    }
-    let size = (attributes[.size] as? NSNumber)?.uint64Value ?? 0
-    let modified =
-      (attributes[.modificationDate] as? Date)?
-      .timeIntervalSinceReferenceDate.bitPattern ?? 0
-    let fileNumber = (attributes[.systemFileNumber] as? NSNumber)?.uint64Value ?? 0
-    return "\(fileNumber):\(size):\(modified)"
+  private static func fileStamp(at url: URL) -> String {
+    guard let stat = PlainFileStat.read(atPath: url.path) else { return "absent" }
+    let modified = stat.modified.timeIntervalSinceReferenceDate.bitPattern
+    return "\(stat.fileNumber):\(stat.size):\(modified)"
   }
 }

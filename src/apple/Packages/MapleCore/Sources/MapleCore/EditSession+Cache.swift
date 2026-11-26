@@ -160,11 +160,8 @@ extension EditSession {
   /// pre-DCP buffer. `nonisolated` for the same reason as
   /// `parseSidecarModel`.
   nonisolated static func sidecarMtime(for asset: AssetRef) -> Date? {
-    guard let url = asset.sidecarURL,
-      let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
-      let mtime = attrs[.modificationDate] as? Date
-    else { return nil }
-    return mtime
+    guard let url = asset.sidecarURL else { return nil }
+    return PlainFileStat.modificationDate(atPath: url.path)
   }
 
   /// The model the decoded cache keys on (#4715, #4961): the live model once
