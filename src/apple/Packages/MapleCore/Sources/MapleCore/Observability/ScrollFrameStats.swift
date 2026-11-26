@@ -5,15 +5,18 @@
 // reaches the screen at the first display refresh after its layout and commit
 // finished, so a commit that overruns its refresh lands one or more refreshes
 // late. A refresh that no frame landed on is a dropped frame: the display
-// repeated the previous picture. That covers both ways a scroll stutters — the
-// main thread busy across whole refreshes (no callback at all), and a commit
-// that finished just too late — and it does not count a scroll that runs a
-// steady refresh behind but still delivers one frame per refresh.
+// repeated the previous picture. That covers the main thread being busy
+// across whole refreshes (no callback at all) and a commit that finished just
+// too late, and it does not count a scroll that runs a steady refresh behind
+// but still delivers one frame per refresh.
+//
+// This is the app's side of the picture only. Time lost after the commit, in
+// the window server or on the GPU, is not seen here; `measure_grid_scroll.sh
+// --screen-check` compares the count with what the screen showed.
 //
 // Every interval is measured against the refresh period the display link
 // reported for that frame, so 60 Hz and 120 Hz are judged alike. Stall time is
-// the time the picture stood still beyond one period, which is what
-// Instruments reports as hitch duration.
+// the time the picture stood still beyond one period.
 
 import Foundation
 
@@ -46,13 +49,13 @@ public struct ScrollFrameStats: Codable, Sendable, Equatable {
 }
 
 public enum ScrollFrameClassifier {
-  public static let droppedIntervalFactor = 1.5
   static let reportedStallLimit = 20
 
-  /// Refreshes that showed no new frame between two that did, `interval` apart.
+  /// Refreshes that showed no new frame between two that did, `interval`
+  /// apart: none until the interval reaches one and a half periods.
   public static func skippedRefreshes(interval: Double, period: Double) -> Int {
-    guard period > 0, interval > period * droppedIntervalFactor else { return 0 }
-    return Int((interval / period).rounded()) - 1
+    guard period > 0 else { return 0 }
+    return max(0, Int((interval / period).rounded()) - 1)
   }
 
   /// The refresh a frame lands on: the first one after its commit finished.
@@ -63,26 +66,33 @@ public enum ScrollFrameClassifier {
   }
 
   public static func stats(for frames: [DisplayFrame]) -> ScrollFrameStats {
-    guard let first = frames.first, let last = frames.last, frames.count > 1 else {
+    guard let first = frames.first, let last = frames.last else {
       return ScrollFrameStats(
-        framesPresented: frames.count, framesDropped: 0, longestStallMs: 0,
-        stallMsPerSecond: 0, scrollSeconds: 0, refreshHz: 0, worstStalls: [])
+        framesPresented: 0, framesDropped: 0, longestStallMs: 0, stallMsPerSecond: 0,
+        scrollSeconds: 0, refreshHz: 0, worstStalls: [])
     }
     let start = presentedAt(first)
-    let stalls = zip(frames, frames.dropFirst()).compactMap { previous, frame -> ScrollStall? in
-      let shown = presentedAt(previous)
-      let dropped = skippedRefreshes(interval: presentedAt(frame) - shown, period: previous.period)
+    let steps = zip(frames, frames.dropFirst()).map { previous, frame in
+      (
+        period: previous.period, shown: presentedAt(previous),
+        interval: presentedAt(frame) - presentedAt(previous)
+      )
+    }
+    let stalls = steps.compactMap { step -> ScrollStall? in
+      let dropped = skippedRefreshes(interval: step.interval, period: step.period)
       guard dropped > 0 else { return nil }
       return ScrollStall(
-        atSeconds: shown - start, stallMs: Double(dropped) * previous.period * 1000,
+        atSeconds: step.shown - start, stallMs: Double(dropped) * step.period * 1000,
         framesDropped: dropped)
     }
+    // A frame that lands on the same refresh as the one before it replaced it.
+    let replaced = steps.filter { $0.interval < $0.period / 2 }.count
     let scrollSeconds = presentedAt(last) - start
     let periods = frames.map(\.period).sorted()
     let medianPeriod = periods[periods.count / 2]
     let stallMs = stalls.reduce(0) { $0 + $1.stallMs }
     return ScrollFrameStats(
-      framesPresented: frames.count - 1,
+      framesPresented: frames.count - replaced,
       framesDropped: stalls.reduce(0) { $0 + $1.framesDropped },
       longestStallMs: stalls.map(\.stallMs).max() ?? 0,
       stallMsPerSecond: scrollSeconds > 0 ? stallMs / scrollSeconds : 0,
@@ -115,6 +125,9 @@ public struct ScrollPassReport: Codable, Sendable {
   }
 }
 
+/// What `measure_grid_scroll.sh` reads. `framesVisible` stays nil until a
+/// pass has finished, so a run that failed early never claims its frames
+/// were on screen.
 public struct ScrollRunReport: Codable, Sendable {
   public var error: String?
   public var passes: [ScrollPassReport] = []
@@ -126,9 +139,7 @@ public struct ScrollRunReport: Codable, Sendable {
   public var displayMaximumHz = 0
   public var viewportWidth = 0.0
   public var viewportHeight = 0.0
-  public var displayAwake = true
-  public var screenLocked = false
-  public var windowVisible = true
+  public var framesVisible: Bool?
   public var loadAverageAtStart = 0.0
   public var loadAverageAtEnd = 0.0
   public var thermalState = ""

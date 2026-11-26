@@ -68,14 +68,15 @@ extension AppShell {
         // Staged performance fixtures must not become user recent folders.
         if ProcessInfo.processInfo.arguments.contains("--uitest-browse") { return }
       #endif
-      // Nor may the scroll measurement's throwaway folder (#6048).
-      if GridScrollRunRequest.current != nil { return }
       let fs = FilesystemSource()
       do {
         try await fs.open(folderURL: url)
         guard librarySelection == .folder(path: url.path) else { return }
         if let data = await fs.persistableBookmark {
           currentRootBookmark = data
+          // The scroll measurement's throwaway folder is opened like any
+          // other but must not become the user's last or recent folder (#6048).
+          guard GridScrollRunRequest.current == nil else { return }
           SourceSelectionStore.save(.filesystem(bookmark: data))
           SavedFolderStore.upsert(
             SavedFolder(

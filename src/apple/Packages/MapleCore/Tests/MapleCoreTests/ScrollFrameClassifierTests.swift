@@ -17,22 +17,24 @@ final class ScrollFrameClassifierTests: XCTestCase {
     }
   }
 
-  func test_anIntervalUpToOneAndAHalfPeriodsDropsNothing() {
+  func test_anIntervalUnderOneAndAHalfPeriodsDropsNothing() {
     XCTAssertEqual(ScrollFrameClassifier.skippedRefreshes(interval: hz60, period: hz60), 0)
-    XCTAssertEqual(ScrollFrameClassifier.skippedRefreshes(interval: 0.025, period: hz60), 0)
+    XCTAssertEqual(ScrollFrameClassifier.skippedRefreshes(interval: 0.2 * hz60, period: hz60), 0)
+    XCTAssertEqual(ScrollFrameClassifier.skippedRefreshes(interval: 0, period: hz60), 0)
+    XCTAssertEqual(ScrollFrameClassifier.skippedRefreshes(interval: 1.4 * hz60, period: hz60), 0)
     XCTAssertEqual(ScrollFrameClassifier.skippedRefreshes(interval: hz120, period: hz120), 0)
-    XCTAssertEqual(ScrollFrameClassifier.skippedRefreshes(interval: 0.0125, period: hz120), 0)
+    XCTAssertEqual(ScrollFrameClassifier.skippedRefreshes(interval: 1.4 * hz120, period: hz120), 0)
   }
 
   func test_at60HzEachWholePeriodBeyondTheFirstIsOneDroppedFrame() {
-    XCTAssertEqual(ScrollFrameClassifier.skippedRefreshes(interval: 0.0251, period: hz60), 1)
+    XCTAssertEqual(ScrollFrameClassifier.skippedRefreshes(interval: 1.6 * hz60, period: hz60), 1)
     XCTAssertEqual(ScrollFrameClassifier.skippedRefreshes(interval: 2 * hz60, period: hz60), 1)
     XCTAssertEqual(ScrollFrameClassifier.skippedRefreshes(interval: 3 * hz60, period: hz60), 2)
     XCTAssertEqual(ScrollFrameClassifier.skippedRefreshes(interval: 0.1, period: hz60), 5)
   }
 
   func test_at120HzTheSameIntervalsCostTwiceAsManyFrames() {
-    XCTAssertEqual(ScrollFrameClassifier.skippedRefreshes(interval: 0.0126, period: hz120), 1)
+    XCTAssertEqual(ScrollFrameClassifier.skippedRefreshes(interval: 1.6 * hz120, period: hz120), 1)
     XCTAssertEqual(
       ScrollFrameClassifier.skippedRefreshes(interval: hz60, period: hz120), 1,
       "a 60 Hz cadence on a 120 Hz display misses every other refresh")
@@ -62,7 +64,7 @@ final class ScrollFrameClassifierTests: XCTestCase {
   func test_aSteadyScrollReportsEveryFrameAndNoDrops() {
     let stats = ScrollFrameClassifier.stats(
       for: frames(period: hz60, intervals: Array(repeating: hz60, count: 120)))
-    XCTAssertEqual(stats.framesPresented, 120)
+    XCTAssertEqual(stats.framesPresented, 121)
     XCTAssertEqual(stats.framesDropped, 0)
     XCTAssertEqual(stats.longestStallMs, 0)
     XCTAssertEqual(stats.stallMsPerSecond, 0)
@@ -75,7 +77,7 @@ final class ScrollFrameClassifierTests: XCTestCase {
     let intervals =
       Array(repeating: hz60, count: 30) + [3 * hz60] + Array(repeating: hz60, count: 27)
     let stats = ScrollFrameClassifier.stats(for: frames(period: hz60, intervals: intervals))
-    XCTAssertEqual(stats.framesPresented, 58)
+    XCTAssertEqual(stats.framesPresented, 59)
     XCTAssertEqual(stats.framesDropped, 2)
     XCTAssertEqual(stats.longestStallMs, 2 * hz60 * 1000, accuracy: 1e-6)
     XCTAssertEqual(stats.scrollSeconds, 1, accuracy: 1e-9)
@@ -113,10 +115,23 @@ final class ScrollFrameClassifierTests: XCTestCase {
     XCTAssertEqual(ScrollFrameClassifier.stats(for: sequence).framesDropped, 3)
   }
 
+  func test_aFrameThatLandsWithTheNextOneWasNeverShown() {
+    var sequence = frames(period: hz60, intervals: Array(repeating: hz60, count: 10))
+    let late = sequence[4]
+    sequence[4] = DisplayFrame(
+      timestamp: late.timestamp, period: late.period,
+      committed: late.timestamp + late.period * 1.3)
+    let stats = ScrollFrameClassifier.stats(for: sequence)
+    XCTAssertEqual(stats.framesPresented, 10, "eleven produced, one replaced before a refresh")
+    XCTAssertEqual(stats.framesDropped, 1)
+  }
+
   func test_aScrollRunningOneRefreshBehindDropsNothing() {
     let behind = frames(
       period: hz60, intervals: Array(repeating: hz60, count: 60), commitFraction: 1.4)
-    XCTAssertEqual(ScrollFrameClassifier.stats(for: behind).framesDropped, 0)
+    let stats = ScrollFrameClassifier.stats(for: behind)
+    XCTAssertEqual(stats.framesDropped, 0)
+    XCTAssertEqual(stats.framesPresented, 61)
   }
 
   func test_aLateLastFrameIsCounted() {
@@ -164,6 +179,7 @@ final class ScrollFrameClassifierTests: XCTestCase {
     XCTAssertEqual(one.framesPresented, 1)
     XCTAssertEqual(one.framesDropped, 0)
     XCTAssertEqual(one.scrollSeconds, 0)
+    XCTAssertEqual(one.refreshHz, 60, accuracy: 1e-9)
   }
 
   func test_aPassReportDerivesItsSpeedFromDistanceAndTime() {
@@ -171,6 +187,47 @@ final class ScrollFrameClassifierTests: XCTestCase {
       name: "first", frames: frames(period: hz60, intervals: Array(repeating: hz60, count: 120)),
       distancePoints: 3000, thumbnailLoadsInFlightAtStart: 7)
     XCTAssertEqual(pass.pointsPerSecond, 1500, accuracy: 1e-6)
-    XCTAssertEqual(pass.stats.framesPresented, 120)
+    XCTAssertEqual(pass.stats.framesPresented, 121)
+  }
+
+  func test_aRunThatMeasuredNothingDoesNotClaimItsFramesWereVisible() {
+    XCTAssertNil(ScrollRunReport().framesVisible)
+  }
+
+  func test_theReportKeepsTheKeysTheMeasurementScriptReads() throws {
+    var report = ScrollRunReport()
+    report.error = "stopped"
+    report.framesVisible = true
+    report.passes = [
+      ScrollPassReport(
+        name: "first",
+        frames: frames(period: hz60, intervals: [hz60, 3 * hz60]),
+        distancePoints: 100, thumbnailLoadsInFlightAtStart: 0)
+    ]
+    let json = try XCTUnwrap(
+      JSONSerialization.jsonObject(with: JSONEncoder().encode(report)) as? [String: Any])
+    XCTAssertEqual(
+      Set(json.keys),
+      [
+        "error", "passes", "photoCount", "reusedFolder", "device", "system", "build",
+        "displayMaximumHz", "viewportWidth", "viewportHeight", "framesVisible",
+        "loadAverageAtStart", "loadAverageAtEnd", "thermalState", "lowPowerMode", "primeSeconds",
+      ])
+    let pass = try XCTUnwrap((json["passes"] as? [[String: Any]])?.first)
+    XCTAssertEqual(
+      Set(pass.keys),
+      [
+        "name", "stats", "distancePoints", "pointsPerSecond", "thumbnailLoadsInFlightAtStart",
+        "frames",
+      ])
+    let stats = try XCTUnwrap(pass["stats"] as? [String: Any])
+    XCTAssertEqual(
+      Set(stats.keys),
+      [
+        "framesPresented", "framesDropped", "longestStallMs", "stallMsPerSecond", "scrollSeconds",
+        "refreshHz", "worstStalls",
+      ])
+    let frame = try XCTUnwrap((pass["frames"] as? [[String: Any]])?.first)
+    XCTAssertEqual(Set(frame.keys), ["timestamp", "period", "committed"])
   }
 }
