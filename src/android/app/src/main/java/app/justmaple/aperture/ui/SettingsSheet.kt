@@ -15,6 +15,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -22,6 +24,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import app.justmaple.aperture.*
 import app.justmaple.aperture.cloud.CloudLibrary
+import app.justmaple.aperture.data.RawJpegPairing
 
 /** Grouped destinations mirror the Apple sheet; only implemented panes are exposed (#4623). */
 @Composable
@@ -151,11 +154,13 @@ internal fun SettingsSheet(
                                             { value ->
                                                 stackRawJpeg = value
                                                 model.library.stackRawJpeg = value
-                                                state.folder
-                                                    ?.takeUnless { CloudLibrary.isCloud(it.uri) }
+                                                RawJpegPairing.folderToRelist(state.folder)
                                                     ?.let { model.browse(it) }
                                             },
-                                            Modifier.testTag("settings-stack-raw-jpeg"),
+                                            Modifier.testTag("settings-stack-raw-jpeg").semantics {
+                                                contentDescription =
+                                                    "Show one image for RAW+JPEG pairs"
+                                            },
                                         )
                                     }
                                 }
