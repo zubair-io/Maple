@@ -65,21 +65,28 @@ public sealed class PanoOutputTests : IDisposable
         var psi = OperatingSystem.IsWindows()
             ? new ProcessStartInfo("powershell.exe")
             {
-                ArgumentList = { "-NoProfile", "-Command", $"Set-Content -Path '{pidFile}' -Value $PID; Start-Sleep 60" },
+                ArgumentList = { "-NoProfile", "-Command", $"Set-Content -Path '{pidFile}' -Value $PID; Start-Sleep 600" },
             }
-            : new ProcessStartInfo("/bin/sh") { ArgumentList = { "-c", $"echo $$ > '{pidFile}'; exec sleep 60" } };
+            : new ProcessStartInfo("/bin/sh") { ArgumentList = { "-c", $"echo $$ > '{pidFile}'; exec sleep 600" } };
         using var cancel = new CancellationTokenSource();
         var running = PanoCliProcess.RunAsync(psi, _ => { }, cancel.Token);
-        for (var waited = 0; !File.Exists(pidFile) && waited < 100; waited++)
-            await Task.Delay(100);
-        Assert.True(File.Exists(pidFile), "the child never started");
-        await Task.Delay(200);
-        var pid = int.Parse((await File.ReadAllTextAsync(pidFile)).Trim());
+        try
+        {
+            for (var waited = 0; !File.Exists(pidFile) && waited < 1200; waited++)
+                await Task.Delay(100);
+            Assert.True(File.Exists(pidFile), "the child never started");
+            await Task.Delay(200);
+            var pid = int.Parse((await File.ReadAllTextAsync(pidFile)).Trim());
 
-        cancel.Cancel();
-        var exit = await running;
+            cancel.Cancel();
+            var exit = await running;
 
-        Assert.True(exit.Cancelled);
-        Assert.Throws<ArgumentException>(() => Process.GetProcessById(pid));
+            Assert.True(exit.Cancelled);
+            Assert.Throws<ArgumentException>(() => Process.GetProcessById(pid));
+        }
+        finally
+        {
+            cancel.Cancel();
+        }
     }
 }
