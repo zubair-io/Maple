@@ -116,8 +116,14 @@ impl SyntheticPerfDng {
     /// per-pixel stages see a photograph's chroma and tone statistics. Each
     /// sample is linearised, scaled by the as-shot neutral so whites stay
     /// neutral after white balance, exposed two stops under clipping, and
-    /// carries a small deterministic noise term.
-    pub fn write_photo_to(&self, path: &Path, photo: &image::RgbImage) -> io::Result<()> {
+    /// carries a deterministic per-photosite noise term of peak-to-peak
+    /// amplitude `noise` (linear sensor units).
+    pub fn write_photo_to(
+        &self,
+        path: &Path,
+        photo: &image::RgbImage,
+        noise: f32,
+    ) -> io::Result<()> {
         use std::io::{BufWriter, Write};
         let (pw, ph) = photo.dimensions();
         let neutral = hasselblad_dcp::AS_SHOT_NEUTRAL;
@@ -136,9 +142,11 @@ impl SyntheticPerfDng {
                 let c = channel(x, y);
                 let encoded = f32::from(photo.get_pixel(px, py)[c]) / 255.0;
                 let linear = crate::view::encode::srgb_degamma(encoded);
-                let hash = (x.wrapping_mul(2_654_435_761) ^ y.wrapping_mul(40_503)) >> 22;
-                let noise = (hash as f32 / 1024.0 - 0.5) * 0.004;
-                let value = (linear * 0.25 * neutral[c] + 0.002 + noise).clamp(0.0, 1.0);
+                let mixed = (x.wrapping_mul(0x9E37_79B1) ^ y.wrapping_mul(0x85EB_CA77))
+                    .wrapping_mul(0xC2B2_AE3D);
+                let hash = (mixed ^ (mixed >> 15)) >> 22;
+                let jitter = (hash as f32 / 1024.0 - 0.5) * noise;
+                let value = (linear * 0.25 * neutral[c] + 0.002 + jitter).clamp(0.0, 1.0);
                 write_u16_le(&mut row, (value * 65535.0).round() as u16);
             }
             w.write_all(&row)?;

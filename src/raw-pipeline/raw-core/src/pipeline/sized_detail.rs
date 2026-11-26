@@ -45,14 +45,27 @@ pub(super) fn apply(
     }
     let nr_sampling_scale = scene.nr_sampling_scale;
     stage("sized_nr_color", || {
-        noise_reduction::apply_color_sampled_cancellable(
-            scene,
-            model.nr_color,
-            cancel,
-            raw.noise_profile.as_deref(),
-            raw.iso,
-            nr_sampling_scale,
-        )
+        // At native density this is the unsized develop, which denoises
+        // chroma at half resolution (#6018).
+        if nr_sampling_scale >= 1.0 {
+            noise_reduction::apply_color_half_res_cancellable(
+                scene,
+                model.nr_color,
+                cancel,
+                raw.noise_profile.as_deref(),
+                raw.iso,
+                (0, 0),
+            )
+        } else {
+            noise_reduction::apply_color_sampled_cancellable(
+                scene,
+                model.nr_color,
+                cancel,
+                raw.noise_profile.as_deref(),
+                raw.iso,
+                nr_sampling_scale,
+            )
+        }
     });
     dump_after("15_nr_color", scene);
     if cancel.is_cancelled() {

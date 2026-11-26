@@ -61,6 +61,10 @@ use crate::{
 };
 use rayon::prelude::*;
 
+#[path = "noise_reduction_half_res.rs"]
+mod half_res;
+pub use half_res::{apply_color_half_res_cancellable, HALF_RES_CHROMA_REACH_PX};
+
 /// NLM parameters at amount = 100 for the luma channel. P = 2 (5×5
 /// patch) + S = 2 (5×5 search = 24 offsets) lands the slider tick at
 /// roughly 40 ms on 2 MP — over budget, but small enough that a
@@ -91,9 +95,6 @@ const CHROMA_SEARCH_RADIUS: usize = 3;
 /// noise is concentrated in the low-magnitude region where 0.05
 /// covers most of the noise distribution).
 const CHROMA_H_MAX: f32 = 0.05;
-/// Chroma NLM stencil reach, in pixels per side (patch + search radius), for
-/// the tile path's overlap calculator (#1157).
-pub const CHROMA_REACH_PX: usize = CHROMA_PATCH_RADIUS + CHROMA_SEARCH_RADIUS;
 
 fn luma_params(amount: f32) -> NlmParams {
     let t = (amount / 100.0).clamp(0.0, 1.0);
