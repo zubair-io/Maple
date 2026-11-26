@@ -13,7 +13,9 @@ public sealed record PanoStitchRun(
     IReadOnlyList<string> Inputs, string OutPath, string DisplayPath,
     string Retention, string LocalAlign, string Strategy, string? AlignmentIn, PanoSeamStitch? Seams);
 
-public sealed record PanoStitchOutcome(bool Ok, bool Cancelled, string? Error);
+/// <summary>`AlignmentStatus` is read from the stitch report, which only a
+/// run carrying seam regions asks for; null otherwise.</summary>
+public sealed record PanoStitchOutcome(bool Ok, bool Cancelled, string? Error, string? AlignmentStatus = null);
 
 /// <summary>One maple-cli preview or stitch from start to verdict: write
 /// the seam request file when the run carries regions, run the process, and
@@ -79,10 +81,21 @@ public static class PanoCliRuns
             return new PanoStitchOutcome(false, false,
                 "stitch reported success but did not write both outputs "
                 + $"(master: {File.Exists(run.OutPath)}, display: {File.Exists(run.DisplayPath)})");
-        if (run.Seams is { } seams
-            && !seams.Request.Matches(PanoCliReport.Read(seams.ReportJson) is { } json ? PanoCliReport.SeamEcho(json) : null))
+        return run.Seams is { } seams ? ConstrainedOutcome(seams) : new PanoStitchOutcome(true, false, null);
+    }
+
+    // Regions drawn on one geometry are only honoured by a stitch that
+    // reused that alignment, or solved it with no alignment offered. Any
+    // other verdict, including a missing one, is treated as stale.
+    private static PanoStitchOutcome ConstrainedOutcome(PanoSeamStitch seams)
+    {
+        var json = PanoCliReport.Read(seams.ReportJson);
+        if (!seams.Request.Matches(json is null ? null : PanoCliReport.SeamEcho(json)))
             return new PanoStitchOutcome(false, false, UnconfirmedSeams);
-        return new PanoStitchOutcome(true, false, null);
+        var status = PanoCliReport.AlignmentStatus(json!);
+        return status is "solved" or "reused"
+            ? new PanoStitchOutcome(true, false, null, status)
+            : new PanoStitchOutcome(false, false, PanoSeamAuthoring.StaleGeometry, status);
     }
 
     private static ProcessStartInfo StartInfo(

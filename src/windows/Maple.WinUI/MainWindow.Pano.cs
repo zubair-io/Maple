@@ -280,10 +280,6 @@ namespace Maple.WinUI
                 var result = await Task.Run(() => PanoService.StitchAsync(
                     provisioner, frames, outPath, displayTemp,
                     retention, localAlign, strategy, state.Engine, alignmentIn, seams, StitchLine, cts.Token), cts.Token);
-                // Regions placed on a geometry they were not drawn on are a
-                // refusal, as on Apple: the panorama is not kept.
-                if (result.Ok && PanoSeamAuthoring.IsStaleStitch(seams is not null, alignmentStatus))
-                    result = result with { Ok = false, Error = PanoSeamAuthoring.StaleGeometry };
                 if (!result.Ok && seams is not null)
                     try { File.Delete(outPath); } catch { /* best effort */ }
 
@@ -301,7 +297,7 @@ namespace Maple.WinUI
                         $"Stitched {frames.Count} frames.\n\n"
                         + $"Result: {Path.GetFileName(jpegPath)}\n"
                         + $"Scene-linear master: {Path.GetFileName(outPath)}"
-                        + AlignmentNote(alignmentIn, alignmentStatus));
+                        + AlignmentNote(alignmentIn, result.AlignmentStatus ?? alignmentStatus));
                 }
                 else if (result.Error != "cancelled")
                 {
