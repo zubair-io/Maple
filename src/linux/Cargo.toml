@@ -15,7 +15,7 @@ rfd = "0.15"
 roxmltree = "0.20"
 tempfile = "3"
 thiserror = "2"
-reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls", "gzip", "brotli"] }
 image = { version = "=0.25.10", default-features = false, features = ["png"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -31,6 +31,7 @@ zbus = { version = "5.19", default-features = false, features = ["async-io", "bl
 
 [dev-dependencies]
 raw-core = { path = "../raw-pipeline/raw-core", features = ["test-support"] }
+flate2 = "1"
 
 [features]
 # Runs the tests that read the gitignored test-fixtures/raws (#1082).
