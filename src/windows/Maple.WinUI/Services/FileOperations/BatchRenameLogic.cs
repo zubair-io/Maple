@@ -53,16 +53,15 @@ namespace Maple.WinUI.Services.FileOperations
         {
             var rows = new List<BatchRenamePreviewRow>(items.Count);
             var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            var leaving = new HashSet<string>(
-                items.SelectMany(item => new[] { item.CurrentPath, item.CompanionPath }).OfType<string>(),
-                StringComparer.OrdinalIgnoreCase);
+            var vacatedByEarlierRows = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             for (var i = 0; i < items.Count; i++)
             {
                 var item = items[i];
+                vacatedByEarlierRows.UnionWith(new[] { item.CurrentPath, item.CompanionPath }.OfType<string>());
                 var rendered = render(
                     template, item.OriginalStem, item.Ext, item.CapturedAtWire,
                     sequenceStart, (ulong)i, sequencePadWidth);
-                rows.Add(BuildRow(item, rendered, seen, pathExists, leaving));
+                rows.Add(BuildRow(item, rendered, seen, pathExists, vacatedByEarlierRows));
             }
             return rows;
         }
