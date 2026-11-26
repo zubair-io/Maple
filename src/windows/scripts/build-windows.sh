@@ -59,8 +59,8 @@ cargo build --release --target "$TARGET" --target-dir src/raw-pipeline/target \
 # seam tests can write overlapping synthetic frames (#5992).
 echo "--> Building maple-cli for $TARGET..."
 cargo build --release --target "$TARGET" --target-dir src/raw-pipeline/target \
-	--manifest-path src/raw-pipeline/Cargo.toml -p maple-cli -p maple-pano \
-	--bin maple-cli --bin pano-gen-fixture --features maple-cli/pano,maple-cli/pano-classical
+	--manifest-path src/raw-pipeline/Cargo.toml -p maple-pano -p maple-cli --features pano,pano-classical \
+	--bin pano-gen-fixture --bin maple-cli
 [[ -s "$NATIVE_DIR/maple-cli.exe" ]] || fail "missing native output: $NATIVE_DIR/maple-cli.exe"
 [[ -s "$NATIVE_DIR/pano-gen-fixture.exe" ]] || fail "missing native output: $NATIVE_DIR/pano-gen-fixture.exe"
 
