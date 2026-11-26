@@ -4,6 +4,9 @@
 use crate::context::GpuContext;
 use crate::spatial::{alloc_plane, encode_simple, Plane};
 
+/// Mirror of raw-core's `DESPECKLE_FULL_AMOUNT` (the default `nr_color`).
+const DESPECKLE_FULL_AMOUNT: f32 = 25.0;
+
 /// Mirror of `raw_core::stages::noise_reduction::is_native_density`.
 pub(super) fn is_native_density(scale: f32) -> bool {
     !scale.is_finite() || scale <= 0.0 || scale >= 1.0
@@ -18,7 +21,7 @@ pub(super) struct HalfParams {
     pub(super) half_width: u32,
     pub(super) half_height: u32,
     pub(super) residual_weight: f32,
-    _pad0: u32,
+    pub(super) despeckle_strength: f32,
     _pad1: u32,
     _pad2: u32,
 }
@@ -38,7 +41,7 @@ impl HalfGrid {
                 half_width: width.div_ceil(2),
                 half_height: height.div_ceil(2),
                 residual_weight: 1.0 - (amount / 100.0).clamp(0.0, 1.0),
-                _pad0: 0,
+                despeckle_strength: (amount / DESPECKLE_FULL_AMOUNT).clamp(0.0, 1.0),
                 _pad1: 0,
                 _pad2: 0,
             },

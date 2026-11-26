@@ -198,6 +198,11 @@ mod tests {
             .flat_map(|i| {
                 let x = (i % width) as f32;
                 let y = (i / width) as f32;
+                // A dark coloured speck inside the compared interior, so the
+                // window must run chroma NR's despeckle clamp like the frame.
+                if (x, y) == (190.0, 160.0) {
+                    return [0.03, 0.002, 0.05, 1.0];
+                }
                 [
                     0.2 + 0.06 * (x * 0.3).sin(),
                     0.3 + 0.08 * (y * 0.2).cos(),
