@@ -84,7 +84,7 @@ pub(in crate::pipeline::render) fn fit_model_and_preview(
 /// the fit pairs a SMALL (developed-RAW, JPEG) couple. No-op for `None` (small
 /// sensor) or already-small previews; parity-gated on `baseline_auto` ΔE (#1647).
 fn downsample_preview_for_fit(
-    preview: ExtractedPreview,
+    mut preview: ExtractedPreview,
     max_long_edge: Option<u32>,
 ) -> ExtractedPreview {
     let Some(mle) = max_long_edge else {
@@ -97,10 +97,10 @@ fn downsample_preview_for_fit(
     let scale = f64::from(mle) / f64::from(le);
     let nw = ((f64::from(preview.image.width()) * scale).round() as u32).max(1);
     let nh = ((f64::from(preview.image.height()) * scale).round() as u32).max(1);
-    ExtractedPreview {
-        image: crate::preview::resize_exact_triangle(&preview.image, nw, nh),
-        ..preview
-    }
+    preview.image = preview
+        .image
+        .resize_exact(nw, nh, image::imageops::FilterType::Triangle);
+    preview
 }
 
 pub(in crate::pipeline::render) fn uses_pinned_fit_pixels(

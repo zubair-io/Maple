@@ -242,36 +242,6 @@ pub fn resize_long_edge(img: image::DynamicImage, max_px: u32) -> image::RgbImag
     resized
 }
 
-/// `image`'s `resize_exact(.., FilterType::Triangle)`, through
-/// `fast_image_resize` for the 8- and 16-bit RGB previews cameras embed
-/// (within one 8-bit or two 16-bit code values of `image`'s float path); any
-/// other layout takes
-/// `image`'s own resize. `width` and `height` must be non-zero.
-pub fn resize_exact_triangle(
-    img: &image::DynamicImage,
-    width: u32,
-    height: u32,
-) -> image::DynamicImage {
-    use image::DynamicImage;
-    match img {
-        DynamicImage::ImageRgb8(rgb) => {
-            let mut resized = image::RgbImage::new(width, height);
-            fast_image_resize::Resizer::new()
-                .resize(rgb, &mut resized, &triangle_options())
-                .expect("both buffers are RgbImages, so the pixel types match");
-            DynamicImage::ImageRgb8(resized)
-        }
-        DynamicImage::ImageRgb16(rgb) => {
-            let mut resized = image::ImageBuffer::new(width, height);
-            fast_image_resize::Resizer::new()
-                .resize(rgb, &mut resized, &triangle_options())
-                .expect("both buffers are Rgb16 images, so the pixel types match");
-            DynamicImage::ImageRgb16(resized)
-        }
-        other => other.resize_exact(width, height, image::imageops::FilterType::Triangle),
-    }
-}
-
 fn triangle_options() -> fast_image_resize::ResizeOptions {
     fast_image_resize::ResizeOptions::new().resize_alg(fast_image_resize::ResizeAlg::Convolution(
         fast_image_resize::FilterType::Bilinear,
@@ -388,15 +358,6 @@ mod tests {
         let resized = resize_long_edge(source.clone(), 512);
         assert_eq!(resized.dimensions(), reference.dimensions());
         assert!(max_difference(resized.as_raw(), reference.as_raw()) <= 1);
-        let exact = resize_exact_triangle(&source, 512, 340).into_rgb8();
-        assert!(max_difference(exact.as_raw(), reference.as_raw()) <= 1);
-
-        let wide = image::DynamicImage::ImageRgb16(source.to_rgb16());
-        let reference16 = wide
-            .resize_exact(700, 465, image::imageops::FilterType::Triangle)
-            .into_rgb16();
-        let resized16 = resize_exact_triangle(&wide, 700, 465).into_rgb16();
-        assert!(max_difference(resized16.as_raw(), reference16.as_raw()) <= 2);
     }
 
     fn max_difference<T: Copy + Into<i32>>(a: &[T], b: &[T]) -> i32 {
