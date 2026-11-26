@@ -124,7 +124,7 @@ Reports must contain at least 46 device and 28 JVM passes with no skips. The
 Mesa lavapipe, alongside APK assembly and lint. Reports, native output, logcat,
 device configuration, screenshots and walkthrough captures are uploaded even
 after a test failure. Only SDK setup
-downloads have bounded retries; failing tests remain failures. The committed
+and software Vulkan package downloads have bounded retries; failing tests remain failures. The committed
 48 MP HEIF fixture works on Linux; its regeneration script requires macOS.
 Software rendering proves functional correctness, not physical GPU or frame-time
 qualification, which remains under #4623.

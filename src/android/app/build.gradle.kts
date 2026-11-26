@@ -112,6 +112,21 @@ tasks.configureEach {
     }
 }
 
+// Robolectric otherwise downloads its Android runtime at test time, outside Gradle's cache (#6029).
+val robolectricRuntime by configurations.creating { isTransitive = false }
+val robolectricRuntimeDirectory = layout.buildDirectory.dir("robolectric-runtime")
+val stageRobolectricRuntime by
+    tasks.registering(Sync::class) {
+        from(robolectricRuntime)
+        into(robolectricRuntimeDirectory)
+    }
+
+tasks.withType<Test>().configureEach {
+    inputs.files(stageRobolectricRuntime)
+    systemProperty("robolectric.offline", "true")
+    systemProperty("robolectric.dependency.dir", robolectricRuntimeDirectory.get().asFile.path)
+}
+
 dependencies {
     implementation(platform("androidx.compose:compose-bom:2026.01.00"))
     implementation("androidx.activity:activity-compose:1.12.3")
@@ -124,6 +139,8 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.robolectric:robolectric:4.16.1")
+    // One jar per SDK level the unit tests run on (all API 36); versions are in Robolectric's DefaultSdkProvider.
+    robolectricRuntime("org.robolectric:android-all-instrumented:16-robolectric-13921718-i7")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.10.2")
     testImplementation(platform("androidx.compose:compose-bom:2026.01.00"))
     testImplementation("androidx.compose.ui:ui-test-junit4")
