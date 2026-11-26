@@ -27,7 +27,7 @@ union Foo {
 
 util_assert_impl_all!(Foo: imp::Unaligned);
 
-// Transparent unions are unstable; see issue #60575
+// Transparent unions are unstable; see issue #60405
 // <https://github.com/rust-lang/rust/issues/60405> for more information.
 
 // #[derive(Unaligned)]
