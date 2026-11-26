@@ -109,6 +109,44 @@
     }
 
     @MainActor
+    func testNewCopyCancelsTheOneStillRunning() async throws {
+      let published = Published()
+      let clipboard = AssetFileClipboard(
+        stagingRoot: root,
+        publish: { urls, _ in published.record(urls) },
+        report: { XCTFail("unexpected error: \($0)") })
+
+      clipboard.copy([remoteAsset(name: "IMG.jpg", bytes: Data([1]))])
+      let superseded = clipboard.copyTask
+      clipboard.copy([remoteAsset(name: "IMG.jpg", bytes: Data([2]))])
+      await superseded?.value
+      await clipboard.copyTask?.value
+
+      XCTAssertEqual(published.count, 1, "only the newest Copy reaches the pasteboard")
+      XCTAssertEqual(try Data(contentsOf: try XCTUnwrap(published.latest.first)), Data([2]))
+      XCTAssertEqual(try stagedBatches().count, 1)
+    }
+
+    @MainActor
+    func testOnlyACopysOwnFolderIsEverRemoved() async throws {
+      let bystander = root.appendingPathComponent("not-a-copy.dng")
+      try Data([9]).write(to: bystander)
+      let published = Published()
+      let clipboard = AssetFileClipboard(
+        stagingRoot: root,
+        publish: { urls, _ in published.record(urls) },
+        report: { XCTFail("unexpected error: \($0)") })
+
+      clipboard.copy([remoteAsset(name: "IMG.jpg", bytes: Data([1]))])
+      await clipboard.copyTask?.value
+      clipboard.copy([remoteAsset(name: "IMG.jpg", bytes: Data([2]))])
+      await clipboard.copyTask?.value
+
+      XCTAssertEqual(try Data(contentsOf: bystander), Data([9]))
+      XCTAssertEqual(try stagedBatches().count, 2, "the bystander and the newest copy")
+    }
+
+    @MainActor
     func testCopyOfNothingLeavesARunningCopyAlone() async throws {
       let published = Published()
       let clipboard = AssetFileClipboard(
