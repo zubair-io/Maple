@@ -37,7 +37,8 @@ namespace Maple.WinUI.ViewModels
         private IReadOnlyList<PhotoItem> FoldPhotos() =>
             RawJpegStackFold.Apply(
                 AllPhotos, FoldsRawJpegStacks, requireSharedSidecar: _selectedLocalFolder != null,
-                inventory: _selectedLocalFolder != null ? _localPairInventory : null);
+                inventory: _selectedLocalFolder != null ? _localPairInventory : null,
+                folderFoldsCase: _selectedLocalFolder != null ? _localFolderFoldsCase : null);
 
         /// <summary>False when the server cannot be asked: every file then
         /// keeps its own tile.</summary>

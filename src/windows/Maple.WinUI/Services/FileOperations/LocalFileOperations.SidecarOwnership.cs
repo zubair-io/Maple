@@ -7,6 +7,7 @@
 // and leaves a sidecar that maps onto itself alone.
 
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text;
@@ -53,6 +54,34 @@ namespace Maple.WinUI.Services.FileOperations
             return string.Equals(rawSidecar, jpegSidecar, StringComparison.Ordinal)
                 || (string.Equals(rawSidecar, jpegSidecar, StringComparison.OrdinalIgnoreCase)
                     && FolderFoldsCaseFor(rawPath));
+        }
+
+        /// <summary>The pure form of <see cref="SharesOneSidecar(string, string)"/> for a
+        /// folder whose case behaviour is already known: it touches no file.</summary>
+        internal static bool SharesOneSidecar(string rawPath, string jpegPath, bool folderFoldsCase)
+        {
+            var (rawSidecar, jpegSidecar) = (SidecarStore.SidecarPathFor(rawPath), SidecarStore.SidecarPathFor(jpegPath));
+            return string.Equals(rawSidecar, jpegSidecar, StringComparison.Ordinal)
+                || (folderFoldsCase && string.Equals(rawSidecar, jpegSidecar, StringComparison.OrdinalIgnoreCase));
+        }
+
+        /// <summary>Whether a folder treats names that differ only in case as one file,
+        /// decided once per folder listing with at most one file-system call.</summary>
+        internal static bool FolderFoldsCase(IReadOnlyCollection<string> inventory)
+        {
+            var names = inventory.ToHashSet(StringComparer.Ordinal);
+            foreach (var path in inventory)
+            {
+                var name = Path.GetFileName(path);
+                var swapped = new string(name.Select(c => char.IsUpper(c) ? char.ToLowerInvariant(c) : char.ToUpperInvariant(c)).ToArray());
+                var dir = Path.GetDirectoryName(path);
+                if (dir == null || swapped == name) continue;
+                var swappedPath = Path.Combine(dir, swapped);
+                if (names.Contains(swappedPath)) return false;
+                try { return File.Exists(swappedPath); }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { return false; }
+            }
+            return false;
         }
 
         private static bool FolderFoldsCaseFor(string path)

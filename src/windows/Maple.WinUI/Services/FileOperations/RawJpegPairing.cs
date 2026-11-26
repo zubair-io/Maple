@@ -62,6 +62,13 @@ namespace Maple.WinUI.Services.FileOperations
                 .Where(pair => LocalFileOperations.SharesOneSidecar(pair.Key, pair.Value))
                 .ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.Ordinal);
 
+        /// <summary>The same decision for a folder whose case behaviour is known; it only
+        /// compares names, so the grid can refold on every filter change without file access.</summary>
+        public static IReadOnlyDictionary<string, string> LocalPairs(IEnumerable<string> paths, bool folderFoldsCase) =>
+            Pairs(paths)
+                .Where(pair => LocalFileOperations.SharesOneSidecar(pair.Key, pair.Value, folderFoldsCase))
+                .ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.Ordinal);
+
         /// <summary>The JPEG's name once the RAW is named
         /// <paramref name="primaryFileName"/>: its own name while the RAW's
         /// stem is unchanged, else the RAW's new stem with the JPEG's own

@@ -8,6 +8,7 @@ using System;
 using System.IO;
 using System.Linq;
 using System.Text;
+using Maple.WinUI.Services.FileOperations;
 using Maple.WinUI.ViewModels;
 using Xunit;
 
@@ -126,6 +127,59 @@ namespace Maple.WinUI.Tests
             var photos = new[] { PhotoOnDisk("IMG.CR3"), PhotoOnDisk("IMG.JPG") };
 
             Assert.Single(RawJpegStackFold.Apply(photos, stacksPairs: true, requireSharedSidecar: true));
+        }
+
+        [Fact]
+        public void PairingOverAGivenInventory_TouchesNoFile()
+        {
+            var inventory = new[] { "/does/not/exist/IMG_1.CR3", "/does/not/exist/img_1.jpg", "/does/not/exist/IMG_2.CR3", "/does/not/exist/IMG_2.JPG" };
+
+            var folding = RawJpegPairing.LocalPairs(inventory, folderFoldsCase: true);
+            var caseSensitive = RawJpegPairing.LocalPairs(inventory, folderFoldsCase: false);
+
+            Assert.Equal(2, folding.Count);
+            Assert.Equal(new[] { "/does/not/exist/IMG_2.CR3" }, caseSensitive.Keys);
+        }
+
+        [Fact]
+        public void ComposedAndDecomposedAccents_StayTwoTiles_WhateverTheFolderFoldsCase()
+        {
+            var composed = "Caf\u00e9".Normalize(NormalizationForm.FormC);
+            var decomposed = "Caf\u00e9".Normalize(NormalizationForm.FormD);
+            var inventory = new[] { $"/x/{composed}.arw", $"/x/{decomposed}.jpg" };
+
+            Assert.Empty(RawJpegPairing.LocalPairs(inventory, folderFoldsCase: true));
+            Assert.Empty(RawJpegPairing.LocalPairs(inventory, folderFoldsCase: false));
+        }
+
+        [Fact]
+        public void AFewHundredMixedCasePairs_FoldWithoutScanningTheFolderPerPair()
+        {
+            var inventory = Enumerable.Range(0, 400)
+                .SelectMany(i => new[] { $"/shoot/IMG_{i}.CR3", $"/shoot/img_{i}.jpg" }).ToList();
+            var photos = inventory.Select(path => new PhotoItem
+            {
+                FilePath = path, FileName = Path.GetFileName(path), Format = Path.GetExtension(path)[1..].ToUpperInvariant(),
+            }).ToList();
+
+            var clock = System.Diagnostics.Stopwatch.StartNew();
+            var tiles = RawJpegStackFold.Apply(photos, true, true, inventory, folderFoldsCase: true);
+            clock.Stop();
+
+            Assert.Equal(400, tiles.Count);
+            Assert.True(clock.ElapsedMilliseconds < 2000, $"took {clock.ElapsedMilliseconds} ms");
+        }
+
+        [Fact]
+        public void TheFoldersCaseBehaviourIsDecidedFromTheInventoryWithOneProbe()
+        {
+            var raw = Path.Combine(_dir, "IMG.CR3");
+            File.WriteAllText(raw, "x");
+
+            var folds = LocalFileOperations.FolderFoldsCase(new[] { raw });
+
+            Assert.Equal(File.Exists(Path.Combine(_dir, "img.cr3")), folds);
+            Assert.False(LocalFileOperations.FolderFoldsCase(new[] { raw, Path.Combine(_dir, "img.cr3") }));
         }
     }
 }
