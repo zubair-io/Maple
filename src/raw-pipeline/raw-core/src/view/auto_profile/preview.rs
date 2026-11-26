@@ -328,17 +328,24 @@ pub(crate) fn is_tiff_container(buf: &[u8]) -> bool {
 /// (#2413) — see [`is_tiff_container`] doc.
 pub(crate) fn largest_embedded_jpeg(bytes: &[u8]) -> Option<DynamicImage> {
     const MIN_EDGE: u32 = 256;
-    let mut best: Option<DynamicImage> = None;
-    let mut best_area: u64 = 0;
-    let mut i = 0usize;
-    while i + 2 < bytes.len() {
-        if bytes[i] == 0xFF && bytes[i + 1] == 0xD8 && bytes[i + 2] == 0xFF {
-            // The jpeg decoder reads to this stream's EOI and ignores trailing
-            // bytes; a coincidental SOI over non-JPEG data errors out fast.
-            if let Ok(img) =
-                image::load_from_memory_with_format(&bytes[i..], image::ImageFormat::Jpeg)
-            {
-                let (w, h) = (img.width(), img.height());
+    let eligible = |frame: &crate::jpeg_frame::JpegFrame| {
+        frame.is_color && frame.width >= MIN_EDGE && frame.height >= MIN_EDGE
+    };
+    let mut ranked = bytes
+        .windows(3)
+        .enumerate()
+        .filter(|(_, marker)| *marker == [0xFF, 0xD8, 0xFF])
+        .filter_map(|(offset, _)| {
+            crate::jpeg_frame::jpeg_frame(&bytes[offset..])
+                .filter(eligible)
+                .map(|frame| (frame.area(), offset))
+        })
+        .collect::<Vec<_>>();
+    ranked.sort_unstable_by_key(|&(area, offset)| (std::cmp::Reverse(area), offset));
+    ranked.into_iter().find_map(|(_, offset)| {
+        image::load_from_memory_with_format(&bytes[offset..], image::ImageFormat::Jpeg)
+            .ok()
+            .filter(|img| {
                 let is_color = !matches!(
                     img.color(),
                     image::ColorType::L8
@@ -346,16 +353,9 @@ pub(crate) fn largest_embedded_jpeg(bytes: &[u8]) -> Option<DynamicImage> {
                         | image::ColorType::La8
                         | image::ColorType::La16
                 );
-                let area = u64::from(w) * u64::from(h);
-                if is_color && w >= MIN_EDGE && h >= MIN_EDGE && area > best_area {
-                    best_area = area;
-                    best = Some(img);
-                }
-            }
-        }
-        i += 1;
-    }
-    best
+                is_color && img.width() >= MIN_EDGE && img.height() >= MIN_EDGE
+            })
+    })
 }
 
 /// Detect the embedded preview JPEG's color space from the RAW's EXIF
@@ -455,3 +455,7 @@ fn exiftool_unavailable(error: &std::io::Error) -> bool {
         ErrorKind::NotFound | ErrorKind::PermissionDenied | ErrorKind::Unsupported
     )
 }
+
+#[cfg(test)]
+#[path = "preview_headers_first_tests.rs"]
+mod headers_first_tests;
