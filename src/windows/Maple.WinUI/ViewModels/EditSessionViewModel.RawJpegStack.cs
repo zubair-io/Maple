@@ -6,6 +6,7 @@
 // Timeline and search results are catalog rows and stay unfolded.
 
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Net.Http;
 using System.Threading;
@@ -20,6 +21,9 @@ namespace Maple.WinUI.ViewModels
 
         private bool FoldsRawJpegStacks =>
             _selectedLocalFolder != null || (_selectedCloudFolder != null && _cloudFoldsRawJpegStacks);
+
+        private IReadOnlyList<PhotoItem> FoldPhotos() =>
+            RawJpegStackFold.Apply(AllPhotos, FoldsRawJpegStacks, requireSharedSidecar: _selectedLocalFolder != null);
 
         /// <summary>False when the server cannot be asked: every file then
         /// keeps its own tile.</summary>
@@ -51,7 +55,7 @@ namespace Maple.WinUI.ViewModels
         private void RefoldRawJpegStacks()
         {
             var foldedBefore = AllPhotos.Where(photo => photo.StackPrimary != null).ToHashSet();
-            RawJpegStackFold.Apply(AllPhotos, FoldsRawJpegStacks);
+            FoldPhotos();
             if (!foldedBefore.SetEquals(AllPhotos.Where(photo => photo.StackPrimary != null)))
                 ApplyFilters();
         }
