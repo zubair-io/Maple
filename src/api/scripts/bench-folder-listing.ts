@@ -18,6 +18,7 @@ import {
   buildWorkspace,
   dumpFile,
   indexed,
+  processCpuSeconds,
   jsonOutput,
   photoCount,
   runs,
@@ -46,8 +47,13 @@ async function main() {
     const cold = await timed(url, brotli);
     result.cold = { wallMs: cold.wallMs, serverMs: cold.serverMs, bytes: cold.bytes };
     const warm: Sample[] = [];
+    const cpuBefore = await processCpuSeconds(server.child.pid);
     for (let i = 0; i < runs; i++) warm.push(await timed(url, brotli));
-    result.warm = summarize(warm);
+    const cpuAfter = await processCpuSeconds(server.child.pid);
+    result.warm = {
+      ...summarize(warm),
+      serverCpuMsPerRequest: Number((((cpuAfter - cpuBefore) * 1000) / runs).toFixed(1)),
+    };
     const revalidate: Sample[] = [];
     for (let i = 0; i < runs; i++) {
       revalidate.push(await timed(url, { ...brotli, 'If-None-Match': cold.etag ?? '' }));
