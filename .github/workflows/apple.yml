@@ -90,20 +90,34 @@ jobs:
       # The package is swift-tools-version 6.1; the image's default Xcode can
       # lag the newest installed one, so select the highest deterministically.
       - name: Select newest Xcode
+        id: xcode
         run: |
           XCODE_APP="$(python3 -c 'import glob, re; print(max(glob.glob("/Applications/Xcode_*.app"), key=lambda p: tuple(map(int, re.findall(r"\d+", p)))))')"
           echo "Selecting $XCODE_APP"
           sudo xcode-select -s "$XCODE_APP"
           swift --version
+          echo "build=$(xcodebuild -version | awk '/Build version/ {print $3}')" >> "$GITHUB_OUTPUT"
 
       # cbindgen parses the raw-ffi crate to emit RawPipeline.h. It needs a
       # Rust toolchain on PATH for `cargo metadata`, but never compiles the
       # crate — no cross targets, no cargo build.
       - uses: dtolnay/rust-toolchain@stable
 
-      - name: Cache cbindgen binary
+      # rustup would otherwise fetch the pinned toolchain inside a cargo call, unretried (#6122).
+      - name: Install the pinned Rust toolchain
+        working-directory: src/raw-pipeline
+        run: |
+          for attempt in 1 2 3; do
+            rustup toolchain install && break
+            echo "Pinned toolchain install attempt $attempt failed" >&2
+            [ "$attempt" = 3 ] || sleep $((attempt * 20))
+          done
+          rustc --version
+
+      # Pull requests only restore: a cache one saves is unreadable to the others and evicts main's (#6040).
+      - name: Restore cbindgen binary
         id: cbindgen-cache
-        uses: actions/cache@v6
+        uses: actions/cache/restore@v6
         with:
           path: ~/.cargo/bin/cbindgen
           key: cbindgen-${{ env.CBINDGEN_VERSION }}-${{ runner.os }}-${{ runner.arch }}
@@ -111,6 +125,13 @@ jobs:
       - name: Install cbindgen
         if: steps.cbindgen-cache.outputs.cache-hit != 'true'
         run: cargo install cbindgen --locked --version "$CBINDGEN_VERSION"
+
+      - name: Save cbindgen binary
+        if: github.ref == 'refs/heads/main' && steps.cbindgen-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: ~/.cargo/bin/cbindgen
+          key: ${{ steps.cbindgen-cache.outputs.cache-primary-key }}
 
       # Stage the compile-only skeleton of RawPipeline.xcframework: the
       # generated header everywhere a modulemap references it, plus an empty
@@ -136,15 +157,19 @@ jobs:
             | clang -x c -c - -o /tmp/maple_stub.o
           ar -rc "$FRAMEWORK/macos-arm64_x86_64/libraw_ffi.a" /tmp/maple_stub.o
 
-      - name: Cache SwiftPM build directory
-        uses: actions/cache@v6
+      # Manifests are in the key: a cached module would let an undeclared import compile.
+      - name: Restore third-party Swift build output
+        id: swift-cache
+        uses: actions/cache/restore@v6
         with:
           path: |
             src/apple/Packages/MapleCore/.build
             ~/Library/Caches/org.swift.swiftpm
-          key: swiftpm-${{ runner.os }}-${{ hashFiles('src/apple/Packages/MapleCore/Package.resolved', '.github/workflows/apple.yml') }}
-          restore-keys: |
-            swiftpm-${{ runner.os }}-
+          key: swiftpm-${{ runner.os }}-${{ steps.xcode.outputs.build }}-${{ hashFiles('src/apple/Packages/MapleCore/Package.swift', 'src/apple/Packages/MapleBackup/Package.swift', 'src/apple/Packages/MapleMCP/Package.swift', 'src/apple/third_party/AMSMB2/Package.swift', 'src/apple/Packages/MapleCore/Package.resolved', '.github/workflows/apple.yml', 'tools/third_party_build_cache.py') }}
+
+      # Stripped again after every restore, so a build can never reuse first-party output (#6122).
+      - name: Remove first-party output from the restored build folder
+        run: python3 tools/third_party_build_cache.py swiftpm src/apple/Packages/MapleCore --restored
 
       - name: swift build
         working-directory: src/apple/Packages/MapleCore
@@ -164,6 +189,21 @@ jobs:
           xcodebuild -project src/apple/Maple.xcodeproj -scheme 'Maple Watch' \
             -destination 'generic/platform=watchOS Simulator' \
             -derivedDataPath "$RUNNER_TEMP/maple-watch-build" CODE_SIGNING_ALLOWED=NO build
+
+      # Runs on pull requests too, so the rules meet a real build folder before main saves one.
+      - name: Remove first-party output before saving the build folder
+        id: swift-prune
+        continue-on-error: true
+        run: python3 tools/third_party_build_cache.py swiftpm src/apple/Packages/MapleCore
+
+      - name: Save third-party Swift build output
+        if: github.ref == 'refs/heads/main' && steps.swift-cache.outputs.cache-hit != 'true' && steps.swift-prune.outcome == 'success'
+        uses: actions/cache/save@v6
+        with:
+          path: |
+            src/apple/Packages/MapleCore/.build
+            ~/Library/Caches/org.swift.swiftpm
+          key: ${{ steps.swift-cache.outputs.cache-primary-key }}
 
   swift-ui:
     name: swift-ui (MapleUI tests)
@@ -241,29 +281,49 @@ jobs:
         run: |
           set -euo pipefail
           XCODE_APP="$(python3 -c 'import glob, re; print(max(glob.glob("/Applications/Xcode_*.app"), key=lambda p: tuple(map(int, re.findall(r"\d+", p)))))')"
-          echo "CARGO_TARGET_DIR=$RUNNER_TEMP/maple-apple-native" >> "$GITHUB_ENV"
+          echo "CARGO_TARGET_DIR=$GITHUB_WORKSPACE/src/raw-pipeline/target" >> "$GITHUB_ENV"
           echo "MAPLE_SWIFT_TEST_ROOT=$RUNNER_TEMP/maple-swift-regressions" >> "$GITHUB_ENV"
           sudo xcode-select -s "$XCODE_APP"
           swift --version
           echo "build=$(xcodebuild -version | awk '/Build version/ {print $3}')" >> "$GITHUB_OUTPUT"
       - uses: dtolnay/rust-toolchain@stable
-      - name: Cache cbindgen binary
+      # rustup would otherwise fetch the pinned toolchain inside a cargo call, unretried (#6122).
+      - name: Install the pinned Rust toolchain
+        working-directory: src/raw-pipeline
+        run: |
+          for attempt in 1 2 3; do
+            rustup toolchain install && break
+            echo "Pinned toolchain install attempt $attempt failed" >&2
+            [ "$attempt" = 3 ] || sleep $((attempt * 20))
+          done
+          rustc --version
+      - name: Restore cbindgen binary
         id: cbindgen-cache
-        uses: actions/cache@v6
+        uses: actions/cache/restore@v6
         with:
           path: ~/.cargo/bin/cbindgen
           key: cbindgen-${{ env.CBINDGEN_VERSION }}-${{ runner.os }}-${{ runner.arch }}
       - name: Install cbindgen
         if: steps.cbindgen-cache.outputs.cache-hit != 'true'
-        run: cargo install cbindgen --locked --version "$CBINDGEN_VERSION"
-      - name: Cache host Rust build
-        uses: actions/cache@v6
+        # Its own target folder keeps these crates out of the cached workspace build.
+        run: CARGO_TARGET_DIR="$RUNNER_TEMP/cbindgen-build" cargo install cbindgen --locked --version "$CBINDGEN_VERSION"
+      - name: Save cbindgen binary
+        if: github.ref == 'refs/heads/main' && steps.cbindgen-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
         with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            ${{ env.CARGO_TARGET_DIR }}
-          key: apple-test-rust-${{ runner.os }}-${{ runner.arch }}-${{ steps.xcode.outputs.build }}-${{ hashFiles('src/raw-pipeline/Cargo.lock', 'src/raw-pipeline/**/Cargo.toml') }}
+          path: ~/.cargo/bin/cbindgen
+          key: ${{ steps.cbindgen-cache.outputs.cache-primary-key }}
+      # Third-party crates only: the action drops every crate under src/raw-pipeline before saving.
+      - name: Cache third-party Rust crates
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: src/raw-pipeline -> target
+          key: ${{ steps.xcode.outputs.build }}-${{ hashFiles('src/raw-pipeline/Cargo.toml', 'src/raw-pipeline/third_party/*/Cargo.toml') }}
+          env-vars: MACOSX_DEPLOYMENT_TARGET
+          cache-bin: false
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: Remove first-party output from the restored Rust build folder
+        run: python3 tools/third_party_build_cache.py cargo src/raw-pipeline "$CARGO_TARGET_DIR" --restored
       - name: Build real host archive
         working-directory: src/raw-pipeline
         # pano supplies maple_pano_stitch, referenced by the linked package
@@ -346,13 +406,16 @@ jobs:
             ${{ runner.temp }}/maple-recipe-interchange/*.log
             src/web/test-results/recipe-interchange/
           if-no-files-found: error
-      - name: Cache SwiftPM regression build
-        uses: actions/cache@v6
+      - name: Restore third-party Swift build output
+        id: swift-cache
+        uses: actions/cache/restore@v6
         with:
           path: |
             ${{ env.MAPLE_SWIFT_TEST_ROOT }}/Packages/MapleCore/.build
             ~/Library/Caches/org.swift.swiftpm
-          key: apple-test-swift-${{ runner.os }}-${{ runner.arch }}-${{ steps.xcode.outputs.build }}-${{ hashFiles('src/apple/Packages/MapleCore/Package.resolved', 'src/apple/Packages/MapleBackup/Package.resolved', '.github/workflows/apple.yml') }}
+          key: apple-test-swift-${{ runner.os }}-${{ runner.arch }}-${{ steps.xcode.outputs.build }}-${{ hashFiles('src/apple/Packages/MapleCore/Package.swift', 'src/apple/Packages/MapleBackup/Package.swift', 'src/apple/Packages/MapleMCP/Package.swift', 'src/apple/third_party/AMSMB2/Package.swift', 'src/apple/Packages/MapleCore/Package.resolved', 'src/apple/Packages/MapleBackup/Package.resolved', '.github/workflows/apple.yml', 'tools/third_party_build_cache.py') }}
+      - name: Remove first-party output from the restored build folder
+        run: python3 tools/third_party_build_cache.py swiftpm "$MAPLE_SWIFT_TEST_ROOT/Packages/MapleCore" --restored
       - name: Execute the regression allowlist (.github/swift-regressions/run.txt)
         run: |
           set -euo pipefail
@@ -417,6 +480,18 @@ jobs:
           print(f'Passed {len(results)} regression cases; no failures or skips')
           PYCODE
           exit "$test_status"
+      - name: Remove first-party output before saving the build folder
+        id: swift-prune
+        continue-on-error: true
+        run: python3 tools/third_party_build_cache.py swiftpm "$MAPLE_SWIFT_TEST_ROOT/Packages/MapleCore"
+      - name: Save third-party Swift build output
+        if: github.ref == 'refs/heads/main' && steps.swift-cache.outputs.cache-hit != 'true' && steps.swift-prune.outcome == 'success'
+        uses: actions/cache/save@v6
+        with:
+          path: |
+            ${{ env.MAPLE_SWIFT_TEST_ROOT }}/Packages/MapleCore/.build
+            ~/Library/Caches/org.swift.swiftpm
+          key: ${{ steps.swift-cache.outputs.cache-primary-key }}
       - name: Preserve fresh XCTest crash reports (#4159)
         if: failure()
         run: |
