@@ -10,6 +10,8 @@
 //! first block's share of that span (a few rows or columns) until the rest
 //! arrives.
 
+use std::borrow::Cow;
+
 use raw_core::PanoBlockSink;
 
 use super::proxy::{proxy_dims, source_span, Proxy};
@@ -26,7 +28,7 @@ struct Building {
     src: (u32, u32),
     proxy: Proxy,
     axis: Option<Axis>,
-    pending: Vec<Piece>,
+    pending: Vec<Piece<'static>>,
     lines_done: u32,
 }
 
@@ -39,11 +41,12 @@ enum Axis {
 }
 
 /// Source lines `start..start + len` along the axis, whole across the other
-/// axis, row-major `len` wide for columns and frame-wide for rows.
-struct Piece {
+/// axis, row-major `len` wide for columns and frame-wide for rows. A block
+/// is borrowed, not copied, unless it joins a held piece.
+struct Piece<'a> {
     start: u32,
     len: u32,
-    pixels: Vec<[f32; 3]>,
+    pixels: Cow<'a, [[f32; 3]]>,
 }
 
 impl ProxySink {
@@ -108,12 +111,12 @@ impl PanoBlockSink for ProxySink {
             Axis::Rows if fits_rows => Piece {
                 start: y0,
                 len: rows as u32,
-                pixels: pixels.to_vec(),
+                pixels: Cow::Borrowed(pixels),
             },
             Axis::Cols if fits_cols => Piece {
                 start: x0,
                 len: width,
-                pixels: pixels.to_vec(),
+                pixels: Cow::Borrowed(pixels),
             },
             _ => {
                 return Err(invalid(
@@ -127,7 +130,7 @@ impl PanoBlockSink for ProxySink {
 }
 
 impl Building {
-    fn add(&mut self, axis: Axis, piece: Piece) {
+    fn add(&mut self, axis: Axis, piece: Piece<'_>) {
         let merged = self.merge_adjacent(axis, piece);
         let (src_len, dst_len) = self.extents(axis);
         let end = merged.start + merged.len;
@@ -166,7 +169,7 @@ impl Building {
 
     /// `piece` joined with every pending piece it touches, removed from
     /// `pending`.
-    fn merge_adjacent(&mut self, axis: Axis, piece: Piece) -> Piece {
+    fn merge_adjacent<'a>(&mut self, axis: Axis, piece: Piece<'a>) -> Piece<'a> {
         let other = self.other_extent(axis);
         let mut merged = piece;
         while let Some(i) = self
@@ -200,7 +203,7 @@ impl Building {
     }
 
     /// Proxy line `line`, whose whole source span `piece` holds.
-    fn fill_line(&mut self, axis: Axis, line: u32, piece: &Piece) {
+    fn fill_line(&mut self, axis: Axis, line: u32, piece: &Piece<'_>) {
         let (sw, sh) = self.src;
         let (dw, dh) = (self.proxy.dw, self.proxy.dh);
         let at = |sx: usize, sy: usize| match axis {
@@ -235,10 +238,10 @@ fn line_of(r: u32, s: u32, d: u32) -> u32 {
     (((r as u64 + 1) * d as u64 - 1) / s as u64) as u32
 }
 
-fn join(axis: Axis, a: Piece, b: Piece, other: u32) -> Piece {
+fn join<'a>(axis: Axis, a: Piece<'_>, b: Piece<'_>, other: u32) -> Piece<'a> {
     let len = a.len + b.len;
     let pixels = match axis {
-        Axis::Rows => [a.pixels, b.pixels].concat(),
+        Axis::Rows => [&*a.pixels, &*b.pixels].concat(),
         Axis::Cols => (0..other as usize)
             .flat_map(|y| {
                 let ra = &a.pixels[y * a.len as usize..(y + 1) * a.len as usize];
@@ -250,12 +253,12 @@ fn join(axis: Axis, a: Piece, b: Piece, other: u32) -> Piece {
     Piece {
         start: a.start,
         len,
-        pixels,
+        pixels: Cow::Owned(pixels),
     }
 }
 
 /// Source lines `lo..hi` of `piece`.
-fn slice(axis: Axis, piece: &Piece, other: u32, lo: u32, hi: u32) -> Piece {
+fn slice(axis: Axis, piece: &Piece<'_>, other: u32, lo: u32, hi: u32) -> Piece<'static> {
     let (from, to) = ((lo - piece.start) as usize, (hi - piece.start) as usize);
     let pixels = match axis {
         Axis::Rows => piece.pixels[from * other as usize..to * other as usize].to_vec(),
@@ -269,7 +272,7 @@ fn slice(axis: Axis, piece: &Piece, other: u32, lo: u32, hi: u32) -> Piece {
     Piece {
         start: lo,
         len: hi - lo,
-        pixels,
+        pixels: Cow::Owned(pixels),
     }
 }
 
