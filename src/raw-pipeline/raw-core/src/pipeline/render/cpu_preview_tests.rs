@@ -58,7 +58,7 @@ fn resident_detail_bytes_match_legacy_and_upstream_edits_rebuild() {
             };
             let prefix_pointer = resident.prefix.pixels.as_ptr();
             let working_pointer = resident.working.pixels.as_ptr();
-            let same_key = upstream_key(model.clone()) == resident.key && cap == resident.cap;
+            let same_key = develop_key(model.clone()) == resident.key && cap == resident.cap;
             let actual = resident
                 .render(
                     &raw,
