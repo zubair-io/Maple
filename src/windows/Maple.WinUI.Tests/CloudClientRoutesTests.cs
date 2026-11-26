@@ -1,12 +1,14 @@
 // CloudClientRoutesTests — the routes the Windows Maple Cloud client speaks,
 // pinned against a fake HttpMessageHandler through CloudClient's internal
-// transport constructor (no server, no network). Browse keeps its legacy
-// path-addressed routes where needed; File Explorer uses the unified folder
-// and image routes, falling back to the library file route on HTTP 415.
+// transport constructor (no server, no network). Browse, the sidebar tree and
+// File Explorer list through the unified folder route, and the editor, export,
+// share and File Explorer read originals through the unified image route
+// (File Explorer falling back to the library file route on HTTP 415).
 
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Net;
 using System.Net.Http;
 using System.Text;
@@ -26,41 +28,6 @@ namespace Maple.WinUI.Tests
         public void Dispose()
         {
             try { Directory.Delete(_cacheDir, recursive: true); } catch { /* best effort */ }
-        }
-
-        /// <summary>Records every request and answers from a queue of
-        /// canned responses (the last one repeats).</summary>
-        private sealed class FakeHandler : HttpMessageHandler
-        {
-            public List<HttpRequestMessage> Requests { get; } = new();
-            private readonly Queue<Func<HttpResponseMessage>> _responses = new();
-            private Func<HttpResponseMessage>? _last;
-
-            public FakeHandler Then(HttpStatusCode status, byte[]? body = null, string? contentType = null)
-            {
-                _responses.Enqueue(() =>
-                {
-                    var response = new HttpResponseMessage(status);
-                    if (body != null)
-                    {
-                        response.Content = new ByteArrayContent(body);
-                        if (contentType != null)
-                            response.Content.Headers.ContentType =
-                                new System.Net.Http.Headers.MediaTypeHeaderValue(contentType);
-                    }
-                    return response;
-                });
-                return this;
-            }
-
-            protected override Task<HttpResponseMessage> SendAsync(
-                HttpRequestMessage request, CancellationToken cancellationToken)
-            {
-                Requests.Add(request);
-                if (_responses.Count > 0)
-                    _last = _responses.Dequeue();
-                return Task.FromResult((_last ?? throw new InvalidOperationException("no canned response"))());
-            }
         }
 
         private CloudClient Client(HttpMessageHandler handler) => new(Server, handler, _cacheDir);
@@ -176,71 +143,6 @@ namespace Maple.WinUI.Tests
                 Assert.Equal($"{Server}/api/preview/lib/fresh.dng", r.RequestUri!.AbsoluteUri));
         }
 
-        // --- File Explorer listing: unified address route ---
-
-        [Fact]
-        public async Task ListDirAsync_StaysOnFsDir_WithLimitAndCursor()
-        {
-            var handler = new FakeHandler().Then(HttpStatusCode.OK, Json(
-                "{\"path\":\"/srv/lib/2024\",\"parent\":\"/srv/lib\",\"dirs\":[{\"name\":\"sub\",\"path\":\"/srv/lib/2024/sub\",\"mtime\":\"2024-01-02T03:04:05Z\"}]," +
-                "\"images\":[{\"name\":\"a.CR2\",\"path\":\"/srv/lib/2024/a.CR2\",\"size\":123,\"ext\":\"cr2\",\"id\":\"abc\"," +
-                "\"exif\":{\"camera_make\":\"Canon\",\"iso\":100}}],\"next_cursor\":\"c2\"}"), "application/json");
-            using var client = Client(handler);
-
-            var listing = await client.ListDirAsync("/srv/lib/2024", "c1", 500, CancellationToken.None);
-
-            Assert.Equal(
-                $"{Server}/api/fs/dir?path=%2Fsrv%2Flib%2F2024&limit=500&cursor=c1",
-                Assert.Single(handler.Requests).RequestUri!.AbsoluteUri);
-            Assert.NotNull(listing);
-            Assert.Equal("c2", listing!.NextCursor);
-            var dir = Assert.Single(listing.Dirs);
-            Assert.Equal("/srv/lib/2024/sub", dir.Path);
-            var image = Assert.Single(listing.Images);
-            Assert.Equal(123, image.Size);
-            Assert.Equal("Canon", image.Exif?.CameraMake);
-            Assert.Equal(100, image.Exif?.Iso);
-        }
-
-        [Fact]
-        public async Task ListFolderAddressAsync_UsesUnifiedRouteAndDeserializesEveryEntryKind()
-        {
-            var handler = new FakeHandler().Then(HttpStatusCode.OK, Json(
-                "{\"folders\":[{\"name\":\"Trip A\",\"address\":\"lib:Trip A\",\"path\":\"/srv/lib/Trip A\",\"mtime\":\"2026-01-02T03:04:05Z\"}]," +
-                "\"images\":[{\"name\":\"a.CR2\",\"address\":\"lib:Trip A/a.CR2\",\"size\":123,\"mtime\":\"2026-01-02T03:04:05Z\"}]," +
-                "\"files\":[{\"name\":\"clip.mov\",\"address\":\"lib:Trip A/clip.mov\",\"size\":456}]," +
-                "\"sidecars\":[{\"name\":\"a.CR2.xmp\",\"address\":\"lib:Trip A/a.CR2.xmp\",\"size\":64}],\"next_cursor\":\"c2\"}"), "application/json");
-            using var client = Client(handler);
-
-            var listing = await client.ListFolderAddressAsync("lib:Trip A", "next + page", 500, CancellationToken.None);
-
-            Assert.Equal($"{Server}/api/folder/lib/Trip%20A?limit=500&cursor=next%20%2B%20page",
-                Assert.Single(handler.Requests).RequestUri!.AbsoluteUri);
-            Assert.Equal("c2", listing!.NextCursor);
-            Assert.Single(listing.Folders);
-            Assert.Single(listing.Images);
-            Assert.Single(listing.Files);
-            Assert.Single(listing.Sidecars);
-        }
-
-        [Fact]
-        public async Task ListDirAsync_TransportFailureIsNull_NotAThrow()
-        {
-            // Browsing runs from async-void UI handlers; an escaped
-            // HttpRequestException would take the process down.
-            var handler = new ThrowingHandler();
-            using var client = Client(handler);
-
-            Assert.Null(await client.ListDirAsync("/srv/lib", null, 500, CancellationToken.None));
-        }
-
-        private sealed class ThrowingHandler : HttpMessageHandler
-        {
-            protected override Task<HttpResponseMessage> SendAsync(
-                HttpRequestMessage request, CancellationToken cancellationToken) =>
-                throw new HttpRequestException("connection refused");
-        }
-
         // --- File Explorer hydration: unified image route and file fallback ---
 
         [Fact]
@@ -255,8 +157,7 @@ namespace Maple.WinUI.Tests
 
             var request = Assert.Single(handler.Requests);
             Assert.Equal($"{Server}/api/image/lib/2024/a%20b.CR2", request.RequestUri!.AbsoluteUri);
-            // No Range header: hydration asks for the whole file from 0 —
-            // neither /api/fs/raw nor /api/image honours one.
+            // No Range header: hydration asks for the whole file from 0.
             Assert.Null(request.Headers.Range);
             Assert.NotNull(response);
             Assert.Equal(body.Length, response!.Content.Headers.ContentLength);
@@ -289,43 +190,6 @@ namespace Maple.WinUI.Tests
             Assert.Equal($"{Server}/api/image/lib/Trip%20A/clip.mov", handler.Requests[0].RequestUri!.AbsoluteUri);
             Assert.Equal($"{Server}/api/folders/folder%201/file?path=Trip%20A%2Fclip.mov", handler.Requests[1].RequestUri!.AbsoluteUri);
             Assert.Equal(new byte[] { 1, 2, 3 }, await response!.Content.ReadAsByteArrayAsync());
-        }
-
-        [Fact]
-        public async Task DownloadOriginalAsync_StaysOnFsRaw_StreamsToCacheWithProgress()
-        {
-            var body = new byte[3_000_000];
-            new Random(2).NextBytes(body);
-            var handler = new FakeHandler().Then(HttpStatusCode.OK, body, "application/octet-stream");
-            using var client = Client(handler);
-            var progress = new List<(long received, long total)>();
-
-            var path = await client.DownloadOriginalAsync(
-                "/srv/lib/2024/IMG_0001.CR2", body.Length, (r, t) => progress.Add((r, t)), CancellationToken.None);
-
-            Assert.Equal(
-                $"{Server}/api/fs/raw?path=%2Fsrv%2Flib%2F2024%2FIMG_0001.CR2",
-                Assert.Single(handler.Requests).RequestUri!.AbsoluteUri);
-            Assert.NotNull(path);
-            Assert.EndsWith("-IMG_0001.CR2", path);
-            Assert.Equal(body, await File.ReadAllBytesAsync(path!));
-            Assert.NotEmpty(progress);
-            Assert.Equal((body.Length, (long)body.Length), progress[^1]);
-            Assert.All(progress, p => Assert.Equal(body.Length, p.total));
-        }
-
-        [Fact]
-        public async Task DownloadOriginalAsync_CachedCopyOfExpectedSize_NoRequest()
-        {
-            var body = new byte[4096];
-            var handler = new FakeHandler().Then(HttpStatusCode.OK, body, "application/octet-stream");
-            using var client = Client(handler);
-
-            var first = await client.DownloadOriginalAsync("/srv/lib/x.dng", body.Length, null, CancellationToken.None);
-            var second = await client.DownloadOriginalAsync("/srv/lib/x.dng", body.Length, null, CancellationToken.None);
-
-            Assert.Equal(first, second);
-            Assert.Single(handler.Requests);
         }
 
         [Theory]

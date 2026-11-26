@@ -14,18 +14,15 @@ namespace Maple.WinUI.ViewModels
     /// sidecars, download-to-edit) for the file-size budget.
     ///
     /// This is a Finder / File Explorer view of the server, and it walks the
-    /// same endpoints the Apple cloud source walks: registered libraries from
-    /// GET /api/folders are the roots, and each level below comes from
-    /// GET /api/fs/dir — immediate children only, subdirectories listed
-    /// separately from the images so the sidebar renders a tree while the grid
-    /// shows one directory. Apple's CloudSource (MapleCore/Cloud/
-    /// CloudSource.swift) is the same walk against the same route; the web
-    /// grid lists via the unified /api/folder/:slug/* instead, which carries
-    /// none of the size, mtime or EXIF this grid renders (see
-    /// CloudClient.ListDirAsync for why the listing stays path-addressed).
-    /// Thumbnails and previews, by contrast, are fetched by `slug:relPath`
-    /// address (GET /api/thumb, /api/preview) — the same routes and server
-    /// cache entries the web reads (#1325).
+    /// unified `slug:relPath` routes every other client reads (#1325):
+    /// registered libraries from GET /api/folders are the roots, and each level
+    /// below comes from GET /api/folder/:slug/* — immediate children only,
+    /// subfolders listed separately from the images so the sidebar renders a
+    /// tree while the grid shows one directory. The listing carries each
+    /// image's size, mtime and EXIF, and the absolute path that keys the
+    /// sidecar and asset routes. Thumbnails and previews are fetched by the
+    /// same address (GET /api/thumb, /api/preview), so they share the web's
+    /// server cache entries.
     ///
     /// It deliberately does NOT go through /api/search: that returns a
     /// capture-sorted feed of a whole library with no directory structure at
@@ -45,8 +42,9 @@ namespace Maple.WinUI.ViewModels
         /// handler dispatches on the node type.</summary>
         public ObservableCollection<object> BrowseFolders { get; } = new();
 
-        /// <summary>Directory page size for /api/fs/dir. The server clamps to
-        /// 2000; a directory bigger than one page keeps paging below.</summary>
+        /// <summary>Directory page size for the folder listing. The server
+        /// clamps to 2000; a directory bigger than one page keeps paging
+        /// below.</summary>
         private const int CloudDirPageLimit = 500;
 
         /// <summary>Ceiling on how much of one directory is loaded into the
@@ -120,18 +118,24 @@ namespace Maple.WinUI.ViewModels
         private async Task<List<CloudFolderNode>?> ListCloudChildFolderNodesAsync(
             CloudFolderNode node, CancellationToken ct)
         {
-            var dirs = new List<CloudDirChild>();
+            var dirs = new List<CloudFolderEntry>();
+            var paging = new CloudListingPaging();
             string? cursor = null;
             do
             {
-                var listing = await _cloud!.ListDirAsync(node.Path, cursor, CloudDirPageLimit, ct);
+                var listing = await ListCloudPageAsync(node, cursor, ct);
                 if (listing == null)
                 {
                     DiagLog.Write($"[cloud] dir listing failed for {node.Path}");
                     return null;
                 }
-                dirs.AddRange(listing.Dirs);
+                dirs.AddRange(listing.Folders.Where(d => paging.AcceptAddress(d.Address)));
                 cursor = listing.NextCursor;
+                if (!paging.AcceptCursor(cursor))
+                {
+                    DiagLog.Write($"[cloud] dir listing for {node.Path} repeated a cursor");
+                    return null;
+                }
             }
             while (!string.IsNullOrEmpty(cursor) && !ct.IsCancellationRequested);
 
@@ -141,7 +145,23 @@ namespace Maple.WinUI.ViewModels
                 .ToList();
         }
 
-        private static CloudFolderNode ChildNode(CloudFolderNode parent, CloudDirChild dir)
+        /// <summary>One page of <paramref name="node"/>'s level through the
+        /// unified listing. Null when the request failed, and for a library
+        /// the server reported without a slug, which has no address to
+        /// list.</summary>
+        private Task<CloudFolderListing?> ListCloudPageAsync(
+            CloudFolderNode node, string? cursor, CancellationToken ct)
+        {
+            if (string.IsNullOrEmpty(node.LibrarySlug))
+            {
+                DiagLog.Write($"[cloud] cannot list {node.Path}: the library has no slug");
+                return Task.FromResult<CloudFolderListing?>(null);
+            }
+            return _cloud!.ListFolderAddressAsync(
+                $"{node.LibrarySlug}:{node.RelativePath}", cursor, CloudDirPageLimit, ct);
+        }
+
+        private static CloudFolderNode ChildNode(CloudFolderNode parent, CloudFolderEntry dir)
         {
             var node = new CloudFolderNode
             {
@@ -181,12 +201,13 @@ namespace Maple.WinUI.ViewModels
             var foldsStacks = CloudFoldsRawJpegStacksAsync(_cloud, cts.Token);
             var truncated = false;
             var failed = false;
+            var paging = new CloudListingPaging();
             string? cursor = null;
             try
             {
                 do
                 {
-                    var listing = await _cloud.ListDirAsync(node.Path, cursor, CloudDirPageLimit, cts.Token);
+                    var listing = await ListCloudPageAsync(node, cursor, cts.Token);
                     // Ownership check, not just a cancellation check: if a
                     // newer load superseded this one while the page was in
                     // flight, the request may still have COMPLETED normally —
@@ -204,9 +225,11 @@ namespace Maple.WinUI.ViewModels
                         failed = true;
                         break;
                     }
-                    foreach (var dir in listing.Dirs)
-                        BrowseFolders.Add(ChildNode(node, dir));
-                    foreach (var image in listing.Images)
+                    foreach (var dir in listing.Folders.Where(d => paging.AcceptAddress(d.Address)))
+                        BrowseFolders.Insert(
+                            CloudListingPaging.InsertIndex(BrowseFolders, tile => ((CloudFolderNode)tile).Name, dir.Name),
+                            ChildNode(node, dir));
+                    foreach (var image in listing.Images.Where(i => paging.AcceptAddress(i.Address)))
                     {
                         // Everything the listing returns is shown, video and
                         // audio included: this is a file browser, and a
@@ -220,11 +243,16 @@ namespace Maple.WinUI.ViewModels
                             truncated = true;
                             break;
                         }
-                        AllPhotos.Add(CloudPhotoMapper.FromDirectory(image, CloudAddressFor(node, image.Name)));
+                        AllPhotos.Add(CloudPhotoMapper.FromDirectory(image));
                     }
                     cursor = listing.NextCursor;
+                    if (!paging.AcceptCursor(cursor))
+                    {
+                        DiagLog.Write($"[cloud] listing for {node.Path} repeated a cursor");
+                        failed = true;
+                    }
                 }
-                while (!truncated && !string.IsNullOrEmpty(cursor) && !cts.Token.IsCancellationRequested);
+                while (!truncated && !failed && !string.IsNullOrEmpty(cursor) && !cts.Token.IsCancellationRequested);
                 var folds = await foldsStacks;
                 if (_libraryCts != cts)
                     return;
@@ -268,18 +296,6 @@ namespace Maple.WinUI.ViewModels
             if (needing.Count > 0)
                 _ = Task.Run(() => HydrateCloudThumbnailsAsync(needing, ct), ct);
         }
-
-        /// <summary>`slug:relPath` — the addressing scheme the culling route
-        /// (POST /api/xmp/batch) understands. Built from the browsing node's
-        /// accumulated relative path plus the filename, which is how the
-        /// server composes the same address from `fileinfo.path` (see
-        /// CloudFolderNode.RelativePath for why the absolute path is not
-        /// subtracted instead). Null only for a library with no registered
-        /// slug, which has no address at all.</summary>
-        private static string? CloudAddressFor(CloudFolderNode node, string fileName) =>
-            string.IsNullOrEmpty(node.LibrarySlug)
-                ? null
-                : $"{node.LibrarySlug}:{(node.RelativePath.Length == 0 ? fileName : $"{node.RelativePath}/{fileName}")}";
 
         /// <summary>Fill the grid's thumbnails from GET /api/thumb/:slug/*,
         /// keyed by the item's `slug:relPath` address — the unified route the

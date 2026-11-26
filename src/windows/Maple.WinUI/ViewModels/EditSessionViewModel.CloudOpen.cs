@@ -98,7 +98,7 @@ public partial class EditSessionViewModel
             DecodeStatus = $"Downloading {photo.FileName}…";
             var lastPercent = -1;
             var path = photo.LocalCachePath ?? await client.DownloadOriginalAsync(
-                photo.FilePath, photo.FileSizeBytes,
+                photo.CloudAddress, photo.FileSizeBytes,
                 (received, total) =>
                 {
                     if (total <= 0)

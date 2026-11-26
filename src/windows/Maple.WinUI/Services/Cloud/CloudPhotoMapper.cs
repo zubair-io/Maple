@@ -6,14 +6,14 @@ namespace Maple.WinUI.Services.Cloud;
 
 internal static class CloudPhotoMapper
 {
-    internal static PhotoItem FromDirectory(CloudDirImage image, string? address)
+    internal static PhotoItem FromDirectory(CloudFolderImage image)
     {
         var exif = image.Exif;
         var captured = exif?.CapturedAtLocal;
         var item = new PhotoItem
         {
             IsCloud = true,
-            CloudAddress = address,
+            CloudAddress = string.IsNullOrEmpty(image.Address) ? null : image.Address,
             FilePath = image.Path,
             FileName = image.Name,
             Format = image.Ext.Length > 0 ? image.Ext.ToUpperInvariant() : "RAW",
@@ -26,11 +26,7 @@ internal static class CloudPhotoMapper
             FileModifiedUtc = ParseMtimeUtc(image.Mtime),
             CaptureDate = captured,
         };
-        // The filesystem listing carries no culling state — rating, flag
-        // and colour label live in the sidecar, which the editor fetches
-        // (LoadCloudSidecarAsync) when the photo is opened. Leaving the
-        // grid's defaults in place is honest: nothing here claims a photo
-        // is unrated, it simply hasn't been read yet.
+        // Culling fields stay at their defaults until the editor loads the sidecar.
         item.CameraModel = exif is { } e && (e.CameraMake != null || e.CameraModel != null)
             ? $"{e.CameraMake} {e.CameraModel}".Trim()
             : "—";
@@ -46,21 +42,22 @@ internal static class CloudPhotoMapper
 
     internal static PhotoItem FromTimeline(CloudTimelinePhoto image)
     {
-        var item = FromDirectory(new CloudDirImage
+        var item = FromDirectory(new CloudFolderImage
         {
             Name = image.Filename,
+            Address = image.Address ?? string.Empty,
             Path = image.Path,
             Size = image.Size,
             Ext = Path.GetExtension(image.Filename).TrimStart('.'),
             Mtime = DateTimeOffset.FromUnixTimeMilliseconds((long)image.Mtime).ToString("O"),
-            Exif = new CloudDirExif
+            Exif = new CloudImageExif
             {
                 CapturedAt = image.CapturedAt, CameraMake = image.Camera?.Make,
                 CameraModel = image.Camera?.Model, Lens = image.Lens, Iso = image.Iso,
                 Aperture = image.Aperture, Shutter = image.Shutter,
                 FocalLengthMm = image.FocalLengthMm,
             },
-        }, image.Address);
+        });
         item.Rating = image.Rating;
         item.FlagStatus = image.Flag switch { 1 => "pick", -1 => "reject", _ => "none" };
         item.ColorLabel = image.ColorLabel;

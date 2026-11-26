@@ -1,6 +1,6 @@
 // EditSessionViewModel.RawJpegStack.cs — one tile for a same-stem RAW+JPEG
 // pair in the Browse grid (#5050, #5848). Local folders fold while the
-// device-local Settings switch is on. A Maple Cloud folder is listed through GET /api/fs/dir, which never folds, so the
+// device-local Settings switch is on. A Maple Cloud folder is listed without `stack=1`, which never folds, so the
 // same name rule (Services/FileOperations/RawJpegPairing.cs) is applied here
 // when the server's display config allows it (CloudDisplayConfig). The cloud
 // Timeline and search results are catalog rows and stay unfolded.

@@ -69,7 +69,7 @@ public sealed partial class MainWindow
                         var source = photo.EditPath;
                         if (photo.IsCloud && !File.Exists(source))
                             source = await (cloud ?? throw new IOException("Connect to Maple Cloud to share this original."))
-                                .DownloadOriginalAsync(photo.FilePath, photo.FileSizeBytes, null, cancellation.Token)
+                                .DownloadOriginalAsync(photo.CloudAddress, photo.FileSizeBytes, null, cancellation.Token)
                                 ?? throw new IOException("Could not download the original.");
                         var copy = Path.Combine(directory, $"{files.Count + 1:D3}-{Path.GetFileName(photo.FileName)}");
                         await using (var input = File.OpenRead(source))

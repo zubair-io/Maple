@@ -55,7 +55,7 @@ namespace Maple.WinUI.Services.Cloud
 
         // --- Trash / restore (#2741) ---
 
-        /// <summary>Resolves a server absolute path (the /api/fs/dir
+        /// <summary>Resolves a server absolute path (the folder
         /// listing's `path`, which cloud PhotoItems carry as FilePath) to
         /// its indexed asset id via GET /api/assets/by-fspath. Null when
         /// the path isn't in any registered library or the indexer hasn't
