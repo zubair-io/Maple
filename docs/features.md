@@ -273,7 +273,7 @@ On the server, the Docker image ships a `maple-cli` built with both matchers, so
 
 A panorama the server cannot hold is refused rather than attempted: the merge fails with a sentence that says how much memory, or temporary disk space, it needs and how much the server has. The memory allowance is "Decode memory budget" in Settings → Workers.
 
-Apple and Self Hosted Web can author **include/exclude seam rectangles** on the full, uncropped
+Apple, Windows and Self Hosted Web can author **include/exclude seam rectangles** on the full, uncropped
 panorama preview. Choose a source in execution order, then drag or enter X, Y, Width and Height
 in reference-preview pixels. Numbered regions can be removed individually or cleared. Editing
 does not start work: **Preview Regions** explicitly previews the draft; **Create Panorama** submits
@@ -281,7 +281,8 @@ it for the full stitch, reusing alignment. Rust maps reference dimensions propor
 output. Invalid or contradictory regions report `invalid_seam_constraints`, never silently ignored
 intent. Geometry or source changes clear stale regions; pending geometry and Tile explain why
 authoring is unavailable. Apple's editor also requires Boundary Warp off, and an unsupported
-server explicitly refuses constrained preview or submission.
+server explicitly refuses constrained preview or submission. Windows authors them for its
+local stitch only, in the stitch dialog under the preview.
 
 ---
 
