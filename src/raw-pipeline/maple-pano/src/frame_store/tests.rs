@@ -24,12 +24,15 @@ fn vignetted_dng(width: u32, height: u32, orientation: Option<u16>) -> Vec<u8> {
     .write_to_bytes()
 }
 
+/// The full-frame develop of `bytes`, quantised as the store keeps it.
 fn reference(bytes: &[u8]) -> PlanarImage {
-    PlanarImage::from_scene_linear(
-        &raw_core::decode_for_pano(bytes, "dng")
-            .expect("decode")
-            .image,
-    )
+    let mut image = raw_core::decode_for_pano(bytes, "dng")
+        .expect("decode")
+        .image;
+    let mut stored = vec![[0.0f32; 3]; image.pixels.len()];
+    super::half_rows::decode_into(&super::half_rows::encode(&image.pixels), &mut stored);
+    image.pixels = stored;
+    PlanarImage::from_scene_linear(&image)
 }
 
 fn store_of(parent: &Path, frames: &[&[u8]]) -> FrameStore {
@@ -177,7 +180,10 @@ fn low_disk_fails_the_preflight_with_a_typed_error() {
     let parent = tempfile::tempdir().unwrap();
     let dims = [(1000, 500), (1000, 500)];
     let needed = FrameStore::required_bytes(&dims).unwrap();
-    assert_eq!(needed, (1_000_000 + 500_000 * 9 / 8) * 12);
+    assert_eq!(
+        needed,
+        1_000_000 * 6 + (1_000_000 / 64 + 500_000 * 9 / 8) * 12
+    );
     let err = FrameStore::create_with(parent.path(), &dims, |_| Ok(needed - 1))
         .err()
         .expect("must refuse");
@@ -229,7 +235,7 @@ fn a_full_volume_mid_write_is_the_typed_error() {
     let parent = tempfile::tempdir().unwrap();
     let store = FrameStore::create(parent.path(), &[(4, 4)]).unwrap();
     let full = raw_core::Error::Io {
-        path: store.dir.as_path().join("frame-0000.rgbf32"),
+        path: store.dir.as_path().join("frame-0000.rgbf16"),
         source: std::io::ErrorKind::StorageFull.into(),
     };
     assert!(matches!(
@@ -254,7 +260,7 @@ fn the_directory_is_removed_on_success_failure_and_cancel() {
     let leftovers = || std::fs::read_dir(parent.path()).unwrap().count();
 
     let finished = store_of(parent.path(), &[&bytes]);
-    assert!(finished.dir.as_path().join("frame-0000.rgbf32").is_file());
+    assert!(finished.dir.as_path().join("frame-0000.rgbf16").is_file());
     drop(finished);
     assert_eq!(leftovers(), 0, "success");
 
@@ -329,7 +335,7 @@ fn orphans_of_dead_processes_are_swept() {
     let unrelated = parent.path().join("maple-pano-other");
     for dir in [&orphan, &live, &unrelated] {
         std::fs::create_dir(dir).unwrap();
-        std::fs::write(dir.join("frame-0000.rgbf32"), [0u8; 12]).unwrap();
+        std::fs::write(dir.join("frame-0000.rgbf16"), [0u8; 12]).unwrap();
     }
     let store = FrameStore::create(parent.path(), &[(1, 1)]).unwrap();
     assert!(!orphan.exists(), "dead process's store swept");
@@ -427,7 +433,7 @@ fn reads_spanning_many_chunks_are_exact() {
     let bytes = vignetted_dng(150, 92, Some(6));
     let store = store_of(parent.path(), &[&bytes]);
     let full = reference(&bytes);
-    let row_bytes = full.width() as u64 * BYTES_PER_PIXEL;
+    let row_bytes = full.width() as u64 * STORED_BYTES_PER_PIXEL;
     for chunk_bytes in [1, row_bytes, row_bytes * 3 + 5] {
         for (y0, rows) in [(0, full.height()), (5, 17)] {
             let window = store

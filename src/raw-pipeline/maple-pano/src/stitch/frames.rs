@@ -22,7 +22,7 @@ pub(super) const BAND_ROWS: u32 = 1024;
 
 /// Stage-1 features detected inside stage 0 (#6057), and the sizes of the
 /// proxies they were detected on, which are dropped.
-pub(super) struct Detected {
+pub(crate) struct Detected {
     pub features: Vec<FeatureSet>,
     pub proxy_dims: Vec<(u32, u32)>,
 }
