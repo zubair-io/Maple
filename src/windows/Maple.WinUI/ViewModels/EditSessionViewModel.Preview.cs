@@ -48,9 +48,9 @@ public partial class EditSessionViewModel
             if (requested.Length > 0) CancelPreviewRequest();
             CancelOwedThumbnails();
         }
-        if (selected != null && change.Release.Contains(selected)) RefreshLocalPreview();
+        if (selected != null && change.Release.Contains(selected)) RefreshSelectedSavedPreview(selected);
         var unselected = change.Release
-            .Where(photo => !ReferenceEquals(photo, selected) && AllPhotos.Contains(photo))
+            .Where(photo => !photo.IsCloud && !ReferenceEquals(photo, selected) && AllPhotos.Contains(photo))
             .ToArray();
         // The old preview shows a superseded edit; the thumbnail stands in until reselection.
         foreach (var photo in unselected) photo.PreviewPath = null;
@@ -82,6 +82,13 @@ public partial class EditSessionViewModel
                 batch.Cancel.Dispose();
             });
         });
+    }
+
+    private void RefreshSelectedSavedPreview(PhotoItem photo)
+    {
+        if (!photo.IsCloud) RefreshLocalPreview();
+        else if (!_disposed && AdjustmentsReady && _cloud is { } client)
+            RequestSavedCloudPreview(photo, Adjustments.Clone(), client, _photoOpenVersion);
     }
 
     private void RefreshLocalPreview()

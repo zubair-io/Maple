@@ -291,7 +291,7 @@ namespace Maple.WinUI.ViewModels
                             _cloudPreviewPending = publication;
                         else QueueCloudPreviewPublication(publication);
                     }
-                    RequestSavedCloudPreview(photo, snapshot, client, version);
+                    RequestSavedCloudPreviewAfterSave(photo, snapshot, client, version);
                 });
             });
         }
