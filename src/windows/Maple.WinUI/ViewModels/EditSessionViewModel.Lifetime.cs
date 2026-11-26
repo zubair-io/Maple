@@ -11,6 +11,7 @@ namespace Maple.WinUI.ViewModels
             if (_disposed) return;
             _disposed = true;
             CancelPreviewRequest();
+            CancelOwedThumbnails();
             _libraryCts?.Cancel();
             Interlocked.Increment(ref _decodeGeneration);
             CancelActiveDecode();

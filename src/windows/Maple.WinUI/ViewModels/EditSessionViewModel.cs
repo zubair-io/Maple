@@ -420,6 +420,7 @@ namespace Maple.WinUI.ViewModels
         {
             if (!AdjustmentsReady) return;
             _sidecarDirty = true;
+            MarkSavedPreviewStale();
             _sidecarTimer?.Dispose();
             _sidecarTimer = new Timer(_ => FlushSidecarNow(), null, SidecarDebounceMs, Timeout.Infinite);
         }
@@ -563,6 +564,5 @@ namespace Maple.WinUI.ViewModels
             else
                 queue.TryEnqueue(() => action());
         }
-
     }
 }
