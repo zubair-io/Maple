@@ -80,7 +80,6 @@ struct AppShell: View {
   #if os(macOS)
     @Environment(\.openSettings) private var openSettings
   #endif
-  @State private var showSettings = false
   // Held in @State (not constructed inside the .sheet content closure) so a
   // re-render of AppShell while the sheet is open cannot rebuild the view model
   // and discard the user's in-progress edits. nil = sheet closed.
@@ -96,10 +95,8 @@ struct AppShell: View {
   /// out of Browse / the editor for the lifetime of the app session —
   /// matches the ticket's "session-scoped" contract.
   @State private var adjustmentClipboard = AdjustmentClipboard()
-  /// Non-nil when the Settings sheet should open on a specific tab.
-  /// Set to `.pano` by the PanoMergeView "Configure in Settings → Pano"
-  /// callback so the sheet lands directly on the Pano tab. (#1241)
-  @State private var settingsInitialTab: SettingsTab? = nil
+  /// Pending request to show Settings, optionally on one page (#1241, #6093).
+  @State private var settingsRequest: SettingsRequest?
   @State private var columnVisibility: NavigationSplitViewVisibility = .all
   /// Whether the S5 editor's right-hand Info inspector is shown on the
   /// Mac/iPad pane shell. The editor's `(i)` button toggles this (#875
@@ -1075,9 +1072,9 @@ struct AppShell: View {
     #endif
     #if os(iOS)
       .onChange(of: phoneFolderLocationKey, initial: true) { refreshBrowseBackTarget() }
-      .sheet(isPresented: $showSettings, onDismiss: { settingsInitialTab = nil }) {
+      .sheet(item: $settingsRequest) { request in
         NavigationStack {
-          SettingsView(initialTab: settingsInitialTab, sessionFor: sessionFor)
+          SettingsView(initialTab: request.tab, sessionFor: sessionFor)
         }
         .frame(minWidth: 540, minHeight: 480)
       }
@@ -1380,6 +1377,7 @@ struct AppShell: View {
     private var phoneTabShell: some View {
       PhoneTabShell(
         libraryPath: $libraryPath,
+        settingsRequest: $settingsRequest,
         isDrawerOpen: $isDrawerOpen,
         mode: mode,
         selectedSession: selectedSession,
@@ -1535,7 +1533,7 @@ struct AppShell: View {
   /// Reset every transient piece of UI (sheets + iPhone drawer)
   /// so a deep-link destination renders cleanly. Lives here, not
   /// in `AppShell+DeepLink.swift`, because several of the state
-  /// vars below (`showSettings`, `isDrawerOpen`) are
+  /// vars below (`settingsRequest`, `isDrawerOpen`) are
   /// `private` to this file — keeping the helper internal-but-
   /// file-local lets the extension delegate without widening their
   /// access. Per spec §2 warm-launch behavior.
@@ -1543,8 +1541,7 @@ struct AppShell: View {
   func dismissAllTransientUI() {
     showSMBSheet = false
     addCloudSheetTarget = nil
-    showSettings = false
-    settingsInitialTab = nil
+    settingsRequest = nil
     #if os(iOS)
       isDrawerOpen = false
     #endif
@@ -1605,8 +1602,7 @@ struct AppShell: View {
       }
       openSettings()
     #else
-      settingsInitialTab = initialTab
-      showSettings = true
+      settingsRequest = SettingsRequest(tab: initialTab)
     #endif
   }
 
