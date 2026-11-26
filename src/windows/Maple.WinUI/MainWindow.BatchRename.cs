@@ -323,11 +323,15 @@ namespace Maple.WinUI
             grid.Children.Add(arrow);
             grid.Children.Add(newText);
 
-            if (!isError && row.IsDuplicateWithinBatch)
+            var warningText = row.CompanionNote
+                ?? (row.IsDuplicateWithinBatch
+                    ? "Same name as another row — resolved by the conflict policy at apply time."
+                    : null);
+            if (!isError && warningText != null)
             {
                 var warning = new MuiText
                 {
-                    Text = "Same name as another row — resolved by the conflict policy at apply time.",
+                    Text = warningText,
                     Variant = MuiTextVariant.ToolLabel,
                     ColorRole = MuiTextColorRole.Warning,
                 };
@@ -338,10 +342,12 @@ namespace Maple.WinUI
 
             var accessibleName = isError
                 ? $"{row.OldFileName}: {row.Error}"
-                : row.IsDuplicateWithinBatch
-                    ? $"{row.OldFileName} renames to {row.NewFileName}, warning: same name as another row in "
-                      + "this batch, resolved by the conflict policy"
-                    : $"{row.OldFileName} renames to {row.NewFileName}";
+                : row.CompanionNote != null
+                    ? $"{row.OldFileName} renames to {row.NewFileName}, warning: {row.CompanionNote}"
+                    : row.IsDuplicateWithinBatch
+                        ? $"{row.OldFileName} renames to {row.NewFileName}, warning: same name as another row in "
+                          + "this batch, resolved by the conflict policy"
+                        : $"{row.OldFileName} renames to {row.NewFileName}";
             Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(grid, accessibleName);
             return grid;
         }

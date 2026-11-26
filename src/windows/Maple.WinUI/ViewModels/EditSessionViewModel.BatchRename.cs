@@ -66,7 +66,8 @@ namespace Maple.WinUI.ViewModels
             ulong sequenceStart,
             int sequencePadWidth) =>
             BatchRenameLogic.BuildPreview(
-                sources, template, sequenceStart, sequencePadWidth, FilenameTemplateEngine.Render);
+                sources, template, sequenceStart, sequencePadWidth, FilenameTemplateEngine.Render,
+                path => File.Exists(path) || Directory.Exists(path));
 
         /// <summary>Applies the batch sequentially and re-points every
         /// successfully-relocated PhotoItem at its new path (FilePath,
