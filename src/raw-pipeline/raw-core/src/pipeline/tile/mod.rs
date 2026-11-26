@@ -51,6 +51,8 @@ mod region;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
+mod tests_chroma_grid_parity;
+#[cfg(test)]
 mod tests_full_parity;
 #[cfg(test)]
 mod tests_guided_context;
