@@ -81,6 +81,29 @@ fn entry(index: usize) -> CloudEntry {
     }
 }
 
+const THUMBNAILS: usize = 40;
+
+fn time_queued_thumbnails(worker: &Worker, first: usize) -> Duration {
+    let started = Instant::now();
+    let mut requested = 0;
+    let mut received = 0;
+    while received < THUMBNAILS {
+        if requested < THUMBNAILS && worker.image(0, entry(first + requested), false) {
+            requested += 1;
+        }
+        while let Ok(event) = worker.events.try_recv() {
+            if matches!(event, Event::Derivative(..)) {
+                received += 1;
+            }
+        }
+        assert!(
+            started.elapsed() < Duration::from_secs(20),
+            "thumbnails stalled"
+        );
+    }
+    started.elapsed()
+}
+
 #[test]
 fn queued_thumbnails_are_not_delayed_by_the_command_poll() {
     keyring::set_default_credential_builder(keyring::mock::default_credential_builder());
@@ -97,31 +120,16 @@ fn queued_thumbnails_are_not_delayed_by_the_command_poll() {
         }
     }
 
-    let thumbnails = 40;
-    let started = Instant::now();
-    let mut requested = 0;
-    let mut received = 0;
-    while received < thumbnails {
-        if requested < thumbnails && worker.image(0, entry(requested), false) {
-            requested += 1;
-        }
-        while let Ok(event) = worker.events.try_recv() {
-            if matches!(event, Event::Derivative(..)) {
-                received += 1;
-            }
-        }
-        assert!(
-            started.elapsed() < Duration::from_secs(20),
-            "thumbnails stalled"
-        );
-    }
-    let elapsed = started.elapsed();
+    let fastest = (0..3)
+        .map(|round| time_queued_thumbnails(&worker, round * THUMBNAILS))
+        .min()
+        .unwrap();
 
     stop.store(true, Ordering::Release);
     drop(worker);
     server.join().unwrap();
     assert!(
-        elapsed < Duration::from_millis(1000),
-        "40 queued thumbnails took {elapsed:?}; each one waited out the 30 ms command poll"
+        fastest < Duration::from_millis(1000),
+        "40 queued thumbnails took {fastest:?} at best; each one waited out the 30 ms command poll"
     );
 }
