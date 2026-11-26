@@ -40,7 +40,7 @@ import SwiftUI
           let urls = try await Self.stage(files, in: batch)
           try Task.checkCancellation()
           guard publish(urls, files.compactMap { $0.scopeParentURL ?? $0.primaryURL }) else {
-            throw CocoaError(.fileWriteUnknown)
+            throw FileOperationError.underlying("The photos couldn't be copied to the clipboard.")
           }
           Self.removeStagedCopies(in: stagingRoot, except: batch)
         } catch {
@@ -80,7 +80,11 @@ import SwiftUI
       let staged =
         (try? FileManager.default.contentsOfDirectory(
           at: root, includingPropertiesForKeys: nil)) ?? []
-      staged.filter { $0.standardizedFileURL != batch.standardizedFileURL }.forEach {
+      // Only a copy's own UUID-named folder is ever removed, whatever `root` holds.
+      staged.filter {
+        UUID(uuidString: $0.lastPathComponent) != nil
+          && $0.standardizedFileURL != batch.standardizedFileURL
+      }.forEach {
         try? FileManager.default.removeItem(at: $0)
       }
     }
