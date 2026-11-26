@@ -1,7 +1,9 @@
 package app.justmaple.aperture.ui
 
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.drag
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.*
@@ -14,7 +16,9 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.input.KeyboardType
@@ -31,17 +35,16 @@ internal class SeamBrush {
 
 private fun PanoSeamKind.color() = if (this == PanoSeamKind.Include) MapleColors.primary else MapleColors.error
 
-/**
- * Draws the authored regions over the uncropped preview and adds one per drag. The preview box
- * keeps the canvas's aspect ratio, so its pixels map linearly onto canvas pixels.
- */
+private fun seamRegions(count: Int) = if (count == 1) "1 seam region" else "$count seam regions"
+
+/** The preview box keeps the canvas's aspect ratio, so its pixels map linearly onto canvas pixels. */
 @Composable
 internal fun BoxScope.SeamOverlay(state: PanoramaState, session: PanoramaSession, brush: SeamBrush) {
     val (canvasWidth, canvasHeight) = state.seamCanvas ?: return
     val enabled = state.seamBlocked == null
-    var drag by remember { mutableStateOf<Pair<Offset, Offset>?>(null) }
+    var dragged by remember { mutableStateOf<Pair<Offset, Offset>?>(null) }
     val regions = state.seams?.regions.orEmpty()
-    val described = "Seam canvas, ${regions.size} regions. " +
+    val described = "Seam canvas, ${seamRegions(regions.size)}. " +
         if (enabled) "Drag to add a ${brush.kind.label} region for frame ${brush.frame + 1}." else state.seamBlocked
     Canvas(
         Modifier.matchParentSize().testTag("pano-seam-canvas")
@@ -53,19 +56,25 @@ internal fun BoxScope.SeamOverlay(state: PanoramaState, session: PanoramaSession
                         (at.x / size.width * canvasWidth).coerceIn(0f, canvasWidth.toFloat()),
                         (at.y / size.height * canvasHeight).coerceIn(0f, canvasHeight.toFloat()),
                     )
-                detectDragGestures(
-                    onDragStart = { drag = canvasPoint(it) to canvasPoint(it) },
-                    onDrag = { change, _ -> drag = drag?.copy(second = canvasPoint(change.position)) },
-                    onDragCancel = { drag = null },
-                    onDragEnd = {
-                        val (start, end) = drag ?: return@detectDragGestures
-                        drag = null
-                        val region = PanoSeamConstraints.dragRegion(
-                            start.x, start.y, end.x, end.y, canvasWidth, canvasHeight, brush.kind, brush.frame,
-                        )
-                        if (region != null) brush.error = session.addSeam(region)
-                    },
-                )
+                awaitEachGesture {
+                    val down = awaitFirstDown(requireUnconsumed = false)
+                    val start = canvasPoint(down.position)
+                    try {
+                        val released = drag(down.id) { change ->
+                            // A tap that jitters stays a tap: the region begins once the finger has left the slop.
+                            if (dragged != null || (change.position - down.position).getDistance() > viewConfiguration.touchSlop)
+                                dragged = start to canvasPoint(change.position)
+                            change.consume()
+                        }
+                        val end = dragged?.second
+                        if (released && end != null)
+                            PanoSeamConstraints.dragRegion(
+                                start.x, start.y, end.x, end.y, canvasWidth, canvasHeight, brush.kind, brush.frame,
+                            )?.let { brush.error = session.addSeam(it) }
+                    } finally {
+                        dragged = null
+                    }
+                }
             },
     ) {
         val scaleX = size.width / canvasWidth
@@ -76,13 +85,12 @@ internal fun BoxScope.SeamOverlay(state: PanoramaState, session: PanoramaSession
         regions.forEach {
             outline(it.kind, it.x.toFloat(), it.y.toFloat(), (it.x + it.width).toFloat(), (it.y + it.height).toFloat())
         }
-        drag?.let { (start, end) ->
+        dragged?.let { (start, end) ->
             outline(brush.kind, minOf(start.x, end.x), minOf(start.y, end.y), maxOf(start.x, end.x), maxOf(start.y, end.y))
         }
     }
 }
 
-/** Seam region authoring (#5991): frame and mode, coordinate entry, the region list and its preview. */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 internal fun SeamEditor(state: PanoramaState, session: PanoramaSession, brush: SeamBrush) {
@@ -97,18 +105,25 @@ internal fun SeamEditor(state: PanoramaState, session: PanoramaSession, brush: S
     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         image.frames.forEachIndexed { index, frame ->
             FilterChip(selected = brush.frame == index, onClick = { brush.frame = index }, enabled = enabled,
-                label = { Text("${index + 1}. ${frame.name}") }, modifier = Modifier.testTag("pano-seam-frame-$index"))
+                label = { Text("${index + 1}. ${frame.name}") },
+                modifier = Modifier.testTag("pano-seam-frame-$index")
+                    .semantics { contentDescription = "Frame: ${index + 1}. ${frame.name}" })
         }
     }
     Text("Region mode")
     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         PanoSeamKind.entries.forEach { kind ->
             FilterChip(selected = brush.kind == kind, onClick = { brush.kind = kind }, enabled = enabled,
-                label = { Text(kind.label) }, modifier = Modifier.testTag("pano-seam-mode-${kind.label}"))
+                label = { Text(kind.label) },
+                modifier = Modifier.testTag("pano-seam-mode-${kind.label}")
+                    .semantics { contentDescription = "Mode: ${kind.label}" })
         }
     }
     CoordinateForm(session, brush, enabled)
-    brush.error?.let { Text(it, color = MapleColors.error, modifier = Modifier.testTag("pano-seam-error")) }
+    brush.error?.let {
+        Text(it, color = MapleColors.error,
+            modifier = Modifier.testTag("pano-seam-error").semantics { liveRegion = LiveRegionMode.Polite })
+    }
     val regions = state.seams?.regions.orEmpty()
     regions.forEachIndexed { index, region ->
         Row(Modifier.fillMaxWidth().testTag("pano-seam-region-$index").semantics(mergeDescendants = true) {},
@@ -128,7 +143,7 @@ internal fun SeamEditor(state: PanoramaState, session: PanoramaSession, brush: S
             modifier = Modifier.testTag("pano-seam-preview")) { Text("Preview regions") }
     }
     image.seams?.let {
-        Text("This preview was made with ${it.regions.size} seam regions.", color = MapleColors.muted,
+        Text("This preview was made with ${seamRegions(it.regions.size)}.", color = MapleColors.muted,
             modifier = Modifier.testTag("pano-seam-previewed"))
     }
 }
@@ -142,7 +157,7 @@ private fun CoordinateForm(session: PanoramaSession, brush: SeamBrush, enabled: 
         fields.forEachIndexed { index, field ->
             OutlinedTextField(
                 value = values[index].value,
-                onValueChange = { typed -> values[index].value = typed.filter(Char::isDigit).take(10) },
+                onValueChange = { typed -> if (typed.all(Char::isDigit)) values[index].value = typed.take(10) },
                 label = { Text(field) },
                 singleLine = true,
                 enabled = enabled,
