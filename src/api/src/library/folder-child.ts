@@ -23,6 +23,29 @@ export interface ChildFacts {
 
 export type ChildInspector = (name: string) => Promise<ChildFacts | null>;
 
+// Bun's macOS realpath opens its target, so a child this process cannot open was never listed there.
+const REALPATH_OPENS_TARGET = process.platform === 'darwin';
+
+async function opens(target: string): Promise<boolean> {
+  const handle = await fs
+    .open(target, fs.constants.O_RDONLY | fs.constants.O_NONBLOCK)
+    .catch(() => null);
+  await handle?.close();
+  return handle !== null;
+}
+
+/** A granted answer serves every later call. A refusal is never shared: it may be a passing
+ * failure, so each caller that meets one asks again for its own argument. */
+export function sharedGrant<Arg>(grants: (arg: Arg) => Promise<boolean>) {
+  const memo: { granted?: Promise<boolean> } = {};
+  return async (arg: Arg): Promise<boolean> => {
+    const shared = (memo.granted ??= grants(arg).catch(() => false));
+    if (await shared) return true;
+    if (memo.granted === shared) delete memo.granted;
+    return grants(arg);
+  };
+}
+
 /** A request shares each child's checked realpath and stat. A direct child needs one `lstat`;
  * a symlinked one is realpathed against THIS library and followed, as before. */
 export function childInspector(
@@ -44,11 +67,12 @@ export function childInspector(
 
   async function inspect(name: string): Promise<ChildFacts | null> {
     if (!directoryInRoot || realDirectory === null) return followed(name);
-    const stat = await fs.lstat(path.join(directory, name)).catch(() => null);
+    const listed = path.join(directory, name);
+    const stat = await fs.lstat(listed).catch(() => null);
     if (stat === null) return null;
-    return stat.isSymbolicLink()
-      ? followed(name)
-      : { real: path.join(realDirectory, name), stat, direct: true };
+    if (stat.isSymbolicLink()) return followed(name);
+    if (REALPATH_OPENS_TARGET && !(await opens(listed))) return null;
+    return { real: path.join(realDirectory, name), stat, direct: true };
   }
 
   return (name) => {

@@ -18,6 +18,7 @@ import {
   STUB_AND_AUDIO_EXTENSIONS_SET,
   parseWildcardSegments,
   wildcardSlugParams,
+  STREAMED_FILE_HEADERS,
 } from './shared.ts';
 
 export const imageRoutes = new Elysia().get(
@@ -58,10 +59,15 @@ export const imageRoutes = new Elysia().get(
     }
 
     const etag = `"${Math.floor(source.stat.mtimeMs)}-${source.stat.size}"`;
-    if (ifNoneMatchEqual(headers['if-none-match'], etag)) {
+    // A ranged read keeps its 206: a client sizing the file from Content-Range must not get a bodyless 304.
+    if (headers.range === undefined && ifNoneMatchEqual(headers['if-none-match'], etag)) {
       return new Response(null, {
         status: 304,
-        headers: { ETag: etag, 'Cache-Control': 'private, max-age=0, must-revalidate' },
+        headers: {
+          ...STREAMED_FILE_HEADERS,
+          ETag: etag,
+          'Cache-Control': 'private, max-age=0, must-revalidate',
+        },
       });
     }
     const contentType = mimeForExt(ext);
