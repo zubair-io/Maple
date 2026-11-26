@@ -57,6 +57,11 @@ jobs:
       # Build it before tests so a clean runner cannot pass by skipping FFI.
       - name: Build native RAW library for API integration tests
         run: bash src/api/scripts/build-raw-ffi.sh
+      # Fetch here so a slow download is this step, not a timed-out 120 s test hook (#6041).
+      - name: Fetch the Temporal test server
+        working-directory: src/api
+        timeout-minutes: 10
+        run: bun scripts/prewarm-temporal.ts
       - name: Run API tests
         working-directory: src/api
         # The suite takes minutes; a hung test process must not hold the runner
