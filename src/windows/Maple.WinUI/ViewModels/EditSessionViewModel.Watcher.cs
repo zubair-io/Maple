@@ -68,12 +68,20 @@ namespace Maple.WinUI.ViewModels
                     .Where(item => item != null)
                     .Select(item => item!)
                     .ToList();
+                // The watcher never reports formats the grid does not open (IMG.MEF), so a
+                // batch re-reads the folder's pair inventory instead of patching it.
+                var inventory = folder == null ? null : EnumerateImageFiles(folder).PairInventory.ToHashSet(StringComparer.Ordinal);
 
                 App.MainDispatcherQueue?.TryEnqueue(() =>
                 {
                     if (!string.Equals(CurrentFolderPath, folder, StringComparison.OrdinalIgnoreCase))
                         return;    // user navigated away while the batch settled
                     var changed = false;
+                    if (inventory != null && !inventory.SetEquals(_localPairInventory))
+                    {
+                        _localPairInventory = inventory;
+                        changed = true;
+                    }
                     foreach (var path in removed)
                     {
                         var victim = AllPhotos.FirstOrDefault(p =>
