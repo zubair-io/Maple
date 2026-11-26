@@ -8,7 +8,7 @@
  *
  * Reports server boot time, then per route the first request and the min/median of the rest.
  */
-import { rm } from 'node:fs/promises';
+import { constants, copyFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { apiRoot, flag, jsonOutput, median, runs } from './bench-library-server.ts';
@@ -39,7 +39,7 @@ async function main() {
   const scratch = join(tmpdir(), `maple-bench-routes-${process.pid}`);
   await Bun.$`mkdir -p ${scratch}`.quiet();
   const sqlitePath = join(scratch, 'maple.sqlite');
-  await Bun.$`cp -c ${databasePath} ${sqlitePath}`.quiet();
+  await copyFile(databasePath, sqlitePath, constants.COPYFILE_FICLONE);
   if (process.argv.includes('--prewarm')) await Bun.$`cat ${sqlitePath} > /dev/null`.quiet();
   const bootStarted = performance.now();
   const child = Bun.spawn(['bun', join(apiRoot, 'src/index.ts')], {
