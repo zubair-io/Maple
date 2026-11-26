@@ -5,6 +5,7 @@ use crate::{
     stages::{hot_pixel, white_balance},
     xmp::AdjustmentModel,
 };
+use rayon::prelude::*;
 
 pub(super) fn from_window(
     raw: &RawImage,
@@ -40,11 +41,11 @@ pub(super) fn from_mosaic(
     if raw.baseline_exposure.abs() > 1e-4 {
         stage("tile_baseline_exposure", || {
             let gain = raw.baseline_exposure.exp2();
-            for p in &mut camera.pixels {
+            camera.pixels.par_iter_mut().for_each(|p| {
                 p[0] *= gain;
                 p[1] *= gain;
                 p[2] *= gain;
-            }
+            });
         });
     }
     stage("tile_white_balance::apply_pre_gain", || {
