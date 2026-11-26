@@ -50,24 +50,43 @@ namespace Maple.WinUI.Services
             return targetLongEdge > nativeLongEdge / 2.0 ? Amaze : Preview;
         }
 
-        /// <summary>
-        /// Whether a second, cancellable AMaZE decode should be scheduled
-        /// AFTER the initial Preview decode has already landed and is on
-        /// screen. Preview always runs first regardless of this answer —
-        /// this only decides whether a follow-up upgrade is worth the extra
-        /// demosaic time, never which quality the first (cold-open) decode
-        /// requests.
-        /// </summary>
-        public static bool ShouldScheduleAmazeUpgrade(double nativeLongEdge, double targetLongEdge) =>
-            ForTarget(nativeLongEdge, targetLongEdge) == Amaze;
+        /// <summary><c>CameraSupportMetadata.SensorLayout</c> of a Bayer sensor,
+        /// the only layout the core's bounded-decode reconstruction improves.</summary>
+        public const string BayerLayout = "bayer";
+
+        /// <summary>The quality of the follow-up decode. Any value but
+        /// <see cref="Preview"/> takes raw-core's bounded Bayer reconstruction
+        /// (<c>develop_sized_camera</c>: <c>quality != Preview</c> and
+        /// <c>2 × max_long_edge ≤ sensor long edge</c>) and, past the half-native
+        /// threshold, the full-resolution demosaic.</summary>
+        public const int UpgradeQuality = Amaze;
 
         /// <summary>
-        /// Whether an AMaZE upgrade decode that started for
+        /// Whether a second, cancellable decode at <see cref="UpgradeQuality"/>
+        /// should be scheduled AFTER the initial Preview decode has already
+        /// landed and is on screen. Preview always runs first regardless of
+        /// this answer — this only decides whether a follow-up is worth the
+        /// extra demosaic time, never which quality the first (cold-open)
+        /// decode requests. Two cases: the target exceeds half the sensor
+        /// (<see cref="ForTarget"/>, any layout), or it does not and the
+        /// sensor is Bayer, where the core reconstructs a bounded non-Preview
+        /// decode with RCD instead of binning raw samples (#6067). X-Trans,
+        /// linear and unknown layouts take no benefit from the second case,
+        /// so no pointless decode is scheduled for them.
+        /// </summary>
+        public static bool ShouldScheduleUpgrade(
+            double nativeLongEdge, double targetLongEdge, string? sensorLayout) =>
+            double.IsFinite(nativeLongEdge) && nativeLongEdge > 0
+            && double.IsFinite(targetLongEdge) && targetLongEdge > 0
+            && (ForTarget(nativeLongEdge, targetLongEdge) == Amaze || sensorLayout == BayerLayout);
+
+        /// <summary>
+        /// Whether an upgrade decode that started for
         /// <paramref name="startedForGeneration"/> should still be applied,
         /// given the session is now on
         /// <paramref name="currentGeneration"/>. A newer decode (photo
         /// switch, a decode-owned field change) bumps the generation
-        /// counter — an in-flight AMaZE result for a stale generation must
+        /// counter — an in-flight upgrade result for a stale generation must
         /// be discarded, never swapped in on top of a newer base.
         /// </summary>
         public static bool IsStillCurrent(int startedForGeneration, int currentGeneration) =>

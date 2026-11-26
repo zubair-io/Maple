@@ -11,13 +11,15 @@ namespace Maple.WinUI.ViewModels
     {
         /// <summary>
         /// After the fast Preview decode for <paramref name="photo"/> has
-        /// already landed and is on screen, escalate to a full AMaZE decode
-        /// in the background when the session's decode target genuinely
-        /// needs more detail than Preview's own half-native-resolution cap
-        /// can deliver (#3417 review — mirrors Apple's
-        /// <c>ImageEditPipeline.refineDecodeQuality</c> escalation, but as a
-        /// follow-up rather than the cold-open decode itself, so the first
-        /// paint never waits on it).
+        /// already landed and is on screen, decode again in the background at
+        /// non-Preview quality: for a target beyond Preview's half-native
+        /// cap (#3417 review — mirrors Apple's
+        /// <c>ImageEditPipeline.refineDecodeQuality</c>), and for a Bayer
+        /// sensor at least twice the target, where the core's bounded decode
+        /// reconstructs instead of binning so the settled Fit frame matches
+        /// the export (#6067). It is a follow-up rather than the cold-open
+        /// decode itself, so the first paint and the slider ticks never wait
+        /// on it; <see cref="RefineDecodeQuality.ShouldScheduleUpgrade"/> decides.
         ///
         /// Cancellable and generation-guarded: <see cref="CancelActiveDecode"/>
         /// signals <see cref="_amazeCancel"/>'s current handle the same way
@@ -31,8 +33,9 @@ namespace Maple.WinUI.ViewModels
             int generation, PhotoItem photo, AdjustmentState model, DecodedImage previewDecoded)
         {
             if (_disposed || generation != _decodeGeneration || previewDecoded.IsRaster) return;
-            if (!RefineDecodeQuality.ShouldScheduleAmazeUpgrade(
-                    RenderEngine.SensorLongEdge(photo.EditPath), PreviewLongEdge))
+            if (!RefineDecodeQuality.ShouldScheduleUpgrade(
+                    RenderEngine.SensorLongEdge(photo.EditPath), PreviewLongEdge,
+                    previewDecoded.CameraSupport?.SensorLayout))
                 return;
 
             var amazeCancelFlag = RawFfi.maple_cancel_flag_new();
@@ -42,7 +45,7 @@ namespace Maple.WinUI.ViewModels
                 try
                 {
                     var upgraded = RenderEngine.Decode(
-                        photo.EditPath, model, PreviewLongEdge, RefineDecodeQuality.Amaze,
+                        photo.EditPath, model, PreviewLongEdge, RefineDecodeQuality.UpgradeQuality,
                         amazeCancelFlag, reuseAutoProfileFrom: previewDecoded);
                     if (!RefineDecodeQuality.IsStillCurrent(generation, _decodeGeneration))
                         return;

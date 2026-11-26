@@ -11,8 +11,8 @@
 // #3417 review: escalating the SAME decode that feeds cold open regressed
 // the 250-1000ms uncached-open budget on large sensors (waiting on a full
 // AMaZE demosaic before the first paint). The fix keeps the first decode at
-// Preview always and schedules a second, cancellable AMaZE decode
-// afterward — ShouldScheduleAmazeUpgrade decides whether that follow-up is
+// Preview always and schedules a second, cancellable decode
+// afterward — ShouldScheduleUpgrade decides whether that follow-up is
 // worth it, and IsStillCurrent decides whether its result should still be
 // applied once it lands (a photo switch or another decode-owned edit must
 // drop a stale result rather than swap it in over a newer base).
@@ -92,36 +92,86 @@ namespace Maple.WinUI.Tests
                 RefineDecodeQuality.ForTarget(nativeLongEdge: 4000, targetLongEdge));
         }
 
-        // --- ShouldScheduleAmazeUpgrade: the cold-open decode is ALWAYS
-        // Preview (never decided by this rule); this only answers whether a
-        // follow-up AMaZE decode is worth scheduling afterward. ---
+        // --- ShouldScheduleUpgrade: the cold-open decode is ALWAYS Preview
+        // (never decided by this rule); this only answers whether a
+        // follow-up non-Preview decode is worth scheduling afterward. Two
+        // cases share it: the target exceeds half the sensor (full-detail
+        // AMaZE), or twice the target fits in the sensor, where the core's
+        // bounded Bayer decode reconstructs with RCD instead of binning
+        // (#6067, core #5921 / develop_sized.rs). ---
 
-        [Fact]
-        public void DoesNotScheduleAnUpgradeWhenTargetIsAtMostHalfNative()
+        [Theory]
+        [InlineData(11656, 1600)]   // 100 MP long edge
+        [InlineData(6000, 1600)]    // 24 MP long edge
+        [InlineData(3200, 1600)]    // exactly twice the target
+        public void SchedulesTheBoundedUpgradeForABayerSensorAtLeastTwiceTheTarget(
+            double nativeLongEdge, double targetLongEdge)
         {
-            // The editor's default 1600px session target on the 100 MP
-            // reference DNG: Preview already delivers exactly that, so no
-            // background upgrade is worth the extra demosaic time.
-            Assert.False(RefineDecodeQuality.ShouldScheduleAmazeUpgrade(
-                nativeLongEdge: 11656, targetLongEdge: 1600));
+            Assert.True(RefineDecodeQuality.ShouldScheduleUpgrade(
+                nativeLongEdge, targetLongEdge, RefineDecodeQuality.BayerLayout));
+        }
+
+        [Theory]
+        [InlineData(11656, 1600)]
+        [InlineData(6000, 1600)]
+        public void DoesNotRepeatTheDecodeForSourcesTheBoundedBranchDoesNotImprove(
+            double nativeLongEdge, double targetLongEdge)
+        {
+            foreach (var layout in new[] { "xtrans", "linear_rgb", "unknown", "", null })
+                Assert.False(RefineDecodeQuality.ShouldScheduleUpgrade(nativeLongEdge, targetLongEdge, layout));
         }
 
         [Fact]
-        public void SchedulesAnUpgradeAtHundredPercentZoomOnTheReferenceDng()
+        public void SchedulesFullDetailBetweenHalfNativeAndNativeRegardlessOfLayout()
         {
-            // The ticket's acceptance case: a 100% zoom refine ROI on the
-            // 100 MP reference DNG targets (up to) native resolution — far
-            // past half the sensor's native long edge, so an AMaZE upgrade
-            // is scheduled once Preview has already landed.
-            Assert.True(RefineDecodeQuality.ShouldScheduleAmazeUpgrade(
-                nativeLongEdge: 11656, targetLongEdge: 11656));
+            // Target above half the sensor: the existing AMaZE upgrade, kept
+            // for every layout (the bounded branch needs 2 × target ≤ native).
+            foreach (var layout in new[] { RefineDecodeQuality.BayerLayout, "xtrans", "linear_rgb", null })
+                Assert.True(RefineDecodeQuality.ShouldScheduleUpgrade(4000, 2001, layout));
+            Assert.True(RefineDecodeQuality.ShouldScheduleUpgrade(
+                nativeLongEdge: 11656, targetLongEdge: 11656, RefineDecodeQuality.BayerLayout));
         }
 
         [Fact]
-        public void DoesNotScheduleAnUpgradeWhenNativeLongEdgeIsUnknown()
+        public void BoundedAndFullDetailCasesMeetAtTheHalfNativeBoundary()
         {
-            Assert.False(RefineDecodeQuality.ShouldScheduleAmazeUpgrade(
-                nativeLongEdge: 0, targetLongEdge: 11656));
+            Assert.True(RefineDecodeQuality.ShouldScheduleUpgrade(4000, 2000, RefineDecodeQuality.BayerLayout));
+            Assert.False(RefineDecodeQuality.ShouldScheduleUpgrade(4000, 2000, "xtrans"));
+            Assert.True(RefineDecodeQuality.ShouldScheduleUpgrade(4000, 2001, "xtrans"));
+        }
+
+        [Fact]
+        public void TinySensorAtTheDefaultTargetTakesTheFullDetailCase()
+        {
+            // The 64 px synthetic lifecycle DNG: 2 × 1600 never fits, so the
+            // bounded branch cannot run; the full-detail case still does.
+            Assert.True(RefineDecodeQuality.ShouldScheduleUpgrade(64, 1600, RefineDecodeQuality.BayerLayout));
+            Assert.True(RefineDecodeQuality.ShouldScheduleUpgrade(64, 1600, null));
+        }
+
+        [Theory]
+        [InlineData(0, 1600)]
+        [InlineData(-1, 1600)]
+        [InlineData(double.NaN, 1600)]
+        [InlineData(double.PositiveInfinity, 1600)]
+        [InlineData(11656, 0)]
+        [InlineData(11656, -1)]
+        [InlineData(11656, double.NaN)]
+        [InlineData(11656, double.PositiveInfinity)]
+        public void DoesNotScheduleWhenEitherEdgeIsUnknownOrDegenerate(
+            double nativeLongEdge, double targetLongEdge)
+        {
+            Assert.False(RefineDecodeQuality.ShouldScheduleUpgrade(
+                nativeLongEdge, targetLongEdge, RefineDecodeQuality.BayerLayout));
+        }
+
+        [Fact]
+        public void TheUpgradeRequestsTheNonPreviewQualityTheBoundedBranchKeysOn()
+        {
+            // develop_sized_camera: demosaic_half = quality != Preview &&
+            // 2 × max_long_edge ≤ sensor long edge. Preview (1) never takes it.
+            Assert.NotEqual(RefineDecodeQuality.Preview, RefineDecodeQuality.UpgradeQuality);
+            Assert.Equal(RefineDecodeQuality.Amaze, RefineDecodeQuality.UpgradeQuality);
         }
 
         // --- IsStillCurrent: an in-flight AMaZE upgrade must be dropped,
