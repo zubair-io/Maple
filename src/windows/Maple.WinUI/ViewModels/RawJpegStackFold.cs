@@ -47,6 +47,14 @@ namespace Maple.WinUI.ViewModels
             bool formatFilterActive) =>
             !formatFilterActive && ((inLocalFolder && localSwitchOn) || (inCloudFolder && serverFoldsPairs));
 
+        /// <summary>The cloud tiles that still need a thumbnail request: a
+        /// file hidden behind a RAW at load is never requested, so it joins
+        /// the next request once a format filter or switch makes it a tile.
+        /// Each photo is handed out once per <paramref name="requested"/>
+        /// set.</summary>
+        public static List<PhotoItem> NeedingCloudThumbnails(IEnumerable<PhotoItem> tiles, ISet<PhotoItem> requested) =>
+            tiles.Where(tile => tile.CloudAddress != null && tile.ThumbnailPath == null && requested.Add(tile)).ToList();
+
         public static bool IsFormatFilterActive(string formatFilter) => formatFilter != "All";
 
         public static IEnumerable<PhotoItem> Tiles(IEnumerable<PhotoItem> photos) =>

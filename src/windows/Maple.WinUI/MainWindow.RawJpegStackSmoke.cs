@@ -110,6 +110,9 @@ public sealed partial class MainWindow
             await WaitForRawJpegStackSmokeAsync(
                 () => ViewModel.Photos.Count == 2 && ViewModel.AllPhotos.All(photo => photo.StackCompanion == null && photo.StackPrimary == null),
                 $"turning the switch off did not split the pair (tiles={ViewModel.Photos.Count})");
+            await WaitForRawJpegStackSmokeAsync(
+                () => ViewModel.Photos.Where(photo => photo.Format is "JPG" or "JPEG").All(photo => photo.ThumbnailPath != null),
+                "the JPEG tile shown by turning the switch off has no thumbnail");
             evidence["tilesWithSwitchOff"] = ViewModel.Photos.Count;
             SetRawJpegStackSwitch(true);
             await WaitForRawJpegStackSmokeAsync(
