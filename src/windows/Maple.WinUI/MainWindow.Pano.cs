@@ -245,10 +245,10 @@ namespace Maple.WinUI
         {
             var folder = Path.GetDirectoryName(frames[0])!;
             var stem = Path.GetFileNameWithoutExtension(frames[0]);
-            var baseName = UniqueBaseName(folder, $"{stem}-pano");
-            var outPath = Path.Combine(folder, $"{baseName}-master.png");
+            var baseName = PanoOutputFiles.UniqueBaseName(folder, $"{stem}-pano");
+            var outPath = PanoOutputFiles.MasterPath(folder, baseName);
             var displayTemp = Path.Combine(Path.GetTempPath(), $"maple-pano-{Guid.NewGuid():N}.png");
-            var jpegPath = Path.Combine(folder, $"{baseName}.jpg");
+            var jpegPath = PanoOutputFiles.JpegPath(folder, baseName);
 
             var cts = new CancellationTokenSource();
             var progressView = new PanoProgressView(DispatcherQueue);
@@ -280,8 +280,7 @@ namespace Maple.WinUI
                 var result = await Task.Run(() => PanoService.StitchAsync(
                     provisioner, frames, outPath, displayTemp,
                     retention, localAlign, strategy, state.Engine, alignmentIn, seams, StitchLine, cts.Token), cts.Token);
-                if (!result.Ok && seams is not null)
-                    try { File.Delete(outPath); } catch { /* best effort */ }
+                var leftover = result.Ok ? null : PanoOutputFiles.DiscardPartial(outPath);
 
                 if (result.Ok)
                 {
@@ -299,9 +298,12 @@ namespace Maple.WinUI
                         + $"Scene-linear master: {Path.GetFileName(outPath)}"
                         + AlignmentNote(alignmentIn, result.AlignmentStatus ?? alignmentStatus));
                 }
-                else if (result.Error != "cancelled")
+                else if (result.Error != "cancelled" || leftover is not null)
                 {
-                    await ShowMessageAsync("Panorama failed", result.Error ?? "unknown error");
+                    var cancelled = result.Error == "cancelled";
+                    await ShowMessageAsync(
+                        cancelled ? "Panorama cancelled" : "Panorama failed",
+                        string.Join("\n\n", new[] { cancelled ? null : result.Error ?? "unknown error", leftover }.OfType<string>()));
                 }
             }
             catch (OperationCanceledException)
@@ -333,20 +335,6 @@ namespace Maple.WinUI
         private static bool IsRawFrame(string path) =>
             Path.GetExtension(path).ToLowerInvariant()
                 is not (".jpg" or ".jpeg" or ".tif" or ".tiff");
-
-        private static string UniqueBaseName(string folder, string baseName)
-        {
-            if (!File.Exists(Path.Combine(folder, $"{baseName}.jpg"))
-                && !File.Exists(Path.Combine(folder, $"{baseName}-master.png")))
-                return baseName;
-            for (var i = 2; ; i++)
-            {
-                var candidate = $"{baseName}-{i}";
-                if (!File.Exists(Path.Combine(folder, $"{candidate}.jpg"))
-                    && !File.Exists(Path.Combine(folder, $"{candidate}-master.png")))
-                    return candidate;
-            }
-        }
 
         /// <summary>16-bit sRGB display PNG → quality-95 JPEG via WIC, so the
         /// stitch result is a first-class grid asset (thumbs, edit, export).</summary>
