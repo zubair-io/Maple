@@ -9,6 +9,7 @@ using Maple.UI.Atoms;
 using Windows.Graphics.Imaging;
 using Maple.WinUI.Services;
 using Maple.WinUI.Services.Pano;
+using Maple.WinUI.Views;
 
 namespace Maple.WinUI
 {
@@ -65,8 +66,19 @@ namespace Maple.WinUI
                      + " matcher. This can take several minutes.",
                 Variant = MuiTextVariant.Body,
             });
-            var previewPane = new PanoPreviewPane(DispatcherQueue);
+            var seams = new PanoSeamAuthoring(PanoFrameOrder.Sort(frames));
+            var seamEditor = new PanoSeamEditor(seams);
+            var previewPane = new PanoPreviewPane(DispatcherQueue, seamEditor.Overlay.Root);
             panel.Children.Add(previewPane.Root);
+            // The preview stays pinned; everything under it scrolls.
+            var options = new StackPanel { Spacing = 10 };
+            panel.Children.Add(new ScrollViewer
+            {
+                Content = options,
+                MaxHeight = 300,
+                VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+                Padding = new Thickness(0, 0, 14, 0),
+            });
             var retentionCombo = new ComboBox
             {
                 HorizontalAlignment = HorizontalAlignment.Stretch,
@@ -75,7 +87,7 @@ namespace Maple.WinUI
             retentionCombo.Items.Add("Keep — tolerate weaker frames");
             retentionCombo.Items.Add("Strict — drop frames that align poorly");
             retentionCombo.SelectedIndex = 0;
-            panel.Children.Add(retentionCombo);
+            options.Children.Add(retentionCombo);
             var alignCombo = new ComboBox
             {
                 HorizontalAlignment = HorizontalAlignment.Stretch,
@@ -84,7 +96,7 @@ namespace Maple.WinUI
             alignCombo.Items.Add("Mesh — absorb parallax (rotation and drone survey)");
             alignCombo.Items.Add("Off — global alignment only");
             alignCombo.SelectedIndex = 0;
-            panel.Children.Add(alignCombo);
+            options.Children.Add(alignCombo);
             var strategyCombo = new ComboBox
             {
                 HorizontalAlignment = HorizontalAlignment.Stretch,
@@ -93,17 +105,17 @@ namespace Maple.WinUI
             foreach (var label in new[] { "Auto", "Rotation (tripod pan)", "Tile (translated mosaic)" })
                 strategyCombo.Items.Add(label);
             strategyCombo.SelectedIndex = 0;
-            panel.Children.Add(strategyCombo);
+            options.Children.Add(strategyCombo);
             var provisionText = new MuiText
             {
                 Text = state.Summary,
                 Variant = MuiTextVariant.Body,
                 ColorRole = MuiTextColorRole.Muted,
             };
-            panel.Children.Add(provisionText);
+            options.Children.Add(provisionText);
             if (state.NeedsDownload)
             {
-                panel.Children.Add(new MuiText
+                options.Children.Add(new MuiText
                 {
                     Text = "First run downloads the pinned ALIKED + LightGlue models "
                          + "(~57 MB, SHA-256 verified) and ONNX Runtime 1.23.2 "
@@ -113,6 +125,7 @@ namespace Maple.WinUI
                     ColorRole = MuiTextColorRole.Muted,
                 });
             }
+            options.Children.Add(seamEditor.Root);
 
             var dialog = new ContentDialog
             {
@@ -137,12 +150,28 @@ namespace Maple.WinUI
             using var scratch = PanoScratch.Create();
             var preview = new PanoPreviewSession(scratch,
                 (run, ct) => PanoService.PreviewAsync(
-                    provisioner, frames, run.Files, run.AlignmentIn, run.Options, engine,
+                    provisioner, frames, run, engine,
                     line => OnUiThread(() => previewPane.Report(line)), ct),
                 PanoPreviewSession.DefaultDebounce);
             preview.Started += _ => OnUiThread(previewPane.Started);
             preview.Succeeded += run => OnUiThread(() => _ = previewPane.ShowAsync(run.Files.PreviewPng));
             preview.Failed += error => OnUiThread(() => previewPane.Failed(error));
+
+            void RequestPreview(PanoSeamRequest? regions)
+            {
+                seams.PreviewRequested();
+                preview.Request(SelectedOptions(), regions);
+            }
+            preview.Completed += completion => OnUiThread(() =>
+            {
+                var verdict = seams.PreviewCompleted(completion, completion.Run.Sequence == preview.LatestSequence);
+                if (verdict.Message is not null)
+                    seamEditor.ShowMessage(verdict.Message);
+                if (verdict.PreviewAgain)
+                    RequestPreview(null);
+            });
+            seams.Changed += () => dialog.IsPrimaryButtonEnabled = seams.CanSubmit;
+            dialog.PrimaryButtonClick += (_, args) => args.Cancel = seamEditor.OwnsFocus(dialog.XamlRoot);
 
             var provisioned = !state.NeedsDownload;
             using var provisionCts = new CancellationTokenSource();
@@ -156,7 +185,7 @@ namespace Maple.WinUI
                     provisioned = true;
                     previewPane.DownloadFinished();
                     dialog.PrimaryButtonText = "Create panorama";
-                    preview.Request(SelectedOptions());
+                    RequestPreview(null);
                 }
                 catch (OperationCanceledException) when (provisionCts.IsCancellationRequested)
                 {
@@ -172,12 +201,20 @@ namespace Maple.WinUI
             {
                 combo.SelectionChanged += (_, _) =>
                 {
+                    seams.GeometryChanged(SelectedOptions().Strategy);
+                    seamEditor.ShowMessage(null);
                     if (provisioned)
-                        preview.Request(SelectedOptions());
+                        RequestPreview(null);
                 };
             }
+            seamEditor.PreviewRequested += () =>
+            {
+                if (provisioned && seams.CanAuthor)
+                    RequestPreview(seams.Request);
+            };
+            seams.GeometryChanged(SelectedOptions().Strategy);
             if (provisioned)
-                preview.Request(SelectedOptions());
+                RequestPreview(null);
             else
                 previewPane.OfferDownload(
                     "The preview needs the ML matcher's models.",
@@ -191,19 +228,20 @@ namespace Maple.WinUI
             if (choice != ContentDialogResult.Primary)
                 return;
 
-            var options = SelectedOptions();
+            var chosen = SelectedOptions();
             // A download finished inside the dialog leaves nothing to fetch.
             var stitchState = provisioned && state.NeedsDownload
                 ? state with { Models = true, Ort = true }
                 : state;
             await RunPanoAsync(provisioner, stitchState, frames,
-                options.Retention, options.LocalAlign, options.Strategy, preview.LatestAlignment);
+                chosen.Retention, chosen.LocalAlign, chosen.Strategy, preview.LatestAlignment,
+                seams.Request is { } drawn ? scratch.SeamStitch(drawn) : null);
         }
 
         private async Task RunPanoAsync(
             PanoProvisioner provisioner, PanoProvisionState state,
             System.Collections.Generic.List<string> frames,
-            string retention, string localAlign, string strategy, string? alignmentIn)
+            string retention, string localAlign, string strategy, string? alignmentIn, PanoSeamStitch? seams)
         {
             var folder = Path.GetDirectoryName(frames[0])!;
             var stem = Path.GetFileNameWithoutExtension(frames[0]);
@@ -241,7 +279,13 @@ namespace Maple.WinUI
                 Status($"Stitching {frames.Count} frames…");
                 var result = await Task.Run(() => PanoService.StitchAsync(
                     provisioner, frames, outPath, displayTemp,
-                    retention, localAlign, strategy, state.Engine, alignmentIn, StitchLine, cts.Token), cts.Token);
+                    retention, localAlign, strategy, state.Engine, alignmentIn, seams, StitchLine, cts.Token), cts.Token);
+                // Regions placed on a geometry they were not drawn on are a
+                // refusal, as on Apple: the panorama is not kept.
+                if (result.Ok && PanoSeamAuthoring.IsStaleStitch(seams is not null, alignmentStatus))
+                    result = result with { Ok = false, Error = PanoSeamAuthoring.StaleGeometry };
+                if (!result.Ok && seams is not null)
+                    try { File.Delete(outPath); } catch { /* best effort */ }
 
                 if (result.Ok)
                 {

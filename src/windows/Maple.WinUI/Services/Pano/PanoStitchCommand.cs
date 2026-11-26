@@ -3,6 +3,10 @@ using System.Linq;
 
 namespace Maple.WinUI.Services.Pano;
 
+/// <summary>The seam regions one stitch carries (#5992): the request, the
+/// file it is handed to maple-cli in, and the report the run answers in.</summary>
+public sealed record PanoSeamStitch(PanoSeamRequest Request, string ConstraintsJson, string ReportJson);
+
 /// <summary>The `maple-cli pano stitch` invocation for one stitch. The ML
 /// runtime locations are passed only when the ML engine runs, so a
 /// classical stitch never depends on anything provisioned. `alignmentIn` is
@@ -14,7 +18,8 @@ public sealed record PanoStitchCommand(
     public static PanoStitchCommand Build(
         IReadOnlyList<string> inputs, string outPath, string displayPath,
         string retention, string localAlign, string strategy, string? alignmentIn,
-        PanoFeatureEngine engine, string modelsDir, string ortDylibPath)
+        PanoFeatureEngine engine, string modelsDir, string ortDylibPath,
+        PanoSeamStitch? seams = null)
     {
         var options = new[]
         {
@@ -25,10 +30,14 @@ public sealed record PanoStitchCommand(
             "--local-align", localAlign,
             "--strategy", strategy,
         };
+        var seamArguments = seams is null
+            ? Enumerable.Empty<string>()
+            : new[] { "--report", seams.ReportJson }.Concat(PanoPreviewCommand.SeamConstraints(seams.ConstraintsJson));
         // POSIX terminator before the frame paths: a file literally named
         // "--strategy" must never parse as a flag.
         var arguments = options
             .Concat(engine.CliArguments(modelsDir))
+            .Concat(seamArguments)
             .Concat(PanoPreviewCommand.AlignmentIn(alignmentIn))
             .Append("--")
             .Concat(inputs)

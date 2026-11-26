@@ -4,16 +4,22 @@ using System.Threading.Tasks;
 
 namespace Maple.WinUI.Services.Pano;
 
-public sealed record PanoPreviewOutcome(bool Ok, bool Cancelled, string? Error);
+public sealed record PanoPreviewOutcome(bool Ok, bool Cancelled, string? Error, PanoPreviewReport? Report = null);
 
-public sealed record PanoPreviewRun(PanoPreviewOptions Options, PanoPreviewFiles Files, string? AlignmentIn);
+public sealed record PanoPreviewRun(
+    PanoPreviewOptions Options, PanoPreviewFiles Files, string? AlignmentIn,
+    PanoSeamRequest? Seams = null, long Sequence = 0);
+
+public sealed record PanoPreviewCompletion(PanoPreviewRun Run, PanoPreviewOutcome Outcome);
 
 /// <summary>The stitch dialog's live preview (#4581). Each request waits
 /// out a short debounce, cancels the preview still running, and waits for
 /// that process to exit before starting, so at most one maple-cli preview
 /// runs at a time. Each run is offered the newest successful alignment;
 /// the full stitch starts from <see cref="LatestAlignment"/>. Events are
-/// raised on a background thread.</summary>
+/// raised on a background thread; a handler that hops threads compares the
+/// run's sequence with <see cref="LatestSequence"/> to drop a result a newer
+/// request has overtaken (#5992).</summary>
 public sealed class PanoPreviewSession
 {
     public delegate Task<PanoPreviewOutcome> Runner(PanoPreviewRun run, CancellationToken ct);
@@ -27,6 +33,7 @@ public sealed class PanoPreviewSession
     private CancellationTokenSource _cts = new();
     private Task _current = Task.CompletedTask;
     private string? _latestAlignment;
+    private long _sequence;
 
     public PanoPreviewSession(PanoScratch scratch, Runner runner, TimeSpan debounce)
     {
@@ -38,6 +45,18 @@ public sealed class PanoPreviewSession
     public event Action<PanoPreviewRun>? Started;
     public event Action<PanoPreviewRun>? Succeeded;
     public event Action<string>? Failed;
+    public event Action<PanoPreviewCompletion>? Completed;
+
+    public long LatestSequence
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _sequence;
+            }
+        }
+    }
 
     public string? LatestAlignment
     {
@@ -50,13 +69,14 @@ public sealed class PanoPreviewSession
         }
     }
 
-    public void Request(PanoPreviewOptions options)
+    public void Request(PanoPreviewOptions options, PanoSeamRequest? seams = null)
     {
         lock (_gate)
         {
             _cts.Cancel();
             _cts = new CancellationTokenSource();
-            _current = RunAfterAsync(_current, options, _cts.Token);
+            _sequence++;
+            _current = RunAfterAsync(_current, options, seams, _sequence, _cts.Token);
         }
     }
 
@@ -71,7 +91,8 @@ public sealed class PanoPreviewSession
         }
     }
 
-    private async Task RunAfterAsync(Task previous, PanoPreviewOptions options, CancellationToken ct)
+    private async Task RunAfterAsync(
+        Task previous, PanoPreviewOptions options, PanoSeamRequest? seams, long sequence, CancellationToken ct)
     {
         try
         {
@@ -85,7 +106,7 @@ public sealed class PanoPreviewSession
         if (ct.IsCancellationRequested)
             return;
 
-        var run = new PanoPreviewRun(options, _scratch.NextPreview(), LatestAlignment);
+        var run = new PanoPreviewRun(options, _scratch.NextPreview(), LatestAlignment, seams, sequence);
         Started?.Invoke(run);
         var outcome = await RunGuardedAsync(run, ct);
         if (outcome.Cancelled || ct.IsCancellationRequested)
@@ -93,6 +114,7 @@ public sealed class PanoPreviewSession
         if (!outcome.Ok)
         {
             Failed?.Invoke(outcome.Error ?? "preview failed");
+            Completed?.Invoke(new PanoPreviewCompletion(run, outcome));
             return;
         }
         lock (_gate)
@@ -100,6 +122,7 @@ public sealed class PanoPreviewSession
             _latestAlignment = run.Files.AlignmentJson;
         }
         Succeeded?.Invoke(run);
+        Completed?.Invoke(new PanoPreviewCompletion(run, outcome));
     }
 
     // A runner that throws (maple-cli.exe unlaunchable) must still end this
