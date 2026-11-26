@@ -294,7 +294,7 @@ namespace Maple.WinUI.ViewModels
         public void ApplyFilters()
         {
             if (RestartTimelineForChangedFilters()) return;
-            var query = RawJpegStackFold.Apply(AllPhotos, FoldsRawJpegStacks).AsEnumerable();
+            var query = FoldPhotos().AsEnumerable();
             if (!_isCloudTimeline)
             {
                 if (FormatFilter != "All")

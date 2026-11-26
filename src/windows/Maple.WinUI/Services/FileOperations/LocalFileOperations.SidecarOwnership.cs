@@ -41,6 +41,37 @@ namespace Maple.WinUI.Services.FileOperations
             }
         }
 
+        /// <summary>Whether a same-stem RAW and JPEG read one sidecar file.
+        /// Each sidecar path comes from the file's own name, so spellings the
+        /// pairing rule folds (case, Unicode form) can name two files:
+        /// canonically equivalent names are distinct files on NTFS, and a
+        /// case-only difference is one file only where the folder folds
+        /// case.</summary>
+        internal static bool SharesOneSidecar(string rawPath, string jpegPath)
+        {
+            var (rawSidecar, jpegSidecar) = (SidecarStore.SidecarPathFor(rawPath), SidecarStore.SidecarPathFor(jpegPath));
+            return string.Equals(rawSidecar, jpegSidecar, StringComparison.Ordinal)
+                || (string.Equals(rawSidecar, jpegSidecar, StringComparison.OrdinalIgnoreCase)
+                    && FolderFoldsCaseFor(rawPath));
+        }
+
+        private static bool FolderFoldsCaseFor(string path)
+        {
+            var dir = Path.GetDirectoryName(path);
+            var name = Path.GetFileName(path);
+            var swapped = new string(name.Select(c => char.IsUpper(c) ? char.ToLowerInvariant(c) : char.ToUpperInvariant(c)).ToArray());
+            if (dir == null || swapped == name || !File.Exists(path)) return false;
+            try
+            {
+                var names = Directory.EnumerateFileSystemEntries(dir).Select(Path.GetFileName).ToHashSet(StringComparer.Ordinal);
+                return !names.Contains(swapped) && File.Exists(Path.Combine(dir, swapped));
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                return false;
+            }
+        }
+
         /// <summary>For two paths differing only in case: a case-folding folder
         /// finds the second name through the first entry, while a
         /// case-sensitive one either lacks it or lists both names
