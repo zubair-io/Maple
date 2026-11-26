@@ -70,7 +70,7 @@ internal interface CloudTransport {
         body: String?,
         headers: Map<String, String>,
         account: String,
-    ): CloudResponse = throw UnsupportedOperationException("Account-bound requests are not served here")
+    ): CloudResponse
 
     fun download(id: String, path: String, output: OutputStream, signal: CancellationSignal? = null)
 

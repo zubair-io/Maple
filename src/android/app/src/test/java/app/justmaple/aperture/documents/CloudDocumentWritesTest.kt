@@ -510,6 +510,15 @@ class CloudDocumentWritesTest {
             }
         }
 
+        override fun request(
+            id: String,
+            path: String,
+            method: String,
+            body: String?,
+            headers: Map<String, String>,
+            account: String,
+        ): CloudResponse = error("Unexpected account-bound request")
+
         override fun download(id: String, path: String, output: OutputStream, signal: CancellationSignal?) =
             download(output)
 

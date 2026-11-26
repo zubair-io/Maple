@@ -13,7 +13,7 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 
-/** An upload carries only the session of the account whose journal record it sends. */
+/** An account-bound upload or request carries only the session of the account it was started for. */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [36])
 class CloudHttpAccountTest {
@@ -82,6 +82,43 @@ class CloudHttpAccountTest {
         assertEquals(201, upload().status)
         assertEquals(listOf("/api/folders/a/upload ann", "/api/auth/refresh -", "/api/folders/a/upload ann"), seen)
         assertEquals("ann-2", sessions.servers().single().refresh)
+    }
+
+    private fun stitch() =
+        CloudHttp(sessions)
+            .request(id, "/api/pano/stitch", "POST", "{}", mapOf("Content-Type" to "application/json"), ann)
+
+    @Test
+    fun anAccountBoundRequestIsNeverSentForAnAccountSignedInBeforeIt() {
+        serve { _, _ -> 201 to "{}" }
+        sessions.save(CloudServer(id, origin, token("bob", 1), "bob-refresh"))
+        assertThrows(CloudAccountChangedException::class.java) { stitch() }
+        assertTrue(seen.isEmpty())
+    }
+
+    @Test
+    fun anAccountBoundRequestIsNotRetriedOnAnotherAccountsSession() {
+        serve { path, _ ->
+            if (path == "/api/pano/stitch" && seen.size == 1)
+                sessions.save(CloudServer(id, origin, token("bob", 1), "bob-refresh"))
+            401 to "{}"
+        }
+        assertThrows(CloudAccountChangedException::class.java) { stitch() }
+        assertEquals(listOf("/api/pano/stitch ann"), seen)
+    }
+
+    @Test
+    fun anAccountBoundRequestStillRefreshesAndRetriesForItsOwnAccount() {
+        serve { path, user ->
+            when {
+                path == "/api/auth/refresh" ->
+                    200 to JSONObject().put("access_token", token("ann", 2)).put("refresh_token", "ann-2").toString()
+                seen.size == 1 -> 401 to "{}"
+                else -> 201 to "{\"user\":\"$user\"}"
+            }
+        }
+        assertEquals(201, stitch().status)
+        assertEquals(listOf("/api/pano/stitch ann", "/api/auth/refresh -", "/api/pano/stitch ann"), seen)
     }
 
     private class Sessions(initial: CloudServer) : CloudSessions {
