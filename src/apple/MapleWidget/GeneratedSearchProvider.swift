@@ -94,6 +94,22 @@ struct GeneratedSearchProvider: TimelineProvider {
 
   // MARK: - Data
 
+  /// The fetched thumbnails in collection order, downloaded side by side so a
+  /// timeline waits on one round trip rather than one per photo.
+  private static func thumbnails(for assets: [SearchAsset], context: WidgetSession) async -> [Data] {
+    let fetched = await withTaskGroup(of: (Int, Data?).self) { group in
+      for (index, asset) in assets.enumerated() {
+        group.addTask {
+          let data = try? await context.thumbs.thumb(
+            absPath: asset.abs_path, version: asset.thumb_version)
+          return (index, data)
+        }
+      }
+      return await group.reduce(into: [Int: Data]()) { $0[$1.0] = $1.1 }
+    }
+    return assets.indices.compactMap { fetched[$0] }
+  }
+
   /// Resolve the signed-in server and selected library from the App Group,
   /// then build one timeline's worth of entries. Returns `[]` on any failure
   /// — the caller decides what to render.
@@ -124,28 +140,20 @@ struct GeneratedSearchProvider: TimelineProvider {
       ).results
       guard !assets.isEmpty else { return [] }
 
-      var entries: [GeneratedSearchEntry] = []
+      // A failed thumb is SKIPPED, not appended as a placeholder. If every
+      // fetch fails (server briefly unreachable), appending placeholders
+      // would make the timeline look populated and take the 4-hour refresh
+      // — returning [] instead gets the 30-minute retry the empty path
+      // already schedules.
+      let thumbs = await thumbnails(for: Array(assets.prefix(entriesPerTimeline)), context: context)
       let start = Date()
-      for asset in assets.prefix(entriesPerTimeline) {
-        // A failed thumb is SKIPPED, not appended as a placeholder. If every
-        // fetch fails (server briefly unreachable), appending placeholders
-        // would make the timeline look populated and take the 4-hour refresh
-        // — returning [] instead gets the 30-minute retry the empty path
-        // already schedules.
-        guard
-          let data = try? await context.thumbs.thumb(
-            absPath: asset.abs_path, version: asset.thumb_version)
-        else {
-          continue
-        }
-        entries.append(
-          GeneratedSearchEntry(
-            date: start.addingTimeInterval(Double(entries.count) * entryInterval),
-            title: collection.title,
-            subtitle: collection.subtitle,
-            imageData: data,
-            deepLink: collection.searchDeepLink(libraryID: libraryID)
-          )
+      let entries = thumbs.enumerated().map { offset, data in
+        GeneratedSearchEntry(
+          date: start.addingTimeInterval(Double(offset) * entryInterval),
+          title: collection.title,
+          subtitle: collection.subtitle,
+          imageData: data,
+          deepLink: collection.searchDeepLink(libraryID: libraryID)
         )
       }
       // Collections exist but every thumb failed (server briefly
