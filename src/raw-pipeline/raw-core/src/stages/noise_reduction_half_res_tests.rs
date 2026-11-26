@@ -171,3 +171,21 @@ fn the_hot_pixel_fades_without_a_step_across_the_slider() {
         "a 0.5 slider step moved a pixel by {largest_step:.4}"
     );
 }
+
+/// Texture within the margin of its neighbourhood's range passes untouched;
+/// only the excess beyond it is pulled in.
+#[test]
+fn the_clamp_leaves_values_within_the_margin_alone() {
+    let range = (0.010, 0.020);
+    let inside_margin = range.1 + 0.8 * DESPECKLE_MARGIN;
+    let close = |got: f32, want: f32| assert!((got - want).abs() < 1e-7, "{got} != {want}");
+    assert_eq!(despeckle(inside_margin, range, 1.0), inside_margin);
+    close(
+        despeckle(range.0 - 0.1, range, 1.0),
+        range.0 - DESPECKLE_MARGIN,
+    );
+    close(
+        despeckle(range.1 + 0.1, range, 0.5),
+        0.5 * (range.1 + 0.1) + 0.5 * (range.1 + DESPECKLE_MARGIN),
+    );
+}

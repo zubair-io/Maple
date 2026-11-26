@@ -11,9 +11,10 @@
 //! noise; it is kept with weight `1 - t`, so the slider still runs
 //! continuously from identity at 0 to fully half-resolution chroma at 100.
 //! An isolated chroma spike (a hot pixel) is exactly that finest-scale
-//! detail, so the add-back may not carry a pixel outside the range of the
-//! denoised chroma over its 3×3 neighbourhood; the clamp ramps in up to the
-//! default amount so the slider stays continuous at 0.
+//! detail, so the add-back may not carry a pixel more than
+//! [`DESPECKLE_MARGIN`] outside the range of the denoised chroma over its 3×3
+//! neighbourhood; the clamp ramps in up to the default amount so the slider
+//! stays continuous at 0.
 //!
 //! The block grid and the fixed 0.25 / 0.75 upsampling weights depend only
 //! on frame coordinates, so a tile or native window whose buffer starts at
@@ -39,6 +40,12 @@ pub const HALF_RES_CHROMA_REACH_PX: usize =
 /// The amount (the default `nr_color`) from which the despeckle clamp applies
 /// in full; below it the clamp blends in linearly so amount 0 stays identity.
 const DESPECKLE_FULL_AMOUNT: f32 = 25.0;
+
+/// Oklab a/b distance a pixel may sit outside its neighbourhood's denoised
+/// range before the clamp pulls it in. Ordinary texture stays below it and
+/// passes untouched, so only isolated spikes move; a tighter margin reshapes
+/// enough pixels to shift the Auto profile fit (#1627 banding gate).
+const DESPECKLE_MARGIN: f32 = 0.005;
 
 /// Output rows per parallel band; each band upsamples one extra denoised row
 /// above and below for the clamp's 3×3 range.
@@ -108,9 +115,10 @@ fn sample(plane: &[f32], stride: usize, x: Axis, y: Axis, c: usize, r: usize) ->
     0.75 * (0.75 * at(xn, yn) + 0.25 * at(xf, yn)) + 0.25 * (0.75 * at(xn, yf) + 0.25 * at(xf, yf))
 }
 
-/// `value` pulled `strength` of the way into `range`.
-pub(super) fn despeckle(value: f32, range: (f32, f32), strength: f32) -> f32 {
-    value + strength * (value.clamp(range.0, range.1) - value)
+/// `value` pulled `strength` of the way into `range` widened by
+/// [`DESPECKLE_MARGIN`].
+fn despeckle(value: f32, (lo, hi): (f32, f32), strength: f32) -> f32 {
+    value + strength * (value.clamp(lo - DESPECKLE_MARGIN, hi + DESPECKLE_MARGIN) - value)
 }
 
 /// Range of the three-row window `lines` (each `w` long) over columns
