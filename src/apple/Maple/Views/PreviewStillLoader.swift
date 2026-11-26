@@ -80,7 +80,8 @@ final class PreviewStillLoader {
   /// on a single-tier source the visible page's own display-tier load is that
   /// same artifact, so it is not fetched twice.
   func loadFirstPaint(displayTierDimension: CGFloat, isVisible: Bool) async {
-    let key = await DevelopedImageRevision.shared.decodedKeyAsync(for: seedKey, source: source)
+    let key = await DevelopedImageRevision.shared.decodedKeyAsync(
+      for: seedKey, source: source, priority: .interactive)
     if image == nil, !Task.isCancelled, let tile = ThumbnailDecoder.cachedImage(forKey: key) {
       show(tile, isDisplayTier: false)
       log(.seed, .finish, targetPx: CGFloat(max(tile.width, tile.height)))
