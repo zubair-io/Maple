@@ -10,6 +10,8 @@ namespace Maple.WinUI.ViewModels
     public sealed record SavedPreviewModeChange<T>(
         SavedPreviewDeferral<T> Next, bool Cancel, IReadOnlyList<T> Release) where T : class;
 
+    public enum SavedPreviewRefreshOutcome { Refreshed, Failed, Cancelled }
+
     /// <summary>
     /// Pure, WinUI-free rule for when the Browse/Preview derivative of a
     /// photo may be developed (#4374). In Edit the editor's own decode and
@@ -43,9 +45,16 @@ namespace Maple.WinUI.ViewModels
                 return new SavedPreviewModeChange<T>(this, false, Array.Empty<T>());
             return editing
                 ? new SavedPreviewModeChange<T>(
-                    new SavedPreviewDeferral<T>(true, inFlight.Distinct().ToArray()), inFlight.Count > 0, Array.Empty<T>())
+                    new SavedPreviewDeferral<T>(true, Owed.Concat(inFlight).Distinct().ToArray()), inFlight.Count > 0, Array.Empty<T>())
                 : new SavedPreviewModeChange<T>(Idle, false, Owed);
         }
+
+        /// <summary>A refresh that did not finish stays owed so the next
+        /// leave-Edit or save retries it; one that finished is paid off.</summary>
+        public SavedPreviewDeferral<T> Settle(T photo, SavedPreviewRefreshOutcome outcome) =>
+            outcome == SavedPreviewRefreshOutcome.Refreshed
+                ? this with { Owed = Owed.Where(owed => !EqualityComparer<T>.Default.Equals(owed, photo)).ToArray() }
+                : Owe(photo);
 
         private SavedPreviewDeferral<T> Owe(T photo) =>
             Owed.Contains(photo) ? this : this with { Owed = Owed.Append(photo).ToArray() };

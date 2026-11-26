@@ -144,6 +144,56 @@ namespace Maple.WinUI.Tests
         }
 
         [Fact]
+        public void Settle_AFailedRefreshStaysOwedAndIsRetriedOnTheNextLeaveOfEdit()
+        {
+            var state = SavedPreviewDeferral<string>.Idle.Settle("a", SavedPreviewRefreshOutcome.Failed);
+
+            var retry = state.Enter(ShellMode.Edit, Nothing).Next.Enter(ShellMode.Preview, Nothing);
+
+            Assert.Equal(new[] { "a" }, state.Owed);
+            Assert.Equal(new[] { "a" }, retry.Release);
+        }
+
+        [Fact]
+        public void Settle_ACancelledRefreshStaysOwed()
+        {
+            var state = SavedPreviewDeferral<string>.Idle.Settle("a", SavedPreviewRefreshOutcome.Cancelled);
+
+            Assert.Equal(new[] { "a" }, state.Owed);
+        }
+
+        [Fact]
+        public void Settle_ARefreshedPhotoIsClearedAndOthersStayOwed()
+        {
+            var state = SavedPreviewDeferral<string>.Idle
+                .Settle("a", SavedPreviewRefreshOutcome.Failed)
+                .Settle("b", SavedPreviewRefreshOutcome.Failed)
+                .Settle("a", SavedPreviewRefreshOutcome.Refreshed);
+
+            Assert.Equal(new[] { "b" }, state.Owed);
+        }
+
+        [Fact]
+        public void Settle_FailureIsOwedOnceHoweverOftenItRepeats()
+        {
+            var state = SavedPreviewDeferral<string>.Idle
+                .Settle("a", SavedPreviewRefreshOutcome.Failed)
+                .Settle("a", SavedPreviewRefreshOutcome.Failed);
+
+            Assert.Equal(new[] { "a" }, state.Owed);
+        }
+
+        [Fact]
+        public void EnterEdit_KeepsPhotosStillOwedFromAnEarlierFailure()
+        {
+            var failed = SavedPreviewDeferral<string>.Idle.Settle("a", SavedPreviewRefreshOutcome.Failed);
+
+            var change = failed.Enter(ShellMode.Edit, new[] { "b" });
+
+            Assert.Equal(new[] { "a", "b" }, change.Next.Owed);
+        }
+
+        [Fact]
         public void ReleasedDebt_IsNotReleasedAgainOnTheNextEditSession()
         {
             var left = Editing().Request("a").Next.Enter(ShellMode.Preview, Nothing).Next;
