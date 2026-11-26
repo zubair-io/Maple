@@ -87,7 +87,7 @@ fn existing_l_plane_writeback_matches_original_adapter_for_hdr_and_tails() {
     let noise = [0.0001, 0.00001, 0.0002, 0.00002, 0.0003, 0.00003];
     for (w, h) in [(1, 1), (1, 7), (7, 1), (17, 9), (129, 129)] {
         for profile in [None, Some(noise.as_slice())] {
-            for scale in [1.0, 0.5] {
+            for scale in [0.9, 0.5] {
                 let mut input = Image::new(w, h, ColorSpace::SceneLinearRec2020);
                 for (i, pixel) in input.pixels.iter_mut().enumerate() {
                     let value = ((i % 29) as f32 - 7.0) * 0.125;
@@ -158,7 +158,7 @@ fn storage_release_preserves_cancelled_and_zero_amount_adapter_results() {
             CancelToken::new(&cancelled),
             None,
             100,
-            1.0,
+            0.9,
         );
         apply_color_sampled_cancellable(
             &mut candidate,
@@ -166,7 +166,7 @@ fn storage_release_preserves_cancelled_and_zero_amount_adapter_results() {
             CancelToken::new(&cancelled),
             None,
             100,
-            1.0,
+            0.9,
         );
         assert_same_bits(&original, &candidate);
         if amount == 0.0 {
@@ -192,14 +192,14 @@ fn existing_l_plane_matches_original_adapter_for_nonfinite_input() {
                 *pixel = values[i % values.len()];
             }
             let mut original = candidate.clone();
-            original_color_adapter(&mut original, 25.0, CancelToken::never(), profile, 100, 1.0);
+            original_color_adapter(&mut original, 25.0, CancelToken::never(), profile, 100, 0.9);
             apply_color_sampled_cancellable(
                 &mut candidate,
                 25.0,
                 CancelToken::never(),
                 profile,
                 100,
-                1.0,
+                0.9,
             );
             assert_same_bits(&original, &candidate);
         }

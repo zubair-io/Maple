@@ -273,3 +273,85 @@ fn writeback_color(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_w
     let out_rgb = oklab_to_rec2020(vec3<f32>(lab.x, wbc_a[i], wbc_b[i]));
     wbc_dst[i] = vec4<f32>(out_rgb, src.a);
 }
+
+// ── Half-resolution chroma at native density (#6018) ──────────────────────────
+//
+// Mirror of raw-core's `noise_reduction_half_res.rs` with the block grid
+// anchored at the buffer origin (the GPU chain always runs on a whole frame).
+// `box_down` averages 2×2 blocks of a native plane; after the plane filter
+// runs on the half planes, `upsample_residual` rebuilds a native plane as the
+// bilinear (0.75 / 0.25) upsample of the denoised half plane plus the native
+// plane's finest-scale residual at `residual_weight`. Summation order and the
+// tap weights follow the CPU exactly.
+struct HalfParams {
+    width: u32,
+    height: u32,
+    half_width: u32,
+    half_height: u32,
+    residual_weight: f32,
+    _pad0: u32,
+    _pad1: u32,
+    _pad2: u32,
+};
+
+@group(0) @binding(0) var<uniform> bd_params: HalfParams;
+@group(0) @binding(1) var<storage, read> bd_plane: array<f32>;
+@group(0) @binding(2) var<storage, read_write> bd_out: array<f32>;
+
+@compute @workgroup_size(64)
+fn box_down(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgroups) ng: vec3<u32>) {
+    let i = gid.y * ng.x * 64u + gid.x;
+    if (i >= bd_params.half_width * bd_params.half_height) {
+        return;
+    }
+    let bx = i % bd_params.half_width;
+    let by = i / bd_params.half_width;
+    let x_end = min(2u * bx + 2u, bd_params.width);
+    let y_end = min(2u * by + 2u, bd_params.height);
+    var sum = 0.0;
+    for (var r = 2u * by; r < y_end; r = r + 1u) {
+        for (var c = 2u * bx; c < x_end; c = c + 1u) {
+            sum = sum + bd_plane[r * bd_params.width + c];
+        }
+    }
+    bd_out[i] = sum / f32((x_end - 2u * bx) * (y_end - 2u * by));
+}
+
+fn half_taps(i: u32, blocks: u32) -> vec2<u32> {
+    let near = i / 2u;
+    var far = min(near + 1u, blocks - 1u);
+    if (i % 2u == 0u) {
+        far = select(near - 1u, 0u, near == 0u);
+    }
+    return vec2<u32>(near, far);
+}
+
+@group(0) @binding(0) var<uniform> up_params: HalfParams;
+@group(0) @binding(1) var<storage, read> up_native: array<f32>;
+@group(0) @binding(2) var<storage, read> up_noisy: array<f32>;
+@group(0) @binding(3) var<storage, read> up_denoised: array<f32>;
+@group(0) @binding(4) var<storage, read_write> up_out: array<f32>;
+
+fn half_sample_noisy(xt: vec2<u32>, yt: vec2<u32>) -> f32 {
+    let s = up_params.half_width;
+    return 0.75 * (0.75 * up_noisy[yt.x * s + xt.x] + 0.25 * up_noisy[yt.x * s + xt.y])
+        + 0.25 * (0.75 * up_noisy[yt.y * s + xt.x] + 0.25 * up_noisy[yt.y * s + xt.y]);
+}
+
+fn half_sample_denoised(xt: vec2<u32>, yt: vec2<u32>) -> f32 {
+    let s = up_params.half_width;
+    return 0.75 * (0.75 * up_denoised[yt.x * s + xt.x] + 0.25 * up_denoised[yt.x * s + xt.y])
+        + 0.25 * (0.75 * up_denoised[yt.y * s + xt.x] + 0.25 * up_denoised[yt.y * s + xt.y]);
+}
+
+@compute @workgroup_size(64)
+fn upsample_residual(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgroups) ng: vec3<u32>) {
+    let i = gid.y * ng.x * 64u + gid.x;
+    if (i >= up_params.width * up_params.height) {
+        return;
+    }
+    let xt = half_taps(i % up_params.width, up_params.half_width);
+    let yt = half_taps(i / up_params.width, up_params.half_height);
+    up_out[i] = half_sample_denoised(xt, yt)
+        + up_params.residual_weight * (up_native[i] - half_sample_noisy(xt, yt));
+}

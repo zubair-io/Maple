@@ -223,21 +223,21 @@ mod tests {
             super::super::apply_scene_linear_chain_f32(&input, width, height, &model, &options)
                 .unwrap();
         let patch = apply_scene_linear_chain_f32_windowed(
-            &crop(&input, width, 64, 32, 256, 256),
+            &crop(&input, width, 63, 33, 256, 256),
             256,
             256,
             &model,
             &options,
             None,
             ChainWindow {
-                x: 64,
-                y: 32,
+                x: 63,
+                y: 33,
                 full_width: width,
                 full_height: height,
             },
         )
         .unwrap();
-        let expected = crop(&full, width, 160, 128, 64, 64);
+        let expected = crop(&full, width, 159, 129, 64, 64);
         let actual = crop(&patch, 256, 96, 96, 64, 64);
         let max_error = actual
             .iter()

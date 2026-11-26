@@ -268,6 +268,10 @@ pub struct GpuContext {
     /// `writeback_color`: RGBA-src + denoised-a + denoised-b → RGBA-dst, L
     /// recomputed from src (4 storage).
     pub(crate) nr_writeback_color_pipeline: OnceCell<wgpu::ComputePipeline>,
+    /// `box_down` / `upsample_residual`: the native-density half-resolution
+    /// chroma path (#6018), 2 and 4 storage.
+    pub(crate) nr_box_down_pipeline: OnceCell<wgpu::ComputePipeline>,
+    pub(crate) nr_upsample_residual_pipeline: OnceCell<wgpu::ComputePipeline>,
     /// Lazily-compiled sharpen pipelines (epic #925 P3 wave 2 / #991). Three
     /// standalone kernels mirroring `raw_core::stages::sharpen::apply` (luma-only
     /// USM — no Oklab, so no generated color matrices).
@@ -492,6 +496,8 @@ impl GpuContext {
             nr_denoise_pipeline: OnceCell::new(),
             nr_writeback_luma_pipeline: OnceCell::new(),
             nr_writeback_color_pipeline: OnceCell::new(),
+            nr_box_down_pipeline: OnceCell::new(),
+            nr_upsample_residual_pipeline: OnceCell::new(),
             sharpen_luma_pipeline: OnceCell::new(),
             sharpen_usm_pipeline: OnceCell::new(),
             sharpen_mix_pipeline: OnceCell::new(),

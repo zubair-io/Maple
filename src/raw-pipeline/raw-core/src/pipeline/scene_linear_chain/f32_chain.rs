@@ -161,13 +161,14 @@ pub(super) fn apply_scene_linear_chain_f32_inner_cancellable(
     // Chroma noise reduction (#1043) — develop's `nr_color`, immediately
     // after nr_luminance; identity below |amount| < 1e-3.
     cancellable_stage("ffi_chain_nr_color", cancel, || {
-        noise_reduction::apply_color_sampled_cancellable(
+        noise_reduction::apply_color_window_cancellable(
             &mut img,
             model.nr_color,
             cancel,
             noise_profile,
             iso,
             nr_sampling_scale,
+            window.map_or((0, 0), |w| (w.x as i32, w.y as i32)),
         )
     })?;
     if !skip_agx {
