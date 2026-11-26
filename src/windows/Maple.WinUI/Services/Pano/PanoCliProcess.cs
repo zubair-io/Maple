@@ -16,6 +16,7 @@ public sealed record PanoCliExit(bool Cancelled, int ExitCode, string StderrTail
 public static class PanoCliProcess
 {
     private const int TailLines = 12;
+    private static readonly TimeSpan ExitGrace = TimeSpan.FromSeconds(15);
 
     public static async Task<PanoCliExit> RunAsync(
         ProcessStartInfo psi, Action<string> onPanoLine, CancellationToken ct)
@@ -59,20 +60,40 @@ public static class PanoCliProcess
         }
         catch (OperationCanceledException)
         {
-            try
-            {
-                process.Kill(entireProcessTree: true);
-            }
-            catch (Exception ex) when (ex is InvalidOperationException or System.ComponentModel.Win32Exception)
-            {
-                DiagLog.Write($"[pano] kill after cancel: {ex.Message}");
-            }
+            await KillAndWaitAsync(process);
             return new PanoCliExit(true, -1, "cancelled");
         }
 
         lock (stderrTail)
         {
             return new PanoCliExit(false, process.ExitCode, string.Join("\n", stderrTail));
+        }
+    }
+
+    // A killed CLI can still hold its output files for a moment; callers
+    // delete what the run wrote, so wait until it has really gone.
+    private static async Task KillAndWaitAsync(Process process)
+    {
+        try
+        {
+            process.Kill(entireProcessTree: true);
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or System.ComponentModel.Win32Exception)
+        {
+            DiagLog.Write($"[pano] kill after cancel: {ex.Message}");
+        }
+        try
+        {
+            using var grace = new CancellationTokenSource(ExitGrace);
+            await process.WaitForExitAsync(grace.Token);
+        }
+        catch (OperationCanceledException)
+        {
+            DiagLog.Write($"[pano] maple-cli was still running {ExitGrace.TotalSeconds:0} s after it was killed");
+        }
+        catch (InvalidOperationException ex)
+        {
+            DiagLog.Write($"[pano] wait after cancel: {ex.Message}");
         }
     }
 }

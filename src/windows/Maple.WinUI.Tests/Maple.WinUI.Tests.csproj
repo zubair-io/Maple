@@ -36,6 +36,7 @@
     <Compile Include="..\Maple.WinUI\Services\Pano\PanoCliProcess.cs" Link="Services\PanoCliProcess.cs" />
     <Compile Include="..\Maple.WinUI\Services\Pano\PanoCliReport.cs" Link="Services\PanoCliReport.cs" />
     <Compile Include="..\Maple.WinUI\Services\Pano\PanoCliRuns.cs" Link="Services\PanoCliRuns.cs" />
+    <Compile Include="..\Maple.WinUI\Services\Pano\PanoOutputFiles.cs" Link="Services\PanoOutputFiles.cs" />
     <Compile Include="..\Maple.WinUI\Services\Pano\PanoSeamAuthoring.cs" Link="Services\PanoSeamAuthoring.cs" />
     <Compile Include="..\Maple.WinUI\Services\Pano\PanoSeamGeometry.cs" Link="Services\PanoSeamGeometry.cs" />
     <Compile Include="..\Maple.WinUI\Services\Pano\PanoSeamRequest.cs" Link="Services\PanoSeamRequest.cs" />
