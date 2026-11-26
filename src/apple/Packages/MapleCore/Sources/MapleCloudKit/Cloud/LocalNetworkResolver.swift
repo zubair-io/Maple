@@ -166,13 +166,66 @@ public enum LocalNetworkResolving {
 @MainActor
 @Observable
 public final class LocalNetworkResolver {
-  public static let shared = LocalNetworkResolver()
+  typealias StatusProvider =
+    @Sendable (URL, URLSession) async -> (effectiveURL: URL, status: LocalNetworkStatus)
+  typealias Sleeper = @Sendable (Duration) async throws -> Void
+
+  public static let shared = LocalNetworkResolver(
+    pathChanges: { LocalNetworkPath.changes() },
+    activityChanges: AppActivity.trackedChanges,
+    initiallyActive: AppActivity.initiallyActive)
 
   private var resolved: [String: URL] = [:]
   private var statuses: [String: LocalNetworkStatus] = [:]
   private var probes: [String: Task<Void, Never>] = [:]
+  private var waiters: [String: [ProbeWaiter]] = [:]
+  private var knownServers: [String: (identity: URL, session: URLSession)] = [:]
+  private var eventCounter = 0
+  private var probeStartedAt: [String: Int] = [:]
+  private var lastPathChange = 0
+  private(set) var reprobeDue = false
+  private var isAppActive: Bool
+  private var pathObserver: Task<Void, Never>?
+  private var activityObserver: Task<Void, Never>?
+  private var pendingPathReprobe: Task<Void, Never>?
 
-  public init() {}
+  private let statusProvider: StatusProvider
+  private let pathChanges: (@Sendable () -> AsyncStream<Void>)?
+  private let activityChanges: (@Sendable () -> AsyncStream<Bool>)?
+  private let registeredServers: @MainActor @Sendable () -> [URL]
+  private let pathDebounce: Duration
+  private let probeBound: Duration
+  // One probe, plus one more for the replacement a path change starts.
+  private var resolveWaitCap: Duration { probeBound * 2 }
+  private let sleeper: Sleeper
+
+  public convenience init() {
+    self.init(pathChanges: nil)
+  }
+
+  init(
+    statusProvider: @escaping StatusProvider = { identity, session in
+      await LocalNetworkResolving.resolveStatus(identity: identity, session: session)
+    },
+    pathChanges: (@Sendable () -> AsyncStream<Void>)?,
+    activityChanges: (@Sendable () -> AsyncStream<Bool>)? = nil,
+    initiallyActive: Bool = true,
+    registeredServers: @escaping @MainActor @Sendable () -> [URL] = {
+      CloudServerRegistry.shared.servers
+    },
+    pathDebounce: Duration = .seconds(1),
+    probeBound: Duration = .seconds(5),
+    sleeper: @escaping Sleeper = { try await Task.sleep(for: $0) }
+  ) {
+    self.statusProvider = statusProvider
+    self.pathChanges = pathChanges
+    self.activityChanges = activityChanges
+    self.isAppActive = initiallyActive
+    self.registeredServers = registeredServers
+    self.pathDebounce = pathDebounce
+    self.probeBound = probeBound
+    self.sleeper = sleeper
+  }
 
   /// The best known URL to use for `identity` — the resolved LAN address if
   /// `resolve(identity:)` has completed and found one reachable, otherwise
@@ -186,29 +239,16 @@ public final class LocalNetworkResolver {
     statuses[identity.absoluteString]
   }
 
-  /// Like ``effectiveURL(for:)``, but first waits up to `limit` for a probe
-  /// of `identity` that is already running, so a folder opened while the
-  /// launch probe is still in flight gets the LAN address instead of keeping
-  /// the public one for its whole life (#6008). Bounded because a probe away
+  /// Like ``effectiveURL(for:)``, but first waits up to `limit` for the
+  /// newest probe of `identity` that is already running, so a folder opened
+  /// while a probe is in flight gets the LAN address instead of keeping the
+  /// public one for its whole life (#6008). Bounded because a probe away
   /// from home can take seconds to time out on a private LAN address, and a
   /// folder open must not stall on it. Never starts a probe of its own.
   public func settledEffectiveURL(
     for identity: URL, waitingAtMost limit: Duration = .milliseconds(500)
   ) async -> URL {
-    if let probe = probes[identity.absoluteString] {
-      await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-        let firstFinisher = ResumeOnce(continuation)
-        let deadline = Task {
-          try? await Task.sleep(for: limit)
-          firstFinisher.resume()
-        }
-        Task {
-          await probe.value
-          deadline.cancel()
-          firstFinisher.resume()
-        }
-      }
-    }
+    await awaitNewestProbe(identity.absoluteString, upTo: limit, fallingBackToIdentity: false)
     return effectiveURL(for: identity)
   }
 
@@ -218,32 +258,126 @@ public final class LocalNetworkResolver {
   /// second one. `session` defaults to `.shared`; tests inject a stubbed one.
   public func resolve(identity: URL, session: URLSession = .shared) async {
     let key = identity.absoluteString
-    if let running = probes[key] {
-      await running.value
-      return
-    }
-    let probe = Task {
-      let result = await LocalNetworkResolving.resolveStatus(identity: identity, session: session)
+    knownServers[key] = (identity, session)
+    observeIfNeeded()
+    if probes[key] == nil { startProbe(identity: identity, session: session) }
+    await awaitNewestProbe(key, upTo: resolveWaitCap, fallingBackToIdentity: true)
+  }
+
+  private func startProbe(identity: URL, session: URLSession) {
+    let key = identity.absoluteString
+    eventCounter += 1
+    let generation = eventCounter
+    probeStartedAt[key] = generation
+    probes[key]?.cancel()
+    let provider = statusProvider
+    probes[key] = Task {
+      let result = await provider(identity, session)
+      // A cancelled probe can still finish; it must not overwrite the newer one.
+      guard probeStartedAt[key] == generation, generation > lastPathChange else { return }
       resolved[key] = result.effectiveURL
       statuses[key] = result.status
+      probes[key] = nil
+      for waiter in waiters.removeValue(forKey: key) ?? [] { waiter.resume() }
     }
-    probes[key] = probe
-    await probe.value
-    probes[key] = nil
+  }
+
+  /// Waits at most `limit` for the newest probe of `key`; on timeout a resolve
+  /// caller falls back to the public address.
+  private func awaitNewestProbe(
+    _ key: String, upTo limit: Duration, fallingBackToIdentity: Bool
+  ) async {
+    guard probes[key] != nil || (reprobeDue && knownServers[key] != nil) else { return }
+    let sleep = sleeper
+    await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+      let waiter = ProbeWaiter(continuation)
+      waiters[key, default: []].append(waiter)
+      waiter.deadline = Task {
+        guard (try? await sleep(limit)) != nil, !Task.isCancelled, waiter.isPending else { return }
+        waiters[key]?.removeAll { $0 === waiter }
+        if fallingBackToIdentity {
+          resolved[key] = nil
+          statuses[key] = LocalNetworkStatus(localURL: nil, isConnectedLocally: false)
+        }
+        waiter.resume()
+      }
+    }
+  }
+
+  private func observeIfNeeded() {
+    if pathObserver == nil, let pathChanges {
+      let changes = pathChanges()
+      pathObserver = Task {
+        for await _ in changes { networkPathChanged() }
+      }
+    }
+    if activityObserver == nil, let activityChanges {
+      let changes = activityChanges()
+      activityObserver = Task {
+        for await isActive in changes { appActivityChanged(isActive) }
+      }
+    }
+  }
+
+  func networkPathChanged() {
+    eventCounter += 1
+    lastPathChange = eventCounter
+    reprobeDue = true
+    for probe in probes.values { probe.cancel() }
+    probes.removeAll()
+    pendingPathReprobe?.cancel()
+    guard isAppActive else { return }
+    let wait = pathDebounce
+    let sleep = sleeper
+    pendingPathReprobe = Task {
+      guard (try? await sleep(wait)) != nil, !Task.isCancelled else { return }
+      reprobeIfDue()
+    }
+  }
+
+  func appActivityChanged(_ isActive: Bool) {
+    isAppActive = isActive
+    if isActive {
+      reprobeIfDue()
+    } else {
+      pendingPathReprobe?.cancel()
+    }
+  }
+
+  // Probing the LAN while the app is inactive can raise the system's Local
+  // Network prompt with nothing on screen, so a change seen then only marks
+  // a re-probe as due.
+  private func reprobeIfDue() {
+    guard reprobeDue, isAppActive else { return }
+    reprobeDue = false
+    let registered = Set(registeredServers().map(\.absoluteString))
+    for key in knownServers.keys where !registered.contains(key) {
+      knownServers[key] = nil
+      resolved[key] = nil
+      statuses[key] = nil
+      probeStartedAt[key] = nil
+    }
+    for (key, server) in knownServers where (probeStartedAt[key] ?? 0) < lastPathChange {
+      startProbe(identity: server.identity, session: server.session)
+    }
   }
 }
 
 /// Resumes its continuation for whichever caller gets there first, so a race
 /// between a probe and its deadline resumes exactly once.
 @MainActor
-private final class ResumeOnce {
+private final class ProbeWaiter {
   private var continuation: CheckedContinuation<Void, Never>?
+  var deadline: Task<Void, Never>?
+
+  var isPending: Bool { continuation != nil }
 
   init(_ continuation: CheckedContinuation<Void, Never>) {
     self.continuation = continuation
   }
 
   func resume() {
+    deadline?.cancel()
     continuation?.resume()
     continuation = nil
   }

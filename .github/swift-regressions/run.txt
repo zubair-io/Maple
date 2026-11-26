@@ -640,3 +640,5 @@ ScrollRunFolderTests
 BrowseSessionBufferTests
 # LAN candidates probed concurrently (#6036): injected probes, no network.
 LocalNetworkConcurrentProbeTests
+# Network-path-change re-probe of LAN addresses (#6036): injected probes, activity and clock.
+LocalNetworkReprobeTests
