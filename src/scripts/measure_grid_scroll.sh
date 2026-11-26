@@ -215,9 +215,11 @@ run_mac() {
   local count="$1" kind="$2" run="$3" report="$4" reuse=0
   [[ $kind == reopen ]] && reuse=1
   rm -f "$report"
+  # Saved window state is ignored: after a run that quit mid-scroll the system
+  # can restore "no windows", and an app with no window never starts the run.
   open -n -W -a "$MAC_APP" --env "MAPLE_SCROLL_RUN_SEED=$SEED" \
     --env "MAPLE_SCROLL_RUN_COUNT=$count" --env "MAPLE_SCROLL_RUN_REPORT=$report" \
-    --env "MAPLE_SCROLL_RUN_REUSE=$reuse" &
+    --env "MAPLE_SCROLL_RUN_REUSE=$reuse" --args -ApplePersistenceIgnoreState YES &
   wait_or_stop $! mac_app_pid
 }
 
