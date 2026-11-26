@@ -82,29 +82,33 @@ public sealed partial class MainWindow
                 container = PhotoGrid.ContainerFromItem(tile) as FrameworkElement;
                 return container != null;
             }, "the stacked tile was not realized");
-            var visuals = RawJpegStackSmokeVisuals(container!).ToList();
-            var captions = visuals.OfType<TextBlock>().Select(text => text.Text).ToList();
-            if (!captions.Contains("RAW+JPEG"))
-                throw new InvalidOperationException($"The tile has no RAW+JPEG badge (texts: {string.Join(" | ", captions)}).");
+            var expectedName = $"{rawName} and {jpegName}";
+            List<string> captions = new();
+            List<string> accessibleNames = new();
+            await WaitForRawJpegStackSmokeAsync(() =>
+            {
+                var visuals = RawJpegStackSmokeVisuals(container!).ToList();
+                captions = visuals.OfType<TextBlock>().Select(text => text.Text).ToList();
+                accessibleNames = visuals.OfType<FrameworkElement>().Append(container!)
+                    .Select(AutomationProperties.GetName).Where(name => name.Length > 0).ToList();
+                return captions.Contains("RAW+JPEG") && accessibleNames.Contains(expectedName);
+            }, $"the tile never showed the RAW+JPEG badge and the name \"{expectedName}\".",
+                () => $"texts: {string.Join(" | ", captions)}; names: {string.Join(" | ", accessibleNames)}");
             if (captions.Any(text => text == rawName || text == jpegName))
                 throw new InvalidOperationException("The stacked tile still carries a filename caption.");
-            var expectedName = $"{rawName} and {jpegName}";
             evidence["badgeAndCaptions"] = captions;
-            var accessibleNames = visuals.OfType<FrameworkElement>().Append(container!)
-                .Select(AutomationProperties.GetName).Where(name => name.Length > 0).ToList();
-            if (!accessibleNames.Contains(expectedName))
-                throw new InvalidOperationException(
-                    $"No tile element is named \"{expectedName}\" (names: {string.Join(" | ", accessibleNames)}).");
-
             evidence["accessibleName"] = expectedName;
-            ViewModel.SelectedPhoto = tile;
-            RefreshPhotoInfo();
-            var infoRows = FileRows.Children.OfType<MuiLabelValueGrid>()
-                .SelectMany(grid => grid.Rows ?? Array.Empty<MuiLabelValueRow>()).ToList();
-            if (!infoRows.Any(row => row.Label == "JPEG" && row.Value.Contains(jpegName, StringComparison.Ordinal)))
-                throw new InvalidOperationException(
-                    $"Info does not list the JPEG (rows: {string.Join(" | ", infoRows.Select(row => row.Label + "=" + row.Value))}).");
 
+            ViewModel.SelectedPhoto = tile;
+            List<MuiLabelValueRow> infoRows = new();
+            await WaitForRawJpegStackSmokeAsync(() =>
+            {
+                RefreshPhotoInfo();
+                infoRows = FileRows.Children.OfType<MuiLabelValueGrid>()
+                    .SelectMany(grid => grid.Rows ?? Array.Empty<MuiLabelValueRow>()).ToList();
+                return infoRows.Any(row => row.Label == "JPEG" && row.Value.Contains(jpegName, StringComparison.Ordinal));
+            }, "Info does not list the JPEG",
+                () => $"rows: {string.Join(" | ", infoRows.Select(row => row.Label + "=" + row.Value))}");
             evidence["infoRows"] = infoRows.Select(row => row.Label + "=" + row.Value).ToList();
             SetRawJpegStackSwitch(false);
             await WaitForRawJpegStackSmokeAsync(
@@ -188,13 +192,14 @@ public sealed partial class MainWindow
             throw new InvalidOperationException(error);
     }
 
-    private static async Task WaitForRawJpegStackSmokeAsync(Func<bool> condition, string failure)
+    private static async Task WaitForRawJpegStackSmokeAsync(
+        Func<bool> condition, string failure, Func<string>? lastObserved = null)
     {
         var deadline = Environment.TickCount64 + (long)RawJpegStackSmokeWait.TotalMilliseconds;
         while (!condition())
         {
             if (Environment.TickCount64 >= deadline)
-                throw new TimeoutException($"RAW+JPEG stack: {failure}");
+                throw new TimeoutException($"RAW+JPEG stack: {failure}{(lastObserved == null ? "" : " Last saw " + lastObserved())}");
             await Task.Delay(50);
         }
     }
