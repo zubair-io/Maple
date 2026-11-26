@@ -249,6 +249,18 @@ impl GpuContext {
             .get_or_init(|| compile_nr(&self.device, "nr-writeback-color", "writeback_color"))
     }
 
+    /// `box_down`: native plane → 2×2 block means (#6018).
+    pub fn nr_box_down_pipeline(&self) -> &wgpu::ComputePipeline {
+        self.nr_box_down_pipeline
+            .get_or_init(|| compile_nr(&self.device, "nr-box-down", "box_down"))
+    }
+
+    /// `upsample_residual`: native + noisy half + denoised half → native plane.
+    pub fn nr_upsample_residual_pipeline(&self) -> &wgpu::ComputePipeline {
+        self.nr_upsample_residual_pipeline
+            .get_or_init(|| compile_nr(&self.device, "nr-upsample-residual", "upsample_residual"))
+    }
+
     // ── Sharpen (luma-only USM) pipelines (epic #925 P3 wave 2 / #991) ─────────
     //
     // Three standalone kernels: `sharpen_luma.wgsl` (RGBA → luma plane),

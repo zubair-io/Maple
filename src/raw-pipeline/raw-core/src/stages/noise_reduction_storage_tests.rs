@@ -162,7 +162,7 @@ fn color_planes_match_interleaved_adapter_bit_for_bit() {
         let source = synthetic_frame(w, h);
         for profile in profiles() {
             for amount in AMOUNTS {
-                for scale in [1.0, 0.5] {
+                for scale in [0.9, 0.5] {
                     for cancel in [CancelToken::never(), CancelToken::new(&cancelled)] {
                         let mut expected = source.clone();
                         interleaved_color_adapter(

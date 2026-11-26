@@ -397,12 +397,13 @@ pub(super) fn develop_scene_linear_from_padded_mosaic(
         )
     });
     stage("tile_nr_color", || {
-        noise_reduction::apply_color_half_res_cancellable(
+        noise_reduction::apply_color_window_cancellable(
             &mut scene,
             model.nr_color,
             cancel,
             raw.noise_profile.as_deref(),
             raw.iso,
+            1.0,
             scene_origin,
         )
     });

@@ -1,5 +1,7 @@
-//! Half-resolution chroma NR for the full-resolution develop and its deep-zoom
-//! tiles (#6018).
+//! Half-resolution chroma NR at native density (#6018): the full develop, its
+//! deep-zoom tiles, and the scene-linear chains whenever they run at a
+//! sampling scale of one. raw-gpu's `noise_reduction/half_grid.rs` is the
+//! WGSL twin.
 //!
 //! Chroma NLM at native resolution was half of a default 24 MP export. Here
 //! the Oklab a/b planes are box-averaged 2×2 on a grid anchored to the
@@ -10,9 +12,9 @@
 //! continuously from identity at 0 to fully half-resolution chroma at 100.
 //!
 //! The block grid and the fixed 0.25 / 0.75 upsampling weights depend only
-//! on frame coordinates, so a tile whose buffer starts at `origin` reproduces
-//! the whole-frame result away from its edges; [`HALF_RES_CHROMA_REACH_PX`]
-//! is that edge band for the tile overlap calculator.
+//! on frame coordinates, so a tile or native window whose buffer starts at
+//! `origin` reproduces the whole-frame result away from its edges;
+//! [`HALF_RES_CHROMA_REACH_PX`] is that edge band.
 
 use super::{chroma_params, oklab_planes, CHROMA_PATCH_RADIUS};
 use crate::cancel::CancelToken;
@@ -94,10 +96,9 @@ fn sample(plane: &[f32], stride: usize, x: Axis, y: Axis, c: usize, r: usize) ->
     0.75 * (0.75 * at(xn, yn) + 0.25 * at(xf, yn)) + 0.25 * (0.75 * at(xn, yf) + 0.25 * at(xf, yf))
 }
 
-/// Half-resolution sibling of `apply_color_cancellable`. `origin` is the
-/// buffer's top-left in the developed frame: `(0, 0)` for a whole-frame
-/// develop, the trimmed tile's origin for a deep-zoom tile.
-pub fn apply_color_half_res_cancellable(
+/// `origin` is the buffer's top-left in the developed frame: `(0, 0)` for a
+/// whole frame, the trimmed tile's or the native window's origin otherwise.
+pub(super) fn apply_color_half_res_cancellable(
     img: &mut Image,
     amount: f32,
     cancel: CancelToken<'_>,
