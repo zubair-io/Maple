@@ -57,6 +57,14 @@ describe('primaryThumbVersion #6016', () => {
     expect(await primaryThumbVersion(source, memoizedDirectorySafety())).toBeNull();
   });
 
+  it('is null when the volume does not answer in time', async () => {
+    const source = await photo('a.jpg');
+    const stalled = () => new Promise<boolean>(() => {});
+    const started = performance.now();
+    expect(await primaryThumbVersion(source, stalled)).toBeNull();
+    expect(performance.now() - started).toBeLessThan(2000);
+  });
+
   it('is null under a symlinked .maple directory, which the route refuses', async () => {
     const elsewhere = await fs.mkdtemp(join(tmpdir(), 'maple-primary-thumb-elsewhere-'));
     try {

@@ -66,9 +66,28 @@ function statUnlessMissing(file: string) {
   });
 }
 
+/** Search pages are already hydrated from SQLite; a stalled network mount must not hold them. */
+const PRIMARY_THUMB_VERSION_DEADLINE_MS = 250;
+
 /** For a caller holding only an asset's primary path (search, timeline): the same freshness
- * check the thumb route runs, without its legacy-name adoption, which writes. */
+ * check the thumb route runs, without its legacy-name adoption, which writes. Best effort: no
+ * version when the volume does not answer within the deadline. */
 export async function primaryThumbVersion(
+  absPath: string,
+  directorySafe: (directory: string) => Promise<boolean>,
+): Promise<string | null> {
+  let deadline: ReturnType<typeof setTimeout> | undefined;
+  const expired = new Promise<null>((resolve) => {
+    deadline = setTimeout(() => resolve(null), PRIMARY_THUMB_VERSION_DEADLINE_MS);
+  });
+  try {
+    return await Promise.race([checkPrimaryThumbVersion(absPath, directorySafe), expired]);
+  } finally {
+    clearTimeout(deadline);
+  }
+}
+
+async function checkPrimaryThumbVersion(
   absPath: string,
   directorySafe: (directory: string) => Promise<boolean>,
 ): Promise<string | null> {
