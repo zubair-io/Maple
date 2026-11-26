@@ -2,6 +2,7 @@ use crate::{
     color::oklab::{oklab_to_rec2020, rec2020_to_oklab},
     image::{ColorSpace, Image},
 };
+use rayon::prelude::*;
 
 /// Oklab-based chroma scale per spec § 02 ("chroma-preserving saturation in a
 /// gamut-invariant space, not CIColorControls").
@@ -24,9 +25,9 @@ pub fn apply(img: &mut Image, saturation: f32) {
     }
     let scale = 1.0 + saturation / 100.0;
 
-    for p in &mut img.pixels {
+    img.pixels.par_iter_mut().for_each(|p| {
         *p = apply_pixel(*p, scale);
-    }
+    });
 }
 
 /// Fraction of the per-pixel gamut-hull chroma at which the soft-compression

@@ -210,6 +210,7 @@ use crate::{
     math::Matrix3,
     xmp::AdjustmentModel,
 };
+use rayon::prelude::*;
 
 use super::white_balance::{slider_source_xy, xy_to_xyz};
 
@@ -420,11 +421,11 @@ pub fn apply(
         return; // identity short-circuit: as-shot renders unchanged
     }
     let g = camera_wb_gain(frame, as_shot_neutral, temperature, tint);
-    for p in &mut img.pixels {
+    img.pixels.par_iter_mut().for_each(|p| {
         p[0] *= g[0];
         p[1] *= g[1];
         p[2] *= g[2];
-    }
+    });
 }
 
 /// Delta-anchored variant of [`apply`], for the tile-refine / GPU-live
@@ -479,11 +480,11 @@ pub fn apply_delta(
         g_target[1] / g_decoded[1].max(1e-6),
         g_target[2] / g_decoded[2].max(1e-6),
     ];
-    for p in &mut img.pixels {
+    img.pixels.par_iter_mut().for_each(|p| {
         p[0] *= g_net[0];
         p[1] *= g_net[1];
         p[2] *= g_net[2];
-    }
+    });
 }
 
 /// Resolve the DCP profile the develop chain should render with for a
