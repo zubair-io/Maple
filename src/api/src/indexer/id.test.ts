@@ -9,7 +9,7 @@ import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { sha1 } from '@noble/hashes/legacy.js';
-import { deriveId, hashFileForId, SHA1_HEAD_BYTES } from './id.ts';
+import { deriveId, hashFileForId, hashFileHead, SHA1_HEAD_BYTES } from './id.ts';
 
 let tmpDir: string;
 
@@ -98,4 +98,29 @@ describe('hashFileForId', () => {
     const rb = await hashFileForId(b);
     expect(ra.maple_id).not.toBe(rb.maple_id);
   });
+});
+
+describe('hashFileHead', () => {
+  const sizes: [string, number][] = [
+    ['0 bytes', 0],
+    ['1 byte', 1],
+    ['64 KB - 1', SHA1_HEAD_BYTES - 1],
+    ['exactly 64 KB', SHA1_HEAD_BYTES],
+    ['64 KB + 1', SHA1_HEAD_BYTES + 1],
+    ['about 3 MB, across the stream chunks', 3 * 1024 * 1024 + 123],
+  ];
+  for (const [label, size] of sizes) {
+    test(`agrees with hashFileForId on sha1_head and size for ${label}`, async () => {
+      const file = path.join(tmpDir, `head-${size}.bin`);
+      await fs.writeFile(
+        file,
+        Uint8Array.from({ length: size }, (_, i) => (i * 31 + 7) & 0xff),
+      );
+
+      const head = await hashFileHead(file);
+      const full = await hashFileForId(file);
+
+      expect(head).toEqual({ sha1_head: full.sha1_head, size: full.size });
+    });
+  }
 });

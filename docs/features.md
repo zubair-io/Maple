@@ -39,7 +39,7 @@ On the server, a library root is just an absolute local directory validated by `
 
 ### Imports
 
-Server-side import (`src/api/src/imports/`) copies a server-local folder into a registered library and **never moves or deletes the source**. Each file is hashed and skipped if the library already has it. Destination layout is chosen by the first matching rule in `src/api/src/imports/dest.ts`: an explicit per-bucket label wins; otherwise a photo captured within 30 minutes of an already-indexed asset lands in that asset's folder; otherwise `<year>/<parent>/<source-folder>/`; otherwise `<year>/misc/<source-folder>/`. Paired `.xmp` sidecars follow their image. Progress, per-file results, and cancellation are tracked per job. The operator surface is Settings → Imports on web and the server-admin Imports screen on Apple.
+Server-side import (`src/api/src/imports/`) copies a server-local folder into a registered library and **never moves or deletes the source**. Each photo and movie is hashed and skipped if the library already has it; a movie is skipped only when the library being imported into already holds a file with identical content (same size and whole-file hash, checked on disk). Destination layout is chosen by the first matching rule in `src/api/src/imports/dest.ts`: an explicit per-bucket label wins; otherwise a photo captured within 30 minutes of an already-indexed asset lands in that asset's folder; otherwise `<year>/<parent>/<source-folder>/`; otherwise `<year>/misc/<source-folder>/`. Paired `.xmp` sidecars follow their image. Progress, per-file results, and cancellation are tracked per job. The operator surface is Settings → Imports on web and the server-admin Imports screen on Apple.
 
 ### Photos backup to the server
 
