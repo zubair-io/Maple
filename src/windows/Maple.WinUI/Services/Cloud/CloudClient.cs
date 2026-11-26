@@ -43,16 +43,21 @@ namespace Maple.WinUI.Services.Cloud
         public CloudClient(string serverUrl)
             : this(
                 serverUrl,
-                new HttpClientHandler
-                {
-                    CookieContainer = new CookieContainer(),
-                    UseCookies = true,
-                },
+                CreateHandler(),
                 Path.Combine(
                     Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
                     "Maple", "cloud"))
         {
         }
+
+        // The server compresses JSON listings (brotli, else gzip); an
+        // HttpClientHandler sends no Accept-Encoding unless told to decode.
+        internal static HttpClientHandler CreateHandler() => new()
+        {
+            CookieContainer = new CookieContainer(),
+            UseCookies = true,
+            AutomaticDecompression = DecompressionMethods.All,
+        };
 
         /// <summary>Transport seam: the tests hand in a fake
         /// <see cref="HttpMessageHandler"/> that records every request and
