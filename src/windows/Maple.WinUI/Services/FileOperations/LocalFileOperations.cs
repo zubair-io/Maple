@@ -83,11 +83,12 @@ namespace Maple.WinUI.Services.FileOperations
             RelocateMode mode,
             CollisionPolicy collision,
             string? carriedSidecarPath,
-            string[] alsoLeaving)
+            string[] alsoLeaving,
+            bool restoredName = false)
         {
             if (!File.Exists(sourcePrimaryPath))
                 throw new FileOperationException(FileOperationErrorKind.SourceMissing, sourcePrimaryPath);
-            if (newBasename != null) ValidateBareFileName(newBasename);
+            if (newBasename != null) ValidateBareFileName(newBasename, restoredName);
 
             var basename = newBasename ?? Path.GetFileName(sourcePrimaryPath);
             var targetPath = Path.Combine(destinationDir, basename);
@@ -327,6 +328,8 @@ namespace Maple.WinUI.Services.FileOperations
         // folder names — anywhere a caller hands this module a name rather
         // than a full path)
 
+        internal const string MapleFolderName = ".maple";
+
         /// <summary>
         /// Validates that <paramref name="name"/> is a bare file/folder name
         /// this module is safe to <see cref="Path.Combine(string, string)"/>
@@ -336,11 +339,14 @@ namespace Maple.WinUI.Services.FileOperations
         /// relocates OUTSIDE it — a directory-traversal escape, not a
         /// rename. Also rejects the reserved MS-DOS device names, which are
         /// invalid file/folder names on Windows regardless of extension.
+        /// A name a user types may not start with a dot (nothing meant to be
+        /// hidden). <paramref name="restoredName"/> is for a name a file
+        /// already had, which restore puts back: it may start with a dot.
         /// </summary>
-        internal static void ValidateBareFileName(string name)
+        internal static void ValidateBareFileName(string name, bool restoredName = false)
         {
             if (string.IsNullOrEmpty(name) || name.Contains('/') || name.Contains('\\') ||
-                name.StartsWith('.') || name.EndsWith('.') || name.EndsWith(' '))
+                (!restoredName && name.StartsWith('.')) || name.EndsWith('.') || name.EndsWith(' '))
                 throw new FileOperationException(FileOperationErrorKind.InvalidDestination,
                     $"not a valid bare file name: {name}");
 

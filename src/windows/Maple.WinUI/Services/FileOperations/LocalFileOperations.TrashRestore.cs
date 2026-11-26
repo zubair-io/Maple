@@ -41,6 +41,7 @@ using System;
 using System.Collections.Generic;
 using Maple.WinUI.Generated;
 using System.IO;
+using System.Linq;
 using System.Threading.Tasks;
 
 namespace Maple.WinUI.Services.FileOperations
@@ -75,6 +76,7 @@ namespace Maple.WinUI.Services.FileOperations
             var targetPath = ResolveRestoreTargetPath(relativePath, libraryRoot);
             var destinationDir = Path.GetDirectoryName(targetPath) ?? libraryRoot;
             var basename = Path.GetFileName(targetPath);
+            ValidateBareFileName(basename, restoredName: true);
 
             var finalBasename = ResolveRestoredBasename(trashPrimaryPath, destinationDir, basename);
             return await MoveToRestoredNameAsync(trashPrimaryPath, destinationDir, finalBasename).ConfigureAwait(false);
@@ -86,8 +88,10 @@ namespace Maple.WinUI.Services.FileOperations
         internal static async Task<RelocateOutcome> MoveToRestoredNameAsync(
             string trashPrimaryPath, string destinationDir, string finalBasename)
         {
-            var outcome = await RelocateAsync(trashPrimaryPath, destinationDir, finalBasename,
-                RelocateMode.Move, CollisionPolicy.Fail).ConfigureAwait(false);
+            var plan = await PlanRelocateAsync(trashPrimaryPath, destinationDir, finalBasename,
+                RelocateMode.Move, CollisionPolicy.Fail, carriedSidecarPath: null,
+                alsoLeaving: Array.Empty<string>(), restoredName: true).ConfigureAwait(false);
+            var outcome = FinalizeRelocate(plan);
             TryDelete(OriginalPathMarkerFor(trashPrimaryPath));
             return outcome;
         }
@@ -113,6 +117,9 @@ namespace Maple.WinUI.Services.FileOperations
         /// path.</summary>
         internal static string ResolveRestoreTargetPath(string relativePath, string libraryRoot)
         {
+            if (!IsRestorableRelativePath(relativePath))
+                throw new FileOperationException(FileOperationErrorKind.InvalidDestination,
+                    $"recorded original path is not a restorable file location: {relativePath}");
             var rootFull = TrashPaths.NormalizeDir(Path.GetFullPath(libraryRoot));
             var targetFull = Path.GetFullPath(Path.Combine(libraryRoot, relativePath));
             var isUnderRoot = targetFull.StartsWith(
@@ -122,6 +129,26 @@ namespace Maple.WinUI.Services.FileOperations
                     $"recorded original path escapes the library root: {relativePath}");
             return targetFull;
         }
+
+        /// <summary>Judges the recorded path as written, before anything
+        /// resolves it: Windows trims a trailing dot or space and reads `:` as
+        /// a drive or a stream, so a check on the resolved path would see
+        /// something else. Every segment, split on `/` and `\` whatever the
+        /// platform, must be non-empty, not `.` or `..`, free of `:`, not end
+        /// in a dot or space, not a reserved device name (with or without an
+        /// extension) and not a `.maple` folder, so a restore never writes
+        /// into the library's own folder, at any depth. A leading dot on a
+        /// folder or file name is fine. A path Maple records at trash time
+        /// is relative to the library root and made of real Windows names,
+        /// so none of this refuses one.</summary>
+        internal static bool IsRestorableRelativePath(string relativePath) =>
+            relativePath.Split('/', '\\').All(segment =>
+                segment.Length > 0
+                && segment is not ("." or "..")
+                && !segment.Contains(':')
+                && !segment.EndsWith('.') && !segment.EndsWith(' ')
+                && !FilenameVocabulary.ReservedWindowsNames.Contains(segment.Split('.')[0])
+                && !string.Equals(segment, MapleFolderName, StringComparison.OrdinalIgnoreCase));
 
         /// <summary>Best-effort marker recording <paramref name="originalRelativePath"/>
         /// as the exact relative path (from the library root)
@@ -175,7 +202,7 @@ namespace Maple.WinUI.Services.FileOperations
         {
             var rootFull = TrashPaths.NormalizeDir(Path.GetFullPath(libraryRoot));
             var itemFull = Path.GetFullPath(trashItemPath);
-            var trashRoot = TrashPaths.NormalizeDir(Path.Combine(rootFull, ".maple", "trash"));
+            var trashRoot = TrashPaths.NormalizeDir(Path.Combine(rootFull, MapleFolderName, "trash"));
 
             var isRoot = string.Equals(itemFull, trashRoot, StringComparison.OrdinalIgnoreCase);
             var isUnderRoot = itemFull.StartsWith(
