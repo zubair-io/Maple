@@ -23,7 +23,7 @@
 
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
-use raw_core::pipeline::{render_from_raw_with_quality_and_source, RawInput, RenderQuality};
+use raw_core::pipeline::{render_sized_from_raw_with_quality_and_source, RawInput, RenderQuality};
 use std::path::Path;
 
 use crate::develop_common::{atomic_write, load_xmp_model, run_on_large_stack};
@@ -283,11 +283,12 @@ impl RenderDevelopJpegToFileTask {
             let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
             let raw_img = raw_core::decode::decode_bytes(&raw_bytes, ext)
                 .map_err(|e| format!("decode: {e}"))?;
-            let (w, h, bytes) = render_from_raw_with_quality_and_source(
+            let (w, h, bytes) = render_sized_from_raw_with_quality_and_source(
                 &raw_img,
                 &model,
-                RenderQuality::Amaze,
+                RenderQuality::Full,
                 Some(RawInput::Path(path)),
+                max_px,
             )
             .map_err(|e| format!("render: {e}"))?;
             // The develop output is a tightly-packed, display-oriented
@@ -307,9 +308,8 @@ impl RenderDevelopJpegToFileTask {
 
 /// Develop `raw_path` with `xmp_path` applied (`None` = neutral defaults),
 /// downsample to `max_px` on the long edge, JPEG-encode, and write
-/// atomically to `out_path`. Uses AMaZE demosaic (`RenderQuality::Amaze`) —
-/// a cache-populating background stage, not the interactive fast path, so it
-/// favours quality. `quality` is JPEG quality in `[1, 100]`; `0` selects the
+/// atomically to `out_path`. Develops through the sized chain at `max_px`,
+/// matching `maple_render_develop_jpeg_to_file` (#6018). `quality` is JPEG quality in `[1, 100]`; `0` selects the
 /// default (82). Resolves the same shape `renderDevelopJpegToFile` already
 /// returns from the `bun:ffi` backend.
 ///
