@@ -33,7 +33,7 @@ internal fun PanoramaSheet(
     onClose: () -> Unit,
 ) {
     Dialog(
-        onDismissRequest = { if (!state.stitching) onClose() },
+        onDismissRequest = { if (state.closable) onClose() },
         properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false),
     ) {
         Surface(
@@ -62,18 +62,14 @@ internal fun PanoramaSheet(
                 StitchStatus(state, session, onViewResult)
                 state.outputError?.let { Problem(it, "pano-output-error") }
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                    if (state.closable)
+                        TextButton(onClick = onClose, modifier = Modifier.testTag("pano-close")) { Text("Close") }
                     if (state.stitching) {
-                        val cancelling = when (val run = state.stitch) {
-                            is PanoStitchRun.Running -> run.cancelRequested
-                            is PanoStitchRun.Submitting -> run.cancelRequested
-                            else -> false
-                        }
-                        TextButton(onClick = session::cancelStitch, enabled = !cancelling,
+                        TextButton(onClick = session::cancelStitch, enabled = !state.cancelling,
                             modifier = Modifier.testTag("pano-cancel")) {
-                            Text(if (cancelling) "Cancelling…" else "Cancel panorama")
+                            Text(if (state.cancelling) "Cancelling…" else "Cancel panorama")
                         }
                     } else {
-                        TextButton(onClick = onClose, modifier = Modifier.testTag("pano-close")) { Text("Close") }
                         val retained = (state.stitch as? PanoStitchRun.Failed)?.jobId != null
                         if (state.stitch !is PanoStitchRun.Done && !retained)
                             Button(onClick = session::stitch, enabled = state.capabilities?.ready == true,
@@ -187,7 +183,8 @@ private fun <T> Choice(label: String, entries: List<T>, selected: T, name: (T) -
     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         entries.forEach { entry ->
             FilterChip(selected = entry == selected, onClick = { onSelect(entry) }, enabled = !locked,
-                label = { Text(name(entry)) }, modifier = Modifier.testTag("$tag-${name(entry)}"))
+                label = { Text(name(entry)) },
+                modifier = Modifier.testTag("$tag-${name(entry)}").semantics { contentDescription = "$label: ${name(entry)}" })
         }
     }
 }

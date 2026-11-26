@@ -73,6 +73,14 @@ data class PanoramaState(
     val stitching: Boolean
         get() = stitch is PanoStitchRun.Submitting || stitch is PanoStitchRun.Running
 
+    val cancelling: Boolean
+        get() = (stitch as? PanoStitchRun.Submitting)?.cancelRequested == true ||
+            (stitch as? PanoStitchRun.Running)?.cancelRequested == true
+
+    /** A queued job stays queued after a cancel until a worker claims it, so a pending cancel must not hold the sheet. */
+    val closable: Boolean
+        get() = !stitching || cancelling
+
     val capabilities: PanoCapabilities?
         get() = (config as? PanoConfigState.Ready)?.capabilities
 
@@ -168,10 +176,12 @@ internal class PanoramaSession(
         stitchJob = scope.launch {
             val id =
                 try {
-                    withContext(io + NonCancellable) {
-                        client.stitch(inputs.server, inputs.account, request).also { id ->
-                            if (generation != stitchGeneration || !current(opened, inputs)) cancelQuietly(inputs, id)
-                        }
+                    withContext(NonCancellable) {
+                        val posted = withContext(io) { client.stitch(inputs.server, inputs.account, request) }
+                        // Checked on the caller's thread, where close() runs, so an id is never dropped between the two.
+                        if (generation != stitchGeneration || !current(opened, inputs))
+                            withContext(io) { cancelQuietly(inputs, posted) }
+                        posted
                     }
                 } catch (failure: Exception) {
                     if (generation == stitchGeneration)
