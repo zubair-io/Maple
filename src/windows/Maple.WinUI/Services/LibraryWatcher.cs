@@ -27,6 +27,8 @@ namespace Maple.WinUI.Services
         private const int DebounceMs = 900;
 
         private readonly Func<string, bool> _isImageFile;
+        private readonly Func<string, bool>? _isPairCandidate;
+        private int _inventoryDirty;
         private readonly LibraryChangeQueue _queue = new();
         private readonly object _timerGate = new();
         private FileSystemWatcher? _watcher;
@@ -45,9 +47,15 @@ namespace Maple.WinUI.Services
         /// item's rating/flag/color-label state.</summary>
         public event Action<IReadOnlyList<(string OldPath, string NewPath)>>? RenamesReady;
 
-        public LibraryWatcher(Func<string, bool> isImageFile)
+        /// <summary>A RAW or JPEG name the grid does not show (IMG.MEF) came,
+        /// went or was renamed: it never becomes a tile, but it decides whether
+        /// a same-stem RAW and JPEG are still a pair.</summary>
+        public event Action? PairInventoryChanged;
+
+        public LibraryWatcher(Func<string, bool> isImageFile, Func<string, bool>? isPairCandidate = null)
         {
             _isImageFile = isImageFile;
+            _isPairCandidate = isPairCandidate;
         }
 
         public void Watch(string folderPath)
@@ -86,12 +94,24 @@ namespace Maple.WinUI.Services
                 _debounce = null;
             }
             _queue.Clear();
+            Interlocked.Exchange(ref _inventoryDirty, 0);
+        }
+
+        private void NoteInventoryChange(string path)
+        {
+            if (_isImageFile(path) || _isPairCandidate?.Invoke(path) != true)
+                return;
+            Interlocked.Exchange(ref _inventoryDirty, 1);
+            RearmDebounce();
         }
 
         private void QueueAdded(string path)
         {
             if (!_isImageFile(path))
+            {
+                NoteInventoryChange(path);
                 return;
+            }
             _queue.QueueAdded(path);
             RearmDebounce();
         }
@@ -99,7 +119,10 @@ namespace Maple.WinUI.Services
         private void QueueRemoved(string path)
         {
             if (!_isImageFile(path))
+            {
+                NoteInventoryChange(path);
                 return;
+            }
             _queue.QueueRemoved(path);
             RearmDebounce();
         }
@@ -112,6 +135,8 @@ namespace Maple.WinUI.Services
         {
             var oldIsImage = _isImageFile(oldPath);
             var newIsImage = _isImageFile(newPath);
+            NoteInventoryChange(oldPath);
+            NoteInventoryChange(newPath);
             if (!oldIsImage && !newIsImage)
                 return;
             if (!oldIsImage)
@@ -162,6 +187,8 @@ namespace Maple.WinUI.Services
                 ChangesReady?.Invoke(resolved.Added, resolved.Removed);
             if (resolved.Renamed.Count > 0)
                 RenamesReady?.Invoke(resolved.Renamed);
+            if (Interlocked.Exchange(ref _inventoryDirty, 0) == 1)
+                PairInventoryChanged?.Invoke();
 
             if (resolved.UnstableAdded.Count == 0 && resolved.UnstableRenamed.Count == 0)
                 return;
