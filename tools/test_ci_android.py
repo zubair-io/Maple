@@ -307,7 +307,7 @@ class AndroidReportTests(unittest.TestCase):
 
 
 class AndroidScriptTests(unittest.TestCase):
-    def run_script(self, name, *args, fail_until=0):
+    def run_script(self, name, *args, fail_until=0, in_fake_project=False):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             binary = root / "bin"
@@ -321,6 +321,11 @@ class AndroidScriptTests(unittest.TestCase):
                 path = binary / name_
                 path.write_text("#!/bin/sh\n" + text + "\n")
                 path.chmod(0o755)
+            gradlew = root / "gradlew"
+            gradlew.write_text(
+                '#!/bin/sh\necho "$*" >> "$COMMANDS"\ncount=$(wc -l < "$COMMANDS")\n[ "$count" -gt "$FAIL_UNTIL" ]\n'
+            )
+            gradlew.chmod(0o755)
             for host in ("darwin-x86_64", "linux-x86_64"):
                 toolchain = (
                     root / "ndk/28.2.13676358/toolchains/llvm/prebuilt" / host / "bin"
@@ -333,6 +338,7 @@ class AndroidScriptTests(unittest.TestCase):
             result = subprocess.run(
                 ["bash", str(SCRIPTS / name), *args],
                 check=False,
+                cwd=root if in_fake_project else None,
                 env={
                     **os.environ,
                     "PATH": f"{binary}:{os.environ['PATH']}",
@@ -363,6 +369,26 @@ class AndroidScriptTests(unittest.TestCase):
                 self.assertEqual(len(commands), expected_attempts)
                 self.assertTrue(
                     all("ndk;28.2.13676358" in command for command in commands)
+                )
+
+    def test_dependency_resolution_retry_is_bounded_and_never_turns_exhaustion_green(
+        self,
+    ):
+        for failures, expected_attempts, success in (
+            (0, 1, True),
+            (1, 2, True),
+            (10, 4, False),
+        ):
+            with self.subTest(failures=failures):
+                result, commands = self.run_script(
+                    "resolve-ci-dependencies.sh",
+                    fail_until=failures,
+                    in_fake_project=True,
+                )
+                self.assertEqual(result.returncode == 0, success, result.stderr)
+                self.assertEqual(len(commands), expected_attempts)
+                self.assertTrue(
+                    all(":app:resolveCiDependencies" in command for command in commands)
                 )
 
     def test_requested_native_abis_build_with_locked_dependencies(self):
