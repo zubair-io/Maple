@@ -141,6 +141,8 @@ namespace Maple.WinUI
             AddRow(FileRows, "Name", photo.FileName);
             AddRow(FileRows, "Format", photo.Format);
             AddRow(FileRows, "Size", Services.StorageReport.FormatBytes(photo.FileSizeBytes));
+            if (photo.StackCompanion is { } jpeg)
+                AddRow(FileRows, "JPEG", $"{jpeg.FileName} · {Services.StorageReport.FormatBytes(jpeg.FileSizeBytes)}");
             AddRow(FileRows, "Modified", photo.FileModifiedUtc == default ? "—"
                 : photo.FileModifiedUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm"));
             AddRow(FileRows, "Pixels", photo.Dimensions);

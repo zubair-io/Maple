@@ -43,7 +43,8 @@ namespace Maple.WinUI.ViewModels
                 Key: p.FilePath,
                 Directory: Path.GetDirectoryName(p.FilePath) ?? string.Empty,
                 CurrentFileName: p.FileName,
-                CurrentPath: p.FilePath)).ToList();
+                CurrentPath: p.FilePath,
+                CompanionPath: p.StackCompanion?.FilePath)).ToList();
 
         /// <summary>True when at least one of <paramref name="sources"/>
         /// would actually relocate somewhere new if dropped/moved onto
@@ -93,8 +94,10 @@ namespace Maple.WinUI.ViewModels
                     if (outcome.NewPath == null) continue;
                     if (!byKey.TryGetValue(outcome.Key, out var photo)) continue;
                     var newPath = outcome.NewPath;
-                    OnUi(() => ApplyRenameOutcome(photo, newPath));
+                    var newCompanionPath = outcome.CompanionNewPath;
+                    OnUi(() => ApplyStackRelocation(photo, newPath, newCompanionPath));
                 }
+                OnUi(RefoldRawJpegStacks);
             }
             return outcomes;
         }

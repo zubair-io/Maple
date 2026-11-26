@@ -176,6 +176,8 @@ namespace Maple.WinUI.ViewModels
             AllPhotos.Clear();
             BrowseFolders.Clear();
 
+            _cloudFoldsRawJpegStacks = false;
+            var foldsStacks = CloudFoldsRawJpegStacksAsync(_cloud, cts.Token);
             var truncated = false;
             var failed = false;
             string? cursor = null;
@@ -222,6 +224,10 @@ namespace Maple.WinUI.ViewModels
                     cursor = listing.NextCursor;
                 }
                 while (!truncated && !string.IsNullOrEmpty(cursor) && !cts.Token.IsCancellationRequested);
+                var folds = await foldsStacks;
+                if (_libraryCts != cts)
+                    return;
+                _cloudFoldsRawJpegStacks = folds;
             }
             catch (OperationCanceledException)
             {
@@ -234,6 +240,8 @@ namespace Maple.WinUI.ViewModels
                 return;
             }
 
+            ApplyFilters();
+            var photos = RawJpegStackFold.Tiles(AllPhotos).ToList();
             // A failed page must win over the count: a partial (or empty) grid
             // described as "0 photos" reads as an empty folder, which is a
             // different and much more alarming fact than a request that
@@ -242,12 +250,10 @@ namespace Maple.WinUI.ViewModels
                 ? $"Couldn't list {node.Name} — see maple.log"
                 : truncated
                     ? $"Showing the first {CloudDirMaxImages} photos in {node.Name}."
-                    : $"{node.Name} — {AllPhotos.Count} photo{(AllPhotos.Count == 1 ? "" : "s")}.";
+                    : $"{node.Name} — {photos.Count} photo{(photos.Count == 1 ? "" : "s")}.";
 
-            ApplyFilters();
             FinishBrowse(cts, failed ? "Could not load this folder. Select it to retry." : string.Empty);
             Timeline.GroupPhotosByDate(AllPhotos);
-            var photos = AllPhotos.ToList();
             _ = Task.Run(() => HydrateCloudThumbnailsAsync(photos, cts.Token), cts.Token);
         }
 

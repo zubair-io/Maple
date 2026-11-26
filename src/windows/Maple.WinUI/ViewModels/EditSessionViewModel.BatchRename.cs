@@ -54,7 +54,8 @@ namespace Maple.WinUI.ViewModels
                     CurrentPath: p.FilePath,
                     OriginalStem: stem,
                     Ext: ext,
-                    CapturedAtWire: ExifWireFormat(p.CaptureDate));
+                    CapturedAtWire: ExifWireFormat(p.CaptureDate),
+                    CompanionPath: p.StackCompanion?.FilePath);
             }).ToList();
 
         /// <summary>Live before/after preview for the batch-rename dialog —
@@ -103,8 +104,10 @@ namespace Maple.WinUI.ViewModels
                 if (!byKey.TryGetValue(outcome.Key, out var photo)) continue;
                 if (string.Equals(photo.FilePath, outcome.NewPath, StringComparison.Ordinal)) continue;
                 var newPath = outcome.NewPath;
-                OnUi(() => ApplyRenameOutcome(photo, newPath));
+                var newCompanionPath = outcome.CompanionNewPath;
+                OnUi(() => ApplyStackRelocation(photo, newPath, newCompanionPath));
             }
+            OnUi(RefoldRawJpegStacks);
             return outcomes;
         }
 

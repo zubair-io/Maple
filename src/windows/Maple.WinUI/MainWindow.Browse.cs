@@ -58,7 +58,7 @@ namespace Maple.WinUI
             for (var source = e.OriginalSource as DependencyObject; source != null && !ReferenceEquals(source, sender);
                  source = VisualTreeHelper.GetParent(source))
             {
-                if (source is TextBox || source is FrameworkElement { Name: "GridPhotoFileName" }) return;
+                if (source is TextBox) return;
             }
             var ctrl = InputKeyboardSource.GetKeyStateForCurrentThread(VirtualKey.Control)
                 .HasFlag(Windows.UI.Core.CoreVirtualKeyStates.Down);

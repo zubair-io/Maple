@@ -550,6 +550,7 @@
                                     </MenuFlyoutItem.Icon>
                                 </MenuFlyoutItem>
                                 <MenuFlyoutSeparator x:Name="RevealInExplorerSeparator" />
+                                <MenuFlyoutItem Text="Rename" Click="OnRenameSelectedPhoto" AutomationProperties.Name="Rename photo" />
                                 <MenuFlyoutItem Text="Delete…" Click="OnDeleteSelectedPhotos"
                                                 AutomationProperties.Name="Delete selected photos" />
                             </MenuFlyout>
@@ -579,22 +580,17 @@
                                     <Image Source="{Binding ThumbnailPath}" Stretch="UniformToFill" />
                                     <Border HorizontalAlignment="Right" VerticalAlignment="Top" Margin="4"
                                             Padding="5,1" CornerRadius="3" Background="#CC141210">
-                                        <TextBlock Text="{Binding Format}" FontSize="9" FontWeight="Bold"
+                                        <TextBlock Text="{Binding FormatBadge}" FontSize="9" FontWeight="Bold"
                                                    Foreground="{StaticResource MapleTextMuted}" />
                                     </Border>
                                     <Ellipse Width="8" Height="8" Fill="#4CAF50" Margin="6"
                                              HorizontalAlignment="Left" VerticalAlignment="Top"
                                              Visibility="{Binding FlagStatus, Converter={StaticResource PickVisible}}" />
-                                    <Border VerticalAlignment="Bottom" Background="#B3141210" Padding="6,3">
+                                    <Border VerticalAlignment="Bottom" Background="#B3141210" Padding="6,3"
+                                            Visibility="{Binding ShowsTileFooter, Converter={StaticResource BoolVisible}}">
                                         <Grid>
-                                            <!-- Inline rename (#2639): F2 or double-click swaps this
-                                                 TextBlock for the TextBox below. Same PhotoItem, so both
-                                                 surfaces stay in sync via IsRenaming/RenameText. -->
-                                            <TextBlock x:Name="GridPhotoFileName" Text="{Binding FileName}" FontSize="10"
-                                                       Foreground="{StaticResource MapleTextMain}"
-                                                       TextTrimming="CharacterEllipsis" Margin="0,0,48,0"
-                                                       Visibility="{Binding IsRenaming, Converter={StaticResource InverseBoolVisible}}"
-                                                       DoubleTapped="OnFileNameDoubleTapped" />
+                                            <!-- The tile carries no filename caption (#5848). Inline rename
+                                                 (#2639): F2 shows this field over the tile. -->
                                             <TextBox Text="{Binding RenameText, Mode=TwoWay}" FontSize="10"
                                                       Padding="2,0" Margin="0,0,48,0"
                                                       Visibility="{Binding IsRenaming, Converter={StaticResource BoolVisible}}"
