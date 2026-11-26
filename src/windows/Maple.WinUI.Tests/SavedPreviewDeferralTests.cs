@@ -102,7 +102,7 @@ namespace Maple.WinUI.Tests
             Assert.Equal(new[] { A, B, C }, change.Release);
             Assert.False(change.Cancel);
             Assert.False(change.Next.Editing);
-            Assert.Empty(change.Next.Owed);
+            Assert.Equal(new[] { A, B, C }, change.Next.Owed);
         }
 
         [Fact]
@@ -192,9 +192,35 @@ namespace Maple.WinUI.Tests
         }
 
         [Fact]
-        public void ReleasedDebt_IsNotReleasedAgainOnTheNextEditSession()
+        public void ReleasedDebt_StaysOwedUntilARefreshIsConfirmed()
         {
             var left = Editing().Request(A).Next.Enter(ShellMode.Preview, Nothing).Next;
+
+            var cancelled = left.Settle(A, SavedPreviewRefreshOutcome.Cancelled);
+            var refreshed = cancelled.Settle(A, SavedPreviewRefreshOutcome.Refreshed);
+
+            Assert.Equal(new[] { A }, left.Owed);
+            Assert.Equal(new[] { A }, cancelled.Owed);
+            Assert.Empty(refreshed.Owed);
+        }
+
+        [Fact]
+        public void ReleasedDebt_ThatWasNeverConfirmed_IsReleasedAgainAndNotDuplicated()
+        {
+            var left = Editing().Request(A).Next.Enter(ShellMode.Preview, Nothing).Next;
+
+            var backInEdit = left.Enter(ShellMode.Edit, new[] { A }).Next;
+            var again = backInEdit.Enter(ShellMode.Preview, Nothing);
+
+            Assert.Equal(new[] { A }, backInEdit.Owed);
+            Assert.Equal(new[] { A }, again.Release);
+        }
+
+        [Fact]
+        public void SettledDebt_IsNotReleasedAgainOnTheNextEditSession()
+        {
+            var left = Editing().Request(A).Next.Enter(ShellMode.Preview, Nothing).Next
+                .Settle(A, SavedPreviewRefreshOutcome.Refreshed);
 
             var again = left.Enter(ShellMode.Edit, Nothing).Next.Enter(ShellMode.Preview, Nothing);
 

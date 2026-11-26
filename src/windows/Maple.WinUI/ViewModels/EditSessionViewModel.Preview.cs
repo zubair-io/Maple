@@ -64,13 +64,15 @@ public partial class EditSessionViewModel
 
     private void RefreshOwedThumbnails(IReadOnlyList<PhotoItem> photos)
     {
-        var batch = new OwedThumbnails(new CancellationTokenSource(), photos);
+        var everyOwed = (_owedThumbnails?.Photos ?? Array.Empty<PhotoItem>()).Concat(photos).Distinct().ToArray();
+        CancelOwedThumbnails();
+        var batch = new OwedThumbnails(new CancellationTokenSource(), everyOwed);
         _owedThumbnails = batch;
         var cancellation = batch.Cancellation.Token;
         _ = Task.Run(async () =>
         {
             var outcomes = new List<(PhotoItem Photo, SavedPreviewRefreshOutcome Outcome)>();
-            foreach (var photo in photos)
+            foreach (var photo in everyOwed)
             {
                 if (_disposed || cancellation.IsCancellationRequested)
                 {
@@ -79,8 +81,9 @@ public partial class EditSessionViewModel
                 }
                 try
                 {
-                    await RefreshLocalThumbnailAsync(photo, cancellation);
-                    outcomes.Add((photo, SavedPreviewRefreshOutcome.Refreshed));
+                    var published = await RefreshLocalThumbnailAsync(photo, cancellation);
+                    outcomes.Add((photo, cancellation.IsCancellationRequested ? SavedPreviewRefreshOutcome.Cancelled
+                        : published ? SavedPreviewRefreshOutcome.Refreshed : SavedPreviewRefreshOutcome.Failed));
                 }
                 catch (OperationCanceledException) { outcomes.Add((photo, SavedPreviewRefreshOutcome.Cancelled)); }
                 catch (Exception error)
@@ -91,7 +94,7 @@ public partial class EditSessionViewModel
             }
             OnUi(() =>
             {
-                // A batch cancelled by entering Edit was already re-owed in full by that change.
+                // A batch replaced by a later one or cancelled by entering Edit is covered by its successor.
                 if (ReferenceEquals(_owedThumbnails, batch))
                 {
                     _owedThumbnails = null;
@@ -100,6 +103,14 @@ public partial class EditSessionViewModel
                 batch.Cancellation.Dispose();
             });
         });
+    }
+
+    private void RetryOwedAfterSelectionMoved(PhotoItem photo)
+    {
+        if (_savedPreviews.Editing || ReferenceEquals(photo, SelectedPhoto)
+            || !_savedPreviews.Owed.Contains(photo) || !AllPhotos.Contains(photo)) return;
+        photo.PreviewPath = null;
+        RefreshOwedThumbnails(new[] { photo });
     }
 
     private void RefreshSelectedSavedPreview(PhotoItem photo)
@@ -163,8 +174,9 @@ public partial class EditSessionViewModel
                 if (current) _previewRequest = null;
                 var cancelled = request.IsCancellationRequested;
                 request.Dispose();
+                if (cancelled && hasSidecar && !_disposed) RetryOwedAfterSelectionMoved(photo);
                 if (_disposed || cancelled || !current || version != _photoOpenVersion || !ReferenceEquals(photo, SelectedPhoto)) return;
-                if (hasSidecar && path != null) _savedPreviews = _savedPreviews.Settle(photo, SavedPreviewRefreshOutcome.Refreshed);
+                if (hasSidecar && path != null && thumbnail != null) _savedPreviews = _savedPreviews.Settle(photo, SavedPreviewRefreshOutcome.Refreshed);
                 photo.PreviewPath = path == null ? null : new Uri(path).AbsoluteUri;
                 if (thumbnail != null) photo.ThumbnailPath = new Uri(thumbnail).AbsoluteUri;
                 if (path == null) EnsureDecoded();

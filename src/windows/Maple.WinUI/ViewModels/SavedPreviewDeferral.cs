@@ -14,8 +14,9 @@ namespace Maple.WinUI.ViewModels
     /// photo may be developed (#4374). In Edit the editor's own decode and
     /// Auto fit must not share the machine with a second develop of the same
     /// photo at another size, so the develop is not started: the photo is owed
-    /// instead, and every owed photo is released when the shell returns to
-    /// Preview or Browse.
+    /// instead, and every owed photo is released for refresh when the shell
+    /// returns to Preview or Browse. A photo stays owed until a refresh of it
+    /// is confirmed published (<see cref="Settle"/>).
     /// </summary>
     public sealed record SavedPreviewDeferral(bool Editing, IReadOnlyList<PhotoItem> Owed)
     {
@@ -36,7 +37,7 @@ namespace Maple.WinUI.ViewModels
                 ? new SavedPreviewModeChange(
                     new SavedPreviewDeferral(true, Owed.Concat(inFlight).Distinct().ToArray()),
                     inFlight.Count > 0, Array.Empty<PhotoItem>())
-                : new SavedPreviewModeChange(Idle, false, Owed);
+                : new SavedPreviewModeChange(this with { Editing = false }, false, Owed);
         }
 
         public SavedPreviewDeferral Settle(PhotoItem photo, SavedPreviewRefreshOutcome outcome) =>
