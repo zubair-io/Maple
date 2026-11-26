@@ -308,6 +308,29 @@ final class FileProviderRootPlacementTests: XCTestCase {
     XCTAssertEqual(served, [Self.library])
   }
 
+  func testRevalidatingAnUnchangedListDoesNotRewriteTheSavedCopy() async throws {
+    let script = FetchScript([.success([Self.library])])
+    let suite = "placement-\(UUID().uuidString)"
+    let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+    defer { defaults.removePersistentDomain(forName: suite) }
+    let domainID = "placement-\(UUID().uuidString)"
+    let cache = LibraryRootCache(domainID: domainID, defaults: defaults) { try script.next() }
+    _ = try await cache.roots()
+    let key = "fileprovider.\(domainID).library-roots"
+    let marker = Data("saved before the revalidation".utf8)
+    defaults.set(marker, forKey: key)
+
+    // A new fetch only starts once the previous one has finished and applied.
+    let deadline = ContinuousClock.now.advanced(by: .seconds(5))
+    while script.callCount < 4, ContinuousClock.now < deadline {
+      await cache.revalidate()
+      try await Task.sleep(for: .milliseconds(5))
+    }
+
+    XCTAssertGreaterThanOrEqual(script.callCount, 4)
+    XCTAssertEqual(defaults.data(forKey: key), marker)
+  }
+
   func testAPathlessChangeWhoseMetadataFailsIsSkippedNotPlacedAtTheTopLevel() async {
     let session = URLSession.stubbedSequence { req in
       let path = req.url!.path
@@ -357,6 +380,76 @@ final class FileProviderRootPlacementTests: XCTestCase {
     XCTAssertEqual(data[photo] ?? nil, thumbBytes)
     XCTAssertEqual(data.keys.contains(video), true, "every requested item gets an answer")
     XCTAssertNil(data[video] ?? nil, "a non-indexed file keeps the system icon")
+  }
+
+  func testThumbnailsForAScreenfulDownloadSideBySideAndReachTheirOwnItem() async {
+    let config = URLSessionConfiguration.ephemeral
+    config.protocolClasses = [DelayedThumbProtocol.self]
+    let session = URLSession(configuration: config)
+    let http = AuthenticatedHTTPClient(
+      server: FPCoreTestSupport.server, urlSession: session,
+      tokensProvider: { AuthTokens(access: "A1", refresh: "R1") },
+      onTokensRefreshed: { _ in }, onSignOut: {})
+    let catalog = RemoteCatalog(
+      http: http, server: FPCoreTestSupport.server, downloadURLSession: session)
+    let core = FPCoreTestSupport.makeCore(catalog: catalog, roots: [Self.library], test: self)
+    let assetIDs = (1...12).map { String(format: "%024d", $0) }
+    let identifiers = assetIDs.map {
+      NSFileProviderItemIdentifier(FileProviderIdentifier.asset($0).rawValue)
+    }
+    let delivered = Delivered()
+    DelayedThumbProtocol.inFlight.reset()
+
+    await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
+      _ = core.fetchThumbnails(
+        for: identifiers, requestedSize: CGSize(width: 256, height: 256),
+        perThumbnailCompletionHandler: { identifier, data, _ in delivered.record(identifier, data) },
+        completionHandler: { _ in done.resume() })
+    }
+
+    let data = delivered.data
+    for (identifier, assetID) in zip(identifiers, assetIDs) {
+      XCTAssertEqual(data[identifier] ?? nil, Data("/api/assets/\(assetID)/thumb".utf8))
+    }
+    let peak = DelayedThumbProtocol.inFlight.peak
+    XCTAssertGreaterThan(peak, 1)
+    XCTAssertLessThanOrEqual(peak, FileProviderExtensionCore.concurrentThumbnailFetches)
+  }
+
+  /// Answers each request with its own path after 50 ms, off the loading thread,
+  /// so overlapping downloads are visible.
+  private final class DelayedThumbProtocol: URLProtocol {
+    static let inFlight = InFlight()
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func startLoading() {
+      Self.inFlight.enter()
+      DispatchQueue.global().asyncAfter(deadline: .now() + 0.05) { [self] in
+        let url = request.url!
+        let response = HTTPURLResponse(
+          url: url, statusCode: 200, httpVersion: "HTTP/1.1", headerFields: nil)!
+        Self.inFlight.leave()
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: Data(url.path.utf8))
+        client?.urlProtocolDidFinishLoading(self)
+      }
+    }
+    override func stopLoading() {}
+  }
+
+  private final class InFlight: @unchecked Sendable {
+    private let lock = NSLock()
+    private var current = 0
+    private var highest = 0
+    func reset() { lock.withLock { (current, highest) = (0, 0) } }
+    func enter() {
+      lock.withLock {
+        current += 1
+        highest = max(highest, current)
+      }
+    }
+    func leave() { lock.withLock { current -= 1 } }
+    var peak: Int { lock.withLock { highest } }
   }
 
   private final class Delivered: @unchecked Sendable {
