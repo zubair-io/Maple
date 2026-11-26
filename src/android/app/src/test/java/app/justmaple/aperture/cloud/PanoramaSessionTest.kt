@@ -1,10 +1,7 @@
 package app.justmaple.aperture.cloud
 
-import android.os.CancellationSignal
 import app.justmaple.aperture.data.LibraryListing
 import app.justmaple.aperture.data.Photo
-import java.io.File
-import java.io.OutputStream
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceTimeBy
@@ -23,95 +20,10 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [36])
 class PanoramaSessionTest {
-    private data class Call(val method: String, val path: String, val body: JSONObject?)
-
-    /** The panorama and folder routes, answered in-process. */
-    private class FakeServer : CloudTransport {
-        val calls = mutableListOf<Call>()
-        var capabilities = JSONObject()
-            .put("enabled", true).put("maple_cli_path", "/opt/maple-cli")
-            .put("strategy_supported", true).put("preview_supported", true)
-            .put("edges_supported", true).put("seamConstraintsSupported", true)
-        val jobs = mutableMapOf<String, JSONObject>()
-        var next = 0
-        var refuse: Pair<Int, JSONObject>? = null
-        var onPost: (String) -> Unit = {}
-
-        fun job(id: String, status: String, result: JSONObject? = null, current: Int = 0) {
-            jobs[id] = JSONObject().put("id", id).put("kind", if (id.startsWith("p")) "pano_preview" else "pano_stitch")
-                .put("status", status).put("progress", JSONObject().put("current", current).put("total", 600))
-                .put("result", result ?: JSONObject.NULL).put("error", if (status == "failed") "Not enough overlap" else JSONObject.NULL)
-                .put("cancel_requested", false)
-        }
-
-        private fun json(value: Any, status: Int = 200) = CloudResponse(status, value.toString().toByteArray(), null, null)
-
-        var failJobs = false
-        var failDelete = false
-        val accounts = mutableSetOf<String>()
-
-        override fun request(id: String, path: String, method: String, body: String?, headers: Map<String, String>): CloudResponse =
-            error("Panorama requests must name the account that started them")
-
-        override fun request(id: String, path: String, method: String, body: String?, headers: Map<String, String>, account: String): CloudResponse {
-            assertEquals("s1", id)
-            accounts += account
-            if (failDelete && method == "DELETE") throw java.io.IOException("unreachable")
-            if (failJobs && method == "GET" && path.startsWith("/api/pano/jobs/")) throw java.io.IOException("unreachable")
-            calls += Call(method, path, body?.let(::JSONObject))
-            if (body != null) assertEquals("application/json", headers["Content-Type"])
-            return when {
-                path == "/api/pano/config" -> json(capabilities)
-                path == "/api/folders" -> json(JSONArray()
-                    .put(JSONObject().put("id", "a".repeat(24)).put("slug", "lib").put("path", "/srv/lib"))
-                    .put(JSONObject().put("id", "b".repeat(24)).put("slug", "nested").put("path", "/srv/lib/nested")))
-                method == "POST" -> {
-                    refuse?.let { (status, error) -> return json(error, status) }
-                    val created = (if (path.endsWith("preview")) "p" else "s") + ++next
-                    job(created, "queued")
-                    onPost(created)
-                    json(JSONObject().put("id", created), 201)
-                }
-                method == "DELETE" -> {
-                    val target = path.substringAfterLast('/')
-                    jobs[target]?.put("cancel_requested", true)
-                    json(JSONObject().put("ok", true))
-                }
-                path.endsWith("/preview") -> CloudResponse(200, byteArrayOf(0x89.toByte(), 'P'.code.toByte()), null, null)
-                else -> jobs[path.substringAfterLast('/')]?.let(::json) ?: json(JSONObject().put("error", "Pano job not found"), 404)
-            }
-        }
-
-        override fun download(id: String, path: String, output: OutputStream, signal: CancellationSignal?) = error("unused")
-        override fun upload(id: String, path: String, file: File, headers: Map<String, String>, account: String) = error("unused")
-
-        fun posts(kind: String) = calls.filter { it.method == "POST" && it.path == "/api/pano/$kind" }
-        fun deletes() = calls.filter { it.method == "DELETE" }.map { it.path.substringAfterLast('/') }
-    }
-
-    private fun photo(name: String, server: String = "s1", folder: String = "2026") =
-        Photo(CloudLibrary.address(server, "lib:$folder/$name", "/srv/lib/$folder/$name"), name, 1, 0, null)
-
-    private val selection = listOf(photo("c.dng"), photo("a.dng"), photo("b.dng"))
-    private val previewResult = JSONObject().put("width", 2047).put("height", 722)
-        .put("frames", JSONArray()
-            .put(JSONObject().put("assetId", "1".repeat(24)).put("path", "/srv/lib/2026/a.dng"))
-            .put(JSONObject().put("assetId", "2".repeat(24)).put("path", "/srv/lib/2026/b.dng"))
-            .put(JSONObject().put("assetId", "3".repeat(24)).put("path", "/srv/lib/2026/c.dng")))
-
     private var signedIn: String? = "https://photos.example.com#me"
 
     private fun TestScope.session(server: FakeServer, listing: LibraryListing = LibraryListing(emptyList(), emptyList())) =
-        PanoramaSession(this, PanoramaClient(server), { if (it == "s1") signedIn else null }, { listing }, coroutineContext[kotlin.coroutines.ContinuationInterceptor]!!)
-
-    private fun TestScope.finishPreview(server: FakeServer, session: PanoramaSession, id: String) {
-        advanceTimeBy(PanoramaSession.PREVIEW_DEBOUNCE_MS + 1)
-        runCurrent()
-        server.job(id, "done", previewResult)
-        advanceTimeBy(PanoramaSession.PREVIEW_POLL_MS + 1)
-        runCurrent()
-        assertNotNull(session.state.value.image)
-    }
+        panoramaSession(server, listing) { signedIn }
 
     @Test
     fun refusesSelectionsThatNoServerCanMerge() {
@@ -455,140 +367,6 @@ class PanoramaSessionTest {
         session.close()
         runCurrent()
         assertEquals("Nothing is left to cancel on close", listOf("p1"), server.deletes())
-    }
-
-    private val seams = PanoSeamConstraints(2047, 722, listOf(
-        PanoSeamRegion(PanoSeamKind.Include, 1, 1000, 300, 40, 30),
-        PanoSeamRegion(PanoSeamKind.Exclude, 2, 1800, 10, 200, 100),
-    ))
-
-    @Test
-    fun seamRegionsPreviewAndStitchAsV1WithTheirAlignment() = runTest {
-        val server = FakeServer()
-        val session = session(server)
-        session.open(selection)
-        finishPreview(server, session, "p1")
-        seams.regions.forEach { assertNull(session.addSeam(it)) }
-        assertEquals(seams, session.state.value.seams)
-        session.previewSeams()
-        advanceTimeBy(PanoramaSession.PREVIEW_DEBOUNCE_MS + 1)
-        runCurrent()
-        val constrained = server.posts("preview").last().body!!
-        assertEquals("p1", constrained.getString("alignmentFrom"))
-        assertEquals(seams.json().toString(), constrained.getJSONObject("seamConstraints").toString())
-        assertEquals(
-            """{"version":1,"canvas":{"width":2047,"height":722},"regions":[""" +
-                """{"kind":"include","frame":1,"x":1000,"y":300,"width":40,"height":30},""" +
-                """{"kind":"exclude","frame":2,"x":1800,"y":10,"width":200,"height":100}]}""",
-            constrained.getJSONObject("seamConstraints").toString(),
-        )
-        server.job("p2", "done", JSONObject(previewResult.toString()).put("seamConstraints", seams.json()))
-        advanceTimeBy(PanoramaSession.PREVIEW_POLL_MS + 1)
-        runCurrent()
-        assertEquals("p2", session.state.value.image!!.jobId)
-        assertEquals("The finished preview echoes its regions", seams, session.state.value.image!!.seams)
-        assertNull(session.state.value.seamBlocked)
-
-        session.stitch()
-        runCurrent()
-        val stitch = server.posts("stitch").single().body!!
-        assertEquals("p2", stitch.getString("alignmentFrom"))
-        assertEquals(seams.json().toString(), stitch.getJSONObject("seamConstraints").toString())
-        assertEquals("Regions lock while merging", session.state.value.seamBlocked,
-            "Seam regions are locked while the panorama is merging.")
-        session.removeSeam(0)
-        assertEquals(seams, session.state.value.seams)
-        session.cancelStitch()
-        runCurrent()
-        assertEquals(listOf("s3"), server.deletes())
-        server.job("s3", "cancelled")
-        advanceTimeBy(PanoramaSession.STITCH_POLL_MS + 1)
-        runCurrent()
-        assertEquals(PanoStitchRun.Cancelled, session.state.value.stitch)
-        assertEquals("Cancelling keeps the authored regions", seams, session.state.value.seams)
-        session.removeSeam(0)
-        assertEquals(listOf(seams.regions[1]), session.state.value.seams!!.regions)
-        session.clearSeams()
-        assertNull(session.state.value.seams)
-        session.close()
-        runCurrent()
-    }
-
-    @Test
-    fun seamRegionsNeedACurrentRotationPreviewOnASupportingServer() = runTest {
-        val server = FakeServer()
-        val session = session(server)
-        session.open(selection)
-        finishPreview(server, session, "p1")
-        val region = seams.regions[0]
-        assertNotNull("Outside the canvas", session.addSeam(region.copy(x = 2040)))
-        assertNotNull("No such frame", session.addSeam(region.copy(frame = 3)))
-        assertNotNull("No area", session.addSeam(region.copy(width = 0)))
-        assertNull(session.addSeam(region))
-        session.setOptions(session.state.value.options.copy(localAlign = PanoLocalAlign.Off))
-        assertNull("New geometry clears the regions", session.state.value.seams)
-        assertEquals("Wait for a current preview before authoring or submitting seam regions.", session.addSeam(region))
-        finishPreview(server, session, "p2")
-        assertNull(session.addSeam(region))
-        session.setOptions(session.state.value.options.copy(strategy = PanoStrategy.Tile))
-        finishPreview(server, session, "p3")
-        assertEquals("Seam regions are not supported for Tile. Choose Rotation, or Auto for a rotation panorama.",
-            session.addSeam(region))
-        session.previewSeams()
-        runCurrent()
-        assertEquals(3, server.posts("preview").size)
-        assertTrue(server.posts("preview").none { it.body!!.has("seamConstraints") })
-        session.close()
-
-        val unsupported = FakeServer()
-        unsupported.capabilities.put("seamConstraintsSupported", false)
-        val older = session(unsupported)
-        older.open(selection)
-        finishPreview(unsupported, older, "p1")
-        assertEquals("This server's maple-cli cannot take seam regions.", older.addSeam(region))
-        older.stitch()
-        runCurrent()
-        assertFalse(unsupported.posts("stitch").single().body!!.has("seamConstraints"))
-        older.close()
-        runCurrent()
-    }
-
-    @Test
-    fun refusedSeamRegionsSurfaceTheNamedError() = runTest {
-        val server = FakeServer()
-        val session = session(server)
-        session.open(selection)
-        finishPreview(server, session, "p1")
-        assertNull(session.addSeam(seams.regions[0]))
-        server.refuse = 422 to JSONObject().put("error", "invalid_seam_constraints")
-            .put("message", "invalid_seam_constraints: Every region must lie wholly inside its reference canvas.")
-        session.previewSeams()
-        advanceTimeBy(PanoramaSession.PREVIEW_DEBOUNCE_MS + 1)
-        runCurrent()
-        val refused = session.state.value.preview as PanoPreviewRun.Failed
-        assertEquals("invalid_seam_constraints", refused.code)
-        assertEquals("The server refused these seam regions: Every region must lie wholly inside its reference canvas.",
-            refused.message)
-        server.refuse = null
-        session.previewSeams()
-        advanceTimeBy(PanoramaSession.PREVIEW_DEBOUNCE_MS + 1)
-        runCurrent()
-        server.jobs["p2"]!!.put("status", "failed")
-            .put("error", "invalid_seam_constraints: frame 1 is both force-included and force-excluded near canvas pixel (1000, 300)")
-        advanceTimeBy(PanoramaSession.PREVIEW_POLL_MS + 1)
-        runCurrent()
-        val contradicted = session.state.value.preview as PanoPreviewRun.Failed
-        assertEquals("invalid_seam_constraints", contradicted.code)
-        assertTrue(contradicted.message, contradicted.message.startsWith("The server refused these seam regions: frame 1 is both"))
-        session.stitch()
-        runCurrent()
-        assertTrue("A failed preview leaves the shown one current", server.posts("stitch").isNotEmpty())
-        server.jobs["s3"]!!.put("status", "failed").put("error", "invalid_seam_constraints: Conflicting regions")
-        advanceTimeBy(PanoramaSession.STITCH_POLL_MS + 1)
-        runCurrent()
-        assertEquals("invalid_seam_constraints", (session.state.value.stitch as PanoStitchRun.Failed).code)
-        session.close()
-        runCurrent()
     }
 
     @Test
