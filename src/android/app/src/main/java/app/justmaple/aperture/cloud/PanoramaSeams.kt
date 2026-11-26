@@ -21,11 +21,7 @@ data class PanoSeamRegion(
     val height: Int,
 )
 
-/**
- * SeamConstraintsRequest v1 (#5991): regions on the uncropped preview canvas they were drawn on.
- * The server and Rust map them proportionally onto the full-resolution stitch, so the client never
- * rescales them.
- */
+/** SeamConstraintsRequest v1: regions in the preview pixels they were drawn on; the server rescales them. */
 data class PanoSeamConstraints(val width: Int, val height: Int, val regions: List<PanoSeamRegion>) {
     fun fits(region: PanoSeamRegion): Boolean =
         region.x >= 0 && region.y >= 0 && region.width > 0 && region.height > 0 &&
