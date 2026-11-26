@@ -609,3 +609,4 @@ PrecisionInputTests
 # names each commit, undo and redo for the haptics.
 MaskDeleteUndoTests
 EditHistoryEventTests
+BrowseNavigationTicketTests

@@ -157,6 +157,7 @@ extension AppShell {
     // On iPhone a back swipe can put another folder level's model on top
     // while this load awaits; it must keep filling the model it started in.
     let model = browseVM
+    let navigation = model.beginNavigation()
     Task { @MainActor in
       let session = sessionFor(serverID)
       // On cold start, sessionFor() returns a freshly-constructed
@@ -176,6 +177,7 @@ extension AppShell {
       if !session.isSignedIn {
         await session.bootstrapAndRestore()
       }
+      guard model.isCurrent(navigation) else { return }
       guard session.isSignedIn else {
         // #1381 — stash the target so the sign-in sheet replays this
         // folder once the user re-authenticates.
@@ -190,6 +192,7 @@ extension AppShell {
       // A folder keeps the address it is built with, so let a LAN probe
       // that is still running at launch finish first (#6008).
       _ = await LocalNetworkResolver.shared.settledEffectiveURL(for: serverID)
+      guard model.isCurrent(navigation) else { return }
       let viewMode = CloudServerRegistry.shared.viewMode(for: serverID)
       switch viewMode {
       case .folder:
