@@ -31,6 +31,8 @@ namespace Maple.WinUI.Services.FileOperations
 
         public static bool IsJpeg(string path) => JpegExtensions.Contains(ExtensionOf(path));
 
+        public static bool IsPairCandidate(string path) => IsRaw(path) || IsJpeg(path);
+
         public static string Stem(string path)
         {
             var stem = SplitName(FileNameOf(path)).Stem;

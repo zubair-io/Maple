@@ -14,11 +14,16 @@ namespace Maple.WinUI.ViewModels
     {
         /// <summary>A local folder passes <paramref name="requireSharedSidecar"/>:
         /// names the pairing rule folds but whose files read two different
-        /// sidecars stay two tiles.</summary>
+        /// sidecars stay two tiles. <paramref name="inventory"/> is every RAW
+        /// and JPEG name in the folder, shown or not: a stem with a second RAW
+        /// the grid does not list (`IMG.MEF`) is ambiguous and stays unpaired.</summary>
         public static IReadOnlyList<PhotoItem> Apply(
-            IReadOnlyList<PhotoItem> photos, bool stacksPairs, bool requireSharedSidecar = false)
+            IReadOnlyList<PhotoItem> photos, bool stacksPairs, bool requireSharedSidecar = false,
+            IEnumerable<string>? inventory = null)
         {
-            var companionOf = stacksPairs ? Pair(photos, requireSharedSidecar) : new Dictionary<PhotoItem, PhotoItem>();
+            var companionOf = stacksPairs
+                ? Pair(photos, requireSharedSidecar, inventory)
+                : new Dictionary<PhotoItem, PhotoItem>();
             var primaryOf = companionOf.ToDictionary(pair => pair.Value, pair => pair.Key);
             foreach (var photo in photos)
             {
@@ -28,12 +33,15 @@ namespace Maple.WinUI.ViewModels
             return photos.Where(photo => photo.StackPrimary == null).ToList();
         }
 
-        private static Dictionary<PhotoItem, PhotoItem> Pair(IReadOnlyList<PhotoItem> photos, bool requireSharedSidecar)
+        private static Dictionary<PhotoItem, PhotoItem> Pair(
+            IReadOnlyList<PhotoItem> photos, bool requireSharedSidecar, IEnumerable<string>? inventory)
         {
             var byPath = photos
                 .GroupBy(photo => photo.FilePath, StringComparer.Ordinal)
                 .ToDictionary(group => group.Key, group => group.First(), StringComparer.Ordinal);
-            return (requireSharedSidecar ? RawJpegPairing.LocalPairs(byPath.Keys) : RawJpegPairing.Pairs(byPath.Keys))
+            var names = byPath.Keys.Concat(inventory ?? Enumerable.Empty<string>()).Distinct(StringComparer.Ordinal).ToList();
+            return (requireSharedSidecar ? RawJpegPairing.LocalPairs(names) : RawJpegPairing.Pairs(names))
+                .Where(pair => byPath.ContainsKey(pair.Key) && byPath.ContainsKey(pair.Value))
                 .ToDictionary(pair => byPath[pair.Key], pair => byPath[pair.Value]);
         }
 
