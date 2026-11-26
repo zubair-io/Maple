@@ -70,6 +70,8 @@ namespace Maple.WinUI.Services.FileOperations
             {
                 TryDelete(tmp);
                 if (ex is FileOperationException) throw;
+                if (!overwrite && ex is IOException && PathOccupied(destination))
+                    throw new FileOperationException(FileOperationErrorKind.DestinationExists, destination);
                 throw new FileOperationException(
                     FileOperationErrorKind.Underlying,
                     $"copy {source} -> {destination} failed: {ex.Message}", ex);
