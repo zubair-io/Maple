@@ -2,15 +2,18 @@ package app.justmaple.aperture.data
 
 import android.content.Context
 import android.content.Intent
+import android.graphics.BitmapFactory
 import android.net.Uri
 import androidx.documentfile.provider.DocumentFile
 import app.justmaple.aperture.cloud.CloudLibrary
 import java.io.File
 import java.io.FileInputStream
+import java.io.InputStream
 import java.io.OutputStream
 import java.io.OutputStreamWriter
 import java.io.StringReader
 import java.security.MessageDigest
+import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
@@ -47,10 +50,17 @@ data class LoadedSidecar(val document: XmpDocument, val baseline: String?)
 class PhotoLibrary(private val context: Context) {
     val cloud = CloudLibrary(context)
     private val preferences = context.getSharedPreferences("maple-library", Context.MODE_PRIVATE)
-    private val local = LocalDocuments(context)
-    private val saf = SafSidecars(context, local)
+    internal val local = LocalDocuments(context)
+    internal val saf = SafSidecars(context, local)
     private val shared = FolderDerivativeCache(context)
     private val derivatives = CloudDerivativeCache(cloud, File(context.cacheDir, "thumbnails"))
+    internal val tiles =
+        ThumbnailTiles(ThumbnailBitmapCache.forDevice(context)) { photo, edge ->
+            withThumbnail(photo, edge) { _, input ->
+                currentCoroutineContext().ensureActive()
+                BitmapFactory.decodeFileDescriptor(input.fd)
+            }
+        }
     val sources: List<Folder>
         get() =
             preferences
@@ -197,7 +207,7 @@ class PhotoLibrary(private val context: Context) {
             file
         }
 
-    private fun sourceOriginal(photo: Photo, folder: File): File {
+    private suspend fun sourceOriginal(photo: Photo, folder: File): File {
         val file =
             if (photo.contentDigest != null) singleSnapshot(photo, folder)
             else File(folder, "${digest(photo.key)}.${photo.extension}")
@@ -211,7 +221,7 @@ class PhotoLibrary(private val context: Context) {
                     temporary.outputStream().use { cloud.copyOriginal(photo, it) }
                 else
                     context.contentResolver.openInputStream(photo.uri)?.use { input ->
-                        temporary.outputStream().use(input::copyTo)
+                        temporary.outputStream().use { copyWhileActive(input, it) }
                     } ?: error("Read permission was revoked for ${photo.name}")
                 check(temporary.renameTo(file)) { "Could not stage ${photo.name}" }
             } finally {
@@ -221,6 +231,16 @@ class PhotoLibrary(private val context: Context) {
         }
         file.setLastModified(System.currentTimeMillis())
         return file
+    }
+
+    private suspend fun copyWhileActive(input: InputStream, output: OutputStream) {
+        val chunk = ByteArray(COPY_CHUNK_BYTES)
+        while (true) {
+            currentCoroutineContext().ensureActive()
+            val read = input.read(chunk)
+            if (read < 0) return
+            output.write(chunk, 0, read)
+        }
     }
 
     /** Metadata reads retain the immutable original without creating a full OS-decoded raster. */
@@ -267,7 +287,10 @@ class PhotoLibrary(private val context: Context) {
         action: suspend (File?, FileInputStream) -> T,
     ): T =
         withContext(Dispatchers.IO) {
-            thumbnail(photo, edge).use { action(it.file, it.input) }
+            thumbnail(photo, edge).use {
+                currentCoroutineContext().ensureActive()
+                action(it.file, it.input)
+            }
         }
 
     private suspend fun thumbnail(photo: Photo, edge: Int): OpenThumbnail {
@@ -306,7 +329,7 @@ class PhotoLibrary(private val context: Context) {
                 }
             }
         }
-        val sidecar = io.withLock { readSidecar(photo) }
+        val sidecar = readingSidecar(photo) { readSidecar(photo) }
         val file =
             File(
                 folder,
@@ -347,13 +370,13 @@ class PhotoLibrary(private val context: Context) {
             "${digest("private-sidecar-v3:${photo.key}")}.xmp",
         )
 
-    private fun readSidecar(photo: Photo, fresh: Boolean = false): String? =
+    internal fun readSidecar(photo: Photo, fresh: Boolean = false): String? =
         if (CloudLibrary.isCloud(photo.uri)) cloud.readSidecar(photo)
         else if (photo.parent == null)
             privateSidecar(photo).takeIf { it.exists() }?.let { XmpEncoding.decode(it.readBytes()) }
         else saf.read(photo, fresh)
 
-    private suspend fun folderCacheSource(photo: Photo): FolderCacheSource = io.withLock {
+    internal suspend fun folderCacheSource(photo: Photo): FolderCacheSource = readingSidecar(photo) {
         val xml = readSidecar(photo, fresh = true)
         val entries = local.list(photo.parent!!, fresh = true)
         val original =
@@ -375,36 +398,35 @@ class PhotoLibrary(private val context: Context) {
         )
     }
 
-    /** Refresh each folder once, then read its sidecar bytes from that sibling snapshot. */
-    suspend fun loadSidecars(photos: List<Photo>): Map<String, LoadedSidecar> =
-        withContext(Dispatchers.IO) {
-            buildMap {
-                for ((parent, siblings) in photos.groupBy { it.parent }) {
-                    currentCoroutineContext().ensureActive()
-                    if (parent != null && siblings.none { CloudLibrary.isCloud(it.uri) })
-                        io.withLock {
-                            currentCoroutineContext().ensureActive()
-                            local.list(parent, fresh = true)
-                        }
-                    for (photo in siblings) {
-                        currentCoroutineContext().ensureActive()
-                        try {
-                            val xml = io.withLock {
-                                currentCoroutineContext().ensureActive()
-                                readSidecar(photo)
-                            }
-                            currentCoroutineContext().ensureActive()
-                            put(photo.uri.toString(), LoadedSidecar(XmpDocument(xml ?: XmpDocument.EMPTY), xml))
-                        } catch (failure: Exception) {
-                            if (failure is kotlinx.coroutines.CancellationException) throw failure
-                            // Match single-photo culling recovery: unreadable marks remain unknown.
-                        }
-                    }
-                }
+    internal suspend fun <T> readingSidecar(photo: Photo, read: suspend () -> T): T =
+        io.reading(
+            CloudLibrary.isCloud(photo.uri),
+            { photo.parent != null && !CloudLibrary.isCloud(photo.uri) && saf.recoveryPending(photo) },
+        ) {
+            // Only a read that repairs an interrupted save gets here pending, and nothing else can run beside it.
+            val repairs = photo.parent != null && !CloudLibrary.isCloud(photo.uri) && saf.recoveryPending(photo)
+            try {
+                read()
+            } finally {
+                if (repairs) wasWritten(photo)
             }
         }
 
-    suspend fun loadSidecar(photo: Photo): LoadedSidecar = io.withLock {
+    suspend fun loadSidecars(photos: List<Photo>): Map<String, LoadedSidecar> =
+        buildMap { scanSidecars(photos, { null }) { photo, scanned -> scanned.loaded?.let { put(photo.uri.toString(), it) } } }
+
+    private fun sidecarId(photo: Photo) =
+        if (photo.parent != null && !CloudLibrary.isCloud(photo.uri))
+            "${photo.parent}|${RawJpegPairing.sidecarKey(photo.sidecarName)}"
+        else photo.uri.toString()
+
+    internal fun savedHere(photo: Photo) = saves[sidecarId(photo)] ?: 0
+
+    private fun wasWritten(photo: Photo) {
+        saves.merge(sidecarId(photo), 1, Int::plus)
+    }
+
+    suspend fun loadSidecar(photo: Photo): LoadedSidecar = readingSidecar(photo) {
         withContext(Dispatchers.IO) {
             val xml = readSidecar(photo, fresh = true)
             LoadedSidecar(XmpDocument(xml ?: XmpDocument.EMPTY), xml)
@@ -412,7 +434,7 @@ class PhotoLibrary(private val context: Context) {
     }
 
     suspend fun save(photo: Photo, document: XmpDocument, baseline: String?): LoadedSidecar =
-        io.withLock {
+        io.exclusive {
             withContext(Dispatchers.IO) {
                 if (CloudLibrary.isCloud(photo.uri))
                     return@withContext cloud.save(photo, document, baseline)
@@ -433,16 +455,21 @@ class PhotoLibrary(private val context: Context) {
                 }
                 LoadedSidecar(XmpDocument(xml), xml)
             }
+        }.also {
+            wasWritten(photo)
+            tiles.cache.drop(photo.uri.toString())
         }
 
     companion object {
         // Journals and sidecar files are shared by every library instance (#4771).
         // A reader can recover/rename them, so reads and saves need the same lock.
-        private val io = Mutex()
+        internal val io = SidecarLock()
+        private val saves = ConcurrentHashMap<String, Int>()
         private val originals = Mutex()
 
         /** The `cacheDir/thumbnails` budget, shared with the documents provider. */
         const val THUMBNAIL_BYTES = 64L * 1024 * 1024
+        private const val COPY_CHUNK_BYTES = 1024 * 1024
         val EXTENSIONS =
             RawJpegPairing.RAW_EXTENSIONS +
                 setOf("jpg", "jpeg", "png", "webp", "tif", "tiff", "heic", "heif") +

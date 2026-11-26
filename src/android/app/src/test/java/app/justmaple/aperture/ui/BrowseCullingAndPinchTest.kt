@@ -351,4 +351,34 @@ class RejectButtonTest {
         model.toggleReject()
         assertNull(model.state.value.document.attribute("papp:Flag"))
     }
+
+    @Test
+    fun whileTheSavedSourcesAreStillBeingReadNoEmptyStateOrLocalSearchIsDrawn() {
+        var pending by mutableStateOf(true)
+        compose.setContent {
+            val state = MapleState(sourcesPending = pending)
+            CloudTimelinePanel(
+                app.justmaple.aperture.cloud.CloudTimelineModel(kotlinx.coroutines.CoroutineScope(Dispatchers.Unconfined), { null }) { _, _ -> error("unused") },
+                app.justmaple.aperture.cloud.CloudTimelineState(),
+                emptyList(),
+                model,
+                state,
+                onConnect = {},
+            )
+            LocalFolderSearch("", {}, model, state, {})
+            BrowseGrid(model, state, emptyList(), emptyList(), {})
+        }
+        compose.waitForIdle()
+
+        compose.onAllNodesWithText("Connect a Maple server", substring = true).assertCountEquals(0)
+        compose.onAllNodesWithText("Search photos in this folder").assertCountEquals(0)
+        compose.onAllNodesWithText("Your library, in Maple").assertCountEquals(0)
+
+        compose.runOnIdle { pending = false }
+        compose.waitForIdle()
+
+        compose.onAllNodesWithText("Connect a Maple server", substring = true).assertCountEquals(1)
+        compose.onAllNodesWithText("Search photos in this folder").assertCountEquals(1)
+        compose.onAllNodesWithText("Your library, in Maple").assertCountEquals(2)
+    }
 }

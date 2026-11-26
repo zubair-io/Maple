@@ -89,42 +89,9 @@ fun PhotoThumbnail(
     pick: Int? = null,
     rating: Int? = null,
 ) {
-    var image by
-        remember(photo.key) { mutableStateOf<androidx.compose.ui.graphics.ImageBitmap?>(null) }
-    var failed by remember(photo.key) { mutableStateOf(false) }
-    LaunchedEffect(photo.key, revision, fit) {
-        suspend fun load(edge: Int): androidx.compose.ui.graphics.ImageBitmap? {
-            return library.withThumbnail(photo, edge) { _, input ->
-                BitmapFactory.decodeFileDescriptor(input.fd)?.asImageBitmap()
-            }
-        }
-        while (currentCoroutineContext().isActive) {
-            try {
-                image = load(if (fit) 2048 else 512)
-                failed = image == null
-                break
-            } catch (pending: CloudDerivativePending) {
-                if (image == null && fit) {
-                    try {
-                        image = load(512)
-                        failed = image == null
-                    } catch (cancelled: CancellationException) {
-                        throw cancelled
-                    } catch (_: Exception) {
-                        failed = true
-                    }
-                }
-                delay(pending.retryMillis)
-            } catch (cancelled: CancellationException) {
-                throw cancelled
-            } catch (_: Exception) {
-                failed = true
-                break
-            }
-        }
-    }
+    val tile = rememberTileImage(photo, library.tiles, fit, revision)
     Box(modifier.background(MapleColors.raised), contentAlignment = Alignment.Center) {
-        val loaded = image
+        val loaded = tile.image
         if (loaded != null)
             Image(
                 loaded,
@@ -132,7 +99,7 @@ fun PhotoThumbnail(
                 Modifier.fillMaxSize(),
                 contentScale = if (fit) ContentScale.Fit else ContentScale.Crop,
             )
-        else if (failed)
+        else if (tile.failed)
             Text(photo.extension.uppercase(), color = MapleColors.muted, fontSize = 10.sp)
         else
             CircularProgressIndicator(

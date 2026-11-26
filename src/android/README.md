@@ -392,6 +392,13 @@ An unedited thumbnail extracts the embedded JPEG, with real develop as fallback;
 an edited thumbnail/preview uses the canonical develop chain. No derivative is
 written into the user's photo folder.
 
+Saved sources are read once, off the main thread, and the grid shows nothing until they arrive.
+Decoded grid tiles are kept in memory up to an eighth of the app's memory class and dropped on
+memory pressure or when that photo is saved; every tile still runs its normal load and freshness check.
+Sidecar reads share a lock, at most four at a time, while a save or a repair of an interrupted save
+excludes everything and goes first. The badge scan re-reads only sidecars whose listing stamp changed,
+and always re-reads when the provider reports no modified time.
+
 ## Cloud connections
 
 Use **Add Maple Cloud server** in Sources or Settings → Cloud for hosted and self-hosted servers;

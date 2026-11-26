@@ -79,7 +79,7 @@ internal fun FolderSources(
         }
         // Only implemented source actions are shown; device-library/Timeline remains #4623.
         SourceAction("Open photo…", Icons.Outlined.Image, onPhoto)
-        if (local.isEmpty()) SourceAction("Add folder…", Icons.Outlined.CreateNewFolder, onFolder)
+        if (!state.sourcesPending && local.isEmpty()) SourceAction("Add folder…", Icons.Outlined.CreateNewFolder, onFolder)
         SourceAction("Add Maple Cloud server", Icons.Outlined.Cloud, onCloud)
         Spacer(Modifier.height(8.dp))
     }

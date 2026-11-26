@@ -28,10 +28,12 @@ internal constructor(
     val library: PhotoLibrary,
     rendererOverride: PreviewRenderer?,
     batchOverride: BatchSettingsTransfer? = null,
+    private val launchSources: () -> List<Folder> = { library.sources },
 ) : AndroidViewModel(application) {
     constructor(application: Application) : this(application, PhotoLibrary(application), null)
     val renderer: PreviewRenderer = rendererOverride ?: EditorRenderer(library, ::framePresented)
     val browseSelection = app.justmaple.aperture.ui.BrowseSelection()
+    internal val browseCulling = app.justmaple.aperture.ui.BrowseCullingScan(library)
     val batchSettings = batchOverride ?: BatchSettingsTransfer(application, library)
     internal val search =
         app.justmaple.aperture.cloud.CloudSearchModel(viewModelScope,
@@ -47,7 +49,7 @@ internal constructor(
     private val mutable =
         MutableStateFlow(
             MapleState(
-                sources = library.sources,
+                sourcesPending = true,
                 showFilmstrip = preferences.getBoolean("filmstrip", true),
                 userPresets = decodeUserPresetsJson(preferences.getString("user-presets", null)),
                 cloudSigningIn = library.cloud.signingIn,
@@ -55,6 +57,7 @@ internal constructor(
         )
     val state = mutable.asStateFlow()
     internal var initialIntentHandled = false
+    private val sourcesKnown = CompletableDeferred<Unit>()
     private var generation = 0
     private var singleRequest = 0
     private var renderXml = ""
@@ -89,7 +92,27 @@ internal constructor(
                 }
             }
         }
-        library.sources.firstOrNull()?.let(::browse)
+        viewModelScope.launch { loadLaunchSources() }
+    }
+
+    // Reading the sources asks storage providers and the keystore: never on the main thread.
+    private suspend fun loadLaunchSources() {
+        try {
+            val sources =
+                try {
+                    withContext(Dispatchers.IO) { launchSources() }
+                } catch (failure: Exception) {
+                    if (failure is CancellationException) throw failure
+                    fail(failure)
+                    emptyList()
+                }
+            val stillPending = state.value.sourcesPending
+            mutable.update { if (it.sourcesPending) it.withSources(sources) else it }
+            // Takes its generation before sourcesKnown completes, so callers resumed by it supersede this browse as on main.
+            if (stillPending) sources.firstOrNull()?.let(::startBrowse)
+        } finally {
+            sourcesKnown.complete(Unit)
+        }
     }
 
     fun report(failure: Throwable) = fail(failure)
@@ -120,11 +143,11 @@ internal constructor(
 
     private fun connectCloud(connect: suspend () -> Folder?) {
         viewModelScope.launch {
+            sourcesKnown.await()
             try {
                 val source = connect() ?: return@launch
                 mutable.update {
-                    it.copy(
-                        sources = library.sources,
+                    it.withSources(library.sources).copy(
                         cloudSigningIn = false,
                         cloudConnectionsVersion = it.cloudConnectionsVersion + 1,
                     )
@@ -174,7 +197,7 @@ internal constructor(
                 fail(failure)
             } finally {
                 panorama.connectionsChanged()
-                mutable.update { it.copy(sources = library.sources) }
+                mutable.update { it.withSources(library.sources) }
             }
         }
     }
@@ -183,7 +206,7 @@ internal constructor(
         runCatching { library.remember(uri) }
             .onSuccess {
                 val sources = library.sources
-                mutable.update { it.copy(sources = sources) }
+                mutable.update { it.withSources(sources) }
                 sources
                     .find {
                         android.provider.DocumentsContract.getTreeDocumentId(it.uri) ==
@@ -195,6 +218,13 @@ internal constructor(
     }
 
     fun browse(folder: Folder, ancestors: List<Folder>? = null) {
+        viewModelScope.launch {
+            sourcesKnown.await()
+            startBrowse(folder, ancestors)
+        }
+    }
+
+    private fun startBrowse(folder: Folder, ancestors: List<Folder>? = null) {
         viewModelScope.launch {
             if (!flush()) return@launch
             val token = ++generation
@@ -225,6 +255,7 @@ internal constructor(
     }
 
     fun openSingle(uri: Uri) = viewModelScope.launch {
+        sourcesKnown.await()
         val request = ++singleRequest
         if (!flush() || request != singleRequest) return@launch
         val token = generation
@@ -237,14 +268,19 @@ internal constructor(
         }
     }
 
-    fun open(photo: Photo) = viewModelScope.launch { open(photo, single = false) }
+    fun open(photo: Photo) = viewModelScope.launch {
+        sourcesKnown.await()
+        open(photo, single = false)
+    }
 
     fun openFromBrowse(photo: Photo, visibleOrder: List<Photo>) = viewModelScope.launch {
+        sourcesKnown.await()
         open(photo, single = false, visibleOrder = visibleOrder.toList())
     }
 
     /** Relists the Browse folder's subfolders in place, such as the `Panoramas/` a server merge just made. */
     fun refreshFolders() = viewModelScope.launch {
+        sourcesKnown.await()
         val folder = state.value.folder ?: return@launch
         val listing =
             try {
@@ -385,6 +421,7 @@ internal constructor(
 
     fun back() {
         viewModelScope.launch {
+            sourcesKnown.await()
             if (!flush()) return@launch
             cancelNativeDetail()
             nativeDimensionsJob?.cancel()

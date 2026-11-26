@@ -33,6 +33,7 @@ internal fun CloudTimelinePanel(
     photoState: MapleState,
     onConnect: () -> Unit,
 ) {
+    if (photoState.sourcesPending) return
     if (servers.isEmpty()) {
         MuiEmptyState("Your cloud Timeline", "Connect a Maple server to browse photos by capture date.",
             "Add Maple Cloud server", onConnect)
