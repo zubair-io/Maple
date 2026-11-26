@@ -61,6 +61,22 @@ use crate::{
 };
 use rayon::prelude::*;
 
+#[path = "noise_reduction_half_res.rs"]
+mod half_res;
+use half_res::apply_color_half_res_cancellable;
+pub use half_res::HALF_RES_CHROMA_REACH_PX;
+
+/// Native-density chroma NR with the despeckle clamp off (GPU parity gates).
+#[cfg(any(test, feature = "test-support"))]
+pub fn apply_color_without_despeckle(
+    img: &mut Image,
+    amount: f32,
+    noise_profile: Option<&[f32]>,
+    iso: u32,
+) {
+    half_res::apply_color_half_res_without_despeckle(img, amount, noise_profile, iso);
+}
+
 /// NLM parameters at amount = 100 for the luma channel. P = 2 (5×5
 /// patch) + S = 2 (5×5 search = 24 offsets) lands the slider tick at
 /// roughly 40 ms on 2 MP — over budget, but small enough that a
@@ -91,9 +107,6 @@ const CHROMA_SEARCH_RADIUS: usize = 3;
 /// noise is concentrated in the low-magnitude region where 0.05
 /// covers most of the noise distribution).
 const CHROMA_H_MAX: f32 = 0.05;
-/// Chroma NLM stencil reach, in pixels per side (patch + search radius), for
-/// the tile path's overlap calculator (#1157).
-pub const CHROMA_REACH_PX: usize = CHROMA_PATCH_RADIUS + CHROMA_SEARCH_RADIUS;
 
 fn luma_params(amount: f32) -> NlmParams {
     let t = (amount / 100.0).clamp(0.0, 1.0);
@@ -216,7 +229,8 @@ pub fn apply_color_cancellable(
 /// #3875 sampling contract: output pixels per pixel of the developed full
 /// frame. A native crop uses one, regardless of its cropped dimensions.
 /// Only search support changes; noise variance and slider strength do not.
-/// Legacy callers stay at one until decode/binding metadata is connected.
+/// Native density denoises chroma at half resolution on a grid anchored at
+/// the frame origin (#6018).
 pub fn apply_color_sampled_cancellable(
     img: &mut Image,
     amount: f32,
@@ -225,6 +239,32 @@ pub fn apply_color_sampled_cancellable(
     iso: u32,
     sampling_scale: f32,
 ) {
+    apply_color_window_cancellable(
+        img,
+        amount,
+        cancel,
+        noise_profile,
+        iso,
+        sampling_scale,
+        (0, 0),
+    );
+}
+
+/// [`apply_color_sampled_cancellable`] for a buffer whose top-left sits at
+/// `origin` in the developed frame, so a native window reproduces the
+/// whole-frame half-resolution block grid.
+pub fn apply_color_window_cancellable(
+    img: &mut Image,
+    amount: f32,
+    cancel: CancelToken<'_>,
+    noise_profile: Option<&[f32]>,
+    iso: u32,
+    sampling_scale: f32,
+    origin: (i32, i32),
+) {
+    if is_native_density(sampling_scale) {
+        return apply_color_half_res_cancellable(img, amount, cancel, noise_profile, iso, origin);
+    }
     img.assert_space(ColorSpace::SceneLinearRec2020);
     if amount.abs() < 1e-3 {
         return;
@@ -264,7 +304,11 @@ pub fn apply_color_sampled_cancellable(
         });
 }
 
-/// Invalid/unavailable sampling metadata preserves native behavior.
+/// Invalid/unavailable sampling metadata counts as native density.
+pub fn is_native_density(scale: f32) -> bool {
+    !scale.is_finite() || scale <= 0.0 || scale >= 1.0
+}
+
 pub fn chroma_search_radius(scale: f32) -> usize {
     if !scale.is_finite() || scale <= 0.0 {
         return CHROMA_SEARCH_RADIUS;

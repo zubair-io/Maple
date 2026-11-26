@@ -10,7 +10,10 @@ use crate::error::{set_last_error, with_large_stack};
 use crate::model::{load_xmp_model_owned, LoadModel};
 use raw_core::{
     decode::decode_bytes,
-    pipeline::{render_from_raw_with_quality_and_source, RawInput, RenderQuality},
+    pipeline::{
+        render_from_raw_with_quality_and_source, render_sized_from_raw_with_quality_and_source,
+        RawInput, RenderQuality,
+    },
 };
 use std::ffi::{c_char, CStr};
 
@@ -28,8 +31,13 @@ use std::ffi::{c_char, CStr};
 /// (raw-core applies EXIF orientation as its final render stage), so — unlike
 /// the embedded-preview thumbnail path — no orientation is baked here.
 ///
-/// Uses AMaZE demosaic (`RenderQuality::Amaze`): this is a cache-populating
-/// background stage, not the interactive fast path, so it favours quality.
+/// Without a sidecar it develops through the sized chain at `max_px` (#6018):
+/// downsampling right after demosaic makes every later stage run on the
+/// preview-sized buffer, ~9× faster than a full-resolution AMaZE develop on a
+/// 24 MP RAW. With a sidecar it develops at full resolution with AMaZE and
+/// then resizes, because the sized chain crops after developing at `max_px`
+/// and never upscales, so a cropped edit would come out smaller than
+/// `max_px`, and its detail stages would run at preview density.
 ///
 /// File-output (rather than a returned `MapleByteBuffer`) for the same
 /// `bun:ffi` double-free reason documented on
@@ -123,20 +131,29 @@ pub unsafe extern "C" fn maple_render_develop_jpeg_to_file(
                 return 7;
             }
         };
-        let (w, h, bytes) = match render_from_raw_with_quality_and_source(
-            &raw_img,
-            &model,
-            RenderQuality::Amaze,
-            Some(RawInput::Path(raw_path)),
-        ) {
+        let source = Some(RawInput::Path(raw_path));
+        let rendered = match xmp_path_str {
+            None => render_sized_from_raw_with_quality_and_source(
+                &raw_img,
+                &model,
+                RenderQuality::Full,
+                source,
+                max_px,
+            ),
+            Some(_) => render_from_raw_with_quality_and_source(
+                &raw_img,
+                &model,
+                RenderQuality::Amaze,
+                source,
+            ),
+        };
+        let (w, h, bytes) = match rendered {
             Ok(t) => t,
             Err(e) => {
                 set_last_error(format!("render: {}", e));
                 return 8;
             }
         };
-        // The develop output is a tightly-packed, display-oriented RGB888
-        // buffer. Wrap → resize to the long-edge target → JPEG-encode.
         let rgb = match image::RgbImage::from_raw(w, h, bytes) {
             Some(img) => img,
             None => {
@@ -144,9 +161,8 @@ pub unsafe extern "C" fn maple_render_develop_jpeg_to_file(
                 return 10;
             }
         };
-        let resized =
+        let rgb_img =
             raw_core::preview::resize_long_edge(image::DynamicImage::ImageRgb8(rgb), max_px);
-        let rgb_img = resized.to_rgb8();
         let (rw, rh) = rgb_img.dimensions();
         let jpeg = match raw_core::jpeg::encode(rw, rh, rgb_img.as_raw(), q) {
             Ok(b) => b,

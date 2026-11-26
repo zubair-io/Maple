@@ -16,6 +16,10 @@ use crate::context::GpuContext;
 use crate::spatial::prepare_simple_dispatch;
 use crate::spatial::{alloc_plane, encode_simple, pool_data_storage};
 
+#[path = "noise_reduction/half_grid.rs"]
+mod half_grid;
+use half_grid::{is_native_density, HalfGrid};
+
 // ── Parameters at amount = 100, mirroring raw_core::stages::noise_reduction ────
 //
 // These MUST match raw-core's constants exactly — the slider→params map is the
@@ -26,6 +30,8 @@ const LUMA_SEARCH_RADIUS: usize = 2;
 const LUMA_H_MAX: f32 = 0.04;
 const CHROMA_PATCH_RADIUS: usize = 2;
 const CHROMA_SEARCH_RADIUS: usize = 3;
+/// raw-core's `HALF_RES_SEARCH_RADIUS`: the half-density search support.
+const HALF_RES_SEARCH_RADIUS: usize = 2;
 const CHROMA_H_MAX: f32 = 0.05;
 
 /// NLM parameters for one plane — the raw-gpu mirror of
@@ -367,15 +373,16 @@ impl Pass for NlmColorPass<'_> {
         dims: (u32, u32),
     ) {
         let (width, height) = dims;
+        let native = is_native_density(self.sampling_scale);
         let mut params = chroma_params(self.nr_color);
-        params.search_radius = if self.sampling_scale.is_finite() && self.sampling_scale > 0.0 {
-            (CHROMA_SEARCH_RADIUS as f32 * self.sampling_scale.min(1.0))
+        params.search_radius = if native {
+            HALF_RES_SEARCH_RADIUS
+        } else {
+            (CHROMA_SEARCH_RADIUS as f32 * self.sampling_scale)
                 .round()
                 .max(1.0) as usize
-        } else {
-            CHROMA_SEARCH_RADIUS
         };
-        if self.nr_color.abs() < 1e-3 || params.h <= 0.0 || params.search_radius == 0 {
+        if self.nr_color.abs() < 1e-3 || params.h <= 0.0 {
             copy_through(encoder, src, dst, width, height);
             return;
         }
@@ -386,38 +393,53 @@ impl Pass for NlmColorPass<'_> {
         // chroma calls — so L is extracted ONCE, and only when modulation is
         // dynamic: otherwise the fused plane kernel uses `scale ≡ 1` without
         // reading the guide, so extracting L would be a wasted full-plane
-        // dispatch on every unmodulated render. The a plane stands in as the
-        // (unread) binding there. A frame's profile is fixed for the session, so
-        // the two shapes never alternate under one pooled chain signature.
+        // dispatch on every unmodulated render. The chroma plane stands in as
+        // the (unread) binding there. A frame's profile is fixed for the
+        // session, so the two shapes never alternate under one pooled chain
+        // signature. At native density every plane is first box-averaged to
+        // half resolution, and the denoised half plane is upsampled with the
+        // native residual (#6018).
         let modulation =
             NoiseModulation::from_profile(profile_slice(&self.noise_profile), self.iso, true);
-        let l = modulation
-            .dynamic
-            .then(|| encode_extract_channel(ctx, encoder, src, width, height, Channel::L, "nr-l"));
-        let a = encode_extract_channel(ctx, encoder, src, width, height, Channel::A, "nr-plane-a");
-        let guide = l.as_ref().unwrap_or(&a);
-        let denoised_a = encode_nlm_on_plane(
-            ctx,
-            encoder,
-            a.as_ref(),
-            guide.as_ref(),
-            width,
-            height,
-            params,
-            modulation,
-        );
-        let b = encode_extract_channel(ctx, encoder, src, width, height, Channel::B, "nr-plane-b");
-        let guide = l.as_ref().unwrap_or(&b);
-        let denoised_b = encode_nlm_on_plane(
-            ctx,
-            encoder,
-            b.as_ref(),
-            guide.as_ref(),
-            width,
-            height,
-            params,
-            modulation,
-        );
+        let grid = native.then(|| HalfGrid::new(width, height, self.nr_color));
+        let l = modulation.dynamic.then(|| {
+            let l = encode_extract_channel(ctx, encoder, src, width, height, Channel::L, "nr-l");
+            match &grid {
+                Some(grid) => grid.box_down(ctx, encoder, &l),
+                None => l,
+            }
+        });
+        let denoise_channel = |encoder: &mut wgpu::CommandEncoder, channel, label| {
+            let plane = encode_extract_channel(ctx, encoder, src, width, height, channel, label);
+            let Some(grid) = &grid else {
+                let guide = l.as_ref().unwrap_or(&plane);
+                return encode_nlm_on_plane(
+                    ctx,
+                    encoder,
+                    plane.as_ref(),
+                    guide.as_ref(),
+                    width,
+                    height,
+                    params,
+                    modulation,
+                );
+            };
+            let half = grid.box_down(ctx, encoder, &plane);
+            let guide = l.as_ref().unwrap_or(&half);
+            let denoised = encode_nlm_on_plane(
+                ctx,
+                encoder,
+                half.as_ref(),
+                guide.as_ref(),
+                grid.params.half_width,
+                grid.params.half_height,
+                params,
+                modulation,
+            );
+            grid.upsample_residual(ctx, encoder, &plane, &half, &denoised)
+        };
+        let denoised_a = denoise_channel(encoder, Channel::A, "nr-plane-a");
+        let denoised_b = denoise_channel(encoder, Channel::B, "nr-plane-b");
         let count = width * height;
         let wb_params = CountParams {
             count,
@@ -470,3 +492,7 @@ mod tests_profile;
 #[cfg(all(test, not(target_arch = "wasm32")))]
 #[path = "noise_reduction/tests_sampling.rs"]
 mod tests_sampling;
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+#[path = "noise_reduction/tests_despeckle.rs"]
+mod tests_despeckle;

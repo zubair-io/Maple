@@ -61,6 +61,7 @@ use crate::{
     image::{ColorSpace, Image},
     xmp::HighlightRecoveryMode,
 };
+use rayon::prelude::*;
 
 #[path = "highlight_recovery_oklab_params.rs"]
 mod parameters;
@@ -91,9 +92,9 @@ pub fn apply_post_dcp(img: &mut Image, mode: HighlightRecoveryMode) {
 }
 
 fn apply_oklab_chroma_reduction(img: &mut Image) {
-    for p in img.pixels.iter_mut() {
+    img.pixels.par_iter_mut().for_each(|p| {
         if !is_post_dcp_sensor_clipped(*p) {
-            continue;
+            return;
         }
         let lab = rec2020_to_oklab(*p);
         // Binary search the largest `k` in [0, 1] such that scaling (a, b)
@@ -120,7 +121,7 @@ fn apply_oklab_chroma_reduction(img: &mut Image) {
         // "fully clipped" fallback.
         let scaled = [lab[0], lab[1] * lo, lab[2] * lo];
         *p = oklab_to_rec2020(scaled);
-    }
+    });
 }
 
 #[cfg(test)]

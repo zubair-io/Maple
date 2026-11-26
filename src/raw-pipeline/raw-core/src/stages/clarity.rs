@@ -2,6 +2,7 @@ use crate::{
     image::{ColorSpace, Image},
     stages::blur::{guided_filter, GuidedOptions},
 };
+use rayon::prelude::*;
 
 /// Guided-filter window radius for the structure-scale base/detail
 /// decomposition. The base layer is `guided(luma, luma, r, eps)`; the
@@ -116,7 +117,7 @@ pub fn apply(img: &mut Image, clarity: f32) {
         },
     );
 
-    for (i, p) in img.pixels.iter_mut().enumerate() {
+    img.pixels.par_iter_mut().enumerate().for_each(|(i, p)| {
         let luma = luma_plane[i];
         // Identity at/below the luma floor (#1088) — the tone_curves
         // convention. The quotient below is only a luma RATIO when the
@@ -126,7 +127,7 @@ pub fn apply(img: &mut Image, clarity: f32) {
         // Pixels above the floor divide by `luma` directly, which is
         // bit-identical to the old `luma.max(LUMA_FLOOR)` there.
         if luma <= LUMA_FLOOR {
-            continue;
+            return;
         }
         let detail = luma - base[i];
         let boost = luma + detail * amount;
@@ -134,7 +135,7 @@ pub fn apply(img: &mut Image, clarity: f32) {
         p[0] *= scale;
         p[1] *= scale;
         p[2] *= scale;
-    }
+    });
 }
 
 #[cfg(test)]

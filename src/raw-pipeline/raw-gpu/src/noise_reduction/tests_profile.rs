@@ -469,8 +469,14 @@ fn profiled_stage_differs_from_iso_fallback_stage() {
          not reaching the kernel"
     );
     // The color stage carries the profile too (its own coefficient combination).
-    let fallback_c = runner.run_blocking(&[&color_pass(100.0)]);
-    let profiled_c = runner.run_blocking(&[&color_pass_profiled(100.0)]);
+    // Sampled density keeps the fixture's period-3 chroma, which the native
+    // half-resolution grid averages almost flat (#6018).
+    let sampled = |pass: NlmColorPass<'static>| NlmColorPass {
+        sampling_scale: 0.9,
+        ..pass
+    };
+    let fallback_c = runner.run_blocking(&[&sampled(color_pass(100.0))]);
+    let profiled_c = runner.run_blocking(&[&sampled(color_pass_profiled(100.0))]);
     let (diff_c, _) = max_diff_at(&fallback_c, &profiled_c);
     eprintln!("PROFILED vs ISO FALLBACK (GPU, color amount=100): max abs diff = {diff_c:e}");
     assert!(

@@ -1,3 +1,298 @@
+--- /dev/null
++++ b/data/cameras/hasselblad/h2d.toml
+@@ -0,0 +1,12 @@
++make = "Hasselblad"
++model = "Hasselblad H2D"
++clean_make = "Hasselblad"
++clean_model = "H2D"
++blackpoint = 0
++whitepoint = 65535
++color_pattern = "RGGB"
++active_area = [0, 0, 0, 0]
++crop_area = [24, 20, 22, 24]
++
++[cameras.color_matrix]
++D65 = [0.3904, -0.0100, 0.0262, -0.4318, 1.2407, 0.2128, -0.1598, 0.3594, 0.6233]
+--- a/src/decoders/ari.rs
++++ b/src/decoders/ari.rs
+@@ -43,7 +43,12 @@
+     let offset = LEu32(buffer, ArriRawTag::DataOffset as usize) as usize;
+     let width = LEu32(buffer, ArriRawTag::Width as usize) as usize;
+     let height = LEu32(buffer, ArriRawTag::Height as usize) as usize;
+-    let src = file.subview_until_eof_padded(offset as u64)?;
++    // Dummy geometry queries must not copy compressed sensor payloads.
++    let src = if dummy {
++      crate::buffer::PaddedBuf::new_ref(&[0; 16], 0)
++    } else {
++      file.subview_until_eof_padded(offset as u64)?
++    };
+ 
+     let image = if self.camera.find_hint("little-endian") {
+       decode_12le(&src, width, height, dummy)
+--- a/src/decoders/dcr.rs
++++ b/src/decoders/dcr.rs
+@@ -60,7 +60,12 @@
+     let height = fetch_tiff_tag!(raw, TiffCommonTag::ImageLength).force_usize(0);
+     let offset = fetch_tiff_tag!(raw, TiffCommonTag::StripOffsets).force_usize(0);
+ 
+-    let src = file.subview_until_eof_padded(offset as u64)?; // TODO add size and check all samples
++    // Dummy geometry queries must not copy compressed sensor payloads.
++    let src = if dummy {
++      crate::buffer::PaddedBuf::new_ref(&[0; 16], 0)
++    } else {
++      file.subview_until_eof_padded(offset as u64)?
++    };
+ 
+     let linearization = fetch_tiff_tag!(self.makernote, TiffCommonTag::DcrLinearization);
+     let curve = {
+--- a/src/decoders/dcs.rs
++++ b/src/decoders/dcs.rs
+@@ -43,7 +43,12 @@
+     let width = fetch_tiff_tag!(raw, TiffCommonTag::ImageWidth).force_usize(0);
+     let height = fetch_tiff_tag!(raw, TiffCommonTag::ImageLength).force_usize(0);
+     let offset = fetch_tiff_tag!(raw, TiffCommonTag::StripOffsets).force_usize(0);
+-    let src = file.subview_until_eof_padded(offset as u64)?; // TODO add size and check all samples
++    // Dummy geometry queries must not copy compressed sensor payloads.
++    let src = if dummy {
++      crate::buffer::PaddedBuf::new_ref(&[0; 16], 0)
++    } else {
++      file.subview_until_eof_padded(offset as u64)?
++    };
+ 
+     let linearization = fetch_tiff_tag!(self.tiff, TiffCommonTag::GrayResponse);
+     let table = {
+--- a/src/decoders/kdc.rs
++++ b/src/decoders/kdc.rs
+@@ -101,7 +101,12 @@
+         }) if data[0].n == 243 => 2,
+         _ => 3,
+       };
+-      let src = file.subview_until_eof_padded(off as u64)?;
++      // Dummy geometry queries must not copy compressed sensor payloads.
++      let src = if dummy {
++        crate::buffer::PaddedBuf::new_ref(&[0; 16], 0)
++      } else {
++        file.subview_until_eof_padded(off as u64)?
++      };
+       let image = crate::decompressors::radc::decompress(&src, width, height, cbpp, dummy)?;
+       let cpp = 1;
+       let whitelevel = Some(WhiteLevel::new(vec![white; cpp]));
+--- a/src/decoders/mod.rs
++++ b/src/decoders/mod.rs
+@@ -514,6 +514,9 @@
+   let tiff_height = fetch_tiff_tag!(ifd, TiffCommonTag::ImageLength).force_usize(0);
+   let cpp = fetch_tiff_tag!(ifd, TiffCommonTag::SamplesPerPixel).force_usize(0);
+   let bits = fetch_tiff_tag!(ifd, TiffCommonTag::BitsPerSample).force_u32(0);
++  if let Some(image) = single_strip_rgb8_jpeg(ifd, rawsource, tiff_width, tiff_height, cpp, bits) {
++    return Ok(image);
++  }
+   let image = plain_image_from_ifd(ifd, rawsource)?;
+   match image {
+     RawImageData::Integer(samples) => match bits {
+@@ -562,6 +565,31 @@
+   }
+ }
+ 
++/// Maple: an 8-bit, 3-sample, single-strip baseline JPEG preview (the DNG
++/// `NewSubFileType=1` SubIFD) decodes straight to RGB8. The generic path below
++/// widens every sample to u16 and narrows it back, which costs more than the
++/// JPEG decode itself on a camera-sized preview; the pixels are identical.
++fn single_strip_rgb8_jpeg(ifd: &IFD, rawsource: &RawSource, width: usize, height: usize, cpp: usize, bits: u32) -> Option<DynamicImage> {
++  let photometric = PhotometricInterpretation::extract(ifd).ok()?.unwrap_or(PhotometricInterpretation::BlackIsZero);
++  let is_lossy_jpeg = match CompressionMethod::extract(ifd).ok()?? {
++    CompressionMethod::ModernJPEG => photometric == PhotometricInterpretation::YCbCr,
++    CompressionMethod::LossyJPEG => true,
++    _ => false,
++  };
++  let sample_format = SampleFormat::extract(ifd).ok()?.unwrap_or(SampleFormat::Uint);
++  let reshaped = ifd.get_entry(TiffCommonTag::Linearization).is_some()
++    || ifd.get_entry(DngTag::ColumnInterleaveFactor).is_some()
++    || ifd.get_entry(DngTag::RowInterleaveFactor).is_some();
++  if !is_lossy_jpeg || sample_format != SampleFormat::Uint || cpp != 3 || bits != 8 || reshaped || !ifd.contains_singlestrip_image() {
++    return None;
++  }
++  let strip = ifd.singlestrip_data_rawsource(rawsource).ok()?;
++  match image::load_from_memory_with_format(strip, ImageFormat::Jpeg).ok()? {
++    image @ DynamicImage::ImageRgb8(_) if (image.width() as usize, image.height() as usize) == (width, height) => Some(image),
++    _ => None,
++  }
++}
++
+ pub(crate) fn plain_image_from_ifd(ifd: &IFD, rawsource: &RawSource) -> Result<RawImageData> {
+   let endian = ifd.endian;
+   let tiff_width = fetch_tiff_tag!(ifd, TiffCommonTag::ImageWidth).force_usize(0);
+@@ -572,6 +600,13 @@
+   let compression = CompressionMethod::extract(ifd)?.unwrap_or(CompressionMethod::None);
+   let pi = PhotometricInterpretation::extract(ifd)?.unwrap_or(PhotometricInterpretation::BlackIsZero);
+ 
++  if tiff_width == 0 || tiff_height == 0 || cpp == 0 {
++    return Err(RawlerError::DecoderFailed(format!(
++      "TIFF image declares a zero dimension: {}x{}, samples per pixel {}",
++      tiff_width, tiff_height, cpp
++    )));
++  }
++
+   log::debug!(
+     "TIFF image: {}x{}, cpp={}, bits={}, compression={:?}, sample_format={:?}, data_mode={:?}, endian={:?}",
+     tiff_width,
+@@ -589,6 +624,9 @@
+     DataMode::Tiles => {
+       let twidth = fetch_tiff_tag!(ifd, TiffCommonTag::TileWidth).force_usize(0);
+       let tlength = fetch_tiff_tag!(ifd, TiffCommonTag::TileLength).force_usize(0);
++      if twidth == 0 || tlength == 0 {
++        return Err(RawlerError::DecoderFailed(format!("TIFF image declares a zero tile size: {}x{}", twidth, tlength)));
++      }
+       (((tiff_width - 1) / twidth + 1) * twidth, ((tiff_height - 1) / tlength + 1) * tlength)
+     }
+   };
+@@ -698,6 +736,9 @@
+   let (strips, cont) = raw.strip_data(file)?;
+   let height = fetch_tiff_tag!(raw, TiffCommonTag::ImageLength).force_usize(0);
+   let rows_per_strip = raw.get_entry(TiffCommonTag::RowsPerStrip).map(|tag| tag.force_usize(0)).unwrap_or(height);
++  if rows_per_strip == 0 {
++    return Err(RawlerError::DecoderFailed("TIFF image declares zero rows per strip".to_string()));
++  }
+   let line_width = pixbuf.width;
+   // If we have a continous buffer, we can optimize decompression of multiple strips.
+   if let Some(src) = cont {
+--- a/src/decoders/nef.rs
++++ b/src/decoders/nef.rs
+@@ -214,7 +214,10 @@
+     // Because the strips has no holes between and are perfectly aligned, we can process the whole
+     // chunk at once, instead of iterating over every strip.
+     // It would be safer to process each strip offset, but it is not need for any known model so far.
+-    let src = if rows_per_strip == height {
++    // Dummy decode retains geometry/crop logic but never reads sensor strips.
++    let src = if dummy {
++      PaddedBuf::new_ref(&[0; 16], 0)
++    } else if rows_per_strip == height {
+       file.subview_padded(offset as u64, size as u64)?
+     } else {
+       let full_size: u32 = match fetch_tiff_tag!(raw, TiffCommonTag::StripByteCounts) {
+--- a/src/decoders/orf.rs
++++ b/src/decoders/orf.rs
+@@ -172,7 +172,12 @@
+       self.camera.clone()
+     };
+ 
+-    let src = file.subview_padded(offset as u64, size as u64)?; // TODO add size and check all samples
++    // Dummy decode retains geometry/crop logic but never reads sensor strips.
++    let src = if dummy {
++      PaddedBuf::new_ref(&[0; 16], 0)
++    } else {
++      file.subview_padded(offset as u64, size as u64)?
++    };
+ 
+     log::debug!(
+       "ORF raw image size: {}, dim: {}x{}, total mp: {}, strip counts: {}",
+--- a/src/decoders/qtk.rs
++++ b/src/decoders/qtk.rs
+@@ -100,7 +100,12 @@
+ 
+     log::debug!("QTK file w: {}, h: {}, hint: {}", width, height, hint);
+ 
+-    let src = file.subview_until_eof_padded(offset as u64)?;
++    // Dummy geometry queries must not copy compressed sensor payloads.
++    let src = if dummy {
++      crate::buffer::PaddedBuf::new_ref(&[0; 16], 0)
++    } else {
++      file.subview_until_eof_padded(offset as u64)?
++    };
+ 
+     let image = match file.subview(0, 4)? {
+       b"qktk" => Self::decompress_quicktake_100(self, &src, width, height, dummy)?,
+--- a/src/decoders/raf.rs
++++ b/src/decoders/raf.rs
+@@ -266,7 +266,10 @@
+ 
+     // Strip offset is relative to IFD base
+     let offset = raw.base as u64 + fetch_tiff_tag!(raw, FujiIFD::StripOffsets).force_u64(0);
+-    let src = if raw.has_entry(FujiIFD::StripByteCounts) {
++    // Dummy geometry queries must not copy compressed sensor payloads.
++    let src = if dummy {
++      crate::buffer::PaddedBuf::new_ref(&[0; 16], 0)
++    } else if raw.has_entry(FujiIFD::StripByteCounts) {
+       let strip_count = fetch_tiff_tag!(raw, FujiIFD::StripByteCounts).force_u64(0);
+       file.subview_padded(offset, strip_count)?
+     } else {
+@@ -276,6 +279,14 @@
+ 
+     log::debug!("BPS: {}, width: {}, height: {}, offset: {}", bps, width, height, offset);
+ 
++    // Preserve compression dispatch without constructing the padded payload.
++    let encoded_len = if !dummy {
++      src.len()
++    } else if raw.has_entry(FujiIFD::StripByteCounts) {
++      fetch_tiff_tag!(raw, FujiIFD::StripByteCounts).force_usize(0).saturating_add(16)
++    } else {
++      file.len().saturating_sub(offset as usize).saturating_add(16)
++    };
+     let image = if self.camera.find_hint("double_width") {
+       // Some fuji SuperCCD cameras include a second raw image next to the first one
+       // that is identical but darker to the first. The two combined can produce
+@@ -290,7 +301,7 @@
+     } else if self.camera.clean_model == "DBP for GX680" {
+       assert_eq!(bps, 16);
+       dbp::decode_dbp(&src, width, height, dummy)?
+-    } else if src.len() < bps * width * height / 8 {
++    } else if encoded_len < bps * width * height / 8 {
+       if !dummy {
+         decompress_fuji(&src, width, height, bps, &corrected_cfa)?
+       } else {
+--- a/src/decoders/rw2.rs
++++ b/src/decoders/rw2.rs
+@@ -142,7 +142,12 @@
+         let offset = fetch_tiff_tag!(raw, TiffCommonTag::PanaOffsets).force_usize(0);
+         //let size = fetch_tiff_tag!(raw, TiffCommonTag::StripByteCounts).force_usize(0);
+         log::debug!("PanaOffset: {}", offset);
+-        let src = file.subview_until_eof_padded(offset as u64)?; // TODO add size and check all samples
++        // Dummy geometry queries must not copy compressed sensor payloads.
++        let src = if dummy {
++          crate::buffer::PaddedBuf::new_ref(&[0; 16], 0)
++        } else {
++          file.subview_until_eof_padded(offset as u64)?
++        };
+         Rw2Decoder::decode_panasonic(file, &src, width, height, split, raw_format, bps, self.tiff.root_ifd(), dummy)?
+       } else {
+         let raw = self
+@@ -154,11 +159,18 @@
+         let offset = fetch_tiff_tag!(raw, TiffCommonTag::StripOffsets).force_usize(0);
+         //let size = fetch_tiff_tag!(raw, TiffCommonTag::StripByteCounts).force_usize(0);
+         log::debug!("StripOffset: {}", offset);
+-        let src = file.subview_until_eof_padded(offset as u64)?; // TODO add size and check all samples
++        // Dummy geometry queries must not copy compressed sensor payloads.
++        let src = if dummy {
++          crate::buffer::PaddedBuf::new_ref(&[0; 16], 0)
++        } else {
++          file.subview_until_eof_padded(offset as u64)?
++        };
+ 
+-        if src.len() >= width * height * 2 {
++        // Compression dispatch depends on payload length, not its contents.
++        let encoded_len = if dummy { file.len().saturating_sub(offset).saturating_add(16) } else { src.len() };
++        if encoded_len >= width * height * 2 {
+           decode_12le_unpacked_left_aligned(&src, width, height, dummy)
+-        } else if src.len() >= width * height * 3 / 2 {
++        } else if encoded_len >= width * height * 3 / 2 {
+           decode_12le_wcontrol(&src, width, height, dummy)
+         } else {
+           Rw2Decoder::decode_panasonic(file, &src, width, height, split, raw_format, bps, self.tiff.root_ifd(), dummy)?
+--- a/src/decoders/srw.rs
++++ b/src/decoders/srw.rs
+@@ -78,7 +78,12 @@
+     let offset = fetch_tiff_tag!(raw, TiffCommonTag::StripOffsets).force_usize(0);
+     let compression = fetch_tiff_tag!(raw, TiffCommonTag::Compression).force_u32(0);
+     let bits = fetch_tiff_tag!(raw, TiffCommonTag::BitsPerSample).force_u32(0);
+-    let src = file.subview_until_eof_padded(offset as u64)?;
++    // Dummy geometry queries must not copy compressed sensor payloads.
++    let src = if dummy {
++      crate::buffer::PaddedBuf::new_ref(&[0; 16], 0)
++    } else {
++      file.subview_until_eof_padded(offset as u64)?
++    };
+ 
+     let image = match compression {
+       32769 => match bits {
 --- a/src/rawsource.rs
 +++ b/src/rawsource.rs
 @@ -13,17 +13,18 @@
@@ -23,12 +318,10 @@
    pub fn new(path: &Path) -> std::io::Result<Self> {
      let file = File::open(path)?;
      let mmap = unsafe { MmapOptions::new().populate().map(&file)? };
-@@ -36,6 +37,23 @@
-       path: path.canonicalize().unwrap_or_else(|_| path.to_owned()),
-       inner: RawSourceImpl::Memmap(mmap),
+@@ -38,6 +39,23 @@
      })
-+  }
-+
+   }
+ 
 +  /// Map only the pages demanded by metadata readers, without populating or
 +  /// prefetching the compressed sensor payload.
 +  pub fn new_metadata(path: &Path) -> std::io::Result<Self> {
@@ -44,9 +337,11 @@
 +  /// no source-sized allocation or copy is needed for a metadata query.
 +  pub fn new_from_borrowed_slice(buf: &'a [u8]) -> Self {
 +    Self { path: PathBuf::default(), inner: RawSourceImpl::Borrowed(buf) }
-   }
- 
++  }
++
    pub fn new_from_shared_vec(buf: Arc<Vec<u8>>) -> Self {
+     Self {
+       path: PathBuf::default(),
 @@ -128,19 +146,21 @@
    }
  }
@@ -71,178 +366,3 @@
    }
  }
 +
---- a/src/decoders/ari.rs
-+++ b/src/decoders/ari.rs
-@@ -46 +46,6 @@
--    let src = file.subview_until_eof_padded(offset as u64)?;
-+    // Dummy geometry queries must not copy compressed sensor payloads.
-+    let src = if dummy {
-+      crate::buffer::PaddedBuf::new_ref(&[0; 16], 0)
-+    } else {
-+      file.subview_until_eof_padded(offset as u64)?
-+    };
---- a/src/decoders/dcs.rs
-+++ b/src/decoders/dcs.rs
-@@ -46 +46,6 @@
--    let src = file.subview_until_eof_padded(offset as u64)?; // TODO add size and check all samples
-+    // Dummy geometry queries must not copy compressed sensor payloads.
-+    let src = if dummy {
-+      crate::buffer::PaddedBuf::new_ref(&[0; 16], 0)
-+    } else {
-+      file.subview_until_eof_padded(offset as u64)?
-+    };
---- a/src/decoders/dcr.rs
-+++ b/src/decoders/dcr.rs
-@@ -63 +63,6 @@
--    let src = file.subview_until_eof_padded(offset as u64)?; // TODO add size and check all samples
-+    // Dummy geometry queries must not copy compressed sensor payloads.
-+    let src = if dummy {
-+      crate::buffer::PaddedBuf::new_ref(&[0; 16], 0)
-+    } else {
-+      file.subview_until_eof_padded(offset as u64)?
-+    };
---- a/src/decoders/kdc.rs
-+++ b/src/decoders/kdc.rs
-@@ -104 +104,6 @@
--      let src = file.subview_until_eof_padded(off as u64)?;
-+      // Dummy geometry queries must not copy compressed sensor payloads.
-+      let src = if dummy {
-+        crate::buffer::PaddedBuf::new_ref(&[0; 16], 0)
-+      } else {
-+        file.subview_until_eof_padded(off as u64)?
-+      };
---- a/src/decoders/qtk.rs
-+++ b/src/decoders/qtk.rs
-@@ -103 +103,6 @@
--    let src = file.subview_until_eof_padded(offset as u64)?;
-+    // Dummy geometry queries must not copy compressed sensor payloads.
-+    let src = if dummy {
-+      crate::buffer::PaddedBuf::new_ref(&[0; 16], 0)
-+    } else {
-+      file.subview_until_eof_padded(offset as u64)?
-+    };
---- a/src/decoders/srw.rs
-+++ b/src/decoders/srw.rs
-@@ -81 +81,6 @@
--    let src = file.subview_until_eof_padded(offset as u64)?;
-+    // Dummy geometry queries must not copy compressed sensor payloads.
-+    let src = if dummy {
-+      crate::buffer::PaddedBuf::new_ref(&[0; 16], 0)
-+    } else {
-+      file.subview_until_eof_padded(offset as u64)?
-+    };
---- a/src/decoders/rw2.rs
-+++ b/src/decoders/rw2.rs
-@@ -145 +145,6 @@
--        let src = file.subview_until_eof_padded(offset as u64)?; // TODO add size and check all samples
-+        // Dummy geometry queries must not copy compressed sensor payloads.
-+        let src = if dummy {
-+          crate::buffer::PaddedBuf::new_ref(&[0; 16], 0)
-+        } else {
-+          file.subview_until_eof_padded(offset as u64)?
-+        };
-@@ -157,3 +162,10 @@
--        let src = file.subview_until_eof_padded(offset as u64)?; // TODO add size and check all samples
--
--        if src.len() >= width * height * 2 {
-+        // Dummy geometry queries must not copy compressed sensor payloads.
-+        let src = if dummy {
-+          crate::buffer::PaddedBuf::new_ref(&[0; 16], 0)
-+        } else {
-+          file.subview_until_eof_padded(offset as u64)?
-+        };
-+
-+        // Compression dispatch depends on payload length, not its contents.
-+        let encoded_len = if dummy { file.len().saturating_sub(offset).saturating_add(16) } else { src.len() };
-+        if encoded_len >= width * height * 2 {
-@@ -161 +173 @@
--        } else if src.len() >= width * height * 3 / 2 {
-+        } else if encoded_len >= width * height * 3 / 2 {
---- a/src/decoders/raf.rs
-+++ b/src/decoders/raf.rs
-@@ -269 +269,4 @@
--    let src = if raw.has_entry(FujiIFD::StripByteCounts) {
-+    // Dummy geometry queries must not copy compressed sensor payloads.
-+    let src = if dummy {
-+      crate::buffer::PaddedBuf::new_ref(&[0; 16], 0)
-+    } else if raw.has_entry(FujiIFD::StripByteCounts) {
-@@ -278,0 +282,8 @@
-+    // Preserve compression dispatch without constructing the padded payload.
-+    let encoded_len = if !dummy {
-+      src.len()
-+    } else if raw.has_entry(FujiIFD::StripByteCounts) {
-+      fetch_tiff_tag!(raw, FujiIFD::StripByteCounts).force_usize(0).saturating_add(16)
-+    } else {
-+      file.len().saturating_sub(offset as usize).saturating_add(16)
-+    };
-@@ -293 +304 @@
--    } else if src.len() < bps * width * height / 8 {
-+    } else if encoded_len < bps * width * height / 8 {
---- a/src/decoders/nef.rs
-+++ b/src/decoders/nef.rs
-@@ -217 +217,4 @@
--    let src = if rows_per_strip == height {
-+    // Dummy decode retains geometry/crop logic but never reads sensor strips.
-+    let src = if dummy {
-+      PaddedBuf::new_ref(&[0; 16], 0)
-+    } else if rows_per_strip == height {
---- a/src/decoders/orf.rs
-+++ b/src/decoders/orf.rs
-@@ -175 +175,6 @@
--    let src = file.subview_padded(offset as u64, size as u64)?; // TODO add size and check all samples
-+    // Dummy decode retains geometry/crop logic but never reads sensor strips.
-+    let src = if dummy {
-+      PaddedBuf::new_ref(&[0; 16], 0)
-+    } else {
-+      file.subview_padded(offset as u64, size as u64)?
-+    };
---- a/src/decoders/mod.rs
-+++ b/src/decoders/mod.rs
-@@ -572,6 +572,13 @@ pub(crate) fn plain_image_from_ifd(ifd: &IFD, rawsource: &RawSource) -> Result<R
-   let compression = CompressionMethod::extract(ifd)?.unwrap_or(CompressionMethod::None);
-   let pi = PhotometricInterpretation::extract(ifd)?.unwrap_or(PhotometricInterpretation::BlackIsZero);
-
-+  if tiff_width == 0 || tiff_height == 0 || cpp == 0 {
-+    return Err(RawlerError::DecoderFailed(format!(
-+      "TIFF image declares a zero dimension: {}x{}, samples per pixel {}",
-+      tiff_width, tiff_height, cpp
-+    )));
-+  }
-+
-   log::debug!(
-     "TIFF image: {}x{}, cpp={}, bits={}, compression={:?}, sample_format={:?}, data_mode={:?}, endian={:?}",
-     tiff_width,
-@@ -589,6 +596,9 @@ pub(crate) fn plain_image_from_ifd(ifd: &IFD, rawsource: &RawSource) -> Result<R
-     DataMode::Tiles => {
-       let twidth = fetch_tiff_tag!(ifd, TiffCommonTag::TileWidth).force_usize(0);
-       let tlength = fetch_tiff_tag!(ifd, TiffCommonTag::TileLength).force_usize(0);
-+      if twidth == 0 || tlength == 0 {
-+        return Err(RawlerError::DecoderFailed(format!("TIFF image declares a zero tile size: {}x{}", twidth, tlength)));
-+      }
-       (((tiff_width - 1) / twidth + 1) * twidth, ((tiff_height - 1) / tlength + 1) * tlength)
-     }
-   };
-@@ -708,6 +718,9 @@ pub(super) fn decode_strips<'a, T>(pixbuf: &'a mut Pix2D<T>, file: &RawSource, r
-   let height = fetch_tiff_tag!(raw, TiffCommonTag::ImageLength).force_usize(0);
-   let rows_per_strip = raw.get_entry(TiffCommonTag::RowsPerStrip).map(|tag| tag.force_usize(0)).unwrap_or(height);
-+  if rows_per_strip == 0 {
-+    return Err(RawlerError::DecoderFailed("TIFF image declares zero rows per strip".to_string()));
-+  }
-   let line_width = pixbuf.width;
-   // If we have a continous buffer, we can optimize decompression of multiple strips.
-   if let Some(src) = cont {
---- /dev/null
-+++ b/data/cameras/hasselblad/h2d.toml
-@@ -0,0 +1,12 @@
-+make = "Hasselblad"
-+model = "Hasselblad H2D"
-+clean_make = "Hasselblad"
-+clean_model = "H2D"
-+blackpoint = 0
-+whitepoint = 65535
-+color_pattern = "RGGB"
-+active_area = [0, 0, 0, 0]
-+crop_area = [24, 20, 22, 24]
-+
-+[cameras.color_matrix]
-+D65 = [0.3904, -0.0100, 0.0262, -0.4318, 1.2407, 0.2128, -0.1598, 0.3594, 0.6233]

@@ -45,6 +45,7 @@ pub use parametric::{AXIS_MIDTONE, AXIS_TOP, AXIS_UNITS_PER_STOP, MIDGREY};
 
 use evaluator::eval_curve_scene_linear;
 use parametric::build_parametric_curve;
+use rayon::prelude::*;
 
 /// Re-exported for [`crate::stages::display_tone_curve`] (#2232): the
 /// display-referred curve family reuses the SAME Fritsch–Carlson
@@ -185,21 +186,21 @@ fn apply_parametric_luma_coupled(img: &mut Image, model: &AdjustmentModel) {
     // here, not per-pixel.
     let prepared = build_parametric_curve(model);
 
-    for p in &mut img.pixels {
+    img.pixels.par_iter_mut().for_each(|p| {
         let y_old = LUMA_REC2020[0] * p[0] + LUMA_REC2020[1] * p[1] + LUMA_REC2020[2] * p[2];
         if y_old <= 0.0 {
             // Zero / negative luma — leave the pixel alone. The curve
             // evaluator's authoring domain starts at 0; mapping a
             // negative scene value through the curve would extrapolate
             // outside the authored knots.
-            continue;
+            return;
         }
         let y_new = eval_curve_scene_linear(&prepared, y_old);
         let scale = y_new / y_old;
         p[0] *= scale;
         p[1] *= scale;
         p[2] *= scale;
-    }
+    });
 }
 
 // ---------------------------------------------------------------------
@@ -217,17 +218,17 @@ fn apply_point_curve_luma_coupled(img: &mut Image, curve: &ToneCurve) {
     // `PreparedCurve` without allocating.
     let prepared = prepare_curve(curve);
 
-    for p in &mut img.pixels {
+    img.pixels.par_iter_mut().for_each(|p| {
         let y_old = LUMA_REC2020[0] * p[0] + LUMA_REC2020[1] * p[1] + LUMA_REC2020[2] * p[2];
         if y_old <= 0.0 {
-            continue;
+            return;
         }
         let y_new = eval_curve_scene_linear(&prepared, y_old);
         let scale = y_new / y_old;
         p[0] *= scale;
         p[1] *= scale;
         p[2] *= scale;
-    }
+    });
 }
 
 // ---------------------------------------------------------------------
@@ -246,13 +247,13 @@ fn apply_point_curve_per_channel(img: &mut Image, curve: &ToneCurve, channel: us
     debug_assert!(channel < 3, "channel must be 0/1/2");
     let prepared = prepare_curve(curve);
 
-    for p in &mut img.pixels {
+    img.pixels.par_iter_mut().for_each(|p| {
         let v = p[channel];
         if v <= 0.0 {
-            continue;
+            return;
         }
         p[channel] = eval_curve_scene_linear(&prepared, v);
-    }
+    });
 }
 
 // ---------------------------------------------------------------------
@@ -311,10 +312,10 @@ fn eval_ratio_preserving(
     curve_g: &PreparedCurve,
     curve_b: &PreparedCurve,
 ) {
-    for p in &mut img.pixels {
+    img.pixels.par_iter_mut().for_each(|p| {
         let y_in = LUMA_REC2020[0] * p[0] + LUMA_REC2020[1] * p[1] + LUMA_REC2020[2] * p[2];
         if y_in <= 0.0 {
-            continue;
+            return;
         }
         let r_prime = eval_curve_scene_linear(curve_r, y_in);
         let g_prime = eval_curve_scene_linear(curve_g, y_in);
@@ -325,7 +326,7 @@ fn eval_ratio_preserving(
         p[0] *= scale;
         p[1] *= scale;
         p[2] *= scale;
-    }
+    });
 }
 
 #[cfg(test)]

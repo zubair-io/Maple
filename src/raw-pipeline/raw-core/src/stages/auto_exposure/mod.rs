@@ -72,6 +72,7 @@
 
 use crate::image::{ColorSpace, Image};
 use crate::xmp::{AdjustmentModel, AutoExposureMode};
+use rayon::prelude::*;
 
 /// Rec.2020 luma weights — match the working color space of the post-DCP
 /// `Image` we sample (see `crate::stages::scene_tone_controls::LUMA_REC2020`).
@@ -257,11 +258,11 @@ pub fn apply(image: &mut Image, model: &AdjustmentModel) -> f32 {
 /// The multiply [`apply`] makes, for a gain measured elsewhere.
 pub(crate) fn apply_gain(image: &mut Image, gain: f32) {
     if (gain - 1.0).abs() > 1e-6 {
-        for p in &mut image.pixels {
+        image.pixels.par_iter_mut().for_each(|p| {
             p[0] *= gain;
             p[1] *= gain;
             p[2] *= gain;
-        }
+        });
     }
 }
 

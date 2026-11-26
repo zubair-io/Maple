@@ -144,19 +144,6 @@ fn delta_e(script: &Path, candidate: &Path, reference: &Path) -> (f64, f64, f64)
     )
 }
 
-fn resize_long_edge(img: image::DynamicImage, max_px: u32) -> image::DynamicImage {
-    use image::GenericImageView;
-    let (w, h) = img.dimensions();
-    let long_edge = w.max(h);
-    if long_edge <= max_px {
-        return img;
-    }
-    let scale = max_px as f32 / long_edge as f32;
-    let new_w = ((w as f32) * scale).round().max(1.0) as u32;
-    let new_h = ((h as f32) * scale).round().max(1.0) as u32;
-    img.resize_exact(new_w, new_h, image::imageops::FilterType::Triangle)
-}
-
 /// The Rust reference: the full sidecar through the develop path.
 fn reference_png(raw: &Path, model: &AdjustmentModel, out: &Path) {
     let raw_bytes = std::fs::read(raw).expect("read raw");
@@ -170,8 +157,7 @@ fn reference_png(raw: &Path, model: &AdjustmentModel, out: &Path) {
     )
     .expect("reference develop");
     let rgb = image::RgbImage::from_raw(w, h, px).expect("reference buffer size");
-    resize_long_edge(image::DynamicImage::ImageRgb8(rgb), LONG_EDGE_PX)
-        .to_rgb8()
+    raw_core::preview::resize_long_edge(image::DynamicImage::ImageRgb8(rgb), LONG_EDGE_PX)
         .save(out)
         .expect("write reference png");
 }
@@ -334,8 +320,7 @@ unsafe fn windows_path_png(
         .flat_map(|px| [to_byte(px[0]), to_byte(px[1]), to_byte(px[2])])
         .collect();
     let rgb = image::RgbImage::from_raw(w, h, rgb).expect("candidate buffer size");
-    resize_long_edge(image::DynamicImage::ImageRgb8(rgb), LONG_EDGE_PX)
-        .to_rgb8()
+    raw_core::preview::resize_long_edge(image::DynamicImage::ImageRgb8(rgb), LONG_EDGE_PX)
         .save(out)
         .expect("write candidate png");
 }

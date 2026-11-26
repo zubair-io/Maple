@@ -23,7 +23,10 @@
 
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
-use raw_core::pipeline::{render_from_raw_with_quality_and_source, RawInput, RenderQuality};
+use raw_core::pipeline::{
+    render_from_raw_with_quality_and_source, render_sized_from_raw_with_quality_and_source,
+    RawInput, RenderQuality,
+};
 use std::path::Path;
 
 use crate::develop_common::{atomic_write, load_xmp_model, run_on_large_stack};
@@ -76,8 +79,7 @@ fn render_thumbnail_to_file(
         .unwrap_or_default();
     let (dyn_img, orientation) =
         raw_core::preview::extract_embedded_preview(&raw_bytes, &ext).map_err(|e| e.to_string())?;
-    let resized = raw_core::preview::resize_long_edge(dyn_img, max_px);
-    let rgb_img = resized.to_rgb8();
+    let rgb_img = raw_core::preview::resize_long_edge(dyn_img, max_px);
     let (rw, rh) = rgb_img.dimensions();
     // Bake EXIF orientation into the pixels — the re-encode below carries no
     // EXIF of its own, so rotating here is the only chance to land an
@@ -284,21 +286,30 @@ impl RenderDevelopJpegToFileTask {
             let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
             let raw_img = raw_core::decode::decode_bytes(&raw_bytes, ext)
                 .map_err(|e| format!("decode: {e}"))?;
-            let (w, h, bytes) = render_from_raw_with_quality_and_source(
-                &raw_img,
-                &model,
-                RenderQuality::Amaze,
-                Some(RawInput::Path(path)),
-            )
+            let source = Some(RawInput::Path(path));
+            let (w, h, bytes) = match xmp_path {
+                None => render_sized_from_raw_with_quality_and_source(
+                    &raw_img,
+                    &model,
+                    RenderQuality::Full,
+                    source,
+                    max_px,
+                ),
+                Some(_) => render_from_raw_with_quality_and_source(
+                    &raw_img,
+                    &model,
+                    RenderQuality::Amaze,
+                    source,
+                ),
+            }
             .map_err(|e| format!("render: {e}"))?;
             // The develop output is a tightly-packed, display-oriented
             // RGB888 buffer. Wrap → resize to the long-edge target →
             // JPEG-encode.
             let rgb = image::RgbImage::from_raw(w, h, bytes)
                 .ok_or_else(|| "develop buffer size mismatch".to_string())?;
-            let resized =
+            let rgb_img =
                 raw_core::preview::resize_long_edge(image::DynamicImage::ImageRgb8(rgb), max_px);
-            let rgb_img = resized.to_rgb8();
             let (rw, rh) = rgb_img.dimensions();
             let jpeg = raw_core::jpeg::encode(rw, rh, rgb_img.as_raw(), q)
                 .map_err(|e| format!("jpeg encode: {e}"))?;
@@ -309,9 +320,9 @@ impl RenderDevelopJpegToFileTask {
 
 /// Develop `raw_path` with `xmp_path` applied (`None` = neutral defaults),
 /// downsample to `max_px` on the long edge, JPEG-encode, and write
-/// atomically to `out_path`. Uses AMaZE demosaic (`RenderQuality::Amaze`) —
-/// a cache-populating background stage, not the interactive fast path, so it
-/// favours quality. `quality` is JPEG quality in `[1, 100]`; `0` selects the
+/// atomically to `out_path`. Without a sidecar it develops through the sized
+/// chain at `max_px`; with one, at full resolution with AMaZE, matching
+/// `maple_render_develop_jpeg_to_file` (#6018). `quality` is JPEG quality in `[1, 100]`; `0` selects the
 /// default (82). Resolves the same shape `renderDevelopJpegToFile` already
 /// returns from the `bun:ffi` backend.
 ///

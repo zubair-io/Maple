@@ -111,6 +111,49 @@ impl SyntheticPerfDng {
         w.flush()
     }
 
+    /// [`Self::write_to`] with `photo` (an sRGB photograph, nearest-sampled to
+    /// the sensor size) as the scene instead of the textured pattern, so the
+    /// per-pixel stages see a photograph's chroma and tone statistics. Each
+    /// sample is linearised, scaled by the as-shot neutral so whites stay
+    /// neutral after white balance, exposed two stops under clipping, and
+    /// carries a deterministic per-photosite noise term of peak-to-peak
+    /// amplitude `noise` (linear sensor units).
+    pub fn write_photo_to(
+        &self,
+        path: &Path,
+        photo: &image::RgbImage,
+        noise: f32,
+    ) -> io::Result<()> {
+        use std::io::{BufWriter, Write};
+        let (pw, ph) = photo.dimensions();
+        let neutral = hasselblad_dcp::AS_SHOT_NEUTRAL;
+        let channel = |x: u32, y: u32| -> usize {
+            let pattern = self.cfa_pattern_bytes();
+            usize::from(pattern[((y & 1) * 2 + (x & 1)) as usize])
+        };
+        let mut w = BufWriter::new(std::fs::File::create(path)?);
+        w.write_all(&self.header_and_ifd_bytes())?;
+        let mut row: Vec<u8> = Vec::with_capacity(self.width as usize * 2);
+        for y in 0..self.height {
+            row.clear();
+            let py = (u64::from(y) * u64::from(ph) / u64::from(self.height)) as u32;
+            for x in 0..self.width {
+                let px = (u64::from(x) * u64::from(pw) / u64::from(self.width)) as u32;
+                let c = channel(x, y);
+                let encoded = f32::from(photo.get_pixel(px, py)[c]) / 255.0;
+                let linear = crate::view::encode::srgb_degamma(encoded);
+                let mixed = (x.wrapping_mul(0x9E37_79B1) ^ y.wrapping_mul(0x85EB_CA77))
+                    .wrapping_mul(0xC2B2_AE3D);
+                let hash = (mixed ^ (mixed >> 15)) >> 22;
+                let jitter = (hash as f32 / 1024.0 - 0.5) * noise;
+                let value = (linear * 0.25 * neutral[c] + 0.002 + jitter).clamp(0.0, 1.0);
+                write_u16_le(&mut row, (value * 65535.0).round() as u16);
+            }
+            w.write_all(&row)?;
+        }
+        w.flush()
+    }
+
     /// In-memory variant used by the unit tests (small instances only). Builds
     /// the full byte vector including the strip. Prefer [`Self::write_to`] for
     /// the ~100MP fixture, which streams the strip instead of buffering it.

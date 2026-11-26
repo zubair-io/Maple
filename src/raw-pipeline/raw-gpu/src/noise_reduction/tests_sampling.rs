@@ -8,12 +8,18 @@ use raw_core::{
 };
 
 #[test]
-fn sampled_chroma_matches_cpu_and_keeps_native_behavior() {
+fn sampled_chroma_matches_cpu_at_every_density() {
     let ctx = GpuContext::new_blocking().expect("GPU required");
-    let (w, h) = (48, 48);
+    // The odd size covers the half-resolution grid's partial edge blocks (#6018).
+    for (w, h) in [(48, 48), (37, 23)] {
+        check_sampling(&ctx, w, h);
+    }
+}
+
+fn check_sampling(ctx: &GpuContext, w: usize, h: usize) {
     let input = super::tests::modest_image(w, h);
-    let uploaded = GpuImage::upload(&ctx, &input, w as u32, h as u32);
-    let runner = ChainRunner::new(&ctx, &uploaded);
+    let uploaded = GpuImage::upload(ctx, &input, w as u32, h as u32);
+    let runner = ChainRunner::new(ctx, &uploaded);
     for profile in [vec![], vec![0.00008, 0.00000003]] {
         let noise = (!profile.is_empty()).then_some(profile.as_slice());
         let mut native = Image::new(w as u32, h as u32, ColorSpace::SceneLinearRec2020);
