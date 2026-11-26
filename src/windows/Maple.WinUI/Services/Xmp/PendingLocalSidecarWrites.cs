@@ -41,6 +41,8 @@ public sealed class PendingLocalSidecarWrites
 
     public XmpSidecarDocument? ReadPending(string path) => ReadPendingSnapshot(path)?.Document;
 
+    public void Discard(string path) { lock (_gate) _pending.Remove(path); }
+
     public bool Contains(string path) { lock (_gate) return _pending.ContainsKey(path); }
 
     public IReadOnlyList<LocalSidecarWriteResult> Flush()

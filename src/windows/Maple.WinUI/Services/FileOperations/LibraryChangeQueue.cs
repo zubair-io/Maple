@@ -16,6 +16,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using Maple.WinUI.Services.Xmp;
 
 namespace Maple.WinUI.Services.FileOperations
 {
@@ -90,7 +91,51 @@ namespace Maple.WinUI.Services.FileOperations
                 }
             }
 
-            return new Resolved(added, removed, renamed, unstableAdded, unstableRenamed);
+            var (together, settled) = SplitRenamesLinkedToWaiting(renamed, unstableRenamed);
+            unstableRenamed.AddRange(together.Select(r => new KeyValuePair<string, string>(r.OldPath, r.NewPath)));
+
+            return new Resolved(added, removed, settled, unstableAdded, unstableRenamed);
+        }
+
+        /// <summary>A rename that must wait drags along every settled rename
+        /// linked to it, transitively (#6072): one that reads the same old
+        /// sidecar, one whose new sidecar name is a waiting rename's old one,
+        /// or one whose old sidecar name is a waiting rename's new one. The
+        /// group is then decided together, never in halves. Names compare
+        /// ignoring case, so a case-only difference holds back more, never
+        /// less.</summary>
+        private static (List<(string OldPath, string NewPath)> Linked, List<(string OldPath, string NewPath)> Unlinked)
+            SplitRenamesLinkedToWaiting(
+                List<(string OldPath, string NewPath)> settled, List<KeyValuePair<string, string>> waiting)
+        {
+            var waitingOldSidecars = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var waitingNewSidecars = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var pair in waiting)
+            {
+                waitingOldSidecars.Add(SidecarStore.SidecarPathFor(pair.Key));
+                waitingNewSidecars.Add(SidecarStore.SidecarPathFor(pair.Value));
+            }
+            var linked = new List<(string OldPath, string NewPath)>();
+            var rest = settled.ToList();
+            bool grew;
+            do
+            {
+                var joining = rest.Where(r =>
+                {
+                    var (oldSidecar, newSidecar) = (SidecarStore.SidecarPathFor(r.OldPath), SidecarStore.SidecarPathFor(r.NewPath));
+                    return waitingOldSidecars.Contains(oldSidecar) || waitingOldSidecars.Contains(newSidecar)
+                        || waitingNewSidecars.Contains(oldSidecar);
+                }).ToList();
+                foreach (var r in joining)
+                {
+                    waitingOldSidecars.Add(SidecarStore.SidecarPathFor(r.OldPath));
+                    waitingNewSidecars.Add(SidecarStore.SidecarPathFor(r.NewPath));
+                    rest.Remove(r);
+                    linked.Add(r);
+                }
+                grew = joining.Count > 0;
+            } while (grew);
+            return (linked, rest);
         }
 
         public void Clear()

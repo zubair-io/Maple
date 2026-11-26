@@ -114,7 +114,9 @@ namespace Maple.WinUI.ViewModels
         /// (above) would instead drop the old PhotoItem and build a brand
         /// new one from the new name, reading a sidecar that never followed
         /// the rename — this is the orphaning bug the ticket exists to
-        /// close. Sidecar move + in-place identity update run here instead.
+        /// close. The sidecar follow-up obeys the shared-sidecar rule
+        /// (`LocalFileOperations.FollowExternalRenames`, #6072), then the
+        /// in-place identity update runs.
         ///
         /// Old-path cache cleanup (#2710/#3083): the shared thumbnail cache
         /// is keyed by filename (`.maple\thumbs\&lt;name&gt;.avif`), so the
@@ -128,24 +130,10 @@ namespace Maple.WinUI.ViewModels
             var folder = CurrentFolderPath;
             var reconciled = pairs
                 .Where(p => string.Equals(Path.GetDirectoryName(p.OldPath), folder, StringComparison.OrdinalIgnoreCase))
-                .Select(p =>
-                {
-                    LocalFileOperations.ReclaimSharedThumbs(p.OldPath, p.NewPath);
-                    try
-                    {
-                        RenameSidecarIfPresent(p.OldPath, p.NewPath);
-                    }
-                    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-                    {
-                        // The primary rename already happened on disk — an
-                        // item that keeps its identity but loses its edits
-                        // to a locked/colliding sidecar move beats orphaning
-                        // the grid entry entirely.
-                        DiagLog.Write($"[library] sidecar rename failed for {p.OldPath} -> {p.NewPath}: {ex.Message}");
-                    }
-                    return p;
-                })
                 .ToList();
+            foreach (var rename in reconciled)
+                LocalFileOperations.ReclaimSharedThumbs(rename.OldPath, rename.NewPath);
+            var followed = LocalFileOperations.FollowExternalRenames(reconciled);
             if (reconciled.Count == 0)
                 return;
 
@@ -153,16 +141,26 @@ namespace Maple.WinUI.ViewModels
             {
                 if (!string.Equals(CurrentFolderPath, folder, StringComparison.OrdinalIgnoreCase))
                     return;    // user navigated away while the batch settled
-                var changed = false;
-                foreach (var (oldPath, newPath) in reconciled)
-                {
-                    var photo = AllPhotos.FirstOrDefault(p =>
-                        string.Equals(p.FilePath, oldPath, StringComparison.OrdinalIgnoreCase));
-                    if (photo == null)
-                        continue;    // watcher fired before the item ever loaded — nothing to reconcile
-                    ApplyRenameOutcome(photo, newPath);
-                    changed = true;
-                }
+                // Resolve every photo before renaming any: a swap reuses a
+                // path another rename in the batch is about to vacate.
+                var renamedPhotos = followed
+                    .Select(f => (Photo: AllPhotos.FirstOrDefault(p =>
+                        string.Equals(p.FilePath, f.OldPath, StringComparison.OrdinalIgnoreCase)), Result: f))
+                    .Where(x => x.Photo != null)    // watcher fired before the item ever loaded — nothing to reconcile
+                    .ToList();
+                var changed = renamedPhotos.Count > 0;
+                // A photo that will read a different sidecar must not autosave
+                // its old values under the new path, so its unsaved state goes
+                // BEFORE any path changes; a photo that keeps its own sidecar
+                // (moved or copied with it) keeps its pending edit and saves
+                // to the new path.
+                var readsOther = renamedPhotos.Where(x => x.Result.ReadsOtherSidecar).ToList();
+                foreach (var (photo, _) in readsOther)
+                    DiscardUnsavedSidecarState(photo!);
+                foreach (var (photo, result) in renamedPhotos)
+                    ApplyRenameOutcome(photo!, result.NewPath);
+                foreach (var (photo, _) in readsOther)
+                    ReloadSidecarState(photo!);
                 if (!changed)
                     return;
                 ApplyFilters();
@@ -170,18 +168,35 @@ namespace Maple.WinUI.ViewModels
             });
         }
 
-        /// <summary>Moves the `.xmp` sidecar to follow an externally-renamed
-        /// primary. `overwrite: false` — a collision at the new sidecar path
-        /// means something already occupies that name, and silently
-        /// clobbering a stranger's edits is worse than leaving this one
-        /// orphaned (caught and logged by the caller).</summary>
-        private static void RenameSidecarIfPresent(string oldPrimaryPath, string newPrimaryPath)
+        /// <summary>The photo is about to read a sidecar it did not have
+        /// (#6072): its unsaved rating and adjustments belong to the old one,
+        /// and an autosave would write them over another photo's sidecar. The
+        /// flag clears under the gate the autosave takes, so a flush already
+        /// waiting on it finds nothing to write.</summary>
+        private void DiscardUnsavedSidecarState(PhotoItem photo)
         {
-            var oldSidecar = SidecarStore.SidecarPathFor(oldPrimaryPath);
-            if (!File.Exists(oldSidecar))
+            if (!ReferenceEquals(_openPhoto, photo)) return;
+            lock (_localMetadataGate)
+            {
+                _sidecarDirty = false;
+                _localMetadataWrites.Discard(photo.FilePath);
+            }
+            _sidecarTimer?.Dispose();
+            _lastSidecarWriteText = null;
+        }
+
+        /// <summary>Loads what the sidecar the renamed photo now reads holds.</summary>
+        private void ReloadSidecarState(PhotoItem photo)
+        {
+            if (ReferenceEquals(_openPhoto, photo) && ReferenceEquals(SelectedPhoto, photo))
+            {
+                OnSidecarChangedOnDisk(null, SidecarStore.SidecarPathFor(photo.FilePath));
                 return;
-            var newSidecar = SidecarStore.SidecarPathFor(newPrimaryPath);
-            File.Move(oldSidecar, newSidecar, overwrite: false);
+            }
+            var sidecar = SidecarStore.Load(photo.FilePath);
+            photo.Rating = sidecar?.Rating ?? 0;
+            photo.FlagStatus = sidecar?.Flag ?? "none";
+            photo.ColorLabel = sidecar?.ColorLabel;
         }
     }
 }
