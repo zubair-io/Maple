@@ -77,6 +77,75 @@ python3 tools/perf-table.py
 cd src/web && bun run format && cd -
 ```
 
+### Linux
+
+```bash
+# Linux — from the repo root on the physical machine, inside the desktop session
+# being qualified (Wayland or X11), with nothing else running:
+cargo run --locked --release --manifest-path src/linux/Cargo.toml --example perf-harness -- \
+  test-fixtures/raws/dji-mavic3pro-100mp.dng /tmp/maple-linux-perf.json
+```
+
+`perf-harness` (`src/linux/examples/perf-harness/`, #6043) opens a private
+copy of the RAW on the application's own preview worker, without a window,
+twice: once with the GPU (the resident preview the editor shows) and once
+without it (the CPU renderer the application falls back to). For each it
+records:
+
+- **Cold open** — from the open request to the first published frame
+  (`coldOpenDecodeMs` is the decode share). The harness has just hashed and
+  copied the file, so its bytes are in the OS page cache; nothing of the
+  application is warm.
+- **Slider ticks** — an Exposure drag and a Contrast drag, one tick every
+  1/60 s whether or not the previous frame has arrived, as a real drag
+  does. Latency runs from sending a tick to its frame being published. Every
+  tick supersedes the render in flight, so a path slower than 16.7 ms per
+  frame answers only some ticks: the row records how many were published
+  (`published`, `publishedRatio`) and the longest stretch with no frame at
+  all (`worstGapMs`, the delay a user feels). The first published frame of
+  each drag is reported apart as `firstTickMs` and kept out of the
+  percentiles; the Apple harness reports every tick, so this is stricter.
+- **Profile-switch cancellation** — a profile switch, which re-uploads the
+  preview, is superseded part-way through by a render for a closed session;
+  the latency is the time until the worker has dropped the switch and
+  answered. A slider tick superseded by the next tick publishes no event, so
+  its cancellation is not timed.
+- **Peak resident memory** — the process high-water mark after each path.
+  The GPU path runs first, so the CPU fallback's figure includes it. It
+  counts host memory only, not GPU memory.
+- **Image size** — the decoded RAW's width, height and megapixels as the
+  worker reports them (`sensorWidth`, `sensorHeight`, `sensorMegapixels`).
+
+The row lists what it measures (`coverage`) and what it does not
+(`excludes`): the debounced quiet-refine and detail pass, frame
+presentation after the worker event, saves on the worker thread, input
+dispatch and the egui frame loop, GPU memory, and cancellation of a tick
+superseded by the next tick.
+
+The harness prints whether the row qualifies as a timing measurement. It
+qualifies only from a release build with a clean working tree, on a
+discrete or integrated hardware Vulkan adapter under Linux, on the
+reference RAW (SHA-256 `f4b60b36…a1045aa5`, the hash
+`test-fixtures/qualification/browser-100mp-3669.json` records for
+`dji-mavic3pro-100mp.dng`), with the GPU path staying resident and each
+drag publishing at least 20 frames and half of its ticks. A software
+adapter (a CPU rasterizer, as in Linux CI) or any other failed condition
+still writes the row, marked `timingQualifies: false` with the reasons,
+and `tools/perf-table.py` refuses to render it. The CPU fallback is
+recorded for comparison and does not decide qualification.
+
+Run the harness three times on an idle machine and commit the median run,
+ranked by its resident GPU tick p95, to
+`test-fixtures/perf/linux/<deviceId>.json` (the harness prints the
+`deviceId`); keep the other two logs with the PR's evidence. The Apple
+rows keep the better of two runs; Linux commits the median so a lucky run
+cannot set the number. Then regenerate and reformat as above.
+
+No Linux row is committed yet. Linux CI runs the same harness code on a
+software adapter, which checks the harness and is not timing evidence; a
+row needs a physical Linux machine with a hardware GPU and the reference
+RAW, and that measurement is #5970.
+
 ## Regression gate (local only)
 
 ```bash

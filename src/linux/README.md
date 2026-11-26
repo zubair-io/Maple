@@ -380,6 +380,32 @@ seconds, then closes. A screenshot verifies window presentation only. The
 available development VM uses llvmpipe; hardware latency qualification requires
 a physical GPU and the reference RAW corpus.
 
+The timing harness for that qualification (#5970) runs without a window:
+
+```bash
+cargo run --locked --release --manifest-path src/linux/Cargo.toml --example perf-harness -- \
+  test-fixtures/raws/dji-mavic3pro-100mp.dng /tmp/maple-linux-perf.json
+```
+
+It opens a private copy of the RAW on the application's own preview worker,
+once with the GPU and once on the CPU fallback, and writes one perf row: cold
+open, Exposure and Contrast tick latency at 60 ticks a second with how many
+ticks were answered and the longest stretch without a frame, the time to
+abandon a profile switch superseded by a render for a closed session, and peak
+resident memory (host memory only).
+
+The row lists what it covers and what it excludes. It does not measure the
+debounced quiet-refine and detail pass, frame presentation after the worker
+event, saves on the worker thread, input dispatch and the egui frame loop, GPU
+memory, or the cancellation of a tick superseded by the next tick. The row
+marks itself `timingQualifies: false` on a software adapter or any adapter that
+is not a discrete or integrated GPU, in a debug build, off Linux, in a dirty
+working tree, for a RAW other than the reference `dji-mavic3pro-100mp.dng`, or
+when a drag publishes under 20 frames or half its ticks. The Linux CI run of the
+same code (`tests/perf_harness.rs`) therefore checks the harness and makes no
+timing claim. `docs/performance.md` § "Recording a new row" covers committing a
+qualifying row: three runs on an idle machine, committing the median.
+
 Export creates full-resolution sRGB JPEG (quality 95) or PNG through the shared
 core; RAW sources additionally support 16-bit TIFF by choosing a `.tiff` filename.
 The picker captures the selected photograph and adjustment snapshot. Processing
