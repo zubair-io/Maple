@@ -224,15 +224,22 @@ namespace Maple.WinUI.Services.FileOperations
 
         /// <summary>The whole asset collides at <paramref name="candidate"/>
         /// when the photo name is taken or its sidecar name is held by any
-        /// file other than the moving asset's own sidecar or an identical
-        /// copy of it.</summary>
-        internal static bool AssetDestinationOccupied(string candidate, string ownSidecarPath)
+        /// file other than the moving asset's own sidecar, an identical copy
+        /// of it, or <paramref name="carriedSidecarPath"/> (the sidecar the
+        /// RAW half of this same pair operation just wrote there, matched by
+        /// path whatever its size).</summary>
+        internal static bool AssetDestinationOccupied(
+            string candidate, string ownSidecarPath, string? carriedSidecarPath = null)
         {
             if (PathOccupied(candidate)) return true;
             var sidecar = SidecarStore.SidecarPathFor(candidate);
             return PathOccupied(sidecar)
                 && !SameSidecarPath(sidecar, ownSidecarPath)
-                && !SidecarAlreadyCarried(ownSidecarPath, sidecar);
+                && !SidecarAlreadyCarried(ownSidecarPath, sidecar)
+                && !IsCarriedSidecar(sidecar, carriedSidecarPath);
         }
+
+        private static bool IsCarriedSidecar(string sidecar, string? carriedSidecarPath) =>
+            carriedSidecarPath != null && SameSidecarPath(sidecar, carriedSidecarPath);
     }
 }

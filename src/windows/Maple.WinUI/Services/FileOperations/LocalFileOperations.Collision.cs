@@ -31,9 +31,9 @@ namespace Maple.WinUI.Services.FileOperations
         /// name collides the whole asset (#4758), so auto-suffix moves the
         /// photo and its sidecar to the same free `.N` name.</summary>
         private static async Task<(string Path, bool Renamed)> ResolveCollisionAsync(
-            string targetPath, CollisionPolicy collision, string ownSidecarPath)
+            string targetPath, CollisionPolicy collision, string ownSidecarPath, string? carriedSidecarPath)
         {
-            if (!AssetDestinationOccupied(targetPath, ownSidecarPath)) return (targetPath, false);
+            if (!AssetDestinationOccupied(targetPath, ownSidecarPath, carriedSidecarPath)) return (targetPath, false);
 
             switch (collision)
             {
@@ -49,7 +49,7 @@ namespace Maple.WinUI.Services.FileOperations
                     return (targetPath, false);
                 case CollisionPolicy.AutoSuffix:
                     var free = await CollisionResolver
-                        .PickFreePathAsync(targetPath, p => Task.FromResult(AssetDestinationOccupied(p, ownSidecarPath)))
+                        .PickFreePathAsync(targetPath, p => Task.FromResult(AssetDestinationOccupied(p, ownSidecarPath, carriedSidecarPath)))
                         .ConfigureAwait(false);
                     return (free, true);
                 default:
