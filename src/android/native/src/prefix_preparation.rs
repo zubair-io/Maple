@@ -70,14 +70,17 @@ impl Session {
         if cancel.is_cancelled() {
             return Ok(false);
         }
-        self.live = live;
+        let replaced = std::mem::replace(&mut self.live, live);
         self.inputs = prepared.inputs;
         self.prefix = prepared.prefix;
         self.sampling = prepared.sampling;
         self.creative = Some(prepared.creative);
         self.auto_fit = prepared.auto_fit;
         self.profile = self.model.profile;
-        self.live.reserve_resume_cut(&self.ctx);
+        // The replaced session's plane moves to its replacement, so a refined decode creates none.
+        if !self.live.adopt_resume_cut(&replaced) {
+            self.live.reserve_resume_cut(&self.ctx);
+        }
         Ok(true)
     }
 }

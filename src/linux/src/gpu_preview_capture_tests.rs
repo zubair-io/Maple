@@ -118,38 +118,43 @@ fn a_white_balance_drag_matches_the_develop_on_a_committed_raw() {
 }
 
 #[test]
-fn every_session_reserves_the_resume_plane_when_it_is_created() {
+fn a_prefix_drag_hands_one_resume_plane_from_session_to_session() {
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../test-fixtures/batch-transfer/source.dng");
     let source = Source::read(&path);
     let ctx = GpuContext::new_blocking().unwrap();
     let model = AdjustmentModel::default();
-    let moved = AdjustmentModel {
-        capture_sharpening_amount: 80.0,
-        ..model.clone()
-    };
     let mut preview =
         GpuPreview::open(&ctx, &source.raw, &source.bytes, &source.ext, &model, 256).unwrap();
     assert!(preview.session.resume_cut_reserved(), "open reserves");
-    let steps = [
-        (&model, 1, "the open render keeps the session"),
-        (&moved, 2, "a prefix edit replaces the session"),
-    ];
-    for (tick, uploads, what) in steps {
-        shown(&mut preview, &ctx, &source, tick);
-        assert_eq!(preview.upload_count(), uploads, "{what}");
-        assert!(preview.session.resume_cut_reserved(), "{what}");
-    }
-    let warm = preview.pool_alloc_count(&ctx);
-    for _ in 0..2 {
-        shown(&mut preview, &ctx, &source, &moved);
-    }
-    assert_eq!(preview.upload_count(), 2, "the replacement is kept");
-    assert_eq!(
-        preview.pool_alloc_count(&ctx),
-        warm,
-        "a render that keeps its session allocates nothing"
+    let allocated = |preview: &mut GpuPreview, tick: &AdjustmentModel| {
+        let before = preview.pool_alloc_count(&ctx);
+        shown(preview, &ctx, &source, tick);
+        preview.pool_alloc_count(&ctx) - before
+    };
+    let first_render = allocated(&mut preview, &model);
+    assert!(
+        first_render > 0,
+        "a session's first render fills its bucket"
     );
+    for (replacement, amount) in [40.0f32, 60.0, 80.0].into_iter().enumerate() {
+        let tick = AdjustmentModel {
+            capture_sharpening_amount: amount,
+            ..model.clone()
+        };
+        assert_eq!(
+            allocated(&mut preview, &tick),
+            first_render,
+            "{amount}: a replacing tick fills its session's bucket and creates no plane"
+        );
+        assert_eq!(preview.upload_count(), 2 + replacement as u64);
+        assert!(preview.session.resume_cut_reserved(), "{amount}: adopted");
+        assert_eq!(
+            allocated(&mut preview, &tick),
+            0,
+            "{amount}: a render that keeps its session allocates nothing"
+        );
+    }
 }
 
 fn gate(name: &str) {

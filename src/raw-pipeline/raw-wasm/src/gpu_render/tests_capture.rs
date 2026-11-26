@@ -173,6 +173,7 @@ fn gate(
                 .expect("capture decode");
             let session = LiveSession::new(&ctx, &prefix.rgba, prefix.width, prefix.height)
                 .expect("session upload");
+            session.reserve_resume_cut(&ctx);
             let mut profile = LiveProfile::new(
                 &raw,
                 bytes,
@@ -311,6 +312,7 @@ fn white_balance_drag_allocates_nothing() {
         let ctx = GpuContext::new_blocking().expect("GPU context");
         let session =
             LiveSession::new(&ctx, &prefix.rgba, prefix.width, prefix.height).expect("session");
+        session.reserve_resume_cut(&ctx);
         (ctx, session)
     });
     let cancel = raw_gpu::CancelToken::new();
