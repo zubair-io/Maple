@@ -38,7 +38,9 @@
  * `invalidates` instead, the reset is one statement in the same transaction as
  * this stage's own success row, so either both land or neither does.
  */
-import { generateThumb } from '../../indexer/thumbnailer.ts';
+import { generateThumb, isRawThumbSource } from '../../indexer/thumbnailer.ts';
+import { isDerivativeCacheFresh } from '../../indexer/derivative-cache.ts';
+import { runBackgroundRender } from '../background-render-gate.ts';
 import {
   deferWhileDecoderMissing,
   memoryBudgetDeferral,
@@ -160,7 +162,10 @@ const thumbStage = defineStage({
     // — this stage sets `tagsMissingOnEnoent` — for the missing-reaper.
     const decoderMissing = deferWhileDecoderMissing();
     if (decoderMissing) return decoderMissing;
-    const rendered = await generateThumb(absPath, thumbPath).catch(
+    const render = () => generateThumb(absPath, thumbPath);
+    // Only the RAW lane is serialised and CPU-bound; a fresh thumb needs no slot.
+    const gated = isRawThumbSource(absPath) && !(await isDerivativeCacheFresh(thumbPath, absPath));
+    const rendered = await (gated ? runBackgroundRender(render) : render()).catch(
       (err: unknown) =>
         noVideoStreamOutcome(err) ??
         memoryBudgetDeferral(err, absPath) ??

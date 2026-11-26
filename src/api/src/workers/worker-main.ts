@@ -18,7 +18,7 @@ import { child as childLogger } from '../log.ts';
 import { installWorkerLibraryRootsSync } from '../indexer/libraries.cache.ts';
 import { installRemoteInProcessSearch } from '../search/remote-search.ts';
 import { installRemoteDocumentEmbedder } from '../search/remote-embed.ts';
-import { installWorkerPreviewPriority } from './background-preview-gate.ts';
+import { installWorkerPreviewPriority } from './background-render-gate.ts';
 
 installChildHardening('worker');
 installWorkerPreviewPriority();

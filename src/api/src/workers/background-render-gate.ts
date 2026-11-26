@@ -1,8 +1,8 @@
 /**
- * Admission gate for the background `preview` stage's renders, in the worker
- * child (#5433).
+ * Admission gate for the background `preview` stage's renders and the `thumb`
+ * stage's RAW-lane renders, in the worker child (#5433, #6020).
  *
- * The stage claims and dispatches up to its `concurrency` handlers (50 on a
+ * Each stage claims and dispatches up to its `concurrency` handlers (50 on a
  * busy install), but the FFI pool's RAW lane can only execute as many renders
  * as it has children; the rest queue inside the pool, where nothing can
  * reprioritise them. This gate holds that excess queue here instead, admitting
@@ -15,8 +15,9 @@
  * on-demand activity, so heavy browsing, or an `active: false` that never
  * arrives, cannot stop the backlog.
  *
- * Each admitted render is announced to the API process (`start` / `end`), so an
- * on-demand request for the same path waits for it instead of rendering twice.
+ * A render given an announce path is reported to the API process (`start` /
+ * `end`), so an on-demand request for the same path waits for it instead of
+ * rendering twice.
  */
 
 import { ffiPool } from '../ffi/ffi-pool.ts';
@@ -94,29 +95,29 @@ function announce(previewPath: string, phase: PreviewStageRenderMessage['phase']
   send({ type: 'preview-stage-render', previewPath, phase } satisfies PreviewStageRenderMessage);
 }
 
-export async function runBackgroundPreviewRender<T>(
-  previewPath: string,
+export async function runBackgroundRender<T>(
   render: () => Promise<T>,
+  announcePath?: string,
 ): Promise<T> {
   await admit();
-  announce(previewPath, 'start');
+  if (announcePath) announce(announcePath, 'start');
   try {
     return await render();
   } finally {
-    announce(previewPath, 'end');
+    if (announcePath) announce(announcePath, 'end');
     running--;
     wakeAll();
   }
 }
 
 /** Test-only: forget all gate state. */
-export function _resetBackgroundPreviewGateForTests(): void {
+export function _resetBackgroundRenderGateForTests(): void {
   interactiveSince = null;
   running = 0;
   wakeAll();
 }
 
 /** Test-only: renders currently admitted. */
-export function _backgroundPreviewRendersRunning(): number {
+export function _backgroundRendersRunning(): number {
   return running;
 }

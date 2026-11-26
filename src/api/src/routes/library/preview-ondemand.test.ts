@@ -26,10 +26,10 @@ import {
 } from '../../indexer/ondemand-preview.ts';
 import { isPreviewStageRenderMessage } from '../../indexer/preview-priority-protocol.ts';
 import {
-  _backgroundPreviewRendersRunning,
-  _resetBackgroundPreviewGateForTests,
+  _backgroundRendersRunning,
+  _resetBackgroundRenderGateForTests,
   setInteractivePreviewActive,
-} from '../../workers/background-preview-gate.ts';
+} from '../../workers/background-render-gate.ts';
 import { ObjectId, newObjectIdHex } from '../../db/object-id.ts';
 import { registerLibrary, seedRouteAsset } from '../../../tests/helpers/assets-route-fixtures.ts';
 import {
@@ -109,7 +109,7 @@ beforeEach(async () => {
   cpuFree = ffiPool().poolSize();
   cpuQueue.length = 0;
   _resetOndemandPreviewsForTests();
-  _resetBackgroundPreviewGateForTests();
+  _resetBackgroundRenderGateForTests();
   ondemandPreviews().attachWorker((message) => {
     interactiveActive = message.active;
     setInteractivePreviewActive(message.active);
@@ -123,7 +123,7 @@ beforeEach(async () => {
 afterEach(async () => {
   process.send = originalSend;
   ondemandPreviews().detachWorker();
-  _resetBackgroundPreviewGateForTests();
+  _resetBackgroundRenderGateForTests();
   invalidateLibraryRoots();
   live.close();
   if (tmpDir) await rm(tmpDir, { recursive: true, force: true }).catch(() => {});
@@ -185,7 +185,7 @@ describe('on-demand previews take priority over the preview stage (#5433)', () =
 
     const stageRun = Promise.all(backlog.map(runStageHandler));
     const capacity = cpuFree;
-    await until(() => _backgroundPreviewRendersRunning() === capacity);
+    await until(() => _backgroundRendersRunning() === capacity);
 
     const t0 = performance.now();
     const res = await request('wanted.jpg');

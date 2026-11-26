@@ -66,6 +66,10 @@ const RAW_EXTS = new Set([
   '.fff',
 ]);
 
+export function isRawThumbSource(absPath: string): boolean {
+  return RAW_EXTS.has(path.extname(absPath).toLowerCase());
+}
+
 let _rendered = 0;
 let _cached = 0;
 let _failed = 0;

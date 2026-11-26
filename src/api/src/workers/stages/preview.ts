@@ -23,7 +23,7 @@ import {
   isPreviewCacheFresh,
   PREVIEW_CACHE_SUFFIX,
 } from '../../indexer/previewer.ts';
-import { runBackgroundPreviewRender } from '../background-preview-gate.ts';
+import { runBackgroundRender } from '../background-render-gate.ts';
 import { assertDerivativeCacheDirectory } from '../../indexer/derivative-cache.ts';
 import { PREVIEW_TARGET_VERSION } from '../derivative-versions.ts';
 import { cachePathForAsset } from '../../fs/xmp.ts';
@@ -113,8 +113,9 @@ const previewStage = defineStage({
     if (!(await isPreviewCacheFresh(previewPath, absPath))) {
       const decoderMissing = deferWhileDecoderMissing();
       if (decoderMissing) return decoderMissing;
-      const rendered = await runBackgroundPreviewRender(previewPath, () =>
-        generatePreview(absPath, previewPath),
+      const rendered = await runBackgroundRender(
+        () => generatePreview(absPath, previewPath),
+        previewPath,
       ).catch(
         (err: unknown) =>
           noVideoStreamOutcome(err) ??
