@@ -293,7 +293,8 @@ final class PanoBackgroundPauseTests: XCTestCase {
         let session = await settledPhoneSession(pauser: pauser, available: available, stitcher: stitcher)
         XCTAssertTrue(session.stitchBlockedByMemory)
 
-        available.withLock { $0 = fullPeakOverSeventyPercent * 2 }
+        let roomy = fullPeakOverSeventyPercent * 2
+        available.withLock { $0 = roomy }
         session.start(assets: assets)
         await eventually { self.isDone(session) }
 
