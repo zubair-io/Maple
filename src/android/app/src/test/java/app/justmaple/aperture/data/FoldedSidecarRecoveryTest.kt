@@ -11,13 +11,15 @@ import android.os.ParcelFileDescriptor
 import android.provider.DocumentsContract
 import android.provider.DocumentsContract.Document
 import java.io.File
+import java.nio.file.Files
 import java.util.UUID
 import kotlinx.coroutines.runBlocking
 import org.json.JSONObject
+import org.junit.After
+import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
-import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -29,7 +31,7 @@ import org.robolectric.RuntimeEnvironment
 @RunWith(RobolectricTestRunner::class)
 class FoldedSidecarRecoveryTest {
     class Tree : ContentProvider() {
-        private fun name(uri: Uri) = DocumentsContract.getDocumentId(uri).substringAfter('/')
+        private fun file(uri: Uri) = File(directory, DocumentsContract.getDocumentId(uri).substringAfter('/'))
 
         private fun documentUri(name: String) =
             DocumentsContract.buildDocumentUriUsingTree(
@@ -47,15 +49,15 @@ class FoldedSidecarRecoveryTest {
             sortOrder: String?,
         ): Cursor =
             MatrixCursor(projection).apply {
-                files.forEach { (name, bytes) ->
+                directory.listFiles().orEmpty().sortedBy { it.name }.forEach { entry ->
                     addRow(
                         projection!!.map { column ->
                             when (column) {
-                                Document.COLUMN_DOCUMENT_ID -> "root/$name"
-                                Document.COLUMN_DISPLAY_NAME -> name
+                                Document.COLUMN_DOCUMENT_ID -> "root/${entry.name}"
+                                Document.COLUMN_DISPLAY_NAME -> entry.name
                                 Document.COLUMN_MIME_TYPE -> "application/octet-stream"
-                                Document.COLUMN_SIZE -> bytes.size.toLong()
-                                Document.COLUMN_LAST_MODIFIED -> 1_700_000_000_000L
+                                Document.COLUMN_SIZE -> entry.length()
+                                Document.COLUMN_LAST_MODIFIED -> entry.lastModified()
                                 else -> 0
                             }
                         }
@@ -68,28 +70,24 @@ class FoldedSidecarRecoveryTest {
             return when (method) {
                 "android:renameDocument" -> {
                     val renamed = checkNotNull(extras.getString(Document.COLUMN_DISPLAY_NAME))
-                    files[renamed] = checkNotNull(files.remove(name(target)))
+                    check(file(target).renameTo(File(directory, renamed)))
                     Bundle().apply { putParcelable("uri", documentUri(renamed)) }
                 }
                 "android:deleteDocument" -> {
-                    files.remove(name(target))
+                    check(file(target).delete())
                     Bundle()
                 }
                 "android:createDocument" -> {
                     val created = checkNotNull(extras.getString(Document.COLUMN_DISPLAY_NAME))
-                    files[created] = ByteArray(0)
+                    check(File(directory, created).createNewFile())
                     Bundle().apply { putParcelable("uri", documentUri(created)) }
                 }
                 else -> null
             }
         }
 
-        override fun openFile(uri: Uri, mode: String): ParcelFileDescriptor {
-            val snapshot = File.createTempFile("document", ".bin")
-            snapshot.deleteOnExit()
-            snapshot.writeBytes(checkNotNull(files[name(uri)]))
-            return ParcelFileDescriptor.open(snapshot, ParcelFileDescriptor.MODE_READ_ONLY)
-        }
+        override fun openFile(uri: Uri, mode: String): ParcelFileDescriptor =
+            ParcelFileDescriptor.open(file(uri), ParcelFileDescriptor.parseMode(mode))
 
         override fun getType(uri: Uri): String? = null
 
@@ -118,14 +116,22 @@ class FoldedSidecarRecoveryTest {
 
     @Before
     fun interruptedBetweenTheTwoRenames() {
+        directory = Files.createTempDirectory("folded-recovery").toFile()
         Robolectric.setupContentProvider(Tree::class.java, AUTHORITY)
-        files.clear()
-        files["IMG_1.CR3"] = ByteArray(8)
-        files["IMG_1.jpg"] = ByteArray(8)
-        files[".maple-$id.backup.xmp"] = XmpEncoding.encode(edited)
-        files[".maple-$id.xmp"] = XmpEncoding.encode(staged)
+        File(directory, "IMG_1.CR3").writeBytes(ByteArray(8))
+        File(directory, "IMG_1.jpg").writeBytes(ByteArray(8))
+        File(directory, ".maple-$id.backup.xmp").writeBytes(XmpEncoding.encode(edited))
+        File(directory, ".maple-$id.xmp").writeBytes(XmpEncoding.encode(staged))
         journals.mkdirs()
     }
+
+    @After
+    fun removeTheFolder() {
+        directory.deleteRecursively()
+        journals.deleteRecursively()
+    }
+
+    private fun names() = directory.list().orEmpty().toSet()
 
     private fun jpegJournal(library: PhotoLibrary): File {
         val jpeg = runBlocking { library.list(folder) }.photos.first().companion
@@ -156,26 +162,35 @@ class FoldedSidecarRecoveryTest {
         val loaded = runBlocking { library.loadSidecar(raw) }
 
         assertEquals(edited, loaded.baseline)
+        assertArrayEquals(XmpEncoding.encode(edited), File(directory, "IMG_1.xmp").readBytes())
+        assertEquals(setOf("IMG_1.CR3", "IMG_1.jpg", "IMG_1.xmp"), names())
         assertFalse(record.exists())
-        assertEquals(setOf("IMG_1.CR3", "IMG_1.jpg", "IMG_1.xmp"), files.keys)
+        assertEquals(emptyList<String>(), journals.list().orEmpty().toList())
     }
 
     @Test
     fun anUnfoldedRawLeavesTheJpegsJournalToTheJpegTile() {
         val library = PhotoLibrary(context)
         val record = jpegJournal(library)
+        val pending = record.readBytes()
         library.stackRawJpeg = false
         val (raw, jpeg) = runBlocking { library.list(folder) }.photos
 
         assertNull(runBlocking { library.loadSidecar(raw) }.baseline)
-        assertTrue(record.exists())
+        assertArrayEquals(pending, record.readBytes())
+        assertEquals(
+            setOf("IMG_1.CR3", "IMG_1.jpg", ".maple-$id.backup.xmp", ".maple-$id.xmp"),
+            names(),
+        )
 
         assertEquals(edited, runBlocking { library.loadSidecar(jpeg) }.baseline)
+        assertArrayEquals(XmpEncoding.encode(edited), File(directory, "IMG_1.xmp").readBytes())
+        assertEquals(setOf("IMG_1.CR3", "IMG_1.jpg", "IMG_1.xmp"), names())
         assertFalse(record.exists())
     }
 
     private companion object {
         const val AUTHORITY = "app.justmaple.aperture.test.folded-recovery"
-        val files = linkedMapOf<String, ByteArray>()
+        lateinit var directory: File
     }
 }
