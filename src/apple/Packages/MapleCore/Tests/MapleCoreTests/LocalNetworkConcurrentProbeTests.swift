@@ -47,32 +47,12 @@ private actor ProbeBench {
   }
 
   func waitForStarts(_ count: Int) async -> Bool {
-    await Self.poll { self.starts.count >= count }
+    await pollUntil { self.starts.count >= count }
   }
 
   func waitForCancelled(_ hosts: Set<String>) async -> Bool {
-    await Self.poll { self.cancelled.isSuperset(of: hosts) }
+    await pollUntil { self.cancelled.isSuperset(of: hosts) }
   }
-
-  private static func poll(_ condition: () -> Bool) async -> Bool {
-    let deadline = ContinuousClock.now + .seconds(5)
-    while ContinuousClock.now < deadline {
-      if condition() { return true }
-      try? await Task.sleep(for: .milliseconds(2))
-    }
-    return false
-  }
-}
-
-private final class LockedBox<Value: Sendable>: @unchecked Sendable {
-  private let lock = NSLock()
-  private var stored: Value
-
-  init(_ value: Value) { stored = value }
-
-  var value: Value { lock.withLock { stored } }
-
-  func mutate(_ change: (inout Value) -> Void) { lock.withLock { change(&stored) } }
 }
 
 final class LocalNetworkConcurrentProbeTests: XCTestCase {
@@ -206,7 +186,7 @@ final class LocalNetworkConcurrentProbeTests: XCTestCase {
           url: req.url!, statusCode: 200, httpVersion: "HTTP/1.1", headerFields: [:])!
       )
     }
-    let probed = LockedBox<[String]>([])
+    let probed = LockedValue<[String]>([])
     let result = await LocalNetworkResolving.resolveStatus(
       identity: URL(string: "https://public.example.com")!, session: session
     ) { endpoint in
