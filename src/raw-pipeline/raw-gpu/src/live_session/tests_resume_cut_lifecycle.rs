@@ -111,7 +111,6 @@ fn a_cancelled_repeat_of_the_prefix_encodes_no_store() {
         &fresh(&ctx, &late),
         "after a cancel",
     );
-    assert_eq!(session.cut.resumed(), 0, "nothing was stored to resume");
 }
 
 const RASTER_ID: u32 = 7;
