@@ -38,7 +38,8 @@ public enum ScrollRunFolder {
     guard seedPath != folderPath, !seedPath.hasPrefix(folderPath + "/") else {
       throw StagingError.seedInsideStagedFolder
     }
-    if reuse, stagedFileCount(in: folder) == count {
+    let marker = folder.appendingPathComponent(markerName)
+    if reuse, fm.fileExists(atPath: marker.path), stagedFileCount(in: folder) == count {
       return Staged(url: folder, reused: true)
     }
     let sources = try fm.contentsOfDirectory(
@@ -49,13 +50,13 @@ public enum ScrollRunFolder {
     .sorted { $0.lastPathComponent < $1.lastPathComponent }
     guard !sources.isEmpty else { throw StagingError.seedHasNoPhotos }
     if fm.fileExists(atPath: folder.path) {
-      guard fm.fileExists(atPath: folder.appendingPathComponent(markerName).path) else {
+      guard fm.fileExists(atPath: marker.path) else {
         throw StagingError.folderNotStagedByScrollRun
       }
       try fm.removeItem(at: folder)
     }
     try fm.createDirectory(at: folder, withIntermediateDirectories: true)
-    try Data().write(to: folder.appendingPathComponent(markerName))
+    try Data().write(to: marker)
     for index in 0..<count {
       let source = sources[index % sources.count]
       let name = String(format: "IMG_%05d.%@", index, source.pathExtension)
@@ -64,6 +65,14 @@ public enum ScrollRunFolder {
       }
     }
     return Staged(url: folder, reused: false)
+  }
+
+  /// Thumbnails the grid has written for the staged photos, so a "cached"
+  /// pass can be shown to have had every one of them.
+  public static func cachedThumbnailCount(in folder: URL) -> Int {
+    let thumbs = folder.appendingPathComponent(".maple/thumbs", isDirectory: true)
+    let entries = (try? FileManager.default.contentsOfDirectory(atPath: thumbs.path)) ?? []
+    return entries.filter { $0.hasPrefix("IMG_") && $0.hasSuffix(".avif") }.count
   }
 
   private static func stagedFileCount(in folder: URL) -> Int {
