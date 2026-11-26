@@ -71,6 +71,16 @@ import {
  */
 const CF_THUMB_SYNC_STAGE = 'cf-thumb-sync';
 
+// Only the RAW lane is serialised and CPU-bound; a fresh thumb needs no slot.
+async function generateThumbYieldingToViewers(
+  absPath: string,
+  thumbPath: string,
+): Promise<boolean> {
+  const render = () => generateThumb(absPath, thumbPath);
+  const gated = isRawThumbSource(absPath) && !(await isDerivativeCacheFresh(thumbPath, absPath));
+  return gated ? runBackgroundRender(render) : render();
+}
+
 const thumbStage = defineStage({
   name: 'thumb',
   // v2 — raw-ffi FFI fix #328: orientation is now baked into the embedded-
@@ -162,10 +172,7 @@ const thumbStage = defineStage({
     // — this stage sets `tagsMissingOnEnoent` — for the missing-reaper.
     const decoderMissing = deferWhileDecoderMissing();
     if (decoderMissing) return decoderMissing;
-    const render = () => generateThumb(absPath, thumbPath);
-    // Only the RAW lane is serialised and CPU-bound; a fresh thumb needs no slot.
-    const gated = isRawThumbSource(absPath) && !(await isDerivativeCacheFresh(thumbPath, absPath));
-    const rendered = await (gated ? runBackgroundRender(render) : render()).catch(
+    const rendered = await generateThumbYieldingToViewers(absPath, thumbPath).catch(
       (err: unknown) =>
         noVideoStreamOutcome(err) ??
         memoryBudgetDeferral(err, absPath) ??

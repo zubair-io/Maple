@@ -79,7 +79,7 @@ async function runApi(): Promise<void> {
         ondemandPreviews().attachWorker((m) => worker.send(m));
       } else if (isPreviewStageRenderMessage(message)) {
         ondemandPreviews().onStageRender(message);
-      } else if ((message as { type?: string }).type === 'bench-count') {
+      } else {
         counted?.((message as unknown as { completed: number }).completed);
       }
     },
