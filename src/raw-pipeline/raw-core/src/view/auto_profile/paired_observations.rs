@@ -7,6 +7,7 @@ use super::{
     preview::{self, ExtractedPreview},
 };
 use crate::image::ExifOrientation;
+use rayon::prelude::*;
 
 #[cfg_attr(feature = "stage-dump", derive(serde::Serialize))]
 pub(super) struct Observation {
@@ -219,7 +220,7 @@ fn build_at_scale(
     if width == 0 || height == 0 || pixels.len() != width.checked_mul(height)?.checked_mul(3)? {
         return None;
     }
-    if pixels.iter().any(|v| !v.is_finite()) {
+    if pixels.par_iter().any(|v| !v.is_finite()) {
         return None;
     }
     let (width, height, source) = orient_rgb_f32_to_display(pixels, width, height, orientation);
@@ -252,120 +253,138 @@ fn build_at_scale(
     let target_xs = spans(original_w, tw);
     let target_ys = spans(original_h, th);
     let (nx, ny) = (tw.min(256), th.min(256));
-    let mut observations = Vec::with_capacity(nx * ny);
-    let mut weights = [0.; super::paired_fit::CELLS];
-    let mut active = Vec::new();
-    let mut artifact_weights = vec![0.; baseline.size.pow(3)];
-    let mut artifact_active = Vec::new();
-    for gy in 0..ny {
-        for gx in 0..nx {
-            let seed = mix((gx as u64 + 1).wrapping_mul(0x9e3779b97f4a7c15) ^ (gy as u64 + 1));
-            let (x0, x1) = (gx * tw / nx, (gx + 1) * tw / nx);
-            let (y0, y1) = (gy * th / ny, (gy + 1) * th / ny);
-            let (x, y) = match sampling {
-                Sampling::Geometry => ((x0 + x1) / 2, (y0 + y1) / 2),
-                _ => (within(seed, x0, x1), within(seed >> 32, y0, y1)),
-            };
-            let ((sx0, sx1), (sy0, sy1)) = if let Sampling::Aligned(warp) = sampling {
-                let (u, v) = ((x as f64 + 0.5) / tw as f64, (y as f64 + 0.5) / th as f64);
-                let center = warp.map(u, v);
-                let support = warp.support(cw, ch, tw, th, u, v);
-                let Some(sx) = transformed_span(center[0] * cw as f64, support[0], cw) else {
-                    continue;
-                };
-                let Some(sy) = transformed_span(center[1] * ch as f64, support[1], ch) else {
-                    continue;
-                };
-                (sx, sy)
-            } else {
-                (xs[x], ys[y])
-            };
-            let count = ((sx1 - sx0) * (sy1 - sy0)) as f64;
-            let mut base = [0.; 3];
-            for sy in sy0..sy1 {
-                for sx in sx0..sx1 {
-                    let i = ((oy + sy) * width + ox + sx) * 3;
-                    let rgb = [
-                        source[i].clamp(0., 1.),
-                        source[i + 1].clamp(0., 1.),
-                        source[i + 2].clamp(0., 1.),
-                    ];
-                    for (j, w) in corners(rgb) {
-                        if w > 0. {
-                            if weights[j] == 0. {
-                                active.push(j);
+    // Every cell accumulates into scratch it resets before the next, so rows
+    // of cells build independently and concatenate in the serial order.
+    let rows: Vec<Vec<Observation>> = (0..ny)
+        .into_par_iter()
+        .map_init(
+            || {
+                (
+                    [0.; super::paired_fit::CELLS],
+                    Vec::new(),
+                    vec![0.; baseline.size.pow(3)],
+                    Vec::new(),
+                )
+            },
+            |(weights, active, artifact_weights, artifact_active), gy| {
+                let mut observations = Vec::with_capacity(nx);
+                for gx in 0..nx {
+                    let seed =
+                        mix((gx as u64 + 1).wrapping_mul(0x9e3779b97f4a7c15) ^ (gy as u64 + 1));
+                    let (x0, x1) = (gx * tw / nx, (gx + 1) * tw / nx);
+                    let (y0, y1) = (gy * th / ny, (gy + 1) * th / ny);
+                    let (x, y) = match sampling {
+                        Sampling::Geometry => ((x0 + x1) / 2, (y0 + y1) / 2),
+                        _ => (within(seed, x0, x1), within(seed >> 32, y0, y1)),
+                    };
+                    let ((sx0, sx1), (sy0, sy1)) = if let Sampling::Aligned(warp) = sampling {
+                        let (u, v) = ((x as f64 + 0.5) / tw as f64, (y as f64 + 0.5) / th as f64);
+                        let center = warp.map(u, v);
+                        let support = warp.support(cw, ch, tw, th, u, v);
+                        let Some(sx) = transformed_span(center[0] * cw as f64, support[0], cw)
+                        else {
+                            continue;
+                        };
+                        let Some(sy) = transformed_span(center[1] * ch as f64, support[1], ch)
+                        else {
+                            continue;
+                        };
+                        (sx, sy)
+                    } else {
+                        (xs[x], ys[y])
+                    };
+                    let count = ((sx1 - sx0) * (sy1 - sy0)) as f64;
+                    let mut base = [0.; 3];
+                    for sy in sy0..sy1 {
+                        for sx in sx0..sx1 {
+                            let i = ((oy + sy) * width + ox + sx) * 3;
+                            let rgb = [
+                                source[i].clamp(0., 1.),
+                                source[i + 1].clamp(0., 1.),
+                                source[i + 2].clamp(0., 1.),
+                            ];
+                            for (j, w) in corners(rgb) {
+                                if w > 0. {
+                                    if weights[j] == 0. {
+                                        active.push(j);
+                                    }
+                                    weights[j] += w / count;
+                                }
                             }
-                            weights[j] += w / count;
+                            for (j, w) in corners_at(rgb, baseline.size) {
+                                if w > 0. {
+                                    if artifact_weights[j] == 0. {
+                                        artifact_active.push(j);
+                                    }
+                                    artifact_weights[j] += w / count;
+                                }
+                            }
                         }
                     }
-                    for (j, w) in corners_at(rgb, baseline.size) {
-                        if w > 0. {
-                            if artifact_weights[j] == 0. {
-                                artifact_active.push(j);
+                    let ((tx0, tx1), (ty0, ty1)) = (target_xs[x], target_ys[y]);
+                    let mut average = [0.; 3];
+                    for ty in ty0..ty1 {
+                        let mut horizontal = [0.; 3];
+                        for tx in tx0..tx1 {
+                            let rgb = target
+                                .get_pixel(tx as u32, ty as u32)
+                                .0
+                                .map(|v| v as f32 / 255.);
+                            let normalized =
+                                preview::decode_jpeg_pixel_to_srgb(rgb, preview.color_space);
+                            for c in 0..3 {
+                                horizontal[c] +=
+                                    f64::from((normalized[c] * 255.).round().clamp(0., 255.));
                             }
-                            artifact_weights[j] += w / count;
+                        }
+                        for c in 0..3 {
+                            average[c] += box_byte(horizontal[c], tx1 - tx0);
                         }
                     }
-                }
-            }
-            let ((tx0, tx1), (ty0, ty1)) = (target_xs[x], target_ys[y]);
-            let mut average = [0.; 3];
-            for ty in ty0..ty1 {
-                let mut horizontal = [0.; 3];
-                for tx in tx0..tx1 {
-                    let rgb = target
-                        .get_pixel(tx as u32, ty as u32)
-                        .0
-                        .map(|v| v as f32 / 255.);
-                    let normalized = preview::decode_jpeg_pixel_to_srgb(rgb, preview.color_space);
-                    for c in 0..3 {
-                        horizontal[c] += f64::from((normalized[c] * 255.).round().clamp(0., 255.));
+                    let target = average.map(|v| box_byte(v, ty1 - ty0) / 255.);
+                    let mut row = Vec::with_capacity(active.len());
+                    let mut identity = [0.; 3];
+                    for &j in active.iter() {
+                        let w = weights[j];
+                        row.push((j, w));
+                        weights[j] = 0.;
+                        let rgb = [
+                            j % super::paired_fit::GRID,
+                            (j / super::paired_fit::GRID) % super::paired_fit::GRID,
+                            j / (super::paired_fit::GRID * super::paired_fit::GRID),
+                        ];
+                        for c in 0..3 {
+                            identity[c] += w * rgb[c] as f64 / (super::paired_fit::GRID - 1) as f64;
+                        }
                     }
+                    active.clear();
+                    let mut artifact_row = Vec::with_capacity(artifact_active.len());
+                    for &j in artifact_active.iter() {
+                        let w = artifact_weights[j];
+                        artifact_row.push((j, w));
+                        artifact_weights[j] = 0.;
+                        for c in 0..3 {
+                            base[c] += w * f64::from(baseline.data[j * 3 + c]);
+                        }
+                    }
+                    artifact_active.clear();
+                    observations.push(Observation {
+                        weights: row,
+                        artifact_weights: artifact_row,
+                        source: identity,
+                        target,
+                        baseline: base,
+                        population: (x1 - x0) * (y1 - y0),
+                        validation: mix(seed ^ 0x517cc1b727220a95) % 4 == 0,
+                        in_bias_region: in_bias_region(x, y, tw, th),
+                        region: (y * 8 / th) * 8 + x * 8 / tw,
+                    });
                 }
-                for c in 0..3 {
-                    average[c] += box_byte(horizontal[c], tx1 - tx0);
-                }
-            }
-            let target = average.map(|v| box_byte(v, ty1 - ty0) / 255.);
-            let mut row = Vec::with_capacity(active.len());
-            let mut identity = [0.; 3];
-            for &j in &active {
-                let w = weights[j];
-                row.push((j, w));
-                weights[j] = 0.;
-                let rgb = [
-                    j % super::paired_fit::GRID,
-                    (j / super::paired_fit::GRID) % super::paired_fit::GRID,
-                    j / (super::paired_fit::GRID * super::paired_fit::GRID),
-                ];
-                for c in 0..3 {
-                    identity[c] += w * rgb[c] as f64 / (super::paired_fit::GRID - 1) as f64;
-                }
-            }
-            active.clear();
-            let mut artifact_row = Vec::with_capacity(artifact_active.len());
-            for &j in &artifact_active {
-                let w = artifact_weights[j];
-                artifact_row.push((j, w));
-                artifact_weights[j] = 0.;
-                for c in 0..3 {
-                    base[c] += w * f64::from(baseline.data[j * 3 + c]);
-                }
-            }
-            artifact_active.clear();
-            observations.push(Observation {
-                weights: row,
-                artifact_weights: artifact_row,
-                source: identity,
-                target,
-                baseline: base,
-                population: (x1 - x0) * (y1 - y0),
-                validation: mix(seed ^ 0x517cc1b727220a95) % 4 == 0,
-                in_bias_region: in_bias_region(x, y, tw, th),
-                region: (y * 8 / th) * 8 + x * 8 / tw,
-            });
-        }
-    }
+                observations
+            },
+        )
+        .collect();
+    let observations: Vec<Observation> = rows.into_iter().flatten().collect();
     Some(ObservationSet {
         rows: observations,
         grid_width: nx,
