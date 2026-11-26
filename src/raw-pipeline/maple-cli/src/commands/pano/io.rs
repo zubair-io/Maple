@@ -11,6 +11,12 @@ use maple_pano::leveling::Leveling;
 use maple_pano::strategy::StrategyReport;
 use maple_pano::tile::TileCompositeReport;
 
+/// The `inputs` report field: the frame paths in the order the CLI sorted
+/// them into, which is the order a seam region's `frame` index counts in.
+pub(super) fn input_paths(inputs: &[PathBuf]) -> Vec<String> {
+    inputs.iter().map(|p| p.display().to_string()).collect()
+}
+
 /// Everything the stitch report serializes, borrowed from the
 /// pipeline's locals — one struct so the builder stays a single call.
 pub(super) struct ReportContext<'a> {
@@ -121,7 +127,7 @@ pub(super) fn stitch_report(ctx: &ReportContext) -> serde_json::Value {
         })
     });
     let mut report = serde_json::json!({
-        "inputs": ctx.inputs.iter().map(|p| p.display().to_string()).collect::<Vec<_>>(),
+        "inputs": input_paths(ctx.inputs),
         "retention": ctx.retention,
         "local_align": ctx.local_align,
         "focal_seed_source": ctx.focal_seed_source,
@@ -329,7 +335,7 @@ pub(super) fn tile_stitch_report(ctx: &TileReportContext) -> serde_json::Value {
     }
 
     serde_json::json!({
-        "inputs": ctx.inputs.iter().map(|p| p.display().to_string()).collect::<Vec<_>>(),
+        "inputs": input_paths(ctx.inputs),
         "applied_opcodes": ctx.applied_opcodes,
         "focal_seed_source": ctx.focal_seed_source,
         // Tile strategy orphans — frames disconnected from the anchor
@@ -456,5 +462,22 @@ mod tests {
     fn gain_spread_ev_uniform_gains_is_zero() {
         let gains = [[1.0_f32, 1.0, 1.0]; 5];
         assert_eq!(gain_spread_ev(&gains), 0.0);
+    }
+
+    #[test]
+    fn report_inputs_follow_the_order_the_cli_sorts_its_frames_into() {
+        use clap::Parser;
+        #[derive(Parser)]
+        struct Cli {
+            #[command(flatten)]
+            args: super::super::StitchArgs,
+        }
+        let cli = Cli::try_parse_from(["pano", "--", "b/IMG_2.dng", "a/img_9.dng", "b/IMG_1.dng"])
+            .unwrap();
+        let sorted = super::super::sorted_inputs(&cli.args);
+        assert_eq!(
+            input_paths(&sorted),
+            ["a/img_9.dng", "b/IMG_1.dng", "b/IMG_2.dng"]
+        );
     }
 }

@@ -60,6 +60,14 @@ pub use args::StitchArgs;
 const SPEC_MEAN_BUDGET_PX: f64 = 1.5;
 const SPEC_MAX_BUDGET_PX: f64 = 6.0;
 
+/// The positional frames in the order the pipeline reads them; a seam
+/// region's `frame` index counts in this order.
+fn sorted_inputs(args: &StitchArgs) -> Vec<PathBuf> {
+    let mut inputs = args.inputs.clone();
+    inputs.sort();
+    inputs
+}
+
 /// Build a [`PngMetadata`] for the display-encoded pano PNG by reading EXIF
 /// from the first source frame (capture order = sorted order). Silently
 /// degrades to `tag_srgb: true` with no EXIF blob if the source is
@@ -133,15 +141,12 @@ fn run_stitch(args: StitchArgs) -> Result<(), String> {
         return Err("single-set mode needs 2+ input frames (or use --manifest)".into());
     }
     if let Some(preview_out) = &args.preview_out {
-        let mut inputs = args.inputs.clone();
-        inputs.sort();
-        return preview::run_preview(&inputs, preview_out, &args);
+        return preview::run_preview(&sorted_inputs(&args), preview_out, &args);
     }
     if args.out.is_none() && args.display.is_none() {
         return Err("single-set mode requires --out or --display".into());
     }
-    let mut inputs = args.inputs.clone();
-    inputs.sort();
+    let inputs = sorted_inputs(&args);
     let report = stitch_set(
         &inputs,
         &SetOutputs {
