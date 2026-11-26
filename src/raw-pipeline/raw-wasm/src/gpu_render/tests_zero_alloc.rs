@@ -48,6 +48,7 @@ fn render_chain_to_f32_second_render_is_zero_alloc() {
 
     let ctx = GpuContext::new_blocking().expect("gpu context");
     let session = LiveSession::new(&ctx, &rgba, w, h).expect("session");
+    session.reserve_resume_cut(&ctx);
     // A neutral-ish chain (dehaze inactive → the single-submit f32 path the present
     // uses). Default inputs keep the signature stable across the two renders.
     let inputs = FullChainInputs {
@@ -227,8 +228,10 @@ fn exercise_auto_ticks(ctx: Option<&raw_gpu::GpuContext>) {
         let (prefix, anchor) = (&capture.prefix_model, capture.whites_anchor_ev);
         let gpu = ctx.map(|ctx| {
             let session =
-                raw_gpu::LiveSession::new(ctx, &capture.rgba, capture.width, capture.height);
-            (ctx, session.unwrap())
+                raw_gpu::LiveSession::new(ctx, &capture.rgba, capture.width, capture.height)
+                    .unwrap();
+            session.reserve_resume_cut(ctx);
+            (ctx, session)
         });
         let mut cached = LiveProfile::new(&raw, &bytes, "dng", &model, 64, None, 0, anchor);
         capture.creative.apply(&model, &mut cached.inputs).unwrap();

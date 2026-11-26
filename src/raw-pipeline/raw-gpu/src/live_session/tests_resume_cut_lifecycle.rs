@@ -108,30 +108,36 @@ fn a_session_that_never_reserved_runs_every_tick_in_full() {
 }
 
 #[test]
-fn a_failed_reservation_leaves_the_session_rendering_full_ticks() {
+fn a_reservation_refused_with_a_validation_error_stays_unreserved_for_good() {
     let ctx = GpuContext::new_blocking().expect("gpu context");
     let base = engaged(aggressive_case());
     let session = LiveSession::new(&ctx, &image(), W, H).expect("session");
     let over_the_device_limit = ctx.device.limits().max_buffer_size.saturating_add(16);
-    pollster::block_on(session.cut.reserve(&ctx, over_the_device_limit));
+    session.cut.set_request_bytes(over_the_device_limit);
+    session.reserve_resume_cut(&ctx);
     assert!(
         !session.resume_cut_reserved(),
-        "a plane the device refused is not kept"
+        "a plane the device refused as invalid is not kept"
+    );
+    let refused = session.pool_alloc_count(&ctx);
+    session.reserve_resume_cut(&ctx);
+    assert_eq!(
+        (
+            session.resume_cut_reserved(),
+            session.pool_alloc_count(&ctx)
+        ),
+        (false, refused),
+        "a refusal is permanent: a second call does not try again"
     );
     render(&session, &ctx, &base);
     for tick in contrast_drag(&base) {
         assert_same(
             &render(&session, &ctx, &tick),
             &fresh(&ctx, &tick),
-            "a late tick after a failed reservation",
+            "a late tick after a refused reservation",
         );
     }
     assert_eq!((session.cut.stored(), session.cut.resumed()), (0, 0));
-    session.reserve_resume_cut(&ctx);
-    assert!(
-        session.resume_cut_reserved(),
-        "the refused plane left the device able to create the real one"
-    );
 }
 
 #[test]

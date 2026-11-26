@@ -24,6 +24,8 @@ struct CutState {
     stored: Option<StoredCut>,
     #[cfg(test)]
     max_bytes: Option<u64>,
+    #[cfg(test)]
+    request_bytes: Option<u64>,
 }
 
 impl CutState {
@@ -70,17 +72,43 @@ impl ResumeCut {
 
     // The plane is an optimisation: a creation error leaves the session unreserved instead of failing the host's open.
     pub(super) async fn reserve(&self, ctx: &GpuContext, plane_bytes: u64) {
+        #[cfg(test)]
+        let plane_bytes = self.lock().request_bytes.unwrap_or(plane_bytes);
         ctx.device.push_error_scope(wgpu::ErrorFilter::OutOfMemory);
         ctx.device.push_error_scope(wgpu::ErrorFilter::Validation);
         let plane = ctx
             .frame_pool
             .borrow()
             .create_resume_plane(&ctx.device, plane_bytes);
-        let invalid = ctx.device.pop_error_scope().await;
-        let exhausted = ctx.device.pop_error_scope().await;
-        if invalid.is_none() && exhausted.is_none() {
+        // Both scopes close before the first await, so no other task's error lands in one left open.
+        let invalid = ctx.device.pop_error_scope();
+        let exhausted = ctx.device.pop_error_scope();
+        if invalid.await.is_none() && exhausted.await.is_none() {
             self.lock().resident = Some(plane);
         }
+    }
+
+    // The plane moves without an allocation; both sessions forget their stored image, so its old contents are never resumed.
+    pub(super) fn adopt(&self, from: &Self, plane_bytes: u64) -> bool {
+        if self.reserved() {
+            return false;
+        }
+        let plane = {
+            let mut donor = from.lock();
+            let fits = |plane: &wgpu::Buffer| plane.size() == plane_bytes;
+            if !donor.resident.as_ref().is_some_and(fits) {
+                return false;
+            }
+            donor.key.clear();
+            donor.stored = None;
+            donor.resident.take()
+        };
+        let mut state = self.lock();
+        state.key.clear();
+        state.stored = None;
+        state.claimed = true;
+        state.resident = plane;
+        true
     }
 
     pub(super) fn reserved(&self) -> bool {
@@ -185,6 +213,11 @@ impl ResumeCut {
     #[cfg(test)]
     pub(super) fn set_max_bytes(&self, bytes: u64) {
         self.lock().max_bytes = Some(bytes);
+    }
+
+    #[cfg(test)]
+    pub(super) fn set_request_bytes(&self, bytes: u64) {
+        self.lock().request_bytes = Some(bytes);
     }
 
     #[cfg(test)]

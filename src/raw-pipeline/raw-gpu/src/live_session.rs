@@ -264,6 +264,11 @@ impl LiveSession {
         }
     }
 
+    /// Take `from`'s reserved plane when it is this session's size, so a host replacing a session allocates none; false changes nothing.
+    pub fn adopt_resume_cut(&self, from: &LiveSession) -> bool {
+        self.cut.adopt(&from.cut, self.image.byte_len())
+    }
+
     /// Whether the resume-cut plane is reserved; without it every tick renders in full.
     pub fn resume_cut_reserved(&self) -> bool {
         self.cut.reserved()
@@ -534,6 +539,9 @@ mod tests_p3_timing;
 #[cfg(all(test, not(target_arch = "wasm32")))]
 #[path = "live_session/tests_resume_cut.rs"]
 mod tests_resume_cut;
+#[cfg(all(test, not(target_arch = "wasm32")))]
+#[path = "live_session/tests_resume_cut_adopt.rs"]
+mod tests_resume_cut_adopt;
 #[cfg(all(test, not(target_arch = "wasm32")))]
 #[path = "live_session/tests_resume_cut_lifecycle.rs"]
 mod tests_resume_cut_lifecycle;

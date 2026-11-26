@@ -84,15 +84,37 @@ fn capture_sharpening_refines_into_the_decode_and_is_never_reapplied() {
 }
 
 #[test]
-fn an_opened_and_a_refined_session_both_hold_the_resume_plane() {
+fn refined_decodes_hand_one_resume_plane_from_session_to_session() {
     let (path, _) = chart("capture-reserve");
     let mut session = Session::open(path.to_str().unwrap(), NEUTRAL, 2048).unwrap();
-    assert!(session.live.resume_cut_reserved(), "the opened session");
-    session.model.capture_sharpening_amount = 80.;
-    assert!(session.needs_preparation());
-    session.update().unwrap();
-    assert!(!session.needs_preparation());
-    assert!(session.live.resume_cut_reserved(), "the refined session");
+    assert!(session.live.resume_cut_reserved(), "open reserves");
+    let allocated = |session: &mut Session| {
+        let before = session.live.pool_alloc_count(&session.ctx);
+        session.update().unwrap();
+        frame(session);
+        session.live.pool_alloc_count(&session.ctx) - before
+    };
+    let first_render = allocated(&mut session);
+    assert!(
+        first_render > 0,
+        "a session's first render fills its bucket"
+    );
+    for amount in [40., 60., 80.] {
+        session.model.capture_sharpening_amount = amount;
+        assert!(session.needs_preparation());
+        assert_eq!(
+            allocated(&mut session),
+            first_render,
+            "{amount}: a refined decode fills its session's bucket and creates no plane"
+        );
+        assert!(!session.needs_preparation());
+        assert!(session.live.resume_cut_reserved(), "{amount}: adopted");
+        assert_eq!(
+            allocated(&mut session),
+            0,
+            "{amount}: a render that keeps its session allocates nothing"
+        );
+    }
     std::fs::remove_file(path).unwrap();
 }
 
