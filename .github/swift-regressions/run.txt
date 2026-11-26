@@ -267,6 +267,7 @@ SearchRankPinTests
 SearchParamsTests
 SearchViewModelTests
 SearchViewModelCollectionTests
+SearchViewModelFacetWindowTests
 GeneratedSearchCollectionsViewModelTests
 GeneratedSearchCollectionsOrderTests
 GeneratedSearchCollectionsCacheTests
