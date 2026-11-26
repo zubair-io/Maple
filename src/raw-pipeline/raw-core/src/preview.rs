@@ -218,9 +218,7 @@ impl DisplayStrip<'_> {
                 image::load_from_memory_with_format(self.bytes, image::ImageFormat::Jpeg).ok()
             }
             StripEncoding::Rgb8 => {
-                let len =
-                    usize::try_from(u64::from(self.width) * u64::from(self.height) * 3).ok()?;
-                image::RgbImage::from_raw(self.width, self.height, self.bytes[..len].to_vec())
+                image::RgbImage::from_raw(self.width, self.height, self.bytes.to_vec())
                     .map(image::DynamicImage::ImageRgb8)
             }
         }
@@ -257,12 +255,15 @@ fn ifd_display_strip<'a>(
     let height = tag(TiffCommonTag::ImageLength)?;
     let len = usize::try_from(u64::from(width) * u64::from(height) * 3).ok()?;
     let eight_bit = tag(TiffCommonTag::BitsPerSample) == Some(8);
-    (photometric == PHOTOMETRIC_RGB && eight_bit && bytes.len() >= len).then_some(DisplayStrip {
-        bytes,
-        encoding: StripEncoding::Rgb8,
-        width,
-        height,
-    })
+    bytes
+        .get(..len)
+        .filter(|_| photometric == PHOTOMETRIC_RGB && eight_bit)
+        .map(|pixels| DisplayStrip {
+            bytes: pixels,
+            encoding: StripEncoding::Rgb8,
+            width,
+            height,
+        })
 }
 
 /// Resize `img` so the long edge is at most `max_px`, preserving aspect
