@@ -52,7 +52,7 @@
     {
       "files": [
         "scripts/ffi-contention.ts",
-        // #6012: folder listing benchmark builds a disposable library and database under the OS temp dir.
+        // #6012: server benchmarks build a disposable library and database under the OS temp dir.
         "scripts/bench-folder-listing.ts",
         "scripts/bench-library-server.ts",
         "scripts/bench-thumb-serving.ts",
