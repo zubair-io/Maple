@@ -286,3 +286,10 @@ export const summarize = (samples: Sample[]) => ({
   status: samples[0]!.status,
   bytes: samples[0]!.bytes,
 });
+
+/** CPU seconds the process has used (user + system), from `ps`; its resolution is 10 ms. */
+export async function processCpuSeconds(pid: number): Promise<number> {
+  const out = (await Bun.$`ps -o time= -p ${pid}`.text()).trim();
+  const [minutes, seconds] = out.split(':');
+  return Number(minutes) * 60 + Number(seconds);
+}
