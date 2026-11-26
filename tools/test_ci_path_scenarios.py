@@ -9,7 +9,14 @@ import yaml
 import ci_changes as ci
 
 ROOT = Path(ci.__file__).resolve().parent.parent
+WORKFLOWS = ROOT / ".github/workflows"
 PLATFORM_BUILDS = ("android", "windows")
+SELECTOR_GATE = re.compile(r"needs\.changes\.outputs\.(\w+)")
+NARROWED_TREES = {
+    "src/linux": "src/linux/src/main.rs",
+    "src/cloudflare": "src/cloudflare/package.json",
+    "src/windows/scripts": "src/windows/scripts/build-windows.sh",
+}
 
 # PR #5401: server code, docs, the regenerated capability registry and the
 # API sidecar contract record it re-recorded.
@@ -80,6 +87,14 @@ def raw_pipeline_triggered(event, paths):
         return bool(verdicts) and verdicts[-1]
 
     return any(included(path) for path in paths)
+
+
+def selector_gated_jobs():
+    for file in sorted(WORKFLOWS.glob("*.yml")):
+        for name, job in yaml.safe_load(file.read_text())["jobs"].items():
+            gates = set(SELECTOR_GATE.findall(str(job.get("if", ""))))
+            if gates:
+                yield f"{file.stem}.{name}", gates, str(job)
 
 
 class PathScenarioTests(unittest.TestCase):
@@ -160,6 +175,27 @@ class PathScenarioTests(unittest.TestCase):
         path = "src/windows/Maple.WinUI/App.xaml.cs"
         self.assertEqual(self.selected([path]), {"windows"})
         self.assert_raw_pipeline([path], False)
+
+    def test_self_filtered_workflows_cover_their_whole_tree(self):
+        for name in ("linux", "cloudflare"):
+            workflow = yaml.safe_load((WORKFLOWS / f"{name}.yml").read_text())
+            for event in ("pull_request", "push"):
+                with self.subTest(workflow=name, event=event):
+                    paths = workflow[True][event]["paths"]
+                    self.assertIn(f"src/{name}/**", paths)
+                    self.assertFalse([path for path in paths if path.startswith("!")])
+
+    def test_selector_gated_jobs_reading_a_narrowed_tree_stay_selected(self):
+        readers = [
+            (job, gates, tree)
+            for job, gates, text in selector_gated_jobs()
+            for tree in NARROWED_TREES
+            if tree in text
+        ]
+        self.assertIn("src/windows/scripts", {tree for *_, tree in readers})
+        for job, gates, tree in readers:
+            with self.subTest(job=job, tree=tree):
+                self.assertLessEqual(gates, self.selected([NARROWED_TREES[tree]]))
 
     def test_glob_translation(self):
         self.assertTrue(github_glob("src/a/**").match("src/a/b/c.rs"))
