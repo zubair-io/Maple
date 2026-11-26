@@ -16,10 +16,14 @@ namespace Maple.WinUI.ViewModels
         /// the RAW, <see cref="PhotoItem.StackPrimary"/> on the JPEG), clears
         /// links that no longer hold, and returns the photos that keep a tile,
         /// in their given order. With <paramref name="stacksPairs"/> off every
-        /// file is its own tile.</summary>
-        public static IReadOnlyList<PhotoItem> Apply(IReadOnlyList<PhotoItem> photos, bool stacksPairs)
+        /// file is its own tile. A local folder passes
+        /// <paramref name="requireSharedSidecar"/>: names the pairing rule
+        /// folds but whose files read two different sidecars stay two
+        /// tiles.</summary>
+        public static IReadOnlyList<PhotoItem> Apply(
+            IReadOnlyList<PhotoItem> photos, bool stacksPairs, bool requireSharedSidecar = false)
         {
-            var companionOf = stacksPairs ? Pair(photos) : new Dictionary<PhotoItem, PhotoItem>();
+            var companionOf = stacksPairs ? Pair(photos, requireSharedSidecar) : new Dictionary<PhotoItem, PhotoItem>();
             var primaryOf = companionOf.ToDictionary(pair => pair.Value, pair => pair.Key);
             foreach (var photo in photos)
             {
@@ -29,12 +33,13 @@ namespace Maple.WinUI.ViewModels
             return photos.Where(photo => photo.StackPrimary == null).ToList();
         }
 
-        private static Dictionary<PhotoItem, PhotoItem> Pair(IReadOnlyList<PhotoItem> photos)
+        private static Dictionary<PhotoItem, PhotoItem> Pair(IReadOnlyList<PhotoItem> photos, bool requireSharedSidecar)
         {
             var byPath = photos
                 .GroupBy(photo => photo.FilePath, StringComparer.Ordinal)
                 .ToDictionary(group => group.Key, group => group.First(), StringComparer.Ordinal);
             return RawJpegPairing.Pairs(byPath.Keys)
+                .Where(pair => !requireSharedSidecar || LocalFileOperations.SharesOneSidecar(pair.Key, pair.Value))
                 .ToDictionary(pair => byPath[pair.Key], pair => byPath[pair.Value]);
         }
 
