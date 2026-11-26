@@ -33,8 +33,18 @@ namespace Maple.WinUI.Tests.Support
         /// the `.maple/trash/&lt;rel&gt;` fallback engages.</summary>
         public bool Succeeds { get; set; } = true;
 
+        /// <summary>The shell recycled the first path, then failed on the
+        /// next (a locked file): the call reports failure but the first
+        /// path is already gone.</summary>
+        public bool RecyclesFirstPathThenFails { get; set; }
+
         public bool TrySendToRecycleBin(params string[] paths)
         {
+            if (RecyclesFirstPathThenFails)
+            {
+                System.IO.File.Delete(paths[0]);
+                return false;
+            }
             if (!Succeeds) return false;
             Calls.Add(paths);
             Attempts.AddRange(paths);
