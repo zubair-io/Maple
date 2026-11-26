@@ -31,7 +31,11 @@ namespace Maple.WinUI.ViewModels
         public string FileName
         {
             get => _fileName;
-            set => SetProperty(ref _fileName, value);
+            set
+            {
+                if (SetProperty(ref _fileName, value))
+                    RefreshTileAccessibleName();
+            }
         }
 
         public string Format { get; init; } = string.Empty;
@@ -72,9 +76,15 @@ namespace Maple.WinUI.ViewModels
         /// move, rename and trash carry it with the RAW.</summary>
         [ObservableProperty]
         [NotifyPropertyChangedFor(nameof(FormatBadge))]
+        [NotifyPropertyChangedFor(nameof(TileAccessibleName))]
         private PhotoItem? _stackCompanion;
         /// <summary>Set on the folded JPEG, which then has no tile of its own.</summary>
         public PhotoItem? StackPrimary { get; set; }
+        /// <summary>The tile carries no filename caption, so a screen reader
+        /// gets both file names of a stack from here.</summary>
+        public string TileAccessibleName =>
+            StackCompanion == null ? FileName : $"{FileName} and {StackCompanion.FileName}";
+        public void RefreshTileAccessibleName() => OnPropertyChanged(nameof(TileAccessibleName));
         public string FormatBadge => StackCompanion == null ? Format : "RAW+JPEG";
         public bool ShowsTileFooter => IsRenaming || Rating > 0;
         partial void OnIsRenamingChanged(bool value) => OnPropertyChanged(nameof(ShowsTileFooter));
