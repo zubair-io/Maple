@@ -56,14 +56,11 @@ pub fn stitch_reusing(
             )
         }
         None => {
-            let (store, metas) = frames::decode_into_store(
-                inputs,
-                opts.proxy_long_edge,
-                &mut progress,
-                &is_cancelled,
-            )?;
-            let head = super::solve_alignment(
+            let (store, metas, detected) =
+                frames::decode_into_store(inputs, opts, &mut progress, &is_cancelled)?;
+            let head = super::solve_alignment_detected(
                 metas,
+                detected,
                 t0.elapsed().as_secs_f64(),
                 opts,
                 key,

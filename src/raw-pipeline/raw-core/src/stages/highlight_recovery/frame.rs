@@ -1,4 +1,6 @@
 //! Exact frame evidence and coordinate anchors for native highlight tiles.
+use rayon::prelude::*;
+
 use super::ripple_floors;
 
 /// The full frame's tier-3 scene prior, resolved only when a render actually
@@ -78,23 +80,33 @@ pub(crate) fn band_scene_samples(
     let margin = super::EPSILON * super::baseline_gain(baseline_exposure);
     let thresholds = super::ceilings(neutral, baseline_exposure).map(|ceiling| ceiling - margin);
     let floors = ripple_floors(neutral, baseline_exposure);
-    let clip_mask = super::clip_mask_in_sensor_space(
-        img,
-        thresholds,
-        floors,
-        (left, top, right, bottom),
-        gains,
-    );
     let (w, stride) = (img.width as i32, super::guided::SCENE_SAMPLE_STRIDE);
-    let clip_mask = &clip_mask;
-    (rows.0.max(top)..rows.1.min(bottom))
+    // Only the sampled pixels' mask bits are read, so they are evaluated
+    // pointwise rather than masking the whole band.
+    let sampled_rows: Vec<i32> = (rows.0.max(top)..rows.1.min(bottom))
         .filter(|y| (y + origin_y - region_top_abs).rem_euclid(stride) == 0)
-        .flat_map(|y| {
-            (left..right).step_by(stride as usize).filter_map(move |x| {
-                super::guided::scene_sample(img, clip_mask, floors, gains, (y * w + x) as usize)
-            })
+        .collect();
+    sampled_rows
+        .into_par_iter()
+        .map(|y| {
+            (left..right)
+                .step_by(stride as usize)
+                .filter_map(|x| {
+                    let idx = (y * w + x) as usize;
+                    let clip_bits = super::clip_mask_at(
+                        img,
+                        thresholds,
+                        floors,
+                        (left, top, right, bottom),
+                        gains,
+                        idx,
+                    );
+                    super::guided::scene_sample(img, clip_bits, floors, gains, idx)
+                })
+                .collect::<Vec<_>>()
         })
-        .collect()
+        .collect::<Vec<_>>()
+        .concat()
 }
 
 /// The frame-wide tier-3 median of samples gathered by [`band_scene_samples`].

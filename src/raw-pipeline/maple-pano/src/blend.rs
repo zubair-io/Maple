@@ -19,11 +19,14 @@
 //! [`MAX_LEVELS`] — computed by the caller from seam-mask overlap
 //! statistics ([`levels_for_overlap_width`]).
 //!
-//! Determinism: pure sequential per-plane arithmetic in row-major
-//! order; identical inputs produce identical bytes on a given platform
-//! + toolchain.
+//! Determinism: every output pixel is computed by the same sequential
+//! arithmetic whatever thread runs it — rows, channels and levels are
+//! split across threads, never a sum (#6057) — so identical inputs produce
+//! identical bytes on a given platform + toolchain.
 
 use std::ops::Range;
+
+use rayon::prelude::*;
 
 use crate::ingest::{PlanarImage, ValidityMask};
 
@@ -55,51 +58,57 @@ const KERNEL: [f32; 5] = [1.0, 4.0, 6.0, 4.0, 1.0];
 impl WeightedPlane {
     fn down(&self) -> WeightedPlane {
         let (dw, dh) = (self.w.div_ceil(2), self.h.div_ceil(2));
-        // Horizontal then vertical, sampling even coordinates.
+        // Horizontal then vertical, sampling even coordinates. Rows are
+        // independent in both passes, so they run in parallel with each
+        // pixel's arithmetic unchanged (#6057).
         let mut hv = vec![0.0_f32; dw * self.h];
         let mut ha = vec![0.0_f32; dw * self.h];
-        for y in 0..self.h {
-            for dx in 0..dw {
-                let cx = (dx * 2) as isize;
-                let (mut sv, mut sa) = (0.0_f32, 0.0_f32);
-                for (k, &kw) in KERNEL.iter().enumerate() {
-                    let x = cx + k as isize - 2;
-                    if x < 0 || x >= self.w as isize {
-                        continue;
+        hv.par_chunks_mut(dw)
+            .zip(ha.par_chunks_mut(dw))
+            .enumerate()
+            .for_each(|(y, (hv_row, ha_row))| {
+                for dx in 0..dw {
+                    let cx = (dx * 2) as isize;
+                    let (mut sv, mut sa) = (0.0_f32, 0.0_f32);
+                    for (k, &kw) in KERNEL.iter().enumerate() {
+                        let x = cx + k as isize - 2;
+                        if x < 0 || x >= self.w as isize {
+                            continue;
+                        }
+                        let i = y * self.w + x as usize;
+                        sv += kw * self.a[i] * self.v[i];
+                        sa += kw * self.a[i];
                     }
-                    let i = y * self.w + x as usize;
-                    sv += kw * self.a[i] * self.v[i];
-                    sa += kw * self.a[i];
+                    if sa > 0.0 {
+                        hv_row[dx] = sv / sa;
+                        ha_row[dx] = sa / 16.0; // kernel sum
+                    }
                 }
-                let o = y * dw + dx;
-                if sa > 0.0 {
-                    hv[o] = sv / sa;
-                    ha[o] = sa / 16.0; // kernel sum
-                }
-            }
-        }
+            });
         let mut ov = vec![0.0_f32; dw * dh];
         let mut oa = vec![0.0_f32; dw * dh];
-        for dy in 0..dh {
-            let cy = (dy * 2) as isize;
-            for x in 0..dw {
-                let (mut sv, mut sa) = (0.0_f32, 0.0_f32);
-                for (k, &kw) in KERNEL.iter().enumerate() {
-                    let y = cy + k as isize - 2;
-                    if y < 0 || y >= self.h as isize {
-                        continue;
+        ov.par_chunks_mut(dw)
+            .zip(oa.par_chunks_mut(dw))
+            .enumerate()
+            .for_each(|(dy, (ov_row, oa_row))| {
+                let cy = (dy * 2) as isize;
+                for x in 0..dw {
+                    let (mut sv, mut sa) = (0.0_f32, 0.0_f32);
+                    for (k, &kw) in KERNEL.iter().enumerate() {
+                        let y = cy + k as isize - 2;
+                        if y < 0 || y >= self.h as isize {
+                            continue;
+                        }
+                        let i = y as usize * dw + x;
+                        sv += kw * ha[i] * hv[i];
+                        sa += kw * ha[i];
                     }
-                    let i = y as usize * dw + x;
-                    sv += kw * ha[i] * hv[i];
-                    sa += kw * ha[i];
+                    if sa > 0.0 {
+                        ov_row[x] = sv / sa;
+                        oa_row[x] = (sa / 16.0).min(1.0);
+                    }
                 }
-                let o = dy * dw + x;
-                if sa > 0.0 {
-                    ov[o] = sv / sa;
-                    oa[o] = (sa / 16.0).min(1.0);
-                }
-            }
-        }
+            });
         WeightedPlane {
             w: dw,
             h: dh,
@@ -113,34 +122,36 @@ impl WeightedPlane {
     fn up(&self, tw: usize, th: usize) -> WeightedPlane {
         let mut ov = vec![0.0_f32; tw * th];
         let mut oa = vec![0.0_f32; tw * th];
-        for ty in 0..th {
-            let fy = ty as f32 * 0.5;
-            let y0 = fy.floor() as usize;
-            let y1 = (y0 + 1).min(self.h - 1);
-            let wy = fy - y0 as f32;
-            for tx in 0..tw {
-                let fx = tx as f32 * 0.5;
-                let x0 = fx.floor() as usize;
-                let x1 = (x0 + 1).min(self.w - 1);
-                let wx = fx - x0 as f32;
-                let idx = [
-                    (y0 * self.w + x0, (1.0 - wy) * (1.0 - wx)),
-                    (y0 * self.w + x1, (1.0 - wy) * wx),
-                    (y1 * self.w + x0, wy * (1.0 - wx)),
-                    (y1 * self.w + x1, wy * wx),
-                ];
-                let (mut sv, mut sa) = (0.0_f32, 0.0_f32);
-                for (i, kw) in idx {
-                    sv += kw * self.a[i] * self.v[i];
-                    sa += kw * self.a[i];
+        ov.par_chunks_mut(tw)
+            .zip(oa.par_chunks_mut(tw))
+            .enumerate()
+            .for_each(|(ty, (ov_row, oa_row))| {
+                let fy = ty as f32 * 0.5;
+                let y0 = fy.floor() as usize;
+                let y1 = (y0 + 1).min(self.h - 1);
+                let wy = fy - y0 as f32;
+                for tx in 0..tw {
+                    let fx = tx as f32 * 0.5;
+                    let x0 = fx.floor() as usize;
+                    let x1 = (x0 + 1).min(self.w - 1);
+                    let wx = fx - x0 as f32;
+                    let idx = [
+                        (y0 * self.w + x0, (1.0 - wy) * (1.0 - wx)),
+                        (y0 * self.w + x1, (1.0 - wy) * wx),
+                        (y1 * self.w + x0, wy * (1.0 - wx)),
+                        (y1 * self.w + x1, wy * wx),
+                    ];
+                    let (mut sv, mut sa) = (0.0_f32, 0.0_f32);
+                    for (i, kw) in idx {
+                        sv += kw * self.a[i] * self.v[i];
+                        sa += kw * self.a[i];
+                    }
+                    if sa > 0.0 {
+                        ov_row[tx] = sv / sa;
+                        oa_row[tx] = sa.min(1.0);
+                    }
                 }
-                let o = ty * tw + tx;
-                if sa > 0.0 {
-                    ov[o] = sv / sa;
-                    oa[o] = sa.min(1.0);
-                }
-            }
-        }
+            });
         WeightedPlane {
             w: tw,
             h: th,
@@ -226,6 +237,8 @@ impl BandAccumulator {
             levels,
         );
 
+        // Channels stay sequential so only one channel's pyramid is resident;
+        // the work inside each level is split by rows (#6057).
         for (c, plane) in [&layer.r, &layer.g, &layer.b].into_iter().enumerate() {
             let gauss = pyramid(
                 WeightedPlane {
@@ -238,21 +251,32 @@ impl BandAccumulator {
             );
             for k in 0..levels {
                 let g = &gauss[k];
-                let coarse = (k + 1 < levels).then(|| gauss[k + 1].up(g.w, g.h));
-                let (aw, xk) = (self.dims[k].0, x0 >> k);
-                for y in 0..g.h {
-                    for x in 0..g.w {
-                        let i = y * g.w + x;
-                        // Detail is defined only where the level itself is
-                        // defined; the upsampled coarse is weight-renormalized.
-                        let lap = coarse.as_ref().map_or(g.v[i], |up| g.v[i] - up.v[i]);
-                        let wv = wg[k].v[i] * g.a[i];
-                        let o = y * aw + xk + x;
-                        self.num[k][c][o] += wv * lap;
-                        if c == 0 {
-                            self.den[k][o] += wv;
+                let lap = laplacian(&gauss, k, levels);
+                let (aw, xk, wk) = (self.dims[k].0, x0 >> k, &wg[k]);
+                let num = self.num[k][c].par_chunks_mut(aw).take(g.h);
+                let fold = |y: usize, num: &mut [f32], den: Option<&mut [f32]>| {
+                    let row = y * g.w..(y + 1) * g.w;
+                    let wv = wk.v[row.clone()].iter().zip(&g.a[row.clone()]).map(|(&w, &a)| w * a);
+                    match den {
+                        Some(den) => {
+                            for (x, (wv, &l)) in wv.zip(&lap[row]).enumerate() {
+                                num[xk + x] += wv * l;
+                                den[xk + x] += wv;
+                            }
+                        }
+                        None => {
+                            for (x, (wv, &l)) in wv.zip(&lap[row]).enumerate() {
+                                num[xk + x] += wv * l;
+                            }
                         }
                     }
+                };
+                if c == 0 {
+                    num.zip(self.den[k].par_chunks_mut(aw))
+                        .enumerate()
+                        .for_each(|(y, (num, den))| fold(y, num, Some(den)));
+                } else {
+                    num.enumerate().for_each(|(y, num)| fold(y, num, None));
                 }
             }
         }
@@ -261,35 +285,58 @@ impl BandAccumulator {
     /// Normalize every level and collapse base → fine into r, g, b planes.
     pub(crate) fn collapse(self) -> [Vec<f32>; 3] {
         let BandAccumulator { dims, num, den } = self;
-        let mut num = num;
-        std::array::from_fn(|c| {
-            let mut acc: Option<WeightedPlane> = None;
-            for k in (0..dims.len()).rev() {
-                let (lw, lh) = dims[k];
-                let num_k = std::mem::take(&mut num[k][c]);
-                let (v, a): (Vec<f32>, Vec<f32>) = num_k
-                    .iter()
-                    .zip(&den[k])
-                    .map(|(&nv, &d)| if d > 0.0 { (nv / d, 1.0) } else { (0.0, 0.0) })
-                    .unzip();
-                let level = WeightedPlane { w: lw, h: lh, v, a };
-                acc = Some(match acc {
-                    None => level,
-                    Some(coarse) => {
-                        let up = coarse.up(lw, lh);
-                        let mut out = level;
-                        for i in 0..out.v.len() {
-                            if out.a[i] > 0.0 {
-                                out.v[i] += up.v[i];
-                            }
-                        }
-                        out
-                    }
-                });
+        let mut channels: Vec<Vec<Vec<f32>>> = vec![Vec::new(), Vec::new(), Vec::new()];
+        for level in num {
+            for (c, plane) in level.into_iter().enumerate() {
+                channels[c].push(plane);
             }
-            acc.expect("levels >= 1").v
-        })
+        }
+        let mut out: Vec<Vec<f32>> = channels
+            .into_par_iter()
+            .map(|num| collapse_channel(&dims, num, &den))
+            .collect();
+        std::array::from_fn(|c| std::mem::take(&mut out[c]))
     }
+}
+
+/// Level `k` of a Laplacian pyramid: the Gaussian level minus the expanded
+/// coarser one, or the Gaussian itself at the base.
+fn laplacian(gauss: &[WeightedPlane], k: usize, levels: usize) -> Vec<f32> {
+    let g = &gauss[k];
+    match (k + 1 < levels).then(|| gauss[k + 1].up(g.w, g.h)) {
+        Some(up) => g.v.par_iter().zip(&up.v).map(|(&v, &u)| v - u).collect(),
+        None => g.v.clone(),
+    }
+}
+
+/// Normalize one channel's levels and collapse base → fine.
+fn collapse_channel(dims: &[(usize, usize)], mut num: Vec<Vec<f32>>, den: &[Vec<f32>]) -> Vec<f32> {
+    let mut acc: Option<WeightedPlane> = None;
+    for k in (0..dims.len()).rev() {
+        let (lw, lh) = dims[k];
+        let num_k = std::mem::take(&mut num[k]);
+        let (v, a): (Vec<f32>, Vec<f32>) = num_k
+            .par_iter()
+            .zip(&den[k])
+            .map(|(&nv, &d)| if d > 0.0 { (nv / d, 1.0) } else { (0.0, 0.0) })
+            .unzip();
+        let level = WeightedPlane { w: lw, h: lh, v, a };
+        acc = Some(match acc {
+            None => level,
+            Some(coarse) => {
+                let up = coarse.up(lw, lh);
+                let mut out = level;
+                out.v
+                    .par_iter_mut()
+                    .zip(&out.a)
+                    .zip(&up.v)
+                    .filter(|((_, &a), _)| a > 0.0)
+                    .for_each(|((v, _), &u)| *v += u);
+                out
+            }
+        });
+    }
+    acc.expect("levels >= 1").v
 }
 
 fn pyramid(base: WeightedPlane, levels: usize) -> Vec<WeightedPlane> {

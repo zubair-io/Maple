@@ -15,7 +15,7 @@ use crate::features::classical::{
 use crate::features::{AlikedDetector, DetectorOptions};
 use crate::features::{FeatureSet, LinearRgbFrame};
 use crate::glue::{ml_matches_to_correspondences, DEFAULT_MIN_SCORE};
-use crate::ingest::FrameMeta;
+use crate::ingest::{FrameMeta, PlanarImage};
 #[cfg(any(feature = "ml", feature = "ml-static"))]
 use crate::matching::{LightGlueMatcher, MatcherOptions};
 #[cfg(any(feature = "ml", feature = "ml-static"))]
@@ -96,14 +96,46 @@ impl PairMatcher {
     }
 }
 
-/// Stage 1: load the selected engine and detect on every proxy. Returns
-/// the per-frame feature sets and the matcher for stage 2.
+/// Stage 1 for one proxy, run inside stage 0 as each frame is decoded so
+/// the proxy can be dropped right after (#6057); `None` when the engine
+/// detects only after loading a session over every proxy (ML). Classical
+/// detection is per frame with no cross-frame state, so the features are
+/// the ones [`extract_features`] would find.
+pub(super) fn detect_during_decode(
+    opts: &StitchOptions,
+    frame_idx: usize,
+    proxy: &PlanarImage,
+) -> Option<Result<FeatureSet, StitchError>> {
+    match opts.feature_engine {
+        #[cfg(any(feature = "ml", feature = "ml-static"))]
+        FeatureEngine::Ml => {
+            let _ = (frame_idx, proxy);
+            None
+        }
+        #[cfg(feature = "classical-features")]
+        FeatureEngine::Classical => {
+            let detector = ClassicalOptions::default();
+            Some(detect_one(frame_idx, proxy, |frame| {
+                Ok(detect_classical(frame, &detector))
+            }))
+        }
+    }
+}
+
+/// Stage 1: load the selected engine and detect on every proxy, unless
+/// stage 0 already `detected` them. Returns the per-frame feature sets and
+/// the matcher for stage 2.
 pub(super) fn extract_features(
     metas: &[FrameMeta],
+    detected: Option<Vec<FeatureSet>>,
     opts: &StitchOptions,
     progress: &mut impl FnMut(u32, f32),
     is_cancelled: &impl Fn() -> bool,
 ) -> Result<(Vec<FeatureSet>, PairMatcher), StitchError> {
+    if let Some(sets) = detected {
+        progress(1, 1.0);
+        return Ok((sets, pair_matcher(opts)?));
+    }
     match opts.feature_engine {
         #[cfg(any(feature = "ml", feature = "ml-static"))]
         FeatureEngine::Ml => {
@@ -144,6 +176,28 @@ pub(super) fn extract_features(
     }
 }
 
+/// The stage-2 matcher alone, for features stage 0 already detected.
+fn pair_matcher(opts: &StitchOptions) -> Result<PairMatcher, StitchError> {
+    match opts.feature_engine {
+        #[cfg(any(feature = "ml", feature = "ml-static"))]
+        FeatureEngine::Ml => {
+            let models = ModelDir::resolve(opts.models_dir.as_deref())
+                .map_err(|e| StitchError::MlUnavailable(e.to_string()))?;
+            LightGlueMatcher::load(
+                &models,
+                MatcherOptions {
+                    use_coreml: opts.use_coreml,
+                    ..MatcherOptions::default()
+                },
+            )
+            .map(PairMatcher::Ml)
+            .map_err(|e| StitchError::MlUnavailable(format!("LightGlue load failed: {e}")))
+        }
+        #[cfg(feature = "classical-features")]
+        FeatureEngine::Classical => Ok(PairMatcher::Classical(ClassicalMatchOptions::default())),
+    }
+}
+
 fn detect_each(
     metas: &[FrameMeta],
     progress: &mut impl FnMut(u32, f32),
@@ -157,19 +211,20 @@ fn detect_each(
             if is_cancelled() {
                 return Err(StitchError::Cancelled);
             }
-            let feature_error = |cause: String| StitchError::Feature {
-                frame_idx: i,
-                cause,
-            };
-            let frame = LinearRgbFrame::new(
-                meta.proxy.width(),
-                meta.proxy.height(),
-                interleave_planar(&meta.proxy),
-            )
-            .map_err(|e| feature_error(e.to_string()))?;
-            let set = detect(&frame).map_err(feature_error)?;
+            let set = detect_one(i, &meta.proxy, &mut detect)?;
             progress(1, (i + 1) as f32 / metas.len() as f32);
             Ok(set)
         })
         .collect()
+}
+
+fn detect_one(
+    frame_idx: usize,
+    proxy: &PlanarImage,
+    detect: impl FnOnce(&LinearRgbFrame) -> Result<FeatureSet, String>,
+) -> Result<FeatureSet, StitchError> {
+    let feature_error = |cause: String| StitchError::Feature { frame_idx, cause };
+    let frame = LinearRgbFrame::new(proxy.width(), proxy.height(), interleave_planar(proxy))
+        .map_err(|e| feature_error(e.to_string()))?;
+    detect(&frame).map_err(feature_error)
 }

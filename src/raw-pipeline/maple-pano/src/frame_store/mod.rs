@@ -132,7 +132,7 @@ impl FrameStore {
             .collect();
         let mut store = Self::create(parent, &dims).expect("frame store");
         for (idx, path) in paths.iter().enumerate() {
-            store.ingest_file(idx, path, 64).expect("develop");
+            store.ingest_file(idx, path, 64, &|| false).expect("develop");
         }
         store
     }
@@ -145,12 +145,13 @@ impl FrameStore {
     /// Develop `path` as frame `idx` in `band_rows`-row bands. Each frame is
     /// stored once; its developed size must match the size planned at
     /// [`Self::create`]. A failed ingest leaves nothing behind, so the same
-    /// index can be ingested again.
+    /// index can be ingested again. `is_cancelled` is polled between bands.
     pub fn ingest_file(
         &mut self,
         idx: usize,
         path: &Path,
         band_rows: u32,
+        is_cancelled: &dyn Fn() -> bool,
     ) -> Result<PanoBandedIngest, PanoError> {
         let bytes = std::fs::read(path).map_err(|e| PanoError::io(path, e))?;
         let ext = path
@@ -158,9 +159,11 @@ impl FrameStore {
             .and_then(|e| e.to_str())
             .map(str::to_ascii_lowercase)
             .unwrap_or_default();
-        self.ingest_bytes(idx, &bytes, &ext, band_rows, &path.display().to_string())
+        let context = path.display().to_string();
+        self.ingest_owned(idx, bytes, &ext, band_rows, &context, is_cancelled)
     }
 
+    #[cfg(test)]
     fn ingest_bytes(
         &mut self,
         idx: usize,
@@ -168,6 +171,18 @@ impl FrameStore {
         ext: &str,
         band_rows: u32,
         context: &str,
+    ) -> Result<PanoBandedIngest, PanoError> {
+        self.ingest_owned(idx, bytes.to_vec(), ext, band_rows, context, &|| false)
+    }
+
+    fn ingest_owned(
+        &mut self,
+        idx: usize,
+        bytes: Vec<u8>,
+        ext: &str,
+        band_rows: u32,
+        context: &str,
+        is_cancelled: &dyn Fn() -> bool,
     ) -> Result<PanoBandedIngest, PanoError> {
         let planned = *self.planned.get(idx).ok_or_else(|| {
             PanoError::InvalidOptions(format!(
@@ -182,7 +197,15 @@ impl FrameStore {
         }
         let path = self.frame_path(idx);
         let file = create_file(&path)?;
-        let developed = self.develop_into(&file, &path, planned, bytes, ext, band_rows, context);
+        let developed = self.develop_into(
+            &file,
+            &path,
+            planned,
+            (bytes, ext),
+            band_rows,
+            context,
+            is_cancelled,
+        );
         match developed {
             Ok(developed) => {
                 self.frames[idx] = Some(file);
@@ -202,10 +225,10 @@ impl FrameStore {
         file: &File,
         path: &Path,
         planned: (u32, u32),
-        bytes: &[u8],
-        ext: &str,
+        (bytes, ext): (Vec<u8>, &str),
         band_rows: u32,
         context: &str,
+        is_cancelled: &dyn Fn() -> bool,
     ) -> Result<PanoBandedIngest, PanoError> {
         let scratch_file = self.scratch.as_ref().expect("scratch lives until drop");
         let mut scratch = FileScratch {
@@ -220,8 +243,14 @@ impl FrameStore {
             developed: None,
             width: 0,
         };
-        let result =
-            raw_core::develop_banded_for_pano(bytes, ext, band_rows, &mut scratch, &mut sink);
+        let result = raw_core::develop_banded_for_pano(
+            bytes,
+            ext,
+            band_rows,
+            &mut scratch,
+            &mut sink,
+            is_cancelled,
+        );
         let developed_dims = sink.developed.unwrap_or(planned);
         if developed_dims != planned {
             return Err(PanoError::InvalidOptions(format!(

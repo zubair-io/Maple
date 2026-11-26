@@ -25,6 +25,8 @@
 //! overlap width that sets the band count (a property of the frame layout,
 //! not of which seam algorithm placed the boundary).
 
+use std::ops::Range;
+
 use crate::blend::levels_for_overlap_width;
 use crate::camera::Camera;
 use crate::canvas::CanvasSpec;
@@ -36,7 +38,7 @@ use crate::local_align::LocalCorrection;
 use crate::seam::{self, SeamConstraint, SeamMasks};
 
 use super::super::{AutoCropReport, CanvasSink, CompositeReport};
-use super::{check_inputs, strips, warp_frame_strip};
+use super::{check_inputs, strips, warp_frame_rect};
 
 #[allow(clippy::too_many_arguments)]
 pub(super) fn composite_tiled_graph_cut(
@@ -90,8 +92,8 @@ pub(super) fn composite_tiled_graph_cut(
         tile_rows,
         &seam,
         auto_crop,
-        |fi, tile_y0, tile_y1| {
-            warp_frame_strip(
+        |fi, rows, cols| {
+            warp_frame_rect(
                 frames,
                 fi,
                 cameras,
@@ -99,7 +101,7 @@ pub(super) fn composite_tiled_graph_cut(
                 local_corrections,
                 exposure_field,
                 canvas,
-                (tile_y0, tile_y1),
+                (rows, cols),
             )
         },
         sink,
@@ -107,8 +109,8 @@ pub(super) fn composite_tiled_graph_cut(
 }
 
 /// Multi-band blend every frame that has *some* geometric footprint in a
-/// strip window, weighted by [`SeamMasks::weight`]. `warp_strip(frame_index,
-/// y0, y1)` is the caller's warp closure.
+/// blend window, weighted by [`SeamMasks::weight`]. `warp(frame_index,
+/// rows, cols)` is the caller's warp closure.
 #[allow(clippy::too_many_arguments)]
 fn graph_cut_blend(
     cameras: &[Camera],
@@ -118,7 +120,7 @@ fn graph_cut_blend(
     tile_rows: u32,
     seam: &SeamMasks,
     auto_crop: bool,
-    warp_strip: impl FnMut(usize, u32, u32) -> Result<PlanarImage, PanoError>,
+    warp: impl FnMut(usize, Range<u32>, Range<u32>) -> Result<Option<PlanarImage>, PanoError>,
     sink: &mut dyn CanvasSink,
 ) -> Result<CompositeReport, PanoError> {
     let weight = |fi: usize, x: usize, y: usize| {
@@ -131,11 +133,11 @@ fn graph_cut_blend(
     strips::blend_strips(
         (canvas.width, canvas.height),
         cameras.len(),
-        tile_rows,
+        (tile_rows, strips::TILE_COLS),
         levels,
-        |fi, y0, y1| survey.footprint_touches(fi, y0, y1),
+        |fi, rows, _| survey.footprint_touches(fi, rows.start, rows.end),
         weight,
-        warp_strip,
+        warp,
         sink,
     )?;
     let report = CompositeReport {

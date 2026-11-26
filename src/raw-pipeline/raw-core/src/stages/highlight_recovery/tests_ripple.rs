@@ -91,3 +91,17 @@ fn near_ceiling_channel_above_another_stays_scene_evidence() {
 }
 
 const NEUTRAL: [f32; 3] = [1.0, 1.0, 1.0];
+
+#[test]
+fn pointwise_clip_mask_matches_the_whole_frame_mask() {
+    let (img, _) = sun_halo(64);
+    let thresholds = ceilings(PANO_01_NEUTRAL, 0.0);
+    let floors = ripple_floors(PANO_01_NEUTRAL, 0.0);
+    let rect = (3, 5, 60, 57);
+    let whole = clip_mask_in_sensor_space(&img, thresholds, floors, rect, None);
+    let pointwise: Vec<u8> = (0..whole.len())
+        .map(|i| clip_mask_at(&img, thresholds, floors, rect, None, i))
+        .collect();
+    assert!(whole.iter().any(|&m| m != 0), "fixture must clip");
+    assert_eq!(pointwise, whole);
+}

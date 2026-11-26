@@ -15,7 +15,7 @@
 mod graph_cut;
 mod strips;
 
-use rayon::prelude::*;
+use std::ops::Range;
 
 use crate::blend::levels_for_overlap_width;
 use crate::camera::Camera;
@@ -26,136 +26,9 @@ use crate::gain::{ExposureField, FramePhotometry};
 use crate::ingest::PlanarImage;
 use crate::local_align::LocalCorrection;
 use crate::seam::{SeamConstraint, SeamConstraintError, SeamStrategy};
-use crate::warp::warp_window_to_canvas_strip;
+use crate::warp::warp_rect_to_canvas;
 
 use super::{AutoCropReport, CanvasCollector, CanvasSink, CompositeReport, UncoveredCount};
-
-/// Compute per-frame Voronoi depth scores over one canvas strip.
-///
-/// A pixel participates only if its projection lands **within** the source
-/// frame bounds after the local correction (if any) is applied. This matches
-/// the non-tiled `voronoi_masks`, which gates on `layer.validity` — a value
-/// that is `false` for out-of-bounds projections from `warp_to_canvas`.
-fn tile_depths(
-    cameras: &[Camera],
-    local_corrections: &[Option<LocalCorrection>],
-    canvas: &CanvasSpec,
-    tile_y0: u32,
-    tile_y1: u32,
-) -> Vec<Vec<f32>> {
-    let cw = canvas.width as usize;
-    let th = (tile_y1 - tile_y0) as usize;
-    let tile_n = cw * th;
-    cameras
-        .par_iter()
-        .enumerate()
-        .map(|(fi, cam)| {
-            let la = if local_corrections.is_empty() {
-                None
-            } else {
-                local_corrections.get(fi).and_then(|o| o.as_ref())
-            };
-            let mut d = vec![-1.0_f32; tile_n];
-            for sy in 0..th {
-                let canvas_y = tile_y0 as usize + sy;
-                for x in 0..cw {
-                    let Some(dir) =
-                        canvas.output_pixel_to_dir(x as f64 + 0.5, canvas_y as f64 + 0.5)
-                    else {
-                        continue;
-                    };
-                    let Some((mut sx, mut sy_src)) = cam.world_dir_to_pixel(dir) else {
-                        continue;
-                    };
-                    // Apply local correction before bounds test.
-                    if let Some(la) = la {
-                        (sx, sy_src) = la.sample_point(sx, sy_src);
-                    }
-                    // Require corrected projection to be within frame bounds.
-                    if sx < 0.0
-                        || sx > cam.width as f64
-                        || sy_src < 0.0
-                        || sy_src > cam.height as f64
-                    {
-                        continue;
-                    }
-                    let border = sx
-                        .min(cam.width as f64 - sx)
-                        .min(sy_src)
-                        .min(cam.height as f64 - sy_src);
-                    d[sy * cw + x] = border.max(0.0) as f32;
-                }
-            }
-            d
-        })
-        .collect()
-}
-
-/// Assign Voronoi ownership (frame index, or `u16::MAX` = uncovered) and
-/// accumulate pairwise overlap counts + distinct rows for the overlap-width
-/// report.
-fn assign_owners(
-    depths: &[Vec<f32>],
-    tile_y0: u32,
-    cw: usize,
-    tile_n: usize,
-    k: usize,
-    overlap_count: &mut [Vec<usize>],
-    overlap_rows: &mut [Vec<std::collections::BTreeSet<usize>>],
-) -> Vec<u16> {
-    let mut owner = vec![u16::MAX; tile_n];
-    for i in 0..tile_n {
-        let mut best: Option<(usize, f32)> = None;
-        for (f, depth) in depths.iter().enumerate() {
-            let d = depth[i];
-            if d < 0.0 {
-                continue;
-            }
-            if best.is_none_or(|(_, bd)| d > bd) {
-                best = Some((f, d));
-            }
-        }
-        if let Some((f, _)) = best {
-            owner[i] = f as u16;
-        }
-        let canvas_row = tile_y0 as usize + i / cw;
-        for a in 0..k {
-            if depths[a][i] < 0.0 {
-                continue;
-            }
-            for b in (a + 1)..k {
-                if depths[b][i] >= 0.0 {
-                    overlap_count[a][b] += 1;
-                    overlap_rows[a][b].insert(canvas_row);
-                }
-            }
-        }
-    }
-    owner
-}
-
-/// Compute the min-overlap-width summary from accumulated pairwise data.
-fn min_overlap_width(
-    k: usize,
-    overlap_count: &[Vec<usize>],
-    overlap_rows: &[Vec<std::collections::BTreeSet<usize>>],
-) -> usize {
-    let mut min_overlap = usize::MAX;
-    for a in 0..k {
-        for b in (a + 1)..k {
-            let rows = overlap_rows[a][b].len();
-            if rows == 0 {
-                continue;
-            }
-            min_overlap = min_overlap.min(overlap_count[a][b] / rows);
-        }
-    }
-    if min_overlap == usize::MAX {
-        0
-    } else {
-        min_overlap
-    }
-}
 
 /// Memory-bounded tiled compositing: for each strip, read just the source
 /// rows each frame's warp taps from `frames`, warp them into the strip's
@@ -250,8 +123,8 @@ fn composite_tiled_voronoi(
         canvas,
         tile_rows,
         auto_crop,
-        |fi, y0, y1| {
-            warp_frame_strip(
+        |fi, rows, cols| {
+            warp_frame_rect(
                 frames,
                 fi,
                 cameras,
@@ -259,17 +132,18 @@ fn composite_tiled_voronoi(
                 local_corrections,
                 exposure_field,
                 canvas,
-                (y0, y1),
+                (rows, cols),
             )
         },
         sink,
     )
 }
 
-/// Frame `fi` warped into canvas rows `y0..y1`, reading only the source
-/// rows the warp taps, with its exposure correction applied.
+/// Frame `fi` warped into the canvas rectangle `cols` × `rows`, reading
+/// only the source rectangle the warp taps, with its exposure correction
+/// applied; `None` when the frame puts no sample there.
 #[allow(clippy::too_many_arguments)]
-fn warp_frame_strip(
+fn warp_frame_rect(
     frames: &dyn FrameRows,
     fi: usize,
     cameras: &[Camera],
@@ -277,19 +151,20 @@ fn warp_frame_strip(
     local_corrections: &[Option<LocalCorrection>],
     exposure_field: Option<&ExposureField>,
     canvas: &CanvasSpec,
-    (y0, y1): (u32, u32),
-) -> Result<PlanarImage, PanoError> {
+    (rows, cols): (Range<u32>, Range<u32>),
+) -> Result<Option<PlanarImage>, PanoError> {
     let la = local_corrections.get(fi).and_then(|o| o.as_ref());
-    let strip = warp_window_to_canvas_strip(
+    let origin = (cols.start, rows.start);
+    let window = warp_rect_to_canvas(
         &cameras[fi],
         canvas,
         photometry[fi],
         la,
-        y0,
-        y1,
-        |row0, rows| frames.read_rows(fi, row0, rows),
+        rows,
+        cols,
+        |rect| frames.read_rect(fi, rect),
     )?;
-    Ok(with_exposure_field(exposure_field, fi, strip, canvas, y0))
+    Ok(window.map(|w| with_exposure_field(exposure_field, fi, w, canvas, origin)))
 }
 
 /// [`composite_tiled`] over frames already in memory, collected into one
@@ -333,7 +208,7 @@ fn voronoi_blend(
     canvas: &CanvasSpec,
     tile_rows: u32,
     auto_crop: bool,
-    warp_strip: impl FnMut(usize, u32, u32) -> Result<PlanarImage, PanoError>,
+    warp: impl FnMut(usize, Range<u32>, Range<u32>) -> Result<Option<PlanarImage>, PanoError>,
     sink: &mut dyn CanvasSink,
 ) -> Result<CompositeReport, PanoError> {
     let any_owner = |_: usize, _: usize, _: usize| 1.0_f32;
@@ -344,9 +219,9 @@ fn voronoi_blend(
     strips::blend_strips(
         (canvas.width, canvas.height),
         cameras.len(),
-        tile_rows,
+        (tile_rows, strips::TILE_COLS),
         levels,
-        |fi, y0, y1| owner.owns_any(fi as u16, y0, y1),
+        |fi, rows, cols| owner.owns_any_in(fi as u16, rows, cols),
         |fi, x, y| {
             if owner.at(x, y) == fi as u16 {
                 1.0
@@ -354,7 +229,7 @@ fn voronoi_blend(
                 0.0
             }
         },
-        warp_strip,
+        warp,
         sink,
     )?;
     let report = CompositeReport {
@@ -377,17 +252,18 @@ fn voronoi_blend(
     Ok(report)
 }
 
-/// Scale a freshly warped strip (canvas rows from `y0`) by frame `fi`'s
-/// exposure correction, in place, when a field was solved (#4521).
+/// Scale a freshly warped window (pixel `(0, 0)` at canvas `origin`) by
+/// frame `fi`'s exposure correction, in place, when a field was solved
+/// (#4521).
 fn with_exposure_field(
     field: Option<&ExposureField>,
     fi: usize,
     mut strip: PlanarImage,
     canvas: &CanvasSpec,
-    y0: u32,
+    origin: (u32, u32),
 ) -> PlanarImage {
     if let Some(field) = field {
-        field.apply_to_strip(fi, &mut strip, canvas, y0);
+        field.apply_to_strip(fi, &mut strip, canvas, origin);
     }
     strip
 }
