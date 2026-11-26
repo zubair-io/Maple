@@ -8,6 +8,7 @@
  *
  * Reports server boot time, then per route the first request and the min/median of the rest.
  */
+import { suffix } from 'bun:ffi';
 import { constants, copyFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -48,7 +49,7 @@ async function main() {
       ...process.env,
       PORT: String(PORT),
       MAPLE_SQLITE_PATH: sqlitePath,
-      MAPLE_NATIVE_LIB: join(apiRoot, 'native', 'libraw_ffi.dylib'),
+      MAPLE_NATIVE_LIB: join(apiRoot, 'native', `libraw_ffi.${suffix}`),
       MAPLE_DEV_AUTH: '1',
       MAPLE_INDEXER_AUTOSTART: '0',
       MAPLE_JWT_SECRET: 'bench-secret-bench-secret-1234',
