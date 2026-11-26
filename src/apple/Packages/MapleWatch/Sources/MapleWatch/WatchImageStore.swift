@@ -44,6 +44,8 @@ actor WatchImageStore {
   }
 
   func image(for asset: SearchAsset, tier: Tier) async throws -> CGImage {
+    // A decoded hit must not wait behind the two network permits.
+    if active, let hit = cachedImage(forKey: cacheKey(for: asset, tier: tier)) { return hit }
     let current = generation
     try await permits.acquire()
     do {
@@ -61,13 +63,8 @@ actor WatchImageStore {
     -> CGImage
   {
     guard active else { throw CancellationError() }
-    let key =
-      "\(server.absoluteString)|\(asset.abs_path)|\(asset.mtime ?? 0)|thumb-\(tier.rawValue)"
-    if let entry = entries[key] {
-      order.removeAll { $0 == key }
-      order.append(key)
-      return entry.image
-    }
+    let key = cacheKey(for: asset, tier: tier)
+    if let hit = cachedImage(forKey: key) { return hit }
     let image = try await fetchImage(for: asset, tier: tier)
     try Task.checkCancellation()
     guard current == generation else { throw CancellationError() }
@@ -85,6 +82,17 @@ actor WatchImageStore {
       cost += imageCost
     }
     return image
+  }
+
+  private func cacheKey(for asset: SearchAsset, tier: Tier) -> String {
+    "\(server.absoluteString)|\(asset.abs_path)|\(asset.mtime ?? 0)|thumb-\(tier.rawValue)"
+  }
+
+  private func cachedImage(forKey key: String) -> CGImage? {
+    guard let entry = entries[key] else { return nil }
+    order.removeAll { $0 == key }
+    order.append(key)
+    return entry.image
   }
 
   private func fetchImage(for asset: SearchAsset, tier: Tier) async throws -> CGImage {
