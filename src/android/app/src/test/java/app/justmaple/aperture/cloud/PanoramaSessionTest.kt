@@ -345,6 +345,79 @@ class PanoramaSessionTest {
     }
 
     @Test
+    fun aCancelTheServerNeverConfirmsStillLetsTheMergeClose() = runTest {
+        val server = FakeServer()
+        server.capabilities.put("preview_supported", false)
+        val session = session(server)
+        session.open(selection)
+        runCurrent()
+        session.stitch()
+        runCurrent()
+        assertFalse(session.state.value.closable)
+        session.cancelStitch()
+        advanceTimeBy(PanoramaSession.STITCH_POLL_MS * 10)
+        runCurrent()
+        val waiting = session.state.value
+        assertEquals("queued", server.jobs.getValue("s1").getString("status"))
+        assertTrue(waiting.stitching)
+        assertTrue(waiting.cancelling)
+        assertTrue(waiting.closable)
+        session.close()
+        runCurrent()
+        assertFalse(session.state.value.open)
+        assertEquals(listOf("s1", "s1"), server.deletes())
+    }
+
+    @Test
+    fun aCancelPressedWhileQueuingLetsTheMergeCloseAndStillCancelsThatJob() = runTest {
+        val server = FakeServer()
+        server.capabilities.put("preview_supported", false)
+        val session = session(server)
+        session.open(selection)
+        runCurrent()
+        server.onPost = {
+            session.cancelStitch()
+            assertTrue(session.state.value.closable)
+            session.close()
+        }
+        session.stitch()
+        runCurrent()
+        assertFalse(session.state.value.open)
+        assertEquals(listOf("s1"), server.deletes())
+    }
+
+    @Test
+    fun closingAsTheStitchRequestReturnsStillCancelsItsJob() = runTest {
+        val server = FakeServer()
+        server.capabilities.put("preview_supported", false)
+        val offMain = ArrayDeque<Runnable>()
+        val queuedIo = object : kotlinx.coroutines.CoroutineDispatcher() {
+            override fun dispatch(context: kotlin.coroutines.CoroutineContext, block: Runnable) {
+                offMain += block
+            }
+        }
+        fun settle() {
+            runCurrent()
+            while (offMain.isNotEmpty()) {
+                offMain.removeFirst().run()
+                runCurrent()
+            }
+        }
+        val session = PanoramaSession(this, PanoramaClient(server), { signedIn }, { LibraryListing(emptyList(), emptyList()) }, queuedIo)
+        session.open(selection)
+        settle()
+        session.stitch()
+        runCurrent()
+        session.cancelStitch()
+        offMain.removeFirst().run()
+        assertEquals(1, server.posts("stitch").size)
+        session.close()
+        settle()
+        assertFalse(session.state.value.open)
+        assertEquals(listOf("s1"), server.deletes())
+    }
+
+    @Test
     fun createAfterLostContactFollowsTheRetainedJobInsteadOfReplacingIt() = runTest {
         val server = FakeServer()
         server.capabilities.put("preview_supported", false)

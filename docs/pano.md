@@ -467,7 +467,9 @@ shown with Try again. The view model owns the session, so recreation keeps follo
 closing the sheet cancels a queued or running stitch, and an account change drops it without
 publishing. **View panorama** opens the output from its `Panoramas/` folder in Preview.
 `src/android/.../PanoramaIntegrationTest.kt` runs a real classical stitch when `src/android/scripts/with-cloud-api.sh` is given
-`MAPLE_ANDROID_PANO_CLI` and `MAPLE_ANDROID_PANO_FIXTURES`, as CI does. Seam regions are #5991.
+`MAPLE_ANDROID_PANO_CLI` and `MAPLE_ANDROID_PANO_FIXTURES`, as CI does. A cancel the server has not
+confirmed (a job still queued behind another) does not hold the sheet: **Close** stays available.
+Seam regions are #5991; the Boundary Warp "applied less" helper line the Web dialog shows is #6046.
 
 ## Fixtures, harness, and gates
 
