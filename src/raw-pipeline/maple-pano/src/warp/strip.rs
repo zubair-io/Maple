@@ -46,7 +46,13 @@ impl<'a> SourceRows<'a> {
         Self::rect(image, 0, y0, image.width(), full_height)
     }
 
-    pub fn rect(image: &'a PlanarImage, x0: u32, y0: u32, full_width: u32, full_height: u32) -> Self {
+    pub fn rect(
+        image: &'a PlanarImage,
+        x0: u32,
+        y0: u32,
+        full_width: u32,
+        full_height: u32,
+    ) -> Self {
         assert!(
             x0 + image.width() <= full_width && y0 + image.height() <= full_height,
             "window {x0}..{} x {y0}..{} exceeds the frame's {full_width}x{full_height}",
@@ -341,17 +347,32 @@ fn tap_rect(
         let i = (f - 0.5).floor() as i64;
         ((i - 1).max(0), (i + 2).min(last))
     };
-    let union = |a: [i64; 4], b: [i64; 4]| [a[0].min(b[0]), a[1].max(b[1]), a[2].min(b[2]), a[3].max(b[3])];
+    let union = |a: [i64; 4], b: [i64; 4]| {
+        [
+            a[0].min(b[0]),
+            a[1].max(b[1]),
+            a[2].min(b[2]),
+            a[3].max(b[3]),
+        ]
+    };
     (plan.row_lo..plan.row_hi)
         .into_par_iter()
         .filter_map(|canvas_y| {
             let mut range: Option<[i64; 4]> = None;
-            for_each_sample(cam, canvas, local_align, x_spans, canvas_y, src, |_, fx, fy| {
-                let (xl, xh) = taps(fx, last_col);
-                let (yl, yh) = taps(fy, last_row);
-                let tap = [xl, xh, yl, yh];
-                range = Some(range.map_or(tap, |r| union(r, tap)));
-            });
+            for_each_sample(
+                cam,
+                canvas,
+                local_align,
+                x_spans,
+                canvas_y,
+                src,
+                |_, fx, fy| {
+                    let (xl, xh) = taps(fx, last_col);
+                    let (yl, yh) = taps(fy, last_row);
+                    let tap = [xl, xh, yl, yh];
+                    range = Some(range.map_or(tap, |r| union(r, tap)));
+                },
+            );
             range
         })
         .reduce_with(union)

@@ -36,7 +36,9 @@ use crate::math::Vec3;
 mod stored;
 mod strip;
 pub(crate) use stored::warp_stored_to_canvas;
-pub use strip::{warp_rect_to_canvas, warp_to_canvas_strip, warp_window_to_canvas_strip, SourceRows};
+pub use strip::{
+    warp_rect_to_canvas, warp_to_canvas_strip, warp_window_to_canvas_strip, SourceRows,
+};
 
 /// Canvas-space footprint of a source frame: a y range plus one or two
 /// half-open x spans (two when the frame straddles a fully-wrapped

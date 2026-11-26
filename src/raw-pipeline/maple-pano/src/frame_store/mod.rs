@@ -132,7 +132,9 @@ impl FrameStore {
             .collect();
         let mut store = Self::create(parent, &dims).expect("frame store");
         for (idx, path) in paths.iter().enumerate() {
-            store.ingest_file(idx, path, 64, &|| false).expect("develop");
+            store
+                .ingest_file(idx, path, 64, &|| false)
+                .expect("develop");
         }
         store
     }

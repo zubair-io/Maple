@@ -256,7 +256,10 @@ impl BandAccumulator {
                 let num = self.num[k][c].par_chunks_mut(aw).take(g.h);
                 let fold = |y: usize, num: &mut [f32], den: Option<&mut [f32]>| {
                     let row = y * g.w..(y + 1) * g.w;
-                    let wv = wk.v[row.clone()].iter().zip(&g.a[row.clone()]).map(|(&w, &a)| w * a);
+                    let wv = wk.v[row.clone()]
+                        .iter()
+                        .zip(&g.a[row.clone()])
+                        .map(|(&w, &a)| w * a);
                     match den {
                         Some(den) => {
                             for (x, (wv, &l)) in wv.zip(&lap[row]).enumerate() {
