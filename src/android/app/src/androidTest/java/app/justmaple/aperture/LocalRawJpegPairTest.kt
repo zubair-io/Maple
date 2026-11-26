@@ -188,6 +188,7 @@ class LocalRawJpegPairTest {
                 }
             assertNull(model.state.value.error)
         } finally {
+            compose.activityRule.scenario.close()
             preferences.edit().remove("stack-raw-jpeg").commit()
             try {
                 folder?.let { listed ->
@@ -217,13 +218,15 @@ class LocalRawJpegPairTest {
         val automation = InstrumentationRegistry.getInstrumentation().uiAutomation
         fun find(node: AccessibilityNodeInfo?): AccessibilityNodeInfo? {
             if (node == null) return null
-            if (node.isClickable && node.text?.toString()?.equals(label, ignoreCase = true) == true)
-                return node
+            if (node.text?.toString()?.equals(label, ignoreCase = true) == true) return node
             return (0 until node.childCount).firstNotNullOfOrNull { find(node.getChild(it)) }
         }
+        fun clickableAncestor(node: AccessibilityNodeInfo): AccessibilityNodeInfo =
+            generateSequence(node) { it.parent }.firstOrNull { it.isClickable } ?: node
         try {
             compose.waitUntil(15_000) {
                 find(automation.rootInActiveWindow)
+                    ?.let(::clickableAncestor)
                     ?.performAction(AccessibilityNodeInfo.ACTION_CLICK) == true
             }
         } catch (failure: Throwable) {
