@@ -47,6 +47,7 @@ class CloudTimelineIntegrationTest {
     fun realTimelineGroupsCaptureMonthsFiltersUploadsAndOpensPreview() {
         val model = ViewModelProvider(compose.activity)[MapleViewModel::class.java]
         val timeline = ViewModelProvider(compose.activity)[CloudTimelineViewModel::class.java].timeline
+        compose.waitUntil(30_000) { !model.state.value.sourcesPending }
         val source = model.state.value.sources.single { it.uri.host == api.server.id }
         assertTrue(CloudLibrary(api.context).sources.any { it.uri == source.uri })
         compose.onNode(hasText("Timeline") or hasContentDescription("Timeline")).performClick()
