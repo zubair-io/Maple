@@ -57,7 +57,8 @@ namespace Maple.WinUI.Services.Cloud
 
         /// <summary>One cursor-paged directory from the unified Cloud Files
         /// address route. Omitting stack keeps RAW+JPEG companions visible as
-        /// separate filesystem entries.</summary>
+        /// separate filesystem entries. A 409 on the first page (no cursor) is
+        /// asked for once more; a later page is not, as it could join two folders.</summary>
         public Task<CloudFolderListing?> ListFolderAddressAsync(
             string address, string? cursor, int limit, CancellationToken ct)
         {
@@ -65,7 +66,7 @@ namespace Maple.WinUI.Services.Cloud
             var query = $"api/folder/{EncodeAddress(address)}?limit={limit}";
             if (!string.IsNullOrEmpty(cursor))
                 query += $"&cursor={Uri.EscapeDataString(cursor)}";
-            return GetJsonAsync<CloudFolderListing>(query, ct);
+            return GetJsonAsync<CloudFolderListing>(query, ct, retryOnConflict: string.IsNullOrEmpty(cursor));
         }
 
         // --- Images (AVIF, disk-cached) ---
