@@ -154,7 +154,6 @@ namespace Maple.WinUI
             BuildCropPanel();
             BuildMaskPanel();
             BuildRetouchPanel();
-            MaybeStartQualifyRun();
             CurvePlot.PointsChanged += OnCurvePointsChanged;
             ViewModel.ModelSynced += () =>
             {
@@ -205,6 +204,8 @@ namespace Maple.WinUI
             };
             SetMode(ShellMode.Browse);
             this.Closed += OnWindowClosed;
+            // Last, or the Browse reset above replaces the Edit mode the qualifier measures (#4374).
+            MaybeStartQualifyRun();
         }
 
         // --- Mode state machine ---
