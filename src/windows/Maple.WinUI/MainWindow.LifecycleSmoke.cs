@@ -177,6 +177,8 @@ namespace Maple.WinUI
                     await VerifyFilmstripMetadataAsync();
                     RecordSmokeStage(output, "local-save-failure");
                     await VerifyLocalSaveFailureAsync(output);
+                    RecordSmokeStage(output, "pano-seams");
+                    await VerifyPanoSeamsAsync(raw, output);
                     RecordSmokeStage(output, "comparison");
                     await VerifyComparisonAsync(raw);
                     RecordSmokeStage(output, "film-comparison");
