@@ -218,6 +218,14 @@ async function checkRealMissingAssetIsA404() {
 			`${MISSING_ASSET_PATH} returned ${response.status}, expected a real 404 (not the SPA fallback)`,
 		);
 	}
+	const cache = response.headers.get('cache-control') ?? '';
+	const storable =
+		/\b(s-maxage|max-age)=[1-9]/i.test(cache) || !/\b(no-store|no-cache)\b/i.test(cache);
+	if (storable)
+		fail(
+			'real-404',
+			`${MISSING_ASSET_PATH} 404 must not be storable: a file uploaded by the next deploy would stay missing (cache-control "${cache}", expected no-store)`,
+		);
 }
 
 const CHECKS = [
