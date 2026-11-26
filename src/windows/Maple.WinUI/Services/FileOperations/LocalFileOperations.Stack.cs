@@ -106,14 +106,16 @@ namespace Maple.WinUI.Services.FileOperations
         // sources that are already gone.
         private static void ThrowIfPartlyRecycled(string[] sent)
         {
-            var recycled = sent.Where(path => !File.Exists(path)).Select(Path.GetFileName).ToArray();
-            if (recycled.Length == 0) return;
+            var gone = sent.Where(path => !File.Exists(path)).Select(Path.GetFileName).ToArray();
+            if (gone.Length == 0) return;
             var remaining = sent.Where(File.Exists).Select(Path.GetFileName).ToArray();
-            throw new FileOperationException(
-                FileOperationErrorKind.Underlying,
-                $"Only part of this RAW+JPEG pair reached the Recycle Bin. In the Recycle Bin: "
-                + $"{string.Join(", ", recycled)}. Still in place: "
-                + $"{(remaining.Length == 0 ? "nothing" : string.Join(", ", remaining))}.");
+            var message = remaining.Length == 0
+                ? $"The system reported an error, but every file of this RAW+JPEG pair is no longer in the folder "
+                    + $"({string.Join(", ", gone)}). Check the Recycle Bin."
+                : $"The system could not recycle every file of this RAW+JPEG pair. No longer in the folder, "
+                    + $"probably in the Recycle Bin: {string.Join(", ", gone)}. "
+                    + $"Still in the folder: {string.Join(", ", remaining)}.";
+            throw new FileOperationException(FileOperationErrorKind.Underlying, message);
         }
 
         private sealed record StackPair(string Primary, string Companion, string DestinationDir, string RequestedName)
