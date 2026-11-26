@@ -26,16 +26,26 @@ namespace Maple.WinUI.Services.FileOperations
         /// <summary>Relocate <paramref name="primaryPath"/> and its stacked
         /// JPEG together. Either both files land or the sources, and every
         /// file a Replace would have displaced, are left as they were.</summary>
-        public static async Task<RelocateOutcome> RelocateStackAsync(
+        public static Task<RelocateOutcome> RelocateStackAsync(
             string primaryPath,
             string companionPath,
             string destinationDir,
             string? newBasename,
             RelocateMode mode,
-            CollisionPolicy collision = CollisionPolicy.AutoSuffix)
+            CollisionPolicy collision = CollisionPolicy.AutoSuffix) =>
+            RelocateStackAsync(primaryPath, companionPath, destinationDir, newBasename, mode, collision, restoredName: false);
+
+        internal static async Task<RelocateOutcome> RelocateStackAsync(
+            string primaryPath,
+            string companionPath,
+            string destinationDir,
+            string? newBasename,
+            RelocateMode mode,
+            CollisionPolicy collision,
+            bool restoredName)
         {
             ThrowIfStackFileMissing(primaryPath, companionPath);
-            if (newBasename != null) ValidateBareFileName(newBasename);
+            if (newBasename != null) ValidateBareFileName(newBasename, restoredName);
             Directory.CreateDirectory(destinationDir);
 
             var pair = new StackPair(
@@ -52,7 +62,7 @@ namespace Maple.WinUI.Services.FileOperations
             RelocatePlan? companionPlan;
             try
             {
-                (primaryPlan, companionPlan) = await PlanStackAsync(pair, primaryName, mode, collision)
+                (primaryPlan, companionPlan) = await PlanStackAsync(pair, primaryName, mode, collision, keepsExistingName: restoredName || newBasename == null)
                     .ConfigureAwait(false);
             }
             catch
@@ -189,12 +199,13 @@ namespace Maple.WinUI.Services.FileOperations
             SameSidecarPath(companionSourceSidecar, primarySourceSidecar) ? primaryFinalSidecar : null;
 
         private static async Task<(RelocatePlan Primary, RelocatePlan? Companion)> PlanStackAsync(
-            StackPair pair, string primaryName, RelocateMode mode, CollisionPolicy collision)
+            StackPair pair, string primaryName, RelocateMode mode, CollisionPolicy collision, bool keepsExistingName)
         {
             var companionTarget = pair.CompanionTarget(primaryName);
             var primaryPlan = await PlanRelocateAsync(
                 pair.Primary, pair.DestinationDir, primaryName, mode,
-                collision == CollisionPolicy.Replace ? CollisionPolicy.Replace : CollisionPolicy.Fail)
+                collision == CollisionPolicy.Replace ? CollisionPolicy.Replace : CollisionPolicy.Fail,
+                carriedSidecarPath: null, alsoLeaving: Array.Empty<string>(), keepsExistingName)
                 .ConfigureAwait(false);
             if (ClassifySameFile(pair.Companion, companionTarget) == SameFileClassification.Identical)
                 return (primaryPlan, null);
@@ -207,7 +218,7 @@ namespace Maple.WinUI.Services.FileOperations
                         SidecarStore.SidecarPathFor(pair.Companion),
                         primaryPlan.SourceSidecarPath ?? SidecarStore.SidecarPathFor(pair.Primary),
                         primaryPlan.FinalSidecarPath),
-                    new[] { pair.Primary }).ConfigureAwait(false);
+                    new[] { pair.Primary }, keepsExistingName).ConfigureAwait(false);
                 return (primaryPlan, companionPlan);
             }
             catch
@@ -231,7 +242,8 @@ namespace Maple.WinUI.Services.FileOperations
             {
                 await PlanRelocateAsync(
                     plan.FinalPrimaryPath, Path.GetDirectoryName(source) ?? string.Empty,
-                    Path.GetFileName(source), RelocateMode.Move, CollisionPolicy.Fail).ConfigureAwait(false);
+                    Path.GetFileName(source), RelocateMode.Move, CollisionPolicy.Fail,
+                    carriedSidecarPath: null, alsoLeaving: Array.Empty<string>(), restoredName: true).ConfigureAwait(false);
             }
             catch (Exception ex) when (ex is FileOperationException or IOException or UnauthorizedAccessException)
             {
