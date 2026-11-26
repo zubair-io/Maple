@@ -17,12 +17,13 @@ extension ThumbnailLoader {
   func startLocalProducer(
     key: String,
     gate: ProducerGate = .decode,
+    slotPriority: BoundedAsyncSemaphore.Priority = .standard,
     operation: @escaping @Sendable () async -> Data?
   ) -> Task<Data?, Never> {
     let producerID = UUID()
     let task = Task.detached(priority: .utility) { () -> Data? in
       do {
-        try await self.beginActiveProducer(producerID, gate: gate)
+        try await self.beginActiveProducer(producerID, gate: gate, slotPriority: slotPriority)
       } catch {
         await self.cleanupLocalProducer(producerID, key: key)
         return nil
@@ -38,8 +39,10 @@ extension ThumbnailLoader {
 
   /// Serialized against `finishWaiting` by the actor: a producer is either
   /// marked active (and kept) or abandoned before its work begins.
-  private func beginActiveProducer(_ id: UUID, gate: ProducerGate) async throws {
-    try await slots(for: gate).acquire()
+  private func beginActiveProducer(
+    _ id: UUID, gate: ProducerGate, slotPriority: BoundedAsyncSemaphore.Priority
+  ) async throws {
+    try await slots(for: gate).acquire(priority: slotPriority)
     guard !Task.isCancelled else {
       await slots(for: gate).release()
       throw CancellationError()

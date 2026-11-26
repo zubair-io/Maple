@@ -120,7 +120,7 @@ extension ThumbnailLoader {
     }
 
     let isRaw = asset.isRaw
-    let task = startLocalProducer(key: coalescingKey) {
+    let task = startLocalProducer(key: coalescingKey, slotPriority: .interactive) {
       await Self.produceDisplayPreview(url: url, scope: scope, isRaw: isRaw)
     }
     return await awaitThumbnail(task)
