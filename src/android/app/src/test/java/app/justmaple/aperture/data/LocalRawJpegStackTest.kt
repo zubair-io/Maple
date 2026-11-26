@@ -77,18 +77,6 @@ class LocalRawJpegStackTest {
     @Before
     fun serveTheFolder() {
         Robolectric.setupContentProvider(Tree::class.java, AUTHORITY)
-        files =
-            listOf(
-                "IMG_2.jpg",
-                "img_1.JPG",
-                "IMG_1.xmp",
-                "IMG_3.CR3",
-                "IMG_2.DNG",
-                "solo.jpg",
-                "IMG_1.CR3",
-                "IMG_2.jpeg",
-            )
-        directories = listOf("IMG_3.jpg", "Trip")
     }
 
     private fun photos(library: PhotoLibrary) = runBlocking { library.list(folder) }.photos
@@ -157,9 +145,29 @@ class LocalRawJpegStackTest {
         )
     }
 
+    @Test
+    fun onlyAnOpenLocalFolderRelistsWhenTheSwitchFlips() {
+        val local = Folder(folder, "Trip")
+        val cloud = Folder(Uri.parse("maple-cloud://server/library"), "Library")
+
+        assertEquals(local, RawJpegPairing.folderToRelist(local))
+        assertNull(RawJpegPairing.folderToRelist(cloud))
+        assertNull(RawJpegPairing.folderToRelist(null))
+    }
+
     private companion object {
         const val AUTHORITY = "app.justmaple.aperture.test.local-stack"
-        var files = emptyList<String>()
-        var directories = emptyList<String>()
+        val files =
+            listOf(
+                "IMG_2.jpg",
+                "img_1.JPG",
+                "IMG_1.xmp",
+                "IMG_3.CR3",
+                "IMG_2.DNG",
+                "solo.jpg",
+                "IMG_1.CR3",
+                "IMG_2.jpeg",
+            )
+        val directories = listOf("IMG_3.jpg", "Trip")
     }
 }
