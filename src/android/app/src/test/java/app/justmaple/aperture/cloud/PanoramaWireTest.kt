@@ -94,4 +94,14 @@ class PanoramaWireTest {
             PanoramaWire.failure("invalid_seam_constraints: Conflicting regions", "x"))
         assertEquals("" to "Not enough overlap", PanoramaWire.failure("Not enough overlap", "x"))
     }
+
+    @Test
+    fun seamRegionsAreSentOnlyWhereTheServerSupportsThem() {
+        val regions = PanoSeamConstraints(100, 50, listOf(PanoSeamRegion(PanoSeamKind.Include, 1, 2, 3, 4, 5)))
+        fun body(supported: Boolean) = JSONObject(PanoramaWire.body(PanoRequest(
+            listOf("/srv/lib/a.dng"), "lib", PanoOptions(), PanoCapabilities(true, true, true, true, true, supported),
+            seamConstraints = regions)))
+        assertFalse(body(supported = false).has("seamConstraints"))
+        assertEquals(regions.json().toString(), body(supported = true).getJSONObject("seamConstraints").toString())
+    }
 }
