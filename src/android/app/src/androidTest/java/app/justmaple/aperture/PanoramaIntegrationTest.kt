@@ -1,11 +1,16 @@
 package app.justmaple.aperture
 
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.test.*
 import androidx.lifecycle.ViewModelProvider
 import androidx.test.platform.app.InstrumentationRegistry
 import app.justmaple.aperture.cloud.CloudLibrary
 import app.justmaple.aperture.cloud.PanoConfigState
+import app.justmaple.aperture.cloud.PanoPreviewRun
+import app.justmaple.aperture.cloud.PanoSeamKind
+import app.justmaple.aperture.cloud.PanoSeamRegion
 import app.justmaple.aperture.cloud.PanoStitchRun
+import app.justmaple.aperture.cloud.PanoramaSession
 import app.justmaple.aperture.data.Folder
 import app.justmaple.aperture.data.Photo
 import java.util.concurrent.TimeUnit
@@ -157,5 +162,92 @@ class PanoramaIntegrationTest {
         assertFalse(panorama.state.value.open)
         compose.onNodeWithTag("pano-sheet").assertDoesNotExist()
         compose.onNodeWithTag("photo-viewport").assertIsDisplayed()
+    }
+
+    private fun openMerge(): PanoramaSession {
+        val (folder, _) = panoFolder(CloudLibrary(api.context))
+        val model = model()
+        compose.runOnIdle { model.browse(folder) }
+        compose.waitUntil(60_000) { !model.state.value.loading && model.state.value.photos.size == 3 }
+        compose.onNodeWithTag("browse-selection-enter").performClick()
+        compose.onNodeWithTag("browse-select-all").performClick()
+        compose.onNodeWithTag("browse-merge-panorama").performClick()
+        return model.panorama
+    }
+
+    private fun PanoramaSession.awaitCurrent(not: String? = null) =
+        compose.waitUntil(300_000) { state.value.previewCurrent && state.value.image!!.jobId != not }
+
+    /** Typed through the field's SetText action, so no keyboard or IME key is involved. */
+    private fun enterRegion(x: Int, y: Int, width: Int, height: Int) {
+        listOf("x" to x, "y" to y, "width" to width, "height" to height).forEach { (field, value) ->
+            compose.onNodeWithTag("pano-seam-$field").performScrollTo().performTextReplacement(value.toString())
+        }
+        tap("pano-seam-add")
+    }
+
+    @Test
+    fun realServerAuthorsSeamRegionsRefusesContradictionsAndStitchesWithThem() {
+        val panorama = openMerge()
+        panorama.awaitCurrent()
+        val ready = panorama.state.value.config as PanoConfigState.Ready
+        assertTrue("The fixture maple-cli takes seam regions", ready.capabilities.seamConstraints)
+        if (ready.capabilities.strategy) {
+            val auto = panorama.state.value.image!!.jobId
+            tap("pano-strategy-Tile")
+            compose.onNodeWithTag("pano-seam-blocked").performScrollTo().assertTextContains("Tile", substring = true)
+            compose.onNodeWithTag("pano-seam-add").assertIsNotEnabled()
+            tap("pano-strategy-Auto")
+            panorama.awaitCurrent(not = auto)
+        }
+
+        val preview = panorama.state.value.image!!
+        val (centerX, centerY) = preview.width / 2 to preview.height / 2
+        tap("pano-seam-frame-1")
+        tap("pano-seam-mode-Include")
+        enterRegion(centerX - 8, centerY - 8, 16, 16)
+        compose.onNodeWithTag("pano-seam-region-0").assertTextContains("Include frame 2", substring = true)
+        compose.onNodeWithTag("pano-seam-canvas").performScrollTo().performTouchInput {
+            swipe(Offset(width * 0.45f, height * 0.45f), Offset(width * 0.55f, height * 0.55f), 400)
+        }
+        compose.waitUntil(5_000) { panorama.state.value.seams?.regions?.size == 2 }
+        val dragged = panorama.state.value.seams!!.regions[1]
+        assertEquals(1, dragged.frame)
+        assertTrue(dragged.width > 0 && dragged.height > 0)
+        tap("pano-seam-remove-1")
+        compose.onNodeWithTag("pano-seam-region-1").assertDoesNotExist()
+        val authored = panorama.state.value.seams!!
+        assertEquals(listOf(PanoSeamRegion(PanoSeamKind.Include, 1, centerX - 8, centerY - 8, 16, 16)), authored.regions)
+        assertEquals(preview.width to preview.height, authored.width to authored.height)
+
+        tap("pano-seam-preview")
+        panorama.awaitCurrent(not = preview.jobId)
+        val constrained = panorama.state.value.image!!
+        assertEquals(authored, constrained.seams)
+        val persisted = job(constrained.jobId).getJSONObject("result").getJSONObject("seamConstraints")
+        assertEquals(authored.json().toString(), persisted.toString())
+        compose.onNodeWithTag("pano-seam-previewed").performScrollTo().assertIsDisplayed()
+
+        tap("pano-seam-mode-Exclude")
+        enterRegion(centerX - 8, centerY - 8, 16, 16)
+        tap("pano-seam-preview")
+        compose.waitUntil(300_000) { panorama.state.value.preview is PanoPreviewRun.Failed }
+        assertEquals("invalid_seam_constraints", (panorama.state.value.preview as PanoPreviewRun.Failed).code)
+        compose.onNodeWithTag("pano-preview-error").performScrollTo()
+            .assertTextContains("refused these seam regions", substring = true)
+        tap("pano-seam-remove-1")
+        assertEquals(authored, panorama.state.value.seams)
+
+        tap("pano-create")
+        compose.waitUntil(60_000) { panorama.state.value.stitch is PanoStitchRun.Running }
+        val stitchId = (panorama.state.value.stitch as PanoStitchRun.Running).jobId
+        compose.onNodeWithTag("pano-seam-add").assertIsNotEnabled()
+        compose.waitUntil(600_000) { panorama.state.value.stitch !is PanoStitchRun.Running }
+        assertTrue("Stitch ended as ${panorama.state.value.stitch}", panorama.state.value.stitch is PanoStitchRun.Done)
+        val result = job(stitchId).getJSONObject("result")
+        assertEquals(authored.json().toString(), result.getJSONObject("seamConstraints").toString())
+        assertEquals("reused", result.getJSONObject("alignment").getString("status"))
+        compose.onNodeWithTag("pano-close").performScrollTo().performClick()
+        assertFalse(panorama.state.value.open)
     }
 }
