@@ -73,7 +73,10 @@ impl ResumeCut {
         let repeated = state.key.update(inputs);
         state.stored = state.stored.filter(|cut| repeated && cut.submitted);
         let plan = match state.stored {
-            Some(cut) if ctx.frame_pool.borrow().can_resume_at(cut.position) => {
+            Some(cut)
+                if state.resident.is_some()
+                    && ctx.frame_pool.borrow().can_resume_at(cut.position) =>
+            {
                 #[cfg(test)]
                 self.resumed
                     .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -88,12 +91,9 @@ impl ResumeCut {
     }
 
     pub(super) fn encode_resume(&self, encoder: &mut wgpu::CommandEncoder, dst: &wgpu::Buffer) {
-        let state = self.lock();
-        let resident = state
-            .resident
-            .as_ref()
-            .expect("a stored cut has a resident image");
-        encoder.copy_buffer_to_buffer(resident, 0, dst, 0, dst.size());
+        if let Some(resident) = self.lock().resident.as_ref() {
+            encoder.copy_buffer_to_buffer(resident, 0, dst, 0, dst.size());
+        }
     }
 
     pub(super) fn encode_store(
