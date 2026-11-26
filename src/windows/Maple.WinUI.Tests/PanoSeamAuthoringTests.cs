@@ -12,10 +12,10 @@ public class PanoSeamAuthoringTests
 
     private static PanoPreviewCompletion Done(
         PanoSeamRequest? seams = null, string alignment = "solved", PanoSeamCanvas? canvas = null,
-        IReadOnlyList<string>? inputs = null) =>
+        IReadOnlyList<string>? inputs = null, string resolved = "rotation") =>
         new(new PanoPreviewRun(new PanoPreviewOptions("keep", "mesh", "auto"), Files, null, seams),
             new PanoPreviewOutcome(true, false, null,
-                new PanoPreviewReport(canvas ?? Canvas, "rotation", alignment, inputs ?? Frames, seams)));
+                new PanoPreviewReport(canvas ?? Canvas, resolved, alignment, inputs ?? Frames, seams)));
 
     private static PanoPreviewCompletion Failed(PanoSeamRequest? seams, string error) =>
         new(new PanoPreviewRun(new PanoPreviewOptions("keep", "mesh", "auto"), Files, null, seams),
@@ -123,6 +123,48 @@ public class PanoSeamAuthoringTests
         var authoring = WithCurrentPreview();
         Assert.Equal(PanoSeamAuthoring.InvalidRegion,
             authoring.Add(PanoSeamKind.Include, frame, new PanoSeamRect(x, y, width, height)));
+        Assert.Empty(authoring.Regions);
+    }
+
+    [Fact]
+    public void AutoThatResolvesToTileClosesAuthoringWithTheTileReason()
+    {
+        var authoring = new PanoSeamAuthoring();
+        authoring.GeometryChanged("auto");
+        authoring.PreviewRequested();
+
+        authoring.PreviewCompleted(Done(resolved: "tile"), isLatest: true);
+
+        Assert.Equal(PanoSeamAuthoring.TileReason, authoring.DisabledReason);
+        Assert.Equal(PanoSeamAuthoring.TileReason, authoring.Add(PanoSeamKind.Include, 0, Rect));
+        Assert.False(authoring.CanAuthor);
+        Assert.True(authoring.CanSubmit);
+
+        authoring.GeometryChanged("rotation");
+        authoring.PreviewRequested();
+        authoring.PreviewCompleted(Done(), isLatest: true);
+        Assert.Null(authoring.DisabledReason);
+    }
+
+    [Fact]
+    public void RemoveAndClearAreHeldWhileAPreviewIsRunning()
+    {
+        var authoring = WithCurrentPreview();
+        authoring.Add(PanoSeamKind.Include, 0, Rect);
+        authoring.Add(PanoSeamKind.Exclude, 1, Rect);
+        Assert.True(authoring.CanChangeRegions);
+
+        authoring.PreviewRequested();
+        Assert.False(authoring.CanChangeRegions);
+        authoring.Remove(0);
+        authoring.Clear();
+        Assert.Equal(2, authoring.Regions.Count);
+
+        authoring.PreviewCompleted(Done(authoring.Request), isLatest: true);
+        Assert.True(authoring.CanChangeRegions);
+        authoring.Remove(0);
+        Assert.Single(authoring.Regions);
+        authoring.Clear();
         Assert.Empty(authoring.Regions);
     }
 

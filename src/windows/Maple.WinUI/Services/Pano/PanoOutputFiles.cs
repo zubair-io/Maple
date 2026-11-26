@@ -25,8 +25,7 @@ public static class PanoOutputFiles
 
     public static string JpegPath(string folder, string baseName) => Path.Combine(folder, $"{baseName}.jpg");
 
-    /// <summary>Removes the master a failed or cancelled run left behind;
-    /// null when it is gone, otherwise why it could not be removed.</summary>
+    // Null when the file is gone, otherwise why it could not be removed.
     public static string? DiscardPartial(string masterPath)
     {
         try

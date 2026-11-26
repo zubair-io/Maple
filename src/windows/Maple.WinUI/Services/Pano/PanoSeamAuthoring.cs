@@ -5,8 +5,6 @@ using System.Linq;
 
 namespace Maple.WinUI.Services.Pano;
 
-/// <summary>What the dialog does after a preview ends: the message to show
-/// beside the regions, and whether a fresh preview without regions is due.</summary>
 public sealed record PanoSeamVerdict(string? Message, bool PreviewAgain);
 
 /// <summary>The stitch dialog's seam regions and when they may be edited
@@ -35,6 +33,7 @@ public sealed class PanoSeamAuthoring
     private PanoSeamCanvas? _reference;
     private IReadOnlyList<string> _frames = Array.Empty<string>();
     private bool _pending;
+    private bool _resolvedTile;
     private string _strategy = "auto";
 
     public event Action? Changed;
@@ -50,16 +49,18 @@ public sealed class PanoSeamAuthoring
     public PanoSeamCanvas? Canvas => _regions.Count > 0 ? _reference : _preview;
 
     public string? DisabledReason =>
-        _strategy == "tile" ? TileReason
+        _strategy == "tile" || _resolvedTile ? TileReason
         : _pending || _preview is null ? WaitReason
         : _frames.Count == 0 ? FramesNotListedReason
         : null;
 
     public bool CanAuthor => DisabledReason is null;
 
-    /// <summary>A stitch may start unless it would carry regions whose
-    /// preview is not current.</summary>
     public bool CanSubmit => _regions.Count == 0 || CanAuthor;
+
+    /// <summary>Remove and Clear are held while a preview is running: its
+    /// answer would otherwise arrive for regions that are gone.</summary>
+    public bool CanChangeRegions => !_pending;
 
     public PanoSeamRequest? Request =>
         _regions.Count > 0 && _reference is { } canvas ? new PanoSeamRequest(canvas, _regions) : null;
@@ -67,6 +68,7 @@ public sealed class PanoSeamAuthoring
     public void GeometryChanged(string strategy)
     {
         _strategy = strategy;
+        _resolvedTile = false;
         DropGeometry();
         Changed?.Invoke();
     }
@@ -110,12 +112,16 @@ public sealed class PanoSeamAuthoring
 
     public void Remove(int index)
     {
-        if (index < 0 || index >= _regions.Count)
+        if (!CanChangeRegions || index < 0 || index >= _regions.Count)
             return;
         SetRegions(_regions.Where((_, at) => at != index).ToList());
     }
 
-    public void Clear() => SetRegions(NoRegions);
+    public void Clear()
+    {
+        if (CanChangeRegions)
+            SetRegions(NoRegions);
+    }
 
     private PanoSeamVerdict Adopt(PanoPreviewCompletion completion)
     {
@@ -128,6 +134,7 @@ public sealed class PanoSeamAuthoring
             return new PanoSeamVerdict(StaleGeometry, true);
         }
         _preview = report.Canvas;
+        _resolvedTile = report.Strategy == "tile";
         _frames = report.Inputs ?? Array.Empty<string>();
         return new PanoSeamVerdict(null, false);
     }

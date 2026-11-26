@@ -157,8 +157,11 @@ namespace Maple.WinUI
             preview.Succeeded += run => OnUiThread(() => _ = previewPane.ShowAsync(run.Files.PreviewPng));
             preview.Failed += error => OnUiThread(() => previewPane.Failed(error));
 
+            var dialogClosed = false;
             void RequestPreview(PanoSeamRequest? regions)
             {
+                if (dialogClosed)
+                    return;
                 seams.PreviewRequested();
                 preview.Request(SelectedOptions(), regions);
             }
@@ -221,6 +224,7 @@ namespace Maple.WinUI
                     () => provisioning = ProvisionThenPreviewAsync());
 
             var choice = await dialog.ShowAsync();
+            dialogClosed = true;
             provisionCts.Cancel();
             await provisioning;
             await preview.StopAsync();

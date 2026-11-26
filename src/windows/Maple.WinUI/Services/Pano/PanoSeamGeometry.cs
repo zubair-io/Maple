@@ -14,8 +14,6 @@ public static class PanoSeamGeometry
         && (long)rect.X + rect.Width <= canvas.Width
         && (long)rect.Y + rect.Height <= canvas.Height;
 
-    /// <summary>The size the whole canvas is drawn at inside a box, keeping
-    /// its aspect ratio.</summary>
     public static (double Width, double Height) Fit(PanoSeamCanvas canvas, double boxWidth, double boxHeight)
     {
         if (canvas.Width <= 0 || canvas.Height <= 0 || !(boxWidth > 0) || !(boxHeight > 0))
