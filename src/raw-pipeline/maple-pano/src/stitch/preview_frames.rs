@@ -38,8 +38,11 @@ pub(super) fn decode_proxies(
                     slot @ None => slot.insert(open_develop(inputs)?),
                 };
                 let meta = developer
-                    .develop(path, BAND_ROWS, edge)
-                    .map_err(|e| store_error(path, e))?;
+                    .develop(path, BAND_ROWS, edge, is_cancelled)
+                    .map_err(|e| match is_cancelled() {
+                        true => StitchError::Cancelled,
+                        false => store_error(path, e),
+                    })?;
                 if let Some(cache) = &cache {
                     cache.store(path, edge, &meta);
                 }

@@ -12,8 +12,9 @@
 //!    OpcodeList3, DefaultCrop, DCP, then EXIF orientation as a block write
 //!    into the caller's [`PanoBlockSink`].
 //!
-//! X-Trans (Markesteijn has no region entry) and LinearRaw sources fall back
-//! to the full-frame chain and write the whole frame as one block;
+//! LinearRaw (Apple ProRAW) has no demosaic, so its pass 1 linearizes just
+//! the band's rows (#6057). X-Trans (Markesteijn has no region entry) falls
+//! back to the full-frame chain and writes the whole frame as one block;
 //! [`PanoBandedIngest::banded`] reports which path ran.
 
 use super::falloff::{self, FalloffCorrection};
@@ -92,20 +93,26 @@ pub struct PanoBandedIngest {
 }
 
 /// [`super::decode_for_pano`] written band by band into `sink`. `band_rows`
-/// is capped at the frame height and rounded up to a multiple of 16.
+/// is capped at the frame height and rounded up to a multiple of 16. The
+/// file `bytes` are released once decoded, before the develop (#6057), and
+/// `is_cancelled` is polled between bands ([`crate::Error::Cancelled`]).
 pub fn develop_banded_for_pano(
-    bytes: &[u8],
+    bytes: Vec<u8>,
     ext: &str,
     band_rows: u32,
     scratch: &mut dyn PanoBandScratch,
     sink: &mut dyn PanoBlockSink,
+    is_cancelled: &dyn Fn() -> bool,
 ) -> Result<PanoBandedIngest> {
-    guard_decode_panics("develop_banded_for_pano", ext, || {
-        let raw = crate::decode::decode_bytes(bytes, ext)?;
-        let list3 = opcodes::read_opcode_list3(bytes, ext, raw.width, raw.height);
-        let developed = develop_raw_banded(&raw, list3.as_ref(), band_rows, scratch, sink)?;
+    guard_decode_panics("develop_banded_for_pano", ext, move || {
+        let raw = crate::decode::decode_bytes(&bytes, ext)?;
+        let list3 = opcodes::read_opcode_list3(&bytes, ext, raw.width, raw.height);
+        let metadata = read_pano_metadata_from_parts(&bytes, ext, &raw);
+        drop(bytes);
+        let developed =
+            develop_raw_banded(&raw, list3.as_ref(), band_rows, scratch, sink, is_cancelled)?;
         Ok(PanoBandedIngest {
-            metadata: read_pano_metadata_from_parts(bytes, ext, &raw),
+            metadata,
             applied_opcodes: developed.applied_opcodes,
             falloff_correction: developed.falloff_correction,
             banded: developed.banded,
@@ -125,8 +132,12 @@ pub(super) fn develop_raw_banded(
     band_rows: u32,
     scratch: &mut dyn PanoBandScratch,
     sink: &mut dyn PanoBlockSink,
+    is_cancelled: &dyn Fn() -> bool,
 ) -> Result<BandedDevelop> {
-    if matches!(raw.cfa, CfaPattern::LinearRgb | CfaPattern::XTrans(_)) {
+    if is_cancelled() {
+        return Err(crate::Error::Cancelled);
+    }
+    if matches!(raw.cfa, CfaPattern::XTrans(_)) {
         return develop_full_frame(raw, list3, sink);
     }
     let frame = Frame::new(raw, list3)?;
@@ -135,9 +146,9 @@ pub(super) fn develop_raw_banded(
         band_rows.clamp(1, raw.height.max(1)).div_ceil(CELL) * CELL,
     );
     scratch.begin(raw.width, raw.height)?;
-    let median = pass1(&frame, &bands, scratch)?;
+    let median = pass1(&frame, &bands, scratch, is_cancelled)?;
     sink.begin(frame.out_dims.0, frame.out_dims.1)?;
-    pass2(&frame, &bands, median, scratch, sink)
+    pass2(&frame, &bands, median, scratch, sink, is_cancelled)
 }
 
 fn develop_full_frame(
@@ -223,23 +234,28 @@ fn bands(height: u32, band_rows: u32) -> Vec<(u32, u32)> {
         .collect()
 }
 
-/// Rows `y0..y1` of the frame linearized, demosaiced, BaselineExposure-gained
-/// and WB pre-gained — the full chain's calls on a sensor region.
-fn develop_rows(raw: &RawImage, y0: u32, y1: u32) -> Image {
-    let algo = crate::pipeline::bayer_kernel(
-        RenderQuality::Full,
-        &crate::types::AdjustmentModel::default(),
-        raw,
-    );
-    let mosaic = linearize::sensor_linearize_region(raw, 0, y0, raw.width, y1 - y0);
-    let mut img = demosaic::camera_demosaic_cancellable(
-        algo,
-        &mosaic,
-        raw.cfa,
-        raw.as_shot_neutral,
-        ClipGainContext::new(raw, (0, y0), 1),
-        CancelToken::never(),
-    );
+/// Rows `y0..y1` of the frame linearized, demosaiced (LinearRaw needs no
+/// demosaic), BaselineExposure-gained and WB pre-gained — the full chain's
+/// calls on a sensor region.
+fn develop_rows(raw: &RawImage, y0: u32, y1: u32) -> Result<Image> {
+    let mut img = if raw.cfa == CfaPattern::LinearRgb {
+        linearize::linearraw_region(raw, 0, y0, raw.width, y1 - y0)?
+    } else {
+        let algo = crate::pipeline::bayer_kernel(
+            RenderQuality::Full,
+            &crate::types::AdjustmentModel::default(),
+            raw,
+        );
+        let mosaic = linearize::sensor_linearize_region(raw, 0, y0, raw.width, y1 - y0);
+        demosaic::camera_demosaic_cancellable(
+            algo,
+            &mosaic,
+            raw.cfa,
+            raw.as_shot_neutral,
+            ClipGainContext::new(raw, (0, y0), 1),
+            CancelToken::never(),
+        )
+    };
     if raw.baseline_exposure.abs() > 1e-4 {
         let gain = raw.baseline_exposure.exp2();
         for p in &mut img.pixels {
@@ -249,21 +265,25 @@ fn develop_rows(raw: &RawImage, y0: u32, y1: u32) -> Image {
         }
     }
     white_balance::apply_pre_gain(&mut img, raw.as_shot_neutral);
-    img
+    Ok(img)
 }
 
 fn pass1(
     frame: &Frame<'_>,
     bands: &[(u32, u32)],
     scratch: &mut dyn PanoBandScratch,
+    is_cancelled: &dyn Fn() -> bool,
 ) -> Result<Option<[f32; 3]>> {
     let raw = frame.raw;
     let width = raw.width as usize;
     let mut samples = Vec::new();
     for &(y0, y1) in bands {
+        if is_cancelled() {
+            return Err(crate::Error::Cancelled);
+        }
         let b0 = y0.saturating_sub(P1_HALO);
         let b1 = (y1 + P1_HALO).min(raw.height);
-        let band = develop_rows(raw, b0, b1);
+        let band = develop_rows(raw, b0, b1)?;
         samples.extend(band_scene_samples(
             &band,
             raw.as_shot_neutral,
@@ -294,6 +314,7 @@ fn pass2(
     median: Option<[f32; 3]>,
     scratch: &mut dyn PanoBandScratch,
     sink: &mut dyn PanoBlockSink,
+    is_cancelled: &dyn Fn() -> bool,
 ) -> Result<BandedDevelop> {
     let raw = frame.raw;
     let prior = FramePrior(median);
@@ -301,6 +322,9 @@ fn pass2(
     let mut bundled_corrected = frame.bundled_vignette.is_some();
     let reach = frame.warp_rows.saturating_add(HR_HALO);
     for &(y0, y1) in bands {
+        if is_cancelled() {
+            return Err(crate::Error::Cancelled);
+        }
         let h0 = y0.saturating_sub(reach) / CELL * CELL;
         let h1 = y1
             .saturating_add(reach)
@@ -335,7 +359,7 @@ fn pass2(
                 h0,
             );
         }
-        write_cropped_rows(frame, &band, h0, (y0, y1), sink)?;
+        write_cropped_rows(frame, band, h0, (y0, y1), sink)?;
     }
     Ok(BandedDevelop {
         applied_opcodes,
@@ -351,10 +375,12 @@ fn pass2(
 }
 
 /// DefaultCrop, DCP and orientation for the band's own rows `rows` of a
-/// pass-2 buffer whose top row is absolute `h0`.
+/// pass-2 buffer whose top row is absolute `h0`. The kept rows are shifted
+/// to the front of the band's own buffer and colour-transformed there (DCP
+/// is per pixel), so the only copy is the orientation's (#6057).
 fn write_cropped_rows(
     frame: &Frame<'_>,
-    band: &Image,
+    mut band: Image,
     h0: u32,
     rows: (u32, u32),
     sink: &mut dyn PanoBlockSink,
@@ -364,17 +390,23 @@ fn write_cropped_rows(
     if r0 >= r1 {
         return Ok(());
     }
-    let (src_w, crop_w) = (band.width as usize, w as usize);
-    let mut cropped = Image::new(w, r1 - r0, ColorSpace::CameraNativeLinearRgb);
-    for (dst, row) in cropped.pixels.chunks_mut(crop_w).zip(r0..r1) {
-        let start = (row - h0) as usize * src_w + x as usize;
-        dst.copy_from_slice(&band.pixels[start..start + crop_w]);
-    }
-    dcp::apply_colorimetry_in_place(&mut cropped, &frame.profile)?;
+    let src_w = band.width as usize;
+    band.pixels.truncate((r1 - h0) as usize * src_w);
+    band.pixels.drain(..(r0 - h0) as usize * src_w);
+    band.height = r1 - r0;
+    dcp::apply_colorimetry_in_place(&mut band, &frame.profile)?;
+    let (x, crop_w) = (x as usize, w as usize);
     if frame.raw.orientation == ExifOrientation::Normal {
-        return sink.put_block(0, r0 - y, w, &cropped.pixels);
+        if x == 0 && crop_w == src_w {
+            return sink.put_block(0, r0 - y, w, &band.pixels);
+        }
+        return band
+            .pixels
+            .chunks_exact(src_w)
+            .zip(r0 - y..)
+            .try_for_each(|(row, out_y)| sink.put_block(0, out_y, w, &row[x..x + crop_w]));
     }
-    let block = orient_block(&cropped, frame.raw.orientation, r0 - y, (w, h));
+    let block = orient_block(&band, x, frame.raw.orientation, r0 - y, (w, h));
     sink.put_block(block.x0, block.y0, block.width, &block.pixels)
 }
 
@@ -385,22 +417,24 @@ struct OrientedBlock {
     pixels: Vec<[f32; 3]>,
 }
 
-/// `rows` holds source rows `sy0..` of a `crop.0 × crop.1` image; returns
-/// the same pixels as the output block EXIF orientation `orient` maps them to.
+/// Columns `x..x + crop.0` of `rows` hold source rows `sy0..` of a
+/// `crop.0 × crop.1` image; returns the same pixels as the output block
+/// EXIF orientation `orient` maps them to.
 fn orient_block(
     rows: &Image,
+    x: usize,
     orient: ExifOrientation,
     sy0: u32,
     crop: (u32, u32),
 ) -> OrientedBlock {
-    let (sw, n) = (rows.width, rows.height);
+    let (sw, n) = (crop.0, rows.height);
     let corners = [(0, sy0), (sw - 1, sy0 + n - 1)].map(|(sx, sy)| dest_of(orient, sx, sy, crop));
     let x0 = corners[0].0.min(corners[1].0);
     let y0 = corners[0].1.min(corners[1].1);
     let width = if orient.swaps_wh() { n } else { sw };
-    let mut pixels = vec![[0.0; 3]; rows.pixels.len()];
-    for (k, row) in rows.pixels.chunks(sw as usize).enumerate() {
-        for (sx, p) in row.iter().enumerate() {
+    let mut pixels = vec![[0.0; 3]; (sw * n) as usize];
+    for (k, row) in rows.pixels.chunks(rows.width as usize).enumerate() {
+        for (sx, p) in row[x..x + sw as usize].iter().enumerate() {
             let (xp, yp) = dest_of(orient, sx as u32, sy0 + k as u32, crop);
             pixels[((yp - y0) * width + (xp - x0)) as usize] = *p;
         }

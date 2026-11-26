@@ -35,7 +35,7 @@ union C {
 
 assert_impl_all!(C: AsBytes);
 
-// Transparent unions are unstable; see issue #60405
+// Transparent unions are unstable; see issue #60575
 // <https://github.com/rust-lang/rust/issues/60405> for more information.
 
 // #[derive(AsBytes)]

@@ -122,7 +122,7 @@ fn applying_a_field_scales_valid_pixels_by_a_positive_factor_only() {
     let canvas = crate::canvas::CanvasSpec::full_sphere(4).expect("canvas");
     let mut strip = image(8, 2, |x, _| (x % 3 != 0).then_some(0.25 * x as f32));
     let before = strip.clone();
-    f.apply_to_strip(0, &mut strip, &canvas, 1);
+    f.apply_to_strip(0, &mut strip, &canvas, (0, 1));
     for i in 0..strip.r.len() {
         let (x, y) = ((i % 8) as u32, (i / 8) as u32);
         if before.validity.get(x, y) {

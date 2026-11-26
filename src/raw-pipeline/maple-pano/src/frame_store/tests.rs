@@ -294,7 +294,7 @@ fn source_bytes_are_only_read() {
     let store_parent = parent.path().join("stores");
     std::fs::create_dir(&store_parent).unwrap();
     let mut store = FrameStore::create(&store_parent, &[dims]).unwrap();
-    store.ingest_file(0, &source, 16).unwrap();
+    store.ingest_file(0, &source, 16, &|| false).unwrap();
     drop(store);
     assert_eq!(std::fs::read(&source).unwrap(), bytes);
     assert_eq!(std::fs::read_dir(parent.path()).unwrap().count(), 2);
@@ -373,7 +373,7 @@ fn fixture_frames_read_back_identical_to_decode_for_pano() {
         let mut store =
             FrameStore::create(parent.path(), &[(full.width(), full.height())]).unwrap();
         let started = std::time::Instant::now();
-        let ingest = store.ingest_file(0, path, 1008).unwrap();
+        let ingest = store.ingest_file(0, path, 1008, &|| false).unwrap();
         let elapsed = started.elapsed();
         for y0 in (0..full.height()).step_by(512) {
             let rows = 512.min(full.height() - y0);

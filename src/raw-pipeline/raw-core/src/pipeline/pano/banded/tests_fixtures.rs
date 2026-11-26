@@ -55,15 +55,16 @@ fn banded_matches_decode_for_pano_on_every_pano_fixture_frame() {
         let cfa = crate::decode::decode_bytes(&bytes, "dng")
             .expect("decode")
             .cfa;
-        let expect_banded = !matches!(cfa, CfaPattern::LinearRgb | CfaPattern::XTrans(_));
+        let expect_banded = !matches!(cfa, CfaPattern::XTrans(_));
         for band_rows in BAND_ROWS {
             let mut sink = MemSink::default();
             let got = develop_banded_for_pano(
-                &bytes,
+                bytes.clone(),
                 "dng",
                 band_rows,
                 &mut MemScratch::default(),
                 &mut sink,
+                &|| false,
             )
             .expect("banded develop");
             assert_eq!(got.banded, expect_banded, "{} ({cfa:?})", path.display());
@@ -184,11 +185,12 @@ fn banded_matches_decode_for_pano_with_the_bundled_vignette() {
     for band_rows in BAND_ROWS {
         let mut sink = MemSink::default();
         let got = develop_banded_for_pano(
-            &bytes,
+            bytes.clone(),
             &ext,
             band_rows,
             &mut MemScratch::default(),
             &mut sink,
+            &|| false,
         )
         .expect("banded develop");
         assert!(got.banded);
