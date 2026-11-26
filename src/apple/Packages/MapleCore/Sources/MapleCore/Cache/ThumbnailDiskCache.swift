@@ -13,8 +13,8 @@
 // Memory key: `memoryKey(for:)`, a hash of the full path, for the same reason;
 // the basename hash (`cacheKey(for:)`) only names the frozen legacy file.
 //
-// Bounds: 100 image + 600 data entries in memory (FIFO), plus a 2000-entry
-// `NSCache` for the sync peek; disk is not evicted.
+// Bounds: 100 image entries (FIFO) + 600 data entries (least recently used)
+// in memory, plus a 2000-entry `NSCache` for the sync peek; disk is not evicted.
 //
 // Migration note: pre-2026-05 builds keyed thumbs by `MD5(url.path)`
 // (32 hex chars). Existing entries at the old key are harmless orphans
@@ -51,13 +51,14 @@ public actor ThumbnailDiskCache {
 
   private let fm = FileManager.default
   private var memCache: [String: CIImage] = [:]  // hot in-memory cache
-  private var dataMemCache: [String: Data] = [:]  // hot AVIF-bytes cache (for UI cells)
+  private var dataMemCache = RecencyOrderedStore<String, Data>(
+    capacity: ThumbnailDiskCache.maxDataEntries)
   /// `dataMemCache` keys whose current bytes a caller has seen decode.
   private var decodableDataKeys: Set<String> = []
   private let maxMemEntries = 100
   // Bytes are ~20-60 KB, so 600 is ~12-36 MB: enough for a full screen of a
   // dense 5K grid plus scroll-back, where 100 evicted visible cells (#6017).
-  private let maxDataEntries = 600
+  private static let maxDataEntries = 600
 
   /// On-disk store for SOURCELESS thumbnails (PhotoKit, Self-Hosted browse
   /// without a local mirror) — #2763. A sourceless asset has no folder, so its
@@ -151,7 +152,7 @@ public actor ThumbnailDiskCache {
   }
 
   private func rememberedThumbnail(forMemoryKey key: String) -> CachedThumbnail? {
-    dataMemCache[key].map {
+    dataMemCache.touch(key).map {
       CachedThumbnail(data: $0, isKnownDecodable: decodableDataKeys.contains(key), memoryKey: key)
     }
   }
@@ -165,7 +166,7 @@ public actor ThumbnailDiskCache {
 
   /// Record that `hit`'s bytes decoded, unless the entry was replaced since.
   public func markDecodable(_ hit: CachedThumbnail) {
-    guard dataMemCache[hit.memoryKey] == hit.data else { return }
+    guard dataMemCache.peek(hit.memoryKey) == hit.data else { return }
     decodableDataKeys.insert(hit.memoryKey)
   }
 
@@ -174,8 +175,7 @@ public actor ThumbnailDiskCache {
   public func removeThumbnail(for assetURL: URL) {
     let key = Self.memoryKey(for: assetURL)
     memCache.removeValue(forKey: key)
-    dataMemCache.removeValue(forKey: key)
-    decodableDataKeys.remove(key)
+    forgetData(forMemoryKey: key)
     syncPeekCache.removeObject(forKey: key as NSString)
     LocalDerivativeSourceStamp.remove(thumbFileURL(for: assetURL))
     MapleSidecarPaths.removeDerivative(
@@ -350,9 +350,9 @@ public actor ThumbnailDiskCache {
     while memCache.count > keep {
       if let key = memCache.keys.first { memCache.removeValue(forKey: key) }
     }
-    let keepData = max(1, (maxDataEntries * max(0, min(100, percent))) / 100)
-    while dataMemCache.count > keepData {
-      if let key = dataMemCache.keys.first { forgetData(forMemoryKey: key) }
+    let keepData = max(1, (Self.maxDataEntries * max(0, min(100, percent))) / 100)
+    while dataMemCache.count > keepData, let key = dataMemCache.removeOldest() {
+      decodableDataKeys.remove(key)
     }
   }
 
@@ -363,21 +363,18 @@ public actor ThumbnailDiskCache {
       // Simple FIFO eviction — remove oldest (random) entry.
       if let key = memCache.keys.first { memCache.removeValue(forKey: key) }
     }
-    if dataMemCache.count >= maxDataEntries {
-      if let key = dataMemCache.keys.first { forgetData(forMemoryKey: key) }
-    }
   }
 
   /// Every write replaces the bytes, so any earlier decode proof is void.
   private func rememberData(_ data: Data, forMemoryKey key: String) {
     evictIfNeeded()
-    dataMemCache[key] = data
+    if let evicted = dataMemCache.set(data, for: key) { decodableDataKeys.remove(evicted) }
     decodableDataKeys.remove(key)
     syncPeekCache.setObject(data as NSData, forKey: key as NSString)
   }
 
   private func forgetData(forMemoryKey key: String) {
-    dataMemCache.removeValue(forKey: key)
+    dataMemCache.remove(key)
     decodableDataKeys.remove(key)
   }
 }
