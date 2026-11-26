@@ -7,12 +7,13 @@
  * Per-file semantics:
  *   - Files are processed grouped by image: the image is copied first, then
  *     its `.xmp` sidecars under the name the image landed at, then the image
- *     is handed to the indexer via `handleEvent`. Movies are copied but never
- *     indexed (watcher is image-only, v1).
- *   - Dedup decision is at the image: `hashFileForId` → `assetExistsForHash`
- *     (maple_id then sha1_head). A duplicate image AND its sidecars are
- *     skipped — copying an orphan sidecar for an image already in the library
- *     would be meaningless.
+ *     is handed to the indexer via `handleEvent`. A movie is copied the same
+ *     way but is left for the discover sweep to index.
+ *   - Dedup decision is at the primary. A photo is a duplicate of any asset
+ *     with its `maple_id` or `sha1_head`; a movie only of a file this library
+ *     holds with the same size and whole-file hash (`movie-duplicate.ts`). A
+ *     duplicate primary AND its sidecars are skipped: a sidecar copied next to
+ *     a file the library already holds would be an orphan.
  *   - On-disk name collisions resolve to a free sibling; byte-identical files
  *     already present are skipped.
  *   - Before an image or movie is published, its row is marked with the name
@@ -26,7 +27,10 @@
 
 import { ObjectId } from '../db/object-id.ts';
 import { child as childLogger } from '../log.ts';
-import { hashFileForId as realHashFileForId } from '../indexer/id.ts';
+import {
+  hashFileForId as realHashFileForId,
+  hashFileHead as realHashFileHead,
+} from '../indexer/id.ts';
 import { handleEvent as realHandleEvent } from '../workers/discover/handle-event.ts';
 import { destAbsPath } from './copy.ts';
 import { buildImportFiles } from './scan.ts';
@@ -50,6 +54,7 @@ import {
   markImportCancelled,
   ImportTakenOver,
   assetExistsForHash as realAssetExistsForHash,
+  candidateLocationsForHead as realCandidateLocationsForHead,
   type ClaimedImport,
 } from './repo.ts';
 import {
@@ -76,6 +81,8 @@ const log = childLogger('import-worker');
 export interface ImportRunnerDeps {
   hashFileForId: typeof realHashFileForId;
   assetExistsForHash: typeof realAssetExistsForHash;
+  hashFileHead: typeof realHashFileHead;
+  candidateLocationsForHead: typeof realCandidateLocationsForHead;
   handleEvent: typeof realHandleEvent;
   rearmSidecarMetadataIndex: (imageFilename: string) => Promise<void>;
 }
@@ -83,6 +90,8 @@ export interface ImportRunnerDeps {
 const DEFAULT_DEPS: ImportRunnerDeps = {
   hashFileForId: realHashFileForId,
   assetExistsForHash: realAssetExistsForHash,
+  hashFileHead: realHashFileHead,
+  candidateLocationsForHead: realCandidateLocationsForHead,
   handleEvent: realHandleEvent,
   rearmSidecarMetadataIndex: async (imageFilename) => {
     await rearmStageByFilenames(SIDECAR_METADATA_INDEX_STAGE_NAME, [imageFilename]);
@@ -273,11 +282,15 @@ export class ImportRunner {
     const landed = await this.landedAt(group, earlierDest);
     if (landed !== null) return this.settleLanded(group, landed);
 
-    // Dedup decision at the image. Movies never live in `assets`, so they
-    // skip the hash check and rely on the on-disk identical-skip in the copy.
-    const probe = await probeDuplicate(this.deps, files[pIdx]);
+    const probe = await probeDuplicate(this.deps, files[pIdx], {
+      id: group.claim.library_id,
+      root: group.claim.library_root,
+    });
     if (probe.error !== null) return this.recordGroupAs(group, 'failed', probe.error);
     if (!probe.isDuplicate) return null;
+    if (probe.heldAt !== null) {
+      log.info({ src: files[pIdx].src, heldAt: probe.heldAt }, 'movie already in the library');
+    }
 
     // The earlier attempt can have landed its copy, and the sweep catalogued
     // it, while this one was hashing: that is this import's file, not a

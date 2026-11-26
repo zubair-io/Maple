@@ -118,6 +118,28 @@ export function deriveId(
 
 const HASH_CHUNK_BYTES = 1024 * 1024;
 
+function sha1HeadHex(headChunks: Uint8Array[]): string {
+  return toHex(sha1(concat(headChunks)));
+}
+
+/** The `sha1_head` the catalog stores for a file, from its first 64 KB alone. */
+export async function hashFileHead(absPath: string): Promise<{ sha1_head: string; size: number }> {
+  const fd = await fs.open(absPath, 'r');
+  try {
+    const buf = new Uint8Array(SHA1_HEAD_BYTES);
+    let filled = 0;
+    while (filled < buf.length) {
+      const { bytesRead } = await fd.read(buf, filled, buf.length - filled, filled);
+      if (bytesRead === 0) break;
+      filled += bytesRead;
+    }
+    const { size } = await fd.stat();
+    return { sha1_head: sha1HeadHex([buf.subarray(0, filled)]), size };
+  } finally {
+    await fd.close();
+  }
+}
+
 /**
  * Disk-side helper: stream a file once, stat it, and produce the fields the
  * discover watcher needs to insert an asset row with `maple_id` populated.
@@ -159,7 +181,7 @@ export async function hashFileForId(absPath: string): Promise<{
     const id = fallbackFromSha1(full.digest(), position);
     return {
       maple_id: id.hex,
-      sha1_head: toHex(sha1(concat(headChunks))),
+      sha1_head: sha1HeadHex(headChunks),
       size: position,
       mtime: stat.mtimeMs,
     };

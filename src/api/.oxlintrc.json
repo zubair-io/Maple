@@ -179,6 +179,8 @@
         "src/imports/worker-resume.test-helpers.ts",
         "src/imports/worker.attempt.test.ts",
         "src/imports/worker.marker.test.ts",
+        // #5635: stages disposable source and library trees under the OS temp dir.
+        "src/imports/worker.movie-duplicate.test.ts",
         "src/imports/worker.resume.test.ts",
         "src/imports/worker.sidecars.test.ts",
         "src/imports/worker.test.ts",

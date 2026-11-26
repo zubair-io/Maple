@@ -4,8 +4,10 @@
  * group an earlier attempt started and did not finish).
  */
 
+import type { ObjectId } from '../db/object-id.ts';
 import type { ImportFileEntry } from '../db/schema.ts';
 import { destAbsPath } from './copy.ts';
+import { libraryFileHoldingMovie, type MovieDuplicateDeps } from './movie-duplicate.ts';
 import { publishFile, type CopyOutcome } from './publish.ts';
 import { renamedSidecars, sidecarDestsBeside, type SidecarDest } from './sidecar-dest.ts';
 
@@ -24,23 +26,33 @@ export interface RecordedWithFile {
   publishingDest?: string | null;
 }
 
-export interface DuplicateProbeDeps {
-  hashFileForId: (src: string) => Promise<{ maple_id: string; sha1_head: string }>;
+export interface DuplicateProbeDeps extends MovieDuplicateDeps {
   assetExistsForHash: (mapleId: string, sha1Head: string) => Promise<boolean>;
 }
 
-/** A hash failure (unreadable source) is returned as `error` and fails just this group. */
+/**
+ * A hash failure (unreadable source) is returned as `error` and fails just this
+ * group. `heldAt` is where the library already holds a skipped movie.
+ */
 export async function probeDuplicate(
   deps: DuplicateProbeDeps,
   primary: ImportFileEntry,
-): Promise<{ isDuplicate: boolean; error: string | null }> {
-  if (primary.kind !== 'image') return { isDuplicate: false, error: null };
+  library: { id: ObjectId; root: string },
+): Promise<{ isDuplicate: boolean; heldAt: string | null; error: string | null }> {
   try {
-    const h = await deps.hashFileForId(primary.src);
-    const isDuplicate = await deps.assetExistsForHash(h.maple_id, h.sha1_head);
-    return { isDuplicate, error: null };
+    if (primary.kind === 'image') {
+      const h = await deps.hashFileForId(primary.src);
+      const isDuplicate = await deps.assetExistsForHash(h.maple_id, h.sha1_head);
+      return { isDuplicate, heldAt: null, error: null };
+    }
+    const heldAt = await libraryFileHoldingMovie(deps, primary.src, library);
+    return { isDuplicate: heldAt !== null, heldAt, error: null };
   } catch (err) {
-    return { isDuplicate: false, error: err instanceof Error ? err.message : String(err) };
+    return {
+      isDuplicate: false,
+      heldAt: null,
+      error: err instanceof Error ? err.message : String(err),
+    };
   }
 }
 

@@ -44,6 +44,8 @@ export {
   updateImportProgress,
 } from '../db/repos/imports.repo.ts';
 
+export { candidateLocationsForHead } from '../db/repos/imports.duplicate.ts';
+
 export {
   clearImportFilePublishing,
   getImportPublishingDests,
