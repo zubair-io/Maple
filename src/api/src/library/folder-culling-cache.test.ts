@@ -37,11 +37,22 @@ describe('readFolderCulling', () => {
 
   it('re-reads a same-size rewrite even when its mtime is restored', async () => {
     const path = join(dir, 'a.xmp');
+    // A whole-millisecond mtime survives being set again exactly, which leaves the change
+    // time as the only field that tells the rewrite apart.
+    const pinned = new Date('2026-01-01T00:00:00Z');
     await writeFile(path, sidecar(3));
+    await utimes(path, pinned, pinned);
     const before = await stat(path);
     expect((await readFolderCulling(path)).culling).toMatchObject({ rating: 3 });
+    await Bun.sleep(20);
     await writeFile(path, sidecar(5));
-    await utimes(path, before.atime, before.mtime);
+    await utimes(path, pinned, pinned);
+    const after = await stat(path);
+    expect([after.ino, after.size, after.mtimeMs]).toEqual([
+      before.ino,
+      before.size,
+      before.mtimeMs,
+    ]);
     expect((await readFolderCulling(path)).culling).toMatchObject({ rating: 5 });
   });
 
@@ -57,7 +68,7 @@ describe('readFolderCulling', () => {
   it('refuses to follow a final-component symlink', async () => {
     await writeFile(join(dir, 'real.xmp'), sidecar(2));
     await symlink(join(dir, 'real.xmp'), join(dir, 'link.xmp'));
-    expect(readFolderCulling(join(dir, 'link.xmp'))).rejects.toThrow();
+    await expect(readFolderCulling(join(dir, 'link.xmp'))).rejects.toThrow();
   });
 
   it('answers from a listing lstat without opening the file while it is unchanged', async () => {

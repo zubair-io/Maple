@@ -88,7 +88,7 @@ describe('static_ui production serving', () => {
     await Bun.write(path.join(distDir, 'chunk-ZQ7X2ABC.js'), 'export {};');
     await Bun.write(path.join(distDir, 'media', 'inter-4KQ2LMNO.woff2'), 'font');
     await Bun.write(path.join(distDir, 'pkg', 'raw_wasm_bg.wasm'), 'wasm');
-    await Bun.write(path.join(distDir, 'film-luts', 'KODAK-PORTRA40.cube'), 'lut');
+    await Bun.write(path.join(distDir, 'film-luts', 'warm-portrait.cube'), 'lut');
     for (const hashed of ['/chunk-ZQ7X2ABC.js', '/media/inter-4KQ2LMNO.woff2']) {
       expect((await get(hashed)).headers.get('cache-control')).toBe(
         'public, max-age=31536000, immutable',
@@ -96,7 +96,7 @@ describe('static_ui production serving', () => {
     }
     for (const verbatim of [
       '/pkg/raw_wasm_bg.wasm',
-      '/film-luts/KODAK-PORTRA40.cube',
+      '/film-luts/warm-portrait.cube',
       '/assets/logo.png',
     ]) {
       expect((await get(verbatim)).headers.get('cache-control')).toBe('no-cache');
