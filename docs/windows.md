@@ -205,6 +205,14 @@ submits that latest model with the retained edits.
 
 For a selected local RAW without an extractable embedded preview, `EditSessionViewModel.Preview.cs` falls back to the bounded scene-linear preview renderer while staying in Preview. Selection/version guards reject late extraction results. Decode failures remain visible with a Retry action; retries and successful renders clear the error.
 
+The saved Browse/Preview derivative of a local photo (the 2560px develop of its sidecar and the thumbnail resized from it) is not developed while the shell is in Edit (#4374). There the editor's own 1600px decode and Auto fit come first, and the two renders cannot share each other's results. `MainWindow.SetMode` reports every mode change to `EditSessionViewModel.SetShellMode`; the rule itself is `ViewModels/SavedPreviewDeferral.cs`, which is WinUI-free and covered by `SavedPreviewDeferralTests`:
+
+- Entering Edit cancels a saved preview or an owed thumbnail refresh that is still running and records the photo as owed.
+- Opening a photo in Edit, selecting another one there, and every sidecar save in Edit start no derivative. The photo is recorded as owed when the edit is made, so a save that lands after the selection has moved on is not lost.
+- Leaving Edit for Preview or Browse refreshes every owed photo: the selected one through the normal saved-preview request, the others by clearing their superseded preview and refreshing their thumbnail from the saved sidecar.
+
+So the filmstrip and grid thumbnails of photos edited in Edit update when the editor is left, not after each save. Cloud photos keep their existing behaviour: the server preview is still fetched in Edit, because it is the placeholder while the original downloads. The `editor-preview-priority` lifecycle stage (`EditSessionViewModel.EditorPrioritySmoke.cs`) drives these transitions through the real window's mode switch on owned copies of the fixture.
+
 Grid thumbnails retain embedded extraction as their fast path. When extraction fails, `ThumbnailService.Developed.cs` serializes fallback RAW decodes through one cancellable worker and uses the shared renderer at a 512-pixel target with default adjustments. Its PNG output is cached locally, separately from the shared AVIF contract, and invalidated by both the native DLL fingerprint and managed renderer build identity. A cache hit avoids another extraction/decode; unavailable files do not abort hydration of the rest of the folder. Neither originals nor sidecars are written by this fallback.
 
 ## Maple Cloud
@@ -313,7 +321,7 @@ establishes Narrator announcement or qualification at other display scales. Both
 check preview-list and notification-feed callers with handlers attached and removed;
 passive callers expose no Invoke action, and unread notifications are not current selections.
 
-`src/windows/scripts/qualify-winui.ps1` is the Windows counterpart of the Apple UITest visual harness. It drives `MainWindow.Qualify.cs`, which runs headless-ish under environment variables: `MAPLE_QUALIFY_RAW` names the photo to open in Edit, `MAPLE_QUALIFY_OUT` the directory for `report.json`. Three app runs:
+`src/windows/scripts/qualify-winui.ps1` is the Windows counterpart of the Apple UITest visual harness. It drives `MainWindow.Qualify.cs`, which runs headless-ish under environment variables: `MAPLE_QUALIFY_RAW` names the photo to open in Edit, `MAPLE_QUALIFY_OUT` the directory for `report.json`. The run starts as the last step of `MainWindow` construction, after the shell's initial Browse mode and its close handler are in place, so the Edit mode it enters is the one it measures and no saved-preview develop runs beside the timed decode (#4374). Three app runs:
 
 1. **GPU** — changes the production Exposure slider view-model by ±0.01. A high-resolution timestamp starts before the setter and ends at the GPU present-return event, including edit notifications, snapshot preparation, scheduler wait, UI dispatch, native presentation and render-thread completion. `tick_ms` retains all 20 samples, including the first activation; `render_tick_ms` separately retains the earlier render-only interval. This measures presentation API completion, not physical display scanout. Failed runs retain completed samples, cold-open elapsed time and any incomplete fast-tick duration.
 2. **GPU pixels** — `MAPLE_DUMP_GPU_FRAME=<png>` captures the complete bounded develop chain through the existing `maple_gpu_live_render` ABI, with production parameters pinned under the session lifetime gate. Its metadata records dimensions, generation, exposure, profile and film intent. This separate process excludes readback and PNG work from timing qualification; crop/zoom canvas framing requires screenshots separately.
