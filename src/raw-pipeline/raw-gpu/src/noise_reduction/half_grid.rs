@@ -7,6 +7,9 @@ use crate::spatial::{alloc_plane, encode_simple, Plane};
 /// Mirror of raw-core's `DESPECKLE_FULL_AMOUNT` (the default `nr_color`).
 const DESPECKLE_FULL_AMOUNT: f32 = 25.0;
 
+/// Mirror of raw-core's `DESPECKLE_MARGIN`.
+const DESPECKLE_MARGIN: f32 = 0.005;
+
 /// Mirror of `raw_core::stages::noise_reduction::is_native_density`.
 pub(super) fn is_native_density(scale: f32) -> bool {
     !scale.is_finite() || scale <= 0.0 || scale >= 1.0
@@ -22,8 +25,8 @@ pub(super) struct HalfParams {
     pub(super) half_height: u32,
     pub(super) residual_weight: f32,
     pub(super) despeckle_strength: f32,
-    _pad1: u32,
-    _pad2: u32,
+    pub(super) despeckle_margin: f32,
+    _pad: u32,
 }
 
 /// The 2×2 block grid of a whole frame, mirroring raw-core's
@@ -42,8 +45,8 @@ impl HalfGrid {
                 half_height: height.div_ceil(2),
                 residual_weight: 1.0 - (amount / 100.0).clamp(0.0, 1.0),
                 despeckle_strength: (amount / DESPECKLE_FULL_AMOUNT).clamp(0.0, 1.0),
-                _pad1: 0,
-                _pad2: 0,
+                despeckle_margin: DESPECKLE_MARGIN,
+                _pad: 0,
             },
         }
     }

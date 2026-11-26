@@ -283,9 +283,9 @@ fn writeback_color(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_w
 // bilinear (0.75 / 0.25) upsample of the denoised half plane plus the native
 // plane's finest-scale residual at `residual_weight`, then pulls the result
 // `despeckle_strength` of the way into the range of the upsampled denoised
-// plane over the pixel's 3×3 neighbourhood (edge-replicated), so an isolated
-// chroma spike does not survive the add-back. Summation order and the tap
-// weights follow the CPU exactly.
+// plane over the pixel's 3×3 neighbourhood (edge-replicated) widened by
+// `despeckle_margin`, so an isolated chroma spike does not survive the
+// add-back. Summation order and the tap weights follow the CPU exactly.
 struct HalfParams {
     width: u32,
     height: u32,
@@ -293,8 +293,8 @@ struct HalfParams {
     half_height: u32,
     residual_weight: f32,
     despeckle_strength: f32,
-    _pad1: u32,
-    _pad2: u32,
+    despeckle_margin: f32,
+    _pad: u32,
 };
 
 @group(0) @binding(0) var<uniform> bd_params: HalfParams;
@@ -370,5 +370,6 @@ fn upsample_residual(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num
         lo = min(lo, d);
         hi = max(hi, d);
     }
-    up_out[i] = value + up_params.despeckle_strength * (clamp(value, lo, hi) - value);
+    let margin = up_params.despeckle_margin;
+    up_out[i] = value + up_params.despeckle_strength * (clamp(value, lo - margin, hi + margin) - value);
 }
