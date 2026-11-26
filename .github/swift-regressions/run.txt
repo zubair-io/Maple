@@ -611,3 +611,4 @@ MaskDeleteUndoTests
 EditHistoryEventTests
 BrowseNavigationTicketTests
 CloudSourceThumbVersionTests
+ThumbnailCameraPreviewReuseTests
