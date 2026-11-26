@@ -112,6 +112,15 @@ jobs:
         run: |
           cargo build --locked --manifest-path src/raw-pipeline/Cargo.toml -p raw-ffi --lib
           cp "$CARGO_TARGET_DIR/debug/libraw_ffi.so" src/api/native/
+      # The merge device test (#5994) runs a real classical stitch on the fixture server.
+      - name: Build the classical panorama engine for merge device tests
+        env:
+          CARGO_TARGET_DIR: ${{ github.workspace }}/src/android/native/target
+        run: |
+          cargo build --locked --manifest-path src/raw-pipeline/Cargo.toml -p maple-cli --features pano-classical --bin maple-cli
+          cargo build --locked --manifest-path src/raw-pipeline/Cargo.toml -p maple-pano --bin pano-gen-fixture
+          echo "MAPLE_ANDROID_PANO_CLI=$CARGO_TARGET_DIR/debug/maple-cli" >> "$GITHUB_ENV"
+          echo "MAPLE_ANDROID_PANO_FIXTURES=$CARGO_TARGET_DIR/debug/pano-gen-fixture" >> "$GITHUB_ENV"
       - name: Enable KVM
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
