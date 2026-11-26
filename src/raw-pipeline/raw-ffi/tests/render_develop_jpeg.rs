@@ -118,3 +118,37 @@ fn rejects_null_out_path() {
     };
     assert_ne!(rc, 0, "null out_path must be rejected");
 }
+
+/// An edit cropped to half width and height still reaches the requested long
+/// edge: with a sidecar the extern develops at full size before resizing,
+/// where the sized chain would crop a `max_px` develop down to half of it.
+#[test]
+fn cropped_edit_reaches_the_target_long_edge() {
+    let tmp = tempfile::tempdir().unwrap();
+    let raw = tmp.path().join("sensor.dng");
+    raw_core::test_support::synth_dng::SyntheticGreyDng {
+        width: 256,
+        height: 192,
+        ..Default::default()
+    }
+    .write_to(&raw)
+    .unwrap();
+    let xmp = tmp.path().join("sensor.xmp");
+    std::fs::write(
+        &xmp,
+        r#"<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/" crs:HasCrop="True" crs:CropTop="0.250000" crs:CropLeft="0.250000" crs:CropBottom="0.750000" crs:CropRight="0.750000" crs:CropAngle="0.000000"/></rdf:RDF></x:xmpmeta>"#,
+    )
+    .unwrap();
+    let out = tmp.path().join("dev.jpg");
+    let (raw_c, xmp_c, out_c) = (
+        cstr(raw.to_str().unwrap()),
+        cstr(xmp.to_str().unwrap()),
+        cstr(out.to_str().unwrap()),
+    );
+    let rc = unsafe {
+        maple_render_develop_jpeg_to_file(raw_c.as_ptr(), xmp_c.as_ptr(), 64, 82, out_c.as_ptr())
+    };
+    assert_eq!(rc, 0, "expected success rc, got {rc}");
+    let img = image::open(&out).expect("output must be a decodable JPEG");
+    assert_eq!(img.width().max(img.height()), 64);
+}
