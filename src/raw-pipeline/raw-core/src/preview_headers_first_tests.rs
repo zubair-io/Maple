@@ -217,6 +217,7 @@ fn largest_wins_wherever_it_sits() {
 #[test]
 fn undecodable_largest_falls_through_to_the_next() {
     let broken = without_huffman_tables(&jpeg(800, 600, true, 3));
+    assert!(crate::jpeg_frame::jpeg_frame(&broken).is_some());
     assert!(image::load_from_memory_with_format(&broken, image::ImageFormat::Jpeg).is_err());
     let winner = check(&[Strip::Jpeg(broken), rgb(300, 200, 3), rgb(280, 200, 5)]).unwrap();
     assert_eq!((winner.0.width(), winner.0.height()), (300, 200));
@@ -229,8 +230,15 @@ fn undecodable_largest_with_only_thumbnails_left_yields_none() {
 }
 
 #[test]
-fn largest_below_the_thumbnail_edge_is_refused_even_with_a_bigger_failure() {
+fn largest_below_the_thumbnail_edge_is_refused() {
     assert!(check(&[rgb(200, 200, 3), rgb(100, 100, 5)]).is_none());
+}
+
+#[test]
+fn a_smaller_candidate_with_a_long_enough_edge_does_not_replace_a_refused_winner() {
+    assert!(check(&[rgb(250, 250, 3), rgb(300, 100, 5)]).is_none());
+    let broken = without_huffman_tables(&jpeg(800, 600, true, 6));
+    assert!(check(&[Strip::Jpeg(broken), rgb(250, 250, 3), rgb(300, 100, 5)]).is_none());
 }
 
 #[test]
@@ -263,10 +271,19 @@ fn fixture_corpus_resolves_like_the_full_decode() {
                 .is_ok_and(|magic| crate::view::auto_profile::preview::is_tiff_container(&magic))
         })
         .collect::<Vec<_>>();
-    tiff_files.iter().for_each(|path| {
-        let bytes = std::fs::read(path).unwrap();
-        let expected = oracle_decoder_free_preview(&bytes);
-        assert_same(&expected, &decoder_free_preview(&bytes));
-    });
-    eprintln!("compared {} TIFF files", tiff_files.len());
+    let found = tiff_files
+        .iter()
+        .map(|path| {
+            let bytes = std::fs::read(path).unwrap();
+            let expected = oracle_decoder_free_preview(&bytes);
+            assert_same(&expected, &decoder_free_preview(&bytes));
+            expected.is_some()
+        })
+        .filter(|resolved| *resolved)
+        .count();
+    assert!(found > 0, "no TIFF fixture resolved a preview");
+    eprintln!(
+        "compared {} TIFF files, {found} with a preview",
+        tiff_files.len()
+    );
 }

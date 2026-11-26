@@ -81,6 +81,7 @@ fn larger_later_candidate_beats_an_earlier_one() {
 #[test]
 fn header_valid_but_undecodable_largest_falls_through() {
     let broken = without_huffman_tables(&jpeg(600, 500, true, 6));
+    assert!(crate::jpeg_frame::jpeg_frame(&broken).is_some());
     assert!(image::load_from_memory_with_format(&broken, image::ImageFormat::Jpeg).is_err());
     let next = jpeg(400, 300, true, 7);
     let tail = jpeg(300, 300, true, 8);
