@@ -28,7 +28,7 @@ public partial class EditSessionViewModel
             var pending = p.IsCloud ? null : _localMetadataWrites.ReadPendingSnapshot(p.FilePath);
             return new
             {
-                p.FilePath, p.EditPath, p.IsCloud, p.LocalCachePath, p.FileSizeBytes,
+                p.FilePath, p.EditPath, p.IsCloud, p.CloudAddress, p.LocalCachePath, p.FileSizeBytes,
                 Stem = Path.GetFileNameWithoutExtension(p.FileName),
                 Captured = p.CaptureDate?.ToString("yyyy:MM:dd HH:mm:ss", CultureInfo.InvariantCulture),
                 IsOpen = isOpen,
@@ -55,7 +55,7 @@ public partial class EditSessionViewModel
                     {
                         if (p.LocalCachePath == null || !File.Exists(p.LocalCachePath))
                             path = await (cloud ?? throw new IOException("Connect to Maple Cloud to download the original."))
-                                .DownloadOriginalAsync(p.FilePath, p.FileSizeBytes, null, cancellation)
+                                .DownloadOriginalAsync(p.CloudAddress, p.FileSizeBytes, null, cancellation)
                                 ?? throw new IOException("Cloud original download failed. Check the connection and access permissions.");
                         xml = p.IsOpen && cloudXml != null ? cloudXml
                             : await (cloud ?? throw new IOException("Connect to Maple Cloud to capture its edits."))

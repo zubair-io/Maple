@@ -100,12 +100,12 @@ public sealed class CloudClientFolderRetryTests : IDisposable
     }
 
     [Fact]
-    public async Task A_conflict_on_another_listing_route_is_not_asked_again()
+    public async Task A_conflict_on_another_route_is_not_asked_again()
     {
-        using var server = new Scripted((409, Conflict), (200, "{\"dirs\":[],\"images\":[]}"));
+        using var server = new Scripted((409, Conflict), (200, "[]"));
         using var client = new CloudClient(server.Origin, CloudClient.CreateHandler(), _cache);
 
-        Assert.Null(await client.ListDirAsync("/srv/lib", null, 500, CancellationToken.None));
+        Assert.Null(await client.GetFoldersAsync(CancellationToken.None));
         Assert.Single(server.Targets);
     }
 

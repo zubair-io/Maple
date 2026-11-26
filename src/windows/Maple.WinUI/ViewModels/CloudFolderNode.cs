@@ -18,7 +18,8 @@ namespace Maple.WinUI.ViewModels
         public bool IsExpanded { get => _isExpanded; set => SetProperty(ref _isExpanded, value); }
         public bool IsSelected { get => _isSelected; set => SetProperty(ref _isSelected, value); }
         public string Name { get; init; } = string.Empty;
-        /// <summary>Absolute, symlink-resolved path on the server.</summary>
+        /// <summary>Absolute path on the server, in the library's registered
+        /// spelling.</summary>
         public string Path { get; init; } = string.Empty;
         /// <summary>The owning library's public slug — the first half of the
         /// `slug:relPath` address the xmp/batch culling route wants.</summary>
@@ -27,12 +28,10 @@ namespace Maple.WinUI.ViewModels
         /// `/` separators and no leading slash (empty at the root itself) —
         /// the second half of a `slug:relPath` address.
         ///
-        /// Accumulated down the tree from directory names rather than derived
-        /// by subtracting the library root from an absolute path: /api/fs/dir
-        /// answers in symlink-resolved real paths while /api/folders reports
-        /// the root as it was registered, so a library rooted at a symlink has
-        /// children whose absolute paths do not begin with the stored root at
-        /// all. Names are what the server's own address computation uses.</summary>
+        /// Accumulated down the tree from directory names, the way the server
+        /// composes the same address. It is what the listing is requested by:
+        /// the absolute path is not subtracted instead, because /api/folders
+        /// reports the root as it was registered.</summary>
         public string RelativePath { get; init; } = string.Empty;
         public ObservableCollection<CloudFolderNode> Children { get; } = new();
         /// <summary>True once the real children replaced the expander stub.</summary>

@@ -18,15 +18,23 @@ namespace Maple.WinUI.ViewModels
             var result = new System.Collections.Generic.List<(string, Action)>();
             if (_selectedCloudFolder is { } cloud)
             {
-                var path = cloud.Path.TrimEnd('/');
                 var root = System.Linq.Enumerable.FirstOrDefault(CloudTree, n => n.LibrarySlug == cloud.LibrarySlug);
-                while (root != null && (path == root.Path.TrimEnd('/') || path.StartsWith(root.Path.TrimEnd('/') + "/", StringComparison.Ordinal)))
+                if (root != null)
                 {
-                    var node = new CloudFolderNode { Name = path[(path.LastIndexOf('/') + 1)..], Path = path, LibrarySlug = cloud.LibrarySlug };
-                    result.Insert(0, (node.Name.Length == 0 ? path : node.Name, () => { _ = LoadCloudDirectoryAsync(node); }));
-                    var slash = path.LastIndexOf('/');
-                    if (slash < 0) break;
-                    path = path[..slash];
+                    var rootPath = root.Path.TrimEnd('/');
+                    var segments = cloud.RelativePath.Split('/', StringSplitOptions.RemoveEmptyEntries);
+                    for (var depth = segments.Length; depth >= 0; depth--)
+                    {
+                        var relative = string.Join('/', System.Linq.Enumerable.Take(segments, depth));
+                        var node = new CloudFolderNode
+                        {
+                            Name = depth == 0 ? rootPath[(rootPath.LastIndexOf('/') + 1)..] : segments[depth - 1],
+                            Path = depth == 0 ? rootPath : $"{rootPath}/{relative}",
+                            LibrarySlug = cloud.LibrarySlug,
+                            RelativePath = relative,
+                        };
+                        result.Insert(0, (node.Name.Length == 0 ? rootPath : node.Name, () => { _ = LoadCloudDirectoryAsync(node); }));
+                    }
                 }
             }
             else if (_selectedLocalFolder is { } local)

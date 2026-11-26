@@ -1,14 +1,14 @@
 using System;
 using System.Linq;
-using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
 
 namespace Maple.WinUI.Services.Cloud
 {
-    /// <summary>Library browsing (folders + one directory level at a time,
-    /// the same routes the Apple cloud source walks) and address-keyed
-    /// thumb/preview fetch into the local AVIF disk cache.</summary>
+    /// <summary>Library browsing (folders + one directory level at a time
+    /// through the unified `slug:relPath` listing every client reads) and
+    /// address-keyed thumb/preview fetch into the local AVIF disk
+    /// cache.</summary>
     public sealed partial class CloudClient
     {
         // --- Library browsing ---
@@ -16,49 +16,11 @@ namespace Maple.WinUI.Services.Cloud
         public Task<CloudFolder[]?> GetFoldersAsync(CancellationToken ct) =>
             GetJsonAsync<CloudFolder[]>("api/folders", ct);
 
-        /// <summary>One directory level (GET /api/fs/dir) — the same endpoint
-        /// the Apple cloud source and File Provider browse with, so Windows
-        /// sees exactly the tree Finder does. Pass the previous page's
-        /// NextCursor to continue a large directory; omitting both cursor and
-        /// limit asks for the whole listing in one shot (the server's
-        /// historical default).
-        ///
-        /// Still path-addressed after the #1325 cutover: the unified
-        /// `/api/folder/:slug/*` listing carries no size, mtime or EXIF, and
-        /// no absolute path — and the absolute path is what keys every
-        /// non-browse route this client still speaks (`/api/xmp?path=`,
-        /// `/api/preview?path=`, `/api/assets/by-fspath`) as well as the
-        /// Cloud Files placeholders, whose FileSize must be right for
-        /// hydration to complete. Moves once `/api/folder` grows those
-        /// fields (server work, tracked on #1325).</summary>
-        public async Task<CloudDirListing?> ListDirAsync(
-            string absPath, string? cursor, int limit, CancellationToken ct)
-        {
-            var query = $"api/fs/dir?path={Uri.EscapeDataString(absPath)}&limit={limit}";
-            if (!string.IsNullOrEmpty(cursor))
-                query += $"&cursor={Uri.EscapeDataString(cursor)}";
-            try
-            {
-                return await GetJsonAsync<CloudDirListing>(query, ct);
-            }
-            catch (Exception ex) when (
-                ex is HttpRequestException
-                || (ex is TaskCanceledException && !ct.IsCancellationRequested))
-            {
-                // Browsing runs from `async void` UI handlers, where an escaped
-                // transport exception takes the process down. A dropped link
-                // or a hung server is an ordinary thing for a network browser
-                // to meet, so it joins the failure the callers already handle:
-                // null, logged, surfaced in the status line.
-                DiagLog.Write($"[cloud] dir unreachable for {absPath}: {ex.Message}");
-                return null;
-            }
-        }
-
-        /// <summary>One cursor-paged directory from the unified Cloud Files
-        /// address route. Omitting stack keeps RAW+JPEG companions visible as
-        /// separate filesystem entries. A 409 on the first page (no cursor) is
-        /// asked for once more; a later page is not, as it could join two folders.</summary>
+        /// <summary>One cursor-paged directory from the unified address route.
+        /// Null on any failure: browsing runs from async void handlers. No
+        /// `stack`, so RAW+JPEG companions stay separate entries (Browse folds
+        /// them itself). A 409 on the first page (no cursor) is asked for once
+        /// more; a later page is not, as it could join two folders.</summary>
         public Task<CloudFolderListing?> ListFolderAddressAsync(
             string address, string? cursor, int limit, CancellationToken ct)
         {
@@ -77,7 +39,7 @@ namespace Maple.WinUI.Services.Cloud
         /// grid reads, so the Windows browse grid hits the same server cache
         /// entry. The thumb route renders a file the indexer hasn't reached
         /// yet on the fly; the preview route answers 202 until the asset is
-        /// catalogued (the /api/fs/dir listing enqueues a discover scan for
+        /// catalogued (the folder listing enqueues a discover scan for
         /// every un-indexed file it returns, so that window is short) —
         /// retried once after the advertised delay; null on failure.</summary>
         public Task<string?> FetchImageAsync(

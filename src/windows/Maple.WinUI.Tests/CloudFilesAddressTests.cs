@@ -67,7 +67,7 @@ public sealed class CloudFilesAddressTests
         var listing = new CloudFolderListing
         {
             Folders = [Entry("2026", "library:2026", 99, "2026-01-02T03:04:05Z")],
-            Images = [Entry("IMG_1.DNG", "library:2026/IMG_1.DNG", 1234, "2026-01-02T03:04:05Z")],
+            Images = [new CloudFolderImage { Name = "IMG_1.DNG", Address = "library:2026/IMG_1.DNG", Path = "/srv/photos/IMG_1.DNG", Size = 1234, Mtime = "2026-01-02T03:04:05Z", Ext = "dng" }],
             Files = [Entry("movie.mov", "library:2026/movie.mov", 5678, "2026-01-02T03:04:05Z")],
             Sidecars = [Entry("IMG_1.DNG.xmp", "library:2026/IMG_1.DNG.xmp", 64, "2026-01-02T03:04:05Z")],
         };
