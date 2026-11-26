@@ -56,6 +56,17 @@ undoing one of those failures:
    headers pass through unchanged. Fallback `index.html` responses get an
    explicit `no-cache`, matching the same rule the upload step in
    `deploy-hosted.yml` applies to the origin object directly.
+   Every status of 400 or above (a missing asset, 403, 410, 5xx, a failed
+   `index.html` fallback) is replaced with `Cache-Control: no-store`; the
+   rule is not limited to 404 because any stored error could shadow a file
+   the next deploy uploads in the same way. The origin fetch also
+   sets `cacheTtlByStatus` `400-599` to `-1`. Azure sends
+   no `Cache-Control` on a 404, so without this Cloudflare stamped its
+   zone default `max-age=14400` and edge-cached it: a file missing before
+   a deploy kept returning 404 for up to four hours after the deploy
+   uploaded it (#6073). The smoke check's `real-404` step fails when a 404
+   is storable, so it fails against production until this Worker version
+   is deployed.
 5. Apply the production security header contract
    (`src/security-headers.ts`, mirroring
    `src/web/scripts/hosted-security-header-contract.ts`) to every response,
@@ -106,8 +117,9 @@ and zone. `wrangler.jsonc.example` is the committed template.
    root/assets/deep links, checks complete HTML bytes against Azure and the
    `no-transform` guard, rejects immutable stable assets, requires
    `no-cache` on the service-worker manifest, validates SPA fallback, and
-   requires a real 404 for missing subresources. Each fetch has a 60-second
-   deadline. Run against a settled deployment: a build changing between
+   requires a real 404 for missing subresources that is not storable:
+   `no-store` or `no-cache`, and no positive `max-age` or `s-maxage`. Each
+   fetch has a 60-second deadline. Run against a settled deployment: a build changing between
    origin and edge fetches fails the comparison and must be checked again
    after upload completes. `npm test` exercises the CLI against real local
    HTTP servers, including same-length byte corruption, before Worker tests.
