@@ -118,7 +118,7 @@ fn a_white_balance_drag_matches_the_develop_on_a_committed_raw() {
 }
 
 #[test]
-fn a_session_reserves_the_resume_plane_once_it_survives_a_render() {
+fn every_session_reserves_the_resume_plane_when_it_is_created() {
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../test-fixtures/batch-transfer/source.dng");
     let source = Source::read(&path);
@@ -130,16 +130,26 @@ fn a_session_reserves_the_resume_plane_once_it_survives_a_render() {
     };
     let mut preview =
         GpuPreview::open(&ctx, &source.raw, &source.bytes, &source.ext, &model, 256).unwrap();
+    assert!(preview.session.resume_cut_reserved(), "open reserves");
     let steps = [
-        (&model, 1, true, "the open render keeps the session"),
-        (&moved, 2, false, "a prefix edit replaces the session"),
-        (&moved, 2, true, "the replacement survived a render"),
+        (&model, 1, "the open render keeps the session"),
+        (&moved, 2, "a prefix edit replaces the session"),
     ];
-    for (tick, uploads, reserved, what) in steps {
+    for (tick, uploads, what) in steps {
         shown(&mut preview, &ctx, &source, tick);
         assert_eq!(preview.upload_count(), uploads, "{what}");
-        assert_eq!(preview.session.resume_cut_reserved(), reserved, "{what}");
+        assert!(preview.session.resume_cut_reserved(), "{what}");
     }
+    let warm = preview.pool_alloc_count(&ctx);
+    for _ in 0..2 {
+        shown(&mut preview, &ctx, &source, &moved);
+    }
+    assert_eq!(preview.upload_count(), 2, "the replacement is kept");
+    assert_eq!(
+        preview.pool_alloc_count(&ctx),
+        warm,
+        "a render that keeps its session allocates nothing"
+    );
 }
 
 fn gate(name: &str) {
