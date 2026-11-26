@@ -40,30 +40,87 @@
 
     @MainActor
     func testEarlierCopyStaysUntilItsReplacementIsPublished() async throws {
-      let earlierBatch = root.appendingPathComponent("earlier")
-      let laterBatch = root.appendingPathComponent("later")
-      let earlier = try await AssetFileClipboard.stage(
-        [remoteAsset(name: "IMG.jpg", bytes: Data([1]))], in: earlierBatch)
-      let later = try await AssetFileClipboard.stage(
-        [remoteAsset(name: "IMG.jpg", bytes: Data([2]))], in: laterBatch)
+      let published = Published()
+      let clipboard = AssetFileClipboard(
+        stagingRoot: root,
+        publish: { urls, _ in published.record(urls) },
+        report: { XCTFail("unexpected error: \($0)") })
 
-      XCTAssertEqual(try Data(contentsOf: earlier[0]), Data([1]))
-      AssetFileClipboard.removeStagedCopies(in: root, except: laterBatch)
+      clipboard.copy([remoteAsset(name: "IMG.jpg", bytes: Data([1]))])
+      await clipboard.copyTask?.value
+      let earlier = try XCTUnwrap(published.latest.first)
 
-      XCTAssertFalse(FileManager.default.fileExists(atPath: earlier[0].path))
-      XCTAssertEqual(try Data(contentsOf: later[0]), Data([2]))
+      published.beforeRecording = {
+        XCTAssertEqual(try? Data(contentsOf: earlier), Data([1]), "still pasteable mid-copy")
+      }
+      clipboard.copy([remoteAsset(name: "IMG.jpg", bytes: Data([2]))])
+      await clipboard.copyTask?.value
+
+      let later = try XCTUnwrap(published.latest.first)
+      XCTAssertFalse(FileManager.default.fileExists(atPath: earlier.path))
+      XCTAssertEqual(try Data(contentsOf: later), Data([2]))
+      XCTAssertEqual(try stagedBatches().count, 1)
     }
 
     @MainActor
-    func testFailedFetchFailsTheCopy() async {
+    func testFailedFetchLeavesTheClipboardAndItsFilesAlone() async throws {
+      let published = Published()
+      var reported: [Error] = []
+      let clipboard = AssetFileClipboard(
+        stagingRoot: root,
+        publish: { urls, _ in published.record(urls) },
+        report: { reported.append($0) })
+      clipboard.copy([remoteAsset(name: "IMG.jpg", bytes: Data([1]))])
+      await clipboard.copyTask?.value
+      let earlier = try XCTUnwrap(published.latest.first)
+
       let offline = AssetRef(
         displayName: "offline.dng", hintExtension: "dng",
         originalFileWriter: { _ in throw ImageSourceError.notFound("offline") },
         bytesProvider: { Data() })
-      do {
-        _ = try await AssetFileClipboard.stage([offline], in: root.appendingPathComponent("s"))
-        XCTFail("A failed fetch must not reach the pasteboard")
-      } catch {}
+      clipboard.copy([offline])
+      await clipboard.copyTask?.value
+
+      XCTAssertEqual(published.count, 1, "a failed fetch must not reach the pasteboard")
+      XCTAssertEqual(reported.count, 1)
+      XCTAssertEqual(try Data(contentsOf: earlier), Data([1]))
+      XCTAssertEqual(try stagedBatches().count, 1, "the failed copy removes only its own folder")
+    }
+
+    @MainActor
+    func testRefusedPasteboardWriteKeepsTheEarlierFilesAndReports() async throws {
+      let published = Published()
+      var reported: [Error] = []
+      let clipboard = AssetFileClipboard(
+        stagingRoot: root,
+        publish: { urls, _ in published.record(urls) },
+        report: { reported.append($0) })
+      clipboard.copy([remoteAsset(name: "IMG.jpg", bytes: Data([1]))])
+      await clipboard.copyTask?.value
+      let earlier = try XCTUnwrap(published.latest.first)
+
+      published.accepts = false
+      clipboard.copy([remoteAsset(name: "IMG.jpg", bytes: Data([2]))])
+      await clipboard.copyTask?.value
+
+      XCTAssertEqual(reported.count, 1)
+      XCTAssertEqual(try Data(contentsOf: earlier), Data([1]))
+      XCTAssertEqual(try stagedBatches().count, 1)
+    }
+
+    @MainActor
+    func testCopyOfNothingLeavesARunningCopyAlone() async throws {
+      let published = Published()
+      let clipboard = AssetFileClipboard(
+        stagingRoot: root,
+        publish: { urls, _ in published.record(urls) },
+        report: { XCTFail("unexpected error: \($0)") })
+
+      clipboard.copy([remoteAsset(name: "IMG.jpg", bytes: Data([1]))])
+      clipboard.copy([])
+      await clipboard.copyTask?.value
+
+      XCTAssertEqual(published.count, 1)
     }
 
     @MainActor
@@ -93,6 +150,26 @@
       XCTAssertEqual(TimelineFileActions.tileID("fs:/a.dng"), TimelineFileActions.tileID("fs:/a.dng"))
       XCTAssertNotEqual(
         TimelineFileActions.tileID("fs:/a.dng"), TimelineFileActions.tileID("fs:/b.dng"))
+    }
+
+    private func stagedBatches() throws -> [URL] {
+      try FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: nil)
+    }
+
+    @MainActor
+    private final class Published {
+      private(set) var latest: [URL] = []
+      private(set) var count = 0
+      var accepts = true
+      var beforeRecording: () -> Void = {}
+
+      func record(_ urls: [URL]) -> Bool {
+        beforeRecording()
+        guard accepts else { return false }
+        latest = urls
+        count += 1
+        return true
+      }
     }
 
     private func remoteAsset(name: String, bytes: Data) -> AssetRef {
