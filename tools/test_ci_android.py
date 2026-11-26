@@ -243,9 +243,6 @@ class AndroidWorkflowTests(unittest.TestCase):
         runner = (SCRIPTS / "test-device-ci.sh").read_text()
         for contract in (
             "trap collect EXIT",
-            "require_native_panel",
-            "'Physical size: 1280x800'",
-            "'Physical density: 160'",
             "connectedDebugAndroidTest",
             "vulkan.level",
             "logcat -d",
@@ -254,42 +251,6 @@ class AndroidWorkflowTests(unittest.TestCase):
         ):
             self.assertIn(contract, runner)
         self.assertNotIn("connectedDebugAndroidTest ||", runner)
-        # #4984: a runtime override makes SurfaceFlinger scale every frame.
-        self.assertNotIn("wm size 1280x800", runner)
-        self.assertNotIn("wm density 160", runner)
-
-
-class AndroidPanelTests(unittest.TestCase):
-    def configure(self, config):
-        with tempfile.TemporaryDirectory() as temporary:
-            avd = Path(temporary) / "test.avd"
-            avd.mkdir()
-            if config is not None:
-                (avd / "config.ini").write_text(config)
-            result = subprocess.run(
-                ["bash", str(SCRIPTS / "configure-ci-panel.sh"), "test"],
-                env={**os.environ, "ANDROID_AVD_HOME": temporary},
-                capture_output=True,
-                text=True,
-                timeout=10,
-            )
-            written = (avd / "config.ini").read_text() if config is not None else ""
-        return result, written
-
-    def test_pixel_tablet_panel_is_replaced_by_the_tested_layout(self):
-        result, written = self.configure(
-            "hw.lcd.density = 320\nhw.lcd.height=1600\nhw.lcd.width=2560\nhw.ramSize=4096M\n"
-        )
-        self.assertEqual(result.returncode, 0, result.stderr)
-        lcd = [line for line in written.splitlines() if line.startswith("hw.lcd.")]
-        self.assertEqual(
-            lcd, ["hw.lcd.width=1280", "hw.lcd.height=800", "hw.lcd.density=160"]
-        )
-        self.assertIn("hw.ramSize=4096M", written)
-
-    def test_missing_avd_config_fails_before_boot(self):
-        result, _ = self.configure(None)
-        self.assertNotEqual(result.returncode, 0)
 
     def test_pair_device_rename_requires_cached_host_filename_engine(self):
         steps = workflow("android")["jobs"]["android-build"]["steps"]
@@ -323,6 +284,98 @@ class AndroidPanelTests(unittest.TestCase):
             }
             with self.subTest(result=result), self.assertRaises(ValueError):
                 validate(needs, {"android-build": "android"}, "pull_request")
+
+
+class AndroidPanelTests(unittest.TestCase):
+    def configure(self, config):
+        with tempfile.TemporaryDirectory() as temporary:
+            avd = Path(temporary) / "test.avd"
+            avd.mkdir()
+            if config is not None:
+                (avd / "config.ini").write_text(config)
+            result = subprocess.run(
+                ["bash", str(SCRIPTS / "configure-ci-panel.sh"), "test"],
+                env={**os.environ, "ANDROID_AVD_HOME": temporary},
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+            written = (avd / "config.ini").read_text() if config is not None else ""
+            return result, written, sorted(path.name for path in avd.iterdir())
+
+    def test_pixel_tablet_panel_is_replaced_by_the_tested_layout(self):
+        result, written, files = self.configure(
+            "hw.lcd.density = 320\nhw.lcd.height=1600\nhw.lcd.width=2560\nhw.ramSize=4096M\n"
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        lcd = [line for line in written.splitlines() if line.startswith("hw.lcd.")]
+        self.assertEqual(
+            lcd, ["hw.lcd.width=1280", "hw.lcd.height=800", "hw.lcd.density=160"]
+        )
+        self.assertIn("hw.ramSize=4096M", written)
+        self.assertEqual(files, ["config.ini"])
+
+    def test_missing_avd_config_is_reported_and_fails(self):
+        result, _, _ = self.configure(None)
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertIn("test.avd/config.ini", result.stderr)
+
+    def configure_display(self, size, density):
+        runner = (SCRIPTS / "test-device-ci.sh").read_text()
+        start = runner.index("require_native_panel() {")
+        end = runner.index("\n}\n", runner.index("configure_display() {")) + 2
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            adb = root / "adb"
+            adb.write_text(
+                '#!/bin/sh\necho "$*" >>"$ADB_CALLS"\ncase "$*" in\n'
+                '"shell wm size") printf \'%s\\r\\n\' "$PANEL_SIZE";;\n'
+                '"shell wm density") printf \'%s\\r\\n\' "$PANEL_DENSITY";;\n'
+                "esac\n"
+            )
+            adb.chmod(0o755)
+            calls = root / "calls.txt"
+            result = subprocess.run(
+                ["bash", "-euc", runner[start:end] + "\nconfigure_display\n"],
+                check=False,
+                env={
+                    **os.environ,
+                    "PATH": f"{root}:{os.environ['PATH']}",
+                    "ADB_CALLS": str(calls),
+                    "PANEL_SIZE": size,
+                    "PANEL_DENSITY": density,
+                },
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+            return result, calls.read_text().splitlines()
+
+    def test_native_panel_is_accepted_without_an_override(self):
+        result, calls = self.configure_display(
+            "Physical size: 1280x800", "Physical density: 160"
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(calls[:2], ["shell wm size", "shell wm density"])
+        self.assertEqual(len([call for call in calls if " wm " in call]), 2)
+        self.assertIn("shell settings put system user_rotation 0", calls)
+
+    def test_runtime_override_is_refused_and_shown(self):
+        result, calls = self.configure_display(
+            "Physical size: 2560x1600\nOverride size: 1280x800",
+            "Physical density: 160",
+        )
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertIn("Override size: 1280x800", result.stderr)
+        self.assertEqual(calls, ["shell wm size", "shell wm density"])
+
+    def test_panel_that_kept_its_density_is_refused(self):
+        result, calls = self.configure_display(
+            "Physical size: 1280x800", "Physical density: 320"
+        )
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertIn("Physical density: 320", result.stderr)
+        self.assertEqual(calls, ["shell wm size", "shell wm density"])
 
 
 class AndroidReportTests(unittest.TestCase):

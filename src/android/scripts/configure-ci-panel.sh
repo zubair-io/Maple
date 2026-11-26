@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
-# #4984: boot the AVD with the tested 1280x800 mdpi panel. A runtime
-# `wm size`/`wm density` override on the 2560x1600 pixel_tablet panel makes
-# SurfaceFlinger client-compose and scale every frame in software, which
-# starved SystemUI's first-boot services into ANRs on the 2-core emulator.
+# #4984: a runtime wm override on the 2560x1600 panel made SurfaceFlinger scale every frame and starved first-boot SystemUI.
 set -euo pipefail
 config="${ANDROID_AVD_HOME:-$HOME/.android/avd}/${1:?Pass the AVD name}.avd/config.ini"
-test -w "$config"
-sed -i -E '/^hw\.lcd\.(width|height|density)[[:space:]]*=/d' "$config"
+if [[ ! -w "$config" ]]; then
+	echo "AVD config is missing or read-only: $config" >&2
+	exit 1
+fi
+# BSD sed reads the argument after a bare -i as the backup suffix, so the suffix is attached.
+sed -E -i.bak '/^hw\.lcd\.(width|height|density)[[:space:]]*=/d' "$config"
+rm -f "$config.bak"
 printf 'hw.lcd.width=1280\nhw.lcd.height=800\nhw.lcd.density=160\n' >>"$config"
