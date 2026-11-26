@@ -117,7 +117,7 @@ cargo test --manifest-path native/Cargo.toml --lib
 Android CI uses the central conservative dependency selector, including shared
 Rust/codegen, LUTs, fixtures and the Apple layout/font/icon inputs. The stable
 **Android result** check rejects failed, cancelled or unexpectedly skipped work.
-The complete device suite runs on API 36 with a 1280×800 dp tablet layout and
+The complete device suite runs on API 36 with a native 1280×800 mdpi tablet panel and
 SwiftShader Vulkan, exercising the inspector/group resets and HEIF/AVIF cases.
 Reports must contain at least 46 device and 28 JVM passes with no skips. The
 22 native CPU/GPU/cache contract tests and the shared presentation/cache/scRGB tests run against

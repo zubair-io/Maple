@@ -210,7 +210,12 @@ Before instrumentation, CI requires launcher focus, a running SystemUI process a
 five consecutive samples without an executing SystemUI service. An observed
 pre-test ANR permits one recovery reboot; other unhealthy boots fail the job.
 Watching every SystemUI service closes the Keyguard-only guard gap (#4984), but
-the guard does not prevent an Android service ANR.
+the guard does not prevent an Android service ANR. The AVD therefore boots a native
+1280×800 mdpi panel (`scripts/configure-ci-panel.sh`) instead of shrinking the
+2560×1600 `pixel_tablet` panel with `wm size`/`wm density` after boot: in the
+retained ANRs SurfaceFlinger's RenderEngine used over half of the two guest CPUs
+while first-boot SystemUI services starved. The device script asserts the native
+panel and refuses any override.
 Timestamped host uptime, CPU count and CPU/memory/I/O pressure snapshots are retained
 in `ci-artifacts/host-before-emulator.txt` and `host-after-boot-guard.txt` to compare
 runner contention with boot ANR evidence. Collection is best-effort and does not
