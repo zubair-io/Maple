@@ -1,3 +1,4 @@
+// fallow-ignore-file complexity code-duplication
 /**
  * Derivative render benchmark with real RAW fixtures: boots the real server against copies
  * (APFS clones) of RAWs from `test-fixtures/raws`, half of them carrying an authored sidecar,

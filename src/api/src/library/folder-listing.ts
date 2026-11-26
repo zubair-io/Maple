@@ -121,6 +121,31 @@ interface Scanned {
   media: MediaClass;
 }
 
+/** A file or folder on disk, or a catalog row whose original is absent. */
+function isListable(stat: ChildStat | null, catalog: DirectoryAsset | undefined): boolean {
+  return stat ? stat.isFile() || stat.isDirectory() : catalog !== undefined;
+}
+
+function listedEntry(
+  name: string,
+  address: string,
+  absPath: string,
+  stat: ChildStat | null,
+  catalog: DirectoryAsset | undefined,
+  extension: string,
+): Entry {
+  return {
+    name,
+    address,
+    // Realpath is the jail/stat target; clients navigate by the registered
+    // library spelling, including in-library links and symlinked roots.
+    path: path.join(absPath, name),
+    size: stat?.size ?? catalog!.size,
+    mtime: new Date(stat?.mtimeMs ?? catalog!.mtime).toISOString(),
+    ext: stat?.isDirectory() ? '' : extension,
+  };
+}
+
 /** Only the selected page needs stat I/O. Every disk child is independently
  * realpathed against THIS library, never against the union of all libraries. */
 async function scanEntry(
@@ -134,25 +159,21 @@ async function scanEntry(
   const catalog = state.byName.get(name);
   const facts = onDisk ? await state.inspectChild(name) : null;
   if (onDisk && facts === null) return null;
-  const real = facts?.real ?? path.join(resolved.absPath, name);
   const stat = facts?.stat ?? null;
-  if (!stat && !catalog) return null;
-  if (stat && !stat.isFile() && !stat.isDirectory()) return null;
+  if (!isListable(stat, catalog)) return null;
   const extension = path.extname(name).slice(1).toLowerCase();
   return {
-    entry: {
+    entry: listedEntry(
       name,
-      address: addressOf(slug, relPath, name),
-      // Realpath is the jail/stat target; clients navigate by the registered
-      // library spelling, including in-library links and symlinked roots.
-      path: path.join(resolved.absPath, name),
-      size: stat?.size ?? catalog!.size,
-      mtime: new Date(stat?.mtimeMs ?? catalog!.mtime).toISOString(),
-      ext: stat?.isDirectory() ? '' : extension,
-    },
+      addressOf(slug, relPath, name),
+      resolved.absPath,
+      stat,
+      catalog,
+      extension,
+    ),
     stat,
     catalog,
-    realPath: real,
+    realPath: facts?.real ?? path.join(resolved.absPath, name),
     media: classifyMedia(extension),
   };
 }

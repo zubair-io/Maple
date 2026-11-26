@@ -1,3 +1,4 @@
+// fallow-ignore-file complexity code-duplication
 /**
  * Thumbnail serving benchmark: boots the real server against a generated library whose photos
  * all have a fresh thumb, then times `GET /api/thumb/<slug>/<file>`.
