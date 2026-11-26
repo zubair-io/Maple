@@ -63,6 +63,11 @@ class PhotoLibrary(private val context: Context) {
                 }
                 .sortedBy { it.name.lowercase() } + cloud.sources
 
+    /** Local document-tree folders only; a Maple Cloud folder follows its server's setting. */
+    var stackRawJpeg: Boolean
+        get() = preferences.getBoolean("stack-raw-jpeg", true)
+        set(value) = preferences.edit().putBoolean("stack-raw-jpeg", value).apply()
+
     fun remember(uri: Uri) {
         context.contentResolver.takePersistableUriPermission(
             uri,
@@ -94,7 +99,8 @@ class PhotoLibrary(private val context: Context) {
                     .map {
                         Photo(it.uri, it.name, it.size, it.modified, folder)
                     }
-                    .sortedBy { it.name.lowercase() },
+                    .sortedBy { it.name.lowercase() }
+                    .let { if (stackRawJpeg) RawJpegPairing.fold(it) else it },
             )
         }
 
@@ -438,33 +444,9 @@ class PhotoLibrary(private val context: Context) {
         /** The `cacheDir/thumbnails` budget, shared with the documents provider. */
         const val THUMBNAIL_BYTES = 64L * 1024 * 1024
         val EXTENSIONS =
-            setOf(
-                "cr2",
-                "cr3",
-                "nef",
-                "arw",
-                "dng",
-                "raf",
-                "orf",
-                "rw2",
-                "pef",
-                "srw",
-                "x3f",
-                "3fr",
-                "mef",
-                "erf",
-                "mrw",
-                "raw",
-                "fff",
-                "jpg",
-                "jpeg",
-                "png",
-                "webp",
-                "tif",
-                "tiff",
-                "heic",
-                "heif",
-            ) + if (android.os.Build.VERSION.SDK_INT >= 31) setOf("avif") else emptySet()
+            RawJpegPairing.RAW_EXTENSIONS +
+                setOf("jpg", "jpeg", "png", "webp", "tif", "tiff", "heic", "heif") +
+                if (android.os.Build.VERSION.SDK_INT >= 31) setOf("avif") else emptySet()
 
         fun digest(value: String): String = digestParts(value)
 

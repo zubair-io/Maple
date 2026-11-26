@@ -126,6 +126,39 @@ internal fun SettingsSheet(
                                         Switch(state.showFilmstrip, model::setFilmstrip)
                                     }
                                 }
+                                SettingsGroup("Library") {
+                                    var stackRawJpeg by remember {
+                                        mutableStateOf(model.library.stackRawJpeg)
+                                    }
+                                    Row(
+                                        Modifier.fillMaxWidth()
+                                            .padding(horizontal = 16.dp, vertical = 10.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                    ) {
+                                        Column(Modifier.weight(1f).padding(end = 12.dp)) {
+                                            Text(
+                                                "Show one image for RAW+JPEG pairs",
+                                                fontSize = 16.sp,
+                                            )
+                                            Text(
+                                                "A RAW and a JPEG with the same name in one folder show as one image, the RAW. Turn off to show both files as separate images. Applies to local folders; each Maple Cloud server keeps its own setting.",
+                                                color = MapleColors.muted,
+                                                fontSize = 13.sp,
+                                            )
+                                        }
+                                        Switch(
+                                            stackRawJpeg,
+                                            { value ->
+                                                stackRawJpeg = value
+                                                model.library.stackRawJpeg = value
+                                                state.folder
+                                                    ?.takeUnless { CloudLibrary.isCloud(it.uri) }
+                                                    ?.let { model.browse(it) }
+                                            },
+                                            Modifier.testTag("settings-stack-raw-jpeg"),
+                                        )
+                                    }
+                                }
                                 Text(
                                     "Edits save automatically to XMP sidecars. Your original photos stay unchanged.",
                                     color = MapleColors.muted,
