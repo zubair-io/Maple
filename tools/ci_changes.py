@@ -130,6 +130,10 @@ SIDECAR_CONTRACT_RECORDS = {
         ("swift", "codegen")
     ),
 }
+# Run only by the owning platform's jobs, unlike the shared scripts trees.
+PLATFORM_OWNED_SCRIPT_PREFIXES = ("src/android/", "src/windows/scripts/")
+# Other consumers' workflows run these; every other API TypeScript script is API source.
+SHARED_API_SCRIPTS = frozenset(("src/api/scripts/prewarm-temporal.ts",))
 METADATA = frozenset(
     name + extension
     for name in ("README", "AGENTS", "CLAUDE", "LICENSE")
@@ -153,8 +157,19 @@ def dependencies(path):
         return {"release"}
     if path in ("tools/generate_nlm_exp_table.py", "tools/test_nlm_exp_table.py"):
         return {"codegen"}
+    # linux.yml and cloudflare.yml filter on these trees; no selected suite builds them.
+    if path.startswith("src/linux/"):
+        return frozenset()
+    # src/api/src/db/no-mongodb-anywhere.test.ts scans the Worker sources.
+    if path.startswith("src/cloudflare/"):
+        return {"api"}
+    owner_run = path.startswith(PLATFORM_OWNED_SCRIPT_PREFIXES) or (
+        path.startswith("src/api/scripts/")
+        and path.endswith(".ts")
+        and path not in SHARED_API_SCRIPTS
+    )
     if path.startswith((".github/workflows/", ".github/actions/")) or (
-        not path.startswith("src/android/")
+        not owner_run
         and any(part in ("scripts", "ci_scripts") for part in parts[:-1])
     ):
         return ALL
