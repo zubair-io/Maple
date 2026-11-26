@@ -44,8 +44,8 @@ public sealed partial class MainWindow
         host.Children.Add(editor.Root);
         root.Children.Add(host);
 
-        Control Named(string name) => HslDescendants(host).OfType<Control>()
-            .Single(control => AutomationProperties.GetName(control) == name);
+        Control Named(string id) => HslDescendants(host).OfType<Control>()
+            .Single(control => AutomationProperties.GetAutomationId(control) == id);
         bool Shows(string text) => HslDescendants(editor.Root).OfType<TextBlock>()
             .Any(block => block.Text == text && block.Visibility == Visibility.Visible);
         void Require(bool held, string failure)
@@ -66,7 +66,7 @@ public sealed partial class MainWindow
             await Task.Delay(100);
             await SettleAsync();
         }
-        void Plant(string strategy)
+        void Plant(string strategy, string resolved = "rotation")
         {
             authoring.GeometryChanged(strategy);
             authoring.PreviewRequested();
@@ -74,7 +74,7 @@ public sealed partial class MainWindow
                 new PanoPreviewRun(new PanoPreviewOptions("keep", "mesh", strategy),
                     new PanoPreviewFiles(System.IO.Path.Combine(folder, "planted.png"), System.IO.Path.Combine(folder, "planted.json")), null),
                 new PanoPreviewOutcome(true, false, null,
-                    new PanoPreviewReport(new PanoSeamCanvas(2048, 1024), "rotation", "solved", frames, null))), isLatest: true);
+                    new PanoPreviewReport(new PanoSeamCanvas(2048, 1024), resolved, "solved", frames, null))), isLatest: true);
         }
 
         try
@@ -82,21 +82,25 @@ public sealed partial class MainWindow
             await SettleAsync();
             var names = new[]
             {
-                "Seam source frame", "Seam region mode", "Seam region X", "Seam region Y", "Seam region Width",
-                "Seam region Height", "Add seam region from numeric coordinates", "Clear all seam regions",
-                "Preview panorama with seam regions",
+                PanoSeamIds.Frame, PanoSeamIds.Kind, PanoSeamIds.X, PanoSeamIds.Y, PanoSeamIds.Width,
+                PanoSeamIds.Height, PanoSeamIds.Add, PanoSeamIds.Clear, PanoSeamIds.Preview,
             };
-            Require(names.All(name => Named(name).ActualHeight > 0), "a control is missing its accessible name");
+            Require(names.All(name => Named(name).ActualHeight > 0 && AutomationProperties.GetName(Named(name)).Length > 0),
+                "a control is missing or has no accessible name");
+            Require(HslDescendants(editor.Root).OfType<StackPanel>().Any(panel =>
+                AutomationProperties.GetAutomationId(panel) == PanoSeamIds.List
+                && AutomationProperties.GetName(panel) == PanoSeamText.ListName),
+                "the region list has no accessible name");
             Require(!Named(names[6]).IsEnabled && !Named(names[2]).IsEnabled && Shows(PanoSeamAuthoring.WaitReason),
                 "authoring was open before any preview");
 
             Plant("auto");
             await SettleAsync();
             Require(Named(names[6]).IsEnabled && !Shows(PanoSeamAuthoring.WaitReason), "a current preview did not open authoring");
-            ((TextBox)Named("Seam region X")).Text = "100";
-            ((TextBox)Named("Seam region Y")).Text = "200";
-            ((TextBox)Named("Seam region Width")).Text = "80";
-            ((TextBox)Named("Seam region Height")).Text = "60";
+            ((TextBox)Named(PanoSeamIds.X)).Text = "100";
+            ((TextBox)Named(PanoSeamIds.Y)).Text = "200";
+            ((TextBox)Named(PanoSeamIds.Width)).Text = "80";
+            ((TextBox)Named(PanoSeamIds.Height)).Text = "60";
             await InvokeAsync(names[6]);
             var typed = new PanoSeamRegion(PanoSeamKind.Include, 0, new PanoSeamRect(100, 200, 80, 60));
             Require(authoring.Regions.SequenceEqual(new[] { typed }), "typed coordinates did not add the region");
@@ -108,18 +112,18 @@ public sealed partial class MainWindow
                 && Math.Abs(outline.Width - 80 * 400.0 / 2048) < 0.5,
                 "the region is not drawn where it sits on the preview");
 
-            ((ComboBox)Named("Seam source frame")).SelectedIndex = 1;
-            ((ComboBox)Named("Seam region mode")).SelectedIndex = 1;
+            ((ComboBox)Named(PanoSeamIds.Frame)).SelectedIndex = 1;
+            ((ComboBox)Named(PanoSeamIds.Kind)).SelectedIndex = 1;
             Require(editor.Overlay.BeginDrag(new Point(200, 100)), "a drag did not start on the preview");
             editor.Overlay.MoveDrag(new Point(240, 120));
             editor.Overlay.EndDrag();
             await SettleAsync();
             var dragged = new PanoSeamRegion(PanoSeamKind.Exclude, 1, new PanoSeamRect(1024, 512, 205, 103));
             Require(authoring.Regions.SequenceEqual(new[] { typed, dragged }), "a drag did not add the excluded region");
-            Require(Named(PanoSeamText.Remove(0)).ActualHeight > 0 && Named(PanoSeamText.Remove(1)).ActualHeight > 0,
+            Require(Named(PanoSeamIds.Remove(0)).ActualHeight > 0 && Named(PanoSeamIds.Remove(1)).ActualHeight > 0,
                 "a listed region has no Remove button");
 
-            ((TextBox)Named("Seam region X")).Text = "abc";
+            ((TextBox)Named(PanoSeamIds.X)).Text = "abc";
             await InvokeAsync(names[6]);
             Require(authoring.Regions.Count == 2 && Shows(PanoSeamAuthoring.InvalidNumbers), "invalid coordinates were not reported");
 
@@ -132,7 +136,8 @@ public sealed partial class MainWindow
             using var limit = new CancellationTokenSource(TimeSpan.FromSeconds(60));
             var outcome = await Task.Run(() => PanoService.PreviewAsync(
                 provisioner, frames, run, PanoFeatureEngine.Classical, _ => { }, limit.Token));
-            Require(!outcome.Ok && (outcome.Error ?? string.Empty).StartsWith("invalid_seam_constraints: ", StringComparison.Ordinal)
+            Require(!outcome.Ok && (outcome.Error ?? string.Empty).StartsWith(PanoCliReport.InvalidSeamConstraints + ": ", StringComparison.Ordinal)
+                && outcome.Error!.Contains("graph-cut", StringComparison.Ordinal)
                 && !File.Exists(run.Files.PreviewPng)
                 && File.ReadAllText(run.Files.SeamConstraintsJson) == request.ToJson(),
                 $"maple-cli did not refuse regions on Tile by name: {outcome.Error}");
@@ -143,12 +148,12 @@ public sealed partial class MainWindow
             Require(Shows(outcome.Error!) && authoring.Regions.Count == 2 && authoring.CanAuthor,
                 "the refusal was not shown by name with the regions kept");
 
-            await InvokeAsync(PanoSeamText.Remove(0));
+            await InvokeAsync(PanoSeamIds.Remove(0));
             Require(authoring.Regions.SequenceEqual(new[] { dragged }), "Remove did not drop exactly its region");
             await InvokeAsync(names[7]);
             Require(authoring.Regions.Count == 0 && !Named(names[7]).IsEnabled, "Clear left regions behind");
 
-            ((TextBox)Named("Seam region X")).Text = "100";
+            ((TextBox)Named(PanoSeamIds.X)).Text = "100";
             await InvokeAsync(names[6]);
             authoring.GeometryChanged("rotation");
             await SettleAsync();
@@ -157,6 +162,9 @@ public sealed partial class MainWindow
             Plant("tile");
             await SettleAsync();
             Require(!Named(names[6]).IsEnabled && Shows(PanoSeamAuthoring.TileReason), "Tile did not close authoring");
+            Plant("auto", "tile");
+            await SettleAsync();
+            Require(!Named(names[6]).IsEnabled && Shows(PanoSeamAuthoring.TileReason), "Auto resolving to Tile did not close authoring");
 
             await File.WriteAllTextAsync(System.IO.Path.Combine(output, "pano-seams.json"), JsonSerializer.Serialize(new
             {

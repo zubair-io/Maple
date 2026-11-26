@@ -57,8 +57,6 @@ public sealed record PanoSeamRequest(PanoSeamCanvas Canvas, IReadOnlyList<PanoSe
         return Encoding.UTF8.GetString(buffer.ToArray());
     }
 
-    /// <summary>The request a maple-cli report echoes as `seam_constraints`;
-    /// null for JSON null, another version, or any other shape.</summary>
     public static PanoSeamRequest? Parse(JsonElement element)
     {
         if (element.ValueKind != JsonValueKind.Object)

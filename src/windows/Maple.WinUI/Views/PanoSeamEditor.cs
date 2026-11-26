@@ -13,28 +13,26 @@ using Windows.System;
 
 namespace Maple.WinUI.Views;
 
-/// <summary>The stitch dialog's seam-region controls (#5992): the ordered
-/// source frame and Include/Exclude pickers, the coordinate fields that do
-/// everything dragging on the preview does, and the numbered region list.
-/// Editing never starts work; "Preview regions" asks for a constrained
-/// preview. UI-thread only.</summary>
+/// <summary>The stitch dialog's seam-region controls (#5992). Editing never
+/// starts work; "Preview regions" asks for a constrained preview. UI-thread
+/// only.</summary>
 internal sealed class PanoSeamEditor
 {
     private readonly PanoSeamAuthoring _authoring;
     private readonly MuiText _guide = new() { Variant = MuiTextVariant.Body, ColorRole = MuiTextColorRole.Muted };
     private readonly TextBlock _reason = Status("MapleWarn", AutomationLiveSetting.Polite);
-    private readonly ComboBox _frame = Picker("Source frame", "Seam source frame");
-    private readonly ComboBox _kind = Picker("Region mode", "Seam region mode");
-    private readonly TextBox _x = Field("X", "0");
-    private readonly TextBox _y = Field("Y", "0");
-    private readonly TextBox _width = Field("Width", "1");
-    private readonly TextBox _height = Field("Height", "1");
+    private readonly ComboBox _frame = Picker("Source frame", "Seam source frame", PanoSeamIds.Frame);
+    private readonly ComboBox _kind = Picker("Region mode", "Seam region mode", PanoSeamIds.Kind);
+    private readonly TextBox _x = Field("X", "0", PanoSeamIds.X);
+    private readonly TextBox _y = Field("Y", "0", PanoSeamIds.Y);
+    private readonly TextBox _width = Field("Width", "1", PanoSeamIds.Width);
+    private readonly TextBox _height = Field("Height", "1", PanoSeamIds.Height);
     private readonly TextBlock _message = Status("MapleErrorText", AutomationLiveSetting.Assertive);
-    private readonly MuiButton _add = Command("Add region", MuiButtonVariant.Secondary, "Add seam region from numeric coordinates");
-    private readonly MuiButton _clear = Command("Clear regions", MuiButtonVariant.Ghost, "Clear all seam regions");
-    private readonly MuiButton _preview = Command("Preview regions", MuiButtonVariant.Secondary, "Preview panorama with seam regions");
+    private readonly MuiButton _add = Command("Add region", MuiButtonVariant.Secondary, "Add seam region from numeric coordinates", PanoSeamIds.Add);
+    private readonly MuiButton _clear = Command("Clear regions", MuiButtonVariant.Ghost, "Clear all seam regions", PanoSeamIds.Clear);
+    private readonly MuiButton _preview = Command("Preview regions", MuiButtonVariant.Secondary, "Preview panorama with seam regions", PanoSeamIds.Preview);
     private readonly MuiText _count = new() { Variant = MuiTextVariant.Body, ColorRole = MuiTextColorRole.Muted };
-    private readonly StackPanel _list = new() { Spacing = 4 };
+    private readonly StackPanel _list = CreateList();
 
     public PanoSeamEditor(PanoSeamAuthoring authoring)
     {
@@ -62,6 +60,7 @@ internal sealed class PanoSeamEditor
         {
             _authoring.Clear();
             ShowMessage(null);
+            _add.Focus(FocusState.Programmatic);
         };
         _preview.Click += (_, _) =>
         {
@@ -87,7 +86,6 @@ internal sealed class PanoSeamEditor
 
     private PanoSeamKind SelectedKind => _kind.SelectedIndex == 1 ? PanoSeamKind.Exclude : PanoSeamKind.Include;
 
-    /// <summary>The error or named refusal beside the regions; null clears it.</summary>
     public void ShowMessage(string? message) => SetStatus(_message, message);
 
     /// <summary>Whether keyboard focus is in a coordinate field, where
@@ -115,7 +113,7 @@ internal sealed class PanoSeamEditor
         SetStatus(_reason, reason);
         foreach (var control in new Control[] { _frame, _kind, _x, _y, _width, _height, _add, _preview })
             control.IsEnabled = reason is null;
-        _clear.IsEnabled = _authoring.Regions.Count > 0;
+        _clear.IsEnabled = _authoring.CanChangeRegions && _authoring.Regions.Count > 0;
         _count.Text = PanoSeamText.Count(_authoring.Regions.Count);
         _list.Children.Clear();
         foreach (var (region, index) in _authoring.Regions.Select((region, index) => (region, index)))
@@ -137,6 +135,8 @@ internal sealed class PanoSeamEditor
     {
         var remove = new MuiButton { Label = "Remove", Variant = MuiButtonVariant.Ghost, ButtonSize = MuiButtonSize.Sm };
         AutomationProperties.SetName(remove, PanoSeamText.Remove(index));
+        AutomationProperties.SetAutomationId(remove, PanoSeamIds.Remove(index));
+        remove.IsEnabled = _authoring.CanChangeRegions;
         remove.Click += (_, _) =>
         {
             _authoring.Remove(index);
@@ -157,8 +157,6 @@ internal sealed class PanoSeamEditor
         return row;
     }
 
-    // The pressed button is gone once its region is; keep keyboard focus on
-    // the row that took its place, or on Add when the list is empty.
     private void FocusAfterRemoving(int index)
     {
         var rows = _list.Children.OfType<Grid>().ToList();
@@ -191,24 +189,35 @@ internal sealed class PanoSeamEditor
         return block;
     }
 
-    private static ComboBox Picker(string header, string name)
+    private static StackPanel CreateList()
+    {
+        var list = new StackPanel { Spacing = 4 };
+        AutomationProperties.SetName(list, PanoSeamText.ListName);
+        AutomationProperties.SetAutomationId(list, PanoSeamIds.List);
+        return list;
+    }
+
+    private static ComboBox Picker(string header, string name, string id)
     {
         var picker = new ComboBox { Header = header, HorizontalAlignment = HorizontalAlignment.Stretch };
         AutomationProperties.SetName(picker, name);
+        AutomationProperties.SetAutomationId(picker, id);
         return picker;
     }
 
-    private static TextBox Field(string header, string value)
+    private static TextBox Field(string header, string value, string id)
     {
         var field = new TextBox { Header = header, Text = value };
         AutomationProperties.SetName(field, $"Seam region {header}");
+        AutomationProperties.SetAutomationId(field, id);
         return field;
     }
 
-    private static MuiButton Command(string label, MuiButtonVariant variant, string name)
+    private static MuiButton Command(string label, MuiButtonVariant variant, string name, string id)
     {
         var button = new MuiButton { Label = label, Variant = variant };
         AutomationProperties.SetName(button, name);
+        AutomationProperties.SetAutomationId(button, id);
         return button;
     }
 }

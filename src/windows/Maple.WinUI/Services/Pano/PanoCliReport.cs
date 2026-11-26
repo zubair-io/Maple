@@ -13,16 +13,11 @@ public sealed record PanoPreviewReport(
     PanoSeamCanvas Canvas, string Strategy, string AlignmentStatus,
     IReadOnlyList<string>? Inputs, PanoSeamRequest? SeamConstraints);
 
-/// <summary>A run maple-cli refused by name (#5992). The text is shown to
-/// the user as it is, led by the refusal's name.</summary>
 public sealed record PanoCliRefusal(string Name, string Message)
 {
     public string Text => Message.StartsWith(Name, StringComparison.Ordinal) ? Message : $"{Name}: {Message}";
 }
 
-/// <summary>Reads the JSON `maple-cli pano stitch --report` writes: the
-/// preview's uncropped canvas and alignment verdict, the seam request it
-/// echoes, and a `refused` block when it declined to run.</summary>
 public static class PanoCliReport
 {
     public const string InvalidSeamConstraints = "invalid_seam_constraints";
@@ -56,7 +51,6 @@ public static class PanoCliReport
 
     public static PanoSeamRequest? SeamEcho(string json) => Root(json) is { } root ? SeamEcho(root) : null;
 
-    /// <summary>The report's text; null when the run wrote none.</summary>
     public static string? Read(string path)
     {
         try
@@ -69,8 +63,6 @@ public static class PanoCliReport
         }
     }
 
-    /// <summary>Why a run failed: the named refusal from its report when
-    /// there is one, otherwise the exit code and the stderr tail.</summary>
     public static string Failure(PanoCliExit exit, string? reportPath) =>
         (reportPath is null ? null : Read(reportPath)) is { } json && Refusal(json) is { } refusal
             ? refusal.Text
