@@ -42,6 +42,21 @@ private struct LeastRecentlyUsedTier: BytesTier {
   }
 }
 
+// Ordered eviction without the refresh on read, to show what the refresh itself is worth.
+private struct FirstInFirstOutTier: BytesTier {
+  private var store: RecencyOrderedStore<String, Bool>
+
+  init(capacity: Int) { store = RecencyOrderedStore(capacity: capacity) }
+
+  func lookup(_ key: Int) -> Bool {
+    store.peek(MapleThumbCacheKey.sha256Prefix16(String(key))) != nil
+  }
+
+  mutating func insert(_ key: Int) {
+    store.set(true, for: MapleThumbCacheKey.sha256Prefix16(String(key)))
+  }
+}
+
 private struct ReplayResult {
   var hits = 0
   var diskReads = 0
@@ -137,6 +152,67 @@ final class ThumbnailBytesTierTraceTests: XCTestCase {
     XCTAssertEqual(result.diskReads, 100 * GridTrace.columns - reachable)
   }
 
+  func testARowThatKeepsBeingReadSurvivesAScrollPastTheCapacity() {
+    let pinned = GridTrace.cells(inRow: 0)
+    let passingRows = 100
+    let passing = (1...passingRows).flatMap { GridTrace.cells(inRow: $0) + pinned }
+    let trace = GridTrace(
+      name: "pinned row", accesses: pinned + passing, measuredFrom: pinned.count)
+    var recent = LeastRecentlyUsedTier(capacity: capacity)
+    var firstIn = FirstInFirstOutTier(capacity: capacity)
+
+    let refreshed = replay(trace, on: &recent)
+    let unrefreshed = replay(trace, on: &firstIn)
+
+    XCTAssertEqual(refreshed.hits, passingRows * pinned.count, "every return to the row is a hit")
+    XCTAssertEqual(refreshed.diskReads, passingRows * GridTrace.columns)
+    XCTAssertEqual(
+      unrefreshed.hits, refreshed.hits - pinned.count,
+      "without the refresh on read the row ages out once and is read from disk again")
+  }
+
+  func testProvingAnEntryDecodesDoesNotMakeItRecent() async throws {
+    let fixture = try CacheFixture()
+    defer { fixture.remove() }
+    let cache = ThumbnailDiskCache()
+    for index in 0..<capacity {
+      await cache.storeThumbnailData(fixture.bytes, for: try fixture.asset(index))
+    }
+
+    let oldest = await cache.cachedThumbnail(for: try fixture.asset(0))
+    for index in 1..<capacity { _ = await cache.cachedThumbnail(for: try fixture.asset(index)) }
+    await cache.markDecodable(try XCTUnwrap(oldest))
+
+    await cache.storeThumbnailData(fixture.bytes, for: try fixture.asset(capacity))
+    let reread = await cache.cachedThumbnail(for: try fixture.asset(0))
+    XCTAssertEqual(
+      reread?.isKnownDecodable, false, "the proven entry was still the oldest, so it went first")
+  }
+
+  func testMemoryPressureDropsTheOldestEntriesFirst() async throws {
+    let fixture = try CacheFixture()
+    defer { fixture.remove() }
+    let cache = ThumbnailDiskCache()
+    for index in 0..<capacity {
+      await cache.storeThumbnailData(fixture.bytes, for: try fixture.asset(index))
+    }
+
+    let old = await cache.cachedThumbnail(for: try fixture.asset(300))
+    await cache.markDecodable(try XCTUnwrap(old))
+    for index in 0..<capacity where index != 300 {
+      _ = await cache.cachedThumbnail(for: try fixture.asset(index))
+    }
+    let recent = await cache.cachedThumbnail(for: try fixture.asset(0))
+    await cache.markDecodable(try XCTUnwrap(recent))
+
+    await cache.shrinkMemCache(to: 25)
+
+    let keptRecent = await cache.cachedThumbnail(for: try fixture.asset(0))
+    let droppedOld = await cache.cachedThumbnail(for: try fixture.asset(300))
+    XCTAssertEqual(keptRecent?.isKnownDecodable, true, "the newest quarter stays in memory")
+    XCTAssertEqual(droppedOld?.isKnownDecodable, false, "the oldest entries are the ones dropped")
+  }
+
   func testCacheKeepsAnEntryThatWasReadRecentlyWhenTheTierFills() async throws {
     let folder = FileManager.default.temporaryDirectory
       .appendingPathComponent("maple-bytes-tier-\(UUID().uuidString)")
@@ -166,4 +242,23 @@ final class ThumbnailBytesTierTraceTests: XCTestCase {
     let evicted = await cache.cachedThumbnail(for: try asset(1))
     XCTAssertEqual(evicted?.isKnownDecodable, false, "the least recently used entry goes first")
   }
+}
+
+private struct CacheFixture {
+  let folder: URL
+  let bytes = Data([0xFF, 0xD8, 0x01])
+
+  init() throws {
+    folder = FileManager.default.temporaryDirectory
+      .appendingPathComponent("maple-bytes-tier-\(UUID().uuidString)")
+    try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+  }
+
+  func asset(_ index: Int) throws -> URL {
+    let url = folder.appendingPathComponent("cell-\(index).jpg")
+    if !FileManager.default.fileExists(atPath: url.path) { try Data([1]).write(to: url) }
+    return url
+  }
+
+  func remove() { try? FileManager.default.removeItem(at: folder) }
 }
