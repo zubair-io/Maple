@@ -12,8 +12,9 @@ import {
   BITMAP_EXTENSIONS,
   PSD_HDR_EXTENSIONS,
   isVideoFilename,
-  isAudioFilename,
-  isStubImageFilename,
+  VIDEO_EXTS,
+  AUDIO_EXTS,
+  STUB_IMAGE_EXTS,
 } from '../indexer/media-types.ts';
 import { directoryHasIgnoreMarker } from '../fs/mapleignore.ts';
 import { child as childLogger } from '../log.ts';
@@ -48,20 +49,23 @@ function visibleName(name: string): boolean {
     !name.includes('\\')
   );
 }
-function isMedia(name: string): boolean {
-  const ext = path.extname(name).slice(1).toLowerCase();
-  return (
-    IMAGE_EXTENSIONS.has(ext) ||
-    isVideoFilename(name) ||
-    isAudioFilename(name) ||
-    isStubImageFilename(name)
-  );
+interface MediaClass {
+  isMedia: boolean;
+  flags: { isVideo?: true; isAudio?: true; isStub?: true };
 }
-function mediaFlags(name: string) {
+/** One lookup per set from the already-lowercased extension, rather than four `extname` calls. */
+function classifyMedia(extension: string): MediaClass {
+  const dotted = `.${extension}`;
+  const isVideo = VIDEO_EXTS.has(dotted);
+  const isAudio = AUDIO_EXTS.has(dotted);
+  const isStub = STUB_IMAGE_EXTS.has(dotted);
   return {
-    ...(isVideoFilename(name) ? { isVideo: true as const } : {}),
-    ...(isAudioFilename(name) ? { isAudio: true as const } : {}),
-    ...(isStubImageFilename(name) ? { isStub: true as const } : {}),
+    isMedia: IMAGE_EXTENSIONS.has(extension) || isVideo || isAudio || isStub,
+    flags: {
+      ...(isVideo ? { isVideo: true as const } : {}),
+      ...(isAudio ? { isAudio: true as const } : {}),
+      ...(isStub ? { isStub: true as const } : {}),
+    },
   };
 }
 async function diskNames(absPath: string): Promise<string[]> {
@@ -114,6 +118,7 @@ interface Scanned {
   stat: ChildStat | null;
   catalog?: DirectoryAsset;
   realPath: string;
+  media: MediaClass;
 }
 
 /** Only the selected page needs stat I/O. Every disk child is independently
@@ -133,6 +138,7 @@ async function scanEntry(
   const stat = facts?.stat ?? null;
   if (!stat && !catalog) return null;
   if (stat && !stat.isFile() && !stat.isDirectory()) return null;
+  const extension = path.extname(name).slice(1).toLowerCase();
   return {
     entry: {
       name,
@@ -142,11 +148,12 @@ async function scanEntry(
       path: path.join(resolved.absPath, name),
       size: stat?.size ?? catalog!.size,
       mtime: new Date(stat?.mtimeMs ?? catalog!.mtime).toISOString(),
-      ext: stat?.isDirectory() ? '' : path.extname(name).slice(1).toLowerCase(),
+      ext: stat?.isDirectory() ? '' : extension,
     },
     stat,
     catalog,
     realPath: real,
+    media: classifyMedia(extension),
   };
 }
 function imageEntry(scanned: Scanned, livePairs: ReadonlyMap<string, LivePhotoLink>): ImageEntry {
@@ -155,7 +162,7 @@ function imageEntry(scanned: Scanned, livePairs: ReadonlyMap<string, LivePhotoLi
   return {
     ...entry,
     ...(livePhoto ? { livePhoto } : {}),
-    ...mediaFlags(entry.name),
+    ...scanned.media.flags,
     mapleId: catalog?.maple_id ?? null,
     indexed: catalog !== undefined,
     ...(catalog
@@ -361,7 +368,7 @@ async function appendEntry(
     entries.folders.push({ ...child.entry, realPath: child.realPath });
     return;
   }
-  if (isMedia(child.entry.name) || child.catalog) {
+  if (child.media.isMedia || child.catalog) {
     entries.images.push({
       ...imageEntry(child, state.livePairs),
       ...(companion ? { stack: { companion: stackCompanion(companion) } } : {}),
@@ -428,7 +435,7 @@ async function scanPage(
     ).flat();
     const sidecars = await Promise.all(
       units.map(({ child }) =>
-        isMedia(child.entry.name) || child.catalog
+        child.media.isMedia || child.catalog
           ? imageSidecarFields(child, state)
           : Promise.resolve({}),
       ),
