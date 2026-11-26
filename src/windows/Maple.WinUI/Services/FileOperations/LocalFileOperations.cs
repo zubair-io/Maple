@@ -131,7 +131,9 @@ namespace Maple.WinUI.Services.FileOperations
                     && SidecarStemClaimedBySibling(sourcePrimaryPath, alsoLeaving.Append(resolvedTargetPath).ToArray()));
 
             var createdPaths = new List<string>();
-            CopyVerified(sourcePrimaryPath, resolvedTargetPath);
+            // Only Replace may overwrite: under any other policy the name was resolved
+            // free, so a file there is one that arrived during the copy.
+            CopyVerified(sourcePrimaryPath, resolvedTargetPath, overwrite: collision == CollisionPolicy.Replace);
             createdPaths.Add(resolvedTargetPath);
 
             string? usedSourceSidecarPath = null;
