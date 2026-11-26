@@ -196,7 +196,7 @@ namespace Maple.WinUI.Services.FileOperations
             {
                 var companionPlan = await PlanRelocateAsync(
                     pair.Companion, pair.DestinationDir, Path.GetFileName(companionTarget), mode,
-                    CollisionPolicy.Fail, pair.Primary).ConfigureAwait(false);
+                    CollisionPolicy.Fail, primaryPlan.FinalSidecarPath, new[] { pair.Primary }).ConfigureAwait(false);
                 return (primaryPlan, companionPlan);
             }
             catch

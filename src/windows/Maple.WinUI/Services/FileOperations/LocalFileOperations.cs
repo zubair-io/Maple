@@ -63,13 +63,27 @@ namespace Maple.WinUI.Services.FileOperations
         /// in the same operation (a stacked RAW+JPEG pair, #5050), so they do
         /// not hold the shared sidecar back.
         /// </summary>
-        public static async Task<RelocatePlan> PlanRelocateAsync(
+        public static Task<RelocatePlan> PlanRelocateAsync(
             string sourcePrimaryPath,
             string destinationDir,
             string? newBasename,
             RelocateMode mode,
             CollisionPolicy collision = CollisionPolicy.AutoSuffix,
-            params string[] alsoLeaving)
+            params string[] alsoLeaving) =>
+            PlanRelocateAsync(
+                sourcePrimaryPath, destinationDir, newBasename, mode, collision, carriedSidecarPath: null, alsoLeaving);
+
+        /// <param name="carriedSidecarPath">The sidecar the RAW half of the
+        /// same pair operation already wrote at the destination: the JPEG's
+        /// plan joins it by path, which holds for a sidecar of any size.</param>
+        internal static async Task<RelocatePlan> PlanRelocateAsync(
+            string sourcePrimaryPath,
+            string destinationDir,
+            string? newBasename,
+            RelocateMode mode,
+            CollisionPolicy collision,
+            string? carriedSidecarPath,
+            string[] alsoLeaving)
         {
             if (!File.Exists(sourcePrimaryPath))
                 throw new FileOperationException(FileOperationErrorKind.SourceMissing, sourcePrimaryPath);
@@ -93,7 +107,7 @@ namespace Maple.WinUI.Services.FileOperations
 
             Directory.CreateDirectory(destinationDir);
             var sourceSidecarPath = SidecarStore.SidecarPathFor(sourcePrimaryPath);
-            var (resolvedTargetPath, renamed) = await ResolveCollisionAsync(targetPath, collision, sourceSidecarPath)
+            var (resolvedTargetPath, renamed) = await ResolveCollisionAsync(targetPath, collision, sourceSidecarPath, carriedSidecarPath)
                 .ConfigureAwait(false);
 
             // Every sidecar decision is made before any byte moves (#4758,
@@ -105,7 +119,8 @@ namespace Maple.WinUI.Services.FileOperations
             var destinationSidecarOwned = SidecarStemClaimedBySibling(resolvedTargetPath, sourcePrimaryPath);
             var destinationSidecarOccupied = !sidecarMapsOntoItself && PathOccupied(sidecarTargetPath);
             var joinsCarriedSidecar = hasSourceSidecar && destinationSidecarOccupied
-                && SidecarAlreadyCarried(sourceSidecarPath, sidecarTargetPath);
+                && (SidecarAlreadyCarried(sourceSidecarPath, sidecarTargetPath)
+                    || IsCarriedSidecar(sidecarTargetPath, carriedSidecarPath));
             var replacesDestinationSidecar = destinationSidecarOccupied && !joinsCarriedSidecar;
             if (hasSourceSidecar && replacesDestinationSidecar
                 && (collision != CollisionPolicy.Replace || destinationSidecarOwned))
