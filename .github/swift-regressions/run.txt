@@ -611,3 +611,4 @@ PrecisionInputTests
 MaskDeleteUndoTests
 EditHistoryEventTests
 BrowseNavigationTicketTests
+CloudSourceThumbVersionTests
