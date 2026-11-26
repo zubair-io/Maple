@@ -551,8 +551,8 @@
                                 </MenuFlyoutItem>
                                 <MenuFlyoutSeparator x:Name="RevealInExplorerSeparator" />
                                 <MenuFlyoutItem Text="Rename" Click="OnRenameSelectedPhoto" AutomationProperties.Name="Rename photo" />
-                                <MenuFlyoutItem Text="Delete…" Click="OnDeleteSelectedPhotos"
-                                                AutomationProperties.Name="Delete selected photos" />
+                                <MenuFlyoutSeparator />
+                                <MenuFlyoutItem Text="Delete…" Click="OnDeleteSelectedPhotos" AutomationProperties.Name="Delete selected photos" />
                             </MenuFlyout>
                         </GridView.ContextFlyout>
                         <GridView.GroupStyle>
@@ -572,7 +572,7 @@
                         <GridView.ItemTemplate>
                             <DataTemplate>
                                 <Grid Margin="2" CornerRadius="4" Tapped="OnGridTapped"
-                                      AutomationProperties.Name="{Binding FileName}"
+                                      AutomationProperties.Name="{Binding TileAccessibleName}"
                                       Background="{StaticResource MapleSurface}">
                                     <controls:MapleIconControl IconName="photos" Size="36"
                                                                IconBrush="{StaticResource MapleBorder}"

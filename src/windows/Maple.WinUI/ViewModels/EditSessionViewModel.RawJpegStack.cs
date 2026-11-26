@@ -61,6 +61,7 @@ namespace Maple.WinUI.ViewModels
             if (companion != null && newCompanionPath != null
                 && !string.Equals(companion.FilePath, newCompanionPath, StringComparison.Ordinal))
                 ApplyRenameOutcome(companion, newCompanionPath);
+            photo.RefreshTileAccessibleName();
         }
 
         /// <summary>Recomputes the pairs after names changed in place, and

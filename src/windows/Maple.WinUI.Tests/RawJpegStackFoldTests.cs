@@ -132,5 +132,35 @@ namespace Maple.WinUI.Tests
             photo.IsRenaming = true;
             Assert.True(photo.ShowsTileFooter);
         }
+
+        [Fact]
+        public void ATilesAccessibleName_NamesBothFilesOfAStack_AndOnlyTheFileOtherwise()
+        {
+            var photos = Folder("IMG_1.CR3", "IMG_1.JPG", "IMG_2.CR3");
+
+            RawJpegStackFold.Apply(photos, stacksPairs: true);
+
+            Assert.Equal("IMG_1.CR3 and IMG_1.JPG", photos[0].TileAccessibleName);
+            Assert.Equal("IMG_2.CR3", photos[2].TileAccessibleName);
+        }
+
+        [Fact]
+        public void ATilesAccessibleName_FollowsAFoldChangeAndARename()
+        {
+            var photos = Folder("IMG_1.CR3", "IMG_1.JPG");
+            var changed = new List<string?>();
+            photos[0].PropertyChanged += (_, e) => changed.Add(e.PropertyName);
+
+            RawJpegStackFold.Apply(photos, stacksPairs: true);
+            photos[0].FileName = "Trip.CR3";
+            photos[1].FileName = "Trip.JPG";
+            photos[0].RefreshTileAccessibleName();
+
+            Assert.Contains(nameof(PhotoItem.TileAccessibleName), changed);
+            Assert.Equal("Trip.CR3 and Trip.JPG", photos[0].TileAccessibleName);
+
+            RawJpegStackFold.Apply(photos, stacksPairs: false);
+            Assert.Equal("Trip.CR3", photos[0].TileAccessibleName);
+        }
     }
 }
