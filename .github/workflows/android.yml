@@ -122,9 +122,12 @@ jobs:
           heap-size: 512M
           disk-size: 4G
           disable-animations: true
+          avd-name: test
           # SwiftShader supplies Vulkan as well as GLES. Do not disable Vulkan.
           emulator-options: -no-window -no-snapshot -gpu swiftshader -noaudio -no-boot-anim -camera-back none -camera-front none
-          pre-emulator-launch-script: bash src/android/scripts/host-pressure-snapshot.sh src/android/ci-artifacts/host-before-emulator.txt || true
+          pre-emulator-launch-script: |
+            bash src/android/scripts/configure-ci-panel.sh test
+            bash src/android/scripts/host-pressure-snapshot.sh src/android/ci-artifacts/host-before-emulator.txt || true
           script: bash src/android/scripts/test-device-ci.sh x86_64 arm64-v8a,x86_64
       - name: Require complete device and JVM reports
         run: python3 tools/android_test_reports.py
