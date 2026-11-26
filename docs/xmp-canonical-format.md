@@ -37,6 +37,8 @@ On the API, every mover also carries a photo's pre-#5021 `IMG.HEIC.xmp`, renamed
 
 Moves made outside Maple are a separate case. External-rename reconciliation (same folder) carries the file, but a move to another folder, or one made by an Apple or Windows client on the share, leaves it at the old path.
 
+On Windows the folder watcher applies rules 1 to 3 after the rename (#6072): a sidecar another photo still reads is copied to the renamed photo and stays, and one nobody else reads moves with it. Renames in one batch that read the same old sidecar are decided together, so halves renamed to different stems each get a copy and the old sidecar is then removed once every copy holds its bytes; a collision at the new name is logged and nothing is overwritten. A swap or rotation of names completed inside one watcher window is not followed: its sidecars stay where they are and it is logged.
+
 The shared parity corpus `test-fixtures/file-operations/cases.json` holds the cases (`shared_sidecar_*`, `extension_only_rename_*`, `destination_*_sidecar_*`, `replace_*_sibling_*`) that each stack's relocate runner replays.
 
 #### Known limitations
