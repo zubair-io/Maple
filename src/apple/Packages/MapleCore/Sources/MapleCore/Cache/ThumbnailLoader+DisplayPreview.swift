@@ -97,14 +97,16 @@ extension ThumbnailLoader {
     return await joinDisplayPreviewProducer(for: asset, url: url, scope: scope)
   }
 
-  private nonisolated static func scopedFreshDisplayPreviewData(assetURL: URL, scope: URL) -> Data? {
+  private nonisolated static func scopedFreshDisplayPreviewData(assetURL: URL, scope: URL) -> Data?
+  {
     let accessing = scope.startAccessingSecurityScopedResource()
     defer { if accessing { scope.stopAccessingSecurityScopedResource() } }
     return freshDisplayPreviewData(
       previewURL: MapleSidecarPaths.previewURL(for: assetURL), assetURL: assetURL)
   }
 
-  private func joinDisplayPreviewProducer(for asset: AssetRef, url: URL, scope: URL) async -> Data? {
+  private func joinDisplayPreviewProducer(for asset: AssetRef, url: URL, scope: URL) async -> Data?
+  {
 
     // Coalesce duplicate requests (a pager scrub can ask for the same
     // page twice) under a namespaced key so it never collides with the
@@ -212,23 +214,17 @@ extension ThumbnailLoader {
     let fm = FileManager.default
     let legacyURL = MapleSidecarPaths.legacyPreviewURL(for: assetURL)
     guard
-      let previewMtime = modificationDate(of: previewURL, fm)
+      let previewMtime = PlainFileStat.modificationDate(atPath: previewURL.path)
         ?? (MapleSidecarPaths.adoptLegacyDerivative(
           at: previewURL, legacy: legacyURL, fileManager: fm)
-          ? modificationDate(of: previewURL, fm) : nil)
+          ? PlainFileStat.modificationDate(atPath: previewURL.path) : nil)
     else { return nil }
     guard LocalDerivativeSourceStamp.isFresh(previewURL, for: assetURL) else { return nil }
-    let assetMtime =
-      (try? fm.attributesOfItem(atPath: assetURL.path))?[
-        .modificationDate
-      ] as? Date
+    let assetMtime = PlainFileStat.modificationDate(atPath: assetURL.path)
     guard assetMtime.map({ previewMtime >= $0 }) ?? true else { return nil }
 
-    let sidecarMtime =
-      (try? fm.attributesOfItem(
-        atPath: SidecarPath.sidecarURL(for: assetURL).path))?[
-        .modificationDate
-      ] as? Date
+    let sidecarMtime = PlainFileStat.modificationDate(
+      atPath: SidecarPath.sidecarURL(for: assetURL).path)
     let supersededByEdit =
       sidecarMtime.map {
         $0.timeIntervalSince(previewMtime) > sidecarAutosaveSlack
@@ -242,10 +238,6 @@ extension ThumbnailLoader {
       return nil
     }
     return data
-  }
-
-  private nonisolated static func modificationDate(of url: URL, _ fm: FileManager) -> Date? {
-    (try? fm.attributesOfItem(atPath: url.path))?[.modificationDate] as? Date
   }
 
   /// True when a sidecar exists next to `assetURL` and parses to a model

@@ -34,14 +34,19 @@ public actor RawImageCache {
     self.decode = decode
   }
 
+  private static func modificationDate(of url: URL) throws -> Date {
+    if let modified = PlainFileStat.modificationDate(atPath: url.path) { return modified }
+    return try FileManager.default.attributesOfItem(atPath: url.path)[.modificationDate] as? Date
+      ?? .distantPast
+  }
+
   /// Same-asset tiles share one decode. Different assets serialize their
   /// native opens, with superseded queued requests dropped before reading a
   /// RAW. A completed obsolete request can satisfy its original caller but
   /// cannot repopulate an evicted cache or replace a more recent asset.
   public func handle(for url: URL) async throws -> MapleRawHandle {
     try Task.checkCancellation()
-    let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
-    let key = Key(url: url, mtime: attributes[.modificationDate] as? Date ?? .distantPast)
+    let key = Key(url: url, mtime: try Self.modificationDate(of: url))
     if let current, current.key == key { return current.handle }
     if requestedKey != key {
       generation &+= 1
