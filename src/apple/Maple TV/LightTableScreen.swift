@@ -34,7 +34,7 @@ struct LightTableScreen: View {
       darkPalette: .mapleTV,
       prefetch: { asset in
         await TVRemoteImage.prefetchThumb(
-          server: session.server, absPath: asset.abs_path,
+          server: session.server, absPath: asset.abs_path, thumbVersion: asset.thumb_version,
           thumbClient: session.thumbClient, thumbCache: session.thumbCache)
       },
       printImage: { asset in
@@ -44,6 +44,7 @@ struct LightTableScreen: View {
           kind: .thumb,
           thumbClient: session.thumbClient,
           thumbCache: session.thumbCache,
+          thumbVersion: asset.thumb_version,
           // The print is a fixed square; non-square photos sit within it on
           // the mat rather than being cropped to the frame.
           contentMode: .fit,

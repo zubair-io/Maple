@@ -56,6 +56,8 @@ struct TVRemoteImage: View {
   let kind: Kind
   let thumbClient: CloudThumbClient
   let thumbCache: CloudThumbCache
+  /// The asset's `thumb_version`, sent as `?v=` so a hit is served immutable (#6013).
+  var thumbVersion: String? = nil
 
   /// `.fill` (crop-to-fill) is the grid-cell default. The full-screen
   /// viewer passes `.fit` so the whole preview frame is visible.
@@ -201,14 +203,15 @@ struct TVRemoteImage: View {
     let host = server.cacheHostKey
     switch kind {
     case .thumb:
-      if let cached = await thumbCache.get(host: host, absPath: absPath) {
+      if let cached = await thumbCache.get(host: host, absPath: absPath, version: thumbVersion) {
         return cached
       }
-      guard let bytes = try? await thumbClient.thumb(absPath: absPath) else {
+      guard let bytes = try? await thumbClient.thumb(absPath: absPath, version: thumbVersion)
+      else {
         return nil
       }
       guard !Task.isCancelled else { return nil }
-      await thumbCache.put(host: host, absPath: absPath, bytes)
+      await thumbCache.put(host: host, absPath: absPath, version: thumbVersion, bytes)
       return bytes
 
     case .preview:
@@ -305,15 +308,17 @@ extension TVRemoteImage {
   /// preview fallback (an AVIF thumb the device can't decode, or a missing
   /// server thumb, falls back to the JPEG preview). A no-op when already
   /// decoded-cached; all failures are swallowed (best-effort warm).
-  static func prefetchThumb(server: URL, absPath: String,
+  static func prefetchThumb(server: URL, absPath: String, thumbVersion: String? = nil,
                             thumbClient: CloudThumbClient, thumbCache: CloudThumbCache) async {
     let key = decodedCacheKey(server: server, absPath: absPath, kind: .thumb)
     guard TVDecodedImageCache.shared.image(forKey: key) == nil else { return }
     let host = server.cacheHostKey
 
-    var thumbBytes = await thumbCache.get(host: host, absPath: absPath)
-    if thumbBytes == nil, let bytes = try? await thumbClient.thumb(absPath: absPath) {
-      await thumbCache.put(host: host, absPath: absPath, bytes)
+    var thumbBytes = await thumbCache.get(host: host, absPath: absPath, version: thumbVersion)
+    if thumbBytes == nil,
+      let bytes = try? await thumbClient.thumb(absPath: absPath, version: thumbVersion)
+    {
+      await thumbCache.put(host: host, absPath: absPath, version: thumbVersion, bytes)
       thumbBytes = bytes
     }
     // Both branches re-check cancellation after the `await decode(...)`
