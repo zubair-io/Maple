@@ -20,11 +20,12 @@ extension PanoMergeSession {
     return fittedOutput?.pixels
   }
 
-  /// Why Create Panorama can't run here, `nil` when it can: the frames
-  /// alone need more memory than this device grants the app, at any output
-  /// size, so the OS would end the app partway through the stitch.
-  public var stitchBlockedReason: String? {
-    guard stitcher.runsInDeviceMemory, case .tooLarge = memoryFit else { return nil }
-    return PanoStitcherError.insufficientMemory.errorDescription
+  /// Whether the frames alone need more memory than this device grants the
+  /// app, at any output size, so the OS would end the app partway through
+  /// the stitch. `start` re-reads the fit after pausing background work and
+  /// refuses the stitch only if this still holds.
+  public var stitchBlockedByMemory: Bool {
+    guard stitcher.runsInDeviceMemory, case .tooLarge = memoryFit else { return false }
+    return true
   }
 }

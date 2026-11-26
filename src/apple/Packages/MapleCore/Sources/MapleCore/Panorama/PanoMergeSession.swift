@@ -360,9 +360,12 @@ public final class PanoMergeSession {
 
   /// The sheet read the available memory while the backup was still running.
   /// Once it has stopped, the default output size is re-decided from the
-  /// same preview against what the OS now grants. An explicit choice stands.
+  /// same preview against what the OS now grants. An explicit choice stands,
+  /// unless no output size fit: that verdict blocks the stitch, so it is
+  /// always re-read.
   private func refreshMemoryFit() {
-    guard chosenOutputSize == nil, let options = memoryFitOptions,
+    let blocked = if case .tooLarge = memoryFit { true } else { false }
+    guard chosenOutputSize == nil || blocked, let options = memoryFitOptions,
       let sizes = lastPreview?.stitchSizes
     else { return }
     memoryFit = memoryModel.fit(sizes: sizes, availableBytes: availableMemory())
@@ -399,10 +402,6 @@ public final class PanoMergeSession {
   /// never run at once.
   public func start(assets: [AssetRef]) {
     guard assets.count >= 2 else { return }
-    if let reason = stitchBlockedReason {
-      state = .error(StitchError(message: reason))
-      return
-    }
 
     let awaitedPreview = previewWorthAwaiting
     rePreviewWhenCurrentFinishes = false
@@ -438,6 +437,7 @@ public final class PanoMergeSession {
           throw PanoStitcherError.staleSeamGeometry
         }
         if pause?.stoppedRunningWork == true { refreshMemoryFit() }
+        if stitchBlockedByMemory { throw PanoStitcherError.insufficientMemory }
         if needsFreshFit(for: capturedOptions) {
           stitchIncludesAlignment = true
           state = .finishingAlignment
