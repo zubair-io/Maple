@@ -66,7 +66,9 @@
 //! Two deliberate invariances make the frame data sufficient for the gain
 //! half of the conjugation regardless of which `C` tier is active:
 //! * `AsShotNeutral` cancels out of the gain RATIO (both gains divide by
-//!   it), so `camera_wb_gain` is evaluated with a `[1, 1, 1]` neutral.
+//!   it), so `camera_wb_gain` is evaluated with a `[1, 1, 1]` neutral —
+//!   when both sides resolve to a real white; a degenerate side is taken as
+//!   the as-shot white.
 //! * any trailing diagonal factor of `C` (the pre-gain `1/AsShotNeutral`)
 //!   commutes with the WB diagonal and cancels in `C · diag · C⁻¹`, so
 //!   the conjugation needs no neutral either.
@@ -81,6 +83,7 @@ use crate::{
     math::{Matrix3, Vec3},
 };
 
+use super::retarget::target_camera_neutral;
 use super::{camera_wb_gain, retargeted_render_profile, SliderFrame};
 // #2321: the as-shot tint estimator moved into the frame module (it is
 // what `SliderFrame::scene_tint` is built from); re-imported for the
@@ -143,8 +146,8 @@ pub struct SliderFrameExport {
     /// dual-illuminant CM pair (distinct from `m_cold`/`cct_cold` above,
     /// which are the VALUE frame's). `|render_cct_warm - render_cct_cold| <
     /// 1.0` ⇒ no render-profile endpoints (single-illuminant profile —
-    /// `c_at` is then constant across every target/anchor, matching
-    /// `retargeted_render_profile`'s own single-calibration short-circuit).
+    /// `c_at` then moves with the target only through a non-diagonal
+    /// `render_individual_cold`, #5093).
     pub render_cm_cold: Matrix3,
     pub render_cct_cold: f32,
     pub render_cm_warm: Matrix3,
@@ -326,10 +329,8 @@ impl SliderFrameExport {
     /// [`retargeted_render_profile`] and [`dcp::camera_to_rec2020_matrix`]
     /// read (`color_matrix`, `forward_matrix`, `scene_white_xyz`,
     /// `cm_endpoints`, `forward_reference`) —
-    /// `illuminant`/`scene_cct`/
-    /// `hsm`/`look_table`/`tone_curve` are irrelevant to that linear-core
-    /// computation (neither function reads them) and get harmless
-    /// placeholders.
+    /// `illuminant`/`scene_cct`/`hsm`/`look_table`/`tone_curve` do not
+    /// affect that linear-core computation and get harmless placeholders.
     fn render_profile_shell(&self) -> DcpProfile {
         let fm_present = !self
             .render_forward_matrix
@@ -389,7 +390,8 @@ impl SliderFrameExport {
     /// The Rec.2020-space WB matrix that moves a buffer developed at
     /// slider `decoded` to the develop of slider `target`, both
     /// interpreted IN THIS FRAME (module doc). Exact [`Matrix3::IDENTITY`]
-    /// inside the same half-Kelvin/half-tint band `apply_delta`
+    /// when the resolved pair (a degenerate side taken as the as-shot white)
+    /// falls inside the same half-Kelvin/half-tint band `apply_delta`
     /// short-circuits on, so a `target == decoded` render is bit-exact
     /// through a GPU matrix multiply.
     ///
@@ -400,13 +402,13 @@ impl SliderFrameExport {
     /// export that predates #1967; (3) the fully generic CAT16 delta for a
     /// frame-absent/singular export (pre-#1781 legacy).
     pub fn rec2020_delta_matrix(&self, target: (f32, f32), decoded: (f32, f32)) -> Matrix3 {
+        let frame = self.to_frame();
+        let target = resolved_white(&frame, target);
+        let decoded = resolved_white(&frame, decoded);
         if (target.0 - decoded.0).abs() < 0.5 && (target.1 - decoded.1).abs() < 0.5 {
             return Matrix3::IDENTITY;
         }
-        let frame = self.to_frame();
-        // AsShotNeutral cancels in the ratio (module doc) — evaluate both
-        // gains with the unit neutral. Green is exactly 1.0 in both, so
-        // the ratio's green is exactly 1.0 too.
+        // The unit neutral cancels in the ratio once both sides resolve to a real white.
         let g_target = camera_wb_gain(&frame, [1.0, 1.0, 1.0], target.0, target.1);
         let g_decoded = camera_wb_gain(&frame, [1.0, 1.0, 1.0], decoded.0, decoded.1);
         let g_net = Matrix3([
@@ -426,8 +428,7 @@ impl SliderFrameExport {
         };
         match conjugated {
             Some(m) => m,
-            // Defensive: a singular calibration carries no usable frame —
-            // behave exactly like the frame-absent legacy path.
+            // A singular calibration carries no usable frame: the legacy delta, on the resolved pair.
             None => generic_cat16_delta(target, decoded),
         }
     }
@@ -445,6 +446,17 @@ impl SliderFrameExport {
         for p in &mut img.pixels {
             *p = m.mul_vec(*p);
         }
+    }
+}
+
+/// A degenerate side keeps the frame's as-shot white; an unresolvable as-shot white leaves the pair as given.
+fn resolved_white(frame: &SliderFrame, (temperature, tint): (f32, f32)) -> (f32, f32) {
+    let as_shot = (frame.scene_cct, frame.scene_tint);
+    let resolvable = |(t, n): (f32, f32)| target_camera_neutral(frame, t, n).is_some();
+    if resolvable((temperature, tint)) || !resolvable(as_shot) {
+        (temperature, tint)
+    } else {
+        as_shot
     }
 }
 
@@ -486,3 +498,7 @@ fn frame_to_rec2020(frame: &SliderFrame, scene_cct: f32, as_shot_tint: f32) -> O
 #[cfg(test)]
 #[path = "wb_frame_delta_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "wb_frame_delta_calibration_tests.rs"]
+mod calibration_tests;

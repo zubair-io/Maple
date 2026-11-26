@@ -229,7 +229,7 @@ pub use frame_delta::SliderFrameExport;
 #[path = "wb_camera_retarget.rs"]
 mod retarget;
 pub(crate) use retarget::render_retarget;
-use retarget::RenderRetarget;
+use retarget::{target_camera_neutral, RenderRetarget};
 
 // WB slider-scale migration (#1780): converts pre-#1756 (V1) stored
 // temperature/tint into this module's slider frame at develop time. Split
@@ -330,12 +330,13 @@ fn target_xyz(temperature: f32, tint: f32) -> [f32; 3] {
 /// Camera-native neutral a scene lit by `(temperature, tint)` would produce
 /// through calibration matrix `cm` (DNG `ColorMatrix`, XYZ→camera), NOT yet
 /// G-normalised — callers that need the DNG `AsShotNeutral` convention wrap
-/// this in [`g_normalize`] (see [`camera_neutral_for`]).
+/// this in [`g_normalize`] (see [`target_camera_neutral`]).
 fn camera_neutral_raw(cm: Matrix3, temperature: f32, tint: f32) -> [f32; 3] {
     cm.mul_vec(target_xyz(temperature, tint))
 }
 
 /// [`camera_neutral_raw`], G-normalised.
+#[cfg(test)]
 fn camera_neutral_for(cm: Matrix3, temperature: f32, tint: f32) -> [f32; 3] {
     g_normalize(camera_neutral_raw(cm, temperature, tint))
 }
@@ -348,33 +349,20 @@ fn camera_neutral_for(cm: Matrix3, temperature: f32, tint: f32) -> [f32; 3] {
 /// SOLE carrier of the WB cast: DCP's profile (in particular
 /// `scene_white_xyz`) is never modified to compensate for it.
 ///
-/// Returns gain `[1.0, 1.0, 1.0]` (no-op) when `cm` is singular (defensive;
-/// should not happen for a real calibration matrix).
+/// Returns gain `[1.0, 1.0, 1.0]` (no-op) when a channel of the target's
+/// camera neutral, projected through the frame's colour matrix interpolated at
+/// the target temperature, is non-finite or at most 1e-6 (defensive; should
+/// not happen for a real calibration matrix).
 pub fn camera_wb_gain(
     frame: &SliderFrame,
     as_shot_neutral: [f32; 3],
     temperature: f32,
     tint: f32,
 ) -> [f32; 3] {
-    // DNG-spec xy→neutral direction (#1727): the calibration matrix that
-    // projects the TARGET chromaticity into camera space is the slider
-    // frame's dual-illuminant CM re-interpolated at the TARGET's own CCT
-    // (`dng_color_spec.cpp::SetWhiteXY` — weight from the CCT of the target
-    // xy, tint moves perpendicular to the locus so it doesn't shift that
-    // CCT), NOT a fixed as-shot-interpolated matrix. Single-illuminant
-    // frames have one calibration and `cm_for_cct` returns it unchanged.
-    let cm = frame.cm_for_cct(temperature);
-    // Documented identity fallback for a degenerate (e.g. singular)
-    // calibration: a real CM projects every plausible illuminant to
-    // strictly positive camera responses, so a non-finite or non-positive
-    // component here means the matrix carries no usable calibration and
-    // the per-channel ratios below would explode instead of balancing.
-    let raw_neutral = camera_neutral_raw(cm, temperature, tint);
-    if raw_neutral.iter().any(|c| !c.is_finite() || *c <= 1e-6) {
+    let Some(target_neutral_camera) = target_camera_neutral(frame, temperature, tint) else {
         return [1.0, 1.0, 1.0];
-    }
+    };
     let asn = g_normalize(as_shot_neutral);
-    let target_neutral_camera = g_normalize(raw_neutral);
     // Both triples are G-normalised (green exactly 1.0), so the gain's
     // green channel is exactly 1.0 by construction — the pre-gain/
     // highlight-recovery convention (green channel untouched) holds for
@@ -453,8 +441,8 @@ pub fn apply(
 /// could never reach it.)
 ///
 /// `gain = camera_wb_gain(target) / camera_wb_gain(anchor)` — `as_shot_neutral`
-/// cancels out of the ratio algebraically (both numerator and denominator
-/// gains divide by the same `as_shot_neutral`), so passing it through is
+/// cancels out of the ratio algebraically when both sides resolve to a real
+/// white (a degenerate side is taken as the as-shot white), so passing it through is
 /// for API symmetry with [`apply`] / [`camera_wb_gain`], not because the
 /// ratio depends on its value.
 ///

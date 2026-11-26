@@ -6,7 +6,9 @@ use crate::color::{
     dcp,
     hsm::{self, HsmEncoding, HsmTable},
 };
+use crate::math::Matrix3;
 use crate::stages::highlight_recovery_oklab;
+use crate::stages::wb_camera::{self, SliderFrame, SliderFrameParts};
 use crate::test_support::creative::{creative_stage, fallback_stage, Tables};
 use crate::xmp::HighlightRecoveryMode;
 
@@ -207,4 +209,60 @@ fn the_tables_and_the_white_balance_move_pixels_so_the_gate_is_not_vacuous() {
     assert!(moved_by_tables > 1e-2, "tables moved {moved_by_tables}");
     let as_shot = stage.gpu_plan(&wire, &AdjustmentModel::default()).unwrap();
     assert_ne!(as_shot.to_pro.0, plan.to_pro.0);
+}
+
+fn with_blue_row_negated(stage: &CreativeStage) -> CreativeStage {
+    let flipped = |m: Matrix3| Matrix3([m.0[0], m.0[1], m.0[2].map(|v| -v)]);
+    let parts = stage.frame.as_ref().expect("a calibrated tier").parts();
+    let frame = SliderFrame::from_parts(SliderFrameParts {
+        endpoints: parts.endpoints.map(|(cold, cct_cold, warm, cct_warm)| {
+            (flipped(cold), cct_cold, flipped(warm), cct_warm)
+        }),
+        cm_as_shot: flipped(parts.cm_as_shot),
+        ..parts
+    });
+    CreativeStage {
+        frame: Some(frame),
+        profile: stage.profile.clone(),
+        as_shot_neutral: stage.as_shot_neutral,
+        anchors: stage.anchors.clone(),
+    }
+}
+
+#[test]
+fn a_degenerate_target_white_plans_the_as_shot_camera_to_prophoto_matrix() {
+    for tables in [Tables::DualUnitCalibration, Tables::SingleUnitCalibration] {
+        let healthy = creative_stage(tables, 1.0);
+        let stage = with_blue_row_negated(&healthy);
+        let wire = stage.gpu_wire();
+        let to_pro = |stage: &CreativeStage, model: &AdjustmentModel| {
+            stage.gpu_plan(&stage.gpu_wire(), model).unwrap().to_pro
+        };
+        let as_shot = to_pro(&stage, &AdjustmentModel::default());
+        for model in &models()[1..] {
+            let frame = stage.frame.as_ref().unwrap();
+            let (temperature, tint) = wb_camera::resolve_target_versioned(
+                model,
+                frame,
+                &stage.profile,
+                stage.as_shot_neutral,
+            );
+            assert_eq!(
+                wb_camera::camera_wb_gain(frame, stage.as_shot_neutral, temperature, tint),
+                [1.0, 1.0, 1.0],
+                "{tables:?}: the target must be degenerate"
+            );
+            assert_eq!(
+                stage.gpu_plan(&wire, model).unwrap().to_pro,
+                as_shot,
+                "{tables:?} T={}: resolved at a white the buffer was not divided by",
+                model.temperature
+            );
+            assert_ne!(
+                to_pro(&healthy, model),
+                to_pro(&healthy, &AdjustmentModel::default()),
+                "{tables:?}: a healthy frame must move the plan"
+            );
+        }
+    }
 }
