@@ -346,6 +346,29 @@ struct PanoMLFallbackTests {
         #expect(matcher.note != nil)
     }
 
+    @Test("an ML run whose runtime does not fit in memory re-runs with classical")
+    func mlOverMemoryFallsBackToClassical() async throws {
+        let log = EngineLog()
+        let (_, matcher) = try await RustPanoStitcher.withMLFallback(.used(.ml)) { engine in
+            log.engines.append(engine)
+            if engine == .ml { throw PanoStitcherError.insufficientMemory }
+        }
+        #expect(log.engines == [.ml, .classical])
+        #expect(matcher == .classicalFallback(reason: RustPanoStitcher.mlMemoryFallbackReason))
+    }
+
+    @Test("frames that do not fit even with classical still report insufficient memory")
+    func classicalOverMemoryPropagates() async {
+        let log = EngineLog()
+        await #expect(throws: PanoStitcherError.self) {
+            _ = try await RustPanoStitcher.withMLFallback(.used(.ml)) { engine in
+                log.engines.append(engine)
+                throw PanoStitcherError.insufficientMemory
+            }
+        }
+        #expect(log.engines == [.ml, .classical])
+    }
+
     @Test("a planned fallback runs classical once, without trying ML")
     func plannedFallbackRunsClassicalOnce() async throws {
         let log = EngineLog()
