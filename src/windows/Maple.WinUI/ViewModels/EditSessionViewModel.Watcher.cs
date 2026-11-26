@@ -36,6 +36,10 @@ namespace Maple.WinUI.ViewModels
                 // Build the new items off the watcher thread (FileInfo + sidecar
                 // read), then apply the whole batch on the dispatcher.
                 var folder = CurrentFolderPath;
+                foreach (var path in removed)
+                    _scanRemovals.Removed(path);
+                foreach (var path in added)
+                    _scanRemovals.Present(path);
                 var items = added
                     .Where(p => string.Equals(Path.GetDirectoryName(p), folder, StringComparison.OrdinalIgnoreCase))
                     .Select(filePath =>
@@ -122,12 +126,12 @@ namespace Maple.WinUI.ViewModels
 
         // The folder's RAW and JPEG names, shown or not, re-read after a change: the
         // watcher reports RAW formats the grid does not open only as "something changed".
-        private static FolderListing? ReadPairInventory(string? folder) =>
+        private static PhotoFolderListing? ReadPairInventory(string? folder) =>
             folder == null ? null : EnumerateImageFiles(folder) is { Complete: true } listing ? listing : null;
 
         // The pair decision reads only this inventory and case behaviour, so a filter or search
         // change refolds without file access; only a folder load or watcher change refreshes them.
-        private bool AdoptPairInventory(FolderListing? listing)
+        private bool AdoptPairInventory(PhotoFolderListing? listing)
         {
             if (listing == null)
                 return false;
