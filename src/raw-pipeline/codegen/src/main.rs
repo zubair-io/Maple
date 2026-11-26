@@ -108,8 +108,7 @@ enum Target {
     /// JSON release summary. Only valid for `--schema capability-registry`
     /// (#2430).
     Json,
-    /// Kotlin output for the Android app. Only valid for `--schema
-    /// adjustment-transfer` (#5900).
+    /// Kotlin output for the Android app (`adjustment-transfer` #5900, `seam-constraints` #5991).
     Kotlin,
 }
 
@@ -246,8 +245,9 @@ fn main() {
             std::process::exit(2);
         }
         (Schema::SeamConstraints, Target::Swift) => seam_constraints::emit_swift(),
+        (Schema::SeamConstraints, Target::Kotlin) => seam_constraints::emit_kotlin(),
         (Schema::SeamConstraints, _) => {
-            eprintln!("seam-constraints supports swift");
+            eprintln!("seam-constraints supports swift / kotlin");
             std::process::exit(2);
         }
         (Schema::Filename, target) => filename::emit(target),
