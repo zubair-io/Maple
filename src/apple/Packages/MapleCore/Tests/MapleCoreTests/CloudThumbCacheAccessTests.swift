@@ -42,16 +42,44 @@ final class CloudThumbCacheAccessTests: XCTestCase {
     XCTAssertLessThan(Date().timeIntervalSince(refreshed), 60)
   }
 
-  func testVersionedEntriesAreSeparateFromEachOtherAndFromTheUnversionedOne() async {
+  func testEntryAnswersItsOwnVersionAndACallerThatNamesNone() async {
     let cache = CloudThumbCache(baseDir: dir, maxBytes: 1024 * 1024)
     await cache.put(host: "x", absPath: "/a", version: "v1", Data([1]))
 
     let sameVersion = await cache.get(host: "x", absPath: "/a", version: "v1")
     let editedElsewhere = await cache.get(host: "x", absPath: "/a", version: "v2")
-    let unversioned = await cache.get(host: "x", absPath: "/a")
+    let anyRendering = await cache.get(host: "x", absPath: "/a")
     XCTAssertEqual(sameVersion, Data([1]))
-    XCTAssertNil(editedElsewhere)
-    XCTAssertNil(unversioned)
+    XCTAssertNil(editedElsewhere, "another version is a miss, so the edit is fetched")
+    XCTAssertEqual(anyRendering, Data([1]), "the editor seed asks without a version")
+  }
+
+  func testNewerRenderingReplacesTheOlderOneInPlace() async throws {
+    let cache = CloudThumbCache(baseDir: dir, maxBytes: 1024 * 1024)
+    await cache.put(host: "x", absPath: "/a", version: "v1", Data([1]))
+    await cache.put(host: "x", absPath: "/a", version: "v2", Data([2]))
+
+    let older = await cache.get(host: "x", absPath: "/a", version: "v1")
+    let newer = await cache.get(host: "x", absPath: "/a", version: "v2")
+    let anyRendering = await cache.get(host: "x", absPath: "/a")
+    XCTAssertNil(older)
+    XCTAssertEqual(newer, Data([2]))
+    XCTAssertEqual(anyRendering, Data([2]), "a caller naming no version never goes back")
+    let files = try FileManager.default.contentsOfDirectory(
+      atPath: fileURL(absPath: "/a").deletingLastPathComponent().path)
+    XCTAssertEqual(files.count, 1, "one file per path: no rendering is left behind")
+  }
+
+  func testEntryStoredWithoutAVersionIsAMissForAVersionedCaller() async {
+    let cache = CloudThumbCache(baseDir: dir, maxBytes: 1024 * 1024)
+    await cache.put(host: "x", absPath: "/a", Data([1]))
+
+    let versioned = await cache.get(host: "x", absPath: "/a", version: "v1")
+    XCTAssertNil(versioned, "its rendering is unknown, so it is fetched once under the version")
+
+    await cache.put(host: "x", absPath: "/a", version: "v1", Data([2]))
+    let anyRendering = await cache.get(host: "x", absPath: "/a")
+    XCTAssertEqual(anyRendering, Data([2]))
   }
 
   func testThumbURLCarriesTheVersionAsAQueryItem() throws {
