@@ -216,6 +216,8 @@ namespace Maple.WinUI
                     await VerifyCloudMapAsync(output);
                     RecordSmokeStage(output, "demosaic-choice");
                     await VerifyDemosaicChoiceAsync(raw, output);
+                    RecordSmokeStage(output, "raw-jpeg-stack");
+                    await VerifyRawJpegStackAsync(raw, output);
                     RecordSmokeStage(output, "shutdown");
                 }
 
