@@ -236,3 +236,30 @@ fn a_white_balance_drag_allocates_no_gpu_resource_after_its_first_tick() {
     drop(shared);
     unsafe { maple_gpu_live_close(&mut handle) };
 }
+
+#[test]
+fn the_open_reserves_the_resume_plane_a_bare_session_lacks() {
+    let (w, h) = (32u32, 24u32);
+    let input = capture_rgba(w, h);
+    let mut handle = MapleGpuLiveSession {
+        inner: std::ptr::null_mut(),
+    };
+    assert_eq!(
+        unsafe { maple_gpu_live_open(input.as_ptr(), w, h, &mut handle) },
+        0
+    );
+    let shared = lock_shared();
+    let ctx = &shared.as_ref().expect("opened above").ctx;
+    let session = &unsafe { &*(handle.inner as *const LiveHandleInner) }.session;
+    let bare = raw_gpu::LiveSession::new(ctx, &input, w, h).expect("session");
+    assert!(
+        !bare.resume_cut_reserved(),
+        "creating a session reserves nothing"
+    );
+    assert!(
+        session.resume_cut_reserved(),
+        "the open reserved the plane, so no tick has to"
+    );
+    drop(shared);
+    unsafe { maple_gpu_live_close(&mut handle) };
+}

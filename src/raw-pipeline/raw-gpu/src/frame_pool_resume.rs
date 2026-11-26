@@ -8,6 +8,16 @@ pub(crate) struct FramePosition {
 }
 
 impl FramePool {
+    // Counted like a pool miss, so the zero-allocation gate would see a tick that created the plane.
+    pub(crate) fn create_resume_plane(&self, device: &wgpu::Device, bytes: u64) -> wgpu::Buffer {
+        self.alloc_count.set(self.alloc_count.get() + 1);
+        device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("live-session-resume-cut"),
+            size: bytes,
+            usage: wgpu::BufferUsages::COPY_SRC | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        })
+    }
     pub(crate) fn position(&self) -> FramePosition {
         FramePosition {
             dispatch: self.dispatch_cursor,

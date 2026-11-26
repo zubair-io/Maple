@@ -371,6 +371,7 @@ impl Session {
                 )
             }
         };
+        live.reserve_resume_cut(&ctx);
         let auto_fit = auto_will_fit(&model, &bytes, &ext);
         let profile = model.profile;
         Ok(Self {

@@ -120,6 +120,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let frame = capture.creative.frame.expect("a calibrated body");
     let ctx = GpuContext::new_blocking()?;
     let session = LiveSession::new(&ctx, &capture.rgba, capture.width, capture.height)?;
+    session.reserve_resume_cut(&ctx);
     let cancel = CancelToken::new();
     let temperatures: Vec<f32> = (0..90)
         .map(|i| frame.scene_cct - 1500.0 + 3000.0 * (i as f32 / 89.0))

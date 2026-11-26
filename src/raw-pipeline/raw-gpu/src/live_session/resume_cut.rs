@@ -3,7 +3,7 @@ use crate::frame_pool::FramePosition;
 use crate::full_chain::FullChainInputs;
 use crate::live_chain::PrefixKey;
 
-// Live sessions are display-sized (a 6K canvas is about 325 MB); only a full-resolution one exceeds this, and it never stores.
+// Live sessions are display-sized (a 6K canvas is about 325 MB); a plane above this, about 33.5 MP and up, is never reserved.
 const MAX_RESIDENT_BYTES: u64 = 512 << 20;
 
 #[derive(Default)]
@@ -12,7 +12,7 @@ pub(super) struct ResumeCut {
     #[cfg(test)]
     resumed: std::sync::atomic::AtomicU64,
     #[cfg(test)]
-    allocated: std::sync::atomic::AtomicU64,
+    stores: std::sync::atomic::AtomicU64,
 }
 
 #[derive(Default)]
@@ -20,6 +20,7 @@ struct CutState {
     key: PrefixKey,
     frame: u64,
     resident: Option<wgpu::Buffer>,
+    claimed: bool,
     stored: Option<StoredCut>,
     #[cfg(test)]
     max_bytes: Option<u64>,
@@ -61,11 +62,35 @@ impl ResumeCut {
             .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
+    // True once per session, so a failed or over-bound reservation is never retried by a later tick.
+    pub(super) fn claim(&self, plane_bytes: u64) -> bool {
+        let mut state = self.lock();
+        !std::mem::replace(&mut state.claimed, true) && plane_bytes <= state.max_bytes()
+    }
+
+    // The plane is an optimisation: a creation error leaves the session unreserved instead of failing the host's open.
+    pub(super) async fn reserve(&self, ctx: &GpuContext, plane_bytes: u64) {
+        ctx.device.push_error_scope(wgpu::ErrorFilter::OutOfMemory);
+        ctx.device.push_error_scope(wgpu::ErrorFilter::Validation);
+        let plane = ctx
+            .frame_pool
+            .borrow()
+            .create_resume_plane(&ctx.device, plane_bytes);
+        let invalid = ctx.device.pop_error_scope().await;
+        let exhausted = ctx.device.pop_error_scope().await;
+        if invalid.is_none() && exhausted.is_none() {
+            self.lock().resident = Some(plane);
+        }
+    }
+
+    pub(super) fn reserved(&self) -> bool {
+        self.lock().resident.is_some()
+    }
+
     pub(super) fn plan(
         &self,
         ctx: &GpuContext,
         inputs: &FullChainInputs<'_>,
-        plane_bytes: u64,
     ) -> (CutFrame, CutPlan) {
         let mut state = self.lock();
         state.frame += 1;
@@ -84,7 +109,7 @@ impl ResumeCut {
             }
             // Store only when the prefix repeated the last tick, so one-shot and prefix-moving renders never copy.
             _ => CutPlan::Run {
-                store: repeated && plane_bytes <= state.max_bytes(),
+                store: repeated && state.resident.is_some(),
             },
         };
         (frame, plan)
@@ -110,17 +135,12 @@ impl ResumeCut {
         frame: CutFrame,
     ) {
         let mut state = self.lock();
-        let resident = state.resident.get_or_insert_with(|| {
-            #[cfg(test)]
-            self.allocated
-                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-            ctx.device.create_buffer(&wgpu::BufferDescriptor {
-                label: Some("live-session-resume-cut"),
-                size: src.size(),
-                usage: wgpu::BufferUsages::COPY_SRC | wgpu::BufferUsages::COPY_DST,
-                mapped_at_creation: false,
-            })
-        });
+        let Some(resident) = state.resident.as_ref() else {
+            return;
+        };
+        #[cfg(test)]
+        self.stores
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         encoder.copy_buffer_to_buffer(src, 0, resident, 0, src.size());
         state.stored = Some(StoredCut {
             index,
@@ -158,8 +178,8 @@ impl ResumeCut {
     }
 
     #[cfg(test)]
-    pub(super) fn allocated(&self) -> u64 {
-        self.allocated.load(std::sync::atomic::Ordering::Relaxed)
+    pub(super) fn stored(&self) -> u64 {
+        self.stores.load(std::sync::atomic::Ordering::Relaxed)
     }
 
     #[cfg(test)]

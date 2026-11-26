@@ -183,6 +183,9 @@ impl GpuPreview {
             let uploads = self.uploads + 1;
             *self = replacement;
             self.uploads = uploads;
+        } else {
+            // A prefix drag replaces the session every tick, so only one that survives a render reserves.
+            self.session.reserve_resume_cut(ctx);
         }
         self.profile.update(model);
         let film = crate::film::resolve(&model.film_look)?;

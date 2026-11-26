@@ -222,6 +222,7 @@ pub unsafe extern "C" fn maple_gpu_live_open(
                 return -6;
             }
         };
+        session.reserve_resume_cut(ctx);
         let boxed = Box::new(LiveHandleInner {
             session,
             width,

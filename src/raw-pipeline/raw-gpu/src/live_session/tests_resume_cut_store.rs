@@ -1,7 +1,7 @@
 use super::tests::aggressive_case;
 use super::tests_resume_cut::{
     assert_ignored_fields_leave_the_cut, assert_late_ticks_resume_and_match_fresh, assert_same,
-    clone_inputs, edited, engaged, engaged_model, fresh, image, render, Edit, H, W,
+    clone_inputs, edited, engaged, engaged_model, fresh, image, open, render, reserved, Edit, H, W,
 };
 use super::*;
 use crate::live_chain::tests_creative::{creative_inputs, custom};
@@ -113,7 +113,7 @@ fn f32_out(session: &LiveSession, ctx: &GpuContext, inputs: &FullChainInputs<'_>
 fn the_present_path_resumes_bit_for_bit() {
     let ctx = GpuContext::new_blocking().expect("gpu context");
     for base in [engaged(aggressive_case()), creative()] {
-        let session = LiveSession::new(&ctx, &image(), W, H).expect("session");
+        let session = open(&ctx);
         f32_out(&session, &ctx, &base);
         f32_out(&session, &ctx, &base);
         for (n, value) in [-20.0f32, 40.0, 5.0].into_iter().enumerate() {
@@ -133,7 +133,7 @@ fn a_cut_stored_in_one_shape_resumes_in_another() {
     let ctx = GpuContext::new_blocking().expect("gpu context");
     let base = engaged(aggressive_case());
     let no_grain = edited(&base, |i| i.grain_amount = 0.0);
-    let session = LiveSession::new(&ctx, &image(), W, H).expect("session");
+    let session = open(&ctx);
     render(&session, &ctx, &base);
     render(&session, &ctx, &base);
     render(&session, &ctx, &no_grain);
@@ -156,7 +156,6 @@ fn a_cut_stored_in_one_shape_resumes_in_another() {
         "every tick resumes, whichever shape stored the cut"
     );
     assert_eq!(session.pool_alloc_count(&ctx), allocations);
-    assert_eq!(session.cut.allocated(), 1);
     for (out, tick) in outputs.iter().zip(&ticks) {
         assert_same(out, &fresh(&ctx, tick), "alternating shapes");
     }
@@ -167,7 +166,7 @@ fn only_a_repeated_prefix_stores() {
     let ctx = GpuContext::new_blocking().expect("gpu context");
     let base = engaged(aggressive_case());
 
-    let one_shot = LiveSession::new(&ctx, &image(), W, H).expect("session");
+    let one_shot = open(&ctx);
     render(&one_shot, &ctx, &base);
     one_shot
         .render_chain_to_f32(
@@ -176,13 +175,9 @@ fn only_a_repeated_prefix_stores() {
             &CancelToken::new(),
         )
         .expect("render ok");
-    assert_eq!(
-        one_shot.cut.allocated(),
-        0,
-        "a one-shot render never stores"
-    );
+    assert_eq!(one_shot.cut.stored(), 0, "a one-shot render never stores");
 
-    let exposure_drag = LiveSession::new(&ctx, &image(), W, H).expect("session");
+    let exposure_drag = open(&ctx);
     for n in 0..10 {
         let mut tick = clone_inputs(&base);
         tick.tone[0] = 0.1 * n as f32;
@@ -192,34 +187,30 @@ fn only_a_repeated_prefix_stores() {
             "drag",
         );
     }
-    assert_eq!(
-        exposure_drag.cut.allocated(),
-        0,
-        "a prefix drag never stores"
-    );
+    assert_eq!(exposure_drag.cut.stored(), 0, "a prefix drag never stores");
     assert_eq!(exposure_drag.cut.resumed(), 0);
 
-    let session = LiveSession::new(&ctx, &image(), W, H).expect("session");
+    let session = open(&ctx);
     let steps: [(Edit, u64, u64); 6] = [
         (|_| {}, 0, 0),
         (|i| i.contrast = 10.0, 1, 0),
         (|i| i.contrast = 20.0, 1, 1),
         (|i| i.tone[0] = 0.8, 1, 1),
-        (|i| i.contrast = 30.0, 1, 1),
-        (|i| i.contrast = 40.0, 1, 2),
+        (|i| i.contrast = 30.0, 2, 1),
+        (|i| i.contrast = 40.0, 2, 2),
     ];
     let mut current = clone_inputs(&base);
-    for (step, (edit, allocated, resumed)) in steps.into_iter().enumerate() {
+    for (step, (edit, stored, resumed)) in steps.into_iter().enumerate() {
         edit(&mut current);
         let out = render(&session, &ctx, &current);
         assert_same(&out, &fresh(&ctx, &current), "step");
-        assert_eq!(session.cut.allocated(), allocated, "step {step}: allocated");
+        assert_eq!(session.cut.stored(), stored, "step {step}: stored");
         assert_eq!(session.cut.resumed(), resumed, "step {step}: resumed");
     }
 }
 
 #[test]
-fn a_plane_over_the_bound_never_stores() {
+fn a_plane_over_the_bound_is_never_reserved() {
     assert!(
         resume_cut::ResumeCut::covers(6016 * 3384 * 16),
         "6K full screen"
@@ -233,6 +224,14 @@ fn a_plane_over_the_bound_never_stores() {
     let base = engaged(aggressive_case());
     let session = LiveSession::new(&ctx, &image(), W, H).expect("session");
     session.cut.set_max_bytes(session.image.byte_len() - 1);
+    let unreserved = session.pool_alloc_count(&ctx);
+    session.reserve_resume_cut(&ctx);
+    assert_eq!(
+        session.pool_alloc_count(&ctx),
+        unreserved,
+        "a plane over the bound is not created"
+    );
+    assert!(!session.resume_cut_reserved());
     for contrast in [0.0f32, 0.0, 10.0, 20.0, 30.0] {
         let tick = FullChainInputs {
             contrast,
@@ -244,7 +243,7 @@ fn a_plane_over_the_bound_never_stores() {
             "capped",
         );
     }
-    assert_eq!(session.cut.allocated(), 0);
+    assert_eq!(session.cut.stored(), 0);
     assert_eq!(session.cut.resumed(), 0);
 }
 
@@ -252,7 +251,10 @@ fn a_plane_over_the_bound_never_stores() {
 fn only_the_frame_that_stored_can_validate_its_cut() {
     let ctx = GpuContext::new_blocking().expect("gpu context");
     let clear = edited(&engaged(aggressive_case()), |i| i.dehaze = 0.0);
-    let session = LiveSession::new_with_airlight_readback(&ctx, &image(), W, H).expect("session");
+    let session = reserved(
+        &ctx,
+        LiveSession::new_with_airlight_readback(&ctx, &image(), W, H).expect("session"),
+    );
     render(&session, &ctx, &clear);
     render(&session, &ctx, &clear);
     let moved = edited(&clear, |i| i.tone[0] = 1.1);

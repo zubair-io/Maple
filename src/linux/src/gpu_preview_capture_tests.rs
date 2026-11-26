@@ -117,6 +117,31 @@ fn a_white_balance_drag_matches_the_develop_on_a_committed_raw() {
     }
 }
 
+#[test]
+fn a_session_reserves_the_resume_plane_once_it_survives_a_render() {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../test-fixtures/batch-transfer/source.dng");
+    let source = Source::read(&path);
+    let ctx = GpuContext::new_blocking().unwrap();
+    let model = AdjustmentModel::default();
+    let moved = AdjustmentModel {
+        capture_sharpening_amount: 80.0,
+        ..model.clone()
+    };
+    let mut preview =
+        GpuPreview::open(&ctx, &source.raw, &source.bytes, &source.ext, &model, 256).unwrap();
+    let steps = [
+        (&model, 1, true, "the open render keeps the session"),
+        (&moved, 2, false, "a prefix edit replaces the session"),
+        (&moved, 2, true, "the replacement survived a render"),
+    ];
+    for (tick, uploads, reserved, what) in steps {
+        shown(&mut preview, &ctx, &source, tick);
+        assert_eq!(preview.upload_count(), uploads, "{what}");
+        assert_eq!(preview.session.resume_cut_reserved(), reserved, "{what}");
+    }
+}
+
 fn gate(name: &str) {
     let source = Source::read(&raw_core::test_support::fixtures::require_raw(name));
     let ctx = GpuContext::new_blocking().unwrap();
