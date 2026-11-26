@@ -283,21 +283,11 @@ namespace Maple.WinUI
             var stacksStatus = new MuiStatusText { State = MuiStatusTextState.Idle };
             stacksToggle.Click += (_, _) =>
             {
-                var shown = stacksToggle.CheckedState == true;
-                try
-                {
-                    AppSettings.Update(s => s.ShowRawJpegStacks = shown);
-                }
-                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-                {
+                var error = ApplyRawJpegStacks(_viewModel, stacksToggle.CheckedState == true);
+                if (error != null)
                     stacksToggle.CheckedState = AppSettings.Load().ShowRawJpegStacks;
-                    stacksStatus.State = MuiStatusTextState.Error;
-                    stacksStatus.Text = $"Couldn't save: {ex.Message}";
-                    return;
-                }
-                stacksStatus.State = MuiStatusTextState.Idle;
-                stacksStatus.Text = string.Empty;
-                _viewModel.SetLocalRawJpegStacks(shown);
+                stacksStatus.State = error == null ? MuiStatusTextState.Idle : MuiStatusTextState.Error;
+                stacksStatus.Text = error ?? string.Empty;
             };
             var stacksContent = new StackPanel { Orientation = Orientation.Vertical, Spacing = 6 };
             stacksContent.Children.Add(stacksToggle);
@@ -316,6 +306,22 @@ namespace Maple.WinUI
                         stacksContent, StartExpanded: true),
                 },
             });
+        }
+
+        /// <summary>Persists the device-local RAW+JPEG pair switch and refolds
+        /// the open local folder; returns why the save failed, or null.</summary>
+        internal static string? ApplyRawJpegStacks(EditSessionViewModel viewModel, bool shown)
+        {
+            try
+            {
+                AppSettings.Update(s => s.ShowRawJpegStacks = shown);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                return $"Couldn't save: {ex.Message}";
+            }
+            viewModel.SetLocalRawJpegStacks(shown);
+            return null;
         }
 
         // --- Panorama ---
