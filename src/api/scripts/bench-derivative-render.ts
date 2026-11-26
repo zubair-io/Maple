@@ -5,7 +5,7 @@
  * and times the first (render) and second (cached) `GET /api/thumb` and `GET /api/preview`.
  *
  *   bun scripts/bench-derivative-render.ts --photos 0 --thumbs no --indexed no [--api-root DIR]
- *     [--fixtures DIR] [--files 8] [--server-stderr]
+ *     [--fixtures DIR] [--files 8] [--burst] [--server-stderr]
  *
  * Needs the native dylib (`scripts/build-raw-ffi.sh`) and the gitignored RAW fixtures.
  */
@@ -89,6 +89,21 @@ async function main() {
   const server = await bootServer(work);
   try {
     const auth = { Authorization: `Bearer ${server.token}` };
+    if (process.argv.includes('--burst')) {
+      const started = performance.now();
+      const burst = await Promise.all(
+        picks.map((pick) => timedGet(server.base, auth, `/api/thumb/${SLUG}/${pick.name}`)),
+      );
+      const summary = {
+        apiRoot,
+        ffiWorkers: process.env.MAPLE_FFI_WORKERS ?? 'default',
+        files: picks.length,
+        burstTotalMs: Math.round(performance.now() - started),
+        statuses: burst.map((result) => result.status),
+      };
+      console.log(JSON.stringify(summary));
+      return;
+    }
     const rows: Record<string, unknown>[] = [];
     for (const pick of picks) {
       const thumb = `/api/thumb/${SLUG}/${pick.name}`;
