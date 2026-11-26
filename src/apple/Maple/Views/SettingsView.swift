@@ -108,12 +108,22 @@ enum SettingsTab: String, CaseIterable, Identifiable {
   }
 }
 
+/// A request to show Settings, optionally on one page. Held as a single
+/// optional value by the shell; the consumer clears it once handled.
+struct SettingsRequest: Identifiable, Equatable {
+  let id = UUID()
+  var tab: SettingsTab?
+}
+
 struct SettingsView: View {
   /// Optional pre-selected tab. With `nil`, macOS retains the last selection
   /// in its Settings window; iOS starts on General.
   /// Provided by callers that want to deep-link into a specific tab
   /// (e.g. the PanoMergeView "Configure in Settings → Pano" action).
   var initialTab: SettingsTab? = nil
+
+  /// Called once `initialTab` has been applied, so the owner can clear it.
+  var onInitialTabApplied: (() -> Void)? = nil
 
   /// Resolves the shared per-server `AuthSession` for the Cloud tab's
   /// ServerAdmin entry point (#2766). Defaults to the preview/test
@@ -166,12 +176,15 @@ struct SettingsView: View {
       // and window chrome even when macOS itself uses Light appearance.
       .preferredColorScheme(.dark)
     #endif
-    .onAppear {
-      if let tab = initialTab {
-        selectedTab = tab
-        pushedTab = tab
-      }
-    }
+    .onAppear { applyInitialTab() }
+    .onChange(of: initialTab) { applyInitialTab() }
+  }
+
+  private func applyInitialTab() {
+    guard let tab = initialTab else { return }
+    selectedTab = tab
+    pushedTab = tab
+    onInitialTabApplied?()
   }
 
   private var narrowView: some View {

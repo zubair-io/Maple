@@ -60,6 +60,10 @@
     /// call site now, so it shares this stack rather than owning its own.
     @Binding var libraryPath: [LibraryDestination]
 
+    /// Set by `AppShell.showAppSettings`; selects the Settings tab, which
+    /// clears it once it has shown the requested page.
+    @Binding var settingsRequest: SettingsRequest?
+
     /// `CloudSource` for the asset most recently pushed onto `libraryPath`.
     /// `PhoneLibraryView`'s Preview destination falls back to this when
     /// `browseVM.currentSource` is nil, which it is for a cloud Timeline tap —
@@ -221,6 +225,11 @@
         sidebarContent: sidebar
       )
       .onAppear { normalizeActiveTabIfNeeded() }
+      .onChange(of: settingsRequest) { _, request in
+        guard let request else { return }
+        activeTab = "settings"
+        if request.tab == nil { settingsRequest = nil }
+      }
     }
 
     private func normalizeActiveTabIfNeeded() {
@@ -375,7 +384,10 @@
 
         Tab("Settings", systemImage: "gearshape", value: "settings") {
           NavigationStack {
-            SettingsView(sessionFor: sessionFor)
+            SettingsView(
+              initialTab: settingsRequest?.tab,
+              onInitialTabApplied: { settingsRequest = nil },
+              sessionFor: sessionFor)
           }
         }
 
