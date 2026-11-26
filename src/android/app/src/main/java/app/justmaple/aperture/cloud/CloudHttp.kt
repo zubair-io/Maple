@@ -1,5 +1,6 @@
 package app.justmaple.aperture.cloud
 
+import android.net.Uri
 import android.os.CancellationSignal
 import android.os.OperationCanceledException
 import app.justmaple.aperture.data.XmpEncoding
@@ -79,7 +80,24 @@ internal interface CloudTransport {
 }
 
 internal class CloudHttp(private val credentials: CloudSessions) : CloudTransport {
+    /** A 409 on a first folder page (no cursor) is asked once more; a retried later page could join two folders. */
     override fun request(
+        id: String,
+        path: String,
+        method: String,
+        body: String?,
+        headers: Map<String, String>,
+    ): CloudResponse {
+        val response = send(id, path, method, body, headers)
+        val firstFolderPage =
+            method == "GET" &&
+                path.startsWith("/api/folder/") &&
+                Uri.parse(path).getQueryParameter("cursor") == null
+        return if (response.status == 409 && firstFolderPage) send(id, path, method, body, headers)
+        else response
+    }
+
+    private fun send(
         id: String,
         path: String,
         method: String,
