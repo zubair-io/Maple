@@ -36,7 +36,7 @@ use crate::math::Vec3;
 mod stored;
 mod strip;
 pub(crate) use stored::warp_stored_to_canvas;
-pub use strip::{warp_to_canvas_strip, warp_window_to_canvas_strip, SourceRows};
+pub use strip::{warp_rect_to_canvas, warp_to_canvas_strip, warp_window_to_canvas_strip, SourceRows};
 
 /// Canvas-space footprint of a source frame: a y range plus one or two
 /// half-open x spans (two when the frame straddles a fully-wrapped
@@ -265,8 +265,9 @@ const MIN_TAP_WEIGHT: f64 = 1e-4;
 /// neighborhood).
 fn sample_bicubic(src: SourceRows<'_>, x_px: f64, y_px: f64) -> Option<[f32; 3]> {
     let image = src.image();
-    let w = image.width() as i64;
+    let w = src.full_width() as i64;
     let h = src.full_height() as i64;
+    let window_x0 = src.x0() as i64;
     let window_y0 = src.y0() as i64;
     let x = x_px - 0.5;
     let y = y_px - 0.5;
@@ -290,11 +291,12 @@ fn sample_bicubic(src: SourceRows<'_>, x_px: f64, y_px: f64) -> Option<[f32; 3]>
             if tx < 0 || tx >= w {
                 continue;
             }
-            if !image.validity.get(tx as u32, wy_row as u32) {
+            let wx_col = tx - window_x0;
+            if !image.validity.get(wx_col as u32, wy_row as u32) {
                 continue;
             }
             let wgt = wxi * wyj;
-            let idx = row + tx as usize;
+            let idx = row + wx_col as usize;
             acc[0] += wgt * image.r[idx] as f64;
             acc[1] += wgt * image.g[idx] as f64;
             acc[2] += wgt * image.b[idx] as f64;

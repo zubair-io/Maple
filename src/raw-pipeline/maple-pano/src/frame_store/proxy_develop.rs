@@ -58,12 +58,13 @@ impl ProxyDevelop {
     }
 
     /// `path` developed in `band_rows`-row bands to its `proxy_long_edge`
-    /// proxy and metadata.
+    /// proxy and metadata. `is_cancelled` is polled between bands.
     pub fn develop(
         &self,
         path: &Path,
         band_rows: u32,
         proxy_long_edge: u32,
+        is_cancelled: &dyn Fn() -> bool,
     ) -> Result<FrameMeta, PanoError> {
         let bytes = std::fs::read(path).map_err(|e| PanoError::io(path, e))?;
         let ext = path
@@ -81,10 +82,15 @@ impl ProxyDevelop {
             context: path.display().to_string(),
             source,
         };
-        let ingest =
-            raw_core::develop_banded_for_pano(&bytes, &ext, band_rows, &mut scratch, &mut sink)
-                .map_err(decode_error)?;
-        drop(bytes);
+        let ingest = raw_core::develop_banded_for_pano(
+            bytes,
+            &ext,
+            band_rows,
+            &mut scratch,
+            &mut sink,
+            is_cancelled,
+        )
+        .map_err(decode_error)?;
         let (proxy, (full_width, full_height)) = sink.finish().map_err(decode_error)?;
         Ok(FrameMeta {
             proxy_scale_x: full_width as f64 / proxy.width() as f64,

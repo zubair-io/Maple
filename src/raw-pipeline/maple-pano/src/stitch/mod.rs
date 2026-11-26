@@ -199,6 +199,20 @@ pub(super) fn solve_alignment(
     t_decode: f64,
     opts: &StitchOptions,
     key: AlignmentKey,
+    progress: &mut dyn FnMut(u32, f32),
+    is_cancelled: &dyn Fn() -> bool,
+) -> Result<SolvedHead, StitchError> {
+    solve_alignment_detected(metas, None, t_decode, opts, key, progress, is_cancelled)
+}
+
+/// [`solve_alignment`] when stage 0 may already have `detected` the
+/// features, in which case `metas` carry no proxy pixels (#6057).
+pub(super) fn solve_alignment_detected(
+    metas: Vec<FrameMeta>,
+    detected: Option<frames::Detected>,
+    t_decode: f64,
+    opts: &StitchOptions,
+    key: AlignmentKey,
     mut progress: &mut dyn FnMut(u32, f32),
     is_cancelled: &dyn Fn() -> bool,
 ) -> Result<SolvedHead, StitchError> {
@@ -211,12 +225,22 @@ pub(super) fn solve_alignment(
     let t1 = Instant::now();
     progress(1, 0.0);
 
-    let (feature_sets, mut pair_matcher) =
-        engine::extract_features(&metas, opts, &mut progress, &is_cancelled)?;
-    let proxy_dims: Vec<(u32, u32)> = metas
-        .iter()
-        .map(|m| (m.proxy.width(), m.proxy.height()))
-        .collect();
+    let proxy_dims: Vec<(u32, u32)> = detected.as_ref().map_or_else(
+        || {
+            metas
+                .iter()
+                .map(|m| (m.proxy.width(), m.proxy.height()))
+                .collect()
+        },
+        |d| d.proxy_dims.clone(),
+    );
+    let (feature_sets, mut pair_matcher) = engine::extract_features(
+        &metas,
+        detected.map(|d| d.features),
+        opts,
+        &mut progress,
+        &is_cancelled,
+    )?;
     let t_features = t1.elapsed().as_secs_f64();
 
     // Per-frame x and y proxy→full-res scale factors (stored in FrameMeta).
@@ -355,9 +379,10 @@ pub(super) fn solve_alignment(
     let frames: Vec<AlignedFrame> = metas
         .iter()
         .zip(&full_images)
-        .map(|(m, img)| AlignedFrame {
+        .zip(&proxy_dims)
+        .map(|((m, img), &proxy_dims)| AlignedFrame {
             full_dims: (m.full_width, m.full_height),
-            proxy_dims: (m.proxy.width(), m.proxy.height()),
+            proxy_dims,
             proxy_scale: (m.proxy_scale_x, m.proxy_scale_y),
             focal_full_px: img.camera.focal_px,
             priors: m.priors.clone(),

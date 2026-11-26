@@ -59,9 +59,9 @@ pub const FEATHER_RADIUS_PX: u32 = 3;
 pub struct SeamMasks {
     seam_width: u32,
     seam_height: u32,
-    /// `masks[i]` is frame `i`'s feathered weight plane, length
-    /// `seam_width * seam_height`.
-    masks: Vec<Vec<f32>>,
+    /// `masks[i]` is frame `i`'s feathered weight plane, kept only over the
+    /// rectangle where it is non-zero (#6057).
+    masks: Vec<CroppedPlane>,
     /// Full-canvas-pixel -> seam-canvas-pixel scale (see module doc:
     /// `downscaled` keeps the same angular window, so this is a fixed
     /// ratio, not a reprojection).
@@ -87,11 +87,69 @@ impl SeamMasks {
     }
 }
 
+/// A `w * h` plane stored only over `x0..x0 + width` × `y0..y0 + height`;
+/// every pixel outside reads `0.0`, as it did in the dense plane.
+struct CroppedPlane {
+    x0: usize,
+    y0: usize,
+    width: usize,
+    height: usize,
+    values: Vec<f32>,
+}
+
+impl CroppedPlane {
+    fn new(dense: &[f32], w: usize) -> Self {
+        let nonzero_rows = dense
+            .chunks_exact(w)
+            .enumerate()
+            .filter(|(_, row)| row.iter().any(|&v| v != 0.0))
+            .map(|(y, _)| y);
+        let Some((y0, y1)) = nonzero_rows.fold(None, |span: Option<(usize, usize)>, y| {
+            Some(span.map_or((y, y + 1), |(a, _)| (a, y + 1)))
+        }) else {
+            return Self {
+                x0: 0,
+                y0: 0,
+                width: 0,
+                height: 0,
+                values: Vec::new(),
+            };
+        };
+        let (x0, x1) = dense[y0 * w..y1 * w]
+            .chunks_exact(w)
+            .filter_map(|row| {
+                let first = row.iter().position(|&v| v != 0.0)?;
+                let last = row.iter().rposition(|&v| v != 0.0)?;
+                Some((first, last + 1))
+            })
+            .fold((usize::MAX, 0), |(a, b), (c, d)| (a.min(c), b.max(d)));
+        let values = (y0..y1)
+            .flat_map(|y| dense[y * w + x0..y * w + x1].iter().copied())
+            .collect();
+        Self {
+            x0,
+            y0,
+            width: x1 - x0,
+            height: y1 - y0,
+            values,
+        }
+    }
+
+    fn at(&self, x: usize, y: usize) -> f32 {
+        let (cx, cy) = (x.wrapping_sub(self.x0), y.wrapping_sub(self.y0));
+        if cx < self.width && cy < self.height {
+            self.values[cy * self.width + cx]
+        } else {
+            0.0
+        }
+    }
+}
+
 /// Bilinear sample of a row-major `w * h` plane at continuous pixel
 /// coordinates, clamped to the plane's bounds (no extrapolation past the
 /// border — the seam canvas has no validity concept once masks are
 /// built, so clamping is the correct "nearest sensible answer").
-fn sample_bilinear(plane: &[f32], w: u32, h: u32, x: f64, y: f64) -> f32 {
+fn sample_bilinear(plane: &CroppedPlane, w: u32, h: u32, x: f64, y: f64) -> f32 {
     if w == 0 || h == 0 {
         return 0.0;
     }
@@ -103,7 +161,7 @@ fn sample_bilinear(plane: &[f32], w: u32, h: u32, x: f64, y: f64) -> f32 {
     let y1 = (y0 + 1).min(h as usize - 1);
     let tx = (x - x0 as f64) as f32;
     let ty = (y - y0 as f64) as f32;
-    let at = |xx: usize, yy: usize| plane[yy * (w as usize) + xx];
+    let at = |xx: usize, yy: usize| plane.at(xx, yy);
     let top = at(x0, y0) * (1.0 - tx) + at(x1, y0) * tx;
     let bot = at(x0, y1) * (1.0 - tx) + at(x1, y1) * tx;
     top * (1.0 - ty) + bot * ty
@@ -132,6 +190,10 @@ fn finish(
     };
     let mut masks = labels::labels_to_masks(&labels, layers.len());
     labels::feather_masks(&mut masks, sw, sh, FEATHER_RADIUS_PX);
+    let masks = masks
+        .iter()
+        .map(|dense| CroppedPlane::new(dense, sw as usize))
+        .collect();
     Ok(Some(SeamMasks {
         seam_width: sw,
         seam_height: sh,
@@ -224,6 +286,38 @@ mod tests {
     use crate::math::Vec3;
     use crate::prng::SplitMix64;
     use crate::render::{build_camera_set, CameraSetOptions, Pattern};
+
+    /// A cropped plane samples exactly like the dense plane it came from,
+    /// inside its rectangle, outside it, and past the canvas border.
+    #[test]
+    fn cropped_planes_sample_like_dense_ones() {
+        let (w, h) = (23usize, 17usize);
+        let mut dense = vec![0.0_f32; w * h];
+        for y in 4..11 {
+            for x in 6..15 {
+                dense[y * w + x] = ((x * 3 + y * 5) % 7) as f32 / 7.0;
+            }
+        }
+        let cropped = CroppedPlane::new(&dense, w);
+        assert!(cropped.width <= 9 && cropped.height <= 7, "cropped to the non-zero block");
+        let full = CroppedPlane {
+            x0: 0,
+            y0: 0,
+            width: w,
+            height: h,
+            values: dense.clone(),
+        };
+        let empty = CroppedPlane::new(&vec![0.0; w * h], w);
+        for yi in -8..(4 * h as i32 + 8) {
+            for xi in -8..(4 * w as i32 + 8) {
+                let (x, y) = (xi as f64 * 0.25, yi as f64 * 0.25);
+                let want = sample_bilinear(&full, w as u32, h as u32, x, y);
+                let got = sample_bilinear(&cropped, w as u32, h as u32, x, y);
+                assert_eq!(got.to_bits(), want.to_bits(), "({x}, {y})");
+                assert_eq!(sample_bilinear(&empty, w as u32, h as u32, x, y), 0.0);
+            }
+        }
+    }
 
     fn ring_cameras(count: u32) -> Vec<Camera> {
         let opts = CameraSetOptions {

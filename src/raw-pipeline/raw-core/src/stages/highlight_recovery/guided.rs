@@ -425,7 +425,8 @@ pub(super) fn scene_median_in_sensor_space(
     let eligible = || {
         (top..bottom).step_by(step).flat_map(move |y| {
             (left..right).step_by(step).filter_map(move |x| {
-                scene_sample(img, clip_mask, floors, gains, (y * w + x) as usize)
+                let idx = (y * w + x) as usize;
+                scene_sample(img, clip_mask[idx], floors, gains, idx)
             })
         })
     };
@@ -436,7 +437,7 @@ pub(super) fn scene_median_in_sensor_space(
 /// non-negative and below every ripple floor.
 pub(super) fn scene_sample(
     img: &Image,
-    clip_mask: &[u8],
+    clip_bits: u8,
     floors: [f32; 3],
     gains: Option<crate::sensor_gain_maps::ClipGainContext<'_>>,
     idx: usize,
@@ -444,7 +445,7 @@ pub(super) fn scene_sample(
     let p = img.pixels[idx];
     let usable = p.iter().all(|v| v.is_finite() && *v >= 0.)
         && super::channels_in_sensor_space(&p, floors, gains, idx, img.width) == 0;
-    (clip_mask[idx] == 0 && usable).then_some(p)
+    (clip_bits == 0 && usable).then_some(p)
 }
 
 /// Per-channel median of every k-th of `count` eligible samples, with k sized

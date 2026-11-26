@@ -201,8 +201,15 @@ pub(super) fn banded(
 ) -> (Image, BandedDevelop) {
     let mut sink = MemSink::default();
     let developed =
-        develop_raw_banded(raw, list3, band_rows, &mut MemScratch::default(), &mut sink)
-            .expect("banded develop");
+        develop_raw_banded(
+            raw,
+            list3,
+            band_rows,
+            &mut MemScratch::default(),
+            &mut sink,
+            &|| false,
+        )
+        .expect("banded develop");
     (sink.into_complete(), developed)
 }
 
@@ -297,6 +304,82 @@ fn banded_matches_full_frame_with_the_bundled_vignette() {
         );
         assert_eq!(first_mismatch(&got, &want), None, "{band_rows}-row bands");
     }
+}
+
+/// A LinearRaw (ProRAW-style) frame from the textured Bayer one: three
+/// interleaved samples per pixel, clipped where the Bayer frame clipped.
+fn textured_linear_raw((width, height): (u32, u32)) -> RawImage {
+    let bayer = textured_raw(CfaPattern::Rggb, (width, height));
+    let white = bayer.white_level as u16;
+    let raw_data = bayer
+        .raw_data
+        .iter()
+        .enumerate()
+        .flat_map(|(i, &v)| {
+            let (x, y) = (i % width as usize, i / width as usize);
+            let tint = |k: usize| v.saturating_sub(((x * 7 + y * 3 + k * 11) % 97) as u16);
+            if v == white {
+                [white, if (x + y) % 3 == 0 { white } else { tint(1) }, white]
+            } else {
+                [tint(0), tint(1), tint(2)]
+            }
+        })
+        .collect();
+    RawImage {
+        cfa: CfaPattern::LinearRgb,
+        raw_data,
+        ..bayer
+    }
+}
+
+#[test]
+fn linear_raw_bands_match_full_frame_bit_for_bit() {
+    let base = textured_linear_raw(FRAME);
+    let list = lens_list(base.lens_metadata.active_area.expect("active area"));
+    for orientation in ORIENTATIONS {
+        let raw = RawImage {
+            orientation,
+            ..base.clone()
+        };
+        let (want, want_applied) = full_frame(&raw, Some(&list));
+        for band_rows in [16, 40, 1000] {
+            let (got, developed) = banded(&raw, Some(&list), band_rows);
+            assert!(developed.banded);
+            assert_eq!(developed.applied_opcodes, want_applied);
+            assert_eq!(
+                first_mismatch(&got, &want),
+                None,
+                "{orientation:?} at {band_rows}-row bands"
+            );
+        }
+    }
+    let raw = RawImage {
+        crop_rect: None,
+        ..textured_linear_raw((1280, 1200))
+    };
+    let (want, _) = full_frame(&raw, None);
+    let (got, _) = banded(&raw, None, 112);
+    assert_eq!(first_mismatch(&got, &want), None, "decimated median");
+}
+
+#[test]
+fn a_cancelled_develop_stops_with_cancelled() {
+    let raw = textured_raw(CfaPattern::Rggb, FRAME);
+    let calls = std::cell::Cell::new(0);
+    let cancel_on_third = || {
+        calls.set(calls.get() + 1);
+        calls.get() >= 3
+    };
+    let result = develop_raw_banded(
+        &raw,
+        None,
+        16,
+        &mut MemScratch::default(),
+        &mut MemSink::default(),
+        &cancel_on_third,
+    );
+    assert!(matches!(result, Err(crate::Error::Cancelled)));
+    assert_eq!(calls.get(), 3, "polled once per band until cancelled");
 }
 
 #[test]

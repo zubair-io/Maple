@@ -9,35 +9,66 @@ use std::path::{Path, PathBuf};
 use raw_core::PanoBandedIngest;
 
 use crate::error::PanoError;
+use crate::features::FeatureSet;
 use crate::frame_store::{FrameRows, FrameStore};
 use crate::ingest::proxy::proxy_from_row_windows;
-use crate::ingest::{FrameMeta, FramePriors};
+use crate::ingest::{FrameMeta, FramePriors, PlanarImage, ValidityMask};
 
-use super::StitchError;
+use super::engine::detect_during_decode;
+use super::{StitchError, StitchOptions};
 
 /// Develop band height: ~150 MB of working set on a 100 MP frame.
 pub(super) const BAND_ROWS: u32 = 1024;
 
+/// Stage-1 features detected inside stage 0 (#6057), and the sizes of the
+/// proxies they were detected on, which are dropped.
+pub(super) struct Detected {
+    pub features: Vec<FeatureSet>,
+    pub proxy_dims: Vec<(u32, u32)>,
+}
+
 /// Develop every input into a new store and build each frame's proxy and
-/// metadata from it.
+/// metadata from it. When the engine can detect one frame at a time, each
+/// proxy is detected as soon as it is built and its pixels are dropped:
+/// the metas then carry empty proxies and `Detected` holds the features.
 pub(super) fn decode_into_store(
     inputs: &[PathBuf],
-    proxy_long_edge: u32,
+    opts: &StitchOptions,
     progress: &mut dyn FnMut(u32, f32),
     is_cancelled: &dyn Fn() -> bool,
-) -> Result<(FrameStore, Vec<FrameMeta>), StitchError> {
+) -> Result<(FrameStore, Vec<FrameMeta>, Option<Detected>), StitchError> {
     let mut metas = Vec::with_capacity(inputs.len());
+    let mut detected: Option<Detected> = None;
     let store = fill_store_with(inputs, progress, is_cancelled, |store, idx, ingest| {
-        metas.push(frame_meta(
-            store,
-            idx,
-            ingest,
-            proxy_long_edge,
-            &inputs[idx],
-        )?);
+        let meta = frame_meta(store, idx, ingest, opts.proxy_long_edge, &inputs[idx])?;
+        let meta = match detect_during_decode(opts, idx, &meta.proxy) {
+            Some(features) => {
+                let found = detected.get_or_insert_with(|| Detected {
+                    features: Vec::with_capacity(inputs.len()),
+                    proxy_dims: Vec::with_capacity(inputs.len()),
+                });
+                found.features.push(features?);
+                found
+                    .proxy_dims
+                    .push((meta.proxy.width(), meta.proxy.height()));
+                FrameMeta {
+                    proxy: PlanarImage::from_planes(
+                        0,
+                        0,
+                        Vec::new(),
+                        Vec::new(),
+                        Vec::new(),
+                        ValidityMask::new_filled(0, 0, false),
+                    ),
+                    ..meta
+                }
+            }
+            None => meta,
+        };
+        metas.push(meta);
         Ok(())
     })?;
-    Ok((store, metas))
+    Ok((store, metas, detected))
 }
 
 /// Develop every input into a new store, for a tail running from a reused
@@ -63,8 +94,11 @@ fn fill_store_with(
             return Err(StitchError::Cancelled);
         }
         let ingest = store
-            .ingest_file(idx, path, BAND_ROWS)
-            .map_err(|e| store_error(path, e))?;
+            .ingest_file(idx, path, BAND_ROWS, is_cancelled)
+            .map_err(|e| match is_cancelled() {
+                true => StitchError::Cancelled,
+                false => store_error(path, e),
+            })?;
         each(&store, idx, ingest)?;
         progress(0, (idx + 1) as f32 / inputs.len() as f32);
     }

@@ -63,12 +63,8 @@ pub fn stitch_tile(
     // the store and its proxy read back; `tile_tail` reads full-resolution
     // pixels from the store.
     let t0 = Instant::now();
-    let (store, metas) = super::frames::decode_into_store(
-        inputs,
-        opts.proxy_long_edge,
-        &mut progress,
-        &is_cancelled,
-    )?;
+    let (store, metas, detected) =
+        super::frames::decode_into_store(inputs, opts, &mut progress, &is_cancelled)?;
     let decode_s = t0.elapsed().as_secs_f64();
 
     let applied_opcodes: Vec<Vec<String>> =
@@ -87,12 +83,22 @@ pub fn stitch_tile(
         return Err(StitchError::Cancelled);
     }
 
-    let (feature_sets, mut pair_matcher) =
-        extract_features(&metas, opts, &mut progress, &is_cancelled)?;
-    let proxy_dims: Vec<(u32, u32)> = metas
-        .iter()
-        .map(|m| (m.proxy.width(), m.proxy.height()))
-        .collect();
+    let proxy_dims: Vec<(u32, u32)> = detected.as_ref().map_or_else(
+        || {
+            metas
+                .iter()
+                .map(|m| (m.proxy.width(), m.proxy.height()))
+                .collect()
+        },
+        |d| d.proxy_dims.clone(),
+    );
+    let (feature_sets, mut pair_matcher) = extract_features(
+        &metas,
+        detected.map(|d| d.features),
+        opts,
+        &mut progress,
+        &is_cancelled,
+    )?;
     let features_s = t1.elapsed().as_secs_f64();
 
     // Build proxy-resolution camera seeds with unit focal (1.0). The tile

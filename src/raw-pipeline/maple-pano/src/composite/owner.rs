@@ -2,6 +2,8 @@
 //! Ownership is piecewise constant along a row — a handful of runs where a
 //! dense `u16` map of a 256 MP canvas would be 512 MB.
 
+use std::ops::Range;
+
 /// Owner per canvas pixel: a frame index, or `u16::MAX` where no frame
 /// covers it.
 #[derive(Debug, Clone, PartialEq)]
@@ -37,11 +39,16 @@ impl OwnerRuns {
         runs[run].1
     }
 
-    /// Does frame `fi` own any pixel in canvas rows `y0..y1`?
-    pub(crate) fn owns_any(&self, fi: u16, y0: u32, y1: u32) -> bool {
-        self.rows[y0 as usize..y1 as usize]
+    /// Does frame `fi` own any pixel in canvas rows `rows` × columns `cols`?
+    pub(crate) fn owns_any_in(&self, fi: u16, rows: Range<u32>, cols: Range<u32>) -> bool {
+        self.rows[rows.start as usize..rows.end as usize]
             .iter()
-            .any(|runs| runs.iter().any(|&(_, o)| o == fi))
+            .any(|runs| {
+                runs.iter().enumerate().any(|(i, &(start, o))| {
+                    let end = runs.get(i + 1).map_or(self.width, |&(next, _)| next);
+                    o == fi && start < cols.end && cols.start < end
+                })
+            })
     }
 
     /// The dense row-major map, for callers that write it out whole.
@@ -77,8 +84,12 @@ mod tests {
                 assert_eq!(runs.at(x, y), o, "({x},{y})");
             }
         }
-        assert!(runs.owns_any(2, 1, 2));
-        assert!(!runs.owns_any(2, 2, 3));
-        assert!(runs.owns_any(1, 0, 3));
+        assert!(runs.owns_any_in(2, 1..2, 0..6));
+        assert!(!runs.owns_any_in(2, 2..3, 0..6));
+        assert!(runs.owns_any_in(1, 0..3, 0..6));
+        assert!(runs.owns_any_in(1, 0..1, 3..4));
+        assert!(!runs.owns_any_in(1, 0..1, 0..3));
+        assert!(runs.owns_any_in(0, 2..3, 2..3));
+        assert!(!runs.owns_any_in(2, 0..1, 0..6));
     }
 }
