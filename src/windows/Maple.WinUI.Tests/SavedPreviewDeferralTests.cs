@@ -49,6 +49,17 @@ namespace Maple.WinUI.Tests
         }
 
         [Fact]
+        public void Request_InEdit_AfterAnAcknowledgedAutosave_IsOwedUntilEditIsLeft()
+        {
+            var (inEdit, start) = Editing("a").Request("cloud");
+            var left = inEdit.Enter(ShellMode.Preview, Nothing);
+
+            Assert.False(start);
+            Assert.Equal(new[] { "a", "cloud" }, left.Release);
+            Assert.True(left.Next.Request("cloud").Start);
+        }
+
+        [Fact]
         public void Edited_InEdit_OwesThePhotoBeforeItsSaveLands()
         {
             Assert.Equal(new[] { "a" }, Editing().Edited("a").Owed);
