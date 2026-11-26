@@ -34,10 +34,9 @@ libc = { version = "0.2", optional = true }
 # Direct dep so the AVIF encoder's own options (EXIF item, chroma subsampling,
 # alpha quality) are reachable — `image`'s AvifEncoder wrapper exposes only
 # speed and quality. Same version `image/avif` already resolves; matching
-# `image`'s own `default-features = false` on `ravif`/`rgb` keeps the enabled
-# feature set (and so the vendor tree and Cargo.lock) unchanged too — ravif's
-# own defaults turn on `asm`/`threading`, which would newly pull nasm/cc build
-# tooling into the graph for a resolver artifact, not a real requirement.
+# `image`'s defaults are mirrored with `default-features = false`; `asm` is
+# enabled only on ARM64 non-Windows (target table below), where the C compiler
+# builds it. Elsewhere it would need `nasm`.
 ravif = { version = "0.13", optional = true, default-features = false }
 rgb = { version = "0.8", optional = true, default-features = false }
 imgref = { version = "1", optional = true }
@@ -62,6 +61,12 @@ serde.workspace = true
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 tempfile = "3"
+
+# Building an ARM64 and an x86_64 target in ONE cargo invocation unifies
+# features and would turn the assembly on for x86_64 (needing `nasm`); the
+# xcframework script builds per triple, so this is safe today.
+[target.'cfg(all(target_arch = "aarch64", not(target_os = "windows")))'.dependencies]
+ravif = { version = "0.13", optional = true, default-features = false, features = ["asm"] }
 
 # `pipeline::stage` reports process CPU time next to wall time (#5172).
 [target.'cfg(unix)'.dependencies]
@@ -92,8 +97,8 @@ stage-dump = ["dep:exr"]
 # Epic #925: pull in the headless GPU resource core (`raw-gpu`). OFF by default
 # — enable with `--features gpu`. Build-time only; no default impact.
 gpu = ["dep:raw-gpu"]
-# Pulls in the `image` crate's AVIF codec (pure-Rust `ravif`/`rav1e`, no C
-# toolchain) for thumbnails and exports. OFF by default; raw-ffi,
+# Pulls in the `image` crate's AVIF codec (`ravif`/`rav1e`: pure Rust, plus
+# C-compiled assembly on non-Windows ARM64) for thumbnails and exports. OFF by default; raw-ffi,
 # maple-pano and the shipping raw-wasm wrapper opt in explicitly.
 # Browser exports need encoding, while rav1d's native libc API cannot compile
 # for wasm32-unknown-unknown (#4197). Native avif retains encode + decode.

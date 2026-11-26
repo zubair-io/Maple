@@ -531,6 +531,11 @@ jobs:
       - name: cargo test -p raw-gpu (raw-core↔WGSL parity, Metal)
         working-directory: src/raw-pipeline
         run: cargo test -p raw-gpu -- --test-threads=1 --show-output
+      # ARM64 host: the AV1 encoder's assembly is on here, so this proves its
+      # output bytes equal the digests the x86_64 rust-tests job checks.
+      - name: 'cargo test -p raw-core --features avif avif::golden_tests (encoder assembly)'
+        working-directory: src/raw-pipeline
+        run: cargo test -p raw-core --features avif --lib avif::golden_tests
 
   # Fixture-free Rust test gate (#1082). Before this job, NO CI executed
   # `cargo test` anywhere — the ~750 raw-core lib tests ran only on laptops.
@@ -602,6 +607,10 @@ jobs:
       - name: 'cargo test -p raw-core --features avif (AVIF panic barrier, #3517)'
         working-directory: src/raw-pipeline
         run: cargo test -p raw-core --features avif --test avif_corruption
+      # Committed digests of the AV1 encoder's output (assembly off on x86_64).
+      - name: 'cargo test -p raw-core --features avif avif::golden_tests (encoder bytes)'
+        working-directory: src/raw-pipeline
+        run: cargo test -p raw-core --features avif --lib avif::golden_tests
       # The shared native/browser GPU host binding (#4317) compiles only with
       # `--features gpu`, which no step above enables.
       - name: 'cargo test -p raw-core --features gpu gpu_host (#4317)'

@@ -126,3 +126,7 @@ mod tests {
         assert!(encode_with_speed(2, 2, &rgb, 55, 99).is_ok());
     }
 }
+
+#[cfg(test)]
+#[path = "avif_golden_tests.rs"]
+mod golden_tests;
