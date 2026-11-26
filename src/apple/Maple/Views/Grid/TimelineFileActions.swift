@@ -10,6 +10,7 @@ struct TimelineFileActions {
   let cloudAsset: @MainActor (SearchAsset, URL) -> AssetRef
   let localAsset: @MainActor (ImageRef) -> AssetRef?
 
+  @MainActor
   func resolve(
     _ cell: MergedTimelineCell, absPathMap: [String: SearchAsset],
     server: @MainActor (SearchAsset) -> URL?
