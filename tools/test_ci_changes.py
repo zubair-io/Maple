@@ -74,7 +74,6 @@ class ClassificationTests(unittest.TestCase):
             "src/scripts/derive_agx_lut.py": ci.ALL,
             "src/apple/scripts/build-xcframework.sh": ci.ALL,
             "src/apple/ci_scripts/ci_post_clone.sh": ci.ALL,
-            "src/windows/scripts/build-windows.sh": ci.ALL,
             "src/api/scripts/build-raw-ffi.sh": ci.ALL,
             ".github/workflows/web.yml": ci.ALL,
             ".github/workflows/version-sync.yml": {"release"},
@@ -91,6 +90,87 @@ class ClassificationTests(unittest.TestCase):
         for path, expected in cases.items():
             with self.subTest(path=path):
                 self.assertEqual(set(ci.dependencies(path)), set(expected))
+
+    def test_platform_owned_trees_select_only_their_readers(self):
+        api = {"api", "maple", "web"}
+        cases = {
+            # linux.yml owns src/linux/**; no selector suite reads it.
+            "src/linux/src/main.rs": set(),
+            "src/linux/Cargo.lock": set(),
+            "src/linux/packaging/install_smoke.py": set(),
+            "src/linux/scripts/future.sh": set(),
+            # cloudflare.yml owns src/cloudflare/**; only the API's tree scan reads it.
+            "src/cloudflare/package.json": {"api"},
+            "src/cloudflare/scripts/patch-jsquash.mjs": {"api"},
+            "src/cloudflare/ssr/src/index.ts": {"api"},
+            "src/cloudflare/src/r2.ts": {"api"},
+            # windows.yml is the only pull-request runner of these scripts.
+            "src/windows/scripts/build-windows.sh": {"windows"},
+            "src/windows/scripts/verify-native-architecture.ps1": {"windows"},
+            "src/windows/scripts/test_build_windows.py": {"windows"},
+            # Benchmarks and tools that only the API's own suites import or run.
+            "src/api/scripts/bench-routes.ts": api,
+            "src/api/scripts/sqlite-bench/run.ts": api,
+            # Run by the Android, Apple, web and cross workflows.
+            "src/api/scripts/prewarm-temporal.ts": ci.ALL,
+            # Lookalikes keep the conservative default.
+            "src/api/scripts/image-boot-smoke.sh": ci.ALL,
+            "src/api/scripts/new-tool.mjs": ci.ALL,
+            "src/api/tools/scripts/bench.ts": ci.ALL,
+            "src/windows/Maple.WinUI/scripts/tool.ps1": ci.ALL,
+            "src/linux-tools/build.rs": ci.ALL,
+            "src/cloudflare-tools/index.ts": ci.ALL,
+            "src/linux": ci.ALL,
+            "src/cloudflare": ci.ALL,
+        }
+        for path, expected in cases.items():
+            with self.subTest(path=path):
+                self.assertEqual(set(ci.dependencies(path)), set(expected))
+
+    def test_api_scanned_client_trees_select_api(self):
+        root = SCRIPT.parent.parent
+        test = root / "src/api/src/db/no-mongodb-anywhere.test.ts"
+        declared = re.search(r"const roots = \[([^\]]*)\]", test.read_text())
+        self.assertIsNotNone(declared)
+        trees = {
+            (root / "src/api" / relative).resolve().relative_to(root).as_posix()
+            for relative in re.findall(r"'([^']+)'", declared.group(1))
+        }
+        self.assertIn("src/cloudflare/src", trees)
+        for tree in trees:
+            with self.subTest(tree=tree):
+                self.assertIn("api", ci.dependencies(f"{tree}/module.ts"))
+
+    def test_api_scripts_named_outside_the_api_keep_the_default(self):
+        root = SCRIPT.parent.parent
+        callers = subprocess.check_output(
+            [
+                "git",
+                "grep",
+                "-lIzE",
+                r"scripts/[A-Za-z0-9_./-]+\.ts",
+                "--",
+                ".",
+                ":!src/api",
+                ":!*.md",
+                ":!tools/ci_changes.py",
+                ":!tools/test_ci_*.py",
+            ],
+            cwd=root,
+        )
+        named = {
+            f"src/api/scripts/{name}"
+            for caller in os.fsdecode(callers).split("\0")[:-1]
+            for name in re.findall(
+                r"scripts/([\w./-]+\.ts)\b",
+                (root / caller).read_text(encoding="utf-8", errors="ignore"),
+            )
+            if (root / "src/api/scripts" / name).is_file()
+        }
+        self.assertEqual(named, set(ci.SHARED_API_SCRIPTS))
+        for path in named:
+            with self.subTest(path=path):
+                self.assertEqual(ci.dependencies(path), ci.ALL)
 
     def test_regression_suites_skip_unrelated_application_changes(self):
         for path in (
