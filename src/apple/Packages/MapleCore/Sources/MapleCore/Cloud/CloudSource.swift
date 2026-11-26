@@ -40,6 +40,9 @@ public actor CloudSource {
   /// per SERVER (`libraryPath: ""`) and serves assets from every library on
   /// it through that one instance.
   private let addresses: CloudAddressResolver
+  /// Absolute path → the latest listing's `thumbVersion`, sent as `?v=` so
+  /// the server and the edge answer the thumb `immutable` (#6013).
+  private var thumbVersions: [String: String] = [:]
 
   public init(
     server: URL,
@@ -111,7 +114,9 @@ extension CloudSource: ImageSource {
     let (data, resp) = try await httpClient.data(for: req)
     try Self.checkOK(resp, data: data)
     do {
-      return try JSONDecoder().decode(FsDirListing.self, from: data)
+      let listing = try JSONDecoder().decode(FsDirListing.self, from: data)
+      recordThumbVersions(of: listing)
+      return listing
     } catch {
       let preview = String(data: data.prefix(2048), encoding: .utf8) ?? "<non-utf8 \(data.count)B>"
       cloudHTTPLogger.error(
@@ -135,7 +140,16 @@ extension CloudSource: ImageSource {
   public func thumb(for ref: ImageRef) async throws -> Data? {
     let abs = Self.absPath(from: ref.id)
     let thumbURL = try await addresses.url(route: "thumb", absPath: abs)
-    return try await getOrNilWhenUnavailable(thumbURL)
+    let versioned = thumbVersions[abs].map {
+      thumbURL.appending(queryItems: [URLQueryItem(name: "v", value: $0)])
+    }
+    return try await getOrNilWhenUnavailable(versioned ?? thumbURL)
+  }
+
+  private func recordThumbVersions(of listing: FsDirListing) {
+    for image in listing.images {
+      thumbVersions[image.path] = image.thumbVersion
+    }
   }
 
   /// Display-resolution (1280 px long-edge) preview via

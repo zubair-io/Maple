@@ -84,6 +84,9 @@ public struct FsImageEntry: Decodable, Equatable, Sendable {
   public let exif: FsImageExif?
   public let livePhoto: LivePhotoLink?
   public let stack: FsStack?
+  /// The server's thumbnail version while its thumb file is fresh; `nil`
+  /// from servers that predate it (#6013).
+  public let thumbVersion: String?
 }
 
 /// Full response shape of `/api/folder/:slug/*`.
