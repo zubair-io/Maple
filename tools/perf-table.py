@@ -22,6 +22,8 @@ import sys
 from pathlib import Path
 from typing import Any
 
+import perf_table_linux
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
 PERF_DIR = REPO_ROOT / "test-fixtures" / "perf"
 OUTPUT = REPO_ROOT / "docs" / "performance.md"
@@ -40,6 +42,7 @@ PLATFORM_TITLES = {
     "apple-ios": "iOS / iPadOS",
     "web-chrome": "Web (Chrome)",
     "windows": "Windows",
+    "linux": "Linux",
 }
 
 
@@ -59,8 +62,10 @@ def load_rows() -> dict[str, list[dict[str, Any]]]:
             data = json.loads(json_path.read_text())
             entries = data if isinstance(data, list) else [data]
             for entry in entries:
+                perf_table_linux.refuse_unqualified(entry, json_path, platform_dir.name)
                 entry = dict(entry)
                 entry.setdefault("platform", platform_dir.name)
+                entry.update(perf_table_linux.platform_override(platform_dir.name))
                 entry["_sourceFile"] = str(json_path.relative_to(REPO_ROOT))
                 platform_rows.append(entry)
         if platform_rows:
@@ -105,6 +110,8 @@ def tick_rows(label: str, tick: dict[str, Any] | None) -> list[str]:
 
 
 def render_row_section(row: dict[str, Any]) -> str:
+    if row.get("platform") == "linux":
+        return perf_table_linux.render_section(row, tick_rows)
     device = row.get("deviceModel", row.get("deviceId", "unknown device"))
     chip = row.get("chip", "unknown")
     gpu = row.get("gpu", "unknown")
@@ -238,6 +245,7 @@ def render(rows_by_platform: dict[str, list[dict[str, Any]]]) -> str:
         "cd src/web && bun run format && cd -",
         "```",
         "",
+        *perf_table_linux.RECORDING_SECTION,
         "## Regression gate (local only)",
         "",
         "```bash",
