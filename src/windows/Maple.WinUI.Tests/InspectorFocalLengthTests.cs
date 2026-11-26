@@ -48,11 +48,11 @@ public sealed class InspectorFocalLengthTests : IDisposable
         try
         {
             CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo(culture);
-            var photo = CloudPhotoMapper.FromDirectory(new CloudDirImage
+            var photo = CloudPhotoMapper.FromDirectory(new CloudFolderImage
             {
-                Name = "photo.CR3", Path = "/library/photo.CR3",
-                Exif = new CloudDirExif { FocalLengthMm = 24.75, Aperture = 2.8 },
-            }, "library:photo.CR3");
+                Name = "photo.CR3", Path = "/library/photo.CR3", Address = "library:photo.CR3",
+                Exif = new CloudImageExif { FocalLengthMm = 24.75, Aperture = 2.8 },
+            });
             Assert.Equal(focal, photo.FocalLengthDisplay);
             Assert.Equal(aperture, photo.Aperture);
         }
@@ -89,9 +89,9 @@ public sealed class InspectorFocalLengthTests : IDisposable
     public void BothCloudWireShapesRetainFractionalFocalLength()
     {
         const string json = "{\"focal_length\":24.75}";
-        Assert.Equal(24.75, JsonSerializer.Deserialize<CloudDirExif>(json)!.FocalLengthMm);
+        Assert.Equal(24.75, JsonSerializer.Deserialize<CloudImageExif>(json)!.FocalLengthMm);
         Assert.Equal(24.75, JsonSerializer.Deserialize<CloudTimelinePhoto>(json)!.FocalLengthMm);
-        Assert.Null(JsonSerializer.Deserialize<CloudDirExif>("{}")!.FocalLengthMm);
+        Assert.Null(JsonSerializer.Deserialize<CloudImageExif>("{}")!.FocalLengthMm);
         Assert.Null(JsonSerializer.Deserialize<CloudTimelinePhoto>("{}")!.FocalLengthMm);
     }
 
@@ -100,12 +100,12 @@ public sealed class InspectorFocalLengthTests : IDisposable
     [InlineData(null, "—")]
     public void ProductionCloudProjectionsRetainFocalLengthAndPhotoIdentity(double? focal, string display)
     {
-        var directory = CloudPhotoMapper.FromDirectory(new CloudDirImage
+        var directory = CloudPhotoMapper.FromDirectory(new CloudFolderImage
         {
-            Name = "photo.CR3", Path = "/library/photo.CR3", Ext = "cr3", Size = 123,
+            Name = "photo.CR3", Path = "/library/photo.CR3", Address = "library:photo.CR3", Ext = "cr3", Size = 123,
             Mtime = "2026-01-02T03:04:05Z",
-            Exif = focal.HasValue ? new CloudDirExif { FocalLengthMm = focal } : null,
-        }, "library:photo.CR3");
+            Exif = focal.HasValue ? new CloudImageExif { FocalLengthMm = focal } : null,
+        });
         var timeline = CloudPhotoMapper.FromTimeline(new CloudTimelinePhoto
         {
             Filename = "photo.CR3", Path = "/library/photo.CR3", Address = "library:photo.CR3",

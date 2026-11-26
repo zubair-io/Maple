@@ -34,37 +34,20 @@ namespace Maple.WinUI.Services.Cloud
         public string DisplayName => string.IsNullOrEmpty(Label) ? Slug : Label!;
     }
 
-    /// <summary>One directory level from GET /api/fs/dir — the endpoint the
-    /// Apple cloud source and the File Provider browse with (the web grid
-    /// lists via the unified /api/folder/:slug/* instead). Immediate children
-    /// only: subdirectories and this level's images are separate lists, so
-    /// the client renders a tree plus a grid rather than a flattened
-    /// feed.</summary>
-    public sealed class CloudDirListing
-    {
-        [JsonPropertyName("path")] public string Path { get; set; } = string.Empty;
-        [JsonPropertyName("parent")] public string? Parent { get; set; }
-        [JsonPropertyName("dirs")] public CloudDirChild[] Dirs { get; set; } = Array.Empty<CloudDirChild>();
-        [JsonPropertyName("images")] public CloudDirImage[] Images { get; set; } = Array.Empty<CloudDirImage>();
-        /// <summary>Opaque continuation token — present only while more of
-        /// this directory remains. Round-trip it verbatim.</summary>
-        [JsonPropertyName("next_cursor")] public string? NextCursor { get; set; }
-    }
-
-    /// <summary>Cursor-paged unified library folder response from
-    /// GET /api/folder/:slug/*.</summary>
+    /// <summary>One cursor page of GET /api/folder/:slug/*.</summary>
     public sealed class CloudFolderListing
     {
         [JsonPropertyName("folders")] public CloudFolderEntry[] Folders { get; set; } = Array.Empty<CloudFolderEntry>();
-        [JsonPropertyName("images")] public CloudFolderEntry[] Images { get; set; } = Array.Empty<CloudFolderEntry>();
+        [JsonPropertyName("images")] public CloudFolderImage[] Images { get; set; } = Array.Empty<CloudFolderImage>();
         [JsonPropertyName("files")] public CloudFolderEntry[] Files { get; set; } = Array.Empty<CloudFolderEntry>();
         [JsonPropertyName("sidecars")] public CloudFolderEntry[] Sidecars { get; set; } = Array.Empty<CloudFolderEntry>();
         [JsonPropertyName("next_cursor")] public string? NextCursor { get; set; }
     }
 
     /// <summary>A filesystem entry returned by the unified folder route.
-    /// Address is stable across clients; Path is retained only for resolving
-    /// absolute identities written by older Cloud Files builds.</summary>
+    /// Address (`slug:relPath`) is stable across clients. Path is the absolute
+    /// path in the library's registered spelling — the key of the path-addressed
+    /// sidecar and asset routes and of older Cloud Files identities.</summary>
     public class CloudFolderEntry
     {
         [JsonPropertyName("name")] public string Name { get; set; } = string.Empty;
@@ -74,34 +57,22 @@ namespace Maple.WinUI.Services.Cloud
         [JsonPropertyName("mtime")] public string? Mtime { get; set; }
     }
 
-    public class CloudDirChild
+    /// <summary>A media entry of the folder listing's `images` bucket.</summary>
+    public sealed class CloudFolderImage : CloudFolderEntry
     {
-        [JsonPropertyName("name")] public string Name { get; set; } = string.Empty;
-        /// <summary>Absolute, symlink-resolved path on the server.</summary>
-        [JsonPropertyName("path")] public string Path { get; set; } = string.Empty;
-        [JsonPropertyName("mtime")] public string? Mtime { get; set; }
-    }
-
-    public sealed class CloudDirImage : CloudDirChild
-    {
-        [JsonPropertyName("size")] public long Size { get; set; }
         /// <summary>Lowercase extension, no dot.</summary>
         [JsonPropertyName("ext")] public string Ext { get; set; } = string.Empty;
         /// <summary>Server asset id — absent until the indexer has seen the
         /// file. Nothing in the browse path requires it.</summary>
         [JsonPropertyName("id")] public string? Id { get; set; }
-        /// <summary>Indexed EXIF. null when indexed but unusable, absent when
-        /// the indexer hasn't reached this file.</summary>
-        [JsonPropertyName("exif")] public CloudDirExif? Exif { get; set; }
-        // The listing's isVideo/isAudio/isStub flags are deliberately not
-        // modelled: the grid shows every file the directory holds, so nothing
-        // reads them. The format badge comes from the extension.
+        [JsonPropertyName("exif")] public CloudImageExif? Exif { get; set; }
     }
 
-    /// <summary>The `exif` subdocument on a /api/fs/dir image row. Field names
-    /// are the indexer's snake_case asset schema, not the /api/search wire
-    /// shape — the two differ (`camera_make` here vs a nested `camera` there).</summary>
-    public sealed class CloudDirExif
+    /// <summary>The `exif` subdocument on a unified folder image entry. Field
+    /// names are the indexer's snake_case asset schema, not the /api/search
+    /// wire shape — the two differ (`camera_make` here vs a nested `camera`
+    /// there).</summary>
+    public sealed class CloudImageExif
     {
         [JsonPropertyName("camera_make")] public string? CameraMake { get; set; }
         [JsonPropertyName("camera_model")] public string? CameraModel { get; set; }

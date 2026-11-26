@@ -21,40 +21,40 @@ namespace Maple.WinUI.Services.Cloud
         // --- Download-to-edit (#2588): original bytes, full sidecars, preview publish ---
 
         /// <summary>Stream the original RAW/image into the local cache and
-        /// return its path (GET /api/fs/raw?path= — the same route the Apple
-        /// cloud source uses; ETag'd server-side). A cached copy matching the
-        /// server-reported size is reused without a request. Progress is
-        /// (bytesReceived, totalBytes; total -1 when unknown).
-        ///
-        /// Deliberately not the unified GET /api/image/:slug/* (#1325): only
-        /// /api/fs/raw carries the #926 mirror read-failover, so an
-        /// unmounted primary volume still opens from the library's mirror
-        /// here. Cut over once the server ports that failover to
-        /// /api/image — a one-line route swap on this side.</summary>
+        /// return its path (GET /api/image/:slug/* — the unified original route
+        /// File Explorer hydrates through; ETag'd, byte-range capable and
+        /// failing over to the library's mirror when the primary volume is
+        /// unmounted, #926). A cached copy matching the server-reported size is
+        /// reused without a request. Progress is (bytesReceived, totalBytes;
+        /// total -1 when unknown). Null for a photo with no `slug:relPath`
+        /// address, and for any non-success answer.</summary>
         public async Task<string?> DownloadOriginalAsync(
-            string serverAbsPath, long expectedSize,
+            string? address, long expectedSize,
             Action<long, long>? progress, CancellationToken ct)
         {
-            // Keyed by the path this actually fetches, not by the asset's
-            // `slug:relPath` address: the address is optional (a library with
-            // no registered slug has none), and two files sharing a cache key
-            // is a correctness bug, not a cosmetic one.
+            if (string.IsNullOrEmpty(address))
+            {
+                DiagLog.Write("[cloud] original download skipped: the photo has no library address");
+                return null;
+            }
+            // Keyed by the address this actually fetches, so two files can
+            // never share a cache entry.
             var hash = Convert.ToHexString(
-                SHA256.HashData(Encoding.UTF8.GetBytes($"{ServerUrl}|original|{serverAbsPath}")))[..32];
+                SHA256.HashData(Encoding.UTF8.GetBytes($"{ServerUrl}|original|{address}")))[..32];
             var originalsDir = Path.Combine(_cacheDir, "originals");
             Directory.CreateDirectory(originalsDir);
-            var fileName = Path.GetFileName(serverAbsPath.Replace('\\', '/'));
+            var fileName = Path.GetFileName(address[(address.IndexOf(':') + 1)..].Replace('\\', '/'));
             var cachePath = Path.Combine(originalsDir, $"{hash}-{fileName}");
             if (File.Exists(cachePath)
                 && (expectedSize <= 0 || new FileInfo(cachePath).Length == expectedSize))
                 return cachePath;
 
-            var route = $"api/fs/raw?path={Uri.EscapeDataString(serverAbsPath)}";
+            var route = $"api/image/{EncodeAddress(address)}";
             using var response = await SendStreamAsync(
                 () => new HttpRequestMessage(HttpMethod.Get, route), ct);
             if (!response.IsSuccessStatusCode)
             {
-                DiagLog.Write($"[cloud] original download {(int)response.StatusCode} for {fileName}");
+                DiagLog.Write($"[cloud] original download {(int)response.StatusCode} for {address}");
                 return null;
             }
             var total = response.Content.Headers.ContentLength ?? -1;
