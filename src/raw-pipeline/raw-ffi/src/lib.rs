@@ -352,6 +352,9 @@ mod scene_linear_sampling_tests;
 #[path = "scene_linear_tests.rs"]
 mod scene_linear_tests;
 #[cfg(test)]
+#[path = "thumbnail_buf_tests.rs"]
+mod thumbnail_buf_tests;
+#[cfg(test)]
 #[path = "thumbnail_tests.rs"]
 mod thumbnail_tests;
 #[cfg(test)]
