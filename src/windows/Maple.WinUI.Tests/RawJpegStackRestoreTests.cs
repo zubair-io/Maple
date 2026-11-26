@@ -7,6 +7,7 @@
 using System;
 using System.IO;
 using System.Linq;
+using System.Text;
 using System.Threading.Tasks;
 using Maple.WinUI.Services.FileOperations;
 using Maple.WinUI.Tests.Support;
@@ -166,6 +167,112 @@ namespace Maple.WinUI.Tests
             Assert.Null(outcome.CompanionPath);
             Assert.Equal(new[] { "IMG_1.CR3" }, Names("Album"));
             Assert.Equal(new[] { "IMG_1.JPG" }, Names(".maple", "trash", "Album"));
+        }
+
+        private (string Raw, string Jpeg) TrashHalvesWithDifferentSidecarSpellings()
+        {
+            var composed = "Café".Normalize(NormalizationForm.FormC);
+            var decomposed = "Café".Normalize(NormalizationForm.FormD);
+            var raw = Write("raw", ".maple", "trash", "Album", composed + ".CR3");
+            var jpeg = Write("jpeg", ".maple", "trash", "Album", decomposed + ".JPG");
+            File.WriteAllText(raw + ".origpath", Path.Combine("Album", composed + ".CR3"));
+            File.WriteAllText(jpeg + ".origpath", Path.Combine("Album", decomposed + ".JPG"));
+            return (raw, jpeg);
+        }
+
+        [Fact]
+        public void HalvesThatReadDifferentSidecars_AreNotTrashedCompanions()
+        {
+            var (raw, jpeg) = TrashHalvesWithDifferentSidecarSpellings();
+
+            Assert.Null(LocalFileOperations.TrashedCompanionOf(raw, _root));
+            Assert.Null(LocalFileOperations.TrashedCompanionOf(jpeg, _root));
+        }
+
+        [Fact]
+        public async Task HalvesThatReadDifferentSidecars_AreRestoredIndividually()
+        {
+            var (raw, jpeg) = TrashHalvesWithDifferentSidecarSpellings();
+
+            var outcome = await LocalFileOperations.RestoreFromMapleTrashAsync(raw, _root);
+
+            Assert.Null(outcome.CompanionPath);
+            Assert.Single(Names("Album"));
+            Assert.True(File.Exists(jpeg));
+        }
+
+        [Fact]
+        public void TheFoldAndTheRestoreDecideAPairWithTheSameFunction()
+        {
+            var (raw, jpeg) = TrashHalvesWithDifferentSidecarSpellings();
+
+            Assert.Empty(RawJpegPairing.LocalPairs(new[] { raw, jpeg }));
+            Assert.Single(RawJpegPairing.Pairs(new[] { raw, jpeg }));
+        }
+
+        private static TrashListItem ListItem(string trashPath, string root) =>
+            new(root, trashPath, null, Path.GetFileName(trashPath), Path.GetFileName(trashPath), 0, DateTime.UtcNow);
+
+        [Fact]
+        public async Task RestoringOnlyTheRaw_ReportsTheJpegItBroughtBack()
+        {
+            await TrashThePairAsync();
+
+            var outcomes = await TrashSelectionLogic.ApplyRestoreSequentialAsync(
+                new[] { ListItem(TrashPath("IMG_1.CR3"), _root) });
+
+            var outcome = Assert.Single(outcomes);
+            Assert.Equal(P("Album", "IMG_1.JPG"), outcome.CompanionNewPath);
+            Assert.Equal("Restored IMG_1.CR3 and IMG_1.JPG.", TrashSelectionLogic.DescribeRestore(outcomes));
+        }
+
+        [Fact]
+        public async Task SelectingBothHalves_CountsTwoFilesAndNamesNothingTwice()
+        {
+            await TrashThePairAsync();
+
+            var outcomes = await TrashSelectionLogic.ApplyRestoreSequentialAsync(new[]
+            {
+                ListItem(TrashPath("IMG_1.CR3"), _root),
+                ListItem(TrashPath("IMG_1.JPG"), _root),
+            });
+
+            Assert.All(outcomes, outcome => Assert.True(outcome.Ok));
+            Assert.Equal("Restored 2 photos.", TrashSelectionLogic.DescribeRestore(outcomes));
+        }
+
+        [Fact]
+        public void ARestoreWithAFailure_CountsTheCompanionAmongTheRestoredFiles()
+        {
+            var outcomes = new[]
+            {
+                new RestoreItemOutcome("a", "A.CR3", true, P("Album", "A.CR3"), null, P("Album", "A.JPG")),
+                new RestoreItemOutcome("b", "B.CR3", false, null, "blocked"),
+            };
+
+            Assert.Equal("Restored 2 of 3 photos. 1 failed.", TrashSelectionLogic.DescribeRestore(outcomes));
+        }
+
+        [Fact]
+        public void SeveralRestoredPairs_AreEachNamed()
+        {
+            var outcomes = new[]
+            {
+                new RestoreItemOutcome("a", "A.CR3", true, P("Album", "A.CR3"), null, P("Album", "A.JPG")),
+                new RestoreItemOutcome("b", "B.CR3", true, P("Album", "B.CR3"), null, P("Album", "B.JPG")),
+            };
+
+            Assert.Equal(
+                "Restored 4 photos, including A.CR3 and A.JPG; B.CR3 and B.JPG.",
+                TrashSelectionLogic.DescribeRestore(outcomes));
+        }
+
+        [Fact]
+        public void PlainRestores_KeepTheExistingSummary()
+        {
+            var one = new[] { new RestoreItemOutcome("a", "A.CR3", true, P("Album", "A.CR3"), null) };
+
+            Assert.Equal("Restored 1 photo.", TrashSelectionLogic.DescribeRestore(one));
         }
     }
 }

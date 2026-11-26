@@ -14,6 +14,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Threading.Tasks;
 
 namespace Maple.WinUI.Services.FileOperations
@@ -116,6 +117,69 @@ namespace Maple.WinUI.Services.FileOperations
             {
                 return new TrashItemOutcome(item.Key, item.FileName, TrashOutcomeKind.Error, Error: ex.Message);
             }
+        }
+
+        public static async Task<IReadOnlyList<RestoreItemOutcome>> ApplyRestoreSequentialAsync(
+            IReadOnlyList<TrashListItem> items, Action<int, int>? onItemDone = null)
+        {
+            var outcomes = new List<RestoreItemOutcome>(items.Count);
+            var restoredWithTheirPair = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            var selectedPaths = items.Select(item => item.TrashPrimaryPath).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            for (var i = 0; i < items.Count; i++)
+            {
+                var item = items[i];
+                outcomes.Add(restoredWithTheirPair.TryGetValue(item.TrashPrimaryPath, out var restoredPath)
+                    ? new RestoreItemOutcome(item.TrashPrimaryPath, item.FileName, true, restoredPath, null)
+                    : await RestoreOneAsync(item, restoredWithTheirPair, selectedPaths).ConfigureAwait(false));
+                onItemDone?.Invoke(i + 1, items.Count);
+            }
+            return outcomes;
+        }
+
+        // Restoring one half of a trashed RAW+JPEG pair brings the other back
+        // with it, so a selection naming both halves restores them once, and
+        // a selection naming one half reports the other as part of the result.
+        private static async Task<RestoreItemOutcome> RestoreOneAsync(
+            TrashListItem item, Dictionary<string, string> restoredWithTheirPair, HashSet<string> selectedPaths)
+        {
+            try
+            {
+                var companionTrashPath = LocalFileOperations.TrashedCompanionOf(item.TrashPrimaryPath, item.LibraryRoot);
+                var outcome = await LocalFileOperations
+                    .RestoreFromMapleTrashAsync(item.TrashPrimaryPath, item.LibraryRoot)
+                    .ConfigureAwait(false);
+                if (companionTrashPath != null && outcome.CompanionPath != null)
+                    restoredWithTheirPair[companionTrashPath] = outcome.CompanionPath;
+                var unselectedCompanion = companionTrashPath != null && !selectedPaths.Contains(companionTrashPath)
+                    ? outcome.CompanionPath
+                    : null;
+                return new RestoreItemOutcome(
+                    item.TrashPrimaryPath, item.FileName, true, outcome.PrimaryPath, null, unselectedCompanion);
+            }
+            catch (FileOperationException ex)
+            {
+                return new RestoreItemOutcome(item.TrashPrimaryPath, item.FileName, false, null, ex.Message);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                return new RestoreItemOutcome(item.TrashPrimaryPath, item.FileName, false, null, ex.Message);
+            }
+        }
+
+        public static string DescribeRestore(IReadOnlyList<RestoreItemOutcome> outcomes)
+        {
+            var pairs = outcomes.Where(outcome => outcome.Ok && outcome.CompanionNewPath != null).ToList();
+            var restored = outcomes.Count(outcome => outcome.Ok) + pairs.Count;
+            var failed = outcomes.Count(outcome => !outcome.Ok);
+            if (failed > 0)
+                return $"Restored {restored} of {restored + failed} photos. {failed} failed.";
+            if (pairs.Count == 0)
+                return $"Restored {restored} photo{(restored == 1 ? "" : "s")}.";
+            var named = pairs.Select(outcome =>
+                $"{Path.GetFileName(outcome.NewPath)} and {Path.GetFileName(outcome.CompanionNewPath)}");
+            return outcomes.Count == 1
+                ? $"Restored {named.Single()}."
+                : $"Restored {restored} photos, including {string.Join("; ", named)}.";
         }
     }
 }

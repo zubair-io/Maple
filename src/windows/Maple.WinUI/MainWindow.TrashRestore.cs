@@ -180,11 +180,8 @@ namespace Maple.WinUI
 
         private async Task ReportRestoreOutcomeAsync(IReadOnlyList<RestoreItemOutcome> outcomes)
         {
-            var restored = outcomes.Count(o => o.Ok);
-            var failed = outcomes.Count - restored;
-            var summary = failed == 0
-                ? $"Restored {restored} photo{(restored == 1 ? "" : "s")}."
-                : $"Restored {restored} of {outcomes.Count} photos. {failed} failed.";
+            var failed = outcomes.Count(o => !o.Ok);
+            var summary = TrashSelectionLogic.DescribeRestore(outcomes);
             AnnounceRename(summary);
 
             if (failed == 0)
