@@ -98,6 +98,7 @@ public final class BrowseViewModel {
   @ObservationIgnored var folderEnumerationCheckpoint: (@Sendable () async -> Void)?
   @ObservationIgnored let folderEnumerationSlots = BoundedAsyncSemaphore(value: 1)
   @ObservationIgnored var folderEnumerationTask: Task<([AssetRef], [URL]), Error>?
+  @ObservationIgnored var pendingNavigation: UInt64 = 0
   @ObservationIgnored var loadGeneration: UInt64 = 0 {
     didSet {
       folderEnumerationTask?.cancel()
