@@ -70,7 +70,7 @@ namespace Maple.WinUI.Tests
         }
 
         [Fact]
-        public void AJpegNameAnotherTileInTheBatchIsLeaving_IsNotATakenName()
+        public void AJpegNameALaterRowStillHolds_IsATakenName_BecauseApplyRunsRowByRow()
         {
             var first = Pair("IMG_1", "CR3");
             var second = Pair("IMG_2", "CR3");
@@ -80,7 +80,57 @@ namespace Maple.WinUI.Tests
             var rows = BatchRenameLogic.BuildPreview(
                 new[] { first, second }, "IMG_{n}.{ext}", 2, 0, Render, Exists);
 
-            Assert.All(rows, row => Assert.Null(row.CompanionNote));
+            Assert.Contains("IMG_2.JPG", rows[0].CompanionNote);
+            Assert.Null(rows[1].CompanionNote);
+        }
+
+        [Fact]
+        public void AJpegNameALaterRowsOwnFileHolds_IsATakenName()
+        {
+            var pair = Pair("X", "CR3");
+            var loneJpeg = new BatchRenameSourceItem(
+                Path.Combine(_dir, "Trip_1.JPG"), _dir, "Trip_1.JPG", Path.Combine(_dir, "Trip_1.JPG"),
+                "Trip_1", "JPG", null);
+            File.WriteAllText(loneJpeg.CurrentPath, "jpeg");
+
+            var rows = BatchRenameLogic.BuildPreview(
+                new[] { pair, loneJpeg }, "Trip_{n}.{ext}", 1, 0, Render, Exists);
+
+            Assert.Contains("Trip_1.JPG", rows[0].CompanionNote);
+            Assert.Null(rows[1].CompanionNote);
+        }
+
+        [Fact]
+        public void AJpegNameAnEarlierRowAlreadyVacated_IsNotATakenName()
+        {
+            var loneJpeg = new BatchRenameSourceItem(
+                Path.Combine(_dir, "Trip_2.JPG"), _dir, "Trip_2.JPG", Path.Combine(_dir, "Trip_2.JPG"),
+                "Trip_2", "JPG", null);
+            var pair = Pair("X", "CR3");
+            File.WriteAllText(loneJpeg.CurrentPath, "jpeg");
+
+            var rows = BatchRenameLogic.BuildPreview(
+                new[] { loneJpeg, pair }, "Trip_{n}.{ext}", 1, 0, Render, Exists);
+
+            Assert.Equal("Trip_2.CR3", rows[1].NewFileName);
+            Assert.Null(rows[1].CompanionNote);
+        }
+
+        [Fact]
+        public async Task ApplyAgreesWithThePreview_ARowWhoseJpegNameALaterRowHoldsIsRefused()
+        {
+            var pair = Pair("X", "CR3");
+            var laterPair = Pair("Trip_1", "CR3");
+            foreach (var path in new[] { pair.CurrentPath, pair.CompanionPath!, laterPair.CurrentPath, laterPair.CompanionPath! })
+                File.WriteAllText(path, Path.GetFileName(path));
+            var items = new[] { pair, laterPair };
+
+            var previewRows = BatchRenameLogic.BuildPreview(items, "Trip_{n}.{ext}", 1, 0, Render, Exists);
+            var outcomes = await BatchRenameLogic.ApplySequentialAsync(
+                items, "Trip_{n}.{ext}", 1, 0, CollisionPolicy.Fail, Render);
+
+            Assert.Contains("Trip_1.JPG", previewRows[0].CompanionNote);
+            Assert.NotEqual(BatchRenameOutcomeKind.Relocated, outcomes[0].Kind);
         }
 
         [Fact]
