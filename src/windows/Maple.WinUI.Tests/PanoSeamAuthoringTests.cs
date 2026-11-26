@@ -291,13 +291,6 @@ public class PanoSeamAuthoringTests
         Assert.Equal(6, changes);
     }
 
-    [Theory]
-    [InlineData(true, "stale", true)]
-    [InlineData(true, "reused", false)]
-    [InlineData(true, null, false)]
-    [InlineData(false, "stale", false)]
-    public void AConstrainedStitchThatReSolvedItsAlignmentIsStale(bool constrained, string? status, bool stale) =>
-        Assert.Equal(stale, PanoSeamAuthoring.IsStaleStitch(constrained, status));
 }
 
 public class PanoSeamTextTests

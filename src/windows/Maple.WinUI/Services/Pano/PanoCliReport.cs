@@ -46,6 +46,14 @@ public static class PanoCliReport
         return new PanoPreviewReport(new PanoSeamCanvas(width, height), strategy, status, Inputs(root), SeamEcho(root));
     }
 
+    /// <summary>The report's `alignment.status` (`solved`, `reused` or
+    /// `stale`), as the Self Hosted server reads it; null when absent.</summary>
+    public static string? AlignmentStatus(string json) =>
+        Root(json) is { } root
+        && root.TryGetProperty("alignment", out var alignment) && alignment.ValueKind == JsonValueKind.Object
+            ? Text(alignment, "status")
+            : null;
+
     public static PanoSeamRequest? SeamEcho(string json) => Root(json) is { } root ? SeamEcho(root) : null;
 
     /// <summary>The report's text; null when the run wrote none.</summary>

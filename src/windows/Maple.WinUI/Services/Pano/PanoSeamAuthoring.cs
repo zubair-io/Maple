@@ -117,11 +117,6 @@ public sealed class PanoSeamAuthoring
 
     public void Clear() => SetRegions(NoRegions);
 
-    /// <summary>A stitch that carried regions but had to re-solve its
-    /// alignment placed them on a geometry they were not drawn on.</summary>
-    public static bool IsStaleStitch(bool constrained, string? alignmentStatus) =>
-        constrained && alignmentStatus == "stale";
-
     private PanoSeamVerdict Adopt(PanoPreviewCompletion completion)
     {
         var seams = completion.Run.Seams;

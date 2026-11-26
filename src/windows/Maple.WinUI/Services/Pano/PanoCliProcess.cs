@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -23,6 +24,10 @@ public static class PanoCliProcess
         psi.CreateNoWindow = true;
         psi.RedirectStandardError = true;
         psi.RedirectStandardOutput = true;
+        // The CLI writes UTF-8; the console code page would mangle the dash
+        // in its alignment line and every non-ASCII path in its errors.
+        psi.StandardOutputEncoding = new UTF8Encoding(false);
+        psi.StandardErrorEncoding = new UTF8Encoding(false);
 
         using var process = new Process { StartInfo = psi };
         var stderrTail = new Queue<string>();
