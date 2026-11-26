@@ -12,14 +12,9 @@ namespace Maple.WinUI.ViewModels
 {
     public static class RawJpegStackFold
     {
-        /// <summary>Links each pair (<see cref="PhotoItem.StackCompanion"/> on
-        /// the RAW, <see cref="PhotoItem.StackPrimary"/> on the JPEG), clears
-        /// links that no longer hold, and returns the photos that keep a tile,
-        /// in their given order. With <paramref name="stacksPairs"/> off every
-        /// file is its own tile. A local folder passes
-        /// <paramref name="requireSharedSidecar"/>: names the pairing rule
-        /// folds but whose files read two different sidecars stay two
-        /// tiles.</summary>
+        /// <summary>A local folder passes <paramref name="requireSharedSidecar"/>:
+        /// names the pairing rule folds but whose files read two different
+        /// sidecars stay two tiles.</summary>
         public static IReadOnlyList<PhotoItem> Apply(
             IReadOnlyList<PhotoItem> photos, bool stacksPairs, bool requireSharedSidecar = false)
         {
@@ -58,12 +53,8 @@ namespace Maple.WinUI.ViewModels
         public static IEnumerable<PhotoItem> Tiles(IEnumerable<PhotoItem> photos) =>
             photos.Where(photo => photo.StackPrimary == null);
 
-        /// <summary>The tile that shows <paramref name="photo"/>: itself, or
-        /// the RAW a folded JPEG rides on.</summary>
         public static PhotoItem TileOf(PhotoItem photo) => photo.StackPrimary ?? photo;
 
-        /// <summary>The photos whose files an action on these tiles reaches:
-        /// each tile, then its folded JPEG.</summary>
         public static IReadOnlyList<PhotoItem> WithCompanions(IEnumerable<PhotoItem> tiles) =>
             tiles.SelectMany(tile => tile.StackCompanion is { } companion
                 ? new[] { tile, companion }

@@ -56,9 +56,6 @@ namespace Maple.WinUI.Services.FileOperations
                 : outcome with { PrimaryPath = outcome.CompanionPath!, CompanionPath = outcome.PrimaryPath };
         }
 
-        /// <summary>The first name free for the RAW, its JPEG and their shared
-        /// sidecar at once: the original names, else the RAW's stem with
-        /// `.restored`, then `.restored.N`.</summary>
         private static string PickFreeRestoredStackBasename(string destinationDir, string rawName, string jpegName)
         {
             var extension = Path.GetExtension(rawName);
