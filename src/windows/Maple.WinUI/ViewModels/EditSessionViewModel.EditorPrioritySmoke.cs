@@ -26,6 +26,8 @@ public partial class EditSessionViewModel
         var sourceHash = SHA256.HashData(File.ReadAllBytes(raw));
         File.WriteAllText(SidecarStore.SidecarPathFor(editedPath), XmpWriter.Serialize(new XmpSidecarDocument
             { Adjustments = new AdjustmentState { Profile = ProfileMode.Neutral, Exposure = 2 } }));
+        File.WriteAllText(SidecarStore.SidecarPathFor(nextPath), XmpWriter.Serialize(new XmpSidecarDocument
+            { Adjustments = new AdjustmentState { Profile = ProfileMode.Neutral, Exposure = -1 } }));
         var edited = new PhotoItem { FilePath = editedPath, FileName = "edited.dng", Format = "DNG" };
         var next = new PhotoItem { FilePath = nextPath, FileName = "next.dng", Format = "DNG" };
         var bare = new PhotoItem { FilePath = barePath, FileName = "bare.dng", Format = "DNG" };

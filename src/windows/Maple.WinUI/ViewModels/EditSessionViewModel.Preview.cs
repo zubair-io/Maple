@@ -49,6 +49,10 @@ public partial class EditSessionViewModel
             CancelOwedThumbnails();
         }
         if (selected != null && change.Release.Contains(selected)) RefreshSelectedSavedPreview(selected);
+        // Nothing can refresh a photo that is cloud-only or no longer listed; keeping it owed would never end.
+        foreach (var gone in change.Release.Where(photo =>
+                     !ReferenceEquals(photo, selected) && (photo.IsCloud || !AllPhotos.Contains(photo))))
+            _savedPreviews = _savedPreviews.Settle(gone, SavedPreviewRefreshOutcome.Refreshed);
         var unselected = change.Release
             .Where(photo => !photo.IsCloud && !ReferenceEquals(photo, selected) && AllPhotos.Contains(photo))
             .ToArray();
