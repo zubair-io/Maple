@@ -209,9 +209,7 @@ pub struct MapleSceneLinearBufferF32 {
     pub whites_anchor_ev: f32,
     /// Output pixels per developed full-frame pixel; native detail crops use 1.
     pub nr_sampling_scale: f32,
-    /// #5093: the unit's `AnalogBalance · CameraCalibrationN` per render
-    /// illuminant endpoint, appended at the tail (offset-stable ABI). All-zero
-    /// ⇒ identity.
+    /// `AnalogBalance · CameraCalibrationN` per illuminant endpoint; a single-illuminant profile uses the cold slot. All-zero reads as identity. (#5093)
     pub wb_frame_render_individual_cold: [f32; 9],
     pub wb_frame_render_individual_warm: [f32; 9],
 }

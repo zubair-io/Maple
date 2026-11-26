@@ -80,9 +80,7 @@ pub struct MapleCaptureCreative {
     /// The profile's table wire; valid for the life of the process.
     pub tables: *const f32,
     pub tables_len: usize,
-    /// `AnalogBalance · CameraCalibrationN` the endpoint ForwardMatrices are
-    /// reference matrices for (#5093), appended at the tail (offset-stable
-    /// ABI); all-zero reads as identity.
+    /// `AnalogBalance · CameraCalibrationN` per illuminant endpoint; a single-illuminant profile uses the cold slot. All-zero reads as identity. (#5093)
     pub individual_cold: [f32; 9],
     pub individual_warm: [f32; 9],
 }
