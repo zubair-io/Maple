@@ -246,3 +246,66 @@ fn chain_f32_sharpen_and_nr_color_are_not_no_ops() {
         "sharpen + nr_color left the buffer untouched — the chain is not running them"
     );
 }
+
+/// Both live chains run native-density chroma NR through the same despeckle
+/// clamp as the develop: on a flat frame with one dark coloured speck, the
+/// f32 and fp16 chains match `apply_color`, and the speck's chroma is gone.
+#[test]
+fn both_live_chains_despeckle_a_coloured_speck_like_develop() {
+    let (w, h, speck) = (24u32, 20u32, (11usize, 7usize));
+    let input: Vec<f32> = (0..(w * h) as usize)
+        .flat_map(|i| {
+            if i == speck.1 * w as usize + speck.0 {
+                [0.05, 0.004, 0.07, 1.0]
+            } else {
+                [0.18, 0.18, 0.18, 1.0]
+            }
+        })
+        .collect();
+    let model = AdjustmentModel {
+        sharpen_amount: 0.0,
+        nr_color: 25.0,
+        ..AdjustmentModel::default()
+    };
+    let options = ChainOptions {
+        skip_agx: true,
+        ..ChainOptions::default()
+    };
+    let mut expected = image_from_f32_rgba(&input, w, h);
+    crate::stages::noise_reduction::apply_color(&mut expected, model.nr_color, None, 100);
+    let chroma = |p: [f32; 3]| {
+        let lab = crate::color::oklab::rec2020_to_oklab(p);
+        let field = crate::color::oklab::rec2020_to_oklab([0.18; 3]);
+        (lab[1] - field[1]).hypot(lab[2] - field[2])
+    };
+    let worst = expected
+        .pixels
+        .iter()
+        .map(|&p| chroma(p))
+        .fold(0.0f32, f32::max);
+    assert!(
+        worst < 0.2 * chroma([0.05, 0.004, 0.07]),
+        "develop left {worst:.4} of chroma"
+    );
+
+    let f32_out = apply_scene_linear_chain_f32(&input, w, h, &model, &options).unwrap();
+    let fp16_in: Vec<u16> = input
+        .iter()
+        .map(|v| half::f16::from_f32(*v).to_bits())
+        .collect();
+    let fp16_out = apply_scene_linear_chain(&fp16_in, w, h, &model, &options).unwrap();
+    for (i, p) in expected.pixels.iter().enumerate() {
+        for (lane, &want) in p.iter().enumerate() {
+            let f32_got = f32_out[i * 4 + lane];
+            let fp16_got = half::f16::from_bits(fp16_out[i * 4 + lane]).to_f32();
+            assert!(
+                (f32_got - want).abs() <= 1e-6,
+                "f32 chain pixel {i} lane {lane}"
+            );
+            assert!(
+                (fp16_got - want).abs() <= 2e-3,
+                "fp16 chain pixel {i} lane {lane}: {fp16_got} vs {want}"
+            );
+        }
+    }
+}

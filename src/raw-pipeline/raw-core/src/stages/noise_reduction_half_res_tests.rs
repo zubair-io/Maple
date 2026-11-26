@@ -89,11 +89,85 @@ fn window_matches_the_frame_inside_the_reach() {
     run(&mut window, 40.0, (ox as i32, oy as i32));
 
     let reach = HALF_RES_CHROMA_REACH_PX as u32;
-    for r in reach..wh - reach {
-        for c in reach..ww - reach {
+    let inside =
+        |c: u32, r: u32| (reach..ww - reach).contains(&c) && (reach..wh - reach).contains(&r);
+    let mut band_differs = false;
+    for r in 0..wh {
+        for c in 0..ww {
             let got = window.pixels[(r * ww + c) as usize];
             let want = frame.pixels[((r + oy) * fw + c + ox) as usize];
-            assert_eq!(got, want, "pixel ({c}, {r})");
+            if inside(c, r) {
+                assert_eq!(got, want, "pixel ({c}, {r})");
+            } else {
+                band_differs |= got != want;
+            }
         }
     }
+    assert!(
+        band_differs,
+        "the edge band never differs, so the reach is untested"
+    );
+}
+
+fn flat_with_hot_pixel(w: u32, h: u32, at: (u32, u32)) -> Image {
+    let mut img = Image::new(w, h, ColorSpace::SceneLinearRec2020);
+    img.pixels.fill([0.18, 0.18, 0.18]);
+    img.pixels[(at.1 * w + at.0) as usize] = [0.05, 0.004, 0.07];
+    img
+}
+
+fn chroma_offset(p: [f32; 3], field: [f32; 3]) -> f32 {
+    let (p, q) = (rec2020_to_oklab(p), rec2020_to_oklab(field));
+    (p[1] - q[1]).hypot(p[2] - q[2])
+}
+
+/// The `test_0013` defect (#6018 follow-up): an isolated dark hot pixel kept
+/// three quarters of its chroma at the default amount and pushed the opposite
+/// hue into its block neighbours.
+#[test]
+fn an_isolated_hot_pixel_leaves_no_colour_spike_at_the_default_amount() {
+    let (w, h, at) = (32, 24, (13, 9));
+    let mut img = flat_with_hot_pixel(w, h, at);
+    let field = img.pixels[0];
+    let spike = chroma_offset(img.pixels[(at.1 * w + at.0) as usize], field);
+    run(&mut img, 25.0, (0, 0));
+    let worst = img
+        .pixels
+        .iter()
+        .map(|&p| chroma_offset(p, field))
+        .fold(0.0f32, f32::max);
+    assert!(
+        worst < 0.2 * spike,
+        "a chroma spike of {spike:.4} still leaves {worst:.4} after chroma NR"
+    );
+}
+
+/// The clamp ramps in with the amount, so the slider has no step anywhere
+/// between identity at 0 and full half-resolution chroma at 100. The half-res
+/// NLM's own steepest change on this frame is about 0.018 per half step (near
+/// amount 1–2, with or without the clamp); a clamp applied in full from the
+/// first tick jumps 0.04 between 0 and 0.5.
+#[test]
+fn the_hot_pixel_fades_without_a_step_across_the_slider() {
+    let source = flat_with_hot_pixel(32, 24, (13, 9));
+    let render = |amount: f32| {
+        let mut img = source.clone();
+        run(&mut img, amount, (0, 0));
+        img.pixels
+    };
+    let steps: Vec<f32> = (0..=200).map(|k| k as f32 * 0.5).collect();
+    let largest_step = steps
+        .windows(2)
+        .map(|pair| {
+            render(pair[0])
+                .iter()
+                .zip(&render(pair[1]))
+                .flat_map(|(a, b)| a.iter().zip(b).map(|(u, v)| (u - v).abs()))
+                .fold(0.0f32, f32::max)
+        })
+        .fold(0.0f32, f32::max);
+    assert!(
+        largest_step < 0.025,
+        "a 0.5 slider step moved a pixel by {largest_step:.4}"
+    );
 }

@@ -10,6 +10,10 @@
 //! chroma residual (native minus its own upsampled 2×2 average) is almost all
 //! noise; it is kept with weight `1 - t`, so the slider still runs
 //! continuously from identity at 0 to fully half-resolution chroma at 100.
+//! An isolated chroma spike (a hot pixel) is exactly that finest-scale
+//! detail, so the add-back may not carry a pixel outside the range of the
+//! denoised chroma over its 3×3 neighbourhood; the clamp ramps in up to the
+//! default amount so the slider stays continuous at 0.
 //!
 //! The block grid and the fixed 0.25 / 0.75 upsampling weights depend only
 //! on frame coordinates, so a tile or native window whose buffer starts at
@@ -28,9 +32,17 @@ const HALF_RES_SEARCH_RADIUS: usize = 2;
 
 /// Native pixels per side a tile needs beyond its inner rect: the half-res
 /// NLM stencil and one block of bilinear support, in native pixels, plus a
-/// partial block at an odd buffer edge.
+/// partial block at an odd buffer edge, plus the despeckle clamp's 3×3 ring.
 pub const HALF_RES_CHROMA_REACH_PX: usize =
-    2 * (CHROMA_PATCH_RADIUS + HALF_RES_SEARCH_RADIUS + 1) + 2;
+    2 * (CHROMA_PATCH_RADIUS + HALF_RES_SEARCH_RADIUS + 1) + 2 + 1;
+
+/// The amount (the default `nr_color`) from which the despeckle clamp applies
+/// in full; below it the clamp blends in linearly so amount 0 stays identity.
+const DESPECKLE_FULL_AMOUNT: f32 = 25.0;
+
+/// Output rows per parallel band; each band upsamples one extra denoised row
+/// above and below for the clamp's 3×3 range.
+const BAND_ROWS: usize = 32;
 
 /// Block grid of a buffer whose first pixel sits at frame coordinate
 /// `origin` along one axis.
@@ -96,6 +108,22 @@ fn sample(plane: &[f32], stride: usize, x: Axis, y: Axis, c: usize, r: usize) ->
     0.75 * (0.75 * at(xn, yn) + 0.25 * at(xf, yn)) + 0.25 * (0.75 * at(xn, yf) + 0.25 * at(xf, yf))
 }
 
+/// `value` pulled `strength` of the way into `range`.
+pub(super) fn despeckle(value: f32, range: (f32, f32), strength: f32) -> f32 {
+    value + strength * (value.clamp(range.0, range.1) - value)
+}
+
+/// Range of the three-row window `lines` (each `w` long) over columns
+/// `c - 1 ..= c + 1`, edge-replicated.
+fn range_3x3(lines: &[f32], w: usize, c: usize) -> (f32, f32) {
+    let cols = [c.saturating_sub(1), c, (c + 1).min(w - 1)];
+    (0..9)
+        .map(|k| lines[(k / 3) * w + cols[k % 3]])
+        .fold((f32::INFINITY, f32::NEG_INFINITY), |(lo, hi), v| {
+            (lo.min(v), hi.max(v))
+        })
+}
+
 /// `origin` is the buffer's top-left in the developed frame: `(0, 0)` for a
 /// whole frame, the trimmed tile's or the native window's origin otherwise.
 pub(super) fn apply_color_half_res_cancellable(
@@ -116,6 +144,7 @@ pub(super) fn apply_color_half_res_cancellable(
         ..chroma_params(amount)
     };
     let residual_weight = 1.0 - (amount / 100.0).clamp(0.0, 1.0);
+    let strength = (amount / DESPECKLE_FULL_AMOUNT).clamp(0.0, 1.0);
     let (x, y) = (Axis::new(w, origin.0), Axis::new(h, origin.1));
     let (l_plane, a_plane, b_plane) = oklab_planes(&img.pixels);
     let (half_l, half_a, half_b) = (
@@ -136,20 +165,39 @@ pub(super) fn apply_color_half_res_cancellable(
     );
     let stride = x.blocks;
     img.pixels
-        .par_chunks_exact_mut(w)
+        .par_chunks_mut(w * BAND_ROWS)
         .enumerate()
-        .for_each(|(r, row)| {
-            for (c, dst) in row.iter_mut().enumerate() {
-                let i = r * w + c;
-                let up = |den: &[f32], noisy: &[f32], native: f32| {
-                    sample(den, stride, x, y, c, r)
-                        + residual_weight * (native - sample(noisy, stride, x, y, c, r))
-                };
-                *dst = oklab_to_rec2020([
-                    l_plane[i],
-                    up(&den_a, &half_a, a_plane[i]),
-                    up(&den_b, &half_b, b_plane[i]),
-                ]);
+        .for_each(|(band, rows)| {
+            let first = band * BAND_ROWS;
+            let count = rows.len() / w;
+            let lines = |den: &[f32]| -> Vec<f32> {
+                (0..count + 2)
+                    .flat_map(|k| {
+                        let r = (first + k).saturating_sub(1).min(h - 1);
+                        (0..w).map(move |c| sample(den, stride, x, y, c, r))
+                    })
+                    .collect()
+            };
+            let (lines_a, lines_b) = (lines(&den_a), lines(&den_b));
+            for (k, row) in rows.chunks_exact_mut(w).enumerate() {
+                let r = first + k;
+                for (c, dst) in row.iter_mut().enumerate() {
+                    let i = r * w + c;
+                    let up = |lines: &[f32], noisy: &[f32], native: f32| {
+                        let window = &lines[k * w..(k + 3) * w];
+                        despeckle(
+                            window[w + c]
+                                + residual_weight * (native - sample(noisy, stride, x, y, c, r)),
+                            range_3x3(window, w, c),
+                            strength,
+                        )
+                    };
+                    *dst = oklab_to_rec2020([
+                        l_plane[i],
+                        up(&lines_a, &half_a, a_plane[i]),
+                        up(&lines_b, &half_b, b_plane[i]),
+                    ]);
+                }
             }
         });
 }

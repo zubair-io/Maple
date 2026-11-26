@@ -281,15 +281,18 @@ fn writeback_color(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_w
 // `box_down` averages 2×2 blocks of a native plane; after the plane filter
 // runs on the half planes, `upsample_residual` rebuilds a native plane as the
 // bilinear (0.75 / 0.25) upsample of the denoised half plane plus the native
-// plane's finest-scale residual at `residual_weight`. Summation order and the
-// tap weights follow the CPU exactly.
+// plane's finest-scale residual at `residual_weight`, then pulls the result
+// `despeckle_strength` of the way into the range of the upsampled denoised
+// plane over the pixel's 3×3 neighbourhood (edge-replicated), so an isolated
+// chroma spike does not survive the add-back. Summation order and the tap
+// weights follow the CPU exactly.
 struct HalfParams {
     width: u32,
     height: u32,
     half_width: u32,
     half_height: u32,
     residual_weight: f32,
-    _pad0: u32,
+    despeckle_strength: f32,
     _pad1: u32,
     _pad2: u32,
 };
@@ -338,7 +341,9 @@ fn half_sample_noisy(xt: vec2<u32>, yt: vec2<u32>) -> f32 {
         + 0.25 * (0.75 * up_noisy[yt.y * s + xt.x] + 0.25 * up_noisy[yt.y * s + xt.y]);
 }
 
-fn half_sample_denoised(xt: vec2<u32>, yt: vec2<u32>) -> f32 {
+fn half_sample_denoised(c: u32, r: u32) -> f32 {
+    let xt = half_taps(c, up_params.half_width);
+    let yt = half_taps(r, up_params.half_height);
     let s = up_params.half_width;
     return 0.75 * (0.75 * up_denoised[yt.x * s + xt.x] + 0.25 * up_denoised[yt.x * s + xt.y])
         + 0.25 * (0.75 * up_denoised[yt.y * s + xt.x] + 0.25 * up_denoised[yt.y * s + xt.y]);
@@ -350,8 +355,20 @@ fn upsample_residual(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num
     if (i >= up_params.width * up_params.height) {
         return;
     }
-    let xt = half_taps(i % up_params.width, up_params.half_width);
-    let yt = half_taps(i / up_params.width, up_params.half_height);
-    up_out[i] = half_sample_denoised(xt, yt)
+    let c = i % up_params.width;
+    let r = i / up_params.width;
+    let xt = half_taps(c, up_params.half_width);
+    let yt = half_taps(r, up_params.half_height);
+    let value = half_sample_denoised(c, r)
         + up_params.residual_weight * (up_native[i] - half_sample_noisy(xt, yt));
+    let cols = vec3<u32>(select(c - 1u, 0u, c == 0u), c, min(c + 1u, up_params.width - 1u));
+    let rows = vec3<u32>(select(r - 1u, 0u, r == 0u), r, min(r + 1u, up_params.height - 1u));
+    var lo = 3.4e38;
+    var hi = -3.4e38;
+    for (var k = 0u; k < 9u; k = k + 1u) {
+        let d = half_sample_denoised(cols[k % 3u], rows[k / 3u]);
+        lo = min(lo, d);
+        hi = max(hi, d);
+    }
+    up_out[i] = value + up_params.despeckle_strength * (clamp(value, lo, hi) - value);
 }
