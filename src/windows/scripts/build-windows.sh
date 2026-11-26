@@ -8,25 +8,31 @@ ROOT_DIR="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 cd "$ROOT_DIR"
 
 fail() {
-  echo "Windows build: $*" >&2
-  exit 1
+	echo "Windows build: $*" >&2
+	exit 1
 }
 
 # Preflight before codegen or any expensive compilation. A partial Rust build
 # must never be reported as a successfully built Windows application.
 for tool in cargo rustc dotnet git python3; do
-  command -v "$tool" >/dev/null 2>&1 || fail "required tool '$tool' was not found in PATH"
+	command -v "$tool" >/dev/null 2>&1 || fail "required tool '$tool' was not found in PATH"
 done
 RUST_VERSION="$(rustc -vV)"
 RUST_HOST=""
 while read -r key value; do
-  if [[ "$key" == host: ]]; then RUST_HOST="${value%$'\r'}"; fi
-done <<< "$RUST_VERSION"
+	if [[ "$key" == host: ]]; then RUST_HOST="${value%$'\r'}"; fi
+done <<<"$RUST_VERSION"
 TARGET="${WINDOWS_TARGET:-$RUST_HOST}"
 case "$TARGET" in
-  x86_64-pc-windows-msvc) PLATFORM=x64; RID=win-x64 ;;
-  aarch64-pc-windows-msvc) PLATFORM=ARM64; RID=win-arm64 ;;
-  *) fail "unsupported WINDOWS_TARGET '$TARGET'; use x86_64-pc-windows-msvc or aarch64-pc-windows-msvc" ;;
+x86_64-pc-windows-msvc)
+	PLATFORM=x64
+	RID=win-x64
+	;;
+aarch64-pc-windows-msvc)
+	PLATFORM=ARM64
+	RID=win-arm64
+	;;
+*) fail "unsupported WINDOWS_TARGET '$TARGET'; use x86_64-pc-windows-msvc or aarch64-pc-windows-msvc" ;;
 esac
 [[ "$RUST_HOST" == "$TARGET" ]] || fail "native Windows builds only: Rust host '$RUST_HOST' does not match '$TARGET'; cross-compilation is not supported"
 
@@ -34,9 +40,9 @@ esac
 # wrapper expects its executable at the workspace's unqualified release path.
 echo "--> Running codegen..."
 (
-  unset CARGO_BUILD_TARGET
-  export CARGO_TARGET_DIR="$ROOT_DIR/src/raw-pipeline/target"
-  ./tools/codegen.sh
+	unset CARGO_BUILD_TARGET
+	export CARGO_TARGET_DIR="$ROOT_DIR/src/raw-pipeline/target"
+	./tools/codegen.sh
 )
 
 NATIVE_DIR="src/raw-pipeline/target/$TARGET/release"
@@ -45,25 +51,29 @@ APP_DIR="src/windows/Maple.WinUI/bin/Release/$TARGET"
 
 echo "--> Building raw-ffi for $TARGET..."
 cargo build --release --target "$TARGET" --target-dir src/raw-pipeline/target \
-  --manifest-path src/raw-pipeline/Cargo.toml -p raw-ffi --features gpu
+	--manifest-path src/raw-pipeline/Cargo.toml -p raw-ffi --features gpu
 [[ -s "$NATIVE_DIR/raw_ffi.dll" ]] || fail "missing native output: $NATIVE_DIR/raw_ffi.dll"
 
 # The app's panorama stitcher: classical matcher by default, ML opt-in (#4556).
+# pano-gen-fixture is not shipped; it stays beside raw_ffi.dll so the native
+# seam tests can write overlapping synthetic frames (#5992).
 echo "--> Building maple-cli for $TARGET..."
 cargo build --release --target "$TARGET" --target-dir src/raw-pipeline/target \
-  --manifest-path src/raw-pipeline/Cargo.toml -p maple-cli --features pano,pano-classical
+	--manifest-path src/raw-pipeline/Cargo.toml -p maple-cli -p maple-pano \
+	--bin maple-cli --bin pano-gen-fixture --features maple-cli/pano,maple-cli/pano-classical
 [[ -s "$NATIVE_DIR/maple-cli.exe" ]] || fail "missing native output: $NATIVE_DIR/maple-cli.exe"
+[[ -s "$NATIVE_DIR/pano-gen-fixture.exe" ]] || fail "missing native output: $NATIVE_DIR/pano-gen-fixture.exe"
 
 echo "--> Building diagnostic host for $TARGET..."
 cargo build --release --target "$TARGET" --target-dir src/windows/target \
-  --manifest-path src/windows/Cargo.toml
+	--manifest-path src/windows/Cargo.toml
 [[ -s "$HOST_DIR/maple-windows.exe" ]] || fail "missing diagnostic output: $HOST_DIR/maple-windows.exe"
 
 echo "--> Building WinUI application for $RID ($PLATFORM)..."
 dotnet build src/windows/Maple.WinUI/Maple.WinUI.csproj -c Release \
-  -r "$RID" "-p:Platform=$PLATFORM" "-p:MapleRustTarget=$TARGET" -o "$APP_DIR"
+	-r "$RID" "-p:Platform=$PLATFORM" "-p:MapleRustTarget=$TARGET" -o "$APP_DIR"
 for output in Maple.WinUI.exe raw_ffi.dll maple-cli.exe; do
-  [[ -s "$APP_DIR/$output" ]] || fail "missing application output: $APP_DIR/$output"
+	[[ -s "$APP_DIR/$output" ]] || fail "missing application output: $APP_DIR/$output"
 done
 
 echo "Windows application built successfully: $APP_DIR/Maple.WinUI.exe"
