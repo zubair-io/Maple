@@ -182,6 +182,10 @@ namespace Maple.WinUI.Services.FileOperations
             return name;
         }
 
+        internal static string? CarriedSidecarFor(
+            string companionSourceSidecar, string primarySourceSidecar, string? primaryFinalSidecar) =>
+            SameSidecarPath(companionSourceSidecar, primarySourceSidecar) ? primaryFinalSidecar : null;
+
         private static async Task<(RelocatePlan Primary, RelocatePlan? Companion)> PlanStackAsync(
             StackPair pair, string primaryName, RelocateMode mode, CollisionPolicy collision)
         {
@@ -196,7 +200,12 @@ namespace Maple.WinUI.Services.FileOperations
             {
                 var companionPlan = await PlanRelocateAsync(
                     pair.Companion, pair.DestinationDir, Path.GetFileName(companionTarget), mode,
-                    CollisionPolicy.Fail, primaryPlan.FinalSidecarPath, new[] { pair.Primary }).ConfigureAwait(false);
+                    CollisionPolicy.Fail,
+                    CarriedSidecarFor(
+                        SidecarStore.SidecarPathFor(pair.Companion),
+                        primaryPlan.SourceSidecarPath ?? SidecarStore.SidecarPathFor(pair.Primary),
+                        primaryPlan.FinalSidecarPath),
+                    new[] { pair.Primary }).ConfigureAwait(false);
                 return (primaryPlan, companionPlan);
             }
             catch
