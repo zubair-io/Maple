@@ -105,7 +105,7 @@ namespace Maple.WinUI.Tests
         }
 
         [Fact]
-        public async Task ATileDelete_TrashesThePair_AndEachHalfRestoresToItsOwnName()
+        public async Task ATileDelete_TrashesThePair_AndOneRestoreBringsBothHalvesBackToTheirOwnNames()
         {
             var (raw, jpeg, _) = WritePair();
             Write("older raw", ".maple", "trash", "Album", "IMG_1.CR3");
@@ -120,7 +120,6 @@ namespace Maple.WinUI.Tests
             Assert.Empty(Names("Album"));
 
             await LocalFileOperations.RestoreFromMapleTrashAsync(P(".maple", "trash", "Album", "IMG_1.1.CR3"), _root);
-            await LocalFileOperations.RestoreFromMapleTrashAsync(P(".maple", "trash", "Album", "IMG_1.1.JPG"), _root);
 
             Assert.Equal(new[] { "IMG_1.CR3", "IMG_1.JPG", "IMG_1.xmp" }, Names("Album"));
             Assert.Equal("raw", File.ReadAllText(P("Album", "IMG_1.CR3")));
