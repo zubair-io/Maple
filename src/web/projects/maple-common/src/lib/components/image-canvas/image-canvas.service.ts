@@ -3,6 +3,8 @@
 import { Injectable, signal, computed } from '@angular/core';
 import type { DecodedImage } from '../../raw-pipeline/raw-pipeline.types';
 
+export type FitFootprintOverlay = 'crop' | 'mask' | 'heal' | 'guide';
+
 @Injectable({ providedIn: 'root' })
 export class ImageCanvasService {
   /**
@@ -24,6 +26,25 @@ export class ImageCanvasService {
    */
   readonly pointerEditsAtZoom = signal(true);
   readonly beforeAfterSplitX = signal<number | null>(null);
+
+  private readonly fitFootprintOverlays = signal<ReadonlySet<FitFootprintOverlay>>(new Set());
+
+  /**
+   * Overlays that draw at the fit footprint register here; their handles only
+   * sit on the photo at fit + zero pan. Drop one from `FitFootprintOverlay`
+   * once it follows the zoom transform.
+   */
+  readonly holdsAtFit = computed(() => this.fitFootprintOverlays().size > 0);
+
+  setFitFootprintOverlay(overlay: FitFootprintOverlay, active: boolean): void {
+    this.fitFootprintOverlays.update((current) => {
+      if (current.has(overlay) === active) return current;
+      const next = new Set(current);
+      if (active) next.add(overlay);
+      else next.delete(overlay);
+      return next;
+    });
+  }
 
   /** Native, display-oriented image dimensions for geometry consumers such as
    * crop. Kept beside zoom/pan because the live renderer is the authoritative
@@ -109,6 +130,7 @@ export class ImageCanvasService {
 
   /** True 100% (pixel-perfect) + recentered pan (docs/zoom.md 100% button). */
   zoomTo100(): void {
+    if (this.holdsAtFit()) return;
     this.pixelScale.set(1);
     this.pan.set({ x: 0, y: 0 });
   }
