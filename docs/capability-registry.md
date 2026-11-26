@@ -297,9 +297,9 @@ Generated from `src/raw-pipeline/raw-core/src/capability_registry/` (the registr
 - synthetic 24-patch colour-chart invariants
 - Covers: none
 - Accepted backends: `cpu-reference`
-- Expected cases: 7
+- Expected cases: 8
 - Corpus: `src/raw-pipeline/raw-core/tests/color_chart_invariants.rs`
-- Record: satisfied — 7 of 7 executed, 0 failed, 0 skipped, on `cpu-reference`, commit `57c31e1a7cfdafb0ee372c27ff4ede68dfe2310a`, recorded 2026-10-19T20:17:06Z
+- Record: satisfied — 8 of 8 executed, 0 failed, 0 skipped, on `cpu-reference`, commit `035c37ee36178cb275f15ecb602fd59ca0454f37`, recorded 2026-11-26T01:23:01Z
 
 ### `color_harness`
 

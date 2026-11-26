@@ -439,7 +439,7 @@ impl EvidenceSource {
             EvidenceSource::GreyAdjustments => 41,
             EvidenceSource::SyntheticGrey => 6,
             EvidenceSource::GreyDcp => 5,
-            EvidenceSource::ColorChart => 7,
+            EvidenceSource::ColorChart => 8,
             EvidenceSource::ColorHarness => 796,
             EvidenceSource::SidecarContractApple => 12,
             EvidenceSource::SidecarContractApi => 4,
