@@ -192,6 +192,11 @@ interaction qualification remains open.
 The current shell opens local folders, discovers child folders, shows a
 virtualized thumbnail grid, opens a fitted preview, navigates a filmstrip and
 exposes the initial Light, Color, Effects and Detail sliders.
+The editor filmstrip lays out the cells in view, one neighbour beyond each end, the
+first and last photo, and the cell that holds keyboard focus with its neighbours, so
+assistive tools see those cells; Tab and Shift+Tab still enter the strip at its first
+or last photo and walk every photo, because the neighbours of the focused cell are
+always laid out.
 Browse's **Sort by** selector orders the local grid and filmstrip by filename,
 modification time or file size, with a **Descending** toggle. Equal times/sizes
 use filename and path tie-breaks. The order stays selected across folder
@@ -506,3 +511,49 @@ document snapshots. A real-RAW 2,000-tick burst test verifies the last preview,
 saved/reopened pixels and original immutability. The current CPU renderer still
 cannot interrupt an individual stage. The resident GPU path has separate
 cancellation checks; no slider latency qualification is claimed by this scheduling test.
+
+## Performance measurements
+
+Nothing here is a gate or changes the app; each command prints lines you read
+once and compare between two commits. Timings on a loaded or virtual machine
+describe that machine only. The CI run of these steps happens when the pull
+request carries the `perf-timing` label (see `.github/workflows/linux.yml`).
+
+```bash
+# Launch to first frame on X11 (the toolkit hides its window until the first frame is painted)
+xvfb-run -a -s '-screen 0 1280x800x24' python3 src/linux/packaging/launch_timing.py /path/to/maple-linux --runs 5
+# GPU context and icon decode before the window, one fresh process per line
+cargo run --locked --release --manifest-path src/linux/Cargo.toml --example launch-phases -- serial
+cargo run --locked --release --manifest-path src/linux/Cargo.toml --example launch-phases -- overlapped
+# Grid thumbnail cost on one worker and on two, over a generated 24 MP photo (or RAW paths you pass)
+cargo run --locked --release --manifest-path src/linux/Cargo.toml --example thumbnail-cost -- --workers 2
+# The same 24 MP photo as a file, for a harness that takes a RAW path
+cargo run --locked --release --manifest-path src/linux/Cargo.toml --example thumbnail-cost -- write-dng /tmp/synthetic-24mp.dng
+# Headless frame times of the filmstrips over 2,000 items
+cargo test --locked --manifest-path src/linux/Cargo.toml --lib -- --ignored --nocapture --test-threads=1 frame_time
+```
+
+- `launch-to-first-frame run=N seconds=S` is process start until the window is
+  mapped; the final line gives `min`, `median` and `max` of the runs. One
+  unrecorded launch warms the disk cache first.
+- `launch-phases mode=M gpu_ms=… icon_ms=… total_ms=…` times the two pieces of
+  start-up work that precede the window. `total_ms` is shorter than the sum in
+  `overlapped` mode.
+- `thumb-cost workers=N round=first|repeat fixture=F mp=… ms=…` is one grid
+  thumbnail (open the RAW, then a 256 px render) from request to result; a
+  `photos=… wall_ms=…` line is the whole round. With two workers the per-photo
+  times overlap, so compare `wall_ms`. `round=first` is the first render in the
+  process, `repeat` the second.
+- `thumb-cost fixture=F … sample_min=… sample_max=…` shows the photo decodes at
+  its size and is not flat. `thumb-cost source=synthetic` says what the generated
+  photo is not: it is uncompressed with no embedded preview, so decompression and
+  the Auto profile's fit are not exercised.
+- `thumb-cost embedded fixture=F … median_ms=…` is extracting the camera's
+  embedded preview and resizing it to 256 px, for RAW files you pass; a file
+  without one prints `no embedded preview in this file`.
+- `cloud-filmstrip-frame`, `editor-filmstrip-frame` and
+  `editor-filmstrip-arrival-frame` give the minimum and median of 30 headless
+  frames over 2,000 items. The arrival frame is one in which a thumbnail has just
+  arrived; `editor-filmstrip-arrival-frame-names-measured-again` repeats it with
+  every file name measured again, which is what an arrival cost before the
+  measured names were cached.
