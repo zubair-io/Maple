@@ -16,11 +16,19 @@ FFI_OUTPUT = """raw=/x/test_0007.DNG runs=5 threads=18
 FFI preview_embedded_1280_jpeg  min  41.2 ms  median  43.9 ms  digest 00ab12cd34ef5678
 FFI develop_fallback_1280_jpeg  min  120.0 ms  median  131.5 ms  digest 1111222233334444
 """
-LISTING_OUTPUT = (
-    'server listening\n'
-    '{"photos":2000,"warm":{"wallMin":40.5,"wallMedian":46,"serverMedian":30,"status":200,'
-    '"bytes":900},"revalidate304":{"wallMin":1,"wallMedian":2}}\n'
-)
+LISTING_BUDGET_FILE = {
+    "targetWarmMedianMs": 100,
+    "scenario": {"photos": 2000, "sidecars": 1000, "indexed": True, "withThumbs": True, "runs": 30},
+    "limit500Images": 333,
+    "machines": {},
+}
+LISTING_REPORT = {
+    "photos": 2000, "sidecars": 1000, "indexed": True, "withThumbs": True,
+    "warm": {"wallMin": 40.5, "wallMedian": 46, "serverMedian": 30, "status": 200, "bytes": 900},
+    "responses": {"warmStatus": 200, "revalidateStatus": 304, "limit500Status": 200,
+                  "imagesListed": 2000, "limit500Listed": 333},
+}
+LISTING_OUTPUT = "server listening\n" + json.dumps(LISTING_REPORT) + "\n"
 BUDGETS = {
     "targets": {
         "preview": {"limitMs": 150, "machines": {KEY: {"budgetMs": 160}}},
@@ -64,16 +72,38 @@ def test_parse_ffi_line_without_the_case_is_not_measured():
     raises(sc.NotMeasured, sc.parse_ffi_line, FFI_OUTPUT, "export_full_jpeg_default")
 
 
+def listing_with(**changes):
+    report = {**LISTING_REPORT, **changes}
+    return "server listening\n" + json.dumps(report) + "\n"
+
+
 def test_parse_listing_reads_the_warm_samples():
-    measured = sc.parse_listing(LISTING_OUTPUT)
+    measured = sc.parse_listing(LISTING_OUTPUT, LISTING_BUDGET_FILE)
     assert (measured.min_ms, measured.median_ms) == (40.5, 46.0)
 
 
-def test_parse_listing_rejects_a_failed_request_and_garbage():
-    failed = LISTING_OUTPUT.replace('"status":200', '"status":500')
-    raises(sc.NotMeasured, sc.parse_listing, failed)
-    raises(sc.NotMeasured, sc.parse_listing, "not json")
-    raises(sc.NotMeasured, sc.parse_listing, "")
+def test_parse_listing_rejects_garbage():
+    raises(sc.NotMeasured, sc.parse_listing, "not json", LISTING_BUDGET_FILE)
+    raises(sc.NotMeasured, sc.parse_listing, "", LISTING_BUDGET_FILE)
+
+
+def test_a_listing_that_got_fast_by_breaking_is_not_measured():
+    responses = LISTING_REPORT["responses"]
+    broken = {
+        "an empty list": {**responses, "imagesListed": 0},
+        "a truncated list": {**responses, "imagesListed": 1999},
+        "a truncated page": {**responses, "limit500Listed": 0},
+        "a failed warm request": {**responses, "warmStatus": 500},
+        "a changed revalidation": {**responses, "revalidateStatus": 200},
+        "a failed page": {**responses, "limit500Status": 404},
+    }
+    for name, changed in broken.items():
+        error = raises(sc.NotMeasured, sc.parse_listing, listing_with(responses=changed),
+                       LISTING_BUDGET_FILE)
+        assert "not the one the budget is for" in str(error), name
+    assert raises(sc.NotMeasured, sc.parse_listing, listing_with(photos=100), LISTING_BUDGET_FILE)
+    no_facts = {key: value for key, value in LISTING_REPORT.items() if key != "responses"}
+    assert raises(sc.NotMeasured, sc.parse_listing, json.dumps(no_facts), LISTING_BUDGET_FILE)
 
 
 def test_machine_key_maps_arch_and_names_the_cpu():
