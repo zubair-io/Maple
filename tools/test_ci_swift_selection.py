@@ -77,11 +77,16 @@ class SwiftSelectionTests(unittest.TestCase):
             ".github/swift-regressions/nested/run.txt",
             ".github/CODEOWNERS",
             ".github/dependabot.yml",
-            ".github/workflows/apple.yml",
             ".github/actions/setup/action.yml",
         ):
             with self.subTest(path=path):
                 self.assertEqual(set(ci.dependencies(path)), set(ci.ALL))
+
+    def test_apple_workflow_edit_runs_swift_and_the_release_validation(self):
+        self.assertEqual(
+            set(ci.dependencies(".github/workflows/apple.yml")),
+            {"swift", "ci", "release"},
+        )
 
     def test_native_core_diff_runs_swift(self):
         for path in (
