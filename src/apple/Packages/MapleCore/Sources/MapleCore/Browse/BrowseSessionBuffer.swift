@@ -18,6 +18,7 @@ public final class BrowseSessionBuffer<Key: Hashable, Session: AnyObject> {
 
   private var slots: [Key: Slot] = [:]
   private var stagedKeys: Set<Key> = []
+  private var scheduledDrain: Task<Void, Never>?
 
   public init() {}
 
@@ -40,6 +41,21 @@ public final class BrowseSessionBuffer<Key: Hashable, Session: AnyObject> {
     stagedKeys = []
     return staged.reduce(into: [:]) { result, key in
       result[key] = slots[key]?.session
+    }
+  }
+
+  /// Hands every staged session to `deliver` once `delay` has passed without
+  /// another call, so a continuous scroll delivers nothing and a pause
+  /// delivers once. The timer lives here, not in view state: a view-state
+  /// write per staged cell is the whole-grid update this type exists to avoid.
+  public func drainWhenQuiet(
+    after delay: Duration, _ deliver: @escaping @MainActor @Sendable ([Key: Session]) -> Void
+  ) {
+    scheduledDrain?.cancel()
+    scheduledDrain = Task { [weak self] in
+      try? await Task.sleep(for: delay)
+      guard !Task.isCancelled, let staged = self?.drain(), !staged.isEmpty else { return }
+      deliver(staged)
     }
   }
 
