@@ -35,6 +35,44 @@ def namespaced_pids(root: int) -> set[int]:
     }
 
 
+def find_window(process: subprocess.Popen, log, viewable: bool = False, poll: float = 0.1):
+    """The application's X11 window, or a RuntimeError once the process exits or
+    30 seconds pass. `viewable` waits until the window is mapped: the toolkit
+    keeps it hidden until its first frame is painted."""
+    deadline = time.monotonic() + 30
+    while time.monotonic() < deadline:
+        if process.poll() is not None:
+            log.seek(0)
+            raise RuntimeError(f"Maple exited with {process.returncode}: {log.read()}")
+        tree = subprocess.run(["xwininfo", "-root", "-tree"], text=True, capture_output=True)
+        if tree.returncode:
+            time.sleep(poll)
+            continue
+        launched = namespaced_pids(process.pid)
+        for line in tree.stdout.splitlines():
+            match = re.search(r'(0x[0-9a-f]+) "Maple".*?\s(\d+)x(\d+)\+', line)
+            if not match or int(match[2]) < 800 or int(match[3]) < 540:
+                continue
+            queried = subprocess.run(
+                ["xprop", "-id", match[1], "_NET_WM_PID", "WM_CLASS"],
+                text=True, capture_output=True,
+            )
+            if queried.returncode:
+                continue
+            properties = queried.stdout
+            pid = re.search(r"_NET_WM_PID\(CARDINAL\) = (\d+)", properties)
+            if not (pid and int(pid[1]) in launched and '"app.justmaple.aperture"' in properties):
+                continue
+            if viewable and "IsViewable" not in subprocess.run(
+                ["xwininfo", "-id", match[1]], text=True, capture_output=True
+            ).stdout:
+                continue
+            return line.strip(), properties.strip()
+        time.sleep(poll)
+    log.seek(0)
+    raise RuntimeError(f"No Maple application window: {log.read()}")
+
+
 def inspect(binary: Path) -> None:
     with tempfile.TemporaryDirectory(prefix="maple-package-smoke-") as directory:
         root = Path(directory)
@@ -47,40 +85,7 @@ def inspect(binary: Path) -> None:
                 [str(binary), str(photos)], cwd=root, env=environment, stdout=log, stderr=log
             )
             try:
-                deadline = time.monotonic() + 30
-                window = None
-                while time.monotonic() < deadline:
-                    if process.poll() is not None:
-                        log.seek(0)
-                        raise RuntimeError(f"Maple exited with {process.returncode}: {log.read()}")
-                    tree = subprocess.run(
-                        ["xwininfo", "-root", "-tree"], text=True, capture_output=True
-                    )
-                    if tree.returncode:
-                        time.sleep(0.1)
-                        continue
-                    launched = namespaced_pids(process.pid)
-                    for line in tree.stdout.splitlines():
-                        match = re.search(r'(0x[0-9a-f]+) "Maple".*?\s(\d+)x(\d+)\+', line)
-                        if not match or int(match[2]) < 800 or int(match[3]) < 540:
-                            continue
-                        queried = subprocess.run(
-                            ["xprop", "-id", match[1], "_NET_WM_PID", "WM_CLASS"],
-                            text=True, capture_output=True,
-                        )
-                        if queried.returncode:
-                            continue
-                        properties = queried.stdout
-                        pid = re.search(r"_NET_WM_PID\(CARDINAL\) = (\d+)", properties)
-                        if pid and int(pid[1]) in launched and '"app.justmaple.aperture"' in properties:
-                            window = (line.strip(), properties.strip())
-                            break
-                    if window:
-                        break
-                    time.sleep(0.1)
-                if window is None:
-                    log.seek(0)
-                    raise RuntimeError(f"No Maple application window: {log.read()}")
+                window = find_window(process, log)
                 time.sleep(2)
                 if process.poll() is not None:
                     raise RuntimeError("Maple exited after creating its window")
