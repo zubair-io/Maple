@@ -1,5 +1,6 @@
 import * as path from 'node:path';
-import { lstat, stat } from '../fs/mirrored.ts';
+import { lstat, readdir, stat } from '../fs/mirrored.ts';
+import { errnoCode } from '../fs/errno-code.ts';
 import { resolveThumbPath, xmpSidecarPath } from '../fs/xmp.ts';
 import { assertDerivativeCacheDirectory } from '../indexer/derivative-cache.ts';
 
@@ -20,10 +21,47 @@ interface ThumbStat {
   size: number;
 }
 
+/** Which thumb files a directory may hold. A file system may fold case and Unicode form, so a
+ * name is ruled out only when no variant of it was listed. */
+export interface ThumbNames {
+  mayHold(thumbFilename: string): boolean;
+}
+
+const ANY_THUMB: ThumbNames = { mayHold: () => true };
+// Upper-casing after lower-casing also folds ß with SS, a ligature with its letters and final
+// sigma with sigma, as case-insensitive file systems do.
+const folded = (name: string): string =>
+  name.normalize('NFD').toLowerCase().toUpperCase().normalize('NFC');
+
+/** The thumbs a listing should check; null when the route would refuse the thumbs folder. A
+ * listing of the whole folder reads that folder once: on a network share the read brings every
+ * thumb's attributes with it for as long as the share caches them, so the checks that follow
+ * cost no round trip each, and a missing thumb costs none at all. A page checks few thumbs of
+ * what may be a far larger folder, so it rules nothing out and keeps one check per thumb. */
+export async function listedThumbs(
+  directory: string,
+  wholeFolder: boolean,
+): Promise<ThumbNames | null> {
+  if (!(await thumbsDirectorySafe(directory))) return null;
+  if (!wholeFolder) return ANY_THUMB;
+  const thumbsDirectory = path.dirname(resolveThumbPath(path.join(directory, 'probe')));
+  const names = await readdir(thumbsDirectory).catch((error: unknown) =>
+    errnoCode(error) === 'ENOENT' ? [] : null,
+  );
+  if (names === null) return ANY_THUMB;
+  const listed = new Set(names.map(folded));
+  return { mayHold: (thumbFilename) => listed.has(folded(thumbFilename)) };
+}
+
 /** The thumb an unindexed or primary-here image is served from (`resolveThumbPath`). Stat it
  * alongside the sidecar read; `freshThumbVersion` decides once both are known. */
-export async function listingThumbStat(imagePath: string): Promise<ThumbStat | null> {
-  const thumb = await lstat(resolveThumbPath(imagePath)).catch(() => null);
+export async function listingThumbStat(
+  imagePath: string,
+  thumbs: ThumbNames = ANY_THUMB,
+): Promise<ThumbStat | null> {
+  const thumbPath = resolveThumbPath(imagePath);
+  if (!thumbs.mayHold(path.basename(thumbPath))) return null;
+  const thumb = await lstat(thumbPath).catch(() => null);
   return thumb?.isFile() && thumb.size > 0 ? thumb : null;
 }
 
@@ -40,7 +78,7 @@ export function freshThumbVersion(
 }
 
 /** The route refuses a symlinked `.maple` or `thumbs` directory; offer no version there either. */
-export function thumbsDirectorySafe(directory: string): Promise<boolean> {
+function thumbsDirectorySafe(directory: string): Promise<boolean> {
   return assertDerivativeCacheDirectory(resolveThumbPath(path.join(directory, 'probe'))).then(
     () => true,
     () => false,
