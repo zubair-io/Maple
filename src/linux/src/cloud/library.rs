@@ -1,5 +1,5 @@
 use super::{bytes, json, CloudClient, CloudError};
-use reqwest::Method;
+use reqwest::{Method, StatusCode};
 use serde::Deserialize;
 
 #[derive(Clone, Debug, Deserialize)]
@@ -62,7 +62,15 @@ impl CloudClient {
         if let Some(cursor) = cursor {
             endpoint.query_pairs_mut().append_pair("cursor", cursor);
         }
-        json(self.request(Method::GET, endpoint, None, &[])?)
+        let response = self.request(Method::GET, endpoint.clone(), None, &[])?;
+        // First page only: a retried later page could join two different folders.
+        let response = if cursor.is_none() && response.status() == StatusCode::CONFLICT {
+            drop(response);
+            self.request(Method::GET, endpoint, None, &[])?
+        } else {
+            response
+        };
+        json(response)
     }
     pub fn stat_entry(&mut self, entry: &CloudEntry) -> Result<CloudEntry, CloudError> {
         #[derive(Deserialize)]
