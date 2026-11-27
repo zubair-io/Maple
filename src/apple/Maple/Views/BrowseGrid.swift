@@ -69,10 +69,6 @@ struct BrowseGrid: View {
   /// Double-click on an image cell. Shell switches into Full-image / Edit
   /// mode with that asset as the active session.
   var onOpenEditor: ((AssetRef) -> Void)? = nil
-  /// Called from each thumbnail cell's `.onAppear`. Used by AppShell to
-  /// lazily create per-asset `EditSession`s only when their cell scrolls
-  /// into view, instead of eagerly priming every asset in the folder.
-  var onPrimeSession: ((AssetRef) async -> Void)? = nil
   /// A cell scrolled into view; its session is staged in `sessionBuffer`, not `sessions` (#6130).
   var onPrimeVisibleCell: ((AssetRef) async -> Void)? = nil
   var onReadGridFilterMetadata:

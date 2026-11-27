@@ -560,6 +560,9 @@
     private func pushPreview(
       _ asset: AssetRef, tileFrame: CGRect? = nil, cloudSource: (any ImageSource)? = nil
     ) {
+      // Preview reads `sessions` only; a tile tapped just after a scroll may
+      // still have its session staged in the buffer.
+      _ = sessionBuffer.adopt(asset.id, into: &sessions)
       cloudPreviewSource = cloudSource
       heroTileFrame = tileFrame
       var transaction = Transaction()
