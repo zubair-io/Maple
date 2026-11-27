@@ -32,7 +32,11 @@ function fakeShell() {
     endEdit: vi.fn(),
   };
   const shell = {
-    canvasSvc: { pointerEditsAtZoom: () => true },
+    canvasSvc: {
+      pointerEditsAtZoom: () => true,
+      claimPointerForEdit: vi.fn(),
+      releaseEditPointer: vi.fn(),
+    },
     canvasWrapRef: { nativeElement: wrap },
     editorState,
     scrubbing: { set: vi.fn() },
