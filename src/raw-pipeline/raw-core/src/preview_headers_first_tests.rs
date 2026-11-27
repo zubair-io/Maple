@@ -2,6 +2,7 @@ use super::decoder_free_preview;
 use crate::image::ExifOrientation;
 use crate::test_support::synth_jpeg::{jpeg, without_huffman_tables};
 use image::DynamicImage;
+use rawler::rawsource::RawSource;
 
 const MIN_FALLBACK_LONG_EDGE: u32 = super::MIN_FALLBACK_LONG_EDGE;
 
@@ -165,10 +166,31 @@ fn tiff_chain(strips: &[Strip]) -> Vec<u8> {
     .concat()
 }
 
+/// The ranked selection over an in-memory source, required to agree with the
+/// same selection over a paged file of the same bytes.
+fn ranked(bytes: &[u8]) -> Option<(DynamicImage, ExifOrientation)> {
+    let in_memory = decoder_free_preview(&RawSource::new_from_borrowed_slice(bytes));
+    #[cfg(not(target_arch = "wasm32"))]
+    assert_same(&in_memory, &paged_ranked(bytes));
+    in_memory
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn paged_ranked(bytes: &[u8]) -> Option<(DynamicImage, ExifOrientation)> {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("chain.dng");
+    std::fs::write(&path, bytes).unwrap();
+    let file = crate::paged_file::PagedFile::new(std::fs::File::open(&path).unwrap()).unwrap();
+    let source = RawSource::new_lazy(&file);
+    let found = decoder_free_preview(&source);
+    assert!(source.failure().is_none());
+    found
+}
+
 fn check(strips: &[Strip]) -> Option<(DynamicImage, ExifOrientation)> {
     let bytes = tiff_chain(strips);
     let expected = oracle_decoder_free_preview(&bytes);
-    let actual = decoder_free_preview(&bytes);
+    let actual = ranked(&bytes);
     assert_same(&expected, &actual);
     actual
 }
@@ -256,6 +278,27 @@ fn unreadable_jpeg_strips_are_dropped_like_failed_decodes() {
 }
 
 #[test]
+#[cfg(not(target_arch = "wasm32"))]
+fn a_chain_cut_short_after_opening_reports_the_read_instead_of_a_preview() {
+    let bytes = tiff_chain(&[rgb(1024, 768, 1), rgb(300, 200, 2)]);
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("chain.dng");
+    std::fs::write(&path, &bytes).unwrap();
+    let file = crate::paged_file::PagedFile::new(std::fs::File::open(&path).unwrap()).unwrap();
+    std::fs::OpenOptions::new()
+        .write(true)
+        .open(&path)
+        .and_then(|f| f.set_len(bytes.len() as u64 - 16))
+        .unwrap();
+    let result = super::extract_embedded_preview_from(RawSource::new_lazy(&file), "dng");
+    assert!(
+        matches!(result, Err(crate::Error::Io { .. })),
+        "a fetch that failed must not yield a preview: {:?}",
+        result.map(|(image, _)| (image.width(), image.height()))
+    );
+}
+
+#[test]
 #[cfg_attr(not(feature = "fixtures"), ignore)]
 fn fixture_corpus_resolves_like_the_full_decode() {
     let files = crate::test_support::fixtures::raw_files();
@@ -276,7 +319,7 @@ fn fixture_corpus_resolves_like_the_full_decode() {
         .map(|path| {
             let bytes = std::fs::read(path).unwrap();
             let expected = oracle_decoder_free_preview(&bytes);
-            assert_same(&expected, &decoder_free_preview(&bytes));
+            assert_same(&expected, &ranked(&bytes));
             expected.is_some()
         })
         .filter(|resolved| *resolved)
