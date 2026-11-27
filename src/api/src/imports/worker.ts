@@ -110,10 +110,19 @@ type PrimaryOutcome = ImportFileEntry['state'];
 /**
  * The marker a primary's outcome leaves, written with the outcome so no stop
  * can fall between the two. A later retry trusts a file it finds at a marked
- * name, so a group that ends without a copy gives its marker up: after a
- * failure, nothing of this attempt's is at the name it marked. What survives is
- * the name an earlier attempt marked, because that attempt may still be
- * running and land its copy there, or the name could not be read.
+ * name, so a group that ends without a copy gives its marker up rather than
+ * leave one where another writer's copy of the same photo could be taken for
+ * this import's. What survives is the name an earlier attempt marked, because
+ * that attempt may still be running and land its copy there, or the name could
+ * not be read.
+ *
+ * This is a choice, not a proof that nothing of this attempt's is at the name
+ * it marked: a publish that took effect and still reported an error (other than
+ * a link reported as "name taken", which `copyFileAtomic` recognises by inode)
+ * leaves its file there. A retry then skips it as already present at the
+ * image's own name, or copies it again under a sibling name if the image is not
+ * yet catalogued (#5937). Trusting a file merely because its bytes match would
+ * recover its sidecar, and would also trust another writer's copy.
  */
 function markerAfter(state: PrimaryOutcome, earlierDest: string | null): string | null | undefined {
   if (state === 'copied') return undefined;
