@@ -481,17 +481,27 @@ public final class AllSourcesTimelineViewModel {
   /// `absPathMap`-style tap routing, and re-runs the N-way merge — keeping
   /// each (server, library)'s results as its OWN cloud stream so
   /// cross-library dedup keeps working (see `cloudStreamsByBucket`'s doc).
+  ///
+  /// A page identical to the published one, split into the same streams, is skipped: a local
+  /// change re-merges every loaded month through `remergeLoadedBuckets()` on its own.
   private func applyMergedPage(key: BucketKey, perSource: [(host: String, assets: [SearchAsset])]) {
     var allAssets: [SearchAsset] = []
-    var cloudStreams: [[ImageRef]] = []
     var pageHosts: [String: String] = [:]
     allAssets.reserveCapacity(perSource.reduce(0) { $0 + $1.assets.count })
     for (host, assets) in perSource {
       for asset in assets { pageHosts[asset.abs_path] = host }
       allAssets.append(contentsOf: assets)
-      cloudStreams.append(assets.map { CloudTimelineViewModel.searchAssetToImageRef($0) })
     }
-    hostByAbsPath.merge(pageHosts) { _, pageHost in pageHost }
+    let changedHosts = pageHosts.filter { hostByAbsPath[$0.key] != $0.value }
+    if !changedHosts.isEmpty { hostByAbsPath.merge(changedHosts) { _, pageHost in pageHost } }
+    let streamSizes = perSource.map { $0.assets.count }
+    guard
+      pagesByBucket[key] != allAssets
+        || cloudStreamsByBucket[key]?.map(\.count) != streamSizes
+    else { return }
+    let cloudStreams = perSource.map { source in
+      source.assets.map { CloudTimelineViewModel.searchAssetToImageRef($0) }
+    }
     pagesByBucket[key] = allAssets
     cloudStreamsByBucket[key] = cloudStreams
     mergedPagesByBucket[key] = MergedTimelineSource.merge(
