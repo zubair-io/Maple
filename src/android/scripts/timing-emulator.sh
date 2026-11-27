@@ -54,21 +54,25 @@ start)
 		echo "An emulator started by this script already runs on port $port" >&2
 		exit 1
 	fi
+	if adb devices | awk -v serial="$serial" '$1 == serial { found = 1 } END { exit !found }'; then
+		echo "$serial is already running and was not started by this script; pick another port or stop it" >&2
+		exit 1
+	fi
 	"$emulator_binary" -avd "$avd" -port "$port" -no-window -no-snapshot -noaudio -no-boot-anim \
 		-gpu "${MAPLE_TIMING_GPU:-host}" >"$state/$port.log" 2>&1 &
 	echo $! >"$state/$port.pid"
 	booted=0
 	for ((attempt = 0; attempt < 240; attempt++)); do
-		if [[ "$(adb -s "$serial" shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" == 1 ]]; then
-			booted=1
-			break
-		fi
 		is_emulator_process "$(<"$state/$port.pid")" || {
 			cat "$state/$port.log" >&2
 			echo 'The emulator exited during boot' >&2
 			rm -f "${state:?}/${port:?}.pid"
 			exit 1
 		}
+		if [[ "$(adb -s "$serial" shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" == 1 ]]; then
+			booted=1
+			break
+		fi
 		sleep 2
 	done
 	if ((booted == 0)); then
