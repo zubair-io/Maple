@@ -8,7 +8,7 @@ fn main() -> eframe::Result {
             .any(|finding| finding.status == maple_linux::diagnose::Status::Problem);
         std::process::exit(i32::from(problem));
     }
-    let gpu = raw_gpu::GpuContext::new_blocking()
+    let (gpu, icon) = maple_linux::app::launch_prerequisites()
         .map_err(|error| eframe::Error::AppCreation(error.into()))?;
     let setup = eframe::egui_wgpu::WgpuSetup::Existing {
         instance: gpu.instance.clone(),
@@ -33,7 +33,7 @@ fn main() -> eframe::Result {
         "Maple",
         options,
         Box::new(move |cc| {
-            let mut app = maple_linux::app::MapleApp::with_gpu(cc, gpu);
+            let mut app = maple_linux::app::MapleApp::with_gpu(cc, gpu, icon);
             if let Some(path) = launch {
                 app.open_path(path.into());
             }
