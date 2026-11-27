@@ -27,6 +27,7 @@ from pathlib import Path
 from typing import Any
 
 import perf_table_linux
+import perf_table_scorecard
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 PERF_DIR = REPO_ROOT / "test-fixtures" / "perf"
@@ -270,6 +271,7 @@ def render(rows_by_platform: dict[str, list[dict[str, Any]]]) -> str:
         "test classes, not on this report being generated.",
         "That in-run ratio gate is unrelated to this file and is untouched by it.",
         "",
+        *perf_table_scorecard.SECTION,
     ]
 
     if not rows_by_platform:
