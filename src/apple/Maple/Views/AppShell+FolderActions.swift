@@ -393,10 +393,7 @@ extension AppShell {
   /// The session for `id` if one exists, including one still waiting in the
   /// buffer, which is moved into `sessions`. Action-time use only.
   func existingSession(for id: AssetRef.ID) -> EditSession? {
-    if let existing = sessions[id] { return existing }
-    guard let staged = browseSessionBuffer.take(id) else { return nil }
-    sessions[id] = staged
-    return staged
+    browseSessionBuffer.adopt(id, into: &sessions)
   }
 
   /// Read filter facts without creating an EditSession or decoding image

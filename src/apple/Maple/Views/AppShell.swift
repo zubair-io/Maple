@@ -555,12 +555,12 @@ struct AppShell: View {
   /// Pane-shell + iPhone memory guard: prune `sessions` whenever a folder /
   /// library navigation replaces the visible asset list. `loadFolder`
   /// pre-creates a session for every asset in the folder it loads, and
-  /// `ensureSession(for:)` primes one for every grid cell scrolled into
-  /// view — neither ever prunes, so re-browsing the same folder, or
+  /// `primeVisibleCellSession(for:)` primes one for every grid cell scrolled
+  /// into view — neither ever prunes, so re-browsing the same folder, or
   /// navigating to a different one, only ever added entries, growing
   /// memory without bound while pure browsing (#2038). Keeps every asset
-  /// in the NEW current list (so a still-visible cell's `ensureSession`
-  /// call on next appear is a no-op, not a re-create) plus the actively-
+  /// in the NEW current list (so a still-visible cell's prime on next
+  /// appear is a no-op, not a re-create) plus the actively-
   /// open editor asset, if any (mirrors `pruneInactiveSessions`'s
   /// `isImageOpen` guard — never evict the session the user is looking
   /// at mid-navigation, e.g. a filmstrip-driven folder change).
@@ -1149,7 +1149,10 @@ struct AppShell: View {
     // Filmstrip sibling switch (iPad/Mac) changes the active asset WITHOUT a
     // mode change — prune here too so the previous sibling's heavy resources
     // free before the new one renders.
-    .onChange(of: browseVM.selectedID) { _, _ in
+    .onChange(of: browseVM.selectedID) { _, selected in
+      // Keyboard rating and flagging read the selected photo's session from
+      // `sessions`; one arrow-key step can select a cell staged moments ago.
+      if let selected { _ = existingSession(for: selected) }
       pruneInactiveSessions()
       // #2638 — selection moved on (grid tap, arrow nav, filmstrip
       // sibling switch): a stale rename error or an armed-but-abandoned
@@ -1618,6 +1621,10 @@ struct AppShell: View {
 
   /// Open the batch metadata editor with the currently-selected assets.
   private func openBatchMetadata() {
+    // The view model writes through live sessions and edits the file directly
+    // for photos without one; a staged session missed here would keep its
+    // old rating and write it back on the photo's next edit.
+    browseSessionBuffer.flush(into: &sessions)
     let assets = browseVM.selectedAssets(sessions: sessions)
     guard !assets.isEmpty else { return }
     // Snapshot the selection + sessions once, at open time. Presenting via

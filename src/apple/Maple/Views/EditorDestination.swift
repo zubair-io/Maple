@@ -113,7 +113,7 @@
     /// caches, and keeping two 100 MP images jetsam-killed iOS at the ~6 GB
     /// limit (#1660). Dropping the others frees that before the new decode.
     private func buildState() {
-      let resident = sessions[asset.id]
+      let resident = sessionBuffer.adopt(asset.id, into: &sessions)
       if let state, state.session.asset.id == asset.id,
         resident.map({ $0 === state.session }) ?? true
       {
