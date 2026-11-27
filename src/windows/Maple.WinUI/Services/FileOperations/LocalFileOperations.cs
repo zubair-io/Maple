@@ -142,9 +142,20 @@ namespace Maple.WinUI.Services.FileOperations
             var pairedCopies = PlanPairedCopies(folders.Paired, sourcePrimaryPath, resolvedTargetPath);
 
             var createdPaths = new List<string>();
-            // Only Replace may overwrite: under any other policy the name was resolved
-            // free, so a file there is one that arrived during the copy.
-            CopyVerified(sourcePrimaryPath, resolvedTargetPath, overwrite: collision == CollisionPolicy.Replace);
+            var displaced = collision == CollisionPolicy.Replace
+                ? BackUpOccupants(new[] { resolvedTargetPath }, sourcePrimaryPath)
+                : Array.Empty<DisplacedFile>();
+            try
+            {
+                // Only Replace may overwrite: under any other policy the name was resolved
+                // free, so a file there is one that arrived during the copy.
+                CopyVerified(sourcePrimaryPath, resolvedTargetPath, overwrite: collision == CollisionPolicy.Replace);
+            }
+            catch
+            {
+                Discard(displaced);
+                throw;
+            }
             createdPaths.Add(resolvedTargetPath);
 
             string? usedSourceSidecarPath = null;
@@ -165,8 +176,10 @@ namespace Maple.WinUI.Services.FileOperations
                     {
                         // A plan either fully succeeds or leaves NO trace — roll
                         // back the primary copy so a caller that sees this throw
-                        // never has to guess what's on disk.
-                        TryDelete(resolvedTargetPath);
+                        // never has to guess what's on disk. A photo this plan
+                        // replaced is put back, not deleted with it.
+                        if (displaced.Count == 0) TryDelete(resolvedTargetPath);
+                        else Restore(displaced);
                         throw;
                     }
                     createdPaths.Add(sidecarTargetPath);
@@ -186,6 +199,7 @@ namespace Maple.WinUI.Services.FileOperations
             }
 
             PublishPairedCopies(pairedCopies, createdPaths);
+            Discard(displaced);
 
             return new RelocatePlan(
                 mode, sourcePrimaryPath, usedSourceSidecarPath,
