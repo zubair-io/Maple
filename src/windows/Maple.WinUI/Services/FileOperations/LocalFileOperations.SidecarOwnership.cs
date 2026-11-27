@@ -171,27 +171,37 @@ namespace Maple.WinUI.Services.FileOperations
         /// reads the same sidecar. Over-inclusive on purpose: a false positive
         /// leaves a harmless duplicate sidecar, a false negative carries away
         /// another photo's edits.</summary>
-        internal static bool SidecarStemClaimedBySibling(string primaryPath, params string[] excluded)
+        internal static bool SidecarStemClaimedBySibling(string primaryPath, params string[] excluded) =>
+            SidecarStemClaimedBySibling(
+                primaryPath, new FolderListing(Path.GetDirectoryName(Path.GetFullPath(primaryPath)) ?? string.Empty), excluded);
+
+        /// <summary>The same decision from a folder listing already taken.
+        /// Only macOS resource-fork stubs (`._name`) are skipped as hidden
+        /// files: a hidden photo (`.a.dng`) still reads its stem's sidecar, so
+        /// it holds that sidecar back like any other sibling.</summary>
+        internal static bool SidecarStemClaimedBySibling(string primaryPath, FolderListing listing, string[] excluded)
         {
-            var dir = Path.GetDirectoryName(Path.GetFullPath(primaryPath));
-            if (dir == null || !Directory.Exists(dir)) return false;
+            var dir = listing.Directory;
+            if (dir.Length == 0 || !Directory.Exists(dir)) return false;
             var skip = excluded.Append(primaryPath).Select(Path.GetFullPath).ToArray();
             var stem = SidecarStemOf(Path.GetFileName(primaryPath));
             try
             {
-                var names = Directory.EnumerateFiles(dir).Select(Path.GetFileName).ToHashSet(StringComparer.Ordinal);
+                var names = listing.FileNames.ToHashSet(StringComparer.Ordinal);
                 return names.Any(name =>
-                    !name!.StartsWith('.')
+                    !IsResourceForkStub(name)
                     && !StagingName.IsMatch(name)
                     && IsMediaFile(name)
-                    && !skip.Any(excludedPath => IsExcludedName(dir, name, excludedPath, names!))
-                    && SiblingReadsSameSidecar(dir, name, stem, names!));
+                    && !skip.Any(excludedPath => IsExcludedName(dir, name, excludedPath, names))
+                    && SiblingReadsSameSidecar(dir, name, stem, names));
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
                 return true;
             }
         }
+
+        internal static bool IsResourceForkStub(string name) => name.StartsWith("._", StringComparison.Ordinal);
 
         /// <summary>An excluded path names a listed file when the spellings
         /// match exactly, or differ only in case while the folder resolves the

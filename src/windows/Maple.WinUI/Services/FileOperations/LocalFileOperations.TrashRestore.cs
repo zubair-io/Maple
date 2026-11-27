@@ -16,9 +16,10 @@
 // Shared with the API/Apple corpus (#6105): the `.restored[.N]` naming, and a
 // name counts as taken while an edit file the photo would adopt (canonical,
 // full-name video, conflict or workflow copy) sits at the destination.
-// Not ported (#2847): moving a trashed photo's conflict and workflow copies
-// back with it, and Apple's copy-only SMB restore with its `.restored-`
-// marker. Restore never overwrites or deletes a file it did not bring back.
+// A trashed photo's conflict and workflow copies come back with it under the
+// restored stem (LocalFileOperations.PairedCopies.cs, #6133). Not ported
+// (#2847): Apple's copy-only SMB restore with its `.restored-` marker.
+// Restore never overwrites or deletes a file it did not bring back.
 //
 // #2743 review fix: the ORIGINAL relative path is no longer recovered by
 // inverting `TrashPaths.TrashDestinationDir`'s path math alone. That
@@ -90,7 +91,7 @@ namespace Maple.WinUI.Services.FileOperations
         {
             var plan = await PlanRelocateAsync(trashPrimaryPath, destinationDir, finalBasename,
                 RelocateMode.Move, CollisionPolicy.Fail, carriedSidecarPath: null,
-                alsoLeaving: Array.Empty<string>(), restoredName: true).ConfigureAwait(false);
+                alsoLeaving: Array.Empty<string>(), restoredName: true, pairedCopyCarry: PairedCopyCarry.OutOfTrash).ConfigureAwait(false);
             var outcome = FinalizeRelocate(plan);
             TryDelete(OriginalPathMarkerFor(trashPrimaryPath));
             return outcome;
@@ -228,23 +229,26 @@ namespace Maple.WinUI.Services.FileOperations
         internal static string ResolveRestoredBasename(string trashPrimaryPath, string destinationDir, string basename)
         {
             var names = FolderNames(destinationDir);
-            return RestoreNameTaken(destinationDir, names, trashPrimaryPath, basename)
-                ? PickFreeRestoredBasename(trashPrimaryPath, destinationDir, names, basename)
+            var scan = ScanPairedCopies(trashPrimaryPath, new FolderListing(Path.GetDirectoryName(Path.GetFullPath(trashPrimaryPath)) ?? string.Empty));
+            return RestoreNameTaken(destinationDir, names, trashPrimaryPath, basename, scan)
+                ? PickFreeRestoredBasename(trashPrimaryPath, destinationDir, names, basename, scan)
                 : basename;
         }
 
         internal static string PickFreeRestoredBasename(
-            string trashPrimaryPath, string destinationDir, IReadOnlyList<string> names, string basename)
+            string trashPrimaryPath, string destinationDir, IReadOnlyList<string> names, string basename,
+            PairedCopyScan? scan = null)
         {
             var (stem, ext) = SplitRestoredName(basename);
+            scan ??= ScanPairedCopies(trashPrimaryPath, new FolderListing(Path.GetDirectoryName(Path.GetFullPath(trashPrimaryPath)) ?? string.Empty));
 
             var first = $"{stem}{FilenameVocabulary.RestoreCollisionSuffix}{ext}";
-            if (!RestoreNameTaken(destinationDir, names, trashPrimaryPath, first)) return first;
+            if (!RestoreNameTaken(destinationDir, names, trashPrimaryPath, first, scan)) return first;
 
             for (var n = 1; n <= CollisionResolver.MaxAttempts; n++)
             {
                 var candidate = $"{stem}{FilenameVocabulary.RestoreCollisionSuffix}.{n}{ext}";
-                if (!RestoreNameTaken(destinationDir, names, trashPrimaryPath, candidate)) return candidate;
+                if (!RestoreNameTaken(destinationDir, names, trashPrimaryPath, candidate, scan)) return candidate;
             }
 
             throw new FileOperationException(FileOperationErrorKind.Underlying,

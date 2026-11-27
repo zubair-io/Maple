@@ -67,6 +67,12 @@ namespace Maple.WinUI.Services.FileOperations
     /// <param name="SourceSidecarStays">True when `Finalize` must keep
     /// `SourceSidecarPath`: a same-stem sibling still reads it, or it is the
     /// very file `FinalSidecarPath` names (an extension-only rename, #4758).</param>
+    /// <param name="PairedCopies">The photo's conflict and workflow edit copies
+    /// that travel with it (trash and restore only), each with the name it takes
+    /// at the destination. A copy whose target already held identical bytes is
+    /// listed too: it is joined, not copied.</param>
+    /// <param name="PairedCopiesStay">True when `Finalize` must keep the source
+    /// copies because a same-stem sibling still reads them.</param>
     public sealed record RelocatePlan(
         RelocateMode Mode,
         string SourcePrimaryPath,
@@ -76,13 +82,17 @@ namespace Maple.WinUI.Services.FileOperations
         bool RenamedDueToCollision,
         IReadOnlyList<string> CreatedPaths,
         bool SourceAlreadyRelocated = false,
-        bool SourceSidecarStays = false)
+        bool SourceSidecarStays = false,
+        IReadOnlyList<PairedCopy>? PairedCopies = null,
+        bool PairedCopiesStay = false)
     {
         /// <summary>True when `Finalize` has nothing left to do — either a
         /// case-only rename already did everything, or (defensively) nothing
         /// was ever staged.</summary>
         public bool IsNoop => CreatedPaths.Count == 0;
     }
+
+    public sealed record PairedCopy(string Source, string Target);
 
     /// <param name="CompanionPath">Where the stacked JPEG landed, when the
     /// relocation carried a RAW+JPEG pair (#5050).</param>

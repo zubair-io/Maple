@@ -52,15 +52,6 @@ namespace Maple.WinUI.Tests
             return corpus;
         }
 
-        private const string IncomingReason =
-            "#2847: a trashed photo's conflict and workflow copies stay in the original folder and are not moved back with it";
-
-        private static readonly Dictionary<string, string> ExpectedDifferences = new()
-        {
-            ["case-folded incoming XMP"] = IncomingReason,
-            ["case-folded incoming workflow XMP"] = IncomingReason,
-        };
-
         public static IEnumerable<object[]> CaseNames() => LoadCorpus().Cases.Select(c => new object[] { c.Name });
 
         [Theory]
@@ -95,9 +86,7 @@ namespace Maple.WinUI.Tests
             Assert.Equal(item.Expected, Path.GetFileName(restored.PrimaryPath));
             Assert.Equal(original, File.ReadAllText(restored.PrimaryPath));
 
-            var followers = ExpectedDifferences.ContainsKey(item.Name)
-                ? (item.Incoming ?? new()).Where(n => string.Equals(n, oldStem + ".xmp", StringComparison.OrdinalIgnoreCase)).ToList()
-                : item.Incoming ?? new();
+            var followers = item.Incoming ?? new();
             foreach (var name in followers)
             {
                 var renamed = Path.Combine(_root, newStem + name[oldStem.Length..]);
@@ -105,7 +94,7 @@ namespace Maple.WinUI.Tests
                 Assert.Equal(IncomingXml, File.ReadAllText(renamed));
                 Assert.False(File.Exists(Path.Combine(trashDir, name)), $"{item.Name}: {name} was left in the trash");
             }
-            foreach (var name in (item.Unpaired ?? new()).Concat((item.Incoming ?? new()).Except(followers)))
+            foreach (var name in item.Unpaired ?? new())
             {
                 Assert.Equal(IncomingXml, File.ReadAllText(Path.Combine(trashDir, name)));
                 Assert.False(File.Exists(Path.Combine(_root, name)), $"{item.Name}: {name} appeared in the folder");
@@ -125,10 +114,6 @@ namespace Maple.WinUI.Tests
 
         private static string SidecarBase(string name) =>
             Path.GetFileName(SidecarStore.SidecarPathFor(name))[..^".xmp".Length];
-
-        [Fact]
-        public void ExpectedDifferences_AreCorpusCasesByName() =>
-            Assert.All(ExpectedDifferences.Keys, name => Assert.Contains(LoadCorpus().Cases, c => c.Name == name));
 
         [Fact]
         public async Task RestoreOfASidecarlessPhoto_LeavesAnEditFileAtTheDestinationByteIdentical()
@@ -283,27 +268,6 @@ namespace Maple.WinUI.Tests
             File.WriteAllText(Path.Combine(_root, name), "taken");
             Assert.Equal(expected, LocalFileOperations.PickFreeRestoredBasename(
                 Path.Combine(_root, ".maple", "trash", name), _root, LocalFileOperations.FolderNames(_root), name));
-        }
-
-        [Fact]
-        public async Task TrashIn_LeavesConflictAndWorkflowCopiesInTheOriginalFolder()
-        {
-            const string workflow = "photo.v12345678-1234-1234-1234-123456789abc.xmp";
-            var source = Path.Combine(_root, "photo.dng");
-            File.WriteAllText(source, "photo");
-            foreach (var name in new[] { "photo.xmp", "photo (conflict from Mac).xmp", workflow })
-                File.WriteAllText(Path.Combine(_root, name), name);
-
-            await TrashSelectionLogic.ApplySequentialAsync(
-                new[] { new TrashSourceItem(source, source, "photo.dng") }, _ => _root,
-                new FakeRecycleBinService { Succeeds = false });
-
-            var trashDir = Path.Combine(_root, ".maple", "trash");
-            Assert.Equal(new[] { "photo.dng", "photo.xmp" },
-                Directory.EnumerateFiles(trashDir).Select(Path.GetFileName)
-                    .Where(n => !n!.EndsWith(".origpath")).OrderBy(n => n, StringComparer.Ordinal));
-            Assert.Equal("photo (conflict from Mac).xmp", File.ReadAllText(Path.Combine(_root, "photo (conflict from Mac).xmp")));
-            Assert.Equal(workflow, File.ReadAllText(Path.Combine(_root, workflow)));
         }
 
         [Theory]

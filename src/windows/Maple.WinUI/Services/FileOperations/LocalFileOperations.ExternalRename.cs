@@ -184,7 +184,7 @@ namespace Maple.WinUI.Services.FileOperations
                 {
                     byStem = Directory.EnumerateFiles(dir)
                         .Select(Path.GetFileName)
-                        .Where(name => !name!.StartsWith('.') && !StagingName.IsMatch(name) && IsMediaFile(name)
+                        .Where(name => !IsResourceForkStub(name!) && !StagingName.IsMatch(name) && IsMediaFile(name)
                             && !batchNewPaths.Contains(Path.Combine(dir, name)))
                         .ToLookup(name => FoldedStem(SidecarStemOf(name!)), name => name!);
                 }
