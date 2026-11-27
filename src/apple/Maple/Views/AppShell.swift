@@ -71,6 +71,8 @@ struct AppShell: View {
   // by `body` / layout code stay `private`.
   @State var browseVM = BrowseViewModel()
   @State var sessions: [AssetRef.ID: EditSession] = [:]
+  @State var browseSessionBuffer = BrowseSessionBuffer<AssetRef.ID, EditSession>()
+  @State var browseSessionFlush: Task<Void, Never>?
   @State var agentBrowseAdapter = AppShellBrowseAdapter()
   /// Scene activation hook (#1769, iOS): Metal discards presents issued
   /// while the app is backgrounded, so a GPU-live canvas backgrounded
@@ -527,6 +529,7 @@ struct AppShell: View {
   /// `prunedSessions(_:keeping:)` in MapleCore.
   @MainActor
   private func pruneSessions(keeping keepIDs: Set<AssetRef.ID>) {
+    browseSessionBuffer.removeAll(keeping: keepIDs)
     guard sessions.keys.contains(where: { !keepIDs.contains($0) }) else { return }
     sessions = prunedSessions(sessions, keeping: keepIDs)
   }
@@ -981,6 +984,7 @@ struct AppShell: View {
       browseDisplayMode: $browseDisplayMode,
       browseVM: browseVM,
       sessions: $sessions,
+      sessionBuffer: browseSessionBuffer,
       sidebar: { sharedSidebar },
       toolbarContent: { browseToolbarContent },
       onSelectCloudAsset: { asset, server in openCloudAsset(asset, server: server) },
@@ -1000,6 +1004,7 @@ struct AppShell: View {
       },
       onOpenEditor: { asset in openEditor(for: asset) },
       onPrimeSession: { asset in await primeBrowseSession(for: asset) },
+      onPrimeVisibleCell: { asset in await primeVisibleCellSession(for: asset) },
       onReadGridFilterMetadata: { asset in try await readGridFilterMetadata(for: asset) },
       onFullImageFallback: { mode = .browse },
       // S5 EditorView callbacks (#815). Dismiss returns to the browse
@@ -1400,6 +1405,7 @@ struct AppShell: View {
         browseVM: browseVM,
         rootBrowseVM: phoneRootBrowseVM,
         sessions: $sessions,
+        sessionBuffer: browseSessionBuffer,
         // ServerAdmin (#2766) reaches the Settings tab through here.
         sessionFor: sessionFor,
         phoneSearchSessionKey: phoneSearchSessionKey,
@@ -1436,6 +1442,7 @@ struct AppShell: View {
         onNavigateFolder: { url in navigateFolder(url) },
         onOpenEditor: { asset in openEditor(for: asset) },
         onPrimeSession: { asset in await primeBrowseSession(for: asset) },
+        onPrimeVisibleCell: { asset in await primeVisibleCellSession(for: asset) },
         onReadGridFilterMetadata: { asset in try await readGridFilterMetadata(for: asset) },
         makeEditSession: { asset in browseSession(for: asset) },
         onFullImageFallback: { mode = .browse },
@@ -1485,6 +1492,7 @@ struct AppShell: View {
           // A 100 MP session retains its decoded/render buffers. Release the
           // previous export before resolving the next photo, as the editor
           // does when its filmstrip switches assets (#1660).
+          browseSessionBuffer.removeAll(keeping: [asset.id])
           if sessions.count > 1 { sessions = [asset.id: session] }
           return session
         }
