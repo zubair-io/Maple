@@ -31,7 +31,7 @@ import {
   type ChildInspector,
   type ChildStat,
 } from './folder-child.ts';
-import { freshThumbVersion, listingThumbStat, thumbsDirectorySafe } from './thumb-version.ts';
+import { freshThumbVersion, listedThumbs, listingThumbStat } from './thumb-version.ts';
 import { pairLivePhotos, type LivePhotoLink } from './live-photo-pairs.ts';
 import { pairRawJpegStacks } from './raw-jpeg-stack.ts';
 
@@ -237,14 +237,19 @@ function sidecarCandidates(rows: readonly DirectoryAsset[]): Map<string, Directo
   return byBase;
 }
 
-async function directoryState(resolved: ResolvedAddress, relPath: string, stack: boolean) {
-  const [rows, trashed, names, realRoot, realDirectory, thumbsSafe] = await Promise.all([
+async function directoryState(
+  resolved: ResolvedAddress,
+  relPath: string,
+  stack: boolean,
+  wholeFolder: boolean,
+) {
+  const [rows, trashed, names, realRoot, realDirectory, thumbs] = await Promise.all([
     listDirectoryAssets(resolved.libraryId, relPath),
     listTrashedDirectoryFilenames(resolved.libraryId, relPath),
     diskNames(resolved.absPath),
     fs.realpath(resolved.libraryRoot).catch(() => resolved.libraryRoot),
     fs.realpath(resolved.absPath).catch(() => null),
-    thumbsDirectorySafe(resolved.absPath),
+    listedThumbs(resolved.absPath, wholeFolder),
   ]);
   const inspectChild = childInspector(resolved.absPath, realDirectory, realRoot);
   const authorizeDirectSidecars = sharedGrant(
@@ -271,7 +276,7 @@ async function directoryState(resolved: ResolvedAddress, relPath: string, stack:
     authorizeDirectSidecars,
     realDirectory,
     stackCompanionOf,
-    thumbsSafe,
+    thumbs,
   };
 }
 type FolderState = Awaited<ReturnType<typeof directoryState>>;
@@ -355,15 +360,17 @@ async function imageCulling(child: Scanned, state: FolderState): Promise<Sidecar
 
 /** The thumb route renders beside the primary location only, so another location's thumb
  * would version bytes the route never serves for this address. */
-function thumbServedHere(child: Scanned, state: FolderState): boolean {
+function thumbServedHere(child: Scanned): boolean {
   const servedHere = !child.catalog?.maple_id || child.catalog.primary_here;
-  return state.thumbsSafe && servedHere && child.stat?.isFile() === true;
+  return servedHere && child.stat?.isFile() === true;
 }
 
 async function imageSidecarFields(child: Scanned, state: FolderState): Promise<ImageFields> {
   const [{ culling, sidecarMtimeMs }, thumb] = await Promise.all([
     imageCulling(child, state),
-    thumbServedHere(child, state) ? listingThumbStat(child.entry.path) : null,
+    state.thumbs && thumbServedHere(child)
+      ? listingThumbStat(child.entry.path, state.thumbs)
+      : null,
   ]);
   const version =
     sidecarMtimeMs === null
@@ -490,7 +497,7 @@ export async function listUnifiedFolder(
   const offset = options.cursor === undefined ? 0 : decodeCursor(options.cursor);
   const paged = options.cursor !== undefined || options.limit !== undefined;
   const limit = Math.max(1, Math.min(2000, options.limit ?? 500));
-  const state = await directoryState(resolved, relPath, options.stack === true);
+  const state = await directoryState(resolved, relPath, options.stack === true, !paged);
   const page = paged ? state.allNames.slice(offset, offset + limit) : state.allNames;
   const entries = await scanPage(slug, relPath, resolved, page, state);
   await requireSameDirectory(resolved.absPath, state.realDirectory);
