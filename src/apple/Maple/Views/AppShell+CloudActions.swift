@@ -427,7 +427,7 @@ extension AppShell {
       originalFileWriter: { try await source.writeOriginal(for: imageRef, to: $0) },
       bytesProvider: { try await downloadBox.bytes() }
     )
-    if sessions[assetRef.id] == nil {
+    if existingSession(for: assetRef.id) == nil {
       let remoteStore = CloudSidecarStore(
         server: effectiveServer, assetID: asset.id, httpClient: httpClient)
       // #2009 — developed-preview uploads to the same canonical

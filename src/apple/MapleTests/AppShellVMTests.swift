@@ -28,6 +28,7 @@ private actor RecordingPreviewSink: DisplayPreviewSink {
 
 @MainActor
 final class AppShellVMTests: XCTestCase {
+  private let buffer = BrowseSessionBuffer<AssetRef.ID, EditSession>()
 
   // MARK: - filmstripLandingMode (#3402)
 
@@ -64,7 +65,8 @@ final class AppShellVMTests: XCTestCase {
     let primed = EditSession(asset: asset)
     var sessions: [AssetRef.ID: EditSession] = [asset.id: primed]
 
-    let result = AppShellVM.ensureSession(for: asset, in: &sessions, remoteStore: { nil })
+    let result = AppShellVM.ensureSession(
+      for: asset, in: &sessions, adopting: buffer, remoteStore: { nil })
 
     XCTAssertTrue(
       result.session === primed,
@@ -73,11 +75,26 @@ final class AppShellVMTests: XCTestCase {
     XCTAssertEqual(sessions.count, 1)
   }
 
+  func testEnsureSessionAdoptsASessionStagedByAScrolledPastCell() {
+    let asset = AssetRef.preview(displayName: "IMG_0005.dng")
+    let staged = EditSession(asset: asset)
+    buffer.stage(staged, for: asset.id)
+    var sessions: [AssetRef.ID: EditSession] = [:]
+
+    let result = AppShellVM.ensureSession(
+      for: asset, in: &sessions, adopting: buffer, remoteStore: { nil })
+
+    XCTAssertTrue(result.session === staged, "the buffered session must be reused, not rebuilt")
+    XCTAssertFalse(result.created)
+    XCTAssertTrue(sessions[asset.id] === staged)
+  }
+
   func testEnsureSessionCreatesAndCachesWhenAbsent() {
     let asset = AssetRef.preview(displayName: "IMG_0002.dng")
     var sessions: [AssetRef.ID: EditSession] = [:]
 
-    let result = AppShellVM.ensureSession(for: asset, in: &sessions, remoteStore: { nil })
+    let result = AppShellVM.ensureSession(
+      for: asset, in: &sessions, adopting: buffer, remoteStore: { nil })
 
     XCTAssertTrue(result.created, "an unprimed asset owes the caller a sidecar load")
     XCTAssertTrue(
@@ -95,7 +112,7 @@ final class AppShellVMTests: XCTestCase {
     let firstSession = EditSession(asset: first)
     var sessions: [AssetRef.ID: EditSession] = [first.id: firstSession]
 
-    _ = AppShellVM.ensureSession(for: second, in: &sessions, remoteStore: { nil })
+    _ = AppShellVM.ensureSession(for: second, in: &sessions, adopting: buffer, remoteStore: { nil })
 
     XCTAssertTrue(sessions[first.id] === firstSession)
     XCTAssertNotNil(sessions[second.id])
@@ -123,7 +140,7 @@ final class AppShellVMTests: XCTestCase {
     var sessions: [AssetRef.ID: EditSession] = [:]
 
     let result = AppShellVM.ensureSession(
-      for: asset, in: &sessions, remoteStore: { XMPSidecarStore(rawURL: rawURL) })
+      for: asset, in: &sessions, adopting: buffer, remoteStore: { XMPSidecarStore(rawURL: rawURL) })
     var edited = result.session.model
     edited.exposure = 1.5
     result.session.model = edited
@@ -142,7 +159,7 @@ final class AppShellVMTests: XCTestCase {
     var sessions: [AssetRef.ID: EditSession] = [asset.id: primed]
 
     let result = AppShellVM.ensureSession(
-      for: asset, in: &sessions,
+      for: asset, in: &sessions, adopting: buffer,
       remoteStore: {
         XCTFail("a primed session already owns its store — resolving another is wasted work")
         return nil
@@ -215,6 +232,7 @@ final class AppShellVMTests: XCTestCase {
     let result = AppShellVM.ensureSession(
       for: asset,
       in: &sessions,
+      adopting: buffer,
       remoteStore: { XMPSidecarStore(rawURL: rawURL) },
       remotePreviewSink: { sink })
 

@@ -94,7 +94,7 @@ extension AppShell {
     let sourceModel = browseVM
     Task { @MainActor in
       do {
-        if let existingSession = sessions[asset.id] {
+        if let existingSession = existingSession(for: asset.id) {
           try await existingSession.flushPendingSidecarWriteConfirmed()
           await existingSession.setSidecarWritesEnabled(false)
         }
@@ -105,7 +105,7 @@ extension AppShell {
         renamingAssetID = nil
         renameError = nil
       } catch {
-        await sessions[asset.id]?.setSidecarWritesEnabled(true)
+        await existingSession(for: asset.id)?.setSidecarWritesEnabled(true)
         renameError = error.localizedDescription
       }
     }
@@ -237,7 +237,8 @@ extension AppShell {
       model.selectedIDs.remove(oldID)
       model.selectedIDs.insert(newAsset.id)
     }
-    let departing = sessions.removeValue(forKey: oldID)
+    let departing = sessions.removeValue(forKey: oldID) ?? browseSessionBuffer.session(for: oldID)
+    browseSessionBuffer.remove(oldID)
     // In-flight edits follow the rename to its own share, not whichever is open now (#4987).
     let newSession = browseSession(for: newAsset, smbSource: smbSource)
     if let departing {

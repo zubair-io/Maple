@@ -132,6 +132,7 @@
     /// The Library tab's root screen model; differs while a folder is pushed.
     let rootBrowseVM: BrowseViewModel
     @Binding var sessions: [AssetRef.ID: EditSession]
+    let sessionBuffer: BrowseSessionBuffer<AssetRef.ID, EditSession>
 
     /// Passed through to the Settings tab so ServerAdmin (#2766) resolves
     /// the app's shared per-server `AuthSession` rather than minting a new
@@ -175,6 +176,7 @@
     let onNavigateFolder: (URL) -> Void
     let onOpenEditor: (AssetRef) -> Void
     let onPrimeSession: (AssetRef) async -> Void
+    let onPrimeVisibleCell: (AssetRef) async -> Void
     let onReadGridFilterMetadata: @MainActor @Sendable (AssetRef) async throws -> GridFilterMetadata
     /// Synchronous source-aware session factory (`AppShell.browseSession`)
     /// for the editor's unprimed fallback (#4712).
@@ -265,6 +267,7 @@
               browseVM: rootBrowseVM,
               activeBrowseVM: browseVM,
               sessions: $sessions,
+              sessionBuffer: sessionBuffer,
               libraryPath: $libraryPath,
               toolbarContent: toolbarContent,
               // Cloud Timeline / Search taps: resolve the asset's session
@@ -314,6 +317,7 @@
               onSelectedTileFrameChange: { selectedTileFrame = $0 },
               hiddenTileID: hero == nil || heroPhase == .open ? nil : hero?.asset.id,
               onPrimeSession: onPrimeSession,
+              onPrimeVisibleCell: onPrimeVisibleCell,
               onReadGridFilterMetadata: onReadGridFilterMetadata,
               makeEditSession: makeEditSession,
               onFullImageFallback: onFullImageFallback,
@@ -406,6 +410,7 @@
           Tab("Search", systemImage: "magnifyingglass", value: "search", role: .search) {
             PhoneSearchTab(
               sessions: $sessions,
+              sessionBuffer: sessionBuffer,
               query: $searchQuery,
               pendingSeed: $pendingSearchSeed,
               sessionKey: phoneSearchSessionKey,

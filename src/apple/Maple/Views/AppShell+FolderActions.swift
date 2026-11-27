@@ -174,7 +174,7 @@ extension AppShell {
     // Same bookkeeping the editor's filmstrip sibling switch uses
     // (`selectFilmstripSibling`, #3402) — only the landing `mode` differs.
     let ensured = AppShellVM.ensureSession(
-      for: asset, in: &sessions,
+      for: asset, in: &sessions, adopting: browseSessionBuffer,
       remoteStore: { remoteSidecarStore(for: asset) },
       remotePreviewSink: { remotePreviewSink(for: asset) })
     Task { await ensured.session.loadSidecar() }
@@ -367,6 +367,43 @@ extension AppShell {
     await session.loadSidecar()
   }
 
+  /// A cell scrolled into view: its session waits in `browseSessionBuffer`
+  /// so the shared `sessions` dictionary is not written once per cell (#6130).
+  func primeVisibleCellSession(for asset: AssetRef) async {
+    if let existing = sessions[asset.id] ?? browseSessionBuffer.session(for: asset.id) {
+      await existing.loadSidecar()
+      return
+    }
+    let session = AppShellVM.makeSession(
+      for: asset,
+      remoteStore: { remoteSidecarStore(for: asset) },
+      remotePreviewSink: { remotePreviewSink(for: asset) })
+    browseSessionBuffer.stage(session, for: asset.id)
+    scheduleBrowseSessionFlush()
+    await session.loadSidecar()
+  }
+
+  func scheduleBrowseSessionFlush() {
+    browseSessionFlush?.cancel()
+    // A continuous scroll never pays the whole-grid update; a pause pays it once.
+    browseSessionFlush = Task { @MainActor in
+      try? await Task.sleep(for: .milliseconds(300))
+      guard !Task.isCancelled else { return }
+      let staged = browseSessionBuffer.drain()
+      guard !staged.isEmpty else { return }
+      sessions.merge(staged) { existing, _ in existing }
+    }
+  }
+
+  /// The session for `id` if one exists, including one still waiting in the
+  /// buffer, which is moved into `sessions`. Action-time use only.
+  func existingSession(for id: AssetRef.ID) -> EditSession? {
+    if let existing = sessions[id] { return existing }
+    guard let staged = browseSessionBuffer.take(id) else { return nil }
+    sessions[id] = staged
+    return staged
+  }
+
   /// Read filter facts without creating an EditSession or decoding image
   /// metadata for every asset in a large folder. The same source-aware
   /// store resolver used by editing covers PhotoKit, SMB, and cloud assets.
@@ -386,6 +423,7 @@ extension AppShell {
     AppShellVM.ensureSession(
       for: asset,
       in: &sessions,
+      adopting: browseSessionBuffer,
       remoteStore: { remoteSidecarStore(for: asset, smbSource: smbSource) },
       remotePreviewSink: { remotePreviewSink(for: asset) }
     ).session

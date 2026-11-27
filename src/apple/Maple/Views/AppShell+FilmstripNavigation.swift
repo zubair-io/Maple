@@ -43,7 +43,7 @@ extension AppShell {
       Task.detached { await outgoing.flushPendingSidecarWrite() }
     }
     let ensured = AppShellVM.ensureSession(
-      for: asset, in: &sessions,
+      for: asset, in: &sessions, adopting: browseSessionBuffer,
       remoteStore: { remoteSidecarStore(for: asset) },
       remotePreviewSink: { remotePreviewSink(for: asset) })
     Task { await ensured.session.loadSidecar() }

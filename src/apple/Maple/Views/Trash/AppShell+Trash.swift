@@ -181,6 +181,7 @@ extension AppShell {
         }
         for id in ids {
             sessions.removeValue(forKey: id)
+            browseSessionBuffer.remove(id)
         }
     }
 

@@ -33,6 +33,7 @@
 
   struct PhoneSearchTab: View {
     @Binding var sessions: [AssetRef.ID: EditSession]
+    let sessionBuffer: BrowseSessionBuffer<AssetRef.ID, EditSession>
     /// Live query text, bound to the host's `.searchable` search field.
     @Binding var query: String
     /// A widget deep-link or Map pin tap's `SearchParams`, waiting to be
@@ -126,7 +127,8 @@
                     path = LibraryDestination.replacingAsset(in: path, with: sibling)
                   },
                   makeEditSession: makeEditSession,
-                  sessions: $sessions
+                  sessions: $sessions,
+                  sessionBuffer: sessionBuffer
                 )
                 .id(ref.id)
               case .folder:
