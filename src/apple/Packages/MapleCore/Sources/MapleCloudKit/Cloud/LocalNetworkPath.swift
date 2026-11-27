@@ -1,19 +1,15 @@
 import Network
 import os
 
-struct LocalNetworkPathSignature: Equatable, Sendable {
-  let isSatisfied: Bool
-  let interfaces: [String]
-  let gateways: [String]
-}
-
+// Interface names and gateway addresses cannot tell two networks apart (both
+// can be en0 behind 192.168.1.1), so every connected update after the first
+// may be a move to another network.
 struct LocalNetworkPathFilter: Sendable {
-  private var last: LocalNetworkPathSignature?
+  private var hasSeenFirstUpdate = false
 
-  mutating func shouldReprobe(for signature: LocalNetworkPathSignature) -> Bool {
-    defer { last = signature }
-    guard let last else { return false }
-    return signature.isSatisfied && signature != last
+  mutating func shouldReprobe(isSatisfied: Bool) -> Bool {
+    defer { hasSeenFirstUpdate = true }
+    return hasSeenFirstUpdate && isSatisfied
   }
 }
 
@@ -23,11 +19,8 @@ enum LocalNetworkPath {
       let monitor = NWPathMonitor()
       let filter = OSAllocatedUnfairLock(initialState: LocalNetworkPathFilter())
       monitor.pathUpdateHandler = { path in
-        let signature = LocalNetworkPathSignature(
-          isSatisfied: path.status == .satisfied,
-          interfaces: path.availableInterfaces.map(\.name).sorted(),
-          gateways: path.gateways.map { "\($0)" }.sorted())
-        if filter.withLock({ $0.shouldReprobe(for: signature) }) {
+        let isSatisfied = path.status == .satisfied
+        if filter.withLock({ $0.shouldReprobe(isSatisfied: isSatisfied) }) {
           continuation.yield()
         }
       }
