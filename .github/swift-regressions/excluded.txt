@@ -58,6 +58,7 @@ EditSessionPhotoKitSidecarTests host talks to a host service (keychain, FileProv
 EditSessionSMBSidecarTests host talks to a host service (keychain, FileProvider, network, PhotoKit, server admin)
 EditSessionTests fixture needs the gitignored RAW fixtures (skip-passes without them; the gate rejects skips)
 EditorAutoResetReachabilityTests fixture needs the gitignored RAW fixtures (skip-passes without them; the gate rejects skips)
+EditorOpenPerformanceTests fixture opt-in measurement (MAPLE_PERF_EDITOR_RAW) over the gitignored RAW fixtures; skip-passes without them
 EditorWorkflowPerfTests slow render or decode workload that costs minutes on the runner
 EnrichmentConfigClientTests host talks to a host service (keychain, FileProvider, network, PhotoKit, server admin)
 EnrichmentConfigDecodeTests host talks to a host service (keychain, FileProvider, network, PhotoKit, server admin)
