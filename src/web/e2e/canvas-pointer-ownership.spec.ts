@@ -232,3 +232,72 @@ for (const tool of ['Mask', 'Heal']) {
     expect(await pixelScale(page)).toBe(0);
   });
 }
+
+// #5816: the press that started a scrub at fit keeps scrubbing after Z zooms
+// to 100% mid-drag; it never turns into a pan.
+
+function pan(page: Page): Promise<{ x: number; y: number }> {
+  return page.evaluate(() => {
+    const ng = (window as unknown as { ng: { getComponent(el: Element): unknown } }).ng;
+    const canvas = ng.getComponent(document.querySelector('editor-image-canvas')!) as {
+      canvasSvc: { pan(): { x: number; y: number } };
+    };
+    return canvas.canvasSvc.pan();
+  });
+}
+
+/** True while a plain drag on the photo is the scrub rather than a pan; the canvas publishes it a frame after a zoom. */
+function pointerEdits(page: Page): Promise<boolean> {
+  return page.evaluate(() => {
+    const ng = (window as unknown as { ng: { getComponent(el: Element): unknown } }).ng;
+    const canvas = ng.getComponent(document.querySelector('editor-image-canvas')!) as {
+      canvasSvc: { pointerEditsAtZoom(): boolean };
+    };
+    return canvas.canvasSvc.pointerEditsAtZoom();
+  });
+}
+
+/** Presses on the photo, scrubs Exposure right, then zooms to 100% with the button still down. */
+async function scrubThenZoomTo100(page: Page, centre: { x: number; y: number }) {
+  const startExposure = (await exposure(page))!;
+  await page.mouse.move(centre.x, centre.y);
+  await page.mouse.down();
+  await page.mouse.move(centre.x + 50, centre.y, { steps: 5 });
+  await expect.poll(() => exposure(page)).toBeGreaterThan(startExposure);
+  const scrubbed = (await exposure(page))!;
+
+  await page.keyboard.press('z');
+  await expect.poll(() => pixelScale(page)).toBe(1);
+  await expect.poll(() => pointerEdits(page)).toBe(false);
+  return { scrubbed, zoomedPan: await pan(page) };
+}
+
+test('a scrub keeps scrubbing and never pans when Z zooms to 100% mid-drag', async ({ page }) => {
+  await openImage(page);
+  const centre = await canvasCentre(page);
+  const { scrubbed, zoomedPan } = await scrubThenZoomTo100(page, centre);
+
+  await page.mouse.move(centre.x + 250, centre.y + 80, { steps: 10 });
+  await expect.poll(() => exposure(page)).toBeGreaterThan(scrubbed);
+  expect(await pan(page)).toEqual(zoomedPan);
+  await page.mouse.up();
+  expect(await pan(page)).toEqual(zoomedPan);
+});
+
+test('after the scrub is released at 100%, a new drag pans and leaves Exposure alone', async ({
+  page,
+}) => {
+  await openImage(page);
+  const centre = await canvasCentre(page);
+  const { zoomedPan } = await scrubThenZoomTo100(page, centre);
+  await page.mouse.up();
+  const released = await exposure(page);
+
+  await page.mouse.move(centre.x, centre.y);
+  await page.mouse.down();
+  await page.mouse.move(centre.x - 120, centre.y - 60, { steps: 10 });
+  await page.mouse.up();
+
+  await expect.poll(async () => (await pan(page)).x).not.toBe(zoomedPan.x);
+  expect(await exposure(page)).toBe(released);
+});
