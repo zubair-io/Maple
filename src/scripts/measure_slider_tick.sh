@@ -13,14 +13,19 @@
 # highlights, texture). A tick is one GpuLiveDriver.present call: it runs from
 # entering the call to its return (the hop to the GPU session, parameters, drawable,
 # encode and submit). It leaves out SwiftUI, the gesture, the scheduler's hops
-# before the driver and GPU completion; backlog_ms in each line shows queued GPU
-# work after the burst.
+# before the driver and GPU completion. gpu_frame_ms in each line is one frame's
+# GPU work measured idle; backlog_ms is how long the session stayed busy after the
+# burst, display pacing included (printed, not judged).
 #
 # It prints every run, then per fixture and series the minimum and median of
-# the per-run medians and the median of the per-run p95, against the target
-# of 16 ms and the hard limit of 50 ms. Exit status: 0 every median p95 is
-# within the hard limit, 1 one is over it, 2 a step failed or a run printed no
-# measurement, 64 bad arguments.
+# the per-run medians, the median of the per-run p95, and the median of the
+# per-run p95 plus gpu_frame_ms: the submit plus one full frame of GPU work, an
+# upper bound that assumes no overlap and includes a readback the editor does not
+# pay. That last figure is judged against the target of 16 ms and the hard limit
+# of 50 ms: "within target" is a strict result, "over target" is not by itself a
+# regression (compare median_p95_ms and gpu_frame_ms). Exit status: 0 every judged
+# figure is within the hard limit, 1 one is over it, 2 a step failed or a run
+# printed no measurement, 64 bad arguments.
 #
 # RAW_DIR (default test-fixtures/raws, else the main checkout's) is only read.
 # Everything the test writes goes to a folder made with mktemp, removed at exit.
@@ -93,9 +98,9 @@ for name in "${FIXTURES[@]}"; do
 				cat "$log" >&2
 				fail "the measurement run failed for $name (run $run)"
 			}
-		grep -q '^SLIDER_TICK ' "$log" || {
+		[[ "$(grep -c '^SLIDER_TICK ' "$log")" -eq 3 ]] || {
 			cat "$log" >&2
-			fail "no measurement printed for $name (run $run); the test skipped or the GPU path is off"
+			fail "expected 3 series lines for $name (run $run); the test skipped, failed or the GPU path is off"
 		}
 		while read -r line; do
 			echo "$name run=$run ${line#SLIDER_TICK }"
@@ -107,7 +112,9 @@ for name in "${FIXTURES[@]}"; do
 			p95="${p95%% *}"
 			min="${line#*min_ms=}"
 			min="${min%% *}"
-			echo "$name $series $min $median $p95" >>"$RESULTS"
+			gpu_frame="${line#*gpu_frame_ms=}"
+			gpu_frame="${gpu_frame%% *}"
+			echo "$name $series $min $median $p95 $gpu_frame" >>"$RESULTS"
 		done < <(grep '^SLIDER_TICK ' "$log")
 	done
 done
@@ -125,20 +132,20 @@ function median(values, n,    sorted, i, j, tmp) {
 	}
 	return (sorted[int((n + 1) / 2)] + sorted[int((n + 2) / 2)]) / 2
 }
-function flush(    status, minOfMedians) {
+function flush(    status, minOfMedians, judged) {
 	if (count == 0) return
 	minOfMedians = medians[1]
 	for (i = 2; i <= count; i++) if (medians[i] < minOfMedians) minOfMedians = medians[i]
-	medianP95 = median(p95s, count)
-	status = medianP95 > limit ? "OVER HARD LIMIT" : (medianP95 > target ? "over target" : "within target")
-	if (medianP95 > limit) over = 1
-	printf "%s series=%s min_of_medians_ms=%.2f median_of_medians_ms=%.2f median_p95_ms=%.2f  %s\n", fixture, series, minOfMedians, median(medians, count), medianP95, status
+	judged = median(ticks, count)
+	status = judged > limit ? "OVER HARD LIMIT" : (judged > target ? "over target" : "within target")
+	if (judged > limit) over = 1
+	printf "%s series=%s min_of_medians_ms=%.2f median_of_medians_ms=%.2f median_p95_ms=%.2f median_p95_plus_gpu_frame_ms=%.2f  %s\n", fixture, series, minOfMedians, median(medians, count), median(p95s, count), judged, status
 	count = 0
 }
 {
 	if ($1 != fixture || $2 != series) flush()
 	fixture = $1; series = $2
-	count++; medians[count] = $4; p95s[count] = $5
+	count++; medians[count] = $4; p95s[count] = $5; ticks[count] = $5 + $6
 }
 END {
 	flush()

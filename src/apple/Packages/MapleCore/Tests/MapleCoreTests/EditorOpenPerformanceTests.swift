@@ -12,9 +12,13 @@
 // frame was presented, when the last render of the open finished
 // (`settled_ms`), plus counts read from existing state: render schedules
 // (`render_schedules`, the scheduler's generation), decoded-cache writes
-// (`cache_writes`, seeds included) and the distinct temporary XMP files seen in
-// the temporary folder while the open ran (`temp_xmp_files`, polled every
-// few ms, so a file that lives for less than a poll can be missed).
+// (`cache_writes`, seeds included) and the distinct temporary XMP files that
+// appeared in the temporary folder while the open ran (`temp_xmp_files`, polled
+// every few ms; approximate: a file that lives for less than a poll is missed,
+// and another process writing the same kind of file is counted). Run 1 is the
+// cold open; later runs reuse the process's warm shader and page caches. The
+// clock starts when the canvas registers its layer, the first step of an open.
+// The test fails if no picture appears or the open does not settle in time.
 
 import CoreGraphics
 import Foundation
@@ -46,7 +50,8 @@ final class EditorOpenPerformanceTests: XCTestCase {
     else {
       throw XCTSkip("editor open measurement — set MAPLE_PERF_EDITOR_RAW to a RAW file")
     }
-    let source = URL(fileURLWithPath: path)
+    try XCTSkipUnless(GpuLiveFlag.isEnabled, "MAPLE_GPU_LIVE=0 turns the live GPU path off")
+    let source = URL(fileURLWithPath: path).resolvingSymlinksInPath()
     try XCTSkipUnless(FileManager.default.fileExists(atPath: source.path), "no file at \(path)")
     let runs = Int(ProcessInfo.processInfo.environment["MAPLE_PERF_EDITOR_RUNS"] ?? "") ?? 1
 
@@ -74,16 +79,19 @@ final class EditorOpenPerformanceTests: XCTestCase {
     layer.pixelFormat = .bgra8Unorm
     layer.framebufferOnly = true
     layer.drawableSize = Self.viewport
-    driver.register(layer: layer)
-    session.pixelScale = 0
-    session.previewSize = Self.viewport
 
     let temporaryDirectory = FileManager.default.temporaryDirectory
+    let preexistingXMP = Self.strippedXMPNames(in: temporaryDirectory)
     var seenXMP = Set<String>()
     var result = Run()
     let started = ContinuousClock.now
     var lastBusy = started
     var polls = 0
+    var settled = false
+
+    driver.register(layer: layer)
+    session.pixelScale = 0
+    session.previewSize = Self.viewport
 
     await session.loadSidecar()
     session.ensureRenderStarted()
@@ -102,14 +110,13 @@ final class EditorOpenPerformanceTests: XCTestCase {
       let busy = session.isRendering || session.isFullQualityDecoding || !painted
       if busy { lastBusy = now }
       polls += 1
-      if polls % 2 == 0,
-        let names = try? FileManager.default.contentsOfDirectory(atPath: temporaryDirectory.path)
-      {
-        for name in names where name.hasPrefix("maple-strip-") && name.hasSuffix(".xmp") {
-          seenXMP.insert(name)
-        }
+      if polls % 2 == 0 {
+        seenXMP.formUnion(Self.strippedXMPNames(in: temporaryDirectory).subtracting(preexistingXMP))
       }
-      if lastBusy.duration(to: now) >= Self.quietWindow { break }
+      if lastBusy.duration(to: now) >= Self.quietWindow {
+        settled = true
+        break
+      }
       try await Task.sleep(for: .milliseconds(2))
     }
     result.settledMs = started.duration(to: lastBusy).milliseconds
@@ -120,7 +127,14 @@ final class EditorOpenPerformanceTests: XCTestCase {
 
     await session.renderActor.cancelAll()
     await session.releaseTransientMemory()
+    XCTAssertTrue(settled, "the open did not settle within \(Self.deadline)")
+    XCTAssertNotNil(result.firstSeedMs ?? result.firstGpuFrameMs, "no picture reached the screen")
     return result
+  }
+
+  private static func strippedXMPNames(in directory: URL) -> Set<String> {
+    let names = (try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? []
+    return Set(names.filter { $0.hasPrefix("maple-strip-") && $0.hasSuffix(".xmp") })
   }
 
   private static func line(name: String, run: Int, result: Run) -> String {
