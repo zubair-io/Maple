@@ -130,6 +130,57 @@ jobs:
           path: ${{ runner.temp }}/maple-packages
           if-no-files-found: error
 
+      # The labels are read when the job runs, not from the event that started it, so
+      # labelling a pull request and re-running this job is enough to get the numbers.
+      - name: Is this pull request labelled perf-timing
+        id: timing
+        if: github.event_name == 'pull_request'
+        continue-on-error: true
+        run: |
+          labels=$(curl -fsSL \
+            -H "Authorization: Bearer ${{ github.token }}" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/labels" |
+            python3 -c 'import json, sys; print("\n".join(label["name"] for label in json.load(sys.stdin)))')
+          if grep -qx perf-timing <<<"$labels"; then echo "run=true" >> "$GITHUB_OUTPUT"; fi
+      - name: Linux launch timing evidence (recorded, never a gate)
+        if: steps.timing.outputs.run == 'true'
+        continue-on-error: true
+        timeout-minutes: 10
+        run: |
+          xvfb-run -a -s '-screen 0 1280x800x24' python3 src/linux/packaging/launch_timing.py \
+            "$RUNNER_TEMP/maple-unpacked/usr/bin/maple-linux" --runs 5
+      - name: Linux thumbnail, start-up and editor timing evidence (recorded, never a gate)
+        if: steps.timing.outputs.run == 'true'
+        continue-on-error: true
+        timeout-minutes: 30
+        run: |
+          cargo build --locked --release --manifest-path src/linux/Cargo.toml \
+            --example thumbnail-cost --example launch-phases
+          examples=src/linux/target/release/examples
+          dng="$RUNNER_TEMP/synthetic-24mp.dng"
+          "$examples/thumbnail-cost" write-dng "$dng"
+          "$examples/thumbnail-cost" --workers 1
+          "$examples/thumbnail-cost" --workers 2
+          for run in 1 2 3 4 5; do
+            "$examples/launch-phases" serial
+            "$examples/launch-phases" overlapped
+          done
+          if [ -f src/linux/examples/perf-harness/main.rs ]; then
+            cargo run --locked --release --manifest-path src/linux/Cargo.toml \
+              --example perf-harness -- "$dng" "$RUNNER_TEMP/perf-harness.json"
+            cat "$RUNNER_TEMP/perf-harness.json"
+          else
+            echo "perf-harness not present"
+          fi
+      - name: Linux filmstrip frame timing evidence (recorded, never a gate)
+        if: steps.timing.outputs.run == 'true'
+        continue-on-error: true
+        timeout-minutes: 20
+        run: |
+          cargo test --locked --release --manifest-path src/linux/Cargo.toml --lib frame_time -- \
+            --ignored --nocapture --test-threads=1
+
   package-smoke:
     name: package-smoke (${{ matrix.package }}, ${{ matrix.container }})
     needs: [support-matrix, native-build-and-test]
