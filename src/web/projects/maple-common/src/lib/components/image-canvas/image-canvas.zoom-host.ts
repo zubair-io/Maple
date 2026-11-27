@@ -52,6 +52,7 @@ export class ImageCanvasZoomHost {
       pixelScale: () => this.host.canvasSvc.pixelScale(),
       pan: () => this.host.canvasSvc.pan(),
       holdsAtFit: () => this.host.canvasSvc.holdsAtFit(),
+      pointerOwnedByEdit: (pointerId) => this.host.canvasSvc.isEditOwnedPointer(pointerId),
       commitView: (pixelScale, pan) => {
         this.host.canvasSvc.pixelScale.set(pixelScale);
         this.host.canvasSvc.pan.set(pan);

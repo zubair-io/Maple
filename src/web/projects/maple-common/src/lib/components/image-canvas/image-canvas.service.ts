@@ -27,6 +27,8 @@ export class ImageCanvasService {
   readonly pointerEditsAtZoom = signal(true);
   readonly beforeAfterSplitX = signal<number | null>(null);
 
+  private readonly editOwnedPointers = new Set<number>();
+
   private readonly fitFootprintOverlays = signal<ReadonlySet<FitFootprintOverlay>>(new Set());
 
   /**
@@ -35,6 +37,23 @@ export class ImageCanvasService {
    * once it follows the zoom transform.
    */
   readonly holdsAtFit = computed(() => this.fitFootprintOverlays().size > 0);
+
+  /**
+   * The editor's scrub took this pointer at pointer-down and keeps it until
+   * release (#5816): the canvas wrap never pans from it, whatever the zoom
+   * becomes in between.
+   */
+  claimPointerForEdit(pointerId: number): void {
+    this.editOwnedPointers.add(pointerId);
+  }
+
+  releaseEditPointer(pointerId: number): void {
+    this.editOwnedPointers.delete(pointerId);
+  }
+
+  isEditOwnedPointer(pointerId: number): boolean {
+    return this.editOwnedPointers.has(pointerId);
+  }
 
   setFitFootprintOverlay(overlay: FitFootprintOverlay, active: boolean): void {
     this.fitFootprintOverlays.update((current) => {
