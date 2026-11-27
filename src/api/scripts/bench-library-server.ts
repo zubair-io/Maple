@@ -9,7 +9,7 @@
  */
 import { suffix } from 'bun:ffi';
 import { Database } from 'bun:sqlite';
-import { mkdir, mkdtemp, symlink, utimes, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, symlink, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
@@ -29,7 +29,6 @@ export const jsonOutput = argv.includes('--json');
 const edgeCases = argv.includes('--edge');
 export const dumpFile = flag('dump', '');
 const profileDir = flag('profile-dir', '');
-const PORT = 3400 + Math.floor(Math.random() * 400);
 export const SLUG = 'benchlib';
 export const FOLDER_ID = '65a000000000000000000001';
 const EXTENSIONS = ['jpg', 'jpg', 'dng', 'heic', 'jpg', 'cr3'];
@@ -133,6 +132,13 @@ async function addEdgeCases(root: string, library: string, baseTime: number): Pr
 
 export async function buildWorkspace(): Promise<Workspace> {
   const root = await mkdtemp(join(tmpdir(), 'maple-bench-listing-'));
+  return populateWorkspace(root).catch(async (error: unknown) => {
+    await rm(root, { recursive: true, force: true });
+    throw error;
+  });
+}
+
+async function populateWorkspace(root: string): Promise<Workspace> {
   const library = join(root, 'library');
   await mkdir(join(library, '.maple', 'thumbs'), { recursive: true });
   const { resolveThumbPath } = await import(join(apiRoot, 'src/fs/xmp.ts'));
@@ -209,12 +215,25 @@ export async function buildWorkspace(): Promise<Workspace> {
         insertLocation.run(id, folderId, name);
       });
     })();
+    insertAsset.finalize();
+    insertLocation.finalize();
   }
-  db.close();
+  // A close deferred by an open statement would checkpoint later, while the server is opening
+  // the file, and the server would then find the database locked.
+  db.close(true);
   return { root, library, sqlitePath };
 }
 
+/** A port the system just handed out, so a server found there is the one this run started. */
+export function freePort(): number {
+  const probe = Bun.listen({ hostname: '127.0.0.1', port: 0, socket: { data() {} } });
+  const { port } = probe;
+  probe.stop(true);
+  return port;
+}
+
 export async function bootServer(work: Workspace) {
+  const port = freePort();
   const child = Bun.spawn(
     [
       'bun',
@@ -225,7 +244,7 @@ export async function bootServer(work: Workspace) {
       cwd: work.root,
       env: {
         ...process.env,
-        PORT: String(PORT),
+        PORT: String(port),
         MAPLE_SQLITE_PATH: work.sqlitePath,
         MAPLE_NATIVE_LIB: join(apiRoot, 'native', `libraw_ffi.${suffix}`),
         MAPLE_DEV_AUTH: '1',
@@ -238,20 +257,36 @@ export async function bootServer(work: Workspace) {
       stderr: argv.includes('--server-stderr') ? 'inherit' : 'ignore',
     },
   );
-  const base = `http://127.0.0.1:${PORT}`;
-  for (let attempt = 0; attempt < 200; attempt++) {
-    const ready = await fetch(`${base}/api/health`)
+  const base = `http://127.0.0.1:${port}`;
+  const stopped = async (reason: string): Promise<never> => {
+    child.kill();
+    await child.exited;
+    throw new Error(reason);
+  };
+  const healthy = () =>
+    fetch(`${base}/api/health`)
       .then((r) => r.ok)
       .catch(() => false);
-    if (ready) break;
+  const gone = () => child.exitCode !== null || child.signalCode !== null;
+  for (let attempt = 0; attempt < 200 && !gone(); attempt++) {
+    if (await healthy()) break;
     await Bun.sleep(50);
   }
-  const login = (await fetch(`${base}/api/auth/dev-login`, {
+  if (gone() || !(await healthy())) {
+    return stopped(`the benchmark server did not become ready on port ${port}`);
+  }
+  const login = await fetch(`${base}/api/auth/dev-login`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: '{}',
-  }).then((r) => r.json())) as { access_token: string };
-  return { child, base, token: login.access_token };
+  })
+    .then((r) => r.json() as Promise<{ access_token?: unknown }>)
+    .catch(() => null);
+  const token = login?.access_token;
+  if (typeof token !== 'string') {
+    return stopped('the benchmark server refused the development sign-in');
+  }
+  return { child, base, token };
 }
 
 export interface Sample {
@@ -288,8 +323,19 @@ export const summarize = (samples: Sample[]) => ({
   bytes: samples[0]!.bytes,
 });
 
-/** CPU seconds the process has used (user + system), from `ps`; its resolution is 10 ms. */
+/** Fields 14 and 15 of a `/proc/<pid>/stat` line are user and system time in 10 ms ticks; the
+ * process name before them may itself hold spaces and brackets. */
+export function cpuSecondsFromStat(stat: string): number {
+  const afterName = stat.split(') ').at(-1)!.split(' ');
+  return (Number(afterName[11]) + Number(afterName[12])) / 100;
+}
+
+/** CPU seconds the process has used (user + system); the resolution is 10 ms. */
 export async function processCpuSeconds(pid: number): Promise<number> {
+  // The server image ships no `ps`.
+  if (process.platform === 'linux') {
+    return cpuSecondsFromStat(await Bun.file(`/proc/${pid}/stat`).text());
+  }
   const out = (await Bun.$`ps -o time= -p ${pid}`.text()).trim();
   const [minutes, seconds] = out.split(':');
   return Number(minutes) * 60 + Number(seconds);
