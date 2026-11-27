@@ -116,6 +116,9 @@ pre-commit:
 # we can swap to that once we add a root package.json with devDeps.
 commit-msg:
   commands:
+    commit-attribution:
+      run: bash tools/check-commit-attribution.sh --message-file "{1}"
+
     conventional-commits:
       run: |
         msg_file="{1}"
