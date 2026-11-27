@@ -232,6 +232,7 @@ impl Read for SourceReader<'_> {
   fn read_exact(&mut self, buf: &mut [u8]) -> std::io::Result<()> {
     match self {
       Self::Whole(cursor) => cursor.read_exact(buf),
+      Self::Lazy { .. } if buf.is_empty() => Ok(()),
       Self::Lazy { bytes, position } => {
         let len = bytes.len() as u64;
         if !position.checked_add(buf.len() as u64).is_some_and(|end| end <= len) {

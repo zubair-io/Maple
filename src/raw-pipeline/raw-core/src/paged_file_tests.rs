@@ -244,6 +244,26 @@ fn the_lazy_reader_behaves_like_a_cursor() {
 }
 
 #[test]
+fn an_empty_exact_read_succeeds_anywhere_like_a_cursor() {
+    let s = staged(MIB + 5);
+    let source = RawSource::new_lazy(&s.file);
+    let mut lazy = source.reader();
+    let mut cursor = Cursor::new(s.bytes.as_slice());
+    for target in [0, s.bytes.len() as u64, s.bytes.len() as u64 + 9] {
+        lazy.seek(SeekFrom::Start(target)).unwrap();
+        cursor.seek(SeekFrom::Start(target)).unwrap();
+        assert_eq!(
+            outcome(lazy.read_exact(&mut [])),
+            outcome(cursor.read_exact(&mut []))
+        );
+        assert_eq!(
+            lazy.stream_position().unwrap(),
+            cursor.stream_position().unwrap()
+        );
+    }
+}
+
+#[test]
 fn lazy_views_match_a_borrowed_source() {
     let s = staged(3 * MIB + 17);
     let len = s.bytes.len() as u64;
