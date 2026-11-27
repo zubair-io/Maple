@@ -319,7 +319,8 @@ struct BrowseGrid: View {
     #endif
     .keyboardShortcuts(
       vm: vm,
-      sessions: sessions,
+      sessions: $sessions,
+      sessionBuffer: sessionBuffer,
       visibleAssets: visibleAssets,
       // #944: ⌘C/⌘V are only claimed when a clipboard is wired
       // (production always wires one; previews don't).
@@ -693,7 +694,8 @@ private struct ErrorBanner: View {
 
 private struct BrowseKeyboardShortcuts: ViewModifier {
   let vm: BrowseViewModel
-  let sessions: [AssetRef.ID: EditSession]
+  @Binding var sessions: [AssetRef.ID: EditSession]
+  let sessionBuffer: BrowseSessionBuffer<AssetRef.ID, EditSession>
   let visibleAssets: [AssetRef]
   /// #944: ⌘C copies the focused image's adjustments; ⌘V pastes the
   /// clipboard's adjustments onto every checked asset. `nil` leaves the
@@ -799,7 +801,7 @@ private struct BrowseKeyboardShortcuts: ViewModifier {
   private func updateCulling(_ edit: @escaping (inout CullingState) -> Void) {
     guard let id = vm.selectedID,
       visibleAssets.contains(where: { $0.id == id }),
-      let session = sessions[id]
+      let session = sessionBuffer.adopt(id, into: &sessions)
     else { return }
     Task { @MainActor in
       guard vm.selectedVisibleAsset(sessions: sessions)?.id == id else { return }
@@ -816,7 +818,8 @@ private struct BrowseKeyboardShortcuts: ViewModifier {
 extension View {
   fileprivate func keyboardShortcuts(
     vm: BrowseViewModel,
-    sessions: [AssetRef.ID: EditSession],
+    sessions: Binding<[AssetRef.ID: EditSession]>,
+    sessionBuffer: BrowseSessionBuffer<AssetRef.ID, EditSession>,
     visibleAssets: [AssetRef],
     onCopyAdjustments: (() -> Void)? = nil,
     onPasteAdjustments: (() -> Void)? = nil
@@ -825,6 +828,7 @@ extension View {
       BrowseKeyboardShortcuts(
         vm: vm,
         sessions: sessions,
+        sessionBuffer: sessionBuffer,
         visibleAssets: visibleAssets,
         onCopyAdjustments: onCopyAdjustments,
         onPasteAdjustments: onPasteAdjustments
