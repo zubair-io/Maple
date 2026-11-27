@@ -218,25 +218,17 @@ impl CloudState {
                         self.pending.remove(&address);
                         self.cache.insert(address.clone(), image);
                         self.order.push_back(address);
-                        // Evicting a tile still on screen re-requests it without end.
                         let on_screen = self
                             .folder
                             .as_ref()
                             .and_then(|folder| folder.images.get(self.laid_out.clone()))
                             .unwrap_or_default();
-                        let capacity = on_screen.len().max(128);
-                        let mut spared = 0;
-                        while self.order.len() > capacity && spared < self.order.len() {
-                            let Some(oldest) = self.order.pop_front() else {
-                                break;
-                            };
-                            if on_screen.iter().any(|entry| entry.address == oldest) {
-                                self.order.push_back(oldest);
-                                spared += 1;
-                            } else {
-                                self.cache.remove(&oldest);
-                            }
-                        }
+                        super::thumbnail_cache::evict_oldest(
+                            &mut self.order,
+                            &mut self.cache,
+                            on_screen.len(),
+                            |address| on_screen.iter().any(|entry| &entry.address == address),
+                        );
                     }
                 }
                 Event::Disconnected => {
