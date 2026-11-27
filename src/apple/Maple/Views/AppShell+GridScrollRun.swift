@@ -112,6 +112,7 @@ extension AppShell {
       try ScrollRunFolder.stage(seed: request.seed, count: request.count, reuse: request.reuse)
     }.value
     report.reusedFolder = staged.reused
+    browseVM.gridFilter = .all
     loadFolder(url: staged.url)
     try await waitUntil("the folder listing published", timeout: .seconds(120)) {
       browseVM.assets.count >= request.count
