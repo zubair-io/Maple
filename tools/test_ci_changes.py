@@ -75,7 +75,7 @@ class ClassificationTests(unittest.TestCase):
             "src/apple/scripts/build-xcframework.sh": ci.ALL,
             "src/apple/ci_scripts/ci_post_clone.sh": ci.ALL,
             "src/api/scripts/build-raw-ffi.sh": ci.ALL,
-            ".github/workflows/web.yml": ci.ALL,
+            ".github/workflows/web.yml": {"web", "ci"},
             ".github/workflows/version-sync.yml": {"release"},
             ".github/workflows/release-handoff.yml": {"release"},
             "tools/generate_nlm_exp_table.py": {"codegen"},

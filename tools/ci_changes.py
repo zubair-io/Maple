@@ -88,6 +88,80 @@ def swift_api_closure(root=ROOT):
     return frozenset(seen), complete
 
 
+# The jobs on the Mac runners read src/scripts only through these trees.
+SWIFT_SCRIPT_READERS = ("src/apple", ".github/workflows/apple.yml")
+SCRIPT_TREE = "src/scripts"
+
+
+def script_names(files):
+    """Files of the tree by the names other files use for them."""
+    rel = {file: file.removeprefix(f"{SCRIPT_TREE}/") for file in files}
+    return {file: (name, name.rsplit("/", 1)[-1]) for file, name in rel.items()}
+
+
+def script_mentions(repo, names, paths):
+    """Tracked files of src/scripts that the text of `paths` names or imports."""
+    patterns = {
+        name
+        for file, pair in names.items()
+        if not file.endswith(".md")
+        for name in pair
+    }
+    stems = [
+        pair[1][:-3]
+        for file, pair in names.items()
+        if file.endswith(".py") and re.fullmatch(r"\w+", pair[1][:-3])
+    ]
+    named = subprocess.run(
+        ["git", "grep", "-hIoF", "-f", "-", "--", *paths],
+        cwd=repo,
+        input="\n".join(sorted(patterns)).encode(),
+        capture_output=True,
+        timeout=120,
+    )
+    import_form = f"(^|[ \t;])(from|import|-m)[ \t]+({'|'.join(stems)})"
+    imported = subprocess.run(
+        ["git", "grep", "-hIoE", import_form, "--", *paths],
+        cwd=repo,
+        capture_output=True,
+        timeout=120,
+    )
+    if named.returncode > 1 or imported.returncode > 1:
+        raise subprocess.SubprocessError("git grep failed")
+    tokens = set(named.stdout.decode().split("\n")) | {
+        f"{line.split()[-1]}.py" for line in imported.stdout.decode().splitlines()
+    }
+    return {file for file, pair in names.items() if tokens & set(pair)}
+
+
+@cache
+def swift_script_closure(root=ROOT):
+    """Scripts the Mac jobs can run: named by their trees, then by those scripts."""
+    try:
+        listing = git(root, "ls-files", "-z", "--", SCRIPT_TREE)
+        names = script_names(os.fsdecode(listing).split("\0")[:-1])
+        # git grep finds nothing, without failing, in a path that was renamed away.
+        missing = [
+            reader
+            for reader in SWIFT_SCRIPT_READERS
+            if not git(root, "ls-files", "--", reader).strip()
+        ]
+        if missing or not names:
+            return frozenset(), False
+        reached = frozenset(script_mentions(root, names, SWIFT_SCRIPT_READERS))
+        while True:
+            more = (
+                script_mentions(root, names, sorted(reached)) | reached
+                if reached
+                else reached
+            )
+            if more == reached:
+                return reached, True
+            reached = frozenset(more)
+    except (OSError, subprocess.SubprocessError):
+        return frozenset(), False
+
+
 def is_maple_runtime(path):
     # src/api installs `maple` from file:../maple and the workflow fixture imports it.
     return (
@@ -136,6 +210,35 @@ PLATFORM_OWNED_SCRIPT_PREFIXES = ("src/android/", "src/windows/scripts/")
 SHARED_API_SCRIPTS = frozenset(
     ("src/api/scripts/prewarm-temporal.ts", "src/api/scripts/bench-folder-listing.ts")
 )
+# A workflow edit selects the consumers whose jobs it defines, plus `ci`, which
+# runs the tests that parse every workflow file.
+WORKFLOW_CONSUMERS = {
+    ".github/workflows/android.yml": {"android", "ci"},
+    ".github/workflows/api.yml": {"api", "ci"},
+    ".github/workflows/api-image.yml": {"api", "ci"},
+    # version-sync.yml calls it to validate a release.
+    ".github/workflows/apple.yml": {"swift", "ci", "release"},
+    ".github/workflows/cross.yml": {"api", "ci", "codegen", "release", "web"},
+    ".github/workflows/maple-types.yml": {"maple", "ci"},
+    ".github/workflows/web.yml": {"web", "ci"},
+    ".github/workflows/windows.yml": {"windows", "ci"},
+    # Not gated on the selector: each runs on its own path filter or event.
+    **{
+        f".github/workflows/{name}.yml": {"ci"}
+        for name in (
+            "android-distribution",
+            "azure-test-server",
+            "cloudflare",
+            "deploy-drive-connect",
+            "deploy-hosted",
+            "deploy-thumb-cache",
+            "face-clustering",
+            "linux",
+            "muse-pr-review",
+            "raw-pipeline",
+        )
+    },
+}
 METADATA = frozenset(
     name + extension
     for name in ("README", "AGENTS", "CLAUDE", "LICENSE")
@@ -165,6 +268,14 @@ def dependencies(path):
     # src/api/src/db/no-mongodb-anywhere.test.ts scans the Worker sources.
     if path.startswith("src/cloudflare/"):
         return {"api"}
+    if path in WORKFLOW_CONSUMERS:
+        return WORKFLOW_CONSUMERS[path]
+    if path.startswith(f"{SCRIPT_TREE}/"):
+        closure, complete = swift_script_closure()
+        # A deleted script is in no closure, yet a Mac job may still call it.
+        gone = not (ROOT / path).is_file()
+        # Only the Mac jobs are narrowed: every other consumer may read any script.
+        return ALL if gone or not complete or path in closure else ALL - {"swift"}
     owner_run = path.startswith(PLATFORM_OWNED_SCRIPT_PREFIXES) or (
         path.startswith("src/api/scripts/")
         and path.endswith(".ts")
