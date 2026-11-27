@@ -51,6 +51,8 @@ export interface ZoomGestureHost {
   commitView(pixelScale: number, pan: { x: number; y: number }): void;
   /** True while a fit-footprint overlay holds the canvas at fit: no user zoom or pan. */
   holdsAtFit(): boolean;
+  /** True while the editor's scrub owns this pointer: it never pans, whatever the zoom becomes. */
+  pointerOwnedByEdit(pointerId: number): boolean;
   /** Before/after divider position update (the drag rides the wrap's pointer stream). */
   moveDivider(clientX: number): void;
 }
@@ -310,7 +312,7 @@ export class CanvasZoomGestures {
     if (!tracked) return;
     tracked.x = e.clientX;
     tracked.y = e.clientY;
-    if (!this.pinchPair && this.editsAtZoom()) {
+    if (!this.pinchPair && (this.host.pointerOwnedByEdit(e.pointerId) || this.editsAtZoom())) {
       this.restartDragAt(tracked);
       return;
     }

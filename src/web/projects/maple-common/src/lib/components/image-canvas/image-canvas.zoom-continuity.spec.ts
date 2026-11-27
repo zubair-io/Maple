@@ -63,6 +63,7 @@ describe('a live gesture across a zoom it did not make', () => {
         touched();
       },
       holdsAtFit: () => false,
+      pointerOwnedByEdit: () => false,
       moveDivider: () => {},
     };
     g = new CanvasZoomGestures(host);

@@ -53,6 +53,7 @@ describe('canvas zoom hold while a fit-footprint overlay is active (#5743)', () 
       pixelScale: () => svc.pixelScale(),
       pan: () => svc.pan(),
       holdsAtFit: () => svc.holdsAtFit(),
+      pointerOwnedByEdit: (id) => svc.isEditOwnedPointer(id),
       commitView: (pixelScale, pan) => {
         svc.pixelScale.set(pixelScale);
         svc.pan.set(pan);

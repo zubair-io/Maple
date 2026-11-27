@@ -79,6 +79,7 @@ describe('CanvasZoomGestures over the shared model', () => {
         touched();
       },
       holdsAtFit: () => false,
+      pointerOwnedByEdit: () => false,
       moveDivider: () => {},
     };
     g = new CanvasZoomGestures(host);

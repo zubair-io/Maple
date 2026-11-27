@@ -78,6 +78,7 @@ export function onCanvasPointerDown(
 
   e.preventDefault();
   scrub.pointerId = e.pointerId;
+  shell.canvasSvc.claimPointerForEdit(e.pointerId);
   scrub.startX = e.clientX;
   scrub.startInternal = shell.editorState.armedInternalValue();
   scrub.startModel = shell.editorState.currentAdjustment();
@@ -109,12 +110,15 @@ export function onCanvasPointerDown(
  *  start of a pinch, not an edit. Put the model back as the scrub found it,
  *  drop any parked value and abandon the edit, so no undo entry is left. */
 function yieldScrubToPinch(shell: EditorShellComponent, scrub: ScrubGestureState): void {
-  const id = shell.editorState.imageId();
-  if (id != null && scrub.startModel)
-    shell.editorState.library.updateAdjustment(id, scrub.startModel);
-  shell.editorState.cancelGesture();
-  shell.editorState.cancelEdit();
-  cleanupScrub(shell, scrub);
+  try {
+    const id = shell.editorState.imageId();
+    if (id != null && scrub.startModel)
+      shell.editorState.library.updateAdjustment(id, scrub.startModel);
+    shell.editorState.cancelGesture();
+    shell.editorState.cancelEdit();
+  } finally {
+    cleanupScrub(shell, scrub);
+  }
   shell.hudVisible.set(false);
   shell.chromeState.set('full');
   shell.restartRecedeTimer();
@@ -137,8 +141,11 @@ function onScrubMove(shell: EditorShellComponent, scrub: ScrubGestureState, e: P
 
 function onScrubUp(shell: EditorShellComponent, scrub: ScrubGestureState, _e: PointerEvent): void {
   // Release is the commit point for deferred (decode-product) sub-params.
-  shell.editorState.endGesture();
-  cleanupScrub(shell, scrub);
+  try {
+    shell.editorState.endGesture();
+  } finally {
+    cleanupScrub(shell, scrub);
+  }
   shell.scheduleHudFade();
   shell.chromeState.set('full');
   shell.restartRecedeTimer();
@@ -148,8 +155,11 @@ function onScrubUp(shell: EditorShellComponent, scrub: ScrubGestureState, _e: Po
  *  pointerup cleanup but do NOT commit the interrupted value — just restore
  *  chrome state and release the listeners. */
 function onScrubCancel(shell: EditorShellComponent, scrub: ScrubGestureState): void {
-  shell.editorState.cancelGesture();
-  cleanupScrub(shell, scrub);
+  try {
+    shell.editorState.cancelGesture();
+  } finally {
+    cleanupScrub(shell, scrub);
+  }
   shell.hudVisible.set(false);
   shell.chromeState.set('full');
   shell.restartRecedeTimer();
@@ -157,6 +167,7 @@ function onScrubCancel(shell: EditorShellComponent, scrub: ScrubGestureState): v
 
 export function cleanupScrub(shell: EditorShellComponent, scrub: ScrubGestureState): void {
   shell.scrubbing.set(false);
+  if (scrub.pointerId !== null) shell.canvasSvc.releaseEditPointer(scrub.pointerId);
   scrub.pointerId = null;
   scrub.startModel = null;
   if (scrub.moveBound) {
