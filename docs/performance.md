@@ -172,6 +172,40 @@ It remains a local pre-PR check. `SliderTickPerfTests`' in-run ON/OFF ratio
 test classes, not on this report being generated.
 That in-run ratio gate is unrelated to this file and is untouched by it.
 
+## Scorecard
+
+```bash
+python3 src/scripts/perf_scorecard.py --targets listing,preview,export --runs 5
+```
+
+Runs each target's committed benchmark and prints the minimum and median of at least five
+runs beside the target's limit and this machine's budget. Exit 0: all within limit and
+budget; 1: something is over; 2: a selected target was not measured, or the run failed.
+Build `ffi-perf` and `perf-audit-dng` first (the not-measured reason prints the command).
+
+- **Folder listing, 2,000 items:** median of the warm request, from
+  `bench-folder-listing.ts --runs 30`, against 100 ms. Limit and budget:
+  `src/api/scripts/folder-listing-budget.json`.
+- **1280 px camera preview:** the worst median of the embedded preview of `test_0007.DNG`
+  and the develop fallback on a synthetic 24 MP and 100 MP DNG (`ffi-perf`), against 150 ms.
+- **Default 24 MP export:** `export_full_jpeg_default`, one process per run, on
+  `test_0007.DNG` (the synthetic 24 MP DNG when absent), against 0.7 x the machine's
+  `baselineMs` (commit `3109035232` on the same machine). No baseline: budget only.
+- **Cold launch, LAN thumbnails, grid scroll:** limits 1000 ms, 2000 ms and 0 dropped
+  frames. Not yet measured by the scorecard (#6146); `measure_grid_scroll.sh` already
+  measures the scroll on a Mac with an unlocked screen.
+
+Limits that are product requirements and per-machine budgets live in
+`test-fixtures/perf/scorecard-budgets.json`. To record a budget, run the scorecard on a
+quiet machine (at least five runs), then add the machine's entry under each target with
+the median rounded up by 10% as `budgetMs` and a `measured` note (date, load, commit).
+Ceilings only go down: `--check-ratchet --base-ref origin/main` fails when a limit or
+budget is raised or removed against that ref.
+
+CI runs `--regressions-only --machine-class <runner class>`: it fails on a budget, and on a
+limit only for a target whose entry says `limitMet` (listing). A target whose limit is not
+met yet (preview, export) is gated on its budget; set `limitMet` when it first meets it.
+
 ## macOS
 
 ### Mac17,6 — dji-mavic3pro-100mp.dng — auto
