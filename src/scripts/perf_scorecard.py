@@ -126,15 +126,37 @@ def parse_ffi_line(output: str, label: str) -> Measurement:
     return Measurement(float(found[2]), float(found[3]))
 
 
-def parse_listing(output: str) -> Measurement:
+def listing_problem(report: dict, budget: dict) -> str | None:
+    scenario, responses = budget["scenario"], report.get("responses", {})
+    wrong = [
+        f"the scenario's {key} is {report.get(key)}, not {scenario[key]}"
+        for key in ("photos", "sidecars", "indexed", "withThumbs")
+        if report.get(key) != scenario[key]
+    ] + [
+        f"{name} is {responses.get(name)}, not {expected}"
+        for name, expected in (
+            ("warmStatus", 200),
+            ("revalidateStatus", 304),
+            ("limit500Status", 200),
+            ("imagesListed", scenario["photos"]),
+            ("limit500Listed", budget["limit500Images"]),
+        )
+        if responses.get(name) != expected
+    ]
+    return "; ".join(wrong) if wrong else None
+
+
+def parse_listing(output: str, budget: dict) -> Measurement:
     lines = output.strip().splitlines()
     try:
-        warm = json.loads(lines[-1])["warm"]
+        report = json.loads(lines[-1])
+        warm = report["warm"]
         measurement = Measurement(float(warm["wallMin"]), float(warm["wallMedian"]))
     except (IndexError, KeyError, TypeError, ValueError) as error:
         raise NotMeasured(f"the listing benchmark printed no warm timings ({error!r})") from error
-    if warm.get("status") != 200:
-        raise NotMeasured(f"the warm listing request answered {warm.get('status')}, not 200")
+    problem = listing_problem(report, budget)
+    if problem:
+        raise NotMeasured(f"the listing is not the one the budget is for: {problem}")
     return measurement
 
 
@@ -254,7 +276,10 @@ def measure_listing(env: Env) -> Measurement:
     if shutil.which("bun") is None:
         raise NotMeasured("bun is not installed")
     command = ["bun", "scripts/bench-folder-listing.ts", "--runs", str(LISTING_RUNS), "--json"]
-    return parse_listing(run_tool(command, REPO_ROOT / "src/api", 1800))
+    budget = working_json(LISTING_BUDGETS)
+    if "scenario" not in budget or "limit500Images" not in budget:
+        raise NotMeasured(f"{LISTING_BUDGETS} has no scenario to validate the listing against")
+    return parse_listing(run_tool(command, REPO_ROOT / "src/api", 1800), budget)
 
 
 def camera_raw(env: Env) -> Path | None:

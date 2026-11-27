@@ -128,6 +128,7 @@ async function measure(
       dumpFile,
       body.replaceAll(`/private${workRoot}`, '<ROOT>').replaceAll(workRoot, '<ROOT>'),
     );
+  const observed = observeListing({ warm, revalidate, page }, { images: imagesListed, pageImages });
   const warmSummary = summarize(warm);
   const revalidateSummary = summarize(revalidate);
   const pageSummary = summarize(page);
@@ -146,8 +147,8 @@ async function measure(
     limit500: pageSummary,
     wireBytes: wire,
     imagesListed,
+    responses: observed.responses,
   };
-  const observed = observeListing({ warm, revalidate, page }, { images: imagesListed, pageImages });
   const verdict = budget
     ? judgeListing(budget, machineKey(), scenario, observed.responses, observed.medians)
     : null;
