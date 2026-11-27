@@ -67,6 +67,8 @@ async function bootServer(work: Workspace, workerTier: boolean, label: string): 
     cwd: work.root,
     env: {
       ...process.env,
+      // Stall records are parsed as JSON; outside production the logger pretty-prints.
+      NODE_ENV: 'production',
       PORT: String(port),
       MAPLE_SQLITE_PATH: work.sqlitePath,
       MAPLE_NATIVE_LIB: join(apiRoot, 'native', `libraw_ffi.${suffix}`),
@@ -78,7 +80,7 @@ async function bootServer(work: Workspace, workerTier: boolean, label: string): 
       MAPLE_DIAG_EVENTLOOP: '1',
       MAPLE_DIAG_EVENTLOOP_MS: '10',
       MAPLE_DIAG_EVENTLOOP_SUMMARY: '0',
-      LOG_LEVEL: flag('log-level', 'warn'),
+      MAPLE_LOG_LEVEL: flag('log-level', 'warn'),
     },
     stdout: Bun.file(logFile),
     stderr: Bun.file(`${logFile}.err`),

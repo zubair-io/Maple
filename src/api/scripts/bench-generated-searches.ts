@@ -298,7 +298,7 @@ async function measure(sqlitePath: string) {
       MAPLE_INDEXER_AUTOSTART: '0',
       MAPLE_JWT_SECRET: 'bench-secret-bench-secret-1234',
       MAPLE_BACKUP_TMP: join(scratch, 'chunks'),
-      LOG_LEVEL: 'warn',
+      MAPLE_LOG_LEVEL: 'warn',
     },
     stdout: 'ignore',
     stderr: 'ignore',
