@@ -52,7 +52,10 @@ bash tools/check-budget-headroom.sh --self-test  # exercise the checker itself
   accidental test overrides with `git config --local --unset-all user.name` and
   `git config --local --unset-all user.email` when the global identity is correct. The commit hook
   rejects `.invalid` placeholder addresses, Claude's tool address, and the GitHub Actions bot
-  address. Agent-created commits use the user's identity and do not add AI co-author trailers.
+  address. Agent-created commits use the user's identity and do not add AI co-author trailers;
+  the commit-msg hook and CI (`tools/check-commit-attribution.sh`, run by the cross workflow's
+  gitleaks job on every PR) reject the tool identity and `Co-Authored-By: Claude` /
+  `Claude-Session` trailers.
   Release automation reads the repository owner's GitHub profile and uses their name
   and ID-based noreply address. This assumes the repository owner is a personal account.
 - PR body: one-line summary, a short "why" paragraph, and a `Closes #N` line. Include a test plan when the change isn't covered by an existing harness.

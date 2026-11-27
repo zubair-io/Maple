@@ -26,7 +26,9 @@
 #                             Per #1829.
 #   * fallow-audit-api      — same, over src/api (Bun/Elysia backend). Per #1829.
 #   * gitleaks              — installed direct from GitHub releases; scans only
-#                             the commits this PR/push introduces (#839).
+#                             the commits this PR/push introduces (#839). The
+#                             same range is checked for tool-identity authors
+#                             and AI co-author/session trailers.
 #   * maple-ui-contracts    — component-contract docs have all required sections filled.
 #   * editor-parity-manifest — the editor parity manifest matches both tool enums, the
 #                              generated ranges and docs/features.md §8 (#2448).
@@ -776,7 +778,7 @@ jobs:
         run: ./node_modules/.bin/fallow audit --base "origin/${BASE_REF}" --coverage coverage/coverage-final.json
 
   gitleaks:
-    name: gitleaks (PR commits)
+    name: gitleaks + commit attribution (PR commits)
     runs-on: ubuntu-24.04
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
@@ -829,7 +831,8 @@ jobs:
       # security value), but won't re-flag pre-existing deep-history findings
       # that are out of this change's scope (#839). The range is passed to the
       # underlying `git log` via --log-opts; --source still defaults to ".".
-      - name: gitleaks detect
+      - name: Resolve commit range
+        id: range
         env:
           BASE_REF: ${{ github.event.pull_request.base.ref }}
           BEFORE_SHA: ${{ github.event.before }}
@@ -866,7 +869,19 @@ jobs:
             fi
           fi
           echo "Scanning commit range: ${RANGE}"
-          gitleaks detect --no-banner --redact --log-opts="${RANGE}"
+          echo "range=${RANGE}" >> "$GITHUB_OUTPUT"
+
+      - name: gitleaks detect
+        env:
+          RANGE: ${{ steps.range.outputs.range }}
+        run: gitleaks detect --no-banner --redact --log-opts="${RANGE}"
+
+      # Commit-time hooks do not run in every clone (cloud agents never install
+      # lefthook), so the author identity and trailer rule is enforced here.
+      - name: Commit attribution
+        env:
+          RANGE: ${{ steps.range.outputs.range }}
+        run: bash tools/check-commit-attribution.sh "${RANGE}"
 
   result:
     name: Cross result
