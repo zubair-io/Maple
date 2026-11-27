@@ -73,6 +73,7 @@
     @Binding var browseDisplayMode: GridDisplayMode
     let browseVM: BrowseViewModel
     @Binding var sessions: [AssetRef.ID: EditSession]
+    let sessionBuffer: BrowseSessionBuffer<AssetRef.ID, EditSession>
 
     /// Pre-built shared toolbar content — composed alongside the iPhone-
     /// only hamburger + Info items inside the NavigationStack's `.toolbar`.
@@ -97,6 +98,7 @@
     /// A Library tile tap with the tile's window-space frame (Preview hero).
     var onOpenTile: (AssetRef, CGRect) -> Void = { _, _ in }
     let onPrimeSession: (AssetRef) async -> Void
+    let onPrimeVisibleCell: (AssetRef) async -> Void
     let onReadGridFilterMetadata: @MainActor @Sendable (AssetRef) async throws -> GridFilterMetadata
     let onFullImageFallback: () -> Void
     /// Live window-space frame of the grid's selected tile (Preview hero).
@@ -155,6 +157,7 @@
         browseDisplayMode: $browseDisplayMode,
         browseVM: browseVM,
         sessions: $sessions,
+        sessionBuffer: sessionBuffer,
         onSelectCloudAsset: onSelectCloudAsset,
         onSelectMapPlace: onSelectMapPlace,
         onSignInForMap: onSignInForMap,
@@ -170,6 +173,7 @@
         onOpenEditor: onOpenEditor,
         onOpenTile: onOpenTile,
         onPrimeSession: onPrimeSession,
+        onPrimeVisibleCell: onPrimeVisibleCell,
         onReadGridFilterMetadata: onReadGridFilterMetadata,
         onFullImageFallback: onFullImageFallback,
         onMergePanorama: onMergePanorama,

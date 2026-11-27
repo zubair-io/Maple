@@ -59,6 +59,7 @@ struct AppShellMacLayout<SidebarContent: View, ToolbarContentT: ToolbarContent>:
   @Binding var browseDisplayMode: GridDisplayMode
   let browseVM: BrowseViewModel
   @Binding var sessions: [AssetRef.ID: EditSession]
+  let sessionBuffer: BrowseSessionBuffer<AssetRef.ID, EditSession>
   /// Pre-built sidebar — both NavigationSplitView legs render this.
   let sidebar: () -> SidebarContent
   /// Pre-built toolbar — wired to AppShell state in the parent.
@@ -84,6 +85,7 @@ struct AppShellMacLayout<SidebarContent: View, ToolbarContentT: ToolbarContent>:
   var onDropAssetsOnFolder: ((URL, Data, Set<AssetRef.ID>?, Bool) -> Void)? = nil
   let onOpenEditor: (AssetRef) -> Void
   let onPrimeSession: (AssetRef) async -> Void
+  let onPrimeVisibleCell: (AssetRef) async -> Void
   let onReadGridFilterMetadata: @MainActor @Sendable (AssetRef) async throws -> GridFilterMetadata
   /// Recover from a vanished selection by flipping back to Browse.
   let onFullImageFallback: () -> Void
@@ -245,6 +247,7 @@ struct AppShellMacLayout<SidebarContent: View, ToolbarContentT: ToolbarContent>:
       browseDisplayMode: $browseDisplayMode,
       browseVM: browseVM,
       sessions: $sessions,
+      sessionBuffer: sessionBuffer,
       onSelectCloudAsset: onSelectCloudAsset,
       onSelectMapPlace: onSelectMapPlace,
       onSignInForMap: onSignInForMap,
@@ -256,6 +259,7 @@ struct AppShellMacLayout<SidebarContent: View, ToolbarContentT: ToolbarContent>:
       onDropAssetsOnFolder: onDropAssetsOnFolder,
       onOpenEditor: onOpenEditor,
       onPrimeSession: onPrimeSession,
+      onPrimeVisibleCell: onPrimeVisibleCell,
       onReadGridFilterMetadata: onReadGridFilterMetadata,
       onFullImageFallback: onFullImageFallback,
       onEditorDismiss: onEditorDismiss,

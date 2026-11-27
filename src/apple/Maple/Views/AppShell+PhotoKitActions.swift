@@ -135,7 +135,7 @@ extension AppShell {
                 try await source.rawBytes(for: ref)
             }
         )
-        if sessions[assetRef.id] == nil {
+        if existingSession(for: assetRef.id) == nil {
             let sidecarStore = try PhotoKitSidecarStore(phassetLocalId: ref.id)
             let session = EditSession(asset: assetRef, remoteSidecarStore: sidecarStore)
             sessions[assetRef.id] = session

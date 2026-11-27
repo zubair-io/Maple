@@ -43,6 +43,7 @@ enum AppShellVM {
   /// The `EditSession` an in-place selection (deep link, document open,
   /// filmstrip sibling) edits against: the one the grid already primed
   /// (`AppShell.ensureSession(for:)` on cell appear) when present,
+  /// then one a scrolled-past cell left in `buffer` (moved into `sessions`),
   /// otherwise a fresh one cached into `sessions` so the grid badges and
   /// a later editor open share the same instance. `created` tells the
   /// caller a sidecar load is still owed — kept out of here so the helper
@@ -60,19 +61,34 @@ enum AppShellVM {
   static func ensureSession(
     for asset: AssetRef,
     in sessions: inout [AssetRef.ID: EditSession],
+    adopting buffer: BrowseSessionBuffer<AssetRef.ID, EditSession>,
     remoteStore: () -> (any SidecarStoreProtocol)?,
     remotePreviewSink: () -> (any DisplayPreviewSink)? = { nil }
   ) -> (session: EditSession, created: Bool) {
     if let existing = sessions[asset.id] { return (existing, false) }
+    if let staged = buffer.take(asset.id) {
+      sessions[asset.id] = staged
+      return (staged, false)
+    }
+    let session = makeSession(
+      for: asset, remoteStore: remoteStore, remotePreviewSink: remotePreviewSink)
+    sessions[asset.id] = session
+    return (session, true)
+  }
+
+  @MainActor
+  static func makeSession(
+    for asset: AssetRef,
+    remoteStore: () -> (any SidecarStoreProtocol)?,
+    remotePreviewSink: () -> (any DisplayPreviewSink)? = { nil }
+  ) -> EditSession {
     // FileProvider observer drives the progress on Files-app picks;
     // local files never call begin() and stay overlay-free.
-    let session = EditSession(
+    EditSession(
       asset: asset,
       remoteSidecarStore: remoteStore(),
       remotePreviewSink: remotePreviewSink(),
       downloadProgress: DownloadProgress())
-    sessions[asset.id] = session
-    return (session, true)
   }
 
   // MARK: - Cloud session resolution (#4846)

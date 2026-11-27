@@ -26,6 +26,7 @@
     /// lazily on first render, exactly as the primed path does.
     let makeEditSession: (AssetRef) -> EditSession
     @Binding var sessions: [AssetRef.ID: EditSession]
+    let sessionBuffer: BrowseSessionBuffer<AssetRef.ID, EditSession>
     @Environment(\.dismiss) private var dismiss
 
     @State private var state: EditorState?
@@ -119,10 +120,12 @@
         return
       }
       guard let resident else {
+        sessionBuffer.removeAll(keeping: [])
         sessions = [:]
         state = EditorState(session: makeEditSession(asset))
         return
       }
+      sessionBuffer.removeAll(keeping: [asset.id])
       if sessions.count > 1 { sessions = [asset.id: resident] }
       state = EditorState(session: resident)
     }

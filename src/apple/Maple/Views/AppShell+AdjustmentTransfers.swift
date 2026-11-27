@@ -96,7 +96,7 @@ extension AppShell {
           bytesProvider: { try await source.rawBytes(for: ref) })
       },
       session: { asset in
-        sessions[asset.id]
+        existingSession(for: asset.id)
       }, store: store)
   }
 }
