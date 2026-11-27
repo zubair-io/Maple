@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it, spyOn } from 'bun:test';
 import { Elysia } from 'elysia';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -138,5 +138,85 @@ describe('versioned thumbnail URLs #6016', () => {
     run(live.db, `UPDATE assets SET maple_id = 'm-2' WHERE id = ?`, id);
     insertLocation(live.db, { assetId: id, libraryId: library, path: '', filename: 'primary.jpg' });
     expect((await versions()).get('primary.jpg')).toBeString();
+  });
+
+  describe('thumb checks in a listing (#6109)', () => {
+    const thumbChecks = (calls: unknown[][], thumbsFolder: string): string[] =>
+      calls
+        .map(([file]) => String(file))
+        .filter((file) => dirname(file) === thumbsFolder)
+        .sort();
+
+    async function fivePhotosTwoThumbs(): Promise<string> {
+      await photoWithThumb('a.jpg');
+      await photoWithThumb('b.jpg');
+      for (const name of ['c.jpg', 'd.jpg', 'e.jpg']) {
+        await fs.writeFile(join(root, name), Buffer.from([0xff, 0xd8, 0xff, 0xd9]));
+      }
+      return join(root, '.maple', 'thumbs');
+    }
+
+    it('a whole-folder listing reads the thumbs folder once and checks only the thumbs it holds', async () => {
+      const thumbsFolder = await fivePhotosTwoThumbs();
+      const reading = spyOn(fs, 'readdir');
+      const checking = spyOn(fs, 'lstat');
+      try {
+        const listed = await versions();
+        expect(
+          [...listed].filter(([, version]) => version !== undefined).map(([name]) => name),
+        ).toEqual(['a.jpg', 'b.jpg']);
+        expect(reading.mock.calls.filter(([folder]) => folder === thumbsFolder)).toHaveLength(1);
+        expect(thumbChecks(checking.mock.calls, thumbsFolder)).toEqual([
+          join(thumbsFolder, 'a.jpg.avif'),
+          join(thumbsFolder, 'b.jpg.avif'),
+        ]);
+      } finally {
+        reading.mockRestore();
+        checking.mockRestore();
+      }
+    });
+
+    it('a page leaves the thumbs folder unread and checks each thumb of the page', async () => {
+      const thumbsFolder = await fivePhotosTwoThumbs();
+      const reading = spyOn(fs, 'readdir');
+      const checking = spyOn(fs, 'lstat');
+      try {
+        const response = await app.handle(new Request('http://localhost/folder/photos?limit=3'));
+        const body = (await response.json()) as Listing;
+        expect(body.images.map((image) => [image.name, typeof image.thumbVersion])).toEqual([
+          ['a.jpg', 'string'],
+          ['b.jpg', 'string'],
+          ['c.jpg', 'undefined'],
+        ]);
+        expect(reading.mock.calls.filter(([folder]) => folder === thumbsFolder)).toHaveLength(0);
+        expect(thumbChecks(checking.mock.calls, thumbsFolder)).toEqual(
+          ['a', 'b', 'c'].map((name) => join(thumbsFolder, `${name}.jpg.avif`)),
+        );
+      } finally {
+        reading.mockRestore();
+        checking.mockRestore();
+      }
+    });
+
+    it('offers no version and checks no thumb under a symlinked .maple directory', async () => {
+      const elsewhere = await fs.mkdtemp(join(tmpdir(), 'maple-thumb-version-elsewhere-'));
+      try {
+        const source = join(root, 'a.jpg');
+        await fs.writeFile(source, Buffer.from([0xff, 0xd8, 0xff, 0xd9]));
+        await fs.utimes(source, past, past);
+        await fs.mkdir(join(elsewhere, 'thumbs'), { recursive: true });
+        await fs.writeFile(join(elsewhere, 'thumbs', 'a.jpg.avif'), Buffer.from([1, 2, 3]));
+        await fs.symlink(elsewhere, join(root, '.maple'));
+        const checking = spyOn(fs, 'lstat');
+        try {
+          expect((await versions()).get('a.jpg')).toBeUndefined();
+          expect(thumbChecks(checking.mock.calls, join(root, '.maple', 'thumbs'))).toEqual([]);
+        } finally {
+          checking.mockRestore();
+        }
+      } finally {
+        await fs.rm(elsewhere, { recursive: true, force: true });
+      }
+    });
   });
 });
