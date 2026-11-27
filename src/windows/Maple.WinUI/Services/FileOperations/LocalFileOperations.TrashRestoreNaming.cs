@@ -36,23 +36,32 @@ namespace Maple.WinUI.Services.FileOperations
         /// edit file a same-stem sibling already restored). Foreign `.v2` and
         /// `(2)` names belong to other photos and do not count.</summary>
         internal static bool RestoreNameTaken(
-            string destinationDir, IReadOnlyList<string> destinationNames, string trashPrimaryPath, string basename)
+            string destinationDir, IReadOnlyList<string> destinationNames, string trashPrimaryPath, string basename,
+            PairedCopyScan? scan = null)
         {
-            if (PathOccupied(Path.Combine(destinationDir, basename))) return true;
-            var (newStem, oldStem) = (SidecarBase(basename), SidecarBase(Path.GetFileName(trashPrimaryPath)));
-            var trashDir = Path.GetDirectoryName(trashPrimaryPath) ?? string.Empty;
-            return PairedSidecarNames(destinationNames, basename).Any(name => !SidecarAlreadyCarried(
-                Path.Combine(trashDir, oldStem + name[newStem.Length..]), Path.Combine(destinationDir, name)));
+            var candidate = Path.Combine(destinationDir, basename);
+            return PathOccupied(candidate)
+                || AdoptableNameHeldByOther(
+                    scan ?? ScanPairedCopies(trashPrimaryPath, new FolderListing(Path.GetDirectoryName(Path.GetFullPath(trashPrimaryPath)) ?? string.Empty)),
+                    trashPrimaryPath, candidate, destinationNames, includeCanonical: true);
         }
 
+        private static readonly Regex CanonicalOrConflictSuffix = new(
+            "^" + FilenameVocabulary.PairedSidecarSuffixPattern + "$",
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+
+        private static readonly Regex WorkflowSuffix = new(
+            @"^\.v" + WorkflowUuidPattern + @"\.xmp$", RegexOptions.CultureInvariant);
+
+        /// <summary>The names that pair with <paramref name="basename"/>: the stem
+        /// in any case followed by the canonical or conflict suffix, or by a
+        /// workflow suffix whose uuid is lowercase.</summary>
         internal static IEnumerable<string> PairedSidecarNames(IEnumerable<string> names, string basename)
         {
-            var stem = Regex.Escape(SidecarBase(basename));
-            var canonical = new Regex("^" + stem + FilenameVocabulary.PairedSidecarSuffixPattern + "$",
-                RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
-            var workflow = new Regex("^(?i:" + stem + @")\.v" + WorkflowUuidPattern + @"\.xmp$",
-                RegexOptions.CultureInvariant);
-            return names.Where(name => canonical.IsMatch(name) || workflow.IsMatch(name));
+            var stem = SidecarBase(basename);
+            return names.Where(name => name.Length >= stem.Length
+                && string.Compare(name, 0, stem, 0, stem.Length, StringComparison.OrdinalIgnoreCase) == 0
+                && (CanonicalOrConflictSuffix.IsMatch(name[stem.Length..]) || WorkflowSuffix.IsMatch(name[stem.Length..])));
         }
 
         private static string SidecarBase(string basename) =>

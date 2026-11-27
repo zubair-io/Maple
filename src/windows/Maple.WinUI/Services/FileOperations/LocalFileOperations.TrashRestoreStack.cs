@@ -47,10 +47,11 @@ namespace Maple.WinUI.Services.FileOperations
             ValidateBareFileName(Path.GetFileName(rawTarget), restoredName: true);
             ValidateBareFileName(Path.GetFileName(jpegTarget), restoredName: true);
             var rawName = PickFreeRestoredStackBasename(
-                destinationDir, Path.GetFileName(rawTarget), Path.GetFileName(jpegTarget));
+                rawTrash, destinationDir, Path.GetFileName(rawTarget), Path.GetFileName(jpegTarget));
 
             var outcome = await RelocateStackAsync(
-                rawTrash, jpegTrash, destinationDir, rawName, RelocateMode.Move, CollisionPolicy.Fail, restoredName: true)
+                rawTrash, jpegTrash, destinationDir, rawName, RelocateMode.Move, CollisionPolicy.Fail,
+                restoredName: true, pairedCopyCarry: PairedCopyCarry.OutOfTrash)
                 .ConfigureAwait(false);
             TryDelete(OriginalPathMarkerFor(rawTrash));
             TryDelete(OriginalPathMarkerFor(jpegTrash));
@@ -59,10 +60,12 @@ namespace Maple.WinUI.Services.FileOperations
                 : outcome with { PrimaryPath = outcome.CompanionPath!, CompanionPath = outcome.PrimaryPath };
         }
 
-        private static string PickFreeRestoredStackBasename(string destinationDir, string rawName, string jpegName)
+        private static string PickFreeRestoredStackBasename(
+            string rawTrash, string destinationDir, string rawName, string jpegName)
         {
             var (stem, extension) = SplitRestoredName(rawName);
             var names = FolderNames(destinationDir);
+            var scan = ScanPairedCopies(rawTrash, new FolderListing(Path.GetDirectoryName(Path.GetFullPath(rawTrash)) ?? string.Empty));
 
             bool Free(string candidateRawName)
             {
@@ -70,7 +73,8 @@ namespace Maple.WinUI.Services.FileOperations
                 var raw = Path.Combine(destinationDir, candidateRawName);
                 return !PathOccupied(raw)
                     && !PathOccupied(Path.Combine(destinationDir, candidateJpegName))
-                    && !PairedSidecarNames(names, candidateRawName).Any();
+                    && !PairedSidecarNames(names, candidateRawName).Any()
+                    && !CopyLandsOnAnotherPhotosSidecar(scan, rawTrash, raw, names);
             }
 
             if (Free(rawName)) return rawName;

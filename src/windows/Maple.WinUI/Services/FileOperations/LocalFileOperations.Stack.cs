@@ -33,7 +33,9 @@ namespace Maple.WinUI.Services.FileOperations
             string? newBasename,
             RelocateMode mode,
             CollisionPolicy collision = CollisionPolicy.AutoSuffix) =>
-            RelocateStackAsync(primaryPath, companionPath, destinationDir, newBasename, mode, collision, restoredName: false);
+            RelocateStackAsync(
+                primaryPath, companionPath, destinationDir, newBasename, mode, collision,
+                restoredName: false, pairedCopyCarry: PairedCopyCarry.None);
 
         internal static async Task<RelocateOutcome> RelocateStackAsync(
             string primaryPath,
@@ -42,14 +44,21 @@ namespace Maple.WinUI.Services.FileOperations
             string? newBasename,
             RelocateMode mode,
             CollisionPolicy collision,
-            bool restoredName)
+            bool restoredName,
+            PairedCopyCarry pairedCopyCarry)
         {
+            RejectPairedCopiesWithReplace(pairedCopyCarry, collision);
             ThrowIfStackFileMissing(primaryPath, companionPath);
             if (newBasename != null) ValidateBareFileName(newBasename, restoredName);
             Directory.CreateDirectory(destinationDir);
 
+            var pairedScan = pairedCopyCarry == PairedCopyCarry.None
+                ? PairedCopyScan.None
+                : ScanPairedCopies(primaryPath, new FolderListing(Path.GetDirectoryName(Path.GetFullPath(primaryPath)) ?? string.Empty));
+            if (pairedCopyCarry == PairedCopyCarry.OutOfTrash) ThrowIfRestoreWouldStrand(pairedScan);
             var pair = new StackPair(
-                primaryPath, companionPath, destinationDir, newBasename ?? Path.GetFileName(primaryPath));
+                primaryPath, companionPath, destinationDir, newBasename ?? Path.GetFileName(primaryPath),
+                pairedCopyCarry, pairedScan, new FolderListing(Path.GetFullPath(destinationDir)));
             var primaryName = await ResolveStackNameAsync(pair, collision).ConfigureAwait(false);
             var primaryTarget = pair.PrimaryTarget(primaryName);
             var backups = collision == CollisionPolicy.Replace
@@ -62,7 +71,7 @@ namespace Maple.WinUI.Services.FileOperations
             RelocatePlan? companionPlan;
             try
             {
-                (primaryPlan, companionPlan) = await PlanStackAsync(pair, primaryName, mode, collision, keepsExistingName: restoredName || newBasename == null)
+                (primaryPlan, companionPlan) = await PlanStackAsync(pair, primaryName, mode, collision, keepsExistingName: restoredName || newBasename == null, pairedCopyCarry)
                     .ConfigureAwait(false);
             }
             catch
@@ -107,7 +116,8 @@ namespace Maple.WinUI.Services.FileOperations
 
             var trashDir = TrashPaths.TrashDestinationDir(primaryPath, libraryRoot);
             return await RelocateStackAsync(
-                primaryPath, companionPath, trashDir, null, RelocateMode.Move, CollisionPolicy.AutoSuffix)
+                primaryPath, companionPath, trashDir, null, RelocateMode.Move, CollisionPolicy.AutoSuffix,
+                restoredName: false, pairedCopyCarry: PairedCopyCarry.IntoTrash)
                 .ConfigureAwait(false);
         }
 
@@ -128,7 +138,9 @@ namespace Maple.WinUI.Services.FileOperations
             throw new FileOperationException(FileOperationErrorKind.Underlying, message);
         }
 
-        private sealed record StackPair(string Primary, string Companion, string DestinationDir, string RequestedName)
+        private sealed record StackPair(
+            string Primary, string Companion, string DestinationDir, string RequestedName,
+            PairedCopyCarry PairedCopyCarry, PairedCopyScan PairedScan, FolderListing Destination)
         {
             public string PrimaryTarget(string primaryName) => Path.Combine(DestinationDir, primaryName);
 
@@ -141,7 +153,10 @@ namespace Maple.WinUI.Services.FileOperations
             {
                 var target = PrimaryTarget(primaryName);
                 return !NamesSameFile(Primary, target)
-                    && AssetDestinationOccupied(target, SidecarStore.SidecarPathFor(Primary));
+                    && (AssetDestinationOccupied(target, SidecarStore.SidecarPathFor(Primary))
+                        || (PairedCopyCarry != PairedCopyCarry.None
+                            && AdoptableNameHeldByOther(
+                                PairedScan, Primary, target, Destination.EntryNames, includeCanonical: false)));
             }
 
             // The shared sidecar is the RAW's to resolve, so only the JPEG's
@@ -199,13 +214,14 @@ namespace Maple.WinUI.Services.FileOperations
             SameSidecarPath(companionSourceSidecar, primarySourceSidecar) ? primaryFinalSidecar : null;
 
         private static async Task<(RelocatePlan Primary, RelocatePlan? Companion)> PlanStackAsync(
-            StackPair pair, string primaryName, RelocateMode mode, CollisionPolicy collision, bool keepsExistingName)
+            StackPair pair, string primaryName, RelocateMode mode, CollisionPolicy collision, bool keepsExistingName,
+            PairedCopyCarry pairedCopyCarry)
         {
             var companionTarget = pair.CompanionTarget(primaryName);
             var primaryPlan = await PlanRelocateAsync(
                 pair.Primary, pair.DestinationDir, primaryName, mode,
                 collision == CollisionPolicy.Replace ? CollisionPolicy.Replace : CollisionPolicy.Fail,
-                carriedSidecarPath: null, alsoLeaving: Array.Empty<string>(), keepsExistingName)
+                carriedSidecarPath: null, alsoLeaving: Array.Empty<string>(), keepsExistingName, pairedCopyCarry)
                 .ConfigureAwait(false);
             if (ClassifySameFile(pair.Companion, companionTarget) == SameFileClassification.Identical)
                 return (primaryPlan, null);
@@ -218,7 +234,7 @@ namespace Maple.WinUI.Services.FileOperations
                         SidecarStore.SidecarPathFor(pair.Companion),
                         primaryPlan.SourceSidecarPath ?? SidecarStore.SidecarPathFor(pair.Primary),
                         primaryPlan.FinalSidecarPath),
-                    new[] { pair.Primary }, keepsExistingName).ConfigureAwait(false);
+                    new[] { pair.Primary }, keepsExistingName, pairedCopyCarry).ConfigureAwait(false);
                 return (primaryPlan, companionPlan);
             }
             catch

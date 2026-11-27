@@ -84,8 +84,10 @@ namespace Maple.WinUI.Services.FileOperations
             CollisionPolicy collision,
             string? carriedSidecarPath,
             string[] alsoLeaving,
-            bool restoredName = false)
+            bool restoredName = false,
+            PairedCopyCarry pairedCopyCarry = PairedCopyCarry.None)
         {
+            RejectPairedCopiesWithReplace(pairedCopyCarry, collision);
             if (!File.Exists(sourcePrimaryPath))
                 throw new FileOperationException(FileOperationErrorKind.SourceMissing, sourcePrimaryPath);
             if (newBasename != null) ValidateBareFileName(newBasename, restoredName);
@@ -108,7 +110,13 @@ namespace Maple.WinUI.Services.FileOperations
 
             Directory.CreateDirectory(destinationDir);
             var sourceSidecarPath = SidecarStore.SidecarPathFor(sourcePrimaryPath);
-            var (resolvedTargetPath, renamed) = await ResolveCollisionAsync(targetPath, collision, sourceSidecarPath, carriedSidecarPath)
+            var folders = RelocateFolders.Open(sourcePrimaryPath, destinationDir, pairedCopyCarry);
+            var (resolvedTargetPath, renamed) = await ResolveCollisionAsync(
+                    targetPath, collision, sourceSidecarPath, carriedSidecarPath,
+                    pairedCopyCarry == PairedCopyCarry.None
+                        ? null
+                        : candidate => AdoptableNameHeldByOther(
+                            folders.Paired, sourcePrimaryPath, candidate, folders.Destination.EntryNames, includeCanonical: false))
                 .ConfigureAwait(false);
 
             // Every sidecar decision is made before any byte moves (#4758,
@@ -117,7 +125,7 @@ namespace Maple.WinUI.Services.FileOperations
             var sidecarTargetPath = SidecarStore.SidecarPathFor(resolvedTargetPath);
             var hasSourceSidecar = File.Exists(sourceSidecarPath);
             var sidecarMapsOntoItself = SameSidecarPath(sourceSidecarPath, sidecarTargetPath);
-            var destinationSidecarOwned = SidecarStemClaimedBySibling(resolvedTargetPath, sourcePrimaryPath);
+            var destinationSidecarOwned = SidecarStemClaimedBySibling(resolvedTargetPath, folders.Destination, new[] { sourcePrimaryPath });
             var destinationSidecarOccupied = !sidecarMapsOntoItself && PathOccupied(sidecarTargetPath);
             var joinsCarriedSidecar = hasSourceSidecar && destinationSidecarOccupied
                 && (SidecarAlreadyCarried(sourceSidecarPath, sidecarTargetPath)
@@ -127,9 +135,11 @@ namespace Maple.WinUI.Services.FileOperations
                 && (collision != CollisionPolicy.Replace || destinationSidecarOwned))
                 throw new FileOperationException(FileOperationErrorKind.DestinationExists,
                     $"destination sidecar belongs to another photo: {sidecarTargetPath}");
-            var sourceSidecarStays = sidecarMapsOntoItself
-                || (hasSourceSidecar
-                    && SidecarStemClaimedBySibling(sourcePrimaryPath, alsoLeaving.Append(resolvedTargetPath).ToArray()));
+            var siblingKeepsStem = (hasSourceSidecar || folders.Paired.Carriable.Count > 0)
+                && SidecarStemClaimedBySibling(sourcePrimaryPath, folders.Source, alsoLeaving.Append(resolvedTargetPath).ToArray());
+            var sourceSidecarStays = sidecarMapsOntoItself || (hasSourceSidecar && siblingKeepsStem);
+
+            var pairedCopies = PlanPairedCopies(folders.Paired, sourcePrimaryPath, resolvedTargetPath);
 
             var createdPaths = new List<string>();
             // Only Replace may overwrite: under any other policy the name was resolved
@@ -175,10 +185,13 @@ namespace Maple.WinUI.Services.FileOperations
                 TryDelete(sidecarTargetPath);
             }
 
+            PublishPairedCopies(pairedCopies, createdPaths);
+
             return new RelocatePlan(
                 mode, sourcePrimaryPath, usedSourceSidecarPath,
                 resolvedTargetPath, finalSidecarPath, renamed, createdPaths,
-                SourceSidecarStays: sourceSidecarStays);
+                SourceSidecarStays: sourceSidecarStays,
+                PairedCopies: pairedCopies, PairedCopiesStay: siblingKeepsStem);
         }
 
         /// <summary>
@@ -216,6 +229,11 @@ namespace Maple.WinUI.Services.FileOperations
             TryDeleteLogged(plan.SourcePrimaryPath, "primary");
             if (plan.SourceSidecarPath != null && !plan.SourceSidecarStays)
                 TryDeleteLogged(plan.SourceSidecarPath, "sidecar");
+            if (plan.PairedCopies != null && !plan.PairedCopiesStay)
+            {
+                foreach (var copy in plan.PairedCopies)
+                    TryDeleteLogged(copy.Source, "edit copy");
+            }
 
             return outcome;
         }

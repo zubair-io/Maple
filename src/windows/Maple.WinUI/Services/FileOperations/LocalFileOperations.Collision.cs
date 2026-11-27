@@ -16,6 +16,7 @@
 // policy — `File.Exists` alone doesn't see it, so every existence check here
 // checks `Directory.Exists` too.
 
+using System;
 using System.IO;
 using System.Threading.Tasks;
 
@@ -31,9 +32,14 @@ namespace Maple.WinUI.Services.FileOperations
         /// name collides the whole asset (#4758), so auto-suffix moves the
         /// photo and its sidecar to the same free `.N` name.</summary>
         private static async Task<(string Path, bool Renamed)> ResolveCollisionAsync(
-            string targetPath, CollisionPolicy collision, string ownSidecarPath, string? carriedSidecarPath)
+            string targetPath, CollisionPolicy collision, string ownSidecarPath, string? carriedSidecarPath,
+            Func<string, bool>? alsoOccupied = null)
         {
-            if (!AssetDestinationOccupied(targetPath, ownSidecarPath, carriedSidecarPath)) return (targetPath, false);
+            bool Occupied(string candidate) =>
+                AssetDestinationOccupied(candidate, ownSidecarPath, carriedSidecarPath)
+                || (alsoOccupied?.Invoke(candidate) ?? false);
+
+            if (!Occupied(targetPath)) return (targetPath, false);
 
             switch (collision)
             {
@@ -49,7 +55,7 @@ namespace Maple.WinUI.Services.FileOperations
                     return (targetPath, false);
                 case CollisionPolicy.AutoSuffix:
                     var free = await CollisionResolver
-                        .PickFreePathAsync(targetPath, p => Task.FromResult(AssetDestinationOccupied(p, ownSidecarPath, carriedSidecarPath)))
+                        .PickFreePathAsync(targetPath, p => Task.FromResult(Occupied(p)))
                         .ConfigureAwait(false);
                     return (free, true);
                 default:

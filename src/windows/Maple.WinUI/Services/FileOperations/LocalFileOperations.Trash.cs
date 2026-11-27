@@ -68,10 +68,14 @@ namespace Maple.WinUI.Services.FileOperations
         /// fixed-drive Recycle Bin call that failed also lands here. No
         /// gate on caller, so also directly testable regardless of drive
         /// type.</summary>
-        internal static Task<RelocateOutcome> TrashToMapleFolderAsync(string primaryPath, string libraryRoot)
+        internal static async Task<RelocateOutcome> TrashToMapleFolderAsync(string primaryPath, string libraryRoot)
         {
             var trashDir = TrashPaths.TrashDestinationDir(primaryPath, libraryRoot);
-            return RelocateAsync(primaryPath, trashDir, null, RelocateMode.Move, CollisionPolicy.AutoSuffix);
+            var plan = await PlanRelocateAsync(
+                primaryPath, trashDir, null, RelocateMode.Move, CollisionPolicy.AutoSuffix,
+                carriedSidecarPath: null, alsoLeaving: Array.Empty<string>(), pairedCopyCarry: PairedCopyCarry.IntoTrash)
+                .ConfigureAwait(false);
+            return FinalizeRelocate(plan);
         }
 
         /// <summary>True when <paramref name="path"/> sits on a local FIXED
