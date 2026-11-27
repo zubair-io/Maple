@@ -242,4 +242,133 @@ struct GridFilterTests {
     session.hasLoadedSidecar = true
     #expect(vm.gridAssets(sessions: [asset.id: session]).isEmpty)
   }
+
+  @MainActor
+  private final class ReadLog {
+    private(set) var names: [String] = []
+    func record(_ asset: AssetRef) { names.append(asset.displayName) }
+    func drain() -> Set<String> {
+      defer { names = [] }
+      return Set(names)
+    }
+  }
+
+  private func localListing(count: Int) throws -> (URL, [AssetRef]) {
+    let directory = try SidecarContractIO.makeTempDirectory(prefix: "grid-filter-facts")
+    let assets = try (0..<count).map { index in
+      let url = directory.appendingPathComponent("sample-\(index).dng")
+      try Data([0x49, 0x49, 0x2A, 0x00]).write(to: url)
+      return AssetRef(url: url)
+    }
+    return (directory, assets)
+  }
+
+  private func write(_ asset: AssetRef, stars: Int, modified: Date) async throws {
+    try await XMPSidecarStore(rawURL: asset.primaryURL!).writeConfirmed(
+      model: .default, culling: CullingState(stars: stars, flag: .none))
+    let sidecarPath = SidecarPath.sidecarURL(for: asset.primaryURL!).path
+    try FileManager.default.setAttributes([.modificationDate: modified], ofItemAtPath: sidecarPath)
+  }
+
+  private func switchFilter(
+    _ vm: BrowseViewModel, to filter: GridFilter, log: ReadLog
+  ) async -> Set<String> {
+    vm.selectGridFilter(filter)
+    await vm.loadGridFilterMetadata { asset in
+      log.record(asset)
+      guard let url = asset.primaryURL else {
+        return GridFilterMetadata(culling: CullingState(), hasEdits: false)
+      }
+      return try await GridFilterMetadata.read(from: XMPSidecarStore(rawURL: url))
+    }
+    return log.drain()
+  }
+
+  @Test("A second filter switch with unchanged sidecars reads nothing and agrees with the first")
+  func unchangedSidecarsAreNotReread() async throws {
+    let (directory, assets) = try localListing(count: 6)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let epoch = Date(timeIntervalSince1970: 1_700_000_000)
+    try await write(assets[4], stars: 5, modified: epoch)
+    let vm = BrowseViewModel()
+    vm.assets = assets
+    let log = ReadLog()
+
+    #expect(await switchFilter(vm, to: .fourStars, log: log).count == 6)
+    let first = vm.gridAssets(sessions: [:]).map(\.id)
+    #expect(await switchFilter(vm, to: .edited, log: log).isEmpty)
+    #expect(await switchFilter(vm, to: .fourStars, log: log).isEmpty)
+    #expect(vm.gridAssets(sessions: [:]).map(\.id) == first)
+    #expect(first == [assets[4].id])
+  }
+
+  @Test("A rewritten sidecar is read again and the others are not")
+  func rewrittenSidecarIsReread() async throws {
+    let (directory, assets) = try localListing(count: 4)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let epoch = Date(timeIntervalSince1970: 1_700_000_000)
+    try await write(assets[1], stars: 1, modified: epoch)
+    let vm = BrowseViewModel()
+    vm.assets = assets
+    let log = ReadLog()
+    _ = await switchFilter(vm, to: .fourStars, log: log)
+    #expect(vm.gridAssets(sessions: [:]).isEmpty)
+
+    try await write(assets[1], stars: 5, modified: epoch.addingTimeInterval(60))
+    let reread = await switchFilter(vm, to: .edited, log: log)
+    #expect(reread == [assets[1].displayName])
+    #expect(vm.gridFilterMetadata[assets[1].id]?.culling.stars == 5)
+    #expect(await switchFilter(vm, to: .fourStars, log: log).isEmpty)
+    #expect(vm.gridAssets(sessions: [:]).map(\.id) == [assets[1].id])
+  }
+
+  @Test("A sidecar that appears or disappears is read again")
+  func createdAndDeletedSidecarsAreReread() async throws {
+    let (directory, assets) = try localListing(count: 3)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let epoch = Date(timeIntervalSince1970: 1_700_000_000)
+    try await write(assets[0], stars: 5, modified: epoch)
+    let vm = BrowseViewModel()
+    vm.assets = assets
+    let log = ReadLog()
+    _ = await switchFilter(vm, to: .fourStars, log: log)
+    #expect(vm.gridAssets(sessions: [:]).map(\.id) == [assets[0].id])
+
+    try await write(assets[2], stars: 4, modified: epoch)
+    try FileManager.default.removeItem(at: SidecarPath.sidecarURL(for: assets[0].primaryURL!))
+    let reread = await switchFilter(vm, to: .edited, log: log)
+    #expect(reread == [assets[0].displayName, assets[2].displayName])
+    #expect(vm.gridAssets(sessions: [:]).map(\.id) == [assets[2].id])
+  }
+
+  @Test("A sourceless asset is read on every switch")
+  func sourcelessAssetIsAlwaysRead() async throws {
+    let (directory, local) = try localListing(count: 2)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let sourceless = AssetRef.preview(displayName: "cloud.jpg")
+    let vm = BrowseViewModel()
+    vm.assets = local + [sourceless]
+    let log = ReadLog()
+    #expect(await switchFilter(vm, to: .picks, log: log).count == 3)
+    #expect(await switchFilter(vm, to: .edited, log: log) == [sourceless.displayName])
+    #expect(await switchFilter(vm, to: .picks, log: log) == [sourceless.displayName])
+  }
+
+  @Test("A relisting drops the kept facts")
+  func relistingDropsKeptFacts() async throws {
+    let (directory, assets) = try localListing(count: 3)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let vm = BrowseViewModel()
+    vm.assets = assets
+    let log = ReadLog()
+    _ = await switchFilter(vm, to: .picks, log: log)
+    #expect(await switchFilter(vm, to: .edited, log: log).isEmpty)
+
+    await vm.loadFolder(url: directory)
+    #expect(await switchFilter(vm, to: .picks, log: log).count == 3)
+    #expect(await switchFilter(vm, to: .edited, log: log).isEmpty)
+
+    vm.invalidateGridFilterForAssetIdentityChange()
+    #expect(await switchFilter(vm, to: .picks, log: log).count == 3)
+  }
 }
