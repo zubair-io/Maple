@@ -9,11 +9,14 @@
  * so every branch is asserted rather than tolerated.
  */
 
-import { beforeEach, describe, it, expect } from 'bun:test';
+import { beforeEach, describe, it, expect, spyOn } from 'bun:test';
 import { Elysia } from 'elysia';
 import { workerRoutes } from './routes.ts';
 import { ffiPool, _resetFfiPoolForTests } from '../ffi/ffi-pool.ts';
+import * as configRepo from '../ffi/ffi-pool-config.repo.ts';
 import { MAX_FFI_WORKERS, MIN_FFI_WORKERS } from '../ffi/ffi-pool-config.repo.ts';
+import { decodeMemoryBudget } from '../ffi/decode-memory-budget.ts';
+import { stopFfiPoolConfigRefresh } from '../ffi/ffi-pool-bootstrap.ts';
 import { createLiveTestDatabase } from '../db/sqlite/test-sqlite.test-helpers.ts';
 import { writeWorkerMemory } from '../db/repos/worker-status.repo.ts';
 
@@ -32,7 +35,11 @@ async function patch(body: unknown) {
 }
 
 describe('PATCH /api/workers/performance — body validation', () => {
-  beforeEach(() => _resetFfiPoolForTests());
+  beforeEach(() => {
+    stopFfiPoolConfigRefresh();
+    decodeMemoryBudget().configure(null);
+    _resetFfiPoolForTests();
+  });
 
   it('rejects a body with neither setting (400)', async () => {
     using _live = await createLiveTestDatabase();
@@ -45,7 +52,11 @@ describe('PATCH /api/workers/performance — body validation', () => {
 });
 
 describe('PATCH /api/workers/performance — clamp + live resize', () => {
-  beforeEach(() => _resetFfiPoolForTests());
+  beforeEach(() => {
+    stopFfiPoolConfigRefresh();
+    decodeMemoryBudget().configure(null);
+    _resetFfiPoolForTests();
+  });
 
   it('clamps an over-range value to MAX and resizes the live pool', async () => {
     using _live = await createLiveTestDatabase();
@@ -99,7 +110,11 @@ describe('GET /api/workers/performance', () => {
 });
 
 describe('decode memory budget (#5467)', () => {
-  beforeEach(() => _resetFfiPoolForTests());
+  beforeEach(() => {
+    stopFfiPoolConfigRefresh();
+    decodeMemoryBudget().configure(null);
+    _resetFfiPoolForTests();
+  });
 
   it('saves the percent alone and reports it with the container limit it applies to', async () => {
     using _live = await createLiveTestDatabase();
@@ -155,5 +170,27 @@ describe('decode memory budget (#5467)', () => {
       waiting: 3,
       at: 1234,
     });
+  });
+});
+
+describe('a save this process cannot apply (#6101)', () => {
+  beforeEach(() => {
+    stopFfiPoolConfigRefresh();
+    decodeMemoryBudget().configure(null);
+    _resetFfiPoolForTests();
+  });
+
+  it('says so instead of answering ok, keeps the saved values, and leaves the budget alone', async () => {
+    using _live = await createLiveTestDatabase();
+    decodeMemoryBudget().configure(null);
+    const read = spyOn(configRepo, 'readPerformanceConfig').mockRejectedValueOnce(
+      new Error('busy'),
+    );
+    const res = await patch({ decode_memory_budget_percent: 0 });
+    read.mockRestore();
+    expect(res.status).toBe(500);
+    expect(((await res.json()) as { error: string }).error).toContain('Saved, but');
+    expect(decodeMemoryBudget().capped()).toBe(false);
+    expect((await configRepo.loadPerformanceConfig())?.decode_memory_budget_percent).toBe(0);
   });
 });

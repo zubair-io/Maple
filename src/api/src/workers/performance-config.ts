@@ -3,12 +3,14 @@
  * (#673) and the decode memory budget (#5467).
  *
  * Both settings are applied by the worker process, which re-reads the saved
- * doc every few seconds (`ffi/ffi-pool-bootstrap.ts`). The live reservation is
+ * doc every few seconds, and by this process at boot and on each save
+ * (`ffi/ffi-pool-bootstrap.ts`). The live reservation is
  * the worker's, persisted with its per-minute memory sample, so the readout is
  * at most a minute old and carries the sample time.
  */
 
 import { ffiPool } from '../ffi/ffi-pool.ts';
+import { applyPerformanceConfig } from '../ffi/ffi-pool-bootstrap.ts';
 import {
   MAX_DECODE_MEMORY_BUDGET_PERCENT,
   MAX_FFI_WORKERS,
@@ -74,7 +76,7 @@ function invalid(field: string, value: unknown): PatchOutcome {
   };
 }
 
-/** Clamp and persist whichever fields were sent; the API's own pool resizes now. */
+/** Clamp and persist whichever fields were sent; the API's own pool and budget follow now. */
 export async function patchPerformance(body: PerformancePatchBody): Promise<PatchOutcome> {
   if (body.ffi_workers === undefined && body.decode_memory_budget_percent === undefined) {
     return {
@@ -101,6 +103,15 @@ export async function patchPerformance(body: PerformancePatchBody): Promise<Patc
   } catch (err) {
     return { ok: false, status: 500, error: err instanceof Error ? err.message : String(err) };
   }
-  ffiPool().setPoolSize(resolveFfiPoolConfig(await loadPerformanceConfig()).ffi_workers);
+  try {
+    await applyPerformanceConfig('request');
+  } catch (err) {
+    const reason = err instanceof Error ? err.message : String(err);
+    return {
+      ok: false,
+      status: 500,
+      error: `Saved, but this process could not apply it: ${reason}`,
+    };
+  }
   return { ok: true };
 }
