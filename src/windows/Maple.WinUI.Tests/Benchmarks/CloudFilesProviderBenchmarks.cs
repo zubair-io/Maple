@@ -155,15 +155,17 @@ public sealed class CloudFilesProviderBenchmarks(ITestOutputHelper output)
         };
         var started = Stopwatch.GetTimestamp();
         using var process = Process.Start(start)!;
-        var output = process.StandardOutput.ReadToEnd();
+        // Read both pipes while waiting: a synchronous read would block past the timeout on a stalled listing.
+        var output = process.StandardOutput.ReadToEndAsync();
+        var errors = process.StandardError.ReadToEndAsync();
         if (!process.WaitForExit(60_000))
         {
             process.Kill(entireProcessTree: true);
             throw new TimeoutException($"cmd /c {command} did not return within 60 seconds.");
         }
         var elapsed = Stopwatch.GetElapsedTime(started).TotalMilliseconds;
-        Assert.True(process.ExitCode == 0, process.StandardError.ReadToEnd());
-        return (elapsed, output);
+        Assert.True(process.ExitCode == 0, errors.GetAwaiter().GetResult());
+        return (elapsed, output.GetAwaiter().GetResult());
     }
 
     private static async Task<CloudClient> SignedInAsync(string url, string cache)
