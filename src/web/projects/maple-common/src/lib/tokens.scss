@@ -18,6 +18,10 @@
 
 @use 'generated/ui-tokens' as ui;
 
+// Airport 2 (docs/design/airport/README.md): `--airport-*` custom properties,
+// dark on `:root`, light under `[data-airport-theme='light']`.
+@use 'generated/airport-tokens';
+
 // Bundled webfont @font-face declarations. Must come before @theme so the
 // font-family stack references are valid by the time Tailwind expands them.
 @use './fonts';

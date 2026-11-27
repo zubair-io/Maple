@@ -1,7 +1,8 @@
 // Maple bundled webfonts.
 //
 // Per docs/design/responsive-program/s0-primitives.md §3.3:
-// - Lato 400 / 700 (SIL OFL 1.1)
+// - Lato 300 / 400 / 700 / 900 (SIL OFL 1.1; 300 and 900 carry the Airport 2
+//   display and caps roles)
 // - Merriweather 700 (SIL OFL 1.1)
 // - JetBrains Mono 400 (SIL OFL 1.1)
 //
@@ -29,10 +30,22 @@
 // — that's the step hand-rolled implementations most often miss.
 //
 // Fallback fonts per pair:
-//   Lato 400/700      → SF Pro Text (/System/Library/Fonts/SFNS.ttf)
+//   Lato 300–900      → SF Pro Text (/System/Library/Fonts/SFNS.ttf)
 //   Merriweather 700  → Georgia Bold (first concrete serif in
 //                       --font-serif: 'Merriweather', Georgia, ...)
 //   JetBrains Mono    → SF Mono (/System/Library/Fonts/SFNSMono.ttf)
+
+@font-face {
+  font-family: 'Lato';
+  font-style: normal;
+  font-weight: 300;
+  font-display: swap;
+  src: url('/assets/fonts/Lato-Light.woff2') format('woff2');
+  size-adjust: 113.54%;
+  ascent-override: 85.16%;
+  descent-override: 18.58%;
+  line-gap-override: 0%;
+}
 
 @font-face {
   font-family: 'Lato';
@@ -55,6 +68,18 @@
   size-adjust: 109.36%;
   ascent-override: 88.41%;
   descent-override: 19.29%;
+  line-gap-override: 0%;
+}
+
+@font-face {
+  font-family: 'Lato';
+  font-style: normal;
+  font-weight: 900;
+  font-display: swap;
+  src: url('/assets/fonts/Lato-Black.woff2') format('woff2');
+  size-adjust: 107.73%;
+  ascent-override: 89.75%;
+  descent-override: 19.58%;
   line-gap-override: 0%;
 }
 
