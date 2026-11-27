@@ -41,6 +41,7 @@ internal class FileCloudServer(private val directory: File) : Closeable {
     @Volatile var previewCount = 0
     @Volatile var previewSuccesses = 0
     @Volatile var thumbCount = 0
+    val responseBytes = java.util.concurrent.atomic.AtomicLong()
     @Volatile var folderPages: Map<String?, JSONObject>? = null
     val folderCursors = java.util.Collections.synchronizedList(mutableListOf<String?>())
     @Volatile private var access = "fixture-access-1"
@@ -105,6 +106,7 @@ internal class FileCloudServer(private val directory: File) : Closeable {
             bytes: ByteArray = ByteArray(0),
             extra: Map<String, String> = emptyMap(),
         ) {
+            responseBytes.addAndGet(bytes.size.toLong())
             val output = client.getOutputStream()
             output.write(
                 ("HTTP/1.1 $code Fixture\r\nContent-Length: ${bytes.size}\r\nConnection: close\r\n" +
