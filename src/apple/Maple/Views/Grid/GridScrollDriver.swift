@@ -59,6 +59,29 @@ struct GridScrollTarget {
     func makeDisplayLink(target: Any, selector: Selector) -> CADisplayLink {
       view.displayLink(target: target, selector: selector)
     }
+
+    /// Calls `lost` whenever the window may have stopped being shown. While
+    /// it is hidden the display link is silent, so checking at the ends of a
+    /// pass misses a lock or minimise that is over before the pass is.
+    func watchVisibility(_ lost: @escaping @MainActor @Sendable () -> Void) -> () -> Void {
+      let local = NotificationCenter.default
+      let workspace = NSWorkspace.shared.notificationCenter
+      let distributed = DistributedNotificationCenter.default()
+      let watched: [(NotificationCenter, Notification.Name, Any?)] = [
+        (local, NSWindow.didChangeOcclusionStateNotification, view.window),
+        (workspace, NSWorkspace.screensDidSleepNotification, nil),
+        (distributed, Notification.Name("com.apple.screenIsLocked"), nil),
+      ]
+      let tokens = watched.map { center, name, object in
+        (
+          center,
+          center.addObserver(forName: name, object: object, queue: .main) { _ in
+            MainActor.assumeIsolated { lost() }
+          }
+        )
+      }
+      return { tokens.forEach { center, token in center.removeObserver(token) } }
+    }
   #else
     let view: UIScrollView
 
@@ -98,6 +121,17 @@ struct GridScrollTarget {
     func makeDisplayLink(target: Any, selector: Selector) -> CADisplayLink {
       CADisplayLink(target: target, selector: selector)
     }
+
+    /// Calls `lost` when the app leaves the active state: the first sign of
+    /// a lock, a sleeping display or another app taking the screen.
+    func watchVisibility(_ lost: @escaping @MainActor @Sendable () -> Void) -> () -> Void {
+      let token = NotificationCenter.default.addObserver(
+        forName: UIApplication.willResignActiveNotification, object: nil, queue: .main
+      ) { _ in
+        MainActor.assumeIsolated { lost() }
+      }
+      return { NotificationCenter.default.removeObserver(token) }
+    }
   #endif
 }
 
@@ -112,6 +146,7 @@ final class GridScrollDriver: NSObject {
   struct Pass {
     let frames: [DisplayFrame]
     let reachedBottom: Bool
+    let stayedVisible: Bool
   }
 
   private let grid: GridScrollTarget
@@ -120,6 +155,8 @@ final class GridScrollDriver: NSObject {
   private var pending: (timestamp: Double, period: Double)?
   private var origin: (timestamp: Double, offset: Double)?
   private var reachedBottom = false
+  private var stayedVisible = true
+  private var stopWatchingVisibility: (() -> Void)?
   private var link: CADisplayLink?
   private var commitObserver: CFRunLoopObserver?
   private var watchdog: Task<Void, Never>?
@@ -156,6 +193,7 @@ final class GridScrollDriver: NSObject {
       }
       link.add(to: .main, forMode: .common)
       self.link = link
+      stopWatchingVisibility = grid.watchVisibility { [weak self] in self?.stayedVisible = false }
       watchdog = Task { [weak self] in
         try? await Task.sleep(for: limit)
         guard !Task.isCancelled else { return }
@@ -195,6 +233,9 @@ final class GridScrollDriver: NSObject {
     commitObserver = nil
     watchdog?.cancel()
     watchdog = nil
-    continuation.resume(returning: Pass(frames: frames, reachedBottom: reachedBottom))
+    stopWatchingVisibility?()
+    stopWatchingVisibility = nil
+    continuation.resume(
+      returning: Pass(frames: frames, reachedBottom: reachedBottom, stayedVisible: stayedVisible))
   }
 }
