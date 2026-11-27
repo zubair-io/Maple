@@ -150,7 +150,7 @@ pub(super) fn rotation_tail(
         auto_canvas(&kept_cams, &canvas_opts).map_err(|e| StitchError::Composite(e.to_string()))?;
     super::memory::admit_composite(
         alignment.frames.iter().map(|frame| frame.full_dims),
-        canvas.width,
+        (canvas.width, canvas.height),
         opts,
     )?;
 

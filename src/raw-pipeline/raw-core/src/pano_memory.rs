@@ -4,29 +4,31 @@
 //! sheet sizes the output with the same model through `tools/codegen.sh`, so neither carries
 //! its own copy. No pixel-processing code reads them.
 //!
-//! A stitch peaks in one of two phases. The head (decode, matching, refinement) holds, per
-//! frame, its proxy and the features, matches and solve state built from it, and for the largest
-//! frame the banded decode: the raw mosaic, which grows with its pixels, and the develop bands,
-//! which span its width. The composite still holds the per-frame state, plus what the allocator
-//! kept of the decode, plus fixed-height strips whose buffers are output rows, so a term
-//! proportional to canvas width.
+//! A stitch peaks in one of two phases. The head (decode, matching, refinement) is set by
+//! decoding the largest frame, which grows with its pixels: the file bytes, the decoded raw and
+//! one develop's bands, or for X-Trans the whole developed frame (#6141 measured the two the
+//! same on a 48 MP LinearRaw frame). Each frame adds only its proxy and features. The composite
+//! holds a fixed floor, per-frame camera and photometry state, the largest frame's source taps,
+//! a term proportional to the canvas's pixels (the seam and exposure canvases and the display
+//! encoder scale with it, not only with the width its strips span) and per-thread strip and
+//! allocator buffers.
 //!
-//! One model, two calibrations ([`PanoMemoryProfile`]), because the two allocators keep very
-//! different amounts of freed memory:
+//! One model, two calibrations ([`PanoMemoryProfile`]), one for each place it is used, which
+//! #6141 measured to the same constants:
 //!
 //! - [`PANO_MEMORY_SERVER`] is a guarantee: `maple-pano` refuses a stitch over the server's
-//!   memory limit with it. It is fitted (#5891) to the whole-process peak footprint of
-//!   `maple-cli pano stitch` (classical matcher, mesh local alignment) on a Mac (Mac17,6,
-//!   18 threads), per phase, over 11 configurations (the table in docs/pano.md, pinned by this module's
-//!   tests); every constant rounds up, so each phase
-//!   overstates every measurement. macOS's allocator keeps freed large blocks and counts them
-//!   (#5891 saw 386 MB of "Malloc Large (empty)" in the composite), so these overstate a Linux
-//!   process; no Linux measurement has been made.
-//! - [`PANO_MEMORY_APPLE`] sizes the Apple merge sheet's output. It is the #5555 calibration,
-//!   unchanged: the iPad's pano_00 (3 × 100.7 MP, 12315 px wide) adds 1263 MiB in the head and
-//!   593 MiB in the composite (#5450), about half what the Mac reports for the same stitch; the
-//!   column term is the Mac's pano_01. Fitting it to the Mac would make an iPad with less than
-//!   about 4 GB available refuse a 100 MP set it stitches today in about 1.7 GB.
+//!   memory limit with it. It is fitted (#6141) to the whole-process peak footprint
+//!   (`proc_pid_rusage`) of `maple-cli pano stitch --display` (the server's command; classical
+//!   matcher, mesh local alignment) on a Mac (Mac17,6, 18 threads), per phase, over synthetic
+//!   LinearRaw rings from 3 × 0.3 MP to 40 × 48 MP and the real pano_00 and pano_01, and
+//!   checked against Linux's peak RSS of the same command at 4 to 64 threads (the tables in
+//!   docs/pano.md, pinned by this module's tests). macOS's allocator keeps freed large blocks
+//!   and counts them, so the Mac sets every constant and Linux sits further under it. Every
+//!   constant rounds up, so each phase overstates every measurement.
+//! - [`PANO_MEMORY_APPLE`] sizes the Apple merge sheet's output and refuses an over-limit stitch
+//!   on the device. iOS and iPadOS run the Mac's allocator, and the Mac footprint covers the
+//!   48 MP LinearRaw (ProRAW) frames the 2024 iPad calibration (#5555) never saw, so it is the
+//!   server's. No device has been measured since #5450.
 //!
 //! The calibrations were measured at the default 1600 px proxy, so a frame's proxy costs at
 //! least [`PANO_PROXY_PIXELS_MAX`] pixels' worth and a frame's own cost stops growing past
@@ -38,27 +40,33 @@
 
 /// One calibration of the model. With F frames, the largest of P pixels, its fitted proxy of
 /// p = min(P, [`PANO_PROXY_PIXELS_MAX`]) pixels, its configured proxy of q ≥ p pixels (see
-/// [`PanoStitchLoad::proxy_long_edge`]), its width c = [`frame_columns`]`(P)` and a canvas W
-/// pixels wide, a phase costs `F × (per_frame + p × per_frame_proxy_pixel + (q − p) ×
-/// max(per_frame_proxy_pixel, PANO_PROXY_BYTES_PER_PIXEL)) + P × per_largest_frame_pixel +
-/// c × per_largest_frame_column`, and the composite adds `W × composite_bytes_per_canvas_column`.
+/// [`PanoStitchLoad::proxy_long_edge`]), its width c = [`frame_columns`]`(P)`, T worker threads
+/// and a canvas of W × H pixels, a phase costs `fixed + F × (per_frame + p ×
+/// per_frame_proxy_pixel + (q − p) × max(per_frame_proxy_pixel, PANO_PROXY_BYTES_PER_PIXEL)) +
+/// P × per_largest_frame_pixel + c × per_largest_frame_column`, and the composite adds `W ×
+/// per_canvas_column + W × H × per_canvas_pixel + T × per_thread`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct PanoMemoryCalibration {
+    pub head_bytes_fixed: u64,
     pub head_bytes_per_frame: u64,
     pub head_bytes_per_frame_proxy_pixel: u64,
     pub head_bytes_per_largest_frame_pixel: u64,
     pub head_bytes_per_largest_frame_column: u64,
+    pub composite_bytes_fixed: u64,
     pub composite_bytes_per_frame: u64,
     pub composite_bytes_per_frame_proxy_pixel: u64,
     pub composite_bytes_per_largest_frame_pixel: u64,
     pub composite_bytes_per_largest_frame_column: u64,
     pub composite_bytes_per_canvas_column: u64,
+    pub composite_bytes_per_canvas_pixel: u64,
+    pub composite_bytes_per_thread: u64,
 }
 
 impl PanoMemoryCalibration {
     /// Every constant by name, for `tools/codegen.sh`.
-    pub const fn fields(&self) -> [(&'static str, u64); 9] {
+    pub const fn fields(&self) -> [(&'static str, u64); 13] {
         [
+            ("head_bytes_fixed", self.head_bytes_fixed),
             ("head_bytes_per_frame", self.head_bytes_per_frame),
             (
                 "head_bytes_per_frame_proxy_pixel",
@@ -72,6 +80,7 @@ impl PanoMemoryCalibration {
                 "head_bytes_per_largest_frame_column",
                 self.head_bytes_per_largest_frame_column,
             ),
+            ("composite_bytes_fixed", self.composite_bytes_fixed),
             ("composite_bytes_per_frame", self.composite_bytes_per_frame),
             (
                 "composite_bytes_per_frame_proxy_pixel",
@@ -89,35 +98,39 @@ impl PanoMemoryCalibration {
                 "composite_bytes_per_canvas_column",
                 self.composite_bytes_per_canvas_column,
             ),
+            (
+                "composite_bytes_per_canvas_pixel",
+                self.composite_bytes_per_canvas_pixel,
+            ),
+            (
+                "composite_bytes_per_thread",
+                self.composite_bytes_per_thread,
+            ),
         ]
     }
 }
 
-/// The server's calibration, a guarantee: fitted to the Mac's peak footprint (#5891).
+/// The server's calibration, a guarantee: fitted to the Mac's peak footprint, which covers
+/// Linux's peak RSS (#6141).
 pub const PANO_MEMORY_SERVER: PanoMemoryCalibration = PanoMemoryCalibration {
-    head_bytes_per_frame: 0,
-    head_bytes_per_frame_proxy_pixel: 13,
-    head_bytes_per_largest_frame_pixel: 0,
-    head_bytes_per_largest_frame_column: 226_000,
-    composite_bytes_per_frame: 40 << 20,
+    head_bytes_fixed: 400 << 20,
+    head_bytes_per_frame: 24 << 20,
+    head_bytes_per_frame_proxy_pixel: 0,
+    head_bytes_per_largest_frame_pixel: 32,
+    head_bytes_per_largest_frame_column: 0,
+    composite_bytes_fixed: 768 << 20,
+    composite_bytes_per_frame: 16 << 20,
     composite_bytes_per_frame_proxy_pixel: 0,
-    composite_bytes_per_largest_frame_pixel: 0,
-    composite_bytes_per_largest_frame_column: 233_500,
-    composite_bytes_per_canvas_column: 42_300,
+    composite_bytes_per_largest_frame_pixel: 6,
+    composite_bytes_per_largest_frame_column: 0,
+    composite_bytes_per_canvas_column: 0,
+    composite_bytes_per_canvas_pixel: 3,
+    composite_bytes_per_thread: 8 << 20,
 };
 
-/// The Apple merge sheet's calibration: the iPad's pano_00 and the Mac's pano_01 (#5555).
-pub const PANO_MEMORY_APPLE: PanoMemoryCalibration = PanoMemoryCalibration {
-    head_bytes_per_frame: 80 << 20,
-    head_bytes_per_frame_proxy_pixel: 0,
-    head_bytes_per_largest_frame_pixel: 12,
-    head_bytes_per_largest_frame_column: 0,
-    composite_bytes_per_frame: 80 << 20,
-    composite_bytes_per_frame_proxy_pixel: 0,
-    composite_bytes_per_largest_frame_pixel: 5,
-    composite_bytes_per_largest_frame_column: 0,
-    composite_bytes_per_canvas_column: 49_350,
-};
+/// The Apple devices' calibration: the server's, since iOS and iPadOS run the Mac's allocator
+/// (#6141).
+pub const PANO_MEMORY_APPLE: PanoMemoryCalibration = PANO_MEMORY_SERVER;
 
 /// Which calibration a stitch is costed with.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -172,6 +185,8 @@ pub struct PanoStitchLoad {
     pub largest_frame_px: u64,
     /// The configured proxy long edge; one at or below the fitted 1600 px costs as the fitted.
     pub proxy_long_edge: u64,
+    /// The worker threads the composite runs on (rayon's pool).
+    pub threads: u64,
     pub ml_matcher: bool,
     pub profile: PanoMemoryProfile,
 }
@@ -181,6 +196,7 @@ impl PanoStitchLoad {
     pub fn head_bytes(&self) -> u64 {
         let c = self.profile.calibration();
         self.phase_bytes(
+            c.head_bytes_fixed,
             c.head_bytes_per_frame,
             c.head_bytes_per_frame_proxy_pixel,
             c.head_bytes_per_largest_frame_pixel,
@@ -195,19 +211,35 @@ impl PanoStitchLoad {
         self.head_bytes()
     }
 
-    /// Peak of the composite onto a canvas `canvas_width` pixels wide.
-    pub fn composite_bytes(&self, canvas_width: u64) -> u64 {
+    /// Peak of the composite onto a canvas of `canvas_width` × `canvas_height` pixels.
+    pub fn composite_bytes(&self, canvas_width: u64, canvas_height: u64) -> u64 {
         let c = self.profile.calibration();
+        let canvas = canvas_width
+            .saturating_mul(c.composite_bytes_per_canvas_column)
+            .saturating_add(
+                canvas_width
+                    .saturating_mul(canvas_height)
+                    .saturating_mul(c.composite_bytes_per_canvas_pixel),
+            )
+            .saturating_add(self.threads.saturating_mul(c.composite_bytes_per_thread));
         self.phase_bytes(
+            c.composite_bytes_fixed,
             c.composite_bytes_per_frame,
             c.composite_bytes_per_frame_proxy_pixel,
             c.composite_bytes_per_largest_frame_pixel,
             c.composite_bytes_per_largest_frame_column,
         )
-        .saturating_add(canvas_width.saturating_mul(c.composite_bytes_per_canvas_column))
+        .saturating_add(canvas)
     }
 
-    fn phase_bytes(&self, per_frame: u64, per_proxy_px: u64, per_px: u64, per_column: u64) -> u64 {
+    fn phase_bytes(
+        &self,
+        fixed: u64,
+        per_frame: u64,
+        per_proxy_px: u64,
+        per_px: u64,
+        per_column: u64,
+    ) -> u64 {
         let runtime = if self.ml_matcher {
             PANO_ML_RUNTIME_BYTES
         } else {
@@ -228,6 +260,7 @@ impl PanoStitchLoad {
             .saturating_mul(frame)
             .saturating_add(self.largest_frame_px.saturating_mul(per_px))
             .saturating_add(frame_columns(self.largest_frame_px).saturating_mul(per_column))
+            .saturating_add(fixed)
             .saturating_add(runtime)
     }
 }

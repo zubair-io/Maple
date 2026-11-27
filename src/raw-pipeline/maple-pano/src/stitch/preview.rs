@@ -166,7 +166,7 @@ pub fn preview(
                     natural = (w, h);
                     long_edge_pixel_cap(w, h)
                 },
-                &|_| Ok(()),
+                &|_, _| Ok(()),
                 &mut collector,
                 &mut progress,
                 &is_cancelled,
