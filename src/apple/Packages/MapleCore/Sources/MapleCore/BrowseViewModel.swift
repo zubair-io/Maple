@@ -23,7 +23,9 @@ public final class BrowseViewModel {
   public var selectedID: AssetRef.ID? = nil
   /// Bumps whenever a load publishes a different listing (never on a page
   /// append), so grids know to return to the top.
-  public internal(set) var listingGeneration: UInt64 = 0
+  public internal(set) var listingGeneration: UInt64 = 0 {
+    didSet { gridFilterFacts = .empty }
+  }
   public var sortOrder: SortOrder = .nameAscending
   public var gridFilter: GridFilter =
     GridFilter(

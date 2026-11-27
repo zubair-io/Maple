@@ -371,4 +371,46 @@ struct GridFilterTests {
     vm.invalidateGridFilterForAssetIdentityChange()
     #expect(await switchFilter(vm, to: .picks, log: log).count == 3)
   }
+
+  @Test("A relisting that keeps the same assets still drops the kept facts")
+  func relistingWithSameAssetsDropsKeptFacts() async throws {
+    let (directory, assets) = try localListing(count: 3)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let vm = BrowseViewModel()
+    vm.assets = assets
+    let log = ReadLog()
+    _ = await switchFilter(vm, to: .picks, log: log)
+    #expect(await switchFilter(vm, to: .edited, log: log).isEmpty)
+
+    let listing = vm.listingGeneration
+    await vm.loadFolder(directory, via: FilesystemSource())
+    #expect(vm.listingGeneration != listing)
+    vm.assets = assets
+    #expect(await switchFilter(vm, to: .picks, log: log).count == 3)
+  }
+
+  @Test("An atomic rewrite that keeps the size and the old timestamp is read again")
+  func atomicRewriteKeepingSizeAndTimestampIsReread() async throws {
+    let (directory, assets) = try localListing(count: 2)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let epoch = Date(timeIntervalSince1970: 1_700_000_000)
+    let sidecar = SidecarPath.sidecarURL(for: assets[0].primaryURL!)
+    try await write(assets[0], stars: 1, modified: epoch)
+    let before = try FileManager.default.attributesOfItem(atPath: sidecar.path)
+    let vm = BrowseViewModel()
+    vm.assets = assets
+    let log = ReadLog()
+    _ = await switchFilter(vm, to: .fourStars, log: log)
+    #expect(vm.gridAssets(sessions: [:]).isEmpty)
+
+    try await write(assets[0], stars: 5, modified: epoch)
+    let after = try FileManager.default.attributesOfItem(atPath: sidecar.path)
+    #expect(after[.size] as? NSNumber == before[.size] as? NSNumber)
+    #expect(after[.modificationDate] as? Date == before[.modificationDate] as? Date)
+    #expect(after[.systemFileNumber] as? NSNumber != before[.systemFileNumber] as? NSNumber)
+
+    #expect(await switchFilter(vm, to: .edited, log: log) == [assets[0].displayName])
+    #expect(await switchFilter(vm, to: .fourStars, log: log).isEmpty)
+    #expect(vm.gridAssets(sessions: [:]).map(\.id) == [assets[0].id])
+  }
 }

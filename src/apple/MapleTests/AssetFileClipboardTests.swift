@@ -28,15 +28,16 @@
     /// Open owner decision 33: with the original's own path on the clipboard, Finder's
     /// "Move Item Here" moves the photo out of its library.
     @MainActor
-    func testLocalOriginalIsNeverOfferedByItsOwnPath() async throws {
+    func testLocalCopyOffersTheOriginalsOwnPathUntilDecision33() async throws {
       let original = root.appendingPathComponent("photo.dng")
       try Data([1, 2, 3]).write(to: original)
       let staging = root.appendingPathComponent("staging")
 
       let urls = try await AssetFileClipboard.stage([AssetRef(url: original)], in: staging)
 
-      XCTExpectFailure("decision 33 is open: a local Copy still offers the original's own path")
-      XCTAssertFalse(urls.map(\.standardizedFileURL).contains(original.standardizedFileURL))
+      XCTExpectFailure("decision 33 is open: a local Copy still offers the original's own path") {
+        XCTAssertFalse(urls.map(\.standardizedFileURL).contains(original.standardizedFileURL))
+      }
       XCTAssertEqual(try Data(contentsOf: original), Data([1, 2, 3]))
     }
 
