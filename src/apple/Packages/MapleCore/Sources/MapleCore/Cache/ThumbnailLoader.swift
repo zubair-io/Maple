@@ -105,6 +105,7 @@ public actor ThumbnailLoader {
   // consumer, not the producer, until the final consumer disappears.
   var thumbnailWaiters: [Task<Data?, Never>: Set<UUID>] = [:]
   var activeProducers: Set<UUID> = []
+  var abandonedProducers: Set<UUID> = []
   var taskProducerIDs: [Task<Data?, Never>: UUID] = [:]
   /// Keyed by path plus original/sidecar signature, so every loader can
   /// share one extraction: a grid cell's seed is reused by the AVIF tiers.
@@ -218,6 +219,7 @@ public actor ThumbnailLoader {
     cameraPreviewWaiters.removeAll()
     thumbnailWaiters.removeAll()
     activeProducers.removeAll()
+    abandonedProducers.removeAll()
     taskProducerIDs.removeAll()
   }
 
