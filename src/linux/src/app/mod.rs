@@ -12,6 +12,7 @@ mod startup;
 mod style;
 #[cfg(test)]
 mod tests;
+mod thumbnail_cache;
 mod views;
 mod zoom;
 
@@ -53,6 +54,7 @@ pub struct MapleApp {
     thumbnail_pending: std::collections::HashSet<PathBuf>,
     thumbnail_epoch: u64,
     thumbnail_order: std::collections::VecDeque<PathBuf>,
+    grid_laid_out: std::ops::Range<usize>,
     filmstrip: filmstrip::Filmstrip,
     folder: Option<Folder>,
     photo_sort: crate::library::PhotoSort,
@@ -134,6 +136,7 @@ impl MapleApp {
             thumbnail_cache: Default::default(),
             thumbnail_pending: Default::default(),
             thumbnail_order: Default::default(),
+            grid_laid_out: 0..0,
             filmstrip: Default::default(),
             thumbnail_epoch: 0,
             folder: None,
@@ -454,3 +457,6 @@ mod keyboard_tests;
 
 #[cfg(test)]
 mod sorting_tests;
+
+#[cfg(test)]
+mod grid_tests;

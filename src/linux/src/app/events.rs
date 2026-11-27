@@ -6,6 +6,9 @@ impl MapleApp {
             self.cancel_detail();
         }
         self.cloud.poll(context);
+        if !self.browse && !self.cloud.active && self.cloud_editor.is_none() {
+            self.grid_laid_out = 0..0;
+        }
         if let Some(error) = self.cloud.edit_error.take() {
             self.error = Some(format!("Cloud transfer failed: {error}"));
             self.busy = false;
@@ -72,11 +75,17 @@ impl MapleApp {
             self.thumbnail_cache.insert(path.clone(), texture);
             self.thumbnail_order.retain(|queued| queued != &path);
             self.thumbnail_order.push_back(path);
-            while self.thumbnail_order.len() > 128 {
-                if let Some(path) = self.thumbnail_order.pop_front() {
-                    self.thumbnail_cache.remove(&path);
-                }
-            }
+            let on_screen = self
+                .folder
+                .as_ref()
+                .and_then(|folder| folder.photos.get(self.grid_laid_out.clone()))
+                .unwrap_or_default();
+            super::thumbnail_cache::evict_oldest(
+                &mut self.thumbnail_order,
+                &mut self.thumbnail_cache,
+                on_screen.len(),
+                |path| on_screen.iter().any(|photo| &photo.path == path),
+            );
         }
         if let Some(picker) = &self.picker {
             match picker.try_recv() {
