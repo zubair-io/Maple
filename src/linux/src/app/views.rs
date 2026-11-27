@@ -135,6 +135,8 @@ impl MapleApp {
                         egui::ScrollArea::vertical()
                             .id_salt(self.listing)
                             .show_rows(ui, 155.0, rows, |ui, range| {
+                                self.grid_laid_out = range.start * columns
+                                    ..(range.end * columns).min(folder.photos.len());
                                 for row in range {
                                     ui.horizontal(|ui| {
                                         for photo in
