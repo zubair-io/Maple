@@ -52,16 +52,47 @@ final class LocalNetworkReprobeTests: XCTestCase {
     for _ in 0..<50 { await Task.yield() }
   }
 
-  func test_pathFilter_ignoresFirstUpdateAndUnchangedNetwork() {
-    let home = LocalNetworkPathSignature(isSatisfied: true, interfaces: ["en0"], gateways: ["a"])
-    let office = LocalNetworkPathSignature(isSatisfied: true, interfaces: ["en0"], gateways: ["b"])
-    let offline = LocalNetworkPathSignature(isSatisfied: false, interfaces: [], gateways: [])
+  func test_pathFilter_ignoresTheFirstAndOfflineUpdatesAndReprobesOnEveryOtherOne() {
     var filter = LocalNetworkPathFilter()
-    XCTAssertFalse(filter.shouldReprobe(for: home))
-    XCTAssertFalse(filter.shouldReprobe(for: home))
-    XCTAssertTrue(filter.shouldReprobe(for: office))
-    XCTAssertFalse(filter.shouldReprobe(for: offline))
-    XCTAssertTrue(filter.shouldReprobe(for: office))
+    XCTAssertFalse(filter.shouldReprobe(isSatisfied: true))
+    XCTAssertTrue(
+      filter.shouldReprobe(isSatisfied: true),
+      "an identical-looking update can be another network behind the same gateway address")
+    XCTAssertFalse(filter.shouldReprobe(isSatisfied: false))
+    XCTAssertTrue(filter.shouldReprobe(isSatisfied: true))
+  }
+
+  func test_aServerRemovedWhileItsProbeRunsReleasesItsWaiterAndCanBeAddedBack() async {
+    let registered = LockedValue([identity])
+    let rig = makeRig(registered: registered)
+    await settle(rig, resolving: identity, call: 1, to: identity)
+    rig.paths.yield()
+    let debounced = await rig.sleeps.waitForStarted(1, of: debounce)
+    XCTAssertTrue(debounced)
+    let waiter = Task { await rig.resolver.resolve(identity: identity) }
+    let probing = await rig.status.waitForCalls(2)
+    XCTAssertTrue(probing)
+    registered.value = []
+    await rig.sleeps.release(debounce)
+
+    let released = LockedValue(false)
+    Task {
+      await waiter.value
+      released.value = true
+    }
+    let done = await pollUntil { released.value }
+    XCTAssertTrue(done)
+    XCTAssertNil(rig.resolver.status(for: identity))
+
+    registered.value = [identity]
+    let readded = Task { await rig.resolver.resolve(identity: identity) }
+    let probedAgain = await rig.status.waitForCalls(3)
+    XCTAssertTrue(probedAgain)
+    await rig.status.releaseEverything(with: lan)
+    let resolvedAgain = await pollUntil { self.hasEffectiveURL(self.lan, in: rig) }
+    XCTAssertTrue(resolvedAgain)
+    await rig.sleeps.release(.seconds(10))
+    await readded.value
   }
 
   func test_aBurstOfPathChangesCausesOneReprobe() async {
