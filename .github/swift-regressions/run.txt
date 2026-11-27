@@ -450,6 +450,7 @@ ThumbnailLoaderSourcelessProducerTests
 ThumbnailLoaderSourceFetchTests
 ThumbnailLoaderSlotPriorityTests
 ThumbnailLoaderDevelopLaneTests
+ThumbnailLoaderAbandonedDevelopTests
 ThumbnailRetryTests
 
 AgentHTTPIntegrationTests
