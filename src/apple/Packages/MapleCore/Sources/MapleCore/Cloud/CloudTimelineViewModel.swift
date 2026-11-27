@@ -359,13 +359,11 @@ public final class CloudTimelineViewModel {
         page: 0,
         pathPrefix: pathPrefix, ownerID: requestedOwner)
       if g == generation {
-        let isNewPage = pagesByBucket[key] != fresh.results
-        if isNewPage { pagesByBucket[key] = fresh.results }
+        publishCloudPage(fresh.results, for: key)
         await pagesCache.write(
           host: host, libraryID: libraryID,
           pathPrefix: pathPrefix, ownerID: requestedOwner,
           year: year, month: month, page: 0, fresh)
-        if isNewPage, g == generation { mergeCloudPage(fresh.results, for: key) }
       }
     } catch {
       guard g == generation, !(error is CancellationError),
