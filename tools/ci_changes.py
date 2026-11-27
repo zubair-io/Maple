@@ -133,7 +133,9 @@ SIDECAR_CONTRACT_RECORDS = {
 # Run only by the owning platform's jobs, unlike the shared scripts trees.
 PLATFORM_OWNED_SCRIPT_PREFIXES = ("src/android/", "src/windows/scripts/")
 # Other consumers' workflows run these; every other API TypeScript script is API source.
-SHARED_API_SCRIPTS = frozenset(("src/api/scripts/prewarm-temporal.ts",))
+SHARED_API_SCRIPTS = frozenset(
+    ("src/api/scripts/prewarm-temporal.ts", "src/api/scripts/bench-folder-listing.ts")
+)
 METADATA = frozenset(
     name + extension
     for name in ("README", "AGENTS", "CLAUDE", "LICENSE")
