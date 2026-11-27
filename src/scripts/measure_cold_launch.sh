@@ -54,7 +54,7 @@ quit_app() {
 report_residue() {
 	local residue
 	residue=$(find "$HOME/Library/Caches" "$HOME/Library/Application Support" "$HOME/Library/Preferences" \
-		-maxdepth 3 -newer "$stamp" 2>/dev/null | grep -vF "$bundle_id" || true)
+		-maxdepth 3 -newer "$stamp" 2>/dev/null | grep -iE 'maple|aperture' | grep -vF "$bundle_id" || true)
 	[[ -z $residue ]] || {
 		echo "WARNING: files newer than this run's start outside the $bundle_id paths (not deleted):" >&2
 		echo "$residue" >&2
@@ -118,12 +118,15 @@ defaults.set(
 defaults.synchronize()
 SWIFT
 swiftc -O -o "$work/seed" "$work/seed.swift"
+# A security-scoped bookmark only resolves in a process with the same signing identifier.
+codesign --force --sign - --identifier "$bundle_id" "$work/seed"
 "$work/seed" "$folder" "$bundle_id"
 echo "app: $built_app; folder: $photos clones of ${#sources[@]} fixtures"
 
 milestone() { awk -v name="$1" 'match($0, name " at [0-9]+ ms") { split(substr($0, RSTART, RLENGTH), f, " "); print f[3]; exit }' "$2"; }
 published=()
-for ((r = 1; r <= runs; r++)); do
+# Run 0 is discarded: the first launch of a freshly signed copy includes the system's scan of it.
+for ((r = 0; r <= runs; r++)); do
 	quit_app
 	log=$work/launch-$r.log
 	/usr/bin/log stream --style compact --level info \
@@ -137,6 +140,7 @@ for ((r = 1; r <= runs; r++)); do
 	done
 	sleep 1
 	kill "$stream" 2>/dev/null || true
+	wait "$stream" 2>/dev/null || true
 	stream=
 	quit_app
 	grid=$(milestone gridPublished "$log")
@@ -144,6 +148,7 @@ for ((r = 1; r <= runs; r++)); do
 		echo "run=$r: no gridPublished milestone; log: $(head -c 400 "$log")" >&2
 		exit 1
 	}
+	((r == 0)) && continue
 	published+=("$grid")
 	echo "run=$r load1=$(sysctl -n vm.loadavg | awk '{print $2}') shellAppeared=$(milestone shellAppeared "$log") gridPublished=$grid firstThumbnail=$(milestone firstThumbnail "$log") ms"
 done

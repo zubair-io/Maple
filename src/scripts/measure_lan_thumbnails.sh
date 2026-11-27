@@ -42,7 +42,7 @@ fi
 	exit 2
 }
 
-work=$(mktemp -d "${TMPDIR:-/tmp}/maple-lan-thumbs.XXXXXX")
+work=$(cd "$(mktemp -d "${TMPDIR:-/tmp}/maple-lan-thumbs.XXXXXX")" && pwd -P)
 trap 'rm -rf "$work"' EXIT
 mkdir -p "$work/home"
 [[ $(stat -f %d "$raw_dir") == "$(stat -f %d "$work")" ]] || {
@@ -90,6 +90,10 @@ run_pass warmup >/dev/null
 bytes=() decoded=()
 for ((r = 1; r <= runs; r++)); do
 	line=$(run_pass "run$r")
+	[[ $line == *" photos=$photos decoded=$photos "* ]] || {
+		echo "run=$r: expected $photos photos listed and decoded, got: ${line#THROUGHPUT }" >&2
+		exit 1
+	}
 	load=$(sysctl -n vm.loadavg | awk '{print $2}')
 	echo "run=$r load1=$load ${line#THROUGHPUT }"
 	bytes+=("$(sed -E 's/.*bytes_ms=([0-9]+).*/\1/' <<<"$line")")
