@@ -11,10 +11,11 @@
  * small ones. A panorama stitch reserves the whole budget, so it never runs
  * beside a decode.
  *
- * The budget lives in the worker process, where the stages and the job runner
- * run. A null limit disables the cap entirely (the operator escape hatch:
- * percent 0 on Settings → Workers, and the state of the API process, which
- * never configures one): decodes then bypass admission altogether.
+ * Each process that owns a decode pool meters its own: the worker tier, where
+ * the stages and the job runner run, and the request-serving process, which
+ * renders on demand (#6101). The configured percentage is split between them.
+ * A null limit disables the cap entirely (the operator escape hatch: percent 0
+ * on Settings → Workers): decodes then bypass admission altogether.
  */
 
 import { stat } from '../fs/mirrored.ts';
@@ -57,9 +58,19 @@ export async function estimateDecodeCost(cost: DecodeCost): Promise<number> {
   return estimateDecodePeakBytes(cost.weight, sourceBytes);
 }
 
+/** The request-serving process and the worker tier hold separate budgets out of one configured
+ * percentage; on-demand renders are mostly small extractions while the background stages carry
+ * the bulk of the develops, so the request process takes the smaller share. */
+export const REQUEST_PROCESS_BUDGET_SHARE = 0.25;
+export const WORKER_TIER_BUDGET_SHARE = 1 - REQUEST_PROCESS_BUDGET_SHARE;
+
 /** The budget for a percent of the container limit; 0 means no cap. */
-export function budgetBytesForPercent(percent: number, containerLimitBytes: number): number | null {
-  return percent <= 0 ? null : Math.floor((containerLimitBytes * percent) / 100);
+export function budgetBytesForPercent(
+  percent: number,
+  containerLimitBytes: number,
+  share = 1,
+): number | null {
+  return percent <= 0 ? null : Math.floor(((containerLimitBytes * percent) / 100) * share);
 }
 
 function gib(bytes: number): string {
@@ -99,6 +110,7 @@ interface Waiter {
 
 export class DecodeMemoryBudget {
   private limitBytes: number | null = null;
+  private oversizeRunsAlone = false;
   private reservedBytes = 0;
   private running = 0;
   /** Whole-budget holders. Tracked apart from bytes: raising the limit while a
@@ -110,8 +122,12 @@ export class DecodeMemoryBudget {
     return this.limitBytes !== null;
   }
 
-  configure(limitBytes: number | null): void {
+  /** `oversizeRunsAlone`: a decode estimated above the limit waits for an idle budget and then
+   * runs by itself, instead of being rejected. The request process sets it so a RAW that develops
+   * today still renders on demand under its smaller share. */
+  configure(limitBytes: number | null, options?: { oversizeRunsAlone?: boolean }): void {
     this.limitBytes = limitBytes;
+    this.oversizeRunsAlone = options?.oversizeRunsAlone ?? false;
     this.pump();
   }
 
@@ -146,14 +162,20 @@ export class DecodeMemoryBudget {
   }
 
   private oversize(waiter: Waiter, bytes: number): DecodeMemoryBudgetError | null {
-    return !waiter.whole && this.limitBytes !== null && bytes > this.limitBytes
+    return !waiter.whole &&
+      !this.oversizeRunsAlone &&
+      this.limitBytes !== null &&
+      bytes > this.limitBytes
       ? new DecodeMemoryBudgetError(bytes, this.limitBytes)
       : null;
   }
 
   private fits(bytes: number): boolean {
     if (this.limitBytes === null) return true;
-    return this.exclusive === 0 && this.reservedBytes + bytes <= this.limitBytes;
+    if (this.exclusive > 0) return false;
+    return bytes > this.limitBytes
+      ? this.running === 0
+      : this.reservedBytes + bytes <= this.limitBytes;
   }
 
   private pump(): void {
@@ -186,7 +208,7 @@ export class DecodeMemoryBudget {
 
 let processBudget: DecodeMemoryBudget | null = null;
 
-/** This process's budget. Unconfigured (no cap) until the worker applies the setting. */
+/** This process's budget. Unconfigured (no cap) until the process applies the setting at boot. */
 export function decodeMemoryBudget(): DecodeMemoryBudget {
   processBudget ??= new DecodeMemoryBudget();
   return processBudget;

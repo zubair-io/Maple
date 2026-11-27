@@ -93,6 +93,7 @@ import { getChangeFeedTailer } from './runtime/change-feed-tailer.ts';
 import { getApnsPushTrigger } from './apns/push-trigger.ts';
 import { startEventLoopLagMonitor, stopEventLoopLagMonitor } from './runtime/diag-eventloop.ts';
 import { startMemoryTelemetry, stopMemoryTelemetry } from './runtime/memory-telemetry.ts';
+import { applyRequestProcessConfig } from './ffi/ffi-pool-bootstrap.ts';
 import { startWorkerSupervisor, stopWorkerSupervisor } from './runtime/worker-supervisor.ts';
 import { startSearchEngine } from './search/search-ranking.ts';
 import { stopSearchChildPool } from './search/search-pool.ts';
@@ -293,6 +294,7 @@ async function startSqlite(): Promise<void> {
 
 async function start(): Promise<void> {
   await startSqlite();
+  await applyRequestProcessConfig();
   await ensureJwtSecret();
   log.info(
     {
