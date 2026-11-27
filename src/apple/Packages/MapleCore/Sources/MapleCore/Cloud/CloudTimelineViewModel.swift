@@ -163,10 +163,11 @@ public final class CloudTimelineViewModel {
         counts[k] = max(counts[k] ?? 0, local.count)
       }
     }
-    buckets =
+    let unioned =
       counts
       .map { TimelineBucket(year: $0.key.year, month: $0.key.month, count: $0.value) }
       .sorted { ($0.year, $0.month) > ($1.year, $1.month) }
+    if buckets != unioned { buckets = unioned }
   }
 
   /// Re-build `mergedPagesByBucket` for every bucket we've already fetched a
@@ -332,12 +333,7 @@ public final class CloudTimelineViewModel {
       year: year, month: month, page: 0)
     {
       guard g == generation else { return }
-      pagesByBucket[key] = cached.results
-      if let merge = activePhotoKitMerge, g == generation {
-        let localRefs = merge.assetsForMonth(year: year, month: month)
-        let cloudRefs = cached.results.map { Self.searchAssetToImageRef($0) }
-        mergedPagesByBucket[key] = MergedTimelineSource.merge(local: localRefs, cloud: cloudRefs)
-      }
+      publishCloudPage(cached.results, for: key)
     }
 
     do {
@@ -363,16 +359,13 @@ public final class CloudTimelineViewModel {
         page: 0,
         pathPrefix: pathPrefix, ownerID: requestedOwner)
       if g == generation {
-        pagesByBucket[key] = fresh.results
+        let isNewPage = pagesByBucket[key] != fresh.results
+        if isNewPage { pagesByBucket[key] = fresh.results }
         await pagesCache.write(
           host: host, libraryID: libraryID,
           pathPrefix: pathPrefix, ownerID: requestedOwner,
           year: year, month: month, page: 0, fresh)
-        if let merge = activePhotoKitMerge, g == generation {
-          let localRefs = merge.assetsForMonth(year: year, month: month)
-          let cloudRefs = fresh.results.map { Self.searchAssetToImageRef($0) }
-          mergedPagesByBucket[key] = MergedTimelineSource.merge(local: localRefs, cloud: cloudRefs)
-        }
+        if isNewPage, g == generation { mergeCloudPage(fresh.results, for: key) }
       }
     } catch {
       guard g == generation, !(error is CancellationError),
@@ -380,6 +373,21 @@ public final class CloudTimelineViewModel {
       else { return }
       loadError = error
     }
+  }
+
+  /// An identical page needs no re-merge: a local change re-merges every loaded month through
+  /// `remergeLoadedBuckets()` on its own.
+  private func publishCloudPage(_ results: [SearchAsset], for key: BucketKey) {
+    guard pagesByBucket[key] != results else { return }
+    pagesByBucket[key] = results
+    mergeCloudPage(results, for: key)
+  }
+
+  private func mergeCloudPage(_ results: [SearchAsset], for key: BucketKey) {
+    guard let merge = activePhotoKitMerge else { return }
+    let localRefs = merge.assetsForMonth(year: key.year, month: key.month)
+    let cloudRefs = results.map { Self.searchAssetToImageRef($0) }
+    mergedPagesByBucket[key] = MergedTimelineSource.merge(local: localRefs, cloud: cloudRefs)
   }
 
   // MARK: - Conversion

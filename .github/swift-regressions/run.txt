@@ -89,6 +89,7 @@ AdjustmentPasteApplierTests
 AdjustmentTransferTests
 AdjustmentTransferRenderTests
 AllSourcesTimelineViewModelTests
+TimelinePageRepublishTests
 ApnsDeviceRegistrationClientTests
 ApnsPushRegistrarTests
 AssetChangeRelativePathTests
