@@ -147,3 +147,88 @@ test('a small image does not jump when a pinch starts', async ({ page }) => {
     .poll(async () => Math.abs((await drawnWidth(page))! - fitted))
     .toBeLessThanOrEqual(2);
 });
+
+// #5743: crop, mask, heal and guided geometry draw their handles at the fit
+// footprint, so the canvas holds at fit while one is armed.
+
+async function canvasCentre(page: Page): Promise<{ x: number; y: number }> {
+  const box = await page.locator('editor-image-canvas .canvas-wrap').boundingBox();
+  if (!box) throw new Error('canvas has no bounds');
+  return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+}
+
+async function ctrlWheelIn(page: Page, at: { x: number; y: number }): Promise<void> {
+  await page.mouse.move(at.x, at.y);
+  await page.keyboard.down('Control');
+  await page.mouse.wheel(0, -300);
+  await page.keyboard.up('Control');
+}
+
+function pageZoom(page: Page): Promise<{ scale: number; dpr: number }> {
+  return page.evaluate(() => ({
+    scale: window.visualViewport?.scale ?? 1,
+    dpr: window.devicePixelRatio,
+  }));
+}
+
+test('crop holds the canvas at fit against wheel, double-click and pinch', async ({ page }) => {
+  await openImage(page);
+  const centre = await canvasCentre(page);
+  const dpr = (await pageZoom(page)).dpr;
+  await page.getByRole('button', { name: 'Crop', exact: true }).first().click();
+  const frame = page.locator('[data-testid="crop-overlay"] .crop-frame');
+  await expect(frame).toBeVisible();
+  const before = await frame.boundingBox();
+  if (!before) throw new Error('crop frame has no bounds');
+
+  const expectHeld = async () => {
+    expect(await pixelScale(page)).toBe(0);
+    const after = await frame.boundingBox();
+    for (const key of ['x', 'y', 'width', 'height'] as const) {
+      expect(Math.abs(after![key] - before[key])).toBeLessThanOrEqual(1);
+    }
+    expect(await pageZoom(page)).toEqual({ scale: 1, dpr });
+  };
+
+  await ctrlWheelIn(page, { x: centre.x, y: centre.y - 150 });
+  await expectHeld();
+  await page.screenshot({ path: test.info().outputPath('crop-held.png') });
+
+  await page.mouse.dblclick(centre.x, centre.y - 150);
+  await expectHeld();
+
+  await touchPinch(page, centre, 100, 300);
+  await expectHeld();
+});
+
+test('with no tool armed the same ctrl+wheel zooms', async ({ page }) => {
+  await openImage(page);
+  await ctrlWheelIn(page, await canvasCentre(page));
+  await expect.poll(() => pixelScale(page)).toBeGreaterThan(0);
+});
+
+test('leaving crop releases the hold', async ({ page }) => {
+  await openImage(page);
+  const centre = await canvasCentre(page);
+  await page.getByRole('button', { name: 'Crop', exact: true }).first().click();
+  await expect(page.locator('[data-testid="crop-overlay"] .crop-frame')).toBeVisible();
+  await ctrlWheelIn(page, centre);
+  expect(await pixelScale(page)).toBe(0);
+
+  await page.getByRole('button', { name: 'Done cropping', exact: true }).click();
+  await expect(page.locator('[data-testid="crop-overlay"]')).toHaveCount(0);
+  expect(await pixelScale(page)).toBe(0);
+
+  await ctrlWheelIn(page, centre);
+  await expect.poll(() => pixelScale(page)).toBeGreaterThan(0);
+});
+
+for (const tool of ['Mask', 'Heal']) {
+  test(`${tool.toLowerCase()} holds the canvas at fit`, async ({ page }) => {
+    await openImage(page);
+    await page.getByRole('button', { name: tool, exact: true }).first().click();
+    await expect(page.getByTestId(tool === 'Mask' ? 'mask-panel' : 'retouch-panel')).toBeVisible();
+    await ctrlWheelIn(page, await canvasCentre(page));
+    expect(await pixelScale(page)).toBe(0);
+  });
+}
