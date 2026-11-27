@@ -8,6 +8,8 @@ import {
   DecodeMemoryBudgetError,
   estimateDecodeCost,
   estimateDecodePeakBytes,
+  REQUEST_PROCESS_BUDGET_SHARE,
+  WORKER_TIER_BUDGET_SHARE,
   type ReleaseReservation,
 } from './decode-memory-budget.ts';
 
@@ -191,6 +193,64 @@ describe('DecodeMemoryBudget', () => {
     await settled();
     expect((waiting.error as Error).message).toBe('shutting down');
     expect(budget.snapshot().waiting).toBe(0);
+  });
+});
+
+describe('DecodeMemoryBudget — the request process (#6101)', () => {
+  it('holds concurrent develops to its share, however many workers are saved', async () => {
+    const budget = new DecodeMemoryBudget();
+    budget.configure(11 * GIB, { oversizeRunsAlone: true });
+    const order: string[] = [];
+    const develops = Array.from({ length: 16 }, (_, i) => track(budget, 5 * GIB, `d${i}`, order));
+    await settled();
+    expect(order).toEqual(['d0', 'd1']);
+    expect(budget.snapshot()).toMatchObject({ reservedBytes: 10 * GIB, running: 2, waiting: 14 });
+
+    develops[0]!.release!();
+    await settled();
+    expect(order).toEqual(['d0', 'd1', 'd2']);
+    expect(budget.snapshot().reservedBytes).toBeLessThanOrEqual(11 * GIB);
+  });
+
+  it('runs a decode larger than its share by itself, and nothing beside it', async () => {
+    const budget = new DecodeMemoryBudget();
+    budget.configure(5 * GIB, { oversizeRunsAlone: true });
+    const order: string[] = [];
+    const small = track(budget, 1 * GIB, 'small', order);
+    const big = track(budget, 16 * GIB, 'big', order);
+    const behind = track(budget, 1 * GIB, 'behind', order);
+    await settled();
+    expect(order).toEqual(['small']);
+
+    small.release!();
+    await settled();
+    expect(order).toEqual(['small', 'big']);
+    expect(budget.snapshot()).toMatchObject({ reservedBytes: 16 * GIB, running: 1, waiting: 1 });
+
+    big.release!();
+    await settled();
+    expect(order).toEqual(['small', 'big', 'behind']);
+    behind.release!();
+    expect(budget.snapshot()).toMatchObject({ reservedBytes: 0, running: 0, waiting: 0 });
+  });
+
+  it('still rejects an oversize decode when the process was not told to run it alone', async () => {
+    const budget = new DecodeMemoryBudget();
+    budget.configure(5 * GIB, { oversizeRunsAlone: true });
+    budget.configure(5 * GIB);
+    const big = track(budget, 16 * GIB, 'big', []);
+    await settled();
+    expect(big.error).toBeInstanceOf(DecodeMemoryBudgetError);
+  });
+
+  it('splits the configured percentage between the two processes without losing any bytes', () => {
+    const container = 44 * GIB;
+    const request = budgetBytesForPercent(50, container, REQUEST_PROCESS_BUDGET_SHARE)!;
+    const worker = budgetBytesForPercent(50, container, WORKER_TIER_BUDGET_SHARE)!;
+    expect(request).toBe(5.5 * GIB);
+    expect(worker).toBe(16.5 * GIB);
+    expect(request + worker).toBe(budgetBytesForPercent(50, container)!);
+    expect(budgetBytesForPercent(0, container, REQUEST_PROCESS_BUDGET_SHARE)).toBeNull();
   });
 });
 
