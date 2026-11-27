@@ -312,7 +312,7 @@ export class CanvasZoomGestures {
     if (!tracked) return;
     tracked.x = e.clientX;
     tracked.y = e.clientY;
-    if (!this.pinchPair && (this.host.pointerOwnedByEdit(e.pointerId) || this.editsAtZoom())) {
+    if (this.editTakesMove(e.pointerId)) {
       this.restartDragAt(tracked);
       return;
     }
@@ -321,6 +321,11 @@ export class CanvasZoomGestures {
     if (this.pinchPair) this.pinchMoved(engine, this.pinchPair);
     else if (this.pointers.size === 1 && this.dragOrigin)
       this.dragMoved(engine, e, this.dragOrigin);
+  }
+
+  private editTakesMove(pointerId: number): boolean {
+    if (this.pinchPair) return false;
+    return this.host.pointerOwnedByEdit(pointerId) || this.editsAtZoom();
   }
 
   private pinchMoved(engine: CanvasZoomEngine, pair: readonly [number, number]): void {
