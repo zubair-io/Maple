@@ -40,8 +40,9 @@ extension ThumbnailLoader {
   nonisolated static func embeddedCameraAVIF(
     at url: URL, targetLongEdge: CGFloat, quality: CGFloat
   ) -> Data? {
-    let seeded = cameraPreviewCache.object(
-      forKey: ThumbnailDiskCache.memoryKey(for: url) as NSString) as Data?
+    let seeded =
+      cameraPreviewCache.object(
+        forKey: ThumbnailDiskCache.memoryKey(for: url) as NSString) as Data?
     guard let bytes = seeded ?? embeddedCameraJPEG(at: url),
       let source = CGImageSourceCreateWithData(bytes as CFData, nil),
       let image = CGImageSourceCreateImageAtIndex(source, 0, nil)
@@ -125,27 +126,40 @@ extension ThumbnailLoader {
   /// Use the canonical Rust preview extractor rather than asking ImageIO to
   /// synthesize a full Apple RAW render. The FFI owns orientation and the
   /// format-specific preview-slot hunt, including containers ImageIO misses.
-  nonisolated static func embeddedCameraJPEG(at url: URL) -> Data? {
-    let output = FileManager.default.temporaryDirectory
-      .appendingPathComponent("maple-camera-preview-\(UUID().uuidString).jpg")
-    defer {
-      try? FileManager.default.removeItem(at: output)
-      try? FileManager.default.removeItem(atPath: output.path + ".tmp")
-    }
-    let result = url.path.withCString { rawPath in
-      output.path.withCString { outPath in
-        maple_render_thumbnail_preview_jpeg_to_file(
-          rawPath, outPath, UInt32(displayPreviewLongEdge), 85)
-      }
-    }
-    guard result == 0,
-      let data = try? Data(contentsOf: output), isUsableImageData(data)
-    else {
+  nonisolated static func embeddedCameraJPEG(
+    at url: URL, initialCapacity: Int = cameraPreviewInitialBufferBytes
+  ) -> Data? {
+    let capacity = max(1, initialCapacity)
+    let first = cameraPreviewAttempt(at: url, capacity: capacity)
+    let grown = first.code == cameraPreviewBufferTooSmall && first.needed > capacity
+    let attempt = grown ? cameraPreviewAttempt(at: url, capacity: first.needed) : first
+    guard let data = attempt.data, isUsableImageData(data) else {
       cameraPreviewLogger.warning(
-        "embedded preview unavailable for \(url.lastPathComponent, privacy: .public) (code \(result))"
+        "embedded preview unavailable for \(url.lastPathComponent, privacy: .public) (code \(attempt.code))"
       )
       return nil
     }
     return data
   }
+
+  private nonisolated static func cameraPreviewAttempt(
+    at url: URL, capacity: Int
+  ) -> (code: Int32, needed: Int, data: Data?) {
+    let output = UnsafeMutablePointer<UInt8>.allocate(capacity: capacity)
+    defer { output.deallocate() }
+    var written: UInt = 0
+    let code = url.path.withCString { rawPath in
+      maple_render_thumbnail_preview_jpeg_buf(
+        rawPath, UInt32(displayPreviewLongEdge), 85, output, UInt(capacity), &written)
+    }
+    let needed = Int(written)
+    let data = code == 0 && needed <= capacity ? Data(bytes: output, count: needed) : nil
+    return (code, needed, data)
+  }
+
+  /// The core re-extracts on every call, so a size probe would double the
+  /// work. A noisy 1280 px preview at full chroma resolution stays under this.
+  nonisolated static let cameraPreviewInitialBufferBytes = 2 << 20
+  /// `NEED_LARGER_BUFFER` in raw-ffi's `thumbnail.rs`.
+  private nonisolated static let cameraPreviewBufferTooSmall: Int32 = 100
 }

@@ -140,6 +140,8 @@ let package = Package(
         // Byte-identical mirror of test-fixtures/removal (#5159); whole-directory
         // copy keeps calibration/ as a subdirectory, like film-luts.
         .copy("Fixtures/removal"),
+        // Built by raw-core's test_support::synth_dng_preview::dng_with_jpeg_preview.
+        .copy("Fixtures/camera-preview"),
       ]
     ),
   ],
