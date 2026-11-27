@@ -2,24 +2,18 @@ import Foundation
 
 enum GridFilterSidecarStamp: Equatable, Sendable {
   case absent
-  case present(modified: Date, size: Int)
+  case present(modified: Date, size: Int, fileNumber: UInt64)
 
-  static func stamps(for assets: [AssetRef]) async -> [AssetRef.ID: Self] {
-    await Task.detached(priority: .userInitiated) {
-      assets.reduce(into: [:]) { stamps, asset in
-        guard let url = asset.primaryURL else { return }
-        stamps[asset.id] = current(sidecar: SidecarPath.sidecarURL(for: url))
-      }
-    }.value
-  }
-
-  private static func current(sidecar: URL) -> Self? {
+  nonisolated static func current(for asset: AssetRef) -> Self? {
+    guard let url = asset.primaryURL else { return nil }
     do {
-      let attributes = try FileManager.default.attributesOfItem(atPath: sidecar.path)
+      let attributes = try FileManager.default.attributesOfItem(
+        atPath: SidecarPath.sidecarURL(for: url).path)
       guard let modified = attributes[.modificationDate] as? Date,
-        let size = attributes[.size] as? NSNumber
+        let size = attributes[.size] as? NSNumber,
+        let fileNumber = attributes[.systemFileNumber] as? NSNumber
       else { return nil }
-      return .present(modified: modified, size: size.intValue)
+      return .present(modified: modified, size: size.intValue, fileNumber: fileNumber.uint64Value)
     } catch let error as NSError {
       return error.domain == NSCocoaErrorDomain && error.code == NSFileReadNoSuchFileError
         ? .absent : nil
@@ -27,26 +21,38 @@ enum GridFilterSidecarStamp: Equatable, Sendable {
   }
 }
 
-/// Facts read for one listing, each reusable only while its sidecar stamp still matches.
-struct GridFilterFactCache {
-  struct Entry {
+/// Facts read for the current listing, each reusable only while its sidecar stamp still matches.
+struct GridFilterFactCache: Sendable {
+  struct Entry: Sendable {
     let stamp: GridFilterSidecarStamp
     let metadata: GridFilterMetadata
   }
 
-  let listingGeneration: UInt64
-  let assetIdentityGeneration: UInt64
+  struct Loaded: Sendable {
+    let id: AssetRef.ID
+    let stamp: GridFilterSidecarStamp?
+    let metadata: GridFilterMetadata
+  }
+
   let entries: [AssetRef.ID: Entry]
 
-  static let empty = Self(listingGeneration: 0, assetIdentityGeneration: 0, entries: [:])
+  static let empty = Self(entries: [:])
 
-  func reusable(
-    listing: UInt64, identity: UInt64, stamps: [AssetRef.ID: GridFilterSidecarStamp]
-  ) -> [AssetRef.ID: GridFilterMetadata] {
-    guard listing == listingGeneration, identity == assetIdentityGeneration else { return [:] }
-    return entries.reduce(into: [:]) { reused, pair in
-      guard let stamp = stamps[pair.key], stamp == pair.value.stamp else { return }
-      reused[pair.key] = pair.value.metadata
-    }
+  init(entries: [AssetRef.ID: Entry]) {
+    self.entries = entries
+  }
+
+  init(loaded: [Loaded]) {
+    self.init(
+      entries: loaded.reduce(into: [:]) { entries, item in
+        guard let stamp = item.stamp else { return }
+        entries[item.id] = Entry(stamp: stamp, metadata: item.metadata)
+      })
+  }
+
+  func reusableMetadata(for id: AssetRef.ID, stamp: GridFilterSidecarStamp?) -> GridFilterMetadata?
+  {
+    guard let stamp, let entry = entries[id], entry.stamp == stamp else { return nil }
+    return entry.metadata
   }
 }

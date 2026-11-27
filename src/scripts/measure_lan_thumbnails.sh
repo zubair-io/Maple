@@ -10,8 +10,12 @@
 # median of "all bytes on device" against the limit, and exits 1 when the median is
 # over it. Decoding every tile is reported too (decision 25), not gated.
 #
+# The test process is unsandboxed, so its cold passes write thumbnails into
+# ~/Library/Caches/app.justmaple.aperture/sourceless-thumbs. On exit the script deletes
+# only the files in that one directory newer than a stamp it creates at start.
+#
 # Env: RAW_DIR (fixture RAWs; default test-fixtures/raws, else the main checkout's),
-#      RUNS (default 5), PHOTOS (default 2000), LIMIT_MS (default 2000), WORK_DIR.
+#      RUNS (default 5), PHOTOS (default 2000), LIMIT_MS (default 2000).
 # Needs: bun with src/api dependencies installed (cd src/api && bun install), and the
 # release xcframework (src/apple/scripts/build-xcframework.sh).
 set -euo pipefail
@@ -33,8 +37,19 @@ fi
 	exit 2
 }
 
-work=${WORK_DIR:-$(mktemp -d "${TMPDIR:-/tmp}/maple-lan-thumbs.XXXXXX")}
-trap 'rm -rf "$work"' EXIT
+work=$(mktemp -d "${TMPDIR:-/tmp}/maple-lan-thumbs.XXXXXX")
+thumb_cache=$HOME/Library/Caches/app.justmaple.aperture/sourceless-thumbs
+stamp=$work/started.stamp
+clean_up() {
+	[[ ! -d $thumb_cache ]] || find "$thumb_cache" -type f -newer "$stamp" -delete
+	rm -rf "$work"
+}
+trap clean_up EXIT
+touch "$stamp"
+[[ $(stat -f %d "$raw_dir") == "$(stat -f %d "$work")" ]] || {
+	echo "$raw_dir and $work are on different volumes; cp -c would copy in full" >&2
+	exit 2
+}
 folder=$work/library/Shoot
 mkdir -p "$folder/.maple/thumbs" "$work/logs"
 

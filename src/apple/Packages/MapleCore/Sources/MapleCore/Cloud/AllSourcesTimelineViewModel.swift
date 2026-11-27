@@ -439,8 +439,14 @@ public final class AllSourcesTimelineViewModel {
         host: host, libraryID: libraryID, year: year, month: month, page: 0, response)
     }
     if !freshResults.isEmpty {
+      let rank = { (host: String, libraryID: String) in
+        fetchTargets.firstIndex { $0.0.server.cacheHostKey == host && $0.1 == libraryID } ?? .max
+      }
+      let ordered = freshResults.sorted {
+        rank($0.host, $0.libraryID) < rank($1.host, $1.libraryID)
+      }
       applyMergedPage(
-        key: key, perSource: freshResults.map { (host: $0.host, assets: $0.response.results) })
+        key: key, perSource: ordered.map { (host: $0.host, assets: $0.response.results) })
     } else if mergedPagesByBucket[key] == nil {
       // Nothing cached, nothing fetched (every source offline/errored), and
       // no PhotoKit content either — resolve to empty rather than leaving
@@ -481,9 +487,7 @@ public final class AllSourcesTimelineViewModel {
   /// `absPathMap`-style tap routing, and re-runs the N-way merge — keeping
   /// each (server, library)'s results as its OWN cloud stream so
   /// cross-library dedup keeps working (see `cloudStreamsByBucket`'s doc).
-  ///
-  /// A page identical to the published one, split into the same streams, is skipped: a local
-  /// change re-merges every loaded month through `remergeLoadedBuckets()` on its own.
+  /// An identical page is skipped: a local change re-merges loaded months via `remergeLoadedBuckets()`.
   private func applyMergedPage(key: BucketKey, perSource: [(host: String, assets: [SearchAsset])]) {
     var allAssets: [SearchAsset] = []
     var pageHosts: [String: String] = [:]

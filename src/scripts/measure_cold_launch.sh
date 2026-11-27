@@ -2,13 +2,17 @@
 # measure_cold_launch.sh <Maple.app> — target: a cold launch of the Mac app has the
 # last folder browsable (grid published) in under 1 s from process start.
 #
-# Runs an isolated copy of the given Release build: extensions, launch agents and the
+# Runs a copy of the given Release build: extensions, launch agents and the
 # provisioning profile removed, bundle id app.justmaple.aperture.perfaudit, ad-hoc
-# signed, so it never reads or writes the owner's Maple settings, caches or library.
-# Its saved source is a 2,000-photo folder of APFS clones of the fixture RAWs with
-# their shared thumbnails. Each run reads the LaunchTimeline milestones from the
-# unified log, then the copy's settings, caches and folder are removed. Prints every
-# run, then minimum and median against the limit; exits 1 when the median is over it.
+# signed. Its settings, saved source and folder are its own, but the re-signed copy is
+# unsandboxed, so it can also write to shared paths outside its bundle-id folders (for
+# example ~/Library/Application Support/Maple and ~/Library/Caches/app.justmaple.aperture).
+# Those are never deleted; the script lists every file it finds there that is newer than
+# its start, so residue is visible. Its saved source is a 2,000-photo folder of APFS
+# clones of the fixture RAWs with their shared thumbnails. Each run reads the
+# LaunchTimeline milestones from the unified log, then the copy's own settings, caches
+# and folder are removed. Prints every run, then minimum and median against the limit;
+# exits 1 when the median is over it.
 #
 # Build the app first, for example:
 #   xcodebuild -project src/apple/Maple.xcodeproj -scheme Maple -configuration Release \
@@ -31,22 +35,40 @@ fi
 	exit 2
 }
 
-work=$(mktemp -d "${TMPDIR:-/tmp}/maple-cold-launch.XXXXXX")
+work=$(cd "$(mktemp -d "${TMPDIR:-/tmp}/maple-cold-launch.XXXXXX")" && pwd -P)
 app=$work/Maple.app
+stamp=$work/started.stamp
+stream=
 quit_app() {
 	local pids
 	pids=$(pgrep -f "^$app/Contents/MacOS/Maple" || true)
 	[[ -z $pids ]] || kill $pids 2>/dev/null || true
 	sleep 1
 }
+report_residue() {
+	local residue
+	residue=$(find "$HOME/Library/Caches" "$HOME/Library/Application Support" "$HOME/Library/Preferences" \
+		-maxdepth 3 -newer "$stamp" 2>/dev/null | grep -vF "$bundle_id" || true)
+	[[ -z $residue ]] || {
+		echo "WARNING: files newer than this run's start outside the $bundle_id paths (not deleted):" >&2
+		echo "$residue" >&2
+	}
+}
 clean_up() {
+	[[ -z $stream ]] || kill "$stream" 2>/dev/null || true
 	quit_app
+	report_residue
 	defaults delete "$bundle_id" >/dev/null 2>&1 || true
 	rm -rf "$HOME/Library/Caches/$bundle_id" "$HOME/Library/Application Support/$bundle_id" \
 		"$HOME/Library/Saved Application State/$bundle_id.savedState" "$work"
 }
 trap clean_up EXIT
 
+touch "$stamp"
+[[ $(stat -f %d "$raw_dir") == "$(stat -f %d "$work")" ]] || {
+	echo "$raw_dir and $work are on different volumes; cp -c would copy in full" >&2
+	exit 2
+}
 cp -R "$built_app" "$app"
 rm -rf "$app/Contents/PlugIns" "$app/Contents/Library" "$app/Contents/embedded.provisionprofile"
 /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier $bundle_id" "$app/Contents/Info.plist"
@@ -55,7 +77,7 @@ cat >"$work/entitlements.plist" <<'PLIST'
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict><key>com.apple.security.get-task-allow</key><true/></dict></plist>
 PLIST
-codesign --force --deep --sign - --entitlements "$work/entitlements.plist" "$app" 2>/dev/null
+codesign --force --deep --sign - --entitlements "$work/entitlements.plist" "$app"
 
 folder=$work/folder
 mkdir -p "$folder/.maple/thumbs"
@@ -88,11 +110,11 @@ defaults.set(
   forKey: "app.justmaple.aperture.lastSource")
 defaults.synchronize()
 SWIFT
-swiftc -O -o "$work/seed" "$work/seed.swift" 2>/dev/null
+swiftc -O -o "$work/seed" "$work/seed.swift"
 "$work/seed" "$folder" "$bundle_id"
 echo "app: $built_app; folder: $photos clones of ${#sources[@]} fixtures"
 
-milestone() { sed -nE "s/.*$1 at ([0-9]+) ms.*/\1/p" "$2" | head -1; }
+milestone() { awk -v name="$1" 'match($0, name " at [0-9]+ ms") { split(substr($0, RSTART, RLENGTH), f, " "); print f[3]; exit }' "$2"; }
 published=()
 for ((r = 1; r <= runs; r++)); do
 	quit_app
@@ -108,6 +130,7 @@ for ((r = 1; r <= runs; r++)); do
 	done
 	sleep 1
 	kill "$stream" 2>/dev/null || true
+	stream=
 	quit_app
 	grid=$(milestone gridPublished "$log")
 	[[ -n $grid ]] || {
