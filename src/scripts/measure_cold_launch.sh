@@ -4,11 +4,11 @@
 #
 # Runs a copy of the given Release build: extensions, launch agents and the
 # provisioning profile removed, bundle id app.justmaple.aperture.perfaudit, ad-hoc
-# signed. Its settings, saved source and folder are its own, but the re-signed copy is
-# unsandboxed, so it can also write to shared paths outside its bundle-id folders (for
-# example ~/Library/Application Support/Maple and ~/Library/Caches/app.justmaple.aperture).
-# Those are never deleted; the script lists every file it finds there that is newer than
-# its start, so residue is visible. Its saved source is a 2,000-photo folder of APFS
+# signed, and launched with CFFIXED_USER_HOME pointing into the run's temp folder, so
+# its caches and Application Support files are private to the run. Preferences still go
+# through the system under the copy's own bundle id, which is deleted afterwards; any
+# other file newer than the run under ~/Library is listed (never deleted) so residue is
+# visible. Its saved source is a 2,000-photo folder of APFS
 # clones of the fixture RAWs with their shared thumbnails. Each run reads the
 # LaunchTimeline milestones from the unified log, then the copy's own settings, caches
 # and folder are removed. Prints every run, then minimum and median against the limit;
@@ -41,9 +41,15 @@ stamp=$work/started.stamp
 stream=
 quit_app() {
 	local pids
+	local pids tries
 	pids=$(pgrep -f "^$app/Contents/MacOS/Maple" || true)
-	[[ -z $pids ]] || kill $pids 2>/dev/null || true
-	sleep 1
+	[[ -n $pids ]] || return 0
+	kill $pids 2>/dev/null || true
+	for ((tries = 0; tries < 20; tries++)); do
+		pgrep -f "^$app/Contents/MacOS/Maple" >/dev/null || return 0
+		sleep 0.25
+	done
+	kill -9 $pids 2>/dev/null || true
 }
 report_residue() {
 	local residue
@@ -59,12 +65,13 @@ clean_up() {
 	quit_app
 	report_residue
 	defaults delete "$bundle_id" >/dev/null 2>&1 || true
-	rm -rf "$HOME/Library/Caches/$bundle_id" "$HOME/Library/Application Support/$bundle_id" \
+	rm -rf "$HOME/Library/Caches/$bundle_id" "$HOME/Library/HTTPStorages/$bundle_id" \
 		"$HOME/Library/Saved Application State/$bundle_id.savedState" "$work"
 }
 trap clean_up EXIT
 
 touch "$stamp"
+mkdir -p "$work/home"
 [[ $(stat -f %d "$raw_dir") == "$(stat -f %d "$work")" ]] || {
 	echo "$raw_dir and $work are on different volumes; cp -c would copy in full" >&2
 	exit 2
@@ -123,7 +130,7 @@ for ((r = 1; r <= runs; r++)); do
 		--predicate 'subsystem == "app.justmaple.aperture" AND category == "launch"' >"$log" 2>&1 &
 	stream=$!
 	sleep 1.5
-	open -n -a "$app" --args -ApplePersistenceIgnoreState YES
+	open -n --env "CFFIXED_USER_HOME=$work/home" -a "$app" --args -ApplePersistenceIgnoreState YES
 	for ((t = 0; t < 60; t++)); do
 		grep -q firstThumbnail "$log" && break
 		sleep 0.5

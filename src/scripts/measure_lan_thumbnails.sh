@@ -10,9 +10,9 @@
 # median of "all bytes on device" against the limit, and exits 1 when the median is
 # over it. Decoding every tile is reported too (decision 25), not gated.
 #
-# The test process is unsandboxed, so its cold passes write thumbnails into
-# ~/Library/Caches/app.justmaple.aperture/sourceless-thumbs. On exit the script deletes
-# only the files in that one directory newer than a stamp it creates at start.
+# The test process runs with CFFIXED_USER_HOME pointing into the run's temp folder, so
+# the thumbnails and HTTP cache it writes land there and are removed with it; nothing
+# under the real ~/Library is written or deleted.
 #
 # Env: RAW_DIR (fixture RAWs; default test-fixtures/raws, else the main checkout's),
 #      RUNS (default 5), PHOTOS (default 2000), LIMIT_MS (default 2000).
@@ -38,14 +38,8 @@ fi
 }
 
 work=$(mktemp -d "${TMPDIR:-/tmp}/maple-lan-thumbs.XXXXXX")
-thumb_cache=$HOME/Library/Caches/app.justmaple.aperture/sourceless-thumbs
-stamp=$work/started.stamp
-clean_up() {
-	[[ ! -d $thumb_cache ]] || find "$thumb_cache" -type f -newer "$stamp" -delete
-	rm -rf "$work"
-}
-trap clean_up EXIT
-touch "$stamp"
+trap 'rm -rf "$work"' EXIT
+mkdir -p "$work/home"
 [[ $(stat -f %d "$raw_dir") == "$(stat -f %d "$work")" ]] || {
 	echo "$raw_dir and $work are on different volumes; cp -c would copy in full" >&2
 	exit 2
@@ -74,11 +68,11 @@ echo "library: $photos clones of ${#sources[@]} fixtures in $folder"
 run_pass() {
 	local label=$1 log=$work/logs/$1.log
 	(cd "$repo/src/apple/Packages/MapleCore" &&
-		MAPLE_PERF_CLOUD_LIBRARY=$work/library MAPLE_PERF_CLOUD_FOLDER=Shoot MAPLE_PERF_PASS=cold \
+		CFFIXED_USER_HOME=$work/home MAPLE_PERF_CLOUD_LIBRARY=$work/library MAPLE_PERF_CLOUD_FOLDER=Shoot MAPLE_PERF_PASS=cold \
 			swift test -c release --filter FolderThumbnailThroughputTests/testCloudFolderIsFullyThumbnailedOverLAN \
 			>"$log" 2>&1) || {
 		echo "$label: test failed, see $log" >&2
-		grep -m3 -E 'error|failed' "$log" >&2
+		grep -m3 -E 'error|failed' "$log" >&2 || true
 		return 1
 	}
 	grep -m1 THROUGHPUT "$log" || {
