@@ -5,6 +5,7 @@ extension ThumbnailLoader {
   func awaitThumbnail(_ task: Task<Data?, Never>) async -> Data? {
     let waiter = UUID()
     thumbnailWaiters[task, default: []].insert(waiter)
+    if let producer = taskProducerIDs[task] { abandonedProducers.remove(producer) }
     return await withTaskCancellationHandler {
       let result = await task.value
       finishWaiting(task, waiter: waiter, cancelled: false)
@@ -58,12 +59,20 @@ extension ThumbnailLoader {
     inFlight[key].map { thumbnailWaiters[$0]?.count ?? 0 } ?? 0
   }
 
+  // A producer that has given up must not be joined: a newcomer starts afresh.
+  func stopJoining(_ id: UUID) {
+    for (key, task) in inFlight where taskProducerIDs[task] == id {
+      inFlight.removeValue(forKey: key)
+    }
+  }
+
   func setProducerActive(_ id: UUID, _ isActive: Bool) {
     if isActive { activeProducers.insert(id) } else { activeProducers.remove(id) }
   }
 
   private func cleanupLocalProducer(_ id: UUID, key: String) {
     activeProducers.remove(id)
+    abandonedProducers.remove(id)
     slotlessProducers.remove(id)
     if let task = inFlight[key], taskProducerIDs[task] == id {
       inFlight.removeValue(forKey: key)
@@ -86,8 +95,11 @@ extension ThumbnailLoader {
     guard thumbnailWaiters[task]?.remove(waiter) != nil else { return }
     guard thumbnailWaiters[task]?.isEmpty == true else { return }
     thumbnailWaiters.removeValue(forKey: task)
-    if cancelled, !isProducerActive(task) {
+    guard cancelled else { return }
+    if !isProducerActive(task) {
       task.cancel()
+    } else if let producer = taskProducerIDs[task] {
+      abandonedProducers.insert(producer)
     }
   }
 
