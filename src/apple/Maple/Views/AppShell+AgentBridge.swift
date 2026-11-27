@@ -6,7 +6,10 @@ import SwiftUI
 extension AppShell {
   func configureAgentBrowseAdapter() {
     agentBrowseAdapter.browseVM = browseVM
-    agentBrowseAdapter.getSessions = { sessions }
+    agentBrowseAdapter.getSessions = {
+      browseSessionBuffer.flush(into: &sessions)
+      return sessions
+    }
     agentBrowseAdapter.ensureSessionHandler = { asset in
       browseSession(for: asset)
     }
