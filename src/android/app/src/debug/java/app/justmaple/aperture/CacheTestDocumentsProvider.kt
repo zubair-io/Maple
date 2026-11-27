@@ -29,6 +29,9 @@ class CacheTestDocumentsProvider : DocumentsProvider() {
     @Volatile private var pauseSidecarRead: String? = null
     private val childQueries = java.util.concurrent.atomic.AtomicInteger()
     private val sidecarReads = java.util.concurrent.atomic.AtomicInteger()
+    private val childRows = java.util.concurrent.atomic.AtomicInteger()
+    private val documentQueries = java.util.concurrent.atomic.AtomicInteger()
+    private val queriesByParent = java.util.concurrent.ConcurrentHashMap<String, java.util.concurrent.atomic.AtomicInteger>()
     @Volatile private var blocked = false
     @Volatile private var release = CountDownLatch(1)
 
@@ -52,8 +55,10 @@ class CacheTestDocumentsProvider : DocumentsProvider() {
     override fun queryRoots(projection: Array<out String>?): Cursor =
         MatrixCursor(projection ?: arrayOf("root_id", "document_id", "title", "flags"))
 
-    override fun queryDocument(documentId: String, projection: Array<out String>?): Cursor =
-        cursor(projection, listOf(file(documentId)))
+    override fun queryDocument(documentId: String, projection: Array<out String>?): Cursor {
+        documentQueries.incrementAndGet()
+        return cursor(projection, listOf(file(documentId)))
+    }
 
     override fun queryChildDocuments(
         parentDocumentId: String,
@@ -61,7 +66,10 @@ class CacheTestDocumentsProvider : DocumentsProvider() {
         sortOrder: String?,
     ): Cursor {
         childQueries.incrementAndGet()
-        return cursor(projection, file(parentDocumentId).listFiles().orEmpty().toList())
+        queriesByParent.computeIfAbsent(parentDocumentId) { java.util.concurrent.atomic.AtomicInteger() }.incrementAndGet()
+        val children = file(parentDocumentId).listFiles().orEmpty().toList()
+        childRows.addAndGet(children.size)
+        return cursor(projection, children)
     }
 
     private fun cursor(projection: Array<out String>?, files: List<File>) =
@@ -161,7 +169,7 @@ class CacheTestDocumentsProvider : DocumentsProvider() {
     }
 
     override fun call(method: String, arg: String?, extras: Bundle?): Bundle? {
-        if (method == "cache-test-state") return Bundle().apply { putBoolean("blocked", blocked); putInt("childQueries", childQueries.get()); putInt("sidecarReads", sidecarReads.get()) }
+        if (method == "cache-test-state") return Bundle().apply { putBoolean("blocked", blocked); putInt("childQueries", childQueries.get()); putInt("sidecarReads", sidecarReads.get()); putInt("childRows", childRows.get()); putInt("documentQueries", documentQueries.get()); putStringArrayList("queriesByParent", ArrayList(queriesByParent.map { "${it.key}=${it.value.get()}" })) }
         if (method == "cache-test-release") {
             release.countDown()
             return Bundle()
