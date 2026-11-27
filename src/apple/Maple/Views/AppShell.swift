@@ -72,7 +72,6 @@ struct AppShell: View {
   @State var browseVM = BrowseViewModel()
   @State var sessions: [AssetRef.ID: EditSession] = [:]
   @State var browseSessionBuffer = BrowseSessionBuffer<AssetRef.ID, EditSession>()
-  @State var browseSessionFlush: Task<Void, Never>?
   @State var agentBrowseAdapter = AppShellBrowseAdapter()
   /// Scene activation hook (#1769, iOS): Metal discards presents issued
   /// while the app is backgrounded, so a GPU-live canvas backgrounded
