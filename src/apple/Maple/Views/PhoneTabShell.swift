@@ -538,9 +538,7 @@
     /// above it (an editor) is already gone by then.
     private func popPreview() {
       guard case .preview? = libraryPath.last else { return }
-      var transaction = Transaction()
-      transaction.disablesAnimations = true
-      withTransaction(transaction) { _ = libraryPath.removeLast() }
+      withTransaction(\.disablesAnimations, true) { _ = libraryPath.removeLast() }
     }
 
     /// `libraryPath` without its `.preview` entry — what the Library tab's
@@ -560,16 +558,11 @@
     private func pushPreview(
       _ asset: AssetRef, tileFrame: CGRect? = nil, cloudSource: (any ImageSource)? = nil
     ) {
-      // Preview and its sibling swipes read `sessions` only, and no cell
-      // stages while it covers the grid, so one flush covers every photo.
+      // Preview reads only `sessions`, and nothing stages while it covers the grid.
       sessionBuffer.flush(into: &sessions)
       cloudPreviewSource = cloudSource
       heroTileFrame = tileFrame
-      var transaction = Transaction()
-      transaction.disablesAnimations = true
-      withTransaction(transaction) {
-        libraryPath.append(.preview(asset))
-      }
+      withTransaction(\.disablesAnimations, true) { libraryPath.append(.preview(asset)) }
     }
   }
 
