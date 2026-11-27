@@ -25,6 +25,21 @@
       XCTAssertFalse(FileManager.default.fileExists(atPath: staging.path))
     }
 
+    /// Open owner decision 33: with the original's own path on the clipboard, Finder's
+    /// "Move Item Here" moves the photo out of its library.
+    @MainActor
+    func testLocalOriginalIsNeverOfferedByItsOwnPath() async throws {
+      let original = root.appendingPathComponent("photo.dng")
+      try Data([1, 2, 3]).write(to: original)
+      let staging = root.appendingPathComponent("staging")
+
+      let urls = try await AssetFileClipboard.stage([AssetRef(url: original)], in: staging)
+
+      XCTExpectFailure("decision 33 is open: a local Copy still offers the original's own path")
+      XCTAssertFalse(urls.map(\.standardizedFileURL).contains(original.standardizedFileURL))
+      XCTAssertEqual(try Data(contentsOf: original), Data([1, 2, 3]))
+    }
+
     @MainActor
     func testRemoteOriginalsAreFetchedAndSameNamesStayDistinct() async throws {
       let staging = root.appendingPathComponent("staging")
@@ -165,9 +180,13 @@
     func testTimelineTileResolvesItsLocalFile() {
       let url = root.appendingPathComponent("local.heic")
       let actions = TimelineFileActions(
-        cloudAsset: { _, _ in XCTFail("local tile must not resolve a server"); return AssetRef(url: url) },
+        cloudAsset: { _, _ in
+          XCTFail("local tile must not resolve a server")
+          return AssetRef(url: url)
+        },
         localAsset: { AssetRef(fileBacked: $0) })
-      let cell = MergedTimelineCell.localOnly(ImageRef(id: "local", displayName: "local.heic", url: url))
+      let cell = MergedTimelineCell.localOnly(
+        ImageRef(id: "local", displayName: "local.heic", url: url))
 
       let assets = actions.resolve(cell, absPathMap: [:], server: { _ in nil })
 
@@ -177,15 +196,20 @@
     @MainActor
     func testCloudTileWithoutItsAssetResolvesNothing() {
       let actions = TimelineFileActions(
-        cloudAsset: { _, _ in XCTFail("unresolved tile must not build a ref"); return AssetRef(url: URL(fileURLWithPath: "/")) },
+        cloudAsset: { _, _ in
+          XCTFail("unresolved tile must not build a ref")
+          return AssetRef(url: URL(fileURLWithPath: "/"))
+        },
         localAsset: { _ in nil })
-      let cell = MergedTimelineCell.cloudOnly(ImageRef(id: "fs:/a.dng", displayName: "a.dng", url: nil))
+      let cell = MergedTimelineCell.cloudOnly(
+        ImageRef(id: "fs:/a.dng", displayName: "a.dng", url: nil))
 
       XCTAssertTrue(actions.resolve(cell, absPathMap: [:], server: { _ in nil }).isEmpty)
     }
 
     func testTileDragIdentityIsStablePerTile() {
-      XCTAssertEqual(TimelineFileActions.tileID("fs:/a.dng"), TimelineFileActions.tileID("fs:/a.dng"))
+      XCTAssertEqual(
+        TimelineFileActions.tileID("fs:/a.dng"), TimelineFileActions.tileID("fs:/a.dng"))
       XCTAssertNotEqual(
         TimelineFileActions.tileID("fs:/a.dng"), TimelineFileActions.tileID("fs:/b.dng"))
     }
