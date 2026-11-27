@@ -58,6 +58,15 @@
         "scripts/bench-thumb-serving.ts",
         "scripts/bench-routes.ts",
         "scripts/bench-derivative-render.ts",
+        // #6100: the generated-searches benchmark clones a generated database into a throwaway temp dir.
+        "scripts/bench-generated-searches.ts",
+        // #6100: the video, event-client, background-stage and thumbnail-Worker benchmarks stage throwaway files under the OS temp dir.
+        "scripts/bench-video-streaming.ts",
+        "scripts/bench-event-clients.ts",
+        "scripts/bench-background-stages.ts",
+        "scripts/bench-thumb-worker.ts",
+        // #6100: the listing check test writes throwaway budget files and stub servers under the OS temp dir.
+        "scripts/bench-folder-listing.check.test.ts",
         // #4755: operator audit harness; reads a query file and writes its own report outside any library.
         "scripts/search-audit.ts",
         // #3780: disposable coverage artifacts and isolated test scratch files, never library writes.
