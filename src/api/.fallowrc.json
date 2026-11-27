@@ -59,6 +59,18 @@
     "scripts/bench-derivative-render.ts",
     "scripts/bench-routes.ts",
 
+    // #6100 — the second wave of server benchmarks (saved-filter routes, decode worker count,
+    // edited-RAW double render, native call overhead). Run by hand with Bun.
+    "scripts/bench-generated-searches.ts",
+    "scripts/bench-decode-workers.ts",
+    "scripts/bench-edited-double-render.ts",
+    "scripts/bench-native-call-overhead.ts",
+    // #6100 — video streaming, idle event clients, background stages and the thumbnail-cache Worker.
+    "scripts/bench-video-streaming.ts",
+    "scripts/bench-event-clients.ts",
+    "scripts/bench-background-stages.ts",
+    "scripts/bench-thumb-worker.ts",
+
     // #4514 — the For You load reproduction and the caption library it runs on.
     "scripts/sqlite-bench/caption-library.ts",
     "scripts/sqlite-bench/generated-search-load.ts",

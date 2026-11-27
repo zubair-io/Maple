@@ -1,0 +1,13 @@
+{
+  "targetWarmMedianMs": 100,
+  "scenario": { "photos": 2000, "sidecars": 1000, "indexed": true, "withThumbs": true, "runs": 30 },
+  "limit500Images": 333,
+  "machines": {
+    "darwin-arm64 Apple M5 Max": {
+      "measured": "2026-11-26, macOS 27.0, Bun 1.4.4, load average 3-5: medians 46 / 44 / 12 ms",
+      "warmMedianMs": 51,
+      "revalidateMedianMs": 49,
+      "limit500MedianMs": 14
+    }
+  }
+}
