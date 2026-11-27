@@ -168,7 +168,7 @@ namespace Maple.WinUI.Services.FileOperations
             }
         }
 
-        private sealed record DisplacedFile(string Backup, string Original);
+        private sealed record DisplacedFile(string Backup, string Original, bool WasReadOnly);
 
         private static void ThrowIfStackFileMissing(params string[] sources)
         {
@@ -279,8 +279,11 @@ namespace Maple.WinUI.Services.FileOperations
                              .Where(path => !sources.Any(source => NamesSameFile(source, path))))
                 {
                     var backup = TempPathFor(path);
+                    var wasReadOnly = File.GetAttributes(path).HasFlag(FileAttributes.ReadOnly);
                     CopyVerified(path, backup);
-                    backups.Add(new DisplacedFile(backup, path));
+                    backups.Add(new DisplacedFile(backup, path, wasReadOnly));
+                    // A read-only backup could not be deleted once it is no longer needed.
+                    if (wasReadOnly) File.SetAttributes(backup, File.GetAttributes(backup) & ~FileAttributes.ReadOnly);
                 }
             }
             catch
@@ -295,15 +298,23 @@ namespace Maple.WinUI.Services.FileOperations
         {
             foreach (var item in backups)
             {
+                var moved = false;
                 try
                 {
+                    // A read-only photo published by the failed plan would refuse the move.
+                    if (File.Exists(item.Original))
+                        File.SetAttributes(item.Original, File.GetAttributes(item.Original) & ~FileAttributes.ReadOnly);
                     File.Move(item.Backup, item.Original, overwrite: true);
+                    moved = true;
+                    if (item.WasReadOnly)
+                        File.SetAttributes(item.Original, File.GetAttributes(item.Original) | FileAttributes.ReadOnly);
                 }
                 catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
                 {
-                    DiagLog.Write(
-                        $"[FileOperations] could not put back {item.Original}; "
-                        + $"its copy is kept at {item.Backup}: {ex.Message}");
+                    DiagLog.Write(moved
+                        ? $"[FileOperations] put back {item.Original}, but could not make it read-only again: {ex.Message}"
+                        : $"[FileOperations] could not put back {item.Original}; "
+                            + $"its copy is kept at {item.Backup}: {ex.Message}");
                 }
             }
         }
@@ -311,7 +322,11 @@ namespace Maple.WinUI.Services.FileOperations
         private static void Discard(IReadOnlyList<DisplacedFile> backups)
         {
             foreach (var item in backups)
+            {
                 TryDelete(item.Backup);
+                if (File.Exists(item.Backup))
+                    DiagLog.Write($"[FileOperations] could not remove the backup of {item.Original}: {item.Backup}");
+            }
         }
     }
 }
