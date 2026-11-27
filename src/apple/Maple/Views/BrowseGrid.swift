@@ -37,6 +37,7 @@ struct BrowseGrid: View {
   /// receive the instance directly — no observed-object wrapper needed.
   let vm: BrowseViewModel
   @Binding var sessions: [AssetRef.ID: EditSession]
+  let sessionBuffer: BrowseSessionBuffer<AssetRef.ID, EditSession>
   /// How image cells render their thumbnails. Owned by the parent shell so
   /// the toolbar toggle survives BrowseGrid view re-creation. Defaults to
   /// `.fill` when the parent doesn't pass a binding.
@@ -72,6 +73,8 @@ struct BrowseGrid: View {
   /// lazily create per-asset `EditSession`s only when their cell scrolls
   /// into view, instead of eagerly priming every asset in the folder.
   var onPrimeSession: ((AssetRef) async -> Void)? = nil
+  /// A cell scrolled into view; its session is staged in `sessionBuffer`, not `sessions` (#6130).
+  var onPrimeVisibleCell: ((AssetRef) async -> Void)? = nil
   var onReadGridFilterMetadata:
     (@MainActor @Sendable (AssetRef) async throws -> GridFilterMetadata)? = nil
   /// Fired when the user taps "Merge to Panorama…" from the selection bar
@@ -402,7 +405,7 @@ struct BrowseGrid: View {
         selection: vm.isSelecting
           ? vm.selectedIDs
           : (vm.selectedID.map { Set([$0]) } ?? []),
-        onLoadItem: { asset in await onPrimeSession?(asset) },
+        onLoadItem: { asset in await onPrimeVisibleCell?(asset) },
         multiSelectChecked: vm.isSelecting
           ? { asset in
             vm.selectedIDs.contains(asset.id)
@@ -516,7 +519,7 @@ struct BrowseGrid: View {
   /// Desktop badge overlays for one asset, derived from `sessions[asset.id]`.
   /// Matches the original LibraryCell `.desktop` badge derivation exactly.
   private func desktopOverlays(for asset: AssetRef) -> GridCellOverlays {
-    let session = sessions[asset.id]
+    let session = sessions[asset.id] ?? sessionBuffer.session(for: asset.id)
     let cullFlag = session?.culling.flag ?? .none
     return GridCellOverlays(
       rating: session?.culling.stars ?? 0,
@@ -844,6 +847,7 @@ private struct _BrowseGridPreviewWrapper: View {
   let vm: BrowseViewModel
   let grantPhotos: Bool
   @State private var sessions: [AssetRef.ID: EditSession] = [:]
+  private let sessionBuffer = BrowseSessionBuffer<AssetRef.ID, EditSession>()
 
   init(vm: BrowseViewModel, grantPhotos: Bool = false) {
     self.vm = vm
@@ -854,6 +858,7 @@ private struct _BrowseGridPreviewWrapper: View {
     BrowseGrid(
       vm: vm,
       sessions: $sessions,
+      sessionBuffer: sessionBuffer,
       onGrantPhotosAccess: grantPhotos ? {} : nil
     )
     .frame(width: 720, height: 540)

@@ -35,12 +35,14 @@
     let vm: BrowseViewModel
     let source: (any ImageSource)?
     @Binding var sessions: [AssetRef.ID: EditSession]
+    let sessionBuffer: BrowseSessionBuffer<AssetRef.ID, EditSession>
     @Binding var displayMode: GridDisplayMode
 
     /// A tile tap: the asset and its tile's window-space frame, for the
     /// Preview hero to grow out of.
     let onOpenEditor: (AssetRef, CGRect) -> Void
     let onPrimeSession: (AssetRef) async -> Void
+    let onPrimeVisibleCell: (AssetRef) async -> Void
     var onReadGridFilterMetadata:
       (@MainActor @Sendable (AssetRef) async throws -> GridFilterMetadata)? = nil
     /// Tap on a sub-folder tile — drills the grid into that folder.
@@ -164,7 +166,7 @@
               onAppearItem: { asset in
                 Task { await vm.loadMorePhotoKitIfNeeded(appearing: asset.id) }
               },
-              onLoadItem: { asset in await onPrimeSession(asset) },
+              onLoadItem: { asset in await onPrimeVisibleCell(asset) },
               multiSelectChecked: vm.isSelecting
                 ? { asset in vm.selectedIDs.contains(asset.id) } : nil,
               onSelectedFrameChange: onSelectedFrameChange,
@@ -438,7 +440,7 @@
     // MARK: - Overlay derivation
 
     private func overlays(for asset: AssetRef) -> GridCellOverlays {
-      let session = sessions[asset.id]
+      let session = sessions[asset.id] ?? sessionBuffer.session(for: asset.id)
       let cullFlag = session?.culling.flag ?? .none
       return GridCellOverlays(
         rating: session?.culling.stars ?? 0,

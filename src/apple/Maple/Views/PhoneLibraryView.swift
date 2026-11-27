@@ -52,6 +52,7 @@
     /// The top level's model: the folder the open photo came from.
     let activeBrowseVM: BrowseViewModel
     @Binding var sessions: [AssetRef.ID: EditSession]
+    let sessionBuffer: BrowseSessionBuffer<AssetRef.ID, EditSession>
     /// The Library tab's navigation stack (owned by `PhoneTabShell`). Preview's
     /// Edit button appends `.edit(asset)` to it, so this view needs write access
     /// to push the editor from inside the resolved `.preview` destination.
@@ -79,6 +80,7 @@
     /// The photo whose tile is blanked while the Preview hero carries it.
     var hiddenTileID: AssetRef.ID? = nil
     let onPrimeSession: (AssetRef) async -> Void
+    let onPrimeVisibleCell: (AssetRef) async -> Void
     let onReadGridFilterMetadata: @MainActor @Sendable (AssetRef) async throws -> GridFilterMetadata
     let makeEditSession: (AssetRef) -> EditSession
     let onFullImageFallback: () -> Void
@@ -149,6 +151,7 @@
         browseDisplayMode: $browseDisplayMode,
         browseVM: screenVM,
         sessions: $sessions,
+        sessionBuffer: sessionBuffer,
         toolbarContent: toolbarContent,
         showsBrowseToolbar: !LibraryDestination.presentsPreviewHero(in: libraryPath),
         showsDrawerButton: folder == nil,
@@ -161,6 +164,7 @@
         onOpenEditor: onOpenEditor,
         onOpenTile: onOpenTile,
         onPrimeSession: onPrimeSession,
+        onPrimeVisibleCell: onPrimeVisibleCell,
         onReadGridFilterMetadata: onReadGridFilterMetadata,
         onFullImageFallback: onFullImageFallback,
         onSelectedTileFrameChange: isTop ? onSelectedTileFrameChange : nil,
@@ -188,7 +192,8 @@
           libraryPath = LibraryDestination.replacingAsset(in: libraryPath, with: sibling)
         },
         makeEditSession: makeEditSession,
-        sessions: $sessions
+        sessions: $sessions,
+        sessionBuffer: sessionBuffer
       )
       .id(ref.id)
     }

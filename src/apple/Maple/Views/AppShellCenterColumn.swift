@@ -79,6 +79,7 @@ struct AppShellCenterColumn: View {
   @Binding var browseDisplayMode: GridDisplayMode
   let browseVM: BrowseViewModel
   @Binding var sessions: [AssetRef.ID: EditSession]
+  let sessionBuffer: BrowseSessionBuffer<AssetRef.ID, EditSession>
 
   // Center-column callbacks — forward into AppShell action methods.
   let onSelectCloudAsset: (SearchAsset, URL) -> Void
@@ -113,6 +114,7 @@ struct AppShellCenterColumn: View {
   /// `onOpenEditor`.
   var onOpenTile: (AssetRef, CGRect) -> Void = { _, _ in }
   let onPrimeSession: (AssetRef) async -> Void
+  let onPrimeVisibleCell: (AssetRef) async -> Void
   let onReadGridFilterMetadata: @MainActor @Sendable (AssetRef) async throws -> GridFilterMetadata
   /// Recover from a vanished selection by flipping back to Browse.
   let onFullImageFallback: () -> Void
@@ -299,9 +301,11 @@ struct AppShellCenterColumn: View {
               vm: browseVM,
               source: browseVM.currentSource,
               sessions: $sessions,
+              sessionBuffer: sessionBuffer,
               displayMode: $browseDisplayMode,
               onOpenEditor: onOpenTile,
               onPrimeSession: onPrimeSession,
+              onPrimeVisibleCell: onPrimeVisibleCell,
               onReadGridFilterMetadata: onReadGridFilterMetadata,
               onNavigateFolder: onNavigateFolder,
               // #2924: the phone branch used to drop this on the
@@ -323,6 +327,7 @@ struct AppShellCenterColumn: View {
             BrowseGrid(
               vm: browseVM,
               sessions: $sessions,
+              sessionBuffer: sessionBuffer,
               displayMode: $browseDisplayMode,
               onGrantPhotosAccess: onGrantPhotosAccess,
               onNavigateFolder: onNavigateFolder,
@@ -330,6 +335,7 @@ struct AppShellCenterColumn: View {
               onDropAssetsOnFolder: onDropAssetsOnFolder,
               onOpenEditor: onOpenEditor,
               onPrimeSession: onPrimeSession,
+              onPrimeVisibleCell: onPrimeVisibleCell,
               onReadGridFilterMetadata: onReadGridFilterMetadata,
               onMergePanorama: onMergePanorama,
               onEditMetadata: onEditMetadata,
@@ -344,6 +350,7 @@ struct AppShellCenterColumn: View {
           BrowseGrid(
             vm: browseVM,
             sessions: $sessions,
+            sessionBuffer: sessionBuffer,
             displayMode: $browseDisplayMode,
             onGrantPhotosAccess: onGrantPhotosAccess,
             onNavigateFolder: onNavigateFolder,
@@ -351,6 +358,7 @@ struct AppShellCenterColumn: View {
             onDropAssetsOnFolder: onDropAssetsOnFolder,
             onOpenEditor: onOpenEditor,
             onPrimeSession: onPrimeSession,
+            onPrimeVisibleCell: onPrimeVisibleCell,
             onReadGridFilterMetadata: onReadGridFilterMetadata,
             onMergePanorama: onMergePanorama,
             onEditMetadata: onEditMetadata,
