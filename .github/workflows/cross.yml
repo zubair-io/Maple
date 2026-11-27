@@ -564,6 +564,10 @@ jobs:
           python3 tools/check_budget_ratchet.py --base "$base" --head test-fixtures/budgets.json --marker-file "$marker"
           rm -f "$base" "$marker"
 
+      - name: Enforce the performance scorecard budgets ratchet vs merge base (#6147)
+        if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
+        run: python3 src/scripts/perf_scorecard.py --check-ratchet --base-ref "$MERGE_BASE"
+
   codegen-drift:
     needs: changes
     if: needs.changes.outputs.codegen == 'true'

@@ -85,13 +85,63 @@ jobs:
           MAPLE_JWT_SECRET: ci-test-secret-not-for-production-only
         run: bash tools/qualification/record.sh --check sidecar_contract_api bun -- bash -c 'cd src/api && bun test src/routes/xmp.sidecar-contract.test.ts --timeout 30000'
 
+  perf-gate-listing:
+    name: perf-gate-listing (folder listing against its target)
+    needs: changes
+    if: needs.changes.outputs.api == 'true'
+    timeout-minutes: 15
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - name: Install API deps
+        working-directory: src/api
+        run: bun install --frozen-lockfile
+      - name: Folder listing against the 100 ms target and the runner budget (#6147)
+        run: >-
+          python3 src/scripts/perf_scorecard.py --targets listing --regressions-only
+          --machine-class "linux-x64 GitHub-hosted ubuntu-24.04"
+
+  perf-gate-core:
+    name: perf-gate-core (1280 px preview and default export against their budgets)
+    needs: changes
+    if: needs.changes.outputs.api == 'true'
+    timeout-minutes: 45
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Cache cargo registry + raw-pipeline target
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            src/raw-pipeline/target
+          key: perf-gate-core-cargo-${{ runner.os }}-${{ hashFiles('src/raw-pipeline/**/Cargo.lock', 'src/raw-pipeline/**/Cargo.toml') }}
+      - name: Build the benchmark binaries (release)
+        working-directory: src/raw-pipeline
+        run: |
+          cargo build --release --locked -p raw-ffi --example ffi-perf
+          cargo build --release --locked -p raw-core --features test-support --example perf-audit-dng
+      - name: Scorecard unit tests
+        run: python3 src/scripts/perf_scorecard_test.py
+      - name: Preview and export against the runner budgets (#6147)
+        run: >-
+          python3 src/scripts/perf_scorecard.py --targets preview,export --regressions-only
+          --machine-class "linux-x64 GitHub-hosted ubuntu-24.04"
+
   result:
     name: API result
-    needs: [changes, api-typecheck, api-tests]
+    needs: [changes, api-typecheck, api-tests, perf-gate-listing, perf-gate-core]
     if: always()
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7.0.1
-      - run: python3 tools/ci_result.py api-typecheck=api api-tests=api
+      - run: >-
+          python3 tools/ci_result.py api-typecheck=api api-tests=api perf-gate-listing=api
+          perf-gate-core=api
         env:
           NEEDS_JSON: ${{ toJSON(needs) }}
