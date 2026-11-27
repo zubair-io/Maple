@@ -5,8 +5,8 @@
 // `AppShell` keeps one `EditSession` per opened/primed asset in a
 // `[AssetRef.ID: EditSession]` dictionary that is otherwise append-only:
 // `loadFolder` pre-creates a session for every asset in a loaded folder,
-// and `ensureSession(for:)` primes one for every grid cell scrolled into
-// view. Neither ever prunes, so re-browsing a folder or navigating between
+// and a grid cell scrolled into view primes one (staged in
+// `BrowseSessionBuffer` until a scroll pauses, #6130). Neither ever prunes, so re-browsing a folder or navigating between
 // folders/libraries only ever adds entries — each idle `EditSession` owns
 // its own Metal-backed CIContext, RenderActor, NativeDetailRenderer, and
 // XMPSidecarStore, so this grows memory without bound (#2038).

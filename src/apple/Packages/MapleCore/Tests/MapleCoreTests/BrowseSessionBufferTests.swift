@@ -162,29 +162,90 @@ final class BrowseSessionBufferTests: XCTestCase {
     XCTAssertTrue(buffer.session(for: "a") === second)
   }
 
-  func test_stagedSessionsAreDeliveredOnceAfterTheLastCall() async throws {
+  func test_stagedSessionsAreDeliveredOnceAfterTheLastCall() async {
     let deliveries = Deliveries()
     buffer.stage(Token(), for: "a")
     buffer.drainWhenQuiet(after: .milliseconds(10)) { _ in deliveries.keys.append("superseded") }
+    let superseded = buffer.scheduledDrain
     buffer.stage(Token(), for: "b")
     buffer.drainWhenQuiet(after: .milliseconds(10)) { staged in
       deliveries.keys.append(staged.keys.sorted().joined())
     }
-    for _ in 0..<200 where deliveries.keys.isEmpty {
-      try await Task.sleep(for: .milliseconds(10))
-    }
-    try await Task.sleep(for: .milliseconds(50))
+    await superseded?.value
+    await buffer.scheduledDrain?.value
     XCTAssertEqual(deliveries.keys, ["ab"])
     XCTAssertTrue(buffer.drain().isEmpty, "delivered sessions are no longer staged")
   }
 
-  func test_nothingIsDeliveredOnceEveryStagedSessionIsGone() async throws {
+  func test_nothingIsDeliveredOnceEveryStagedSessionIsGone() async {
     let deliveries = Deliveries()
     buffer.stage(Token(), for: "a")
     buffer.drainWhenQuiet(after: .milliseconds(10)) { _ in deliveries.keys.append("delivered") }
     buffer.removeAll(keeping: [])
-    try await Task.sleep(for: .milliseconds(150))
+    await buffer.scheduledDrain?.value
     XCTAssertTrue(deliveries.keys.isEmpty)
+  }
+
+  func test_nothingIsDeliveredOnceTheBufferIsGone() async {
+    let deliveries = Deliveries()
+    var owned: BrowseSessionBuffer<String, Token>? = BrowseSessionBuffer()
+    owned?.stage(Token(), for: "a")
+    owned?.drainWhenQuiet(after: .milliseconds(10)) { _ in deliveries.keys.append("delivered") }
+    let pending = owned?.scheduledDrain
+    owned = nil
+    await pending?.value
+    XCTAssertTrue(deliveries.keys.isEmpty)
+  }
+
+  func test_restagingAfterRemoveNotifiesTheNewReader() {
+    buffer.stage(Token(), for: "a")
+    buffer.remove("a")
+    let fired = Flag()
+    withObservationTracking {
+      _ = buffer.session(for: "a")
+    } onChange: {
+      fired.raised = true
+    }
+    let second = Token()
+    buffer.stage(second, for: "a")
+    XCTAssertTrue(fired.raised)
+    XCTAssertTrue(buffer.session(for: "a") === second)
+  }
+
+  func test_adoptMovesAStagedSessionIntoTheDictionaryOnce() {
+    let token = Token()
+    buffer.stage(token, for: "a")
+    var sessions: [String: Token] = [:]
+    XCTAssertTrue(buffer.adopt("a", into: &sessions) === token)
+    XCTAssertTrue(sessions["a"] === token)
+    XCTAssertNil(buffer.take("a"), "an adopted session is no longer staged")
+    XCTAssertTrue(buffer.drain().isEmpty)
+  }
+
+  func test_adoptPrefersTheDictionaryAndLeavesTheStagedSession() {
+    let resident = Token()
+    buffer.stage(Token(), for: "a")
+    var sessions = ["a": resident]
+    XCTAssertTrue(buffer.adopt("a", into: &sessions) === resident)
+    XCTAssertEqual(Set(buffer.drain().keys), ["a"])
+  }
+
+  func test_adoptOfAnUnknownKeyChangesNothing() {
+    var sessions: [String: Token] = [:]
+    XCTAssertNil(buffer.adopt("a", into: &sessions))
+    XCTAssertTrue(sessions.isEmpty)
+  }
+
+  func test_flushMovesEveryStagedSessionKeepingResidentOnes() {
+    let resident = Token()
+    let staged = Token()
+    buffer.stage(Token(), for: "a")
+    buffer.stage(staged, for: "b")
+    var sessions = ["a": resident]
+    buffer.flush(into: &sessions)
+    XCTAssertTrue(sessions["a"] === resident)
+    XCTAssertTrue(sessions["b"] === staged)
+    XCTAssertTrue(buffer.drain().isEmpty)
   }
 
   func test_nothingIsDeliveredBeforeTheDelayHasPassed() async throws {
