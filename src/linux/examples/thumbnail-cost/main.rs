@@ -94,7 +94,10 @@ fn round(label: &str, workers: usize, fixtures: &[Fixture]) {
         for _ in 0..workers {
             scope.spawn(|| {
                 let worker = ThumbnailWorker::new(Default::default());
-                while let Some(index) = { locked(&queue).pop_front() } {
+                loop {
+                    let Some(index) = locked(&queue).pop_front() else {
+                        break;
+                    };
                     let begun = Instant::now();
                     if !worker.request(0, fixtures[index].photo.clone()) {
                         continue;
