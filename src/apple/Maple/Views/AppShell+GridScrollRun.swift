@@ -17,7 +17,7 @@
 // real scroll moves it, and the same callbacks are the frame record: what the
 // display link delivered, and when each frame's layout and commit finished.
 // A report only counts if the display was awake, unlocked and showing the
-// window around every pass, which it records as `framesVisible`.
+// window throughout every pass, which it records as `framesVisible`.
 // `MAPLE_SCROLL_RUN_REUSE=1` keeps the folder and its thumbnails from the
 // previous run, so "first" becomes the reopened-folder case. Paths are
 // absolute, or relative to the app's home directory (its container on iOS).
@@ -144,7 +144,8 @@ extension AppShell {
     let expectedSeconds = (grid.maximumOffset - start) / Self.scrollRunPointsPerSecond
     let pass = await GridScrollDriver(grid: grid, pointsPerSecond: Self.scrollRunPointsPerSecond)
       .scrollToBottom(givingUpAfter: .seconds(60 + 4 * expectedSeconds))
-    report.framesVisible = (report.framesVisible ?? true) && visibleBefore && grid.framesVisible
+    report.framesVisible =
+      (report.framesVisible ?? true) && visibleBefore && pass.stayedVisible && grid.framesVisible
     report.passes.append(
       ScrollPassReport(
         name: name, frames: pass.frames, distancePoints: grid.offset - start,
