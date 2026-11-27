@@ -2,6 +2,11 @@
 # measure_lan_thumbnails.sh — target: a 2,000-photo cloud folder has every grid
 # thumbnail on the device in under 2 s over the LAN route.
 #
+# The server runs on this Mac and is reached over loopback (127.0.0.1), so this
+# measures the app's LAN-route code (listing, 16-wide fetch, disk cache, decode) and
+# the server's production routes, not Wi-Fi or Ethernet latency and bandwidth. A real
+# network adds per-request round trips on top; qualify it separately on a device.
+#
 # Builds a library of APFS clones of the fixture RAWs (never the originals) with
 # their shared 512 px thumbnails, serves it through the production folder and thumb
 # routes (src/api/tests/fixtures/folder-thumb-throughput-server.ts) and runs
@@ -94,7 +99,7 @@ done
 stats() { printf '%s\n' "$@" | sort -n | awk '{v[NR]=$1} END {print v[1], v[int((NR+1)/2)]}'; }
 read -r bytes_min bytes_median <<<"$(stats "${bytes[@]}")"
 read -r all_min all_median <<<"$(stats "${decoded[@]}")"
-echo "all bytes on device: min ${bytes_min} ms, median ${bytes_median} ms (limit ${limit_ms} ms)"
+echo "all bytes on device (loopback): min ${bytes_min} ms, median ${bytes_median} ms (limit ${limit_ms} ms)"
 echo "every tile decoded:  min ${all_min} ms, median ${all_median} ms (not gated, decision 25)"
 if ((bytes_median > limit_ms)); then
 	echo "FAIL: median ${bytes_median} ms is over ${limit_ms} ms"
