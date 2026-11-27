@@ -178,6 +178,9 @@ struct PhotoGrid<Element: Identifiable>: View {
         PhotoGridCell(element: element, grid: self)
       }
     }
+    #if os(macOS)
+      .modifier(MacGridDragHost(isEnabled: dragPayload != nil))
+    #endif
   }
 }
 
