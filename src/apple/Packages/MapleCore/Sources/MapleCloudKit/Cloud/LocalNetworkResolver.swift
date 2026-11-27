@@ -356,6 +356,8 @@ public final class LocalNetworkResolver {
       resolved[key] = nil
       statuses[key] = nil
       probeStartedAt[key] = nil
+      probes.removeValue(forKey: key)?.cancel()
+      for waiter in waiters.removeValue(forKey: key) ?? [] { waiter.resume() }
     }
     for (key, server) in knownServers where (probeStartedAt[key] ?? 0) < lastPathChange {
       startProbe(identity: server.identity, session: server.session)
