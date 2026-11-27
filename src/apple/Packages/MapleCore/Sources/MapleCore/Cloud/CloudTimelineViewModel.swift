@@ -375,8 +375,7 @@ public final class CloudTimelineViewModel {
     }
   }
 
-  /// An identical page needs no re-merge: a local change re-merges every loaded month through
-  /// `remergeLoadedBuckets()` on its own.
+  /// An identical page needs no re-merge: a local change re-merges loaded months itself.
   private func publishCloudPage(_ results: [SearchAsset], for key: BucketKey) {
     guard pagesByBucket[key] != results else { return }
     pagesByBucket[key] = results

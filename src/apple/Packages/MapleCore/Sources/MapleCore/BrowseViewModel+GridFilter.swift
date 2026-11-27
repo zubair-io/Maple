@@ -3,6 +3,7 @@ import Foundation
 extension BrowseViewModel {
   public func invalidateGridFilterForAssetIdentityChange() {
     gridFilterAssetIdentityGeneration &+= 1
+    gridFilterFacts = .empty
     gridFilterLoadGeneration &+= 1
     if gridFilter != .all { gridFilterLoading = true }
   }
@@ -31,47 +32,46 @@ extension BrowseViewModel {
     gridFilterLoadGeneration &+= 1
     let generation = gridFilterLoadGeneration
     let listing = listingGeneration
-    let identity = gridFilterAssetIdentityGeneration
     let listedAssets = assets
+    let kept = gridFilterFacts
     gridFilterLoading = true
     gridFilterError = nil
     gridFilterMetadata = [:]
 
-    let stamps = await GridFilterSidecarStamp.stamps(for: listedAssets)
-    guard generation == gridFilterLoadGeneration, listing == listingGeneration,
-      !Task.isCancelled
-    else { return }
-    let reused = gridFilterFacts.reusable(listing: listing, identity: identity, stamps: stamps)
-    let unread = listedAssets.filter { reused[$0.id] == nil }
+    let load: @Sendable (AssetRef) async throws -> GridFilterFactCache.Loaded = { asset in
+      let stamp = GridFilterSidecarStamp.current(for: asset)
+      let metadata =
+        if let reused = kept.reusableMetadata(for: asset.id, stamp: stamp) {
+          reused
+        } else {
+          try await read(asset)
+        }
+      return .init(id: asset.id, stamp: stamp, metadata: metadata)
+    }
 
     do {
-      var result = reused
-      try await withThrowingTaskGroup(of: (AssetRef.ID, GridFilterMetadata).self) { group in
-        var next = unread.makeIterator()
-        for _ in 0..<min(8, unread.count) {
+      var loaded: [GridFilterFactCache.Loaded] = []
+      loaded.reserveCapacity(listedAssets.count)
+      try await withThrowingTaskGroup(of: GridFilterFactCache.Loaded.self) { group in
+        var next = listedAssets.makeIterator()
+        for _ in 0..<min(8, listedAssets.count) {
           if let asset = next.next() {
-            group.addTask { (asset.id, try await read(asset)) }
+            group.addTask { try await load(asset) }
           }
         }
-        while let (id, metadata) = try await group.next() {
+        while let item = try await group.next() {
           try Task.checkCancellation()
-          result[id] = metadata
+          loaded.append(item)
           if let asset = next.next() {
-            group.addTask { (asset.id, try await read(asset)) }
+            group.addTask { try await load(asset) }
           }
         }
       }
       guard generation == gridFilterLoadGeneration, listing == listingGeneration,
         !Task.isCancelled
       else { return }
-      gridFilterFacts = GridFilterFactCache(
-        listingGeneration: listing,
-        assetIdentityGeneration: identity,
-        entries: listedAssets.reduce(into: [:]) { entries, asset in
-          guard let stamp = stamps[asset.id], let metadata = result[asset.id] else { return }
-          entries[asset.id] = .init(stamp: stamp, metadata: metadata)
-        })
-      gridFilterMetadata = result
+      gridFilterFacts = GridFilterFactCache(loaded: loaded)
+      gridFilterMetadata = loaded.reduce(into: [:]) { $0[$1.id] = $1.metadata }
       gridFilterLoading = false
       selectedIDs.formIntersection(Set(gridAssets(sessions: [:]).map(\.id)))
     } catch {
