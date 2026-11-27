@@ -11,6 +11,10 @@ final class BrowseSessionBufferTests: XCTestCase {
     var raised = false
   }
 
+  private final class Deliveries: @unchecked Sendable {
+    var keys: [String] = []
+  }
+
   private var buffer = BrowseSessionBuffer<String, Token>()
 
   override func setUp() {
@@ -156,5 +160,39 @@ final class BrowseSessionBufferTests: XCTestCase {
     let second = Token()
     buffer.stage(second, for: "a")
     XCTAssertTrue(buffer.session(for: "a") === second)
+  }
+
+  func test_stagedSessionsAreDeliveredOnceAfterTheLastCall() async throws {
+    let deliveries = Deliveries()
+    buffer.stage(Token(), for: "a")
+    buffer.drainWhenQuiet(after: .milliseconds(10)) { _ in deliveries.keys.append("superseded") }
+    buffer.stage(Token(), for: "b")
+    buffer.drainWhenQuiet(after: .milliseconds(10)) { staged in
+      deliveries.keys.append(staged.keys.sorted().joined())
+    }
+    for _ in 0..<200 where deliveries.keys.isEmpty {
+      try await Task.sleep(for: .milliseconds(10))
+    }
+    try await Task.sleep(for: .milliseconds(50))
+    XCTAssertEqual(deliveries.keys, ["ab"])
+    XCTAssertTrue(buffer.drain().isEmpty, "delivered sessions are no longer staged")
+  }
+
+  func test_nothingIsDeliveredOnceEveryStagedSessionIsGone() async throws {
+    let deliveries = Deliveries()
+    buffer.stage(Token(), for: "a")
+    buffer.drainWhenQuiet(after: .milliseconds(10)) { _ in deliveries.keys.append("delivered") }
+    buffer.removeAll(keeping: [])
+    try await Task.sleep(for: .milliseconds(150))
+    XCTAssertTrue(deliveries.keys.isEmpty)
+  }
+
+  func test_nothingIsDeliveredBeforeTheDelayHasPassed() async throws {
+    let deliveries = Deliveries()
+    buffer.stage(Token(), for: "a")
+    buffer.drainWhenQuiet(after: .seconds(60)) { _ in deliveries.keys.append("delivered") }
+    try await Task.sleep(for: .milliseconds(100))
+    XCTAssertTrue(deliveries.keys.isEmpty)
+    XCTAssertEqual(buffer.drain().keys.sorted(), ["a"], "still staged while the scroll goes on")
   }
 }

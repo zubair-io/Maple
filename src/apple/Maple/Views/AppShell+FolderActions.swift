@@ -384,13 +384,8 @@ extension AppShell {
   }
 
   func scheduleBrowseSessionFlush() {
-    browseSessionFlush?.cancel()
     // A continuous scroll never pays the whole-grid update; a pause pays it once.
-    browseSessionFlush = Task { @MainActor in
-      try? await Task.sleep(for: .milliseconds(300))
-      guard !Task.isCancelled else { return }
-      let staged = browseSessionBuffer.drain()
-      guard !staged.isEmpty else { return }
+    browseSessionBuffer.drainWhenQuiet(after: .milliseconds(300)) { staged in
       sessions.merge(staged) { existing, _ in existing }
     }
   }
