@@ -182,6 +182,7 @@ struct PhotoThumbnailCell: View {
     // preview then falls back to `ThumbnailImage`'s placeholder.
     .modifier(
       DragPayloadModifier(
+        id: item.id,
         payload: dragPayload,
         thumbnail: decoded ?? hotImage)
     )
@@ -432,6 +433,7 @@ private struct GridCellOverlayView: View {
 /// payload carries more than one asset — a single-asset drag shows just the
 /// thumbnail, matching the design doc's Finder/Photos convention.
 private struct DragPayloadModifier: ViewModifier {
+  let id: String
   let payload: DraggedAssetPayload?
   /// The cell's already-decoded thumbnail, passed through from
   /// `PhotoThumbnailCell.body` so the preview closure does no decode work
@@ -441,7 +443,7 @@ private struct DragPayloadModifier: ViewModifier {
   func body(content: Content) -> some View {
     if let payload {
       #if os(macOS)
-        content.background(MacAssetDragSource(payload: payload, thumbnail: thumbnail))
+        content.modifier(MacCellDragRegistration(id: id, payload: payload, thumbnail: thumbnail))
       #else
         content.draggable(payload) {
           AssetDragPreview(thumbnail: thumbnail, count: payload.ids.count)
