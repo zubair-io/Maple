@@ -157,6 +157,7 @@ ScopeSampleCentroidTests gpu needs a real Metal device
 ScopeSampleTests gpu needs a real Metal device
 ScopeTickDecisionTests gpu needs a real Metal device
 SharpenSliderTickPerfTests slow render or decode workload that costs minutes on the runner
+SliderTickPerformanceTests fixture opt-in measurement (MAPLE_PERF_SLIDER_RAW) over the gitignored RAW fixtures; skip-passes without them
 SidecarTransactionContractCloudTests host talks to a host service (keychain, FileProvider, network, PhotoKit, server admin)
 SidecarTransactionContractFilesystemTests fixture needs the gitignored RAW fixtures (skip-passes without them; the gate rejects skips)
 SidecarTransactionContractPhotoKitTests host talks to a host service (keychain, FileProvider, network, PhotoKit, server admin)
