@@ -8,6 +8,7 @@
 #
 # Scheduling / cache / geometry / XMP / Metal-safe GPU state (#3363):
 BrowseLoadingPerformanceTests
+CellFrameIndexTests
 RenderSchedulingBackpressureTests
 RenderRequestIdentityTests
 RenderActivityTests
