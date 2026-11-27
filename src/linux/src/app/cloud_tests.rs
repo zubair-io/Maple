@@ -1,4 +1,6 @@
 use super::*;
+use crate::app::film_tests;
+use egui::accesskit::{self, NodeId};
 
 fn entry(index: usize) -> CloudEntry {
     serde_json::from_value(serde_json::json!({
@@ -85,4 +87,64 @@ fn a_thumbnail_arriving_for_a_tile_off_screen_never_evicts_one_on_screen() {
     frame(&context, &mut cloud);
     assert!(cloud.pending.is_empty(), "{:?}", cloud.pending);
     assert!(!cloud.cache.contains_key(&off_screen.address));
+}
+
+fn editing_in_a_cloud_folder(context: &egui::Context, entries: usize) -> MapleApp {
+    let mut app = MapleApp::from_context(context.clone());
+    app.cloud.folder = Some(CloudFolder {
+        address: "library:".into(),
+        parent: None,
+        path: String::new(),
+        folders: Vec::new(),
+        images: (0..entries).map(entry).collect(),
+        sidecars: Vec::new(),
+        next_cursor: None,
+    });
+    app.cloud_editor = Some(entry(0));
+    app.browse = false;
+    app
+}
+
+fn strip_buttons(nodes: &[(NodeId, accesskit::Node)]) -> usize {
+    nodes
+        .iter()
+        .filter(|(_, node)| {
+            node.role() == accesskit::Role::Button
+                && node.label().is_some_and(|label| label.ends_with(".dng"))
+        })
+        .count()
+}
+
+#[test]
+fn the_cloud_filmstrip_reads_the_listing_where_it_is_stored() {
+    let context = egui::Context::default();
+    context.enable_accesskit();
+    let mut app = editing_in_a_cloud_folder(&context, 2_000);
+    let stored = app.cloud.folder.as_ref().unwrap().images.as_ptr();
+    assert_eq!(app.cloud.photos().as_ptr(), stored);
+
+    let nodes = film_tests::frame(&mut app, &context, Vec::new());
+    assert_eq!(strip_buttons(&nodes), 2_000);
+}
+
+#[test]
+#[ignore = "prints the per-frame time of the cloud filmstrip; run with --nocapture"]
+fn cloud_filmstrip_frame_time_over_two_thousand_entries() {
+    let context = egui::Context::default();
+    context.enable_accesskit();
+    let mut app = editing_in_a_cloud_folder(&context, 2_000);
+    film_tests::frame(&mut app, &context, Vec::new());
+    let mut micros: Vec<u128> = (0..30)
+        .map(|_| {
+            let started = Instant::now();
+            film_tests::frame(&mut app, &context, Vec::new());
+            started.elapsed().as_micros()
+        })
+        .collect();
+    micros.sort_unstable();
+    println!(
+        "cloud-filmstrip-frame entries=2000 min_us={} median_us={}",
+        micros[0],
+        micros[micros.len() / 2]
+    );
 }

@@ -5,8 +5,10 @@ mod comparison;
 mod events;
 mod export_dialog;
 mod film_controls;
+mod filmstrip;
 mod inspector;
 mod sorting;
+mod startup;
 mod style;
 #[cfg(test)]
 mod tests;
@@ -19,6 +21,7 @@ use crate::{
     sidecar::SidecarDocument,
 };
 use eframe::egui;
+pub use startup::{launch_prerequisites, StartupIcon};
 use std::{
     path::PathBuf,
     time::{Duration, Instant},
@@ -50,6 +53,7 @@ pub struct MapleApp {
     thumbnail_pending: std::collections::HashSet<PathBuf>,
     thumbnail_epoch: u64,
     thumbnail_order: std::collections::VecDeque<PathBuf>,
+    filmstrip: filmstrip::Filmstrip,
     folder: Option<Folder>,
     photo_sort: crate::library::PhotoSort,
     sort_descending: bool,
@@ -96,32 +100,28 @@ impl MapleApp {
         Self::from_context(cc.egui_ctx.clone())
     }
 
-    pub fn with_gpu(cc: &eframe::CreationContext<'_>, gpu: raw_gpu::GpuContext) -> Self {
-        let mut app = Self::from_context_with_gpu(cc.egui_ctx.clone(), Some(gpu));
+    pub fn with_gpu(
+        cc: &eframe::CreationContext<'_>,
+        gpu: raw_gpu::GpuContext,
+        icon: StartupIcon,
+    ) -> Self {
+        let mut app = Self::from_context_with_gpu(cc.egui_ctx.clone(), Some(gpu), icon);
         app.gpu_state = cc.wgpu_render_state.clone();
         app
     }
 
     fn from_context(context: egui::Context) -> Self {
-        Self::from_context_with_gpu(context, None)
+        Self::from_context_with_gpu(context, None, StartupIcon::begin())
     }
 
-    fn from_context_with_gpu(context: egui::Context, gpu: Option<raw_gpu::GpuContext>) -> Self {
+    fn from_context_with_gpu(
+        context: egui::Context,
+        gpu: Option<raw_gpu::GpuContext>,
+        icon: StartupIcon,
+    ) -> Self {
         style::apply(&context);
-        let icon = image::load_from_memory_with_format(
-            include_bytes!("../../../apple/Maple/Assets.xcassets/AppIcon.appiconset/maple512.png"),
-            image::ImageFormat::Png,
-        )
-        .expect("the canonical Maple icon is valid PNG")
-        .to_rgba8();
-        let maple_icon = context.load_texture(
-            "maple-app-icon",
-            egui::ColorImage::from_rgba_unmultiplied(
-                [icon.width() as usize, icon.height() as usize],
-                icon.as_raw(),
-            ),
-            egui::TextureOptions::LINEAR,
-        );
+        let maple_icon =
+            context.load_texture("maple-app-icon", icon.image(), egui::TextureOptions::LINEAR);
         Self {
             zoom: Default::default(),
             cloud: cloud::CloudState::new(context.clone()),
@@ -134,6 +134,7 @@ impl MapleApp {
             thumbnail_cache: Default::default(),
             thumbnail_pending: Default::default(),
             thumbnail_order: Default::default(),
+            filmstrip: Default::default(),
             thumbnail_epoch: 0,
             folder: None,
             photo_sort: Default::default(),
@@ -392,6 +393,7 @@ impl MapleApp {
         self.thumbnail_cache.clear();
         self.thumbnail_pending.clear();
         self.thumbnail_order.clear();
+        self.filmstrip.thumbnails_changed();
     }
 }
 
@@ -426,6 +428,12 @@ impl eframe::App for MapleApp {
 
 #[cfg(test)]
 mod film_tests;
+#[cfg(test)]
+mod filmstrip_focus_tests;
+#[cfg(test)]
+mod filmstrip_state_tests;
+#[cfg(test)]
+mod filmstrip_tests;
 #[cfg(test)]
 mod imported_auto_tests;
 

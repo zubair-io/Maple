@@ -19,9 +19,14 @@ impl MapleApp {
             });
         ui.checkbox(&mut self.sort_descending, "Descending");
         if previous != (self.photo_sort, self.sort_descending) {
-            if let Some(folder) = &mut self.folder {
-                folder.sort_photos(self.photo_sort, self.sort_descending);
-            }
+            self.apply_photo_sort();
+        }
+    }
+
+    pub(super) fn apply_photo_sort(&mut self) {
+        if let Some(folder) = &mut self.folder {
+            folder.sort_photos(self.photo_sort, self.sort_descending);
+            self.filmstrip.photos_changed();
         }
     }
 }

@@ -114,10 +114,10 @@ impl CloudState {
         self.downloading = true;
         self.worker.send(Command::Reload(id, photo.path.clone()));
     }
-    pub fn photos(&self) -> Vec<CloudEntry> {
+    pub fn photos(&self) -> &[CloudEntry] {
         self.folder
             .as_ref()
-            .map_or_else(Vec::new, |folder| folder.images.clone())
+            .map_or(&[], |folder| folder.images.as_slice())
     }
 
     pub fn poll(&mut self, context: &egui::Context) {

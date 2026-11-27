@@ -101,7 +101,7 @@ impl MapleApp {
                                 )
                                 .clicked()
                             {
-                                next = Some(entry);
+                                next = Some(entry.clone());
                             }
                         }
                     });
@@ -115,67 +115,7 @@ impl MapleApp {
             let mut selected = None;
             egui::TopBottomPanel::bottom("filmstrip")
                 .frame(super::style::panel("surface"))
-                .show(context, |ui| {
-                    egui::ScrollArea::horizontal().show(ui, |ui| {
-                        ui.horizontal(|ui| {
-                            if let Some(folder) = &self.folder {
-                                for photo in &folder.photos {
-                                    let name = photo
-                                        .path
-                                        .file_name()
-                                        .unwrap_or_default()
-                                        .to_string_lossy();
-                                    let selected_now = self
-                                        .selected
-                                        .as_ref()
-                                        .is_some_and(|current| current.path == photo.path);
-                                    let response = match self.thumbnail_cache.get(&photo.path) {
-                                        Some(Ok(texture)) => ui.add(
-                                            egui::Image::new(texture)
-                                                .fit_to_exact_size(egui::vec2(72.0, 46.0))
-                                                .rounding(5.0)
-                                                .sense(egui::Sense::click()),
-                                        ),
-                                        Some(Err(error)) => {
-                                            ui.button("Preview unavailable").on_hover_text(error)
-                                        }
-                                        None => ui.button(name.as_ref()),
-                                    }
-                                    .on_hover_text(name.as_ref());
-                                    if ui.clip_rect().intersects(response.rect)
-                                        && !self.thumbnail_pending.contains(&photo.path)
-                                        && !self.thumbnail_cache.contains_key(&photo.path)
-                                        && self
-                                            .thumbnails
-                                            .request(self.thumbnail_epoch, photo.clone())
-                                    {
-                                        self.thumbnail_pending.insert(photo.path.clone());
-                                    }
-                                    response.widget_info(|| {
-                                        egui::WidgetInfo::labeled(
-                                            egui::WidgetType::Button,
-                                            response.enabled(),
-                                            format!("Open {name}"),
-                                        )
-                                    });
-                                    if response.clicked() {
-                                        selected = Some(photo.clone());
-                                    }
-                                    if selected_now {
-                                        ui.painter().rect_stroke(
-                                            response.rect,
-                                            5.0,
-                                            egui::Stroke::new(
-                                                2.0_f32,
-                                                super::style::color("primary"),
-                                            ),
-                                        );
-                                    }
-                                }
-                            }
-                        });
-                    });
-                });
+                .show(context, |ui| selected = self.local_filmstrip(ui));
             if let Some(photo) = selected {
                 self.select(photo);
             }

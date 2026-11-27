@@ -68,6 +68,7 @@ impl MapleApp {
                     egui::TextureOptions::LINEAR,
                 )
             });
+            self.filmstrip.thumbnails_changed();
             self.thumbnail_cache.insert(path.clone(), texture);
             self.thumbnail_order.retain(|queued| queued != &path);
             self.thumbnail_order.push_back(path);
@@ -169,6 +170,7 @@ impl MapleApp {
                                     .cloned()
                             });
                             self.folder = Some(folder);
+                            self.filmstrip.photos_changed();
                             self.listing += 1;
                             self.browse = true;
                             if let Some(photo) = launch_photo {

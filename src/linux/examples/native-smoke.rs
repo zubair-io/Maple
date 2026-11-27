@@ -84,8 +84,8 @@ fn main() -> eframe::Result {
             .photos
             .remove(0)
     });
-    let gpu =
-        raw_gpu::GpuContext::new_blocking().map_err(|e| eframe::Error::AppCreation(e.into()))?;
+    let (gpu, icon) = maple_linux::app::launch_prerequisites()
+        .map_err(|e| eframe::Error::AppCreation(e.into()))?;
     let setup = eframe::egui_wgpu::WgpuSetup::Existing {
         instance: gpu.instance.clone(),
         adapter: gpu.adapter.clone(),
@@ -104,7 +104,7 @@ fn main() -> eframe::Result {
             ..Default::default()
         },
         Box::new(move |cc| {
-            let mut app = MapleApp::with_gpu(cc, gpu);
+            let mut app = MapleApp::with_gpu(cc, gpu, icon);
             app.open_folder(folder);
             Ok(Box::new(Smoke {
                 app,
