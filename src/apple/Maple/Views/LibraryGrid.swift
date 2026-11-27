@@ -41,7 +41,6 @@
     /// A tile tap: the asset and its tile's window-space frame, for the
     /// Preview hero to grow out of.
     let onOpenEditor: (AssetRef, CGRect) -> Void
-    let onPrimeSession: (AssetRef) async -> Void
     let onPrimeVisibleCell: (AssetRef) async -> Void
     var onReadGridFilterMetadata:
       (@MainActor @Sendable (AssetRef) async throws -> GridFilterMetadata)? = nil
@@ -440,15 +439,14 @@
     // MARK: - Overlay derivation
 
     private func overlays(for asset: AssetRef) -> GridCellOverlays {
-      let session = sessions[asset.id] ?? sessionBuffer.session(for: asset.id)
-      let cullFlag = session?.culling.flag ?? .none
+      let culling = (sessions[asset.id] ?? sessionBuffer.session(for: asset.id))?.culling
       return GridCellOverlays(
-        rating: session?.culling.stars ?? 0,
-        flag: cullFlag == .none ? nil : cullFlag,
+        rating: culling?.stars ?? 0,
+        flag: culling.flatMap { $0.flag == .none ? nil : $0.flag },
         sync: nil,
         isVideo: false,
         style: .phone,
-        hidden: session?.culling.hidden ?? false,
+        hidden: culling?.hidden ?? false,
         livePhoto: asset.livePhoto?.role
       )
     }

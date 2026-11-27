@@ -304,7 +304,6 @@ struct AppShellCenterColumn: View {
               sessionBuffer: sessionBuffer,
               displayMode: $browseDisplayMode,
               onOpenEditor: onOpenTile,
-              onPrimeSession: onPrimeSession,
               onPrimeVisibleCell: onPrimeVisibleCell,
               onReadGridFilterMetadata: onReadGridFilterMetadata,
               onNavigateFolder: onNavigateFolder,

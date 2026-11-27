@@ -1149,10 +1149,7 @@ struct AppShell: View {
     // Filmstrip sibling switch (iPad/Mac) changes the active asset WITHOUT a
     // mode change — prune here too so the previous sibling's heavy resources
     // free before the new one renders.
-    .onChange(of: browseVM.selectedID) { _, selected in
-      // Keyboard rating and flagging read the selected photo's session from
-      // `sessions`; one arrow-key step can select a cell staged moments ago.
-      if let selected { _ = existingSession(for: selected) }
+    .onChange(of: browseVM.selectedID) { _, _ in
       pruneInactiveSessions()
       // #2638 — selection moved on (grid tap, arrow nav, filmstrip
       // sibling switch): a stale rename error or an armed-but-abandoned
