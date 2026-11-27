@@ -1,0 +1,46 @@
+{
+  "targets": {
+    "listing": {
+      "limitMet": true
+    },
+    "preview": {
+      "limitMet": false,
+      "limitMs": 150,
+      "machines": {
+        "darwin-arm64 Apple M5 Max": {
+          "measured": "2026-11-27, macOS 27.0, commit 70a7a05aea, scorecard in a slot quiet window (1-minute load 11.8 at start), 5 runs: worst case is the 100 MP develop fallback, median 3408 ms; budget is that median plus 10%",
+          "budgetMs": 3750
+        },
+        "linux-x64 GitHub-hosted ubuntu-24.04": {
+          "measured": "2026-11-27, GitHub ubuntu-24.04 runner, workflow_dispatch runs of branch gates/perf-scorecard (commit 170a1b4b92): worst case (100 MP develop fallback) median 39670 ms and 49397 ms in two runs, no RAW fixtures; budget is 1.5x the larger median",
+          "budgetMs": 75000
+        }
+      }
+    },
+    "export": {
+      "limitMet": false,
+      "baselineCommit": "3109035232",
+      "limitFractionOfBaseline": 0.7,
+      "machines": {
+        "darwin-arm64 Apple M5 Max": {
+          "measured": "2026-11-27, macOS 27.0, commit 70a7a05aea, scorecard in a slot quiet window (1-minute load 11.8 at start), 5 processes: median 4631 ms; budget is that median plus 10%; baselineMs is the median on commit 3109035232",
+          "baselineMs": 4042,
+          "budgetMs": 5094
+        },
+        "linux-x64 GitHub-hosted ubuntu-24.04": {
+          "measured": "2026-11-27, GitHub ubuntu-24.04 runner, workflow_dispatch runs of branch gates/perf-scorecard (commit 170a1b4b92): synthetic 24 MP DNG, 5 processes, median 10383 ms and 12887 ms in two runs; budget is 1.5x the larger median",
+          "budgetMs": 19500
+        }
+      }
+    },
+    "cold_launch": {
+      "limitMs": 1000
+    },
+    "lan_thumbnails": {
+      "limitMs": 2000
+    },
+    "grid_scroll": {
+      "limitDroppedFrames": 0
+    }
+  }
+}

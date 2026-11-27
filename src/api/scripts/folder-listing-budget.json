@@ -8,6 +8,12 @@
       "warmMedianMs": 51,
       "revalidateMedianMs": 49,
       "limit500MedianMs": 14
+    },
+    "linux-x64 GitHub-hosted ubuntu-24.04": {
+      "measured": "2026-11-27, GitHub ubuntu-24.04 runner, workflow_dispatch runs of branch gates/perf-scorecard (commit 170a1b4b92): warm medians 52.6, 59.8, 61.8 and 65.0 ms, 304 medians 45.2 and 56.2 ms, limit=500 medians 18.2 and 20.4 ms over two runs; budget is about 1.4x to 1.5x the largest median",
+      "warmMedianMs": 90,
+      "revalidateMedianMs": 85,
+      "limit500MedianMs": 31
     }
   }
 }
