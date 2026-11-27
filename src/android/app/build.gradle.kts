@@ -25,6 +25,8 @@ android {
         versionCode = buildNumber
         versionName = productVersion
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        // Timing runs are for scripts/timing-device.sh, never the CI device-test pass.
+        testInstrumentationRunnerArguments["notAnnotation"] = "app.justmaple.aperture.TimingBenchmark"
         ndk { abiFilters += nativeAbis }
         externalNativeBuild { cmake { arguments += "-DANDROID_STL=c++_shared" } }
     }

@@ -248,6 +248,55 @@ same warm context and compare it with the CPU reference. These are functional
 gates, not physical-device performance
 qualification. The 16 ms / 100 MP release requirement remains unqualified.
 
+## Timing on an emulator
+
+The `scripts/timing-*.sh` scripts and the `@TimingBenchmark` device tests measure start-up, scrolling, the
+editor, JNI calls, export, folder listing, thumbnail caching and a cloud tile on an **Android emulator**. They
+print one line per number (minimum, median, maximum and every round) and set no thresholds; they are not a CI
+gate.
+
+- **Emulators only.** The scripts install over the app, replace its saved sources and cloud sign-ins while they
+  run (and put them back afterwards, also when a run fails), and clear its caches. They refuse any serial that
+  is not `emulator-<port>` unless `TIMING_ALLOW_DEVICE=1` is set. Do not point them at a phone you use.
+- **Not phone numbers.** An emulator renders in software (or through the host GPU) on a shared CPU, so its
+  times say how the code behaves relative to itself, not how long a phone takes. Say which AVD (device profile,
+  RAM, cores, `-gpu` mode) a number came from, run on an otherwise idle host, and give each number its own run.
+- **Run one.** Build both APKs, boot an emulator, then call a script with its serial:
+
+```sh
+./gradlew -PmapleAbis=arm64-v8a assembleDebug assembleDebugAndroidTest
+APP=app/build/outputs/apk/debug/app-debug.apk TEST=app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
+MAPLE_TIMING_GPU=swiftshader_indirect scripts/timing-emulator.sh start MaplePerfW2 5580   # prints emulator-5580 and its PID
+scripts/timing-device.sh emulator-5580 $APP $TEST sources
+scripts/timing-emulator.sh stop 5580
+```
+
+`app/build.gradle.kts` excludes `@TimingBenchmark` from the default `connectedDebugAndroidTest` run
+(`notAnnotation` instrumentation argument); the scripts select it. Every adb call names its device with `-s`.
+
+| Number                                    | Command (`S=emulator-5580`)                                                             | What it prints                                                                                                                                                                                                                                                                                                                         |
+| ----------------------------------------- | --------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Cold launch                               | `scripts/timing-launch.sh $S $APP $TEST zero` (also `one-local`, `one-local-one-cloud`) | `TotalTime` and `WaitTime` of `am start -W` after `am force-stop`, which end at the first drawn frame, not when the grid has content; the first launch is discarded                                                                                                                                                                    |
+| D01, library sources on the main thread   | `scripts/timing-device.sh $S $APP $TEST sources`                                        | one `PhotoLibrary.sources` evaluation, with zero, one and three local folders, with and without a cloud server; first call and steady state                                                                                                                                                                                            |
+| D13, editor open and slider tick          | `MAPLE_TIMING_RAW=<raw> scripts/timing-device.sh $S $APP $TEST editor`                  | open to first presented frame (with and without the original already staged), the first round reported apart from the later ones because it pays the one-time pipeline creation, and `EditorRenderer.draw` per tick on a real `SurfaceView`                                                                                            |
+| D16, JNI boundary                         | `MAPLE_TIMING_RAW=<raw> scripts/timing-device.sh $S $APP $TEST jni`                     | microseconds per call of a no-argument native call, `setField` (alternating two values), a descriptor call and a path call, after 20,000 warm-up calls                                                                                                                                                                                 |
+| D14, export                               | `MAPLE_TIMING_RAW=<raw> scripts/timing-device.sh $S $APP $TEST export`                  | default JPEG export through `PhotoExport` to a document destination: render, total, and the copy to the destination timed directly                                                                                                                                                                                                     |
+| Grid tiles and badges                     | `scripts/timing-device.sh $S $APP $TEST grid`                                           | the real `BrowseGrid` over a warm folder of 2,000 rated photos: time until every visible tile shows its image and its rating badge on first view and on returning to the grid, and for tiles that scroll back in (measured after the scroll call returns, which waits for idle); the first round is reported apart from the later ones |
+| Decision 10, warm tile and folder listing | `scripts/timing-device.sh $S $APP $TEST folder`                                         | minimum and maximum over all rounds of provider listings, rows and document queries per warm tile, and tile and 30-tile times, in folders of 200 and 2,000 photos                                                                                                                                                                      |
+| Decision 11, cache eviction               | `scripts/timing-device.sh $S $APP $TEST cache`                                          | `trimCache` on a synthetic 64 MiB folder of 1,600 thumbnails (3,200 files) in a private directory under the app's cache directory, over and within its budget; the app's own thumbnail cache is not touched                                                                                                                            |
+| D11, tile decode                          | `MAPLE_TIMING_RAW=<raw> scripts/timing-device.sh $S $APP $TEST decode`                  | 512 px tile decoded at full size and with `inSampleSize = 2`, time and bitmap bytes                                                                                                                                                                                                                                                    |
+| Decision 12, cloud tile on API 30 and 36  | `MAPLE_TIMING_RAW=<raw> scripts/timing-device.sh $S $APP $TEST cloud`                   | one cloud tile through the whole-original path (below API 31) or the thumbnail route, with the response bytes the server sent for it; the server is a loopback one on the device, so network time is not included                                                                                                                      |
+| Scroll frames                             | `scripts/timing-scroll.sh $S $APP $TEST 2000`                                           | `dumpsys gfxinfo` janky-frame share and frame-time percentiles while swiping a folder of 2,000 photos, started once the app has drawn and then gone quiet for three seconds (at most 60 s; that shows rendering settled, not that every thumbnail is loaded)                                                                           |
+
+`MAPLE_TIMING_RAW` pushes one RAW into the app's private files (`run-as`, debug builds only); without it the
+benchmarks use the committed 96 x 64 fixture, whose numbers say little about a real photo. `MAPLE_TIMING_ROUNDS`
+sets the rounds (default 7) and `MAPLE_TIMING_TICKS` the slider ticks per round of the editor benchmark
+(default 40). The live editor preview runs on the GPU only, so there is no CPU number for a slider tick, and
+the editor benchmark checks that a frame was presented and the surface stayed valid, because ticks publish no
+per-frame event. On an Apple-silicon Mac the emulator's `-gpu host` mode loses the Vulkan device while the
+renderer creates its compute pipelines, so use `swiftshader_indirect` (software Vulkan, as CI does); editor
+numbers then measure a CPU-rendered surface.
+
 ## Shared design and persistence
 
 `tools/codegen.sh` emits Kotlin tokens, XML colors, adjustment ranges/defaults,
