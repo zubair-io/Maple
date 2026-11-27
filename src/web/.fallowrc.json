@@ -59,11 +59,14 @@
   // motion.scss already resolves fine — but the real Sass compiler (and the
   // actual `ng build`/`ng test` runs) resolve it correctly, confirmed by a
   // clean maple-syrup production build. False positive, not a real gap.
+  // The same resolver misses `@use 'generated/airport-tokens'` in
+  // tokens.scss (#6142); `sass` compiles it to the `--airport-*` properties.
   "ignoreUnresolvedImports": [
     "**/pkg/raw_wasm",
     "**/pkg/canvas/raw_wasm_canvas",
     "tailwindcss",
     "**/tailwindcss",
-    "**/generated/ui-tokens"
+    "**/generated/ui-tokens",
+    "**/generated/airport-tokens"
   ]
 }
