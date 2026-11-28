@@ -175,3 +175,7 @@ mod compression_tests;
 #[cfg(test)]
 #[path = "tile_tests.rs"]
 mod tile_tests;
+
+#[cfg(test)]
+#[path = "tile_cache_tests.rs"]
+mod tile_cache_tests;
