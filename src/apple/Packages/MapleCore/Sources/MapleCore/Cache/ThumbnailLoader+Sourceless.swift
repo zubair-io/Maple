@@ -108,6 +108,10 @@ extension ThumbnailLoader {
       let fetched: Result<Data?, any Error> = await {
         do { return .success(try await source.thumb(for: ref)) } catch { return .failure(error) }
       }()
+      switch fetched {
+      case .success: await recordServerAnswer()
+      case .failure(let error): await recordServerAnswer(failedWith: error)
+      }
       if case .success(let bytes?) = fetched {
         guard !Task.isCancelled else { return nil }
         await ThumbnailDiskCache.shared.storeThumbnailData(bytes, forKey: key, token: token)
@@ -154,8 +158,10 @@ extension ThumbnailLoader {
     startPendingStaleRefetches()
   }
 
-  private func startPendingStaleRefetches() {
-    while runningStaleRefetches < Self.maxConcurrentStaleRefetches,
+  /// A foreground producer in flight, or a server that is not ready, keeps queued refetches waiting.
+  func startPendingStaleRefetches() {
+    while !serverNotReady, taskProducerIDs.isEmpty,
+      runningStaleRefetches < Self.maxConcurrentStaleRefetches,
       let next = pendingStaleRefetches.popLast()
     {
       runningStaleRefetches += 1
@@ -164,6 +170,15 @@ extension ThumbnailLoader {
         await self.finishStaleRefetch(next.key)
       }
     }
+  }
+
+  private func recordServerAnswer(failedWith error: (any Error)? = nil) {
+    if let error {
+      if CloudSource.isServerNotReady(error) { serverNotReady = true }
+      return
+    }
+    serverNotReady = false
+    startPendingStaleRefetches()
   }
 
   private func finishStaleRefetch(_ key: String) {
@@ -175,7 +190,15 @@ extension ThumbnailLoader {
   // No retry of its own: a failure leaves the stale copy, and the retry
   // scheduler only retries cells that got nothing.
   private nonisolated func fetchStaleThumbnail(_ refetch: StaleRefetch) async {
-    guard let bytes = try? await refetch.source.thumb(for: refetch.ref) else { return }
+    let answer: Data?
+    do {
+      answer = try await refetch.source.thumb(for: refetch.ref)
+    } catch {
+      await recordServerAnswer(failedWith: error)
+      return
+    }
+    await recordServerAnswer()
+    guard let bytes = answer else { return }
     let cache = ThumbnailDiskCache.shared
     let cached = await cache.thumbnailData(forKey: refetch.key)
     await cache.storeThumbnailData(bytes, forKey: refetch.key, token: refetch.token)

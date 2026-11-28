@@ -78,6 +78,7 @@ extension ThumbnailLoader {
       inFlight.removeValue(forKey: key)
     }
     taskProducerIDs = taskProducerIDs.filter { $0.value != id }
+    startPendingStaleRefetches()
   }
 
   private func endActiveProducer(_ id: UUID, key: String, gate: ProducerGate) async {

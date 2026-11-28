@@ -331,6 +331,61 @@ final class StaleCloudThumbnailRefreshTests: XCTestCase {
       "an uncached key keeps the decoded image")
   }
 
+  private func uncachedAsset() -> AssetRef {
+    let key = "fs:/srv/photos/\(UUID().uuidString).dng"
+    keys.append(key)
+    return AssetRef(
+      displayName: "x.dng", hintExtension: "dng", stableID: key, bytesProvider: { Data() })
+  }
+
+  func testARefetchWaitsForAForegroundFetchThenRuns() async {
+    let (stale, key, _) = await staleAsset()
+    let source = Source(token: "t2", answer: .held)
+    let finished = FinishedStaleRefreshes()
+    let loader = await loader(finishing: finished)
+    let foreground = uncachedAsset()
+
+    let shown = Task { await loader.load(for: foreground, from: source) }
+    await waitUntil { await source.requests == 1 }
+    _ = await loader.load(for: stale, from: source)
+
+    let queued = await loader.pendingStaleRefetches.count
+    let running = await loader.runningStaleRefetches
+    XCTAssertEqual(queued, 1, "the refetch stays queued")
+    XCTAssertEqual(running, 0, "no refetch starts while a foreground fetch waits")
+
+    await source.release(with: newBytes)
+    _ = await shown.value
+    await waitUntil { finished.contains(key) }
+    let requests = await source.requests
+    XCTAssertEqual(requests, 2, "the refetch runs once the foreground is idle")
+  }
+
+  func testARefetchWaitsWhileTheServerIsNotReadyUntilARequestSucceeds() async {
+    let (first, firstKey, _) = await staleAsset()
+    let (second, secondKey, _) = await staleAsset()
+    let source = Source(token: "t2", answer: .serverNotReady)
+    let finished = FinishedStaleRefreshes()
+    let loader = await loader(finishing: finished)
+
+    _ = await loader.load(for: first, from: source)
+    await waitUntil { finished.contains(firstKey) }
+    _ = await loader.load(for: second, from: source)
+
+    let queued = await loader.pendingStaleRefetches.count
+    let running = await loader.runningStaleRefetches
+    let requestsWhileNotReady = await source.requests
+    XCTAssertEqual(queued, 1, "the refetch stays queued")
+    XCTAssertEqual(running, 0, "no refetch starts after a 202 or 5xx")
+    XCTAssertEqual(requestsWhileNotReady, 1)
+
+    await source.release(with: newBytes)
+    _ = await loader.load(for: uncachedAsset(), from: source)
+    await waitUntil { finished.contains(secondKey) }
+    let requests = await source.requests
+    XCTAssertEqual(requests, 3, "the queued refetch runs after a request succeeds")
+  }
+
   func testPendingRefetchesRunNewestFirstWithinABoundAndDroppedKeysAreRefetchedLater()
     async
   {
