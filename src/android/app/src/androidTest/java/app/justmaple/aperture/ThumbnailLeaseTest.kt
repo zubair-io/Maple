@@ -28,6 +28,8 @@ class ThumbnailLeaseTest {
             val release = CompletableDeferred<Unit>()
             val pressure =
                 File(context.cacheDir, "thumbnails/reader-pressure-${UUID.randomUUID()}.bin")
+            val overflow =
+                File(context.cacheDir, "thumbnails/reader-overflow-${UUID.randomUUID()}.bin")
             try {
                 FileCloudServer(directory).use { server ->
                     i.context.assets.open("rgb-gradient.png").use { input ->
@@ -73,12 +75,17 @@ class ThumbnailLeaseTest {
                             }
                         }
                     val descriptor = withTimeout(30_000) { opened.await() }
+                    // Eviction keeps entries newest first down to 90% of the budget: the fresh pair plus
+                    // the pressure leave room for less than the old pair, and the overflow forces the trim.
                     RandomAccessFile(pressure, "rw").use {
-                        it.setLength(64L * 1024 * 1024 - pairSize)
+                        it.setLength(PhotoLibrary.THUMBNAIL_BYTES * 9 / 10 - pairSize * 3 / 2)
                     }
                     assertTrue(pressure.setLastModified(System.currentTimeMillis() + 60_000))
+                    RandomAccessFile(overflow, "rw").use {
+                        it.setLength(PhotoLibrary.THUMBNAIL_BYTES / 10)
+                    }
+                    assertTrue(overflow.setLastModified(System.currentTimeMillis() + 30_000))
                     // A second library instance inserts the same-sized image under another edge.
-                    // Its fresh pair plus pressure fills the budget, evicting the old pair.
                     val dimensions =
                         withTimeout(30_000) {
                             PhotoLibrary(context).withThumbnail(photo, 2048) { _, input ->
@@ -121,6 +128,7 @@ class ThumbnailLeaseTest {
             } finally {
                 release.complete(Unit)
                 pressure.delete()
+                overflow.delete()
                 credentials.remove(id)
                 directory.deleteRecursively()
             }
