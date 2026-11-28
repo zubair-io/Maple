@@ -9,16 +9,15 @@
 // them. Through Cloudflare the browser negotiates HTTP/2 and multiplexes, which
 // is the whole reason the hosted deployment felt faster than the LAN.
 //
-// The bound is 4, matching `LibraryCache.MAX_CONCURRENT_THUMB_LOADS` — the
-// queue the asset grid has always used, and which TimelineView was the only
-// grid surface to bypass. It leaves 2 of the 6 HTTP/1.1 connections free for
-// everything else on the page.
+// The bound is the asset grid's (`thumb-load-bound.ts`), the queue TimelineView
+// was the only grid surface to bypass: four over HTTP/1.1, leaving 2 of the 6
+// connections free for everything else on the page, sixteen over HTTP/2 and
+// HTTP/3, where one connection multiplexes every request.
 //
 // Angular-free and DI-free (like `timeline-view.utils.ts`) so the concurrency
 // behaviour is unit-testable without TestBed.
 
-/** Concurrent thumb requests allowed against the origin at any moment. */
-export const MAX_CONCURRENT_THUMB_LOADS = 4;
+import { thumbLoadBound } from '../../state/thumb-load-bound';
 
 interface QueuedThumb {
   absPath: string;
@@ -46,10 +45,12 @@ export class TimelineThumbLoader {
    * @param fetchThumb Issues the actual request for one photo's thumbnail.
    * @param onLoaded Called once per successful load so the caller can project
    *   the URL into its render state.
+   * @param bound How many requests may run at once; read each time a slot frees.
    */
   constructor(
     private readonly fetchThumb: (absPath: string) => Promise<string>,
     private readonly onLoaded: (absPath: string, url: string) => void,
+    private readonly bound: () => number = thumbLoadBound(),
   ) {}
 
   /**
@@ -110,7 +111,8 @@ export class TimelineThumbLoader {
   }
 
   private _pump(): void {
-    while (this.active < MAX_CONCURRENT_THUMB_LOADS) {
+    const bound = this.bound();
+    while (this.active < bound) {
       const entry = this.queue.shift();
       if (!entry) return;
       this.queuedByPath.delete(entry.absPath);

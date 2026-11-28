@@ -1,7 +1,8 @@
 // ThumbLoadQueue — bounded thumbnail load queue with drop-on-scroll-away.
 
 import { describe, it, expect, vi } from 'vitest';
-import { ThumbLoadQueue, MAX_CONCURRENT_THUMB_LOADS } from './library-cache.thumb-queue';
+import { ThumbLoadQueue } from './library-cache.thumb-queue';
+import { MAX_CONCURRENT_THUMB_LOADS, MULTIPLEXED_THUMB_LOADS } from './thumb-load-bound';
 
 /** A load whose completion the test controls, so queue depth is observable. */
 function deferred(): { promise: Promise<void>; resolve: () => void } {
@@ -30,6 +31,38 @@ describe('ThumbLoadQueue', () => {
 
     expect(started).toHaveLength(MAX_CONCURRENT_THUMB_LOADS);
     expect(q.depth).toBe(10 - MAX_CONCURRENT_THUMB_LOADS);
+  });
+
+  it('runs as many at once as the bound it is given', () => {
+    const q = new ThumbLoadQueue(() => MULTIPLEXED_THUMB_LOADS);
+    const started: string[] = [];
+    for (let i = 0; i < 40; i++) {
+      void q.enqueue(`a${i}`, () => {
+        started.push(`a${i}`);
+        return deferred().promise;
+      });
+    }
+
+    expect(started).toHaveLength(MULTIPLEXED_THUMB_LOADS);
+    expect(q.depth).toBe(40 - MULTIPLEXED_THUMB_LOADS);
+  });
+
+  it('takes up a raised bound as soon as a load finishes', async () => {
+    const bound = { value: MAX_CONCURRENT_THUMB_LOADS };
+    const q = new ThumbLoadQueue(() => bound.value);
+    const gates: Array<() => void> = [];
+    for (let i = 0; i < 40; i++) {
+      void q.enqueue(`a${i}`, () => {
+        const d = deferred();
+        gates.push(d.resolve);
+        return d.promise;
+      });
+    }
+    bound.value = MULTIPLEXED_THUMB_LOADS;
+    gates[0]!();
+
+    await vi.waitFor(() => expect(q.active).toBe(MULTIPLEXED_THUMB_LOADS));
+    expect(q.depth).toBe(40 - 1 - MULTIPLEXED_THUMB_LOADS);
   });
 
   it('starts the next queued load when one finishes', async () => {

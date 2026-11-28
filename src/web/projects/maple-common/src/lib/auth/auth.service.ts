@@ -1,5 +1,5 @@
 import { Injectable, signal, inject, computed } from '@angular/core';
-import { HttpClient, HttpErrorResponse } from '@angular/common/http';
+import { HttpClient, HttpErrorResponse, HttpHeaders } from '@angular/common/http';
 import { Observable, firstValueFrom, map } from 'rxjs';
 import { startRegistration, startAuthentication } from '@simplewebauthn/browser';
 import {
@@ -285,8 +285,15 @@ export class AuthService {
       return 'refreshed';
     }
     try {
+      // The worker never caches this; bypassing it leaves a Resource Timing
+      // entry that names the protocol, which Chromium blanks for worker-served
+      // responses (`state/thumb-load-bound.ts`).
       const r = await firstValueFrom(
-        this.http.post<{ access_token: string }>('/api/auth/refresh', {}),
+        this.http.post<{ access_token: string }>(
+          '/api/auth/refresh',
+          {},
+          { headers: new HttpHeaders({ 'ngsw-bypass': 'true' }) },
+        ),
       );
       this.accessToken = r.access_token;
       this.broadcast({ type: 'token', access_token: r.access_token });
