@@ -20,10 +20,21 @@ public actor AssetDragFiles {
 
   /// Never moves, renders, or overwrites an original (or an existing destination).
   public func writeOriginal(_ asset: AssetRef, to destination: URL) async throws {
-    if let source = asset.primaryURL, source.isFileURL {
-      let scope = asset.scopeParentURL ?? source
+    if let original = asset.primaryURL, original.isFileURL {
+      let scope = asset.scopeParentURL ?? original
       let accessing = scope.startAccessingSecurityScopedResource()
       defer { if accessing { scope.stopAccessingSecurityScopedResource() } }
+      // copyItem copies a symbolic link as a link, and an unsandboxed receiver such as
+      // Finder can follow a link to the original, so only the resolved file is ever copied.
+      let source = original.resolvingSymlinksInPath()
+      guard FileManager.default.fileExists(atPath: source.path) else {
+        throw FileOperationError.sourceMissing(original.lastPathComponent)
+      }
+      guard FileManager.default.isReadableFile(atPath: source.path) else {
+        let name = original.lastPathComponent
+        throw FileOperationError.underlying(
+          "“\(name)” couldn't be copied: Maple can't read the original file.")
+      }
       try publish(to: destination) { try FileManager.default.copyItem(at: source, to: $0) }
       return
     }

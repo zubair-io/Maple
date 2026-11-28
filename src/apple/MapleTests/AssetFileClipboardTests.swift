@@ -13,32 +13,143 @@
 
     override func tearDownWithError() throws { try FileManager.default.removeItem(at: root) }
 
+    /// With an original's own path on the clipboard, Finder's "Move Item Here"
+    /// would move the photo out of its library (decision 33).
     @MainActor
-    func testLocalOriginalIsCopiedByItsOwnURLWithoutStaging() async throws {
+    func testLocalOriginalIsOfferedAsAStagedCopyNeverItsOwnPath() async throws {
       let original = root.appendingPathComponent("photo.dng")
       try Data([1, 2, 3]).write(to: original)
       let staging = root.appendingPathComponent("staging")
 
       let urls = try await AssetFileClipboard.stage([AssetRef(url: original)], in: staging)
 
-      XCTAssertEqual(urls, [original])
-      XCTAssertFalse(FileManager.default.fileExists(atPath: staging.path))
+      let staged = try XCTUnwrap(urls.first)
+      XCTAssertEqual(urls.count, 1)
+      XCTAssertNotEqual(staged.standardizedFileURL, original.standardizedFileURL)
+      XCTAssertTrue(staged.standardizedFileURL.path.hasPrefix(staging.standardizedFileURL.path))
+      XCTAssertEqual(staged.lastPathComponent, "photo.dng")
+      XCTAssertEqual(try Data(contentsOf: staged), Data([1, 2, 3]))
+      XCTAssertEqual(try Data(contentsOf: original), Data([1, 2, 3]))
     }
 
-    /// Open owner decision 33: with the original's own path on the clipboard, Finder's
-    /// "Move Item Here" moves the photo out of its library.
     @MainActor
-    func testLocalCopyOffersTheOriginalsOwnPathUntilDecision33() async throws {
+    func testCopyNeverPublishesALocalOriginalsOwnPath() async throws {
       let original = root.appendingPathComponent("photo.dng")
       try Data([1, 2, 3]).write(to: original)
-      let staging = root.appendingPathComponent("staging")
+      let published = Published()
+      let clipboard = AssetFileClipboard(
+        stagingRoot: root.appendingPathComponent("clipboard"),
+        publish: { published.record($0) },
+        report: { XCTFail("unexpected error: \($0)") })
 
-      let urls = try await AssetFileClipboard.stage([AssetRef(url: original)], in: staging)
+      clipboard.copy([AssetRef(url: original), remoteAsset(name: "IMG.jpg", bytes: Data([4]))])
+      await clipboard.copyTask?.value
 
-      XCTExpectFailure("decision 33 is open: a local Copy still offers the original's own path") {
-        XCTAssertFalse(urls.map(\.standardizedFileURL).contains(original.standardizedFileURL))
-      }
+      let paths = published.latest.map(\.standardizedFileURL)
+      XCTAssertEqual(paths.count, 2)
+      XCTAssertFalse(paths.contains(original.standardizedFileURL))
+      XCTAssertEqual(try paths.map { try Data(contentsOf: $0) }, [Data([1, 2, 3]), Data([4])])
+    }
+
+    @MainActor
+    func testReplacingACopyRemovesOnlyTheStagedCopyNotTheOriginal() async throws {
+      let original = root.appendingPathComponent("photo.dng")
+      try Data([1, 2, 3]).write(to: original)
+      let published = Published()
+      let clipboard = AssetFileClipboard(
+        stagingRoot: root.appendingPathComponent("clipboard"),
+        publish: { published.record($0) },
+        report: { XCTFail("unexpected error: \($0)") })
+
+      clipboard.copy([AssetRef(url: original)])
+      await clipboard.copyTask?.value
+      let earlier = try XCTUnwrap(published.latest.first)
+      clipboard.copy([remoteAsset(name: "IMG.jpg", bytes: Data([4]))])
+      await clipboard.copyTask?.value
+
+      XCTAssertFalse(FileManager.default.fileExists(atPath: earlier.path))
       XCTAssertEqual(try Data(contentsOf: original), Data([1, 2, 3]))
+    }
+
+    @MainActor
+    func testSymlinkedOriginalIsStagedAsARealFile() async throws {
+      let original = root.appendingPathComponent("photo.dng")
+      try Data([1, 2, 3]).write(to: original)
+      let link = root.appendingPathComponent("link.dng")
+      try FileManager.default.createSymbolicLink(at: link, withDestinationURL: original)
+
+      let urls = try await AssetFileClipboard.stage(
+        [AssetRef(url: link)], in: root.appendingPathComponent("staging"))
+
+      let staged = try XCTUnwrap(urls.first)
+      let attributes = try FileManager.default.attributesOfItem(atPath: staged.path)
+      XCTAssertEqual(attributes[.type] as? FileAttributeType, .typeRegular)
+      XCTAssertEqual(try Data(contentsOf: staged), Data([1, 2, 3]))
+    }
+
+    /// Finder is not sandboxed, so a link Maple can't follow would still lead it to the original.
+    @MainActor
+    func testLinkToAnUnreadableFileIsRefusedAndNothingIsPublished() async throws {
+      let original = root.appendingPathComponent("photo.dng")
+      try Data([1, 2, 3]).write(to: original)
+      try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: original.path)
+      defer {
+        try? FileManager.default.setAttributes(
+          [.posixPermissions: 0o644], ofItemAtPath: original.path)
+      }
+      let link = root.appendingPathComponent("link.dng")
+      try FileManager.default.createSymbolicLink(at: link, withDestinationURL: original)
+      let published = Published()
+      var reported: [Error] = []
+      let clipboard = AssetFileClipboard(
+        stagingRoot: root.appendingPathComponent("clipboard"),
+        publish: { published.record($0) },
+        report: { reported.append($0) })
+
+      clipboard.copy([AssetRef(url: link)])
+      await clipboard.copyTask?.value
+
+      XCTAssertEqual(published.count, 0)
+      XCTAssertEqual(reported.count, 1)
+      XCTAssertTrue(reported.first?.localizedDescription.contains("couldn't be copied") == true)
+    }
+
+    @MainActor
+    func testDanglingLinkIsRefused() async throws {
+      let link = root.appendingPathComponent("link.dng")
+      try FileManager.default.createSymbolicLink(
+        at: link, withDestinationURL: root.appendingPathComponent("gone.dng"))
+
+      do {
+        _ = try await AssetFileClipboard.stage(
+          [AssetRef(url: link)], in: root.appendingPathComponent("staging"))
+        XCTFail("a dangling link must not be staged")
+      } catch {
+        XCTAssertEqual(error as? FileOperationError, .sourceMissing("link.dng"))
+      }
+    }
+
+    @MainActor
+    func testLocalOriginalsThatShareANameStayDistinct() async throws {
+      let first = root.appendingPathComponent("a/IMG_1.dng")
+      let second = root.appendingPathComponent("b/IMG_1.dng")
+      for (url, byte) in [(first, UInt8(1)), (second, UInt8(2))] {
+        try FileManager.default.createDirectory(
+          at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data([byte]).write(to: url)
+      }
+
+      let staging = root.appendingPathComponent("staging")
+      let urls = try await AssetFileClipboard.stage(
+        [AssetRef(url: first), AssetRef(url: second)], in: staging)
+
+      XCTAssertTrue(
+        urls.allSatisfy {
+          $0.standardizedFileURL.path.hasPrefix(staging.standardizedFileURL.path)
+        })
+      XCTAssertEqual(Set(urls).count, 2)
+      XCTAssertEqual(urls.map(\.lastPathComponent), ["IMG_1.dng", "IMG_1.dng"])
+      XCTAssertEqual(try urls.map { try Data(contentsOf: $0) }, [Data([1]), Data([2])])
     }
 
     @MainActor
@@ -59,7 +170,7 @@
       let published = Published()
       let clipboard = AssetFileClipboard(
         stagingRoot: root,
-        publish: { urls, _ in published.record(urls) },
+        publish: { published.record($0) },
         report: { XCTFail("unexpected error: \($0)") })
 
       clipboard.copy([remoteAsset(name: "IMG.jpg", bytes: Data([1]))])
@@ -84,7 +195,7 @@
       var reported: [Error] = []
       let clipboard = AssetFileClipboard(
         stagingRoot: root,
-        publish: { urls, _ in published.record(urls) },
+        publish: { published.record($0) },
         report: { reported.append($0) })
       clipboard.copy([remoteAsset(name: "IMG.jpg", bytes: Data([1]))])
       await clipboard.copyTask?.value
@@ -109,7 +220,7 @@
       var reported: [Error] = []
       let clipboard = AssetFileClipboard(
         stagingRoot: root,
-        publish: { urls, _ in published.record(urls) },
+        publish: { published.record($0) },
         report: { reported.append($0) })
       clipboard.copy([remoteAsset(name: "IMG.jpg", bytes: Data([1]))])
       await clipboard.copyTask?.value
@@ -129,7 +240,7 @@
       let published = Published()
       let clipboard = AssetFileClipboard(
         stagingRoot: root,
-        publish: { urls, _ in published.record(urls) },
+        publish: { published.record($0) },
         report: { XCTFail("unexpected error: \($0)") })
 
       clipboard.copy([remoteAsset(name: "IMG.jpg", bytes: Data([1]))])
@@ -150,7 +261,7 @@
       let published = Published()
       let clipboard = AssetFileClipboard(
         stagingRoot: root,
-        publish: { urls, _ in published.record(urls) },
+        publish: { published.record($0) },
         report: { XCTFail("unexpected error: \($0)") })
 
       clipboard.copy([remoteAsset(name: "IMG.jpg", bytes: Data([1]))])
@@ -167,7 +278,7 @@
       let published = Published()
       let clipboard = AssetFileClipboard(
         stagingRoot: root,
-        publish: { urls, _ in published.record(urls) },
+        publish: { published.record($0) },
         report: { XCTFail("unexpected error: \($0)") })
 
       clipboard.copy([remoteAsset(name: "IMG.jpg", bytes: Data([1]))])

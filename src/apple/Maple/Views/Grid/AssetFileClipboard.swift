@@ -5,23 +5,23 @@ import SwiftUI
 #if os(macOS)
   import AppKit
 
-  /// Copy puts the original files on the general pasteboard as file URLs, which
-  /// Finder pastes as a copy and other apps receive as files (#6002). Originals
-  /// without a local file (server, SMB, Photos Library) are fetched into a private
-  /// staging folder first, because a pasteboard file URL must name a real file.
+  /// Copy puts copies of the original files on the general pasteboard as file
+  /// URLs, which Finder pastes and other apps receive as files (#6002). Every
+  /// original is first copied into a private staging folder: a local original's
+  /// own path would let Finder's "Move Item Here" take it out of the library (#6174).
   @MainActor
   final class AssetFileClipboard {
     static let shared = AssetFileClipboard()
 
     private let stagingRoot: URL
-    private let publish: @MainActor (_ urls: [URL], _ scopes: [URL]) -> Bool
+    private let publish: @MainActor (_ urls: [URL]) -> Bool
     private let report: @MainActor (Error) -> Void
     private(set) var copyTask: Task<Void, Never>?
 
     init(
       stagingRoot: URL = FileManager.default.temporaryDirectory
         .appendingPathComponent("Maple Clipboard", isDirectory: true),
-      publish: @escaping @MainActor (_ urls: [URL], _ scopes: [URL]) -> Bool =
+      publish: @escaping @MainActor (_ urls: [URL]) -> Bool =
         AssetFileClipboard.writeToGeneralPasteboard,
       report: @escaping @MainActor (Error) -> Void = { NSApp.presentError($0) }
     ) {
@@ -39,7 +39,7 @@ import SwiftUI
         do {
           let urls = try await Self.stage(files, in: batch)
           try Task.checkCancellation()
-          guard publish(urls, files.compactMap { $0.scopeParentURL ?? $0.primaryURL }) else {
+          guard publish(urls) else {
             throw FileOperationError.underlying("The photos couldn't be copied to the clipboard.")
           }
           Self.removeStagedCopies(in: stagingRoot, except: batch)
@@ -61,10 +61,7 @@ import SwiftUI
     static func stage(_ files: [AssetRef], in batch: URL) async throws -> [URL] {
       var urls: [URL] = []
       for (index, asset) in files.enumerated() {
-        if let url = asset.primaryURL, url.isFileURL {
-          urls.append(url)
-          continue
-        }
+        try Task.checkCancellation()
         let folder = batch.appendingPathComponent(String(index), isDirectory: true)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         let destination = folder.appendingPathComponent(AssetDragFiles.fileName(for: asset))
@@ -89,11 +86,7 @@ import SwiftUI
       }
     }
 
-    /// Writing while the security scopes are open lets the pasteboard hand
-    /// sandboxed receivers access to the user's own files.
-    static func writeToGeneralPasteboard(_ urls: [URL], scopes: [URL]) -> Bool {
-      let opened = scopes.filter { $0.startAccessingSecurityScopedResource() }
-      defer { opened.forEach { $0.stopAccessingSecurityScopedResource() } }
+    static func writeToGeneralPasteboard(_ urls: [URL]) -> Bool {
       let pasteboard = NSPasteboard.general
       pasteboard.clearContents()
       return pasteboard.writeObjects(urls.map { $0 as NSURL })
