@@ -135,7 +135,8 @@ actor ThumbnailProvider {
   /// A nil final result leaves that seed visible; it is not an edited cache entry.
   func thumbnail(
     for source: ThumbnailSource,
-    initialImage: (@MainActor @Sendable (Data) async -> Void)? = nil
+    initialImage: (@MainActor @Sendable (Data) async -> Void)? = nil,
+    onRefreshed: ThumbnailUpdate? = nil
   ) async -> Data? {
     let backend = source.resolvedBackend()
     switch backend {
@@ -146,7 +147,8 @@ actor ThumbnailProvider {
         await initialImage(camera)
       }
       guard !Task.isCancelled else { return nil }
-      return await ThumbnailLoader.shared.load(for: ref, from: box?.source)
+      return await ThumbnailLoader.shared.load(
+        for: ref, from: box?.source, onRefreshed: onRefreshed)
 
     case .cloudThumb(let absPath, let host, let thumbVersion):
       guard let cache = thumbCache, let client = resolvedThumbClient(for: host) else { return nil }

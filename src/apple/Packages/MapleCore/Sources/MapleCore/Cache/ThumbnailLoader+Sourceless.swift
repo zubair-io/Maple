@@ -8,7 +8,9 @@ import Foundation
 extension ThumbnailLoader {
   /// Sourceless entry point — for assets without a filesystem URL (PhotoKit,
   /// SelfHosted). Order of attempts:
-  ///   1. Disk cache hit on the asset's stable id.
+  ///   1. Disk cache hit on the asset's stable id. One whose server token is
+  ///      out of date is returned at once and refetched in the background,
+  ///      once per launch; `onRefreshed` receives different bytes that arrive.
   ///   2. `source.thumb(for:)` — server-rendered or PhotoKit fast path.
   ///   3. Render-from-bytes fallback: `bytesProvider` → ImageIO for a
   ///      JPEG/HEIC/PNG, `PipelineRenderer.render(rawBytes:hint:)` for a RAW
@@ -20,7 +22,8 @@ extension ThumbnailLoader {
   /// Nonisolated so a cache hit never queues behind the loader actor (#6017).
   public nonisolated func load(
     for asset: AssetRef,
-    from source: (any ImageSource)?
+    from source: (any ImageSource)?,
+    onRefreshed: ThumbnailUpdate? = nil
   ) async -> Data? {
     // Determine cache key. Sourceless assets prefer their stable id;
     // filesystem-shaped assets fall through to the URL-keyed overload.
@@ -30,12 +33,19 @@ extension ThumbnailLoader {
     guard !Task.isCancelled else { return nil }
     let key = asset.stableID ?? asset.displayName
 
-    // 1. Disk-cache hit, for the token the source's latest listing carries.
+    // 1. Disk-cache hit; a token-stale one is shown while it is refetched.
     let token = Self.thumbToken(
       of: source, forStableID: asset.stableID, displayName: asset.displayName)
-    if let cached = await ThumbnailDiskCache.shared.thumbnailData(forKey: key, currentToken: token)
+    if let hit = await ThumbnailDiskCache.shared.sourcelessThumbnail(
+      forKey: key, currentToken: token)
     {
-      return cached
+      if !hit.isCurrent, let source, let stableID = asset.stableID {
+        let ref = ImageRef(
+          id: stableID, displayName: asset.displayName, smbPath: nil, smbSourceID: nil)
+        await refreshStaleThumbnail(
+          key: key, ref: ref, source: source, token: token, onRefreshed: onRefreshed)
+      }
+      return hit.data
     }
 
     guard !Task.isCancelled else { return nil }
@@ -114,9 +124,6 @@ extension ThumbnailLoader {
         await ThumbnailDiskCache.shared.storeThumbnailData(bytes, forKey: key, token: token)
         return bytes
       }
-      // A token-stale entry beats an empty cell or a RAW download; the new
-      // token is not recorded, so the next load asks the server again.
-      if let stale = await ThumbnailDiskCache.shared.thumbnailData(forKey: key) { return stale }
       if case .failure(let error) = fetched, Self.isTransientSourceFailure(error) { return nil }
     }
 
@@ -133,6 +140,50 @@ extension ThumbnailLoader {
       provider: provider, hint: hint, key: key, source: source, ref: ref, token: token)
     if !producerHoldsDecodeSlot { await releaseDecodeSlot() }
     return result
+  }
+
+  private func refreshStaleThumbnail(
+    key: String, ref: ImageRef, source: any ImageSource, token: String?,
+    onRefreshed: ThumbnailUpdate?
+  ) {
+    if staleRefreshObservers[key] != nil {
+      if let onRefreshed { staleRefreshObservers[key]?.append(onRefreshed) }
+      return
+    }
+    guard staleRefreshedKeys.insert(key).inserted else { return }
+    staleRefreshObservers[key] = onRefreshed.map { [$0] } ?? []
+    Task.detached(priority: .utility) {
+      await self.fetchStaleThumbnail(key: key, ref: ref, source: source, token: token)
+    }
+  }
+
+  // No retry of its own: a failure leaves the stale copy, and the retry
+  // scheduler only retries cells that got nothing.
+  private nonisolated func fetchStaleThumbnail(
+    key: String, ref: ImageRef, source: any ImageSource, token: String?
+  ) async {
+    let fetched: Data?
+    do {
+      try await staleRefreshSlots.acquire()
+      fetched = try? await source.thumb(for: ref)
+      await staleRefreshSlots.release()
+    } catch {
+      fetched = nil
+    }
+    guard let bytes = fetched else {
+      _ = await takeStaleRefreshObservers(forKey: key)
+      return
+    }
+    let cache = ThumbnailDiskCache.shared
+    let cached = await cache.thumbnailData(forKey: key)
+    await cache.storeThumbnailData(bytes, forKey: key, token: token)
+    let observers = await takeStaleRefreshObservers(forKey: key)
+    guard bytes != cached else { return }
+    for observer in observers { await observer(bytes) }
+  }
+
+  private func takeStaleRefreshObservers(forKey key: String) -> [ThumbnailUpdate] {
+    staleRefreshObservers.removeValue(forKey: key) ?? []
   }
 
   private func fallbackIsWanted(key: String, coalescingKey: String) -> Bool {

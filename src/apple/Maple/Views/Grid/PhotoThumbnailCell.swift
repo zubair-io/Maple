@@ -80,6 +80,9 @@ struct PhotoThumbnailCell: View {
   @State private var decoded: CGImage?
   /// Final pixels retained by this tile can outlive the shared cache entry.
   @State private var decodedRevision: String?
+  /// A reused cell moves on, so a late refreshed thumbnail for its previous
+  /// photo cannot land here.
+  @State private var target = ThumbnailCellTarget()
 
   private var reloadKey: String {
     DevelopedImageRevision.shared.reloadKey(
@@ -208,6 +211,7 @@ struct PhotoThumbnailCell: View {
       let key = await DevelopedImageRevision.shared.decodedKeyAsync(
         for: item.id, source: item.thumbnailSource)
       guard !Task.isCancelled else { return }
+      target.show(key)
       // Lazy grids retain cell state beyond the viewport. A cache eviction
       // must not make that cell discard and reload its own final bitmap.
       if decodedRevision == key, decoded != nil { return }
@@ -236,13 +240,21 @@ struct PhotoThumbnailCell: View {
       let image = await ThumbnailRetry.load(
         delays: ThumbnailRetry.schedule(for: item.thumbnailSource)
       ) { () async -> CGImage? in
-        let bytes = await provider.thumbnail(for: item.thumbnailSource) { camera in
-          let image = await ThumbnailDecoder.image(for: camera, key: "camera:" + key)
-          guard !Task.isCancelled, let image else { return }
-          // Keep camera pixels under a separate bounded bitmap-cache key so
-          // the final authored thumbnail can replace them.
-          decoded = image
-        }
+        let bytes = await provider.thumbnail(
+          for: item.thumbnailSource,
+          initialImage: { camera in
+            let image = await ThumbnailDecoder.image(for: camera, key: "camera:" + key)
+            guard !Task.isCancelled, let image else { return }
+            // Keep camera pixels under a separate bounded bitmap-cache key so
+            // the final authored thumbnail can replace them.
+            decoded = image
+          },
+          onRefreshed: { refreshed in
+            guard let image = await ThumbnailDecoder.replaceImage(for: refreshed, key: key),
+              target.isShowing(key)
+            else { return }
+            decoded = image
+          })
         guard !Task.isCancelled else { return nil }
         return await ThumbnailDecoder.image(for: bytes, key: key)
       }

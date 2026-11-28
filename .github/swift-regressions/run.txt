@@ -630,6 +630,7 @@ EditHistoryEventTests
 BrowseNavigationTicketTests
 CloudSourceThumbVersionTests
 CloudThumbnailTokenTests
+StaleCloudThumbnailRefreshTests
 ThumbnailCameraPreviewReuseTests
 PlainFileStatParityTests
 # Grid scroll measurement (#6048): the dropped-frame classifier at 60 and

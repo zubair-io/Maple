@@ -21,6 +21,9 @@ let thumbnailLoaderLogger = Logger(subsystem: "app.justmaple.aperture", category
 
 // MARK: - ThumbnailLoader
 
+/// Receives the bytes that replaced a cached thumbnail a cell is showing.
+public typealias ThumbnailUpdate = @MainActor @Sendable (Data) async -> Void
+
 public actor ThumbnailLoader {
   public static let shared = ThumbnailLoader()
 
@@ -56,6 +59,13 @@ public actor ThumbnailLoader {
   /// Sourceless originals whose download decoded to nothing: a retry asks the
   /// server again but never downloads them a second time.
   var unrenderableSourcelessKeys: Set<String> = []
+
+  /// Sourceless keys whose token-stale cached thumbnail was refetched, or is
+  /// being refetched, this launch. While in flight a key maps to the cells to
+  /// update with the new bytes.
+  var staleRefreshedKeys: Set<String> = []
+  var staleRefreshObservers: [String: [ThumbnailUpdate]] = [:]
+  let staleRefreshSlots = BoundedAsyncSemaphore(value: 4)
 
   /// Cap on concurrent fetches from a source whose thumbnails are
   /// latency-bound network reads (`ImageSource.thumbnailsAreLatencyBound`,

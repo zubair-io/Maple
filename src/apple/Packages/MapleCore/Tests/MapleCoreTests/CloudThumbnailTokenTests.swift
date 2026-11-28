@@ -122,6 +122,22 @@ final class CloudThumbnailTokenTests: XCTestCase {
     }
   }
 
+  private actor RefreshedBytes {
+    private var received: [Data] = []
+    private var waiting: CheckedContinuation<Data, Never>?
+
+    func record(_ bytes: Data) {
+      guard let waiting else { return received.append(bytes) }
+      self.waiting = nil
+      waiting.resume(returning: bytes)
+    }
+
+    func next() async -> Data {
+      if !received.isEmpty { return received.removeFirst() }
+      return await withCheckedContinuation { waiting = $0 }
+    }
+  }
+
   private func asset(key: String) -> AssetRef {
     AssetRef(
       displayName: "x.dng", hintExtension: "dng", stableID: key, bytesProvider: { Data() })
@@ -139,14 +155,17 @@ final class CloudThumbnailTokenTests: XCTestCase {
     let callsWhileUnchanged = await source.thumbCalls
     await source.setToken("t2")
     await source.setBytes(Data("v2".utf8))
-    let third = await loader.load(for: asset, from: source)
+    let refreshed = RefreshedBytes()
+    let third = await loader.load(for: asset, from: source) { await refreshed.record($0) }
+    let arrived = await refreshed.next()
     let fourth = await loader.load(for: asset, from: source)
     let callsAfterChange = await source.thumbCalls
 
     XCTAssertEqual(first, Data("v1".utf8))
     XCTAssertEqual(second, Data("v1".utf8))
     XCTAssertEqual(callsWhileUnchanged, 1)
-    XCTAssertEqual(third, Data("v2".utf8))
+    XCTAssertEqual(third, Data("v1".utf8), "the stale copy is shown while the refetch runs")
+    XCTAssertEqual(arrived, Data("v2".utf8))
     XCTAssertEqual(fourth, Data("v2".utf8))
     XCTAssertEqual(callsAfterChange, 2)
   }
@@ -181,7 +200,7 @@ final class CloudThumbnailTokenTests: XCTestCase {
     XCTAssertEqual(offline, Data("v1".utf8))
   }
 
-  func testChangedTokenWhenTheServerAnswersNothingOrFailsServesTheOldThumbnailAndRetries() async {
+  func testChangedTokenWhenTheServerAnswersNothingOrFailsKeepsTheOldThumbnailForTheLaunch() async {
     for (label, arrange) in [
       ("404 or 202", { (source: TokenSource) in await source.setAnswersNothing(true) }),
       ("5xx", { (source: TokenSource) in await source.setPlainFailure(true) }),
@@ -197,12 +216,18 @@ final class CloudThumbnailTokenTests: XCTestCase {
       await arrange(source)
       let stale = await loader.load(for: asset, from: source)
       XCTAssertEqual(stale, Data("v1".utf8), label)
+      await waitUntil {
+        let finished = await loader.staleRefreshFinished(forKey: key)
+        return await source.thumbCalls == 2 && finished
+      }
 
       await source.setAnswersNothing(false)
       await source.setPlainFailure(false)
       await source.setBytes(Data("v2".utf8))
-      let recovered = await loader.load(for: asset, from: source)
-      XCTAssertEqual(recovered, Data("v2".utf8), "\(label): the new token was not recorded")
+      let later = await loader.load(for: asset, from: source)
+      let calls = await source.thumbCalls
+      XCTAssertEqual(later, Data("v1".utf8), "\(label): no retry of its own")
+      XCTAssertEqual(calls, 2, label)
     }
   }
 

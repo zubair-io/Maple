@@ -218,24 +218,40 @@ public actor ThumbnailDiskCache {
   public nonisolated func thumbnailData(forKey key: String, currentToken: String? = nil) async
     -> Data?
   {
+    guard let hit = await sourcelessThumbnail(forKey: key, currentToken: currentToken),
+      hit.isCurrent
+    else { return nil }
+    return hit.data
+  }
+
+  /// The cached bytes whatever token they were fetched for, and whether that
+  /// token is `currentToken`, so a caller can show a stale copy at once while it
+  /// refetches. A `nil` `currentToken` always counts as current.
+  public nonisolated func sourcelessThumbnail(forKey key: String, currentToken: String?) async
+    -> (data: Data, isCurrent: Bool)?
+  {
     let hashed = MapleThumbCacheKey.sha256Prefix16(key)
     let fileURL = sourcelessFileURL(forHashedKey: hashed)
+    let isCurrent: Bool
+    let probedData: Data?
     if let currentToken {
       let probe = await sourcelessProbe(forHashedKey: hashed)
-      let fetched = probe.token ?? Self.readFetchedToken(for: fileURL)
-      guard fetched == currentToken else {
-        await forgetStaleSourcelessEntry(forHashedKey: hashed, unlessStoredSince: probe.generation)
-        return nil
-      }
-      if probe.token == nil {
+      isCurrent = (probe.token ?? Self.readFetchedToken(for: fileURL)) == currentToken
+      if isCurrent, probe.token == nil {
         await rememberFetchedToken(
           currentToken, forHashedKey: hashed, unlessStoredSince: probe.generation)
       }
-      if let data = probe.data { return data }
+      probedData = probe.data
+    } else {
+      isCurrent = true
+      probedData = nil
     }
-    if let remembered = await rememberedThumbnail(forMemoryKey: hashed) { return remembered.data }
+    if let probedData { return (probedData, isCurrent) }
+    if let remembered = await rememberedThumbnail(forMemoryKey: hashed) {
+      return (remembered.data, isCurrent)
+    }
     guard let data = Self.readThumb(at: fileURL, legacyKey: hashed) else { return nil }
-    return await rememberReadThumbnail(data, forMemoryKey: hashed).data
+    return (await rememberReadThumbnail(data, forMemoryKey: hashed).data, isCurrent)
   }
 
   private nonisolated func sourcelessFileURL(forHashedKey hashed: String) -> URL {
@@ -255,14 +271,6 @@ public actor ThumbnailDiskCache {
   ) {
     guard generation == sourcelessStoreGeneration else { return }
     _ = fetchedTokens.set(token, for: hashed)
-  }
-
-  private func forgetStaleSourcelessEntry(
-    forHashedKey hashed: String, unlessStoredSince generation: Int
-  ) {
-    guard generation == sourcelessStoreGeneration else { return }
-    forgetData(forMemoryKey: hashed)
-    syncPeekCache.removeObject(forKey: hashed as NSString)
   }
 
   var rememberedTokenKeysOldestFirst: [String] { fetchedTokens.keysOldestFirst }
