@@ -12,11 +12,12 @@
  * every page, and `more` says to ask again once the engine is up.
  *
  * A card without free text is a structured filter — dates, people, scene type — with no full-text
- * term, so its page is the capture-ordered index walk `GET /api/search` uses and its `total` a live
+ * term, so its page is the capture-ordered index walk `GET /api/search` uses and its `total` a
  * count on the same structured indexes: the live hidden-people and screenshot exclusions move both.
+ * That count is held for 30 s, as search's own total is (#6176), so it can lag a change by that long.
  */
 
-import { searchCount, searchPage } from '../db/repos/search.page.ts';
+import { searchPage } from '../db/repos/search.page.ts';
 import { assetsDb, bulkLane } from '../db/repos/db-handle.ts';
 import type { SearchWhere } from '../db/repos/search.where.ts';
 import type { GeneratedSearchDoc } from '../workers/generated-search/repo.ts';
@@ -24,6 +25,7 @@ import { libraryMaps } from './search/libraries.ts';
 import { projectAssets, type SearchResult } from './search/project.ts';
 import type { SearchQuery } from './search/query.ts';
 import { requestWindow, windowPage } from './search/ranked-window.ts';
+import { getCachedSavedSearchTotal } from './search/total-cache.ts';
 import { storedPage } from './generated-searches.stored-page.ts';
 
 export interface CollectionPage {
@@ -97,7 +99,7 @@ async function structuredCollectionPage(input: CollectionPageInput): Promise<Col
   const lane = bulkLane(assetsDb());
   const [docs, total, { libs, idToSlug }] = await Promise.all([
     searchPage(where, { sort: 'captured_desc', limit, skip: offset }, lane),
-    searchCount(where, lane),
+    getCachedSavedSearchTotal(where, lane),
     libraryMaps(),
   ]);
   return { total, results: await projectAssets(docs, libs, idToSlug) };
