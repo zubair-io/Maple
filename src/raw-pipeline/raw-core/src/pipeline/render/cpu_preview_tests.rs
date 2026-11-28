@@ -1,6 +1,8 @@
 use super::*;
 use crate::test_support::synth_chart::{ChartEncoding, SyntheticColorChart};
 use crate::types::adjustment::Profile;
+use crate::view::auto_profile::apply_pipeline::auto1_enabled_by_env;
+use crate::view::auto_profile::curve::ProfileCurve;
 
 #[test]
 fn resident_detail_bytes_match_legacy_and_upstream_edits_rebuild() {
@@ -89,6 +91,78 @@ fn resident_detail_bytes_match_legacy_and_upstream_edits_rebuild() {
             }
         }
     }
+}
+
+#[test]
+fn legacy_fit_curve_replays_on_late_ticks_when_the_resident_holds_one() {
+    let bytes = SyntheticColorChart {
+        patch_size: 12,
+        guard: 4,
+        encoding: ChartEncoding::Camera,
+        ..Default::default()
+    }
+    .write_to_bytes();
+    let raw = crate::decode::decode_bytes(&bytes, "dng").unwrap();
+    let source = RawInput::Bytes {
+        bytes: &bytes,
+        ext: "dng",
+    };
+    let (mut resident, _) = CpuPreview::open(
+        &raw,
+        source,
+        AdjustmentModel::default(),
+        RenderQuality::Preview,
+        80,
+        None,
+    )
+    .unwrap();
+    let tick = AdjustmentModel {
+        sharpen_amount: 40.,
+        ..Default::default()
+    };
+    let render_tick = |resident: &mut CpuPreview| {
+        resident
+            .render(
+                &raw,
+                source,
+                tick.clone(),
+                RenderQuality::Preview,
+                80,
+                None,
+                CancelToken::never(),
+            )
+            .unwrap()
+    };
+    let curveless = render_tick(&mut resident);
+    let direct = super::super::render_from_raw_with_auto_fit(
+        &raw,
+        &tick,
+        RenderQuality::Preview,
+        Some(source),
+        Some(80),
+        None,
+    )
+    .unwrap();
+    assert_eq!(curveless, direct);
+    let legacy_curve = ProfileCurve {
+        chroma_boost: 1.5,
+        lightness_offset: 0.02,
+        ..ProfileCurve::identity()
+    };
+    resident.context.profile_curve = Some(legacy_curve.clone());
+    let curved = render_tick(&mut resident);
+    assert_ne!(
+        curved.2, curveless.2,
+        "the injected curve must reach the frame"
+    );
+    resident.context.profile_curve = None;
+    assert_eq!(render_tick(&mut resident), curveless);
+    resident.context.profile_curve = Some(legacy_curve);
+    assert_eq!(
+        render_tick(&mut resident),
+        curved,
+        "a tick resumed from the kept scene must replay the curve too"
+    );
 }
 
 #[test]
@@ -187,7 +261,11 @@ fn real_fitted_auto_film_local_crop_and_orientation_match_legacy() {
         Some(crate::view::auto_profile::AutoFitOutcome::Applied),
         "authentic embedded-JPEG Auto fit must engage"
     );
-    assert!(resident.context.profile_curve.is_some());
+    assert_eq!(
+        resident.context.profile_curve.is_some(),
+        auto1_enabled_by_env(),
+        "only the legacy Auto fit hands the render context a profile curve"
+    );
     assert!(resident.context.profile_lut.is_some());
     let authored = AdjustmentModel {
         sharpen_amount: 90.,
@@ -389,7 +467,11 @@ fn real_default_auto_hot_repeat_and_edited_replay_match_legacy() {
         fit,
         Some(crate::view::auto_profile::AutoFitOutcome::Applied)
     );
-    assert!(resident.context.profile_curve.is_some());
+    assert_eq!(
+        resident.context.profile_curve.is_some(),
+        auto1_enabled_by_env(),
+        "only the legacy Auto fit hands the render context a profile curve"
+    );
     assert!(resident.context.profile_lut.is_some());
     let initial = (w, h, pixels, fit);
     for amount in [40., 0., 150., 40.] {

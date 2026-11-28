@@ -1,4 +1,5 @@
 use super::*;
+use crate::view::auto_profile::apply_pipeline::auto1_enabled_by_env;
 
 #[test]
 #[ignore = "requires physical RAW; explicit invocation fails if absent"]
@@ -105,7 +106,7 @@ fn real_default_auto_film_hot_repeat_matches_first_render() {
         bytes: &bytes,
         ext: "dng",
     };
-    // A high-key look exercises the identity curve's shoulder above 0.95.
+    // A high-key look keeps film output near the display ceiling.
     let film = FilmLut {
         size: 3,
         data: crate::view::auto_profile::lut::ColorLut::identity(3)
@@ -129,7 +130,11 @@ fn real_default_auto_film_hot_repeat_matches_first_render() {
         Some(crate::view::auto_profile::AutoFitOutcome::Applied),
         "the real embedded-JPEG fit must engage"
     );
-    assert!(resident.context.profile_curve.is_some());
+    assert_eq!(
+        resident.context.profile_curve.is_some(),
+        auto1_enabled_by_env(),
+        "only the legacy Auto fit hands the render context a profile curve"
+    );
     assert!(resident.context.profile_lut.is_some());
     let prefix = resident.prefix.pixels.as_ptr();
     let working = resident.working.pixels.as_ptr();
