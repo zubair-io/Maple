@@ -117,6 +117,7 @@ internal class CacheDocuments(context: Context, private val documents: LocalDocu
         var identity: Pair<Long, Long>? = null
         var backup: Uri? = null
         var published: Uri? = null
+        var committed = false
         try {
             // Verify before any truncate, rename, or cleanup: an alias must never touch the source.
             val staged = find(fresh(directory), tempName)
@@ -167,32 +168,34 @@ internal class CacheDocuments(context: Context, private val documents: LocalDocu
                 backup = rename(before.uri, ".maple-$id.backup.avif")
             }
             published = rename(temp, name)
-            if (find(fresh(directory), name)?.uri != published) {
-                remove(source, published, identity)
-                published = null
-                error("Provider cannot replace shared cache")
+            check(find(fresh(directory), name)?.uri == published) {
+                "Provider cannot replace shared cache"
             }
-            val latest = current(true)
-            if (latest != source) {
-                remove(latest, published, identity)
-                published = null
-                return@withLock null
-            }
+            // A failed or cancelled check leaves `committed` false, so the cleanup below rolls the publication back.
+            if (current(true) != source) return@withLock null
+            committed = true
             // A newly generated canonical AVIF replaces Hosted-private source bindings.
             // Retire only the unchanged records observed before this publication.
-            for (companion in companions) {
-                if (find(fresh(directory), companion.name) == companion)
-                    remove(source, companion.uri)
+            runCatching {
+                for (companion in companions) {
+                    if (find(fresh(directory), companion.name) == companion)
+                        remove(source, companion.uri)
+                }
             }
             backup?.let { remove(source, it) }
             backup = null
             published
         } finally {
             try {
-                if (owned && published == null) remove(source, temp, identity)
+                if (!committed) {
+                    published?.let { remove(source, it, identity) }
+                    if (owned) remove(source, temp, identity)
+                }
                 // A crash can leave a hidden disposable backup, never a partial canonical image.
                 backup?.let { previous ->
-                    if (find(fresh(directory), name) == null) runCatching { rename(previous, name) }
+                    runCatching {
+                        if (find(fresh(directory), name) == null) rename(previous, name)
+                    }
                 }
             } finally {
                 // Last, so a listing taken during the cleanup above is not kept.

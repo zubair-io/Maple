@@ -6,6 +6,7 @@ import app.justmaple.aperture.data.CountingTree.Companion.folder
 import app.justmaple.aperture.data.CountingTree.Companion.listed
 import java.io.File
 import java.nio.file.Files
+import java.util.concurrent.CancellationException
 import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.runBlocking
 import org.junit.After
@@ -60,10 +61,28 @@ class SharedListingPublishTest {
 
     private fun photoFolderListings() = listed["root"]?.get() ?: 0
 
-    private fun publish(source: FolderCacheSource) = runBlocking {
+    private fun publish(source: FolderCacheSource, beforeGuard: (afterRename: Boolean) -> Unit = {}) = runBlocking {
         documents.publish(source, tier, ByteArray(32) { 7 }.inputStream(), null) { fresh ->
+            if (fresh) beforeGuard(thumbs.list()!!.none { it.endsWith(".tmp.avif") })
             library.folderCacheSource(photo, fresh)
         }
+    }
+
+    private val canonical get() = File(thumbs, tier.filename(photo.name))
+
+    private fun previousDerivative() {
+        canonical.writeBytes(ByteArray(16) { 1 })
+        canonical.setLastModified(System.currentTimeMillis() - 120_000)
+    }
+
+    private fun anotherAppDuplicatesTheSidecar(afterRename: Boolean, inTheGuardAfterTheRename: Boolean) {
+        if (afterRename == inTheGuardAfterTheRename) CountingTree.phantomNames = listOf("frame-1.xmp", "Frame-1.XMP")
+    }
+
+    private fun assertRolledBack(hadPrevious: Boolean) {
+        val expected = if (hadPrevious) listOf(tier.filename(photo.name)) else emptyList()
+        assertEquals("no temp, backup or unverified derivative is left", expected, thumbs.list()!!.toList())
+        if (hadPrevious) assertEquals("the previous derivative is back", List(16) { 1.toByte() }, canonical.readBytes().toList())
     }
 
     @Test
@@ -142,5 +161,63 @@ class SharedListingPublishTest {
         assertNull(renders[0].sidecar)
         assertNotNull(renders[1].sidecar)
         assertEquals(emptyList<String>(), thumbs.list()!!.toList())
+    }
+
+    @Test
+    fun aGuardThatFailsAfterTheRenameRemovesTheUnverifiedDerivative() {
+        val source = runBlocking { library.folderCacheSource(photo) }
+
+        assertThrows(IllegalStateException::class.java) {
+            publish(source) { afterRename -> anotherAppDuplicatesTheSidecar(afterRename, true) }
+        }
+
+        assertRolledBack(hadPrevious = false)
+    }
+
+    @Test
+    fun aGuardThatFailsAfterTheRenameRestoresThePreviousDerivative() {
+        previousDerivative()
+        val source = runBlocking { library.folderCacheSource(photo) }
+
+        assertThrows(IllegalStateException::class.java) {
+            publish(source) { afterRename -> anotherAppDuplicatesTheSidecar(afterRename, true) }
+        }
+
+        assertRolledBack(hadPrevious = true)
+    }
+
+    @Test
+    fun aGuardCancelledAfterTheRenameRollsBackAndStillCancels() {
+        previousDerivative()
+        val source = runBlocking { library.folderCacheSource(photo) }
+
+        assertThrows(CancellationException::class.java) {
+            publish(source) { afterRename -> if (afterRename) throw CancellationException("scrolled away") }
+        }
+
+        assertRolledBack(hadPrevious = true)
+    }
+
+    @Test
+    fun aGuardThatFailsBeforeTheRenamePublishesNothingAndLeavesThePreviousDerivative() {
+        previousDerivative()
+        val source = runBlocking { library.folderCacheSource(photo) }
+
+        assertThrows(IllegalStateException::class.java) {
+            publish(source) { afterRename -> anotherAppDuplicatesTheSidecar(afterRename, false) }
+        }
+
+        assertRolledBack(hadPrevious = true)
+    }
+
+    @Test
+    fun aGuardThatFailsBeforeTheRenameLeavesNoTempFile() {
+        val source = runBlocking { library.folderCacheSource(photo) }
+
+        assertThrows(IllegalStateException::class.java) {
+            publish(source) { afterRename -> anotherAppDuplicatesTheSidecar(afterRename, false) }
+        }
+
+        assertRolledBack(hadPrevious = false)
     }
 }

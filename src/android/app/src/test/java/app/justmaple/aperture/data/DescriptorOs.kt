@@ -23,6 +23,8 @@ object DescriptorOs {
         opened[descriptor] = file
     }
 
+    fun forgetAll() = opened.clear()
+
     private fun fileOf(descriptor: FileDescriptor) =
         opened[descriptor] ?: throw ErrnoException("fstat", OsConstants.EBADF)
 

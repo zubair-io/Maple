@@ -72,6 +72,21 @@ class CountingTree : ContentProvider() {
                     }
                 )
             }
+            if (folder == directory)
+                phantomNames.forEach { phantom ->
+                    addRow(
+                        projection!!.map { column ->
+                            when (column) {
+                                Document.COLUMN_DOCUMENT_ID -> "$prefix/$phantom"
+                                Document.COLUMN_DISPLAY_NAME -> phantom
+                                Document.COLUMN_MIME_TYPE -> "application/octet-stream"
+                                Document.COLUMN_SIZE -> 1L
+                                Document.COLUMN_LAST_MODIFIED -> System.currentTimeMillis() - 30_000
+                                else -> 0
+                            }
+                        }
+                    )
+                }
         }
     }
 
@@ -139,6 +154,7 @@ class CountingTree : ContentProvider() {
         @Volatile var supportsRename = false
         @Volatile var failListings = false
         val failNextListing = AtomicBoolean()
+        @Volatile var phantomNames: List<String> = emptyList()
 
         fun resetFlags() {
             listingGate = null
@@ -148,6 +164,8 @@ class CountingTree : ContentProvider() {
             supportsRename = false
             failListings = false
             failNextListing.set(false)
+            phantomNames = emptyList()
+            DescriptorOs.forgetAll()
         }
 
         val folder: Uri =
