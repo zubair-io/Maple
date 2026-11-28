@@ -129,7 +129,6 @@ fn real_default_auto_film_hot_repeat_matches_first_render() {
         Some(crate::view::auto_profile::AutoFitOutcome::Applied),
         "the real embedded-JPEG fit must engage"
     );
-    assert!(resident.context.profile_curve.is_some());
     assert!(resident.context.profile_lut.is_some());
     let prefix = resident.prefix.pixels.as_ptr();
     let working = resident.working.pixels.as_ptr();

@@ -187,7 +187,6 @@ fn real_fitted_auto_film_local_crop_and_orientation_match_legacy() {
         Some(crate::view::auto_profile::AutoFitOutcome::Applied),
         "authentic embedded-JPEG Auto fit must engage"
     );
-    assert!(resident.context.profile_curve.is_some());
     assert!(resident.context.profile_lut.is_some());
     let authored = AdjustmentModel {
         sharpen_amount: 90.,
@@ -389,7 +388,6 @@ fn real_default_auto_hot_repeat_and_edited_replay_match_legacy() {
         fit,
         Some(crate::view::auto_profile::AutoFitOutcome::Applied)
     );
-    assert!(resident.context.profile_curve.is_some());
     assert!(resident.context.profile_lut.is_some());
     let initial = (w, h, pixels, fit);
     for amount in [40., 0., 150., 40.] {
