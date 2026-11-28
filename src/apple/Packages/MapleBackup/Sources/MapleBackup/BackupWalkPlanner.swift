@@ -110,6 +110,14 @@ public struct BackupReconcilePlan: Sendable {
 
 public enum BackupWalkPlanner {
 
+  /// Runs planning work off the caller's actor: at 100,000 local rows the
+  /// index and both plans cost about 42 ms, more than two frames on the main actor.
+  /// Off the caller's actor only while this package builds without
+  /// `NonisolatedNonsendingByDefault`; `testPlanningCalledFromTheMainActorRunsOffIt` guards it.
+  public static func offMainActor<Plan: Sendable>(_ plan: @Sendable () -> Plan) async -> Plan {
+    plan()
+  }
+
   /// The rows a full scan under full access has no eligible photo for. Each is
   /// either gone from Photos or excluded by a setting; the walk asks PhotoKit
   /// which still exist. Empty for a replay and for a listing under limited

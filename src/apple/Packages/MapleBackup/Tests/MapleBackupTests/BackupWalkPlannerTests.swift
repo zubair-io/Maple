@@ -515,4 +515,10 @@ final class BackupWalkPlannerTests: XCTestCase {
 
     XCTAssertEqual(plan.datesToBackfill, ["undated": shot])
   }
+
+  @MainActor
+  func testPlanningCalledFromTheMainActorRunsOffIt() async {
+    let plannedOnMain = await BackupWalkPlanner.offMainActor { Thread.isMainThread }
+    XCTAssertFalse(plannedOnMain)
+  }
 }

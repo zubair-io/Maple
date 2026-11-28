@@ -271,7 +271,10 @@ enum ChangeObserverWiring {
 
     let local: LocalTaskIndex
     do {
-      local = LocalTaskIndex(tasks: try await state.allTasks(), deviceId: deviceId)
+      let tasks = try await state.allTasks()
+      local = await BackupWalkPlanner.offMainActor {
+        LocalTaskIndex(tasks: tasks, deviceId: deviceId)
+      }
     } catch {
       BackupIssueStatus.log(.error, "Backup state read failed: \(error)")
       progress.setWalkPhase(
@@ -284,16 +287,20 @@ enum ChangeObserverWiring {
     // A row is forgotten only for a photo PhotoKit no longer returns: one a
     // setting merely excludes keeps its record of what the server holds.
     let fullAccessNow = fullLibraryAccess && PhotoKitLibrary.authorizationStatus() == .authorized
-    let stillInPhotoKit = await identifiersStillInPhotoKit(
-      among: BackupWalkPlanner.unlisted(
-        local: local, outcome: outcome, fullLibraryAccess: fullAccessNow))
+    let unlisted = await BackupWalkPlanner.offMainActor {
+      BackupWalkPlanner.unlisted(local: local, outcome: outcome, fullLibraryAccess: fullAccessNow)
+    }
+    let stillInPhotoKit = await identifiersStillInPhotoKit(among: unlisted)
     guard !Task.isCancelled else { return }
-    guard
-      let library = BackupWalkPlanner.planLibrary(
-        local: local, outcome: outcome, previouslySeen: lastSeenPhids,
+    let previouslySeen = lastSeenPhids
+    let plannedLibrary = await BackupWalkPlanner.offMainActor {
+      BackupWalkPlanner.planLibrary(
+        local: local, outcome: outcome, previouslySeen: previouslySeen,
         stillInPhotoKit: stillInPhotoKit, owingCompanions: owingCompanions,
         fullLibraryAccess: fullAccessNow)
-    else {
+    }
+    guard !Task.isCancelled else { return }
+    guard let library = plannedLibrary else {
       log.error(
         "walk skipped: PhotoKit listed no photos while \(local.stateByPhid.count) local records exist; nothing forgotten, scan not recorded"
       )
@@ -350,10 +357,14 @@ enum ChangeObserverWiring {
     // Read after the server answers: a worker may have marked a photo owing
     // while the request was in flight.
     let owingNow = (try? await state.phidsOwingCompanions(deviceId: deviceId)) ?? []
-    let reconcile = BackupWalkPlanner.planReconcile(
-      local: local, library: library, outcome: outcome, deviceId: deviceId,
-      serverKnownPhids: server.knownPhids, owingCompanions: owingNow,
-      retryFailed: retryFailed)
+    let serverKnownPhids = server.knownPhids
+    let reconcile = await BackupWalkPlanner.offMainActor {
+      BackupWalkPlanner.planReconcile(
+        local: local, library: library, outcome: outcome, deviceId: deviceId,
+        serverKnownPhids: serverKnownPhids, owingCompanions: owingNow,
+        retryFailed: retryFailed)
+    }
+    guard !Task.isCancelled else { return }
     progress.recordLibrarySnapshot(
       photoIDs: library.libraryPhotoIDs, backedUpIDs: reconcile.backedUpPhotoIDs)
     progress.removePendingPhotoIDs(reconcile.serverBackedUpPhotoIDs)
