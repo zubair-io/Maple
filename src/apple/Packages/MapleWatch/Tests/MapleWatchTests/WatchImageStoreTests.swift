@@ -22,7 +22,9 @@ final class WatchImageStoreTests: XCTestCase {
       let pending = try asset(named: name)
       return Task { try await store.image(for: pending, tier: .row) }
     }
-    defer { stalled.forEach { $0.cancel() } }
+    defer {
+      for task in stalled { task.cancel() }
+    }
     let deadline = ContinuousClock.now.advanced(by: .seconds(5))
     while StubDerivatives.requests(host: host).count < 3, ContinuousClock.now < deadline {
       try await Task.sleep(for: .milliseconds(10))
@@ -33,6 +35,36 @@ final class WatchImageStoreTests: XCTestCase {
 
     XCTAssertGreaterThan(hit.width, 0)
     XCTAssertEqual(StubDerivatives.requests(host: host).count, 3)
+  }
+
+  func testOpeningARowReusesItsDownloadedThumbnail() async throws {
+    let (store, host) = makeStore(thumbStatus: 200)
+    _ = try await store.image(for: try asset(), tier: .row)
+    let photo = try await store.image(for: try asset(), tier: .photo)
+    XCTAssertGreaterThan(photo.width, 0)
+    XCTAssertEqual(StubDerivatives.requests(host: host), ["thumb"])
+  }
+
+  func testANewThumbnailVersionIsDownloadedAgain() async throws {
+    let (store, host) = makeStore(thumbStatus: 200)
+    _ = try await store.image(for: try asset(thumbVersion: "1"), tier: .row)
+    _ = try await store.image(for: try asset(thumbVersion: "2"), tier: .photo)
+    XCTAssertEqual(StubDerivatives.requests(host: host), ["thumb", "thumb"])
+  }
+
+  func testPreviewFallbackIsNotKeptForTheOtherTier() async throws {
+    let (store, host) = makeStore(thumbStatus: 404)
+    _ = try await store.image(for: try asset(), tier: .row)
+    _ = try await store.image(for: try asset(), tier: .photo)
+    XCTAssertEqual(StubDerivatives.requests(host: host), ["thumb", "preview", "thumb", "preview"])
+  }
+
+  func testRefreshDropsKeptThumbnailBytes() async throws {
+    let (store, host) = makeStore(thumbStatus: 200)
+    _ = try await store.image(for: try asset(), tier: .row)
+    await store.clear()
+    _ = try await store.image(for: try asset(), tier: .photo)
+    XCTAssertEqual(StubDerivatives.requests(host: host), ["thumb", "thumb"])
   }
 
   func testFailedThumbnailFallsBackToPreview() async throws {
@@ -79,11 +111,14 @@ final class WatchImageStoreTests: XCTestCase {
     return (store, host)
   }
 
-  private func asset(named name: String = "a.dng") throws -> SearchAsset {
-    try JSONDecoder().decode(
+  private func asset(named name: String = "a.dng", thumbVersion: String? = nil) throws
+    -> SearchAsset
+  {
+    let version = thumbVersion.map { #","thumb_version":"\#($0)""# } ?? ""
+    return try JSONDecoder().decode(
       SearchAsset.self,
       from: Data(
-        #"{"id":"\#(name)","folder_id":"f1","abs_path":"/srv/photos/\#(name)","filename":"\#(name)","mtime":1}"#
+        #"{"id":"\#(name)","folder_id":"f1","abs_path":"/srv/photos/\#(name)","filename":"\#(name)","mtime":1\#(version)}"#
           .utf8))
   }
 }
@@ -135,7 +170,8 @@ private final class StubDerivatives: URLProtocol {
   override func stopLoading() {}
 
   private func respond(url: URL, status: Int, body: Data) {
-    let response = HTTPURLResponse(url: url, statusCode: status, httpVersion: nil, headerFields: nil)!
+    let response = HTTPURLResponse(
+      url: url, statusCode: status, httpVersion: nil, headerFields: nil)!
     client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
     client?.urlProtocol(self, didLoad: body)
     client?.urlProtocolDidFinishLoading(self)

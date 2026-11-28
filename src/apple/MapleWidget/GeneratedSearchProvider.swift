@@ -58,6 +58,11 @@ struct GeneratedSearchProvider: TimelineProvider {
   /// more often than a few hours.
   private static let refreshInterval: TimeInterval = 4 * 60 * 60
 
+  private enum Purpose {
+    case timeline
+    case snapshot
+  }
+
   func placeholder(in context: Context) -> GeneratedSearchEntry {
     .empty()
   }
@@ -69,19 +74,22 @@ struct GeneratedSearchProvider: TimelineProvider {
       return
     }
     Task {
-      let entries = await Self.buildEntries()
+      let entries = await Self.buildEntries(for: .snapshot)
       completion(entries.first ?? .empty())
     }
   }
 
-  func getTimeline(in context: Context, completion: @escaping (Timeline<GeneratedSearchEntry>) -> Void) {
+  func getTimeline(
+    in context: Context, completion: @escaping (Timeline<GeneratedSearchEntry>) -> Void
+  ) {
     Task {
-      let entries = await Self.buildEntries()
+      let entries = await Self.buildEntries(for: .timeline)
       guard !entries.isEmpty else {
         // Nothing to show — not signed in, no collections yet, or the server
         // is unreachable. Retry sooner than a full cycle, but not so soon
         // that a persistently-signed-out widget spins.
-        completion(Timeline(entries: [.empty()], policy: .after(Date().addingTimeInterval(30 * 60))))
+        completion(
+          Timeline(entries: [.empty()], policy: .after(Date().addingTimeInterval(30 * 60))))
         return
       }
       // Entries without a photo are the thumbs-failed degradation — retry
@@ -96,7 +104,8 @@ struct GeneratedSearchProvider: TimelineProvider {
 
   /// The fetched thumbnails in collection order, downloaded side by side so a
   /// timeline waits on one round trip rather than one per photo.
-  private static func thumbnails(for assets: [SearchAsset], context: WidgetSession) async -> [Data] {
+  private static func thumbnails(for assets: [SearchAsset], context: WidgetSession) async -> [Data]
+  {
     let fetched = await withTaskGroup(of: (Int, Data?).self) { group in
       for (index, asset) in assets.enumerated() {
         group.addTask {
@@ -110,10 +119,34 @@ struct GeneratedSearchProvider: TimelineProvider {
     return assets.indices.compactMap { fetched[$0] }
   }
 
+  /// The snapshot shows only the first photo that arrives. It tries the first photo alone, and
+  /// only if that fails fetches the rest side by side, so an unreachable server costs two waits
+  /// rather than six and the photo shown is the same: the first in collection order that loads.
+  private static func firstThumbnail(for assets: [SearchAsset], context: WidgetSession) async
+    -> Data?
+  {
+    guard let first = assets.first else { return nil }
+    if let data = try? await context.thumbs.thumb(
+      absPath: first.abs_path, version: first.thumb_version)
+    {
+      return data
+    }
+    return await thumbnails(for: Array(assets.dropFirst()), context: context).first
+  }
+
+  private static func photos(
+    for assets: [SearchAsset], purpose: Purpose, context: WidgetSession
+  ) async -> [Data] {
+    switch purpose {
+    case .timeline: return await thumbnails(for: assets, context: context)
+    case .snapshot: return await firstThumbnail(for: assets, context: context).map { [$0] } ?? []
+    }
+  }
+
   /// Resolve the signed-in server and selected library from the App Group,
   /// then build one timeline's worth of entries. Returns `[]` on any failure
   /// — the caller decides what to render.
-  private static func buildEntries() async -> [GeneratedSearchEntry] {
+  private static func buildEntries(for purpose: Purpose) async -> [GeneratedSearchEntry] {
     guard let context = await WidgetSession.current() else { return [] }
 
     do {
@@ -145,7 +178,8 @@ struct GeneratedSearchProvider: TimelineProvider {
       // would make the timeline look populated and take the 4-hour refresh
       // — returning [] instead gets the 30-minute retry the empty path
       // already schedules.
-      let thumbs = await thumbnails(for: Array(assets.prefix(entriesPerTimeline)), context: context)
+      let thumbs = await photos(
+        for: Array(assets.prefix(entriesPerTimeline)), purpose: purpose, context: context)
       let start = Date()
       let entries = thumbs.enumerated().map { offset, data in
         GeneratedSearchEntry(
