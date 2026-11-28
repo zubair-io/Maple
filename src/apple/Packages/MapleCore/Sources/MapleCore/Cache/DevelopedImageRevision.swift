@@ -91,17 +91,10 @@ public final class DevelopedImageRevision {
     let host: String?
     switch source.resolvedBackend() {
     case .cloudThumb(_, let cloudHost, _): host = cloudHost
-    case .thumbnailLoader(let asset, _):
-      if let catalog = asset.catalog {
-        host = catalog.serverID.cacheHostKey
-      } else if case .cloud(let server) = asset.thumbnailProvenance {
-        host = server.cacheHostKey
-      } else {
-        host = nil
-      }
+    case .thumbnailLoader(let asset, _): host = asset.cloudHostKey
     case .photoKit: host = nil
     }
-    return host.map { "cloud:\($0.utf8.count):\($0):\(id)" } ?? id
+    return id.qualified(byHost: host)
   }
 
   /// Publish only after both derived-image writes have completed, so a reload

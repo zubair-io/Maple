@@ -386,6 +386,34 @@ final class StaleCloudThumbnailRefreshTests: XCTestCase {
     XCTAssertEqual(requests, 3, "the queued refetch runs after a request succeeds")
   }
 
+  func testARefreshOfOneServersPhotoDoesNotReachTheSamePathOnAnotherServer() async throws {
+    let key = "fs:/srv/photos/\(UUID().uuidString).dng"
+    keys.append(key)
+    func asset(on server: String) -> ThumbnailSource {
+      .local(
+        AssetRef(
+          displayName: "x.dng", hintExtension: "dng", stableID: key,
+          thumbnailProvenance: .cloud(server: URL(string: server)!), bytesProvider: { Data() }),
+        source: nil)
+    }
+    let first = asset(on: "https://a.example")
+    let second = asset(on: "https://b.example")
+    let secondBitmap = "cell-\(UUID().uuidString)"
+    _ = await ThumbnailDecoder.image(for: oldBytes, key: secondBitmap)
+    ThumbnailRefresh.track(bitmapKey: secondBitmap, for: second)
+    let firstBitmap = "cell-\(UUID().uuidString)"
+    _ = await ThumbnailDecoder.image(for: oldBytes, key: firstBitmap)
+    ThumbnailRefresh.track(bitmapKey: firstBitmap, for: first)
+    let broadcasts = Broadcasts()
+
+    await ThumbnailRefresh.publish(assetKey: try XCTUnwrap(first.refreshKey), bytes: newBytes)
+
+    XCTAssertEqual(broadcasts.received(by: first), 1)
+    XCTAssertEqual(broadcasts.received(by: second), 0)
+    XCTAssertEqual(ThumbnailDecoder.cachedImage(forKey: firstBitmap)?.width, 16)
+    XCTAssertEqual(ThumbnailDecoder.cachedImage(forKey: secondBitmap)?.width, 8)
+  }
+
   func testPendingRefetchesRunNewestFirstWithinABoundAndDroppedKeysAreRefetchedLater()
     async
   {

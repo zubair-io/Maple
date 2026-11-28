@@ -95,19 +95,42 @@ public enum ThumbnailRefresh {
     -> CGImage?
   {
     ThumbnailDecoder.removeImages(forKeys: [bitmapKey])
-    guard let assetKey = source.refreshKey,
-      let bytes = await ThumbnailDiskCache.shared.thumbnailData(forKey: assetKey)
+    guard let diskKey = source.thumbnailCacheKey,
+      let bytes = await ThumbnailDiskCache.shared.thumbnailData(forKey: diskKey)
     else { return nil }
     return await ThumbnailDecoder.replaceImage(for: bytes, keys: [bitmapKey])
   }
 }
 
+extension AssetRef {
+  /// The server a cloud asset came from, nil for anything else.
+  var cloudHostKey: String? {
+    if let catalog { return catalog.serverID.cacheHostKey }
+    guard case .cloud(let server) = thumbnailProvenance else { return nil }
+    return server.cacheHostKey
+  }
+}
+
+extension String {
+  /// Two servers can hold the same `fs:` path, so a cloud id carries its host.
+  func qualified(byHost host: String?) -> String {
+    host.map { "cloud:\($0.utf8.count):\($0):\(self)" } ?? self
+  }
+}
+
 extension ThumbnailSource {
   /// The thumbnail-cache key of a cloud or PhotoKit photo with no file URL, the
-  /// key `ThumbnailLoader` refetches and broadcasts under.
-  var refreshKey: String? {
+  /// key `ThumbnailLoader` stores and refetches under.
+  var thumbnailCacheKey: String? {
     guard case .thumbnailLoader(let asset, _) = resolvedBackend(), asset.primaryURL == nil
     else { return nil }
     return asset.stableID ?? asset.displayName
+  }
+
+  /// The key a refresh is announced under: the cache key, qualified by server.
+  var refreshKey: String? {
+    guard case .thumbnailLoader(let asset, _) = resolvedBackend(), let key = thumbnailCacheKey
+    else { return nil }
+    return key.qualified(byHost: asset.cloudHostKey)
   }
 }

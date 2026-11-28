@@ -71,6 +71,7 @@ public actor ThumbnailLoader {
 
   struct StaleRefetch: Sendable {
     let key: String
+    let refreshKey: String
     let ref: ImageRef
     let source: any ImageSource
     let token: String?

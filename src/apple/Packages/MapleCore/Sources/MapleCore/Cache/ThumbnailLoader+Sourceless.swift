@@ -41,7 +41,9 @@ extension ThumbnailLoader {
     {
       if !hit.isCurrent, let source, let ref = Self.imageRef(of: asset) {
         await refreshStaleThumbnail(
-          StaleRefetch(key: key, ref: ref, source: source, token: token))
+          StaleRefetch(
+            key: key, refreshKey: key.qualified(byHost: asset.cloudHostKey), ref: ref,
+            source: source, token: token))
       }
       return hit.data
     }
@@ -203,7 +205,7 @@ extension ThumbnailLoader {
     let cached = await cache.thumbnailData(forKey: refetch.key)
     await cache.storeThumbnailData(bytes, forKey: refetch.key, token: refetch.token)
     guard bytes != cached else { return }
-    await ThumbnailRefresh.publish(assetKey: refetch.key, bytes: bytes)
+    await ThumbnailRefresh.publish(assetKey: refetch.refreshKey, bytes: bytes)
   }
 
   private func fallbackIsWanted(key: String, coalescingKey: String) -> Bool {
