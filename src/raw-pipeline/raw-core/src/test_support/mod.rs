@@ -10,6 +10,8 @@ pub mod creative;
 pub mod fixtures;
 pub mod gain_map;
 pub mod hasselblad_dcp;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod paged;
 pub mod predictions;
 pub mod predictions_display;
 pub mod synth_chart;

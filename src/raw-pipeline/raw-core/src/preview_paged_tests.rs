@@ -3,7 +3,8 @@
 use std::io;
 
 use super::*;
-use crate::paged_file::{PagedFile, EXTENT_ALIGN, MAX_EXTENTS};
+use crate::paged_file::{EXTENT_ALIGN, MAX_EXTENTS};
+use crate::test_support::paged::paged;
 use crate::test_support::synth_dng::SyntheticGreyDng;
 use crate::test_support::synth_dng_preview::dng_with_jpeg_preview;
 use crate::test_support::synth_unknown_body::unknown_body_3fr;
@@ -24,10 +25,6 @@ fn extracted(result: Result<(image::DynamicImage, ExifOrientation)>) -> Extracte
             )
         })
         .map_err(|error| error.to_string())
-}
-
-fn paged(path: &std::path::Path) -> PagedFile {
-    PagedFile::new(std::fs::File::open(path).unwrap()).unwrap()
 }
 
 struct Reads {

@@ -1,10 +1,12 @@
-//! A file fetched on demand in a few large reads (#6033), each a seek and a
-//! read on a private handle. It is never memory mapped: a file truncated or
-//! unreachable mid-read must be an error value, where a mapped page faults.
+//! A source fetched on demand in a few large reads (#6033), each a seek and a
+//! read on the reader the caller hands over. raw-core opens nothing itself: the
+//! native layer opens the file and says how long it is. Reads are never memory
+//! mapped: a file truncated or unreachable mid-read must be an error value,
+//! where a mapped page faults.
 
 use std::collections::BTreeSet;
-use std::fs::File;
 use std::io::{self, Read, Seek, SeekFrom};
+use std::num::NonZeroUsize;
 use std::sync::{Mutex, MutexGuard, OnceLock, PoisonError};
 
 /// A megabyte per request amortises a network round trip and stays clear of the sensor data.
@@ -30,8 +32,8 @@ impl Extent {
     }
 }
 
-#[derive(Default)]
-struct Progress {
+struct Progress<R> {
+    reader: R,
     extents: usize,
     read_calls: u32,
     bytes_read: u64,
@@ -42,33 +44,27 @@ fn same_error(error: &io::Error) -> io::Error {
     io::Error::new(error.kind(), error.to_string())
 }
 
-pub struct PagedFile {
-    file: File,
+pub struct PagedFile<R> {
     len: usize,
     /// Filled in order and never replaced, so a slice handed out stays valid;
     /// the last slot holds the whole file.
     extents: [OnceLock<Extent>; MAX_EXTENTS + 1],
-    progress: Mutex<Progress>,
+    progress: Mutex<Progress<R>>,
 }
 
-impl PagedFile {
-    /// Hands the file back when it has no length to page by: anything but a
-    /// regular file, or one reporting zero bytes.
-    pub fn new(file: File) -> Result<Self, File> {
-        let len = file
-            .metadata()
-            .ok()
-            .filter(std::fs::Metadata::is_file)
-            .and_then(|metadata| usize::try_from(metadata.len()).ok())
-            .filter(|&len| len > 0);
-        match len {
-            Some(len) => Ok(Self {
-                file,
-                len,
-                extents: std::array::from_fn(|_| OnceLock::new()),
-                progress: Mutex::new(Progress::default()),
+impl<R: Read + Seek> PagedFile<R> {
+    /// `len` is the source's length in bytes, which every read is checked against.
+    pub fn new(reader: R, len: NonZeroUsize) -> Self {
+        Self {
+            len: len.get(),
+            extents: std::array::from_fn(|_| OnceLock::new()),
+            progress: Mutex::new(Progress {
+                reader,
+                extents: 0,
+                read_calls: 0,
+                bytes_read: 0,
+                failure: None,
             }),
-            None => Err(file),
         }
     }
 
@@ -80,7 +76,7 @@ impl PagedFile {
         self.progress().bytes_read
     }
 
-    fn progress(&self) -> MutexGuard<'_, Progress> {
+    fn progress(&self) -> MutexGuard<'_, Progress<R>> {
         self.progress.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
@@ -114,14 +110,14 @@ impl PagedFile {
 
     fn read_into(
         &self,
-        progress: &mut Progress,
+        progress: &mut Progress<R>,
         start: usize,
         buffer: &mut [u8],
     ) -> io::Result<()> {
-        let mut file = &self.file;
-        let read = file
+        let read = progress
+            .reader
             .seek(SeekFrom::Start(start as u64))
-            .and_then(|_| file.read_exact(buffer));
+            .and_then(|_| progress.reader.read_exact(buffer));
         progress.read_calls += 1;
         progress.bytes_read += buffer.len() as u64;
         read.map_err(|error| {
@@ -132,7 +128,7 @@ impl PagedFile {
 
     fn load(
         &self,
-        progress: &mut Progress,
+        progress: &mut Progress<R>,
         slot: usize,
         (start, end): (usize, usize),
         gaps: &[(usize, usize)],
@@ -156,7 +152,7 @@ impl PagedFile {
         Ok(self.extents[slot].get_or_init(|| Extent { start, bytes }))
     }
 
-    fn load_whole(&self, progress: &mut Progress) -> io::Result<&[u8]> {
+    fn load_whole(&self, progress: &mut Progress<R>) -> io::Result<&[u8]> {
         if let Some(whole) = self.loaded(0, self.len) {
             return Ok(whole);
         }
@@ -170,7 +166,7 @@ impl PagedFile {
     }
 }
 
-impl rawler::rawsource::LazyBytes for PagedFile {
+impl<R: Read + Seek + Send> rawler::rawsource::LazyBytes for PagedFile<R> {
     fn len(&self) -> usize {
         self.len
     }

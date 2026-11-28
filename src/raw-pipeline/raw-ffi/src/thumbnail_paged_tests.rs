@@ -3,7 +3,7 @@
 use crate::error::maple_last_error;
 use crate::thumbnail::{
     maple_render_thumbnail_avif_to_file, maple_render_thumbnail_preview_jpeg_buf,
-    maple_render_thumbnail_preview_jpeg_to_file, upright_pixels,
+    maple_render_thumbnail_preview_jpeg_to_file, pageable_len, upright_pixels,
 };
 use raw_core::test_support::synth_dng::SyntheticGreyDng;
 use raw_core::test_support::synth_dng_preview::dng_with_jpeg_preview;
@@ -234,4 +234,21 @@ fn every_fixture_renders_as_the_whole_file_read_does() {
             assert_matches_whole_file_read(&raw, max_px);
         }
     }
+}
+
+#[test]
+fn a_file_with_no_length_to_page_by_is_read_whole() {
+    let dir = tempfile::tempdir().unwrap();
+    let empty = dir.path().join("empty.raw");
+    std::fs::write(&empty, b"").unwrap();
+    assert!(pageable_len(&std::fs::File::open(&empty).unwrap()).is_none());
+    if let Ok(folder) = std::fs::File::open(dir.path()) {
+        assert!(pageable_len(&folder).is_none());
+    }
+    let one_byte = dir.path().join("one.raw");
+    std::fs::write(&one_byte, b"x").unwrap();
+    assert_eq!(
+        pageable_len(&std::fs::File::open(&one_byte).unwrap()).map(|len| len.get()),
+        Some(1)
+    );
 }
