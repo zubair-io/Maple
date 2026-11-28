@@ -44,6 +44,7 @@ use crate::exif::Exif;
 use crate::formats::ciff;
 use crate::formats::jfif;
 use crate::formats::tiff::CompressionMethod;
+use crate::formats::tiff::Entry;
 use crate::formats::tiff::ExtractFromIFD;
 use crate::formats::tiff::GenericTiffReader;
 use crate::formats::tiff::IFD;
@@ -514,6 +515,9 @@ pub(crate) fn dynamic_image_from_ifd(ifd: &IFD, rawsource: &RawSource) -> Result
   let tiff_height = fetch_tiff_tag!(ifd, TiffCommonTag::ImageLength).force_usize(0);
   let cpp = fetch_tiff_tag!(ifd, TiffCommonTag::SamplesPerPixel).force_usize(0);
   let bits = fetch_tiff_tag!(ifd, TiffCommonTag::BitsPerSample).force_u32(0);
+  if let Some(image) = single_strip_rgb8_jpeg(ifd, rawsource, tiff_width, tiff_height, cpp, bits) {
+    return Ok(image);
+  }
   let image = plain_image_from_ifd(ifd, rawsource)?;
   match image {
     RawImageData::Integer(samples) => match bits {
@@ -559,6 +563,49 @@ pub(crate) fn dynamic_image_from_ifd(ifd: &IFD, rawsource: &RawSource) -> Result
       )),
       _ => unimplemented!(),
     },
+  }
+}
+
+/// Maple: an 8-bit, 3-sample baseline JPEG in one strip (the DNG preview SubIFD) decodes straight to
+/// RGB8, skipping the u16 round trip of the generic path. Accepts only what the generic path accepts
+/// (same size limits, nonzero rows per strip) plus SHORT strip offset and byte count, which a writer
+/// uses for a preview under 64 KB and `IFD::strip_data` rejects.
+fn single_strip_rgb8_jpeg(ifd: &IFD, rawsource: &RawSource, width: usize, height: usize, cpp: usize, bits: u32) -> Option<DynamicImage> {
+  let photometric = PhotometricInterpretation::extract(ifd).ok()?.unwrap_or(PhotometricInterpretation::BlackIsZero);
+  let is_lossy_jpeg = match CompressionMethod::extract(ifd).ok()?? {
+    CompressionMethod::ModernJPEG => photometric == PhotometricInterpretation::YCbCr,
+    CompressionMethod::LossyJPEG => true,
+    _ => false,
+  };
+  let sample_format = SampleFormat::extract(ifd).ok()?.unwrap_or(SampleFormat::Uint);
+  let reshaped = ifd.get_entry(TiffCommonTag::Linearization).is_some()
+    || ifd.get_entry(DngTag::ColumnInterleaveFactor).is_some()
+    || ifd.get_entry(DngTag::RowInterleaveFactor).is_some();
+  if !is_lossy_jpeg || sample_format != SampleFormat::Uint || cpp != 3 || bits != 8 || reshaped {
+    return None;
+  }
+  let rows_per_strip = match ifd.get_entry(TiffCommonTag::RowsPerStrip) {
+    Some(entry) => entry.value.get_usize(0).ok()??,
+    None => height,
+  };
+  let samples_per_row = width.checked_mul(cpp)?;
+  if rows_per_strip == 0 || samples_per_row > 50000 || height > 50000 || samples_per_row.checked_mul(height)? > 500_000_000 {
+    return None;
+  }
+  let start = ifd.base.checked_add(single_short_or_long(ifd.get_entry(TiffCommonTag::StripOffsets)?)?)?;
+  let len = single_short_or_long(ifd.get_entry(TiffCommonTag::StripByteCounts)?)?;
+  let strip = rawsource.subview(start as u64, len as u64).ok()?;
+  match image::load_from_memory_with_format(strip, ImageFormat::Jpeg).ok()? {
+    image @ DynamicImage::ImageRgb8(_) if (image.width() as usize, image.height() as usize) == (width, height) => Some(image),
+    _ => None,
+  }
+}
+
+fn single_short_or_long(entry: &Entry) -> Option<u32> {
+  match &entry.value {
+    Value::Short(values) if values.len() == 1 => Some(values[0] as u32),
+    Value::Long(values) if values.len() == 1 => Some(values[0]),
+    _ => None,
   }
 }
 
