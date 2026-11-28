@@ -64,6 +64,10 @@ jobs:
         with:
           workspaces: src/raw-pipeline -> target
 
+      - name: Install nasm (AV1 encoder x86_64 assembly, #6165)
+        if: matrix.arch == 'x64'
+        shell: bash
+        run: bash tools/install-nasm.sh
       - name: Build native core (raw_ffi.dll + maple-cli.exe)
         shell: pwsh
         run: |

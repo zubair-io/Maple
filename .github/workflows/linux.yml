@@ -9,6 +9,7 @@ on:
       - 'src/linux/**'
       - 'tools/qualification/linux-native/**'
       - 'src/raw-pipeline/**'
+      - 'tools/install-nasm.sh'
       - 'resources/film-luts/**'
       - 'test-fixtures/batch-transfer/**'
       - 'test-fixtures/jpeg-tiff/**'
@@ -24,6 +25,7 @@ on:
       - 'src/linux/**'
       - 'tools/qualification/linux-native/**'
       - 'src/raw-pipeline/**'
+      - 'tools/install-nasm.sh'
       - 'resources/film-luts/**'
       - 'test-fixtures/batch-transfer/**'
       - 'test-fixtures/jpeg-tiff/**'
@@ -95,6 +97,8 @@ jobs:
         run: |
           vulkaninfo --summary | tee "$RUNNER_TEMP/maple-vulkan.txt"
           grep -q deviceName "$RUNNER_TEMP/maple-vulkan.txt"
+      - name: Install nasm (AV1 encoder x86_64 assembly, #6165)
+        run: bash tools/install-nasm.sh
       - name: Check all native targets
         run: cargo clippy --locked --manifest-path src/linux/Cargo.toml --all-targets --no-deps -- -D warnings
       - name: Run native library and integration tests

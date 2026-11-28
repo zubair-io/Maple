@@ -9,6 +9,9 @@
 #
 # Prerequisites:
 #   - Rust + Cargo (https://rustup.rs)
+#   - nasm 2.15+ for x86_64 builds (the AV1 encoder's assembly): apt install nasm
+#     or brew install nasm. `cross`'s default x86_64 image ships 2.14, which is
+#     too old, so build `linux` on a Linux host instead.
 #   - For Linux cross-compile: `cross` (cargo install cross) + Docker
 #     OR a native Linux build box / CI runner.
 

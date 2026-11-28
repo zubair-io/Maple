@@ -148,8 +148,9 @@ FROM rust:1.98.1-slim-bookworm AS rust-builder
 
 WORKDIR /build
 
+# nasm assembles the AV1 encoder's x86_64 assembly (#6165).
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    pkg-config libssl-dev && rm -rf /var/lib/apt/lists/*
+    pkg-config libssl-dev nasm && rm -rf /var/lib/apt/lists/*
 
 COPY src/raw-pipeline/ raw-pipeline/
 

@@ -34,6 +34,7 @@
 #       aarch64-apple-macos (= aarch64-apple-darwin)
 #       x86_64-apple-macos  (= x86_64-apple-darwin)
 #   - cbindgen (cargo install cbindgen)
+#   - nasm 2.15+ for the x86_64 slice's AV1 encoder assembly (brew install nasm)
 #   - xcodebuild (ships with Xcode)
 #
 # Output: src/apple/Frameworks/RawPipeline.xcframework
@@ -334,6 +335,11 @@ for tool in cargo cbindgen xcodebuild; do
         exit 1
     fi
 done
+if ! command -v nasm &>/dev/null; then
+    echo "ERROR: nasm not found — the x86_64 slice's AV1 encoder assembly needs it (#6165)."
+    echo "       Fix: brew install nasm"
+    exit 1
+fi
 
 # ---------------------------------------------------------------------------
 # 0b-pano. Verify the ort-sys iOS vendor patch is applied (M6 #1244).

@@ -78,6 +78,10 @@ jobs:
         with:
           dotnet-version: '8.0.x'
 
+      - name: Install nasm (AV1 encoder x86_64 assembly, #6165)
+        if: matrix.arch == 'x64'
+        shell: bash
+        run: bash tools/install-nasm.sh
       - name: Build Windows application through the supported wrapper
         shell: bash
         run: bash src/windows/scripts/build-windows.sh

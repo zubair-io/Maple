@@ -74,6 +74,12 @@ if ! command -v rustup >/dev/null 2>&1; then
     export PATH="$(brew --prefix rustup)/bin:$PATH"
 fi
 
+# The x86_64 macOS slice's AV1 encoder assembly needs nasm (#6165).
+if ! command -v nasm >/dev/null 2>&1; then
+    echo "==> brew install nasm"
+    retry brew install nasm
+fi
+
 # As of formula 1.29.0_1, Homebrew's `rustup` ships `rustup` but no longer
 # ships the `rustup-init` bootstrap binary — see brew caveats ("This formula
 # does not provide rustup-init."). Install the default toolchain via `rustup`
