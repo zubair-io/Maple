@@ -69,6 +69,7 @@ cloud editor, build/package commands and current qualification limits.
 | Doc                                                          | Covers                                                                                                                                                                        |
 | ------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | [unified-component-catalog.md](unified-component-catalog.md) | The Maple UI catalog: every atom, molecule, and organism with its web / Apple / Windows implementation status.                                                                |
+| [design/airport/](design/airport/README.md)                  | Airport 2, the design system Maple and the Just Maple client share: principles, colour, type, Panorama, Explorer, cards and photo rules, and where the generated tokens live. |
 | [design/maple-ui/components/](design/maple-ui/components/)   | One contract per component. These files are load-bearing: `tools/check-maple-ui-contracts.sh` lints them in CI and `maple-syrup` serves them on its `/maple-ui` gallery page. |
 | [design/responsive-program/](design/responsive-program/)     | The responsive web program's per-surface design notes (phone shell, grid, loupe, editor, inspector, search, settings) and the tool-glyph sheets that source comments cite.    |
 

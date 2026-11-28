@@ -9,6 +9,7 @@
 #   - adjustment (raw_core::types::ADJUSTMENT_SCHEMA) → Swift + TS + TS tables
 #                                            (the ts-tables target is #2683 —
 #                                            see the Outputs list below)
+#   - airport-tokens (raw_core::airport_tokens) → MapleUI Swift + TS + SCSS
 #   - ui-tokens  (raw_core::ui_tokens::{COLOR_TOKENS, MOTION_TOKENS,
 #                                            RADIUS_TOKENS, SPACING_TOKENS})
 #                                            → Swift + TS + SCSS + WinUI XAML
@@ -198,6 +199,12 @@ UI_XAML_OUT="src/windows/Maple.WinUI/Themes/Tokens.xaml"
 "$BIN" --schema ui-tokens --target ts --out "$UI_TS_OUT"
 "$BIN" --schema ui-tokens --target scss --out "$UI_SCSS_OUT"
 "$BIN" --schema ui-tokens --target xaml --out "$UI_XAML_OUT"
+
+# --- Airport 2 design tokens ----------------------------------------------
+
+"$BIN" --schema airport-tokens --target swift --out "src/apple/Packages/MapleUI/Sources/MapleUI/Generated/AirportTokens.swift"
+"$BIN" --schema airport-tokens --target ts --out "src/web/projects/maple-common/src/lib/generated/airport-tokens.ts"
+"$BIN" --schema airport-tokens --target scss --out "src/web/projects/maple-common/src/lib/generated/_airport-tokens.scss"
 
 # --- Color matrices → WGSL (epic #925 P2 / #990) --------------------------
 # The GPU scene-linear kernels (raw-gpu) bake the Oklab + Rec.2020/sRGB

@@ -37,6 +37,7 @@ mod adjustment_groups;
 mod adjustment_tables;
 mod adjustment_transfer;
 mod adjustment_ts_enums;
+mod airport_tokens;
 mod auto_fit_codes;
 mod batch_transfer_contract;
 mod canvas_overlay;
@@ -155,6 +156,8 @@ enum Schema {
     /// SPACING_TOKENS}` — design-system color hex strings, motion
     /// duration/easing pairs, radius, and spacing. Ticket #606.
     UiTokens,
+    /// `raw_core::airport_tokens` — the Airport 2 design system.
+    AirportTokens,
     /// Oklab + Rec.2020/sRGB color matrices (forward + inverse). WGSL target:
     /// the full nine-matrix set the GPU scene-linear kernels bake in (epic
     /// #925 P2 / #990). TS target: `M_SRGB_TO_REC2020` only — the one matrix
@@ -361,6 +364,13 @@ fn main() {
             | Target::Kotlin,
         ) => {
             eprintln!("codegen: --schema ui-tokens has no ts-tables / WGSL target");
+            std::process::exit(2);
+        }
+        (Schema::AirportTokens, Target::Swift) => airport_tokens::emit_swift(),
+        (Schema::AirportTokens, Target::Ts) => airport_tokens::emit_ts(),
+        (Schema::AirportTokens, Target::Scss) => airport_tokens::emit_scss(),
+        (Schema::AirportTokens, _) => {
+            eprintln!("codegen: --schema airport-tokens supports only swift / ts / scss targets");
             std::process::exit(2);
         }
         (Schema::ColorMatrices, Target::Wgsl) => color_matrices::emit_wgsl(),

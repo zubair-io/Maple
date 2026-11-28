@@ -317,7 +317,7 @@ struct MapleApp: App {
   /// synchronized group flattens those into `Contents/Resources/` at build
   /// time, so the bundle lookup uses bare filenames.
   private static func registerBundledFonts() {
-    let names = ["Lato-Regular", "Lato-Bold", "Merriweather-Bold"]
+    let names = ["Lato-Light", "Lato-Regular", "Lato-Bold", "Lato-Black", "Merriweather-Bold"]
     for name in names {
       guard let url = Bundle.main.url(forResource: name, withExtension: "ttf") else {
         continue

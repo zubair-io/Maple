@@ -3,6 +3,7 @@
  */
 
 export * from './lib/tokens';
+export * from './lib/generated/airport-tokens';
 export * from './lib/motion';
 export * from './lib/layout-service';
 export * from './lib/models/asset';

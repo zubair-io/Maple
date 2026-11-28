@@ -156,6 +156,7 @@ pub use types::{
     PartialAdjustments, Point2, ToneCurveMode, WbSource, WhiteBalancePreset, ADJUSTMENT_SCHEMA,
 };
 
+pub mod airport_tokens;
 pub mod ui_slider_gradients;
 pub mod ui_tokens;
 

@@ -1580,7 +1580,7 @@
 				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Maple connects to SMB servers and pairs with Maple TV on your local network.";
 				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "Maple can save edited photos back to your library.";
 				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "Maple needs access to your photo library to import RAW files.";
-				INFOPLIST_KEY_UIAppFonts = "Lato-Regular.ttf Lato-Bold.ttf Merriweather-Bold.ttf";
+				INFOPLIST_KEY_UIAppFonts = "Lato-Light.ttf Lato-Regular.ttf Lato-Bold.ttf Lato-Black.ttf Merriweather-Bold.ttf";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UILaunchStoryboardName = LaunchScreen;
 				"INFOPLIST_KEY_UILaunchStoryboardName[sdk=iphone*]" = LaunchScreen;
@@ -1662,7 +1662,7 @@
 				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Maple connects to SMB servers and pairs with Maple TV on your local network.";
 				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "Maple can save edited photos back to your library.";
 				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "Maple needs access to your photo library to import RAW files.";
-				INFOPLIST_KEY_UIAppFonts = "Lato-Regular.ttf Lato-Bold.ttf Merriweather-Bold.ttf";
+				INFOPLIST_KEY_UIAppFonts = "Lato-Light.ttf Lato-Regular.ttf Lato-Bold.ttf Lato-Black.ttf Merriweather-Bold.ttf";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UILaunchStoryboardName = LaunchScreen;
 				"INFOPLIST_KEY_UILaunchStoryboardName[sdk=iphone*]" = LaunchScreen;

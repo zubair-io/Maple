@@ -52,6 +52,24 @@ final class FontRegistrationTests: XCTestCase {
             "app bundle.")
     }
 
+    /// Lato Light (300) — Airport 2 display, display_s and title.
+    func testLatoLightResolves() {
+        XCTAssertNotNil(
+            PlatformFont(name: "Lato-Light", size: 28),
+            "Lato-Light missing — check registerBundledFonts in MapleApp, " +
+            "INFOPLIST_KEY_UIAppFonts in project.pbxproj, and that " +
+            "Fonts/Lato-Light.ttf is in the app bundle.")
+    }
+
+    /// Lato Black (900) — Airport 2 caps.
+    func testLatoBlackResolves() {
+        XCTAssertNotNil(
+            PlatformFont(name: "Lato-Black", size: 11),
+            "Lato-Black missing — check registerBundledFonts in MapleApp, " +
+            "INFOPLIST_KEY_UIAppFonts in project.pbxproj, and that " +
+            "Fonts/Lato-Black.ttf is in the app bundle.")
+    }
+
     /// Merriweather Bold (700) — sourceTitle, sheetTitle.
     func testMerriweatherBoldResolves() {
         XCTAssertNotNil(
