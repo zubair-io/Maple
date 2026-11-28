@@ -83,6 +83,18 @@ public enum ThumbnailRefresh {
       name: didRefresh, object: nil, userInfo: [keyUserInfo: assetKey])
   }
 
+  /// Stores a fetched thumbnail and, when it differs from the cached one,
+  /// announces it so every cell showing the photo replaces its bitmap.
+  static func store(
+    _ bytes: Data, forKey key: String, refreshKey: String, token: String?,
+    in cache: ThumbnailDiskCache = .shared
+  ) async {
+    let cached = await cache.thumbnailData(forKey: key)
+    await cache.storeThumbnailData(bytes, forKey: key, token: token)
+    guard bytes != cached else { return }
+    await publish(assetKey: refreshKey, bytes: bytes)
+  }
+
   /// Whether `notification` announces a refresh of the photo `source` shows.
   public static func reloads(_ source: ThumbnailSource, on notification: Notification) -> Bool {
     guard notification.name == didRefresh, let key = source.refreshKey else { return false }

@@ -118,12 +118,16 @@ final class StaleCloudThumbnailRefreshTests: XCTestCase {
     return output as Data
   }
 
-  private func staleAsset() async -> (asset: AssetRef, key: String, source: ThumbnailSource) {
+  private func staleAsset(onServer server: String? = nil) async -> (
+    asset: AssetRef, key: String, source: ThumbnailSource
+  ) {
     let key = "fs:/srv/photos/\(UUID().uuidString).dng"
     keys.append(key)
     await ThumbnailDiskCache.shared.storeThumbnailData(oldBytes, forKey: key, token: "t1")
     let asset = AssetRef(
-      displayName: "x.dng", hintExtension: "dng", stableID: key, bytesProvider: { Data() })
+      displayName: "x.dng", hintExtension: "dng", stableID: key,
+      thumbnailProvenance: server.map { .cloud(server: URL(string: $0)!) },
+      bytesProvider: { Data() })
     return (asset, key, .local(asset, source: nil))
   }
 
@@ -412,6 +416,27 @@ final class StaleCloudThumbnailRefreshTests: XCTestCase {
     XCTAssertEqual(broadcasts.received(by: second), 0)
     XCTAssertEqual(ThumbnailDecoder.cachedImage(forKey: firstBitmap)?.width, 16)
     XCTAssertEqual(ThumbnailDecoder.cachedImage(forKey: secondBitmap)?.width, 8)
+  }
+
+  func testAWarmingServerDoesNotHoldBackAnotherServersRefetch() async {
+    let (warming, warmingKey, _) = await staleAsset(onServer: "https://a.example")
+    let (held, _, _) = await staleAsset(onServer: "https://a.example")
+    let (healthy, healthyKey, _) = await staleAsset(onServer: "https://b.example")
+    let warmingSource = Source(token: "t2", answer: .serverNotReady)
+    let healthySource = Source(token: "t2", answer: .bytes(newBytes))
+    let finished = FinishedStaleRefreshes()
+    let loader = await loader(finishing: finished)
+
+    _ = await loader.load(for: warming, from: warmingSource)
+    await waitUntil { finished.contains(warmingKey) }
+    _ = await loader.load(for: held, from: warmingSource)
+    _ = await loader.load(for: healthy, from: healthySource)
+    await waitUntil { finished.contains(healthyKey) }
+
+    let queued = await loader.pendingStaleRefetches.count
+    let requestsToWarming = await warmingSource.requests
+    XCTAssertEqual(queued, 1, "the warming server's refetch stays queued")
+    XCTAssertEqual(requestsToWarming, 1)
   }
 
   func testPendingRefetchesRunNewestFirstWithinABoundAndDroppedKeysAreRefetchedLater()

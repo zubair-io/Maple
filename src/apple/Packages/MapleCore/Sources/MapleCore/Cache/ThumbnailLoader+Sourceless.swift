@@ -42,8 +42,8 @@ extension ThumbnailLoader {
       if !hit.isCurrent, let source, let ref = Self.imageRef(of: asset) {
         await refreshStaleThumbnail(
           StaleRefetch(
-            key: key, refreshKey: key.qualified(byHost: asset.cloudHostKey), ref: ref,
-            source: source, token: token))
+            key: key, refreshKey: key.qualified(byHost: asset.cloudHostKey),
+            host: asset.cloudHostKey ?? "", ref: ref, source: source, token: token))
       }
       return hit.data
     }
@@ -69,6 +69,7 @@ extension ThumbnailLoader {
 
     let provider = asset.bytesProvider
     let hint = asset.hintExtension ?? ""
+    let host = asset.cloudHostKey ?? ""
     let ref = Self.imageRef(of: asset)
     // A producer, like the URL-keyed path: a Maple Cloud request already on
     // the wire finishes and fills the cache when its last cell scrolls away,
@@ -78,7 +79,7 @@ extension ThumbnailLoader {
     let task = startLocalProducer(key: coalescingKey, gate: gate) {
       await self.produceSourcelessThumbnail(
         source: source, ref: ref, key: key, coalescingKey: coalescingKey,
-        provider: provider, hint: hint, producerHoldsDecodeSlot: !latencyBound)
+        provider: provider, hint: hint, host: host, producerHoldsDecodeSlot: !latencyBound)
     }
     return await awaitThumbnail(task)
   }
@@ -103,7 +104,8 @@ extension ThumbnailLoader {
 
   private nonisolated func produceSourcelessThumbnail(
     source: (any ImageSource)?, ref: ImageRef?, key: String, coalescingKey: String,
-    provider: (@Sendable () async throws -> Data)?, hint: String, producerHoldsDecodeSlot: Bool
+    provider: (@Sendable () async throws -> Data)?, hint: String, host: String,
+    producerHoldsDecodeSlot: Bool
   ) async -> Data? {
     let token = ref.flatMap { source?.thumbToken(for: $0) }
     if let source, let ref {
@@ -111,8 +113,8 @@ extension ThumbnailLoader {
         do { return .success(try await source.thumb(for: ref)) } catch { return .failure(error) }
       }()
       switch fetched {
-      case .success: await recordServerAnswer()
-      case .failure(let error): await recordServerAnswer(failedWith: error)
+      case .success: await recordServerAnswer(host: host)
+      case .failure(let error): await recordServerAnswer(host: host, failedWith: error)
       }
       if case .success(let bytes?) = fetched {
         guard !Task.isCancelled else { return nil }
@@ -160,12 +162,12 @@ extension ThumbnailLoader {
     startPendingStaleRefetches()
   }
 
-  /// A foreground producer in flight, or a server that is not ready, keeps queued refetches waiting.
+  /// A foreground producer in flight, or a server that is not ready, keeps its queued refetches waiting.
   func startPendingStaleRefetches() {
-    while !serverNotReady, taskProducerIDs.isEmpty,
-      runningStaleRefetches < Self.maxConcurrentStaleRefetches,
-      let next = pendingStaleRefetches.popLast()
+    while taskProducerIDs.isEmpty, runningStaleRefetches < Self.maxConcurrentStaleRefetches,
+      let ready = pendingStaleRefetches.lastIndex(where: { !notReadyHosts.contains($0.host) })
     {
+      let next = pendingStaleRefetches.remove(at: ready)
       runningStaleRefetches += 1
       Task.detached(priority: .utility) {
         await self.fetchStaleThumbnail(next)
@@ -174,12 +176,12 @@ extension ThumbnailLoader {
     }
   }
 
-  private func recordServerAnswer(failedWith error: (any Error)? = nil) {
+  private func recordServerAnswer(host: String, failedWith error: (any Error)? = nil) {
     if let error {
-      if CloudSource.isServerNotReady(error) { serverNotReady = true }
+      if CloudSource.isServerNotReady(error) { notReadyHosts.insert(host) }
       return
     }
-    serverNotReady = false
+    notReadyHosts.remove(host)
     startPendingStaleRefetches()
   }
 
@@ -196,16 +198,13 @@ extension ThumbnailLoader {
     do {
       answer = try await refetch.source.thumb(for: refetch.ref)
     } catch {
-      await recordServerAnswer(failedWith: error)
+      await recordServerAnswer(host: refetch.host, failedWith: error)
       return
     }
-    await recordServerAnswer()
+    await recordServerAnswer(host: refetch.host)
     guard let bytes = answer else { return }
-    let cache = ThumbnailDiskCache.shared
-    let cached = await cache.thumbnailData(forKey: refetch.key)
-    await cache.storeThumbnailData(bytes, forKey: refetch.key, token: refetch.token)
-    guard bytes != cached else { return }
-    await ThumbnailRefresh.publish(assetKey: refetch.refreshKey, bytes: bytes)
+    await ThumbnailRefresh.store(
+      bytes, forKey: refetch.key, refreshKey: refetch.refreshKey, token: refetch.token)
   }
 
   private func fallbackIsWanted(key: String, coalescingKey: String) -> Bool {

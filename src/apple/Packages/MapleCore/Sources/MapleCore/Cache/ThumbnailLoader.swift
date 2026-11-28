@@ -63,8 +63,8 @@ public actor ThumbnailLoader {
   /// Waiting refetches, newest last: the photo shown most recently goes first.
   var pendingStaleRefetches: [StaleRefetch] = []
   var runningStaleRefetches = 0
-  /// The server last answered a thumbnail request with a 202 or 5xx; queued refetches wait for a success.
-  var serverNotReady = false
+  /// Servers that last answered a thumbnail request with a 202 or 5xx; their queued refetches wait for a success.
+  var notReadyHosts: Set<String> = []
   static let maxPendingStaleRefetches = 64
   static let maxConcurrentStaleRefetches = 4
   var staleRefreshDidFinish: (@Sendable (String) -> Void)?
@@ -72,6 +72,7 @@ public actor ThumbnailLoader {
   struct StaleRefetch: Sendable {
     let key: String
     let refreshKey: String
+    let host: String
     let ref: ImageRef
     let source: any ImageSource
     let token: String?

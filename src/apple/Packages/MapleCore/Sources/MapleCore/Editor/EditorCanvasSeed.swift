@@ -41,7 +41,9 @@ public enum EditorCanvasSeed {
     guard let fetched = (try? await server.thumb(for: ref)) ?? nil else {
       return await staleThumbnail()
     }
-    await thumbs.storeThumbnailData(fetched, forKey: key, token: token)
+    await ThumbnailRefresh.store(
+      fetched, forKey: key, refreshKey: key.qualified(byHost: asset.cloudHostKey), token: token,
+      in: thumbs)
     return fetched
   }
 
