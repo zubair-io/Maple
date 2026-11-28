@@ -1,5 +1,7 @@
 use super::*;
+use crate::test_support::paged::paged;
 use rawler::rawsource::{LazyBytes, RawSource};
+use std::fs::File;
 use std::io::Cursor;
 
 const MIB: usize = 1 << 20;
@@ -12,7 +14,7 @@ fn pattern(len: usize) -> Vec<u8> {
 
 struct Staged {
     bytes: Vec<u8>,
-    file: PagedFile,
+    file: PagedFile<File>,
     path: std::path::PathBuf,
     _dir: tempfile::TempDir,
 }
@@ -23,14 +25,14 @@ fn staged(len: usize) -> Staged {
     let bytes = pattern(len);
     std::fs::write(&path, &bytes).unwrap();
     Staged {
-        file: PagedFile::new(File::open(&path).unwrap()).unwrap(),
+        file: paged(&path),
         bytes,
         path,
         _dir: dir,
     }
 }
 
-fn reads(file: &PagedFile) -> (u32, u64) {
+fn reads(file: &PagedFile<File>) -> (u32, u64) {
     (file.read_calls(), file.bytes_read())
 }
 
@@ -176,17 +178,6 @@ fn a_file_cut_short_after_open_is_an_error_and_ends_the_reads() {
     assert!(s.file.all().is_empty());
     assert_eq!(s.file.read_calls(), 2);
     assert_eq!(s.file.range(8, 8).unwrap(), &s.bytes[8..16]);
-}
-
-#[test]
-fn a_file_with_no_length_to_page_by_is_handed_back() {
-    let dir = tempfile::tempdir().unwrap();
-    let empty = dir.path().join("empty.raw");
-    std::fs::write(&empty, b"").unwrap();
-    assert!(PagedFile::new(File::open(&empty).unwrap()).is_err());
-    if let Ok(folder) = File::open(dir.path()) {
-        assert!(PagedFile::new(folder).is_err());
-    }
 }
 
 fn outcome<T: PartialEq + std::fmt::Debug>(result: io::Result<T>) -> Result<T, io::ErrorKind> {

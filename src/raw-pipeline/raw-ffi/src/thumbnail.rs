@@ -44,7 +44,9 @@ use crate::error::set_last_error;
 use raw_core::paged_file::PagedFile;
 use rawler::rawsource::RawSource;
 use std::ffi::{c_char, CStr};
+use std::fs::File;
 use std::io::Read;
+use std::num::NonZeroUsize;
 
 #[path = "thumbnail_raster.rs"]
 mod raster;
@@ -97,20 +99,33 @@ pub(crate) fn upright_pixels(
         .and_then(|e| e.to_str())
         .map(str::to_ascii_lowercase)
         .unwrap_or_default();
-    let file = std::fs::File::open(raw_path).map_err(read_error)?;
-    let paged = if whole_file || reads_whole_file(&ext) {
-        Err(file)
+    let file = File::open(raw_path).map_err(read_error)?;
+    let page_len = if whole_file || reads_whole_file(&ext) {
+        None
     } else {
-        PagedFile::new(file)
+        pageable_len(&file)
     };
-    match paged {
-        Ok(paged) => oriented_pixels(RawSource::new_lazy(&paged), &ext, max_px),
-        Err(mut file) => {
+    match page_len {
+        Some(len) => {
+            let paged = PagedFile::new(file, len);
+            oriented_pixels(RawSource::new_lazy(&paged), &ext, max_px)
+        }
+        None => {
             let mut raw_bytes = Vec::new();
-            file.read_to_end(&mut raw_bytes).map_err(read_error)?;
+            (&file).read_to_end(&mut raw_bytes).map_err(read_error)?;
             oriented_pixels(RawSource::new_from_borrowed_slice(&raw_bytes), &ext, max_px)
         }
     }
+}
+
+/// `None` when the file has no length to page by: anything but a regular
+/// file, or one reporting zero bytes.
+pub(crate) fn pageable_len(file: &File) -> Option<NonZeroUsize> {
+    file.metadata()
+        .ok()
+        .filter(std::fs::Metadata::is_file)
+        .and_then(|metadata| usize::try_from(metadata.len()).ok())
+        .and_then(NonZeroUsize::new)
 }
 
 fn read_error(error: std::io::Error) -> i32 {

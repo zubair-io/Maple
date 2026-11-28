@@ -180,7 +180,7 @@ fn paged_ranked(bytes: &[u8]) -> Option<(DynamicImage, ExifOrientation)> {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("chain.dng");
     std::fs::write(&path, bytes).unwrap();
-    let file = crate::paged_file::PagedFile::new(std::fs::File::open(&path).unwrap()).unwrap();
+    let file = crate::test_support::paged::paged(&path);
     let source = RawSource::new_lazy(&file);
     let found = decoder_free_preview(&source);
     assert!(source.failure().is_none());
@@ -284,7 +284,7 @@ fn a_chain_cut_short_after_opening_reports_the_read_instead_of_a_preview() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("chain.dng");
     std::fs::write(&path, &bytes).unwrap();
-    let file = crate::paged_file::PagedFile::new(std::fs::File::open(&path).unwrap()).unwrap();
+    let file = crate::test_support::paged::paged(&path);
     std::fs::OpenOptions::new()
         .write(true)
         .open(&path)
