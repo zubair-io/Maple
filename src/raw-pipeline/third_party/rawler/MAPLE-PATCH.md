@@ -10,6 +10,10 @@ padded sensor-strip construction, retaining the existing geometry/crop branches;
 `plain_image_from_ifd` returns `DecoderFailed` for a zero width, height, samples-per-pixel or tile size
 instead of reaching a zero chunk size in the strip and tile readers (#5580); an embedded-preview IFD
 declaring width 0 had made the develop worker panic.
+`dynamic_image_from_ifd` decodes an 8-bit, 3-sample baseline JPEG held in one strip (the DNG preview SubIFD) straight to
+RGB8 instead of widening every sample to u16 and back (#6204). It reads the strip offset and byte count as SHORT as well as
+LONG, so a preview under 64 KB with 16-bit tags now decodes; it refuses what the generic path refuses (zero rows per strip, the
+`alloc_image_plain!` size limits) and falls back to the generic path unless the JPEG is RGB8 at the declared size.
 `RawSource::new_lazy` takes a `LazyBytes` source that fetches ranges on demand (#6033): `subview*` and the
 `reader()` (now a `SourceReader`, which wraps the same `Cursor` for every other source) fetch only what they
 touch, an inherent `len()` answers without fetching, whole-buffer access fetches everything, and `failure()`

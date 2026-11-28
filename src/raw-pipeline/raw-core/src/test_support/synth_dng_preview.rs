@@ -11,6 +11,10 @@ const PHOTOMETRIC_RGB: u16 = 2;
 const PHOTOMETRIC_YCBCR: u16 = 6;
 const COMPRESSION_NONE: u16 = 1;
 const COMPRESSION_JPEG: u16 = 7;
+const TAG_TILE_WIDTH: u16 = 322;
+const TAG_TILE_LENGTH: u16 = 323;
+const TAG_TILE_OFFSETS: u16 = 324;
+const TAG_TILE_BYTE_COUNTS: u16 = 325;
 const IFD0_AT: u32 = 8;
 const JPEG_SIDE: (u32, u32) = (8, 4);
 
@@ -22,6 +26,20 @@ pub enum PreviewStrip {
     /// An uncompressed preview IFD declaring signed samples (`SampleFormat`
     /// 2); rawler's `plain_image_from_ifd` reaches an `unimplemented!` arm.
     SignedSamples,
+}
+
+/// How the preview IFD records where its JPEG sits.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum StripLayout {
+    /// One strip, offset and byte count stored as LONG.
+    Long,
+    /// One strip, offset and byte count stored as SHORT: what a writer emits
+    /// for a preview under 64 KB.
+    Short,
+    /// One strip, plus tile tags that name the same bytes as a single tile.
+    TiledWithStrayStrip,
+    /// One LONG strip whose `RowsPerStrip` is zero.
+    ZeroRowsPerStrip,
 }
 
 pub fn dng_with_preview_sub_ifd(
@@ -46,6 +64,7 @@ pub fn dng_with_preview_sub_ifd(
         compression,
         photometric,
         matches!(strip, PreviewStrip::SignedSamples),
+        StripLayout::Long,
         declared_width,
         declared_height,
     )
@@ -53,11 +72,22 @@ pub fn dng_with_preview_sub_ifd(
 
 /// A DNG whose SubIFD preview is the caller's own baseline JPEG.
 pub fn dng_with_jpeg_preview(jpeg: &[u8], width: u32, height: u32) -> Vec<u8> {
+    dng_with_jpeg_preview_layout(jpeg, width, height, StripLayout::Long)
+}
+
+/// [`dng_with_jpeg_preview`] with the strip recorded the way `layout` says.
+pub fn dng_with_jpeg_preview_layout(
+    jpeg: &[u8],
+    width: u32,
+    height: u32,
+    layout: StripLayout,
+) -> Vec<u8> {
     assemble(
         jpeg,
         COMPRESSION_JPEG,
         PHOTOMETRIC_YCBCR,
         false,
+        layout,
         width,
         height,
     )
@@ -68,6 +98,7 @@ fn assemble(
     compression: u16,
     photometric: u16,
     signed_samples: bool,
+    layout: StripLayout,
     declared_width: u32,
     declared_height: u32,
 ) -> Vec<u8> {
@@ -87,13 +118,35 @@ fn assemble(
         ifd.add_shorts(TAG_BITS_PER_SAMPLE, vec![8, 8, 8]);
         ifd.add_short(TAG_COMPRESSION, compression);
         ifd.add_short(TAG_PHOTOMETRIC, photometric);
-        ifd.add_long(TAG_STRIP_OFFSETS, strips_at);
+        let byte_count = preview_data.len() as u32;
+        match layout {
+            StripLayout::Short => {
+                ifd.add_short(TAG_STRIP_OFFSETS, strips_at as u16);
+                ifd.add_short(TAG_STRIP_BYTE_COUNTS, byte_count as u16);
+            }
+            StripLayout::Long
+            | StripLayout::TiledWithStrayStrip
+            | StripLayout::ZeroRowsPerStrip => {
+                ifd.add_long(TAG_STRIP_OFFSETS, strips_at);
+                ifd.add_long(TAG_STRIP_BYTE_COUNTS, byte_count);
+            }
+        }
+        if layout == StripLayout::TiledWithStrayStrip {
+            ifd.add_long(TAG_TILE_WIDTH, declared_width);
+            ifd.add_long(TAG_TILE_LENGTH, declared_height);
+            ifd.add_long(TAG_TILE_OFFSETS, strips_at);
+            ifd.add_long(TAG_TILE_BYTE_COUNTS, byte_count);
+        }
         if signed_samples {
             ifd.add_short(TAG_SAMPLE_FORMAT, SAMPLE_FORMAT_INT);
         }
         ifd.add_short(TAG_SAMPLES_PER_PIXEL, 3);
-        ifd.add_long(TAG_ROWS_PER_STRIP, declared_height);
-        ifd.add_long(TAG_STRIP_BYTE_COUNTS, preview_data.len() as u32);
+        let rows_per_strip = if layout == StripLayout::ZeroRowsPerStrip {
+            0
+        } else {
+            declared_height
+        };
+        ifd.add_long(TAG_ROWS_PER_STRIP, rows_per_strip);
         ifd
     };
     let serialised_len = |ifd: Ifd, at: u32| {

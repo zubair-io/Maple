@@ -316,6 +316,10 @@ pub fn resize_long_edge(img: image::DynamicImage, max_px: u32) -> image::Dynamic
 #[path = "preview_headers_first_tests.rs"]
 mod headers_first_tests;
 
+#[cfg(test)]
+#[path = "preview_dng_layout_tests.rs"]
+mod dng_layout_tests;
+
 #[cfg(all(test, not(target_arch = "wasm32")))]
 #[path = "preview_paged_tests.rs"]
 mod paged_tests;
