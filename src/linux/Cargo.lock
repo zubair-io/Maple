@@ -2868,6 +2868,7 @@ dependencies = [
  "libc",
  "raw-core",
  "raw-gpu",
+ "rawler",
  "reqwest",
  "rfd",
  "roxmltree",

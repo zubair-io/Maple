@@ -129,10 +129,7 @@ fn refresh_retains_transient_credentials_rotates_and_retries_bearer_once() {
     assert_eq!(client.credential.get_password().unwrap(), "refresh-2");
     assert_eq!(client.libraries().unwrap()[0].slug, "photos");
     assert_eq!(client.credential.get_password().unwrap(), "refresh-3");
-    assert!(matches!(
-        client.refresh_session(),
-        Err(CloudError::Http(401))
-    ));
+    assert!(matches!(client.restore(), Err(CloudError::Http(401))));
     assert!(matches!(
         client.credential.get_password(),
         Err(keyring::Error::NoEntry)
@@ -163,7 +160,7 @@ fn native_claim_checks_state_and_securely_persists_its_device_token() {
     assert!(client.claim(&pending, "").is_err());
     assert!(!client.claim(&pending, "browser-callback-code").unwrap());
     assert!(client.claim(&pending, "browser-callback-code").is_err());
-    assert!(client.access.is_none());
+    assert!(client.credentials.access().is_none());
     assert!(matches!(
         client.credential.get_password(),
         Err(keyring::Error::NoEntry)
@@ -176,4 +173,45 @@ fn native_claim_checks_state_and_securely_persists_its_device_token() {
         .all(|request| request.contains("expected-state")
             && request.contains(&pending.verifier)
             && request.contains("browser-callback-code")));
+}
+
+#[test]
+fn a_rotated_refresh_token_survives_a_keyring_that_refuses_the_write() {
+    keyring::set_default_credential_builder(keyring::mock::default_credential_builder());
+    let refreshed = |access: &str, refresh: &str| Reply {
+        path: "/api/auth/refresh",
+        status: 200,
+        body: format!(r#"{{"access_token":"{access}","refresh_token":"{refresh}"}}"#),
+    };
+    let expired = || Reply {
+        path: "/api/folders",
+        status: 401,
+        body: "{}".into(),
+    };
+    let (url, server) = server(vec![
+        refreshed("access-1", "refresh-2"),
+        expired(),
+        refreshed("access-2", "refresh-3"),
+        expired(),
+        refreshed("access-3", "refresh-4"),
+        Reply {
+            path: "/api/folders",
+            status: 200,
+            body: "[]".into(),
+        },
+    ]);
+    let mut client = CloudClient::new(url).unwrap();
+    client.credential.set_password("refresh-1").unwrap();
+    assert!(client.restore().unwrap());
+    client
+        .credential
+        .get_credential()
+        .downcast_ref::<keyring::mock::MockCredential>()
+        .unwrap()
+        .set_error(keyring::Error::NoStorageAccess("locked".into()));
+
+    assert!(matches!(client.libraries(), Err(CloudError::Credential(_))));
+    assert!(client.libraries().unwrap().is_empty());
+
+    assert!(server.join().unwrap()[4].contains("refresh-3"));
 }

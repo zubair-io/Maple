@@ -433,6 +433,7 @@ fn pending_cloud_handoff_exposes_recovery_without_a_new_save_failure() {
         is_video: false,
         is_audio: false,
         is_stub: false,
+        thumb_version: None,
     };
     app.cloud.ready = Some((photo, entry, true));
     pump(&mut app, |app| app.document.is_some());

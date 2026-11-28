@@ -1,5 +1,6 @@
 //! Linux client for Maple's existing native-auth and unified library APIs.
 mod auth;
+mod fetcher;
 mod journal;
 mod library;
 mod transfer;
@@ -8,16 +9,20 @@ mod resume;
 pub use resume::{resume_pending, Resumed};
 mod url;
 pub use auth::PendingSignIn;
+use fetcher::TileFetcher;
+mod tile_cache;
+mod tiles;
 pub use library::{CloudEntry, CloudFolder, CloudLibrary, CloudSidecar};
 pub use transfer::{DownloadedPhoto, RemoteXmp};
 pub use url::Server;
 
+use auth::Credentials;
 use reqwest::{
     blocking::{Client, Response},
     Method, StatusCode,
 };
 use serde::de::DeserializeOwned;
-use std::{io::Read, time::Duration};
+use std::{io::Read, sync::Arc, time::Duration};
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -39,14 +44,17 @@ pub enum CloudError {
 pub struct CloudClient {
     server: Server,
     http: Client,
-    credential: keyring::Entry,
-    access: Option<String>,
-    refresh: Option<String>,
+    #[cfg(test)]
+    credential: Arc<keyring::Entry>,
+    credentials: Arc<Credentials>,
 }
 
 impl CloudClient {
     pub fn new(server: Server) -> Result<Self, CloudError> {
-        let credential = keyring::Entry::new("app.justmaple.aperture.linux", server.as_str())?;
+        let credential = Arc::new(keyring::Entry::new(
+            "app.justmaple.aperture.linux",
+            server.as_str(),
+        )?);
         let http = Client::builder()
             .redirect(reqwest::redirect::Policy::none())
             .connect_timeout(Duration::from_secs(10))
@@ -56,9 +64,9 @@ impl CloudClient {
         Ok(Self {
             server,
             http,
+            credentials: Arc::new(Credentials::new(credential.clone())),
+            #[cfg(test)]
             credential,
-            access: None,
-            refresh: None,
         })
     }
 
@@ -90,28 +98,49 @@ impl CloudClient {
         body: Option<&str>,
         headers: &[(&str, String)],
     ) -> Result<Response, CloudError> {
-        for attempt in 0..2 {
-            let mut request = self.http.request(method.clone(), endpoint.clone());
-            if let Some(access) = &self.access {
-                request = request.bearer_auth(access);
-            }
-            if let Some(body) = body {
-                request = request
-                    .header("Content-Type", "application/xml")
-                    .body(body.to_owned());
-            }
-            for (key, value) in headers {
-                request = request.header(*key, value);
-            }
-            let response = request.send()?;
-            if response.status() == StatusCode::UNAUTHORIZED && attempt == 0 {
-                self.refresh_session()?;
-                continue;
-            }
-            return Ok(response);
-        }
-        Err(CloudError::Http(401))
+        send_authorized(
+            &self.http,
+            &self.server,
+            &self.credentials,
+            method,
+            endpoint,
+            body,
+            headers,
+        )
     }
+}
+
+fn send_authorized(
+    http: &Client,
+    server: &Server,
+    credentials: &Credentials,
+    method: Method,
+    endpoint: reqwest::Url,
+    body: Option<&str>,
+    headers: &[(&str, String)],
+) -> Result<Response, CloudError> {
+    for attempt in 0..2 {
+        let access = credentials.access();
+        let mut request = http.request(method.clone(), endpoint.clone());
+        if let Some(access) = &access {
+            request = request.bearer_auth(access);
+        }
+        if let Some(body) = body {
+            request = request
+                .header("Content-Type", "application/xml")
+                .body(body.to_owned());
+        }
+        for (key, value) in headers {
+            request = request.header(*key, value);
+        }
+        let response = request.send()?;
+        if response.status() == StatusCode::UNAUTHORIZED && attempt == 0 {
+            credentials.refresh(http, server, access.as_deref())?;
+            continue;
+        }
+        return Ok(response);
+    }
+    Err(CloudError::Http(401))
 }
 
 fn bytes(mut response: Response, limit: u64) -> Result<Vec<u8>, CloudError> {
@@ -142,3 +171,7 @@ mod folder_retry_tests;
 #[cfg(test)]
 #[path = "compression_tests.rs"]
 mod compression_tests;
+
+#[cfg(test)]
+#[path = "tile_tests.rs"]
+mod tile_tests;

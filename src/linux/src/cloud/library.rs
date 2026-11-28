@@ -28,6 +28,13 @@ pub struct CloudEntry {
     pub is_stub: bool,
     #[serde(rename = "isAudio", default)]
     pub is_audio: bool,
+    /// The server's name for this file's current thumbnail; absent while that thumbnail is stale or not yet made.
+    #[serde(
+        rename = "thumbVersion",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub thumb_version: Option<String>,
 }
 #[derive(Clone, Debug, Deserialize)]
 pub struct CloudSidecar {
@@ -100,20 +107,6 @@ impl CloudClient {
             mtime: metadata.mtime,
             ..entry.clone()
         })
-    }
-    pub fn derivative(&mut self, kind: &str, address: &str) -> Result<Vec<u8>, CloudError> {
-        if !["thumb", "preview"].contains(&kind) {
-            return Err(CloudError::Protocol("Invalid derivative kind".into()));
-        }
-        let endpoint = self.server.address(kind, address)?;
-        let response = self.request(Method::GET, endpoint, None, &[])?;
-        // 202 means indexing is still pending, not an image response.
-        if response.status().as_u16() == 202 {
-            return Err(CloudError::Protocol(
-                "Preview is still being indexed; retry shortly".into(),
-            ));
-        }
-        bytes(response, 16 * 1024 * 1024)
     }
     pub fn read_xmp(&mut self, path: &str) -> Result<Option<String>, CloudError> {
         let endpoint = self.server.xmp(path)?;

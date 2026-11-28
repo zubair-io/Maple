@@ -157,6 +157,20 @@ impl Session {
         model: &AdjustmentModel,
         long_edge: u32,
     ) -> Result<(egui::ColorImage, Option<AutoFitOutcome>), String> {
+        self.render_rgb(model, long_edge)
+            .map(|(w, h, rgb, auto_fit)| {
+                (
+                    egui::ColorImage::from_rgb([w as usize, h as usize], &rgb),
+                    auto_fit,
+                )
+            })
+    }
+
+    fn render_rgb(
+        &self,
+        model: &AdjustmentModel,
+        long_edge: u32,
+    ) -> Result<(u32, u32, Vec<u8>, Option<AutoFitOutcome>), String> {
         let (model, film) = crate::film::renderable(model)?;
         let model = model.as_ref();
         let result = if let Some(raw) = &self.raw {
@@ -190,14 +204,7 @@ impl Session {
                 ExportPixels::Sixteen(_) => unreachable!("requested eight bits"),
             })
         };
-        result
-            .map(|(w, h, rgb, auto_fit)| {
-                (
-                    egui::ColorImage::from_rgb([w as usize, h as usize], &rgb),
-                    auto_fit,
-                )
-            })
-            .map_err(|e| e.to_string())
+        result.map_err(|e| e.to_string())
     }
 }
 
@@ -509,51 +516,8 @@ impl Drop for Worker {
     }
 }
 
-/// A small bounded queue keeps grid discovery from accumulating full decodes.
-pub struct ThumbnailWorker {
-    sender: Option<mpsc::SyncSender<(u64, Photo)>>,
-    pub events: mpsc::Receiver<(u64, PathBuf, Result<egui::ColorImage, String>)>,
-    thread: Option<thread::JoinHandle<()>>,
-}
-
-impl ThumbnailWorker {
-    pub fn new(context: egui::Context) -> Self {
-        let (sender, commands) = mpsc::sync_channel::<(u64, Photo)>(2);
-        let (results, events) = mpsc::channel();
-        let thread = thread::spawn(move || {
-            for (generation, photo) in commands {
-                let path = photo.path.clone();
-                let image = Session::open(0, photo)
-                    .and_then(|(session, document)| session.render(&document.model, 256))
-                    .map(|(image, _)| image);
-                if results.send((generation, path, image)).is_err() {
-                    break;
-                }
-                context.request_repaint();
-            }
-        });
-        Self {
-            sender: Some(sender),
-            events,
-            thread: Some(thread),
-        }
-    }
-
-    pub fn request(&self, generation: u64, photo: Photo) -> bool {
-        self.sender
-            .as_ref()
-            .is_some_and(|sender| sender.try_send((generation, photo)).is_ok())
-    }
-}
-
-impl Drop for ThumbnailWorker {
-    fn drop(&mut self) {
-        self.sender.take();
-        if let Some(thread) = self.thread.take() {
-            let _ = thread.join();
-        }
-    }
-}
+mod thumbnails;
+pub use thumbnails::ThumbnailWorker;
 
 #[cfg(test)]
 #[path = "detail_isolation_tests.rs"]
