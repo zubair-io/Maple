@@ -40,6 +40,11 @@ async function fixture() {
         id,
       ]);
     },
+    connectionFenced: async (id) => {
+      await f.repo.db.write('UPDATE backup_destinations SET generation=generation+1 WHERE id=?', [
+        id,
+      ]);
+    },
     connectionRestored: async (id) => f.repo.clearResolvedConnectionErrors(id),
     attachRoot: async (id, root, account, generation) => {
       const result = await f.repo.db.write(

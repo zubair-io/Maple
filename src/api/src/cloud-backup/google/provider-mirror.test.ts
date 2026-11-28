@@ -1,4 +1,4 @@
-import { expect, test } from 'bun:test';
+import { expect, setSystemTime, test } from 'bun:test';
 import { createHash } from 'node:crypto';
 import { GoogleDriveProvider } from './provider.ts';
 import { googleStore } from './google-store.test-helpers.ts';
@@ -394,4 +394,43 @@ test('a candidate deleted between inspection and placement is ignored', async ()
   expect(restored.locator).not.toBe(mapped.locator);
   expect(store.files.get(restored.locator)!.name).toBe('photo.jpg');
   expect(metadataReads).toBe(3);
+});
+
+test('a shared provider still refuses to remove an object whose folder just left the root', async () => {
+  const store = googleStore();
+  const provider = new GoogleDriveProvider(root, async () => 'token', store.transport);
+  const key = `mirror/${'a'.repeat(24)}/2026/Paris/photo.jpg`;
+  const object = await provider.mirrorFile(
+    key,
+    '2026/Paris/photo.jpg',
+    source(new Uint8Array([1])),
+    {
+      saveCheckpoint: async () => {},
+    },
+  );
+  const parent = store.files.get(store.files.get(object.locator)!.parents[0]!)!;
+  parent.parents = ['outside-root'];
+
+  await expect(provider.remove(object)).rejects.toThrow();
+  expect(store.files.has(object.locator)).toBe(true);
+});
+
+test('a shared provider evicts folder checks once their reuse window has passed', async () => {
+  const store = googleStore();
+  const provider = new GoogleDriveProvider(root, async () => 'token', store.transport);
+  const caches = provider as unknown as {
+    folders: Map<string, unknown>;
+    managedFolders: Map<string, unknown>;
+  };
+  try {
+    for (let i = 0; i < 20; i++)
+      await provider.objectTarget(`mirror/${'a'.repeat(24)}/2026/day-${i}/photo.jpg`);
+    expect(caches.folders.size).toBe(21);
+    setSystemTime(new Date(Date.now() + 60_000));
+    await provider.objectTarget(`mirror/${'a'.repeat(24)}/2026/day-0/photo.jpg`);
+    expect(caches.folders.size).toBe(2);
+    expect(caches.managedFolders.size).toBeLessThanOrEqual(2);
+  } finally {
+    setSystemTime();
+  }
 });

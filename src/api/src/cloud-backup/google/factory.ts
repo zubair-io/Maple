@@ -3,6 +3,20 @@ import { GoogleDriveProvider } from './provider.ts';
 import { forgetGoogleAccessToken, googleAccessToken } from './oauth.ts';
 import { loadConnection } from './repo.ts';
 
+const shared = new Map<string, { key: string; provider: GoogleDriveProvider }>();
+
+/** Concurrent transfers to one destination share a provider, and with it the
+ * provider's short-lived root and folder validations, until the destination's
+ * generation or root changes. */
+export function sharedProviderForDestination(destination: BackupDestination): GoogleDriveProvider {
+  const key = `${destination.generation}:${destination.rootId}:${destination.accountId}`;
+  const current = shared.get(destination.id);
+  if (current?.key === key) return current.provider;
+  const provider = providerForDestination(destination);
+  shared.set(destination.id, { key, provider });
+  return provider;
+}
+
 /** Every authenticated request checks the captured destination generation;
  * pause/disconnect/reconfiguration cannot revive an already fenced transfer. */
 export function providerForDestination(destination: BackupDestination): GoogleDriveProvider {

@@ -37,6 +37,12 @@ function routes(
         [id],
       );
     },
+    connectionFenced: async (id) => {
+      await new BackupRepository().db.write(
+        'UPDATE backup_destinations SET generation=generation+1 WHERE id=?',
+        [id],
+      );
+    },
     connectionRestored,
     transport,
   });

@@ -124,6 +124,16 @@ export class BackupRepository {
     );
     return result.changes === 1;
   }
+  /** Marks every live entry for re-verification under a changed connection and releases its lease. */
+  async invalidateEntries(destinationId: string): Promise<void> {
+    await this.db.write(
+      `UPDATE backup_entries SET sequence=sequence+1,snapshot_hash=NULL,lease_owner=NULL,lease_until=0
+      WHERE destination_id=? AND state!='purged'`,
+      [destinationId],
+    );
+    const destination = await this.destination(destinationId);
+    if (destination) await this.rearmLibrary(destination.libraryId);
+  }
   async rearmLibrary(libraryId: string): Promise<void> {
     await this.db.write(
       `UPDATE stage_state SET version=0,attempts=0,dead=0,next_attempt_at=NULL

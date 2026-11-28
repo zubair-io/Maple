@@ -36,7 +36,10 @@ export interface GoogleRouteDependencies {
     generation: number;
   } | null>;
   attachRoot: (id: string, rootId: string, accountId: string, generation: number) => Promise<void>;
+  /** The OAuth client changed: fence in-flight transfers and re-verify every entry. */
   connectionChanged: (id: string) => Promise<void>;
+  /** Same client, credentials dropped or renewed: fence in-flight transfers only. */
+  connectionFenced: (id: string) => Promise<void>;
   connectionRestored: (id: string) => Promise<void>;
   transport?: GoogleFetch;
 }
@@ -237,7 +240,7 @@ export function buildGoogleBackupRoutes(deps: GoogleRouteDependencies) {
       async ({ params }) => {
         await requireDestination(params.destinationId);
         const current = await loadConnection(params.destinationId);
-        await deps.connectionChanged(params.destinationId);
+        await deps.connectionFenced(params.destinationId);
         if (
           !(await saveConfig(
             params.destinationId,
@@ -286,7 +289,7 @@ export function buildGoogleBackupRoutes(deps: GoogleRouteDependencies) {
           deps.transport,
           async (id, rootId) => {
             await requireDestination(id);
-            await deps.connectionChanged(id);
+            await deps.connectionFenced(id);
             await ensureRoot(id, rootId);
             await deps.connectionRestored(id);
           },
