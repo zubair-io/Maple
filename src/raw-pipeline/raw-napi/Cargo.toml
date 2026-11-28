@@ -82,6 +82,10 @@ raw-core = { path = "../raw-core", features = ["avif"] }
 # workspace default.
 image.workspace = true
 
+[dev-dependencies]
+# The synthetic DNG writer, for develop-preview tests that need no fixture.
+raw-core = { path = "../raw-core", features = ["test-support"] }
+
 [build-dependencies]
 # NOTE: the `2` line, not `3` — napi-build versions independently of `napi`
 # (`[package.metadata.workspaces] independent = true` in napi's manifest) and
