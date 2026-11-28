@@ -1249,6 +1249,176 @@
       }
     },
     {
+      "name": "conflict_copy_follows_the_photo_on_move",
+      "kind": "relocate",
+      "description": "#6134 conflict copies travel with their photo (docs/xmp-canonical-format.md \u00a7 Moving, renaming and trashing a photo). IMG_1.CR3 has its own sidecar and a conflict copy. Moving it carries both; neither is left in the source folder.",
+      "platforms": [
+        "api",
+        "apple"
+      ],
+      "requires": [],
+      "setup": {
+        "files": [
+          {
+            "path": "Source/IMG_1.CR3",
+            "content": "raw"
+          },
+          {
+            "path": "Source/IMG_1.xmp",
+            "content": "<own/>"
+          },
+          {
+            "path": "Source/IMG_1 (conflict from Mac).xmp",
+            "content": "<mac/>"
+          }
+        ]
+      },
+      "operation": {
+        "source": "Source/IMG_1.CR3",
+        "destDir": "Album",
+        "mode": "move",
+        "collision": "auto-suffix"
+      },
+      "expected": {
+        "outcome": "relocated",
+        "sidecarFollowed": true,
+        "renamedOnCollision": false,
+        "tree": [
+          {
+            "path": "Album/IMG_1.CR3",
+            "content": "raw"
+          },
+          {
+            "path": "Album/IMG_1.xmp",
+            "content": "<own/>"
+          },
+          {
+            "path": "Album/IMG_1 (conflict from Mac).xmp",
+            "content": "<mac/>"
+          }
+        ]
+      }
+    },
+    {
+      "name": "shared_conflict_copy_raw_jpeg_move_copies_not_moves",
+      "kind": "relocate",
+      "description": "#6134 conflict copies travel with their photo (docs/xmp-canonical-format.md \u00a7 Moving, renaming and trashing a photo). IMG_1.CR3 and IMG_1.JPG share IMG_1.xmp and a conflict copy. Moving only the CR3 copies both to the destination and leaves them at the source for the JPG that still uses them.",
+      "platforms": [
+        "api",
+        "apple"
+      ],
+      "requires": [],
+      "setup": {
+        "files": [
+          {
+            "path": "Source/IMG_1.CR3",
+            "content": "raw"
+          },
+          {
+            "path": "Source/IMG_1.JPG",
+            "content": "jpg"
+          },
+          {
+            "path": "Source/IMG_1.xmp",
+            "content": "<shared/>"
+          },
+          {
+            "path": "Source/IMG_1 (conflict from Mac).xmp",
+            "content": "<mac/>"
+          }
+        ]
+      },
+      "operation": {
+        "source": "Source/IMG_1.CR3",
+        "destDir": "Album",
+        "mode": "move",
+        "collision": "auto-suffix"
+      },
+      "expected": {
+        "outcome": "relocated",
+        "sidecarFollowed": true,
+        "renamedOnCollision": false,
+        "tree": [
+          {
+            "path": "Album/IMG_1.CR3",
+            "content": "raw"
+          },
+          {
+            "path": "Album/IMG_1.xmp",
+            "content": "<shared/>"
+          },
+          {
+            "path": "Album/IMG_1 (conflict from Mac).xmp",
+            "content": "<mac/>"
+          },
+          {
+            "path": "Source/IMG_1.JPG",
+            "content": "jpg"
+          },
+          {
+            "path": "Source/IMG_1.xmp",
+            "content": "<shared/>"
+          },
+          {
+            "path": "Source/IMG_1 (conflict from Mac).xmp",
+            "content": "<mac/>"
+          }
+        ]
+      }
+    },
+    {
+      "name": "conflict_copy_follows_the_photo_on_rename",
+      "kind": "relocate",
+      "description": "#6134 conflict copies travel with their photo (docs/xmp-canonical-format.md \u00a7 Moving, renaming and trashing a photo). Renaming IMG_1.CR3 renames its conflict copy to the new stem, as it does the sidecar.",
+      "platforms": [
+        "api",
+        "apple"
+      ],
+      "requires": [],
+      "setup": {
+        "files": [
+          {
+            "path": "IMG_1.CR3",
+            "content": "raw"
+          },
+          {
+            "path": "IMG_1.xmp",
+            "content": "<own/>"
+          },
+          {
+            "path": "IMG_1 (conflict from Mac).xmp",
+            "content": "<mac/>"
+          }
+        ]
+      },
+      "operation": {
+        "source": "IMG_1.CR3",
+        "destDir": "",
+        "destBasename": "IMG_2.CR3",
+        "mode": "move",
+        "collision": "fail"
+      },
+      "expected": {
+        "outcome": "relocated",
+        "sidecarFollowed": true,
+        "renamedOnCollision": false,
+        "tree": [
+          {
+            "path": "IMG_2.CR3",
+            "content": "raw"
+          },
+          {
+            "path": "IMG_2.xmp",
+            "content": "<own/>"
+          },
+          {
+            "path": "IMG_2 (conflict from Mac).xmp",
+            "content": "<mac/>"
+          }
+        ]
+      }
+    },
+    {
       "name": "rename_reconcile_size_alone_never_merges_two_different_photos",
       "kind": "rename-reconcile",
       "description": "Two photos sharing only a file size, with different capture dates, must never merge \u2014 size is necessary but never sufficient on its own (#2845's exact false-positive scenario).",

@@ -70,6 +70,14 @@ actor FakeSMBTransport: SMBFileTransport {
 
   func setFailCopiesInto(_ directory: String) { failCopiesInto = directory }
 
+  /// Every directory listing the engine asked for, so tests can pin the round trips an operation costs.
+  private(set) var listingCount = 0
+  private var failListingOf: String?
+  func setFailListing(of directory: String) { failListingOf = directory }
+
+  private var failAttributesOf: String?
+  func setFailAttributes(of path: String) { failAttributesOf = path }
+
   /// Simulates a backing-filesystem actor that replaces `item` with an
   /// unrelated file (new identity) the moment restore marks it restored.
   func setReplacementAtRestoreMark(_ item: String, contents: String) {
@@ -116,6 +124,7 @@ actor FakeSMBTransport: SMBFileTransport {
   // MARK: - SMBFileTransport
 
   func attributesOfItem(atPath path: String) async throws -> [URLResourceKey: any Sendable] {
+    if failAttributesOf == path { throw POSIXError(.EIO) }
     if let entry = lookup(path) {
       return [
         .fileSizeKey: NSNumber(value: entry.data.count), .contentModificationDateKey: entry.mtime,
@@ -140,6 +149,8 @@ actor FakeSMBTransport: SMBFileTransport {
   func contentsOfDirectory(atPath path: String, recursive: Bool) async throws -> [[URLResourceKey:
     Any]]
   {
+    listingCount += 1
+    if failListingOf == path { throw FakeSMBTransportError.injectedFailure(path) }
     let prefix = path.hasSuffix("/") ? path : path + "/"
     let fileEntries: [[URLResourceKey: Any]] = files.keys.filter { $0.hasPrefix(prefix) }.map {
       [.nameKey: ($0 as NSString).lastPathComponent, .pathKey: $0, .isDirectoryKey: false]

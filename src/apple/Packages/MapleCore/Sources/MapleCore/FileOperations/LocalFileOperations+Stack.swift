@@ -172,7 +172,7 @@ extension LocalFileOperations {
       return false
     }
     if FileManager.default.fileExists(atPath: target.path) { return true }
-    return try LocalWorkflowVariants.occupied(at: target, excluding: pair.companion)
+    return try LocalPairedEditCopies.occupied(at: target, excluding: pair.companion)
   }
 
   /// Verified copies of every regular file at `paths` a replace could displace, so a pair that

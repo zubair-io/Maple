@@ -17,7 +17,13 @@ enum SidecarOwnership {
   static func stem(of filename: String, foldsCase: Bool = true) -> String {
     let url = URL(fileURLWithPath: filename)
     let base = SidecarPath.isVideo(url) ? filename : url.deletingPathExtension().lastPathComponent
-    let normalized = base.precomposedStringWithCanonicalMapping
+    return comparisonKey(base, foldsCase: foldsCase)
+  }
+
+  /// NFC-normalised, and lowercased where the volume folds case: two names are the same file's
+  /// when their keys are equal, however the filesystem spelled the accents.
+  static func comparisonKey(_ name: String, foldsCase: Bool) -> String {
+    let normalized = name.precomposedStringWithCanonicalMapping
     return foldsCase ? normalized.lowercased() : normalized
   }
 
@@ -54,8 +60,9 @@ enum SidecarOwnership {
 
   /// True when no photo or video in `siblingNames` (the non-directory entries of
   /// the sidecar's folder) shares the sidecar's stem or is the stem a `.v…`
-  /// branch extends (workflow variants, foreign `.v2` copies): such a branch
-  /// stays with its photo, so only a sidecar nothing could own is an orphan.
+  /// branch or a `(conflict from …)` copy extends (workflow variants, foreign
+  /// `.v2` copies): such a file stays with its photo, so only a sidecar nothing could own is an
+  /// orphan.
   static func isOrphanedSidecar(
     _ sidecarName: String, siblingNames: [String], foldsCase: Bool = true
   ) -> Bool {
@@ -64,10 +71,11 @@ enum SidecarOwnership {
       guard isPhotoName(name) else { return false }
       let photoStem = stem(of: name, foldsCase: foldsCase)
       return sidecarStem == photoStem || sidecarStem.hasPrefix(photoStem + ".")
+        || ConflictCopyPairing.isConflictCopy(sidecarName, ofStem: photoStem, foldsCase: foldsCase)
     }
   }
 
-  private static func isPhotoName(_ name: String) -> Bool {
+  static func isPhotoName(_ name: String) -> Bool {
     !name.hasPrefix(".") && !isStagingName(name)
       && SupportedImageExtensions.all.contains((name as NSString).pathExtension.lowercased())
   }
@@ -87,22 +95,35 @@ enum SidecarOwnership {
       foldsCase: localVolumeFoldsCase(directory))
   }
 
-  /// The SMB transport reports no per-share case sensitivity, so stems fold
-  /// case here — the over-inclusive side, matching SMB's usual semantics.
+  /// The non-directory names directly inside `primaryPath`'s folder. The SMB
+  /// transport reports no per-share case sensitivity, so callers fold case here
+  /// — the over-inclusive side, matching SMB's usual semantics.
+  static func smbSiblingNames(of primaryPath: String, transport: SMBFileTransport) async throws
+    -> [String]
+  {
+    try await smbFileNames(
+      inDirectory: (primaryPath as NSString).deletingLastPathComponent, transport: transport)
+  }
+
+  static func smbFileNames(inDirectory dir: String, transport: SMBFileTransport) async throws
+    -> [String]
+  {
+    let prefix = dir.hasSuffix("/") ? dir : dir + "/"
+    return try await transport.contentsOfDirectory(atPath: dir, recursive: false)
+      .compactMap { attrs -> String? in
+        guard (attrs[.isDirectoryKey] as? Bool) != true, let name = attrs[.nameKey] as? String
+        else { return nil }
+        let path = (attrs[.pathKey] as? String) ?? prefix + name
+        let relative = path.hasPrefix(prefix) ? String(path.dropFirst(prefix.count)) : name
+        return relative.contains("/") ? nil : name
+      }
+  }
+
   static func smbStemClaimedBySibling(
     _ primaryPath: String, excluding: [String] = [], transport: SMBFileTransport
   ) async -> Bool {
-    let dir = (primaryPath as NSString).deletingLastPathComponent
-    let prefix = dir.hasSuffix("/") ? dir : dir + "/"
-    guard let entries = try? await transport.contentsOfDirectory(atPath: dir, recursive: false)
+    guard let names = try? await smbSiblingNames(of: primaryPath, transport: transport)
     else { return true }
-    let names = entries.compactMap { attrs -> String? in
-      guard (attrs[.isDirectoryKey] as? Bool) != true, let name = attrs[.nameKey] as? String
-      else { return nil }
-      let path = (attrs[.pathKey] as? String) ?? prefix + name
-      let relative = path.hasPrefix(prefix) ? String(path.dropFirst(prefix.count)) : name
-      return relative.contains("/") ? nil : name
-    }
     return stemClaimedBySibling(primaryPath: primaryPath, siblingNames: names, excluding: excluding)
   }
 

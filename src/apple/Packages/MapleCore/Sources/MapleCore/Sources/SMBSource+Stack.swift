@@ -200,9 +200,12 @@ extension SMBSource {
     let stem = pair.requestedStem
     let primaryTarget = pair.primaryTarget(stem: stem)
     let companionTarget = pair.companionTarget(stem: stem)
+    let folders = try await SMBFolderScan.load(
+      sourcePrimaryPath: pair.primary, destinationDirectory: pair.destination,
+      transport: transport)
     switch collision {
     case .fail:
-      if await primaryOccupied(pair, at: primaryTarget, transport: transport) {
+      if await primaryOccupied(pair, at: primaryTarget, folders: folders, transport: transport) {
         throw FileOperationError.destinationExists(primaryTarget)
       }
       if !companionReplaces,
@@ -220,7 +223,8 @@ extension SMBSource {
       let free = try await CollisionResolver.pickFreePath(primaryTarget) { candidate in
         let candidateStem = ((lastComponent(candidate)) as NSString).deletingPathExtension
         if await primaryOccupied(
-          pair, at: pair.primaryTarget(stem: candidateStem), transport: transport)
+          pair, at: pair.primaryTarget(stem: candidateStem), folders: folders,
+          transport: transport)
         {
           return true
         }
@@ -235,14 +239,15 @@ extension SMBSource {
 
   /// The RAW's name is taken: the file itself, or a sidecar that is not its own.
   private static func primaryOccupied(
-    _ pair: SMBStackPair, at target: String, transport: SMBFileTransport
+    _ pair: SMBStackPair, at target: String, folders: SMBFolderScan, transport: SMBFileTransport
   ) async -> Bool {
     guard SMBFileOperations.classifySameFile(source: pair.primary, target: target) == .different
     else { return false }
     let ownSidecar = SMBFileOperations.sidecarPath(for: pair.primary)
     let hasOwnSidecar = await SMBFileOperations.exists(ownSidecar, transport: transport)
     return await SMBFileOperations.assetDestinationOccupied(
-      target, ownSidecar: hasOwnSidecar ? ownSidecar : nil, transport: transport)
+      target, ownSidecar: hasOwnSidecar ? ownSidecar : nil, folders: folders,
+      transport: transport)
   }
 
   /// The JPEG's name is taken by another file. The shared sidecar is the RAW's to resolve.
