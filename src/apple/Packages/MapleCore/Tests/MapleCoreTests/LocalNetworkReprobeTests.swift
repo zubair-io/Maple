@@ -106,13 +106,14 @@ final class LocalNetworkReprobeTests: XCTestCase {
     XCTAssertTrue(debounced)
     let callsBeforeQuiet = await rig.status.calls
     XCTAssertEqual(callsBeforeQuiet, 1)
+    let superseded = await rig.sleeps.waitForCancelled(2, of: debounce)
+    XCTAssertTrue(superseded)
     await rig.sleeps.release(debounce)
     let reprobed = await rig.status.waitForCalls(2)
     XCTAssertTrue(reprobed)
     await rig.status.release(call: 2, with: lan)
     let applied = await pollUntil { self.hasEffectiveURL(self.lan, in: rig) }
     XCTAssertTrue(applied)
-    await yieldABunch()
     let calls = await rig.status.calls
     XCTAssertEqual(calls, 2)
   }
@@ -189,7 +190,8 @@ final class LocalNetworkReprobeTests: XCTestCase {
     XCTAssertTrue(foregroundProbe)
 
     await rig.sleeps.release(debounce)
-    await yieldABunch()
+    let debounceRan = await pollUntil { !rig.resolver.reprobeDue }
+    XCTAssertTrue(debounceRan)
     await rig.status.release(call: 2, with: lan)
     let applied = await pollUntil { self.hasEffectiveURL(self.lan, in: rig) }
     XCTAssertTrue(applied, "the foreground probe was not cancelled by the debounced re-probe")
@@ -251,7 +253,8 @@ final class LocalNetworkReprobeTests: XCTestCase {
     await rig.sleeps.release(debounce)
     let remaining = await rig.status.waitForCalls(3)
     XCTAssertTrue(remaining)
-    await yieldABunch()
+    let pruned = await pollUntil { rig.resolver.status(for: identity) == nil }
+    XCTAssertTrue(pruned)
     let removedCalls = await rig.status.callCount(host: "public.example.com")
     let keptCalls = await rig.status.callCount(host: "other.example.com")
     XCTAssertEqual(removedCalls, 1)
@@ -264,7 +267,8 @@ final class LocalNetworkReprobeTests: XCTestCase {
     await settle(rig, resolving: identity, call: 1, to: identity)
     rig.paths.yield()
     rig.paths.yield()
-    await yieldABunch()
+    let markedDue = await pollUntil { rig.resolver.reprobeDue }
+    XCTAssertTrue(markedDue)
     let debounceStarts = await rig.sleeps.startedCount(debounce)
     let callsWhileInactive = await rig.status.calls
     XCTAssertEqual(debounceStarts, 0)
@@ -319,7 +323,8 @@ final class LocalNetworkReprobeTests: XCTestCase {
     await settle(rig, resolving: identity, call: 1, to: identity)
     rig.paths.yield()
     rig.paths.yield()
-    await yieldABunch()
+    let markedDue = await pollUntil { rig.resolver.reprobeDue }
+    XCTAssertTrue(markedDue)
     let debounceStarts = await rig.sleeps.startedCount(debounce)
     let calls = await rig.status.calls
     XCTAssertEqual(debounceStarts, 0)
@@ -395,6 +400,53 @@ final class LocalNetworkReprobeTests: XCTestCase {
     await rig.sleeps.release(debounce)
     let dropped = await pollUntil { rig.resolver.status(for: identity) == nil }
     XCTAssertTrue(dropped)
+    XCTAssertEqual(rig.resolver.effectiveURL(for: identity), identity)
+  }
+
+  private func pathChangeKeepsTheCachedRoute(_ rig: Rig) async {
+    rig.paths.yield()
+    let debounced = await rig.sleeps.waitForStarted(1, of: debounce)
+    XCTAssertTrue(debounced)
+    await rig.sleeps.release(debounce)
+    let reprobed = await rig.status.waitForCalls(2)
+    XCTAssertTrue(reprobed)
+    XCTAssertEqual(rig.resolver.effectiveURL(for: identity), lan)
+    XCTAssertEqual(
+      rig.resolver.status(for: identity),
+      LocalNetworkStatus(localURL: lan, isConnectedLocally: true))
+    await rig.status.releaseEverything(with: lan)
+  }
+
+  func test_aRegistryEntryThatDiffersOnlyInCaseAndTrailingSlashKeepsItsRoute() async {
+    let variant = URL(string: "HTTP://Public.Example.com/")!
+    let registered = LockedValue([identity])
+    let rig = makeRig(registered: registered)
+    await settle(rig, resolving: identity, call: 1, to: lan)
+    registered.value = [variant]
+
+    await pathChangeKeepsTheCachedRoute(rig)
+  }
+
+  func test_anIdentityThatWasNeverRegisteredKeepsItsRouteAcrossAPathChange() async {
+    let rig = makeRig(registered: LockedValue([]))
+    await settle(rig, resolving: identity, call: 1, to: lan)
+
+    await pathChangeKeepsTheCachedRoute(rig)
+  }
+
+  func test_anIdentityRegisteredUnderAVariantIsPrunedOnceItLeavesTheRegistry() async {
+    let variant = URL(string: "http://PUBLIC.example.com/")!
+    let registered = LockedValue([variant])
+    let rig = makeRig(registered: registered)
+    await settle(rig, resolving: identity, call: 1, to: lan)
+
+    registered.value = []
+    rig.paths.yield()
+    let debounced = await rig.sleeps.waitForStarted(1, of: debounce)
+    XCTAssertTrue(debounced)
+    await rig.sleeps.release(debounce)
+    let pruned = await pollUntil { rig.resolver.status(for: identity) == nil }
+    XCTAssertTrue(pruned)
     XCTAssertEqual(rig.resolver.effectiveURL(for: identity), identity)
   }
 }

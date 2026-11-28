@@ -9,7 +9,16 @@ import Foundation
 // Notification-only because this package is also linked by app extensions,
 // which have no shared application object.
 enum AppActivity {
-  static var initiallyActive: Bool { !isExtension(bundlePath: Bundle.main.bundlePath) }
+  static var initiallyActive: Bool {
+    guard !isExtension(bundlePath: Bundle.main.bundlePath) else { return false }
+    #if canImport(UIKit) && !os(watchOS) && !os(macOS)
+      // A background launch (a backup task) has no activation notification until the user opens the app.
+      return Thread.isMainThread
+        ? MainActor.assumeIsolated { UIApplication.shared.applicationState == .active } : true
+    #else
+      return true
+    #endif
+  }
 
   static func isExtension(bundlePath: String) -> Bool {
     bundlePath.hasSuffix(".appex")
