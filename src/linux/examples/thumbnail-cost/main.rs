@@ -1,4 +1,5 @@
-//! Times a local grid thumbnail through `ThumbnailWorker` on N threads, and the embedded-preview alternative, to inform owner decisions 13 and 21; changes nothing in the app.
+//! Times the app's grid thumbnail path (`ThumbnailWorker`) on N threads, cold, and the embedded-preview extraction alone, to inform owner decisions 13 and 21.
+//! It works on temporary copies of its inputs and removes the `.maple/thumbs` entries it publishes before every round, so the originals are never touched and the rounds are comparable.
 //!
 //! Usage: thumbnail-cost write-dng <path> | thumbnail-cost [--workers N] [raw ...]
 //! With no RAW it measures a generated 24 MP uncompressed RGGB DNG (four copies).
@@ -86,14 +87,18 @@ fn synthetic(folder: &Path) -> Result<Vec<Fixture>, String> {
         .collect()
 }
 
-fn round(label: &str, workers: usize, fixtures: &[Fixture]) {
+fn round(label: &str, workers: usize, folder: &Path, fixtures: &[Fixture]) -> Result<(), String> {
+    match std::fs::remove_dir_all(folder.join(".maple")) {
+        Err(error) if error.kind() != std::io::ErrorKind::NotFound => return Err(error.to_string()),
+        _ => {}
+    }
     let queue: Mutex<VecDeque<usize>> = Mutex::new((0..fixtures.len()).collect());
     let timings: Mutex<Vec<(usize, f64, bool)>> = Mutex::new(Vec::new());
     let started = Instant::now();
     std::thread::scope(|scope| {
         for _ in 0..workers {
             scope.spawn(|| {
-                let worker = ThumbnailWorker::new(Default::default());
+                let worker = ThumbnailWorker::with_workers(Default::default(), 1);
                 loop {
                     let Some(index) = locked(&queue).pop_front() else {
                         break;
@@ -124,6 +129,7 @@ fn round(label: &str, workers: usize, fixtures: &[Fixture]) {
         "thumb-cost workers={workers} round={label} photos={} wall_ms={total:.2}",
         fixtures.len()
     );
+    Ok(())
 }
 
 fn embedded(fixtures: &[Fixture]) {
@@ -198,8 +204,8 @@ fn main() -> Result<(), String> {
             })
             .collect::<Result<Vec<_>, _>>()?
     };
-    round("first", workers, &fixtures);
-    round("repeat", workers, &fixtures);
+    round("first", workers, folder.path(), &fixtures)?;
+    round("repeat", workers, folder.path(), &fixtures)?;
     embedded(&fixtures);
     Ok(())
 }

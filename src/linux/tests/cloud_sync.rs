@@ -94,6 +94,7 @@ fn entry() -> CloudEntry {
         is_video: false,
         is_audio: false,
         is_stub: false,
+        thumb_version: None,
     }
 }
 

@@ -1,5 +1,9 @@
 //! Serialized authenticated requests; control messages precede thumbnail work.
-use super::{CloudClient, CloudEntry, CloudFolder, CloudLibrary, PendingSignIn, Server};
+use super::{
+    tile_cache::TileCache,
+    tiles::{TileJob, TilePool},
+    CloudClient, CloudEntry, CloudFolder, CloudLibrary, PendingSignIn, Server,
+};
 use eframe::egui;
 use std::{
     sync::{
@@ -45,16 +49,21 @@ pub enum Event {
 }
 pub struct Worker {
     control: mpsc::Sender<Command>,
-    media: mpsc::SyncSender<(u64, CloudEntry, bool)>,
+    tiles: Arc<TilePool>,
     pub events: mpsc::Receiver<Event>,
     stop: Arc<AtomicBool>,
     thread: Option<thread::JoinHandle<()>>,
 }
 impl Worker {
     pub fn new(context: egui::Context) -> Self {
+        Self::with_tile_cache(context, TileCache::in_user_cache())
+    }
+
+    pub(super) fn with_tile_cache(context: egui::Context, cache: Option<TileCache>) -> Self {
         let (control, commands) = mpsc::channel();
-        let (media, images) = mpsc::sync_channel::<(u64, CloudEntry, bool)>(2);
         let (sender, events) = mpsc::channel();
+        let tiles = Arc::new(TilePool::new(context.clone(), sender.clone(), cache));
+        let pool = tiles.clone();
         let stop = Arc::new(AtomicBool::new(false));
         let stopped = stop.clone();
         let thread = thread::spawn(move || {
@@ -62,14 +71,8 @@ impl Worker {
             let mut journal: Option<super::EditJournal> = None;
             let mut pending: Option<PendingSignIn> = None;
             let mut resume_due = false;
-            let mut media_pending = false;
             while !stopped.load(Ordering::Acquire) {
-                let idle_wait = if media_pending {
-                    std::time::Duration::ZERO
-                } else {
-                    std::time::Duration::from_millis(30)
-                };
-                let command = match commands.recv_timeout(idle_wait) {
+                let command = match commands.recv_timeout(std::time::Duration::from_millis(30)) {
                     Ok(command) => Some(command),
                     Err(mpsc::RecvTimeoutError::Timeout) => None,
                     Err(mpsc::RecvTimeoutError::Disconnected) => break,
@@ -164,7 +167,10 @@ impl Worker {
                             Command::Connect(url) => {
                                 journal = None;
                                 pending = None;
-                                client = None;
+                                if let Some(previous) = client.take() {
+                                    previous.retire();
+                                }
+                                pool.connect(None);
                                 let mut connection = CloudClient::new(
                                     Server::parse(&url).map_err(|e| e.to_string())?,
                                 )
@@ -186,6 +192,7 @@ impl Worker {
                                     pending = Some(ceremony);
                                     Event::SignIn(url)
                                 };
+                                pool.connect(Some(connection.tile_fetcher()));
                                 client = Some(connection);
                                 return Ok(Some(event));
                             }
@@ -223,6 +230,7 @@ impl Worker {
                                 client = None;
                                 journal = None;
                                 pending = None;
+                                pool.connect(None);
                                 return Ok(Some(Event::Disconnected));
                             }
                         }
@@ -234,33 +242,6 @@ impl Worker {
                         return Ok(Some(Event::Resumed(
                             resumed.synchronized,
                             resumed.unsynchronized,
-                        )));
-                    }
-                    let queued = images.try_recv().ok();
-                    media_pending = queued.is_some();
-                    if let Some((epoch, entry, preview)) = queued {
-                        let image = client
-                            .as_mut()
-                            .ok_or_else(|| "Cloud session is disconnected".to_owned())
-                            .and_then(|connection| {
-                                let bytes = connection
-                                    .derivative(
-                                        if preview { "preview" } else { "thumb" },
-                                        &entry.address,
-                                    )
-                                    .map_err(|e| e.to_string())?;
-                                let image = raw_core::raster::decode_raster(&bytes, Some("avif"))
-                                    .map_err(|e| e.to_string())?;
-                                Ok(egui::ColorImage::from_rgb(
-                                    [image.width as usize, image.height as usize],
-                                    &image.to_rgb_bytes(),
-                                ))
-                            });
-                        return Ok(Some(Event::Derivative(
-                            epoch,
-                            entry.address,
-                            preview,
-                            image,
                         )));
                     }
                     Ok(None)
@@ -278,7 +259,7 @@ impl Worker {
         });
         Self {
             control,
-            media,
+            tiles,
             events,
             stop,
             thread: Some(thread),
@@ -288,7 +269,11 @@ impl Worker {
         let _ = self.control.send(command);
     }
     pub fn image(&self, epoch: u64, entry: CloudEntry, preview: bool) -> bool {
-        self.media.try_send((epoch, entry, preview)).is_ok()
+        self.tiles.offer(TileJob {
+            epoch,
+            entry,
+            preview,
+        })
     }
 }
 impl Drop for Worker {

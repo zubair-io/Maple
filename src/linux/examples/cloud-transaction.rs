@@ -60,6 +60,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         is_video: false,
         is_audio: false,
         is_stub: false,
+        thumb_version: None,
     };
     let mut downloaded = client.download_for_edit(&entry)?;
     assert_eq!(std::fs::read(&downloaded.path)?, raw);

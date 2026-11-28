@@ -303,9 +303,18 @@ kernels remain uninterruptible, so this does not establish cancellation latency.
 Source identity invalidates its anchors even if a numeric session ID is reused.
 Internal kernel cancellation, CPU contention/memory and physical-hardware
 performance remain to be qualified.
-A separate thumbnail worker has a two-request queue and a 128-entry session
-texture cache; current-session XMP saves and folder reloads invalidate it.
-The active preview is capped at 1600px, thumbnails at 256px. Slider ticks retain
+Two thumbnail workers pull from one two-request queue (twice the memory while
+rendering; about a fifth less wall time for four 24 MP photos on two cores) and a
+128-entry session texture cache; current-session XMP saves and folder reloads
+invalidate it. A tile is read from the shared `<folder>/.maple/thumbs/<name>.avif`
+(512 px, AVIF quality 55) when that file is at least as new as the original and its
+sidecar; otherwise it is cut from the camera's embedded preview when the RAW is unedited
+(no sidecar, or one with only metadata such as a rating), or developed when it is
+edited or the file has no readable preview, and published there atomically for the next visit
+and for the other apps, and a folder that cannot be written to just shows the tile.
+Linux therefore writes a `.maple/thumbs` folder into each photo folder the first time it is
+opened, and edited photos now develop their tile at 512 px rather than 256.
+The active preview is capped at 1600px, grid tiles at 256px. Slider ticks retain
 Auto-profile curve/LUT/noise buffers and a cached source-byte AE decision; RAW-byte
 probes and Auto fitting run at preparation rather than every hot edit. Eight scene/display
 curve and local/mask buffers retain storage across unchanged-size edits. Prefix
@@ -445,6 +454,13 @@ after a 401. Transient refresh errors retain the credential; only origin 400/401
 rejection deletes it. Cloud browsing uses unified address routes, 500-entry
 cursor pages, a bounded media queue and a session thumbnail cache of 128 entries,
 or the tiles on screen when there are more; a tile on screen is never evicted.
+Eight thumbnail or preview fetches run at once, each decoded where it was fetched;
+a result older than the newest folder visit is dropped. A thumbnail request carries
+the listing's `thumbVersion` as `?v=`, and the 512 px tile is kept under
+`$XDG_CACHE_HOME/maple/cloud-tiles` (256 MiB, least recently used evicted down to
+90%): file names come from the server and the photo's address, the token is stored
+in a small index file beside the bytes, and a tile whose stored token equals the
+listing's is used with no request. A listing without a token always asks the server.
 AVIF derivatives decode through raw-core's patched native decoder. Full-image
 previews, retry, parent/child navigation and explicit credential deletion are
 wired. “Edit original” downloads a photograph into the native editor, with the same
@@ -540,7 +556,9 @@ cargo test --locked --manifest-path src/linux/Cargo.toml --lib -- --ignored --no
   start-up work that precede the window. `total_ms` is shorter than the sum in
   `overlapped` mode.
 - `thumb-cost workers=N round=first|repeat fixture=F mp=… ms=…` is one grid
-  thumbnail (open the RAW, then a 256 px render) from request to result; a
+  thumbnail (open the RAW, then a 512 px render published to the shared thumbnail
+  folder) from request to result, on temporary copies of the inputs with the
+  published files removed before every round; a
   `photos=… wall_ms=…` line is the whole round. With two workers the per-photo
   times overlap, so compare `wall_ms`. `round=first` is the first render in the
   process, `repeat` the second.

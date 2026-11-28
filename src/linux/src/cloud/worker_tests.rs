@@ -78,6 +78,7 @@ fn entry(index: usize) -> CloudEntry {
         is_video: false,
         is_stub: false,
         is_audio: false,
+        thumb_version: None,
     }
 }
 
@@ -109,7 +110,11 @@ fn queued_thumbnails_are_not_delayed_by_the_command_poll() {
     keyring::set_default_credential_builder(keyring::mock::default_credential_builder());
     let stop = Arc::new(AtomicBool::new(false));
     let (origin, server) = serve(stop.clone());
-    let worker = Worker::new(eframe::egui::Context::default());
+    let cache = tempfile::tempdir().unwrap();
+    let worker = Worker::with_tile_cache(
+        eframe::egui::Context::default(),
+        Some(TileCache::new(cache.path().to_owned(), 1 << 20)),
+    );
     worker.send(Command::Connect(origin));
     loop {
         match worker.events.recv_timeout(Duration::from_secs(10)).unwrap() {
@@ -128,6 +133,7 @@ fn queued_thumbnails_are_not_delayed_by_the_command_poll() {
     stop.store(true, Ordering::Release);
     drop(worker);
     server.join().unwrap();
+    assert_eq!(std::fs::read_dir(cache.path()).unwrap().count(), 0);
     assert!(
         fastest < Duration::from_millis(1000),
         "40 queued thumbnails took {fastest:?} at best; each one waited out the 30 ms command poll"

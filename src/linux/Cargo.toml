@@ -10,6 +10,7 @@ publish = false
 [dependencies]
 raw-gpu = { path = "../raw-pipeline/raw-gpu" }
 raw-core = { path = "../raw-pipeline/raw-core", features = ["avif", "gpu"] }
+rawler = "0.7"
 eframe = { version = "=0.30.0", default-features = false, features = ["wgpu", "wayland", "x11", "accesskit", "default_fonts"] }
 rfd = "0.15"
 roxmltree = "0.20"
