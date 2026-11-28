@@ -4,9 +4,7 @@
  * `ffi_workers` and `decode_memory_budget_percent` (#5467).
  *
  * Precedence (resolveFfiPoolConfig): DB row > env var (`MAPLE_FFI_WORKERS`) >
- * built-in default (1). Default 1 keeps the change pure opt-in: an upgraded
- * deploy with no saved row and no env var behaves exactly as before (one
- * in-flight native RAW decode, everything else queues).
+ * built-in default (2, or 1 when the decode memory budget is 0).
  *
  * The value is hard-clamped to [MIN_FFI_WORKERS, MAX_FFI_WORKERS] at resolve
  * time so a hand-edited DB row or env var can never spawn an unbounded number
@@ -21,10 +19,13 @@ import {
 
 const DOC_ID = 'performance';
 
-/** Built-in default when neither a DB row nor the env var is set. One worker
- * = the historical single-decode-at-a-time behaviour (zero behaviour change
- * on upgrade). */
-export const DEFAULT_FFI_WORKERS = 1;
+/** Built-in default when neither a DB row nor the env var is set. Two cut the
+ * median cold-folder thumbnail wait from 1.4 s to 0.85 s on unedited RAWs and
+ * from 21–25 s to 17 s on edited ones, where two develops at once raised peak
+ * memory by 1.5–2.8 GB (#6195). The decode memory budget is what bounds that,
+ * so with a budget of 0 (no cap) the default is `UNCAPPED_DEFAULT_FFI_WORKERS`. */
+export const DEFAULT_FFI_WORKERS = 2;
+export const UNCAPPED_DEFAULT_FFI_WORKERS = 1;
 
 /** Hard clamp. One native decode at minimum; 16 is a generous ceiling that
  * still bounds dylib loads + per-worker memory on tight Self Hosted boxes. */
@@ -124,34 +125,37 @@ export function resolveFfiPoolConfig(
   db: PerformanceConfig | null,
   env: NodeJS.ProcessEnv = process.env,
 ): ResolvedPerformanceConfig {
-  let workers = DEFAULT_FFI_WORKERS;
-  let source: ResolvedPerformanceConfig['source']['ffi_workers'] = 'default';
-
-  if (db && typeof db.ffi_workers === 'number') {
-    const clamped = clampFfiWorkers(db.ffi_workers);
-    if (clamped !== null) {
-      workers = clamped;
-      source = 'db';
-    }
-  } else if (env.MAPLE_FFI_WORKERS !== undefined && env.MAPLE_FFI_WORKERS.length > 0) {
-    const clamped = clampFfiWorkers(Number(env.MAPLE_FFI_WORKERS));
-    if (clamped !== null) {
-      workers = clamped;
-      source = 'env';
-    }
-  }
-
   const savedPercent =
     typeof db?.decode_memory_budget_percent === 'number'
       ? clampDecodeMemoryBudgetPercent(db.decode_memory_budget_percent)
       : null;
+  const budgetPercent = savedPercent ?? DEFAULT_DECODE_MEMORY_BUDGET_PERCENT;
+  const workers = resolveWorkers(db, env, budgetPercent);
 
   return {
-    ffi_workers: workers,
-    decode_memory_budget_percent: savedPercent ?? DEFAULT_DECODE_MEMORY_BUDGET_PERCENT,
+    ffi_workers: workers.value,
+    decode_memory_budget_percent: budgetPercent,
     source: {
-      ffi_workers: source,
+      ffi_workers: workers.source,
       decode_memory_budget_percent: savedPercent === null ? 'default' : 'db',
     },
+  };
+}
+
+function resolveWorkers(
+  db: PerformanceConfig | null,
+  env: NodeJS.ProcessEnv,
+  budgetPercent: number,
+): { value: number; source: ResolvedPerformanceConfig['source']['ffi_workers'] } {
+  const saved = typeof db?.ffi_workers === 'number' ? clampFfiWorkers(db.ffi_workers) : null;
+  if (saved !== null) return { value: saved, source: 'db' };
+  const fromEnv =
+    typeof db?.ffi_workers !== 'number' && env.MAPLE_FFI_WORKERS
+      ? clampFfiWorkers(Number(env.MAPLE_FFI_WORKERS))
+      : null;
+  if (fromEnv !== null) return { value: fromEnv, source: 'env' };
+  return {
+    value: budgetPercent === 0 ? UNCAPPED_DEFAULT_FFI_WORKERS : DEFAULT_FFI_WORKERS,
+    source: 'default',
   };
 }

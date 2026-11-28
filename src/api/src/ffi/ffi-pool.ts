@@ -18,8 +18,7 @@
 // Why a pool (not one): with one child the whole pipeline serializes RAW
 // thumb/preview behind a single decode; a pool of N lets N decodes run on N
 // cores at once. The size is operator-tunable and DB-persisted (see
-// `ffi-pool-config.repo.ts`) — default 1 keeps the historical single-decode
-// behaviour, pure opt-in.
+// `ffi-pool-config.repo.ts`); the default is 2.
 //
 // Why TWO lanes (not one pool): since #3499 the cheap bitmap ops
 // (`renderBitmap`, `validateAvif`) share the same queue as multi-second RAW

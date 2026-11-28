@@ -86,9 +86,9 @@ async function decodePoolAfterBoot(
   }
 }
 
-test('with nothing saved the request-serving process boots with one decode worker', async () => {
+test('with nothing saved the request-serving process boots with two decode workers', async () => {
   const report = await decodePoolAfterBoot(null);
-  expect(report).toMatchObject({ ffi_workers: 1, source: 'default', pool: { target: 1 } });
+  expect(report).toMatchObject({ ffi_workers: 2, source: 'default', pool: { target: 2 } });
 }, 40_000);
 
 test('the request-serving process sizes its decode pool from the saved setting at boot', async () => {

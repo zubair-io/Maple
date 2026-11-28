@@ -85,7 +85,7 @@ describe('applyRequestProcessConfig (request-serving process, #6101)', () => {
 
     await applyRequestProcessConfig();
     const container = readContainerMemory().limitBytes;
-    expect(ffiPool().poolSize()).toBe(1);
+    expect(ffiPool().poolSize()).toBe(2);
     expect(decodeMemoryBudget().snapshot().limitBytes).toBe(
       budgetBytesForPercent(50, container, REQUEST_PROCESS_BUDGET_SHARE),
     );
