@@ -8,19 +8,28 @@ final class CloudOriginalHTTPFixture: @unchecked Sendable {
   private let queue = DispatchQueue(label: "maple.cloud-original-test")
   private let lock = NSLock()
   private var observed: [String] = []
+  private var clientLeft = false
+  private let holdsTail: Bool
   let original = Data((0..<262_144).map { UInt8($0 % 251) })
 
   var url: URL { URL(string: "http://127.0.0.1:\(listener.port!.rawValue)/maple/")! }
   var requests: [String] { lock.withLock { observed } }
+  var clientLeftBeforeTail: Bool { lock.withLock { clientLeft } }
 
-  private init() throws {
+  private func recordClientLeft() { lock.withLock { clientLeft = true } }
+
+  private init(holdingTailUntilClientLeaves: Bool) throws {
+    holdsTail = holdingTailUntilClientLeaves
     let parameters = NWParameters.tcp
     parameters.requiredLocalEndpoint = .hostPort(host: "127.0.0.1", port: .any)
     listener = try NWListener(using: parameters)
   }
 
-  static func start() async throws -> CloudOriginalHTTPFixture {
-    let fixture = try CloudOriginalHTTPFixture()
+  static func start(holdingTailUntilClientLeaves: Bool = false) async throws
+    -> CloudOriginalHTTPFixture
+  {
+    let fixture = try CloudOriginalHTTPFixture(
+      holdingTailUntilClientLeaves: holdingTailUntilClientLeaves)
     fixture.listener.newConnectionHandler = { [fixture] connection in
       let request = Request(connection: connection, fixture: fixture)
       connection.start(queue: fixture.queue)
@@ -81,6 +90,36 @@ final class CloudOriginalHTTPFixture: @unchecked Sendable {
       self.connection = connection
       self.fixture = fixture
     }
+    private var tailReleased = false
+
+    // A held tail ends the transfer early only if the client leaves; the
+    // deadline releases it for a client that never does, so that case fails
+    // by finishing rather than hanging.
+    private func sendTail(_ tail: Data) {
+      if fixture.holdsTail { watchForClientLeaving() }
+      let delay: DispatchTimeInterval = fixture.holdsTail ? .seconds(5) : .milliseconds(200)
+      fixture.queue.asyncAfter(deadline: .now() + delay) { [self] in
+        guard !fixture.clientLeftBeforeTail else { return }
+        tailReleased = true
+        connection.send(
+          content: tail,
+          completion: .contentProcessed { [connection] _ in connection.cancel() })
+      }
+    }
+
+    private func watchForClientLeaving() {
+      connection.receive(minimumIncompleteLength: 1, maximumLength: 1) {
+        [self] _, _, complete, error in
+        guard !tailReleased else { return }
+        guard complete || error != nil else {
+          watchForClientLeaving()
+          return
+        }
+        fixture.recordClientLeft()
+        connection.cancel()
+      }
+    }
+
     func receive() {
       connection.receive(minimumIncompleteLength: 1, maximumLength: 16_384) {
         [self] data, _, complete, error in
@@ -101,11 +140,7 @@ final class CloudOriginalHTTPFixture: @unchecked Sendable {
                   connection.cancel()
                   return
                 }
-                fixture.queue.asyncAfter(deadline: .now() + .milliseconds(200)) { [connection] in
-                  connection.send(
-                    content: response.dropFirst(65_536),
-                    completion: .contentProcessed { _ in connection.cancel() })
-                }
+                sendTail(response.dropFirst(65_536))
               })
           } else {
             connection.send(

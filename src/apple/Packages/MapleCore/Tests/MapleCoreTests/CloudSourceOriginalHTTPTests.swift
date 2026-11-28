@@ -49,7 +49,7 @@ final class CloudSourceOriginalHTTPTests: XCTestCase {
   }
 
   func testCancellationTerminatesAnInFlightProgressDownload() async throws {
-    let fixture = try await CloudOriginalHTTPFixture.start()
+    let fixture = try await CloudOriginalHTTPFixture.start(holdingTailUntilClientLeaves: true)
     defer { fixture.stop() }
     let client = AuthenticatedHTTPClient(
       server: fixture.url,
@@ -74,6 +74,11 @@ final class CloudSourceOriginalHTTPTests: XCTestCase {
       _ = try await transfer.value
       XCTFail("cancelled download must fail")
     } catch { XCTAssertTrue(error is CancellationError) }
+    for _ in 0..<200 {
+      if fixture.clientLeftBeforeTail { break }
+      try await Task.sleep(for: .milliseconds(10))
+    }
+    XCTAssertTrue(fixture.clientLeftBeforeTail, "cancelling must close the connection")
   }
 
   func testFilePromiseStreamsAuthenticatedOriginalToDiskWithoutOverwriting() async throws {

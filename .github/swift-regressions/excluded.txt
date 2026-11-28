@@ -104,7 +104,6 @@ MapleCoreTests fixture needs the gitignored RAW fixtures (skip-passes without th
 MapleExporterTests fixture needs the gitignored RAW fixtures (skip-passes without them; the gate rejects skips)
 MapleIdCacheTests slow render or decode workload that costs minutes on the runner
 MapleLayoutTests fixture needs the gitignored RAW fixtures (skip-passes without them; the gate rejects skips)
-MapleSidecarPreviewReadTests slow render or decode workload that costs minutes on the runner
 MapleThumbCacheKeyTests slow render or decode workload that costs minutes on the runner
 MaskRasterRehydrationTests fixture needs the gitignored RAW fixtures (skip-passes without them; the gate rejects skips)
 MaskRemapRenderParityTests gpu needs a real Metal device
