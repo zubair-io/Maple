@@ -88,10 +88,31 @@ public enum ThumbnailDecoder {
     let decoded = cache.object(forKey: nsKey) ?? autoreleasepool { decodeSync(data) }
     await decodeSlots.release()
 
-    // A refresh may have replaced the entry while this decode ran.
-    if let current = cache.object(forKey: nsKey) { return current }
-    if let decoded { cache.setObject(decoded, forKey: nsKey, cost: cost(of: decoded)) }
-    return decoded
+    guard let decoded else { return nil }
+    return storeUnlessCached(decoded, forKey: nsKey)
+  }
+
+  /// Serializes every cache write that must not interleave with another
+  /// writer's check, so a refresh landing mid-decode is never overwritten.
+  private static let storeLock = NSLock()
+
+  /// A refresh may have replaced the entry while this decode ran; keep it.
+  static func storeUnlessCached(_ image: CGImage, forKey key: NSString) -> CGImage {
+    storeLock.withLock {
+      if let current = cache.object(forKey: key) { return current }
+      cache.setObject(image, forKey: key, cost: cost(of: image))
+      return image
+    }
+  }
+
+  static func storeReplacing(_ image: CGImage, keys: [String]) {
+    storeLock.withLock {
+      for key in keys { cache.setObject(image, forKey: key as NSString, cost: cost(of: image)) }
+    }
+  }
+
+  static func removeImages(forKeys keys: [String]) {
+    storeLock.withLock { for key in keys { cache.removeObject(forKey: key as NSString) } }
   }
 
   /// Decode `data` once and make it the cached image for every key, replacing
@@ -101,9 +122,7 @@ public enum ThumbnailDecoder {
     do { try await decodeSlots.acquire() } catch { return nil }
     let decoded = autoreleasepool { decodeSync(data) }
     await decodeSlots.release()
-    if let decoded {
-      for key in keys { cache.setObject(decoded, forKey: key as NSString, cost: cost(of: decoded)) }
-    }
+    if let decoded { storeReplacing(decoded, keys: keys) }
     return decoded
   }
 

@@ -255,6 +255,68 @@ final class StaleCloudThumbnailRefreshTests: XCTestCase {
     XCTAssertEqual(reloaded, newBytes)
   }
 
+  func testAnUntrackedStaleBitmapIsReplacedForItsCell() async {
+    let (_, key, shown) = await staleAsset()
+    await ThumbnailDiskCache.shared.storeThumbnailData(newBytes, forKey: key, token: "t2")
+    let cell = "cell-\(UUID().uuidString)"
+    let stale = await ThumbnailDecoder.image(for: oldBytes, key: cell)
+    XCTAssertEqual(stale?.width, 8)
+
+    let refreshed = await ThumbnailRefresh.refreshedImage(for: shown, bitmapKey: cell)
+
+    XCTAssertEqual(refreshed?.width, 16)
+    XCTAssertEqual(ThumbnailDecoder.cachedImage(forKey: cell)?.width, 16)
+  }
+
+  func testABitmapForgottenByTheRegistryIsDroppedFromTheDecoder() async {
+    let (_, _, first) = await staleAsset()
+    let forgotten = "cell-\(UUID().uuidString)"
+    _ = await ThumbnailDecoder.image(for: oldBytes, key: forgotten)
+    ThumbnailRefresh.track(bitmapKey: forgotten, for: first)
+
+    for _ in 0..<1024 {
+      ThumbnailRefresh.track(bitmapKey: "cell-\(UUID().uuidString)", for: await staleAsset().source)
+    }
+
+    XCTAssertNil(ThumbnailDecoder.cachedImage(forKey: forgotten))
+  }
+
+  func testACellSwitchingItemsIgnoresARefreshOfTheNewPhoto() async {
+    let (_, key, shown) = await staleAsset()
+    let event = Notification(
+      name: ThumbnailRefresh.didRefresh, userInfo: ["thumbnailKey": key])
+    let previous = ThumbnailRefresh.ShownBitmap(loadKey: "old-photo", bitmapKey: "old-bitmap")
+    let current = ThumbnailRefresh.ShownBitmap(loadKey: "new-photo", bitmapKey: "new-bitmap")
+
+    XCTAssertNil(
+      ThumbnailRefresh.bitmapKey(
+        toRefresh: shown, loadKey: "new-photo", shown: previous, on: event),
+      "the previous item's bitmap key must not be refreshed")
+    XCTAssertNil(
+      ThumbnailRefresh.bitmapKey(toRefresh: shown, loadKey: "new-photo", shown: nil, on: event))
+    XCTAssertEqual(
+      ThumbnailRefresh.bitmapKey(toRefresh: shown, loadKey: "new-photo", shown: current, on: event),
+      "new-bitmap")
+  }
+
+  func testACacheCheckAndStoreCannotOverwriteAConcurrentReplace() throws {
+    let old = try XCTUnwrap(ThumbnailDecoder.decodeSync(oldBytes))
+    let new = try XCTUnwrap(ThumbnailDecoder.decodeSync(newBytes))
+    let keys = (0..<2000).map { _ in "cell-\(UUID().uuidString)" }
+
+    DispatchQueue.concurrentPerform(iterations: keys.count * 2) { index in
+      let key = keys[index / 2]
+      if index.isMultiple(of: 2) {
+        _ = ThumbnailDecoder.storeUnlessCached(old, forKey: key as NSString)
+      } else {
+        ThumbnailDecoder.storeReplacing(new, keys: [key])
+      }
+    }
+
+    let stale = keys.filter { ThumbnailDecoder.cachedImage(forKey: $0)?.width != 16 }
+    XCTAssertTrue(stale.isEmpty, "\(stale.count) keys kept the old bitmap")
+  }
+
   func testALateDecodeDoesNotOverwriteARefreshedImage() async throws {
     let bitmapKey = "cell-\(UUID().uuidString)"
     let lateOldImage = try XCTUnwrap(ThumbnailDecoder.decodeSync(oldBytes))
