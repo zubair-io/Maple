@@ -73,6 +73,17 @@ final class CloudThumbnailTokenTests: XCTestCase {
     XCTAssertNil(hit)
   }
 
+  func testTokenMapDropsOnlyTheOldestEntriesPastItsCap() async {
+    let cache = ThumbnailDiskCache(fetchedTokenCapacity: 3)
+    let all = (0..<5).map { _ in uniqueKey() }
+    for key in all { await cache.storeThumbnailData(Data("b".utf8), forKey: key, token: "t") }
+
+    let remembered = await cache.rememberedTokenKeysOldestFirst
+    XCTAssertEqual(remembered, all.suffix(3).map { MapleThumbCacheKey.sha256Prefix16($0) })
+    let evicted = await cache.thumbnailData(forKey: all[0], currentToken: "t")
+    XCTAssertEqual(evicted, Data("b".utf8), "an evicted token is re-read from its stamp")
+  }
+
   private actor TokenSource: ImageSource {
     private(set) var thumbCalls = 0
     var bytes = Data("v1".utf8)

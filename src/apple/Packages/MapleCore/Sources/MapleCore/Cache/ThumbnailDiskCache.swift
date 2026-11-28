@@ -56,8 +56,15 @@ public actor ThumbnailDiskCache {
   /// `dataMemCache` keys whose current bytes a caller has seen decode.
   private var decodableDataKeys: Set<String> = []
   /// Server thumbnail token each sourceless entry's bytes were fetched for.
-  private var fetchedTokens: [String: String] = [:]
-  private static let maxFetchedTokens = 5_000
+  private var fetchedTokens: RecencyOrderedStore<String, String>
+  private let fetchedTokenCapacity: Int
+  /// Matches `CloudSource`'s listing map; tokens are small.
+  static let defaultFetchedTokenCapacity = 20_000
+  init(fetchedTokenCapacity: Int = ThumbnailDiskCache.defaultFetchedTokenCapacity) {
+    self.fetchedTokenCapacity = fetchedTokenCapacity
+    self.fetchedTokens = RecencyOrderedStore(capacity: fetchedTokenCapacity)
+  }
+
   /// Bumped by every sourceless store, so a token read before the store is
   /// never written back over it.
   private var sourcelessStoreGeneration = 0
@@ -214,16 +221,17 @@ public actor ThumbnailDiskCache {
     let hashed = MapleThumbCacheKey.sha256Prefix16(key)
     let fileURL = sourcelessFileURL(forHashedKey: hashed)
     if let currentToken {
-      let known = await fetchedTokenSnapshot(forHashedKey: hashed)
-      let fetched = known.token ?? Self.readFetchedToken(for: fileURL)
+      let probe = await sourcelessProbe(forHashedKey: hashed)
+      let fetched = probe.token ?? Self.readFetchedToken(for: fileURL)
       guard fetched == currentToken else {
-        await forgetStaleSourcelessEntry(forHashedKey: hashed)
+        await forgetStaleSourcelessEntry(forHashedKey: hashed, unlessStoredSince: probe.generation)
         return nil
       }
-      if known.token == nil {
+      if probe.token == nil {
         await rememberFetchedToken(
-          currentToken, forHashedKey: hashed, unlessStoredSince: known.generation)
+          currentToken, forHashedKey: hashed, unlessStoredSince: probe.generation)
       }
+      if let data = probe.data { return data }
     }
     if let remembered = await rememberedThumbnail(forMemoryKey: hashed) { return remembered.data }
     guard let data = Self.readThumb(at: fileURL, legacyKey: hashed) else { return nil }
@@ -234,24 +242,30 @@ public actor ThumbnailDiskCache {
     sourcelessCacheDir.appendingPathComponent(MapleThumbCacheKey.thumbFilename(forKey: hashed))
   }
 
-  private func fetchedTokenSnapshot(forHashedKey hashed: String) -> (
-    token: String?, generation: Int
+  /// One actor call for the warm path: the remembered bytes, the token they
+  /// were fetched for, and the store generation both were read at.
+  private func sourcelessProbe(forHashedKey hashed: String) -> (
+    data: Data?, token: String?, generation: Int
   ) {
-    (fetchedTokens[hashed], sourcelessStoreGeneration)
+    (dataMemCache.touch(hashed), fetchedTokens.peek(hashed), sourcelessStoreGeneration)
   }
 
   private func rememberFetchedToken(
     _ token: String, forHashedKey hashed: String, unlessStoredSince generation: Int
   ) {
     guard generation == sourcelessStoreGeneration else { return }
-    if fetchedTokens.count >= Self.maxFetchedTokens { fetchedTokens.removeAll() }
-    fetchedTokens[hashed] = token
+    _ = fetchedTokens.set(token, for: hashed)
   }
 
-  private func forgetStaleSourcelessEntry(forHashedKey hashed: String) {
+  private func forgetStaleSourcelessEntry(
+    forHashedKey hashed: String, unlessStoredSince generation: Int
+  ) {
+    guard generation == sourcelessStoreGeneration else { return }
     forgetData(forMemoryKey: hashed)
     syncPeekCache.removeObject(forKey: hashed as NSString)
   }
+
+  var rememberedTokenKeysOldestFirst: [String] { fetchedTokens.keysOldestFirst }
 
   private nonisolated static func tokenStampURL(for fileURL: URL) -> URL {
     fileURL.appendingPathExtension("source")
@@ -350,8 +364,7 @@ public actor ThumbnailDiskCache {
     let hashed = hashKey(key)
     rememberData(data, forMemoryKey: hashed)
     sourcelessStoreGeneration += 1
-    if fetchedTokens.count >= Self.maxFetchedTokens { fetchedTokens.removeAll() }
-    fetchedTokens[hashed] = token
+    if let token { _ = fetchedTokens.set(token, for: hashed) } else { fetchedTokens.remove(hashed) }
     let fileURL = sourcelessFileURL(forHashedKey: hashed)
     let stampURL = Self.tokenStampURL(for: fileURL)
     try? fm.removeItem(at: stampURL)
@@ -418,7 +431,7 @@ public actor ThumbnailDiskCache {
   /// `ThumbnailLoader.handleMemoryPressure()` in response to system-level
   /// memory warnings.
   public func shrinkMemCache(to percent: Int) {
-    fetchedTokens.removeAll()
+    fetchedTokens = RecencyOrderedStore(capacity: fetchedTokenCapacity)
     let keep = max(1, (maxMemEntries * max(0, min(100, percent))) / 100)
     while memCache.count > keep {
       if let key = memCache.keys.first { memCache.removeValue(forKey: key) }

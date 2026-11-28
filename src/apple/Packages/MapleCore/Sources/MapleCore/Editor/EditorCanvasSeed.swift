@@ -36,8 +36,11 @@ public enum EditorCanvasSeed {
     if let cached = await thumbs.thumbnailData(forKey: key, currentToken: token) {
       return cached
     }
-    guard !Task.isCancelled, let server else { return nil }
-    guard let fetched = (try? await server.thumb(for: ref)) ?? nil else { return nil }
+    let staleThumbnail = { await thumbs.thumbnailData(forKey: key) }
+    guard !Task.isCancelled, let server else { return await staleThumbnail() }
+    guard let fetched = (try? await server.thumb(for: ref)) ?? nil else {
+      return await staleThumbnail()
+    }
     await thumbs.storeThumbnailData(fetched, forKey: key, token: token)
     return fetched
   }
