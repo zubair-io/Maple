@@ -1,9 +1,11 @@
 /**
- * Total-count cache for `GET /api/search` (#2128).
+ * Total-count cache for `GET /api/search` (#2128) and for a saved search's
+ * live pages (#6176).
  *
- * `total`'s only consumer is the `canLoadMore` infinite-scroll gate in the
- * two search components (`search.component.ts:144` and `:175`), so brief
- * staleness is not user-visible. Cached for 30 s keyed on the full filter
+ * On search, `total`'s only consumer is the `canLoadMore` infinite-scroll gate
+ * in the two search components (`search.component.ts:144` and `:175`), so brief
+ * staleness is not user-visible. A saved search's clients page until they hold
+ * `total` rows, so a total up to 30 s old costs at most one empty or short page. Cached for 30 s keyed on the full filter
  * set — mirrors the buckets cache in `buckets.ts` exactly (module-scoped
  * `Map`, same TTL, same `_resetCacheForTests` shape).
  *
@@ -21,7 +23,10 @@
  */
 
 import { searchCount, type SearchWhere } from '../../db/repos/search.repo.ts';
+import { countSql, type BoundStatement } from '../../db/repos/search.sql.ts';
 import { normaliseObjectIdHex } from '../../db/object-id.ts';
+import type { SqliteDb } from '../../db/repos/db-handle.ts';
+import type { SqlValue } from '../../db/sqlite/protocol.ts';
 import type { SearchQuery } from './query.ts';
 
 const TOTAL_CACHE_TTL_MS = 30_000;
@@ -118,12 +123,38 @@ export function _resetCacheForTests(): void {
  * the user scrolls.
  */
 export async function getCachedTotal(query: SearchQuery, where: SearchWhere): Promise<number> {
-  const cacheKey = makeTotalCacheKey(query);
+  return cachedTotal(makeTotalCacheKey(query), () => searchCount(where));
+}
+
+/**
+ * A saved search's `total` (#6176), which would otherwise recount the same rows on every page and
+ * reload. Keyed on the count statement itself, so every filter the route forces on top of the
+ * stored query (library, hidden people, screenshots) is in the key by construction.
+ */
+export async function getCachedSavedSearchTotal(where: SearchWhere, db: SqliteDb): Promise<number> {
+  const statement = countSql(where);
+  return cachedTotal(savedSearchCountKey(statement), () => searchCount(where, db));
+}
+
+/** Each bound value carries its type, so a string never shares a key with a number, bigint or blob. */
+export function savedSearchCountKey(statement: BoundStatement): string {
+  return `count:${JSON.stringify([statement.sql, statement.params.map(keyValue)])}`;
+}
+
+function keyValue(value: SqlValue): [string, string | number | boolean | null] {
+  if (typeof value === 'bigint') return ['bigint', value.toString()];
+  if (value instanceof Uint8Array) return ['bytes', Buffer.from(value).toString('hex')];
+  if (typeof value === 'number' && !Number.isFinite(value)) return ['number', String(value)];
+  return [typeof value, value];
+}
+
+async function cachedTotal(cacheKey: string, count: () => Promise<number>): Promise<number> {
   const nowMs = Date.now();
   const cached = totalCache.get(cacheKey);
   if (cached && cached.expiresMs > nowMs) return cached.total;
 
-  const total = await searchCount(where);
+  const total = await count();
+  totalCache.delete(cacheKey);
   // Bound the cache so a parameterised attack can't grow it unboundedly.
   // 500 unique filter sets is generous for a single server; eviction is
   // FIFO via insertion order.
