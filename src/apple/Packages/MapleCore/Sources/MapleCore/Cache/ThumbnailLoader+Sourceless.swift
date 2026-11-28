@@ -106,17 +106,18 @@ extension ThumbnailLoader {
   ) async -> Data? {
     let token = ref.flatMap { source?.thumbToken(for: $0) }
     if let source, let ref {
-      do {
-        if let bytes = try await source.thumb(for: ref) {
-          guard !Task.isCancelled else { return nil }
-          await ThumbnailDiskCache.shared.storeThumbnailData(bytes, forKey: key, token: token)
-          return bytes
-        }
-      } catch {
-        if Self.isTransientSourceFailure(error) {
-          return await ThumbnailDiskCache.shared.thumbnailData(forKey: key)
-        }
+      let fetched: Result<Data?, any Error> = await {
+        do { return .success(try await source.thumb(for: ref)) } catch { return .failure(error) }
+      }()
+      if case .success(let bytes?) = fetched {
+        guard !Task.isCancelled else { return nil }
+        await ThumbnailDiskCache.shared.storeThumbnailData(bytes, forKey: key, token: token)
+        return bytes
       }
+      // A token-stale entry beats an empty cell or a RAW download; the new
+      // token is not recorded, so the next load asks the server again.
+      if let stale = await ThumbnailDiskCache.shared.thumbnailData(forKey: key) { return stale }
+      if case .failure(let error) = fetched, Self.isTransientSourceFailure(error) { return nil }
     }
 
     // Fallback: download the original and render it here. Only worth starting

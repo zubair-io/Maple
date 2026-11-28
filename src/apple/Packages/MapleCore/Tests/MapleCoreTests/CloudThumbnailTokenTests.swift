@@ -77,17 +77,23 @@ final class CloudThumbnailTokenTests: XCTestCase {
     private(set) var thumbCalls = 0
     var bytes = Data("v1".utf8)
     var failing = false
+    var answersNothing = false
+    var plainFailure = false
     private let token = OSAllocatedUnfairLockBox()
 
     func setToken(_ value: String?) { token.value = value }
     func setBytes(_ value: Data) { bytes = value }
     func setFailing(_ value: Bool) { failing = value }
+    func setAnswersNothing(_ value: Bool) { answersNothing = value }
+    func setPlainFailure(_ value: Bool) { plainFailure = value }
 
     nonisolated func thumbToken(for ref: ImageRef) -> String? { token.value }
     func images() async throws -> [ImageRef] { [] }
     func thumb(for ref: ImageRef) async throws -> Data? {
       thumbCalls += 1
       if failing { throw URLError(.notConnectedToInternet) }
+      if plainFailure { throw NSError(domain: "CloudSource", code: 503) }
+      if answersNothing { return nil }
       return bytes
     }
     func preview(for ref: ImageRef) async throws -> Data? { nil }
@@ -162,6 +168,31 @@ final class CloudThumbnailTokenTests: XCTestCase {
     let offline = await loader.load(for: asset, from: source)
 
     XCTAssertEqual(offline, Data("v1".utf8))
+  }
+
+  func testChangedTokenWhenTheServerAnswersNothingOrFailsServesTheOldThumbnailAndRetries() async {
+    for (label, arrange) in [
+      ("404 or 202", { (source: TokenSource) in await source.setAnswersNothing(true) }),
+      ("5xx", { (source: TokenSource) in await source.setPlainFailure(true) }),
+    ] {
+      let key = uniqueKey()
+      let source = TokenSource()
+      await source.setToken("t1")
+      let loader = ThumbnailLoader()
+      let asset = asset(key: key)
+      _ = await loader.load(for: asset, from: source)
+
+      await source.setToken("t2")
+      await arrange(source)
+      let stale = await loader.load(for: asset, from: source)
+      XCTAssertEqual(stale, Data("v1".utf8), label)
+
+      await source.setAnswersNothing(false)
+      await source.setPlainFailure(false)
+      await source.setBytes(Data("v2".utf8))
+      let recovered = await loader.load(for: asset, from: source)
+      XCTAssertEqual(recovered, Data("v2".utf8), "\(label): the new token was not recorded")
+    }
   }
 
   func testCloudSourceReportsTheListedTokenAndSendsItAsV() async throws {

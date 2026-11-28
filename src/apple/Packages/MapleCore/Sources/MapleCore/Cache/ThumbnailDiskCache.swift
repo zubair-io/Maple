@@ -57,6 +57,10 @@ public actor ThumbnailDiskCache {
   private var decodableDataKeys: Set<String> = []
   /// Server thumbnail token each sourceless entry's bytes were fetched for.
   private var fetchedTokens: [String: String] = [:]
+  private static let maxFetchedTokens = 5_000
+  /// Bumped by every sourceless store, so a token read before the store is
+  /// never written back over it.
+  private var sourcelessStoreGeneration = 0
   private let maxMemEntries = 100
   // Bytes are ~20-60 KB, so 600 is ~12-36 MB: enough for a full screen of a
   // dense 5K grid plus scroll-back, where 100 evicted visible cells (#6017).
@@ -210,12 +214,16 @@ public actor ThumbnailDiskCache {
     let hashed = MapleThumbCacheKey.sha256Prefix16(key)
     let fileURL = sourcelessFileURL(forHashedKey: hashed)
     if let currentToken {
-      let fetched = await fetchedToken(forHashedKey: hashed) ?? Self.readFetchedToken(for: fileURL)
+      let known = await fetchedTokenSnapshot(forHashedKey: hashed)
+      let fetched = known.token ?? Self.readFetchedToken(for: fileURL)
       guard fetched == currentToken else {
         await forgetStaleSourcelessEntry(forHashedKey: hashed)
         return nil
       }
-      await rememberFetchedToken(currentToken, forHashedKey: hashed)
+      if known.token == nil {
+        await rememberFetchedToken(
+          currentToken, forHashedKey: hashed, unlessStoredSince: known.generation)
+      }
     }
     if let remembered = await rememberedThumbnail(forMemoryKey: hashed) { return remembered.data }
     guard let data = Self.readThumb(at: fileURL, legacyKey: hashed) else { return nil }
@@ -226,11 +234,17 @@ public actor ThumbnailDiskCache {
     sourcelessCacheDir.appendingPathComponent(MapleThumbCacheKey.thumbFilename(forKey: hashed))
   }
 
-  private func fetchedToken(forHashedKey hashed: String) -> String? {
-    fetchedTokens[hashed]
+  private func fetchedTokenSnapshot(forHashedKey hashed: String) -> (
+    token: String?, generation: Int
+  ) {
+    (fetchedTokens[hashed], sourcelessStoreGeneration)
   }
 
-  private func rememberFetchedToken(_ token: String, forHashedKey hashed: String) {
+  private func rememberFetchedToken(
+    _ token: String, forHashedKey hashed: String, unlessStoredSince generation: Int
+  ) {
+    guard generation == sourcelessStoreGeneration else { return }
+    if fetchedTokens.count >= Self.maxFetchedTokens { fetchedTokens.removeAll() }
     fetchedTokens[hashed] = token
   }
 
@@ -335,6 +349,8 @@ public actor ThumbnailDiskCache {
   public func storeThumbnailData(_ data: Data, forKey key: String, token: String? = nil) {
     let hashed = hashKey(key)
     rememberData(data, forMemoryKey: hashed)
+    sourcelessStoreGeneration += 1
+    if fetchedTokens.count >= Self.maxFetchedTokens { fetchedTokens.removeAll() }
     fetchedTokens[hashed] = token
     let fileURL = sourcelessFileURL(forHashedKey: hashed)
     let stampURL = Self.tokenStampURL(for: fileURL)
@@ -402,6 +418,7 @@ public actor ThumbnailDiskCache {
   /// `ThumbnailLoader.handleMemoryPressure()` in response to system-level
   /// memory warnings.
   public func shrinkMemCache(to percent: Int) {
+    fetchedTokens.removeAll()
     let keep = max(1, (maxMemEntries * max(0, min(100, percent))) / 100)
     while memCache.count > keep {
       if let key = memCache.keys.first { memCache.removeValue(forKey: key) }
