@@ -36,6 +36,9 @@ namespace Maple.WinUI.Services.Cloud
         private readonly HttpClient _http;
         private readonly string _cacheDir;
         private string? _accessToken;
+        private readonly SemaphoreSlim _refreshGate = new(1, 1);
+
+        internal string? DisplayCacheDirectory { get; init; }
 
         public string ServerUrl { get; }
         public bool IsAuthenticated => _accessToken != null;
@@ -80,12 +83,13 @@ namespace Maple.WinUI.Services.Cloud
         private async Task<HttpResponseMessage> SendAsync(
             Func<HttpRequestMessage> makeRequest, CancellationToken ct)
         {
+            var rejectedToken = _accessToken;
             var response = await SendOnceAsync(makeRequest(), ct);
             if (response.StatusCode != HttpStatusCode.Unauthorized)
                 return response;
             response.Dispose();
 
-            await RefreshAccessTokenAsync(ct);
+            await RefreshRejectedAccessTokenAsync(rejectedToken, ct);
             return await SendOnceAsync(makeRequest(), ct);
         }
 
@@ -153,6 +157,10 @@ namespace Maple.WinUI.Services.Cloud
         private static StringContent JsonContent(object payload) =>
             new(JsonSerializer.Serialize(payload, Json), Encoding.UTF8, "application/json");
 
-        public void Dispose() => _http.Dispose();
+        public void Dispose()
+        {
+            _http.Dispose();
+            _refreshGate.Dispose();
+        }
     }
 }

@@ -19,21 +19,31 @@ public sealed partial class MainWindow
             if (!e.InRecycleQueue)
                 e.RegisterUpdateCallback((_, next) =>
                 {
-                    if (next.ItemContainer.ContentTemplateRoot is FrameworkElement root &&
-                        root.FindName("GridSelectionOutline") is Border outline)
+                    if (next.ItemContainer.ContentTemplateRoot is not FrameworkElement root) return;
+                    if (root.FindName("GridSelectionOutline") is Border outline)
                         outline.SetBinding(UIElement.VisibilityProperty, new Microsoft.UI.Xaml.Data.Binding
                         {
                             Source = next.ItemContainer,
                             Path = new PropertyPath("IsSelected"),
                             Converter = new Converters.BoolVisibleConverter()
                         });
+                    if (root.FindName("GridTileImage") is Image tile && next.Item is PhotoItem photo)
+                        BindGridTile(tile, photo);
                 });
+            else if (e.ItemContainer.ContentTemplateRoot is FrameworkElement recycledRoot
+                && recycledRoot.FindName("GridTileImage") is Image recycled)
+                ReleaseGridTile(recycled);
         };
         BrowseSortBox.SelectedIndex = (int)ViewModel.PhotoSort;
         BrowseDensityBox.SelectedIndex = _settings.ThumbnailSize <= 128 ? 0 : _settings.ThumbnailSize >= 240 ? 2 : 1;
         _browseDesignReady = true;
         UpdateBrowseLocation();
-        PhotoGrid.Loaded += (_, _) => ApplyBrowseDensity();
+        PhotoGrid.Loaded += (_, _) =>
+        {
+            ApplyBrowseDensity();
+            WatchGridXamlRoot();
+        };
+        PhotoGrid.Unloaded += (_, _) => UnwatchGridXamlRoot();
         ViewModel.BrowseLocationChanged += ScrollBrowseToTop;
         ViewModel.PropertyChanged += (_, e) =>
         {
@@ -152,6 +162,7 @@ public sealed partial class MainWindow
     {
         if (PhotoGrid.ItemsPanelRoot is ItemsWrapGrid panel)
             panel.ItemWidth = panel.ItemHeight = BrowseDensityBox.SelectedIndex switch { 0 => 140, 2 => 252, _ => 192 };
+        RefreshGridTileDecodes();
     }
 
     private void OnBrowseLocation(object sender, RoutedEventArgs e)

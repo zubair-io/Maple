@@ -13,7 +13,20 @@ namespace Maple.WinUI.Services;
 /// of worker threads per live image (#3875). Never hand those files to XAML.</summary>
 internal static class DisplayImageCache
 {
+    internal const int ThumbnailPixels = 512;
+    internal const int PreviewPixels = 2560;
+
     private static readonly SemaphoreSlim Gate = new(Math.Clamp(Environment.ProcessorCount / 2, 1, 4));
+
+    internal static string DerivedPath(string source, int maxPixels, string? cacheDirectory = null)
+    {
+        var info = new FileInfo(source);
+        var key = $"display-v1|{info.FullName}|{info.Length}|{info.LastWriteTimeUtc.Ticks}|{maxPixels}";
+        var hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(key)));
+        var directory = cacheDirectory ?? Path.Combine(Environment.GetFolderPath(
+            Environment.SpecialFolder.LocalApplicationData), "Maple", "local-cache");
+        return Path.Combine(directory, hash + ".png");
+    }
 
     internal static async Task<string?> PrepareAsync(string? source, int maxPixels,
         CancellationToken cancellation, string? cacheDirectory = null)
@@ -26,13 +39,8 @@ internal static class DisplayImageCache
         string? temporary = null;
         try
         {
-            var info = new FileInfo(source);
-            var key = $"display-v1|{info.FullName}|{info.Length}|{info.LastWriteTimeUtc.Ticks}|{maxPixels}";
-            var hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(key)));
-            var directory = cacheDirectory ?? Path.Combine(Environment.GetFolderPath(
-                Environment.SpecialFolder.LocalApplicationData), "Maple", "local-cache");
-            Directory.CreateDirectory(directory);
-            var target = Path.Combine(directory, hash + ".png");
+            var target = DerivedPath(source, maxPixels, cacheDirectory);
+            Directory.CreateDirectory(Path.GetDirectoryName(target)!);
             if (File.Exists(target)) return target;
             temporary = target + "." + Guid.NewGuid().ToString("N") + ".tmp";
             await Task.Run(() =>

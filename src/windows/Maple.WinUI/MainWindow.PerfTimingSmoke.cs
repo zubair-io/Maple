@@ -188,13 +188,13 @@ public sealed partial class MainWindow
     private static readonly TileDecodeCase[] TileDecodeCases =
     {
         new("grid-binding-today", TileCellPixels, 0, Stretch.UniformToFill, SourceBeforeTree: true),
-        new("explicit-cell-decode", TileCellPixels, TileCellPixels, Stretch.UniformToFill, SourceBeforeTree: true),
+        new("explicit-cell-decode", TileCellPixels, 0, Stretch.UniformToFill, SourceBeforeTree: true, GridRule: true),
         new("in-tree-before-source", TileCellPixels, 0, Stretch.UniformToFill, SourceBeforeTree: false),
         new("forced-full-size", 512, 0, Stretch.None, SourceBeforeTree: true),
     };
 
     private sealed record TileDecodeCase(
-        string Name, double ElementSide, int DecodePixelWidth, Stretch Stretch, bool SourceBeforeTree);
+        string Name, double ElementSide, int DecodePixelWidth, Stretch Stretch, bool SourceBeforeTree, bool GridRule = false);
 
     private async Task RecordTileDecodeTimingAsync(string folder, string output)
     {
@@ -236,9 +236,14 @@ public sealed partial class MainWindow
         host.Children.Add(image);
         try
         {
+            var gridDecode = decode.GridRule
+                ? TileDecodeSize.ForFile(path, decode.ElementSide, host.XamlRoot.RasterizationScale)
+                : default;
             var bitmap = new BitmapImage
             {
-                CreateOptions = BitmapCreateOptions.IgnoreImageCache, DecodePixelWidth = decode.DecodePixelWidth,
+                CreateOptions = BitmapCreateOptions.IgnoreImageCache,
+                DecodePixelWidth = gridDecode.PixelWidth ?? decode.DecodePixelWidth,
+                DecodePixelHeight = gridDecode.PixelHeight ?? 0,
             };
             var source = new Uri(path);
             var started = Stopwatch.GetTimestamp();

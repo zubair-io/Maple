@@ -66,6 +66,9 @@ namespace Maple.WinUI.ViewModels
         /// preview and cull; editing needs the original locally.</summary>
         public bool IsCloud { get; init; }
         public string? CloudAddress { get; init; }
+        /// <summary>The server's thumbnail token from the listing; null when
+        /// the listing carried none.</summary>
+        public string? ThumbVersion { get; init; }
         /// <summary>Locally cached original for a cloud asset (download-to-edit).
         /// Null until the first Edit entry downloads it.</summary>
         public string? LocalCachePath { get; set; }

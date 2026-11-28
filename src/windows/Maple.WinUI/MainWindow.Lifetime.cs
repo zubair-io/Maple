@@ -66,6 +66,7 @@ namespace Maple.WinUI
             }
             _closeSavePending = false;
             _closing = true;
+            ReleaseAllGridTiles();
             DisposeCloudMap();
             _repairMappingRequest?.Cancel();
             ResetComparison();

@@ -577,7 +577,7 @@
                                     <controls:MapleIconControl IconName="photos" Size="36"
                                                                IconBrush="{StaticResource MapleBorder}"
                                                                HorizontalAlignment="Center" VerticalAlignment="Center" />
-                                    <Image Source="{Binding ThumbnailPath}" Stretch="UniformToFill" />
+                                    <Image x:Name="GridTileImage" Stretch="UniformToFill" />
                                     <Border HorizontalAlignment="Right" VerticalAlignment="Top" Margin="4"
                                             Padding="5,1" CornerRadius="3" Background="#CC141210">
                                         <TextBlock Text="{Binding FormatBadge}" FontSize="9" FontWeight="Bold"

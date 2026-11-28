@@ -143,6 +143,7 @@ namespace Maple.WinUI.Services.Cloud
         private async Task<HttpResponseMessage> SendStreamAsync(
             Func<HttpRequestMessage> makeRequest, CancellationToken ct)
         {
+            var rejectedToken = _accessToken;
             var request = makeRequest();
             if (_accessToken != null)
                 request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _accessToken);
@@ -151,7 +152,7 @@ namespace Maple.WinUI.Services.Cloud
                 return response;
             response.Dispose();
 
-            await RefreshAccessTokenAsync(ct);
+            await RefreshRejectedAccessTokenAsync(rejectedToken, ct);
             var retry = makeRequest();
             if (_accessToken != null)
                 retry.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _accessToken);

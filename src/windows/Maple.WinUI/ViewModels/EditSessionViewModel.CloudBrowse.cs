@@ -303,20 +303,12 @@ namespace Maple.WinUI.ViewModels
         /// yet on the fly. An item with no address (a library the server
         /// reported without a slug) has nothing to ask for and keeps the
         /// placeholder.</summary>
-        private async Task HydrateCloudThumbnailsAsync(List<PhotoItem> items, CancellationToken ct)
-        {
-            // Disposed only after WhenAll: every task that took the gate has
-            // released it by then, and a task cancelled while waiting never
-            // took it. Cancellation is the normal end of this work — the user
-            // picked another folder — so it is swallowed rather than left to
-            // fault an unawaited task.
-            using var gate = new SemaphoreSlim(4);
-            var tasks = items.Where(item => item.CloudAddress != null).Select(async item =>
+        private Task HydrateCloudThumbnailsAsync(List<PhotoItem> items, CancellationToken ct) =>
+            CloudThumbnailFetch.RunAsync(items.Where(item => item.CloudAddress != null), async item =>
             {
-                await gate.WaitAsync(ct);
                 try
                 {
-                    var path = await _cloud!.FetchImageAsync("thumb", item.CloudAddress!, ct);
+                    var path = await _cloud!.FetchImageAsync("thumb", item.CloudAddress!, ct, item.ThumbVersion);
                     path = await DisplayImageCache.PrepareAsync(path, ThumbnailService.ThumbnailMaxPx, ct);
                     if (path != null)
                         App.MainDispatcherQueue?.TryEnqueue(() =>
@@ -326,19 +318,6 @@ namespace Maple.WinUI.ViewModels
                 {
                     DiagLog.Write($"[cloud] thumb failed for {item.FileName}: {ex.Message}");
                 }
-                finally
-                {
-                    gate.Release();
-                }
-            });
-            try
-            {
-                await Task.WhenAll(tasks);
-            }
-            catch (OperationCanceledException)
-            {
-                // Folder switched mid-hydration. Expected, not a failure.
-            }
-        }
+            }, ct);
     }
 }

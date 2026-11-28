@@ -17,10 +17,10 @@ namespace Maple.WinUI.Services
     /// Local entries older than 30 days are swept on construction.</summary>
     public sealed partial class ThumbnailService
     {
-        public const int ThumbnailMaxPx = 512;
+        public const int ThumbnailMaxPx = DisplayImageCache.ThumbnailPixels;
         /// <summary>Full-screen JPEG preview tier — what the Preview
         /// screen displays instantly, before/without a scene-linear decode.</summary>
-        public const int PreviewMaxPx = 2560;
+        public const int PreviewMaxPx = DisplayImageCache.PreviewPixels;
         private const int LocalSweepDays = 30;
         private static readonly SemaphoreSlim Gate = RenderGate.Slots;
         private readonly string _localCacheDir;
