@@ -20,6 +20,7 @@ pub struct TileCache {
     directory: PathBuf,
     budget: u64,
     stored: Mutex<Option<u64>>,
+    entries: Mutex<()>,
 }
 
 impl TileCache {
@@ -28,6 +29,7 @@ impl TileCache {
             directory,
             budget,
             stored: Mutex::new(None),
+            entries: Mutex::new(()),
         }
     }
 
@@ -50,10 +52,12 @@ impl TileCache {
         self.directory.join(format!("{key}.json"))
     }
 
+    /// Bytes and token are two files, so one lock keeps a reader and a concurrent publish from pairing bytes with the other's token.
     /// The stored tile, only when its token is the listing's. A listing without a token proves nothing, so it never hits.
     pub fn load(&self, server: &str, address: &str, token: Option<&str>) -> Option<Vec<u8>> {
         let token = token.filter(|token| !token.is_empty())?;
         let key = Self::key(server, address);
+        let _entry = self.entries.lock().unwrap_or_else(PoisonError::into_inner);
         let record: Record = serde_json::from_slice(&fs::read(self.index_path(&key)).ok()?).ok()?;
         if record.token != token {
             return None;
@@ -73,6 +77,7 @@ impl TileCache {
     }
 
     fn publish(&self, key: &str, token: &str, bytes: &[u8]) -> io::Result<()> {
+        let _entry = self.entries.lock().unwrap_or_else(PoisonError::into_inner);
         fs::create_dir_all(&self.directory)?;
         let record = serde_json::to_vec(&Record {
             token: token.to_owned(),
