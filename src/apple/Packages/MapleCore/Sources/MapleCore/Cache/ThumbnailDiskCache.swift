@@ -318,7 +318,24 @@ public actor ThumbnailDiskCache {
     guard let data = ThumbnailEncoder.encode(image, ctx: ctx) else { return }
     rememberData(data, forMemoryKey: key)
     if (try? data.write(to: fileURL, options: .atomic)) != nil {
+      Self.stampWrite(data, at: fileURL, for: assetURL)
+    }
+  }
+
+  // A bad encode keeps the plain stamp, so the next read's readability check still removes it.
+  private static func stampWrite(_ data: Data, at fileURL: URL, for assetURL: URL) {
+    if ThumbnailLoader.isUsableImageData(data) {
       LocalDerivativeSourceStamp.recordOwnWrite(fileURL, for: assetURL)
+    } else {
+      LocalDerivativeSourceStamp.record(fileURL, for: assetURL)
+    }
+  }
+
+  private static func stampWrite(_ data: Data, at fileURL: URL, sourceSignature: String) throws {
+    if ThumbnailLoader.isUsableImageData(data) {
+      try LocalDerivativeSourceStamp.recordOwnWrite(fileURL, sourceSignature: sourceSignature)
+    } else {
+      try LocalDerivativeSourceStamp.record(fileURL, sourceSignature: sourceSignature)
     }
   }
 
@@ -333,7 +350,7 @@ public actor ThumbnailDiskCache {
     rememberData(data, forMemoryKey: key)
     let fileURL = thumbFileURL(for: assetURL, creatingDirectory: true)
     if (try? data.write(to: fileURL, options: .atomic)) != nil {
-      LocalDerivativeSourceStamp.recordOwnWrite(fileURL, for: assetURL)
+      Self.stampWrite(data, at: fileURL, for: assetURL)
     }
   }
 
@@ -350,8 +367,7 @@ public actor ThumbnailDiskCache {
     let persisted =
       (try? data.write(to: fileURL, options: .atomic)) != nil
       && LocalDerivativeSourceStamp.matches(sourceSignature, for: assetURL)
-      && (try? LocalDerivativeSourceStamp.recordOwnWrite(
-        fileURL, sourceSignature: sourceSignature)) != nil
+      && (try? Self.stampWrite(data, at: fileURL, sourceSignature: sourceSignature)) != nil
     if !persisted {
       LocalDerivativeSourceStamp.remove(fileURL)
       try? fm.removeItem(at: fileURL)

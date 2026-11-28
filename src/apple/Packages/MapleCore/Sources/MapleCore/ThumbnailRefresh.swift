@@ -44,7 +44,7 @@ public enum ThumbnailRefresh {
     ThumbnailDecoder.removeImages(forKeys: registry.track(bitmapKey, forAsset: assetKey))
   }
 
-  /// Every refresh, delivered on the main queue; one shared chain for all cells.
+  /// Every refresh, delivered on the main queue; built once rather than per cell body.
   public static let refreshes: AnyPublisher<Notification, Never> =
     NotificationCenter.default.publisher(for: didRefresh)
     .receive(on: DispatchQueue.main)

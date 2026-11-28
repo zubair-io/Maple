@@ -108,6 +108,17 @@ final class ThumbnailCacheDecodeProofTests: XCTestCase {
       FileManager.default.fileExists(atPath: MapleSidecarPaths.thumbURL(for: asset).path))
   }
 
+  func testUndecodableBytesThisAppWroteAreStillCheckedAndDiscarded() async throws {
+    let asset = try writeAsset(named: "bad-encode.png")
+    await ThumbnailDiskCache().storeThumbnailData(Data([0xFF, 0xD8, 0x42, 0x99]), for: asset)
+
+    let served = await ThumbnailLoader.decodableCachedThumbnail(for: asset)
+
+    XCTAssertNil(served, "a bad encode never earns the own-write proof")
+    XCTAssertFalse(
+      FileManager.default.fileExists(atPath: MapleSidecarPaths.thumbURL(for: asset).path))
+  }
+
   func testOwnThumbnailReplacedWithSameSizeButNewModificationTimeIsChecked() async throws {
     let asset = try writeAsset(named: "touched.png")
     let jpeg = try Self.jpegBytes(width: 64, height: 48)
