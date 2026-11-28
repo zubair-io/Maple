@@ -31,22 +31,31 @@ internal class SafSidecars(private val context: Context, private val documents: 
     }
 
     fun read(photo: Photo, fresh: Boolean = false): String? =
-        read(photo, fresh) { folder -> documents.list(folder, fresh) }
+        read(photo, fresh) { folder -> documents.list(folder, fresh) }.first
 
-    fun readRecent(photo: Photo): String? = read(photo, false, documents::recent)
+    fun readRecent(photo: Photo): String? = read(photo, false, documents::recent).first
 
-    private fun read(photo: Photo, fresh: Boolean, listing: (Uri) -> List<LocalDocument>): String? {
+    /** The sidecar text with the one fresh listing it was found in, for checks that must not see a shared listing. */
+    fun readListed(photo: Photo): Pair<String?, List<LocalDocument>> =
+        read(photo, true, documents::listVerified)
+
+    private fun read(
+        photo: Photo,
+        fresh: Boolean,
+        listing: (Uri) -> List<LocalDocument>,
+    ): Pair<String?, List<LocalDocument>> {
         // A folded RAW shares its sidecar with the hidden JPEG, whose journal is keyed by the JPEG.
         photo.companion?.let(::recover)
         recover(photo)
         val folder = photo.parent ?: error("Missing sidecar folder")
-        val uri = find(listing(folder), photo.sidecarName)?.uri ?: return null
+        val entries = listing(folder)
+        val uri = find(entries, photo.sidecarName)?.uri ?: return null to entries
         return try {
-            text(uri)
+            text(uri) to entries
         } catch (failure: java.io.FileNotFoundException) {
             if (fresh) throw failure
             documents.invalidate(folder)
-            read(photo, fresh = true)
+            read(photo, true) { documents.list(it, true) }
         }
     }
 

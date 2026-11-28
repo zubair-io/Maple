@@ -25,11 +25,14 @@ class CountingTree : ContentProvider() {
 
     private fun file(uri: Uri) = File(directory, DocumentsContract.getDocumentId(uri).substringAfter('/'))
 
-    private fun documentUri(name: String) =
+    private fun documentUri(path: String) =
         DocumentsContract.buildDocumentUriUsingTree(
             DocumentsContract.buildTreeDocumentUri(AUTHORITY, "root"),
-            "root/$name",
+            path,
         )
+
+    private fun folderOf(uri: Uri) =
+        if (DocumentsContract.getDocumentId(uri) == ROOT) directory else file(uri)
 
     override fun onCreate() = true
 
@@ -62,6 +65,8 @@ class CountingTree : ContentProvider() {
                                 if (entry.isDirectory) Document.MIME_TYPE_DIR else "application/octet-stream"
                             Document.COLUMN_SIZE -> entry.length()
                             Document.COLUMN_LAST_MODIFIED -> if (reportsModified) entry.lastModified() else 0
+                            Document.COLUMN_FLAGS ->
+                                if (supportsRename && entry.isFile) Document.FLAG_SUPPORTS_RENAME else 0
                             else -> 0
                         }
                     }
@@ -75,8 +80,12 @@ class CountingTree : ContentProvider() {
         return when (method) {
             "android:renameDocument" -> {
                 val renamed = checkNotNull(extras.getString(Document.COLUMN_DISPLAY_NAME))
-                check(file(target).renameTo(File(directory, renamed)))
-                Bundle().apply { putParcelable("uri", documentUri(renamed)) }
+                val folder = file(target).parentFile!!
+                check(file(target).renameTo(File(folder, renamed)))
+                val id = DocumentsContract.getDocumentId(target)
+                Bundle().apply {
+                    putParcelable("uri", documentUri("${id.substringBeforeLast('/')}/$renamed"))
+                }
             }
             "android:deleteDocument" -> {
                 check(!failDeletes) { "deleting is refused" }
@@ -85,8 +94,9 @@ class CountingTree : ContentProvider() {
             }
             "android:createDocument" -> {
                 val created = checkNotNull(extras.getString(Document.COLUMN_DISPLAY_NAME))
-                check(File(directory, created).createNewFile())
-                Bundle().apply { putParcelable("uri", documentUri(created)) }
+                check(File(folderOf(target), created).createNewFile())
+                val id = DocumentsContract.getDocumentId(target)
+                Bundle().apply { putParcelable("uri", documentUri("$id/$created")) }
             }
             else -> null
         }
@@ -102,7 +112,9 @@ class CountingTree : ContentProvider() {
                 check(it.release.await(20, TimeUnit.SECONDS)) { "gate was never released" }
             }
         }
-        return ParcelFileDescriptor.open(target, ParcelFileDescriptor.parseMode(mode))
+        return ParcelFileDescriptor.open(target, ParcelFileDescriptor.parseMode(mode)).also {
+            DescriptorOs.remember(it.fileDescriptor, target)
+        }
     }
 
     override fun getType(uri: Uri): String? = null
@@ -124,6 +136,7 @@ class CountingTree : ContentProvider() {
         @Volatile var gate: Gate? = null
         @Volatile var reportsModified = true
         @Volatile var failDeletes = false
+        @Volatile var supportsRename = false
         @Volatile var failListings = false
         val failNextListing = AtomicBoolean()
 
@@ -132,6 +145,7 @@ class CountingTree : ContentProvider() {
             gate = null
             reportsModified = true
             failDeletes = false
+            supportsRename = false
             failListings = false
             failNextListing.set(false)
         }

@@ -78,6 +78,12 @@ internal class LocalDocuments(
         }
     }
 
+    /** A publication guard's own listing; a held listing that disagrees with it is dropped, so the next lookup sees the change. */
+    fun listVerified(folder: Uri): List<LocalDocument> =
+        list(folder, fresh = true).also { entries ->
+            peek(folder)?.takeIf { it.held?.entries?.get() != entries }?.discard()
+        }
+
     internal fun held(folder: Uri): Recent? = peek(folder)?.held
 
     private fun peek(folder: Uri): Slot? =

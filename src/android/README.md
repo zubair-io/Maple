@@ -607,7 +607,7 @@ A single batched folder query populates local names/URIs/metadata. Thumbnail sid
 that snapshot; open/save/list/recovery refresh or invalidate it, while XMP contents are always read
 fresh. The tile pipeline shares a listing for each of the last few folders (the photo folder, `.maple/`
 and `.maple/thumbs/`), held softly so the system can reclaim it, for up to a second; this app's own
-saves, exports and cache publication, and a folder refresh, drop it. Metadata-only RAW sidecars keep
+saves, exports and cache publication, and a folder refresh, drop it. Only lookups use it: a shared derivative is made visible after fresh listings of the photo folder and its sidecar, so a sidecar another app adds within that second stops the publication instead of being published over. Metadata-only RAW sidecars keep
 the embedded-preview fast path. The local thumbnail cache key
 includes Android thumbnail version 2 to retire earlier unnecessarily developed culling previews.
 Incoming Open/Share MIME filters advertise supported formats only, with an Android 12+ AVIF alias;

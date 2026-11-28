@@ -89,10 +89,10 @@ internal class CacheDocuments(context: Context, private val documents: LocalDocu
         tier: SharedCacheTier,
         input: InputStream,
         invalid: LocalDocument?,
-        current: suspend () -> FolderCacheSource,
+        current: suspend (fresh: Boolean) -> FolderCacheSource,
     ): Uri? = publication.withLock {
         currentCoroutineContext().ensureActive()
-        if (!source.canShare || current() != source) return@withLock null
+        if (!source.canShare || current(false) != source) return@withLock null
         val directory = directory(source.photo.parent!!, tier, true) ?: return@withLock null
         val name = tier.filename(source.photo.name)
         val initial = fresh(directory)
@@ -160,7 +160,7 @@ internal class CacheDocuments(context: Context, private val documents: LocalDocu
             } ?: error("Cannot write shared cache")
             identity = verifyDerived(source, temp)
             currentCoroutineContext().ensureActive()
-            if (current() != source || find(fresh(directory), name) != before)
+            if (current(true) != source || find(fresh(directory), name) != before)
                 return@withLock null
             if (before != null) {
                 verifyDerived(source, before.uri)
@@ -172,7 +172,7 @@ internal class CacheDocuments(context: Context, private val documents: LocalDocu
                 published = null
                 error("Provider cannot replace shared cache")
             }
-            val latest = current()
+            val latest = current(true)
             if (latest != source) {
                 remove(latest, published, identity)
                 published = null

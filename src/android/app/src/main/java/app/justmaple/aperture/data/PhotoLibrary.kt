@@ -310,7 +310,7 @@ class PhotoLibrary internal constructor(
         val folder = File(context.cacheDir, "thumbnails").apply { mkdirs() }
         if (photo.parent != null && !CloudLibrary.isCloud(photo.uri)) {
             val result =
-                shared.load(edge, { folderCacheSource(photo) }) { source, target, tier ->
+                shared.load(edge, { fresh -> folderCacheSource(photo, fresh) }) { source, target, tier ->
                     withPreview(source.photo, tier.edge) { input ->
                         NativeBridge.sharedDerivative(
                             input.absolutePath,
@@ -397,9 +397,9 @@ class PhotoLibrary internal constructor(
             privateSidecar(photo).takeIf { it.exists() }?.let { XmpEncoding.decode(it.readBytes()) }
         else saf.read(photo, fresh)
 
-    internal suspend fun folderCacheSource(photo: Photo): FolderCacheSource = readingSidecar(photo) {
-        val xml = saf.readRecent(photo)
-        val entries = local.recent(photo.parent!!)
+    internal suspend fun folderCacheSource(photo: Photo, fresh: Boolean = false): FolderCacheSource = readingSidecar(photo) {
+        val (xml, entries) =
+            if (fresh) saf.readListed(photo) else saf.readRecent(photo) to local.recent(photo.parent!!)
         val original =
             entries.singleOrNull { it.uri == photo.uri && !it.directory }
                 ?: error("The photo is no longer in this folder")
