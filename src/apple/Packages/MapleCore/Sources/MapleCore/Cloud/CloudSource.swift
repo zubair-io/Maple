@@ -136,14 +136,33 @@ extension CloudSource: ImageSource {
 
   /// Grid thumbnail via `GET /api/thumb/:slug/*` — one fixed tier per
   /// asset (#2220), content-keyed ETag, generated on demand for files the
-  /// indexer has not reached yet. nil on 404.
+  /// indexer has not reached yet. nil on 404; a 202 or 5xx throws an
+  /// error ``isServerNotReady(_:)`` recognises, so the cell asks again
+  /// instead of downloading the original.
   public func thumb(for ref: ImageRef) async throws -> Data? {
     let abs = Self.absPath(from: ref.id)
     let thumbURL = try await addresses.url(route: "thumb", absPath: abs)
     let versioned = thumbVersions[abs].map {
       thumbURL.appending(queryItems: [URLQueryItem(name: "v", value: $0)])
     }
-    return try await getOrNilWhenUnavailable(versioned ?? thumbURL)
+    let (data, resp) = try await httpClient.data(for: URLRequest(url: versioned ?? thumbURL))
+    switch (resp as? HTTPURLResponse)?.statusCode {
+    case 404: return nil
+    case 202: throw NSError(domain: Self.errorDomain, code: 202)
+    default:
+      try Self.checkOK(resp, data: data)
+      return data
+    }
+  }
+
+  static let errorDomain = "CloudSource"
+
+  /// A server that answered it cannot serve the thumbnail yet — busy,
+  /// starting up, or behind an edge timeout such as Cloudflare's 524 —
+  /// rather than that it has none.
+  public nonisolated static func isServerNotReady(_ error: any Error) -> Bool {
+    let status = error as NSError
+    return status.domain == errorDomain && (status.code == 202 || (500..<600).contains(status.code))
   }
 
   /// One source serves a whole server, so the map is emptied once it holds
@@ -408,7 +427,7 @@ extension CloudSource: ImageSource {
     guard let http = resp as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
       let body = String(data: data, encoding: .utf8) ?? ""
       throw NSError(
-        domain: "CloudSource",
+        domain: errorDomain,
         code: (resp as? HTTPURLResponse)?.statusCode ?? -1,
         userInfo: [NSLocalizedDescriptionKey: body])
     }

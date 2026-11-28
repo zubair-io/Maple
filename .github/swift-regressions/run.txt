@@ -454,6 +454,7 @@ ThumbnailLoaderSlotPriorityTests
 ThumbnailLoaderDevelopLaneTests
 ThumbnailLoaderAbandonedDevelopTests
 ThumbnailRetryTests
+ThumbnailLoaderServerWarmupTests
 
 AgentHTTPIntegrationTests
 AgentExportTests # default JPEG export, originals, revision races and cancellation

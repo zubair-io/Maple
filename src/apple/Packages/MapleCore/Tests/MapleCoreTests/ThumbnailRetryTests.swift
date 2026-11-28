@@ -78,4 +78,38 @@ final class ThumbnailRetryTests: XCTestCase {
     let count = await attempts.count
     XCTAssertEqual(count, 1, "a cancelled cell makes no further attempts")
   }
+
+  func testServerScheduleBacksOffThenKeepsAskingEveryThirtySeconds() {
+    let firstSeven = Array(ThumbnailRetry.serverDelays.prefix(7))
+    XCTAssertEqual(
+      firstSeven,
+      [
+        .seconds(2), .seconds(6), .seconds(15), .seconds(30), .seconds(30), .seconds(30),
+        .seconds(30),
+      ])
+  }
+
+  func testOnlyServerRenderedThumbnailsGetTheOpenEndedSchedule() {
+    let cloudAsset = AssetRef(
+      displayName: "a.cr2", hintExtension: "cr2", stableID: "fs:/a.cr2",
+      bytesProvider: { throw CancellationError() })
+    let localAsset = AssetRef(url: URL(fileURLWithPath: "/tmp/a.cr2"))
+    let onDevice = ThumbnailRetry.onDeviceDelays
+    XCTAssertEqual(Array(ThumbnailRetry.schedule(for: localAsset, from: nil)), onDevice)
+    XCTAssertEqual(Array(ThumbnailRetry.schedule(for: cloudAsset, from: nil)), onDevice)
+    XCTAssertEqual(
+      Array(ThumbnailRetry.schedule(for: cloudAsset, from: ServerSource()).prefix(5)),
+      Array(ThumbnailRetry.serverDelays.prefix(5)))
+    XCTAssertEqual(Array(ThumbnailRetry.schedule(for: .photoKit(localID: "x"))), onDevice)
+  }
+
+  private actor ServerSource: ImageSource {
+    nonisolated var thumbnailsAreLatencyBound: Bool { true }
+    func images() async throws -> [ImageRef] { [] }
+    func thumb(for ref: ImageRef) async throws -> Data? { nil }
+    func preview(for ref: ImageRef) async throws -> Data? { nil }
+    func rawBytes(for ref: ImageRef) async throws -> Data { throw CancellationError() }
+    func writeXMP(_ sidecar: Sidecar, for ref: ImageRef) async throws {}
+    func search(_ query: SearchQuery) async throws -> [ImageRef]? { nil }
+  }
 }

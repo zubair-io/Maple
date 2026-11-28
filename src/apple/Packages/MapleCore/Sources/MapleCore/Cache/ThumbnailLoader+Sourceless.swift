@@ -10,8 +10,9 @@ extension ThumbnailLoader {
   /// SelfHosted). Order of attempts:
   ///   1. Disk cache hit on the asset's stable id.
   ///   2. `source.thumb(for:)` — server-rendered or PhotoKit fast path.
-  ///   3. Render-from-bytes fallback: `bytesProvider` → `PipelineRenderer.render(rawBytes:hint:)`
-  ///      → JPEG q=0.82 at 256 px long edge → cache.
+  ///   3. Render-from-bytes fallback: `bytesProvider` → ImageIO for a
+  ///      JPEG/HEIC/PNG, `PipelineRenderer.render(rawBytes:hint:)` for a RAW
+  ///      → AVIF at 256 px long edge → cache.
   ///
   /// Returns `nil` when no path produced bytes (network down + no fallback,
   /// renderer failure, etc.).
@@ -78,12 +79,14 @@ extension ThumbnailLoader {
     return await awaitThumbnail(task)
   }
 
-  /// A failure to reach the source, as opposed to the source answering that
-  /// it has no thumbnail. Re-downloading the whole original over the same
-  /// unreachable or slow link cannot succeed where a few-KB thumbnail failed.
+  /// A failure to reach the source, or the source answering that it cannot
+  /// serve the thumbnail yet, as opposed to answering that it has none.
+  /// Re-downloading the whole original over the same unreachable or busy
+  /// server cannot succeed where a few-KB thumbnail failed.
   nonisolated static func isTransientSourceFailure(_ error: any Error) -> Bool {
     error is URLError || error is CancellationError
       || error is AuthenticatedHTTPClient.AuthenticationError
+      || CloudSource.isServerNotReady(error)
   }
 
   private nonisolated func produceSourcelessThumbnail(
@@ -102,51 +105,92 @@ extension ThumbnailLoader {
       }
     }
 
-    // Fallback: pull RAW bytes through the asset's provider, render via the
-    // Rust pipeline, encode AVIF, persist. A full RAW download is only worth
-    // starting while a cell still wants this thumbnail; one that scrolled
-    // away must not hold a decode slot and the network for nobody.
-    guard let provider, await waiterCount(forKey: coalescingKey) > 0 else { return nil }
-    if !producerHoldsDecodeSlot {
-      do { try await acquireDecodeSlot() } catch { return nil }
-      guard await waiterCount(forKey: coalescingKey) > 0 else {
-        await releaseDecodeSlot()
-        return nil
-      }
+    // Fallback: download the original and render it here. Only worth starting
+    // while a cell still wants this thumbnail, and never for an original
+    // that already failed to render.
+    guard let provider, await fallbackIsWanted(key: key, coalescingKey: coalescingKey) else {
+      return nil
     }
-    let result: Data? = await {
-      do {
-        let bytes = try await provider()
-        try Task.checkCancellation()
-        let image = try PipelineRenderer.render(
-          rawBytes: bytes, hint: hint, quality: .preview)
-        guard let data = Self.encodeThumbnail(image, ctx: Self.staticEncodeCIContext) else {
-          return nil
-        }
-        // On-share write-back candidate (#2690), re-encoded from
-        // the SAME already-decoded `image` at the CANONICAL
-        // contract size/quality — 512px/q0.55, matching the
-        // API's `THUMB_LONG_EDGE_PX`/`THUMB_AVIF_QUALITY`
-        // (`MapleThumbCacheKey`'s doc comment) — NOT `data`
-        // above, which is the smaller 256px/q0.5 local-grid
-        // render. Persisting the local-grid size to the shared
-        // path would permanently downgrade that entry for every
-        // other client, since the API's mtime-freshness guard
-        // never re-renders over a fresher file once one exists.
-        let onShareData = Self.encodeThumbnail(
-          image, ctx: Self.staticEncodeCIContext,
-          targetLongEdge: MapleThumbCacheKey.onShareThumbLongEdgePx,
-          quality: MapleThumbCacheKey.onShareThumbAVIFQuality)
-        await Self.persistFallbackRender(
-          localData: data, onShareData: onShareData,
-          key: key, source: source, ref: ref)
-        return data
-      } catch {
-        return nil
-      }
-    }()
+    if !producerHoldsDecodeSlot {
+      guard await tradeFetchSlotForDecodeSlot(coalescingKey: coalescingKey) else { return nil }
+    }
+    let result = await renderFallback(
+      provider: provider, hint: hint, key: key, source: source, ref: ref)
     if !producerHoldsDecodeSlot { await releaseDecodeSlot() }
     return result
+  }
+
+  private func fallbackIsWanted(key: String, coalescingKey: String) -> Bool {
+    !unrenderableSourcelessKeys.contains(key) && waiterCount(forKey: coalescingKey) > 0
+  }
+
+  /// A fetch slot is for the cheap server request: a producer that moves on
+  /// to the original's download hands it to the next queued tile, and waits
+  /// for its decode slot inactive, so a cell that scrolls away cancels it.
+  private func tradeFetchSlotForDecodeSlot(coalescingKey: String) async -> Bool {
+    let producer = Self.producerID
+    if let producer {
+      setProducerActive(producer, false)
+      await giveBackSlot(producer, gate: Self.producerGate)
+    }
+    do { try await acquireDecodeSlot() } catch { return false }
+    guard !Task.isCancelled, waiterCount(forKey: coalescingKey) > 0 else {
+      await releaseDecodeSlot()
+      return false
+    }
+    if let producer { setProducerActive(producer, true) }
+    return true
+  }
+
+  private nonisolated func renderFallback(
+    provider: @Sendable () async throws -> Data, hint: String, key: String,
+    source: (any ImageSource)?, ref: ImageRef?
+  ) async -> Data? {
+    guard let bytes = try? await provider(), !Task.isCancelled else { return nil }
+    guard let encoded = Self.fallbackThumbnails(from: bytes, hint: hint) else {
+      await markUnrenderable(key)
+      return nil
+    }
+    await Self.persistFallbackRender(
+      localData: encoded.local, onShareData: encoded.onShare,
+      key: key, source: source, ref: ref)
+    return encoded.local
+  }
+
+  private func markUnrenderable(_ key: String) {
+    unrenderableSourcelessKeys.insert(key)
+  }
+
+  /// The local-grid thumbnail and the on-share write-back candidate (#2690),
+  /// both encoded from one decode. The candidate uses the canonical shared
+  /// contract (512 px / q0.55, the API's `THUMB_LONG_EDGE_PX` /
+  /// `THUMB_AVIF_QUALITY`), never the smaller local-grid size: the API never
+  /// re-renders over a fresher shared file, so a small one would stick for
+  /// every other client.
+  nonisolated static func fallbackThumbnails(
+    from bytes: Data, hint: String
+  ) -> (local: Data, onShare: Data?)? {
+    if NonRawImageExtensions.all.contains(hint.lowercased()) {
+      guard let image = orientedNonRawImage(from: bytes),
+        let local = downscaledNonRawAVIF(image)
+      else { return nil }
+      return (
+        local,
+        downscaledNonRawAVIF(
+          image, targetLongEdge: MapleThumbCacheKey.onShareThumbLongEdgePx,
+          quality: MapleThumbCacheKey.onShareThumbAVIFQuality)
+      )
+    }
+    guard let image = try? PipelineRenderer.render(rawBytes: bytes, hint: hint, quality: .preview),
+      let local = encodeThumbnail(image, ctx: staticEncodeCIContext)
+    else { return nil }
+    return (
+      local,
+      encodeThumbnail(
+        image, ctx: staticEncodeCIContext,
+        targetLongEdge: MapleThumbCacheKey.onShareThumbLongEdgePx,
+        quality: MapleThumbCacheKey.onShareThumbAVIFQuality)
+    )
   }
 
   /// Persists a render-from-bytes fallback's output: stores `localData`

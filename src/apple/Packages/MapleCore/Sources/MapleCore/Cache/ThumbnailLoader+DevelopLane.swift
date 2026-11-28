@@ -73,7 +73,7 @@ extension ThumbnailLoader {
     return try outcome.get()
   }
 
-  private func giveBackSlot(_ producer: UUID, gate: ProducerGate) async {
+  func giveBackSlot(_ producer: UUID, gate: ProducerGate) async {
     guard slotlessProducers.insert(producer).inserted else { return }
     await slots(for: gate).release()
   }

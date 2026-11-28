@@ -37,33 +37,45 @@ extension ThumbnailLoader {
     /// fall through to the RAW developer and throw. Returns nil only when
     /// ImageIO cannot decode the file at all.
     nonisolated static func nonRawSlowPathAVIF(at url: URL) -> Data? {
-        guard let src = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
+        guard let src = CGImageSourceCreateWithURL(url as CFURL, nil),
+            let image = orientedNonRawImage(from: src)
+        else { return nil }
+        return downscaledNonRawAVIF(image)
+    }
+
+    /// The same full decode over an original's bytes, for a source with no
+    /// file on disk (a Maple Cloud original the server could not thumbnail).
+    nonisolated static func orientedNonRawImage(from bytes: Data) -> CIImage? {
+        CGImageSourceCreateWithData(bytes as CFData, nil).flatMap(orientedNonRawImage(from:))
+    }
+
+    nonisolated static func downscaledNonRawAVIF(
+        _ image: CIImage,
+        targetLongEdge: CGFloat = ThumbnailDiskCache.defaultThumbSize.width,
+        quality: CGFloat = ThumbnailEncoder.quality
+    ) -> Data? {
+        let longEdge = max(image.extent.width, image.extent.height)
+        let scaled =
+            longEdge > targetLongEdge
+            ? image.transformed(
+                by: CGAffineTransform(
+                    scaleX: targetLongEdge / longEdge, y: targetLongEdge / longEdge))
+            : image
+        return ThumbnailEncoder.encode(scaled, ctx: nonRawSlowPathCIContext, quality: quality)
+    }
+
+    private nonisolated static func orientedNonRawImage(from src: CGImageSource) -> CIImage? {
         let decodeOpts: [CFString: Any] = [kCGImageSourceShouldCache: false]
         guard let cg = CGImageSourceCreateImageAtIndex(src, 0, decodeOpts as CFDictionary) else {
             return nil
         }
-
         // `CGImageSourceCreateImageAtIndex` does not bake in EXIF/TIFF
         // orientation the way `CGImageSourceCreateThumbnailAtIndex(...
-        // WithTransform: true)` does for the fast path, so apply it
-        // manually via `CIImage.oriented(_:)` — it reads the same raw
-        // `kCGImagePropertyOrientation` values the TIFF/EXIF spec defines.
-        var ci = CIImage(cgImage: cg)
-        if let properties = CGImageSourceCopyPropertiesAtIndex(src, 0, nil) as? [CFString: Any],
-            let rawOrientation = properties[kCGImagePropertyOrientation] as? UInt32,
-            let orientation = CGImagePropertyOrientation(rawValue: rawOrientation)
-        {
-            ci = ci.oriented(orientation)
-        }
-
-        let target = ThumbnailDiskCache.defaultThumbSize.width
-        let extent = ci.extent
-        let longEdge = max(extent.width, extent.height)
-        if longEdge > target {
-            let scale = target / longEdge
-            ci = ci.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
-        }
-
-        return ThumbnailEncoder.encode(ci, ctx: nonRawSlowPathCIContext)
+        // WithTransform: true)` does for the fast path.
+        let image = CIImage(cgImage: cg)
+        let properties = CGImageSourceCopyPropertiesAtIndex(src, 0, nil) as? [CFString: Any]
+        let orientation = (properties?[kCGImagePropertyOrientation] as? UInt32)
+            .flatMap(CGImagePropertyOrientation.init(rawValue:))
+        return orientation.map(image.oriented) ?? image
     }
 }
