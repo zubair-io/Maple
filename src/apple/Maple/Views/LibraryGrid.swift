@@ -33,7 +33,6 @@
   struct LibraryGrid: View {
 
     let vm: BrowseViewModel
-    let source: (any ImageSource)?
     @Binding var sessions: [AssetRef.ID: EditSession]
     let sessionBuffer: BrowseSessionBuffer<AssetRef.ID, EditSession>
     @Binding var displayMode: GridDisplayMode
@@ -241,8 +240,9 @@
       }
     }
 
+    // `currentSource` is unobserved; a copy taken by the parent is stale when a cloud folder loads.
     private func makeItem(_ asset: AssetRef) -> PhotoGridItem {
-      PhotoGridItem(local: asset, source: source, overlays: overlays(for: asset))
+      PhotoGridItem(local: asset, source: vm.currentSource, overlays: overlays(for: asset))
     }
 
     // MARK: - Pinch-to-resize
