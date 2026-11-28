@@ -59,7 +59,7 @@ extension AppShell {
       catalog: CatalogRef(
         serverID: server, folderID: folderID, absPath: image.path, address: nil),
       stack: RawJpegStacking.cloudStack(for: image),
-      originalFileWriter: { try await source.writeOriginal(for: imageRef, to: $0) },
+      originalFileWriter: { try await source.writeOriginal(for: imageRef, to: $0, onProgress: $1) },
       bytesProvider: { try await source.rawBytes(for: imageRef) }
     )
   }

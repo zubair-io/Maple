@@ -50,7 +50,7 @@
       let bytes = Data([0xFF, 0xD8, 0, 0xFF, 0xD9])
       let asset = AssetRef(
         displayName: "Remote photo.jpg", hintExtension: "jpg",
-        originalFileWriter: { try bytes.write(to: $0) },
+        originalFileWriter: { destination, _ in try bytes.write(to: destination) },
         bytesProvider: { throw ImageSourceError.notFound("must not buffer original") })
       let item = MacAssetDragItem(asset: asset)
       let pasteboard = NSPasteboard.withUniqueName()

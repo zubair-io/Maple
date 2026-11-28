@@ -124,6 +124,16 @@ struct AppShellMacLayout<SidebarContent: View, ToolbarContentT: ToolbarContent>:
   var timelineFileActions: TimelineFileActions? = nil
 
   var body: some View {
+    content
+      #if os(macOS)
+        .overlay(alignment: .bottomTrailing) {
+          AssetCopyProgressCard(clipboard: AssetFileClipboard.shared)
+        }
+      #endif
+  }
+
+  @ViewBuilder
+  private var content: some View {
     // In Browse mode the detail panel is suppressed entirely — the
     // explorer grid takes the full content area. In Full-image mode
     // the panel comes back as the third column for Develop + Info.

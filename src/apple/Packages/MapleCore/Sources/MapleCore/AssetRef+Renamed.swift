@@ -25,7 +25,7 @@ extension AssetRef {
       stack: stack,
       smbPath: path,
       smbSourceID: smbSourceID,
-      originalFileWriter: { try await source.writeOriginal(for: ref, to: $0) },
+      originalFileWriter: { try await source.writeOriginal(for: ref, to: $0, onProgress: $1) },
       bytesProvider: bytesProvider)
   }
 
@@ -45,7 +45,7 @@ extension AssetRef {
       catalog: CatalogRef(
         serverID: catalog.serverID, folderID: catalog.folderID, absPath: path, address: nil),
       stack: stack,
-      originalFileWriter: { try await source.writeOriginal(for: ref, to: $0) },
+      originalFileWriter: { try await source.writeOriginal(for: ref, to: $0, onProgress: $1) },
       bytesProvider: bytesProvider)
   }
 }

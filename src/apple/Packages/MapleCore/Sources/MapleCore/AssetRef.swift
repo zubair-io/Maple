@@ -64,9 +64,14 @@ public struct AssetRef: Identifiable, Sendable, Equatable, Hashable {
   /// `@Sendable` closure so EditSession can call it from an actor hop.
   public typealias BytesProvider = @Sendable () async throws -> Data
 
+  /// Bytes received so far and the file's size when the source knows it.
+  public typealias OriginalFileProgress = @Sendable (_ received: Int64, _ total: Int64?) -> Void
+
   /// Stream an original to an owned temporary destination for drag-out,
-  /// without loading the entire RAW or video into memory.
-  public typealias OriginalFileWriter = @Sendable (URL) async throws -> Void
+  /// without loading the entire RAW or video into memory. A remote source
+  /// reports its transfer through the second argument.
+  public typealias OriginalFileWriter =
+    @Sendable (URL, @escaping OriginalFileProgress) async throws -> Void
 
   /// On-demand DISPLAY-PREVIEW fetch for sourceless assets — the 1280 px
   /// tier, not the full RAW `BytesProvider` returns. Classified rather than

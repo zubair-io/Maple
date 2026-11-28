@@ -226,7 +226,7 @@ extension CloudSource: ImageSource {
   /// owns and cleans its download, including a rejected 401 response.
   public func writeOriginal(
     for ref: ImageRef, to destination: URL,
-    onProgress: @escaping @Sendable (_ received: Int64, _ total: Int64?) -> Void = { _, _ in }
+    onProgress: @escaping AssetRef.OriginalFileProgress = { _, _ in }
   ) async throws {
     let rawURL = try await addresses.url(route: "image", absPath: Self.absPath(from: ref.id))
     let (_, response) = try await httpClient.refreshIfNeededAndRetry(
