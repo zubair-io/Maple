@@ -10,8 +10,10 @@ import android.os.ParcelFileDescriptor
 import android.provider.DocumentsContract
 import android.provider.DocumentsContract.Document
 import java.io.File
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 
 /** A flat real folder behind a document provider that counts listings and opens and can hold one open. */
@@ -39,14 +41,25 @@ class CountingTree : ContentProvider() {
         sortOrder: String?,
     ): Cursor {
         listings.incrementAndGet()
+        val id = DocumentsContract.getDocumentId(uri)
+        listed.computeIfAbsent(id) { AtomicInteger() }.incrementAndGet()
+        listingGate?.takeIf { it.name == id }?.let {
+            listingGate = null
+            it.entered.countDown()
+            check(it.release.await(20, TimeUnit.SECONDS)) { "gate was never released" }
+        }
+        check(!failListings && !failNextListing.getAndSet(false)) { "listing is refused" }
+        val folder = file(uri).takeIf { id != ROOT && it.isDirectory } ?: directory
+        val prefix = if (folder == directory) ROOT else id
         return MatrixCursor(projection).apply {
-            directory.listFiles().orEmpty().sortedBy { it.name }.forEach { entry ->
+            folder.listFiles().orEmpty().sortedBy { it.name }.forEach { entry ->
                 addRow(
                     projection!!.map { column ->
                         when (column) {
-                            Document.COLUMN_DOCUMENT_ID -> "root/${entry.name}"
+                            Document.COLUMN_DOCUMENT_ID -> "$prefix/${entry.name}"
                             Document.COLUMN_DISPLAY_NAME -> entry.name
-                            Document.COLUMN_MIME_TYPE -> "application/octet-stream"
+                            Document.COLUMN_MIME_TYPE ->
+                                if (entry.isDirectory) Document.MIME_TYPE_DIR else "application/octet-stream"
                             Document.COLUMN_SIZE -> entry.length()
                             Document.COLUMN_LAST_MODIFIED -> if (reportsModified) entry.lastModified() else 0
                             else -> 0
@@ -66,6 +79,7 @@ class CountingTree : ContentProvider() {
                 Bundle().apply { putParcelable("uri", documentUri(renamed)) }
             }
             "android:deleteDocument" -> {
+                check(!failDeletes) { "deleting is refused" }
                 check(file(target).delete())
                 Bundle()
             }
@@ -100,12 +114,27 @@ class CountingTree : ContentProvider() {
     override fun update(uri: Uri, values: ContentValues?, selection: String?, selectionArgs: Array<out String>?) = 0
 
     companion object {
+        const val ROOT = "root"
         const val AUTHORITY = "app.justmaple.aperture.test.counting-tree"
         lateinit var directory: File
         val listings = AtomicInteger()
+        val listed = ConcurrentHashMap<String, AtomicInteger>()
+        @Volatile var listingGate: Gate? = null
         val opens = AtomicInteger()
         @Volatile var gate: Gate? = null
         @Volatile var reportsModified = true
+        @Volatile var failDeletes = false
+        @Volatile var failListings = false
+        val failNextListing = AtomicBoolean()
+
+        fun resetFlags() {
+            listingGate = null
+            gate = null
+            reportsModified = true
+            failDeletes = false
+            failListings = false
+            failNextListing.set(false)
+        }
 
         val folder: Uri =
             DocumentsContract.buildDocumentUriUsingTree(

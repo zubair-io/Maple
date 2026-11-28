@@ -27,6 +27,19 @@ internal class PhotoExport(private val context: Context, private val library: Ph
         xmp: Boolean,
         options: ExportOptions = ExportOptions(),
     ) =
+        try {
+            publish(photo, document, destination, xmp, options)
+        } finally {
+            library.local.invalidateAll()
+        }
+
+    private suspend fun publish(
+        photo: Photo,
+        document: XmpDocument,
+        destination: Uri,
+        xmp: Boolean,
+        options: ExportOptions,
+    ) =
         withContext(Dispatchers.IO) {
             check(destination != photo.uri) {
                 "Choose an export destination other than the original"

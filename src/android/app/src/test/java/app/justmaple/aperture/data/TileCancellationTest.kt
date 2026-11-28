@@ -31,7 +31,7 @@ class TileCancellationTest {
 
         val load =
             launch(Dispatchers.IO) {
-                FolderDerivativeCache(context).load(
+                FolderDerivativeCache(context, LocalDocuments(context)).load(
                     512,
                     {
                         snapshots.incrementAndGet()

@@ -17,8 +17,8 @@ internal data class CachedFolderDerivative(val image: OpenThumbnail, val inserte
 private class SharedLease(val image: OpenThumbnail, val format: String, val identity: String)
 
 /** The folder owns derivatives and is read in place; private files are capability fallbacks. */
-internal class FolderDerivativeCache(private val context: Context) {
-    private val documents = CacheDocuments(context)
+internal class FolderDerivativeCache(private val context: Context, listings: LocalDocuments) {
+    private val documents = CacheDocuments(context, listings)
     private val folder = File(context.cacheDir, "thumbnails")
     private val mirrorsRetired = AtomicBoolean(false)
 

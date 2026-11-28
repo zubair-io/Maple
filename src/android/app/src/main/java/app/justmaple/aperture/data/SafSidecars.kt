@@ -30,12 +30,17 @@ internal class SafSidecars(private val context: Context, private val documents: 
         return SidecarStamp(sidecar?.uri, sidecar?.size ?: 0, sidecar?.modified ?: 0, savedHere)
     }
 
-    fun read(photo: Photo, fresh: Boolean = false): String? {
+    fun read(photo: Photo, fresh: Boolean = false): String? =
+        read(photo, fresh) { folder -> documents.list(folder, fresh) }
+
+    fun readRecent(photo: Photo): String? = read(photo, false, documents::recent)
+
+    private fun read(photo: Photo, fresh: Boolean, listing: (Uri) -> List<LocalDocument>): String? {
         // A folded RAW shares its sidecar with the hidden JPEG, whose journal is keyed by the JPEG.
         photo.companion?.let(::recover)
         recover(photo)
         val folder = photo.parent ?: error("Missing sidecar folder")
-        val uri = find(documents.list(folder, fresh), photo.sidecarName)?.uri ?: return null
+        val uri = find(listing(folder), photo.sidecarName)?.uri ?: return null
         return try {
             text(uri)
         } catch (failure: java.io.FileNotFoundException) {
@@ -132,46 +137,49 @@ internal class SafSidecars(private val context: Context, private val documents: 
         ) {
             "Invalid sidecar recovery record"
         }
-        val entries = documents.list(folder, fresh = true)
-        val canonical = find(entries, targetName)
-        val backup = find(entries, backupName)
-        val temp = find(entries, tempName)
-        if (canonical != null && (backup != null || !transaction.getBoolean("previous")))
-            check(PhotoLibrary.digest(text(canonical.uri)) == transaction.getString("digest")) {
-                "The sidecar changed during recovery. Recovery files were preserved in this folder."
-            }
-        if (canonical == null) {
-            when {
-                backup != null -> {
-                    check(
-                        PhotoLibrary.digest(text(backup.uri)) == transaction.getString("baseline")
-                    ) {
-                        "The recovery sidecar changed outside Maple"
-                    }
-                    rename(backup.uri, targetName)
+        try {
+            val entries = documents.list(folder, fresh = true)
+            val canonical = find(entries, targetName)
+            val backup = find(entries, backupName)
+            val temp = find(entries, tempName)
+            if (canonical != null && (backup != null || !transaction.getBoolean("previous")))
+                check(PhotoLibrary.digest(text(canonical.uri)) == transaction.getString("digest")) {
+                    "The sidecar changed during recovery. Recovery files were preserved in this folder."
                 }
-                !transaction.getBoolean("previous") && temp != null -> {
-                    val xml = text(temp.uri)
-                    check(PhotoLibrary.digest(xml) == transaction.getString("digest")) {
-                        "Incomplete sidecar recovery file"
+            if (canonical == null) {
+                when {
+                    backup != null -> {
+                        check(
+                            PhotoLibrary.digest(text(backup.uri)) == transaction.getString("baseline")
+                        ) {
+                            "The recovery sidecar changed outside Maple"
+                        }
+                        rename(backup.uri, targetName)
                     }
-                    XmpDocument(xml).serialize()
-                    rename(temp.uri, targetName)
+                    !transaction.getBoolean("previous") && temp != null -> {
+                        val xml = text(temp.uri)
+                        check(PhotoLibrary.digest(xml) == transaction.getString("digest")) {
+                            "Incomplete sidecar recovery file"
+                        }
+                        XmpDocument(xml).serialize()
+                        rename(temp.uri, targetName)
+                    }
+                    else ->
+                        error(
+                            "Interrupted sidecar replacement could not be recovered. The original photo is unchanged."
+                        )
                 }
-                else ->
-                    error(
-                        "Interrupted sidecar replacement could not be recovered. The original photo is unchanged."
-                    )
             }
+            // Re-query because document IDs may change during a provider rename.
+            val restored = documents.list(folder, fresh = true)
+            check(find(restored, targetName) != null) {
+                "Storage provider did not restore the sidecar"
+            }
+            listOf(tempName, backupName).mapNotNull { find(restored, it) }.forEach { remove(it.uri) }
+            check(record.delete()) { "Could not finish sidecar recovery" }
+        } finally {
+            documents.invalidate(folder)
         }
-        // Re-query because document IDs may change during a provider rename.
-        val restored = documents.list(folder, fresh = true)
-        check(find(restored, targetName) != null) {
-            "Storage provider did not restore the sidecar"
-        }
-        listOf(tempName, backupName).mapNotNull { find(restored, it) }.forEach { remove(it.uri) }
-        check(record.delete()) { "Could not finish sidecar recovery" }
-        documents.invalidate(folder)
     }
 
     private fun text(uri: Uri): String =

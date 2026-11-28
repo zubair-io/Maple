@@ -13,6 +13,9 @@ internal object CloudBrowseWire {
     fun assetId(row: JSONObject): String? =
         row.optString("id").takeIf { it.isNotEmpty() && it != "null" }
 
+    fun thumbToken(row: JSONObject, field: String): String? =
+        row.optString(field).takeIf { it.isNotEmpty() && it != "null" }
+
     fun photo(server: String, row: JSONObject, parent: Uri?, fold: Boolean = false): Photo =
         Photo(
             CloudLibrary.address(server, row.getString("address"), row.getString("path")),
@@ -22,6 +25,7 @@ internal object CloudBrowseWire {
             parent,
             assetId = assetId(row),
             companion = if (fold) companion(server, row) else null,
+            thumbToken = thumbToken(row, "thumbVersion"),
         )
 
     fun companion(server: String, row: JSONObject): Photo? {
