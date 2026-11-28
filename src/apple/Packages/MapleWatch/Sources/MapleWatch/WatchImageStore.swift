@@ -3,16 +3,22 @@ import ImageIO
 import MapleCloudKit
 import SwiftUI
 
-/// Strict 8 MiB decoded-image LRU, released with the authenticated session.
-/// Key includes server, absolute asset path, mtime and derivative tier. No originals fetched.
+/// Strict 8 MiB LRU of decoded images and the thumbnail bytes they were decoded from, released
+/// with the authenticated session. Keeping the bytes lets the photo tier reuse the row tier's
+/// download. Keys include server, absolute asset path and mtime. No originals fetched.
 actor WatchImageStore {
   enum Tier: String {
     case row, photo
     var pixels: Int { self == .row ? 128 : 512 }
   }
 
+  private enum Payload {
+    case image(CGImage)
+    case thumbBytes(Data)
+  }
+
   private struct Entry {
-    let image: CGImage
+    let payload: Payload
     let cost: Int
   }
   private let server: URL
@@ -65,42 +71,67 @@ actor WatchImageStore {
     guard active else { throw CancellationError() }
     let key = cacheKey(for: asset, tier: tier)
     if let hit = cachedImage(forKey: key) { return hit }
-    let image = try await fetchImage(for: asset, tier: tier)
+    let image = try await fetchImage(for: asset, tier: tier, generation: current)
     try Task.checkCancellation()
     guard current == generation else { throw CancellationError() }
     guard active else { throw CancellationError() }
-    let imageCost = image.bytesPerRow * image.height
+    insert(.image(image), cost: image.bytesPerRow * image.height, forKey: key)
+    return image
+  }
+
+  private func insert(_ payload: Payload, cost entryCost: Int, forKey key: String) {
     if let prior = entries.removeValue(forKey: key) { cost -= prior.cost }
     order.removeAll { $0 == key }
-    while cost + imageCost > budget, let oldest = order.first {
+    while cost + entryCost > budget, let oldest = order.first {
       order.removeFirst()
       if let removed = entries.removeValue(forKey: oldest) { cost -= removed.cost }
     }
-    if imageCost <= budget {
-      entries[key] = Entry(image: image, cost: imageCost)
+    if entryCost <= budget {
+      entries[key] = Entry(payload: payload, cost: entryCost)
       order.append(key)
-      cost += imageCost
+      cost += entryCost
     }
-    return image
   }
 
   private func cacheKey(for asset: SearchAsset, tier: Tier) -> String {
     "\(server.absoluteString)|\(asset.abs_path)|\(asset.mtime ?? 0)|thumb-\(tier.rawValue)"
   }
 
-  private func cachedImage(forKey key: String) -> CGImage? {
+  private func thumbBytesKey(for asset: SearchAsset) -> String {
+    "\(server.absoluteString)|\(asset.abs_path)|\(asset.mtime ?? 0)|\(asset.thumb_version ?? "")|thumb-bytes"
+  }
+
+  private func cachedEntry(forKey key: String) -> Payload? {
     guard let entry = entries[key] else { return nil }
     order.removeAll { $0 == key }
     order.append(key)
-    return entry.image
+    return entry.payload
   }
 
-  private func fetchImage(for asset: SearchAsset, tier: Tier) async throws -> CGImage {
+  private func cachedImage(forKey key: String) -> CGImage? {
+    guard case .image(let image) = cachedEntry(forKey: key) else { return nil }
+    return image
+  }
+
+  private func cachedThumbBytes(forKey key: String) -> Data? {
+    guard case .thumbBytes(let data) = cachedEntry(forKey: key) else { return nil }
+    return data
+  }
+
+  private func fetchImage(for asset: SearchAsset, tier: Tier, generation current: Int) async throws
+    -> CGImage
+  {
+    let bytesKey = thumbBytesKey(for: asset)
+    if let kept = cachedThumbBytes(forKey: bytesKey), let image = try? decode(kept, tier: tier) {
+      return image
+    }
     do {
       let data = try await client.thumb(absPath: asset.abs_path, version: asset.thumb_version)
       try Task.checkCancellation()
       guard active else { throw CancellationError() }
-      return try decode(data, tier: tier)
+      let image = try decode(data, tier: tier)
+      if current == generation { insert(.thumbBytes(data), cost: data.count, forKey: bytesKey) }
+      return image
     } catch {
       try Task.checkCancellation()
       guard active else { throw CancellationError() }
