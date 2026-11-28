@@ -178,19 +178,19 @@ final class ThumbnailLoaderSourceFetchTests: XCTestCase {
     XCTAssertEqual(count, 0, "a timed-out thumbnail must not fall back to the full original")
   }
 
-  func testServerErrorStillFallsBackToTheOriginal() async {
+  func testServerWithNoThumbnailStillFallsBackToTheOriginal() async {
     let downloads = DownloadCounter()
     let (asset, stableID) = makeAsset(bytesProvider: {
       await downloads.record()
       throw URLError(.timedOut)
     })
     defer { removeSourcelessThumbCacheFile(forKey: stableID) }
-    let serverError = NSError(domain: "CloudSource", code: 503)
 
-    _ = await ThumbnailLoader().load(for: asset, from: FailingSource(failure: serverError))
+    _ = await ThumbnailLoader().load(for: asset, from: EmptySource())
 
     let count = await downloads.count
-    XCTAssertEqual(count, 1, "a server that answered it cannot render still gets the local fallback")
+    XCTAssertEqual(
+      count, 1, "a server that answered it has no thumbnail still gets the local fallback")
   }
 
   func testTransientClassification() {
@@ -199,6 +199,12 @@ final class ThumbnailLoaderSourceFetchTests: XCTestCase {
     XCTAssertTrue(
       ThumbnailLoader.isTransientSourceFailure(
         AuthenticatedHTTPClient.AuthenticationError.temporarilyUnavailable))
-    XCTAssertFalse(ThumbnailLoader.isTransientSourceFailure(NSError(domain: "CloudSource", code: 500)))
+    for status in [202, 503, 524] {
+      XCTAssertTrue(
+        ThumbnailLoader.isTransientSourceFailure(NSError(domain: "CloudSource", code: status)))
+    }
+    XCTAssertFalse(
+      ThumbnailLoader.isTransientSourceFailure(NSError(domain: "CloudSource", code: 422)))
+    XCTAssertFalse(ThumbnailLoader.isTransientSourceFailure(NSError(domain: "Other", code: 503)))
   }
 }

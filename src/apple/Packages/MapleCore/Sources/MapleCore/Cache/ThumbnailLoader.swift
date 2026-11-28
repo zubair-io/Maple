@@ -53,6 +53,9 @@ public actor ThumbnailLoader {
   let gridDevelopLane = BoundedAsyncSemaphore(value: 1)
   let interactiveDevelopLane = BoundedAsyncSemaphore(value: 1)
   var slotlessProducers: Set<UUID> = []
+  /// Sourceless originals whose download decoded to nothing: a retry asks the
+  /// server again but never downloads them a second time.
+  var unrenderableSourcelessKeys: Set<String> = []
 
   /// Cap on concurrent fetches from a source whose thumbnails are
   /// latency-bound network reads (`ImageSource.thumbnailsAreLatencyBound`,

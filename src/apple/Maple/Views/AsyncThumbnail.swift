@@ -63,7 +63,9 @@ struct AsyncThumbnail<Content: View>: View {
     // `body`. Keyed on the asset id plus its saved-image revision. No arrival
     // fade: it hitches scroll the same way it does in the grid. An empty
     // answer is retried while the cell stays on screen (#5735).
-    let image = await ThumbnailRetry.load { () async -> CGImage? in
+    let image = await ThumbnailRetry.load(
+      delays: ThumbnailRetry.schedule(for: capturedAsset, from: capturedSource)
+    ) { () async -> CGImage? in
       let bytes = await ThumbnailLoader.shared.load(for: capturedAsset, from: capturedSource)
       guard !Task.isCancelled else { return nil }
       return await ThumbnailDecoder.image(for: bytes, key: key)
