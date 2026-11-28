@@ -2,12 +2,25 @@ package app.justmaple.aperture
 
 import android.net.Uri
 import android.os.Bundle
+import android.os.SystemClock
 import android.provider.DocumentsContract
 import androidx.test.platform.app.InstrumentationRegistry
 import app.justmaple.aperture.data.PhotoLibrary
 import java.io.Closeable
+import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withTimeout
+
+/** Real time plus a jump, so a test can outlast the one-second folder listing a library shares without sleeping. */
+internal class ListingClock {
+    private val jump = AtomicLong()
+
+    fun now() = SystemClock.elapsedRealtime() + jump.get()
+
+    fun outlastSharedListings() {
+        jump.addAndGet(2_000)
+    }
+}
 
 /** Real files behind the debug-only provider's ordinary tree grant. */
 internal class CacheProviderFixture : Closeable {
@@ -20,12 +33,16 @@ internal class CacheProviderFixture : Closeable {
             DocumentsContract.buildTreeDocumentUri(authority, "root"),
             "root",
         )
-    val library = PhotoLibrary(context)
+    private val listings = ListingClock()
+    val library = PhotoLibrary(context, listings::now)
     val original = asset("portrait.dng")
 
     init {
         call("cache-test-setup", Bundle().apply { putByteArray("original", original) })
     }
+
+    /** Another app wrote to the folder: this library sees it once the listing it shares has expired. */
+    fun outlastSharedListings() = listings.outlastSharedListings()
 
     fun asset(name: String) = instrumentation.context.assets.open(name).use { it.readBytes() }
 

@@ -122,7 +122,8 @@ class SharedFolderCacheTest {
             // A folder written before #4793 holds the frozen versioned name; it must be adopted.
             write(thumbs, legacyThumbName, "image/avif", sharedBytes)
             write(previews, previewName, "image/avif", sharedBytes)
-            val library = PhotoLibrary(context)
+            val listings = ListingClock()
+            val library = PhotoLibrary(context, listings::now)
             val photo = library.list(root).photos.single()
             val staged = File(context.cacheDir, "originals/${PhotoLibrary.digest(photo.key)}.dng")
             assertFalse(staged.exists())
@@ -161,6 +162,7 @@ class SharedFolderCacheTest {
                     XmpDocument().withAttribute("crs:Exposure2012", "1.5").serialize().toByteArray()
                 )
             }
+            listings.outlastSharedListings()
             assertFalse(editedThumb.contentEquals(bytes(library, photo, 512)))
             val currentThumb = find(thumbs, thumbName)!!
             resolver.openOutputStream(currentThumb, "wt")!!.use { it.write(byteArrayOf(1, 2, 3)) }
@@ -254,6 +256,7 @@ class SharedFolderCacheTest {
                 "photo.xmp",
                 XmpDocument().withAttribute("crs:Exposure2012", "1").serialize().toByteArray(),
             )
+            fixture.outlastSharedListings()
             fixture.mode("readOnly")
             assertFalse(sharedBytes.contentEquals(bytes(fixture.library, photo, 512)))
             assertArrayEquals(sharedBytes, fixture.read(shared))

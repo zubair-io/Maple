@@ -123,6 +123,7 @@ class SharedCacheProviderTest {
                 fixture.resolver.openOutputStream(declaration, "wt")!!.use {
                     it.write(descriptor.toString().toByteArray())
                 }
+                fixture.outlastSharedListings()
                 val regenerated = bytes(fixture.library, photo, 2048)
                 assertFalse(encoded.readBytes().contentEquals(regenerated))
                 assertFalse(fixture.asset("srgb-rgb.avif").contentEquals(regenerated))
@@ -141,6 +142,7 @@ class SharedCacheProviderTest {
                         .toString()
                         .toByteArray(),
                 )
+                fixture.outlastSharedListings()
                 val repaired = bytes(fixture.library, photo, 2048)
                 assertFalse(fixture.asset("srgb-rgb.avif").contentEquals(repaired))
                 assertArrayEquals(repaired, fixture.read(fixture.find(previews, "$stem.avif")!!))
@@ -306,6 +308,7 @@ class SharedCacheProviderTest {
                 "photo.xmp",
                 XmpDocument().withAttribute("crs:Exposure2012", "0.25").serialize().toByteArray(),
             )
+            fixture.outlastSharedListings()
             fixture.mode("pausePublication")
             val read = async(Dispatchers.IO) { bytes(fixture.library, photo, 512) }
             val finalXml =
