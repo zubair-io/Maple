@@ -194,7 +194,7 @@ public final class LocalNetworkResolver {
   typealias Sleeper = @Sendable (Duration) async throws -> Void
 
   public static let shared = LocalNetworkResolver(
-    pathChanges: { LocalNetworkPath.changes() },
+    pathChanges: AppActivity.trackedPathChanges,
     activityChanges: AppActivity.trackedChanges,
     initiallyActive: AppActivity.initiallyActive)
 
@@ -254,6 +254,7 @@ public final class LocalNetworkResolver {
     self.pathDebounce = pathDebounce
     self.probeBound = probeBound
     self.sleeper = sleeper
+    observeActivity()
   }
 
   /// The best known URL to use for `identity` — the resolved LAN address if
@@ -360,17 +361,19 @@ public final class LocalNetworkResolver {
   }
 
   private func observeIfNeeded() {
-    if pathObserver == nil, let pathChanges {
-      let changes = pathChanges()
-      pathObserver = Task {
-        for await _ in changes { networkPathChanged() }
-      }
+    guard pathObserver == nil, let pathChanges else { return }
+    let changes = pathChanges()
+    pathObserver = Task {
+      for await _ in changes { networkPathChanged() }
     }
-    if activityObserver == nil, let activityChanges {
-      let changes = activityChanges()
-      activityObserver = Task {
-        for await isActive in changes { appActivityChanged(isActive) }
-      }
+  }
+
+  // From creation: an activation posted before the first resolve() would leave a cold launch inactive.
+  private func observeActivity() {
+    guard let activityChanges else { return }
+    let changes = activityChanges()
+    activityObserver = Task { [weak self] in
+      for await isActive in changes { self?.appActivityChanged(isActive) }
     }
   }
 

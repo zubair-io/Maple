@@ -318,7 +318,21 @@ final class LocalNetworkReprobeTests: XCTestCase {
     await rig.status.releaseEverything(with: lan)
   }
 
-  func test_anExtensionStyleResolverNeverReprobes() async {
+  func test_activityIsObservedFromCreationNotFromTheFirstResolve() {
+    let subscribed = LockedValue(false)
+    let (activity, _) = AsyncStream<Bool>.makeStream()
+    let resolver = LocalNetworkResolver(
+      pathChanges: nil,
+      activityChanges: {
+        subscribed.value = true
+        return activity
+      },
+      initiallyActive: false)
+    XCTAssertTrue(subscribed.value)
+    withExtendedLifetime(resolver) {}
+  }
+
+  func test_anInactiveResolverWithNoActivitySignalNeverReprobes() async {
     let rig = makeRig(initiallyActive: false, notifications: false)
     await settle(rig, resolving: identity, call: 1, to: identity)
     rig.paths.yield()

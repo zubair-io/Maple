@@ -10,7 +10,7 @@ import Foundation
 // which have no shared application object.
 enum AppActivity {
   static var initiallyActive: Bool {
-    guard !isExtension(bundlePath: Bundle.main.bundlePath) else { return false }
+    guard !isExtensionProcess else { return false }
     #if canImport(UIKit) && !os(watchOS) && !os(macOS)
       // A background launch (a backup task) has no activation notification until the user opens the app.
       return Thread.isMainThread
@@ -20,8 +20,15 @@ enum AppActivity {
     #endif
   }
 
+  static var isExtensionProcess: Bool { isExtension(bundlePath: Bundle.main.bundlePath) }
+
   static func isExtension(bundlePath: String) -> Bool {
     bundlePath.hasSuffix(".appex")
+  }
+
+  static var trackedPathChanges: (@Sendable () -> AsyncStream<Void>)? {
+    guard !isExtensionProcess else { return nil }
+    return { LocalNetworkPath.changes() }
   }
 
   // macOS stays active: a Mac whose app is not frontmost is still on its
@@ -30,7 +37,7 @@ enum AppActivity {
     #if os(macOS)
       return nil
     #else
-      guard initiallyActive else { return nil }
+      guard !isExtensionProcess else { return nil }
       return { changes() }
     #endif
   }
